@@ -80,7 +80,7 @@ jobs:
       # GitHub Advanced Security. Al hacerse público se habilita solo.
       - name: Subir resultado SARIF a GitHub Security
         if: github.event.repository.private == false
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ runner.temp }}/gosec-results
           category: gosec-go

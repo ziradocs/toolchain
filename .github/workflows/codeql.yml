@@ -48,7 +48,7 @@ jobs:
       # del autodiscovery de un monorepo sin go.work. Un solo job comparte
       # checkout/setup y produce una sola base/categoría de análisis.
       - name: Inicializar CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: go
           build-mode: manual
@@ -66,6 +66,6 @@ jobs:
           done
 
       - name: Analizar
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: codeql-go
