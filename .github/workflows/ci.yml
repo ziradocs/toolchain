@@ -82,7 +82,7 @@ jobs:
       # de tracking creado). golangci-lint-action@v6 NO soporta golangci-lint
       # v2 (falla explícitamente con "you must update to golangci-lint-action
       # v7") — confirmado en CI, no es un detalle menor.
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           working-directory: ${{ matrix.module }}
