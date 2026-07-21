@@ -1,0 +1,82 @@
+name: Chromium pin freshness
+
+# Issue #76: el pin de Chromium (chromiumVersion en
+# core/renderer/chromium/chromium_installer.go, ver ME-1 en
+# docs/SECURITY_AUDIT_2026-07.md) se actualiza a mano — antes de fijarlo
+# había quedado ~20 meses desactualizado con CVEs conocidos en circulación.
+# Este workflow compara semanalmente el pin committeado contra la versión
+# Stable actual de Chrome for Testing y abre un issue si divergen, en vez de
+# depender de que alguien se acuerde de revisarlo.
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comparar pin vs. Chrome for Testing Stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          pinned=$(grep -oE 'chromiumVersion = "[0-9.]+"' \
+            core/renderer/chromium/chromium_installer.go | grep -oE '[0-9.]+')
+          echo "Versión pineada: $pinned"
+
+          # $stable sale de un JSON externo (primera parte, Google) — se filtra
+          # con el mismo patrón [0-9.]+ que $pinned antes de usarse en ningún
+          # lado, en vez de confiar en que el campo del JSON siempre viene limpio.
+          stable_raw=$(curl -sf https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["channels"]["Stable"]["version"])')
+          stable=$(echo "$stable_raw" | grep -oE '^[0-9.]+$') || {
+            echo "::error::La versión Stable de chrome-for-testing no tiene el formato esperado: '$stable_raw'"
+            exit 1
+          }
+          echo "Versión Stable actual: $stable"
+
+          if [ "$pinned" = "$stable" ]; then
+            echo "Pin al día, nada que hacer."
+            exit 0
+          fi
+
+          # Dedupe por label, no por título: el título incluye la versión Stable
+          # del momento, así que compararlo contra runs anteriores nunca hace
+          # match una vez que Chrome vuelve a publicar una Stable más nueva
+          # mientras el pin sigue desactualizado — cualquier issue abierto con
+          # este label YA representa "hay un drift pendiente", sin importar qué
+          # versión lo disparó. Sin `|| true`: si gh falla acá (auth/API), el
+          # job debe fallar ruidosamente, no asumir en silencio "no hay issue".
+          existing_count=$(gh issue list --state open --label chromium-pin-drift --json number --jq 'length')
+          if [ "$existing_count" -gt 0 ]; then
+            echo "Ya existe un issue abierto para el pin de Chromium, no se crea otro."
+            exit 0
+          fi
+
+          # --force: crea el label si no existe, o lo deja igual si ya existe
+          # (idempotente) — gh issue create no crea labels automáticamente.
+          gh label create chromium-pin-drift \
+            --color "B60205" \
+            --description "El pin de Chromium quedó detrás de la versión Stable de Chrome for Testing" \
+            --force
+
+          gh issue create \
+            --title "[chromium-pin] Drift detectado: pineado $pinned, Stable actual $stable" \
+            --label chromium-pin-drift \
+            --body "Chrome for Testing publicó Stable **$stable**; el pin actual en \`core/renderer/chromium/chromium_installer.go\` (\`chromiumVersion\`) sigue en **$pinned**.
+
+          Para actualizar (ver el comentario doc sobre \`chromiumVersion\` en el mismo archivo):
+          1. Para cada plataforma soportada (mac-arm64, mac-x64, linux64, win64), descargar el zip de Chrome for Testing y calcular su SHA-256.
+          2. Actualizar \`chromiumVersion\` y las 4 entradas de \`chromiumSHA256\` **en el mismo commit**.
+          3. \`go test ./renderer/... -run TestChromiumPin\` valida la forma del pin nuevo (no la frescura — eso es este workflow).
+
+          Issue abierto automáticamente por \`.github/workflows/chromium-pin-check.yml\` (#76)."

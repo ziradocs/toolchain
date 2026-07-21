@@ -1,0 +1,113 @@
+/* Bloques de código - Ajustados al espacio del slide */
+.slidelang-element.slidelang-code {
+    background: var(--bg-code, #2d3748);
+    color: var(--text-on-dark, #e2e8f0);
+    border-radius: var(--border-radius, 8px);
+    border-left: 4px solid var(--primary-color, #4299e1);
+    margin: 1.5rem 0;
+    position: relative;
+    box-shadow: none;
+    border: none;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: visible;
+    /* Limitar altura máxima para evitar desbordar el slide */
+    max-height: calc(100vh - 12rem); /* Dejar espacio para título y márgenes */
+}
+
+/* Etiqueta de lenguaje */
+.slidelang-element.slidelang-code .slidelang-language {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary-color, #2563eb);
+    color: var(--text-on-primary, #ffffff);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--border-radius-sm, 4px);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    position: absolute;
+    top: 0.5rem;
+    right: 3rem;
+    z-index: 2;
+    letter-spacing: 0.5px;
+    height: 2rem;
+    min-width: 2.5rem;
+    box-sizing: border-box;
+    font-family: var(--font-main, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+    transition: var(--transition, all 0.2s ease);
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+/* El elemento pre es el que maneja el scroll y el contenido */
+.slidelang-element.slidelang-code pre {
+    margin: 0;
+    padding: 1.5rem;
+    white-space: pre;
+    overflow-x: auto;
+    overflow-y: auto;
+    /* Altura máxima más conservadora para evitar scroll del slide */
+    max-height: calc(60vh - 4rem); /* Reducido de 70vh */
+    background: var(--bg-code, #2d3748);
+    color: var(--text-on-dark, #e2e8f0);
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--font-code, 'Monaco', 'Menlo', 'Ubuntu Mono', monospace);
+    font-size: 0.9rem; /* Reducir ligeramente el tamaño de fuente */
+    line-height: 1.4; /* Reducir interlineado para más contenido */
+    width: 100%;
+    box-sizing: border-box;
+    display: block;
+    min-width: 0;
+    border-radius: var(--border-radius, 8px);
+}
+
+/* Ajuste de padding cuando hay language label */
+.slidelang-element.slidelang-code:has(.slidelang-language) pre {
+    padding-top: 2.5rem;
+    /* Ajustar altura cuando hay etiqueta */
+    max-height: calc(60vh - 5.5rem);
+}
+
+/* El elemento code dentro de pre */
+.slidelang-element.slidelang-code code {
+    font-family: inherit;
+    font-size: inherit;
+    background: none;
+    color: inherit;
+    padding: 0;
+    margin: 0;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    display: inline-block; /* Cambiar de block a inline-block */
+    white-space: pre;
+    overflow: visible;
+    min-height: 1.5em;
+    /* No forzar width */
+    width: auto;
+    box-sizing: border-box;
+}
+
+/* Scrollbar personalizado */
+.slidelang-element.slidelang-code pre::-webkit-scrollbar {
+    height: 10px;
+    width: 10px;
+}
+
+.slidelang-element.slidelang-code pre::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+}
+
+.slidelang-element.slidelang-code pre::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+}
+
+.slidelang-element.slidelang-code pre::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}

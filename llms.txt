@@ -1,0 +1,50 @@
+# ZiraDocs & DocLang
+
+> ZiraDocs (`.slidelang`) is a DSL for presentations (HTML/PDF); DocLang
+> (`.doclang`) is a sibling DSL for documents (HTML/PDF/DOCX/Markdown).
+> Both parse and render through one shared core library. This file is a
+> machine-readable entry point (per the llmstxt.org convention) for any
+> LLM or agent that needs to read, write, or validate either format.
+
+Links below point at the `ziradocs/toolchain` GitHub repository (stable today).
+If `ziradocs.com` later mirrors these under its own paths, this file
+should be updated to point there instead — do not assume a
+`ziradocs.com/...` path exists before it has been deployed.
+
+## Start here for generating valid source
+
+- [LLM Kit](https://github.com/ziradocs/toolchain/blob/main/llm-kit/README.md): calibrated system prompts, syntax reference, and a validation checklist mapped to the actual linter rules — the fastest path to emitting valid ZiraDocs/DocLang from any model.
+- [LLM Kit — main system prompt](https://github.com/ziradocs/toolchain/blob/main/llm-kit/system-prompt.md)
+- [LLM Kit — validation checklist](https://github.com/ziradocs/toolchain/blob/main/llm-kit/validation-checklist.md): every linter diagnostic code, mapped to a checklist item.
+
+## Formal specification
+
+- [ZiraDocs/DocLang language specification](https://github.com/ziradocs/toolchain/blob/main/core/spec/language-specification.md): the formal DSL spec (tracks the AST schema version).
+- [JSON/AST contract](https://github.com/ziradocs/toolchain/blob/main/docs/architecture/json-ast-contract.md): the versioned AST JSON Schema that both CLIs and the `@ziradocs/ast-types` npm package derive from.
+
+## ZiraDocs reference
+
+- [Syntax overview](https://github.com/ziradocs/toolchain/blob/main/docs/user/language-reference/syntax-overview.md)
+- [Strict mode](https://github.com/ziradocs/toolchain/blob/main/docs/user/language-reference/strict-mode.md)
+- [Flex mode](https://github.com/ziradocs/toolchain/blob/main/docs/user/language-reference/flex-mode.md)
+- [Frontmatter](https://github.com/ziradocs/toolchain/blob/main/docs/user/language-reference/frontmatter.md)
+- [Special blocks](https://github.com/ziradocs/toolchain/blob/main/docs/user/language-reference/special-blocks.md)
+- [Advanced elements](https://github.com/ziradocs/toolchain/blob/main/docs/user/language-reference/advanced-elements.md)
+
+## DocLang reference
+
+- [DocLang flex syntax](https://github.com/ziradocs/toolchain/blob/main/docs/doclang/DOCLANG_SYNTAX_FLEX.md): DocLang's only mode — there is no implemented strict mode, despite a `DOCLANG_SYNTAX_STRICT.md` document existing in the repo describing an aspirational one.
+- [DocLang frontmatter](https://github.com/ziradocs/toolchain/blob/main/docs/doclang/DOCLANG_FRONTMATTER.md)
+
+## Examples
+
+- [Example gallery](https://github.com/ziradocs/toolchain/tree/main/examples/gallery): 15 curated, lint-clean examples covering both formats, all validity targets, and every major element type.
+
+## Tools
+
+- MCP servers (`slidelang mcp`, `doclang mcp`): each exposes `lint`, `get_ast`, `list_themes`, `preview` tools for programmatic validation — see [`slidelang/internal/mcp`](https://github.com/ziradocs/toolchain/tree/main/slidelang/internal/mcp) and [`doclang/internal/mcp`](https://github.com/ziradocs/toolchain/tree/main/doclang/internal/mcp). Both CLIs also have `build --lint-only`. DocLang's `lint` tool applies the document's `lint_policy:` frontmatter / `--lint-config` policy; ZiraDocs's tool does not (its CLI does).
+- [`@ziradocs/ast-types`](https://github.com/ziradocs/toolchain/tree/main/ast-types): generated TypeScript types for the shared AST.
+
+## Optional
+
+- [Full docs (concatenated)](https://github.com/ziradocs/toolchain/tree/main/docs): browse `docs/user/`, `docs/doclang/`, and `docs/architecture/` for everything not linked above. Root-level `*.md` files (session summaries, historical implementation notes) are **not** authoritative — prefer `docs/` and the links in this file.

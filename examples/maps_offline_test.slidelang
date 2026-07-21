@@ -1,0 +1,73 @@
+---
+title: Maps Offline Rendering Test
+theme: professional
+---
+
+= Maps Offline Test
+
+Testing Leaflet Maps rendering in all 3 modes.
+
+---
+
+== World Map - Multiple Markers
+
+<<map type="world" zoom="2">>
+marker: 40.7128, -74.0060, "New York", "Office HQ", "blue"
+marker: 51.5074, -0.1278, "London", "EU Office", "red"
+marker: 35.6762, 139.6503, "Tokyo", "Asia Office", "green"
+marker: -33.8688, 151.2093, "Sydney", "APAC Office", "orange"
+<</map>>
+
+---
+
+== City Map - Detailed View
+
+<<map type="city" zoom="12">>
+marker: 37.7749, -122.4194, "San Francisco", "Main Office", "blue"
+marker: 37.7849, -122.4094, "North Office", "Branch", "green"
+marker: 37.7649, -122.4294, "South Office", "Branch", "green"
+<</map>>
+
+---
+
+== Region Map - Country View
+
+<<map type="region" zoom="5">>
+marker: 40.4168, -3.7038, "Madrid", "Spain HQ", "red"
+marker: 41.3851, 2.1734, "Barcelona", "Innovation Lab", "blue"
+marker: 39.4699, -0.3763, "Valencia", "Tech Center", "green"
+<</map>>
+
+---
+
+== Testing Instructions
+
+**Browser mode** (default - uses CDN):
+```
+doclang build maps_offline_test.slidelang --render-mode=browser
+```
+
+**Offline assets** (PNG files saved to assets/):
+```
+doclang build maps_offline_test.slidelang --render-mode=offline-assets
+```
+
+**Offline inline** (Base64 embedded):
+```
+doclang build maps_offline_test.slidelang --render-mode=offline-inline
+```
+
+---
+
+== Expected Results
+
+- **Browser mode**: Interactive Leaflet maps with zoom/pan
+- **Offline assets**: Static PNG images in `output/maps_offline_test.html/assets/`
+- **Offline inline**: Static PNG images embedded as Base64
+
+All modes should show:
+- Correct map tiles (world/city/region)
+- All markers visible
+- Labels readable
+- Proper zoom levels
+- Correct colors (blue/red/green/orange)

@@ -1,0 +1,82 @@
+---
+mode: flex
+title: "Maps and Geodata"
+author: "ZiraDocs Team"
+theme: "modern-blue"
+---
+
+# Maps and Geodata
+## World and regional maps, no mapping account required
+
+Map markers are plain YAML — coordinates, labels, and values. By default,
+maps render client-side with Leaflet; with `--render-mode offline-assets`
+or `offline-inline`, ZiraDocs rasterizes them at build time, trying a
+native Go renderer before falling back to headless Chromium.
+
+---
+
+## World Map
+
+### Global User Distribution
+
+<<map>>
+  type: world
+  markers:
+    - lat: 40.7128
+      lng: -74.0060
+      label: "New York"
+      value: 4200
+      color: "#2196F3"
+    - lat: 51.5074
+      lng: -0.1278
+      label: "London"
+      value: 3100
+      color: "#4CAF50"
+    - lat: 35.6762
+      lng: 139.6503
+      label: "Tokyo"
+      value: 2600
+      color: "#FF9800"
+    - lat: -33.8688
+      lng: 151.2093
+      label: "Sydney"
+      value: 1400
+      color: "#E91E63"
+  heatmap: true
+  zoom: 2
+
+---
+
+## Regional Map
+
+### Office Locations, United States
+
+<<map>>
+  type: region
+  center: [39.8283, -98.5795]
+  markers:
+    - lat: 37.7749
+      lng: -122.4194
+      label: "San Francisco HQ"
+      value: 220
+      color: "#2196F3"
+    - lat: 41.8781
+      lng: -87.6298
+      label: "Chicago Office"
+      value: 95
+      color: "#4CAF50"
+    - lat: 30.2672
+      lng: -97.7431
+      label: "Austin Office"
+      value: 140
+      color: "#FF9800"
+  zoom: 4
+
+---
+
+## Wrap-Up
+
+::: info
+Both `world` and `region` map types accept the same marker schema —
+`lat`, `lng`, `label`, `value`, and an optional `color`.
+:::

@@ -1,0 +1,108 @@
+/* === RESPONSIVE STYLES === */
+/* Responsive breakpoints */
+@media (max-width: 768px) {
+    .slidelang-slide {
+        width: 95vw;
+        height: 85vh;
+        padding: 30px;
+    }
+    
+    .slidelang-slide.slidelang-title-slide h1 {
+        font-size: 2.5rem;
+    }
+    
+    .slidelang-slide.slidelang-content-slide h1 {
+        font-size: 2rem;
+    }
+    
+    .slidelang-element.slidelang-text {
+        font-size: 1.1rem;
+    }
+    
+    .slidelang-element.slidelang-points li {
+        font-size: 1rem;
+        padding-left: 1.5rem;
+    }
+    
+    .slidelang-element.slidelang-table {
+        font-size: 0.9rem;
+    }
+    
+    .slidelang-element.slidelang-table th,
+    .slidelang-element.slidelang-table td {
+        padding: 0.5rem;
+    }
+    
+    /* Title slide container responsive styles */
+    .slidelang-title-slide-container .slidelang-main-title {
+        font-size: 2.5rem;
+    }
+    
+    .slidelang-title-slide-container .slidelang-subtitle {
+        font-size: 1.4rem;
+    }
+    
+    .slidelang-title-slide-container .slidelang-logo-image .slidelang-title-logo {
+        max-width: 200px;
+        max-height: 150px;
+    }
+    
+    .slidelang-title-slide-container .slidelang-tagline-section {
+        max-width: 95%;
+    }
+}
+
+@media (max-width: 480px) {
+    .slidelang-slide {
+        width: 98vw;
+        height: 90vh;
+        padding: 20px;
+    }
+    
+    .slidelang-slide.slidelang-title-slide h1 {
+        font-size: 2rem;
+    }
+    
+    .slidelang-slide.slidelang-title-slide h2 {
+        font-size: 1.3rem;
+    }
+    
+    .slidelang-slide.slidelang-content-slide h1 {
+        font-size: 1.5rem;
+    }
+    
+    .slidelang-element.slidelang-text {
+        font-size: 1rem;
+    }
+    
+    .slidelang-cards-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .slidelang-element.slidelang-image-gallery {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media print {
+    /* El container es flex en pantalla (una fila, un solo slide visible a la
+       vez); un flex container no fragmenta de forma confiable entre sus
+       items al imprimir (soporte de page-break-after/break-after dentro de
+       flexbox es inconsistente entre motores) - sin este reset, los N
+       slides (ya todos display:block por la regla de abajo) se compactan
+       como columnas de una sola fila en vez de apilarse uno por página
+       (issue #128). */
+    .slidelang-presentation-container {
+        display: block !important;
+    }
+
+    .slidelang-slide {
+        width: auto;
+        height: auto;
+        box-shadow: none;
+        page-break-after: always;
+        display: block !important;
+    }
+
+    /* Navigation print rules are handled in navigation.css */
+}

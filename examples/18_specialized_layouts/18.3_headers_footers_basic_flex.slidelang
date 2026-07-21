@@ -1,0 +1,136 @@
+---
+mode: flex
+title: "Basic Example - Headers and Footers"
+author: "slidelang Team"
+company: "slidelang Inc."
+date: "December 27, 2024"
+theme: "corporate"
+
+# Basic configuration - Page numbers only
+header:
+  enabled: false
+
+footer:
+  enabled: true
+  page_numbers:
+    enabled: true
+    format: "{{current}} / {{total}}"
+    position: "right"
+    exclude_title_slides: true
+    start_from: 2
+    style: "caption"
+  text:
+    left: ""
+    center: ""
+    right: ""
+
+# Per-layout configuration
+layout_defaults:
+  title:
+    footer:
+      enabled: false  # No footer on the cover slide
+  closing:
+    footer:
+      page_numbers:
+        enabled: false  # No numbers on the final slide
+---
+
+---
+layout: title
+---
+
+# Basic Example
+## Headers and Footers with slidelang
+
+![slidelang Logo](assets/slidelang-logo.png)
+
+**Simple Configuration**  
+*Page numbers only - No headers*
+
+---
+layout: section
+---
+
+# Section 1: Basic Content
+## Demonstrating automatic numbering
+
+This section shows what slides look like with a basic footer configuration that only includes page numbers.
+
+---
+layout: content
+---
+
+# Normal Content Slide
+
+This slide shows the basic configuration:
+- Header: **Disabled**
+- Footer: **Page numbers only**
+- Position: **Right**
+- Format: **"2 / 8"**
+
+Numbering started on slide 2 (excluding the cover) and will appear on all slides except the closing one.
+
+---
+layout: stats
+---
+
+# Project Metrics
+
+| Configuration | Status | Result |
+|---------------|--------|-----------|
+| Header | Disabled | ✅ Clean |
+| Footer | Numbers only | ✅ Minimalist |
+| Space | Maximum for content | ✅ Optimized |
+
+::: success
+**Ideal for:** Simple presentations, internal reports, technical documentation
+:::
+
+---
+layout: comparison
+---
+
+# With vs Without Page Numbers
+
+::: info
+**Without Numbers**
+- Completely clean design
+- No progress reference
+- Difficult navigation in PDFs
+- Better for short presentations
+:::
+
+::: success
+**With Numbers** ⭐ **Recommended**
+- Clear progress reference
+- Easy navigation
+- Professional and standard
+- Non-intrusive placement
+:::
+
+---
+layout: call_to_action
+---
+
+# Do You Like This Configuration?
+## Simple, clean, and effective
+
+[View Advanced Example](#advanced){.btn-primary}  
+[Customize Configuration](#customize){.btn-secondary}
+
+**Advantages of the basic configuration:**
+- Minimal setup required
+- Maximum space for content
+- Professional appearance
+
+---
+layout: closing
+---
+
+# Basic Configuration Ready!
+## Next: Advanced examples
+
+📧 examples@slidelang.com  
+📖 docs.slidelang.com
+
+*No page numbers on title and closing slides*

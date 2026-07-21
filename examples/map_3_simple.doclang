@@ -1,0 +1,24 @@
+---
+title: "Test 3 Mapas"
+---
+
+# Test 1
+
+<<map type="city" zoom="12">>
+center: 37.7749, -122.4194
+marker: 37.7749, -122.4194, "Location A", "Test 1", "blue"
+<</map>>
+
+# Test 2
+
+<<map type="city" zoom="11">>
+center: 40.7128, -74.0060
+marker: 40.7128, -74.0060, "Location B", "Test 2", "red"
+<</map>>
+
+# Test 3
+
+<<map type="city" zoom="10">>
+center: 51.5074, -0.1278
+marker: 51.5074, -0.1278, "Location C", "Test 3", "green"
+<</map>>

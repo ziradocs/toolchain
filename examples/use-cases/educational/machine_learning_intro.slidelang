@@ -1,0 +1,273 @@
+---
+mode: flex
+title: "Introduction to Machine Learning"
+author: "Dr. Sarah Chen, Stanford University"
+date: "2025-01-15"
+variables:
+  university: "Stanford University"
+  course: "CS229 Machine Learning"
+  semester: "Spring 2025"
+  duration: "3 hours"
+  students: "285"
+---
+
+# Introduction to Machine Learning
+## {{course}} - Lecture 1
+### {{university}} | {{semester}} | Dr. Sarah Chen
+
+---
+
+# Welcome to {{course}}
+
+<<poll>>
+question: "What's your programming experience level?"
+options:
+  - "Beginner - Limited coding experience"
+  - "Intermediate - Comfortable with Python"
+  - "Advanced - Strong programming background"
+  - "Expert - Professional developer"
+multiple: false
+<</poll>>
+
+**{{students}} students** enrolled this semester
+
+---
+layout: section
+---
+# What is Machine Learning?
+*Understanding the fundamental concepts*
+
+---
+
+# Traditional Programming vs ML
+
+<<mermaid>>
+graph LR
+    subgraph "Traditional Programming"
+        A[Input Data] --> B[Program]
+        B --> C[Output]
+    end
+    
+    subgraph "Machine Learning"
+        D[Input Data] --> E[ML Algorithm]
+        F[Expected Output] --> E
+        E --> G[Program/Model]
+    end
+    
+    style B fill:#E74C3C,color:#fff
+    style E fill:#27AE60,color:#fff
+    style G fill:#3498DB,color:#fff
+<</mermaid>>
+
+**Key difference**: ML learns patterns from data instead of explicit programming
+
+---
+
+# Types of Machine Learning
+
+::: info
+**Supervised Learning**
+- Learn from labeled examples
+- Predict outcomes for new data
+- Examples: Email spam detection, image recognition
+:::
+
+::: warning
+**Unsupervised Learning**
+- Find patterns in unlabeled data
+- Discover hidden structures
+- Examples: Customer segmentation, anomaly detection
+:::
+
+::: tip
+**Reinforcement Learning**
+- Learn through interaction and feedback
+- Optimize decisions over time
+- Examples: Game playing, robotics, autonomous vehicles
+:::
+
+---
+
+# The ML Workflow
+
+<<mermaid>>
+graph TD
+    A[Problem Definition] --> B[Data Collection]
+    B --> C[Data Preprocessing]
+    C --> D[Feature Engineering]
+    D --> E[Model Selection]
+    E --> F[Training]
+    F --> G[Evaluation]
+    G --> H{Performance OK?}
+    H -->|No| D
+    H -->|Yes| I[Deployment]
+    I --> J[Monitoring]
+    J --> K{Drift Detected?}
+    K -->|Yes| B
+    K -->|No| J
+    
+    style A fill:#3498DB,color:#fff
+    style F fill:#E74C3C,color:#fff
+    style I fill:#27AE60,color:#fff
+<</mermaid>>
+
+**Iterative process**: Continuous improvement through feedback loops
+
+---
+
+# Real-World Applications
+
+<<chart: radar>>
+title: "ML Impact Across Industries"
+colors: ["#2C3E50", "#E74C3C"]
+data:
+  labels: ["Healthcare", "Finance", "Transportation", "Entertainment", "Retail"]
+  series:
+    - name: "Current Adoption (%)"
+      values: [78, 85, 65, 82, 73]
+    - name: "Expected Growth (%)"
+      values: [95, 92, 88, 90, 89]
+<</chart>>
+
+**Finance leads** current adoption at 85%, with transportation showing highest growth potential
+
+---
+
+# Hands-On Exercise: Linear Regression
+
+::: code-group
+
+```python [Basic Implementation]
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+
+# Generate sample data
+X = np.array([[1], [2], [3], [4], [5]])
+y = np.array([2, 4, 6, 8, 10])
+
+# Create and train model
+model = LinearRegression()
+model.fit(X, y)
+
+# Make predictions
+predictions = model.predict(X)
+print(f"Slope: {model.coef_[0]:.2f}")
+print(f"Intercept: {model.intercept_:.2f}")
+```
+
+```python [With Visualization]
+# Plot results
+plt.figure(figsize=(10, 6))
+plt.scatter(X, y, color='blue', label='Actual data')
+plt.plot(X, predictions, color='red', label='Linear regression')
+plt.xlabel('X values')
+plt.ylabel('Y values')
+plt.title('Linear Regression Example')
+plt.legend()
+plt.grid(True)
+plt.show()
+```
+
+```python [Performance Metrics]
+from sklearn.metrics import mean_squared_error, r2_score
+
+# Calculate performance metrics
+mse = mean_squared_error(y, predictions)
+r2 = r2_score(y, predictions)
+
+print(f"Mean Squared Error: {mse:.4f}")
+print(f"R² Score: {r2:.4f}")
+print(f"Model explains {r2*100:.1f}% of variance")
+```
+
+:::
+
+---
+
+# Common ML Algorithms Overview
+
+| Algorithm | Type | Best For | Complexity |
+|-----------|------|----------|------------|
+| **Linear Regression** | Supervised | Continuous predictions | Low |
+| **Decision Trees** | Supervised | Interpretable rules | Medium |
+| **Random Forest** | Supervised | Robust predictions | Medium |
+| **K-Means** | Unsupervised | Customer segmentation | Low |
+| **Neural Networks** | Supervised | Complex patterns | High |
+| **SVM** | Supervised | High-dimensional data | Medium |
+
+::: example
+**Choosing an algorithm**: Start simple (linear regression), then increase complexity as needed
+:::
+
+---
+
+# Data Quality: The Foundation
+
+<<chart: pie>>
+title: "Time Spent in ML Projects"
+colors: ["#E74C3C", "#3498DB", "#27AE60", "#F39C12"]
+data:
+  labels: ["Data Collection & Cleaning", "Feature Engineering", "Model Training", "Evaluation & Deployment"]
+  series:
+    - name: "Time Allocation (%)"
+      values: [60, 20, 15, 5]
+<</chart>>
+
+**80% of ML work** is data preparation - quality data is crucial for success
+
+---
+
+# Interactive Knowledge Check
+
+<<quiz>>
+question: "Which type of ML would you use for email spam detection?"
+options:
+  - "Unsupervised learning - no labels needed"
+  - "Supervised learning - we have spam/not spam labels"
+  - "Reinforcement learning - learn from user feedback"
+  - "Semi-supervised learning - mix of labeled and unlabeled"
+answer: 1
+explanation: "Email spam detection uses supervised learning because we have labeled examples of spam and legitimate emails to train the model."
+<</quiz>>
+
+---
+
+# Key Concepts Summary
+
+::: tip
+**Remember These Fundamentals:**
+1. **Data Quality > Algorithm Complexity** - Clean data beats fancy algorithms
+2. **Start Simple** - Linear models often work surprisingly well
+3. **Validate Everything** - Use proper train/validation/test splits
+4. **Domain Knowledge Matters** - Understand your problem domain
+5. **Iterate Continuously** - ML is an experimental process
+:::
+
+---
+
+# Next Steps & Resources
+
+**Next Lecture**: Supervised Learning Deep Dive
+- Linear regression mathematics
+- Gradient descent optimization
+- Hands-on scikit-learn tutorial
+
+**Recommended Reading**:
+- "Pattern Recognition and Machine Learning" - Bishop
+- "The Elements of Statistical Learning" - Hastie, Tibshirani, Friedman
+
+**Online Resources**:
+- Course website: [cs229.stanford.edu](https://cs229.stanford.edu)
+- Python tutorials: [sklearn.org](https://scikit-learn.org)
+
+---
+layout: closing
+---
+# Questions & Office Hours
+
+**Office Hours**: Tuesdays & Thursdays 2-4 PM, Gates Building 392
+**Email**: sarah.chen@stanford.edu
+**Course Forum**: [piazza.com/stanford/spring2025/cs229](https://piazza.com/stanford)
+
+*"The goal is not to build perfect models, but to build models that help us understand and improve the world"*

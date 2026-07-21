@@ -1,0 +1,81 @@
+---
+mode: flex
+title: "Grid Layouts and Tables"
+author: "ZiraDocs Team"
+theme: "elegant-minimal"
+---
+
+# Grid Layouts
+## Organizing content into columns
+
+Grids split a slide into side-by-side columns — handy for dashboards,
+comparisons, and feature lists.
+
+---
+
+## Dashboard, 2x2 Grid
+
+::: grid
+
+::: column
+**Monthly Sales**
+- Total: $125,000
+- Growth: +15%
+- Transactions: 450
+:::
+
+::: column
+**New Customers**
+- Total: 89
+- Conversion: 12%
+- Retention: 87%
+:::
+
+::: column
+**Top Products**
+1. Laptop Pro — 45 units
+2. Wireless Mouse — 120 units
+3. Mechanical Keyboard — 67 units
+:::
+
+::: column
+**Support Metrics**
+- Open tickets: 23
+- Avg. response: 2.5h
+- Satisfaction: 94%
+:::
+
+:::
+
+---
+
+## Comparison, 2 Columns
+
+::: grid
+
+::: column
+**Before**
+- Manual reporting
+- Weekly status meetings
+- Spreadsheet tracking
+:::
+
+::: column
+**After**
+- Automated dashboards
+- Async status updates
+- Single source of truth
+:::
+
+:::
+
+---
+
+## A Detailed Table
+
+| Metric | This Quarter | Last Quarter | Change |
+|--------|--------------|--------------|--------|
+| Active Users | 15,900 | 12,800 | +24.2% |
+| Monthly Revenue | $387K | $312K | +24.0% |
+| Churn Rate | 2.8% | 3.5% | -0.7pp |
+| NPS | 62 | 55 | +7 |

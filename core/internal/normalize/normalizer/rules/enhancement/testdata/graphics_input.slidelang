@@ -1,0 +1,52 @@
+---
+title: "Test de Placeholders de Gráficos AI"
+author: "Test Author"
+mode: flex
+---
+
+# Prueba de Detección de Placeholders
+
+## Sección con Gráficos Válidos
+
+<<chart: bar>>
+{
+  "title": "Ventas Online 2021-2024",
+  "x": ["2021", "2022", "2023", "2024"],
+  "y": [
+    [10, 13, 16, 17]
+  ]
+}
+
+Este gráfico ya está bien formateado.
+
+## Sección con Placeholders AI
+
+CHART: Insertar gráfico de ventas aquí
+GRÁFICO: Agregar distribución de productos
+DIAGRAM: Placeholder for process flow
+
+## Sección Mixta
+
+<<mermaid>>
+flowchart TD
+    A[Inicio] --> B[Proceso]
+    B --> C[Fin]
+
+CHART: Este placeholder debería convertirse
+
+title: "Configuración válida"
+data: [1, 2, 3, 4, 5]
+
+## Placeholders Multiidioma
+
+GRAPHIQUE: Distribution des clients
+DIAGRAMM: Prozessablauf hier einfügen
+TABLE: Datos tabulares aquí
+
+## Contenido Normal
+
+Este es contenido regular sin placeholders de gráficos.
+
+### Subsección
+
+Más contenido normal que no debería verse afectado.

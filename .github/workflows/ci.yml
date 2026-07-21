@@ -1,0 +1,90 @@
+name: CI
+
+# Issue #43: el repo no tenía ningún gate de build/vet/test para el código Go
+# — solo html-validate.yml (genera HTML de los ejemplos) y schema-drift.yml
+# (regenera el contrato JSON/AST) ejercitaban el código indirectamente. Este
+# workflow corre build+vet+test+lint por cada uno de los 3 módulos Go
+# independientes del monorepo (sin go.work — cada uno se compila por separado,
+# igual que documenta CLAUDE.md) en cada PR y en push a main.
+
+on:
+  pull_request:
+    paths:
+      - "core/**"
+      - "slidelang/**"
+      - "doclang/**"
+      - ".golangci.yml"
+      - ".github/workflows/ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "core/**"
+      - "slidelang/**"
+      - "doclang/**"
+      - ".golangci.yml"
+      - ".github/workflows/ci.yml"
+
+# Un push nuevo vuelve obsoletos los resultados del commit anterior de la
+# misma rama/PR. Cancelarlo evita pagar matrices completas que ya no sirven.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Los tres módulos declaran el mismo piso de Go. Un solo runner evita
+      # repetir checkout/setup y, sobre todo, tres redondeos de facturación.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+
+      - name: Build, vet y test de los módulos Go
+        run: |
+          set -euo pipefail
+          for module in core slidelang doclang; do
+            echo "::group::$module"
+            (cd "$module" && go build ./... && go vet ./... && go test ./...)
+            echo "::endgroup::"
+          done
+
+  lint:
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [core, slidelang, doclang]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # fetch-depth: 0 — only-new-issues (abajo) necesita el historial completo
+      # para diffear contra la rama base.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # go-version-file: mismo criterio que en build-test arriba.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+
+      # Set mínimo inicial (govet/errcheck/staticcheck, ver .golangci.yml).
+      # only-new-issues: solo bloquea sobre código nuevo/tocado — el repo tiene
+      # ~30 hallazgos pre-existentes (WriteString+Sprintf, errcheck en Close/
+      # Write, etc.) que no son el foco de este PR de infraestructura; se
+      # catalogan y limpian en un batch de cleanup dedicado, no acá (issue
+      # de tracking creado). golangci-lint-action@v6 NO soporta golangci-lint
+      # v2 (falla explícitamente con "you must update to golangci-lint-action
+      # v7") — confirmado en CI, no es un detalle menor.
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          working-directory: ${{ matrix.module }}
+          args: --config=${{ github.workspace }}/.golangci.yml
+          only-new-issues: true

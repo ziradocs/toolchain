@@ -1,0 +1,92 @@
+---
+title: "Latency-Aware Caching for Edge Inference"
+author: "A. Torres, K. Fischer"
+date: "2025-01-15"
+theme: academic
+mode: flex
+toc: true
+numbering: true
+---
+
+# Abstract
+
+We study a caching strategy for serving small machine-learning models at
+the network edge, where round-trip latency to a central cache dominates
+inference time. Our approach reduces P99 latency by 41% on a synthetic
+workload compared to a standard LRU policy, at a modest memory overhead.
+
+# Introduction
+
+Edge inference workloads are characterized by frequent, small requests
+and strict latency budgets. Traditional cache eviction policies — LRU,
+LFU — are tuned for hit-rate, not for the tail latency that dominates
+user-perceived performance.
+
+## Contributions
+
+1. A latency-aware eviction policy, `LA-Cache`, that weighs both recency
+   and observed fetch latency
+2. An open benchmark harness for edge-caching workloads
+3. An empirical comparison against LRU and LFU on three model families
+
+# Related Work
+
+::: info
+This section situates our work relative to prior caching research; see
+the references at the end of the document for full citations.
+:::
+
+Caching for inference has been studied primarily in the context of
+data-center serving, where network latency is comparatively uniform.
+Edge deployments break that assumption — fetch latency varies by an
+order of magnitude depending on which tier serves the request.
+
+# Method
+
+## LA-Cache Eviction Score
+
+<<mermaid>>
+  graph LR
+      A[Request arrives] --> B{In cache?}
+      B -->|Hit| C[Serve, update score]
+      B -->|Miss| D[Fetch from origin]
+      D --> E[Insert, compute score]
+      E --> F{Cache full?}
+      F -->|Yes| G[Evict lowest score]
+      F -->|No| H[Done]
+
+Each cached entry's eviction score combines recency and the observed
+fetch latency for that entry, so items that are expensive to re-fetch
+are retained preferentially over items that are merely popular.
+
+# Results
+
+| Policy | P50 Latency | P99 Latency | Hit Rate |
+|--------|-------------|-------------|----------|
+| LRU | 12ms | 340ms | 78% |
+| LFU | 13ms | 310ms | 81% |
+| LA-Cache (ours) | 12ms | 201ms | 79% |
+
+::: success
+LA-Cache reduces P99 latency by 41% relative to LRU, at a comparable hit
+rate — the gain comes from evicting cheap-to-refetch entries first.
+:::
+
+# Limitations
+
+- [x] Evaluated on synthetic workloads
+- [x] Compared against two standard baselines
+- [ ] Validate against production traffic traces
+- [ ] Extend to multi-tier cache hierarchies
+
+# Conclusion
+
+Latency-aware eviction is a simple, low-overhead change that meaningfully
+improves tail latency for edge inference caching. Future work should
+validate these results against production traffic.
+
+# References
+
+1. Smith, J. (2024). *Modern Caching Strategies*. ACM Computing Surveys.
+2. García, A. (2023). *Edge Inference at Scale*. USENIX NSDI.
+3. Chen, L. (2025). *Latency-Aware Systems Design*. IEEE Transactions.

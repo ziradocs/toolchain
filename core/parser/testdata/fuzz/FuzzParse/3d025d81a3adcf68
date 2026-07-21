@@ -1,0 +1,2 @@
+go test fuzz v1
+string("---\nmode: strict\ne: \n---\n\nSLIDEtitle\n  TITLE: T\n\xadtulo\n  CONTENT: Contenido de prueba.\nEND\n")

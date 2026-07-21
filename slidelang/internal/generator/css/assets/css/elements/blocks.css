@@ -1,0 +1,210 @@
+/* Special Block Elements */
+.slidelang-element.slidelang-special-block {
+    margin: 1rem 0;
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid;
+    background-color: #f8f9fa;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    position: relative;
+}
+
+.slidelang-element.slidelang-special-block .slidelang-icon {
+    font-size: 1.25rem;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+}
+
+.slidelang-element.slidelang-special-block .slidelang-title {
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    color: inherit;
+}
+
+.slidelang-element.slidelang-special-block .slidelang-content {
+    flex: 1;
+    line-height: 1.6;
+}
+
+.slidelang-element.slidelang-special-block .slidelang-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Special Block Types */
+.slidelang-element.slidelang-special-block.slidelang-info {
+    border-left-color: #17a2b8;
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-success {
+    border-left-color: #28a745;
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-warning {
+    border-left-color: #ffc107;
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-danger {
+    border-left-color: #dc3545;
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-note {
+    border-left-color: #6c757d;
+    background-color: #e2e3e5;
+    color: #383d41;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-tip {
+    border-left-color: #20c997;
+    background-color: #d1f2eb;
+    color: #0f5132;
+}
+
+/* Details Special Block (collapsible) */
+.slidelang-element.slidelang-special-block.slidelang-details {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-details:hover {
+    background-color: #e9ecef;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-details .slidelang-content {
+    display: none;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-details.expanded .slidelang-content {
+    display: block;
+    margin-top: 0.5rem;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-details::after {
+    content: "▶";
+    position: absolute;
+    right: 1rem;
+    top: 1rem;
+    transition: transform 0.2s ease;
+    font-size: 0.875rem;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-details.expanded::after {
+    transform: rotate(90deg);
+}
+
+/* Grid and Column Layout Special Blocks */
+.slidelang-element.slidelang-special-block.slidelang-grid {
+    display: block; /* Use block first, then we'll detect content structure */
+    background: transparent;
+    border: none;
+    border-left: none;
+    padding: 0;
+    margin: 1rem 0;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-grid .slidelang-content {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
+    align-items: start;
+}
+
+/* Style individual sections within grid content */
+.slidelang-element.slidelang-special-block.slidelang-grid .slidelang-content h1,
+.slidelang-element.slidelang-special-block.slidelang-grid .slidelang-content h2,
+.slidelang-element.slidelang-special-block.slidelang-grid .slidelang-content h3,
+.slidelang-element.slidelang-special-block.slidelang-grid .slidelang-content h4,
+.slidelang-element.slidelang-special-block.slidelang-grid .slidelang-content p,
+.slidelang-element.slidelang-special-block.slidelang-grid .slidelang-content ul,
+.slidelang-element.slidelang-special-block.slidelang-grid .slidelang-content ol {
+    margin-bottom: 1rem;
+}
+
+.slidelang-element.slidelang-special-block.slidelang-column {
+    flex: 1;
+    background-color: transparent;
+    border: none;
+    border-left: none;
+    padding: 1rem;
+    margin: 0;
+    border-radius: 0;
+}
+
+/* Grid with specific column counts */
+.slidelang-element.slidelang-special-block.slidelang-grid[data-columns="2"] {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.slidelang-element.slidelang-special-block.slidelang-grid[data-columns="3"] {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.slidelang-element.slidelang-special-block.slidelang-grid[data-columns="4"] {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+/* Processed grid columns (created by JavaScript) */
+.slidelang-content.slidelang-processed-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 2rem;
+    align-items: start;
+}
+
+.slidelang-grid-column {
+    background: rgba(248, 249, 250, 0.8);
+    border-radius: 8px;
+    padding: 1.5rem;
+    border-left: 4px solid #17a2b8;
+}
+
+.slidelang-grid-column h1,
+.slidelang-grid-column h2,
+.slidelang-grid-column h3,
+.slidelang-grid-column h4,
+.slidelang-grid-column h5,
+.slidelang-grid-column h6 {
+    margin-top: 0;
+    color: #17a2b8;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .slidelang-element.slidelang-special-block {
+        margin: 0.75rem 0;
+        padding: 0.75rem;
+        gap: 0.5rem;
+    }
+    
+    .slidelang-element.slidelang-special-block .slidelang-icon {
+        font-size: 1rem;
+    }
+
+    .slidelang-element.slidelang-special-block.slidelang-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .slidelang-element.slidelang-special-block.slidelang-column {
+        padding: 0.75rem;
+    }
+
+    .slidelang-content.slidelang-processed-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .slidelang-grid-column {
+        padding: 1rem;
+    }
+}

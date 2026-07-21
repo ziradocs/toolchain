@@ -1,0 +1,54 @@
+---
+title: "Test Document - Academic Theme"
+author: "DocLang Team"
+date: "2025-10-21"
+theme: academic
+toc: false
+numbering: true
+---
+
+# Introduction to the Academic Theme
+
+This document demonstrates the **academic** theme with serif fonts and a formal style. The academic theme is designed for scientific documents, theses, papers, and formal publications.
+
+## Theme Characteristics
+
+- Font: Georgia (serif)
+- High contrast for printing
+- Classic, conservative style
+- Wide margins for notes
+
+# Content Example
+
+## List of Elements
+
+Basic formatting elements:
+
+- Text with **bold** and *italic*
+- Inline code such as `const PI = 3.14159`
+- Links: [GitHub](https://github.com)
+
+## Academic Table
+
+| Author | Year | Title |
+|-------|------|--------|
+| Smith, J. | 2024 | Modern Research |
+| Garcia, A. | 2023 | Advanced Topics |
+| Chen, L. | 2025 | Future Trends |
+
+## Example Code
+
+```python
+def calculate_mean(data):
+    """Calculate arithmetic mean"""
+    return sum(data) / len(data)
+
+# Usage
+results = [12, 15, 18, 21, 24]
+mean = calculate_mean(results)
+print(f"Mean: {mean}")
+```
+
+# Conclusion
+
+The academic theme provides a formal, professional style suitable for scientific publications.

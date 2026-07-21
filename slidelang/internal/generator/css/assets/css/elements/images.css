@@ -1,0 +1,40 @@
+/* Elementos de imagen */
+.slidelang-element.slidelang-image {
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.slidelang-element.slidelang-image img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-main);
+    transition: var(--transition);
+}
+
+.slidelang-element.slidelang-image img:hover {
+    transform: scale(1.02);
+    box-shadow: var(--shadow-lg);
+}
+
+.slidelang-element.slidelang-image .slidelang-image-caption {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-light);
+    font-style: italic;
+}
+
+/* Imágenes flotantes */
+.slidelang-element.slidelang-image.slidelang-float-left {
+    float: left;
+    margin-right: 2rem;
+    margin-bottom: 1rem;
+    max-width: 40%;
+}
+
+.slidelang-element.slidelang-image.slidelang-float-right {
+    float: right;
+    margin-left: 2rem;
+    margin-bottom: 1rem;
+    max-width: 40%;
+}

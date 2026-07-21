@@ -1,0 +1,485 @@
+---
+mode: flex
+title: "European Adventure 2025"
+author: "Alex & Maria Johnson"
+date: "2025-01-15"
+output:
+  format: [html, pdf]
+  path: "./travel-planning"
+variables:
+  trip_duration: "21 days"
+  budget: "$8,500"
+  countries: "6 countries"
+  cities: "12 cities"
+  departure_date: "June 15, 2025"
+  travelers: "2 adults"
+  accommodation_style: "Mix of hotels & Airbnb"
+---
+
+# European Adventure 2025
+## {{trip_duration}} across {{countries}}
+
+**{{travelers}}** | **Budget:** {{budget}}  
+**Departure:** {{departure_date}}
+
+*Creating memories that will last a lifetime*
+
+@notes:
+- Personal presentation for friends and family
+- Share excitement about upcoming trip
+- Get feedback and suggestions
+- Duration: 30 minutes casual presentation
+
+---
+
+# Our Dream Trip Vision
+
+**Why Europe? Why now?**
+
+::: success
+**Our Travel Goals:**
+- Experience diverse cultures and cuisines
+- Visit iconic historical landmarks
+- Create romantic memories together
+- Challenge ourselves with new languages
+- Document everything for future reminiscing
+:::
+
+**This is our delayed honeymoon adventure!**
+
+@notes:
+- Delayed honeymoon due to work commitments
+- Europe offers diversity in small geographic area
+- Always dreamed of this comprehensive tour
+- Perfect timing with work sabbaticals
+
+---
+
+# Complete Itinerary Overview
+
+<<mermaid>>
+  flowchart LR
+      A[London<br/>3 days] --> B[Paris<br/>4 days]
+      B --> C[Amsterdam<br/>2 days]
+      C --> D[Berlin<br/>3 days]
+      D --> E[Prague<br/>3 days]
+      E --> F[Vienna<br/>2 days]
+      F --> G[Rome<br/>4 days]
+      
+      style A fill:#e3f2fd
+      style B fill:#fff3e0
+      style G fill:#e8f5e8
+
+**{{countries}} visited over {{trip_duration}}**
+
+@notes:
+- Flow designed for logical geographic progression
+- Longer stays in major destinations
+- Mix of Western and Eastern Europe
+- Transportation connections well-planned
+
+---
+
+# Budget Breakdown
+
+<<chart: doughnut>>
+  data: [2800, 2200, 1800, 1200, 500]
+  labels: ["Accommodation", "Flights & Transport", "Food & Dining", "Activities & Sightseeing", "Shopping & Misc"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Total Budget: $8,500 for Two People"
+      legend:
+        position: bottom
+      datalabels:
+        display: true
+        formatter: function(value) { return '$' + value; }
+
+**Accommodation represents largest expense at 33%**
+
+@notes:
+- Budget based on research and travel blogs
+- Accommodation mix saves money vs all hotels
+- Food budget allows for nice dinners out
+- Shopping budget for souvenirs and gifts
+
+---
+
+# Accommodation Strategy
+
+**{{accommodation_style}} for variety and value**
+
+| City | Accommodation | Nights | Cost | Why We Chose It |
+|------|---------------|--------|------|-----------------|
+| **London** | Premier Inn | 3 | $480 | Central location, reliable |
+| **Paris** | Boutique Hotel | 4 | $720 | Romantic atmosphere |
+| **Amsterdam** | Canal House Airbnb | 2 | $320 | Local experience |
+| **Berlin** | Modern Hotel | 3 | $450 | Hip neighborhood |
+| **Prague** | Historic Airbnb | 3 | $360 | Authentic character |
+| **Vienna** | Traditional Hotel | 2 | $380 | Classical elegance |
+| **Rome** | Trastevere Airbnb | 4 | $520 | Local neighborhood |
+
+**Total accommodation: $3,230 (within budget)**
+
+@notes:
+- Mix provides different experiences
+- Airbnb for local immersion
+- Hotels for convenience and service
+- All locations near public transport
+
+---
+
+# Transportation Plan
+
+**Efficient connections between cities**
+
+<<chart: bar>>
+  data: [[650, 420, 180, 275, 195, 380]]
+  labels: ["Flights to/from", "Eurail Pass", "London Transport", "City Passes", "Local Transit", "Taxis/Uber"]
+  series: ["Transportation Costs ($)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Transportation Budget Breakdown"
+    scales:
+      y:
+        beginAtZero: true
+
+**Eurail Pass covers most intercity travel**
+
+@notes:
+- Round-trip flights NYC to London/Rome
+- Eurail Pass for flexibility between cities
+- City passes include public transport
+- Some taxis for luggage and convenience
+
+---
+
+# Must-See Attractions by City
+
+**London (3 days):**
+- British Museum and Tate Modern
+- Westminster Abbey and Big Ben
+- Camden Market and Borough Market
+- West End show (booked: Lion King)
+
+**Paris (4 days):**
+- Louvre and Musée d'Orsay
+- Eiffel Tower and Arc de Triomphe
+- Versailles day trip
+- Seine river cruise at sunset
+
+**Amsterdam (2 days):**
+- Van Gogh Museum and Rijksmuseum
+- Anne Frank House (pre-booked)
+- Canal cruise and bike tour
+- Jordaan neighborhood exploration
+
+@notes:
+- Pre-booking essential for popular attractions
+- Mix of museums, architecture, and experiences
+- Anne Frank House books up months in advance
+- Allow flexibility for spontaneous discoveries
+
+---
+
+# Cultural Experiences We're Excited About
+
+::: grid
+::: column
+**Food Adventures:**
+- Fish & chips in London
+- Croissants and wine in Paris
+- Stroopwafels in Amsterdam
+- Currywurst in Berlin
+- Goulash in Prague
+- Schnitzel in Vienna
+- Gelato in Rome
+:::
+
+::: column
+**Cultural Immersion:**
+- Pub culture in London
+- Café culture in Paris
+- Bike culture in Amsterdam
+- Art scene in Berlin
+- Classical music in Vienna
+- Aperitivo tradition in Rome
+:::
+:::
+
+**Each city offers unique lifestyle experiences**
+
+@notes:
+- Food is huge part of travel experience
+- Want to eat like locals, not just tourists
+- Cultural activities beyond sightseeing
+- Trying to learn basic phrases in each language
+
+---
+
+# Photography Goals
+
+**Documenting our journey**
+
+<<chart: radar>>
+  data: [[9, 8, 7, 8, 9]]
+  labels: ["Architecture", "Food", "Landscapes", "People", "Street Art"]
+  series: ["Photography Priority (1-10)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Photo Documentation Priorities"
+    scales:
+      r:
+        beginAtZero: true
+        max: 10
+
+**Planning to create travel blog and photo book**
+
+@notes:
+- Both of us passionate about photography
+- Architecture especially rich in European cities
+- Food photography for future recipe inspiration
+- Street art scene particularly strong in Berlin
+
+---
+
+# Learning Opportunities
+
+**Languages we're studying before departure:**
+
+| Language | Current Level | Goal by Trip | Study Method |
+|----------|---------------|--------------|--------------|
+| **French** | Beginner | Conversational | Duolingo + tutor |
+| **German** | None | Basic phrases | Apps + YouTube |
+| **Czech** | None | Survival words | Phrase book |
+| **Italian** | Beginner | Conversational | Classes + practice |
+
+**Language apps downloaded and daily practice started**
+
+@notes:
+- French and Italian already started studying
+- German seems most challenging for us
+- Czech just for politeness and basic needs
+- Locals appreciate effort even if imperfect
+
+---
+
+# Packing Strategy
+
+**Traveling light with smart choices**
+
+::: info
+**Packing Principles:**
+- One carry-on suitcase each
+- Versatile clothing for different weather
+- Comfortable walking shoes (2 pairs each)
+- Layering pieces for temperature changes
+- Small day pack for sightseeing
+:::
+
+**Climate varies from London's cool to Rome's warmth**
+
+| Item Category | Quantity | Reasoning |
+|---------------|----------|-----------|
+| **Tops** | 8-10 pieces | Mix casual/nice |
+| **Bottoms** | 4-5 pieces | Versatile colors |
+| **Outerwear** | 2-3 pieces | Weather layers |
+| **Shoes** | 3 pairs | Walk/dress/backup |
+
+@notes:
+- June weather varies significantly across Europe
+- London can be cool and rainy
+- Rome will be warm and sunny
+- Laundry planned every 7-10 days
+
+---
+
+# Health and Safety Preparations
+
+**Staying healthy and secure abroad**
+
+**Medical Preparations:**
+- Travel insurance purchased (World Nomads)
+- Prescription medications with extra supply
+- European Health Insurance Card obtained
+- First aid kit with basics
+- Emergency contact information organized
+
+**Safety Measures:**
+- Copies of passports and documents (digital + physical)
+- Money spread across cards and cash
+- Hotel/Airbnb addresses saved offline
+- Emergency funds reserved
+- Travel advisories monitored
+
+@notes:
+- Travel insurance covers medical and trip disruption
+- EHIC provides basic healthcare in EU
+- Document copies stored separately from originals
+- Multiple payment methods in case of card issues
+
+---
+
+# Technology and Communication
+
+**Staying connected while abroad**
+
+**Tech Setup:**
+- International phone plan activated
+- Portable Wi-Fi hotspot rented
+- Power adapters for European outlets
+- Backup battery packs for devices
+- Translation apps downloaded offline
+
+**Apps We're Using:**
+- Google Translate (offline languages)
+- Citymapper for public transport
+- TripAdvisor for restaurant reviews
+- Google Photos for backup
+- WhatsApp for free international messaging
+
+@notes:
+- International plan cheaper than roaming charges
+- Wi-Fi hotspot backup for areas with poor signal
+- Offline maps downloaded for each city
+- Photo backup essential - don't want to lose memories
+
+---
+
+# Contingency Planning
+
+**Preparing for the unexpected**
+
+::: warning
+**Potential Challenges:**
+- Flight delays or cancellations
+- Lost luggage or documents
+- Illness or injury
+- Weather disruptions
+- Accommodation issues
+- Strike or transport disruptions
+:::
+
+**Our Backup Plans:**
+- Flexible flight change options
+- Travel delay insurance
+- Emergency accommodation fund
+- 24/7 assistance through credit card
+- Embassy contact information
+
+@notes:
+- European strikes can affect transport
+- Weather delays more common in June
+- Accommodation booking confirmations saved offline
+- Credit card travel assistance valuable resource
+
+---
+
+# Post-Trip Plans
+
+**Making memories last**
+
+**Documentation Goals:**
+- Daily travel journal (alternating who writes)
+- Professional photo book creation
+- Travel blog with tips for others
+- Recipe collection from local dishes
+- Souvenir display in home office
+
+**Sharing Plans:**
+- Social media highlights during trip
+- Full presentation for friends and family
+- Travel tips blog posts
+- Photo exhibition at local café
+- Recipe dinner party with dishes we learned
+
+@notes:
+- Journal will capture emotions and details
+- Photo book for coffee table memories
+- Blog helps other travelers
+- Cooking new recipes extends the experience
+
+---
+
+# How You Can Help
+
+**We'd love your input and suggestions!**
+
+::: success
+**Questions for You:**
+- Hidden gems we should visit?
+- Restaurants you'd recommend?
+- Cultural etiquette tips?
+- Items we should definitely pack?
+- Apps or tools that helped you?
+- Mistakes to avoid?
+:::
+
+**Your travel experiences and advice are invaluable**
+
+@notes:
+- This is the interactive part of presentation
+- Friends and family often have great local tips
+- Personal recommendations better than guidebooks
+- Cultural advice helps avoid embarrassing mistakes
+
+---
+
+# Contact During Travel
+
+**Stay connected with us on our adventure**
+
+**How to Follow Along:**
+- Instagram: @alexmaria_eurotrip2025
+- Travel blog: europeadventure2025.com
+- WhatsApp group for close family
+- Email updates weekly
+- Emergency contact: +1-555-TRAVEL
+
+**We'll share highlights but also enjoy being present**
+
+::: info
+**Emergency Contact Information:**
+- US Embassy numbers saved
+- Travel insurance 24/7 line
+- Credit card emergency assistance
+- Hotel/Airbnb contact details
+:::
+
+@notes:
+- Balance sharing experience with being present
+- Emergency contacts for peace of mind
+- Regular updates so family doesn't worry
+- Travel blog for detailed stories and photos
+
+---
+
+# Questions and Excitement
+
+**What are you most excited to hear about?**
+
+::: success
+**Discussion Topics:**
+- Which city are you most curious about?
+- Any specific experiences you want us to try?
+- Photography requests from family?
+- Souvenirs or local products to bring back?
+- Travel stories you'd like us to recreate?
+:::
+
+**Thank you for sharing in our excitement!**
+
+@notes:
+- End with engagement and gratitude
+- Family photo requests common
+- Souvenir shopping more fun with purpose
+- Travel stories inspire new ideas
+- Sharing excitement builds anticipation

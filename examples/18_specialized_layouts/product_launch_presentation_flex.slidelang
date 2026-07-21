@@ -1,0 +1,321 @@
+---
+mode: flex
+title: "TechFlow Pro Launch"
+author: "TechFlow Product Team"
+theme: "modern-blue"
+---
+
+---
+layout: title
+---
+
+# TechFlow Pro
+## The next generation of enterprise automation
+
+![TechFlow Logo](assets/techflow-logo.png)
+
+**Official launch presentation**
+*March 2025*
+
+---
+layout: hero
+background: "assets/hero-background.jpg"
+overlay: "dark"
+---
+
+# Revolutionizing Automation
+## Boost your productivity up to 10x with built-in AI
+
+[Watch Live Demo](#demo){.btn-primary}  
+[Request Beta Access](#beta){.btn-secondary}
+
+---
+layout: section
+---
+
+# Market Analysis
+## The current state of enterprise automation
+
+Companies lose an average of **32 hours per week** on repetitive tasks that could be automated. TechFlow Pro is here to change that for good.
+
+---
+layout: stats
+---
+
+# Impact Measured in Beta
+
+Results from our 500 beta users over 6 months:
+
+| Metric | Before | After | Improvement |
+|---------|--------|---------|--------|
+| Processing time | 4.5 hours | 27 minutes | **90% reduction** |
+| Manual errors | 15% | 1.2% | **92% reduction** |
+| Team satisfaction | 6.2/10 | 9.1/10 | **+47% improvement** |
+| Monthly ROI | $12K | $48K | **+300% increase** |
+
+::: success
+🎯 **Goal exceeded:** 250% of the planned efficiency target
+:::
+
+---
+layout: before_after
+---
+
+# Real Transformation
+
+## Before TechFlow Pro
+![Complex manual process](assets/process-before.png)
+- 15 different manual steps
+- 4.5 hours average time
+- High risk of human error
+- Dependence on multiple systems
+- Scattered documentation
+
+## After TechFlow Pro
+![Automated process](assets/process-after.png)
+- 3 clicks to complete the process
+- 27 minutes average time
+- Built-in automatic validation
+- A single control panel
+- Automatic documentation
+
+---
+layout: feature_showcase
+---
+
+# Key Features
+
+## 🤖 Predictive AI
+Anticipates needs and optimizes workflows automatically
+
+## ⚡ Instant Integration
+Connect with 200+ enterprise applications in minutes
+
+## 🔒 Enterprise Security
+End-to-end encryption and SOC 2 compliance
+
+## 📊 Advanced Analytics
+Real-time dashboards with actionable insights
+
+## 🔄 Adaptive Workflows
+Workflows that adjust dynamically to context
+
+## 🌐 Multi-Platform
+Works seamlessly on web, mobile, and desktop
+
+---
+layout: comparison
+---
+
+# TechFlow Pro vs the Competition
+
+::: info
+**TechFlow Pro**
+- Integrated native AI
+- Setup in 5 minutes
+- $89/month per user
+- 24/7 support in Spanish
+- Integration with 200+ apps
+- Average ROI: 300%
+:::
+
+::: warning
+**Competitor A**
+- AI as a costly add-on
+- 2-3 week setup
+- $150/month per user
+- English-only support
+- 50 basic integrations
+- Average ROI: 120%
+:::
+
+::: danger
+**Competitor B**
+- No AI capabilities
+- 1-2 month setup
+- $200/month per user
+- Limited support
+- 25 integrations
+- Average ROI: 80%
+:::
+
+---
+layout: testimonial
+author: "Maria Gonzalez"
+position: "Director of Operations"
+company: "InnovateCorp"
+avatar: "assets/maria-gonzalez.jpg"
+rating: 5
+---
+
+> TechFlow Pro completely transformed our operation. What used to take us days now finishes in hours. It's like having a team of 10 analysts working 24/7.
+
+**Maria Gonzalez**  
+*Director of Operations*  
+InnovateCorp
+
+---
+layout: process
+---
+
+# Implementation Process
+
+## 1. 🔍 Initial Analysis
+We assess your current processes and identify automation opportunities
+
+## 2. 🎯 Custom Configuration
+We adapt TechFlow Pro to your specific needs and existing workflows
+
+## 3. 🚀 Gradual Rollout
+Phased implementation to minimize operational disruption
+
+## 4. 📚 Team Training
+Complete training for your team, certification included
+
+## 5. 📈 Continuous Optimization
+Ongoing monitoring and improvements based on real usage data
+
+---
+layout: timeline
+---
+
+# Product Roadmap
+
+## Q2 2025 - Official Launch
+Public release with all core features
+
+## Q3 2025 - Advanced AI
+Integration of language models for conversational automation
+
+## Q4 2025 - Marketplace
+Ecosystem of community plugins and templates
+
+## Q1 2026 - Mobile Native
+Native iOS and Android apps with full functionality
+
+## Q2 2026 - Enterprise Suite
+Advanced features for organizations with 1000+ employees
+
+---
+layout: team
+---
+
+# The Team Behind TechFlow
+
+## Carlos Rodriguez - CTO
+![Carlos Rodriguez](assets/carlos-rodriguez.jpg)
+
+15 years in systems architecture, ex-Google and Microsoft
+
+- [LinkedIn](https://linkedin.com/in/carlos-rodriguez-cto)
+- [GitHub](https://github.com/crodriguez-tech)
+
+## Ana Martinez - Head of Product
+![Ana Martinez](assets/ana-martinez.jpg)
+
+Product Manager with 12 years of experience in enterprise SaaS
+
+- [LinkedIn](https://linkedin.com/in/ana-martinez-product)
+- [Twitter](https://twitter.com/ana_product_guru)
+
+## David Chen - Lead AI Engineer
+![David Chen](assets/david-chen.jpg)
+
+PhD in Machine Learning, specialist in automation systems
+
+- [LinkedIn](https://linkedin.com/in/david-chen-ai)
+- [Research](https://scholar.google.com/david-chen)
+
+---
+layout: pricing
+---
+
+# Plans and Pricing
+
+## Starter - $89/month
+- Up to 10 users
+- 100 automations/month
+- Basic integrations
+- Email support
+
+[Start Free Trial](#signup-starter)
+
+## Professional - $189/month ⭐
+- Up to 50 users
+- Unlimited automations
+- All integrations
+- Priority 24/7 support
+- Advanced analytics
+
+[Most Popular - 30 days free](#signup-pro)
+
+## Enterprise - Custom pricing
+- Unlimited users
+- On-premise available
+- Guaranteed SLA
+- Dedicated success manager
+- Full customization
+
+[Contact Sales](#contact-enterprise)
+
+---
+layout: dashboard
+---
+
+# Control Panel in Action
+
+## Real-Time Metrics
+
+### Automated Processes: 2,847 (+23% this week)
+### Time Saved: 156 hours (+45% vs previous month)
+### Overall Efficiency: 94.2% (+12% continuous improvement)
+### User Satisfaction: 9.1/10 ⭐
+
+![Dashboard Screenshot](assets/dashboard-screenshot.png)
+
+**24/7 monitoring with smart alerts and automatic reports**
+
+---
+layout: call_to_action
+urgency: "Launch offer - First 100 customers only"
+---
+
+# Ready to Transform Your Business?
+## Join the 500+ companies already saving time and money
+
+[Start 30-Day Free Trial](#signup){.btn-primary}  
+[Schedule a Personalized Demo](#demo){.btn-secondary}
+
+**🎁 Special launch offer:**
+- 50% off the first year
+- Free setup (a $2,000 value)
+- 3 months of premium support included
+
+*Offer valid only for the first 100 customers - don't miss out!*
+
+---
+layout: content
+---
+
+# Questions?
+
+## Contact
+
+**Email:** hola@techflow.com  
+**Phone:** +1 (555) 123-4567  
+**Chat:** Available 24/7 on our website
+
+## Resources
+
+- [Complete documentation](https://docs.techflow.com)
+- [Help center](https://help.techflow.com)
+- [Community](https://community.techflow.com)
+- [Technical blog](https://blog.techflow.com)
+
+## Follow Us
+
+- [Twitter](https://twitter.com/techflowpro) - Daily updates
+- [LinkedIn](https://linkedin.com/company/techflow) - Professional content
+- [YouTube](https://youtube.com/techflow) - Tutorials and demos
+
+**Thank you for your attention!**

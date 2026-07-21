@@ -1,0 +1,62 @@
+---
+mode: flex
+title: "Callouts and Checklists"
+author: "ZiraDocs Team"
+theme: "modern-blue"
+---
+
+# Callouts and Checklists
+## Drawing attention to what matters
+
+Special blocks and checklists are the fastest way to make a slide scannable.
+
+---
+
+## Every Callout Type
+
+::: info
+**Info** — neutral, supporting detail.
+:::
+
+::: tip
+**Tip** — a shortcut or best practice worth calling out.
+:::
+
+::: success
+**Success** — something that went well, or a milestone hit.
+:::
+
+::: warning
+**Warning** — worth double-checking before moving on.
+:::
+
+::: danger
+**Danger** — a real risk or blocker.
+:::
+
+---
+
+## Launch Checklist
+
+- [x] Draft the gallery examples
+- [x] Lint every fixture with `--lint-only`
+- [x] Verify the full corpus still passes
+- [ ] Open the pull request
+- [ ] Run code review and security review
+
+---
+
+## A Pull Quote
+
+> "A good example is worth a thousand lines of documentation."
+>
+> **— ZiraDocs Contributor Guide**
+
+---
+
+## Wrap-Up
+
+::: success
+Combine callouts, checklists, and quotes freely — they're all just elements
+inside a regular content slide.
+:::

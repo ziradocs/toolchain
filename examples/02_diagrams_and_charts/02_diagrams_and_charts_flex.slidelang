@@ -1,0 +1,576 @@
+---
+mode: flex
+title: "Annual Growth Report - TechScale Analytics"
+author: "Data Intelligence Team"
+theme: "modern-blue"
+variables:
+  company: "TechScale Analytics"
+  fiscal_year: "2024"
+  revenue: "$47.2M"
+  growth_rate: "156%"
+  employees: "387"
+  customers: "12,847"
+  satisfaction: "94.8%"
+  market_share: "23%"
+  profit_margin: "28.5%"
+  countries: "34"
+---
+
+# {{company}} - Annual Report {{fiscal_year}}
+## Turning data into strategic decisions that drive growth
+
+![TechScale Analytics Logo](assets/techscale-logo.png)
+
+**Executive Presentation for the Board of Directors**
+*January 2025*
+
+---
+
+## Flowcharts
+
+### Software Development Process
+
+<<mermaid>>
+  graph TD
+      A[Planning] --> B[Requirements Analysis]
+      B --> C{Requirements Clear?}
+      C -->|Yes| D[System Design]
+      C -->|No| B
+      D --> E[Implementation]
+      E --> F[Testing]
+      F --> G{Tests OK?}
+      G -->|Yes| H[Deployment]
+      G -->|No| E
+      H --> I[Monitoring]
+      I --> J[Maintenance]
+
+      style A fill:#e1f5fe
+      style H fill:#e8f5e8
+      style C fill:#fff3e0
+      style G fill:#fff3e0
+
+---
+
+## Sequence Diagrams
+
+### API Authentication Flow
+
+<<mermaid>>
+  sequenceDiagram
+      participant U as User
+      participant F as Frontend
+      participant API as API Gateway
+      participant AUTH as Auth Service
+      participant DB as Database
+
+      U->>F: Login Request
+      F->>API: POST /auth/login
+      API->>AUTH: Validate Credentials
+      AUTH->>DB: Query User
+      DB-->>AUTH: User Data
+      AUTH-->>API: JWT Token
+      API-->>F: Authentication Response
+      F-->>U: Redirect to Dashboard
+
+      Note over U,DB: Complete authentication flow
+      Note over AUTH,DB: Secure validation
+
+---
+
+## UML Class Diagrams
+
+### User Management System
+
+<<mermaid>>
+  classDiagram
+      class User {
+          +int id
+          +string email
+          +string name
+          +Date createdAt
+          +login()
+          +logout()
+          +updateProfile()
+      }
+
+      class Role {
+          +int id
+          +string name
+          +string[] permissions
+          +hasPermission()
+      }
+
+      class UserRole {
+          +int userId
+          +int roleId
+          +Date assignedAt
+      }
+
+      User "1" --> "*" UserRole : has
+      Role "1" --> "*" UserRole : assigned to
+
+      class Profile {
+          +int userId
+          +string avatar
+          +string bio
+          +Date lastLogin
+          +updateAvatar()
+      }
+
+      User "1" --> "1" Profile : owns
+
+---
+
+## State Diagrams
+
+### Order Lifecycle
+
+<<mermaid>>
+  stateDiagram-v2
+      [*] --> Created
+      Created --> Pending : Validate
+      Pending --> Processing : Approve
+      Pending --> Cancelled : Reject
+      Processing --> Shipped : Complete
+      Processing --> Cancelled : Error
+      Shipped --> Delivered : Confirm
+      Delivered --> [*]
+      Cancelled --> [*]
+
+      note right of Created : Initial order state
+      note left of Delivered : Successful final state
+
+---
+
+## Bar Charts
+
+### Quarterly Sales by Product
+
+<<chart: bar>>
+  data: [
+    ["Q1 2024", 245, 180, 165, 95],
+    ["Q2 2024", 312, 220, 185, 120],
+    ["Q3 2024", 387, 275, 210, 145],
+    ["Q4 2024", 425, 310, 240, 180]
+  ]
+  series: ["Product A", "Product B", "Product C", "Product D"]
+  options:
+    responsive: true
+    indexAxis: y
+    plugins:
+      title:
+        display: true
+        text: "Sales by Quarter (Thousands of $)"
+      legend:
+        position: top
+    scales:
+      x:
+        beginAtZero: true
+        title:
+          display: true
+          text: "Sales (K$)"
+
+---
+
+## Line Charts
+
+### Active User Growth
+
+<<chart: line>>
+  data: [
+    ["Jan", 8500, 7200],
+    ["Feb", 9200, 8100],
+    ["Mar", 10100, 8900],
+    ["Apr", 11300, 9800],
+    ["May", 12800, 11200],
+    ["Jun", 14500, 12600],
+    ["Jul", 15900, 13800],
+    ["Aug", 17200, 15100]
+  ]
+  series: ["Total Users", "Premium Users"]
+  options:
+    responsive: true
+    tension: 0.4
+    plugins:
+      title:
+        display: true
+        text: "User Base Growth"
+      legend:
+        position: bottom
+    scales:
+      y:
+        beginAtZero: true
+        title:
+          display: true
+          text: "Number of Users"
+
+---
+
+## Doughnut Charts
+
+### Revenue Distribution by Region
+
+<<chart: doughnut>>
+  data: [385, 292, 178, 145, 98]
+  labels: ["North America", "Europe", "Asia-Pacific", "Latin America", "Other"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Revenue by Region {{quarter}} (K$)"
+      legend:
+        position: right
+      tooltip:
+        callbacks:
+          label: "function(context) { return context.label + ': $' + context.parsed + 'K (' + Math.round(context.parsed/1098*100) + '%)'; }"
+    cutout: "50%"
+
+---
+
+## Combo Charts
+
+### Performance vs Costs Analysis
+
+<<chart: combo>>
+  type: ["bar", "bar", "line", "line"]
+  data: [
+    ["Q1", 245, 180, 85, 12.5],
+    ["Q2", 312, 210, 92, 15.2],
+    ["Q3", 387, 245, 96, 18.8],
+    ["Q4", 425, 275, 89, 22.1]
+  ]
+  series: ["Revenue", "Costs", "Satisfaction (%)", "Margin (%)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Financial Performance and Satisfaction"
+      legend:
+        position: top
+    scales:
+      y:
+        type: linear
+        display: true
+        position: left
+        title:
+          display: true
+          text: "Financial Values (K$)"
+      y1:
+        type: linear
+        display: true
+        position: right
+        title:
+          display: true
+          text: "Percentages (%)"
+        grid:
+          drawOnChartArea: false
+
+---
+
+## Radar Charts
+
+### Team Skills Evaluation
+
+<<chart: radar>>
+  data: [
+    [85, 92, 78, 88, 90, 82],
+    [78, 85, 92, 82, 85, 88],
+    [90, 78, 85, 95, 88, 92]
+  ]
+  labels: ["Frontend", "Backend", "DevOps", "Testing", "UX/UI", "Project Mgmt"]
+  series: ["Team A", "Team B", "Team C"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Team Skills (0-100)"
+      legend:
+        position: bottom
+    scales:
+      r:
+        beginAtZero: true
+        max: 100
+        ticks:
+          stepSize: 20
+
+---
+
+## World Maps
+
+### Global User Distribution
+
+<<map>>
+  type: world
+  markers:
+    - lat: 40.7128
+      lng: -74.0060
+      label: "New York"
+      value: 4500
+      color: "#2196F3"
+    - lat: 51.5074
+      lng: -0.1278
+      label: "London"
+      value: 3200
+      color: "#4CAF50"
+    - lat: 35.6762
+      lng: 139.6503
+      label: "Tokyo"
+      value: 2800
+      color: "#FF9800"
+    - lat: -33.8688
+      lng: 151.2093
+      label: "Sydney"
+      value: 1500
+      color: "#E91E63"
+    - lat: 52.5200
+      lng: 13.4050
+      label: "Berlin"
+      value: 2100
+      color: "#9C27B0"
+  heatmap: true
+  zoom: 2
+  options:
+    title: "{{user_base}} active users globally"
+
+---
+
+## Regional Maps
+
+### United States Offices
+
+<<map>>
+  type: region
+  center: [39.8283, -98.5795]
+  markers:
+    - lat: 37.7749
+      lng: -122.4194
+      label: "San Francisco HQ"
+      value: 250
+      color: "#2196F3"
+      icon: "headquarters"
+    - lat: 41.8781
+      lng: -87.6298
+      label: "Chicago Office"
+      value: 120
+      color: "#4CAF50"
+      icon: "office"
+    - lat: 25.7617
+      lng: -80.1918
+      label: "Miami Sales"
+      value: 85
+      color: "#FF9800"
+      icon: "sales"
+    - lat: 47.6062
+      lng: -122.3321
+      label: "Seattle R&D"
+      value: 180
+      color: "#E91E63"
+      icon: "research"
+  zoom: 4
+  options:
+    showTraffic: true
+    showLabels: true
+
+---
+
+## Advanced Data Tables
+
+### Detailed Performance Metrics
+
+| Metric | {{quarter}} | Previous | Change | Target | Status |
+|---------|-------------|----------|--------|----------|---------|
+| **Active Users** | {{user_base}} | 12,450 | {{revenue_growth}} | 16,000 | 🟢 On track |
+| **Monthly Revenue** | $387K | $312K | +24.0% | $400K | 🟢 Close |
+| **Conversion Rate** | 4.2% | 3.8% | +0.4% | 5.0% | 🟡 In progress |
+| **Customer Satisfaction** | 92% | 89% | +3% | 95% | 🟢 Excellent |
+| **Churn Rate** | 2.8% | 3.5% | -0.7% | <3.0% | 🟢 Achieved |
+| **Time to Value** | 12 days | 18 days | -6 days | 10 days | 🟡 Close |
+
+---
+
+## Code Groups for Analysis
+
+### Chart System Configuration
+
+::::code-group
+```json [config.json]
+{
+  "charts": {
+    "defaultTheme": "modern-blue",
+    "responsive": true,
+    "animations": {
+      "enabled": true,
+      "duration": 800
+    }
+  },
+  "maps": {
+    "provider": "leaflet",
+    "defaultZoom": 10,
+    "clustering": true
+  }
+}
+```
+
+```javascript [chart-utils.js]
+// Utilities for chart configuration
+export const chartDefaults = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'top'
+    },
+    tooltip: {
+      mode: 'index',
+      intersect: false
+    }
+  }
+};
+
+export function createChart(type, data, options = {}) {
+  return new Chart(ctx, {
+    type,
+    data,
+    options: { ...chartDefaults, ...options }
+  });
+}
+```
+
+```python [data-processor.py]
+# Data processing for visualizations
+import pandas as pd
+import json
+
+def process_sales_data(csv_file):
+    """Process sales data for charts"""
+    df = pd.read_csv(csv_file)
+
+    # Group by quarter
+    quarterly = df.groupby('quarter').agg({
+        'revenue': 'sum',
+        'units': 'sum',
+        'customers': 'nunique'
+    }).reset_index()
+
+    return quarterly.to_dict('records')
+
+def export_chart_data(data, filename):
+    """Export data in a format compatible with SlideLang"""
+    chart_format = {
+        "data": data,
+        "generated_at": pd.Timestamp.now().isoformat()
+    }
+
+    with open(filename, 'w') as f:
+        json.dump(chart_format, f, indent=2)
+```
+:::
+
+---
+
+## Data Architecture Diagram
+
+### Analytics Processing Pipeline
+
+<<mermaid>>
+  graph LR
+      subgraph "Data Sources"
+          A[Web Analytics]
+          B[Sales CRM]
+          C[User Database]
+          D[Support Tickets]
+      end
+
+      subgraph "ETL Pipeline"
+          E[Data Ingestion]
+          F[Data Cleaning]
+          G[Data Transformation]
+          H[Data Validation]
+      end
+
+      subgraph "Storage Layer"
+          I[(Data Warehouse)]
+          J[(Data Lake)]
+          K[Cache Layer]
+      end
+
+      subgraph "Analytics & BI"
+          L[Real-time Dashboard]
+          M[Business Reports]
+          N[ML Models]
+          O[SlideLang Presentations]
+      end
+
+      A --> E
+      B --> E
+      C --> E
+      D --> E
+
+      E --> F
+      F --> G
+      G --> H
+      H --> I
+      H --> J
+
+      I --> K
+      K --> L
+      I --> M
+      J --> N
+      M --> O
+
+      style E fill:#e3f2fd
+      style I fill:#e8f5e8
+      style L fill:#fff3e0
+
+---
+
+## Visualization Capabilities Summary
+
+### Supported Diagrams:
+- ✅ **Flowcharts** - Flow diagrams and processes
+- ✅ **Sequence** - Sequence diagrams and interactions
+- ✅ **Class** - UML class diagrams
+- ✅ **State** - State diagrams and transitions
+- ✅ **Entity Relationship** - ER diagrams for databases
+- ✅ **Gantt** - Project timelines
+
+### Available Charts:
+- ✅ **Bar/Column** - Vertical and horizontal bars
+- ✅ **Line** - Single and multiple lines
+- ✅ **Pie/Doughnut** - Circular and doughnut charts
+- ✅ **Combo** - Combination of types
+- ✅ **Radar** - Radar charts for comparisons
+- ✅ **Scatter** - Scatter plots
+
+### Maps and Geolocation:
+- ✅ **World Maps** - World maps with markers
+- ✅ **Regional Maps** - Detailed regional maps
+- ✅ **Heatmaps** - Heat maps
+- ✅ **Traffic Data** - Real-time traffic information
+
+---
+
+## Next Steps
+
+To explore more advanced features:
+
+1. **Specialized Layouts** → See `examples/18_specialized_layouts/`
+2. **Interactive Elements** → See `examples/10_advanced_elements/`
+3. **Custom Themes** → See `themes/` directory
+4. **API Integration** → See documentation for dynamic variables
+
+> 🎯 **Goal**: Master all visualization tools to create impactful, professional presentations.
+
+---
+
+## Resources and Documentation
+
+- 📊 **Chart.js Docs**: [chartjs.org](https://chartjs.org)
+- 🗺️ **Leaflet Maps**: [leafletjs.com](https://leafletjs.com)
+- 📈 **Mermaid Diagrams**: [mermaid.js.org](https://mermaid.js.org)
+- 📚 **SlideLang Docs**: [docs.slidelang.com](https://docs.slidelang.com)
+
+**Visualize your data professionally with SlideLang!** 🚀

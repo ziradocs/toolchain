@@ -1,0 +1,26 @@
+---
+mode: flex
+title: "Link Test"
+theme: "default"
+---
+
+# Link Test
+
+This is a paragraph with several types of formatting:
+
+- Regular link: [Example link](https://www.example.com)
+- Text with **bold** and *italics*
+- Text with ==highlight== and ~~strikethrough~~
+- Another link: [Google](https://www.google.com)
+
+Are the links clearly visible?
+
+---
+
+## More Links
+
+Here are more link examples to test:
+
+- [GitHub](https://github.com)
+- [Stack Overflow](https://stackoverflow.com)
+- [MDN Documentation](https://developer.mozilla.org)

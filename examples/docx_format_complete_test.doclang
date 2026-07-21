@@ -1,0 +1,392 @@
+---
+title: "DOCX Format Test Document"
+author: "DocLang Team"
+date: "2025-10-21"
+theme: professional
+toc: true
+numbering: true
+---
+
+# Introduction
+
+This document tests all the basic formatting elements for generating Word (.docx) documents. The goal is to verify that the theme system is applied correctly and that all elements render professionally.
+
+## Objectives
+
+- Test text with inline formatting (bold, italic, code)
+- Verify bulleted and numbered lists
+- Validate tables with headers and content
+- Check code blocks with syntax highlighting
+- Review checklists and special blocks
+- Confirm that theme styles are applied correctly
+
+---
+
+# Text Formatting
+
+## Simple Text and Paragraphs
+
+This is a simple text paragraph. Paragraphs in DocLang are separated with blank lines and allow inline formatting such as **bold**, *italic*, and `inline code`.
+
+We can also combine formats: **bold text with *nested italic*** and inline code like `variable = value`.
+
+Links also work: [DocLang on GitHub](https://github.com/slidelang/cli) and email addresses: contact@doclang.dev
+
+## Full Inline Formatting
+
+Examples of all available inline formats:
+
+- **Simple bold**: This is bold
+- *Simple italic*: This is italic
+- `Inline code`: const MAX_VALUE = 100;
+- ***Bold and italic***: Text with both formats
+- **Bold with `code` inside**: Advanced combination
+- *Italic with **nested bold***: Another combination
+
+---
+
+# Lists
+
+## Bulleted List
+
+Main features of DocLang:
+
+- Simple, clear syntax
+- Support for multiple output formats
+  - HTML for web
+  - DOCX for Word
+  - PDF (coming soon)
+- Customizable themes
+- Variables and frontmatter
+- Advanced elements
+  - Charts and graphs
+  - Mermaid diagrams
+  - Interactive maps
+
+## Numbered List
+
+Steps to generate a document:
+
+1. Create a `.doclang` file with the content
+2. Define frontmatter with metadata
+   1. Title and author
+   2. Theme and configuration
+3. Write the document content
+4. Run the generation command
+5. Review the result
+
+## Task List (Checklist)
+
+Project status:
+
+- [x] Implement DocLang parser
+- [x] Create HTML generator
+- [x] Develop DOCX generator
+  - [x] Support for basic elements
+  - [x] Theme and style system
+  - [ ] Performance optimizations
+- [ ] Implement PDF generator
+- [ ] Create visual editor
+- [x] Complete documentation
+
+---
+
+# Tables
+
+## Simple Table
+
+| Feature | DocLang | Markdown | Word |
+|----------------|---------|----------|------|
+| Simple Syntax | ✅ | ✅ | ❌ |
+| Precise Control | ✅ | ⚠️ | ✅ |
+| Themes | ✅ | ❌ | ⚠️ |
+| Diagrams | ✅ | ❌ | ⚠️ |
+| Variables | ✅ | ❌ | ⚠️ |
+
+## Table with Numeric Data
+
+Performance comparison:
+
+| Operation | Time (ms) | Memory (MB) | CPU (%) |
+|-----------|-------------|--------------|---------|
+| Parse | 12.5 | 8.2 | 15 |
+| Render HTML | 45.3 | 32.5 | 45 |
+| Render DOCX | 156.8 | 64.1 | 68 |
+| Total | 214.6 | 104.8 | 43 |
+
+## Table with Long Content
+
+| Phase | Description | Estimated Duration |
+|------|-------------|-------------------|
+| Analysis | Requirements review, scope definition, and initial project planning | 2 weeks |
+| Design | System architecture, interface design, and component definition | 3 weeks |
+| Development | Feature implementation, unit testing, and code reviews | 8 weeks |
+| Testing | Integration testing, QA, and bug fixing | 2 weeks |
+| Deploy | Production configuration, data migration, and launch | 1 week |
+
+---
+
+# Code Blocks
+
+## JavaScript Code
+
+```javascript
+// Function to calculate factorial
+function factorial(n) {
+    if (n === 0 || n === 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+// Usage example
+const number = 5;
+const result = factorial(number);
+console.log(`The factorial of ${number} is ${result}`);
+```
+
+## Python Code
+
+```python
+# Class for user management
+class UserManager:
+    def __init__(self):
+        self.users = []
+
+    def add_user(self, name, email):
+        """Add a new user"""
+        user = {
+            'name': name,
+            'email': email,
+            'active': True
+        }
+        self.users.append(user)
+        return user
+
+    def get_active_users(self):
+        """Get active users"""
+        return [u for u in self.users if u['active']]
+
+# Usage
+manager = UserManager()
+manager.add_user("Ana Garcia", "ana@example.com")
+print(f"Active users: {len(manager.get_active_users())}")
+```
+
+## SQL Code
+
+```sql
+-- Sales analysis query
+SELECT
+    p.product_name,
+    c.category_name,
+    SUM(oi.quantity) as total_sold,
+    SUM(oi.quantity * oi.unit_price) as revenue,
+    AVG(oi.unit_price) as avg_price
+FROM
+    orders o
+    JOIN order_items oi ON o.order_id = oi.order_id
+    JOIN products p ON oi.product_id = p.product_id
+    JOIN categories c ON p.category_id = c.category_id
+WHERE
+    o.order_date BETWEEN '2025-01-01' AND '2025-12-31'
+    AND o.status = 'completed'
+GROUP BY
+    p.product_name, c.category_name
+HAVING
+    SUM(oi.quantity) > 100
+ORDER BY
+    revenue DESC
+LIMIT 10;
+```
+
+## Go Code
+
+```go
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+// Server represents a web server
+type Server struct {
+    Host string
+    Port int
+    StartTime time.Time
+}
+
+// NewServer creates a new server instance
+func NewServer(host string, port int) *Server {
+    return &Server{
+        Host: host,
+        Port: port,
+        StartTime: time.Now(),
+    }
+}
+
+// Start starts the server
+func (s *Server) Start() error {
+    fmt.Printf("Server starting on %s:%d\n", s.Host, s.Port)
+    // Server implementation...
+    return nil
+}
+
+func main() {
+    server := NewServer("localhost", 8080)
+    if err := server.Start(); err != nil {
+        fmt.Printf("Error: %v\n", err)
+    }
+}
+```
+
+---
+
+# Special Blocks
+
+## Information
+
+:::info
+**Informational Note**
+
+This is an information block that highlights important content. Info blocks are used to provide additional context or explanations relevant to the reader.
+
+They can contain **inline formatting** and multiple paragraphs.
+:::
+
+## Warning
+
+:::warning
+**⚠️ Important Warning**
+
+Warning blocks draw attention to precautions that should be taken. It's important to read these sections carefully before proceeding.
+
+Example: Always back up before updating the system.
+:::
+
+## Danger
+
+:::danger
+**🚨 Danger - Irreversible Action**
+
+This type of block indicates dangerous or destructive operations that cannot be undone. It should be used with extreme caution.
+
+**Do not run these commands in production without confirmation:**
+- `rm -rf /`
+- `DROP DATABASE production;`
+- `git push --force origin main`
+:::
+
+## Success
+
+:::success
+**✅ Successful Operation**
+
+Success blocks confirm that an action completed correctly. They are also used to show best practices and recommended patterns.
+
+The entire theme system is working correctly.
+:::
+
+## Tip
+
+:::tip
+**💡 Pro Tip**
+
+Tips provide useful tricks, optimizations, or alternative ways to perform a task. These can significantly improve productivity.
+
+**Tip:** Use variables in the frontmatter to reuse values throughout the document.
+:::
+
+---
+
+# Combining Elements
+
+## Complete Section
+
+This section combines multiple types of elements to show how they integrate in a real document.
+
+### Module Introduction
+
+The authentication system supports multiple providers:
+
+- **OAuth 2.0**: Google, Facebook, GitHub
+- **SAML 2.0**: Enterprise providers
+- **JWT**: Custom tokens
+
+### Configuration
+
+Configuration is defined in the `config.yml` file:
+
+```yaml
+authentication:
+  providers:
+    - name: google
+      client_id: ${GOOGLE_CLIENT_ID}
+      client_secret: ${GOOGLE_CLIENT_SECRET}
+      enabled: true
+
+    - name: github
+      client_id: ${GITHUB_CLIENT_ID}
+      client_secret: ${GITHUB_CLIENT_SECRET}
+      enabled: true
+```
+
+### Available Methods
+
+| Method | Description | Return |
+|--------|-------------|---------|
+| `login(provider)` | Starts a session with the specified provider | `Promise<User>` |
+| `logout()` | Closes the current session | `Promise<void>` |
+| `getUser()` | Gets the authenticated user | `User \| null` |
+| `isAuthenticated()` | Checks whether there is an active session | `boolean` |
+
+### Implementation Checklist
+
+Steps to integrate the module:
+
+- [x] Install dependencies
+- [x] Configure providers
+- [x] Implement callbacks
+- [ ] Configure protected routes
+- [ ] Add refresh tokens
+- [ ] Integration testing
+
+:::warning
+Remember to configure environment variables before deploying to production.
+:::
+
+---
+
+# Conclusions
+
+## Summary
+
+This document demonstrates DocLang's ability to generate professional Word documents with:
+
+1. Full **text formatting** (bold, italic, inline code)
+2. **Lists** with bullets, numbering, and checklists
+3. **Tables** with headers, borders, and structured content
+4. **Code** with syntax highlighting in multiple languages
+5. **Special blocks** for information, warnings, and tips
+6. **Theme system** that applies consistent styles
+
+## Next Steps
+
+- [ ] Validate styles across different themes (professional, academic, technical)
+- [ ] Add support for embedded images
+- [ ] Implement custom headers and footers
+- [ ] Add page numbering
+- [ ] Create reusable templates
+
+## Contact
+
+For more information about DocLang:
+
+- **Repository**: [https://github.com/slidelang/cli](https://github.com/slidelang/cli)
+- **Documentation**: [docs/doclang/](docs/doclang/)
+- **Email**: team@doclang.dev
+
+---
+
+*Document generated with DocLang v0.9.0 - DOCX Theme System*

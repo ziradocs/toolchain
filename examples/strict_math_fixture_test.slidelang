@@ -1,0 +1,18 @@
+---
+mode: strict
+title: "Math Element Fixture"
+---
+
+SLIDE content
+  title: "Ecuaciones"
+  TEXT
+    Ver la ecuación de Einstein a continuación.
+  <<math>>
+    E = mc^2
+    label: "eq:einstein"
+  <<end>>
+  TEXT
+    Y también sin label.
+  <<math>>
+    x^2 + y^2 = z^2
+  <<end>>

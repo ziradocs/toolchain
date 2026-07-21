@@ -1,0 +1,44 @@
+---
+mode: strict
+title: "Title and Subtitle Test in Strict Mode"
+author: "Test Suite"
+---
+
+SLIDE title
+  heading: "Main Presentation Title"
+  subtitle: "This is the descriptive subtitle"
+  logo: "assets/logo.png"
+
+SLIDE content
+  title: "Content Slide"
+  TEXT
+    This is a normal content slide with text.
+  POINTS
+    - First point
+    - Second point
+    - Third point
+
+SLIDE content
+  title: "Numbered Step List"
+  TEXT
+    Key data and statistics.
+  POINTS
+    1. Improves cardiovascular health (reduces disease by 35%)
+    2. Increases muscle and bone strength
+    3. Controls body weight
+    4. Raises daily energy levels
+    5. Lowers the risk of type 2 diabetes by up to 50%
+        a. Improves insulin sensitivity
+        b. Reduces insulin resistance
+        c. Controls glucose levels
+
+SLIDE content
+  title: "Inline Markdown Formatting"
+  TEXT
+    **Inline formatting** lets you give *emphasis* to content. We can use `code`
+    and links to [external resources](https://slidelang.com) within normal text.
+  POINTS
+    - **Important**: Core system concepts
+    - *Recommendation*: Check the [official documentation](https://docs.slidelang.com)
+    - **Command**: Run `slidelang build file.slidelang`
+    - *Technical note*: Processing uses the `markdown` pipeline internally

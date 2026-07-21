@@ -1,0 +1,49 @@
+---
+title: "Test Document - Technical Theme"
+author: "DocLang Team"  
+date: "2025-10-21"
+theme: technical
+toc: false
+numbering: false
+---
+
+# TECHNICAL DOCUMENTATION
+
+This document demonstrates the **technical** theme with monospace aesthetic.
+
+## FEATURES
+
+- Font: Courier New (monospace)
+- Terminal-like style
+- Minimal design
+- Flat aesthetics
+
+## CODE BLOCKS
+
+```bash
+#!/bin/bash
+# Deploy script
+docker build -t myapp:latest .
+docker push myapp:latest
+kubectl apply -f deployment.yaml
+```
+
+## DATA TABLE
+
+| Metric | Value | Status |
+|--------|-------|--------|
+| CPU | 45% | OK |
+| Memory | 2.5GB | OK |
+| Disk | 89% | WARNING |
+
+## SPECIAL BLOCKS
+
+:::info
+INFO: System online
+:::
+
+:::warning  
+WARNING: High disk usage detected
+:::
+
+# END OF DOCUMENT

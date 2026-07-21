@@ -1,0 +1,139 @@
+name: Contrato JSON/AST — drift check
+
+# Issue #8: el JSON Schema (schema/ast.schema.json) y los tipos TypeScript
+# (ast-types/src/generated/*.ts) son generados a partir de los structs Go en
+# core/ast. Este job los regenera y falla si el resultado diverge
+# de lo committeado, para que un cambio en los structs que no actualice el
+# contrato publicado se detecte en CI en vez de en el viewer.
+
+on:
+  pull_request:
+    paths:
+      - "core/ast/**"
+      - "core/cmd/gen-schema/**"
+      - "core/tygo.yaml"
+      - "schema/**"
+      - "ast-types/**"
+  push:
+    branches: [main]
+    paths:
+      - "core/ast/**"
+      - "core/cmd/gen-schema/**"
+      - "core/tygo.yaml"
+      - "schema/**"
+      - "ast-types/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Guard de sincronización de versión (npm vs ast.SchemaVersion): corre
+      # primero porque no depende de ningún paso posterior (solo lee archivos
+      # ya presentes tras el checkout) y es barato — así una desincronización
+      # falla rápido, antes de gastar minutos en go test/regeneración/npm
+      # build. Compara solo MAJOR.MINOR, no el string completo: el paquete
+      # npm puede tener releases PATCH propios (fixes de packaging, sin tocar
+      # los tipos generados) que schemaVersion no necesita reflejar — ver
+      # "Compatibility policy" en ast-types/README.md. GO_VERSION se obtiene
+      # compilando un programa real (no un regex sobre el source Go), para no
+      # depender del formato exacto de la línea `const SchemaVersion = ...`.
+      # Usa $RUNNER_TEMP (aislado y único por job) en vez de /tmp fijo — evita
+      # colisiones entre jobs concurrentes en runners self-hosted.
+      - name: Guard de sincronización de versión (npm vs ast.SchemaVersion)
+        run: |
+          cat > "$RUNNER_TEMP/print_schema_version.go" <<'EOF'
+          package main
+          import ("fmt"; "go.ziradocs.com/core/ast")
+          func main() { fmt.Print(ast.SchemaVersion) }
+          EOF
+          GO_VERSION=$(cd core && go run "$RUNNER_TEMP/print_schema_version.go")
+          NPM_VERSION=$(node -p "require('./ast-types/package.json').version")
+          if [ -z "$GO_VERSION" ]; then
+            echo "::error::No se pudo leer ast.SchemaVersion (core/ast/ast.go)."
+            exit 1
+          fi
+          GO_MAJOR_MINOR=$(echo "$GO_VERSION" | cut -d. -f1,2)
+          NPM_MAJOR_MINOR=$(echo "$NPM_VERSION" | cut -d. -f1,2)
+          if [ "$GO_MAJOR_MINOR" != "$NPM_MAJOR_MINOR" ]; then
+            echo "::error::ast-types/package.json version ($NPM_VERSION) no coincide en MAJOR.MINOR con" \
+                 "ast.SchemaVersion ($GO_VERSION). Si el contrato AST cambió, bumpeá ambos; si es un" \
+                 "release solo de packaging, un PATCH de npm no necesita coincidir."
+            exit 1
+          fi
+          echo "OK: $NPM_VERSION (npm) y $GO_VERSION (ast.SchemaVersion) coinciden en MAJOR.MINOR"
+
+      # Guard de sincronización (issue #61): falla si se agregó un tipo que
+      # implementa ast.Element sin registrarlo en `elementTypes`. Debe correr
+      # ANTES de regenerar: el diff-check por sí solo no lo detectaría (regenera
+      # con la misma lista incompleta ⇒ sin diff). El repo no corre `go test` en
+      # ningún otro workflow, así que se ejecuta acá explícitamente.
+      - name: Guard de completitud de elementTypes
+        working-directory: core
+        run: go test ./cmd/gen-schema/...
+
+      - name: Regenerar JSON Schema
+        working-directory: core
+        run: go run ./cmd/gen-schema -out ../schema/ast.schema.json
+
+      - name: Instalar tygo
+        run: go install github.com/gzuidhof/tygo@latest
+
+      - name: Regenerar tipos TypeScript
+        working-directory: core
+        run: tygo generate
+
+      - name: Aplicar post-procesado (unión discriminada de Element)
+        working-directory: ast-types
+        run: node scripts/postprocess.cjs
+
+      - name: Fallar si el schema o los tipos divergen de lo committeado
+        run: |
+          if ! git diff --exit-code -- schema/ast.schema.json ast-types/src/generated; then
+            echo "::error::schema/ast.schema.json o ast-types/src/generated/*.ts están desactualizados." \
+                 "Corré 'go run ./cmd/gen-schema' y 'tygo generate && node scripts/postprocess.cjs' " \
+                 "(ver README de ast-types) y committeá el resultado."
+            exit 1
+          fi
+
+      - name: Instalar dependencias de ast-types
+        working-directory: ast-types
+        run: npm ci
+
+      - name: Typecheck de ast-types
+        working-directory: ast-types
+        run: npm run build
+
+      - name: Validar ejemplos contra el schema
+        run: |
+          pip install --quiet jsonschema
+          cat > "$RUNNER_TEMP/validate_schema.py" <<'EOF'
+          import json, jsonschema, sys
+          schema = json.load(open("schema/ast.schema.json"))
+          doc = json.load(open(sys.argv[1]))
+          jsonschema.validate(instance=doc, schema=schema)
+          print("OK", sys.argv[1])
+          EOF
+          cd slidelang && go build -o "$RUNNER_TEMP/slidelang" ./cmd/slidelang
+          mkdir -p "$RUNNER_TEMP/schema-validate"
+          for f in ../examples/*/*.slidelang; do
+            base=$(basename "$f" .slidelang)
+            "$RUNNER_TEMP/slidelang" build "$f" --format json --output "$RUNNER_TEMP/schema-validate" || continue
+            if [ -f "$RUNNER_TEMP/schema-validate/${base}.json" ]; then
+              (cd .. && python3 "$RUNNER_TEMP/validate_schema.py" "$RUNNER_TEMP/schema-validate/${base}.json")
+            fi
+          done

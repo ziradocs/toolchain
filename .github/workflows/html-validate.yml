@@ -1,0 +1,130 @@
+name: Validación de HTML sobre golden files
+
+# Issue #13: los bugs estructurales del generador de slidelang (<div>
+# desbalanceados, IDs duplicados, <p><h3> inválido — ver issue #12, ya
+# cerrado) son exactamente el tipo de defecto que un validador HTML
+# determinista atrapa. Este job genera el HTML de todos los ejemplos
+# .slidelang del repo y lo valida contra html-validate, para que una
+# regresión del generador falle el build de CI en vez de descubrirse
+# como "el viewer renderiza raro" río abajo.
+#
+# Issue #173: el mismo defecto existía en el generador de doclang
+# (document_html.go, que comparte los renderers de elemento de
+# renderer/html.go con slidelang) — 195 errores reales de html-validate
+# (element-permitted-content, close-order, void-style,
+# no-implicit-button-type, wcag/h63, no-trailing-whitespace) sobre las 20
+# fixtures .doclang, nunca atrapados porque este job solo cubría
+# .slidelang. El job doclang-html-validate de abajo espeja el mismo
+# patrón para que una regresión futura del lado doclang falle CI igual
+# que ya pasa del lado slidelang.
+
+on:
+  pull_request:
+    paths:
+      - "core/**"
+      - "!core/cmd/**"
+      - "slidelang/**"
+      - "!slidelang/internal/serializer/**"
+      - "doclang/**"
+      - "examples/**"
+      - ".htmlvalidate.json"
+      - ".github/workflows/html-validate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "core/**"
+      - "!core/cmd/**"
+      - "slidelang/**"
+      - "!slidelang/internal/serializer/**"
+      - "doclang/**"
+      - "examples/**"
+      - ".htmlvalidate.json"
+      - ".github/workflows/html-validate.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  html-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Instalar html-validate
+        run: npm install --no-save html-validate@11
+
+      - name: Build de la CLI slidelang
+        working-directory: slidelang
+        run: go build -o /tmp/slidelang ./cmd/slidelang
+
+      - name: Generar HTML de todos los ejemplos .slidelang
+        run: |
+          mkdir -p /tmp/html-validate-out
+          skipped=0
+          built=0
+          while IFS= read -r -d '' f; do
+            base=$(basename "$f" .slidelang)
+            if /tmp/slidelang build "$f" --format html --output "/tmp/html-validate-out/${base}" > /dev/null 2>&1; then
+              built=$((built+1))
+            else
+              # Build/lint failures pre-existentes en algunos fixtures (issue #95)
+              # no son el foco de este gate — se listan pero no bloquean el job,
+              # igual que el "|| continue" ya establecido en schema-drift.yml.
+              echo "::warning::No se pudo generar HTML para $f (build/lint falló) — omitido de la validación HTML, ver issue #95"
+              skipped=$((skipped+1))
+            fi
+          done < <(find examples -name '*.slidelang' -print0)
+          echo "Generados: $built, omitidos: $skipped"
+
+      - name: Validar HTML generado
+        run: npx html-validate --config="${{ github.workspace }}/.htmlvalidate.json" "/tmp/html-validate-out/**/*.html"
+
+  doclang-html-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Instalar html-validate
+        run: npm install --no-save html-validate@11
+
+      - name: Build de la CLI doclang
+        working-directory: doclang
+        run: go build -o /tmp/doclang ./cmd/doclang
+
+      - name: Generar HTML de todos los ejemplos .doclang
+        run: |
+          mkdir -p /tmp/doclang-html-validate-out
+          skipped=0
+          built=0
+          while IFS= read -r -d '' f; do
+            base=$(basename "$f" .doclang)
+            if /tmp/doclang build "$f" --format html --output "/tmp/doclang-html-validate-out/${base}" > /dev/null 2>&1; then
+              built=$((built+1))
+            else
+              echo "::warning::No se pudo generar HTML para $f (build falló) — omitido de la validación HTML"
+              skipped=$((skipped+1))
+            fi
+          done < <(find examples -name '*.doclang' -print0)
+          echo "Generados: $built, omitidos: $skipped"
+
+      - name: Validar HTML generado
+        run: npx html-validate --config="${{ github.workspace }}/.htmlvalidate.json" "/tmp/doclang-html-validate-out/**/*.html"

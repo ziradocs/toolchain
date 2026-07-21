@@ -1,0 +1,4 @@
+# Build output — regenerate with ./build.sh. Not committed: it's a ~12MB
+# binary derived entirely from slidelang-cli/cmd/wasm, and wasm_exec.js must
+# stay paired with whatever Go toolchain produced it.
+slidelang.wasm

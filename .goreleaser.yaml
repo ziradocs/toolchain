@@ -1,0 +1,96 @@
+version: 2
+
+project_name: toolchain
+
+# Monorepo con go.work solo para desarrollo local (gitignored — ver
+# CLAUDE.md): 2 builds independientes, cada uno con su propio `dir:` para
+# respetar el go.mod/go.sum de su módulo publicado — mismo criterio que
+# ci.yml/govulncheck.yml/gosec.yml/codeql.yml.
+builds:
+  - id: slidelang
+    dir: slidelang
+    main: ./cmd/slidelang
+    binary: slidelang
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    # main.version es ahora una var package-level inyectable (no un string
+    # literal en el struct de cobra) — ver el commit que precede a este.
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+  - id: doclang
+    dir: doclang
+    main: ./cmd/doclang
+    binary: doclang
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: slidelang
+    ids: [slidelang]
+    name_template: >-
+      slidelang_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+  - id: doclang
+    ids: [doclang]
+    name_template: >-
+      doclang_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+
+# Issue #43: SBOM por artefacto de release, vía el soporte nativo de
+# goreleaser (syft internamente — el workflow de release instala el binario
+# de syft antes de correr goreleaser).
+sboms:
+  - id: archives
+    artifacts: archive
+
+# Firma keyless (Sigstore/cosign vía OIDC de GitHub Actions) del archivo de
+# checksums — cubre transitivamente todos los binarios/archivos listados en
+# él sin firmar cada artefacto por separado. No requiere gestionar una clave
+# privada de firma.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+      - --yes
+    artifacts: checksum
+
+release:
+  github:
+    owner: ziradocs
+    name: toolchain
+
+changelog:
+  sort: asc
+  filters:
+    # (\(.+\))? — este repo usa conventional commits CON scope (ej.
+    # "chore(deps): bump ...", "build(deps-dev): bump ...", ver git log real)
+    # — un patrón anclado sin esto ("^chore:") nunca matchea "chore(deps):",
+    # así que cada bump de dependabot se colaría al changelog del release.
+    exclude:
+      - "^docs(\\(.+\\))?:"
+      - "^test(\\(.+\\))?:"
+      - "^chore(\\(.+\\))?:"
+      - "^build(\\(.+\\))?:"
+      - "^Merge pull request"

@@ -1,0 +1,119 @@
+---
+mode: flex
+title: "CloudSecure AI — Series A Pitch"
+author: "Maria Rodriguez, CEO"
+theme: "startup-tech"
+variables:
+  company: "CloudSecure AI"
+  round: "Series A"
+---
+
+# {{company}}
+## Predictive cybersecurity for mid-market companies
+### Maria Rodriguez, CEO — {{round}} Pitch
+
+---
+
+## The Problem
+
+::: danger
+**Traditional security is reactive.** By the time an alert fires, the
+breach has usually already happened.
+:::
+
+- 43% of cyberattacks target small and mid-sized businesses
+- Average breach cost: $4.45M
+- Average time to detect a breach: 277 days
+
+---
+
+## Our Solution
+
+<<mermaid>>
+  graph LR
+      A[Network Traffic] --> B[AI Analysis Engine]
+      B --> C[Threat Prediction]
+      C --> D[Automated Response]
+      D --> E[Continuous Learning]
+      E --> B
+
+      style B fill:#3498DB
+      style C fill:#E74C3C
+      style D fill:#27AE60
+
+::: success
+**Key insight**: predicting an attack 72 hours in advance turns incident
+response into routine maintenance.
+:::
+
+---
+
+## Traditional vs. {{company}}
+
+::: grid
+
+::: column
+**Traditional Security**
+- Reactive — responds after the attack
+- 95% manual threat analysis
+- 277 days average detection time
+:::
+
+::: column
+**{{company}}**
+- Predictive — flags risk before impact
+- 98% automated analysis
+- 4.2 hours average detection time
+:::
+
+:::
+
+---
+
+## 18-Month Pilot Results
+
+<<chart: line>>
+  data: [
+    ["Month 0", 45, 96],
+    ["Month 6", 18, 48],
+    ["Month 12", 7, 12],
+    ["Month 18", 2, 4.2]
+  ]
+  series: ["Security Incidents", "Detection Time (hours)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Incidents and Detection Time Over the Pilot"
+
+> "CloudSecure AI cut our security incidents by 96% and saved an estimated
+> $2.3M in avoided damages."
+>
+> **— CTO, pilot customer (name withheld under NDA)**
+
+---
+
+## Market Opportunity
+
+| Segment | 2024 Size | Growth | Our Target |
+|---------|-----------|--------|------------|
+| Enterprise Security | $15.2B | +12.3% | $450M |
+| Mid-Market Security | $6.8B | +18.7% | $220M |
+| SMB Security | $3.1B | +22.4% | $95M |
+
+---
+
+## The Ask
+
+::: tip
+**Raising $8M Series A** to expand the detection model to three new
+verticals and grow the go-to-market team from 4 to 14.
+:::
+
+- [x] Product validated across an 18-month pilot
+- [x] Two design partners signed for expansion
+- [ ] Close the round by end of quarter
+- [ ] Hire VP of Sales
+
+**Contact**: maria@cloudsecure.ai

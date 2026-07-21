@@ -1,0 +1,310 @@
+---
+mode: flex
+title: "Introduction to Machine Learning"
+author: "Dr. Sarah Kim"
+date: "2025-01-15"
+output:
+  format: [html, pdf]
+  path: "./course-materials"
+variables:
+  course: "CS 4480 - Machine Learning Fundamentals"
+  semester: "Spring 2025"
+  university: "Tech University"
+  students: "127"
+  duration: "16 weeks"
+  lab_sessions: "8"
+---
+
+# Introduction to Machine Learning
+## {{course}} | {{semester}}
+
+**Instructor:** Dr. Sarah Kim  
+**Duration:** {{duration}} | **Students:** {{students}}
+
+*Welcome to the fascinating world of artificial intelligence*
+
+@notes:
+- Enthusiastic opening - ML is exciting field
+- Establish connection with students early
+- Class size allows for interactive discussions
+- Duration: 75 minutes with break
+
+---
+
+# What Is Machine Learning?
+
+**The science of getting computers to learn without explicit programming**
+
+::: info
+**Arthur Samuel (1959):**
+*"The field of study that gives computers the ability to learn without being explicitly programmed."*
+:::
+
+**Core Question:** How can machines improve their performance through experience?
+
+@notes:
+- Start with foundational definition
+- Arthur Samuel coined the term - historical context
+- "Without explicit programming" is key concept
+- Connect to students' intuitive understanding
+
+---
+
+# Machine Learning in Your Daily Life
+
+**You interact with ML algorithms dozens of times each day:**
+
+- **Netflix** recommendations for your next show
+- **Spotify** discovers music you might love  
+- **Gmail** filters spam from your inbox
+- **Google Maps** finds the fastest route home
+- **Amazon** suggests products you want
+- **Your phone** recognizes your face to unlock
+
+**Question for class:** What other ML examples can you think of?
+
+@notes:
+- Make it relatable - they use these daily
+- Start with familiar examples before abstract concepts
+- Interactive element - get students thinking and participating
+- Build list on whiteboard with student suggestions
+
+---
+
+# Three Types of Machine Learning
+
+<<mermaid>>
+  flowchart TD
+      A[Machine Learning] --> B[Supervised Learning]
+      A --> C[Unsupervised Learning]
+      A --> D[Reinforcement Learning]
+      
+      B --> E["Labels/Examples<br/>📊 Predict outcomes"]
+      C --> F["Find patterns<br/>🔍 Discover structure"]
+      D --> G["Learn through rewards<br/>🎮 Optimize actions"]
+      
+      style A fill:#e3f2fd
+      style B fill:#e8f5e8
+      style C fill:#fff3e0
+      style D fill:#f3e5f5
+
+**Each approach solves different types of problems**
+
+@notes:
+- Visual helps students see relationships
+- Icons make types memorable
+- "Different problems" - will elaborate on each
+- Foundation for rest of course content
+
+---
+
+# Supervised Learning Explained
+
+**Learning with a teacher who provides correct answers**
+
+<<chart: scatter>>
+  data: [
+    [{x: 1200, y: 180}, {x: 1400, y: 210}, {x: 1600, y: 240}, {x: 1800, y: 270}, {x: 2000, y: 300}, {x: 2200, y: 330}, {x: 2400, y: 360}]
+  ]
+  labels: ["House Size vs Price"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Supervised Learning Example: Predicting House Prices"
+    scales:
+      x:
+        title:
+          display: true
+          text: "House Size (sq ft)"
+      y:
+        title:
+          display: true
+          text: "Price ($K)"
+
+**Goal:** Learn patterns from examples to predict new outcomes
+
+@notes:
+- "Teacher" analogy helps students understand concept
+- House price example is intuitive for everyone
+- Show how algorithm learns from data points
+- Prediction is the key outcome of supervised learning
+
+---
+
+# Unsupervised Learning Explored
+
+**Finding hidden patterns without knowing what to look for**
+
+<<chart: scatter>>
+  data: [
+    [{x: 25, y: 50}, {x: 30, y: 55}, {x: 28, y: 52}],
+    [{x: 45, y: 30}, {x: 50, y: 35}, {x: 48, y: 32}],
+    [{x: 70, y: 80}, {x: 75, y: 85}, {x: 72, y: 82}]
+  ]
+  labels: ["Group A", "Group B", "Group C"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Customer Segmentation Example"
+    scales:
+      x:
+        title:
+          display: true
+          text: "Age"
+      y:
+        title:
+          display: true
+          text: "Income ($K)"
+
+**Example:** Grouping customers by shopping behavior
+
+@notes:
+- "Hidden patterns" emphasizes discovery aspect
+- Customer segmentation relatable business example
+- Algorithm finds groups we didn't know existed
+- No "right answer" - exploration is the goal
+
+---
+
+# Reinforcement Learning Concepts
+
+**Learning through trial, error, and rewards**
+
+<<mermaid>>
+  flowchart LR
+      A[Agent] --> B[Action]
+      B --> C[Environment]
+      C --> D[Reward]
+      C --> E[New State]
+      D --> A
+      E --> A
+      
+      style A fill:#4caf50,color:#fff
+      style D fill:#ff9800,color:#fff
+
+**Famous Examples:**
+- AlphaGo defeats world champion at Go
+- Self-driving cars learn to navigate
+- Game AI masters complex strategies
+
+@notes:
+- Agent-environment interaction is core concept
+- Trial and error resonates with how humans learn
+- AlphaGo example shows power of RL
+- Self-driving cars relevant current application
+
+---
+
+# The Machine Learning Process
+
+**Six essential steps from problem to solution:**
+
+1. **Define the Problem** - What are we trying to predict?
+2. **Collect Data** - Gather relevant, quality information
+3. **Prepare Data** - Clean, format, and organize
+4. **Choose Algorithm** - Select appropriate ML technique
+5. **Train Model** - Let algorithm learn from data
+6. **Evaluate & Deploy** - Test performance and use
+
+**Each step is crucial for success**
+
+@notes:
+- Process framework for entire course
+- "Define problem" often overlooked but critical
+- Data quality determines model quality
+- Evaluation prevents overconfident conclusions
+
+---
+
+# Data: The Fuel of Machine Learning
+
+**Quality data is more important than fancy algorithms**
+
+::: warning
+**Common Data Challenges:**
+- **Missing values** - Incomplete information
+- **Noisy data** - Measurement errors
+- **Biased samples** - Unrepresentative data
+- **Too little data** - Insufficient examples
+:::
+
+> *"Garbage in, garbage out"*  
+> **— Programming wisdom that applies perfectly to ML**
+
+@notes:
+- "Fuel" metaphor - ML needs data like cars need gas
+- Address common student misconception about algorithms vs data
+- Real-world data is messy - prepare students for reality
+- "Garbage in, garbage out" - memorable warning
+
+---
+
+# Algorithm Families Overview
+
+<<chart: doughnut>>
+  data: [30, 25, 20, 15, 10]
+  labels: ["Tree-based", "Neural Networks", "Linear Models", "Clustering", "Others"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Popular Algorithm Types in Industry"
+      legend:
+        position: bottom
+
+**Different algorithms excel at different problems**
+
+@notes:
+- Industry usage gives real-world perspective
+- Tree-based includes Random Forest, XGBoost
+- Neural Networks include deep learning
+- "Different problems" - will explore throughout course
+
+---
+
+# Model Evaluation Fundamentals
+
+**How do we know if our model is actually good?**
+
+| Metric | Purpose | Best For |
+|--------|---------|----------|
+| **Accuracy** | Overall correctness | Balanced datasets |
+| **Precision** | Avoiding false positives | Spam detection |
+| **Recall** | Catching all positives | Medical diagnosis |
+| **F1-Score** | Balance precision/recall | General use |
+
+**Key Insight:** Never trust a model you haven't tested properly
+
+@notes:
+- Evaluation prevents overconfidence
+- Different metrics for different priorities
+- Medical diagnosis example - can't miss diseases
+- Spam detection - don't block important emails
+
+---
+
+# Questions & Discussion
+
+**What aspects of machine learning are you most curious about?**
+
+::: success
+**Open Discussion Topics:**
+- Career applications in your field
+- Ethical implications of AI
+- Technical challenges that interest you
+- Real-world problems you'd like to solve
+:::
+
+**Remember:** No question is too basic or too advanced
+
+@notes:
+- End with engagement to gauge student interests
+- Career applications help with motivation
+- Ethics discussion increasingly important
+- Encourage question-asking throughout course
+- Create inclusive environment for all skill levels

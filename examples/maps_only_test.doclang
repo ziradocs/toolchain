@@ -1,0 +1,126 @@
+---
+mode: flex
+doctype: document
+title: "Maps Offline Test - Only Maps"
+---
+
+# Infrastructure and Deployment
+
+## Global Server Distribution
+
+### Presence in Data Centers Worldwide
+
+<<map>>
+  type: world
+  markers:
+    - lat: 40.7128
+      lng: -74.0060
+      label: "US-East (NYC)"
+      value: 45
+      color: "#2196F3"
+      size: "large"
+      details: "Primary DC - 45 nodes"
+    - lat: 37.7749
+      lng: -122.4194
+      label: "US-West (SF)"
+      value: 38
+      color: "#2196F3"
+      size: "large"
+      details: "Secondary DC - 38 nodes"
+    - lat: 51.5074
+      lng: -0.1278
+      label: "Europe (London)"
+      value: 32
+      color: "#4CAF50"
+      size: "medium"
+      details: "EU Primary - 32 nodes"
+    - lat: 50.1109
+      lng: 8.6821
+      label: "Europe (Frankfurt)"
+      value: 28
+      color: "#4CAF50"
+      size: "medium"
+      details: "EU Secondary - 28 nodes"
+    - lat: 35.6762
+      lng: 139.6503
+      label: "Asia (Tokyo)"
+      value: 25
+      color: "#FF9800"
+      size: "medium"
+      details: "APAC Primary - 25 nodes"
+    - lat: 1.3521
+      lng: 103.8198
+      label: "Asia (Singapore)"
+      value: 22
+      color: "#FF9800"
+      size: "medium"
+      details: "APAC Secondary - 22 nodes"
+    - lat: -33.8688
+      lng: 151.2093
+      label: "Oceania (Sydney)"
+      value: 15
+      color: "#E91E63"
+      size: "small"
+      details: "APAC Tertiary - 15 nodes"
+    - lat: -23.5505
+      lng: -46.6333
+      label: "LATAM (São Paulo)"
+      value: 18
+      color: "#9C27B0"
+      size: "small"
+      details: "LATAM Primary - 18 nodes"
+  heatmap: true
+  zoom: 2
+
+---
+
+## Regional Infrastructure - United States
+
+### Data Centers and Offices in North America
+
+<<map>>
+  type: region
+  center: [39.8283, -98.5795]
+  markers:
+    - lat: 37.7749
+      lng: -122.4194
+      label: "San Francisco HQ"
+      value: 250
+      color: "#2196F3"
+      size: "large"
+      details: "Headquarters + DC1"
+    - lat: 40.7128
+      lng: -74.0060
+      label: "New York DC"
+      value: 180
+      color: "#4CAF50"
+      size: "large"
+      details: "Primary Data Center"
+    - lat: 41.8781
+      lng: -87.6298
+      label: "Chicago Office"
+      value: 85
+      color: "#FF9800"
+      size: "medium"
+      details: "Regional Office"
+    - lat: 47.6062
+      lng: -122.3321
+      label: "Seattle R&D"
+      value: 120
+      color: "#E91E63"
+      size: "medium"
+      details: "Research Center"
+    - lat: 30.2672
+      lng: -97.7431
+      label: "Austin Tech Hub"
+      value: 95
+      color: "#9C27B0"
+      size: "medium"
+      details: "Development Center"
+  zoom: 4
+
+---
+
+# Testing Complete
+
+Maps rendering test finished.

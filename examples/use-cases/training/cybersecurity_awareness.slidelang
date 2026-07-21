@@ -1,0 +1,563 @@
+---
+mode: flex
+title: "Cybersecurity Awareness Training"
+author: "IT Security Team"
+date: "2025-01-15"
+output:
+  format: [html, pdf]
+  path: "./training-materials"
+variables:
+  company: "SecureCorpPlus"
+  training_duration: "90 minutes"
+  participants: "250"
+  compliance_standard: "ISO 27001"
+  incident_cost: "$4.88M"
+  attack_frequency: "39 seconds"
+  success_rate: "95%"
+---
+
+# Cybersecurity Awareness Training
+## Protecting Our Digital Assets Together
+
+**{{company}} Security Training Program**  
+**Duration:** {{training_duration}} | **Participants:** {{participants}}
+
+*Your vigilance is our strongest defense*
+
+@notes:
+- Emphasize personal responsibility from start
+- Interactive session - encourage questions
+- Real examples from recent incidents
+- Duration: 90 minutes with 15-min break
+
+---
+
+# Why This Training Matters
+
+**Every 39 seconds, a cyber attack occurs somewhere in the world**
+
+::: danger
+**The Real Cost of Cyber Incidents:**
+- Average data breach cost: {{incident_cost}}
+- 68% of breaches involve human error
+- 95% of successful attacks exploit employee mistakes
+- Recovery time: 6-12 months on average
+:::
+
+**You are both the target and the solution**
+
+@notes:
+- Statistics updated monthly from industry reports
+- Human error emphasis - not blame, but awareness
+- "Target and solution" frames personal agency
+- Cost figure gets attention from all departments
+
+---
+
+# Current Threat Landscape
+
+**Cybercriminals are becoming more sophisticated**
+
+<<chart: doughnut>>
+  data: [35, 28, 22, 15]
+  labels: ["Phishing Attacks", "Ransomware", "Social Engineering", "Malware"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Most Common Attack Types (2024)"
+      legend:
+        position: bottom
+      datalabels:
+        display: true
+        formatter: function(value) { return value + '%'; }
+
+**Phishing remains the #1 attack vector targeting employees**
+
+@notes:
+- Phishing most relevant to daily employee experience
+- Numbers from FBI's Internet Crime Report
+- Social engineering overlaps with phishing
+- Focus training on most common threats
+
+---
+
+# Real Attack Example: The Email That Fooled Everyone
+
+**Last month, a competitor lost $2.3M to this email:**
+
+::: warning
+**Subject:** Urgent: Update Your Payroll Information
+
+**From:** hr-payroll@[company-name].com *(Note the subtle misspelling)*
+
+"Dear Employee,
+
+Due to new federal regulations, you must update your payroll information by 5 PM today to avoid payment delays. Click here to access the secure portal:
+
+[Update Payroll Info - URGENT]
+
+Thank you,
+HR Department"
+:::
+
+**What made this convincing? What were the red flags?**
+
+@notes:
+- Real incident (anonymized)
+- Interactive - ask participants to identify red flags
+- Urgency and authority create pressure
+- Subtle misspelling easy to miss
+- Discuss red flags after audience input
+
+---
+
+# Phishing Red Flags
+
+**How to spot suspicious emails:**
+
+::: success
+**Red Flag Checklist:**
+- ✅ Urgent language ("act now," "immediate action")
+- ✅ Unexpected requests for personal information
+- ✅ Generic greetings ("Dear Customer")
+- ✅ Suspicious sender addresses
+- ✅ Poor grammar or spelling errors
+- ✅ Mismatched or suspicious links
+- ✅ Unexpected attachments
+:::
+
+**When in doubt, verify through a separate channel**
+
+@notes:
+- Go through each red flag with examples
+- Emphasize verification as key action
+- "Separate channel" = phone call, in-person
+- Practice with sample emails during training
+
+---
+
+# Social Engineering Tactics
+
+**How attackers manipulate human psychology:**
+
+<<mermaid>>
+  flowchart LR
+      A[Attacker] --> B[Research Target]
+      B --> C[Build Trust]
+      C --> D[Create Urgency]
+      D --> E[Request Action]
+      E --> F[Compromise]
+      
+      style A fill:#f44336,color:#fff
+      style C fill:#ff9800,color:#fff
+      style F fill:#f44336,color:#fff
+
+**Common Manipulation Techniques:**
+- **Authority:** Impersonating executives or IT
+- **Urgency:** Creating false deadlines
+- **Fear:** Threatening consequences
+- **Curiosity:** Intriguing subject lines
+
+@notes:
+- Social engineering exploits trust and emotions
+- Authority example: "CEO needs bank info immediately"
+- Urgency example: "Account closes in 1 hour"
+- Fear example: "Security breach - verify now"
+
+---
+
+# Password Security Best Practices
+
+**Your password is your first line of defense**
+
+| Weak Password | Strong Password | Why It's Better |
+|---------------|-----------------|-----------------|
+| password123 | Tr@il$2024Run! | Length + complexity |
+| john2024 | M0rning$C0ffee#9 | Unpredictable pattern |
+| qwerty | B@sketb@ll#Finals | Special characters |
+
+**Password Manager Recommended: All employees get free access**
+
+::: info
+**{{company}} Password Policy:**
+- Minimum 12 characters
+- Mix of letters, numbers, symbols
+- Unique for each account
+- Change if suspected compromise
+:::
+
+@notes:
+- Demonstrate password strength checker
+- Company provides password manager license
+- Emphasize unique passwords for each account
+- Password manager removes burden of memorization
+
+---
+
+# Multi-Factor Authentication (MFA)
+
+**Adding an extra security layer**
+
+<<chart: bar>>
+  data: [[1, 98, 99.9]]
+  labels: ["Password Only", "Password + SMS", "Password + App"]
+  series: ["Security Level (%)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Account Security by Authentication Method"
+    scales:
+      y:
+        beginAtZero: true
+        max: 100
+
+**MFA blocks 99.9% of automated attacks**
+
+@notes:
+- Visual impact of MFA effectiveness
+- SMS better than nothing but app-based preferred
+- Biometrics even better when available
+- Company policy requires MFA for all accounts
+
+---
+
+# Wi-Fi and Remote Work Security
+
+**Staying secure outside the office**
+
+::: danger
+**Public Wi-Fi Risks:**
+- Unencrypted networks expose data
+- Fake hotspots steal credentials
+- Man-in-the-middle attacks
+- Malware distribution
+:::
+
+**Best Practices for Remote Work:**
+- Use company VPN always
+- Avoid public Wi-Fi for sensitive work
+- Keep software updated
+- Lock screen when away
+- Use privacy screens in public
+
+@notes:
+- Many employees work remotely regularly
+- Public Wi-Fi particularly dangerous
+- VPN mandatory for company access
+- Physical security important too
+
+---
+
+# Physical Security Awareness
+
+**Digital security extends to physical spaces**
+
+**Office Security Measures:**
+- Never hold doors for strangers (tailgating)
+- Display visitor badges clearly
+- Lock workstations when away
+- Keep sensitive documents secure
+- Report suspicious individuals
+
+**Home Office Security:**
+- Position screens away from windows
+- Use privacy screens for video calls
+- Secure documents and devices
+- Install security updates promptely
+
+@notes:
+- Physical access often easier than digital
+- Tailgating very common attack vector
+- Home office security often overlooked
+- Privacy screens protect from shoulder surfing
+
+---
+
+# Incident Response Procedure
+
+**What to do if you suspect a security incident:**
+
+<<mermaid>>
+  flowchart TD
+      A[Suspicious Activity Detected] --> B[Do NOT Click/Download]
+      B --> C[Disconnect Network]
+      C --> D[Report to IT Security]
+      D --> E[Document What Happened]
+      E --> F[Follow IT Instructions]
+      
+      style A fill:#ff9800,color:#fff
+      style D fill:#2196f3,color:#fff
+      style F fill:#4caf50,color:#fff
+
+**Report First, Investigate Later**
+
+::: info
+**Security Team Contacts:**
+- **Email:** security@{{company}}.com
+- **Phone:** ext. 9911 (internal) | 555-SEC-HELP
+- **Urgent:** Page security on-call team
+:::
+
+@notes:
+- Speed crucial in incident response
+- Don't click links if suspicious
+- Network disconnect prevents spread
+- IT security trained for incident handling
+
+---
+
+# Mobile Device Security
+
+**Protecting company data on personal devices**
+
+**Required Security Measures:**
+- Screen lock with PIN/password/biometric
+- Automatic lock after 5 minutes
+- Regular OS and app updates
+- Only download apps from official stores
+- Report lost/stolen devices immediately
+
+<<chart: radar>>
+  data: [[9, 7, 8, 6, 9]]
+  labels: ["Screen Lock", "OS Updates", "App Store Only", "Remote Wipe", "Data Encryption"]
+  series: ["Security Effectiveness (1-10)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Mobile Security Controls Effectiveness"
+    scales:
+      r:
+        beginAtZero: true
+        max: 10
+
+@notes:
+- BYOD policy requires security measures
+- Screen lock most important basic control
+- Official app stores filter malicious apps
+- Remote wipe capability for lost devices
+
+---
+
+# Safe Web Browsing
+
+**Recognizing and avoiding malicious websites**
+
+**Warning Signs of Malicious Sites:**
+- No HTTPS lock icon in address bar
+- Excessive pop-ups and ads
+- Requests to download software
+- Too-good-to-be-true offers
+- Urgent warnings about computer problems
+
+**Browser Security Tips:**
+- Keep browsers updated
+- Use reputable antivirus software
+- Be cautious with downloads
+- Verify SSL certificates for sensitive sites
+- Use ad blockers on personal devices
+
+@notes:
+- HTTPS crucial for sensitive data
+- Pop-ups often contain malware
+- Fake security warnings common scam
+- Browser updates include security patches
+
+---
+
+# Email Security Best Practices
+
+**Protecting against email-based threats**
+
+::: grid
+::: column
+**Before Opening Emails:**
+- Verify sender identity
+- Check for urgent language
+- Examine links carefully
+- Scan attachments
+:::
+
+::: column
+**When Responding:**
+- Use encryption for sensitive data
+- BCC for large recipient lists
+- Double-check recipients
+- Keep company data internal
+:::
+:::
+
+**Remember: Email is not private communication**
+
+@notes:
+- Verification prevents impersonation
+- Urgent language creates pressure
+- Encryption required for sensitive data
+- BCC prevents email harvesting
+
+---
+
+# Compliance and Legal Requirements
+
+**Meeting {{compliance_standard}} and regulatory standards**
+
+**Your Role in Compliance:**
+- Follow security policies consistently
+- Complete required training annually
+- Report security incidents promptly
+- Maintain confidentiality of customer data
+- Document security procedures
+
+**Consequences of Non-Compliance:**
+- Regulatory fines for the company
+- Personal liability in some cases
+- Damage to company reputation
+- Loss of customer trust
+
+@notes:
+- Compliance is everyone's responsibility
+- Annual training required for certification
+- Customer data has special protection requirements
+- Fines can be substantial for violations
+
+---
+
+# Interactive Exercise: Spot the Threat
+
+**Let's practice with real examples:**
+
+::: warning
+**Scenario 1:** You receive an email from "IT Support" asking you to verify your password by replying to the email. The email uses your company logo and looks official.
+
+**Question:** What should you do?
+:::
+
+**Take 2 minutes to discuss with your neighbor, then we'll hear responses**
+
+@notes:
+- Interactive element keeps engagement high
+- Real scenarios more effective than abstract
+- Pair discussion allows shy participants to contribute
+- Multiple scenarios prepared for practice
+
+---
+
+# Creating a Security-Conscious Culture
+
+**How we build security into everything we do**
+
+**Individual Actions:**
+- Think before you click
+- Verify unusual requests
+- Report suspicious activity
+- Keep learning about new threats
+- Share knowledge with colleagues
+
+**Team Actions:**
+- Regular security discussions
+- Peer accountability
+- Celebrate good security practices
+- Learn from incidents without blame
+- Support security initiatives
+
+@notes:
+- Security is cultural, not just technical
+- Individual and team levels both important
+- Positive reinforcement more effective than punishment
+- Learning from mistakes improves everyone
+
+---
+
+# Resources and Support
+
+**Where to get help and learn more**
+
+::: success
+**Available Resources:**
+- **Security Portal:** company.com/security
+- **Monthly Security Tips:** Email newsletter
+- **Lunch & Learns:** Second Tuesday each month
+- **Security Champions:** Volunteers in each department
+- **Anonymous Reporting:** Report concerns safely
+:::
+
+**Questions? Contact the security team anytime**
+
+@notes:
+- Multiple learning channels accommodate preferences
+- Security champions create peer support
+- Anonymous reporting removes fear of blame
+- Open door policy for questions
+
+---
+
+# Knowledge Check Quiz
+
+**Let's test what we've learned:**
+
+<<quiz>>
+question: "What percentage of successful cyber attacks exploit human error?"
+options:
+  - "25%"
+  - "50%"
+  - "68%"
+  - "95%"
+answer: 2
+explanation: "68% of breaches involve human error, making awareness training crucial for cybersecurity."
+<</quiz>>
+
+**More questions on your completion assessment**
+
+@notes:
+- Quiz reinforces key statistics
+- Immediate feedback helps retention
+- Full assessment required for completion certificate
+- Passing score 80% required
+
+---
+
+# Action Items and Next Steps
+
+**What you need to do after this training:**
+
+1. **Complete the assessment** (80% to pass)
+2. **Enable MFA** on all work accounts this week
+3. **Install password manager** and migrate passwords
+4. **Review and update** device security settings
+5. **Schedule quarterly** security awareness refresher
+
+**Completion deadline: End of this week**
+
+@notes:
+- Clear action items with deadlines
+- MFA enablement can be done immediately
+- Password manager setup may need IT help
+- Quarterly refreshers maintain awareness
+
+---
+
+# Thank You and Q&A
+
+**Your commitment to security protects everyone**
+
+::: info
+**Remember:**
+- Security is everyone's responsibility
+- When in doubt, ask for help
+- Report incidents immediately
+- Stay curious about new threats
+- Protect {{company}} and our customers
+:::
+
+**Questions about anything we've covered?**
+
+@notes:
+- End on positive, empowering note
+- Reinforce key messages
+- Open floor for any questions
+- Thank participants for attention and commitment

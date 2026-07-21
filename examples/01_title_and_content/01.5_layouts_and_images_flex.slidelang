@@ -1,0 +1,250 @@
+---
+mode: flex
+title: "Creative Portfolio - Design and Visual Media"
+author: "Creative Studio TechFlow"
+theme: "creative-portfolio"
+variables:
+  studio_name: "TechFlow Creative"
+  project_count: "150+"
+  client_satisfaction: "98%"
+  years_experience: "8 years"
+---
+
+---
+layout: title
+---
+
+# {{studio_name}}
+## Design and Visual Media Portfolio
+
+![Creative Portfolio](assets/creative-logo.png)
+
+**{{project_count}} projects completed**
+*{{client_satisfaction}} client satisfaction • {{years_experience}} of experience*
+
+---
+layout: section
+---
+
+# Our Specialty
+## Visual design that tells stories
+
+We create memorable visual experiences by combining strategic design, advanced technology, and effective storytelling for brands that want to stand out.
+
+---
+layout: two_columns
+---
+
+# Design Services
+
+## Left Column: Digital Design
+- **Responsive Web Design**
+  - Modern, functional websites
+  - E-commerce and complex platforms
+  - Interactive web applications
+
+- **Digital Branding**
+  - Complete visual identity
+  - Brand guidelines
+  - Scalable design systems
+
+- **UI/UX Design**
+  - Intuitive interfaces
+  - Optimized user experiences
+  - Interactive prototypes
+
+## Right Column: Visual Media
+- **Professional Photography**
+  - Product and lifestyle
+  - Corporate events
+  - Executive portraits
+
+- **Video and Animation**
+  - Promotional videos
+  - Motion graphics
+  - Explainer animations
+
+- **Graphic Design**
+  - Advertising material
+  - Corporate presentations
+  - Infographics and visualizations
+
+---
+layout: image_showcase
+---
+
+# Featured Project Gallery
+
+![E-commerce Web Project](assets/portfolio/ecommerce-mockup.jpg)
+**Luxury Brand E-commerce** - Complete web design with a custom cart
+
+![Mobile App](assets/portfolio/mobile-app-screens.jpg)
+**Fitness App** - UI/UX design for iOS/Android application
+
+![Branding Package](assets/portfolio/branding-identity.jpg)
+**Corporate Identity** - Logo, colors, typography, and applications
+
+![Promotional Video](assets/portfolio/video-thumbnail.jpg)
+**Marketing Video** - Audiovisual production for a digital campaign
+
+---
+layout: grid_layout
+---
+
+# Success Stories by Industry
+
+## Technology Sector
+![Tech Startup](assets/clients/tech-startup.jpg)
+**FinTech Startup**
+- Web platform design
+- Complete brand identity
+- Digital marketing material
+- **Result**: +300% users in 6 months
+
+## Retail Sector
+![Fashion Brand](assets/clients/fashion-retail.jpg)
+**Fashion Brand**
+- Custom e-commerce
+- Product photography
+- Visual advertising campaign
+- **Result**: +150% online sales
+
+## Education Sector
+![Educational Platform](assets/clients/education-platform.jpg)
+**Education Platform**
+- Interface redesign
+- Animated educational videos
+- Iconography system
+- **Result**: +200% student engagement
+
+## Healthcare Sector
+![Healthcare App](assets/clients/healthcare-app.jpg)
+**Telemedicine App**
+- Patient-centered UX design
+- Medical professional interface
+- Explainer animations
+- **Result**: 95% user satisfaction
+
+---
+layout: content
+---
+
+# Creative Process in 5 Stages
+
+## 1. Discovery & Research 🔍
+**Duration**: 1-2 weeks
+- Market and competitor analysis
+- Target audience definition
+- Brand strategy workshop
+- Visual benchmarking and trends
+
+## 2. Concept & Strategy 💡
+**Duration**: 1 week
+- Creative concept development
+- Mood boards and visual references
+- Information architecture
+- Wireframes and user flows
+
+## 3. Design & Prototyping 🎨
+**Duration**: 2-4 weeks
+- Detailed visual design
+- Interactive prototypes
+- Testing with real users
+- Feedback-driven iterations
+
+## 4. Production & Development 🚀
+**Duration**: 2-6 weeks
+- Front-end/back-end development
+- Visual content production
+- Optimization for different devices
+- Thorough quality testing
+
+## 5. Launch & Optimization 📈
+**Duration**: Ongoing
+- Coordinated launch
+- Metrics monitoring
+- Data-driven optimizations
+- Maintenance and support
+
+---
+layout: comparison
+---
+
+# Service Packages
+
+| Package | Basic | Professional | Enterprise |
+|---------|--------|-------------|------------|
+| **Price** | $2,500 | $7,500 | $15,000+ |
+| **Duration** | 2-3 weeks | 4-6 weeks | 8-12 weeks |
+| **Web Design** | ✅ Landing page | ✅ Full site | ✅ Advanced platform |
+| **Branding** | ⚡ Basic logo | ✅ Full identity | ✅ Brand system |
+| **Visual Content** | ⚡ 5 images | ✅ 20 images | ✅ Unlimited content |
+| **Video/Animation** | ❌ Not included | ⚡ 1 short video | ✅ Multiple videos |
+| **Support** | 📧 Email | 📞 + 📧 Phone/Email | 👥 Dedicated team |
+| **Revisions** | 2 rounds | 4 rounds | Unlimited |
+| **Delivery** | Final files | + Documentation | + Team training |
+
+---
+layout: testimonials
+---
+
+# What Our Clients Say
+
+## Featured Testimonials
+
+> "{{studio_name}} completely transformed our digital presence. The design isn't just beautiful, it works exceptionally well. Our online sales tripled."
+>
+> **— María González, CEO of LuxFashion**
+> ⭐⭐⭐⭐⭐
+
+---
+
+> "The team understood our vision perfectly and took it to another level. The process was smooth and professional. We'll definitely work with them again."
+>
+> **— Carlos Mendoza, CTO of InnovaTech**
+> ⭐⭐⭐⭐⭐
+
+---
+
+> "Incredible attention to detail and creativity. They managed to capture the essence of our brand in a way we hadn't even imagined ourselves."
+>
+> **— Dr. Ana Rodríguez, Director of EduLearn**
+> ⭐⭐⭐⭐⭐
+
+---
+layout: contact_cta
+---
+
+# Ready to Create Something Amazing?
+
+## Contact Information
+
+### 📧 Email
+hello@techflowcreative.com
+
+### 📞 Phone
++1 (555) 123-4567
+
+### 🌐 Web & Social
+- **Website**: [techflowcreative.com](https://techflowcreative.com)
+- **Instagram**: [@techflowcreative](https://instagram.com/techflowcreative)
+- **Behance**: [behance.net/techflowcreative](https://behance.net/techflowcreative)
+- **LinkedIn**: [LinkedIn Company](https://linkedin.com/company/techflowcreative)
+
+### 📍 Office
+123 Creative Street, Design District
+Tech City, TC 12345
+
+---
+layout: end
+---
+
+# Let's Start Your Project!
+## Your story deserves an exceptional design
+
+- **Free consultation**: 30 minutes of strategy
+- **Custom quote** within 24 hours
+- **Full portfolio** available online
+
+**Have a project in mind?**
+*Contact us today and let's make your vision a reality*

@@ -1,0 +1,550 @@
+---
+mode: flex
+title: "Technical Diagrams and Data Visualizations"
+author: "Data Visualization Team"
+theme: "technical-charts"
+variables:
+  data_points: "2.5M+"
+  accuracy_rate: "99.2%"
+  processing_time: "0.3s"
+  company: "DataFlow Analytics"
+---
+
+---
+layout: title
+---
+
+# Advanced Technical Diagrams
+## Visualizing Architectures and Processes
+
+![Technical Diagrams](assets/technical-icon.png)
+
+**{{company}} - Visualization Solutions**
+*{{data_points}} data points processed • {{accuracy_rate}} accuracy*
+
+---
+layout: section
+---
+
+# System Architectures
+## Technical diagrams for development
+
+We present specialized diagrams to document software architectures, data flows, and complex technical processes.
+
+---
+layout: content
+---
+
+# Microservices Architecture
+
+## Distributed E-commerce System
+
+```mermaid
+graph TB
+    subgraph "Frontend Layer"
+        WEB[Web App - React]
+        MOBILE[Mobile App - React Native]
+        ADMIN[Admin Dashboard]
+    end
+
+    subgraph "API Gateway"
+        GATEWAY[Kong API Gateway]
+    end
+
+    subgraph "Microservices"
+        USER[User Service]
+        PRODUCT[Product Service]
+        ORDER[Order Service]
+        PAYMENT[Payment Service]
+        INVENTORY[Inventory Service]
+        NOTIFICATION[Notification Service]
+    end
+
+    subgraph "Data Layer"
+        USERDB[(Users DB - PostgreSQL)]
+        PRODUCTDB[(Products DB - MongoDB)]
+        ORDERDB[(Orders DB - PostgreSQL)]
+        CACHE[(Redis Cache)]
+    end
+
+    subgraph "External Services"
+        STRIPE[Stripe API]
+        EMAIL[SendGrid]
+        ANALYTICS[Google Analytics]
+    end
+
+    WEB --> GATEWAY
+    MOBILE --> GATEWAY
+    ADMIN --> GATEWAY
+
+    GATEWAY --> USER
+    GATEWAY --> PRODUCT
+    GATEWAY --> ORDER
+    GATEWAY --> PAYMENT
+    GATEWAY --> INVENTORY
+    GATEWAY --> NOTIFICATION
+
+    USER --> USERDB
+    PRODUCT --> PRODUCTDB
+    ORDER --> ORDERDB
+    ORDER --> CACHE
+    PAYMENT --> STRIPE
+    NOTIFICATION --> EMAIL
+
+    WEB --> ANALYTICS
+    MOBILE --> ANALYTICS
+```
+
+---
+layout: content
+---
+
+# Data Flow - Machine Learning Pipeline
+
+## Real-Time Data Processing
+
+```mermaid
+flowchart LR
+    subgraph "Data Sources"
+        API[External APIs]
+        DB[Database]
+        FILES[CSV/JSON Files]
+        STREAM[Data Streams]
+    end
+
+    subgraph "Ingestion Layer"
+        KAFKA[Apache Kafka]
+        AIRFLOW[Apache Airflow]
+    end
+
+    subgraph "Processing"
+        SPARK[Apache Spark]
+        CLEAN[Data Cleaning]
+        TRANSFORM[Feature Engineering]
+        VALIDATE[Data Validation]
+    end
+
+    subgraph "ML Pipeline"
+        TRAIN[Model Training]
+        EVAL[Model Evaluation]
+        DEPLOY[Model Deployment]
+        PREDICT[Predictions]
+    end
+
+    subgraph "Storage"
+        DATALAKE[(Data Lake - S3)]
+        WAREHOUSE[(Data Warehouse)]
+        MLFLOW[MLflow Registry]
+    end
+
+    subgraph "Output"
+        DASHBOARD[Real-time Dashboard]
+        ALERTS[Automated Alerts]
+        REPORTS[Scheduled Reports]
+    end
+
+    API --> KAFKA
+    DB --> AIRFLOW
+    FILES --> AIRFLOW
+    STREAM --> KAFKA
+
+    KAFKA --> SPARK
+    AIRFLOW --> SPARK
+
+    SPARK --> CLEAN
+    CLEAN --> TRANSFORM
+    TRANSFORM --> VALIDATE
+    VALIDATE --> DATALAKE
+
+    DATALAKE --> TRAIN
+    TRAIN --> EVAL
+    EVAL --> MLFLOW
+    MLFLOW --> DEPLOY
+    DEPLOY --> PREDICT
+
+    VALIDATE --> WAREHOUSE
+    PREDICT --> DASHBOARD
+    PREDICT --> ALERTS
+    WAREHOUSE --> REPORTS
+```
+
+---
+layout: content
+---
+
+# Sequence Diagram - OAuth 2.0 Authentication
+
+## Complete Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as Client (App)
+    participant AS as Auth Server
+    participant RS as Resource Server
+    participant DB as Database
+
+    Note over U,DB: OAuth 2.0 login start
+
+    U->>C: Click "Log In"
+    C->>AS: Redirect to /auth/authorize
+    Note right of AS: client_id, redirect_uri, scope
+
+    AS->>U: Show login form
+    U->>AS: Enter credentials
+    AS->>DB: Validate user
+    DB-->>AS: Valid user
+
+    AS->>U: Show consent page
+    U->>AS: Authorize application
+
+    AS->>C: Redirect with authorization code
+    Note right of AS: ?code=auth_code&state=xyz
+
+    C->>AS: POST /token with code
+    Note right of C: client_id, client_secret, code
+
+    AS->>AS: Validate code and client
+    AS->>AS: Generate access_token and refresh_token
+    AS-->>C: Return tokens
+
+    Note over U,DB: Access to protected resources
+
+    U->>C: Request profile data
+    C->>RS: GET /api/profile
+    Note right of C: Authorization: Bearer {access_token}
+
+    RS->>AS: Validate access_token
+    AS-->>RS: Valid token + scopes
+
+    RS->>DB: Query user data
+    DB-->>RS: Profile data
+    RS-->>C: Return profile data
+    C-->>U: Show profile information
+
+    Note over U,DB: Token renewal
+
+    C->>AS: POST /token/refresh
+    Note right of C: refresh_token + client credentials
+    AS->>AS: Validate refresh_token
+    AS-->>C: New access_token
+```
+
+---
+layout: content
+---
+
+# State Diagram - Order Processing
+
+## Order States and Transitions
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft : Create order
+
+    Draft --> PendingPayment : Confirm order
+    Draft --> Cancelled : Cancel
+
+    PendingPayment --> PaymentFailed : Payment rejected
+    PendingPayment --> Paid : Payment successful
+    PendingPayment --> Cancelled : Timeout/Cancel
+
+    PaymentFailed --> PendingPayment : Retry payment
+    PaymentFailed --> Cancelled : Cancel permanently
+
+    Paid --> Processing : Start processing
+    Processing --> InTransit : Ship
+    Processing --> Cancelled : Cancel (refund)
+
+    InTransit --> Delivered : Delivery confirmed
+    InTransit --> DeliveryFailed : Delivery failed
+
+    DeliveryFailed --> InTransit : Retry delivery
+    DeliveryFailed --> ReturnToSender : Return
+
+    Delivered --> Completed : Confirm receipt
+    Delivered --> ReturnRequested : Request return
+
+    ReturnRequested --> ReturnApproved : Approve return
+    ReturnRequested --> ReturnDenied : Deny return
+
+    ReturnApproved --> Refunded : Process refund
+    ReturnDenied --> Completed : Finalize
+
+    Cancelled --> [*]
+    Completed --> [*]
+    Refunded --> [*]
+    ReturnToSender --> [*]
+
+    note right of Processing
+        Prepare inventory
+        Generate labels
+        Coordinate shipping
+    end note
+
+    note right of InTransit
+        Active tracking
+        Automated notifications
+        Delivery estimate
+    end note
+```
+
+---
+layout: content
+---
+
+# Class Diagram - User Management System
+
+## Data Model and Relationships
+
+```mermaid
+classDiagram
+    class User {
+        +UUID id
+        +String email
+        +String passwordHash
+        +String firstName
+        +String lastName
+        +DateTime createdAt
+        +DateTime updatedAt
+        +Boolean isActive
+        +validatePassword(password)
+        +updateProfile(data)
+        +deactivate()
+    }
+
+    class Role {
+        +UUID id
+        +String name
+        +String description
+        +Permission[] permissions
+        +DateTime createdAt
+        +addPermission(permission)
+        +removePermission(permission)
+        +hasPermission(action)
+    }
+
+    class Permission {
+        +UUID id
+        +String action
+        +String resource
+        +String description
+        +matches(action, resource)
+    }
+
+    class Profile {
+        +UUID id
+        +UUID userId
+        +String avatar
+        +String phone
+        +String address
+        +JSON preferences
+        +DateTime lastLoginAt
+        +updateAvatar(file)
+        +updatePreferences(prefs)
+    }
+
+    class Organization {
+        +UUID id
+        +String name
+        +String slug
+        +String description
+        +String website
+        +DateTime createdAt
+        +Boolean isActive
+        +addMember(user, role)
+        +removeMember(user)
+        +updateSettings(data)
+    }
+
+    class Membership {
+        +UUID id
+        +UUID userId
+        +UUID organizationId
+        +UUID roleId
+        +DateTime joinedAt
+        +Boolean isActive
+        +changeRole(newRole)
+        +activate()
+        +deactivate()
+    }
+
+    class Session {
+        +UUID id
+        +UUID userId
+        +String token
+        +String ipAddress
+        +String userAgent
+        +DateTime expiresAt
+        +DateTime createdAt
+        +Boolean isActive
+        +extend()
+        +revoke()
+        +isExpired()
+    }
+
+    User ||--o{ Profile : has
+    User ||--o{ Session : has
+    User ||--o{ Membership : has
+    Organization ||--o{ Membership : has
+    Role ||--o{ Membership : assigned
+    Role ||--o{ Permission : contains
+
+    User : +login(email, password)
+    User : +logout()
+    User : +resetPassword()
+    User : +updateProfile()
+
+    Organization : +inviteUser(email, role)
+    Organization : +removeUser(userId)
+    Organization : +updateMemberRole(userId, roleId)
+```
+
+---
+layout: content
+---
+
+# Cloud Infrastructure Diagram
+
+## AWS High-Availability Architecture
+
+```mermaid
+graph TB
+    subgraph "Public Internet"
+        USERS[👥 Users]
+        CDN[CloudFront CDN]
+    end
+
+    subgraph "AWS Region - us-east-1"
+        subgraph "Availability Zone A"
+            subgraph "Public Subnet A"
+                ALB[Application Load Balancer]
+                NAT_A[NAT Gateway A]
+            end
+
+            subgraph "Private Subnet A"
+                EC2_A1[EC2 Instance A1]
+                EC2_A2[EC2 Instance A2]
+                RDS_A[RDS Primary]
+            end
+        end
+
+        subgraph "Availability Zone B"
+            subgraph "Public Subnet B"
+                NAT_B[NAT Gateway B]
+            end
+
+            subgraph "Private Subnet B"
+                EC2_B1[EC2 Instance B1]
+                EC2_B2[EC2 Instance B2]
+                RDS_B[RDS Standby]
+            end
+        end
+
+        subgraph "Storage & Services"
+            S3[S3 Bucket]
+            ELASTICACHE[ElastiCache Redis]
+            SQS[SQS Queue]
+            SNS[SNS Topics]
+        end
+    end
+
+    subgraph "Monitoring & Security"
+        CLOUDWATCH[CloudWatch]
+        IAM[IAM Roles & Policies]
+        VPC[VPC Security Groups]
+        SECRETS[Secrets Manager]
+    end
+
+    USERS --> CDN
+    CDN --> ALB
+    ALB --> EC2_A1
+    ALB --> EC2_A2
+    ALB --> EC2_B1
+    ALB --> EC2_B2
+
+    EC2_A1 --> RDS_A
+    EC2_A2 --> RDS_A
+    EC2_B1 --> RDS_A
+    EC2_B2 --> RDS_A
+
+    RDS_A -.->|Replication| RDS_B
+
+    EC2_A1 --> ELASTICACHE
+    EC2_A2 --> ELASTICACHE
+    EC2_B1 --> ELASTICACHE
+    EC2_B2 --> ELASTICACHE
+
+    EC2_A1 --> S3
+    EC2_A2 --> S3
+    EC2_B1 --> S3
+    EC2_B2 --> S3
+
+    EC2_A1 --> SQS
+    EC2_A2 --> SQS
+    EC2_B1 --> SQS
+    EC2_B2 --> SQS
+
+    SQS --> SNS
+
+    EC2_A1 --> NAT_A
+    EC2_A2 --> NAT_A
+    EC2_B1 --> NAT_B
+    EC2_B2 --> NAT_B
+
+    CLOUDWATCH -.-> EC2_A1
+    CLOUDWATCH -.-> EC2_A2
+    CLOUDWATCH -.-> EC2_B1
+    CLOUDWATCH -.-> EC2_B2
+    CLOUDWATCH -.-> RDS_A
+    CLOUDWATCH -.-> RDS_B
+```
+
+---
+layout: content
+---
+
+# Performance Metrics
+
+## Processing Times and Throughput
+
+| Component | Average Latency | Throughput | Availability |
+|------------|------------------|------------|----------------|
+| **API Gateway** | 12ms | 50,000 req/min | 99.99% |
+| **User Service** | 45ms | 25,000 req/min | 99.95% |
+| **Database** | 8ms | 100,000 queries/min | 99.99% |
+| **Cache Layer** | 1ms | 500,000 ops/min | 99.90% |
+| **File Processing** | {{processing_time}} | 1,000 files/min | 99.85% |
+
+## System Capacity
+
+::: info
+📊 **Real-Time Statistics**
+- **Data processed**: {{data_points}} records/day
+- **Algorithm accuracy**: {{accuracy_rate}}
+- **Average response time**: {{processing_time}}
+- **System uptime**: 99.97% (last month)
+:::
+
+---
+layout: quote
+---
+
+> "Clear technical diagrams reduce developer onboarding time by 60%. Visualizing complex architectures is fundamental to project success."
+>
+> **— Alex Chen, Principal Software Architect**
+
+---
+layout: end
+---
+
+# Architecture Visualized!
+## Technical diagrams for every use case
+
+- **Data flows** and business processes
+- **System architectures**, distributed
+- **Sequence diagrams**, detailed
+- **Cloud infrastructure**, scalable
+
+**Need to document your architecture?**
+*Contact our technical visualization team*

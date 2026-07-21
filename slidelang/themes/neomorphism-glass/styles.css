@@ -1,0 +1,770 @@
+/* Neomorphism Glass Theme - Ultra-modern glassmorphism with floating UI elements */
+
+/* === SLIDE LAYOUTS === */
+
+/* Title slide with frosted glass effect */
+.slidelang-slide.slidelang-title-slide,
+.slidelang-slide.slidelang-cover-slide, 
+.slidelang-slide.slidelang-intro-slide {
+    background: var(--slidelang-bg-title-slide) !important;
+    color: white !important;
+    justify-content: center;
+    text-align: center;
+    padding: 4rem 3rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.slidelang-slide.slidelang-title-slide::before,
+.slidelang-slide.slidelang-cover-slide::before,
+.slidelang-slide.slidelang-intro-slide::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+        radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(6, 182, 212, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 40% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 60%);
+    animation: float 20s ease-in-out infinite alternate;
+    z-index: 1;
+}
+
+@keyframes float {
+    0% { transform: translateY(0px) rotate(0deg); }
+    100% { transform: translateY(-20px) rotate(2deg); }
+}
+
+.slidelang-slide.slidelang-title-slide > *,
+.slidelang-slide.slidelang-cover-slide > *,
+.slidelang-slide.slidelang-intro-slide > * {
+    position: relative;
+    z-index: 2;
+}
+
+.slidelang-slide.slidelang-title-slide h1,
+.slidelang-slide.slidelang-cover-slide h1,
+.slidelang-slide.slidelang-intro-slide h1 {
+    color: white !important;
+    font-size: 3.8rem;
+    font-weight: 700;
+    margin-bottom: 1.5rem;
+    border-bottom: none !important;
+    font-family: var(--slidelang-font-heading);
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(20px);
+    padding: 2rem 3rem;
+    border-radius: var(--slidelang-border-radius-lg);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 
+        0 25px 50px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.slidelang-slide.slidelang-title-slide h2,
+.slidelang-slide.slidelang-cover-slide h2,
+.slidelang-slide.slidelang-intro-slide h2 {
+    color: rgba(255, 255, 255, 0.9) !important;
+    font-size: 1.7rem;
+    font-weight: 300;
+    margin-bottom: 0;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    padding: 1.5rem 2rem;
+    border-radius: var(--slidelang-border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin-top: 1.5rem;
+}
+
+/* Section slides with subtle glass */
+.slidelang-slide.slidelang-section-slide {
+    background: var(--slidelang-bg-section-slide) !important;
+    color: white !important;
+    justify-content: center;
+    text-align: center;
+    padding: 4rem 3rem;
+    position: relative;
+}
+
+.slidelang-slide.slidelang-section-slide h1 {
+    color: white !important;
+    font-size: 3.2rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    border-bottom: none !important;
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(15px);
+    padding: 2rem;
+    border-radius: var(--slidelang-border-radius-lg);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 
+        0 20px 40px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Content slides with ambient glass effects */
+.slidelang-slide.slidelang-content-slide {
+    background: var(--slidelang-bg-content-slide) !important;
+    position: relative;
+}
+
+.slidelang-slide.slidelang-content-slide::before {
+    content: '';
+    position: absolute;
+    top: -50px;
+    left: -50px;
+    right: -50px;
+    bottom: -50px;
+    background: 
+        radial-gradient(circle at 15% 25%, rgba(59, 130, 246, 0.03) 0%, transparent 50%),
+        radial-gradient(circle at 85% 75%, rgba(6, 182, 212, 0.03) 0%, transparent 50%);
+    animation: ambientFloat 25s ease-in-out infinite alternate;
+    z-index: 1;
+}
+
+@keyframes ambientFloat {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(10px, -10px) scale(1.02); }
+}
+
+.slidelang-slide.slidelang-content-slide > * {
+    position: relative;
+    z-index: 2;
+}
+
+.slidelang-slide.slidelang-content-slide h1 {
+    color: var(--slidelang-primary-color) !important;
+    font-size: 2.9rem;
+    font-weight: 700;
+    margin-bottom: 2rem;
+    border-bottom: none !important;
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(20px);
+    padding: 1.5rem 2rem;
+    border-radius: var(--slidelang-border-radius-lg);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 
+        0 15px 35px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* === ELEMENT STYLING === */
+
+/* Headers within text elements - All levels */
+.slidelang-element.slidelang-text h1,
+.slidelang-element.slidelang-text h2,
+.slidelang-element.slidelang-text h3,
+.slidelang-element.slidelang-text h4,
+.slidelang-element.slidelang-text h5,
+.slidelang-element.slidelang-text h6 {
+    color: var(--slidelang-text-color);
+    font-family: var(--slidelang-font-heading);
+    margin: 1.5rem 0 1rem 0;
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(15px);
+    padding: 1rem 1.5rem;
+    border-radius: var(--slidelang-border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    transition: var(--slidelang-transition);
+}
+
+.slidelang-element.slidelang-text h1:first-child,
+.slidelang-element.slidelang-text h2:first-child,
+.slidelang-element.slidelang-text h3:first-child,
+.slidelang-element.slidelang-text h4:first-child,
+.slidelang-element.slidelang-text h5:first-child,
+.slidelang-element.slidelang-text h6:first-child {
+    margin-top: 0;
+}
+
+.slidelang-element.slidelang-text h1 { 
+    font-size: 2rem; 
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.5);
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.slidelang-element.slidelang-text h2 { 
+    font-size: 1.75rem; 
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.45);
+}
+
+.slidelang-element.slidelang-text h3 { 
+    font-size: 1.5rem; 
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.slidelang-element.slidelang-text h4 { 
+    font-size: 1.25rem; 
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.slidelang-element.slidelang-text h5 { 
+    font-size: 1.125rem; 
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.slidelang-element.slidelang-text h6 { 
+    font-size: 1rem; 
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* Text styling elements */
+.slidelang-element.slidelang-text strong {
+    font-weight: 700;
+    background: linear-gradient(45deg, var(--slidelang-primary-color), var(--slidelang-accent-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+}
+
+.slidelang-element.slidelang-text em {
+    font-style: italic;
+    color: var(--slidelang-accent-color);
+    background: rgba(6, 182, 212, 0.1);
+    padding: 0.1rem 0.3rem;
+    border-radius: var(--slidelang-border-radius-sm);
+}
+
+.slidelang-element.slidelang-text mark {
+    background: var(--slidelang-highlight-bg);
+    color: var(--slidelang-highlight-text);
+    padding: 0.2rem 0.4rem;
+    border-radius: var(--slidelang-border-radius-sm);
+    backdrop-filter: blur(5px);
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
+}
+
+.slidelang-element.slidelang-text del {
+    text-decoration: line-through;
+    opacity: 0.6;
+    background: rgba(239, 68, 68, 0.1);
+    padding: 0.1rem 0.3rem;
+    border-radius: var(--slidelang-border-radius-sm);
+    backdrop-filter: blur(3px);
+}
+
+.slidelang-element.slidelang-text code {
+    background: rgba(0, 0, 0, 0.7);
+    color: #e2e8f0;
+    padding: 0.3rem 0.6rem;
+    border-radius: var(--slidelang-border-radius-sm);
+    font-family: var(--slidelang-font-code);
+    font-size: 0.9em;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    box-shadow: 
+        0 4px 16px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Paragraph styling */
+.slidelang-element.slidelang-text p {
+    color: var(--slidelang-text-color);
+    line-height: 1.7;
+    margin: 1.2rem 0;
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(10px);
+    padding: 1.5rem;
+    border-radius: var(--slidelang-border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.slidelang-element.slidelang-text p:last-child {
+    margin-bottom: 0;
+}
+
+/* Glass-effect text elements */
+.slidelang-element.slidelang-text {
+    background: rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: var(--slidelang-border-radius-lg);
+    padding: 2.5rem;
+    margin: 2rem 0;
+    box-shadow: 
+        0 25px 50px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    transition: var(--slidelang-transition);
+}
+
+.slidelang-element.slidelang-text:hover {
+    transform: translateY(-8px);
+    box-shadow: 
+        0 35px 70px rgba(0, 0, 0, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Floating points with glass styling */
+.slidelang-element.slidelang-points {
+    background: rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(15px);
+    border-radius: var(--slidelang-border-radius-lg);
+    padding: 2.5rem;
+    margin: 2rem 0;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 
+        0 20px 40px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.slidelang-element.slidelang-points ul,
+.slidelang-element.slidelang-points ol {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.slidelang-element.slidelang-points li {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    margin: 1.2rem 0;
+    padding: 1.5rem 2rem;
+    border-radius: var(--slidelang-border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 
+        0 8px 25px rgba(0, 0, 0, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    transition: var(--slidelang-transition);
+    position: relative;
+    padding-left: 3.5rem;
+}
+
+.slidelang-element.slidelang-points li:hover {
+    background: rgba(255, 255, 255, 0.35);
+    transform: translateX(10px) translateY(-3px);
+    box-shadow: 
+        0 15px 40px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.slidelang-element.slidelang-points ul li:before {
+    content: "●";
+    color: var(--slidelang-accent-color);
+    font-weight: bold;
+    position: absolute;
+    left: 1.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    text-shadow: 0 0 10px currentColor;
+}
+
+.slidelang-element.slidelang-points ol {
+    counter-reset: glass-counter;
+}
+
+.slidelang-element.slidelang-points ol li {
+    counter-increment: glass-counter;
+}
+
+.slidelang-element.slidelang-points ol li:before {
+    content: counter(glass-counter);
+    background: var(--slidelang-accent-color);
+    color: white;
+    border-radius: 50%;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: bold;
+    position: absolute;
+    left: 1.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
+}
+
+/* Glass tables */
+.slidelang-element.slidelang-table {
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: var(--slidelang-border-radius-lg);
+    padding: 2.5rem;
+    margin: 2.5rem 0;
+    box-shadow: 
+        0 25px 50px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    overflow: hidden;
+}
+
+.slidelang-element.slidelang-table table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 1rem;
+    margin: 0;
+    background: transparent;
+}
+
+.slidelang-element.slidelang-table th {
+    background: rgba(59, 130, 246, 0.8);
+    backdrop-filter: blur(10px);
+    color: white;
+    padding: 1.5rem;
+    font-weight: 600;
+    text-align: left;
+    border-radius: var(--slidelang-border-radius);
+    box-shadow: 
+        0 8px 25px rgba(59, 130, 246, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.slidelang-element.slidelang-table td {
+    background: rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(8px);
+    color: var(--slidelang-text-color);
+    padding: 1.2rem 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--slidelang-border-radius);
+    transition: var(--slidelang-transition);
+}
+
+.slidelang-element.slidelang-table tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.slidelang-element.slidelang-table tr:hover td {
+    background: rgba(255, 255, 255, 0.45);
+    transform: translateY(-2px);
+    box-shadow: 
+        0 8px 25px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* Glass code blocks */
+.slidelang-element.slidelang-code {
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--slidelang-border-radius-lg);
+    padding: 2.5rem;
+    margin: 2.5rem 0;
+    box-shadow: 
+        0 25px 50px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    position: relative;
+}
+
+.slidelang-element.slidelang-code .slidelang-language {
+    background: rgba(6, 182, 212, 0.8);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: var(--slidelang-border-radius-sm);
+    font-family: var(--slidelang-font-code);
+    font-size: 0.8rem;
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
+}
+
+.slidelang-element.slidelang-code pre {
+    background: transparent;
+    border: none;
+    color: #e2e8f0;
+    font-family: var(--slidelang-font-code);
+    overflow-x: auto;
+    margin: 0;
+    padding: 0;
+    transition: var(--slidelang-transition);
+}
+
+.slidelang-element.slidelang-code:has(.slidelang-language) pre {
+    margin-top: 2rem;
+}
+
+.slidelang-element.slidelang-code code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    border: none;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+/* Custom scrollbars for glass effect */
+.slidelang-element.slidelang-code pre::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.slidelang-element.slidelang-code pre::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: var(--slidelang-border-radius-sm);
+}
+
+.slidelang-element.slidelang-code pre::-webkit-scrollbar-thumb {
+    background: rgba(6, 182, 212, 0.5);
+    border-radius: var(--slidelang-border-radius-sm);
+    backdrop-filter: blur(5px);
+}
+
+.slidelang-element.slidelang-code pre::-webkit-scrollbar-thumb:hover {
+    background: rgba(6, 182, 212, 0.7);
+}
+
+/* Glass links */
+.slidelang-element.slidelang-text a,
+.slidelang-element.slidelang-points a {
+    color: var(--slidelang-link-color);
+    text-decoration: none;
+    background: rgba(59, 130, 246, 0.1);
+    backdrop-filter: blur(5px);
+    padding: 0.3rem 0.6rem;
+    border-radius: var(--slidelang-border-radius-sm);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    transition: var(--slidelang-transition);
+    display: inline-block;
+}
+
+.slidelang-element.slidelang-text a:hover,
+.slidelang-element.slidelang-points a:hover {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: var(--slidelang-link-hover-color);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.2);
+}
+
+.slidelang-element.slidelang-text a:focus,
+.slidelang-element.slidelang-points a:focus {
+    outline: none;
+    box-shadow: 
+        0 0 0 3px rgba(59, 130, 246, 0.3),
+        0 8px 25px rgba(59, 130, 246, 0.2);
+}
+
+/* Glass blockquotes */
+.slidelang-element.slidelang-text blockquote {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(15px);
+    border-left: 4px solid var(--slidelang-accent-color);
+    margin: 2.5rem 0;
+    padding: 2rem 2.5rem;
+    border-radius: 0 var(--slidelang-border-radius-lg) var(--slidelang-border-radius-lg) 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 
+        0 15px 35px rgba(0, 0, 0, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    position: relative;
+}
+
+.slidelang-element.slidelang-text blockquote:before {
+    content: '"';
+    position: absolute;
+    top: -1rem;
+    left: 2rem;
+    font-size: 4rem;
+    color: var(--slidelang-accent-color);
+    font-family: Georgia, serif;
+    opacity: 0.3;
+    text-shadow: 0 0 20px rgba(6, 182, 212, 0.5);
+}
+
+.slidelang-element.slidelang-text blockquote p:last-child {
+    margin-bottom: 0;
+}
+
+/* Separators with glass effect */
+.slidelang-element.slidelang-text hr {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, 
+        transparent, 
+        rgba(255, 255, 255, 0.3), 
+        transparent);
+    margin: 3rem 0;
+    border-radius: 1px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Glass checklists */
+.slidelang-element.slidelang-checklist {
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(15px);
+    border-radius: var(--slidelang-border-radius-lg);
+    padding: 2.5rem;
+    margin: 2rem 0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 
+        0 20px 40px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.slidelang-element.slidelang-checklist ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.slidelang-element.slidelang-checklist li {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(5px);
+    margin: 1rem 0;
+    padding: 1.2rem 1.5rem;
+    border-radius: var(--slidelang-border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: var(--slidelang-transition);
+    position: relative;
+    padding-left: 3rem;
+}
+
+.slidelang-element.slidelang-checklist li:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateX(5px);
+}
+
+.slidelang-element.slidelang-checklist li:before {
+    content: "✓";
+    color: var(--slidelang-accent-color);
+    font-weight: bold;
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(34, 197, 94, 0.2);
+    border-radius: 50%;
+    width: 1.2rem;
+    height: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    text-shadow: 0 0 8px currentColor;
+}
+
+/* Glass images */
+.slidelang-element.slidelang-image {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--slidelang-border-radius-lg);
+    padding: 2rem;
+    margin: 2.5rem 0;
+    box-shadow: 
+        0 25px 50px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    text-align: center;
+}
+
+.slidelang-element.slidelang-image img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--slidelang-border-radius);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+    transition: var(--slidelang-transition);
+}
+
+.slidelang-element.slidelang-image:hover img {
+    transform: scale(1.02);
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+}
+
+.slidelang-element.slidelang-image .slidelang-caption {
+    color: var(--slidelang-text-color);
+    font-style: italic;
+    margin-top: 1rem;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(5px);
+    padding: 0.8rem 1.2rem;
+    border-radius: var(--slidelang-border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Glass quotes */
+.slidelang-element.slidelang-quotes {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--slidelang-border-radius-lg);
+    padding: 3rem;
+    margin: 2.5rem 0;
+    box-shadow: 
+        0 25px 50px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    text-align: center;
+    position: relative;
+}
+
+.slidelang-element.slidelang-quotes:before {
+    content: '"';
+    position: absolute;
+    top: -1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 6rem;
+    color: var(--slidelang-accent-color);
+    font-family: Georgia, serif;
+    opacity: 0.2;
+    text-shadow: 0 0 30px rgba(6, 182, 212, 0.5);
+}
+
+.slidelang-element.slidelang-quotes .slidelang-quote-text {
+    font-size: 1.4rem;
+    font-style: italic;
+    color: var(--slidelang-text-color);
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+}
+
+.slidelang-element.slidelang-quotes .slidelang-quote-author {
+    color: var(--slidelang-accent-color);
+    font-weight: 600;
+    font-size: 1rem;
+    opacity: 0.8;
+}
+
+/* === RESPONSIVE GLASS EFFECTS === */
+@media (max-width: 768px) {
+    .slidelang-slide.slidelang-title-slide h1,
+    .slidelang-slide.slidelang-cover-slide h1,
+    .slidelang-slide.slidelang-intro-slide h1 {
+        font-size: 2.8rem;
+        padding: 1.5rem 2rem;
+    }
+    
+    .slidelang-slide.slidelang-section-slide h1 {
+        font-size: 2.4rem;
+        padding: 1.5rem;
+    }
+    
+    .slidelang-slide.slidelang-content-slide h1 {
+        font-size: 2.2rem;
+        padding: 1.2rem 1.5rem;
+    }
+    
+    .slidelang-element.slidelang-text,
+    .slidelang-element.slidelang-points,
+    .slidelang-element.slidelang-table,
+    .slidelang-element.slidelang-code,
+    .slidelang-element.slidelang-checklist,
+    .slidelang-element.slidelang-image,
+    .slidelang-element.slidelang-quotes {
+        margin: 1.5rem 0;
+        padding: 2rem;
+    }
+    
+    .slidelang-element.slidelang-points li:hover {
+        transform: translateX(5px) translateY(-2px);
+    }
+}

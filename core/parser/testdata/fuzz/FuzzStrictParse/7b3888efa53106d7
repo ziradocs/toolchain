@@ -1,0 +1,2 @@
+go test fuzz v1
+string("SLIDE    00000000000\n  |\xd9/\x8a\x01SY\xf70")

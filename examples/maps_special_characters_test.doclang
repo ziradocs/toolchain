@@ -1,0 +1,87 @@
+---
+title: "Map Marker Special Characters Test"
+author: "DocLang Testing Team"
+date: "2025-10-20"
+---
+
+# Map Markers Test - Special Characters
+
+This document tests the rendering of maps with markers that contain special characters.
+
+## Test 1: Single Quotes
+
+<<map type="city" zoom="12">>
+center: 37.7749, -122.4194
+marker: 37.7749, -122.4194, "Fisherman's Wharf", "San Francisco's most popular tourist destination", "blue"
+marker: 37.8024, -122.4058, "Sam's Place", "It's Sam's favorite restaurant", "red"
+marker: 37.7955, -122.3937, "O'Reilly's Pub", "The best pub in SF's downtown", "green"
+<</map>>
+
+## Test 2: Mixed Quotes (Single and Double)
+
+<<map type="city" zoom="11">>
+center: 40.7128, -74.0060
+marker: 40.7128, -74.0060, "The 'Big Apple'", "New York's famous nickname", "blue"
+marker: 40.7589, -73.9851, "Times Square", "The 'Crossroads of the World'", "red"
+marker: 40.7614, -73.9776, "Central Park", "NYC's urban oasis", "green"
+<</map>>
+
+## Test 3: Line Breaks
+
+<<map type="city" zoom="10">>
+center: 51.5074, -0.1278
+marker: 51.5074, -0.1278, "London Eye", "Beautiful views\nOpen daily\n10am - 8pm", "blue"
+marker: 51.5007, -0.1246, "Big Ben", "Historic clock tower\nUnder renovation\nVisit nearby", "green"
+<</map>>
+
+## Test 4: Unicode Characters and Emoji
+
+<<map type="city" zoom="12">>
+center: 35.6762, 139.6503
+marker: 35.6762, 139.6503, "Tokyo Tower 🗼", "東京タワー - A communications tower", "red"
+marker: 35.6586, 139.7454, "Tokyo Skytree 🌸", "Sky tree with sakura 桜", "blue"
+marker: 35.6585, 139.7454, "Café ☕", "Coffee shop with WiFi 📶", "green"
+<</map>>
+
+## Test 5: HTML Characters and Symbols
+
+<<map type="city" zoom="11">>
+center: 48.8566, 2.3522
+marker: 48.8584, 2.2945, "Tour Eiffel", "Built in 1889 • Height: 330m • Visitors: 7M/year", "red"
+marker: 48.8606, 2.3376, "Louvre Museum", "€17 ticket • Open 9am-6pm • Closed Tuesdays", "blue"
+marker: 48.8530, 2.3499, "Notre-Dame", "Gothic cathedral • Est. 1163 • Under restoration", "green"
+<</map>>
+
+## Test 6: Mixed Special Characters
+
+<<map type="city" zoom="10">>
+center: 41.9028, 12.4964
+marker: 41.8902, 12.4922, "Colosseum", "L'anfiteatro più grande del mondo antico\n\"Flavian Amphitheatre\"\nCapacity: 50,000-80,000", "red"
+marker: 41.9029, 12.4534, "Vatican City", "The Pope's residence\nSt. Peter's Basilica\nSistine Chapel 🎨", "blue"
+<</map>>
+
+## Test 7: Problematic Characters
+
+<<map type="city" zoom="12">>
+center: 37.9838, -122.5329
+marker: 37.9838, -122.5329, "Point's Edge", "Located at nature's boundary", "blue"
+marker: 37.9735, -122.5431, "Murphy's Law", "If it can happen, it'll happen", "red"
+marker: 37.9644, -122.5346, "Rock 'n' Roll Cafe", "Music & food - that's all!", "green"
+marker: 37.9550, -122.5250, "Joe's-Bar & Grill", "Burgers, beers & more!", "orange"
+<</map>>
+
+---
+
+## Test Summary
+
+This document tests:
+
+1. ✅ **Single quotes**: Fisherman's, It's, O'Reilly's
+2. ✅ **Double quotes**: "Big Apple", "Crossroads"
+3. ✅ **Line breaks**: Multi-line descriptions
+4. ✅ **Unicode**: 東京タワー, 桜, €, •
+5. ✅ **Emoji**: 🗼, 🌸, ☕, 📶, 🎨
+6. ✅ **Symbols**: &, <, >, -, •, /
+7. ✅ **Mixed**: Complex combinations
+
+If all maps render correctly, escaping is working perfectly.

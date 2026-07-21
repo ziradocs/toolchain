@@ -1,0 +1,119 @@
+---
+mode: flex
+title: "Headers and Footers Example - Complete"
+author: "slidelang Team"
+date: "December 27, 2024"
+theme: "default"
+variables:
+  project_name: "SlideLang 2.0"
+  version: "v2.0.0"
+  company: "slidelang Inc."
+
+# Complete headers and footers configuration
+header:
+  enabled: true
+  height: "60px"
+  background: "#f8f9fa"
+  text:
+    left: "{{project_name}}"
+    center: ""
+    right: "{{date}}"
+  border:
+    enabled: true
+    color: "#e9ecef"
+    width: "1px"
+    style: "solid"
+    position: "bottom"
+
+footer:
+  enabled: true
+  height: "50px"
+  background: "#f8f9fa"
+  text:
+    left: "{{company}}"
+    center: "Confidential"
+    right: ""
+  page_numbers:
+    enabled: true
+    format: "Page {{current}} of {{total}}"
+    position: "right"
+    exclude_title_slides: true
+    exclude_closing_slides: true
+    start_from: 2
+    style: "caption"
+  border:
+    enabled: true
+    color: "#e9ecef"
+    width: "1px"
+    style: "solid"
+    position: "top"
+
+# Per-layout configuration
+layout_defaults:
+  title:
+    header:
+      enabled: false
+    footer:
+      enabled: false
+  closing:
+    header:
+      text:
+        center: "Thank you!"
+    footer:
+      page_numbers:
+        enabled: false
+      text:
+        center: "{{company}} © 2024"
+---
+
+# {{project_name}}
+## Complete Headers and Footers Demonstration
+
+**Presentation with advanced configuration**
+*{{date}} - {{version}}*
+
+---
+
+# Slide with Complete Header and Footer
+
+This slide demonstrates:
+- **Header**: With custom text and variables
+- **Footer**: With text and page numbers
+- **Borders**: Both on header and footer
+- **Variables**: Automatic data interpolation
+
+The data is taken from the frontmatter and the defined variables.
+
+---
+
+# Variables in Action
+
+The following variables are processed automatically:
+- `{{project_name}}` → **{{project_name}}**
+- `{{version}}` → **{{version}}**
+- `{{date}}` → **{{date}}**
+- `{{company}}` → **{{company}}**
+
+Page numbers use a custom format: **"Page X of Y"**
+
+---
+
+# Styles and Positioning
+
+::: info
+**Current configuration:**
+- Header height: 60px, light gray background
+- Footer height: 50px, same configuration
+- Subtle borders on both
+- Footer text includes confidentiality mark
+:::
+
+---
+
+# Presentation Complete!
+## All features demonstrated
+
+📧 contact@slidelang.com
+🌐 www.slidelang.com
+
+*This slide does not show page numbers according to configuration*

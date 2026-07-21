@@ -1,0 +1,28 @@
+---
+mode: flex
+title: "Auto-Closing Demo"
+author: "SlideLang Team"
+variables:
+  email: "contact@mycompany.com"
+  website: "www.mycompany.com"
+---
+
+# Demo Presentation
+
+This is a presentation to demonstrate automatic closing detection.
+
+---
+
+## Intermediate Slide
+
+- Normal content
+- With standard elements
+
+---
+
+📧 **Email**: {{email}}
+🌐 **Website**: {{website}}
+
+*Thank you for your attention!*
+
+![Logo](assets/logo.png)

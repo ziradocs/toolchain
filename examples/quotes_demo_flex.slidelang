@@ -1,0 +1,93 @@
+---
+mode: flex
+title: "Block Quotes Demo"
+author: "SlideLang Team"
+date: "2025-01-16"
+theme: "modern-blue"
+variables:
+  author_name: "Albert Einstein"
+  famous_quote: "Imagination is more important than knowledge"
+---
+
+# Block Quote Examples
+
+## Simple Quotes in Markdown
+
+> This is a simple quote using Markdown syntax.
+> It can span multiple lines.
+
+---
+
+## Quotes with an Author
+
+> Life is what happens while you're busy making other plans.
+> -- John Lennon
+
+> The only way to do great work is to love what you do.
+> — Steve Jobs
+
+---
+
+## Quotes with Variables
+
+> {{famous_quote}}
+> -- {{author_name}}
+
+---
+
+## Complex Quotes
+
+> It does not matter how slowly you go as long as you do not stop. This is a longer quote that demonstrates how quotes spanning multiple lines and containing more text than usual are rendered.
+> -- Confucius
+
+> The future belongs to those who believe in the beauty of their dreams.
+> — Eleanor Roosevelt
+
+---
+
+## Mixing Elements
+
+### Introduction
+
+Quotes are a powerful tool in presentations:
+
+- Build credibility
+- Inspire the audience
+- Reinforce key messages
+
+### Inspirational Example
+
+> Success is not final, failure is not fatal: it is the courage to continue that counts.
+> -- Winston Churchill
+
+This quote illustrates the importance of perseverance in any project.
+
+---
+
+## Quotes Without an Author
+
+> Sometimes the best quotes are anonymous and need no attribution.
+
+> Popular wisdom often has no specific author, but that doesn't make it any less valuable.
+
+---
+
+## Combining with Code
+
+As Grace Hopper said:
+
+> It's easier to ask forgiveness than it is to get permission.
+
+```python
+def innovation():
+    return "break_things_and_fix_them_fast"
+```
+
+---
+
+## Acknowledgments
+
+> Creativity is intelligence having fun.
+> -- Attributed to Albert Einstein
+
+**Thanks for trying out SlideLang's quote system!**

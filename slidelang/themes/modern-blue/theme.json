@@ -1,0 +1,116 @@
+{
+  "author": "SlideLang Dev",
+  "description": "Modern blue theme with solid colors instead of gradients - perfect for corporate presentations with CSS namespacing support",
+  "name": "modern-blue",
+  "variables": {
+    "--slidelang-primary-color": "#3498db",
+    "--slidelang-secondary-color": "#1e40af",
+    "--slidelang-accent-color": "#2ecc71",
+    "--slidelang-success-color": "#10b981",
+    "--slidelang-warning-color": "#f59e0b",
+    "--slidelang-danger-color": "#ef4444",
+    "--slidelang-info-color": "#3b82f6",
+    "--slidelang-tip-color": "#8b5cf6",
+
+    "--slidelang-gradient-bg": "var(--slidelang-secondary-color)",
+    "--slidelang-title-gradient": "var(--slidelang-primary-color)",
+    "--slidelang-accent-gradient": "var(--slidelang-accent-color)",
+
+    "--slidelang-font-main": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    "--slidelang-font-code": "'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace",
+    "--slidelang-font-heading": "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+    "--slidelang-font-size-base": "1rem",
+    "--slidelang-line-height-base": "1.5",
+
+    "--slidelang-border-radius": "0.5rem",
+    "--slidelang-border-radius-lg": "1rem",
+    "--slidelang-border-radius-sm": "0.25rem",
+
+    "--slidelang-shadow-main": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+    "--slidelang-shadow-lg": "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+    "--slidelang-shadow-xl": "0 35px 60px -12px rgba(0, 0, 0, 0.3)",
+    "--slidelang-box-shadow": "0 0.25rem 0.5rem rgba(0, 0, 0, 0.1)",
+
+    "--slidelang-transition": "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+    "--slidelang-transition-fast": "all 0.15s cubic-bezier(0.4, 0, 0.2, 1)",
+
+    "--slidelang-text-color": "#2c3e50",
+    "--slidelang-text-light": "#64748b", 
+    "--slidelang-text-muted": "#94a3b8",
+    "--slidelang-text-on-primary": "#ffffff",
+    "--slidelang-text-on-accent": "#ffffff",
+    "--slidelang-text-on-dark": "#ffffff",
+
+    "--slidelang-bg-white": "#ffffff",
+    "--slidelang-background-color": "#ffffff",
+    "--slidelang-bg-gray-50": "#f8fafc",
+    "--slidelang-bg-gray-100": "#f1f5f9",
+    "--slidelang-bg-code": "#f7fafc",
+    "--slidelang-bg-light": "#edf2f7",
+
+    "--slidelang-bg-info": "#eff6ff",
+    "--slidelang-bg-success": "#ecfdf5",
+    "--slidelang-bg-warning": "#fffbeb",
+    "--slidelang-bg-danger": "#fef2f2",
+    "--slidelang-bg-tip": "#f5f3ff",
+
+    "--slidelang-bg-note": "#f8fafc",
+    "--slidelang-bg-success-light": "#ecfdf5",
+    "--slidelang-bg-warning-light": "#fffbeb",
+    "--slidelang-bg-danger-light": "#fef2f2",
+    "--slidelang-bg-info-light": "#eff6ff",
+    "--slidelang-bg-placeholder": "rgba(52, 152, 219, 0.05)",
+
+    "--slidelang-border-color": "#e2e8f0",
+
+    "--slidelang-note-color": "#64748b",
+    "--slidelang-note-text-color": "#334155",
+    "--slidelang-details-border-color": "#d1d5db",
+    "--slidelang-details-text-color": "#374151",
+    "--slidelang-success-text-color": "#065f46",
+    "--slidelang-warning-text-color": "#92400e",
+    "--slidelang-danger-text-color": "#991b1b",
+    "--slidelang-info-text-color": "#1e40af",
+
+    "--slidelang-highlight-bg": "#fef08a",
+    "--slidelang-highlight-text": "#713f12",
+
+    "--slidelang-link-color": "#3498db",
+    "--slidelang-link-bg": "rgba(52, 152, 219, 0.03)",
+    "--slidelang-link-hover-color": "#2980b9",
+    "--slidelang-link-hover-bg": "rgba(52, 152, 219, 0.08)",
+
+    "--slidelang-bg-title-slide": "var(--slidelang-primary-color)",
+    "--slidelang-bg-section-slide": "var(--slidelang-secondary-color)",
+    "--slidelang-bg-content-slide": "var(--slidelang-bg-white)",
+    "--slidelang-bg-end-slide": "var(--slidelang-accent-color)",
+    "--slidelang-bg-closing-slide": "var(--slidelang-primary-color)",
+
+    "--slidelang-shadow-text": "rgba(0, 0, 0, 0.3)",
+    "--slidelang-shadow-light": "rgba(0, 0, 0, 0.1)",
+    "--slidelang-shadow-medium": "rgba(0, 0, 0, 0.2)",
+
+    "--slidelang-syntax-comment": "#6b7280",
+    "--slidelang-syntax-keyword": "#3498db",
+    "--slidelang-syntax-string": "#27ae60",
+    "--slidelang-syntax-number": "#d97706",
+    "--slidelang-syntax-operator": "#dc2626",
+    "--slidelang-syntax-function": "#8b5cf6",
+    "--slidelang-syntax-variable": "#dc2626",
+    "--slidelang-syntax-type": "#0d9488",
+
+    "--slidelang-bg-quote": "#f8fafc",
+    "--slidelang-bg-hover": "#f1f5f9",
+    "--slidelang-bg-progress": "#e2e8f0",
+    "--slidelang-bg-copy-button": "rgba(255,255,255,0.15)",
+    "--slidelang-border-copy-button": "rgba(255,255,255,0.25)",
+    "--slidelang-bg-copy-button-hover": "rgba(255,255,255,0.25)",
+    "--slidelang-bg-line-highlight": "rgba(255,255,255,0.1)",
+    "--slidelang-bg-diff-added": "rgba(39, 174, 96, 0.1)",
+    "--slidelang-bg-diff-removed": "rgba(239, 68, 68, 0.1)",
+    "--slidelang-bg-image-overlay": "rgba(44, 62, 80, 0.6)",
+    "--slidelang-bg-comparison-label": "rgba(44, 62, 80, 0.9)",
+    "--slidelang-bg-lightbox": "rgba(44, 62, 80, 0.95)"
+  },
+  "version": "2.0.0"
+}

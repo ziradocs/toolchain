@@ -1,0 +1,71 @@
+name: CodeQL
+
+# Issue #43: análisis semántico/flujo de datos para Go en los 3 módulos del
+# monorepo, vía GitHub Code Scanning. Complementa gosec.yml (patrones
+# léxicos/AST rápidos) con queries de flujo de datos más profundas (taint
+# tracking) que gosec no cubre. El job queda preparado para main/cron, pero
+# se omite mientras el repo privado no tenga GitHub Advanced Security.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.go"
+      - "!archive/**"
+      - ".github/workflows/codeql.yml"
+  schedule:
+    # Semanal — mismo criterio que gosec.yml/govulncheck.yml: detectar drift
+    # de las queries/CodeQL en sí, no solo reaccionar a PRs con cambios Go.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    # Code Scanning no está disponible en este repo privado con plan Free.
+    # Al hacerse público (issue #127), el mismo workflow se activa sin cambios.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # go-version-file: mismo criterio que ci.yml/govulncheck.yml — lee el
+      # piso real declarado en el go.mod de cada módulo.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+
+      # build-mode manual traza explícitamente los tres módulos sin depender
+      # del autodiscovery de un monorepo sin go.work. Un solo job comparte
+      # checkout/setup y produce una sola base/categoría de análisis.
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          build-mode: manual
+          config: |
+            paths:
+              - core
+              - slidelang
+              - doclang
+
+      - name: Build trazado por CodeQL
+        run: |
+          set -euo pipefail
+          for module in core slidelang doclang; do
+            (cd "$module" && go build ./...)
+          done
+
+      - name: Analizar
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-go

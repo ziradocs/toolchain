@@ -1,0 +1,104 @@
+/* Reset y normalización */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+body {
+    font-family: var(--slidelang-font-main);
+    background: var(--slidelang-gradient-bg);
+    color: var(--slidelang-text-color);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Elementos básicos - reset menos agresivo */
+h1, h2, h3, h4, h5, h6 {
+    margin: 0;
+    padding: 0;
+    font-weight: inherit;
+}
+
+/* Solo resetear listas que no son de contenido */
+ul, ol {
+    margin: 0;
+    padding: 0;
+}
+
+/* Mantener estilos básicos para elementos dentro de slides */
+.slidelang-slide h1, .slidelang-slide h2, .slidelang-slide h3, .slidelang-slide h4, .slidelang-slide h5, .slidelang-slide h6 {
+    margin-bottom: 1rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.slidelang-slide h2 {
+    margin-bottom: 0.8rem;
+    margin-top: 1.5rem;
+}
+
+.slidelang-slide h3 {
+    margin-bottom: 0.6rem;
+    margin-top: 1.2rem;
+    font-size: 1.3rem;
+}
+
+.slidelang-slide h4 {
+    margin-bottom: 0.5rem;
+    margin-top: 1rem;
+    font-size: 1.1rem;
+}
+
+/* Elementos básicos - solo dentro de slides para evitar conflictos */
+.slidelang-slide img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+.slidelang-slide button {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.slidelang-slide a {
+    text-decoration: none;
+    color: inherit;
+}
+
+.slidelang-slide table {
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+/* Scroll suave */
+* {
+    scroll-behavior: smooth;
+}
+
+/* Issue #94: <h1> de fallback, visible solo para lectores de pantalla, para
+   slides sin título propio (para que el outline de encabezados nunca
+   empiece en h2 por falta de un h1 ancestro). Patrón estándar WCAG de
+   "visually hidden but accessible" — oculto visualmente sin display:none
+   (que también lo ocultaría de lectores de pantalla). */
+.slidelang-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}

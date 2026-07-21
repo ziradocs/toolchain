@@ -1,0 +1,55 @@
+---
+title: "Test Mermaid Conversion"
+author: "Test"
+---
+
+## Diagrama de Flujo Simple
+
+<<mermaid>>
+  graph TD
+  A[Inicio] --> B{¿Decisión?}
+  B -->|Sí| C[Hacer algo]
+  B -->|No| D[Hacer otra cosa]
+  C --> E[Fin]
+  D --> E
+
+### Sequence Diagram
+
+<<mermaid>>
+  sequenceDiagram
+  participant U as User
+  participant S as Server
+  participant DB as Database
+
+  U->>S: Request
+  S->>DB: Query
+  DB-->>S: Results
+  S-->>U: Response
+
+## Diagrama Complejo
+
+<<mermaid>>
+  graph LR
+  A[Ciberataques a PyMEs] --> B[Phishing 35%]
+  A --> C[Ransomware 28%]
+  A --> D[Malware 18%]
+
+  B --> B1[Correos falsos]
+  B --> B2[Sitios web fraudulentos]
+
+  C --> C1[Cifrado de archivos]
+  C --> C2[Demanda de rescate]
+
+**Descripción del diagrama:** Este diagrama muestra la distribución de amenazas.
+
+## Contenido sin Mermaid
+
+Este es contenido normal que no debe ser afectado por la regla.
+
+### Otro bloque
+
+```javascript
+console.log("Este no es mermaid");
+```
+
+Y más contenido normal.

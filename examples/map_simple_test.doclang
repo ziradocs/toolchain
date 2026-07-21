@@ -1,0 +1,10 @@
+---
+title: "Simple Map Test"
+---
+
+# Test Simple
+
+<<map type="city" zoom="10" center="37.7749,-122.4194" width="800" height="600">>
+marker: 37.7749, -122.4194, "Location A", "Simple description", "blue"
+marker: 37.8024, -122.4058, "Location B", "Another place", "red"
+<</map>>
