@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Los tres módulos declaran el mismo piso de Go. Un solo runner evita
       # repetir checkout/setup y, sobre todo, tres redondeos de facturación.
@@ -65,7 +65,7 @@ jobs:
     steps:
       # fetch-depth: 0 — only-new-issues (abajo) necesita el historial completo
       # para diffear contra la rama base.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
