@@ -94,3 +94,28 @@ changelog:
       - "^chore(\\(.+\\))?:"
       - "^build(\\(.+\\))?:"
       - "^Merge pull request"
+
+brews:
+  - name: slidelang
+    repository:
+      owner: ziradocs
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://go.ziradocs.com"
+    description: "SlideLang compiler and AST toolkit"
+    license: "Apache-2.0"
+    ids:
+      - slidelang
+
+  - name: doclang
+    repository:
+      owner: ziradocs
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://go.ziradocs.com"
+    description: "DocLang compiler and AST toolkit"
+    license: "Apache-2.0"
+    ids:
+      - doclang
