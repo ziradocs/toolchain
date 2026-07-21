@@ -102,3 +102,4 @@ func NewAST(pos diagnostics.Position) *AST {
 		ContentBlocks: make([]ContentBlock, 0),
 	}
 }
+
