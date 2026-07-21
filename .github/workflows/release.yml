@@ -31,7 +31,7 @@ jobs:
       # go-version-file apunta al piso más alto entre los 2 módulos que
       # producen binarios (mismo valor hoy — ver CLAUDE.md); goreleaser
       # cross-compila ambos igual, cada build usa su propio dir/go.mod.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: slidelang/go.mod
 

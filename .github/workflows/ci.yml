@@ -42,7 +42,7 @@ jobs:
 
       # Los tres módulos declaran el mismo piso de Go. Un solo runner evita
       # repetir checkout/setup y, sobre todo, tres redondeos de facturación.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: core/go.mod
 
@@ -70,7 +70,7 @@ jobs:
           fetch-depth: 0
 
       # go-version-file: mismo criterio que en build-test arriba.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ matrix.module }}/go.mod
 

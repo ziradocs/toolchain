@@ -40,7 +40,7 @@ jobs:
 
       # go-version-file: mismo criterio que ci.yml/govulncheck.yml — lee el
       # piso real declarado en el go.mod de cada módulo.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: core/go.mod
 

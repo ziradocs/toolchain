@@ -42,7 +42,7 @@ jobs:
       # Go 1.26 compila el binario pineado de govulncheck. El paso de análisis
       # aún lee el piso de cada go.mod y lo fuerza vía GOTOOLCHAIN, para que
       # futuros cambios de versión no desincronicen el escaneo.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
 
