@@ -1,0 +1,85 @@
+---
+mode: flex
+title: "Headers and Footers Example - Simple"
+author: "slidelang Team"
+date: "December 27, 2024"
+theme: "default"
+
+# Basic configuration - Page numbers only
+header:
+  enabled: false
+
+footer:
+  enabled: true
+  page_numbers:
+    enabled: true
+    format: "{{current}} / {{total}}"
+    position: "right"
+    exclude_title_slides: true
+    start_from: 2
+    style: "caption"
+  text:
+    left: ""
+    center: ""
+    right: ""
+
+# Per-layout configuration
+layout_defaults:
+  title:
+    footer:
+      enabled: false  # No footer on the cover slide
+  closing:
+    footer:
+      page_numbers:
+        enabled: false  # No numbers on the final slide
+---
+
+# Headers and Footers Example
+## Basic configuration demonstration
+
+**Simple Configuration**
+*Page numbers only - No headers*
+
+---
+
+# Content Slide 1
+
+This slide shows the basic configuration:
+- Header: **Disabled**
+- Footer: **Page numbers only**
+- Position: **Right**
+- Format: **"2 / 8"**
+
+Numbering started on slide 2 (excluding the cover) and will appear on all slides except the closing one.
+
+---
+
+# Content Slide 2
+
+Page numbers are processed using variables:
+- `{{current}}` → Current slide number
+- `{{total}}` → Total slides
+- Configured format: "{{current}} / {{total}}"
+
+---
+
+# Content Slide 3
+
+This is a demonstration of how the headers and footers system works:
+
+::: success
+**Advantages of the basic configuration:**
+- Minimal setup required
+- Maximum space for content
+- Professional appearance
+:::
+
+---
+
+# Basic Configuration Ready!
+## Next: Advanced examples
+
+📧 examples@slidelang.com
+📖 docs.slidelang.com
+
+*No page numbers on title and closing slides*

@@ -1,0 +1,35 @@
+/* Elementos de tabla */
+.slidelang-element.slidelang-table {
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+
+.slidelang-element.slidelang-table table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-white);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-main);
+}
+
+.slidelang-element.slidelang-table th,
+.slidelang-element.slidelang-table td {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.slidelang-element.slidelang-table th {
+    background: var(--primary-color);
+    color: var(--text-on-primary);
+    font-weight: 600;
+}
+
+.slidelang-element.slidelang-table tr:nth-child(even) {
+    background: var(--bg-gray-50);
+}
+
+.slidelang-element.slidelang-table tr:hover {
+    background: var(--bg-gray-100);
+}

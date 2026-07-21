@@ -1,0 +1,438 @@
+---
+mode: flex
+title: "Developer Guide - TechFlow API"
+author: "TechFlow Development Team"
+theme: "code-dark"
+---
+
+---
+layout: title
+---
+
+# TechFlow API
+## Complete Guide for Developers
+
+![TechFlow Developer](assets/dev-logo.png)
+
+**Technical Documentation v2.1**
+*Last updated: March 2025*
+
+---
+layout: section
+---
+
+# Introduction to the SDK
+## Tools and resources for developers
+
+This guide will walk you step by step through integrating TechFlow into your application, from initial setup to advanced implementations.
+
+---
+layout: code_example
+---
+
+# Initial Setup
+
+Installation and basic setup of the TechFlow SDK:
+
+```bash
+# Install the SDK
+npm install @techflow/sdk
+
+# Or with yarn
+yarn add @techflow/sdk
+```
+
+```javascript
+// Basic configuration
+import { TechFlow } from '@techflow/sdk';
+
+const client = new TechFlow({
+  apiKey: process.env.TECHFLOW_API_KEY,
+  environment: 'production', // or 'sandbox'
+  version: 'v2'
+});
+
+// Verify connection
+await client.ping();
+```
+
+**Important points:**
+- Never hardcode your API key
+- Use environment variables for configuration
+- The client automatically handles authentication
+- Rate limiting: 1000 requests/minute by default
+
+---
+layout: code_example
+---
+
+# Creating Your First Automation
+
+Basic example for automating email sending:
+
+```javascript
+// Define the workflow
+const emailWorkflow = await client.workflows.create({
+  name: 'Welcome Email Sequence',
+  trigger: {
+    type: 'webhook',
+    path: '/user/signup'
+  },
+  steps: [
+    {
+      type: 'delay',
+      duration: '5m'
+    },
+    {
+      type: 'email',
+      template: 'welcome_template',
+      to: '{{ user.email }}',
+      data: {
+        name: '{{ user.name }}',
+        company: '{{ user.company }}'
+      }
+    }
+  ]
+});
+
+console.log(`Workflow created: ${emailWorkflow.id}`);
+```
+
+```python
+# Equivalent example in Python
+from techflow import TechFlowClient
+
+client = TechFlowClient(api_key=os.getenv('TECHFLOW_API_KEY'))
+
+workflow = client.workflows.create({
+    "name": "Welcome Email Sequence",
+    "trigger": {
+        "type": "webhook",
+        "path": "/user/signup"
+    },
+    "steps": [
+        {"type": "delay", "duration": "5m"},
+        {
+            "type": "email",
+            "template": "welcome_template",
+            "to": "{{ user.email }}",
+            "data": {
+                "name": "{{ user.name }}",
+                "company": "{{ user.company }}"
+            }
+        }
+    ]
+})
+```
+
+- Support for JavaScript, Python, PHP, Ruby, and Go
+- Templates with {{ }} variable syntax
+- Flexible triggers (webhook, cron, events)
+
+---
+layout: code_example
+---
+
+# Error Handling and Retry Logic
+
+Robust implementation with error handling:
+
+```typescript
+import { TechFlow, TechFlowError, RetryConfig } from '@techflow/sdk';
+
+const client = new TechFlow({
+  apiKey: process.env.TECHFLOW_API_KEY,
+  retry: {
+    attempts: 3,
+    backoff: 'exponential',
+    factor: 2
+  } as RetryConfig
+});
+
+try {
+  const result = await client.workflows.execute(workflowId, {
+    user: {
+      email: 'user@example.com',
+      name: 'John Doe'
+    }
+  });
+
+  console.log('Execution successful:', result.executionId);
+
+} catch (error) {
+  if (error instanceof TechFlowError) {
+    switch (error.code) {
+      case 'RATE_LIMIT_EXCEEDED':
+        console.log('Rate limit hit, waiting...');
+        await new Promise(resolve => setTimeout(resolve, error.retryAfter * 1000));
+        break;
+
+      case 'WORKFLOW_NOT_FOUND':
+        console.error('Workflow not found:', workflowId);
+        break;
+
+      case 'VALIDATION_ERROR':
+        console.error('Validation error:', error.details);
+        break;
+
+      default:
+        console.error('Unknown error:', error.message);
+    }
+  }
+}
+```
+
+**Best practices:**
+- Always implement exponential retry logic
+- Handle each error type specifically
+- Log errors for debugging
+- Use appropriate timeouts for your use case
+
+---
+layout: code_example
+---
+
+# Webhooks and Real-Time Events
+
+Webhook configuration to receive events:
+
+```javascript
+// Configure webhook endpoint
+const webhook = await client.webhooks.create({
+  url: 'https://your-app.com/webhooks/techflow',
+  events: [
+    'workflow.completed',
+    'workflow.failed',
+    'workflow.started'
+  ],
+  secret: 'your-verification-secret'
+});
+
+// Express middleware to handle webhooks
+app.post('/webhooks/techflow', express.raw({type: 'application/json'}), (req, res) => {
+  const signature = req.headers['x-techflow-signature'];
+  const payload = req.body;
+
+  // Verify webhook signature
+  if (!client.webhooks.verify(payload, signature, webhook.secret)) {
+    return res.status(401).send('Invalid signature');
+  }
+
+  const event = JSON.parse(payload);
+
+  switch (event.type) {
+    case 'workflow.completed':
+      console.log(`Workflow ${event.data.workflowId} completed successfully`);
+      break;
+
+    case 'workflow.failed':
+      console.error(`Workflow ${event.data.workflowId} failed:`, event.data.error);
+      break;
+
+    case 'workflow.started':
+      console.log(`Workflow ${event.data.workflowId} started`);
+      break;
+  }
+
+  res.status(200).send('OK');
+});
+```
+
+- Mandatory signature verification for security
+- Real-time events for reactive integration
+- Automatic retry if your endpoint doesn't respond with 200
+
+---
+layout: code_example
+---
+
+# Advanced Conditional Workflows
+
+Creating complex flows with conditional logic:
+
+```javascript
+const advancedWorkflow = await client.workflows.create({
+  name: 'Smart Lead Nurturing',
+  trigger: {
+    type: 'webhook',
+    path: '/lead/created'
+  },
+  steps: [
+    // Enrich lead data
+    {
+      type: 'http_request',
+      method: 'GET',
+      url: 'https://api.clearbit.com/v2/people/find',
+      headers: {
+        'Authorization': 'Bearer {{ secrets.clearbit_key }}'
+      },
+      params: {
+        email: '{{ lead.email }}'
+      },
+      output: 'enriched_data'
+    },
+
+    // Decision based on company size
+    {
+      type: 'condition',
+      if: '{{ enriched_data.company.metrics.employees > 500 }}',
+      then: [
+        {
+          type: 'assign_to_sales',
+          team: 'enterprise',
+          priority: 'high'
+        },
+        {
+          type: 'slack_notification',
+          channel: '#enterprise-leads',
+          message: '🚀 New enterprise lead: {{ lead.name }} from {{ enriched_data.company.name }}'
+        }
+      ],
+      else: [
+        {
+          type: 'email_sequence',
+          template: 'smb_nurturing',
+          delay_between: '2d',
+          count: 5
+        }
+      ]
+    },
+
+    // Follow-up after 7 days
+    {
+      type: 'delay',
+      duration: '7d'
+    },
+    {
+      type: 'condition',
+      if: '{{ lead.status == "not_contacted" }}',
+      then: [
+        {
+          type: 'create_task',
+          assignee: '{{ lead.owner }}',
+          title: 'Follow up with {{ lead.name }}',
+          due_date: 'tomorrow'
+        }
+      ]
+    }
+  ]
+});
+```
+
+**Advanced features:**
+- Context variables with {{ }} syntax
+- Integration with external APIs
+- Complex conditional logic
+- Flexible delays and scheduling
+
+---
+layout: comparison
+---
+
+# SDK vs REST API vs Webhooks
+
+::: info
+**SDK (Recommended)**
+- Full TypeScript typing
+- Automatic retry and error handling
+- Automatic authentication
+- Smart rate limiting
+- IDE-integrated documentation
+:::
+
+::: success
+**Direct REST API**
+- Granular control over requests
+- Lower dependency overhead
+- Ideal for microservices
+- Compatible with any language
+- Customizable caching
+:::
+
+::: warning
+**Webhooks Only**
+- Limited to reactive events
+- Doesn't support synchronous operations
+- Requires a public web server
+- Ideal for event-driven integrations
+- Lower latency for notifications
+:::
+
+---
+layout: code_example
+---
+
+# Testing and Debugging
+
+Tools for testing and debugging workflows:
+
+```javascript
+// Sandbox mode for testing
+const testClient = new TechFlow({
+  apiKey: process.env.TECHFLOW_SANDBOX_KEY,
+  environment: 'sandbox'
+});
+
+// Unit testing with Jest
+describe('TechFlow Workflows', () => {
+  test('should create workflow successfully', async () => {
+    const workflow = await testClient.workflows.create(mockWorkflowConfig);
+    expect(workflow.id).toBeDefined();
+    expect(workflow.status).toBe('active');
+  });
+
+  test('should execute workflow with test data', async () => {
+    const execution = await testClient.workflows.execute(
+      'wf_test_123',
+      mockUserData
+    );
+
+    expect(execution.status).toBe('completed');
+    expect(execution.steps).toHaveLength(3);
+  });
+});
+
+// Debug mode with detailed logging
+const debugClient = new TechFlow({
+  apiKey: process.env.TECHFLOW_API_KEY,
+  debug: true, // Enables detailed logging
+  onRequest: (config) => {
+    console.log('Request:', config.method, config.url);
+  },
+  onResponse: (response) => {
+    console.log('Response:', response.status, response.data);
+  }
+});
+
+// Dry run to validate workflows without executing
+const dryRun = await client.workflows.validate(workflowConfig);
+if (dryRun.valid) {
+  console.log('Workflow is valid');
+} else {
+  console.error('Errors found:', dryRun.errors);
+}
+```
+
+**Debugging tools:**
+- Sandbox environment for safe testing
+- Dry run for validation without execution
+- Detailed logs with debug mode
+- Included testing utilities
+
+---
+layout: call_to_action
+---
+
+# Ready to Integrate TechFlow?
+## Start developing in minutes
+
+[View Full Documentation](https://docs.techflow.com){.btn-primary}
+[Download SDK](https://github.com/techflow/sdk){.btn-secondary}
+
+**🚀 Resources for developers:**
+- Complete API Reference
+- Code examples on GitHub
+- Postman Collection included
+- Dedicated technical support
+
+*Join our developer community - 10,000+ developers building with TechFlow*

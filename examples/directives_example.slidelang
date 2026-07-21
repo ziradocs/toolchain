@@ -1,0 +1,183 @@
+---
+mode: "strict"
+title: "Complete Directives Example"
+author: "SlideLang CLI"
+theme: "modern"
+---
+
+SLIDE title
+  heading: "Directives in SlideLang"
+  subtitle: "Behavior Modifiers in the Strict DSL"
+  logo: "https://via.placeholder.com/100x100"
+
+SLIDE content
+  title: "What Are Directives?"
+  TEXT
+    Directives are special modifiers that start with @ and affect
+    how elements are rendered or behave on a slide.
+
+  POINTS
+    - Syntax: @directive or @directive: parameters
+    - Affect subsequent elements
+    - Allow granular control over rendering
+    - Modify behavior without changing structure
+
+SLIDE content
+  title: "Presentation Directives"
+
+  @center
+  TEXT
+    This text will be centered on the slide.
+
+  @highlight: warning
+  TEXT
+    This text will have a highlighted warning style.
+
+  @style: large-text
+  POINTS
+    - This point will have large text
+    - Styles apply to the entire element
+
+SLIDE content
+  title: "Animation Directives"
+
+  @animate: fadeIn
+  TEXT
+    This text will appear with a fadeIn animation.
+
+  @animate: slideUp, delay:500
+  POINTS
+    - This point will slide upward
+    - With a 500ms delay
+    - Animations enhance the presentation
+
+SLIDE content
+  title: "Layout Directives"
+
+  @layout: two-column
+  TEXT
+    Left column content. This directive changes
+    the entire slide's layout to two columns.
+
+  @column: right
+  POINTS
+    - Right column content
+    - Subsequent elements go here
+    - Until the directive changes
+
+SLIDE content
+  title: "Visibility Directives"
+
+  @fragment: 1
+  TEXT
+    This text appears first.
+
+  @fragment: 2
+  POINTS
+    - This point appears second
+    - Control over the appearance sequence
+
+  @fragment: 3
+  TEXT
+    And this text appears last.
+
+SLIDE content
+  title: "Directives with Parameters"
+
+  @style: custom, color:blue, size:large
+  TEXT
+    Directive with multiple parameters for detailed control.
+
+  @animate: bounce, duration:1000, iterations:2
+  TEXT
+    Custom animation with duration and iterations.
+
+  @position: top-right, margin:20px
+  TEXT
+    Specific positioning on the slide.
+
+SLIDE content
+  title: "Content Directives"
+
+  @include: ./fragments/intro.md
+
+  @hide: mobile
+  TEXT
+    This content is hidden on mobile devices.
+
+  @show: print
+  TEXT
+    This content only appears when printing.
+
+SLIDE content
+  title: "Advanced Directives"
+
+  @conditional: theme=dark
+  TEXT
+    This text only appears with the dark theme.
+
+  @template: user-name, role
+  TEXT
+    Hello {{user-name}}, your role is {{role}}.
+
+  @script: custom-behavior.js
+  TEXT
+    Custom behavior with JavaScript.
+
+SLIDE content
+  title: "Current State vs Planned"
+
+  TEXT
+    Current State (✅ Implemented):
+
+  POINTS
+    - Basic directive parsing (@directive)
+    - Detection in the AST as DirectiveNode
+    - Structure for parameters
+
+  TEXT
+    Pending (🚧 In development):
+
+  POINTS
+    - Full HTML/CSS rendering
+    - Named parameters with values
+    - Visual effects and animations
+    - Custom layouts
+    - Conditionals and templating
+
+SLIDE content
+  title: "Directive Syntax"
+
+  CODE
+    language: "slidelang"
+    content: |
+      # Basic
+      @center
+      @hide
+      @animate
+
+      # With simple parameters
+      @animate: fadeIn
+      @style: highlight
+      @layout: two-column
+
+      # With multiple parameters
+      @animate: slideUp, delay:500, duration:1000
+      @style: custom, color:red, size:large
+      @position: top-right, margin:20px
+
+      # Conditionals
+      @conditional: theme=dark
+      @show: print
+      @hide: mobile
+
+SLIDE content
+  title: "Next Steps"
+
+  POINTS
+    - Implement full directive rendering
+    - Add support for named-value parameters
+    - Create a theme system using directives
+    - Implement CSS/JS animations
+    - Document all available directives
+    - Add directive validation in the linter

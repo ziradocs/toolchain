@@ -1,0 +1,53 @@
+name: Parser fuzzing
+
+# Issue #45: el parser (core/parser) consume input no confiable sin
+# ningún fuzz target — ver core/parser/fuzz_test.go. Este workflow
+# corre cada target por un presupuesto corto al integrar cambios a main y
+# más tiempo en el cron semanal (para explorar más del espacio de entradas).
+# Los PR reejecutan el corpus mediante `go test`. El corpus de crashes encontrados
+# (testdata/fuzz/) se commitea al repo y se re-ejecuta automáticamente como
+# test de regresión en cualquier `go test` normal, con o sin -fuzz.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "core/parser/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    # Semanal — más tiempo de fuzzing que el que se justifica en cada PR.
+    - cron: "0 8 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+
+      - name: Ejecutar los fuzz targets
+        working-directory: core
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            fuzztime=5m
+          else
+            fuzztime=30s
+          fi
+          for target in FuzzParse FuzzFrontMatter FuzzStrictParse FuzzFlexParse FuzzDocumentFlexParse; do
+            echo "::group::$target"
+            go test ./parser/... -run '^$' -fuzz "^$target$" -fuzztime="$fuzztime"
+            echo "::endgroup::"
+          done

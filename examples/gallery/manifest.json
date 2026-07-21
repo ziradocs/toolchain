@@ -1,0 +1,79 @@
+{
+  "gallery": [
+    {
+      "file": "01_business_report_basics.doclang",
+      "title": "Quarterly Business Report \u2014 Q4",
+      "mode": "doclang"
+    },
+    {
+      "file": "01_strict_mode_basics.slidelang",
+      "title": "ZiraDocs Strict Mode Tour",
+      "mode": "strict"
+    },
+    {
+      "file": "02_flex_mode_essentials.slidelang",
+      "title": "ZiraDocs Flex Mode Essentials",
+      "mode": "flex"
+    },
+    {
+      "file": "02_technical_architecture.doclang",
+      "title": "System Architecture Overview",
+      "mode": "doclang"
+    },
+    {
+      "file": "03_academic_paper.doclang",
+      "title": "Latency-Aware Caching for Edge Inference",
+      "mode": "doclang"
+    },
+    {
+      "file": "03_flex_ai_normalizer.slidelang",
+      "title": "The Flex-Full Normalizer",
+      "mode": "flex"
+    },
+    {
+      "file": "04_analytics_charts_and_maps.doclang",
+      "title": "Global Analytics Report",
+      "mode": "doclang"
+    },
+    {
+      "file": "04_charts_showcase.slidelang",
+      "title": "Charts Showcase",
+      "mode": "flex"
+    },
+    {
+      "file": "05_mermaid_diagrams.slidelang",
+      "title": "Mermaid Diagrams",
+      "mode": "flex"
+    },
+    {
+      "file": "05_product_onepager.doclang",
+      "title": "DocLang Product One-Pager",
+      "mode": "doclang"
+    },
+    {
+      "file": "06_maps_and_geodata.slidelang",
+      "title": "Maps and Geodata",
+      "mode": "flex"
+    },
+    {
+      "file": "07_special_blocks_and_checklists.slidelang",
+      "title": "Callouts and Checklists",
+      "mode": "flex"
+    },
+    {
+      "file": "08_code_and_code_groups.slidelang",
+      "title": "Code and Code Groups",
+      "mode": "flex"
+    },
+    {
+      "file": "09_grid_layouts_and_tables.slidelang",
+      "title": "Grid Layouts and Tables",
+      "mode": "flex"
+    },
+    {
+      "file": "10_startup_pitch_deck.slidelang",
+      "title": "CloudSecure AI \u2014 Series A Pitch",
+      "mode": "flex"
+    }
+  ]
+}

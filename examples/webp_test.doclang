@@ -1,0 +1,46 @@
+# WebP Support Test
+
+This document tests WebP image generation for charts and maps.
+
+## Chart Test
+
+```chart
+{
+  "type": "bar",
+  "data": {
+    "labels": ["Q1", "Q2", "Q3", "Q4"],
+    "datasets": [{
+      "label": "Sales 2024",
+      "data": [120, 190, 150, 240],
+      "backgroundColor": "rgba(75, 192, 192, 0.5)"
+    }]
+  },
+  "options": {
+    "responsive": true,
+    "scales": {
+      "y": {
+        "beginAtZero": true
+      }
+    }
+  }
+}
+```
+
+## Map Test
+
+```map
+{
+  "center": [40.7128, -74.0060],
+  "zoom": 12,
+  "markers": [
+    {
+      "position": [40.7128, -74.0060],
+      "popup": "New York City"
+    }
+  ]
+}
+```
+
+## Performance Comparison
+
+This test allows comparing PNG vs WebP file sizes.

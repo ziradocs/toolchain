@@ -1,0 +1,61 @@
+---
+mode: flex
+title: "ZiraDocs Flex Mode Essentials"
+author: "ZiraDocs Team"
+theme: "modern-blue"
+---
+
+# ZiraDocs Flex Mode
+## Markdown-like authoring for hand-written decks
+
+*A tour of the everyday building blocks: text, lists, tables, images, and quotes.*
+
+---
+
+## Text Formatting
+
+Flex mode reads like Markdown. You get **bold**, *italic*, `inline code`,
+and [links](https://ziradocs.com) without any extra ceremony.
+
+> "The best DSL is the one you forget you're using."
+>
+> **— ZiraDocs Documentation**
+
+---
+
+## Lists, Ordered and Not
+
+**Unordered:**
+- First idea
+- Second idea
+- Third idea
+
+**Ordered:**
+1. Draft the outline
+2. Fill in the content
+3. Ship the deck
+
+---
+
+## A Markdown Table
+
+| Feature | strict | flex | flex-full |
+|---------|--------|------|---------|
+| Explicit SLIDE blocks | Yes | No | No |
+| Markdown headings | No | Yes | Yes |
+| AI normalization (via the CLI) | No | Yes | Yes |
+
+---
+
+## Images
+
+![ZiraDocs architecture diagram placeholder](https://placehold.co/640x360?text=ZiraDocs)
+
+*Images accept any relative or absolute URL; local assets resolve relative to the file.*
+
+---
+
+## Closing Thoughts
+
+Flex mode is the default choice for most decks — expressive enough for real
+content, structured enough for the linter to catch mistakes early.

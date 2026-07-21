@@ -1,0 +1,121 @@
+/* Elementos de cita */
+.element.quote {
+    margin: 1.5rem 0;
+    padding: 0;
+}
+
+.element.quote blockquote {
+    position: relative;
+    margin: 0;
+    padding: 1.5rem 2rem 1rem 3rem;
+    background: var(--bg-secondary, #f8f9fa);
+    border-left: 4px solid var(--primary-color);
+    border-radius: 0 8px 8px 0;
+    font-style: italic;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.element.quote blockquote:before {
+    content: "\201C";
+    position: absolute;
+    top: 0.5rem;
+    left: 0.8rem;
+    font-size: 3rem;
+    line-height: 1;
+    color: var(--primary-color);
+    font-family: Georgia, serif;
+    opacity: 0.3;
+}
+
+.element.quote blockquote p {
+    margin: 0;
+    font-size: 1.2rem;
+    line-height: 1.6;
+    color: var(--text-color);
+}
+
+.element.quote blockquote .quote-footer {
+    margin-top: 1rem;
+    font-style: normal;
+    font-size: 0.9rem;
+    color: var(--text-muted, #6c757d);
+    text-align: right;
+}
+
+.element.quote blockquote .quote-footer:before {
+    content: "— ";
+}
+
+.element.quote blockquote .quote-footer cite {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.element.quote blockquote .quote-footer .source {
+    color: var(--text-muted, #6c757d);
+    font-style: italic;
+}
+
+/* Variantes de tema */
+/* Tema oscuro */
+.theme-dark .element.quote blockquote {
+    background: var(--bg-secondary, #2d3748);
+    border-left-color: var(--primary-color, #63b3ed);
+}
+
+.theme-dark .element.quote blockquote:before {
+    color: var(--primary-color, #63b3ed);
+}
+
+/* Tema minimal */
+.theme-minimal .element.quote blockquote {
+    background: transparent;
+    border-left: 3px solid var(--primary-color);
+    box-shadow: none;
+    padding: 1rem 0 1rem 2rem;
+}
+
+.theme-minimal .element.quote blockquote:before {
+    display: none;
+}
+
+/* Tema modern-blue */
+.theme-modern-blue .element.quote blockquote {
+    background: linear-gradient(135deg, rgba(99, 179, 237, 0.05) 0%, rgba(129, 140, 248, 0.05) 100%);
+    border-left-color: var(--primary-color, #3182ce);
+}
+
+.theme-modern-blue .element.quote blockquote:before {
+    color: var(--primary-color, #3182ce);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .element.quote blockquote {
+        padding: 1rem 1.5rem 0.8rem 2.5rem;
+    }
+
+    .element.quote blockquote:before {
+        font-size: 2.5rem;
+        left: 0.5rem;
+    }
+
+    .element.quote blockquote p {
+        font-size: 1.1rem;
+    }
+}
+
+/* Animations para presentaciones */
+.element.quote blockquote {
+    transition: all 0.3s ease;
+}
+
+.element.quote:hover blockquote {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    transform: translateY(-1px);
+}
+
+/* Estilos para citas sin autor */
+.element.quote blockquote:not(:has(.quote-footer)) {
+    padding-bottom: 1.5rem;
+}

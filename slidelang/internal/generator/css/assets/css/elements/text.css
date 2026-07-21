@@ -1,0 +1,307 @@
+/* Elementos de texto */
+.slidelang-element.slidelang-text {
+    font-size: 1.3rem;
+    line-height: 1.6;
+    color: var(--text-color);
+    margin-bottom: 1rem;
+}
+
+.slidelang-element.slidelang-text p {
+    margin-bottom: 1rem;
+}
+
+.slidelang-element.slidelang-text p:last-child {
+    margin-bottom: 0;
+}
+
+/* Headers dentro de elementos de texto */
+.slidelang-element.slidelang-text h1,
+.slidelang-element.slidelang-text h2,
+.slidelang-element.slidelang-text h3,
+.slidelang-element.slidelang-text h4,
+.slidelang-element.slidelang-text h5,
+.slidelang-element.slidelang-text h6 {
+    margin-bottom: 0.8rem;
+    margin-top: 0.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.slidelang-element.slidelang-text h1:first-child,
+.slidelang-element.slidelang-text h2:first-child,
+.slidelang-element.slidelang-text h3:first-child,
+.slidelang-element.slidelang-text h4:first-child,
+.slidelang-element.slidelang-text h5:first-child,
+.slidelang-element.slidelang-text h6:first-child {
+    margin-top: 0;
+}
+
+/* Listas y puntos */
+.slidelang-element.slidelang-points ul,
+.slidelang-element.slidelang-points ol {
+    list-style: none;
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+}
+
+.slidelang-element.slidelang-points li {
+    margin-bottom: 0.8rem;
+    padding-left: 2rem;
+    position: relative;
+    line-height: 1.5;
+}
+
+.slidelang-element.slidelang-points ul li:before {
+    content: "▶";
+    color: var(--primary-color);
+    font-weight: bold;
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+.slidelang-element.slidelang-points ol {
+    counter-reset: item;
+}
+
+.slidelang-element.slidelang-points ol li {
+    counter-increment: item;
+}
+
+.slidelang-element.slidelang-points ol li:before {
+    content: counter(item) ".";
+    color: var(--primary-color);
+    font-weight: bold;
+    position: absolute;
+    left: 0;
+    top: 0;
+    min-width: 1.5rem;
+}
+
+/* Listas anidadas */
+.slidelang-element.slidelang-points ul ul,
+.slidelang-element.slidelang-points ol ol {
+    margin-top: 0.5rem;
+    margin-left: 1.5rem;
+}
+
+.slidelang-element.slidelang-points ul ul li:before {
+    content: "▸";
+    color: var(--accent-color);
+}
+
+.slidelang-element.slidelang-points ol ol {
+    counter-reset: subitem;
+}
+
+.slidelang-element.slidelang-points ol ol li {
+    counter-increment: subitem;
+}
+
+.slidelang-element.slidelang-points ol ol li:before {
+    content: counter(subitem, lower-alpha) ".";
+    color: var(--accent-color);
+}
+
+/* Estilos de texto */
+.slidelang-element.slidelang-text strong {
+    font-weight: 600;
+    color: var(--secondary-color);
+}
+
+.slidelang-element.slidelang-text em {
+    font-style: italic;
+    color: var(--accent-color);
+}
+
+.slidelang-element.slidelang-text mark {
+    background: var(--highlight-bg, #ffeb3b);
+    color: var(--highlight-text, #333);
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+    font-weight: 500;
+}
+
+.slidelang-element.slidelang-text del {
+    text-decoration: line-through;
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+
+.slidelang-element.slidelang-text code {
+    background: var(--bg-light);
+    color: var(--secondary-color);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    font-family: var(--font-code);
+    font-size: 0.9em;
+}
+
+.slidelang-element.slidelang-text a,
+.slidelang-element.slidelang-points a {
+    color: var(--link-color);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+    font-weight: 500;
+    transition: var(--transition);
+    cursor: pointer;
+    border-radius: var(--border-radius-sm);
+    padding: 0.05rem 0.2rem;
+    background: var(--link-bg);
+}
+
+.slidelang-element.slidelang-text a:hover,
+.slidelang-element.slidelang-points a:hover {
+    color: var(--link-hover-color);
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    background: var(--link-hover-bg);
+    transform: translateY(-0.5px);
+    box-shadow: var(--shadow-light);
+}
+
+.slidelang-element.slidelang-text a:focus,
+.slidelang-element.slidelang-points a:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+    border-radius: var(--border-radius-sm);
+}
+
+/* Blockquotes */
+.slidelang-element.slidelang-text blockquote {
+    border-left: 4px solid var(--primary-color);
+    margin: 1.5rem 0;
+    padding: 1rem 1.5rem;
+    background: var(--bg-light);
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    font-style: italic;
+    color: var(--text-light);
+}
+
+.slidelang-element.slidelang-text blockquote p:last-child {
+    margin-bottom: 0;
+}
+
+/* Encabezados dentro de elementos */
+.slidelang-element.slidelang-text h1,
+.slidelang-element.slidelang-text h2,
+.slidelang-element.slidelang-text h3,
+.slidelang-element.slidelang-text h4,
+.slidelang-element.slidelang-text h5,
+.slidelang-element.slidelang-text h6 {
+    margin-bottom: 1rem;
+    color: var(--secondary-color);
+}
+
+.slidelang-element.slidelang-text h1 { font-size: 2rem; font-weight: 700; }
+.slidelang-element.slidelang-text h2 { font-size: 1.75rem; font-weight: 600; }
+.slidelang-element.slidelang-text h3 { font-size: 1.5rem; font-weight: 600; }
+.slidelang-element.slidelang-text h4 { font-size: 1.25rem; font-weight: 500; }
+.slidelang-element.slidelang-text h5 { font-size: 1.125rem; font-weight: 500; }
+.slidelang-element.slidelang-text h6 { font-size: 1rem; font-weight: 500; }
+
+/* Separadores */
+.slidelang-element.slidelang-text hr {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+    margin: 2rem 0;
+}
+
+/* Texto destacado */
+.slidelang-element.slidelang-text .slidelang-highlight {
+    background: linear-gradient(120deg, var(--accent-color)10, var(--accent-color) 15%, transparent 15%);
+    padding: 0.1rem 0.3rem;
+    font-weight: 500;
+}
+
+.slidelang-element.slidelang-text .slidelang-lead {
+    font-size: 1.5rem;
+    font-weight: 300;
+    line-height: 1.4;
+    color: var(--text-light);
+    margin-bottom: 1.5rem;
+}
+
+/* =========================================================================
+   Spans de formato inline [texto]{.token}
+   -------------------------------------------------------------------------
+   CSS de referencia para la paleta de spans con clase que el renderer emite
+   desde ProcessInlineMarkdownFormatsSecure (allowlist inlineSpanTokens en
+   slidelang-core/renderer/sanitizer.go). Las clases las define el ESTÁNDAR
+   SlideLang; estas reglas hacen que `--format html` salga estilado en la
+   herramienta abierta. Todo color es overridable por tema vía custom
+   properties, con fallbacks neutros y accesibles (contraste AA sobre fondo
+   claro). Los selectores son class-only (baja especificidad) para aplicar en
+   cualquier contexto (text, points, tablas, quotes); las dos colisiones
+   conocidas contra las reglas base de .slidelang-element.slidelang-text
+   {mark,strong,em} (especificidad 0,2,1) se resuelven con reglas de mayor
+   especificidad más abajo, acotadas al mismo contexto de texto.
+   ========================================================================= */
+
+/* --- Colores de texto --- */
+.slidelang-text-danger  { color: var(--slidelang-danger-color,  #dc2626); }
+.slidelang-text-info    { color: var(--slidelang-info-color,    #2563eb); }
+.slidelang-text-success { color: var(--slidelang-success-color, #15803d); }
+.slidelang-text-warning { color: var(--slidelang-warning-color, #b45309); }
+.slidelang-text-accent  { color: var(--slidelang-accent-color,  #7c3aed); }
+
+/* --- Resaltados (usan <mark>): fondo tintado + texto a juego --- */
+.slidelang-highlight-warning {
+    background: var(--slidelang-highlight-warning-bg, #fef3c7);
+    color: var(--slidelang-highlight-warning-text, #92400e);
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+}
+.slidelang-highlight-info {
+    background: var(--slidelang-highlight-info-bg, #dbeafe);
+    color: var(--slidelang-highlight-info-text, #1e40af);
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+}
+.slidelang-highlight-success {
+    background: var(--slidelang-highlight-success-bg, #dcfce7);
+    color: var(--slidelang-highlight-success-text, #166534);
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+}
+
+/* --- Tamaño --- */
+.slidelang-text-small { font-size: 0.875em; }
+.slidelang-text-large { font-size: 1.25em; font-weight: 500; }
+
+/* <u> del token .underline no necesita clase: hereda el subrayado nativo. */
+
+/* --- Resolución de colisiones dentro de elementos de texto ---
+   Dentro de .slidelang-element.slidelang-text existe una regla base
+   `mark` (0,2,1) que pintaría los <mark> de resaltado con el amarillo por
+   defecto, y reglas `strong`/`em` (0,2,1) que recolorearían el texto en
+   negrita/cursiva anidado dentro de un span de color. Estas reglas, de
+   especificidad 0,3,x, ganan de forma determinista en ese contexto sin
+   depender del orden de fuente. Fuera de elementos de texto no hay regla en
+   competencia, así que las reglas class-only de arriba bastan. */
+.slidelang-element.slidelang-text mark.slidelang-highlight-warning {
+    background: var(--slidelang-highlight-warning-bg, #fef3c7);
+    color: var(--slidelang-highlight-warning-text, #92400e);
+}
+.slidelang-element.slidelang-text mark.slidelang-highlight-info {
+    background: var(--slidelang-highlight-info-bg, #dbeafe);
+    color: var(--slidelang-highlight-info-text, #1e40af);
+}
+.slidelang-element.slidelang-text mark.slidelang-highlight-success {
+    background: var(--slidelang-highlight-success-bg, #dcfce7);
+    color: var(--slidelang-highlight-success-text, #166534);
+}
+.slidelang-element.slidelang-text .slidelang-text-danger strong,
+.slidelang-element.slidelang-text .slidelang-text-danger em,
+.slidelang-element.slidelang-text .slidelang-text-info strong,
+.slidelang-element.slidelang-text .slidelang-text-info em,
+.slidelang-element.slidelang-text .slidelang-text-success strong,
+.slidelang-element.slidelang-text .slidelang-text-success em,
+.slidelang-element.slidelang-text .slidelang-text-warning strong,
+.slidelang-element.slidelang-text .slidelang-text-warning em,
+.slidelang-element.slidelang-text .slidelang-text-accent strong,
+.slidelang-element.slidelang-text .slidelang-text-accent em {
+    color: inherit;
+}

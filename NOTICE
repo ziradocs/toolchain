@@ -1,0 +1,16 @@
+ZiraDocs (SlideLang & DocLang)
+Copyright 2025-2026 Misael Monterroca and contributors
+
+This product includes software developed by Misael Monterroca
+(https://github.com/ziradocs/toolchain) and its contributors.
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+This product includes the following third-party dependencies, used
+as-is without modification to their license terms:
+
+- docxgo (https://github.com/mmonterroca/docxgo), MIT License,
+  used by doclang for DOCX generation.
+- pptxgo (https://github.com/mmonterroca/pptxgo), MIT License,
+  used by slidelang for PPTX generation.

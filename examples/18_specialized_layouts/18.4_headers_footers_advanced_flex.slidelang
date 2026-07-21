@@ -1,0 +1,354 @@
+---
+mode: flex
+title: "Advanced Configuration - Headers and Footers"
+author: "Dr. Maria Gonzalez"
+company: "TechCorp Solutions"
+department: "Digital Innovation"
+project: "Corporate Presentation"
+date: "December 27, 2024"
+quarter: "Q4 2024"
+theme: "corporate-advanced"
+
+# Complete header with logo and text
+header:
+  enabled: true
+  logo:
+    source: "./assets/techcorp-logo.png"
+    alt: "TechCorp Solutions"
+    position: "left"
+    height: "40px"
+    link: "https://techcorp.com"
+  text:
+    position: "right"
+    content: "{{department}} • {{quarter}}"
+    style: "subtitle"
+    color: "#666666"
+    font_size: "14px"
+  divider: true
+
+# Complete footer with page numbers and text
+footer:
+  enabled: true
+  page_numbers:
+    enabled: true
+    format: "{{current}} / {{total}}"
+    position: "right"
+    exclude_title_slides: true
+    exclude_section_slides: false
+    start_from: 2
+    style: "caption"
+    prefix: "Page "
+  text:
+    left: "© 2024 {{company}}"
+    center: "{{project}}"
+    right: ""
+  social_links:
+    - platform: "website"
+      url: "techcorp.com"
+      position: "left"
+    - platform: "email"
+      url: "contacto@techcorp.com"
+      position: "left"
+  divider: true
+
+# Custom variables
+variables:
+  status: "Confidential"
+  version: "v2.1"
+  team: "Team Alpha"
+  budget: "$2.5M"
+
+# Layout-specific configuration
+layout_defaults:
+  title:
+    header:
+      enabled: false
+    footer:
+      enabled: false
+
+  title_slide:
+    header:
+      enabled: true
+      text:
+        content: "{{department}} • New Section"
+    footer:
+      page_numbers:
+        enabled: false
+      text:
+        center: ""
+
+  section:
+    header:
+      text:
+        content: "{{department}} • {{project}}"
+        color: "#2c5282"
+    footer:
+      page_numbers:
+        format: "Section {{current}}"
+      text:
+        left: "{{status}} - {{team}}"
+
+  stats:
+    footer:
+      text:
+        left: "Data updated: {{date}}"
+        center: "Budget: {{budget}}"
+
+  comparison:
+    header:
+      text:
+        content: "Competitive Analysis • {{department}}"
+    footer:
+      text:
+        left: "{{status}} Evaluation"
+
+  closing:
+    header:
+      enabled: true
+      logo:
+        height: "50px"
+    footer:
+      page_numbers:
+        enabled: false
+      text:
+        left: "{{company}}"
+        center: "Thank you for your attention"
+        right: ""
+      social_links: []
+---
+
+---
+layout: title
+---
+
+# Advanced Configuration
+## Complete Headers and Footers
+
+![TechCorp Logo](./assets/techcorp-logo.png)
+
+**TechCorp Solutions**  
+*Digital Innovation • Q4 2024*
+
+---
+layout: title_slide
+---
+
+# Section 1: Global Configuration
+## Smart headers and footers
+
+This section demonstrates the global header and footer configuration defined in the FrontMatter, automatically applied to all the slides that follow.
+
+---
+layout: content
+header:
+  text:
+    content: "Live Example • Global Configuration"
+    color: "#2c5282"
+footer:
+  text:
+    left: "Real-time demo"
+    center: "{{project}} {{version}}"
+---
+
+# Advanced Headers and Footers
+
+This configuration includes:
+
+## **Complete Header:**
+- ✅ Corporate logo with link
+- ✅ Dynamic text with variables
+- ✅ Flexible positioning
+- ✅ Visual divider
+
+## **Complete Footer:**
+- ✅ Custom page numbers
+- ✅ Text in 3 positions
+- ✅ Social links
+- ✅ Dynamic variables
+
+---
+layout: section
+---
+
+# Section 2: Per-Layout Configuration
+## Each slide type has its own configuration
+
+Notice how the header and footer change depending on the layout type. Section slides have a special format for page numbers.
+
+---
+layout: stats
+---
+
+# Configuration Metrics
+
+| Element | Configuration | Status |
+|----------|---------------|--------|
+| **Header Logo** | techcorp-logo.png (40px) | ✅ Active |
+| **Header Text** | "{{department}} • {{quarter}}" | ✅ Dynamic |
+| **Footer Numbers** | "Page {{current}} / {{total}}" | ✅ Custom format |
+| **Footer Text** | 3 positions with variables | ✅ Configured |
+| **Social Links** | Website + Email | ✅ Included |
+
+::: success
+🎯 **Header and footer configured for maximum professional impact**
+:::
+
+::: info
+📊 **Dynamic variables updating automatically**
+:::
+
+---
+layout: comparison
+---
+
+# Global vs Per-Layout Configuration
+
+::: info
+**Global Configuration**
+- Defined in FrontMatter
+- Applies to all slides
+- Easy maintenance
+- Guaranteed consistency
+:::
+
+::: success
+**Per-Layout** ⭐ **Powerful**
+- Specific to each slide type
+- Maximum flexibility
+- Contextual headers/footers
+- Better user experience
+:::
+
+::: warning
+**Per Individual Slide**
+- Specific override
+- Maximum granular control
+- For special cases
+- Requires more configuration
+:::
+
+---
+layout: timeline
+---
+
+# Header/Footer Evolution
+
+## Basic Configuration
+Simple page numbers only
+
+## Intermediate Configuration
+Basic text + custom numbers
+
+## Advanced Configuration ⭐
+Logo + dynamic text + social links
+
+## Premium Configuration
+Animations + interactive elements
+
+---
+layout: before_after
+---
+
+# Visual Impact
+
+## Before: No Headers/Footers
+![Basic slide](assets/slide-basic.png)
+- Amateur look
+- No branding
+- Difficult navigation
+- Lack of context
+
+## After: Advanced Configuration
+![Professional slide](assets/slide-advanced.png)
+- Professional corporate look
+- Consistent branding
+- Clear navigation
+- Complete context
+
+---
+layout: feature_showcase
+---
+
+# Advanced Features
+
+## 🎨 Smart Branding
+Automatic corporate logo and colors
+
+## 📊 Dynamic Variables
+Content updated automatically
+
+## 📱 Responsive Design
+Adapts to different screen sizes
+
+## 🔗 Integrated Links
+Direct navigation and contact
+
+## 🎯 Layout-Specific
+Contextual configuration per slide type
+
+## 🚀 Optimized Performance
+No impact on rendering speed
+
+---
+layout: dashboard
+---
+
+# Control Panel: Current Configuration
+
+## Active Variables
+
+### Corporate Information
+- **Company:** {{company}}
+- **Department:** {{department}}
+- **Project:** {{project}}
+
+### Project Status
+- **Version:** {{version}}
+- **Status:** {{status}}
+- **Team:** {{team}}
+- **Budget:** {{budget}}
+
+### Technical Configuration
+- **Header:** Logo + dynamic text
+- **Footer:** Numbers + 3 texts + Links
+- **Specific layouts:** 6 configured
+
+---
+layout: call_to_action
+header:
+  text:
+    content: "Configuration Ready to Implement"
+    color: "#2c5282"
+footer:
+  text:
+    left: "Demo completed successfully"
+    center: "Headers and footers working!"
+    right: "{{date}}"
+---
+
+# Ready to Implement?
+## Complete advanced configuration up and running
+
+[Implement in My Project](#implement){.btn-primary}  
+[See More Examples](#examples){.btn-secondary}
+
+**🚀 What you get:**
+- Professional headers and footers
+- Dynamic variables working
+- Per-layout configuration
+- Complete corporate branding
+
+*100% functional configuration - Ready to use*
+
+---
+layout: closing
+---
+
+# Advanced Configuration Complete!
+## Professional-level headers and footers
+
+📧 maria.gonzalez@techcorp.com  
+📱 +1 (555) 123-4567  
+🌐 techcorp.com/digital
+
+*TechCorp Solutions - Innovating the future*

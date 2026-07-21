@@ -1,0 +1,86 @@
+---
+title: "Global Analytics Report"
+author: "Data Team"
+date: "2025-01-15"
+theme: page-view
+mode: flex
+toc: true
+---
+
+# Overview
+
+This report covers global user distribution, revenue trends, and traffic
+sources for the current fiscal year.
+
+# Revenue Trend
+
+<<chart: line>>
+  data: [
+    ["Jan", 210, 150],
+    ["Feb", 245, 175],
+    ["Mar", 268, 198],
+    ["Apr", 290, 215],
+    ["May", 312, 234],
+    ["Jun", 340, 258]
+  ]
+  series: ["Total Revenue ($K)", "Recurring Revenue ($K)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Monthly Revenue (K$)"
+
+# Traffic by Channel
+
+<<chart: doughnut>>
+  data: [42, 27, 18, 13]
+  labels: ["Organic Search", "Direct", "Referral", "Social"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Traffic Sources (%)"
+
+# Global User Distribution
+
+<<map>>
+  type: world
+  markers:
+    - lat: 40.7128
+      lng: -74.0060
+      label: "New York"
+      value: 4200
+      color: "#2196F3"
+    - lat: 51.5074
+      lng: -0.1278
+      label: "London"
+      value: 3100
+      color: "#4CAF50"
+    - lat: 35.6762
+      lng: 139.6503
+      label: "Tokyo"
+      value: 2600
+      color: "#FF9800"
+    - lat: -23.5505
+      lng: -46.6333
+      label: "São Paulo"
+      value: 1800
+      color: "#9C27B0"
+  heatmap: true
+  zoom: 2
+
+# Summary Table
+
+| Region | Users | Revenue Share | YoY Growth |
+|--------|-------|----------------|------------|
+| North America | 4,200 | 38% | +19% |
+| Europe | 3,100 | 27% | +22% |
+| Asia-Pacific | 2,600 | 24% | +31% |
+| Latin America | 1,800 | 11% | +26% |
+
+::: success
+Asia-Pacific posted the strongest year-over-year growth, driven mainly by
+mobile-first onboarding in the region.
+:::

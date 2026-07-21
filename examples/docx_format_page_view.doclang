@@ -1,0 +1,53 @@
+---
+title: "Test Document - Page View Theme"
+author: "DocLang Team"
+date: "2025-10-21"
+theme: page-view
+toc: true
+numbering: true
+---
+
+# Introduction to the Page View Theme
+
+This document demonstrates the **page-view** theme, which mimics the style of Microsoft Word and Google Docs. It's the most familiar theme for corporate users.
+
+## Theme Characteristics
+
+- Font: Calibri (Word style)
+- Corporate blue colors
+- Headers in Word blue
+- Familiar Office style
+
+# Main Content
+
+## Lists and Formatting
+
+Main features:
+
+- Clean, professional design
+- Full **inline formatting**
+- *Italic* and `inline` code
+- Compatible with Office
+
+## Corporate Table
+
+| Department | Employees | Budget |
+|--------------|-----------|-------------|
+| Sales | 45 | $1.2M |
+| Marketing | 28 | $800K |
+| IT | 32 | $950K |
+| Admin | 15 | $400K |
+
+## Special Blocks
+
+:::info
+**Information**: This theme is optimized for corporate documents that should look like traditional Word files.
+:::
+
+:::success
+**Success**: All elements render with Office style.
+:::
+
+# Conclusion
+
+The page-view theme is ideal for corporate documents that need a familiar, professional look similar to Microsoft Word.

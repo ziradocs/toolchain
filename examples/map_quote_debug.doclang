@@ -1,0 +1,11 @@
+---
+title: "Double Quote Test"
+---
+
+# Test Simple de Comillas Dobles
+
+<<map type="city" zoom="11">>
+center: 40.7128, -74.0060
+marker: 40.7128, -74.0060, "Simple Text", "No quotes here", "blue"
+marker: 40.7589, -73.9851, "With Apostrophe", "It's working", "red"
+<</map>>

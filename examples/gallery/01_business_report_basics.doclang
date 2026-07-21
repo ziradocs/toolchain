@@ -1,0 +1,64 @@
+---
+title: "Quarterly Business Report — Q4"
+author: "DocLang Team"
+date: "2025-01-15"
+theme: professional
+mode: flex
+toc: true
+numbering: true
+---
+
+# Executive Summary
+
+This report summarizes Northwind Analytics' performance for the fourth
+quarter, covering revenue, customer growth, and operational highlights.
+
+::: success
+Revenue grew 24% quarter-over-quarter, exceeding the internal target of 18%.
+:::
+
+## Key Metrics
+
+| Metric | Q4 | Q3 | Change |
+|--------|----|----|--------|
+| Revenue | $387K | $312K | +24.0% |
+| Active Users | 15,900 | 12,800 | +24.2% |
+| Churn Rate | 2.8% | 3.5% | -0.7pp |
+
+# Revenue Breakdown
+
+## By Region
+
+- North America: 52% of total revenue
+- Europe: 31% of total revenue
+- Asia-Pacific: 17% of total revenue
+
+## By Product Line
+
+1. Core Platform — 68% of revenue
+2. Add-on Modules — 22% of revenue
+3. Professional Services — 10% of revenue
+
+# Risks and Watch Items
+
+::: warning
+Disk usage on the primary analytics cluster crossed 85% this quarter —
+a storage expansion is scheduled for early next quarter.
+:::
+
+::: danger
+Customer support response time regressed in December; root cause was a
+staffing gap that has since been closed.
+:::
+
+# Next Quarter Priorities
+
+- [x] Close the Series B funding round
+- [x] Ship the new onboarding flow
+- [ ] Expand the support team by two engineers
+- [ ] Launch the EU data residency option
+
+> "This was our strongest quarter yet, and the foundations we built this
+> year set up an even better next one."
+>
+> **— CEO, Q4 all-hands**

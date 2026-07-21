@@ -1,0 +1,280 @@
+---
+title: "Advanced Elements - Full Test"
+author: "DocLang Team"
+date: "2025-10-29"
+theme: professional
+doctype: document
+mode: flex
+---
+
+# CodeGroup - Code Tabs
+
+CodeGroups let you show the same example in multiple languages using tabs.
+
+::::code-group
+```javascript [JavaScript]
+// JavaScript
+function fibonacci(n) {
+  if (n <= 1) return n;
+  return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+console.log(fibonacci(10)); // 55
+```
+
+```python [Python]
+# Python
+def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+print(fibonacci(10))  # 55
+```
+
+```go [Go]
+// Go
+package main
+
+import "fmt"
+
+func fibonacci(n int) int {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n-1) + fibonacci(n-2)
+}
+
+func main() {
+    fmt.Println(fibonacci(10)) // 55
+}
+```
+:::
+
+---
+
+# PlantUML - UML Diagrams
+
+PlantUML is ideal for class diagrams, sequence diagrams, use cases, and more.
+
+## Class Diagram
+
+<<plantuml>>
+@startuml
+class User {
+  -id: int
+  -name: string
+  -email: string
+  +login()
+  +logout()
+}
+
+class Product {
+  -id: int
+  -name: string
+  -price: float
+  +updatePrice()
+}
+
+class Order {
+  -id: int
+  -date: date
+  -total: float
+  +calculateTotal()
+  +confirm()
+}
+
+User "1" -- "*" Order : places
+Order "*" -- "*" Product : contains
+@enduml
+<<end>>
+
+## Sequence Diagram
+
+<<plantuml>>
+@startuml
+actor Customer
+participant "Web System" as Web
+participant "Backend API" as API
+database "Database" as DB
+
+Customer -> Web: Request product
+Web -> API: GET /api/products/123
+API -> DB: SELECT * FROM products WHERE id=123
+DB --> API: Product data
+API --> Web: JSON response
+Web --> Customer: Display product
+@enduml
+<<end>>
+
+---
+
+# Grid Layout
+
+Grids let you organize content into columns and rows.
+
+## Dashboard Grid (2x2)
+
+::: grid
+
+::: column
+### Monthly Sales
+- Total: $125,000
+- Increase: +15%
+- Transactions: 450
+:::
+
+::: column
+### New Customers
+- Total: 89 customers
+- Conversion: 12%
+- Retention: 87%
+:::
+
+::: column
+### Popular Products
+1. Laptop Pro - 45 units
+2. Wireless Mouse - 120 units
+3. Mechanical Keyboard - 67 units
+:::
+
+::: column
+### Support Metrics
+- Open tickets: 23
+- Response time: 2.5h
+- Satisfaction: 94%
+:::
+
+:::
+
+## Features Grid (3 Columns)
+
+::: grid
+
+::: column
+### ⚡ Fast
+Optimized performance with load times under 1 second.
+:::
+
+::: column
+### 🔒 Secure
+End-to-end encryption and two-factor authentication.
+:::
+
+::: column
+### 📱 Responsive
+Compatible with all devices and screen sizes.
+:::
+
+:::
+
+---
+
+# Columns - 2-Column Layout
+
+Columns let you organize content side by side.
+
+::: grid
+
+::: column
+## Advantages
+
+✅ **Easy to use**
+Intuitive interface that requires no training.
+
+✅ **Scalable**
+Grows with your business without limitations.
+
+✅ **Integrable**
+REST APIs and webhooks for integrations.
+:::
+
+::: column
+## Disadvantages
+
+❌ **Learning curve**
+Advanced features require time.
+
+❌ **Initial cost**
+Significant investment for small businesses.
+
+❌ **Dependency**
+Requires a constant internet connection.
+:::
+
+:::
+
+---
+
+# Combining Advanced Elements
+
+All elements working together:
+
+<<info>>
+**Complete Example**
+This section demonstrates how to combine CodeGroups, PlantUML, Grids, and Columns in a single document.
+<<end>>
+
+::: grid
+
+::: column
+### System Architecture
+
+<<plantuml>>
+@startuml
+component "Frontend" as FE
+component "Backend" as BE
+database "PostgreSQL" as DB
+
+FE --> BE : REST API
+BE --> DB : SQL
+@enduml
+<<end>>
+:::
+
+::: column
+### Example Code
+
+::::code-group
+```typescript [TypeScript]
+// TypeScript
+interface Config {
+  apiUrl: string;
+  timeout: number;
+}
+
+const config: Config = {
+  apiUrl: "https://api.example.com",
+  timeout: 5000
+};
+```
+
+```rust [Rust]
+// Rust
+struct Config {
+    api_url: String,
+    timeout: u32,
+}
+
+let config = Config {
+    api_url: String::from("https://api.example.com"),
+    timeout: 5000,
+};
+```
+:::
+:::
+
+:::
+
+---
+
+# Conclusion
+
+Advanced elements (CodeGroup, PlantUML, Grid, Column) let you create professional technical documents with:
+
+- **Code examples** in multiple languages
+- **UML diagrams** for architecture and design
+- **Flexible layouts** with grids and columns
+- **Content organized** visually
+
+DocLang now supports all these elements! 🎉

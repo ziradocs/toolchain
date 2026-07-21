@@ -1,0 +1,385 @@
+---
+mode: flex
+title: "Advanced DSL Elements - Complete Inline Syntax"
+author: "DSL Documentation Team"
+theme: "documentation-complete"
+variables:
+  feature_count: "25+"
+  version: "v3.5"
+  support_level: "experimental"
+  math_examples: "15 equations"
+---
+
+---
+layout: title
+---
+
+# Complete Inline Syntax
+## All Advanced DSL Elements {{version}}
+
+![Advanced Syntax](assets/syntax-icon.png)
+
+**{{feature_count}} elements covered**
+*Includes: Math, Emojis, Keyboard, Refs • Status: {{support_level}}*
+
+---
+layout: section
+---
+
+# Advanced Text Formatting
+## Specialized inline syntax
+
+We cover all the text formatting elements the DSL supports, including math elements, references, and special formats.
+
+---
+layout: content
+---
+
+# Complete Text Formatting
+
+## Combined Basic Formats
+**Bold text** with *italics* and ***both combined*** plus ~~strikethrough text~~.
+
+We can ==highlight== important text and use `inline code` anywhere.
+
+## Scientific and Technical Formats
+Text with ^superscript^ for exponents like E=mc^2^ or references^[1]^.
+
+We also support ~subscripts~ for chemical formulas like H~2~O or CO~2~.
+
+## Advanced Links and References
+This is a [basic link](https://example.com) and this is a [link with a title](https://example.com "Descriptive title").
+
+We can also create [![image that is a link](assets/link-icon.png)](https://example.com) where the image works as a link.
+
+### References and Footnotes
+This text has a reference[^first] and another reference[^second] that appear at the end.
+
+[^first]: This is the first footnote with additional information.
+[^second]: Second note that includes a [link](https://example.com) inside the reference.
+
+---
+layout: content
+---
+
+# Specialized Lists and Checklists
+
+## Advanced Checklist with States
+- [x] ~~Completed and struck-through task~~
+- [ ] Pending task to do
+- [~] Task in progress (partial)
+- [!] Important/critical task
+- [?] Task requiring investigation
+
+## Definition Lists
+API
+:   Application Programming Interface - Interface for communication between systems
+
+REST
+:   Representational State Transfer - Architecture for web services
+
+GraphQL
+:   Query language for APIs that allows requesting specific data
+
+JWT
+:   JSON Web Token - Standard for transmitting secure information
+
+---
+layout: content
+---
+
+# Abbreviations and Acronyms
+
+## Abbreviation Definitions
+HTML is the base language of the web.
+CSS controls the visual presentation.
+JS adds dynamic interactivity.
+
+*[HTML]: HyperText Markup Language
+*[CSS]: Cascading Style Sheets
+*[JS]: JavaScript
+
+## Combined with Formats
+**API** REST using **HTTP** over **TCP/IP**.
+
+*[API]: Application Programming Interface
+*[REST]: Representational State Transfer
+*[HTTP]: HyperText Transfer Protocol
+*[TCP/IP]: Transmission Control Protocol/Internet Protocol
+
+---
+layout: content
+---
+
+# Keyboard and UI Elements
+
+## Key Combinations
+To save a file: ++ctrl+s++
+
+To open the developer menu: ++ctrl+shift+i++
+
+On Mac it would be: ++cmd+option+i++
+
+## UI Action Sequences
+1. Click ++menu++ → ++file++ → ++new++
+2. Press ++tab++ to navigate between fields
+3. Use ++enter++ to confirm or ++esc++ to cancel
+4. To select all: ++ctrl+a++
+
+---
+layout: content
+---
+
+# Emojis and Symbols
+
+## Emojis by Code
+:smile: :heart: :rocket: :fire: :thumbsup: :warning: :info: :bulb:
+
+:computer: :mobile_phone: :email: :calendar: :chart_with_upwards_trend:
+
+:check_mark: :x: :question: :exclamation: :speech_balloon:
+
+## Direct Unicode Emojis
+😊 ❤️ 🚀 🔥 👍 ⚠️ ℹ️ 💡
+
+💻 📱 📧 📅 📈
+
+✅ ❌ ❓ ❗ 💬
+
+## Technical and Mathematical Symbols
+→ ← ↑ ↓ ↔ ⇒ ⇐ ⇔
+
+α β γ δ ε θ λ μ π σ τ φ ω
+
+∞ ∑ ∏ ∫ ∂ ∇ ± × ÷ ≠ ≤ ≥ ≈
+
+---
+layout: content
+---
+
+# Inline and Block Math
+
+## Inline Math Formulas
+The famous Einstein equation: $E = mc^2$
+
+Pythagorean theorem: $a^2 + b^2 = c^2$
+
+Derivative: $\frac{df}{dx} = \lim_{h \to 0} \frac{f(x+h) - f(x)}{h}$
+
+## Centered Block Equations
+
+$$
+\sum_{i=1}^{n} x_i = \frac{1}{n} \sum_{i=1}^{n} x_i
+$$
+
+$$
+\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}
+$$
+
+$$
+\mathbf{A} = \begin{pmatrix}
+a_{11} & a_{12} & \cdots & a_{1n} \\
+a_{21} & a_{22} & \cdots & a_{2n} \\
+\vdots & \vdots & \ddots & \vdots \\
+a_{m1} & a_{m2} & \cdots & a_{mn}
+\end{pmatrix}
+$$
+
+---
+layout: content
+---
+
+# Complex Applied Formulas
+
+## Data Analysis and Statistics
+
+**Arithmetic mean:**
+$$\bar{x} = \frac{1}{n} \sum_{i=1}^{n} x_i$$
+
+**Standard deviation:**
+$$\sigma = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (x_i - \bar{x})^2}$$
+
+**Pearson correlation:**
+$$r = \frac{\sum_{i=1}^{n} (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum_{i=1}^{n} (x_i - \bar{x})^2 \sum_{i=1}^{n} (y_i - \bar{y})^2}}$$
+
+## Business Formulas
+
+**ROI (Return on Investment):**
+$$ROI = \frac{Revenue - Investment}{Investment} \times 100\%$$
+
+**CAGR (Compound Annual Growth Rate):**
+$$CAGR = \left(\frac{V_{final}}{V_{initial}}\right)^{\frac{1}{years}} - 1$$
+
+**NPV (Net Present Value):**
+$$NPV = \sum_{t=0}^{n} \frac{CF_t}{(1+r)^t}$$
+
+---
+layout: content
+---
+
+# Conceptual Interactive Elements
+
+::: info
+💡 **Note on Interactivity**
+The following elements are conceptual and their implementation may vary depending on the renderer used.
+:::
+
+## Polls and Voting
+What is your favorite frontend framework?
+
+::: poll id="frontend_poll" results="visible"
+- React
+- Vue.js
+- Angular
+- Svelte
+- Vanilla JS
+:::
+
+## Q&A Session
+Do you have questions about the DSL's advanced syntax?
+
+::: qa_session id="syntax_qa" moderation="true"
+Send your questions here and we'll answer them live.
+:::
+
+---
+layout: content
+---
+
+# Progressive Revealable Content
+
+## Concepts Step by Step
+
+::: reveal
+### **Level 1: Basic Syntax**
+Fundamental elements like text, lists, and links.
+
+### **Level 2: Advanced Formatting** (Click to expand)
+::: reveal_content
+Includes math, emojis, references, and abbreviations.
+:::
+
+### **Level 3: Interactive Elements** (Click to expand)
+::: reveal_content
+Polls, Q&A, embedded content, and dynamic functionality.
+:::
+
+### **Level 4: Web Integration** (Click to expand)
+::: reveal_content
+Full use of modern web technologies.
+:::
+:::
+
+---
+layout: content
+---
+
+# Embedded Content
+
+## Videos and Multimedia
+
+Explanatory YouTube video:
+::: embed type="youtube" video_id="dQw4w9WgXcQ" width="100%" height="400px" :::
+
+## Interactive Maps
+
+Location of our offices:
+::: embed type="maps"
+location: "37.7749,-122.4194"
+zoom: 15
+markers: true
+:::
+
+## External Widgets
+
+Real-time dashboard:
+::: embed type="iframe"
+url: "https://dashboard.example.com/widget"
+height: "500px"
+sandbox: "allow-scripts allow-same-origin"
+:::
+
+---
+layout: content
+---
+
+# Technical Documentation Elements
+
+## Code with Line Numbering
+
+```python {1,3-5}
+def calculate_fibonacci(n):
+    if n <= 1:
+        return n
+    else:
+        return calculate_fibonacci(n-1) + calculate_fibonacci(n-2)
+
+# Usage example
+result = calculate_fibonacci(10)
+print(f"The tenth Fibonacci number is: {result}")
+```
+
+## Code with Specific Highlighting
+
+```javascript {2,7-9}
+const apiConfig = {
+  baseURL: 'https://api.example.com', // Highlighted line
+  timeout: 5000,
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  retry: {  // Highlighted block
+    attempts: 3,
+    delay: 1000
+  }
+};
+```
+
+---
+layout: content
+---
+
+# DSL Element Coverage Table
+
+| Element | Syntax | Status | Example |
+|----------|----------|--------|---------|
+| **Bold** | `**text**` | ✅ Complete | **text** |
+| **Italics** | `*text*` | ✅ Complete | *text* |
+| **Strikethrough** | `~~text~~` | ✅ Complete | ~~text~~ |
+| **Highlight** | `==text==` | ✅ Complete | ==text== |
+| **Code** | `` `code` `` | ✅ Complete | `code` |
+| **Superscript** | `^text^` | ✅ Complete | ^text^ |
+| **Subscript** | `~text~` | ✅ Complete | ~text~ |
+| **Math** | `$formula$` | ✅ Complete | $E=mc^2$ |
+| **Emojis** | `:emoji:` | ✅ Complete | :smile: |
+| **Keyboard** | `++key++` | ✅ Complete | ++ctrl+s++ |
+| **References** | `[^note]` | ✅ Complete | [^example] |
+| **Abbreviations** | `*[AB]: def` | ✅ Complete | HTML |
+| **Checklists** | `- [x]` | ✅ Complete | - [x] ~~Done~~ |
+| **Definitions** | `Term\n:   Def` | ✅ Complete | See above |
+| **Polls** | `::: poll` | 🚧 Conceptual | See above |
+
+[^example]: This is a sample note.
+*[HTML]: HyperText Markup Language
+
+---
+layout: quote
+---
+
+> "The richness of inline syntax makes it possible to create complete technical documentation without sacrificing readability. Each element has its specific purpose in effective communication."
+>
+> **— Dr. Sarah Mitchell, Technical Writing Researcher**
+
+---
+layout: end
+---
+
+# Complete Syntax Covered!
+## {{feature_count}} inline elements documented
+
+- **Text formatting** with every type
+- **Math** inline and in blocks
+- **Conceptual interactive elements**
+- **Embedded content** and multimedia
+
+**Want to try it out?** *Every example is functional and ready to use*

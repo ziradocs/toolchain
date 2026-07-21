@@ -1,0 +1,1202 @@
+/* === SLIDE NAVIGATION STYLES === */
+
+/* Progress bar */
+.slidelang-progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 4px;
+    background: var(--slidelang-primary-color, #2563eb);
+    transition: width 0.3s ease;
+    z-index: 1000;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Slide counter */
+.slidelang-nav-counter {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    backdrop-filter: blur(5px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: opacity 0.3s ease;
+    z-index: 1000;
+}
+
+.slidelang-nav-counter:hover {
+    opacity: 0.9;
+}
+
+/* Navigation help */
+.slidelang-nav-help {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    opacity: 0.6;
+    backdrop-filter: blur(5px);
+    transition: opacity 0.3s ease;
+    z-index: 1000;
+}
+
+.slidelang-nav-help:hover {
+    opacity: 1;
+}
+
+/* Slide transition animations */
+.slidelang-slide {
+    transition: all 0.3s ease-in-out;
+}
+
+.slidelang-slide.slidelang-active {
+    animation: slidelang-slideIn 0.5s ease-out;
+}
+
+@keyframes slidelang-slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Slide transitioning state */
+.slidelang-slide.slidelang-transitioning {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Touch feedback */
+@media (hover: none) and (pointer: coarse) {
+    .slidelang-nav-counter,
+    .slidelang-nav-help {
+        bottom: 30px;
+        padding: 12px 20px;
+        font-size: 1rem;
+    }
+    
+    .slidelang-progress-bar {
+        height: 6px;
+    }
+}
+
+/* Focus indicators for accessibility */
+.slidelang-slide:focus-within {
+    outline: 3px solid var(--slidelang-accent-color, #f59e0b);
+    outline-offset: -3px;
+}
+
+/* Hide navigation in print mode. Lista ampliada (issue #128): al generar
+   PDF se encontró .slidelang-floating-menu (position:fixed, normalmente
+   oculto vía opacity/pointer-events hasta que JS agrega .slidelang-visible)
+   filtrándose en una página del PDF - el resto de la UI fixed-position de
+   este archivo (menú avanzado, panel de notas, indicadores) tiene el mismo
+   riesgo aunque no se haya observado en el ejemplo probado, así que se cubre
+   toda la categoría acá en vez de agregar un selector a la vez cada vez que
+   aparezca uno nuevo en un PDF real. */
+@media print {
+    .slidelang-progress-bar,
+    .slidelang-nav-counter,
+    .slidelang-nav-help,
+    .slidelang-nav-controls-top-right,
+    .slidelang-nav-controls-top-left,
+    .slidelang-nav-controls-bottom-center,
+    .slidelang-fullscreen-button,
+    .slidelang-help-modal,
+    .slidelang-presenter-mode-indicator,
+    .slidelang-auto-advance-indicator,
+    .slidelang-floating-menu,
+    .slidelang-advanced-menu,
+    .slidelang-notes-panel,
+    .slidelang-notes-toggle-fab {
+        display: none !important;
+    }
+
+    .slidelang-slide {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .slidelang-nav-counter,
+    .slidelang-nav-help {
+        background: #000;
+        border: 2px solid #fff;
+    }
+    
+    .slidelang-progress-bar {
+        background: #000;
+        border-bottom: 2px solid #fff;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .slidelang-slide,
+    .slidelang-progress-bar,
+    .slidelang-nav-counter,
+    .slidelang-nav-help {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+/* Navigation controls positioning variants */
+.slidelang-nav-controls-top-right {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+}
+
+.slidelang-nav-controls-top-left {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 1000;
+}
+
+.slidelang-nav-controls-bottom-center {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+}
+
+/* Navigation button styles */
+.slidelang-nav-button {
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 50%;
+    font-size: 1.2rem;
+    cursor: pointer;
+    backdrop-filter: blur(5px);
+    transition: all 0.3s ease;
+    margin: 0 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+}
+
+.slidelang-nav-button svg {
+    width: 24px;
+    height: 24px;
+}
+
+.slidelang-nav-button:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.9);
+    transform: scale(1.1);
+}
+
+.slidelang-nav-button:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.slidelang-nav-button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.slidelang-nav-button:focus-visible {
+    outline: 3px solid var(--slidelang-accent-color, #f59e0b);
+    outline-offset: 2px;
+}
+
+/* Fullscreen button */
+.slidelang-fullscreen-button {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1001;
+}
+
+.slidelang-fullscreen-button.slidelang-is-fullscreen svg:first-child {
+    display: none;
+}
+
+.slidelang-fullscreen-button:not(.slidelang-is-fullscreen) svg:last-child {
+    display: none;
+}
+
+/* Help Modal */
+.slidelang-help-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    animation: slidelang-fadeIn 0.3s ease;
+}
+
+.slidelang-help-modal-content {
+    background: white;
+    color: #333;
+    padding: 30px;
+    border-radius: 12px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    animation: slidelang-slideUp 0.3s ease;
+}
+
+.slidelang-help-close {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    font-size: 28px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.slidelang-help-close:hover {
+    background: #f0f0f0;
+    color: #333;
+}
+
+.slidelang-help-modal h2 {
+    margin: 0 0 20px 0;
+    font-size: 1.5rem;
+    color: #222;
+}
+
+.slidelang-help-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.slidelang-help-table td {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.slidelang-help-table td:first-child {
+    font-family: monospace;
+    background: #f8f8f8;
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+@keyframes slidelang-fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slidelang-slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Dark mode support for help modal */
+@media (prefers-color-scheme: dark) {
+    .slidelang-help-modal-content {
+        background: #1a1a1a;
+        color: #e0e0e0;
+    }
+    
+    .slidelang-help-modal h2 {
+        color: #fff;
+    }
+    
+    .slidelang-help-table td {
+        border-bottom-color: #333;
+    }
+    
+    .slidelang-help-table td:first-child {
+        background: #2a2a2a;
+        color: #fff;
+    }
+    
+    .slidelang-help-close {
+        color: #aaa;
+    }
+    
+    .slidelang-help-close:hover {
+        background: #333;
+        color: #fff;
+    }
+}
+
+/* Presenter mode indicator */
+.slidelang-presenter-mode-indicator {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ff6b6b;
+    color: white;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    z-index: 1001;
+    box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
+}
+
+/* Auto-advance indicator */
+.slidelang-auto-advance-indicator {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #4ecdc4;
+    color: white;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    z-index: 1001;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.slidelang-auto-advance-indicator::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: white;
+    border-radius: 50%;
+    animation: slidelang-pulse 1.5s infinite;
+}
+
+@keyframes slidelang-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.3;
+    }
+}
+
+/* === FLOATING MENU STYLES === */
+
+/* Menú flotante básico */
+.slidelang-floating-menu {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 12px;
+    z-index: 2000;
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    min-width: 280px;
+}
+
+.slidelang-floating-menu.slidelang-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: all;
+}
+
+.slidelang-floating-menu-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Contador de slides en menú flotante */
+.slidelang-floating-menu .slidelang-nav-counter {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--slidelang-text-color, #1f2937);
+    min-width: 50px;
+    justify-content: center;
+    position: static;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    backdrop-filter: none;
+    box-shadow: none;
+}
+
+.slidelang-floating-menu .slidelang-nav-counter .slidelang-separator {
+    color: var(--slidelang-text-muted, #6b7280);
+    font-weight: 400;
+}
+
+/* Botones del menú */
+.slidelang-menu-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.slidelang-menu-btn {
+    background: var(--slidelang-primary-color, #2563eb);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    width: 36px;
+    height: 36px;
+}
+
+.slidelang-menu-btn:hover {
+    background: var(--slidelang-primary-hover, #1d4ed8);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.slidelang-menu-btn:active {
+    transform: translateY(0);
+}
+
+.slidelang-menu-btn:disabled {
+    background: var(--slidelang-bg-muted, #f3f4f6);
+    color: var(--slidelang-text-muted, #6b7280);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.slidelang-menu-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Indicador de progreso en menú flotante */
+.slidelang-progress-indicator {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 0 0 16px 16px;
+    overflow: hidden;
+}
+
+.slidelang-progress-bar-floating {
+    height: 100%;
+    background: var(--primary-color, #2563eb);
+    transition: width 0.3s ease;
+    border-radius: 0 0 16px 16px;
+}
+
+/* Menú avanzado */
+.slidelang-advanced-menu {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
+    z-index: 3000;
+    max-width: 520px;
+    width: 90vw;
+    max-height: 80vh;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slidelang-advanced-menu.slidelang-visible {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    pointer-events: all;
+}
+
+.slidelang-advanced-menu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--slidelang-border-color, #e5e7eb);
+    background: var(--slidelang-bg-secondary, #f9fafb);
+}
+
+.slidelang-advanced-menu-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--slidelang-text-color, #1f2937);
+}
+
+.slidelang-advanced-menu-title {
+    margin: 0 0 16px;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--slidelang-text-color, #1f2937);
+}
+
+.slidelang-close-btn {
+    background: none;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+    color: var(--slidelang-text-muted, #6b7280);
+}
+
+.slidelang-close-btn:hover {
+    background: var(--slidelang-bg-muted, #f3f4f6);
+    color: var(--slidelang-text-color, #1f2937);
+}
+
+.slidelang-advanced-menu-body {
+    padding: 24px;
+    overflow-y: auto;
+    max-height: calc(80vh - 80px);
+}
+
+/* Grupos de controles */
+.slidelang-control-group {
+    margin-bottom: 32px;
+}
+
+.slidelang-control-group:last-child {
+    margin-bottom: 0;
+}
+
+.slidelang-control-group label {
+    display: block;
+    font-weight: 600;
+    color: var(--slidelang-text-color, #1f2937);
+    margin-bottom: 12px;
+    font-size: 0.95rem;
+}
+
+/* Navegación rápida */
+.slidelang-slide-jumper {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.slidelang-slide-jumper input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--slidelang-border-color, #e5e7eb);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    transition: border-color 0.2s ease;
+}
+
+.slidelang-slide-jumper input:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.slidelang-quick-navigation {
+    display: flex;
+    gap: 8px;
+}
+
+/* Herramientas de presentación */
+.slidelang-presentation-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Botones de acción */
+.slidelang-action-btn {
+    background: white;
+    border: 1px solid var(--slidelang-border-color, #e5e7eb);
+    border-radius: 8px;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+}
+
+.slidelang-action-btn:hover {
+    border-color: var(--primary-color, #2563eb);
+    background: var(--slidelang-primary-bg, #eff6ff);
+}
+
+.slidelang-action-btn:disabled {
+    background: var(--slidelang-bg-muted, #f3f4f6);
+    color: var(--slidelang-text-muted, #6b7280);
+    cursor: not-allowed;
+    border-color: var(--border-muted);
+}
+
+.slidelang-action-btn .slidelang-status {
+    font-size: 0.8rem;
+    color: var(--slidelang-text-muted, #6b7280);
+    font-weight: 500;
+}
+
+.slidelang-timer-display {
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-weight: 600;
+    color: var(--slidelang-primary-color, #2563eb);
+}
+
+.slidelang-action-btn.slidelang-timer-active .slidelang-timer-display {
+    color: #ef4444;
+}
+
+/* Sección de información */
+.slidelang-info-section {
+    background: var(--slidelang-bg-secondary, #f9fafb);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.slidelang-info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.slidelang-info-item:last-child {
+    margin-bottom: 0;
+}
+
+.slidelang-info-label {
+    font-size: 0.9rem;
+    color: var(--slidelang-text-muted, #6b7280);
+}
+
+/* Ayuda de atajos */
+.slidelang-shortcuts-help {
+    background: var(--slidelang-bg-secondary, #f9fafb);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.slidelang-shortcut-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+
+.slidelang-shortcut-item:last-child {
+    margin-bottom: 0;
+}
+
+.slidelang-shortcut-item kbd {
+    background: white;
+    border: 1px solid var(--slidelang-border-color, #e5e7eb);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--slidelang-text-color, #1f2937);
+    min-width: 24px;
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.slidelang-shortcut-item span {
+    color: var(--slidelang-text-muted, #6b7280);
+}
+
+/* Modo presentación */
+body.slidelang-presentation-mode {
+    cursor: none;
+}
+
+body.slidelang-presentation-mode .slidelang-floating-menu {
+    display: none;
+}
+
+body.slidelang-presentation-mode .slidelang-advanced-menu {
+    display: none;
+}
+
+/* === PRESENTER NOTES PANEL === */
+
+/* Layout principal con panel de notas */
+.slidelang-presentation-layout {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+}
+
+.slidelang-presentation-main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    background: var(--bg-color);
+}
+
+.slidelang-notes-panel {
+    width: 0;
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: white;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    position: fixed;
+    right: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 9999;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+}
+
+.slidelang-notes-panel.slidelang-visible,
+.slidelang-notes-panel.slidelang-force-visible {
+    width: 350px !important;
+    min-width: 350px !important;
+    max-width: 350px !important;
+}
+
+/* Ocultar TODAS las notas originales sin excepción */
+[data-directive="notes"],
+[data-directive-name="notes"],
+.slidelang-presenter-notes,
+[data-slide-notes],
+.slidelang-element.slidelang-directive[data-directive-name="notes"] {
+    display: none !important;
+    visibility: hidden !important;
+    position: absolute !important;
+    top: -9999px !important;
+    left: -9999px !important;
+    z-index: -1 !important;
+}
+
+.slidelang-notes-panel-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.slidelang-notes-panel-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: white;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.slidelang-notes-panel-title::before {
+    content: "📝";
+    font-size: 1.1rem;
+}
+
+.slidelang-notes-panel-toggle {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    border-radius: 6px;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.slidelang-notes-panel-toggle:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.slidelang-notes-panel-content {
+    padding: 20px 24px;
+    height: calc(100vh - 80px);
+    overflow-y: auto;
+    line-height: 1.6;
+    font-size: 0.9rem;
+}
+
+.slidelang-notes-panel-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.slidelang-notes-panel-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.slidelang-notes-panel-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+}
+
+.slidelang-notes-panel-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.slidelang-notes-empty {
+    color: rgba(255, 255, 255, 0.6);
+    font-style: italic;
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.slidelang-notes-empty::before {
+    content: "💭";
+    display: block;
+    font-size: 2rem;
+    margin-bottom: 12px;
+}
+
+.slidelang-notes-text {
+    color: #e5e7eb;
+    margin-bottom: 12px;
+    white-space: pre-wrap;
+    font-family: system-ui, -apple-system, sans-serif;
+}
+
+.slidelang-notes-separator {
+    margin: 16px 0;
+    padding: 8px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.85rem;
+}
+
+/* Indicador de slide con notas */
+.slidelang-slide-has-notes::after {
+    content: "📝";
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    opacity: 0.7;
+    transition: opacity 0.3s ease;
+}
+
+.slidelang-slide-has-notes:hover::after {
+    opacity: 1;
+}
+
+/* Botón flotante para toggle cuando el panel está cerrado */
+.slidelang-notes-toggle-fab {
+    position: fixed;
+    bottom: 80px;
+    right: 30px;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: white;
+    border: none;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+    z-index: 1500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: scale(0);
+    opacity: 0;
+}
+
+.slidelang-notes-toggle-fab.slidelang-visible {
+    transform: scale(1);
+    opacity: 1;
+}
+
+.slidelang-notes-toggle-fab:hover {
+    transform: scale(1.1);
+    box-shadow: 0 12px 32px rgba(59, 130, 246, 0.4);
+}
+
+.slidelang-notes-toggle-fab:active {
+    transform: scale(0.95);
+}
+
+.slidelang-notes-toggle-fab::before {
+    content: "📝";
+}
+
+/* Estados especiales */
+.slidelang-notes-panel.slidelang-empty .slidelang-notes-panel-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .slidelang-notes-panel.slidelang-visible {
+        width: 300px;
+        min-width: 300px;
+    }
+}
+
+@media (max-width: 768px) {
+    .slidelang-notes-panel.slidelang-visible {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 2500;
+        border-left: none;
+    }
+    
+    .slidelang-presentation-main {
+        transition: none;
+    }
+    
+    .slidelang-notes-toggle-fab {
+        bottom: 140px;
+    }
+    
+    .slidelang-nav-counter,
+    .slidelang-nav-help {
+        font-size: 0.8rem;
+        padding: 6px 12px;
+        bottom: 15px;
+    }
+    
+    .slidelang-nav-counter {
+        right: 15px;
+    }
+    
+    .slidelang-nav-help {
+        left: 15px;
+    }
+    
+    .slidelang-progress-bar {
+        height: 3px;
+    }
+    
+    .slidelang-floating-menu {
+        left: 20px;
+        right: 20px;
+        transform: none;
+        min-width: auto;
+    }
+    
+    .slidelang-floating-menu.slidelang-visible {
+        transform: translateY(0);
+    }
+    
+    .slidelang-advanced-menu {
+        width: 95vw;
+        max-width: none;
+    }
+    
+    .slidelang-menu-buttons {
+        gap: 6px;
+    }
+    
+    .slidelang-menu-btn {
+        width: 32px;
+        height: 32px;
+    }
+    
+    .slidelang-presentation-tools {
+        flex-direction: column;
+    }
+    
+    .slidelang-quick-navigation {
+        flex-direction: column;
+    }
+    
+    .slidelang-slide-jumper {
+        flex-direction: column;
+    }
+    
+    .slidelang-shortcuts-help {
+        font-size: 0.85rem;
+    }
+    
+    .slidelang-shortcut-item {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    .slidelang-nav-help {
+        display: none; /* Ocultar en pantallas muy pequeñas */
+    }
+    
+    .slidelang-nav-counter {
+        font-size: 0.75rem;
+        padding: 4px 8px;
+        bottom: 10px;
+        right: 10px;
+    }
+}
+
+/* Modo presentación - ocultar panel */
+body.slidelang-presentation-mode .slidelang-notes-panel {
+    display: none;
+}
+
+body.slidelang-presentation-mode .slidelang-notes-toggle-fab {
+    display: none;
+}
+
+body.slidelang-presentation-mode .slidelang-presentation-main {
+    width: 100vw;
+}
+
+/* Overlay para cerrar menú */
+.slidelang-advanced-menu.slidelang-visible::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: -1;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .slidelang-floating-menu {
+        background: rgba(31, 41, 55, 0.95);
+        border-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .slidelang-floating-menu .slidelang-nav-counter {
+        color: #f9fafb;
+    }
+    
+    .slidelang-floating-menu .slidelang-nav-counter .slidelang-separator {
+        color: #9ca3af;
+    }
+    
+    .slidelang-advanced-menu {
+        background: #1f2937;
+        color: #f9fafb;
+    }
+    
+    .slidelang-advanced-menu-header {
+        background: #111827;
+        border-color: #374151;
+    }
+    
+    .slidelang-action-btn {
+        background: #374151;
+        border-color: #4b5563;
+        color: #f9fafb;
+    }
+    
+    .slidelang-action-btn:hover {
+        border-color: #60a5fa;
+        background: #1e3a8a;
+    }
+    
+    .slidelang-info-section, .slidelang-shortcuts-help {
+        background: #111827;
+    }
+    
+    .slidelang-slide-jumper input {
+        background: #374151;
+        border-color: #4b5563;
+        color: #f9fafb;
+    }
+    
+    .slidelang-close-btn:hover {
+        background: #374151;
+    }
+    
+    .slidelang-shortcut-item kbd {
+        background: #374151;
+        border-color: #4b5563;
+        color: #f9fafb;
+    }
+}
+
+/* Asegurar que las notas del DOM estén siempre ocultas */
+[data-directive="notes"],
+[data-directive-name="notes"],
+.slidelang-presenter-notes,
+[data-slide-notes],
+.slidelang-element.slidelang-directive.slidelang-presenter-notes {
+    display: none !important;
+    visibility: hidden !important;
+    position: absolute !important;
+    top: -9999px !important;
+    left: -9999px !important;
+    z-index: -1 !important;
+    pointer-events: none !important;
+}

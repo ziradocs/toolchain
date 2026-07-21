@@ -1,0 +1,62 @@
+---
+title: "Hybrid AI System Demo"
+mode: flex-full
+author: "slidelang AI System"
+---
+
+# Introduction to AI Processing
+
+This document demonstrates the capabilities of slidelang's hybrid AI processing system.
+
+## Automatically Detected Features
+
+### Charts and Visualizations
+[Bar chart showing user growth in 2024]
+
+[Chart showing quarterly revenue breakdown]
+
+### Images and Diagrams
+[Image: microservices system architecture]
+
+[Diagram: data processing workflow]
+
+## Problematic Heading Structures
+
+The AI normalizer inconsistently detects nested headings and reorganizes them before rendering the slide.
+
+# Main Title
+
+Intentional example of a `#` heading followed by another `##` with no introductory paragraph of its own — the case that triggers the normalizer's restructuring.
+
+## Subtitle that should be better structured
+
+This title mixes heading levels (`#` followed by `##`) — a common pattern in AI-generated content that the normalizer automatically restructures.
+
+### Content with Placeholders
+
+[TODO: add dashboard image]
+
+[PLACEHOLDER: comparison chart]
+
+## Mixed Elements
+
+Normal content that doesn't require AI processing.
+
+[Visual: before-and-after comparison of the optimization]
+
+More normal content.
+
+### List with AI Elements
+
+1. Normal point
+2. [Chart: task distribution by team]
+3. Another normal point
+4. [Image: screenshot of the new feature]
+
+## Final Section
+
+This content demonstrates how the hybrid system:
+- Automatically detects AI patterns
+- Applies normalizations when necessary
+- Preserves the original content when appropriate
+- Provides detailed diagnostics of the process

@@ -1,0 +1,28 @@
+/* Dark theme styles */
+.slidelang-slide.slidelang-title-slide {
+    background: linear-gradient(135deg, #1a1a1a 0%, #2d3748 100%);
+}
+
+.slidelang-slide.slidelang-section-slide {
+    background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+}
+
+.slidelang-slide.slidelang-content-slide {
+    background: #1a202c;
+    color: #e2e8f0;
+}
+
+.slidelang-slide.slidelang-end-slide,
+.slidelang-slide.slidelang-closing-slide {
+    background: linear-gradient(135deg, #1a1a1a 0%, #2d3748 100%);
+}
+
+/* Dark theme element overrides */
+.slidelang-element.slidelang-code {
+    background: #1a202c;
+    border-left-color: #4299e1;
+}
+
+.slidelang-element.slidelang-text {
+    color: #e2e8f0;
+}

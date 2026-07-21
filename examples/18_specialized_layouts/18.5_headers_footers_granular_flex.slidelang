@@ -1,0 +1,410 @@
+---
+mode: flex
+title: "Granular Control - Headers and Footers"
+author: "Documentation System"
+company: "Advanced Corp"
+date: "December 27, 2024"
+theme: "technical"
+
+# Base configuration
+header:
+  enabled: true
+  text:
+    content: "Standard Configuration"
+    position: "center"
+    style: "subtitle"
+
+footer:
+  enabled: true
+  page_numbers:
+    enabled: true
+    format: "{{current}} / {{total}}"
+    position: "right"
+  text:
+    left: "{{company}}"
+    center: ""
+    right: "{{date}}"
+
+layout_defaults:
+  title:
+    header:
+      enabled: false
+    footer:
+      enabled: false
+---
+
+---
+layout: title
+---
+
+# Granular Control
+## Headers and Footers per Individual Slide
+
+![Advanced Control](assets/control-icon.png)
+
+**Demonstrating slide-specific overrides**
+*Base configuration + individual directives*
+
+---
+layout: content
+---
+
+# Slide with Standard Configuration
+
+This slide uses the global configuration defined in the FrontMatter:
+- Header: "Standard Configuration" (center)
+- Footer: "Advanced Corp" (left) + "December 27, 2024" (right) + "2 / 12" (right)
+
+This is the **base** configuration applied by default to all `content`-type slides.
+
+---
+layout: content
+header:
+  text:
+    content: "Custom Header!"
+    color: "#cc0000"
+    position: "left"
+    style: "title"
+footer:
+  text:
+    left: "CONFIDENTIAL INFORMATION"
+    center: "⚠️ RESTRICTED ACCESS ⚠️"
+    right: "CLASSIFIED"
+---
+
+# Slide with Full Override
+
+This slide **overrides** the global configuration:
+
+## **Modified Header:**
+- Text: "Custom Header!"
+- Color: Red (#cc0000)
+- Position: Left
+- Style: Title
+
+## **Modified Footer:**
+- Left: "CONFIDENTIAL INFORMATION"
+- Center: "⚠️ RESTRICTED ACCESS ⚠️"
+- Right: "CLASSIFIED"
+
+---
+layout: stats
+header:
+  text:
+    content: "Live Dashboard - Updated every 5min"
+    color: "#00cc00"
+    position: "center"
+footer:
+  page_numbers:
+    format: "Stats {{current}}"
+    prefix: "📊 "
+  text:
+    left: "Real-time data"
+    center: "Last updated: 14:30"
+    right: "System: Active"
+---
+
+# Real-Time Metrics
+
+| KPI | Current Value | Target | Status |
+|-----|--------------|----------|---------|
+| Daily Sales | $125,430 | $120,000 | ✅ +4.5% |
+| Active Users | 8,947 | 8,500 | ✅ +5.3% |
+| Conversion | 3.2% | 3.0% | ✅ +6.7% |
+| Satisfaction | 94.2% | 90% | ✅ +4.7% |
+
+::: success
+🎯 **All metrics exceed targets**
+:::
+
+---
+layout: comparison
+header:
+  text:
+    content: "Comparative Analysis • Configurations"
+    position: "center"
+    color: "#2c5282"
+footer:
+  text:
+    left: "Technical evaluation"
+    center: "3 methods compared"
+    right: "Recommendation included"
+---
+
+# Configuration Methods
+
+::: info
+**Global (FrontMatter)**
+- ✅ Easy to maintain
+- ✅ Guaranteed consistency
+- ❌ Less flexibility
+- ❌ One configuration for everything
+- **Ideal for:** Standard presentations
+:::
+
+::: success
+**Per Layout** ⭐ **Recommended**
+- ✅ Contextual configuration
+- ✅ Medium flexibility
+- ✅ Reasonable maintenance
+- ✅ Better user experience
+- **Ideal for:** Professional presentations
+:::
+
+::: warning
+**Per Individual Slide**
+- ✅ Maximum granular control
+- ✅ Total customization
+- ❌ More configuration work
+- ❌ Complex maintenance
+- **Ideal for:** Special specific slides
+:::
+
+---
+layout: code_example
+header:
+  text:
+    content: "Technical Implementation • YAML Configuration"
+    color: "#4a5568"
+footer:
+  text:
+    left: "Working example"
+    center: "Copy-paste ready"
+    right: "Tested ✅"
+---
+
+# Per-Slide Implementation
+
+This is how a specific override is configured:
+
+```yaml
+---
+layout: content
+header:
+  text:
+    content: "My Custom Header"
+    color: "#ff6b6b"
+    position: "left"
+footer:
+  page_numbers:
+    format: "Page {{current}} of {{total}}"
+    prefix: "📄 "
+  text:
+    left: "Specific information"
+    center: "Only for this slide"
+    right: "Override active"
+---
+
+# My Custom Slide
+Normal slide content...
+```
+
+**Configurable elements per slide:**
+- Header text (content, color, position, style)
+- Page numbers (format, prefix, suffix)
+- Footer text (left, center, right)
+- Enabled state (enabled: true/false)
+
+---
+layout: timeline
+header:
+  text:
+    content: "Timeline • Specific Use Cases"
+footer:
+  page_numbers:
+    format: "Timeline {{current}}"
+  text:
+    left: "Real cases"
+    center: "Successful implementations"
+---
+
+# Use Cases for Overrides
+
+## Confidential Slides
+Red headers, footers with security warnings
+
+## Real-Time Dashboards
+Headers with timestamp, footers with system status
+
+## Special Sections
+Headers with section name, contextual footers
+
+## Demo Slides
+Headers indicating "DEMO", footers with disclaimers
+
+## Multi-Language Presentations
+Headers/footers in a specific language per slide
+
+---
+layout: before_after
+header:
+  text:
+    content: "Visual Transformation • Before vs After"
+footer:
+  text:
+    left: "Visual comparison"
+    center: "Demonstrated impact"
+    right: "Evident improvement"
+---
+
+# Impact of Granular Control
+
+## Before: Single Configuration
+![Uniform presentation](assets/uniform-slides.png)
+- All slides the same
+- No specific context
+- Less engagement
+- Generic appearance
+
+## After: Granular Control
+![Contextual presentation](assets/contextual-slides.png)
+- Each slide contextualized
+- Relevant headers/footers
+- Greater engagement
+- Professional appearance
+
+---
+layout: feature_showcase
+header:
+  text:
+    content: "Advanced Features • Granular Control"
+footer:
+  text:
+    left: "Premium features"
+    center: "6 key features"
+    right: "Everything included"
+---
+
+# Advantages of Granular Control
+
+## 🎯 Specific Context
+Relevant headers and footers for each slide
+
+## 🚨 Visual Alerts
+Special configuration for sensitive content
+
+## 📊 Dynamic Information
+Footers with slide-specific data
+
+## 🎨 Flexible Branding
+Visual adjustments based on content
+
+## 📱 Responsive Smart
+Configuration optimized per device
+
+## ⚡ Performance
+No impact on rendering speed
+
+---
+layout: dashboard
+header:
+  text:
+    content: "Control Panel • Active Configurations"
+    color: "#2d3748"
+footer:
+  page_numbers:
+    format: "Dashboard {{current}}"
+    prefix: "📊 "
+  text:
+    left: "Status: Active"
+    center: "Configurations: 9 overrides"
+    right: "Performance: ✅"
+---
+
+# Current System Status
+
+## Configurations per Slide
+
+| Slide | Header Override | Footer Override | Status |
+|-------|----------------|-----------------|---------|
+| 1-2 | ❌ Standard | ❌ Standard | ✅ OK |
+| 3 | ✅ Confidential | ✅ Classified | ✅ OK |
+| 4 | ✅ Real-Time | ✅ Dashboard | ✅ OK |
+| 5 | ✅ Comparative | ✅ Evaluation | ✅ OK |
+| 6 | ✅ Technical | ✅ Functional | ✅ OK |
+
+## System Metrics
+- **Total overrides:** 8 slides
+- **Performance:** No degradation
+- **Consistency:** 100% valid
+- **Maintainability:** ⭐⭐⭐⭐⭐
+
+---
+layout: process
+header:
+  text:
+    content: "Implementation Process • 4 Steps"
+footer:
+  text:
+    left: "Step-by-step guide"
+    center: "Complete implementation"
+    right: "Time: ~15 min"
+---
+
+# Implementation Process
+
+## 1. 📋 Base Configuration
+Define global header/footer in FrontMatter
+
+## 2. 🎯 Identify Special Slides
+Mark slides that need specific configuration
+
+## 3. ⚙️ Apply Overrides
+Add YAML configuration for specific slides
+
+## 4. ✅ Validate and Adjust
+Review the final result and adjust as needed
+
+---
+layout: call_to_action
+header:
+  enabled: false
+footer:
+  page_numbers:
+    enabled: false
+  text:
+    left: ""
+    center: "Granular configuration complete!"
+    right: ""
+---
+
+# Impressed with the Control?
+## Each slide can have its own configuration
+
+[Implement in My Project](#implement){.btn-primary}
+[View Full Documentation](#docs){.btn-secondary}
+
+**🎯 Granular control lets you:**
+- Content-specific headers
+- Contextual, relevant footers
+- Unlimited configuration
+- Maximum professional flexibility
+
+*The power is in your hands!*
+
+---
+layout: closing
+header:
+  enabled: true
+  text:
+    content: "Session Complete • Granular Control Demonstrated"
+    position: "center"
+    color: "#2d3748"
+footer:
+  enabled: true
+  page_numbers:
+    enabled: false
+  text:
+    left: "Advanced Corp"
+    center: "Thank you for your attention!"
+    right: "Dec 27, 2024"
+---
+
+# Granular Control Mastered!
+## Slide-specific headers and footers
+
+📧 control@advancedcorp.com
+📖 docs.slidelang.com/granular
+💡 11 different configurations demonstrated
+
+*Advanced Corp - Pushing boundaries since 2020*

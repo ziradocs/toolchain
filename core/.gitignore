@@ -1,0 +1,5 @@
+# Compiled binary — this is a library module, no command should be committed
+# here. (Test/coverage artifact patterns already cascade from the repo-root
+# .gitignore; not repeated here to avoid two files drifting out of sync.)
+/test_norm
+/test_norm.exe

@@ -1,0 +1,44 @@
+name: Publicar @ziradocs/ast-types
+
+# Dispara con un tag `ast-types-v*` (ej. ast-types-v2.0.0). Requiere el
+# secret NPM_TOKEN (automation token con permiso de publish en el scope
+# @ziradocs) configurado en los secrets del repo.
+
+on:
+  push:
+    tags:
+      - "ast-types-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verificar que el tag coincide con la versión de package.json
+        working-directory: ast-types
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#ast-types-v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::El tag ($TAG_VERSION) no coincide con package.json ($PKG_VERSION)."
+            exit 1
+          fi
+
+      - name: Instalar dependencias
+        working-directory: ast-types
+        run: npm ci
+
+      - name: Publicar
+        working-directory: ast-types
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

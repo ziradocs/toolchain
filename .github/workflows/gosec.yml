@@ -1,0 +1,106 @@
+name: gosec
+
+# Issue #43: SAST estático para los 3 módulos Go del monorepo. gosec analiza
+# patrones inseguros a nivel de código (no dependencias — eso ya lo cubre
+# govulncheck.yml): uso de math/rand para criptografía, comandos con input no
+# sanitizado, credenciales hardcodeadas, TLS mal configurado, etc.
+#
+# Resultado en formato SARIF. Los tres módulos comparten runner para no
+# repetir instalación y redondeo; el upload a Code Scanning se activa cuando
+# el repo sea público o tenga GitHub Advanced Security.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.go"
+      - "!archive/**"
+      - ".github/workflows/gosec.yml"
+  schedule:
+    # Semanal — igual que govulncheck.yml, para detectar drift de la propia
+    # herramienta/reglas sin depender de que haya un PR con cambios Go.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  gosec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Los tres módulos comparten el mismo piso de Go.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+
+      # La action Docker oficial de gosec NO soporta `working-directory` (ni
+      # como input ni como campo de step — las Docker actions no respetan
+      # ese campo en absoluto). Instalar el binario y correrlo vía `run:` es
+      # el único mecanismo real de scope por módulo — mismo patrón que
+      # ci.yml/govulncheck.yml. Cada invocación entra a su módulo para no
+      # escanear el checkout completo (incluido archive/src-legacy/).
+      - name: Instalar gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+
+      # -no-fail: primera corrida real de gosec sobre código nunca antes
+      # escaneado por un SAST — encontró 73 hallazgos preexistentes (bajo/
+      # medio severity en su mayoría: permisos 0644/0755 en vez de 0600/0750,
+      # y varios posibles falsos positivos G203/G304 a revisar caso por caso
+      # — catalogados en #229). No son el foco de este PR de infraestructura;
+      # mismo criterio que golangci-lint's only-new-issues en ci.yml. El
+      # SARIF sigue subiendo completo a la pestaña Security para visibilidad
+      # y limpieza futura.
+      - name: Ejecutar gosec
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gosec-results"
+          for module in core slidelang doclang; do
+            (cd "$module" && gosec -no-fail -fmt sarif \
+              -out "$RUNNER_TEMP/gosec-results/$module.sarif" \
+              -exclude-generated ./...)
+          done
+
+      - name: Resumen visible de hallazgos
+        run: |
+          jq -r '.runs[].results[]? |
+            "\(.level // "warning"): \(.message.text) [\(.locations[0].physicalLocation.artifactLocation.uri // "?"):\(.locations[0].physicalLocation.region.startLine // 0)]"' \
+            "$RUNNER_TEMP"/gosec-results/*.sarif
+
+      # El scan sí corre en privado; solo se omite el upload que requiere
+      # GitHub Advanced Security. Al hacerse público se habilita solo.
+      #
+      # Un upload por módulo con categoría propia: desde 2025-07-21 Code
+      # Scanning ya no acepta varios "runs" SARIF bajo la misma categoría
+      # (ver github.blog/changelog/2025-07-21-code-scanning-will-stop-...),
+      # y los tres módulos comparten el mismo archivo si se sube el
+      # directorio completo con una sola categoría.
+      - name: Subir SARIF de core a GitHub Security
+        if: github.event.repository.private == false
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ runner.temp }}/gosec-results/core.sarif
+          category: gosec-core
+
+      - name: Subir SARIF de slidelang a GitHub Security
+        if: github.event.repository.private == false
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ runner.temp }}/gosec-results/slidelang.sarif
+          category: gosec-slidelang
+
+      - name: Subir SARIF de doclang a GitHub Security
+        if: github.event.repository.private == false
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ runner.temp }}/gosec-results/doclang.sarif
+          category: gosec-doclang

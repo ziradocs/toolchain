@@ -1,0 +1,37 @@
+/* Minimal theme styles */
+.slidelang-slide {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e2e8f0;
+}
+
+.slidelang-slide.slidelang-title-slide {
+    background: #ffffff;
+    color: #1a202c;
+    border: 2px solid #e2e8f0;
+}
+
+.slidelang-slide.slidelang-section-slide {
+    background: #f7fafc;
+    color: #2d3748;
+}
+
+.slidelang-slide.slidelang-content-slide {
+    background: #ffffff;
+}
+
+.slidelang-slide.slidelang-end-slide,
+.slidelang-slide.slidelang-closing-slide {
+    background: #f7fafc;
+    color: #2d3748;
+}
+
+/* Minimal theme element overrides */
+.slidelang-element.slidelang-code {
+    background: #f7fafc;
+    color: #2d3748;
+    border-left-color: #4299e1;
+}
+
+.slidelang-element.slidelang-text {
+    color: #2d3748;
+}

@@ -1,0 +1,101 @@
+---
+title: "System Architecture Overview"
+author: "Platform Engineering"
+date: "2025-01-15"
+theme: technical
+mode: flex
+toc: true
+---
+
+# Overview
+
+This document describes the current architecture of the platform: request
+flow, data model, and the deployment pipeline.
+
+# Request Flow
+
+<<mermaid>>
+  sequenceDiagram
+      participant C as Client
+      participant G as API Gateway
+      participant S as Service
+      participant D as Database
+
+      C->>G: HTTPS request
+      G->>S: Forward request
+      S->>D: Query
+      D-->>S: Result set
+      S-->>G: JSON response
+      G-->>C: HTTPS response
+
+# Domain Model
+
+<<plantuml>>
+@startuml
+class User {
+  -id: int
+  -email: string
+  +login()
+  +logout()
+}
+
+class Order {
+  -id: int
+  -placedAt: date
+  +calculateTotal()
+}
+
+User "1" -- "*" Order : places
+@enduml
+<<end>>
+
+# Deployment Pipeline
+
+<<mermaid>>
+  graph TD
+      A[Push to main] --> B[Run CI]
+      B --> C{Tests pass?}
+      C -->|Yes| D[Build image]
+      C -->|No| E[Notify author]
+      D --> F[Deploy to staging]
+      F --> G{Smoke tests OK?}
+      G -->|Yes| H[Deploy to production]
+      G -->|No| E
+
+# Deploy Script
+
+::::code-group
+```bash [deploy.sh]
+#!/bin/bash
+set -euo pipefail
+docker build -t myapp:latest .
+docker push myapp:latest
+kubectl apply -f deployment.yaml
+```
+
+```yaml [deployment.yaml]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: myapp
+          image: myapp:latest
+```
+:::
+
+# Known Risks
+
+::: warning
+The database connection pool is sized for current traffic; a 2x traffic
+spike would require raising `max_connections` before it becomes a bottleneck.
+:::
+
+::: info
+All services are stateless behind the API Gateway, so horizontal scaling
+requires no coordination beyond updating the replica count.
+:::

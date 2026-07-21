@@ -1,0 +1,432 @@
+---
+mode: flex
+title: "Advanced UI Elements and Layouts"
+author: "SlideLang Documentation"
+version: "2.0"
+theme: "modern"
+variables:
+  app_name: "DataViz Pro"
+  current_users: "25,847"
+  satisfaction: "94%"
+---
+
+# Advanced UI Elements and Layouts
+## Specialized components for modern interfaces
+
+---
+
+## Cards and Containers
+
+:::card
+### 🚀 Improved Performance
+Our new rendering algorithm improves speed by **65%**, enabling smoother, more responsive visualizations.
+
+**Key benefits:**
+- Reduced load time
+- Lower memory usage
+- Smoother experience
+:::
+
+:::card{type="success"}
+### ✅ Successful Rollout
+The new version rollout completed without incident. All systems are operating normally.
+
+**Post-deploy metrics:**
+- Uptime: 99.98%
+- Active users: {{current_users}}
+- Satisfaction: {{satisfaction}}
+:::
+
+:::card{type="warning"}
+### ⚠️ Scheduled Maintenance
+**Date**: Sunday, December 15, 2:00 AM - 4:00 AM UTC
+**Impact**: Services temporarily unavailable
+**Actions**: Automatic data backup
+
+Prepare your teams for the planned downtime.
+:::
+
+---
+
+## Advanced Column Layouts
+
+:::columns{ratio="1:2"}
+### Information
+- System: {{app_name}}
+- Version: 3.2.1
+- Build: #2847
+- Last update: Today
+
+### Technical Details
+The distributed architecture enables automatic horizontal scalability based on demand. The microservices system ensures that a failure in one component doesn't affect overall functionality.
+
+**Main components:**
+- **API Gateway**: Request handling and authentication
+- **Service Mesh**: Communication between services
+- **Message Queue**: Asynchronous processing
+- **Cache Layer**: Performance optimization
+:::
+
+---
+
+## Three-Column Layouts
+
+:::columns{count=3}
+### Frontend
+**Technologies:**
+- React 18
+- TypeScript
+- Tailwind CSS
+- Vite
+
+**Metrics:**
+- Bundle: 245KB
+- Load time: 1.2s
+- Performance: 98
+
+### Backend
+**Stack:**
+- Node.js
+- Express
+- PostgreSQL
+- Redis
+
+**Metrics:**
+- Response: 45ms
+- Throughput: 5K RPS
+- Uptime: 99.97%
+
+### DevOps
+**Tools:**
+- Docker
+- Kubernetes
+- GitHub Actions
+- Prometheus
+
+**Metrics:**
+- Deploy time: 3min
+- Rollback: 30s
+- Monitoring: 24/7
+:::
+
+---
+
+## Tabs and Navigation
+
+:::tabs
+::tab{title="Dashboard"}
+The main dashboard shows real-time metrics for all critical systems:
+
+- **Active users**: {{current_users}}
+- **Requests/second**: 1,247
+- **Average response time**: 85ms
+- **Availability**: 99.97%
+
+```javascript
+// Dashboard configuration
+const dashboardConfig = {
+  refreshInterval: 5000,
+  metrics: ['users', 'rps', 'latency', 'uptime'],
+  alerts: true
+};
+```
+::
+
+::tab{title="Analytics"}
+Advanced analytics make it possible to identify patterns and trends:
+
+**User analysis:**
+- Traffic peaks: 10:00 AM and 3:00 PM
+- Main geography: 65% Americas, 25% Europe, 10% Asia
+- Devices: 78% Desktop, 22% Mobile
+
+**Recommendations:**
+- Optimize for peak hours
+- Improve mobile experience
+- Expand CDN in Asia
+::
+
+::tab{title="Settings"}
+Advanced system configuration:
+
+:::columns
+#### General
+- Operating mode: Production
+- Debug logs: Disabled
+- Cache TTL: 300 seconds
+- Rate limiting: 1000/hour
+
+#### Security
+- 2FA: Enabled
+- Session timeout: 8 hours
+- IP whitelist: Active
+- Audit logs: Complete
+:::
+::
+:::
+
+---
+
+## Accordion and Collapsible Content
+
+:::accordion
+::accordion-item{title="How does the authentication system work?"}
+We use a hybrid system that combines JWT tokens for stateless authentication with Redis sessions for functionality that requires state.
+
+**Authentication flow:**
+1. User submits credentials
+2. System validates against the database
+3. A JWT is generated with basic information
+4. A session is created in Redis with complete data
+5. Client receives both tokens
+
+```json
+{
+  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "refresh_token": "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...",
+  "session_id": "sess_1a2b3c4d5e6f",
+  "expires_in": 3600
+}
+```
+::
+
+::accordion-item{title="What security measures do we implement?"}
+We implement multiple layers of security following industry best practices:
+
+**Application Level:**
+- Input validation on frontend and backend
+- Data sanitization
+- Rate limiting per IP and user
+- CORS configured restrictively
+
+**Infrastructure Level:**
+- WAF (Web Application Firewall)
+- DDoS protection
+- VPN for administrative access
+- Intrusion monitoring
+
+**Data Level:**
+- Encryption in transit (TLS 1.3)
+- Encryption at rest (AES-256)
+- Daily encrypted backups
+- Immutable audit logs
+::
+
+::accordion-item{title="How do we scale the system?"}
+Our system is designed for automatic scalability based on performance metrics:
+
+**Horizontal Scaling:**
+- Auto-scaling groups on AWS
+- Load balancers with health checks
+- Independent microservices
+- Database with read replicas
+
+**Vertical Scaling:**
+- CPU and memory monitoring
+- Proactive alerts
+- Automatic instance upgrades
+- Database query optimization
+
+**Key metrics:**
+- CPU > 70% → Scale horizontally
+- Memory > 80% → Scale vertically
+- Latency > 500ms → Activate additional CDN
+- Error rate > 1% → Scale and alert
+::
+:::
+
+---
+
+## Progress Bars and Indicators
+
+### Q4 2024 Project Progress
+
+:::progress{value=75 max=100 label="Frontend Development"}
+Frontend: 75% complete
+:::
+
+:::progress{value=60 max=100 label="Backend API" color="blue"}
+Backend API: 60% complete
+:::
+
+:::progress{value=90 max=100 label="Testing" color="green"}
+Testing: 90% complete
+:::
+
+:::progress{value=45 max=100 label="Documentation" color="orange"}
+Documentation: 45% complete
+:::
+
+:::progress{value=30 max=100 label="DevOps Setup" color="red"}
+DevOps: 30% complete
+:::
+
+---
+
+## Badges and Labels
+
+### Service Status
+
+| Service | Status | Version | Last Updated |
+|----------|--------|---------|---------------------|
+| **API Gateway** | ![Running](https://img.shields.io/badge/Status-Running-green) | `v2.1.4` | 2 days ago |
+| **User Service** | ![Running](https://img.shields.io/badge/Status-Running-green) | `v1.8.2` | 1 week ago |
+| **Payment Service** | ![Maintenance](https://img.shields.io/badge/Status-Maintenance-yellow) | `v1.5.1` | In progress |
+| **Analytics** | ![Running](https://img.shields.io/badge/Status-Running-green) | `v3.0.0` | 3 days ago |
+| **Notifications** | ![Error](https://img.shields.io/badge/Status-Error-red) | `v1.2.3` | Investigating |
+
+### Stack Technologies
+
+![React](https://img.shields.io/badge/React-18.2.0-blue?logo=react) ![Node.js](https://img.shields.io/badge/Node.js-18.17.0-green?logo=node.js) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15.3-blue?logo=postgresql) ![Docker](https://img.shields.io/badge/Docker-24.0.2-blue?logo=docker) ![Kubernetes](https://img.shields.io/badge/Kubernetes-1.27-blue?logo=kubernetes)
+
+---
+
+## Timeline and Processes
+
+### Development Roadmap
+
+:::timeline
+::timeline-item{date="Q1 2024" status="completed"}
+**Research and Planning**
+- Market analysis completed
+- System architecture defined
+- Development team assembled
+- Agile methodologies implemented
+::
+
+::timeline-item{date="Q2 2024" status="completed"}
+**MVP Development**
+- Core features developed
+- Unit testing implemented
+- CI/CD pipeline established
+- First alpha version released
+::
+
+::timeline-item{date="Q3 2024" status="in-progress"}
+**Beta Testing and Refinement**
+- Beta testing with 100 users
+- Performance optimization
+- Security audit completed
+- Iterative UI/UX improvements
+::
+
+::timeline-item{date="Q4 2024" status="planned"}
+**Launch and Scaling**
+- Production deployment
+- Marketing campaign launch
+- Customer support setup
+- Monitoring and analytics
+::
+:::
+
+---
+
+## Feature Comparison
+
+### Subscription Plans
+
+:::comparison
+||Basic|Pro|Enterprise|
+|---|---|---|---|
+|**Price/month**|$9|$29|$99|
+|**Users**|1|5|Unlimited|
+|**Projects**|3|20|Unlimited|
+|**Storage**|1GB|10GB|100GB|
+|**Templates**|5|50|Custom|
+|**Support**|Email|Chat + Email|Dedicated 24/7|
+|**Analytics**|❌|✅|✅ Advanced|
+|**API Access**|❌|✅ Limited|✅ Full|
+|**Custom Themes**|❌|❌|✅|
+|**White Label**|❌|❌|✅|
+|**SLA**|99%|99.5%|99.9%|
+:::
+
+---
+
+## Real-Time Metrics
+
+### Executive Dashboard - {{app_name}}
+
+:::dashboard
+::metric{title="Active Users" value="{{current_users}}" change="+12.3%" trend="up" color="green"}
+Unique users in the last 24 hours
+::
+
+::metric{title="Monthly Revenue" value="$387K" change="+24.1%" trend="up" color="blue"}
+Monthly recurring revenue (MRR)
+::
+
+::metric{title="Satisfaction" value="{{satisfaction}}" change="+2.1%" trend="up" color="green"}
+Average Net Promoter Score
+::
+
+::metric{title="Response Time" value="85ms" change="-15ms" trend="down" color="green"}
+Average API latency
+::
+
+::metric{title="Uptime" value="99.97%" change="0%" trend="stable" color="green"}
+Service availability
+::
+
+::metric{title="Conversion Rate" value="4.2%" change="+0.3%" trend="up" color="orange"}
+Visitors to paid customers
+::
+:::
+
+---
+
+## Alerts and Notifications
+
+:::alert{type="info"}
+**New Feature Available**: Specialized layouts are now available in {{app_name}} v3.2. [View documentation →](https://docs.example.com/layouts)
+:::
+
+:::alert{type="success"}
+**Successful Deploy**: Version 3.2.1 was successfully deployed to production. All services are operating normally.
+:::
+
+:::alert{type="warning"}
+**Scheduled Maintenance**: Scheduled maintenance will take place Sunday 12/15 from 2:00-4:00 AM UTC. [More details →](https://status.example.com)
+:::
+
+:::alert{type="error"}
+**Incident Detected**: The notifications service is experiencing intermittent issues. Our team is investigating. [Live status →](https://status.example.com)
+:::
+
+---
+
+## UI Elements Summary
+
+### Implemented Components:
+- ✅ **Cards** - Containers with structured information
+- ✅ **Column Layouts** - 1:1, 1:2, 1:1:1 ratios
+- ✅ **Tabs** - Tabbed navigation
+- ✅ **Accordion** - Collapsible content
+- ✅ **Progress Bars** - Progress indicators
+- ✅ **Badges** - Status labels
+- ✅ **Timeline** - Event chronology
+- ✅ **Comparison Tables** - Feature comparison
+- ✅ **Dashboard Metrics** - Real-time KPIs
+- ✅ **Alerts** - Contextual notifications
+
+### Use Cases:
+- **Executive presentations** with key metrics
+- **Technical documentation** with structured content
+- **Product roadmaps** with timelines
+- **Plan comparisons** for sales
+- **Operational dashboards** for monitoring
+
+> 🎨 **Tip**: Combine these elements to create more dynamic, interactive presentations that capture your audience's attention.
+
+---
+
+## Next Steps
+
+To fully master {{app_name}}:
+
+1. **Experiment** with different layout combinations
+2. **Customize** themes and colors to match your brand
+3. **Integrate** with your existing data sources
+4. **Automate** generation with dynamic variables
+
+**Create professional presentations with {{app_name}}!** 🚀

@@ -1,0 +1,73 @@
+---
+mode: flex
+title: "Checklist Demo"
+author: "SlideLang Team"
+date: "2025-01-15"
+---
+
+# Checklist Demo
+## Testing checklist functionality
+
+---
+
+## Basic Checklist
+
+Here's an example of a basic checklist:
+
+- [x] Complete audit of existing content
+- [x] Configure core integrations (Slack, Teams, Drive)
+- [x] Train the admin team
+- [ ] Migrate historical content library
+- [ ] Configure custom workflows
+- [ ] Run end-user testing
+
+---
+
+## Mixed Content
+
+**Launch readiness checklist:**
+
+- [x] Phase 1: Initial analysis
+- [x] Phase 2: Configuration
+- [ ] Phase 3: Testing
+- [ ] Phase 4: Deployment
+
+**Regular list for comparison:**
+
+- Regular item without a checkbox
+- Another normal item
+- Third list item
+
+---
+
+## Advanced Checklist with Sub-items
+
+**Development project:**
+
+- [x] Backend development
+  - [x] API design
+  - [x] Database schema
+  - [ ] Authentication system
+- [ ] Frontend development
+  - [x] UI mockups
+  - [ ] Component implementation
+  - [ ] Integration testing
+- [ ] DevOps
+  - [ ] CI/CD pipeline
+  - [ ] Production deployment
+
+---
+
+## Different Checkbox Markers
+
+Using asterisk:
+* [x] Completed with asterisk
+* [ ] Pending with asterisk
+
+Using plus:
++ [X] Completed with plus (uppercase X)
++ [ ] Pending with plus
+
+Using dash:
+- [x] Completed with dash
+- [ ] Pending with dash

@@ -1,0 +1,99 @@
+{
+  "name": "dark-modern",
+  "description": "Modern dark theme with excellent contrast and purple accents",
+  "author": "SlideLang Team",
+  "version": "1.0.0",
+  "variables": {
+    "--slidelang-primary-color": "#8b5cf6",
+    "--slidelang-secondary-color": "#6b7280",
+    "--slidelang-accent-color": "#06ffa5",
+    "--slidelang-success-color": "#10b981",
+    "--slidelang-warning-color": "#fbbf24",
+    "--slidelang-danger-color": "#f87171",
+    "--slidelang-info-color": "#60a5fa",
+    "--slidelang-tip-color": "#a78bfa",
+
+    "--slidelang-gradient-bg": "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)",
+    "--slidelang-title-gradient": "linear-gradient(135deg, #0f0f23 0%, #1e1b4b 100%)",
+    "--slidelang-accent-gradient": "linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%)",
+
+    "--slidelang-font-main": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    "--slidelang-font-code": "'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace",
+    "--slidelang-font-heading": "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+
+    "--slidelang-border-radius": "0.75rem",
+    "--slidelang-border-radius-lg": "1rem",
+    "--slidelang-border-radius-sm": "0.5rem",
+    "--slidelang-border-color": "#374151",
+
+    "--slidelang-shadow-main": "0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2)",
+    "--slidelang-shadow-lg": "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+    "--slidelang-shadow-xl": "0 35px 60px -12px rgba(0, 0, 0, 0.6)",
+
+    "--slidelang-transition": "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+    "--slidelang-transition-fast": "all 0.15s cubic-bezier(0.4, 0, 0.2, 1)",
+
+    "--slidelang-text-color": "#f9fafb",
+    "--slidelang-text-light": "#d1d5db",
+    "--slidelang-text-muted": "#9ca3af",
+    "--slidelang-text-on-primary": "#ffffff",
+    "--slidelang-text-on-accent": "#1f2937",
+    "--slidelang-text-on-dark": "#f9fafb",
+
+    "--slidelang-bg-white": "#1f2937",
+    "--slidelang-background-color": "#111827",
+    "--slidelang-bg-gray-50": "#1f2937",
+    "--slidelang-bg-gray-100": "#374151",
+    "--slidelang-bg-code": "#0f1419",
+    "--slidelang-bg-light": "#1f2937",
+
+    "--slidelang-bg-info": "#1e3a8a",
+    "--slidelang-bg-success": "#064e3b",
+    "--slidelang-bg-warning": "#78350f",
+    "--slidelang-bg-danger": "#7f1d1d",
+    "--slidelang-bg-tip": "#581c87",
+
+    "--slidelang-bg-note": "#1f2937",
+    "--slidelang-bg-success-light": "#064e3b",
+    "--slidelang-bg-warning-light": "#78350f",
+    "--slidelang-bg-danger-light": "#7f1d1d",
+    "--slidelang-bg-info-light": "#1e3a8a",
+    "--slidelang-bg-placeholder": "rgba(139, 92, 246, 0.1)",
+
+    "--slidelang-note-color": "#d1d5db",
+    "--slidelang-note-text-color": "#f3f4f6",
+    "--slidelang-details-border-color": "#4b5563",
+    "--slidelang-details-text-color": "#e5e7eb",
+    "--slidelang-success-text-color": "#34d399",
+    "--slidelang-warning-text-color": "#fbbf24",
+    "--slidelang-danger-text-color": "#f87171",
+    "--slidelang-info-text-color": "#60a5fa",
+
+    "--slidelang-highlight-bg": "#fbbf24",
+    "--slidelang-highlight-text": "#78350f",
+
+    "--slidelang-link-color": "#a78bfa",
+    "--slidelang-link-bg": "rgba(139, 92, 246, 0.1)",
+    "--slidelang-link-hover-color": "#c4b5fd",
+    "--slidelang-link-hover-bg": "rgba(139, 92, 246, 0.2)",
+
+    "--slidelang-bg-title-slide": "#0f0f23",
+    "--slidelang-bg-section-slide": "#1e1b4b",
+    "--slidelang-bg-content-slide": "#111827",
+    "--slidelang-bg-end-slide": "#064e3b",
+    "--slidelang-bg-closing-slide": "#1e1b4b",
+
+    "--slidelang-shadow-text": "rgba(0, 0, 0, 0.8)",
+    "--slidelang-shadow-light": "rgba(0, 0, 0, 0.2)",
+    "--slidelang-shadow-medium": "rgba(0, 0, 0, 0.4)",
+
+    "--slidelang-syntax-comment": "#6b7280",
+    "--slidelang-syntax-keyword": "#a78bfa",
+    "--slidelang-syntax-string": "#34d399",
+    "--slidelang-syntax-number": "#fbbf24",
+    "--slidelang-syntax-operator": "#f87171",
+    "--slidelang-syntax-function": "#60a5fa",
+    "--slidelang-syntax-variable": "#c4b5fd",
+    "--slidelang-syntax-type": "#34d399"
+  }
+}

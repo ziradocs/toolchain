@@ -1,0 +1,46 @@
+---
+title: "Theme Comparison"
+author: "DocLang Theme System"
+date: "2025-10-21"
+theme: professional
+---
+
+# Main Heading (H1)
+
+This is a normal text paragraph. It contains **bold text**, *italic text*, and `inline code`. It also includes [a link](https://example.com).
+
+## Secondary Heading (H2)
+
+List of elements:
+
+- Item 1 with normal text
+- Item 2 with **bold** and *italic*
+- Item 3 with `code`
+
+### Tertiary Heading (H3)
+
+```javascript
+// Code block
+function example() {
+    console.log("Hello World");
+}
+```
+
+#### Heading H4
+
+::: info
+This is an informational block with the theme applied.
+:::
+
+::: warning
+Warning with theme color.
+:::
+
+::: success
+Success with theme color.
+:::
+
+| Column 1 | Column 2 | Column 3 |
+|-----------|-----------|-----------|
+| Data 1    | Data 2    | Data 3    |
+| Value A   | Value B   | Value C   |

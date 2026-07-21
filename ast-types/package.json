@@ -1,0 +1,41 @@
+{
+  "name": "@ziradocs/ast-types",
+  "version": "2.0.0",
+  "description": "TypeScript types for the SlideLang/DocLang JSON/AST contract (--format json), generated from the Go structs in core/ast.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "generate": "cd ../core && tygo generate && cd ../ast-types && node scripts/postprocess.cjs",
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "author": "ziradocs",
+  "homepage": "https://github.com/ziradocs/toolchain/tree/main/ast-types#readme",
+  "bugs": "https://github.com/ziradocs/toolchain/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ziradocs/toolchain",
+    "directory": "ast-types"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

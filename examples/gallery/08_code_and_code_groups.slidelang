@@ -1,0 +1,61 @@
+---
+mode: flex
+title: "Code and Code Groups"
+author: "ZiraDocs Team"
+theme: "modern-blue"
+---
+
+# Code in Slides
+## Single blocks and multi-language tabs
+
+---
+
+## A Single Code Block
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello, ZiraDocs!")
+}
+```
+
+---
+
+## Code Groups — Tabs for Multiple Languages
+
+::::code-group
+```go [fibonacci.go]
+func fibonacci(n int) int {
+	if n <= 1 {
+		return n
+	}
+	return fibonacci(n-1) + fibonacci(n-2)
+}
+```
+
+```python [fibonacci.py]
+def fibonacci(n):
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+```
+
+```typescript [fibonacci.ts]
+function fibonacci(n: number): number {
+  if (n <= 1) return n;
+  return fibonacci(n - 1) + fibonacci(n - 2);
+}
+```
+:::
+
+---
+
+## Wrap-Up
+
+::: tip
+Code groups are great for showing the same idea across languages, or a
+"config, then usage" pair without cluttering a single slide.
+:::

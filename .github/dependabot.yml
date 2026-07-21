@@ -1,0 +1,41 @@
+version: 2
+updates:
+  # Un entry por módulo Go independiente (sin go.work — ver CLAUDE.md).
+  - package-ecosystem: "gomod"
+    directory: "/core"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # #35: gopkg.in/yaml.v3 está archivado sin mantenimiento futuro, pero la
+      # migración a goccy/go-yaml (PR #113) se cerró sin mergear por
+      # regresiones reales de comportamiento (booleanos YAML 1.1 "yes"/"no",
+      # tipado de fechas en `variables:`, errores multi-línea). Queda en
+      # watch-list vía govulncheck.yml en vez de bump automático — se
+      # revisita si aparece una CVE real.
+      - dependency-name: "gopkg.in/yaml.v3"
+
+  - package-ecosystem: "gomod"
+    directory: "/slidelang"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "gomod"
+    directory: "/doclang"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # #33: fork personal (github.com/mmonterroca/docxgo) fuera de la org,
+      # consumido como dependencia externa — se monitorea vía govulncheck.yml
+      # (ver docs/developer/docxgo-fork.md), pero los bumps de versión los
+      # controla su mantenedor, no un PR automático de Dependabot.
+      - dependency-name: "github.com/mmonterroca/docxgo/v2"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/ast-types"
+    schedule:
+      interval: "weekly"

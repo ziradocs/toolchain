@@ -1,0 +1,12 @@
+packages:
+  - path: "go.ziradocs.com/core/diagnostics"
+    output_path: "../ast-types/src/generated/diagnostics.ts"
+  - path: "go.ziradocs.com/core/ast"
+    output_path: "../ast-types/src/generated/ast.ts"
+    type_mappings:
+      diagnostics.Position: "Position"
+      # Element es una interfaz Go; tygo no puede enumerar sus implementadores
+      # por reflexión estática, así que se fija aquí como unión discriminada
+      # (debe mantenerse en sync con "func (X) element() {}" en ast/*.go, la
+      # misma lista que usa core/cmd/gen-schema).
+      ast.Element: "TextElement | PointsElement | CodeElement | ImageElement | TableElement | SpecialBlockElement | CodeGroupElement | MermaidElement | PlantUMLElement | ChartElement | MapElement | QuoteElement | ChecklistElement | GridElement | ColumnElement | DirectiveNode | MathElement"

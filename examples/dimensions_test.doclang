@@ -1,0 +1,150 @@
+---
+mode: flex
+doctype: document
+title: "Test: Configurable Dimensions"
+---
+
+# Configurable Dimensions - Test
+
+Testing charts and maps with custom dimensions.
+
+---
+
+## Chart with Default Dimensions (800x600)
+
+<<chart: bar>>
+  data: [
+    ["Q1", 120],
+    ["Q2", 250],
+    ["Q3", 180],
+    ["Q4", 310]
+  ]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Default Size (800x600)"
+<</chart>>
+
+---
+
+## Chart with Custom Dimensions (1200x400)
+
+<<chart: line width="1200" height="400">>
+  data: [
+    ["Jan", 45, 32],
+    ["Feb", 52, 38],
+    ["Mar", 61, 42],
+    ["Apr", 58, 45],
+    ["May", 67, 51],
+    ["Jun", 75, 58]
+  ]
+  series: ["Sales", "Costs"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Wide Chart (1200x400)"
+<</chart>>
+
+---
+
+## Square Chart (600x600)
+
+<<chart: doughnut width="600" height="600">>
+  data: [350, 280, 220, 150]
+  labels: ["Product A", "Product B", "Product C", "Product D"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Square Chart (600x600)"
+<</chart>>
+
+---
+
+## Map with Default Dimensions (800x600)
+
+<<map>>
+  type: world
+  zoom: 2
+  markers:
+    - lat: 40.7128
+      lng: -74.0060
+      label: "New York"
+      color: "#2196F3"
+      size: "large"
+    - lat: 51.5074
+      lng: -0.1278
+      label: "London"
+      color: "#4CAF50"
+      size: "large"
+<</map>>
+
+---
+
+## Map with Custom Dimensions (1400x700)
+
+<<map width="1400" height="700">>
+  type: region
+  center: [39.8283, -98.5795]
+  zoom: 4
+  markers:
+    - lat: 37.7749
+      lng: -122.4194
+      label: "San Francisco"
+      color: "#2196F3"
+      size: "large"
+    - lat: 40.7128
+      lng: -74.0060
+      label: "New York"
+      color: "#4CAF50"
+      size: "large"
+    - lat: 41.8781
+      lng: -87.6298
+      label: "Chicago"
+      color: "#FF9800"
+      size: "medium"
+<</map>>
+
+---
+
+## Extra Wide Chart (1600x500)
+
+<<chart: bar width="1600" height="500">>
+  data: [
+    ["Jan", 120],
+    ["Feb", 145],
+    ["Mar", 168],
+    ["Apr", 192],
+    ["May", 215],
+    ["Jun", 238],
+    ["Jul", 265],
+    ["Aug", 290],
+    ["Sep", 312],
+    ["Oct", 340],
+    ["Nov", 365],
+    ["Dec", 395]
+  ]
+  options:
+    responsive: true
+    indexAxis: x
+    plugins:
+      title:
+        display: true
+        text: "Extra Wide Chart (1600x500)"
+    scales:
+      y:
+        beginAtZero: true
+<</chart>>
+
+---
+
+# Conclusion
+
+All custom dimensions must work correctly:
+- Charts: 800x600 (default), 1200x400, 600x600, 1600x500
+- Maps: 800x600 (default), 1400x700

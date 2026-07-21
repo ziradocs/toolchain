@@ -1,0 +1,46 @@
+---
+mode: flex
+title: "Closing Slide Demo"
+author: "SlideLang Team"
+variables:
+  company: "My Company"
+  email: "contact@mycompany.com"
+  website: "www.mycompany.com"
+---
+
+# Demo Presentation
+
+This is an example presentation to show how automatic detection of closing slides works.
+
+---
+
+## Main Content
+
+- First important point
+- Second point with details
+- Third concluding point
+
+---
+
+## More Content
+
+Here we have more content to show that not all slides are detected as closing.
+
+### Subsection
+
+- List item
+- Another item
+
+---
+
+# Thank You!
+
+## Questions?
+
+![Logo](assets/logo.png)
+
+📧 **Email**: {{email}}  
+🌐 **Website**: {{website}}  
+💼 **Company**: {{company}}
+
+*"Thank you for your attention"*

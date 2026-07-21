@@ -1,0 +1,130 @@
+---
+mode: flex
+title: "Charts Showcase"
+author: "ZiraDocs Team"
+theme: "modern-blue"
+---
+
+# Charts, Built In
+## Bar, line, doughnut, radar, and combo charts
+
+Charts render client-side by default via Chart.js. With `--render-mode
+offline-assets` or `offline-inline`, bar/line/pie/doughnut charts rasterize
+natively in Go at build time — no headless browser needed for those types;
+radar and combo charts still use a headless Chromium pass in offline modes.
+
+---
+
+## Bar Chart
+
+### Quarterly Revenue by Region
+
+<<chart: bar>>
+  data: [
+    ["Q1", 120, 95, 60],
+    ["Q2", 145, 110, 72],
+    ["Q3", 168, 128, 85],
+    ["Q4", 190, 150, 98]
+  ]
+  series: ["North America", "Europe", "APAC"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Revenue by Region (K$)"
+      legend:
+        position: top
+
+---
+
+## Line Chart
+
+### Weekly Active Users
+
+<<chart: line>>
+  data: [
+    ["Wk1", 4200, 3100],
+    ["Wk2", 4600, 3400],
+    ["Wk3", 5100, 3900],
+    ["Wk4", 5800, 4300],
+    ["Wk5", 6300, 4700],
+    ["Wk6", 7000, 5200]
+  ]
+  series: ["Total Users", "Paid Users"]
+  options:
+    responsive: true
+    tension: 0.4
+    plugins:
+      title:
+        display: true
+        text: "Weekly Active Users"
+
+---
+
+## Doughnut Chart
+
+### Traffic by Channel
+
+<<chart: doughnut>>
+  data: [42, 27, 18, 13]
+  labels: ["Organic Search", "Direct", "Referral", "Social"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Traffic Sources (%)"
+      legend:
+        position: right
+
+---
+
+## Radar Chart
+
+### Team Skill Coverage
+
+<<chart: radar>>
+  data: [
+    [85, 78, 92, 70, 88],
+    [70, 90, 75, 85, 65]
+  ]
+  labels: ["Frontend", "Backend", "DevOps", "Testing", "Design"]
+  series: ["Team A", "Team B"]
+  options:
+    responsive: true
+    scales:
+      r:
+        beginAtZero: true
+        max: 100
+
+---
+
+## Combo Chart
+
+### Revenue vs. Margin
+
+<<chart: combo>>
+  type: ["bar", "line"]
+  data: [
+    ["Q1", 120, 18],
+    ["Q2", 145, 21],
+    ["Q3", 168, 24],
+    ["Q4", 190, 27]
+  ]
+  series: ["Revenue (K$)", "Margin (%)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Revenue vs. Margin"
+
+---
+
+## Wrap-Up
+
+::: success
+Every chart type shown here ships with the base ZiraDocs install — no
+plugins to add, and no per-chart-type configuration to write.
+:::

@@ -1,0 +1,40 @@
+/* Layouts especializados */
+.slidelang-layout-two-column {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    height: 100%;
+}
+
+.slidelang-layout-three-column {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1.5rem;
+    height: 100%;
+}
+
+.slidelang-layout-sidebar {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 2rem;
+    height: 100%;
+}
+
+.slidelang-layout-hero {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    height: 100%;
+}
+
+/* Responsive layouts */
+@media (max-width: 768px) {
+    .slidelang-layout-two-column,
+    .slidelang-layout-three-column,
+    .slidelang-layout-sidebar {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}

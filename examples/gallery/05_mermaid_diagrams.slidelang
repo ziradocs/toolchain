@@ -1,0 +1,100 @@
+---
+mode: flex
+title: "Mermaid Diagrams"
+author: "ZiraDocs Team"
+theme: "modern-blue"
+---
+
+# Diagrams with Mermaid
+## Flowcharts, sequences, states, and classes
+
+ZiraDocs embeds [Mermaid](https://mermaid.js.org) diagrams directly with a
+single fenced block — no separate diagramming tool required.
+
+---
+
+## Flowchart
+
+### Deployment Pipeline
+
+<<mermaid>>
+  graph TD
+      A[Push to main] --> B[Run CI]
+      B --> C{Tests pass?}
+      C -->|Yes| D[Build artifact]
+      C -->|No| E[Notify author]
+      D --> F[Deploy to staging]
+      F --> G{Smoke tests OK?}
+      G -->|Yes| H[Deploy to production]
+      G -->|No| E
+
+      style A fill:#e1f5fe
+      style H fill:#e8f5e8
+      style C fill:#fff3e0
+      style G fill:#fff3e0
+
+---
+
+## Sequence Diagram
+
+### API Request Lifecycle
+
+<<mermaid>>
+  sequenceDiagram
+      participant C as Client
+      participant G as API Gateway
+      participant S as Service
+      participant D as Database
+
+      C->>G: HTTPS request
+      G->>S: Forward request
+      S->>D: Query
+      D-->>S: Result set
+      S-->>G: JSON response
+      G-->>C: HTTPS response
+
+---
+
+## State Diagram
+
+### Order Lifecycle
+
+<<mermaid>>
+  stateDiagram-v2
+      [*] --> Created
+      Created --> Pending : validate
+      Pending --> Processing : approve
+      Pending --> Cancelled : reject
+      Processing --> Shipped : fulfill
+      Shipped --> Delivered : confirm
+      Delivered --> [*]
+      Cancelled --> [*]
+
+---
+
+## Class Diagram
+
+### Domain Model
+
+<<mermaid>>
+  classDiagram
+      class User {
+          +int id
+          +string email
+          +login()
+      }
+      class Order {
+          +int id
+          +Date placedAt
+          +calculateTotal()
+      }
+      User "1" --> "*" Order : places
+
+---
+
+## Wrap-Up
+
+::: tip
+Mermaid diagrams render consistently across HTML, PDF, and offline builds —
+the same source produces the same diagram in every output format.
+:::

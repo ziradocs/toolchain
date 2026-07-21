@@ -1,0 +1,82 @@
+---
+title: "DocLang Product One-Pager"
+author: "Product Marketing"
+date: "2025-01-15"
+theme: professional
+mode: flex
+---
+
+# DocLang
+## Write once, ship HTML, PDF, DOCX, and Markdown
+
+DocLang turns a single Markdown-like source file into polished documents
+in whatever format your audience needs — no separate export pipeline
+per format.
+
+# Feature Grid
+
+::: grid
+
+::: column
+**📄 Multi-Format Export**
+HTML, PDF, DOCX, and Markdown from one source file.
+:::
+
+::: column
+**🎨 Themes Built In**
+`professional`, `academic`, `technical`, and `page-view` out of the box.
+:::
+
+::: column
+**📊 Diagrams Built In**
+Mermaid, PlantUML, charts, and maps are just fenced blocks — no separate
+diagramming tool or account to configure.
+:::
+
+::: column
+**🔒 Sanitized Output**
+All rendered HTML is escaped and URL-protocol-checked by default.
+:::
+
+:::
+
+# Why Teams Pick DocLang
+
+::: grid
+
+::: column
+**Before DocLang**
+- Separate tools for docs, slides, and PDFs
+- Manual reformatting for each export target
+- Diagrams maintained as static images
+:::
+
+::: column
+**After DocLang**
+- One source file per document
+- `--format docx`, `--format pdf`, or `--format markdown` on demand
+- Diagrams defined as text, versioned alongside the content
+:::
+
+:::
+
+# Getting Started
+
+::::code-group
+```bash [html]
+doclang build report.doclang --output ./dist
+```
+
+```bash [docx]
+doclang build report.doclang --format docx --toc --numbering
+```
+
+```bash [pdf-offline]
+doclang build report.doclang --format pdf --render-mode offline-inline
+```
+:::
+
+::: tip
+Add `--toc` for an auto-generated table of contents, or `--numbering` for
+section numbers — both work across every output format.
+:::

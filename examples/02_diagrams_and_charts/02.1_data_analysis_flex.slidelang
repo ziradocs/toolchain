@@ -1,0 +1,617 @@
+---
+mode: flex
+title: "Data Analysis and Business Intelligence"
+author: "SlideLang Documentation"
+version: "2.0"
+theme: "modern"
+variables:
+  company: "TechCorp Analytics"
+  period: "Q3 2024"
+  growth_rate: "28.5%"
+  revenue: "$2.4M"
+  profit_margin: "18.2%"
+---
+
+# Data Analysis and Business Intelligence
+## {{company}} - Executive Report {{period}}
+
+---
+
+## Key KPIs
+
+### Growth Metrics {{period}}
+
+| Metric | Current Value | Target | Progress | Trend |
+|---------|--------------|----------|----------|-----------|
+| **Revenue** | {{revenue}} | $2.5M | 96% | 📈 +{{growth_rate}} |
+| **Profit Margin** | {{profit_margin}} | 20% | 91% | 📈 +2.3% |
+| **Active Clients** | 15,847 | 16,500 | 96% | 📈 +1,247 |
+| **Retention** | 94.2% | 95% | 99% | 📈 +1.8% |
+| **CAC** | $127 | $120 | 106% | 📉 -$8 |
+| **LTV** | $2,890 | $3,000 | 96% | 📈 +$180 |
+
+---
+
+## Sales Analysis by Channel
+
+### Comparative Channel Performance
+
+<<chart: bar>>
+  data: [
+    ["Direct Sales", 887, 920, 1045, 1180],
+    ["Online", 654, 780, 890, 1020],
+    ["Partners", 445, 520, 585, 670],
+    ["Retail", 320, 380, 420, 485]
+  ]
+  series: ["Q4 2023", "Q1 2024", "Q2 2024", "Q3 2024"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Sales by Channel (K$) - Quarterly Evolution"
+      legend:
+        position: top
+      datalabels:
+        display: true
+        anchor: end
+        align: end
+    scales:
+      x:
+        title:
+          display: true
+          text: "Sales Channels"
+      y:
+        title:
+          display: true
+          text: "Revenue (Thousands $)"
+        beginAtZero: true
+
+---
+
+## Conversion Funnel
+
+### Customer Journey Analytics
+
+<<mermaid>>
+  flowchart TD
+      A["👥 Visitors<br/>125,430"] --> B["📧 Leads<br/>8,950<br/>7.1%"]
+      B --> C["🎯 Qualified Leads<br/>4,280<br/>47.8%"]
+      C --> D["💬 Sales Calls<br/>2,140<br/>50%"]
+      D --> E["📝 Proposals<br/>1,285<br/>60%"]
+      E --> F["✅ Closed Won<br/>642<br/>50%"]
+      F --> G["🔄 Upsells<br/>128<br/>20%"]
+      
+      style A fill:#e3f2fd
+      style B fill:#e8f5e8
+      style C fill:#fff3e0
+      style D fill:#fce4ec
+      style E fill:#f3e5f5
+      style F fill:#e0f2f1
+      style G fill:#fff8e1
+      
+      classDef conversionRate fill:#ffeb3b,stroke:#f57f17,stroke-width:2px
+      class B,C,D,E,F,G conversionRate
+
+---
+
+## Cohort Analysis
+
+### Customer Retention by Acquisition Month
+
+<<chart: line>>
+  data: [
+    ["Month 1", 100, 100, 100, 100, 100, 100],
+    ["Month 2", 85, 87, 89, 88, 90, 92],
+    ["Month 3", 78, 81, 84, 83, 86, 89],
+    ["Month 6", 72, 76, 79, 78, 82, 85],
+    ["Month 12", 68, 71, 75, 74, 78, 82]
+  ]
+  series: ["Jan 2024", "Feb 2024", "Mar 2024", "Apr 2024", "May 2024", "Jun 2024"]
+  options:
+    responsive: true
+    tension: 0.3
+    plugins:
+      title:
+        display: true
+        text: "Customer Retention by Cohort (%)"
+      legend:
+        position: bottom
+    scales:
+      x:
+        title:
+          display: true
+          text: "Time Since Acquisition"
+      y:
+        title:
+          display: true
+          text: "Retention Percentage (%)"
+        beginAtZero: true
+        max: 100
+
+---
+
+## Geographic Revenue Distribution
+
+### Revenue by Region
+
+<<map>>
+  type: world
+  markers:
+    - lat: 39.8283
+      lng: -98.5795
+      label: "North America"
+      value: 1680
+      color: "#1976d2"
+      size: "large"
+    - lat: 54.5260
+      lng: 15.2551
+      label: "Europe"
+      value: 520
+      color: "#388e3c"
+      size: "medium"
+    - lat: 35.8617
+      lng: 104.1954
+      label: "Asia-Pacific"
+      value: 180
+      color: "#f57c00"
+      size: "small"
+    - lat: -14.2350
+      lng: -51.9253
+      label: "Latin America"
+      value: 20
+      color: "#7b1fa2"
+      size: "small"
+  heatmap: true
+  zoom: 2
+  options:
+    title: "Global Revenue Distribution (K$)"
+    showValues: true
+
+---
+
+## Customer Segmentation Analysis
+
+### Customer Profile by Value
+
+<<chart: doughnut>>
+  data: [45, 32, 15, 8]
+  labels: ["High Value (>$50K)", "Medium Value ($10K-$50K)", "Low Value ($1K-$10K)", "Freemium (<$1K)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Segmentation by Annual Customer Value"
+      legend:
+        position: right
+      tooltip:
+        callbacks:
+          label: "function(context) { 
+            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+            const percentage = Math.round((context.parsed / total) * 100);
+            return context.label + ': ' + percentage + '%';
+          }"
+    cutout: "60%"
+
+---
+
+## Product and Features Analysis
+
+### Feature Adoption
+
+<<chart: radar>>
+  data: [
+    [95, 88, 76, 92, 84, 67, 58, 72],
+    [87, 82, 71, 89, 79, 62, 54, 68]
+  ]
+  labels: ["Dashboard", "Reports", "API Access", "Mobile App", "Integrations", "Advanced Analytics", "AI Features", "Custom Themes"]
+  series: ["Enterprise", "Professional"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Feature Adoption by Plan (%)"
+      legend:
+        position: bottom
+    scales:
+      r:
+        beginAtZero: true
+        max: 100
+        ticks:
+          stepSize: 20
+        pointLabels:
+          font:
+            size: 10
+
+---
+
+## Analytics Data Flow
+
+### Data Pipeline Architecture
+
+<<mermaid>>
+  graph TB
+      subgraph "Data Sources"
+          A1[Web App Events]
+          A2[Mobile App Events]
+          A3[CRM Data]
+          A4[Payment Gateway]
+          A5[Support Tickets]
+          A6[Marketing Tools]
+      end
+      
+      subgraph "Ingestion Layer"
+          B1[Event Collectors]
+          B2[API Gateways]
+          B3[ETL Jobs]
+      end
+      
+      subgraph "Processing"
+          C1[Stream Processing<br/>Apache Kafka]
+          C2[Batch Processing<br/>Apache Spark]
+          C3[Real-time Analytics<br/>Apache Flink]
+      end
+      
+      subgraph "Storage"
+          D1[(Operational DB<br/>PostgreSQL)]
+          D2[(Analytics DB<br/>ClickHouse)]
+          D3[(Data Lake<br/>AWS S3)]
+      end
+      
+      subgraph "Analytics & ML"
+          E1[Business Intelligence<br/>Tableau]
+          E2[Machine Learning<br/>Python/R]
+          E3[Real-time Dashboards<br/>Grafana]
+          E4[SlideLang Reports]
+      end
+      
+      A1 --> B1
+      A2 --> B1
+      A3 --> B2
+      A4 --> B2
+      A5 --> B3
+      A6 --> B3
+      
+      B1 --> C1
+      B2 --> C2
+      B3 --> C2
+      
+      C1 --> D1
+      C1 --> D2
+      C2 --> D2
+      C2 --> D3
+      C3 --> E3
+      
+      D1 --> E1
+      D2 --> E1
+      D2 --> E2
+      D3 --> E2
+      E1 --> E4
+      E2 --> E4
+      
+      style C1 fill:#e3f2fd
+      style C2 fill:#e8f5e8
+      style C3 fill:#fff3e0
+      style E4 fill:#fce4ec
+
+---
+
+## Predictions and Forecasting
+
+### 2025 Growth Projection
+
+<<chart: combo>>
+  type: ["line", "line", "bar", "bar"]
+  data: [
+    ["Q4 2024", 2400, 2350, 1850, 1820],
+    ["Q1 2025", 2650, 2580, 2120, 2050],
+    ["Q2 2025", 2950, 2840, 2450, 2350],
+    ["Q3 2025", 3200, 3080, 2750, 2620],
+    ["Q4 2025", 3500, 3350, 3100, 2950]
+  ]
+  series: ["Revenue Actual", "Revenue Forecast", "Customers Actual", "Customers Forecast"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Growth Projection - Revenue (K$) and Clients"
+      legend:
+        position: top
+    scales:
+      y:
+        type: linear
+        display: true
+        position: left
+        title:
+          display: true
+          text: "Revenue (K$)"
+      y1:
+        type: linear
+        display: true
+        position: right
+        title:
+          display: true
+          text: "Number of Clients"
+        grid:
+          drawOnChartArea: false
+
+---
+
+## Churn and Retention Analysis
+
+### Churn Risk Factors
+
+::::code-group
+```sql [churn-analysis.sql]
+-- Churn factor analysis
+WITH customer_metrics AS (
+  SELECT 
+    customer_id,
+    last_login_days_ago,
+    support_tickets_count,
+    feature_usage_score,
+    payment_issues_count,
+    contract_value,
+    CASE 
+      WHEN churned_at IS NOT NULL THEN 1 
+      ELSE 0 
+    END as churned
+  FROM customer_analytics
+  WHERE created_at >= '2024-01-01'
+),
+risk_factors AS (
+  SELECT 
+    customer_id,
+    CASE 
+      WHEN last_login_days_ago > 30 THEN 1 ELSE 0 
+    END as inactive_risk,
+    CASE 
+      WHEN support_tickets_count > 5 THEN 1 ELSE 0 
+    END as support_risk,
+    CASE 
+      WHEN feature_usage_score < 40 THEN 1 ELSE 0 
+    END as engagement_risk,
+    CASE 
+      WHEN payment_issues_count > 2 THEN 1 ELSE 0 
+    END as payment_risk
+  FROM customer_metrics
+)
+SELECT 
+  SUM(inactive_risk) as high_inactive_risk,
+  SUM(support_risk) as high_support_risk,
+  SUM(engagement_risk) as low_engagement_risk,
+  SUM(payment_risk) as payment_issues_risk,
+  COUNT(*) as total_customers
+FROM risk_factors;
+```
+
+```python [churn-prediction.py]
+# Churn prediction model
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+
+def train_churn_model(data):
+    """Trains churn prediction model"""
+    features = [
+        'last_login_days_ago',
+        'support_tickets_count', 
+        'feature_usage_score',
+        'payment_issues_count',
+        'contract_value',
+        'session_frequency',
+        'support_satisfaction'
+    ]
+    
+    X = data[features]
+    y = data['churned']
+    
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    
+    # Train model
+    model = RandomForestClassifier(
+        n_estimators=100,
+        max_depth=10,
+        random_state=42
+    )
+    model.fit(X_train, y_train)
+    
+    # Evaluation
+    predictions = model.predict(X_test)
+    print(classification_report(y_test, predictions))
+    
+    return model
+
+# Risk prediction for active clients
+def predict_churn_risk(model, customer_data):
+    """Predicts churn risk for active clients"""
+    probabilities = model.predict_proba(customer_data)
+    return probabilities[:, 1]  # Churn probability
+```
+
+```javascript [retention-strategies.js]
+// Automatic retention strategies
+const retentionStrategies = {
+  highRisk: {
+    threshold: 0.8,
+    actions: [
+      'Assign Customer Success Manager',
+      'Personalized executive call',
+      '20% renewal discount',
+      'Free personalized training'
+    ]
+  },
+  mediumRisk: {
+    threshold: 0.5,
+    actions: [
+      'Personalized check-in email',
+      'Invitation to exclusive webinar',
+      'Access to premium feature trial',
+      'Satisfaction survey'
+    ]
+  },
+  lowRisk: {
+    threshold: 0.2,
+    actions: [
+      'Newsletter with best practices',
+      'Invitation to user community',
+      'Relevant case study',
+      'Feature update notifications'
+    ]
+  }
+};
+
+function implementRetentionStrategy(customerRisk, customerId) {
+  const strategy = Object.entries(retentionStrategies)
+    .find(([_, config]) => customerRisk >= config.threshold);
+    
+  if (strategy) {
+    const [riskLevel, config] = strategy;
+    console.log(`Implementing ${riskLevel} strategy for customer ${customerId}`);
+    return config.actions;
+  }
+  
+  return ['Standard engagement flow'];
+}
+```
+:::
+
+---
+
+## Real-Time Dashboard
+
+### Live Metrics {{period}}
+
+:::dashboard
+::metric{title="Revenue Real-time" value="{{revenue}}" change="+{{growth_rate}}" trend="up" color="green"}
+Accumulated quarterly revenue
+::
+
+::metric{title="Active Users (24h)" value="8,247" change="+5.2%" trend="up" color="blue"}
+Unique users in the last 24 hours
+::
+
+::metric{title="Conversion Rate" value="4.8%" change="+0.3%" trend="up" color="purple"}
+Leads to customers this month
+::
+
+::metric{title="Average Deal Size" value="$15,240" change="+12%" trend="up" color="orange"}
+Average value of closed deals
+::
+
+::metric{title="Support Tickets" value="23" change="-15%" trend="down" color="green"}
+Open pending tickets
+::
+
+::metric{title="Server Response" value="89ms" change="-12ms" trend="down" color="green"}
+Average API latency
+::
+:::
+
+---
+
+## Competitive Analysis
+
+### Market Position Analysis
+
+:::comparison
+||Us|Competitor A|Competitor B|Market Leader|
+|---|---|---|---|---|
+|**Market Share**|12%|8%|15%|35%|
+|**Pricing**|$29/month|$35/month|$25/month|$49/month|
+|**Features**|85|72|90|95|
+|**Customer Satisfaction**|4.6/5|4.2/5|4.4/5|4.7/5|
+|**Growth Rate**|{{growth_rate}}|18.2%|22.1%|12.5%|
+|**Funding Raised**|$25M|$18M|$45M|$120M|
+|**Team Size**|125|98|180|450|
+|**Global Presence**|15 countries|12 countries|22 countries|45 countries|
+:::
+
+### Identified Competitive Advantages:
+- ✅ **Better price-value ratio** compared to similar competitors
+- ✅ **Faster growth rate** than the market leader
+- ✅ **More efficient team** (higher revenue per employee)
+- ✅ **Higher customer satisfaction** vs direct competitors
+
+---
+
+## Strategic Recommendations
+
+### Priority Actions for Q4 2024
+
+:::timeline
+::timeline-item{date="October" status="in-progress"}
+**Conversion Optimization**
+- Implement A/B tests on landing pages
+- Improve onboarding for new users
+- Launch referral program
+- **Goal**: Increase conversion to 5.5%
+::
+
+::timeline-item{date="November" status="planned"}
+**Market Expansion**
+- Launch in 3 new countries (Spain, Italy, Brazil)
+- Translate platform into Portuguese and Italian
+- Partnerships with local distributors
+- **Goal**: 25% of international revenue
+::
+
+::timeline-item{date="December" status="planned"}
+**Retention and Upsells**
+- Implement predictive churn model
+- Launch proactive Customer Success program
+- New features for enterprise plans
+- **Goal**: Reduce churn to <3%, increase upsells by 40%
+::
+:::
+
+---
+
+## Conclusions and Next Steps
+
+### Executive Summary {{period}}
+
+**Key Achievements:**
+- 📈 Revenue growth: **{{growth_rate}}** (target: 25%)
+- 💰 Revenue: **{{revenue}}** (96% of the quarterly target)
+- 😊 Customer satisfaction: **94.2%** (1.8% improvement)
+- 🏢 Profit margin: **{{profit_margin}}** (close to the 20% target)
+
+**Areas for Improvement:**
+- Reduce CAC through channel optimization
+- Accelerate adoption of advanced features
+- Expand international presence
+- Strengthen retention program
+
+**Recommended Investments:**
+1. **$500K** in international marketing
+2. **$300K** in customer success team  
+3. **$200K** in enterprise feature development
+4. **$150K** in analytics and ML infrastructure
+
+> 🎯 **Q4 Goal**: Reach **$2.5M** in revenue with **99.5%** customer satisfaction
+
+---
+
+## Resources and Tools
+
+### Analytics Stack Used:
+- 📊 **Visualization**: SlideLang + Chart.js + Mermaid
+- 🗄️ **Data Warehouse**: ClickHouse + PostgreSQL
+- 🔄 **ETL**: Apache Spark + Kafka
+- 🤖 **ML**: Python (scikit-learn, pandas)
+- 📈 **BI**: Tableau + Grafana
+- 🎯 **Attribution**: Google Analytics + Mixpanel
+
+**Analytics Team Contact:**
+- 📧 Email: analytics@{{company|lower}}.com
+- 💬 Slack: #data-analytics
+- 📚 Docs: [analytics.{{company|lower}}.com](https://analytics.example.com)
+
+**Data that drives strategic decisions!** 🚀

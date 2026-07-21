@@ -1,0 +1,748 @@
+---
+mode: flex
+title: "Complete Guide to Frontmatter and Variables"
+author: "ContentTech Solutions"
+date: "2025-01-15"
+theme: "modern-blue"
+output:
+  format: [html, pdf, pptx]
+  path: "./dist/variables-guide"
+  filename: "frontmatter-variables-guide"
+custom_css: "./styles/documentation.css"
+variables:
+  guide_version: "v2.1"
+  last_updated: "2025-01-15"
+  author_name: "Dr. Ana García"
+  company: "ContentTech Solutions"
+  examples_count: "42"
+  coverage_percentage: "98%"
+  difficulty_level: "Intermediate-Advanced"
+  estimated_time: "45 minutes"
+  prerequisites: "Basic knowledge of YAML and Markdown"
+  target_audience: "Developers, Technical Writers, Product Managers"
+---
+
+# Masterclass: Variables and Frontmatter in SlideLang
+## Advanced configuration for dynamic, reusable presentations
+
+*Guide {{guide_version}} | Updated: {{last_updated}}*
+*By {{author_name}} - {{company}}*
+
+---
+
+## What is Frontmatter in SlideLang?
+
+**Frontmatter** is the YAML block at the beginning of every `.slidelang` file that defines metadata and global settings for the entire presentation.
+
+### Basic Structure
+
+```yaml
+---
+# Required configuration
+mode: flex                    # or strict
+title: "My Presentation"
+
+# Optional configuration
+author: "Author Name"
+date: "2025-01-15"
+theme: "modern-blue"
+
+# Custom variables
+variables:
+  product_name: "My Product"
+  company: "My Company"
+---
+```
+
+### Why Is It Important?
+
+- **Consistency**: Keep information unified throughout the presentation
+- **Reusability**: The same template can be used for multiple products/clients
+- **Maintenance**: Change one value and it updates automatically throughout the presentation
+- **Professionalism**: Appropriate metadata for each output format
+
+---
+
+## Advanced Output Configuration
+
+### Multiple Output Formats
+
+```yaml
+---
+output:
+  format: [html, pdf, pptx, docx]  # Formats to generate
+  path: "./presentations"          # Output directory
+  filename: "my-presentation"      # Base name (no extension)
+---
+```
+
+### Per-Format Configuration
+
+```yaml
+---
+output:
+  html:
+    path: "./dist/web"
+    theme: "modern-blue"
+    responsive: true
+  pdf:
+    path: "./dist/print"
+    page_size: "A4"
+    margins: "2cm"
+  pptx:
+    path: "./dist/powerpoint"
+    template: "./templates/corporate.pptx"
+---
+```
+
+### Custom CSS
+
+```yaml
+---
+# CSS specific to this presentation
+custom_css: "./styles/brand-guidelines.css"
+
+# Multiple CSS files
+custom_css:
+  - "./styles/base.css"
+  - "./styles/themes.css"
+  - "./styles/animations.css"
+---
+```
+
+---
+
+## Variables: The Power of Customization
+
+### Basic Variables
+
+In our current example, we have {{examples_count}} examples covering {{coverage_percentage}} of the functionality.
+
+```yaml
+---
+variables:
+  # Product information
+  product_name: "SlideLang Pro"
+  version: "v3.1.2"
+  release_date: "2025-01-15"
+
+  # Business metrics
+  user_count: "15,847"
+  satisfaction_rate: "94.2%"
+  growth_rate: "28.5%"
+
+  # Contact information
+  support_email: "support@company.com"
+  sales_phone: "+1 (555) 123-4567"
+---
+```
+
+### Variables with Calculations
+
+```yaml
+---
+variables:
+  # Base prices
+  basic_price: 29
+  pro_price: 79
+  enterprise_price: 199
+
+  # Discounts and promotions
+  annual_discount: 0.15  # 15% annual discount
+  enterprise_discount: 0.25
+
+  # Calculated automatically (if your processor supports it)
+  basic_annual: "{{basic_price * 12 * (1 - annual_discount)}}"
+  pro_annual: "{{pro_price * 12 * (1 - annual_discount)}}"
+---
+```
+
+### Nested Variables
+
+```yaml
+---
+variables:
+  company:
+    name: "{{company}}"
+    founded: "{{founded_year}}"
+    employees: "{{team_size}}"
+    headquarters: "San Francisco, CA"
+
+  contact:
+    sales:
+      email: "sales@contentos.pro"
+      phone: "+1 (555) 123-4567"
+    support:
+      email: "support@contentos.pro"
+      hours: "24/7"
+
+  metrics:
+    users:
+      total: "{{examples_count}}"
+      active: "{{coverage_percentage}}"
+      growth: "{{estimated_time}}"
+---
+```
+
+---
+
+## Practical Usage Examples
+
+### 1. Multi-Client Presentation
+
+**Base template**: `client-presentation-template.slidelang`
+
+```yaml
+---
+mode: flex
+title: "Proposal for {{client_name}}"
+variables:
+  # Client-specific variables
+  client_name: "TechCorp Global"
+  client_industry: "Technology"
+  client_size: "2,500 employees"
+  client_challenge: "Fragmented content management"
+
+  # Proposal variables
+  proposed_solution: "ContentOS Enterprise"
+  implementation_time: "6 weeks"
+  expected_roi: "340%"
+
+  # Team variables
+  account_manager: "María González"
+  technical_lead: "Carlos Rodríguez"
+---
+
+# Custom Proposal for {{client_name}}
+## Transforming content management in {{client_industry}}
+
+Dear **{{client_name}}** team,
+
+We've designed a solution specifically for companies of {{client_size}} in the {{client_industry}} sector facing the challenge of {{client_challenge}}.
+
+### Our Proposal: {{proposed_solution}}
+
+- **Implementation time**: {{implementation_time}}
+- **Expected ROI**: {{expected_roi}}
+- **Account Manager**: {{account_manager}}
+- **Technical Lead**: {{technical_lead}}
+```
+
+### 2. Automated Monthly Reports
+
+**Template**: `monthly-report-template.slidelang`
+
+```yaml
+---
+mode: flex
+title: "Monthly Report {{month}} {{year}}"
+variables:
+  # Report period
+  month: "January"
+  year: "2025"
+  quarter: "Q1"
+
+  # Key metrics
+  revenue: "$487K"
+  growth: "+12.3%"
+  new_customers: "247"
+  churn_rate: "2.1%"
+
+  # Responsible team
+  analyst: "{{author_name}}"
+  reviewer: "Director of Analytics"
+  approval_date: "{{last_updated}}"
+---
+
+# Performance Report {{month}} {{year}}
+## Complete business metrics analysis
+
+**Analyst**: {{analyst}}
+**Reviewer**: {{reviewer}}
+**Approval date**: {{approval_date}}
+
+### Executive Summary {{quarter}}
+
+- **Revenue**: {{revenue}} ({{growth}} vs previous month)
+- **New customers**: {{new_customers}}
+- **Churn rate**: {{churn_rate}}
+```
+
+### 3. Versioned Product Documentation
+
+```yaml
+---
+mode: flex
+title: "{{product_name}} - Documentation {{guide_version}}"
+variables:
+  # Product information
+  product_name: "DataFlow API"
+  guide_version: "v2.1"
+  api_version: "2.1.3"
+
+  # Dynamic URLs
+  base_url: "https://api.dataflow.com/v2"
+  docs_url: "https://docs.dataflow.com/{{api_version}}"
+  github_url: "https://github.com/dataflow/api/tree/v{{api_version}}"
+
+  # Technical information
+  rate_limit: "1000 requests/hour"
+  response_format: "JSON"
+  auth_method: "Bearer Token"
+---
+
+# {{product_name}} - Developer Guide
+## Version {{guide_version}} | API {{api_version}}
+
+### Base Configuration
+
+```javascript
+const apiClient = new DataFlowAPI({
+  baseURL: '{{base_url}}',
+  version: '{{api_version}}',
+  auth: '{{auth_method}}'
+});
+```
+
+### Limits and Restrictions
+
+- **Rate limiting**: {{rate_limit}}
+- **Response format**: {{response_format}}
+- **Authentication**: {{auth_method}}
+
+### Additional Resources
+
+- 📚 **Complete documentation**: [{{docs_url}}]({{docs_url}})
+- 🐙 **Source code**: [{{github_url}}]({{github_url}})
+```
+
+---
+
+## Advanced Theme Configuration
+
+### Dynamic Theme Selector
+
+```yaml
+---
+# Theme based on presentation type
+variables:
+  presentation_type: "sales"  # sales, technical, executive, training
+
+theme: "{{presentation_type}}-theme"
+# Will result in: sales-theme, technical-theme, etc.
+---
+```
+
+### Conditional Themes
+
+```yaml
+---
+variables:
+  target_audience: "executives"
+  company_tier: "enterprise"
+
+# Conditional theme configuration
+theme: |
+  {% if target_audience == "executives" and company_tier == "enterprise" %}
+    executive-premium
+  {% elif target_audience == "executives" %}
+    executive-standard
+  {% elif company_tier == "enterprise" %}
+    corporate-enterprise
+  {% else %}
+    modern-blue
+  {% endif %}
+---
+```
+
+---
+
+## Best Practices for Variables
+
+### 1. **Consistent Naming**
+
+```yaml
+# ✅ Good: consistent snake_case
+variables:
+  product_name: "My Product"
+  release_date: "2025-01-15"
+  target_audience: "developers"
+
+# ❌ Bad: Mixed styles
+variables:
+  productName: "My Product"       # camelCase
+  release-date: "2025-01-15"      # kebab-case
+  target_audience: "developers"   # snake_case
+```
+
+### 2. **Logical Grouping**
+
+```yaml
+variables:
+  # Product information
+  product:
+    name: "SlideLang Pro"
+    version: "v3.1"
+    category: "Productivity"
+
+  # Business metrics
+  metrics:
+    users: "15,847"
+    revenue: "$487K"
+    growth: "+28.5%"
+
+  # Contact information
+  contact:
+    sales: "sales@company.com"
+    support: "+1 (555) 123-4567"
+```
+
+### 3. **Inline Documentation**
+
+```yaml
+variables:
+  # Prices in USD (update quarterly)
+  pricing_basic: "$29"          # Individual plan
+  pricing_pro: "$79"            # Plan for small teams
+  pricing_enterprise: "Custom"  # Corporate plan
+
+  # Q1 2025 metrics (source: Analytics Dashboard)
+  conversion_rate: "4.2%"       # Lead to customer
+  churn_rate: "1.8%"           # Monthly churn
+  nps_score: "73"              # Net Promoter Score
+```
+
+### 4. **Variable Validation**
+
+```yaml
+# Variables with default values
+variables:
+  environment: "{{ENV | default('production')}}"
+  debug_mode: "{{DEBUG | default(false)}}"
+  max_users: "{{MAX_USERS | default(1000)}}"
+
+  # Required variables (will fail if not defined)
+  api_key: "{{REQUIRED_API_KEY}}"
+  client_id: "{{REQUIRED_CLIENT_ID}}"
+```
+
+---
+
+## Advanced Use Cases
+
+### 1. **Localization and Internationalization**
+
+```yaml
+---
+variables:
+  locale: "en-US"
+  currency: "USD"
+  date_format: "MM/DD/YYYY"
+
+  # Localized text
+  texts:
+    welcome: "Welcome"
+    pricing: "Pricing"
+    contact: "Contact"
+    demo: "View Demo"
+
+  # Localized numbers
+  revenue: "$487,000"
+  growth_rate: "28.5%"
+  decimal_separator: "."
+---
+
+# {{texts.welcome}} to SlideLang
+## Professional presentations in {{locale}}
+
+### {{texts.pricing}}
+- **Basic**: {{currency}} 29/month
+- **Pro**: {{currency}} 79/month
+
+[{{texts.demo}}](https://demo.slidelang.com/{{locale}})
+```
+
+### 2. **A/B Testing Content**
+
+```yaml
+---
+variables:
+  # Test version
+  test_variant: "A"  # A or B
+
+  # A/B content
+  headline_a: "Boost your productivity by 300%"
+  headline_b: "The tool you've been waiting for"
+
+  cta_a: "Start Free Now"
+  cta_b: "See a Personalized Demo"
+
+  # Dynamic selection
+  current_headline: |
+    {% if test_variant == "A" %}{{headline_a}}{% else %}{{headline_b}}{% endif %}
+  current_cta: |
+    {% if test_variant == "A" %}{{cta_a}}{% else %}{{cta_b}}{% endif %}
+---
+
+# {{current_headline}}
+
+Lorem ipsum dolor sit amet...
+
+[{{current_cta}}](https://signup.company.com?variant={{test_variant}})
+```
+
+### 3. **Environment and CI/CD Variables**
+
+```yaml
+---
+# Variables injected from CI/CD
+variables:
+  build_number: "{{BUILD_NUMBER | default('local')}}"
+  git_commit: "{{GIT_COMMIT | default('unknown')}}"
+  environment: "{{ENVIRONMENT | default('development')}}"
+  deploy_date: "{{DEPLOY_DATE | default('N/A')}}"
+
+  # Dynamic URLs based on environment
+  api_url: |
+    {% if environment == "production" %}
+      https://api.company.com
+    {% elif environment == "staging" %}
+      https://staging-api.company.com
+    {% else %}
+      http://localhost:3000
+    {% endif %}
+---
+
+# API Documentation
+## Environment: {{environment}} | Build: {{build_number}}
+
+### Configuration
+
+```javascript
+const config = {
+  apiUrl: '{{api_url}}',
+  environment: '{{environment}}',
+  version: '{{build_number}}'
+};
+```
+
+*Last updated: {{deploy_date}} | Commit: {{git_commit}}*
+```
+
+---
+
+## Debugging and Troubleshooting
+
+### Variable Verification
+
+```yaml
+---
+variables:
+  debug: true
+  show_variables: true
+---
+
+{% if debug and show_variables %}
+## Defined Variables (Debug Only)
+
+| Variable | Value |
+|----------|-------|
+| guide_version | {{guide_version}} |
+| last_updated | {{last_updated}} |
+| author_name | {{author_name}} |
+| examples_count | {{examples_count}} |
+| coverage_percentage | {{coverage_percentage}} |
+{% endif %}
+```
+
+### Common Errors
+
+**1. Undefined variable:**
+```yaml
+# ❌ Error: variable does not exist
+{{non_existent_variable}}
+
+# ✅ Solution: default value
+{{non_existent_variable | default('Default value')}}
+```
+
+**2. Incorrect YAML syntax:**
+```yaml
+# ❌ Error: incorrect indentation
+variables:
+product_name: "My Product"
+
+# ✅ Correct: proper indentation
+variables:
+  product_name: "My Product"
+```
+
+**3. Special characters:**
+```yaml
+# ❌ Error: special characters without quotes
+variables:
+  description: My product: the best solution
+
+# ✅ Correct: use quotes
+variables:
+  description: "My product: the best solution"
+```
+
+---
+
+## Tools and Automation
+
+### Validation Script
+
+```bash
+#!/bin/bash
+# validate-frontmatter.sh
+
+echo "Validating frontmatter in .slidelang files..."
+
+for file in *.slidelang; do
+  echo "Checking: $file"
+
+  # Extract frontmatter (between the first two --- lines)
+  frontmatter=$(sed -n '/^---$/,/^---$/p' "$file" | sed '1d;$d')
+
+  # Validate YAML
+  echo "$frontmatter" | python -c "
+import yaml, sys
+try:
+    yaml.safe_load(sys.stdin.read())
+    print('  ✅ Valid YAML')
+except yaml.YAMLError as e:
+    print('  ❌ YAML Error:', e)
+    exit(1)
+"
+done
+
+echo "Validation complete ✅"
+```
+
+### Template Generator
+
+```python
+# template_generator.py
+import yaml
+from datetime import datetime
+
+def generate_presentation_template(config):
+    """Generates a presentation template with variables"""
+
+    frontmatter = {
+        'mode': 'flex',
+        'title': config['title'],
+        'author': config['author'],
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'theme': config.get('theme', 'modern-blue'),
+        'variables': config['variables']
+    }
+
+    yaml_content = yaml.dump(frontmatter, default_flow_style=False)
+
+    template = f"""---
+{yaml_content}---
+
+# {config['title']}
+## {config.get('subtitle', 'Subtitle placeholder')}
+
+*Automatically generated on {datetime.now().strftime('%Y-%m-%d')}*
+
+---
+
+## Main Content
+
+Your content here...
+
+Available variables:
+{chr(10).join([f'- {k}: {{{{{k}}}}}' for k in config['variables'].keys()])}
+"""
+
+    return template
+
+# Usage
+config = {
+    'title': 'My New Presentation',
+    'subtitle': 'Descriptive subtitle',
+    'author': 'My Name',
+    'theme': 'corporate',
+    'variables': {
+        'product_name': 'My Product',
+        'version': 'v1.0',
+        'company': 'My Company'
+    }
+}
+
+template = generate_presentation_template(config)
+print(template)
+```
+
+---
+
+## Best Practices Summary
+
+### ✅ **Recommendations**
+
+1. **Use variables for all repetitive content**
+2. **Group variables logically**
+3. **Document the purpose of each variable**
+4. **Set default values when possible**
+5. **Validate YAML before processing**
+6. **Version templates and configurations**
+7. **Automate generation for repetitive cases**
+
+### ❌ **Avoid**
+
+1. **Hardcoding values that might change**
+2. **Variables with ambiguous names**
+3. **Overly complex frontmatter**
+4. **Mixing naming conventions**
+5. **Unused variables**
+6. **Sensitive values without protection**
+
+---
+
+## Additional Resources
+
+### Official Documentation
+- 📚 **Frontmatter Guide**: [docs.slidelang.com/frontmatter](https://docs.slidelang.com/frontmatter)
+- 🔧 **Variables Reference**: [docs.slidelang.com/variables](https://docs.slidelang.com/variables)
+- 🎨 **Theme Configuration**: [docs.slidelang.com/themes](https://docs.slidelang.com/themes)
+
+### Templates and Examples
+- 📂 **Template Library**: [github.com/slidelang/templates](https://github.com/slidelang/templates)
+- 💼 **Business Templates**: [templates.slidelang.com/business](https://templates.slidelang.com/business)
+- 🔬 **Technical Templates**: [templates.slidelang.com/technical](https://templates.slidelang.com/technical)
+
+### Tools
+- 🛠️ **YAML Validator**: [yamlvalidator.com](https://yamlvalidator.com)
+- 🎯 **Variable Linter**: [github.com/slidelang/linter](https://github.com/slidelang/linter)
+- 📊 **Template Analytics**: [analytics.slidelang.com](https://analytics.slidelang.com)
+
+---
+
+## Conclusion
+
+Mastering **variables and frontmatter** is essential for creating professional, maintainable, and scalable presentations with SlideLang.
+
+### Expertise Level Achieved: {{difficulty_level}}
+
+✅ **You have learned to**:
+- Configure advanced frontmatter
+- Create dynamic, reusable variables
+- Handle multiple output formats
+- Implement scalable templates
+- Automate content generation
+- Debug and resolve common issues
+
+### Recommended Next Steps:
+1. **Practice**: Create your own templates with variables
+2. **Automation**: Implement CI/CD for your presentations
+3. **Collaboration**: Establish team standards for variables
+4. **Optimization**: Measure and improve template reuse
+
+*Total time invested: {{estimated_time}} | Examples completed: {{examples_count}} | Coverage: {{coverage_percentage}}*
+
+**Congratulations! You are now an expert in advanced SlideLang configuration.** 🎉

@@ -1,0 +1,51 @@
+name: release
+
+# Issue #43: pipeline de release firmado, disparado por tags `vX.Y.Z`.
+# goreleaser (.goreleaser.yaml en la raíz) compila slidelang/doclang
+# multiplataforma, genera checksums + SBOM por artefacto, y todo se firma
+# keyless (Sigstore/cosign vía OIDC de GitHub Actions — sin gestionar una
+# clave privada).
+
+on:
+  push:
+    tags:
+      # vX.Y.Z (+ opcional -prerelease/+build) — no un glob "v*" suelto: un
+      # tag no-semver que arranque con "v" (ej. "v-experimental",
+      # "vendor-snapshot-1") también matchearía "v*" y dispararía un
+      # `goreleaser release` real que aborta al no poder parsear la versión
+      # del tag — un run de release fallido y rojo por un tag no relacionado.
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write # crear el GitHub Release y subir sus assets
+  id-token: write # OIDC para la firma keyless de cosign
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # goreleaser genera el changelog desde el historial completo
+
+      # go-version-file apunta al piso más alto entre los 2 módulos que
+      # producen binarios (mismo valor hoy — ver CLAUDE.md); goreleaser
+      # cross-compila ambos igual, cada build usa su propio dir/go.mod.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: slidelang/go.mod
+
+      - name: "Instalar syft (para el bloque sboms de goreleaser)"
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Instalar cosign (firma keyless)
+        uses: sigstore/cosign-installer@v3
+
+      - name: goreleaser release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

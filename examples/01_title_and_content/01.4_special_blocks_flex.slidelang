@@ -1,0 +1,355 @@
+---
+mode: flex
+title: "Special Blocks and Advanced Elements"
+author: "Technical Writing Team"
+theme: "documentation"
+variables:
+  version: "v3.2"
+  release_date: "March 2025"
+  support_email: "support@techflow.com"
+---
+
+---
+layout: title
+---
+
+# Technical Documentation
+## Special Blocks and Advanced Elements {{version}}
+
+![Documentation](assets/docs-icon.png)
+
+**Complete Guide to Special Elements**
+*Updated: {{release_date}}*
+
+---
+layout: section
+---
+
+# Information Blocks
+## Highlighting important content
+
+We use different types of blocks to organize and highlight critical information in our documentation.
+
+---
+layout: content
+---
+
+# Alert and Notification Types
+
+::: info
+💡 **Important Information**
+This is an info block that highlights relevant data. Ideal for additional explanations or important context the user should know.
+:::
+
+::: warning
+⚠️ **Warning**
+Be careful with this point. Warnings indicate situations that could cause problems if not handled correctly.
+:::
+
+::: danger
+🚨 **Danger - Critical Action**
+This is a critical action that could result in data loss or system failures. Proceed with extreme caution.
+:::
+
+::: success
+✅ **Successful Operation**
+Excellent! This action completed successfully. This type of block confirms that everything worked as expected.
+:::
+
+::: tip
+💡 **Pro Tip**
+A useful trick to improve your workflow. Tips provide advice and best practices to optimize system usage.
+:::
+
+---
+layout: content
+---
+
+# Collapsible Sections
+
+::: details Advanced Server Configuration
+### Configuration Parameters
+
+**Required Environment Variables:**
+```bash
+DATABASE_URL=postgresql://user:pass@localhost:5432/db
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=your-secret-key-here
+API_PORT=3000
+```
+
+**Nginx Configuration:**
+```nginx
+server {
+    listen 80;
+    server_name example.com;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+This content will be hidden initially and can be expanded by clicking.
+:::
+
+::: details Common Troubleshooting
+### Frequent Issues and Solutions
+
+**Database Connection Error:**
+1. Check that PostgreSQL is running
+2. Confirm credentials in environment variables
+3. Check firewall configuration
+
+**API 500 Error:**
+1. Check server logs: `tail -f /var/log/app.log`
+2. Check available disk space
+3. Restart services if necessary
+:::
+
+---
+layout: content
+---
+
+# Multi-Language Code Groups
+
+::: code-group
+
+```javascript [JavaScript]
+// JavaScript implementation
+const config = {
+  apiUrl: 'https://api.example.com',
+  timeout: 5000,
+  retries: 3
+};
+
+async function fetchData(endpoint) {
+  try {
+    const response = await fetch(`${config.apiUrl}/${endpoint}`);
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching data:', error);
+    throw error;
+  }
+}
+```
+
+```python [Python]
+# Python implementation
+import requests
+from typing import Dict, Any
+
+CONFIG = {
+    'api_url': 'https://api.example.com',
+    'timeout': 5,
+    'retries': 3
+}
+
+async def fetch_data(endpoint: str) -> Dict[str, Any]:
+    try:
+        url = f"{CONFIG['api_url']}/{endpoint}"
+        response = requests.get(url, timeout=CONFIG['timeout'])
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as error:
+        print(f"Error fetching data: {error}")
+        raise
+```
+
+```go [Go]
+// Go implementation
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "time"
+)
+
+type Config struct {
+    APIUrl  string
+    Timeout time.Duration
+    Retries int
+}
+
+func fetchData(endpoint string, config Config) (map[string]interface{}, error) {
+    client := &http.Client{Timeout: config.Timeout}
+    url := fmt.Sprintf("%s/%s", config.APIUrl, endpoint)
+
+    resp, err := client.Get(url)
+    if err != nil {
+        return nil, fmt.Errorf("error fetching data: %w", err)
+    }
+    defer resp.Body.Close()
+
+    var result map[string]interface{}
+    err = json.NewDecoder(resp.Body).Decode(&result)
+    return result, err
+}
+```
+
+:::
+
+---
+layout: content
+---
+
+# Advanced Diagrams with Mermaid
+
+## System Flow Diagram
+
+```mermaid
+graph TD
+    A[User] --> B{Authenticated?}
+    B -->|Yes| C[Main Dashboard]
+    B -->|No| D[Login Page]
+    D --> E[Validate Credentials]
+    E -->|Valid| C
+    E -->|Invalid| F[Show Error]
+    F --> D
+    C --> G[Select Action]
+    G --> H[Create Project]
+    G --> I[View Reports]
+    G --> J[Settings]
+    H --> K[Project Form]
+    K --> L[Save to DB]
+    L --> C
+```
+
+## Sequence Diagram - API Authentication
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant A as Auth Service
+    participant D as Database
+    participant R as Resource Server
+
+    U->>F: Login Request
+    F->>A: POST /auth/login
+    A->>D: Validate Credentials
+    D-->>A: User Data
+    A->>A: Generate JWT
+    A-->>F: JWT Token
+    F->>F: Store Token
+    F-->>U: Login Success
+
+    Note over U,R: Accessing Protected Resource
+
+    U->>F: Request Data
+    F->>R: GET /api/data (with JWT)
+    R->>A: Validate Token
+    A-->>R: Token Valid
+    R->>D: Query Data
+    D-->>R: Data Results
+    R-->>F: Protected Data
+    F-->>U: Display Data
+```
+
+---
+layout: content
+---
+
+# Architecture Diagrams
+
+## System Architecture
+
+```mermaid
+C4Context
+    title Project Management System
+
+    Person(user, "End User", "Manages projects and tasks")
+    Person(admin, "Administrator", "Configures system and users")
+
+    System(webapp, "Web Application", "React SPA for project management")
+    System(api, "Backend API", "REST API in Node.js")
+    System(db, "Database", "PostgreSQL for persistence")
+    System(cache, "Cache", "Redis for optimization")
+
+    System_Ext(email, "Email Service", "SendGrid for notifications")
+    System_Ext(storage, "Storage", "AWS S3 for files")
+
+    Rel(user, webapp, "Uses", "HTTPS")
+    Rel(admin, webapp, "Administers", "HTTPS")
+    Rel(webapp, api, "Consumes", "REST API")
+    Rel(api, db, "Reads/Writes", "SQL")
+    Rel(api, cache, "Cache", "Redis Protocol")
+    Rel(api, email, "Sends notifications", "API")
+    Rel(api, storage, "Stores files", "S3 API")
+```
+
+---
+layout: content
+---
+
+# Interactive Elements and Forms
+
+::: info
+📋 **Feedback Form**
+These elements would be interactive in a real presentation, allowing you to collect audience input in real time.
+:::
+
+## Satisfaction Survey
+
+**How useful do you find this documentation?**
+- [ ] Very useful - Answers all my questions
+- [ ] Useful - Covers most cases
+- [ ] Somewhat useful - Missing some details
+- [ ] Not very useful - Needs more examples
+- [ ] Not useful - Needs a full rewrite
+
+**Which section was most valuable to you?**
+- [ ] Information and alert blocks
+- [ ] Multi-language code groups
+- [ ] Mermaid diagrams
+- [ ] Interactive elements
+- [ ] Collapsible sections
+
+---
+layout: content
+---
+
+# Navigation Elements and References
+
+## Important Links and References
+
+### Official Documentation
+1. **API Reference**: [api.techflow.com/{{version}}/docs](https://api.techflow.com/v3.2/docs)
+2. **SDK Downloads**: [github.com/techflow/sdk](https://github.com/techflow/sdk)
+3. **Community Forum**: [community.techflow.com](https://community.techflow.com)
+
+### Development Resources
+- **Code Examples**: [examples.techflow.com](https://examples.techflow.com)
+- **Starter Templates**: [templates.techflow.com](https://templates.techflow.com)
+- **Video Tutorials**: [learn.techflow.com/videos](https://learn.techflow.com/videos)
+
+### Technical Support
+- **Email**: {{support_email}}
+- **Slack Community**: #techflow-developers
+- **Stack Overflow**: Tag `techflow`
+
+---
+layout: quote
+---
+
+> "Clear documentation with visual examples reduces integration time by 70%. Special blocks and diagrams make complex concepts accessible."
+>
+> **— Dr. Elena Rodriguez, Developer Experience Research**
+
+---
+layout: end
+---
+
+# Documentation Complete!
+## All special elements covered
+
+- **Info blocks** to highlight content
+- **Collapsible sections** to organize information
+- **Code groups** across multiple languages
+- **Advanced diagrams** with Mermaid
+
+**Have questions?** Contact: {{support_email}}

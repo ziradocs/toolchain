@@ -1,0 +1,59 @@
+---
+mode: flex
+title: "Final Test Headers/Footers"
+author: "Test User"
+date: "27 Dec 2024"
+theme: "default"
+variables:
+  company: "Test Corp"
+
+# Basic global configuration
+header:
+  enabled: true
+  text:
+    left: "Test Corp"
+    right: "{{date}}"
+
+footer:
+  enabled: true
+  page_numbers:
+    enabled: true
+    format: "{{current}}/{{total}}"
+    position: "right"
+  text:
+    left: "Confidential"
+---
+
+# Headers and Footers Test
+## Complete system verification
+
+This is the title slide - it should have a header and footer according to the global configuration.
+
+---
+
+# Normal Slide 1
+
+This slide has normal configuration:
+- Header with global text
+- Footer with page numbers
+- Everything according to global configuration
+
+---
+
+# Normal Slide 2
+
+::: info
+**Tested features:**
+- ✅ Variables in headers (`{{date}}`)
+- ✅ Page numbers with custom format
+- ✅ Static text in footers
+- ✅ CSS borders and styles
+:::
+
+---
+
+# Last Slide
+
+*This is the last slide of the presentation*
+
+Everything working correctly.

@@ -1,0 +1,552 @@
+---
+mode: flex
+title: "Client Discovery Workshop"
+author: "Strategic Consulting Team"
+date: "2025-01-15"
+output:
+  format: [html, pdf]
+  path: "./consulting-materials"
+variables:
+  client_name: "TechnoVision Corp"
+  workshop_duration: "4 hours"
+  facilitators: "2"
+  participants: "12"
+  industry: "Financial Technology"
+  current_revenue: "$45M"
+  employee_count: "280"
+  growth_target: "150%"
+  timeline: "18 months"
+---
+
+# Client Discovery Workshop
+## Understanding {{client_name}}'s Strategic Challenges and Opportunities
+
+**Strategic Consulting Team**  
+**Duration:** {{workshop_duration}} | **Participants:** {{participants}}
+
+*Building the foundation for transformational success*
+
+@notes:
+- Interactive workshop format with structured discovery
+- Focus on understanding current state and desired future
+- Duration: 4 hours with strategic breaks
+- Mix of presentations, exercises, and collaborative sessions
+
+---
+
+# Workshop Objectives and Agenda
+
+**What we'll accomplish together today**
+
+::: success
+**Primary Objectives:**
+- **Current State Assessment** - Where are you today?
+- **Future Vision Alignment** - Where do you want to be?
+- **Challenge Identification** - What's blocking progress?
+- **Opportunity Mapping** - What possibilities exist?
+- **Success Metrics Definition** - How will we measure progress?
+:::
+
+**Agenda Overview:** Discovery → Analysis → Visioning → Planning
+
+@notes:
+- Clear objectives set expectations
+- Interactive format keeps engagement high
+- Balance between listening and guiding
+- Document everything for follow-up analysis
+
+---
+
+# Introduction Round: Who's in the Room
+
+**Let's understand the stakeholder landscape**
+
+**Introductions (15 minutes):**
+- Name and role in organization
+- Primary responsibilities and challenges
+- What success looks like to you personally
+- One word describing current business state
+
+::: info
+**Key Stakeholders Present:**
+- **Executive Leadership** (CEO, COO, CFO)
+- **Department Heads** (Operations, Technology, Sales)
+- **Strategic Influencers** (Board members, key advisors)
+:::
+
+@notes:
+- Introductions reveal power dynamics
+- Personal success metrics show motivations
+- One-word exercise reveals collective sentiment
+- Note alignment and divergence in perspectives
+
+---
+
+# Current Business Landscape Assessment
+
+**Understanding your starting point**
+
+<<chart: radar>>
+  data: [
+    [7, 6, 8, 5, 7, 6, 4]
+  ]
+  labels: ["Market Position", "Operational Efficiency", "Technology Stack", "Team Capabilities", "Financial Health", "Customer Satisfaction", "Innovation Capacity"]
+  series: ["Current Performance (1-10)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Current Business Performance Assessment"
+    scales:
+      r:
+        beginAtZero: true
+        max: 10
+
+**Exercise: Rate your organization's current performance (1-10 scale)**
+
+@notes:
+- Interactive assessment reveals self-perception
+- Radar chart shows comprehensive view
+- Look for gaps between stakeholder ratings
+- Innovation and capabilities often lowest scores
+
+---
+
+# Business Model Canvas Review
+
+**Mapping your current business architecture**
+
+| Component | Current State | Satisfaction (1-10) | Priority for Change |
+|-----------|---------------|---------------------|-------------------|
+| **Value Propositions** | Core financial services | 7 | Medium |
+| **Customer Segments** | Mid-market businesses | 8 | Low |
+| **Revenue Streams** | Subscription + transactions | 6 | High |
+| **Key Partnerships** | Regional banks | 5 | High |
+| **Key Resources** | Technology platform | 4 | High |
+| **Key Activities** | Software development | 6 | Medium |
+| **Cost Structure** | 60% technology, 30% personnel | 5 | High |
+
+**Interactive Exercise:** Validate and refine each component
+
+@notes:
+- Business model canvas provides structure
+- Satisfaction scores reveal pain points
+- Priority ratings guide transformation focus
+- Technology and partnerships need attention
+
+---
+
+# Competitive Positioning Analysis
+
+**Where do you stand in the marketplace?**
+
+::: warning
+**Competitive Challenges Identified:**
+- **Emerging fintechs** with better user experience
+- **Traditional banks** with deeper pockets
+- **Technology giants** entering financial services
+- **Regulatory changes** favoring larger players
+- **Customer expectations** rising rapidly
+:::
+
+**Exercise: Who are your top 3 competitors and what advantages do they have?**
+
+@notes:
+- Competitive pressure drives urgency
+- Multiple threat vectors create complexity
+- Customer expectations key differentiator
+- Regulatory landscape shapes strategy options
+
+---
+
+# Financial Performance Deep Dive
+
+**Understanding the numbers behind the business**
+
+<<chart: combo>>
+  data:
+    labels: ["2022", "2023", "2024", "2025 Target", "2026 Target"]
+    series:
+      - name: "Revenue ($M)"
+        type: "bar"
+        values: [28, 35, 45, 65, 95]
+      - name: "Profit Margin (%)"
+        type: "line"
+        values: [12, 15, 18, 22, 25]
+        yAxisID: "y1"
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Financial Performance and Targets"
+
+**Current: {{current_revenue}} revenue | Target: {{growth_target}} growth in {{timeline}}**
+
+@notes:
+- Financial context drives all decisions
+- Growth targets are aggressive but achievable
+- Profit margin improvement essential
+- Timeline creates urgency for transformation
+
+---
+
+# Organizational Capabilities Assessment
+
+**Evaluating your team and operational readiness**
+
+| Capability Area | Current Strength | Future Needs | Gap Analysis |
+|-----------------|------------------|--------------|--------------|
+| **Leadership** | Strong vision | Change management | Medium gap |
+| **Technology** | Solid foundation | Modern architecture | Large gap |
+| **Operations** | Efficient processes | Scalable systems | Medium gap |
+| **Sales & Marketing** | Established channels | Digital transformation | Large gap |
+| **Finance** | Good controls | Advanced analytics | Medium gap |
+| **Human Resources** | Stable team | Growth-oriented culture | Large gap |
+
+**Exercise: Where are your biggest capability gaps?**
+
+@notes:
+- Capability assessment reveals transformation needs
+- Technology and marketing gaps most common
+- HR culture change often underestimated
+- Leadership change management crucial
+
+---
+
+# Customer Experience Journey Mapping
+
+**Understanding your customers' perspective**
+
+<<mermaid>>
+  flowchart LR
+      A[Awareness] --> B[Consideration]
+      B --> C[Trial/Demo]
+      C --> D[Purchase]
+      D --> E[Onboarding]
+      E --> F[Usage]
+      F --> G[Support]
+      G --> H[Renewal/Expansion]
+      
+      I[Pain Points] --> J[Complex onboarding]
+      I --> K[Limited self-service]
+      I --> L[Slow support response]
+      
+      style I fill:#f44336,color:#fff
+      style J fill:#ff9800,color:#fff
+      style K fill:#ff9800,color:#fff
+      style L fill:#ff9800,color:#fff
+
+**Exercise: Map your customer's emotional journey through each stage**
+
+@notes:
+- Customer journey reveals experience gaps
+- Onboarding often biggest pain point
+- Self-service expectations increasing
+- Support quality affects retention
+
+---
+
+# Technology Architecture Current State
+
+**Assessing your technology foundation**
+
+::: danger
+**Technology Challenges:**
+- **Legacy systems** slowing innovation (70% of IT budget)
+- **Integration complexity** between 15+ systems
+- **Security vulnerabilities** in aging infrastructure
+- **Scalability limitations** affecting peak performance
+- **Developer productivity** hampered by technical debt
+:::
+
+**Exercise: What technology decisions are you avoiding due to complexity?**
+
+@notes:
+- Technology debt common in growing companies
+- Integration complexity grows exponentially
+- Security becomes critical with growth
+- Developer productivity affects all initiatives
+
+---
+
+# Strategic Vision Workshop
+
+**Defining your desired future state**
+
+**Vision Exercise (45 minutes):**
+1. **Individual visioning** (10 min) - Silent brainstorming
+2. **Small group synthesis** (15 min) - Combine perspectives
+3. **Large group alignment** (20 min) - Create unified vision
+
+::: info
+**Guiding Questions:**
+- What does {{client_name}} look like in 3 years?
+- How do customers describe their experience?
+- What capabilities make you unique?
+- What metrics define success?
+:::
+
+@notes:
+- Structured process ensures participation
+- Silent brainstorming prevents groupthink
+- Small groups build consensus
+- Vision must be specific and measurable
+
+---
+
+# Stakeholder Impact Analysis
+
+**Understanding who will be affected by change**
+
+| Stakeholder Group | Current Satisfaction | Change Impact | Influence Level | Support Strategy |
+|-------------------|---------------------|---------------|-----------------|------------------|
+| **Executive Team** | High | High | High | Deep involvement |
+| **Department Heads** | Medium | High | Medium | Change champions |
+| **Employees** | Medium | Medium | Low | Communication & training |
+| **Customers** | High | Medium | High | Value demonstration |
+| **Partners** | Low | High | Medium | Relationship management |
+| **Investors** | High | Low | High | Regular updates |
+
+**Exercise: Who are your change champions and skeptics?**
+
+@notes:
+- Stakeholder analysis guides change strategy
+- Identify champions early in process
+- Address skeptics with targeted approach
+- Customer impact must be carefully managed
+
+---
+
+# Priority Challenge Identification
+
+**What's keeping you awake at night?**
+
+**Dot Voting Exercise:** Each participant gets 5 dots to vote on priority challenges
+
+| Challenge | Votes | Impact (1-10) | Urgency (1-10) | Current Effort |
+|-----------|-------|---------------|----------------|----------------|
+| **Technology modernization** | ⬤⬤⬤⬤⬤ | 9 | 8 | Low |
+| **Market differentiation** | ⬤⬤⬤⬤ | 8 | 9 | Medium |
+| **Operational efficiency** | ⬤⬤⬤ | 7 | 6 | High |
+| **Team scalability** | ⬤⬤⬤⬤ | 8 | 7 | Low |
+| **Customer experience** | ⬤⬤⬤⬤⬤ | 9 | 8 | Medium |
+
+**Clear consensus: Technology and customer experience are top priorities**
+
+@notes:
+- Dot voting reveals collective priorities
+- Impact vs urgency matrix guides timing
+- Current effort shows resource allocation gaps
+- Consensus building important for buy-in
+
+---
+
+# Opportunity Identification Workshop
+
+**What possibilities exist for transformation?**
+
+::: success
+**Opportunity Categories:**
+- **Revenue Growth** - New markets, products, channels
+- **Operational Excellence** - Efficiency, automation, quality
+- **Customer Experience** - Digital transformation, personalization
+- **Innovation** - New business models, technology adoption
+- **Partnerships** - Strategic alliances, ecosystem development
+:::
+
+**Exercise: Generate 3 opportunities in each category (20 minutes)**
+
+@notes:
+- Structure brainstorming for comprehensive coverage
+- Time-boxed sessions maintain energy
+- Quantity before quality in ideation
+- Build on others' ideas encouraged
+
+---
+
+# Risk Assessment and Mitigation
+
+**What could derail your transformation?**
+
+| Risk Category | Probability | Impact | Current Controls | Additional Mitigation |
+|---------------|-------------|--------|------------------|----------------------|
+| **Technology Failure** | Medium | High | Basic monitoring | Comprehensive testing |
+| **Market Disruption** | High | High | Market research | Scenario planning |
+| **Talent Loss** | Medium | Medium | Competitive comp | Retention programs |
+| **Regulatory Changes** | Low | High | Legal counsel | Compliance automation |
+| **Financial Constraints** | Low | High | Financial planning | Alternative funding |
+
+**Exercise: What risks are you not adequately addressing?**
+
+@notes:
+- Risk assessment prevents blind spots
+- Probability vs impact guides focus
+- Current controls often insufficient
+- Mitigation strategies need specificity
+
+---
+
+# Success Metrics Definition
+
+**How will we measure transformation success?**
+
+<<chart: doughnut>>
+  data: [30, 25, 20, 15, 10]
+  labels: ["Financial Performance", "Customer Satisfaction", "Operational Efficiency", "Employee Engagement", "Market Position"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Success Metrics Weighting"
+      datalabels:
+        display: true
+        formatter: function(value) { return value + '%'; }
+
+**Exercise: Define specific KPIs for each category**
+
+@notes:
+- Balanced scorecard approach comprehensive
+- Weighting shows relative importance
+- Specific KPIs enable progress tracking
+- Leading and lagging indicators both needed
+
+---
+
+# Resource Requirements Assessment
+
+**What will it take to achieve your vision?**
+
+::: info
+**Resource Categories:**
+- **Financial Investment** - Technology, consulting, training
+- **Human Capital** - New hires, skill development, leadership
+- **Time Commitment** - Project timelines, change adoption
+- **Technology Infrastructure** - Platforms, tools, security
+- **External Partners** - Consultants, vendors, specialists
+:::
+
+**Exercise: Estimate resource needs for top 3 priorities**
+
+@notes:
+- Resource planning prevents underestimation
+- Multiple resource types need consideration
+- Time commitment often underestimated
+- External partners accelerate progress
+
+---
+
+# Change Readiness Assessment
+
+**Is your organization ready for transformation?**
+
+| Change Factor | Current Score (1-10) | Required Score | Action Needed |
+|---------------|---------------------|----------------|---------------|
+| **Leadership Commitment** | 8 | 9 | Executive alignment |
+| **Culture Adaptability** | 6 | 8 | Change management |
+| **Communication Systems** | 5 | 8 | Platform upgrade |
+| **Training Capability** | 4 | 7 | Learning programs |
+| **Resource Availability** | 7 | 8 | Budget allocation |
+| **Technology Readiness** | 4 | 8 | Infrastructure upgrade |
+
+**Gap analysis reveals change preparation needs**
+
+@notes:
+- Change readiness predicts success probability
+- Gaps must be addressed before transformation
+- Culture and communication often overlooked
+- Technology readiness foundation for all change
+
+---
+
+# Initial Recommendation Framework
+
+**Preliminary thoughts on your transformation path**
+
+::: success
+**Recommended Focus Areas:**
+1. **Technology Foundation** - Modernize core systems first
+2. **Customer Experience** - Digital transformation priority
+3. **Operational Excellence** - Process automation and efficiency
+4. **Team Development** - Skills and culture evolution
+5. **Market Positioning** - Differentiation strategy
+:::
+
+**Next Steps:** Detailed analysis and comprehensive strategy development
+
+@notes:
+- Framework provides structure for recommendations
+- Technology foundation enables everything else
+- Customer experience drives revenue growth
+- Team development ensures sustainability
+
+---
+
+# Workshop Synthesis and Key Insights
+
+**What we learned about {{client_name}} today**
+
+**Current State Summary:**
+- Strong market position with growth opportunities
+- Technology debt limiting innovation capacity
+- Customer experience gaps affecting differentiation
+- Team capabilities need development for scale
+- Financial performance supports investment
+
+**Transformation Priorities:**
+1. Technology modernization (highest urgency)
+2. Customer experience enhancement
+3. Operational efficiency improvement
+
+@notes:
+- Synthesis consolidates workshop findings
+- Current state provides baseline
+- Priorities guide next phase planning
+- Financial strength enables investment
+
+---
+
+# Immediate Action Items
+
+**What happens next?**
+
+| Action Item | Owner | Timeline | Deliverable |
+|-------------|-------|----------|-------------|
+| **Detailed assessment** | Consulting team | 2 weeks | Current state analysis |
+| **Technology audit** | CTO + consultants | 3 weeks | Technical roadmap |
+| **Market research** | Marketing + consultants | 2 weeks | Competitive analysis |
+| **Financial modeling** | CFO + consultants | 2 weeks | Investment scenarios |
+| **Stakeholder interviews** | HR + consultants | 1 week | Change readiness report |
+
+**Next milestone: Strategy presentation in 4 weeks**
+
+@notes:
+- Clear action items maintain momentum
+- Specific owners ensure accountability
+- Timelines create urgency
+- Deliverables provide tangible progress
+
+---
+
+# Questions and Next Steps
+
+**Continuing our partnership journey**
+
+::: info
+**Immediate Next Steps:**
+- **Follow-up interviews** with key stakeholders
+- **Detailed assessment** of current systems and processes
+- **Market analysis** and competitive benchmarking
+- **Financial modeling** for transformation scenarios
+- **Strategy development** based on workshop insights
+:::
+
+**Questions about the workshop findings or next phase?**
+
+@notes:
+- Partnership language builds relationship
+- Multiple workstreams run in parallel
+- Strategy development integrates all findings
+- Open discussion reinforces collaboration

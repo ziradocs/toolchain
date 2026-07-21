@@ -1,0 +1,50 @@
+---
+title: "Test Chart JSON Comment Cleaning"
+mode: flex
+---
+
+# Chart JSON Comment Cleaning Test
+
+## Situación actual del canal digital
+
+::: info
+El canal online representa actualmente el **32% de las ventas totales**. Sin embargo, el crecimiento anual se ha desacelerado.
+:::
+
+<<chart: bar>>
+{
+  "title": "Ventas Online 2021-2024 (millones MXN)", // Título principal
+  "x": ["2021", "2022", "2023", "2024*"],
+  "y": [
+    [10, 13, 16, 17] // Datos históricos
+  ],
+  "series": ["Ventas Online"] /* Serie principal */
+}
+
+- Crecimiento anual promedio (2021-2023): **17%**
+- Meta 2025: **+40% de ventas online**
+
+---
+
+## Beneficios esperados
+
+<<chart: line>>
+{
+  "title": "Proyección de ventas online con nueva estrategia",
+  "x": ["2024", "2025"],
+  "y": [
+    [17, 24], // Proyección de crecimiento
+  ],
+  "series": ["Proyección ventas",], // Serie con coma final
+  "options": {
+    "responsive": true, /* Responsive design */
+    "plugins": {
+      "legend": {
+        "position": "top" // Posición del legend
+      }
+    }
+  }
+}
+
+- **+40% en ventas online** (de 17M a 24M MXN)
+- **+2 puntos en tasa de conversión** (de 1.8% a 3.8%)

@@ -1,0 +1,115 @@
+---
+mode: flex
+title: "Advanced Elements Examples"
+author: "SlideLang Documentation"
+---
+
+## Diagrama de Flujo
+
+<<mermaid>>
+  graph TD
+      A[Inicio] --> B{¿Decisión?}
+      B -->|Sí| C[Hacer algo]
+      B -->|No| D[Hacer otra cosa]
+      C --> E[Fin]
+      D --> E
+
+---
+
+## Sequence Diagram
+
+<<mermaid>>
+  sequenceDiagram
+      participant U as User
+      participant S as Server
+      participant DB as Database
+      
+      U->>S: Request
+      S->>DB: Query
+      DB-->>S: Results
+      S-->>U: Response
+
+---
+
+## Sales Performance
+
+<<chart: bar>>
+  data: [
+    ["Q1", 45, 32, 28],
+    ["Q2", 52, 38, 35],
+    ["Q3", 61, 45, 42],
+    ["Q4", 73, 51, 48]
+  ]
+  series: ["Product A", "Product B", "Product C"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Quarterly Sales by Product"
+
+---
+
+## Combined Chart Example
+
+<<chart: combo>>
+  type: ["bar", "bar", "line"]
+  data: [
+    ["Jan", 65, 28, 45],
+    ["Feb", 59, 48, 52],
+    ["Mar", 80, 40, 61],
+    ["Apr", 81, 19, 73]
+  ]
+  series: ["Desktop", "Mobile", "Total"]
+  options:
+    responsive: true
+    plugins:
+      legend:
+        position: top
+      title:
+        display: true
+        text: "Traffic by Device"
+
+---
+
+## Global Presence
+
+<<map>>
+  type: world
+  markers:
+    - lat: 40.7128
+      lng: -74.0060
+      label: "New York"
+      value: 45
+    - lat: 51.5074
+      lng: -0.1278
+      label: "London"
+      value: 38
+    - lat: 35.6762
+      lng: 139.6503
+      label: "Tokyo"
+      value: 52
+  heatmap: true
+  zoom: 2
+
+---
+
+## Regional Office Locations
+
+<<map>>
+  type: region
+  center: [39.8283, -98.5795]
+  markers:
+    - lat: 37.7749
+      lng: -122.4194
+      label: "San Francisco"
+      color: "blue"
+    - lat: 41.8781
+      lng: -87.6298
+      label: "Chicago"
+      color: "red"
+    - lat: 25.7617
+      lng: -80.1918
+      label: "Miami"
+      color: "green"
+  zoom: 4

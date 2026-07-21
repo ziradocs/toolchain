@@ -1,0 +1,45 @@
+---
+mode: strict
+title: "ZiraDocs Strict Mode Tour"
+author: "ZiraDocs Team"
+theme: "modern-blue"
+---
+
+SLIDE title
+  heading: "ZiraDocs Strict Mode"
+  subtitle: "Explicit structure, predictable output"
+
+SLIDE content
+  title: "Why Strict Mode?"
+  TEXT
+    Strict mode trades flexibility for guarantees: every slide type and
+    field is declared explicitly with SLIDE blocks — no heuristics.
+  POINTS
+    - Every slide starts with SLIDE <layout>
+    - No ambiguity between headings and content
+    - Ideal for generated content and CI-checked decks
+
+SLIDE content
+  title: "A Simple Checklist"
+  TEXT
+    Launch readiness for this quarter's release:
+  POINTS
+    - [x] Define the deck structure
+    - [x] Fill in real content
+    - [ ] Review with the team
+    - [ ] Ship to the gallery
+
+SLIDE content
+  title: "Comparing the Three Modes"
+  TEXT
+    Each mode targets a different authoring style.
+  | Mode | Input style | Best for |
+  |------|-------------|----------|
+  | strict | SLIDE blocks | Generated / CI-checked decks |
+  | flex | Markdown-like | Hand-authored decks |
+  | flex-full | Loose Markdown | AI-generated drafts |
+
+SLIDE closing
+  title: "Thanks for Reading"
+  TEXT
+    See the flex-mode examples next in this gallery.

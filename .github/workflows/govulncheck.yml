@@ -1,0 +1,65 @@
+name: govulncheck
+
+# Escaneo de vulnerabilidades conocidas en las dependencias de los 3 módulos.
+# Es la resolución elegida para el issue #35 (gopkg.in/yaml.v3 archivado,
+# sin mantenimiento futuro): la migración a goccy/go-yaml se intentó en el
+# PR #113 y se cerró sin mergear por regresiones de comportamiento reales
+# (resolución de booleanos YAML 1.1 "yes"/"no", tipado de fechas en
+# `variables:`, mensajes de error multi-línea) — así que en vez de forzar
+# otra migración, la yaml.v3 actual queda en watch-list: este workflow la
+# vigila junto con el resto de las dependencias, y solo si aparece una CVE
+# real se revisita el reemplazo (arreglando antes esas tres regresiones).
+# También cubre el lado-código de #33 (fork personal de docxgo, consumido
+# solo por doclang) — ver docs/developer/docxgo-fork.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/go.mod"
+      - "**/go.sum"
+      - ".github/workflows/govulncheck.yml"
+  schedule:
+    # Semanal — para detectar CVEs publicadas después del último cambio de
+    # dependencias, no solo en el momento en que go.mod/go.sum cambian.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go 1.26 compila el binario pineado de govulncheck. El paso de análisis
+      # aún lee el piso de cada go.mod y lo fuerza vía GOTOOLCHAIN, para que
+      # futuros cambios de versión no desincronicen el escaneo.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # Pin a un tag exacto (no @latest, ver #140): con @latest, el mismo
+      # commit puede pasar hoy y fallar mañana solo porque @latest resolvió
+      # una versión distinta, sin que el repo haya cambiado. `go install`
+      # ya pasa por GOSUMDB (no es un problema de supply-chain), esto es
+      # puramente reproducibilidad del gate.
+      - name: Instalar govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+
+      - name: Analizar los módulos con su piso real de Go
+        run: |
+          set -euo pipefail
+          for module in core slidelang doclang; do
+            version=$(awk '/^go / { print $2; exit }' "$module/go.mod")
+            echo "::group::$module (Go $version)"
+            (cd "$module" && GOTOOLCHAIN="go$version" govulncheck ./...)
+            echo "::endgroup::"
+          done

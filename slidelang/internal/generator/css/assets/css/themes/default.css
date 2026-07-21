@@ -1,0 +1,26 @@
+/* Default theme styles */
+.slidelang-slide.slidelang-title-slide {
+    background: var(--title-gradient, linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%));
+}
+
+.slidelang-slide.slidelang-section-slide {
+    background: var(--accent-gradient, linear-gradient(135deg, #06b6d4 0%, #0891b2 100%));
+}
+
+.slidelang-slide.slidelang-content-slide {
+    background: var(--bg-white);
+}
+
+.slidelang-slide.slidelang-end-slide,
+.slidelang-slide.slidelang-closing-slide {
+    background: var(--title-gradient, linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%));
+}
+
+/* Default theme element overrides */
+.slidelang-element.slidelang-code {
+    border-left-color: var(--primary-color, #2563eb);
+}
+
+.slidelang-element.slidelang-code .slidelang-language {
+    background: var(--primary-color, #2563eb);
+}

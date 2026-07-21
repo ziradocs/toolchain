@@ -1,0 +1,1395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://go.ziradocs.com/core/schema/ast.schema.json",
+  "$ref": "#/$defs/AST",
+  "$defs": {
+    "AST": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "presentation"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schemaVersion": {
+          "type": "string"
+        },
+        "frontMatter": {
+          "$ref": "#/$defs/FrontMatterNode"
+        },
+        "contentBlocks": {
+          "items": {
+            "$ref": "#/$defs/ContentBlock"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "schemaVersion",
+        "contentBlocks"
+      ]
+    },
+    "BorderConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "color": {
+          "type": "string"
+        },
+        "width": {
+          "type": "string"
+        },
+        "style": {
+          "type": "string"
+        },
+        "position": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "ChartElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "chart"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "chartType": {
+          "type": "string"
+        },
+        "seriesTypes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "data": {
+          "items": {
+            "items": true,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "series": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "options": {
+          "type": "object"
+        },
+        "title": {
+          "type": "string"
+        },
+        "titleHTML": {
+          "type": "string"
+        },
+        "rawJSON": {
+          "type": "object"
+        },
+        "isJSONMode": {
+          "type": "boolean"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "chartType",
+        "data"
+      ]
+    },
+    "ChecklistElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "checklist"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ChecklistItem"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "items"
+      ]
+    },
+    "ChecklistItem": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "checklist_item"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentHTML": {
+          "type": "string"
+        },
+        "checked": {
+          "type": "boolean"
+        },
+        "subItems": {
+          "items": {
+            "$ref": "#/$defs/ChecklistItem"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "content",
+        "checked"
+      ]
+    },
+    "CodeBlock": {
+      "properties": {
+        "language": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "labelHTML": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "language",
+        "label",
+        "content"
+      ]
+    },
+    "CodeElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "code"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "language": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "content"
+      ]
+    },
+    "CodeGroupElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "code_group"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "codeBlocks": {
+          "items": {
+            "$ref": "#/$defs/CodeBlock"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "codeBlocks"
+      ]
+    },
+    "ColumnElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "column"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentHTML": {
+          "type": "string"
+        },
+        "elements": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TextElement"
+              },
+              {
+                "$ref": "#/$defs/PointsElement"
+              },
+              {
+                "$ref": "#/$defs/CodeElement"
+              },
+              {
+                "$ref": "#/$defs/ImageElement"
+              },
+              {
+                "$ref": "#/$defs/TableElement"
+              },
+              {
+                "$ref": "#/$defs/SpecialBlockElement"
+              },
+              {
+                "$ref": "#/$defs/CodeGroupElement"
+              },
+              {
+                "$ref": "#/$defs/MermaidElement"
+              },
+              {
+                "$ref": "#/$defs/PlantUMLElement"
+              },
+              {
+                "$ref": "#/$defs/ChartElement"
+              },
+              {
+                "$ref": "#/$defs/MapElement"
+              },
+              {
+                "$ref": "#/$defs/QuoteElement"
+              },
+              {
+                "$ref": "#/$defs/ChecklistElement"
+              },
+              {
+                "$ref": "#/$defs/GridElement"
+              },
+              {
+                "$ref": "#/$defs/ColumnElement"
+              },
+              {
+                "$ref": "#/$defs/DirectiveNode"
+              },
+              {
+                "$ref": "#/$defs/MathElement"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "content"
+      ]
+    },
+    "ContentBlock": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "content_block"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blockType": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "titleHTML": {
+          "type": "string"
+        },
+        "heading": {
+          "type": "string"
+        },
+        "headingHTML": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "subtitleHTML": {
+          "type": "string"
+        },
+        "logo": {
+          "type": "string"
+        },
+        "elements": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TextElement"
+              },
+              {
+                "$ref": "#/$defs/PointsElement"
+              },
+              {
+                "$ref": "#/$defs/CodeElement"
+              },
+              {
+                "$ref": "#/$defs/ImageElement"
+              },
+              {
+                "$ref": "#/$defs/TableElement"
+              },
+              {
+                "$ref": "#/$defs/SpecialBlockElement"
+              },
+              {
+                "$ref": "#/$defs/CodeGroupElement"
+              },
+              {
+                "$ref": "#/$defs/MermaidElement"
+              },
+              {
+                "$ref": "#/$defs/PlantUMLElement"
+              },
+              {
+                "$ref": "#/$defs/ChartElement"
+              },
+              {
+                "$ref": "#/$defs/MapElement"
+              },
+              {
+                "$ref": "#/$defs/QuoteElement"
+              },
+              {
+                "$ref": "#/$defs/ChecklistElement"
+              },
+              {
+                "$ref": "#/$defs/GridElement"
+              },
+              {
+                "$ref": "#/$defs/ColumnElement"
+              },
+              {
+                "$ref": "#/$defs/DirectiveNode"
+              },
+              {
+                "$ref": "#/$defs/MathElement"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "header_footer_override": {
+          "$ref": "#/$defs/ContentBlockHeaderFooterOverride"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "elements"
+      ]
+    },
+    "ContentBlockHeaderFooterOverride": {
+      "properties": {
+        "header": {
+          "$ref": "#/$defs/HeaderConfig"
+        },
+        "footer": {
+          "$ref": "#/$defs/FooterConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DirectiveNode": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "directive"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "name"
+      ]
+    },
+    "FooterConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "height": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "text": {
+          "$ref": "#/$defs/HeaderFooterText"
+        },
+        "page_numbers": {
+          "$ref": "#/$defs/PageNumbersConfig"
+        },
+        "border": {
+          "$ref": "#/$defs/BorderConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "FrontMatterNode": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "frontmatter"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "theme": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "object"
+        },
+        "header_footer": {
+          "$ref": "#/$defs/HeaderFooterConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "mode"
+      ]
+    },
+    "GridElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "grid"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnElement"
+          },
+          "type": "array"
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "columns"
+      ]
+    },
+    "HeaderConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "height": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "text": {
+          "$ref": "#/$defs/HeaderFooterText"
+        },
+        "logo": {
+          "$ref": "#/$defs/LogoConfig"
+        },
+        "border": {
+          "$ref": "#/$defs/BorderConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "HeaderFooterConfig": {
+      "properties": {
+        "header": {
+          "$ref": "#/$defs/HeaderConfig"
+        },
+        "footer": {
+          "$ref": "#/$defs/FooterConfig"
+        },
+        "layout_defaults": {
+          "additionalProperties": {
+            "$ref": "#/$defs/LayoutHeaderFooterConfig"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HeaderFooterText": {
+      "properties": {
+        "left": {
+          "type": "string"
+        },
+        "center": {
+          "type": "string"
+        },
+        "right": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ImageElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "image"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "type": "string"
+        },
+        "alt": {
+          "type": "string"
+        },
+        "altHTML": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "captionHTML": {
+          "type": "string"
+        },
+        "context": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "number": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "source"
+      ]
+    },
+    "LayoutHeaderFooterConfig": {
+      "properties": {
+        "header": {
+          "$ref": "#/$defs/HeaderConfig"
+        },
+        "footer": {
+          "$ref": "#/$defs/FooterConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "LogoConfig": {
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "alt": {
+          "type": "string"
+        },
+        "height": {
+          "type": "string"
+        },
+        "position": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MapCoordinate": {
+      "properties": {
+        "lat": {
+          "type": "number"
+        },
+        "lng": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "lat",
+        "lng"
+      ]
+    },
+    "MapElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "map"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mapType": {
+          "type": "string"
+        },
+        "markers": {
+          "items": {
+            "$ref": "#/$defs/MapMarker"
+          },
+          "type": "array"
+        },
+        "heatmap": {
+          "type": "boolean"
+        },
+        "zoom": {
+          "type": "integer"
+        },
+        "center": {
+          "$ref": "#/$defs/MapCoordinate"
+        },
+        "title": {
+          "type": "string"
+        },
+        "titleHTML": {
+          "type": "string"
+        },
+        "options": {
+          "type": "object"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "mapType"
+      ]
+    },
+    "MapMarker": {
+      "properties": {
+        "lat": {
+          "type": "number"
+        },
+        "lng": {
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "color": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string"
+        },
+        "details": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "lat",
+        "lng",
+        "label"
+      ]
+    },
+    "MathElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "math"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "content": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "number": {
+          "type": "integer"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "captionHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "content"
+      ]
+    },
+    "MermaidElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "mermaid"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "diagramType": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "titleHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "diagramType",
+        "content"
+      ]
+    },
+    "PageNumbersConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        },
+        "position": {
+          "type": "string"
+        },
+        "exclude_title_slides": {
+          "type": "boolean"
+        },
+        "exclude_closing_slides": {
+          "type": "boolean"
+        },
+        "start_from": {
+          "type": "integer"
+        },
+        "style": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "PlantUMLElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "plantuml"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "diagramType": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "titleHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "diagramType",
+        "content"
+      ]
+    },
+    "PointItem": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "point_item"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentHTML": {
+          "type": "string"
+        },
+        "subPoints": {
+          "items": {
+            "$ref": "#/$defs/PointItem"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "content"
+      ]
+    },
+    "PointsElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "points"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PointItem"
+          },
+          "type": "array"
+        },
+        "listType": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "items",
+        "listType"
+      ]
+    },
+    "Position": {
+      "properties": {
+        "line": {
+          "type": "integer"
+        },
+        "column": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "line",
+        "column"
+      ]
+    },
+    "QuoteElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "quote"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentHTML": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "authorHTML": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "sourceHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "content"
+      ]
+    },
+    "SpecialBlockElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "special_block"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blockType": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "titleHTML": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentHTML": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "blockType",
+        "content"
+      ]
+    },
+    "TableElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "table"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headersHTML": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "rowsHTML": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "captionHTML": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "number": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "headers",
+        "rows"
+      ]
+    },
+    "TextElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "text"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "content": {
+          "type": "string"
+        },
+        "isRawHTML": {
+          "type": "boolean"
+        },
+        "contentHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "content"
+      ]
+    }
+  },
+  "title": "SlideLang/DocLang AST",
+  "description": "Contrato JSON/AST emitido por --format json. Ver docs/architecture/json-ast-contract.md. Política de compatibilidad: cambio breaking ⇒ major (ver ast.SchemaVersion)."
+}
