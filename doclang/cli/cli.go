@@ -38,6 +38,8 @@ func NewRootCommand(opts Options) *cobra.Command {
 
 	rootCmd.AddCommand(internalcli.NewBuildCommand(opts.CustomRules, opts.RulePacks, opts.ExternalRulepacks, opts.PolicyResolver, opts.PostLint))
 	rootCmd.AddCommand(internalcli.NewFmtCommand())
+	rootCmd.AddCommand(internalcli.NewInitCommand())
+	rootCmd.AddCommand(internalcli.NewMCPCommand())
 
 	return rootCmd
 }

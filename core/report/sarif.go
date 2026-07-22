@@ -45,7 +45,7 @@ type Location struct {
 
 type PhysicalLocation struct {
 	ArtifactLocation ArtifactLocation `json:"artifactLocation"`
-	Region           Region           `json:"region"`
+	Region           *Region          `json:"region,omitempty"`
 }
 
 type ArtifactLocation struct {
@@ -53,8 +53,8 @@ type ArtifactLocation struct {
 }
 
 type Region struct {
-	StartLine   int `json:"startLine"`
-	StartColumn int `json:"startColumn"`
+	StartLine   int `json:"startLine,omitempty"`
+	StartColumn int `json:"startColumn,omitempty"`
 }
 
 type Suppression struct {
@@ -103,6 +103,14 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 		ruleId = d.Code
 	}
 
+	var region *Region
+	if d.Position.Line > 0 {
+		region = &Region{
+			StartLine:   d.Position.Line,
+			StartColumn: d.Position.Column,
+		}
+	}
+
 	res := Result{
 		RuleId: ruleId,
 		Level:  level,
@@ -115,10 +123,7 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 					ArtifactLocation: ArtifactLocation{
 						Uri: docPath,
 					},
-					Region: Region{
-						StartLine:   d.Position.Line,
-						StartColumn: d.Position.Column,
-					},
+					Region: region,
 				},
 			},
 		},
@@ -126,7 +131,7 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 
 	if w != nil {
 		sup := Suppression{
-			Kind:   "inSource",
+			Kind:   "external",
 			Status: "accepted",
 		}
 		if w.Reason != "" {

@@ -86,7 +86,7 @@ Examples:
   doclang build report.doclang --toc --numbering`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			inputFile := args[0]
+			inputFile := filepath.ToSlash(filepath.Clean(args[0]))
 
 			// Validate input file
 			if !fileExists(inputFile) {
@@ -157,6 +157,9 @@ Examples:
 			if err := util.RunGuarded(util.DefaultParseTimeout, func() error {
 				docParser := parser.NewDocumentFlexParserWithNormalization(contentStr, log)
 				doc, diagnostics = docParser.Parse()
+				if doc != nil && doc.FilePath == "" {
+					doc.FilePath = inputFile
+				}
 				return nil
 			}); err != nil {
 				return err

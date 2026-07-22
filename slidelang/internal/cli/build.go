@@ -198,6 +198,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	if opts.InputFile == "" {
 		return fmt.Errorf("input file is required")
 	}
+	opts.InputFile = filepath.ToSlash(filepath.Clean(opts.InputFile))
 
 	// Load configuration file if available
 	cfg, err := config.LoadConfig("")

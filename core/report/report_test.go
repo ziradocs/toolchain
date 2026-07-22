@@ -132,8 +132,8 @@ func TestWriteReport_SARIF(t *testing.T) {
 		if supps, ok := resMap["suppressions"].([]interface{}); ok && len(supps) > 0 {
 			hasSuppression = true
 			supp := supps[0].(map[string]interface{})
-			if supp["kind"] != "inSource" || supp["justification"] != "legacy" {
-				t.Errorf("Expected suppression kind=inSource, justification=legacy, got %+v", supp)
+			if supp["kind"] != "external" || supp["justification"] != "legacy" {
+				t.Errorf("Expected suppression kind=external, justification=legacy, got %+v", supp)
 			}
 		}
 	}
