@@ -1,5 +1,8 @@
 # ZiraDocs / DocLang
 
+[![GitHub Release](https://img.shields.io/github/v/release/ziradocs/toolchain?style=flat-square&color=blue)](https://github.com/ziradocs/toolchain/releases)
+[![Go Reference](https://pkg.go.dev/badge/go.ziradocs.com/core.svg)](https://pkg.go.dev/go.ziradocs.com/core)
+
 Two sibling DSLs for generating **presentations** and **documents** from plain-text
 files, built on a shared Go library.
 
