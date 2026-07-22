@@ -12,8 +12,16 @@ import (
 	"go.ziradocs.com/core/diagnostics"
 )
 
+type externalManifest struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Prefix  string `json:"prefix"`
+}
+
 type externalReport struct {
-	Findings []externalFinding `json:"findings"`
+	ReportVersion string           `json:"reportVersion"`
+	Manifest      externalManifest `json:"manifest"`
+	Findings      []externalFinding `json:"findings"`
 }
 
 type externalFinding struct {
@@ -48,9 +56,20 @@ func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration)
 		return nil, fmt.Errorf("decoding rulepack output: %w", err)
 	}
 
+	if report.ReportVersion == "" {
+		return nil, fmt.Errorf("missing reportVersion in rulepack output")
+	}
+	if report.Manifest.Name == "" || report.Manifest.Version == "" || report.Manifest.Prefix == "" {
+		return nil, fmt.Errorf("incomplete manifest in rulepack output (name, version, and prefix are required)")
+	}
+
+	provenance := fmt.Sprintf("%s@%s", report.Manifest.Name, report.Manifest.Version)
+
 	diags := make([]diagnostics.Diagnostic, 0, len(report.Findings))
 	for _, f := range report.Findings {
-		diags = append(diags, f.Diagnostic)
+		d := f.Diagnostic
+		d.Source = provenance
+		diags = append(diags, d)
 	}
 
 	return diags, nil

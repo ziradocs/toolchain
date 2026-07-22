@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/santhosh-tekuri/jsonschema/v5"
 	"go.ziradocs.com/core/diagnostics"
 	"go.ziradocs.com/core/linter"
 )
@@ -30,7 +31,7 @@ func TestWriteReport_JSON(t *testing.T) {
 		},
 	}
 
-	err := WriteReport("json", outPath, active, waived, "test.md")
+	err := WriteReport("json", outPath, active, waived, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("WriteReport failed: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestWriteReport_SARIF(t *testing.T) {
 		},
 	}
 
-	err := WriteReport("sarif", outPath, active, waived, "test.md")
+	err := WriteReport("sarif", outPath, active, waived, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("WriteReport failed: %v", err)
 	}
@@ -144,8 +145,49 @@ func TestWriteReport_SARIF(t *testing.T) {
 }
 
 func TestWriteReport_UnknownFormat(t *testing.T) {
-	err := WriteReport("xml", "out.xml", []diagnostics.Diagnostic{}, nil, "test.md")
+	err := WriteReport("xml", "out.xml", []diagnostics.Diagnostic{}, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("Expected error for unknown format, got nil")
+	}
+}
+
+func TestWriteReport_SARIFSchemaValid(t *testing.T) {
+	active := []diagnostics.Diagnostic{
+		{
+			Code:     "TEST001",
+			Severity: diagnostics.Error,
+			Message:  "Test error",
+			Source:   "test-rule",
+			Position: diagnostics.Position{Line: 1, Column: 2},
+		},
+	}
+	waived := []linter.WaivedDiagnostic{}
+
+	outPath := filepath.Join(t.TempDir(), "report.sarif")
+	err := WriteReport("sarif", outPath, active, waived, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("WriteReport failed: %v", err)
+	}
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("Failed to read generated report: %v", err)
+	}
+
+	compiler := jsonschema.NewCompiler()
+	schemaPath := filepath.Join("testdata", "sarif-schema-2.1.0.json")
+	sch, err := compiler.Compile(schemaPath)
+	if err != nil {
+		// Schema no disponible (puede fallar si no se descargó, se ignora en tal caso o se skippea)
+		t.Skipf("Failed to compile SARIF schema (skipping validation): %v", err)
+	}
+
+	var v interface{}
+	if err := json.Unmarshal(content, &v); err != nil {
+		t.Fatalf("Invalid JSON in SARIF report: %v", err)
+	}
+
+	if err := sch.Validate(v); err != nil {
+		t.Errorf("SARIF output does not match schema: %v", err)
 	}
 }

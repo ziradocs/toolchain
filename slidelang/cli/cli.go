@@ -14,6 +14,7 @@ import (
 // Options holds configuration for the CLI entrypoint, allowing external
 // callers to inject custom behavior such as proprietary linting rules.
 type Options struct {
+	Name              string // Name of the CLI command (default: "slidelang")
 	Version           string
 	CustomRules       []linter.Rule
 	RulePacks         []linter.RulePack
@@ -29,8 +30,13 @@ func NewRootCommand(opts Options) *cobra.Command {
 		version = "dev"
 	}
 
+	name := opts.Name
+	if name == "" {
+		name = "slidelang"
+	}
+
 	rootCmd := &cobra.Command{
-		Use:   "slidelang",
+		Use:   name,
 		Short: "SlideLang CLI - Create presentations from DSL files",
 		Long: `SlideLang CLI allows you to create beautiful presentations
 from simple DSL files using either Strict or Flex syntax modes.
@@ -43,8 +49,7 @@ Examples:
   slidelang build presentation.slidelang
   slidelang build slides.slidelang --format html --output ./build
   slidelang build slides.slidelang --format html --embed-assets
-  slidelang build presentation.slidelang --log-level debug
-  slidelang build --help`,
+  slidelang fmt presentation.slidelang --write`,
 		Version: version,
 	}
 

@@ -135,7 +135,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.LintOnly, "lint-only", false, "Only run linter, don't generate output")
 	cmd.Flags().StringVar(&opts.LintConfig, "lint-config", "", "Path to a YAML linter policy file (enable/disable rules and override severity by diagnostic ID, e.g. IMG001). If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
 	cmd.Flags().StringVar(&opts.ReportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")
-	cmd.Flags().StringVar(&opts.ReportOut, "report-out", "", "Output path for the report (default: slidelang-report.json/sarif in current dir)")
+	cmd.Flags().StringVar(&opts.ReportOut, "report-out", "", "Output path for the report (default: stdout)")
 	cmd.Flags().StringArrayVar(&opts.Filters, "filter", nil, "Path to an external filter binary that transforms the AST between parse and lint (repeatable; runs in the order given, each filter's output feeds the next). Communicates via JSON on stdin/stdout — see docs/architecture/json-ast-contract.md")
 	cmd.Flags().StringVar(&opts.IncludeRoot, "include-root", "", "Directory @include paths are confined to (default: the input file's directory); absolute paths and '..' outside it are rejected")
 	cmd.Flags().StringVar(&opts.AssetRoot, "asset-root", "", "Directory local image sources are confined to for --format pptx (default: the input file's directory); absolute paths and '..' outside it are rejected")
@@ -489,13 +489,12 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 
 	if opts.ReportFormat != "" {
 		outPath := opts.ReportOut
-		if outPath == "" {
-			outPath = fmt.Sprintf("slidelang-report.%s", opts.ReportFormat)
-		}
-		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, opts.InputFile); err != nil {
+		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, astNode, content, externalRulepacks); err != nil {
 			return fmt.Errorf("failed to write report: %w", err)
 		}
-		util.Info("LINT", "Reporte de evidencia generado en '%s'", outPath)
+		if outPath != "" && outPath != "-" {
+			util.Info("LINT", "Reporte de evidencia generado en '%s'", outPath)
+		}
 	}
 
 	if postLint != nil {

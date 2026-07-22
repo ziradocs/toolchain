@@ -25,17 +25,14 @@
 //
 // Lo que este proyecto promete mantener y versionar según SemVer:
 //
-//  1. El framework de validación (paquetes linter, diagnostics, y report).
-//     Interfaces como linter.Rule y linter.RulePack se mantendrán estables.
-//
-//  2. El AST subyacente (paquete ast). El esquema serializado (json) se
-//     versiona de forma independiente bajo ast.SchemaVersion (ver
-//     @ziradocs/ast-types y docs/architecture/json-ast-contract.md).
-//
-//  3. La API de entrada a los CLIs (paquetes slidelang/cli y doclang/cli),
+//  1. La API de entrada a los CLIs (paquetes slidelang/cli y doclang/cli),
 //     en particular la estructura cli.Options que permite inyectar políticas,
 //     reglas custom, y ganchos PostLint.
 //
-// La estructura HTML generada y sus clases CSS NO son parte de este
-// contrato y pueden cambiar entre releases menores sin aviso.
+//  2. El esquema serializado (json) del AST se versiona de forma independiente
+//     bajo ast.SchemaVersion (ver @ziradocs/ast-types y docs/architecture/json-ast-contract.md).
+//
+// El resto de la API Go (core/ast, core/linter, etc.) NO tiene garantías SemVer
+// y puede cambiar en versiones menores. La estructura HTML generada y sus
+// clases CSS tampoco son parte de este contrato estable.
 package core

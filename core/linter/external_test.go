@@ -19,12 +19,17 @@ func TestExternalRulepack(t *testing.T) {
 	scriptContent := `#!/bin/bash
 cat << 'EOF'
 {
+  "reportVersion": "1.0",
+  "manifest": {
+    "name": "fake-pack",
+    "version": "1.2.3",
+    "prefix": "EXT"
+  },
   "findings": [
     {
       "code": "EXT001",
       "severity": "error",
       "message": "External finding",
-      "source": "fake-pack",
       "position": {
         "line": 42
       }
@@ -56,6 +61,9 @@ EOF
 	}
 	if diags[0].Severity != diagnostics.Error {
 		t.Errorf("Expected ERROR severity, got %s", diags[0].Severity)
+	}
+	if diags[0].Source != "fake-pack@1.2.3" {
+		t.Errorf("Expected fake-pack@1.2.3 source, got %s", diags[0].Source)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 // Options holds configuration for the CLI entrypoint, allowing external
 // callers to inject custom behavior such as proprietary linting rules.
 type Options struct {
+	Name              string // Name of the CLI command (default: "doclang")
 	Version           string
 	CustomRules       []linter.Rule
 	RulePacks         []linter.RulePack
@@ -29,8 +30,13 @@ func NewRootCommand(opts Options) *cobra.Command {
 		version = "dev"
 	}
 
+	name := opts.Name
+	if name == "" {
+		name = "doclang"
+	}
+
 	rootCmd := &cobra.Command{
-		Use:     "doclang",
+		Use:     name,
 		Short:   "DocLang CLI - Generate documents from .doclang files",
 		Long:    `DocLang CLI generates documents (HTML, PDF, DOCX) from .doclang DSL files.`,
 		Version: version,

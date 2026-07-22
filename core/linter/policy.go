@@ -357,7 +357,7 @@ func (p *PolicyConfig) Evaluate(diags []diagnostics.Diagnostic, filePath string,
 
 		if policy.ExpiresAt != "" {
 			exp, _ := time.Parse(time.RFC3339, policy.ExpiresAt)
-			if now.After(exp) {
+			if !now.Before(exp) {
 				expired = true
 			} else {
 				isWaived = true
