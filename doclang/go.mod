@@ -8,7 +8,7 @@ require (
 	github.com/mmonterroca/docxgo/v2 v2.1.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2
-	go.ziradocs.com/core/v2 v2.0.0
+	go.ziradocs.com/core/v2 v2.1.1
 	golang.org/x/text v0.40.0
 )
 

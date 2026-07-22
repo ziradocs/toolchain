@@ -9,7 +9,7 @@ require (
 	github.com/mmonterroca/pptxgo v0.0.0-20260719224718-11d79cc21c6b
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2
-	go.ziradocs.com/core/v2 v2.0.0
+	go.ziradocs.com/core/v2 v2.1.1
 )
 
 require (

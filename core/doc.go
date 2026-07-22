@@ -11,8 +11,8 @@
 // embedded in other Go programs to inject custom validation rules.
 //
 //	import (
-//		"go.ziradocs.com/slidelang/v2/v2/cli"
-//		"go.ziradocs.com/core/v2/v2/linter"
+//		"go.ziradocs.com/slidelang/v2/cli"
+//		"go.ziradocs.com/core/v2/linter"
 //	)
 //
 //	func main() {

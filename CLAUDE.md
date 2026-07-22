@@ -14,15 +14,21 @@ Note on the codebase language: comments, log messages, and many docs are in **Sp
 
 ## Module layout & the go.mod gotcha
 
-Three independent Go modules — there is **no `go.work`**, and each CLI has a `replace go.ziradocs.com/core => ../core` directive:
+Three independent Go modules, each `/v2` (Go 1.26.5), and each CLI has a `replace go.ziradocs.com/core/v2 => ../core` directive:
 
-- `core/` — module `go.ziradocs.com/core` (Go 1.26.5)
-- `slidelang/`  — module `go.ziradocs.com/slidelang` (Go 1.26.5)
-- `doclang/`    — module `go.ziradocs.com/doclang` (Go 1.26.5)
+- `core/` — module `go.ziradocs.com/core/v2`
+- `slidelang/`  — module `go.ziradocs.com/slidelang/v2`
+- `doclang/`    — module `go.ziradocs.com/doclang/v2`
 
-**Consequence:** you cannot build or test the whole repo from the root. `go build ./...` at the root fails. Always `cd` into the specific module first. When editing `core` and testing against a CLI, no extra step is needed — the `replace` directive points at the local `../core`.
+A gitignored root `go.work` (`use ./core ./doclang ./slidelang`) is also present for local multi-module editing; it and the `replace` directives currently do the same job, which is intentionally redundant — see below for why `replace` can't be dropped yet.
 
-**Future change:** once `core` has its first tagged release (`core/vX.Y.Z`), the `replace` directives will be removed from the committed `go.mod`s — `go install <module>/cmd/...@version` cannot resolve a module whose `go.mod` still carries a `replace` (see the Go modules reference). At that point local multi-module development moves to a gitignored root `go.work` instead. See `CONTRIBUTING.md`.
+**Consequence:** you cannot build or test the whole repo from the root. `go build ./...` at the root fails. Always `cd` into the specific module first. When editing `core` and testing against a CLI, no extra step is needed — `go.work`/the `replace` directive point at the local `../core`.
+
+**The vanity import (`go.ziradocs.com`, separate `ziradocs/website` repo) is fixed — the `replace` directives stay anyway, for a different reason.** The site's `go-import.astro` now serves a 4-field meta tag per module (`prefix vcs reporoot subdir`, e.g. `go.ziradocs.com/core/v2 git https://github.com/ziradocs/toolchain core`), a form supported since Go 1.25 that declares the module's physical subdirectory explicitly instead of making `go` derive it by stripping the major-version suffix — the derivation is ambiguous for a `/v2`+ module living in a same-named subdirectory (`core/go.mod` declaring `.../core/v2`) and was the root cause of `go install` failing outright. Confirmed working end-to-end against a clean module cache. Two things worth knowing:
+- Requires the installing machine to have **Go ≥1.25** already (the initial go-import handshake can't self-upgrade); not a new burden here since this repo already requires 1.26.5.
+- The `core/v2.1.0`, `slidelang/v2.1.0`, `doclang/v2.1.0` tags are **permanently broken and must never be used** — they were cut on 2026-07-21, before the `/v2` module-path migration (`5820531`, 2026-07-22), so the `go.mod` at those revisions still declares the unversioned path. Since v2.1.0 > v2.0.6 in semver, `@latest` (and even an explicit `@v2.0.6` request, since `go` enumerates all matching tags) resolved to the broken tag and failed — this is why the current release is `v2.1.1`, not a `v2.0.7` bump. Never reuse `v2.1.0`.
+
+**Why `replace` is still committed:** removing it means CI/goreleaser must fetch `core` over the network on every build — neither sets up a `go.work`, so that's a real release-model change (core must be tagged and resolvable before slidelang/doclang build), not just a cleanup. Worth deciding deliberately, not as a side effect of another change.
 
 ## Common commands
 
