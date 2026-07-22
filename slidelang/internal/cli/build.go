@@ -76,7 +76,7 @@ type BuildOptions struct {
 	InstallChromium bool   // Auto-instalar Chromium si no se encuentra
 }
 
-func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack) *cobra.Command {
+func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string) *cobra.Command {
 	opts := &BuildOptions{}
 	cmd := &cobra.Command{
 		Use:   "build [file]",
@@ -121,7 +121,7 @@ Examples:
 			if len(args) > 0 {
 				opts.InputFile = args[0]
 			}
-			return runBuild(opts, customRules, rulePacks)
+			return runBuild(opts, customRules, rulePacks, externalRulepacks)
 		},
 	}
 	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "./dist", "Output directory")
@@ -189,7 +189,7 @@ func parseFormats(raw string) []string {
 	return formats
 }
 
-func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.RulePack) error {
+func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string) error {
 	// Validate input file
 	if opts.InputFile == "" {
 		return fmt.Errorf("input file is required")
@@ -462,6 +462,10 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		for _, rule := range pack.Rules() {
 			linterInstance.AddRule(rule)
 		}
+	}
+
+	if len(externalRulepacks) > 0 {
+		linterInstance.WithRulepacks(externalRulepacks, 30*time.Second)
 	}
 
 	allDiagnostics := linterInstance.LintUnfiltered(astNode)

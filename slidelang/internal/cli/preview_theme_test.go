@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"go.ziradocs.com/slidelang/internal/generator"
 	"go.ziradocs.com/core/parser"
 	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/slidelang/internal/generator"
 )
 
 // newTestPreviewServer builds a minimal PreviewServer suitable for exercising

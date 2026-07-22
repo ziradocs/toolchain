@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
 	"go.ziradocs.com/core/ast"
 	"go.ziradocs.com/core/diagnostics"
-	"go.yaml.in/yaml/v3"
 )
 
 // ChartParser maneja el parsing de gráficos Chart.js

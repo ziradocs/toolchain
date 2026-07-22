@@ -12,9 +12,10 @@ import (
 // Options holds configuration for the CLI entrypoint, allowing external
 // callers to inject custom behavior such as proprietary linting rules.
 type Options struct {
-	Version     string
-	CustomRules []linter.Rule
-	RulePacks   []linter.RulePack
+	Version           string
+	CustomRules       []linter.Rule
+	RulePacks         []linter.RulePack
+	ExternalRulepacks []string
 }
 
 // NewRootCommand builds the root CLI command with the given options.
@@ -31,7 +32,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		Version: version,
 	}
 
-	rootCmd.AddCommand(internalcli.NewBuildCommand(opts.CustomRules, opts.RulePacks))
+	rootCmd.AddCommand(internalcli.NewBuildCommand(opts.CustomRules, opts.RulePacks, opts.ExternalRulepacks))
 	rootCmd.AddCommand(internalcli.NewFmtCommand())
 
 	return rootCmd

@@ -73,7 +73,7 @@ Contenido de prueba.
 		NoColors:  true,
 	}
 
-	if err := runBuild(opts, nil, nil); err != nil {
+	if err := runBuild(opts, nil, nil, nil); err != nil {
 		t.Fatalf("runBuild() error = %v", err)
 	}
 
@@ -116,7 +116,7 @@ Contenido.
 		NoColors:  true,
 	}
 
-	if err := runBuild(opts, nil, nil); err == nil {
+	if err := runBuild(opts, nil, nil, nil); err == nil {
 		t.Fatal("expected error for invalid format in list, got nil")
 	}
 
@@ -158,7 +158,7 @@ Contenido.
 		NoColors:  true,
 	}
 
-	err := runBuild(opts, nil, nil)
+	err := runBuild(opts, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for a blank comma-only format list, got nil")
 	}
@@ -204,7 +204,7 @@ Contenido.
 		NoColors:  true,
 	}
 
-	if err := runBuild(opts, nil, nil); err == nil {
+	if err := runBuild(opts, nil, nil, nil); err == nil {
 		t.Fatal("expected error when combining 'html' with the not-yet-implemented 'slidelang', got nil")
 	}
 
@@ -258,7 +258,7 @@ Este texto tiene **negrita**, *cursiva* y ***negrita cursiva*** combinadas.
 		EnableAI:  true,
 	}
 
-	if err := runBuild(opts, nil, nil); err != nil {
+	if err := runBuild(opts, nil, nil, nil); err != nil {
 		t.Fatalf("runBuild() error = %v", err)
 	}
 

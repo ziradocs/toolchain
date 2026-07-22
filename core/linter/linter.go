@@ -4,6 +4,7 @@
 package linter
 
 import (
+	"fmt"
 	"time"
 
 	"go.ziradocs.com/core/ast"
@@ -11,8 +12,10 @@ import (
 )
 
 type Linter struct {
-	rules  []Rule
-	policy *PolicyConfig
+	rules             []Rule
+	policy            *PolicyConfig
+	externalRulepacks []string
+	externalTimeout   time.Duration
 }
 
 type Rule interface {
@@ -44,6 +47,13 @@ func (l *Linter) WithPolicy(policy *PolicyConfig) *Linter {
 			aware.setLayoutPolicy(policy)
 		}
 	}
+	return l
+}
+
+// WithRulepacks registers paths to external rulepack binaries to be run as subprocesses.
+func (l *Linter) WithRulepacks(paths []string, timeout time.Duration) *Linter {
+	l.externalRulepacks = paths
+	l.externalTimeout = timeout
 	return l
 }
 
@@ -112,6 +122,16 @@ func (l *Linter) LintUnfiltered(astNode *ast.AST) []diagnostics.Diagnostic {
 		for _, rule := range l.rules {
 			diagnostics := rule.Check(&slide)
 			allDiagnostics = append(allDiagnostics, diagnostics...)
+		}
+	}
+
+	for _, packPath := range l.externalRulepacks {
+		extDiags, err := runExternalRulepack(astNode, packPath, l.externalTimeout)
+		if err != nil {
+			errDiag := diagnostics.NewError(fmt.Sprintf("external rulepack %s failed: %v", packPath, err), diagnostics.Position{}, "LINTER_SYS_ERR")
+			allDiagnostics = append(allDiagnostics, errDiag)
+		} else {
+			allDiagnostics = append(allDiagnostics, extDiags...)
 		}
 	}
 

@@ -27,7 +27,7 @@ func HTMLTemplateFuncs() template.FuncMap {
 	return template.FuncMap{
 		// add1 convierte el índice 0-based de slide (range $index, ...)
 		// a un número de slide 1-based para mostrar al usuario (issue #94).
-		"add1": func(i int) int { return i + 1 },
+		"add1":       func(i int) int { return i + 1 },
 		"escapeHTML": template.HTMLEscapeString,
 		"escapeJS":   template.JSEscapeString,
 		"lower":      strings.ToLower,

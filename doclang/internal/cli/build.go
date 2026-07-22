@@ -32,7 +32,7 @@ import (
 const maxInputSizeEnvVar = "DOCLANG_MAX_SIZE"
 
 // NewBuildCommand creates the build command for doclang
-func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack) *cobra.Command {
+func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string) *cobra.Command {
 	var (
 		format          string
 		output          string
@@ -209,6 +209,9 @@ Examples:
 				for _, rule := range pack.Rules() {
 					linterInstance.AddRule(rule)
 				}
+			}
+			if len(externalRulepacks) > 0 {
+				linterInstance.WithRulepacks(externalRulepacks, 30*time.Second)
 			}
 			allDiagnostics := linterInstance.LintUnfiltered(doc)
 			activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, doc.FilePath, time.Now())

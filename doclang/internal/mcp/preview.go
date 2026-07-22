@@ -7,9 +7,9 @@ import (
 	"context"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.ziradocs.com/doclang/internal/generator"
 	"go.ziradocs.com/core/diagnostics"
 	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/doclang/internal/generator"
 )
 
 type previewInput struct {

@@ -183,7 +183,7 @@ func TestConsoleLogger_Summary_SanitizesOperation(t *testing.T) {
 
 func TestConsoleLogger_SetLevel(t *testing.T) {
 	logger := NewConsoleLogger(LevelInfo, false)
-	
+
 	logger.SetLevel(LevelDebug)
 	// Cannot directly test level without exposing it, but we can test that it doesn't panic
 	logger.Debug("test", "test message")
@@ -223,16 +223,16 @@ func TestConsoleLogger_Progress(t *testing.T) {
 func TestConsoleLogger_Summary(t *testing.T) {
 	logger := NewConsoleLogger(LevelInfo, false)
 	stats := map[string]interface{}{
-		"files":   10,
-		"size":    "1.2MB",
-		"errors":  0,
+		"files":  10,
+		"size":   "1.2MB",
+		"errors": 0,
 	}
 	logger.Summary("Build", stats)
 }
 
 func TestConsoleLogger_GetCategoryIcon(t *testing.T) {
 	logger := NewConsoleLogger(LevelInfo, false)
-	
+
 	tests := []struct {
 		category string
 		expected string
@@ -245,7 +245,7 @@ func TestConsoleLogger_GetCategoryIcon(t *testing.T) {
 		{"BUILD", "🔨"},
 		{"UNKNOWN", "ℹ️"},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.category, func(t *testing.T) {
 			result := logger.getCategoryIcon(tt.category)
@@ -269,7 +269,7 @@ func TestGetCategoryColor(t *testing.T) {
 		{"BUILD", "red"},
 		{"UNKNOWN", "white"},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.category, func(t *testing.T) {
 			result := getCategoryColor(tt.category)
@@ -282,7 +282,7 @@ func TestGetCategoryColor(t *testing.T) {
 
 func TestConsoleLogger_CreateProgressBar(t *testing.T) {
 	logger := NewConsoleLogger(LevelInfo, false)
-	
+
 	tests := []struct {
 		name     string
 		progress int
@@ -291,10 +291,10 @@ func TestConsoleLogger_CreateProgressBar(t *testing.T) {
 		{"0 percent", 0, false},
 		{"50 percent", 50, true},
 		{"100 percent", 100, true},
-		{"negative clamped", -10, false},  // Should clamp to 0
-		{"over 100 clamped", 150, true},   // Should clamp to 100
+		{"negative clamped", -10, false}, // Should clamp to 0
+		{"over 100 clamped", 150, true},  // Should clamp to 100
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bar := logger.createProgressBar(tt.progress)
@@ -312,12 +312,12 @@ func TestConsoleLogger_CreateProgressBar(t *testing.T) {
 
 func TestConsoleLogger_Colorize(t *testing.T) {
 	logger := NewConsoleLogger(LevelInfo, true)
-	
+
 	colored := logger.colorize("test", "red")
 	if !strings.Contains(colored, "\033[31m") {
 		t.Error("colorize() should contain red color code when colors enabled")
 	}
-	
+
 	loggerNoColor := NewConsoleLogger(LevelInfo, false)
 	plain := loggerNoColor.colorize("test", "red")
 	if plain != "test" {
@@ -327,7 +327,7 @@ func TestConsoleLogger_Colorize(t *testing.T) {
 
 func TestInitDefault(t *testing.T) {
 	InitDefault(LevelInfo, false)
-	
+
 	if defaultLogger == nil {
 		t.Error("InitDefault() should set defaultLogger")
 	}
@@ -336,7 +336,7 @@ func TestInitDefault(t *testing.T) {
 func TestGetDefault(t *testing.T) {
 	InitDefault(LevelDebug, true)
 	logger := GetDefault()
-	
+
 	if logger == nil {
 		t.Error("GetDefault() should return non-nil logger after InitDefault()")
 	}
@@ -344,7 +344,7 @@ func TestGetDefault(t *testing.T) {
 
 func TestGlobalLogFunctions(t *testing.T) {
 	InitDefault(LevelDebug, false)
-	
+
 	// Test that global functions don't panic
 	Error("test error")
 	Warn("test warning")
@@ -357,7 +357,7 @@ func TestGlobalLogFunctions(t *testing.T) {
 
 func TestNoopLogger(t *testing.T) {
 	logger := NewNoop()
-	
+
 	// Test that all methods don't panic
 	logger.Error("error")
 	logger.Warn("warning")

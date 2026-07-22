@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.ziradocs.com/slidelang/internal/generator/css"
-	"go.ziradocs.com/core/util"
 	"github.com/spf13/cobra"
+	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/slidelang/internal/generator/css"
 )
 
 // CreateThemeCmd creates a new theme command
