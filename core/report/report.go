@@ -47,7 +47,7 @@ func WriteReport(format, outPath string, active []diagnostics.Diagnostic, waived
 		if err == nil {
 			// Añadir un salto de línea si no lo tiene
 			if len(data) > 0 && data[len(data)-1] != '\n' {
-				os.Stdout.WriteString("\n")
+				_, _ = os.Stdout.WriteString("\n")
 			}
 		}
 		return err

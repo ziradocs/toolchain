@@ -24,8 +24,12 @@ To the test
 	if err != nil {
 		t.Fatalf("Failed to get wd: %v", err)
 	}
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to chdir: %v", err)
+	}
 
 	os.Args = []string{"slidelang", "build", slideFile, "--format", "html", "--output", "test.html"}
 	cmd := NewRootCommand(Options{})
