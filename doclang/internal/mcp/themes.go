@@ -9,8 +9,8 @@ import (
 	"sort"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.ziradocs.com/doclang/themes/document"
 	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/doclang/themes/document"
 )
 
 type listThemesInput struct{}

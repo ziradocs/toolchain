@@ -6,11 +6,13 @@ package linter
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
+	"time"
 
+	"go.yaml.in/yaml/v3"
 	"go.ziradocs.com/core/ast"
 	"go.ziradocs.com/core/diagnostics"
-	"go.yaml.in/yaml/v3"
 )
 
 // RulePolicy es la configuración de una regla individual, identificada por
@@ -28,10 +30,24 @@ type RulePolicy struct {
 	// Enabled, si no-nil y false, descarta todo diagnóstico con este ID.
 	// Puntero para distinguir "no especificado" (nil, no toca nada) de
 	// "explícitamente false".
-	Enabled *bool `yaml:"enabled,omitempty"`
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	// Severity, si no vacío, sobreescribe la severidad ("error"|"warning"|
 	// "info") de todo diagnóstico con este ID.
-	Severity string `yaml:"severity,omitempty"`
+	Severity string `yaml:"severity,omitempty" json:"severity,omitempty"`
+	// --- waiver (aditivo) ---
+	// ExpiresAt, en RFC3339, convierte esta entrada en una excepción con
+	// vencimiento: mientras no expire suprime el diagnóstico; al expirar el
+	// diagnóstico VUELVE y se emite POLICY001. Requiere Reason.
+	ExpiresAt string `yaml:"expires_at,omitempty" json:"expiresAt,omitempty"`
+	// Reason es obligatorio si hay ExpiresAt: una excepción sin motivo no es
+	// auditable, y ese es el único valor que un waiver tiene sobre Enabled:false.
+	Reason string `yaml:"reason,omitempty" json:"reason,omitempty"`
+	// ApprovedBy es texto libre y NO se verifica en este paquete — no hay
+	// registro de identidades contra el cual verificarlo. Se propaga al
+	// reporte para que un consumidor que sí tenga ese registro lo valide.
+	ApprovedBy string `yaml:"approved_by,omitempty" json:"approvedBy,omitempty"`
+	// Scope son globs de ruta. VACÍO significa "todo el documento".
+	Scope []string `yaml:"scope,omitempty" json:"scope,omitempty"`
 }
 
 // LayoutOverride sobreescribe los parámetros numéricos/de-lista de un
@@ -135,6 +151,15 @@ func parsePolicyConfig(data []byte, source string) (*PolicyConfig, error) {
 			return nil, fmt.Errorf(
 				"linter: %q: regla %q tiene severity %q inválida (debe ser 'error', 'warning', 'info', o vacío)",
 				source, id, policy.Severity)
+		}
+
+		if policy.ExpiresAt != "" {
+			if _, err := time.Parse(time.RFC3339, policy.ExpiresAt); err != nil {
+				return nil, fmt.Errorf("linter: %q: regla %q tiene expires_at %q inválido (debe ser RFC3339): %w", source, id, policy.ExpiresAt, err)
+			}
+			if policy.Reason == "" {
+				return nil, fmt.Errorf("linter: %q: regla %q tiene expires_at pero no tiene reason", source, id)
+			}
 		}
 	}
 
@@ -249,28 +274,131 @@ func diagnosticRuleID(d diagnostics.Diagnostic) string {
 	return d.Code
 }
 
+// matchScopeGlob chequea si una ruta cumple con el patrón glob simple.
+// Soporta ** (cualquier cosa) y * (cualquier cosa excepto /).
+func matchScopeGlob(path, pattern string) bool {
+	// Reemplazos simples para convertir a expresión regular.
+	// Nota: esto es un helper rápido y sin dependencias.
+	rx := regexp.QuoteMeta(pattern)
+	rx = strings.ReplaceAll(rx, `\*\*/`, `(?:.*/)?`)
+	rx = strings.ReplaceAll(rx, `\*\*`, `.*`)
+	rx = strings.ReplaceAll(rx, `\*`, `[^/]*`)
+	rx = strings.ReplaceAll(rx, `\?`, `.`)
+	matched, _ := regexp.MatchString("^"+rx+"$", path)
+	return matched
+}
+
 // Apply filtra diagnósticos deshabilitados y sobreescribe severidad según
 // la política configurada. nil-safe: un *PolicyConfig nil (sin política
 // cargada) devuelve diags sin tocar.
 func (p *PolicyConfig) Apply(diags []diagnostics.Diagnostic) []diagnostics.Diagnostic {
+	return p.applyTo(diags, "", time.Now())
+}
+
+// WaivedDiagnostic wraps a suppressed diagnostic along with the policy
+// that suppressed it (useful for SARIF reports).
+type WaivedDiagnostic struct {
+	Diagnostic diagnostics.Diagnostic
+	Policy     *RulePolicy
+}
+
+// applyTo executes the policy by injecting the current timestamp and the file path.
+// It evaluates waivers using Scope and ExpiresAt. Returns only active diagnostics.
+func (p *PolicyConfig) applyTo(diags []diagnostics.Diagnostic, filePath string, now time.Time) []diagnostics.Diagnostic {
+	active, _ := p.Evaluate(diags, filePath, now)
+	return active
+}
+
+// Evaluate classifies the diagnostics into active and suppressed (waived).
+func (p *PolicyConfig) Evaluate(diags []diagnostics.Diagnostic, filePath string, now time.Time) (active []diagnostics.Diagnostic, waived []WaivedDiagnostic) {
 	if p == nil || len(p.Rules) == 0 {
-		return diags
+		return diags, nil
 	}
 
-	out := make([]diagnostics.Diagnostic, 0, len(diags))
+	active = make([]diagnostics.Diagnostic, 0, len(diags))
+	expiredEmitted := make(map[string]bool)
+
 	for _, d := range diags {
-		policy, ok := p.Rules[diagnosticRuleID(d)]
+		ruleID := diagnosticRuleID(d)
+		if ruleID == "POLICY001" {
+			// POLICY001 no se puede suprimir
+			active = append(active, d)
+			continue
+		}
+
+		policy, ok := p.Rules[ruleID]
 		if !ok {
-			out = append(out, d)
+			active = append(active, d)
 			continue
 		}
+
+		inScope := true
+		if len(policy.Scope) > 0 {
+			if filePath == "" {
+				inScope = false
+			} else {
+				inScope = false
+				for _, scopeGlob := range policy.Scope {
+					if matchScopeGlob(filePath, scopeGlob) {
+						inScope = true
+						break
+					}
+				}
+			}
+		}
+
+		if !inScope {
+			active = append(active, d)
+			continue
+		}
+
+		isWaived := false
+		expired := false
+
+		if policy.ExpiresAt != "" {
+			exp, _ := time.Parse(time.RFC3339, policy.ExpiresAt)
+			if !now.Before(exp) {
+				expired = true
+			} else {
+				isWaived = true
+			}
+		}
+
 		if policy.Enabled != nil && !*policy.Enabled {
+			// Si expiró el waiver, enabled:false deja de tener efecto
+			if !expired {
+				isWaived = true
+			}
+		}
+
+		if expired {
+			if policy.Severity != "" {
+				d.Severity = diagnostics.Severity(policy.Severity)
+			}
+			active = append(active, d)
+
+			if !expiredEmitted[ruleID] {
+				msg := fmt.Sprintf("waiver for %s expired on %s", ruleID, policy.ExpiresAt)
+				policyDiag := diagnostics.NewWarning(msg, d.Position, "linter").WithCode("POLICY001")
+				active = append(active, policyDiag)
+				expiredEmitted[ruleID] = true
+			}
 			continue
 		}
+
+		if isWaived {
+			polCopy := policy
+			waived = append(waived, WaivedDiagnostic{
+				Diagnostic: d,
+				Policy:     &polCopy,
+			})
+			continue
+		}
+
 		if policy.Severity != "" {
 			d.Severity = diagnostics.Severity(policy.Severity)
 		}
-		out = append(out, d)
+		active = append(active, d)
 	}
-	return out
+	return active, waived
 }

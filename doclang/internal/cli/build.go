@@ -8,18 +8,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"go.ziradocs.com/doclang/internal/generator"
-	"go.ziradocs.com/doclang/themes/document" // 🆕 Theme system
+	"github.com/spf13/cobra"
 	"go.ziradocs.com/core/ast"
 	"go.ziradocs.com/core/diagnostics"
 	"go.ziradocs.com/core/include"
 	"go.ziradocs.com/core/linter"
 	"go.ziradocs.com/core/parser"
+	"go.ziradocs.com/core/report"
 	"go.ziradocs.com/core/transform"
 	"go.ziradocs.com/core/util"
 	"go.ziradocs.com/core/xref"
-	"github.com/spf13/cobra"
+	"go.ziradocs.com/doclang/internal/generator"
+	"go.ziradocs.com/doclang/themes/document" // 🆕 Theme system
 )
 
 // maxInputSizeEnvVar permite ajustar el límite de tamaño de entrada sin
@@ -29,8 +31,9 @@ import (
 // operador que solo usa uno de los dos CLIs.
 const maxInputSizeEnvVar = "DOCLANG_MAX_SIZE"
 
-// NewBuildCommand creates the build command for doclang
-func NewBuildCommand() *cobra.Command {
+func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
+	policyResolver func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error),
+	postLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error) *cobra.Command {
 	var (
 		format          string
 		output          string
@@ -49,6 +52,8 @@ func NewBuildCommand() *cobra.Command {
 		assetRoot       string   // Confinement root for local image sources (default: input file's directory)
 		lintOnly        bool     // Only run the linter, don't generate output
 		lintConfig      string   // Path to a YAML linter policy file (flag > frontmatter lint_policy: > default, ver linter.ResolvePolicyConfig)
+		reportFormat    string   // Formato de reporte de linter (json, sarif)
+		reportOut       string   // Archivo de salida para el reporte
 		filters         []string // Rutas a binarios de filtro externo (issue #240, decisión C) — ver core/transform
 		includeRoot     string   // Confinement root for @include (issue #238, decisión 3) — default: input file's directory
 	)
@@ -81,7 +86,7 @@ Examples:
   doclang build report.doclang --toc --numbering`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			inputFile := args[0]
+			inputFile := filepath.ToSlash(filepath.Clean(args[0]))
 
 			// Validate input file
 			if !fileExists(inputFile) {
@@ -152,6 +157,9 @@ Examples:
 			if err := util.RunGuarded(util.DefaultParseTimeout, func() error {
 				docParser := parser.NewDocumentFlexParserWithNormalization(contentStr, log)
 				doc, diagnostics = docParser.Parse()
+				if doc != nil && doc.FilePath == "" {
+					doc.FilePath = inputFile
+				}
 				return nil
 			}); err != nil {
 				return err
@@ -193,11 +201,52 @@ Examples:
 			// cablearlo acá es barato). Mismo motor de políticas configurable
 			// que slidelang --lint-config (ver linter.PolicyConfig).
 			log.Info("LINT", "Validating document...")
-			policy, err := linter.ResolvePolicyConfig(lintConfig, doc.FrontMatter)
-			if err != nil {
-				return err
+			var policy *linter.PolicyConfig
+			if policyResolver != nil {
+				p, err := policyResolver(lintConfig, doc.FrontMatter)
+				if err != nil {
+					return err
+				}
+				policy = p
+			} else {
+				p, err := linter.ResolvePolicyConfig(lintConfig, doc.FrontMatter)
+				if err != nil {
+					return err
+				}
+				policy = p
 			}
-			lintDiagnostics := linter.New().WithPolicy(policy).Lint(doc)
+			linterInstance := linter.New().WithPolicy(policy)
+			for _, rule := range customRules {
+				linterInstance.AddRule(rule)
+			}
+			for _, pack := range rulePacks {
+				for _, rule := range pack.Rules() {
+					linterInstance.AddRule(rule)
+				}
+			}
+			if len(externalRulepacks) > 0 {
+				linterInstance.WithRulepacks(externalRulepacks, 30*time.Second)
+			}
+			allDiagnostics := linterInstance.LintUnfiltered(doc)
+			activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, doc.FilePath, time.Now())
+
+			if reportFormat != "" {
+				outPath := reportOut
+				if err := report.WriteReport(reportFormat, outPath, activeDiags, waivedDiags, doc, content, externalRulepacks); err != nil {
+					return fmt.Errorf("failed to write report: %w", err)
+				}
+				if outPath != "" && outPath != "-" {
+					log.Info("LINT", "Reporte de evidencia generado en '%s'", outPath)
+				}
+			}
+
+			if postLint != nil {
+				if err := postLint(doc, activeDiags, waivedDiags); err != nil {
+					return fmt.Errorf("post-lint hook failed: %w", err)
+				}
+			}
+
+			lintDiagnostics := activeDiags
 			lintErrors := false
 			for _, diag := range lintDiagnostics {
 				if diag.IsError() {
@@ -364,7 +413,9 @@ Examples:
 	cmd.Flags().IntVar(&maxSizeMB, "max-size", 0, "Maximum input file size in MB (default: 10MB, override via DOCLANG_MAX_SIZE env var)")
 	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: the input file's directory); absolute paths and '..' outside it are rejected")
 	cmd.Flags().BoolVar(&lintOnly, "lint-only", false, "Only run the linter, don't generate output")
-	cmd.Flags().StringVar(&lintConfig, "lint-config", "", "Path to a YAML linter policy file (enable/disable rules and override severity by diagnostic ID, e.g. IMG001). If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
+	cmd.Flags().StringVar(&lintConfig, "lint-config", "", "Path to a YAML linter policy file. If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
+	cmd.Flags().StringVar(&reportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")
+	cmd.Flags().StringVar(&reportOut, "report-out", "", "Output path for the report (default: stdout)")
 	cmd.Flags().StringArrayVar(&filters, "filter", nil, "Path to an external filter binary that transforms the AST between parse and lint (repeatable; runs in the order given, each filter's output feeds the next). Communicates via JSON on stdin/stdout — see docs/architecture/json-ast-contract.md")
 	cmd.Flags().StringVar(&includeRoot, "include-root", "", "Directory @include paths are confined to (default: the input file's directory); absolute paths and '..' outside it are rejected")
 

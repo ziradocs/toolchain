@@ -7,10 +7,10 @@ import (
 	"context"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.ziradocs.com/slidelang/internal/generator"
 	"go.ziradocs.com/core/diagnostics"
 	"go.ziradocs.com/core/renderer"
 	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/slidelang/internal/generator"
 )
 
 type previewInput struct {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go.ziradocs.com/core/ast"
 	"go.ziradocs.com/core/diagnostics"
@@ -268,5 +269,90 @@ func TestLinter_WithPolicy_IntegratesEndToEnd(t *testing.T) {
 		if d.RuleID == "IMG001" {
 			t.Fatalf("expected IMG001 to be filtered out by policy, got %+v", filtered)
 		}
+	}
+}
+
+func TestPolicyConfig_Evaluate_WaiverExpiration(t *testing.T) {
+	diags := []diagnostics.Diagnostic{
+		diagnostics.NewError("error", diagnostics.Position{}, "linter").WithRuleID("IMG001"),
+	}
+	cfg := &PolicyConfig{Rules: map[string]RulePolicy{
+		"IMG001": {
+			ExpiresAt: "2026-01-01T00:00:00Z",
+			Reason:    "waiting for fix",
+		},
+	}}
+
+	now := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	active, waived := cfg.Evaluate(diags, "test.md", now)
+
+	if len(waived) != 0 {
+		t.Fatalf("expected 0 waived diagnostics since waiver is expired, got %d", len(waived))
+	}
+	if len(active) != 2 {
+		t.Fatalf("expected 2 active diagnostics (the original error + POLICY001), got %d", len(active))
+	}
+
+	hasPolicy001 := false
+	hasIMG001 := false
+	for _, d := range active {
+		if d.RuleID == "IMG001" {
+			hasIMG001 = true
+		}
+		if d.Code == "POLICY001" {
+			hasPolicy001 = true
+		}
+	}
+	if !hasPolicy001 || !hasIMG001 {
+		t.Errorf("expected IMG001 and POLICY001 to be present, active=%+v", active)
+	}
+}
+
+func TestPolicyConfig_Evaluate_WaiverValid(t *testing.T) {
+	diags := []diagnostics.Diagnostic{
+		diagnostics.NewError("error", diagnostics.Position{}, "linter").WithRuleID("IMG001"),
+	}
+	cfg := &PolicyConfig{Rules: map[string]RulePolicy{
+		"IMG001": {
+			ExpiresAt: "2026-01-01T00:00:00Z",
+			Reason:    "waiting for fix",
+		},
+	}}
+
+	now := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
+	active, waived := cfg.Evaluate(diags, "test.md", now)
+
+	if len(active) != 0 {
+		t.Fatalf("expected 0 active diagnostics since waiver is valid, got %d", len(active))
+	}
+	if len(waived) != 1 {
+		t.Fatalf("expected 1 waived diagnostic, got %d", len(waived))
+	}
+}
+
+func TestPolicyConfig_Evaluate_Scope(t *testing.T) {
+	diags := []diagnostics.Diagnostic{
+		diagnostics.NewError("error", diagnostics.Position{}, "linter").WithRuleID("IMG001"),
+	}
+	cfg := &PolicyConfig{Rules: map[string]RulePolicy{
+		"IMG001": {
+			ExpiresAt: "2026-01-01T00:00:00Z",
+			Reason:    "waiting for fix",
+			Scope:     []string{"foo/**/*.md"},
+		},
+	}}
+
+	now := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
+
+	// out of scope
+	active, waived := cfg.Evaluate(diags, "bar/test.md", now)
+	if len(waived) != 0 || len(active) != 1 {
+		t.Errorf("expected out of scope to not waive, active=%d waived=%d", len(active), len(waived))
+	}
+
+	// in scope
+	active, waived = cfg.Evaluate(diags, "foo/bar/test.md", now)
+	if len(waived) != 1 || len(active) != 0 {
+		t.Errorf("expected in scope to waive, active=%d waived=%d", len(active), len(waived))
 	}
 }

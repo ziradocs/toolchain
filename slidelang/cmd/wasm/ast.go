@@ -8,8 +8,8 @@ package main
 import (
 	"syscall/js"
 
-	"go.ziradocs.com/slidelang/internal/generator"
 	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/slidelang/internal/generator"
 )
 
 type astError struct {

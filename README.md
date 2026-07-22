@@ -1,5 +1,8 @@
 # ZiraDocs / DocLang
 
+[![GitHub Release](https://img.shields.io/github/v/release/ziradocs/toolchain?style=flat-square&color=blue)](https://github.com/ziradocs/toolchain/releases)
+[![Go Reference](https://pkg.go.dev/badge/go.ziradocs.com/core.svg)](https://pkg.go.dev/go.ziradocs.com/core)
+
 Two sibling DSLs for generating **presentations** and **documents** from plain-text
 files, built on a shared Go library.
 
@@ -101,6 +104,19 @@ Diagrams (Mermaid, PlantUML), charts (Chart.js) and maps (Leaflet) are controlle
 
 Related flags: `--install-chromium`, `--chromium-path`, `--image-format png|webp`,
 `--webp-quality`, `--plantuml-server`, `--plantuml-format`.
+
+## Evidence Pipeline & Linting (v2.0+)
+
+Both `slidelang` and `doclang` include a built-in strict linter and an **Evidence Pipeline** to integrate with CI/CD and security tools.
+
+- **Machine-Readable Reports**: Use `--report sarif` or `--report json` to generate standards-compliant diagnostic reports. By default, it outputs to stdout, which is ideal for piping into uploaders: `slidelang build ... --report sarif | uploader`
+- **Waivers**: Suppress specific diagnostic warnings via a `lint_policy` block in the document frontmatter or via an external `--lint-config` file.
+- **External Rulepacks**: Inject third-party or proprietary checks by passing a CLI tool (e.g. `--rulepack path/to/binary`). The toolchain pipes the document AST and merges the returned findings into the final report with full provenance.
+
+Example:
+```bash
+slidelang build slides.slidelang --report sarif --report-out evidence.sarif
+```
 
 ## Security
 

@@ -8,12 +8,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"go.ziradocs.com/slidelang/internal/generator/data"
-	"go.ziradocs.com/slidelang/internal/serializer"
 	"go.ziradocs.com/core/ast"
 	"go.ziradocs.com/core/config"
 	"go.ziradocs.com/core/renderer"
 	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/slidelang/internal/generator/data"
+	"go.ziradocs.com/slidelang/internal/serializer"
 )
 
 // GeneratorOptions define las opciones de generación

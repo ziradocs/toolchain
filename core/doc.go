@@ -1,62 +1,38 @@
 // Copyright 2026 Misael Monterroca
 // SPDX-License-Identifier: Apache-2.0
 
-// Package slidelangcore es el motor compartido de parsing, AST y
-// renderizado que usan los CLIs slidelang y doclang. No está pensado para
-// ser importado directamente por terceros — ver la política de
-// estabilidad abajo.
+// Package core es el motor compartido de parsing, AST, linting y renderizado
+// que usan los CLIs slidelang y doclang. A partir de v2.0.0, este módulo
+// provee una API pública y estable para integraciones de terceros.
 //
 // # Modelo de consumo
 //
-// SlideLang/DocLang se diseñaron para invocarse como ejecutables, no como
-// librería embebida. Un archivo .slidelang o .doclang se procesa con:
+// SlideLang/DocLang se pueden usar como binarios independientes, o se pueden
+// embeber en otros programas Go para inyectar reglas de validación custom.
 //
-//	slidelang build presentacion.slidelang --format html
-//	doclang build documento.doclang --format json
+//	import (
+//		"go.ziradocs.com/slidelang/cli"
+//		"go.ziradocs.com/core/linter"
+//	)
 //
-// # Contratos públicos estables
+//	func main() {
+//		cli.Execute(cli.Options{
+//			CustomRules: []linter.Rule{MiRegla{}},
+//		})
+//	}
 //
-// Lo que este proyecto promete mantener y versionar:
+// # Contratos públicos estables (v2.x)
 //
-//  1. La interfaz de línea de comandos de slidelang/doclang: subcomandos,
-//     flags, formatos de entrada (.slidelang, .doclang) y formatos de
-//     salida (html, json, pdf, docx, markdown).
+// Lo que este proyecto promete mantener y versionar según SemVer:
 //
-//  2. El AST serializado vía --format json, versionado semver por
-//     ast.SchemaVersion (ver schema/ast.schema.json en la raíz del
-//     monorepo, fuera de este módulo, y el paquete npm
-//     @ziradocs/ast-types). Este es el contrato recomendado para
-//     integraciones de terceros: agentes que generan SlideLang, el
-//     visor web, o cualquier consumidor externo del árbol de contenido.
-//     Ver docs/architecture/json-ast-contract.md para el detalle campo
-//     por campo.
+//  1. La API de entrada a los CLIs (paquetes slidelang/cli y doclang/cli),
+//     en particular la estructura cli.Options que permite inyectar políticas,
+//     reglas custom, y ganchos PostLint.
 //
-//  3. Un futuro entrypoint WASM (issue #134) para ejecutar el parser y
-//     el renderer directamente en el navegador, como wrapper sobre este
-//     mismo módulo.
+//  2. El esquema serializado (json) del AST se versiona de forma independiente
+//     bajo ast.SchemaVersion (ver @ziradocs/ast-types y docs/architecture/json-ast-contract.md).
 //
-// La estructura HTML generada y sus clases CSS NO son parte de este
-// contrato y pueden cambiar entre releases sin aviso — ver
-// docs/architecture/json-ast-contract.md.
-//
-// # La API de Go es un detalle de implementación interno
-//
-// Los paquetes de este módulo (ast, parser, renderer, elements internos,
-// config, util, etc.) están diseñados para ser consumidos por
-// slidelang y doclang — los dos únicos importadores previstos —
-// no por terceros. No hay compromiso de estabilidad semver sobre
-// ninguna firma, tipo o función exportada de Go: pueden renombrarse,
-// removerse o cambiar de comportamiento en cualquier versión menor.
-//
-// El módulo se versiona v0.x deliberadamente (convención de Go para "sin
-// promesa de compatibilidad de API"). Si en el futuro surge una
-// necesidad real de embeber este motor directamente desde otro programa
-// Go, se puede curar y versionar un subconjunto estable en ese
-// momento — promover un símbolo de inestable a estable no rompe a nadie;
-// lo inverso sí.
-//
-// Como parte de esta política, los paquetes ai/ y elements/ viven bajo
-// internal/ precisamente porque ninguno de los dos CLIs los importa
-// directamente (solo parser los usa internamente) — el compilador de Go
-// impide que un módulo externo los importe.
-package slidelangcore
+// El resto de la API Go (core/ast, core/linter, etc.) NO tiene garantías SemVer
+// y puede cambiar en versiones menores. La estructura HTML generada y sus
+// clases CSS tampoco son parte de este contrato estable.
+package core

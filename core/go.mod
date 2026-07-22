@@ -28,6 +28,7 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mazznoer/csscolorparser v0.1.8 // indirect
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/tkrajina/gpxgo v1.4.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/image v0.43.0 // indirect

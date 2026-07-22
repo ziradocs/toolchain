@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
 	"go.ziradocs.com/core/ast"
 	"go.ziradocs.com/core/diagnostics"
 	"go.ziradocs.com/core/formatter"
 	"go.ziradocs.com/core/parser"
 	"go.ziradocs.com/core/util"
-	"github.com/spf13/cobra"
 )
 
 type FmtOptions struct {

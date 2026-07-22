@@ -8,10 +8,10 @@ import (
 	htmltemplate "html/template"
 	"strings"
 
-	"go.ziradocs.com/slidelang/internal/generator/config"
 	"go.ziradocs.com/core/ast"
 	"go.ziradocs.com/core/renderer"
 	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/slidelang/internal/generator/config"
 )
 
 // ProcessVariables es un wrapper para el renderer compartido

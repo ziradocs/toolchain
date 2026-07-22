@@ -40,7 +40,7 @@ func TestRunBuild_InvalidRenderMode(t *testing.T) {
 		RenderMode: "bogus",
 	}
 
-	err := runBuild(opts)
+	err := runBuild(opts, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for an invalid render-mode, got nil")
 	}
@@ -72,7 +72,7 @@ func TestRunBuild_EmptyRenderModeTreatedAsBrowser(t *testing.T) {
 		// RenderMode vacío a propósito.
 	}
 
-	if err := runBuild(opts); err != nil {
+	if err := runBuild(opts, nil, nil, nil, nil, nil); err != nil {
 		t.Fatalf("empty render-mode should build like browser, got error: %v", err)
 	}
 }

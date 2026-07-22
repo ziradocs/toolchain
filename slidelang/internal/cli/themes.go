@@ -12,8 +12,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"go.ziradocs.com/slidelang/internal/generator/css/themes"
 	"github.com/spf13/cobra"
+	"go.ziradocs.com/slidelang/internal/generator/css/themes"
 )
 
 // expandPath expands ~ to user home directory

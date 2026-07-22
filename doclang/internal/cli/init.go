@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"go.ziradocs.com/core/util"
 	"github.com/spf13/cobra"
+	"go.ziradocs.com/core/util"
 )
 
 // NewInitCommand creates the init command for doclang

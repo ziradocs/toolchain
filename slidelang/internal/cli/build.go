@@ -8,8 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"go.ziradocs.com/slidelang/internal/generator"
+	"github.com/spf13/cobra"
 	"go.ziradocs.com/core/ast"
 	"go.ziradocs.com/core/config"
 	"go.ziradocs.com/core/diagnostics"
@@ -17,10 +18,11 @@ import (
 	"go.ziradocs.com/core/linter"
 	"go.ziradocs.com/core/parser"
 	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/report"
 	"go.ziradocs.com/core/transform"
 	"go.ziradocs.com/core/util"
 	"go.ziradocs.com/core/xref"
-	"github.com/spf13/cobra"
+	"go.ziradocs.com/slidelang/internal/generator"
 )
 
 // maxInputSizeEnvVar permite ajustar el límite de tamaño de entrada sin
@@ -28,13 +30,15 @@ import (
 const maxInputSizeEnvVar = "SLIDELANG_MAX_SIZE"
 
 type BuildOptions struct {
-	InputFile  string
-	OutputDir  string
-	Format     string
-	Mode       string
-	LogLevel   string // "silent", "basic", "detailed", "debug"
-	LintOnly   bool
-	LintConfig string // Ruta a un archivo YAML de política del linter (flag > frontmatter lint_policy: > default, ver linter.ResolvePolicyConfig)
+	InputFile    string
+	OutputDir    string
+	Format       string
+	Mode         string
+	LogLevel     string // "silent", "basic", "detailed", "debug"
+	LintOnly     bool
+	LintConfig   string // Ruta a un archivo YAML de política del linter (flag > frontmatter lint_policy: > default, ver linter.ResolvePolicyConfig)
+	ReportFormat string // Formato de reporte de linter (json, sarif)
+	ReportOut    string // Archivo de salida para el reporte
 	// Filters (issue #240, decisión C): rutas a binarios de filtro externo que
 	// transforman el AST entre parse y lint, en el orden dado. Ver
 	// core/transform para el contrato (JSON crudo por stdin/stdout,
@@ -72,7 +76,9 @@ type BuildOptions struct {
 	InstallChromium bool   // Auto-instalar Chromium si no se encuentra
 }
 
-func NewBuildCommand() *cobra.Command {
+func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
+	policyResolver func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error),
+	postLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error) *cobra.Command {
 	opts := &BuildOptions{}
 	cmd := &cobra.Command{
 		Use:   "build [file]",
@@ -114,8 +120,10 @@ Examples:
     # Enable content normalization with minimal output
   slidelang build slides.slidelang --enable-normalization --log-level warn`,
 		Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			opts.InputFile = args[0]
-			return runBuild(opts)
+			if len(args) > 0 {
+				opts.InputFile = args[0]
+			}
+			return runBuild(opts, customRules, rulePacks, externalRulepacks, policyResolver, postLint)
 		},
 	}
 	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "./dist", "Output directory")
@@ -126,6 +134,8 @@ Examples:
 	cmd.Flags().BoolVar(&opts.NoColors, "no-colors", false, "Disable colored output")
 	cmd.Flags().BoolVar(&opts.LintOnly, "lint-only", false, "Only run linter, don't generate output")
 	cmd.Flags().StringVar(&opts.LintConfig, "lint-config", "", "Path to a YAML linter policy file (enable/disable rules and override severity by diagnostic ID, e.g. IMG001). If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
+	cmd.Flags().StringVar(&opts.ReportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")
+	cmd.Flags().StringVar(&opts.ReportOut, "report-out", "", "Output path for the report (default: stdout)")
 	cmd.Flags().StringArrayVar(&opts.Filters, "filter", nil, "Path to an external filter binary that transforms the AST between parse and lint (repeatable; runs in the order given, each filter's output feeds the next). Communicates via JSON on stdin/stdout — see docs/architecture/json-ast-contract.md")
 	cmd.Flags().StringVar(&opts.IncludeRoot, "include-root", "", "Directory @include paths are confined to (default: the input file's directory); absolute paths and '..' outside it are rejected")
 	cmd.Flags().StringVar(&opts.AssetRoot, "asset-root", "", "Directory local image sources are confined to for --format pptx (default: the input file's directory); absolute paths and '..' outside it are rejected")
@@ -181,7 +191,15 @@ func parseFormats(raw string) []string {
 	return formats
 }
 
-func runBuild(opts *BuildOptions) error {
+func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
+	policyResolver func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error),
+	postLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error) error {
+	// Validate input file
+	if opts.InputFile == "" {
+		return fmt.Errorf("input file is required")
+	}
+	opts.InputFile = filepath.ToSlash(filepath.Clean(opts.InputFile))
+
 	// Load configuration file if available
 	cfg, err := config.LoadConfig("")
 	if err != nil {
@@ -436,12 +454,56 @@ func runBuild(opts *BuildOptions) error {
 
 	// 7. Ejecutar linter
 	util.Info("LINT", "Validando presentación...")
-	policy, err := linter.ResolvePolicyConfig(opts.LintConfig, astNode.FrontMatter)
-	if err != nil {
-		return err
+	var policy *linter.PolicyConfig
+	if policyResolver != nil {
+		p, err := policyResolver(opts.LintConfig, astNode.FrontMatter)
+		if err != nil {
+			return err
+		}
+		policy = p
+	} else {
+		p, err := linter.ResolvePolicyConfig(opts.LintConfig, astNode.FrontMatter)
+		if err != nil {
+			return err
+		}
+		policy = p
 	}
 	linterInstance := linter.New().WithPolicy(policy)
-	lintDiagnostics := linterInstance.Lint(astNode)
+
+	for _, rule := range customRules {
+		linterInstance.AddRule(rule)
+	}
+	for _, pack := range rulePacks {
+		for _, rule := range pack.Rules() {
+			linterInstance.AddRule(rule)
+		}
+	}
+
+	if len(externalRulepacks) > 0 {
+		linterInstance.WithRulepacks(externalRulepacks, 30*time.Second)
+	}
+
+	allDiagnostics := linterInstance.LintUnfiltered(astNode)
+
+	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, astNode.FilePath, time.Now())
+
+	if opts.ReportFormat != "" {
+		outPath := opts.ReportOut
+		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, astNode, content, externalRulepacks); err != nil {
+			return fmt.Errorf("failed to write report: %w", err)
+		}
+		if outPath != "" && outPath != "-" {
+			util.Info("LINT", "Reporte de evidencia generado en '%s'", outPath)
+		}
+	}
+
+	if postLint != nil {
+		if err := postLint(astNode, activeDiags, waivedDiags); err != nil {
+			return fmt.Errorf("post-lint hook failed: %w", err)
+		}
+	}
+
+	lintDiagnostics := activeDiags
 
 	// Contar warnings y errores
 	warningCount := 0

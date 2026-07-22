@@ -5,9 +5,9 @@ package cli
 
 import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.ziradocs.com/slidelang/internal/mcp"
-	"go.ziradocs.com/core/util"
 	"github.com/spf13/cobra"
+	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/slidelang/internal/mcp"
 )
 
 // NewMCPCommand expone slidelang como servidor MCP (Model Context Protocol,

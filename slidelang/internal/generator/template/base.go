@@ -8,9 +8,9 @@ import (
 	"regexp"
 	"strings"
 
-	"go.ziradocs.com/slidelang/internal/generator/css"
 	"go.ziradocs.com/core/renderer"
 	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/slidelang/internal/generator/css"
 )
 
 // TemplateBuilder construye templates HTML de forma modular usando el nuevo sistema CSS

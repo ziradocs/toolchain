@@ -7,11 +7,11 @@ import "testing"
 
 func TestNewPosition(t *testing.T) {
 	pos := NewPosition(10, 5)
-	
+
 	if pos.Line != 10 {
 		t.Errorf("Line = %d, want 10", pos.Line)
 	}
-	
+
 	if pos.Column != 5 {
 		t.Errorf("Column = %d, want 5", pos.Column)
 	}
@@ -27,7 +27,7 @@ func TestPosition_String(t *testing.T) {
 		{10, 5, "10:5"},
 		{100, 50, "100:50"},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
 			pos := NewPosition(tt.line, tt.column)
@@ -54,7 +54,7 @@ func TestPosition_IsValid(t *testing.T) {
 		{"Invalid column (negative)", 1, -1, false},
 		{"Both invalid", 0, 0, false},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pos := Position{Line: tt.line, Column: tt.column}
@@ -110,12 +110,12 @@ func TestPosition_Before(t *testing.T) {
 			expected: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tt.pos.Before(tt.other)
 			if result != tt.expected {
-				t.Errorf("Before() = %v, want %v for %v before %v", 
+				t.Errorf("Before() = %v, want %v for %v before %v",
 					result, tt.expected, tt.pos, tt.other)
 			}
 		})
