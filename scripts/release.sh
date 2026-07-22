@@ -49,7 +49,41 @@ git tag "core/$VERSION"
 git tag "doclang/$VERSION"
 git tag "slidelang/$VERSION"
 
-echo "☁️ Empujando tags a GitHub..."
-git push origin --tags
+# 4. Empujar el tag que dispara el release SOLO, en su propio push.
+#    (Empíricamente: con `git push origin --tags` empujando los 4 tags de
+#    golpe -core/, doclang/, slidelang/ y el global- al mismo commit, GitHub
+#    no dispara `on: push: tags:` de forma confiable -pasó en v2.0.6 y
+#    v2.1.1-. El único release histórico que sí disparó por push -v2.0.0- se
+#    empujó como tag único, antes de que este script existiera. Empujar el
+#    tag de release aparte evita depender de ese comportamiento no documentado.)
+echo "☁️ Empujando $VERSION (el tag que dispara el release)..."
+git push origin "refs/tags/$VERSION"
 
-echo "✅ ¡Tags publicados! El GitHub Action de release debería arrancar en unos segundos."
+echo "☁️ Empujando los tags de submódulo (core/doclang/slidelang)..."
+git push origin "refs/tags/core/$VERSION" "refs/tags/doclang/$VERSION" "refs/tags/slidelang/$VERSION"
+
+# 5. Confirmar que el workflow realmente arrancó; si no, dispararlo a mano.
+#    Requiere `gh` autenticado (mismo supuesto que el resto del repo).
+if command -v gh >/dev/null 2>&1; then
+  echo "🔎 Verificando que el workflow de release haya arrancado..."
+  triggered=false
+  for _ in $(seq 1 6); do
+    sleep 5
+    if gh run list --workflow=release.yml --event=push --limit 5 --json headBranch,createdAt \
+        --jq ".[] | select(.headBranch == \"$VERSION\")" 2>/dev/null | grep -q .; then
+      triggered=true
+      break
+    fi
+  done
+  if [[ "$triggered" == true ]]; then
+    echo "✅ El workflow de release arrancó por el push del tag."
+  else
+    echo "⚠️ El push del tag no disparó el workflow (ver comentario arriba). Disparándolo a mano..."
+    gh workflow run release.yml --ref "$VERSION"
+    echo "✅ Release disparado manualmente para $VERSION."
+  fi
+else
+  echo "⚠️ 'gh' no está instalado — no pude verificar ni disparar el workflow automáticamente."
+  echo "Revisa https://github.com/ziradocs/toolchain/actions y, si no arrancó, corre:"
+  echo "  gh workflow run release.yml --ref $VERSION"
+fi
