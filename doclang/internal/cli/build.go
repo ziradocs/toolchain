@@ -31,8 +31,9 @@ import (
 // operador que solo usa uno de los dos CLIs.
 const maxInputSizeEnvVar = "DOCLANG_MAX_SIZE"
 
-// NewBuildCommand creates the build command for doclang
-func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string) *cobra.Command {
+func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
+	policyResolver func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error),
+	postLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error) *cobra.Command {
 	var (
 		format          string
 		output          string
@@ -197,9 +198,19 @@ Examples:
 			// cablearlo acá es barato). Mismo motor de políticas configurable
 			// que slidelang --lint-config (ver linter.PolicyConfig).
 			log.Info("LINT", "Validating document...")
-			policy, err := linter.ResolvePolicyConfig(lintConfig, doc.FrontMatter)
-			if err != nil {
-				return err
+			var policy *linter.PolicyConfig
+			if policyResolver != nil {
+				p, err := policyResolver(lintConfig, doc.FrontMatter)
+				if err != nil {
+					return err
+				}
+				policy = p
+			} else {
+				p, err := linter.ResolvePolicyConfig(lintConfig, doc.FrontMatter)
+				if err != nil {
+					return err
+				}
+				policy = p
 			}
 			linterInstance := linter.New().WithPolicy(policy)
 			for _, rule := range customRules {
@@ -225,6 +236,12 @@ Examples:
 					return fmt.Errorf("failed to write report: %w", err)
 				}
 				log.Info("LINT", "Reporte de evidencia generado en '%s'", outPath)
+			}
+
+			if postLint != nil {
+				if err := postLint(doc, activeDiags, waivedDiags); err != nil {
+					return fmt.Errorf("post-lint hook failed: %w", err)
+				}
 			}
 
 			lintDiagnostics := activeDiags

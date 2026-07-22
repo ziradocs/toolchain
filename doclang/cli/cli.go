@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/diagnostics"
 	"go.ziradocs.com/core/linter"
 	internalcli "go.ziradocs.com/doclang/internal/cli"
 )
@@ -16,6 +18,8 @@ type Options struct {
 	CustomRules       []linter.Rule
 	RulePacks         []linter.RulePack
 	ExternalRulepacks []string
+	PolicyResolver    func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error)
+	PostLint          func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error
 }
 
 // NewRootCommand builds the root CLI command with the given options.
@@ -32,7 +36,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		Version: version,
 	}
 
-	rootCmd.AddCommand(internalcli.NewBuildCommand(opts.CustomRules, opts.RulePacks, opts.ExternalRulepacks))
+	rootCmd.AddCommand(internalcli.NewBuildCommand(opts.CustomRules, opts.RulePacks, opts.ExternalRulepacks, opts.PolicyResolver, opts.PostLint))
 	rootCmd.AddCommand(internalcli.NewFmtCommand())
 
 	return rootCmd

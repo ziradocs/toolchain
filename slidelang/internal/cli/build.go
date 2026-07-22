@@ -76,7 +76,9 @@ type BuildOptions struct {
 	InstallChromium bool   // Auto-instalar Chromium si no se encuentra
 }
 
-func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string) *cobra.Command {
+func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
+	policyResolver func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error),
+	postLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error) *cobra.Command {
 	opts := &BuildOptions{}
 	cmd := &cobra.Command{
 		Use:   "build [file]",
@@ -121,7 +123,7 @@ Examples:
 			if len(args) > 0 {
 				opts.InputFile = args[0]
 			}
-			return runBuild(opts, customRules, rulePacks, externalRulepacks)
+			return runBuild(opts, customRules, rulePacks, externalRulepacks, policyResolver, postLint)
 		},
 	}
 	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "./dist", "Output directory")
@@ -189,7 +191,9 @@ func parseFormats(raw string) []string {
 	return formats
 }
 
-func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string) error {
+func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
+	policyResolver func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error),
+	postLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error) error {
 	// Validate input file
 	if opts.InputFile == "" {
 		return fmt.Errorf("input file is required")
@@ -449,9 +453,19 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 
 	// 7. Ejecutar linter
 	util.Info("LINT", "Validando presentación...")
-	policy, err := linter.ResolvePolicyConfig(opts.LintConfig, astNode.FrontMatter)
-	if err != nil {
-		return err
+	var policy *linter.PolicyConfig
+	if policyResolver != nil {
+		p, err := policyResolver(opts.LintConfig, astNode.FrontMatter)
+		if err != nil {
+			return err
+		}
+		policy = p
+	} else {
+		p, err := linter.ResolvePolicyConfig(opts.LintConfig, astNode.FrontMatter)
+		if err != nil {
+			return err
+		}
+		policy = p
 	}
 	linterInstance := linter.New().WithPolicy(policy)
 
@@ -481,6 +495,12 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 			return fmt.Errorf("failed to write report: %w", err)
 		}
 		util.Info("LINT", "Reporte de evidencia generado en '%s'", outPath)
+	}
+
+	if postLint != nil {
+		if err := postLint(astNode, activeDiags, waivedDiags); err != nil {
+			return fmt.Errorf("post-lint hook failed: %w", err)
+		}
 	}
 
 	lintDiagnostics := activeDiags
