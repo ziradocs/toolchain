@@ -14,7 +14,7 @@ on:
       # "vendor-snapshot-1") también matchearía "v*" y dispararía un
       # `goreleaser release` real que aborta al no poder parsear la versión
       # del tag — un run de release fallido y rojo por un tag no relacionado.
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+      - "v[0-9]*.[0-9]*.[0-9]*"
 
 permissions:
   contents: write # crear el GitHub Release y subir sus assets
