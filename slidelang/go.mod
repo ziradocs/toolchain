@@ -2,8 +2,6 @@ module go.ziradocs.com/slidelang/v2
 
 go 1.26.5
 
-replace go.ziradocs.com/core/v2 => ../core
-
 require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/mmonterroca/pptxgo v0.0.0-20260719224718-11d79cc21c6b

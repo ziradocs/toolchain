@@ -51,8 +51,7 @@ examples/          # sample .slidelang / .doclang files
 ## Development setup
 
 There are **three independent Go modules** — you cannot build or test
-the whole repo from the root. Each CLI module has a `replace` directive pointing at the local
-core, and a gitignored root `go.work` also lists all three for local multi-module editing:
+the whole repo from the root:
 
 | Module | Path | Go version |
 |---|---|---|
@@ -60,24 +59,30 @@ core, and a gitignored root `go.work` also lists all three for local multi-modul
 | `slidelang` | `go.ziradocs.com/slidelang/v2` | 1.26.5 |
 | `doclang` | `go.ziradocs.com/doclang/v2` | 1.26.5 |
 
-`slidelang/go.mod` and `doclang/go.mod` both contain:
+`slidelang` and `doclang` depend on a **published** `go.ziradocs.com/core/v2` — no `replace`
+directive. CI, goreleaser, and `go install` for external consumers all fetch it over the network
+like any normal dependency, no special `GOPROXY`/`GOPRIVATE` needed (it's a real public domain
+with a working vanity redirect — confirmed against the default proxy chain). For local editing —
+change `core` and immediately build/test either CLI against it, from a checkout with both
+directories side by side (how this monorepo is laid out) — a gitignored root `go.work` (`use
+./core ./doclang ./slidelang`) does the job `replace` used to: no extra command needed, changes
+are picked up automatically. **This means the `core` you get depends on how you build:** a plain
+`go build`/`go test` picks up `go.work` and always uses the working-tree `core`, tag or not; a
+`GOWORK=off` build (what CI and any external `go install` do) resolves the pinned `require
+go.ziradocs.com/core/v2 vX.Y.Z` version over the network instead. If you bump `core` in a way
+slidelang/doclang need as an actual dependency (not just for local `go.work` builds), cut a new
+`core/vX.Y.Z` release first, then bump the `require` line in `slidelang/go.mod`/`doclang/go.mod`
+to that version.
 
-```
-replace go.ziradocs.com/core/v2 => ../core
-```
-
-so when you edit `core` and build/test either CLI from a checkout that has both
-directories side by side (which is how this monorepo is laid out), your local core changes are
-picked up automatically — no extra step, no `go mod` command needed.
-
-**`go install` over the vanity import now works — confirmed end-to-end against a clean module
-cache.** The website (`ziradocs/website`, separate repo) serves a 4-field `go-import` meta tag
-per module (`prefix vcs reporoot subdir`, e.g. `go.ziradocs.com/core/v2 git
-https://github.com/ziradocs/toolchain core`) — a form supported since Go 1.25 that declares the
-module's physical subdirectory explicitly, instead of making `go` derive it by stripping the
-major-version suffix (which is ambiguous when the module's subdirectory has the same name
-regardless of major version, as here, and was silently resolving to the wrong module or failing
-outright). Requires Go ≥1.25 on the installing machine for the initial handshake — not a new
+**`go install` over the vanity import works — confirmed end-to-end: clean module cache, no
+`GOWORK`, no `GOPRIVATE`, default `GOPROXY`.** The website (`ziradocs/website`, separate repo)
+serves a 4-field `go-import` meta tag per module (`prefix vcs reporoot subdir`, e.g.
+`go.ziradocs.com/core/v2 git https://github.com/ziradocs/toolchain core`) — a form supported
+since Go 1.25 that declares the module's physical subdirectory explicitly, instead of making `go`
+derive it by stripping the major-version suffix (which is ambiguous when the module's
+subdirectory has the same name regardless of major version, as here, and was silently resolving
+to the wrong module or failing outright — this is what made removing `replace` safe to do at
+all). Requires Go ≥1.25 on the installing machine for the initial handshake — not a new
 constraint, since this repo already requires 1.26.5.
 
 **A casualty of the same investigation: `core/v2.1.0`, `slidelang/v2.1.0`, and `doclang/v2.1.0`
@@ -88,12 +93,6 @@ cut 2026-07-21, a day before the module paths were bumped to `/v2` (commit `5820
 *explicit* `@v2.0.6` request, because `go` enumerates all matching tags during resolution and
 aborts on the first invalid one it finds. The fix was a new `v2.1.1` release cut from current
 `HEAD`, not touching (or reusing) the already-published `v2.1.0` tags.
-
-**The `replace` directives stay committed anyway — this is now a deliberate release-model
-decision, not a blocker.** Removing them means CI/goreleaser (neither sets up a `go.work`) would
-fetch `core` over the network on every build instead of using the local checkout — i.e. `core`
-would need to be tagged and published *before* slidelang/doclang can build against it. That's a
-real workflow change worth making on purpose, not as a side effect of an unrelated fix.
 
 **Always `cd` into the specific module before running Go tooling.** `go build ./...` at the repo
 root will fail — there's no module there.

@@ -2,8 +2,6 @@ module go.ziradocs.com/doclang/v2
 
 go 1.26.5
 
-replace go.ziradocs.com/core/v2 => ../core
-
 require (
 	github.com/mmonterroca/docxgo/v2 v2.1.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
