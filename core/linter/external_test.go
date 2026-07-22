@@ -66,7 +66,10 @@ func TestExternalRulepack_Timeout(t *testing.T) {
 	scriptContent := `#!/bin/bash
 sleep 2
 `
-	os.WriteFile(scriptPath, []byte(scriptContent), 0755)
+	err := os.WriteFile(scriptPath, []byte(scriptContent), 0755)
+	if err != nil {
+		t.Fatalf("Failed to write fake rulepack: %v", err)
+	}
 
 	l := NewWithRules()
 	l.WithRulepacks([]string{scriptPath}, 100*time.Millisecond) // Fast timeout
