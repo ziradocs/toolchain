@@ -9,9 +9,9 @@ import (
 	"context"
 	"fmt"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/core/renderer/chromium"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/renderer/chromium"
 )
 
 // offline.go conecta slidelang al pipeline de rendering offline que ya vive en

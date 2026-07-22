@@ -4,12 +4,12 @@
 package normalizer
 
 import (
-	"go.ziradocs.com/core/internal/normalize/normalizer/base"
-	"go.ziradocs.com/core/internal/normalize/normalizer/rules/content"
-	"go.ziradocs.com/core/internal/normalize/normalizer/rules/enhancement"
-	"go.ziradocs.com/core/internal/normalize/normalizer/rules/frontmatter"
-	"go.ziradocs.com/core/internal/normalize/normalizer/rules/structure"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/rules/content"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/rules/enhancement"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/rules/frontmatter"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/rules/structure"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // GetTransformRules retorna todas las reglas de transformación en orden de prioridad

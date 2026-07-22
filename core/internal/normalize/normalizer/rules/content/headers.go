@@ -6,7 +6,7 @@ package content
 import (
 	"strings"
 
-	"go.ziradocs.com/core/internal/normalize/normalizer/base"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
 // HeadersRule convierte headers ## dentro del contenido a texto plano

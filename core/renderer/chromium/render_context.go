@@ -8,8 +8,8 @@ package chromium
 import (
 	"context"
 
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // RenderContextOptions configura NewRenderContext — mismos nombres/semántica

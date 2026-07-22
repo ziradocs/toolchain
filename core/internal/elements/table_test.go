@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 func TestTableParser_CanParse(t *testing.T) {

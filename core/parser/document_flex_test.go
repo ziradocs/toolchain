@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // TestDocumentFlexParser_NoInfiniteLoopOnAsteriskAfterAngleBracket es una

@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // TestGetTransformRules_ReturnsExpectedRuleSet cubre el gap señalado en

@@ -1,4 +1,4 @@
-module go.ziradocs.com/core
+module go.ziradocs.com/core/v2
 
 go 1.26.5
 
@@ -10,6 +10,7 @@ require (
 	github.com/golang/geo v0.0.0-20260302211937-87f5a40ea07a
 	github.com/invopop/jsonschema v0.14.0
 	github.com/pb33f/ordered-map/v2 v2.3.1
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	go.yaml.in/yaml/v3 v3.0.4
 )
 
@@ -28,7 +29,6 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mazznoer/csscolorparser v0.1.8 // indirect
-	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/tkrajina/gpxgo v1.4.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/image v0.43.0 // indirect

@@ -16,15 +16,15 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/parser"
-	"go.ziradocs.com/core/util"
-	"go.ziradocs.com/slidelang/internal/generator"
-	"go.ziradocs.com/slidelang/internal/generator/config"
-	"go.ziradocs.com/slidelang/internal/generator/css/themes"
-	"go.ziradocs.com/slidelang/internal/generator/data"
-	templateBuilder "go.ziradocs.com/slidelang/internal/generator/template"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/generator"
+	"go.ziradocs.com/slidelang/v2/internal/generator/config"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
+	"go.ziradocs.com/slidelang/v2/internal/generator/data"
+	templateBuilder "go.ziradocs.com/slidelang/v2/internal/generator/template"
 )
 
 // PreviewThemeCmd creates a new theme preview command

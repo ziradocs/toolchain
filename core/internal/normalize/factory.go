@@ -7,8 +7,8 @@ import (
 	"errors"
 	"time"
 
-	"go.ziradocs.com/core/internal/normalize/normalizer"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ContentMode define los diferentes modos de procesamiento de contenido

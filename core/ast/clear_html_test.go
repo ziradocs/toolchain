@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // TestClearRenderedHTMLActuallyClears verifica la propiedad de seguridad en

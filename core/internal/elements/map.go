@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MapParser maneja el parsing de mapas Leaflet

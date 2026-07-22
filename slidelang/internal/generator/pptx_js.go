@@ -8,7 +8,7 @@ package generator
 import (
 	"fmt"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // generatePPTX's real implementation (pptx.go) pulls in pptxgo y el pipeline

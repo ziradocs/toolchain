@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // slideWithTextElement crea un ContentBlock de un solo TextElement, para las

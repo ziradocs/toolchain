@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/core/renderer/chromium"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/renderer/chromium"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // PDFGenerator genera documentos PDF usando Chromium

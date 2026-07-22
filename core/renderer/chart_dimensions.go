@@ -3,7 +3,7 @@
 
 package renderer
 
-import "go.ziradocs.com/core/ast"
+import "go.ziradocs.com/core/v2/ast"
 
 // ChartDimensions resuelve las dimensiones de render de elem — 800x600 por
 // default, o elem.Width/elem.Height si el autor los especificó. Única

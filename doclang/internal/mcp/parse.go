@@ -14,12 +14,12 @@ package mcp
 import (
 	"fmt"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/parser"
-	"go.ziradocs.com/core/transform"
-	"go.ziradocs.com/core/util"
-	"go.ziradocs.com/core/xref"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/transform"
+	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/core/v2/xref"
 )
 
 // maxConcurrentParses acota cuántas llamadas a parseSource pueden estar en

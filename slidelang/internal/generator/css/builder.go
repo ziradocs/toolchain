@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"go.ziradocs.com/slidelang/internal/generator/css/themes"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 )
 
 // CSSBuilder builds CSS from modular components

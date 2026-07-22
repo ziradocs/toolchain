@@ -9,8 +9,8 @@ import (
 	"context"
 	"fmt"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // ChartFetcher maneja la obtención y almacenamiento de gráficos renderizados

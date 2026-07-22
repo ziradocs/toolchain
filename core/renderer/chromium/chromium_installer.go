@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 const (

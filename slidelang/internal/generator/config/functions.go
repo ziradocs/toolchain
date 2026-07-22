@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // directiveAttrInvalidChars es la whitelist inversa para el nombre de

@@ -6,8 +6,8 @@ package elements
 import (
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MathParser maneja el parsing de ecuaciones/fórmulas LaTeX en bloque (issue

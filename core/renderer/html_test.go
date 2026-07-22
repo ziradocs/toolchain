@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // TestRenderChartElement_JSONMode_EscapesScriptBreakout cubre issue #19 (CR-1

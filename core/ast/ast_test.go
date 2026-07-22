@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"testing"
 
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 func TestBaseNode(t *testing.T) {

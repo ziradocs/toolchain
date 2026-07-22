@@ -3,7 +3,7 @@
 
 package ast
 
-import "go.ziradocs.com/core/diagnostics"
+import "go.ziradocs.com/core/v2/diagnostics"
 
 // DirectiveNode representa una directiva que modifica el comportamiento
 type DirectiveNode struct {

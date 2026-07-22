@@ -8,9 +8,9 @@ package main
 import (
 	"syscall/js"
 
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/slidelang/internal/generator"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/slidelang/v2/internal/generator"
 )
 
 type renderOutput struct {

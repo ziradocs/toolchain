@@ -9,12 +9,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"go.ziradocs.com/core/ast"
-	globalConfig "go.ziradocs.com/core/config"
-	"go.ziradocs.com/slidelang/internal/generator/config"
-	"go.ziradocs.com/slidelang/internal/generator/css/themes"
-	"go.ziradocs.com/slidelang/internal/generator/data"
-	templateBuilder "go.ziradocs.com/slidelang/internal/generator/template"
+	"go.ziradocs.com/core/v2/ast"
+	globalConfig "go.ziradocs.com/core/v2/config"
+	"go.ziradocs.com/slidelang/v2/internal/generator/config"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
+	"go.ziradocs.com/slidelang/v2/internal/generator/data"
+	templateBuilder "go.ziradocs.com/slidelang/v2/internal/generator/template"
 )
 
 // generateHTML crea una presentación HTML autocontenida o con archivos separados

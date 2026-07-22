@@ -7,7 +7,7 @@ import (
 	"embed"
 	"fmt"
 
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 //go:embed assets/js/modules/mermaid.js

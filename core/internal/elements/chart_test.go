@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 func TestChartParser_CanParse(t *testing.T) {

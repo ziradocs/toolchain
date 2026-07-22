@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // TestSerializeToJSON_ProseCoverage cubre issue #9: --format json debe incluir el

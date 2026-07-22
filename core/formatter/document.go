@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // FormatDocument serializa doc a la forma canónica de DocLang: `# título`

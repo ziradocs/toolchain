@@ -4,7 +4,7 @@
 package generator
 
 import (
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // DOCXStyle representa los estilos aplicables a documentos DOCX

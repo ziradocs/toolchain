@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // refPattern reconoce \ref{label} en cualquier campo de texto.

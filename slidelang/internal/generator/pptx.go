@@ -18,8 +18,8 @@ import (
 	"strings"
 
 	"github.com/mmonterroca/pptxgo/pptx"
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // pptx.go implementa --format pptx (issue #129), AST → .pptx vía pptxgo

@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // MapFetcher maneja la obtención y almacenamiento de mapas renderizados

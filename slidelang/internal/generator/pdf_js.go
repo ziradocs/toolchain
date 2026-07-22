@@ -8,7 +8,7 @@ package generator
 import (
 	"fmt"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // generatePDF's real implementation (pdf.go) needs renderer/chromium, which

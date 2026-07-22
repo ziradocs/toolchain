@@ -7,9 +7,9 @@ import (
 	"context"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/linter"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/linter"
+	"go.ziradocs.com/core/v2/util"
 )
 
 type lintInput struct {

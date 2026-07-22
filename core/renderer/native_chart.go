@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-analyze/charts"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // native_chart.go implementa la rasterización nativa de charts (issue #130):

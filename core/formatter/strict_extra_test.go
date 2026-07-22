@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // TestFormatStrict_RoundTrip_EdgeCases cubre construcciones que el corpus

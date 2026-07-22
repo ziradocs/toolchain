@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // DocumentHTMLOptions configura la generación del documento HTML

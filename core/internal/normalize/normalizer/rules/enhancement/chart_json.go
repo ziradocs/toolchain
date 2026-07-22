@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"go.ziradocs.com/core/internal/normalize/normalizer/base"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
 // Patrones compilados una sola vez a nivel de paquete — chartBlockPattern en

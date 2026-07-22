@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 func TestIsBlockedFetchTarget(t *testing.T) {

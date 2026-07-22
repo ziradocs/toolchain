@@ -4,7 +4,7 @@
 package template
 
 import (
-	"go.ziradocs.com/slidelang/internal/generator/css/themes"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 )
 
 // Theme adapta el nuevo sistema de themes para compatibilidad

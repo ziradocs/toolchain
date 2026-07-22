@@ -6,9 +6,9 @@ package elements
 import (
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ElementType representa los tipos de elementos que pueden ser parseados

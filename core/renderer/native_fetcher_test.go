@@ -9,8 +9,8 @@ import (
 	"context"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // TestNativeChartFetcher_SeedAvoidsReRender prueba el fix de eficiencia de

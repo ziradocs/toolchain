@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ThemeLoader maneja la carga de temas embebidos y externos

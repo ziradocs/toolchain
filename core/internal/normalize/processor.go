@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"go.ziradocs.com/core/internal/normalize/inference"
-	"go.ziradocs.com/core/internal/normalize/normalizer"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/internal/normalize/inference"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ProcessorConfig contiene la configuración para el procesador AI

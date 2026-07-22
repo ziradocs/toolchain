@@ -4,8 +4,8 @@
 package data
 
 import (
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // convertPointItems convierte items de puntos del AST a template data

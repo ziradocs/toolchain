@@ -6,7 +6,7 @@ package parser
 import (
 	"testing"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // Issue #45: el parser consume input no confiable (contenido de un archivo

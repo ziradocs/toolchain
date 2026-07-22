@@ -6,7 +6,7 @@ package renderer
 import (
 	"context"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // Interfaces consumer-side (issue #134/G1b): renderer necesita nombrar la

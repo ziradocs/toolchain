@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // findDiagnosticByRuleID busca por el campo RuleID (el que usa rules.go vía

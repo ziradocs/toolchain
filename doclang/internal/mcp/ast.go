@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/util"
-	"go.ziradocs.com/doclang/internal/generator"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/doclang/v2/internal/generator"
 )
 
 type getASTInput struct {

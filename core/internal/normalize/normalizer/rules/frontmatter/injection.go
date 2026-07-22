@@ -4,7 +4,7 @@
 package frontmatter
 
 import (
-	"go.ziradocs.com/core/internal/normalize/normalizer/base"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
 // InjectionRule inyecta frontmatter faltante

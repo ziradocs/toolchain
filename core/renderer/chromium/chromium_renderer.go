@@ -16,7 +16,7 @@ import (
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // Content-Security-Policy aplicadas a las páginas temporales que chromedp

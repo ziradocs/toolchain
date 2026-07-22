@@ -6,7 +6,7 @@ package renderer
 import (
 	"fmt"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ChromiumLoggerAdapter adapta un util.Logger genérico a ChromiumLogger (y

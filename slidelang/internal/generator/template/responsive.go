@@ -4,7 +4,7 @@
 package template
 
 import (
-	"go.ziradocs.com/slidelang/internal/generator/css"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css"
 )
 
 // GetResponsiveCSS retorna los estilos CSS responsivos desde los assets modulares

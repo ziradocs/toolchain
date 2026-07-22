@@ -8,8 +8,8 @@ package main
 import (
 	"syscall/js"
 
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/linter"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/linter"
 )
 
 // lintOutput mirrors slidelang/internal/mcp/lint.go's lintOutput shape —

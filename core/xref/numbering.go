@@ -6,7 +6,7 @@ package xref
 import (
 	"fmt"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // AssignNumbers es la Fase A: recorre doc en orden de documento (ast.Walk),

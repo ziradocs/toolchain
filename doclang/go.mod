@@ -1,14 +1,14 @@
-module go.ziradocs.com/doclang
+module go.ziradocs.com/doclang/v2
 
 go 1.26.5
 
-replace go.ziradocs.com/core => ../core
+replace go.ziradocs.com/core/v2 => ../core
 
 require (
 	github.com/mmonterroca/docxgo/v2 v2.1.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	go.ziradocs.com/core v0.0.0
 	github.com/spf13/cobra v1.10.2
+	go.ziradocs.com/core/v2 v2.0.0
 	golang.org/x/text v0.40.0
 )
 

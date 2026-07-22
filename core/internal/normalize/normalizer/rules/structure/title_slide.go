@@ -6,7 +6,7 @@ package structure
 import (
 	"strings"
 
-	"go.ziradocs.com/core/internal/normalize/normalizer/base"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
 // TitleSlideRule inyecta un slide de título cuando falta

@@ -4,9 +4,9 @@
 package normalize
 
 import (
-	"go.ziradocs.com/core/internal/normalize/inference"
-	"go.ziradocs.com/core/internal/normalize/normalizer"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/internal/normalize/inference"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ProcessContent es la API unificada para procesar contenido con un modo específico

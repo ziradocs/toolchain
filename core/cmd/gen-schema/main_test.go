@@ -9,7 +9,7 @@ import (
 	"github.com/invopop/jsonschema"
 	orderedmap "github.com/pb33f/ordered-map/v2"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 func newDefWithProps(props ...string) *jsonschema.Schema {

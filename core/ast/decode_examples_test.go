@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/parser"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // TestDecodeASTRoundTripAgainstExamples es la garantía de fondo del decoder

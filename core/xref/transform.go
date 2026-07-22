@@ -6,7 +6,7 @@ package xref
 import (
 	"fmt"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // Transform es el built-in de numeración+refs cruzadas de #239, con la

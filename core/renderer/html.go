@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/xref"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/xref"
 )
 
 // RenderElementToHTML convierte un elemento AST a HTML.

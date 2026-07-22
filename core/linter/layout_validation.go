@@ -6,8 +6,8 @@ package linter
 import (
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // SlideLayoutSchema define las propiedades válidas para cada tipo de slide

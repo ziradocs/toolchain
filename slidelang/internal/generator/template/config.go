@@ -4,7 +4,7 @@
 package template
 
 import (
-	"go.ziradocs.com/slidelang/internal/generator/css"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css"
 )
 
 // PresentationConfig define la configuración esencial para una presentación

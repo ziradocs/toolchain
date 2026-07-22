@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MermaidParser maneja el parsing de diagramas Mermaid

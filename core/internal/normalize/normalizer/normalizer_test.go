@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 func TestDetector_New(t *testing.T) {

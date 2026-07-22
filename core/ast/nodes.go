@@ -6,7 +6,7 @@ package ast
 import (
 	"encoding/json"
 
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // HeaderFooterConfig representa la configuración global de headers y footers

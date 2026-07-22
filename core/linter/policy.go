@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // RulePolicy es la configuración de una regla individual, identificada por

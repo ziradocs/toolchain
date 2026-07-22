@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/linter"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/linter"
 )
 
 func TestWriteReport_JSON(t *testing.T) {

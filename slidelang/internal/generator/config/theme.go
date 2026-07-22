@@ -3,7 +3,7 @@
 
 package config
 
-import "go.ziradocs.com/core/ast"
+import "go.ziradocs.com/core/v2/ast"
 
 // ExtractThemeFromFrontmatter extrae el tema del frontmatter o retorna "default"
 func ExtractThemeFromFrontmatter(frontmatter *ast.FrontMatterNode) string {

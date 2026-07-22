@@ -17,7 +17,7 @@ import (
 
 	"github.com/invopop/jsonschema"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // elementTypes enumera todos los tipos concretos que implementan ast.Element

@@ -6,7 +6,7 @@ package enhancement
 import (
 	"strings"
 
-	"go.ziradocs.com/core/internal/normalize/normalizer/base"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
 // MermaidFormatterRule formatea correctamente los bloques <<mermaid>> para que sean compatibles con el parser flex

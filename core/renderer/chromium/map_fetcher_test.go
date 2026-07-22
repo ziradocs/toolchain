@@ -6,7 +6,7 @@ package chromium
 import (
 	"testing"
 
-	"go.ziradocs.com/core/renderer"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // TestGenerateMapHash_IncludesDimensions cubre el hallazgo aplicado por

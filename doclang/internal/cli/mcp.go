@@ -6,8 +6,8 @@ package cli
 import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
-	"go.ziradocs.com/core/util"
-	"go.ziradocs.com/doclang/internal/mcp"
+	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/doclang/v2/internal/mcp"
 )
 
 // NewMCPCommand expone doclang como servidor MCP (Model Context Protocol,

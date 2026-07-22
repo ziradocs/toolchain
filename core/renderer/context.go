@@ -6,7 +6,7 @@ package renderer
 import (
 	"context"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // RenderContext mantiene el contexto de rendering compartido

@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/core/util"
-	"go.ziradocs.com/doclang/themes/document"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/doclang/v2/themes/document"
 )
 
 // GeneratorOptions define las opciones de generación de documentos

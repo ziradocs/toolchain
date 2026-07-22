@@ -26,8 +26,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.ziradocs.com/core/parser"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ReadFunc lee el contenido de una ruta ya confinada dentro de baseDir. Cada

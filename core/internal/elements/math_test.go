@@ -6,7 +6,7 @@ package elements
 import (
 	"testing"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 func TestMathParser_CanParse(t *testing.T) {

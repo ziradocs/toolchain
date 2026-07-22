@@ -4,7 +4,7 @@
 package main
 
 import (
-	"go.ziradocs.com/doclang/cli"
+	"go.ziradocs.com/doclang/v2/cli"
 )
 
 // version is stamped at build time via -ldflags "-X main.version=vX.Y.Z"

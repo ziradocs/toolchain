@@ -7,7 +7,7 @@ import (
 	"embed"
 	"io/fs"
 
-	"go.ziradocs.com/slidelang/internal/generator/css"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css"
 )
 
 //go:embed assets/js/modules/*.js

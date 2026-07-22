@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/core/renderer/chromium"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/renderer/chromium"
 )
 
 // pdf.go implementa --format pdf (issue #128), reusando el mismo pipeline de

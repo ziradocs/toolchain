@@ -11,14 +11,14 @@ import (
 	"sort"
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/slidelang/internal/generator/config"
-	"go.ziradocs.com/slidelang/internal/generator/css/themes"
-	"go.ziradocs.com/slidelang/internal/generator/data"
-	"go.ziradocs.com/slidelang/internal/generator/formatter"
-	"go.ziradocs.com/slidelang/internal/generator/modules"
-	templateBuilder "go.ziradocs.com/slidelang/internal/generator/template"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/slidelang/v2/internal/generator/config"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
+	"go.ziradocs.com/slidelang/v2/internal/generator/data"
+	"go.ziradocs.com/slidelang/v2/internal/generator/formatter"
+	"go.ziradocs.com/slidelang/v2/internal/generator/modules"
+	templateBuilder "go.ziradocs.com/slidelang/v2/internal/generator/template"
 )
 
 // PresentationConfig encapsula toda la configuración necesaria para generar una presentación

@@ -5,10 +5,10 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/linter"
-	internalcli "go.ziradocs.com/doclang/internal/cli"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/linter"
+	internalcli "go.ziradocs.com/doclang/v2/internal/cli"
 )
 
 // Options holds configuration for the CLI entrypoint, allowing external

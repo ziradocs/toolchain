@@ -11,17 +11,17 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/include"
-	"go.ziradocs.com/core/linter"
-	"go.ziradocs.com/core/parser"
-	"go.ziradocs.com/core/report"
-	"go.ziradocs.com/core/transform"
-	"go.ziradocs.com/core/util"
-	"go.ziradocs.com/core/xref"
-	"go.ziradocs.com/doclang/internal/generator"
-	"go.ziradocs.com/doclang/themes/document" // 🆕 Theme system
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/include"
+	"go.ziradocs.com/core/v2/linter"
+	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/report"
+	"go.ziradocs.com/core/v2/transform"
+	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/core/v2/xref"
+	"go.ziradocs.com/doclang/v2/internal/generator"
+	"go.ziradocs.com/doclang/v2/themes/document" // 🆕 Theme system
 )
 
 // maxInputSizeEnvVar permite ajustar el límite de tamaño de entrada sin

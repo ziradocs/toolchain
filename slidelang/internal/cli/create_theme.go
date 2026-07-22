@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"go.ziradocs.com/core/util"
-	"go.ziradocs.com/slidelang/internal/generator/css"
+	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css"
 )
 
 // CreateThemeCmd creates a new theme command

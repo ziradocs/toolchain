@@ -1,38 +1,38 @@
 // Copyright 2026 Misael Monterroca
 // SPDX-License-Identifier: Apache-2.0
 
-// Package core es el motor compartido de parsing, AST, linting y renderizado
-// que usan los CLIs slidelang y doclang. A partir de v2.0.0, este módulo
-// provee una API pública y estable para integraciones de terceros.
+// Package core is the shared engine for parsing, AST, linting, and rendering
+// used by the slidelang and doclang CLIs. Starting from v2.0.0, this module
+// provides a stable public API for third-party integrations.
 //
-// # Modelo de consumo
+// # Consumption Model
 //
-// SlideLang/DocLang se pueden usar como binarios independientes, o se pueden
-// embeber en otros programas Go para inyectar reglas de validación custom.
+// SlideLang/DocLang can be used as standalone binaries, or they can be
+// embedded in other Go programs to inject custom validation rules.
 //
 //	import (
-//		"go.ziradocs.com/slidelang/cli"
-//		"go.ziradocs.com/core/linter"
+//		"go.ziradocs.com/slidelang/v2/v2/cli"
+//		"go.ziradocs.com/core/v2/v2/linter"
 //	)
 //
 //	func main() {
 //		cli.Execute(cli.Options{
-//			CustomRules: []linter.Rule{MiRegla{}},
+//			CustomRules: []linter.Rule{MyRule{}},
 //		})
 //	}
 //
-// # Contratos públicos estables (v2.x)
+// # Stable Public Contracts (v2.x)
 //
-// Lo que este proyecto promete mantener y versionar según SemVer:
+// What this project promises to maintain and version according to SemVer:
 //
-//  1. La API de entrada a los CLIs (paquetes slidelang/cli y doclang/cli),
-//     en particular la estructura cli.Options que permite inyectar políticas,
-//     reglas custom, y ganchos PostLint.
+//  1. The entry point API for the CLIs (slidelang/cli and doclang/cli packages),
+//     specifically the cli.Options struct which allows injecting policies,
+//     custom rules, and PostLint hooks.
 //
-//  2. El esquema serializado (json) del AST se versiona de forma independiente
-//     bajo ast.SchemaVersion (ver @ziradocs/ast-types y docs/architecture/json-ast-contract.md).
+//  2. The serialized AST (json) schema is versioned independently
+//     under ast.SchemaVersion (see @ziradocs/ast-types and docs/architecture/json-ast-contract.md).
 //
-// El resto de la API Go (core/ast, core/linter, etc.) NO tiene garantías SemVer
-// y puede cambiar en versiones menores. La estructura HTML generada y sus
-// clases CSS tampoco son parte de este contrato estable.
+// The rest of the Go API (core/ast, core/linter, etc.) has NO SemVer guarantees
+// and may change in minor versions. The generated HTML structure and its
+// CSS classes are also not part of this stable contract.
 package core

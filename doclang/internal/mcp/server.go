@@ -5,7 +5,7 @@ package mcp
 
 import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // serverVersion se mantiene independiente de la versión del binario doclang

@@ -4,7 +4,7 @@
 package template
 
 import (
-	"go.ziradocs.com/slidelang/internal/generator/css"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css"
 )
 
 // GetResetCSS retorna solo los estilos CSS de reset

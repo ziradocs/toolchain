@@ -6,7 +6,7 @@ package ast
 import (
 	"testing"
 
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // TestWalkVisitsEveryReachableNode construye un AST con anidamiento real en

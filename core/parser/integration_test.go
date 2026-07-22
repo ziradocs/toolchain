@@ -6,7 +6,7 @@ package parser
 import (
 	"testing"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 func TestParser_Integration_BasicDocument(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 //go:embed assets/css/base/*.css

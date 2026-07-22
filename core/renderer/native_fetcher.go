@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // native_fetcher.go implementa ChartFetcher (fetchers.go) SIN Chromium

@@ -3,7 +3,7 @@
 
 package ast
 
-import "go.ziradocs.com/core/diagnostics"
+import "go.ziradocs.com/core/v2/diagnostics"
 
 // SchemaVersion es la versión semver del contrato JSON/AST expuesto por
 // --format json (ver schema/ast.schema.json y el paquete @ziradocs/ast-types).

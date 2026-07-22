@@ -3,7 +3,7 @@
 
 package renderer
 
-import "go.ziradocs.com/core/ast"
+import "go.ziradocs.com/core/v2/ast"
 
 // PopulateInlineHTML rellena los campos "*HTML" de un AST completo (issue
 // #64): title/heading/subtitle de cada ContentBlock y el contenido de prosa

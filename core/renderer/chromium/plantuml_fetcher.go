@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // plantumlMaxResponseBytes acota la respuesta del servidor PlantUML (SVG/PNG)

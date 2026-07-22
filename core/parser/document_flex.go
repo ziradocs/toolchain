@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"strings"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
-	"go.ziradocs.com/core/internal/elements"
-	"go.ziradocs.com/core/internal/normalize"
-	"go.ziradocs.com/core/internal/normalize/normalizer"
-	"go.ziradocs.com/core/renderer"
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/internal/normalize"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
+	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // DocumentFlexParser parsea documentos Markdown puros con jerarquía correcta

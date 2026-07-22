@@ -44,7 +44,7 @@ import (
 	"os/exec"
 	"time"
 
-	"go.ziradocs.com/core/ast"
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // Transform es la firma de un transform BUILT-IN: recibe el AST ya parseado

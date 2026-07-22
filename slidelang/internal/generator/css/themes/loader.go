@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"go.ziradocs.com/core/util"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ThemeLoader manages loading and caching of both embedded and external themes

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"syscall/js"
 
-	cssthemes "go.ziradocs.com/slidelang/internal/generator/css/themes"
-	wasmthemes "go.ziradocs.com/slidelang/themes"
+	cssthemes "go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
+	wasmthemes "go.ziradocs.com/slidelang/v2/themes"
 )
 
 // namedThemeOverrideCSS returns a <style> block with a marquee named theme's

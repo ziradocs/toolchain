@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"go.ziradocs.com/core/ast"
-	"go.ziradocs.com/core/diagnostics"
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 func sampleDoc(t *testing.T) *ast.AST {
