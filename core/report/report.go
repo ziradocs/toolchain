@@ -12,7 +12,7 @@ import (
 )
 
 // WriteReport generates the diagnostic report in the requested format and writes it to outPath.
-func WriteReport(format, outPath string, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic, doc *ast.AST, content []byte, rulepacks []string) error {
+func WriteReport(format, outPath string, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic, descriptors []linter.RuleDescriptor, doc *ast.AST, content []byte, rulepacks []string) error {
 	var data []byte
 	var err error
 
@@ -31,9 +31,9 @@ func WriteReport(format, outPath string, active []diagnostics.Diagnostic, waived
 		if content != nil {
 			checksum = fmt.Sprintf("%x", sha256.Sum256(content))
 		}
-		data, err = generateJSON(active, waived, docPath, schemaVersion, checksum, rulepacks)
+		data, err = generateJSON(active, waived, docPath, schemaVersion, checksum, rulepacks, descriptors)
 	case "sarif":
-		data, err = generateSARIF(active, waived, docPath)
+		data, err = generateSARIF(active, waived, docPath, descriptors)
 	default:
 		return fmt.Errorf("formato de reporte no soportado: %s", format)
 	}

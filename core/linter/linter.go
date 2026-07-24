@@ -107,35 +107,49 @@ func (l *Linter) AddRule(r Rule) *Linter {
 }
 
 // LintUnfiltered runs all rules and returns all findings without evaluating
-// the policy (without filtering waivers or modifying severities).
+// the policy (without filtering waivers or modifying severities). No muta el
+// receptor, así que un *Linter puede reutilizarse (incluso entre goroutines)
+// para varios documentos. Descarta los descriptores de rulepacks externos;
+// usa LintUnfilteredWithDescriptors si los necesitas para el reporte.
 func (l *Linter) LintUnfiltered(astNode *ast.AST) []diagnostics.Diagnostic {
+	diags, _ := l.LintUnfilteredWithDescriptors(astNode)
+	return diags
+}
+
+// LintUnfilteredWithDescriptors corre todas las reglas y además devuelve los
+// RuleDescriptor que los rulepacks externos declararon en ESTA corrida. Los
+// descriptores se DEVUELVEN, no se almacenan en el receptor: por eso el
+// *Linter sigue siendo seguro de reutilizar/compartir entre documentos.
+func (l *Linter) LintUnfilteredWithDescriptors(astNode *ast.AST) ([]diagnostics.Diagnostic, []RuleDescriptor) {
 	var allDiagnostics []diagnostics.Diagnostic
+	var externalDescriptors []RuleDescriptor
 
 	// Ejecutar todas las reglas en el AST
 	for _, rule := range l.rules {
-		diagnostics := rule.Check(astNode)
-		allDiagnostics = append(allDiagnostics, diagnostics...)
+		diags := rule.Check(astNode)
+		allDiagnostics = append(allDiagnostics, diags...)
 	}
 
 	// También ejecutar reglas en cada slide
 	for _, slide := range astNode.ContentBlocks {
 		for _, rule := range l.rules {
-			diagnostics := rule.Check(&slide)
-			allDiagnostics = append(allDiagnostics, diagnostics...)
+			diags := rule.Check(&slide)
+			allDiagnostics = append(allDiagnostics, diags...)
 		}
 	}
 
 	for _, packPath := range l.externalRulepacks {
-		extDiags, err := runExternalRulepack(astNode, packPath, l.externalTimeout)
+		extDiags, extDescriptors, err := runExternalRulepack(astNode, packPath, l.externalTimeout)
 		if err != nil {
 			errDiag := diagnostics.NewError(fmt.Sprintf("external rulepack %s failed: %v", packPath, err), diagnostics.Position{}, "LINTER_SYS_ERR")
 			allDiagnostics = append(allDiagnostics, errDiag)
 		} else {
 			allDiagnostics = append(allDiagnostics, extDiags...)
+			externalDescriptors = append(externalDescriptors, extDescriptors...)
 		}
 	}
 
-	return allDiagnostics
+	return allDiagnostics, externalDescriptors
 }
 
 func (l *Linter) Lint(astNode *ast.AST) []diagnostics.Diagnostic {

@@ -23,8 +23,19 @@ type Tool struct {
 }
 
 type Driver struct {
-	Name           string `json:"name"`
-	InformationUri string `json:"informationUri"`
+	Name           string                `json:"name"`
+	InformationUri string                `json:"informationUri"`
+	Rules          []ReportingDescriptor `json:"rules,omitempty"`
+}
+
+// ReportingDescriptor modela el campo SARIF 2.1.0 driver.rules[] — el hogar
+// estándar de metadata por regla (helpUri, properties). Se deriva de
+// linter.RuleDescriptor, la fuente única definida una vez en core/linter.
+type ReportingDescriptor struct {
+	Id         string         `json:"id"`
+	Name       string         `json:"name,omitempty"`
+	HelpUri    string         `json:"helpUri,omitempty"`
+	Properties map[string]any `json:"properties,omitempty"`
 }
 
 type Result struct {
@@ -63,12 +74,26 @@ type Suppression struct {
 	Justification string `json:"justification,omitempty"`
 }
 
-func generateSARIF(active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic, docPath string) ([]byte, error) {
+func generateSARIF(active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic, docPath string, descriptors []linter.RuleDescriptor) ([]byte, error) {
+	var rules []ReportingDescriptor
+	if len(descriptors) > 0 {
+		rules = make([]ReportingDescriptor, 0, len(descriptors))
+		for _, d := range descriptors {
+			rules = append(rules, ReportingDescriptor{
+				Id:         d.ID,
+				Name:       d.Name,
+				HelpUri:    d.HelpURI,
+				Properties: d.Properties,
+			})
+		}
+	}
+
 	run := Run{
 		Tool: Tool{
 			Driver: Driver{
 				Name:           "ZiraDocs Toolchain",
 				InformationUri: "https://ziradocs.com",
+				Rules:          rules,
 			},
 		},
 		Results: make([]Result, 0, len(active)+len(waived)),
