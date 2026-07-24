@@ -483,13 +483,16 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		linterInstance.WithRulepacks(externalRulepacks, 30*time.Second)
 	}
 
-	allDiagnostics := linterInstance.LintUnfiltered(astNode)
+	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(astNode)
 
 	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, astNode.FilePath, time.Now())
 
 	if opts.ReportFormat != "" {
 		outPath := opts.ReportOut
-		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, astNode, content, externalRulepacks); err != nil {
+		descriptors := linter.CollectDescriptors(customRules, rulePacks)
+		descriptors = append(descriptors, extDescriptors...)
+		descriptors = linter.NormalizeDescriptors(descriptors)
+		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, descriptors, astNode, content, externalRulepacks); err != nil {
 			return fmt.Errorf("failed to write report: %w", err)
 		}
 		if outPath != "" && outPath != "-" {

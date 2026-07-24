@@ -227,12 +227,15 @@ Examples:
 			if len(externalRulepacks) > 0 {
 				linterInstance.WithRulepacks(externalRulepacks, 30*time.Second)
 			}
-			allDiagnostics := linterInstance.LintUnfiltered(doc)
+			allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(doc)
 			activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, doc.FilePath, time.Now())
 
 			if reportFormat != "" {
 				outPath := reportOut
-				if err := report.WriteReport(reportFormat, outPath, activeDiags, waivedDiags, doc, content, externalRulepacks); err != nil {
+				descriptors := linter.CollectDescriptors(customRules, rulePacks)
+				descriptors = append(descriptors, extDescriptors...)
+				descriptors = linter.NormalizeDescriptors(descriptors)
+				if err := report.WriteReport(reportFormat, outPath, activeDiags, waivedDiags, descriptors, doc, content, externalRulepacks); err != nil {
 					return fmt.Errorf("failed to write report: %w", err)
 				}
 				if outPath != "" && outPath != "-" {
