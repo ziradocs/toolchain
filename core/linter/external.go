@@ -19,20 +19,25 @@ type externalManifest struct {
 }
 
 type externalReport struct {
-	ReportVersion string           `json:"reportVersion"`
-	Manifest      externalManifest `json:"manifest"`
+	ReportVersion string            `json:"reportVersion"`
+	Manifest      externalManifest  `json:"manifest"`
 	Findings      []externalFinding `json:"findings"`
+	// Descriptors se decodifica aparte (json.RawMessage), no inline: un
+	// descriptor malformado NO debe hacer fallar el Unmarshal del reporte
+	// completo y descartar los findings reales del pack (pérdida silenciosa
+	// de diagnósticos = falso "limpio").
+	Descriptors json.RawMessage `json:"descriptors,omitempty"`
 }
 
 type externalFinding struct {
 	diagnostics.Diagnostic
 }
 
-func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration) ([]diagnostics.Diagnostic, error) {
+func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration) ([]diagnostics.Diagnostic, []RuleDescriptor, error) {
 	// Raw AST: json.Marshal directly on *ast.AST.
 	input, err := json.Marshal(doc)
 	if err != nil {
-		return nil, fmt.Errorf("serializing AST for rulepack: %w", err)
+		return nil, nil, fmt.Errorf("serializing AST for rulepack: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -46,21 +51,21 @@ func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration)
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("timed out after %s", timeout)
+			return nil, nil, fmt.Errorf("timed out after %s", timeout)
 		}
-		return nil, fmt.Errorf("exited with error: %w (stderr: %s)", err, stderr.String())
+		return nil, nil, fmt.Errorf("exited with error: %w (stderr: %s)", err, stderr.String())
 	}
 
 	var report externalReport
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-		return nil, fmt.Errorf("decoding rulepack output: %w", err)
+		return nil, nil, fmt.Errorf("decoding rulepack output: %w", err)
 	}
 
 	if report.ReportVersion == "" {
-		return nil, fmt.Errorf("missing reportVersion in rulepack output")
+		return nil, nil, fmt.Errorf("missing reportVersion in rulepack output")
 	}
 	if report.Manifest.Name == "" || report.Manifest.Version == "" || report.Manifest.Prefix == "" {
-		return nil, fmt.Errorf("incomplete manifest in rulepack output (name, version, and prefix are required)")
+		return nil, nil, fmt.Errorf("incomplete manifest in rulepack output (name, version, and prefix are required)")
 	}
 
 	provenance := fmt.Sprintf("%s@%s", report.Manifest.Name, report.Manifest.Version)
@@ -72,5 +77,14 @@ func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration)
 		diags = append(diags, d)
 	}
 
-	return diags, nil
+	// Los descriptores son best-effort: si vienen malformados se ignoran y se
+	// conservan los findings, en vez de perder todo el reporte del pack.
+	var descriptors []RuleDescriptor
+	if len(report.Descriptors) > 0 {
+		if err := json.Unmarshal(report.Descriptors, &descriptors); err != nil {
+			descriptors = nil
+		}
+	}
+
+	return diags, descriptors, nil
 }
