@@ -831,6 +831,10 @@ func (p *StrictParser) parseMarkdownTableElement() ast.Element {
 
 	table.Headers = headers
 	table.Rows = rows
+	// issue #20: derivar Cells de la vista plana también en este parser
+	// hand-rolled de tablas markdown (no pasa por elements.TableParser.Parse,
+	// que ya deriva Cells para el resto de los caminos de parseo).
+	table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 	return table
 }
 

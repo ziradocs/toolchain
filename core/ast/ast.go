@@ -19,6 +19,10 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.1.0 (issue #22): TextElement.Level (aditivo, omitempty) expone el nivel
 // de heading (1–6) como campo semántico, evitando que un rulepack A11Y tenga
 // que re-parsear el `<hN>` renderizado en Content.
+//
+// 2.1.0 (issue #20): TableElement.Cells (aditivo, omitempty) expone
+// estructura de celda real (scope, colspan, rowspan) junto a Headers/Rows,
+// que se conservan sin cambios para compatibilidad.
 const SchemaVersion = "2.1.0"
 
 // Node representa un nodo base en el AST

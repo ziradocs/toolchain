@@ -6,6 +6,7 @@ package elements
 import (
 	"strings"
 
+	"go.yaml.in/yaml/v3"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -17,8 +18,14 @@ type TableParser struct{}
 func (p *TableParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
-	// Strict mode: TABLE keyword
-	if mode == "strict" && strings.HasPrefix(trimmed, "TABLE") {
+	// TABLE keyword: reconocido tanto en strict como en flex. doclang SOLO
+	// parsea flex (DocumentFlexParser.parseSectionContent fija ctx.Mode =
+	// "flex"), así que un bloque TABLE limitado a strict era inautorable en
+	// doclang — necesario para que la sintaxis `cells:` explícita de celdas
+	// fusionadas (issue #20) exista en el CLI que la enterprise CLI/rulepack
+	// A11Y realmente consume. Antes de este cambio, un bloque TABLE en flex
+	// caía al fallback de TextParser y se renderizaba como texto literal.
+	if (mode == "strict" || mode == "flex") && strings.HasPrefix(trimmed, "TABLE") {
 		return true
 	}
 
@@ -53,23 +60,37 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
-	// Check if it's a strict mode TABLE declaration
-	if ctx.Mode == "strict" && strings.HasPrefix(line, "TABLE") {
+	// El bloque YAML "TABLE" se reconoce igual en strict y flex (ver
+	// CanParse); el modo ya no gatea esta rama, solo la sintaxis de la línea.
+	if strings.HasPrefix(line, "TABLE") {
 		consumed++
 		startIndex++
 
 		// Parse YAML-style table
-		headers, rows, caption, label, yamlConsumed := p.parseYAMLTable(ctx.Lines, startIndex)
-		table.Headers = headers
-		table.Rows = rows
+		headers, rows, caption, label, cellsExplicit, yamlConsumed := p.parseYAMLTable(ctx.Lines, startIndex)
 		table.Caption = caption
 		table.Label = label
 		consumed += yamlConsumed
+
+		if len(cellsExplicit) > 0 {
+			// Celdas fusionadas explícitas (issue #20): Cells es la fuente de
+			// verdad; Headers/Rows se DERIVAN de Cells (grilla rectangular)
+			// para que linter.ElementStructureRule (TABLE003) no reporte un
+			// falso positivo de "columnas inconsistentes" sobre una tabla con
+			// colspan/rowspan.
+			table.Cells = cellsExplicit
+			table.Headers, table.Rows = ast.FlattenCellsToRows(cellsExplicit)
+		} else {
+			table.Headers = headers
+			table.Rows = rows
+			table.Cells = ast.DeriveCellsFromFlat(headers, rows)
+		}
 	} else {
 		// Parse Markdown-style table
 		headers, rows, markdownConsumed := p.parseMarkdownTable(ctx.Lines, startIndex)
 		table.Headers = headers
 		table.Rows = rows
+		table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 		consumed = markdownConsumed
 	}
 
@@ -80,8 +101,14 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 }
 
-// parseYAMLTable parsea una tabla en formato YAML (strict mode)
-func (p *TableParser) parseYAMLTable(lines []string, startIndex int) ([]string, [][]string, string, string, int) {
+// parseYAMLTable parsea una tabla en formato YAML (bloque "TABLE").
+// El quinto valor de retorno es no-nil solo si el bloque declaró "cells:"
+// explícito (celdas fusionadas, issue #20) — en ese caso el llamador debe
+// tratar Cells como fuente de verdad y derivar Headers/Rows de él (ver
+// ast.FlattenCellsToRows), ignorando los headers/rows acumulados acá (que
+// para un bloque "cells:" quedan vacíos, ya que esa sintaxis no declara
+// headers:/rows: por separado).
+func (p *TableParser) parseYAMLTable(lines []string, startIndex int) ([]string, [][]string, string, string, [][]ast.TableCell, int) {
 	// Inicializados como slices vacíos (no nil): Headers/Rows no llevan
 	// omitempty en el AST, así que un valor nil se serializaría como
 	// JSON null en vez de [] (issue #8 - viola el JSON Schema del contrato).
@@ -89,6 +116,11 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int) ([]string, 
 	rows := [][]string{}
 	var caption string
 	var label string
+	// Nombre distinto de "cells" a propósito: el branch de fallback "|" más
+	// abajo ya declara una variable local "cells" ([]string, una fila
+	// partida por pipes) sin relación con esta — un mismo nombre en scopes
+	// anidados compilaría igual (shadowing), pero confundiría al lector.
+	var explicitCells [][]ast.TableCell
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
 
@@ -163,6 +195,41 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int) ([]string, 
 				i++
 			}
 			continue
+		} else if strings.HasPrefix(trimmedLine, "cells:") {
+			// Celdas fusionadas explícitas (issue #20): el valor es una
+			// secuencia YAML de filas de celdas, indentada bajo "cells:".
+			// Recolectar las líneas mientras excedan la indentación de
+			// "cells:" en sí (mismo criterio que usa el loop exterior para
+			// delimitar el bloque TABLE completo), luego parsearlas como YAML
+			// completo — más robusto que el partido de strings hand-rolled
+			// que usan headers:/rows: arriba, necesario porque acá el valor
+			// es una estructura anidada (lista de listas de mapas), no un
+			// array plano.
+			cellsIndent := currentIndent
+			consumed++
+			i++
+			var cellsBlockLines []string
+			for i < len(lines) {
+				rl := lines[i]
+				rlTrimmed := strings.TrimSpace(rl)
+				if rlTrimmed == "" {
+					cellsBlockLines = append(cellsBlockLines, rl)
+					consumed++
+					i++
+					continue
+				}
+				if CalculateIndentLevel(rl) <= cellsIndent {
+					i-- // Dejar que el loop exterior reprocese esta línea
+					break
+				}
+				cellsBlockLines = append(cellsBlockLines, rl)
+				consumed++
+				i++
+			}
+			if parsedCells, ok := parseCellsYAML(cellsBlockLines); ok {
+				explicitCells = parsedCells
+			}
+			continue
 		} else if strings.HasPrefix(trimmedLine, "caption:") {
 			captionStr := strings.TrimPrefix(trimmedLine, "caption:")
 			caption = strings.Trim(strings.TrimSpace(captionStr), "\"")
@@ -187,7 +254,55 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int) ([]string, 
 		consumed++
 	}
 
-	return headers, rows, caption, label, consumed
+	return headers, rows, caption, label, explicitCells, consumed
+}
+
+// yamlTableCellEntry es la forma YAML de una celda dentro del bloque
+// "cells:" (issue #20) — nombres de campo en minúscula sin prefijo, para que
+// la sintaxis de autoría sea la aprobada:
+//
+//	cells:
+//	  - [{content: A, header: true, colspan: 2}, {content: B, header: true}]
+//	  - [{content: 1}, {content: 2}, {content: 3}]
+type yamlTableCellEntry struct {
+	Content string `yaml:"content"`
+	Header  bool   `yaml:"header"`
+	Scope   string `yaml:"scope"`
+	Colspan int    `yaml:"colspan"`
+	Rowspan int    `yaml:"rowspan"`
+}
+
+// parseCellsYAML parsea el bloque de líneas recolectado bajo "cells:" (una
+// secuencia YAML de secuencias de mapas, en flow style) a [][]ast.TableCell.
+// Retorna ok=false si el bloque está vacío o no es YAML válido — en ese caso
+// el llamador conserva el comportamiento previo (Headers/Rows derivados de
+// otras claves del bloque, típicamente vacíos si solo se declaró "cells:"
+// malformado).
+func parseCellsYAML(blockLines []string) ([][]ast.TableCell, bool) {
+	if len(blockLines) == 0 {
+		return nil, false
+	}
+
+	raw := strings.Join(blockLines, "\n")
+	var parsed [][]yamlTableCellEntry
+	if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil || len(parsed) == 0 {
+		return nil, false
+	}
+
+	cells := make([][]ast.TableCell, len(parsed))
+	for i, row := range parsed {
+		cells[i] = make([]ast.TableCell, len(row))
+		for j, c := range row {
+			cells[i][j] = ast.TableCell{
+				Content:  c.Content,
+				IsHeader: c.Header,
+				Scope:    c.Scope,
+				ColSpan:  c.Colspan,
+				RowSpan:  c.Rowspan,
+			}
+		}
+	}
+	return cells, true
 }
 
 // parseMarkdownTable parsea una tabla en formato Markdown

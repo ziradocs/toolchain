@@ -12,6 +12,59 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
+// TestRenderTableElement_SimpleTable_UnchangedHTML cubre issue #20: una tabla
+// sin celdas fusionadas (Cells auto-derivado por ast.DeriveCellsFromFlat) debe
+// seguir emitiendo exactamente el mismo HTML byte-a-byte que antes de este
+// cambio — tableUsesCellStructure debe devolver false para ella, así que cae
+// en el camino Headers/Rows preexistente, no en renderTableCells.
+func TestRenderTableElement_SimpleTable_UnchangedHTML(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Headers = []string{"A", "B"}
+	table.Rows = [][]string{{"1", "2"}}
+	table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+
+	got := renderTableElement(table, nil)
+	want := `<table><thead><tr><th scope="col">A</th><th scope="col">B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>`
+	if got != want {
+		t.Errorf("simple table HTML changed:\ngot:  %s\nwant: %s", got, want)
+	}
+}
+
+// TestRenderTableElement_MergedCells_EmitsColspanAndScope cubre issue #20: una
+// tabla con Cells declarando colspan/scope debe renderizarse vía
+// renderTableCells, emitiendo los atributos colspan/scope reales — algo que
+// el camino Headers/Rows no puede expresar.
+func TestRenderTableElement_MergedCells_EmitsColspanAndScope(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Cells = [][]ast.TableCell{
+		{
+			{Content: "A", IsHeader: true, Scope: "col", ColSpan: 2},
+			{Content: "B", IsHeader: true, Scope: "col"},
+		},
+		{
+			{Content: "1"}, {Content: "2"}, {Content: "3"},
+		},
+	}
+	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
+
+	got := renderTableElement(table, nil)
+
+	if !strings.Contains(got, `<th scope="col" colspan="2">A</th>`) {
+		t.Errorf("expected merged header cell with colspan=2, got: %s", got)
+	}
+	if !strings.Contains(got, `<th scope="col">B</th>`) {
+		t.Errorf("expected non-merged header cell without colspan, got: %s", got)
+	}
+	if !strings.Contains(got, "<thead>") || !strings.Contains(got, "<tbody>") {
+		t.Errorf("expected <thead>/<tbody> split for a header-led cell grid, got: %s", got)
+	}
+	if !strings.Contains(got, "<td>1</td><td>2</td><td>3</td>") {
+		t.Errorf("expected 3 plain body cells, got: %s", got)
+	}
+}
+
 // TestRenderChartElement_JSONMode_EscapesScriptBreakout cubre issue #19 (CR-1
 // del audit de seguridad 2026-07): un chart en modo JSON directo cuyo RawJSON
 // contiene un literal "</script>" no debe poder cerrar el <script

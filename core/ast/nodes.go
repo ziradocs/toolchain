@@ -318,6 +318,28 @@ func NewImageElementWithContext(pos diagnostics.Position, source, alt string, co
 	}
 }
 
+// TableCell representa una celda individual de una tabla con estructura de
+// referencia cruzada (issue #20, A11Y): scope y colspan/rowspan, para que una
+// regla de linter pueda inspeccionar celdas fusionadas y su scope declarado.
+// Deliberadamente SIN campo *HTML propio: a diferencia de TextElement/
+// ImageElement/etc., el contenido de celda se procesa inline al momento de
+// renderizar (ProcessTextWithVariablesAndMarkdownSecure, igual que hoy con
+// Headers/Rows) — no hay necesidad de poblar/limpiar HTML pre-renderizado
+// para un consumidor --format json, así que Cells no participa en
+// populate_inline_html.go/clear_html.go.
+type TableCell struct {
+	Content string `json:"content"`
+	// IsHeader marca una celda de encabezado (se renderiza como <th>, no <td>).
+	IsHeader bool `json:"isHeader,omitempty"`
+	// Scope es "row", "col", o "" (sin declarar) — mismo vocabulario que el
+	// atributo HTML scope=. Solo tiene sentido en una celda IsHeader.
+	Scope string `json:"scope,omitempty"`
+	// ColSpan/RowSpan: 0 o 1 significan "sin fusión" (equivalente a colspan="1"
+	// implícito); >1 fusiona esa cantidad de columnas/filas.
+	ColSpan int `json:"colSpan,omitempty"`
+	RowSpan int `json:"rowSpan,omitempty"`
+}
+
 // TableElement representa una tabla con datos
 type TableElement struct {
 	BaseNode    `tstype:",extends,required"`
@@ -325,8 +347,22 @@ type TableElement struct {
 	HeadersHTML []string   `json:"headersHTML,omitempty"` // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
 	Rows        [][]string `json:"rows"`
 	RowsHTML    [][]string `json:"rowsHTML,omitempty"` // Rows ya renderizadas a HTML inline (ver TextElement.ContentHTML)
-	Caption     string     `json:"caption,omitempty"`
-	CaptionHTML string     `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+	// Cells expone la estructura real de celdas (issue #20, A11Y: colspan/
+	// rowspan/scope) ADEMÁS de Headers/Rows, nunca en su lugar — Headers/Rows
+	// siguen siendo la fuente que consumen los renderers existentes y
+	// slidelang para el caso simple (aditivo, sin romper compatibilidad).
+	// Poblado por todo parser de tablas: TableParser.Parse deriva Cells desde
+	// Headers/Rows para el caso simple, o los parsea directo desde un bloque
+	// YAML `cells:` explícito para celdas fusionadas — ver
+	// ast.DeriveCellsFromFlat. Cuando Cells viene del bloque `cells:`
+	// explícito, Headers/Rows se DERIVAN de Cells (expandiendo cada span a
+	// una grilla rectangular) en vez de al revés, para que
+	// linter.ElementStructureRule (TABLE003: todas las filas deben tener el
+	// mismo número de columnas que Headers) no reporte un falso positivo
+	// sobre una tabla con celdas fusionadas.
+	Cells       [][]TableCell `json:"cells,omitempty"`
+	Caption     string        `json:"caption,omitempty"`
+	CaptionHTML string        `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
 	// Label/Number: ver ImageElement.Label/Number (mismo mecanismo de
 	// referencia cruzada, issue #239).
 	Label  string `json:"label,omitempty"`

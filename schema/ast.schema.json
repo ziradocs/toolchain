@@ -1281,6 +1281,30 @@
         "content"
       ]
     },
+    "TableCell": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "isHeader": {
+          "type": "boolean"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "colSpan": {
+          "type": "integer"
+        },
+        "rowSpan": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "content"
+      ]
+    },
     "TableElement": {
       "properties": {
         "type": {
@@ -1324,6 +1348,15 @@
           "items": {
             "items": {
               "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "cells": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/TableCell"
             },
             "type": "array"
           },

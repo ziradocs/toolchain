@@ -9,6 +9,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 )
 
 // findDiagnosticByRuleID busca por el campo RuleID (el que usa rules.go vía
@@ -59,6 +60,41 @@ func TestElementStructureRule_OrphanedCodeItem_EmitsCODEGROUP002(t *testing.T) {
 	// específico, duplicar con SPECIAL001 sería ruido.
 	if findDiagnosticByRuleID(diags, "SPECIAL001") != nil {
 		t.Errorf("no se esperaba también un SPECIAL001 junto a CODEGROUP002, obtenidos: %+v", diags)
+	}
+}
+
+// TestElementStructureRule_MergedCells_NoFalsePositive cubre issue #20: una
+// tabla con celdas fusionadas (colspan en el header) debe pasar TABLE003
+// (severidad Error: "número de columnas inconsistente") sin diagnósticos,
+// porque ast.FlattenCellsToRows deriva Headers/Rows como una grilla
+// rectangular — TABLE003 solo compara len(row) contra len(Headers) y no
+// tiene ningún concepto de span, así que una derivación ingenua (Headers con
+// 2 entradas por el colspan pero una fila de cuerpo con 3 celdas reales)
+// dispararía este Error en cada tabla fusionada, una regresión que esta
+// misma feature introduciría de no ser por la derivación rectangular.
+func TestElementStructureRule_MergedCells_NoFalsePositive(t *testing.T) {
+	parser := &elements.TableParser{}
+	ctx := &elements.ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"TABLE",
+			"  cells:",
+			"    - [{content: A, header: true, colspan: 2}, {content: B, header: true}]",
+			"    - [{content: 1}, {content: 2}, {content: 3}]",
+		},
+	}
+	result := parser.Parse(ctx, 0)
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+
+	slide := &ast.ContentBlock{Elements: []ast.Element{table}}
+	diags := (&ElementStructureRule{}).Check(slide)
+
+	if diag := findDiagnosticByRuleID(diags, "TABLE003"); diag != nil {
+		t.Errorf("unexpected TABLE003 false positive on a merged-cell table: %+v (Headers=%v, Rows=%v)",
+			diag, table.Headers, table.Rows)
 	}
 }
 
