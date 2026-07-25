@@ -16,17 +16,17 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // discriminador); se agregaron campos "*HTML" aditivos (contentHTML, etc.)
 // con la prosa pre-renderizada a HTML inline.
 //
-// 2.1.0 (issue #22): TextElement.Level (aditivo, omitempty) expone el nivel
-// de heading (1–6) como campo semántico, evitando que un rulepack A11Y tenga
-// que re-parsear el `<hN>` renderizado en Content.
+// 2.1.0 (issue #22): TextElement.Level (additive, omitempty) exposes the
+// heading level as a semantic field, so an A11Y rulepack doesn't have to
+// re-parse the rendered `<hN>` in Content.
 //
-// 2.1.0 (issue #20): TableElement.Cells (aditivo, omitempty) expone
-// estructura de celda real (scope, colspan, rowspan) junto a Headers/Rows,
-// que se conservan sin cambios para compatibilidad.
+// 2.1.0 (issue #20): TableElement.Cells (additive, omitempty) exposes real
+// cell structure (scope, colspan, rowspan) alongside Headers/Rows, which are
+// kept unchanged for compatibility.
 //
-// 2.1.0 (issue #21): nuevo MediaElement (discriminador "media") para
-// audio/video embebido, con Autoplay/Controls/Loop/Muted — aditivo, un tipo
-// de elemento nuevo no rompe ningún consumidor existente del contrato.
+// 2.1.0 (issue #21): new MediaElement (discriminator "media") for embedded
+// audio/video, with Autoplay/Controls/Loop/Muted — additive, a new element
+// type doesn't break any existing consumer of the contract.
 const SchemaVersion = "2.1.0"
 
 // Node representa un nodo base en el AST

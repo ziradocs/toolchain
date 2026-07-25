@@ -15,8 +15,14 @@ import type { Position } from "./diagnostics";
  * "point_item" con PointItem (ahora "checklist_item", un cambio breaking de
  * discriminador); se agregaron campos "*HTML" aditivos (contentHTML, etc.)
  * con la prosa pre-renderizada a HTML inline.
+ * 2.1.0 (issue #22): TextElement.Level (additive, omitempty) exposes the
+ * heading level as a semantic field, so an A11Y rulepack doesn't have to
+ * re-parse the rendered `<hN>` in Content.
+ * 2.1.0 (issue #20): TableElement.Cells (additive, omitempty) exposes real
+ * cell structure (scope, colspan, rowspan) alongside Headers/Rows, which are
+ * kept unchanged for compatibility.
  */
-export const SchemaVersion = "2.0.0";
+export const SchemaVersion = "2.1.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -240,6 +246,18 @@ export interface TextElement extends BaseNode {
    * --format json (p. ej. el viewer) no reimplementen el dialecto inline.
    */
   contentHTML?: string;
+  /**
+   * Level is the heading level (1-6) when this TextElement represents a
+   * `##`-`######` heading produced by DocumentFlexParser; 0 (omitted) for
+   * regular text. Exposes the level as a first-class semantic field so a
+   * linter rule (e.g. A11Y heading order/nesting, issue #22) can read it
+   * without re-parsing the rendered `<hN>` in Content/IsRawHTML — a fragile
+   * coupling to render format. Note: a document's H1 lives on
+   * ContentBlock.Heading/Title (a string, not an element), not here; a
+   * heading-order rule must treat that Heading as level 1 and walk Level
+   * for the rest.
+   */
+  level?: number /* int */;
 }
 /**
  * PointsElement representa una lista de puntos
@@ -294,6 +312,34 @@ export interface ImageElement extends BaseNode {
   number?: number /* int */;
 }
 /**
+ * TableCell represents a single table cell with cross-cutting structure
+ * (issue #20, A11Y): scope and colspan/rowspan, so a linter rule can inspect
+ * merged cells and their declared scope. Deliberately WITHOUT its own *HTML
+ * field: unlike TextElement/ImageElement/etc., cell content is processed
+ * inline at render time (ProcessTextWithVariablesAndMarkdownSecure, same as
+ * Headers/Rows today) — there's no need to populate/clear pre-rendered HTML
+ * for a --format json consumer, so Cells doesn't participate in
+ * populate_inline_html.go/clear_html.go.
+ */
+export interface TableCell {
+  content: string;
+  /**
+   * IsHeader marks a header cell (rendered as <th>, not <td>).
+   */
+  isHeader?: boolean;
+  /**
+   * Scope is "row", "col", or "" (undeclared) — same vocabulary as the
+   * HTML scope= attribute. Only meaningful on an IsHeader cell.
+   */
+  scope?: string;
+  /**
+   * ColSpan/RowSpan: 0 or 1 mean "no merge" (equivalent to an implicit
+   * colspan="1"); >1 merges that many columns/rows.
+   */
+  colSpan?: number /* int */;
+  rowSpan?: number /* int */;
+}
+/**
  * TableElement representa una tabla con datos
  */
 export interface TableElement extends BaseNode {
@@ -301,6 +347,21 @@ export interface TableElement extends BaseNode {
   headersHTML?: string[]; // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
   rows: string[][];
   rowsHTML?: string[][]; // Rows ya renderizadas a HTML inline (ver TextElement.ContentHTML)
+  /**
+   * Cells exposes the real cell structure (issue #20, A11Y: colspan/
+   * rowspan/scope) IN ADDITION to Headers/Rows, never in their place —
+   * Headers/Rows remain the source existing renderers and slidelang
+   * consume for the simple case (additive, no compatibility break).
+   * Populated by every table parser: TableParser.Parse derives Cells from
+   * Headers/Rows for the simple case, or parses it directly from an
+   * explicit YAML `cells:` block for merged cells — see
+   * ast.DeriveCellsFromFlat. When Cells comes from the explicit `cells:`
+   * block, Headers/Rows are DERIVED from Cells instead (expanding each
+   * span into a rectangular grid), so linter.ElementStructureRule
+   * (TABLE003: every row must have the same column count as Headers)
+   * doesn't report a false positive on a table with merged cells.
+   */
+  cells?: TableCell[][];
   caption?: string;
   captionHTML?: string; // Caption con {{variables}} sustituidas y escapadas (sin markdown)
   /**
@@ -467,6 +528,21 @@ export interface MathElement extends BaseNode {
   caption?: string;
   captionHTML?: string; // Caption con {{variables}} sustituidas y escapadas (sin markdown)
 }
+
+//////////
+// source: table_cells.go
+
+/**
+ * MaxCellSpan caps ColSpan/RowSpan when flattening explicit `cells:`
+ * authoring input into a rectangular grid (FlattenCellsToRows). Without a
+ * cap, an absurd span (e.g. `colspan: 999999999`, ~15 bytes of YAML) would
+ * make the flattening loop below expand it into a slice with that many
+ * entries at PARSE time — a near-zero-cost denial-of-service hitting every
+ * output format (html/json/--lint-only) plus DecodeAST for any externally
+ * supplied AST JSON. 1000 is far beyond any real document's column/row
+ * count while staying cheap to allocate.
+ */
+export const MaxCellSpan = 1000;
 
 //////////
 // source: walk.go

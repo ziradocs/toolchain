@@ -12,11 +12,11 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
-// TestRenderTableElement_SimpleTable_UnchangedHTML cubre issue #20: una tabla
-// sin celdas fusionadas (Cells auto-derivado por ast.DeriveCellsFromFlat) debe
-// seguir emitiendo exactamente el mismo HTML byte-a-byte que antes de este
-// cambio — tableUsesCellStructure debe devolver false para ella, así que cae
-// en el camino Headers/Rows preexistente, no en renderTableCells.
+// TestRenderTableElement_SimpleTable_UnchangedHTML covers issue #20: a table
+// with no merged cells (Cells auto-derived by ast.DeriveCellsFromFlat) must
+// keep emitting exactly the same byte-for-byte HTML as before this change —
+// tableUsesCellStructure must return false for it, so it falls into the
+// pre-existing Headers/Rows path, not renderTableCells.
 func TestRenderTableElement_SimpleTable_UnchangedHTML(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	table := ast.NewTableElement(pos)
@@ -31,10 +31,10 @@ func TestRenderTableElement_SimpleTable_UnchangedHTML(t *testing.T) {
 	}
 }
 
-// TestRenderTableElement_MergedCells_EmitsColspanAndScope cubre issue #20: una
-// tabla con Cells declarando colspan/scope debe renderizarse vía
-// renderTableCells, emitiendo los atributos colspan/scope reales — algo que
-// el camino Headers/Rows no puede expresar.
+// TestRenderTableElement_MergedCells_EmitsColspanAndScope covers issue #20:
+// a table with Cells declaring colspan/scope must render via
+// renderTableCells, emitting the real colspan/scope attributes — something
+// the Headers/Rows path can't express.
 func TestRenderTableElement_MergedCells_EmitsColspanAndScope(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	table := ast.NewTableElement(pos)
@@ -65,10 +65,43 @@ func TestRenderTableElement_MergedCells_EmitsColspanAndScope(t *testing.T) {
 	}
 }
 
-// TestRenderMediaElement_EmitsAttributes cubre issue #21: video/audio deben
-// emitir el tag correcto y los 4 atributos booleanos solo cuando están en
-// true (ningún atributo por defecto, sin valor "true"/"false" — sintaxis
-// booleana HTML nativa).
+// TestRenderTableElement_HeaderCellInBodyRow_UsesCellPath covers the
+// tableUsesCellStructure gate fix: a table whose Cells has an IsHeader cell
+// inside a body row (no colspan/rowspan, no scope="row") used to fall
+// through the narrower gate (which only checked span and scope=="row") into
+// the Headers/Rows path, rendering that cell as a plain <td> even though
+// elem.Cells (and thus --format json) says isHeader:true — HTML and JSON
+// disagreeing, and the accessible <th> silently lost. It must now route
+// through renderTableCells and emit <th>.
+func TestRenderTableElement_HeaderCellInBodyRow_UsesCellPath(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Cells = [][]ast.TableCell{
+		{
+			{Content: "Region", IsHeader: true, Scope: "col"},
+			{Content: "Sales", IsHeader: true, Scope: "col"},
+		},
+		{
+			{Content: "Total", IsHeader: true},
+			{Content: "100"},
+		},
+	}
+	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
+
+	got := renderTableElement(table, nil)
+
+	if !strings.Contains(got, "<th>Total</th>") {
+		t.Errorf("expected the body-row header cell to render as <th>, got: %s", got)
+	}
+	if strings.Contains(got, "<td>Total</td>") {
+		t.Errorf("body-row header cell must not render as <td>: %s", got)
+	}
+}
+
+// TestRenderMediaElement_EmitsAttributes covers issue #21: video/audio must
+// emit the right tag and the 4 boolean attributes only when true (no
+// attribute by default, no "true"/"false" value — native HTML boolean
+// attribute syntax).
 func TestRenderMediaElement_EmitsAttributes(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 
@@ -90,9 +123,9 @@ func TestRenderMediaElement_EmitsAttributes(t *testing.T) {
 	}
 }
 
-// TestRenderMediaElement_BlocksDangerousSource cubre issue #21: un Source con
-// un esquema peligroso (javascript:) debe ser bloqueado por SanitizeURL, igual
-// que renderImageElement — nunca debe llegar a interpolarse en el atributo src.
+// TestRenderMediaElement_BlocksDangerousSource covers issue #21: a Source
+// with a dangerous scheme (javascript:) must be blocked by SanitizeURL, same
+// as renderImageElement — it must never reach the src attribute interpolated.
 func TestRenderMediaElement_BlocksDangerousSource(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	media := ast.NewMediaElement(pos, "video", `javascript:alert(document.domain)`)
@@ -106,10 +139,11 @@ func TestRenderMediaElement_BlocksDangerousSource(t *testing.T) {
 	}
 }
 
-// TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo cubre issue #21: un
-// MediaType fuera de la allowlist "video"/"audio" (posible vía el pipeline
-// --filter de JSON, issue #240, no solo del parser propio) debe caer al
-// default "video" en vez de interpolarse crudo como nombre de tag HTML.
+// TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo covers issue #21:
+// a MediaType outside the "video"/"audio" allowlist (possible via the JSON
+// --filter pipeline, issue #240, not just the parser itself) must fall back
+// to the "video" default instead of being interpolated raw as an HTML tag
+// name.
 func TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	media := ast.NewMediaElement(pos, `script onload=alert(1) x`, "demo.mp4")

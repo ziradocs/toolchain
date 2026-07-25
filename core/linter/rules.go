@@ -192,14 +192,23 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 		for _, element := range slide.Elements {
 			switch elem := element.(type) {
 			case *ast.TableElement:
-				// Validar que las tablas tengan headers y al menos una fila
-				if len(elem.Headers) == 0 {
+				// Validar que las tablas tengan headers y al menos una fila.
+				//
+				// Checked against elem.Cells too, not just the flat
+				// Headers/Rows view: a `cells:`-authored table (issue #20)
+				// with row/col-scoped headers scattered across rows, rather
+				// than a clean all-header first row, derives Headers as
+				// []string{} (ast.FlattenCellsToRows only populates Headers
+				// when the entire first Cells row IsHeader) even though it
+				// does have header cells — checking Headers alone made
+				// TABLE001 a false positive for that legitimate shape.
+				if len(elem.Headers) == 0 && !tableHasAnyCellWhere(elem.Cells, func(c ast.TableCell) bool { return c.IsHeader }) {
 					diags = append(diags,
 						diagnostics.NewWarning(
 							"TABLE element should have headers defined",
 							elem.GetPosition(), "linter").WithRuleID("TABLE001"))
 				}
-				if len(elem.Rows) == 0 {
+				if len(elem.Rows) == 0 && !tableHasAnyCellWhere(elem.Cells, func(c ast.TableCell) bool { return !c.IsHeader }) {
 					diags = append(diags,
 						diagnostics.NewWarning(
 							"TABLE element should have at least one row",
@@ -288,6 +297,21 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	}
 
 	return diags
+}
+
+// tableHasAnyCellWhere reports whether any cell across elem.Cells matches
+// pred — used by ElementStructureRule to fall back to the real cell
+// structure (issue #20) when the flat Headers/Rows view alone would
+// misreport a `cells:`-authored table as missing headers/rows.
+func tableHasAnyCellWhere(cells [][]ast.TableCell, pred func(ast.TableCell) bool) bool {
+	for _, row := range cells {
+		for _, cell := range row {
+			if pred(cell) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // PropertyValidationRule valida propiedades específicas

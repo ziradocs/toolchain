@@ -191,17 +191,32 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	return fmt.Sprintf(`<img src="%s" alt="%s">`, source, alt)
 }
 
-// tableUsesCellStructure reporta si elem.Cells declara estructura real que
-// Headers/Rows no puede expresar (span >1 o un scope="row" explícito) — el
-// caso en que vale la pena pagar el camino de render más costoso
-// (renderTableCells). Una tabla simple (auto-derivada por
-// ast.DeriveCellsFromFlat: todo span 1, scope="col" solo en headers) sigue
-// el camino Headers/Rows existente byte-a-byte, sin ningún riesgo para el
-// HTML/tests ya existentes.
+// tableUsesCellStructure reports whether elem.Cells declares anything that
+// isn't exactly the shape ast.DeriveCellsFromFlat would produce for a
+// simple table (row 0 entirely IsHeader+Scope="col"+no span, every body row
+// entirely non-header+no scope+no span) — the case where it's worth paying
+// for the more expensive render path (renderTableCells).
+//
+// This used to only check ColSpan/RowSpan/Scope=="row", which missed a
+// real-world case: a `cells:` author can mark a cell IsHeader (with
+// scope=="" or "col") inside a body row, or lead with a first row that
+// isn't fully header — with the narrower check, that table fell through to
+// the Headers/Rows path below, which renders every cell as a plain `<td>`
+// while the JSON (elem.Cells) still says isHeader:true, so HTML and JSON
+// disagreed and the a11y-relevant `<th>` was silently lost. Comparing
+// against the full simple-table shape instead of just span/row-scope
+// catches that.
 func tableUsesCellStructure(elem *ast.TableElement) bool {
-	for _, row := range elem.Cells {
+	for i, row := range elem.Cells {
 		for _, cell := range row {
-			if cell.ColSpan > 1 || cell.RowSpan > 1 || cell.Scope == "row" {
+			if cell.ColSpan > 1 || cell.RowSpan > 1 {
+				return true
+			}
+			if i == 0 {
+				if !cell.IsHeader || cell.Scope != "col" {
+					return true
+				}
+			} else if cell.IsHeader || cell.Scope != "" {
 				return true
 			}
 		}
@@ -304,13 +319,12 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 	return html.String()
 }
 
-// renderTableCells emite <thead>/<tbody> a partir de la estructura real de
-// celdas (issue #20), respetando colspan/rowspan/scope por celda — a
-// diferencia del camino Headers/Rows de renderTableElement, que no puede
-// expresar ninguno de los tres. La fila líder se trata como <thead> solo si
-// TODAS sus celdas son IsHeader (mismo criterio que ast.FlattenCellsToRows
-// usa en la dirección inversa); si no, todo el contenido cae en un único
-// <tbody>.
+// renderTableCells emits <thead>/<tbody> from the real cell structure
+// (issue #20), honoring colspan/rowspan/scope per cell — unlike
+// renderTableElement's Headers/Rows path, which can express none of the
+// three. The leading row is treated as <thead> only if ALL of its cells are
+// IsHeader (the same criterion ast.FlattenCellsToRows uses in the reverse
+// direction); otherwise everything falls into a single <tbody>.
 func renderTableCells(html *strings.Builder, cells [][]ast.TableCell, variables map[string]interface{}) {
 	if len(cells) == 0 {
 		return
@@ -339,12 +353,12 @@ func renderTableCells(html *strings.Builder, cells [][]ast.TableCell, variables 
 	html.WriteString("</tbody>")
 }
 
-// writeTableCellRow emite un <tr> con una celda por ast.TableCell.
-// cell.Scope se valida contra la allowlist fija "row"/"col" antes de
-// interpolarse — cualquier otro valor se descarta en vez de emitirse
-// crudo en el atributo (mismo patrón defensivo que SanitizeColor/
-// inlineSpanTokens: nunca interpolar un valor arbitrario del autor sin
-// pasar por una allowlist).
+// writeTableCellRow emits a <tr> with one cell per ast.TableCell.
+// cell.Scope is validated against the fixed "row"/"col" allowlist before
+// being interpolated — any other value is discarded instead of being
+// emitted raw into the attribute (same defensive pattern as
+// SanitizeColor/inlineSpanTokens: never interpolate an arbitrary
+// author-supplied value without going through an allowlist).
 func writeTableCellRow(html *strings.Builder, row []ast.TableCell, variables map[string]interface{}) {
 	html.WriteString("<tr>")
 	for _, cell := range row {
