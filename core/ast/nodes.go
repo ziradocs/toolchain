@@ -497,35 +497,35 @@ func NewChartElement(pos diagnostics.Position, chartType string) *ChartElement {
 	}
 }
 
-// MediaElement representa contenido de audio/video embebido (issue #21,
-// A11Y): expone Autoplay/Controls/Loop como campos de primera clase para que
-// una regla de linter pueda detectar contenido autoplay sin controles de
-// pausa/stop expuestos al usuario — algo que ast.Walk no podía inspeccionar
-// antes de este tipo, porque no existía ningún nodo de media en absoluto.
+// MediaElement represents embedded audio/video content (issue #21, A11Y):
+// exposes Autoplay/Controls/Loop as first-class fields so a linter rule can
+// detect autoplay content with no pause/stop controls exposed to the user —
+// something ast.Walk couldn't inspect before this type, because no media
+// node existed at all.
 //
-// Nota (decisión consciente, no descuido): a diferencia de ImageElement, este
-// elemento no lleva un campo de nombre accesible propio (caption/track/
-// aria-label) — se siguió la lista de campos tal como la pidió el issue.
-// Puede agregarse en una iteración futura si el rulepack A11Y lo necesita.
+// Note (a conscious decision, not an oversight): unlike ImageElement, this
+// element carries no accessible-name field of its own (caption/track/
+// aria-label) — the field list was followed as the issue requested it. It
+// can be added in a future iteration if the A11Y rulepack needs it.
 type MediaElement struct {
 	BaseNode `tstype:",extends,required"`
-	// MediaType es "video" o "audio" — determina el tag HTML emitido
-	// (<video>/<audio>) y qué sintaxis de autoría lo produjo (<<video>>/<<audio>>).
+	// MediaType is "video" or "audio" — determines the emitted HTML tag
+	// (<video>/<audio>) and which authoring syntax produced it (<<video>>/<<audio>>).
 	MediaType string `json:"mediaType"`
 	Source    string `json:"source"`
 	Autoplay  bool   `json:"autoplay,omitempty"`
 	Controls  bool   `json:"controls,omitempty"`
 	Loop      bool   `json:"loop,omitempty"`
-	// Muted: autoplay sin mute es bloqueado por la mayoría de navegadores, y
-	// habilitar autoplay con audio sin que el usuario lo espere es en sí una
-	// mala práctica de A11Y — se expone como campo separado (no implícito en
-	// Autoplay) para que una regla pueda exigirlo explícitamente.
+	// Muted: autoplay without mute is blocked by most browsers, and
+	// enabling autoplay with audio the user doesn't expect is itself a bad
+	// A11Y practice — exposed as a separate field (not implied by Autoplay)
+	// so a rule can require it explicitly.
 	Muted bool `json:"muted,omitempty"`
 }
 
 func (m MediaElement) element() {}
 
-// NewMediaElement crea un nuevo elemento de media
+// NewMediaElement creates a new media element
 func NewMediaElement(pos diagnostics.Position, mediaType, source string) *MediaElement {
 	return &MediaElement{
 		BaseNode:  NewBaseNode(NodeTypeMedia, pos),

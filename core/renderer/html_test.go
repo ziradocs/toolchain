@@ -137,6 +137,27 @@ func TestRenderMediaElement_BlocksDangerousSource(t *testing.T) {
 	if !strings.Contains(got, "media-error") {
 		t.Errorf("expected a media-error fallback for a blocked source, got: %s", got)
 	}
+	if !strings.Contains(got, "blocked for security") {
+		t.Errorf("expected the security-block message for a dangerous scheme, got: %s", got)
+	}
+}
+
+// TestRenderMediaElement_EmptySourceGetsDistinctMessage covers a fix: an
+// empty Source (author never set src) used to fall into the same
+// "blocked for security reasons" branch as a scheme SanitizeURL actually
+// rejected, misleadingly implying SanitizeURL blocked something when
+// nothing was ever provided. It must get its own, non-security message.
+func TestRenderMediaElement_EmptySourceGetsDistinctMessage(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	media := ast.NewMediaElement(pos, "video", "")
+
+	got := renderMediaElement(media, nil)
+	if !strings.Contains(got, "media-error") {
+		t.Errorf("expected a media-error fallback for an empty source, got: %s", got)
+	}
+	if strings.Contains(got, "blocked for security") {
+		t.Errorf("empty source must not be reported as a security block: %s", got)
+	}
 }
 
 // TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo covers issue #21:

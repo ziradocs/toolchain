@@ -224,20 +224,20 @@ func tableUsesCellStructure(elem *ast.TableElement) bool {
 	return false
 }
 
-// renderMediaElement procesa audio/video embebido (issue #21). elem.MediaType
-// se valida contra la allowlist fija "video"/"audio" antes de usarse como
-// nombre de tag — nunca se interpola crudo — porque, a diferencia del resto
-// de campos de este elemento, MediaType puede llegar desde un filtro externo
-// vía el pipeline --filter de JSON (issue #240), no solo del parser propio;
-// mismo patrón defensivo que SanitizeColor/inlineSpanTokens. Source pasa por
-// SanitizeURL (bloquea javascript:/data:/vbscript:/file:), igual que
-// renderImageElement.
+// renderMediaElement processes embedded audio/video (issue #21).
+// elem.MediaType is validated against the fixed "video"/"audio" allowlist
+// before being used as a tag name — never interpolated raw — because,
+// unlike the rest of this element's fields, MediaType can arrive from an
+// external filter via the JSON --filter pipeline (issue #240), not just
+// this package's own parser; same defensive pattern as SanitizeColor/
+// inlineSpanTokens. Source goes through SanitizeURL (blocks javascript:/
+// data:/vbscript:/file:), same as renderImageElement.
 //
-// Caveat de PDF/offline: bajo chromedp (renderer/chromium) un <video>/<audio>
-// no reproduce contenido real durante la captura headless — el tag se emite
-// igual (con sus controles, si Controls=true) mostrando el frame/poster
-// inicial, no una limitación introducida acá sino inherente a capturar video
-// con un navegador headless sin interacción del usuario.
+// PDF/offline caveat: under chromedp (renderer/chromium) a <video>/<audio>
+// doesn't play real content during headless capture — the tag is still
+// emitted (with its controls, if Controls=true) showing the initial frame/
+// poster, not a limitation introduced here but inherent to capturing video
+// with a headless browser with no user interaction.
 func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}) string {
 	tag := "video"
 	if elem.MediaType == "audio" {
@@ -245,6 +245,13 @@ func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}
 	}
 
 	source := ProcessVariables(elem.Source, variables)
+	if strings.TrimSpace(source) == "" {
+		// Distinct from the SanitizeURL block below: an empty src is missing
+		// data, not a blocked dangerous scheme — reporting it as "blocked
+		// for security" would mislead the author into thinking SanitizeURL
+		// rejected something when nothing was ever provided.
+		return `<div class="media-error">Media element has no source</div>`
+	}
 	source = SanitizeURL(source)
 	if source == "" {
 		return `<div class="media-error">Media source blocked for security reasons</div>`

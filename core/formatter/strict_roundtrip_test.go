@@ -147,7 +147,7 @@ func normalizeElement(el ast.Element) ast.Element {
 		c.Position, c.EndPosition = zeroPosition, zeroPosition
 		return &c
 	case *ast.MediaElement:
-		// issue #21: sin campos *HTML propios que limpiar, solo posición.
+		// issue #21: no *HTML fields of its own to clear, just position.
 		c := *e
 		c.Position, c.EndPosition = zeroPosition, zeroPosition
 		return &c

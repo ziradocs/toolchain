@@ -102,12 +102,12 @@ func clearElementHTML(element Element) {
 		elem.CaptionHTML = ""
 
 	case *DirectiveNode, *ColumnElement, *MediaElement:
-		// Sin campos *HTML propios: DirectiveNode y MediaElement (issue #21 —
-		// Source es una URL, no prosa) no tienen ningún campo que limpiar; el
-		// caso de ColumnElement ya está cubierto por clearColumnHTML cuando
-		// aparece dentro de un Grid (no aparece suelto en block.Elements —
-		// mismas exclusiones documentadas que
-		// excludedFromElementHTMLCoverage en renderer/element_coverage_test.go).
+		// No *HTML fields of their own: DirectiveNode and MediaElement
+		// (issue #21 — Source is a URL, not prose) have no field to clear;
+		// the ColumnElement case is already covered by clearColumnHTML when
+		// it appears inside a Grid (it never appears loose in
+		// block.Elements — same exclusions documented for
+		// excludedFromElementHTMLCoverage in renderer/element_coverage_test.go).
 	}
 }
 

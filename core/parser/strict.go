@@ -281,7 +281,13 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "<<video") || strings.HasPrefix(trimmedLine, "<<audio") {
+		} else if (&elements.MediaParser{}).CanParse(trimmedLine, "strict") {
+			// CanParse (not a hand-rolled HasPrefix, unlike this switch's other
+			// branches) so the "<<video"/"<<audio" word-boundary fix in
+			// elements.MediaParser stays the single source of truth instead of
+			// being duplicated here and risking drift — a bare HasPrefix would
+			// also dispatch an unrelated/typo'd "<<videofoo ...>>" into
+			// parseMediaElement.
 			element := p.parseMediaElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
