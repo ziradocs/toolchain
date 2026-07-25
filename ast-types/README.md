@@ -28,7 +28,7 @@ for (const block of doc.contentBlocks) {
 }
 ```
 
-`Element` is a union discriminated by the `type` field (`"text" | "points" | "code" | "image" | "table" | "special_block" | "code_group" | "mermaid" | "plantuml" | "chart" | "map" | "quote" | "checklist" | "grid" | "column" | "directive" | "math"`), reflecting the 17 Go structs that implement `ast.Element`.
+`Element` is a union discriminated by the `type` field (`"text" | "points" | "code" | "image" | "table" | "special_block" | "code_group" | "mermaid" | "plantuml" | "chart" | "map" | "quote" | "checklist" | "grid" | "column" | "directive" | "math" | "media"`), reflecting the 18 Go structs that implement `ast.Element`.
 
 ## Regenerating the types
 
@@ -56,6 +56,12 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 - **PATCH**: fixes that don't change the JSON shape (e.g. fixing a serialization bug so it matches what the schema already documented).
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
+
+### 2.1.0 (issues #22, #20, #21 — A11Y AST seams)
+
+- **Additive**: `TextElement.level` — the heading level (1-6) for a `##`-`######` heading, so an A11Y rulepack can check heading order/nesting without re-parsing the rendered `<hN>` in `content`.
+- **Additive**: `TableElement.cells` — real cell structure (`content`, `isHeader`, `scope`, `colSpan`, `rowSpan`) alongside the existing `headers`/`rows`, which are unchanged for compatibility. Populated for every table, including simple ones (derived from `headers`/`rows`), so a rulepack always has cell-level structure to walk.
+- **Additive**: new `MediaElement` (`type: "media"`) for embedded audio/video (`mediaType`, `source`, `autoplay`, `controls`, `loop`, `muted`), exposing autoplay/controls as first-class fields so a rule can flag autoplay content with no controls exposed to the user.
 
 ### 2.0.0 (issues #60, #64)
 
