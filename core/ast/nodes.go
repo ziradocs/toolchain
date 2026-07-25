@@ -181,15 +181,15 @@ type TextElement struct {
 	// renderer.PopulateInlineHTML (issue #64) para que consumidores de
 	// --format json (p. ej. el viewer) no reimplementen el dialecto inline.
 	ContentHTML string `json:"contentHTML,omitempty"`
-	// Level es el nivel de encabezado (1–6) cuando este TextElement representa
-	// un heading `##`–`######` producido por DocumentFlexParser; 0 (omitido)
-	// para texto normal. Expone el nivel como campo semántico de primera clase
-	// para que una regla de linter (p. ej. orden/anidamiento de headings A11Y,
-	// issue #22) lo lea sin re-parsear el `<hN>` de Content/IsRawHTML — un
-	// acoplamiento frágil al formato de render. Nota: el H1 de un documento vive
-	// en ContentBlock.Heading/Title (string, no elemento), no aquí; una regla de
-	// orden de headings debe tratar ese Heading como nivel 1 y recorrer Level
-	// para el resto.
+	// Level is the heading level (1-6) when this TextElement represents a
+	// `##`-`######` heading produced by DocumentFlexParser; 0 (omitted) for
+	// regular text. Exposes the level as a first-class semantic field so a
+	// linter rule (e.g. A11Y heading order/nesting, issue #22) can read it
+	// without re-parsing the rendered `<hN>` in Content/IsRawHTML — a fragile
+	// coupling to render format. Note: a document's H1 lives on
+	// ContentBlock.Heading/Title (a string, not an element), not here; a
+	// heading-order rule must treat that Heading as level 1 and walk Level
+	// for the rest.
 	Level int `json:"level,omitempty"`
 }
 

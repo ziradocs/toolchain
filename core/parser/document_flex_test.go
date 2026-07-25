@@ -113,10 +113,11 @@ func TestDocumentFlexParser_SubsectionHeaderNotTreatedAsList(t *testing.T) {
 	}
 }
 
-// TestDocumentFlexParser_SubsectionHeaderExposesLevel cubre issue #22: el
-// nivel del heading (##, ###, ...) debe quedar disponible como campo semántico
-// TextElement.Level, no solo reconstruible re-parseando el <hN> renderizado en
-// Content. Un párrafo normal (no-heading) debe tener Level == 0 (omitido).
+// TestDocumentFlexParser_SubsectionHeaderExposesLevel covers issue #22: the
+// heading level (##, ###, ...) must be available as the semantic field
+// TextElement.Level, not only reconstructible by re-parsing the rendered
+// <hN> in Content. A regular (non-heading) paragraph must have Level == 0
+// (omitted).
 func TestDocumentFlexParser_SubsectionHeaderExposesLevel(t *testing.T) {
 	input := "# T\n\nIntro paragraph.\n\n## Sub\n\nSub content.\n\n### Deep\n\nDeep content.\n"
 
