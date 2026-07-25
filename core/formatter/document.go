@@ -143,6 +143,8 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	case *ast.TableElement:
 		if e.Caption != "" {
 			err = newUnsupported("table", "table.Caption no es representable en el dialecto flex de DocLang (elements.TableParser solo parsea caption en su rama strict/TABLE-keyword, y DocLang nunca la usa)")
+		} else if tableHasCellSpans(e.Cells) {
+			err = newUnsupported("table", "la tabla tiene celdas fusionadas (colspan/rowspan, issue #20) — el formatter aún no puede reemitir la sintaxis \"cells:\" explícita en flex; reemitirla como tabla pipe plana perdería el span sin avisar")
 		} else {
 			body = formatPipeTable(e.Headers, e.Rows)
 		}
@@ -162,6 +164,8 @@ func formatDocumentElement(el ast.Element) (string, error) {
 		body, err = formatChart(e)
 	case *ast.MapElement:
 		body, err = formatMap(e)
+	case *ast.MediaElement:
+		body, err = formatMedia(e)
 	case *ast.DirectiveNode:
 		body, err = formatDirective(e)
 	case *ast.GridElement:

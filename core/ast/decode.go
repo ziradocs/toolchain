@@ -71,6 +71,8 @@ func DecodeElement(raw json.RawMessage) (Element, error) {
 		target = &ColumnElement{}
 	case NodeTypeMath:
 		target = &MathElement{}
+	case NodeTypeMedia:
+		target = &MediaElement{}
 	default:
 		return nil, fmt.Errorf("unknown element discriminator %q", d.Type)
 	}

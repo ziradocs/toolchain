@@ -66,6 +66,9 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 	case *ast.MathElement:
 		return renderMathElement(elem, variables, ctx)
 
+	case *ast.MediaElement:
+		return renderMediaElement(elem, variables)
+
 	default:
 		return fmt.Sprintf("<!-- Unsupported element type: %T -->", element)
 	}
@@ -204,6 +207,49 @@ func tableUsesCellStructure(elem *ast.TableElement) bool {
 		}
 	}
 	return false
+}
+
+// renderMediaElement procesa audio/video embebido (issue #21). elem.MediaType
+// se valida contra la allowlist fija "video"/"audio" antes de usarse como
+// nombre de tag — nunca se interpola crudo — porque, a diferencia del resto
+// de campos de este elemento, MediaType puede llegar desde un filtro externo
+// vía el pipeline --filter de JSON (issue #240), no solo del parser propio;
+// mismo patrón defensivo que SanitizeColor/inlineSpanTokens. Source pasa por
+// SanitizeURL (bloquea javascript:/data:/vbscript:/file:), igual que
+// renderImageElement.
+//
+// Caveat de PDF/offline: bajo chromedp (renderer/chromium) un <video>/<audio>
+// no reproduce contenido real durante la captura headless — el tag se emite
+// igual (con sus controles, si Controls=true) mostrando el frame/poster
+// inicial, no una limitación introducida acá sino inherente a capturar video
+// con un navegador headless sin interacción del usuario.
+func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}) string {
+	tag := "video"
+	if elem.MediaType == "audio" {
+		tag = "audio"
+	}
+
+	source := ProcessVariables(elem.Source, variables)
+	source = SanitizeURL(source)
+	if source == "" {
+		return `<div class="media-error">Media source blocked for security reasons</div>`
+	}
+
+	var attrs strings.Builder
+	if elem.Controls {
+		attrs.WriteString(" controls")
+	}
+	if elem.Autoplay {
+		attrs.WriteString(" autoplay")
+	}
+	if elem.Loop {
+		attrs.WriteString(" loop")
+	}
+	if elem.Muted {
+		attrs.WriteString(" muted")
+	}
+
+	return fmt.Sprintf(`<%s src="%s"%s></%s>`, tag, source, attrs.String(), tag)
 }
 
 // renderTableElement procesa tablas con headers y rows

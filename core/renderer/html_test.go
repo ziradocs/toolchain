@@ -65,6 +65,64 @@ func TestRenderTableElement_MergedCells_EmitsColspanAndScope(t *testing.T) {
 	}
 }
 
+// TestRenderMediaElement_EmitsAttributes cubre issue #21: video/audio deben
+// emitir el tag correcto y los 4 atributos booleanos solo cuando están en
+// true (ningún atributo por defecto, sin valor "true"/"false" — sintaxis
+// booleana HTML nativa).
+func TestRenderMediaElement_EmitsAttributes(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	video := ast.NewMediaElement(pos, "video", "demo.mp4")
+	video.Controls = true
+	video.Loop = true
+
+	got := renderMediaElement(video, nil)
+	want := `<video src="demo.mp4" controls loop></video>`
+	if got != want {
+		t.Errorf("got:  %s\nwant: %s", got, want)
+	}
+
+	audio := ast.NewMediaElement(pos, "audio", "clip.mp3")
+	got = renderMediaElement(audio, nil)
+	want = `<audio src="clip.mp3"></audio>`
+	if got != want {
+		t.Errorf("got:  %s\nwant: %s", got, want)
+	}
+}
+
+// TestRenderMediaElement_BlocksDangerousSource cubre issue #21: un Source con
+// un esquema peligroso (javascript:) debe ser bloqueado por SanitizeURL, igual
+// que renderImageElement — nunca debe llegar a interpolarse en el atributo src.
+func TestRenderMediaElement_BlocksDangerousSource(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	media := ast.NewMediaElement(pos, "video", `javascript:alert(document.domain)`)
+
+	got := renderMediaElement(media, nil)
+	if strings.Contains(got, "javascript:") {
+		t.Errorf("dangerous source was not blocked: %s", got)
+	}
+	if !strings.Contains(got, "media-error") {
+		t.Errorf("expected a media-error fallback for a blocked source, got: %s", got)
+	}
+}
+
+// TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo cubre issue #21: un
+// MediaType fuera de la allowlist "video"/"audio" (posible vía el pipeline
+// --filter de JSON, issue #240, no solo del parser propio) debe caer al
+// default "video" en vez de interpolarse crudo como nombre de tag HTML.
+func TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	media := ast.NewMediaElement(pos, `script onload=alert(1) x`, "demo.mp4")
+
+	got := renderMediaElement(media, nil)
+	if strings.Contains(got, "onload") {
+		t.Fatalf("MediaType was interpolated raw as a tag name: %s", got)
+	}
+	if !strings.HasPrefix(got, "<video ") {
+		t.Errorf("expected fallback to <video>, got: %s", got)
+	}
+}
+
 // TestRenderChartElement_JSONMode_EscapesScriptBreakout cubre issue #19 (CR-1
 // del audit de seguridad 2026-07): un chart en modo JSON directo cuyo RawJSON
 // contiene un literal "</script>" no debe poder cerrar el <script

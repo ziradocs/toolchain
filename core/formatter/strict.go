@@ -130,6 +130,8 @@ func formatStrictElement(el ast.Element) (string, error) {
 		body, err = formatStrictGrid(e)
 	case *ast.MathElement:
 		body, err = formatStrictMath(e)
+	case *ast.MediaElement:
+		body, err = formatMedia(e)
 	default:
 		err = newUnsupported(string(el.GetType()), "tipo de elemento no reconocido por el formatter strict")
 	}
@@ -231,7 +233,31 @@ func formatStrictImage(e *ast.ImageElement) (string, error) {
 // Caption=="", una tabla CON label pero SIN caption caería a formatPipeTable,
 // que no puede portar label, y lo perdería en silencio en un round-trip
 // fmt→build (mismo bug que @include tuvo con la forma genérica de directiva).
+// tableHasCellSpans reporta si e.Cells declara colspan/rowspan real (issue
+// #20) — en ese caso ni formatStrictTable (headers:/rows: plano) ni
+// formatPipeTable pueden representar la tabla sin pérdida: ambos solo emiten
+// la vista plana YA aplanada por ast.FlattenCellsToRows, que expande cada
+// span repitiendo contenido — reemitirla así y reparsearla produciría una
+// tabla SIN spans, distinta de la original (mismo principio que
+// chart.Options/table.Caption en flex: fallar en vez de degradar en
+// silencio). issue #20 solo definió round-trip de "cells:" para el parser;
+// el formatter round-trip de spans queda como follow-up documentado, no como
+// pérdida silenciosa.
+func tableHasCellSpans(cells [][]ast.TableCell) bool {
+	for _, row := range cells {
+		for _, cell := range row {
+			if cell.ColSpan > 1 || cell.RowSpan > 1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func formatStrictTable(e *ast.TableElement) (string, error) {
+	if tableHasCellSpans(e.Cells) {
+		return "", newUnsupported("table", "la tabla tiene celdas fusionadas (colspan/rowspan, issue #20) — el formatter aún no puede reemitir la sintaxis \"cells:\" explícita, solo la vista plana Headers/Rows ya aplanada; reemitirla perdería el span sin avisar")
+	}
 	if e.Caption == "" && e.Label == "" {
 		// formatPipeTable delimita con "|", no con comillas — no pasa por
 		// quote()/checkQuotable, así que no hereda esta limitación (una
@@ -775,6 +801,34 @@ func formatMap(e *ast.MapElement) (string, error) {
 		}
 	}
 	b.WriteString("<<end>>")
+	return b.String(), nil
+}
+
+// formatMedia serializa MediaElement (issue #21) — a diferencia de
+// formatChart/formatMap, es un elemento de una sola línea (elements.MediaParser
+// consume exactamente 1 línea, sin bloque de propiedades ni "<<end>>"), así
+// que todos los atributos van inline en el marcador de apertura. Compartida
+// entre strict y flex (mismo motivo que formatChart/formatMap: ninguna rama
+// de MediaParser.CanParse distingue por ctx.Mode).
+func formatMedia(e *ast.MediaElement) (string, error) {
+	if err := checkQuotable("media", "source", e.Source); err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "<<%s src=%s", e.MediaType, quote(e.Source))
+	if e.Controls {
+		b.WriteString(" controls")
+	}
+	if e.Autoplay {
+		b.WriteString(" autoplay")
+	}
+	if e.Loop {
+		b.WriteString(" loop")
+	}
+	if e.Muted {
+		b.WriteString(" muted")
+	}
+	b.WriteString(">>")
 	return b.String(), nil
 }
 

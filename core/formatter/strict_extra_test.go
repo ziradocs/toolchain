@@ -251,6 +251,21 @@ SLIDE content
   <<end>>
 `,
 		},
+		{
+			// issue #21: video/audio con todos los atributos booleanos activos,
+			// y un audio minimal sin ninguno — el marcador de una sola línea
+			// debe round-trip-ear byte-a-byte.
+			name: "media video and audio markers",
+			content: `---
+mode: strict
+---
+
+SLIDE content
+  title: "Media"
+  <<video src="demo.mp4" controls autoplay loop muted>>
+  <<audio src="clip.mp3">>
+`,
+		},
 	}
 
 	for _, tc := range cases {

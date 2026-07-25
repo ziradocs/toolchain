@@ -398,6 +398,9 @@
               },
               {
                 "$ref": "#/$defs/MathElement"
+              },
+              {
+                "$ref": "#/$defs/MediaElement"
               }
             ]
           },
@@ -508,6 +511,9 @@
               },
               {
                 "$ref": "#/$defs/MathElement"
+              },
+              {
+                "$ref": "#/$defs/MediaElement"
               }
             ]
           },
@@ -980,6 +986,53 @@
         "position",
         "endPosition",
         "content"
+      ]
+    },
+    "MediaElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "media"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "autoplay": {
+          "type": "boolean"
+        },
+        "controls": {
+          "type": "boolean"
+        },
+        "loop": {
+          "type": "boolean"
+        },
+        "muted": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "mediaType",
+        "source"
       ]
     },
     "MermaidElement": {

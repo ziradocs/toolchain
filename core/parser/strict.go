@@ -281,6 +281,11 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
+		} else if strings.HasPrefix(trimmedLine, "<<video") || strings.HasPrefix(trimmedLine, "<<audio") {
+			element := p.parseMediaElement()
+			if element != nil {
+				block.Elements = append(block.Elements, element)
+			}
 		} else if strings.HasPrefix(trimmedLine, "<<map>>") {
 			element := p.parseMapElement()
 			if element != nil {
@@ -670,6 +675,31 @@ func (p *StrictParser) parseChartElement() ast.Element {
 	}
 
 	result := chartParser.Parse(ctx, p.currentLine)
+	if result.Error != nil {
+		p.addError(result.Error.Error())
+	}
+	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
+
+	p.currentLine += result.ConsumedLines
+	return result.Element
+}
+
+func (p *StrictParser) parseMediaElement() ast.Element {
+	if p.currentLine >= len(p.lines) {
+		return nil
+	}
+
+	// Use modular MediaParser (issue #21)
+	mediaParser := &elements.MediaParser{}
+
+	ctx := &elements.ParseContext{
+		Mode:        "strict",
+		Lines:       p.lines,
+		CurrentLine: p.currentLine,
+		Logger:      p.logger,
+	}
+
+	result := mediaParser.Parse(ctx, p.currentLine)
 	if result.Error != nil {
 		p.addError(result.Error.Error())
 	}

@@ -146,6 +146,11 @@ func normalizeElement(el ast.Element) ast.Element {
 		c := *e
 		c.Position, c.EndPosition = zeroPosition, zeroPosition
 		return &c
+	case *ast.MediaElement:
+		// issue #21: sin campos *HTML propios que limpiar, solo posición.
+		c := *e
+		c.Position, c.EndPosition = zeroPosition, zeroPosition
+		return &c
 	case *ast.QuoteElement:
 		c := *e
 		c.Position, c.EndPosition = zeroPosition, zeroPosition

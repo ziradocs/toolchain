@@ -112,6 +112,7 @@ func GetDefaultRegistry() *Registry {
 	registry.Register(&MermaidParser{})
 	registry.Register(&PlantUMLParser{}) // PlantUML diagrams (UML-focused)
 	registry.Register(&ChartParser{})
+	registry.Register(&MediaParser{}) // Audio/video embebido (issue #21) — mismo estilo de marcador que ChartParser
 	registry.Register(&MapParser{})
 	registry.Register(&CodeGroupParser{})
 	registry.Register(&CodeParser{})

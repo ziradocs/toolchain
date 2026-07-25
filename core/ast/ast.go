@@ -23,6 +23,10 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.1.0 (issue #20): TableElement.Cells (aditivo, omitempty) expone
 // estructura de celda real (scope, colspan, rowspan) junto a Headers/Rows,
 // que se conservan sin cambios para compatibilidad.
+//
+// 2.1.0 (issue #21): nuevo MediaElement (discriminador "media") para
+// audio/video embebido, con Autoplay/Controls/Loop/Muted — aditivo, un tipo
+// de elemento nuevo no rompe ningún consumidor existente del contrato.
 const SchemaVersion = "2.1.0"
 
 // Node representa un nodo base en el AST
@@ -58,6 +62,7 @@ const (
 	NodeTypeGrid          NodeType = "grid"           // Grid layout container
 	NodeTypeColumn        NodeType = "column"         // Column within grid layout
 	NodeTypeMath          NodeType = "math"           // Ecuación/fórmula LaTeX (issue #239)
+	NodeTypeMedia         NodeType = "media"          // Audio/video embebido (issue #21)
 )
 
 // BaseNode contiene campos comunes para todos los nodos
