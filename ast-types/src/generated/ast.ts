@@ -15,8 +15,11 @@ import type { Position } from "./diagnostics";
  * "point_item" con PointItem (ahora "checklist_item", un cambio breaking de
  * discriminador); se agregaron campos "*HTML" aditivos (contentHTML, etc.)
  * con la prosa pre-renderizada a HTML inline.
+ * 2.1.0 (issue #22): TextElement.Level (additive, omitempty) exposes the
+ * heading level as a semantic field, so an A11Y rulepack doesn't have to
+ * re-parse the rendered `<hN>` in Content.
  */
-export const SchemaVersion = "2.0.0";
+export const SchemaVersion = "2.1.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -240,6 +243,18 @@ export interface TextElement extends BaseNode {
    * --format json (p. ej. el viewer) no reimplementen el dialecto inline.
    */
   contentHTML?: string;
+  /**
+   * Level is the heading level (1-6) when this TextElement represents a
+   * `##`-`######` heading produced by DocumentFlexParser; 0 (omitted) for
+   * regular text. Exposes the level as a first-class semantic field so a
+   * linter rule (e.g. A11Y heading order/nesting, issue #22) can read it
+   * without re-parsing the rendered `<hN>` in Content/IsRawHTML — a fragile
+   * coupling to render format. Note: a document's H1 lives on
+   * ContentBlock.Heading/Title (a string, not an element), not here; a
+   * heading-order rule must treat that Heading as level 1 and walk Level
+   * for the rest.
+   */
+  level?: number /* int */;
 }
 /**
  * PointsElement representa una lista de puntos
