@@ -318,24 +318,23 @@ func NewImageElementWithContext(pos diagnostics.Position, source, alt string, co
 	}
 }
 
-// TableCell representa una celda individual de una tabla con estructura de
-// referencia cruzada (issue #20, A11Y): scope y colspan/rowspan, para que una
-// regla de linter pueda inspeccionar celdas fusionadas y su scope declarado.
-// Deliberadamente SIN campo *HTML propio: a diferencia de TextElement/
-// ImageElement/etc., el contenido de celda se procesa inline al momento de
-// renderizar (ProcessTextWithVariablesAndMarkdownSecure, igual que hoy con
-// Headers/Rows) — no hay necesidad de poblar/limpiar HTML pre-renderizado
-// para un consumidor --format json, así que Cells no participa en
+// TableCell represents a single table cell with cross-cutting structure
+// (issue #20, A11Y): scope and colspan/rowspan, so a linter rule can inspect
+// merged cells and their declared scope. Deliberately WITHOUT its own *HTML
+// field: unlike TextElement/ImageElement/etc., cell content is processed
+// inline at render time (ProcessTextWithVariablesAndMarkdownSecure, same as
+// Headers/Rows today) — there's no need to populate/clear pre-rendered HTML
+// for a --format json consumer, so Cells doesn't participate in
 // populate_inline_html.go/clear_html.go.
 type TableCell struct {
 	Content string `json:"content"`
-	// IsHeader marca una celda de encabezado (se renderiza como <th>, no <td>).
+	// IsHeader marks a header cell (rendered as <th>, not <td>).
 	IsHeader bool `json:"isHeader,omitempty"`
-	// Scope es "row", "col", o "" (sin declarar) — mismo vocabulario que el
-	// atributo HTML scope=. Solo tiene sentido en una celda IsHeader.
+	// Scope is "row", "col", or "" (undeclared) — same vocabulary as the
+	// HTML scope= attribute. Only meaningful on an IsHeader cell.
 	Scope string `json:"scope,omitempty"`
-	// ColSpan/RowSpan: 0 o 1 significan "sin fusión" (equivalente a colspan="1"
-	// implícito); >1 fusiona esa cantidad de columnas/filas.
+	// ColSpan/RowSpan: 0 or 1 mean "no merge" (equivalent to an implicit
+	// colspan="1"); >1 merges that many columns/rows.
 	ColSpan int `json:"colSpan,omitempty"`
 	RowSpan int `json:"rowSpan,omitempty"`
 }
@@ -347,19 +346,18 @@ type TableElement struct {
 	HeadersHTML []string   `json:"headersHTML,omitempty"` // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
 	Rows        [][]string `json:"rows"`
 	RowsHTML    [][]string `json:"rowsHTML,omitempty"` // Rows ya renderizadas a HTML inline (ver TextElement.ContentHTML)
-	// Cells expone la estructura real de celdas (issue #20, A11Y: colspan/
-	// rowspan/scope) ADEMÁS de Headers/Rows, nunca en su lugar — Headers/Rows
-	// siguen siendo la fuente que consumen los renderers existentes y
-	// slidelang para el caso simple (aditivo, sin romper compatibilidad).
-	// Poblado por todo parser de tablas: TableParser.Parse deriva Cells desde
-	// Headers/Rows para el caso simple, o los parsea directo desde un bloque
-	// YAML `cells:` explícito para celdas fusionadas — ver
-	// ast.DeriveCellsFromFlat. Cuando Cells viene del bloque `cells:`
-	// explícito, Headers/Rows se DERIVAN de Cells (expandiendo cada span a
-	// una grilla rectangular) en vez de al revés, para que
-	// linter.ElementStructureRule (TABLE003: todas las filas deben tener el
-	// mismo número de columnas que Headers) no reporte un falso positivo
-	// sobre una tabla con celdas fusionadas.
+	// Cells exposes the real cell structure (issue #20, A11Y: colspan/
+	// rowspan/scope) IN ADDITION to Headers/Rows, never in their place —
+	// Headers/Rows remain the source existing renderers and slidelang
+	// consume for the simple case (additive, no compatibility break).
+	// Populated by every table parser: TableParser.Parse derives Cells from
+	// Headers/Rows for the simple case, or parses it directly from an
+	// explicit YAML `cells:` block for merged cells — see
+	// ast.DeriveCellsFromFlat. When Cells comes from the explicit `cells:`
+	// block, Headers/Rows are DERIVED from Cells instead (expanding each
+	// span into a rectangular grid), so linter.ElementStructureRule
+	// (TABLE003: every row must have the same column count as Headers)
+	// doesn't report a false positive on a table with merged cells.
 	Cells       [][]TableCell `json:"cells,omitempty"`
 	Caption     string        `json:"caption,omitempty"`
 	CaptionHTML string        `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)

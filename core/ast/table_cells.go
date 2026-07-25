@@ -3,13 +3,24 @@
 
 package ast
 
-// DeriveCellsFromFlat construye TableElement.Cells a partir de la vista plana
-// Headers/Rows que todo parser de tablas ya produce hoy (markdown pipe, YAML
-// simple, strict). El primer row (si hay headers) se marca IsHeader+Scope="col"
-// (mismo criterio que ya aplica renderTableElement al emitir `<th scope="col">`
-// para cada header); las filas de cuerpo quedan como celdas simples sin span.
-// Es la mitad "simple" del seam de issue #20 — la mitad "fusionada" es
-// FlattenCellsToRows, usada cuando el autor declara `cells:` explícito.
+// MaxCellSpan caps ColSpan/RowSpan when flattening explicit `cells:`
+// authoring input into a rectangular grid (FlattenCellsToRows). Without a
+// cap, an absurd span (e.g. `colspan: 999999999`, ~15 bytes of YAML) would
+// make the flattening loop below expand it into a slice with that many
+// entries at PARSE time — a near-zero-cost denial-of-service hitting every
+// output format (html/json/--lint-only) plus DecodeAST for any externally
+// supplied AST JSON. 1000 is far beyond any real document's column/row
+// count while staying cheap to allocate.
+const MaxCellSpan = 1000
+
+// DeriveCellsFromFlat builds TableElement.Cells from the flat Headers/Rows
+// view that every table parser already produces today (markdown pipe,
+// simple YAML, strict). The first row (if there are headers) is marked
+// IsHeader+Scope="col" (the same criterion renderTableElement already uses
+// to emit `<th scope="col">` for each header); body rows become plain
+// cells with no span. This is the "simple" half of the issue #20 seam — the
+// "merged" half is FlattenCellsToRows, used when the author declares an
+// explicit `cells:` block.
 func DeriveCellsFromFlat(headers []string, rows [][]string) [][]TableCell {
 	if len(headers) == 0 && len(rows) == 0 {
 		return [][]TableCell{}
@@ -36,29 +47,32 @@ func DeriveCellsFromFlat(headers []string, rows [][]string) [][]TableCell {
 	return cells
 }
 
-// cellCarry rastrea una celda con RowSpan>1 que sigue ocupando una columna en
-// las filas siguientes a la que la declaró.
+// cellCarry tracks a RowSpan>1 cell that keeps occupying a column in the
+// rows following the one that declared it.
 type cellCarry struct {
 	content  string
 	isHeader bool
-	left     int // filas restantes (incluida la actual) que esta celda ocupa
+	left     int // remaining rows (including the current one) this cell occupies
 }
 
-// FlattenCellsToRows deriva la vista plana Headers/Rows a partir de Cells
-// cuando el autor declaró celdas fusionadas explícitas (bloque YAML `cells:`,
-// issue #20). La derivación expande cada colspan/rowspan repitiendo el
-// contenido de la celda en cada slot que cubre, produciendo una grilla
-// RECTANGULAR (todas las filas con el mismo ancho) — esto es deliberado: es
-// lo que evita que linter.ElementStructureRule (TABLE003, severidad Error)
-// reporte un falso positivo por "número de columnas inconsistente" en una
-// tabla con celdas fusionadas legítima, ya que TABLE003 compara
-// len(row) contra len(Headers) sin ningún concepto de span.
+// FlattenCellsToRows derives the flat Headers/Rows view from Cells when the
+// author declared explicit merged cells (YAML `cells:` block, issue #20).
+// The derivation expands each colspan/rowspan by repeating the cell's
+// content into every slot it covers, producing a RECTANGULAR grid (every
+// row the same width) — this is deliberate: it's what keeps
+// linter.ElementStructureRule (TABLE003, Error severity) from reporting a
+// false positive for "inconsistent column count" on a legitimately merged
+// table, since TABLE003 compares len(row) against len(Headers) with no
+// concept of span.
 //
-// Limitación conocida y aceptada: si una especificación de celdas se solapa
-// (dos celdas reclamando el mismo slot vía colspan/rowspan cruzados) el
-// resultado de esta función puede no reflejar un layout HTML válido — Cells
-// en sí (la fuente de verdad) preserva los valores declarados sin corromper
-// nada; solo la vista plana derivada puede quedar imprecisa en ese caso límite.
+// Known, accepted limitation: if a cell spec overlaps (two cells claiming
+// the same slot via crossed colspan/rowspan) the result of this function may
+// not reflect a valid HTML layout — Cells itself (the source of truth)
+// preserves the declared values without corruption; only the derived flat
+// view can be imprecise in that edge case. The same applies to an
+// undersized row (fewer own cells declared than the columns not already
+// covered by a carry): the gap is filled with an empty placeholder instead
+// of dropping every carry beyond it (see the loop below).
 func FlattenCellsToRows(cells [][]TableCell) ([]string, [][]string) {
 	if len(cells) == 0 {
 		return []string{}, [][]string{}
@@ -80,18 +94,19 @@ func FlattenCellsToRows(cells [][]TableCell) ([]string, [][]string) {
 				continue
 			}
 			if srcIdx >= len(srcRow) {
-				break
+				// No carry at this exact column, no more own cells declared
+				// for this row, but a carry exists further out (undersized/
+				// malformed row) — emit an empty placeholder and keep
+				// scanning toward it instead of silently dropping every
+				// carry beyond this gap.
+				outRow = append(outRow, "")
+				col++
+				continue
 			}
 
 			cell := srcRow[srcIdx]
-			span := cell.ColSpan
-			if span < 1 {
-				span = 1
-			}
-			rspan := cell.RowSpan
-			if rspan < 1 {
-				rspan = 1
-			}
+			span := clampSpan(cell.ColSpan)
+			rspan := clampSpan(cell.RowSpan)
 			for k := 0; k < span; k++ {
 				outRow = append(outRow, cell.Content)
 				if rspan > 1 {
@@ -102,9 +117,9 @@ func FlattenCellsToRows(cells [][]TableCell) ([]string, [][]string) {
 			srcIdx++
 		}
 
-		// Esta fila "consume" un turno de cada celda con rowspan activo,
-		// incluidas las recién creadas arriba (left arrancó en rspan, que
-		// cuenta la fila actual).
+		// This row "consumes" one turn of every active rowspan carry,
+		// including the ones just created above (left started at rspan,
+		// which counts the current row).
 		for c, oc := range carries {
 			oc.left--
 			if oc.left <= 0 {
@@ -136,6 +151,19 @@ func FlattenCellsToRows(cells [][]TableCell) ([]string, [][]string) {
 		return grid[0], grid[1:]
 	}
 	return []string{}, grid
+}
+
+// clampSpan normalizes a declared ColSpan/RowSpan to the [1, MaxCellSpan]
+// range: values below 1 mean "no span" (1), values above MaxCellSpan are
+// clamped to prevent the DoS described on MaxCellSpan's doc comment.
+func clampSpan(span int) int {
+	if span < 1 {
+		return 1
+	}
+	if span > MaxCellSpan {
+		return MaxCellSpan
+	}
+	return span
 }
 
 func carryExistsAtOrBeyond(carries map[int]*cellCarry, col int) bool {

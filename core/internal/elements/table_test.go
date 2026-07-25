@@ -20,20 +20,27 @@ func TestTableParser_CanParse(t *testing.T) {
 		expected bool
 	}{
 		{"strict TABLE keyword", "TABLE", "strict", true},
-		// issue #20: TABLE debe reconocerse también en flex (doclang solo
-		// parsea flex) para que la sintaxis "cells:" explícita de celdas
-		// fusionadas sea autorable en doclang.
+		// issue #20: TABLE must be recognized in flex too (doclang only
+		// parses flex) so the explicit "cells:" merged-cell syntax is
+		// authorable in doclang.
 		{"flex TABLE keyword", "TABLE", "flex", true},
 		{"markdown table row", "| A | B |", "flex", true},
 		{"plain text", "just some text", "flex", false},
-		// Regresión de issue #245: TableParser va antes de Quote/Checklist/
-		// Points/Text en el registry (GetDefaultRegistry) — sin exigir "|"
-		// inicial, cualquier línea con 2+ pipes le robaba el elemento a su
-		// parser real.
+		// Regression from issue #245: TableParser runs before Quote/
+		// Checklist/Points/Text in the registry (GetDefaultRegistry) —
+		// without requiring a leading "|", any line with 2+ pipes stole the
+		// element from its real parser.
 		{"bullet with 2+ pipes is not a table (issue #245)", "- Compara pandas | numpy | scipy", "flex", false},
 		{"quote with 2+ pipes is not a table", "> revenue | costs | margin", "flex", false},
 		{"checklist with 2+ pipes is not a table", "- [ ] a | b | c", "flex", false},
 		{"markdown table row with leading whitespace still matches", "  | A | B |", "flex", true},
+		// Regression: widening the TABLE keyword to flex mode means it now
+		// runs over ordinary doclang prose too. HasPrefix(trimmed, "TABLE")
+		// would swallow a heading/paragraph that merely starts with the
+		// word "TABLE" as a (bogus) table-block start, dropping the real
+		// content. Only the bare "TABLE" token is the block keyword.
+		{"prose starting with TABLE is not a table block", "TABLE OF CONTENTS", "flex", false},
+		{"prose \"TABLE N.N: ...\" is not a table block", "TABLE 3.1: Resultados", "flex", false},
 	}
 
 	for _, tt := range tests {
@@ -82,11 +89,11 @@ func TestTableParser_ParseMarkdownTable(t *testing.T) {
 	}
 }
 
-// TestTableParser_ParseMarkdownTable_AutoDerivesCells cubre issue #20: una
-// tabla markdown simple (sin celdas fusionadas) debe poblar Cells derivándolo
-// de Headers/Rows — la fila de headers marcada IsHeader+Scope="col", el
-// cuerpo como celdas simples sin span — para que un rulepack A11Y pueda
-// caminar la estructura de celdas sin importar qué sintaxis de autoría se usó.
+// TestTableParser_ParseMarkdownTable_AutoDerivesCells covers issue #20: a
+// simple markdown table (no merged cells) must populate Cells by deriving
+// it from Headers/Rows — the header row marked IsHeader+Scope="col", the
+// body as plain cells with no span — so an A11Y rulepack can walk the cell
+// structure regardless of which authoring syntax was used.
 func TestTableParser_ParseMarkdownTable_AutoDerivesCells(t *testing.T) {
 	parser := &TableParser{}
 	ctx := &ParseContext{
@@ -114,13 +121,12 @@ func TestTableParser_ParseMarkdownTable_AutoDerivesCells(t *testing.T) {
 	}
 }
 
-// TestTableParser_ExplicitCells_MergedHeader cubre issue #20: la sintaxis
-// "cells:" explícita dentro de un bloque TABLE en modo flex (doclang) debe
-// parsear colspan/scope/header, y Headers/Rows derivados deben quedar
-// dimensionalmente consistentes (misma cantidad de columnas en headers y en
-// cada fila) — precisamente la propiedad que evita el falso positivo
-// TABLE003 (ver TestElementStructureRule_MergedCells_NoFalsePositive en
-// core/linter).
+// TestTableParser_ExplicitCells_MergedHeader covers issue #20: the explicit
+// "cells:" syntax inside a TABLE block in flex mode (doclang) must parse
+// colspan/scope/header, and the derived Headers/Rows must stay
+// dimensionally consistent (same column count in headers and in every row)
+// — precisely the property that avoids the TABLE003 false positive (see
+// TestElementStructureRule_MergedCells_NoFalsePositive in core/linter).
 func TestTableParser_ExplicitCells_MergedHeader(t *testing.T) {
 	parser := &TableParser{}
 	ctx := &ParseContext{
@@ -311,5 +317,117 @@ func TestTableParser_ParseMarkdownTable_SerializesAsEmptyArrays(t *testing.T) {
 	}
 	if decoded["rows"] == nil {
 		t.Errorf("serialized rows is null, want a non-null array: %s", data)
+	}
+}
+
+// TestTableParser_ExplicitCells_SameIndentSequence covers a fix to issue
+// #20's "cells:" parsing: idiomatic YAML writes a block sequence at the
+// SAME indentation as its mapping key, not indented further
+// (`cells:\n  - [...]`), which the original implementation treated as the
+// end of the cells: block (indent <= cellsIndent), silently collecting zero
+// lines and leaving the table empty. A "-"-prefixed line at the same
+// indentation as "cells:" must still be treated as part of the block.
+func TestTableParser_ExplicitCells_SameIndentSequence(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"TABLE",
+			"  cells:",
+			"  - [{content: A, header: true}, {content: B, header: true}]",
+			"  - [{content: 1}, {content: 2}]",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+
+	if len(table.Cells) != 2 {
+		t.Fatalf("len(Cells) = %d, want 2 (same-indent block sequence must still be parsed)", len(table.Cells))
+	}
+	if got := table.Cells[0][0]; !got.IsHeader || got.Content != "A" {
+		t.Errorf("Cells[0][0] = %+v, want {Content:A IsHeader:true}", got)
+	}
+}
+
+// TestTableParser_ExplicitCells_MalformedYAML_EmitsDiagnostic covers the
+// silent-failure fix: a "cells:" block that isn't valid YAML must surface a
+// Warning diagnostic (TABLE004) instead of silently leaving the table empty
+// with no signal to the author about what went wrong.
+func TestTableParser_ExplicitCells_MalformedYAML_EmitsDiagnostic(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"TABLE",
+			"  cells:",
+			"    - [{content: A, header: true", // unterminated flow mapping/sequence
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+	if len(table.Cells) != 0 {
+		t.Errorf("Cells = %+v, want empty for malformed YAML", table.Cells)
+	}
+
+	if len(result.Diagnostics) == 0 {
+		t.Fatal("expected a diagnostic for malformed \"cells:\" YAML, got none")
+	}
+	found := false
+	for _, d := range result.Diagnostics {
+		if d.RuleID == "TABLE004" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a TABLE004 diagnostic, got: %+v", result.Diagnostics)
+	}
+}
+
+// TestTableParser_ExplicitCells_HugeSpanIsClampedNotExpanded covers the DoS
+// fix (ast.MaxCellSpan): a declared colspan/rowspan far beyond any real
+// table must be clamped rather than expanded verbatim — expanding it
+// verbatim in ast.FlattenCellsToRows would allocate a slice with that many
+// entries at PARSE time, from a few bytes of YAML. A Warning diagnostic
+// (TABLE005) must report that the value was clamped.
+func TestTableParser_ExplicitCells_HugeSpanIsClampedNotExpanded(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"TABLE",
+			"  cells:",
+			"    - [{content: A, header: true, colspan: 999999999}]",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+
+	if got := table.Cells[0][0].ColSpan; got != ast.MaxCellSpan {
+		t.Errorf("Cells[0][0].ColSpan = %d, want clamped to ast.MaxCellSpan (%d)", got, ast.MaxCellSpan)
+	}
+	if len(table.Headers) != ast.MaxCellSpan {
+		t.Errorf("len(Headers) = %d, want %d (clamped, not %d)", len(table.Headers), ast.MaxCellSpan, 999999999)
+	}
+
+	found := false
+	for _, d := range result.Diagnostics {
+		if d.RuleID == "TABLE005" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a TABLE005 diagnostic for the clamped span, got: %+v", result.Diagnostics)
 	}
 }
