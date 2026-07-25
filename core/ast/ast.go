@@ -15,7 +15,11 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // "point_item" con PointItem (ahora "checklist_item", un cambio breaking de
 // discriminador); se agregaron campos "*HTML" aditivos (contentHTML, etc.)
 // con la prosa pre-renderizada a HTML inline.
-const SchemaVersion = "2.0.0"
+//
+// 2.1.0 (issue #22): TextElement.Level (aditivo, omitempty) expone el nivel
+// de heading (1–6) como campo semántico, evitando que un rulepack A11Y tenga
+// que re-parsear el `<hN>` renderizado en Content.
+const SchemaVersion = "2.1.0"
 
 // Node representa un nodo base en el AST
 type Node interface {
