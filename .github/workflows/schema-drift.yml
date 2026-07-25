@@ -58,7 +58,7 @@ jobs:
         run: |
           cat > "$RUNNER_TEMP/print_schema_version.go" <<'EOF'
           package main
-          import ("fmt"; "go.ziradocs.com/core/ast")
+          import ("fmt"; "go.ziradocs.com/core/v2/ast")
           func main() { fmt.Print(ast.SchemaVersion) }
           EOF
           GO_VERSION=$(cd core && go run "$RUNNER_TEMP/print_schema_version.go")
