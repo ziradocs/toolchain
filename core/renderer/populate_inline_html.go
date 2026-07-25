@@ -130,6 +130,13 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 		// solo Caption (si existe) es prosa vars-only.
 		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
 
+	case *ast.MediaElement:
+		// issue #21: no prose fields (Source is a URL, not DOM text; no
+		// Caption/Title). Explicit case, not an oversight — same principle
+		// as the issue #82 comment below: satisfies
+		// element_coverage_test.go's coverage guard without needing to
+		// populate anything.
+
 	default:
 		// Issue #82: silencio explícito, no un olvido. Todo ast.Element que
 		// SÍ lleva contenido de prosa tiene un case arriba — verificado por

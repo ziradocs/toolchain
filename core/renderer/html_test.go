@@ -98,6 +98,86 @@ func TestRenderTableElement_HeaderCellInBodyRow_UsesCellPath(t *testing.T) {
 	}
 }
 
+// TestRenderMediaElement_EmitsAttributes covers issue #21: video/audio must
+// emit the right tag and the 4 boolean attributes only when true (no
+// attribute by default, no "true"/"false" value — native HTML boolean
+// attribute syntax).
+func TestRenderMediaElement_EmitsAttributes(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	video := ast.NewMediaElement(pos, "video", "demo.mp4")
+	video.Controls = true
+	video.Loop = true
+
+	got := renderMediaElement(video, nil)
+	want := `<video src="demo.mp4" controls loop></video>`
+	if got != want {
+		t.Errorf("got:  %s\nwant: %s", got, want)
+	}
+
+	audio := ast.NewMediaElement(pos, "audio", "clip.mp3")
+	got = renderMediaElement(audio, nil)
+	want = `<audio src="clip.mp3"></audio>`
+	if got != want {
+		t.Errorf("got:  %s\nwant: %s", got, want)
+	}
+}
+
+// TestRenderMediaElement_BlocksDangerousSource covers issue #21: a Source
+// with a dangerous scheme (javascript:) must be blocked by SanitizeURL, same
+// as renderImageElement — it must never reach the src attribute interpolated.
+func TestRenderMediaElement_BlocksDangerousSource(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	media := ast.NewMediaElement(pos, "video", `javascript:alert(document.domain)`)
+
+	got := renderMediaElement(media, nil)
+	if strings.Contains(got, "javascript:") {
+		t.Errorf("dangerous source was not blocked: %s", got)
+	}
+	if !strings.Contains(got, "media-error") {
+		t.Errorf("expected a media-error fallback for a blocked source, got: %s", got)
+	}
+	if !strings.Contains(got, "blocked for security") {
+		t.Errorf("expected the security-block message for a dangerous scheme, got: %s", got)
+	}
+}
+
+// TestRenderMediaElement_EmptySourceGetsDistinctMessage covers a fix: an
+// empty Source (author never set src) used to fall into the same
+// "blocked for security reasons" branch as a scheme SanitizeURL actually
+// rejected, misleadingly implying SanitizeURL blocked something when
+// nothing was ever provided. It must get its own, non-security message.
+func TestRenderMediaElement_EmptySourceGetsDistinctMessage(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	media := ast.NewMediaElement(pos, "video", "")
+
+	got := renderMediaElement(media, nil)
+	if !strings.Contains(got, "media-error") {
+		t.Errorf("expected a media-error fallback for an empty source, got: %s", got)
+	}
+	if strings.Contains(got, "blocked for security") {
+		t.Errorf("empty source must not be reported as a security block: %s", got)
+	}
+}
+
+// TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo covers issue #21:
+// a MediaType outside the "video"/"audio" allowlist (possible via the JSON
+// --filter pipeline, issue #240, not just the parser itself) must fall back
+// to the "video" default instead of being interpolated raw as an HTML tag
+// name.
+func TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	media := ast.NewMediaElement(pos, `script onload=alert(1) x`, "demo.mp4")
+
+	got := renderMediaElement(media, nil)
+	if strings.Contains(got, "onload") {
+		t.Fatalf("MediaType was interpolated raw as a tag name: %s", got)
+	}
+	if !strings.HasPrefix(got, "<video ") {
+		t.Errorf("expected fallback to <video>, got: %s", got)
+	}
+}
+
 // TestRenderChartElement_JSONMode_EscapesScriptBreakout cubre issue #19 (CR-1
 // del audit de seguridad 2026-07): un chart en modo JSON directo cuyo RawJSON
 // contiene un literal "</script>" no debe poder cerrar el <script

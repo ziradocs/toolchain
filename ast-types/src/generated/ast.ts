@@ -21,6 +21,9 @@ import type { Position } from "./diagnostics";
  * 2.1.0 (issue #20): TableElement.Cells (additive, omitempty) exposes real
  * cell structure (scope, colspan, rowspan) alongside Headers/Rows, which are
  * kept unchanged for compatibility.
+ * 2.1.0 (issue #21): new MediaElement (discriminator "media") for embedded
+ * audio/video, with Autoplay/Controls/Loop/Muted — additive, a new element
+ * type doesn't break any existing consumer of the contract.
  */
 export const SchemaVersion = "2.1.0";
 /**
@@ -53,6 +56,7 @@ export const NodeTypeChecklistItem: NodeType = "checklist_item"; // Item dentro 
 export const NodeTypeGrid: NodeType = "grid"; // Grid layout container
 export const NodeTypeColumn: NodeType = "column"; // Column within grid layout
 export const NodeTypeMath: NodeType = "math"; // Ecuación/fórmula LaTeX (issue #239)
+export const NodeTypeMedia: NodeType = "media"; // Audio/video embebido (issue #21)
 /**
  * BaseNode contiene campos comunes para todos los nodos
  */
@@ -231,7 +235,8 @@ export type Element =
   | GridElement
   | ColumnElement
   | DirectiveNode
-  | MathElement;
+  | MathElement
+  | MediaElement;
 /**
  * TextElement representa un bloque de texto
  */
@@ -432,6 +437,35 @@ export interface ChartElement extends BaseNode {
   isJSONMode?: boolean; // Indica si usa JSON directo
   width?: number /* int */; // Ancho personalizado (px), default 800
   height?: number /* int */; // Alto personalizado (px), default 600
+}
+/**
+ * MediaElement represents embedded audio/video content (issue #21, A11Y):
+ * exposes Autoplay/Controls/Loop as first-class fields so a linter rule can
+ * detect autoplay content with no pause/stop controls exposed to the user —
+ * something ast.Walk couldn't inspect before this type, because no media
+ * node existed at all.
+ * Note (a conscious decision, not an oversight): unlike ImageElement, this
+ * element carries no accessible-name field of its own (caption/track/
+ * aria-label) — the field list was followed as the issue requested it. It
+ * can be added in a future iteration if the A11Y rulepack needs it.
+ */
+export interface MediaElement extends BaseNode {
+  /**
+   * MediaType is "video" or "audio" — determines the emitted HTML tag
+   * (<video>/<audio>) and which authoring syntax produced it (<<video>>/<<audio>>).
+   */
+  mediaType: string;
+  source: string;
+  autoplay?: boolean;
+  controls?: boolean;
+  loop?: boolean;
+  /**
+   * Muted: autoplay without mute is blocked by most browsers, and
+   * enabling autoplay with audio the user doesn't expect is itself a bad
+   * A11Y practice — exposed as a separate field (not implied by Autoplay)
+   * so a rule can require it explicitly.
+   */
+  muted?: boolean;
 }
 /**
  * MapElement representa mapas con marcadores

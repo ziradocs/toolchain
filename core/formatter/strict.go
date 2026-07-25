@@ -130,6 +130,8 @@ func formatStrictElement(el ast.Element) (string, error) {
 		body, err = formatStrictGrid(e)
 	case *ast.MathElement:
 		body, err = formatStrictMath(e)
+	case *ast.MediaElement:
+		body, err = formatMedia(e)
 	default:
 		err = newUnsupported(string(el.GetType()), "tipo de elemento no reconocido por el formatter strict")
 	}
@@ -718,6 +720,45 @@ func formatMap(e *ast.MapElement) (string, error) {
 		}
 	}
 	b.WriteString("<<end>>")
+	return b.String(), nil
+}
+
+// formatMedia serializes MediaElement (issue #21) — unlike formatChart/
+// formatMap, it's a single-line element (elements.MediaParser consumes
+// exactly 1 line, no property block or "<<end>>"), so every attribute goes
+// inline in the opening marker. Shared between strict and flex (same reason
+// as formatChart/formatMap: no branch of MediaParser.CanParse distinguishes
+// by ctx.Mode).
+func formatMedia(e *ast.MediaElement) (string, error) {
+	if err := checkQuotable("media", "source", e.Source); err != nil {
+		return "", err
+	}
+	// MediaType is validated against the fixed "video"/"audio" allowlist
+	// before interpolation, defaulting to "video" otherwise — same
+	// defensive pattern (and same reason) as renderMediaElement's tag
+	// allowlist in renderer/html.go: MediaType can arrive from an
+	// externally supplied AST via the JSON --filter pipeline (issue #240),
+	// not just this package's own parser, so it must never be interpolated
+	// raw into the marker.
+	mediaType := "video"
+	if e.MediaType == "audio" {
+		mediaType = "audio"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "<<%s src=%s", mediaType, quote(e.Source))
+	if e.Controls {
+		b.WriteString(" controls")
+	}
+	if e.Autoplay {
+		b.WriteString(" autoplay")
+	}
+	if e.Loop {
+		b.WriteString(" loop")
+	}
+	if e.Muted {
+		b.WriteString(" muted")
+	}
+	b.WriteString(">>")
 	return b.String(), nil
 }
 

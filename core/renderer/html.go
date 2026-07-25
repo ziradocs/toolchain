@@ -66,6 +66,9 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 	case *ast.MathElement:
 		return renderMathElement(elem, variables, ctx)
 
+	case *ast.MediaElement:
+		return renderMediaElement(elem, variables)
+
 	default:
 		return fmt.Sprintf("<!-- Unsupported element type: %T -->", element)
 	}
@@ -219,6 +222,56 @@ func tableUsesCellStructure(elem *ast.TableElement) bool {
 		}
 	}
 	return false
+}
+
+// renderMediaElement processes embedded audio/video (issue #21).
+// elem.MediaType is validated against the fixed "video"/"audio" allowlist
+// before being used as a tag name — never interpolated raw — because,
+// unlike the rest of this element's fields, MediaType can arrive from an
+// external filter via the JSON --filter pipeline (issue #240), not just
+// this package's own parser; same defensive pattern as SanitizeColor/
+// inlineSpanTokens. Source goes through SanitizeURL (blocks javascript:/
+// data:/vbscript:/file:), same as renderImageElement.
+//
+// PDF/offline caveat: under chromedp (renderer/chromium) a <video>/<audio>
+// doesn't play real content during headless capture — the tag is still
+// emitted (with its controls, if Controls=true) showing the initial frame/
+// poster, not a limitation introduced here but inherent to capturing video
+// with a headless browser with no user interaction.
+func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}) string {
+	tag := "video"
+	if elem.MediaType == "audio" {
+		tag = "audio"
+	}
+
+	source := ProcessVariables(elem.Source, variables)
+	if strings.TrimSpace(source) == "" {
+		// Distinct from the SanitizeURL block below: an empty src is missing
+		// data, not a blocked dangerous scheme — reporting it as "blocked
+		// for security" would mislead the author into thinking SanitizeURL
+		// rejected something when nothing was ever provided.
+		return `<div class="media-error">Media element has no source</div>`
+	}
+	source = SanitizeURL(source)
+	if source == "" {
+		return `<div class="media-error">Media source blocked for security reasons</div>`
+	}
+
+	var attrs strings.Builder
+	if elem.Controls {
+		attrs.WriteString(" controls")
+	}
+	if elem.Autoplay {
+		attrs.WriteString(" autoplay")
+	}
+	if elem.Loop {
+		attrs.WriteString(" loop")
+	}
+	if elem.Muted {
+		attrs.WriteString(" muted")
+	}
+
+	return fmt.Sprintf(`<%s src="%s"%s></%s>`, tag, source, attrs.String(), tag)
 }
 
 // renderTableElement procesa tablas con headers y rows

@@ -251,6 +251,21 @@ SLIDE content
   <<end>>
 `,
 		},
+		{
+			// issue #21: video/audio con todos los atributos booleanos activos,
+			// y un audio minimal sin ninguno — el marcador de una sola línea
+			// debe round-trip-ear byte-a-byte.
+			name: "media video and audio markers",
+			content: `---
+mode: strict
+---
+
+SLIDE content
+  title: "Media"
+  <<video src="demo.mp4" controls autoplay loop muted>>
+  <<audio src="clip.mp3">>
+`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -693,4 +708,27 @@ func firstCodeGroup(t *testing.T, doc *ast.AST) *ast.CodeGroupElement {
 	}
 	t.Fatalf("no CodeGroupElement found in AST")
 	return nil
+}
+
+// TestFormatMedia_UnknownMediaTypeFallsBackToVideo covers a fix: a
+// MediaType outside the "video"/"audio" allowlist — reachable via a
+// decoded external AST from the JSON --filter pipeline (issue #240), not
+// just this package's own parser — used to be interpolated raw into the
+// `<<%s src=...>>` marker, potentially corrupting the marker's syntax on
+// re-parse. It must fall back to "video", mirroring renderMediaElement's
+// tag allowlist in renderer/html.go.
+func TestFormatMedia_UnknownMediaTypeFallsBackToVideo(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	media := ast.NewMediaElement(pos, "not-a-real-type", "demo.mp4")
+
+	got, err := formatMedia(media)
+	if err != nil {
+		t.Fatalf("formatMedia() error = %v", err)
+	}
+	if !strings.HasPrefix(got, "<<video ") {
+		t.Errorf("formatMedia() = %q, want fallback to \"<<video \" prefix", got)
+	}
+	if strings.Contains(got, "not-a-real-type") {
+		t.Errorf("formatMedia() interpolated the unvalidated MediaType raw: %q", got)
+	}
 }

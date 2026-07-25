@@ -497,6 +497,43 @@ func NewChartElement(pos diagnostics.Position, chartType string) *ChartElement {
 	}
 }
 
+// MediaElement represents embedded audio/video content (issue #21, A11Y):
+// exposes Autoplay/Controls/Loop as first-class fields so a linter rule can
+// detect autoplay content with no pause/stop controls exposed to the user —
+// something ast.Walk couldn't inspect before this type, because no media
+// node existed at all.
+//
+// Note (a conscious decision, not an oversight): unlike ImageElement, this
+// element carries no accessible-name field of its own (caption/track/
+// aria-label) — the field list was followed as the issue requested it. It
+// can be added in a future iteration if the A11Y rulepack needs it.
+type MediaElement struct {
+	BaseNode `tstype:",extends,required"`
+	// MediaType is "video" or "audio" — determines the emitted HTML tag
+	// (<video>/<audio>) and which authoring syntax produced it (<<video>>/<<audio>>).
+	MediaType string `json:"mediaType"`
+	Source    string `json:"source"`
+	Autoplay  bool   `json:"autoplay,omitempty"`
+	Controls  bool   `json:"controls,omitempty"`
+	Loop      bool   `json:"loop,omitempty"`
+	// Muted: autoplay without mute is blocked by most browsers, and
+	// enabling autoplay with audio the user doesn't expect is itself a bad
+	// A11Y practice — exposed as a separate field (not implied by Autoplay)
+	// so a rule can require it explicitly.
+	Muted bool `json:"muted,omitempty"`
+}
+
+func (m MediaElement) element() {}
+
+// NewMediaElement creates a new media element
+func NewMediaElement(pos diagnostics.Position, mediaType, source string) *MediaElement {
+	return &MediaElement{
+		BaseNode:  NewBaseNode(NodeTypeMedia, pos),
+		MediaType: mediaType,
+		Source:    source,
+	}
+}
+
 // MapElement representa mapas con marcadores
 type MapElement struct {
 	BaseNode  `tstype:",extends,required"`

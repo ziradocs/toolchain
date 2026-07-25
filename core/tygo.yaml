@@ -9,4 +9,4 @@ packages:
       # static reflection, so it's pinned here as a discriminated union
       # (must stay in sync with "func (X) element() {}" in ast/*.go, the
       # same list core/cmd/gen-schema uses).
-      ast.Element: "TextElement | PointsElement | CodeElement | ImageElement | TableElement | SpecialBlockElement | CodeGroupElement | MermaidElement | PlantUMLElement | ChartElement | MapElement | QuoteElement | ChecklistElement | GridElement | ColumnElement | DirectiveNode | MathElement"
+      ast.Element: "TextElement | PointsElement | CodeElement | ImageElement | TableElement | SpecialBlockElement | CodeGroupElement | MermaidElement | PlantUMLElement | ChartElement | MapElement | QuoteElement | ChecklistElement | GridElement | ColumnElement | DirectiveNode | MathElement | MediaElement"

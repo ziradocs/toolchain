@@ -621,3 +621,53 @@ func firstGrid(t *testing.T, content string) *ast.GridElement {
 	t.Fatalf("no GridElement found in parsed content")
 	return nil
 }
+
+// TestStrictParser_MediaElement_Dispatched covers issue #21's strict-mode
+// dispatch: a `<<video ...>>` line inside SLIDE content must parse as an
+// *ast.MediaElement, not fall through to the default "unrecognized line"
+// handling.
+func TestStrictParser_MediaElement_Dispatched(t *testing.T) {
+	body := `SLIDE content
+  title: "Media"
+  <<video src="demo.mp4" controls>>`
+
+	p := NewStrictParser(body, util.NewNoop())
+	astNode, diags := p.Parse()
+
+	if n := countErrors(diags); n != 0 {
+		t.Fatalf("got %d error diagnostics, want 0: %v", n, diags)
+	}
+	elements := astNode.ContentBlocks[0].Elements
+	if len(elements) != 1 {
+		t.Fatalf("Elements = %d, want 1: %+v", len(elements), elements)
+	}
+	media, ok := elements[0].(*ast.MediaElement)
+	if !ok {
+		t.Fatalf("elements[0] = %T, want *ast.MediaElement", elements[0])
+	}
+	if media.Source != "demo.mp4" || !media.Controls {
+		t.Errorf("media = %+v, want Source=demo.mp4 Controls=true", media)
+	}
+}
+
+// TestStrictParser_MediaTagOverMatch_NotDispatchedAsMedia covers the
+// strict-mode dispatch fix mirroring elements.MediaParser.CanParse's own
+// fix: this switch used to dispatch on a bare HasPrefix(line, "<<video"),
+// which would also route an unrelated/typo'd "<<videofoo ...>>" line into
+// parseMediaElement. The dispatch now delegates to
+// elements.MediaParser.CanParse, so such a line must NOT become a
+// MediaElement.
+func TestStrictParser_MediaTagOverMatch_NotDispatchedAsMedia(t *testing.T) {
+	body := `SLIDE content
+  title: "Media"
+  <<videofoo src="demo.mp4">>`
+
+	p := NewStrictParser(body, util.NewNoop())
+	astNode, _ := p.Parse()
+
+	for _, el := range astNode.ContentBlocks[0].Elements {
+		if _, ok := el.(*ast.MediaElement); ok {
+			t.Fatalf("\"<<videofoo ...>>\" was dispatched as *ast.MediaElement, want it rejected: %+v", el)
+		}
+	}
+}

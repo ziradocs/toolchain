@@ -46,6 +46,7 @@ var elementTypes = []struct {
 	{"ColumnElement", ast.NodeTypeColumn, &ast.ColumnElement{}},
 	{"DirectiveNode", ast.NodeTypeDirective, &ast.DirectiveNode{}},
 	{"MathElement", ast.NodeTypeMath, &ast.MathElement{}},
+	{"MediaElement", ast.NodeTypeMedia, &ast.MediaElement{}},
 }
 
 // nodeTypeConsts fija el valor literal del discriminador "type" para defs que

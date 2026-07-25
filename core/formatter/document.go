@@ -166,6 +166,8 @@ func formatDocumentElement(el ast.Element) (string, error) {
 		body, err = formatChart(e)
 	case *ast.MapElement:
 		body, err = formatMap(e)
+	case *ast.MediaElement:
+		body, err = formatMedia(e)
 	case *ast.DirectiveNode:
 		body, err = formatDirective(e)
 	case *ast.GridElement:
