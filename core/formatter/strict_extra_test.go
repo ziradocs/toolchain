@@ -475,12 +475,20 @@ func TestFormatStrict_ChecklistUnsupported(t *testing.T) {
 // de reportar un falso "canónico".
 //
 // Este test cubre cada campo entrecomillado alcanzable desde un AST de
-// origen flex (property de bloque, IMAGE, TABLE con caption/headers/filas,
-// chart title/series/labels/data, map marker.label, parámetro de
-// directiva) -- no exhaustivo campo-por-campo dentro de cada función (eso
-// ya lo cubre validateStrictQuoteContent/Checklist para Quote/Checklist),
-// sino una prueba de que CADA función que pasa por quote() en este archivo
-// tiene la guarda, no solo algunas.
+// origen flex (property de bloque, IMAGE, TABLE caption, chart
+// title/series/labels/data, map marker.label, parámetro de directiva) -- no
+// exhaustivo campo-por-campo dentro de cada función (eso ya lo cubre
+// validateStrictQuoteContent/Checklist para Quote/Checklist), sino una
+// prueba de que CADA función que pasa por quote() en este archivo tiene la
+// guarda, no solo algunas.
+//
+// NOTE: table ROW/CELL content used to be here too ("table row value,
+// forces TABLE/YAML form via caption"), but table_cells.go's
+// formatTableCellsBlock now serializes cell content through a real YAML
+// encoder (yaml.Node), not quote() — see
+// TestFormatTableCellsBlock_CellContentWithQuote_RoundTrips, which asserts
+// the opposite of this test for that field: a literal quote in cell
+// content is safely representable, not rejected.
 func TestFormatStrict_UnescapableQuoteRejected(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	const q = `a "quoted" value`
@@ -518,18 +526,6 @@ func TestFormatStrict_UnescapableQuoteRejected(t *testing.T) {
 				table.Headers = []string{"A"}
 				table.Rows = [][]string{{"1"}}
 				table.Caption = q
-				block := ast.NewContentBlock(pos, "content")
-				block.Elements = append(block.Elements, table)
-				return newDocWithBlock(block)
-			}(),
-		},
-		{
-			name: "table row value (forces TABLE/YAML form via caption)",
-			doc: func() *ast.AST {
-				table := ast.NewTableElement(pos)
-				table.Headers = []string{"A"}
-				table.Rows = [][]string{{q}}
-				table.Caption = "safe caption"
 				block := ast.NewContentBlock(pos, "content")
 				block.Elements = append(block.Elements, table)
 				return newDocWithBlock(block)
@@ -588,6 +584,45 @@ func TestFormatStrict_UnescapableQuoteRejected(t *testing.T) {
 				t.Fatalf("FormatStrict error type = %T, want *UnsupportedElementError: %v", err, err)
 			}
 		})
+	}
+}
+
+// TestFormatTableCellsBlock_CellContentWithQuote_RoundTrips is the positive
+// counterpart removed from TestFormatStrict_UnescapableQuoteRejected: a
+// table forced into the cells: form (here, by a non-empty Caption) whose
+// cell content contains a literal quote must format successfully and
+// round-trip losslessly — table_cells.go's formatTableCellsYAML serializes
+// cell content through a real YAML encoder (yaml.Node), which quotes/
+// escapes as needed, unlike quote() (used for Caption/Label on the same
+// element, which still can't contain a literal quote).
+func TestFormatTableCellsBlock_CellContentWithQuote_RoundTrips(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	const tricky = `a "quoted" value, with: punctuation`
+
+	table := ast.NewTableElement(pos)
+	table.Headers = []string{"A"}
+	table.Rows = [][]string{{tricky}}
+	table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+	table.Caption = "safe caption"
+	block := ast.NewContentBlock(pos, "content")
+	block.Elements = append(block.Elements, table)
+	doc := ast.NewAST(pos)
+	doc.FrontMatter = ast.NewFrontMatterNode(pos)
+	doc.FrontMatter.Mode = "strict"
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	out, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatalf("FormatStrict: unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "cells:") {
+		t.Fatalf("expected the cells: form (Caption forces it), got:\n%s", out)
+	}
+
+	reparsed := parseStrict(t, out)
+	got := reparsed.ContentBlocks[0].Elements[0].(*ast.TableElement)
+	if len(got.Rows) != 1 || len(got.Rows[0]) != 1 || got.Rows[0][0] != tricky {
+		t.Fatalf("row value did not round-trip: got Rows=%v, want [[%q]]\nformatted:\n%s", got.Rows, tricky, out)
 	}
 }
 

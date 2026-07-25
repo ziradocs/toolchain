@@ -12,6 +12,92 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
+// TestRenderTableElement_SimpleTable_UnchangedHTML covers issue #20: a table
+// with no merged cells (Cells auto-derived by ast.DeriveCellsFromFlat) must
+// keep emitting exactly the same byte-for-byte HTML as before this change —
+// tableUsesCellStructure must return false for it, so it falls into the
+// pre-existing Headers/Rows path, not renderTableCells.
+func TestRenderTableElement_SimpleTable_UnchangedHTML(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Headers = []string{"A", "B"}
+	table.Rows = [][]string{{"1", "2"}}
+	table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+
+	got := renderTableElement(table, nil)
+	want := `<table><thead><tr><th scope="col">A</th><th scope="col">B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>`
+	if got != want {
+		t.Errorf("simple table HTML changed:\ngot:  %s\nwant: %s", got, want)
+	}
+}
+
+// TestRenderTableElement_MergedCells_EmitsColspanAndScope covers issue #20:
+// a table with Cells declaring colspan/scope must render via
+// renderTableCells, emitting the real colspan/scope attributes — something
+// the Headers/Rows path can't express.
+func TestRenderTableElement_MergedCells_EmitsColspanAndScope(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Cells = [][]ast.TableCell{
+		{
+			{Content: "A", IsHeader: true, Scope: "col", ColSpan: 2},
+			{Content: "B", IsHeader: true, Scope: "col"},
+		},
+		{
+			{Content: "1"}, {Content: "2"}, {Content: "3"},
+		},
+	}
+	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
+
+	got := renderTableElement(table, nil)
+
+	if !strings.Contains(got, `<th scope="col" colspan="2">A</th>`) {
+		t.Errorf("expected merged header cell with colspan=2, got: %s", got)
+	}
+	if !strings.Contains(got, `<th scope="col">B</th>`) {
+		t.Errorf("expected non-merged header cell without colspan, got: %s", got)
+	}
+	if !strings.Contains(got, "<thead>") || !strings.Contains(got, "<tbody>") {
+		t.Errorf("expected <thead>/<tbody> split for a header-led cell grid, got: %s", got)
+	}
+	if !strings.Contains(got, "<td>1</td><td>2</td><td>3</td>") {
+		t.Errorf("expected 3 plain body cells, got: %s", got)
+	}
+}
+
+// TestRenderTableElement_HeaderCellInBodyRow_UsesCellPath covers the
+// tableUsesCellStructure gate fix: a table whose Cells has an IsHeader cell
+// inside a body row (no colspan/rowspan, no scope="row") used to fall
+// through the narrower gate (which only checked span and scope=="row") into
+// the Headers/Rows path, rendering that cell as a plain <td> even though
+// elem.Cells (and thus --format json) says isHeader:true — HTML and JSON
+// disagreeing, and the accessible <th> silently lost. It must now route
+// through renderTableCells and emit <th>.
+func TestRenderTableElement_HeaderCellInBodyRow_UsesCellPath(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Cells = [][]ast.TableCell{
+		{
+			{Content: "Region", IsHeader: true, Scope: "col"},
+			{Content: "Sales", IsHeader: true, Scope: "col"},
+		},
+		{
+			{Content: "Total", IsHeader: true},
+			{Content: "100"},
+		},
+	}
+	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
+
+	got := renderTableElement(table, nil)
+
+	if !strings.Contains(got, "<th>Total</th>") {
+		t.Errorf("expected the body-row header cell to render as <th>, got: %s", got)
+	}
+	if strings.Contains(got, "<td>Total</td>") {
+		t.Errorf("body-row header cell must not render as <td>: %s", got)
+	}
+}
+
 // TestRenderChartElement_JSONMode_EscapesScriptBreakout cubre issue #19 (CR-1
 // del audit de seguridad 2026-07): un chart en modo JSON directo cuyo RawJSON
 // contiene un literal "</script>" no debe poder cerrar el <script
