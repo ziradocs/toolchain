@@ -831,6 +831,11 @@ func (p *StrictParser) parseMarkdownTableElement() ast.Element {
 
 	table.Headers = headers
 	table.Rows = rows
+	// issue #20: derive Cells from the flat view in this hand-rolled
+	// markdown-table parser too (it doesn't go through
+	// elements.TableParser.Parse, which already derives Cells for every
+	// other parse path).
+	table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 	return table
 }
 

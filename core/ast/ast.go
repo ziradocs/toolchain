@@ -19,6 +19,10 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.1.0 (issue #22): TextElement.Level (additive, omitempty) exposes the
 // heading level as a semantic field, so an A11Y rulepack doesn't have to
 // re-parse the rendered `<hN>` in Content.
+//
+// 2.1.0 (issue #20): TableElement.Cells (additive, omitempty) exposes real
+// cell structure (scope, colspan, rowspan) alongside Headers/Rows, which are
+// kept unchanged for compatibility.
 const SchemaVersion = "2.1.0"
 
 // Node representa un nodo base en el AST

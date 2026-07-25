@@ -6,6 +6,7 @@ package elements
 import (
 	"strings"
 
+	"go.yaml.in/yaml/v3"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -17,20 +18,34 @@ type TableParser struct{}
 func (p *TableParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
-	// Strict mode: TABLE keyword
-	if mode == "strict" && strings.HasPrefix(trimmed, "TABLE") {
+	// TABLE keyword: recognized in both strict and flex. doclang ONLY parses
+	// flex (DocumentFlexParser.parseSectionContent sets ctx.Mode = "flex"),
+	// so a TABLE block limited to strict was unauthorable in doclang —
+	// needed so the explicit merged-cell `cells:` syntax (issue #20) exists
+	// in the CLI the enterprise/A11Y rulepack actually consumes. Before this
+	// change, a TABLE block in flex fell through to the TextParser fallback
+	// and rendered as literal text.
+	//
+	// Exact-token match (trimmed == "TABLE", not HasPrefix): widening this to
+	// flex means it now runs over ordinary doclang prose too, where a line
+	// can legitimately start with the word "TABLE" without being the block
+	// keyword (e.g. "TABLE 3.1: Resultados" or "TABLE OF CONTENTS" as a
+	// heading) — HasPrefix would swallow that line as a table start and
+	// drop it as content. Every real TABLE block (tests, examples) is the
+	// bare token with nothing else on the line, so exact match is safe.
+	if (mode == "strict" || mode == "flex") && trimmed == "TABLE" {
 		return true
 	}
 
-	// Both modes: Markdown table format. Exige "|" inicial (no solo 2+
-	// pipes en cualquier posición) — sin esto, TableParser va antes de
-	// Quote/Checklist/Points/Text en el registry (GetDefaultRegistry) y le
-	// roba líneas legítimas con 2+ pipes que no son tablas, p. ej.
-	// "- Compara pandas | numpy | scipy" (issue #245). El 100% de las
-	// tablas markdown reales del corpus empiezan cada fila con "|", y
-	// strict ya exige lo mismo (parser/strict.go). CanParse solo ve una
-	// línea (no puede mirar si la siguiente es una fila separadora
-	// "|---|") así que "|" inicial es el único discriminador viable acá.
+	// Both modes: Markdown table format. Requires a leading "|" (not just
+	// 2+ pipes anywhere) — without this, TableParser runs before
+	// Quote/Checklist/Points/Text in the registry (GetDefaultRegistry) and
+	// steals legitimate lines with 2+ pipes that aren't tables, e.g.
+	// "- Compara pandas | numpy | scipy" (issue #245). Every real markdown
+	// table in the corpus starts each row with "|", and strict already
+	// requires the same (parser/strict.go). CanParse only sees one line (it
+	// can't check whether the next one is a separator row "|---|"), so a
+	// leading "|" is the only viable discriminator here.
 	if strings.HasPrefix(trimmed, "|") && strings.Count(trimmed, "|") >= 2 {
 		return true
 	}
@@ -52,24 +67,40 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	table := ast.NewTableElement(pos)
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
+	var diags []diagnostics.Diagnostic
 
-	// Check if it's a strict mode TABLE declaration
-	if ctx.Mode == "strict" && strings.HasPrefix(line, "TABLE") {
+	// The YAML "TABLE" block is recognized the same way in strict and flex
+	// (see CanParse); mode no longer gates this branch, only the line's syntax.
+	if strings.HasPrefix(line, "TABLE") {
 		consumed++
 		startIndex++
 
 		// Parse YAML-style table
-		headers, rows, caption, label, yamlConsumed := p.parseYAMLTable(ctx.Lines, startIndex)
-		table.Headers = headers
-		table.Rows = rows
+		headers, rows, caption, label, cellsExplicit, yamlDiags, yamlConsumed := p.parseYAMLTable(ctx.Lines, startIndex, pos)
 		table.Caption = caption
 		table.Label = label
 		consumed += yamlConsumed
+		diags = append(diags, yamlDiags...)
+
+		if len(cellsExplicit) > 0 {
+			// Explicit merged cells (issue #20): Cells is the source of
+			// truth; Headers/Rows are DERIVED from Cells (rectangular grid)
+			// so linter.ElementStructureRule (TABLE003) doesn't report a
+			// false positive of "inconsistent columns" over a table with
+			// colspan/rowspan.
+			table.Cells = cellsExplicit
+			table.Headers, table.Rows = ast.FlattenCellsToRows(cellsExplicit)
+		} else {
+			table.Headers = headers
+			table.Rows = rows
+			table.Cells = ast.DeriveCellsFromFlat(headers, rows)
+		}
 	} else {
 		// Parse Markdown-style table
 		headers, rows, markdownConsumed := p.parseMarkdownTable(ctx.Lines, startIndex)
 		table.Headers = headers
 		table.Rows = rows
+		table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 		consumed = markdownConsumed
 	}
 
@@ -77,18 +108,31 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       table,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
 }
 
-// parseYAMLTable parsea una tabla en formato YAML (strict mode)
-func (p *TableParser) parseYAMLTable(lines []string, startIndex int) ([]string, [][]string, string, string, int) {
-	// Inicializados como slices vacíos (no nil): Headers/Rows no llevan
-	// omitempty en el AST, así que un valor nil se serializaría como
-	// JSON null en vez de [] (issue #8 - viola el JSON Schema del contrato).
+// parseYAMLTable parsea una tabla en formato YAML (bloque "TABLE"). El
+// quinto valor de retorno es no-nil solo si el bloque declaró "cells:"
+// explícito (celdas fusionadas, issue #20) — en ese caso el llamador debe
+// tratar Cells como fuente de verdad y derivar Headers/Rows de él (ver
+// ast.FlattenCellsToRows), ignorando los headers/rows acumulados acá (que
+// para un bloque "cells:" quedan vacíos, ya que esa sintaxis no declara
+// headers:/rows: por separado).
+func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnostics.Position) ([]string, [][]string, string, string, [][]ast.TableCell, []diagnostics.Diagnostic, int) {
+	// Initialized as empty slices (not nil): Headers/Rows have no omitempty
+	// in the AST, so a nil value would serialize as JSON null instead of []
+	// (issue #8 - violates the contract's JSON Schema).
 	headers := []string{}
 	rows := [][]string{}
 	var caption string
 	var label string
+	// Named differently from "cells" on purpose: the "|" fallback branch
+	// below already declares a local variable "cells" ([]string, one row
+	// split by pipes) unrelated to this one — same name in nested scopes
+	// would still compile (shadowing), but would confuse a reader.
+	var explicitCells [][]ast.TableCell
+	var diags []diagnostics.Diagnostic
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
 
@@ -163,6 +207,53 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int) ([]string, 
 				i++
 			}
 			continue
+		} else if strings.HasPrefix(trimmedLine, "cells:") {
+			// Explicit merged cells (issue #20): the value is a YAML
+			// sequence of cell rows, indented under "cells:". Collect the
+			// lines that belong to it, then parse them as full YAML — more
+			// robust than the hand-rolled string splitting headers:/rows:
+			// use above, needed because here the value is a nested
+			// structure (a list of lists of maps), not a flat array.
+			//
+			// A sequence item is still part of this value either when it's
+			// indented past "cells:" itself, OR when it sits at the exact
+			// same indentation and starts with "-" — the idiomatic YAML
+			// style for a block sequence under a mapping key
+			// (`cells:\n- [...]`). Treating same-indent-without-"-" as the
+			// end of the block (the pre-fix behavior) silently produced an
+			// empty cellsBlockLines for that idiomatic style, and thus a
+			// silently empty table.
+			cellsIndent := currentIndent
+			consumed++
+			i++
+			var cellsBlockLines []string
+			for i < len(lines) {
+				rl := lines[i]
+				rlTrimmed := strings.TrimSpace(rl)
+				if rlTrimmed == "" {
+					cellsBlockLines = append(cellsBlockLines, rl)
+					consumed++
+					i++
+					continue
+				}
+				rlIndent := CalculateIndentLevel(rl)
+				if rlIndent < cellsIndent || (rlIndent == cellsIndent && !strings.HasPrefix(rlTrimmed, "-")) {
+					i-- // Let the outer loop reprocess this line
+					break
+				}
+				cellsBlockLines = append(cellsBlockLines, rl)
+				consumed++
+				i++
+			}
+			if parsedCells, cellDiags, ok := parseCellsYAML(cellsBlockLines, pos); ok {
+				explicitCells = parsedCells
+				diags = append(diags, cellDiags...)
+			} else if len(cellsBlockLines) > 0 {
+				diags = append(diags, diagnostics.NewWarning(
+					`The "cells:" block is not valid YAML and was ignored; the table will be empty`,
+					pos, "table-parser").WithRuleID("TABLE004"))
+			}
+			continue
 		} else if strings.HasPrefix(trimmedLine, "caption:") {
 			captionStr := strings.TrimPrefix(trimmedLine, "caption:")
 			caption = strings.Trim(strings.TrimSpace(captionStr), "\"")
@@ -187,7 +278,103 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int) ([]string, 
 		consumed++
 	}
 
-	return headers, rows, caption, label, consumed
+	return headers, rows, caption, label, explicitCells, diags, consumed
+}
+
+// yamlTableCellEntry es la forma YAML de una celda dentro del bloque
+// "cells:" (issue #20) — nombres de campo en minúscula sin prefijo, para que
+// la sintaxis de autoría sea la aprobada:
+//
+//	cells:
+//	  - [{content: A, header: true, colspan: 2}, {content: B, header: true}]
+//	  - [{content: 1}, {content: 2}, {content: 3}]
+type yamlTableCellEntry struct {
+	Content string `yaml:"content"`
+	Header  bool   `yaml:"header"`
+	Scope   string `yaml:"scope"`
+	Colspan int    `yaml:"colspan"`
+	Rowspan int    `yaml:"rowspan"`
+}
+
+// parseCellsYAML parses the block of lines collected under "cells:" (a YAML
+// sequence of sequences of maps, flow style) into [][]ast.TableCell.
+// Returns ok=false if the block is empty or not valid YAML — in that case
+// the caller keeps the previous behavior (Headers/Rows derived from other
+// keys in the block, typically empty if only a malformed "cells:" was
+// declared) and is responsible for surfacing a diagnostic, since only the
+// caller has the table's position.
+//
+// A declared colspan/rowspan above ast.MaxCellSpan is clamped rather than
+// rejected outright, and reported via a single aggregated warning — see
+// ast.MaxCellSpan's doc comment for why the cap exists. An invalid scope
+// (anything other than "", "row", "col") is cleared the same way — see the
+// TABLE006 comment below.
+func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.TableCell, []diagnostics.Diagnostic, bool) {
+	if len(blockLines) == 0 {
+		return nil, nil, false
+	}
+
+	raw := strings.Join(blockLines, "\n")
+	var parsed [][]yamlTableCellEntry
+	if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil || len(parsed) == 0 {
+		return nil, nil, false
+	}
+
+	clamped := false
+	invalidScope := false
+	cells := make([][]ast.TableCell, len(parsed))
+	for i, row := range parsed {
+		cells[i] = make([]ast.TableCell, len(row))
+		for j, c := range row {
+			colspan := c.Colspan
+			if colspan > ast.MaxCellSpan {
+				colspan = ast.MaxCellSpan
+				clamped = true
+			}
+			rowspan := c.Rowspan
+			if rowspan > ast.MaxCellSpan {
+				rowspan = ast.MaxCellSpan
+				clamped = true
+			}
+			scope := c.Scope
+			if scope != "" && scope != "row" && scope != "col" {
+				// Cleared, not just left as-is: renderTableCells'
+				// writeTableCellRow only ever emits scope="row"/"col" (a
+				// fixed allowlist, defensive against interpolating an
+				// arbitrary author string into an HTML attribute), so an
+				// invalid value like "column" would otherwise round-trip
+				// into the JSON contract (elem.Cells) while silently never
+				// appearing in the rendered HTML — no error, no diagnostic,
+				// just a value that quietly does nothing. Precisely the
+				// kind of silent failure this a11y feature can't afford:
+				// a typo'd scope looks "saved" in the JSON but the
+				// accessibility structure it was meant to declare never
+				// reaches the DOM.
+				invalidScope = true
+				scope = ""
+			}
+			cells[i][j] = ast.TableCell{
+				Content:  c.Content,
+				IsHeader: c.Header,
+				Scope:    scope,
+				ColSpan:  colspan,
+				RowSpan:  rowspan,
+			}
+		}
+	}
+
+	var diags []diagnostics.Diagnostic
+	if clamped {
+		diags = append(diags, diagnostics.NewWarning(
+			"A cell declared colspan/rowspan above the supported maximum; it was clamped",
+			pos, "table-parser").WithRuleID("TABLE005"))
+	}
+	if invalidScope {
+		diags = append(diags, diagnostics.NewWarning(
+			`A cell declared a scope other than "row"/"col"; it was cleared`,
+			pos, "table-parser").WithRuleID("TABLE006"))
+	}
+	return cells, diags, true
 }
 
 // parseMarkdownTable parsea una tabla en formato Markdown

@@ -188,6 +188,39 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	return fmt.Sprintf(`<img src="%s" alt="%s">`, source, alt)
 }
 
+// tableUsesCellStructure reports whether elem.Cells declares anything that
+// isn't exactly the shape ast.DeriveCellsFromFlat would produce for a
+// simple table (row 0 entirely IsHeader+Scope="col"+no span, every body row
+// entirely non-header+no scope+no span) — the case where it's worth paying
+// for the more expensive render path (renderTableCells).
+//
+// This used to only check ColSpan/RowSpan/Scope=="row", which missed a
+// real-world case: a `cells:` author can mark a cell IsHeader (with
+// scope=="" or "col") inside a body row, or lead with a first row that
+// isn't fully header — with the narrower check, that table fell through to
+// the Headers/Rows path below, which renders every cell as a plain `<td>`
+// while the JSON (elem.Cells) still says isHeader:true, so HTML and JSON
+// disagreed and the a11y-relevant `<th>` was silently lost. Comparing
+// against the full simple-table shape instead of just span/row-scope
+// catches that.
+func tableUsesCellStructure(elem *ast.TableElement) bool {
+	for i, row := range elem.Cells {
+		for _, cell := range row {
+			if cell.ColSpan > 1 || cell.RowSpan > 1 {
+				return true
+			}
+			if i == 0 {
+				if !cell.IsHeader || cell.Scope != "col" {
+					return true
+				}
+			} else if cell.IsHeader || cell.Scope != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // renderTableElement procesa tablas con headers y rows
 func renderTableElement(elem *ast.TableElement, variables map[string]interface{}) string {
 	var html strings.Builder
@@ -199,27 +232,31 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 		html.WriteString("<table>")
 	}
 
-	// Headers
-	if len(elem.Headers) > 0 {
-		html.WriteString("<thead><tr>")
-		for _, header := range elem.Headers {
-			processedHeader := ProcessTextWithVariablesAndMarkdownSecure(header, variables)
-			fmt.Fprintf(&html, `<th scope="col">%s</th>`, processedHeader)
+	if tableUsesCellStructure(elem) {
+		renderTableCells(&html, elem.Cells, variables)
+	} else {
+		// Headers
+		if len(elem.Headers) > 0 {
+			html.WriteString("<thead><tr>")
+			for _, header := range elem.Headers {
+				processedHeader := ProcessTextWithVariablesAndMarkdownSecure(header, variables)
+				fmt.Fprintf(&html, `<th scope="col">%s</th>`, processedHeader)
+			}
+			html.WriteString("</tr></thead>")
 		}
-		html.WriteString("</tr></thead>")
-	}
 
-	// Rows
-	html.WriteString("<tbody>")
-	for _, row := range elem.Rows {
-		html.WriteString("<tr>")
-		for _, cell := range row {
-			processedCell := ProcessTextWithVariablesAndMarkdownSecure(cell, variables)
-			fmt.Fprintf(&html, "<td>%s</td>", processedCell)
+		// Rows
+		html.WriteString("<tbody>")
+		for _, row := range elem.Rows {
+			html.WriteString("<tr>")
+			for _, cell := range row {
+				processedCell := ProcessTextWithVariablesAndMarkdownSecure(cell, variables)
+				fmt.Fprintf(&html, "<td>%s</td>", processedCell)
+			}
+			html.WriteString("</tr>")
 		}
-		html.WriteString("</tr>")
+		html.WriteString("</tbody>")
 	}
-	html.WriteString("</tbody>")
 
 	html.WriteString("</table>")
 
@@ -234,6 +271,69 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 	}
 
 	return html.String()
+}
+
+// renderTableCells emits <thead>/<tbody> from the real cell structure
+// (issue #20), honoring colspan/rowspan/scope per cell — unlike
+// renderTableElement's Headers/Rows path, which can express none of the
+// three. The leading row is treated as <thead> only if ALL of its cells are
+// IsHeader (the same criterion ast.FlattenCellsToRows uses in the reverse
+// direction); otherwise everything falls into a single <tbody>.
+func renderTableCells(html *strings.Builder, cells [][]ast.TableCell, variables map[string]interface{}) {
+	if len(cells) == 0 {
+		return
+	}
+
+	leadIsHeader := len(cells[0]) > 0
+	for _, c := range cells[0] {
+		if !c.IsHeader {
+			leadIsHeader = false
+			break
+		}
+	}
+
+	bodyStart := 0
+	if leadIsHeader {
+		html.WriteString("<thead>")
+		writeTableCellRow(html, cells[0], variables)
+		html.WriteString("</thead>")
+		bodyStart = 1
+	}
+
+	html.WriteString("<tbody>")
+	for _, row := range cells[bodyStart:] {
+		writeTableCellRow(html, row, variables)
+	}
+	html.WriteString("</tbody>")
+}
+
+// writeTableCellRow emits a <tr> with one cell per ast.TableCell.
+// cell.Scope is validated against the fixed "row"/"col" allowlist before
+// being interpolated — any other value is discarded instead of being
+// emitted raw into the attribute (same defensive pattern as
+// SanitizeColor/inlineSpanTokens: never interpolate an arbitrary
+// author-supplied value without going through an allowlist).
+func writeTableCellRow(html *strings.Builder, row []ast.TableCell, variables map[string]interface{}) {
+	html.WriteString("<tr>")
+	for _, cell := range row {
+		tag := "td"
+		var attrs strings.Builder
+		if cell.IsHeader {
+			tag = "th"
+			if cell.Scope == "row" || cell.Scope == "col" {
+				fmt.Fprintf(&attrs, ` scope="%s"`, cell.Scope)
+			}
+		}
+		if cell.ColSpan > 1 {
+			fmt.Fprintf(&attrs, ` colspan="%d"`, cell.ColSpan)
+		}
+		if cell.RowSpan > 1 {
+			fmt.Fprintf(&attrs, ` rowspan="%d"`, cell.RowSpan)
+		}
+		processedContent := ProcessTextWithVariablesAndMarkdownSecure(cell.Content, variables)
+		fmt.Fprintf(html, "<%s%s>%s</%s>", tag, attrs.String(), processedContent, tag)
+	}
+	html.WriteString("</tr>")
 }
 
 // renderQuoteElement procesa citas con autor y fuente opcionales

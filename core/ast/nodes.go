@@ -318,6 +318,27 @@ func NewImageElementWithContext(pos diagnostics.Position, source, alt string, co
 	}
 }
 
+// TableCell represents a single table cell with cross-cutting structure
+// (issue #20, A11Y): scope and colspan/rowspan, so a linter rule can inspect
+// merged cells and their declared scope. Deliberately WITHOUT its own *HTML
+// field: unlike TextElement/ImageElement/etc., cell content is processed
+// inline at render time (ProcessTextWithVariablesAndMarkdownSecure, same as
+// Headers/Rows today) — there's no need to populate/clear pre-rendered HTML
+// for a --format json consumer, so Cells doesn't participate in
+// populate_inline_html.go/clear_html.go.
+type TableCell struct {
+	Content string `json:"content"`
+	// IsHeader marks a header cell (rendered as <th>, not <td>).
+	IsHeader bool `json:"isHeader,omitempty"`
+	// Scope is "row", "col", or "" (undeclared) — same vocabulary as the
+	// HTML scope= attribute. Only meaningful on an IsHeader cell.
+	Scope string `json:"scope,omitempty"`
+	// ColSpan/RowSpan: 0 or 1 mean "no merge" (equivalent to an implicit
+	// colspan="1"); >1 merges that many columns/rows.
+	ColSpan int `json:"colSpan,omitempty"`
+	RowSpan int `json:"rowSpan,omitempty"`
+}
+
 // TableElement representa una tabla con datos
 type TableElement struct {
 	BaseNode    `tstype:",extends,required"`
@@ -325,8 +346,21 @@ type TableElement struct {
 	HeadersHTML []string   `json:"headersHTML,omitempty"` // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
 	Rows        [][]string `json:"rows"`
 	RowsHTML    [][]string `json:"rowsHTML,omitempty"` // Rows ya renderizadas a HTML inline (ver TextElement.ContentHTML)
-	Caption     string     `json:"caption,omitempty"`
-	CaptionHTML string     `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+	// Cells exposes the real cell structure (issue #20, A11Y: colspan/
+	// rowspan/scope) IN ADDITION to Headers/Rows, never in their place —
+	// Headers/Rows remain the source existing renderers and slidelang
+	// consume for the simple case (additive, no compatibility break).
+	// Populated by every table parser: TableParser.Parse derives Cells from
+	// Headers/Rows for the simple case, or parses it directly from an
+	// explicit YAML `cells:` block for merged cells — see
+	// ast.DeriveCellsFromFlat. When Cells comes from the explicit `cells:`
+	// block, Headers/Rows are DERIVED from Cells instead (expanding each
+	// span into a rectangular grid), so linter.ElementStructureRule
+	// (TABLE003: every row must have the same column count as Headers)
+	// doesn't report a false positive on a table with merged cells.
+	Cells       [][]TableCell `json:"cells,omitempty"`
+	Caption     string        `json:"caption,omitempty"`
+	CaptionHTML string        `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
 	// Label/Number: ver ImageElement.Label/Number (mismo mecanismo de
 	// referencia cruzada, issue #239).
 	Label  string `json:"label,omitempty"`

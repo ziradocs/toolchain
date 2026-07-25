@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -162,4 +163,108 @@ func TestFormatDocument_RoundTrip_Corpus(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFormatDocument_TableWithLabel_NotFlattenedToPipe is the direct
+// regression for a code-review finding: doclang's TableElement case used to
+// check only Caption before falling back to formatPipeTable, so a table
+// with a Label (issue #239's cross-reference anchor) but no Caption was
+// silently downgraded to the pipe form on `doclang fmt --write`, which has
+// no way to carry Label — the label just disappeared, with no error.
+func TestFormatDocument_TableWithLabel_NotFlattenedToPipe(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Headers = []string{"Q1", "Q2"}
+	table.Rows = [][]string{{"100", "200"}}
+	table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+	table.Label = "tbl:sales"
+
+	block := ast.NewContentBlock(pos, "content")
+	block.Heading = "Sales" // the first block's H1 comes from Heading, not Title (see formatDocumentSection)
+	block.Elements = append(block.Elements, table)
+	doc := ast.NewAST(pos)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	out, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatalf("FormatDocument: unexpected error: %v", err)
+	}
+	if strings.HasPrefix(strings.TrimSpace(out), "|") {
+		t.Fatalf("table with a Label was flattened to the pipe form (label would be lost):\n%s", out)
+	}
+
+	reparsed, err := parseDocument(t, out)
+	if err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	got := findFirstTable(t, reparsed)
+	if got.Label != "tbl:sales" {
+		t.Errorf("Label did not round-trip: got %q, want %q\nformatted:\n%s", got.Label, "tbl:sales", out)
+	}
+}
+
+// TestFormatDocument_TableWithRowScopedHeader_NotFlattenedToPipe is the
+// other half of the same finding: a table with row-scoped headers (a real
+// ast.TableElement.Cells shape the pipe/flat Headers-Rows view can't
+// express at all, issue #20) must not be silently downgraded to the pipe
+// form either — `<th scope="row">` would disappear with no error, exactly
+// the accessibility information this feature exists to preserve.
+func TestFormatDocument_TableWithRowScopedHeader_NotFlattenedToPipe(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Cells = [][]ast.TableCell{
+		{
+			{Content: "Region", IsHeader: true, Scope: "col"},
+			{Content: "Sales", IsHeader: true, Scope: "col"},
+		},
+		{
+			{Content: "West", IsHeader: true, Scope: "row"},
+			{Content: "100"},
+		},
+	}
+	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
+
+	block := ast.NewContentBlock(pos, "content")
+	block.Heading = "Sales" // the first block's H1 comes from Heading, not Title (see formatDocumentSection)
+	block.Elements = append(block.Elements, table)
+	doc := ast.NewAST(pos)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	out, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatalf("FormatDocument: unexpected error: %v", err)
+	}
+	if strings.HasPrefix(strings.TrimSpace(out), "|") {
+		t.Fatalf("table with a row-scoped header was flattened to the pipe form (scope=\"row\" would be lost):\n%s", out)
+	}
+
+	reparsed, err := parseDocument(t, out)
+	if err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	got := findFirstTable(t, reparsed)
+	found := false
+	for _, row := range got.Cells {
+		for _, c := range row {
+			if c.Content == "West" && c.IsHeader && c.Scope == "row" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf(`scope="row" header did not round-trip: got Cells=%+v`+"\nformatted:\n%s", got.Cells, out)
+	}
+}
+
+func findFirstTable(t *testing.T, doc *ast.AST) *ast.TableElement {
+	t.Helper()
+	for _, block := range doc.ContentBlocks {
+		for _, el := range block.Elements {
+			if table, ok := el.(*ast.TableElement); ok {
+				return table
+			}
+		}
+	}
+	t.Fatalf("no TableElement found in parsed document")
+	return nil
 }
