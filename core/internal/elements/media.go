@@ -22,18 +22,27 @@ func (p *MediaParser) CanParse(line string, mode string) bool {
 	return matchesMediaTag(trimmed, "video") || matchesMediaTag(trimmed, "audio")
 }
 
-// matchesMediaTag reports whether trimmed opens with the `<<mediaType`
-// marker as a whole token, not just as a string prefix: `<<video` alone
-// would also match `<<videofoo ...>>` (a different, unrelated tag/typo), so
-// what follows the prefix must be nothing, ">>" (the bare `<<video>>` form),
-// or a space (attributes follow).
+// matchesMediaTag reports whether trimmed is a complete, well-formed
+// `<<mediaType...>>` marker: it must both open with `<<mediaType` as a
+// whole token (not just as a string prefix — `<<video` alone would also
+// match `<<videofoo ...>>`, a different, unrelated tag/typo) AND close with
+// an actual ">>". A previous version accepted end-of-string, a bare space,
+// or a single ">" as if any of those meant the marker was complete, which
+// let a truncated/malformed line like `<<video`, `<<video>garbage`, or
+// `<<audio controls` (no closing ">>" at all, in every case) be consumed as
+// a real MediaElement — typically with an empty Source and, in the
+// `<<audio controls` case, Controls silently set to true from a fragment
+// that was never a valid attribute list. Requiring a genuine ">>" suffix
+// closes both holes: what follows the prefix must be exactly ">>" (the
+// bare `<<video>>` form) or start with a space (attributes follow, and the
+// line already ends in ">>").
 func matchesMediaTag(trimmed, mediaType string) bool {
 	prefix := "<<" + mediaType
-	if !strings.HasPrefix(trimmed, prefix) {
+	if !strings.HasPrefix(trimmed, prefix) || !strings.HasSuffix(trimmed, ">>") {
 		return false
 	}
 	rest := trimmed[len(prefix):]
-	return rest == "" || rest == ">>" || strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, ">")
+	return rest == ">>" || strings.HasPrefix(rest, " ")
 }
 
 // Parse parsea un elemento de una sola línea `<<video ...>>` / `<<audio ...>>`.

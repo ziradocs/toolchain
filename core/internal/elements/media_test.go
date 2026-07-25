@@ -28,6 +28,14 @@ func TestMediaParser_CanParse(t *testing.T) {
 		// followed by a word boundary (space, ">>", or end of string).
 		{"videofoo is not a video tag", `<<videofoo src="demo.mp4">>`, "flex", false},
 		{"audiobook is not an audio tag", `<<audiobook src="demo.mp3">>`, "flex", false},
+		// Regression (code review): the boundary check alone wasn't enough
+		// — a truncated/malformed line with no real closing ">>" was also
+		// accepted (end-of-string, a bare space, or a lone ">" were all
+		// treated as if the marker were complete).
+		{"unterminated video marker (no >>)", "<<video", "flex", false},
+		{"unterminated audio marker with attrs (no >>)", `<<audio controls`, "flex", false},
+		{"video marker with stray content after a single >", "<<video>garbage", "flex", false},
+		{"video marker with stray content ending in >> is still malformed", "<<video>garbage>>", "flex", false},
 	}
 
 	for _, tt := range tests {
