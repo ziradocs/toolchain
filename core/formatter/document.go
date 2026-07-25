@@ -141,13 +141,15 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	case *ast.ImageElement:
 		body, err = formatFlexImage(e)
 	case *ast.TableElement:
-		if e.Caption != "" {
-			err = newUnsupported("table", "table.Caption no es representable en el dialecto flex de DocLang (elements.TableParser solo parsea caption en su rama strict/TABLE-keyword, y DocLang nunca la usa)")
-		} else if tableHasCellSpans(e.Cells) {
-			err = newUnsupported("table", "la tabla tiene celdas fusionadas (colspan/rowspan, issue #20) — el formatter aún no puede reemitir la sintaxis \"cells:\" explícita en flex; reemitirla como tabla pipe plana perdería el span sin avisar")
-		} else {
-			body = formatPipeTable(e.Headers, e.Rows)
-		}
+		// formatTableElement is shared with strict.go: elements.TableParser's
+		// TABLE-block handling (caption:/label:/cells:) was never mode-gated,
+		// and issue #20 additionally widened its CanParse to flex — so
+		// nothing here is actually strict-only. This used to hand-roll a
+		// Caption-only guard that unconditionally fell back to the pipe
+		// form otherwise, silently dropping Label and any non-trivial Cells
+		// structure (row-scoped headers, colspan, rowspan) on fmt --write —
+		// a real data-loss bug found in code review.
+		body, err = formatTableElement(e)
 	case *ast.QuoteElement:
 		body, err = formatFlexQuote(e)
 	case *ast.ChecklistElement:

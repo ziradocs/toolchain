@@ -306,7 +306,9 @@ type yamlTableCellEntry struct {
 //
 // A declared colspan/rowspan above ast.MaxCellSpan is clamped rather than
 // rejected outright, and reported via a single aggregated warning — see
-// ast.MaxCellSpan's doc comment for why the cap exists.
+// ast.MaxCellSpan's doc comment for why the cap exists. An invalid scope
+// (anything other than "", "row", "col") is cleared the same way — see the
+// TABLE006 comment below.
 func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.TableCell, []diagnostics.Diagnostic, bool) {
 	if len(blockLines) == 0 {
 		return nil, nil, false
@@ -319,6 +321,7 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 	}
 
 	clamped := false
+	invalidScope := false
 	cells := make([][]ast.TableCell, len(parsed))
 	for i, row := range parsed {
 		cells[i] = make([]ast.TableCell, len(row))
@@ -333,10 +336,27 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 				rowspan = ast.MaxCellSpan
 				clamped = true
 			}
+			scope := c.Scope
+			if scope != "" && scope != "row" && scope != "col" {
+				// Cleared, not just left as-is: renderTableCells'
+				// writeTableCellRow only ever emits scope="row"/"col" (a
+				// fixed allowlist, defensive against interpolating an
+				// arbitrary author string into an HTML attribute), so an
+				// invalid value like "column" would otherwise round-trip
+				// into the JSON contract (elem.Cells) while silently never
+				// appearing in the rendered HTML — no error, no diagnostic,
+				// just a value that quietly does nothing. Precisely the
+				// kind of silent failure this a11y feature can't afford:
+				// a typo'd scope looks "saved" in the JSON but the
+				// accessibility structure it was meant to declare never
+				// reaches the DOM.
+				invalidScope = true
+				scope = ""
+			}
 			cells[i][j] = ast.TableCell{
 				Content:  c.Content,
 				IsHeader: c.Header,
-				Scope:    c.Scope,
+				Scope:    scope,
 				ColSpan:  colspan,
 				RowSpan:  rowspan,
 			}
@@ -348,6 +368,11 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 		diags = append(diags, diagnostics.NewWarning(
 			"A cell declared colspan/rowspan above the supported maximum; it was clamped",
 			pos, "table-parser").WithRuleID("TABLE005"))
+	}
+	if invalidScope {
+		diags = append(diags, diagnostics.NewWarning(
+			`A cell declared a scope other than "row"/"col"; it was cleared`,
+			pos, "table-parser").WithRuleID("TABLE006"))
 	}
 	return cells, diags, true
 }

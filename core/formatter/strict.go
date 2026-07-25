@@ -107,7 +107,7 @@ func formatStrictElement(el ast.Element) (string, error) {
 	case *ast.ImageElement:
 		body, err = formatStrictImage(e)
 	case *ast.TableElement:
-		body, err = formatStrictTable(e)
+		body, err = formatTableElement(e)
 	case *ast.SpecialBlockElement:
 		body = formatSpecialBlock(e)
 	case *ast.CodeGroupElement:
@@ -223,87 +223,6 @@ func formatStrictImage(e *ast.ImageElement) (string, error) {
 		fmt.Fprintf(&b, "  label: %s", quote(e.Label))
 	}
 	return b.String(), nil
-}
-
-// formatStrictTable elige la forma pipe (sin caption ni label, la usada en
-// los ejemplos de la vitrina) o la forma TABLE/YAML (única capaz de portar
-// Caption/Label — parser.StrictParser.parseMarkdownTableElement no los
-// parsea, solo elements.TableParser.parseYAMLTable lo hace). issue #239:
-// Label sin Caption también obliga a la forma YAML — si solo se chequeara
-// Caption=="", una tabla CON label pero SIN caption caería a formatPipeTable,
-// que no puede portar label, y lo perdería en silencio en un round-trip
-// fmt→build (mismo bug que @include tuvo con la forma genérica de directiva).
-// tableHasCellSpans reporta si e.Cells declara colspan/rowspan real (issue
-// #20) — en ese caso ni formatStrictTable (headers:/rows: plano) ni
-// formatPipeTable pueden representar la tabla sin pérdida: ambos solo emiten
-// la vista plana YA aplanada por ast.FlattenCellsToRows, que expande cada
-// span repitiendo contenido — reemitirla así y reparsearla produciría una
-// tabla SIN spans, distinta de la original (mismo principio que
-// chart.Options/table.Caption en flex: fallar en vez de degradar en
-// silencio). issue #20 solo definió round-trip de "cells:" para el parser;
-// el formatter round-trip de spans queda como follow-up documentado, no como
-// pérdida silenciosa.
-func tableHasCellSpans(cells [][]ast.TableCell) bool {
-	for _, row := range cells {
-		for _, cell := range row {
-			if cell.ColSpan > 1 || cell.RowSpan > 1 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func formatStrictTable(e *ast.TableElement) (string, error) {
-	if tableHasCellSpans(e.Cells) {
-		return "", newUnsupported("table", "la tabla tiene celdas fusionadas (colspan/rowspan, issue #20) — el formatter aún no puede reemitir la sintaxis \"cells:\" explícita, solo la vista plana Headers/Rows ya aplanada; reemitirla perdería el span sin avisar")
-	}
-	if e.Caption == "" && e.Label == "" {
-		// formatPipeTable delimita con "|", no con comillas — no pasa por
-		// quote()/checkQuotable, así que no hereda esta limitación (una
-		// comilla literal en un header/celda es representable en la forma
-		// pipe sin cambios; un "|" literal sí sería un problema distinto,
-		// pre-existente, fuera de scope acá).
-		return formatPipeTable(e.Headers, e.Rows), nil
-	}
-
-	if e.Caption != "" {
-		if err := checkQuotable("table", "caption", e.Caption); err != nil {
-			return "", err
-		}
-	}
-	if e.Label != "" {
-		if err := checkQuotable("table", "label", e.Label); err != nil {
-			return "", err
-		}
-	}
-	headers, err := formatInlineArray("table", "headers", e.Headers)
-	if err != nil {
-		return "", err
-	}
-
-	var b strings.Builder
-	b.WriteString("TABLE\n")
-	fmt.Fprintf(&b, "  headers: %s\n", headers)
-	if e.Caption != "" {
-		fmt.Fprintf(&b, "  caption: %s\n", quote(e.Caption))
-	}
-	if e.Label != "" {
-		fmt.Fprintf(&b, "  label: %s\n", quote(e.Label))
-	}
-	b.WriteString("  rows:\n")
-	for _, row := range e.Rows {
-		rowText, err := formatStringRow(row)
-		if err != nil {
-			return "", err
-		}
-		fmt.Fprintf(&b, "      %s\n", rowText)
-	}
-	return strings.TrimRight(b.String(), "\n"), nil
-}
-
-func formatStringRow(row []string) (string, error) {
-	return formatInlineArray("table", "row value", row)
 }
 
 func formatPipeTable(headers []string, rows [][]string) string {
@@ -594,7 +513,7 @@ func formatMermaid(e *ast.MermaidElement) string {
 
 // formatStrictMath emite <<math>> (issue #239-B) con una línea label:
 // opcional, mismo patrón exacto que el label de TABLE/IMAGE
-// (formatStrictImage/formatStrictTable): quote() + checkQuotable() —
+// (formatStrictImage/formatTableElement): quote() + checkQuotable() —
 // consistencia de round-trip, no una forma alterna sin comillas.
 //
 // A DIFERENCIA de formatMermaid (que no emite <<end>> — su contenido nunca
