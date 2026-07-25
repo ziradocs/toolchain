@@ -484,5 +484,5 @@ Themes can extend base functionality:
 ---
 
 **Spec version:** v0.1
-**Tracks:** `ast.SchemaVersion` 2.0.0
+**Tracks:** `ast.SchemaVersion` 2.1.0
 **Status:** Living document — see [Spec v0.1 index](README.md) for scope and versioning policy

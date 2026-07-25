@@ -350,7 +350,11 @@ func (p *DocumentFlexParser) parseSubsectionHeader(line string) ast.Element {
 	pos := diagnostics.NewPosition(p.currentLine+1, 1)
 	htmlContent := fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", level, anchor, processedText, level)
 
-	return ast.NewRawHTMLTextElement(pos, htmlContent)
+	// Expose the level as a semantic field alongside the rendered `<hN>`, so
+	// a linter rule doesn't have to re-parse the HTML (issue #22).
+	el := ast.NewRawHTMLTextElement(pos, htmlContent)
+	el.Level = level
+	return el
 }
 
 // sanitizeAnchor limpia un anchor para usarlo en href/id

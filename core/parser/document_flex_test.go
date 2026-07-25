@@ -113,6 +113,52 @@ func TestDocumentFlexParser_SubsectionHeaderNotTreatedAsList(t *testing.T) {
 	}
 }
 
+// TestDocumentFlexParser_SubsectionHeaderExposesLevel covers issue #22: the
+// heading level (##, ###, ...) must be available as the semantic field
+// TextElement.Level, not only reconstructible by re-parsing the rendered
+// <hN> in Content. A regular (non-heading) paragraph must have Level == 0
+// (omitted).
+func TestDocumentFlexParser_SubsectionHeaderExposesLevel(t *testing.T) {
+	input := "# T\n\nIntro paragraph.\n\n## Sub\n\nSub content.\n\n### Deep\n\nDeep content.\n"
+
+	log := util.NewConsoleLogger(util.LevelError, false)
+	parser := NewDocumentFlexParser(input, log)
+	astNode, diags := parser.Parse()
+	if len(diags) > 0 {
+		t.Errorf("Expected no diagnostics, got %d: %v", len(diags), diags)
+	}
+
+	var levels []int
+	var paragraphLevel = -1 // sentinel: no paragraph seen yet
+	for _, block := range astNode.ContentBlocks {
+		for _, elem := range block.Elements {
+			textElem, ok := elem.(*ast.TextElement)
+			if !ok {
+				continue
+			}
+			if textElem.IsRawHTML {
+				levels = append(levels, textElem.Level)
+			} else if strings.Contains(textElem.Content, "content.") {
+				paragraphLevel = textElem.Level
+			}
+		}
+	}
+
+	want := []int{2, 3}
+	if len(levels) != len(want) {
+		t.Fatalf("expected %d heading TextElements, got %d: %v", len(want), len(levels), levels)
+	}
+	for i, lvl := range levels {
+		if lvl != want[i] {
+			t.Errorf("heading %d: expected Level %d, got %d", i, want[i], lvl)
+		}
+	}
+
+	if paragraphLevel != 0 {
+		t.Errorf("expected non-heading paragraph to have Level 0 (omitted), got %d", paragraphLevel)
+	}
+}
+
 func TestDocumentFlexParser_BasicStructure(t *testing.T) {
 	input := `# Main Title
 
