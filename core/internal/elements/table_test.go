@@ -431,3 +431,71 @@ func TestTableParser_ExplicitCells_HugeSpanIsClampedNotExpanded(t *testing.T) {
 		t.Errorf("expected a TABLE005 diagnostic for the clamped span, got: %+v", result.Diagnostics)
 	}
 }
+
+// TestTableParser_ExplicitCells_InvalidScopeIsClearedWithDiagnostic covers a
+// code-review finding: an invalid scope value (anything other than the
+// HTML allowlist "row"/"col") used to round-trip into the JSON contract
+// unchanged while renderer.writeTableCellRow silently never emitted it (its
+// own fixed allowlist just skips the attribute) — a typo like "column"
+// looked "saved" in --format json but the accessibility structure it
+// declared never reached the rendered HTML, with no diagnostic anywhere.
+// It must now be cleared to "" at parse time and reported via TABLE006.
+func TestTableParser_ExplicitCells_InvalidScopeIsClearedWithDiagnostic(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"TABLE",
+			"  cells:",
+			"    - [{content: A, header: true, scope: column}]",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+
+	if got := table.Cells[0][0].Scope; got != "" {
+		t.Errorf("Cells[0][0].Scope = %q, want cleared to \"\"", got)
+	}
+
+	found := false
+	for _, d := range result.Diagnostics {
+		if d.RuleID == "TABLE006" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a TABLE006 diagnostic for the invalid scope, got: %+v", result.Diagnostics)
+	}
+}
+
+// TestTableParser_ExplicitCells_ValidScopesNotFlagged is the negative
+// counterpart: "row"/"col"/unset must NOT trigger TABLE006.
+func TestTableParser_ExplicitCells_ValidScopesNotFlagged(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"TABLE",
+			"  cells:",
+			"    - [{content: A, header: true, scope: row}, {content: B, header: true, scope: col}, {content: C}]",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+	if table.Cells[0][0].Scope != "row" || table.Cells[0][1].Scope != "col" || table.Cells[0][2].Scope != "" {
+		t.Fatalf("valid scopes were altered: %+v", table.Cells[0])
+	}
+	for _, d := range result.Diagnostics {
+		if d.RuleID == "TABLE006" {
+			t.Errorf("unexpected TABLE006 diagnostic for valid scopes: %+v", result.Diagnostics)
+		}
+	}
+}
