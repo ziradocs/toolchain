@@ -81,7 +81,10 @@ jobs:
       # catalogan y limpian en un batch de cleanup dedicado, no acá (issue
       # de tracking creado). golangci-lint-action@v6 NO soporta golangci-lint
       # v2 (falla explícitamente con "you must update to golangci-lint-action
-      # v7") — confirmado en CI, no es un detalle menor.
+      # v7") — confirmado en CI, no es un detalle menor. Pineado en @v9 desde
+      # PR #9; el probe de Fase 0 (issue de release v2.2.3) confirmó
+      # empíricamente que only-new-issues sigue gateando bajo v9 en este
+      # layout de monorepo (working-directory por módulo) antes de mergear.
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
