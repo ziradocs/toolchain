@@ -16,6 +16,8 @@ type Linter struct {
 	policy            *PolicyConfig
 	externalRulepacks []string
 	externalTimeout   time.Duration
+	themeVariables    map[string]string
+	themeVariablesSet bool
 }
 
 type Rule interface {
@@ -33,6 +35,52 @@ type layoutPolicyAware interface {
 	setLayoutPolicy(*PolicyConfig)
 }
 
+// ThemeAware lo implementan las reglas que necesitan los colores resueltos
+// del tema ACTIVO (issue #30 — contraste WCAG 2.2 AA) antes de correr. A
+// diferencia de layoutPolicyAware (no exportada porque su único
+// implementador vive dentro de este paquete), ThemeAware es EXPORTADA a
+// propósito: core no posee ningún color de tema (solo el nombre del tema
+// viaja en ast.FrontMatterNode.Theme; el mapa real de variables CSS lo
+// resuelve cada CLI por separado — slidelang y doclang tienen
+// representaciones distintas y no comparten convención de nombres). Por
+// eso el propósito entero de este seam es que un consumidor FUERA de este
+// paquete (un rulepack externo de contraste) implemente la interfaz; un
+// método no exportado la haría imposible de implementar para ese
+// consumidor.
+//
+// ADVERTENCIA sobre reglas con estado compartidas entre builds: a
+// diferencia de layoutPolicyAware (cuyo único implementador se construye
+// de cero en cada New(), nunca es un singleton compartido),
+// SetThemeVariables se invoca sobre la instancia de regla que el CALLER
+// posee — si esa misma instancia se pasa como customRule a MÚLTIPLES
+// invocaciones de build (una CLI embebida, un servidor MCP, o builds
+// concurrentes), cada llamada a WithThemeVariables/AddRule sobreescribe el
+// estado que la regla guardó de la corrida anterior, y dos builds
+// concurrentes que comparten la regla compiten por ese campo. Un
+// implementador de ThemeAware debe o (a) construirse una vez por build, o
+// (b) tratar SetThemeVariables/Check como una sección crítica propia.
+type ThemeAware interface {
+	SetThemeVariables(map[string]string)
+}
+
+// cloneStringMap copia vars en un mapa nuevo (nil si vars es nil). Se usa
+// en WithThemeVariables para que ninguna regla ThemeAware reciba una
+// referencia al mapa que el CALLER pasó — ese mapa puede ser una entrada
+// process-global compartida (p. ej. doclang.EmbeddedThemes, o el mismo
+// *Theme.Variables que el generador usa para renderizar); una regla que
+// mute lo que recibió no debe poder corromper esa fuente compartida ni lo
+// que ve un build posterior.
+func cloneStringMap(vars map[string]string) map[string]string {
+	if vars == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(vars))
+	for k, v := range vars {
+		clone[k] = v
+	}
+	return clone
+}
+
 // WithPolicy adjunta un motor de políticas configurable: Lint() filtrará y
 // re-severizará los diagnósticos según policy antes de devolverlos (ver
 // PolicyConfig.Apply), y cualquier regla en l.rules que implemente
@@ -45,6 +93,36 @@ func (l *Linter) WithPolicy(policy *PolicyConfig) *Linter {
 	for _, r := range l.rules {
 		if aware, ok := r.(layoutPolicyAware); ok {
 			aware.setLayoutPolicy(policy)
+		}
+	}
+	return l
+}
+
+// WithThemeVariables adjunta el mapa de variables CSS del tema ya resuelto
+// por la CLI (nombre de variable → valor, p. ej. "--text-color" en
+// slidelang o "--doclang-h1-color" en doclang) para que cualquier regla en
+// l.rules que implemente ThemeAware pueda calcular contraste u otras
+// propiedades derivadas del tema. Se acepta explícitamente un vars nil o
+// vacío (un tema puede legítimamente no declarar variables) — por eso NO
+// se guarda solo "themeVariables != nil" como señal de que ya se llamó:
+// themeVariablesSet distingue "se llamó WithThemeVariables" de "el mapa
+// resultante está vacío", para que AddRule siga inyectando (con un mapa
+// vacío) a las reglas agregadas después, en vez de omitir la inyección
+// silenciosamente.
+func (l *Linter) WithThemeVariables(vars map[string]string) *Linter {
+	l.themeVariables = cloneStringMap(vars)
+	l.themeVariablesSet = true
+	for _, r := range l.rules {
+		if aware, ok := r.(ThemeAware); ok {
+			// Cada regla recibe su PROPIA copia, no l.themeVariables
+			// directamente: l.themeVariables es también lo que
+			// runExternalRulepack serializa para los rulepacks externos, y
+			// si dos reglas ThemeAware compartieran la misma instancia
+			// mutable, una regla que borre/normalice una clave alteraría lo
+			// que ve la SIGUIENTE regla en este mismo lint run, y lo que
+			// termina en el JSON del rulepack — no solo el mapa original
+			// del caller (ya protegido por el clon de arriba).
+			aware.SetThemeVariables(cloneStringMap(l.themeVariables))
 		}
 	}
 	return l
@@ -103,6 +181,11 @@ func (l *Linter) AddRule(r Rule) *Linter {
 			aware.setLayoutPolicy(l.policy)
 		}
 	}
+	if l.themeVariablesSet {
+		if aware, ok := r.(ThemeAware); ok {
+			aware.SetThemeVariables(cloneStringMap(l.themeVariables))
+		}
+	}
 	return l
 }
 
@@ -139,7 +222,7 @@ func (l *Linter) LintUnfilteredWithDescriptors(astNode *ast.AST) ([]diagnostics.
 	}
 
 	for _, packPath := range l.externalRulepacks {
-		extDiags, extDescriptors, err := runExternalRulepack(astNode, packPath, l.externalTimeout)
+		extDiags, extDescriptors, err := runExternalRulepack(astNode, packPath, l.externalTimeout, l.themeVariables, l.themeVariablesSet)
 		if err != nil {
 			errDiag := diagnostics.NewError(fmt.Sprintf("external rulepack %s failed: %v", packPath, err), diagnostics.Position{}, "LINTER_SYS_ERR")
 			allDiagnostics = append(allDiagnostics, errDiag)

@@ -35,4 +35,14 @@
 // The rest of the Go API (core/ast, core/linter, etc.) has NO SemVer guarantees
 // and may change in minor versions. The generated HTML structure and its
 // CSS classes are also not part of this stable contract.
+//
+// # Theme-aware rules (issue #30)
+//
+// A CustomRule can implement linter.ThemeAware (SetThemeVariables(map[string]string))
+// to receive the active theme's resolved CSS variables — supplied by the CLI via
+// linter.Linter.WithThemeVariables — before Check runs. core/a11y provides the
+// underlying WCAG contrast math (color parsing, luminance, ratio); it has no
+// notion of "theme" and does not map element types to variable names, since
+// slidelang and doclang each own a different, non-shared variable convention.
+// linter.ThemeContrastRule is a reference implementation, not part of DefaultRules().
 package core

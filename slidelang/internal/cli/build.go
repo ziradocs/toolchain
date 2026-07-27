@@ -23,6 +23,8 @@ import (
 	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/core/v2/xref"
 	"go.ziradocs.com/slidelang/v2/internal/generator"
+	genconfig "go.ziradocs.com/slidelang/v2/internal/generator/config"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 )
 
 // maxInputSizeEnvVar permite ajustar el límite de tamaño de entrada sin
@@ -452,6 +454,26 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		}
 	}
 
+	// 6.6. Resolver el tema ANTES del lint (issue #30 — seam de contraste
+	// WCAG): resolveTheme vivía enterrado en el generador, alcanzable solo
+	// vía GenerateWithOptions, así que un --lint-only nunca lo tocaba. Se
+	// extrajo a themes.ResolveTheme (función pura, sin *Generator) para
+	// poder llamarla aquí y pasarle sus variables CSS al linter vía
+	// linter.WithThemeVariables. Se reutiliza más abajo (genOpts.ResolvedTheme)
+	// para que el generador no lo resuelva una segunda vez.
+	configDefault := ""
+	if cfg != nil {
+		configDefault = cfg.Theme.Default
+	}
+	frontmatterTheme := genconfig.ExtractThemeFromFrontmatter(astNode.FrontMatter)
+	resolvedTheme, themeErr := themes.ResolveTheme(opts.Theme, frontmatterTheme, configDefault)
+	if themeErr != nil {
+		// util.Warn(message, args...) — sin parámetro de categoría, a
+		// diferencia de util.Info (ver build.go:610 más abajo); pasar
+		// "THEME" como si fuera uno produce un fmt %!(EXTRA ...) garabateado.
+		util.Warn("THEME: %v, using default", themeErr)
+	}
+
 	// 7. Ejecutar linter
 	util.Info("LINT", "Validando presentación...")
 	var policy *linter.PolicyConfig
@@ -468,7 +490,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		}
 		policy = p
 	}
-	linterInstance := linter.New().WithPolicy(policy)
+	linterInstance := linter.New().WithPolicy(policy).WithThemeVariables(resolvedTheme.Variables)
 
 	for _, rule := range customRules {
 		linterInstance.AddRule(rule)
@@ -650,6 +672,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		ChromiumPath:    opts.ChromiumPath,
 		InstallChromium: opts.InstallChromium,
 		AssetRoot:       absAssetRoot,
+		ResolvedTheme:   resolvedTheme,
 	}
 
 	// Configurar el pipeline offline UNA vez, envolviendo todo el loop de formatos,
