@@ -416,6 +416,71 @@ func TestMarkdownRenderElement_Map_NoMarkers(t *testing.T) {
 	}
 }
 
+// TestMarkdownRenderElement_Map_LabelWithPipeIsEscaped covers the
+// code-review finding on PR #55: an unescaped "|" in marker.Label adds an
+// extra column to the marker table (Norte | almacén -> 5 columns instead of
+// 4), corrupting its structure.
+func TestMarkdownRenderElement_Map_LabelWithPipeIsEscaped(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Markers = append(m.Markers, ast.MapMarker{Label: "Norte | almacén", Lat: 1, Lng: 2, Value: 3})
+
+	out := gen.renderElement(m)
+
+	if !strings.Contains(out, `| Norte \| almacén | 1 | 2 | 3 |`) {
+		t.Errorf("expected the pipe in the label to be escaped and the row to keep exactly 4 columns, got:\n%s", out)
+	}
+}
+
+// TestMarkdownRenderElement_Map_LabelWithNewlineIsNormalized covers the
+// other half of the same finding: an embedded newline in marker.Label would
+// otherwise split the marker across extra, malformed table rows.
+func TestMarkdownRenderElement_Map_LabelWithNewlineIsNormalized(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Markers = append(m.Markers, ast.MapMarker{Label: "CDMX\n| Fake | Row |", Lat: 1, Lng: 2, Value: 3})
+
+	out := gen.renderElement(m)
+
+	if !strings.Contains(out, `CDMX \| Fake \| Row \|`) {
+		t.Errorf("expected the embedded newline to be normalized and the pipes escaped, got:\n%s", out)
+	}
+
+	dataRows := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "| CDMX") {
+			dataRows++
+		}
+	}
+	if dataRows != 1 {
+		t.Errorf("expected the marker to stay on exactly one table row, got %d:\n%s", dataRows, out)
+	}
+}
+
+// TestMarkdownRenderElement_Map_TitleNewlineIsNormalized covers the Title/
+// MapType line (not a table, but still a single Markdown line that a raw
+// embedded newline could otherwise split, e.g. into a fake heading).
+func TestMarkdownRenderElement_Map_TitleNewlineIsNormalized(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Title = "Oficinas\n\n# Fake Heading"
+
+	out := gen.renderElement(m)
+
+	if strings.Contains(out, "\n\n# Fake Heading") {
+		t.Errorf("expected the Title's embedded newlines to be normalized, got:\n%s", out)
+	}
+	if !strings.Contains(out, "*[mapa: world — Oficinas # Fake Heading]*") {
+		t.Errorf("expected the normalized single-line title, got:\n%s", out)
+	}
+}
+
 // TestMarkdownRenderElement_HeadingPreservesAnchorID covers a finding from
 // the #40 code review: re-emitting a heading as a "#" prefix from
 // `<hN id="...">...</hN>` content discarded the id attribute entirely, so

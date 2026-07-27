@@ -333,6 +333,27 @@ func renderMediaElementMarkdown(elem *ast.MediaElement) string {
 	return fmt.Sprintf("[%s %s: %s](%s)\n", icon, label, safeSource, safeSource)
 }
 
+// normalizeMarkdownLine colapsa cualquier corrida de espacios/saltos de
+// línea a un solo espacio, para valores de autor que van interpolados en
+// una sola línea de Markdown (no en una tabla) — sin esto, un Title/MapType
+// con un "\n\n# Heading" incrustado podría partir la línea e inyectar
+// estructura Markdown inesperada.
+func normalizeMarkdownLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// escapeMarkdownTableCell neutraliza los dos caracteres que rompen la
+// estructura de una tabla Markdown si un valor de autor los trae sin
+// escapar (hallazgo de code-review sobre PR #55): "|" agrega una columna de
+// más, y un salto de línea parte la fila en filas nuevas e inesperadas. El
+// backslash se escapa PRIMERO — si se hiciera después, doble-escaparía el
+// "\" que la propia sustitución de "|" acaba de introducir.
+func escapeMarkdownTableCell(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "|", `\|`)
+	return normalizeMarkdownLine(s)
+}
+
 // renderMapElementMarkdown degrades a MapElement to its data (issue #38/#51
 // coverage gap) — an interactive map has no Markdown equivalent, but its
 // markers ARE expressable and are what the author actually wrote; losing
@@ -340,10 +361,11 @@ func renderMediaElementMarkdown(elem *ast.MediaElement) string {
 // a table, same rationale as renderMediaElementMarkdown above.
 func renderMapElementMarkdown(elem *ast.MapElement) string {
 	var md strings.Builder
+	mapType := normalizeMarkdownLine(elem.MapType)
 	if elem.Title != "" {
-		fmt.Fprintf(&md, "*[mapa: %s — %s]*\n", elem.MapType, elem.Title)
+		fmt.Fprintf(&md, "*[mapa: %s — %s]*\n", mapType, normalizeMarkdownLine(elem.Title))
 	} else {
-		fmt.Fprintf(&md, "*[mapa: %s]*\n", elem.MapType)
+		fmt.Fprintf(&md, "*[mapa: %s]*\n", mapType)
 	}
 
 	if len(elem.Markers) == 0 {
@@ -353,7 +375,7 @@ func renderMapElementMarkdown(elem *ast.MapElement) string {
 	md.WriteString("\n| Label | Lat | Lng | Value |\n")
 	md.WriteString("| --- | --- | --- | --- |\n")
 	for _, marker := range elem.Markers {
-		fmt.Fprintf(&md, "| %s | %g | %g | %g |\n", marker.Label, marker.Lat, marker.Lng, marker.Value)
+		fmt.Fprintf(&md, "| %s | %g | %g | %g |\n", escapeMarkdownTableCell(marker.Label), marker.Lat, marker.Lng, marker.Value)
 	}
 	return md.String()
 }
