@@ -662,7 +662,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     <thead>
                         <tr>
                             {{range .Headers}}
-                                <th>{{. | raw}}</th>
+                                <th scope="col">{{. | raw}}</th>
                             {{end}}
                         </tr>
                     </thead>
