@@ -196,6 +196,32 @@ Examples:
 				}
 			}
 
+			// Cargar el tema ANTES del lint (issue #30 — seam de contraste
+			// WCAG): getThemeName solo depende de doc.FrontMatter y del flag
+			// --theme, ambos disponibles desde este punto, así que el tema se
+			// resuelve aquí para poder pasar sus variables CSS ya resueltas
+			// al linter vía WithThemeVariables (ver core/linter.ThemeAware).
+			// Antes este bloque vivía ~80 líneas más abajo, después del lint;
+			// se movió porque el lint necesita el mapa de colores, no al revés.
+			themeName, themeTrusted := getThemeName(doc, cmd)
+			themeLoader := document.NewThemeLoader()
+			theme, err := themeLoader.LoadTheme(themeName, themeTrusted)
+			if err != nil {
+				log.Warn("THEME: Failed to load theme '%s': %v", themeName, err)
+				// Continuar con fallback a professional
+			}
+
+			log.Info("THEME", "Using theme: %s v%s (type: %s)",
+				theme.Name, theme.Version, func() string {
+					if theme.IsExternal {
+						return "external"
+					}
+					return "embedded"
+				}())
+
+			// Determine if theme is page-view
+			isPageView := theme.Name == "page-view"
+
 			// Ejecutar el linter compartido (issue "doclang a la par" — antes
 			// solo slidelang lo corría; el core es el mismo, así que
 			// cablearlo acá es barato). Mismo motor de políticas configurable
@@ -215,7 +241,7 @@ Examples:
 				}
 				policy = p
 			}
-			linterInstance := linter.New().WithPolicy(policy)
+			linterInstance := linter.New().WithPolicy(policy).WithThemeVariables(theme.Variables)
 			for _, rule := range customRules {
 				linterInstance.AddRule(rule)
 			}
@@ -308,26 +334,6 @@ Examples:
 					numberingEnabled = true // Enable numbering by default
 				}
 			}
-
-			// 🆕 Load theme
-			themeName, themeTrusted := getThemeName(doc, cmd)
-			themeLoader := document.NewThemeLoader()
-			theme, err := themeLoader.LoadTheme(themeName, themeTrusted)
-			if err != nil {
-				log.Warn("THEME: Failed to load theme '%s': %v", themeName, err)
-				// Continuar con fallback a professional
-			}
-
-			log.Info("THEME", "Using theme: %s v%s (type: %s)",
-				theme.Name, theme.Version, func() string {
-					if theme.IsExternal {
-						return "external"
-					}
-					return "embedded"
-				}())
-
-			// 🆕 Determine if theme is page-view
-			isPageView := theme.Name == "page-view"
 
 			// Validate PlantUML mode
 			// Validate render mode
