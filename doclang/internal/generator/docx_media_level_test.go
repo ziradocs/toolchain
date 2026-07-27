@@ -156,6 +156,38 @@ func TestDOCXGenerator_RenderText_LevelWithRawMarkdownContent(t *testing.T) {
 	}
 }
 
+// TestDOCXGenerator_RenderText_LevelWithTrailingContentIsNotSilentlyDropped
+// covers a finding from external review of #49: headingHTMLPattern and
+// markdownHeadingPattern stopped requiring the match to consume the whole
+// string (removing the "$" anchor was needed to tolerate a trailing
+// newline, see the other test in this file) but initially had NO trailing
+// anchor at all, so Content combining a heading with genuinely different
+// content after it (`<h2>Título</h2><p>Contenido importante</p>`, reachable
+// via an external --filter AST) matched only up to the first closing tag —
+// the heading text was extracted correctly, but everything after it
+// (a whole paragraph) silently vanished instead of being preserved or at
+// least surfaced as raw text. The patterns now require only trailing
+// WHITESPACE after the match ("\s*$"), so genuine extra content makes the
+// match fail entirely and Content falls through to the raw-text fallback
+// instead of being dropped.
+func TestDOCXGenerator_RenderText_LevelWithTrailingContentIsNotSilentlyDropped(t *testing.T) {
+	logger := newTestLogger()
+	gen := New(logger)
+	el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h2>Título</h2><p>Contenido importante</p>`)
+	el.Level = 2
+	doc := astWithElements(el)
+
+	output := filepath.Join(t.TempDir(), "heading.docx")
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+	if !strings.Contains(xml, "Contenido importante") {
+		t.Errorf("trailing content after the heading tag was silently dropped, document.xml:\n%s", xml)
+	}
+}
+
 // TestDOCXGenerator_RenderText_UsesLevelInsteadOfRegex covers issue #22: a
 // TextElement with Level populated must use it directly rather than
 // re-parsing the rendered <hN> — pinned by exercising levels the old

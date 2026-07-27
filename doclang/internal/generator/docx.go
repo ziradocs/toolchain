@@ -532,12 +532,27 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 		return err
 	}
 
-	// Crear field TOC usando el constructor con switches
+	// Crear field TOC usando el constructor con switches. OJO: docxgo's
+	// NewTOCField/buildTOCCode (internal/core/field.go en el módulo
+	// vendido) NO lee las claves "o"/"h"/"z"/"u" que este código tenía
+	// antes (los caracteres del switch de Word) — lee "levels" para el
+	// \o, y \h/\z/\u salen SIEMPRE hardcodeados sin importar qué se pase.
+	// Un mapa con clave "o" es un no-op silencioso: el field generado
+	// siempre terminaba con el default "1-3" de la librería, sin importar
+	// qué dijera este mapa — confirmado corriendo el generador real y
+	// grepeando el \o del document.xml resultante. "levels" es la única
+	// clave que buildTOCCode efectivamente consulta.
+	//
+	// El valor en sí, "1-4": H1-H3 mapean 1:1 a outline 1-3, pero Level 4
+	// Y TAMBIÉN 5/6 (degradados a StyleIDHeading4 en renderHeading, sin
+	// estilo H5/H6 propio) usan el estilo Heading4 = outline 4. Si se
+	// quedara en el default "1-3" de la librería, Word ocultaría esos
+	// headings del TOC real en cuanto el usuario lo actualice (clic
+	// derecho → Actualizar campo, o F9) o abra el documento, aunque el
+	// placeholder estático (collectHeadings) sí los liste — las dos
+	// vistas del TOC divergirían entre sí.
 	tocSwitches := map[string]string{
-		"o": "1-3", // niveles de outline 1-3 (H1, H2, H3)
-		"h": "",    // crear hyperlinks
-		"z": "",    // ocultar números de página en vista web
-		"u": "",    // usar niveles de outline
+		"levels": "1-4",
 	}
 	tocField := docx.NewTOCField(tocSwitches)
 
@@ -681,19 +696,34 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 // ya renderizado — usado solo cuando Level (issue #22) YA nos dijo qué
 // nivel es; a diferencia del bloque de regexes de abajo, esto no ADIVINA el
 // nivel probando h2/h3/h4 en secuencia, solo despoja el wrapper del payload
-// cuyo nivel ya conocemos. Sin anchor final ($): los seis regexes que
-// reemplaza más abajo tampoco lo tenían, y un Content con contenido/
-// espacio colgante después del `</hN>` (p. ej. un salto de línea) hacía
-// que la versión anclada no matcheara nada y renderizara la marca cruda
-// como texto del heading.
-var headingHTMLPattern = regexp.MustCompile(`^<h[0-9]+[^>]*>(.+?)</h[0-9]+>`)
+// cuyo nivel ya conocemos. `\s*$` en vez de `$` a secas: los seis regexes
+// que reemplaza más abajo no tenían ningún anchor final, y una versión
+// anclada con `$` no toleraba contenido/espacio colgante después del
+// `</hN>` (p. ej. un salto de línea), lo que hacía que no matcheara nada y
+// se renderizara la marca cruda como texto del heading. Pero un `$` sin
+// `\s*` delante tampoco sirve: sin ÉL, Content que combina un heading con
+// contenido real después (`<h2>Título</h2><p>Contenido importante</p>`,
+// alcanzable vía un --filter externo o un TextElement mal formado) SÍ
+// matchea igual — el heading matchea como prefijo del string y el resto
+// de Content (el párrafo) se pierde en silencio, sin ni siquiera quedar
+// como texto crudo. `\s*$` exige que después del cierre solo quede
+// whitespace: tolera el salto de línea colgante (el caso real que este
+// pattern debe cubrir) pero rechaza contenido genuino, que entonces cae
+// al fallback de "texto crudo" (visible, no perdido).
+var headingHTMLPattern = regexp.MustCompile(`^<h[0-9]+[^>]*>(.+?)</h[0-9]+>\s*$`)
 
 // markdownHeadingPattern despoja un prefijo Markdown `#`..`######` — el
 // sibling de headingHTMLPattern para Content que llegó como Markdown crudo
 // en vez de HTML ya renderizado (un AST externo vía --filter, o un
 // TextElement cuyo Level se pobló antes de que corriera la normalización
-// HTML). Sin anchor final, por la misma razón que headingHTMLPattern.
-var markdownHeadingPattern = regexp.MustCompile(`^#{1,6}\s+(.+)`)
+// HTML). `\s*$`, misma razón que headingHTMLPattern: `.` no matchea `\n`
+// en Go regexp, así que un Content de dos líneas ("## Título\nContenido")
+// ya paraba de capturar en el salto de línea sin necesidad del anchor —
+// pero sin `\s*$` esa segunda línea igual se perdía en silencio (el
+// código solo usa el grupo capturado, descarta el resto de Content). Con
+// `\s*$`, ese caso deja de matchear del todo y cae al fallback de texto
+// crudo en vez de perder la línea.
+var markdownHeadingPattern = regexp.MustCompile(`^#{1,6}\s+(.+?)\s*$`)
 
 // headingIDPattern extrae el id="..." de un <hN id="...">...</hN> ya
 // renderizado, cuando existe — usado por el generador de Markdown para

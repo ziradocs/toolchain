@@ -4,6 +4,8 @@
 package generator
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -108,5 +110,37 @@ func TestDOCXGenerator_CollectHeadings_IgnoresIndentedGridColumnLines(t *testing
 		if e.Title == "Indented Heading" {
 			t.Errorf("collectHeadings() treated an indented grid-column line as a heading (%+v), but renderGrid does not render it as one (renderText's ^## pattern requires no leading whitespace)", e)
 		}
+	}
+}
+
+// TestDOCXGenerator_RenderTOC_FieldCoversOutlineLevel4 covers a finding from
+// external review of #49: collectHeadings became Level-aware and now lists
+// level 5/6 headings (which renderHeading styles as Heading4, outline level
+// 4) in the static TOC placeholder, but the REAL Word TOC field (the "o"
+// switch on NewTOCField) was still pinned to "1-3" — outline levels 1-3
+// only cover Heading1-3. As soon as the reader refreshes the field (F9) or
+// reopens the document, Word rebuilds the TOC from that switch and drops
+// every Heading4-styled entry (levels 4, 5, and 6), diverging from the
+// static placeholder that collectHeadings produced. The switch must extend
+// to "1-4" to match what renderHeading can actually produce.
+func TestDOCXGenerator_RenderTOC_FieldCoversOutlineLevel4(t *testing.T) {
+	logger := newTestLogger()
+	gen := New(logger)
+
+	deep := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h5 id="deep">Deep</h5>`)
+	deep.Level = 5
+	doc := astWithElements(deep)
+
+	output := filepath.Join(t.TempDir(), "toc.docx")
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+	// docxgo's field code literally emits two backslashes per switch
+	// (see internal/core/field.go's buildTOCCode, a raw string with
+	// `\\o`) — matched verbatim here, not a typo.
+	if !strings.Contains(xml, `TOC \\o &#34;1-4&#34;`) {
+		t.Errorf("expected the TOC field's outline switch to cover level 4 (\\\\o \"1-4\"), document.xml:\n%s", xml)
 	}
 }
