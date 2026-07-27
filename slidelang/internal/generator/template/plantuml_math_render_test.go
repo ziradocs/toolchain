@@ -4,6 +4,7 @@
 package template
 
 import (
+	htmltemplate "html/template"
 	"strings"
 	"testing"
 
@@ -102,5 +103,54 @@ func TestElementTemplate_Math_ContentIsHTMLEscaped(t *testing.T) {
 	}
 	if !strings.Contains(got, "&lt;script&gt;") {
 		t.Errorf("expected the LaTeX content to be HTML-escaped, got: %s", got)
+	}
+}
+
+// TestElementTemplate_Math_PreRenderedHTMLTakesPriorityOverRawLatex covers
+// the code-review finding on PR #56: in offline/PDF modes,
+// data/converter.go's renderOfflineMath populates PreRenderedHTML with a
+// pre-typeset SVG. The template must prefer it over the raw \[...\] LaTeX
+// (which nothing typesets once buildCDNIncludes strips the MathJax <script>
+// in offline mode) — without this branch, PDF/offline output showed the
+// untypeset LaTeX source instead of the equation.
+func TestElementTemplate_Math_PreRenderedHTMLTakesPriorityOverRawLatex(t *testing.T) {
+	tmpl := mustParseElementTemplate(t)
+
+	got := executeElement(t, tmpl, data.ElementData{
+		Type:            "math",
+		Content:         "E = mc^2",
+		PreRenderedHTML: htmltemplate.HTML(`<div class="slidelang-math-diagram slidelang-math-inline"><svg><path d="M0 0"/></svg></div>`),
+	})
+
+	if !strings.Contains(got, `<path d="M0 0"/>`) {
+		t.Errorf("expected the pre-rendered SVG to appear, got: %s", got)
+	}
+	if strings.Contains(got, `\[E = mc^2\]`) {
+		t.Errorf("expected the raw LaTeX fallback to be suppressed when PreRenderedHTML is set, got: %s", got)
+	}
+}
+
+// TestElementTemplate_PlantUML_PreRenderedHTMLTakesPriorityOverRemoteObject
+// is the PlantUML side of the same finding: with PreRenderedHTML set, the
+// template must NOT emit the <object data="..."> pointing at a remote
+// PlantUML server — that's exactly what made PDF/offline-inline output
+// depend on network access despite claiming to be self-contained.
+func TestElementTemplate_PlantUML_PreRenderedHTMLTakesPriorityOverRemoteObject(t *testing.T) {
+	tmpl := mustParseElementTemplate(t)
+
+	got := executeElement(t, tmpl, data.ElementData{
+		Type:           "plantuml",
+		DiagramType:    "sequence",
+		PlantUMLSVGURL: "https://www.plantuml.com/plantuml/svg/abc123",
+		PlantUMLPNGURL: "https://www.plantuml.com/plantuml/png/abc123",
+		PreRenderedHTML: htmltemplate.HTML(
+			`<svg class="slidelang-plantuml-diagram slidelang-plantuml-inline"><rect width="10" height="10"/></svg>`),
+	})
+
+	if !strings.Contains(got, `<rect width="10" height="10"/>`) {
+		t.Errorf("expected the pre-rendered SVG to appear, got: %s", got)
+	}
+	if strings.Contains(got, "plantuml.com") {
+		t.Errorf("expected no remote PlantUML URL when PreRenderedHTML is set, got: %s", got)
 	}
 }

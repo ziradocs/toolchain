@@ -1,8 +1,11 @@
-/* Diagramas PlantUML (issue #38) — solo modo browser: el <object>/<img>
-   apunta directo al servidor PlantUML, sin loader ni JS involucrado (a
-   diferencia del <div class="plantuml-container"> de core/doclang, que sí
-   tiene un spinner con su propio wiring JS — ver el comentario en
-   data/converter.go's case *ast.PlantUMLElement). */
+/* Diagramas PlantUML (issue #38) — modo browser: el <object>/<img> apunta
+   directo al servidor PlantUML, sin loader ni JS involucrado (a diferencia
+   del <div class="plantuml-container"> de core/doclang, que sí tiene un
+   spinner con su propio wiring JS — ver el comentario en data/converter.go's
+   case *ast.PlantUMLElement). En modos offline/PDF (hallazgo de code-review
+   sobre PR #56) el SVG ya viene embebido/guardado por
+   data/converter.go's renderOfflinePlantUML — mismas reglas de tamaño le
+   aplican vía .slidelang-plantuml-diagram. */
 .slidelang-element.slidelang-plantuml {
     margin: 1.5rem 0;
     text-align: center;
@@ -17,4 +20,15 @@
 .slidelang-element.slidelang-plantuml .slidelang-plantuml-fallback {
     max-width: 100%;
     height: auto;
+}
+
+.slidelang-element.slidelang-plantuml .slidelang-plantuml-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    color: var(--slidelang-danger-color, #dc3545);
+    background: var(--slidelang-bg-danger-light, #f8d7da);
+    border-radius: var(--slidelang-border-radius, 8px);
+    font-weight: 500;
 }

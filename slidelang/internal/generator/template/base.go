@@ -784,9 +784,9 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                      id="slidelang-element-plantuml-{{.SlideIndex}}-{{.ElementID}}"
                      role="img"
                      {{if .Title}}aria-labelledby="slidelang-element-plantuml-title-{{.SlideIndex}}-{{.ElementID}}"{{else}}aria-label="Diagrama {{.DiagramType}}"{{end}}>
-                    <object type="image/svg+xml" data="{{.PlantUMLSVGURL}}" class="slidelang-plantuml-diagram">
+                    {{if .PreRenderedHTML}}{{.PreRenderedHTML}}{{else}}<object type="image/svg+xml" data="{{.PlantUMLSVGURL}}" class="slidelang-plantuml-diagram">
                         <img src="{{.PlantUMLPNGURL}}" alt="Diagrama PlantUML" class="slidelang-plantuml-fallback">
-                    </object>
+                    </object>{{end}}
                 </div>
             </div>
         {{else if eq .Type "math"}}
@@ -794,7 +794,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  id="slidelang-element-math-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="math"
                  data-slide="{{.SlideIndex}}">
-                <div class="slidelang-math-block">\[{{.Content}}\]{{if and .MathLabel (gt .MathNumber 0)}} <span class="slidelang-math-number">({{.MathNumber}})</span>{{end}}</div>
+                <div class="slidelang-math-block">{{if .PreRenderedHTML}}{{.PreRenderedHTML}}{{else}}\[{{.Content}}\]{{end}}{{if and .MathLabel (gt .MathNumber 0)}} <span class="slidelang-math-number">({{.MathNumber}})</span>{{end}}</div>
                 {{if .Caption}}<div class="slidelang-math-caption">{{.Caption}}</div>{{end}}
             </div>
         {{else if eq .Type "chart"}}

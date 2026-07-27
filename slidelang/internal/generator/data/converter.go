@@ -6,6 +6,7 @@ package data
 import (
 	"fmt"
 	htmltemplate "html/template"
+	"path/filepath"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -112,6 +113,57 @@ func namespaceClassTokens(classes string) string {
 		tokens[i] = "slidelang-" + t
 	}
 	return strings.Join(tokens, " ")
+}
+
+// renderOfflineMath pre-renderiza una ecuación LaTeX a SVG para los modos
+// offline llamando directamente a ctx.MathFetcher — mismos mensajes de
+// fallback y misma forma que core/renderer/html.go's
+// renderMathOfflineAssets/renderMathOfflineInline, pero con clases
+// "slidelang-math-*" (issue de code-review sobre PR #56: sin esto, PDF y
+// --render-mode=offline-* dejaban el LaTeX crudo sin tipografiar, porque
+// buildCDNIncludes strippea el <script> de MathJax en todo modo offline sin
+// importar si el elemento tiene o no una alternativa pre-renderizada).
+func renderOfflineMath(content, renderMode string, ctx *renderer.RenderContext) htmltemplate.HTML {
+	if ctx == nil || ctx.MathFetcher == nil {
+		return `<div class="slidelang-math-error">Math fetcher not configured. Use --render-mode=browser instead.</div>`
+	}
+	if renderMode == "offline-assets" {
+		relPath, err := ctx.MathFetcher.FetchAndSave(ctx.Ctx, content, filepath.Join(ctx.OutputDir, "assets"))
+		if err != nil {
+			return htmltemplate.HTML(fmt.Sprintf(`<div class="slidelang-math-error">Failed to render equation: %v</div>`, err))
+		}
+		return htmltemplate.HTML(fmt.Sprintf(`<img src="assets/%s" alt="Equation" class="slidelang-math-diagram slidelang-math-offline" type="image/svg+xml">`, relPath))
+	}
+	svg, err := ctx.MathFetcher.FetchInline(ctx.Ctx, content)
+	if err != nil {
+		return htmltemplate.HTML(fmt.Sprintf(`<div class="slidelang-math-error">Failed to render equation: %v</div>`, err))
+	}
+	return htmltemplate.HTML(fmt.Sprintf(`<div class="slidelang-math-diagram slidelang-math-inline">%s</div>`, svg))
+}
+
+// renderOfflinePlantUML pre-renderiza un diagrama PlantUML a SVG para los
+// modos offline llamando directamente a ctx.Fetcher — mismos mensajes de
+// fallback y misma forma que core/renderer/html.go's
+// renderPlantUMLOfflineAssets/renderPlantUMLOfflineInline, pero con clases
+// "slidelang-plantuml-*". `content` ya debe venir sanitizado por el caller
+// (SanitizePlantUMLContent), igual que en el case browser de arriba.
+func renderOfflinePlantUML(content, renderMode string, ctx *renderer.RenderContext) htmltemplate.HTML {
+	if ctx == nil || ctx.Fetcher == nil {
+		return `<div class="slidelang-plantuml-error">PlantUML fetcher not configured. Use --render-mode=browser instead.</div>`
+	}
+	if renderMode == "offline-assets" {
+		assetPath, err := ctx.Fetcher.FetchDiagramToAssets(ctx.Ctx, content)
+		if err != nil {
+			return htmltemplate.HTML(fmt.Sprintf(`<div class="slidelang-plantuml-error">Error loading diagram: %s</div>`, err.Error()))
+		}
+		return htmltemplate.HTML(fmt.Sprintf(`<img src="%s" alt="PlantUML Diagram" class="slidelang-plantuml-diagram slidelang-plantuml-offline" type="image/svg+xml">`, assetPath))
+	}
+	svg, err := ctx.Fetcher.FetchDiagramInline(ctx.Ctx, content)
+	if err != nil {
+		return htmltemplate.HTML(fmt.Sprintf(`<div class="slidelang-plantuml-error">Error loading diagram: %s</div>`, err.Error()))
+	}
+	svg = strings.Replace(svg, "<svg", `<svg class="slidelang-plantuml-diagram slidelang-plantuml-inline"`, 1)
+	return htmltemplate.HTML(svg)
 }
 
 func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode string, log util.Logger, ctx *renderer.RenderContext) PresentationData {
@@ -463,6 +515,24 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 					cp := *e
 					cp.Title = ""
 					offlineElem = &cp
+				case *ast.PlantUMLElement:
+					// PlantUML/Math (issue #38, hallazgo de code-review sobre
+					// PR #56) NO pasan por RenderElementToHTML como
+					// mermaid/chart/map arriba: ese camino emitiría el
+					// <div class="plantuml-container"> de core, con su propio
+					// loader/spinner cuyo JS de limpieza es exclusivo del
+					// documento HTML de doclang (mismo motivo, ver el
+					// comentario del case *ast.PlantUMLElement más arriba en
+					// este archivo). Se llama al fetcher directamente y se
+					// arma el wrapper con las clases slidelang- propias, sin
+					// tocar renderer.OfflineElementClasses en core.
+					content := renderer.SanitizePlantUMLContent(ProcessVariables(e.Content, variables))
+					elementData.PreRenderedHTML = renderOfflinePlantUML(content, renderMode, ctx)
+				case *ast.MathElement:
+					// Content es LaTeX crudo — no se procesa con
+					// ProcessVariables, mismo criterio que el case de arriba
+					// (browser) y que MermaidElement.Content.
+					elementData.PreRenderedHTML = renderOfflineMath(e.Content, renderMode, ctx)
 				}
 				if offlineElem != nil {
 					elementData.PreRenderedHTML = htmltemplate.HTML(

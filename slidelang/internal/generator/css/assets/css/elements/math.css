@@ -1,7 +1,10 @@
 /* Ecuaciones matemáticas (issue #38) — el <div class="slidelang-math-block">
    contiene el LaTeX crudo entre delimitadores \[...\], tipografiado
    client-side por el bundle tex-svg.js de MathJax (CDN, ver
-   template/base.go's buildCDNIncludes). */
+   template/base.go's buildCDNIncludes) en modo browser. En modos offline/PDF
+   (hallazgo de code-review sobre PR #56), el contenido ya viene
+   pre-renderizado a SVG por data/converter.go's renderOfflineMath —
+   .slidelang-math-diagram/-inline/-offline/-error cubren ese caso. */
 .slidelang-element.slidelang-math {
     margin: 1.5rem 0;
     text-align: center;
@@ -9,6 +12,27 @@
 
 .slidelang-element.slidelang-math .slidelang-math-block {
     display: inline-block;
+}
+
+.slidelang-element.slidelang-math .slidelang-math-diagram {
+    display: inline-block;
+    max-width: 100%;
+}
+
+.slidelang-element.slidelang-math .slidelang-math-diagram svg,
+.slidelang-element.slidelang-math .slidelang-math-diagram img {
+    max-width: 100%;
+    height: auto;
+}
+
+.slidelang-element.slidelang-math .slidelang-math-error {
+    display: inline-block;
+    padding: 0.75rem 1rem;
+    color: var(--slidelang-danger-color, #dc3545);
+    background: var(--slidelang-bg-danger-light, #f8d7da);
+    border-radius: var(--slidelang-border-radius, 8px);
+    font-weight: 500;
+    font-style: normal;
 }
 
 .slidelang-element.slidelang-math .slidelang-math-number {
