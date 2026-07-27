@@ -145,7 +145,7 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 
 	theme, err := document.NewThemeLoader().LoadTheme(themeName, false)
 	if err != nil {
-		g.logger.Warn("THEME", "failed to load theme %q, falling back to professional: %v", themeName, err)
+		g.logger.Warn("THEME: failed to load theme %q, falling back to professional: %v", themeName, err)
 	}
 
 	title := ""

@@ -641,12 +641,33 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                      declara colspan/rowspan/scope que la vista plana
                      Headers/Rows no puede expresar (ver
                      tableUsesCellStructure en converter.go) — una tabla
-                     simple sigue el branch {{else}} de abajo, sin cambios. */}}
+                     simple sigue el branch {{else}} de abajo, sin cambios.
+                     CellsLeadIsHeader (calculado en converter.go, mismo
+                     criterio que core/renderer/html.go's renderTableCells)
+                     decide si la fila 0 va envuelta en <thead> — si no,
+                     TODA la tabla cae en un único <tbody>, igual que en
+                     core, para que doclang y slidelang no diverjan en el
+                     HTML de una misma tabla con celdas reales. */}}
+                {{$lead := .CellsLeadIsHeader}}
                 <table>
+                    {{if $lead}}
+                    <thead>
+                        <tr>
+                            {{range index .Cells 0}}
+                                {{if .IsHeader}}
+                                    <th{{if .Scope}} scope="{{.Scope}}"{{end}}{{if gt .ColSpan 1}} colspan="{{.ColSpan}}"{{end}}{{if gt .RowSpan 1}} rowspan="{{.RowSpan}}"{{end}}>{{.Content | raw}}</th>
+                                {{else}}
+                                    <td{{if gt .ColSpan 1}} colspan="{{.ColSpan}}"{{end}}{{if gt .RowSpan 1}} rowspan="{{.RowSpan}}"{{end}}>{{.Content | raw}}</td>
+                                {{end}}
+                            {{end}}
+                        </tr>
+                    </thead>
+                    {{end}}
                     <tbody>
-                        {{range .Cells}}
+                        {{range $i, $row := .Cells}}
+                            {{if or (not $lead) (ne $i 0)}}
                             <tr>
-                                {{range .}}
+                                {{range $row}}
                                     {{if .IsHeader}}
                                         <th{{if .Scope}} scope="{{.Scope}}"{{end}}{{if gt .ColSpan 1}} colspan="{{.ColSpan}}"{{end}}{{if gt .RowSpan 1}} rowspan="{{.RowSpan}}"{{end}}>{{.Content | raw}}</th>
                                     {{else}}
@@ -654,6 +675,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                                     {{end}}
                                 {{end}}
                             </tr>
+                            {{end}}
                         {{end}}
                     </tbody>
                 </table>

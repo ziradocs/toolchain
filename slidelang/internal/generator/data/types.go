@@ -161,6 +161,15 @@ type ElementData struct {
 	// mantienen siempre (grilla plana derivada), así que una tabla simple
 	// no cambia su HTML por este campo estar presente.
 	Cells [][]TableCellData
+	// CellsLeadIsHeader reporta si TODAS las celdas de Cells[0] son
+	// IsHeader — mismo criterio que core/renderer/html.go's
+	// renderTableCells para decidir si esa fila va envuelta en <thead> o si
+	// toda la tabla cae en un único <tbody> (issue detectado en code
+	// review de #41: el template emitía Cells siempre dentro de un único
+	// <tbody>, sin <thead>, divergiendo del HTML que doclang genera para la
+	// misma tabla). Calculado acá, en Go, en vez de en el template, porque
+	// html/template no tiene un "all()" para evaluarlo inline.
+	CellsLeadIsHeader bool
 	// Media data (issue #21)
 	MediaType string // "video" o "audio"
 	Autoplay  bool

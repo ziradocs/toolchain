@@ -518,7 +518,7 @@ func (g *Generator) generateResetCSS(presentationConfig *PresentationConfig) err
 func (g *Generator) generateMainCSS(presentationConfig *PresentationConfig) error {
 	cssContent, err := presentationConfig.Builder.BuildCSS()
 	if err != nil {
-		g.logger.Warn("CSS", "Error generating CSS: %v", err)
+		g.logger.Warn("CSS: Error generating CSS: %v", err)
 	}
 
 	cssPath := filepath.Join(presentationConfig.OutputDir, "presentation.css")

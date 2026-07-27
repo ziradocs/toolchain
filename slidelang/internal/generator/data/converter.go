@@ -249,6 +249,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				// siempre, cambiando el HTML de toda tabla existente.
 				if tableUsesCellStructure(elem) {
 					elementData.Cells = ConvertTableCellsWithVariables(elem.Cells, variables)
+					elementData.CellsLeadIsHeader = cellsLeadIsHeader(elem.Cells)
 				}
 			case *ast.MediaElement:
 				// Mismo patrón que ImageElement arriba: ValidateURLScheme
@@ -980,6 +981,24 @@ func tableUsesCellStructure(elem *ast.TableElement) bool {
 		}
 	}
 	return false
+}
+
+// cellsLeadIsHeader reporta si TODAS las celdas de cells[0] son IsHeader —
+// mismo criterio que core/renderer/html.go's renderTableCells (léase su
+// comentario) para decidir si esa fila va en <thead> o si toda la tabla
+// cae en un único <tbody>. Debe coincidir exactamente con ese criterio
+// para que el HTML de doclang y el de slidelang no diverjan en qué tablas
+// con celdas reales tienen <thead> (issue #20).
+func cellsLeadIsHeader(cells [][]ast.TableCell) bool {
+	if len(cells) == 0 || len(cells[0]) == 0 {
+		return false
+	}
+	for _, c := range cells[0] {
+		if !c.IsHeader {
+			return false
+		}
+	}
+	return true
 }
 
 // generateElementID genera un ID único para un elemento
