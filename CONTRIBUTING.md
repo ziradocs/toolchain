@@ -133,9 +133,10 @@ gofmt -l .                                  # formatting check (gofmt -w . to fi
 ```
 
 Most tests live in `core` (parser, elements, renderer, AI normalizer). If you touch
-`core`, also build and run the test suites of both CLIs — the `replace` directive means
-your changes affect them immediately, and a change that looks safe in isolation can break a
-downstream consumer.
+`core`, also build and run the test suites of both CLIs — the gitignored root `go.work`
+means your changes affect them immediately in local builds (see above; `GOWORK=off` builds
+still see the last published version until you release and bump), and a change that looks
+safe in isolation can break a downstream consumer.
 
 Before opening a PR, at minimum:
 

@@ -21,7 +21,7 @@ audience and use case.
 - **[DocLang docs](doclang/)** — overview, frontmatter, strict/flex syntax reference, examples
 
 ### For Developers
-- **[Developer docs](developer/)** — Chromium integration, docxgo fork, PlantUML offline, theme system
+- **[Developer docs](developer/)** — [releasing](developer/releasing.md), Chromium integration, docxgo fork, PlantUML offline, theme system
 - **[Architecture](architecture/)** — JSON/AST contract, HTML sanitization
 - **[Language Specification](../core/spec/)** — the formal grammar/semantics (v0.1) and the versioned AST/JSON contract
 
