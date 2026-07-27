@@ -76,6 +76,15 @@ type BuildOptions struct {
 	WebPQuality     int    // 1-100 (default 85)
 	ChromiumPath    string // Ruta a un Chromium/Chrome/Edge propio
 	InstallChromium bool   // Auto-instalar Chromium si no se encuentra
+	// PlantUMLServer/PlantUMLFormat (hallazgo de code-review sobre PR #56):
+	// antes de ese fix, slidelang nunca construía un PlantUMLFetcher, así que
+	// no había forma (ni necesidad) de apuntar a un servidor propio. Ahora
+	// que --format pdf y --render-mode=offline-* SÍ hacen una petición HTTP
+	// por diagrama, un build en una red air-gapped/con proxy necesita poder
+	// redirigirla a un servidor PlantUML propio en vez de plantuml.com — same
+	// flags que ya expone doclang.
+	PlantUMLServer string
+	PlantUMLFormat string
 }
 
 func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
@@ -159,6 +168,8 @@ Examples:
 	cmd.Flags().IntVar(&opts.WebPQuality, "webp-quality", 85, "WebP quality: 1-100 (higher = better quality, larger file)")
 	cmd.Flags().StringVar(&opts.ChromiumPath, "chromium-path", "", "Custom path to Chromium/Chrome/Edge executable (for offline rendering and --format pdf)")
 	cmd.Flags().BoolVar(&opts.InstallChromium, "install-chromium", false, "Auto-install Chromium if not found (for offline rendering and --format pdf)")
+	cmd.Flags().StringVar(&opts.PlantUMLServer, "plantuml-server", "", "Custom PlantUML server URL for offline modes and --format pdf (default: https://www.plantuml.com/plantuml)")
+	cmd.Flags().StringVar(&opts.PlantUMLFormat, "plantuml-format", "svg", "PlantUML image format for offline-assets mode: svg or png (offline-inline and --format pdf always use svg)")
 
 	return cmd
 }
@@ -671,6 +682,8 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		WebPQuality:     opts.WebPQuality,
 		ChromiumPath:    opts.ChromiumPath,
 		InstallChromium: opts.InstallChromium,
+		PlantUMLServer:  opts.PlantUMLServer,
+		PlantUMLFormat:  opts.PlantUMLFormat,
 		AssetRoot:       absAssetRoot,
 		ResolvedTheme:   resolvedTheme,
 	}

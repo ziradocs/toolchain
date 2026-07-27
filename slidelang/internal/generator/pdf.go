@@ -77,7 +77,7 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 		ctx = buildInteractiveRenderContext(chromiumRenderer, astNode, outputDir, pdfOpts)
 	} else {
 		ctx.OutputDir = outputDir
-		wirePlantUMLFetcher(ctx, astNode, pdfOpts.RenderMode, outputDir)
+		wirePlantUMLFetcher(ctx, astNode, pdfOpts, outputDir)
 	}
 
 	presentationConfig, err := g.preparePresentationConfig(astNode, outputDir, pdfOpts, ctx)

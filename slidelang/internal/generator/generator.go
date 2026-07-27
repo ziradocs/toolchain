@@ -31,6 +31,13 @@ type GeneratorOptions struct {
 	WebPQuality     int    // 1-100
 	ChromiumPath    string
 	InstallChromium bool
+	// PlantUMLServer/PlantUMLFormat (hallazgo de code-review sobre PR #56):
+	// vacío/"" resuelve a los defaults de chromium.NewPlantUMLFetcher
+	// (servidor público plantuml.com, formato svg) — dejan a un operador en
+	// una red air-gapped/con proxy redirigir el fetch de diagramas a un
+	// servidor propio en vez de forzar siempre el público.
+	PlantUMLServer string
+	PlantUMLFormat string
 	// AssetRoot confina las fuentes de imagen locales de --format pptx a
 	// este directorio (mismo mecanismo que doclang, ver
 	// docs/SECURITY_AUDIT_2026-07.md AL-4); vacío desactiva la confinación
