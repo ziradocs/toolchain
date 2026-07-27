@@ -30,15 +30,27 @@ const (
 	AAALargeText  = 4.5
 )
 
+// fullyOpaqueAlpha es el único valor de canal alfa que ParseColor acepta
+// para #rgba/#rrggbbaa — ver su doc comment.
+const fullyOpaqueAlpha = 0xff
+
 // ParseColor interpreta un color hexadecimal CSS: #rgb, #rgba, #rrggbb o
-// #rrggbbaa (el canal alfa, si está presente, se ignora — el contraste se
-// calcula sobre el color ya compuesto, no sobre su transparencia). Formas
-// no soportadas devuelven ok=false en vez de un valor adivinado:
-// nombres de color CSS ("white", "tomato") y funciones (linear-gradient(...),
-// rgba(...), var(...) sin resolver) no son hex, y una variable de tema real
-// puede legítimamente contener cualquiera de esas — un rulepack de
-// contraste debe poder saltarse ese par en vez de recibir un ratio
-// inventado.
+// #rrggbbaa. Formas no soportadas devuelven ok=false en vez de un valor
+// adivinado: nombres de color CSS ("white", "tomato") y funciones
+// (linear-gradient(...), rgba(...), var(...) sin resolver) no son hex, y
+// una variable de tema real puede legítimamente contener cualquiera de
+// esas — un rulepack de contraste debe poder saltarse ese par en vez de
+// recibir un ratio inventado.
+//
+// Un canal alfa presente (#rgba/#rrggbbaa) que NO sea totalmente opaco
+// también devuelve ok=false, por la misma razón: el contraste solo tiene
+// sentido calculado sobre el color YA COMPUESTO contra su fondo real, y
+// este paquete no tiene ese fondo — tratar cualquier alfa como si fuera
+// 100% opaco (comportamiento previo, ahora corregido) le daría a un color
+// translúcido/transparente el mismo trato que a rgba(), que si es
+// correctamente rechazado por CanParse: dos formas del mismo color
+// obtendrían resultados opuestos. Un alfa totalmente opaco (ff) es
+// indistinguible de la forma sin alfa, así que se acepta igual.
 func ParseColor(s string) (r, g, b uint8, ok bool) {
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "#") {
@@ -48,14 +60,25 @@ func ParseColor(s string) (r, g, b uint8, ok bool) {
 
 	expand := func(c byte) string { return string([]byte{c, c}) }
 
-	var rs, gs, bs string
+	var rs, gs, bs, as string
 	switch len(hex) {
-	case 3, 4: // #rgb, #rgba
+	case 3: // #rgb
 		rs, gs, bs = expand(hex[0]), expand(hex[1]), expand(hex[2])
-	case 6, 8: // #rrggbb, #rrggbbaa
+	case 4: // #rgba
+		rs, gs, bs, as = expand(hex[0]), expand(hex[1]), expand(hex[2]), expand(hex[3])
+	case 6: // #rrggbb
 		rs, gs, bs = hex[0:2], hex[2:4], hex[4:6]
+	case 8: // #rrggbbaa
+		rs, gs, bs, as = hex[0:2], hex[2:4], hex[4:6], hex[6:8]
 	default:
 		return 0, 0, 0, false
+	}
+
+	if as != "" {
+		av, err := strconv.ParseUint(as, 16, 8)
+		if err != nil || av != fullyOpaqueAlpha {
+			return 0, 0, 0, false
+		}
 	}
 
 	rv, err1 := strconv.ParseUint(rs, 16, 8)

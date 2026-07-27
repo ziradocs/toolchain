@@ -124,6 +124,87 @@ EOF
 	}
 }
 
+// TestExternalRulepack_StaleInheritedEnvVarIsCleared es la regresión para
+// el hallazgo del code review: si el proceso PADRE ya tenía
+// ZIRADOCS_THEME_VARIABLES en su entorno (p. ej. un wrapper de CI, o un
+// build anterior en el mismo proceso embebido) pero ESTA corrida nunca
+// llamó WithThemeVariables, el rulepack no debe heredar ese valor viejo y
+// atribuirle esos colores al documento actual — debe verla ausente, igual
+// que en el caso histórico sin ningún valor puesto nunca.
+func TestExternalRulepack_StaleInheritedEnvVarIsCleared(t *testing.T) {
+	t.Setenv(themeVariablesEnvVar, `{"--stale-from-parent":"#dead00"}`)
+
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "fake-stale-env-rulepack.sh")
+	scriptContent := `#!/bin/bash
+if [ -n "${ZIRADOCS_THEME_VARIABLES+x}" ]; then
+  echo "unexpected: ZIRADOCS_THEME_VARIABLES is set to '${ZIRADOCS_THEME_VARIABLES}'" >&2
+  exit 1
+fi
+cat << 'EOF'
+{
+  "reportVersion": "1.0",
+  "manifest": {"name": "fake-pack", "version": "1.0.0", "prefix": "EXT"},
+  "findings": []
+}
+EOF
+`
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("Failed to write fake rulepack: %v", err)
+	}
+
+	l := NewWithRules()
+	l.WithRulepacks([]string{scriptPath}, 5*time.Second)
+	// WithThemeVariables is deliberately never called on this Linter.
+
+	doc := &ast.AST{FilePath: "test.slidelang"}
+	diags := l.LintUnfiltered(doc)
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics (and no LINTER_SYS_ERR from the script's own exit 1), got %+v", diags)
+	}
+}
+
+// TestExternalRulepack_NilThemeVariablesMarshalsToEmptyObject es la
+// regresión para el segundo hallazgo del canal de subproceso: un tema
+// legítimamente sin variables (WithThemeVariables(nil), un valor que la
+// propia documentación de WithThemeVariables bendice explícitamente) debe
+// serializarse como el objeto JSON vacío "{}", no como el literal "null" —
+// un rulepack que hace json.Unmarshal a map[string]string o a un struct no
+// debe encontrarse con una forma que no es un objeto.
+func TestExternalRulepack_NilThemeVariablesMarshalsToEmptyObject(t *testing.T) {
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "fake-nil-theme-rulepack.sh")
+	scriptContent := `#!/bin/bash
+escaped=$(printf '%s' "$ZIRADOCS_THEME_VARIABLES" | sed 's/"/\\"/g')
+cat << EOF
+{
+  "reportVersion": "1.0",
+  "manifest": {"name": "fake-pack", "version": "1.0.0", "prefix": "EXT"},
+  "findings": [
+    {"code": "EXT003", "severity": "warning", "message": "theme=${escaped}", "position": {"line": 1}}
+  ]
+}
+EOF
+`
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("Failed to write fake rulepack: %v", err)
+	}
+
+	l := NewWithRules()
+	l.WithRulepacks([]string{scriptPath}, 5*time.Second)
+	l.WithThemeVariables(nil)
+
+	doc := &ast.AST{FilePath: "test.slidelang"}
+	diags := l.LintUnfiltered(doc)
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d: %+v", len(diags), diags)
+	}
+	want := "theme={}"
+	if diags[0].Message != want {
+		t.Errorf("Message = %q, want %q (a nil theme variables map must marshal to an empty JSON object)", diags[0].Message, want)
+	}
+}
+
 // TestExternalRulepack_NoThemeVariables_EnvVarAbsent confirma que un
 // rulepack existente, que nunca lee ZIRADOCS_THEME_VARIABLES, sigue
 // comportándose exactamente igual cuando WithThemeVariables nunca se

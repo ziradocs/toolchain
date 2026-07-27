@@ -146,6 +146,42 @@ func TestThemeContrastRule_PassingPairProducesNoDiagnostic(t *testing.T) {
 	}
 }
 
+// themeVariablesMutator es una regla ThemeAware que muta el mapa que
+// recibió, para probar que WithThemeVariables entrega una copia — no una
+// referencia al mapa del caller (que puede ser una entrada process-global
+// compartida, p. ej. doclang.EmbeddedThemes o el *Theme.Variables que el
+// generador también usa para renderizar).
+type themeVariablesMutator struct{ received map[string]string }
+
+func (m *themeVariablesMutator) Check(node ast.Node) []diagnostics.Diagnostic { return nil }
+
+func (m *themeVariablesMutator) SetThemeVariables(vars map[string]string) {
+	m.received = vars
+	if vars != nil {
+		vars["--injected-by-rule"] = "corrupted"
+	}
+}
+
+// TestLinter_WithThemeVariables_RuleMutationDoesNotAffectCallersMap es la
+// regresión para el hallazgo de aislamiento del code review: una regla que
+// escribe en el mapa que recibió no debe poder corromper el mapa original
+// que el caller (una CLI) pasó a WithThemeVariables — ese mapa puede ser
+// una fuente compartida (tema global, o el mismo mapa que alimenta el
+// renderer) que un build posterior o el propio render volvería a leer.
+func TestLinter_WithThemeVariables_RuleMutationDoesNotAffectCallersMap(t *testing.T) {
+	callerMap := map[string]string{"--text-color": "#000000"}
+
+	mutator := &themeVariablesMutator{}
+	NewWithRules(mutator).WithThemeVariables(callerMap)
+
+	if _, corrupted := callerMap["--injected-by-rule"]; corrupted {
+		t.Fatalf("rule mutation leaked into the caller's original map: %+v", callerMap)
+	}
+	if _, gotInjected := mutator.received["--injected-by-rule"]; !gotInjected {
+		t.Fatalf("expected the rule's own copy to reflect its mutation, got %+v", mutator.received)
+	}
+}
+
 // TestThemeContrastRule_MissingOrUnparseableVariableIsSkipped cubre las dos
 // limitaciones aceptadas del seam: una variable ausente del mapa del tema,
 // y una variable presente pero con un valor no-hex (gradiente) — ninguna

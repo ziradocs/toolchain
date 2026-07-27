@@ -47,8 +47,38 @@ type layoutPolicyAware interface {
 // paquete (un rulepack externo de contraste) implemente la interfaz; un
 // método no exportado la haría imposible de implementar para ese
 // consumidor.
+//
+// ADVERTENCIA sobre reglas con estado compartidas entre builds: a
+// diferencia de layoutPolicyAware (cuyo único implementador se construye
+// de cero en cada New(), nunca es un singleton compartido),
+// SetThemeVariables se invoca sobre la instancia de regla que el CALLER
+// posee — si esa misma instancia se pasa como customRule a MÚLTIPLES
+// invocaciones de build (una CLI embebida, un servidor MCP, o builds
+// concurrentes), cada llamada a WithThemeVariables/AddRule sobreescribe el
+// estado que la regla guardó de la corrida anterior, y dos builds
+// concurrentes que comparten la regla compiten por ese campo. Un
+// implementador de ThemeAware debe o (a) construirse una vez por build, o
+// (b) tratar SetThemeVariables/Check como una sección crítica propia.
 type ThemeAware interface {
 	SetThemeVariables(map[string]string)
+}
+
+// cloneStringMap copia vars en un mapa nuevo (nil si vars es nil). Se usa
+// en WithThemeVariables para que ninguna regla ThemeAware reciba una
+// referencia al mapa que el CALLER pasó — ese mapa puede ser una entrada
+// process-global compartida (p. ej. doclang.EmbeddedThemes, o el mismo
+// *Theme.Variables que el generador usa para renderizar); una regla que
+// mute lo que recibió no debe poder corromper esa fuente compartida ni lo
+// que ve un build posterior.
+func cloneStringMap(vars map[string]string) map[string]string {
+	if vars == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(vars))
+	for k, v := range vars {
+		clone[k] = v
+	}
+	return clone
 }
 
 // WithPolicy adjunta un motor de políticas configurable: Lint() filtrará y
@@ -80,11 +110,11 @@ func (l *Linter) WithPolicy(policy *PolicyConfig) *Linter {
 // vacío) a las reglas agregadas después, en vez de omitir la inyección
 // silenciosamente.
 func (l *Linter) WithThemeVariables(vars map[string]string) *Linter {
-	l.themeVariables = vars
+	l.themeVariables = cloneStringMap(vars)
 	l.themeVariablesSet = true
 	for _, r := range l.rules {
 		if aware, ok := r.(ThemeAware); ok {
-			aware.SetThemeVariables(vars)
+			aware.SetThemeVariables(l.themeVariables)
 		}
 	}
 	return l

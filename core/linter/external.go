@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -21,6 +22,23 @@ import (
 // canal de tema es aditivo y por su naturaleza ignorable: un rulepack que
 // no lo lee simplemente no ve la variable de entorno.
 const themeVariablesEnvVar = "ZIRADOCS_THEME_VARIABLES"
+
+// filterOutEnvVar devuelve env sin ninguna entrada "key=..." (case-sensitive,
+// como el resto del entorno de proceso en los sistemas que este toolchain
+// soporta). Se usa para que runExternalRulepack pueda partir de un entorno
+// heredado "limpio" respecto a themeVariablesEnvVar antes de decidir si lo
+// vuelve a agregar.
+func filterOutEnvVar(env []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
 
 type externalManifest struct {
 	Name    string `json:"name"`
@@ -59,17 +77,31 @@ func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration,
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// cmd.Env es nil por defecto (el subproceso hereda el entorno del
-	// padre); solo lo tocamos si WithThemeVariables realmente se llamó, así
-	// que un caller que no participa del seam #30 ve exactamente el mismo
-	// entorno heredado de siempre.
+	// Partimos SIEMPRE de os.Environ() sin ninguna ZIRADOCS_THEME_VARIABLES
+	// heredada: si esta corrida no participa del seam #30, un rulepack no
+	// debe ver una variable que quedó de una invocación previa/no
+	// relacionada en el mismo proceso padre (p. ej. un wrapper de CI, o un
+	// embedder de vida larga) y atribuirle esos colores al documento
+	// actual. Solo si WithThemeVariables se llamó (aunque sea con un mapa
+	// vacío) se agrega la variable de vuelta, con su valor de ESTA corrida.
+	env := filterOutEnvVar(os.Environ(), themeVariablesEnvVar)
 	if themeVariablesSet {
-		themeJSON, err := json.Marshal(themeVariables)
+		// nil serializa a JSON "null", no "{}" — un rulepack que decodifica
+		// a un objeto (o hace unmarshal directo a map[string]string y
+		// verifica que no sea nil) no debe recibir un valor que rompe la
+		// forma de objeto documentada por variar según si el tema resolvió
+		// con o sin variables.
+		vars := themeVariables
+		if vars == nil {
+			vars = map[string]string{}
+		}
+		themeJSON, err := json.Marshal(vars)
 		if err != nil {
 			return nil, nil, fmt.Errorf("serializing theme variables for rulepack: %w", err)
 		}
-		cmd.Env = append(os.Environ(), themeVariablesEnvVar+"="+string(themeJSON))
+		env = append(env, themeVariablesEnvVar+"="+string(themeJSON))
 	}
+	cmd.Env = env
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

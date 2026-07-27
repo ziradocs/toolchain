@@ -392,7 +392,10 @@ func (g *Generator) resolveTheme(astNode *ast.AST, opts GeneratorOptions) (*them
 
 	theme, err := themes.ResolveTheme(opts.Theme, frontmatterTheme, configDefault)
 	if err != nil {
-		g.logger.Warn("THEME", "%v, using default", err)
+		// util.Logger.Warn(message, args...) — sin parámetro de categoría;
+		// pasar "THEME" como si lo fuera produce un fmt %!(EXTRA ...)
+		// garabateado (code review de issue #30).
+		g.logger.Warn("THEME: %v, using default", err)
 	}
 	return theme, nil
 }

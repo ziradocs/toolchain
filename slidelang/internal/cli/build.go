@@ -468,7 +468,10 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	frontmatterTheme := genconfig.ExtractThemeFromFrontmatter(astNode.FrontMatter)
 	resolvedTheme, themeErr := themes.ResolveTheme(opts.Theme, frontmatterTheme, configDefault)
 	if themeErr != nil {
-		util.Warn("THEME", "%v, using default", themeErr)
+		// util.Warn(message, args...) — sin parámetro de categoría, a
+		// diferencia de util.Info (ver build.go:610 más abajo); pasar
+		// "THEME" como si fuera uno produce un fmt %!(EXTRA ...) garabateado.
+		util.Warn("THEME: %v, using default", themeErr)
 	}
 
 	// 7. Ejecutar linter

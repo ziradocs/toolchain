@@ -21,8 +21,11 @@ func TestParseColor(t *testing.T) {
 		{"6-digit hex black", "#000000", 0, 0, 0, true},
 		{"3-digit shorthand equals 6-digit expansion", "#fff", 0xff, 0xff, 0xff, true},
 		{"3-digit shorthand mid value", "#abc", 0xaa, 0xbb, 0xcc, true},
-		{"8-digit hex (alpha ignored)", "#ff000080", 0xff, 0x00, 0x00, true},
-		{"4-digit shorthand (alpha ignored)", "#f00f", 0xff, 0x00, 0x00, true},
+		{"8-digit hex with fully opaque alpha (ff) parses", "#ff0000ff", 0xff, 0x00, 0x00, true},
+		{"4-digit shorthand with fully opaque alpha (f) parses", "#f00f", 0xff, 0x00, 0x00, true},
+		{"8-digit hex with translucent alpha is rejected", "#ff000080", 0, 0, 0, false},
+		{"4-digit shorthand with translucent alpha is rejected", "#f008", 0, 0, 0, false},
+		{"8-digit hex with fully transparent alpha is rejected", "#ffffff00", 0, 0, 0, false},
 		{"named CSS color rejected", "white", 0, 0, 0, false},
 		{"rgba() rejected", "rgba(255,255,255,0.5)", 0, 0, 0, false},
 		{"linear-gradient rejected", "linear-gradient(90deg, #fff, #000)", 0, 0, 0, false},
@@ -93,6 +96,12 @@ func TestContrastRatio_UnparseableInputsFailGracefully(t *testing.T) {
 		{"fg is a gradient", "linear-gradient(90deg, #fff, #000)", "#ffffff"},
 		{"bg is rgba()", "#000000", "rgba(255,255,255,0.5)"},
 		{"both unparseable", "var(--fg)", "var(--bg)"},
+		// Regression (code review): a translucent/transparent hex background
+		// must be treated the same as its rgba() equivalent — skipped, not
+		// silently composited against an assumed-opaque backdrop this
+		// package never actually has.
+		{"bg is a translucent 8-digit hex", "#333333", "#ffffff80"},
+		{"bg is a fully transparent 8-digit hex", "#333333", "#ffffff00"},
 	}
 
 	for _, tt := range tests {
