@@ -157,7 +157,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		chromiumLogger := &renderer.ChromiumLoggerAdapter{Logger: g.logger}
 		chromiumRenderer, err := chromium.NewChromiumRenderer(context.Background(), opts.ChromiumPath, opts.InstallChromium, chromiumLogger)
 		if err != nil {
-			g.logger.Warn("DOCX", "Failed to initialize Chromium: %v", err)
+			g.logger.Warn("DOCX: Failed to initialize Chromium: %v", err)
 		} else {
 			g.chromiumRenderer = chromiumRenderer
 			defer chromiumRenderer.Close()
@@ -645,7 +645,7 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 	case *ast.MathElement:
 		return g.renderMath(doc, e)
 	default:
-		g.logger.Warn("DOCX", "Unknown element type: %T", elem)
+		g.logger.Warn("DOCX: Unknown element type: %T", elem)
 		return nil
 	}
 }
@@ -1112,7 +1112,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	if g.assetRoot != "" {
 		confined, err := util.ResolveConfinedPath(g.assetRoot, imagePath)
 		if err != nil {
-			g.logger.Warn("DOCX", "Image source blocked (outside asset root): %s: %v", imagePath, err)
+			g.logger.Warn("DOCX: Image source blocked (outside asset root): %s: %v", imagePath, err)
 			return g.renderImagePlaceholder(p, fmt.Sprintf("[Image blocked: %s]", imagePath))
 		}
 		imagePath = confined
@@ -1124,7 +1124,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	// Agregar imagen
 	img, err := p.AddImageWithSize(imagePath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to insert image %s: %v", imagePath, err)
+		g.logger.Warn("DOCX: Failed to insert image %s: %v", imagePath, err)
 		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", imagePath))
 	}
 
@@ -1168,7 +1168,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 
 func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElement) error {
 	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX", "Chromium not available, skipping mermaid diagram")
+		g.logger.Warn("DOCX: Chromium not available, skipping mermaid diagram")
 		return nil
 	}
 
@@ -1178,7 +1178,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	// Usar dimensiones más grandes para que Mermaid tenga más espacio
 	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNG(context.Background(), elem.Content, 2400, 1600)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to render mermaid: %v", err)
+		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
 	}
 
@@ -1200,12 +1200,12 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	imageSize := domain.NewImageSizeInches(6.5, 0) // 6.5" ancho, altura proporcional
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to insert mermaid image: %v", err)
+		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s", elem.DiagramType))
 	}
 
 	if img == nil {
-		g.logger.Warn("DOCX", "⚠️  Mermaid image object is nil after insertion")
+		g.logger.Warn("DOCX: ⚠️  Mermaid image object is nil after insertion")
 	}
 
 	sizeKB := float64(len(pngBytes)) / 1024
@@ -1221,7 +1221,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 // clase que las ya conocidas de docx.go: bookmarks/hyperlinks reales).
 func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) error {
 	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX", "Chromium not available, skipping equation")
+		g.logger.Warn("DOCX: Chromium not available, skipping equation")
 		return nil
 	}
 
@@ -1229,7 +1229,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 
 	pngBytes, err := g.chromiumRenderer.RenderMathToPNG(context.Background(), elem.Content, 1600, 400)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to render equation: %v", err)
+		g.logger.Warn("DOCX: Failed to render equation: %v", err)
 		return g.renderPlaceholder(doc, "Equation (render failed)")
 	}
 
@@ -1249,11 +1249,11 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 	imageSize := domain.NewImageSizeInches(4.0, 0)
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to insert equation image: %v", err)
+		g.logger.Warn("DOCX: Failed to insert equation image: %v", err)
 		return g.renderPlaceholder(doc, "Equation")
 	}
 	if img == nil {
-		g.logger.Warn("DOCX", "⚠️  Equation image object is nil after insertion")
+		g.logger.Warn("DOCX: ⚠️  Equation image object is nil after insertion")
 	}
 
 	// issue #239: Number lo asigna xref.Transform (built-in de #240) antes
@@ -1306,7 +1306,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 
 func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement) error {
 	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX", "Chromium not available, skipping chart")
+		g.logger.Warn("DOCX: Chromium not available, skipping chart")
 		return nil
 	}
 
@@ -1319,7 +1319,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 	// 2400x1500 pixels = buena calidad para impresión y pantalla
 	pngBytes, err := g.chromiumRenderer.RenderChartToPNG(context.Background(), chartConfig, 2400, 1500)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to render chart: %v", err)
+		g.logger.Warn("DOCX: Failed to render chart: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s (render failed)", elem.ChartType))
 	}
 
@@ -1341,12 +1341,12 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 	imageSize := domain.NewImageSizeInches(6.5, 4.1) // 6.5" ancho x 4.1" alto (ratio 1.6:1)
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to insert chart image: %v", err)
+		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s", elem.ChartType))
 	}
 
 	if img == nil {
-		g.logger.Warn("DOCX", "⚠️  Image object is nil after insertion")
+		g.logger.Warn("DOCX: ⚠️  Image object is nil after insertion")
 	} else {
 		g.logger.Debug("DOCX", "Image object created successfully")
 	}
@@ -1359,7 +1359,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 
 func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) error {
 	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX", "Chromium not available, skipping map")
+		g.logger.Warn("DOCX: Chromium not available, skipping map")
 		return nil
 	}
 
@@ -1391,7 +1391,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 	// Renderizar a PNG
 	pngBytes, err := g.chromiumRenderer.RenderMapToPNG(context.Background(), mapConfig, 1200, 800)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to render map: %v", err)
+		g.logger.Warn("DOCX: Failed to render map: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
 	}
 
@@ -1413,12 +1413,12 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 	imageSize := domain.NewImageSizeInches(6.0, 0)
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to insert map image: %v", err)
+		g.logger.Warn("DOCX: Failed to insert map image: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s", elem.MapType))
 	}
 
 	if img == nil {
-		g.logger.Warn("DOCX", "⚠️  Map image object is nil after insertion")
+		g.logger.Warn("DOCX: ⚠️  Map image object is nil after insertion")
 	}
 
 	sizeKB := float64(len(pngBytes)) / 1024
@@ -1667,7 +1667,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	// Descargar diagrama a archivo PNG
 	assetPath, err := fetcher.FetchDiagramToAssets(context.Background(), elem.Content)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to fetch PlantUML diagram: %v", err)
+		g.logger.Warn("DOCX: Failed to fetch PlantUML diagram: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("PlantUML diagram failed: %s", elem.DiagramType))
 	}
 
@@ -1686,7 +1686,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	imageSize := domain.NewImageSizeInches(6.0, 0)
 	_, err = p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX", "Failed to insert PlantUML image: %v", err)
+		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
 		return g.renderPlaceholder(doc, "PlantUML image insertion failed")
 	}
 

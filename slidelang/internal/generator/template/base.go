@@ -846,12 +846,25 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{end}}
             </div>
         {{else if eq .Type "column"}}
-            <div class="slidelang-element slidelang-column" 
+            <div class="slidelang-element slidelang-column"
                  id="slidelang-element-column-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="column"
                  data-slide="{{.SlideIndex}}">
                 <div class="slidelang-content">{{.Content | markdown}}</div>
             </div>
+        {{else}}
+            {{/* Un .Type no reconocido por ninguna rama anterior no debe
+                 desaparecer en silencio (issue #35) — converter.go ya loggea
+                 un warning en su propio default, pero un template no puede
+                 loggear. Un comentario HTML plano NO sirve acá: html/template
+                 lo elide durante el escaping contextual (esto se descubrió
+                 ejecutando el template de verdad en
+                 TestElementTemplate_UnknownTypeFallsBackVisibly — un
+                 strings.Contains sobre el string fuente del template no lo
+                 habría detectado). Un elemento real y visible, en cambio,
+                 sobrevive — mismo criterio que el aviso ya existente
+                 "Image blocked for security" del branch "image". */}}
+            <div class="slidelang-element slidelang-unsupported" data-element-type="{{.Type}}" role="note">Unsupported element type: {{.Type}}</div>
         {{end}}
     {{end}}
 
