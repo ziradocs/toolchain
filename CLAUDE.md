@@ -22,7 +22,7 @@ Three independent Go modules, each `/v2` (Go 1.26.5):
 
 `slidelang`/`doclang` depend on a **published** `go.ziradocs.com/core/v2` (no `replace` directive) — CI, goreleaser, and `go install` for external consumers all fetch it over the network like any other module, no special `GOPROXY`/`GOPRIVATE` needed (it's a real public domain with a working vanity redirect). For local multi-module editing (change `core` and immediately build/test against it from a checkout with both directories side by side), a gitignored root `go.work` (`use ./core ./doclang ./slidelang`) takes over automatically — no extra command needed, same as `replace` used to provide.
 
-**Consequence of no `replace`:** if you bump `core` and need slidelang/doclang to pick it up as a *dependency* (not just for local dev via `go.work`), you must cut a new `core/vX.Y.Z` release first, then bump the `require go.ziradocs.com/core/v2` line in `slidelang/go.mod`/`doclang/go.mod` to that version. Local `go.work` builds always use the working-tree `core`, tag or not — only `GOWORK=off` builds (CI, external installs) actually resolve the pinned `require` version over the network.
+**Consequence of no `replace`:** if you bump `core` and need slidelang/doclang to pick it up as a *dependency* (not just for local dev via `go.work`), you must cut a new `core/vX.Y.Z` release first, then bump the `require go.ziradocs.com/core/v2` line in `slidelang/go.mod`/`doclang/go.mod` to that version. Local `go.work` builds always use the working-tree `core`, tag or not — only `GOWORK=off` builds (CI, external installs) actually resolve the pinned `require` version over the network. `scripts/bump-core.sh` (see `## Releasing` below) automates this whole dance.
 
 **Consequence of no root module:** you cannot build or test the whole repo from the root. `go build ./...` at the root fails. Always `cd` into the specific module first.
 
@@ -62,6 +62,22 @@ go vet ./...                         # static checks; gofmt for formatting
 ```
 
 Most tests live in `core` (parser, elements, renderer, content normalizer). Some pre-existing tests may fail unrelated to your change — focus on tests touching your area.
+
+## Releasing
+
+Two separate scripts, two separate concerns — see `docs/developer/releasing.md` for the full
+walkthrough:
+
+- **`scripts/release.sh vX.Y.Z`** — the coordinated binary release: tags `vX.Y.Z` +
+  `core|doclang|slidelang/vX.Y.Z` together and triggers `.github/workflows/release.yml`
+  (goreleaser). Use this when cutting an actual product release of the CLIs.
+- **`scripts/bump-core.sh vX.Y.Z [ref]`** — automates the "core→CLIs dance" from the section
+  above (issue #25): tags **only** `core/vX.Y.Z` (never a bare `vX.Y.Z` — that would trigger
+  `release.yml`), waits for `proxy.golang.org`/`sum.golang.org` to index it, bumps
+  `require go.ziradocs.com/core/v2` in both `slidelang/go.mod` and `doclang/go.mod`, verifies
+  `GOWORK=off go build ./...` in both, and opens a PR with the bump (if `gh` is available). Use
+  this whenever a `core`-only change needs to become a real dependency for the CLIs, without
+  cutting a full product release.
 
 ## Pipeline & architecture
 
