@@ -6,6 +6,7 @@ package generator
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -160,11 +161,15 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 	case *ast.TableElement:
 		var md strings.Builder
 
-		// Headers
+		// Headers. escapeMarkdownInline (hallazgo de code-review sobre PR
+		// #55, la misma clase de bug que renderMapElementMarkdown más abajo
+		// en este archivo): un header/cell con "|" sin escapar desalinea la
+		// tabla (columna de más, discrepancia con la fila "| --- |"), y un
+		// salto de línea la parte en filas nuevas e inesperadas.
 		if len(elem.Headers) > 0 {
 			md.WriteString("|")
 			for _, header := range elem.Headers {
-				fmt.Fprintf(&md, " %s |", header)
+				fmt.Fprintf(&md, " %s |", escapeMarkdownInline(header))
 			}
 			md.WriteString("\n|")
 			for range elem.Headers {
@@ -177,13 +182,13 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		for _, row := range elem.Rows {
 			md.WriteString("|")
 			for _, cell := range row {
-				fmt.Fprintf(&md, " %s |", cell)
+				fmt.Fprintf(&md, " %s |", escapeMarkdownInline(cell))
 			}
 			md.WriteString("\n")
 		}
 
 		if elem.Caption != "" {
-			fmt.Fprintf(&md, "\n*%s*\n", elem.Caption)
+			fmt.Fprintf(&md, "\n*%s*\n", escapeMarkdownInline(elem.Caption))
 		}
 
 		return md.String()
@@ -333,25 +338,52 @@ func renderMediaElementMarkdown(elem *ast.MediaElement) string {
 	return fmt.Sprintf("[%s %s: %s](%s)\n", icon, label, safeSource, safeSource)
 }
 
-// normalizeMarkdownLine colapsa cualquier corrida de espacios/saltos de
-// línea a un solo espacio, para valores de autor que van interpolados en
-// una sola línea de Markdown (no en una tabla) — sin esto, un Title/MapType
-// con un "\n\n# Heading" incrustado podría partir la línea e inyectar
-// estructura Markdown inesperada.
+// newlineRun matches one or more consecutive line-break characters. Usado
+// SOLO por normalizeMarkdownLine — a diferencia de un strings.Fields/Join
+// (que colapsa CUALQUIER corrida de whitespace, incluyendo espacios
+// consecutivos deliberados o un NBSP U+00A0), esto toca únicamente saltos de
+// línea, dejando el resto del contenido de autor intacto (hallazgo de
+// code-review sobre PR #55: strings.Fields mutaba más de lo que el nombre
+// de la función prometía).
+var newlineRun = regexp.MustCompile(`[\r\n]+`)
+
+// normalizeMarkdownLine colapsa cualquier corrida de saltos de línea a un
+// solo espacio, para valores de autor que van interpolados en una sola
+// línea de Markdown (no en una tabla) — sin esto, un Title/MapType con un
+// "\n\n# Heading" incrustado podría partir la línea e inyectar estructura
+// Markdown inesperada.
 func normalizeMarkdownLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+	return newlineRun.ReplaceAllString(s, " ")
 }
 
-// escapeMarkdownTableCell neutraliza los dos caracteres que rompen la
-// estructura de una tabla Markdown si un valor de autor los trae sin
-// escapar (hallazgo de code-review sobre PR #55): "|" agrega una columna de
-// más, y un salto de línea parte la fila en filas nuevas e inesperadas. El
-// backslash se escapa PRIMERO — si se hiciera después, doble-escaparía el
-// "\" que la propia sustitución de "|" acaba de introducir.
-func escapeMarkdownTableCell(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, "|", `\|`)
-	return normalizeMarkdownLine(s)
+// mdInlineEscaper escapa los metacaracteres de Markdown que romperían la
+// sintaxis alrededor de donde se interpola un valor de autor: \, *, _, `,
+// [, ] (emphasis/link/code-span) y | (estructura de tabla). Un solo
+// strings.Replacer —sustitución SIMULTÁNEA de una sola pasada sobre el
+// string original, no llamadas encadenadas a ReplaceAll— para que un "\"
+// del contenido de entrada nunca vuelva a matchear la regla de "\" que la
+// sustitución de OTRO carácter (p. ej. "|" → "\|") acaba de introducir; ese
+// es justo el riesgo de doble-escapado que un orden manual de ReplaceAll
+// tendría que evitar a mano.
+var mdInlineEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	"*", `\*`,
+	"_", `\_`,
+	"`", "\\`",
+	"[", `\[`,
+	"]", `\]`,
+	"|", `\|`,
+)
+
+// escapeMarkdownInline escapa metacaracteres de Markdown Y normaliza saltos
+// de línea, para valores de autor interpolados dentro de sintaxis Markdown
+// que ya existe alrededor (una celda de tabla, o el wrapper *[...]* de
+// renderMapElementMarkdown) — hallazgo de code-review sobre PR #55: sin
+// esto, "|" desalinea una tabla (columna de más o menos), "]"/"*" cierran el
+// wrapper de énfasis/corchetes antes de tiempo, y un salto de línea parte la
+// fila/línea donde se interpola el valor.
+func escapeMarkdownInline(s string) string {
+	return normalizeMarkdownLine(mdInlineEscaper.Replace(s))
 }
 
 // renderMapElementMarkdown degrades a MapElement to its data (issue #38/#51
@@ -361,9 +393,14 @@ func escapeMarkdownTableCell(s string) string {
 // a table, same rationale as renderMediaElementMarkdown above.
 func renderMapElementMarkdown(elem *ast.MapElement) string {
 	var md strings.Builder
-	mapType := normalizeMarkdownLine(elem.MapType)
+	// escapeMarkdownInline (no solo normalizeMarkdownLine): Title/MapType
+	// se interpolan dentro del wrapper *[mapa: ... — ...]* — sin escapar
+	// "]"/"*" un valor como `Zona ]* **PRECIO OCULTO**` cerraría ese
+	// wrapper antes de tiempo e inyectaría texto en negrita fuera de él
+	// (hallazgo de code-review sobre PR #55).
+	mapType := escapeMarkdownInline(elem.MapType)
 	if elem.Title != "" {
-		fmt.Fprintf(&md, "*[mapa: %s — %s]*\n", mapType, normalizeMarkdownLine(elem.Title))
+		fmt.Fprintf(&md, "*[mapa: %s — %s]*\n", mapType, escapeMarkdownInline(elem.Title))
 	} else {
 		fmt.Fprintf(&md, "*[mapa: %s]*\n", mapType)
 	}
@@ -375,7 +412,7 @@ func renderMapElementMarkdown(elem *ast.MapElement) string {
 	md.WriteString("\n| Label | Lat | Lng | Value |\n")
 	md.WriteString("| --- | --- | --- | --- |\n")
 	for _, marker := range elem.Markers {
-		fmt.Fprintf(&md, "| %s | %g | %g | %g |\n", escapeMarkdownTableCell(marker.Label), marker.Lat, marker.Lng, marker.Value)
+		fmt.Fprintf(&md, "| %s | %g | %g | %g |\n", escapeMarkdownInline(marker.Label), marker.Lat, marker.Lng, marker.Value)
 	}
 	return md.String()
 }

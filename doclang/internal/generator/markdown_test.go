@@ -97,6 +97,57 @@ func TestMarkdownGeneratorGenerate(t *testing.T) {
 	}
 }
 
+// TestMarkdownRenderElement_Table_CellAndHeaderWithPipeIsEscaped covers the
+// code-review finding that escapeMarkdownInline (added for map markers) was
+// never applied to TableElement's own Headers/Rows in the same file, so an
+// ordinary table cell containing "|" still desynced the column count from
+// the "| --- |" separator row.
+func TestMarkdownRenderElement_Table_CellAndHeaderWithPipeIsEscaped(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"Región | Zona", "Total"}
+	table.Rows = [][]string{{"Norte | almacén", "42"}}
+	table.Caption = "Ver *nota* al pie"
+
+	out := gen.renderElement(table)
+
+	if !strings.Contains(out, `Región \| Zona`) {
+		t.Errorf("expected the pipe in the header to be escaped, got:\n%s", out)
+	}
+	if !strings.Contains(out, `Norte \| almacén`) {
+		t.Errorf("expected the pipe in the cell to be escaped, got:\n%s", out)
+	}
+	if !strings.Contains(out, `Ver \*nota\* al pie`) {
+		t.Errorf("expected the asterisks in the caption to be escaped, got:\n%s", out)
+	}
+}
+
+// TestMarkdownRenderElement_Table_CellWithNewlineIsNormalized: an embedded
+// newline in a cell would otherwise split one table row into malformed
+// extra rows — same failure mode as the map marker table.
+func TestMarkdownRenderElement_Table_CellWithNewlineIsNormalized(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"Col"}
+	table.Rows = [][]string{{"Line1\n| Fake | Row |"}}
+
+	out := gen.renderElement(table)
+
+	dataRows := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "| Line1") {
+			dataRows++
+		}
+	}
+	if dataRows != 1 {
+		t.Errorf("expected the cell to stay on exactly one table row, got %d:\n%s", dataRows, out)
+	}
+}
+
 func TestMarkdownRenderElementVariants(t *testing.T) {
 	logger := newTestLogger()
 	gen := NewMarkdownGenerator(logger)
@@ -478,6 +529,28 @@ func TestMarkdownRenderElement_Map_TitleNewlineIsNormalized(t *testing.T) {
 	}
 	if !strings.Contains(out, "*[mapa: world — Oficinas # Fake Heading]*") {
 		t.Errorf("expected the normalized single-line title, got:\n%s", out)
+	}
+}
+
+// TestMarkdownRenderElement_Map_TitleWithBracketAndAsteriskIsEscaped covers
+// the code-review finding that normalizeMarkdownLine alone only closed the
+// newline vector: a Title containing "]" or "*" could still break out of
+// the *[mapa: … — …]* wrapper early (closing the emphasis, then continuing
+// as unrelated Markdown body text).
+func TestMarkdownRenderElement_Map_TitleWithBracketAndAsteriskIsEscaped(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Title = "Zona ]* **PRECIO OCULTO**"
+
+	out := gen.renderElement(m)
+
+	if !strings.Contains(out, `Zona \]\* \*\*PRECIO OCULTO\*\*`) {
+		t.Errorf("expected ] and * in the title to be escaped, got:\n%s", out)
+	}
+	if strings.Contains(out, "**PRECIO OCULTO**") {
+		t.Errorf("expected no unescaped bold markers to survive, got:\n%s", out)
 	}
 }
 
