@@ -124,3 +124,26 @@ func ConvertColumnsWithVariables(columns []ast.ColumnElement, variables map[stri
 	}
 	return result
 }
+
+// ConvertTableCellsWithVariables convierte ast.TableCell a TableCellData
+// (issue #20), procesando Content igual que el camino Headers/Rows
+// (ProcessTextWithVariablesAndMarkdown, no solo ProcessVariables) para que
+// una celda con merge se comporte igual que una celda plana respecto a
+// variables/markdown.
+func ConvertTableCellsWithVariables(cells [][]ast.TableCell, variables map[string]interface{}) [][]TableCellData {
+	result := make([][]TableCellData, len(cells))
+	for i, row := range cells {
+		dataRow := make([]TableCellData, len(row))
+		for j, cell := range row {
+			dataRow[j] = TableCellData{
+				Content:  ProcessTextWithVariablesAndMarkdown(cell.Content, variables),
+				IsHeader: cell.IsHeader,
+				Scope:    cell.Scope,
+				ColSpan:  cell.ColSpan,
+				RowSpan:  cell.RowSpan,
+			}
+		}
+		result[i] = dataRow
+	}
+	return result
+}

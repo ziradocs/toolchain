@@ -240,6 +240,29 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				}
 				elementData.Rows = processedRows
 				elementData.Caption = ProcessVariables(elem.Caption, variables)
+				// Cells (issue #20) solo se puebla cuando dice algo que
+				// Headers/Rows no dice ya — todo TableElement.Cells viene
+				// poblado (DeriveCellsFromFlat para el caso simple, ver
+				// core/ast/table_cells.go), así que sin este gate CADA
+				// tabla — incluso una sin ningún merge — activaría el
+				// branch "Cells" del template en vez del Headers/Rows de
+				// siempre, cambiando el HTML de toda tabla existente.
+				if tableUsesCellStructure(elem) {
+					elementData.Cells = ConvertTableCellsWithVariables(elem.Cells, variables)
+				}
+			case *ast.MediaElement:
+				// Mismo patrón que ImageElement arriba: ValidateURLScheme
+				// bloquea javascript:/data: peligrosos sin pre-escapar (lo
+				// hace html/template al interpolar); Source vacío es la
+				// señal que el template usa para mostrar el aviso en vez
+				// de un <video>/<audio>.
+				source := ProcessVariables(elem.Source, variables)
+				elementData.Source = renderer.ValidateURLScheme(source)
+				elementData.MediaType = elem.MediaType
+				elementData.Autoplay = elem.Autoplay
+				elementData.Controls = elem.Controls
+				elementData.Loop = elem.Loop
+				elementData.Muted = elem.Muted
 			case *ast.SpecialBlockElement:
 				elementData.BlockType = elem.BlockType
 				elementData.Title = ProcessVariables(elem.Title, variables)
@@ -931,6 +954,32 @@ func determineTransition(slide ast.ContentBlock, index int) string {
 	default:
 		return "fade"
 	}
+}
+
+// tableUsesCellStructure reporta si elem.Cells dice algo que la vista plana
+// Headers/Rows no dice ya — mismo criterio que core/renderer/html.go's
+// tableUsesCellStructure (no exportado ahí, así que se duplica acá; issue
+// #20). Comparar contra la forma "tabla simple" (fila 0 = todo IsHeader +
+// scope="col", el resto = ni header ni scope) en vez de mirar solo
+// ColSpan/RowSpan >1 importa: un TableElement donde el AST externo (p. ej.
+// un --filter) puso IsHeader=false o Scope="" en la fila de headers debe
+// tratarse como estructura real también, no solo los merges.
+func tableUsesCellStructure(elem *ast.TableElement) bool {
+	for i, row := range elem.Cells {
+		for _, cell := range row {
+			if cell.ColSpan > 1 || cell.RowSpan > 1 {
+				return true
+			}
+			if i == 0 {
+				if !cell.IsHeader || cell.Scope != "col" {
+					return true
+				}
+			} else if cell.IsHeader || cell.Scope != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // generateElementID genera un ID único para un elemento

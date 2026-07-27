@@ -323,11 +323,150 @@ func (g *Generator) pptxAddPointParagraph(tb *pptx.TextBox, item ast.PointItem, 
 	pptxApplyInline(para, item.Content)
 }
 
+// pptxTableUsesCellStructure reporta si e.Cells dice algo que la vista plana
+// Headers/Rows no dice ya — duplicado de la misma lógica en
+// data/converter.go (a su vez espejo de core/renderer/html.go's
+// tableUsesCellStructure, tampoco exportado): ninguna vive en un paquete
+// importable desde acá, y las tres deben coincidir exactamente en criterio
+// para que HTML/PPTX no diverjan en qué tablas tratan como "con estructura
+// real" (issue #20).
+func pptxTableUsesCellStructure(elem *ast.TableElement) bool {
+	for i, row := range elem.Cells {
+		for _, cell := range row {
+			if cell.ColSpan > 1 || cell.RowSpan > 1 {
+				return true
+			}
+			if i == 0 {
+				if !cell.IsHeader || cell.Scope != "col" {
+					return true
+				}
+			} else if cell.IsHeader || cell.Scope != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// pptxTableGridWidth calcula el ancho REAL de la grilla de cells (sumando
+// ColSpan de la primera fila) — necesario porque AddTable(rows, cols, ...)
+// exige una grilla rectangular, y con celdas combinadas cols != len(row):
+// una fila con una celda colspan=2 seguida de una celda normal tiene
+// len(row)==2 pero ocupa 3 columnas de grilla.
+func pptxTableGridWidth(cells [][]ast.TableCell) int {
+	if len(cells) == 0 {
+		return 0
+	}
+	width := 0
+	for _, cell := range cells[0] {
+		span := cell.ColSpan
+		if span < 1 {
+			span = 1
+		}
+		width += span
+	}
+	return width
+}
+
+// pptxAddTableCells agrega e (con Cells reales, issue #20) como una tabla
+// nativa OOXML con celdas combinadas vía Table.MergeCells, y devuelve el
+// cursorY actualizado.
+//
+// Dos restricciones de MergeCells (ver su doc comment en pptxgo) que este
+// código respeta a propósito:
+//  1. Orden: MergeCells ANEXA los párrafos no-ancla al ancla en vez de
+//     descartarlos, así que escribir texto en una celda ANTES de mergearla
+//     apilaría texto viejo y nuevo. Por eso acá se escribe el texto DESPUÉS
+//     de mergear, solo en la celda ancla (fila/columna de inicio del span).
+//  2. Regiones inválidas (solapadas/invertidas/fuera de rango) quedan
+//     registradas como error en la presentación y salen recién en Save() —
+//     así que un ColSpan/RowSpan disparatado no aborta esta función, pero sí
+//     puede hacer fallar el build más adelante. Aceptado: es la misma
+//     superficie de validación que MergeCells ya le da a cualquier caller.
+func (g *Generator) pptxAddTableCells(s *pptx.Slide, e *ast.TableElement, cursorY int) int {
+	cols := pptxTableGridWidth(e.Cells)
+	rows := len(e.Cells)
+	if cols == 0 || rows == 0 {
+		return cursorY
+	}
+
+	rowHeight := pptxLineHeightEMU * 2
+	height := rows * rowHeight
+
+	tbl := s.AddTable(rows, cols, pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
+
+	// occupied[r][c] marca las celdas ya cubiertas por un span anterior (de
+	// esta fila o de una fila de arriba vía RowSpan), para saber en qué
+	// columna de grilla real empieza la próxima celda declarada de cada
+	// fila — Cells es [][]TableCell "denso" (una entrada por celda propia,
+	// no por columna de grilla), así que el índice de grilla y el índice
+	// del slice divergen apenas hay un span.
+	occupied := make([][]bool, rows)
+	for r := range occupied {
+		occupied[r] = make([]bool, cols)
+	}
+
+	for r, row := range e.Cells {
+		gridCol := 0
+		for _, cell := range row {
+			for gridCol < cols && occupied[r][gridCol] {
+				gridCol++
+			}
+			if gridCol >= cols {
+				break // fila más ancha que la grilla calculada: se descartan las celdas de más, criterio defensivo consistente con el resto del pipeline
+			}
+
+			colSpan := cell.ColSpan
+			if colSpan < 1 {
+				colSpan = 1
+			}
+			rowSpan := cell.RowSpan
+			if rowSpan < 1 {
+				rowSpan = 1
+			}
+			toRow := r + rowSpan - 1
+			toCol := gridCol + colSpan - 1
+			if toRow >= rows {
+				toRow = rows - 1
+			}
+			if toCol >= cols {
+				toCol = cols - 1
+			}
+
+			if toRow > r || toCol > gridCol {
+				tbl.MergeCells(r, gridCol, toRow, toCol)
+			}
+			tblCell := tbl.Cell(r, gridCol).Text(cell.Content)
+			if cell.IsHeader {
+				tblCell.Bold()
+			}
+
+			for rr := r; rr <= toRow; rr++ {
+				for cc := gridCol; cc <= toCol; cc++ {
+					occupied[rr][cc] = true
+				}
+			}
+			gridCol = toCol + 1
+		}
+	}
+
+	return cursorY + height + pptxParaGapEMU
+}
+
 // pptxAddTable agrega e como una tabla nativa OOXML y devuelve el cursorY
 // actualizado. Sin Caption/Label en v0 (issue #257: doclang/slidelang no
 // pueden etiquetar tablas vía markdown/flex hoy — solo strict YAML — así
 // que Caption suele venir vacío de todos modos para el caso común).
+//
+// Delega a pptxAddTableCells cuando e.Cells dice algo real (issue #20) que
+// Headers/Rows no dice — la MISMA condición que decide el branch de
+// template/base.go, para que HTML y PPTX rendericen la misma tabla como
+// "con estructura" o no.
 func (g *Generator) pptxAddTable(s *pptx.Slide, e *ast.TableElement, cursorY int) int {
+	if pptxTableUsesCellStructure(e) {
+		return g.pptxAddTableCells(s, e, cursorY)
+	}
+
 	rows := len(e.Rows) + 1 // +1 por la fila de headers
 	cols := len(e.Headers)
 	if cols == 0 || rows == 0 {

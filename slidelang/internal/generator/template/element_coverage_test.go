@@ -26,7 +26,7 @@ func TestElementTemplate_KnownTypesRenderNonEmpty(t *testing.T) {
 	types := []string{
 		"text", "points", "code", "image", "table", "code_group",
 		"special_block", "mermaid", "chart", "map", "quote", "checklist",
-		"directive", "grid", "column",
+		"directive", "grid", "column", "media",
 	}
 
 	tmpl := mustParseElementTemplate(t)
@@ -45,16 +45,16 @@ func TestElementTemplate_KnownTypesRenderNonEmpty(t *testing.T) {
 }
 
 // TestElementTemplate_UnknownTypeFallsBackVisibly cubre issue #35: un .Type
-// que ningún branch reconoce (el caso de MediaElement/PlantUMLElement/
-// MathElement hoy, ver excludedFromElementCoverage en
+// que ningún branch reconoce (PlantUMLElement/MathElement hoy — MediaElement
+// se cubrió en #37, ver excludedFromElementCoverage en
 // data/element_coverage_test.go) no debe desaparecer en silencio — debe
 // quedar un rastro visible en el HTML generado, ya que un template no puede
 // loggear como sí puede converter.go.
 func TestElementTemplate_UnknownTypeFallsBackVisibly(t *testing.T) {
 	tmpl := mustParseElementTemplate(t)
 
-	got := executeElement(t, tmpl, data.ElementData{Type: "media"})
-	if !strings.Contains(got, "Unsupported element type: media") {
+	got := executeElement(t, tmpl, data.ElementData{Type: "plantuml"})
+	if !strings.Contains(got, "Unsupported element type: plantuml") {
 		t.Errorf("esperaba el fallback visible para un tipo no reconocido, got: %q", got)
 	}
 }
