@@ -6,6 +6,7 @@ package generator
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -160,11 +161,15 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 	case *ast.TableElement:
 		var md strings.Builder
 
-		// Headers
+		// Headers. escapeMarkdownInline (hallazgo de code-review sobre PR
+		// #55, la misma clase de bug que renderMapElementMarkdown más abajo
+		// en este archivo): un header/cell con "|" sin escapar desalinea la
+		// tabla (columna de más, discrepancia con la fila "| --- |"), y un
+		// salto de línea la parte en filas nuevas e inesperadas.
 		if len(elem.Headers) > 0 {
 			md.WriteString("|")
 			for _, header := range elem.Headers {
-				fmt.Fprintf(&md, " %s |", header)
+				fmt.Fprintf(&md, " %s |", escapeMarkdownInline(header))
 			}
 			md.WriteString("\n|")
 			for range elem.Headers {
@@ -177,13 +182,13 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		for _, row := range elem.Rows {
 			md.WriteString("|")
 			for _, cell := range row {
-				fmt.Fprintf(&md, " %s |", cell)
+				fmt.Fprintf(&md, " %s |", escapeMarkdownInline(cell))
 			}
 			md.WriteString("\n")
 		}
 
 		if elem.Caption != "" {
-			fmt.Fprintf(&md, "\n*%s*\n", elem.Caption)
+			fmt.Fprintf(&md, "\n*%s*\n", escapeMarkdownInline(elem.Caption))
 		}
 
 		return md.String()
@@ -205,9 +210,74 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 	case *ast.MermaidElement:
 		return fmt.Sprintf("```mermaid\n%s\n```\n", elem.Content)
 
+	case *ast.PlantUMLElement:
+		// Same treatment as MermaidElement above: a ```plantuml fence.
+		// GitLab and Kroki-backed renderers turn it into the real diagram;
+		// renderers that don't still show the source, which beats losing it
+		// (issue de cobertura descubierto en #38/#51 — antes caía al
+		// default y desaparecía sin rastro).
+		var md strings.Builder
+		if elem.Title != "" {
+			fmt.Fprintf(&md, "**%s**\n\n", elem.Title)
+		}
+		fmt.Fprintf(&md, "```plantuml\n%s\n```\n", elem.Content)
+		return md.String()
+
+	case *ast.MathElement:
+		// Content ya es LaTeX crudo (core/ast/nodes.go). $$...$$ es la
+		// convención de display math que GitHub, Pandoc y KaTeX/MathJax
+		// entienden. Label/Number son el mecanismo de xref — si están
+		// poblados, anteponen "Ecuación N" al caption igual que
+		// ImageElement antepone "Figura N" (ver ese case arriba).
+		var md strings.Builder
+		fmt.Fprintf(&md, "$$\n%s\n$$\n", elem.Content)
+		switch {
+		case elem.Label != "" && elem.Number > 0 && elem.Caption != "":
+			fmt.Fprintf(&md, "*Ecuación %d: %s*\n", elem.Number, elem.Caption)
+		case elem.Label != "" && elem.Number > 0:
+			fmt.Fprintf(&md, "*Ecuación %d*\n", elem.Number)
+		case elem.Caption != "":
+			fmt.Fprintf(&md, "*%s*\n", elem.Caption)
+		}
+		return md.String()
+
+	case *ast.CodeGroupElement:
+		// Markdown no tiene tabs: emitir los N bloques secuencialmente
+		// conserva todo el contenido (hoy se pierden los N, cae al
+		// default). Mismo fallback de label que docx.go's renderCodeGroup:
+		// Label -> Language -> "Code N".
+		var md strings.Builder
+		for i, block := range elem.CodeBlocks {
+			label := block.Label
+			if label == "" {
+				label = block.Language
+			}
+			if label == "" {
+				label = fmt.Sprintf("Code %d", i+1)
+			}
+			fmt.Fprintf(&md, "**%s**\n\n", label)
+			fmt.Fprintf(&md, "```%s\n%s\n```\n\n", block.Language, block.Content)
+		}
+		return md.String()
+
+	case *ast.MapElement:
+		return renderMapElementMarkdown(elem)
+
 	case *ast.ChartElement:
 		// Represent chart as code block
 		return fmt.Sprintf("```chart:%s\n[Chart data would be here]\n```\n", elem.ChartType)
+
+	case *ast.DirectiveNode:
+		// Una @directiva (@notes, @timer, …) es metadata de autoría de
+		// slidelang: en un documento no hay vista de presentador donde
+		// mostrarla, así que no se renderiza. Pero SÍ se avisa —y con el
+		// nombre real y la línea—, a diferencia del default genérico que
+		// decía "Unknown element type" (falso: el tipo se conoce
+		// perfectamente) y no le daba al autor ninguna pista de qué pasó
+		// con su contenido.
+		m.logger.Warn("MARKDOWN: la directiva @%s (línea %d) no tiene efecto en un documento y se omite; usá un blockquote si querés que su contenido se vea",
+			elem.Name, elem.GetPosition().Line)
+		return ""
 
 	case *ast.SpecialBlockElement:
 		var md strings.Builder
@@ -266,4 +336,83 @@ func renderMediaElementMarkdown(elem *ast.MediaElement) string {
 		return fmt.Sprintf("*[%s bloqueado por seguridad]*\n", label)
 	}
 	return fmt.Sprintf("[%s %s: %s](%s)\n", icon, label, safeSource, safeSource)
+}
+
+// newlineRun matches one or more consecutive line-break characters. Usado
+// SOLO por normalizeMarkdownLine — a diferencia de un strings.Fields/Join
+// (que colapsa CUALQUIER corrida de whitespace, incluyendo espacios
+// consecutivos deliberados o un NBSP U+00A0), esto toca únicamente saltos de
+// línea, dejando el resto del contenido de autor intacto (hallazgo de
+// code-review sobre PR #55: strings.Fields mutaba más de lo que el nombre
+// de la función prometía).
+var newlineRun = regexp.MustCompile(`[\r\n]+`)
+
+// normalizeMarkdownLine colapsa cualquier corrida de saltos de línea a un
+// solo espacio, para valores de autor que van interpolados en una sola
+// línea de Markdown (no en una tabla) — sin esto, un Title/MapType con un
+// "\n\n# Heading" incrustado podría partir la línea e inyectar estructura
+// Markdown inesperada.
+func normalizeMarkdownLine(s string) string {
+	return newlineRun.ReplaceAllString(s, " ")
+}
+
+// mdInlineEscaper escapa los metacaracteres de Markdown que romperían la
+// sintaxis alrededor de donde se interpola un valor de autor: \, *, _, `,
+// [, ] (emphasis/link/code-span) y | (estructura de tabla). Un solo
+// strings.Replacer —sustitución SIMULTÁNEA de una sola pasada sobre el
+// string original, no llamadas encadenadas a ReplaceAll— para que un "\"
+// del contenido de entrada nunca vuelva a matchear la regla de "\" que la
+// sustitución de OTRO carácter (p. ej. "|" → "\|") acaba de introducir; ese
+// es justo el riesgo de doble-escapado que un orden manual de ReplaceAll
+// tendría que evitar a mano.
+var mdInlineEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	"*", `\*`,
+	"_", `\_`,
+	"`", "\\`",
+	"[", `\[`,
+	"]", `\]`,
+	"|", `\|`,
+)
+
+// escapeMarkdownInline escapa metacaracteres de Markdown Y normaliza saltos
+// de línea, para valores de autor interpolados dentro de sintaxis Markdown
+// que ya existe alrededor (una celda de tabla, o el wrapper *[...]* de
+// renderMapElementMarkdown) — hallazgo de code-review sobre PR #55: sin
+// esto, "|" desalinea una tabla (columna de más o menos), "]"/"*" cierran el
+// wrapper de énfasis/corchetes antes de tiempo, y un salto de línea parte la
+// fila/línea donde se interpola el valor.
+func escapeMarkdownInline(s string) string {
+	return normalizeMarkdownLine(mdInlineEscaper.Replace(s))
+}
+
+// renderMapElementMarkdown degrades a MapElement to its data (issue #38/#51
+// coverage gap) — an interactive map has no Markdown equivalent, but its
+// markers ARE expressable and are what the author actually wrote; losing
+// them entirely (the previous default: behavior) is worse than degrading to
+// a table, same rationale as renderMediaElementMarkdown above.
+func renderMapElementMarkdown(elem *ast.MapElement) string {
+	var md strings.Builder
+	// escapeMarkdownInline (no solo normalizeMarkdownLine): Title/MapType
+	// se interpolan dentro del wrapper *[mapa: ... — ...]* — sin escapar
+	// "]"/"*" un valor como `Zona ]* **PRECIO OCULTO**` cerraría ese
+	// wrapper antes de tiempo e inyectaría texto en negrita fuera de él
+	// (hallazgo de code-review sobre PR #55).
+	mapType := escapeMarkdownInline(elem.MapType)
+	if elem.Title != "" {
+		fmt.Fprintf(&md, "*[mapa: %s — %s]*\n", mapType, escapeMarkdownInline(elem.Title))
+	} else {
+		fmt.Fprintf(&md, "*[mapa: %s]*\n", mapType)
+	}
+
+	if len(elem.Markers) == 0 {
+		return md.String()
+	}
+
+	md.WriteString("\n| Label | Lat | Lng | Value |\n")
+	md.WriteString("| --- | --- | --- | --- |\n")
+	for _, marker := range elem.Markers {
+		fmt.Fprintf(&md, "| %s | %g | %g | %g |\n", escapeMarkdownInline(marker.Label), marker.Lat, marker.Lng, marker.Value)
+	}
+	return md.String()
 }

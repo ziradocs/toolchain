@@ -27,16 +27,10 @@ import (
 // (code review de #39).
 var excludedFromElementCoverage = map[string]map[string]string{
 	"markdown.go renderElement": {
-		"ColumnElement":    "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — el generator lo consume vía column.Content dentro del case de GridElement, no por su propio case",
-		"DirectiveNode":    "doclang no filtra @directivas antes del pipeline de render (a diferencia de slidelang, que las extrae vía extractPresenterNotes) ni tiene un concepto establecido de qué debería hacer una directiva en un documento — cae al warning genérico del default hasta que se decida su tratamiento (issue de seguimiento pendiente)",
-		"PlantUMLElement":  "issue de seguimiento — markdown.go no tiene equivalente para diagramas PlantUML (docx.go sí lo cubre)",
-		"MapElement":       "issue de seguimiento — markdown.go no tiene equivalente para mapas interactivos (docx.go sí lo cubre)",
-		"CodeGroupElement": "issue de seguimiento — markdown.go no tiene equivalente para grupos de bloques de código con tabs (docx.go sí lo cubre)",
-		"MathElement":      "issue de seguimiento — markdown.go no tiene equivalente para expresiones matemáticas (docx.go sí lo cubre)",
+		"ColumnElement": "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — el generator lo consume vía column.Content dentro del case de GridElement, no por su propio case",
 	},
 	"docx.go renderElement": {
 		"ColumnElement": "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — el generator lo consume vía column.Content dentro del case de GridElement, no por su propio case",
-		"DirectiveNode": "doclang no filtra @directivas antes del pipeline de render (a diferencia de slidelang, que las extrae vía extractPresenterNotes) ni tiene un concepto establecido de qué debería hacer una directiva en un documento — cae al warning genérico del default hasta que se decida su tratamiento (issue de seguimiento pendiente)",
 	},
 }
 

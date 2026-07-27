@@ -97,6 +97,57 @@ func TestMarkdownGeneratorGenerate(t *testing.T) {
 	}
 }
 
+// TestMarkdownRenderElement_Table_CellAndHeaderWithPipeIsEscaped covers the
+// code-review finding that escapeMarkdownInline (added for map markers) was
+// never applied to TableElement's own Headers/Rows in the same file, so an
+// ordinary table cell containing "|" still desynced the column count from
+// the "| --- |" separator row.
+func TestMarkdownRenderElement_Table_CellAndHeaderWithPipeIsEscaped(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"Región | Zona", "Total"}
+	table.Rows = [][]string{{"Norte | almacén", "42"}}
+	table.Caption = "Ver *nota* al pie"
+
+	out := gen.renderElement(table)
+
+	if !strings.Contains(out, `Región \| Zona`) {
+		t.Errorf("expected the pipe in the header to be escaped, got:\n%s", out)
+	}
+	if !strings.Contains(out, `Norte \| almacén`) {
+		t.Errorf("expected the pipe in the cell to be escaped, got:\n%s", out)
+	}
+	if !strings.Contains(out, `Ver \*nota\* al pie`) {
+		t.Errorf("expected the asterisks in the caption to be escaped, got:\n%s", out)
+	}
+}
+
+// TestMarkdownRenderElement_Table_CellWithNewlineIsNormalized: an embedded
+// newline in a cell would otherwise split one table row into malformed
+// extra rows — same failure mode as the map marker table.
+func TestMarkdownRenderElement_Table_CellWithNewlineIsNormalized(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"Col"}
+	table.Rows = [][]string{{"Line1\n| Fake | Row |"}}
+
+	out := gen.renderElement(table)
+
+	dataRows := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "| Line1") {
+			dataRows++
+		}
+	}
+	if dataRows != 1 {
+		t.Errorf("expected the cell to stay on exactly one table row, got %d:\n%s", dataRows, out)
+	}
+}
+
 func TestMarkdownRenderElementVariants(t *testing.T) {
 	logger := newTestLogger()
 	gen := NewMarkdownGenerator(logger)
@@ -145,8 +196,14 @@ func TestMarkdownRenderElementVariants(t *testing.T) {
 			contains: "- [x] Item",
 		},
 		{
+			// ColumnElement is the fixture for the `default:` branch —
+			// PlantUMLElement used to sit here before it got its own case
+			// (issue #38/#51 coverage gap); ColumnElement is a sub-element
+			// of GridElement.Columns that never appears bare in
+			// block.Elements, so it reliably falls through (see
+			// excludedFromElementCoverage in element_coverage_test.go).
 			name:     "unsupported",
-			element:  ast.NewPlantUMLElement(diagnostics.NewPosition(1, 1), "sequence", "A->B"),
+			element:  ast.NewColumnElement(diagnostics.NewPosition(1, 1), "orphan column"),
 			contains: "",
 		},
 		{
@@ -172,6 +229,39 @@ func TestMarkdownRenderElementVariants(t *testing.T) {
 			name:     "media blocked source",
 			element:  ast.NewMediaElement(diagnostics.NewPosition(1, 1), "video", "javascript:alert(1)"),
 			contains: "*[video bloqueado por seguridad]*",
+		},
+		{
+			// Issue #38/#51: PlantUMLElement no tenía case y caía al default.
+			name:     "plantuml",
+			element:  ast.NewPlantUMLElement(diagnostics.NewPosition(1, 1), "sequence", "A->B"),
+			contains: "```plantuml\nA->B\n```",
+		},
+		{
+			// Issue #38/#51: MathElement no tenía case y caía al default.
+			name:     "math",
+			element:  ast.NewMathElement(diagnostics.NewPosition(1, 1), "E = mc^2"),
+			contains: "$$\nE = mc^2\n$$",
+		},
+		{
+			// Issue #38/#51: CodeGroupElement no tenía case y caía al default.
+			name: "code group",
+			element: func() ast.Element {
+				cg := ast.NewCodeGroupElement(diagnostics.NewPosition(1, 1))
+				cg.CodeBlocks = append(cg.CodeBlocks, ast.CodeBlock{Language: "go", Label: "Go", Content: "fmt.Println(1)"})
+				cg.CodeBlocks = append(cg.CodeBlocks, ast.CodeBlock{Language: "js", Label: "JavaScript", Content: "console.log(1)"})
+				return cg
+			}(),
+			contains: "fmt.Println(1)",
+		},
+		{
+			// Issue #38/#51: MapElement no tenía case y caía al default.
+			name: "map",
+			element: func() ast.Element {
+				m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+				m.Markers = append(m.Markers, ast.MapMarker{Label: "CDMX", Lat: 19.43, Lng: -99.13, Value: 42})
+				return m
+			}(),
+			contains: "CDMX",
 		},
 		{
 			// Issue #22: Level, cuando está poblado, debe emitir el heading
@@ -255,6 +345,212 @@ func TestMarkdownRenderElement_Grid(t *testing.T) {
 		if !strings.Contains(out, expected) {
 			t.Errorf("grid Markdown output missing %q:\n%s", expected, out)
 		}
+	}
+}
+
+// TestMarkdownRenderElement_PlantUML cubre issue #38/#51: un PlantUMLElement
+// no tenía case en markdown.go y caía al default (salida vacía). El Title,
+// si viene, se antepone en negrita antes del fence ```plantuml.
+func TestMarkdownRenderElement_PlantUML(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	diagram := ast.NewPlantUMLElement(diagnostics.NewPosition(1, 1), "sequence", "A->B: hola")
+	diagram.Title = "Flujo de saludo"
+
+	out := gen.renderElement(diagram)
+
+	for _, expected := range []string{"**Flujo de saludo**", "```plantuml", "A->B: hola", "```"} {
+		if !strings.Contains(out, expected) {
+			t.Errorf("plantuml Markdown output missing %q:\n%s", expected, out)
+		}
+	}
+}
+
+// TestMarkdownRenderElement_Math cubre issue #38/#51: un MathElement no
+// tenía case en markdown.go y caía al default. Content ya es LaTeX crudo, así
+// que se envuelve en $$...$$ (display math); con Label+Number poblados (el
+// mecanismo de xref), antepone "Ecuación N" al caption, igual que
+// ImageElement antepone "Figura N".
+func TestMarkdownRenderElement_Math(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	eq := ast.NewMathElement(diagnostics.NewPosition(1, 1), "E = mc^2")
+	eq.Label = "eq:einstein"
+	eq.Number = 1
+	eq.Caption = "Equivalencia masa-energía"
+
+	out := gen.renderElement(eq)
+
+	for _, expected := range []string{"$$", "E = mc^2", "Ecuación 1: Equivalencia masa-energía"} {
+		if !strings.Contains(out, expected) {
+			t.Errorf("math Markdown output missing %q:\n%s", expected, out)
+		}
+	}
+}
+
+// TestMarkdownRenderElement_CodeGroup cubre issue #38/#51: un
+// CodeGroupElement no tenía case en markdown.go y caía al default. Markdown
+// no tiene tabs, así que cada CodeBlock se emite secuencialmente — conserva
+// TODO el contenido en vez de perder los N bloques.
+func TestMarkdownRenderElement_CodeGroup(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	cg := ast.NewCodeGroupElement(diagnostics.NewPosition(1, 1))
+	cg.CodeBlocks = append(cg.CodeBlocks, ast.CodeBlock{Language: "go", Label: "Go", Content: "fmt.Println(1)"})
+	cg.CodeBlocks = append(cg.CodeBlocks, ast.CodeBlock{Language: "js", Label: "JavaScript", Content: "console.log(1)"})
+
+	out := gen.renderElement(cg)
+
+	for _, expected := range []string{"**Go**", "```go", "fmt.Println(1)", "**JavaScript**", "```js", "console.log(1)"} {
+		if !strings.Contains(out, expected) {
+			t.Errorf("code group Markdown output missing %q:\n%s", expected, out)
+		}
+	}
+}
+
+// TestMarkdownRenderElement_CodeGroup_LabelFallback cubre el fallback de
+// etiqueta cuando el autor no puso Label: Language, y si tampoco hay
+// Language, "Code N" — mismo fallback que docx.go's renderCodeGroup.
+func TestMarkdownRenderElement_CodeGroup_LabelFallback(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	cg := ast.NewCodeGroupElement(diagnostics.NewPosition(1, 1))
+	cg.CodeBlocks = append(cg.CodeBlocks, ast.CodeBlock{Content: "sin lenguaje ni label"})
+
+	out := gen.renderElement(cg)
+
+	if !strings.Contains(out, "**Code 1**") {
+		t.Errorf("expected the positional fallback label \"Code 1\", got:\n%s", out)
+	}
+}
+
+// TestMarkdownRenderElement_Map cubre issue #38/#51: un MapElement no tenía
+// case en markdown.go y caía al default. Un mapa interactivo no existe en
+// Markdown, pero sus marcadores sí son expresables — se degradan a una
+// tabla en vez de perderse.
+func TestMarkdownRenderElement_Map(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Title = "Oficinas"
+	m.Markers = append(m.Markers, ast.MapMarker{Label: "CDMX", Lat: 19.43, Lng: -99.13, Value: 42})
+
+	out := gen.renderElement(m)
+
+	for _, expected := range []string{"mapa: world", "Oficinas", "CDMX", "19.43", "-99.13", "42"} {
+		if !strings.Contains(out, expected) {
+			t.Errorf("map Markdown output missing %q:\n%s", expected, out)
+		}
+	}
+}
+
+// TestMarkdownRenderElement_Map_NoMarkers cubre el caso sin marcadores: la
+// línea degradada debe seguir apareciendo, sin una tabla vacía colgando.
+func TestMarkdownRenderElement_Map_NoMarkers(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+
+	out := gen.renderElement(m)
+
+	if !strings.Contains(out, "mapa: world") {
+		t.Errorf("expected the degraded map line, got:\n%s", out)
+	}
+	if strings.Contains(out, "|") {
+		t.Errorf("expected no table when there are no markers, got:\n%s", out)
+	}
+}
+
+// TestMarkdownRenderElement_Map_LabelWithPipeIsEscaped covers the
+// code-review finding on PR #55: an unescaped "|" in marker.Label adds an
+// extra column to the marker table (Norte | almacén -> 5 columns instead of
+// 4), corrupting its structure.
+func TestMarkdownRenderElement_Map_LabelWithPipeIsEscaped(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Markers = append(m.Markers, ast.MapMarker{Label: "Norte | almacén", Lat: 1, Lng: 2, Value: 3})
+
+	out := gen.renderElement(m)
+
+	if !strings.Contains(out, `| Norte \| almacén | 1 | 2 | 3 |`) {
+		t.Errorf("expected the pipe in the label to be escaped and the row to keep exactly 4 columns, got:\n%s", out)
+	}
+}
+
+// TestMarkdownRenderElement_Map_LabelWithNewlineIsNormalized covers the
+// other half of the same finding: an embedded newline in marker.Label would
+// otherwise split the marker across extra, malformed table rows.
+func TestMarkdownRenderElement_Map_LabelWithNewlineIsNormalized(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Markers = append(m.Markers, ast.MapMarker{Label: "CDMX\n| Fake | Row |", Lat: 1, Lng: 2, Value: 3})
+
+	out := gen.renderElement(m)
+
+	if !strings.Contains(out, `CDMX \| Fake \| Row \|`) {
+		t.Errorf("expected the embedded newline to be normalized and the pipes escaped, got:\n%s", out)
+	}
+
+	dataRows := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "| CDMX") {
+			dataRows++
+		}
+	}
+	if dataRows != 1 {
+		t.Errorf("expected the marker to stay on exactly one table row, got %d:\n%s", dataRows, out)
+	}
+}
+
+// TestMarkdownRenderElement_Map_TitleNewlineIsNormalized covers the Title/
+// MapType line (not a table, but still a single Markdown line that a raw
+// embedded newline could otherwise split, e.g. into a fake heading).
+func TestMarkdownRenderElement_Map_TitleNewlineIsNormalized(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Title = "Oficinas\n\n# Fake Heading"
+
+	out := gen.renderElement(m)
+
+	if strings.Contains(out, "\n\n# Fake Heading") {
+		t.Errorf("expected the Title's embedded newlines to be normalized, got:\n%s", out)
+	}
+	if !strings.Contains(out, "*[mapa: world — Oficinas # Fake Heading]*") {
+		t.Errorf("expected the normalized single-line title, got:\n%s", out)
+	}
+}
+
+// TestMarkdownRenderElement_Map_TitleWithBracketAndAsteriskIsEscaped covers
+// the code-review finding that normalizeMarkdownLine alone only closed the
+// newline vector: a Title containing "]" or "*" could still break out of
+// the *[mapa: … — …]* wrapper early (closing the emphasis, then continuing
+// as unrelated Markdown body text).
+func TestMarkdownRenderElement_Map_TitleWithBracketAndAsteriskIsEscaped(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	m := ast.NewMapElement(diagnostics.NewPosition(1, 1), "world")
+	m.Title = "Zona ]* **PRECIO OCULTO**"
+
+	out := gen.renderElement(m)
+
+	if !strings.Contains(out, `Zona \]\* \*\*PRECIO OCULTO\*\*`) {
+		t.Errorf("expected ] and * in the title to be escaped, got:\n%s", out)
+	}
+	if strings.Contains(out, "**PRECIO OCULTO**") {
+		t.Errorf("expected no unescaped bold markers to survive, got:\n%s", out)
 	}
 }
 
