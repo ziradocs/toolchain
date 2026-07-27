@@ -122,4 +122,69 @@ func TestPrepareTemplateData_TableCells_MergedTablePopulatesCells(t *testing.T) 
 	if el.Cells[0][0].ColSpan != 2 || !el.Cells[0][0].IsHeader {
 		t.Errorf("expected the anchor cell's ColSpan/IsHeader to survive conversion, got %+v", el.Cells[0][0])
 	}
+	if !el.CellsLeadIsHeader {
+		t.Errorf("expected CellsLeadIsHeader=true (Cells[0] is all IsHeader), got false")
+	}
+}
+
+// TestPrepareTemplateData_TableCells_LeadRowNotAllHeaderIsFalse covers the
+// other side of CellsLeadIsHeader (issue detected in code review of #41: the
+// template used to always emit Cells inside a single <tbody>, with no
+// <thead> at all) — a table whose first row mixes a header column (scope
+// "row") with data cells must NOT be treated as having a header row for
+// <thead> purposes, matching core/renderer/html.go's renderTableCells
+// criterion exactly.
+func TestPrepareTemplateData_TableCells_LeadRowNotAllHeaderIsFalse(t *testing.T) {
+	table := &ast.TableElement{
+		Cells: [][]ast.TableCell{
+			{{Content: "Row header", IsHeader: true, Scope: "row"}, {Content: "a"}},
+			{{Content: "Row header 2", IsHeader: true, Scope: "row"}, {Content: "b"}},
+		},
+	}
+
+	astDoc := &ast.AST{
+		ContentBlocks: []ast.ContentBlock{{
+			BlockType: "content",
+			Elements:  []ast.Element{table},
+		}},
+	}
+
+	got := PrepareTemplateDataWithRenderMode(astDoc, "default", "browser", util.NewNoop(), renderer.NewDefaultRenderContext())
+	el := got.ContentBlocks[0].Elements[0]
+
+	if el.CellsLeadIsHeader {
+		t.Error("expected CellsLeadIsHeader=false: row 0 has a non-header cell, so it must fall into a single <tbody>, no <thead>")
+	}
+}
+
+// TestPrepareTemplateData_TableCells_LeadRowSpanningRowsIsFalse covers a
+// finding from external review of #50: CellsLeadIsHeader only checked that
+// row 0 was entirely header cells, not whether any of them declares a
+// RowSpan that reaches into row 1 — which the template puts inside
+// <tbody>. A rowspan crossing the <thead>/<tbody> boundary is invalid HTML
+// table structure (no consistent browser/AT interpretation), so a header
+// row whose RowSpan extends past it must NOT be treated as a safe <thead>
+// candidate; the whole table falls back to a single <tbody> instead.
+func TestPrepareTemplateData_TableCells_LeadRowSpanningRowsIsFalse(t *testing.T) {
+	table := &ast.TableElement{
+		Cells: [][]ast.TableCell{
+			{{Content: "Grupo", IsHeader: true, Scope: "col", RowSpan: 2}, {Content: "Otro", IsHeader: true, Scope: "col"}},
+			{{Content: "a"}},
+			{{Content: "b"}, {Content: "c"}},
+		},
+	}
+
+	astDoc := &ast.AST{
+		ContentBlocks: []ast.ContentBlock{{
+			BlockType: "content",
+			Elements:  []ast.Element{table},
+		}},
+	}
+
+	got := PrepareTemplateDataWithRenderMode(astDoc, "default", "browser", util.NewNoop(), renderer.NewDefaultRenderContext())
+	el := got.ContentBlocks[0].Elements[0]
+
+	if el.CellsLeadIsHeader {
+		t.Error("expected CellsLeadIsHeader=false: row 0's RowSpan=2 header cell reaches into row 1, which would sit in <tbody> — a rowspan cannot cross the <thead>/<tbody> boundary")
+	}
 }

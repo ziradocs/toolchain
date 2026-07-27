@@ -14,22 +14,30 @@ import (
 	"testing"
 )
 
-// excludedFromElementCoverage documenta, tipo por tipo, por qué un
-// implementador de ast.Element (el ast del DSL, en go.ziradocs.com/core/v2/ast
-// — no el go/ast de este archivo) deliberadamente no tiene un case propio en
-// markdown.go's renderElement ni en docx.go's renderElement.
-var excludedFromElementCoverage = map[string]string{
-	"ColumnElement": "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — ambos generators lo consumen vía column.Content dentro del case de GridElement, no por su propio case",
-	"DirectiveNode": "doclang no filtra @directivas antes del pipeline de render (a diferencia de slidelang, que las extrae vía extractPresenterNotes) ni tiene un concepto establecido de qué debería hacer una directiva en un documento — cae al warning genérico del default hasta que se decida su tratamiento (issue de seguimiento pendiente)",
-
-	// Los siguientes 4 tipos faltan HOY solo en markdown.go (docx.go los
-	// cubre) — pero como este guard es por-generador (ver checkCoverage) se
-	// documentan acá para que la corrida de markdown pase; docx.go no los
-	// necesita en excludedFromElementCoverage porque sí tiene sus cases.
-	"PlantUMLElement":  "issue de seguimiento — markdown.go no tiene equivalente para diagramas PlantUML (docx.go sí lo cubre)",
-	"MapElement":       "issue de seguimiento — markdown.go no tiene equivalente para mapas interactivos (docx.go sí lo cubre)",
-	"CodeGroupElement": "issue de seguimiento — markdown.go no tiene equivalente para grupos de bloques de código con tabs (docx.go sí lo cubre)",
-	"MathElement":      "issue de seguimiento — markdown.go no tiene equivalente para expresiones matemáticas (docx.go sí lo cubre)",
+// excludedFromElementCoverage documenta, POR GENERADOR y tipo por tipo, por
+// qué un implementador de ast.Element (el ast del DSL, en
+// go.ziradocs.com/core/v2/ast — no el go/ast de este archivo) deliberadamente
+// no tiene un case propio en markdown.go's renderElement o en docx.go's
+// renderElement. Keyeado por el mismo funcName que se le pasa a
+// checkCoverage — un mapa único compartido entre ambas corridas (como era
+// antes) hacía que cualquier exclusión documentada como "solo para
+// markdown.go" también se aplicara silenciosamente a docx.go, contradiciendo
+// el propio comentario que decía lo contrario: borrar
+// `case *ast.MathElement` de docx.go's renderElement pasaba el test igual
+// (code review de #39).
+var excludedFromElementCoverage = map[string]map[string]string{
+	"markdown.go renderElement": {
+		"ColumnElement":    "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — el generator lo consume vía column.Content dentro del case de GridElement, no por su propio case",
+		"DirectiveNode":    "doclang no filtra @directivas antes del pipeline de render (a diferencia de slidelang, que las extrae vía extractPresenterNotes) ni tiene un concepto establecido de qué debería hacer una directiva en un documento — cae al warning genérico del default hasta que se decida su tratamiento (issue de seguimiento pendiente)",
+		"PlantUMLElement":  "issue de seguimiento — markdown.go no tiene equivalente para diagramas PlantUML (docx.go sí lo cubre)",
+		"MapElement":       "issue de seguimiento — markdown.go no tiene equivalente para mapas interactivos (docx.go sí lo cubre)",
+		"CodeGroupElement": "issue de seguimiento — markdown.go no tiene equivalente para grupos de bloques de código con tabs (docx.go sí lo cubre)",
+		"MathElement":      "issue de seguimiento — markdown.go no tiene equivalente para expresiones matemáticas (docx.go sí lo cubre)",
+	},
+	"docx.go renderElement": {
+		"ColumnElement": "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — el generator lo consume vía column.Content dentro del case de GridElement, no por su propio case",
+		"DirectiveNode": "doclang no filtra @directivas antes del pipeline de render (a diferencia de slidelang, que las extrae vía extractPresenterNotes) ni tiene un concepto establecido de qué debería hacer una directiva en un documento — cae al warning genérico del default hasta que se decida su tratamiento (issue de seguimiento pendiente)",
+	},
 }
 
 // TestGeneratorsCoverAllElementImplementers cubre issue #35: tanto
@@ -71,9 +79,11 @@ func TestGeneratorsCoverAllElementImplementers(t *testing.T) {
 func checkCoverage(t *testing.T, funcName string, implementers, cases map[string]bool) {
 	t.Helper()
 
+	excluded := excludedFromElementCoverage[funcName]
+
 	var missing []string
 	for name := range implementers {
-		if excludedFromElementCoverage[name] != "" {
+		if excluded[name] != "" {
 			continue
 		}
 		if !cases[name] {

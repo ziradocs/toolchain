@@ -249,6 +249,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				// siempre, cambiando el HTML de toda tabla existente.
 				if tableUsesCellStructure(elem) {
 					elementData.Cells = ConvertTableCellsWithVariables(elem.Cells, variables)
+					elementData.CellsLeadIsHeader = cellsLeadIsHeader(elem.Cells)
 				}
 			case *ast.MediaElement:
 				// Mismo patrón que ImageElement arriba: ValidateURLScheme
@@ -980,6 +981,29 @@ func tableUsesCellStructure(elem *ast.TableElement) bool {
 		}
 	}
 	return false
+}
+
+// cellsLeadIsHeader reporta si TODAS las celdas de cells[0] son IsHeader Y
+// ninguna declara RowSpan > 1 — mismo criterio base que
+// core/renderer/html.go's renderTableCells (léase su comentario), MÁS una
+// guarda que ese código de referencia no tiene: un RowSpan > 1 en la fila
+// 0 significa que esa celda sigue ocupando una columna en la fila 1, que
+// el template pone dentro de <tbody> — un rowspan que cruza el límite
+// thead/tbody es inválido en el modelo de tablas HTML (rompe la
+// asociación de accesibilidad que <thead> existe para dar) y ningún
+// navegador lo interpreta de forma consistente. Ante esa señal, degradar
+// a "sin thead" (toda la tabla en un único <tbody>) es más seguro que
+// emitir un <thead> que no puede contener el rowspan que declara.
+func cellsLeadIsHeader(cells [][]ast.TableCell) bool {
+	if len(cells) == 0 || len(cells[0]) == 0 {
+		return false
+	}
+	for _, c := range cells[0] {
+		if !c.IsHeader || c.RowSpan > 1 {
+			return false
+		}
+	}
+	return true
 }
 
 // generateElementID genera un ID único para un elemento
