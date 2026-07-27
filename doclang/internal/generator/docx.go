@@ -357,11 +357,35 @@ func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST) []TOCEntry {
 			g.logger.Info("DOCX", "  ➜ H1: %s", block.Title)
 		}
 
-		// H2/H3/H4 (text elements with raw HTML or markdown headers)
+		// H1-H6 (text elements with raw HTML or markdown headers)
 		for _, elem := range block.Elements {
 			switch typedElem := elem.(type) {
 			case *ast.TextElement:
 				content := typedElem.Content
+
+				// Level (issue #22) es la fuente de verdad cuando está
+				// poblado — mismo criterio que renderText/renderHeading,
+				// que hoy cubren niveles 1 y 5/6 además de 2/3/4. Sin este
+				// caso, un heading de nivel 5/6 (o un nivel 1 que llegó vía
+				// --filter externo, no del título de bloque) se renderiza
+				// como un heading real de Word pero nunca aparece en este
+				// TOC estático, porque el bloque de regexes de abajo solo
+				// reconoce h2/h3/h4 (issue detectado en code review de #40).
+				if typedElem.Level > 0 {
+					title := content
+					if m := headingHTMLPattern.FindStringSubmatch(content); m != nil {
+						title = m[1]
+					} else if m := markdownHeadingPattern.FindStringSubmatch(content); m != nil {
+						title = m[1]
+					}
+					entries = append(entries, TOCEntry{
+						Title:      title,
+						Level:      typedElem.Level,
+						BookmarkID: sanitizeBookmarkID(title),
+					})
+					g.logger.Info("DOCX", "  ➜ H%d: %s", typedElem.Level, title)
+					continue
+				}
 
 				// Check for raw HTML headers (IsRawHTML=true)
 				if typedElem.IsRawHTML {
@@ -508,12 +532,27 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 		return err
 	}
 
-	// Crear field TOC usando el constructor con switches
+	// Crear field TOC usando el constructor con switches. OJO: docxgo's
+	// NewTOCField/buildTOCCode (internal/core/field.go en el módulo
+	// vendido) NO lee las claves "o"/"h"/"z"/"u" que este código tenía
+	// antes (los caracteres del switch de Word) — lee "levels" para el
+	// \o, y \h/\z/\u salen SIEMPRE hardcodeados sin importar qué se pase.
+	// Un mapa con clave "o" es un no-op silencioso: el field generado
+	// siempre terminaba con el default "1-3" de la librería, sin importar
+	// qué dijera este mapa — confirmado corriendo el generador real y
+	// grepeando el \o del document.xml resultante. "levels" es la única
+	// clave que buildTOCCode efectivamente consulta.
+	//
+	// El valor en sí, "1-4": H1-H3 mapean 1:1 a outline 1-3, pero Level 4
+	// Y TAMBIÉN 5/6 (degradados a StyleIDHeading4 en renderHeading, sin
+	// estilo H5/H6 propio) usan el estilo Heading4 = outline 4. Si se
+	// quedara en el default "1-3" de la librería, Word ocultaría esos
+	// headings del TOC real en cuanto el usuario lo actualice (clic
+	// derecho → Actualizar campo, o F9) o abra el documento, aunque el
+	// placeholder estático (collectHeadings) sí los liste — las dos
+	// vistas del TOC divergirían entre sí.
 	tocSwitches := map[string]string{
-		"o": "1-3", // niveles de outline 1-3 (H1, H2, H3)
-		"h": "",    // crear hyperlinks
-		"z": "",    // ocultar números de página en vista web
-		"u": "",    // usar niveles de outline
+		"levels": "1-4",
 	}
 	tocField := docx.NewTOCField(tocSwitches)
 
@@ -657,8 +696,39 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 // ya renderizado — usado solo cuando Level (issue #22) YA nos dijo qué
 // nivel es; a diferencia del bloque de regexes de abajo, esto no ADIVINA el
 // nivel probando h2/h3/h4 en secuencia, solo despoja el wrapper del payload
-// cuyo nivel ya conocemos.
-var headingHTMLPattern = regexp.MustCompile(`^<h[0-9]+[^>]*>(.+?)</h[0-9]+>$`)
+// cuyo nivel ya conocemos. `\s*$` en vez de `$` a secas: los seis regexes
+// que reemplaza más abajo no tenían ningún anchor final, y una versión
+// anclada con `$` no toleraba contenido/espacio colgante después del
+// `</hN>` (p. ej. un salto de línea), lo que hacía que no matcheara nada y
+// se renderizara la marca cruda como texto del heading. Pero un `$` sin
+// `\s*` delante tampoco sirve: sin ÉL, Content que combina un heading con
+// contenido real después (`<h2>Título</h2><p>Contenido importante</p>`,
+// alcanzable vía un --filter externo o un TextElement mal formado) SÍ
+// matchea igual — el heading matchea como prefijo del string y el resto
+// de Content (el párrafo) se pierde en silencio, sin ni siquiera quedar
+// como texto crudo. `\s*$` exige que después del cierre solo quede
+// whitespace: tolera el salto de línea colgante (el caso real que este
+// pattern debe cubrir) pero rechaza contenido genuino, que entonces cae
+// al fallback de "texto crudo" (visible, no perdido).
+var headingHTMLPattern = regexp.MustCompile(`^<h[0-9]+[^>]*>(.+?)</h[0-9]+>\s*$`)
+
+// markdownHeadingPattern despoja un prefijo Markdown `#`..`######` — el
+// sibling de headingHTMLPattern para Content que llegó como Markdown crudo
+// en vez de HTML ya renderizado (un AST externo vía --filter, o un
+// TextElement cuyo Level se pobló antes de que corriera la normalización
+// HTML). `\s*$`, misma razón que headingHTMLPattern: `.` no matchea `\n`
+// en Go regexp, así que un Content de dos líneas ("## Título\nContenido")
+// ya paraba de capturar en el salto de línea sin necesidad del anchor —
+// pero sin `\s*$` esa segunda línea igual se perdía en silencio (el
+// código solo usa el grupo capturado, descarta el resto de Content). Con
+// `\s*$`, ese caso deja de matchear del todo y cae al fallback de texto
+// crudo en vez de perder la línea.
+var markdownHeadingPattern = regexp.MustCompile(`^#{1,6}\s+(.+?)\s*$`)
+
+// headingIDPattern extrae el id="..." de un <hN id="...">...</hN> ya
+// renderizado, cuando existe — usado por el generador de Markdown para
+// preservar el anchor explícito (ver markdown.go).
+var headingIDPattern = regexp.MustCompile(`^<h[0-9]+[^>]*\bid="([^"]*)"`)
 
 func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) error {
 	content := elem.Content
@@ -676,6 +746,8 @@ func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) e
 	if elem.Level > 0 {
 		text := content
 		if m := headingHTMLPattern.FindStringSubmatch(content); m != nil {
+			text = m[1]
+		} else if m := markdownHeadingPattern.FindStringSubmatch(content); m != nil {
 			text = m[1]
 		}
 		return g.renderHeading(doc, text, elem.Level)
@@ -1916,9 +1988,14 @@ func (g *DOCXGenerator) renderPlaceholder(doc domain.Document, text string) erro
 // placeholder genérico, que sigue siendo estrictamente mejor que perder el
 // dato, y (b) si docxgo corrige AddHyperlink en una versión futura, este
 // código empieza a producir un link real sin cambios. Mismas reglas de
-// seguridad que el path HTML (core/renderer/html.go renderMediaElement):
-// Source pasa por renderer.SanitizeURL antes de usarse, y un source vacío
-// se distingue de uno bloqueado con mensajes distintos.
+// seguridad que el path HTML (core/renderer/html.go renderMediaElement),
+// con una diferencia importante: acá se usa renderer.ValidateURLScheme, NO
+// SanitizeURL. SanitizeURL aplica EscapeHTMLAttribute encima del allowlist
+// de esquema — correcto para interpolar en un atributo HTML, pero el
+// target del hyperlink de DOCX y el texto visible no son HTML, así que esa
+// escapada solo mete entidades (`&amp;`) literales en una URL con query
+// string. Un source vacío se distingue de uno bloqueado con mensajes
+// distintos.
 func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement) error {
 	label := "video"
 	if elem.MediaType == "audio" {
@@ -1929,7 +2006,7 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 	if source == "" {
 		return g.renderPlaceholder(doc, fmt.Sprintf("%s sin fuente", label))
 	}
-	safeSource := renderer.SanitizeURL(source)
+	safeSource := renderer.ValidateURLScheme(source)
 	if safeSource == "" {
 		g.logger.Warn("DOCX: Media source blocked (dangerous scheme): %s", source)
 		return g.renderPlaceholder(doc, fmt.Sprintf("%s bloqueado por seguridad", label))

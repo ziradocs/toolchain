@@ -4,6 +4,8 @@
 package generator
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -45,6 +47,39 @@ func TestDOCXGenerator_CollectHeadings_IncludesGridColumnHeadings(t *testing.T) 
 	}
 }
 
+// TestDOCXGenerator_CollectHeadings_CoversLevels5And6 covers a finding from
+// the #40 code review: renderText's Level > 0 short-circuit routes level
+// 5/6 headings to renderHeading (styled Heading4, a REAL Word heading), but
+// collectHeadings only ever recognized h2/h3/h4 via regex — so the static
+// TOC silently omitted headings that exist as genuine Word headings in the
+// body. collectHeadings must now use the same Level-aware detection
+// renderText/renderHeading use.
+func TestDOCXGenerator_CollectHeadings_CoversLevels5And6(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewDOCXGenerator(logger, "")
+
+	subDos := ast.NewRawHTMLTextElement(diagnostics.NewPosition(2, 1), `<h2 id="sub-dos">Sub dos</h2>`)
+	subDos.Level = 2
+	detalle := ast.NewRawHTMLTextElement(diagnostics.NewPosition(3, 1), `<h5 id="detalle-profundo">Detalle profundo</h5>`)
+	detalle.Level = 5
+
+	doc := astWithElements(subDos, detalle)
+
+	entries := gen.collectHeadings(doc)
+
+	byTitle := map[string]TOCEntry{}
+	for _, e := range entries {
+		byTitle[e.Title] = e
+	}
+
+	if e, ok := byTitle["Sub dos"]; !ok || e.Level != 2 {
+		t.Errorf("collectHeadings() missing/wrong level for %q: %+v (entries=%+v)", "Sub dos", e, entries)
+	}
+	if e, ok := byTitle["Detalle profundo"]; !ok || e.Level != 5 {
+		t.Errorf("collectHeadings() missing/wrong level for %q: %+v (entries=%+v) — a level-5 heading exists as a real Word heading in the body but was omitted from the static TOC", "Detalle profundo", e, entries)
+	}
+}
+
 // TestDOCXGenerator_CollectHeadings_IgnoresIndentedGridColumnLines guards
 // against a divergence the initial #88 fix introduced: renderGrid (docx.go)
 // only uses strings.TrimSpace(line) to decide whether a grid-column line is
@@ -75,5 +110,37 @@ func TestDOCXGenerator_CollectHeadings_IgnoresIndentedGridColumnLines(t *testing
 		if e.Title == "Indented Heading" {
 			t.Errorf("collectHeadings() treated an indented grid-column line as a heading (%+v), but renderGrid does not render it as one (renderText's ^## pattern requires no leading whitespace)", e)
 		}
+	}
+}
+
+// TestDOCXGenerator_RenderTOC_FieldCoversOutlineLevel4 covers a finding from
+// external review of #49: collectHeadings became Level-aware and now lists
+// level 5/6 headings (which renderHeading styles as Heading4, outline level
+// 4) in the static TOC placeholder, but the REAL Word TOC field (the "o"
+// switch on NewTOCField) was still pinned to "1-3" — outline levels 1-3
+// only cover Heading1-3. As soon as the reader refreshes the field (F9) or
+// reopens the document, Word rebuilds the TOC from that switch and drops
+// every Heading4-styled entry (levels 4, 5, and 6), diverging from the
+// static placeholder that collectHeadings produced. The switch must extend
+// to "1-4" to match what renderHeading can actually produce.
+func TestDOCXGenerator_RenderTOC_FieldCoversOutlineLevel4(t *testing.T) {
+	logger := newTestLogger()
+	gen := New(logger)
+
+	deep := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h5 id="deep">Deep</h5>`)
+	deep.Level = 5
+	doc := astWithElements(deep)
+
+	output := filepath.Join(t.TempDir(), "toc.docx")
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+	// docxgo's field code literally emits two backslashes per switch
+	// (see internal/core/field.go's buildTOCCode, a raw string with
+	// `\\o`) — matched verbatim here, not a typo.
+	if !strings.Contains(xml, `TOC \\o &#34;1-4&#34;`) {
+		t.Errorf("expected the TOC field's outline switch to cover level 4 (\\\\o \"1-4\"), document.xml:\n%s", xml)
 	}
 }
