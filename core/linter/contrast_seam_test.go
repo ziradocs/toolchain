@@ -4,6 +4,7 @@
 package linter
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -128,6 +129,39 @@ func TestThemeContrastRule_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestThemeContrastRule_MessageNeverContradictsItself pina el hallazgo del
+// segundo code review en el punto exacto donde se ve: el ratio #006ffb
+// sobre blanco (~4.499888:1) reprueba AA, pero el mensaje ANTES de la
+// corrección de FormatRatio mostraba "4.50:1" — indistinguible del umbral
+// citado en el mismo mensaje ("4.5:1 required"). El mensaje nunca debe
+// mostrar un valor que se lea como igual o mayor al umbral citado cuando
+// el diagnóstico dice "below".
+func TestThemeContrastRule_MessageNeverContradictsItself(t *testing.T) {
+	rule := NewThemeContrastRule([]ContrastPair{
+		{Label: "body text on background", FgVariable: "--text-color", BgVariable: "--bg-color"},
+	})
+	vars := map[string]string{"--text-color": "#006ffb", "--bg-color": "#ffffff"}
+
+	l := NewWithRules(rule).WithThemeVariables(vars)
+	diags := l.LintUnfiltered(newMinimalAST())
+
+	var msg string
+	for _, d := range diags {
+		if d.RuleID == "CONTRAST001" {
+			msg = d.Message
+		}
+	}
+	if msg == "" {
+		t.Fatalf("expected a CONTRAST001 diagnostic, got %+v", diags)
+	}
+	if strings.Contains(msg, "4.50:1") {
+		t.Errorf("message %q shows the failing ratio as 4.50:1, indistinguishable from the 4.5:1 threshold it cites as unmet", msg)
+	}
+	if !strings.Contains(msg, "4.49:1") {
+		t.Errorf("message %q does not show the expected truncated ratio 4.49:1", msg)
+	}
+}
+
 // TestThemeContrastRule_PassingPairProducesNoDiagnostic es el contrapunto:
 // un par con contraste suficiente no debe producir ningún CONTRAST001.
 func TestThemeContrastRule_PassingPairProducesNoDiagnostic(t *testing.T) {
@@ -179,6 +213,24 @@ func TestLinter_WithThemeVariables_RuleMutationDoesNotAffectCallersMap(t *testin
 	}
 	if _, gotInjected := mutator.received["--injected-by-rule"]; !gotInjected {
 		t.Fatalf("expected the rule's own copy to reflect its mutation, got %+v", mutator.received)
+	}
+}
+
+// TestLinter_WithThemeVariables_RulesDoNotShareTheSameMapInstance es la
+// regresión para el hallazgo del segundo code review: WithThemeVariables
+// clonaba el mapa del caller UNA sola vez y entregaba esa MISMA instancia
+// mutable a cada regla — una regla que mutara lo recibido contaminaba lo
+// que veían las reglas siguientes en el mismo lint run (y lo que
+// runExternalRulepack serializa para los rulepacks externos). Cada regla
+// debe recibir su PROPIA copia independiente.
+func TestLinter_WithThemeVariables_RulesDoNotShareTheSameMapInstance(t *testing.T) {
+	mutatorA := &themeVariablesMutator{}
+	probeB := &themeVariablesProbe{}
+
+	NewWithRules(mutatorA, probeB).WithThemeVariables(map[string]string{"--text-color": "#000000"})
+
+	if _, leaked := probeB.received["--injected-by-rule"]; leaked {
+		t.Fatalf("rule A's mutation leaked into rule B's map: %+v", probeB.received)
 	}
 }
 

@@ -151,3 +151,25 @@ func TestFormatRatio(t *testing.T) {
 		t.Errorf("FormatRatio(4.5) = %q, want %q", got, want)
 	}
 }
+
+// TestFormatRatio_TruncatesTowardZero_NeverRoundsUpToThreshold es la
+// regresión para el hallazgo de contradicción del code review: un ratio
+// que MeetsAA reprobó (por debajo del umbral) no debe formatearse de forma
+// que aparente HABER ALCANZADO el umbral. #006ffb sobre blanco da
+// ~4.499888:1 — reprueba AA (4.5:1), pero %.2f con redondeo half-up
+// mostraría "4.50:1", indistinguible del umbral en el mensaje.
+func TestFormatRatio_TruncatesTowardZero_NeverRoundsUpToThreshold(t *testing.T) {
+	ratio, ok := ContrastRatio("#006ffb", "#ffffff")
+	if !ok {
+		t.Fatalf("ContrastRatio(#006ffb, #ffffff) ok = false, want true")
+	}
+	if MeetsAA(ratio, false) {
+		t.Fatalf("ratio %v should fail AA (below 4.5:1)", ratio)
+	}
+
+	got := FormatRatio(ratio)
+	want := "4.49:1"
+	if got != want {
+		t.Errorf("FormatRatio(%v) = %q, want %q (a failing ratio must never display as >= the threshold)", ratio, got, want)
+	}
+}

@@ -3,6 +3,7 @@ package linter
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -121,6 +122,37 @@ EOF
 	want := `theme={"--text-color":"#111111"}`
 	if diags[0].Message != want {
 		t.Errorf("Message = %q, want %q (theme variables must arrive via %s)", diags[0].Message, want, themeVariablesEnvVar)
+	}
+}
+
+// TestFilterOutEnvVar_CaseInsensitive es la regresión para el hallazgo del
+// segundo code review: Windows (una plataforma publicada por este
+// toolchain) trata los nombres de variable de entorno sin distinguir
+// mayúsculas/minúsculas, así que un valor heredado con una capitalización
+// distinta (p. ej. "ziradocs_theme_variables") debe filtrarse igual que la
+// forma exacta — una comparación case-sensitive lo dejaría pasar.
+func TestFilterOutEnvVar_CaseInsensitive(t *testing.T) {
+	tests := []struct {
+		name string
+		env  []string
+	}{
+		{"exact case", []string{"ZIRADOCS_THEME_VARIABLES=stale", "PATH=/usr/bin"}},
+		{"all lowercase", []string{"ziradocs_theme_variables=stale", "PATH=/usr/bin"}},
+		{"mixed case", []string{"Ziradocs_Theme_Variables=stale", "PATH=/usr/bin"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filterOutEnvVar(tt.env, themeVariablesEnvVar)
+			for _, e := range got {
+				if strings.HasPrefix(strings.ToUpper(e), "ZIRADOCS_THEME_VARIABLES=") {
+					t.Fatalf("filterOutEnvVar(%v) did not remove the stale entry, got %v", tt.env, got)
+				}
+			}
+			if len(got) != 1 || got[0] != "PATH=/usr/bin" {
+				t.Fatalf("filterOutEnvVar(%v) = %v, want only the unrelated PATH entry preserved", tt.env, got)
+			}
+		})
 	}
 }
 

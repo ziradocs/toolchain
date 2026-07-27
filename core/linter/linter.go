@@ -114,7 +114,15 @@ func (l *Linter) WithThemeVariables(vars map[string]string) *Linter {
 	l.themeVariablesSet = true
 	for _, r := range l.rules {
 		if aware, ok := r.(ThemeAware); ok {
-			aware.SetThemeVariables(l.themeVariables)
+			// Cada regla recibe su PROPIA copia, no l.themeVariables
+			// directamente: l.themeVariables es también lo que
+			// runExternalRulepack serializa para los rulepacks externos, y
+			// si dos reglas ThemeAware compartieran la misma instancia
+			// mutable, una regla que borre/normalice una clave alteraría lo
+			// que ve la SIGUIENTE regla en este mismo lint run, y lo que
+			// termina en el JSON del rulepack — no solo el mapa original
+			// del caller (ya protegido por el clon de arriba).
+			aware.SetThemeVariables(cloneStringMap(l.themeVariables))
 		}
 	}
 	return l
@@ -175,7 +183,7 @@ func (l *Linter) AddRule(r Rule) *Linter {
 	}
 	if l.themeVariablesSet {
 		if aware, ok := r.(ThemeAware); ok {
-			aware.SetThemeVariables(l.themeVariables)
+			aware.SetThemeVariables(cloneStringMap(l.themeVariables))
 		}
 	}
 	return l

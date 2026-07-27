@@ -23,16 +23,18 @@ import (
 // no lo lee simplemente no ve la variable de entorno.
 const themeVariablesEnvVar = "ZIRADOCS_THEME_VARIABLES"
 
-// filterOutEnvVar devuelve env sin ninguna entrada "key=..." (case-sensitive,
-// como el resto del entorno de proceso en los sistemas que este toolchain
-// soporta). Se usa para que runExternalRulepack pueda partir de un entorno
-// heredado "limpio" respecto a themeVariablesEnvVar antes de decidir si lo
-// vuelve a agregar.
+// filterOutEnvVar devuelve env sin ninguna entrada cuyo nombre de variable
+// coincida con key, comparando SIN distinguir mayúsculas/minúsculas
+// (strings.EqualFold) — Windows (una plataforma publicada por este
+// toolchain, ver .goreleaser.yaml) trata los nombres de variable de entorno
+// sin distinguir mayúsculas, así que un valor heredado como
+// "ziradocs_theme_variables=..." debe filtrarse igual que la forma exacta;
+// una comparación case-sensitive lo dejaría pasar y llegaría al rulepack
+// aunque este seam nunca se haya usado en esta corrida.
 func filterOutEnvVar(env []string, key string) []string {
-	prefix := key + "="
 	out := make([]string, 0, len(env))
 	for _, e := range env {
-		if strings.HasPrefix(e, prefix) {
+		if name, _, found := strings.Cut(e, "="); found && strings.EqualFold(name, key) {
 			continue
 		}
 		out = append(out, e)

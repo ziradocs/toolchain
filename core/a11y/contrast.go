@@ -150,7 +150,17 @@ func MeetsAAA(ratio float64, largeText bool) bool {
 }
 
 // FormatRatio da una representación legible de un ratio ("4.50:1"), útil
-// para mensajes de diagnóstico.
+// para mensajes de diagnóstico. TRUNCA a 2 decimales (no redondea): un
+// ratio que MeetsAA ya evaluó como reprobado (p. ej. 4.499888, contra el
+// umbral 4.5) redondeado con %.2f mostraría "4.50:1" — un valor que
+// aparenta IGUALAR el umbral en un mensaje que dice "below... 4.5:1
+// required", contradictorio (code review de issue #30). Truncar en vez de
+// redondear garantiza que el valor mostrado nunca "suba" hacia el umbral:
+// como todos los umbrales WCAG (3.0, 4.5, 7.0) son exactamente
+// representables a 2 decimales, un ratio reprobado siempre se ve
+// estrictamente por debajo, y uno aprobado nunca se ve por debajo del
+// umbral que sí alcanzó.
 func FormatRatio(ratio float64) string {
-	return fmt.Sprintf("%.2f:1", ratio)
+	truncated := math.Trunc(ratio*100) / 100
+	return fmt.Sprintf("%.2f:1", truncated)
 }
