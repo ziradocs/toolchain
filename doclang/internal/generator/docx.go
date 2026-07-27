@@ -685,6 +685,16 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 		return g.renderGrid(doc, e)
 	case *ast.MathElement:
 		return g.renderMath(doc, e)
+	case *ast.DirectiveNode:
+		// Same rationale as markdown.go's case: a directive (@notes,
+		// @timer, …) is slidelang presenter-notes metadata with no
+		// document equivalent, so its content is not rendered — but the
+		// warning names it instead of falling through to the generic
+		// "Unknown element type", which would misleadingly imply the type
+		// itself is unrecognized.
+		g.logger.Warn("DOCX: la directiva @%s (línea %d) no tiene efecto en un documento y se omite; usá un blockquote si querés que su contenido se vea",
+			e.Name, e.GetPosition().Line)
+		return nil
 	default:
 		g.logger.Warn("DOCX: Unknown element type: %T", elem)
 		return nil
@@ -2034,7 +2044,13 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 	for _, block := range astDoc.ContentBlocks {
 		for _, elem := range block.Elements {
 			switch elem.(type) {
-			case *ast.ChartElement, *ast.MapElement, *ast.MermaidElement:
+			// MathElement faltaba acá: renderMath ya usa chromiumRenderer
+			// (RenderMathToPNG) pero, sin este case, un documento cuyo
+			// único elemento rico es una ecuación nunca inicializa
+			// chromiumRenderer, así que renderMath cae en su guarda de nil
+			// y la ecuación desaparece del DOCX en silencio — math estaba
+			// soportado solo nominalmente.
+			case *ast.ChartElement, *ast.MapElement, *ast.MermaidElement, *ast.MathElement:
 				return true
 			}
 		}

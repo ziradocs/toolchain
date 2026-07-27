@@ -205,9 +205,74 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 	case *ast.MermaidElement:
 		return fmt.Sprintf("```mermaid\n%s\n```\n", elem.Content)
 
+	case *ast.PlantUMLElement:
+		// Same treatment as MermaidElement above: a ```plantuml fence.
+		// GitLab and Kroki-backed renderers turn it into the real diagram;
+		// renderers that don't still show the source, which beats losing it
+		// (issue de cobertura descubierto en #38/#51 — antes caía al
+		// default y desaparecía sin rastro).
+		var md strings.Builder
+		if elem.Title != "" {
+			fmt.Fprintf(&md, "**%s**\n\n", elem.Title)
+		}
+		fmt.Fprintf(&md, "```plantuml\n%s\n```\n", elem.Content)
+		return md.String()
+
+	case *ast.MathElement:
+		// Content ya es LaTeX crudo (core/ast/nodes.go). $$...$$ es la
+		// convención de display math que GitHub, Pandoc y KaTeX/MathJax
+		// entienden. Label/Number son el mecanismo de xref — si están
+		// poblados, anteponen "Ecuación N" al caption igual que
+		// ImageElement antepone "Figura N" (ver ese case arriba).
+		var md strings.Builder
+		fmt.Fprintf(&md, "$$\n%s\n$$\n", elem.Content)
+		switch {
+		case elem.Label != "" && elem.Number > 0 && elem.Caption != "":
+			fmt.Fprintf(&md, "*Ecuación %d: %s*\n", elem.Number, elem.Caption)
+		case elem.Label != "" && elem.Number > 0:
+			fmt.Fprintf(&md, "*Ecuación %d*\n", elem.Number)
+		case elem.Caption != "":
+			fmt.Fprintf(&md, "*%s*\n", elem.Caption)
+		}
+		return md.String()
+
+	case *ast.CodeGroupElement:
+		// Markdown no tiene tabs: emitir los N bloques secuencialmente
+		// conserva todo el contenido (hoy se pierden los N, cae al
+		// default). Mismo fallback de label que docx.go's renderCodeGroup:
+		// Label -> Language -> "Code N".
+		var md strings.Builder
+		for i, block := range elem.CodeBlocks {
+			label := block.Label
+			if label == "" {
+				label = block.Language
+			}
+			if label == "" {
+				label = fmt.Sprintf("Code %d", i+1)
+			}
+			fmt.Fprintf(&md, "**%s**\n\n", label)
+			fmt.Fprintf(&md, "```%s\n%s\n```\n\n", block.Language, block.Content)
+		}
+		return md.String()
+
+	case *ast.MapElement:
+		return renderMapElementMarkdown(elem)
+
 	case *ast.ChartElement:
 		// Represent chart as code block
 		return fmt.Sprintf("```chart:%s\n[Chart data would be here]\n```\n", elem.ChartType)
+
+	case *ast.DirectiveNode:
+		// Una @directiva (@notes, @timer, …) es metadata de autoría de
+		// slidelang: en un documento no hay vista de presentador donde
+		// mostrarla, así que no se renderiza. Pero SÍ se avisa —y con el
+		// nombre real y la línea—, a diferencia del default genérico que
+		// decía "Unknown element type" (falso: el tipo se conoce
+		// perfectamente) y no le daba al autor ninguna pista de qué pasó
+		// con su contenido.
+		m.logger.Warn("MARKDOWN: la directiva @%s (línea %d) no tiene efecto en un documento y se omite; usá un blockquote si querés que su contenido se vea",
+			elem.Name, elem.GetPosition().Line)
+		return ""
 
 	case *ast.SpecialBlockElement:
 		var md strings.Builder
@@ -266,4 +331,29 @@ func renderMediaElementMarkdown(elem *ast.MediaElement) string {
 		return fmt.Sprintf("*[%s bloqueado por seguridad]*\n", label)
 	}
 	return fmt.Sprintf("[%s %s: %s](%s)\n", icon, label, safeSource, safeSource)
+}
+
+// renderMapElementMarkdown degrades a MapElement to its data (issue #38/#51
+// coverage gap) — an interactive map has no Markdown equivalent, but its
+// markers ARE expressable and are what the author actually wrote; losing
+// them entirely (the previous default: behavior) is worse than degrading to
+// a table, same rationale as renderMediaElementMarkdown above.
+func renderMapElementMarkdown(elem *ast.MapElement) string {
+	var md strings.Builder
+	if elem.Title != "" {
+		fmt.Fprintf(&md, "*[mapa: %s — %s]*\n", elem.MapType, elem.Title)
+	} else {
+		fmt.Fprintf(&md, "*[mapa: %s]*\n", elem.MapType)
+	}
+
+	if len(elem.Markers) == 0 {
+		return md.String()
+	}
+
+	md.WriteString("\n| Label | Lat | Lng | Value |\n")
+	md.WriteString("| --- | --- | --- | --- |\n")
+	for _, marker := range elem.Markers {
+		fmt.Fprintf(&md, "| %s | %g | %g | %g |\n", marker.Label, marker.Lat, marker.Lng, marker.Value)
+	}
+	return md.String()
 }

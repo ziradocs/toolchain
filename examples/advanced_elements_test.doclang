@@ -268,13 +268,31 @@ let config = Config {
 
 ---
 
+# Math - Equations
+
+Block equations use raw LaTeX, rendered as display math.
+
+<<math>>
+E = mc^2
+label: "eq:einstein"
+<<end>>
+
+A second equation without a label, to cover the unlabeled/unnumbered path:
+
+<<math>>
+x^2 + y^2 = z^2
+<<end>>
+
+---
+
 # Conclusion
 
-Advanced elements (CodeGroup, PlantUML, Grid, Column) let you create professional technical documents with:
+Advanced elements (CodeGroup, PlantUML, Grid, Column, Math) let you create professional technical documents with:
 
 - **Code examples** in multiple languages
 - **UML diagrams** for architecture and design
 - **Flexible layouts** with grids and columns
+- **Equations** rendered from raw LaTeX
 - **Content organized** visually
 
 DocLang now supports all these elements! 🎉

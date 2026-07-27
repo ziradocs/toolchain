@@ -66,9 +66,11 @@ Same shared element parsers as ZiraDocs flex mode — see
 maps, tables, special blocks, code, code-groups, checklists, math, etc.).
 All of it works identically inside a DocLang section — with one exception:
 directives (`@notes`, `@timer`, …) parse, but the document renderer emits
-nothing for them, so they silently vanish from DocLang output. `@include`
-is the exception to the exception: it is expanded before parsing, so it
-works in both formats.
+nothing for them — a directive is slidelang presenter-notes metadata, and a
+document has no presenter view to show it in. Unlike a truly unrecognized
+element, this is not silent: both the Markdown and DOCX generators log a
+warning naming the directive and its line. `@include` is the exception to
+the exception: it is expanded before parsing, so it works in both formats.
 
 ## Validation: DocLang runs the same linter
 
