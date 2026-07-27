@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// TestBuildCDNIncludes_BrowserEmitsAllCDN: en modo browser se emiten las 3
-// librerías CDN (comportamiento histórico).
+// TestBuildCDNIncludes_BrowserEmitsAllCDN: en modo browser se emiten las 4
+// librerías CDN (mermaid/chart.js/leaflet históricas + MathJax, issue #38).
 func TestBuildCDNIncludes_BrowserEmitsAllCDN(t *testing.T) {
 	tb := NewTemplateBuilder().WithRenderMode("browser")
 	got := tb.buildCDNIncludes()
-	for _, want := range []string{"cdn.jsdelivr.net/npm/mermaid", "chart.js", "unpkg.com/leaflet"} {
+	for _, want := range []string{"cdn.jsdelivr.net/npm/mermaid", "chart.js", "unpkg.com/leaflet", "cdn.jsdelivr.net/npm/mathjax"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("browser CDN includes missing %q\ngot: %s", want, got)
 		}

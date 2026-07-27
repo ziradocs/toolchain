@@ -1,0 +1,23 @@
+/* Ecuaciones matemáticas (issue #38) — el <div class="slidelang-math-block">
+   contiene el LaTeX crudo entre delimitadores \[...\], tipografiado
+   client-side por el bundle tex-svg.js de MathJax (CDN, ver
+   template/base.go's buildCDNIncludes). */
+.slidelang-element.slidelang-math {
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.slidelang-element.slidelang-math .slidelang-math-block {
+    display: inline-block;
+}
+
+.slidelang-element.slidelang-math .slidelang-math-number {
+    margin-left: 0.5em;
+    font-weight: 600;
+}
+
+.slidelang-element.slidelang-math .slidelang-math-caption {
+    margin-top: 0.5em;
+    font-size: 0.9em;
+    color: var(--text-secondary, #718096);
+}

@@ -404,10 +404,16 @@ func (tb *TemplateBuilder) buildCDNIncludes() string {
 	// para que un CDN comprometido no pueda inyectar contenido arbitrario en la página.
 	// Los hashes están atados a la URL versionada exacta; si se bumpea una versión,
 	// hay que recomputar el hash correspondiente (sha384, base64) contra la nueva URL.
+	// MathCDNScriptTag (issue #38): MathJax se necesita en modo browser para
+	// tipografiar los .slidelang-math-block que el template emite (delimitadores
+	// \[...\]) — sin este <script>, Math renderiza como LaTeX crudo sin
+	// tipografiar. Reusa la constante de core (misma versión/SRI que doclang)
+	// en vez de re-pinear el hash acá.
 	return `    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.min.js" integrity="sha384-Wm9qzEgq4j1jEnuFK2FxKTlwuhbV2QqtGhcchvjDoKxeJ7WWAW7fysBq+1s6myfX" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" integrity="sha384-FcQlsUOd0TJjROrBxhJdUhXTUgNJQxTMcxZe6nHbaEfFL1zjQ+bq/uRoBQxb0KMo" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+    ` + renderer.MathCDNScriptTag + `
 `
 }
 
@@ -767,7 +773,31 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                      data-diagram-type="{{.DiagramType}}"
                      role="img"
                      {{if .Title}}aria-labelledby="slidelang-element-mermaid-title-{{.SlideIndex}}-{{.ElementID}}"{{else}}aria-label="Diagrama {{.DiagramType}}"{{end}}>{{.PreRenderedHTML}}</div>
-            </div>        {{else if eq .Type "chart"}}
+            </div>
+        {{else if eq .Type "plantuml"}}
+            <div class="slidelang-element slidelang-plantuml"
+                 id="slidelang-element-plantuml-wrapper-{{.SlideIndex}}-{{.ElementID}}"
+                 data-element-type="plantuml"
+                 data-slide="{{.SlideIndex}}">
+                {{if .Title}}<h2 id="slidelang-element-plantuml-title-{{.SlideIndex}}-{{.ElementID}}">{{.Title}}</h2>{{end}}
+                <div class="slidelang-plantuml-container"
+                     id="slidelang-element-plantuml-{{.SlideIndex}}-{{.ElementID}}"
+                     role="img"
+                     {{if .Title}}aria-labelledby="slidelang-element-plantuml-title-{{.SlideIndex}}-{{.ElementID}}"{{else}}aria-label="Diagrama {{.DiagramType}}"{{end}}>
+                    <object type="image/svg+xml" data="{{.PlantUMLSVGURL}}" class="slidelang-plantuml-diagram">
+                        <img src="{{.PlantUMLPNGURL}}" alt="Diagrama PlantUML" class="slidelang-plantuml-fallback">
+                    </object>
+                </div>
+            </div>
+        {{else if eq .Type "math"}}
+            <div class="slidelang-element slidelang-math"
+                 id="slidelang-element-math-{{.SlideIndex}}-{{.ElementID}}"
+                 data-element-type="math"
+                 data-slide="{{.SlideIndex}}">
+                <div class="slidelang-math-block">\[{{.Content}}\]{{if and .MathLabel (gt .MathNumber 0)}} <span class="slidelang-math-number">({{.MathNumber}})</span>{{end}}</div>
+                {{if .Caption}}<div class="slidelang-math-caption">{{.Caption}}</div>{{end}}
+            </div>
+        {{else if eq .Type "chart"}}
             <div class="slidelang-element slidelang-chart"
                  id="slidelang-element-chart-wrapper-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="chart"

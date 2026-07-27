@@ -1,0 +1,20 @@
+/* Diagramas PlantUML (issue #38) — solo modo browser: el <object>/<img>
+   apunta directo al servidor PlantUML, sin loader ni JS involucrado (a
+   diferencia del <div class="plantuml-container"> de core/doclang, que sí
+   tiene un spinner con su propio wiring JS — ver el comentario en
+   data/converter.go's case *ast.PlantUMLElement). */
+.slidelang-element.slidelang-plantuml {
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.slidelang-element.slidelang-plantuml .slidelang-plantuml-container {
+    display: block;
+    width: 100%;
+}
+
+.slidelang-element.slidelang-plantuml .slidelang-plantuml-diagram,
+.slidelang-element.slidelang-plantuml .slidelang-plantuml-fallback {
+    max-width: 100%;
+    height: auto;
+}

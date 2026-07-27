@@ -306,6 +306,8 @@ func GetAvailableModules() []string {
 		"maps",            // Map elements (Leaflet)
 		"media",           // Audio/video elements (issue #21)
 		"headers_footers", // Headers and footers (specialized use)
+		"plantuml",        // PlantUML diagrams (issue #38)
+		"math",            // Math equations (issue #38)
 	}
 }
 

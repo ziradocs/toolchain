@@ -275,6 +275,40 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				elementData.DiagramType = elem.DiagramType
 				elementData.Content = ProcessVariables(elem.Content, variables)
 				elementData.Title = ProcessVariables(elem.Title, variables)
+			case *ast.PlantUMLElement:
+				// Issue #38. Reusa el sanitizador + los encoders de URL
+				// exportados de core (los mismos que
+				// core/renderer/html.go's renderPlantUMLElement usa) en vez
+				// de re-derivar a mano el request al servidor PlantUML —
+				// pero renderiza vía el template/CSS propio de slidelang,
+				// NO delegando el <div> completo de core: el modo browser
+				// de core incluye un spinner de carga cuyo JS de
+				// limpieza (marcar .loaded) vive en
+				// core/renderer/document_html.go, exclusivo del documento
+				// HTML de doclang — reusar ese HTML tal cual dejaría un
+				// spinner sin nada que jamás lo oculte. Sin modo offline
+				// propio todavía (issue de seguimiento): siempre la forma
+				// "browser" (object/img).
+				content := renderer.SanitizePlantUMLContent(ProcessVariables(elem.Content, variables))
+				elementData.DiagramType = elem.DiagramType
+				elementData.Title = ProcessVariables(elem.Title, variables)
+				elementData.PlantUMLSVGURL = renderer.GeneratePlantUMLSVGURL(content, "")
+				elementData.PlantUMLPNGURL = renderer.GeneratePlantUMLPNGURL(content, "")
+			case *ast.MathElement:
+				// Issue #38. Content es LaTeX crudo (core/ast/nodes.go) —
+				// NO se procesa con ProcessVariables como un Content de
+				// prosa, mismo criterio que MermaidElement.Content arriba.
+				// El template interpola {{.Content}} en un nodo de texto de
+				// html/template, cuyo auto-escaping estructural cumple la
+				// misma garantía que core/renderer/math_html.go's
+				// BuildMathDiv impone con su llamada explícita a
+				// EscapeHTML (issue #73) — la diferencia es que acá lo
+				// garantiza el motor de templates en sí, no una llamada que
+				// un futuro edit podría olvidar.
+				elementData.Content = elem.Content
+				elementData.MathLabel = elem.Label
+				elementData.MathNumber = elem.Number
+				elementData.Caption = ProcessVariables(elem.Caption, variables)
 			case *ast.ChartElement:
 				elementData.ChartType = elem.ChartType
 				elementData.SeriesTypes = elem.SeriesTypes
