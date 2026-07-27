@@ -61,9 +61,23 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 	// falta guardar/restaurar un contexto previo para no pisar la generación
 	// HTML del mismo build (build.go's runBuild): cada formato arma y usa el
 	// suyo propio, sin compartir nada mutable entre sí.
+	//
+	// A diferencia de SetupOfflineRenderContext (offline.go), acá Chromium ya
+	// está SIEMPRE instanciado arriba (línea 45) sin importar qué elementos
+	// trae el deck, así que buildInteractiveRenderContext siempre puede
+	// cablear MathFetcher sin costo adicional. PlantUML se cablea aparte con
+	// wirePlantUMLFetcher cuando el deck no tiene NINGÚN elemento
+	// Chromium-only: sin esto, un PDF con solo diagramas PlantUML seguiría
+	// apuntando a URLs remotas (plantuml.com) desde una página inyectada por
+	// about:blank con una ventana de carga fija de 500ms — justo el problema
+	// que offline-inline existe para evitar (hallazgo de code-review sobre
+	// PR #56).
 	ctx := renderer.NewDefaultRenderContext()
 	if hasInteractiveElements(astNode) {
-		ctx = buildInteractiveRenderContext(chromiumRenderer, outputDir, pdfOpts)
+		ctx = buildInteractiveRenderContext(chromiumRenderer, astNode, outputDir, pdfOpts)
+	} else {
+		ctx.OutputDir = outputDir
+		wirePlantUMLFetcher(ctx, astNode, pdfOpts, outputDir)
 	}
 
 	presentationConfig, err := g.preparePresentationConfig(astNode, outputDir, pdfOpts, ctx)

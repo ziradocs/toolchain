@@ -35,10 +35,15 @@ var slidelangChromiumBrand = chromium.ChromiumBrand{
   slidelang build deck.slidelang --format html --render-mode=offline-inline --chromium-path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`,
 }
 
-// hasInteractiveElements indica si el AST contiene algún mermaid/chart/map — los
-// únicos elementos que el pipeline offline pre-renderiza. Un deck sin ellos no
-// necesita Chromium aunque se pida un modo offline.
-func hasInteractiveElements(astNode *ast.AST) bool {
+// hasChromiumOnlyElements indica si el AST contiene mermaid/chart/map —
+// elementos SIN degradación textual: si Chromium no está disponible no hay
+// nada razonable que mostrar en su lugar, así que su ausencia debe ser un
+// error fatal del build (comportamiento histórico, preservado tal cual).
+// MathElement queda deliberadamente FUERA de esta lista — ver hasMathElements
+// y su uso en SetupOfflineRenderContext (hallazgo de code-review sobre PR
+// #56: math SÍ tiene una degradación razonable — el LaTeX crudo — así que su
+// ausencia de Chromium no debe tumbar el build entero).
+func hasChromiumOnlyElements(astNode *ast.AST) bool {
 	if astNode == nil {
 		return false
 	}
@@ -53,6 +58,74 @@ func hasInteractiveElements(astNode *ast.AST) bool {
 	return false
 }
 
+// hasMathElements indica si el AST contiene alguna ecuación. Separado de
+// hasChromiumOnlyElements porque math, a diferencia de mermaid/chart/map,
+// tiene una degradación razonable (LaTeX crudo sin tipografiar) cuando
+// Chromium no está disponible — ver SetupOfflineRenderContext.
+func hasMathElements(astNode *ast.AST) bool {
+	if astNode == nil {
+		return false
+	}
+	for _, block := range astNode.ContentBlocks {
+		for _, el := range block.Elements {
+			if _, ok := el.(*ast.MathElement); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasInteractiveElements indica si el AST contiene algún mermaid/chart/map/
+// math — los elementos que el pipeline offline intenta pre-renderizar con
+// Chromium. Un deck sin ellos no necesita Chromium aunque se pida un modo
+// offline. PlantUML NO entra acá a propósito: su fetcher es HTTP puro
+// (chromium.NewPlantUMLFetcher, no chromedp — ver plantuml_fetcher.go), así
+// que spinear Chromium solo por PlantUML sería puro costo sin beneficio; ver
+// hasPlantUMLElements para su propio chequeo, independiente de este.
+func hasInteractiveElements(astNode *ast.AST) bool {
+	return hasChromiumOnlyElements(astNode) || hasMathElements(astNode)
+}
+
+// hasPlantUMLElements indica si el AST contiene algún diagrama PlantUML —
+// chequeo separado de hasInteractiveElements porque PlantUML no necesita
+// Chromium (issue de code-review sobre PR #56: antes PlantUMLMode quedaba
+// fijo en "browser" sin importar el modo pedido, dejando URLs remotas en
+// salidas que se suponen autocontenidas, como PDF y offline-inline).
+func hasPlantUMLElements(astNode *ast.AST) bool {
+	if astNode == nil {
+		return false
+	}
+	for _, block := range astNode.ContentBlocks {
+		for _, el := range block.Elements {
+			if _, ok := el.(*ast.PlantUMLElement); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// wirePlantUMLFetcher configura ctx.Fetcher/ctx.PlantUMLMode/ctx.PlantUMLFormat
+// para el modo offline pedido, SOLO si el documento realmente trae PlantUML —
+// evita construir un fetcher HTTP que nunca se va a usar. opts.PlantUMLServer/
+// PlantUMLFormat (hallazgo de code-review sobre PR #56, --plantuml-server/
+// --plantuml-format) dejan a un operador en una red air-gapped/con proxy
+// apuntar a un servidor propio en vez de forzar siempre el público; vacíos
+// resuelven a los defaults de chromium.NewPlantUMLFetcher.
+func wirePlantUMLFetcher(ctx *renderer.RenderContext, astNode *ast.AST, opts GeneratorOptions, outputDir string) {
+	if !hasPlantUMLElements(astNode) {
+		return
+	}
+	format := opts.PlantUMLFormat
+	if format == "" {
+		format = "svg"
+	}
+	ctx.PlantUMLMode = opts.RenderMode
+	ctx.PlantUMLFormat = format
+	ctx.Fetcher = chromium.NewPlantUMLFetcher(opts.PlantUMLServer, format, outputDir)
+}
+
 // SetupOfflineRenderContext arma el *renderer.RenderContext que el caller debe
 // pasar explícitamente (issue #134/G1a) a GenerateWithOptions para que
 // renderer.RenderElementToHTML pre-renderice mermaid/chart/map en modos
@@ -65,17 +138,30 @@ func hasInteractiveElements(astNode *ast.AST) bool {
 //
 // Está pensado para llamarse UNA vez envolviendo todo el build (antes del loop de
 // formatos en runBuild), de modo que un fallo de inicialización de Chromium ocurra
-// ANTES de escribir cualquier formato al disco — sin dejar salida parcial. slidelang
-// no renderiza PlantUML, así que ese modo queda en "browser".
+// ANTES de escribir cualquier formato al disco — sin dejar salida parcial.
 func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string, opts GeneratorOptions) (*renderer.RenderContext, func(), error) {
 	noop := func() {}
 	if !opts.IsOffline() {
 		return renderer.NewDefaultRenderContext(), noop, nil
 	}
+
+	needsChromium := hasInteractiveElements(astNode)
+	needsPlantUML := hasPlantUMLElements(astNode)
+
 	// Un deck de solo texto no necesita Chromium aunque se pida offline; no
 	// forzamos su instalación/arranque para nada (issue #92).
-	if !hasInteractiveElements(astNode) {
+	if !needsChromium && !needsPlantUML {
 		return renderer.NewDefaultRenderContext(), noop, nil
+	}
+
+	// Un deck con SOLO PlantUML (sin mermaid/chart/map/math) no necesita
+	// Chromium en absoluto: su fetcher es HTTP puro (issue de code-review
+	// sobre PR #56).
+	if !needsChromium {
+		ctx := renderer.NewDefaultRenderContext()
+		ctx.OutputDir = outputDir
+		wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
+		return ctx, noop, nil
 	}
 
 	// issue #164: un deck cuyos charts son TODOS nativo-capaces (y que no
@@ -94,10 +180,27 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 	logAdapter := &renderer.ChromiumLoggerAdapter{Logger: g.logger}
 	chromiumR, err := chromium.NewChromiumRendererWithBrand(context.Background(), opts.ChromiumPath, opts.InstallChromium, logAdapter, slidelangChromiumBrand)
 	if err != nil {
+		// Un deck con mermaid/chart/map no tiene degradación razonable sin
+		// Chromium — comportamiento histórico preservado, el build falla.
+		// Pero si lo ÚNICO que necesitaba Chromium era math (hallazgo de
+		// code-review sobre PR #56: agregar MathElement a
+		// hasInteractiveElements quitó la garantía de "sin Chromium
+		// interactivo, nunca se toca Chromium" para un deck de solo texto+
+		// ecuaciones), degradar con gracia en vez de tumbar el build entero:
+		// las ecuaciones quedan como LaTeX crudo sin tipografiar — el mismo
+		// resultado que este deck ya producía ANTES de que #56 le agregara
+		// soporte, no una regresión nueva.
+		if !hasChromiumOnlyElements(astNode) {
+			g.logger.Warn("HTML: Chromium no disponible, las ecuaciones se mostrarán como LaTeX sin tipografiar (%v)", err)
+			ctx := renderer.NewDefaultRenderContext()
+			ctx.OutputDir = outputDir
+			wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
+			return ctx, noop, nil
+		}
 		return nil, noop, fmt.Errorf("failed to initialize Chromium for offline rendering: %w", err)
 	}
 
-	ctx := buildInteractiveRenderContext(chromiumR, outputDir, opts)
+	ctx := buildInteractiveRenderContext(chromiumR, astNode, outputDir, opts)
 
 	g.logger.Info("HTML", "✅ Offline rendering habilitado (render-mode: %s, image-format: %s)", opts.RenderMode, resolveImageFormat(opts.ImageFormat))
 
@@ -165,12 +268,19 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 	// Sin MapFetcher: este camino solo se alcanza para documentos sin mapas
 	// (el case *ast.MapElement de arriba retorna false), así que ningún
 	// render de mapa puede llegar acá.
-	return &renderer.RenderContext{
+	ctx := &renderer.RenderContext{
 		ChartMode:    opts.RenderMode,
 		PlantUMLMode: "browser",
 		OutputDir:    outputDir,
 		ChartFetcher: chartFetcher,
-	}, true
+		Ctx:          context.Background(),
+	}
+	// Un chart nativo puede convivir con PlantUML en el mismo deck (PlantUML
+	// no entra al switch de arriba, así que no hace bail-out a Chromium) —
+	// cablearlo acá también, en vez de dejarlo fijo en "browser" (issue de
+	// code-review sobre PR #56).
+	wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
+	return ctx, true
 }
 
 // resolveImageFormat aplica el default "png" cuando --image-format no se
@@ -193,13 +303,15 @@ func resolveWebPQuality(webpQuality int) int {
 }
 
 // buildInteractiveRenderContext arma un *renderer.RenderContext con
-// fetchers de mermaid/chart/map sobre `chromiumR`, con renderMode/
+// fetchers de mermaid/chart/map/math sobre `chromiumR`, con renderMode/
 // image-format/webp-quality tomados de `opts` — única fuente de verdad
 // reusada por SetupOfflineRenderContext (modo --format html offline) y
 // generatePDF (pdf.go, issue #128), que antes duplicaban byte-a-byte esta
-// misma construcción (hallazgo de code-review sobre PR #160). slidelang no
-// renderiza PlantUML, así que ese modo queda fijo en "browser".
-func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, outputDir string, opts GeneratorOptions) *renderer.RenderContext {
+// misma construcción (hallazgo de code-review sobre PR #160). PlantUML se
+// cablea aparte vía wirePlantUMLFetcher (no necesita `chromiumR` — su
+// fetcher es HTTP puro), pero se resuelve acá para tener un solo punto de
+// entrada que ambos callers usan.
+func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode *ast.AST, outputDir string, opts GeneratorOptions) *renderer.RenderContext {
 	imageFormat := resolveImageFormat(opts.ImageFormat)
 	webpQuality := resolveWebPQuality(opts.WebPQuality)
 
@@ -209,15 +321,21 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, outputD
 	chartFetcher.SetImageFormat(imageFormat, webpQuality)
 	mapFetcher := chromium.NewMapFetcher(chromiumR, fetcherLog)
 	mapFetcher.SetImageFormat(imageFormat, webpQuality)
+	mathFetcher := chromium.NewMathFetcher(chromiumR, fetcherLog)
 
-	return &renderer.RenderContext{
+	ctx := &renderer.RenderContext{
 		MermaidMode:    opts.RenderMode,
 		ChartMode:      opts.RenderMode,
 		MapMode:        opts.RenderMode,
+		MathMode:       opts.RenderMode,
 		PlantUMLMode:   "browser",
 		OutputDir:      outputDir,
 		MermaidFetcher: mermaidFetcher,
 		ChartFetcher:   chartFetcher,
 		MapFetcher:     mapFetcher,
+		MathFetcher:    mathFetcher,
+		Ctx:            context.Background(),
 	}
+	wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
+	return ctx
 }

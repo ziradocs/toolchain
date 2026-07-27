@@ -322,6 +322,10 @@ func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 				elementTypes["grids"] = true
 			case *ast.MediaElement:
 				elementTypes["media"] = true
+			case *ast.PlantUMLElement:
+				elementTypes["plantuml"] = true
+			case *ast.MathElement:
+				elementTypes["math"] = true
 			}
 		}
 	}

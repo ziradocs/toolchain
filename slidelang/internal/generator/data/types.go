@@ -182,8 +182,15 @@ type ElementData struct {
 	Icon      string
 	// Code group data
 	CodeBlocks []CodeBlockData
-	// Mermaid data
-	DiagramType string // Chart data
+	// Mermaid data (DiagramType is shared with PlantUML below, same shape)
+	DiagramType string
+	// PlantUML data (issue #38) — SVG/PNG URLs precomputed in converter.go
+	// via core's exported SanitizePlantUMLContent +
+	// GeneratePlantUMLSVGURL/PNGURL, so the template only interpolates
+	// already-safe URLs instead of re-deriving the PlantUML request.
+	PlantUMLSVGURL string
+	PlantUMLPNGURL string
+	// Chart data
 	ChartType   string
 	SeriesTypes []string
 	ChartData   [][]interface{}
@@ -197,6 +204,13 @@ type ElementData struct {
 	Heatmap    bool
 	Zoom       int
 	MapOptions map[string]interface{}
+	// Math data (issue #38) — Content (shared field above) is raw LaTeX,
+	// same convention as MermaidElement/PlantUMLElement's Content. Caption
+	// (shared field above) is the caption text; MathLabel/MathNumber are
+	// the xref mechanism, mirroring core/renderer/html.go's
+	// renderMathElement ("(N)" only emitted when both are set).
+	MathLabel  string
+	MathNumber int
 	// Quote data
 	Author string // Autor de la cita
 	// Image context data

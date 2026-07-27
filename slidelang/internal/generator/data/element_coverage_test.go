@@ -18,12 +18,7 @@ import (
 // implementador de ast.Element (el ast del DSL, en go.ziradocs.com/core/v2/ast
 // — no el go/ast de este archivo) deliberadamente no tiene un case propio en
 // el switch principal de PrepareTemplateDataWithRenderMode (converter.go).
-var excludedFromElementCoverage = map[string]string{
-	// Issue #38: descubiertos por este mismo guard, no estaban en el alcance
-	// original de #35/#37.
-	"PlantUMLElement": "issue #38 — sin case en converter.go/template/base.go/pptx.go",
-	"MathElement":     "issue #38 — sin case en converter.go/template/base.go/pptx.go",
-}
+var excludedFromElementCoverage = map[string]string{}
 
 // TestConverterCoversAllElementImplementers cubre issue #35: el switch
 // principal de PrepareTemplateDataWithRenderMode (converter.go) debe tener un

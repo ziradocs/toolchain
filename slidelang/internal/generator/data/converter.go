@@ -6,6 +6,8 @@ package data
 import (
 	"fmt"
 	htmltemplate "html/template"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -114,6 +116,103 @@ func namespaceClassTokens(classes string) string {
 	return strings.Join(tokens, " ")
 }
 
+// renderOfflineMath pre-renderiza una ecuación LaTeX a SVG para los modos
+// offline llamando directamente a ctx.MathFetcher, con clases
+// "slidelang-math-*" (issue de code-review sobre PR #56: sin esto, PDF y
+// --render-mode=offline-* dejaban el LaTeX crudo sin tipografiar, porque
+// buildCDNIncludes strippea el <script> de MathJax en todo modo offline sin
+// importar si el elemento tiene o no una alternativa pre-renderizada).
+//
+// A diferencia de core/renderer/html.go's renderMathOfflineAssets/Inline,
+// que en un fetcher nil o un error de fetch devuelven un <div class=
+// "math-error"> visible, acá un fallo devuelve string vacío a propósito
+// (hallazgo de code-review sobre PR #56): PreRenderedHTML queda "" y
+// template/base.go's `{{if .PreRenderedHTML}}` cae al fallback de modo
+// browser (el LaTeX crudo entre \[...\]) en vez de tratar el div de error
+// como si fuera un pre-render exitoso — un fetch transitorio ya no borra la
+// fuente de la ecuación del output ni deja el build en verde sin avisar
+// (el fallo se loguea acá, con logger.Warn). cache deduplica llamadas
+// repetidas al MISMO contenido dentro del mismo build (una ecuación
+// reutilizada en N slides no dispara N fetches de 30s cada uno).
+func renderOfflineMath(content, renderMode string, ctx *renderer.RenderContext, log util.Logger, cache map[string]htmltemplate.HTML) htmltemplate.HTML {
+	if cached, ok := cache[content]; ok {
+		return cached
+	}
+
+	var result htmltemplate.HTML
+	switch {
+	case ctx == nil || ctx.MathFetcher == nil:
+		log.Warn("HTML: Math fetcher not configured for offline mode, showing raw LaTeX instead of a typeset equation")
+	case renderMode == "offline-assets":
+		relPath, err := ctx.MathFetcher.FetchAndSave(ctx.Ctx, content, filepath.Join(ctx.OutputDir, "assets"))
+		if err != nil {
+			log.Warn("HTML: failed to render equation offline, showing raw LaTeX instead: %v", err)
+		} else {
+			result = htmltemplate.HTML(fmt.Sprintf(`<img src="assets/%s" alt="Equation" class="slidelang-math-diagram slidelang-math-offline" type="image/svg+xml">`, relPath))
+		}
+	default:
+		svg, err := ctx.MathFetcher.FetchInline(ctx.Ctx, content)
+		if err != nil {
+			log.Warn("HTML: failed to render equation offline, showing raw LaTeX instead: %v", err)
+		} else {
+			result = htmltemplate.HTML(fmt.Sprintf(`<div class="slidelang-math-diagram slidelang-math-inline">%s</div>`, svg))
+		}
+	}
+
+	cache[content] = result
+	return result
+}
+
+// plantUMLInlineSizeStyle limpia el "width:Npx;height:Npx;" que el propio
+// servidor PlantUML incrusta en el style="..." del <svg> raíz (hallazgo de
+// code-review sobre PR #56): un atributo style inline gana por especificidad
+// sobre la regla CSS ".slidelang-plantuml-diagram { max-width:100%%; height:
+// auto }", así que sin esto el diagrama queda con su ANCHO original
+// encogido por la clase pero el ALTO fijo al original — deformado. Deja
+// intacto cualquier otro par style (p. ej. "background:#FFFFFF;").
+var plantUMLInlineSizeStyle = regexp.MustCompile(`(?:width|height):[0-9.]+px;\s*`)
+
+// renderOfflinePlantUML pre-renderiza un diagrama PlantUML a SVG para los
+// modos offline llamando directamente a ctx.Fetcher, con clases
+// "slidelang-plantuml-*". `content` ya debe venir sanitizado por el caller
+// (SanitizePlantUMLContent), igual que en el case browser de arriba. Mismo
+// contrato de degradación silenciosa + log que renderOfflineMath: un fallo
+// devuelve "" para que el template caiga al <object>/<img> de modo browser
+// en vez de a un <div> de error que reemplazaría el diagrama por un mensaje
+// permanente (issue de code-review sobre PR #56). cache deduplica fetches
+// repetidos al mismo diagrama dentro del mismo build.
+func renderOfflinePlantUML(content, renderMode string, ctx *renderer.RenderContext, log util.Logger, cache map[string]htmltemplate.HTML) htmltemplate.HTML {
+	if cached, ok := cache[content]; ok {
+		return cached
+	}
+
+	var result htmltemplate.HTML
+	switch {
+	case ctx == nil || ctx.Fetcher == nil:
+		log.Warn("HTML: PlantUML fetcher not configured for offline mode, falling back to the remote-URL diagram")
+	case renderMode == "offline-assets":
+		assetPath, err := ctx.Fetcher.FetchDiagramToAssets(ctx.Ctx, content)
+		if err != nil {
+			log.Warn("HTML: failed to fetch PlantUML diagram offline, falling back to the remote-URL diagram: %v", err)
+		} else {
+			result = htmltemplate.HTML(fmt.Sprintf(`<img src="%s" alt="PlantUML Diagram" class="slidelang-plantuml-diagram slidelang-plantuml-offline" type="image/svg+xml">`, assetPath))
+		}
+	default:
+		svg, err := ctx.Fetcher.FetchDiagramInline(ctx.Ctx, content)
+		if err != nil {
+			log.Warn("HTML: failed to fetch PlantUML diagram offline, falling back to the remote-URL diagram: %v", err)
+		} else {
+			svg = plantUMLInlineSizeStyle.ReplaceAllString(svg, "")
+			svg = strings.Replace(svg, `preserveAspectRatio="none"`, `preserveAspectRatio="xMidYMid meet"`, 1)
+			svg = strings.Replace(svg, "<svg", `<svg class="slidelang-plantuml-diagram slidelang-plantuml-inline"`, 1)
+			result = htmltemplate.HTML(svg)
+		}
+	}
+
+	cache[content] = result
+	return result
+}
+
 func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode string, log util.Logger, ctx *renderer.RenderContext) PresentationData {
 	offline := renderer.IsOfflineRenderMode(renderMode)
 	data := PresentationData{
@@ -137,6 +236,13 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 
 	// Convertir slides
 	log.Info("GEN", "🎨 Converting %d slides to template data", len(astNode.ContentBlocks))
+
+	// mathOfflineCache/plantumlOfflineCache deduplican renderOfflineMath/
+	// renderOfflinePlantUML por contenido dentro de este build (issue de
+	// code-review sobre PR #56): un diagrama/ecuación repetido en varios
+	// slides antes disparaba un fetch de red completo por cada aparición.
+	mathOfflineCache := make(map[string]htmltemplate.HTML)
+	plantumlOfflineCache := make(map[string]htmltemplate.HTML)
 
 	for i, slide := range astNode.ContentBlocks {
 		// Detectar elementos interactivos
@@ -275,6 +381,43 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				elementData.DiagramType = elem.DiagramType
 				elementData.Content = ProcessVariables(elem.Content, variables)
 				elementData.Title = ProcessVariables(elem.Title, variables)
+			case *ast.PlantUMLElement:
+				// Issue #38. Reusa el sanitizador + los encoders de URL
+				// exportados de core (los mismos que
+				// core/renderer/html.go's renderPlantUMLElement usa) en vez
+				// de re-derivar a mano el request al servidor PlantUML —
+				// pero renderiza vía el template/CSS propio de slidelang,
+				// NO delegando el <div> completo de core: el modo browser
+				// de core incluye un spinner de carga cuyo JS de
+				// limpieza (marcar .loaded) vive en
+				// core/renderer/document_html.go, exclusivo del documento
+				// HTML de doclang — reusar ese HTML tal cual dejaría un
+				// spinner sin nada que jamás lo oculte. Estos dos campos
+				// (SVGURL/PNGURL) alimentan el <object>/<img> de MODO
+				// BROWSER (template/base.go); en modos offline SÍ hay un
+				// camino propio (renderOfflinePlantUML más abajo en este
+				// archivo, issue de code-review sobre PR #56), que el
+				// template prefiere vía PreRenderedHTML cuando está seteado.
+				content := renderer.SanitizePlantUMLContent(ProcessVariables(elem.Content, variables))
+				elementData.DiagramType = elem.DiagramType
+				elementData.Title = ProcessVariables(elem.Title, variables)
+				elementData.PlantUMLSVGURL = renderer.GeneratePlantUMLSVGURL(content, "")
+				elementData.PlantUMLPNGURL = renderer.GeneratePlantUMLPNGURL(content, "")
+			case *ast.MathElement:
+				// Issue #38. Content es LaTeX crudo (core/ast/nodes.go) —
+				// NO se procesa con ProcessVariables como un Content de
+				// prosa, mismo criterio que MermaidElement.Content arriba.
+				// El template interpola {{.Content}} en un nodo de texto de
+				// html/template, cuyo auto-escaping estructural cumple la
+				// misma garantía que core/renderer/math_html.go's
+				// BuildMathDiv impone con su llamada explícita a
+				// EscapeHTML (issue #73) — la diferencia es que acá lo
+				// garantiza el motor de templates en sí, no una llamada que
+				// un futuro edit podría olvidar.
+				elementData.Content = elem.Content
+				elementData.MathLabel = elem.Label
+				elementData.MathNumber = elem.Number
+				elementData.Caption = ProcessVariables(elem.Caption, variables)
 			case *ast.ChartElement:
 				elementData.ChartType = elem.ChartType
 				elementData.SeriesTypes = elem.SeriesTypes
@@ -429,6 +572,24 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 					cp := *e
 					cp.Title = ""
 					offlineElem = &cp
+				case *ast.PlantUMLElement:
+					// PlantUML/Math (issue #38, hallazgo de code-review sobre
+					// PR #56) NO pasan por RenderElementToHTML como
+					// mermaid/chart/map arriba: ese camino emitiría el
+					// <div class="plantuml-container"> de core, con su propio
+					// loader/spinner cuyo JS de limpieza es exclusivo del
+					// documento HTML de doclang (mismo motivo, ver el
+					// comentario del case *ast.PlantUMLElement más arriba en
+					// este archivo). Se llama al fetcher directamente y se
+					// arma el wrapper con las clases slidelang- propias, sin
+					// tocar renderer.OfflineElementClasses en core.
+					content := renderer.SanitizePlantUMLContent(ProcessVariables(e.Content, variables))
+					elementData.PreRenderedHTML = renderOfflinePlantUML(content, renderMode, ctx, log, plantumlOfflineCache)
+				case *ast.MathElement:
+					// Content es LaTeX crudo — no se procesa con
+					// ProcessVariables, mismo criterio que el case de arriba
+					// (browser) y que MermaidElement.Content.
+					elementData.PreRenderedHTML = renderOfflineMath(e.Content, renderMode, ctx, log, mathOfflineCache)
 				}
 				if offlineElem != nil {
 					elementData.PreRenderedHTML = htmltemplate.HTML(
