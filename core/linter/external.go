@@ -5,12 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
+
+// themeVariablesEnvVar es el nombre de la variable de entorno por la que un
+// rulepack externo (subproceso) recibe el mapa de variables CSS del tema
+// activo, como JSON. Los rulepacks reciben el AST por stdin (ver
+// runExternalRulepack) y ese envelope NO cambia — agregar un campo ahí
+// rompería cualquier rulepack existente que hoy parsea un AST desnudo. El
+// canal de tema es aditivo y por su naturaleza ignorable: un rulepack que
+// no lo lee simplemente no ve la variable de entorno.
+const themeVariablesEnvVar = "ZIRADOCS_THEME_VARIABLES"
 
 type externalManifest struct {
 	Name    string `json:"name"`
@@ -33,7 +43,7 @@ type externalFinding struct {
 	diagnostics.Diagnostic
 }
 
-func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration) ([]diagnostics.Diagnostic, []RuleDescriptor, error) {
+func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration, themeVariables map[string]string, themeVariablesSet bool) ([]diagnostics.Diagnostic, []RuleDescriptor, error) {
 	// Raw AST: json.Marshal directly on *ast.AST.
 	input, err := json.Marshal(doc)
 	if err != nil {
@@ -48,6 +58,18 @@ func runExternalRulepack(doc *ast.AST, binaryPath string, timeout time.Duration)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
+	// cmd.Env es nil por defecto (el subproceso hereda el entorno del
+	// padre); solo lo tocamos si WithThemeVariables realmente se llamó, así
+	// que un caller que no participa del seam #30 ve exactamente el mismo
+	// entorno heredado de siempre.
+	if themeVariablesSet {
+		themeJSON, err := json.Marshal(themeVariables)
+		if err != nil {
+			return nil, nil, fmt.Errorf("serializing theme variables for rulepack: %w", err)
+		}
+		cmd.Env = append(os.Environ(), themeVariablesEnvVar+"="+string(themeJSON))
+	}
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

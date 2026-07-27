@@ -16,6 +16,8 @@ type Linter struct {
 	policy            *PolicyConfig
 	externalRulepacks []string
 	externalTimeout   time.Duration
+	themeVariables    map[string]string
+	themeVariablesSet bool
 }
 
 type Rule interface {
@@ -33,6 +35,22 @@ type layoutPolicyAware interface {
 	setLayoutPolicy(*PolicyConfig)
 }
 
+// ThemeAware lo implementan las reglas que necesitan los colores resueltos
+// del tema ACTIVO (issue #30 — contraste WCAG 2.2 AA) antes de correr. A
+// diferencia de layoutPolicyAware (no exportada porque su único
+// implementador vive dentro de este paquete), ThemeAware es EXPORTADA a
+// propósito: core no posee ningún color de tema (solo el nombre del tema
+// viaja en ast.FrontMatterNode.Theme; el mapa real de variables CSS lo
+// resuelve cada CLI por separado — slidelang y doclang tienen
+// representaciones distintas y no comparten convención de nombres). Por
+// eso el propósito entero de este seam es que un consumidor FUERA de este
+// paquete (un rulepack externo de contraste) implemente la interfaz; un
+// método no exportado la haría imposible de implementar para ese
+// consumidor.
+type ThemeAware interface {
+	SetThemeVariables(map[string]string)
+}
+
 // WithPolicy adjunta un motor de políticas configurable: Lint() filtrará y
 // re-severizará los diagnósticos según policy antes de devolverlos (ver
 // PolicyConfig.Apply), y cualquier regla en l.rules que implemente
@@ -45,6 +63,28 @@ func (l *Linter) WithPolicy(policy *PolicyConfig) *Linter {
 	for _, r := range l.rules {
 		if aware, ok := r.(layoutPolicyAware); ok {
 			aware.setLayoutPolicy(policy)
+		}
+	}
+	return l
+}
+
+// WithThemeVariables adjunta el mapa de variables CSS del tema ya resuelto
+// por la CLI (nombre de variable → valor, p. ej. "--text-color" en
+// slidelang o "--doclang-h1-color" en doclang) para que cualquier regla en
+// l.rules que implemente ThemeAware pueda calcular contraste u otras
+// propiedades derivadas del tema. Se acepta explícitamente un vars nil o
+// vacío (un tema puede legítimamente no declarar variables) — por eso NO
+// se guarda solo "themeVariables != nil" como señal de que ya se llamó:
+// themeVariablesSet distingue "se llamó WithThemeVariables" de "el mapa
+// resultante está vacío", para que AddRule siga inyectando (con un mapa
+// vacío) a las reglas agregadas después, en vez de omitir la inyección
+// silenciosamente.
+func (l *Linter) WithThemeVariables(vars map[string]string) *Linter {
+	l.themeVariables = vars
+	l.themeVariablesSet = true
+	for _, r := range l.rules {
+		if aware, ok := r.(ThemeAware); ok {
+			aware.SetThemeVariables(vars)
 		}
 	}
 	return l
@@ -103,6 +143,11 @@ func (l *Linter) AddRule(r Rule) *Linter {
 			aware.setLayoutPolicy(l.policy)
 		}
 	}
+	if l.themeVariablesSet {
+		if aware, ok := r.(ThemeAware); ok {
+			aware.SetThemeVariables(l.themeVariables)
+		}
+	}
 	return l
 }
 
@@ -139,7 +184,7 @@ func (l *Linter) LintUnfilteredWithDescriptors(astNode *ast.AST) ([]diagnostics.
 	}
 
 	for _, packPath := range l.externalRulepacks {
-		extDiags, extDescriptors, err := runExternalRulepack(astNode, packPath, l.externalTimeout)
+		extDiags, extDescriptors, err := runExternalRulepack(astNode, packPath, l.externalTimeout, l.themeVariables, l.themeVariablesSet)
 		if err != nil {
 			errDiag := diagnostics.NewError(fmt.Sprintf("external rulepack %s failed: %v", packPath, err), diagnostics.Position{}, "LINTER_SYS_ERR")
 			allDiagnostics = append(allDiagnostics, errDiag)

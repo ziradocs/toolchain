@@ -68,6 +68,97 @@ EOF
 	}
 }
 
+// TestExternalRulepack_ReceivesThemeVariablesViaEnvVar cubre el canal de
+// tema para rulepacks externos (issue #30, Part 3): el subproceso no puede
+// ver el mapa de variables por stdin (ese envelope es intencionalmente el
+// AST desnudo, sin cambios), así que WithThemeVariables debe llegarle vía
+// la variable de entorno ZIRADOCS_THEME_VARIABLES como JSON. El script fake
+// la lee y la devuelve dentro del mensaje del finding, para verificar que
+// llegó intacta y es JSON parseable.
+func TestExternalRulepack_ReceivesThemeVariablesViaEnvVar(t *testing.T) {
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "fake-theme-rulepack.sh")
+
+	scriptContent := `#!/bin/bash
+# Escape double quotes so the theme JSON can be embedded as a JSON string
+# VALUE below (it arrives as raw JSON, e.g. {"--text-color":"#111111"}).
+escaped=$(printf '%s' "$ZIRADOCS_THEME_VARIABLES" | sed 's/"/\\"/g')
+cat << EOF
+{
+  "reportVersion": "1.0",
+  "manifest": {
+    "name": "fake-theme-pack",
+    "version": "1.0.0",
+    "prefix": "EXT"
+  },
+  "findings": [
+    {
+      "code": "EXT002",
+      "severity": "warning",
+      "message": "theme=${escaped}",
+      "position": {
+        "line": 1
+      }
+    }
+  ]
+}
+EOF
+`
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("Failed to write fake rulepack: %v", err)
+	}
+
+	l := NewWithRules()
+	l.WithRulepacks([]string{scriptPath}, 5*time.Second)
+	l.WithThemeVariables(map[string]string{"--text-color": "#111111"})
+
+	doc := &ast.AST{FilePath: "test.slidelang"}
+	diags := l.LintUnfiltered(doc)
+
+	if len(diags) != 1 {
+		t.Fatalf("Expected 1 diagnostic, got %d: %+v", len(diags), diags)
+	}
+	want := `theme={"--text-color":"#111111"}`
+	if diags[0].Message != want {
+		t.Errorf("Message = %q, want %q (theme variables must arrive via %s)", diags[0].Message, want, themeVariablesEnvVar)
+	}
+}
+
+// TestExternalRulepack_NoThemeVariables_EnvVarAbsent confirma que un
+// rulepack existente, que nunca lee ZIRADOCS_THEME_VARIABLES, sigue
+// comportándose exactamente igual cuando WithThemeVariables nunca se
+// llamó (el caso histórico) — no debería ni ver la variable definida.
+func TestExternalRulepack_NoThemeVariables_EnvVarAbsent(t *testing.T) {
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "fake-no-theme-rulepack.sh")
+
+	scriptContent := `#!/bin/bash
+if [ -n "${ZIRADOCS_THEME_VARIABLES+x}" ]; then
+  echo "unexpected: ZIRADOCS_THEME_VARIABLES is set" >&2
+  exit 1
+fi
+cat << 'EOF'
+{
+  "reportVersion": "1.0",
+  "manifest": {"name": "fake-pack", "version": "1.0.0", "prefix": "EXT"},
+  "findings": []
+}
+EOF
+`
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("Failed to write fake rulepack: %v", err)
+	}
+
+	l := NewWithRules()
+	l.WithRulepacks([]string{scriptPath}, 5*time.Second)
+
+	doc := &ast.AST{FilePath: "test.slidelang"}
+	diags := l.LintUnfiltered(doc)
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics (and no LINTER_SYS_ERR from the script's own exit 1), got %+v", diags)
+	}
+}
+
 func TestExternalRulepack_WithDescriptors(t *testing.T) {
 	tempDir := t.TempDir()
 	scriptPath := filepath.Join(tempDir, "described-pack.sh")

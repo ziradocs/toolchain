@@ -111,7 +111,7 @@ Both `slidelang` and `doclang` include a built-in strict linter and an **Evidenc
 
 - **Machine-Readable Reports**: Use `--report sarif` or `--report json` to generate standards-compliant diagnostic reports. By default, it outputs to stdout, which is ideal for piping into uploaders: `slidelang build ... --report sarif | uploader`
 - **Waivers**: Suppress specific diagnostic warnings via a `lint_policy` block in the document frontmatter or via an external `--lint-config` file.
-- **External Rulepacks**: Inject third-party or proprietary checks by passing a CLI tool (e.g. `--rulepack path/to/binary`). The toolchain pipes the document AST and merges the returned findings into the final report with full provenance.
+- **External Rulepacks**: Inject third-party or proprietary checks by passing a CLI tool (e.g. `--rulepack path/to/binary`). The toolchain pipes the document AST and merges the returned findings into the final report with full provenance. If the active theme's CSS variables were resolved for this build, they're also passed to the rulepack as JSON in the `ZIRADOCS_THEME_VARIABLES` environment variable (e.g. for WCAG contrast checks) — a pack that doesn't read it is unaffected.
 
 Example:
 ```bash
