@@ -150,6 +150,41 @@ func TestMarkdownRenderElementVariants(t *testing.T) {
 			contains: "",
 		},
 		{
+			// Issue #36: MediaElement no tenía case y caía al default.
+			name:     "media video",
+			element:  ast.NewMediaElement(diagnostics.NewPosition(1, 1), "video", "demo.mp4"),
+			contains: "[🎬 video: demo.mp4](demo.mp4)",
+		},
+		{
+			name: "media audio",
+			element: func() ast.Element {
+				m := ast.NewMediaElement(diagnostics.NewPosition(1, 1), "audio", "song.mp3")
+				return m
+			}(),
+			contains: "[🎵 audio: song.mp3](song.mp3)",
+		},
+		{
+			name:     "media empty source",
+			element:  ast.NewMediaElement(diagnostics.NewPosition(1, 1), "video", ""),
+			contains: "*[video sin fuente]*",
+		},
+		{
+			name:     "media blocked source",
+			element:  ast.NewMediaElement(diagnostics.NewPosition(1, 1), "video", "javascript:alert(1)"),
+			contains: "*[video bloqueado por seguridad]*",
+		},
+		{
+			// Issue #22: Level, cuando está poblado, debe emitir el heading
+			// Markdown real (###) en vez de volcar el <h3 id="..."> crudo.
+			name: "heading with Level",
+			element: func() ast.Element {
+				el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h3 id="intro">Introducción</h3>`)
+				el.Level = 3
+				return el
+			}(),
+			contains: "### Introducción",
+		},
+		{
 			// Issue #56: GridElement no tenía case y caía al default (salida
 			// vacía). Cada columna's Content debe aparecer en el Markdown.
 			name: "grid",

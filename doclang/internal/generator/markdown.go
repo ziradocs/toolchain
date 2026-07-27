@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -105,6 +106,18 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 	switch elem := element.(type) {
 	case *ast.TextElement:
+		// Level (issue #22) es la fuente de verdad cuando está poblado —
+		// mismo criterio que docx.go's renderText: evita el acoplamiento
+		// frágil de adivinar si Content es un heading mirando su forma.
+		// Sin Level (Level == 0, un AST sin ese campo o un párrafo real),
+		// Content se vuelca tal cual, comportamiento histórico preservado.
+		if elem.Level > 0 {
+			text := elem.Content
+			if m := headingHTMLPattern.FindStringSubmatch(elem.Content); m != nil {
+				text = m[1]
+			}
+			return fmt.Sprintf("%s %s\n\n", strings.Repeat("#", elem.Level), text)
+		}
 		return elem.Content + "\n"
 
 	case *ast.PointsElement:
@@ -126,6 +139,9 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 			return fmt.Sprintf("![%s](%s)\n*%s*\n", elem.Alt, elem.Source, elem.Caption)
 		}
 		return fmt.Sprintf("![%s](%s)\n", elem.Alt, elem.Source)
+
+	case *ast.MediaElement:
+		return renderMediaElementMarkdown(elem)
 
 	case *ast.TableElement:
 		var md strings.Builder
@@ -204,4 +220,31 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		m.logger.Warn("MARKDOWN: Unknown element type: %T", element)
 		return ""
 	}
+}
+
+// renderMediaElementMarkdown degrades a MediaElement to a link (issue #36) —
+// Markdown has no native <video>/<audio> equivalent, unlike doclang's HTML
+// output (core/renderer's renderMediaElement, which this mirrors). Same
+// security rule as core: Source goes through renderer.SanitizeURL before
+// use, and an empty source is reported distinctly from a source SanitizeURL
+// blocked — an empty src is missing data, not a rejected dangerous scheme,
+// and conflating the two would mislead the author into thinking something
+// was blocked when nothing was ever provided.
+func renderMediaElementMarkdown(elem *ast.MediaElement) string {
+	label := "video"
+	icon := "🎬"
+	if elem.MediaType == "audio" {
+		label = "audio"
+		icon = "🎵"
+	}
+
+	source := strings.TrimSpace(elem.Source)
+	if source == "" {
+		return fmt.Sprintf("*[%s sin fuente]*\n", label)
+	}
+	safeSource := renderer.SanitizeURL(source)
+	if safeSource == "" {
+		return fmt.Sprintf("*[%s bloqueado por seguridad]*\n", label)
+	}
+	return fmt.Sprintf("[%s %s: %s](%s)\n", icon, label, safeSource, safeSource)
 }

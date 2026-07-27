@@ -624,6 +624,8 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 		return g.renderTable(doc, e)
 	case *ast.ImageElement:
 		return g.renderImage(doc, e)
+	case *ast.MediaElement:
+		return g.renderMedia(doc, e)
 	case *ast.MermaidElement:
 		return g.renderMermaid(doc, e)
 	case *ast.ChartElement:
@@ -651,10 +653,35 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 }
 
 // renderText renderiza texto/párrafos/headings
+// headingHTMLPattern extrae el texto interno de un <hN id="...">texto</hN>
+// ya renderizado — usado solo cuando Level (issue #22) YA nos dijo qué
+// nivel es; a diferencia del bloque de regexes de abajo, esto no ADIVINA el
+// nivel probando h2/h3/h4 en secuencia, solo despoja el wrapper del payload
+// cuyo nivel ya conocemos.
+var headingHTMLPattern = regexp.MustCompile(`^<h[0-9]+[^>]*>(.+?)</h[0-9]+>$`)
+
 func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) error {
 	content := elem.Content
 
-	// Detectar headings HTML (del FlexParser)
+	// Level (issue #22) es la fuente de verdad cuando está poblado — evita
+	// el acoplamiento frágil de re-derivar el NIVEL re-parseando el <hN> ya
+	// renderizado, que es justo lo que Level se agregó para eliminar (ver
+	// core/ast/nodes.go). Level == 0 cubre DOS casos legítimos, no solo
+	// "dato faltante": un TextElement que simplemente no es un heading
+	// declarado (un párrafo normal — la inmensa mayoría), y un AST que
+	// llegó sin Level (un --filter externo, un JSON viejo). Los regexes de
+	// abajo siguen siendo el camino real para ESE segundo caso — no un
+	// fallback deprecado a borrar: si se eliminan, todo heading de un AST
+	// sin Level se degrada a párrafo en silencio.
+	if elem.Level > 0 {
+		text := content
+		if m := headingHTMLPattern.FindStringSubmatch(content); m != nil {
+			text = m[1]
+		}
+		return g.renderHeading(doc, text, elem.Level)
+	}
+
+	// Detectar headings HTML (del FlexParser, para un AST sin Level)
 	if h2HTMLMatch := regexp.MustCompile(`^<h2[^>]*>(.+?)</h2>`).FindStringSubmatch(content); h2HTMLMatch != nil {
 		return g.renderHeading(doc, h2HTMLMatch[1], 2)
 	}
@@ -693,6 +720,18 @@ func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level in
 	var spaceBefore, spaceAfter string
 
 	switch level {
+	case 1:
+		// H1 nunca llegaba acá vía los regexes de arriba (que solo
+		// intentaban h2/h3/h4) aunque docx_styles.go define H1Size/H1Color/
+		// etc. en los 4 temas — datos poblados y nunca usados. Level (issue
+		// #22) sí puede traer un 1 real (un TextElement con un único `#`
+		// fuera del título de sección), así que ahora se usa.
+		styleID = string(domain.StyleIDHeading1)
+		size = g.style.H1Size
+		color = g.style.H1Color
+		bold = g.style.H1Bold
+		spaceBefore = g.style.H1SpaceBefore
+		spaceAfter = g.style.H1SpaceAfter
 	case 2:
 		styleID = string(domain.StyleIDHeading2)
 		size = g.style.H2Size
@@ -708,6 +747,20 @@ func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level in
 		spaceBefore = g.style.H3SpaceBefore
 		spaceAfter = g.style.H3SpaceAfter
 	case 4:
+		styleID = string(domain.StyleIDHeading4)
+		size = g.style.H4Size
+		color = g.style.H4Color
+		bold = g.style.H4Bold
+		spaceBefore = g.style.H4SpaceBefore
+		spaceAfter = g.style.H4SpaceAfter
+	default:
+		// level 5/6 (Level tope en 6, ver document_flex.go's parseSubsectionHeader):
+		// docx_styles.go no define un H5/H6 propio en ningún tema. Antes de
+		// wirear Level, un <h5>/<h6>/`#####` nunca matcheaba ninguno de los
+		// regexes (solo existían para h2/h3/h4) y siempre caía a párrafo
+		// normal, perdiendo la semántica de heading por completo. Degradar
+		// al estilo de H4 (el más profundo definido) preserva al menos esa
+		// semántica en vez de un styleID vacío con tamaño/color en cero.
 		styleID = string(domain.StyleIDHeading4)
 		size = g.style.H4Size
 		color = g.style.H4Color
@@ -1846,6 +1899,55 @@ func (g *DOCXGenerator) renderPlaceholder(doc domain.Document, text string) erro
 	_ = r.SetColor(g.parseColor(g.style.TextLightColor))
 	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
 	_ = r.SetItalic(true)
+
+	return nil
+}
+
+// renderMedia renderiza un MediaElement vía AddHyperlink (issue #36) —
+// docxgo no soporta embeber audio/video real (ni <p:pic> con videoFile ni
+// p:media, ver github.com/mmonterroca/pptxgo para el mismo límite del lado
+// PPTX). NOTA: en docxgo v2.1.1, AddHyperlink registra la relación
+// (relManager.AddHyperlink) pero NO envuelve el run en un <w:hyperlink
+// r:id="...">  — solo aplica el estilo visual (azul + subrayado) al texto
+// (ver internal/core/paragraph.go:100-132 del módulo vendido). El resultado
+// es texto con apariencia de link, NO un link clickeable real — un bug de
+// la librería, no de este código. Se usa igual, en vez de armar el estilo a
+// mano, porque (a) muestra la URL real como texto visible en vez de un
+// placeholder genérico, que sigue siendo estrictamente mejor que perder el
+// dato, y (b) si docxgo corrige AddHyperlink en una versión futura, este
+// código empieza a producir un link real sin cambios. Mismas reglas de
+// seguridad que el path HTML (core/renderer/html.go renderMediaElement):
+// Source pasa por renderer.SanitizeURL antes de usarse, y un source vacío
+// se distingue de uno bloqueado con mensajes distintos.
+func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement) error {
+	label := "video"
+	if elem.MediaType == "audio" {
+		label = "audio"
+	}
+
+	source := strings.TrimSpace(elem.Source)
+	if source == "" {
+		return g.renderPlaceholder(doc, fmt.Sprintf("%s sin fuente", label))
+	}
+	safeSource := renderer.SanitizeURL(source)
+	if safeSource == "" {
+		g.logger.Warn("DOCX: Media source blocked (dangerous scheme): %s", source)
+		return g.renderPlaceholder(doc, fmt.Sprintf("%s bloqueado por seguridad", label))
+	}
+
+	p, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := p.SetAlignment(domain.AlignmentCenter); err != nil {
+		return fmt.Errorf("invalid alignment: %w", err)
+	}
+
+	displayText := fmt.Sprintf("[%s: %s]", label, safeSource)
+	if _, err := p.AddHyperlink(safeSource, displayText); err != nil {
+		g.logger.Warn("DOCX: Failed to insert media hyperlink %s: %v", safeSource, err)
+		return g.renderPlaceholder(doc, fmt.Sprintf("%s not found: %s", label, safeSource))
+	}
 
 	return nil
 }

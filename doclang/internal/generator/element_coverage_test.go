@@ -22,12 +22,6 @@ var excludedFromElementCoverage = map[string]string{
 	"ColumnElement": "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — ambos generators lo consumen vía column.Content dentro del case de GridElement, no por su propio case",
 	"DirectiveNode": "doclang no filtra @directivas antes del pipeline de render (a diferencia de slidelang, que las extrae vía extractPresenterNotes) ni tiene un concepto establecido de qué debería hacer una directiva en un documento — cae al warning genérico del default hasta que se decida su tratamiento (issue de seguimiento pendiente)",
 
-	// Issue #36: MediaElement todavía no tiene case en ninguno de los dos
-	// generators — <<video>>/<<audio>> se pierde en silencio al exportar a
-	// Markdown o DOCX (HTML sí lo cubre, vía core/renderer). Quitar esta
-	// entrada cuando #36 aterrice el render real.
-	"MediaElement": "issue #36 — pendiente de implementar en markdown.go y docx.go",
-
 	// Los siguientes 4 tipos faltan HOY solo en markdown.go (docx.go los
 	// cubre) — pero como este guard es por-generador (ver checkCoverage) se
 	// documentan acá para que la corrida de markdown pase; docx.go no los

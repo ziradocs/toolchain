@@ -12,21 +12,24 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
-// astWithMediaElement builds a minimal AST containing a *ast.MediaElement —
-// currently unhandled by both generators (issue #36), so it exercises the
-// `default:` branch of renderElement in each.
-func astWithMediaElement() *ast.AST {
+// astWithUnhandledElement builds a minimal AST containing a
+// *ast.DirectiveNode — permanently excluded from both generators'
+// element-coverage guard (element_coverage_test.go: doclang has no
+// established behavior for @directives in a document context), so it
+// reliably exercises the `default:` branch of renderElement in each,
+// unlike a type a future PR might start handling.
+func astWithUnhandledElement() *ast.AST {
 	pos := diagnostics.NewPosition(1, 1)
 	doc := ast.NewAST(pos)
 
 	front := ast.NewFrontMatterNode(pos)
-	front.Title = "Media Fixture"
+	front.Title = "Unhandled Element Fixture"
 	doc.FrontMatter = front
 
 	block := ast.NewContentBlock(diagnostics.NewPosition(2, 1), "content")
 	block.Title = "Section"
 	block.Elements = append(block.Elements,
-		ast.NewMediaElement(diagnostics.NewPosition(3, 1), "video", "demo.mp4"),
+		ast.NewDirectiveNode(diagnostics.NewPosition(3, 1), "notes"),
 	)
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 	return doc
@@ -41,15 +44,15 @@ func astWithMediaElement() *ast.AST {
 func TestDOCXGenerator_UnknownElementType_WarnsWithoutFormatArtifacts(t *testing.T) {
 	logger := newTestLogger()
 	gen := New(logger)
-	doc := astWithMediaElement()
+	doc := astWithUnhandledElement()
 
-	output := filepath.Join(t.TempDir(), "media.docx")
+	output := filepath.Join(t.TempDir(), "unhandled.docx")
 	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
 
 	if len(logger.warns) == 0 {
-		t.Fatal("expected a warning for the unhandled MediaElement, got none")
+		t.Fatal("expected a warning for the unhandled DirectiveNode, got none")
 	}
 	found := false
 	for _, w := range logger.warns {
@@ -71,9 +74,9 @@ func TestDOCXGenerator_UnknownElementType_WarnsWithoutFormatArtifacts(t *testing
 func TestMarkdownGenerator_UnknownElementType_Warns(t *testing.T) {
 	logger := newTestLogger()
 	gen := New(logger)
-	doc := astWithMediaElement()
+	doc := astWithUnhandledElement()
 
-	output := filepath.Join(t.TempDir(), "media.md")
+	output := filepath.Join(t.TempDir(), "unhandled.md")
 	if err := gen.Generate(doc, output, GeneratorOptions{Format: "markdown"}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
