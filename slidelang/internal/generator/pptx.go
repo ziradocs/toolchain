@@ -348,24 +348,45 @@ func pptxTableUsesCellStructure(elem *ast.TableElement) bool {
 	return false
 }
 
-// pptxTableGridWidth calcula el ancho REAL de la grilla de cells (sumando
-// ColSpan de la primera fila) — necesario porque AddTable(rows, cols, ...)
-// exige una grilla rectangular, y con celdas combinadas cols != len(row):
-// una fila con una celda colspan=2 seguida de una celda normal tiene
-// len(row)==2 pero ocupa 3 columnas de grilla.
+// pptxClampSpan normaliza un ColSpan/RowSpan declarado al rango
+// [1, ast.MaxCellSpan] — el mismo criterio que ast's clampSpan (no
+// exportado, así que no se puede reusar directamente), necesario porque
+// TableCell no tiene UnmarshalJSON y ast/decode.go nunca toca ColSpan: un
+// AST externo (--filter, slidelang/internal/cli/build.go:132/141) puede
+// traer un span disparatado que este generador lee directo de e.Cells sin
+// pasar por FlattenCellsToRows.
+func pptxClampSpan(span int) int {
+	if span < 1 {
+		return 1
+	}
+	if span > ast.MaxCellSpan {
+		return ast.MaxCellSpan
+	}
+	return span
+}
+
+// pptxTableGridWidth calcula el ancho REAL de la grilla de cells —
+// necesario porque AddTable(rows, cols, ...) exige una grilla rectangular,
+// y con celdas combinadas cols != len(row): una fila con una celda
+// colspan=2 seguida de una celda normal tiene len(row)==2 pero ocupa 3
+// columnas de grilla.
+//
+// Delega en ast.FlattenCellsToRows en vez de sumar el ColSpan de la
+// primera fila: (a) esa es la fuente de verdad de "qué tan ancha es la
+// grilla" — ya usada por el propio HTML (vía la vista plana) y clampeada
+// con ast.MaxCellSpan, así que un ColSpan disparatado en un AST externo no
+// puede inflar cols sin límite; y (b) coincide con el ancho de la fila MÁS
+// ANCHA, no solo la fila 0 — una tabla cuya fila 0 tiene colspan=2 pero
+// cuya fila 1 declara 3 celdas propias necesita cols=3, no 2.
 func pptxTableGridWidth(cells [][]ast.TableCell) int {
-	if len(cells) == 0 {
-		return 0
+	headers, rows := ast.FlattenCellsToRows(cells)
+	if len(headers) > 0 {
+		return len(headers)
 	}
-	width := 0
-	for _, cell := range cells[0] {
-		span := cell.ColSpan
-		if span < 1 {
-			span = 1
-		}
-		width += span
+	if len(rows) > 0 {
+		return len(rows[0])
 	}
-	return width
+	return 0
 }
 
 // pptxAddTableCells agrega e (con Cells reales, issue #20) como una tabla
@@ -416,14 +437,8 @@ func (g *Generator) pptxAddTableCells(s *pptx.Slide, e *ast.TableElement, cursor
 				break // fila más ancha que la grilla calculada: se descartan las celdas de más, criterio defensivo consistente con el resto del pipeline
 			}
 
-			colSpan := cell.ColSpan
-			if colSpan < 1 {
-				colSpan = 1
-			}
-			rowSpan := cell.RowSpan
-			if rowSpan < 1 {
-				rowSpan = 1
-			}
+			colSpan := pptxClampSpan(cell.ColSpan)
+			rowSpan := pptxClampSpan(cell.RowSpan)
 			toRow := r + rowSpan - 1
 			toCol := gridCol + colSpan - 1
 			if toRow >= rows {
@@ -431,6 +446,33 @@ func (g *Generator) pptxAddTableCells(s *pptx.Slide, e *ast.TableElement, cursor
 			}
 			if toCol >= cols {
 				toCol = cols - 1
+			}
+
+			// Achicar la región para que nunca reclame una celda ya
+			// cubierta por un merge anterior (un rowspan de una fila de
+			// arriba, o un colspan de más atrás en esta misma fila): un
+			// Cells solapado/malformado no debe llegar a MergeCells con
+			// una región inválida, porque eso queda registrado como error
+			// y hace fallar Save() para TODA la presentación — un
+			// resultado mucho peor que un merge recortado.
+			for cc := gridCol + 1; cc <= toCol; cc++ {
+				if occupied[r][cc] {
+					toCol = cc - 1
+					break
+				}
+			}
+			for rr := r + 1; rr <= toRow; rr++ {
+				overlap := false
+				for cc := gridCol; cc <= toCol; cc++ {
+					if occupied[rr][cc] {
+						overlap = true
+						break
+					}
+				}
+				if overlap {
+					toRow = rr - 1
+					break
+				}
 			}
 
 			if toRow > r || toCol > gridCol {
