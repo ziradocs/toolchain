@@ -330,8 +330,17 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 // (issue #20), honoring colspan/rowspan/scope per cell — unlike
 // renderTableElement's Headers/Rows path, which can express none of the
 // three. The leading row is treated as <thead> only if ALL of its cells are
-// IsHeader (the same criterion ast.FlattenCellsToRows uses in the reverse
-// direction); otherwise everything falls into a single <tbody>.
+// IsHeader AND none declares RowSpan > 1 (issue #51) — a RowSpan on a row-0
+// cell reaches into row 1, which this function puts inside <tbody>, and a
+// rowspan crossing the <thead>/<tbody> boundary has no consistent
+// browser/AT interpretation. This deliberately DIVERGES from
+// ast.FlattenCellsToRows, which still derives Headers/Rows on IsHeader
+// alone: that flat view feeds doclang's markdown/DOCX output, where a
+// table with no Headers renders with no header row (markdown) or is
+// dropped outright (`docx.go`'s `if len(elem.Headers) == 0 { return nil
+// }`) — strictly worse than the malformed <thead> this guard prevents.
+// Same criterion as slidelang's cellsLeadIsHeader
+// (data/converter.go, PR #50, issue #51's fix on the core side).
 func renderTableCells(html *strings.Builder, cells [][]ast.TableCell, variables map[string]interface{}) {
 	if len(cells) == 0 {
 		return
@@ -339,7 +348,7 @@ func renderTableCells(html *strings.Builder, cells [][]ast.TableCell, variables 
 
 	leadIsHeader := len(cells[0]) > 0
 	for _, c := range cells[0] {
-		if !c.IsHeader {
+		if !c.IsHeader || c.RowSpan > 1 {
 			leadIsHeader = false
 			break
 		}
