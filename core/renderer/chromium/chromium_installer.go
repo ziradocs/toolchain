@@ -37,7 +37,7 @@ const (
 	//   3. Actualizar chromiumVersion y las 4 entradas de chromiumSHA256 en el
 	//      mismo commit — nunca solo una de las dos (ver AL-2: el hash debe
 	//      corresponder exactamente a la versión que se descarga).
-	chromiumVersion = "150.0.7871.49"
+	chromiumVersion = "151.0.7922.47"
 )
 
 // chromiumDownloadTimeout y chromiumMaxDownloadBytes son `var` (no `const`)
@@ -74,10 +74,10 @@ var (
 // podían servir un binario distinto y ejecutarlo como navegador de build sin
 // ninguna comprobación (ver docs/SECURITY_AUDIT_2026-07.md, AL-2).
 var chromiumSHA256 = map[string]string{
-	"darwin/arm64":  "7bfe03fd3554cbf128a4517b014a8f74363e0bc6360a225043ed0ab6e1ea5b72",
-	"darwin/amd64":  "7663b761c7c9a07fe594697a3fdab4875d9e4681b28b7fcb4cf4d79f5c18d684",
-	"linux/amd64":   "51b1137390031ea031b06fae081615860d03d85efcf2853f0c430cee0161a781",
-	"windows/amd64": "9323ea140e1da78a1ba4814f7174ce3f3cd6e850ff0e36a2c3bb3f861682cee0",
+	"darwin/arm64":  "9529990b6afd9867a862c7a5bff2a4a8eef84614d910acac22e4c5fa5c24daee",
+	"darwin/amd64":  "90f49258b8929867640ca59cf138191d25b4b34759e1509687e59a66be9ac99b",
+	"linux/amd64":   "14ac03a67e154e3f8bbc57e03ef03315fda8fedff8e045eee8b31500283a33f4",
+	"windows/amd64": "fc77bb98b550b7da23b14edfa282b59a022e7fdb075ac7625d2a5152ceb22396",
 }
 
 // ChromiumInstaller gestiona la descarga e instalación de Chromium
