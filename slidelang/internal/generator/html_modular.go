@@ -370,35 +370,30 @@ func (g *Generator) preparePresentationConfig(astNode *ast.AST, outputDir string
 	return presentationConfig, nil
 }
 
-// resolveTheme resuelve el tema a usar con la prioridad correcta.
-// El nombre de tema es confiable si viene de opts.Theme (flag --theme del
-// operador) o de la config global; NO es confiable si viene del frontmatter
-// del documento, contenido controlado por el atacante bajo el threat model
-// de este repo (ver docs/SECURITY_AUDIT_2026-07.md, ME-2).
+// resolveTheme resuelve el tema a usar con la prioridad correcta (flag >
+// frontmatter > config default > "default"; el nombre de tema NO es
+// confiable si viene del frontmatter del documento, contenido controlado
+// por el atacante bajo el threat model de este repo — ver
+// docs/SECURITY_AUDIT_2026-07.md, ME-2). Es un wrapper delgado sobre
+// themes.ResolveTheme (issue #30): si opts.ResolvedTheme ya viene poblado
+// (build.go lo resolvió temprano, antes del lint, para pasarle sus
+// variables CSS al linter), se reutiliza en vez de resolver el tema una
+// segunda vez — así el linter y el generador ven exactamente el mismo tema.
 func (g *Generator) resolveTheme(astNode *ast.AST, opts GeneratorOptions) (*themes.Theme, error) {
-	selectedTheme := opts.Theme
-	trusted := true
-
-	// Lógica de resolución simplificada
-	if selectedTheme == "" {
-		if frontmatterTheme := config.ExtractThemeFromFrontmatter(astNode.FrontMatter); frontmatterTheme != "default" {
-			selectedTheme = frontmatterTheme
-			trusted = false
-		} else if opts.Config != nil && opts.Config.Theme.Default != "" {
-			selectedTheme = opts.Config.Theme.Default
-		} else {
-			selectedTheme = "default"
-		}
+	if opts.ResolvedTheme != nil {
+		return opts.ResolvedTheme, nil
 	}
 
-	// Cargar tema
-	themeLoader := themes.NewThemeLoader()
-	theme, err := themeLoader.LoadTheme(selectedTheme, trusted)
+	configDefault := ""
+	if opts.Config != nil {
+		configDefault = opts.Config.Theme.Default
+	}
+	frontmatterTheme := config.ExtractThemeFromFrontmatter(astNode.FrontMatter)
+
+	theme, err := themes.ResolveTheme(opts.Theme, frontmatterTheme, configDefault)
 	if err != nil {
-		g.logger.Warn("THEME", "Failed to load theme '%s': %v, using default", selectedTheme, err)
-		theme, _ = themeLoader.LoadTheme("default", true)
+		g.logger.Warn("THEME", "%v, using default", err)
 	}
-
 	return theme, nil
 }
 

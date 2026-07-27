@@ -12,6 +12,7 @@ import (
 	"go.ziradocs.com/core/v2/config"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 	"go.ziradocs.com/slidelang/v2/internal/generator/data"
 	"go.ziradocs.com/slidelang/v2/internal/serializer"
 )
@@ -36,6 +37,15 @@ type GeneratorOptions struct {
 	// (no usado por los demás formatos, que nunca leen bytes de imagen del
 	// disco del lado del servidor — HTML solo emite una URL relativa).
 	AssetRoot string
+	// ResolvedTheme (issue #30) permite a build.go pasar un tema YA resuelto
+	// (necesitaba cargarlo temprano para pasarle sus variables CSS al
+	// linter vía linter.WithThemeVariables, antes de que exista ningún
+	// Generator) y evitar que preparePresentationConfig lo resuelva otra
+	// vez — no por costo (cargar un tema es barato, en memoria/embedded FS),
+	// sino para garantizar que linter y generador vean el MISMO tema en vez
+	// de dos resoluciones independientes que podrían divergir. nil (el caso
+	// histórico) hace que Generator.resolveTheme resuelva normalmente.
+	ResolvedTheme *themes.Theme
 }
 
 // IsOffline indica si el modo de rendering pre-renderiza en build time.
