@@ -19,11 +19,6 @@ import (
 // — no el go/ast de este archivo) deliberadamente no tiene un case propio en
 // el switch principal de PrepareTemplateDataWithRenderMode (converter.go).
 var excludedFromElementCoverage = map[string]string{
-	// Issue #37: MediaElement todavía no tiene case — <<video>>/<<audio>> se
-	// pierde en silencio en HTML/PDF/PPTX. Quitar esta entrada cuando #37
-	// aterrice el render real.
-	"MediaElement": "issue #37 — pendiente de implementar en converter.go/template/base.go",
-
 	// Issue #38: descubiertos por este mismo guard, no estaban en el alcance
 	// original de #35/#37.
 	"PlantUMLElement": "issue #38 — sin case en converter.go/template/base.go/pptx.go",

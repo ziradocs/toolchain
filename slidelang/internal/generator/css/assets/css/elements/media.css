@@ -1,0 +1,20 @@
+/* Elementos de audio/video (issue #21) */
+.slidelang-element.slidelang-media {
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.slidelang-element.slidelang-media video,
+.slidelang-element.slidelang-media audio {
+    max-width: 100%;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-main);
+}
+
+.slidelang-element.slidelang-media video {
+    height: auto;
+}
+
+.slidelang-element.slidelang-media .slidelang-media-blocked {
+    margin: 0 auto;
+}

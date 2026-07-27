@@ -631,16 +631,38 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{if .Caption}}<div class="caption">{{.Caption}}</div>{{end}}
             </div>
         {{else if eq .Type "table"}}
-            <div class="slidelang-element slidelang-table" 
+            <div class="slidelang-element slidelang-table"
                  id="slidelang-element-table-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="table"
                  data-slide="{{.SlideIndex}}">
                 {{if .Caption}}<h2>{{.Caption}}</h2>{{end}}
+                {{if .Cells}}
+                {{/* Cells (issue #20) solo llega poblado cuando el AST
+                     declara colspan/rowspan/scope que la vista plana
+                     Headers/Rows no puede expresar (ver
+                     tableUsesCellStructure en converter.go) — una tabla
+                     simple sigue el branch {{else}} de abajo, sin cambios. */}}
+                <table>
+                    <tbody>
+                        {{range .Cells}}
+                            <tr>
+                                {{range .}}
+                                    {{if .IsHeader}}
+                                        <th{{if .Scope}} scope="{{.Scope}}"{{end}}{{if gt .ColSpan 1}} colspan="{{.ColSpan}}"{{end}}{{if gt .RowSpan 1}} rowspan="{{.RowSpan}}"{{end}}>{{.Content | raw}}</th>
+                                    {{else}}
+                                        <td{{if gt .ColSpan 1}} colspan="{{.ColSpan}}"{{end}}{{if gt .RowSpan 1}} rowspan="{{.RowSpan}}"{{end}}>{{.Content | raw}}</td>
+                                    {{end}}
+                                {{end}}
+                            </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+                {{else}}
                 <table>
                     <thead>
                         <tr>
                             {{range .Headers}}
-                                <th>{{. | raw}}</th>
+                                <th scope="col">{{. | raw}}</th>
                             {{end}}
                         </tr>
                     </thead>
@@ -654,6 +676,22 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                         {{end}}
                     </tbody>
                 </table>
+                {{end}}
+            </div>
+        {{else if eq .Type "media"}}
+            <div class="slidelang-element slidelang-media"
+                 id="slidelang-element-media-{{.SlideIndex}}-{{.ElementID}}"
+                 data-element-type="media"
+                 data-slide="{{.SlideIndex}}">
+                {{if .Source}}
+                    {{if eq .MediaType "audio"}}
+                    <audio src="{{.Source}}"{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></audio>
+                    {{else}}
+                    <video src="{{.Source}}"{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></video>
+                    {{end}}
+                {{else}}
+                <div class="slidelang-media-blocked" role="note" style="padding:1em;text-align:center;color:#a94442;background:#f2dede;border:1px solid #ebccd1;border-radius:4px;">Media blocked or missing source</div>
+                {{end}}
             </div>
         {{else if eq .Type "code_group"}}
             <div class="slidelang-element slidelang-code-group" 

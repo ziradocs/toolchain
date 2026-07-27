@@ -320,6 +320,8 @@ func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 				elementTypes["grids"] = true
 			case *ast.ColumnElement:
 				elementTypes["grids"] = true
+			case *ast.MediaElement:
+				elementTypes["media"] = true
 			}
 		}
 	}

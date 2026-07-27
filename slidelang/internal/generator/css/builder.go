@@ -304,6 +304,7 @@ func GetAvailableModules() []string {
 		"checklists",      // Checklist elements
 		"grids",           // Grid layouts and columns
 		"maps",            // Map elements (Leaflet)
+		"media",           // Audio/video elements (issue #21)
 		"headers_footers", // Headers and footers (specialized use)
 	}
 }

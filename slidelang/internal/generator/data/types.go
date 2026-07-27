@@ -155,6 +155,18 @@ type ElementData struct {
 	// Table data
 	Headers []string
 	Rows    [][]string
+	// Cells: estructura de celda real de un TableElement (colspan/rowspan/
+	// scope, issue #20) — solo se puebla cuando el AST declara merges reales
+	// (ver populateTableCells en converter.go); Headers/Rows arriba se
+	// mantienen siempre (grilla plana derivada), así que una tabla simple
+	// no cambia su HTML por este campo estar presente.
+	Cells [][]TableCellData
+	// Media data (issue #21)
+	MediaType string // "video" o "audio"
+	Autoplay  bool
+	Controls  bool
+	Loop      bool
+	Muted     bool
 	// Special block data
 	BlockType string
 	Title     string
@@ -259,4 +271,14 @@ type MapMetadata struct {
 // ColumnData representa una columna en un grid layout
 type ColumnData struct {
 	Content string `json:"content"`
+}
+
+// TableCellData representa una celda con estructura real (colspan/rowspan/
+// scope), espejo de ast.TableCell (core/ast/nodes.go) — issue #20.
+type TableCellData struct {
+	Content  string
+	IsHeader bool
+	Scope    string
+	ColSpan  int
+	RowSpan  int
 }
