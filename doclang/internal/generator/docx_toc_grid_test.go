@@ -45,6 +45,39 @@ func TestDOCXGenerator_CollectHeadings_IncludesGridColumnHeadings(t *testing.T) 
 	}
 }
 
+// TestDOCXGenerator_CollectHeadings_CoversLevels5And6 covers a finding from
+// the #40 code review: renderText's Level > 0 short-circuit routes level
+// 5/6 headings to renderHeading (styled Heading4, a REAL Word heading), but
+// collectHeadings only ever recognized h2/h3/h4 via regex — so the static
+// TOC silently omitted headings that exist as genuine Word headings in the
+// body. collectHeadings must now use the same Level-aware detection
+// renderText/renderHeading use.
+func TestDOCXGenerator_CollectHeadings_CoversLevels5And6(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewDOCXGenerator(logger, "")
+
+	subDos := ast.NewRawHTMLTextElement(diagnostics.NewPosition(2, 1), `<h2 id="sub-dos">Sub dos</h2>`)
+	subDos.Level = 2
+	detalle := ast.NewRawHTMLTextElement(diagnostics.NewPosition(3, 1), `<h5 id="detalle-profundo">Detalle profundo</h5>`)
+	detalle.Level = 5
+
+	doc := astWithElements(subDos, detalle)
+
+	entries := gen.collectHeadings(doc)
+
+	byTitle := map[string]TOCEntry{}
+	for _, e := range entries {
+		byTitle[e.Title] = e
+	}
+
+	if e, ok := byTitle["Sub dos"]; !ok || e.Level != 2 {
+		t.Errorf("collectHeadings() missing/wrong level for %q: %+v (entries=%+v)", "Sub dos", e, entries)
+	}
+	if e, ok := byTitle["Detalle profundo"]; !ok || e.Level != 5 {
+		t.Errorf("collectHeadings() missing/wrong level for %q: %+v (entries=%+v) — a level-5 heading exists as a real Word heading in the body but was omitted from the static TOC", "Detalle profundo", e, entries)
+	}
+}
+
 // TestDOCXGenerator_CollectHeadings_IgnoresIndentedGridColumnLines guards
 // against a divergence the initial #88 fix introduced: renderGrid (docx.go)
 // only uses strings.TrimSpace(line) to decide whether a grid-column line is

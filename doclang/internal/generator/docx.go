@@ -357,11 +357,35 @@ func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST) []TOCEntry {
 			g.logger.Info("DOCX", "  ➜ H1: %s", block.Title)
 		}
 
-		// H2/H3/H4 (text elements with raw HTML or markdown headers)
+		// H1-H6 (text elements with raw HTML or markdown headers)
 		for _, elem := range block.Elements {
 			switch typedElem := elem.(type) {
 			case *ast.TextElement:
 				content := typedElem.Content
+
+				// Level (issue #22) es la fuente de verdad cuando está
+				// poblado — mismo criterio que renderText/renderHeading,
+				// que hoy cubren niveles 1 y 5/6 además de 2/3/4. Sin este
+				// caso, un heading de nivel 5/6 (o un nivel 1 que llegó vía
+				// --filter externo, no del título de bloque) se renderiza
+				// como un heading real de Word pero nunca aparece en este
+				// TOC estático, porque el bloque de regexes de abajo solo
+				// reconoce h2/h3/h4 (issue detectado en code review de #40).
+				if typedElem.Level > 0 {
+					title := content
+					if m := headingHTMLPattern.FindStringSubmatch(content); m != nil {
+						title = m[1]
+					} else if m := markdownHeadingPattern.FindStringSubmatch(content); m != nil {
+						title = m[1]
+					}
+					entries = append(entries, TOCEntry{
+						Title:      title,
+						Level:      typedElem.Level,
+						BookmarkID: sanitizeBookmarkID(title),
+					})
+					g.logger.Info("DOCX", "  ➜ H%d: %s", typedElem.Level, title)
+					continue
+				}
 
 				// Check for raw HTML headers (IsRawHTML=true)
 				if typedElem.IsRawHTML {
@@ -657,8 +681,24 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 // ya renderizado — usado solo cuando Level (issue #22) YA nos dijo qué
 // nivel es; a diferencia del bloque de regexes de abajo, esto no ADIVINA el
 // nivel probando h2/h3/h4 en secuencia, solo despoja el wrapper del payload
-// cuyo nivel ya conocemos.
-var headingHTMLPattern = regexp.MustCompile(`^<h[0-9]+[^>]*>(.+?)</h[0-9]+>$`)
+// cuyo nivel ya conocemos. Sin anchor final ($): los seis regexes que
+// reemplaza más abajo tampoco lo tenían, y un Content con contenido/
+// espacio colgante después del `</hN>` (p. ej. un salto de línea) hacía
+// que la versión anclada no matcheara nada y renderizara la marca cruda
+// como texto del heading.
+var headingHTMLPattern = regexp.MustCompile(`^<h[0-9]+[^>]*>(.+?)</h[0-9]+>`)
+
+// markdownHeadingPattern despoja un prefijo Markdown `#`..`######` — el
+// sibling de headingHTMLPattern para Content que llegó como Markdown crudo
+// en vez de HTML ya renderizado (un AST externo vía --filter, o un
+// TextElement cuyo Level se pobló antes de que corriera la normalización
+// HTML). Sin anchor final, por la misma razón que headingHTMLPattern.
+var markdownHeadingPattern = regexp.MustCompile(`^#{1,6}\s+(.+)`)
+
+// headingIDPattern extrae el id="..." de un <hN id="...">...</hN> ya
+// renderizado, cuando existe — usado por el generador de Markdown para
+// preservar el anchor explícito (ver markdown.go).
+var headingIDPattern = regexp.MustCompile(`^<h[0-9]+[^>]*\bid="([^"]*)"`)
 
 func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) error {
 	content := elem.Content
@@ -676,6 +716,8 @@ func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) e
 	if elem.Level > 0 {
 		text := content
 		if m := headingHTMLPattern.FindStringSubmatch(content); m != nil {
+			text = m[1]
+		} else if m := markdownHeadingPattern.FindStringSubmatch(content); m != nil {
 			text = m[1]
 		}
 		return g.renderHeading(doc, text, elem.Level)
@@ -1916,9 +1958,14 @@ func (g *DOCXGenerator) renderPlaceholder(doc domain.Document, text string) erro
 // placeholder genérico, que sigue siendo estrictamente mejor que perder el
 // dato, y (b) si docxgo corrige AddHyperlink en una versión futura, este
 // código empieza a producir un link real sin cambios. Mismas reglas de
-// seguridad que el path HTML (core/renderer/html.go renderMediaElement):
-// Source pasa por renderer.SanitizeURL antes de usarse, y un source vacío
-// se distingue de uno bloqueado con mensajes distintos.
+// seguridad que el path HTML (core/renderer/html.go renderMediaElement),
+// con una diferencia importante: acá se usa renderer.ValidateURLScheme, NO
+// SanitizeURL. SanitizeURL aplica EscapeHTMLAttribute encima del allowlist
+// de esquema — correcto para interpolar en un atributo HTML, pero el
+// target del hyperlink de DOCX y el texto visible no son HTML, así que esa
+// escapada solo mete entidades (`&amp;`) literales en una URL con query
+// string. Un source vacío se distingue de uno bloqueado con mensajes
+// distintos.
 func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement) error {
 	label := "video"
 	if elem.MediaType == "audio" {
@@ -1929,7 +1976,7 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 	if source == "" {
 		return g.renderPlaceholder(doc, fmt.Sprintf("%s sin fuente", label))
 	}
-	safeSource := renderer.SanitizeURL(source)
+	safeSource := renderer.ValidateURLScheme(source)
 	if safeSource == "" {
 		g.logger.Warn("DOCX: Media source blocked (dangerous scheme): %s", source)
 		return g.renderPlaceholder(doc, fmt.Sprintf("%s bloqueado por seguridad", label))

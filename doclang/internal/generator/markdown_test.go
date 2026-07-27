@@ -185,6 +185,29 @@ func TestMarkdownRenderElementVariants(t *testing.T) {
 			contains: "### Introducción",
 		},
 		{
+			// Code review de #40: Level>0 pero Content sigue en Markdown
+			// crudo (un AST externo vía --filter, o antes de que corra la
+			// normalización HTML) no matcheaba headingHTMLPattern, así que
+			// el heading se duplicaba a "## ## Resumen". Ver el test
+			// dedicado más abajo para la aserción negativa completa.
+			name: "heading with Level and raw markdown content",
+			element: func() ast.Element {
+				el := ast.NewTextElement(diagnostics.NewPosition(1, 1), "## Resumen")
+				el.Level = 2
+				return el
+			}(),
+			contains: "## Resumen",
+		},
+		{
+			// Code review de #40: SanitizeURL (escapador de atributo HTML)
+			// usado para un link de Markdown escapaba el "&" de un query
+			// string a "&amp;", mangling la URL. ValidateURLScheme no
+			// escapa.
+			name:     "media query string url not html-escaped",
+			element:  ast.NewMediaElement(diagnostics.NewPosition(1, 1), "video", "https://cdn.example.com/v.mp4?a=1&b=2"),
+			contains: "https://cdn.example.com/v.mp4?a=1&b=2",
+		},
+		{
 			// Issue #56: GridElement no tenía case y caía al default (salida
 			// vacía). Cada columna's Content debe aparecer en el Markdown.
 			name: "grid",
@@ -232,5 +255,50 @@ func TestMarkdownRenderElement_Grid(t *testing.T) {
 		if !strings.Contains(out, expected) {
 			t.Errorf("grid Markdown output missing %q:\n%s", expected, out)
 		}
+	}
+}
+
+// TestMarkdownRenderElement_HeadingPreservesAnchorID covers a finding from
+// the #40 code review: re-emitting a heading as a "#" prefix from
+// `<hN id="...">...</hN>` content discarded the id attribute entirely, so
+// an in-document link like `[ver](#mi-seccion)` stopped resolving once this
+// diff started stripping the wrapper down to plain text. The id must
+// survive as an explicit {#id} anchor (Pandoc/kramdown syntax).
+func TestMarkdownRenderElement_HeadingPreservesAnchorID(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h3 id="mi-seccion">Mi Sección</h3>`)
+	el.Level = 3
+
+	out := gen.renderElement(el)
+
+	if !strings.Contains(out, "{#mi-seccion}") {
+		t.Errorf("expected the heading anchor id to survive as {#mi-seccion}, got %q", out)
+	}
+	if !strings.Contains(out, "### Mi Sección") {
+		t.Errorf("expected the extracted heading text, got %q", out)
+	}
+}
+
+// TestMarkdownRenderElement_HeadingWithRawMarkdownDoesNotDoubleHash covers
+// the same #40 finding as docx.go's
+// TestDOCXGenerator_RenderText_LevelWithRawMarkdownContent: Level > 0 but
+// Content still in raw Markdown form (reachable via an external --filter
+// AST, or before HTML normalization runs) must not double the "#" prefix.
+func TestMarkdownRenderElement_HeadingWithRawMarkdownDoesNotDoubleHash(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	el := ast.NewTextElement(diagnostics.NewPosition(1, 1), "## Resumen")
+	el.Level = 2
+
+	out := gen.renderElement(el)
+
+	if strings.Contains(out, "## ## Resumen") {
+		t.Errorf("heading prefix was doubled: %q", out)
+	}
+	if !strings.Contains(out, "## Resumen") {
+		t.Errorf("expected \"## Resumen\", got %q", out)
 	}
 }

@@ -99,6 +99,63 @@ func TestDOCXGenerator_RenderMedia_BlockedSourceGetsDistinctPlaceholder(t *testi
 	}
 }
 
+// TestDOCXGenerator_RenderMedia_QueryStringNotDoubleEscaped covers a finding
+// from the #40 code review: renderMedia used to sanitize Source with
+// renderer.SanitizeURL, which layers EscapeHTMLAttribute on top of the
+// scheme allowlist — turning "&" into the literal string "&amp;" BEFORE the
+// docx XML writer ever sees it. The writer then XML-escapes that "&" too
+// (correctly, on its own terms), producing a double-escaped "&amp;amp;" in
+// document.xml — which round-trips back to the WRONG string ("&amp;b=2"
+// instead of "&b=2") when a real XML parser reads it. ValidateURLScheme
+// hands the writer the raw "&" so it gets escaped exactly once, the
+// standard/correct amount for XML text content.
+func TestDOCXGenerator_RenderMedia_QueryStringNotDoubleEscaped(t *testing.T) {
+	logger := newTestLogger()
+	gen := New(logger)
+	source := "https://cdn.example.com/v.mp4?a=1&b=2"
+	doc := astWithElements(ast.NewMediaElement(diagnostics.NewPosition(1, 1), "video", source))
+
+	output := filepath.Join(t.TempDir(), "media.docx")
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+	if strings.Contains(xml, "&amp;amp;") {
+		t.Errorf("media URL query string got double XML-escaped, document.xml:\n%s", xml)
+	}
+	if !strings.Contains(xml, "&amp;b=2") {
+		t.Errorf("expected a single, correct XML-escape of the query string's \"&\", document.xml:\n%s", xml)
+	}
+}
+
+// TestDOCXGenerator_RenderText_LevelWithRawMarkdownContent covers a finding
+// from the #40 code review: the Level > 0 short-circuit only tried the
+// end-anchored HTML pattern, so a TextElement with Level populated but
+// Content still in raw Markdown form (`## Resumen`) — reachable via an
+// external --filter AST, or before HTML normalization runs — rendered the
+// literal "## Resumen" as the heading text instead of "Resumen".
+func TestDOCXGenerator_RenderText_LevelWithRawMarkdownContent(t *testing.T) {
+	logger := newTestLogger()
+	gen := New(logger)
+	el := ast.NewTextElement(diagnostics.NewPosition(1, 1), "## Resumen")
+	el.Level = 2
+	doc := astWithElements(el)
+
+	output := filepath.Join(t.TempDir(), "heading.docx")
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+	if strings.Contains(xml, "## Resumen") {
+		t.Errorf("raw Markdown heading markup leaked into the heading text, document.xml:\n%s", xml)
+	}
+	if !strings.Contains(xml, ">Resumen<") {
+		t.Errorf("expected the extracted heading text \"Resumen\", document.xml:\n%s", xml)
+	}
+}
+
 // TestDOCXGenerator_RenderText_UsesLevelInsteadOfRegex covers issue #22: a
 // TextElement with Level populated must use it directly rather than
 // re-parsing the rendered <hN> — pinned by exercising levels the old

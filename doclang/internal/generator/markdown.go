@@ -113,10 +113,24 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		// Content se vuelca tal cual, comportamiento histórico preservado.
 		if elem.Level > 0 {
 			text := elem.Content
+			anchor := ""
 			if m := headingHTMLPattern.FindStringSubmatch(elem.Content); m != nil {
 				text = m[1]
+				// Preservar el id="..." del <hN> ya renderizado como un
+				// anchor explícito (sintaxis {#id}, soportada por
+				// Pandoc/kramdown): sin esto, un link en el mismo
+				// documento como [ver](#mi-seccion) deja de resolver en
+				// cuanto el auto-slug del renderer de Markdown destino
+				// difiere del sanitizeAnchor que usó el parser (acentos,
+				// emoji, puntuación se limpian distinto) o el auto-slug
+				// está deshabilitado.
+				if idm := headingIDPattern.FindStringSubmatch(elem.Content); idm != nil && idm[1] != "" {
+					anchor = fmt.Sprintf(" {#%s}", idm[1])
+				}
+			} else if m := markdownHeadingPattern.FindStringSubmatch(elem.Content); m != nil {
+				text = m[1]
 			}
-			return fmt.Sprintf("%s %s\n\n", strings.Repeat("#", elem.Level), text)
+			return fmt.Sprintf("%s %s%s\n\n", strings.Repeat("#", elem.Level), text, anchor)
 		}
 		return elem.Content + "\n"
 
@@ -225,11 +239,16 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 // renderMediaElementMarkdown degrades a MediaElement to a link (issue #36) —
 // Markdown has no native <video>/<audio> equivalent, unlike doclang's HTML
 // output (core/renderer's renderMediaElement, which this mirrors). Same
-// security rule as core: Source goes through renderer.SanitizeURL before
-// use, and an empty source is reported distinctly from a source SanitizeURL
-// blocked — an empty src is missing data, not a rejected dangerous scheme,
-// and conflating the two would mislead the author into thinking something
-// was blocked when nothing was ever provided.
+// security rule as core, with one difference: Source goes through
+// renderer.ValidateURLScheme, NOT SanitizeURL. SanitizeURL layers
+// EscapeHTMLAttribute on top of the scheme allowlist — correct for an HTML
+// attribute, wrong here, since both the Markdown link target and its
+// visible text are not HTML; that escaping only leaves literal `&amp;`
+// entities in any URL with a query string. An empty source is reported
+// distinctly from a source ValidateURLScheme blocked — an empty src is
+// missing data, not a rejected dangerous scheme, and conflating the two
+// would mislead the author into thinking something was blocked when
+// nothing was ever provided.
 func renderMediaElementMarkdown(elem *ast.MediaElement) string {
 	label := "video"
 	icon := "🎬"
@@ -242,7 +261,7 @@ func renderMediaElementMarkdown(elem *ast.MediaElement) string {
 	if source == "" {
 		return fmt.Sprintf("*[%s sin fuente]*\n", label)
 	}
-	safeSource := renderer.SanitizeURL(source)
+	safeSource := renderer.ValidateURLScheme(source)
 	if safeSource == "" {
 		return fmt.Sprintf("*[%s bloqueado por seguridad]*\n", label)
 	}
