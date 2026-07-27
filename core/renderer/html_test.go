@@ -98,6 +98,45 @@ func TestRenderTableElement_HeaderCellInBodyRow_UsesCellPath(t *testing.T) {
 	}
 }
 
+// TestRenderTableElement_LeadRowSpanningRowsNoThead covers issue #51: a row 0
+// that is entirely IsHeader used to be enough for renderTableCells to wrap it
+// in <thead>, even when one of those cells declares RowSpan > 1 — a rowspan
+// that reaches into row 1, which this function puts inside <tbody>. That
+// crosses the <thead>/<tbody> boundary, which has no consistent
+// browser/accessibility-tree interpretation. Same fix and same fixture as
+// slidelang's cellsLeadIsHeader (PR #50,
+// TestPrepareTemplateData_TableCells_LeadRowSpanningRowsIsFalse), applied to
+// core's HTML renderer, which #50 deliberately left out of scope.
+func TestRenderTableElement_LeadRowSpanningRowsNoThead(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Cells = [][]ast.TableCell{
+		{
+			{Content: "Grupo", IsHeader: true, Scope: "col", RowSpan: 2},
+			{Content: "Otro", IsHeader: true, Scope: "col"},
+		},
+		{
+			{Content: "a"},
+		},
+		{
+			{Content: "b"}, {Content: "c"},
+		},
+	}
+	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
+
+	got := renderTableElement(table, nil)
+
+	if strings.Contains(got, "<thead>") {
+		t.Errorf("expected no <thead>: row 0's RowSpan=2 header cell reaches into row 1, which sits in <tbody> — a rowspan cannot cross the <thead>/<tbody> boundary, got: %s", got)
+	}
+	if !strings.Contains(got, `<th scope="col" rowspan="2">Grupo</th>`) {
+		t.Errorf("expected row 0's header cell to still render as <th> with its rowspan preserved (falling back to a single <tbody> must not demote it to <td> or drop the rowspan), got: %s", got)
+	}
+	if !strings.Contains(got, `<th scope="col">Otro</th>`) {
+		t.Errorf("expected row 0's non-spanning header cell to still render as <th>, got: %s", got)
+	}
+}
+
 // TestRenderMediaElement_EmitsAttributes covers issue #21: video/audio must
 // emit the right tag and the 4 boolean attributes only when true (no
 // attribute by default, no "true"/"false" value — native HTML boolean
