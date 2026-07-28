@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/mmonterroca/docxgo/v2 v2.1.1
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/spf13/cobra v1.10.2
 	go.ziradocs.com/core/v2 v2.2.3
 	golang.org/x/text v0.40.0
@@ -38,5 +38,7 @@ require (
 	golang.org/x/image v0.43.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 )
