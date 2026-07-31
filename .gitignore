@@ -65,3 +65,6 @@ go.work.sum
 
 # Claude Code session/worktree metadata
 /.claude/
+
+# Developer-local Claude Code instructions — machine-specific, never committed
+CLAUDE.local.md
