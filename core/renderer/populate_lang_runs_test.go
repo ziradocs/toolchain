@@ -4,6 +4,7 @@
 package renderer
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -22,6 +23,102 @@ func TestPopulateLangRuns_Markdown(t *testing.T) {
 	}
 	if got[0].Text != "bonjour tout le monde" || got[0].Lang != "fr" {
 		t.Errorf("unexpected run: %+v", got[0])
+	}
+}
+
+// TestPopulateLangRuns_SkipsCodeSpans covers issue #63 code review finding
+// #7's extraction-side follow-up: since ProcessInlineMarkdownFormatsSecure
+// now protects `código` before any other pass runs (finding #7), a
+// [x]{lang=fr} inside a code span no longer becomes a <span lang="fr"> in
+// the HTML — it stays literal inside <code>. LangRuns must agree: reporting
+// a run the HTML never produced would let a consumer (e.g. a DOCX/PPTX
+// generator, or a linter rule) act on a language mark that isn't actually
+// visible/applied anywhere in the rendered output.
+func TestPopulateLangRuns_SkipsCodeSpans(t *testing.T) {
+	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), "`[a]{lang=fr}` pero [b]{lang=de} sí")
+	doc := newTestDoc(elem)
+
+	PopulateLangRuns(doc, nil)
+
+	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+	if len(got) != 1 || got[0].Text != "b" || got[0].Lang != "de" {
+		t.Errorf("expected only the span outside the code, got %+v", got)
+	}
+}
+
+// TestPopulateLangRuns_PreservesCodeSpanInsideLangText covers an advisor
+// follow-up on TestPopulateLangRuns_SkipsCodeSpans: a lang span whose text
+// CONTAINS a code span (as opposed to being entirely inside one) must keep
+// that code span verbatim in Text — extractLangRunsFromMarkdown must not
+// blank out code ranges before matching (that would also erase code
+// content nested INSIDE a lang span, not just spans that live entirely
+// inside code), only exclude lang-span matches that overlap a code range.
+func TestPopulateLangRuns_PreservesCodeSpanInsideLangText(t *testing.T) {
+	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), "[texto con `code`]{lang=fr}")
+	doc := newTestDoc(elem)
+
+	PopulateLangRuns(doc, nil)
+
+	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+	if len(got) != 1 || got[0].Text != "texto con `code`" || got[0].Lang != "fr" {
+		t.Errorf("expected the code span preserved verbatim in Text, got %+v", got)
+	}
+}
+
+// TestPopulateLangRuns_MarkdownAgreesWithHTML states the actual contract
+// directly instead of approximating it with per-case assertions (advisor
+// follow-up): whatever ProcessInlineMarkdownFormatsSecure decides — does
+// this input produce a <span lang="..."> in the HTML or not — LangRuns must
+// agree. A prior fix (blanking code spans before matching) violated this
+// for text nested inside a lang span; a second attempt (containment-only
+// exclusion) violated it for a lang-span match that crosses a code span's
+// boundary ("[a`b]{lang=fr}`c" — sanitizer.go's code pass swallows
+// "]{lang=fr}" whole, so the HTML never gets a <span lang> there either).
+// This table exercises both directions so neither regresses silently.
+func TestPopulateLangRuns_MarkdownAgreesWithHTML(t *testing.T) {
+	inputs := []string{
+		"[b]{lang=de}",
+		"`[a]{lang=fr}`",
+		"[texto con `code`]{lang=fr}",
+		"[a`b]{lang=fr}`c",
+		"[a `x` b `y` c]{lang=fr}",
+	}
+	for _, in := range inputs {
+		html := ProcessInlineMarkdownFormatsSecure(EscapeHTML(in))
+
+		elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), in)
+		doc := newTestDoc(elem)
+		PopulateLangRuns(doc, nil)
+		runs := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+
+		hasSpan := strings.Contains(html, `<span lang=`)
+		hasRuns := len(runs) > 0
+		if hasSpan != hasRuns {
+			t.Errorf("%q: HTML/LangRuns divergence — html=%q hasSpan=%v runs=%+v", in, html, hasSpan, runs)
+		}
+	}
+}
+
+// TestPopulateLangRuns_RawHTML_CodeSpanAgreesWithHTML covers the RawHTML
+// producer side of the same invariant as
+// TestPopulateLangRuns_MarkdownAgreesWithHTML (advisor follow-up): a
+// subsection heading's Content is already fully materialized HTML by parse
+// time (core/parser/document_flex.go calls ProcessInlineMarkdownSecureLine
+// before PopulateLangRuns ever runs), so "`[a]{lang=fr}`" there is already
+// "<code>[a]{lang=fr}</code>" — no <span lang> for extractLangRunsFromHTML
+// to find. This confirms the contract holds by construction on this path
+// too, not just on extractLangRunsFromMarkdown.
+func TestPopulateLangRuns_RawHTML_CodeSpanAgreesWithHTML(t *testing.T) {
+	content := ProcessInlineMarkdownSecureLine("`[a]{lang=fr}`")
+	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), content)
+	elem.IsRawHTML = true
+	doc := newTestDoc(elem)
+
+	PopulateLangRuns(doc, nil)
+
+	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+	if len(got) != 0 {
+		t.Errorf("expected zero runs (code span, no <span lang> materialized), got %+v", got)
 	}
 }
 

@@ -4,7 +4,6 @@
 package renderer
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -861,35 +860,40 @@ func TestProcessInlineMarkdownFormatsSecure_BracketedSpans(t *testing.T) {
 	// mientras un <a> abierto DENTRO del span sigue abierto. Un substring
 	// ingenuo no basta (el anidado VÁLIDO <a><span>…</span></a> también
 	// termina en "</span></a>"), así que validamos anidamiento LIFO real con
-	// una pila de tags sobre la salida.
+	// htmlTagsWellNested (producción, sanitizer.go) — la misma función que
+	// gatea bracketContentTagsBalanced, así que esta verificación end-to-end
+	// nunca puede divergir silenciosamente de lo que el código de producción
+	// realmente aplica (issue #63 code review, advisor follow-up: antes esta
+	// función y su copia en el bloque de idioma más abajo eran DOS
+	// implementaciones inline que habían divergido — esta saltaba <br>, la
+	// otra no).
+	//
+	// El eje ==/~~/** (issue #63 code review finding #8) se agrega acá:
+	// antes de ese fix, un delimitador cuyo cierre cae DENTRO de los
+	// corchetes (p.ej. "**[a**]{.danger}") producía exactamente el mismo
+	// cruce que el eje span/enlace ya cubría, solo con un origen distinto
+	// (negrita/resaltado/tachado en vez de enlace).
 	crossInputs := []string{
 		"[See [important]{.danger}](https://example.com)",
 		"[See [here](https://example.com)]{.danger}",
 		"[a]{.danger} [b](https://example.com)",
 		"[**x** [y](https://example.com)]{.info}",
+		"**[a**]{.danger}",
+		"==[a==]{.danger}",
+		"~~[a~~]{.danger}",
+		"[a **b]{.danger} c**",
+		"`[a]{.danger}`",
+		"`**[a**]{.danger}`",
 	}
-	tagRe := regexp.MustCompile(`<(/?)([a-z0-9]+)[^>]*>`)
 	for _, in := range crossInputs {
 		out := ProcessInlineMarkdownFormatsSecure(EscapeHTML(in))
-		var stack []string
-		balanced := true
-		for _, m := range tagRe.FindAllStringSubmatch(out, -1) {
-			closing, name := m[1] == "/", m[2]
-			if name == "br" { // void, sin cierre
-				continue
-			}
-			if !closing {
-				stack = append(stack, name)
-				continue
-			}
-			if len(stack) == 0 || stack[len(stack)-1] != name {
-				balanced = false
-				break
-			}
-			stack = stack[:len(stack)-1]
-		}
-		if !balanced || len(stack) != 0 {
+		if !htmlTagsWellNested(out) {
 			t.Errorf("span/enlace %q produjo HTML con anidamiento inválido/cruzado: %q", in, out)
+		}
+		// Backstop (advisor follow-up sobre finding #7): ninguno de estos
+		// casos, varios con code spans, debe filtrar el centinela interno.
+		if strings.Contains(out, "zdc") {
+			t.Errorf("span/enlace %q filtró un centinela interno: %q", in, out)
 		}
 	}
 
@@ -1026,31 +1030,100 @@ func TestProcessInlineMarkdownFormatsSecure_LangSpans(t *testing.T) {
 	}
 
 	// Interacción span-de-idioma/enlace: mismo guardián anti-cruce que el
-	// span de clase (P2 de PR #260) — un enlace dentro/alrededor de un span
-	// de idioma nunca debe producir HTML con anidamiento cruzado.
+	// span de clase (P2 de PR #260), verificado con htmlTagsWellNested
+	// (producción, sanitizer.go — ver el comentario equivalente en
+	// TestProcessInlineMarkdownFormatsSecure_BracketedSpans sobre por qué
+	// las dos copias de este validador se unificaron). Mismo eje ==/~~/**
+	// (finding #8) agregado acá.
 	crossInputs := []string{
 		"[See [bonjour]{lang=fr}](https://example.com)",
 		"[a]{lang=fr} [b](https://example.com)",
+		"**[bonjour**]{lang=fr}",
+		"==[bonjour==]{lang=fr}",
+		"~~[bonjour~~]{lang=fr}",
+		"[a **b]{lang=fr} c**",
+		"`[a]{lang=fr}`",
+		"`**[a**]{lang=fr}`",
 	}
-	tagRe := regexp.MustCompile(`<(/?)([a-z0-9]+)[^>]*>`)
 	for _, in := range crossInputs {
 		out := ProcessInlineMarkdownFormatsSecure(EscapeHTML(in))
-		var stack []string
-		balanced := true
-		for _, m := range tagRe.FindAllStringSubmatch(out, -1) {
-			closing, name := m[1] == "/", m[2]
-			if !closing {
-				stack = append(stack, name)
-				continue
-			}
-			if len(stack) == 0 || stack[len(stack)-1] != name {
-				balanced = false
-				break
-			}
-			stack = stack[:len(stack)-1]
-		}
-		if !balanced || len(stack) != 0 {
+		if !htmlTagsWellNested(out) {
 			t.Errorf("span de idioma/enlace %q produjo HTML con anidamiento inválido/cruzado: %q", in, out)
 		}
+		// Backstop (advisor follow-up sobre finding #7): ninguno de estos
+		// casos, varios con code spans, debe filtrar el centinela interno.
+		if strings.Contains(out, "zdc") {
+			t.Errorf("span de idioma/enlace %q filtró un centinela interno: %q", in, out)
+		}
+	}
+}
+
+// TestProcessInlineMarkdownFormatsSecure_CodeIsolation covers issue #63
+// code review finding #7: código “ `así` “ corría en la posición 7 de 10
+// pasadas (después de highlight/strikethrough/bold-italic/nested-italic/
+// bold/italic), así que el contenido de un code span se interpretaba como
+// markdown en vez de mostrarse literal — “ `**a**` “ producía
+// <code><strong>a</strong></code> en vez de <code>**a**</code>. El fix
+// protege código con un centinela ANTES de cualquier otra pasada (ver el
+// doc comment de ProcessInlineMarkdownFormatsSecure), así que TODO lo que
+// una pasada posterior reconocería como sintaxis propia (bold, highlight,
+// strikethrough, italic, span de clase, span de idioma, enlace) debe
+// sobrevivir literal dentro de un code span.
+func TestProcessInlineMarkdownFormatsSecure_CodeIsolation(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"bold no interpretado dentro de code", "`**a**`", "<code>**a**</code>"},
+		{"highlight no interpretado dentro de code", "`==a==`", "<code>==a==</code>"},
+		{"strikethrough no interpretado dentro de code", "`~~a~~`", "<code>~~a~~</code>"},
+		{"italic no interpretado dentro de code", "`*a*`", "<code>*a*</code>"},
+		{"enlace no interpretado dentro de code", "`[a](url)`", "<code>[a](url)</code>"},
+		{"span de idioma no interpretado dentro de code", "`[a]{lang=fr}`", "<code>[a]{lang=fr}</code>"},
+		{"span de clase no interpretado dentro de code", "`[a]{.danger}`", "<code>[a]{.danger}</code>"},
+		{"dos code spans en la misma línea, cada uno restaurado por separado", "`**a**` y `==b==`", "<code>**a**</code> y <code>==b==</code>"},
+		{"code span junto a formato real fuera de él", "**bold** y `**not bold**`", "<strong>bold</strong> y <code>**not bold**</code>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ProcessInlineMarkdownFormatsSecure(EscapeHTML(tt.input))
+			if result != tt.expected {
+				t.Errorf("ProcessInlineMarkdownFormatsSecure(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+			// Backstop (advisor follow-up sobre finding #7): el centinela
+			// interno nunca debe sobrevivir al resultado final, ni en su
+			// forma cruda ni en la escapada una vez (ver
+			// TestProcessInlineMarkdownFormatsSecure_CodeSpanInLinkURL_SentinelRestoredNotLeaked).
+			if strings.Contains(result, "zdc") {
+				t.Errorf("ProcessInlineMarkdownFormatsSecure(%q) leaked an internal sentinel: %q", tt.input, result)
+			}
+		})
+	}
+}
+
+// TestProcessInlineMarkdownFormatsSecure_CodeSpanInLinkURL_SentinelRestoredNotLeaked
+// covers an advisor follow-up on finding #7: a code span landing inside a
+// link's URL slot ("[a](`url`)") flows through SanitizeURL →
+// EscapeHTMLAttribute, which HTML-escapes the sentinel once ("<zdc0/>" →
+// "&lt;zdc0/&gt;") before the restore loop runs. Restoring only the raw
+// form left the escaped sentinel visible in the final href instead of the
+// intended restored content. The escaped-sentinel restore emits
+// "&lt;code&gt;...&lt;/code&gt;" (entities, matching what already lived in
+// that href attribute before this fix — see the comment on the restore
+// loop in sanitizer.go), not raw "<code>...</code>" tags, which would
+// otherwise land unescaped inside an href="..." attribute value. This is a
+// pre-existing edge case (a code span used as a URL was never a
+// well-formed link before this fix either — it used to leak the literal
+// content escaped the exact same way), not a new regression; the fix just
+// makes what leaks be the actual code content instead of an internal
+// implementation detail.
+func TestProcessInlineMarkdownFormatsSecure_CodeSpanInLinkURL_SentinelRestoredNotLeaked(t *testing.T) {
+	result := ProcessInlineMarkdownFormatsSecure(EscapeHTML("[a](`b`)"))
+	if strings.Contains(result, "zdc") {
+		t.Fatalf("sentinel leaked into output: %q", result)
+	}
+	if !strings.Contains(result, "&lt;code&gt;b&lt;/code&gt;") {
+		t.Errorf("expected the code span content restored (escaped) inside the href, got %q", result)
 	}
 }

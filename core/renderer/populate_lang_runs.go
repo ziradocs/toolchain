@@ -199,13 +199,52 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 	// — un span que solo existe tras sustituir una {{variable}} debe seguir
 	// siendo encontrado (issue #63 code review, hallazgo #10).
 	content = ProcessVariables(content, variables)
-	matches := InlineLangSpanPattern.FindAllStringSubmatch(content, -1)
+	// Excluir spans de idioma que caen DENTRO de un `código` (issue #63 code
+	// review, hallazgo #7 — advisor follow-up): desde el fix de #7,
+	// ProcessInlineMarkdownFormatsSecure protege código antes que cualquier
+	// otra pasada, así que "`[a]{lang=fr}`" ya NO se convierte en
+	// <span lang="fr">, queda <code>[a]{lang=fr}</code> literal. Sin esto,
+	// LangRuns reportaría un run que el HTML nunca produjo — la misma
+	// divergencia HTML/LangRuns que el contrato de esta función existe para
+	// evitar (ver LangRun's doc comment).
+	//
+	// NO se puede lograr borrando los code spans de `content` antes de
+	// matchear: eso también borra Texto de un span de idioma que CONTIENE un
+	// code span (`[texto con \`code\`]{lang=fr}`), violando el contrato de
+	// que Text es el texto verbatim del span. En vez de eso, se matchea
+	// sobre el `content` SIN modificar y se descarta cualquier match del
+	// span de idioma cuyo rango CRUCE la frontera de un code span (advisor
+	// follow-up #2): ni contención simple del match dentro del código
+	// (dejaría pasar el cruce parcial "[a`b]{lang=fr}`c", donde el code
+	// span de sanitizer.go se traga "]{lang=fr}" completo — el pipeline
+	// jamás emite <span lang> ahí) ni un overlap ingenuo (rechazaría
+	// también el caso legítimo de un code span anidado DENTRO del texto del
+	// span de idioma). Un match se acepta solo si, para cada code range, o
+	// bien es disjunto de él, o bien el code range vive enteramente DENTRO
+	// del match (anidamiento válido) — se rechaza en cualquier otro cruce.
+	codeRanges := inlineCodePattern.FindAllStringIndex(content, -1)
+	crossesCode := func(start, end int) bool {
+		for _, r := range codeRanges {
+			if end <= r[0] || start >= r[1] {
+				continue // disjunto
+			}
+			if start <= r[0] && end >= r[1] {
+				continue // el code span vive DENTRO del match: se conserva
+			}
+			return true
+		}
+		return false
+	}
+	matches := InlineLangSpanPattern.FindAllStringSubmatchIndex(content, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 	var runs []ast.LangRun
 	for _, m := range matches {
-		text, tag := m[1], m[2]
+		if crossesCode(m[0], m[1]) {
+			continue
+		}
+		text, tag := content[m[2]:m[3]], content[m[4]:m[5]]
 		if !a11y.IsValidLangTag(tag) {
 			continue
 		}
