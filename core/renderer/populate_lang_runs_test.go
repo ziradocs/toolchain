@@ -67,14 +67,20 @@ func TestPopulateLangRuns_PreservesCodeSpanInsideLangText(t *testing.T) {
 
 // TestPopulateLangRuns_MarkdownAgreesWithHTML states the actual contract
 // directly instead of approximating it with per-case assertions (advisor
-// follow-up): whatever ProcessInlineMarkdownFormatsSecure decides — does
-// this input produce a <span lang="..."> in the HTML or not — LangRuns must
-// agree. A prior fix (blanking code spans before matching) violated this
-// for text nested inside a lang span; a second attempt (containment-only
-// exclusion) violated it for a lang-span match that crosses a code span's
-// boundary ("[a`b]{lang=fr}`c" — sanitizer.go's code pass swallows
-// "]{lang=fr}" whole, so the HTML never gets a <span lang> there either).
-// This table exercises both directions so neither regresses silently.
+// follow-up): whatever the real HTML pipeline decides — does this input
+// produce a <span lang="..."> in the HTML or not — LangRuns must agree. A
+// prior fix (blanking code spans before matching) violated this for text
+// nested inside a lang span; a second attempt (containment-only exclusion)
+// violated it for a lang-span match that crosses a code span's boundary
+// ("[a`b]{lang=fr}`c" — sanitizer.go's code pass swallows "]{lang=fr}"
+// whole, so the HTML never gets a <span lang> there either); a third
+// attempt (crossesCode scanning unsplit content) violated it across a "\n"
+// (code-review finding on this same PR — see
+// TestPopulateLangRuns_CodeRangesDoNotCrossLines). This table exercises the
+// HTML side via ProcessInlineMarkdownSecureMultiline — the actual entry
+// point every real caller uses, per-line split included — not
+// ProcessInlineMarkdownFormatsSecure directly, which is exactly the gap
+// that let the multi-line divergence through undetected the first time.
 func TestPopulateLangRuns_MarkdownAgreesWithHTML(t *testing.T) {
 	inputs := []string{
 		"[b]{lang=de}",
@@ -82,9 +88,11 @@ func TestPopulateLangRuns_MarkdownAgreesWithHTML(t *testing.T) {
 		"[texto con `code`]{lang=fr}",
 		"[a`b]{lang=fr}`c",
 		"[a `x` b `y` c]{lang=fr}",
+		"line one with `code\n[span text]{lang=fr}` more",
+		"`[a]{lang=fr}`\n[b]{lang=de}",
 	}
 	for _, in := range inputs {
-		html := ProcessInlineMarkdownFormatsSecure(EscapeHTML(in))
+		html := ProcessInlineMarkdownSecureMultiline(in)
 
 		elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), in)
 		doc := newTestDoc(elem)
@@ -119,6 +127,34 @@ func TestPopulateLangRuns_RawHTML_CodeSpanAgreesWithHTML(t *testing.T) {
 	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 	if len(got) != 0 {
 		t.Errorf("expected zero runs (code span, no <span lang> materialized), got %+v", got)
+	}
+}
+
+// TestPopulateLangRuns_CodeRangesDoNotCrossLines covers a real code-review
+// finding on this same PR: extractLangRunsFromMarkdown's crossesCode used
+// to scan inlineCodePattern over the whole, unsplit Content — but every
+// real HTML-rendering caller (ProcessInlineMarkdownSecure/Multiline) splits
+// Content into lines FIRST, so a backtick can never pair across a "\n" in
+// the actual rendered HTML. An unclosed backtick on one line, coincidentally
+// closed by an unrelated backtick on a LATER line, used to fabricate a
+// cross-line code range that swallowed a genuine [x]{lang=fr} span on the
+// second line, wrongly dropping it from LangRuns even though the real HTML
+// contains a <span lang="fr"> for it.
+func TestPopulateLangRuns_CodeRangesDoNotCrossLines(t *testing.T) {
+	content := "line one with `code\n[span text]{lang=fr}` more"
+
+	html := ProcessInlineMarkdownSecureMultiline(content)
+	if !strings.Contains(html, `<span lang="fr">span text</span>`) {
+		t.Fatalf("precondition failed: expected the real HTML pipeline to emit a lang span, got %q", html)
+	}
+
+	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), content)
+	doc := newTestDoc(elem)
+	PopulateLangRuns(doc, nil)
+
+	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+	if len(got) != 1 || got[0].Text != "span text" || got[0].Lang != "fr" {
+		t.Errorf("expected the lang span on line 2 to survive, got %+v", got)
 	}
 }
 

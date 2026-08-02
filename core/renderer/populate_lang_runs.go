@@ -222,7 +222,35 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 	// span de idioma). Un match se acepta solo si, para cada code range, o
 	// bien es disjunto de él, o bien el code range vive enteramente DENTRO
 	// del match (anidamiento válido) — se rechaza en cualquier otro cruce.
-	codeRanges := inlineCodePattern.FindAllStringIndex(content, -1)
+	//
+	// matches primero, codeRanges después (code-review de esta misma PR,
+	// hallazgo confirmado): la inmensa mayoría de los elementos de prosa de
+	// un documento no tienen NINGÚN span de idioma, así que calcular
+	// codeRanges (otro barrido completo con regex) es trabajo tirado en el
+	// caso común — se pospone hasta saber que hace falta.
+	matches := InlineLangSpanPattern.FindAllStringSubmatchIndex(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	// codeRanges se calcula LÍNEA POR LÍNEA, no sobre `content` completo
+	// (code-review de esta misma PR, hallazgo confirmado): todo llamador
+	// real del pipeline HTML (ProcessInlineMarkdownSecure/Multiline, en
+	// sanitizer.go) parte el contenido por "\n" ANTES de proteger código,
+	// así que un backtick jamás empareja cruzando un salto de línea en el
+	// HTML real. Si esta función buscara backticks sobre `content` sin
+	// partir, "[^`]+" (que sí matchea "\n") podría emparejar un backtick
+	// suelto de una línea con uno no relacionado de una línea posterior,
+	// fabricando un rango de código que el pipeline real jamás produce, y
+	// rechazando de más un span de idioma legítimo. Los offsets se
+	// recalculan por línea para que sigan siendo válidos contra `content`.
+	var codeRanges [][2]int
+	offset := 0
+	for _, line := range strings.Split(content, "\n") {
+		for _, r := range inlineCodePattern.FindAllStringIndex(line, -1) {
+			codeRanges = append(codeRanges, [2]int{r[0] + offset, r[1] + offset})
+		}
+		offset += len(line) + 1 // +1 por el "\n" que Split consumió
+	}
 	crossesCode := func(start, end int) bool {
 		for _, r := range codeRanges {
 			if end <= r[0] || start >= r[1] {
@@ -234,10 +262,6 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 			return true
 		}
 		return false
-	}
-	matches := InlineLangSpanPattern.FindAllStringSubmatchIndex(content, -1)
-	if len(matches) == 0 {
-		return nil
 	}
 	var runs []ast.LangRun
 	for _, m := range matches {

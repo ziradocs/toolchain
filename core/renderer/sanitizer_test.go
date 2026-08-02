@@ -1127,3 +1127,29 @@ func TestProcessInlineMarkdownFormatsSecure_CodeSpanInLinkURL_SentinelRestoredNo
 		t.Errorf("expected the code span content restored (escaped) inside the href, got %q", result)
 	}
 }
+
+// TestProcessInlineMarkdownFormatsSecure_CodeSpanContentLooksLikeSentinel
+// covers a real code-review finding on this same PR: the sentinel-restore
+// loop used to be N sequential strings.ReplaceAll passes over the WHOLE
+// text, so a later pass could rematch text an earlier pass had just
+// inserted. A user code span whose literal content happens to be
+// "<zdc0/>" or "&lt;zdc0/&gt;" (documenting the sentinel syntax itself, or
+// coincidentally similar) triggered exactly that: the escaped-form replace
+// rematched what the raw-form replace of the SAME index had just written,
+// producing a spurious nested <code>. With two spans, a later span's
+// actual content could even overwrite an earlier span's literal text. The
+// fix (single-pass ReplaceAllStringFunc over the ORIGINAL text) makes this
+// structurally impossible: a replacement's output is never rescanned.
+func TestProcessInlineMarkdownFormatsSecure_CodeSpanContentLooksLikeSentinel(t *testing.T) {
+	result := ProcessInlineMarkdownFormatsSecure(EscapeHTML("`<zdc0/>`"))
+	want := "<code>&lt;zdc0/&gt;</code>"
+	if result != want {
+		t.Errorf("ProcessInlineMarkdownFormatsSecure(%q) = %q, want %q", "`<zdc0/>`", result, want)
+	}
+
+	result = ProcessInlineMarkdownFormatsSecure(EscapeHTML("`<zdc1/>` and `x`"))
+	want = "<code>&lt;zdc1/&gt;</code> and <code>x</code>"
+	if result != want {
+		t.Errorf("two-span cross-contamination: got %q, want %q", result, want)
+	}
+}
