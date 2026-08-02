@@ -3,7 +3,7 @@ module go.ziradocs.com/doclang/v2
 go 1.26.5
 
 require (
-	github.com/mmonterroca/docxgo/v2 v2.6.0
+	github.com/mmonterroca/docxgo/v2 v2.12.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v3 v3.0.5

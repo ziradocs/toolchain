@@ -38,6 +38,12 @@ func TestPptxSplitInline(t *testing.T) {
 		{"mixed", "**bold** and *italic* and `code`", []pptxInlineSegment{
 			{text: "bold", bold: true}, {text: " and "}, {text: "italic", italic: true}, {text: " and "}, {text: "code", code: true},
 		}},
+		{"lang span", "un [saludo]{lang=fr} aquí", []pptxInlineSegment{
+			{text: "un "}, {text: "saludo", lang: "fr"}, {text: " aquí"},
+		}},
+		{"lang span preserves bold-looking inner text literally", "[**not bold**]{lang=de}", []pptxInlineSegment{
+			{text: "**not bold**", lang: "de"},
+		}},
 	}
 
 	for _, tt := range tests {
