@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/mmonterroca/pptxgo/pptx"
+	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -180,15 +181,21 @@ type pptxInlineSegment struct {
 	bold   bool
 	italic bool
 	code   bool
+	lang   string
 }
 
 var (
 	pptxCodeRe   = regexp.MustCompile("`([^`]+)`")
 	pptxBoldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	pptxItalicRe = regexp.MustCompile(`\*([^*]+)\*`)
+	// pptxLangRe - [text]{lang=xx}, issue #63. Mismo patrón/charset que
+	// core/renderer/sanitizer.go's inlineLangSpanPattern; el tag capturado
+	// se valida con a11y.IsValidLangTag en pptxApplyInline antes de
+	// escribirse en el XML.
+	pptxLangRe = regexp.MustCompile(`\[([^\[\]]+)\]\{lang=([a-zA-Z0-9-]+)\}`)
 )
 
-// pptxSplitInline segmenta content en texto plano + code/bold/italic —
+// pptxSplitInline segmenta content en texto plano + code/bold/italic/lang —
 // mismo orden de prioridad que docx.go (code antes que bold, para no
 // interpretar "**" dentro de un `código`). Los links [text](url) quedan
 // fuera del alcance v0 (issue de seguimiento): un link se muestra como
@@ -197,6 +204,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 	type match struct {
 		start, end int
 		inner      string
+		lang       string
 		bold       bool
 		italic     bool
 		code       bool
@@ -208,6 +216,13 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 
 	for pos < len(remaining) {
 		var best *match
+		// bestRelPos se mantiene relativo a remaining[pos:] durante toda
+		// esta iteración (pos es constante aquí), así que se compara
+		// directo contra loc[0] — sin re-relativizar una posición
+		// absoluta a mitad de la comparación, que es lo que hacía frágil
+		// agregar un patrón más.
+		bestRelPos := len(remaining) - pos
+
 		for _, re := range []struct {
 			re                 *regexp.Regexp
 			bold, italic, code bool
@@ -217,15 +232,22 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 			{pptxItalicRe, false, true, false},
 		} {
 			loc := re.re.FindStringSubmatchIndex(remaining[pos:])
-			if loc == nil {
+			if loc == nil || loc[0] >= bestRelPos {
 				continue
 			}
-			if best == nil || loc[0] < best.start-pos {
-				best = &match{
-					start: pos + loc[0], end: pos + loc[1],
-					inner: remaining[pos+loc[2] : pos+loc[3]],
-					bold:  re.bold, italic: re.italic, code: re.code,
-				}
+			bestRelPos = loc[0]
+			best = &match{
+				start: pos + loc[0], end: pos + loc[1],
+				inner: remaining[pos+loc[2] : pos+loc[3]],
+				bold:  re.bold, italic: re.italic, code: re.code,
+			}
+		}
+
+		if loc := pptxLangRe.FindStringSubmatchIndex(remaining[pos:]); loc != nil && loc[0] < bestRelPos {
+			best = &match{
+				start: pos + loc[0], end: pos + loc[1],
+				inner: remaining[pos+loc[2] : pos+loc[3]],
+				lang:  remaining[pos+loc[4] : pos+loc[5]],
 			}
 		}
 
@@ -236,7 +258,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		if best.start > pos {
 			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
 		}
-		segments = append(segments, pptxInlineSegment{text: best.inner, bold: best.bold, italic: best.italic, code: best.code})
+		segments = append(segments, pptxInlineSegment{text: best.inner, bold: best.bold, italic: best.italic, code: best.code, lang: best.lang})
 		pos = best.end
 	}
 
@@ -263,6 +285,9 @@ func pptxApplyInline(para *pptx.Paragraph, content string) {
 		}
 		if seg.code {
 			para.Font("Courier New")
+		}
+		if seg.lang != "" && a11y.IsValidLangTag(seg.lang) {
+			para.Lang(seg.lang)
 		}
 	}
 }

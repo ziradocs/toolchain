@@ -46,8 +46,8 @@ github.com/ledongthuc/pdf v0.0.0-20220302134840-0c2507a12d80 h1:6Yzfa6GP0rIo/kUL
 github.com/ledongthuc/pdf v0.0.0-20220302134840-0c2507a12d80/go.mod h1:imJHygn/1yfhB7XSJJKlFZKl/J+dCPAknuiaGOshXAs=
 github.com/mazznoer/csscolorparser v0.1.8 h1:i7w3wHW99d0q0KZv1ONkU/efXFAKcw1mgEgW6gj8KUA=
 github.com/mazznoer/csscolorparser v0.1.8/go.mod h1:OQRVvgCyHDCAquR1YWfSwwaDcM0LhnSffGnlbOew/3I=
-github.com/mmonterroca/pptxgo v0.0.0-20260719224718-11d79cc21c6b h1:+gGZF9o8ZFmupBIoEeDwO4+5cC0gg7sDlAKelisXUNM=
-github.com/mmonterroca/pptxgo v0.0.0-20260719224718-11d79cc21c6b/go.mod h1:NCpwYn3x+fRZQQ83N8qehLncfxvKJHa84m1l/pxRwbE=
+github.com/mmonterroca/pptxgo v0.0.0-20260802145618-9e8c8b31d00c h1:nzn3sCiEDq2dUCw6VWvE/+BS4Y8P8nzIHOTL8kQrQSo=
+github.com/mmonterroca/pptxgo v0.0.0-20260802145618-9e8c8b31d00c/go.mod h1:NCpwYn3x+fRZQQ83N8qehLncfxvKJHa84m1l/pxRwbE=
 github.com/modelcontextprotocol/go-sdk v1.7.0 h1:yqjY2dsbKAC0LSuWZVBMrHgiG8ukXv6NRo0JiALay44=
 github.com/modelcontextprotocol/go-sdk v1.7.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde h1:x0TT0RDC7UhAVbbWWBzr41ElhJx5tXPWkIHA2HWPRuw=
@@ -76,8 +76,8 @@ github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT0
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
 go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
-go.ziradocs.com/core/v2 v2.3.0 h1:sOVBpg8AhlJ5sLphEicgEFTkMLwyKnjVaQv2y1Iro1E=
-go.ziradocs.com/core/v2 v2.3.0/go.mod h1:lhFXMESPCZZB6USk/8EbSzc0UlV/+Zt6W+gxfB0FMQE=
+go.ziradocs.com/core/v2 v2.4.0 h1:tZJOlq1mLguLkY0QEgElPAyQpQWJBUUavtEHqIoGhBE=
+go.ziradocs.com/core/v2 v2.4.0/go.mod h1:lhFXMESPCZZB6USk/8EbSzc0UlV/+Zt6W+gxfB0FMQE=
 golang.org/x/image v0.43.0 h1:FLxcP4ec2350nTfOC8ysKtqYSIFbk/QGjw1ZHNP4tsY=
 golang.org/x/image v0.43.0/go.mod h1:rrpelvGFt+kLPAjPM4HeWPgrl0FtafueU//e5N0qk/Q=
 golang.org/x/net v0.0.0-20210614182718-04defd469f4e/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=

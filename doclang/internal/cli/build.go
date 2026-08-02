@@ -16,6 +16,7 @@ import (
 	"go.ziradocs.com/core/v2/include"
 	"go.ziradocs.com/core/v2/linter"
 	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/report"
 	"go.ziradocs.com/core/v2/transform"
 	"go.ziradocs.com/core/v2/util"
@@ -195,6 +196,15 @@ Examples:
 					return fmt.Errorf("filter stage failed: %w", err)
 				}
 			}
+
+			// Derivar LangRuns (issue #63) ANTES del lint, mismo criterio de
+			// orden que el bloque de arriba: tiene que estar disponible para
+			// el linter y, vía él, para un rulepack externo (recibe el AST
+			// json.Marshal'd tal cual, core/linter/external.go). Corre
+			// DESPUÉS de RunFilters y se re-deriva siempre desde Content,
+			// nunca se confía en lo que un filtro externo haya dejado en
+			// LangRuns — ver renderer.PopulateLangRuns.
+			renderer.PopulateLangRuns(doc)
 
 			// Cargar el tema ANTES del lint (issue #30 — seam de contraste
 			// WCAG): getThemeName solo depende de doc.FrontMatter y del flag

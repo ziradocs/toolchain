@@ -13,6 +13,7 @@ import (
 
 	docx "github.com/mmonterroca/docxgo/v2"
 	"github.com/mmonterroca/docxgo/v2/domain"
+	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/renderer/chromium"
@@ -922,12 +923,15 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 	// Orden: code, bold, italic, links (code primero para evitar procesar ** dentro de `)
 	patterns := []struct {
 		regex *regexp.Regexp
-		apply func(domain.Run, string) error
+		// apply recibe el texto interno (grupo de captura 1) y, si el
+		// patrón tiene un segundo grupo de captura, su valor — hoy solo
+		// lo usa el patrón de idioma; los demás lo ignoran.
+		apply func(r domain.Run, text string, extra string) error
 	}{
 		{
 			// `code` - código inline
 			regex: regexp.MustCompile("`([^`]+)`"),
-			apply: func(r domain.Run, text string) error {
+			apply: func(r domain.Run, text string, _ string) error {
 				_ = r.SetText(text)
 				if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
 					return err
@@ -940,7 +944,7 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 		{
 			// **bold** - negrita
 			regex: regexp.MustCompile(`\*\*([^*]+)\*\*`),
-			apply: func(r domain.Run, text string) error {
+			apply: func(r domain.Run, text string, _ string) error {
 				_ = r.SetText(text)
 				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 					return err
@@ -954,7 +958,7 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 		{
 			// *italic* - cursiva
 			regex: regexp.MustCompile(`\*([^*]+)\*`),
-			apply: func(r domain.Run, text string) error {
+			apply: func(r domain.Run, text string, _ string) error {
 				_ = r.SetText(text)
 				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 					return err
@@ -968,7 +972,7 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 		{
 			// [text](url) - links
 			regex: regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`),
-			apply: func(r domain.Run, text string) error {
+			apply: func(r domain.Run, text string, _ string) error {
 				_ = r.SetText(text)
 				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 					return err
@@ -978,6 +982,27 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 				// Links con subrayado (usar UnderlineNone + 1 = single)
 				_ = r.SetUnderline(domain.UnderlineStyle(1))
 				// TODO: Agregar hyperlink real cuando docxgo lo soporte
+				return nil
+			},
+		},
+		{
+			// [text]{lang=xx} - idioma inline (issue #63)
+			regex: regexp.MustCompile(`\[([^\[\]]+)\]\{lang=([a-zA-Z0-9-]+)\}`),
+			apply: func(r domain.Run, text string, lang string) error {
+				_ = r.SetText(text)
+				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+					return err
+				}
+				_ = r.SetColor(g.parseColor(g.style.TextColor))
+				_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+				// Mismo gate que core/renderer/sanitizer.go: el regex captura un
+				// charset más amplio que a11y.IsValidLangTag, así que un tag
+				// inválido se ignora en vez de escribirse sin validar en el XML.
+				if a11y.IsValidLangTag(lang) {
+					if err := r.SetLanguage(&domain.Language{Val: lang}); err != nil {
+						return err
+					}
+				}
 				return nil
 			},
 		},
@@ -992,10 +1017,11 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 		minPos := len(remaining)
 		var matchedPattern *struct {
 			regex *regexp.Regexp
-			apply func(domain.Run, string) error
+			apply func(r domain.Run, text string, extra string) error
 		}
 		var matchedText string
 		var matchedInner string
+		var matchedExtra string
 
 		for i := range patterns {
 			pattern := &patterns[i]
@@ -1004,8 +1030,13 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 				minPos = loc[0]
 				matchedPattern = pattern
 				matchedText = remaining[pos+loc[0] : pos+loc[1]]
+				matchedInner = ""
+				matchedExtra = ""
 				if len(loc) >= 4 {
 					matchedInner = remaining[pos+loc[2] : pos+loc[3]]
+				}
+				if len(loc) >= 6 {
+					matchedExtra = remaining[pos+loc[4] : pos+loc[5]]
 				}
 			}
 		}
@@ -1036,7 +1067,7 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 			if err != nil {
 				return err
 			}
-			if err := matchedPattern.apply(r, matchedInner); err != nil {
+			if err := matchedPattern.apply(r, matchedInner, matchedExtra); err != nil {
 				return err
 			}
 			pos += len(matchedText)

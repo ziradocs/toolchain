@@ -465,6 +465,16 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		}
 	}
 
+	// 6.55. Derivar LangRuns (issue #63) ANTES del lint, mismo lugar que
+	// PopulateInlineHTML NO ocupa (ese corre después de generar, ver
+	// generator.go) — pero LangRuns sí tiene que estar disponible para el
+	// linter (y, vía él, para un rulepack externo, que recibe el AST
+	// json.Marshal'd tal cual — core/linter/external.go). Corre DESPUÉS de
+	// RunFilters y se re-deriva siempre desde Content, nunca se confía en lo
+	// que un filtro externo haya dejado en LangRuns — ver
+	// renderer.PopulateLangRuns.
+	renderer.PopulateLangRuns(astNode)
+
 	// 6.6. Resolver el tema ANTES del lint (issue #30 — seam de contraste
 	// WCAG): resolveTheme vivía enterrado en el generador, alcanzable solo
 	// vía GenerateWithOptions, así que un --lint-only nunca lo tocaba. Se

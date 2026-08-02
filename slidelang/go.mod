@@ -4,10 +4,10 @@ go 1.26.5
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/mmonterroca/pptxgo v0.0.0-20260719224718-11d79cc21c6b
+	github.com/mmonterroca/pptxgo v0.0.0-20260802145618-9e8c8b31d00c
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/spf13/cobra v1.10.2
-	go.ziradocs.com/core/v2 v2.3.0
+	go.ziradocs.com/core/v2 v2.4.0
 )
 
 require (

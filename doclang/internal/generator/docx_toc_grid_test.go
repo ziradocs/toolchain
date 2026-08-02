@@ -137,10 +137,13 @@ func TestDOCXGenerator_RenderTOC_FieldCoversOutlineLevel4(t *testing.T) {
 	}
 
 	xml := docxDocumentXML(t, output)
-	// docxgo's field code literally emits two backslashes per switch
-	// (see internal/core/field.go's buildTOCCode, a raw string with
-	// `\\o`) — matched verbatim here, not a typo.
-	if !strings.Contains(xml, `TOC \\o &#34;1-4&#34;`) {
-		t.Errorf("expected the TOC field's outline switch to cover level 4 (\\\\o \"1-4\"), document.xml:\n%s", xml)
+	// docxgo v2.12.0's buildTOCCode emits a single backslash per switch, as
+	// OOXML/Word expects (docxgo commit d66e4cb, "single-backslash TOC
+	// switches"). Older docxgo (<=v2.6.0, pinned when this test was
+	// written) emitted a literal double backslash, which Word treats as an
+	// unrecognized switch — so the outline-level restriction this test
+	// guards was never actually applied by Word before that fix.
+	if !strings.Contains(xml, `TOC \o &#34;1-4&#34;`) {
+		t.Errorf("expected the TOC field's outline switch to cover level 4 (\\o \"1-4\"), document.xml:\n%s", xml)
 	}
 }
