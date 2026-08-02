@@ -199,13 +199,87 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 	// — un span que solo existe tras sustituir una {{variable}} debe seguir
 	// siendo encontrado (issue #63 code review, hallazgo #10).
 	content = ProcessVariables(content, variables)
-	matches := InlineLangSpanPattern.FindAllStringSubmatch(content, -1)
+	// Excluir spans de idioma que caen DENTRO de un `código` (issue #63 code
+	// review, hallazgo #7 — advisor follow-up): desde el fix de #7,
+	// ProcessInlineMarkdownFormatsSecure protege código antes que cualquier
+	// otra pasada, así que "`[a]{lang=fr}`" ya NO se convierte en
+	// <span lang="fr">, queda <code>[a]{lang=fr}</code> literal. Sin esto,
+	// LangRuns reportaría un run que el HTML nunca produjo — la misma
+	// divergencia HTML/LangRuns que el contrato de esta función existe para
+	// evitar (ver LangRun's doc comment).
+	//
+	// NO se puede lograr borrando los code spans de `content` antes de
+	// matchear: eso también borra Texto de un span de idioma que CONTIENE un
+	// code span (`[texto con \`code\`]{lang=fr}`), violando el contrato de
+	// que Text es el texto verbatim del span. En vez de eso, se matchea
+	// sobre el `content` SIN modificar y se descarta cualquier match del
+	// span de idioma cuyo rango CRUCE la frontera de un code span (advisor
+	// follow-up #2): ni contención simple del match dentro del código
+	// (dejaría pasar el cruce parcial "[a`b]{lang=fr}`c", donde el code
+	// span de sanitizer.go se traga "]{lang=fr}" completo — el pipeline
+	// jamás emite <span lang> ahí) ni un overlap ingenuo (rechazaría
+	// también el caso legítimo de un code span anidado DENTRO del texto del
+	// span de idioma). Un match se acepta solo si, para cada code range, o
+	// bien es disjunto de él, o bien el code range vive enteramente DENTRO
+	// del match (anidamiento válido) — se rechaza en cualquier otro cruce.
+	//
+	// matches primero, codeRanges después (code-review de esta misma PR,
+	// hallazgo confirmado): la inmensa mayoría de los elementos de prosa de
+	// un documento no tienen NINGÚN span de idioma, así que calcular
+	// codeRanges (otro barrido completo con regex) es trabajo tirado en el
+	// caso común — se pospone hasta saber que hace falta.
+	matches := InlineLangSpanPattern.FindAllStringSubmatchIndex(content, -1)
 	if len(matches) == 0 {
 		return nil
 	}
+	// codeRanges se calcula LÍNEA POR LÍNEA, no sobre `content` completo
+	// (code-review de esta misma PR, hallazgo confirmado): todo llamador
+	// real del pipeline HTML (ProcessInlineMarkdownSecure/Multiline, en
+	// sanitizer.go) parte el contenido por "\n" ANTES de proteger código,
+	// así que un backtick jamás empareja cruzando un salto de línea en el
+	// HTML real. Si esta función buscara backticks sobre `content` sin
+	// partir, "[^`]+" (que sí matchea "\n") podría emparejar un backtick
+	// suelto de una línea con uno no relacionado de una línea posterior,
+	// fabricando un rango de código que el pipeline real jamás produce, y
+	// rechazando de más un span de idioma legítimo. Los offsets se
+	// recalculan por línea para que sigan siendo válidos contra `content`.
+	var codeRanges [][2]int
+	offset := 0
+	for _, line := range strings.Split(content, "\n") {
+		for _, r := range inlineCodePattern.FindAllStringIndex(line, -1) {
+			codeRanges = append(codeRanges, [2]int{r[0] + offset, r[1] + offset})
+		}
+		offset += len(line) + 1 // +1 por el "\n" que Split consumió
+	}
+	// Dos punteros, no O(matches × codeRanges) (code-review de esta misma
+	// PR, hallazgo confirmado): matches (de FindAllStringSubmatchIndex) y
+	// codeRanges (construido línea por línea con offset creciente) están
+	// AMBOS ordenados por posición de inicio. `ri` solo avanza, nunca
+	// retrocede: una vez que un rango de código termina antes de que
+	// empiece el match ACTUAL, ningún match POSTERIOR (que empieza en una
+	// posición igual o mayor) puede solaparlo tampoco, así que es seguro
+	// descartarlo para siempre. Esto asume que crossesCode se llama en el
+	// mismo orden creciente en que aparecen `matches` — ver el for de abajo.
+	ri := 0
+	crossesCode := func(start, end int) bool {
+		for ri < len(codeRanges) && codeRanges[ri][1] <= start {
+			ri++
+		}
+		for j := ri; j < len(codeRanges) && codeRanges[j][0] < end; j++ {
+			r := codeRanges[j]
+			if start <= r[0] && end >= r[1] {
+				continue // el code span vive DENTRO del match: se conserva
+			}
+			return true
+		}
+		return false
+	}
 	var runs []ast.LangRun
 	for _, m := range matches {
-		text, tag := m[1], m[2]
+		if crossesCode(m[0], m[1]) {
+			continue
+		}
+		text, tag := content[m[2]:m[3]], content[m[4]:m[5]]
 		if !a11y.IsValidLangTag(tag) {
 			continue
 		}

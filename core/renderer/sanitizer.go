@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/a11y"
@@ -422,8 +423,29 @@ func ProcessInlineMarkdownSecureMultiline(text string) string {
 
 // ProcessInlineMarkdownFormatsSecure procesa los formatos inline de markdown de forma segura
 // NOTA: Asume que el texto ya fue escapado con EscapeHTML
+//
+// Issue #63 code review finding #7: código “ `así` “ se protege ANTES de
+// cualquier otra pasada, sustituyendo cada `código` por un centinela
+// (<zdc0>, <zdc1>, ...) que ninguna pasada posterior reconoce como sintaxis
+// propia, y restaurándolo a <code>...</code> al final. Antes de este fix,
+// código corría en la posición 7 de 10 (después de highlight/strikethrough/
+// bold-italic/nested-italic/bold/italic), así que “ `**a**` “ producía
+// <code><strong>a</strong></code> — el contenido de un code span se
+// interpretaba como markdown en vez de mostrarse literal, para las 6
+// pasadas que corrían antes. El centinela es seguro de forjar: el texto
+// llega pre-escapado (ver la nota de la función), así que un "<" real
+// jamás puede existir en texto de usuario en este punto — solo lo emite
+// este archivo — y ninguna de las pasadas restantes (marcado, span,
+// enlace) reconoce "<zdcN>" como sintaxis propia.
 func ProcessInlineMarkdownFormatsSecure(text string) string {
 	// El texto ya está escapado, ahora aplicamos formatos markdown
+
+	var codeSpans []string
+	text = inlineCodePattern.ReplaceAllStringFunc(text, func(match string) string {
+		submatches := inlineCodePattern.FindStringSubmatch(match)
+		codeSpans = append(codeSpans, submatches[1])
+		return fmt.Sprintf("<zdc%d/>", len(codeSpans)-1)
+	})
 
 	// Procesar resaltado ==texto== -> <mark>texto</mark>
 	text = inlineHighlightPattern.ReplaceAllString(text, `<mark>$1</mark>`)
@@ -462,10 +484,6 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 	// producir un <em></em> vacío en el HTML generado (issue #12e1).
 	text = inlineItalicPattern.ReplaceAllString(text, `<em>$1</em>`)
 
-	// Procesar código `código` -> <code>código</code>
-	// El contenido ya está escapado por EscapeHTML
-	text = inlineCodePattern.ReplaceAllString(text, `<code>$1</code>`)
-
 	// Procesar spans con clase [contenido]{.token} -> tag fijo de la allowlist.
 	// Corre DESPUÉS de negrita/cursiva/código (para que el contenido interno ya
 	// lleve esos formatos aplicados: [**bold** text]{.danger} conserva la
@@ -483,6 +501,12 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 		}
 		content := submatches[1]
 		token := submatches[2]
+		// issue #63 code review finding #8: content puede cruzar el tag de
+		// una pasada anterior (p.ej. "**[a**]{.danger}" — el "**" de cierre
+		// cae DENTRO de los corchetes) — ver bracketContentTagsBalanced.
+		if !bracketContentTagsBalanced(content) {
+			return match
+		}
 		tags, ok := inlineSpanTokens[token]
 		if !ok {
 			// Token fuera de la allowlist: dejar el texto literal, sin inyectar.
@@ -516,6 +540,11 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 		}
 		content := submatches[1]
 		tag := submatches[2]
+		// issue #63 code review finding #8: mismo chequeo que la pasada de
+		// span de clase — ver bracketContentTagsBalanced.
+		if !bracketContentTagsBalanced(content) {
+			return match
+		}
 		if !a11y.IsValidLangTag(tag) {
 			// Tag fuera de forma BCP 47: dejar el texto literal, sin inyectar.
 			return match
@@ -535,6 +564,14 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 		linkText := submatches[1]
 		linkURL := submatches[2]
 
+		// issue #63 code review finding #8: mismo chequeo que las pasadas de
+		// span — ver bracketContentTagsBalanced. linkText, no linkURL: la URL
+		// no lleva tags HTML, es el texto visible el que puede cruzar un tag
+		// de una pasada anterior (p.ej. "**[a**](url)").
+		if !bracketContentTagsBalanced(linkText) {
+			return match
+		}
+
 		// Decode HTML entities that were escaped (for URLs in variables)
 		linkURL = strings.ReplaceAll(linkURL, "&lt;", "<")
 		linkURL = strings.ReplaceAll(linkURL, "&gt;", ">")
@@ -549,10 +586,184 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 			return linkText
 		}
 
+		// Restaurar un centinela de código que cae dentro del grupo URL
+		// (p.ej. "[a](`url`)", donde el code span ES el destino del
+		// enlace) — ver el comentario de restoreCodeSentinelsInURL sobre
+		// por qué esto se hace ACÁ, localizado a sanitizedURL, y no en el
+		// pase global de restauración de más abajo.
+		sanitizedURL = restoreCodeSentinelsInURL(sanitizedURL, codeSpans)
+
 		return fmt.Sprintf(`<a href="%s">%s</a>`, sanitizedURL, linkText)
 	})
 
+	// Restaurar los centinelas de código al final, ya con <code>...</code> —
+	// ver el comentario de esta función sobre por qué código se protege
+	// primero. SOLO la forma cruda "<zdcN/>" (advisor follow-up + code-review
+	// de esta misma PR, hallazgo confirmado): el texto llega pre-escapado
+	// con EscapeHTML ANTES de que esta función corra (ver la nota al inicio
+	// de la función), así que un "<zdcN/>" crudo en `text` a esta altura
+	// SOLO puede venir de la inserción de centinela de esta misma función —
+	// ningún texto de usuario puede sobrevivir con un "<" literal hasta
+	// acá. La forma ESCAPADA "&lt;zdcN/&gt;" NO tiene esa garantía: EscapeHTML
+	// convierte cualquier "<" de usuario en "&lt;" (sin tocar el "/"), así
+	// que un usuario que escriba literalmente "<zdc0/>" en texto plano —
+	// fuera de cualquier code span, sin pasar por SanitizeURL — produce
+	// exactamente esa cadena tras el escape de entrada. Restaurarla acá de
+	// forma global (como hacía una versión anterior de este fix) mangla
+	// texto de usuario arbitrario que nunca tuvo nada que ver con el
+	// esquema interno de centinelas. La única fuente REAL de la forma
+	// escapada es SanitizeURL → EscapeHTMLAttribute sobre una URL que
+	// contenía un centinela crudo, y esa restauración ya se hizo arriba,
+	// LOCALIZADA a sanitizedURL, en el momento en que se conoce con certeza
+	// que la forma escapada vino de ahí.
+	//
+	// UN SOLO pase con ReplaceAllStringFunc, no N pases de strings.ReplaceAll
+	// (code-review de esta misma PR, hallazgo confirmado): un loop de
+	// strings.ReplaceAll por índice vuelve a escanear la cadena COMPLETA en
+	// cada iteración, incluyendo el texto que una iteración anterior del
+	// mismo loop acaba de insertar — si el contenido literal de un code span
+	// contiene la subcadena "<zdcK/>" para cualquier K válido (p.ej. un
+	// usuario documentando el propio formato del centinela, o el contenido
+	// real de un code span posterior con índice K), ese texto recién
+	// restaurado se vuelve a matchear y reescribe, produciendo un <code>
+	// anidado espurio o, peor, sustituyendo el contenido de un span por el
+	// de OTRO. ReplaceAllStringFunc hace un solo barrido lineal sobre el
+	// texto ORIGINAL (antes de esta pasada) y nunca vuelve a escanear lo
+	// que la función de reemplazo devuelve, así que ninguna sustitución
+	// puede alimentar a otra — y de paso baja el costo de
+	// O(N * len(texto)) a O(len(texto)).
+	if len(codeSpans) > 0 {
+		text = zdcRawSentinelPattern.ReplaceAllStringFunc(text, func(match string) string {
+			sub := zdcRawSentinelPattern.FindStringSubmatch(match)
+			idx, err := strconv.Atoi(sub[1])
+			// Índice fuera de rango: no puede pasar (el patrón solo matchea
+			// dígitos y este archivo solo emite índices válidos), pero deja
+			// el texto intacto en vez de indexar fuera de rango si algún
+			// día deja de ser cierto.
+			if err != nil || idx < 0 || idx >= len(codeSpans) {
+				return match
+			}
+			return "<code>" + codeSpans[idx] + "</code>"
+		})
+	}
+
 	return text
+}
+
+// restoreCodeSentinelsInURL restaura, DENTRO de una URL ya sanitizada
+// (post-SanitizeURL), un centinela de código que cayó en el destino de un
+// enlace — p.ej. "[a](`url`)", donde el code span ES la URL. SanitizeURL →
+// EscapeHTMLAttribute escapa el centinela crudo una vez ("<zdc0/>" →
+// "&lt;zdc0/&gt;") antes de que este helper corra, así que acá solo hace
+// falta la forma escapada.
+//
+// Deliberadamente LOCALIZADO a `url` (advisor + code-review de esta misma
+// PR, hallazgo confirmado): una versión anterior de este fix hacía esta
+// misma sustitución de forma GLOBAL sobre el texto completo al final de
+// ProcessInlineMarkdownFormatsSecure. Eso era inseguro — a diferencia del
+// centinela crudo ("<zdcN/>", que solo esta función puede producir porque
+// el texto llega pre-escapado), la forma ESCAPADA sí puede originarse en
+// texto de usuario ORDINARIO: EscapeHTML (aplicado a TODO el texto de
+// entrada antes de que esta función corra) convierte cualquier "<" de
+// usuario en "&lt;" sin tocar el "/", así que un usuario que escribe
+// literalmente "<zdc0/>" en prosa normal —sin código, sin URL de por
+// medio— produce exactamente "&lt;zdc0/&gt;". Un reemplazo global habría
+// mangleado ese texto de usuario, reemplazándolo por <code>...</code> sin
+// relación alguna. Restaurar solo dentro de `url`, en el único punto del
+// pipeline donde se sabe con certeza que la forma escapada vino
+// legítimamente de SanitizeURL, evita ese falso positivo por completo.
+func restoreCodeSentinelsInURL(url string, codeSpans []string) string {
+	if len(codeSpans) == 0 {
+		return url
+	}
+	return zdcEscapedSentinelPattern.ReplaceAllStringFunc(url, func(match string) string {
+		sub := zdcEscapedSentinelPattern.FindStringSubmatch(match)
+		idx, err := strconv.Atoi(sub[1])
+		if err != nil || idx < 0 || idx >= len(codeSpans) {
+			return match
+		}
+		return "&lt;code&gt;" + codeSpans[idx] + "&lt;/code&gt;"
+	})
+}
+
+// zdcRawSentinelPattern/zdcEscapedSentinelPattern reconocen, por separado,
+// las dos formas en que un centinela de código interno puede aparecer —
+// ver los comentarios sobre dónde se usa cada uno en
+// ProcessInlineMarkdownFormatsSecure y restoreCodeSentinelsInURL. Separados
+// en dos patrones (no uno con dos grupos de alternancia) a propósito: cada
+// uno se usa en un contexto distinto donde solo esa forma es segura de
+// restaurar — mantenerlos separados hace ese alcance explícito en el tipo.
+var (
+	zdcRawSentinelPattern     = regexp.MustCompile(`<zdc(\d+)/>`)
+	zdcEscapedSentinelPattern = regexp.MustCompile(`&lt;zdc(\d+)/&gt;`)
+)
+
+// bracketTagRe reconoce un tag HTML de apertura o cierre — usado por
+// htmlTagsWellNested. Grupo 3 (atributos + posible "/" final) se usa para
+// detectar tags self-closing (<br>, y el centinela interno <zdcN/> de esta
+// misma función — ver ProcessInlineMarkdownFormatsSecure). Solo nombres
+// alfanuméricos (sin ":"/"-" con namespace, que este archivo nunca emite),
+// consistente con el resto del paquete.
+var bracketTagRe = regexp.MustCompile(`<(/?)([a-zA-Z0-9]+)([^>]*)>`)
+
+// htmlTagsWellNested reporta si html contiene solo tags bien anidados: cada
+// tag de cierre tiene su apertura más temprana AÚN ABIERTA en html, y
+// ningún tag queda abierto sin su cierre correspondiente también en html.
+// Tags self-closing (que terminan en "/>", p.ej. <br> o el centinela
+// interno <zdcN/>) no tienen cierre que exigir y se saltan.
+//
+// Compartida por dos usos relacionados pero distintos (issue #63 code
+// review finding #8 + advisor follow-up, que señaló que las dos copias de
+// este algoritmo en sanitizer_test.go habían divergido — una saltaba <br>,
+// la otra no — precisamente porque no compartían una sola fuente):
+//
+//  1. bracketContentTagsBalanced (producción, abajo): gatea el CONTENIDO
+//     capturado de un [content]{...}/[content](url) ANTES de envolverlo en
+//     un tag nuevo — sin esto, un delimitador cuyo cierre cae DENTRO de los
+//     corchetes (p.ej. "**[a**]{.danger}", donde el "**" de cierre queda
+//     adentro) hace que la pasada de negrita —que corre ANTES que las de
+//     span/lang/enlace— emita su apertura ANTES del "[" y su cierre DENTRO
+//     del contenido capturado; la pasada de span envuelve ESE contenido con
+//     su propio tag, produciendo HTML CRUZADO
+//     (<strong><span class="...">a</strong></span>) en vez de anidado
+//     válido. El caso simétrico (apertura sin cierre, p.ej.
+//     "[a **b]{.danger} c**") produce el mismo cruce en la otra dirección —
+//     el algoritmo LIFO detecta ambos: un cierre sin apertura en la pila
+//     falla de inmediato, y una pila no vacía al final significa una
+//     apertura sin cerrar. Contenido bien anidado DENTRO de content (p.ej.
+//     "**bold** text", donde tanto la apertura como el cierre de <strong>
+//     quedan adentro) sigue permitido — el caso legítimo que ya cubren los
+//     tests existentes ([**bold** text]{.danger} →
+//     <span>...<strong>bold</strong> text</span>).
+//  2. Los tests de sanitizer_test.go la usan sobre la SALIDA completa de
+//     ProcessInlineMarkdownFormatsSecure, como verificación end-to-end de
+//     que ningún par de pasadas produjo HTML cruzado.
+func htmlTagsWellNested(html string) bool {
+	var stack []string
+	for _, m := range bracketTagRe.FindAllStringSubmatch(html, -1) {
+		closing := m[1] == "/"
+		name := strings.ToLower(m[2])
+		attrs := m[3]
+		if name == "br" || strings.HasSuffix(strings.TrimSpace(attrs), "/") {
+			continue // void o self-closing: sin cierre que exigir
+		}
+		if !closing {
+			stack = append(stack, name)
+			continue
+		}
+		if len(stack) == 0 || stack[len(stack)-1] != name {
+			return false
+		}
+		stack = stack[:len(stack)-1]
+	}
+	return len(stack) == 0
+}
+
+// bracketContentTagsBalanced es htmlTagsWellNested aplicado al interior
+// capturado de un [content]{.token}/[content]{lang=xx}/[content](url) —
+// ver el punto 1 del doc comment de htmlTagsWellNested.
+func bracketContentTagsBalanced(content string) bool {
+	return htmlTagsWellNested(content)
 }
 
 // variablePlaceholderPattern encuentra placeholders {{variable_name}}.
