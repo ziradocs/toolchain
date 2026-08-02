@@ -177,6 +177,18 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 			meta.Creator = astDoc.FrontMatter.Author
 		}
 		_ = doc.SetMetadata(meta)
+
+		// Idioma de revisión del documento (issue #62/#63 prerequisito): sin
+		// esto, un .doclang con `lang: fr` producía un .docx sin idioma
+		// declarado — Word usa el idioma del sistema para ortografía/lectura
+		// de pantalla, no el del contenido. SetLanguage solo falla en un
+		// documento abierto vía OpenDocument con styles.xml/settings.xml
+		// preservados; docx.NewDocument() nunca cae en ese caso.
+		if astDoc.FrontMatter.Lang != "" {
+			if err := doc.SetLanguage(&domain.Language{Val: astDoc.FrontMatter.Lang}); err != nil {
+				g.logger.Warn("DOCX: failed to set document language %q: %v", astDoc.FrontMatter.Lang, err)
+			}
+		}
 	}
 
 	// Renderizar frontmatter (título del documento)

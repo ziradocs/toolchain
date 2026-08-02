@@ -223,6 +223,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 		data.Title = astNode.FrontMatter.Title
 		data.Author = astNode.FrontMatter.Author
 		data.Date = astNode.FrontMatter.Date
+		data.Lang = astNode.FrontMatter.Lang
 	}
 
 	// Obtener variables del frontmatter

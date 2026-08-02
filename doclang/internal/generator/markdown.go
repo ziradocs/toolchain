@@ -44,6 +44,9 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 		if doc.FrontMatter.Date != "" {
 			fmt.Fprintf(&md, "date: %s\n", doc.FrontMatter.Date)
 		}
+		if doc.FrontMatter.Lang != "" {
+			fmt.Fprintf(&md, "lang: %s\n", doc.FrontMatter.Lang)
+		}
 		md.WriteString("---\n\n")
 	}
 
