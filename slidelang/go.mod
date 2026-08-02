@@ -7,7 +7,7 @@ require (
 	github.com/mmonterroca/pptxgo v0.0.0-20260719224718-11d79cc21c6b
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/spf13/cobra v1.10.2
-	go.ziradocs.com/core/v2 v2.2.3
+	go.ziradocs.com/core/v2 v2.3.0
 )
 
 require (
@@ -34,7 +34,7 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tkrajina/gpxgo v1.4.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/image v0.43.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
