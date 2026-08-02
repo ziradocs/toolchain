@@ -203,8 +203,10 @@ Examples:
 			// json.Marshal'd tal cual, core/linter/external.go). Corre
 			// DESPUÉS de RunFilters y se re-deriva siempre desde Content,
 			// nunca se confía en lo que un filtro externo haya dejado en
-			// LangRuns — ver renderer.PopulateLangRuns.
-			renderer.PopulateLangRuns(doc)
+			// LangRuns — ver renderer.PopulateLangRuns. BuildVariables()
+			// (issue #63 code review, finding #10) para que un span que solo
+			// existe tras sustituir {{variable}} también se derive.
+			renderer.PopulateLangRuns(doc, doc.FrontMatter.BuildVariables())
 
 			// Cargar el tema ANTES del lint (issue #30 — seam de contraste
 			// WCAG): getThemeName solo depende de doc.FrontMatter y del flag
