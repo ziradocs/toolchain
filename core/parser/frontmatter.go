@@ -9,6 +9,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -170,6 +171,18 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node.Lang = raw.Lang
 	node.Variables = raw.Variables
 	node.Raw = yamlContent
+
+	// Validar lang (issues #62/#63 code review): sin esto, a11y.IsValidLangTag
+	// existía pero nadie lo llamaba, así que un `lang:` malformado ("es_MX",
+	// "espanol") llegaba sin aviso hasta <html lang>/w:lang. Mismo criterio
+	// de severidad que "Invalid mode": el autor SÍ declaró un valor y ese
+	// valor está mal formado (a diferencia de "Mode not specified", que es
+	// una ausencia con fallback razonable).
+	if raw.Lang != "" && !a11y.IsValidLangTag(raw.Lang) {
+		p.diagnostics = append(p.diagnostics,
+			diagnostics.NewError(fmt.Sprintf("Invalid lang: %q is not a well-formed BCP 47 language tag (e.g. \"es\", \"en-US\", \"zh-Hans-CN\")", raw.Lang),
+				diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT004"))
+	}
 
 	// Procesar configuración de headers y footers
 	if raw.Header != nil || raw.Footer != nil || raw.LayoutDefaults != nil {

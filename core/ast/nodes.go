@@ -138,9 +138,14 @@ func (fm *FrontMatterNode) BuildVariables() map[string]interface{} {
 	if fm.Theme != "" {
 		variables["theme"] = fm.Theme
 	}
-	if fm.Lang != "" {
-		variables["lang"] = fm.Lang
-	}
+	// Lang deliberadamente NO se agrega a los built-ins de sustitución: a
+	// diferencia de title/author/date/theme, "lang" es una palabra común en
+	// prosa que documenta el propio mecanismo de idioma (tutoriales, este
+	// mismo repo) — convertir `{{lang}}` en un placeholder activo reescribe
+	// silenciosamente ese texto literal en cualquier documento que declare
+	// `lang:` (code review de este cambio). Nada depende de esto: A11Y005
+	// lee FrontMatter.Variables["lang"] directamente (poblado por el
+	// parser si el autor lo declara dentro de `variables:`), no este mapa.
 
 	for k, v := range fm.Variables {
 		variables[k] = v

@@ -28,6 +28,9 @@ func TestIsValidLangTag(t *testing.T) {
 		{"underscore rejected", "es_MX", false},
 		{"whitespace rejected", "es MX", false},
 		{"subtag over 8 chars rejected", "es-123456789", false},
+		{"mixed-case primary subtag accepted", "En-US", true},
+		{"Unicode long-s homoglyph of 's' rejected", "eſ", false},
+		{"Unicode Kelvin-sign homoglyph of 'K' rejected", "KK", false},
 	}
 
 	for _, tt := range tests {
