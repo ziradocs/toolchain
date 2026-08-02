@@ -141,6 +141,12 @@ func (g *Generator) generateJSON(astNode *ast.AST, outputDir string) error {
 	// reimplementar el dialecto inline del CLI.
 	variables := data.BuildVariables(astNode)
 	renderer.PopulateInlineHTML(astNode, variables)
+	// LangRuns (issue #63): ya corrió en build.go antes del lint, pero este
+	// path (y RenderASTJSON, abajo) también se alcanza desde el servidor MCP
+	// sin pasar por build.go en absoluto — re-derivar acá es lo que hace que
+	// --format json y get_ast (MCP) tengan LangRuns poblado siempre, no solo
+	// cuando build.go corrió antes. Idempotente y barato repetir.
+	renderer.PopulateLangRuns(astNode)
 
 	// Serializar el AST a JSON
 	jsonData, err := g.serializer.SerializeToJSON(astNode)
@@ -163,6 +169,7 @@ func (g *Generator) generateJSON(astNode *ast.AST, outputDir string) error {
 func (g *Generator) RenderASTJSON(astNode *ast.AST) ([]byte, error) {
 	variables := data.BuildVariables(astNode)
 	renderer.PopulateInlineHTML(astNode, variables)
+	renderer.PopulateLangRuns(astNode) // ver generateJSON, arriba
 	return g.serializer.SerializeToJSONCompact(astNode)
 }
 
