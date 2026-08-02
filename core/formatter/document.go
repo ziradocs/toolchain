@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // FormatDocument serializa doc a la forma canónica de DocLang: `# título`
@@ -215,20 +216,18 @@ func formatSubsectionHeading(e *ast.TextElement) (string, error) {
 		// como tal (el fallback de TEXT en flex no reconoce HTML).
 		return "", newUnsupported("text", "TextElement con IsRawHTML=true que no es un subsection header <hN> no es representable en el dialecto flex de DocLang")
 	}
-	// issue #63: a diferencia de **bold**/*italic*/`code` (que stripTags
-	// colapsa perdiendo solo el ÉNFASIS visual), un <span lang="xx"> dentro
-	// del heading marca un pasaje en OTRO IDIOMA — stripTags lo colapsaría a
-	// texto liso, indistinguible de nunca haber estado marcado. Eso no es la
-	// pérdida de fidelidad "canonicalizador legítimo" que este comentario ya
-	// documenta arriba (bold/italic sí son recuperables como concepto, solo
-	// cambia la sintaxis de vuelta); un idioma perdido en silencio es un
-	// defecto de accesibilidad, así que acá se falla fuerte en vez de
-	// escribir un heading que ya no dice lo que el documento decía.
-	if strings.Contains(m[2], `<span lang="`) {
-		return "", newUnsupported("text", "subsection heading con un span de idioma [texto]{lang=xx} no es representable en el dialecto flex de DocLang (stripTags perdería la marca de idioma en silencio)")
-	}
+	// issue #63 (code review finding #3): a diferencia de **bold**/*italic*/
+	// `code` (que stripTags colapsa perdiendo solo el ÉNFASIS visual), un
+	// <span lang="xx"> dentro del heading marca un pasaje en OTRO IDIOMA —
+	// stripTags a secas lo colapsaría a texto liso, indistinguible de nunca
+	// haber estado marcado, un defecto de accesibilidad silencioso. A
+	// diferencia de bold/italic, este SÍ es invertible sin ambigüedad (no
+	// hay una forma "tecleada a mano" del atributo lang que colisione con
+	// [texto]{lang=xx} la manera en que <strong> colisiona con **texto**),
+	// así que en vez de fallar fuerte se reconstruye la sintaxis fuente
+	// antes de que stripTags corra sobre el resto del heading.
 	level := m[1]
-	inner := stripTags(m[2])
+	inner := stripTags(renderer.LangSpanHTMLToSource(m[2]))
 	return strings.Repeat("#", int(level[0]-'0')) + " " + inner, nil
 }
 
@@ -236,12 +235,11 @@ var tagRe = regexp.MustCompile(`<[^>]*>`)
 
 func stripTags(s string) string {
 	s = tagRe.ReplaceAllString(s, "")
-	s = strings.ReplaceAll(s, "&amp;", "&")
-	s = strings.ReplaceAll(s, "&lt;", "<")
-	s = strings.ReplaceAll(s, "&gt;", ">")
-	s = strings.ReplaceAll(s, "&quot;", "\"")
-	s = strings.ReplaceAll(s, "&#39;", "'")
-	return s
+	// renderer.UnescapeHTML es el inverso exacto de renderer.EscapeHTML —
+	// compartido con renderer.extractLangRunsFromHTML (issue #63 code
+	// review, finding #6) para que las dos rutas de "des-renderizar" HTML
+	// nunca puedan divergir sobre qué entidades decodifican.
+	return renderer.UnescapeHTML(s)
 }
 
 func formatFlexCode(e *ast.CodeElement) string {

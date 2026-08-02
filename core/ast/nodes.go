@@ -373,11 +373,24 @@ type TableCell struct {
 // author marked as being in a different language than the document's
 // declared FrontMatter.Lang — e.g. a French phrase inside otherwise-Spanish
 // text — via the inline span [texto]{lang=xx} (see
-// renderer.ProcessInlineMarkdownFormatsSecure). Text is copied verbatim from
-// the raw Content this run was found in, BEFORE bold/italic/code markdown is
-// applied — so [a *b* c]{lang=fr} yields Text "a *b* c" here even though the
-// emitted <span lang="fr"> wraps "a <em>b</em> c". Lang is what a linter
-// rule needs; Text is only there to say which sub-string it applies to.
+// renderer.ProcessInlineMarkdownFormatsSecure). Lang is what a linter rule
+// needs; Text is only there to say which sub-string it applies to.
+//
+// Text is the PLAIN TEXT of the passage, not a verbatim substring of the
+// element's raw Content: renderer.PopulateLangRuns extracts a run from one
+// of two different source shapes depending on IsRawHTML (ordinary Markdown
+// Content vs. a TextElement already materialized to HTML at parse time —
+// see extractLangRuns), and only the Markdown shape has a well-defined
+// "before markdown is applied" state to copy verbatim from. The RawHTML
+// shape does not — by the time PopulateLangRuns sees it, the span is already
+// a literal <span lang="fr">a <strong>b</strong> c</span>, so Text is
+// derived by stripping the HTML tags, not by finding some earlier
+// pre-markdown source that no longer exists. Concretely: from Markdown
+// Content, [a *b* c]{lang=fr} yields Text "a *b* c" (markdown syntax intact,
+// unprocessed); from RawHTML Content, the equivalent already-rendered span
+// yields Text "a b c" (HTML tags stripped, markdown syntax gone because it
+// was already consumed at parse time). Do not assume Text is a substring of
+// Content in either case.
 //
 // Deliberately WITHOUT BaseNode, same reasoning as TableCell: LangRuns is
 // derived by renderer.PopulateLangRuns from Content, not walked by ast.Walk,
@@ -440,7 +453,13 @@ type SpecialBlockElement struct {
 	TitleHTML   string `json:"titleHTML,omitempty"` // Title con {{variables}} sustituidas y escapadas (sin markdown)
 	Content     string `json:"content"`
 	ContentHTML string `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
-	Icon        string `json:"icon,omitempty"`
+	// LangRuns cubre solo Content, no Title — mismo criterio de
+	// campo-único que QuoteElement.LangRuns: una sola lista de runs no
+	// podría decir de cuál de los dos campos vino cada uno, y Title suele
+	// ser una etiqueta corta ("Nota", "Advertencia"), no prosa donde marcar
+	// un idioma distinto tenga sentido. Ver TextElement.LangRuns.
+	LangRuns []LangRun `json:"langRuns,omitempty"`
+	Icon     string    `json:"icon,omitempty"`
 }
 
 func (s SpecialBlockElement) element() {}
@@ -700,6 +719,11 @@ type GridElement struct {
 	Columns     []ColumnElement `json:"columns"`
 	Content     string          `json:"content,omitempty"`     // Prosa suelta dentro del grid pero fuera de cualquier columna
 	ContentHTML string          `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
+	// LangRuns cubre solo Content (la prosa suelta del grid) — un span de
+	// idioma dentro de Columns aparece en el LangRuns del elemento anidado
+	// correspondiente, poblado por recursión sobre esa columna, no aquí.
+	// Ver TextElement.LangRuns.
+	LangRuns []LangRun `json:"langRuns,omitempty"`
 }
 
 func (g GridElement) element() {}
@@ -715,9 +739,14 @@ func NewGridElement(pos diagnostics.Position) *GridElement {
 // ColumnElement representa una columna dentro de un grid
 type ColumnElement struct {
 	BaseNode    `tstype:",extends,required"`
-	Content     string    `json:"content"`
-	ContentHTML string    `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
-	Elements    []Element `json:"elements,omitempty"`
+	Content     string `json:"content"`
+	ContentHTML string `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
+	// LangRuns cubre solo Content (la prosa suelta de la columna) — un span
+	// de idioma dentro de Elements aparece en el LangRuns del elemento
+	// anidado correspondiente, poblado por recursión, no aquí. Ver
+	// TextElement.LangRuns.
+	LangRuns []LangRun `json:"langRuns,omitempty"`
+	Elements []Element `json:"elements,omitempty"`
 }
 
 func (c ColumnElement) element() {}

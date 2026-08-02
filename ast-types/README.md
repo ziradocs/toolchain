@@ -57,6 +57,10 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.4.0 (issue #63 code review, finding #9)
+
+- **Additive**: the `langRuns` field (`LangRun[]`) added on `SpecialBlockElement`, `GridElement`, and `ColumnElement` — each also carries its own loose `content` prose that the 2.3.0 population pass was skipping. Same derivation and posture as 2.3.0's `langRuns` fields.
+
 ### 2.3.0 (issue #63)
 
 - **Additive**: new `LangRun` type (`text`, `lang`) plus a `langRuns` field (`LangRun[]`) on `TextElement`, `PointItem`, `ChecklistItem`, and `QuoteElement` — exposes `[texto]{lang=xx}` inline spans as structured runs, so a rulepack can flag a passage marked in a different language than the document's `frontMatter.lang` without re-parsing rendered HTML. Derived fresh from `content` on every build; unlike the `*HTML` fields, not cleared when an external `--filter` runs (there's nothing pre-rendered here to distrust — it's always re-derived, never carried over from the filter's output).

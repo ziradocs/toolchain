@@ -42,7 +42,13 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // fresh from Content on every build (renderer.PopulateLangRuns), same
 // re-derive-never-trust posture as the *HTML fields, but NOT cleared by
 // ast.ClearRenderedHTML — see that field's own doc comment for why.
-const SchemaVersion = "2.3.0"
+//
+// 2.4.0 (issue #63 code review, finding #9): the same additive LangRuns
+// field extended to SpecialBlockElement, GridElement, and ColumnElement —
+// each of those also carries its own loose Content prose that
+// PopulateLangRuns was skipping. Same derivation and posture as 2.3.0's
+// fields.
+const SchemaVersion = "2.4.0"
 
 // Node representa un nodo base en el AST
 type Node interface {
