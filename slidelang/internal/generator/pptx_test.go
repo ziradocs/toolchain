@@ -41,8 +41,17 @@ func TestPptxSplitInline(t *testing.T) {
 		{"lang span", "un [saludo]{lang=fr} aquí", []pptxInlineSegment{
 			{text: "un "}, {text: "saludo", lang: "fr"}, {text: " aquí"},
 		}},
-		{"lang span preserves bold-looking inner text literally", "[**not bold**]{lang=de}", []pptxInlineSegment{
-			{text: "**not bold**", lang: "de"},
+		// issue #63 code review finding #2: markdown INSIDE a lang span
+		// must still be processed, not left as literal asterisks — before
+		// #63 the same text with no lang span at all rendered bold.
+		{"lang span processes nested bold, stamping lang on the bold segment", "[**not bold**]{lang=de}", []pptxInlineSegment{
+			{text: "not bold", bold: true, lang: "de"},
+		}},
+		// issue #63 code review finding #5: an invalid tag must degrade to
+		// the full literal match (brackets and all), not silently to just
+		// the inner text — the latter hides the author's malformed markup.
+		{"lang span invalid tag degrades to literal text", "[bonjour]{lang=1x}", []pptxInlineSegment{
+			{text: "[bonjour]{lang=1x}"},
 		}},
 	}
 

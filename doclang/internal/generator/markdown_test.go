@@ -598,3 +598,51 @@ func TestMarkdownRenderElement_HeadingWithRawMarkdownDoesNotDoubleHash(t *testin
 		t.Errorf("expected \"## Resumen\", got %q", out)
 	}
 }
+
+// TestMarkdownRenderElement_HeadingLangSpanRoundTrips covers issue #63 code
+// review finding #1: a heading's Content is already-rendered HTML
+// (parser.parseSubsectionHeader), so a [texto]{lang=xx} span materialized
+// to a literal <span lang="xx"> at parse time. Before this fix, that raw
+// HTML leaked into the Markdown output instead of round-tripping back to
+// its source syntax.
+func TestMarkdownRenderElement_HeadingLangSpanRoundTrips(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1),
+		`<h2 id="x">Bonjour <span lang="fr">tout le monde</span></h2>`)
+	el.Level = 2
+
+	out := gen.renderElement(el)
+
+	if strings.Contains(out, "<span") {
+		t.Errorf("expected no literal <span> markup, got %q", out)
+	}
+	if !strings.Contains(out, "## Bonjour [tout le monde]{lang=fr}") {
+		t.Errorf("expected the lang span to round-trip to source syntax, got %q", out)
+	}
+}
+
+// TestMarkdownRenderElement_HeadingNestedBoldDegradesToPlainText confirms
+// the pre-existing (not #63-specific) canonicalization loss documented in
+// core/formatter/document.go's stripTags — **bold**/*italic* inside a
+// heading cannot round-trip (a hand-typed <strong> and **bold** produce the
+// same TextElement) — is preserved, not regressed, by routing this heading
+// through docxStripHeadingMarkup.
+func TestMarkdownRenderElement_HeadingNestedBoldDegradesToPlainText(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1),
+		`<h2 id="x">Bonjour <strong>tout le monde</strong></h2>`)
+	el.Level = 2
+
+	out := gen.renderElement(el)
+
+	if strings.Contains(out, "<strong") {
+		t.Errorf("expected no literal <strong> markup, got %q", out)
+	}
+	if !strings.Contains(out, "## Bonjour tout le monde") {
+		t.Errorf("expected the bold text as plain text, got %q", out)
+	}
+}

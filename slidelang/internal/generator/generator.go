@@ -146,7 +146,7 @@ func (g *Generator) generateJSON(astNode *ast.AST, outputDir string) error {
 	// sin pasar por build.go en absoluto — re-derivar acá es lo que hace que
 	// --format json y get_ast (MCP) tengan LangRuns poblado siempre, no solo
 	// cuando build.go corrió antes. Idempotente y barato repetir.
-	renderer.PopulateLangRuns(astNode)
+	renderer.PopulateLangRuns(astNode, variables)
 
 	// Serializar el AST a JSON
 	jsonData, err := g.serializer.SerializeToJSON(astNode)
@@ -169,7 +169,7 @@ func (g *Generator) generateJSON(astNode *ast.AST, outputDir string) error {
 func (g *Generator) RenderASTJSON(astNode *ast.AST) ([]byte, error) {
 	variables := data.BuildVariables(astNode)
 	renderer.PopulateInlineHTML(astNode, variables)
-	renderer.PopulateLangRuns(astNode) // ver generateJSON, arriba
+	renderer.PopulateLangRuns(astNode, variables) // ver generateJSON, arriba
 	return g.serializer.SerializeToJSONCompact(astNode)
 }
 

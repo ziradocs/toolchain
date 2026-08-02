@@ -20,6 +20,7 @@ import (
 	"github.com/mmonterroca/pptxgo/pptx"
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -188,66 +189,57 @@ var (
 	pptxCodeRe   = regexp.MustCompile("`([^`]+)`")
 	pptxBoldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	pptxItalicRe = regexp.MustCompile(`\*([^*]+)\*`)
-	// pptxLangRe - [text]{lang=xx}, issue #63. Mismo patrón/charset que
-	// core/renderer/sanitizer.go's inlineLangSpanPattern; el tag capturado
-	// se valida con a11y.IsValidLangTag en pptxApplyInline antes de
-	// escribirse en el XML.
-	pptxLangRe = regexp.MustCompile(`\[([^\[\]]+)\]\{lang=([a-zA-Z0-9-]+)\}`)
 )
 
-// pptxSplitInline segmenta content en texto plano + code/bold/italic/lang —
-// mismo orden de prioridad que docx.go (code antes que bold, para no
-// interpretar "**" dentro de un `código`). Los links [text](url) quedan
-// fuera del alcance v0 (issue de seguimiento): un link se muestra como
-// texto plano con su sintaxis markdown literal en vez de resolverse.
-func pptxSplitInline(content string) []pptxInlineSegment {
-	type match struct {
-		start, end int
-		inner      string
-		lang       string
-		bold       bool
-		italic     bool
-		code       bool
-	}
+// pptxBasicPatterns es el subconjunto code/bold/italic usado tanto por el
+// scan de nivel superior de pptxSplitInline como, recursivamente, por el
+// texto INTERNO de un [texto]{lang=xx} ya validado (issue #63 code review,
+// finding #2) — nunca links ni otro span de idioma anidado: el
+// content-class de renderer.InlineLangSpanPattern excluye "[", así que
+// ninguno de los dos puede aparecer ahí adentro para empezar (mismo
+// razonamiento que core/renderer/sanitizer.go's inlineSpanPattern doc
+// comment sobre por qué excluir "[" evita el straddle).
+var pptxBasicPatterns = []struct {
+	re                 *regexp.Regexp
+	bold, italic, code bool
+}{
+	{pptxCodeRe, false, false, true},
+	{pptxBoldRe, true, false, false},
+	{pptxItalicRe, false, true, false},
+}
 
+// pptxSplitBasic segmenta content en texto plano + code/bold/italic
+// solamente (sin lang) — mismo orden de prioridad que docx.go (code antes
+// que bold, para no interpretar "**" dentro de un `código`). Reusada por
+// pptxSplitInline (nivel superior) y por pptxSplitLangSpanInner (texto
+// interno de un span de idioma, finding #2).
+func pptxSplitBasic(content string) []pptxInlineSegment {
 	var segments []pptxInlineSegment
 	remaining := content
 	pos := 0
 
 	for pos < len(remaining) {
-		var best *match
-		// bestRelPos se mantiene relativo a remaining[pos:] durante toda
-		// esta iteración (pos es constante aquí), así que se compara
-		// directo contra loc[0] — sin re-relativizar una posición
-		// absoluta a mitad de la comparación, que es lo que hacía frágil
-		// agregar un patrón más.
+		var best *struct {
+			start, end         int
+			inner              string
+			bold, italic, code bool
+		}
 		bestRelPos := len(remaining) - pos
 
-		for _, re := range []struct {
-			re                 *regexp.Regexp
-			bold, italic, code bool
-		}{
-			{pptxCodeRe, false, false, true},
-			{pptxBoldRe, true, false, false},
-			{pptxItalicRe, false, true, false},
-		} {
+		for _, re := range pptxBasicPatterns {
 			loc := re.re.FindStringSubmatchIndex(remaining[pos:])
 			if loc == nil || loc[0] >= bestRelPos {
 				continue
 			}
 			bestRelPos = loc[0]
-			best = &match{
+			best = &struct {
+				start, end         int
+				inner              string
+				bold, italic, code bool
+			}{
 				start: pos + loc[0], end: pos + loc[1],
 				inner: remaining[pos+loc[2] : pos+loc[3]],
 				bold:  re.bold, italic: re.italic, code: re.code,
-			}
-		}
-
-		if loc := pptxLangRe.FindStringSubmatchIndex(remaining[pos:]); loc != nil && loc[0] < bestRelPos {
-			best = &match{
-				start: pos + loc[0], end: pos + loc[1],
-				inner: remaining[pos+loc[2] : pos+loc[3]],
-				lang:  remaining[pos+loc[4] : pos+loc[5]],
 			}
 		}
 
@@ -258,7 +250,91 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		if best.start > pos {
 			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
 		}
-		segments = append(segments, pptxInlineSegment{text: best.inner, bold: best.bold, italic: best.italic, code: best.code, lang: best.lang})
+		segments = append(segments, pptxInlineSegment{text: best.inner, bold: best.bold, italic: best.italic, code: best.code})
+		pos = best.end
+	}
+
+	return segments
+}
+
+// pptxSplitInline segmenta content en texto plano + code/bold/italic/lang.
+// Los links [text](url) quedan fuera del alcance v0 (issue de seguimiento):
+// un link se muestra como texto plano con su sintaxis markdown literal en
+// vez de resolverse.
+func pptxSplitInline(content string) []pptxInlineSegment {
+	var segments []pptxInlineSegment
+	remaining := content
+	pos := 0
+
+	for pos < len(remaining) {
+		type basicMatch struct {
+			start, end         int
+			inner              string
+			bold, italic, code bool
+		}
+		var best *basicMatch
+		// bestRelPos se mantiene relativo a remaining[pos:] durante toda
+		// esta iteración (pos es constante aquí), así que se compara
+		// directo contra loc[0] — sin re-relativizar una posición
+		// absoluta a mitad de la comparación, que es lo que hacía frágil
+		// agregar un patrón más.
+		bestRelPos := len(remaining) - pos
+
+		for _, re := range pptxBasicPatterns {
+			loc := re.re.FindStringSubmatchIndex(remaining[pos:])
+			if loc == nil || loc[0] >= bestRelPos {
+				continue
+			}
+			bestRelPos = loc[0]
+			best = &basicMatch{
+				start: pos + loc[0], end: pos + loc[1],
+				inner: remaining[pos+loc[2] : pos+loc[3]],
+				bold:  re.bold, italic: re.italic, code: re.code,
+			}
+		}
+
+		var langLoc []int
+		if loc := renderer.InlineLangSpanPattern.FindStringSubmatchIndex(remaining[pos:]); loc != nil && loc[0] < bestRelPos {
+			langLoc = loc
+			best = nil // el span de idioma gana sobre code/bold/italic en esta posición
+		}
+
+		if langLoc != nil {
+			matchStart, matchEnd := pos+langLoc[0], pos+langLoc[1]
+			inner := remaining[pos+langLoc[2] : pos+langLoc[3]]
+			lang := remaining[pos+langLoc[4] : pos+langLoc[5]]
+
+			if matchStart > pos {
+				segments = append(segments, pptxInlineSegment{text: remaining[pos:matchStart]})
+			}
+			if a11y.IsValidLangTag(lang) {
+				// Procesar el texto interno recursivamente por
+				// code/bold/italic (finding #2) en vez de emitirlo
+				// verbatim con los asteriscos/backticks literales, y
+				// estampar el idioma en cada segmento resultante.
+				for _, inner := range pptxSplitBasic(inner) {
+					inner.lang = lang
+					segments = append(segments, inner)
+				}
+			} else {
+				// Tag inválido: degradar al texto LITERAL completo
+				// (con corchetes/llaves — finding #5) en vez de
+				// quedarse silenciosamente solo con el texto interno,
+				// que escondería el error de tipeo del autor.
+				segments = append(segments, pptxInlineSegment{text: remaining[matchStart:matchEnd]})
+			}
+			pos = matchEnd
+			continue
+		}
+
+		if best == nil {
+			segments = append(segments, pptxInlineSegment{text: remaining[pos:]})
+			break
+		}
+		if best.start > pos {
+			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
+		}
+		segments = append(segments, pptxInlineSegment{text: best.inner, bold: best.bold, italic: best.italic, code: best.code})
 		pos = best.end
 	}
 
@@ -286,6 +362,10 @@ func pptxApplyInline(para *pptx.Paragraph, content string) {
 		if seg.code {
 			para.Font("Courier New")
 		}
+		// seg.lang ya viene validado por a11y.IsValidLangTag en
+		// pptxSplitInline (un tag inválido nunca llega a set near text con
+		// lang != "") — la comprobación acá es defensa en profundidad,
+		// barata de mantener.
 		if seg.lang != "" && a11y.IsValidLangTag(seg.lang) {
 			para.Lang(seg.lang)
 		}

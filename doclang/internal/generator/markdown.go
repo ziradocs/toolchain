@@ -120,6 +120,21 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 			anchor := ""
 			if m := headingHTMLPattern.FindStringSubmatch(elem.Content); m != nil {
 				text = m[1]
+				// issue #63 code review finding #1: text es HTML ya
+				// renderizado (parser.parseSubsectionHeader corrió el
+				// pipeline inline completo en tiempo de parseo) — antes de
+				// este fix, un [texto]{lang=xx} en un heading salía como
+				// <span lang="xx"> literal en el Markdown en vez de la
+				// sintaxis fuente. renderer.LangSpanHTMLToSource
+				// reconstruye [texto]{lang=xx} (mismo inverso que usa
+				// core/formatter/document.go para el mismo problema);
+				// docxStripHeadingMarkup (docx.go, mismo paquete) colapsa
+				// cualquier otro tag que quede (<strong>, <em>, <code>, un
+				// span de idioma inválido que LangSpanHTMLToSource dejó
+				// intacto) a texto plano — misma pérdida de fidelidad ya
+				// documentada y aceptada en core/formatter/document.go's
+				// stripTags para bold/italic.
+				text = docxStripHeadingMarkup(renderer.LangSpanHTMLToSource(text))
 				// Preservar el id="..." del <hN> ya renderizado como un
 				// anchor explícito (sintaxis {#id}, soportada por
 				// Pandoc/kramdown): sin esto, un link en el mismo

@@ -38,12 +38,16 @@ func TestDOCXGenerator_RenderInlineMarkdown_LangSpan(t *testing.T) {
 	}
 }
 
-// TestDOCXGenerator_RenderInlineMarkdown_LangSpan_InvalidTagIgnored covers
-// the same defense-in-depth gate as core/renderer/sanitizer.go: a tag that
-// doesn't pass a11y.IsValidLangTag must not reach the XML unvalidated, even
-// though the regex's own capture charset (`[a-zA-Z0-9-]+`) is wider than
-// what the validator accepts.
-func TestDOCXGenerator_RenderInlineMarkdown_LangSpan_InvalidTagIgnored(t *testing.T) {
+// TestDOCXGenerator_RenderInlineMarkdown_LangSpan_InvalidTagDegradesToLiteral
+// covers the same defense-in-depth gate as core/renderer/sanitizer.go: a tag
+// that doesn't pass a11y.IsValidLangTag must not reach the XML unvalidated,
+// even though the regex's own capture charset (`[a-zA-Z0-9-]+`) is wider
+// than what the validator accepts. Issue #63 code review finding #5: an
+// invalid tag must degrade to the FULL literal match
+// ("[texto]{lang=1x}"), not silently to just the inner text ("texto") —
+// the latter hides the author's malformed markup instead of surfacing it,
+// matching what core/renderer/sanitizer.go does for the same case.
+func TestDOCXGenerator_RenderInlineMarkdown_LangSpan_InvalidTagDegradesToLiteral(t *testing.T) {
 	logger := newTestLogger()
 	gen := New(logger)
 
@@ -60,7 +64,47 @@ func TestDOCXGenerator_RenderInlineMarkdown_LangSpan_InvalidTagIgnored(t *testin
 	if strings.Contains(xml, "<w:lang") {
 		t.Errorf("expected no <w:lang> element for an invalid tag, document.xml:\n%s", xml)
 	}
-	if !strings.Contains(xml, `<w:t>texto</w:t>`) {
-		t.Errorf("expected the run text to still render despite the invalid tag, document.xml:\n%s", xml)
+	if !strings.Contains(xml, `<w:t>[texto]{lang=1x}</w:t>`) {
+		t.Errorf("expected the full literal match to survive despite the invalid tag, document.xml:\n%s", xml)
+	}
+}
+
+// TestDOCXGenerator_RenderInlineMarkdown_LangSpan_NestedBold covers issue
+// #63 code review finding #2: markdown INSIDE a [texto]{lang=xx} span
+// (e.g. **bold**) must still be processed — before #63 the same text with
+// no lang span at all rendered bold; wrapping it in a lang span regressed
+// that to literal asterisks in the run text. The bold run must ALSO carry
+// the language, not just the plain-text runs around it.
+func TestDOCXGenerator_RenderInlineMarkdown_LangSpan_NestedBold(t *testing.T) {
+	logger := newTestLogger()
+	gen := New(logger)
+
+	text := ast.NewTextElement(diagnostics.NewPosition(1, 1), "dijo [**tout le monde**]{lang=fr} y se fue")
+	doc := astWithElements(text)
+
+	output := filepath.Join(t.TempDir(), "lang-nested-bold.docx")
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+	if strings.Contains(xml, "**") {
+		t.Errorf("expected the nested bold markers to be processed, not left literal, document.xml:\n%s", xml)
+	}
+	if !strings.Contains(xml, `<w:t>tout le monde</w:t>`) {
+		t.Errorf("expected the bold text to survive as its own run, document.xml:\n%s", xml)
+	}
+
+	idx := strings.Index(xml, `<w:t>tout le monde</w:t>`)
+	if idx == -1 {
+		t.Fatal("bold run not found")
+	}
+	runStart := strings.LastIndex(xml[:idx], "<w:r>")
+	run := xml[runStart:idx]
+	if !strings.Contains(run, `w:val="fr"`) {
+		t.Errorf("expected the bold run to also carry <w:lang w:val=\"fr\">, run:\n%s", run)
+	}
+	if !strings.Contains(run, `<w:b w:val="true">`) {
+		t.Errorf("expected the bold run to still be bold, run:\n%s", run)
 	}
 }

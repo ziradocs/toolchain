@@ -404,6 +404,13 @@ func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST) []TOCEntry {
 					} else if m := markdownHeadingPattern.FindStringSubmatch(content); m != nil {
 						title = m[1]
 					}
+					// docxStripHeadingMarkup (issue #63 code review finding
+					// #1): title puede traer markup ya renderizado
+					// (<span lang="xx">, <strong>, ...) — el TOC estático
+					// solo escribe texto plano (entryRun.SetText más abajo)
+					// y sanitizeBookmarkID necesita texto plano para no
+					// corromper el bookmark ID con el markup.
+					title = docxStripHeadingMarkup(title)
 					entries = append(entries, TOCEntry{
 						Title:      title,
 						Level:      typedElem.Level,
@@ -414,52 +421,65 @@ func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST) []TOCEntry {
 				}
 
 				// Check for raw HTML headers (IsRawHTML=true)
+				//
+				// docxStripHeadingMarkup en las 6 ramas de abajo (issue #63
+				// code review finding #1, mismo criterio que la rama
+				// Level > 0 arriba): el grupo capturado puede traer markup
+				// ya renderizado (<span lang="xx">, <strong>, ...) que
+				// corrompería el TOC estático y sanitizeBookmarkID si se
+				// usara tal cual.
 				if typedElem.IsRawHTML {
 					if h2Match := regexp.MustCompile(`<h2[^>]*>(.+?)</h2>`).FindStringSubmatch(content); h2Match != nil {
+						title := docxStripHeadingMarkup(h2Match[1])
 						entries = append(entries, TOCEntry{
-							Title:      h2Match[1],
+							Title:      title,
 							Level:      2,
-							BookmarkID: sanitizeBookmarkID(h2Match[1]),
+							BookmarkID: sanitizeBookmarkID(title),
 						})
-						g.logger.Info("DOCX", "  ➜ H2: %s", h2Match[1])
+						g.logger.Info("DOCX", "  ➜ H2: %s", title)
 					} else if h3Match := regexp.MustCompile(`<h3[^>]*>(.+?)</h3>`).FindStringSubmatch(content); h3Match != nil {
+						title := docxStripHeadingMarkup(h3Match[1])
 						entries = append(entries, TOCEntry{
-							Title:      h3Match[1],
+							Title:      title,
 							Level:      3,
-							BookmarkID: sanitizeBookmarkID(h3Match[1]),
+							BookmarkID: sanitizeBookmarkID(title),
 						})
-						g.logger.Info("DOCX", "  ➜ H3: %s", h3Match[1])
+						g.logger.Info("DOCX", "  ➜ H3: %s", title)
 					} else if h4Match := regexp.MustCompile(`<h4[^>]*>(.+?)</h4>`).FindStringSubmatch(content); h4Match != nil {
+						title := docxStripHeadingMarkup(h4Match[1])
 						entries = append(entries, TOCEntry{
-							Title:      h4Match[1],
+							Title:      title,
 							Level:      4,
-							BookmarkID: sanitizeBookmarkID(h4Match[1]),
+							BookmarkID: sanitizeBookmarkID(title),
 						})
-						g.logger.Info("DOCX", "  ➜ H4: %s", h4Match[1])
+						g.logger.Info("DOCX", "  ➜ H4: %s", title)
 					}
 				} else {
 					// Check for markdown headers (## text)
 					if h2Match := regexp.MustCompile(`^## (.+)`).FindStringSubmatch(content); h2Match != nil {
+						title := docxStripHeadingMarkup(h2Match[1])
 						entries = append(entries, TOCEntry{
-							Title:      h2Match[1],
+							Title:      title,
 							Level:      2,
-							BookmarkID: sanitizeBookmarkID(h2Match[1]),
+							BookmarkID: sanitizeBookmarkID(title),
 						})
-						g.logger.Info("DOCX", "  ➜ H2: %s", h2Match[1])
+						g.logger.Info("DOCX", "  ➜ H2: %s", title)
 					} else if h3Match := regexp.MustCompile(`^### (.+)`).FindStringSubmatch(content); h3Match != nil {
+						title := docxStripHeadingMarkup(h3Match[1])
 						entries = append(entries, TOCEntry{
-							Title:      h3Match[1],
+							Title:      title,
 							Level:      3,
-							BookmarkID: sanitizeBookmarkID(h3Match[1]),
+							BookmarkID: sanitizeBookmarkID(title),
 						})
-						g.logger.Info("DOCX", "  ➜ H3: %s", h3Match[1])
+						g.logger.Info("DOCX", "  ➜ H3: %s", title)
 					} else if h4Match := regexp.MustCompile(`^#### (.+)`).FindStringSubmatch(content); h4Match != nil {
+						title := docxStripHeadingMarkup(h4Match[1])
 						entries = append(entries, TOCEntry{
-							Title:      h4Match[1],
+							Title:      title,
 							Level:      4,
-							BookmarkID: sanitizeBookmarkID(h4Match[1]),
+							BookmarkID: sanitizeBookmarkID(title),
 						})
-						g.logger.Info("DOCX", "  ➜ H4: %s", h4Match[1])
+						g.logger.Info("DOCX", "  ➜ H4: %s", title)
 					}
 				}
 
@@ -498,12 +518,17 @@ func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST) []TOCEntry {
 							if m == nil {
 								continue
 							}
+							// docxStripHeadingMarkup (issue #63 code review
+							// finding #1): m[1] puede traer markup ya
+							// renderizado cuando vino de un
+							// gridColumnHeadingHTML*Pattern.
+							title := docxStripHeadingMarkup(m[1])
 							entries = append(entries, TOCEntry{
-								Title:      m[1],
+								Title:      title,
 								Level:      hp.level,
-								BookmarkID: sanitizeBookmarkID(m[1]),
+								BookmarkID: sanitizeBookmarkID(title),
 							})
-							g.logger.Info("DOCX", "  ➜ H%d (grid column): %s", hp.level, m[1])
+							g.logger.Info("DOCX", "  ➜ H%d (grid column): %s", hp.level, title)
 							break
 						}
 					}
@@ -885,23 +910,146 @@ func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level in
 		return fmt.Errorf("invalid spacing after: %w", err)
 	}
 
-	r, err := p.AddRun()
-	if err != nil {
+	if err := g.renderHeadingInline(p, text, size, color, bold); err != nil {
 		return err
-	}
-	_ = r.SetText(text)
-	if err := r.SetSize(g.parseSize(size)); err != nil {
-		return fmt.Errorf("invalid font size: %w", err)
-	}
-	_ = r.SetColor(g.parseColor(color))
-	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-	if bold {
-		_ = r.SetBold(true)
 	}
 
 	// TODO: Agregar bookmark
 
 	return nil
+}
+
+// docxHeadingTagPattern matches every open/close tag core's inline pipeline
+// can emit for a single line — <strong>, <em>, <code>, <span lang="xx">, and
+// (as a catch-all so this parses as MARKUP rather than falling through to
+// literal text) any other tag the pipeline's other single-line passes can
+// also produce for a heading (<mark>, <del>, <span class="...">,
+// <a href="...">). Issue #63 code review finding #1: text is already-
+// rendered HTML by the time a heading reaches the DOCX generator
+// (parser.parseSubsectionHeader runs the full inline pipeline at parse
+// time), so renderInlineMarkdown (which expects unrendered markdown SOURCE)
+// cannot be reused here.
+var docxHeadingTagPattern = regexp.MustCompile(`<(/?)(strong|em|code|mark|del|a|span)([^>]*)>`)
+
+// docxHeadingSpanLangAttr extracts lang="xx" from a <span ...> open tag's
+// attribute string.
+var docxHeadingSpanLangAttr = regexp.MustCompile(`\blang="([^"]*)"`)
+
+// renderHeadingInline parses html into one or more domain.Run, applying
+// size/color/baseBold to every run plus bold/italic/code/language for
+// whichever of the recognized tags (see docxHeadingTagPattern) each run of
+// text is nested inside. mark/del/a and a <span> with no lang attribute
+// (e.g. a class-styled span) are recognized as markup — so their contents
+// don't show up as literal "<tag>" text (finding #1's original bug) — but
+// carry no DOCX formatting of their own: out of scope for this fix, their
+// text renders with whatever formatting is already active around them.
+//
+// Assumes well-nested tags, same posture as the rest of this codebase
+// today: core's own inline pipeline has a separate, tracked cross-nesting
+// defect (issue #63 code review findings #7/#8, fixed in its own PR) that
+// this function does not attempt to work around.
+//
+// html with no recognized tags at all (e.g. raw Markdown source reaching
+// here via the Level-less/markdownHeadingPattern fallback in renderText,
+// an AST from an external filter) degrades to exactly one run with the
+// literal string — identical to this function's pre-#1-fix behavior, so
+// routing that path through here too is not a regression.
+func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, size, color string, baseBold bool) error {
+	type activeState struct {
+		bold, italic, code bool
+		lang               string
+	}
+	stack := []activeState{{bold: baseBold}}
+
+	emit := func(text string) error {
+		if text == "" {
+			return nil
+		}
+		top := stack[len(stack)-1]
+		r, err := p.AddRun()
+		if err != nil {
+			return err
+		}
+		_ = r.SetText(renderer.UnescapeHTML(text))
+		if err := r.SetSize(g.parseSize(size)); err != nil {
+			return fmt.Errorf("invalid font size: %w", err)
+		}
+		_ = r.SetColor(g.parseColor(color))
+		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+		if top.bold {
+			_ = r.SetBold(true)
+		}
+		if top.italic {
+			_ = r.SetItalic(true)
+		}
+		if top.code {
+			_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+		}
+		if top.lang != "" && a11y.IsValidLangTag(top.lang) {
+			if err := r.SetLanguage(&domain.Language{Val: top.lang}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	pos := 0
+	for pos < len(html) {
+		loc := docxHeadingTagPattern.FindStringSubmatchIndex(html[pos:])
+		if loc == nil {
+			if err := emit(html[pos:]); err != nil {
+				return err
+			}
+			break
+		}
+		tagStart, tagEnd := pos+loc[0], pos+loc[1]
+		if tagStart > pos {
+			if err := emit(html[pos:tagStart]); err != nil {
+				return err
+			}
+		}
+		closing := html[pos+loc[2]:pos+loc[3]] == "/"
+		tagName := html[pos+loc[4] : pos+loc[5]]
+		attrs := html[pos+loc[6] : pos+loc[7]]
+
+		if closing {
+			if len(stack) > 1 {
+				stack = stack[:len(stack)-1]
+			}
+		} else {
+			next := stack[len(stack)-1] // hereda el estado activo
+			switch tagName {
+			case "strong":
+				next.bold = true
+			case "em":
+				next.italic = true
+			case "code":
+				next.code = true
+			case "span":
+				if m := docxHeadingSpanLangAttr.FindStringSubmatch(attrs); m != nil {
+					next.lang = m[1]
+				}
+			}
+			stack = append(stack, next)
+		}
+		pos = tagEnd
+	}
+
+	return nil
+}
+
+// docxStripHeadingMarkup reduces a heading source string — which may still
+// contain markup emitted by core's inline pipeline (<span lang="xx">,
+// <strong>, <em>, <code>, ...) — to plain text, for the two uses that can't
+// render markup: the static TOC entry (renderTOC only writes plain text
+// runs, see entryRun.SetText below) and sanitizeBookmarkID's ASCII
+// allowlist. Issue #63 code review finding #1: before this, a lang span in
+// a heading corrupted the bookmark ID into "Hola_spanlangfrmondespan"
+// instead of "Hola_monde" (bookmarkIDDisallowedChars strips the markup's
+// punctuation but not the tag names/attribute values it leaves behind).
+func docxStripHeadingMarkup(s string) string {
+	s = docxHeadingTagPattern.ReplaceAllString(s, "")
+	return renderer.UnescapeHTML(s)
 }
 
 // renderParagraph renderiza un párrafo normal con markdown inline
@@ -919,106 +1067,206 @@ func (g *DOCXGenerator) renderParagraph(doc domain.Document, content string) err
 
 // renderInlineMarkdown procesa markdown inline (**bold**, *italic*, `code`, [links])
 func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string) error {
-	// Regex patterns para markdown inline
-	// Orden: code, bold, italic, links (code primero para evitar procesar ** dentro de `)
-	patterns := []struct {
-		regex *regexp.Regexp
-		// apply recibe el texto interno (grupo de captura 1) y, si el
-		// patrón tiene un segundo grupo de captura, su valor — hoy solo
-		// lo usa el patrón de idioma; los demás lo ignoran.
-		apply func(r domain.Run, text string, extra string) error
-	}{
-		{
-			// `code` - código inline
-			regex: regexp.MustCompile("`([^`]+)`"),
-			apply: func(r domain.Run, text string, _ string) error {
-				_ = r.SetText(text)
-				if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
-					return err
-				}
-				_ = r.SetColor(g.parseColor(g.style.CodeInlineColor))
-				_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
-				return nil
-			},
-		},
-		{
-			// **bold** - negrita
-			regex: regexp.MustCompile(`\*\*([^*]+)\*\*`),
-			apply: func(r domain.Run, text string, _ string) error {
-				_ = r.SetText(text)
-				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-					return err
-				}
-				_ = r.SetColor(g.parseColor(g.style.TextColor))
-				_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-				_ = r.SetBold(true)
-				return nil
-			},
-		},
-		{
-			// *italic* - cursiva
-			regex: regexp.MustCompile(`\*([^*]+)\*`),
-			apply: func(r domain.Run, text string, _ string) error {
-				_ = r.SetText(text)
-				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-					return err
-				}
-				_ = r.SetColor(g.parseColor(g.style.TextColor))
-				_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-				_ = r.SetItalic(true)
-				return nil
-			},
-		},
-		{
-			// [text](url) - links
-			regex: regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`),
-			apply: func(r domain.Run, text string, _ string) error {
-				_ = r.SetText(text)
-				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-					return err
-				}
-				_ = r.SetColor(g.parseColor(g.style.LinkColor))
-				_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-				// Links con subrayado (usar UnderlineNone + 1 = single)
-				_ = r.SetUnderline(domain.UnderlineStyle(1))
-				// TODO: Agregar hyperlink real cuando docxgo lo soporte
-				return nil
-			},
-		},
-		{
-			// [text]{lang=xx} - idioma inline (issue #63)
-			regex: regexp.MustCompile(`\[([^\[\]]+)\]\{lang=([a-zA-Z0-9-]+)\}`),
-			apply: func(r domain.Run, text string, lang string) error {
-				_ = r.SetText(text)
-				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-					return err
-				}
-				_ = r.SetColor(g.parseColor(g.style.TextColor))
-				_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-				// Mismo gate que core/renderer/sanitizer.go: el regex captura un
-				// charset más amplio que a11y.IsValidLangTag, así que un tag
-				// inválido se ignora en vez de escribirse sin validar en el XML.
-				if a11y.IsValidLangTag(lang) {
-					if err := r.SetLanguage(&domain.Language{Val: lang}); err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-		},
-	}
+	return g.walkDocxInlinePatterns(p, content, g.docxInlinePatterns(), nil)
+}
 
-	// Parser simple: procesar segmento por segmento
+// docxInlinePattern es un par regex+apply del parser de markdown inline del
+// DOCX generator. apply recibe el paragraph (no un run ya creado — issue
+// #63 code review finding #2: el patrón de idioma puede necesitar producir
+// MÁS de un run, uno por cada tramo de negrita/cursiva/código dentro del
+// span, así que cada apply crea sus propios runs), el texto interno (grupo
+// de captura 1), el segundo grupo de captura si el patrón lo tiene (hoy
+// solo el de idioma; el resto lo ignora), el texto completo matcheado (con
+// delimitadores — el patrón de idioma lo usa para degradar a texto literal
+// cuando el tag no valida, finding #5), y postRun: un hook opcional que
+// corre sobre cada run creado — el patrón de idioma lo usa para propagar
+// SetLanguage a cada run que produzca su recursión sobre el texto interno.
+type docxInlinePattern struct {
+	regex *regexp.Regexp
+	apply func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error
+}
+
+// docxSimpleRunApply factoriza el patrón repetido de los 4 patterns "de un
+// solo run" (code/bold/italic/link): crear un run, aplicarle style, y
+// propagar postRun si esta llamada viene de una recursión (finding #2).
+func docxSimpleRunApply(style func(r domain.Run) error) func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error {
+	return func(p domain.Paragraph, text string, _ string, _ string, postRun func(r domain.Run) error) error {
+		r, err := p.AddRun()
+		if err != nil {
+			return err
+		}
+		_ = r.SetText(text)
+		if err := style(r); err != nil {
+			return err
+		}
+		if postRun != nil {
+			return postRun(r)
+		}
+		return nil
+	}
+}
+
+// docxCodePattern, docxBoldPattern, docxItalicPattern, docxLinkPattern,
+// docxLangPattern construyen cada uno de los 5 patterns por separado (issue
+// #63 code review advisor follow-up on finding #2): docxInlinePatterns() y
+// docxLangInnerPatterns() antes compartían este set via un slice de índice
+// posicional ([:3]) — un invariante de ORDEN implícito y no verificado por
+// ningún test; reordenar o insertar un pattern en docxInlinePatterns()
+// habría hecho que la recursión de docxLangInnerPatterns() empezara a
+// matchear links o lang-dentro-de-lang en silencio. Nombrarlos hace que
+// docxLangInnerPatterns() elija por identidad, no por posición.
+
+func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
+	return docxInlinePattern{
+		// `code` - código inline
+		regex: regexp.MustCompile("`([^`]+)`"),
+		apply: docxSimpleRunApply(func(r domain.Run) error {
+			if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
+				return err
+			}
+			_ = r.SetColor(g.parseColor(g.style.CodeInlineColor))
+			_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+			return nil
+		}),
+	}
+}
+
+func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
+	return docxInlinePattern{
+		// **bold** - negrita
+		regex: regexp.MustCompile(`\*\*([^*]+)\*\*`),
+		apply: docxSimpleRunApply(func(r domain.Run) error {
+			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+				return err
+			}
+			_ = r.SetColor(g.parseColor(g.style.TextColor))
+			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+			_ = r.SetBold(true)
+			return nil
+		}),
+	}
+}
+
+func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
+	return docxInlinePattern{
+		// *italic* - cursiva
+		regex: regexp.MustCompile(`\*([^*]+)\*`),
+		apply: docxSimpleRunApply(func(r domain.Run) error {
+			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+				return err
+			}
+			_ = r.SetColor(g.parseColor(g.style.TextColor))
+			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+			_ = r.SetItalic(true)
+			return nil
+		}),
+	}
+}
+
+func (g *DOCXGenerator) docxLinkPattern() docxInlinePattern {
+	return docxInlinePattern{
+		// [text](url) - links
+		regex: regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`),
+		apply: docxSimpleRunApply(func(r domain.Run) error {
+			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+				return err
+			}
+			_ = r.SetColor(g.parseColor(g.style.LinkColor))
+			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+			// Links con subrayado (usar UnderlineNone + 1 = single)
+			_ = r.SetUnderline(domain.UnderlineStyle(1))
+			// TODO: Agregar hyperlink real cuando docxgo lo soporte
+			return nil
+		}),
+	}
+}
+
+func (g *DOCXGenerator) docxLangPattern() docxInlinePattern {
+	return docxInlinePattern{
+		// [text]{lang=xx} - idioma inline (issue #63). Regex compartido con
+		// core y pptx.go (renderer.InlineLangSpanPattern) en vez de una
+		// copia textual propia (hallazgo de regex triplicado del review).
+		regex: renderer.InlineLangSpanPattern,
+		apply: g.docxApplyLangSpan,
+	}
+}
+
+// docxInlinePatterns es el set completo usado en prosa de cuerpo: code,
+// bold, italic, links, idioma (issue #63) — en ese orden (code primero para
+// evitar procesar ** dentro de `).
+func (g *DOCXGenerator) docxInlinePatterns() []docxInlinePattern {
+	return []docxInlinePattern{
+		g.docxCodePattern(),
+		g.docxBoldPattern(),
+		g.docxItalicPattern(),
+		g.docxLinkPattern(),
+		g.docxLangPattern(),
+	}
+}
+
+// docxLangInnerPatterns es el subconjunto usado para procesar el texto
+// INTERNO de un [texto]{lang=xx} ya validado (finding #2): code/bold/italic
+// solamente, nunca links ni otro span de idioma anidado — el content-class
+// de InlineLangSpanPattern excluye "[", así que ninguno de los dos puede
+// aparecer ahí adentro para empezar (mismo razonamiento que
+// core/renderer/sanitizer.go's inlineSpanPattern doc comment sobre por qué
+// excluir "[" evita el straddle).
+func (g *DOCXGenerator) docxLangInnerPatterns() []docxInlinePattern {
+	return []docxInlinePattern{g.docxCodePattern(), g.docxBoldPattern(), g.docxItalicPattern()}
+}
+
+// docxApplyLangSpan es el apply del patrón de idioma. Un tag inválido
+// degrada a texto LITERAL (matchedText completo, con corchetes/llaves —
+// finding #5) en vez de quedarse silenciosamente solo con el texto interno,
+// que escondería el error de tipeo del autor en el documento final. Un tag
+// válido procesa el texto interno recursivamente por code/bold/italic
+// (finding #2) en vez de emitirlo verbatim con los asteriscos/backticks
+// literales, y estampa el idioma en cada run que esa recursión produzca.
+func (g *DOCXGenerator) docxApplyLangSpan(p domain.Paragraph, text string, lang string, matchedText string, postRun func(r domain.Run) error) error {
+	if !a11y.IsValidLangTag(lang) {
+		r, err := p.AddRun()
+		if err != nil {
+			return err
+		}
+		_ = r.SetText(matchedText)
+		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+			return err
+		}
+		_ = r.SetColor(g.parseColor(g.style.TextColor))
+		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+		if postRun != nil {
+			return postRun(r)
+		}
+		return nil
+	}
+	setLang := func(r domain.Run) error {
+		if err := r.SetLanguage(&domain.Language{Val: lang}); err != nil {
+			return err
+		}
+		if postRun != nil {
+			return postRun(r)
+		}
+		return nil
+	}
+	return g.walkDocxInlinePatterns(p, text, g.docxLangInnerPatterns(), setLang)
+}
+
+// walkDocxInlinePatterns es el parser de segmento-por-segmento compartido
+// por renderInlineMarkdown (todo el set de patterns, postRun nil) y
+// docxApplyLangSpan (subset restringido sobre el texto interno de un span
+// de idioma ya validado, postRun = estampar el idioma). postRun corre sobre
+// cada run que este walk crea directamente para el texto "de relleno" entre
+// matches; los runs que crea un pattern.apply anidado (p.ej. bold dentro de
+// un span de idioma) lo reciben porque cada apply lo recibe como argumento
+// y decide propagarlo, no porque este walk los toque directamente.
+func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content string, patterns []docxInlinePattern, postRun func(r domain.Run) error) error {
 	remaining := content
 	pos := 0
 
 	for pos < len(remaining) {
 		// Buscar el próximo match de cualquier pattern
 		minPos := len(remaining)
-		var matchedPattern *struct {
-			regex *regexp.Regexp
-			apply func(r domain.Run, text string, extra string) error
-		}
+		var matchedPattern *docxInlinePattern
 		var matchedText string
 		var matchedInner string
 		var matchedExtra string
@@ -1058,16 +1306,17 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 			}
 			_ = r.SetColor(g.parseColor(g.style.TextColor))
 			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+			if postRun != nil {
+				if err := postRun(r); err != nil {
+					return err
+				}
+			}
 			pos += minPos
 		}
 
 		// Agregar texto con formato
 		if matchedPattern != nil {
-			r, err := p.AddRun()
-			if err != nil {
-				return err
-			}
-			if err := matchedPattern.apply(r, matchedInner, matchedExtra); err != nil {
+			if err := matchedPattern.apply(p, matchedInner, matchedExtra, matchedText, postRun); err != nil {
 				return err
 			}
 			pos += len(matchedText)
@@ -1084,6 +1333,11 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 				}
 				_ = r.SetColor(g.parseColor(g.style.TextColor))
 				_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+				if postRun != nil {
+					if err := postRun(r); err != nil {
+						return err
+					}
+				}
 			}
 			break
 		}

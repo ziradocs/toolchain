@@ -472,8 +472,11 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	// json.Marshal'd tal cual — core/linter/external.go). Corre DESPUÉS de
 	// RunFilters y se re-deriva siempre desde Content, nunca se confía en lo
 	// que un filtro externo haya dejado en LangRuns — ver
-	// renderer.PopulateLangRuns.
-	renderer.PopulateLangRuns(astNode)
+	// renderer.PopulateLangRuns. BuildVariables() (issue #63 code review,
+	// finding #10) para que un span que solo existe tras sustituir
+	// {{variable}} también se derive — mismo llamado que data.BuildVariables
+	// delega en (converter.go), sin necesitar ese paquete acá.
+	renderer.PopulateLangRuns(astNode, astNode.FrontMatter.BuildVariables())
 
 	// 6.6. Resolver el tema ANTES del lint (issue #30 — seam de contraste
 	// WCAG): resolveTheme vivía enterrado en el generador, alcanzable solo

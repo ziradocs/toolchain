@@ -119,7 +119,7 @@ func (g *Generator) generateMarkdown(doc *ast.AST, outputFile string, opts Gener
 func (g *Generator) RenderASTJSON(doc *ast.AST) ([]byte, error) {
 	variables := doc.FrontMatter.BuildVariables()
 	renderer.PopulateInlineHTML(doc, variables)
-	renderer.PopulateLangRuns(doc) // issue #63 — ver slidelang/internal/generator/generator.go:RenderASTJSON
+	renderer.PopulateLangRuns(doc, variables) // issue #63 — ver slidelang/internal/generator/generator.go:RenderASTJSON
 	return json.Marshal(doc)
 }
 
