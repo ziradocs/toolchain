@@ -351,6 +351,12 @@
         "contentHTML": {
           "type": "string"
         },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
         "elements": {
           "items": {
             "oneOf": [
@@ -692,6 +698,12 @@
         },
         "contentHTML": {
           "type": "string"
+        },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -1356,6 +1368,12 @@
         },
         "contentHTML": {
           "type": "string"
+        },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
         },
         "icon": {
           "type": "string"

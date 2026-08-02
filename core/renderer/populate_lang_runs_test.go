@@ -14,7 +14,7 @@ func TestPopulateLangRuns_Markdown(t *testing.T) {
 	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), "dijo [bonjour tout le monde]{lang=fr} y se fue")
 	doc := newTestDoc(elem)
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 
 	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 	if len(got) != 1 {
@@ -34,7 +34,7 @@ func TestPopulateLangRuns_RawHTML(t *testing.T) {
 		`<h2 id="x">Bonjour <span lang="fr">tout le monde</span></h2>`)
 	doc := newTestDoc(elem)
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 
 	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 	if len(got) != 1 {
@@ -46,19 +46,65 @@ func TestPopulateLangRuns_RawHTML(t *testing.T) {
 }
 
 // TestPopulateLangRuns_RawHTML_NestedFormatting confirms a <strong>/<em>
-// nested inside the materialized <span lang> survives as part of Text — the
-// RawHTML path can't recover the original markdown, only the HTML that was
-// already emitted (see extractLangRuns's doc comment).
+// nested inside the materialized <span lang> is stripped down to plain text
+// in Text (issue #63 code review, finding #6) — the RawHTML path can't
+// recover the original markdown, only the HTML that was already emitted,
+// but LangRun.Text must still be plain text either way (see LangRun's doc
+// comment): a consumer reading Text has no reason to expect it might contain
+// raw HTML tags on this path but not the Markdown path.
 func TestPopulateLangRuns_RawHTML_NestedFormatting(t *testing.T) {
 	elem := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1),
 		`<h2 id="x"><span lang="fr">a <strong>b</strong> c</span></h2>`)
 	doc := newTestDoc(elem)
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 
 	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
-	if len(got) != 1 || got[0].Text != "a <strong>b</strong> c" || got[0].Lang != "fr" {
+	if len(got) != 1 || got[0].Text != "a b c" || got[0].Lang != "fr" {
 		t.Errorf("unexpected runs: %+v", got)
+	}
+}
+
+// TestPopulateLangRuns_RawHTML_EntitiesDecoded confirms the RawHTML path
+// decodes the HTML entities EscapeHTML introduced at parse time (issue #63
+// code review, finding #6, advisor follow-up) — without this, "a & b" would
+// come back as the literal string "a &amp; b", diverging from what the
+// equivalent Markdown-path span ([a & b]{lang=fr}, whose Content is never
+// escaped) would produce for the same author-intended text.
+func TestPopulateLangRuns_RawHTML_EntitiesDecoded(t *testing.T) {
+	elem := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1),
+		`<h2 id="x"><span lang="fr">a &amp; b &lt;c&gt;</span></h2>`)
+	doc := newTestDoc(elem)
+
+	PopulateLangRuns(doc, nil)
+
+	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+	if len(got) != 1 || got[0].Text != "a & b <c>" || got[0].Lang != "fr" {
+		t.Errorf("unexpected runs: %+v", got)
+	}
+}
+
+func TestLangSpanHTMLToSource(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"simple span", `<span lang="fr">tout le monde</span>`, `[tout le monde]{lang=fr}`},
+		{"invalid tag left as HTML", `<span lang="es_MX">x</span>`, `<span lang="es_MX">x</span>`},
+		{
+			"non-round-trippable text (contains '[') left as HTML",
+			`<span lang="fr">a [b] c</span>`,
+			`<span lang="fr">a [b] c</span>`,
+		},
+		{"no span, passthrough", `plain text`, `plain text`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := LangSpanHTMLToSource(tt.in); got != tt.want {
+				t.Errorf("LangSpanHTMLToSource(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -81,7 +127,7 @@ func TestPopulateLangRuns_InvalidTagFiltered(t *testing.T) {
 				elem = ast.NewTextElement(diagnostics.NewPosition(1, 1), tt.content)
 			}
 			doc := newTestDoc(elem)
-			PopulateLangRuns(doc)
+			PopulateLangRuns(doc, nil)
 			got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 			if len(got) != 0 {
 				t.Errorf("expected no LangRuns for a malformed tag, got %+v", got)
@@ -95,7 +141,7 @@ func TestPopulateLangRuns_QuoteElement(t *testing.T) {
 	elem.Author = "[Jane]{lang=fr}" // Author must NOT get LangRuns — see QuoteElement.LangRuns doc comment
 	doc := newTestDoc(elem)
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 
 	got := doc.ContentBlocks[0].Elements[0].(*ast.QuoteElement)
 	if len(got.LangRuns) != 1 || got.LangRuns[0].Text != "c'est la vie" || got.LangRuns[0].Lang != "fr" {
@@ -123,7 +169,7 @@ func TestPopulateLangRuns_PointsAndChecklistRecursion(t *testing.T) {
 	block.Elements = append(block.Elements, points, checklist)
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 
 	gotPoints := doc.ContentBlocks[0].Elements[0].(*ast.PointsElement)
 	if len(gotPoints.Items[0].LangRuns) != 1 || gotPoints.Items[0].LangRuns[0].Lang != "de" {
@@ -154,12 +200,67 @@ func TestPopulateLangRuns_GridColumnRecursion(t *testing.T) {
 	block.Elements = append(block.Elements, grid)
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 
 	gotGrid := doc.ContentBlocks[0].Elements[0].(*ast.GridElement)
 	gotText := gotGrid.Columns[0].Elements[0].(*ast.TextElement)
 	if len(gotText.LangRuns) != 1 || gotText.LangRuns[0].Lang != "fr" {
 		t.Errorf("nested TextElement inside grid column not populated: %+v", gotText.LangRuns)
+	}
+}
+
+// TestPopulateLangRuns_SpecialBlockGridColumnContent covers issue #63 code
+// review finding #9: SpecialBlockElement, GridElement and ColumnElement each
+// carry their own loose Content string (a callout body, prose inside a grid
+// but outside any column, prose inside a column) that populateElementHTML
+// already treats as a first-class prose field (see populate_inline_html.go's
+// TitleHTML/ContentHTML cases for the same three types) but that
+// populateElementLangRuns used to skip entirely.
+func TestPopulateLangRuns_SpecialBlockGridColumnContent(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	special := ast.NewSpecialBlockElement(pos, "info", "ceci [est important]{lang=fr}")
+
+	grid := ast.NewGridElement(pos)
+	grid.Content = "grid [loose prose]{lang=fr}"
+	col := ast.ColumnElement{Content: "col [prose]{lang=fr}"}
+	grid.Columns = append(grid.Columns, col)
+
+	doc := ast.NewAST(pos)
+	block := ast.NewContentBlock(pos, "content")
+	block.Elements = append(block.Elements, special, grid)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	PopulateLangRuns(doc, nil)
+
+	gotSpecial := doc.ContentBlocks[0].Elements[0].(*ast.SpecialBlockElement)
+	if len(gotSpecial.LangRuns) != 1 || gotSpecial.LangRuns[0].Text != "est important" || gotSpecial.LangRuns[0].Lang != "fr" {
+		t.Errorf("SpecialBlockElement.LangRuns not populated from Content: %+v", gotSpecial.LangRuns)
+	}
+
+	gotGrid := doc.ContentBlocks[0].Elements[1].(*ast.GridElement)
+	if len(gotGrid.LangRuns) != 1 || gotGrid.LangRuns[0].Text != "loose prose" || gotGrid.LangRuns[0].Lang != "fr" {
+		t.Errorf("GridElement.LangRuns not populated from Content: %+v", gotGrid.LangRuns)
+	}
+	if len(gotGrid.Columns[0].LangRuns) != 1 || gotGrid.Columns[0].LangRuns[0].Text != "prose" || gotGrid.Columns[0].LangRuns[0].Lang != "fr" {
+		t.Errorf("ColumnElement.LangRuns not populated from Content: %+v", gotGrid.Columns[0].LangRuns)
+	}
+}
+
+// TestPopulateLangRuns_Variables covers issue #63 code review finding #10:
+// a lang span reaching an element only through a {{variable}} substitution
+// (not present literally in Content) must still be found — same order as
+// ProcessTextWithVariablesAndMarkdownSecure (variables first, then the
+// markdown/span pass).
+func TestPopulateLangRuns_Variables(t *testing.T) {
+	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), "dijo {{saludo}} y se fue")
+	doc := newTestDoc(elem)
+
+	PopulateLangRuns(doc, map[string]interface{}{"saludo": "[bonjour]{lang=fr}"})
+
+	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+	if len(got) != 1 || got[0].Text != "bonjour" || got[0].Lang != "fr" {
+		t.Errorf("expected a LangRun surfaced via variable substitution, got %+v", got)
 	}
 }
 
@@ -175,7 +276,7 @@ func TestPopulateLangRuns_AlwaysOverwrites(t *testing.T) {
 		elem.LangRuns = []ast.LangRun{{Text: "forged", Lang: "xx-forged-by-filter"}}
 		doc := newTestDoc(elem)
 
-		PopulateLangRuns(doc)
+		PopulateLangRuns(doc, nil)
 
 		got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 		if len(got) != 0 {
@@ -188,7 +289,7 @@ func TestPopulateLangRuns_AlwaysOverwrites(t *testing.T) {
 		elem.LangRuns = []ast.LangRun{{Text: "forged", Lang: "xx-forged-by-filter"}}
 		doc := newTestDoc(elem)
 
-		PopulateLangRuns(doc)
+		PopulateLangRuns(doc, nil)
 
 		got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 		if len(got) != 0 {
@@ -201,10 +302,10 @@ func TestPopulateLangRuns_Idempotent(t *testing.T) {
 	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), "[bonjour]{lang=fr} et [hallo]{lang=de}")
 	doc := newTestDoc(elem)
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 	first := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 	second := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 
 	if len(first) != len(second) {
@@ -218,14 +319,14 @@ func TestPopulateLangRuns_Idempotent(t *testing.T) {
 }
 
 func TestPopulateLangRuns_NilSafety(t *testing.T) {
-	PopulateLangRuns(nil) // must not panic
+	PopulateLangRuns(nil, nil) // must not panic
 }
 
 func TestPopulateLangRuns_NoSpansYieldsNilNotEmptySlice(t *testing.T) {
 	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), "plain text, no spans at all")
 	doc := newTestDoc(elem)
 
-	PopulateLangRuns(doc)
+	PopulateLangRuns(doc, nil)
 
 	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
 	if got != nil {

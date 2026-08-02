@@ -23,6 +23,21 @@ func EscapeHTML(text string) string {
 	return text
 }
 
+// UnescapeHTML is the precise inverse of EscapeHTML: decodes exactly the
+// five entities EscapeHTML produces (&amp; &lt; &gt; &quot; &#39;), nothing
+// more — not a general-purpose HTML entity decoder (numeric refs like &#8217;
+// or named ones like &nbsp; pass through unchanged). None of the five target
+// strings is a substring of another, so the replacement order below cannot
+// cause double-decoding.
+func UnescapeHTML(text string) string {
+	text = strings.ReplaceAll(text, "&amp;", "&")
+	text = strings.ReplaceAll(text, "&lt;", "<")
+	text = strings.ReplaceAll(text, "&gt;", ">")
+	text = strings.ReplaceAll(text, "&quot;", "\"")
+	text = strings.ReplaceAll(text, "&#39;", "'")
+	return text
+}
+
 // EscapeHTMLAttribute escapes text for use in HTML attributes
 // More restrictive than EscapeHTML to prevent attribute injection
 func EscapeHTMLAttribute(text string) string {
@@ -179,7 +194,7 @@ var (
 	// DENTRO del contenido de un span (`[See [here](url)]{.danger}`) no matchea
 	// como span (degrada a corchetes literales inertes), nunca a HTML cruzado.
 	inlineSpanPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{\.([a-zA-Z0-9-]+)\}`)
-	// inlineLangSpanPattern reconoce spans de idioma [contenido]{lang=xx}
+	// InlineLangSpanPattern reconoce spans de idioma [contenido]{lang=xx}
 	// (issue #63): mismo delimitador corchete+llave que inlineSpanPattern,
 	// pero SIN el punto — "lang=" es un atributo, no una clase de estilo, y
 	// esa diferencia sintáctica es intencional: separa el namespace de
@@ -189,9 +204,24 @@ var (
 	// clase (ver su comentario). El charset del tag [a-zA-Z0-9-]+ es
 	// deliberadamente más ancho que a11y.bcp47Pattern — la primera barrera
 	// es sintáctica (que el regex matchee), la segunda es semántica
-	// (a11y.IsValidLangTag, ver el use de este pattern más abajo); un tag
-	// que pasa el regex pero no el validador degrada a texto literal.
-	inlineLangSpanPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{lang=([a-zA-Z0-9-]+)\}`)
+	// (a11y.IsValidLangTag, el caller debe llamarlo sobre el grupo 2); un tag
+	// que pasa el regex pero no el validador debe degradar a texto literal.
+	//
+	// El contenido excluye "\n" además de "[" y "]" — en la práctica esta
+	// función nunca ve un salto de línea real (los tres entry points de
+	// ProcessInlineMarkdownFormatsSecure parten por líneas antes de llamarla;
+	// el único que no, ProcessInlineMarkdownSecureLine, solo lo usa
+	// parseSubsectionHeader, que es single-line por construcción), pero
+	// excluirlo explícitamente alinea el regex con esa invariante en vez de
+	// depender de que ningún caller futuro la rompa.
+	//
+	// Exportado (issue #63 code review, hallazgo de regex triplicado): antes
+	// vivía como var no exportada y doclang/slidelang mantenían cada uno su
+	// propia copia textual del mismo patrón — las tres podían divergir
+	// silenciosamente. Ahora es la única fuente de verdad; sanitizer.go,
+	// populate_lang_runs.go, doclang's docx.go y slidelang's pptx.go la
+	// referencian directamente.
+	InlineLangSpanPattern = regexp.MustCompile(`\[([^\[\]\n]+)\]\{lang=([a-zA-Z0-9-]+)\}`)
 )
 
 // inlineSpanTokens es la ALLOWLIST FIJA de tokens de clase para spans
@@ -479,8 +509,8 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 	// tag que no pasa el validador (p.ej. "es_MX", o el mismo "eſ" con el
 	// homoglifo de "s" larga) degrada a texto literal — mismo comportamiento
 	// que un miss de la allowlist del span de clase.
-	text = inlineLangSpanPattern.ReplaceAllStringFunc(text, func(match string) string {
-		submatches := inlineLangSpanPattern.FindStringSubmatch(match)
+	text = InlineLangSpanPattern.ReplaceAllStringFunc(text, func(match string) string {
+		submatches := InlineLangSpanPattern.FindStringSubmatch(match)
 		if len(submatches) < 3 {
 			return match
 		}

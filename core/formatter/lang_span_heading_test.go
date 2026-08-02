@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -22,14 +24,15 @@ func parseDocumentNoNormalize(t *testing.T, content string) *parser.DocumentFlex
 	return parser.NewDocumentFlexParser(content, util.NewNoop())
 }
 
-// TestFormatDocument_LangSpanInHeading_FailsLoud cubre issue #63: un
-// [texto]{lang=xx} dentro de un heading (## texto) se materializa a
-// <span lang="xx"> en tiempo de parseo (core/parser/document_flex.go), así
-// que para cuando FormatDocument corre ya no queda ningún [texto]{lang=xx}
-// que reemitir — solo el <span> ya renderizado. stripTags lo colapsaría a
-// texto liso, perdiendo la marca de idioma EN SILENCIO. Debe fallar fuerte
-// (*UnsupportedElementError) en vez de eso.
-func TestFormatDocument_LangSpanInHeading_FailsLoud(t *testing.T) {
+// TestFormatDocument_LangSpanInHeading_RoundTrips covers issue #63 code
+// review finding #3: a [texto]{lang=xx} inside a heading (## texto) is
+// materialized to <span lang="xx"> at parse time
+// (core/parser/document_flex.go), so by the time FormatDocument runs there
+// is no [texto]{lang=xx} left to re-emit — only the already-rendered
+// <span>. FormatDocument must reconstruct the original source syntax via
+// renderer.LangSpanHTMLToSource rather than either losing the language mark
+// silently (stripTags alone) or refusing to format the document at all.
+func TestFormatDocument_LangSpanInHeading_RoundTrips(t *testing.T) {
 	src := "# Título\n\n## Bonjour [tout le monde]{lang=fr}\n\nTexto normal.\n"
 	p := parseDocumentNoNormalize(t, src)
 	doc, diags := p.Parse()
@@ -39,20 +42,49 @@ func TestFormatDocument_LangSpanInHeading_FailsLoud(t *testing.T) {
 		}
 	}
 
-	_, err := FormatDocument(doc)
-	if err == nil {
-		t.Fatal("expected FormatDocument to fail on a lang span inside a heading, got nil error")
+	out, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatalf("FormatDocument: %v", err)
 	}
-	if _, ok := err.(*UnsupportedElementError); !ok {
-		t.Fatalf("FormatDocument error type = %T, want *UnsupportedElementError: %v", err, err)
-	}
-	if !strings.Contains(err.Error(), "lang") {
-		t.Errorf("expected error message to mention the lang span, got: %v", err)
+	if !strings.Contains(out, "## Bonjour [tout le monde]{lang=fr}") {
+		t.Errorf("expected the heading to round-trip with its lang span intact, got: %q", out)
 	}
 }
 
-// TestFormatDocument_PlainHeading_StillRoundTrips confirms the guard is
-// scoped to lang spans specifically — an ordinary heading with no lang span
+// TestFormatDocument_LangSpanInHeading_NonRoundTrippableTextDegrades
+// exercises renderer.LangSpanHTMLToSource's own guard (advisor follow-up on
+// finding #3) through FormatDocument: a heading whose materialized span text
+// contains "[" cannot be re-emitted as [text]{lang=xx} — that source
+// wouldn't re-match InlineLangSpanPattern on the next parse. Not reachable
+// via a real [texto]{lang=xx} source today (a "[" inside the span's content
+// keeps the parse-time regex from ever creating the span — see
+// TestFormatDocument_PlainHeading_StillRoundTrips-adjacent probing), so this
+// builds the RawHTML TextElement directly to simulate what a forged
+// --filter (or the cross-nesting defect tracked separately for the
+// sanitizer) could produce. Must degrade to plain text via stripTags, not
+// error and not leak a literal <span> tag.
+func TestFormatDocument_LangSpanInHeading_NonRoundTrippableTextDegrades(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	elem := ast.NewRawHTMLTextElement(pos, `<h2 id="x">Bonjour <span lang="fr">a [b] c</span></h2>`)
+	block := ast.NewContentBlock(pos, "content")
+	block.Elements = append(block.Elements, elem)
+	doc := ast.NewAST(pos)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	out, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatalf("FormatDocument: %v", err)
+	}
+	if strings.Contains(out, "<span") {
+		t.Errorf("expected the unmatchable span to degrade to plain text, got: %q", out)
+	}
+	if !strings.Contains(out, "## Bonjour a [b] c") {
+		t.Errorf("expected the heading text to survive stripped of the span, got: %q", out)
+	}
+}
+
+// TestFormatDocument_PlainHeading_StillRoundTrips confirms the lang-span
+// handling is scoped correctly — an ordinary heading with no lang span
 // (including one with **bold**/*italic*, the pre-existing lossy-but-accepted
 // case) must still format without error.
 func TestFormatDocument_PlainHeading_StillRoundTrips(t *testing.T) {

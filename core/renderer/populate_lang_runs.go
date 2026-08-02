@@ -5,6 +5,7 @@ package renderer
 
 import (
 	"regexp"
+	"strings"
 
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
@@ -22,6 +23,41 @@ import (
 // rather than growing this into a general HTML parser.
 var langSpanHTMLPattern = regexp.MustCompile(`<span lang="([a-zA-Z0-9-]+)">(.*?)</span>`)
 
+// LangSpanHTMLToSource inverts the HTML a lang span materializes to back
+// into its [texto]{lang=xx} source syntax (issue #63 code review, finding
+// #3): the exact reverse of the <span lang="xx"> that
+// ProcessInlineMarkdownFormatsSecure emits for InlineLangSpanPattern.
+// Exported for formatter.FormatDocument (a subsection heading's Content is
+// already-rendered HTML by the time it reaches the formatter — see
+// formatSubsectionHeading) and for --format markdown in doclang/slidelang,
+// which faces the identical already-rendered-HTML problem for body prose.
+//
+// A tag that fails a11y.IsValidLangTag is left as literal HTML rather than
+// round-tripped — mirrors PopulateLangRuns's rule that an untrusted-looking
+// span (e.g. forged by an external --filter) never gets treated as evidence
+// of a real one; the caller's own tag-stripping, if any, is what ends up
+// discarding it.
+//
+// text is also left as literal HTML if it contains "[", "]", or "\n":
+// InlineLangSpanPattern's own content class is [^\[\]\n]+ (see that
+// pattern's doc comment), so emitting "[" + text + "]{lang=...}" with any of
+// those characters inside would produce source that does NOT re-match on
+// the next parse — silently dropping the language mark on a reparse, the
+// exact defect this function exists to fix. Not reachable from the
+// parse-time heading path today (that source can't contain a literal "["
+// inside the span to begin with), but this function is also called on
+// arbitrary already-rendered body prose, where it is reachable.
+func LangSpanHTMLToSource(html string) string {
+	return langSpanHTMLPattern.ReplaceAllStringFunc(html, func(match string) string {
+		m := langSpanHTMLPattern.FindStringSubmatch(match)
+		tag, text := m[1], m[2]
+		if !a11y.IsValidLangTag(tag) || strings.ContainsAny(text, "[]\n") {
+			return match
+		}
+		return "[" + text + "]{lang=" + tag + "}"
+	})
+}
+
 // PopulateLangRuns fills LangRuns on every prose-carrying element reachable
 // from doc, deriving it FRESH from each element's own Content every time —
 // see LangRun's doc comment for why. Unlike PopulateInlineHTML, this is not
@@ -33,76 +69,102 @@ var langSpanHTMLPattern = regexp.MustCompile(`<span lang="([a-zA-Z0-9-]+)">(.*?)
 // comment on *HTML fields) because there is nothing here to trust from
 // upstream in the first place — every call to this function replaces
 // LangRuns with what Content, read right now, actually says.
-func PopulateLangRuns(doc *ast.AST) {
+//
+// variables is substituted into Markdown Content BEFORE extraction (same
+// order as ProcessTextWithVariablesAndMarkdownSecure, see that function),
+// so a span reaching this element only via a {{variable}} — e.g.
+// {{saludo}} where variables["saludo"] is "[bonjour]{lang=fr}" — is still
+// found. It has no effect on the RawHTML path: a heading's Content was
+// already materialized to markdown-applied HTML at parse time
+// (parser.parseSubsectionHeader calls ProcessInlineMarkdownSecureLine, which
+// does NOT substitute {{variables}} — headings never get variable
+// substitution at all, a pre-existing behavior unrelated to this function),
+// so there is no later point where variables could still apply.
+func PopulateLangRuns(doc *ast.AST, variables map[string]interface{}) {
 	if doc == nil {
 		return
 	}
 	for i := range doc.ContentBlocks {
-		populateContentBlockLangRuns(&doc.ContentBlocks[i])
+		populateContentBlockLangRuns(&doc.ContentBlocks[i], variables)
 	}
 }
 
-func populateContentBlockLangRuns(block *ast.ContentBlock) {
+// populateContentBlockLangRuns deliberately does not touch
+// block.Title/Heading/Subtitle: those three go through
+// renderer.ProcessVariablesSecure only (see populate_inline_html.go's
+// TitleHTML/HeadingHTML/SubtitleHTML cases), never through the markdown
+// pipeline — a [texto]{lang=xx} typed into one of them is never converted to
+// a span in the first place, so there is nothing here for PopulateLangRuns
+// to extract. Not an oversight (issue #63 code review raised this as a
+// possible fifth gap; it isn't one).
+func populateContentBlockLangRuns(block *ast.ContentBlock, variables map[string]interface{}) {
 	for _, elem := range block.Elements {
-		populateElementLangRuns(elem)
+		populateElementLangRuns(elem, variables)
 	}
 }
 
-// populateElementLangRuns covers the four prose carriers scoped for #63's
-// v1 (TextElement, PointItem, ChecklistItem, QuoteElement.Content — see the
-// plan's reasoning for why table cells and grid prose are out of scope) plus
-// GridElement/ColumnElement, which carry no LangRuns field of their own but
-// must still be walked to reach any of the four types nested inside a
+// populateElementLangRuns covers every prose carrier reachable from a
+// ContentBlock: TextElement, PointItem, ChecklistItem, QuoteElement.Content,
+// SpecialBlockElement.Content, GridElement.Content and ColumnElement.Content
+// (see the field-by-field scoping note on each of those LangRuns fields for
+// why sibling fields like Title/Author are excluded) — table cells remain
+// out of scope for #63's v1. GridElement/ColumnElement additionally recurse
+// into Columns/Elements to reach any of the other carriers nested inside a
 // grid's columns.
 //
 // Deliberately NOT guarded by a coverage test the way populateElementHTML
 // is: LangRuns is a NEW FIELD on an EXISTING type, and every type-coverage
 // guard in this repo (verified while researching #63) compares Element
 // TYPES against switch cases — none inspects struct fields — so a missing
-// case here would fail silently regardless of a guard. The four-type scope
-// is intentional and documented, not something CI can currently enforce.
-func populateElementLangRuns(element ast.Element) {
+// case here would fail silently regardless of a guard. The scope above is
+// intentional and documented, not something CI can currently enforce.
+func populateElementLangRuns(element ast.Element, variables map[string]interface{}) {
 	switch elem := element.(type) {
 	case *ast.TextElement:
-		elem.LangRuns = extractLangRuns(elem.Content, elem.IsRawHTML)
+		elem.LangRuns = extractLangRuns(elem.Content, elem.IsRawHTML, variables)
 
 	case *ast.PointsElement:
 		for i := range elem.Items {
-			populatePointItemLangRuns(&elem.Items[i])
+			populatePointItemLangRuns(&elem.Items[i], variables)
 		}
 
 	case *ast.QuoteElement:
-		elem.LangRuns = extractLangRuns(elem.Content, false)
+		elem.LangRuns = extractLangRuns(elem.Content, false, variables)
 
 	case *ast.ChecklistElement:
 		for i := range elem.Items {
-			populateChecklistItemLangRuns(&elem.Items[i])
+			populateChecklistItemLangRuns(&elem.Items[i], variables)
 		}
+
+	case *ast.SpecialBlockElement:
+		elem.LangRuns = extractLangRuns(elem.Content, false, variables)
 
 	case *ast.GridElement:
+		elem.LangRuns = extractLangRuns(elem.Content, false, variables)
 		for i := range elem.Columns {
-			populateColumnLangRuns(&elem.Columns[i])
+			populateColumnLangRuns(&elem.Columns[i], variables)
 		}
 	}
 }
 
-func populateColumnLangRuns(col *ast.ColumnElement) {
+func populateColumnLangRuns(col *ast.ColumnElement, variables map[string]interface{}) {
+	col.LangRuns = extractLangRuns(col.Content, false, variables)
 	for _, nested := range col.Elements {
-		populateElementLangRuns(nested)
+		populateElementLangRuns(nested, variables)
 	}
 }
 
-func populatePointItemLangRuns(item *ast.PointItem) {
-	item.LangRuns = extractLangRuns(item.Content, false)
+func populatePointItemLangRuns(item *ast.PointItem, variables map[string]interface{}) {
+	item.LangRuns = extractLangRuns(item.Content, false, variables)
 	for i := range item.SubPoints {
-		populatePointItemLangRuns(&item.SubPoints[i])
+		populatePointItemLangRuns(&item.SubPoints[i], variables)
 	}
 }
 
-func populateChecklistItemLangRuns(item *ast.ChecklistItem) {
-	item.LangRuns = extractLangRuns(item.Content, false)
+func populateChecklistItemLangRuns(item *ast.ChecklistItem, variables map[string]interface{}) {
+	item.LangRuns = extractLangRuns(item.Content, false, variables)
 	for i := range item.SubItems {
-		populateChecklistItemLangRuns(&item.SubItems[i])
+		populateChecklistItemLangRuns(&item.SubItems[i], variables)
 	}
 }
 
@@ -113,7 +175,7 @@ func populateChecklistItemLangRuns(item *ast.ChecklistItem) {
 // same ordering).
 //
 // isRawHTML selects which source shape to scan: false for ordinary Markdown
-// Content (the [texto]{lang=xx} span, matched via inlineLangSpanPattern —
+// Content (the [texto]{lang=xx} span, matched via InlineLangSpanPattern —
 // shared with ProcessInlineMarkdownFormatsSecure so the two can never drift
 // on what a valid span looks like); true for a TextElement whose Content was
 // already materialized to HTML at parse time (## headings), where the span
@@ -125,15 +187,19 @@ func populateChecklistItemLangRuns(item *ast.ChecklistItem) {
 // trusting the RawHTML path without validation would reopen exactly the
 // bypass PopulateLangRuns's "always re-derive, never skip" design exists to
 // close.
-func extractLangRuns(content string, isRawHTML bool) []ast.LangRun {
+func extractLangRuns(content string, isRawHTML bool, variables map[string]interface{}) []ast.LangRun {
 	if isRawHTML {
 		return extractLangRunsFromHTML(content)
 	}
-	return extractLangRunsFromMarkdown(content)
+	return extractLangRunsFromMarkdown(content, variables)
 }
 
-func extractLangRunsFromMarkdown(content string) []ast.LangRun {
-	matches := inlineLangSpanPattern.FindAllStringSubmatch(content, -1)
+func extractLangRunsFromMarkdown(content string, variables map[string]interface{}) []ast.LangRun {
+	// ProcessVariables primero, igual que ProcessTextWithVariablesAndMarkdownSecure
+	// — un span que solo existe tras sustituir una {{variable}} debe seguir
+	// siendo encontrado (issue #63 code review, hallazgo #10).
+	content = ProcessVariables(content, variables)
+	matches := InlineLangSpanPattern.FindAllStringSubmatch(content, -1)
 	if len(matches) == 0 {
 		return nil
 	}
@@ -159,7 +225,16 @@ func extractLangRunsFromHTML(content string) []ast.LangRun {
 		if !a11y.IsValidLangTag(tag) {
 			continue
 		}
-		runs = append(runs, ast.LangRun{Text: text, Lang: tag})
+		// stripHTML + UnescapeHTML: Text es plain text en las dos rutas de
+		// extracción (ver el doc comment de LangRun) — sin stripHTML, un span
+		// que envuelve markup ya renderizado (p.ej. <span lang="fr">a
+		// <strong>b</strong> c</span>, producido por [a *b* c]{lang=fr} en
+		// una ruta que ya pasó por el pipeline inline) filtraría tags HTML
+		// crudos a Text; sin UnescapeHTML, un "&" o "<" literal del autor
+		// (ya escapado por EscapeHTML al materializarse el heading) quedaría
+		// como "&amp;"/"&lt;" en vez del carácter real, divergiendo de la
+		// ruta Markdown (que nunca escapa Content).
+		runs = append(runs, ast.LangRun{Text: UnescapeHTML(stripHTML(text)), Lang: tag})
 	}
 	return runs
 }
