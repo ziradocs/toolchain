@@ -68,13 +68,23 @@ func TestDOCXGenerator_SetsDocumentLanguage(t *testing.T) {
 	}
 
 	styles := docxPartXML(t, output, "word/styles.xml")
-	if !strings.Contains(styles, `w:val="fr"`) {
-		t.Errorf("expected word/styles.xml to declare lang w:val=\"fr\", got:\n%s", styles)
+	// Val/EastAsia/Bidi los tres al mismo tag (code review): dejar
+	// EastAsia/Bidi sin poner significaba que un documento en un script
+	// CJK o RTL con `lang:` declarado seguía usando el idioma del sistema
+	// para esos runs — Word solo consulta w:val para script latino.
+	for _, attr := range []string{`w:val="fr"`, `w:eastAsia="fr"`, `w:bidi="fr"`} {
+		if !strings.Contains(styles, attr) {
+			t.Errorf("expected word/styles.xml to declare lang %s, got:\n%s", attr, styles)
+		}
 	}
 }
 
 // TestDOCXGenerator_NoLangDeclared_LeavesDocumentUnaffected confirma que un
-// documento sin `lang:` no rompe la generación ni el comportamiento previo.
+// documento sin `lang:` no rompe la generación ni declara un w:lang vacío.
+// Regresión de code review: la versión anterior de este test solo
+// verificaba que Generate() no fallara, sin inspeccionar la salida —
+// habría seguido en verde si un futuro refactor tumbara el guard
+// `if astDoc.FrontMatter.Lang != ""` y emitiera w:val="" explícito.
 func TestDOCXGenerator_NoLangDeclared_LeavesDocumentUnaffected(t *testing.T) {
 	doc := astWithElements(ast.NewTextElement(diagnostics.NewPosition(1, 1), "Contenido."))
 
@@ -83,5 +93,10 @@ func TestDOCXGenerator_NoLangDeclared_LeavesDocumentUnaffected(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "nolang.docx")
 	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
+	}
+
+	styles := docxPartXML(t, output, "word/styles.xml")
+	if strings.Contains(styles, "w:lang") {
+		t.Errorf("expected no w:lang element when FrontMatter.Lang is unset, got:\n%s", styles)
 	}
 }
