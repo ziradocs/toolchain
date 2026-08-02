@@ -284,3 +284,50 @@ func TestGenerateDocumentHTML_PreservesElementOrder(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateDocumentHTML_PreservesElementOrder_HeterogeneousTypes es un
+// segundo guard para la misma mitad "(a)" de issue #62, con fixtures de
+// código distinto (code review de la segunda ronda: el test original solo
+// usa TextElement tres veces, así que un bug hipotético que agrupara la
+// salida POR TIPO de elemento — en vez de respetar el orden de
+// ContentBlock.Elements — pasaría inadvertido, porque agrupar un único tipo
+// consigo mismo no cambia nada observable). Mezclar Text/Quote/Code fuerza
+// a que un bug de agrupamiento por tipo mueva un marcador fuera de orden.
+func TestGenerateDocumentHTML_PreservesElementOrder_HeterogeneousTypes(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	doc := &ast.AST{
+		ContentBlocks: []ast.ContentBlock{
+			{
+				BlockType: "content",
+				Elements: []ast.Element{
+					ast.NewTextElement(pos, "order-marker-alpha"),
+					ast.NewQuoteElement(pos, "order-marker-bravo"),
+					ast.NewCodeElement(pos, "text", "order-marker-charlie"),
+				},
+			},
+		},
+	}
+
+	for _, tt := range []struct {
+		name string
+		opts DocumentHTMLOptions
+	}{
+		{"standard mode", DocumentHTMLOptions{}},
+		{"page-view mode", DocumentHTMLOptions{ShowHeaders: true, ShowFooters: true}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			html := GenerateDocumentHTML(doc, tt.opts, nil)
+
+			iAlpha := strings.Index(html, "order-marker-alpha")
+			iBravo := strings.Index(html, "order-marker-bravo")
+			iCharlie := strings.Index(html, "order-marker-charlie")
+
+			if iAlpha == -1 || iBravo == -1 || iCharlie == -1 {
+				t.Fatalf("expected all three markers in output, got positions alpha=%d bravo=%d charlie=%d", iAlpha, iBravo, iCharlie)
+			}
+			if iAlpha >= iBravo || iBravo >= iCharlie {
+				t.Errorf("elements of different types were not emitted in AST order (possible grouping-by-type bug): alpha@%d bravo@%d charlie@%d", iAlpha, iBravo, iCharlie)
+			}
+		})
+	}
+}

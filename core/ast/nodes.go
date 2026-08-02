@@ -93,11 +93,17 @@ type FrontMatterNode struct {
 	Theme    string `json:"theme,omitempty"`
 	// Lang es el idioma principal declarado del documento, como tag BCP 47
 	// (p.ej. "es", "en-US") — issue #62/#63: campo de primera clase para que
-	// un renderer emita `<html lang>` real y una regla de linter lo
-	// verifique sin tener que leerlo de Variables["lang"] (que sigue
-	// poblándose vía BuildVariables por compatibilidad hacia atrás con
-	// A11Y005/LangDeclaredRule). Sintaxis, no semántica: ver
-	// a11y.IsValidLangTag para la validación de forma.
+	// un renderer emita `<html lang>`/`w:lang` real. Deliberadamente NO se
+	// refleja en Variables["lang"] (ver FrontMatterNode.BuildVariables):
+	// ese mapa es de sustitución de placeholders en prosa, no de metadata
+	// de documento, y promover "lang" ahí reescribiría silenciosamente
+	// "{{lang}}" como texto literal en cualquier documento que lo declare.
+	// Consecuencia (code review de este cambio): una regla de linter que
+	// hoy lee FrontMatter.Variables["lang"] (p.ej. A11Y005/LangDeclaredRule
+	// en enterprise) NO ve este campo — debe leer FrontMatter.Lang
+	// directamente. Sintaxis, no semántica: ver a11y.IsValidLangTag para la
+	// validación de forma (y su alcance: no cubre `privateuse`/
+	// `grandfathered`).
 	Lang         string                 `json:"lang,omitempty"`
 	Variables    map[string]interface{} `json:"variables,omitempty"`
 	HeaderFooter *HeaderFooterConfig    `json:"header_footer,omitempty"` // Nueva configuración

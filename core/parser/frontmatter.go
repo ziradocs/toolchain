@@ -174,13 +174,18 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 
 	// Validar lang (issues #62/#63 code review): sin esto, a11y.IsValidLangTag
 	// existía pero nadie lo llamaba, así que un `lang:` malformado ("es_MX",
-	// "espanol") llegaba sin aviso hasta <html lang>/w:lang. Mismo criterio
-	// de severidad que "Invalid mode": el autor SÍ declaró un valor y ese
-	// valor está mal formado (a diferencia de "Mode not specified", que es
-	// una ausencia con fallback razonable).
+	// "espanol") llegaba sin aviso hasta <html lang>/w:lang. Warning, no
+	// Error como "Invalid mode": a11y.IsValidLangTag valida solo la
+	// producción `langtag` de BCP 47 (no `privateuse`/`grandfathered`, ver
+	// su doc comment) — un tag real pero fuera de ese subconjunto (p.ej.
+	// "x-private") es un falso-rechazo conocido, y un validador con un
+	// hueco de cobertura documentado no debe poder tumbar un build (code
+	// review de este cambio). "Invalid mode" sí es Error porque rompe el
+	// dispatch del parser aguas abajo; un `lang` imperfecto solo degrada
+	// metadata de accesibilidad.
 	if raw.Lang != "" && !a11y.IsValidLangTag(raw.Lang) {
 		p.diagnostics = append(p.diagnostics,
-			diagnostics.NewError(fmt.Sprintf("Invalid lang: %q is not a well-formed BCP 47 language tag (e.g. \"es\", \"en-US\", \"zh-Hans-CN\")", raw.Lang),
+			diagnostics.NewWarning(fmt.Sprintf("Invalid lang: %q is not a well-formed BCP 47 language tag (e.g. \"es\", \"en-US\", \"zh-Hans-CN\")", raw.Lang),
 				diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT004"))
 	}
 

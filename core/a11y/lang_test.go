@@ -31,6 +31,9 @@ func TestIsValidLangTag(t *testing.T) {
 		{"mixed-case primary subtag accepted", "En-US", true},
 		{"Unicode long-s homoglyph of 's' rejected", "eſ", false},
 		{"Unicode Kelvin-sign homoglyph of 'K' rejected", "KK", false},
+		{"dangling single-char extension singleton rejected", "en-a", false},
+		{"standalone privateuse form rejected (documented scope gap)", "x-private", false},
+		{"grandfathered irregular form rejected (documented scope gap)", "i-klingon", false},
 	}
 
 	for _, tt := range tests {
