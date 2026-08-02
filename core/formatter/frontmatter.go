@@ -84,6 +84,9 @@ func frontMatterOverrides(fm *ast.FrontMatterNode, mode string) map[string]inter
 	if fm.Theme != "" {
 		overrides["theme"] = fm.Theme
 	}
+	if fm.Lang != "" {
+		overrides["lang"] = fm.Lang
+	}
 	if len(fm.Variables) > 0 {
 		overrides["variables"] = fm.Variables
 	}

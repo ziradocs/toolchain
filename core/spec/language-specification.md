@@ -26,6 +26,7 @@ title: string
 author: string  
 date: string
 theme: string
+lang: string  # BCP 47 language tag (e.g. "es", "en-US", "zh-Hans-CN"); no top-level default
 variables: object
 ```
 
@@ -484,5 +485,5 @@ Themes can extend base functionality:
 ---
 
 **Spec version:** v0.1
-**Tracks:** `ast.SchemaVersion` 2.1.0
+**Tracks:** `ast.SchemaVersion` 2.2.0
 **Status:** Living document — see [Spec v0.1 index](README.md) for scope and versioning policy

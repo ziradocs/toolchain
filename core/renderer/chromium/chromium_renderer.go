@@ -348,44 +348,7 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			r.logger.Info("PDF", "Generating PDF...")
 
-			// Configurar opciones de impresión
-			printParams := page.PrintToPDF().
-				WithPrintBackground(true).
-				WithPreferCSSPageSize(true)
-
-			// Margins
-			if opts.MarginTop > 0 {
-				printParams = printParams.WithMarginTop(opts.MarginTop)
-			}
-			if opts.MarginBottom > 0 {
-				printParams = printParams.WithMarginBottom(opts.MarginBottom)
-			}
-			if opts.MarginLeft > 0 {
-				printParams = printParams.WithMarginLeft(opts.MarginLeft)
-			}
-			if opts.MarginRight > 0 {
-				printParams = printParams.WithMarginRight(opts.MarginRight)
-			}
-
-			// Paper size
-			if opts.PaperWidth > 0 && opts.PaperHeight > 0 {
-				printParams = printParams.
-					WithPaperWidth(opts.PaperWidth).
-					WithPaperHeight(opts.PaperHeight)
-			}
-
-			// Landscape
-			if opts.Landscape {
-				printParams = printParams.WithLandscape(true)
-			}
-
-			// Header/Footer template
-			if opts.DisplayHeaderFooter {
-				printParams = printParams.
-					WithDisplayHeaderFooter(true).
-					WithHeaderTemplate(opts.HeaderTemplate).
-					WithFooterTemplate(opts.FooterTemplate)
-			}
+			printParams := buildPrintToPDFParams(opts)
 
 			// Generar PDF
 			buf, _, err := printParams.Do(ctx)
@@ -914,6 +877,58 @@ type PDFOptions struct {
 
 	// Scale
 	Scale float64
+}
+
+// buildPrintToPDFParams arma los parámetros de Page.printToPDF a partir de
+// PDFOptions. Extraído de RenderHTMLToPDF (issue #62 prerequisito) para que
+// GenerateTaggedPDF y el resto de opciones sean verificables sin un Chromium
+// real: PrintToPDF() inicializa GenerateTaggedPDF en false explícitamente
+// (cdproto page.go), así que sin este override ningún PDF de este toolchain
+// llevaba árbol de tags, ni /Lang, ni orden de lectura verificable por una
+// regla o un lector de pantalla. Activarlo hace ALCANZABLES las cláusulas
+// PDF/UA que el crosswalk cita — no las verifica: un árbol de tags mal
+// formado sigue siendo posible, eso es trabajo de PDF/UA aparte.
+func buildPrintToPDFParams(opts PDFOptions) *page.PrintToPDFParams {
+	printParams := page.PrintToPDF().
+		WithPrintBackground(true).
+		WithPreferCSSPageSize(true).
+		WithGenerateTaggedPDF(true)
+
+	// Margins
+	if opts.MarginTop > 0 {
+		printParams = printParams.WithMarginTop(opts.MarginTop)
+	}
+	if opts.MarginBottom > 0 {
+		printParams = printParams.WithMarginBottom(opts.MarginBottom)
+	}
+	if opts.MarginLeft > 0 {
+		printParams = printParams.WithMarginLeft(opts.MarginLeft)
+	}
+	if opts.MarginRight > 0 {
+		printParams = printParams.WithMarginRight(opts.MarginRight)
+	}
+
+	// Paper size
+	if opts.PaperWidth > 0 && opts.PaperHeight > 0 {
+		printParams = printParams.
+			WithPaperWidth(opts.PaperWidth).
+			WithPaperHeight(opts.PaperHeight)
+	}
+
+	// Landscape
+	if opts.Landscape {
+		printParams = printParams.WithLandscape(true)
+	}
+
+	// Header/Footer template
+	if opts.DisplayHeaderFooter {
+		printParams = printParams.
+			WithDisplayHeaderFooter(true).
+			WithHeaderTemplate(opts.HeaderTemplate).
+			WithFooterTemplate(opts.FooterTemplate)
+	}
+
+	return printParams
 }
 
 // DefaultPDFOptions retorna opciones por defecto (A4, portrait)

@@ -24,8 +24,13 @@ import type { Position } from "./diagnostics";
  * 2.1.0 (issue #21): new MediaElement (discriminator "media") for embedded
  * audio/video, with Autoplay/Controls/Loop/Muted — additive, a new element
  * type doesn't break any existing consumer of the contract.
+ * 2.2.0 (issues #62/#63 prerequisite): FrontMatterNode.Lang (additive,
+ * omitempty) exposes the document's declared language as a first-class BCP
+ * 47 field, so a renderer can emit a real `<html lang>` and a rulepack (e.g.
+ * A11Y005) can read it without depending on the author having written it
+ * into the free-form Variables map.
  */
-export const SchemaVersion = "2.1.0";
+export const SchemaVersion = "2.2.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -191,6 +196,22 @@ export interface FrontMatterNode extends BaseNode {
   author?: string;
   date?: string;
   theme?: string;
+  /**
+   * Lang es el idioma principal declarado del documento, como tag BCP 47
+   * (p.ej. "es", "en-US") — issue #62/#63: campo de primera clase para que
+   * un renderer emita `<html lang>`/`w:lang` real. Deliberadamente NO se
+   * refleja en Variables["lang"] (ver FrontMatterNode.BuildVariables):
+   * ese mapa es de sustitución de placeholders en prosa, no de metadata
+   * de documento, y promover "lang" ahí reescribiría silenciosamente
+   * "{{lang}}" como texto literal en cualquier documento que lo declare.
+   * Consecuencia (code review de este cambio): una regla de linter que
+   * hoy lee FrontMatter.Variables["lang"] (p.ej. A11Y005/LangDeclaredRule
+   * en enterprise) NO ve este campo — debe leer FrontMatter.Lang
+   * directamente. Sintaxis, no semántica: ver a11y.IsValidLangTag para la
+   * validación de forma (y su alcance: no cubre `privateuse`/
+   * `grandfathered`).
+   */
+  lang?: string;
   variables?: { [key: string]: any};
   header_footer?: HeaderFooterConfig; // Nueva configuración
 }

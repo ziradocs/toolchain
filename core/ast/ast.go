@@ -27,7 +27,13 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.1.0 (issue #21): new MediaElement (discriminator "media") for embedded
 // audio/video, with Autoplay/Controls/Loop/Muted — additive, a new element
 // type doesn't break any existing consumer of the contract.
-const SchemaVersion = "2.1.0"
+//
+// 2.2.0 (issues #62/#63 prerequisite): FrontMatterNode.Lang (additive,
+// omitempty) exposes the document's declared language as a first-class BCP
+// 47 field, so a renderer can emit a real `<html lang>` and a rulepack (e.g.
+// A11Y005) can read it without depending on the author having written it
+// into the free-form Variables map.
+const SchemaVersion = "2.2.0"
 
 // Node representa un nodo base en el AST
 type Node interface {

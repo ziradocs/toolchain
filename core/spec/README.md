@@ -1,6 +1,6 @@
 # SlideLang / DocLang spec — v0.1
 
-**Spec v0.1, tracks `ast.SchemaVersion` 2.1.0.**
+**Spec v0.1, tracks `ast.SchemaVersion` 2.2.0.**
 
 This directory is the entry point for the formal specification of the SlideLang/DocLang
 language family. It lives with the core library (`core`) rather than in a
@@ -56,7 +56,7 @@ stable `import "go.ziradocs.com/core/ast"`.
 ## Versioning
 
 `ast.SchemaVersion` (`core/ast/ast.go`) is the single source of truth for the
-AST contract's semver version, currently **2.1.0**. The spec's own version (**v0.1**)
+AST contract's semver version, currently **2.2.0**. The spec's own version (**v0.1**)
 tracks the maturity of this documentation set, not the AST — a spec version bump means
 "the spec now documents things that were previously true but undocumented, or restructures
 how it's presented," while an `ast.SchemaVersion` bump means "the JSON shape itself

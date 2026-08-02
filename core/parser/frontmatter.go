@@ -9,6 +9,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -25,6 +26,7 @@ type rawFrontMatter struct {
 	Author    string                 `yaml:"author"`
 	Date      string                 `yaml:"date"`
 	Theme     string                 `yaml:"theme"`
+	Lang      string                 `yaml:"lang"`
 	Variables map[string]interface{} `yaml:"variables"`
 	// Configuración de headers y footers
 	Header         *rawHeaderConfig            `yaml:"header"`
@@ -166,8 +168,26 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node.Author = raw.Author
 	node.Date = raw.Date
 	node.Theme = raw.Theme
+	node.Lang = raw.Lang
 	node.Variables = raw.Variables
 	node.Raw = yamlContent
+
+	// Validar lang (issues #62/#63 code review): sin esto, a11y.IsValidLangTag
+	// existía pero nadie lo llamaba, así que un `lang:` malformado ("es_MX",
+	// "espanol") llegaba sin aviso hasta <html lang>/w:lang. Warning, no
+	// Error como "Invalid mode": a11y.IsValidLangTag valida solo la
+	// producción `langtag` de BCP 47 (no `privateuse`/`grandfathered`, ver
+	// su doc comment) — un tag real pero fuera de ese subconjunto (p.ej.
+	// "x-private") es un falso-rechazo conocido, y un validador con un
+	// hueco de cobertura documentado no debe poder tumbar un build (code
+	// review de este cambio). "Invalid mode" sí es Error porque rompe el
+	// dispatch del parser aguas abajo; un `lang` imperfecto solo degrada
+	// metadata de accesibilidad.
+	if raw.Lang != "" && !a11y.IsValidLangTag(raw.Lang) {
+		p.diagnostics = append(p.diagnostics,
+			diagnostics.NewWarning(fmt.Sprintf("Invalid lang: %q is not a well-formed BCP 47 language tag (e.g. \"es\", \"en-US\", \"zh-Hans-CN\")", raw.Lang),
+				diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT004"))
+	}
 
 	// Procesar configuración de headers y footers
 	if raw.Header != nil || raw.Footer != nil || raw.LayoutDefaults != nil {

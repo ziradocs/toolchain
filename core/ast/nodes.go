@@ -85,12 +85,26 @@ type ContentBlockHeaderFooterOverride struct {
 
 // FrontMatterNode contiene el YAML parseado del FrontMatter
 type FrontMatterNode struct {
-	BaseNode     `tstype:",extends,required"`
-	Mode         string                 `json:"mode"`
-	Title        string                 `json:"title,omitempty"`
-	Author       string                 `json:"author,omitempty"`
-	Date         string                 `json:"date,omitempty"`
-	Theme        string                 `json:"theme,omitempty"`
+	BaseNode `tstype:",extends,required"`
+	Mode     string `json:"mode"`
+	Title    string `json:"title,omitempty"`
+	Author   string `json:"author,omitempty"`
+	Date     string `json:"date,omitempty"`
+	Theme    string `json:"theme,omitempty"`
+	// Lang es el idioma principal declarado del documento, como tag BCP 47
+	// (p.ej. "es", "en-US") — issue #62/#63: campo de primera clase para que
+	// un renderer emita `<html lang>`/`w:lang` real. Deliberadamente NO se
+	// refleja en Variables["lang"] (ver FrontMatterNode.BuildVariables):
+	// ese mapa es de sustitución de placeholders en prosa, no de metadata
+	// de documento, y promover "lang" ahí reescribiría silenciosamente
+	// "{{lang}}" como texto literal en cualquier documento que lo declare.
+	// Consecuencia (code review de este cambio): una regla de linter que
+	// hoy lee FrontMatter.Variables["lang"] (p.ej. A11Y005/LangDeclaredRule
+	// en enterprise) NO ve este campo — debe leer FrontMatter.Lang
+	// directamente. Sintaxis, no semántica: ver a11y.IsValidLangTag para la
+	// validación de forma (y su alcance: no cubre `privateuse`/
+	// `grandfathered`).
+	Lang         string                 `json:"lang,omitempty"`
 	Variables    map[string]interface{} `json:"variables,omitempty"`
 	HeaderFooter *HeaderFooterConfig    `json:"header_footer,omitempty"` // Nueva configuración
 	Raw          string                 `json:"-"`                       // YAML crudo
@@ -130,6 +144,14 @@ func (fm *FrontMatterNode) BuildVariables() map[string]interface{} {
 	if fm.Theme != "" {
 		variables["theme"] = fm.Theme
 	}
+	// Lang deliberadamente NO se agrega a los built-ins de sustitución: a
+	// diferencia de title/author/date/theme, "lang" es una palabra común en
+	// prosa que documenta el propio mecanismo de idioma (tutoriales, este
+	// mismo repo) — convertir `{{lang}}` en un placeholder activo reescribe
+	// silenciosamente ese texto literal en cualquier documento que declare
+	// `lang:` (code review de este cambio). Nada depende de esto: A11Y005
+	// lee FrontMatter.Variables["lang"] directamente (poblado por el
+	// parser si el autor lo declara dentro de `variables:`), no este mapa.
 
 	for k, v := range fm.Variables {
 		variables[k] = v
