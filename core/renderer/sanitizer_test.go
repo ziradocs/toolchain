@@ -923,3 +923,134 @@ func TestProcessInlineMarkdownFormatsSecure_BracketedSpans(t *testing.T) {
 		}
 	}
 }
+
+// TestProcessInlineMarkdownFormatsSecure_LangSpans cubre el span de idioma
+// [contenido]{lang=xx} (issue #63): a diferencia del span de clase de arriba
+// (allowlist fija, el valor nunca llega al HTML), acá el tag SÍ se interpola
+// — la defensa es a11y.IsValidLangTag (forma BCP 47) más EscapeHTMLAttribute,
+// no una indirección de mapa.
+func TestProcessInlineMarkdownFormatsSecure_LangSpans(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "tag simple",
+			input:    "[bonjour]{lang=fr}",
+			expected: `<span lang="fr">bonjour</span>`,
+		},
+		{
+			name:     "tag con región",
+			input:    "[hello]{lang=en-US}",
+			expected: `<span lang="en-US">hello</span>`,
+		},
+		{
+			name:     "tag con script y región",
+			input:    "[你好]{lang=zh-Hans-CN}",
+			expected: `<span lang="zh-Hans-CN">你好</span>`,
+		},
+		{
+			name:     "negrita dentro del span (span envuelve el formato)",
+			input:    "[**bonjour**]{lang=fr}",
+			expected: `<span lang="fr"><strong>bonjour</strong></span>`,
+		},
+		{
+			name:     "span de idioma dentro de negrita (formato envuelve el span)",
+			input:    "**[bonjour]{lang=fr}**",
+			expected: `<strong><span lang="fr">bonjour</span></strong>`,
+		},
+		{
+			name:     "span de idioma en medio de texto normal",
+			input:    "dijo [bonjour]{lang=fr} y se fue",
+			expected: `dijo <span lang="fr">bonjour</span> y se fue`,
+		},
+		{
+			name:     "dos spans de idioma en la misma línea",
+			input:    "[a]{lang=fr} y [b]{lang=de}",
+			expected: `<span lang="fr">a</span> y <span lang="de">b</span>`,
+		},
+		// --- Tag mal formado: inerte, sin inyección (mismo comportamiento que
+		// un miss de la allowlist del span de clase) ---
+		{
+			name:     "tag con guion bajo (BCP 47 exige guion) queda literal",
+			input:    "[bonjour]{lang=es_MX}",
+			expected: "[bonjour]{lang=es_MX}",
+		},
+		{
+			name:     "singleton de extensión colgado queda literal",
+			input:    "[x]{lang=en-a}",
+			expected: "[x]{lang=en-a}",
+		},
+		{
+			name:     "homoglifo Unicode de 's' larga queda literal",
+			input:    "[x]{lang=eſ}",
+			expected: "[x]{lang=eſ}",
+		},
+		{
+			name:     "tag vacío no matchea el regex (requiere 1+ caracteres)",
+			input:    "[x]{lang=}",
+			expected: "[x]{lang=}",
+		},
+		// --- [x]{.lang} (clase, no atributo) no es este span ---
+		{
+			name:     "span de CLASE '.lang' no matchea el span de idioma (namespace distinto)",
+			input:    "[x]{.lang}",
+			expected: "[x]{.lang}", // "lang" no está en inlineSpanTokens: degrada literal
+		},
+		// --- Intentos de inyección: charset del regex ya los excluye ---
+		{
+			name:     "tag con comilla no matchea (queda literal escapado)",
+			input:    `[x]{lang=fr"onmouseover="alert(1)}`,
+			expected: `[x]{lang=fr&quot;onmouseover=&quot;alert(1)}`,
+		},
+		{
+			name:     "tag con espacio y handler no matchea",
+			input:    `[x]{lang=fr onmouseover=alert(1)}`,
+			expected: `[x]{lang=fr onmouseover=alert(1)}`,
+		},
+		{
+			name:     "contenido con XSS dentro de tag válido sigue escapado",
+			input:    `[<img src=x onerror=alert(1)>]{lang=fr}`,
+			expected: `<span lang="fr">&lt;img src=x onerror=alert(1)&gt;</span>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ProcessInlineMarkdownFormatsSecure(EscapeHTML(tt.input))
+			if result != tt.expected {
+				t.Errorf("ProcessInlineMarkdownFormatsSecure(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+
+	// Interacción span-de-idioma/enlace: mismo guardián anti-cruce que el
+	// span de clase (P2 de PR #260) — un enlace dentro/alrededor de un span
+	// de idioma nunca debe producir HTML con anidamiento cruzado.
+	crossInputs := []string{
+		"[See [bonjour]{lang=fr}](https://example.com)",
+		"[a]{lang=fr} [b](https://example.com)",
+	}
+	tagRe := regexp.MustCompile(`<(/?)([a-z0-9]+)[^>]*>`)
+	for _, in := range crossInputs {
+		out := ProcessInlineMarkdownFormatsSecure(EscapeHTML(in))
+		var stack []string
+		balanced := true
+		for _, m := range tagRe.FindAllStringSubmatch(out, -1) {
+			closing, name := m[1] == "/", m[2]
+			if !closing {
+				stack = append(stack, name)
+				continue
+			}
+			if len(stack) == 0 || stack[len(stack)-1] != name {
+				balanced = false
+				break
+			}
+			stack = stack[:len(stack)-1]
+		}
+		if !balanced || len(stack) != 0 {
+			t.Errorf("span de idioma/enlace %q produjo HTML con anidamiento inválido/cruzado: %q", in, out)
+		}
+	}
+}

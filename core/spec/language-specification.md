@@ -30,6 +30,13 @@ lang: string  # BCP 47 language tag (e.g. "es", "en-US", "zh-Hans-CN"); no top-l
 variables: object
 ```
 
+`lang` declares the document's *default* language. A passage in a different language can be
+marked inline, in flex-mode prose, with a pandoc-style span: `[texto]{lang=xx}` (e.g.
+`[bonjour]{lang=fr}` renders `<span lang="fr">bonjour</span>`). `xx` must be a well-formed
+BCP 47 tag (`core/a11y.IsValidLangTag`); a malformed tag degrades to literal text rather than
+emitting an invalid attribute. See `core/renderer/sanitizer.go` (`inlineLangSpanPattern`) for
+the implementation and `core/ast.LangRun` for how a marked passage is exposed on the AST.
+
 ### Strict Mode Grammar
 
 ```ebnf
@@ -485,5 +492,5 @@ Themes can extend base functionality:
 ---
 
 **Spec version:** v0.1
-**Tracks:** `ast.SchemaVersion` 2.2.0
+**Tracks:** `ast.SchemaVersion` 2.3.0
 **Status:** Living document — see [Spec v0.1 index](README.md) for scope and versioning policy
