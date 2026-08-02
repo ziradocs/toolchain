@@ -177,6 +177,31 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 			meta.Creator = astDoc.FrontMatter.Author
 		}
 		_ = doc.SetMetadata(meta)
+
+		// Idioma de revisión del documento (issue #62/#63 prerequisito): sin
+		// esto, un .doclang con `lang: fr` producía un .docx sin idioma
+		// declarado — Word usa el idioma del sistema para ortografía/lectura
+		// de pantalla, no el del contenido. SetLanguage solo falla en un
+		// documento abierto vía OpenDocument con styles.xml/settings.xml
+		// preservados; docx.NewDocument() nunca cae en ese caso.
+		//
+		// Val/EastAsia/Bidi los tres al mismo valor (code review): Word solo
+		// consulta Val para runs de script latino — EastAsia gobierna CJK y
+		// Bidi gobierna RTL, y dejarlos sin poner (como antes) significaba
+		// que un documento íntegramente en japonés o árabe con `lang: ja`/
+		// `lang: ar` seguía corrigiéndose con el idioma del sistema en esos
+		// runs, justo el defecto que este cambio existe para arreglar. El
+		// AST solo tiene UN idioma declarado por documento (no por script),
+		// así que replicarlo en los tres slots es lo mejor que se puede
+		// hacer sin un campo de idioma por-run (issue #63, aparte); para un
+		// documento de un solo script no cambia nada — Word solo aplica el
+		// slot que corresponde al script real presente.
+		if astDoc.FrontMatter.Lang != "" {
+			lang := astDoc.FrontMatter.Lang
+			if err := doc.SetLanguage(&domain.Language{Val: lang, EastAsia: lang, Bidi: lang}); err != nil {
+				g.logger.Warn("DOCX: failed to set document language %q: %v", lang, err)
+			}
+		}
 	}
 
 	// Renderizar frontmatter (título del documento)

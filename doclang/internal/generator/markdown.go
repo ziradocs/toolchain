@@ -44,6 +44,9 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 		if doc.FrontMatter.Date != "" {
 			fmt.Fprintf(&md, "date: %s\n", doc.FrontMatter.Date)
 		}
+		if doc.FrontMatter.Lang != "" {
+			fmt.Fprintf(&md, "lang: %s\n", yamlQuotedScalar(doc.FrontMatter.Lang))
+		}
 		md.WriteString("---\n\n")
 	}
 
@@ -384,6 +387,23 @@ var mdInlineEscaper = strings.NewReplacer(
 // fila/línea donde se interpola el valor.
 func escapeMarkdownInline(s string) string {
 	return normalizeMarkdownLine(mdInlineEscaper.Replace(s))
+}
+
+// yamlScalarEscaper escapa backslash y comilla doble, la única pareja que
+// una cadena YAML entre comillas dobles necesita escapar (a diferencia del
+// estilo sin comillas, donde ":", "#", "[", "]", etc. son significativos).
+var yamlScalarEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+
+// yamlQuotedScalar envuelve s en comillas dobles YAML, para interpolarlo
+// como valor de un campo de frontmatter sin depender de que el valor no
+// contenga metacaracteres YAML (":", "#", "[", "]", ...). Usado para `lang:`
+// (issue #62/#63 code review): a diferencia de title/author/date, `lang`
+// puede llegar aquí sin haber pasado por a11y.IsValidLangTag —
+// FrontMatterParser solo emite un diagnóstico de advertencia en un tag mal
+// formado, no lo descarta — así que un valor como `es: mx` habría partido
+// la línea de frontmatter en dos claves YAML en vez de una.
+func yamlQuotedScalar(s string) string {
+	return `"` + yamlScalarEscaper.Replace(s) + `"`
 }
 
 // renderMapElementMarkdown degrades a MapElement to its data (issue #38/#51

@@ -378,8 +378,13 @@ func (tb *TemplateBuilder) BuildJSWithModules(modules []string) string {
 }
 
 func (tb *TemplateBuilder) buildHTMLHead(cspNonce string) string {
+	// lang: issue #62/#63 prerequisite — antes hardcodeado a "es" sin leer
+	// el frontmatter. "es" se conserva como default vía {{if not .Lang}}
+	// para no cambiar el comportamiento de presentaciones sin `lang:`
+	// declarado. html/template escapa .Lang automáticamente al interpolarlo
+	// en un atributo, así que no hace falta escapar a mano acá.
 	head := `<!DOCTYPE html>
-<html lang="es">
+<html lang="{{.Lang}}{{if not .Lang}}es{{end}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

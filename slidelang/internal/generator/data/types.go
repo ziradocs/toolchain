@@ -10,6 +10,7 @@ type PresentationData struct {
 	Title         string
 	Author        string
 	Date          string
+	Lang          string      // Idioma BCP 47 declarado en frontmatter (issue #62/#63); "" si no se declaró
 	ContentBlocks []SlideData `json:"content_blocks"` // Bloques de contenido de la presentación
 	HasTitle      bool
 	HeaderFooter  *HeaderFooterData `json:"header_footer,omitempty"`
