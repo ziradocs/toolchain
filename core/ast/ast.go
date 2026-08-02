@@ -33,7 +33,16 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 47 field, so a renderer can emit a real `<html lang>` and a rulepack (e.g.
 // A11Y005) can read it without depending on the author having written it
 // into the free-form Variables map.
-const SchemaVersion = "2.2.0"
+//
+// 2.3.0 (issue #63): new LangRun type (Text, Lang) plus a LangRuns
+// ([]LangRun, additive, omitempty) field on TextElement, PointItem,
+// ChecklistItem, and QuoteElement — exposes [texto]{lang=xx} inline spans as
+// structured runs, so a rulepack can flag a passage marked in a different
+// language than FrontMatter.Lang without re-parsing rendered HTML. Derived
+// fresh from Content on every build (renderer.PopulateLangRuns), same
+// re-derive-never-trust posture as the *HTML fields, but NOT cleared by
+// ast.ClearRenderedHTML — see that field's own doc comment for why.
+const SchemaVersion = "2.3.0"
 
 // Node representa un nodo base en el AST
 type Node interface {

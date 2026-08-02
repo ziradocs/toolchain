@@ -29,8 +29,16 @@ import type { Position } from "./diagnostics";
  * 47 field, so a renderer can emit a real `<html lang>` and a rulepack (e.g.
  * A11Y005) can read it without depending on the author having written it
  * into the free-form Variables map.
+ * 2.3.0 (issue #63): new LangRun type (Text, Lang) plus a LangRuns
+ * ([]LangRun, additive, omitempty) field on TextElement, PointItem,
+ * ChecklistItem, and QuoteElement — exposes [texto]{lang=xx} inline spans as
+ * structured runs, so a rulepack can flag a passage marked in a different
+ * language than FrontMatter.Lang without re-parsing rendered HTML. Derived
+ * fresh from Content on every build (renderer.PopulateLangRuns), same
+ * re-derive-never-trust posture as the *HTML fields, but NOT cleared by
+ * ast.ClearRenderedHTML — see that field's own doc comment for why.
  */
-export const SchemaVersion = "2.2.0";
+export const SchemaVersion = "2.3.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -284,6 +292,15 @@ export interface TextElement extends BaseNode {
    * for the rest.
    */
   level?: number /* int */;
+  /**
+   * LangRuns exposes [texto]{lang=xx} spans found in Content — see
+   * LangRun's doc comment. Populated by renderer.PopulateLangRuns, always
+   * re-derived from Content (never trusted from an external --filter, see
+   * that function's doc comment), so it is NOT cleared by
+   * ast.ClearRenderedHTML the way *HTML fields are — there is nothing
+   * pre-rendered here to distrust, only something re-derived every time.
+   */
+  langRuns?: LangRun[];
 }
 /**
  * PointsElement representa una lista de puntos
@@ -298,6 +315,7 @@ export interface PointsElement extends BaseNode {
 export interface PointItem extends BaseNode {
   content: string;
   contentHTML?: string; // ver TextElement.ContentHTML
+  langRuns?: LangRun[]; // ver TextElement.LangRuns
   subPoints?: PointItem[];
 }
 /**
@@ -364,6 +382,30 @@ export interface TableCell {
    */
   colSpan?: number /* int */;
   rowSpan?: number /* int */;
+}
+/**
+ * LangRun exposes a sub-span of an element's own prose (issue #63) that the
+ * author marked as being in a different language than the document's
+ * declared FrontMatter.Lang — e.g. a French phrase inside otherwise-Spanish
+ * text — via the inline span [texto]{lang=xx} (see
+ * renderer.ProcessInlineMarkdownFormatsSecure). Text is copied verbatim from
+ * the raw Content this run was found in, BEFORE bold/italic/code markdown is
+ * applied — so [a *b* c]{lang=fr} yields Text "a *b* c" here even though the
+ * emitted <span lang="fr"> wraps "a <em>b</em> c". Lang is what a linter
+ * rule needs; Text is only there to say which sub-string it applies to.
+ * Deliberately WITHOUT BaseNode, same reasoning as TableCell: LangRuns is
+ * derived by renderer.PopulateLangRuns from Content, not walked by ast.Walk,
+ * so a diagnostic about a malformed or missing language mark can only point
+ * at the containing element's position, not at the run itself. Lang is
+ * always a11y.IsValidLangTag-valid by the time it lands here —
+ * PopulateLangRuns re-validates it on every extraction path (including a
+ * TextElement's already-rendered IsRawHTML content, which a hostile
+ * --filter could otherwise forge a fake <span lang> into) — so a rule can
+ * trust it without re-validating.
+ */
+export interface LangRun {
+  text: string;
+  lang: string;
 }
 /**
  * TableElement representa una tabla con datos
@@ -528,6 +570,14 @@ export interface MapCoordinate {
 export interface QuoteElement extends BaseNode {
   content: string;
   contentHTML?: string; // ver TextElement.ContentHTML
+  /**
+   * LangRuns cubre solo Content — QuoteElement tiene tres campos de prosa
+   * (Content/Author/Source) y una sola lista de runs no podría decir de
+   * cuál vino cada uno; Content es la prosa citada, la que un pasaje en
+   * otro idioma tiene sentido marcar (Author/Source suelen ser un nombre
+   * propio, no oración). Ver TextElement.LangRuns.
+   */
+  langRuns?: LangRun[];
   author?: string; // Para citas con autor
   authorHTML?: string; // Author con {{variables}} sustituidas y escapadas (sin markdown)
   source?: string; // Para citas con fuente
@@ -545,6 +595,7 @@ export interface ChecklistElement extends BaseNode {
 export interface ChecklistItem extends BaseNode {
   content: string;
   contentHTML?: string; // ver TextElement.ContentHTML
+  langRuns?: LangRun[]; // ver TextElement.LangRuns
   checked: boolean;
   subItems?: ChecklistItem[];
 }

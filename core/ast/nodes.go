@@ -213,6 +213,13 @@ type TextElement struct {
 	// heading-order rule must treat that Heading as level 1 and walk Level
 	// for the rest.
 	Level int `json:"level,omitempty"`
+	// LangRuns exposes [texto]{lang=xx} spans found in Content — see
+	// LangRun's doc comment. Populated by renderer.PopulateLangRuns, always
+	// re-derived from Content (never trusted from an external --filter, see
+	// that function's doc comment), so it is NOT cleared by
+	// ast.ClearRenderedHTML the way *HTML fields are — there is nothing
+	// pre-rendered here to distrust, only something re-derived every time.
+	LangRuns []LangRun `json:"langRuns,omitempty"`
 }
 
 func (t TextElement) element() {}
@@ -258,6 +265,7 @@ type PointItem struct {
 	BaseNode    `tstype:",extends,required"`
 	Content     string      `json:"content"`
 	ContentHTML string      `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
+	LangRuns    []LangRun   `json:"langRuns,omitempty"`    // ver TextElement.LangRuns
 	SubPoints   []PointItem `json:"subPoints,omitempty"`
 }
 
@@ -359,6 +367,30 @@ type TableCell struct {
 	// colspan="1"); >1 merges that many columns/rows.
 	ColSpan int `json:"colSpan,omitempty"`
 	RowSpan int `json:"rowSpan,omitempty"`
+}
+
+// LangRun exposes a sub-span of an element's own prose (issue #63) that the
+// author marked as being in a different language than the document's
+// declared FrontMatter.Lang — e.g. a French phrase inside otherwise-Spanish
+// text — via the inline span [texto]{lang=xx} (see
+// renderer.ProcessInlineMarkdownFormatsSecure). Text is copied verbatim from
+// the raw Content this run was found in, BEFORE bold/italic/code markdown is
+// applied — so [a *b* c]{lang=fr} yields Text "a *b* c" here even though the
+// emitted <span lang="fr"> wraps "a <em>b</em> c". Lang is what a linter
+// rule needs; Text is only there to say which sub-string it applies to.
+//
+// Deliberately WITHOUT BaseNode, same reasoning as TableCell: LangRuns is
+// derived by renderer.PopulateLangRuns from Content, not walked by ast.Walk,
+// so a diagnostic about a malformed or missing language mark can only point
+// at the containing element's position, not at the run itself. Lang is
+// always a11y.IsValidLangTag-valid by the time it lands here —
+// PopulateLangRuns re-validates it on every extraction path (including a
+// TextElement's already-rendered IsRawHTML content, which a hostile
+// --filter could otherwise forge a fake <span lang> into) — so a rule can
+// trust it without re-validating.
+type LangRun struct {
+	Text string `json:"text"`
+	Lang string `json:"lang"`
 }
 
 // TableElement representa una tabla con datos
@@ -604,10 +636,16 @@ type QuoteElement struct {
 	BaseNode    `tstype:",extends,required"`
 	Content     string `json:"content"`
 	ContentHTML string `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
-	Author      string `json:"author,omitempty"`      // Para citas con autor
-	AuthorHTML  string `json:"authorHTML,omitempty"`  // Author con {{variables}} sustituidas y escapadas (sin markdown)
-	Source      string `json:"source,omitempty"`      // Para citas con fuente
-	SourceHTML  string `json:"sourceHTML,omitempty"`  // Source con {{variables}} sustituidas y escapadas (sin markdown)
+	// LangRuns cubre solo Content — QuoteElement tiene tres campos de prosa
+	// (Content/Author/Source) y una sola lista de runs no podría decir de
+	// cuál vino cada uno; Content es la prosa citada, la que un pasaje en
+	// otro idioma tiene sentido marcar (Author/Source suelen ser un nombre
+	// propio, no oración). Ver TextElement.LangRuns.
+	LangRuns   []LangRun `json:"langRuns,omitempty"`
+	Author     string    `json:"author,omitempty"`     // Para citas con autor
+	AuthorHTML string    `json:"authorHTML,omitempty"` // Author con {{variables}} sustituidas y escapadas (sin markdown)
+	Source     string    `json:"source,omitempty"`     // Para citas con fuente
+	SourceHTML string    `json:"sourceHTML,omitempty"` // Source con {{variables}} sustituidas y escapadas (sin markdown)
 }
 
 func (q QuoteElement) element() {}
@@ -641,6 +679,7 @@ type ChecklistItem struct {
 	BaseNode    `tstype:",extends,required"`
 	Content     string          `json:"content"`
 	ContentHTML string          `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
+	LangRuns    []LangRun       `json:"langRuns,omitempty"`    // ver TextElement.LangRuns
 	Checked     bool            `json:"checked"`
 	SubItems    []ChecklistItem `json:"subItems,omitempty"`
 }

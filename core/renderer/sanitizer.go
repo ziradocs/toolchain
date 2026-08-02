@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"go.ziradocs.com/core/v2/a11y"
 )
 
 // EscapeHTML escapes special HTML characters to prevent XSS attacks
@@ -177,6 +179,19 @@ var (
 	// DENTRO del contenido de un span (`[See [here](url)]{.danger}`) no matchea
 	// como span (degrada a corchetes literales inertes), nunca a HTML cruzado.
 	inlineSpanPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{\.([a-zA-Z0-9-]+)\}`)
+	// inlineLangSpanPattern reconoce spans de idioma [contenido]{lang=xx}
+	// (issue #63): mismo delimitador corchete+llave que inlineSpanPattern,
+	// pero SIN el punto — "lang=" es un atributo, no una clase de estilo, y
+	// esa diferencia sintáctica es intencional: separa el namespace de
+	// tokens de estilo (inlineSpanTokens, fijo) del de idioma (BCP 47,
+	// abierto). El mismo guardián [^\[\]]+ evita que un span de idioma se
+	// monte a caballo sobre los corchetes de un enlace, igual que el span de
+	// clase (ver su comentario). El charset del tag [a-zA-Z0-9-]+ es
+	// deliberadamente más ancho que a11y.bcp47Pattern — la primera barrera
+	// es sintáctica (que el regex matchee), la segunda es semántica
+	// (a11y.IsValidLangTag, ver el use de este pattern más abajo); un tag
+	// que pasa el regex pero no el validador degrada a texto literal.
+	inlineLangSpanPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{lang=([a-zA-Z0-9-]+)\}`)
 )
 
 // inlineSpanTokens es la ALLOWLIST FIJA de tokens de clase para spans
@@ -444,6 +459,38 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 			return match
 		}
 		return tags[0] + content + tags[1]
+	})
+
+	// Procesar spans de idioma [contenido]{lang=fr} -> <span lang="fr">contenido</span>
+	// (issue #63). Corre DESPUÉS del span de clase (mismo razonamiento: el
+	// contenido interno ya lleva bold/italic/code aplicados) y ANTES del
+	// enlace (mismo razonamiento de degradación inerte que el span de clase).
+	//
+	// A diferencia de inlineSpanTokens (un mapa fijo cuyo propósito explícito
+	// es que el token capturado NUNCA llegue al HTML, solo se use como clave),
+	// acá el valor SÍ tiene que llegar a la salida — no hay forma de marcar
+	// "este pasaje está en francés" sin escribir "fr" en algún lado. Eso
+	// invierte el invariante que el resto de este archivo sostiene, así que
+	// la defensa se mueve a la validación en vez de a la indirección: el tag
+	// capturado se exige contra a11y.IsValidLangTag (BCP 47 sintáctico —
+	// ^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{2,8})*$, ASCII puro por clases explícitas
+	// para bloquear homoglifos Unicode, ver su doc comment) ANTES de
+	// interpolarlo, más EscapeHTMLAttribute como defensa en profundidad. Un
+	// tag que no pasa el validador (p.ej. "es_MX", o el mismo "eſ" con el
+	// homoglifo de "s" larga) degrada a texto literal — mismo comportamiento
+	// que un miss de la allowlist del span de clase.
+	text = inlineLangSpanPattern.ReplaceAllStringFunc(text, func(match string) string {
+		submatches := inlineLangSpanPattern.FindStringSubmatch(match)
+		if len(submatches) < 3 {
+			return match
+		}
+		content := submatches[1]
+		tag := submatches[2]
+		if !a11y.IsValidLangTag(tag) {
+			// Tag fuera de forma BCP 47: dejar el texto literal, sin inyectar.
+			return match
+		}
+		return `<span lang="` + EscapeHTMLAttribute(tag) + `">` + content + `</span>`
 	})
 
 	// Procesar enlaces [texto](url) -> <a href="url">texto</a>

@@ -215,6 +215,18 @@ func formatSubsectionHeading(e *ast.TextElement) (string, error) {
 		// como tal (el fallback de TEXT en flex no reconoce HTML).
 		return "", newUnsupported("text", "TextElement con IsRawHTML=true que no es un subsection header <hN> no es representable en el dialecto flex de DocLang")
 	}
+	// issue #63: a diferencia de **bold**/*italic*/`code` (que stripTags
+	// colapsa perdiendo solo el ÉNFASIS visual), un <span lang="xx"> dentro
+	// del heading marca un pasaje en OTRO IDIOMA — stripTags lo colapsaría a
+	// texto liso, indistinguible de nunca haber estado marcado. Eso no es la
+	// pérdida de fidelidad "canonicalizador legítimo" que este comentario ya
+	// documenta arriba (bold/italic sí son recuperables como concepto, solo
+	// cambia la sintaxis de vuelta); un idioma perdido en silencio es un
+	// defecto de accesibilidad, así que acá se falla fuerte en vez de
+	// escribir un heading que ya no dice lo que el documento decía.
+	if strings.Contains(m[2], `<span lang="`) {
+		return "", newUnsupported("text", "subsection heading con un span de idioma [texto]{lang=xx} no es representable en el dialecto flex de DocLang (stripTags perdería la marca de idioma en silencio)")
+	}
 	level := m[1]
 	inner := stripTags(m[2])
 	return strings.Repeat("#", int(level[0]-'0')) + " " + inner, nil

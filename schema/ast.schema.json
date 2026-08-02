@@ -204,6 +204,12 @@
         "contentHTML": {
           "type": "string"
         },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
         "checked": {
           "type": "boolean"
         },
@@ -809,6 +815,22 @@
         "source"
       ]
     },
+    "LangRun": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "lang": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text",
+        "lang"
+      ]
+    },
     "LayoutHeaderFooterConfig": {
       "properties": {
         "header": {
@@ -1174,6 +1196,12 @@
         "contentHTML": {
           "type": "string"
         },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
         "subPoints": {
           "items": {
             "$ref": "#/$defs/PointItem"
@@ -1267,6 +1295,12 @@
         },
         "contentHTML": {
           "type": "string"
+        },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
         },
         "author": {
           "type": "string"
@@ -1470,6 +1504,12 @@
         },
         "level": {
           "type": "integer"
+        },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
