@@ -1153,3 +1153,26 @@ func TestProcessInlineMarkdownFormatsSecure_CodeSpanContentLooksLikeSentinel(t *
 		t.Errorf("two-span cross-contamination: got %q, want %q", result, want)
 	}
 }
+
+// TestProcessInlineMarkdownFormatsSecure_PlainTextSentinelLookalikeNotMangled
+// covers a real code-review finding on this same PR: a prior fix restored
+// the ESCAPED sentinel form ("&lt;zdcN/&gt;") with a GLOBAL replace across
+// the whole text, on the assumption that only this function's own sentinel
+// scheme could produce that exact string. That assumption is false: the
+// text arrives pre-escaped via EscapeHTML BEFORE this function runs (see
+// the function's own NOTE), and EscapeHTML converts a literal "<" to "&lt;"
+// without touching "/" — so a user who types "<zdc0/>" as PLAIN TEXT,
+// entirely outside any code span or link URL, produces exactly
+// "&lt;zdc0/&gt;" after that entry-point escape. A global replace would
+// mangle that unrelated user text into <code>...</code> using whatever
+// content happens to sit at index 0. The fix scopes the escaped-form
+// restore to restoreCodeSentinelsInURL, called only on the specific
+// sanitized URL string where the escaped form can legitimately originate —
+// plain text elsewhere in the document is never touched by it.
+func TestProcessInlineMarkdownFormatsSecure_PlainTextSentinelLookalikeNotMangled(t *testing.T) {
+	result := ProcessInlineMarkdownFormatsSecure(EscapeHTML("`secret` <zdc0/>"))
+	want := "<code>secret</code> &lt;zdc0/&gt;"
+	if result != want {
+		t.Errorf("ProcessInlineMarkdownFormatsSecure(%q) = %q, want %q (plain text sentinel lookalike must survive untouched)", "`secret` <zdc0/>", result, want)
+	}
+}

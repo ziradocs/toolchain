@@ -586,65 +586,62 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 			return linkText
 		}
 
+		// Restaurar un centinela de código que cae dentro del grupo URL
+		// (p.ej. "[a](`url`)", donde el code span ES el destino del
+		// enlace) — ver el comentario de restoreCodeSentinelsInURL sobre
+		// por qué esto se hace ACÁ, localizado a sanitizedURL, y no en el
+		// pase global de restauración de más abajo.
+		sanitizedURL = restoreCodeSentinelsInURL(sanitizedURL, codeSpans)
+
 		return fmt.Sprintf(`<a href="%s">%s</a>`, sanitizedURL, linkText)
 	})
 
 	// Restaurar los centinelas de código al final, ya con <code>...</code> —
 	// ver el comentario de esta función sobre por qué código se protege
-	// primero.
+	// primero. SOLO la forma cruda "<zdcN/>" (advisor follow-up + code-review
+	// de esta misma PR, hallazgo confirmado): el texto llega pre-escapado
+	// con EscapeHTML ANTES de que esta función corra (ver la nota al inicio
+	// de la función), así que un "<zdcN/>" crudo en `text` a esta altura
+	// SOLO puede venir de la inserción de centinela de esta misma función —
+	// ningún texto de usuario puede sobrevivir con un "<" literal hasta
+	// acá. La forma ESCAPADA "&lt;zdcN/&gt;" NO tiene esa garantía: EscapeHTML
+	// convierte cualquier "<" de usuario en "&lt;" (sin tocar el "/"), así
+	// que un usuario que escriba literalmente "<zdc0/>" en texto plano —
+	// fuera de cualquier code span, sin pasar por SanitizeURL — produce
+	// exactamente esa cadena tras el escape de entrada. Restaurarla acá de
+	// forma global (como hacía una versión anterior de este fix) mangla
+	// texto de usuario arbitrario que nunca tuvo nada que ver con el
+	// esquema interno de centinelas. La única fuente REAL de la forma
+	// escapada es SanitizeURL → EscapeHTMLAttribute sobre una URL que
+	// contenía un centinela crudo, y esa restauración ya se hizo arriba,
+	// LOCALIZADA a sanitizedURL, en el momento en que se conoce con certeza
+	// que la forma escapada vino de ahí.
 	//
 	// UN SOLO pase con ReplaceAllStringFunc, no N pases de strings.ReplaceAll
 	// (code-review de esta misma PR, hallazgo confirmado): un loop de
 	// strings.ReplaceAll por índice vuelve a escanear la cadena COMPLETA en
 	// cada iteración, incluyendo el texto que una iteración anterior del
 	// mismo loop acaba de insertar — si el contenido literal de un code span
-	// contiene la subcadena "<zdcK/>" o "&lt;zdcK/&gt;" para cualquier K
-	// válido (p.ej. un usuario documentando el propio formato del
-	// centinela, o el contenido real de un code span posterior con índice
-	// K), ese texto recién restaurado se vuelve a matchear y reescribe,
-	// produciendo un <code> anidado espurio o, peor, sustituyendo el
-	// contenido de un span por el de OTRO. ReplaceAllStringFunc hace un
-	// solo barrido lineal sobre el texto ORIGINAL (antes de esta pasada) y
-	// nunca vuelve a escanear lo que la función de reemplazo devuelve, así
-	// que ninguna sustitución puede alimentar a otra — y de paso baja el
-	// costo de O(N * len(texto)) a O(len(texto)).
-	//
-	// Dos formas por centinela, no una (advisor follow-up sobre finding
-	// #7): un centinela que cae dentro del grupo URL de un enlace (p.ej.
-	// "[a](`url`)", donde el code span ES el destino del enlace) pasa por
-	// SanitizeURL → EscapeHTMLAttribute, que lo escapa UNA VEZ
-	// ("<zdc0/>" → "&lt;zdc0/&gt;") antes de que esta pasada corra — sin la
-	// forma escapada, esa combinación específica dejaba el centinela
-	// literal visible en el HTML final en vez de restaurarse. El resto de
-	// las pasadas (span, lang, el texto visible de un enlace) nunca
-	// re-escapan su contenido, así que la forma cruda sigue siendo
-	// necesaria para todos los demás casos.
-	//
-	// La forma escapada restaura a "&lt;code&gt;...&lt;/code&gt;" (entities,
-	// no "<code>...</code>" crudo): ese centinela vive dentro de un
-	// atributo href="..." ya emitido, y antes del fix de #7 esa misma
-	// combinación (code span como URL de enlace) ya producía
-	// "&lt;code&gt;url&lt;/code&gt;" ahí mismo — este fix reproduce
-	// exactamente ese output pre-existente en vez de filtrar tags HTML
-	// crudos dentro del valor de un atributo.
+	// contiene la subcadena "<zdcK/>" para cualquier K válido (p.ej. un
+	// usuario documentando el propio formato del centinela, o el contenido
+	// real de un code span posterior con índice K), ese texto recién
+	// restaurado se vuelve a matchear y reescribe, produciendo un <code>
+	// anidado espurio o, peor, sustituyendo el contenido de un span por el
+	// de OTRO. ReplaceAllStringFunc hace un solo barrido lineal sobre el
+	// texto ORIGINAL (antes de esta pasada) y nunca vuelve a escanear lo
+	// que la función de reemplazo devuelve, así que ninguna sustitución
+	// puede alimentar a otra — y de paso baja el costo de
+	// O(N * len(texto)) a O(len(texto)).
 	if len(codeSpans) > 0 {
-		text = zdcSentinelPattern.ReplaceAllStringFunc(text, func(match string) string {
-			sub := zdcSentinelPattern.FindStringSubmatch(match)
-			rawIdx, escapedIdx := sub[1], sub[2]
-			idxStr, escaped := rawIdx, false
-			if idxStr == "" {
-				idxStr, escaped = escapedIdx, true
-			}
+		text = zdcRawSentinelPattern.ReplaceAllStringFunc(text, func(match string) string {
+			sub := zdcRawSentinelPattern.FindStringSubmatch(match)
+			idx, err := strconv.Atoi(sub[1])
 			// Índice fuera de rango: no puede pasar (el patrón solo matchea
 			// dígitos y este archivo solo emite índices válidos), pero deja
 			// el texto intacto en vez de indexar fuera de rango si algún
 			// día deja de ser cierto.
-			idx, err := strconv.Atoi(idxStr)
 			if err != nil || idx < 0 || idx >= len(codeSpans) {
 				return match
-			}
-			if escaped {
-				return "&lt;code&gt;" + codeSpans[idx] + "&lt;/code&gt;"
 			}
 			return "<code>" + codeSpans[idx] + "</code>"
 		})
@@ -653,10 +650,53 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 	return text
 }
 
-// zdcSentinelPattern reconoce ambas formas en que un centinela de código
-// interno puede aparecer en el texto al momento de restaurarlo — ver el
-// comentario sobre el pase de restauración en ProcessInlineMarkdownFormatsSecure.
-var zdcSentinelPattern = regexp.MustCompile(`<zdc(\d+)/>|&lt;zdc(\d+)/&gt;`)
+// restoreCodeSentinelsInURL restaura, DENTRO de una URL ya sanitizada
+// (post-SanitizeURL), un centinela de código que cayó en el destino de un
+// enlace — p.ej. "[a](`url`)", donde el code span ES la URL. SanitizeURL →
+// EscapeHTMLAttribute escapa el centinela crudo una vez ("<zdc0/>" →
+// "&lt;zdc0/&gt;") antes de que este helper corra, así que acá solo hace
+// falta la forma escapada.
+//
+// Deliberadamente LOCALIZADO a `url` (advisor + code-review de esta misma
+// PR, hallazgo confirmado): una versión anterior de este fix hacía esta
+// misma sustitución de forma GLOBAL sobre el texto completo al final de
+// ProcessInlineMarkdownFormatsSecure. Eso era inseguro — a diferencia del
+// centinela crudo ("<zdcN/>", que solo esta función puede producir porque
+// el texto llega pre-escapado), la forma ESCAPADA sí puede originarse en
+// texto de usuario ORDINARIO: EscapeHTML (aplicado a TODO el texto de
+// entrada antes de que esta función corra) convierte cualquier "<" de
+// usuario en "&lt;" sin tocar el "/", así que un usuario que escribe
+// literalmente "<zdc0/>" en prosa normal —sin código, sin URL de por
+// medio— produce exactamente "&lt;zdc0/&gt;". Un reemplazo global habría
+// mangleado ese texto de usuario, reemplazándolo por <code>...</code> sin
+// relación alguna. Restaurar solo dentro de `url`, en el único punto del
+// pipeline donde se sabe con certeza que la forma escapada vino
+// legítimamente de SanitizeURL, evita ese falso positivo por completo.
+func restoreCodeSentinelsInURL(url string, codeSpans []string) string {
+	if len(codeSpans) == 0 {
+		return url
+	}
+	return zdcEscapedSentinelPattern.ReplaceAllStringFunc(url, func(match string) string {
+		sub := zdcEscapedSentinelPattern.FindStringSubmatch(match)
+		idx, err := strconv.Atoi(sub[1])
+		if err != nil || idx < 0 || idx >= len(codeSpans) {
+			return match
+		}
+		return "&lt;code&gt;" + codeSpans[idx] + "&lt;/code&gt;"
+	})
+}
+
+// zdcRawSentinelPattern/zdcEscapedSentinelPattern reconocen, por separado,
+// las dos formas en que un centinela de código interno puede aparecer —
+// ver los comentarios sobre dónde se usa cada uno en
+// ProcessInlineMarkdownFormatsSecure y restoreCodeSentinelsInURL. Separados
+// en dos patrones (no uno con dos grupos de alternancia) a propósito: cada
+// uno se usa en un contexto distinto donde solo esa forma es segura de
+// restaurar — mantenerlos separados hace ese alcance explícito en el tipo.
+var (
+	zdcRawSentinelPattern     = regexp.MustCompile(`<zdc(\d+)/>`)
+	zdcEscapedSentinelPattern = regexp.MustCompile(`&lt;zdc(\d+)/&gt;`)
+)
 
 // bracketTagRe reconoce un tag HTML de apertura o cierre — usado por
 // htmlTagsWellNested. Grupo 3 (atributos + posible "/" final) se usa para

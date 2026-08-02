@@ -251,11 +251,22 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 		}
 		offset += len(line) + 1 // +1 por el "\n" que Split consumió
 	}
+	// Dos punteros, no O(matches × codeRanges) (code-review de esta misma
+	// PR, hallazgo confirmado): matches (de FindAllStringSubmatchIndex) y
+	// codeRanges (construido línea por línea con offset creciente) están
+	// AMBOS ordenados por posición de inicio. `ri` solo avanza, nunca
+	// retrocede: una vez que un rango de código termina antes de que
+	// empiece el match ACTUAL, ningún match POSTERIOR (que empieza en una
+	// posición igual o mayor) puede solaparlo tampoco, así que es seguro
+	// descartarlo para siempre. Esto asume que crossesCode se llama en el
+	// mismo orden creciente en que aparecen `matches` — ver el for de abajo.
+	ri := 0
 	crossesCode := func(start, end int) bool {
-		for _, r := range codeRanges {
-			if end <= r[0] || start >= r[1] {
-				continue // disjunto
-			}
+		for ri < len(codeRanges) && codeRanges[ri][1] <= start {
+			ri++
+		}
+		for j := ri; j < len(codeRanges) && codeRanges[j][0] < end; j++ {
+			r := codeRanges[j]
 			if start <= r[0] && end >= r[1] {
 				continue // el code span vive DENTRO del match: se conserva
 			}

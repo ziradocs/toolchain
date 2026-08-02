@@ -26,6 +26,83 @@ func TestPopulateLangRuns_Markdown(t *testing.T) {
 	}
 }
 
+// TestPopulateLangRuns_MultipleSpansAndCodeRangesInterleaved pins the
+// two-pointer crossesCode implementation (code-review of this same PR,
+// perf follow-up: replaced an O(matches × codeRanges) nested loop with a
+// sliding `ri` index that only advances forward, relying on both matches
+// and codeRanges being sorted by start position). Several lang spans and
+// code spans alternate on one line, disjoint from each other, so every
+// span must survive — a bug in the pointer advancement (skipping a code
+// range too early, or not far enough) would show up as a missing or
+// wrongly-dropped run here.
+func TestPopulateLangRuns_MultipleSpansAndCodeRangesInterleaved(t *testing.T) {
+	content := "[a]{lang=fr} `x` [b]{lang=de} `y` [c]{lang=es}"
+	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), content)
+	doc := newTestDoc(elem)
+
+	PopulateLangRuns(doc, nil)
+
+	got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+	want := []ast.LangRun{{Text: "a", Lang: "fr"}, {Text: "b", Lang: "de"}, {Text: "c", Lang: "es"}}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d runs, got %d: %+v", len(want), len(got), got)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("run %d: got %+v, want %+v", i, got[i], w)
+		}
+	}
+}
+
+// TestPopulateLangRuns_TwoPointerDirection pins the `ri` advancement
+// direction in crossesCode's two-pointer scan (advisor follow-up on the
+// perf fix above): the interleaved test only exercises DISJOINT ranges,
+// which pass even if `ri` over- or under-advances. These two cases each
+// have a code range overlapping the FIRST match, followed by a SECOND,
+// independent match — pinning that `ri` neither skips a range it still
+// needs (would wrongly accept a crossing match) nor gets stuck on a range
+// it should have passed (would wrongly reject a later, unrelated match).
+func TestPopulateLangRuns_TwoPointerDirection(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []ast.LangRun
+	}{
+		{
+			// Code span nested INSIDE the first match (kept, per
+			// crossesCode's containment rule) — the second, disjoint match
+			// must still survive.
+			name:    "code nested in first match, second match kept",
+			content: "[a `x` b]{lang=fr} y [c]{lang=de}",
+			want:    []ast.LangRun{{Text: "a `x` b", Lang: "fr"}, {Text: "c", Lang: "de"}},
+		},
+		{
+			// Code span CROSSES the first match's boundary (rejected) —
+			// the second, disjoint match must still survive despite `ri`
+			// having stopped mid-way through the first match's check.
+			name:    "code crosses first match, second match kept",
+			content: "[a`b]{lang=fr}`c y [d]{lang=de}",
+			want:    []ast.LangRun{{Text: "d", Lang: "de"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), tt.content)
+			doc := newTestDoc(elem)
+			PopulateLangRuns(doc, nil)
+			got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
+			if len(got) != len(tt.want) {
+				t.Fatalf("expected %d runs, got %d: %+v", len(tt.want), len(got), got)
+			}
+			for i, w := range tt.want {
+				if got[i] != w {
+					t.Errorf("run %d: got %+v, want %+v", i, got[i], w)
+				}
+			}
+		})
+	}
+}
+
 // TestPopulateLangRuns_SkipsCodeSpans covers issue #63 code review finding
 // #7's extraction-side follow-up: since ProcessInlineMarkdownFormatsSecure
 // now protects `código` before any other pass runs (finding #7), a
