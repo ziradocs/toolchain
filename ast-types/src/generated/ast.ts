@@ -24,8 +24,13 @@ import type { Position } from "./diagnostics";
  * 2.1.0 (issue #21): new MediaElement (discriminator "media") for embedded
  * audio/video, with Autoplay/Controls/Loop/Muted — additive, a new element
  * type doesn't break any existing consumer of the contract.
+ * 2.2.0 (issues #62/#63 prerequisite): FrontMatterNode.Lang (additive,
+ * omitempty) exposes the document's declared language as a first-class BCP
+ * 47 field, so a renderer can emit a real `<html lang>` and a rulepack (e.g.
+ * A11Y005) can read it without depending on the author having written it
+ * into the free-form Variables map.
  */
-export const SchemaVersion = "2.1.0";
+export const SchemaVersion = "2.2.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -191,6 +196,16 @@ export interface FrontMatterNode extends BaseNode {
   author?: string;
   date?: string;
   theme?: string;
+  /**
+   * Lang es el idioma principal declarado del documento, como tag BCP 47
+   * (p.ej. "es", "en-US") — issue #62/#63: campo de primera clase para que
+   * un renderer emita `<html lang>` real y una regla de linter lo
+   * verifique sin tener que leerlo de Variables["lang"] (que sigue
+   * poblándose vía BuildVariables por compatibilidad hacia atrás con
+   * A11Y005/LangDeclaredRule). Sintaxis, no semántica: ver
+   * a11y.IsValidLangTag para la validación de forma.
+   */
+  lang?: string;
   variables?: { [key: string]: any};
   header_footer?: HeaderFooterConfig; // Nueva configuración
 }

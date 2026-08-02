@@ -137,6 +137,20 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
 		title = "Document"
 	}
 
+	// lang: issue #62/#63 prerequisite — antes este atributo estaba
+	// hardcodeado a "es" sin importar lo que el frontmatter declarara, así
+	// que un documento con `lang: fr` emitía `<html lang="es">` y A11Y005
+	// (que sí lee FrontMatter.Variables["lang"]) lo aprobaba de todas
+	// formas: un falso negativo, no solo un seam faltante. "es" se conserva
+	// como default para no cambiar el comportamiento de documentos que no
+	// declaran idioma. Escapado (no validado como BCP 47 — eso es
+	// responsabilidad de una regla de linter, ver a11y.IsValidLangTag) para
+	// que el valor no pueda romper el atributo.
+	lang := "es"
+	if doc.FrontMatter != nil && doc.FrontMatter.Lang != "" {
+		lang = EscapeHTMLAttribute(doc.FrontMatter.Lang)
+	}
+
 	// Add classes based on options
 	bodyClass := "doclang-document"
 	if opts.ShowHeaders || opts.ShowFooters {
@@ -152,7 +166,7 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
 	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="es" data-theme="light">
+<html lang="%s" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -161,7 +175,7 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
     %s
 </head>
 <body class="%s">
-`, cspMeta, EscapeHTML(title), generateDocumentStyles(opts, logger), generateDocumentScripts(opts), bodyClass)
+`, lang, cspMeta, EscapeHTML(title), generateDocumentStyles(opts, logger), generateDocumentScripts(opts), bodyClass)
 }
 
 // generateDocumentStyles genera los estilos CSS del documento. No recibe

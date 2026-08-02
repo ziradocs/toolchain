@@ -195,3 +195,92 @@ func TestGenerateDocumentHTML_EmitsCSPWithMatchingNonces(t *testing.T) {
 
 	assertNoUnnoncedInlineScripts(t, html)
 }
+
+// TestGenerateDocumentHTML_Lang cubre el prerrequisito de los issues
+// #62/#63: antes de esto, <html lang> estaba hardcodeado a "es" sin importar
+// lo que el frontmatter declarara, así que un documento con `lang: fr`
+// emitía `<html lang="es">` — un falso negativo para cualquier regla que
+// verifique el idioma declarado contra la salida real.
+func TestGenerateDocumentHTML_Lang(t *testing.T) {
+	tests := []struct {
+		name        string
+		frontMatter *ast.FrontMatterNode
+		wantLang    string
+	}{
+		{"declared lang is honored", &ast.FrontMatterNode{Lang: "fr"}, "fr"},
+		{"declared region variant is honored", &ast.FrontMatterNode{Lang: "pt-BR"}, "pt-BR"},
+		{"no frontmatter falls back to es", nil, "es"},
+		{"frontmatter without lang falls back to es", &ast.FrontMatterNode{Title: "Doc"}, "es"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := &ast.AST{FrontMatter: tt.frontMatter}
+			html := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, nil)
+
+			want := fmt.Sprintf(`<html lang="%s"`, tt.wantLang)
+			if !strings.Contains(html, want) {
+				t.Errorf("expected output to contain %q, got head: %.200s", want, html)
+			}
+		})
+	}
+}
+
+// TestGenerateDocumentHTML_Lang_EscapesAttribute confirma que un valor de
+// lang hostil no puede escapar el atributo — mismo vector que cualquier otro
+// campo de frontmatter interpolado en un atributo HTML.
+func TestGenerateDocumentHTML_Lang_EscapesAttribute(t *testing.T) {
+	doc := &ast.AST{FrontMatter: &ast.FrontMatterNode{Lang: `"><script>alert(1)</script>`}}
+	html := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, nil)
+
+	if strings.Contains(html, "<script>alert(1)</script>") {
+		t.Errorf("lang attribute was not escaped, output contains raw <script>: %.300s", html)
+	}
+}
+
+// TestGenerateDocumentHTML_PreservesElementOrder es el guard de regresión
+// para la mitad "(a)" de issue #62 (orden de lectura): ningún renderer debe
+// permutar ast.ContentBlock.Elements — ast.Walk ya documenta este orden
+// como el contrato ("mismo orden que renderer.PopulateInlineHTML,
+// generalizado"), este test lo verifica contra la salida HTML real. Cubre
+// tanto generateDocumentBody (modo estándar) como generatePageViewBody
+// (ShowHeaders/ShowFooters) — son dos loops de emisión distintos
+// (document_html.go) que podrían divergir en un cambio futuro.
+func TestGenerateDocumentHTML_PreservesElementOrder(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	doc := &ast.AST{
+		ContentBlocks: []ast.ContentBlock{
+			{
+				BlockType: "content",
+				Elements: []ast.Element{
+					ast.NewTextElement(pos, "order-marker-alpha"),
+					ast.NewTextElement(pos, "order-marker-bravo"),
+					ast.NewTextElement(pos, "order-marker-charlie"),
+				},
+			},
+		},
+	}
+
+	for _, tt := range []struct {
+		name string
+		opts DocumentHTMLOptions
+	}{
+		{"standard mode", DocumentHTMLOptions{}},
+		{"page-view mode", DocumentHTMLOptions{ShowHeaders: true, ShowFooters: true}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			html := GenerateDocumentHTML(doc, tt.opts, nil)
+
+			iAlpha := strings.Index(html, "order-marker-alpha")
+			iBravo := strings.Index(html, "order-marker-bravo")
+			iCharlie := strings.Index(html, "order-marker-charlie")
+
+			if iAlpha == -1 || iBravo == -1 || iCharlie == -1 {
+				t.Fatalf("expected all three markers in output, got positions alpha=%d bravo=%d charlie=%d", iAlpha, iBravo, iCharlie)
+			}
+			if iAlpha >= iBravo || iBravo >= iCharlie {
+				t.Errorf("elements were not emitted in AST order: alpha@%d bravo@%d charlie@%d", iAlpha, iBravo, iCharlie)
+			}
+		})
+	}
+}

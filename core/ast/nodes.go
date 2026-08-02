@@ -85,12 +85,20 @@ type ContentBlockHeaderFooterOverride struct {
 
 // FrontMatterNode contiene el YAML parseado del FrontMatter
 type FrontMatterNode struct {
-	BaseNode     `tstype:",extends,required"`
-	Mode         string                 `json:"mode"`
-	Title        string                 `json:"title,omitempty"`
-	Author       string                 `json:"author,omitempty"`
-	Date         string                 `json:"date,omitempty"`
-	Theme        string                 `json:"theme,omitempty"`
+	BaseNode `tstype:",extends,required"`
+	Mode     string `json:"mode"`
+	Title    string `json:"title,omitempty"`
+	Author   string `json:"author,omitempty"`
+	Date     string `json:"date,omitempty"`
+	Theme    string `json:"theme,omitempty"`
+	// Lang es el idioma principal declarado del documento, como tag BCP 47
+	// (p.ej. "es", "en-US") — issue #62/#63: campo de primera clase para que
+	// un renderer emita `<html lang>` real y una regla de linter lo
+	// verifique sin tener que leerlo de Variables["lang"] (que sigue
+	// poblándose vía BuildVariables por compatibilidad hacia atrás con
+	// A11Y005/LangDeclaredRule). Sintaxis, no semántica: ver
+	// a11y.IsValidLangTag para la validación de forma.
+	Lang         string                 `json:"lang,omitempty"`
 	Variables    map[string]interface{} `json:"variables,omitempty"`
 	HeaderFooter *HeaderFooterConfig    `json:"header_footer,omitempty"` // Nueva configuración
 	Raw          string                 `json:"-"`                       // YAML crudo
@@ -129,6 +137,9 @@ func (fm *FrontMatterNode) BuildVariables() map[string]interface{} {
 	}
 	if fm.Theme != "" {
 		variables["theme"] = fm.Theme
+	}
+	if fm.Lang != "" {
+		variables["lang"] = fm.Lang
 	}
 
 	for k, v := range fm.Variables {
