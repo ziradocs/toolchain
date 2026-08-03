@@ -170,9 +170,13 @@ func populateChecklistItemLangRuns(item *ast.ChecklistItem, variables map[string
 
 // extractLangRuns derives LangRuns from raw content — never from
 // pre-rendered *HTML fields, which are still empty at this point in the
-// pipeline regardless (PopulateInlineHTML/PopulateLangRuns both run after
-// the linter — see core/renderer/populate_inline_html.go's own note on this
-// same ordering).
+// pipeline regardless: PopulateLangRuns runs before the linter in both CLIs
+// (doclang/internal/cli/build.go, slidelang/internal/cli/build.go), on
+// purpose — the linter needs LangRuns already populated when it runs, not
+// after. PopulateInlineHTML runs on a different schedule per CLI (after
+// generation in slidelang — see slidelang/internal/cli/build.go's own note
+// on that ordering, near its PopulateLangRuns call) and has no dependency
+// on LangRuns.
 //
 // isRawHTML selects which source shape to scan: false for ordinary Markdown
 // Content (the [texto]{lang=xx} span, matched via InlineLangSpanPattern —

@@ -123,9 +123,12 @@ type AST struct {
 	// slidelang, que lo exige), y sin omitempty este puntero nil serializaría
 	// como "frontMatter": null, violando el JSON Schema (que lo declara
 	// required y sin alternativa null) en cuanto doclang emita --format json.
-	FrontMatter   *FrontMatterNode `json:"frontMatter,omitempty"`
-	ContentBlocks []ContentBlock   `json:"contentBlocks"` // Bloques de contenido (slides en presentaciones, secciones en documentos)
-	FilePath      string           `json:"-"`             // No se serializa
+	FrontMatter *FrontMatterNode `json:"frontMatter,omitempty"`
+	// ContentBlocks está en orden de documento; ver el doc comment de
+	// ContentBlock.Elements (issue #62) para el contrato de preservación de
+	// orden que aplica igual a este slice.
+	ContentBlocks []ContentBlock `json:"contentBlocks"` // Bloques de contenido (slides en presentaciones, secciones en documentos)
+	FilePath      string         `json:"-"`             // No se serializa
 }
 
 // NewAST crea un nuevo AST

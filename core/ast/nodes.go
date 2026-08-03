@@ -167,12 +167,27 @@ type ContentBlock struct {
 	Title     string `json:"title,omitempty"`
 	TitleHTML string `json:"titleHTML,omitempty"` // Title con {{variables}} sustituidas y escapadas (sin markdown)
 	// Propiedades específicas para bloques tipo "title" (usado en presentaciones)
-	Heading      string    `json:"heading,omitempty"`
-	HeadingHTML  string    `json:"headingHTML,omitempty"` // Heading con {{variables}} sustituidas y escapadas (sin markdown)
-	Subtitle     string    `json:"subtitle,omitempty"`
-	SubtitleHTML string    `json:"subtitleHTML,omitempty"` // Subtitle con {{variables}} sustituidas y escapadas (sin markdown)
-	Logo         string    `json:"logo,omitempty"`
-	Elements     []Element `json:"elements"`
+	Heading      string `json:"heading,omitempty"`
+	HeadingHTML  string `json:"headingHTML,omitempty"` // Heading con {{variables}} sustituidas y escapadas (sin markdown)
+	Subtitle     string `json:"subtitle,omitempty"`
+	SubtitleHTML string `json:"subtitleHTML,omitempty"` // Subtitle con {{variables}} sustituidas y escapadas (sin markdown)
+	Logo         string `json:"logo,omitempty"`
+	// Elements está en orden de documento, y ese orden ES el contrato de
+	// lectura/presentación (issue #62): todo renderer del repo (HTML, DOCX,
+	// Markdown, PPTX) emite/recorre Elements en este mismo orden, sin
+	// reordenar. Lo hacen cumplir TestGenerateDocumentHTML_PreservesElementOrder
+	// (+ la variante _HeterogeneousTypes, core/renderer),
+	// TestDOCXGenerator_PreservesElementOrder,
+	// TestMarkdownGenerator_PreservesElementOrder (doclang/internal/generator)
+	// y TestGeneratePPTX_PreservesElementOrder (slidelang/internal/generator).
+	// Hoy ningún renderer tiene un mecanismo que desacople el orden visual
+	// del orden de Elements — no hay float alcanzable (ver issue #72, el
+	// único selector CSS de float nunca matchea código real), ni CSS
+	// `order:`, ni override de grid-column/grid-row alcanzable desde input
+	// real — así que este orden es también el orden visual efectivo. Si
+	// algún día existe un mecanismo así, ese es el punto para agregar un
+	// campo de AST que lo señale; no es especulativo hoy.
+	Elements []Element `json:"elements"`
 	// Configuración específica de header/footer para este bloque
 	HeaderFooterOverride *ContentBlockHeaderFooterOverride `json:"header_footer_override,omitempty"`
 }
