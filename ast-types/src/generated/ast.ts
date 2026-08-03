@@ -96,6 +96,11 @@ export interface AST extends BaseNode {
    * required y sin alternativa null) en cuanto doclang emita --format json.
    */
   frontMatter?: FrontMatterNode;
+  /**
+   * ContentBlocks está en orden de documento; ver el doc comment de
+   * ContentBlock.Elements (issue #62) para el contrato de preservación de
+   * orden que aplica igual a este slice.
+   */
   contentBlocks: ContentBlock[]; // Bloques de contenido (slides en presentaciones, secciones en documentos)
 }
 
@@ -243,6 +248,23 @@ export interface ContentBlock extends BaseNode {
   subtitle?: string;
   subtitleHTML?: string; // Subtitle con {{variables}} sustituidas y escapadas (sin markdown)
   logo?: string;
+  /**
+   * Elements está en orden de documento, y ese orden ES el contrato de
+   * lectura/presentación (issue #62): todo renderer del repo (HTML, DOCX,
+   * Markdown, PPTX) emite/recorre Elements en este mismo orden, sin
+   * reordenar. Lo hacen cumplir TestGenerateDocumentHTML_PreservesElementOrder
+   * (+ la variante _HeterogeneousTypes, core/renderer),
+   * TestDOCXGenerator_PreservesElementOrder,
+   * TestMarkdownGenerator_PreservesElementOrder (doclang/internal/generator)
+   * y TestGeneratePPTX_PreservesElementOrder (slidelang/internal/generator).
+   * Hoy ningún renderer tiene un mecanismo que desacople el orden visual
+   * del orden de Elements — no hay float alcanzable (ver issue #72, el
+   * único selector CSS de float nunca matchea código real), ni CSS
+   * `order:`, ni override de grid-column/grid-row alcanzable desde input
+   * real — así que este orden es también el orden visual efectivo. Si
+   * algún día existe un mecanismo así, ese es el punto para agregar un
+   * campo de AST que lo señale; no es especulativo hoy.
+   */
   elements: Element[];
   /**
    * Configuración específica de header/footer para este bloque

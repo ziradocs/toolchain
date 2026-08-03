@@ -168,15 +168,16 @@ func populateChecklistItemLangRuns(item *ast.ChecklistItem, variables map[string
 	}
 }
 
-// extractLangRuns derives LangRuns from raw content — never from
-// pre-rendered *HTML fields, which are still empty at this point in the
-// pipeline regardless: PopulateLangRuns runs before the linter in both CLIs
-// (doclang/internal/cli/build.go, slidelang/internal/cli/build.go), on
-// purpose — the linter needs LangRuns already populated when it runs, not
-// after. PopulateInlineHTML runs on a different schedule per CLI (after
-// generation in slidelang — see slidelang/internal/cli/build.go's own note
-// on that ordering, near its PopulateLangRuns call) and has no dependency
-// on LangRuns.
+// extractLangRuns deliberately derives LangRuns from raw Content, never from
+// the pre-rendered *HTML fields — so it doesn't matter which one of
+// PopulateLangRuns/PopulateInlineHTML a caller runs first. In the build CLIs
+// (doclang/internal/cli/build.go, slidelang/internal/cli/build.go),
+// PopulateLangRuns runs before the linter on purpose (the linter needs
+// LangRuns already populated) and before PopulateInlineHTML too, so the
+// *HTML fields genuinely are still empty there. But RenderASTJSON in both
+// generator packages (the MCP-server path) calls PopulateInlineHTML first —
+// there the *HTML fields ARE already populated when this runs, and
+// extractLangRuns still ignores them, reading Content instead.
 //
 // isRawHTML selects which source shape to scan: false for ordinary Markdown
 // Content (the [texto]{lang=xx} span, matched via InlineLangSpanPattern —

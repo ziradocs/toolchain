@@ -13,9 +13,13 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
-// astWithOrderMarkers builds a minimal one-section AST with three
-// TextElements whose content is only distinguishable by an order marker —
-// used by the order-preservation regression tests below.
+// astWithOrderMarkers builds a two-section AST with a heterogeneous mix of
+// element types (Text/Quote/Code) in the first section and a second section
+// after it — used by the order-preservation regression tests below. Mixing
+// types guards against a bug that groups output by element type (a
+// same-type run wouldn't expose that); the second section guards against a
+// bug that reorders AST.ContentBlocks itself, which a single-section fixture
+// can't exercise (code review of #62's documentation follow-up, PR #88).
 func astWithOrderMarkers() *ast.AST {
 	pos := diagnostics.NewPosition(1, 1)
 	doc := ast.NewAST(pos)
@@ -23,27 +27,39 @@ func astWithOrderMarkers() *ast.AST {
 	front.Title = "Order Fixture"
 	doc.FrontMatter = front
 
-	block := ast.NewContentBlock(diagnostics.NewPosition(2, 1), "content")
-	block.Elements = append(block.Elements,
+	block1 := ast.NewContentBlock(diagnostics.NewPosition(2, 1), "content")
+	block1.Elements = append(block1.Elements,
 		ast.NewTextElement(pos, "order-marker-alpha"),
-		ast.NewTextElement(pos, "order-marker-bravo"),
-		ast.NewTextElement(pos, "order-marker-charlie"),
+		ast.NewQuoteElement(pos, "order-marker-bravo"),
+		ast.NewCodeElement(pos, "text", "order-marker-charlie"),
 	)
-	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	block2 := ast.NewContentBlock(diagnostics.NewPosition(3, 1), "content")
+	block2.Elements = append(block2.Elements,
+		ast.NewTextElement(pos, "order-marker-delta"),
+	)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block1, *block2)
 	return doc
+}
+
+// orderMarkers lists, in expected order, the markers astWithOrderMarkers
+// scatters across its elements and ContentBlocks.
+var orderMarkers = []string{
+	"order-marker-alpha", "order-marker-bravo", "order-marker-charlie", "order-marker-delta",
 }
 
 func assertMarkersInOrder(t *testing.T, haystack string) {
 	t.Helper()
-	iAlpha := strings.Index(haystack, "order-marker-alpha")
-	iBravo := strings.Index(haystack, "order-marker-bravo")
-	iCharlie := strings.Index(haystack, "order-marker-charlie")
-
-	if iAlpha == -1 || iBravo == -1 || iCharlie == -1 {
-		t.Fatalf("expected all three markers in output, got positions alpha=%d bravo=%d charlie=%d", iAlpha, iBravo, iCharlie)
+	positions := make([]int, len(orderMarkers))
+	for i, marker := range orderMarkers {
+		positions[i] = strings.Index(haystack, marker)
+		if positions[i] == -1 {
+			t.Fatalf("expected marker %q in output, got positions %v", marker, positions)
+		}
 	}
-	if iAlpha >= iBravo || iBravo >= iCharlie {
-		t.Errorf("elements were not emitted in AST order: alpha@%d bravo@%d charlie@%d", iAlpha, iBravo, iCharlie)
+	for i := 1; i < len(positions); i++ {
+		if positions[i-1] >= positions[i] {
+			t.Errorf("elements/sections were not emitted in AST order: %v at positions %v", orderMarkers, positions)
+		}
 	}
 }
 
