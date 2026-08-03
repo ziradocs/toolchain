@@ -16,7 +16,10 @@ type visitFn func(node Node) error
 // renderer.PopulateInlineHTML, generalizado): ContentBlocks → Elements
 // (polimórfico) → sub-estructuras anidadas que SÍ implementan Node
 // (PointItem.SubPoints, ChecklistItem.SubItems) → GridElement.Columns →
-// ColumnElement.Elements (polimórfico, anidado).
+// ColumnElement.Elements (polimórfico, anidado). Esto describe el propio
+// recorrido de Walk, no la garantía de que un renderer preserve este orden
+// en su salida — para esa garantía (issue #62) ver el doc comment de
+// ContentBlock.Elements.
 //
 // Visita el propio doc primero, luego cada ContentBlock, luego cada Element
 // (recursivamente para los que contienen sub-elementos). No visita

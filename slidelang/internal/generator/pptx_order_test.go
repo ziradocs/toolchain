@@ -15,10 +15,16 @@ import (
 
 // TestGeneratePPTX_PreservesElementOrder is the slidelang/PPTX half of
 // issue #62's "(a)" resolution: no renderer permutes
-// ast.ContentBlock.Elements. pptxAddElement (pptx.go) iterates
-// block.Elements with a monotonically increasing cursorY, so shape-tree
-// order should already match AST order — this guards that claim against
-// regression.
+// ast.ContentBlock.Elements or ast.AST.ContentBlocks. pptxAddElement
+// (pptx.go) iterates block.Elements with a monotonically increasing
+// cursorY, so shape-tree order should already match AST order within a
+// slide — this guards that claim against regression. It mixes the element
+// types pptxAddElement actually dispatches in v0 (Text/Points/Table —
+// Image is skipped here, its alt text isn't guaranteed to land verbatim in
+// the shape tree) to catch a hypothetical group-by-type bug, and adds a
+// second ContentBlock (slide2.xml) to guard ContentBlocks order too, which
+// a single-slide fixture can't exercise (code review of #62's
+// documentation follow-up, PR #88).
 func TestGeneratePPTX_PreservesElementOrder(t *testing.T) {
 	dir := t.TempDir()
 
@@ -26,14 +32,25 @@ func TestGeneratePPTX_PreservesElementOrder(t *testing.T) {
 	doc.FrontMatter = ast.NewFrontMatterNode(pos())
 	doc.FilePath = "order.slidelang"
 
-	block := ast.NewContentBlock(pos(), "content")
-	block.Title = "Order"
-	block.Elements = append(block.Elements,
+	points := ast.NewPointsElement(pos())
+	points.Items = append(points.Items, *ast.NewPointItem(pos(), "order-marker-bravo"))
+
+	table := ast.NewTableElement(pos())
+	table.Headers = []string{"order-marker-charlie"}
+
+	block1 := ast.NewContentBlock(pos(), "content")
+	block1.Title = "Order"
+	block1.Elements = append(block1.Elements,
 		ast.NewTextElement(pos(), "order-marker-alpha"),
-		ast.NewTextElement(pos(), "order-marker-bravo"),
-		ast.NewTextElement(pos(), "order-marker-charlie"),
+		points,
+		table,
 	)
-	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	block2 := ast.NewContentBlock(pos(), "content")
+	block2.Title = "Order 2"
+	block2.Elements = append(block2.Elements,
+		ast.NewTextElement(pos(), "order-marker-delta"),
+	)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block1, *block2)
 
 	g := New(util.NewNoop())
 	if err := g.generatePPTX(doc, dir, GeneratorOptions{AssetRoot: dir}); err != nil {
@@ -45,16 +62,24 @@ func TestGeneratePPTX_PreservesElementOrder(t *testing.T) {
 		t.Fatalf("expected output file to exist: %v", err)
 	}
 
-	slideXML := zipEntryContent(t, outputPath, "ppt/slides/slide1.xml")
+	slide1XML := zipEntryContent(t, outputPath, "ppt/slides/slide1.xml")
 
-	iAlpha := strings.Index(slideXML, "order-marker-alpha")
-	iBravo := strings.Index(slideXML, "order-marker-bravo")
-	iCharlie := strings.Index(slideXML, "order-marker-charlie")
+	iAlpha := strings.Index(slide1XML, "order-marker-alpha")
+	iBravo := strings.Index(slide1XML, "order-marker-bravo")
+	iCharlie := strings.Index(slide1XML, "order-marker-charlie")
 
 	if iAlpha == -1 || iBravo == -1 || iCharlie == -1 {
 		t.Fatalf("expected all three markers in slide1.xml, got positions alpha=%d bravo=%d charlie=%d", iAlpha, iBravo, iCharlie)
 	}
 	if iAlpha >= iBravo || iBravo >= iCharlie {
-		t.Errorf("shapes were not emitted in AST order: alpha@%d bravo@%d charlie@%d", iAlpha, iBravo, iCharlie)
+		t.Errorf("shapes were not emitted in AST order (possible grouping-by-type bug): alpha@%d bravo@%d charlie@%d", iAlpha, iBravo, iCharlie)
+	}
+
+	slide2XML := zipEntryContent(t, outputPath, "ppt/slides/slide2.xml")
+	if !strings.Contains(slide2XML, "order-marker-delta") {
+		t.Fatalf("expected second ContentBlock's marker in slide2.xml (ContentBlocks order not preserved)")
+	}
+	if strings.Contains(slide1XML, "order-marker-delta") || strings.Contains(slide2XML, "order-marker-alpha") {
+		t.Errorf("markers leaked across slides: block1/block2 content not cleanly separated")
 	}
 }
