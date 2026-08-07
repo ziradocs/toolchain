@@ -110,6 +110,63 @@ SECTION "Installation Steps"
 	}
 }
 
+// El parser corta el título en la ÚLTIMA comilla precisamente para que un
+// título con comillas adentro sobreviva sin escapes. El formatter aplicaba
+// la guarda genérica de campos entrecomillados y RECHAZABA lo que el parser
+// acepta y conserva — un round-trip roto en un caso que el parser ya tenía
+// testeado. Se cubren los dos lugares donde se emite un título: el bloque y
+// la subsección.
+func TestFormatDocumentStrict_TitlesWithInnerQuotesRoundTrip(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			name: "bloque",
+			src:  "---\nmode: strict\n---\n\nSECTION \"El informe \"final\"\"\n\n  TEXT\n    x\n",
+			want: `SECTION "El informe "final""`,
+		},
+		{
+			name: "subsección",
+			src: "---\nmode: strict\n---\n\nSECTION \"Guide\"\n\n  TEXT\n    x\n\n" +
+				"SECTION \"La opción \"rápida\"\"\n  level: 2\n",
+			want: `SECTION "La opción "rápida""`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			once := parseDoc(t, tc.src)
+			if !strings.Contains(once, tc.want) {
+				t.Fatalf("expected %s in the output, got:\n%s", tc.want, once)
+			}
+			// Lo que prueba que la regla de última comilla es reversible: el
+			// texto emitido vuelve a parsear al mismo documento.
+			if twice := parseDoc(t, once); once != twice {
+				t.Errorf("inner quotes break idempotence:\n--- first ---\n%s\n--- second ---\n%s", once, twice)
+			}
+		})
+	}
+}
+
+// Un salto de línea sí es irrepresentable —un SECTION vive en una sola
+// línea— así que ahí el formatter debe seguir fallando en vez de emitir
+// texto que no re-parsea. Es inalcanzable desde el parser, pero no desde un
+// AST construido a mano o tocado por un filtro externo.
+func TestFormatDocumentStrict_RejectsMultilineTitles(t *testing.T) {
+	doc, diags := parser.New(util.NewNoop()).ParseDocument(
+		"---\nmode: strict\n---\n\nSECTION \"Fine\"\n\n  TEXT\n    x\n", "d.doclang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("fixture has parse errors: %s", d.String())
+		}
+	}
+	doc.ContentBlocks[0].Heading = "linea uno\nlinea dos"
+
+	if _, err := formatter.FormatDocumentStrict(doc); err == nil {
+		t.Error("expected a multiline section title to be rejected")
+	}
+}
+
 // Transpilar flex → strict es el flujo que promueve un borrador a artefacto
 // auditable. El resultado tiene que parsear como strict y conservar la
 // estructura.

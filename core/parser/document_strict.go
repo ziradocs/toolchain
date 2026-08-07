@@ -176,7 +176,23 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 			p.addError(fmt.Sprintf(
 				"Unknown %s property: %s. A section accepts `level:` and `id:`.", sectionKeyword, key))
 		}
-	}, startsSectionKeyword)
+	}, startsSectionKeyword, func(trimmed string) {
+		// Sin esto, una línea que el despacho no reconoce —un `TEXXT` mal
+		// tecleado, un marcador inventado— se descartaba en silencio junto
+		// con su cuerpo indentado, y el build terminaba en verde habiendo
+		// borrado un párrafo. Es exactamente lo que el dialecto declarativo
+		// promete no hacer, así que acá es un error.
+		//
+		// Se reporta línea por línea (el cuerpo del keyword desconocido cae
+		// acá también, ya que sin un opener válido el parser no tiene forma
+		// de saber que era un cuerpo). Es más ruidoso que un solo error por
+		// bloque, y es la elección correcta: cada línea que no llegó al AST
+		// queda nombrada, en vez de que el autor tenga que adivinar cuánto
+		// se perdió.
+		p.addError(fmt.Sprintf(
+			"unexpected content inside %s: %q is not an element, a property, or a new %s",
+			sectionKeyword, trimmed, sectionKeyword))
+	})
 
 	if level == 0 {
 		level = 1

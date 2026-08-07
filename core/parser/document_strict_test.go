@@ -315,6 +315,67 @@ func TestDocumentStrictParser_KeywordRequiresWordBoundary(t *testing.T) {
 	assertOneErrorContaining(t, diags, "unexpected content in strict mode")
 }
 
+// Una línea que el despacho no reconoce —un keyword mal tecleado— se
+// reporta en vez de descartarse. Sin esto, `TEXXT` y TODO su cuerpo
+// indentado desaparecían y el build terminaba en verde: un documento que
+// perdió un párrafo sin que nadie se enterara, que es justo lo que el
+// dialecto declarativo promete no hacer.
+func TestDocumentStrictParser_UnrecognizedContentIsReported(t *testing.T) {
+	_, diags := parseStrictDoc(t, `SECTION "A"
+
+  TEXXT
+    silently lost
+`)
+	msgs := errorMessages(diags)
+	if len(msgs) == 0 {
+		t.Fatal("unrecognized content was dropped without a diagnostic")
+	}
+
+	// Cada línea que no llegó al AST queda nombrada, incluido el cuerpo del
+	// keyword desconocido: sin un opener válido el parser no puede saber que
+	// era un cuerpo, y callarlo dejaría al autor adivinando cuánto se perdió.
+	joined := strings.Join(msgs, " | ")
+	for _, want := range []string{"unexpected content inside SECTION", `"TEXXT"`, `"silently lost"`} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected the diagnostics to mention %s, got: %s", want, joined)
+		}
+	}
+}
+
+// El cuerpo indentado del keyword desconocido también se pierde, así que el
+// error tiene que salir aunque la línea suelta parezca inofensiva.
+func TestDocumentStrictParser_UnrecognizedContentDoesNotSwallowTheBodySilently(t *testing.T) {
+	doc, diags := parseStrictDoc(t, `SECTION "A"
+
+  TEXXT
+    lost paragraph
+
+  TEXT
+    kept paragraph
+`)
+	if len(errorMessages(diags)) == 0 {
+		t.Fatal("expected an error for the unrecognized keyword")
+	}
+	// El TEXT legítimo posterior sigue parseando: el error no aborta la
+	// sección, solo deja de ocultar la pérdida.
+	if len(doc.ContentBlocks[0].Elements) != 1 {
+		t.Errorf("expected the well-formed element after it to still parse, got %d elements",
+			len(doc.ContentBlocks[0].Elements))
+	}
+}
+
+// El dialecto de presentaciones conserva su comportamiento histórico
+// (descartar en silencio, issue #70): cambiarlo es un cambio de conducta
+// para archivos .slidelang existentes y no le toca a este dialecto
+// decidirlo. Sin este control, "arreglar" el catch-all compartido rompería
+// slidelang sin que nada lo señale.
+func TestStrictParser_SlideDialectStillToleratesUnrecognizedLines(t *testing.T) {
+	_, diags := NewStrictParser("SLIDE content\n  TEXXT\n    whatever\n", util.NewNoop()).Parse()
+	if msgs := errorMessages(diags); len(msgs) > 0 {
+		t.Errorf("the slide dialect's behavior changed (issue #70 is tracked separately): %v", msgs)
+	}
+}
+
 // Una sección declarada sin cuerpo se conserva. Es la divergencia
 // deliberada con flex, que descarta un `#` sin elementos: acá el autor la
 // escribió a propósito.

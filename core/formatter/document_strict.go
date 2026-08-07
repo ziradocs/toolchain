@@ -46,7 +46,7 @@ func FormatDocumentStrict(doc *ast.AST) (string, error) {
 		if title == "" {
 			title = block.Title
 		}
-		if err := checkQuotable("content_block", "title", title); err != nil {
+		if err := checkSectionTitle("content_block", title); err != nil {
 			return "", err
 		}
 
@@ -59,7 +59,7 @@ func FormatDocumentStrict(doc *ast.AST) (string, error) {
 		for _, el := range block.Elements {
 			heading, isHeading := asDocumentHeading(el)
 			if isHeading {
-				if err := checkQuotable("text", "heading", heading.text); err != nil {
+				if err := checkSectionTitle("text", heading.text); err != nil {
 					return "", err
 				}
 				b.WriteString("\n")
@@ -84,6 +84,33 @@ func FormatDocumentStrict(doc *ast.AST) (string, error) {
 	}
 
 	return b.String(), nil
+}
+
+// checkSectionTitle valida el título de un SECTION, que NO usa la guarda
+// genérica checkQuotable.
+//
+// checkQuotable prohíbe la comilla doble porque los lectores de campos
+// entrecomillados del dialecto (las properties de un SLIDE, IMAGE, TABLE…)
+// cierran el valor en la PRÓXIMA comilla y truncarían el resto. El título de
+// un SECTION no se lee así: parseSectionHeader corta en la ÚLTIMA comilla de
+// la línea, precisamente para que un título con comillas adentro sobreviva
+// sin necesitar escapes. Aplicarle la guarda genérica rechazaba al formatear
+// títulos que el parser acepta y conserva —`SECTION "El informe "final""`—,
+// es decir, rompía el round-trip en un caso que el propio parser tiene
+// testeado.
+//
+// Lo que sí es irrepresentable es un salto de línea: un SECTION vive en una
+// sola línea, así que un título multilínea produciría texto que no
+// re-parsea. Es inalcanzable desde cualquier parser (ambos dialectos leen el
+// título de una línea), pero un AST construido a mano o modificado por un
+// filtro externo sí puede traerlo.
+func checkSectionTitle(nodeType, title string) error {
+	if strings.ContainsAny(title, "\n\r") {
+		return newUnsupported(nodeType, fmt.Sprintf(
+			"el título de un %s no puede contener saltos de línea (%q): la sintaxis lo declara en una sola línea",
+			"SECTION", title))
+	}
+	return nil
 }
 
 // documentHeadingRe extrae nivel, id y texto interno de un

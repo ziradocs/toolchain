@@ -206,7 +206,7 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 		default:
 			p.addError(fmt.Sprintf("Unknown content block property: %s. Check DSL Strict syntax documentation.", key))
 		}
-	}, nil)
+	}, nil, nil)
 
 	return block
 }
@@ -225,7 +225,22 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 // indentado por error desaparecería del documento sin un solo diagnóstico.
 // Cortar acá deja que el bucle de nivel superior la vea y la reporte con el
 // error que corresponde.
-func (p *strictBody) parseIndentedElements(block *ast.ContentBlock, handleProperty func(key, value string), stopAt func(trimmed string) bool) {
+//
+// onUnrecognized, si no es nil, recibe toda línea que el despacho no supo
+// reconocer. Con nil se conserva el comportamiento histórico —descartarla en
+// silencio— que es lo que hace hoy el dialecto de presentaciones y que
+// issue #70 tiene abierto como bug; cambiarlo ahí es un cambio de
+// comportamiento para archivos .slidelang existentes y no corresponde a este
+// dialecto decidirlo. El dialecto documental sí lo pasa: "declarado, nunca
+// reinterpretado" es incompatible con perder contenido sin avisar, y un
+// `TEXXT` mal tecleado no puede terminar en un build exitoso que borró el
+// párrafo de abajo.
+func (p *strictBody) parseIndentedElements(
+	block *ast.ContentBlock,
+	handleProperty func(key, value string),
+	stopAt func(trimmed string) bool,
+	onUnrecognized func(trimmed string),
+) {
 	for p.currentLine < len(p.lines) {
 		// Issue #45 (fuzzing): guarda genérica de forward-progress, igual a
 		// la de flex.go/document_flex.go. Los 2 hangs que encontró el fuzzer
@@ -377,6 +392,9 @@ func (p *strictBody) parseIndentedElements(block *ast.ContentBlock, handleProper
 			}
 		} else {
 			p.logger.Debug("PARSE", "No matching element pattern for line %d: '%s'", p.currentLine, trimmedLine)
+			if onUnrecognized != nil {
+				onUnrecognized(trimmedLine)
+			}
 			p.currentLine++
 		}
 
