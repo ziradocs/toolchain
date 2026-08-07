@@ -66,6 +66,57 @@ identifier ::= LETTER (LETTER | DIGIT | "_")*
 value      ::= STRING | NUMBER | BOOLEAN
 ```
 
+### Document Strict Mode Grammar
+
+The grammar above describes *presentations*, whose unit is the slide. A **document**
+(`.doclang`) in strict mode has the same element vocabulary and the same indentation rule,
+but its unit is the **section**:
+
+```ebnf
+document     ::= frontmatter? section+
+section      ::= "SECTION" quoted_string NEWLINE INDENT section_property* element* DEDENT
+section_property ::= ("level" ":" level_value | "id" ":" identifier)
+level_value  ::= "1" | "2" | "3" | "4" | "5" | "6"
+
+quoted_string ::= '"' character* '"'
+```
+
+Differences from the presentation grammar, all deliberate:
+
+- **The title is part of the opening line** and must be quoted (`SECTION "Introduction"`),
+  rather than being a `title:`/`heading:` property. A section has exactly one title, so
+  giving it two possible homes would create two sources of truth. The `title`, `heading`,
+  `subtitle` and `logo` properties are SLIDE-only and are rejected inside a `SECTION`.
+- **Properties are never inline.** `SECTION "Intro" level: 2` is an error; properties go on
+  indented lines below the opening line, exactly as in a `SLIDE`.
+- **`level:` declares the hierarchy, indentation does not.** Sections are never nested
+  syntactically; a `SECTION` indented under another one is an error, not a subsection.
+- **`id:` is only accepted on levels 2-6.** It overrides the anchor that would otherwise be
+  derived from the section's title, so a reference survives a title change. A level-1 section
+  maps to a `ContentBlock`, which has no id field in the AST, so accepting one there would
+  be accepting-and-ignoring. The value is **normalized to anchor form** — lowercased, spaces
+  to hyphens, then narrowed to `[a-z0-9_-]` — and that normalized form is canonical: it is
+  the only form stored in the AST, so it is also what a formatter emits. The normalization
+  is idempotent, which is what makes that round-trip stable. An `id:` with no surviving
+  characters (say, only emoji) is an error rather than an empty anchor.
+- `numbered:` and `pagebreak:`, which appeared in early design sketches of this dialect, are
+  **not** part of the grammar: no renderer implements per-section numbering or page breaks,
+  and a property that parses but does nothing is worse than one that errors.
+
+**AST shape.** A level-1 `SECTION` opens a `ContentBlock` — the first one is the document's
+`title` block (its text lands in `Heading`), the rest are `content` blocks (text in `Title`),
+the same positional rule the flex dialect uses. Levels 2-6 are **not** blocks: they become
+`<hN id="…">` heading elements inside the currently open block, carrying their depth in
+`TextElement.Level`. This mirrors what `#`/`##` produce in flex, which is what lets the
+document renderer, the TOC generator and the transform stages (`xref`, numbering) consume
+either dialect without a single per-dialect branch.
+
+Unlike flex — where a `#` with no content is treated as stray Markdown and dropped — a
+declared `SECTION` is always kept, empty or not. The author wrote it on purpose.
+
+**Normalization never runs on a strict document**, in either dialect. That is the property
+the mode exists to provide: what you read is what gets parsed.
+
 ### Flex Mode Grammar
 
 Flex mode extends CommonMark Markdown with SlideLang-specific elements:

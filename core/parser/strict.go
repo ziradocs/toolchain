@@ -13,13 +13,26 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// StrictParser es un parser simple para modo Strict (versión inicial)
-type StrictParser struct {
-	content     string
+// strictBody es el estado de escaneo que comparten los dos parsers del
+// dialecto strict: el de presentaciones (StrictParser, bloques SLIDE) y el
+// de documentos (DocumentStrictParser, bloques SECTION).
+//
+// Los dos difieren solo en qué abre un bloque y qué propiedades acepta ese
+// bloque; el CUERPO —los elementos indentados— es la misma gramática, y
+// este tipo es lo que evita duplicarla. Duplicarla sería especialmente caro
+// acá: el despacho de elementos acumuló guardas de forward-progress a raíz
+// de hangs encontrados fuzzeando el parser (issues #45/#155), y una copia
+// paralela las perdería en cuanto una de las dos derivara.
+type strictBody struct {
 	lines       []string
 	currentLine int
 	diagnostics []diagnostics.Diagnostic
 	logger      util.Logger
+}
+
+// StrictParser es un parser simple para modo Strict (versión inicial)
+type StrictParser struct {
+	strictBody
 }
 
 // NewStrictParser crea un parser en modo strict. Los callers de librería
@@ -37,10 +50,10 @@ func NewStrictParser(input string, log util.Logger) *StrictParser {
 	if log == nil {
 		log = util.NewNoop()
 	}
-	return &StrictParser{
-		content: input,
-		lines:   strings.Split(input, "\n"),
-		logger:  log}
+	return &StrictParser{strictBody{
+		lines:  strings.Split(input, "\n"),
+		logger: log,
+	}}
 }
 
 func (p *StrictParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
@@ -180,7 +193,54 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 	block := ast.NewContentBlock(pos, blockType)
 	p.currentLine++
 
-	// Parsear contenido del bloque (elementos indentados)
+	p.parseIndentedElements(block, func(key, value string) {
+		switch key {
+		case "title":
+			block.Title = value
+		case "heading":
+			block.Heading = value
+		case "subtitle":
+			block.Subtitle = value
+		case "logo":
+			block.Logo = value
+		default:
+			p.addError(fmt.Sprintf("Unknown content block property: %s. Check DSL Strict syntax documentation.", key))
+		}
+	}, nil, nil)
+
+	return block
+}
+
+// parseIndentedElements consume el cuerpo indentado de un bloque strict
+// —propiedades `clave: valor` y elementos— hasta la primera línea no vacía
+// sin indentar, que pertenece ya al siguiente bloque y NO se consume.
+//
+// handleProperty recibe cada línea que parseBlockPropertyLine reconoce como
+// propiedad; es lo único que varía entre SLIDE (title/heading/subtitle/logo)
+// y SECTION (level/id), y por eso es un callback y no un switch acá.
+//
+// stopAt, si no es nil, corta el cuerpo ante una línea INDENTADA que el
+// caller reconoce como apertura de otro bloque. Sin él, esa línea caería al
+// catch-all del despacho, que la descarta en silencio: un `SECTION`
+// indentado por error desaparecería del documento sin un solo diagnóstico.
+// Cortar acá deja que el bucle de nivel superior la vea y la reporte con el
+// error que corresponde.
+//
+// onUnrecognized, si no es nil, recibe toda línea que el despacho no supo
+// reconocer. Con nil se conserva el comportamiento histórico —descartarla en
+// silencio— que es lo que hace hoy el dialecto de presentaciones y que
+// issue #70 tiene abierto como bug; cambiarlo ahí es un cambio de
+// comportamiento para archivos .slidelang existentes y no corresponde a este
+// dialecto decidirlo. El dialecto documental sí lo pasa: "declarado, nunca
+// reinterpretado" es incompatible con perder contenido sin avisar, y un
+// `TEXXT` mal tecleado no puede terminar en un build exitoso que borró el
+// párrafo de abajo.
+func (p *strictBody) parseIndentedElements(
+	block *ast.ContentBlock,
+	handleProperty func(key, value string),
+	stopAt func(trimmed string) bool,
+	onUnrecognized func(trimmed string),
+) {
 	for p.currentLine < len(p.lines) {
 		// Issue #45 (fuzzing): guarda genérica de forward-progress, igual a
 		// la de flex.go/document_flex.go. Los 2 hangs que encontró el fuzzer
@@ -202,20 +262,12 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 		if trimmedLine == "" {
 			p.currentLine++
 			continue
+		}
+		if stopAt != nil && stopAt(trimmedLine) {
+			break
 		} // Parsear propiedades del bloque
 		if key, value, ok := parseBlockPropertyLine(trimmedLine); ok {
-			switch key {
-			case "title":
-				block.Title = value
-			case "heading":
-				block.Heading = value
-			case "subtitle":
-				block.Subtitle = value
-			case "logo":
-				block.Logo = value
-			default:
-				p.addError(fmt.Sprintf("Unknown content block property: %s. Check DSL Strict syntax documentation.", key))
-			}
+			handleProperty(key, value)
 			p.currentLine++
 			continue
 		} // Parsear elementos
@@ -340,6 +392,9 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 			}
 		} else {
 			p.logger.Debug("PARSE", "No matching element pattern for line %d: '%s'", p.currentLine, trimmedLine)
+			if onUnrecognized != nil {
+				onUnrecognized(trimmedLine)
+			}
 			p.currentLine++
 		}
 
@@ -347,11 +402,9 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 			p.currentLine++
 		}
 	}
-
-	return block
 }
 
-func (p *StrictParser) parseTextElement() ast.Element {
+func (p *strictBody) parseTextElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -378,7 +431,7 @@ func (p *StrictParser) parseTextElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parsePointsElement() ast.Element {
+func (p *strictBody) parsePointsElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -403,7 +456,7 @@ func (p *StrictParser) parsePointsElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseCodeElement() ast.Element {
+func (p *strictBody) parseCodeElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -428,7 +481,7 @@ func (p *StrictParser) parseCodeElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseImageElement() ast.Element {
+func (p *strictBody) parseImageElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -453,19 +506,27 @@ func (p *StrictParser) parseImageElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) addError(msg string) {
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+func (p *strictBody) addError(msg string) {
+	p.addErrorAt(p.currentLine, msg)
+}
+
+// addErrorAt ancla el error en una línea concreta (índice 0-based), para los
+// diagnósticos que se detectan cuando p.currentLine ya avanzó más allá de la
+// línea culpable — el parser de documentos, por ejemplo, valida las
+// propiedades de una sección recién después de consumir todo su cuerpo.
+func (p *strictBody) addErrorAt(lineIndex int, msg string) {
+	pos := diagnostics.NewPosition(lineIndex+1, 1)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewError(msg, pos, "parser"))
 }
 
-func (p *StrictParser) addWarning(msg string) {
+func (p *strictBody) addWarning(msg string) {
 	pos := diagnostics.NewPosition(p.currentLine+1, 1)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "parser"))
 }
 
-func (p *StrictParser) parseTableElement() ast.Element {
+func (p *strictBody) parseTableElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -490,7 +551,7 @@ func (p *StrictParser) parseTableElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseQuoteElement() ast.Element {
+func (p *strictBody) parseQuoteElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -515,7 +576,7 @@ func (p *StrictParser) parseQuoteElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseChecklistElement() ast.Element {
+func (p *strictBody) parseChecklistElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -540,7 +601,7 @@ func (p *StrictParser) parseChecklistElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseSpecialBlockElement() ast.Element {
+func (p *strictBody) parseSpecialBlockElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -565,7 +626,7 @@ func (p *StrictParser) parseSpecialBlockElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseCodeGroupElement() ast.Element {
+func (p *strictBody) parseCodeGroupElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -590,7 +651,7 @@ func (p *StrictParser) parseCodeGroupElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseMermaidElement() ast.Element {
+func (p *strictBody) parseMermaidElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -615,7 +676,7 @@ func (p *StrictParser) parseMermaidElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseMathElement() ast.Element {
+func (p *strictBody) parseMathElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -640,7 +701,7 @@ func (p *StrictParser) parseMathElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parsePlantUMLElement() ast.Element {
+func (p *strictBody) parsePlantUMLElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -665,7 +726,7 @@ func (p *StrictParser) parsePlantUMLElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseChartElement() ast.Element {
+func (p *strictBody) parseChartElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -690,7 +751,7 @@ func (p *StrictParser) parseChartElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseMediaElement() ast.Element {
+func (p *strictBody) parseMediaElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -715,7 +776,7 @@ func (p *StrictParser) parseMediaElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseGridElement() ast.Element {
+func (p *strictBody) parseGridElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -740,7 +801,7 @@ func (p *StrictParser) parseGridElement() ast.Element {
 	return result.Element
 }
 
-func (p *StrictParser) parseMapElement() ast.Element {
+func (p *strictBody) parseMapElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -766,7 +827,7 @@ func (p *StrictParser) parseMapElement() ast.Element {
 }
 
 // parseMarkdownTableElement parsea tablas en formato markdown
-func (p *StrictParser) parseMarkdownTableElement() ast.Element {
+func (p *strictBody) parseMarkdownTableElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}
@@ -875,7 +936,7 @@ func (p *StrictParser) parseMarkdownTableElement() ast.Element {
 	return table
 }
 
-func (p *StrictParser) parseDirectiveElement() ast.Element {
+func (p *strictBody) parseDirectiveElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
 	}

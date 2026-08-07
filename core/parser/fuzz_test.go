@@ -71,6 +71,25 @@ mode: flex-full
 <<end>>
 `
 
+const fuzzSeedDocumentStrict = `---
+mode: strict
+title: Fuzz Seed Document Strict
+---
+
+SECTION "Introducción"
+
+  TEXT
+    Contenido de prueba.
+
+SECTION "Detalle"
+  level: 2
+  id: detalle
+
+  POINTS
+    - uno
+    - dos
+`
+
 func fuzzSeeds() []string {
 	return []string{
 		"",
@@ -78,6 +97,7 @@ func fuzzSeeds() []string {
 		"---\n---",
 		fuzzSeedFrontMatter,
 		fuzzSeedStrict,
+		fuzzSeedDocumentStrict,
 		fuzzSeedNoFrontMatter,
 		fuzzSeedMalformedYAML,
 		fuzzSeedUnicodeAndSpecials,
@@ -142,5 +162,34 @@ func FuzzDocumentFlexParse(f *testing.F) {
 
 		pAI := NewDocumentFlexParserWithNormalization(content, logger)
 		pAI.Parse()
+	})
+}
+
+// FuzzDocumentStrictParse cubre el dialecto strict documental (bloques
+// SECTION). Comparte el despacho de elementos con FuzzStrictParse, pero su
+// bucle de nivel superior y su manejo de propiedades son propios — y es ahí,
+// en las ramas que deciden si una línea abre un bloque, donde vivieron los
+// hangs de forward-progress que motivaron estos targets (issues #45/#155).
+func FuzzDocumentStrictParse(f *testing.F) {
+	for _, s := range fuzzSeeds() {
+		f.Add(s)
+	}
+	logger := util.NewNoop()
+	f.Fuzz(func(t *testing.T, content string) {
+		p := NewDocumentStrictParser(content, logger)
+		p.Parse()
+	})
+}
+
+// FuzzParseDocument cubre el embudo real de doclang: el despacho por modo,
+// normalizador incluido.
+func FuzzParseDocument(f *testing.F) {
+	for _, s := range fuzzSeeds() {
+		f.Add(s)
+	}
+	logger := util.NewNoop()
+	f.Fuzz(func(t *testing.T, content string) {
+		p := New(logger)
+		p.ParseDocument(content, "fuzz.doclang")
 	})
 }

@@ -4,7 +4,6 @@
 package parser
 
 import (
-	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -12,7 +11,6 @@ import (
 	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/internal/normalize"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
-	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -119,20 +117,27 @@ func (p *DocumentFlexParser) parseFrontMatter(astNode *ast.AST) {
 		return
 	}
 
+	lines, fmDiagnostics := parseDocumentFrontMatter(p.input, astNode)
+	p.diagnostics = append(p.diagnostics, fmDiagnostics...)
+	p.lines = lines
+	p.currentLine = 0
+}
+
+// parseDocumentFrontMatter parsea el frontmatter de input, lo cuelga de
+// astNode y devuelve las líneas del CUERPO (ya sin frontmatter) junto con
+// sus diagnósticos. Compartida por los dos dialectos documentales para que
+// ambos traten el frontmatter idéntico: mismas validaciones (FRONT001/002)
+// y, sobre todo, mismo re-encuadre de las líneas, que es lo que hace que
+// las posiciones de los diagnósticos del cuerpo sean relativas al cuerpo.
+func parseDocumentFrontMatter(input string, astNode *ast.AST) ([]string, []diagnostics.Diagnostic) {
 	// Use the proper FrontMatterParser to parse all YAML fields including Theme
 	fmParser := &FrontMatterParser{}
-	frontMatter, remainingContent, fmDiagnostics := fmParser.Parse(p.input)
-
-	// Append frontmatter diagnostics to our diagnostics
-	p.diagnostics = append(p.diagnostics, fmDiagnostics...)
+	frontMatter, remainingContent, fmDiagnostics := fmParser.Parse(input)
 
 	// Set the parsed frontmatter in the AST
 	astNode.FrontMatter = frontMatter
 
-	// Update our state to use the remaining content (without frontmatter)
-	// This ensures p.lines and p.currentLine are aligned
-	p.lines = strings.Split(remainingContent, "\n")
-	p.currentLine = 0
+	return strings.Split(remainingContent, "\n"), fmDiagnostics
 }
 
 // parseSection parsea una sección del documento (equivalente a un "slide" en el AST)
@@ -315,7 +320,9 @@ func (p *DocumentFlexParser) isSubsectionHeader(line string) bool {
 	return false
 }
 
-// parseSubsectionHeader convierte ##, ###, etc. en TextElement con HTML
+// parseSubsectionHeader convierte ##, ###, etc. en TextElement con HTML.
+// El armado del elemento vive en buildHeadingElement, compartido con el
+// dialecto strict; acá solo se cuenta el nivel a partir de los `#`.
 func (p *DocumentFlexParser) parseSubsectionHeader(line string) ast.Element {
 	// Contar cuántos # tiene
 	level := 0
@@ -323,67 +330,12 @@ func (p *DocumentFlexParser) parseSubsectionHeader(line string) ast.Element {
 		level++
 	}
 
-	// Limitar a H6 como máximo
-	if level > 6 {
-		level = 6
-	}
-
 	// Extraer el texto del header
 	text := strings.TrimSpace(line[level:])
 
-	// Procesar Markdown inline básico (**, *, `, etc.) de forma segura:
-	// escapa el HTML del texto y aplica formatos con un procesador de un
-	// solo paso (RE2, lineal) — evita el DoS de bucle infinito del antiguo
-	// scanner hand-written y cierra el XSS de subsección en el mismo golpe
-	// (ver docs/SECURITY_AUDIT_2026-07.md, AL-3 y CR-2).
-	// Se usa la variante "Line" (no la ProcessInlineMarkdownSecure genérica):
-	// un header es una sola línea y nunca debe interpretarse como lista
-	// ("- Foo" no debe volverse <ul><li>Foo</li></ul> dentro de un <h3>).
-	processedText := renderer.ProcessInlineMarkdownSecureLine(text)
-
-	// Generar ID para el anchor (mismo algoritmo que en el renderer)
-	// Usar el texto original (sin HTML) para el anchor
-	anchor := strings.ToLower(strings.ReplaceAll(text, " ", "-"))
-	anchor = p.sanitizeAnchor(anchor)
-
-	// Crear elemento de texto con HTML incluyendo el id
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
-	htmlContent := fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", level, anchor, processedText, level)
-
-	// Expose the level as a semantic field alongside the rendered `<hN>`, so
-	// a linter rule doesn't have to re-parse the HTML (issue #22).
-	el := ast.NewRawHTMLTextElement(pos, htmlContent)
-	el.Level = level
-	return el
-}
-
-// sanitizeAnchor limpia un anchor para usarlo en href/id
-func (p *DocumentFlexParser) sanitizeAnchor(anchor string) string {
-	anchor = strings.ReplaceAll(anchor, ".", "")
-	anchor = strings.ReplaceAll(anchor, ",", "")
-	anchor = strings.ReplaceAll(anchor, ":", "")
-	anchor = strings.ReplaceAll(anchor, ";", "")
-	anchor = strings.ReplaceAll(anchor, "!", "")
-	anchor = strings.ReplaceAll(anchor, "?", "")
-	anchor = strings.ReplaceAll(anchor, "(", "")
-	anchor = strings.ReplaceAll(anchor, ")", "")
-	anchor = strings.ReplaceAll(anchor, "[", "")
-	anchor = strings.ReplaceAll(anchor, "]", "")
-	anchor = strings.ReplaceAll(anchor, "{", "")
-	anchor = strings.ReplaceAll(anchor, "}", "")
-	anchor = strings.ReplaceAll(anchor, "/", "")
-	anchor = strings.ReplaceAll(anchor, "\\", "")
-	anchor = strings.ReplaceAll(anchor, "'", "")
-	anchor = strings.ReplaceAll(anchor, "\"", "")
-	anchor = strings.ReplaceAll(anchor, "`", "")
-	// Eliminar emojis y caracteres especiales (mantener solo letras, números, guiones)
-	var cleaned strings.Builder
-	for _, r := range anchor {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			cleaned.WriteRune(r)
-		}
-	}
-	return cleaned.String()
+	// En flex el anchor siempre se deriva del texto: no hay sintaxis para
+	// declarar un id (a diferencia de `SECTION … / id:` en strict).
+	return buildHeadingElement(text, level, p.currentLine, "")
 }
 
 // addError añade un error diagnóstico

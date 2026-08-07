@@ -1302,7 +1302,7 @@ func generateDocumentTOC(doc *ast.AST, opts DocumentHTMLOptions, variables map[s
 		if title != "" {
 			titleProcessed := ProcessVariables(title, variables)
 			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
-			anchor = sanitizeAnchor(anchor)
+			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
 
 			if opts.Numbering {
@@ -1463,7 +1463,7 @@ func extractSubsections(slide ast.ContentBlock, maxDepth int, variables map[stri
 					if anchor == "" {
 						anchorText := stripHTML(titleProcessed)
 						anchor = strings.ToLower(strings.ReplaceAll(anchorText, " ", "-"))
-						anchor = sanitizeAnchor(anchor)
+						anchor = SanitizeAnchor(anchor)
 					}
 
 					subsections = append(subsections, Subsection{
@@ -1513,8 +1513,27 @@ func stripHTML(html string) string {
 	return cleaned.String()
 }
 
-// sanitizeAnchor limpia un anchor para usarlo en href
-func sanitizeAnchor(anchor string) string {
+// DeriveAnchor convierte un texto de encabezado en su anchor: minúsculas,
+// espacios a guiones y saneado. Es el algoritmo ÚNICO de derivación de
+// anchors del toolchain — lo usan el renderer (para los enlaces del TOC), el
+// parser (para el `id` que embebe en cada `<hN>`) y el formatter (para
+// decidir si un `id:` declarado es derivable del título o hay que
+// re-emitirlo). Vivían tres copias idénticas de esto en tres paquetes; que
+// el round-trip funcione depende de que sean el mismo algoritmo, así que
+// ahora lo son por construcción y no por coincidencia.
+func DeriveAnchor(text string) string {
+	return SanitizeAnchor(strings.ToLower(strings.ReplaceAll(text, " ", "-")))
+}
+
+// SanitizeAnchor limpia un anchor para usarlo en href/id.
+//
+// La lista de ReplaceAll es cosmética (quita puntuación que el filtro final
+// borraría igual); lo que hace segura a esta función es el bucle del final,
+// que construye la salida con una LISTA BLANCA de [a-z0-9_-]. Ningún
+// carácter capaz de escapar del atributo HTML donde se interpola el anchor
+// —comillas, `<`, `>`— sobrevive. Por eso un id provisto por el autor puede
+// pasar por acá sin abrir una inyección.
+func SanitizeAnchor(anchor string) string {
 	anchor = strings.ReplaceAll(anchor, ".", "")
 	anchor = strings.ReplaceAll(anchor, ",", "")
 	anchor = strings.ReplaceAll(anchor, ":", "")
@@ -1556,7 +1575,7 @@ func addIDsToHeaders(html string) string {
 		content = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(content, "")
 		// Generar ID
 		id := strings.ToLower(strings.ReplaceAll(content, " ", "-"))
-		id = sanitizeAnchor(id)
+		id = SanitizeAnchor(id)
 		return fmt.Sprintf(`<h2 id="%s">%s</h2>`, id, h2Regex.FindStringSubmatch(match)[1])
 	})
 
@@ -1568,7 +1587,7 @@ func addIDsToHeaders(html string) string {
 		content = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(content, "")
 		// Generar ID
 		id := strings.ToLower(strings.ReplaceAll(content, " ", "-"))
-		id = sanitizeAnchor(id)
+		id = SanitizeAnchor(id)
 		return fmt.Sprintf(`<h3 id="%s">%s</h3>`, id, h3Regex.FindStringSubmatch(match)[1])
 	})
 
@@ -1602,7 +1621,7 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 		if title != "" {
 			titleProcessed := ProcessVariables(title, variables)
 			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
-			anchor = sanitizeAnchor(anchor)
+			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
 
 			if opts.Numbering {
@@ -1671,7 +1690,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 		if title != "" {
 			titleProcessed := ProcessVariables(title, variables)
 			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
-			anchor = sanitizeAnchor(anchor)
+			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
 
 			if opts.Numbering {
@@ -1807,7 +1826,7 @@ func generateViewerSidebar(doc *ast.AST, opts DocumentHTMLOptions, variables map
 		if title != "" {
 			titleProcessed := ProcessVariables(title, variables)
 			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
-			anchor = sanitizeAnchor(anchor)
+			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
 
 			if opts.Numbering {

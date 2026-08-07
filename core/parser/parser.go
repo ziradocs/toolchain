@@ -65,6 +65,104 @@ func (p *Parser) EnableAIProcessing() {
 	p.SetNormalization(true)
 }
 
+// ParseDocument parsea un DOCUMENTO (`.doclang`) despachando por el `mode:`
+// del frontmatter, y es el espejo documental de Parse: mismas tres fases
+// —leer el modo, normalizar salvo en strict, elegir parser— pero sobre la
+// familia de parsers cuya unidad es la SECCIÓN, no la diapositiva.
+//
+// Modos:
+//   - "strict"                     → DocumentStrictParser, sin normalizar nunca.
+//   - "flex", "flex-full", "auto"  → DocumentFlexParser. En documentos son
+//     sinónimos: hay una sola gramática flex, y "auto" no tiene nada que
+//     autodetectar (a diferencia de las presentaciones, donde elige entre
+//     dos parsers distintos).
+//   - sin frontmatter, o frontmatter ilegible → flex, que es lo que un
+//     `.doclang` sin declarar siempre significó.
+//
+// El modo se lee del contenido ORIGINAL y solo se usa para despachar: es el
+// parser elegido quien vuelve a parsear el frontmatter y lo cuelga del AST.
+// Esa duplicación es deliberada — evita emitir dos veces los diagnósticos
+// del frontmatter, y deja intacto que un documento SIN frontmatter reciba
+// el que le inyecta el normalizador (regla InjectionRule, `mode: flex-full`),
+// como venía pasando.
+//
+// La normalización queda gobernada por SetNormalization (activa por defecto,
+// igual que en Parse), salvo en strict, donde no corre en ningún caso: un
+// documento que declara el dialecto auditable no puede ser reescrito antes
+// de leerse.
+func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
+	var allDiagnostics []diagnostics.Diagnostic
+
+	// FASE 1: leer el modo (solo para despachar; ver el doc comment).
+	mode := peekDocumentMode(content)
+
+	// FASE 2: normalización, nunca en strict.
+	processedContent := content
+	if p.enableNormalize && mode != "strict" {
+		detector := normalizer.NewDetector()
+		detectionResult := detector.Detect(content)
+		p.lastDetectionResult = &detectionResult
+
+		if detectionResult.Detected {
+			p.logger.Info("NORMALIZE", "🔍 Detectado contenido AI (score: %.2f, %d patrones)",
+				detectionResult.Score, len(detectionResult.Patterns))
+			for i, pattern := range detectionResult.Patterns {
+				p.logger.Debug("NORMALIZE", "  [%d] %s (confianza: %.2f, línea: %d): %s",
+					i+1, pattern.Type, pattern.Confidence, pattern.Line, pattern.Description)
+			}
+		}
+
+		processed, report := normalize.ProcessWithDetection(content, detectionResult, p.logger)
+		if report.WasModified {
+			rulesApplied := len(report.GetTransformationsApplied())
+			changeBytes := len(processed) - len(content)
+			p.logger.Info("NORMALIZE", "Normalización aplicada → %d reglas, %+d bytes", rulesApplied, changeBytes)
+			for i, rule := range report.GetTransformationsApplied() {
+				p.logger.Debug("NORMALIZE", "  [%d] %s", i+1, rule)
+			}
+			processedContent = processed
+		}
+
+		if report.HasErrors() {
+			for _, errMsg := range report.GetErrors() {
+				allDiagnostics = append(allDiagnostics,
+					diagnostics.NewError(errMsg, diagnostics.NewPosition(1, 1), "preprocessor"))
+			}
+		}
+	}
+
+	// FASE 3: despachar.
+	var astNode *ast.AST
+	var bodyDiagnostics []diagnostics.Diagnostic
+
+	if mode == "strict" {
+		astNode, bodyDiagnostics = NewDocumentStrictParser(processedContent, p.logger).Parse()
+	} else {
+		astNode, bodyDiagnostics = NewDocumentFlexParser(processedContent, p.logger).Parse()
+	}
+
+	if astNode != nil && filePath != "" {
+		astNode.FilePath = filePath
+	}
+
+	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
+	return astNode, allDiagnostics
+}
+
+// peekDocumentMode devuelve el `mode:` declarado en content, o "" si no hay
+// frontmatter o no se puede leer. DESCARTA los diagnósticos a propósito: el
+// parser que se elija va a re-parsear el mismo frontmatter y emitirlos él,
+// así que quedárselos acá los duplicaría. Un frontmatter roto cae a "" y de
+// ahí al parser flex, que es quien reporta el error — el mismo que se
+// reportaba antes de que existiera este despacho.
+func peekDocumentMode(content string) string {
+	fm, _, _ := (&FrontMatterParser{}).Parse(content)
+	if fm == nil {
+		return ""
+	}
+	return fm.Mode
+}
+
 func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
 
