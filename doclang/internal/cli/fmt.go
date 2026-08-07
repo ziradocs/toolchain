@@ -13,6 +13,7 @@ import (
 	"go.ziradocs.com/core/v2/formatter"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/doclang/v2/internal/modecheck"
 )
 
 type fmtOptions struct {
@@ -33,7 +34,8 @@ Markdown estándar, y los bloques especiales (:::, <<mermaid>>, <<chart:...>>,
 <<map>>, @directivas) tal cual.
 
 DocLang no tiene un modo strict separado — siempre usa el mismo dialecto
-flex — así que fmt no necesita una bandera de dialecto. La salida es
+flex — así que fmt no necesita una bandera de dialecto: un archivo que
+declara 'mode: strict' se rechaza en vez de transpilarse. La salida es
 determinista e idempotente: formatear el mismo documento dos veces produce
 texto byte-idéntico.
 
@@ -72,6 +74,10 @@ func runFmt(opts *fmtOptions) error {
 	}); err != nil {
 		return err
 	}
+	// Un documento que declara `mode: strict` no se formatea: FormatDocument
+	// emite flex, así que "formatearlo" sería transpilarlo de vuelta al
+	// dialecto que el autor declaró NO querer (ver internal/modecheck).
+	diags = append(diags, modecheck.CheckAST(doc)...)
 	for _, d := range diags {
 		if d.IsError() {
 			return fmt.Errorf("fmt: el archivo tiene errores de parseo, corrígelos antes de formatear:\n%s", d.String())

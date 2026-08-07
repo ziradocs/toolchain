@@ -22,6 +22,7 @@ import (
 	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/core/v2/xref"
 	"go.ziradocs.com/doclang/v2/internal/generator"
+	"go.ziradocs.com/doclang/v2/internal/modecheck"
 	"go.ziradocs.com/doclang/v2/themes/document" // 🆕 Theme system
 )
 
@@ -165,6 +166,12 @@ Examples:
 			}); err != nil {
 				return err
 			}
+			// `mode: strict` no es construible en DocLang (ver
+			// internal/modecheck): se rechaza acá, antes del transform y del
+			// lint, para que el build falle en vez de reinterpretar el
+			// documento como flex en silencio.
+			diagnostics = append(diagnostics, modecheck.CheckAST(doc)...)
+
 			// Check for errors in diagnostics; print warnings too (e.g. CHART002
 			// for malformed chart JSON).
 			hasErrors := false

@@ -20,6 +20,7 @@ import (
 	"go.ziradocs.com/core/v2/transform"
 	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/core/v2/xref"
+	"go.ziradocs.com/doclang/v2/internal/modecheck"
 )
 
 // maxConcurrentParses acota cuántas llamadas a parseSource pueden estar en
@@ -86,6 +87,12 @@ func parseSource(logger util.Logger, source string) (*ast.AST, []diagnostics.Dia
 	}); err != nil {
 		return nil, nil, err
 	}
+
+	// Mismo rechazo de `mode: strict` que `doclang build`/`doclang fmt` (ver
+	// doclang/internal/modecheck): un agente que reciba el AST de un
+	// documento declarado strict lo recibiría flex-parseado y normalizado,
+	// exactamente la divergencia CLI/MCP que este paquete evita.
+	diags = append(diags, modecheck.CheckAST(astNode)...)
 
 	if astNode == nil || hasErrorDiagnostic(diags) {
 		return astNode, diags, nil
