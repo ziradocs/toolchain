@@ -92,9 +92,13 @@ Differences from the presentation grammar, all deliberate:
 - **`level:` declares the hierarchy, indentation does not.** Sections are never nested
   syntactically; a `SECTION` indented under another one is an error, not a subsection.
 - **`id:` is only accepted on levels 2-6.** It overrides the anchor that would otherwise be
-  derived from the section's title, so a `\ref` survives a title change. A level-1 section
+  derived from the section's title, so a reference survives a title change. A level-1 section
   maps to a `ContentBlock`, which has no id field in the AST, so accepting one there would
-  be accepting-and-ignoring.
+  be accepting-and-ignoring. The value is **normalized to anchor form** — lowercased, spaces
+  to hyphens, then narrowed to `[a-z0-9_-]` — and that normalized form is canonical: it is
+  the only form stored in the AST, so it is also what a formatter emits. The normalization
+  is idempotent, which is what makes that round-trip stable. An `id:` with no surviving
+  characters (say, only emoji) is an error rather than an empty anchor.
 - `numbered:` and `pagebreak:`, which appeared in early design sketches of this dialect, are
   **not** part of the grammar: no renderer implements per-section numbering or page breaks,
   and a property that parses but does nothing is worse than one that errors.

@@ -184,6 +184,31 @@ SECTION "Payload"
 	}
 }
 
+// El `id:` se NORMALIZA a su forma de anchor, y esa forma es la canónica.
+// Importa porque el anchor saneado es lo único que sobrevive en el AST: un
+// `fmt` que reconstruya el documento solo puede emitir esa forma. Que la
+// normalización sea idempotente es lo que hace ese round-trip estable en
+// vez de que el id derive un poco en cada pasada.
+func TestDocumentStrictParser_ExplicitIDIsNormalizedIdempotently(t *testing.T) {
+	const header = "SECTION \"Guide\"\n\n  TEXT\n    Intro.\n\n"
+
+	doc, diags := parseStrictDoc(t, header+"SECTION \"Steps\"\n  level: 2\n  id: Install_Steps\n")
+	assertNoErrors(t, diags)
+
+	heading := doc.ContentBlocks[0].Elements[1].(*ast.TextElement)
+	if want := `<h2 id="install_steps">Steps</h2>`; heading.Content != want {
+		t.Fatalf("got: %s\nwant: %s", heading.Content, want)
+	}
+
+	// Segunda pasada con la forma ya normalizada: mismo anchor. Sin esto,
+	// `fmt` movería el id un poco en cada corrida.
+	again, diags := parseStrictDoc(t, header+"SECTION \"Steps\"\n  level: 2\n  id: install_steps\n")
+	assertNoErrors(t, diags)
+	if got := again.ContentBlocks[0].Elements[1].(*ast.TextElement).Content; got != heading.Content {
+		t.Errorf("id normalization is not idempotent:\nfirst:  %s\nsecond: %s", heading.Content, got)
+	}
+}
+
 // Un id que se sanea hasta quedar vacío no es utilizable como anchor, y
 // dejarlo pasar produciría `id=""` — un `\ref` roto sin explicación.
 func TestDocumentStrictParser_ExplicitIDWithNoUsableCharacters(t *testing.T) {
