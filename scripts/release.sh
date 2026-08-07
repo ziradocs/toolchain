@@ -43,13 +43,26 @@ if [[ -n "$UNPUSHED_WORKFLOWS" ]]; then
   exit 1
 fi
 
+# 4. Verificar que ambos CLIs compilan contra el core PUBLICADO que tienen
+#    pineado en su `require`. goreleaser corre en CI, sin go.work, así que
+#    resuelve ese pin desde el proxy; un go.work local enmascara el problema
+#    por completo (siempre usa el core del árbol, esté taggeado o no). Sin
+#    este check, un pin desactualizado se descubre cuando el release ya falló
+#    a medias — con los 4 tags pusheados y por lo tanto quemados.
+#    Es el mismo check que scripts/bump-core.sh corre en su paso 7; acá es el
+#    cinturón de seguridad para el caso en que el bump nunca se hizo.
+echo "🔎 Verificando GOWORK=off go build en slidelang y doclang..."
+(cd slidelang && GOWORK=off go build ./...)
+(cd doclang && GOWORK=off go build ./...)
+echo "✅ Ambos CLIs compilan contra el core publicado que tienen pineado."
+
 echo "🚀 Todo se ve bien. Creando tags para $VERSION..."
 git tag "$VERSION"
 git tag "core/$VERSION"
 git tag "doclang/$VERSION"
 git tag "slidelang/$VERSION"
 
-# 4. Empujar el tag que dispara el release SOLO, en su propio push.
+# 5. Empujar el tag que dispara el release SOLO, en su propio push.
 #    (Empíricamente: con `git push origin --tags` empujando los 4 tags de
 #    golpe -core/, doclang/, slidelang/ y el global- al mismo commit, GitHub
 #    no dispara `on: push: tags:` de forma confiable -pasó en v2.0.6 y
@@ -62,7 +75,7 @@ git push origin "refs/tags/$VERSION"
 echo "☁️ Empujando los tags de submódulo (core/doclang/slidelang)..."
 git push origin "refs/tags/core/$VERSION" "refs/tags/doclang/$VERSION" "refs/tags/slidelang/$VERSION"
 
-# 5. Confirmar que el workflow realmente arrancó; si no, dispararlo a mano.
+# 6. Confirmar que el workflow realmente arrancó; si no, dispararlo a mano.
 #    Requiere `gh` autenticado (mismo supuesto que el resto del repo).
 if command -v gh >/dev/null 2>&1; then
   echo "🔎 Verificando que el workflow de release haya arrancado..."

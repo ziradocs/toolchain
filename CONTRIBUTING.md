@@ -149,6 +149,28 @@ cd doclang     && go build ./... && go vet ./... && go test ./...
 CI runs the same matrix across all three modules plus `golangci-lint` and `govulncheck` — a PR
 that fails any of these won't be merged.
 
+CI also runs a **`workspace-integration`** job that builds and tests `slidelang`/`doclang` against
+the working-tree `core` (an ephemeral `go work init ./core ./slidelang ./doclang`), because the
+two resolution modes catch opposite failures. The plain matrix resolves the *published* `core` and
+catches "a consumer needs a `core` that isn't released yet"; without the workspace job, a
+`core`-only PR that changes or deletes a symbol the CLIs use merges **green** — the consumers are
+still compiling against the published `core`, which still has the old symbol — and the breakage
+only surfaces during the release dance, after the `core/vX.Y.Z` tag is already pushed and
+effectively permanent.
+
+The practical consequence for a **non-additive** `core` change (changing a signature rather than
+adding one): it can't be merged with its consumer change (the published-`core` matrix fails) or
+without it (the workspace job fails). The way through is the usual one — add the new symbol,
+migrate the consumers, delete the old one, in separate PRs.
+
+Note this is *not* SemVer forcing your hand: `core/doc.go` is explicit that outside `cli.Options`
+and the serialized AST schema, `core`'s Go API carries no SemVer guarantees and may change in
+minor versions. The reason to accept the three-PR sequence is empirical — `core` changes in this
+repo are overwhelmingly additive (seams, new rules, fixes), so the discipline is rarely paid, and
+in exchange `main` stays both installable and internally consistent. If that stops being true,
+the fix is to split `build-test` into core/consumer jobs and let an explicit PR label skip the
+consumer half; there's no reason to build that before it hurts.
+
 ## Where changes go
 
 - Parsing logic → `core/parser/`
