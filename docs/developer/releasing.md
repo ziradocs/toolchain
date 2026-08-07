@@ -21,7 +21,11 @@ Use this when cutting an actual product release — a version users install.
 Guards: requires SemVer starting with `v`, a clean working tree, the tagged major version to
 match the `/vN` suffix in `core/go.mod`, and no unpushed commits touching
 `.github/workflows/` (pushing a workflow change and a release tag together with local
-credentials silently blocks the trigger — this bit the project at `v2.0.4`). If `gh` is
+credentials silently blocks the trigger — this bit the project at `v2.0.4`). It then verifies
+`GOWORK=off go build ./...` in both CLIs *before* creating any tag: goreleaser runs in CI without
+a `go.work`, so it resolves the `core` version each CLI pins in its `require` line, and a local
+`go.work` hides a stale pin completely. Without that check, a stale pin surfaces as a
+half-finished release — with all four tags already pushed, and therefore burned. If `gh` is
 installed, it also verifies the workflow actually started and force-triggers it if the tag push
 didn't.
 
