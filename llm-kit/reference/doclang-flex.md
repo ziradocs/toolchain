@@ -7,10 +7,11 @@ anything — a `mode:` frontmatter key says. If you're used to ZiraDocs's
 three-mode system, drop that mental model for DocLang entirely: there is
 one grammar.
 
-(A `docs/doclang/DOCLANG_SYNTAX_STRICT.md` file exists in the source repo
-describing an aspirational strict syntax — **it is not implemented by the
-parser**. Do not emit that syntax; it will not parse the way that document
-describes.)
+The one thing `mode:` can still do in DocLang is **fail the build**:
+`mode: strict` is rejected with `MODE001`, since strict is a SlideLang
+dialect (`SLIDE` blocks) that no DocLang parser implements. Do not emit a
+strict `.doclang` file, and do not emit the `SECTION`-based syntax that
+older design sketches described — neither parses.
 
 ## Minimal valid file
 
