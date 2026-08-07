@@ -120,6 +120,34 @@ go build -o doclang ./cmd/doclang
 Requirements: Go 1.26.5+. For PDF output and offline diagram/chart/map rendering you also need
 Chrome/Chromium available, or run with `--install-chromium` to have the CLI fetch a pinned build.
 
+### Git hooks (optional)
+
+`.githooks/pre-commit` runs `golangci-lint` over the modules your commit actually touches. It's
+opt-in — enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`core.hooksPath` is resolved relative to the working tree root, so each worktree uses the
+`.githooks/` of the branch it has checked out. Note the flip side: a branch that predates
+`.githooks/` simply runs no hook.
+
+What it does:
+
+- Skips itself, with a pointer to the install docs, when `golangci-lint` isn't on `PATH` — the
+  real gate is CI, and a missing local tool shouldn't block a commit.
+- Lints nothing when no Go module is touched, so a docs-only commit is instant.
+- Lints all three modules when the commit touches `core/` or `.golangci.yml`, since `core` can
+  break its two consumers; otherwise only the consumer module(s) you touched.
+- Builds a throwaway `go.work` covering the checkout's three modules instead of relying on
+  ambient `go.work` discovery. A worktree created *inside* the main checkout would otherwise find
+  the parent's `go.work` — which lists the parent's modules, not the worktree's — and
+  `golangci-lint` fails with `directory prefix . does not contain modules listed in go.work`.
+- Deliberately does **not** use `GOWORK=off`. That resolves the *published* `core` and would
+  block legitimate local commits while a `core` change and its consumer are being developed
+  together. CI's `build-test` job already covers that direction.
+
 ### Running tests
 
 Run tests from inside each module directory — there's no single top-level `go test ./...`:
