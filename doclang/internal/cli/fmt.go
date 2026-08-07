@@ -19,6 +19,11 @@ type fmtOptions struct {
 	inputFile string
 	write     bool
 	check     bool
+	strict    bool
+	// strictSet distingue "no pasó --strict" de "pasó --strict=false", que
+	// significan cosas distintas: preservar el dialecto del documento vs.
+	// pedir explícitamente flex.
+	strictSet bool
 }
 
 // NewFmtCommand crea el comando 'fmt' de doclang.
@@ -27,32 +32,42 @@ func NewFmtCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fmt [file]",
 		Short: "Format a .doclang file to its canonical source form",
-		Long: `Parse a .doclang file and re-emit it in canonical form: "# título"
-por sección, listas/código/imágenes/citas/checklists en su sintaxis
-Markdown estándar, y los bloques especiales (:::, <<mermaid>>, <<chart:...>>,
-<<map>>, @directivas) tal cual.
+		Long: `Parse a .doclang file and re-emit it in canonical form.
 
-DocLang no tiene un modo strict separado — siempre usa el mismo dialecto
-flex — así que fmt no necesita una bandera de dialecto: un archivo que
-declara 'mode: strict' se rechaza en vez de transpilarse. La salida es
-determinista e idempotente: formatear el mismo documento dos veces produce
-texto byte-idéntico.
+Por defecto se PRESERVA el dialecto del documento: uno flex se reescribe en
+flex ("# título" por sección, listas/código/imágenes/citas/checklists en
+sintaxis Markdown estándar) y uno que declara 'mode: strict' se reescribe en
+strict (bloques SECTION declarados). En ambos casos los bloques especiales
+(:::, <<mermaid>>, <<chart:...>>, <<map>>, @directivas) van tal cual, y la
+salida es determinista e idempotente.
+
+--strict fuerza el dialecto strict. Sobre un documento flex eso NO es un
+formateo sino una TRANSPILACIÓN: reescribe el documento a otro dialecto, y
+es la forma de promover un borrador a artefacto auditable. A diferencia de
+'slidelang fmt', acá no es el default — DocLang tiene dos dialectos
+legítimos, y transpilar sin pedirlo reescribiría cada documento flex
+existente.
 
 Examples:
-  # Print the canonical form to stdout
+  # Print the canonical form to stdout, in the document's own dialect
   doclang fmt document.doclang
 
   # Rewrite the file in place
   doclang fmt document.doclang --write
+
+  # Promote a flex draft to the strict dialect (transpiles)
+  doclang fmt draft.doclang --strict --write
 
   # CI check: fail if the file isn't already in canonical form
   doclang fmt document.doclang --check`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.inputFile = args[0]
+			opts.strictSet = cmd.Flags().Changed("strict")
 			return runFmt(opts)
 		},
 	}
+	cmd.Flags().BoolVar(&opts.strict, "strict", false, "Emit the strict dialect; on a flex document this transpiles it (default: keep the document's own dialect)")
 	cmd.Flags().BoolVarP(&opts.write, "write", "w", false, "Write result to the input file instead of stdout")
 	cmd.Flags().BoolVar(&opts.check, "check", false, "Exit with status 1 if the file is not already in canonical form; don't write output")
 	return cmd
@@ -72,29 +87,43 @@ func runFmt(opts *fmtOptions) error {
 	}); err != nil {
 		return err
 	}
-	// Un documento strict SÍ parsea, pero todavía no se puede formatear:
-	// FormatDocument emite el dialecto flex, así que "formatearlo" lo
-	// transpilaría al dialecto contrario al que el autor declaró — una
-	// pérdida irreversible disfrazada de formateo. Se rechaza hasta que
-	// exista el serializador strict documental.
-	if doc != nil && doc.FrontMatter != nil && doc.FrontMatter.Mode == "strict" {
-		return fmt.Errorf("fmt: los documentos en modo strict todavía no se pueden formatear " +
-			"(el formatter emite el dialecto flex, lo que transpilaría el documento en vez de formatearlo)")
-	}
 	for _, d := range diags {
 		if d.IsError() {
 			return fmt.Errorf("fmt: el archivo tiene errores de parseo, corrígelos antes de formatear:\n%s", d.String())
 		}
 	}
 
-	out, err := formatter.FormatDocument(doc)
+	sourceIsStrict := doc != nil && doc.FrontMatter != nil && doc.FrontMatter.Mode == "strict"
+
+	// Sin --strict se preserva el dialecto del documento. Con --strict=false
+	// explícito sobre un documento strict se estaría pidiendo degradarlo a
+	// flex, que descarta la declaración del autor sin forma de recuperarla.
+	targetStrict := sourceIsStrict
+	if opts.strictSet {
+		if !opts.strict && sourceIsStrict {
+			return fmt.Errorf("fmt: --strict=false degradaría %q de strict a flex, descartando el dialecto que declara; "+
+				"si es lo que querés, cambiá `mode:` en el frontmatter a mano", opts.inputFile)
+		}
+		targetStrict = opts.strict
+	}
+
+	var out string
+	if targetStrict {
+		out, err = formatter.FormatDocumentStrict(doc)
+	} else {
+		out, err = formatter.FormatDocument(doc)
+	}
 	if err != nil {
 		return fmt.Errorf("fmt: %w", err)
 	}
 
+	// Transpilar (flex → strict) reescribe el documento a otro dialecto, no
+	// lo reformatea. Se avisa antes de tocar el archivo.
+	isTranspile := targetStrict && !sourceIsStrict
+
 	if opts.check {
 		if out != string(content) {
-			fmt.Fprintf(os.Stderr, "%s no está en forma canónica (correr con --write para reformatear)\n", opts.inputFile)
+			fmt.Fprint(os.Stderr, checkFailureMessage(opts.inputFile, isTranspile))
 			os.Exit(1)
 		}
 		return nil
@@ -104,9 +133,31 @@ func runFmt(opts *fmtOptions) error {
 		if out == string(content) {
 			return nil
 		}
+		if isTranspile {
+			fmt.Fprint(os.Stderr, transpileWriteNotice(opts.inputFile))
+		}
 		return os.WriteFile(opts.inputFile, []byte(out), 0644)
 	}
 
 	fmt.Print(out)
 	return nil
+}
+
+// transpileWriteNotice y checkFailureMessage son puras (sin I/O) para poder
+// testear su contenido sin invocar os.Exit — mismo motivo por el que
+// slidelang/internal/cli/fmt.go las extrajo (code review de PR #217): con el
+// os.Exit(1) inline dentro de la rama --check, esa rama era intesteable en
+// proceso, y el mensaje genérico de "drift de formato" no distinguía un
+// documento simplemente desactualizado de uno que --write TRANSPILARÍA.
+
+func transpileWriteNotice(inputFile string) string {
+	return fmt.Sprintf("fmt: transpilando %q a modo strict — el archivo será reescrito en la sintaxis SECTION (mode: strict)\n", inputFile)
+}
+
+func checkFailureMessage(inputFile string, isTranspile bool) string {
+	if isTranspile {
+		return fmt.Sprintf("%s no está en forma canónica strict — es un documento flex; --write lo transpilaría "+
+			"(reescritura de dialecto, no un simple reformateo)\n", inputFile)
+	}
+	return fmt.Sprintf("%s no está en forma canónica (correr con --write para reformatear)\n", inputFile)
 }

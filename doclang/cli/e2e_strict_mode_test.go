@@ -6,6 +6,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -160,22 +161,105 @@ func readFileString(t *testing.T, path string) string {
 	return string(b)
 }
 
-// `fmt` todavía no sabe emitir strict; hasta entonces se niega en vez de
-// transpilar el documento al dialecto contrario y perder la declaración.
-func TestE2E_FmtRefusesStrictDocuments(t *testing.T) {
+// `fmt` sin banderas PRESERVA el dialecto: un documento strict se reescribe
+// en strict. Lo contrario —emitir flex por defecto— transpilaría en silencio
+// cada documento strict del repo en la primera corrida de `fmt --write`.
+func TestE2E_FmtPreservesTheStrictDialect(t *testing.T) {
 	dir := t.TempDir()
 	fixture := writeDoc(t, dir, "strict.doclang", strictFixture)
 
-	err := runCLI(t, Options{Name: "doclang", Version: "test"}, []string{"fmt", fixture})
-	if err == nil {
-		t.Fatal("expected `doclang fmt` to refuse a strict document")
-	}
-	if !strings.Contains(err.Error(), "strict") {
-		t.Errorf("expected the error to explain the strict limitation, got: %v", err)
+	if err := runCLI(t, Options{Name: "doclang", Version: "test"},
+		[]string{"fmt", fixture, "--write"}); err != nil {
+		t.Fatalf("expected fmt to format a strict document, got: %v", err)
 	}
 
+	formatted := readFileString(t, fixture)
+	if !strings.Contains(formatted, "mode: strict") || !strings.Contains(formatted, `SECTION "Introduction"`) {
+		t.Fatalf("fmt did not keep the document in the strict dialect:\n%s", formatted)
+	}
+
+	// Segunda pasada: byte-idéntica.
+	if err := runCLI(t, Options{Name: "doclang", Version: "test"},
+		[]string{"fmt", fixture, "--write"}); err != nil {
+		t.Fatalf("second fmt pass failed: %v", err)
+	}
+	if again := readFileString(t, fixture); again != formatted {
+		t.Errorf("fmt is not idempotent on strict documents:\n--- first ---\n%s\n--- second ---\n%s", formatted, again)
+	}
+}
+
+// `--strict` sobre un documento flex lo promueve a artefacto auditable. La
+// prueba de que la transpilación es correcta no es que el texto se parezca,
+// sino que el documento transpilado RINDE lo mismo.
+func TestE2E_FmtTranspilesFlexToStrict(t *testing.T) {
+	dir := t.TempDir()
+	flexSource := `---
+mode: flex
+title: "Draft"
+---
+
+# Guide
+
+Intro paragraph.
+
+## Install
+
+Run it.
+`
+	flexPath := writeDoc(t, dir, "draft.doclang", flexSource)
+
+	// HTML de referencia, antes de transpilar.
+	if err := runCLI(t, Options{Name: "doclang", Version: "test"},
+		[]string{"build", flexPath, "--output", dir}); err != nil {
+		t.Fatalf("baseline build failed: %v", err)
+	}
+	before := readFileString(t, filepath.Join(dir, "draft.html"))
+
+	if err := runCLI(t, Options{Name: "doclang", Version: "test"},
+		[]string{"fmt", flexPath, "--strict", "--write"}); err != nil {
+		t.Fatalf("transpile failed: %v", err)
+	}
+
+	transpiled := readFileString(t, flexPath)
+	if !strings.Contains(transpiled, "mode: strict") || !strings.Contains(transpiled, `SECTION "Guide"`) {
+		t.Fatalf("expected a strict document after --strict, got:\n%s", transpiled)
+	}
+
+	if err := runCLI(t, Options{Name: "doclang", Version: "test"},
+		[]string{"build", flexPath, "--output", dir}); err != nil {
+		t.Fatalf("the transpiled document does not build: %v", err)
+	}
+	after := readFileString(t, filepath.Join(dir, "draft.html"))
+	if stripNonces(after) != stripNonces(before) {
+		t.Error("transpiling flex → strict changed the rendered output")
+	}
+}
+
+// stripNonces normaliza los nonces CSP, que se regeneran al azar en cada
+// build: sin esto, dos builds del MISMO archivo ya diferirían y la
+// comparación no probaría nada.
+var nonceRe = regexp.MustCompile(`nonce-?[=">]?['"]?[A-Za-z0-9+/=]{16,}`)
+
+func stripNonces(html string) string {
+	return nonceRe.ReplaceAllString(html, "nonce-NORMALIZED")
+}
+
+// Degradar strict → flex descartaría la declaración del autor sin forma de
+// recuperarla, así que se niega en vez de hacerlo.
+func TestE2E_FmtRefusesToDowngradeStrictToFlex(t *testing.T) {
+	dir := t.TempDir()
+	fixture := writeDoc(t, dir, "strict.doclang", strictFixture)
+
+	err := runCLI(t, Options{Name: "doclang", Version: "test"},
+		[]string{"fmt", fixture, "--strict=false"})
+	if err == nil {
+		t.Fatal("expected fmt to refuse downgrading a strict document to flex")
+	}
+	if !strings.Contains(err.Error(), "degradaría") {
+		t.Errorf("expected the error to explain the downgrade, got: %v", err)
+	}
 	if got := readFileString(t, fixture); got != strictFixture {
-		t.Error("fmt modified a document it refused to format")
+		t.Error("fmt modified a document it refused to convert")
 	}
 }
 

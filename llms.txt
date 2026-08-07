@@ -33,7 +33,8 @@ should be updated to point there instead — do not assume a
 
 ## DocLang reference
 
-- [DocLang flex syntax](https://github.com/ziradocs/toolchain/blob/main/docs/doclang/DOCLANG_SYNTAX_FLEX.md): DocLang's only mode — there is no implemented strict mode, despite a `DOCLANG_SYNTAX_STRICT.md` document existing in the repo describing an aspirational one.
+- [DocLang flex syntax](https://github.com/ziradocs/toolchain/blob/main/llm-kit/reference/doclang-flex.md): the inferred, Markdown-shaped dialect and DocLang's default.
+- [DocLang strict syntax](https://github.com/ziradocs/toolchain/blob/main/llm-kit/reference/doclang-strict.md): the declared `SECTION`-based dialect, never normalized — the auditable form.
 - [DocLang frontmatter](https://github.com/ziradocs/toolchain/blob/main/docs/doclang/DOCLANG_FRONTMATTER.md)
 
 ## Examples

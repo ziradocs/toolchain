@@ -51,13 +51,13 @@ should configure something (because you saw it in an example or an
   `mode` is a warning, not a build-blocking error — but always set it
   explicitly anyway, since silently defaulting to `auto` changes which
   grammar your content is parsed as.
-- DocLang has only one grammar (flex/sections), so `mode` selects nothing —
-  with one exception: **`mode: strict` is a build error in DocLang**
-  (`MODE001`). `strict` is a SlideLang-only dialect built out of `SLIDE`
-  blocks; a `.doclang` file declaring it used to be parsed as flex anyway,
-  silently and with normalization applied, which is precisely what strict
-  promises not to do. Every other value (`flex`, `flex-full`, `flex-ai`,
-  `auto`) is accepted and has no effect; you can also omit the key.
+- DocLang has **two** dialects and `mode` picks between them: `strict` selects
+  the declared `SECTION`-based grammar, which is never normalized (see
+  `doclang-strict.md`), and everything else — `flex`, `flex-full`, `flex-ai`,
+  `auto`, or omitting the key — selects the inferred Markdown grammar. In
+  documents those four are synonyms: there is one flex grammar and nothing to
+  auto-detect. Note this differs from SlideLang, where `strict` means the
+  `SLIDE`-based grammar; `SLIDE` blocks never parse in a `.doclang` file.
 
 ### Known-ignored keys (do NOT rely on these)
 

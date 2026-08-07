@@ -13,12 +13,13 @@ Purpose: generate valid `.slidelang` (presentations) and `.doclang`
    `#`/`##` headings, `---` slide separators. AI normalizer always runs
    via the CLI, so loose input gets rewritten — but don't invent syntax
    anyway.
-3. **DocLang flex** (`.doclang`, always flex, no `mode:` switching — but
-   the same linter does run): `#` = section, `##`/`###` = nested headings
-   inside a section (not new sections). Frontmatter optional to the
-   parser, but the linter wants it — write one.
-There is **no DocLang strict** — don't emit it even if you've seen a doc
-describing one; the parser doesn't implement it.
+3. **DocLang flex** (`.doclang`, the default dialect; `flex`/`flex-full`/
+   `auto`/no `mode:` are all this one): `#` = section, `##`/`###` = nested
+   headings inside a section (not new sections). Frontmatter optional to
+   the parser, but the linter wants it — write one.
+4. **DocLang strict** (`.doclang` with `mode: strict`): `SECTION "Title"`
+   blocks, `level:`/`id:` on indented lines, elements indented two spaces.
+   Never normalized. `SLIDE` never parses in a `.doclang` file.
 
 ## ZiraDocs minimal file
 ```
