@@ -77,7 +77,10 @@ walkthrough:
   `require go.ziradocs.com/core/v2` in both `slidelang/go.mod` and `doclang/go.mod`, verifies
   `GOWORK=off go build ./...` in both, and opens a PR with the bump (if `gh` is available). Use
   this whenever a `core`-only change needs to become a real dependency for the CLIs, without
-  cutting a full product release.
+  cutting a full product release. It is safe to run from **any** branch — it cuts the bump branch
+  from the ref it tagged (default `origin/main`), not from your HEAD, and does so before running
+  the bump. Don't "simplify" that back into a bare `git checkout -b`: see "Safe to run from any
+  branch" in `docs/developer/releasing.md` for the two silent failures that causes.
 
 ## Pipeline & architecture
 

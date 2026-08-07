@@ -64,12 +64,40 @@ has to:
   with `v` at all, so it can't accidentally trigger a goreleaser run.
 - Polls `proxy.golang.org`/`sum.golang.org` for the new version before touching `go.mod`, with a
   `GOPROXY=direct GOSUMDB=off` fallback if the sumdb still hasn't caught up.
+- Cuts the bump branch **from the ref it just tagged** (`git checkout -b … "$TAG_COMMIT"`),
+  before running the bump — see "Safe to run from any branch" below.
 - Bumps and `go mod tidy`s both CLIs, then verifies `GOWORK=off go build ./...` in each.
-- If `gh` is installed, opens a branch + PR with the `go.mod`/`go.sum` bump. Otherwise, leaves
-  the bump uncommitted in the working tree with instructions to commit/PR it by hand.
+- If `gh` is installed, commits the `go.mod`/`go.sum` bump on that branch and opens the PR.
+  Otherwise, leaves the bump uncommitted on the branch with instructions to commit/PR it by hand.
 
 Use this whenever a `core`-only PR needs to become a real dependency for the CLIs, without
 cutting a full product release of the binaries.
+
+### Safe to run from any branch
+
+**The script must stay safe to run from whatever branch you happen to be on — that's the whole
+point of it taking a `ref` argument.** Everything it produces (the bump branch, the `go mod tidy`
+result, the `GOWORK=off go build` check) is computed on top of `$REF`, never on top of your HEAD.
+It creates the branch with `git checkout -b "$BRANCH" "$TAG_COMMIT"`, before the bump runs and
+before the tag is pushed, and if HEAD has commits `$REF` doesn't, it names them and says they will
+not be included.
+
+Any future edit that reintroduces a bare `git checkout -b`, or moves branch creation after the
+bump, breaks this. Two distinct failures, both silent:
+
+- **Unrelated commits ride along.** This happened on 2026-08-06: the operator's HEAD was on a
+  feature branch — a prior `git checkout main` had failed silently because `main` was checked out
+  in another git worktree — so the bump branch inherited two feature commits. PR #98 was titled
+  and reviewed as a `go.mod` bump but merged an entire `doclang` feature into `main` alongside it.
+  Nothing unreviewed shipped (the content had been reviewed in #97, and #98's CI passed in full),
+  but the history now records a feature under a `chore:` commit and #97 had to be closed as
+  redundant. Note that `git checkout -b NEW main` is immune to the worktree failure that started
+  this: it branches *from* `main` without checking `main` out.
+- **The wrong dependency set gets committed.** `go mod tidy` derives the `require` set from the
+  `.go` files in the working tree. Run it on the wrong tree and an import that branch adds
+  produces a spurious `require`, while one it removes drops a `require` that `$REF` still needs —
+  and step 8's `GOWORK=off go build ./...`, running on that same wrong tree, catches neither.
+  This is why the branch is cut *before* the bump, not at commit time.
 
 ### Why two scripts, not one, and not zero (collapsing to a single module)
 

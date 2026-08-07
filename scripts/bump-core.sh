@@ -16,6 +16,11 @@
 #   ref     — commit/rama a taggear (default: origin/main). El commit debe
 #             tener core/ ya mergeado con los cambios que se quieren
 #             publicar; este script NO mergea nada.
+#
+# El script es seguro de correr desde CUALQUIER rama: todo lo que produce
+# (la rama del bump, el tag, el `go mod tidy`, el build de verificación) se
+# calcula sobre "$REF", nunca sobre el HEAD en que lo corriste. Eso es lo que
+# hace útil al argumento `ref` — ver el paso 4 y docs/developer/releasing.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,6 +28,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 VERSION=${1:-}
 REF=${2:-origin/main}
+BRANCH="chore/bump-core-${VERSION}"
 
 if [[ -z "$VERSION" ]]; then
   echo "Error: Debes proveer una versión (ej. v2.2.1)"
@@ -75,10 +81,57 @@ if git ls-remote --tags origin "refs/tags/core/$VERSION" | grep -q .; then
   exit 1
 fi
 
+# 3b. Rechazar si la rama del bump ya existe (local o en origin). Se chequea
+#     ACÁ, junto al check del tag y antes de pushear nada: si el `git checkout
+#     -b` del paso 4 fallara después del push del tag, el tag ya estaría
+#     quemado (los tags de módulo Go no se reusan — ver CLAUDE.md sobre
+#     core/v2.1.0) y no habría forma de reintentar con la misma versión.
+if git rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
+  echo "Error: la rama $BRANCH ya existe local. Borrala o elegí otra versión."
+  exit 1
+fi
+if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+  echo "Error: la rama $BRANCH ya existe en origin. Elegí otra versión."
+  exit 1
+fi
+
 TAG_COMMIT=$(git rev-parse "$REF")
+
+# 4. Crear la rama del bump DESDE "$REF" — no desde HEAD.
+#
+#    Esto no es cosmético y no basta con hacerlo al final, junto al commit:
+#    los pasos 6 y 7 (`go mod tidy` y `GOWORK=off go build ./...`) leen los
+#    .go del working tree, así que corriendo desde otra rama el tidy derivaría
+#    el set de `require` del árbol equivocado — un import que esa rama agrega
+#    mete un require espurio, y uno que quita borra un require que "$REF" sí
+#    necesita, sin que el build de verificación note ninguno de los dos. Por
+#    eso la rama se corta ANTES del bump, no después.
+#
+#    Un `git checkout -b` pelado (lo que este script hacía antes) hereda lo
+#    que HEAD tenga encima de "$REF". Eso produjo un incidente real el
+#    2026-08-06: el operador creía estar en main —un `git checkout main`
+#    previo había fallado en silencio porque main estaba checkouteado en otro
+#    worktree— y la PR del bump arrastró dos commits de feature ajenos,
+#    mergeando una feature entera a main bajo un commit "chore:".
+#
+#    Cortar la rama con `git checkout -b "$BRANCH" "$TAG_COMMIT"` es inmune a
+#    esa falla: crea la rama DESDE ese commit sin checkoutear "$REF" mismo, o
+#    sea que funciona igual aunque main esté tomado por otro worktree.
+AHEAD=$(git log --oneline -n 10 "$REF"..HEAD 2>/dev/null || true)
+if [[ -n "$AHEAD" ]]; then
+  echo "ℹ️ HEAD tiene commits que $REF no tiene. NO van a entrar en $BRANCH:"
+  echo "$AHEAD" | sed 's/^/     /'
+  echo "   (si alguno de estos debía publicarse en core/$VERSION, cancelá ahora"
+  echo "    y mergealo a $REF primero — este script no mergea nada.)"
+fi
+
+echo "🌿 Creando rama $BRANCH desde $REF ($(git rev-parse --short "$TAG_COMMIT"))..."
+git checkout -b "$BRANCH" "$TAG_COMMIT"
+echo "   (a partir de acá quedás parado en $BRANCH, salga bien o falle a media corrida.)"
+
 echo "🚀 Taggeando core/$VERSION en $REF ($TAG_COMMIT)..."
 
-# 4. Crear y pushear SOLO core/vX.Y.Z — nunca un tag pelado vX.Y.Z.
+# 5. Crear y pushear SOLO core/vX.Y.Z — nunca un tag pelado vX.Y.Z.
 #    .github/workflows/release.yml dispara con "v[0-9]*.[0-9]*.[0-9]*" Y con
 #    un "v*" suelto (ver el comentario en ese archivo sobre por qué el "v*"
 #    ahí es un riesgo real, no solo teórico); "core/vX.Y.Z" no empieza con
@@ -87,7 +140,7 @@ echo "🚀 Taggeando core/$VERSION en $REF ($TAG_COMMIT)..."
 git tag -a "core/$VERSION" "$TAG_COMMIT" -m "core/$VERSION"
 git push origin "refs/tags/core/$VERSION"
 
-# 5. Calentar proxy.golang.org + sum.golang.org antes de intentar `go get`.
+# 6. Calentar proxy.golang.org + sum.golang.org antes de intentar `go get`.
 #    Existe por evidencia, no por precaución teórica: un fetch inmediato
 #    después de pushear un tag nuevo puede pegarle a sum.golang.org con un
 #    500 transitorio hasta que el proxy lo indexa.
@@ -107,10 +160,10 @@ done
 if [[ "$warmed" == true ]]; then
   echo "✅ proxy.golang.org y sum.golang.org ya sirven $VERSION."
 else
-  echo "⚠️ El proxy/sumdb no confirmó $VERSION tras 12 intentos (60s) — se sigue igual; el paso 6 tiene su propio fallback."
+  echo "⚠️ El proxy/sumdb no confirmó $VERSION tras 12 intentos (60s) — se sigue igual; el paso 7 tiene su propio fallback."
 fi
 
-# 6. Bumpear el require en slidelang/go.mod y doclang/go.mod, vía GOWORK=off
+# 7. Bumpear el require en slidelang/go.mod y doclang/go.mod, vía GOWORK=off
 #    (la resolución real de CI/go install — go.work local no debe enmascarar
 #    esto). Primero el camino normal; si el sumdb sigue teniendo lag pese al
 #    warming de arriba, GOPROXY=direct GOSUMDB=off como fallback (esto pasó
@@ -131,32 +184,34 @@ bump_module() {
 bump_module slidelang
 bump_module doclang
 
-# 7. Verificar que ambos CLIs compilan con GOWORK=off — la resolución real
+# 8. Verificar que ambos CLIs compilan con GOWORK=off — la resolución real
 #    de CI/go install, no la que go.work enmascara en desarrollo local.
 echo "🔎 Verificando GOWORK=off go build en slidelang y doclang..."
 (cd slidelang && GOWORK=off go build ./...)
 (cd doclang && GOWORK=off go build ./...)
 echo "✅ Ambos CLIs compilan contra $MODULE_PATH@$VERSION."
 
-# 8. Opcional: rama + PR con el bump, si `gh` está disponible. Sin `gh`, el
-#    diff de go.mod/go.sum queda en el working tree para que quien corrió el
-#    script lo commitee/PRee a mano — igual que release.sh degrada cuando
-#    `gh` no está instalado.
+# 9. Opcional: commit + PR con el bump, si `gh` está disponible. La rama ya
+#    existe desde el paso 4 (y ya estás parado en ella); acá solo se commitea
+#    y se PRea. Sin `gh`, el diff de go.mod/go.sum queda sin commitear sobre
+#    esa rama para que quien corrió el script lo commitee/PRee a mano — igual
+#    que release.sh degrada cuando `gh` no está instalado.
 if command -v gh >/dev/null 2>&1; then
-  BRANCH="chore/bump-core-$VERSION"
-  echo "🌿 Creando rama $BRANCH y PR con el bump..."
-  git checkout -b "$BRANCH"
+  echo "📝 Commiteando el bump en $BRANCH y abriendo la PR..."
   git add slidelang/go.mod slidelang/go.sum doclang/go.mod doclang/go.sum
-  git commit -m "chore: bump core to $VERSION in slidelang and doclang go.mod"
+  # GOWORK=off también en el commit: .githooks/pre-commit corre validaciones
+  # de Go, y un go.work heredado (p.ej. desde un worktree bajo .claude/) las
+  # rompe con un error que no tiene nada que ver con este bump.
+  GOWORK=off git commit -m "chore: bump core to $VERSION in slidelang and doclang go.mod"
   git push -u origin "$BRANCH"
   gh pr create --base main --head "$BRANCH" \
     --title "chore: bump core to $VERSION in slidelang and doclang go.mod" \
-    --body "Automated by scripts/bump-core.sh — bumps \`require go.ziradocs.com/core/v2\` to \`$VERSION\` in both CLIs. Verified with \`GOWORK=off go build ./...\` in both modules before opening this PR."
+    --body "Automated by scripts/bump-core.sh — bumps \`require go.ziradocs.com/core/v2\` to \`$VERSION\` in both CLIs. Branch cut from \`$REF\` ($(git rev-parse --short "$TAG_COMMIT")), so the diff is the bump and nothing else. Verified with \`GOWORK=off go build ./...\` in both modules before opening this PR."
   echo "✅ PR abierta."
 else
-  echo "⚠️ 'gh' no está instalado — el bump de go.mod/go.sum quedó en el working tree."
-  echo "Revisá el diff, commiteá en una rama nueva, y abrí la PR a mano:"
-  echo "  git checkout -b chore/bump-core-$VERSION"
+  echo "⚠️ 'gh' no está instalado — el bump de go.mod/go.sum quedó sin commitear."
+  echo "Ya estás parado en $BRANCH (cortada desde $REF). Revisá el diff, commiteá y abrí la PR a mano:"
   echo "  git add slidelang/go.mod slidelang/go.sum doclang/go.mod doclang/go.sum"
-  echo "  git commit -m 'chore: bump core to $VERSION in slidelang and doclang go.mod'"
+  echo "  GOWORK=off git commit -m 'chore: bump core to $VERSION in slidelang and doclang go.mod'"
+  echo "  git push -u origin $BRANCH"
 fi
