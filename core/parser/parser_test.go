@@ -170,31 +170,47 @@ Some content here.`
 	}
 }
 
-// TestParser_Parse_StrictMode is skipped because strict mode parser
-// has complex initialization requirements that need deeper investigation
-// func TestParser_Parse_StrictMode(t *testing.T) {
-// 	logger := util.GetDefault()
-// 	parser := New(logger)
-//
-// 	content := `---
-// mode: strict
-// ---
-//
-// SLIDE title
-//   TEXT: test content`
-//
-// 	ast, _ := parser.Parse(content, "test.slidelang")
-//
-// 	if ast == nil {
-// 		t.Fatal("AST should not be nil")
-// 	}
-// 	if ast.FrontMatter == nil {
-// 		t.Fatal("FrontMatter should not be nil")
-// 	}
-// 	if ast.FrontMatter.Mode != "strict" {
-// 		t.Errorf("Mode = %v, want strict", ast.FrontMatter.Mode)
-// 	}
-// }
+// Estuvo comentado mucho tiempo como "requiere investigación más profunda";
+// lo que en realidad tenía era sintaxis inválida — `TEXT: test content`
+// escribe el contenido en la misma línea del keyword, y en strict el cuerpo
+// de un TEXT va indentado debajo. Con la sintaxis real el despacho por modo
+// se verifica sin problema.
+func TestParser_Parse_StrictMode(t *testing.T) {
+	logger := util.GetDefault()
+	parser := New(logger)
+
+	content := `---
+mode: strict
+---
+
+SLIDE title
+  heading: Título
+  TEXT
+    test content
+`
+
+	astNode, _ := parser.Parse(content, "test.slidelang")
+
+	if astNode == nil {
+		t.Fatal("AST should not be nil")
+	}
+	if astNode.FrontMatter == nil {
+		t.Fatal("FrontMatter should not be nil")
+	}
+	if astNode.FrontMatter.Mode != "strict" {
+		t.Errorf("Mode = %v, want strict", astNode.FrontMatter.Mode)
+	}
+	if len(astNode.ContentBlocks) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(astNode.ContentBlocks))
+	}
+	if got := astNode.ContentBlocks[0].Heading; got != "Título" {
+		t.Errorf("Heading = %q, want %q", got, "Título")
+	}
+	if len(astNode.ContentBlocks[0].Elements) != 1 {
+		t.Errorf("expected the TEXT element to have been parsed, got %d elements",
+			len(astNode.ContentBlocks[0].Elements))
+	}
+}
 
 func TestParser_Parse_NoFrontmatter(t *testing.T) {
 	logger := util.GetDefault()

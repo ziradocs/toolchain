@@ -146,7 +146,14 @@ func (r *ParseErrorDetectionRule) Check(node ast.Node) []diagnostics.Diagnostic 
 	return diags
 }
 
-// StrictModeValidationRule valida reglas específicas para modo strict
+// StrictModeValidationRule valida reglas específicas para modo strict.
+//
+// Aplica a los DOS dialectos strict —el de presentaciones (bloques SLIDE) y
+// el de documentos (bloques SECTION)— porque valida el ContentBlock, que es
+// deliberadamente genérico: una diapositiva en un CLI y una sección en el
+// otro. Por eso los mensajes dicen "block" y no "slide": el mismo
+// diagnóstico le sale a un `.doclang`, y hablarle de diapositivas a quien
+// escribe un documento manda a buscar un problema que no existe.
 type StrictModeValidationRule struct{}
 
 func (r *StrictModeValidationRule) Check(node ast.Node) []diagnostics.Diagnostic {
@@ -155,24 +162,24 @@ func (r *StrictModeValidationRule) Check(node ast.Node) []diagnostics.Diagnostic
 	if astNode, ok := node.(*ast.AST); ok {
 		// Solo aplicar si está en modo strict
 		if astNode.FrontMatter != nil && astNode.FrontMatter.Mode == "strict" {
-			// Validar que slides tipo "title" tengan heading o title
-			for _, slide := range astNode.ContentBlocks {
-				if slide.BlockType == "title" {
-					if slide.Heading == "" && slide.Title == "" {
+			// Validar que los bloques tipo "title" tengan heading o title
+			for _, block := range astNode.ContentBlocks {
+				if block.BlockType == "title" {
+					if block.Heading == "" && block.Title == "" {
 						diags = append(diags,
 							diagnostics.NewError(
-								"Title slides must have either 'heading' or 'title' property",
-								slide.GetPosition(), "linter").WithRuleID("STRICT001"))
+								"Title blocks must have either a 'heading' or a 'title'",
+								block.GetPosition(), "linter").WithRuleID("STRICT001"))
 					}
 				}
 
-				// Validar que slides de contenido tengan al menos un elemento o título
-				if slide.BlockType == "content" || slide.BlockType == "" {
-					if slide.Title == "" && len(slide.Elements) == 0 {
+				// Validar que los bloques de contenido tengan al menos un elemento o título
+				if block.BlockType == "content" || block.BlockType == "" {
+					if block.Title == "" && len(block.Elements) == 0 {
 						diags = append(diags,
 							diagnostics.NewError(
-								"Content slides must have either a title or content elements",
-								slide.GetPosition(), "linter").WithRuleID("STRICT002"))
+								"Content blocks must have either a title or content elements",
+								block.GetPosition(), "linter").WithRuleID("STRICT002"))
 					}
 				}
 			}
