@@ -23,13 +23,16 @@ this before writing anything:
 | **ZiraDocs flex** | `.slidelang`, `mode: flex`/`flex-full`/`auto` (`flex-ai` still accepted as a deprecated alias) | Markdown-like, `#`/`##`, `---` slide separators | Always on via the CLI | Same as above |
 | **DocLang flex** | `.doclang` | Markdown section hierarchy (`#` = section, `##`/`###` = nested headings) | Always on via the CLI | `doclang build --lint-only`, MCP `lint`/`get_ast` — same element rules, minus the slide-shaped ones |
 
-**There is no "DocLang strict."** DocLang always uses its flex/section
-parser regardless of any `mode:` value in frontmatter. If you've seen a
-"strict DocLang" syntax reference anywhere, it describes an aspirational
-format the parser does not implement — do not emit it.
+**DocLang has a strict dialect too**, and it is not SlideLang's: it is
+built from `SECTION "Title"` blocks with `level:`/`id:`, never `SLIDE`.
+Opt in with `mode: strict`. It is never normalized, and it is the only
+dialect where `label:` on a table or figure is reachable, so cross-references
+work. Everything else (`flex`, `flex-full`, `auto`, no frontmatter) is the
+inferred Markdown dialect.
 
 Full detail for each target: `reference/slidelang-strict.md`,
-`reference/slidelang-flex.md`, `reference/doclang-flex.md`.
+`reference/slidelang-flex.md`, `reference/doclang-flex.md`,
+`reference/doclang-strict.md`.
 
 ## Choosing format and mode
 

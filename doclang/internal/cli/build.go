@@ -22,7 +22,6 @@ import (
 	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/core/v2/xref"
 	"go.ziradocs.com/doclang/v2/internal/generator"
-	"go.ziradocs.com/doclang/v2/internal/modecheck"
 	"go.ziradocs.com/doclang/v2/themes/document" // 🆕 Theme system
 )
 
@@ -148,29 +147,22 @@ Examples:
 			var doc *ast.AST
 			var diagnostics []diagnostics.Diagnostic
 
-			// DocLang SIEMPRE usa DocumentFlexParser con normalización
-			// - Maneja correctamente la jerarquía # → ## → ###
-			// - ## y ### son subsecciones, NO secciones separadas
-			// - Funciona con o sin frontmatter
-			// - Aplica normalización automática (tags de cierre, formato, etc.)
-			// La normalización corre dentro del constructor, así que el guard de
-			// recover/timeout debe cubrir constructor + Parse() (ME-8/BA-5).
-			log.Info("PARSER", "Using DocumentFlexParser with normalization for DocLang document")
+			// ParseDocument despacha por el `mode:` del frontmatter entre los
+			// dos dialectos documentales (ver core/parser):
+			// - flex (y sus sinónimos flex-full/auto, y un archivo sin
+			//   frontmatter): Markdown, con la jerarquía # → ## → ### donde
+			//   ## y ### son subsecciones y NO secciones separadas, más la
+			//   normalización automática.
+			// - strict: bloques SECTION declarados, sin normalizar nunca.
+			// La normalización corre dentro de ParseDocument, así que el guard
+			// de recover/timeout debe cubrirlo entero (ME-8/BA-5).
+			log.Info("PARSER", "Parsing DocLang document")
 			if err := util.RunGuarded(util.DefaultParseTimeout, func() error {
-				docParser := parser.NewDocumentFlexParserWithNormalization(contentStr, log)
-				doc, diagnostics = docParser.Parse()
-				if doc != nil && doc.FilePath == "" {
-					doc.FilePath = inputFile
-				}
+				doc, diagnostics = parser.New(log).ParseDocument(contentStr, inputFile)
 				return nil
 			}); err != nil {
 				return err
 			}
-			// `mode: strict` no es construible en DocLang (ver
-			// internal/modecheck): se rechaza acá, antes del transform y del
-			// lint, para que el build falle en vez de reinterpretar el
-			// documento como flex en silencio.
-			diagnostics = append(diagnostics, modecheck.CheckAST(doc)...)
 
 			// Check for errors in diagnostics; print warnings too (e.g. CHART002
 			// for malformed chart JSON).

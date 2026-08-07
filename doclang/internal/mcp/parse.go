@@ -20,7 +20,6 @@ import (
 	"go.ziradocs.com/core/v2/transform"
 	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/core/v2/xref"
-	"go.ziradocs.com/doclang/v2/internal/modecheck"
 )
 
 // maxConcurrentParses acota cuántas llamadas a parseSource pueden estar en
@@ -47,11 +46,11 @@ var parseSemaphore = make(chan struct{}, maxConcurrentParses)
 // --filter de usuario (binarios externos configurados por el operador, no
 // tienen lugar en una tool call MCP) — ambos gaps deliberados y documentados.
 //
-// A diferencia de slidelang, DocumentFlexParser no acepta un fileName (ver
-// parser.NewDocumentFlexParserWithNormalization) y diagnostics.Diagnostic no
-// lleva ruta de archivo — por eso, a diferencia del parseSource de
-// slidelang/internal/mcp, este no tiene parámetro fileName: no hay nada
-// donde plumbearlo.
+// No tiene parámetro fileName, a diferencia del parseSource de
+// slidelang/internal/mcp: una tool call MCP recibe un string en memoria, no
+// un archivo, así que se le pasa "" a ParseDocument. diagnostics.Diagnostic
+// tampoco lleva ruta, con lo cual no habría dónde reflejarlo aunque se
+// tuviera.
 func parseSource(logger util.Logger, source string) (*ast.AST, []diagnostics.Diagnostic, error) {
 	if err := util.CheckInputSize(len(source), util.DefaultMaxInputBytes); err != nil {
 		return nil, nil, err
@@ -78,21 +77,15 @@ func parseSource(logger util.Logger, source string) (*ast.AST, []diagnostics.Dia
 		// refleje los parses que siguen realmente en vuelo.
 		defer func() { <-parseSemaphore }()
 
-		// La normalización corre dentro del constructor (no en Parse()), así
-		// que el guard debe cubrir ambos — ver el mismo comentario en
-		// doclang/internal/cli/build.go.
-		docParser := parser.NewDocumentFlexParserWithNormalization(source, logger)
-		astNode, diags = docParser.Parse()
+		// Mismo despacho por modo (flex/strict) que `doclang build`, por la
+		// misma entrada de core — es lo que garantiza que un agente reciba
+		// exactamente el AST que produce el CLI. La normalización corre
+		// dentro de ParseDocument, así que el guard debe cubrirlo entero.
+		astNode, diags = parser.New(logger).ParseDocument(source, "")
 		return nil
 	}); err != nil {
 		return nil, nil, err
 	}
-
-	// Mismo rechazo de `mode: strict` que `doclang build`/`doclang fmt` (ver
-	// doclang/internal/modecheck): un agente que reciba el AST de un
-	// documento declarado strict lo recibiría flex-parseado y normalizado,
-	// exactamente la divergencia CLI/MCP que este paquete evita.
-	diags = append(diags, modecheck.CheckAST(astNode)...)
 
 	if astNode == nil || hasErrorDiagnostic(diags) {
 		return astNode, diags, nil

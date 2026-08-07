@@ -1,0 +1,76 @@
+---
+mode: strict
+title: "Data Retention Policy"
+author: "Platform Engineering"
+date: "2026-08-06"
+theme: technical
+lang: en
+---
+
+SECTION "Data Retention Policy"
+
+  TEXT
+    This document is written in DocLang's **strict** dialect: every block is
+    declared, nothing is inferred, and the normalizer never runs. That is what
+    makes it reviewable in a pull request and meaningful to sign off on — you
+    can audit a declaration; you cannot audit an inference.
+
+  :::info
+  The flex dialect is the right tool for drafting. Strict is the right tool for
+  the version that gets committed.
+  :::
+
+SECTION "Scope"
+  level: 2
+  id: scope
+
+  TEXT
+    The policy below applies to every record the platform stores on behalf of a
+    customer, in any region.
+
+  POINTS
+    - Application databases and their replicas
+    - Object storage buckets, including lifecycle-expired objects
+    - Log aggregation and metrics pipelines
+
+SECTION "Retention Windows"
+
+  TEXT
+    Retention is measured from the record's creation timestamp, not from last
+    access. See \ref{tbl-windows} for the authoritative values.
+
+  TABLE
+    headers: ["Data class", "Retention", "Deletion mode"]
+    rows: [
+      ["Operational logs", "30 days", "Automatic"],
+      ["Audit trail", "7 years", "Manual (dual approval)"],
+      ["Customer content", "Contract term + 90 days", "Automatic"],
+      ["Backups", "35 days", "Automatic"]
+    ]
+    caption: "Retention window by data class"
+    label: tbl-windows
+
+SECTION "Deletion Guarantees"
+  level: 2
+  id: guarantees
+
+  TEXT
+    Automatic deletion is idempotent and re-runs until it observes zero
+    remaining objects.
+
+  CODE bash
+    # Verify that a retention sweep converged
+    retention-cli verify --class operational-logs --expect-empty
+
+  :::warning
+  Manual deletion of the audit trail requires two approvers and is itself
+  written to the audit trail. There is no path that removes the record of a
+  removal.
+  :::
+
+SECTION "Open Questions"
+
+  CHECKLIST
+    - [x] Confirm the backup window with the storage vendor
+    - [x] Align the audit-trail window with the regional regulator
+    - [ ] Decide whether metrics fall under "operational logs"

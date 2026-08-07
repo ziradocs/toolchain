@@ -1,17 +1,17 @@
-# DocLang — Flex Mode (the only mode)
+# DocLang — Flex Mode
 
-**DocLang has no strict mode and no `mode:` switching.** The `doclang`
-CLI *always* parses with the flex/document parser
-(`NewDocumentFlexParserWithNormalization`), regardless of what — if
-anything — a `mode:` frontmatter key says. If you're used to ZiraDocs's
-three-mode system, drop that mental model for DocLang entirely: there is
-one grammar.
+**Flex is DocLang's inferred dialect and its default**: Markdown-shaped input
+that the parser interprets, with the normalizer applied. `mode: flex`,
+`mode: flex-full`, `mode: auto` and *no frontmatter at all* are all this same
+grammar — unlike SlideLang, DocLang has nothing to auto-detect between.
 
-The one thing `mode:` can still do in DocLang is **fail the build**:
-`mode: strict` is rejected with `MODE001`, since strict is a SlideLang
-dialect (`SLIDE` blocks) that no DocLang parser implements. Do not emit a
-strict `.doclang` file, and do not emit the `SECTION`-based syntax that
-older design sketches described — neither parses.
+The one other value that does something is **`mode: strict`**, DocLang's
+declared dialect (`SECTION` blocks, never normalized) — see
+[`doclang-strict.md`](./doclang-strict.md). Pick flex to draft; pick strict for
+the version that gets committed and reviewed.
+
+Note that `SLIDE` blocks never parse in a `.doclang` file, in either dialect:
+that is SlideLang's strict grammar, not DocLang's.
 
 ## Minimal valid file
 

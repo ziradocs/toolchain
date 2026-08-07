@@ -32,12 +32,14 @@ targeting:
 | **ZiraDocs strict** | Rigid `SLIDE <type>` keyword blocks | Never runs | `slidelang build --lint-only`, MCP `lint`/`get_ast` |
 | **ZiraDocs flex** | Markdown-like, `#`/`##`/`---` | Always on (via the CLI) | Same as above |
 | **DocLang flex** | Markdown section hierarchy (`#`/`##`/`###`) | Always on (via the CLI) | `doclang build --lint-only`, MCP `lint`/`get_ast` (element rules) |
+| **DocLang strict** | `SECTION "Title"` blocks with `level:`/`id:` | Never | same as DocLang flex |
 
-**There is no "DocLang strict."** The DocLang parser always uses its
-flex/section grammar regardless of any `mode:` frontmatter value. A
-`DOCLANG_SYNTAX_STRICT.md` document exists in the source repository
-describing a strict DocLang syntax — **it is aspirational, not
-implemented**; don't teach it to a model as something that will parse.
+**DocLang strict is not SlideLang strict.** It is built from `SECTION`
+blocks, never `SLIDE`, and `SLIDE` does not parse in a `.doclang` file at
+all. Older design sketches described extra strict properties (`numbered:`,
+`pagebreak:`) and block forms (`<<toc>>`, `<<ref:>>`, `<<bibliography>>`) —
+**those remain unimplemented**; don't teach them as something that will
+parse. `reference/doclang-strict.md` documents what actually does.
 
 ## Validation surfaces (read this before trusting any "it's valid" claim)
 
@@ -83,7 +85,8 @@ system-prompt-compact.md      <8k-char condensed variant
 reference/
   slidelang-strict.md          Strict-mode grammar, worked example
   slidelang-flex.md            Flex-mode grammar, AI normalizer scope
-  doclang-flex.md               DocLang's only mode, frontmatter gaps
+  doclang-flex.md               DocLang's inferred dialect, frontmatter gaps
+  doclang-strict.md             DocLang's declared SECTION dialect
   elements.md                   Per-element syntax table (all 3 targets)
   frontmatter.md                Every recognized frontmatter field
   advanced.md                   Deep-dive chart/mermaid/layout examples
