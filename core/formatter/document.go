@@ -17,11 +17,11 @@ import (
 // de parser.DocumentFlexParser.parseSection), y elementos en su sintaxis
 // flex (Markdown): "- item"/"1. item" para POINTS, fenced ``` para CODE,
 // "![alt](src)" para IMAGE, "> cita" para QUOTE, "- [x] item" para
-// CHECKLIST. DocLang no tiene modo strict — parser.DocumentFlexParser
-// SIEMPRE usa el dialecto flex (ver CLAUDE.md) — así que a diferencia de
-// FormatStrict no hay que filtrar por "mode:", pero el resto del contrato
-// es el mismo: determinista, idempotente, y solo cubre lo que el parser
-// realmente puede producir.
+// CHECKLIST. Su par es FormatDocumentStrict, que emite el mismo AST en el
+// dialecto strict (bloques SECTION); el contrato de ambos es el mismo:
+// determinista, idempotente, y cubre solo lo que el parser realmente puede
+// producir. Aplicar uno a un documento escrito en el otro dialecto es
+// transpilar, no formatear.
 //
 // Los elementos de bloque (:::especial, :::code-group, <<mermaid>>,
 // <<plantuml>>, <<chart:...>>, <<map>>, @directivas) usan EXACTAMENTE la

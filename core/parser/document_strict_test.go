@@ -172,7 +172,7 @@ SECTION "Payload"
 	// atributo ni de abrir una etiqueta. Los caracteres alfanuméricos del
 	// payload sobreviven (el saneado es lista blanca, no borrado de
 	// palabras) y eso está bien — lo que importa es que no quede sintaxis.
-	idValue := heading.Content[len(`<h2 id="`):strings.Index(heading.Content[len(`<h2 id="`):], `"`)+len(`<h2 id="`)]
+	idValue := heading.Content[len(`<h2 id="`) : strings.Index(heading.Content[len(`<h2 id="`):], `"`)+len(`<h2 id="`)]
 	for _, forbidden := range []string{`"`, "<", ">", "'", "="} {
 		if strings.Contains(idValue, forbidden) {
 			t.Errorf("explicit id kept %q and can escape the attribute: id=%q (full: %s)",

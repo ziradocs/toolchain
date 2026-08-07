@@ -5,7 +5,6 @@ package parser
 
 import (
 	"fmt"
-	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -69,46 +68,10 @@ func buildHeadingElement(text string, level, lineIndex int, explicitID string) *
 	return el
 }
 
-// deriveAnchor convierte un texto libre en el anchor de un encabezado:
-// minúsculas, espacios a guiones y saneado. Mismo algoritmo que usa el
-// renderer para generar los enlaces del TOC.
+// deriveAnchor es el alias local de renderer.DeriveAnchor — el algoritmo
+// único de derivación de anchors. Que el `id` que embebe el parser y el href
+// que genera el TOC coincidan no puede depender de dos implementaciones
+// gemelas.
 func deriveAnchor(text string) string {
-	return sanitizeAnchor(strings.ToLower(strings.ReplaceAll(text, " ", "-")))
-}
-
-// sanitizeAnchor limpia un anchor para usarlo en href/id.
-//
-// La lista de ReplaceAll de arriba es cosmética (quita puntuación antes de
-// que el filtro final la borre igual); lo que hace segura a esta función es
-// el bucle del final, que construye la salida con una LISTA BLANCA de
-// [a-z0-9_-]. Cualquier carácter capaz de escapar del atributo HTML donde
-// se interpola el anchor —comillas, `<`, `>`— no está en esa lista y se
-// descarta. Por eso un id provisto por el autor puede pasar por acá sin
-// abrir una inyección; ver buildHeadingElement.
-func sanitizeAnchor(anchor string) string {
-	anchor = strings.ReplaceAll(anchor, ".", "")
-	anchor = strings.ReplaceAll(anchor, ",", "")
-	anchor = strings.ReplaceAll(anchor, ":", "")
-	anchor = strings.ReplaceAll(anchor, ";", "")
-	anchor = strings.ReplaceAll(anchor, "!", "")
-	anchor = strings.ReplaceAll(anchor, "?", "")
-	anchor = strings.ReplaceAll(anchor, "(", "")
-	anchor = strings.ReplaceAll(anchor, ")", "")
-	anchor = strings.ReplaceAll(anchor, "[", "")
-	anchor = strings.ReplaceAll(anchor, "]", "")
-	anchor = strings.ReplaceAll(anchor, "{", "")
-	anchor = strings.ReplaceAll(anchor, "}", "")
-	anchor = strings.ReplaceAll(anchor, "/", "")
-	anchor = strings.ReplaceAll(anchor, "\\", "")
-	anchor = strings.ReplaceAll(anchor, "'", "")
-	anchor = strings.ReplaceAll(anchor, "\"", "")
-	anchor = strings.ReplaceAll(anchor, "`", "")
-	// Eliminar emojis y caracteres especiales (mantener solo letras, números, guiones)
-	var cleaned strings.Builder
-	for _, r := range anchor {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			cleaned.WriteRune(r)
-		}
-	}
-	return cleaned.String()
+	return renderer.DeriveAnchor(text)
 }
