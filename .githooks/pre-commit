@@ -1,0 +1,77 @@
+#!/bin/bash
+# Hook de pre-commit versionado. Es opt-in — se activa una vez por clon con:
+#
+#   git config core.hooksPath .githooks
+#
+# La ruta es relativa a la raíz del árbol de trabajo, así que cada worktree usa
+# el .githooks/ de la rama que tiene checkeada (ver CONTRIBUTING.md).
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# 1. Sin golangci-lint instalado no se bloquea el commit: el gate real es CI
+#    (.github/workflows/ci.yml), este hook solo adelanta el hallazgo.
+if ! command -v golangci-lint >/dev/null 2>&1; then
+  echo "⚠️  golangci-lint no está instalado — se salta el lint de pre-commit."
+  echo "   Instalación: https://golangci-lint.run/welcome/install/"
+  exit 0
+fi
+
+# 2. Elegir QUÉ módulos linteear según lo que esté staged. Un commit de solo
+#    docs no tiene por qué pagar tres corridas de golangci-lint.
+#    Un cambio en core/ sí lintea los tres: core puede romper a sus dos
+#    consumidores, y este hook es el primer lugar donde eso se ve (CI lo cubre
+#    después, en el job workspace-integration).
+STAGED="$(git diff --cached --name-only --diff-filter=ACMR)"
+staged_matches() { printf '%s\n' "$STAGED" | grep -qE "$1"; }
+
+MODULES=()
+if staged_matches '^\.golangci\.yml$' || staged_matches '^core/'; then
+  MODULES=(core doclang slidelang)
+else
+  if staged_matches '^slidelang/'; then MODULES+=(slidelang); fi
+  if staged_matches '^doclang/'; then MODULES+=(doclang); fi
+fi
+
+if [[ ${#MODULES[@]} -eq 0 ]]; then
+  echo "✅ Sin cambios en módulos Go — nada que lintear."
+  exit 0
+fi
+
+# 3. Workspace efímero con los módulos de ESTE árbol.
+#
+#    Sin esto, Go camina hacia arriba buscando un go.work y, en los worktrees
+#    creados bajo el checkout principal (p. ej. .claude/worktrees/), encuentra
+#    el de la raíz — que lista los módulos del checkout principal, no los de
+#    este árbol. golangci-lint revienta ahí con "typechecking error: pattern
+#    ./...: directory prefix . does not contain modules listed in go.work or
+#    their selected dependencies" y aborta el commit.
+#
+#    Deliberadamente NO se usa GOWORK=off: eso resolvería el core PUBLICADO y
+#    trabaría commits legítimos mientras se desarrollan a la vez un cambio de
+#    core y su consumidor (el símbolo nuevo todavía no está publicado, así que
+#    el consumidor no compila). Esa dirección ya la cubre CI en build-test.
+GOVERSION="$(awk '/^go [0-9]/{print $2; exit}' "$REPO_ROOT/core/go.mod")"
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+cat > "$WORKDIR/go.work" <<EOF
+go $GOVERSION
+
+use (
+	$REPO_ROOT/core
+	$REPO_ROOT/doclang
+	$REPO_ROOT/slidelang
+)
+EOF
+export GOWORK="$WORKDIR/go.work"
+
+echo "Running pre-commit checks (golangci-lint)..."
+
+for module in "${MODULES[@]}"; do
+    echo "👉 Linting $module..."
+    (cd "$REPO_ROOT/$module" && golangci-lint run ./...)
+done
+
+echo "✅ All linting checks passed!"
