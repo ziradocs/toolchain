@@ -24,6 +24,7 @@ func NewInitCommand() *cobra.Command {
 
 Examples:
   doclang init my-document
+  doclang init policy --template strict
   doclang init technical-spec --template technical
   doclang init report --template report`,
 		Args: cobra.ExactArgs(1),
@@ -60,13 +61,58 @@ Examples:
 	}
 
 	// Flags
-	cmd.Flags().StringVarP(&template, "template", "t", "default", "Document template (default, technical, report)")
+	cmd.Flags().StringVarP(&template, "template", "t", "default", "Document template (default, strict, technical, report)")
 
 	return cmd
 }
 
 func generateDocumentTemplate(name, template string) string {
+	if template == "strict" {
+		return generateStrictTemplate(name)
+	}
 	return generateFlexTemplate(name, template)
+}
+
+// generateStrictTemplate produce el esqueleto del dialecto strict: bloques
+// SECTION declarados, sin normalización. Es el dialecto que se commitea y se
+// revisa, así que la plantilla muestra lo que flex no puede — un `label:` en
+// una tabla y su `\ref` resuelto.
+func generateStrictTemplate(name string) string {
+	return fmt.Sprintf(`---
+title: %s
+author: Your Name
+mode: strict
+---
+
+SECTION "Introduction"
+
+  TEXT
+    Welcome to **DocLang** in strict mode: every block is declared, and the
+    normalizer never runs. What you read is what gets parsed.
+
+SECTION "Background"
+  level: 2
+  id: background
+
+  POINTS
+    - Sections are declared with SECTION, not inferred from Markdown headings
+    - Nesting comes from `+"`level:`"+`, never from indentation
+    - `+"`id:`"+` pins an anchor so a reference survives a title change
+
+SECTION "Results"
+
+  TEXT
+    Labelled tables and figures can be cross-referenced; see \ref{tbl-example}.
+
+  TABLE
+    headers: ["Metric", "Value"]
+    rows: [
+      ["Throughput", "1200 rps"],
+      ["p99 latency", "45 ms"]
+    ]
+    caption: "Example measurements"
+    label: tbl-example
+`, name)
 }
 
 func generateFlexTemplate(name, template string) string {

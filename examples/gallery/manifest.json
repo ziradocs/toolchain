@@ -56,6 +56,11 @@
       "mode": "flex"
     },
     {
+      "file": "06_strict_document.doclang",
+      "title": "Data Retention Policy (strict dialect)",
+      "mode": "doclang"
+    },
+    {
       "file": "07_special_blocks_and_checklists.slidelang",
       "title": "Callouts and Checklists",
       "mode": "flex"

@@ -13,7 +13,6 @@ import (
 	"go.ziradocs.com/core/v2/formatter"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
-	"go.ziradocs.com/doclang/v2/internal/modecheck"
 )
 
 type fmtOptions struct {
@@ -68,16 +67,20 @@ func runFmt(opts *fmtOptions) error {
 	var doc *ast.AST
 	var diags []diagnostics.Diagnostic
 	if err := util.RunGuarded(util.DefaultParseTimeout, func() error {
-		docParser := parser.NewDocumentFlexParserWithNormalization(string(content), util.NewNoop())
-		doc, diags = docParser.Parse()
+		doc, diags = parser.New(util.NewNoop()).ParseDocument(string(content), opts.inputFile)
 		return nil
 	}); err != nil {
 		return err
 	}
-	// Un documento que declara `mode: strict` no se formatea: FormatDocument
-	// emite flex, así que "formatearlo" sería transpilarlo de vuelta al
-	// dialecto que el autor declaró NO querer (ver internal/modecheck).
-	diags = append(diags, modecheck.CheckAST(doc)...)
+	// Un documento strict SÍ parsea, pero todavía no se puede formatear:
+	// FormatDocument emite el dialecto flex, así que "formatearlo" lo
+	// transpilaría al dialecto contrario al que el autor declaró — una
+	// pérdida irreversible disfrazada de formateo. Se rechaza hasta que
+	// exista el serializador strict documental.
+	if doc != nil && doc.FrontMatter != nil && doc.FrontMatter.Mode == "strict" {
+		return fmt.Errorf("fmt: los documentos en modo strict todavía no se pueden formatear " +
+			"(el formatter emite el dialecto flex, lo que transpilaría el documento en vez de formatearlo)")
+	}
 	for _, d := range diags {
 		if d.IsError() {
 			return fmt.Errorf("fmt: el archivo tiene errores de parseo, corrígelos antes de formatear:\n%s", d.String())
