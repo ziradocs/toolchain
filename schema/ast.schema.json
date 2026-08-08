@@ -658,6 +658,9 @@
         },
         "header_footer": {
           "$ref": "#/$defs/HeaderFooterConfig"
+        },
+        "numbering": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,

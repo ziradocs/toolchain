@@ -27,6 +27,7 @@ author: string
 date: string
 theme: string
 lang: string  # BCP 47 language tag (e.g. "es", "en-US", "zh-Hans-CN"); no top-level default
+numbering: boolean  # DocLang only; see below — no top-level default
 variables: object
 ```
 
@@ -38,6 +39,15 @@ emitting an invalid attribute. See `core/renderer.InlineLangSpanPattern` for the
 and `core/ast.LangRun` for how a marked passage is exposed on the AST — as of SchemaVersion 2.4.0,
 `langRuns` is populated on `TextElement`, `PointItem`, `ChecklistItem`, `QuoteElement.Content`,
 `SpecialBlockElement.Content`, `GridElement.Content`, and `ColumnElement.Content`.
+
+`numbering` (as of SchemaVersion 2.5.0, `ast.FrontMatterNode.Numbering`) is a tri-state
+override for DocLang's section auto-numbering: `true`/`false` for an explicit opinion, or
+the key omitted entirely for "no opinion," which is distinct from `false` — `doclang build`'s
+`--numbering`/`--numbering=false` CLI flag wins over either. It has no effect on `.slidelang`
+output; section numbering is a DocLang-only concept. The frontmatter parser also accepts a
+legacy map form (`numbering:\n  enabled: true`) for backward compatibility with older
+`doclang init` templates — see `llm-kit/reference/frontmatter.md` for the full resolution
+order and both accepted shapes.
 
 ### Strict Mode Grammar
 
@@ -545,5 +555,5 @@ Themes can extend base functionality:
 ---
 
 **Spec version:** v0.1
-**Tracks:** `ast.SchemaVersion` 2.4.0
+**Tracks:** `ast.SchemaVersion` 2.5.0
 **Status:** Living document — see [Spec v0.1 index](README.md) for scope and versioning policy

@@ -25,6 +25,7 @@ title: "..."
 author: "..."
 date: "..."
 theme: "modern-blue"   # CLI --theme flag overrides this if both are given
+numbering: true        # true | false (DocLang only, see below) — opt out of section auto-numbering
 variables:             # arbitrary key/value map, used for {{variable}} substitution
   company: "Acme Inc"
 header:                # optional rich header config (see below)
@@ -61,11 +62,35 @@ should configure something (because you saw it in an example or an
 
 ### Known-ignored keys (do NOT rely on these)
 
-`toc`, `numbering`, `doctype`, `page` — these appear in some `doclang
-init` templates and example files but are **not** part of the parsed
-schema. Table of contents and page numbering in DocLang output are
-controlled by the `--toc` / `--numbering` **CLI flags** passed to
-`doclang build`, not by frontmatter.
+`toc`, `doctype`, `page` — these appear in some `doclang init` templates
+and example files but are **not** part of the parsed schema. Table of
+contents in DocLang output is controlled by the `--toc` **CLI flag** passed
+to `doclang build`, not by frontmatter. (`numbering` used to be in this
+list too — see below, it's now recognized.)
+
+### `numbering` (DocLang only)
+
+- Valid values: `true` or `false`. Omitting the key leaves it unset — not
+  the same as `false`.
+- Controls whether DocLang's document sections get an auto-numbered prefix
+  (`1. `, `2. `, ...) on level-1 headings, the TOC, and the sidebar. A
+  document whose section titles already carry their own numbering typed
+  directly into the heading text (e.g. `# 1. Objetivo del Proyecto`) should
+  set `numbering: false` to avoid doubling the number.
+- Resolution order: **`--numbering`/`--numbering=false` CLI flag >
+  frontmatter `numbering:` > default (`true`)** — the same three-level
+  pattern as `theme`. If the flag is passed explicitly (in either
+  direction), it wins regardless of what frontmatter says.
+- Parsed by the same `core/parser/frontmatter.go` shared by both CLIs, but
+  only `doclang build` reads it — section numbering is a DocLang-only
+  concept, so it's a silently-inert key for `.slidelang` files.
+- **Legacy map form still accepted**: `numbering:\n  enabled: true\n
+  style: 1.1.1`, the shape older `doclang init` templates emitted before
+  this key was recognized, still parses — `enabled` maps to the same
+  true/false as the plain-bool form above, and `style` is accepted but has
+  no effect (no code reads it). Prefer the plain `numbering: true` /
+  `numbering: false` form in new documents; the map form exists only for
+  backward compatibility with documents/templates written before it.
 
 ### `lint_policy` (both CLIs)
 

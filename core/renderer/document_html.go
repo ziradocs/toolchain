@@ -1282,6 +1282,22 @@ func generateInitScripts(opts DocumentHTMLOptions, cspNonce string) string {
 	return scripts.String()
 }
 
+// resolveSectionTitle resuelve el título a mostrar de un ContentBlock y si
+// cuenta como sección numerada. El primer ContentBlock de un documento tiene
+// block_type "title" y lleva su texto en Heading, no en Title (ver
+// ast.ContentBlock) — ese bloque de preámbulo se muestra igual (con su
+// Heading) pero nunca participa en sectionNum: numerarlo como "1." y correr
+// el resto de las secciones un número adelante es confuso (issue #100).
+// Title vacío es exactamente la señal de que un ContentBlock es ese
+// preámbulo, así que basta con distinguir "vino de Title" (numerado) de
+// "vino de Heading" (no numerado) — sin necesitar leer BlockType.
+func resolveSectionTitle(slide ast.ContentBlock) (title string, numbered bool) {
+	if slide.Title != "" {
+		return slide.Title, true
+	}
+	return slide.Heading, false
+}
+
 // generateDocumentTOC genera la tabla de contenidos
 func generateDocumentTOC(doc *ast.AST, opts DocumentHTMLOptions, variables map[string]interface{}) string {
 	var toc strings.Builder
@@ -1293,11 +1309,7 @@ func generateDocumentTOC(doc *ast.AST, opts DocumentHTMLOptions, variables map[s
 
 	sectionNum := 1
 	for _, slide := range doc.ContentBlocks {
-		// Para documentos, el primer slide puede usar Heading (tipo title) y los demás Title
-		title := slide.Title
-		if title == "" && slide.Heading != "" {
-			title = slide.Heading
-		}
+		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
 			titleProcessed := ProcessVariables(title, variables)
@@ -1305,7 +1317,7 @@ func generateDocumentTOC(doc *ast.AST, opts DocumentHTMLOptions, variables map[s
 			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
 
-			if opts.Numbering {
+			if opts.Numbering && numbered {
 				fmt.Fprintf(&toc, `        <li><a href="#%s">%d. %s</a></li>
 `, anchor, sectionNum, titleEscaped)
 			} else {
@@ -1321,7 +1333,9 @@ func generateDocumentTOC(doc *ast.AST, opts DocumentHTMLOptions, variables map[s
 				}
 			}
 
-			sectionNum++
+			if numbered {
+				sectionNum++
+			}
 		}
 	}
 
@@ -1612,11 +1626,7 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 	// Standard mode: continuous flow
 	sectionNum := 1
 	for i, slide := range doc.ContentBlocks {
-		// Para documentos, el primer slide puede usar Heading (tipo title) y los demás Title
-		title := slide.Title
-		if title == "" && slide.Heading != "" {
-			title = slide.Heading
-		}
+		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
 			titleProcessed := ProcessVariables(title, variables)
@@ -1624,14 +1634,16 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
 
-			if opts.Numbering {
+			if opts.Numbering && numbered {
 				fmt.Fprintf(&body, `<h1 id="%s">%d. %s</h1>
 `, anchor, sectionNum, titleEscaped)
 			} else {
 				fmt.Fprintf(&body, `<h1 id="%s">%s</h1>
 `, anchor, titleEscaped)
 			}
-			sectionNum++
+			if numbered {
+				sectionNum++
+			}
 		}
 
 		// Generate content for each element using the shared renderer
@@ -1681,11 +1693,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 
 	// Generate content
 	for i, slide := range doc.ContentBlocks {
-		// Para documentos, el primer slide puede usar Heading (tipo title) y los demás Title
-		title := slide.Title
-		if title == "" && slide.Heading != "" {
-			title = slide.Heading
-		}
+		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
 			titleProcessed := ProcessVariables(title, variables)
@@ -1693,14 +1701,16 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
 
-			if opts.Numbering {
+			if opts.Numbering && numbered {
 				fmt.Fprintf(&body, `<h1 id="%s">%d. %s</h1>
 `, anchor, sectionNum, titleEscaped)
 			} else {
 				fmt.Fprintf(&body, `<h1 id="%s">%s</h1>
 `, anchor, titleEscaped)
 			}
-			sectionNum++
+			if numbered {
+				sectionNum++
+			}
 		}
 
 		// Generate content for each element
@@ -1818,10 +1828,7 @@ func generateViewerSidebar(doc *ast.AST, opts DocumentHTMLOptions, variables map
 	// Generate TOC items
 	sectionNum := 1
 	for _, slide := range doc.ContentBlocks {
-		title := slide.Title
-		if title == "" && slide.Heading != "" {
-			title = slide.Heading
-		}
+		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
 			titleProcessed := ProcessVariables(title, variables)
@@ -1829,7 +1836,7 @@ func generateViewerSidebar(doc *ast.AST, opts DocumentHTMLOptions, variables map
 			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
 
-			if opts.Numbering {
+			if opts.Numbering && numbered {
 				fmt.Fprintf(&sidebar, `        <a href="#%s" class="toc-link" data-section="%s">
             <span class="toc-number">%d.</span>
             <span class="toc-text">%s</span>
@@ -1860,7 +1867,9 @@ func generateViewerSidebar(doc *ast.AST, opts DocumentHTMLOptions, variables map
 				}
 			}
 
-			sectionNum++
+			if numbered {
+				sectionNum++
+			}
 		}
 	}
 
