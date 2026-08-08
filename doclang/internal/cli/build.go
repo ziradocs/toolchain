@@ -342,7 +342,16 @@ Examples:
 					tocEnabled = true // Enable TOC by default for documents
 				}
 				if !cmd.Flags().Changed("numbering") {
-					numberingEnabled = true // Enable numbering by default
+					// An explicit `numbering:` in front matter is the
+					// default; absent that, numbering stays on by default
+					// for documents (issue #100 — front matter previously
+					// had no way to opt out short of passing
+					// `--numbering=false` on every build invocation).
+					if doc.FrontMatter.Numbering != nil {
+						numberingEnabled = *doc.FrontMatter.Numbering
+					} else {
+						numberingEnabled = true
+					}
 				}
 			}
 

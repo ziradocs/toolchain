@@ -27,6 +27,7 @@ type rawFrontMatter struct {
 	Date      string                 `yaml:"date"`
 	Theme     string                 `yaml:"theme"`
 	Lang      string                 `yaml:"lang"`
+	Numbering *bool                  `yaml:"numbering"`
 	Variables map[string]interface{} `yaml:"variables"`
 	// Configuración de headers y footers
 	Header         *rawHeaderConfig            `yaml:"header"`
@@ -169,6 +170,7 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node.Date = raw.Date
 	node.Theme = raw.Theme
 	node.Lang = raw.Lang
+	node.Numbering = raw.Numbering
 	node.Variables = raw.Variables
 	node.Raw = yamlContent
 

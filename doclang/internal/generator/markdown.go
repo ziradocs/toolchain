@@ -26,6 +26,25 @@ func NewMarkdownGenerator(log util.Logger) *MarkdownGenerator {
 	}
 }
 
+// resolveSectionTitle resuelve el título a mostrar de un ContentBlock y si
+// cuenta como sección numerada. El primer ContentBlock de un documento tiene
+// block_type "title" y lleva su texto en Heading, no en Title (ver
+// ast.ContentBlock) — ese bloque de preámbulo se muestra igual (con su
+// Heading) pero nunca participa en sectionNum: numerarlo como "1." y correr
+// el resto de las secciones un número adelante es confuso (issue #100).
+// Title vacío es exactamente la señal de que un ContentBlock es ese
+// preámbulo, así que basta con distinguir "vino de Title" (numerado) de
+// "vino de Heading" (no numerado) — sin necesitar leer BlockType. Mismo
+// criterio que core/renderer/document_html.go, mantenido en sync a mano
+// (paquetes distintos) para que HTML y Markdown coincidan en qué bloque
+// cuenta como sección numerada.
+func resolveSectionTitle(block ast.ContentBlock) (title string, numbered bool) {
+	if block.Title != "" {
+		return block.Title, true
+	}
+	return block.Heading, false
+}
+
 // Generate genera un documento Markdown
 func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorOptions) error {
 	m.logger.Info("MARKDOWN", "Building Markdown document...")
@@ -60,14 +79,17 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 		md.WriteString("## Table of Contents\n\n")
 		sectionNum := 1
 		for _, block := range doc.ContentBlocks {
-			if block.Title != "" {
-				anchor := strings.ToLower(strings.ReplaceAll(block.Title, " ", "-"))
-				if opts.Numbering {
-					fmt.Fprintf(&md, "- [%d. %s](#%s)\n", sectionNum, block.Title, anchor)
+			title, numbered := resolveSectionTitle(block)
+			if title != "" {
+				anchor := strings.ToLower(strings.ReplaceAll(title, " ", "-"))
+				if opts.Numbering && numbered {
+					fmt.Fprintf(&md, "- [%d. %s](#%s)\n", sectionNum, title, anchor)
 				} else {
-					fmt.Fprintf(&md, "- [%s](#%s)\n", block.Title, anchor)
+					fmt.Fprintf(&md, "- [%s](#%s)\n", title, anchor)
 				}
-				sectionNum++
+				if numbered {
+					sectionNum++
+				}
 			}
 		}
 		md.WriteString("\n")
@@ -76,13 +98,16 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 	// Document body
 	sectionNum := 1
 	for i, block := range doc.ContentBlocks {
-		if block.Title != "" {
-			if opts.Numbering {
-				fmt.Fprintf(&md, "## %d. %s\n\n", sectionNum, block.Title)
+		title, numbered := resolveSectionTitle(block)
+		if title != "" {
+			if opts.Numbering && numbered {
+				fmt.Fprintf(&md, "## %d. %s\n\n", sectionNum, title)
 			} else {
-				fmt.Fprintf(&md, "## %s\n\n", block.Title)
+				fmt.Fprintf(&md, "## %s\n\n", title)
 			}
-			sectionNum++
+			if numbered {
+				sectionNum++
+			}
 		}
 
 		// Generate content for each element
