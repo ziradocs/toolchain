@@ -56,7 +56,13 @@ if [[ -n $(git status -s) ]]; then
   exit 1
 fi
 
-git fetch origin --tags -q
+# Todo lo que sigue depende de tener origin al día: si el fetch falla, los
+# guards de más abajo estarían decidiendo sobre refs viejas. Abortar acá es lo
+# correcto; el mensaje propio existe para que no parezca un error del bump.
+if ! git fetch origin --tags -q; then
+  echo "Error: falló 'git fetch origin --tags'. Sin origin al día no se puede validar nada; no se tocó ningún tag."
+  exit 1
+fi
 
 # Resolver "$REF" ACÁ arriba, antes de cualquier validación: todos los checks
 # que siguen tienen que mirar el commit que se va a taggear, no el árbol en
