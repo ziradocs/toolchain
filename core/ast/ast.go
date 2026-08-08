@@ -48,7 +48,13 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // each of those also carries its own loose Content prose that
 // PopulateLangRuns was skipping. Same derivation and posture as 2.3.0's
 // fields.
-const SchemaVersion = "2.4.0"
+//
+// 2.5.0 (issue #100): FrontMatterNode.Numbering (additive, omitempty, tri-
+// state *bool) lets a document declare `numbering: false`/`numbering: true`
+// so `doclang build`'s section auto-numbering default no longer has to be a
+// hardcoded `true` whenever front matter is present — see
+// doclang/internal/cli/build.go.
+const SchemaVersion = "2.5.0"
 
 // Node representa un nodo base en el AST
 type Node interface {

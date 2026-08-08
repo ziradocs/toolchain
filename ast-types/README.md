@@ -57,6 +57,10 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.5.0 (issue #100)
+
+- **Additive**: `frontMatter.numbering` (`boolean | undefined`) — a tri-state override for DocLang's section auto-numbering: `true`/`false` for an explicit opinion in the document itself, or the field absent for "no opinion" (distinct from `false`), leaving the `--numbering`/`--numbering=false` CLI flag or its own default to decide. Has no effect on SlideLang output — section numbering is a DocLang-only concept. See `llm-kit/reference/frontmatter.md` for the frontmatter YAML shapes this maps from (including a legacy map form kept for backward compatibility).
+
 ### 2.4.0 (issue #63 code review, finding #9)
 
 - **Additive**: the `langRuns` field (`LangRun[]`) added on `SpecialBlockElement`, `GridElement`, and `ColumnElement` — each also carries its own loose `content` prose that the 2.3.0 population pass was skipping. Same derivation and posture as 2.3.0's `langRuns` fields.

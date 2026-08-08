@@ -331,3 +331,42 @@ func TestGenerateDocumentHTML_PreservesElementOrder_HeterogeneousTypes(t *testin
 		})
 	}
 }
+
+// TestGenerateDocumentHTML_PreambleBlockNotCountedTowardNumbering covers
+// issue #100's second bug: a document's first ContentBlock (block_type
+// "title", parsed from the document's first `# ` heading) carries its text
+// in Heading, not Title. It must still render its heading, but must not
+// consume a number or shift every real section's number up by one — same
+// resolveSectionTitle rule doclang/internal/generator/markdown.go now
+// applies, so both generators agree on which block counts.
+func TestGenerateDocumentHTML_PreambleBlockNotCountedTowardNumbering(t *testing.T) {
+	doc := &ast.AST{
+		ContentBlocks: []ast.ContentBlock{
+			{BlockType: "title", Heading: "Preamble"},
+			{BlockType: "content", Title: "Real Section"},
+		},
+	}
+
+	html := GenerateDocumentHTML(doc, DocumentHTMLOptions{TOC: true, Numbering: true}, nil)
+
+	// The preamble keeps its heading, unnumbered, in the TOC and body.
+	if !strings.Contains(html, `<li><a href="#preamble">Preamble</a></li>`) {
+		t.Errorf("expected an unnumbered TOC entry for the preamble, got:\n%s", html)
+	}
+	if !strings.Contains(html, `<h1 id="preamble">Preamble</h1>`) {
+		t.Errorf("expected an unnumbered heading for the preamble, got:\n%s", html)
+	}
+
+	// The real section is "1.", not "2." — the preamble must not have
+	// consumed a number ahead of it.
+	if !strings.Contains(html, `<li><a href="#real-section">1. Real Section</a></li>`) {
+		t.Errorf("expected the real section to be numbered '1.' (preamble doesn't count), got:\n%s", html)
+	}
+	if !strings.Contains(html, `<h1 id="real-section">1. Real Section</h1>`) {
+		t.Errorf("expected the real section's heading to be numbered '1.', got:\n%s", html)
+	}
+
+	if strings.Contains(html, "1. Preamble") || strings.Contains(html, "2. Real Section") {
+		t.Errorf("preamble must never receive a number and must not shift the real section's number, got:\n%s", html)
+	}
+}

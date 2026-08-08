@@ -27,11 +27,54 @@ type rawFrontMatter struct {
 	Date      string                 `yaml:"date"`
 	Theme     string                 `yaml:"theme"`
 	Lang      string                 `yaml:"lang"`
+	Numbering *rawNumbering          `yaml:"numbering"`
 	Variables map[string]interface{} `yaml:"variables"`
 	// Configuración de headers y footers
 	Header         *rawHeaderConfig            `yaml:"header"`
 	Footer         *rawFooterConfig            `yaml:"footer"`
 	LayoutDefaults map[string]*rawLayoutConfig `yaml:"layout_defaults"`
+}
+
+// rawNumbering accepts either shape a document's `numbering:` key has ever
+// used: the current tri-state bool (`numbering: true`/`numbering: false`)
+// or the legacy map form that predates it (`numbering:\n  enabled: true\n
+// style: 1.1.1`, still emitted by `doclang init`'s `technical`/`report`
+// templates as of #100's review). Both resolve to the same *bool.
+//
+// `style` in the map form has no consumer anywhere in this codebase
+// (confirmed via grep across core/ and doclang/) — it was always
+// aspirational. It's accepted and silently ignored rather than rejected, so
+// existing front matter that declares it doesn't start failing builds.
+type rawNumbering struct {
+	// Enabled is nil when the map form is present but omits `enabled`
+	// (`numbering: {}`) — that shape carries no information, so it's
+	// treated the same as `numbering:` being absent entirely, not as an
+	// implicit `false`.
+	Enabled *bool
+}
+
+func (n *rawNumbering) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var b bool
+		if err := value.Decode(&b); err != nil {
+			return fmt.Errorf("numbering: expected true/false or a map with 'enabled', got %q", value.Value)
+		}
+		n.Enabled = &b
+		return nil
+	case yaml.MappingNode:
+		var legacy struct {
+			Enabled *bool       `yaml:"enabled"`
+			Style   interface{} `yaml:"style"` // aspirational, no consumer; accepted and ignored
+		}
+		if err := value.Decode(&legacy); err != nil {
+			return fmt.Errorf("numbering: %w", err)
+		}
+		n.Enabled = legacy.Enabled
+		return nil
+	default:
+		return fmt.Errorf("numbering: expected a bool (true/false) or a map with 'enabled', got %v", value.Tag)
+	}
 }
 
 // rawHeaderConfig mapea la configuración YAML de headers
@@ -169,6 +212,9 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node.Date = raw.Date
 	node.Theme = raw.Theme
 	node.Lang = raw.Lang
+	if raw.Numbering != nil {
+		node.Numbering = raw.Numbering.Enabled
+	}
 	node.Variables = raw.Variables
 	node.Raw = yamlContent
 

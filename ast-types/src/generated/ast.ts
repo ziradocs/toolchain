@@ -42,8 +42,13 @@ import type { Position } from "./diagnostics";
  * each of those also carries its own loose Content prose that
  * PopulateLangRuns was skipping. Same derivation and posture as 2.3.0's
  * fields.
+ * 2.5.0 (issue #100): FrontMatterNode.Numbering (additive, omitempty, tri-
+ * state *bool) lets a document declare `numbering: false`/`numbering: true`
+ * so `doclang build`'s section auto-numbering default no longer has to be a
+ * hardcoded `true` whenever front matter is present — see
+ * doclang/internal/cli/build.go.
  */
-export const SchemaVersion = "2.4.0";
+export const SchemaVersion = "2.5.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -232,6 +237,21 @@ export interface FrontMatterNode extends BaseNode {
   lang?: string;
   variables?: { [key: string]: any};
   header_footer?: HeaderFooterConfig; // Nueva configuración
+  /**
+   * Numbering is a tri-state override for section auto-numbering
+   * (`--numbering`): nil means the document has no opinion and the CLI's
+   * own default applies; a non-nil pointer is an explicit `numbering:
+   * true`/`numbering: false` in front matter. A plain bool couldn't
+   * represent "unset" (its zero value is indistinguishable from an
+   * explicit `numbering: false`), which is exactly what the CLI's
+   * defaulting logic needs to tell apart from "document didn't say"
+   * (doclang/internal/cli/build.go: an explicit `--numbering` flag still
+   * wins over either). Needed because there was previously no
+   * document-level way to opt out of numbering short of passing
+   * `--numbering=false` on every build invocation — e.g. a document whose
+   * section titles already carry their own numbering in the heading text.
+   */
+  numbering?: boolean;
 }
 /**
  * ContentBlock representa un bloque de contenido (slide en presentaciones, sección en documentos)

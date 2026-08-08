@@ -107,7 +107,20 @@ type FrontMatterNode struct {
 	Lang         string                 `json:"lang,omitempty"`
 	Variables    map[string]interface{} `json:"variables,omitempty"`
 	HeaderFooter *HeaderFooterConfig    `json:"header_footer,omitempty"` // Nueva configuración
-	Raw          string                 `json:"-"`                       // YAML crudo
+	// Numbering is a tri-state override for section auto-numbering
+	// (`--numbering`): nil means the document has no opinion and the CLI's
+	// own default applies; a non-nil pointer is an explicit `numbering:
+	// true`/`numbering: false` in front matter. A plain bool couldn't
+	// represent "unset" (its zero value is indistinguishable from an
+	// explicit `numbering: false`), which is exactly what the CLI's
+	// defaulting logic needs to tell apart from "document didn't say"
+	// (doclang/internal/cli/build.go: an explicit `--numbering` flag still
+	// wins over either). Needed because there was previously no
+	// document-level way to opt out of numbering short of passing
+	// `--numbering=false` on every build invocation — e.g. a document whose
+	// section titles already carry their own numbering in the heading text.
+	Numbering *bool  `json:"numbering,omitempty"`
+	Raw       string `json:"-"` // YAML crudo
 }
 
 // NewFrontMatterNode crea un nuevo nodo de FrontMatter
