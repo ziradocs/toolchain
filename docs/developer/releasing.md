@@ -55,21 +55,60 @@ has to:
 `scripts/bump-core.sh` does all five steps. It:
 
 - Validates SemVer strictly (`vX.Y.Z` exactly — no prerelease/build suffix) and the `/vN` suffix
-  against `core/go.mod`, same as `release.sh`.
+  against `core/go.mod`, same as `release.sh` — but reads that `go.mod` out of `$REF`
+  (`git show "$TAG_COMMIT":core/go.mod`), not out of the working tree. Reading the local tree
+  validates the wrong file the moment `HEAD != $REF`: standing on a branch that has already
+  migrated to `/v3`, the check would pass and the script would tag `core/v3.0.0` onto an
+  `origin/main` still declaring `/v2` — precisely the permanently-broken tag the guard exists
+  to prevent (see the `v2.1.0` note in `CLAUDE.md`).
 - Rejects if `core/vX.Y.Z` already exists **on the remote** (`git ls-remote`, not just a local
   `git tag -l`) — this is the check that would have caught the collision that forced
-  `core/v2.1.3` to exist (an intermediate tag cut between two coordinated releases).
+  `core/v2.1.3` to exist (an intermediate tag cut between two coordinated releases). The same
+  goes for the bump branch, on `origin` as well as locally.
+- Both remote guards **fail closed**. `git ls-remote` exits non-zero on network/credential
+  failures, and the naive spellings (`git ls-remote … | grep -q .`, or `--exit-code` inside an
+  `if`) collapse that into "no match" — so a transient `128` reads as "the ref is free" and the
+  script pushes a tag it can never take back. The helper distinguishes "doesn't exist" from
+  "couldn't ask" and aborts on the latter. Keep it that way.
 - Tags **only** `core/vX.Y.Z` — never a bare `vX.Y.Z`. `release.yml` triggers on both
   `v[0-9]*.[0-9]*.[0-9]*` and a bare `v*`; a module-only tag like `core/vX.Y.Z` doesn't start
   with `v` at all, so it can't accidentally trigger a goreleaser run.
 - Polls `proxy.golang.org`/`sum.golang.org` for the new version before touching `go.mod`, with a
   `GOPROXY=direct GOSUMDB=off` fallback if the sumdb still hasn't caught up.
+- Cuts the bump branch **from the ref it just tagged** (`git checkout -b … "$TAG_COMMIT"`),
+  before running the bump — see "Safe to run from any branch" below.
 - Bumps and `go mod tidy`s both CLIs, then verifies `GOWORK=off go build ./...` in each.
-- If `gh` is installed, opens a branch + PR with the `go.mod`/`go.sum` bump. Otherwise, leaves
-  the bump uncommitted in the working tree with instructions to commit/PR it by hand.
+- If `gh` is installed, commits the `go.mod`/`go.sum` bump on that branch and opens the PR.
+  Otherwise, leaves the bump uncommitted on the branch with instructions to commit/PR it by hand.
 
 Use this whenever a `core`-only PR needs to become a real dependency for the CLIs, without
 cutting a full product release of the binaries.
+
+### Safe to run from any branch
+
+**The script must stay safe to run from whatever branch you happen to be on — that's the whole
+point of it taking a `ref` argument.** Everything it produces (the bump branch, the `go mod tidy`
+result, the `GOWORK=off go build` check) is computed on top of `$REF`, never on top of your HEAD.
+It creates the branch with `git checkout -b "$BRANCH" "$TAG_COMMIT"`, before the bump runs and
+before the tag is pushed, and if HEAD has commits `$REF` doesn't, it names them and says they will
+not be included.
+
+Any future edit that reintroduces a bare `git checkout -b`, or moves branch creation after the
+bump, breaks this. Two distinct failures, both silent:
+
+- **Unrelated commits ride along.** This happened on 2026-08-06: the operator's HEAD was on a
+  feature branch — a prior `git checkout main` had failed silently because `main` was checked out
+  in another git worktree — so the bump branch inherited two feature commits. PR #98 was titled
+  and reviewed as a `go.mod` bump but merged an entire `doclang` feature into `main` alongside it.
+  Nothing unreviewed shipped (the content had been reviewed in #97, and #98's CI passed in full),
+  but the history now records a feature under a `chore:` commit and #97 had to be closed as
+  redundant. Note that `git checkout -b NEW main` is immune to the worktree failure that started
+  this: it branches *from* `main` without checking `main` out.
+- **The wrong dependency set gets committed.** `go mod tidy` derives the `require` set from the
+  `.go` files in the working tree. Run it on the wrong tree and an import that branch adds
+  produces a spurious `require`, while one it removes drops a `require` that `$REF` still needs —
+  and step 8's `GOWORK=off go build ./...`, running on that same wrong tree, catches neither.
+  This is why the branch is cut *before* the bump, not at commit time.
 
 ### Why two scripts, not one, and not zero (collapsing to a single module)
 
