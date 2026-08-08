@@ -46,24 +46,11 @@ fi
 
 cd "$REPO_ROOT"
 
-# 2. Validar el sufijo /v2 (o el que corresponda) contra core/go.mod — mismo
-#    check que release.sh:22-32, reusado verbatim: un tag mayor sin el
-#    sufijo correspondiente en el module path de Go rompe la resolución de
-#    versión para siempre (ver CLAUDE.md sobre core/slidelang/doclang v2.1.0).
-MAJOR_VERSION=$(echo "$VERSION" | grep -o '^v[0-9]*')
-if [[ "$MAJOR_VERSION" != "v1" && "$MAJOR_VERSION" != "v0" ]]; then
-  MODULE_VER=$(grep "^module" core/go.mod | awk -F'/' '{print $NF}')
-  if [[ "$MODULE_VER" != "$MAJOR_VERSION" ]]; then
-    echo "🔥 Error Crítico de Go: Estás intentando lanzar $VERSION, pero core/go.mod no tiene el sufijo /$MAJOR_VERSION."
-    echo "Si vas a sacar una versión mayor nueva, debes actualizar los go.mod y todos los imports primero."
-    exit 1
-  fi
-fi
-
 # Árbol limpio — mismo check que release.sh:16-20. Este script va a bumpear
 # go.mod/go.sum de slidelang y doclang más abajo; empezar con cambios sin
 # commitear haría imposible distinguir "esto lo hizo el script" de "esto ya
-# estaba" al revisar el diff final.
+# estaba" al revisar el diff final. Va antes de tocar la red: es local y
+# barato, y no tiene sentido fetchear para después abortar por esto.
 if [[ -n $(git status -s) ]]; then
   echo "Error: Tienes cambios sin commitear. Haz commit o stash primero."
   exit 1
@@ -71,12 +58,59 @@ fi
 
 git fetch origin --tags -q
 
+# Resolver "$REF" ACÁ arriba, antes de cualquier validación: todos los checks
+# que siguen tienen que mirar el commit que se va a taggear, no el árbol en
+# que estás parado. Ver el paso 2.
+if ! TAG_COMMIT=$(git rev-parse --verify --quiet "$REF^{commit}"); then
+  echo "Error: no pude resolver '$REF' a un commit. ¿Existe esa rama/commit en origin?"
+  exit 1
+fi
+
+# Preguntarle a origin si una ref existe, distinguiendo "no existe" de "no
+# pude preguntar". `git ls-remote` sale != 0 ante fallas de red/credenciales,
+# y la forma ingenua (`git ls-remote ... | grep -q .`, o `--exit-code` metido
+# en un `if`) colapsa ese caso con el de "no hay match" — o sea que un 128
+# transitorio se lee como "la ref está libre". Acá eso significaría pushear un
+# tag que después no se puede despushear (los tags de módulo Go no se reusan,
+# ver CLAUDE.md sobre core/v2.1.0), así que estos guards fallan CERRADOS.
+remote_ref_existe() {
+  local tipo=$1 patron=$2
+  local salida rc=0
+  salida=$(git ls-remote "$tipo" origin "$patron") || rc=$?
+  if (( rc != 0 )); then
+    echo "Error: no pude consultar '$patron' en origin — git ls-remote salió $rc." >&2
+    echo "Eso es una falla de red/credenciales, NO un 'no existe'. Abortando antes de taggear nada." >&2
+    exit 1
+  fi
+  [[ -n "$salida" ]]
+}
+
+# 2. Validar el sufijo /v2 (o el que corresponda) contra core/go.mod — mismo
+#    check que release.sh:22-32: un tag mayor sin el sufijo correspondiente en
+#    el module path de Go rompe la resolución de versión para siempre (ver
+#    CLAUDE.md sobre core/slidelang/doclang v2.1.0).
+#
+#    Se lee del core/go.mod DE "$TAG_COMMIT", no del working tree. Leerlo del
+#    árbol local valida el archivo equivocado en cuanto HEAD != "$REF": parado
+#    en una rama que ya migró a /v3, el check pasaría y el script taggearía
+#    core/v3.0.0 sobre un origin/main que todavía declara /v2 — exactamente el
+#    tag inválido e irreusable que este guard existe para prevenir.
+MAJOR_VERSION=$(echo "$VERSION" | grep -o '^v[0-9]*')
+if [[ "$MAJOR_VERSION" != "v1" && "$MAJOR_VERSION" != "v0" ]]; then
+  MODULE_VER=$(git show "$TAG_COMMIT:core/go.mod" | grep "^module" | awk -F'/' '{print $NF}')
+  if [[ "$MODULE_VER" != "$MAJOR_VERSION" ]]; then
+    echo "🔥 Error Crítico de Go: Estás intentando lanzar $VERSION, pero el core/go.mod de $REF ($(git rev-parse --short "$TAG_COMMIT")) declara /$MODULE_VER, no /$MAJOR_VERSION."
+    echo "Si vas a sacar una versión mayor nueva, debes actualizar los go.mod y todos los imports primero — y mergearlos a $REF, que es lo que se va a taggear."
+    exit 1
+  fi
+fi
+
 # 3. Rechazar si el tag ya existe — el gap que release.sh no cubre y que
 #    forzó core/v2.1.3 (colisión con un tag intermedio ya cortado). Se
 #    chequea el REMOTO, no solo local: `git tag -l` no ve un tag que existe
 #    en origin pero no se fetcheó todavía a este checkout — exactamente el
 #    estado que produjo esa colisión la primera vez.
-if git ls-remote --tags origin "refs/tags/core/$VERSION" | grep -q .; then
+if remote_ref_existe --tags "refs/tags/core/$VERSION"; then
   echo "Error: el tag core/$VERSION ya existe en origin. Elegí otra versión."
   exit 1
 fi
@@ -84,18 +118,15 @@ fi
 # 3b. Rechazar si la rama del bump ya existe (local o en origin). Se chequea
 #     ACÁ, junto al check del tag y antes de pushear nada: si el `git checkout
 #     -b` del paso 4 fallara después del push del tag, el tag ya estaría
-#     quemado (los tags de módulo Go no se reusan — ver CLAUDE.md sobre
-#     core/v2.1.0) y no habría forma de reintentar con la misma versión.
+#     quemado y no habría forma de reintentar con la misma versión.
 if git rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
   echo "Error: la rama $BRANCH ya existe local. Borrala o elegí otra versión."
   exit 1
 fi
-if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+if remote_ref_existe --heads "$BRANCH"; then
   echo "Error: la rama $BRANCH ya existe en origin. Elegí otra versión."
   exit 1
 fi
-
-TAG_COMMIT=$(git rev-parse "$REF")
 
 # 4. Crear la rama del bump DESDE "$REF" — no desde HEAD.
 #

@@ -55,10 +55,21 @@ has to:
 `scripts/bump-core.sh` does all five steps. It:
 
 - Validates SemVer strictly (`vX.Y.Z` exactly — no prerelease/build suffix) and the `/vN` suffix
-  against `core/go.mod`, same as `release.sh`.
+  against `core/go.mod`, same as `release.sh` — but reads that `go.mod` out of `$REF`
+  (`git show "$TAG_COMMIT":core/go.mod`), not out of the working tree. Reading the local tree
+  validates the wrong file the moment `HEAD != $REF`: standing on a branch that has already
+  migrated to `/v3`, the check would pass and the script would tag `core/v3.0.0` onto an
+  `origin/main` still declaring `/v2` — precisely the permanently-broken tag the guard exists
+  to prevent (see the `v2.1.0` note in `CLAUDE.md`).
 - Rejects if `core/vX.Y.Z` already exists **on the remote** (`git ls-remote`, not just a local
   `git tag -l`) — this is the check that would have caught the collision that forced
-  `core/v2.1.3` to exist (an intermediate tag cut between two coordinated releases).
+  `core/v2.1.3` to exist (an intermediate tag cut between two coordinated releases). The same
+  goes for the bump branch, on `origin` as well as locally.
+- Both remote guards **fail closed**. `git ls-remote` exits non-zero on network/credential
+  failures, and the naive spellings (`git ls-remote … | grep -q .`, or `--exit-code` inside an
+  `if`) collapse that into "no match" — so a transient `128` reads as "the ref is free" and the
+  script pushes a tag it can never take back. The helper distinguishes "doesn't exist" from
+  "couldn't ask" and aborts on the latter. Keep it that way.
 - Tags **only** `core/vX.Y.Z` — never a bare `vX.Y.Z`. `release.yml` triggers on both
   `v[0-9]*.[0-9]*.[0-9]*` and a bare `v*`; a module-only tag like `core/vX.Y.Z` doesn't start
   with `v` at all, so it can't accidentally trigger a goreleaser run.
