@@ -320,21 +320,8 @@ func trimInlineArrayBrackets(s string) string {
 // strict entrecomilla con comillas dobles en todas partes (quote()), así que
 // una comilla simple es contenido literal, no sintaxis.
 func splitInlineArray(s string) []string {
-	items := []string{}
-	start := 0
-	inQuotes := false
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			inQuotes = !inQuotes
-		case ',':
-			if !inQuotes {
-				items = append(items, unquoteInlineArrayItem(s[start:i]))
-				start = i + 1
-			}
-		}
-	}
-	if inQuotes {
+	raw, ok := splitTopLevelCommas(s)
+	if !ok {
 		// Comillas desbalanceadas: comportamiento legacy (ver doc arriba).
 		legacy := []string{}
 		for _, part := range strings.Split(s, ",") {
@@ -342,8 +329,18 @@ func splitInlineArray(s string) []string {
 		}
 		return legacy
 	}
-	if last := strings.TrimSpace(s[start:]); last != "" || len(items) > 0 {
-		items = append(items, unquoteInlineArrayItem(s[start:]))
+
+	// El último item se descarta si TODO el array venía vacío ("[]"): ahí
+	// splitTopLevelCommas devuelve un único item vacío, que como celda sería
+	// el header fantasma descrito arriba. Con una coma de por medio ("A,") el
+	// item vacío sí es una celda y se conserva, igual que antes.
+	if len(raw) == 1 && strings.TrimSpace(raw[0]) == "" {
+		return []string{}
+	}
+
+	items := make([]string, 0, len(raw))
+	for _, item := range raw {
+		items = append(items, unquoteInlineArrayItem(item))
 	}
 	return items
 }

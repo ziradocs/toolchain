@@ -319,3 +319,46 @@ func IsNewElement(line string, mode string) bool {
 
 	return false
 }
+
+// splitTopLevelCommas parte s por las comas que están FUERA de comillas
+// dobles y devuelve los items EN BRUTO — sin recortar espacios ni quitar las
+// comillas — junto con ok=false si el conteo de comillas quedó impar.
+//
+// Devolver el item en bruto es lo que permite compartirlo entre llamadores con
+// necesidades distintas: elements.TableParser desenvuelve la celda (una celda
+// es siempre texto), mientras ChartParser necesita ver las comillas intactas
+// para decidir si el item es una etiqueta o un número. Cada llamador se queda
+// también con su propio manejo de items vacíos (una fila de chart los ignora;
+// una fila de tabla conserva la celda vacía de una coma final).
+//
+// El ok=false es una red de seguridad, no una validación: con un conteo impar
+// de comillas la entrada está malformada y el llamador debe caer a su
+// comportamiento previo (el split ingenuo por comas) en vez de inventar una
+// interpretación. Ver splitInlineArray (internal/elements/table.go) para la
+// política completa —incluido por qué el backslash NO es escape acá.
+//
+// No absorbe a parseCSVLine (internal/elements/map.go), que resuelve el mismo
+// problema para los marcadores de <<map>>: aquel CONSERVA las comillas dentro
+// del campo y descarta el último campo si quedó vacío. Es otro contrato, con
+// sus propias fixtures; unificarlos sería un cambio de comportamiento en
+// mapas disfrazado de refactor.
+func splitTopLevelCommas(s string) ([]string, bool) {
+	items := []string{}
+	start := 0
+	inQuotes := false
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			inQuotes = !inQuotes
+		case ',':
+			if !inQuotes {
+				items = append(items, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	if inQuotes {
+		return nil, false
+	}
+	return append(items, s[start:]), true
+}

@@ -5,6 +5,7 @@ package elements
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -478,5 +479,58 @@ func TestExtractAttribute(t *testing.T) {
 		if result != tt.expected {
 			t.Errorf("extractAttribute(%q, %q) = %q, want %q", tt.str, tt.attr, result, tt.expected)
 		}
+	}
+}
+
+// TestChartParser_ParseArrayRow_QuotedLabelWithComma cubre la misma clase de
+// bug que el splitter de TABLE (ver splitInlineArray en table.go): parseArrayRow
+// partía por comas sin mirar las comillas, así que una etiqueta con coma
+// ("Berlin, Germany", "1,000 usuarios") se convertía en dos items. La fila
+// ganaba una columna y los valores numéricos quedaban corridos una posición
+// respecto de su serie — corrupción silenciosa, sin diagnóstico que la delate:
+// CHART001 solo verifica que la gráfica TENGA datos.
+func TestChartParser_ParseArrayRow_QuotedLabelWithComma(t *testing.T) {
+	parser := &ChartParser{}
+
+	tests := []struct {
+		name  string
+		input string
+		want  []interface{}
+	}{
+		{
+			name:  "etiqueta con coma",
+			input: `["Berlin, Germany", 45, 32]`,
+			want:  []interface{}{"Berlin, Germany", 45.0, 32.0},
+		},
+		{
+			name:  "miles con coma en la etiqueta",
+			input: `["1,000 usuarios", 12]`,
+			want:  []interface{}{"1,000 usuarios", 12.0},
+		},
+		{
+			name:  "coma final tras la etiqueta con coma",
+			input: `["Q1, parcial", 45],`,
+			want:  []interface{}{"Q1, parcial", 45.0},
+		},
+		{
+			name:  "sin comas dentro de comillas no cambia",
+			input: `["Q1", 45, 32]`,
+			want:  []interface{}{"Q1", 45.0, 32.0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parser.parseArrayRow(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("parseArrayRow(%q) = %#v (%d items), want %#v (%d)",
+					tt.input, got, len(got), tt.want, len(tt.want))
+			}
+			for i := range tt.want {
+				if fmt.Sprint(got[i]) != fmt.Sprint(tt.want[i]) {
+					t.Errorf("item %d = %#v, want %#v (fila completa: %#v)", i, got[i], tt.want[i], got)
+				}
+			}
+		})
 	}
 }

@@ -333,7 +333,19 @@ func (p *ChartParser) parseArrayRow(line string) []interface{} {
 	content = strings.TrimSuffix(content, "],") // Handle trailing comma
 	content = strings.TrimSpace(content)
 
-	parts := strings.Split(content, ",")
+	// Respeta las comillas: una etiqueta con coma (["Berlin, Germany", 45])
+	// se partía en dos items, así que la fila ganaba una columna y los
+	// valores numéricos quedaban corridos una posición — corrupción
+	// silenciosa de los datos de la gráfica, sin diagnóstico que la delate
+	// (CHART001 solo verifica que HAYA datos). Mismo bug que el splitter de
+	// TABLE (ver splitInlineArray en table.go); acá el helper compartido
+	// devuelve los items en bruto porque el loop de abajo necesita ver las
+	// comillas para distinguir etiqueta de número.
+	parts, ok := splitTopLevelCommas(content)
+	if !ok {
+		// Comillas desbalanceadas: split ingenuo de siempre.
+		parts = strings.Split(content, ",")
+	}
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
