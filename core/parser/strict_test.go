@@ -5,6 +5,7 @@ package parser
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -725,6 +726,61 @@ func TestStrictParser_TableQuotedCellWithComma_NoColumnCountError(t *testing.T) 
 		if d.RuleID == "TABLE003" {
 			t.Errorf("unexpected %s (%q) — la coma dentro de la celda entrecomillada volvió a partir la fila: %+v",
 				d.RuleID, d.Message, table.Rows)
+		}
+	}
+}
+
+// TestStrictParser_ChartQuotedLabelWithComma_RowNotFragmented es el caso
+// end-to-end del mismo bug de comas que TABLE, pero en <<chart>>: ChartParser.
+// parseArrayRow partía las filas de data: por comas sin mirar las comillas, así
+// que una etiqueta con coma se convertía en dos items y los valores numéricos
+// quedaban corridos una posición respecto de su serie. A diferencia de la tabla
+// —donde el linter al menos gritaba TABLE003— acá la corrupción es silenciosa:
+// CHART001 solo verifica que la gráfica TENGA datos, no la forma de sus filas.
+// Por eso el test fija el contenido de Data, no un diagnóstico.
+func TestStrictParser_ChartQuotedLabelWithComma_RowNotFragmented(t *testing.T) {
+	body := `SLIDE content
+  title: "Ventas por ciudad"
+  <<chart: bar>>
+    data: [
+      ["Berlin, Germany", 45, 32],
+      ["Q1, parcial", 52, 38]
+    ]
+    series: ["Producto A", "Producto B"]`
+
+	p := NewStrictParser(body, util.NewNoop())
+	astNode, diags := p.Parse()
+	if n := countErrors(diags); n != 0 {
+		t.Fatalf("got %d error diagnostics from the parser, want 0: %v", n, diags)
+	}
+
+	var chart *ast.ChartElement
+	for _, el := range astNode.ContentBlocks[0].Elements {
+		if c, ok := el.(*ast.ChartElement); ok {
+			chart = c
+			break
+		}
+	}
+	if chart == nil {
+		t.Fatalf("no ChartElement in the slide: %+v", astNode.ContentBlocks[0].Elements)
+	}
+
+	if len(chart.Data) != 2 {
+		t.Fatalf("len(Data) = %d, want 2: %#v", len(chart.Data), chart.Data)
+	}
+	for i, want := range [][]interface{}{
+		{"Berlin, Germany", 45.0, 32.0},
+		{"Q1, parcial", 52.0, 38.0},
+	} {
+		if len(chart.Data[i]) != len(want) {
+			t.Errorf("Data[%d] tiene %d columnas, want %d — la coma dentro de la etiqueta volvió a fragmentar la fila: %#v",
+				i, len(chart.Data[i]), len(want), chart.Data[i])
+			continue
+		}
+		for j := range want {
+			if fmt.Sprint(chart.Data[i][j]) != fmt.Sprint(want[j]) {
+				t.Errorf("Data[%d][%d] = %#v, want %#v (fila: %#v)", i, j, chart.Data[i][j], want[j], chart.Data[i])
+			}
 		}
 	}
 }
