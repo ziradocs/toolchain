@@ -641,6 +641,66 @@ func TestFormatTableCellsBlock_CellContentWithQuote_RoundTrips(t *testing.T) {
 	}
 }
 
+// TestFormatTable_CellWithComma_RoundTrips fija que una celda con coma
+// ("Manual, dual-approval", "1,000") sobrevive el round-trip por las DOS
+// rutas de formatTableElement, la contraparte del fix del splitter de
+// internal/elements/table.go (que partía headers:/rows: por comas sin mirar
+// las comillas):
+//
+//   - tabla simple → formatPipeTable, donde el delimitador es "|" y la coma
+//     no es sintaxis;
+//   - tabla con Label → el bloque "cells:", YAML real de ida (yaml.Node) y
+//     de vuelta (parseCellsYAML), que entrecomilla la coma por su cuenta.
+//
+// Ninguna de las dos emite headers:/rows:, así que el formatter nunca
+// dependió del splitter roto — este test lo deja demostrado en vez de
+// asumido.
+func TestFormatTable_CellWithComma_RoundTrips(t *testing.T) {
+	const comma = "Manual, dual-approval"
+
+	cases := []struct {
+		name     string
+		label    string
+		wantForm string
+	}{
+		{name: "pipe form", label: "", wantForm: "|"},
+		{name: "cells form (Label forces it)", label: "tbl:controles", wantForm: "cells:"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := diagnostics.NewPosition(1, 1)
+			table := ast.NewTableElement(pos)
+			table.Headers = []string{"Control", "Aprobación, tipo"}
+			table.Rows = [][]string{{"Acceso", comma}, {"Cupo", "1,000"}}
+			table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+			table.Label = tc.label
+			block := ast.NewContentBlock(pos, "content")
+			block.Elements = append(block.Elements, table)
+			doc := ast.NewAST(pos)
+			doc.FrontMatter = ast.NewFrontMatterNode(pos)
+			doc.FrontMatter.Mode = "strict"
+			doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+			out, err := FormatStrict(doc)
+			if err != nil {
+				t.Fatalf("FormatStrict: unexpected error: %v", err)
+			}
+			if !strings.Contains(out, tc.wantForm) {
+				t.Fatalf("expected the %s form, got:\n%s", tc.wantForm, out)
+			}
+
+			got := parseStrict(t, out).ContentBlocks[0].Elements[0].(*ast.TableElement)
+			if !reflect.DeepEqual(got.Headers, table.Headers) {
+				t.Errorf("Headers did not round-trip: got %#v, want %#v\nformatted:\n%s", got.Headers, table.Headers, out)
+			}
+			if !reflect.DeepEqual(got.Rows, table.Rows) {
+				t.Errorf("Rows did not round-trip: got %#v, want %#v\nformatted:\n%s", got.Rows, table.Rows, out)
+			}
+		})
+	}
+}
+
 // TestFormatStrict_CodeGroupIndentIdempotent es la regresión directa del bug
 // pre-existente encontrado al agregar la sintaxis strict de GRID: el `fmt`
 // strict de un :::code-group NO era idempotente — cada pasada acumulaba 2
