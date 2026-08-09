@@ -69,8 +69,8 @@ jobs:
   # Lo que NO atrapa es la falla inversa: un PR solo-de-core que cambia o
   # borra un símbolo que slidelang/doclang usan se mergea VERDE, porque los
   # consumidores siguen compilando contra el core publicado, que todavía tiene
-  # el símbolo viejo. Esa rotura aparecía hasta scripts/bump-core.sh paso 7,
-  # o sea después de que el paso 4 ya pusheó el tag — y un tag que
+  # el símbolo viejo. Esa rotura aparecía hasta scripts/bump-core.sh paso 8,
+  # o sea después de que el paso 5 ya pusheó el tag — y un tag que
   # proxy.golang.org/sum.golang.org ya indexaron es permanente en la práctica
   # (ver CLAUDE.md sobre core/v2.1.0).
   #
