@@ -290,24 +290,27 @@ func trimInlineArrayBrackets(s string) string {
 //
 // Reglas, en orden:
 //
-//   - Una `\"` dentro de una celda entrecomillada NO cierra las comillas y se
-//     desescapa a `"` literal al desenvolver la celda. Es el ÚNICO escape
-//     reconocido: `\\` y cualquier otro backslash pasan verbatim, a propósito,
-//     porque el dialecto strict no escapa backslashes en ningún lado (ver el
-//     comentario de quote() en formatter/util.go, que documenta por qué
-//     escaparlos corrompía el round-trip de valores con `\` literal). Este
-//     escape es solo de LECTURA: el formatter nunca emite `\"` — para una
-//     celda con comilla literal usa la forma "cells:" (YAML real, que se
-//     entrecomilla sola), y checkQuotable() rechaza el resto de los campos
-//     entrecomillados del dialecto. O sea, acepta más de lo que emite; no
-//     introduce un escape nuevo en la salida.
-//   - Si las comillas quedan desbalanceadas —conteo IMPAR de comillas sin
-//     escapar, p. ej. `A", B` o una celda terminada en `\"`— se cae al split
-//     ingenuo por comas de siempre, así que ese caso conserva exactamente el
-//     comportamiento previo. Ojo: es una red de seguridad por conteo, no una
-//     validación; entrada malformada con un número PAR de comillas mal puestas
-//     (`A", B", C`) sí puede diferir del split ingenuo. Entrada bien formada
-//     —con o sin comillas— es el caso que este splitter garantiza.
+//   - El BACKSLASH NO ES ESCAPE: toda comilla doble abre o cierra, y `\` es
+//     contenido literal como cualquier otro carácter. Es la misma política
+//     que el resto del dialecto strict, documentada en quote()
+//     (formatter/util.go): ahí se explica por qué escapar `\` corrompía el
+//     round-trip de valores con backslash literal. Tratar `\"` como comilla
+//     escapada —como hacía la primera versión de este splitter— rompía
+//     justamente el caso que la política protege: una celda terminada en
+//     backslash (`["Berlin, Germany", "C:\"]`) se comía su comilla de cierre,
+//     dejaba las comillas desbalanceadas y caía al fallback de abajo,
+//     reproduciendo el bug de las tres celdas. La contrapartida es que una
+//     comilla doble LITERAL dentro de una celda sigue sin ser representable
+//     en esta forma — limitación pre-existente del dialecto, no de este fix:
+//     para eso está la forma "cells:" (YAML real, que se entrecomilla sola),
+//     y checkQuotable() ya rechaza ese valor en el formatter.
+//   - Si las comillas quedan desbalanceadas (conteo IMPAR, p. ej. `A", B`) se
+//     cae al split ingenuo por comas de siempre, así que ese caso conserva
+//     exactamente el comportamiento previo. Ojo: es una red de seguridad por
+//     conteo, no una validación; entrada malformada con un número PAR de
+//     comillas mal puestas (`A", B", C`) sí puede diferir del split ingenuo.
+//     Entrada bien formada —con o sin comillas— es el caso que este splitter
+//     garantiza.
 //   - Un array vacío (`headers: []`) produce cero celdas, no una celda vacía
 //     como antes (strings.Split("", ",") devuelve un elemento vacío). Ese
 //     header fantasma falseaba el conteo de columnas; ahora un `headers: []`
@@ -322,13 +325,6 @@ func splitInlineArray(s string) []string {
 	inQuotes := false
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
-		case '\\':
-			// Solo dentro de comillas: fuera de ellas no hay nada que
-			// escapar, y consumir el siguiente carácter podría saltarse una
-			// coma delimitadora legítima.
-			if inQuotes && i+1 < len(s) {
-				i++
-			}
 		case '"':
 			inQuotes = !inQuotes
 		case ',':
@@ -353,14 +349,15 @@ func splitInlineArray(s string) []string {
 }
 
 // unquoteInlineArrayItem normaliza una celda ya separada: recorta espacios y,
-// si queda envuelta en un par de comillas dobles, las quita y desescapa `\"`.
-// Si no forma un par (`A"`, `"`, sin comillas), se conserva el
-// strings.Trim(item, `"`) histórico para no cambiar el comportamiento de
-// entrada malformada.
+// si queda envuelta en un par de comillas dobles, quita ESE par y nada más —
+// el contenido interior (comas, backslashes, corchetes) pasa verbatim, sin
+// desescapes, por la política de splitInlineArray. Si no forma un par (`A"`,
+// `"`, sin comillas), se conserva el strings.Trim(item, `"`) histórico para no
+// cambiar el comportamiento de entrada malformada.
 func unquoteInlineArrayItem(item string) string {
 	item = strings.TrimSpace(item)
 	if len(item) >= 2 && item[0] == '"' && item[len(item)-1] == '"' {
-		return strings.ReplaceAll(item[1:len(item)-1], `\"`, `"`)
+		return item[1 : len(item)-1]
 	}
 	return strings.Trim(item, "\"")
 }

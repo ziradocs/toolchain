@@ -689,7 +689,8 @@ func TestStrictParser_TableQuotedCellWithComma_NoColumnCountError(t *testing.T) 
     headers: ["Control", "Aprobación"]
     rows:
       ["Acceso", "Manual, dual-approval"]
-      ["Cupo", "1,000"]`
+      ["Cupo", "1,000"]
+      ["Ruta", "C:\"]`
 
 	p := NewStrictParser(body, util.NewNoop())
 	astNode, diags := p.Parse()
@@ -706,6 +707,12 @@ func TestStrictParser_TableQuotedCellWithComma_NoColumnCountError(t *testing.T) 
 	wantRows := [][]string{
 		{"Acceso", "Manual, dual-approval"},
 		{"Cupo", "1,000"},
+		// Celda terminada en backslash: el `\` es contenido literal, no
+		// escape de la comilla de cierre (ver splitInlineArray). Una versión
+		// previa de este fix sí lo trataba como escape, con lo que esta fila
+		// desbalanceaba las comillas, caía al split ingenuo y volvía a
+		// disparar TABLE003 — el mismo bug, corrido a otra fila.
+		{"Ruta", `C:\`},
 	}
 	if !reflect.DeepEqual(table.Rows, wantRows) {
 		t.Errorf("Rows = %#v, want %#v", table.Rows, wantRows)

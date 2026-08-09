@@ -563,8 +563,18 @@ func TestSplitInlineArray(t *testing.T) {
 		{"sin comillas (legacy)", `A, B, C`, []string{"A", "B", "C"}},
 		{"numérico sin comillas", `100, 200`, []string{"100", "200"}},
 		{"mezcla entrecomillada y no", `A, "B, C", 3`, []string{"A", "B, C", "3"}},
-		{"comilla escapada dentro de la celda", `"dijo \"hola\", y se fue", "B"`, []string{`dijo "hola", y se fue`, "B"}},
+		// El backslash NO es escape (ver splitInlineArray): una celda
+		// terminada en `\` conserva su comilla de cierre en vez de comérsela,
+		// que es lo que hacía la primera versión de este splitter — dejaba las
+		// comillas desbalanceadas, caía al fallback y reproducía el bug de las
+		// tres celdas justo en la fila que tuviera una ruta de Windows.
+		{"celda terminada en backslash no se come la comilla", `"Berlin, Germany", "C:\"`, []string{"Berlin, Germany", `C:\`}},
 		{"backslash literal pasa verbatim", `"C:\ruta, x"`, []string{`C:\ruta, x`}},
+		// Una comilla doble literal dentro de una celda sigue sin ser
+		// representable en esta forma (limitación pre-existente del dialecto,
+		// ver checkQuotable en formatter/util.go): `\"` no se desescapa, se
+		// conserva tal cual.
+		{"backslash-comilla no se interpreta como escape", `"dijo \"hola\", y se fue", "B"`, []string{`dijo \"hola\", y se fue`, "B"}},
 		{"celda vacía entrecomillada", `"", "B"`, []string{"", "B"}},
 		{"corchete dentro de la celda", `"[borrador]", "B"`, []string{"[borrador]", "B"}},
 		{"array vacío no produce celda fantasma", ``, []string{}},
