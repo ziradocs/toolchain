@@ -97,6 +97,54 @@ func TestMarkdownGeneratorGenerate(t *testing.T) {
 	}
 }
 
+// TestMarkdownGeneratorGenerate_PreambleBlockNotCountedTowardNumbering covers
+// issue #100's second bug: a document's first ContentBlock (block_type
+// "title", parsed from the document's first `# ` heading) carries its text
+// in Heading, not Title. It must still render its heading, but must not
+// consume a number or shift every real section's number up by one.
+func TestMarkdownGeneratorGenerate_PreambleBlockNotCountedTowardNumbering(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+	doc := ast.NewAST(diagnostics.NewPosition(1, 1))
+
+	preamble := ast.NewContentBlock(diagnostics.NewPosition(1, 1), "title")
+	preamble.Heading = "Preamble"
+	doc.ContentBlocks = append(doc.ContentBlocks, *preamble)
+
+	real := ast.NewContentBlock(diagnostics.NewPosition(2, 1), "content")
+	real.Title = "Real Section"
+	doc.ContentBlocks = append(doc.ContentBlocks, *real)
+
+	output := filepath.Join(t.TempDir(), "document.md")
+	opts := GeneratorOptions{TOC: true, Numbering: true}
+	if err := gen.Generate(doc, output, opts); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("failed to read output file: %v", err)
+	}
+	content := string(data)
+
+	// The preamble keeps its heading, unnumbered, in both TOC and body.
+	if !strings.Contains(content, "- [Preamble](#preamble)") {
+		t.Errorf("expected an unnumbered TOC entry for the preamble, got:\n%s", content)
+	}
+	if !strings.Contains(content, "## Preamble\n\n") {
+		t.Errorf("expected an unnumbered heading for the preamble, got:\n%s", content)
+	}
+
+	// The real section is "1.", not "2." — the preamble must not have
+	// consumed a number ahead of it.
+	if !strings.Contains(content, "- [1. Real Section](#real-section)") {
+		t.Errorf("expected the real section to be numbered '1.' (preamble doesn't count), got:\n%s", content)
+	}
+	if !strings.Contains(content, "## 1. Real Section\n\n") {
+		t.Errorf("expected the real section's heading to be numbered '1.', got:\n%s", content)
+	}
+}
+
 // TestMarkdownRenderElement_Table_CellAndHeaderWithPipeIsEscaped covers the
 // code-review finding that escapeMarkdownInline (added for map markers) was
 // never applied to TableElement's own Headers/Rows in the same file, so an
