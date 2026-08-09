@@ -11,6 +11,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/linter"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -668,6 +669,55 @@ func TestStrictParser_MediaTagOverMatch_NotDispatchedAsMedia(t *testing.T) {
 	for _, el := range astNode.ContentBlocks[0].Elements {
 		if _, ok := el.(*ast.MediaElement); ok {
 			t.Fatalf("\"<<videofoo ...>>\" was dispatched as *ast.MediaElement, want it rejected: %+v", el)
+		}
+	}
+}
+
+// TestStrictParser_TableQuotedCellWithComma_NoColumnCountError es el caso
+// end-to-end del bug: texto strict real → parser → elements.TableParser →
+// linter. El splitter de headers:/rows: partía por comas sin mirar las
+// comillas, así que "Manual, dual-approval" se convertía en dos celdas y la
+// fila quedaba con una columna de más; lo que veía el autor era el error del
+// linter sobre el número de columnas, culpando a la fila en vez del contenido
+// de la celda. Se ejerce por la ruta real (indentación incluida: el sub-loop
+// de "rows:" exige el prefijo literal de 6 espacios) porque un test que arme
+// el ParseContext a mano no probaría esa parte.
+func TestStrictParser_TableQuotedCellWithComma_NoColumnCountError(t *testing.T) {
+	body := `SLIDE content
+  title: "Controles"
+  TABLE
+    headers: ["Control", "Aprobación"]
+    rows:
+      ["Acceso", "Manual, dual-approval"]
+      ["Cupo", "1,000"]`
+
+	p := NewStrictParser(body, util.NewNoop())
+	astNode, diags := p.Parse()
+	if n := countErrors(diags); n != 0 {
+		t.Fatalf("got %d error diagnostics from the parser, want 0: %v", n, diags)
+	}
+
+	elements := astNode.ContentBlocks[0].Elements
+	table, ok := elements[0].(*ast.TableElement)
+	if !ok {
+		t.Fatalf("elements[0] = %T, want *ast.TableElement", elements[0])
+	}
+
+	wantRows := [][]string{
+		{"Acceso", "Manual, dual-approval"},
+		{"Cupo", "1,000"},
+	}
+	if !reflect.DeepEqual(table.Rows, wantRows) {
+		t.Errorf("Rows = %#v, want %#v", table.Rows, wantRows)
+	}
+	if !reflect.DeepEqual(table.Headers, []string{"Control", "Aprobación"}) {
+		t.Errorf("Headers = %#v, want [Control Aprobación]", table.Headers)
+	}
+
+	for _, d := range linter.New().Lint(astNode) {
+		if d.RuleID == "TABLE003" {
+			t.Errorf("unexpected %s (%q) — la coma dentro de la celda entrecomillada volvió a partir la fila: %+v",
+				d.RuleID, d.Message, table.Rows)
 		}
 	}
 }

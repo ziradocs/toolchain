@@ -499,3 +499,123 @@ func TestTableParser_ExplicitCells_ValidScopesNotFlagged(t *testing.T) {
 		}
 	}
 }
+
+// TestTableParser_QuotedCellWithComma cubre el bug de fondo: el splitter de
+// headers:/rows: partía por comas sin mirar las comillas, así que una coma
+// DENTRO de una celda entrecomillada ("Manual, dual-approval", "1,000",
+// "Berlin, Germany" — contenido muy común) generaba una celda de más. El
+// síntoma que veía el autor era un error del linter sobre el número de
+// columnas (TABLE003), que culpaba a la fila en vez del contenido de la celda.
+func TestTableParser_QuotedCellWithComma(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "strict",
+		Lines: []string{
+			"TABLE",
+			`  headers: ["Control", "Aprobación, tipo"]`,
+			"  rows:",
+			`      ["x", "Manual, dual-approval"]`,
+			`      ["1,000", "Berlin, Germany"]`,
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+
+	wantHeaders := []string{"Control", "Aprobación, tipo"}
+	if !equalStrings(table.Headers, wantHeaders) {
+		t.Errorf("Headers = %#v, want %#v", table.Headers, wantHeaders)
+	}
+
+	wantRows := [][]string{
+		{"x", "Manual, dual-approval"},
+		{"1,000", "Berlin, Germany"},
+	}
+	if len(table.Rows) != len(wantRows) {
+		t.Fatalf("len(Rows) = %d, want %d (%#v)", len(table.Rows), len(wantRows), table.Rows)
+	}
+	for i := range wantRows {
+		if !equalStrings(table.Rows[i], wantRows[i]) {
+			t.Errorf("Rows[%d] = %#v, want %#v", i, table.Rows[i], wantRows[i])
+		}
+	}
+}
+
+// TestSplitInlineArray cubre el splitter directamente, incluidos los casos
+// borde que el comentario de splitInlineArray declara explícitamente: escape
+// de comillas, comillas desbalanceadas (fallback legacy), array vacío y
+// contenido sin comillas.
+func TestSplitInlineArray(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"celda entrecomillada con coma", `"x", "Manual, dual-approval"`, []string{"x", "Manual, dual-approval"}},
+		{"varias comas en una celda", `"a, b, c", "d"`, []string{"a, b, c", "d"}},
+		{"miles con coma", `"1,000", "2,500"`, []string{"1,000", "2,500"}},
+		{"sin comillas (legacy)", `A, B, C`, []string{"A", "B", "C"}},
+		{"numérico sin comillas", `100, 200`, []string{"100", "200"}},
+		{"mezcla entrecomillada y no", `A, "B, C", 3`, []string{"A", "B, C", "3"}},
+		{"comilla escapada dentro de la celda", `"dijo \"hola\", y se fue", "B"`, []string{`dijo "hola", y se fue`, "B"}},
+		{"backslash literal pasa verbatim", `"C:\ruta, x"`, []string{`C:\ruta, x`}},
+		{"celda vacía entrecomillada", `"", "B"`, []string{"", "B"}},
+		{"corchete dentro de la celda", `"[borrador]", "B"`, []string{"[borrador]", "B"}},
+		{"array vacío no produce celda fantasma", ``, []string{}},
+		{"comillas desbalanceadas cae a legacy", `A", B`, []string{"A", "B"}},
+		{"coma final conserva la celda vacía (legacy)", `"A",`, []string{"A", ""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitInlineArray(tt.input)
+			if !equalStrings(got, tt.want) {
+				t.Errorf("splitInlineArray(%q) = %#v, want %#v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTableParser_EmptyHeadersArray fija la decisión deliberada de que
+// `headers: []` produzca CERO headers en vez del header vacío que devolvía
+// strings.Split("", ",") — ese header fantasma falseaba el conteo de columnas
+// del linter.
+func TestTableParser_EmptyHeadersArray(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "strict",
+		Lines: []string{
+			"TABLE",
+			"  headers: []",
+			"  rows:",
+			`      ["a", "b"]`,
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+	if len(table.Headers) != 0 {
+		t.Errorf("len(Headers) = %d, want 0 (%#v)", len(table.Headers), table.Headers)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

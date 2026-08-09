@@ -169,13 +169,8 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 
 			// Remove brackets and parse array
 			if strings.HasPrefix(headersStr, "[") && strings.HasSuffix(headersStr, "]") {
-				headersStr = strings.Trim(headersStr, "[]")
-				parts := strings.Split(headersStr, ",")
-				for _, part := range parts {
-					header := strings.TrimSpace(part)
-					header = strings.Trim(header, "\"")
-					headers = append(headers, header)
-				}
+				headersStr = trimInlineArrayBrackets(headersStr)
+				headers = append(headers, splitInlineArray(headersStr)...)
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
 			// Process rows array
@@ -193,15 +188,8 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 					rowTrimmed = strings.TrimSuffix(rowTrimmed, ",")
 				}
 				if strings.HasPrefix(rowTrimmed, "[") && strings.HasSuffix(rowTrimmed, "]") {
-					rowStr := strings.Trim(rowTrimmed, "[]")
-					parts := strings.Split(rowStr, ",")
-					var row []string
-					for _, part := range parts {
-						cell := strings.TrimSpace(part)
-						cell = strings.Trim(cell, "\"")
-						row = append(row, cell)
-					}
-					rows = append(rows, row)
+					rowStr := trimInlineArrayBrackets(rowTrimmed)
+					rows = append(rows, splitInlineArray(rowStr))
 				}
 				consumed++
 				i++
@@ -279,6 +267,102 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 	}
 
 	return headers, rows, caption, label, explicitCells, diags, consumed
+}
+
+// trimInlineArrayBrackets quita UN "[" inicial y UN "]" final del valor de
+// headers:/rows:, en vez del strings.Trim(s, "[]") anterior, que quitaba
+// TODOS los corchetes de los extremos y por lo tanto se comía el corchete
+// que fuera parte del contenido de la primera/última celda (p. ej.
+// `["[borrador]", "B"]` perdía el "[" de la celda). El llamador ya verificó
+// que el valor empieza en "[" y termina en "]".
+func trimInlineArrayBrackets(s string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(s, "["), "]")
+}
+
+// splitInlineArray parte el contenido (ya sin corchetes) de un array inline
+// del bloque TABLE — headers: o una fila de rows: — en sus celdas,
+// respetando las comillas dobles: una coma DENTRO de una celda entrecomillada
+// ("Manual, dual-approval", "1,000", "Berlin, Germany") ya no parte la celda
+// en dos. Antes se hacía strings.Split(s, ",") a secas, así que ese contenido
+// —muy común— generaba una celda de más y disparaba el diagnóstico del linter
+// sobre el número de columnas (TABLE003, "Table row has incorrect number of
+// columns"), que culpaba a la fila cuando el problema real era el contenido.
+//
+// Reglas, en orden:
+//
+//   - Una `\"` dentro de una celda entrecomillada NO cierra las comillas y se
+//     desescapa a `"` literal al desenvolver la celda. Es el ÚNICO escape
+//     reconocido: `\\` y cualquier otro backslash pasan verbatim, a propósito,
+//     porque el dialecto strict no escapa backslashes en ningún lado (ver el
+//     comentario de quote() en formatter/util.go, que documenta por qué
+//     escaparlos corrompía el round-trip de valores con `\` literal). Este
+//     escape es solo de LECTURA: el formatter nunca emite `\"` — para una
+//     celda con comilla literal usa la forma "cells:" (YAML real, que se
+//     entrecomilla sola), y checkQuotable() rechaza el resto de los campos
+//     entrecomillados del dialecto. O sea, acepta más de lo que emite; no
+//     introduce un escape nuevo en la salida.
+//   - Si las comillas quedan desbalanceadas —conteo IMPAR de comillas sin
+//     escapar, p. ej. `A", B` o una celda terminada en `\"`— se cae al split
+//     ingenuo por comas de siempre, así que ese caso conserva exactamente el
+//     comportamiento previo. Ojo: es una red de seguridad por conteo, no una
+//     validación; entrada malformada con un número PAR de comillas mal puestas
+//     (`A", B", C`) sí puede diferir del split ingenuo. Entrada bien formada
+//     —con o sin comillas— es el caso que este splitter garantiza.
+//   - Un array vacío (`headers: []`) produce cero celdas, no una celda vacía
+//     como antes (strings.Split("", ",") devuelve un elemento vacío). Ese
+//     header fantasma falseaba el conteo de columnas; ahora un `headers: []`
+//     reporta el TABLE001 que corresponde ("should have headers defined").
+//
+// Comillas simples ('A, B') NO se reconocen como delimitador: el dialecto
+// strict entrecomilla con comillas dobles en todas partes (quote()), así que
+// una comilla simple es contenido literal, no sintaxis.
+func splitInlineArray(s string) []string {
+	items := []string{}
+	start := 0
+	inQuotes := false
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			// Solo dentro de comillas: fuera de ellas no hay nada que
+			// escapar, y consumir el siguiente carácter podría saltarse una
+			// coma delimitadora legítima.
+			if inQuotes && i+1 < len(s) {
+				i++
+			}
+		case '"':
+			inQuotes = !inQuotes
+		case ',':
+			if !inQuotes {
+				items = append(items, unquoteInlineArrayItem(s[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	if inQuotes {
+		// Comillas desbalanceadas: comportamiento legacy (ver doc arriba).
+		legacy := []string{}
+		for _, part := range strings.Split(s, ",") {
+			legacy = append(legacy, strings.Trim(strings.TrimSpace(part), "\""))
+		}
+		return legacy
+	}
+	if last := strings.TrimSpace(s[start:]); last != "" || len(items) > 0 {
+		items = append(items, unquoteInlineArrayItem(s[start:]))
+	}
+	return items
+}
+
+// unquoteInlineArrayItem normaliza una celda ya separada: recorta espacios y,
+// si queda envuelta en un par de comillas dobles, las quita y desescapa `\"`.
+// Si no forma un par (`A"`, `"`, sin comillas), se conserva el
+// strings.Trim(item, `"`) histórico para no cambiar el comportamiento de
+// entrada malformada.
+func unquoteInlineArrayItem(item string) string {
+	item = strings.TrimSpace(item)
+	if len(item) >= 2 && item[0] == '"' && item[len(item)-1] == '"' {
+		return strings.ReplaceAll(item[1:len(item)-1], `\"`, `"`)
+	}
+	return strings.Trim(item, "\"")
 }
 
 // yamlTableCellEntry es la forma YAML de una celda dentro del bloque
