@@ -49,7 +49,7 @@ fi
 #    por completo (siempre usa el core del árbol, esté taggeado o no). Sin
 #    este check, un pin desactualizado se descubre cuando el release ya falló
 #    a medias — con los 4 tags pusheados y por lo tanto quemados.
-#    Es el mismo check que scripts/bump-core.sh corre en su paso 7; acá es el
+#    Es el mismo check que scripts/bump-core.sh corre en su paso 8; acá es el
 #    cinturón de seguridad para el caso en que el bump nunca se hizo.
 echo "🔎 Verificando GOWORK=off go build en slidelang y doclang..."
 (cd slidelang && GOWORK=off go build ./...)
