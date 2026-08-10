@@ -214,7 +214,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	// incondicionalmente, así que `--toc=false`/`toc: false` no tenían
 	// ningún efecto en DOCX).
 	if opts.TOC {
-		tocEntries := g.collectHeadings(astDoc)
+		tocEntries := g.collectHeadings(astDoc, opts.Numbering)
 		if err := g.renderTOC(doc, tocEntries); err != nil {
 			return fmt.Errorf("error rendering TOC: %w", err)
 		}
@@ -391,21 +391,36 @@ var (
 	}
 )
 
-// collectHeadings recolecta todos los encabezados del documento para el TOC
-func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST) []TOCEntry {
+// collectHeadings recolecta todos los encabezados del documento para el TOC.
+// El H1 de cada bloque usa resolveSectionTitle y el mismo contador
+// sectionNum que el loop de sección en Generate (issue #115 follow-up code
+// review: antes leía block.Title directo, así que el preámbulo —cuyo texto
+// vive en block.Heading, ver resolveSectionTitle— quedaba fuera del TOC, y
+// el prefijo numérico del TOC podía divergir del que realmente escribe
+// renderSection en el cuerpo cuando opts.Numbering estaba activo).
+func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST, numbering bool) []TOCEntry {
 	var entries []TOCEntry
 
 	g.logger.Info("DOCX", "📋 Collecting headings from %d content blocks", len(astDoc.ContentBlocks))
 
+	sectionNum := 1
 	for _, block := range astDoc.ContentBlocks {
-		// H1 (section title)
-		if block.Title != "" {
+		// H1 (section title, o Heading si es el bloque de preámbulo)
+		title, numbered := resolveSectionTitle(block)
+		if title != "" {
+			entryTitle := title
+			if numbering && numbered {
+				entryTitle = fmt.Sprintf("%d. %s", sectionNum, title)
+			}
 			entries = append(entries, TOCEntry{
-				Title:      block.Title,
+				Title:      entryTitle,
 				Level:      1,
-				BookmarkID: sanitizeBookmarkID(block.Title),
+				BookmarkID: sanitizeBookmarkID(title),
 			})
-			g.logger.Info("DOCX", "  ➜ H1: %s", block.Title)
+			g.logger.Info("DOCX", "  ➜ H1: %s", entryTitle)
+		}
+		if numbered {
+			sectionNum++
 		}
 
 		// H1-H6 (text elements with raw HTML or markdown headers)

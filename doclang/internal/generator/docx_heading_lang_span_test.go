@@ -29,7 +29,7 @@ func TestDOCXGenerator_CollectHeadings_StripsLangSpanMarkup(t *testing.T) {
 	heading.Level = 2
 	doc := astWithElements(heading)
 
-	entries := gen.collectHeadings(doc)
+	entries := gen.collectHeadings(doc, false)
 	var entry *TOCEntry
 	for i := range entries {
 		if entries[i].Level == 2 {

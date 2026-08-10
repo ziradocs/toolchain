@@ -26,7 +26,7 @@ func TestDOCXGenerator_CollectHeadings_IncludesGridColumnHeadings(t *testing.T) 
 	gen := NewDOCXGenerator(logger, "")
 	doc := astWithGrid() // "### Column Heading\nContenido columna A" in column A
 
-	entries := gen.collectHeadings(doc)
+	entries := gen.collectHeadings(doc, false)
 
 	var found *TOCEntry
 	for i := range entries {
@@ -65,7 +65,7 @@ func TestDOCXGenerator_CollectHeadings_CoversLevels5And6(t *testing.T) {
 
 	doc := astWithElements(subDos, detalle)
 
-	entries := gen.collectHeadings(doc)
+	entries := gen.collectHeadings(doc, false)
 
 	byTitle := map[string]TOCEntry{}
 	for _, e := range entries {
@@ -104,7 +104,7 @@ func TestDOCXGenerator_CollectHeadings_IgnoresIndentedGridColumnLines(t *testing
 	block.Elements = append(block.Elements, grid)
 	doc.ContentBlocks[0] = block
 
-	entries := gen.collectHeadings(doc)
+	entries := gen.collectHeadings(doc, false)
 
 	for _, e := range entries {
 		if e.Title == "Indented Heading" {

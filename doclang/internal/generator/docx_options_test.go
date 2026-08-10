@@ -129,6 +129,36 @@ func TestDOCXGenerator_PageBreaks_EmitsPageBreakRun(t *testing.T) {
 	}
 }
 
+// TestDOCXGenerator_TOC_MatchesBodyTitlesAndNumbering covers a code review
+// finding on the TOC/Numbering wiring above: collectHeadings used to read
+// block.Title directly, so with TOC+Numbering both on, the static TOC
+// placeholder disagreed with the body it points to — it skipped the
+// preamble (whose text lives in block.Heading, not Title) and never
+// prefixed numbers, while the body (via resolveSectionTitle in Generate)
+// showed the preamble and "N. " prefixes. Assert both surfaces render the
+// exact same section titles.
+func TestDOCXGenerator_TOC_MatchesBodyTitlesAndNumbering(t *testing.T) {
+	logger := newTestLogger()
+	gen := New(logger)
+	doc := astWithTwoSections()
+
+	output := filepath.Join(t.TempDir(), "toc-numbered.docx")
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx", TOC: true, Numbering: true}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+	for _, expected := range []string{"Executive Summary", "1. Introduction", "2. Conclusion"} {
+		count := strings.Count(xml, expected)
+		if count < 2 {
+			t.Errorf("expected %q to appear at least twice (TOC placeholder + body heading), got %d in document.xml:\n%s", expected, count, xml)
+		}
+	}
+	if strings.Contains(xml, "1. Executive Summary") {
+		t.Errorf("preamble heading should not be numbered in the TOC placeholder, got:\n%s", xml)
+	}
+}
+
 // TestDOCXGenerator_PageBreaks_False_EmitsNone is the symmetric case.
 func TestDOCXGenerator_PageBreaks_False_EmitsNone(t *testing.T) {
 	logger := newTestLogger()
