@@ -91,6 +91,40 @@ func TestIsJustASeparator(t *testing.T) {
 	}
 }
 
+// TestIsStrictBlockBoundary cubre issue #107: la falta de este chequeo (o de
+// un equivalente) en isChartContentBoundary (chart.go) y en
+// MathParser.parseAngleForm/PlantUMLParser (math.go, plantuml.go) es lo que
+// dejaba a esos parsers tragarse todos los slides/secciones siguientes hasta
+// EOF cuando el autor omitía el marcador de cierre del elemento.
+func TestIsStrictBlockBoundary(t *testing.T) {
+	tests := []struct {
+		name     string
+		rawLine  string
+		expected bool
+	}{
+		{"SLIDE at column 0 with a type", "SLIDE content", true},
+		{"SLIDE at column 0 with a tab separator", "SLIDE\tcontent", true},
+		{"bare SLIDE at column 0, nothing after", "SLIDE", true},
+		{"SECTION at column 0 with a quoted title", `SECTION "Introduction"`, true},
+		{"bare SECTION at column 0, nothing after", "SECTION", true},
+		{"SLIDEfoo has no word boundary: not a real keyword (issue #45)", "SLIDEfoo", false},
+		{"SECTIONfoo has no word boundary: not a real keyword (issue #45)", "SECTIONfoo", false},
+		{"indented SLIDE is column content, not a boundary", "  SLIDE content", false},
+		{"indented SECTION is column content, not a boundary", "    SECTION \"x\"", false},
+		{"unrelated content", "  data: [1, 2, 3]", false},
+		{"empty line", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsStrictBlockBoundary(tt.rawLine)
+			if got != tt.expected {
+				t.Errorf("IsStrictBlockBoundary(%q) = %v, want %v", tt.rawLine, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestIsNewElement(t *testing.T) {
 	tests := []struct {
 		name     string

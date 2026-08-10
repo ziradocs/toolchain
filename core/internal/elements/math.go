@@ -123,9 +123,14 @@ func (p *MathParser) parseDollarForm(lines []string, startIndex int, openingLine
 // E2E: con detección de indentación, el bloque se cerraba en la primera
 // línea de contenido no-indentada, dejando Content vacío). Termina por
 // `<<end>>` (obligatorio para contenido correcto) o por `---` (límite de
-// slide); sin ninguno de los dos, consume hasta EOF — mismo patrón ya
+// slide); sin ninguno de los dos, se detiene en el siguiente límite de
+// bloque strict ("SLIDE "/"SECTION " en columna 0, ver
+// IsStrictBlockBoundary) o, a falta de eso también, en EOF — mismo patrón ya
 // aceptado en el codebase para otros elementos delimitados explícitamente
-// (plantuml.go sin @enduml, chart.go con JSON sin cerrar).
+// (plantuml.go sin @enduml, chart.go con JSON sin cerrar). El chequeo de
+// límite strict existe porque un `<<math>>` sin `<<end>>` en modo strict
+// tenía exactamente el mismo bug que #107: se tragaba todos los slides
+// siguientes hasta EOF.
 func (p *MathParser) parseAngleForm(lines []string, startIndex int, content *strings.Builder, label *string) int {
 	consumed := 1
 
@@ -137,6 +142,9 @@ func (p *MathParser) parseAngleForm(lines []string, startIndex int, content *str
 			break
 		}
 		if trimmedLine == "---" {
+			break
+		}
+		if IsStrictBlockBoundary(lines[i]) {
 			break
 		}
 		if trimmedLine == "" {

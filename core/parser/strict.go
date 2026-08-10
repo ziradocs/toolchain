@@ -404,6 +404,50 @@ func (p *strictBody) parseIndentedElements(
 	}
 }
 
+// applyElementResult aplica el resultado de un ElementParser (registra su
+// error/diagnostics y avanza p.currentLine) para los parsers de elemento
+// individuales de abajo (parseTextElement, parseChartElement, etc.) —
+// factoriza el patrón que los 14 repetían idéntico.
+//
+// Acota (clamp) ConsumedLines para que ningún elemento pueda avanzar más
+// allá del siguiente límite de bloque strict ("SLIDE "/"SECTION " en
+// columna 0, ver elements.IsStrictBlockBoundary) — defensa en profundidad
+// para la clase de bug de issue #107: un elemento delimitado sin su
+// marcador de cierre (`<<end>>`, `@enduml`) se tragaba todos los slides o
+// secciones siguientes hasta EOF, en silencio. Los guards ya agregados en
+// chart.go/math.go/plantuml.go/grid.go no deberían disparar este clamp
+// nunca; si alguno lo hace, es un ElementParser NUEVO que olvidó agregar el
+// mismo guard. En ese caso recortar en silencio dejaría el AST con un
+// elemento que ya absorbió contenido ajeno (p. ej. un chart.Title tomado de
+// la slide siguiente) pero con el conteo de slides "correcto" — perdiendo
+// la única señal visible que existía hoy. Por eso el clamp siempre emite un
+// error nombrando al elemento, nunca recorta callado.
+func (p *strictBody) applyElementResult(result *elements.ParseResult, elementName string) ast.Element {
+	if result.Error != nil {
+		p.addError(result.Error.Error())
+	}
+	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
+
+	consumed := result.ConsumedLines
+	end := p.currentLine + consumed
+	if end > len(p.lines) {
+		end = len(p.lines)
+	}
+	for i := p.currentLine + 1; i < end; i++ {
+		if elements.IsStrictBlockBoundary(p.lines[i]) {
+			p.addError(fmt.Sprintf(
+				"internal error: %s element consumed past the next SLIDE/SECTION boundary (line %d) — this is a parser bug, please report it with a minimal repro",
+				elementName, i+1,
+			))
+			consumed = i - p.currentLine
+			break
+		}
+	}
+
+	p.currentLine += consumed
+	return result.Element
+}
+
 func (p *strictBody) parseTextElement() ast.Element {
 	if p.currentLine >= len(p.lines) {
 		return nil
@@ -420,15 +464,7 @@ func (p *strictBody) parseTextElement() ast.Element {
 	}
 
 	result := textParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-
-	// Return the element directly (it's already of type ast.Element)
-	return result.Element
+	return p.applyElementResult(result, "TEXT")
 }
 
 func (p *strictBody) parsePointsElement() ast.Element {
@@ -447,13 +483,7 @@ func (p *strictBody) parsePointsElement() ast.Element {
 	}
 
 	result := pointsParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "POINTS")
 }
 
 func (p *strictBody) parseCodeElement() ast.Element {
@@ -472,13 +502,7 @@ func (p *strictBody) parseCodeElement() ast.Element {
 	}
 
 	result := codeParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "CODE")
 }
 
 func (p *strictBody) parseImageElement() ast.Element {
@@ -497,13 +521,7 @@ func (p *strictBody) parseImageElement() ast.Element {
 	}
 
 	result := imageParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "IMAGE")
 }
 
 func (p *strictBody) addError(msg string) {
@@ -542,13 +560,7 @@ func (p *strictBody) parseTableElement() ast.Element {
 	}
 
 	result := tableParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "TABLE")
 }
 
 func (p *strictBody) parseQuoteElement() ast.Element {
@@ -567,13 +579,7 @@ func (p *strictBody) parseQuoteElement() ast.Element {
 	}
 
 	result := quoteParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "QUOTE")
 }
 
 func (p *strictBody) parseChecklistElement() ast.Element {
@@ -592,13 +598,7 @@ func (p *strictBody) parseChecklistElement() ast.Element {
 	}
 
 	result := checklistParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "CHECKLIST")
 }
 
 func (p *strictBody) parseSpecialBlockElement() ast.Element {
@@ -617,13 +617,7 @@ func (p *strictBody) parseSpecialBlockElement() ast.Element {
 	}
 
 	result := specialBlockParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, ":::")
 }
 
 func (p *strictBody) parseCodeGroupElement() ast.Element {
@@ -642,13 +636,7 @@ func (p *strictBody) parseCodeGroupElement() ast.Element {
 	}
 
 	result := codeGroupParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, ":::code-group")
 }
 
 func (p *strictBody) parseMermaidElement() ast.Element {
@@ -667,13 +655,7 @@ func (p *strictBody) parseMermaidElement() ast.Element {
 	}
 
 	result := mermaidParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "<<mermaid>>")
 }
 
 func (p *strictBody) parseMathElement() ast.Element {
@@ -692,13 +674,7 @@ func (p *strictBody) parseMathElement() ast.Element {
 	}
 
 	result := mathParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "<<math>>")
 }
 
 func (p *strictBody) parsePlantUMLElement() ast.Element {
@@ -717,13 +693,7 @@ func (p *strictBody) parsePlantUMLElement() ast.Element {
 	}
 
 	result := plantUMLParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "<<plantuml>>")
 }
 
 func (p *strictBody) parseChartElement() ast.Element {
@@ -742,13 +712,7 @@ func (p *strictBody) parseChartElement() ast.Element {
 	}
 
 	result := chartParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "<<chart>>")
 }
 
 func (p *strictBody) parseMediaElement() ast.Element {
@@ -767,13 +731,7 @@ func (p *strictBody) parseMediaElement() ast.Element {
 	}
 
 	result := mediaParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "media")
 }
 
 func (p *strictBody) parseGridElement() ast.Element {
@@ -792,13 +750,7 @@ func (p *strictBody) parseGridElement() ast.Element {
 	}
 
 	result := gridParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "<<grid>>")
 }
 
 func (p *strictBody) parseMapElement() ast.Element {
@@ -817,13 +769,7 @@ func (p *strictBody) parseMapElement() ast.Element {
 	}
 
 	result := mapParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "<<map>>")
 }
 
 // parseMarkdownTableElement parsea tablas en formato markdown
@@ -951,11 +897,5 @@ func (p *strictBody) parseDirectiveElement() ast.Element {
 		Logger:      p.logger,
 	}
 	result := directiveParser.Parse(ctx, p.currentLine)
-	if result.Error != nil {
-		p.addError(result.Error.Error())
-	}
-	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
-
-	p.currentLine += result.ConsumedLines
-	return result.Element
+	return p.applyElementResult(result, "@directive")
 }

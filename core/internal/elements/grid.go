@@ -272,14 +272,15 @@ func (p *GridParser) parseStrictGrid(ctx *ParseContext, startIndex int) *ParseRe
 	return finish()
 }
 
-// isSlideBoundary reporta si line (SIN trim) es un marcador de slide de nivel
-// superior — "SLIDE " en columna 0, sin sangría. Un slide real siempre está en
-// la columna 0 (parser.StrictParser emite y despacha SLIDE ahí); una línea
-// indentada que empieza con "SLIDE " es contenido de columna, no un límite. Se
-// chequea sobre la línea cruda a propósito: es la sangría, no las palabras, lo
-// que distingue un límite de un texto que casualmente dice "SLIDE …".
+// isSlideBoundary reporta si line (SIN trim) es un marcador de bloque strict
+// de nivel superior — "SLIDE " (slidelang) o "SECTION " (doclang) en columna
+// 0, sin sangría. Un bloque real siempre está en la columna 0 (StrictParser y
+// DocumentStrictParser emiten y despachan ahí); una línea indentada que
+// casualmente empieza con esas palabras es contenido de columna, no un
+// límite. Delega en IsStrictBlockBoundary — ver ahí el porqué se chequea la
+// línea cruda.
 func isSlideBoundary(line string) bool {
-	return strings.HasPrefix(line, "SLIDE ")
+	return IsStrictBlockBoundary(line)
 }
 
 // leadingSpaceCount cuenta los espacios (solo ' ') al inicio de line. El

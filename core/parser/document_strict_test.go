@@ -451,3 +451,46 @@ func TestDocumentStrictParser_AlwaysMakesForwardProgress(t *testing.T) {
 		}
 	}
 }
+
+// El espejo doclang de issue #107: un <<chart>> sin <<end>> se tragaba en
+// silencio toda SECTION siguiente, porque isChartContentBoundary tampoco
+// conocía "SECTION " como límite (solo "SLIDE ", del dialecto de slidelang —
+// chart.go es compartido por ambos parsers strict a través de strictBody).
+func TestDocumentStrictParser_ChartWithoutEndDoesNotSwallowFollowingSections(t *testing.T) {
+	doc, diags := parseStrictDoc(t, `SECTION "Chart section"
+
+  <<chart: bar>>
+    data: [
+      ["Q1", 45]
+    ]
+
+SECTION "MUST SURVIVE"
+
+  TEXT
+    This section disappears.
+`)
+	assertNoErrors(t, diags)
+
+	if len(doc.ContentBlocks) != 2 {
+		t.Fatalf("expected 2 content blocks, got %d — section after the chart was swallowed: %+v",
+			len(doc.ContentBlocks), doc.ContentBlocks)
+	}
+
+	var chart *ast.ChartElement
+	for _, el := range doc.ContentBlocks[0].Elements {
+		if c, ok := el.(*ast.ChartElement); ok {
+			chart = c
+			break
+		}
+	}
+	if chart == nil {
+		t.Fatalf("no ChartElement in the first section: %+v", doc.ContentBlocks[0].Elements)
+	}
+	if chart.Title == "MUST SURVIVE" {
+		t.Errorf("chart.Title = %q — absorbed the next section's title", chart.Title)
+	}
+
+	if got := doc.ContentBlocks[1].Title; got != "MUST SURVIVE" {
+		t.Errorf("ContentBlocks[1].Title = %q, want %q", got, "MUST SURVIVE")
+	}
+}
