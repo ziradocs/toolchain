@@ -42,10 +42,10 @@ theoretical existence.
 delimited block `<<grid>>` … `<<end>>`, with each column introduced by
 `<<column>>` (column body = raw Markdown content; lines before the first
 `<<column>>` are loose prose spanning the grid). The flex `::: grid` /
-`::: column` form is **not** recognized in strict — there it would fall through
-to the generic `:::` branch (`SpecialBlockParser`), producing a malformed
-special block that trips `SPECIAL001` and never renders as a grid. Both
-spellings produce the same typed `GridElement`.
+`::: column` form is **not** recognized in strict — using it there is a hard
+parse error naming the correct strict syntax, not a warning: the build
+fails rather than silently rendering the wrong thing. Both spellings produce
+the same typed `GridElement`.
 
 In flex mode, element detection goes through a priority-ordered parser
 registry (most specific first, plain text last) — you never need to worry

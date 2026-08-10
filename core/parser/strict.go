@@ -160,6 +160,33 @@ func startsStrictElement(trimmedLine string) bool {
 	return false
 }
 
+// isFlexGridMarker reporta si trimmedLine abre un grid/columna con la
+// sintaxis flex ("::: grid", "::: column", y sus variantes sin espacio
+// ":::grid"/":::column" — elements.GridParser.CanParse exige el espacio,
+// pero elements.SpecialBlockParser, el fallback genérico de ":::", no lo
+// exige, así que la variante sin espacio también necesita su propio check
+// acá). En modo strict, ninguna de las dos es válida: ver el caller
+// (parseIndentedElements) para el error que reemplaza el fallback a
+// SpecialBlockParser (issue #108).
+//
+// Extrae el blockType con la MISMA lógica que SpecialBlockParser.Parse
+// (elements/special_block.go: TrimSpace tras ":::", luego strings.Fields,
+// primer campo) para no clasificar por prefijo suelto — un HasPrefix pelado
+// contra "::: grid"/":::grid" también matchearía "::: gridlock" o
+// "::: grid-note", que SpecialBlockParser vería como blockType "gridlock"/
+// "grid-note", no "grid", y emitiría un error de grid engañoso para algo
+// que ni siquiera pretendía serlo.
+func isFlexGridMarker(trimmedLine string) bool {
+	if !strings.HasPrefix(trimmedLine, ":::") {
+		return false
+	}
+	fields := strings.Fields(strings.TrimSpace(trimmedLine[3:]))
+	if len(fields) == 0 {
+		return false
+	}
+	return fields[0] == "grid" || fields[0] == "column"
+}
+
 func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 	if p.currentLine >= len(p.lines) {
 		return nil
@@ -311,6 +338,17 @@ func (p *strictBody) parseIndentedElements(
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
+		} else if isFlexGridMarker(trimmedLine) {
+			// issue #108: sin este branch, "::: grid"/"::: column" caía al
+			// ":::" genérico de abajo (SpecialBlockParser), que acepta
+			// cualquier palabra como BlockType — produciendo un special_block
+			// plano en vez de un GridElement, con solo un warning SPECIAL001
+			// (build pasa, deck se renderiza como una pila de callouts en vez
+			// de columnas). Cubre las 4 grafías porque grid.go exige el
+			// espacio ("::: grid") pero SpecialBlockParser no — sin él,
+			// ":::grid" (sin espacio) seguiría colándose incluso con este fix.
+			p.addError("Invalid syntax for grid layout. In strict mode, use: <<grid>> / <<column>> / <<end>>")
+			p.currentLine++
 		} else if strings.HasPrefix(trimmedLine, ":::") {
 			p.logger.Debug("PARSE", "Found special block element, calling parseSpecialBlockElement")
 			element := p.parseSpecialBlockElement()
