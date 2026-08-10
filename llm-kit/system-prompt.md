@@ -86,9 +86,10 @@ Opening paragraph.
 
 See `reference/elements.md` for the complete table (charts, mermaid,
 plantuml, maps, tables, special blocks, code/code-groups, checklists,
-grid, directives), with each element's strict and flex markers — **note
-that quote, checklist, and grid have no strict marker at all** (flex-only;
-see the table's note). Deeper worked examples (multi-series charts,
+grid, directives), with each element's strict and flex markers — **every
+element has a strict marker; grid is the one that differs per mode**
+(`<<grid>>`/`<<column>>`/`<<end>>` in strict, `::: grid`/`::: column` in
+flex — see the table's note). Deeper worked examples (multi-series charts,
 subgraph mermaid diagrams, layout frontmatter) are in `reference/advanced.md`.
 
 **Never invent syntax.** If a requested feature has no element (polls,

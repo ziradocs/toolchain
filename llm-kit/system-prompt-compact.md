@@ -53,9 +53,11 @@ no closing tag. Map: `<<map>>` (type, markers w/ lat+lng). Special blocks:
 `::: info|warning|danger|success|tip|details` ... `:::` — **these 6 values
 only**. Table: pipe rows, header + separator + rows, **all same column
 count**. Code group: `:::code-group` with fenced blocks inside, needs
->=1 block. Points: `-`/`*`/`1.`. Checklist: `- [ ]`/`- [x]` (**flex only —
-strict has no CHECKLIST marker; also true of quote `>` and `::: grid`,
-silently dropped/mis-parsed in strict**). Math (block/display only, never
+>=1 block. Points: `-`/`*`/`1.` (strict: `POINTS`). Checklist: `- [ ]`/
+`- [x]` (strict: `CHECKLIST`). Quote: `> text` (strict: `QUOTE`). Grid:
+`::: grid` / `::: column` in flex, but **`<<grid>>` / `<<column>>` /
+`<<end>>` in strict** — the flex spelling is invalid there, never use it
+in a strict-mode document. Math (block/display only, never
 inline `$x$`): `<<math>>` LaTeX `<<end>>` or `$$ ... $$` starting the line.
 Directives: `@notes` (presenter notes), `@timer`, `@transition`,
 `@highlight`, `@delay`, `@auto-play` — ZiraDocs renders these, DocLang

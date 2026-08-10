@@ -1,9 +1,11 @@
 # Advanced Elements — Charts, Mermaid, Maps, Layouts
 
 Deeper worked examples beyond the quick reference in `elements.md`.
-Everything here works in both ZiraDocs flex and DocLang; charts, mermaid,
-maps, and layouts also work in ZiraDocs strict (quote/checklist/grid do
-not — see `elements.md`'s quick-table note), unless noted otherwise.
+Everything here works in both ZiraDocs flex and ZiraDocs strict, and in
+DocLang, unless noted otherwise — grid is the one exception worth
+flagging twice: it has a strict marker, but a *different* one
+(`<<grid>>`/`<<column>>`/`<<end>>` vs. flex's `::: grid`/`::: column`,
+see `elements.md`'s quick-table note).
 
 ## Chart types, worked
 
