@@ -70,11 +70,23 @@ table_element  ::= "TABLE" INDENT table_data DEDENT
 directive_element ::= "@" directive_name ":" directive_value
 special_block     ::= ":::" block_type NEWLINE block_content ":::"
 embedded_element  ::= "<<" element_type (":" element_subtype)? ">>"
-                      NEWLINE element_data
+                      NEWLINE element_data element_terminator
+element_terminator ::= "<<end>>" | block_boundary | EOF
 
 identifier ::= LETTER (LETTER | DIGIT | "_")*
 value      ::= STRING | NUMBER | BOOLEAN
 ```
+
+`element_data` for an `embedded_element` is **not** delimited line-by-line —
+it runs until whichever `element_terminator` comes first: an explicit
+`<<end>>`, the next top-level `block_boundary` (a `SLIDE`/`SECTION` keyword
+at column 0, closing the element without consuming it), or end of file. This
+is what lets `<<mermaid>>`, `<<plantuml>>`, `<<chart:type>>`, and `<<map>>`
+omit a closing tag by convention (see "Embedded Elements" below) without an
+unclosed block silently absorbing the rest of the document — each reaches
+this guarantee through its own parser (indentation tracking, an explicit
+allowlist, or a direct boundary check), not a single shared mechanism, but
+the outcome the grammar promises is the same for all four.
 
 ### Document Strict Mode Grammar
 

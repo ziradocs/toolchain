@@ -12,6 +12,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/linter"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -782,5 +783,167 @@ func TestStrictParser_ChartQuotedLabelWithComma_RowNotFragmented(t *testing.T) {
 				t.Errorf("Data[%d][%d] = %#v, want %#v (fila: %#v)", i, j, chart.Data[i][j], want[j], chart.Data[i])
 			}
 		}
+	}
+}
+
+// TestStrictParser_ChartWithoutEndDoesNotSwallowFollowingSlides es el repro
+// exacto de issue #107: un <<chart>> sin <<end>> (convención documentada —
+// chart no lleva marcador de cierre) se tragaba en silencio todos los slides
+// siguientes hasta EOF, y el título de la slide siguiente terminaba
+// absorbido como chart.Title porque "title:" es una propiedad reconocida del
+// chart. La causa era que isChartContentBoundary (chart.go) no conocía
+// "SLIDE " como límite — solo el separador "---" de flex.
+func TestStrictParser_ChartWithoutEndDoesNotSwallowFollowingSlides(t *testing.T) {
+	body := `SLIDE content
+  title: "Chart slide"
+  <<chart: bar>>
+    data: [
+      ["Q1", 45]
+    ]
+
+SLIDE content
+  title: "MUST SURVIVE"
+  TEXT
+    This slide disappears.
+
+SLIDE closing
+  heading: "End"`
+
+	p := NewStrictParser(body, util.NewNoop())
+	astNode, diags := p.Parse()
+	if n := countErrors(diags); n != 0 {
+		t.Fatalf("got %d error diagnostics from the parser, want 0: %v", n, diags)
+	}
+
+	if len(astNode.ContentBlocks) != 3 {
+		t.Fatalf("len(ContentBlocks) = %d, want 3 — slides after the chart were swallowed: %+v",
+			len(astNode.ContentBlocks), astNode.ContentBlocks)
+	}
+
+	var chart *ast.ChartElement
+	for _, el := range astNode.ContentBlocks[0].Elements {
+		if c, ok := el.(*ast.ChartElement); ok {
+			chart = c
+			break
+		}
+	}
+	if chart == nil {
+		t.Fatalf("no ChartElement in the first slide: %+v", astNode.ContentBlocks[0].Elements)
+	}
+	if chart.Title == "MUST SURVIVE" {
+		t.Errorf("chart.Title = %q — absorbed the next slide's title: line 209 of chart.go's `case \"title\"` matched a swallowed line", chart.Title)
+	}
+
+	if got := astNode.ContentBlocks[1].Title; got != "MUST SURVIVE" {
+		t.Errorf("ContentBlocks[1].Title = %q, want %q", got, "MUST SURVIVE")
+	}
+	if len(astNode.ContentBlocks[1].Elements) != 1 {
+		t.Fatalf("len(ContentBlocks[1].Elements) = %d, want 1 (the TEXT element): %+v",
+			len(astNode.ContentBlocks[1].Elements), astNode.ContentBlocks[1].Elements)
+	}
+	text, ok := astNode.ContentBlocks[1].Elements[0].(*ast.TextElement)
+	if !ok {
+		t.Fatalf("ContentBlocks[1].Elements[0] is %T, want *ast.TextElement", astNode.ContentBlocks[1].Elements[0])
+	}
+	if text.Content != "This slide disappears." {
+		t.Errorf("text.Content = %q, want %q", text.Content, "This slide disappears.")
+	}
+
+	if got := astNode.ContentBlocks[2].Heading; got != "End" {
+		t.Errorf("ContentBlocks[2].Heading = %q, want %q", got, "End")
+	}
+}
+
+// TestStrictParser_MathWithoutEndDoesNotSwallowFollowingSlides es la misma
+// clase de bug que #107 aplicada a <<math>>: MathParser.parseAngleForm solo
+// paraba en <<end>> o "---", nunca en un límite strict.
+func TestStrictParser_MathWithoutEndDoesNotSwallowFollowingSlides(t *testing.T) {
+	body := `SLIDE content
+  title: "Equation slide"
+  <<math>>
+  e^{i\pi} + 1 = 0
+
+SLIDE closing
+  heading: "End"`
+
+	p := NewStrictParser(body, util.NewNoop())
+	astNode, diags := p.Parse()
+	if n := countErrors(diags); n != 0 {
+		t.Fatalf("got %d error diagnostics from the parser, want 0: %v", n, diags)
+	}
+
+	if len(astNode.ContentBlocks) != 2 {
+		t.Fatalf("len(ContentBlocks) = %d, want 2 — slide after the math block was swallowed: %+v",
+			len(astNode.ContentBlocks), astNode.ContentBlocks)
+	}
+	if got := astNode.ContentBlocks[1].Heading; got != "End" {
+		t.Errorf("ContentBlocks[1].Heading = %q, want %q", got, "End")
+	}
+}
+
+// TestStrictParser_PlantUMLWithoutEndumlDoesNotSwallowFollowingSlides es la
+// misma clase de bug aplicada a <<plantuml>>: sin @enduml, el único límite
+// que reconocía en modo strict era IsNewElement, gateado a mode=="flex".
+func TestStrictParser_PlantUMLWithoutEndumlDoesNotSwallowFollowingSlides(t *testing.T) {
+	body := `SLIDE content
+  title: "Diagram slide"
+  <<plantuml>>
+  @startuml
+  Alice -> Bob: hello
+
+SLIDE closing
+  heading: "End"`
+
+	p := NewStrictParser(body, util.NewNoop())
+	astNode, diags := p.Parse()
+	if n := countErrors(diags); n != 0 {
+		t.Fatalf("got %d error diagnostics from the parser, want 0: %v", n, diags)
+	}
+
+	if len(astNode.ContentBlocks) != 2 {
+		t.Fatalf("len(ContentBlocks) = %d, want 2 — slide after the plantuml block was swallowed: %+v",
+			len(astNode.ContentBlocks), astNode.ContentBlocks)
+	}
+	if got := astNode.ContentBlocks[1].Heading; got != "End" {
+		t.Errorf("ContentBlocks[1].Heading = %q, want %q", got, "End")
+	}
+}
+
+// TestStrictBody_ApplyElementResult_ClampsOverrunPastBoundary es un test de
+// caja blanca contra applyElementResult directamente: la defensa en
+// profundidad de issue #107 para un ElementParser FUTURO que olvide su
+// propio guard de límite (chart.go/math.go/plantuml.go/grid.go ya no pueden
+// disparar esto — sus guards paran antes de que el over-count llegue aquí).
+// No hay forma de forzar este caso a través del parser público hoy: por
+// diseño, ningún ParseResult real debería devolver un ConsumedLines que
+// cruce un límite strict.
+func TestStrictBody_ApplyElementResult_ClampsOverrunPastBoundary(t *testing.T) {
+	lines := []string{
+		`SLIDE content`,           // 0
+		`  title: "First"`,        // 1
+		`  <<fake>>`,              // 2 — startIndex
+		`  fake content`,          // 3
+		`SLIDE next`,              // 4 — boundary; nunca debe consumirse
+		`  title: "MUST SURVIVE"`, // 5
+	}
+	body := strictBody{lines: lines, currentLine: 2, logger: util.NewNoop()}
+
+	// Un ElementParser roto que dice haber consumido hasta EOF (over-count),
+	// simulando el bug de #107 en un elemento hipotético sin guard.
+	result := &elements.ParseResult{ConsumedLines: len(lines) - 2}
+
+	body.applyElementResult(result, "<<fake>>")
+
+	if body.currentLine != 4 {
+		t.Fatalf("currentLine = %d, want 4 (clamped right at the boundary line, not past it): consumed %d lines from index 2",
+			body.currentLine, body.currentLine-2)
+	}
+
+	if n := countErrors(body.diagnostics); n != 1 {
+		t.Fatalf("got %d error diagnostics, want exactly 1 (the clamp diagnostic): %+v", n, body.diagnostics)
+	}
+	msg := body.diagnostics[0].Message
+	if !strings.Contains(msg, "<<fake>>") || !strings.Contains(msg, "boundary") {
+		t.Errorf("clamp diagnostic message = %q, want it to name the element and mention the boundary", msg)
 	}
 }

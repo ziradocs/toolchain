@@ -141,8 +141,10 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 
 		// Cualquier otro límite de contenido (separador de slide, otro
-		// elemento, heading) — ver isChartContentBoundary.
-		if isChartContentBoundary(trimmedLine) {
+		// elemento, heading) — ver isChartContentBoundary. Se pasa la línea
+		// cruda (line, no trimmedLine): el chequeo de límite strict necesita
+		// la sangría para no confundirse con contenido indentado.
+		if isChartContentBoundary(line) {
 			break
 		}
 
@@ -411,14 +413,25 @@ func (p *ChartParser) parseNumber(str string) interface{} {
 	return nil
 }
 
-// isChartContentBoundary reporta si trimmed marca el fin del contenido de un
-// chart: el cierre del propio bloque ("<</chart>>"), un separador de slide,
-// o el inicio de un nuevo elemento/sección. Compartida entre el loop de
-// propiedades y parseJSONBlock para que ambos no puedan desincronizarse
-// sobre qué cuenta como límite (issue #12e2 — la revisión de esta misma PR
-// encontró que el check original de parseJSONBlock solo reconocía 2 de los
-// 5 límites que el loop de propiedades ya conocía).
-func isChartContentBoundary(trimmed string) bool {
+// isChartContentBoundary reporta si rawLine marca el fin del contenido de un
+// chart: el cierre del propio bloque ("<</chart>>"), un separador de slide
+// flex ("---"), un límite de bloque strict ("SLIDE "/"SECTION " en columna 0
+// — ver IsStrictBlockBoundary), o el inicio de un nuevo elemento/sección.
+// Recibe la línea SIN trim a propósito: el chequeo de límite strict necesita
+// la sangría cruda para no confundir un límite real con una fila de datos
+// indentada que casualmente empieza con esas palabras. Compartida entre el
+// loop de propiedades y parseJSONBlock para que ambos no puedan
+// desincronizarse sobre qué cuenta como límite (issue #12e2 — la revisión de
+// esa misma PR encontró que el check original de parseJSONBlock solo
+// reconocía 2 de los 5 límites que el loop de propiedades ya conocía; issue
+// #107 — el mismo defecto de desincronización, esta vez porque ninguno de
+// los dos conocía "SLIDE ", así que un chart en modo strict sin <<end>> se
+// tragaba todos los slides siguientes hasta EOF).
+func isChartContentBoundary(rawLine string) bool {
+	if IsStrictBlockBoundary(rawLine) {
+		return true
+	}
+	trimmed := strings.TrimSpace(rawLine)
 	if trimmed == "<<end>>" || trimmed == "---" {
 		return true
 	}
@@ -456,7 +469,7 @@ func (p *ChartParser) parseJSONBlock(lines []string, startIndex int) (string, in
 		// una descripción documentando la sintaxis del DSL) sin que eso
 		// signifique que el bloque terminó.
 		if !inString {
-			if isChartContentBoundary(strings.TrimSpace(line)) {
+			if isChartContentBoundary(line) {
 				break
 			}
 		}

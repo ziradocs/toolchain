@@ -196,3 +196,58 @@ func TestMathParser_StopsAtSlideBoundary(t *testing.T) {
 		t.Errorf("Content = %q, want %q (no debe cruzar el separador de slide)", math.Content, "E = mc^2")
 	}
 }
+
+// TestMathParser_StrictModeStopsAtStrictBlockBoundaryWithoutEnd cubre issue
+// #107: en modo strict, un <<math>> sin <<end>> ni "---" se detiene en el
+// siguiente límite de bloque strict en vez de tragárselo.
+func TestMathParser_StrictModeStopsAtStrictBlockBoundaryWithoutEnd(t *testing.T) {
+	parser := &MathParser{}
+	ctx := &ParseContext{
+		Mode: "strict",
+		Lines: []string{
+			"<<math>>",
+			"  E = mc^2",
+			"SLIDE next",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	if result.ConsumedLines != 2 {
+		t.Fatalf("ConsumedLines = %d, want 2 (must not consume the SLIDE line)", result.ConsumedLines)
+	}
+	math := result.Element.(*ast.MathElement)
+	if math.Content != "E = mc^2" {
+		t.Errorf("Content = %q, want %q", math.Content, "E = mc^2")
+	}
+}
+
+// TestMathParser_FlexModeDoesNotStopOnContentStartingWithSLIDE es la
+// regresión encontrada en code review de #107/PR #111: el chequeo de límite
+// strict añadido a parseAngleForm corría sin condicionar el modo, así que en
+// FLEX (donde el contenido va a columna 0 sin indentación) una fórmula cuya
+// primera línea empezara literalmente con la palabra "SLIDE" cortaba el
+// bloque antes de tiempo. El chequeo debe estar gateado a mode=="strict".
+func TestMathParser_FlexModeDoesNotStopOnContentStartingWithSLIDE(t *testing.T) {
+	parser := &MathParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"<<math>>",
+			"SLIDE vector components: [1, 2, 3]",
+			"<<end>>",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	math := result.Element.(*ast.MathElement)
+	want := "SLIDE vector components: [1, 2, 3]"
+	if math.Content != want {
+		t.Errorf("Content = %q, want %q — a flex-mode content line starting with \"SLIDE \" must not be treated as a strict boundary", math.Content, want)
+	}
+}

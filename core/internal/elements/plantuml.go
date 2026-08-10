@@ -111,6 +111,20 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				continue
 			}
 
+			// El chequeo de IsNewElement de abajo solo corre en flex — en
+			// strict no hay ningún límite salvo @enduml, así que un
+			// <<plantuml>> sin cerrar tenía el mismo bug que #107: se
+			// tragaba todos los slides/secciones siguientes hasta EOF.
+			// Gateado a strict a propósito: en flex el contenido va a
+			// columna 0 sin indentación (comentario de arriba), así que un
+			// diagrama con un participante/actor literalmente llamado
+			// "SLIDE" (p. ej. "SLIDE -> API: render") viviría en columna 0 y
+			// dispararía esto por error si corriera en ambos modos — flex ya
+			// tiene su propio límite (IsNewElement, unas líneas más abajo).
+			if ctx.Mode == "strict" && IsStrictBlockBoundary(line) {
+				break
+			}
+
 			// Terminar si encontramos @enduml
 			if strings.HasPrefix(trimmedLine, "@enduml") {
 				if content.Len() > 0 {

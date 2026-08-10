@@ -164,6 +164,40 @@ func IsJustASeparator(lines []string, i int, subBlockPrefix, closingMarker strin
 	return false
 }
 
+// strictTopLevelKeywords son las palabras clave que abren un bloque strict de
+// nivel superior: "SLIDE" en slidelang, "SECTION" en doclang. Ver
+// IsStrictBlockBoundary.
+var strictTopLevelKeywords = []string{"SLIDE", "SECTION"}
+
+// IsStrictBlockBoundary reporta si rawLine (SIN trim) abre un bloque strict de
+// nivel superior — "SLIDE " (slidelang) o "SECTION " (doclang), en columna 0,
+// sin sangría, con frontera de palabra tras el keyword ("SLIDEfoo"/
+// "SECTIONfoo" no cuentan — mismo motivo que startsSectionKeyword en
+// parser/document_strict.go, issue #45: un HasPrefix pelado los aceptaría
+// pese a no ser el keyword real, y el caller los re-despacharía sin fin).
+//
+// Se chequea la línea cruda a propósito: es la sangría, no las palabras, lo
+// que distingue un límite real de contenido indentado que casualmente
+// empieza con esas palabras (una columna de grid, una fila de datos de
+// chart...). Cualquier parser strict de bloque delimitado que no tenga un
+// marcador de cierre obligatorio en cada línea (chart, math, plantuml)
+// necesita este chequeo para no tragarse el bloque siguiente cuando el
+// autor omite el cierre — ver isSlideBoundary en grid.go e
+// isChartContentBoundary en chart.go para los dos usos actuales; que
+// deleguen aquí en vez de reimplementar el criterio si cambia (issue #107).
+func IsStrictBlockBoundary(rawLine string) bool {
+	for _, kw := range strictTopLevelKeywords {
+		if !strings.HasPrefix(rawLine, kw) {
+			continue
+		}
+		rest := rawLine[len(kw):]
+		if rest == "" || rest[0] == ' ' || rest[0] == '\t' {
+			return true
+		}
+	}
+	return false
+}
+
 // CalculateIndentLevel calcula el nivel de indentación de una línea
 // Cuenta espacios como 1 y tabs como 4 espacios
 func CalculateIndentLevel(line string) int {

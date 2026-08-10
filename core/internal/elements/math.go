@@ -55,7 +55,7 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	if isDollarFormat {
 		consumedLines = p.parseDollarForm(ctx.Lines, startIndex, openingLine, &content)
 	} else {
-		consumedLines = p.parseAngleForm(ctx.Lines, startIndex, &content, &label)
+		consumedLines = p.parseAngleForm(ctx.Lines, startIndex, ctx.Mode, &content, &label)
 	}
 
 	math := ast.NewMathElement(pos, content.String())
@@ -123,10 +123,22 @@ func (p *MathParser) parseDollarForm(lines []string, startIndex int, openingLine
 // E2E: con detección de indentación, el bloque se cerraba en la primera
 // línea de contenido no-indentada, dejando Content vacío). Termina por
 // `<<end>>` (obligatorio para contenido correcto) o por `---` (límite de
-// slide); sin ninguno de los dos, consume hasta EOF — mismo patrón ya
+// slide); sin ninguno de los dos, en modo STRICT se detiene en el siguiente
+// límite de bloque strict ("SLIDE "/"SECTION " en columna 0, ver
+// IsStrictBlockBoundary) o, a falta de eso también, en EOF — mismo patrón ya
 // aceptado en el codebase para otros elementos delimitados explícitamente
-// (plantuml.go sin @enduml, chart.go con JSON sin cerrar).
-func (p *MathParser) parseAngleForm(lines []string, startIndex int, content *strings.Builder, label *string) int {
+// (plantuml.go sin @enduml, chart.go con JSON sin cerrar). El chequeo de
+// límite strict existe porque un `<<math>>` sin `<<end>>` en modo strict
+// tenía exactamente el mismo bug que #107: se tragaba todos los slides
+// siguientes hasta EOF.
+//
+// El chequeo de límite strict está gateado a mode=="strict" a propósito: en
+// flex el contenido va a columna 0 sin indentación (comentario de arriba),
+// así que una fórmula LaTeX que arrancara con la palabra "SLIDE" o "SECTION"
+// en su propia línea (p. ej. una matriz o vector nombrado así) dispararía
+// esto por error si corriera también en flex — y flex ya termina
+// correctamente en "---" o EOF.
+func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string, content *strings.Builder, label *string) int {
 	consumed := 1
 
 	for i := startIndex + 1; i < len(lines); i++ {
@@ -137,6 +149,9 @@ func (p *MathParser) parseAngleForm(lines []string, startIndex int, content *str
 			break
 		}
 		if trimmedLine == "---" {
+			break
+		}
+		if mode == "strict" && IsStrictBlockBoundary(lines[i]) {
 			break
 		}
 		if trimmedLine == "" {
