@@ -186,6 +186,68 @@ func TestFrontMatterParser_PageMarginsUnrecognizedUnit(t *testing.T) {
 	}
 }
 
+// TestFrontMatterParser_PageUnknownKeyWarns mirrors
+// TestFrontMatterParser_TOCUnknownKeyWarns for `page:` — the singular typo
+// "margin" (for "margins") used to decode into an all-nil rawPage with no
+// diagnostic at all.
+func TestFrontMatterParser_PageUnknownKeyWarns(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\npage:\n  size: A4\n  margin: 2cm\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node == nil || node.Page == nil || node.Page.Size != "A4" {
+		t.Fatal("Page.Size should still apply from the correctly-spelled 'size' key")
+	}
+	if node.Page.Margins != nil {
+		t.Errorf("Page.Margins = %+v, want nil — 'margin' is a typo, not 'margins'", node.Page.Margins)
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT006" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT006 warning for the unrecognized 'margin' key, got: %+v", diags)
+	}
+}
+
+// TestFrontMatterParser_PageMarginsUnknownSideWarns covers the same typo
+// class one level deeper: an unrecognized side key inside `page.margins:`
+// (e.g. "topp") used to be silently dropped by a tagged-struct decode.
+func TestFrontMatterParser_PageMarginsUnknownSideWarns(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\npage:\n  margins:\n    topp: 1in\n    left: 2cm\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node == nil || node.Page == nil || node.Page.Margins == nil {
+		t.Fatal("Page.Margins should not be nil — the correctly-spelled 'left' key must still apply")
+	}
+	if node.Page.Margins.Top != "" {
+		t.Errorf("Page.Margins.Top = %q, want empty — 'topp' is a typo, not 'top'", node.Page.Margins.Top)
+	}
+	if node.Page.Margins.Left != "2cm" {
+		t.Errorf("Page.Margins.Left = %q, want %q", node.Page.Margins.Left, "2cm")
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT006" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT006 warning for the unrecognized 'topp' margin side, got: %+v", diags)
+	}
+}
+
 // TestFrontMatterParser_PageBadShapeDoesNotKillFrontMatter mirrors
 // TestFrontMatterParser_TOCBadShapeDoesNotKillFrontMatter for `page:`.
 func TestFrontMatterParser_PageBadShapeDoesNotKillFrontMatter(t *testing.T) {

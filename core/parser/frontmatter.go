@@ -100,9 +100,22 @@ func (n *rawNumbering) UnmarshalYAML(value *yaml.Node) error {
 // validation (via core/util's shared length/paper-size resolver), and
 // downgrade any failure there to a FRONT005/FRONT006 warning with the
 // field just left unset.
+//
+// The MappingNode branch walks value.Content pairs by hand instead of
+// `value.Decode(&fields)` into a struct with `yaml:"enabled"`/`yaml:"depth"`
+// tags — a struct decode silently drops any key it doesn't recognize (code
+// review finding on the first version of this type: `toc: {enable: false}`,
+// a one-letter typo for "enabled", decoded to an all-nil rawTOC with no
+// diagnostic at all, the exact silent-drop failure mode issue #121 tracks).
+// Walking Content directly means every key is seen, so a typo can be
+// collected into unknownKeys and surfaced as a warning by convertTOC.
 type rawTOC struct {
 	Enabled *yaml.Node
 	Depth   *yaml.Node
+	// unknownKeys holds any `toc:` map key other than "enabled"/"depth"
+	// (most commonly a typo) — reported as a FRONT005 warning by convertTOC
+	// rather than silently dropped.
+	unknownKeys []string
 	// badShape holds the offending Tag when `toc:` itself is neither a
 	// scalar nor a map (e.g. a YAML sequence) — recorded instead of
 	// returned as an error, per this type's contract above.
@@ -118,27 +131,19 @@ func (t *rawTOC) UnmarshalYAML(value *yaml.Node) error {
 		t.Enabled = value
 		return nil
 	case yaml.MappingNode:
-		// Decode targets are VALUE yaml.Node fields, not *yaml.Node — the
-		// yaml library rejects decoding a scalar/mapping node into a
-		// pointer-to-Node struct field ("cannot unmarshal !!bool into
-		// yaml.Node"), confirmed empirically against this parser's yaml
-		// library during implementation. Kind == 0 (the zero Kind — every
-		// real Kind constant is a nonzero bit flag) is how "this key was
-		// not present in the mapping" is told apart from "present with an
-		// actual value" once decoded into a value type.
-		var fields struct {
-			Enabled yaml.Node `yaml:"enabled"`
-			Depth   yaml.Node `yaml:"depth"`
-		}
-		if err := value.Decode(&fields); err != nil {
-			t.badShape = value.Tag
-			return nil
-		}
-		if fields.Enabled.Kind != 0 {
-			t.Enabled = &fields.Enabled
-		}
-		if fields.Depth.Kind != 0 {
-			t.Depth = &fields.Depth
+		// value.Content alternates key, value, key, value... for a
+		// MappingNode; each key is itself a ScalarNode whose Value is the
+		// map key's text.
+		for i := 0; i+1 < len(value.Content); i += 2 {
+			key, val := value.Content[i], value.Content[i+1]
+			switch key.Value {
+			case "enabled":
+				t.Enabled = val
+			case "depth":
+				t.Depth = val
+			default:
+				t.unknownKeys = append(t.unknownKeys, key.Value)
+			}
 		}
 		return nil
 	default:
@@ -148,11 +153,17 @@ func (t *rawTOC) UnmarshalYAML(value *yaml.Node) error {
 }
 
 // rawPage backs `page:`. See rawTOC's doc comment above for the shared
-// "value never aborts Parse" contract both types follow.
+// "value never aborts Parse" contract both types follow, and for why the
+// MappingNode branch walks Content by hand instead of decoding into a
+// tagged struct.
 type rawPage struct {
-	Size     *yaml.Node
-	Margins  *yaml.Node
-	badShape string
+	Size    *yaml.Node
+	Margins *yaml.Node
+	// unknownKeys holds any `page:` map key other than "size"/"margins"
+	// (e.g. the singular typo "margin") — reported as a FRONT006 warning by
+	// convertPage.
+	unknownKeys []string
+	badShape    string
 }
 
 func (p *rawPage) UnmarshalYAML(value *yaml.Node) error {
@@ -166,22 +177,16 @@ func (p *rawPage) UnmarshalYAML(value *yaml.Node) error {
 		p.Size = value
 		return nil
 	case yaml.MappingNode:
-		// See rawTOC.UnmarshalYAML's MappingNode branch above for why the
-		// decode targets are value yaml.Node fields, checked with
-		// Kind != 0, rather than *yaml.Node fields directly.
-		var fields struct {
-			Size    yaml.Node `yaml:"size"`
-			Margins yaml.Node `yaml:"margins"`
-		}
-		if err := value.Decode(&fields); err != nil {
-			p.badShape = value.Tag
-			return nil
-		}
-		if fields.Size.Kind != 0 {
-			p.Size = &fields.Size
-		}
-		if fields.Margins.Kind != 0 {
-			p.Margins = &fields.Margins
+		for i := 0; i+1 < len(value.Content); i += 2 {
+			key, val := value.Content[i], value.Content[i+1]
+			switch key.Value {
+			case "size":
+				p.Size = val
+			case "margins":
+				p.Margins = val
+			default:
+				p.unknownKeys = append(p.unknownKeys, key.Value)
+			}
 		}
 		return nil
 	default:
@@ -458,6 +463,9 @@ func (p *FrontMatterParser) convertTOC(raw *rawTOC) *ast.TOCConfig {
 		p.tocFrontMatterWarning(fmt.Sprintf("Invalid 'toc:' value (%s); expected true/false or a map with 'enabled'/'depth' — ignored", raw.badShape))
 		return nil
 	}
+	if len(raw.unknownKeys) > 0 {
+		p.tocFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'toc:' (%s); expected 'enabled'/'depth' — ignored", strings.Join(raw.unknownKeys, ", ")))
+	}
 
 	config := &ast.TOCConfig{}
 
@@ -502,6 +510,9 @@ func (p *FrontMatterParser) convertPage(raw *rawPage) *ast.PageConfig {
 		p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page:' value (%s); expected a size string or a map with 'size'/'margins' — ignored", raw.badShape))
 		return nil
 	}
+	if len(raw.unknownKeys) > 0 {
+		p.pageFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'page:' (%s); expected 'size'/'margins' — ignored", strings.Join(raw.unknownKeys, ", ")))
+	}
 
 	config := &ast.PageConfig{}
 
@@ -534,6 +545,11 @@ func (p *FrontMatterParser) convertPage(raw *rawPage) *ast.PageConfig {
 // propio con su propio UnmarshalYAML: convertPage ya tiene el nodo en
 // mano, y esto necesita el mismo acceso a p.diagnostics que el resto de
 // este archivo, no una decodificación aislada.
+//
+// El MappingNode camina node.Content a mano (mismo motivo que
+// rawTOC/rawPage.UnmarshalYAML, ver su doc comment): decodificar a un
+// struct con `yaml:"top"`/etc descartaba en silencio cualquier llave no
+// reconocida (`page.margins.topp` por typo nunca generaba FRONT006).
 func (p *FrontMatterParser) convertPageMargins(node *yaml.Node) *ast.PageMargins {
 	validateSide := func(label, value string) {
 		if value == "" {
@@ -557,15 +573,30 @@ func (p *FrontMatterParser) convertPageMargins(node *yaml.Node) *ast.PageMargins
 		validateSide("(all sides)", s)
 		return &ast.PageMargins{Top: s, Right: s, Bottom: s, Left: s}
 	case yaml.MappingNode:
-		var sides struct {
-			Top    string `yaml:"top"`
-			Right  string `yaml:"right"`
-			Bottom string `yaml:"bottom"`
-			Left   string `yaml:"left"`
+		var sides ast.PageMargins
+		var unknownKeys []string
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key, val := node.Content[i], node.Content[i+1]
+			var v string
+			if err := val.Decode(&v); err != nil {
+				p.pageFrontMatterWarning(fmt.Sprintf("'page.margins.%s': expected a string, got %v — ignored", key.Value, val.Tag))
+				continue
+			}
+			switch key.Value {
+			case "top":
+				sides.Top = v
+			case "right":
+				sides.Right = v
+			case "bottom":
+				sides.Bottom = v
+			case "left":
+				sides.Left = v
+			default:
+				unknownKeys = append(unknownKeys, key.Value)
+			}
 		}
-		if err := node.Decode(&sides); err != nil {
-			p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.margins': %v — ignored", err))
-			return nil
+		if len(unknownKeys) > 0 {
+			p.pageFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'page.margins' (%s); expected 'top'/'right'/'bottom'/'left' — ignored", strings.Join(unknownKeys, ", ")))
 		}
 		if sides.Top == "" && sides.Right == "" && sides.Bottom == "" && sides.Left == "" {
 			return nil
@@ -574,7 +605,7 @@ func (p *FrontMatterParser) convertPageMargins(node *yaml.Node) *ast.PageMargins
 		validateSide("right", sides.Right)
 		validateSide("bottom", sides.Bottom)
 		validateSide("left", sides.Left)
-		return &ast.PageMargins{Top: sides.Top, Right: sides.Right, Bottom: sides.Bottom, Left: sides.Left}
+		return &sides
 	default:
 		p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.margins': expected a string or a map with top/right/bottom/left, got %v — ignored", node.Tag))
 		return nil

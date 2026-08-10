@@ -230,6 +230,41 @@ func TestFrontMatterParser_TOCDepthOutOfRange(t *testing.T) {
 	}
 }
 
+// TestFrontMatterParser_TOCUnknownKeyWarns covers a code review finding: a
+// typo'd map key (`enable` instead of `enabled`) used to decode into an
+// all-nil rawTOC with zero diagnostics — the same silent-drop failure mode
+// issue #121 tracks, just inside an already-modeled key. The typo must
+// surface as a FRONT005 warning, and a sibling correctly-spelled key in the
+// same map must still take effect.
+func TestFrontMatterParser_TOCUnknownKeyWarns(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\ntoc:\n  enable: false\n  depth: 2\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node == nil || node.TOC == nil {
+		t.Fatal("TOC should not be nil — the correctly-spelled 'depth' key must still apply")
+	}
+	if node.TOC.Enabled != nil {
+		t.Errorf("TOC.Enabled = %v, want nil — 'enable' is a typo, not 'enabled'", *node.TOC.Enabled)
+	}
+	if node.TOC.Depth == nil || *node.TOC.Depth != 2 {
+		t.Errorf("TOC.Depth = %v, want 2", node.TOC.Depth)
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT005" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT005 warning for the unrecognized 'enable' key, got: %+v", diags)
+	}
+}
+
 // TestFrontMatterParser_TOCBadShapeDoesNotKillFrontMatter is the contract
 // test: a `toc:` value that is neither a scalar nor a map (a YAML sequence)
 // must not take down the rest of a valid document. This fixes the blast
