@@ -109,10 +109,6 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		block.Icon = "📝"
 	case "example":
 		block.Icon = "💻"
-	case "grid":
-		block.Icon = "" // No icon for grid layouts
-	case "column":
-		block.Icon = "" // No icon for column layouts
 	}
 
 	return &ParseResult{

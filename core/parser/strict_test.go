@@ -947,3 +947,115 @@ func TestStrictBody_ApplyElementResult_ClampsOverrunPastBoundary(t *testing.T) {
 		t.Errorf("clamp diagnostic message = %q, want it to name the element and mention the boundary", msg)
 	}
 }
+
+// TestStrictParser_FlexGridSyntax_IsAHardError cubre issue #108: antes de
+// este fix, "::: grid" en modo strict caía al branch genérico de ":::"
+// (SpecialBlockParser), que acepta cualquier palabra como BlockType —
+// produciendo un special_block plano ("grid") en vez de un GridElement, con
+// solo un warning SPECIAL001 (build pasaba, deck se renderizaba como una
+// pila de callouts en vez de columnas). Ahora es un error duro que nombra la
+// sintaxis strict correcta.
+func TestStrictParser_FlexGridSyntax_IsAHardError(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "::: grid with space",
+			body: `SLIDE content
+  title: "Comparison"
+  ::: grid
+  ::: column
+  Left
+  :::
+  ::: column
+  Right
+  :::
+  :::`,
+		},
+		{
+			name: "::: column alone, no grid wrapper",
+			body: `SLIDE content
+  title: "Comparison"
+  ::: column
+  Left
+  :::`,
+		},
+		{
+			name: ":::grid without a space",
+			body: `SLIDE content
+  title: "Comparison"
+  :::grid
+  :::column
+  Left
+  :::
+  :::`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewStrictParser(tt.body, util.NewNoop())
+			astNode, diags := p.Parse()
+
+			if n := countErrors(diags); n < 1 {
+				t.Fatalf("got %d error diagnostics, want at least 1: %v", n, diags)
+			}
+			found := false
+			for _, d := range diags {
+				if d.IsError() && strings.Contains(d.Message, "<<grid>>") && strings.Contains(d.Message, "<<column>>") {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("expected an error naming the strict grid syntax (<<grid>>/<<column>>/<<end>>), got: %+v", diags)
+			}
+
+			if len(astNode.ContentBlocks) != 1 {
+				t.Fatalf("len(ContentBlocks) = %d, want 1", len(astNode.ContentBlocks))
+			}
+			for _, el := range astNode.ContentBlocks[0].Elements {
+				if sb, ok := el.(*ast.SpecialBlockElement); ok {
+					t.Errorf("got a SpecialBlockElement (blockType=%q) — the flex grid syntax must not fall through to SpecialBlockParser in strict mode", sb.BlockType)
+				}
+				if _, ok := el.(*ast.GridElement); ok {
+					t.Errorf("got a GridElement — flex grid syntax should error in strict mode, not be auto-translated")
+				}
+			}
+		})
+	}
+}
+
+// Regresión: el fix de #108 es strict-only. La sintaxis flex "::: grid"
+// tiene que seguir produciendo un GridElement real en modo flex.
+func TestFlexParser_GridSyntax_StillProducesGridElement(t *testing.T) {
+	body := `# Comparison
+::: grid
+::: column
+Left
+:::
+::: column
+Right
+:::
+:::`
+
+	p := NewFlexParser(body, util.NewNoop())
+	astNode, diags := p.Parse()
+	if n := countErrors(diags); n != 0 {
+		t.Fatalf("got %d error diagnostics, want 0: %v", n, diags)
+	}
+
+	var grid *ast.GridElement
+	for _, el := range astNode.ContentBlocks[0].Elements {
+		if g, ok := el.(*ast.GridElement); ok {
+			grid = g
+			break
+		}
+	}
+	if grid == nil {
+		t.Fatalf("no GridElement in the slide: %+v", astNode.ContentBlocks[0].Elements)
+	}
+	if len(grid.Columns) != 2 {
+		t.Errorf("len(Columns) = %d, want 2", len(grid.Columns))
+	}
+}

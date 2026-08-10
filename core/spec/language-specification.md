@@ -328,18 +328,23 @@ Special blocks provide structured content:
 | `success` | `::: success` | Success callout |
 | `danger` | `::: danger` | Danger callout |
 | `tip` | `::: tip` | Tip callout |
-| `grid` | `::: grid` | Grid container for column layouts |
-| `column` | `::: column` | Individual column within grid |
 | `left` | `::: left` | Left column |
 | `right` | `::: right` | Right column |
 | `highlight` | `::: highlight` | Highlighted content |
 | `code-group` | `::: code-group` | Grouped code blocks |
 
+Grid and column are **not** special blocks — despite sharing the `:::` sigil
+in flex mode, they parse into their own typed `GridElement`/`ColumnElement`,
+not a generic special block, and have a different strict-mode spelling. See
+"Grid and Column Layouts" below.
+
 #### Grid and Column Layouts
 
-Grid layouts provide flexible content organization with automatic responsive behavior:
+Grid layouts provide flexible content organization with automatic responsive
+behavior. **The spelling is mode-specific — this is the one place strict and
+flex genuinely disagree on syntax for the same element:**
 
-**Basic Grid Syntax:**
+**Flex** uses the `:::`-delimited form, sharing its sigil with special blocks:
 ```slidelang
 ::: grid
 ::: column
@@ -350,6 +355,22 @@ Content for second column
 :::
 :::
 ```
+
+**Strict** uses the `<<...>>` delimited-block form, consistent with the
+other strict embedded elements (`<<mermaid>>`, `<<chart>>`, `<<map>>`), with
+`<<column>>` introducing each column and `<<end>>` closing the block:
+```slidelang
+<<grid>>
+<<column>>
+Content for first column
+<<column>>
+Content for second column
+<<end>>
+```
+
+The flex `::: grid` / `::: column` form is a syntax error in strict mode —
+it is not recognized, translated, or accepted there. Both forms produce the
+same typed `GridElement`/`ColumnElement` pair.
 
 **Features:**
 - Automatic equal-width columns
@@ -365,13 +386,21 @@ Content for second column
 
 ### Embedded Elements
 
-Embedded elements add rich content:
+Embedded elements add rich content. In strict mode they share one grammar
+production (`embedded_element` above) and, except for grid, one termination
+contract: none has a mandatory closing tag. `<<end>>` closes the block
+explicitly where the element supports it, but every strict-mode embedded
+element also terminates at the next top-level block boundary (a `SLIDE ` or
+`SECTION ` line at column 0) — so a missing closing marker degrades
+gracefully at the next slide/section instead of consuming the rest of the
+document.
 
 | Element | Syntax | Description |
 |---------|--------|-------------|
 | Charts | `<<chart: type>>` | Data visualizations |
 | Diagrams | `<<mermaid>>` | Mermaid diagrams |
 | Maps | `<<map>>` | Geographic maps |
+| Grid | `<<grid>>` / `<<column>>` / `<<end>>` | Column layouts — see "Grid and Column Layouts" above |
 
 ## 🔍 **Validation Rules**
 
