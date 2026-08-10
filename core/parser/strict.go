@@ -168,13 +168,23 @@ func startsStrictElement(trimmedLine string) bool {
 // acá). En modo strict, ninguna de las dos es válida: ver el caller
 // (parseIndentedElements) para el error que reemplaza el fallback a
 // SpecialBlockParser (issue #108).
+//
+// Extrae el blockType con la MISMA lógica que SpecialBlockParser.Parse
+// (elements/special_block.go: TrimSpace tras ":::", luego strings.Fields,
+// primer campo) para no clasificar por prefijo suelto — un HasPrefix pelado
+// contra "::: grid"/":::grid" también matchearía "::: gridlock" o
+// "::: grid-note", que SpecialBlockParser vería como blockType "gridlock"/
+// "grid-note", no "grid", y emitiría un error de grid engañoso para algo
+// que ni siquiera pretendía serlo.
 func isFlexGridMarker(trimmedLine string) bool {
-	for _, prefix := range []string{"::: grid", ":::grid", "::: column", ":::column"} {
-		if strings.HasPrefix(trimmedLine, prefix) {
-			return true
-		}
+	if !strings.HasPrefix(trimmedLine, ":::") {
+		return false
 	}
-	return false
+	fields := strings.Fields(strings.TrimSpace(trimmedLine[3:]))
+	if len(fields) == 0 {
+		return false
+	}
+	return fields[0] == "grid" || fields[0] == "column"
 }
 
 func (p *StrictParser) parseContentBlock() *ast.ContentBlock {

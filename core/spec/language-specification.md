@@ -386,14 +386,7 @@ same typed `GridElement`/`ColumnElement` pair.
 
 ### Embedded Elements
 
-Embedded elements add rich content. In strict mode they share one grammar
-production (`embedded_element` above) and, except for grid, one termination
-contract: none has a mandatory closing tag. `<<end>>` closes the block
-explicitly where the element supports it, but every strict-mode embedded
-element also terminates at the next top-level block boundary (a `SLIDE ` or
-`SECTION ` line at column 0) — so a missing closing marker degrades
-gracefully at the next slide/section instead of consuming the rest of the
-document.
+Embedded elements add rich content:
 
 | Element | Syntax | Description |
 |---------|--------|-------------|

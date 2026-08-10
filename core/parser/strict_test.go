@@ -1026,6 +1026,83 @@ func TestStrictParser_FlexGridSyntax_IsAHardError(t *testing.T) {
 	}
 }
 
+// TestIsFlexGridMarker cubre el hallazgo de code review de #108/PR #112: un
+// HasPrefix suelto contra "::: grid"/":::grid" también clasificaría
+// "::: gridlock" o "::: grid-note" como sintaxis grid flex, cuando
+// SpecialBlockParser (la ruta real si esto no interceptara) los vería como
+// blockType "gridlock"/"grid-note" — nada que ver con grid. El predicado
+// tiene que exigir frontera de palabra (mismo criterio que
+// SpecialBlockParser.Parse usa para extraer blockType: TrimSpace + Fields,
+// primer campo).
+func TestIsFlexGridMarker(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected bool
+	}{
+		{"::: grid with space", "::: grid", true},
+		{":::grid without space", ":::grid", true},
+		{"::: column with space", "::: column", true},
+		{":::column without space", ":::column", true},
+		{"::: grid with trailing content", "::: grid extra stuff", true},
+		{"::: gridlock is a different word, not grid", "::: gridlock", false},
+		{"::: grid-note is a different word, not grid", "::: grid-note", false},
+		{"::: columnist is a different word, not column", "::: columnist", false},
+		{"::: column-span is a different word, not column", "::: column-span", false},
+		{"unrelated special block", "::: info", false},
+		{"bare :::", ":::", false},
+		{"not a special block at all", "SLIDE content", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isFlexGridMarker(tt.line); got != tt.expected {
+				t.Errorf("isFlexGridMarker(%q) = %v, want %v", tt.line, got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestStrictParser_SimilarlyNamedSpecialBlock_IsNotMisclassifiedAsGrid es el
+// mismo hallazgo a nivel de parser completo: "::: gridlock" en strict debe
+// seguir su camino normal (special block con blockType desconocido,
+// SPECIAL001) en vez de disparar el error de sintaxis de grid.
+func TestStrictParser_SimilarlyNamedSpecialBlock_IsNotMisclassifiedAsGrid(t *testing.T) {
+	body := `SLIDE content
+  title: "Not a grid"
+  ::: gridlock
+  Some content.
+  :::`
+
+	p := NewStrictParser(body, util.NewNoop())
+	astNode, diags := p.Parse()
+
+	if n := countErrors(diags); n != 0 {
+		t.Fatalf("got %d error diagnostics, want 0 (this is a plain unknown special block, not a grid syntax error): %v", n, diags)
+	}
+	for _, d := range diags {
+		if strings.Contains(d.Message, "grid layout") {
+			t.Errorf("got a grid-syntax diagnostic for a special block that only happens to start with the word \"grid\": %s", d.Message)
+		}
+	}
+
+	if len(astNode.ContentBlocks) != 1 {
+		t.Fatalf("len(ContentBlocks) = %d, want 1", len(astNode.ContentBlocks))
+	}
+	var sb *ast.SpecialBlockElement
+	for _, el := range astNode.ContentBlocks[0].Elements {
+		if b, ok := el.(*ast.SpecialBlockElement); ok {
+			sb = b
+		}
+	}
+	if sb == nil {
+		t.Fatalf("expected a SpecialBlockElement, got: %+v", astNode.ContentBlocks[0].Elements)
+	}
+	if sb.BlockType != "gridlock" {
+		t.Errorf("BlockType = %q, want %q", sb.BlockType, "gridlock")
+	}
+}
+
 // Regresión: el fix de #108 es strict-only. La sintaxis flex "::: grid"
 // tiene que seguir produciendo un GridElement real en modo flex.
 func TestFlexParser_GridSyntax_StillProducesGridElement(t *testing.T) {
