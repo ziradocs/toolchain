@@ -228,6 +228,11 @@ type ChromiumRenderer struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	logger  ChromiumLogger
+
+	// browserOnce/browserErr respaldan ensureBrowser (issue #114): garantizan
+	// que el proceso de Chrome se aloque una sola vez, contra r.ctx.
+	browserOnce sync.Once
+	browserErr  error
 }
 
 // NewChromiumRenderer crea un nuevo renderer con Chromium, con el branding
@@ -317,6 +322,25 @@ func withCallerCancel(base context.Context, callerCtx context.Context) (context.
 	}
 }
 
+// ensureBrowser aloca el proceso de Chrome contra r.ctx — el contexto de
+// vida larga que ya es dueño de Close() — en vez de dejar que lo aloque
+// implícitamente el primer chromedp.Run(runCtx) de algún Render* (issue
+// #114). chromedp ata exec.CommandContext al ctx de ESE primer Run; si ese
+// ctx es el runCtx puntual de un Render*, el `defer cancel()` de ese método
+// mata el proceso de Chrome al retornar, y vía el watchdog LostConnection de
+// chromedp (allocate.go) eso cancela r.ctx mismo — envenenando todo Render*
+// posterior sobre este renderer con "context canceled". Con
+// chromedp.Run(r.ctx) sin acciones aquí, la alocación y el primer target
+// quedan atados a r.ctx, así que cada Render* subsecuente simplemente abre
+// un tab (chromedp.NewContext(r.ctx)) sobre un browser ya vivo. browserOnce
+// asegura una sola alocación real por renderer.
+func (r *ChromiumRenderer) ensureBrowser() error {
+	r.browserOnce.Do(func() {
+		r.browserErr = chromedp.Run(r.ctx)
+	})
+	return r.browserErr
+}
+
 // RenderHTMLToPDF convierte HTML a PDF. ctx acota/cancela esta llamada
 // puntual (issue #134/G1d) sin afectar el ciclo de vida del browser, que
 // sigue gobernado por el ctx pasado al constructor.
@@ -328,7 +352,14 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 	// Buffer para el PDF
 	var pdfBuf []byte
 
-	runCtx, cancel := withCallerCancel(r.ctx, ctx)
+	if err := r.ensureBrowser(); err != nil {
+		return fmt.Errorf("chromium rendering failed: %w", err)
+	}
+
+	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
+	defer tabCancel()
+
+	runCtx, cancel := withCallerCancel(tabCtx, ctx)
 	defer cancel()
 
 	// Ejecutar chromedp. htmlContent es el documento completo del usuario
@@ -382,7 +413,14 @@ func (r *ChromiumRenderer) RenderMermaidToSVG(ctx context.Context, mermaidCode s
 
 	var svgContent string
 
-	runCtx, cancel := withCallerCancel(r.ctx, ctx)
+	if err := r.ensureBrowser(); err != nil {
+		return "", fmt.Errorf("mermaid rendering failed: %w", err)
+	}
+
+	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
+	defer tabCancel()
+
+	runCtx, cancel := withCallerCancel(tabCtx, ctx)
 	defer cancel()
 
 	// Renderizar con Chromium. Se inyecta el HTML vía about:blank +
@@ -417,7 +455,14 @@ func (r *ChromiumRenderer) RenderMathToSVG(ctx context.Context, latex string) (s
 
 	var svgContent string
 
-	runCtx, cancel := withCallerCancel(r.ctx, ctx)
+	if err := r.ensureBrowser(); err != nil {
+		return "", fmt.Errorf("math rendering failed: %w", err)
+	}
+
+	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
+	defer tabCancel()
+
+	runCtx, cancel := withCallerCancel(tabCtx, ctx)
 	defer cancel()
 
 	// Renderizar con Chromium. Se inyecta el HTML vía about:blank +
@@ -447,6 +492,10 @@ func (r *ChromiumRenderer) RenderMathToPNG(ctx context.Context, latex string, wi
 	html := buildMathPNGHTML(latex, width, height)
 
 	var pngData []byte
+
+	if err := r.ensureBrowser(); err != nil {
+		return nil, fmt.Errorf("math rendering failed: %w", err)
+	}
 
 	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
 	defer tabCancel()
@@ -478,6 +527,10 @@ func (r *ChromiumRenderer) RenderMermaidToPNG(ctx context.Context, mermaidCode s
 	html := buildMermaidPNGHTML(mermaidCode, width, height)
 
 	var pngData []byte
+
+	if err := r.ensureBrowser(); err != nil {
+		return nil, fmt.Errorf("mermaid rendering failed: %w", err)
+	}
 
 	// Crear un nuevo tab context para esta renderización
 	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
@@ -515,6 +568,10 @@ func (r *ChromiumRenderer) RenderChartToPNG(ctx context.Context, chartConfig str
 
 	var pngData []byte
 
+	if err := r.ensureBrowser(); err != nil {
+		return nil, fmt.Errorf("chart rendering failed: %w", err)
+	}
+
 	// IMPORTANTE: Crear un nuevo tab context para esta renderización
 	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
 	defer tabCancel()
@@ -551,6 +608,10 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 	html := r.generateLeafletHTML(mapConfig, width, height)
 
 	var pngData []byte
+
+	if err := r.ensureBrowser(); err != nil {
+		return nil, fmt.Errorf("map rendering failed: %w", err)
+	}
 
 	// IMPORTANTE: Crear un nuevo tab context para esta renderización
 	// Esto evita conflictos cuando se renderizan múltiples mapas
@@ -604,6 +665,10 @@ func (r *ChromiumRenderer) RenderChartToWebP(ctx context.Context, chartConfig st
 	html := buildChartHTML(chartConfig, width, height)
 
 	var webpData []byte
+
+	if err := r.ensureBrowser(); err != nil {
+		return nil, fmt.Errorf("chart rendering to WebP failed: %w", err)
+	}
 
 	// IMPORTANTE: Crear un nuevo tab context para esta renderización
 	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
@@ -659,6 +724,10 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	html := r.generateLeafletHTML(mapConfig, width, height)
 
 	var webpData []byte
+
+	if err := r.ensureBrowser(); err != nil {
+		return nil, fmt.Errorf("map rendering to WebP failed: %w", err)
+	}
 
 	// IMPORTANTE: Crear un nuevo tab context para esta renderización
 	// Esto evita conflictos cuando se renderizan múltiples mapas
