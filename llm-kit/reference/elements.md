@@ -49,9 +49,11 @@ spellings produce the same typed `GridElement`.
 
 In flex mode, element detection goes through a priority-ordered parser
 registry (most specific first, plain text last) — you never need to worry
-about ordering when writing content, just use the markers above. This is
-also why flex supports strictly more element types than strict: everything
-registered in the registry works, not just what strict's switch special-cases.
+about ordering when writing content, just use the markers above. Strict and
+flex support the same 17 element types; what flex has more of is
+*spellings* for some of them (`$$ … $$` for math, fenced ` ```mermaid `,
+`::: grid`/`::: column` for grid, `![alt](src)`, `- [ ]`, `> quote`) — not
+types strict lacks.
 
 ## Charts — canonical row-based schema
 
@@ -197,7 +199,15 @@ Markdown pipe syntax works in both modes:
 
 ## Checklist
 
-Flex only — see the quick table note above.
+Strict:
+
+```
+CHECKLIST
+  - [x] Done item
+  - [ ] Todo item
+```
+
+Flex uses the bare list form directly, no `CHECKLIST` keyword:
 
 ```
 - [x] Done item
