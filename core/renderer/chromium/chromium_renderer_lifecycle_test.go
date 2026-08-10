@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // requireTestChromiumPath localiza un binario de Chromium/Chrome real para
@@ -137,5 +138,81 @@ func TestChromiumRenderer_CallerCancelDoesNotPoisonBrowser(t *testing.T) {
 	}
 	if !strings.Contains(svg, "<svg") {
 		t.Fatalf("expected svg content, got: %s", svg)
+	}
+}
+
+// writeFakeStuckChromiumBinary crea un ejecutable que simula un Chrome
+// atascado al arrancar: nunca escribe la línea "DevTools listening on
+// ws://..." que chromedp espera leer de stdout, así que la alocación del
+// browser se queda colgada hasta chromedp's wsURLReadTimeout (20s por
+// defecto) o hasta que el ctx del proceso lo mate. No requiere un Chrome de
+// verdad — corre en cualquier máquina, determinístico, sin la variabilidad
+// de cuánto tarda un Chrome real en arrancar (que localmente suele ser
+// bajo 1s, demasiado rápido para distinguir "respeta la cancelación" de "no
+// la respeta" con un límite de tiempo razonable en el test).
+func writeFakeStuckChromiumBinary(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-stuck-chromium.sh")
+	// El caso "--version" responde rápido y aparte: ChromiumManager.GetVersion
+	// (chromium_manager.go) corre exec.Command(path, "--version").Output()
+	// SIN ningún context/timeout, DURANTE la construcción del renderer —
+	// antes de llegar siquiera a ensureBrowser. Un script que ignorara los
+	// argumentos y siempre durmiera habría colgado NewChromiumRenderer mismo
+	// (30s completos, medidos fuera de este test al descubrirlo: nada que
+	// ver con la cancelación puntual que este test verifica). GetVersion no
+	// respetar ctx es una limitación real y preexistente, pero separada de
+	// lo que corrige este fix — no se toca acá.
+	//
+	// `exec sleep` (en vez de un `sleep` como hijo normal del shell)
+	// reemplaza el proceso del shell en vez de bifurcarlo, para que matar el
+	// único proceso vía la cancelación de ctx cierre también su stdout de
+	// inmediato — relevante si algún día este helper se reutiliza para un
+	// caso que sí depende de que la muerte del proceso se note rápido.
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"Fake Chromium 0.0.0\"\n  exit 0\nfi\nexec sleep 30\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("failed to write fake chromium script: %v", err)
+	}
+	return path
+}
+
+// TestChromiumRenderer_EnsureBrowser_RespectsCallerCancellation cubre un
+// hallazgo de code review sobre la primera versión de ensureBrowser: al ser
+// la primera llamada de Chromium en todo el renderer, ensureBrowser no solo
+// abre el tab — también dispara la alocación del proceso de Chrome
+// (chromedp.Run(r.ctx) sin acciones), que puede tardar hasta
+// wsURLReadTimeout (20s por defecto en chromedp) si el arranque se atasca.
+// La primera versión bloqueaba esa espera SIN mirar el ctx puntual del
+// caller — un ctx ya cancelado (o cancelado durante el arranque) no
+// abortaba la espera, contradiciendo el contrato documentado de que ctx
+// acota cada Render* puntual (el mismo contrato que withCallerCancel ya
+// respeta para el resto de cada llamada). Este test usa un binario "chromium"
+// falso que nunca termina de arrancar, para que el caso realmente atascado
+// (no solo un Chrome real que arranca en milisegundos) quede cubierto: un
+// ctx ya cancelado debe hacer que el método retorne de inmediato en vez de
+// esperar los 20s completos del timeout de chromedp.
+func TestChromiumRenderer_EnsureBrowser_RespectsCallerCancellation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping chromium integration test in -short mode")
+	}
+
+	fakeChromium := writeFakeStuckChromiumBinary(t)
+	r, err := NewChromiumRenderer(context.Background(), fakeChromium, false, noopChromiumLogger{})
+	if err != nil {
+		t.Fatalf("NewChromiumRenderer failed: %v", err)
+	}
+	t.Cleanup(r.Close)
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel() // ya cancelado antes de la primerísima llamada del renderer
+
+	start := time.Now()
+	_, err = r.RenderMermaidToSVG(canceledCtx, "graph TD\nA-->B")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error rendering with an already-canceled caller ctx")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("expected the first-ever RenderMermaidToSVG call to return promptly when the caller ctx is already canceled, even though the underlying chromium process never finishes starting (took up to chromedp's 20s wsURLReadTimeout before this fix), took %v", elapsed)
 	}
 }
