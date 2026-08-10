@@ -12,6 +12,7 @@ import (
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/util"
 )
 
 const FrontMatterDelimiter = "---"
@@ -28,6 +29,8 @@ type rawFrontMatter struct {
 	Theme     string                 `yaml:"theme"`
 	Lang      string                 `yaml:"lang"`
 	Numbering *rawNumbering          `yaml:"numbering"`
+	TOC       *rawTOC                `yaml:"toc"`
+	Page      *rawPage               `yaml:"page"`
 	Variables map[string]interface{} `yaml:"variables"`
 	// Configuración de headers y footers
 	Header         *rawHeaderConfig            `yaml:"header"`
@@ -74,6 +77,116 @@ func (n *rawNumbering) UnmarshalYAML(value *yaml.Node) error {
 		return nil
 	default:
 		return fmt.Errorf("numbering: expected a bool (true/false) or a map with 'enabled', got %v", value.Tag)
+	}
+}
+
+// rawTOC and rawPage (below) both back the `toc:`/`page:` front matter
+// namespaces. Unlike every raw* type above — whose UnmarshalYAML methods
+// return an error for a bad shape, which yaml.Unmarshal propagates as a
+// hard failure of the ENTIRE front matter (see Parse's `yaml.Unmarshal`
+// call) — these two never return an error. `numbering:`'s bad-shape forms
+// were enumerable because doclang init emitted all of them; `toc:`/`page:`
+// are open keys nobody enumerated (they were "known-ignored" until now,
+// see frontmatter.md), so a form nobody anticipated must degrade to a
+// warning, not take the rest of a valid document (title, author, header/
+// footer...) down with it — the exact failure mode issue #115 was about,
+// just one level up (a wrong VALUE instead of a wrong KEY).
+//
+// Every field is a raw *yaml.Node rather than a concrete bool/int/string:
+// decoding into *yaml.Node cannot fail, so no sub-value (a quoted
+// `depth: "3"`, an out-of-range depth, an unrecognized `size:`) can abort
+// UnmarshalYAML either. convertTOC/convertPage — the only place with
+// diagnostics access — do the actual decode-to-concrete-type and semantic
+// validation (via core/util's shared length/paper-size resolver), and
+// downgrade any failure there to a FRONT005/FRONT006 warning with the
+// field just left unset.
+type rawTOC struct {
+	Enabled *yaml.Node
+	Depth   *yaml.Node
+	// badShape holds the offending Tag when `toc:` itself is neither a
+	// scalar nor a map (e.g. a YAML sequence) — recorded instead of
+	// returned as an error, per this type's contract above.
+	badShape string
+}
+
+func (t *rawTOC) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// `toc: true` / `toc: false` — the shape `doclang init`'s
+		// examples use today. Stored as the enabled node directly; a
+		// non-bool scalar (e.g. `toc: sí`) is caught later in convertTOC.
+		t.Enabled = value
+		return nil
+	case yaml.MappingNode:
+		// Decode targets are VALUE yaml.Node fields, not *yaml.Node — the
+		// yaml library rejects decoding a scalar/mapping node into a
+		// pointer-to-Node struct field ("cannot unmarshal !!bool into
+		// yaml.Node"), confirmed empirically against this parser's yaml
+		// library during implementation. Kind == 0 (the zero Kind — every
+		// real Kind constant is a nonzero bit flag) is how "this key was
+		// not present in the mapping" is told apart from "present with an
+		// actual value" once decoded into a value type.
+		var fields struct {
+			Enabled yaml.Node `yaml:"enabled"`
+			Depth   yaml.Node `yaml:"depth"`
+		}
+		if err := value.Decode(&fields); err != nil {
+			t.badShape = value.Tag
+			return nil
+		}
+		if fields.Enabled.Kind != 0 {
+			t.Enabled = &fields.Enabled
+		}
+		if fields.Depth.Kind != 0 {
+			t.Depth = &fields.Depth
+		}
+		return nil
+	default:
+		t.badShape = value.Tag
+		return nil
+	}
+}
+
+// rawPage backs `page:`. See rawTOC's doc comment above for the shared
+// "value never aborts Parse" contract both types follow.
+type rawPage struct {
+	Size     *yaml.Node
+	Margins  *yaml.Node
+	badShape string
+}
+
+func (p *rawPage) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// `page: A4` — a shorthand for `page: {size: A4}`. Necessary even
+		// though no known template emits it: without it, `page: A4`
+		// (which parsed fine as an unknown key before this PR) would go
+		// from inert to a hard parse failure the moment `page:` becomes a
+		// known key, for a form that reads as entirely reasonable to try.
+		p.Size = value
+		return nil
+	case yaml.MappingNode:
+		// See rawTOC.UnmarshalYAML's MappingNode branch above for why the
+		// decode targets are value yaml.Node fields, checked with
+		// Kind != 0, rather than *yaml.Node fields directly.
+		var fields struct {
+			Size    yaml.Node `yaml:"size"`
+			Margins yaml.Node `yaml:"margins"`
+		}
+		if err := value.Decode(&fields); err != nil {
+			p.badShape = value.Tag
+			return nil
+		}
+		if fields.Size.Kind != 0 {
+			p.Size = &fields.Size
+		}
+		if fields.Margins.Kind != 0 {
+			p.Margins = &fields.Margins
+		}
+		return nil
+	default:
+		p.badShape = value.Tag
+		return nil
 	}
 }
 
@@ -215,6 +328,8 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	if raw.Numbering != nil {
 		node.Numbering = raw.Numbering.Enabled
 	}
+	node.TOC = p.convertTOC(raw.TOC)
+	node.Page = p.convertPage(raw.Page)
 	node.Variables = raw.Variables
 	node.Raw = yamlContent
 
@@ -313,6 +428,157 @@ func (p *FrontMatterParser) convertHeaderConfig(raw *rawHeaderConfig) *ast.Heade
 	}
 
 	return config
+}
+
+// tocFrontMatterWarning appends a FRONT005 warning — see rawTOC's doc
+// comment for why a bad `toc:` value degrades to a warning instead of
+// failing Parse.
+func (p *FrontMatterParser) tocFrontMatterWarning(message string) {
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(message, diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT005"))
+}
+
+// pageFrontMatterWarning is tocFrontMatterWarning's FRONT006 counterpart
+// for `page:`.
+func (p *FrontMatterParser) pageFrontMatterWarning(message string) {
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(message, diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT006"))
+}
+
+// convertTOC convierte rawTOC a ast.TOCConfig. nil en cualquier salida
+// temprana (raw nil, forma inválida, o un mapa que no dejó ninguna
+// información — mismo criterio que numbering: {}) es intencional: node.TOC
+// nil es "el documento no tiene opinión", el mismo tri-estado que
+// node.Numbering.
+func (p *FrontMatterParser) convertTOC(raw *rawTOC) *ast.TOCConfig {
+	if raw == nil {
+		return nil
+	}
+	if raw.badShape != "" {
+		p.tocFrontMatterWarning(fmt.Sprintf("Invalid 'toc:' value (%s); expected true/false or a map with 'enabled'/'depth' — ignored", raw.badShape))
+		return nil
+	}
+
+	config := &ast.TOCConfig{}
+
+	if raw.Enabled != nil {
+		var enabled bool
+		if err := raw.Enabled.Decode(&enabled); err != nil {
+			p.tocFrontMatterWarning(fmt.Sprintf("Invalid 'toc.enabled': expected true/false, got %q — ignored", raw.Enabled.Value))
+		} else {
+			config.Enabled = &enabled
+		}
+	}
+
+	if raw.Depth != nil {
+		var depth int
+		if err := raw.Depth.Decode(&depth); err != nil {
+			p.tocFrontMatterWarning(fmt.Sprintf("Invalid 'toc.depth': expected a number, got %q — ignored", raw.Depth.Value))
+		} else if depth < 1 || depth > 6 {
+			p.tocFrontMatterWarning(fmt.Sprintf("'toc.depth': %d is outside the usual 1-6 heading range — kept as-is", depth))
+			config.Depth = &depth
+		} else {
+			config.Depth = &depth
+		}
+	}
+
+	if config.Enabled == nil && config.Depth == nil {
+		return nil
+	}
+	return config
+}
+
+// convertPage convierte rawPage a ast.PageConfig. Mismo criterio de nil que
+// convertTOC. Size/Margins se guardan tal cual los escribió el autor
+// ("A4", "2cm") — core/util.PaperSizeInches/ParseLengthInches se usan acá
+// SOLO para validar (avisar si el valor no resuelve a nada conocido), nunca
+// para reescribir el campo: el AST es el contrato, y quien lo consume
+// decide cómo resolver unidades (ver core/util/length.go).
+func (p *FrontMatterParser) convertPage(raw *rawPage) *ast.PageConfig {
+	if raw == nil {
+		return nil
+	}
+	if raw.badShape != "" {
+		p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page:' value (%s); expected a size string or a map with 'size'/'margins' — ignored", raw.badShape))
+		return nil
+	}
+
+	config := &ast.PageConfig{}
+
+	if raw.Size != nil {
+		var size string
+		if err := raw.Size.Decode(&size); err != nil {
+			p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.size': expected a string, got %v — ignored", raw.Size.Tag))
+		} else {
+			if _, _, ok := util.PaperSizeInches(size); !ok {
+				p.pageFrontMatterWarning(fmt.Sprintf("'page.size': %q is not a recognized paper size (e.g. A4, Letter, Legal) — kept as-is", size))
+			}
+			config.Size = size
+		}
+	}
+
+	if raw.Margins != nil {
+		config.Margins = p.convertPageMargins(raw.Margins)
+	}
+
+	if config.Size == "" && config.Margins == nil {
+		return nil
+	}
+	return config
+}
+
+// convertPageMargins decodifica `page.margins`, que acepta un escalar
+// (llena los 4 lados) o un mapa por lado — mismo tipo de atajo escalar que
+// rawHeaderFooterText.Center/rawPageNumbersConfig.Enabled arriba, pero
+// resuelto acá directamente sobre el *yaml.Node en vez de un raw type
+// propio con su propio UnmarshalYAML: convertPage ya tiene el nodo en
+// mano, y esto necesita el mismo acceso a p.diagnostics que el resto de
+// este archivo, no una decodificación aislada.
+func (p *FrontMatterParser) convertPageMargins(node *yaml.Node) *ast.PageMargins {
+	validateSide := func(label, value string) {
+		if value == "" {
+			return
+		}
+		if _, err := util.ParseLengthInches(value); err != nil {
+			p.pageFrontMatterWarning(fmt.Sprintf("'page.margins.%s': %q is not a recognized length (e.g. 2cm, 0.5in, 40px) — kept as-is", label, value))
+		}
+	}
+
+	switch node.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := node.Decode(&s); err != nil {
+			p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.margins': expected a string or a map with top/right/bottom/left, got %q — ignored", node.Value))
+			return nil
+		}
+		if s == "" {
+			return nil
+		}
+		validateSide("(all sides)", s)
+		return &ast.PageMargins{Top: s, Right: s, Bottom: s, Left: s}
+	case yaml.MappingNode:
+		var sides struct {
+			Top    string `yaml:"top"`
+			Right  string `yaml:"right"`
+			Bottom string `yaml:"bottom"`
+			Left   string `yaml:"left"`
+		}
+		if err := node.Decode(&sides); err != nil {
+			p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.margins': %v — ignored", err))
+			return nil
+		}
+		if sides.Top == "" && sides.Right == "" && sides.Bottom == "" && sides.Left == "" {
+			return nil
+		}
+		validateSide("top", sides.Top)
+		validateSide("right", sides.Right)
+		validateSide("bottom", sides.Bottom)
+		validateSide("left", sides.Left)
+		return &ast.PageMargins{Top: sides.Top, Right: sides.Right, Bottom: sides.Bottom, Left: sides.Left}
+	default:
+		p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.margins': expected a string or a map with top/right/bottom/left, got %v — ignored", node.Tag))
+		return nil
+	}
 }
 
 // convertFooterConfig convierte configuración de footer

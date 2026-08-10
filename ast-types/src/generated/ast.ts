@@ -47,8 +47,14 @@ import type { Position } from "./diagnostics";
  * so `doclang build`'s section auto-numbering default no longer has to be a
  * hardcoded `true` whenever front matter is present — see
  * doclang/internal/cli/build.go.
+ * 2.6.0 (issue #115 follow-up): FrontMatterNode.TOC (*TOCConfig) and .Page
+ * (*PageConfig), both additive/omitempty — the parsed forms of the `toc:`
+ * and `page:` front matter namespaces, previously silently-ignored unknown
+ * keys (see llm-kit/reference/frontmatter.md). Page/PageMargins hold the
+ * author's length strings verbatim ("A4", "2cm"), not resolved to any
+ * renderer's unit — see core/util/length.go for the shared resolver.
  */
-export const SchemaVersion = "2.5.0";
+export const SchemaVersion = "2.6.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -252,6 +258,60 @@ export interface FrontMatterNode extends BaseNode {
    * section titles already carry their own numbering in the heading text.
    */
   numbering?: boolean;
+  /**
+   * TOC and Page are namespaces (`toc:`, `page:` in front matter), not
+   * plain scalars like Numbering — hence structs, not a top-level field
+   * each. A flat `TOCDepth` field here would advertise a `toc_depth:` key
+   * that does not exist in the YAML shape; keeping the namespace as a
+   * struct mirrors HeaderFooter above and leaves room for an additive
+   * sibling (`toc.title`, `page.orientation`) later without a contract
+   * change. See TOCConfig/PageConfig for why their sub-fields are also
+   * pointers/raw strings rather than resolved values.
+   */
+  toc?: TOCConfig;
+  page?: PageConfig;
+}
+/**
+ * TOCConfig is the parsed `toc:` front matter namespace. Both fields are
+ * pointers for the same tri-state reason as FrontMatterNode.Numbering: the
+ * consumer's default is `true`/a positive depth, not the Go zero value, so
+ * "not declared" must be distinguishable from "declared false"/"declared
+ * zero". They are independent on purpose — `toc: true` (the scalar
+ * shorthand for "enabled, no opinion on depth") must not imply anything
+ * about Depth.
+ */
+export interface TOCConfig {
+  enabled?: boolean;
+  depth?: number /* int */;
+}
+/**
+ * PageConfig is the parsed `page:` front matter namespace. Size and the
+ * PageMargins fields are the author's raw text (`"A4"`, `"2cm"`) verbatim,
+ * NOT resolved to a concrete unit — this AST is a public JSON contract
+ * (schema/ast.schema.json, ast-types), and baking in one renderer's unit
+ * approximation (Chromium's inches, a future DOCX target's twips) would be
+ * both a lossy conversion and a loss of information an external consumer
+ * might want (e.g. a `--filter` reporting "size: Carta does not exist").
+ * See core/util/length.go for the shared resolver every consumer should use
+ * instead of re-parsing these strings ad hoc.
+ */
+export interface PageConfig {
+  size?: string;
+  margins?: PageMargins;
+}
+/**
+ * PageMargins holds one raw length string per side. `margins: 2cm` (the
+ * scalar shorthand) fills all four; the per-side map form fills only what
+ * was declared, leaving the rest "" so the consumer falls back to its own
+ * per-side default instead of an all-or-nothing default. Deliberately not a
+ * 1/2/4-value CSS shorthand: nothing emits that today, and adding it later
+ * is a parser change, not a contract change.
+ */
+export interface PageMargins {
+  top?: string;
+  right?: string;
+  bottom?: string;
+  left?: string;
 }
 /**
  * ContentBlock representa un bloque de contenido (slide en presentaciones, sección en documentos)
