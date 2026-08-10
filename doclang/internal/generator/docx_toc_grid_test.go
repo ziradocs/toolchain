@@ -132,7 +132,7 @@ func TestDOCXGenerator_RenderTOC_FieldCoversOutlineLevel4(t *testing.T) {
 	doc := astWithElements(deep)
 
 	output := filepath.Join(t.TempDir(), "toc.docx")
-	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx", TOC: true}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
 

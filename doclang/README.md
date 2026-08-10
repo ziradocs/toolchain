@@ -59,13 +59,21 @@ doclang build report.doclang --lint-only          # diagnostics only, no output
 |---|---|---|
 | `--format`, `-f` | `html` | `html`, `pdf`, `docx`, `markdown`. |
 | `--output`, `-o` | `./output` | Output directory. |
-| `--toc` | `false` | Generate a table of contents. |
-| `--numbering` | `false` | Number sections. |
+| `--toc` | `true`¹ | Generate a table of contents. |
+| `--numbering` | `true`¹ | Number sections. |
 | `--page-breaks` | `false` | Break pages between sections. |
 
-Format caveats worth knowing up front: **DOCX** does not yet emit clickable hyperlinks,
-bookmarks or cell shading. **Markdown** is partial — it skips PlantUML, maps and code
-groups, and emits charts as a placeholder fence.
+¹ The flag's own zero value is `false`, but any document that has a frontmatter block gets
+`--toc`/`--numbering` defaulted to `true` unless the flag itself is passed explicitly (in
+either direction) — pass `--toc=false`/`--numbering=false` to opt out. `numbering:` in
+frontmatter can also opt out per-document; `toc:` in frontmatter is not yet parsed (see
+[Known-ignored keys](../llm-kit/reference/frontmatter.md#known-ignored-keys-do-not-rely-on-these)),
+so today the CLI flag is the only way to control TOC generation per build.
+
+Format caveats worth knowing up front: **DOCX** now honours `--toc`, `--numbering` and
+`--page-breaks` (previously it emitted a TOC unconditionally and ignored the other two), but
+does not yet emit clickable hyperlinks, bookmarks or cell shading. **Markdown** is partial —
+it skips PlantUML, maps and code groups, and emits charts as a placeholder fence.
 
 ### Themes
 
