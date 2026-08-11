@@ -170,6 +170,25 @@ layout_defaults:
     footer: { ... }
 ```
 
+**Shorthand forms.** Both `text:` and `page_numbers:` also accept a simpler
+value instead of the full map:
+
+```yaml
+header:
+  enabled: true
+  text: "Centered title"   # same as text: { center: "Centered title" }
+
+footer:
+  enabled: true
+  page_numbers: true       # same as page_numbers: { enabled: true }
+```
+
+A bare string under `text:` fills `center` only (`left`/`right` stay empty);
+a bare `true`/`false` under `page_numbers:` fills `enabled` only, same as
+`numbering:`'s bool-or-map tolerance above. This applies at all four sites
+that accept `text:`/`page_numbers:` — `header`, `footer`, and both under
+`layout_defaults`.
+
 Only include these if you actually need custom header/footer chrome —
 most decks and documents don't need them at all.
 

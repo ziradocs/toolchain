@@ -202,10 +202,12 @@ numbering:
   enabled: true
 header:
   enabled: true
-  text: %s
+  text:
+    center: %s
 footer:
   enabled: true
-  page-numbers: true
+  page_numbers:
+    enabled: true
 ---
 
 # Executive Summary

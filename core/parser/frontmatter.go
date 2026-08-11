@@ -236,14 +236,51 @@ type rawFooterConfig struct {
 	Border      *rawBorderConfig      `yaml:"border"`
 }
 
-// rawHeaderFooterText mapea el contenido de texto
+// rawHeaderFooterText mapea el contenido de texto de un header/footer. Acepta
+// también un escalar (`text: "Some title"`) como atajo de `center` —
+// `doclang init`'s `report` template emitió justo esa forma (issue #115) y no
+// hay razón para rechazar en el parser lo que un `init` viejo ya generó.
+// Mismo patrón que rawNumbering (más abajo en este archivo, precedente de
+// #100): switch sobre value.Kind, pointer receiver.
 type rawHeaderFooterText struct {
 	Left   string `yaml:"left"`
 	Center string `yaml:"center"`
 	Right  string `yaml:"right"`
 }
 
-// rawPageNumbersConfig mapea la configuración de numeración
+// rawHeaderFooterTextFields es un tipo definido (no un alias) sobre
+// rawHeaderFooterText: decodificar en él en la rama MappingNode reutiliza los
+// mismos tags yaml sin duplicar la lista de campos, y al ser un tipo nuevo no
+// hereda UnmarshalYAML, así que no hay recursión infinita.
+type rawHeaderFooterTextFields rawHeaderFooterText
+
+func (t *rawHeaderFooterText) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := value.Decode(&s); err != nil {
+			return fmt.Errorf("text: expected a string or a map with left/center/right, got %q", value.Value)
+		}
+		t.Center = s
+		return nil
+	case yaml.MappingNode:
+		var fields rawHeaderFooterTextFields
+		if err := value.Decode(&fields); err != nil {
+			return fmt.Errorf("text: %w", err)
+		}
+		*t = rawHeaderFooterText(fields)
+		return nil
+	default:
+		return fmt.Errorf("text: expected a string or a map with left/center/right, got %v", value.Tag)
+	}
+}
+
+// rawPageNumbersConfig mapea la configuración de numeración de páginas.
+// Acepta también un bool (`page_numbers: true`) como atajo de
+// `{enabled: true}`, igual que `numbering:` (#100) — no rescata la forma con
+// guion (`page-numbers`) que `doclang init`'s `report` template emitía antes
+// de #115: esa es una llave equivocada, no una forma alternativa, y
+// aliasarla normalizaría el typo en vez de corregirlo.
 type rawPageNumbersConfig struct {
 	Enabled              bool   `yaml:"enabled"`
 	Format               string `yaml:"format"`
@@ -252,6 +289,31 @@ type rawPageNumbersConfig struct {
 	ExcludeClosingSlides bool   `yaml:"exclude_closing_slides"`
 	StartFrom            int    `yaml:"start_from"`
 	Style                string `yaml:"style"`
+}
+
+// rawPageNumbersConfigFields, ver rawHeaderFooterTextFields arriba: mismo
+// motivo (tipo definido, no alias, para decodificar el mapa sin recursión).
+type rawPageNumbersConfigFields rawPageNumbersConfig
+
+func (p *rawPageNumbersConfig) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var b bool
+		if err := value.Decode(&b); err != nil {
+			return fmt.Errorf("page_numbers: expected true/false or a map with 'enabled', got %q", value.Value)
+		}
+		p.Enabled = b
+		return nil
+	case yaml.MappingNode:
+		var fields rawPageNumbersConfigFields
+		if err := value.Decode(&fields); err != nil {
+			return fmt.Errorf("page_numbers: %w", err)
+		}
+		*p = rawPageNumbersConfig(fields)
+		return nil
+	default:
+		return fmt.Errorf("page_numbers: expected true/false or a map with 'enabled', got %v", value.Tag)
+	}
 }
 
 // rawLogoConfig mapea la configuración de logos
