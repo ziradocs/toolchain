@@ -112,7 +112,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	defer chromiumRenderer.Close()
 
 	// 3. Convertir HTML a PDF
-	pdfOpts := chromium.DefaultPDFOptions()
+	pdfOpts := resolvePDFOptions(opts.Page, p.logger)
 	pdfOpts.DisplayHeaderFooter = opts.ShowHeaders || opts.ShowFooters
 
 	if opts.ShowHeaders && opts.ShowFooters {

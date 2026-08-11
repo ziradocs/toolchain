@@ -26,6 +26,8 @@ author: "..."
 date: "..."
 theme: "modern-blue"   # CLI --theme flag overrides this if both are given
 numbering: true        # true | false (DocLang only, see below) — opt out of section auto-numbering
+toc: true              # true | false | {enabled: bool, depth: int} (DocLang only, see below)
+page:                  # {size: "A4", margins: "2cm"} (DocLang only, PDF format only, see below)
 variables:             # arbitrary key/value map, used for {{variable}} substitution
   company: "Acme Inc"
 header:                # optional rich header config (see below)
@@ -62,11 +64,9 @@ should configure something (because you saw it in an example or an
 
 ### Known-ignored keys (do NOT rely on these)
 
-`toc`, `doctype`, `page` — these appear in some `doclang init` templates
-and example files but are **not** part of the parsed schema. Table of
-contents in DocLang output is controlled by the `--toc` **CLI flag** passed
-to `doclang build`, not by frontmatter. (`numbering` used to be in this
-list too — see below, it's now recognized.)
+`doctype` — appears in some `doclang init` templates but is **not** part of
+the parsed schema; nothing reads it. (`toc`, `page`, and `numbering` used to
+be in this list too — see below, all three are now recognized.)
 
 ### `numbering` (DocLang only)
 
@@ -91,6 +91,49 @@ list too — see below, it's now recognized.)
   no effect (no code reads it). Prefer the plain `numbering: true` /
   `numbering: false` form in new documents; the map form exists only for
   backward compatibility with documents/templates written before it.
+
+### `toc` (DocLang only)
+
+- Valid values: `true`/`false` (shorthand for `{enabled: <bool>}`), or a map
+  with `enabled`/`depth`.
+- Controls whether DocLang's HTML/PDF/DOCX output gets a table of contents
+  (and, in HTML, the interactive sidebar viewer that comes with it). A
+  bare-Markdown document's TOC only ever lists top-level sections — there's
+  no notion of depth outside HTML/PDF.
+- Resolution order: **`--toc`/`--toc=false` CLI flag > frontmatter
+  `toc.enabled` > default (`true` when frontmatter is present)** — same
+  three-level pattern as `numbering`/`theme`.
+- `toc.depth` (int, 1-6, default `3`) has **no CLI flag equivalent** —
+  `--toc` only talks about enabled/disabled — so it always resolves from
+  frontmatter, independent of whether `--toc`/`--numbering` were passed on
+  the command line.
+- **Known off-by-one, not compensated for here**: `depth: N` actually shows
+  headings up to level `N+1` — `core/renderer/document_html.go`'s
+  `extractSubsections` checks `level-1 > maxDepth`, so `depth: 2` includes
+  both `##` and `###` headings. A `depth-1` adjustment in the frontmatter
+  resolution would make an explicit `depth: 3` mean something different
+  from the undeclared default (also 3), so this stays a documented renderer
+  quirk instead.
+- A bad shape or value (e.g. `toc: [a, b]`, `depth: "3"`, an out-of-range
+  `depth`) degrades to a `FRONT005` warning instead of failing the build —
+  see `core/parser/frontmatter.go`.
+
+### `page` (DocLang only, PDF format only)
+
+- Valid values: a bare paper size string (`page: A4`, shorthand for
+  `{size: A4}`), or a map with `size`/`margins`.
+- `size`: a recognized paper size name (`A4`, `Letter`, `Legal`, `A3`,
+  `A5`, `Tabloid`, case-insensitive). Only affects `doclang build --format
+  pdf` — HTML, Markdown, and DOCX output ignore this key entirely (DOCX
+  doesn't set page geometry at all; HTML's page-view width comes from the
+  theme's own CSS, not from `page:`).
+- `margins`: a single length (fills all four sides) or a map with
+  `top`/`right`/`bottom`/`left`. Recognized units: `cm`, `mm`, `in`, `pt`,
+  `px`. An undeclared side falls back to the PDF default (0.4in).
+- An unrecognized `size` or margin value degrades to a `FRONT006` warning
+  at parse time and is conserved verbatim in the AST; at PDF-generation
+  time DocLang falls back to the default (A4, 0.4in margins) with another
+  warning, rather than failing the build.
 
 ### `lint_policy` (both CLIs)
 

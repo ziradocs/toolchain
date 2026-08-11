@@ -25,6 +25,12 @@ type GeneratorOptions struct {
 	TOCDepth          int               // TOC depth (1-6)
 	Numbering         bool              // Section numbering
 	PageBreaks        bool              // Page breaks between sections
+	// Page is the parsed `page:` front matter namespace (size/margins,
+	// author-facing strings verbatim — see core/util/length.go). nil means
+	// the document has no opinion. Consumed only by the PDF generator today
+	// (see resolvePDFOptions in page.go) — HTML/Markdown/DOCX don't set
+	// page geometry (see the plan's "Fuera de alcance" section for why).
+	Page *ast.PageConfig
 	// PlantUML options
 	PlantUMLMode   string // "browser" (default), "offline-assets", "offline-inline"
 	PlantUMLServer string // Custom PlantUML server (default: https://www.plantuml.com/plantuml)
@@ -166,6 +172,20 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 		ChartMode:      "browser",
 		MapMode:        "browser",
 		MathMode:       "browser",
+	}
+
+	// Honor an explicitly-declared `toc:` (issue #115 follow-up, PR 3) —
+	// only when declared, so a document that says nothing about TOC keeps
+	// today's preview default (no TOC) untouched. `doclang build` has its
+	// own separate defaulting policy (front matter present ⇒ TOC on by
+	// default, see cli/build.go) that deliberately does NOT apply here:
+	// this preview path has no user affirmatively asking for a document
+	// build, just a live look at the content.
+	if doc.FrontMatter != nil && doc.FrontMatter.TOC != nil && doc.FrontMatter.TOC.Enabled != nil {
+		renderOpts.TOC = *doc.FrontMatter.TOC.Enabled
+		if doc.FrontMatter.TOC.Depth != nil {
+			renderOpts.TOCDepth = *doc.FrontMatter.TOC.Depth
+		}
 	}
 
 	return renderer.GenerateDocumentHTML(doc, renderOpts, renderer.NewDefaultRenderContext())
