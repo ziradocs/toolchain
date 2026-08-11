@@ -120,7 +120,6 @@ func generateFlexTemplate(name, template string) string {
 	case "technical":
 		return fmt.Sprintf(`---
 title: %s
-doctype: technical-specification
 author: Your Name
 date: 2025-10-08
 mode: flex
@@ -194,7 +193,6 @@ Summary and next steps.
 	case "report":
 		return fmt.Sprintf(`---
 title: %s
-doctype: report
 author: Your Name
 date: 2025-10-08
 mode: flex

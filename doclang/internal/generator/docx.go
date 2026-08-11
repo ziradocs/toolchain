@@ -210,18 +210,43 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		return fmt.Errorf("error rendering frontmatter: %w", err)
 	}
 
-	// Recolectar encabezados para TOC
-	tocEntries := g.collectHeadings(astDoc)
-
-	// Renderizar TOC
-	if err := g.renderTOC(doc, tocEntries); err != nil {
-		return fmt.Errorf("error rendering TOC: %w", err)
+	// Renderizar TOC (opts.TOC, issue #115 follow-up: antes se emitía
+	// incondicionalmente, así que `--toc=false`/`toc: false` no tenían
+	// ningún efecto en DOCX).
+	if opts.TOC {
+		tocEntries := g.collectHeadings(astDoc, opts.Numbering)
+		if err := g.renderTOC(doc, tocEntries); err != nil {
+			return fmt.Errorf("error rendering TOC: %w", err)
+		}
 	}
 
-	// Renderizar secciones del documento
+	// Renderizar secciones del documento. sectionNum replica el loop de
+	// markdown.go's Generate (mismo resolveSectionTitle compartido): el
+	// contador solo avanza en bloques "numbered" (los que vinieron de
+	// block.Title, no del preámbulo con block.Heading), así que el
+	// preámbulo nunca corre la numeración del resto — el bug que #100
+	// arregló para HTML/Markdown y que DOCX nunca tuvo hasta ahora.
+	sectionNum := 1
 	for i := range astDoc.ContentBlocks {
-		if err := g.renderSection(doc, &astDoc.ContentBlocks[i]); err != nil {
+		block := &astDoc.ContentBlocks[i]
+		title, numbered := resolveSectionTitle(*block)
+		num := 0
+		if opts.Numbering && numbered {
+			num = sectionNum
+		}
+		if err := g.renderSection(doc, block, title, num); err != nil {
 			return fmt.Errorf("error rendering section: %w", err)
+		}
+		if numbered {
+			sectionNum++
+		}
+
+		// Page break entre secciones (opts.PageBreaks), mismo punto del
+		// loop que HTML/Markdown: nunca después de la última sección.
+		if opts.PageBreaks && i < len(astDoc.ContentBlocks)-1 {
+			if err := doc.AddPageBreak(); err != nil {
+				return fmt.Errorf("error adding page break: %w", err)
+			}
 		}
 	}
 
@@ -366,21 +391,36 @@ var (
 	}
 )
 
-// collectHeadings recolecta todos los encabezados del documento para el TOC
-func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST) []TOCEntry {
+// collectHeadings recolecta todos los encabezados del documento para el TOC.
+// El H1 de cada bloque usa resolveSectionTitle y el mismo contador
+// sectionNum que el loop de sección en Generate (issue #115 follow-up code
+// review: antes leía block.Title directo, así que el preámbulo —cuyo texto
+// vive en block.Heading, ver resolveSectionTitle— quedaba fuera del TOC, y
+// el prefijo numérico del TOC podía divergir del que realmente escribe
+// renderSection en el cuerpo cuando opts.Numbering estaba activo).
+func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST, numbering bool) []TOCEntry {
 	var entries []TOCEntry
 
 	g.logger.Info("DOCX", "📋 Collecting headings from %d content blocks", len(astDoc.ContentBlocks))
 
+	sectionNum := 1
 	for _, block := range astDoc.ContentBlocks {
-		// H1 (section title)
-		if block.Title != "" {
+		// H1 (section title, o Heading si es el bloque de preámbulo)
+		title, numbered := resolveSectionTitle(block)
+		if title != "" {
+			entryTitle := title
+			if numbering && numbered {
+				entryTitle = fmt.Sprintf("%d. %s", sectionNum, title)
+			}
 			entries = append(entries, TOCEntry{
-				Title:      block.Title,
+				Title:      entryTitle,
 				Level:      1,
-				BookmarkID: sanitizeBookmarkID(block.Title),
+				BookmarkID: sanitizeBookmarkID(title),
 			})
-			g.logger.Info("DOCX", "  ➜ H1: %s", block.Title)
+			g.logger.Info("DOCX", "  ➜ H1: %s", entryTitle)
+		}
+		if numbered {
+			sectionNum++
 		}
 
 		// H1-H6 (text elements with raw HTML or markdown headers)
@@ -651,10 +691,17 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 	return nil
 }
 
-// renderSection renderiza una sección del documento (H1 + elementos)
-func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock) error {
+// renderSection renderiza una sección del documento (H1 + elementos). title
+// y num vienen ya resueltos por el caller (resolveSectionTitle + el contador
+// de sectionNum de Generate) en vez de leer section.Title directamente: eso
+// es lo que hace que un ContentBlock de preámbulo (Title vacío, Heading
+// poblado — ver resolveSectionTitle) también reciba su encabezado, igual que
+// ya hacían los generadores HTML y Markdown; num == 0 significa "sin
+// numerar" (numbering deshabilitado, o esta sección no numera — el
+// preámbulo).
+func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int) error {
 	// Título de la sección (H1)
-	if section.Title != "" {
+	if title != "" {
 		p, err := doc.AddParagraph()
 		if err != nil {
 			return err
@@ -669,11 +716,16 @@ func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentB
 			return fmt.Errorf("invalid spacing after: %w", err)
 		}
 
+		text := title
+		if num > 0 {
+			text = fmt.Sprintf("%d. %s", num, title)
+		}
+
 		r, err := p.AddRun()
 		if err != nil {
 			return err
 		}
-		_ = r.SetText(section.Title)
+		_ = r.SetText(text)
 		if err := r.SetSize(g.parseSize(g.style.H1Size)); err != nil {
 			return fmt.Errorf("invalid font size: %w", err)
 		}

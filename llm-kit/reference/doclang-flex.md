@@ -47,18 +47,18 @@ currently build.
 
 DocLang shares the exact same frontmatter parser as ZiraDocs, so **only
 these keys are recognized**: `mode` (ignored for parsing, but harmless to
-include), `title`, `author`, `date`, `theme`, `variables`, `header`,
-`footer`, `layout_defaults`, `lint_policy`. See `frontmatter.md` for
-details.
+include), `title`, `author`, `date`, `theme`, `variables`, `numbering`,
+`header`, `footer`, `layout_defaults`, `lint_policy`. See `frontmatter.md`
+for details.
 
 **Important gap to know about:** the `doclang init` template and some
-example files write `toc: true`, `numbering: true`, `doctype: ...`, or
-`page: ...` into frontmatter. **None of these keys are parsed** — YAML
-silently drops unknown keys, so they have zero effect on the build. Table
-of contents and page numbering are controlled by **CLI flags**,
-`--toc`/`--numbering`, not by frontmatter. Don't tell a user "add `toc:
-true` to your frontmatter to get a table of contents" — it does nothing;
-the flag is what matters.
+example files write `toc: true`, `doctype: ...`, or `page: ...` into
+frontmatter. **None of these three keys are parsed** — YAML silently drops
+unknown keys, so they have zero effect on the build. Table of contents is
+controlled by the **CLI flag** `--toc`, not by frontmatter. Don't tell a
+user "add `toc: true` to your frontmatter to get a table of contents" — it
+does nothing; the flag is what matters. (`numbering:` used to be in this
+same "ignored" list — it isn't anymore, see `frontmatter.md`.)
 
 ## Elements
 
