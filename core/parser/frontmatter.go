@@ -116,6 +116,12 @@ type rawTOC struct {
 	// (most commonly a typo) — reported as a FRONT005 warning by convertTOC
 	// rather than silently dropped.
 	unknownKeys []string
+	// duplicateKeys holds any known key ("enabled"/"depth") that appears
+	// more than once in the map — YAML itself allows repeated keys, and the
+	// last one silently wins the assignment above with no diagnostic unless
+	// this is tracked (code review finding: `toc: {enabled: true, enabled:
+	// false}` decoded to `false` with zero warnings).
+	duplicateKeys []string
 	// badShape holds the offending Tag when `toc:` itself is neither a
 	// scalar nor a map (e.g. a YAML sequence) — recorded instead of
 	// returned as an error, per this type's contract above.
@@ -138,8 +144,14 @@ func (t *rawTOC) UnmarshalYAML(value *yaml.Node) error {
 			key, val := value.Content[i], value.Content[i+1]
 			switch key.Value {
 			case "enabled":
+				if t.Enabled != nil {
+					t.duplicateKeys = append(t.duplicateKeys, key.Value)
+				}
 				t.Enabled = val
 			case "depth":
+				if t.Depth != nil {
+					t.duplicateKeys = append(t.duplicateKeys, key.Value)
+				}
 				t.Depth = val
 			default:
 				t.unknownKeys = append(t.unknownKeys, key.Value)
@@ -163,7 +175,10 @@ type rawPage struct {
 	// (e.g. the singular typo "margin") — reported as a FRONT006 warning by
 	// convertPage.
 	unknownKeys []string
-	badShape    string
+	// duplicateKeys holds any known key ("size"/"margins") repeated in the
+	// map — see rawTOC.duplicateKeys' doc comment for why this is tracked.
+	duplicateKeys []string
+	badShape      string
 }
 
 func (p *rawPage) UnmarshalYAML(value *yaml.Node) error {
@@ -181,8 +196,14 @@ func (p *rawPage) UnmarshalYAML(value *yaml.Node) error {
 			key, val := value.Content[i], value.Content[i+1]
 			switch key.Value {
 			case "size":
+				if p.Size != nil {
+					p.duplicateKeys = append(p.duplicateKeys, key.Value)
+				}
 				p.Size = val
 			case "margins":
+				if p.Margins != nil {
+					p.duplicateKeys = append(p.duplicateKeys, key.Value)
+				}
 				p.Margins = val
 			default:
 				p.unknownKeys = append(p.unknownKeys, key.Value)
@@ -466,6 +487,9 @@ func (p *FrontMatterParser) convertTOC(raw *rawTOC) *ast.TOCConfig {
 	if len(raw.unknownKeys) > 0 {
 		p.tocFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'toc:' (%s); expected 'enabled'/'depth' — ignored", strings.Join(raw.unknownKeys, ", ")))
 	}
+	if len(raw.duplicateKeys) > 0 {
+		p.tocFrontMatterWarning(fmt.Sprintf("Duplicate key(s) in 'toc:' (%s); the last occurrence wins", strings.Join(raw.duplicateKeys, ", ")))
+	}
 
 	config := &ast.TOCConfig{}
 
@@ -512,6 +536,9 @@ func (p *FrontMatterParser) convertPage(raw *rawPage) *ast.PageConfig {
 	}
 	if len(raw.unknownKeys) > 0 {
 		p.pageFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'page:' (%s); expected 'size'/'margins' — ignored", strings.Join(raw.unknownKeys, ", ")))
+	}
+	if len(raw.duplicateKeys) > 0 {
+		p.pageFrontMatterWarning(fmt.Sprintf("Duplicate key(s) in 'page:' (%s); the last occurrence wins", strings.Join(raw.duplicateKeys, ", ")))
 	}
 
 	config := &ast.PageConfig{}
@@ -575,12 +602,26 @@ func (p *FrontMatterParser) convertPageMargins(node *yaml.Node) *ast.PageMargins
 	case yaml.MappingNode:
 		var sides ast.PageMargins
 		var unknownKeys []string
+		// duplicateKeys/seen: same rationale as rawTOC/rawPage's
+		// duplicateKeys field above — YAML allows a repeated map key, and
+		// the last one silently wins the field assignment below unless
+		// this is tracked (`page.margins: {top: 1in, top: 2in}` decoded to
+		// "2in" with zero diagnostics before this).
+		var duplicateKeys []string
+		seen := make(map[string]bool, 4)
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			key, val := node.Content[i], node.Content[i+1]
 			var v string
 			if err := val.Decode(&v); err != nil {
 				p.pageFrontMatterWarning(fmt.Sprintf("'page.margins.%s': expected a string, got %v — ignored", key.Value, val.Tag))
 				continue
+			}
+			switch key.Value {
+			case "top", "right", "bottom", "left":
+				if seen[key.Value] {
+					duplicateKeys = append(duplicateKeys, key.Value)
+				}
+				seen[key.Value] = true
 			}
 			switch key.Value {
 			case "top":
@@ -597,6 +638,9 @@ func (p *FrontMatterParser) convertPageMargins(node *yaml.Node) *ast.PageMargins
 		}
 		if len(unknownKeys) > 0 {
 			p.pageFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'page.margins' (%s); expected 'top'/'right'/'bottom'/'left' — ignored", strings.Join(unknownKeys, ", ")))
+		}
+		if len(duplicateKeys) > 0 {
+			p.pageFrontMatterWarning(fmt.Sprintf("Duplicate key(s) in 'page.margins' (%s); the last occurrence wins", strings.Join(duplicateKeys, ", ")))
 		}
 		if sides.Top == "" && sides.Right == "" && sides.Bottom == "" && sides.Left == "" {
 			return nil

@@ -5,6 +5,7 @@ package util
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -50,6 +51,15 @@ func ParseLengthInches(s string) (float64, error) {
 		value, err := strconv.ParseFloat(numPart, 64)
 		if err != nil {
 			return 0, fmt.Errorf("invalid length %q: %w", s, err)
+		}
+		// strconv.ParseFloat accepts "NaN"/"Inf"/"+Inf"/"-Inf" as valid
+		// float literals (Go's float syntax, not a length unit hazard) —
+		// code review finding: "NaNin"/"Infin" parsed with no error into a
+		// non-finite inches value, which a renderer converting to
+		// pixels/twips downstream would propagate as garbage instead of a
+		// caught, warnable error.
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return 0, fmt.Errorf("invalid length %q: value must be finite", s)
 		}
 		return value * lengthUnitsToInches[unit], nil
 	}

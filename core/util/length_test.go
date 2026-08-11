@@ -26,6 +26,12 @@ func TestParseLengthInches(t *testing.T) {
 		{"unknown unit", "2furlongs", 0, true},
 		{"non-numeric", "twocm", 0, true},
 		{"empty", "", 0, true},
+		// strconv.ParseFloat accepts Go's own float literals "NaN"/"Inf" —
+		// code review finding: these used to parse into a non-finite
+		// inches value with no error at all.
+		{"NaN", "NaNin", 0, true},
+		{"positive infinity", "Infin", 0, true},
+		{"negative infinity", "-Infin", 0, true},
 	}
 
 	for _, tt := range tests {

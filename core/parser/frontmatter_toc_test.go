@@ -265,6 +265,38 @@ func TestFrontMatterParser_TOCUnknownKeyWarns(t *testing.T) {
 	}
 }
 
+// TestFrontMatterParser_TOCDuplicateKeyWarns covers a code review finding:
+// YAML allows a repeated map key, and the last one silently won the field
+// assignment in rawTOC.UnmarshalYAML with zero diagnostics before this —
+// two contradictory `toc.enabled` entries must now surface a FRONT005
+// warning, while still applying the last value (YAML's own semantics,
+// unchanged; only the missing diagnostic is the bug).
+func TestFrontMatterParser_TOCDuplicateKeyWarns(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\ntoc:\n  enabled: true\n  enabled: false\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node == nil || node.TOC == nil || node.TOC.Enabled == nil {
+		t.Fatal("TOC.Enabled should not be nil")
+	}
+	if *node.TOC.Enabled {
+		t.Errorf("TOC.Enabled = %v, want false (last occurrence wins)", *node.TOC.Enabled)
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT005" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT005 warning for the duplicate 'enabled' key, got: %+v", diags)
+	}
+}
+
 // TestFrontMatterParser_TOCBadShapeDoesNotKillFrontMatter is the contract
 // test: a `toc:` value that is neither a scalar nor a map (a YAML sequence)
 // must not take down the rest of a valid document. This fixes the blast

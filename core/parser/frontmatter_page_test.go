@@ -248,6 +248,56 @@ func TestFrontMatterParser_PageMarginsUnknownSideWarns(t *testing.T) {
 	}
 }
 
+// TestFrontMatterParser_PageDuplicateKeyWarns mirrors
+// TestFrontMatterParser_TOCDuplicateKeyWarns for `page.size`.
+func TestFrontMatterParser_PageDuplicateKeyWarns(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\npage:\n  size: A4\n  size: Letter\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node == nil || node.Page == nil || node.Page.Size != "Letter" {
+		t.Fatalf("Page.Size should be %q (last occurrence wins), got: %+v", "Letter", node.Page)
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT006" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT006 warning for the duplicate 'size' key, got: %+v", diags)
+	}
+}
+
+// TestFrontMatterParser_PageMarginsDuplicateSideWarns covers the same
+// duplicate-key class one level deeper, inside `page.margins:`.
+func TestFrontMatterParser_PageMarginsDuplicateSideWarns(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\npage:\n  margins:\n    top: 1in\n    top: 2in\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node == nil || node.Page == nil || node.Page.Margins == nil || node.Page.Margins.Top != "2in" {
+		t.Fatalf("Page.Margins.Top should be %q (last occurrence wins), got: %+v", "2in", node.Page)
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT006" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT006 warning for the duplicate 'top' margin side, got: %+v", diags)
+	}
+}
+
 // TestFrontMatterParser_PageBadShapeDoesNotKillFrontMatter mirrors
 // TestFrontMatterParser_TOCBadShapeDoesNotKillFrontMatter for `page:`.
 func TestFrontMatterParser_PageBadShapeDoesNotKillFrontMatter(t *testing.T) {
