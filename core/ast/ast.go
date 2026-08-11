@@ -54,7 +54,14 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // so `doclang build`'s section auto-numbering default no longer has to be a
 // hardcoded `true` whenever front matter is present — see
 // doclang/internal/cli/build.go.
-const SchemaVersion = "2.5.0"
+//
+// 2.6.0 (issue #115 follow-up): FrontMatterNode.TOC (*TOCConfig) and .Page
+// (*PageConfig), both additive/omitempty — the parsed forms of the `toc:`
+// and `page:` front matter namespaces, previously silently-ignored unknown
+// keys (see llm-kit/reference/frontmatter.md). Page/PageMargins hold the
+// author's length strings verbatim ("A4", "2cm"), not resolved to any
+// renderer's unit — see core/util/length.go for the shared resolver.
+const SchemaVersion = "2.6.0"
 
 // Node representa un nodo base en el AST
 type Node interface {

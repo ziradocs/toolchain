@@ -12,6 +12,7 @@ import (
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/util"
 )
 
 const FrontMatterDelimiter = "---"
@@ -28,6 +29,8 @@ type rawFrontMatter struct {
 	Theme     string                 `yaml:"theme"`
 	Lang      string                 `yaml:"lang"`
 	Numbering *rawNumbering          `yaml:"numbering"`
+	TOC       *rawTOC                `yaml:"toc"`
+	Page      *rawPage               `yaml:"page"`
 	Variables map[string]interface{} `yaml:"variables"`
 	// Configuración de headers y footers
 	Header         *rawHeaderConfig            `yaml:"header"`
@@ -74,6 +77,142 @@ func (n *rawNumbering) UnmarshalYAML(value *yaml.Node) error {
 		return nil
 	default:
 		return fmt.Errorf("numbering: expected a bool (true/false) or a map with 'enabled', got %v", value.Tag)
+	}
+}
+
+// rawTOC and rawPage (below) both back the `toc:`/`page:` front matter
+// namespaces. Unlike every raw* type above — whose UnmarshalYAML methods
+// return an error for a bad shape, which yaml.Unmarshal propagates as a
+// hard failure of the ENTIRE front matter (see Parse's `yaml.Unmarshal`
+// call) — these two never return an error. `numbering:`'s bad-shape forms
+// were enumerable because doclang init emitted all of them; `toc:`/`page:`
+// are open keys nobody enumerated (they were "known-ignored" until now,
+// see frontmatter.md), so a form nobody anticipated must degrade to a
+// warning, not take the rest of a valid document (title, author, header/
+// footer...) down with it — the exact failure mode issue #115 was about,
+// just one level up (a wrong VALUE instead of a wrong KEY).
+//
+// Every field is a raw *yaml.Node rather than a concrete bool/int/string:
+// decoding into *yaml.Node cannot fail, so no sub-value (a quoted
+// `depth: "3"`, an out-of-range depth, an unrecognized `size:`) can abort
+// UnmarshalYAML either. convertTOC/convertPage — the only place with
+// diagnostics access — do the actual decode-to-concrete-type and semantic
+// validation (via core/util's shared length/paper-size resolver), and
+// downgrade any failure there to a FRONT005/FRONT006 warning with the
+// field just left unset.
+//
+// The MappingNode branch walks value.Content pairs by hand instead of
+// `value.Decode(&fields)` into a struct with `yaml:"enabled"`/`yaml:"depth"`
+// tags — a struct decode silently drops any key it doesn't recognize (code
+// review finding on the first version of this type: `toc: {enable: false}`,
+// a one-letter typo for "enabled", decoded to an all-nil rawTOC with no
+// diagnostic at all, the exact silent-drop failure mode issue #121 tracks).
+// Walking Content directly means every key is seen, so a typo can be
+// collected into unknownKeys and surfaced as a warning by convertTOC.
+type rawTOC struct {
+	Enabled *yaml.Node
+	Depth   *yaml.Node
+	// unknownKeys holds any `toc:` map key other than "enabled"/"depth"
+	// (most commonly a typo) — reported as a FRONT005 warning by convertTOC
+	// rather than silently dropped.
+	unknownKeys []string
+	// duplicateKeys holds any known key ("enabled"/"depth") that appears
+	// more than once in the map — YAML itself allows repeated keys, and the
+	// last one silently wins the assignment above with no diagnostic unless
+	// this is tracked (code review finding: `toc: {enabled: true, enabled:
+	// false}` decoded to `false` with zero warnings).
+	duplicateKeys []string
+	// badShape holds the offending Tag when `toc:` itself is neither a
+	// scalar nor a map (e.g. a YAML sequence) — recorded instead of
+	// returned as an error, per this type's contract above.
+	badShape string
+}
+
+func (t *rawTOC) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// `toc: true` / `toc: false` — the shape `doclang init`'s
+		// examples use today. Stored as the enabled node directly; a
+		// non-bool scalar (e.g. `toc: sí`) is caught later in convertTOC.
+		t.Enabled = value
+		return nil
+	case yaml.MappingNode:
+		// value.Content alternates key, value, key, value... for a
+		// MappingNode; each key is itself a ScalarNode whose Value is the
+		// map key's text.
+		for i := 0; i+1 < len(value.Content); i += 2 {
+			key, val := value.Content[i], value.Content[i+1]
+			switch key.Value {
+			case "enabled":
+				if t.Enabled != nil {
+					t.duplicateKeys = append(t.duplicateKeys, key.Value)
+				}
+				t.Enabled = val
+			case "depth":
+				if t.Depth != nil {
+					t.duplicateKeys = append(t.duplicateKeys, key.Value)
+				}
+				t.Depth = val
+			default:
+				t.unknownKeys = append(t.unknownKeys, key.Value)
+			}
+		}
+		return nil
+	default:
+		t.badShape = value.Tag
+		return nil
+	}
+}
+
+// rawPage backs `page:`. See rawTOC's doc comment above for the shared
+// "value never aborts Parse" contract both types follow, and for why the
+// MappingNode branch walks Content by hand instead of decoding into a
+// tagged struct.
+type rawPage struct {
+	Size    *yaml.Node
+	Margins *yaml.Node
+	// unknownKeys holds any `page:` map key other than "size"/"margins"
+	// (e.g. the singular typo "margin") — reported as a FRONT006 warning by
+	// convertPage.
+	unknownKeys []string
+	// duplicateKeys holds any known key ("size"/"margins") repeated in the
+	// map — see rawTOC.duplicateKeys' doc comment for why this is tracked.
+	duplicateKeys []string
+	badShape      string
+}
+
+func (p *rawPage) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// `page: A4` — a shorthand for `page: {size: A4}`. Necessary even
+		// though no known template emits it: without it, `page: A4`
+		// (which parsed fine as an unknown key before this PR) would go
+		// from inert to a hard parse failure the moment `page:` becomes a
+		// known key, for a form that reads as entirely reasonable to try.
+		p.Size = value
+		return nil
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(value.Content); i += 2 {
+			key, val := value.Content[i], value.Content[i+1]
+			switch key.Value {
+			case "size":
+				if p.Size != nil {
+					p.duplicateKeys = append(p.duplicateKeys, key.Value)
+				}
+				p.Size = val
+			case "margins":
+				if p.Margins != nil {
+					p.duplicateKeys = append(p.duplicateKeys, key.Value)
+				}
+				p.Margins = val
+			default:
+				p.unknownKeys = append(p.unknownKeys, key.Value)
+			}
+		}
+		return nil
+	default:
+		p.badShape = value.Tag
+		return nil
 	}
 }
 
@@ -215,6 +354,8 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	if raw.Numbering != nil {
 		node.Numbering = raw.Numbering.Enabled
 	}
+	node.TOC = p.convertTOC(raw.TOC)
+	node.Page = p.convertPage(raw.Page)
 	node.Variables = raw.Variables
 	node.Raw = yamlContent
 
@@ -313,6 +454,206 @@ func (p *FrontMatterParser) convertHeaderConfig(raw *rawHeaderConfig) *ast.Heade
 	}
 
 	return config
+}
+
+// tocFrontMatterWarning appends a FRONT005 warning — see rawTOC's doc
+// comment for why a bad `toc:` value degrades to a warning instead of
+// failing Parse.
+func (p *FrontMatterParser) tocFrontMatterWarning(message string) {
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(message, diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT005"))
+}
+
+// pageFrontMatterWarning is tocFrontMatterWarning's FRONT006 counterpart
+// for `page:`.
+func (p *FrontMatterParser) pageFrontMatterWarning(message string) {
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(message, diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT006"))
+}
+
+// convertTOC convierte rawTOC a ast.TOCConfig. nil en cualquier salida
+// temprana (raw nil, forma inválida, o un mapa que no dejó ninguna
+// información — mismo criterio que numbering: {}) es intencional: node.TOC
+// nil es "el documento no tiene opinión", el mismo tri-estado que
+// node.Numbering.
+func (p *FrontMatterParser) convertTOC(raw *rawTOC) *ast.TOCConfig {
+	if raw == nil {
+		return nil
+	}
+	if raw.badShape != "" {
+		p.tocFrontMatterWarning(fmt.Sprintf("Invalid 'toc:' value (%s); expected true/false or a map with 'enabled'/'depth' — ignored", raw.badShape))
+		return nil
+	}
+	if len(raw.unknownKeys) > 0 {
+		p.tocFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'toc:' (%s); expected 'enabled'/'depth' — ignored", strings.Join(raw.unknownKeys, ", ")))
+	}
+	if len(raw.duplicateKeys) > 0 {
+		p.tocFrontMatterWarning(fmt.Sprintf("Duplicate key(s) in 'toc:' (%s); the last occurrence wins", strings.Join(raw.duplicateKeys, ", ")))
+	}
+
+	config := &ast.TOCConfig{}
+
+	if raw.Enabled != nil {
+		var enabled bool
+		if err := raw.Enabled.Decode(&enabled); err != nil {
+			p.tocFrontMatterWarning(fmt.Sprintf("Invalid 'toc.enabled': expected true/false, got %q — ignored", raw.Enabled.Value))
+		} else {
+			config.Enabled = &enabled
+		}
+	}
+
+	if raw.Depth != nil {
+		var depth int
+		if err := raw.Depth.Decode(&depth); err != nil {
+			p.tocFrontMatterWarning(fmt.Sprintf("Invalid 'toc.depth': expected a number, got %q — ignored", raw.Depth.Value))
+		} else if depth < 1 || depth > 6 {
+			p.tocFrontMatterWarning(fmt.Sprintf("'toc.depth': %d is outside the usual 1-6 heading range — kept as-is", depth))
+			config.Depth = &depth
+		} else {
+			config.Depth = &depth
+		}
+	}
+
+	if config.Enabled == nil && config.Depth == nil {
+		return nil
+	}
+	return config
+}
+
+// convertPage convierte rawPage a ast.PageConfig. Mismo criterio de nil que
+// convertTOC. Size/Margins se guardan tal cual los escribió el autor
+// ("A4", "2cm") — core/util.PaperSizeInches/ParseLengthInches se usan acá
+// SOLO para validar (avisar si el valor no resuelve a nada conocido), nunca
+// para reescribir el campo: el AST es el contrato, y quien lo consume
+// decide cómo resolver unidades (ver core/util/length.go).
+func (p *FrontMatterParser) convertPage(raw *rawPage) *ast.PageConfig {
+	if raw == nil {
+		return nil
+	}
+	if raw.badShape != "" {
+		p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page:' value (%s); expected a size string or a map with 'size'/'margins' — ignored", raw.badShape))
+		return nil
+	}
+	if len(raw.unknownKeys) > 0 {
+		p.pageFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'page:' (%s); expected 'size'/'margins' — ignored", strings.Join(raw.unknownKeys, ", ")))
+	}
+	if len(raw.duplicateKeys) > 0 {
+		p.pageFrontMatterWarning(fmt.Sprintf("Duplicate key(s) in 'page:' (%s); the last occurrence wins", strings.Join(raw.duplicateKeys, ", ")))
+	}
+
+	config := &ast.PageConfig{}
+
+	if raw.Size != nil {
+		var size string
+		if err := raw.Size.Decode(&size); err != nil {
+			p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.size': expected a string, got %v — ignored", raw.Size.Tag))
+		} else {
+			if _, _, ok := util.PaperSizeInches(size); !ok {
+				p.pageFrontMatterWarning(fmt.Sprintf("'page.size': %q is not a recognized paper size (e.g. A4, Letter, Legal) — kept as-is", size))
+			}
+			config.Size = size
+		}
+	}
+
+	if raw.Margins != nil {
+		config.Margins = p.convertPageMargins(raw.Margins)
+	}
+
+	if config.Size == "" && config.Margins == nil {
+		return nil
+	}
+	return config
+}
+
+// convertPageMargins decodifica `page.margins`, que acepta un escalar
+// (llena los 4 lados) o un mapa por lado — mismo tipo de atajo escalar que
+// rawHeaderFooterText.Center/rawPageNumbersConfig.Enabled arriba, pero
+// resuelto acá directamente sobre el *yaml.Node en vez de un raw type
+// propio con su propio UnmarshalYAML: convertPage ya tiene el nodo en
+// mano, y esto necesita el mismo acceso a p.diagnostics que el resto de
+// este archivo, no una decodificación aislada.
+//
+// El MappingNode camina node.Content a mano (mismo motivo que
+// rawTOC/rawPage.UnmarshalYAML, ver su doc comment): decodificar a un
+// struct con `yaml:"top"`/etc descartaba en silencio cualquier llave no
+// reconocida (`page.margins.topp` por typo nunca generaba FRONT006).
+func (p *FrontMatterParser) convertPageMargins(node *yaml.Node) *ast.PageMargins {
+	validateSide := func(label, value string) {
+		if value == "" {
+			return
+		}
+		if _, err := util.ParseLengthInches(value); err != nil {
+			p.pageFrontMatterWarning(fmt.Sprintf("'page.margins.%s': %q is not a recognized length (e.g. 2cm, 0.5in, 40px) — kept as-is", label, value))
+		}
+	}
+
+	switch node.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := node.Decode(&s); err != nil {
+			p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.margins': expected a string or a map with top/right/bottom/left, got %q — ignored", node.Value))
+			return nil
+		}
+		if s == "" {
+			return nil
+		}
+		validateSide("(all sides)", s)
+		return &ast.PageMargins{Top: s, Right: s, Bottom: s, Left: s}
+	case yaml.MappingNode:
+		var sides ast.PageMargins
+		var unknownKeys []string
+		// duplicateKeys/seen: same rationale as rawTOC/rawPage's
+		// duplicateKeys field above — YAML allows a repeated map key, and
+		// the last one silently wins the field assignment below unless
+		// this is tracked (`page.margins: {top: 1in, top: 2in}` decoded to
+		// "2in" with zero diagnostics before this).
+		var duplicateKeys []string
+		seen := make(map[string]bool, 4)
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key, val := node.Content[i], node.Content[i+1]
+			var v string
+			if err := val.Decode(&v); err != nil {
+				p.pageFrontMatterWarning(fmt.Sprintf("'page.margins.%s': expected a string, got %v — ignored", key.Value, val.Tag))
+				continue
+			}
+			switch key.Value {
+			case "top", "right", "bottom", "left":
+				if seen[key.Value] {
+					duplicateKeys = append(duplicateKeys, key.Value)
+				}
+				seen[key.Value] = true
+			}
+			switch key.Value {
+			case "top":
+				sides.Top = v
+			case "right":
+				sides.Right = v
+			case "bottom":
+				sides.Bottom = v
+			case "left":
+				sides.Left = v
+			default:
+				unknownKeys = append(unknownKeys, key.Value)
+			}
+		}
+		if len(unknownKeys) > 0 {
+			p.pageFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'page.margins' (%s); expected 'top'/'right'/'bottom'/'left' — ignored", strings.Join(unknownKeys, ", ")))
+		}
+		if len(duplicateKeys) > 0 {
+			p.pageFrontMatterWarning(fmt.Sprintf("Duplicate key(s) in 'page.margins' (%s); the last occurrence wins", strings.Join(duplicateKeys, ", ")))
+		}
+		if sides.Top == "" && sides.Right == "" && sides.Bottom == "" && sides.Left == "" {
+			return nil
+		}
+		validateSide("top", sides.Top)
+		validateSide("right", sides.Right)
+		validateSide("bottom", sides.Bottom)
+		validateSide("left", sides.Left)
+		return &sides
+	default:
+		p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.margins': expected a string or a map with top/right/bottom/left, got %v — ignored", node.Tag))
+		return nil
+	}
 }
 
 // convertFooterConfig convierte configuración de footer

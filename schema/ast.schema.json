@@ -661,6 +661,12 @@
         },
         "numbering": {
           "type": "boolean"
+        },
+        "toc": {
+          "$ref": "#/$defs/TOCConfig"
+        },
+        "page": {
+          "$ref": "#/$defs/PageConfig"
         }
       },
       "additionalProperties": false,
@@ -1116,6 +1122,36 @@
         "content"
       ]
     },
+    "PageConfig": {
+      "properties": {
+        "size": {
+          "type": "string"
+        },
+        "margins": {
+          "$ref": "#/$defs/PageMargins"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PageMargins": {
+      "properties": {
+        "top": {
+          "type": "string"
+        },
+        "right": {
+          "type": "string"
+        },
+        "bottom": {
+          "type": "string"
+        },
+        "left": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "PageNumbersConfig": {
       "properties": {
         "enabled": {
@@ -1391,6 +1427,18 @@
         "blockType",
         "content"
       ]
+    },
+    "TOCConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "depth": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "TableCell": {
       "properties": {
