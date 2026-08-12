@@ -25,9 +25,19 @@ type DocumentHTMLOptions struct {
 	ShowHeaders       bool              // 🆕 Mostrar headers (para page-view)
 	ShowFooters       bool              // 🆕 Mostrar footers con numeración (para page-view)
 	InteractiveViewer bool              // 🆕 Viewer interactivo con sidebar, dark mode, etc.
-	EmbedAssets       bool
-	CustomCSS         string
-	CustomJS          string
+	// HeaderFooter es la config de front matter (`header:`/`footer:`/
+	// `layout_defaults:`) parseada a ast.HeaderFooterConfig — issue #117.
+	// Cuando está presente, gana sobre el gate de tema que gobierna
+	// ShowHeaders/ShowFooters (ver headerFooterConfigured): un
+	// `header: {enabled: true}` se dibuja aunque el tema no sea
+	// "page-view", y un `enabled: false` explícito lo suprime aunque sí lo
+	// sea. nil preserva el comportamiento previo a #117 exactamente
+	// (fallback hardcodeado título + "Página N", gateado solo por
+	// ShowHeaders/ShowFooters).
+	HeaderFooter *ast.HeaderFooterConfig
+	EmbedAssets  bool
+	CustomCSS    string
+	CustomJS     string
 	// PlantUML options
 	PlantUMLMode   string // "browser", "offline-assets", "offline-inline"
 	PlantUMLServer string // Custom PlantUML server URL
@@ -153,7 +163,7 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
 
 	// Add classes based on options
 	bodyClass := "doclang-document"
-	if opts.ShowHeaders || opts.ShowFooters {
+	if opts.ShowHeaders || opts.ShowFooters || headerFooterConfigured(opts.HeaderFooter) {
 		bodyClass += " page-view-mode"
 	}
 	if opts.InteractiveViewer {
@@ -870,6 +880,66 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         body.page-view-mode .page-content {
             padding-top: calc(var(--doclang-header-height, 15mm) + 5mm);
             padding-bottom: calc(var(--doclang-footer-height, 15mm) + 5mm);
+        }
+
+        /* Header/Footer zones (issue #117): solo aplican a los <span>
+           con clase que emite un header/footer resuelto desde front
+           matter — el fallback legado (2 <span> sin clase) sigue
+           dependiendo únicamente del flex + space-between de arriba. */
+        body.page-view-mode .page-header-left,
+        body.page-view-mode .page-header-center,
+        body.page-view-mode .page-header-right,
+        body.page-view-mode .page-footer-left,
+        body.page-view-mode .page-footer-center,
+        body.page-view-mode .page-footer-right {
+            flex: 1;
+        }
+
+        body.page-view-mode .page-header-center,
+        body.page-view-mode .page-footer-center {
+            text-align: center;
+        }
+
+        body.page-view-mode .page-header-right,
+        body.page-view-mode .page-footer-right {
+            text-align: right;
+        }
+
+        body.page-view-mode .page-header-logo {
+            max-height: 100%;
+            margin-right: 0.8em;
+        }
+
+        body.page-view-mode .page-header-border-top,
+        body.page-view-mode .page-header-border-bottom,
+        body.page-view-mode .page-footer-border-top,
+        body.page-view-mode .page-footer-border-bottom {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 0;
+        }
+
+        body.page-view-mode .page-header-border-top,
+        body.page-view-mode .page-footer-border-top {
+            top: 0;
+        }
+
+        body.page-view-mode .page-header-border-bottom,
+        body.page-view-mode .page-footer-border-bottom {
+            bottom: 0;
+        }
+
+        body.page-view-mode .page-numbers {
+            font-variant-numeric: tabular-nums;
+        }
+
+        body.page-view-mode .page-numbers-style-bold {
+            font-weight: 700;
+        }
+
+        body.page-view-mode .page-numbers-style-caption {
+            font-style: italic;
         }
 
         body.page-view-mode .toc {
@@ -1628,7 +1698,7 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 	}
 
 	// Page-view mode: wrap content in page containers
-	if opts.ShowHeaders || opts.ShowFooters {
+	if opts.ShowHeaders || opts.ShowFooters || headerFooterConfigured(opts.HeaderFooter) {
 		return generatePageViewBody(doc, opts, variables, docTitle, ctx)
 	}
 
@@ -1674,29 +1744,54 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 	return body.String()
 }
 
-// generatePageViewBody genera el cuerpo con páginas visuales (Word-style)
+// generatePageViewBody genera el cuerpo con páginas visuales (Word-style).
+// Sin opts.HeaderFooter (nil), el output es byte-idéntico al de antes de
+// issue #117 en el único caso que doclang puede producir hoy —
+// ShowHeaders == ShowFooters, ambos derivados de theme == "page-view" (ver
+// generateDocumentHeader): título + "Página N" hardcodeados. (Con
+// ShowHeaders y ShowFooters distintos — inalcanzable desde ningún CLI hoy,
+// pero DocumentHTMLOptions es API pública — la numeración del header ahora
+// avanza en cada salto de página en vez de quedarse fija en "Página 1"
+// cuando ShowFooters es false; ver TestGeneratePageViewBody_
+// HeaderNumberingAdvancesEvenWithoutFooters.) Con opts.HeaderFooter, el
+// front matter gana sobre el gate de tema por página (decisión 1 del plan
+// de #117): un header/footer resuelto con Enabled=true se dibuja aunque el
+// tema no sea page-view, y Enabled=false lo suprime aunque sí lo sea — ver
+// generatePageHeaderHTML/generatePageFooterHTML.
 func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[string]interface{}, docTitle string, ctx *RenderContext) string {
 	var body strings.Builder
 
 	// El título aparece repetido en cada header/footer de página; escaparlo
-	// una sola vez aquí evita duplicar EscapeHTML en los 4 sitios de abajo.
+	// una sola vez aquí evita duplicar EscapeHTML en cada sitio de abajo.
 	docTitleEscaped := EscapeHTML(docTitle)
+
+	// totalPages es el número de .document-page que este método va a
+	// emitir: 1 si no hay saltos de página (todo el documento cae en una
+	// sola página visual), o uno por ContentBlock si los hay (ver el `if
+	// opts.PageBreaks` más abajo, que corta página después de cada bloque
+	// salvo el último). Alimenta {{total}} en el formato de PageNumbers —
+	// exacto para estas páginas visuales HTML, pero no necesariamente
+	// coincide con la paginación real de una impresión física (el
+	// navegador puede partir una página visual en varias hojas si el
+	// contenido desborda); limitación documentada en el PR2 de #117 junto
+	// con el resto del alcance de doclang.
+	totalPages := 1
+	if opts.PageBreaks {
+		totalPages = len(doc.ContentBlocks)
+	}
 
 	pageNum := 1
 	sectionNum := 1
 
-	// Start first page
-	body.WriteString(`<div class="document-page">
-`)
-
-	if opts.ShowHeaders {
-		fmt.Fprintf(&body, `    <div class="page-header">
-        <span>%s</span>
-        <span>Página %d</span>
-    </div>
-`, docTitleEscaped, pageNum)
+	currentBlockType := ""
+	if len(doc.ContentBlocks) > 0 {
+		currentBlockType = doc.ContentBlocks[0].BlockType
 	}
+	header, footer := resolveHeaderFooterConfig(opts.HeaderFooter, currentBlockType)
 
+	// Start first page
+	body.WriteString(openDocumentPageDiv(header, footer, variables))
+	body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables))
 	body.WriteString(`    <div class="page-content">
 `)
 
@@ -1736,27 +1831,19 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 			// Close current page
 			body.WriteString(`    </div>
 `)
-			if opts.ShowFooters {
-				pageNum++
-				fmt.Fprintf(&body, `    <div class="page-footer">
-        <span>%s</span>
-        <span>Página %d</span>
-    </div>
-`, docTitleEscaped, pageNum-1)
-			}
+			body.WriteString(generatePageFooterHTML(footer, opts.ShowFooters, currentBlockType, docTitleEscaped, pageNum, totalPages, variables))
 			body.WriteString(`</div>
 `)
 
-			// Start new page
-			body.WriteString(`<div class="document-page">
-`)
-			if opts.ShowHeaders {
-				fmt.Fprintf(&body, `    <div class="page-header">
-        <span>%s</span>
-        <span>Página %d</span>
-    </div>
-`, docTitleEscaped, pageNum)
-			}
+			// Start new page. pageNum avanza incondicionalmente (no solo
+			// bajo opts.ShowFooters, a diferencia del código previo a
+			// #117) para que el header de la nueva página nunca repita el
+			// número de la anterior — ver el docstring de esta función.
+			pageNum++
+			currentBlockType = doc.ContentBlocks[i+1].BlockType
+			header, footer = resolveHeaderFooterConfig(opts.HeaderFooter, currentBlockType)
+			body.WriteString(openDocumentPageDiv(header, footer, variables))
+			body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables))
 			body.WriteString(`    <div class="page-content">
 `)
 		}
@@ -1765,17 +1852,336 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 	// Close last page
 	body.WriteString(`    </div>
 `)
-	if opts.ShowFooters {
-		fmt.Fprintf(&body, `    <div class="page-footer">
+	body.WriteString(generatePageFooterHTML(footer, opts.ShowFooters, currentBlockType, docTitleEscaped, pageNum, totalPages, variables))
+	body.WriteString(`</div>
+`)
+
+	return body.String()
+}
+
+// openDocumentPageDiv abre el contenedor .document-page de una página de
+// page-view. Cuando header/footer declaran Height, ese valor se emite como
+// custom property (--doclang-header-height/--doclang-footer-height) en
+// este ancestro común de la chrome (.page-header/.page-footer) y de
+// .page-content, en vez de como height inline en el div de la chrome:
+// .page-content calcula su padding-top/padding-bottom con
+// `calc(var(--doclang-header-height, 15mm) + 5mm)` (ver generateDocumentStyles),
+// así que si el override solo tocara el div de la chrome el contenido
+// quedaría superpuesto con un header/footer más alto que el default. La
+// regla `.page-header { height: var(--doclang-header-height, 15mm) }` ya
+// existente recoge este mismo custom property, así que no hace falta
+// además fijar height inline ahí.
+func openDocumentPageDiv(header *ast.HeaderConfig, footer *ast.FooterConfig, variables map[string]interface{}) string {
+	var parts []string
+	if header != nil {
+		if h := sanitizeStyleValue(ProcessVariables(header.Height, variables)); h != "" {
+			parts = append(parts, "--doclang-header-height: "+h+";")
+		}
+	}
+	if footer != nil {
+		if h := sanitizeStyleValue(ProcessVariables(footer.Height, variables)); h != "" {
+			parts = append(parts, "--doclang-footer-height: "+h+";")
+		}
+	}
+	if len(parts) == 0 {
+		return `<div class="document-page">
+`
+	}
+	return fmt.Sprintf(`<div class="document-page" style="%s">
+`, strings.Join(parts, " "))
+}
+
+// resolveHeaderFooterConfig aplica la cascada global → layout_defaults[blockType]
+// de un HeaderFooterConfig para la página cuyo bloque de apertura es
+// blockType ("title" o "content" — los únicos que emiten los parsers de
+// documento, ver resolveSectionTitle y decisión 2 del plan de issue #117).
+// Reemplazo total, no merge, por paridad con slidelang
+// (template/base.go's slide-header/slide-footer).
+// ContentBlock.HeaderFooterOverride no se resuelve acá: ningún dialecto del
+// DSL puede producirlo hoy (fuera de alcance, issue #117).
+func resolveHeaderFooterConfig(hf *ast.HeaderFooterConfig, blockType string) (header *ast.HeaderConfig, footer *ast.FooterConfig) {
+	if hf == nil {
+		return nil, nil
+	}
+	header = hf.Header
+	footer = hf.Footer
+	if layout, ok := hf.LayoutDefaults[blockType]; ok && layout != nil {
+		if layout.Header != nil {
+			header = layout.Header
+		}
+		if layout.Footer != nil {
+			footer = layout.Footer
+		}
+	}
+	return header, footer
+}
+
+// headerFooterConfigured reporta si algún header o footer del documento se
+// habilitaría bajo cualquier blockType — global o vía layout_defaults.
+// Gobierna si el documento entra en el layout de page-view por front
+// matter, independientemente del tema (decisión 1 del plan de issue #117):
+// antes de esto, un `header: {enabled: true}` sin `theme: page-view`
+// parseaba limpio y no dibujaba nada.
+func headerFooterConfigured(hf *ast.HeaderFooterConfig) bool {
+	if hf == nil {
+		return false
+	}
+	if (hf.Header != nil && hf.Header.Enabled) || (hf.Footer != nil && hf.Footer.Enabled) {
+		return true
+	}
+	for _, layout := range hf.LayoutDefaults {
+		if layout == nil {
+			continue
+		}
+		if (layout.Header != nil && layout.Header.Enabled) || (layout.Footer != nil && layout.Footer.Enabled) {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitizeStyleValue valida un valor CSS crudo (height/background de
+// header/footer, width/color de border) antes de interpolarlo dentro de un
+// atributo style="..." armado con fmt.Fprintf — este archivo no usa
+// html/template, que escaparía esto solo (decisión 5 del plan de issue
+// #117). Un valor vacío o que contenga un carácter capaz de cerrar el
+// atributo o inyectar una regla CSS nueva se descarta, mismo criterio que
+// SanitizeCSSCustomProperty aplica a las variables de tema.
+func sanitizeStyleValue(value string) string {
+	if value == "" || strings.ContainsAny(value, "{}<>;\"'\n\r") {
+		return ""
+	}
+	return value
+}
+
+// headerFooterInlineStyle arma el atributo style="..." (sin las comillas)
+// de un header/footer a partir de Background, ya sustituido por variables
+// y validado por sanitizeStyleValue. "" si no sobrevive. Height NO se
+// arma acá: se emite como custom property en el .document-page ancestro
+// (ver openDocumentPageDiv) para que .page-content pueda leer el mismo
+// valor al calcular su padding.
+func headerFooterInlineStyle(background string, variables map[string]interface{}) string {
+	bg := sanitizeStyleValue(ProcessVariables(background, variables))
+	if bg == "" {
+		return ""
+	}
+	return "background: " + bg + ";"
+}
+
+// renderHeaderFooterBorder emite el div de borde superior/inferior de un
+// header o footer, si border.Enabled y su Position lo incluye ("top",
+// "bottom" o "both"). classPrefix distingue header/footer para el CSS;
+// edge es siempre un literal ("top"/"bottom") de los call sites, no dato
+// de usuario.
+func renderHeaderFooterBorder(classPrefix string, border *ast.BorderConfig, edge string, variables map[string]interface{}) string {
+	if border == nil || !border.Enabled {
+		return ""
+	}
+	if border.Position != "both" && border.Position != edge {
+		return ""
+	}
+	width := sanitizeStyleValue(ProcessVariables(border.Width, variables))
+	if width == "" {
+		width = "1px"
+	}
+	// sanitizeStyleValue, no EscapeHTMLAttribute: este valor cae dentro de
+	// un atributo style="...", no class="...". EscapeHTMLAttribute no
+	// escapa ";", así que un Style como "solid; background: url(evil)"
+	// abriría una segunda declaración CSS dentro del mismo atributo.
+	style := sanitizeStyleValue(border.Style)
+	if style == "" {
+		style = "solid"
+	}
+	color := sanitizeStyleValue(ProcessVariables(border.Color, variables))
+	if color == "" {
+		color = "#ccc"
+	}
+	return fmt.Sprintf(`<div class="%s-border %s-border-%s" style="border-%s: %s %s %s;"></div>
+`, classPrefix, classPrefix, edge, edge, width, style, color)
+}
+
+// renderHeaderLogo emite el <img> de logo de un header. Solo aplica a
+// headers — ast.FooterConfig no tiene campo Logo.
+func renderHeaderLogo(logo *ast.LogoConfig, variables map[string]interface{}) string {
+	if logo == nil {
+		return ""
+	}
+	src := SanitizeURL(ProcessVariables(logo.Source, variables))
+	if src == "" {
+		return ""
+	}
+	alt := EscapeHTMLAttribute(ProcessVariables(logo.Alt, variables))
+	if alt == "" {
+		alt = "Logo"
+	}
+	position := EscapeHTMLAttribute(logo.Position)
+	if position == "" {
+		position = "left"
+	}
+	style := ""
+	if h := sanitizeStyleValue(ProcessVariables(logo.Height, variables)); h != "" {
+		style = fmt.Sprintf(` style="height: %s;"`, h)
+	}
+	return fmt.Sprintf(`<img class="page-header-logo page-header-logo-%s" src="%s" alt="%s"%s>
+`, position, src, alt, style)
+}
+
+// renderHeaderFooterZoneSpans emite un <span> por cada zona no vacía
+// (Left/Center/Right) de un header o footer, con clase
+// classPrefix+"-left"/"-center"/"-right" para que el CSS las distribuya
+// sin tocar el layout heredado de los <span> sin clase que emite el
+// fallback legado (ver generatePageHeaderHTML/generatePageFooterHTML).
+func renderHeaderFooterZoneSpans(classPrefix string, text *ast.HeaderFooterText, variables map[string]interface{}) string {
+	if text == nil {
+		return ""
+	}
+	var b strings.Builder
+	if text.Left != "" {
+		fmt.Fprintf(&b, `<span class="%s-left">%s</span>`, classPrefix, EscapeHTML(ProcessVariables(text.Left, variables)))
+	}
+	if text.Center != "" {
+		fmt.Fprintf(&b, `<span class="%s-center">%s</span>`, classPrefix, EscapeHTML(ProcessVariables(text.Center, variables)))
+	}
+	if text.Right != "" {
+		fmt.Fprintf(&b, `<span class="%s-right">%s</span>`, classPrefix, EscapeHTML(ProcessVariables(text.Right, variables)))
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// resolvePageNumberDisplay decide si el footer de la página pageNum debe
+// mostrar numeración y, de ser así, qué número mostrar — port de
+// slidelang's calculateSlideNumbering (converter.go) para el caso de
+// documentos. ExcludeClosingSlides no se evalúa: ningún parser de
+// documento produce un blockType "closing" (solo "title"/"content", ver
+// resolveSectionTitle), así que esa exclusión nunca podría aplicar;
+// documentado como limitación en el PR2 de issue #117 en vez de fingir
+// soportarla.
+func resolvePageNumberDisplay(pageNum int, blockType string, config *ast.PageNumbersConfig) (display int, show bool) {
+	if config == nil || !config.Enabled {
+		return 0, false
+	}
+	if config.ExcludeTitleSlides && blockType == "title" {
+		return 0, false
+	}
+	startFrom := config.StartFrom
+	if startFrom <= 0 {
+		startFrom = 1
+	}
+	if pageNum < startFrom {
+		return 0, false
+	}
+	display = pageNum - startFrom + 1
+	if display <= 0 {
+		return 0, false
+	}
+	return display, true
+}
+
+// renderFooterPageNumbers emite el <span> de numeración de página de un
+// footer ya resuelto como visible (ver resolvePageNumberDisplay). El
+// formato por defecto y el nombre de las variables ({{current}}/{{total}})
+// replican ProcessPageNumberFormat de slidelang (converter.go) para que
+// ambos DSLs documenten el mismo contrato de sustitución.
+func renderFooterPageNumbers(config *ast.PageNumbersConfig, displayPage, totalPages int, variables map[string]interface{}) string {
+	position := config.Position
+	if position == "" {
+		position = "right"
+	}
+	style := config.Style
+	if style == "" {
+		style = "normal"
+	}
+	format := config.Format
+	if format == "" {
+		format = "{{current}} / {{total}}"
+	}
+	pageVars := make(map[string]interface{}, len(variables)+2)
+	for k, v := range variables {
+		pageVars[k] = v
+	}
+	pageVars["current"] = displayPage
+	pageVars["total"] = totalPages
+	text := EscapeHTML(ProcessVariables(format, pageVars))
+	return fmt.Sprintf(`<span class="page-numbers page-numbers-%s page-numbers-style-%s">%s</span>
+`, EscapeHTMLAttribute(position), EscapeHTMLAttribute(style), text)
+}
+
+// generatePageHeaderHTML renderiza el header de una página de page-view a
+// partir de un header ya resuelto (ver resolveHeaderFooterConfig, llamado
+// una sola vez por página en generatePageViewBody — necesario ahí también
+// para armar el custom property de Height en openDocumentPageDiv). header
+// == nil (nunca hubo opts.HeaderFooter, o no hay override aplicable para
+// este blockType) cae al fallback legado gateado por showHeadersLegacy —
+// el output previo a issue #117. Con un header resuelto, su propio Enabled
+// gobierna, sin importar showHeadersLegacy (decisión 1 del plan).
+func generatePageHeaderHTML(header *ast.HeaderConfig, showHeadersLegacy bool, docTitleEscaped string, pageNum int, variables map[string]interface{}) string {
+	if header == nil {
+		if !showHeadersLegacy {
+			return ""
+		}
+		return fmt.Sprintf(`    <div class="page-header">
         <span>%s</span>
         <span>Página %d</span>
     </div>
 `, docTitleEscaped, pageNum)
 	}
-	body.WriteString(`</div>
-`)
 
-	return body.String()
+	if !header.Enabled {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(`    <div class="page-header"`)
+	if style := headerFooterInlineStyle(header.Background, variables); style != "" {
+		fmt.Fprintf(&b, ` style="%s"`, style)
+	}
+	b.WriteString(">\n")
+	b.WriteString(renderHeaderFooterBorder("page-header", header.Border, "top", variables))
+	b.WriteString(renderHeaderLogo(header.Logo, variables))
+	b.WriteString(renderHeaderFooterZoneSpans("page-header", header.Text, variables))
+	b.WriteString(renderHeaderFooterBorder("page-header", header.Border, "bottom", variables))
+	b.WriteString("    </div>\n")
+	return b.String()
+}
+
+// generatePageFooterHTML es el análogo de generatePageHeaderHTML para el
+// footer, sumando la numeración de página (ver resolvePageNumberDisplay).
+// blockType solo se usa para ExcludeTitleSlides — el resto de la
+// resolución ya ocurrió en el footer recibido.
+func generatePageFooterHTML(footer *ast.FooterConfig, showFootersLegacy bool, blockType, docTitleEscaped string, pageNum, totalPages int, variables map[string]interface{}) string {
+	if footer == nil {
+		if !showFootersLegacy {
+			return ""
+		}
+		return fmt.Sprintf(`    <div class="page-footer">
+        <span>%s</span>
+        <span>Página %d</span>
+    </div>
+`, docTitleEscaped, pageNum)
+	}
+
+	if !footer.Enabled {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(`    <div class="page-footer"`)
+	if style := headerFooterInlineStyle(footer.Background, variables); style != "" {
+		fmt.Fprintf(&b, ` style="%s"`, style)
+	}
+	b.WriteString(">\n")
+	b.WriteString(renderHeaderFooterBorder("page-footer", footer.Border, "top", variables))
+	b.WriteString(renderHeaderFooterZoneSpans("page-footer", footer.Text, variables))
+	if display, show := resolvePageNumberDisplay(pageNum, blockType, footer.PageNumbers); show {
+		b.WriteString(renderFooterPageNumbers(footer.PageNumbers, display, totalPages, variables))
+	}
+	b.WriteString(renderHeaderFooterBorder("page-footer", footer.Border, "bottom", variables))
+	b.WriteString("    </div>\n")
+	return b.String()
 }
 
 // generateDocumentFooter genera el footer HTML
