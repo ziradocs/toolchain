@@ -121,7 +121,7 @@ func populateContentBlockLangRuns(block *ast.ContentBlock, variables map[string]
 func populateElementLangRuns(element ast.Element, variables map[string]interface{}) {
 	switch elem := element.(type) {
 	case *ast.TextElement:
-		elem.LangRuns = extractLangRuns(elem.Content, elem.IsRawHTML, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, elem.IsRawHTML, variables)
 
 	case *ast.PointsElement:
 		for i := range elem.Items {
@@ -129,7 +129,7 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 		}
 
 	case *ast.QuoteElement:
-		elem.LangRuns = extractLangRuns(elem.Content, false, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, false, variables)
 
 	case *ast.ChecklistElement:
 		for i := range elem.Items {
@@ -137,10 +137,10 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 		}
 
 	case *ast.SpecialBlockElement:
-		elem.LangRuns = extractLangRuns(elem.Content, false, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, false, variables)
 
 	case *ast.GridElement:
-		elem.LangRuns = extractLangRuns(elem.Content, false, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, false, variables)
 		for i := range elem.Columns {
 			populateColumnLangRuns(&elem.Columns[i], variables)
 		}
@@ -148,21 +148,21 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 }
 
 func populateColumnLangRuns(col *ast.ColumnElement, variables map[string]interface{}) {
-	col.LangRuns = extractLangRuns(col.Content, false, variables)
+	col.LangRuns, col.DiscardedLangRuns = extractLangRuns(col.Content, false, variables)
 	for _, nested := range col.Elements {
 		populateElementLangRuns(nested, variables)
 	}
 }
 
 func populatePointItemLangRuns(item *ast.PointItem, variables map[string]interface{}) {
-	item.LangRuns = extractLangRuns(item.Content, false, variables)
+	item.LangRuns, item.DiscardedLangRuns = extractLangRuns(item.Content, false, variables)
 	for i := range item.SubPoints {
 		populatePointItemLangRuns(&item.SubPoints[i], variables)
 	}
 }
 
 func populateChecklistItemLangRuns(item *ast.ChecklistItem, variables map[string]interface{}) {
-	item.LangRuns = extractLangRuns(item.Content, false, variables)
+	item.LangRuns, item.DiscardedLangRuns = extractLangRuns(item.Content, false, variables)
 	for i := range item.SubItems {
 		populateChecklistItemLangRuns(&item.SubItems[i], variables)
 	}
@@ -192,14 +192,23 @@ func populateChecklistItemLangRuns(item *ast.ChecklistItem, variables map[string
 // trusting the RawHTML path without validation would reopen exactly the
 // bypass PopulateLangRuns's "always re-derive, never skip" design exists to
 // close.
-func extractLangRuns(content string, isRawHTML bool, variables map[string]interface{}) []ast.LangRun {
+// extractLangRuns's second return value, discarded, is every span whose tag
+// failed a11y.IsValidLangTag — populated into DiscardedLangRuns so a
+// consumer (a WCAG 3.1.2 linter rule, a formatter round-tripping content)
+// can see that an author's language mark existed and didn't take, instead of
+// having to re-derive that fact by hand-rolling its own copy of this same
+// extraction (issue #92). A span suppressed for a DIFFERENT reason — e.g.
+// crossesCode's "this span crosses a code boundary, the HTML pipeline never
+// emits a <span lang> here either" — is not a discard and never appears
+// here; only IsValidLangTag failures do.
+func extractLangRuns(content string, isRawHTML bool, variables map[string]interface{}) (runs, discarded []ast.LangRun) {
 	if isRawHTML {
 		return extractLangRunsFromHTML(content)
 	}
 	return extractLangRunsFromMarkdown(content, variables)
 }
 
-func extractLangRunsFromMarkdown(content string, variables map[string]interface{}) []ast.LangRun {
+func extractLangRunsFromMarkdown(content string, variables map[string]interface{}) (runs, discarded []ast.LangRun) {
 	// ProcessVariables primero, igual que ProcessTextWithVariablesAndMarkdownSecure
 	// — un span que solo existe tras sustituir una {{variable}} debe seguir
 	// siendo encontrado (issue #63 code review, hallazgo #10).
@@ -235,7 +244,7 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 	// caso común — se pospone hasta saber que hace falta.
 	matches := InlineLangSpanPattern.FindAllStringSubmatchIndex(content, -1)
 	if len(matches) == 0 {
-		return nil
+		return nil, nil
 	}
 	// codeRanges se calcula LÍNEA POR LÍNEA, no sobre `content` completo
 	// (code-review de esta misma PR, hallazgo confirmado): todo llamador
@@ -279,31 +288,32 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 		}
 		return false
 	}
-	var runs []ast.LangRun
 	for _, m := range matches {
 		if crossesCode(m[0], m[1]) {
+			// Supresión correcta, no un descarte (issue #92): el pipeline HTML
+			// tampoco emite <span lang> para un span que cruza un code span, así
+			// que esto NO debe aparecer en DiscardedLangRuns — DiscardedLangRuns
+			// es para tags que SÍ tenían intención de ser un run pero fallaron
+			// validación, no para spans que el pipeline nunca considera válidos.
 			continue
 		}
 		text, tag := content[m[2]:m[3]], content[m[4]:m[5]]
 		if !a11y.IsValidLangTag(tag) {
+			discarded = append(discarded, ast.LangRun{Text: text, Lang: tag})
 			continue
 		}
 		runs = append(runs, ast.LangRun{Text: text, Lang: tag})
 	}
-	return runs
+	return runs, discarded
 }
 
-func extractLangRunsFromHTML(content string) []ast.LangRun {
+func extractLangRunsFromHTML(content string) (runs, discarded []ast.LangRun) {
 	matches := langSpanHTMLPattern.FindAllStringSubmatch(content, -1)
 	if len(matches) == 0 {
-		return nil
+		return nil, nil
 	}
-	var runs []ast.LangRun
 	for _, m := range matches {
 		tag, text := m[1], m[2]
-		if !a11y.IsValidLangTag(tag) {
-			continue
-		}
 		// stripHTML + UnescapeHTML: Text es plain text en las dos rutas de
 		// extracción (ver el doc comment de LangRun) — sin stripHTML, un span
 		// que envuelve markup ya renderizado (p.ej. <span lang="fr">a
@@ -312,8 +322,17 @@ func extractLangRunsFromHTML(content string) []ast.LangRun {
 		// crudos a Text; sin UnescapeHTML, un "&" o "<" literal del autor
 		// (ya escapado por EscapeHTML al materializarse el heading) quedaría
 		// como "&amp;"/"&lt;" en vez del carácter real, divergiendo de la
-		// ruta Markdown (que nunca escapa Content).
-		runs = append(runs, ast.LangRun{Text: UnescapeHTML(stripHTML(text)), Lang: tag})
+		// ruta Markdown (que nunca escapa Content). Se aplica por igual al
+		// texto de un run válido y al de uno descartado (issue #92): los dos
+		// paths deben normalizar Text de la misma forma o reportarían textos
+		// distintos para el mismo input según terminen en LangRuns o en
+		// DiscardedLangRuns.
+		run := ast.LangRun{Text: UnescapeHTML(stripHTML(text)), Lang: tag}
+		if !a11y.IsValidLangTag(tag) {
+			discarded = append(discarded, run)
+			continue
+		}
+		runs = append(runs, run)
 	}
-	return runs
+	return runs, discarded
 }

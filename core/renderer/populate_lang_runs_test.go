@@ -320,13 +320,17 @@ func TestLangSpanHTMLToSource(t *testing.T) {
 
 func TestPopulateLangRuns_InvalidTagFiltered(t *testing.T) {
 	tests := []struct {
-		name    string
-		content string
-		rawHTML bool
+		name             string
+		content          string
+		rawHTML          bool
+		wantDiscardedLen int // issue #92: a tag that never reaches IsValidLangTag (rejected by the regex itself) is not a "discard"
 	}{
-		{"markdown, malformed tag (underscore)", "[x]{lang=es_MX}", false},
-		{"markdown, dangling extension singleton", "[x]{lang=en-a}", false},
-		{"rawHTML, malformed tag never reaches the regex (not well-formed span)", `<span lang="es_MX">x</span>`, true},
+		// "es_MX" contains "_", outside the pattern's own [a-zA-Z0-9-]+ tag
+		// class — the whole span never matches InlineLangSpanPattern, so
+		// this never reaches IsValidLangTag and is not a discard either.
+		{"markdown, malformed tag (underscore) never reaches the regex", "[x]{lang=es_MX}", false, 0},
+		{"markdown, dangling extension singleton", "[x]{lang=en-a}", false, 1},
+		{"rawHTML, malformed tag never reaches the regex (not well-formed span)", `<span lang="es_MX">x</span>`, true, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -338,11 +342,63 @@ func TestPopulateLangRuns_InvalidTagFiltered(t *testing.T) {
 			}
 			doc := newTestDoc(elem)
 			PopulateLangRuns(doc, nil)
-			got := doc.ContentBlocks[0].Elements[0].(*ast.TextElement).LangRuns
-			if len(got) != 0 {
-				t.Errorf("expected no LangRuns for a malformed tag, got %+v", got)
+			result := doc.ContentBlocks[0].Elements[0].(*ast.TextElement)
+			if len(result.LangRuns) != 0 {
+				t.Errorf("expected no LangRuns for a malformed tag, got %+v", result.LangRuns)
+			}
+			if len(result.DiscardedLangRuns) != tt.wantDiscardedLen {
+				t.Errorf("DiscardedLangRuns = %+v, want %d entries", result.DiscardedLangRuns, tt.wantDiscardedLen)
 			}
 		})
+	}
+}
+
+// TestPopulateLangRuns_DiscardedLangRunsCapturesTheRejectedTag cubre issue
+// #92: un tag inválido no solo debe desaparecer de LangRuns, su Text/Lang
+// crudos deben sobrevivir en DiscardedLangRuns — es lo que le permite a un
+// consumidor (una regla WCAG 3.1.2, un formatter) saber QUÉ se descartó, no
+// solo que algo se descartó.
+func TestPopulateLangRuns_DiscardedLangRunsCapturesTheRejectedTag(t *testing.T) {
+	// "zzzzzzzzz" (9 letters) matches InlineLangSpanPattern's tag class
+	// ([a-zA-Z0-9-]+, no underscore involved) but fails a11y.IsValidLangTag:
+	// a BCP 47 primary subtag is capped at 8 characters. This is what
+	// distinguishes "reaches validation and fails" (a discard) from "never
+	// matches the span pattern at all" (not a discard, see the "es_MX"
+	// case in TestPopulateLangRuns_InvalidTagFiltered).
+	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), "Hola [mundo]{lang=zzzzzzzzz} amigo")
+	doc := newTestDoc(elem)
+
+	PopulateLangRuns(doc, nil)
+
+	result := doc.ContentBlocks[0].Elements[0].(*ast.TextElement)
+	if len(result.LangRuns) != 0 {
+		t.Errorf("expected no valid LangRuns, got %+v", result.LangRuns)
+	}
+	if len(result.DiscardedLangRuns) != 1 {
+		t.Fatalf("expected exactly 1 discarded run, got %+v", result.DiscardedLangRuns)
+	}
+	if got := result.DiscardedLangRuns[0]; got.Text != "mundo" || got.Lang != "zzzzzzzzz" {
+		t.Errorf("DiscardedLangRuns[0] = %+v, want {Text: \"mundo\", Lang: \"zzzzzzzzz\"}", got)
+	}
+}
+
+// TestPopulateLangRuns_CodeCrossingSpanIsNotADiscard cubre la distinción que
+// issue #92 exige: un span que cruza un code span se SUPRIME (el pipeline
+// HTML tampoco emite <span lang> ahí), no se DESCARTA — DiscardedLangRuns es
+// para tags que sí tenían intención de ser un run válido y fallaron
+// validación, no para spans que el pipeline nunca considera candidatos.
+func TestPopulateLangRuns_CodeCrossingSpanIsNotADiscard(t *testing.T) {
+	elem := ast.NewTextElement(diagnostics.NewPosition(1, 1), "`[a]{lang=fr}`")
+	doc := newTestDoc(elem)
+
+	PopulateLangRuns(doc, nil)
+
+	result := doc.ContentBlocks[0].Elements[0].(*ast.TextElement)
+	if len(result.LangRuns) != 0 {
+		t.Errorf("expected no LangRuns for a code-crossing span, got %+v", result.LangRuns)
+	}
+	if len(result.DiscardedLangRuns) != 0 {
+		t.Errorf("a code-crossing span is a suppression, not a discard — expected no DiscardedLangRuns, got %+v", result.DiscardedLangRuns)
 	}
 }
 

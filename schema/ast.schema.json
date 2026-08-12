@@ -210,6 +210,12 @@
           },
           "type": "array"
         },
+        "discardedLangRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
         "checked": {
           "type": "boolean"
         },
@@ -352,6 +358,12 @@
           "type": "string"
         },
         "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
+        "discardedLangRuns": {
           "items": {
             "$ref": "#/$defs/LangRun"
           },
@@ -709,6 +721,12 @@
           "type": "string"
         },
         "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
+        "discardedLangRuns": {
           "items": {
             "$ref": "#/$defs/LangRun"
           },
@@ -1253,6 +1271,12 @@
           },
           "type": "array"
         },
+        "discardedLangRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
         "subPoints": {
           "items": {
             "$ref": "#/$defs/PointItem"
@@ -1353,6 +1377,12 @@
           },
           "type": "array"
         },
+        "discardedLangRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
         "author": {
           "type": "string"
         },
@@ -1409,6 +1439,12 @@
           "type": "string"
         },
         "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
+        "discardedLangRuns": {
           "items": {
             "$ref": "#/$defs/LangRun"
           },
@@ -1575,6 +1611,12 @@
           "type": "integer"
         },
         "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
+        "discardedLangRuns": {
           "items": {
             "$ref": "#/$defs/LangRun"
           },
