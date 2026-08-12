@@ -116,6 +116,45 @@ func TestExtractSubsections_IgnoresUnsafeTextElements(t *testing.T) {
 	}
 }
 
+// TestExtractSubsections_DepthCutoff cubre issue #123: maxDepth es el nivel
+// de heading más profundo a incluir (el título de la sección misma cuenta
+// como nivel 1, fuera de esta función), no una cuenta de "N niveles desde
+// h2". maxDepth=1 no debe incluir nada, maxDepth=2 solo h2, maxDepth=3
+// h2-h3, y así sucesivamente — antes del fix, maxDepth=2 incluía h2 Y h3.
+func TestExtractSubsections_DepthCutoff(t *testing.T) {
+	slide := slideWithTextElement(
+		`<h2 id="a">A</h2><h3 id="b">B</h3><h4 id="c">C</h4>`, true)
+
+	tests := []struct {
+		maxDepth   int
+		wantLevels []int
+	}{
+		{1, nil},
+		{2, []int{2}},
+		{3, []int{2, 3}},
+		{4, []int{2, 3, 4}},
+		{6, []int{2, 3, 4}}, // no hay h5/h6 en el fixture; no debe fallar ni inventar entradas
+	}
+
+	for _, tt := range tests {
+		subsections := extractSubsections(slide, tt.maxDepth, nil)
+		gotLevels := make([]int, len(subsections))
+		for i, s := range subsections {
+			gotLevels[i] = s.Level
+		}
+		if len(gotLevels) != len(tt.wantLevels) {
+			t.Errorf("maxDepth=%d: got levels %v, want %v", tt.maxDepth, gotLevels, tt.wantLevels)
+			continue
+		}
+		for i := range gotLevels {
+			if gotLevels[i] != tt.wantLevels[i] {
+				t.Errorf("maxDepth=%d: got levels %v, want %v", tt.maxDepth, gotLevels, tt.wantLevels)
+				break
+			}
+		}
+	}
+}
+
 // TestGenerateInitScripts_MermaidStrictConfig cubre issue #70: el
 // mermaid.initialize embebido en el HTML por defecto de doclang debe
 // coincidir con la forma canónica que ya usan los raster builders de
