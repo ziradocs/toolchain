@@ -155,6 +155,67 @@ func TestExtractSubsections_DepthCutoff(t *testing.T) {
 	}
 }
 
+// TestExtractSubsections_OrdersByDocumentPositionNotByLevel cubre issue #71:
+// la versión anterior recorría los niveles en un loop EXTERNO (todo h2 antes
+// que cualquier h3), así que si un único TextElement traía un h3 antes que
+// un h2 en la fuente, el resultado salía en orden de nivel (h2, h3) en vez
+// de orden de documento (h3, h2). No alcanzable desde ninguno de los dos
+// parsers hoy (buildHeadingElement produce un solo <hN> por TextElement en
+// ambos dialectos) — solo desde un AST JSON hecho a mano o producido
+// externamente, que es como se descubrió.
+func TestExtractSubsections_OrdersByDocumentPositionNotByLevel(t *testing.T) {
+	slide := slideWithTextElement(`<h3 id="b">B</h3><h2 id="a">A</h2>`, true)
+
+	subsections := extractSubsections(slide, 3, nil)
+
+	gotLevels := make([]int, len(subsections))
+	for i, s := range subsections {
+		gotLevels[i] = s.Level
+	}
+	wantLevels := []int{3, 2}
+	if len(gotLevels) != len(wantLevels) || gotLevels[0] != wantLevels[0] || gotLevels[1] != wantLevels[1] {
+		t.Fatalf("got levels %v, want %v (document order, not level order)", gotLevels, wantLevels)
+	}
+	if subsections[0].Anchor != "b" || subsections[1].Anchor != "a" {
+		t.Errorf("got anchors [%q, %q], want [\"b\", \"a\"]", subsections[0].Anchor, subsections[1].Anchor)
+	}
+}
+
+// TestExtractSubsections_KeepsBothHeadingsOfSameLevel cubre la segunda mitad
+// de issue #71: el loop por nivel tomaba siempre el PRIMER strings.Index de
+// ese nivel en todo el content y nunca avanzaba el cursor de búsqueda, así
+// que un segundo heading del mismo nivel en el mismo TextElement se perdía
+// por completo, no solo se reordenaba.
+func TestExtractSubsections_KeepsBothHeadingsOfSameLevel(t *testing.T) {
+	slide := slideWithTextElement(`<h2 id="a">A</h2><h2 id="b">B</h2>`, true)
+
+	subsections := extractSubsections(slide, 3, nil)
+	if len(subsections) != 2 {
+		t.Fatalf("expected both h2 headings to survive, got %d: %+v", len(subsections), subsections)
+	}
+	if subsections[0].Anchor != "a" || subsections[1].Anchor != "b" {
+		t.Errorf("got anchors [%q, %q], want [\"a\", \"b\"]", subsections[0].Anchor, subsections[1].Anchor)
+	}
+}
+
+// TestExtractSubsections_DepthCutoffWithOutOfOrderLevels combina los dos
+// bugs de issue #71 con el corte de profundidad de issue #123: un heading
+// que excede maxDepth debe saltarse sin detener el escaneo de los que
+// vienen después en la fuente, incluida una vuelta a un nivel más superficial.
+func TestExtractSubsections_DepthCutoffWithOutOfOrderLevels(t *testing.T) {
+	slide := slideWithTextElement(`<h4 id="c">C</h4><h2 id="a">A</h2><h3 id="b">B</h3>`, true)
+
+	subsections := extractSubsections(slide, 3, nil) // maxDepth=3: excluye h4, incluye h2/h3
+	gotLevels := make([]int, len(subsections))
+	for i, s := range subsections {
+		gotLevels[i] = s.Level
+	}
+	wantLevels := []int{2, 3}
+	if len(gotLevels) != len(wantLevels) || gotLevels[0] != wantLevels[0] || gotLevels[1] != wantLevels[1] {
+		t.Fatalf("got levels %v, want %v (h4 skipped, h2/h3 kept in document order)", gotLevels, wantLevels)
+	}
+}
+
 // TestGenerateInitScripts_MermaidStrictConfig cubre issue #70: el
 // mermaid.initialize embebido en el HTML por defecto de doclang debe
 // coincidir con la forma canónica que ya usan los raster builders de
