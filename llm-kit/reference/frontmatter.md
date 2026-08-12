@@ -107,13 +107,11 @@ be in this list too — see below, all three are now recognized.)
   `--toc` only talks about enabled/disabled — so it always resolves from
   frontmatter, independent of whether `--toc`/`--numbering` were passed on
   the command line.
-- **Known off-by-one, not compensated for here**: `depth: N` actually shows
-  headings up to level `N+1` — `core/renderer/document_html.go`'s
-  `extractSubsections` checks `level-1 > maxDepth`, so `depth: 2` includes
-  both `##` and `###` headings. A `depth-1` adjustment in the frontmatter
-  resolution would make an explicit `depth: 3` mean something different
-  from the undeclared default (also 3), so this stays a documented renderer
-  quirk instead.
+- `depth: N` is the highest heading level shown, counting the section title
+  itself as level 1 — `depth: 2` shows only `##` headings, `depth: 3` adds
+  `###`, and so on up to `depth: 6`. (Fixed in `core/v2.8.1`, issue #123:
+  before that release `extractSubsections` had an off-by-one and `depth: 2`
+  also included `###` headings.)
 - A bad shape or value (e.g. `toc: [a, b]`, `depth: "3"`, an out-of-range
   `depth`) degrades to a `FRONT005` warning instead of failing the build —
   see `core/parser/frontmatter.go`.
