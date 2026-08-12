@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -65,6 +66,14 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 		}
 		if doc.FrontMatter.Lang != "" {
 			fmt.Fprintf(&md, "lang: %s\n", yamlQuotedScalar(doc.FrontMatter.Lang))
+		}
+		// header:/footer:/layout_defaults: (issue #117): antes se perdían en
+		// silencio en el round-trip a Markdown — un .doclang con `header:`
+		// producía un .md sin rastro de esa config. Markdown no tiene
+		// noción de página, así que esto es passthrough puro (no hay nada
+		// que renderizar, a diferencia de HTML/PDF/DOCX).
+		if doc.FrontMatter.HeaderFooter != nil {
+			writeHeaderFooterYAML(&md, doc.FrontMatter.HeaderFooter)
 		}
 		md.WriteString("---\n\n")
 	}
@@ -429,10 +438,19 @@ func escapeMarkdownInline(s string) string {
 	return normalizeMarkdownLine(mdInlineEscaper.Replace(s))
 }
 
-// yamlScalarEscaper escapa backslash y comilla doble, la única pareja que
-// una cadena YAML entre comillas dobles necesita escapar (a diferencia del
-// estilo sin comillas, donde ":", "#", "[", "]", etc. son significativos).
-var yamlScalarEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+// yamlScalarEscaper escapa backslash, comilla doble, y salto de línea/
+// retorno de carro dentro de una cadena YAML entre comillas dobles.
+// Backslash y comilla son la pareja obligatoria de ese estilo (a
+// diferencia del estilo sin comillas, donde ":", "#", "[", "]", etc. son
+// significativos); \n/\r hacen falta aparte porque una cadena entre
+// comillas dobles SÍ tolera un salto de línea literal sin escapar — pero
+// el plegado de YAML (folding) lo convierte en un espacio al re-parsear,
+// no lo preserva. Sin este par, `text.center: "línea uno\nlínea dos"`
+// (con un salto de línea real, no las dos letras "\n") volvía como
+// "línea uno línea dos" en el round-trip de Markdown (hallazgo de code
+// review sobre issue #117 — cubre cualquier valor multilínea de
+// header:/footer:, no solo text.center).
+var yamlScalarEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`)
 
 // yamlQuotedScalar envuelve s en comillas dobles YAML, para interpolarlo
 // como valor de un campo de frontmatter sin depender de que el valor no
@@ -444,6 +462,148 @@ var yamlScalarEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 // la línea de frontmatter en dos claves YAML en vez de una.
 func yamlQuotedScalar(s string) string {
 	return `"` + yamlScalarEscaper.Replace(s) + `"`
+}
+
+// writeHeaderFooterYAML re-serializa header:/footer:/layout_defaults:
+// (issue #117) de vuelta a YAML para el round-trip de Markdown. Las llaves
+// emitidas espejan exactamente las que core/parser/frontmatter.go espera
+// leer de vuelta (rawHeaderConfig/rawFooterConfig/rawPageNumbersConfig/
+// rawLogoConfig/rawBorderConfig), para que un `doclang build --format
+// markdown` seguido de un re-parseo del .md resultante reproduzca la misma
+// config — no una degradación con pérdida como el resto de esta función
+// (ver renderMapElementMarkdown más abajo, que si degrada a propósito
+// porque Markdown no tiene equivalente real de un mapa interactivo; acá sí
+// lo tiene, así que no hay razón para perder nada).
+func writeHeaderFooterYAML(md *strings.Builder, hf *ast.HeaderFooterConfig) {
+	if hf.Header != nil {
+		md.WriteString("header:\n")
+		writeHeaderConfigYAML(md, hf.Header, "  ")
+	}
+	if hf.Footer != nil {
+		md.WriteString("footer:\n")
+		writeFooterConfigYAML(md, hf.Footer, "  ")
+	}
+	if len(hf.LayoutDefaults) > 0 {
+		md.WriteString("layout_defaults:\n")
+		names := make([]string, 0, len(hf.LayoutDefaults))
+		for name := range hf.LayoutDefaults {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			layout := hf.LayoutDefaults[name]
+			fmt.Fprintf(md, "  %s:\n", yamlQuotedScalar(name))
+			if layout.Header != nil {
+				md.WriteString("    header:\n")
+				writeHeaderConfigYAML(md, layout.Header, "      ")
+			}
+			if layout.Footer != nil {
+				md.WriteString("    footer:\n")
+				writeFooterConfigYAML(md, layout.Footer, "      ")
+			}
+		}
+	}
+}
+
+func writeHeaderConfigYAML(md *strings.Builder, h *ast.HeaderConfig, indent string) {
+	fmt.Fprintf(md, "%senabled: %t\n", indent, h.Enabled)
+	if h.Height != "" {
+		fmt.Fprintf(md, "%sheight: %s\n", indent, yamlQuotedScalar(h.Height))
+	}
+	if h.Background != "" {
+		fmt.Fprintf(md, "%sbackground: %s\n", indent, yamlQuotedScalar(h.Background))
+	}
+	writeHeaderFooterTextYAML(md, h.Text, indent)
+	if h.Logo != nil {
+		fmt.Fprintf(md, "%slogo:\n", indent)
+		inner := indent + "  "
+		if h.Logo.Source != "" {
+			fmt.Fprintf(md, "%ssource: %s\n", inner, yamlQuotedScalar(h.Logo.Source))
+		}
+		if h.Logo.Alt != "" {
+			fmt.Fprintf(md, "%salt: %s\n", inner, yamlQuotedScalar(h.Logo.Alt))
+		}
+		if h.Logo.Height != "" {
+			fmt.Fprintf(md, "%sheight: %s\n", inner, yamlQuotedScalar(h.Logo.Height))
+		}
+		if h.Logo.Position != "" {
+			fmt.Fprintf(md, "%sposition: %s\n", inner, yamlQuotedScalar(h.Logo.Position))
+		}
+	}
+	writeBorderConfigYAML(md, h.Border, indent)
+}
+
+func writeFooterConfigYAML(md *strings.Builder, f *ast.FooterConfig, indent string) {
+	fmt.Fprintf(md, "%senabled: %t\n", indent, f.Enabled)
+	if f.Height != "" {
+		fmt.Fprintf(md, "%sheight: %s\n", indent, yamlQuotedScalar(f.Height))
+	}
+	if f.Background != "" {
+		fmt.Fprintf(md, "%sbackground: %s\n", indent, yamlQuotedScalar(f.Background))
+	}
+	writeHeaderFooterTextYAML(md, f.Text, indent)
+	if f.PageNumbers != nil {
+		fmt.Fprintf(md, "%spage_numbers:\n", indent)
+		inner := indent + "  "
+		fmt.Fprintf(md, "%senabled: %t\n", inner, f.PageNumbers.Enabled)
+		if f.PageNumbers.Format != "" {
+			fmt.Fprintf(md, "%sformat: %s\n", inner, yamlQuotedScalar(f.PageNumbers.Format))
+		}
+		if f.PageNumbers.Position != "" {
+			fmt.Fprintf(md, "%sposition: %s\n", inner, yamlQuotedScalar(f.PageNumbers.Position))
+		}
+		if f.PageNumbers.ExcludeTitleSlides {
+			fmt.Fprintf(md, "%sexclude_title_slides: true\n", inner)
+		}
+		if f.PageNumbers.ExcludeClosingSlides {
+			fmt.Fprintf(md, "%sexclude_closing_slides: true\n", inner)
+		}
+		if f.PageNumbers.StartFrom != 0 {
+			fmt.Fprintf(md, "%sstart_from: %d\n", inner, f.PageNumbers.StartFrom)
+		}
+		if f.PageNumbers.Style != "" {
+			fmt.Fprintf(md, "%sstyle: %s\n", inner, yamlQuotedScalar(f.PageNumbers.Style))
+		}
+	}
+	writeBorderConfigYAML(md, f.Border, indent)
+}
+
+func writeHeaderFooterTextYAML(md *strings.Builder, text *ast.HeaderFooterText, indent string) {
+	if text == nil {
+		return
+	}
+	fmt.Fprintf(md, "%stext:\n", indent)
+	inner := indent + "  "
+	if text.Left != "" {
+		fmt.Fprintf(md, "%sleft: %s\n", inner, yamlQuotedScalar(text.Left))
+	}
+	if text.Center != "" {
+		fmt.Fprintf(md, "%scenter: %s\n", inner, yamlQuotedScalar(text.Center))
+	}
+	if text.Right != "" {
+		fmt.Fprintf(md, "%sright: %s\n", inner, yamlQuotedScalar(text.Right))
+	}
+}
+
+func writeBorderConfigYAML(md *strings.Builder, border *ast.BorderConfig, indent string) {
+	if border == nil {
+		return
+	}
+	fmt.Fprintf(md, "%sborder:\n", indent)
+	inner := indent + "  "
+	fmt.Fprintf(md, "%senabled: %t\n", inner, border.Enabled)
+	if border.Color != "" {
+		fmt.Fprintf(md, "%scolor: %s\n", inner, yamlQuotedScalar(border.Color))
+	}
+	if border.Width != "" {
+		fmt.Fprintf(md, "%swidth: %s\n", inner, yamlQuotedScalar(border.Width))
+	}
+	if border.Style != "" {
+		fmt.Fprintf(md, "%sstyle: %s\n", inner, yamlQuotedScalar(border.Style))
+	}
+	if border.Position != "" {
+		fmt.Fprintf(md, "%sposition: %s\n", inner, yamlQuotedScalar(border.Position))
+	}
 }
 
 // renderMapElementMarkdown degrades a MapElement to its data (issue #38/#51

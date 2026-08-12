@@ -8,6 +8,7 @@ package main
 import (
 	"syscall/js"
 
+	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/slidelang/v2/internal/generator"
@@ -92,16 +93,38 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 	}
 
 	title := ""
+	var headerFooterConfig *ast.HeaderFooterConfig
 	if astNode.FrontMatter != nil {
 		title = astNode.FrontMatter.Title
+		headerFooterConfig = astNode.FrontMatter.HeaderFooter
+		// theme == "" es el selector en "document default" (el caller no
+		// pasó un segundo argumento, o lo pasó vacío a propósito) — cae al
+		// `theme:` del propio front matter, mismo orden de prioridad que
+		// generator.go's RenderHTMLPreview (el preview MCP de doclang: CLI
+		// > frontmatter > default). Sin esto, un documento con
+		// `theme: page-view` sin selector explícito nunca activaba
+		// ShowHeaders/ShowFooters ni el chrome legado (hallazgo de code
+		// review sobre issue #117).
+		if theme == "" {
+			theme = astNode.FrontMatter.Theme
+		}
 	}
 
 	opts := renderer.DocumentHTMLOptions{
-		Title:       title,
-		TOC:         true,
-		Numbering:   true,
-		Theme:       theme,
-		EmbedAssets: true,
+		Title:     title,
+		TOC:       true,
+		Numbering: true,
+		Theme:     theme,
+		// ShowHeaders/ShowFooters: mismo criterio que doclang's CLI/preview
+		// MCP (theme == "page-view"), para que este playground coincida con
+		// lo que `doclang build` produciría. HeaderFooter: header:/footer:/
+		// layout_defaults: del front matter (issue #117) — antes esta ruta
+		// los omitía por completo, así que el preview nunca coincidía con
+		// el CLI para un documento con esa config.
+		ShowHeaders:  theme == "page-view",
+		ShowFooters:  theme == "page-view",
+		HeaderFooter: headerFooterConfig,
+		EmbedAssets:  true,
 	}
 	html := renderer.GenerateDocumentHTML(astNode, opts, renderer.NewDefaultRenderContext())
 

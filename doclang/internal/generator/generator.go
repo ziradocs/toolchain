@@ -31,6 +31,14 @@ type GeneratorOptions struct {
 	// (see resolvePDFOptions in page.go) — HTML/Markdown/DOCX don't set
 	// page geometry (see the plan's "Fuera de alcance" section for why).
 	Page *ast.PageConfig
+	// HeaderFooter is the parsed `header:`/`footer:`/`layout_defaults:`
+	// front matter namespace (issue #117). nil means the document has no
+	// opinion, same convention as Page. Consumed by HTML (renderer.
+	// DocumentHTMLOptions.HeaderFooter — core/v2.9.0+), PDF (its own
+	// Chromium header/footer template, generated from this same config)
+	// and DOCX (native Section.Header/Footer). Markdown has no notion of a
+	// page, so it only passes the raw front matter through on round-trip.
+	HeaderFooter *ast.HeaderFooterConfig
 	// PlantUML options
 	PlantUMLMode   string // "browser" (default), "offline-assets", "offline-inline"
 	PlantUMLServer string // Custom PlantUML server (default: https://www.plantuml.com/plantuml)
@@ -156,8 +164,10 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 	}
 
 	title := ""
+	var headerFooterConfig *ast.HeaderFooterConfig
 	if doc.FrontMatter != nil {
 		title = doc.FrontMatter.Title
+		headerFooterConfig = doc.FrontMatter.HeaderFooter
 	}
 
 	renderOpts := renderer.DocumentHTMLOptions{
@@ -166,6 +176,7 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 		ThemeVariables: theme.Variables,
 		ShowHeaders:    theme.Name == "page-view",
 		ShowFooters:    theme.Name == "page-view",
+		HeaderFooter:   headerFooterConfig, // 🆕 header:/footer:/layout_defaults: (issue #117)
 		EmbedAssets:    true,
 		PlantUMLMode:   "browser",
 		MermaidMode:    "browser",
