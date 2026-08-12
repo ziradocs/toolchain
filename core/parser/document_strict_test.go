@@ -28,6 +28,20 @@ func errorMessages(diags []diagnostics.Diagnostic) []string {
 	return out
 }
 
+// warningMessages es el análogo de errorMessages para diagnósticos de
+// severidad Warning (issue #70: el dialecto de slides reporta líneas
+// descartadas como Warning, no Error, así que las pruebas de ese dialecto
+// necesitan filtrar por esta severidad en vez de IsError()).
+func warningMessages(diags []diagnostics.Diagnostic) []string {
+	var out []string
+	for _, d := range diags {
+		if d.IsWarning() {
+			out = append(out, d.Message)
+		}
+	}
+	return out
+}
+
 func assertNoErrors(t *testing.T, diags []diagnostics.Diagnostic) {
 	t.Helper()
 	if msgs := errorMessages(diags); len(msgs) > 0 {
@@ -364,15 +378,34 @@ func TestDocumentStrictParser_UnrecognizedContentDoesNotSwallowTheBodySilently(t
 	}
 }
 
-// El dialecto de presentaciones conserva su comportamiento histórico
-// (descartar en silencio, issue #70): cambiarlo es un cambio de conducta
-// para archivos .slidelang existentes y no le toca a este dialecto
-// decidirlo. Sin este control, "arreglar" el catch-all compartido rompería
-// slidelang sin que nada lo señale.
-func TestStrictParser_SlideDialectStillToleratesUnrecognizedLines(t *testing.T) {
+// El dialecto de presentaciones ya no descarta contenido en silencio (issue
+// #70): una línea que el despacho no reconoce ahora produce un Warning
+// nombrando la línea perdida. La severidad es deliberadamente Warning, no
+// Error — un Error rompería el build de cualquier .slidelang existente que
+// ya dependiera del descarte silencioso, mientras que un Warning es visible
+// sin ser un cambio incompatible: el build sigue en 0 errores.
+func TestStrictParser_SlideDialectReportsUnrecognizedLinesAsWarnings(t *testing.T) {
 	_, diags := NewStrictParser("SLIDE content\n  TEXXT\n    whatever\n", util.NewNoop()).Parse()
+
 	if msgs := errorMessages(diags); len(msgs) > 0 {
-		t.Errorf("the slide dialect's behavior changed (issue #70 is tracked separately): %v", msgs)
+		t.Errorf("the slide dialect must stay build-compatible (0 errors) for issue #70's fix: %v", msgs)
+	}
+
+	msgs := warningMessages(diags)
+	if len(msgs) == 0 {
+		t.Fatal("expected a warning naming the discarded content, got none")
+	}
+	joined := strings.Join(msgs, " | ")
+	for _, want := range []string{`"TEXXT"`, `"whatever"`} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected the warnings to mention %s, got: %s", want, joined)
+		}
+	}
+
+	for _, d := range diags {
+		if d.IsWarning() && d.RuleID != "STRICT003" {
+			t.Errorf("expected RuleID STRICT003 on the discarded-content warning, got %q", d.RuleID)
+		}
 	}
 }
 
