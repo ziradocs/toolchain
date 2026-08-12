@@ -423,7 +423,7 @@ func (g *DOCXGenerator) renderHeaderFooter(doc domain.Document, hf *ast.HeaderFo
 			return fmt.Errorf("failed to render footer text: %w", err)
 		}
 		if hf.Footer.PageNumbers != nil && hf.Footer.PageNumbers.Enabled {
-			if err := renderFooterPageNumbers(footer, hf.Footer.PageNumbers); err != nil {
+			if err := renderFooterPageNumbers(footer, hf.Footer.PageNumbers, variables); err != nil {
 				return fmt.Errorf("failed to render footer page numbers: %w", err)
 			}
 		}
@@ -482,11 +482,20 @@ func renderHeaderFooterZones(target docxParagraphAdder, text *ast.HeaderFooterTe
 // documento (Word la recalcula al abrir/imprimir), no un conteo de
 // ContentBlocks. Ver splitPageNumberFormat para la tokenización del
 // formato.
-func renderFooterPageNumbers(footer domain.Footer, config *ast.PageNumbersConfig) error {
+//
+// variables resuelve las variables del documento del autor dentro de
+// Format (p. ej. `{{company}}`) ANTES de tokenizar — code review sobre
+// este PR: Format es texto de front matter como cualquier otro, así que
+// debe pasar por el mismo ProcessVariables que renderHeaderFooterZones ya
+// aplica a header.text/footer.text. splitPageNumberFormat solo tokeniza
+// literalmente "{{current}}"/"{{total}}", que ProcessVariables deja
+// intactos porque no son claves del mapa de variables del documento.
+func renderFooterPageNumbers(footer domain.Footer, config *ast.PageNumbersConfig, variables map[string]interface{}) error {
 	format := config.Format
 	if format == "" {
 		format = "{{current}} / {{total}}"
 	}
+	format = renderer.ProcessVariables(format, variables)
 
 	para, err := footer.AddParagraph()
 	if err != nil {

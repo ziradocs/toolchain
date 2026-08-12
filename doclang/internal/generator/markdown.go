@@ -438,10 +438,19 @@ func escapeMarkdownInline(s string) string {
 	return normalizeMarkdownLine(mdInlineEscaper.Replace(s))
 }
 
-// yamlScalarEscaper escapa backslash y comilla doble, la única pareja que
-// una cadena YAML entre comillas dobles necesita escapar (a diferencia del
-// estilo sin comillas, donde ":", "#", "[", "]", etc. son significativos).
-var yamlScalarEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+// yamlScalarEscaper escapa backslash, comilla doble, y salto de línea/
+// retorno de carro dentro de una cadena YAML entre comillas dobles.
+// Backslash y comilla son la pareja obligatoria de ese estilo (a
+// diferencia del estilo sin comillas, donde ":", "#", "[", "]", etc. son
+// significativos); \n/\r hacen falta aparte porque una cadena entre
+// comillas dobles SÍ tolera un salto de línea literal sin escapar — pero
+// el plegado de YAML (folding) lo convierte en un espacio al re-parsear,
+// no lo preserva. Sin este par, `text.center: "línea uno\nlínea dos"`
+// (con un salto de línea real, no las dos letras "\n") volvía como
+// "línea uno línea dos" en el round-trip de Markdown (hallazgo de code
+// review sobre issue #117 — cubre cualquier valor multilínea de
+// header:/footer:, no solo text.center).
+var yamlScalarEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`)
 
 // yamlQuotedScalar envuelve s en comillas dobles YAML, para interpolarlo
 // como valor de un campo de frontmatter sin depender de que el valor no

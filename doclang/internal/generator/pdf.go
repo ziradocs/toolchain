@@ -253,7 +253,7 @@ func pdfChromeZonesHTML(text *ast.HeaderFooterText, pageNumbers *ast.PageNumbers
 	}
 
 	if pageNumbers != nil && pageNumbers.Enabled {
-		numHTML := pdfPageNumberHTML(pageNumbers)
+		numHTML := pdfPageNumberHTML(pageNumbers, variables)
 		switch pageNumbers.Position {
 		case "left":
 			left = joinNonEmpty(left, numHTML)
@@ -271,19 +271,26 @@ func pdfChromeZonesHTML(text *ast.HeaderFooterText, pageNumbers *ast.PageNumbers
 }
 
 // pdfPageNumberHTML traduce PageNumbersConfig.Format a HTML que Chromium
-// puede imprimir: "{{current}}"/"{{total}}" se reemplazan por las clases
-// especiales que Chromium reconoce y rellena en tiempo de impresión
-// (pageNumber/totalPages) — NO por ProcessVariables, que resuelve
-// variables del documento, no las de Chromium. El resto del formato
-// (separadores como " / ") se escapa antes del reemplazo: como ninguno de
-// los dos tokens contiene caracteres que EscapeHTML toque, escapar primero
-// y reemplazar después no los rompe, y sí cierra la puerta a un Format con
-// HTML arbitrario en el front matter.
-func pdfPageNumberHTML(config *ast.PageNumbersConfig) string {
+// puede imprimir. Dos sustituciones distintas, en orden: primero
+// ProcessVariables resuelve las variables del documento del autor (p. ej.
+// `{{company}}` — code review sobre este PR: Format es texto de front
+// matter como cualquier otro, así que debe pasar por el mismo mecanismo de
+// variables que header.text/footer.text, no solo los dos tokens de
+// paginación). Después, "{{current}}"/"{{total}}" — que ProcessVariables
+// deja intactos porque no son claves del mapa de variables del documento
+// — se reemplazan por las clases especiales que Chromium reconoce y
+// rellena en tiempo de impresión (pageNumber/totalPages). El resto del
+// formato (separadores como " / ", y cualquier variable ya sustituida) se
+// escapa antes de ese segundo reemplazo: como ninguno de los dos tokens
+// contiene caracteres que EscapeHTML toque, escapar primero y reemplazar
+// después no los rompe, y sí cierra la puerta a un Format (o un valor de
+// variable) con HTML arbitrario.
+func pdfPageNumberHTML(config *ast.PageNumbersConfig, variables map[string]interface{}) string {
 	format := config.Format
 	if format == "" {
 		format = "{{current}} / {{total}}"
 	}
+	format = renderer.ProcessVariables(format, variables)
 	html := renderer.EscapeHTML(format)
 	html = strings.ReplaceAll(html, "{{current}}", `<span class="pageNumber"></span>`)
 	html = strings.ReplaceAll(html, "{{total}}", `<span class="totalPages"></span>`)

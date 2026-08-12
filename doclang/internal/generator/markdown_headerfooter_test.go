@@ -96,6 +96,50 @@ func TestMarkdownGeneratorGenerate_HeaderFooterRoundTrips(t *testing.T) {
 	}
 }
 
+// TestMarkdownGeneratorGenerate_HeaderFooterRoundTrips_MultilineValue cubre
+// un hallazgo de code review sobre este PR: un valor con un salto de línea
+// LITERAL (no las dos letras "\n") sobrevive dentro de las comillas dobles
+// YAML sin escapar — pero YAML pliega ("folding") ese salto de línea en un
+// espacio al re-parsear, así que "línea uno\nlínea dos" volvía como
+// "línea uno línea dos" en el round-trip. yamlScalarEscaper ahora escapa
+// \n/\r explícitamente (como \n/\r de dos caracteres) para que el
+// re-parseo preserve el valor exacto.
+func TestMarkdownGeneratorGenerate_HeaderFooterRoundTrips_MultilineValue(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+	doc := newTestAST()
+	doc.FrontMatter.HeaderFooter = &ast.HeaderFooterConfig{
+		Header: &ast.HeaderConfig{
+			Enabled: true,
+			Text:    &ast.HeaderFooterText{Center: "line one\nline two"},
+		},
+	}
+
+	output := filepath.Join(t.TempDir(), "document.md")
+	if err := gen.Generate(doc, output, GeneratorOptions{}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("failed to read output file: %v", err)
+	}
+
+	fmParser := &parser.FrontMatterParser{}
+	node, _, diags := fmParser.Parse(string(data))
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("unexpected error-severity diagnostic re-parsing generated Markdown: %v\ncontent:\n%s", d, data)
+		}
+	}
+	if node == nil || node.HeaderFooter == nil || node.HeaderFooter.Header == nil || node.HeaderFooter.Header.Text == nil {
+		t.Fatalf("expected header.text to survive the round-trip, got nil (content:\n%s)", data)
+	}
+	if got := node.HeaderFooter.Header.Text.Center; got != "line one\nline two" {
+		t.Errorf("text.center round-trip mismatch: got %q, want %q (content:\n%s)", got, "line one\nline two", data)
+	}
+}
+
 func TestMarkdownGeneratorGenerate_NoHeaderFooter_OmitsKeys(t *testing.T) {
 	logger := newTestLogger()
 	gen := NewMarkdownGenerator(logger)

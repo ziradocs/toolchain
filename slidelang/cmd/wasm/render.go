@@ -97,6 +97,17 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 	if astNode.FrontMatter != nil {
 		title = astNode.FrontMatter.Title
 		headerFooterConfig = astNode.FrontMatter.HeaderFooter
+		// theme == "" es el selector en "document default" (el caller no
+		// pasó un segundo argumento, o lo pasó vacío a propósito) — cae al
+		// `theme:` del propio front matter, mismo orden de prioridad que
+		// generator.go's RenderHTMLPreview (el preview MCP de doclang: CLI
+		// > frontmatter > default). Sin esto, un documento con
+		// `theme: page-view` sin selector explícito nunca activaba
+		// ShowHeaders/ShowFooters ni el chrome legado (hallazgo de code
+		// review sobre issue #117).
+		if theme == "" {
+			theme = astNode.FrontMatter.Theme
+		}
 	}
 
 	opts := renderer.DocumentHTMLOptions{

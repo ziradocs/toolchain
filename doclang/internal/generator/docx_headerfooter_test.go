@@ -142,7 +142,7 @@ func TestRenderFooterPageNumbers_InsertsNativeWordFields(t *testing.T) {
 		Format:   "Página {{current}} de {{total}}",
 		Position: "center",
 	}
-	if err := renderFooterPageNumbers(footer, config); err != nil {
+	if err := renderFooterPageNumbers(footer, config, nil); err != nil {
 		t.Fatalf("renderFooterPageNumbers failed: %v", err)
 	}
 
@@ -176,7 +176,7 @@ func TestRenderFooterPageNumbers_DefaultFormat(t *testing.T) {
 	section := newTestDocxSection(t)
 	footer, _ := section.Footer(domain.FooterDefault)
 
-	if err := renderFooterPageNumbers(footer, &ast.PageNumbersConfig{Enabled: true}); err != nil {
+	if err := renderFooterPageNumbers(footer, &ast.PageNumbersConfig{Enabled: true}, nil); err != nil {
 		t.Fatalf("renderFooterPageNumbers failed: %v", err)
 	}
 
@@ -186,6 +186,34 @@ func TestRenderFooterPageNumbers_DefaultFormat(t *testing.T) {
 	}
 	if runs[1].Text() != " / " {
 		t.Errorf("runs[1].Text() = %q, want %q", runs[1].Text(), " / ")
+	}
+}
+
+// TestRenderFooterPageNumbers_SubstitutesDocumentVariables cubre un
+// hallazgo de code review sobre este PR: Format es texto de front matter
+// como cualquier otro (mismo mecanismo que header.text/footer.text), así
+// que un placeholder de documento como {{company}} debe resolverse — antes
+// de este fix, PDF y DOCX ignoraban por completo el mapa de variables acá
+// y solo HTML/slidelang sustituían {{company}}.
+func TestRenderFooterPageNumbers_SubstitutesDocumentVariables(t *testing.T) {
+	section := newTestDocxSection(t)
+	footer, _ := section.Footer(domain.FooterDefault)
+
+	config := &ast.PageNumbersConfig{
+		Enabled: true,
+		Format:  "{{company}} — {{current}} / {{total}}",
+	}
+	variables := map[string]interface{}{"company": "Acme"}
+	if err := renderFooterPageNumbers(footer, config, variables); err != nil {
+		t.Fatalf("renderFooterPageNumbers failed: %v", err)
+	}
+
+	runs := footer.Paragraphs()[0].Runs()
+	if len(runs) != 4 {
+		t.Fatalf("expected 4 runs (\"Acme — \", <field>, \" / \", <field>), got %d: %v", len(runs), runs)
+	}
+	if runs[0].Text() != "Acme — " {
+		t.Errorf("runs[0].Text() = %q, want %q (document variable must be substituted)", runs[0].Text(), "Acme — ")
 	}
 }
 

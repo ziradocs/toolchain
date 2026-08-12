@@ -59,8 +59,10 @@ func TestBuildPDFHeaderTemplate_ZonesEscapeHTML(t *testing.T) {
 
 // TestBuildPDFFooterTemplate_PageNumbersFormat cubre la sustitución de
 // {{current}}/{{total}} por las clases especiales de Chromium (no por
-// ProcessVariables, que resuelve variables del documento, no del motor de
-// impresión), y que Position decide a qué zona se suma la numeración.
+// ProcessVariables — {{current}}/{{total}} nunca son claves del mapa de
+// variables del documento, así que ProcessVariables los deja intactos
+// para este segundo paso), y que Position decide a qué zona se suma la
+// numeración.
 func TestBuildPDFFooterTemplate_PageNumbersFormat(t *testing.T) {
 	footer := &ast.FooterConfig{
 		Enabled: true,
@@ -75,6 +77,29 @@ func TestBuildPDFFooterTemplate_PageNumbersFormat(t *testing.T) {
 
 	if !strings.Contains(html, `Página <span class="pageNumber"></span> de <span class="totalPages"></span>`) {
 		t.Errorf("expected the format string translated to Chromium's page-number classes, got:\n%s", html)
+	}
+}
+
+// TestBuildPDFFooterTemplate_PageNumbersFormatSubstitutesDocumentVariables
+// cubre un hallazgo de code review sobre este PR: Format es texto de
+// front matter como cualquier otro (mismo mecanismo que header.text/
+// footer.text), así que un placeholder de documento como {{company}} debe
+// resolverse — antes de este fix, PDF y DOCX ignoraban por completo el
+// mapa de variables acá y solo HTML/slidelang sustituían {{company}}.
+func TestBuildPDFFooterTemplate_PageNumbersFormatSubstitutesDocumentVariables(t *testing.T) {
+	footer := &ast.FooterConfig{
+		Enabled: true,
+		PageNumbers: &ast.PageNumbersConfig{
+			Enabled: true,
+			Format:  "{{company}} — {{current}} / {{total}}",
+		},
+	}
+	variables := map[string]interface{}{"company": "Acme"}
+
+	html := buildPDFFooterTemplate(footer, variables)
+
+	if !strings.Contains(html, `Acme — <span class="pageNumber"></span> / <span class="totalPages"></span>`) {
+		t.Errorf("expected the document variable {{company}} to be substituted alongside the page-number tokens, got:\n%s", html)
 	}
 }
 
