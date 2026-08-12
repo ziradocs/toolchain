@@ -96,18 +96,20 @@ func TestBuild_NoFrontMatterTOCDefaultsToTrue(t *testing.T) {
 }
 
 // tocDepthFixture has a preamble with three nested subheadings (h2/h3/h4)
-// for exercising toc.depth against extractSubsections' known off-by-one
-// (core/renderer/document_html.go: `level-1 > maxDepth`, so depth: N
-// actually includes headings up to level N+1 — depth: 2 shows both the h2
-// and the h3, not just the h2).
+// for exercising toc.depth against extractSubsections
+// (core/renderer/document_html.go): maxDepth is the highest heading level
+// included, with the section title itself counting as level 1 — so
+// depth: 2 includes only the h2, depth: 3 adds the h3, etc. (issue #123,
+// fixed in core/v2.8.1; before that release the cutoff was off-by-one and
+// depth: 2 also included the h3).
 const tocDepthFixtureTemplate = "---\ntitle: \"Test Document\"\ntoc:\n  depth: %d\n---\n\n# Real Section\n\n## Sub One\n\nText.\n\n### Sub Two\n\nText.\n\n#### Sub Three\n\nText.\n"
 
-// TestBuild_TOCDepthAppliesOffByOne documents the off-by-one behavior at the
+// TestBuild_TOCDepthAppliesAtBuildLevel documents toc.depth's cutoff at the
 // build.go wiring level (core/renderer has its own unit tests for
-// extractSubsections itself): depth: 2 must include "Sub Two" (h3) in the
-// rendered sidebar TOC, not just "Sub One" (h2), and must exclude
-// "Sub Three" (h4).
-func TestBuild_TOCDepthAppliesOffByOne(t *testing.T) {
+// extractSubsections itself): depth: 2 must include only "Sub One" (h2) in
+// the rendered sidebar TOC, excluding both "Sub Two" (h3) and "Sub Three"
+// (h4).
+func TestBuild_TOCDepthAppliesAtBuildLevel(t *testing.T) {
 	fixture := fmt.Sprintf(tocDepthFixtureTemplate, 2)
 
 	content := buildHTML(t, fixture)
@@ -118,8 +120,8 @@ func TestBuild_TOCDepthAppliesOffByOne(t *testing.T) {
 	if got := strings.Count(content, "Sub One"); got != 2 {
 		t.Errorf("expected depth: 2 to list the h2 subsection in the TOC (2 occurrences: body + sidebar), got %d:\n%s", got, content)
 	}
-	if got := strings.Count(content, "Sub Two"); got != 2 {
-		t.Errorf("expected depth: 2 to also list the h3 subsection (the documented off-by-one — 2 occurrences: body + sidebar), got %d:\n%s", got, content)
+	if got := strings.Count(content, "Sub Two"); got != 1 {
+		t.Errorf("expected depth: 2 to exclude the h3 subsection from the TOC (1 occurrence: body only), got %d:\n%s", got, content)
 	}
 	if got := strings.Count(content, "Sub Three"); got != 1 {
 		t.Errorf("expected depth: 2 to exclude the h4 subsection from the TOC (1 occurrence: body only), got %d:\n%s", got, content)
@@ -137,8 +139,8 @@ func TestBuild_TOCDepthAppliesIndependentOfExplicitTOCFlag(t *testing.T) {
 
 	content := buildHTML(t, fixture, "--toc")
 
-	if got := strings.Count(content, "Sub Two"); got != 2 {
-		t.Errorf("expected toc.depth: 2 to still list the h3 subsection with an explicit --toc flag present, got %d occurrences:\n%s", got, content)
+	if got := strings.Count(content, "Sub Two"); got != 1 {
+		t.Errorf("expected toc.depth: 2 to still exclude the h3 subsection with an explicit --toc flag present, got %d occurrences:\n%s", got, content)
 	}
 	if got := strings.Count(content, "Sub Three"); got != 1 {
 		t.Errorf("expected toc.depth: 2 to still exclude the h4 subsection (not silently reverted to the hardcoded default of 3) with an explicit --toc flag present, got %d occurrences:\n%s", got, content)
