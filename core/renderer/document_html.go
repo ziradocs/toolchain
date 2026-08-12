@@ -1490,86 +1490,125 @@ func extractSubsections(slide ast.ContentBlock, maxDepth int, variables map[stri
 		// code-review de esta misma PR). Ver docs/SECURITY_AUDIT_2026-07.md,
 		// ME-9 (issue #31).
 		if textElem, ok := elem.(*ast.TextElement); ok && textElem.IsRawHTML {
-			content := textElem.Content
-
-			// Detectar headings h2, h3, h4, h5, h6
-			for level := 2; level <= 6; level++ {
-				if level > maxDepth {
-					break // No exceder la profundidad máxima
-				}
-
-				// Buscar patrón <h2 ...>texto</h2>, <h3 ...>texto</h3>, etc.
-				// Puede tener atributos como id="..."
-				openTagPrefix := fmt.Sprintf("<h%d", level)
-				closeTag := fmt.Sprintf("</h%d>", level)
-
-				if strings.Contains(content, openTagPrefix) {
-					startIdx := strings.Index(content, openTagPrefix)
-					if startIdx == -1 {
-						continue
-					}
-
-					// Buscar el final del tag de apertura (>)
-					openTagEnd := strings.Index(content[startIdx:], ">")
-					if openTagEnd == -1 {
-						continue
-					}
-					openTagEnd += startIdx + 1 // Posición después del >
-
-					// Buscar el tag de cierre
-					endIdx := strings.Index(content[openTagEnd:], closeTag)
-					if endIdx == -1 {
-						continue
-					}
-					endIdx += openTagEnd // Posición del </h>
-
-					// Extraer el título (contenido entre tags). Ya llega HTML-seguro:
-					// document_flex.go's parseSubsectionHeading (único lugar que
-					// construye contenido <hN>) ya aplicó
-					// ProcessInlineMarkdownSecureLine antes de armar el HTML —
-					// re-procesarlo aquí con la variante insegura (ME-9) permitía
-					// que un link `[x](javascript:...)` sobreviviera hasta el TOC
-					// sin pasar por SanitizeURL. Ver docs/SECURITY_AUDIT_2026-07.md,
-					// ME-9 (issue #31).
-					title := content[openTagEnd:endIdx]
-
-					// El título puede contener HTML interno como <strong>, <em>, <code>, etc.
-					// Mantenerlo para que se renderice correctamente en el TOC. Usar
-					// ProcessVariablesEscapeValues (no ProcessVariables): escapa el
-					// valor de cada {{variable}} sustituida sin tocar el HTML de
-					// alrededor (ver docs/SECURITY_AUDIT_2026-07.md, CR-2).
-					titleProcessed := ProcessVariablesEscapeValues(title, variables)
-
-					// Para el anchor, intentar extraerlo del atributo id si existe
-					anchor := ""
-					openTagContent := content[startIdx:openTagEnd]
-					idAttrStart := strings.Index(openTagContent, `id="`)
-					if idAttrStart != -1 {
-						idValueStart := idAttrStart + 4 // después de id="
-						idValueEnd := strings.Index(openTagContent[idValueStart:], `"`)
-						if idValueEnd != -1 {
-							anchor = openTagContent[idValueStart : idValueStart+idValueEnd]
-						}
-					}
-
-					// Si no hay id, generar anchor desde el título
-					if anchor == "" {
-						anchorText := stripHTML(titleProcessed)
-						anchor = strings.ToLower(strings.ReplaceAll(anchorText, " ", "-"))
-						anchor = SanitizeAnchor(anchor)
-					}
-
-					subsections = append(subsections, Subsection{
-						Title:  titleProcessed, // Mantener HTML para renderizado
-						Anchor: anchor,
-						Level:  level,
-					})
-				}
-			}
+			subsections = append(subsections, extractHeadingsInOrder(textElem.Content, maxDepth, variables)...)
 		}
 	}
 
 	return subsections
+}
+
+// extractHeadingsInOrder escanea content una sola vez, de izquierda a
+// derecha, devolviendo cada <h2>..<h6> en el orden en que aparece en la
+// fuente. Issue #71: la versión anterior recorría los niveles en un loop
+// EXTERNO (todo h2 antes que cualquier h3, ...), así que el resultado salía
+// ordenado por nivel de heading, no por posición — y además perdía
+// silenciosamente cualquier segundo heading del mismo nivel en el mismo
+// elemento, porque siempre tomaba el primer strings.Index de ese nivel en
+// todo el content y nunca avanzaba el cursor de búsqueda.
+func extractHeadingsInOrder(content string, maxDepth int, variables map[string]interface{}) []Subsection {
+	subsections := make([]Subsection, 0)
+
+	pos := 0
+	for pos < len(content) {
+		level, startIdx, openTagEnd, titleEnd, tagEnd, found := nextHeadingTag(content, pos)
+		if !found {
+			break
+		}
+		pos = tagEnd
+
+		if level > maxDepth {
+			continue // Seguir escaneando: no exceder la profundidad máxima
+		}
+
+		// Extraer el título (contenido entre tags). Ya llega HTML-seguro:
+		// document_flex.go's parseSubsectionHeading (único lugar que
+		// construye contenido <hN>) ya aplicó ProcessInlineMarkdownSecureLine
+		// antes de armar el HTML — re-procesarlo aquí con la variante
+		// insegura (ME-9) permitía que un link `[x](javascript:...)`
+		// sobreviviera hasta el TOC sin pasar por SanitizeURL. Ver
+		// docs/SECURITY_AUDIT_2026-07.md, ME-9 (issue #31).
+		title := content[openTagEnd:titleEnd]
+
+		// El título puede contener HTML interno como <strong>, <em>, <code>, etc.
+		// Mantenerlo para que se renderice correctamente en el TOC. Usar
+		// ProcessVariablesEscapeValues (no ProcessVariables): escapa el
+		// valor de cada {{variable}} sustituida sin tocar el HTML de
+		// alrededor (ver docs/SECURITY_AUDIT_2026-07.md, CR-2).
+		titleProcessed := ProcessVariablesEscapeValues(title, variables)
+
+		// Para el anchor, intentar extraerlo del atributo id si existe
+		anchor := ""
+		openTagContent := content[startIdx:openTagEnd]
+		idAttrStart := strings.Index(openTagContent, `id="`)
+		if idAttrStart != -1 {
+			idValueStart := idAttrStart + 4 // después de id="
+			idValueEnd := strings.Index(openTagContent[idValueStart:], `"`)
+			if idValueEnd != -1 {
+				anchor = openTagContent[idValueStart : idValueStart+idValueEnd]
+			}
+		}
+
+		// Si no hay id, generar anchor desde el título
+		if anchor == "" {
+			anchorText := stripHTML(titleProcessed)
+			anchor = strings.ToLower(strings.ReplaceAll(anchorText, " ", "-"))
+			anchor = SanitizeAnchor(anchor)
+		}
+
+		subsections = append(subsections, Subsection{
+			Title:  titleProcessed, // Mantener HTML para renderizado
+			Anchor: anchor,
+			Level:  level,
+		})
+	}
+
+	return subsections
+}
+
+// nextHeadingTag busca, a partir de from, la etiqueta <h2>..<h6> cuyo tag de
+// apertura empieza más cerca de from — cualquiera sea su nivel — para que
+// extractHeadingsInOrder pueda procesar los headings en el orden en que
+// aparecen en la fuente en vez de por nivel. Devuelve el rango del tag de
+// apertura (startIdx..openTagEnd), el rango del título (openTagEnd..
+// titleEnd) y el punto donde continuar el escaneo (tagEnd, después del
+// </hN> de cierre). found es false cuando no queda ningún heading completo
+// (apertura + cierre) a partir de from.
+func nextHeadingTag(content string, from int) (level, startIdx, openTagEnd, titleEnd, tagEnd int, found bool) {
+	bestStart := -1
+
+	for l := 2; l <= 6; l++ {
+		openTagPrefix := fmt.Sprintf("<h%d", l)
+		closeTag := fmt.Sprintf("</h%d>", l)
+
+		idx := strings.Index(content[from:], openTagPrefix)
+		if idx == -1 {
+			continue
+		}
+		idx += from
+
+		if bestStart != -1 && idx >= bestStart {
+			continue // ya hay un candidato que empieza antes en la fuente
+		}
+
+		// Buscar el final del tag de apertura (>)
+		openEnd := strings.Index(content[idx:], ">")
+		if openEnd == -1 {
+			continue
+		}
+		openEnd += idx + 1 // Posición después del >
+
+		// Buscar el tag de cierre
+		closeStart := strings.Index(content[openEnd:], closeTag)
+		if closeStart == -1 {
+			continue
+		}
+		closeStart += openEnd // Posición del </h>
+
+		bestStart = idx
+		level, startIdx, openTagEnd, titleEnd, tagEnd, found = l, idx, openEnd, closeStart, closeStart+len(closeTag), true
+	}
+
+	return
 }
 
 // stripHTML elimina todas las etiquetas HTML de un string
