@@ -325,6 +325,20 @@ export interface PageMargins {
 }
 /**
  * ContentBlock representa un bloque de contenido (slide en presentaciones, sección en documentos)
+ * Title y Heading tienen un split de responsabilidad que no está escrito en
+ * ningún otro lugar (issue #52): en documentos, el PRIMER ContentBlock del
+ * AST (blockType "title", el bloque de preámbulo — el que trae el título
+ * del documento) guarda su texto en Heading; TODOS los demás bloques
+ * ("content") lo guardan en Title. slidelang usa el mismo split pero con
+ * otro criterio: un slide con `# ` (sintaxis flex) va a Heading
+ * independientemente de su posición; `## ` va a Title. El parser strict de
+ * ambos dialectos deja que el autor declare cualquiera de los dos por
+ * nombre (`title:`/`heading:` como propiedades), así que un bloque puede
+ * tener AMBOS campos poblados a la vez — ver SectionTitle para el
+ * desempate. Cada consumidor que necesita "el título que se muestra de este
+ * bloque" debe llamar SectionTitle() en vez de leer Title/Heading
+ * directamente — antes de este método, esa resolución estaba hand-rolled
+ * (y a veces en desacuerdo entre sí) en al menos core/renderer y doclang.
  */
 export interface ContentBlock extends BaseNode {
   blockType?: string; // "title", "content", "section", etc.

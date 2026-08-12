@@ -1352,20 +1352,15 @@ func generateInitScripts(opts DocumentHTMLOptions, cspNonce string) string {
 	return scripts.String()
 }
 
-// resolveSectionTitle resuelve el título a mostrar de un ContentBlock y si
-// cuenta como sección numerada. El primer ContentBlock de un documento tiene
-// block_type "title" y lleva su texto en Heading, no en Title (ver
-// ast.ContentBlock) — ese bloque de preámbulo se muestra igual (con su
-// Heading) pero nunca participa en sectionNum: numerarlo como "1." y correr
-// el resto de las secciones un número adelante es confuso (issue #100).
-// Title vacío es exactamente la señal de que un ContentBlock es ese
-// preámbulo, así que basta con distinguir "vino de Title" (numerado) de
-// "vino de Heading" (no numerado) — sin necesitar leer BlockType.
+// resolveSectionTitle es un alias local de ast.ContentBlock.SectionTitle
+// (issue #52): este archivo tenía su propia copia hand-rolled de esta
+// resolución antes de que el accesor compartido existiera en core/ast —
+// doclang/internal/generator/markdown.go tenía la otra, en un módulo Go
+// distinto, sincronizadas a mano. Se mantiene como wrapper (en vez de
+// reemplazar los 4 call sites por slide.SectionTitle()) para no tocar más
+// superficie de la necesaria en este cambio.
 func resolveSectionTitle(slide ast.ContentBlock) (title string, numbered bool) {
-	if slide.Title != "" {
-		return slide.Title, true
-	}
-	return slide.Heading, false
+	return slide.SectionTitle()
 }
 
 // generateDocumentTOC genera la tabla de contenidos
