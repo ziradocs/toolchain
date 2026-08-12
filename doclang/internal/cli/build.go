@@ -402,8 +402,10 @@ Examples:
 			}
 
 			var pageConfig *ast.PageConfig
+			var headerFooterConfig *ast.HeaderFooterConfig
 			if doc.FrontMatter != nil {
 				pageConfig = doc.FrontMatter.Page
+				headerFooterConfig = doc.FrontMatter.HeaderFooter
 			}
 
 			opts := generator.GeneratorOptions{
@@ -417,19 +419,20 @@ Examples:
 				TOCDepth:          tocDepth,
 				Numbering:         numberingEnabled,
 				PageBreaks:        pageBreaksEnabled,
-				Page:              pageConfig, // 🆕 page: front matter (size/margins), PDF only — see resolvePDFOptions
-				PlantUMLMode:      renderMode,      // 🆕 Global render mode
-				PlantUMLServer:    plantumlServer,  // 🆕 Custom server URL
-				PlantUMLFormat:    plantumlFormat,  // 🆕 Image format
-				MermaidMode:       renderMode,      // 🆕 Global render mode
-				ChartMode:         renderMode,      // 🆕 Global render mode
-				MapMode:           renderMode,      // 🆕 Global render mode
-				MathMode:          renderMode,      // issue #239-B: Global render mode
-				ImageFormat:       imageFormat,     // 🆕 Image format (png/webp)
-				WebPQuality:       webpQuality,     // 🆕 WebP quality
-				ChromiumPath:      chromiumPath,    // 🆕 Custom Chromium path
-				InstallChromium:   installChromium, // 🆕 Auto-install flag
-				AssetRoot:         absAssetRoot,    // 🆕 Confinamiento de fuentes de imagen (AL-4)
+				Page:              pageConfig,         // 🆕 page: front matter (size/margins), PDF only — see resolvePDFOptions
+				HeaderFooter:      headerFooterConfig, // 🆕 header:/footer:/layout_defaults: front matter (issue #117)
+				PlantUMLMode:      renderMode,         // 🆕 Global render mode
+				PlantUMLServer:    plantumlServer,     // 🆕 Custom server URL
+				PlantUMLFormat:    plantumlFormat,     // 🆕 Image format
+				MermaidMode:       renderMode,         // 🆕 Global render mode
+				ChartMode:         renderMode,         // 🆕 Global render mode
+				MapMode:           renderMode,         // 🆕 Global render mode
+				MathMode:          renderMode,         // issue #239-B: Global render mode
+				ImageFormat:       imageFormat,        // 🆕 Image format (png/webp)
+				WebPQuality:       webpQuality,        // 🆕 WebP quality
+				ChromiumPath:      chromiumPath,       // 🆕 Custom Chromium path
+				InstallChromium:   installChromium,    // 🆕 Auto-install flag
+				AssetRoot:         absAssetRoot,       // 🆕 Confinamiento de fuentes de imagen (AL-4)
 			} // Generate document
 			log.Info("GENERATOR", "Generating %s document...", format)
 			if err := gen.Generate(doc, outputFile, opts); err != nil {

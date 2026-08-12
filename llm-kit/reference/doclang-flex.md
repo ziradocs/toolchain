@@ -51,14 +51,18 @@ include), `title`, `author`, `date`, `theme`, `variables`, `numbering`,
 `header`, `footer`, `layout_defaults`, `lint_policy`. See `frontmatter.md`
 for details.
 
-**Important gap to know about:** the `doclang init` template and some
-example files write `toc: true`, `doctype: ...`, or `page: ...` into
-frontmatter. **None of these three keys are parsed** — YAML silently drops
-unknown keys, so they have zero effect on the build. Table of contents is
-controlled by the **CLI flag** `--toc`, not by frontmatter. Don't tell a
-user "add `toc: true` to your frontmatter to get a table of contents" — it
-does nothing; the flag is what matters. (`numbering:` used to be in this
-same "ignored" list — it isn't anymore, see `frontmatter.md`.)
+**Gap to know about:** some example files write `doctype: ...` into
+frontmatter. **That key is not parsed** — YAML silently drops unknown
+keys, so it has zero effect on the build. This is exactly the trap
+`frontmatter.md` warns about: nothing distinguishes "key that doesn't
+exist" from "key that exists and does nothing." (`toc:` and `page:` used
+to be in this same "ignored" list too — front matter presence now turns
+TOC on by default and `page:` feeds PDF page geometry; see
+`frontmatter.md`. `header:`/`footer:`/`layout_defaults:` are parsed and
+consumed by every doclang output format — see the "doclang-specific
+limitations" note under `frontmatter.md`'s `header`/`footer`/
+`layout_defaults` section for what each backend can and can't do with
+them.)
 
 ## Elements
 

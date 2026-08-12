@@ -210,6 +210,13 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		return fmt.Errorf("error rendering frontmatter: %w", err)
 	}
 
+	// header:/footer: nativos de Word (issue #117): a diferencia de HTML/PDF,
+	// DOCX nunca tuvo chrome propio, así que opts.HeaderFooter == nil no
+	// necesita ningún fallback legado.
+	if err := g.renderHeaderFooter(doc, opts.HeaderFooter, astDoc.FrontMatter.BuildVariables()); err != nil {
+		return fmt.Errorf("error rendering header/footer: %w", err)
+	}
+
 	// Renderizar TOC (opts.TOC, issue #115 follow-up: antes se emitía
 	// incondicionalmente, así que `--toc=false`/`toc: false` no tenían
 	// ningún efecto en DOCX).
@@ -358,6 +365,227 @@ func (g *DOCXGenerator) renderFrontMatter(doc domain.Document, fm *ast.FrontMatt
 	}
 
 	return nil
+}
+
+// docxParagraphAdder es el subconjunto común de domain.Header/domain.Footer
+// que renderHeaderFooterZones necesita — ambas interfaces solo exponen
+// AddParagraph()/Paragraphs(), sin un tipo compartido en docxgo, así que
+// esta interfaz local deja pasar cualquiera de las dos sin duplicar la
+// función por header/footer.
+type docxParagraphAdder interface {
+	AddParagraph() (domain.Paragraph, error)
+}
+
+// renderHeaderFooter escribe el header/footer nativo de Word (issue #117)
+// vía section.Header(domain.HeaderDefault)/Footer(domain.FooterDefault).
+// hf == nil (nunca hubo `header:`/`footer:` en el front matter) no escribe
+// nada — a diferencia de HTML/PDF, DOCX nunca tuvo chrome propio, así que
+// no hay ningún fallback legado que preservar acá.
+//
+// Solo Text y PageNumbers se traducen a este backend: Logo/Border/Height/
+// Background no tienen equivalente en la superficie que expone
+// domain.Section (PageSize/Margins/Orientation/Columns/Header/Footer, ver
+// github.com/mmonterroca/docxgo/v2/domain/section.go) — no hay una API de
+// bordes o imágenes de página que envolver, así que se omiten en vez de
+// fingir soportarlos.
+//
+// layout_defaults tampoco aplica: un section.Header/Footer de Word es
+// global para toda la sección (no hay noción de "el bloque que abre esta
+// página" al momento de generar el documento, igual que en el backend de
+// PDF — ver pdfChromeZonesHTML), así que solo se lee el header/footer
+// GLOBAL del front matter.
+func (g *DOCXGenerator) renderHeaderFooter(doc domain.Document, hf *ast.HeaderFooterConfig, variables map[string]interface{}) error {
+	if hf == nil {
+		return nil
+	}
+
+	section, err := doc.DefaultSection()
+	if err != nil {
+		return fmt.Errorf("failed to get default section: %w", err)
+	}
+
+	if hf.Header != nil && hf.Header.Enabled {
+		header, err := section.Header(domain.HeaderDefault)
+		if err != nil {
+			return fmt.Errorf("failed to get header: %w", err)
+		}
+		if err := renderHeaderFooterZones(header, hf.Header.Text, variables); err != nil {
+			return fmt.Errorf("failed to render header text: %w", err)
+		}
+	}
+
+	if hf.Footer != nil && hf.Footer.Enabled {
+		footer, err := section.Footer(domain.FooterDefault)
+		if err != nil {
+			return fmt.Errorf("failed to get footer: %w", err)
+		}
+		if err := renderHeaderFooterZones(footer, hf.Footer.Text, variables); err != nil {
+			return fmt.Errorf("failed to render footer text: %w", err)
+		}
+		if hf.Footer.PageNumbers != nil && hf.Footer.PageNumbers.Enabled {
+			if err := renderFooterPageNumbers(footer, hf.Footer.PageNumbers); err != nil {
+				return fmt.Errorf("failed to render footer page numbers: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// renderHeaderFooterZones escribe cada zona no vacía (Left/Center/Right)
+// como su propio párrafo alineado. docxgo no expone una API de tab stops
+// (ver domain/paragraph.go) — sin eso no hay forma de poner las tres zonas
+// en una sola línea como hacen HTML/PDF, así que cada una ocupa su propia
+// línea; limitación documentada del backend DOCX, no un recorte de este PR.
+func renderHeaderFooterZones(target docxParagraphAdder, text *ast.HeaderFooterText, variables map[string]interface{}) error {
+	if text == nil {
+		return nil
+	}
+
+	zones := []struct {
+		value string
+		align domain.Alignment
+	}{
+		{text.Left, domain.AlignmentLeft},
+		{text.Center, domain.AlignmentCenter},
+		{text.Right, domain.AlignmentRight},
+	}
+
+	for _, zone := range zones {
+		processed := renderer.ProcessVariables(zone.value, variables)
+		if processed == "" {
+			continue
+		}
+		para, err := target.AddParagraph()
+		if err != nil {
+			return err
+		}
+		if err := para.SetAlignment(zone.align); err != nil {
+			return err
+		}
+		run, err := para.AddRun()
+		if err != nil {
+			return err
+		}
+		if err := run.AddText(processed); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// renderFooterPageNumbers escribe un párrafo de numeración de página en el
+// footer usando los campos nativos de Word (docx.NewPageNumberField/
+// NewPageCountField) — a diferencia de HTML/PDF, este es el único backend
+// donde {{current}}/{{total}} pueden mostrar la paginación REAL del
+// documento (Word la recalcula al abrir/imprimir), no un conteo de
+// ContentBlocks. Ver splitPageNumberFormat para la tokenización del
+// formato.
+func renderFooterPageNumbers(footer domain.Footer, config *ast.PageNumbersConfig) error {
+	format := config.Format
+	if format == "" {
+		format = "{{current}} / {{total}}"
+	}
+
+	para, err := footer.AddParagraph()
+	if err != nil {
+		return err
+	}
+	align := domain.AlignmentRight
+	switch config.Position {
+	case "left":
+		align = domain.AlignmentLeft
+	case "center":
+		align = domain.AlignmentCenter
+	}
+	if err := para.SetAlignment(align); err != nil {
+		return err
+	}
+
+	for _, part := range splitPageNumberFormat(format) {
+		run, err := para.AddRun()
+		if err != nil {
+			return err
+		}
+		switch part.kind {
+		case pageNumberPartText:
+			if err := run.AddText(part.text); err != nil {
+				return err
+			}
+		case pageNumberPartCurrent:
+			if err := run.AddField(docx.NewPageNumberField()); err != nil {
+				return err
+			}
+		case pageNumberPartTotal:
+			if err := run.AddField(docx.NewPageCountField()); err != nil {
+				return err
+			}
+		}
+		switch config.Style {
+		case "bold":
+			_ = run.SetBold(true)
+		case "caption":
+			_ = run.SetItalic(true)
+		}
+	}
+
+	return nil
+}
+
+type pageNumberPartKind int
+
+const (
+	pageNumberPartText pageNumberPartKind = iota
+	pageNumberPartCurrent
+	pageNumberPartTotal
+)
+
+type pageNumberPart struct {
+	kind pageNumberPartKind
+	text string
+}
+
+// splitPageNumberFormat tokeniza un PageNumbersConfig.Format en runs de
+// texto literal intercalados con los tokens {{current}}/{{total}} — mismo
+// contrato de sustitución que documentan core/renderer/document_html.go
+// (renderFooterPageNumbers) y el backend de PDF de este paquete
+// (pdfPageNumberHTML), pero acá cada token se materializa como un campo
+// nativo de Word en vez de texto o una clase especial de Chromium.
+func splitPageNumberFormat(format string) []pageNumberPart {
+	const (
+		tokenCurrent = "{{current}}"
+		tokenTotal   = "{{total}}"
+	)
+
+	var parts []pageNumberPart
+	rest := format
+	for rest != "" {
+		iCurrent := strings.Index(rest, tokenCurrent)
+		iTotal := strings.Index(rest, tokenTotal)
+
+		next := -1
+		var kind pageNumberPartKind
+		var tokenLen int
+		switch {
+		case iCurrent != -1 && (iTotal == -1 || iCurrent < iTotal):
+			next, kind, tokenLen = iCurrent, pageNumberPartCurrent, len(tokenCurrent)
+		case iTotal != -1:
+			next, kind, tokenLen = iTotal, pageNumberPartTotal, len(tokenTotal)
+		}
+
+		if next == -1 {
+			parts = append(parts, pageNumberPart{kind: pageNumberPartText, text: rest})
+			break
+		}
+		if next > 0 {
+			parts = append(parts, pageNumberPart{kind: pageNumberPartText, text: rest[:next]})
+		}
+		parts = append(parts, pageNumberPart{kind: kind})
+		rest = rest[next+tokenLen:]
+	}
+
+	return parts
 }
 
 // gridColumnHeading{HTML,MD}{2,3,4}Pattern replican exactamente los patrones

@@ -197,7 +197,7 @@ footer:
     right: "..."
   page_numbers:
     enabled: true
-    format: "{current} / {total}"
+    format: "{{current}} / {{total}}"
     position: "right"
     exclude_title_slides: true
     exclude_closing_slides: true
@@ -232,6 +232,52 @@ that accept `text:`/`page_numbers:` — `header`, `footer`, and both under
 
 Only include these if you actually need custom header/footer chrome —
 most decks and documents don't need them at all.
+
+**doclang-specific limitations (issue #117).** slidelang renders this
+config identically across every slide; doclang's four output formats each
+hit a real limit of their own backend:
+
+- **`layout_defaults`** only has two keys worth setting for a document:
+  `title` (the document's opening section) and `content` (every other
+  section) — a document's `ContentBlock.BlockType` is never anything else,
+  unlike a presentation's richer set of slide types. A key other than
+  those two is parsed but never matched against any section.
+- **HTML (`page-view` chrome).** `header.enabled`/`footer.enabled` draw
+  regardless of `theme:` — front matter always wins over the theme gate.
+  `{{total}}` in `page_numbers.format` resolves to the number of visual
+  `.document-page` containers HTML paginates into, which is not
+  necessarily the same as how many sheets a browser's print dialog would
+  actually produce for that content.
+- **PDF.** Chromium's print header/footer is one template for the *entire*
+  PDF, decided once before any page exists — `layout_defaults` has no
+  effect (there's no per-page config to select from at that point), only
+  the top-level `header:`/`footer:` apply. `{{current}}`/`{{total}}` are
+  real: they resolve to Chromium's own page-number counters, not a static
+  count. `height`/`background`/`logo`/`border` have no effect: Chromium's
+  print API reserves header/footer space from the page's own top/bottom
+  margins (`page.margins`), not from anything declared under `header`/
+  `footer`, and doesn't expose a logo-image or border primitive for its
+  print header/footer at all — bump `page.margins.top`/`bottom` if you
+  need more room, not `header.height`.
+- **DOCX.** Same PDF-style limitation on `layout_defaults` (Word sections
+  are global, not per-page-block). `{{current}}`/`{{total}}` are also
+  real — Word's native page-number fields, recalculated on open/print, not
+  a static count. `logo`/`border`/`height`/`background` have no DOCX
+  equivalent and are silently ignored — `docxgo` (the underlying library)
+  exposes no page-border or page-chrome-image API to map them onto. Each
+  non-empty `text:` zone (`left`/`center`/`right`) becomes its own
+  aligned paragraph rather than one line, since Word's default header/
+  footer style has no tab stops to place three zones side by side.
+- **Markdown.** No page concept exists, so `header:`/`footer:`/
+  `layout_defaults:` are round-tripped back into the front matter verbatim
+  (so a build → re-parse cycle doesn't lose them) but nothing is rendered
+  from them.
+- **Section-level overrides.** `ContentBlock.HeaderFooterOverride` (a
+  per-section override, distinct from `layout_defaults`) exists in the
+  shared AST but has no frontmatter or DSL syntax that produces it in
+  either slidelang or doclang — it's reachable only by constructing/
+  decoding an AST directly (e.g. from JSON). Nothing you write in a
+  `.slidelang`/`.doclang` file can set it today.
 
 ## Theme resolution priority (both CLIs)
 
