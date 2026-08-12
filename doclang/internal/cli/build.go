@@ -339,7 +339,17 @@ Examples:
 			if doc.FrontMatter != nil {
 				// Use frontmatter defaults if flags weren't provided
 				if !cmd.Flags().Changed("toc") {
-					tocEnabled = true // Enable TOC by default for documents
+					// An explicit `toc.enabled` in front matter is the
+					// default; absent that, TOC stays on by default for
+					// documents (issue #115 follow-up, same opt-out gap
+					// #100 closed for `numbering:` — front matter had no
+					// way to say `toc: false` short of passing
+					// `--toc=false` on every build invocation).
+					if doc.FrontMatter.TOC != nil && doc.FrontMatter.TOC.Enabled != nil {
+						tocEnabled = *doc.FrontMatter.TOC.Enabled
+					} else {
+						tocEnabled = true // Enable TOC by default for documents
+					}
 				}
 				if !cmd.Flags().Changed("numbering") {
 					// An explicit `numbering:` in front matter is the
@@ -353,6 +363,18 @@ Examples:
 						numberingEnabled = true
 					}
 				}
+			}
+
+			// toc.depth has no CLI flag (--toc only talks about
+			// enabled/disabled), so its resolution stays OUTSIDE the
+			// Changed("toc") guard above — otherwise `doclang build --toc`
+			// would silently revert an explicit `toc.depth` back to the
+			// hardcoded default. Markdown has no notion of depth (its TOC
+			// loop only walks top-level ContentBlocks), so this only
+			// affects HTML/PDF's extractSubsections.
+			tocDepth := 3
+			if doc.FrontMatter != nil && doc.FrontMatter.TOC != nil && doc.FrontMatter.TOC.Depth != nil {
+				tocDepth = *doc.FrontMatter.TOC.Depth
 			}
 
 			// Validate PlantUML mode
@@ -379,6 +401,11 @@ Examples:
 				return fmt.Errorf("invalid asset root: %w", err)
 			}
 
+			var pageConfig *ast.PageConfig
+			if doc.FrontMatter != nil {
+				pageConfig = doc.FrontMatter.Page
+			}
+
 			opts := generator.GeneratorOptions{
 				Format:            format,
 				Theme:             theme.Name,
@@ -387,9 +414,10 @@ Examples:
 				ShowFooters:       isPageView,      // 🆕 Only for page-view
 				InteractiveViewer: tocEnabled,      // 🆕 Enable viewer when TOC is enabled
 				TOC:               tocEnabled,
-				TOCDepth:          3, // Default depth
+				TOCDepth:          tocDepth,
 				Numbering:         numberingEnabled,
 				PageBreaks:        pageBreaksEnabled,
+				Page:              pageConfig, // 🆕 page: front matter (size/margins), PDF only — see resolvePDFOptions
 				PlantUMLMode:      renderMode,      // 🆕 Global render mode
 				PlantUMLServer:    plantumlServer,  // 🆕 Custom server URL
 				PlantUMLFormat:    plantumlFormat,  // 🆕 Image format

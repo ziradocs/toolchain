@@ -41,8 +41,16 @@ export class DocLangBuilder {
         const outputName = path.basename(inputPath, '.md');
         const outputPath = path.join(this.outputDir, outputName);
 
-        // Construir comando DocLang
-        const tocFlag = tocEnabled ? '--toc' : '';
+        // Construir comando DocLang. tocEnabled=true (el default del
+        // setting) NO agrega ninguna bandera — el CLI ya trae TOC on por
+        // defecto y esto deja que un `toc: false` en el front matter del
+        // documento decida (issue #115 follow-up: antes se pasaba siempre
+        // `--toc` explícito cuando el setting era true, y `--toc` explícito
+        // pisa el front matter sin importar su valor — el mismo bug que
+        // este follow-up arregla en el CLI, resurgiendo acá una capa
+        // arriba). Solo tocEnabled=false necesita una bandera explícita,
+        // porque ahí sí hay que forzar el override.
+        const tocFlag = tocEnabled ? '' : '--toc=false';
         const command = `"${executable}" build "${inputPath}" --output "${outputPath}" ${tocFlag}`.trim();
 
         try {
@@ -96,7 +104,8 @@ export class DocLangBuilder {
         tocEnabled: boolean
     ): Promise<string> {
         const outputName = path.basename(inputPath, '.md');
-        const tocFlag = tocEnabled ? '--toc' : '';
+        // See the same tocFlag comment in build() above.
+        const tocFlag = tocEnabled ? '' : '--toc=false';
         const command = `"${executable}" build "${inputPath}" --output "${outputPath}" ${tocFlag}`.trim();
 
         const { stdout, stderr } = await execAsync(command, {
