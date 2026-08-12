@@ -1394,7 +1394,16 @@ func writeNestedTOC(toc *strings.Builder, subsections []Subsection, currentLevel
 	return i
 }
 
-// extractSubsections extrae las subsecciones (h2, h3, etc.) de un slide
+// extractSubsections extrae las subsecciones (h2, h3, etc.) de un slide.
+// maxDepth es el nivel de heading más profundo a incluir: el título de la
+// sección misma (el <li> de nivel superior en el TOC, fuera de esta
+// función) cuenta como nivel 1, así que maxDepth=1 no incluye ninguna
+// subsección (de ahí el guard `opts.TOCDepth > 1` en los call sites, que
+// solo tiene sentido bajo esta lectura), maxDepth=2 incluye solo h2,
+// maxDepth=3 incluye h2-h3, y así hasta maxDepth=6 (h2-h6). Antes de
+// issue #123 el corte era `level-1 > maxDepth`, que en cambio incluía N
+// niveles de heading contados desde h2 (maxDepth=2 → h2,h3) — un
+// off-by-one respecto a esta semántica.
 func extractSubsections(slide ast.ContentBlock, maxDepth int, variables map[string]interface{}) []Subsection {
 	subsections := make([]Subsection, 0)
 
@@ -1415,7 +1424,7 @@ func extractSubsections(slide ast.ContentBlock, maxDepth int, variables map[stri
 
 			// Detectar headings h2, h3, h4, h5, h6
 			for level := 2; level <= 6; level++ {
-				if level-1 > maxDepth {
+				if level > maxDepth {
 					break // No exceder la profundidad máxima
 				}
 
