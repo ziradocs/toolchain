@@ -233,7 +233,17 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 		default:
 			p.addError(fmt.Sprintf("Unknown content block property: %s. Check DSL Strict syntax documentation.", key))
 		}
-	}, nil, nil)
+	}, nil, func(trimmed string) {
+		// Issue #70: antes esta línea desaparecía en silencio (solo un log
+		// Debug, invisible en --lint-only y en el build por defecto). Un
+		// Warning (no Error) es deliberado: un Error rompería el build de
+		// cualquier .slidelang existente que ya dependiera del descarte
+		// silencioso (ver TestStrictParser_SlideDialectStillToleratesUnrecognizedLines),
+		// mientras que un Warning es visible sin ser un cambio incompatible.
+		p.addWarningWithRuleID(
+			fmt.Sprintf("Unrecognized line, content was discarded: %q. Check DSL Strict syntax documentation.", trimmed),
+			"STRICT003")
+	})
 
 	return block
 }
@@ -254,14 +264,18 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 // error que corresponde.
 //
 // onUnrecognized, si no es nil, recibe toda línea que el despacho no supo
-// reconocer. Con nil se conserva el comportamiento histórico —descartarla en
-// silencio— que es lo que hace hoy el dialecto de presentaciones y que
-// issue #70 tiene abierto como bug; cambiarlo ahí es un cambio de
-// comportamiento para archivos .slidelang existentes y no corresponde a este
-// dialecto decidirlo. El dialecto documental sí lo pasa: "declarado, nunca
-// reinterpretado" es incompatible con perder contenido sin avisar, y un
-// `TEXXT` mal tecleado no puede terminar en un build exitoso que borró el
-// párrafo de abajo.
+// reconocer. Con nil el contenido se descarta sin ningún diagnóstico — nadie
+// pasa nil hoy. Ambos dialectos reportan la línea descartada (issue #70):
+// el de presentaciones con un Warning (STRICT003, ver parseContentBlock),
+// el documental con un Error (ver parseSection en document_strict.go). La
+// diferencia de severidad es deliberada, no un descuido — un Error ahí
+// rompería el build de cualquier .slidelang existente que dependiera del
+// descarte silencioso (ver TestStrictParser_SlideDialectStillToleratesUnrecognizedLines);
+// un Warning es visible sin ser un cambio incompatible. El dialecto
+// documental, sin ese lastre de compatibilidad, puede permitirse el Error
+// completo: "declarado, nunca reinterpretado" es incompatible con perder
+// contenido sin avisar, y un `TEXXT` mal tecleado no puede terminar en un
+// build exitoso que borró el párrafo de abajo.
 func (p *strictBody) parseIndentedElements(
 	block *ast.ContentBlock,
 	handleProperty func(key, value string),
@@ -580,6 +594,15 @@ func (p *strictBody) addWarning(msg string) {
 	pos := diagnostics.NewPosition(p.currentLine+1, 1)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "parser"))
+}
+
+// addWarningWithRuleID es addWarning con un RuleID adjunto, para que el
+// diagnóstico sea greppable/suprimible por política de lint (mismo idioma
+// que FRONT005/TABLE004, ver frontmatter.go/table.go).
+func (p *strictBody) addWarningWithRuleID(msg, ruleID string) {
+	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(msg, pos, "parser").WithRuleID(ruleID))
 }
 
 func (p *strictBody) parseTableElement() ast.Element {
