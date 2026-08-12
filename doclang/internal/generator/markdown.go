@@ -18,6 +18,11 @@ import (
 // MarkdownGenerator genera documentos Markdown
 type MarkdownGenerator struct {
 	logger util.Logger
+	// headingOffset se setea al inicio de Generate — ver su doc comment ahí.
+	// Cero para un MarkdownGenerator recién construido (fuera de Generate,
+	// como en la mayoría de los tests de este archivo, que llaman
+	// renderElement directo).
+	headingOffset int
 }
 
 // NewMarkdownGenerator crea un nuevo generador Markdown
@@ -27,30 +32,27 @@ func NewMarkdownGenerator(log util.Logger) *MarkdownGenerator {
 	}
 }
 
-// resolveSectionTitle resuelve el título a mostrar de un ContentBlock y si
-// cuenta como sección numerada. El primer ContentBlock de un documento tiene
-// block_type "title" y lleva su texto en Heading, no en Title (ver
-// ast.ContentBlock) — ese bloque de preámbulo se muestra igual (con su
-// Heading) pero nunca participa en sectionNum: numerarlo como "1." y correr
-// el resto de las secciones un número adelante es confuso (issue #100).
-// Title vacío es exactamente la señal de que un ContentBlock es ese
-// preámbulo, así que basta con distinguir "vino de Title" (numerado) de
-// "vino de Heading" (no numerado) — sin necesitar leer BlockType. Mismo
-// criterio que core/renderer/document_html.go, mantenido en sync a mano
-// (paquetes distintos) para que HTML y Markdown coincidan en qué bloque
-// cuenta como sección numerada.
-func resolveSectionTitle(block ast.ContentBlock) (title string, numbered bool) {
-	if block.Title != "" {
-		return block.Title, true
-	}
-	return block.Heading, false
-}
-
 // Generate genera un documento Markdown
 func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorOptions) error {
 	m.logger.Info("MARKDOWN", "Building Markdown document...")
 
 	var md strings.Builder
+
+	// headingOffset (issue #52): 1 cuando el título del documento se emite
+	// como "#" más abajo, 0 en caso contrario — así una sección (y el
+	// encabezado "Table of Contents") siempre renderiza exactamente un
+	// nivel por debajo del título del documento, y cada heading anidado
+	// (renderElement, más abajo) exactamente un nivel por debajo de SU
+	// propia sección, en vez de colisionar con ella al mismo "##" (el
+	// defecto original de este issue). Campo del receiver, no parámetro de
+	// renderElement: renderElement se llama directo desde ~15 tests que no
+	// esperan ese offset (siempre 0, el default de un MarkdownGenerator
+	// creado a mano fuera de Generate).
+	m.headingOffset = 0
+	if doc.FrontMatter != nil && doc.FrontMatter.Title != "" {
+		m.headingOffset = 1
+	}
+	sectionLevel := 1 + m.headingOffset
 
 	// Add frontmatter if present
 	if doc.FrontMatter != nil {
@@ -83,12 +85,14 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 		fmt.Fprintf(&md, "# %s\n\n", doc.FrontMatter.Title)
 	}
 
+	sectionHashes := strings.Repeat("#", sectionLevel)
+
 	// Table of contents
 	if opts.TOC {
-		md.WriteString("## Table of Contents\n\n")
+		fmt.Fprintf(&md, "%s Table of Contents\n\n", sectionHashes)
 		sectionNum := 1
 		for _, block := range doc.ContentBlocks {
-			title, numbered := resolveSectionTitle(block)
+			title, numbered := block.SectionTitle()
 			if title != "" {
 				anchor := strings.ToLower(strings.ReplaceAll(title, " ", "-"))
 				if opts.Numbering && numbered {
@@ -107,12 +111,12 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 	// Document body
 	sectionNum := 1
 	for i, block := range doc.ContentBlocks {
-		title, numbered := resolveSectionTitle(block)
+		title, numbered := block.SectionTitle()
 		if title != "" {
 			if opts.Numbering && numbered {
-				fmt.Fprintf(&md, "## %d. %s\n\n", sectionNum, title)
+				fmt.Fprintf(&md, "%s %d. %s\n\n", sectionHashes, sectionNum, title)
 			} else {
-				fmt.Fprintf(&md, "## %s\n\n", title)
+				fmt.Fprintf(&md, "%s %s\n\n", sectionHashes, title)
 			}
 			if numbered {
 				sectionNum++
@@ -183,7 +187,18 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 			} else if m := markdownHeadingPattern.FindStringSubmatch(elem.Content); m != nil {
 				text = m[1]
 			}
-			return fmt.Sprintf("%s %s%s\n\n", strings.Repeat("#", elem.Level), text, anchor)
+			// level (issue #52): elem.Level + m.headingOffset hace que un
+			// heading anidado siempre renderice un nivel por debajo de SU
+			// propia sección, en vez de al mismo "##" que ella (el defecto
+			// original de este issue). Re-clampear a 6 después de sumar:
+			// buildHeadingElement (core/parser) ya clampeó elem.Level a 1..6
+			// en tiempo de parseo, así que un Level 6 + offset 1 daría 7 "#"
+			// sin este segundo clamp.
+			level := elem.Level + m.headingOffset
+			if level > 6 {
+				level = 6
+			}
+			return fmt.Sprintf("%s %s%s\n\n", strings.Repeat("#", level), text, anchor)
 		}
 		return elem.Content + "\n"
 

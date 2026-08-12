@@ -102,6 +102,10 @@ func TestMarkdownGeneratorGenerate(t *testing.T) {
 // "title", parsed from the document's first `# ` heading) carries its text
 // in Heading, not Title. It must still render its heading, but must not
 // consume a number or shift every real section's number up by one.
+//
+// This doc has no FrontMatter, so no "# <title>" is emitted at the top
+// (see markdown.go's Generate) — issue #52's headingOffset is 0, and
+// section headings render at "#", not "##".
 func TestMarkdownGeneratorGenerate_PreambleBlockNotCountedTowardNumbering(t *testing.T) {
 	logger := newTestLogger()
 	gen := NewMarkdownGenerator(logger)
@@ -131,7 +135,7 @@ func TestMarkdownGeneratorGenerate_PreambleBlockNotCountedTowardNumbering(t *tes
 	if !strings.Contains(content, "- [Preamble](#preamble)") {
 		t.Errorf("expected an unnumbered TOC entry for the preamble, got:\n%s", content)
 	}
-	if !strings.Contains(content, "## Preamble\n\n") {
+	if !strings.Contains(content, "# Preamble\n\n") {
 		t.Errorf("expected an unnumbered heading for the preamble, got:\n%s", content)
 	}
 
@@ -140,8 +144,52 @@ func TestMarkdownGeneratorGenerate_PreambleBlockNotCountedTowardNumbering(t *tes
 	if !strings.Contains(content, "- [1. Real Section](#real-section)") {
 		t.Errorf("expected the real section to be numbered '1.' (preamble doesn't count), got:\n%s", content)
 	}
-	if !strings.Contains(content, "## 1. Real Section\n\n") {
+	if !strings.Contains(content, "# 1. Real Section\n\n") {
 		t.Errorf("expected the real section's heading to be numbered '1.', got:\n%s", content)
+	}
+}
+
+// TestMarkdownGeneratorGenerate_SectionAndNestedHeadingRenderAtDistinctLevels
+// covers issue #52's live defect: section titles were hardcoded to "##" and
+// nested headings (TextElement.Level) rendered with no offset, so a section
+// and its own nested heading collided at the identical "##" — e.g. "##
+// Revenue Breakdown" (the section) and "## By Region" (its own nested h2)
+// came out at the same level. A section must always render exactly one
+// level above its own nested headings.
+func TestMarkdownGeneratorGenerate_SectionAndNestedHeadingRenderAtDistinctLevels(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+	doc := newTestAST() // has FrontMatter.Title -> headingOffset 1, section level "##"
+
+	nested := ast.NewRawHTMLTextElement(diagnostics.NewPosition(6, 1), `<h2 id="key-metrics">Key Metrics</h2>`)
+	nested.Level = 2
+	doc.ContentBlocks[0].Elements = append(doc.ContentBlocks[0].Elements, nested)
+
+	output := filepath.Join(t.TempDir(), "document.md")
+	if err := gen.Generate(doc, output, GeneratorOptions{}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("failed to read output file: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "## Introduction\n\n") {
+		t.Errorf("expected the section heading at level 2 (\"##\"), got:\n%s", content)
+	}
+	// elem.Level (2) + headingOffset (1) = 3 -> "###", strictly deeper than
+	// the section's "##". Line-start-anchored (not just strings.Contains):
+	// "### Key Metrics" itself contains "## Key Metrics" as a substring, so
+	// a bare Contains check for the wrong level would pass by accident. The
+	// heading also carries a trailing "{#key-metrics}" anchor, so match the
+	// line's start, not its exact end.
+	if !strings.Contains(content, "\n### Key Metrics") {
+		t.Errorf("expected the nested heading one level below its section (\"###\"), got:\n%s", content)
+	}
+	if strings.Contains(content, "\n## Key Metrics") {
+		t.Errorf("nested heading collided with its section's level (\"##\"), got:\n%s", content)
 	}
 }
 
