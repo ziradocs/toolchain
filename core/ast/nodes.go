@@ -223,6 +223,21 @@ func (fm *FrontMatterNode) BuildVariables() map[string]interface{} {
 }
 
 // ContentBlock representa un bloque de contenido (slide en presentaciones, sección en documentos)
+//
+// Title y Heading tienen un split de responsabilidad que no está escrito en
+// ningún otro lugar (issue #52): en documentos, el PRIMER ContentBlock del
+// AST (blockType "title", el bloque de preámbulo — el que trae el título
+// del documento) guarda su texto en Heading; TODOS los demás bloques
+// ("content") lo guardan en Title. slidelang usa el mismo split pero con
+// otro criterio: un slide con `# ` (sintaxis flex) va a Heading
+// independientemente de su posición; `## ` va a Title. El parser strict de
+// ambos dialectos deja que el autor declare cualquiera de los dos por
+// nombre (`title:`/`heading:` como propiedades), así que un bloque puede
+// tener AMBOS campos poblados a la vez — ver SectionTitle para el
+// desempate. Cada consumidor que necesita "el título que se muestra de este
+// bloque" debe llamar SectionTitle() en vez de leer Title/Heading
+// directamente — antes de este método, esa resolución estaba hand-rolled
+// (y a veces en desacuerdo entre sí) en al menos core/renderer y doclang.
 type ContentBlock struct {
 	BaseNode  `tstype:",extends,required"`
 	BlockType string `json:"blockType,omitempty"` // "title", "content", "section", etc.
@@ -252,6 +267,25 @@ type ContentBlock struct {
 	Elements []Element `json:"elements"`
 	// Configuración específica de header/footer para este bloque
 	HeaderFooterOverride *ContentBlockHeaderFooterOverride `json:"header_footer_override,omitempty"`
+}
+
+// SectionTitle resuelve el título a mostrar de este ContentBlock y si
+// cuenta como sección numerada — ver el split Title/Heading documentado en
+// el doc comment del struct. Title gana cuando ambos están poblados (el
+// dialecto strict lo permite, ver ContentBlock's doc comment): es lo que
+// las dos rutas de render existentes (core/renderer/document_html.go,
+// doclang/internal/generator/markdown.go — antes de este método, cada una
+// con su propia copia hand-rolled de esta misma función) ya hacían, así que
+// promoverlo a contrato compartido no les cambia el comportamiento. Un
+// Title vacío es la señal de que este bloque es el preámbulo del documento
+// (su texto vive en Heading en su lugar) — numerarlo como "1." y correr el
+// resto de las secciones un número adelante es confuso (issue #100), así
+// que numbered es false en ese caso.
+func (c ContentBlock) SectionTitle() (title string, numbered bool) {
+	if c.Title != "" {
+		return c.Title, true
+	}
+	return c.Heading, false
 }
 
 // NewContentBlock crea un nuevo bloque de contenido
