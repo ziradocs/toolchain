@@ -548,6 +548,7 @@ func renderMermaidOfflineAssets(content string, ctx *RenderContext) string {
 	// Renderizar y guardar SVG
 	relativePath, err := ctx.MermaidFetcher.FetchAndSave(ctx.Ctx, content, filepath.Join(ctx.OutputDir, "assets"))
 	if err != nil {
+		ctx.Logger.Warn("[MERMAID] failed to render diagram to assets: %v", err)
 		return fmt.Sprintf(`<div class="mermaid-error">Failed to render Mermaid diagram: %v</div>`, err)
 	}
 
@@ -566,6 +567,7 @@ func renderMermaidOfflineInline(content string, ctx *RenderContext) string {
 	// Renderizar a SVG inline
 	svgContent, err := ctx.MermaidFetcher.FetchInline(ctx.Ctx, content)
 	if err != nil {
+		ctx.Logger.Warn("[MERMAID] failed to render inline diagram: %v", err)
 		return fmt.Sprintf(`<div class="mermaid-error">Failed to render Mermaid diagram: %v</div>`, err)
 	}
 
@@ -627,6 +629,7 @@ func renderMathOfflineAssets(content string, ctx *RenderContext) string {
 	}
 	relativePath, err := ctx.MathFetcher.FetchAndSave(ctx.Ctx, content, filepath.Join(ctx.OutputDir, "assets"))
 	if err != nil {
+		ctx.Logger.Warn("[MATH] failed to render equation to assets: %v", err)
 		return fmt.Sprintf(`<div class="math-error">Failed to render equation: %v</div>`, err)
 	}
 	return fmt.Sprintf(`<img src="assets/%s" alt="Equation" class="math-diagram math-offline" type="image/svg+xml">`,
@@ -641,6 +644,7 @@ func renderMathOfflineInline(content string, ctx *RenderContext) string {
 	}
 	svgContent, err := ctx.MathFetcher.FetchInline(ctx.Ctx, content)
 	if err != nil {
+		ctx.Logger.Warn("[MATH] failed to render inline equation: %v", err)
 		return fmt.Sprintf(`<div class="math-error">Failed to render equation: %v</div>`, err)
 	}
 	return fmt.Sprintf(`<div class="math-diagram math-inline">%s</div>`, svgContent)
@@ -722,6 +726,7 @@ func renderPlantUMLOfflineAssets(content string, ctx *RenderContext) string {
 	assetPath, err := ctx.Fetcher.FetchDiagramToAssets(ctx.Ctx, content)
 	if err != nil {
 		// En caso de error, mostrar mensaje y fallback a browser mode
+		ctx.Logger.Warn("[PLANTUML] failed to fetch diagram to assets: %v", err)
 		return fmt.Sprintf(`<div class="plantuml-error">Error loading diagram: %s</div>`, err.Error())
 	}
 
@@ -746,6 +751,7 @@ func renderPlantUMLOfflineInline(content string, ctx *RenderContext) string {
 	svgContent, err := ctx.Fetcher.FetchDiagramInline(ctx.Ctx, content)
 	if err != nil {
 		// En caso de error, mostrar mensaje y fallback a browser mode
+		ctx.Logger.Warn("[PLANTUML] failed to fetch inline diagram: %v", err)
 		return fmt.Sprintf(`<div class="plantuml-error">Error loading diagram: %s</div>`, err.Error())
 	}
 
@@ -892,6 +898,7 @@ func renderChartOfflineAssets(elem *ast.ChartElement, chartConfig string, width,
 	// Renderizar y guardar PNG con dimensiones especificadas
 	relativePath, err := ctx.ChartFetcher.FetchAndSave(ctx.Ctx, elem, chartConfig, filepath.Join(ctx.OutputDir, "assets"), width, height)
 	if err != nil {
+		ctx.Logger.Warn("[CHART] failed to render chart to assets: %v", err)
 		return fmt.Sprintf(`<div class="chart-error">Failed to render chart: %v</div>`, err)
 	}
 
@@ -908,6 +915,7 @@ func renderChartOfflineInline(elem *ast.ChartElement, chartConfig string, width,
 	// Renderizar imagen inline con dimensiones especificadas
 	imageData, err := ctx.ChartFetcher.FetchInline(ctx.Ctx, elem, chartConfig, width, height)
 	if err != nil {
+		ctx.Logger.Warn("[CHART] failed to render inline chart: %v", err)
 		return fmt.Sprintf(`<div class="chart-error">Failed to render chart: %v</div>`, err)
 	}
 
@@ -1404,6 +1412,7 @@ func renderMapOfflineAssets(mapConfig MapConfig, width, height int, ctx *RenderC
 	// Renderizar y guardar PNG con dimensiones especificadas
 	relativePath, err := ctx.MapFetcher.FetchAndSave(ctx.Ctx, mapConfig, filepath.Join(ctx.OutputDir, "assets"), width, height)
 	if err != nil {
+		ctx.Logger.Warn("[MAP] failed to render map to assets: %v", err)
 		return fmt.Sprintf(`<div class="map-error">Failed to render map: %v</div>`, err)
 	}
 
@@ -1420,6 +1429,7 @@ func renderMapOfflineInline(mapConfig MapConfig, width, height int, ctx *RenderC
 	// Renderizar imagen inline con dimensiones especificadas
 	imageData, err := ctx.MapFetcher.FetchInline(ctx.Ctx, mapConfig, width, height)
 	if err != nil {
+		ctx.Logger.Warn("[MAP] failed to render inline map: %v", err)
 		return fmt.Sprintf(`<div class="map-error">Failed to render map: %v</div>`, err)
 	}
 
