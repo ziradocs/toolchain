@@ -61,7 +61,18 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // keys (see llm-kit/reference/frontmatter.md). Page/PageMargins hold the
 // author's length strings verbatim ("A4", "2cm"), not resolved to any
 // renderer's unit — see core/util/length.go for the shared resolver.
-const SchemaVersion = "2.6.0"
+//
+// 2.7.0 (issue #92): DiscardedLangRuns ([]LangRun, additive, omitempty),
+// the mirror image of 2.3.0/2.4.0's LangRuns, on the same 7 types
+// (TextElement, PointItem, ChecklistItem, QuoteElement, SpecialBlockElement,
+// GridElement, ColumnElement). renderer.PopulateLangRuns was silently
+// discarding any [texto]{lang=xx} span whose tag failed a11y.IsValidLangTag
+// — correct for LangRuns itself, but nothing else in the AST recorded that
+// a discard happened, so an external rulepack (which receives the AST as
+// serialized JSON, not in-process) had no way to learn that a language mark
+// existed and didn't take without re-deriving it by hand. Same
+// derivation/posture as LangRuns.
+const SchemaVersion = "2.7.0"
 
 // Node representa un nodo base en el AST
 type Node interface {

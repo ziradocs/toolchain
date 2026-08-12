@@ -297,6 +297,16 @@ type TextElement struct {
 	// ast.ClearRenderedHTML the way *HTML fields are — there is nothing
 	// pre-rendered here to distrust, only something re-derived every time.
 	LangRuns []LangRun `json:"langRuns,omitempty"`
+	// DiscardedLangRuns is the mirror image of LangRuns (issue #92): every
+	// [texto]{lang=xx} span found in Content whose tag failed
+	// a11y.IsValidLangTag, so it never became a LangRuns entry. Without this,
+	// a consumer that cares whether a language mark existed and didn't take
+	// (e.g. a WCAG 3.1.2 linter rule, a formatter round-tripping content) had
+	// no way to learn that from the populated AST — it had to independently
+	// re-scan Content with its own copy of the extraction pattern to find
+	// what renderer.PopulateLangRuns already found and silently discarded.
+	// Same re-derivation/never-cleared rules as LangRuns.
+	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
 }
 
 func (t TextElement) element() {}
@@ -339,11 +349,12 @@ func NewPointsElement(pos diagnostics.Position) *PointsElement {
 
 // PointItem representa un item en una lista
 type PointItem struct {
-	BaseNode    `tstype:",extends,required"`
-	Content     string      `json:"content"`
-	ContentHTML string      `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
-	LangRuns    []LangRun   `json:"langRuns,omitempty"`    // ver TextElement.LangRuns
-	SubPoints   []PointItem `json:"subPoints,omitempty"`
+	BaseNode          `tstype:",extends,required"`
+	Content           string      `json:"content"`
+	ContentHTML       string      `json:"contentHTML,omitempty"`       // ver TextElement.ContentHTML
+	LangRuns          []LangRun   `json:"langRuns,omitempty"`          // ver TextElement.LangRuns
+	DiscardedLangRuns []LangRun   `json:"discardedLangRuns,omitempty"` // ver TextElement.DiscardedLangRuns
+	SubPoints         []PointItem `json:"subPoints,omitempty"`
 }
 
 // NewPointItem crea un nuevo item de punto
@@ -536,7 +547,10 @@ type SpecialBlockElement struct {
 	// ser una etiqueta corta ("Nota", "Advertencia"), no prosa donde marcar
 	// un idioma distinto tenga sentido. Ver TextElement.LangRuns.
 	LangRuns []LangRun `json:"langRuns,omitempty"`
-	Icon     string    `json:"icon,omitempty"`
+	// DiscardedLangRuns cubre solo Content, mismo alcance que LangRuns arriba.
+	// Ver TextElement.DiscardedLangRuns.
+	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
+	Icon              string    `json:"icon,omitempty"`
 }
 
 func (s SpecialBlockElement) element() {}
@@ -737,11 +751,14 @@ type QuoteElement struct {
 	// cuál vino cada uno; Content es la prosa citada, la que un pasaje en
 	// otro idioma tiene sentido marcar (Author/Source suelen ser un nombre
 	// propio, no oración). Ver TextElement.LangRuns.
-	LangRuns   []LangRun `json:"langRuns,omitempty"`
-	Author     string    `json:"author,omitempty"`     // Para citas con autor
-	AuthorHTML string    `json:"authorHTML,omitempty"` // Author con {{variables}} sustituidas y escapadas (sin markdown)
-	Source     string    `json:"source,omitempty"`     // Para citas con fuente
-	SourceHTML string    `json:"sourceHTML,omitempty"` // Source con {{variables}} sustituidas y escapadas (sin markdown)
+	LangRuns []LangRun `json:"langRuns,omitempty"`
+	// DiscardedLangRuns cubre solo Content, mismo alcance que LangRuns arriba.
+	// Ver TextElement.DiscardedLangRuns.
+	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
+	Author            string    `json:"author,omitempty"`     // Para citas con autor
+	AuthorHTML        string    `json:"authorHTML,omitempty"` // Author con {{variables}} sustituidas y escapadas (sin markdown)
+	Source            string    `json:"source,omitempty"`     // Para citas con fuente
+	SourceHTML        string    `json:"sourceHTML,omitempty"` // Source con {{variables}} sustituidas y escapadas (sin markdown)
 }
 
 func (q QuoteElement) element() {}
@@ -772,12 +789,13 @@ func NewChecklistElement(pos diagnostics.Position) *ChecklistElement {
 
 // ChecklistItem representa un item en una lista de tareas
 type ChecklistItem struct {
-	BaseNode    `tstype:",extends,required"`
-	Content     string          `json:"content"`
-	ContentHTML string          `json:"contentHTML,omitempty"` // ver TextElement.ContentHTML
-	LangRuns    []LangRun       `json:"langRuns,omitempty"`    // ver TextElement.LangRuns
-	Checked     bool            `json:"checked"`
-	SubItems    []ChecklistItem `json:"subItems,omitempty"`
+	BaseNode          `tstype:",extends,required"`
+	Content           string          `json:"content"`
+	ContentHTML       string          `json:"contentHTML,omitempty"`       // ver TextElement.ContentHTML
+	LangRuns          []LangRun       `json:"langRuns,omitempty"`          // ver TextElement.LangRuns
+	DiscardedLangRuns []LangRun       `json:"discardedLangRuns,omitempty"` // ver TextElement.DiscardedLangRuns
+	Checked           bool            `json:"checked"`
+	SubItems          []ChecklistItem `json:"subItems,omitempty"`
 }
 
 // NewChecklistItem crea un nuevo item de checklist
@@ -801,6 +819,9 @@ type GridElement struct {
 	// correspondiente, poblado por recursión sobre esa columna, no aquí.
 	// Ver TextElement.LangRuns.
 	LangRuns []LangRun `json:"langRuns,omitempty"`
+	// DiscardedLangRuns cubre solo Content, mismo alcance que LangRuns arriba.
+	// Ver TextElement.DiscardedLangRuns.
+	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
 }
 
 func (g GridElement) element() {}
@@ -823,7 +844,10 @@ type ColumnElement struct {
 	// anidado correspondiente, poblado por recursión, no aquí. Ver
 	// TextElement.LangRuns.
 	LangRuns []LangRun `json:"langRuns,omitempty"`
-	Elements []Element `json:"elements,omitempty"`
+	// DiscardedLangRuns cubre solo Content, mismo alcance que LangRuns arriba.
+	// Ver TextElement.DiscardedLangRuns.
+	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
+	Elements          []Element `json:"elements,omitempty"`
 }
 
 func (c ColumnElement) element() {}

@@ -53,8 +53,18 @@ import type { Position } from "./diagnostics";
  * keys (see llm-kit/reference/frontmatter.md). Page/PageMargins hold the
  * author's length strings verbatim ("A4", "2cm"), not resolved to any
  * renderer's unit — see core/util/length.go for the shared resolver.
+ * 2.7.0 (issue #92): DiscardedLangRuns ([]LangRun, additive, omitempty),
+ * the mirror image of 2.3.0/2.4.0's LangRuns, on the same 7 types
+ * (TextElement, PointItem, ChecklistItem, QuoteElement, SpecialBlockElement,
+ * GridElement, ColumnElement). renderer.PopulateLangRuns was silently
+ * discarding any [texto]{lang=xx} span whose tag failed a11y.IsValidLangTag
+ * — correct for LangRuns itself, but nothing else in the AST recorded that
+ * a discard happened, so an external rulepack (which receives the AST as
+ * serialized JSON, not in-process) had no way to learn that a language mark
+ * existed and didn't take without re-deriving it by hand. Same
+ * derivation/posture as LangRuns.
  */
-export const SchemaVersion = "2.6.0";
+export const SchemaVersion = "2.7.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -408,6 +418,18 @@ export interface TextElement extends BaseNode {
    * pre-rendered here to distrust, only something re-derived every time.
    */
   langRuns?: LangRun[];
+  /**
+   * DiscardedLangRuns is the mirror image of LangRuns (issue #92): every
+   * [texto]{lang=xx} span found in Content whose tag failed
+   * a11y.IsValidLangTag, so it never became a LangRuns entry. Without this,
+   * a consumer that cares whether a language mark existed and didn't take
+   * (e.g. a WCAG 3.1.2 linter rule, a formatter round-tripping content) had
+   * no way to learn that from the populated AST — it had to independently
+   * re-scan Content with its own copy of the extraction pattern to find
+   * what renderer.PopulateLangRuns already found and silently discarded.
+   * Same re-derivation/never-cleared rules as LangRuns.
+   */
+  discardedLangRuns?: LangRun[];
 }
 /**
  * PointsElement representa una lista de puntos
@@ -423,6 +445,7 @@ export interface PointItem extends BaseNode {
   content: string;
   contentHTML?: string; // ver TextElement.ContentHTML
   langRuns?: LangRun[]; // ver TextElement.LangRuns
+  discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
   subPoints?: PointItem[];
 }
 /**
@@ -575,6 +598,11 @@ export interface SpecialBlockElement extends BaseNode {
    * un idioma distinto tenga sentido. Ver TextElement.LangRuns.
    */
   langRuns?: LangRun[];
+  /**
+   * DiscardedLangRuns cubre solo Content, mismo alcance que LangRuns arriba.
+   * Ver TextElement.DiscardedLangRuns.
+   */
+  discardedLangRuns?: LangRun[];
   icon?: string;
 }
 /**
@@ -705,6 +733,11 @@ export interface QuoteElement extends BaseNode {
    * propio, no oración). Ver TextElement.LangRuns.
    */
   langRuns?: LangRun[];
+  /**
+   * DiscardedLangRuns cubre solo Content, mismo alcance que LangRuns arriba.
+   * Ver TextElement.DiscardedLangRuns.
+   */
+  discardedLangRuns?: LangRun[];
   author?: string; // Para citas con autor
   authorHTML?: string; // Author con {{variables}} sustituidas y escapadas (sin markdown)
   source?: string; // Para citas con fuente
@@ -723,6 +756,7 @@ export interface ChecklistItem extends BaseNode {
   content: string;
   contentHTML?: string; // ver TextElement.ContentHTML
   langRuns?: LangRun[]; // ver TextElement.LangRuns
+  discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
   checked: boolean;
   subItems?: ChecklistItem[];
 }
@@ -740,6 +774,11 @@ export interface GridElement extends BaseNode {
    * Ver TextElement.LangRuns.
    */
   langRuns?: LangRun[];
+  /**
+   * DiscardedLangRuns cubre solo Content, mismo alcance que LangRuns arriba.
+   * Ver TextElement.DiscardedLangRuns.
+   */
+  discardedLangRuns?: LangRun[];
 }
 /**
  * ColumnElement representa una columna dentro de un grid
@@ -754,6 +793,11 @@ export interface ColumnElement extends BaseNode {
    * TextElement.LangRuns.
    */
   langRuns?: LangRun[];
+  /**
+   * DiscardedLangRuns cubre solo Content, mismo alcance que LangRuns arriba.
+   * Ver TextElement.DiscardedLangRuns.
+   */
+  discardedLangRuns?: LangRun[];
   elements?: Element[];
 }
 /**
