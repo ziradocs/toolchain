@@ -208,6 +208,27 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 							chart.Labels = labels
 						}
 					}
+				case "options":
+					// El bloque options: es YAML anidado arbitrario (la config
+					// de Chart.js: plugins, scales, datalabels...), no una
+					// propiedad de una línea como las de al lado, así que se
+					// captura entero por sangría y se deserializa aparte.
+					//
+					// Hasta este parche NO existía este case: el switch solo
+					// conocía data/series/labels/title/type, y todo bloque
+					// options: del DSL se descartaba en silencio antes de
+					// llegar al AST. Eso no era un hueco solo de PPTX —
+					// también borraba el título de los charts cuyo texto vive
+					// en options.plugins.title.text (que es como lo escriben
+					// los ejemplos de examples/02_diagrams_and_charts/), así
+					// que el HTML llevaba tiempo perdiendo títulos que el
+					// autor sí había pedido.
+					opts, linesConsumed := p.parseNestedOptions(ctx.Lines, i+1)
+					if opts != nil {
+						chart.Options = opts
+					}
+					i += linesConsumed
+					consumedLines += linesConsumed
 				case "title":
 					chart.Title = strings.Trim(value, "\"")
 				case "type":
@@ -558,6 +579,79 @@ func (p *ChartParser) parseYAMLBlock(lines []string, startIndex int) (string, in
 		return strings.Join(yamlLines, "\n"), linesConsumed
 	}
 	return "", 0
+}
+
+// parseNestedOptions captura el bloque YAML anidado que sigue a "options:" y
+// lo deserializa a map[string]interface{} — la misma forma que
+// parseComboChartYAML ya produce para chart.Options por la ruta combo, y la
+// que el renderer HTML espera para inyectarla como config de Chart.js.
+//
+// El bloque se delimita por sangría: pertenecen a options: todas las líneas
+// más indentadas que la propia "options:", más las vacías intercaladas. Se
+// dedenta al mínimo común antes de parsear porque yaml.Unmarshal rechaza un
+// documento cuya primera línea ya viene sangrada.
+//
+// Devuelve (nil, n) si el YAML no parsea: un options: mal formado no debe
+// tumbar el chart entero — se descarta la config y el chart se renderiza sin
+// ella, que es exactamente el comportamiento que había antes de que este
+// parser existiera.
+func (p *ChartParser) parseNestedOptions(lines []string, startIndex int) (map[string]interface{}, int) {
+	if startIndex >= len(lines) {
+		return nil, 0
+	}
+
+	baseIndent := countLeadingSpaces(lines[startIndex])
+	if baseIndent == 0 {
+		// Sin sangría no hay bloque anidado que capturar.
+		return nil, 0
+	}
+
+	var block []string
+	consumed := 0
+	for i := startIndex; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			// Una línea vacía no cierra el bloque, pero tampoco lo extiende
+			// por sí sola: solo se incluye si algo más indentado la sigue.
+			block = append(block, "")
+			consumed++
+			continue
+		}
+		if countLeadingSpaces(line) < baseIndent {
+			break
+		}
+		block = append(block, line[baseIndent:])
+		consumed++
+	}
+
+	// Recortar las vacías del final, que no pertenecen al bloque.
+	for len(block) > 0 && strings.TrimSpace(block[len(block)-1]) == "" {
+		block = block[:len(block)-1]
+		consumed--
+	}
+	if len(block) == 0 {
+		return nil, 0
+	}
+
+	var opts map[string]interface{}
+	if err := yaml.Unmarshal([]byte(strings.Join(block, "\n")), &opts); err != nil {
+		return nil, consumed
+	}
+	return opts, consumed
+}
+
+// countLeadingSpaces cuenta la sangría de una línea tratando un tab como un
+// espacio — basta para comparar niveles relativos, que es lo único que
+// parseNestedOptions necesita.
+func countLeadingSpaces(line string) int {
+	n := 0
+	for _, r := range line {
+		if r != ' ' && r != '\t' {
+			break
+		}
+		n++
+	}
+	return n
 }
 
 // ChartData representa la estructura de datos para combo charts
