@@ -371,6 +371,12 @@ func (r *ChromiumRenderer) ensureBrowser(callerCtx context.Context) error {
 	}
 }
 
+// var _ renderer.PDFBackend asserts that *ChromiumRenderer satisfies the
+// backend seam structurally, sin declararlo explícitamente (mismo patrón que
+// las interfaces de fetcher en core/renderer/fetchers.go, para evitar el
+// ciclo de import renderer -> chromium -> renderer).
+var _ renderer.PDFBackend = (*ChromiumRenderer)(nil)
+
 // RenderHTMLToPDF convierte HTML a PDF. ctx acota/cancela esta llamada
 // puntual (issue #134/G1d) sin afectar el ciclo de vida del browser, que
 // sigue gobernado por el ctx pasado al constructor.
@@ -405,7 +411,7 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 	err := chromedp.Run(runCtx,
 		navigateAndSetContent(htmlContent),
 		chromedp.WaitReady("body", chromedp.ByQuery),
-		chromedp.Sleep(500*time.Millisecond), // Dar tiempo a CSS/JS
+		r.waitForFontsReady(),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			r.logger.Info("PDF", "Generating PDF...")
 
@@ -432,6 +438,42 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 
 	r.logger.Info("PDF", "✅ PDF generated: %s (%.2f KB)", outputPath, float64(len(pdfBuf))/1024)
 	return nil
+}
+
+// waitForFontsReady reemplaza el sleep fijo de 500ms que RenderHTMLToPDF
+// tenía antes (issue "quitar Chrome del pipeline", Fase 3: el propio código
+// documentaba, en slidelang/internal/generator/pdf.go, que ese margen NO
+// alcanzaba para que un script CDN cargara+inicializara+dibujara — el
+// diagrama quedaba en blanco). La solución real a esa carrera es que PDF ya
+// no depende de ningún CDN (ver doclang/internal/generator/pdf.go, que
+// ahora fuerza offline-inline); lo único que le queda esperar acá es una
+// condición real y acotada: que el navegador termine de cargar cualquier
+// @font-face que el CSS de la página declare. Con document.fonts.size===0
+// (el caso de hoy: este toolchain solo usa font stacks de sistema, cero
+// @font-face — ver core/renderer/csp.go's ausencia deliberada de font-src)
+// la condición ya es verdadera en el primer poll, así que la espera real
+// converge casi de inmediato en vez de pagar 500ms fijos en todos los
+// builds. Acotado a 3s (mismo criterio de timeout que RenderMapToPNG) para
+// que un caso patológico no cuelgue el build entero; si el poll falla o
+// agota el timeout, se loguea y se sigue directo a imprimir — nunca bloquea
+// la generación del PDF por esto, que era justamente el problema con el
+// sleep fijo original: una espera que no puede fallar tampoco puede tener
+// una condición real detrás.
+func (r *ChromiumRenderer) waitForFontsReady() chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+
+		err := chromedp.Poll(
+			`document.fonts.status === "loaded" || document.fonts.size === 0`,
+			nil,
+			chromedp.WithPollingInterval(50*time.Millisecond),
+		).Do(timeoutCtx)
+		if err != nil {
+			r.logger.Info("PDF", "font loading wait ended early (%v), continuing to print anyway", err)
+		}
+		return nil
+	})
 }
 
 // RenderMermaidToSVG renderiza un diagrama Mermaid a SVG. ctx acota/cancela
@@ -956,26 +998,17 @@ func (r *ChromiumRenderer) Close() {
 	}
 }
 
-// PDFOptions configura la generación de PDF
-type PDFOptions struct {
-	// Paper size (inches)
-	PaperWidth  float64
-	PaperHeight float64
-	Landscape   bool
+// PDFOptions es un alias de renderer.PDFOptions (issue "quitar Chrome del
+// pipeline"): el tipo se movió a core/renderer porque describe una página,
+// no un navegador, y este alias evita romper callers existentes que siguen
+// escribiendo chromium.PDFOptions. Código nuevo debería usar
+// renderer.PDFOptions directamente.
+type PDFOptions = renderer.PDFOptions
 
-	// Margins (inches)
-	MarginTop    float64
-	MarginBottom float64
-	MarginLeft   float64
-	MarginRight  float64
-
-	// Header/Footer
-	DisplayHeaderFooter bool
-	HeaderTemplate      string
-	FooterTemplate      string
-
-	// Scale
-	Scale float64
+// DefaultPDFOptions retorna opciones por defecto (A4, portrait). Delega en
+// renderer.DefaultPDFOptions — ver el alias PDFOptions arriba.
+func DefaultPDFOptions() PDFOptions {
+	return renderer.DefaultPDFOptions()
 }
 
 // buildPrintToPDFParams arma los parámetros de Page.printToPDF a partir de
@@ -1028,18 +1061,4 @@ func buildPrintToPDFParams(opts PDFOptions) *page.PrintToPDFParams {
 	}
 
 	return printParams
-}
-
-// DefaultPDFOptions retorna opciones por defecto (A4, portrait)
-func DefaultPDFOptions() PDFOptions {
-	return PDFOptions{
-		PaperWidth:   8.27,  // A4 width in inches
-		PaperHeight:  11.69, // A4 height in inches
-		Landscape:    false,
-		MarginTop:    0.4,
-		MarginBottom: 0.4,
-		MarginLeft:   0.4,
-		MarginRight:  0.4,
-		Scale:        1.0,
-	}
 }
