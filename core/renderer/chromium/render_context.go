@@ -79,7 +79,7 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 	var fetcher renderer.PlantUMLFetcher
 	if renderer.IsOfflineRenderMode(plantumlMode) {
 		if useKroki {
-			fetcher = NewKrokiFetcher(opts.KrokiServer, "plantuml", opts.OutputDir)
+			fetcher = NewKrokiFetcher(opts.KrokiServer, "plantuml", plantumlFormat, opts.OutputDir)
 		} else {
 			fetcher = NewPlantUMLFetcher(opts.PlantUMLServer, plantumlFormat, opts.OutputDir)
 		}
@@ -97,7 +97,7 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 			// "quitar Chrome del pipeline") — es justo lo que permite que
 			// un documento con mermaid llegue a offline-inline sin
 			// instanciar un ChromiumRenderer.
-			mermaidFetcher = NewKrokiFetcher(opts.KrokiServer, "mermaid", opts.OutputDir)
+			mermaidFetcher = NewKrokiFetcher(opts.KrokiServer, "mermaid", "svg", opts.OutputDir)
 		} else if cr != nil {
 			mermaidFetcher = NewMermaidFetcher(cr, renderer.NoopFetcherLogger{})
 		}

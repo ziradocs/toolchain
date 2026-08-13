@@ -65,11 +65,12 @@ var (
 type KrokiFetcher struct {
 	server           string
 	diagramType      string
+	format           string
 	trustedClient    *http.Client
 	restrictedClient *http.Client
 	outputDir        string
 
-	// cache guarda el SVG ya obtenido por hash de contenido, compartido
+	// cache guarda el resultado ya obtenido por hash de contenido, compartido
 	// entre las cuatro variantes de fetch (a diferencia de
 	// BaseFetcher.FetchInline, que solo aparenta cachear y siempre vuelve a
 	// renderizar — ver base_fetcher.go:140. Con Chromium ese re-render es
@@ -80,14 +81,27 @@ type KrokiFetcher struct {
 }
 
 // NewKrokiFetcher crea un fetcher contra server (vacío = https://kroki.io
-// público) para el componente diagramType ("mermaid" o "plantuml").
-func NewKrokiFetcher(server, diagramType, outputDir string) *KrokiFetcher {
+// público) para el componente diagramType ("mermaid" o "plantuml"),
+// solicitando el outputFormat de Kroki dado por format (vacío = "svg").
+// Hallazgo de code-review sobre este PR: antes de este parámetro, el
+// fetcher pedía siempre /{diagramType}/svg sin importar --plantuml-format,
+// así que --diagram-backend=kroki --plantuml-format=png devolvía SVG en
+// silencio (con extensión .svg) mientras ctx.PlantUMLFormat/el <img type=
+// generado por renderPlantUMLOfflineAssets (core/renderer/html.go) seguían
+// diciendo "png". Cada caller controla qué format le pasa a cada instancia:
+// mermaid siempre usa "svg" (esta base de código no expone un flag de
+// formato para mermaid), plantuml usa el que --plantuml-format resolvió.
+func NewKrokiFetcher(server, diagramType, format, outputDir string) *KrokiFetcher {
 	if server == "" {
 		server = "https://kroki.io"
+	}
+	if format == "" {
+		format = "svg"
 	}
 	return &KrokiFetcher{
 		server:           strings.TrimSuffix(server, "/"),
 		diagramType:      diagramType,
+		format:           format,
 		trustedClient:    newNoRedirectClient(krokiTimeout, nil),
 		restrictedClient: newNoRedirectClient(krokiTimeout, ssrfSafeDialControl),
 		outputDir:        outputDir,
@@ -157,8 +171,9 @@ func (f *KrokiFetcher) cacheKey(content string) string {
 	return GenerateContentHash(f.server + "|" + f.diagramType + "|" + content)
 }
 
-// render obtiene el SVG de content, sirviendo desde f.cache cuando ya se
-// pidió antes (por cualquiera de los cuatro métodos públicos).
+// render obtiene el diagrama en f.format de content, sirviendo desde
+// f.cache cuando ya se pidió antes (por cualquiera de los cuatro métodos
+// públicos).
 func (f *KrokiFetcher) render(ctx context.Context, content string) ([]byte, error) {
 	hash := f.cacheKey(content)
 
@@ -169,7 +184,7 @@ func (f *KrokiFetcher) render(ctx context.Context, content string) ([]byte, erro
 	}
 	f.mu.Unlock()
 
-	url := fmt.Sprintf("%s/%s/svg", f.server, f.diagramType)
+	url := fmt.Sprintf("%s/%s/%s", f.server, f.diagramType, f.format)
 	resp, err := f.postWithControlledRedirects(ctx, url, content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch diagram from kroki: %w", err)
@@ -219,7 +234,7 @@ func writeAtomic(dir, filename string, data []byte) error {
 // cambiar la convención de rutas.
 func (f *KrokiFetcher) FetchAndSave(ctx context.Context, code string, outputDir string) (string, error) {
 	hash := f.cacheKey(code)
-	filename := fmt.Sprintf("kroki-%s_%s.svg", f.diagramType, hash)
+	filename := fmt.Sprintf("kroki-%s_%s.%s", f.diagramType, hash, f.format)
 
 	assetsDir := filepath.Join(outputDir, "diagrams")
 	if err := os.MkdirAll(assetsDir, 0755); err != nil {
@@ -242,8 +257,13 @@ func (f *KrokiFetcher) FetchAndSave(ctx context.Context, code string, outputDir 
 }
 
 // FetchInline satisface renderer.MermaidFetcher: renderiza code y retorna
-// el SVG como string, sin escribir a disco.
+// el SVG como string, sin escribir a disco. SVG-only por construcción,
+// mismo motivo que FetchDiagramInline abajo — devolver bytes PNG como
+// string para inyectar como marcado inline sería basura binaria en el HTML.
 func (f *KrokiFetcher) FetchInline(ctx context.Context, code string) (string, error) {
+	if f.format != "svg" {
+		return "", fmt.Errorf("inline mode only supports svg format, got %q", f.format)
+	}
 	data, err := f.render(ctx, code)
 	if err != nil {
 		return "", err
@@ -258,7 +278,7 @@ func (f *KrokiFetcher) FetchInline(ctx context.Context, code string) (string, er
 // lo produjo.
 func (f *KrokiFetcher) FetchDiagramToAssets(ctx context.Context, content string) (string, error) {
 	hash := f.cacheKey(content)
-	filename := fmt.Sprintf("kroki-%s_%s.svg", f.diagramType, hash)
+	filename := fmt.Sprintf("kroki-%s_%s.%s", f.diagramType, hash, f.format)
 
 	assetsDir := filepath.Join(f.outputDir, "assets", "diagrams")
 	if err := os.MkdirAll(assetsDir, 0755); err != nil {
@@ -281,8 +301,16 @@ func (f *KrokiFetcher) FetchDiagramToAssets(ctx context.Context, content string)
 }
 
 // FetchDiagramInline satisface renderer.PlantUMLFetcher: renderiza content
-// y retorna el SVG como string.
+// y retorna el SVG como string. SVG-only por construcción, mismo criterio
+// que PlantUMLFetcher.FetchDiagramInline (plantuml_fetcher.go) — inyectar
+// bytes PNG como marcado inline en el HTML es basura binaria, no un
+// diagrama. offline-inline fuerza PlantUMLFormat="svg" en ambos CLIs
+// (doclang/slidelang's pdf.go) precisamente por este contrato; este check
+// es la defensa en el fetcher mismo para cualquier otro caller.
 func (f *KrokiFetcher) FetchDiagramInline(ctx context.Context, content string) (string, error) {
+	if f.format != "svg" {
+		return "", fmt.Errorf("inline mode only supports SVG format")
+	}
 	data, err := f.render(ctx, content)
 	if err != nil {
 		return "", err
