@@ -85,6 +85,15 @@ type BuildOptions struct {
 	// flags que ya expone doclang.
 	PlantUMLServer string
 	PlantUMLFormat string
+	// DiagramBackend/KrokiServer (issue "quitar Chrome del pipeline"):
+	// alternativa a Chromium para mermaid/plantuml en modos offline —
+	// "chromium" (default) o "kroki" (KrokiServer, sin Chromium en esta
+	// máquina; requiere un servidor Kroki propio u https://kroki.io
+	// público). No afecta chart/map/math, que Kroki no cubre, ni el paso de
+	// impresión de --format pdf, que sigue necesitando Chromium sin
+	// importar este flag.
+	DiagramBackend string
+	KrokiServer    string
 }
 
 func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
@@ -170,6 +179,8 @@ Examples:
 	cmd.Flags().BoolVar(&opts.InstallChromium, "install-chromium", false, "Auto-install Chromium if not found (for offline rendering and --format pdf)")
 	cmd.Flags().StringVar(&opts.PlantUMLServer, "plantuml-server", "", "Custom PlantUML server URL for offline modes and --format pdf (default: https://www.plantuml.com/plantuml)")
 	cmd.Flags().StringVar(&opts.PlantUMLFormat, "plantuml-format", "svg", "PlantUML image format for offline-assets mode: svg or png (offline-inline and --format pdf always use svg)")
+	cmd.Flags().StringVar(&opts.DiagramBackend, "diagram-backend", "chromium", "Backend for mermaid/plantuml diagrams in offline-* render modes and --format pdf: chromium (default) or kroki (no Chromium needed for these two; requires a Kroki server, see --kroki-server)")
+	cmd.Flags().StringVar(&opts.KrokiServer, "kroki-server", "", "Custom Kroki server URL (default: public https://kroki.io); only used when --diagram-backend=kroki")
 
 	return cmd
 }
@@ -606,6 +617,9 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	if opts.RenderMode != "" && !validRenderModes[opts.RenderMode] {
 		return fmt.Errorf("invalid render-mode: %s (valid: browser, offline-assets, offline-inline)", opts.RenderMode)
 	}
+	if opts.DiagramBackend != "" && opts.DiagramBackend != "chromium" && opts.DiagramBackend != "kroki" {
+		return fmt.Errorf("invalid diagram-backend: %s (valid: chromium, kroki)", opts.DiagramBackend)
+	}
 
 	// 9. Generar salida (uno o varios formatos, mismo AST parseado una sola vez)
 	formats := parseFormats(opts.Format)
@@ -697,6 +711,8 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		InstallChromium: opts.InstallChromium,
 		PlantUMLServer:  opts.PlantUMLServer,
 		PlantUMLFormat:  opts.PlantUMLFormat,
+		DiagramBackend:  opts.DiagramBackend,
+		KrokiServer:     opts.KrokiServer,
 		AssetRoot:       absAssetRoot,
 		ResolvedTheme:   resolvedTheme,
 	}

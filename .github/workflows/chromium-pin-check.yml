@@ -75,7 +75,7 @@ jobs:
             --body "Chrome for Testing publicó Stable **$stable**; el pin actual en \`core/renderer/chromium/chromium_installer.go\` (\`chromiumVersion\`) sigue en **$pinned**.
 
           Para actualizar (ver el comentario doc sobre \`chromiumVersion\` en el mismo archivo):
-          1. Para cada plataforma soportada (mac-arm64, mac-x64, linux64, win64), descargar el zip de Chrome for Testing y calcular su SHA-256.
+          1. Para cada plataforma soportada (mac-arm64, mac-x64, linux64, win64), descargar el zip de **chrome-headless-shell** (no el Chrome completo — issue \"quitar Chrome del pipeline\") de Chrome for Testing y calcular su SHA-256.
           2. Actualizar \`chromiumVersion\` y las 4 entradas de \`chromiumSHA256\` **en el mismo commit**.
           3. \`go test ./renderer/... -run TestChromiumPin\` valida la forma del pin nuevo (no la frescura — eso es este workflow).
 

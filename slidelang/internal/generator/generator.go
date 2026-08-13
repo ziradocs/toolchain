@@ -38,6 +38,15 @@ type GeneratorOptions struct {
 	// servidor propio en vez de forzar siempre el público.
 	PlantUMLServer string
 	PlantUMLFormat string
+	// DiagramBackend selecciona qué motor resuelve mermaid/plantuml en los
+	// modos offline: "chromium" (default) o "kroki" — este último no
+	// necesita Chromium en esta máquina (ver
+	// core/renderer/chromium/kroki_fetcher.go). No afecta chart/map/math.
+	DiagramBackend string
+	// KrokiServer es la URL base de un servidor Kroki propio (vacío = el
+	// público https://kroki.io). Solo aplica cuando DiagramBackend ==
+	// "kroki".
+	KrokiServer string
 	// AssetRoot confina las fuentes de imagen locales de --format pptx a
 	// este directorio (mismo mecanismo que doclang, ver
 	// docs/SECURITY_AUDIT_2026-07.md AL-4); vacío desactiva la confinación

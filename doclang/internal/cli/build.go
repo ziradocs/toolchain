@@ -47,6 +47,8 @@ func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, ext
 		webpQuality     int      // WebP quality: 1-100 (default 85)
 		plantumlServer  string   // Custom PlantUML server URL
 		plantumlFormat  string   // "svg" or "png"
+		diagramBackend  string   // "chromium" (default) or "kroki" (no Chromium needed for mermaid/plantuml)
+		krokiServer     string   // Custom Kroki server URL (default: public https://kroki.io)
 		chromiumPath    string   // Custom Chromium/Chrome path
 		installChromium bool     // Auto-install Chromium if not found
 		maxSizeMB       int      // Maximum input file size in MB (0 = use default/env)
@@ -388,6 +390,11 @@ Examples:
 				return fmt.Errorf("invalid render-mode: %s (valid: browser, offline-assets, offline-inline)", renderMode)
 			}
 
+			validDiagramBackends := map[string]bool{"chromium": true, "kroki": true}
+			if !validDiagramBackends[diagramBackend] {
+				return fmt.Errorf("invalid diagram-backend: %s (valid: chromium, kroki)", diagramBackend)
+			}
+
 			// Confinamiento de fuentes de imagen (ver docs/SECURITY_AUDIT_2026-07.md,
 			// AL-4): por defecto, el directorio del propio archivo de entrada;
 			// --asset-root permite ampliarlo explícitamente (p. ej. a un directorio
@@ -425,6 +432,8 @@ Examples:
 				PlantUMLServer:    plantumlServer,     // 🆕 Custom server URL
 				PlantUMLFormat:    plantumlFormat,     // 🆕 Image format
 				MermaidMode:       renderMode,         // 🆕 Global render mode
+				DiagramBackend:    diagramBackend,     // "chromium" (default) or "kroki"
+				KrokiServer:       krokiServer,        // Custom Kroki server URL
 				ChartMode:         renderMode,         // 🆕 Global render mode
 				MapMode:           renderMode,         // 🆕 Global render mode
 				MathMode:          renderMode,         // issue #239-B: Global render mode
@@ -462,6 +471,12 @@ Examples:
 	// PlantUML-specific flags
 	cmd.Flags().StringVar(&plantumlServer, "plantuml-server", "", "Custom PlantUML server URL (default: https://www.plantuml.com/plantuml)")
 	cmd.Flags().StringVar(&plantumlFormat, "plantuml-format", "svg", "PlantUML image format: svg or png")
+
+	// Diagram backend flags: an alternative to Chromium for mermaid/plantuml
+	// in offline-* render modes (Chromium stays required for chart/map/math
+	// and for --format pdf itself).
+	cmd.Flags().StringVar(&diagramBackend, "diagram-backend", "chromium", "Backend for mermaid/plantuml diagrams in offline-* render modes: chromium (default) or kroki (no Chromium needed; requires a Kroki server, see --kroki-server)")
+	cmd.Flags().StringVar(&krokiServer, "kroki-server", "", "Custom Kroki server URL (default: public https://kroki.io); only used when --diagram-backend=kroki")
 
 	// Image format flags (for charts and maps in offline modes)
 	cmd.Flags().StringVar(&imageFormat, "image-format", "png", "Image format for charts and maps: png or webp (only affects offline modes)")

@@ -153,15 +153,33 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	g.style = GetStyleForTheme(themeName, g.logger)
 
 	// Inicializar ChromiumRenderer si hay elementos que requieren renderizado
+	// — salvo que TODOS esos elementos sean charts nativo-capaces (issue
+	// "quitar Chrome del pipeline"): renderer.TryAllChartsNative ya
+	// devuelve false ante cualquier mermaid/math/map, así que un resultado
+	// ok==true acá significa "solo charts, y todos rasterizan nativo" — el
+	// mismo gate que slidelang's tryBuildNativeContext (issue #164). El
+	// fetcher retornado se descarta: renderChart (más abajo) recalcula el
+	// render nativo directamente, en vez de sembrarlo — solo hay una
+	// llamada por chart en un DOCX, así que no hay una segunda pasada que
+	// evitar.
 	if g.needsChromiumRendering(astDoc) {
-		g.logger.Info("DOCX", "Initializing Chromium renderer...")
-		chromiumLogger := &renderer.ChromiumLoggerAdapter{Logger: g.logger}
-		chromiumRenderer, err := chromium.NewChromiumRenderer(context.Background(), opts.ChromiumPath, opts.InstallChromium, chromiumLogger)
-		if err != nil {
-			g.logger.Warn("DOCX: Failed to initialize Chromium: %v", err)
+		// "" (nunca "kroki"): a diferencia de HTML/PDF, el renderer de DOCX no
+		// cablea KrokiFetcher para mermaid en ningún punto de este archivo —
+		// un mermaid en DOCX SIEMPRE pasa por g.chromiumRenderer más abajo, sin
+		// importar --diagram-backend. Pasar opts.DiagramBackend acá sería un
+		// falso "sin Chromium" para un documento con mermaid+chart nativo.
+		if _, allNative := renderer.TryAllChartsNative(astDoc, "png", ""); allNative {
+			g.logger.Info("DOCX", "✅ Chart rendering habilitado sin Chromium (todos los charts son nativo-capaces)")
 		} else {
-			g.chromiumRenderer = chromiumRenderer
-			defer chromiumRenderer.Close()
+			g.logger.Info("DOCX", "Initializing Chromium renderer...")
+			chromiumLogger := &renderer.ChromiumLoggerAdapter{Logger: g.logger}
+			chromiumRenderer, err := chromium.NewChromiumRenderer(context.Background(), opts.ChromiumPath, opts.InstallChromium, chromiumLogger)
+			if err != nil {
+				g.logger.Warn("DOCX: Failed to initialize Chromium: %v", err)
+			} else {
+				g.chromiumRenderer = chromiumRenderer
+				defer chromiumRenderer.Close()
+			}
 		}
 	}
 
@@ -2039,22 +2057,36 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 }
 
 func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement) error {
-	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX: Chromium not available, skipping chart")
-		return nil
-	}
+	// Intenta el render nativo (go-analyze/charts, sin Chromium) primero —
+	// mismo criterio que chromium.ChartFetcher.renderFunc (chart_fetcher.go)
+	// usa cuando SÍ hay un ChromiumRenderer disponible. Acá, además, cubre
+	// el caso en que needsChromiumRendering nunca instanció uno porque
+	// TryAllChartsNative ya había aprobado todo el documento (issue "quitar
+	// Chrome del pipeline") — sin este intento, ese camino dejaría
+	// g.chromiumRenderer en nil y el chart desaparecería en silencio.
+	var pngBytes []byte
+	if data, ok, err := renderer.RenderChartNativePNG(elem, 2400, 1500); ok && err == nil {
+		g.logger.Info("DOCX", "Rendering chart (%s) natively (no Chromium)...", elem.ChartType)
+		pngBytes = data
+	} else {
+		if g.chromiumRenderer == nil {
+			g.logger.Warn("DOCX: Chromium not available, skipping chart")
+			return nil
+		}
 
-	g.logger.Info("DOCX", "Rendering Chart.js chart (%s)...", elem.ChartType)
+		g.logger.Info("DOCX", "Rendering Chart.js chart (%s)...", elem.ChartType)
 
-	// Generar configuración de Chart.js optimizada para exportación a PNG
-	chartConfig := renderer.GenerateChartConfigForExport(elem)
+		// Generar configuración de Chart.js optimizada para exportación a PNG
+		chartConfig := renderer.GenerateChartConfigForExport(elem)
 
-	// Renderizar a PNG usando ChromiumRenderer con alta resolución para mejor calidad en Word
-	// 2400x1500 pixels = buena calidad para impresión y pantalla
-	pngBytes, err := g.chromiumRenderer.RenderChartToPNG(context.Background(), chartConfig, 2400, 1500)
-	if err != nil {
-		g.logger.Warn("DOCX: Failed to render chart: %v", err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s (render failed)", elem.ChartType))
+		// Renderizar a PNG usando ChromiumRenderer con alta resolución para mejor calidad en Word
+		// 2400x1500 pixels = buena calidad para impresión y pantalla
+		chromiumBytes, chromiumErr := g.chromiumRenderer.RenderChartToPNG(context.Background(), chartConfig, 2400, 1500)
+		if chromiumErr != nil {
+			g.logger.Warn("DOCX: Failed to render chart: %v", chromiumErr)
+			return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s (render failed)", elem.ChartType))
+		}
+		pngBytes = chromiumBytes
 	}
 
 	// Guardar PNG temporalmente

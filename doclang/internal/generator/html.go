@@ -42,11 +42,41 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 
 	// 🆕 Inicializar Chromium renderer si algún modo offline está habilitado
 	var chromiumRenderer *chromium.ChromiumRenderer
+	var nativeChartFetcher *renderer.NativeChartFetcher
 
-	needsChromium := (opts.MermaidMode == "offline-assets" || opts.MermaidMode == "offline-inline") ||
-		(opts.ChartMode == "offline-assets" || opts.ChartMode == "offline-inline") ||
-		(opts.MapMode == "offline-assets" || opts.MapMode == "offline-inline") ||
-		(opts.MathMode == "offline-assets" || opts.MathMode == "offline-inline")
+	// needsBrowser por elemento exige DOS cosas: el modo pedido Y que el
+	// documento realmente traiga ese tipo de elemento (issue "quitar Chrome
+	// del pipeline") — --render-mode aplica el mismo modo a mermaid/chart/
+	// map/math a la vez, sin importar qué elementos tenga el documento; sin
+	// el segundo chequeo, un documento de solo texto+mermaid con
+	// --render-mode offline-inline igual pedía Chromium para chart/map/math
+	// que nunca aparecen. Mismo criterio que slidelang's hasChromiumOnlyElements.
+	mermaidNeedsBrowser := (opts.MermaidMode == "offline-assets" || opts.MermaidMode == "offline-inline") &&
+		opts.DiagramBackend != "kroki" && // KrokiFetcher no depende de Chromium
+		renderer.HasMermaidElements(doc)
+	chartNeedsBrowser := (opts.ChartMode == "offline-assets" || opts.ChartMode == "offline-inline") &&
+		renderer.HasChartElements(doc)
+	mapNeedsBrowser := (opts.MapMode == "offline-assets" || opts.MapMode == "offline-inline") &&
+		renderer.HasMapElements(doc)
+	mathNeedsBrowser := (opts.MathMode == "offline-assets" || opts.MathMode == "offline-inline") &&
+		renderer.HasMathElements(doc)
+
+	needsChromium := mermaidNeedsBrowser || chartNeedsBrowser || mapNeedsBrowser || mathNeedsBrowser
+
+	// issue "quitar Chrome del pipeline": si lo ÚNICO que pide navegador es
+	// el chart (nada de mermaid/map/math en modo offline), y TODOS los
+	// charts del documento rasterizan nativo con éxito, evitar instanciar
+	// Chromium por completo — mismo patrón que
+	// slidelang/internal/generator/offline.go's tryBuildNativeContext
+	// (issue #164), extraído a renderer.TryAllChartsNative para que ambos
+	// CLIs lo reusen.
+	if needsChromium && chartNeedsBrowser && !mermaidNeedsBrowser && !mapNeedsBrowser && !mathNeedsBrowser {
+		if fetcher, ok := renderer.TryAllChartsNative(doc, opts.ImageFormat, opts.DiagramBackend); ok {
+			nativeChartFetcher = fetcher
+			needsChromium = false
+			h.logger.Info("HTML", "✅ Chart rendering habilitado sin Chromium (todos los charts son nativo-capaces)")
+		}
+	}
 
 	if needsChromium {
 		h.logger.Info("HTML", "Initializing Chromium renderer for offline mode...")
@@ -114,8 +144,17 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		OutputDir:      outputDir,
 		ImageFormat:    opts.ImageFormat,
 		WebPQuality:    opts.WebPQuality,
+		DiagramBackend: opts.DiagramBackend,
+		KrokiServer:    opts.KrokiServer,
 		Logger:         h.logger,
 	})
+	if nativeChartFetcher != nil {
+		// chromiumRenderer es nil acá (needsChromium se apagó arriba), así
+		// que NewRenderContext dejó ctx.ChartFetcher sin asignar — el
+		// fetcher nativo, ya con los bytes de cada chart sembrados, lo
+		// reemplaza directamente.
+		ctx.ChartFetcher = nativeChartFetcher
+	}
 
 	// Generar HTML usando el renderer compartido
 	html := renderer.GenerateDocumentHTML(doc, renderOpts, ctx)

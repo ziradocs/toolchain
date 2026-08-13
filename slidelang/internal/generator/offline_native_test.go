@@ -10,6 +10,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/renderer/chromium"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -191,6 +192,55 @@ func TestSetupOfflineRenderContext_MermaidDeckStillNeedsChromium(t *testing.T) {
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected an error initializing Chromium for a mermaid deck with a broken ChromiumPath — the gate must not treat mermaid as native-capable")
+	}
+}
+
+// TestSetupOfflineRenderContext_MermaidDeckWithKrokiSkipsChromium es el
+// contrapunto directo de TestSetupOfflineRenderContext_MermaidDeckStillNeedsChromium:
+// con DiagramBackend=="kroki", el mismo deck (solo mermaid) con el mismo
+// ChromiumPath roto NO debe fallar — KrokiFetcher no depende de Chromium en
+// absoluto (issue "quitar Chrome del pipeline").
+func TestSetupOfflineRenderContext_MermaidDeckWithKrokiSkipsChromium(t *testing.T) {
+	g := New(util.NewNoop())
+	doc := astWithElements(ast.NewMermaidElement(nativePos(), "flowchart", "graph TD; A-->B"))
+	opts := GeneratorOptions{
+		RenderMode:      "offline-inline",
+		DiagramBackend:  "kroki",
+		ChromiumPath:    "/nonexistent/definitely-not-a-real-chromium-binary",
+		InstallChromium: false,
+	}
+
+	ctx, cleanup, err := g.SetupOfflineRenderContext(doc, t.TempDir(), opts)
+	defer cleanup()
+	if err != nil {
+		t.Fatalf("expected no error for a mermaid-only deck with DiagramBackend=kroki even with a broken Chromium path, got: %v", err)
+	}
+	if _, ok := ctx.MermaidFetcher.(*chromium.KrokiFetcher); !ok {
+		t.Fatalf("expected ctx.MermaidFetcher to be a *chromium.KrokiFetcher, got %T", ctx.MermaidFetcher)
+	}
+}
+
+// TestSetupOfflineRenderContext_MermaidPlusMapWithKrokiStillNeedsChromium
+// confirma que Kroki no le quita Chromium a un deck que TAMBIÉN trae un
+// elemento que Kroki no cubre (mapas): debe seguir intentando Chromium de
+// verdad y fallar con el mismo ChromiumPath roto.
+func TestSetupOfflineRenderContext_MermaidPlusMapWithKrokiStillNeedsChromium(t *testing.T) {
+	g := New(util.NewNoop())
+	doc := astWithElements(
+		ast.NewMermaidElement(nativePos(), "flowchart", "graph TD; A-->B"),
+		&ast.MapElement{},
+	)
+	opts := GeneratorOptions{
+		RenderMode:      "offline-inline",
+		DiagramBackend:  "kroki",
+		ChromiumPath:    "/nonexistent/definitely-not-a-real-chromium-binary",
+		InstallChromium: false,
+	}
+
+	_, cleanup, err := g.SetupOfflineRenderContext(doc, t.TempDir(), opts)
+	defer cleanup()
+	if err == nil {
+		t.Fatal("expected an error initializing Chromium for a mermaid+map deck even with DiagramBackend=kroki — Kroki doesn't cover maps")
 	}
 }
 
