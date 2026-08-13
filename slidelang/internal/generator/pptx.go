@@ -48,6 +48,14 @@ import (
 //     (renderer.RenderChartNativePNG, go-analyze/charts): bar/line/pie/
 //     doughnut sin bloque options: ni modo JSON. Un chart fuera de ese
 //     conjunto se omite con warning en vez de instanciar un navegador.
+//     El título NO se emite como caption: el renderer nativo ya lo dibuja
+//     dentro del PNG.
+//
+//     Esta exclusión no era cierta cuando se escribió: el ChartParser de core
+//     descartaba en silencio todo bloque options: del DSL, así que
+//     elem.Options llegaba siempre vacío y el gate daba por nativo-capaz un
+//     chart configurado, rasterizándolo sin ejes ni leyenda y sin warning.
+//     Depende de core >= v2.13.0 (parseNestedOptions) para ser verdad.
 //   - Mermaid/PlantUML/Map/Math siguen sin cubrirse: los cuatro exigen
 //     rasterizar con un motor externo. Mermaid y PlantUML sí tienen ya un
 //     camino HTTP puro vía KrokiFetcher, pero devuelve SVG y una imagen
@@ -86,6 +94,15 @@ const (
 	pptxCheckboxChecked   = "☑"               // ☑
 	pptxCheckboxUnchecked = "☐"               // ☐
 	pptxCodeFontSizePt    = 14.0              // el código a cuerpo completo (18pt) se sale del slide muy rápido
+)
+
+// Sangría de listas (viñetas y checklist), en puntos. El margen crece por
+// nivel; el colgante se queda fijo para no desalinear la viñeta de su texto.
+// Ver pptxApplyListIndent.
+const (
+	pptxListIndentBasePt = 18.0
+	pptxListIndentStepPt = 18.0
+	pptxListHangingPt    = 18.0
 )
 
 func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts GeneratorOptions) error {
@@ -504,12 +521,31 @@ func (g *Generator) pptxAddChecklist(s *pptx.Slide, e *ast.ChecklistElement, cur
 	return cursorY + height + pptxParaGapEMU
 }
 
+// pptxApplyListIndent aplica la sangría de una lista EN FUNCIÓN del nivel.
+//
+// Hallazgo de code-review: tanto las viñetas como el checklist llamaban
+// Indent(18, -18) fijo para todos los niveles. Level(lvl) sí cambia el
+// atributo lvl del párrafo, pero un marL explícito en el mismo pPr GANA sobre
+// la sangría que el layout asigna por nivel, así que el OOXML salía con
+// marL="228600" idéntico en lvl="0" y lvl="1" — los subitems quedaban
+// visualmente al mismo margen que sus padres, sin anidar. Verificado en el
+// slide 4 de examples/checklist_demo.slidelang, que sí tiene dos niveles.
+//
+// El primer argumento es el margen izquierdo del párrafo y el segundo la
+// sangría de primera línea (negativa = colgante, para que la viñeta quede
+// fuera del texto). Escalando solo el margen y dejando el colgante fijo, cada
+// nivel se corre pptxListIndentStepPt sin desalinear la viñeta de su texto.
+func pptxApplyListIndent(para *pptx.Paragraph, level int) {
+	para.Indent(pptxListIndentBasePt+float64(level)*pptxListIndentStepPt, -pptxListHangingPt)
+}
+
 func pptxAddChecklistParagraph(tb *pptx.TextBox, item ast.ChecklistItem, level int) {
 	bullet := pptxCheckboxUnchecked
 	if item.Checked {
 		bullet = pptxCheckboxChecked
 	}
-	para := tb.AddParagraph().Level(level).Indent(18, -18)
+	para := tb.AddParagraph().Level(level)
+	pptxApplyListIndent(para, level)
 	// "Segoe UI Symbol" cubre U+2610/U+2611 en Windows y PowerPoint cae a una
 	// fuente equivalente en macOS; Arial (la que usa pptxAddPointParagraph
 	// para "•") no siempre trae esos dos glifos.
@@ -573,14 +609,34 @@ func (g *Generator) pptxAddChart(s *pptx.Slide, e *ast.ChartElement, cursorY int
 	if width > 0 && height > 0 {
 		drawHeight = drawWidth * height / width
 	}
+	drawWidth, drawHeight = pptxFitInSlide(drawWidth, drawHeight, cursorY)
 
 	s.AddImageFromBytesWithSize(data, pptxMarginEMU, cursorY, drawWidth, drawHeight)
 
-	newCursorY := cursorY + drawHeight + pptxParaGapEMU
-	if e.Title != "" {
-		newCursorY = g.pptxAddText(s, e.Title, newCursorY)
+	// e.Title NO se emite como caption: el renderer nativo ya lo dibuja DENTRO
+	// del PNG (renderer.RenderChartNativePNG hace opt.Title.Text = elem.Title).
+	// Añadirlo debajo lo duplicaba, y con las dimensiones por defecto (800x600)
+	// la segunda copia además caía fuera del slide — el PNG terminaba en 7.492in
+	// sobre un canvas de 7.5in, así que el textbox arrancaba en 7.592in.
+	// Hallazgo de code-review.
+	return cursorY + drawHeight + pptxParaGapEMU
+}
+
+// pptxFitInSlide reduce (w, h) preservando el aspect ratio hasta que quepa en
+// el espacio vertical que queda debajo de cursorY, dejando el margen inferior.
+//
+// El overflow no era exclusivo del caption duplicado: ChartDimensions respeta
+// elem.Width/elem.Height, así que un chart declarado 800x800 daba drawHeight
+// = 7.5in arrancando en 1.87in y la imagen misma quedaba casi entera fuera
+// del canvas, sin caption de por medio. Clampear cubre los dos casos a la vez.
+func pptxFitInSlide(w, h, cursorY int) (int, int) {
+	available := pptxSlideHeightEMU - cursorY - pptxMarginEMU
+	if available <= 0 || h <= available {
+		return w, h
 	}
-	return newCursorY
+	// Escalar por el mismo factor en ambos ejes: deformar el chart para que
+	// quepa sería peor que mostrarlo más chico.
+	return w * available / h, available
 }
 
 // pptxAddPoints agrega e como una lista de viñetas (subItems anidados vía
@@ -611,7 +667,8 @@ func (g *Generator) pptxAddPoints(s *pptx.Slide, e *ast.PointsElement, cursorY i
 }
 
 func (g *Generator) pptxAddPointParagraph(tb *pptx.TextBox, item ast.PointItem, listType string, level int) {
-	para := tb.AddParagraph().Level(level).Indent(18, -18)
+	para := tb.AddParagraph().Level(level)
+	pptxApplyListIndent(para, level)
 	if listType == "ordered" {
 		para.NumberedBullet(pptx.NumArabicPeriod)
 	} else {
