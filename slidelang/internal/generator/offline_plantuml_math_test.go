@@ -4,6 +4,9 @@
 package generator
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -18,7 +21,7 @@ import (
 // quedaba como LaTeX crudo sin tipografiar.
 func TestHasInteractiveElements_MathRequiresChromium(t *testing.T) {
 	doc := astWithElements(ast.NewMathElement(nativePos(), "E = mc^2"))
-	if !hasInteractiveElements(doc) {
+	if !hasInteractiveElements(doc, "chromium") {
 		t.Error("expected hasInteractiveElements(doc-with-math) = true")
 	}
 }
@@ -29,7 +32,7 @@ func TestHasInteractiveElements_MathRequiresChromium(t *testing.T) {
 // hasPlantUMLElements, un chequeo aparte.
 func TestHasInteractiveElements_PlantUMLOnlyDoesNotRequireChromium(t *testing.T) {
 	doc := astWithElements(ast.NewPlantUMLElement(nativePos(), "sequence", "A->B: hola"))
-	if hasInteractiveElements(doc) {
+	if hasInteractiveElements(doc, "chromium") {
 		t.Error("expected hasInteractiveElements(doc-with-only-plantuml) = false — PlantUML doesn't need Chromium")
 	}
 }
@@ -40,13 +43,29 @@ func TestHasInteractiveElements_PlantUMLOnlyDoesNotRequireChromium(t *testing.T)
 // hallazgo de code-review sobre PR #56.
 func TestHasChromiumOnlyElements_ExcludesMath(t *testing.T) {
 	mathOnly := astWithElements(ast.NewMathElement(nativePos(), "E = mc^2"))
-	if hasChromiumOnlyElements(mathOnly) {
+	if hasChromiumOnlyElements(mathOnly, "chromium") {
 		t.Error("expected hasChromiumOnlyElements(doc-with-only-math) = false — math has a text fallback")
 	}
 
 	mermaidDoc := astWithElements(ast.NewMermaidElement(nativePos(), "flowchart", "graph TD; A-->B"))
-	if !hasChromiumOnlyElements(mermaidDoc) {
+	if !hasChromiumOnlyElements(mermaidDoc, "chromium") {
 		t.Error("expected hasChromiumOnlyElements(doc-with-mermaid) = true")
+	}
+}
+
+// TestHasChromiumOnlyElements_KrokiExcludesMermaid cubre el cambio de esta
+// sesión (issue "quitar Chrome del pipeline"): con DiagramBackend=="kroki",
+// mermaid deja de forzar Chromium — KrokiFetcher lo cubre por HTTP puro.
+// Chart/Map siguen forzándolo, Kroki no los cubre.
+func TestHasChromiumOnlyElements_KrokiExcludesMermaid(t *testing.T) {
+	mermaidDoc := astWithElements(ast.NewMermaidElement(nativePos(), "flowchart", "graph TD; A-->B"))
+	if hasChromiumOnlyElements(mermaidDoc, "kroki") {
+		t.Error("expected hasChromiumOnlyElements(doc-with-mermaid, kroki) = false — Kroki covers mermaid")
+	}
+
+	chartDoc := astWithElements(&ast.ChartElement{ChartType: "scatter"})
+	if !hasChromiumOnlyElements(chartDoc, "kroki") {
+		t.Error("expected hasChromiumOnlyElements(doc-with-chart, kroki) = true — Kroki doesn't cover charts")
 	}
 }
 
@@ -216,6 +235,80 @@ func TestSetupOfflineRenderContext_MathOnlyDeckTriesChromiumThenDegrades(t *test
 	}
 	if ctx.MathFetcher != nil {
 		t.Error("expected no MathFetcher wired when Chromium initialization failed — the caller must fall back to raw LaTeX")
+	}
+}
+
+// TestGeneratePDF_ForcesSVGForPlantUML cubre un hallazgo de code review
+// (mismo patrón que el fix equivalente en
+// doclang/internal/generator/pdf.go): generatePDF fuerza
+// pdfOpts.RenderMode = "offline-inline" para PDF, pero antes de este fix
+// nunca tocaba pdfOpts.PlantUMLFormat — el flag --plantuml-format ya
+// documentaba "offline-inline and --format pdf always use svg"
+// (slidelang/internal/cli/build.go) sin que el código lo cumpliera.
+// wirePlantUMLFetcher enruta offline-inline a FetchDiagramInline, que es
+// SVG-only por construcción (plantuml_fetcher.go: "if f.format != "svg" {
+// return error }") — con --plantuml-format=png el build no fallaba, pero el
+// diagrama salía reemplazado por un <div class="plantuml-error"> silencioso
+// dentro del PDF. No se puede invocar generatePDF directamente sin un
+// Chromium real (mismo límite que los tests de doclang), así que este test
+// reproduce la construcción de ctx que generatePDF hace via
+// wirePlantUMLFetcher, con pdfOpts.PlantUMLFormat forzado a "svg" como hace
+// el código real.
+func TestGeneratePDF_ForcesSVGForPlantUML(t *testing.T) {
+	plantumlServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		_, _ = w.Write([]byte(`<svg id="plantuml-resolved-diagram"></svg>`))
+	}))
+	defer plantumlServer.Close()
+
+	doc := astWithElements(ast.NewPlantUMLElement(nativePos(), "sequence", "A->B: hola"))
+	ctx := renderer.NewDefaultRenderContext()
+
+	// Mismo pdfOpts que generatePDF arma: RenderMode forzado a
+	// offline-inline, PlantUMLFormat forzado a "svg" sin importar lo que el
+	// usuario haya pasado con --plantuml-format.
+	pdfOpts := GeneratorOptions{
+		RenderMode:     "offline-inline",
+		PlantUMLServer: plantumlServer.URL,
+		PlantUMLFormat: "svg",
+	}
+	wirePlantUMLFetcher(ctx, doc, pdfOpts, t.TempDir())
+
+	html := renderer.RenderElementToHTML(doc.ContentBlocks[0].Elements[0], nil, ctx)
+	if strings.Contains(html, `class="plantuml-error"`) {
+		t.Errorf("expected no plantuml-error div when PDF forces svg format, got:\n%s", html)
+	}
+	if !strings.Contains(html, "plantuml-resolved-diagram") {
+		t.Error("expected the pre-resolved SVG from the PlantUML fetcher to be embedded inline")
+	}
+}
+
+// TestGeneratePDF_PNGFormatBreaksOfflineInlinePlantUML documenta el
+// contrato que hace necesario el fix de arriba: FetchDiagramInline
+// (plantuml_fetcher.go) rechaza cualquier formato distinto de "svg" — si
+// esto alguna vez deja de fallar, offline-inline empezó a aceptar PNG y el
+// forzado a "svg" en generatePDF dejó de ser necesario (o el bug volvió si
+// nadie actualizó pdf.go a la vez).
+func TestGeneratePDF_PNGFormatBreaksOfflineInlinePlantUML(t *testing.T) {
+	plantumlServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("not-a-real-png"))
+	}))
+	defer plantumlServer.Close()
+
+	doc := astWithElements(ast.NewPlantUMLElement(nativePos(), "sequence", "A->B: hola"))
+	ctx := renderer.NewDefaultRenderContext()
+
+	pdfOpts := GeneratorOptions{
+		RenderMode:     "offline-inline",
+		PlantUMLServer: plantumlServer.URL,
+		PlantUMLFormat: "png",
+	}
+	wirePlantUMLFetcher(ctx, doc, pdfOpts, t.TempDir())
+
+	html := renderer.RenderElementToHTML(doc.ContentBlocks[0].Elements[0], nil, ctx)
+	if !strings.Contains(html, `class="plantuml-error"`) {
+		t.Error("expected FetchDiagramInline to reject non-svg format and render a plantuml-error div for offline-inline + png")
 	}
 }
 

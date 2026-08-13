@@ -45,6 +45,15 @@ type GeneratorOptions struct {
 	PlantUMLFormat string // "svg" (default) or "png" for offline modes
 	// Mermaid options
 	MermaidMode string // "browser" (default), "offline-assets", "offline-inline"
+	// DiagramBackend selecciona qué motor resuelve mermaid/plantuml en los
+	// modos offline: "chromium" (default) o "kroki" — este último no
+	// necesita Chromium en esta máquina (ver
+	// core/renderer/chromium/kroki_fetcher.go). No afecta chart/map/math.
+	DiagramBackend string
+	// KrokiServer es la URL base de un servidor Kroki propio (vacío = el
+	// público https://kroki.io). Solo aplica cuando DiagramBackend ==
+	// "kroki".
+	KrokiServer string
 	// Chart.js options
 	ChartMode string // "browser" (default), "offline-assets", "offline-inline"
 	// Leaflet Maps options

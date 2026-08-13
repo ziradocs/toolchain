@@ -43,14 +43,42 @@ var slidelangChromiumBrand = chromium.ChromiumBrand{
 // y su uso en SetupOfflineRenderContext (hallazgo de code-review sobre PR
 // #56: math SÍ tiene una degradación razonable — el LaTeX crudo — así que su
 // ausencia de Chromium no debe tumbar el build entero).
-func hasChromiumOnlyElements(astNode *ast.AST) bool {
+//
+// diagramBackend == "kroki" saca a Mermaid de esta lista (issue "quitar
+// Chrome del pipeline"): KrokiFetcher renderiza mermaid sin Chromium, así
+// que un deck con mermaid pero sin chart/map ya no debe forzar Chromium
+// cuando el operador pidió el backend kroki. Chart/Map siguen dentro: Kroki
+// no los cubre.
+func hasChromiumOnlyElements(astNode *ast.AST, diagramBackend string) bool {
 	if astNode == nil {
 		return false
 	}
 	for _, block := range astNode.ContentBlocks {
 		for _, el := range block.Elements {
 			switch el.(type) {
-			case *ast.MermaidElement, *ast.ChartElement, *ast.MapElement:
+			case *ast.MermaidElement:
+				if diagramBackend != "kroki" {
+					return true
+				}
+			case *ast.ChartElement, *ast.MapElement:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasMermaidElements indica si el AST contiene algún diagrama Mermaid —
+// separado de hasChromiumOnlyElements para poder cablear KrokiFetcher sin
+// construirlo cuando el documento no trae mermaid (mismo criterio que
+// hasPlantUMLElements/wirePlantUMLFetcher).
+func hasMermaidElements(astNode *ast.AST) bool {
+	if astNode == nil {
+		return false
+	}
+	for _, block := range astNode.ContentBlocks {
+		for _, el := range block.Elements {
+			if _, ok := el.(*ast.MermaidElement); ok {
 				return true
 			}
 		}
@@ -83,8 +111,8 @@ func hasMathElements(astNode *ast.AST) bool {
 // (chromium.NewPlantUMLFetcher, no chromedp — ver plantuml_fetcher.go), así
 // que spinear Chromium solo por PlantUML sería puro costo sin beneficio; ver
 // hasPlantUMLElements para su propio chequeo, independiente de este.
-func hasInteractiveElements(astNode *ast.AST) bool {
-	return hasChromiumOnlyElements(astNode) || hasMathElements(astNode)
+func hasInteractiveElements(astNode *ast.AST, diagramBackend string) bool {
+	return hasChromiumOnlyElements(astNode, diagramBackend) || hasMathElements(astNode)
 }
 
 // hasPlantUMLElements indica si el AST contiene algún diagrama PlantUML —
@@ -123,7 +151,27 @@ func wirePlantUMLFetcher(ctx *renderer.RenderContext, astNode *ast.AST, opts Gen
 	}
 	ctx.PlantUMLMode = opts.RenderMode
 	ctx.PlantUMLFormat = format
+	if opts.DiagramBackend == "kroki" {
+		ctx.Fetcher = chromium.NewKrokiFetcher(opts.KrokiServer, "plantuml", format, outputDir)
+		return
+	}
 	ctx.Fetcher = chromium.NewPlantUMLFetcher(opts.PlantUMLServer, format, outputDir)
+}
+
+// wireMermaidFetcher es el análogo de wirePlantUMLFetcher para mermaid vía
+// Kroki (issue "quitar Chrome del pipeline"): a diferencia de
+// chromium.NewMermaidFetcher, KrokiFetcher no depende de un
+// *chromium.ChromiumRenderer, así que este helper puede llamarse desde
+// cualquiera de las ramas "sin Chromium" de SetupOfflineRenderContext/
+// tryBuildNativeContext. Solo hace algo si opts.DiagramBackend == "kroki" Y
+// el documento realmente trae mermaid — mismo criterio de "no construir un
+// fetcher que nunca se usa" que wirePlantUMLFetcher.
+func wireMermaidFetcher(ctx *renderer.RenderContext, astNode *ast.AST, opts GeneratorOptions, outputDir string) {
+	if opts.DiagramBackend != "kroki" || !hasMermaidElements(astNode) {
+		return
+	}
+	ctx.MermaidMode = opts.RenderMode
+	ctx.MermaidFetcher = chromium.NewKrokiFetcher(opts.KrokiServer, "mermaid", "svg", outputDir)
 }
 
 // SetupOfflineRenderContext arma el *renderer.RenderContext que el caller debe
@@ -145,22 +193,30 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 		return renderer.NewDefaultRenderContext(), noop, nil
 	}
 
-	needsChromium := hasInteractiveElements(astNode)
+	needsChromium := hasInteractiveElements(astNode, opts.DiagramBackend)
 	needsPlantUML := hasPlantUMLElements(astNode)
+	// needsMermaidViaKroki: con DiagramBackend=="kroki", hasChromiumOnlyElements
+	// ya excluye Mermaid de needsChromium — un deck con SOLO mermaid (kroki,
+	// sin plantuml/chart/map/math) debe seguir cayendo al camino sin
+	// Chromium más abajo, no al bail-out de "solo texto" (issue "quitar
+	// Chrome del pipeline").
+	needsMermaidViaKroki := opts.DiagramBackend == "kroki" && hasMermaidElements(astNode)
 
 	// Un deck de solo texto no necesita Chromium aunque se pida offline; no
 	// forzamos su instalación/arranque para nada (issue #92).
-	if !needsChromium && !needsPlantUML {
+	if !needsChromium && !needsPlantUML && !needsMermaidViaKroki {
 		return renderer.NewDefaultRenderContext(), noop, nil
 	}
 
-	// Un deck con SOLO PlantUML (sin mermaid/chart/map/math) no necesita
-	// Chromium en absoluto: su fetcher es HTTP puro (issue de code-review
-	// sobre PR #56).
+	// Un deck con SOLO PlantUML y/o mermaid-vía-Kroki (sin chart/map/math, o
+	// con mermaid ya cubierto por Kroki) no necesita Chromium en absoluto:
+	// esos fetchers son HTTP puro (issue de code-review sobre PR #56,
+	// extendido a mermaid por "quitar Chrome del pipeline").
 	if !needsChromium {
 		ctx := renderer.NewDefaultRenderContext()
 		ctx.OutputDir = outputDir
 		wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
+		wireMermaidFetcher(ctx, astNode, opts, outputDir)
 		return ctx, noop, nil
 	}
 
@@ -190,11 +246,12 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 		// las ecuaciones quedan como LaTeX crudo sin tipografiar — el mismo
 		// resultado que este deck ya producía ANTES de que #56 le agregara
 		// soporte, no una regresión nueva.
-		if !hasChromiumOnlyElements(astNode) {
+		if !hasChromiumOnlyElements(astNode, opts.DiagramBackend) {
 			g.logger.Warn("HTML: Chromium no disponible, las ecuaciones se mostrarán como LaTeX sin tipografiar (%v)", err)
 			ctx := renderer.NewDefaultRenderContext()
 			ctx.OutputDir = outputDir
 			wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
+			wireMermaidFetcher(ctx, astNode, opts, outputDir)
 			return ctx, noop, nil
 		}
 		return nil, noop, fmt.Errorf("failed to initialize Chromium for offline rendering: %w", err)
@@ -249,7 +306,15 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 		for _, block := range astNode.ContentBlocks {
 			for _, el := range block.Elements {
 				switch e := el.(type) {
-				case *ast.MermaidElement, *ast.MathElement, *ast.MapElement:
+				case *ast.MermaidElement:
+					// Con DiagramBackend=="kroki" mermaid no fuerza Chromium
+					// (KrokiFetcher, cableado más abajo vía
+					// wireMermaidFetcher) — con cualquier otro backend, el
+					// bail-out histórico se mantiene.
+					if opts.DiagramBackend != "kroki" {
+						return nil, false
+					}
+				case *ast.MathElement, *ast.MapElement:
 					return nil, false
 				case *ast.ChartElement:
 					if !renderer.SupportsNativeChartRendering(e) {
@@ -278,8 +343,11 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 	// Un chart nativo puede convivir con PlantUML en el mismo deck (PlantUML
 	// no entra al switch de arriba, así que no hace bail-out a Chromium) —
 	// cablearlo acá también, en vez de dejarlo fijo en "browser" (issue de
-	// code-review sobre PR #56).
+	// code-review sobre PR #56). Mermaid solo llega hasta acá si
+	// DiagramBackend=="kroki" (ver el case de arriba); wireMermaidFetcher es
+	// un no-op en cualquier otro caso.
 	wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
+	wireMermaidFetcher(ctx, astNode, opts, outputDir)
 	return ctx, true
 }
 
@@ -316,7 +384,6 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 	webpQuality := resolveWebPQuality(opts.WebPQuality)
 
 	fetcherLog := renderer.NoopFetcherLogger{}
-	mermaidFetcher := chromium.NewMermaidFetcher(chromiumR, fetcherLog)
 	chartFetcher := chromium.NewChartFetcher(chromiumR, fetcherLog)
 	chartFetcher.SetImageFormat(imageFormat, webpQuality)
 	mapFetcher := chromium.NewMapFetcher(chromiumR, fetcherLog)
@@ -324,17 +391,26 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 	mathFetcher := chromium.NewMathFetcher(chromiumR, fetcherLog)
 
 	ctx := &renderer.RenderContext{
-		MermaidMode:    opts.RenderMode,
-		ChartMode:      opts.RenderMode,
-		MapMode:        opts.RenderMode,
-		MathMode:       opts.RenderMode,
-		PlantUMLMode:   "browser",
-		OutputDir:      outputDir,
-		MermaidFetcher: mermaidFetcher,
-		ChartFetcher:   chartFetcher,
-		MapFetcher:     mapFetcher,
-		MathFetcher:    mathFetcher,
-		Ctx:            context.Background(),
+		ChartMode:    opts.RenderMode,
+		MapMode:      opts.RenderMode,
+		MathMode:     opts.RenderMode,
+		PlantUMLMode: "browser",
+		OutputDir:    outputDir,
+		ChartFetcher: chartFetcher,
+		MapFetcher:   mapFetcher,
+		MathFetcher:  mathFetcher,
+		Ctx:          context.Background(),
+	}
+	// chromiumR ya está instanciado acá (lo necesitan chart/map/math), pero
+	// con DiagramBackend=="kroki" mermaid igual va por KrokiFetcher en vez
+	// de chromium.NewMermaidFetcher — consistente con el resto del pipeline
+	// (issue "quitar Chrome del pipeline": el objetivo no es "Chromium
+	// nunca arranca", es "mermaid nunca depende de Chromium").
+	if opts.DiagramBackend == "kroki" {
+		wireMermaidFetcher(ctx, astNode, opts, outputDir)
+	} else {
+		ctx.MermaidMode = opts.RenderMode
+		ctx.MermaidFetcher = chromium.NewMermaidFetcher(chromiumR, fetcherLog)
 	}
 	wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
 	return ctx

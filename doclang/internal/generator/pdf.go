@@ -76,43 +76,16 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	// <div class="page-header">/<div class="page-footer"> que
 	// generatePageViewBody hornearía dentro del HTML impreso — pedirle
 	// ambos a la vez producía un header/footer duplicado (issue #117).
-	renderOpts := renderer.DocumentHTMLOptions{
-		Title:             title,
-		TOC:               opts.TOC,
-		TOCDepth:          opts.TOCDepth,
-		Numbering:         opts.Numbering,
-		PageBreaks:        opts.PageBreaks,
-		Theme:             opts.Theme,
-		ThemeVariables:    opts.ThemeVariables,
-		InteractiveViewer: false, // No viewer en PDF
-		EmbedAssets:       true,
-		// Image format options (for charts and maps in offline modes)
-		ImageFormat: opts.ImageFormat, // 🆕 "png" o "webp"
-		WebPQuality: opts.WebPQuality, // 🆕 Calidad WebP (1-100)
-	}
 
-	// ctx: PlantUML es el único que puede ir offline acá (mermaid/chart/map
-	// nunca se pasan a ChartMode/MermaidMode/MapMode, quedan "browser" dentro
-	// del HTML que después se imprime a PDF) — mismo comportamiento que antes
-	// del split (issue #134/G1b), solo explícito ahora. PlantUML no depende
-	// de Chromium, así que cr=nil es válido acá (el ChromiumRenderer real se
-	// crea más abajo, solo para el paso HTML->PDF).
-	ctx := chromium.NewRenderContext(nil, chromium.RenderContextOptions{
-		PlantUMLMode:   opts.PlantUMLMode,
-		PlantUMLServer: opts.PlantUMLServer,
-		PlantUMLFormat: opts.PlantUMLFormat,
-		OutputDir:      outputDir,
-		Logger:         p.logger,
-	})
-
-	htmlContent := renderer.GenerateDocumentHTML(doc, renderOpts, ctx)
-
-	// 2. Crear ChromiumRenderer
+	// 2. Crear ChromiumRenderer ANTES de generar el HTML (issue "quitar
+	// Chrome del pipeline", Fase 3): mermaid/chart/map/math necesitan un
+	// *ChromiumRenderer YA vivo para pre-rasterizarse offline-inline más
+	// abajo, y el paso de impresión también lo necesita — un solo
+	// ChromiumRenderer para ambos, en vez del orden anterior (HTML primero,
+	// Chromium después), que forzaba a mermaid/chart/map a depender de sus
+	// CDNs dentro de la página impresa.
 	p.logger.Info("PDF", "Initializing Chromium renderer...")
-
-	// Adaptar logger
 	adapter := &loggerAdapter{logger: p.logger}
-
 	chromiumRenderer, err := chromium.NewChromiumRenderer(
 		context.Background(),
 		opts.ChromiumPath,
@@ -123,6 +96,74 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		return fmt.Errorf("failed to initialize chromium: %w", err)
 	}
 	defer chromiumRenderer.Close()
+
+	// offlineMode: PDF SIEMPRE pre-rasteriza mermaid/chart/map/math y
+	// resuelve plantuml offline-inline antes de imprimir — sin importar
+	// --render-mode (que solo controla la salida --format html) — mismo
+	// criterio que slidelang/internal/generator/pdf.go's
+	// `pdfOpts.RenderMode = "offline-inline"`. La razón es la carrera
+	// documentada: RenderHTMLToPDF le da a la página inyectada una ventana
+	// de espera fija (chromium_renderer.go's RenderHTMLToPDF) que NO
+	// alcanza para que un script CDN (mermaid.js, Chart.js, Leaflet)
+	// cargue+inicialice+dibuje — el diagrama quedaba en blanco en el PDF
+	// (comprobado en slidelang antes de este fix). offline-inline resuelve
+	// esto en build-time, determinístico, sin depender de ningún CDN ni de
+	// cuánto tarde en cargar.
+	const offlineMode = "offline-inline"
+
+	// offlinePlantUMLFormat: forzar offlineMode arriba implica PlantUML SIEMPRE
+	// resuelve por FetchDiagramInline (renderPlantUMLOfflineInline en html.go),
+	// y ese método es SVG-only por construcción (PlantUMLFetcher.FetchDiagramInline,
+	// plantuml_fetcher.go: "if f.format != "svg" { return error }"). Antes de este
+	// fix, PDF pasaba opts.PlantUMLFormat sin tocar: con --plantuml-format=png el
+	// build no fallaba, pero el diagrama salía reemplazado por un
+	// <div class="plantuml-error"> silencioso dentro del PDF — --plantuml-format
+	// solo tiene efecto real en --format html --render-mode offline-assets (el
+	// único modo que sí acepta PNG, vía FetchDiagramToAssets).
+	const offlinePlantUMLFormat = "svg"
+
+	renderOpts := renderer.DocumentHTMLOptions{
+		Title:             title,
+		TOC:               opts.TOC,
+		TOCDepth:          opts.TOCDepth,
+		Numbering:         opts.Numbering,
+		PageBreaks:        opts.PageBreaks,
+		Theme:             opts.Theme,
+		ThemeVariables:    opts.ThemeVariables,
+		InteractiveViewer: false, // No viewer en PDF
+		EmbedAssets:       true,
+		PlantUMLMode:      offlineMode,
+		PlantUMLFormat:    offlinePlantUMLFormat,
+		MermaidMode:       offlineMode,
+		ChartMode:         offlineMode,
+		MapMode:           offlineMode,
+		MathMode:          offlineMode,
+		// Image format options (for charts and maps in offline modes)
+		ImageFormat: opts.ImageFormat, // 🆕 "png" o "webp"
+		WebPQuality: opts.WebPQuality, // 🆕 Calidad WebP (1-100)
+	}
+
+	// ctx: cr=chromiumRenderer ya vivo (arriba) cablea mermaid/chart/map/
+	// math vía Chromium (o vía Kroki para mermaid/plantuml si
+	// DiagramBackend=="kroki" — ver render_context.go, no depende de cr en
+	// absoluto en ese caso).
+	ctx := chromium.NewRenderContext(chromiumRenderer, chromium.RenderContextOptions{
+		PlantUMLMode:   offlineMode,
+		PlantUMLServer: opts.PlantUMLServer,
+		PlantUMLFormat: offlinePlantUMLFormat,
+		MermaidMode:    offlineMode,
+		ChartMode:      offlineMode,
+		MapMode:        offlineMode,
+		MathMode:       offlineMode,
+		OutputDir:      outputDir,
+		ImageFormat:    opts.ImageFormat,
+		WebPQuality:    opts.WebPQuality,
+		DiagramBackend: opts.DiagramBackend,
+		KrokiServer:    opts.KrokiServer,
+		Logger:         p.logger,
+	})
+
+	htmlContent := renderer.GenerateDocumentHTML(doc, renderOpts, ctx)
 
 	// 3. Convertir HTML a PDF
 	pdfOpts := resolvePDFOptions(opts.Page, p.logger)

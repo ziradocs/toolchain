@@ -56,6 +56,19 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 	pdfOpts := opts
 	pdfOpts.EmbedAssets = true
 	pdfOpts.RenderMode = "offline-inline"
+	// PlantUML en offline-inline SIEMPRE resuelve por FetchDiagramInline
+	// (wirePlantUMLFetcher -> ctx.PlantUMLMode = opts.RenderMode), y ese
+	// método es SVG-only por construcción (PlantUMLFetcher.FetchDiagramInline,
+	// plantuml_fetcher.go: "if f.format != "svg" { return error }"). Sin esto,
+	// --plantuml-format=png no hacía fallar el build, pero el diagrama salía
+	// reemplazado por un <div class="plantuml-error"> silencioso dentro del
+	// PDF — mismo hallazgo de code review que el equivalente en
+	// doclang/internal/generator/pdf.go, aquí preexistente (el flag ya
+	// documentaba "offline-inline and --format pdf always use svg" sin que el
+	// código lo cumpliera). --plantuml-format solo tiene efecto real en
+	// --format html --render-mode offline-assets (el único modo que acepta
+	// PNG, vía FetchDiagramToAssets).
+	pdfOpts.PlantUMLFormat = "svg"
 
 	// ctx es un valor local, no estado global (issue #134/G1a) — ya no hace
 	// falta guardar/restaurar un contexto previo para no pisar la generación
@@ -73,11 +86,12 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 	// que offline-inline existe para evitar (hallazgo de code-review sobre
 	// PR #56).
 	ctx := renderer.NewDefaultRenderContext()
-	if hasInteractiveElements(astNode) {
+	if hasInteractiveElements(astNode, pdfOpts.DiagramBackend) {
 		ctx = buildInteractiveRenderContext(chromiumRenderer, astNode, outputDir, pdfOpts)
 	} else {
 		ctx.OutputDir = outputDir
 		wirePlantUMLFetcher(ctx, astNode, pdfOpts, outputDir)
+		wireMermaidFetcher(ctx, astNode, pdfOpts, outputDir)
 	}
 
 	presentationConfig, err := g.preparePresentationConfig(astNode, outputDir, pdfOpts, ctx)
@@ -115,8 +129,8 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 // tamaño del slide es lo que produce "un slide = una página" al combinarse
 // con `@media print { .slidelang-slide { page-break-after: always } }`
 // (internal/generator/css/builder.go).
-func slidesPDFOptions() chromium.PDFOptions {
-	return chromium.PDFOptions{
+func slidesPDFOptions() renderer.PDFOptions {
+	return renderer.PDFOptions{
 		PaperWidth:  13.333,
 		PaperHeight: 7.5,
 		Landscape:   false,
