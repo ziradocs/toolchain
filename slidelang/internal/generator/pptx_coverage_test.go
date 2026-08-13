@@ -282,20 +282,142 @@ func TestPPTX_UnclampedChartKeepsItsSize(t *testing.T) {
 	}
 }
 
-// TestPPTX_UnsupportedChartFallsBackToPlaceholder confirma la otra mitad del
-// contrato: un chart que el camino nativo no cubre —acá, uno con un bloque
-// options: de Chart.js— NO instancia un navegador ni aborta el build, se
-// degrada a un marcador de texto visible.
-func TestPPTX_UnsupportedChartFallsBackToPlaceholder(t *testing.T) {
+// TestPPTX_ChartWithOptionsStillRenders es la política que distingue a PPTX
+// del resto de los formatos. renderer.SupportsNativeChartRendering descalifica
+// cualquier chart con options:, y para HTML/PDF/DOCX eso está bien: rechazar
+// significa "usa Chromium", que sí honra la config. En PPTX no hay fallback —
+// rechazar significa que el chart no sale— y como casi todo chart real trae
+// options:, ser igual de estricto dejaba la cobertura sin activarse nunca.
+//
+// El chart se dibuja aproximado; el warning con las claves ignoradas es lo que
+// evita que sea un error silencioso.
+func TestPPTX_ChartWithOptionsStillRenders(t *testing.T) {
 	c := ast.NewChartElement(pos(), "bar")
+	c.Data = [][]interface{}{{"A", 10.0}, {"B", 20.0}}
+	c.Labels = []string{"A", "B"}
+	c.Options = map[string]interface{}{
+		"responsive": true,
+		"plugins":    map[string]interface{}{"legend": map[string]interface{}{"position": "top"}},
+	}
+
+	dir := t.TempDir()
+	doc := ast.NewAST(pos())
+	doc.FrontMatter = ast.NewFrontMatterNode(pos())
+	doc.FilePath = "chartopts.slidelang"
+	block := ast.NewContentBlock(pos(), "content")
+	block.Elements = append(block.Elements, c)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	g := New(util.NewNoop())
+	if err := g.generatePPTX(doc, dir, GeneratorOptions{AssetRoot: dir}); err != nil {
+		t.Fatalf("generatePPTX() error = %v", err)
+	}
+
+	outputPath := filepath.Join(dir, "chartopts.pptx")
+	hasMedia := false
+	for _, n := range zipEntryNames(t, outputPath) {
+		if strings.HasPrefix(n, "ppt/media/") {
+			hasMedia = true
+			break
+		}
+	}
+	if !hasMedia {
+		t.Error("a chart carrying an options: block was not rendered — in PPTX that means it is simply absent, with no Chromium fallback to catch it")
+	}
+
+	xml := zipEntryContent(t, outputPath, "ppt/slides/slide1.xml")
+	if strings.Contains(xml, "[Chart not rendered") {
+		t.Error("the chart degraded to a placeholder instead of being drawn approximately")
+	}
+
+	// El elemento original NO debe quedar mutado: pptxChartIgnoringOptions
+	// trabaja sobre una copia.
+	if len(c.Options) != 2 {
+		t.Errorf("the source element was mutated: Options = %v", c.Options)
+	}
+}
+
+// TestPPTXChartIgnoringOptions_ReportsDroppedKeysDeterministically: el warning
+// nombra las claves ignoradas, y en orden estable — el recorrido de un map en
+// Go es aleatorio, así que sin ordenar el mensaje cambiaría entre corridas.
+func TestPPTXChartIgnoringOptions_ReportsDroppedKeysDeterministically(t *testing.T) {
+	c := ast.NewChartElement(pos(), "bar")
+	c.Options = map[string]interface{}{"scales": nil, "plugins": nil, "responsive": true}
+
+	target, dropped := pptxChartIgnoringOptions(c)
+
+	if len(target.Options) != 0 {
+		t.Errorf("the clone kept its options: %v", target.Options)
+	}
+	if target == c {
+		t.Error("expected a copy, got the same element — the caller's AST would be mutated")
+	}
+	want := []string{"plugins", "responsive", "scales"}
+	if len(dropped) != len(want) {
+		t.Fatalf("dropped = %v, want %v", dropped, want)
+	}
+	for i := range want {
+		if dropped[i] != want[i] {
+			t.Errorf("dropped = %v, want %v (sorted)", dropped, want)
+			break
+		}
+	}
+}
+
+// TestPPTXChartIgnoringOptions_RescuesTitleFromPlugins: en Chart.js el título
+// vive en options.plugins.title.text, no en una propiedad de primer nivel, y
+// así lo escriben los ejemplos de este repo. Sin rescatarlo, limpiar Options
+// dejaría esos charts sin título en el PNG.
+func TestPPTXChartIgnoringOptions_RescuesTitleFromPlugins(t *testing.T) {
+	mk := func(title map[string]interface{}) *ast.ChartElement {
+		c := ast.NewChartElement(pos(), "bar")
+		c.Options = map[string]interface{}{
+			"plugins": map[string]interface{}{"title": title},
+		}
+		return c
+	}
+
+	if got, _ := pptxChartIgnoringOptions(mk(map[string]interface{}{
+		"display": true, "text": "Sales by Channel",
+	})); got.Title != "Sales by Channel" {
+		t.Errorf("Title = %q, want the text from options.plugins.title", got.Title)
+	}
+
+	// display: false significa que el autor apagó el título; replicarlo sería
+	// dibujar algo que pidió no dibujar.
+	if got, _ := pptxChartIgnoringOptions(mk(map[string]interface{}{
+		"display": false, "text": "Hidden",
+	})); got.Title != "" {
+		t.Errorf("Title = %q, want empty when plugins.title.display is false", got.Title)
+	}
+
+	// Un title: de primer nivel gana: es más explícito que el de options.
+	explicit := mk(map[string]interface{}{"display": true, "text": "From options"})
+	explicit.Title = "From the top level"
+	if got, _ := pptxChartIgnoringOptions(explicit); got.Title != "From the top level" {
+		t.Errorf("Title = %q, want the top-level title to win", got.Title)
+	}
+
+	// Formas inesperadas no deben panicar.
+	weird := ast.NewChartElement(pos(), "bar")
+	weird.Options = map[string]interface{}{"plugins": "not a map"}
+	if got, _ := pptxChartIgnoringOptions(weird); got.Title != "" {
+		t.Errorf("Title = %q, want empty for a malformed plugins value", got.Title)
+	}
+}
+
+// TestPPTX_UnmappedChartTypeStillFallsBackToPlaceholder confirma que relajar
+// la regla de options: no relajó la otra: un ChartType que el renderer nativo
+// no sabe dibujar en absoluto sigue degradando a un marcador visible.
+func TestPPTX_UnmappedChartTypeStillFallsBackToPlaceholder(t *testing.T) {
+	c := ast.NewChartElement(pos(), "radar")
 	c.Data = [][]interface{}{{"A", 10.0}}
 	c.Labels = []string{"A"}
-	c.Options = map[string]interface{}{"plugins": map[string]interface{}{"legend": false}}
 
-	xml := buildPPTXWithElements(t, "chartopts", c)
+	xml := buildPPTXWithElements(t, "chartradar", c)
 
 	if !strings.Contains(xml, "[Chart not rendered") {
-		t.Error("a chart with a Chart.js options block should degrade to a visible placeholder, not vanish")
+		t.Error("a chart type with no native mapping should degrade to a visible placeholder, not vanish")
 	}
 }
 
