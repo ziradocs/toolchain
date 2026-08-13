@@ -24,29 +24,40 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// pptx.go implementa --format pptx (issue #129), AST → .pptx vía pptxgo
+// pptx.go implementa --format pptx, AST → .pptx vía pptxgo
 // (github.com/mmonterroca/pptxgo, MIT, sin dependencias) — pinneada por
 // pseudo-versión de commit en go.mod, NO `replace ../../pptxgo`: un replace
 // a un directorio fuera de este checkout rompería CI, que solo clona este
 // repo (no el repo hermano de pptxgo).
 //
-// Alcance MVP v0 (deliberado): TextElement (párrafos, bold/italic/code
-// inline por segmentos), PointsElement (viñetas), TableElement,
-// ImageElement — mapeados vía Slide.AddTextBox/AddTable/AddImageFromBytes
-// en freeform, apilados verticalmente por altura estimada (pptxgo no mide
-// texto; el resultado es editable en PowerPoint si el estimado no calza
-// exacto, no es un layout final de precisión). Título/subtítulo sí usan
-// placeholders de layout (Slide.Title, PlaceholderSubTitle) — evita
-// inventar coordenadas para esos dos, a diferencia del cuerpo.
+// Elementos cubiertos: TextElement (párrafos, bold/italic/code inline por
+// segmentos), PointsElement (viñetas), TableElement, ImageElement,
+// QuoteElement, ChecklistElement, CodeElement y ChartElement — mapeados vía
+// Slide.AddTextBox/AddTable/AddImageFromBytes en freeform, apilados
+// verticalmente por altura estimada (pptxgo no mide texto; el resultado es
+// editable en PowerPoint si el estimado no calza exacto, no es un layout
+// final de precisión). Título/subtítulo sí usan placeholders de layout
+// (Slide.Title, PlaceholderSubTitle) — evita inventar coordenadas para esos
+// dos, a diferencia del cuerpo.
 //
-// Diferido a v1: CodeElement/QuoteElement/ChecklistElement/
-// SpecialBlockElement/CodeGroupElement/GridElement (aproximables como
-// textboxes estilizados) y Mermaid/Chart/Map/Math/PlantUML (requieren
-// rasterizar a PNG con el pipeline Chromium existente — la infraestructura
-// ya existe, igual que en doclang/internal/generator/docx.go, pero
-// suma trabajo y una dependencia de Chromium que el MVP evita). Un elemento
-// no soportado se omite con un warning explícito (ver pptxAddElement), no
-// en silencio.
+// La propiedad que define este formato es que NO usa Chromium: Generator ni
+// siquiera tiene el campo, y es lo que hace de --format pptx la salida que
+// funciona sin navegador instalado. Eso decide qué queda fuera:
+//
+//   - ChartElement se cubre SOLO por el camino nativo en Go
+//     (renderer.RenderChartNativePNG, go-analyze/charts): bar/line/pie/
+//     doughnut sin bloque options: ni modo JSON. Un chart fuera de ese
+//     conjunto se omite con warning en vez de instanciar un navegador.
+//   - Mermaid/PlantUML/Map/Math siguen sin cubrirse: los cuatro exigen
+//     rasterizar con un motor externo. Mermaid y PlantUML sí tienen ya un
+//     camino HTTP puro vía KrokiFetcher, pero devuelve SVG y una imagen
+//     embebida en .pptx tiene que ser ráster, así que el hueco real es
+//     SVG→PNG, no el fetch. Ver issue #144.
+//   - SpecialBlockElement/CodeGroupElement/GridElement tampoco: son
+//     contenedores con layout propio, no un shape suelto.
+//
+// Un elemento no cubierto se omite con un warning explícito (ver
+// pptxAddElement), nunca en silencio.
 //
 // Cada ast.ContentBlock → un slide, mismo mapeo que el generador HTML
 // propio de slidelang (CLAUDE.md: "cada ContentBlock es un slide").
@@ -64,6 +75,17 @@ const (
 	pptxParaGapEMU        = 91440    // 0.1in de separación entre elementos consecutivos
 	pptxCharsPerLine      = 90       // estimado de wrap a ancho completo, para el cálculo de altura
 	pptxDefaultImageEMU   = 3200400  // ~3.5in: alto por defecto si no se puede leer la imagen (URL remota o lectura fallida)
+	pptxQuoteIndentEMU    = 457200   // 0.5in extra de sangría para el bloque de cita
+	pptxChartWidthEMU     = 6858000  // 7.5in: ancho fijo del chart, el alto sale de su aspect ratio
+)
+
+// Fuentes y glifos de los elementos añadidos después del MVP v0.
+const (
+	pptxMonoFont          = "Consolas"        // monoespaciada para CodeElement; PowerPoint cae a una equivalente si no está
+	pptxSymbolFont        = "Segoe UI Symbol" // cubre U+2610/U+2611, que Arial no siempre trae
+	pptxCheckboxChecked   = "☑"               // ☑
+	pptxCheckboxUnchecked = "☐"               // ☐
+	pptxCodeFontSizePt    = 14.0              // el código a cuerpo completo (18pt) se sale del slide muy rápido
 )
 
 func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts GeneratorOptions) error {
@@ -133,10 +155,10 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 }
 
 // pptxAddElement despacha por tipo de ast.Element y devuelve el cursorY
-// actualizado para el próximo elemento. Un tipo no cubierto por el alcance
-// MVP v0 (ver el comentario del paquete) se omite con un warning explícito
-// — nunca en silencio, para que "faltan diagramas en este deck" sea visible
-// en el log del build, no un misterio.
+// actualizado para el próximo elemento. Un tipo no cubierto (ver el
+// comentario del paquete para qué queda fuera y por qué) se omite con un
+// warning explícito — nunca en silencio, para que "faltan diagramas en este
+// deck" sea visible en el log del build, no un misterio.
 func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int, opts GeneratorOptions) int {
 	switch e := elem.(type) {
 	case *ast.TextElement:
@@ -147,8 +169,16 @@ func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int,
 		return g.pptxAddTable(s, e, cursorY)
 	case *ast.ImageElement:
 		return g.pptxAddImage(s, e, cursorY, opts)
+	case *ast.QuoteElement:
+		return g.pptxAddQuote(s, e, cursorY)
+	case *ast.ChecklistElement:
+		return g.pptxAddChecklist(s, e, cursorY)
+	case *ast.CodeElement:
+		return g.pptxAddCode(s, e, cursorY)
+	case *ast.ChartElement:
+		return g.pptxAddChart(s, e, cursorY)
 	default:
-		g.logger.Warn("PPTX: element type %T not supported in v0, skipped (issue #129 tracks v1 coverage)", elem)
+		g.logger.Warn("PPTX: element type %T not supported yet, skipped (issue #144 tracks the remaining coverage)", elem)
 		return cursorY
 	}
 }
@@ -351,12 +381,22 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 // pptxSplitInline, y un `*italic*` dentro de un bullet se veía literal en el
 // .pptx generado en vez de en cursiva).
 func pptxApplyInline(para *pptx.Paragraph, content string) {
+	pptxApplyInlineBase(para, content, false)
+}
+
+// pptxApplyInlineBase es pptxApplyInline con un estilo base que se aplica a
+// TODOS los segmentos, no solo a los que el markdown marcó. baseItalic existe
+// para QuoteElement: una cita debe verse en cursiva completa, y no basta con
+// llamar para.Italic() después de pptxApplyInline porque Paragraph.Text()
+// reinicia curRuns en cada llamada — el Italic() final solo alcanzaría al
+// último segmento. El estilo tiene que entrar por segmento, acá.
+func pptxApplyInlineBase(para *pptx.Paragraph, content string, baseItalic bool) {
 	for _, seg := range pptxSplitInline(content) {
 		para.Text(seg.text)
 		if seg.bold {
 			para.Bold()
 		}
-		if seg.italic {
+		if seg.italic || baseItalic {
 			para.Italic()
 		}
 		if seg.code {
@@ -385,6 +425,162 @@ func (g *Generator) pptxAddText(s *pptx.Slide, content string, cursorY int) int 
 	pptxApplyInline(tb.AddParagraph(), content)
 
 	return cursorY + height + pptxParaGapEMU
+}
+
+// pptxAddQuote agrega e como un bloque citado: la prosa en cursiva completa
+// y, si hay autor o fuente, una línea de atribución debajo. La cursiva va por
+// segmento vía pptxApplyInlineBase, no con un Italic() final — ver el
+// comentario de esa función.
+func (g *Generator) pptxAddQuote(s *pptx.Slide, e *ast.QuoteElement, cursorY int) int {
+	if strings.TrimSpace(e.Content) == "" && e.Author == "" && e.Source == "" {
+		return cursorY
+	}
+
+	attribution := pptxQuoteAttribution(e)
+
+	lines := pptxEstimateLines(e.Content)
+	if attribution != "" {
+		lines += pptxEstimateLines(attribution)
+	}
+	height := lines * pptxLineHeightEMU
+
+	// Indentado respecto al margen: es el único recurso visual de "cita" que
+	// queda sin inventar una forma decorativa aparte (pptxgo dibuja shapes,
+	// pero una barra vertical exigiría coordenadas propias y un segundo shape
+	// que el usuario tendría que mover a mano al editar en PowerPoint).
+	tb := s.AddTextBox(pptxMarginEMU+pptxQuoteIndentEMU, cursorY, pptxContentWidthEMU-pptxQuoteIndentEMU, height)
+
+	if strings.TrimSpace(e.Content) != "" {
+		pptxApplyInlineBase(tb.AddParagraph(), e.Content, true)
+	}
+	if attribution != "" {
+		tb.AddParagraph().Text(attribution)
+	}
+
+	return cursorY + height + pptxParaGapEMU
+}
+
+// pptxQuoteAttribution arma la línea "— Autor, Fuente" a partir de los campos
+// que estén presentes, o "" si no hay ninguno.
+func pptxQuoteAttribution(e *ast.QuoteElement) string {
+	parts := make([]string, 0, 2)
+	if e.Author != "" {
+		parts = append(parts, e.Author)
+	}
+	if e.Source != "" {
+		parts = append(parts, e.Source)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "— " + strings.Join(parts, ", ")
+}
+
+// pptxAddChecklist agrega e como una lista con viñeta de casilla —☑ marcada,
+// ☐ sin marcar— en vez del punto de PointsElement. El estado se codifica en
+// el carácter de la viñeta y no en el texto, así que sigue siendo legible al
+// editar en PowerPoint y no se pierde si el usuario reescribe el contenido.
+func (g *Generator) pptxAddChecklist(s *pptx.Slide, e *ast.ChecklistElement, cursorY int) int {
+	totalLines := 0
+	for _, item := range e.Items {
+		totalLines += pptxEstimateLines(item.Content)
+		for _, sub := range item.SubItems {
+			totalLines += pptxEstimateLines(sub.Content)
+		}
+	}
+	if totalLines < 1 {
+		totalLines = 1
+	}
+	height := totalLines * pptxLineHeightEMU
+
+	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
+	for _, item := range e.Items {
+		pptxAddChecklistParagraph(tb, item, 0)
+		for _, sub := range item.SubItems {
+			pptxAddChecklistParagraph(tb, sub, 1)
+		}
+	}
+
+	return cursorY + height + pptxParaGapEMU
+}
+
+func pptxAddChecklistParagraph(tb *pptx.TextBox, item ast.ChecklistItem, level int) {
+	bullet := pptxCheckboxUnchecked
+	if item.Checked {
+		bullet = pptxCheckboxChecked
+	}
+	para := tb.AddParagraph().Level(level).Indent(18, -18)
+	// "Segoe UI Symbol" cubre U+2610/U+2611 en Windows y PowerPoint cae a una
+	// fuente equivalente en macOS; Arial (la que usa pptxAddPointParagraph
+	// para "•") no siempre trae esos dos glifos.
+	para.Bullet(bullet, pptxSymbolFont)
+	pptxApplyInline(para, item.Content)
+}
+
+// pptxAddCode agrega e como un textbox monoespaciado sin viñeta. NO pasa por
+// pptxApplyInline a propósito: dentro de un bloque de código un `*` o un
+// backtick son contenido literal, no marcado, y resolverlos como markdown
+// corrompería el código mostrado. Paragraph.Text ya convierte cada \n en un
+// <a:br/>, así que el bloque entero cabe en un solo párrafo conservando sus
+// saltos de línea.
+func (g *Generator) pptxAddCode(s *pptx.Slide, e *ast.CodeElement, cursorY int) int {
+	if strings.TrimSpace(e.Content) == "" {
+		return cursorY
+	}
+
+	// Una línea de código no se envuelve como prosa: se estima por número de
+	// líneas reales, no por pptxCharsPerLine, porque un bloque de código
+	// típico es angosto y contarlo como prosa sobreestimaría la altura.
+	lineCount := strings.Count(e.Content, "\n") + 1
+	height := lineCount * pptxLineHeightEMU
+
+	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
+	para := tb.AddParagraph().NoBullet()
+	para.Text(e.Content)
+	para.Font(pptxMonoFont)
+	para.FontSize(pptxCodeFontSizePt)
+
+	return cursorY + height + pptxParaGapEMU
+}
+
+// pptxAddChart rasteriza e a PNG con el renderer nativo en Go
+// (renderer.RenderChartNativePNG, go-analyze/charts) y lo embebe como imagen.
+//
+// Nativo-only a propósito: --format pptx no instancia un ChromiumRenderer en
+// ningún punto (Generator ni siquiera tiene el campo), y ésa es justo la
+// propiedad que hace de PPTX la salida que funciona sin navegador. Caer a
+// Chromium acá para los charts que el camino nativo no cubre —los de tipo no
+// mapeado, en modo JSON, o con un bloque options: de Chart.js— cambiaría esa
+// garantía por un elemento; se omiten con warning, igual que antes, en vez de
+// arrastrar una dependencia de navegador a este formato.
+func (g *Generator) pptxAddChart(s *pptx.Slide, e *ast.ChartElement, cursorY int) int {
+	width, height := renderer.ChartDimensions(e)
+	data, ok, err := renderer.RenderChartNativePNG(e, width, height)
+	if !ok {
+		g.logger.Warn("PPTX: chart type %q no tiene render nativo (tipo no mapeado, modo JSON, u options: de Chart.js), omitido — --format pptx no usa Chromium", e.ChartType)
+		return g.pptxAddText(s, fmt.Sprintf("[Chart not rendered: %s]", e.ChartType), cursorY)
+	}
+	if err != nil {
+		g.logger.Warn("PPTX: falló el render nativo del chart %q: %v", e.ChartType, err)
+		return g.pptxAddText(s, fmt.Sprintf("[Chart failed to render: %s]", e.ChartType), cursorY)
+	}
+
+	// Ancho fijo con alto derivado del aspect ratio que pidió el chart, para
+	// no deformarlo: es el mismo criterio que pptxAddImage aplica a las
+	// imágenes, pero sin releer las dimensiones del PNG (acá ya se conocen).
+	drawWidth := pptxChartWidthEMU
+	drawHeight := pptxDefaultImageEMU
+	if width > 0 && height > 0 {
+		drawHeight = drawWidth * height / width
+	}
+
+	s.AddImageFromBytesWithSize(data, pptxMarginEMU, cursorY, drawWidth, drawHeight)
+
+	newCursorY := cursorY + drawHeight + pptxParaGapEMU
+	if e.Title != "" {
+		newCursorY = g.pptxAddText(s, e.Title, newCursorY)
+	}
+	return newCursorY
 }
 
 // pptxAddPoints agrega e como una lista de viñetas (subItems anidados vía

@@ -50,7 +50,7 @@ type BuildOptions struct {
 	// @include — default el directorio del propio archivo de entrada, igual
 	// que --asset-root en doclang. Ver core/include.
 	IncludeRoot string
-	// AssetRoot (issue #129): directorio de confinamiento para las fuentes de
+	// AssetRoot: directorio de confinamiento para las fuentes de
 	// imagen locales que --format pptx embebe — default el directorio del
 	// propio archivo de entrada, mismo patrón que --asset-root en doclang
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-4). Los demás formatos no lo usan:
@@ -342,7 +342,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	}
 	content = []byte(expandedContent)
 
-	// Confinamiento de fuentes de imagen para --format pptx (issue #129, ver
+	// Confinamiento de fuentes de imagen para --format pptx (ver
 	// docs/SECURITY_AUDIT_2026-07.md AL-4) — mismo patrón que includeRoot
 	// arriba y que --asset-root en doclang.
 	assetRoot := opts.AssetRoot
