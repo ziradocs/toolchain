@@ -99,13 +99,38 @@ func TestBuildPrintToPDFParams_ScaleIsApplied(t *testing.T) {
 	}
 }
 
-// TestBuildPrintToPDFParams_NegativeScaleOmitted confirma que un valor
-// inválido no se manda como cero explícito ni como negativo — mismo guard
-// que márgenes/paper size.
-func TestBuildPrintToPDFParams_NegativeScaleOmitted(t *testing.T) {
-	params := buildPrintToPDFParams(PDFOptions{Scale: -1})
+// TestBuildPrintToPDFParams_OnlyZeroMeansUnset es la corrección de un
+// hallazgo de code-review: la primera versión de este bloque usaba un guard
+// `> 0` mientras el comentario prometía que un valor fuera de rango llegaría
+// al navegador para fallar ruidosamente. Las dos cosas no podían ser ciertas
+// —un Scale: -1 se descartaba en silencio, exactamente el bug que el cambio
+// venía a arreglar— y el test de entonces cementaba la contradicción.
+//
+// Contrato vigente: SOLO el cero significa "no especificado". Cualquier otro
+// valor se propaga; el rango lo valida ValidatePDFScale (ver abajo).
+func TestBuildPrintToPDFParams_OnlyZeroMeansUnset(t *testing.T) {
+	if params := buildPrintToPDFParams(PDFOptions{Scale: 0}); params.Scale != 0 {
+		t.Errorf("Scale 0 must be left at cdproto's default, got %v", params.Scale)
+	}
+	// Un negativo NO se descarta: se propaga para que la validación —y no un
+	// silencio— sea quien lo rechace.
+	if params := buildPrintToPDFParams(PDFOptions{Scale: -1}); params.Scale != -1 {
+		t.Errorf("a non-zero Scale must be propagated verbatim, got %v (silently dropping it is the bug this replaced)", params.Scale)
+	}
+}
 
-	if params.Scale != 0 {
-		t.Errorf("expected a negative Scale to be omitted, got %v", params.Scale)
+func TestValidatePDFScale(t *testing.T) {
+	valid := []float64{0, 0.1, 0.5, 1.0, 2.0}
+	for _, s := range valid {
+		if err := ValidatePDFScale(s); err != nil {
+			t.Errorf("ValidatePDFScale(%v) = %v, want nil", s, err)
+		}
+	}
+
+	invalid := []float64{-1, 0.09, 2.01, 99}
+	for _, s := range invalid {
+		if err := ValidatePDFScale(s); err == nil {
+			t.Errorf("ValidatePDFScale(%v) = nil, want an error naming the valid range", s)
+		}
 	}
 }
