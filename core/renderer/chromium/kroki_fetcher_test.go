@@ -25,7 +25,7 @@ func TestKrokiFetcher_PostsSourceAndDiagramType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewKrokiFetcher(server.URL, "mermaid", t.TempDir())
+	fetcher := NewKrokiFetcher(server.URL, "mermaid", "svg", t.TempDir())
 	svg, err := fetcher.FetchInline(context.Background(), "graph TD; A-->B")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -54,7 +54,7 @@ func TestKrokiFetcher_CachesAcrossInlineAndSave(t *testing.T) {
 	defer server.Close()
 
 	outputDir := t.TempDir()
-	fetcher := NewKrokiFetcher(server.URL, "plantuml", outputDir)
+	fetcher := NewKrokiFetcher(server.URL, "plantuml", "svg", outputDir)
 
 	if _, err := fetcher.FetchDiagramInline(context.Background(), "@startuml\nA->B\n@enduml"); err != nil {
 		t.Fatalf("unexpected error on inline fetch: %v", err)
@@ -76,7 +76,7 @@ func TestKrokiFetcher_FetchDiagramToAssets_WritesUnderAssetsDiagrams(t *testing.
 	defer server.Close()
 
 	outputDir := t.TempDir()
-	fetcher := NewKrokiFetcher(server.URL, "plantuml", outputDir)
+	fetcher := NewKrokiFetcher(server.URL, "plantuml", "svg", outputDir)
 
 	relPath, err := fetcher.FetchDiagramToAssets(context.Background(), "@startuml\nA->B\n@enduml")
 	if err != nil {
@@ -98,7 +98,7 @@ func TestKrokiFetcher_FetchAndSave_WritesUnderDiagrams(t *testing.T) {
 	defer server.Close()
 
 	outputDir := t.TempDir()
-	fetcher := NewKrokiFetcher(server.URL, "mermaid", outputDir)
+	fetcher := NewKrokiFetcher(server.URL, "mermaid", "svg", outputDir)
 
 	relPath, err := fetcher.FetchAndSave(context.Background(), "graph TD; A-->B", outputDir)
 	if err != nil {
@@ -122,7 +122,7 @@ func TestKrokiFetcher_AllowsTrustedInitialServerEvenIfLoopback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewKrokiFetcher(server.URL, "mermaid", t.TempDir())
+	fetcher := NewKrokiFetcher(server.URL, "mermaid", "svg", t.TempDir())
 	if _, err := fetcher.FetchInline(context.Background(), "graph TD; A-->B"); err != nil {
 		t.Fatalf("expected direct request to a trusted (loopback) server to succeed, got: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestKrokiFetcher_BlocksRedirectToLoopback(t *testing.T) {
 	}))
 	defer redirector.Close()
 
-	fetcher := NewKrokiFetcher(redirector.URL, "mermaid", t.TempDir())
+	fetcher := NewKrokiFetcher(redirector.URL, "mermaid", "svg", t.TempDir())
 	_, err := fetcher.FetchInline(context.Background(), "graph TD; A-->B")
 	if err == nil {
 		t.Fatal("expected redirect to a loopback address to be blocked, got nil error")
@@ -170,7 +170,7 @@ func TestKrokiFetcher_DiskCacheIncludesServerInKey(t *testing.T) {
 	outputDir := t.TempDir()
 	const diagram = "@startuml\nA->B\n@enduml"
 
-	fetcherA := NewKrokiFetcher(serverA.URL, "plantuml", outputDir)
+	fetcherA := NewKrokiFetcher(serverA.URL, "plantuml", "svg", outputDir)
 	relPathA, err := fetcherA.FetchDiagramToAssets(context.Background(), diagram)
 	if err != nil {
 		t.Fatalf("unexpected error fetching from server A: %v", err)
@@ -183,7 +183,7 @@ func TestKrokiFetcher_DiskCacheIncludesServerInKey(t *testing.T) {
 		t.Fatalf("expected server A content, got %q", dataA)
 	}
 
-	fetcherB := NewKrokiFetcher(serverB.URL, "plantuml", outputDir)
+	fetcherB := NewKrokiFetcher(serverB.URL, "plantuml", "svg", outputDir)
 	relPathB, err := fetcherB.FetchDiagramToAssets(context.Background(), diagram)
 	if err != nil {
 		t.Fatalf("unexpected error fetching from server B: %v", err)
@@ -201,8 +201,73 @@ func TestKrokiFetcher_DiskCacheIncludesServerInKey(t *testing.T) {
 }
 
 func TestKrokiFetcher_DefaultsToPublicServer(t *testing.T) {
-	fetcher := NewKrokiFetcher("", "mermaid", t.TempDir())
+	fetcher := NewKrokiFetcher("", "mermaid", "svg", t.TempDir())
 	if fetcher.server != "https://kroki.io" {
 		t.Errorf("expected default server https://kroki.io, got %q", fetcher.server)
+	}
+}
+
+// TestKrokiFetcher_RequestsAndSavesPNGFormat cubre un hallazgo de code
+// review: antes de este fix, render() pedía siempre /{diagramType}/svg sin
+// importar el format con el que se construyó el fetcher, así que
+// --diagram-backend=kroki --plantuml-format=png --render-mode=offline-assets
+// devolvía SVG en silencio con extensión .svg, mientras
+// renderPlantUMLOfflineAssets (core/renderer/html.go) seguía etiquetando el
+// <img type="..."> como image/png porque ctx.PlantUMLFormat sí decía "png"
+// — contenido y etiqueta desacordados. NewKrokiFetcher ahora hila el format
+// hasta la URL real y hasta la extensión del archivo escrito.
+func TestKrokiFetcher_RequestsAndSavesPNGFormat(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("fake-png-bytes"))
+	}))
+	defer server.Close()
+
+	outputDir := t.TempDir()
+	fetcher := NewKrokiFetcher(server.URL, "plantuml", "png", outputDir)
+
+	relPath, err := fetcher.FetchDiagramToAssets(context.Background(), "@startuml\nA->B\n@enduml")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/plantuml/png" {
+		t.Errorf("expected request to /plantuml/png, got %q", gotPath)
+	}
+	if filepath.Ext(relPath) != ".png" {
+		t.Errorf("expected a .png file, got %q", relPath)
+	}
+	data, err := os.ReadFile(filepath.Join(outputDir, relPath))
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+	if string(data) != "fake-png-bytes" {
+		t.Errorf("expected the raw PNG bytes from the server, got %q", data)
+	}
+}
+
+// TestKrokiFetcher_InlineRejectsNonSVGFormat cubre el mismo hallazgo: un
+// KrokiFetcher construido con format="png" y usado en modo inline
+// (FetchInline/FetchDiagramInline, pensado para incrustar marcado SVG
+// literal) debe rechazar explícitamente en vez de devolver bytes PNG como
+// si fueran texto — mismo contrato que PlantUMLFetcher.FetchDiagramInline
+// (plantuml_fetcher.go).
+func TestKrokiFetcher_InlineRejectsNonSVGFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("fake-png-bytes"))
+	}))
+	defer server.Close()
+
+	fetcher := NewKrokiFetcher(server.URL, "plantuml", "png", t.TempDir())
+	if _, err := fetcher.FetchDiagramInline(context.Background(), "@startuml\nA->B\n@enduml"); err == nil {
+		t.Error("expected FetchDiagramInline to reject a png-format fetcher, got nil error")
+	}
+
+	mermaidFetcher := NewKrokiFetcher(server.URL, "mermaid", "png", t.TempDir())
+	if _, err := mermaidFetcher.FetchInline(context.Background(), "graph TD; A-->B"); err == nil {
+		t.Error("expected FetchInline to reject a png-format fetcher, got nil error")
 	}
 }

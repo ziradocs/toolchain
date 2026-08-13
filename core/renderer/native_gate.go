@@ -22,16 +22,24 @@ import "go.ziradocs.com/core/v2/ast"
 // (Go puro, sin Chromium) con ÉXITO — probado de verdad vía
 // RenderChartNativePNG, no solo por elegibilidad de tipo (un chart
 // type-eligible con datos malformados igual falla el render real). Devuelve
-// (fetcher, false) en cuanto CUALQUIER elemento fuerza Chromium: mermaid,
-// math, mapas, un chart no nativo-capaz (combo/scatter/JSON-mode/con
-// Options), o un chart cuyo render real falla. imageFormat == "webp" fuerza
-// false sin más: go-analyze/charts solo produce PNG.
+// (fetcher, false) en cuanto CUALQUIER elemento fuerza Chromium: math,
+// mapas, un chart no nativo-capaz (combo/scatter/JSON-mode/con Options), un
+// chart cuyo render real falla, o mermaid — salvo que diagramBackend ==
+// "kroki", en cuyo caso mermaid se resuelve por HTTP puro (KrokiFetcher) y
+// no debe hacer bail-out del gate (hallazgo de code-review sobre PR #138:
+// esta función ignoraba diagramBackend por completo, así que un documento
+// con mermaid-vía-kroki + un chart nativo seguía exigiendo Chromium solo
+// por la presencia del MermaidElement, aunque ningún elemento del documento
+// lo necesitara de verdad — mismo criterio que
+// slidelang/internal/generator/offline.go's tryBuildNativeContext, que ya
+// tenía este mismo split). imageFormat == "webp" fuerza false sin más:
+// go-analyze/charts solo produce PNG.
 //
 // El fetcher retornado ya trae los bytes de CADA chart sembrados
 // (ChartFetcher.Seed) cuando allNative == true, así que el caller nunca
 // vuelve a rasterizar — una sola pasada por chart en todo el build, igual
 // que el patrón original en slidelang.
-func TryAllChartsNative(astNode *ast.AST, imageFormat string) (fetcher *NativeChartFetcher, allNative bool) {
+func TryAllChartsNative(astNode *ast.AST, imageFormat string, diagramBackend string) (fetcher *NativeChartFetcher, allNative bool) {
 	if imageFormat == "webp" {
 		return nil, false
 	}
@@ -42,7 +50,11 @@ func TryAllChartsNative(astNode *ast.AST, imageFormat string) (fetcher *NativeCh
 	for _, block := range astNode.ContentBlocks {
 		for _, el := range block.Elements {
 			switch e := el.(type) {
-			case *ast.MermaidElement, *ast.MathElement, *ast.MapElement:
+			case *ast.MermaidElement:
+				if diagramBackend != "kroki" {
+					return nil, false
+				}
+			case *ast.MathElement, *ast.MapElement:
 				return nil, false
 			case *ast.ChartElement:
 				if !SupportsNativeChartRendering(e) {
