@@ -7,6 +7,8 @@ package generator
 
 import (
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -111,6 +113,49 @@ func TestPPTX_ChecklistElementIsRendered(t *testing.T) {
 	}
 }
 
+// TestPPTX_NestedListItemsIndentByLevel cubre un hallazgo de code-review:
+// tanto pptxAddPointParagraph como pptxAddChecklistParagraph llamaban
+// Indent(18, -18) fijo. Level(lvl) sí cambiaba el atributo lvl, pero un marL
+// explícito en el mismo pPr gana sobre la sangría por nivel del layout, así
+// que el OOXML salía con marL idéntico en lvl="0" y lvl="1" y los subitems
+// quedaban visualmente al mismo margen que sus padres.
+func TestPPTX_NestedListItemsIndentByLevel(t *testing.T) {
+	c := ast.NewChecklistElement(pos())
+	parent := ast.NewChecklistItem(pos(), "nested-parent", false)
+	parent.SubItems = append(parent.SubItems, *ast.NewChecklistItem(pos(), "nested-child", true))
+	c.Items = append(c.Items, *parent)
+
+	points := ast.NewPointsElement(pos())
+	pi := ast.NewPointItem(pos(), "points-parent")
+	pi.SubPoints = append(pi.SubPoints, *ast.NewPointItem(pos(), "points-child"))
+	points.Items = append(points.Items, *pi)
+
+	xml := buildPPTXWithElements(t, "nested", c, points)
+
+	// Recolectar (lvl, marL) de cada párrafo con sangría explícita.
+	re := regexp.MustCompile(`<a:pPr[^>]*marL="(\d+)"[^>]*lvl="(\d+)"|<a:pPr[^>]*lvl="(\d+)"[^>]*marL="(\d+)"`)
+	byLevel := map[string]map[string]bool{}
+	for _, m := range re.FindAllStringSubmatch(xml, -1) {
+		marL, lvl := m[1], m[2]
+		if marL == "" {
+			lvl, marL = m[3], m[4]
+		}
+		if byLevel[lvl] == nil {
+			byLevel[lvl] = map[string]bool{}
+		}
+		byLevel[lvl][marL] = true
+	}
+
+	if len(byLevel["0"]) == 0 || len(byLevel["1"]) == 0 {
+		t.Fatalf("expected paragraphs at both lvl=0 and lvl=1, got %v", byLevel)
+	}
+	for m0 := range byLevel["0"] {
+		if byLevel["1"][m0] {
+			t.Errorf("lvl=0 and lvl=1 share marL=%s — subitems are not visually nested", m0)
+		}
+	}
+}
+
 func TestPPTX_CodeElementIsRenderedMonospacedAndLiteral(t *testing.T) {
 	// El contenido trae sintaxis que pptxSplitInline resolvería como markdown
 	// si el código pasara por ahí: dentro de un bloque de código son
@@ -179,11 +224,61 @@ func TestPPTX_ChartElementIsRasterizedNatively(t *testing.T) {
 	if !strings.Contains(xml, "<p:pic>") {
 		t.Error("slide1.xml has no picture shape for the chart")
 	}
-	if !strings.Contains(xml, "chart-marker-title") {
-		t.Error("the chart title was not emitted as a caption below the image")
+	// El título va DENTRO del PNG (RenderChartNativePNG hace
+	// opt.Title.Text = elem.Title), así que no debe aparecer también como
+	// textbox: la primera versión de pptxAddChart lo emitía dos veces y la
+	// segunda copia caía fuera del slide. Hallazgo de code-review; el test de
+	// entonces afirmaba justamente el comportamiento con el bug.
+	if strings.Contains(xml, "chart-marker-title") {
+		t.Error("the chart title was emitted as a caption as well as inside the PNG — it is drawn twice")
 	}
 	if strings.Contains(xml, "[Chart not rendered") || strings.Contains(xml, "[Chart failed") {
 		t.Error("the chart fell back to a text placeholder instead of rendering natively")
+	}
+}
+
+// TestPPTX_ChartIsClampedToSlide cubre el overflow que no dependía del
+// caption: ChartDimensions respeta elem.Width/elem.Height, así que un chart
+// cuadrado daba drawHeight = 7.5in arrancando en 1.87in y la imagen quedaba
+// casi entera fuera de un canvas de 7.5in.
+func TestPPTX_ChartIsClampedToSlide(t *testing.T) {
+	c := ast.NewChartElement(pos(), "bar")
+	c.Data = [][]interface{}{{"A", 10.0}, {"B", 20.0}}
+	c.Labels = []string{"A", "B"}
+	c.Width, c.Height = 800, 800 // cuadrado: el peor caso
+
+	xml := buildPPTXWithElements(t, "chartclamp", c)
+
+	// La extensión del shape va como <a:ext cx=".." cy=".."/>. El alto tiene
+	// que caber en lo que queda debajo del top de contenido.
+	maxH := pptxSlideHeightEMU - pptxContentTopEMU - pptxMarginEMU
+	re := regexp.MustCompile(`<a:ext cx="(\d+)" cy="(\d+)"`)
+	found := false
+	for _, m := range re.FindAllStringSubmatch(xml, -1) {
+		cy, _ := strconv.Atoi(m[2])
+		cx, _ := strconv.Atoi(m[1])
+		if cy > maxH {
+			t.Errorf("a shape is %d EMU tall but only %d EMU fit below the content top — it lands off-slide", cy, maxH)
+		}
+		if cy == maxH {
+			found = true
+			// El clamp debe preservar el aspect ratio 1:1, no deformar.
+			if cx != cy {
+				t.Errorf("clamping deformed the chart: %dx%d, want a square", cx, cy)
+			}
+		}
+	}
+	if !found {
+		t.Error("the oversized chart was not clamped to the available height")
+	}
+}
+
+// TestPPTX_UnclampedChartKeepsItsSize confirma que el clamp no encoge lo que
+// ya cabía.
+func TestPPTX_UnclampedChartKeepsItsSize(t *testing.T) {
+	w, h := pptxFitInSlide(pptxChartWidthEMU, 1000000, pptxContentTopEMU)
+	if w != pptxChartWidthEMU || h != 1000000 {
+		t.Errorf("pptxFitInSlide shrank a chart that already fit: got %dx%d", w, h)
 	}
 }
 
