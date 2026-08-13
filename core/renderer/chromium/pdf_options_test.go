@@ -74,4 +74,38 @@ func TestBuildPrintToPDFParams_ZeroMarginsOmitted(t *testing.T) {
 	if params.Landscape {
 		t.Error("expected Landscape = false by default")
 	}
+	if params.Scale != 0 {
+		t.Errorf("expected Scale left at cdproto's default for a zero-value PDFOptions, got %v — sending an explicit 0 is rejected by CDP", params.Scale)
+	}
+}
+
+// TestBuildPrintToPDFParams_ScaleIsApplied cubre que PDFOptions.Scale deje de
+// ser un campo público inerte: DefaultPDFOptions() lo inicializaba en 1.0 y
+// slidesPDFOptions() lo seteaba explícitamente, pero buildPrintToPDFParams
+// nunca llamaba WithScale, así que Scale: 0.5 producía un PDF a tamaño
+// completo en silencio.
+func TestBuildPrintToPDFParams_ScaleIsApplied(t *testing.T) {
+	for _, scale := range []float64{0.5, 1.0, 2.0} {
+		params := buildPrintToPDFParams(PDFOptions{Scale: scale})
+		if params.Scale != scale {
+			t.Errorf("Scale = %v, want %v", params.Scale, scale)
+		}
+	}
+
+	// El default documentado (1.0) debe llegar al navegador, no quedarse en
+	// el cero de cdproto.
+	if params := buildPrintToPDFParams(DefaultPDFOptions()); params.Scale != 1.0 {
+		t.Errorf("DefaultPDFOptions().Scale did not reach the print params: got %v, want 1.0", params.Scale)
+	}
+}
+
+// TestBuildPrintToPDFParams_NegativeScaleOmitted confirma que un valor
+// inválido no se manda como cero explícito ni como negativo — mismo guard
+// que márgenes/paper size.
+func TestBuildPrintToPDFParams_NegativeScaleOmitted(t *testing.T) {
+	params := buildPrintToPDFParams(PDFOptions{Scale: -1})
+
+	if params.Scale != 0 {
+		t.Errorf("expected a negative Scale to be omitted, got %v", params.Scale)
+	}
 }

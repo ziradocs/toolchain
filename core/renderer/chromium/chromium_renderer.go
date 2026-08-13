@@ -1060,5 +1060,19 @@ func buildPrintToPDFParams(opts PDFOptions) *page.PrintToPDFParams {
 			WithFooterTemplate(opts.FooterTemplate)
 	}
 
+	// Scale. Hasta este punto PDFOptions.Scale era un campo público INERTE:
+	// DefaultPDFOptions() lo inicializaba en 1.0 y slidesPDFOptions() lo
+	// seteaba explícitamente, pero esta función nunca llamaba WithScale, así
+	// que un caller que pidiera Scale: 0.5 obtenía un PDF a tamaño completo
+	// sin ningún aviso. El guard `> 0` es el mismo que rige a márgenes y
+	// paper size acá arriba: el cero-valor de un PDFOptions{} literal deja el
+	// default de cdproto en paz en vez de mandar un 0 explícito, que CDP
+	// rechaza. Un valor fuera del rango válido de CDP (0.1–2) sí llega al
+	// navegador y falla con su error — ruidoso a propósito, que es
+	// estrictamente mejor que ignorar en silencio lo que el caller pidió.
+	if opts.Scale > 0 {
+		printParams = printParams.WithScale(opts.Scale)
+	}
+
 	return printParams
 }
