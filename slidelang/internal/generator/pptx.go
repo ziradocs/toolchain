@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/mmonterroca/pptxgo/pptx"
@@ -46,16 +47,18 @@ import (
 //
 //   - ChartElement se cubre SOLO por el camino nativo en Go
 //     (renderer.RenderChartNativePNG, go-analyze/charts): bar/line/pie/
-//     doughnut sin bloque options: ni modo JSON. Un chart fuera de ese
-//     conjunto se omite con warning en vez de instanciar un navegador.
+//     doughnut, no modo JSON. Un bloque options: NO descalifica el chart —
+//     se dibuja aproximado y se avisa qué claves se ignoraron; ver
+//     pptxChartIgnoringOptions para por qué la política acá difiere de la
+//     que aplican HTML/PDF/DOCX. Un ChartType sin mapeo nativo (radar,
+//     combo) sí se omite con warning, en vez de instanciar un navegador.
 //     El título NO se emite como caption: el renderer nativo ya lo dibuja
 //     dentro del PNG.
 //
-//     Esta exclusión no era cierta cuando se escribió: el ChartParser de core
-//     descartaba en silencio todo bloque options: del DSL, así que
-//     elem.Options llegaba siempre vacío y el gate daba por nativo-capaz un
-//     chart configurado, rasterizándolo sin ejes ni leyenda y sin warning.
-//     Depende de core >= v2.13.0 (parseNestedOptions) para ser verdad.
+//     Es una solución puente: en cuanto pptxgo emita charts OOXML nativos
+//     (mmonterroca/pptxgo#25), PowerPoint redibujaría el chart con los datos
+//     editables y la mayoría de estas claves tendrían equivalente directo en
+//     su vocabulario, en vez de tener que replicarlas en un rasterizador.
 //   - Mermaid/PlantUML/Map/Math siguen sin cubrirse: los cuatro exigen
 //     rasterizar con un motor externo. Mermaid y PlantUML sí tienen ya un
 //     camino HTTP puro vía KrokiFetcher, pero devuelve SVG y una imagen
@@ -591,10 +594,18 @@ func (g *Generator) pptxAddCode(s *pptx.Slide, e *ast.CodeElement, cursorY int) 
 // arrastrar una dependencia de navegador a este formato.
 func (g *Generator) pptxAddChart(s *pptx.Slide, e *ast.ChartElement, cursorY int) int {
 	width, height := renderer.ChartDimensions(e)
-	data, ok, err := renderer.RenderChartNativePNG(e, width, height)
+
+	// Un bloque options: NO descalifica el chart acá, a diferencia de lo que
+	// decide renderer.SupportsNativeChartRendering — ver pptxChartIgnoringOptions.
+	target, droppedOptions := pptxChartIgnoringOptions(e)
+
+	data, ok, err := renderer.RenderChartNativePNG(target, width, height)
 	if !ok {
-		g.logger.Warn("PPTX: chart type %q no tiene render nativo (tipo no mapeado, modo JSON, u options: de Chart.js), omitido — --format pptx no usa Chromium", e.ChartType)
+		g.logger.Warn("PPTX: chart type %q no tiene render nativo (tipo no mapeado o modo JSON), omitido — --format pptx no usa Chromium", e.ChartType)
 		return g.pptxAddText(s, fmt.Sprintf("[Chart not rendered: %s]", e.ChartType), cursorY)
+	}
+	if len(droppedOptions) > 0 {
+		g.logger.Warn("PPTX: el chart %q se dibujó de forma aproximada — de options: %s el renderer nativo solo aplica el título (--format pptx no usa Chromium, que es quien las honra completas en HTML/PDF)", e.ChartType, strings.Join(droppedOptions, ", "))
 	}
 	if err != nil {
 		g.logger.Warn("PPTX: falló el render nativo del chart %q: %v", e.ChartType, err)
@@ -620,6 +631,84 @@ func (g *Generator) pptxAddChart(s *pptx.Slide, e *ast.ChartElement, cursorY int
 	// sobre un canvas de 7.5in, así que el textbox arrancaba en 7.592in.
 	// Hallazgo de code-review.
 	return cursorY + drawHeight + pptxParaGapEMU
+}
+
+// pptxChartIgnoringOptions devuelve una copia de e sin el bloque options:,
+// más la lista ordenada de claves que se ignoraron. Si e no traía options,
+// devuelve e tal cual y una lista vacía.
+//
+// Existe porque la política correcta para PPTX es DISTINTA de la que aplica
+// renderer.SupportsNativeChartRendering, y la diferencia está en qué significa
+// "rechazar" en cada formato:
+//
+//   - En HTML/PDF/DOCX, rechazar el camino nativo significa "usa Chromium",
+//     que sí honra la config de Chart.js al pie de la letra. Ahí ser estricto
+//     no cuesta nada más que arrancar un navegador, y evita dibujar algo
+//     distinto de lo que el autor pidió.
+//   - En PPTX no hay tal fallback: el formato entero se define por no usar
+//     Chromium. Rechazar significa que el chart NO SALE. Y como en la práctica
+//     casi todo chart real trae options:, ser igual de estricto acá dejaba la
+//     cobertura de charts sin activarse nunca.
+//
+// El criterio original —"nunca dibujes algo distinto de lo que el autor
+// pidió"— protege contra el error SILENCIOSO. Con un warning explícito que
+// nombra las claves ignoradas, el error deja de ser silencioso, y un chart
+// aproximado le gana a ningún chart. Lo que sigue descalificando es lo que el
+// renderer nativo no puede dibujar en absoluto: un ChartType sin mapeo
+// (radar, combo...) o el modo JSON.
+//
+// Solución puente mientras pptxgo no emite charts OOXML nativos
+// (mmonterroca/pptxgo#25), que resolvería esto de raíz: PowerPoint redibujaría
+// el chart y la mayoría de estas claves tendrían equivalente directo en su
+// vocabulario, en vez de tener que replicarlas en un rasterizador.
+func pptxChartIgnoringOptions(e *ast.ChartElement) (*ast.ChartElement, []string) {
+	if len(e.Options) == 0 {
+		return e, nil
+	}
+
+	dropped := make([]string, 0, len(e.Options))
+	for k := range e.Options {
+		dropped = append(dropped, k)
+	}
+	sort.Strings(dropped) // el orden de un map es aleatorio; el warning no debe serlo
+
+	// Copia superficial: solo se limpia Options, y el resto de los campos
+	// (Data/Labels/Series) se leen, nunca se mutan.
+	clone := *e
+	clone.Options = nil
+
+	// Rescatar el título antes de tirar el bloque. En Chart.js el título de un
+	// chart vive en options.plugins.title.text, no en una propiedad de primer
+	// nivel, y así es como lo escriben los ejemplos de este repo — sin este
+	// rescate, limpiar Options dejaría todos esos charts sin título en el
+	// PNG. Es la única clave que se recupera: su semántica es inequívoca y el
+	// renderer nativo ya tiene dónde ponerla (opt.Title.Text).
+	if clone.Title == "" {
+		if title := chartTitleFromOptions(e.Options); title != "" {
+			clone.Title = title
+		}
+	}
+
+	return &clone, dropped
+}
+
+// chartTitleFromOptions extrae options.plugins.title.text, respetando
+// plugins.title.display: false (Chart.js no dibuja el título en ese caso, y
+// replicarlo sería dibujar algo que el autor apagó).
+func chartTitleFromOptions(options map[string]interface{}) string {
+	plugins, ok := options["plugins"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	title, ok := plugins["title"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	if display, ok := title["display"].(bool); ok && !display {
+		return ""
+	}
+	text, _ := title["text"].(string)
+	return text
 }
 
 // pptxFitInSlide reduce (w, h) preservando el aspect ratio hasta que quepa en
