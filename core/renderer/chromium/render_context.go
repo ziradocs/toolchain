@@ -25,6 +25,17 @@ type RenderContextOptions struct {
 	OutputDir      string
 	ImageFormat    string
 	WebPQuality    int
+	// DiagramBackend selecciona qué implementación satisface
+	// MermaidFetcher/PlantUMLFetcher en los modos offline: "chromium"
+	// (default, sin este campo) o "kroki" (KrokiServer, sin Chromium en
+	// esta máquina — ver kroki_fetcher.go). No afecta ChartFetcher/
+	// MapFetcher/MathFetcher: Kroki no cubre esos elementos.
+	DiagramBackend string
+	// KrokiServer es la URL base de un servidor Kroki (vacío = el público
+	// https://kroki.io). Solo se usa cuando DiagramBackend == "kroki". Va
+	// por flag del operador, nunca por frontmatter — mismo trust level que
+	// PlantUMLServer (ver kroki_fetcher.go).
+	KrokiServer string
 	// Logger recibe los warnings/debug best-effort de GenerateDocumentHTML
 	// (issue #134/G1c) — nil degrada a un noop vía renderer.RenderContext.Logger.
 	Logger util.Logger
@@ -63,9 +74,15 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 	// caso "sin fetcher" y en cambio panicarían al invocar un método sobre un
 	// receiver nil. Declarando el local ya como interfaz, dejarlo sin asignar
 	// conserva el nil verdadero (hallazgo de security-review sobre PR #176).
+	useKroki := opts.DiagramBackend == "kroki"
+
 	var fetcher renderer.PlantUMLFetcher
 	if renderer.IsOfflineRenderMode(plantumlMode) {
-		fetcher = NewPlantUMLFetcher(opts.PlantUMLServer, plantumlFormat, opts.OutputDir)
+		if useKroki {
+			fetcher = NewKrokiFetcher(opts.KrokiServer, "plantuml", opts.OutputDir)
+		} else {
+			fetcher = NewPlantUMLFetcher(opts.PlantUMLServer, plantumlFormat, opts.OutputDir)
+		}
 	}
 
 	mermaidMode := opts.MermaidMode
@@ -73,8 +90,17 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 		mermaidMode = "browser"
 	}
 	var mermaidFetcher renderer.MermaidFetcher
-	if cr != nil && renderer.IsOfflineRenderMode(mermaidMode) {
-		mermaidFetcher = NewMermaidFetcher(cr, renderer.NoopFetcherLogger{})
+	if renderer.IsOfflineRenderMode(mermaidMode) {
+		if useKroki {
+			// Kroki no necesita Chromium: a diferencia del resto de este
+			// constructor, este camino NO depende de cr != nil (issue
+			// "quitar Chrome del pipeline") — es justo lo que permite que
+			// un documento con mermaid llegue a offline-inline sin
+			// instanciar un ChromiumRenderer.
+			mermaidFetcher = NewKrokiFetcher(opts.KrokiServer, "mermaid", opts.OutputDir)
+		} else if cr != nil {
+			mermaidFetcher = NewMermaidFetcher(cr, renderer.NoopFetcherLogger{})
+		}
 	}
 
 	imageFormat := opts.ImageFormat

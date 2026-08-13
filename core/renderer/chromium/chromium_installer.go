@@ -32,13 +32,31 @@ const (
 	//   1. Consultar la versión Stable actual:
 	//      curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json
 	//   2. Para cada plataforma soportada (mac-arm64, mac-x64, linux64, win64),
-	//      descargar el zip y calcular su hash:
+	//      descargar el zip de chrome-headless-shell y calcular su hash:
 	//      curl -sL <url-de-la-plataforma> | shasum -a 256
 	//   3. Actualizar chromiumVersion y las 4 entradas de chromiumSHA256 en el
 	//      mismo commit — nunca solo una de las dos (ver AL-2: el hash debe
 	//      corresponder exactamente a la versión que se descarga).
 	chromiumVersion = "151.0.7922.138"
 )
+
+// --install-chromium descarga chrome-headless-shell, NO el Chrome completo
+// (issue "quitar Chrome del pipeline", Fase 4): este toolchain nunca abre
+// una ventana de navegador — todo el uso es CDP headless puro (Page.
+// printToPDF, Page.captureScreenshot, Page.setDocumentContent) — así que la
+// UI de Chrome (~35-45% del peso del zip) es puro costo sin beneficio.
+// Verificado empíricamente antes de este cambio, no solo por inspección de
+// código: un PDF generado con chrome-headless-shell 148 y otro con el Chrome
+// completo 151 sobre el MISMO documento (con header/footer/numeración de
+// página y un diagrama Mermaid) produjeron /StructTreeRoot, /MarkInfo,
+// /Lang y MediaBox IDÉNTICOS, y el texto extraído de ambos header/footer
+// coincide byte a byte — y el suite completo de tests de lifecycle
+// (TestChromiumRenderer_MermaidThenPDF_Issue114 y vecinos, que ejercitan
+// mermaid SVG + PDF sobre el mismo ChromiumRenderer) pasa igual apuntando a
+// headless-shell, más rápido que contra el Chrome completo. `Detect()` (ver
+// chromium_manager.go) no cambia: si el usuario ya tiene Chrome/Chromium/
+// Edge instalado, ese sigue ganando — este cambio solo afecta qué se
+// DESCARGA cuando no hay nada.
 
 // chromiumDownloadTimeout y chromiumMaxDownloadBytes son `var` (no `const`)
 // únicamente para poder acotarlos en tests sin esperar minutos/cientos de MB
@@ -65,19 +83,20 @@ var (
 	chromiumMaxUncompressedTotalBytes int64 = 1500 * 1024 * 1024 // 1.5 GB
 )
 
-// chromiumSHA256 son los hashes SHA-256 esperados para chromiumVersion, uno
-// por plataforma (clave: runtime.GOOS+"/"+runtime.GOARCH), calculados
-// manualmente al fijar esta versión — Chrome for Testing no publica un
-// manifiesto de checksums verificable, así que el hash "de confianza" es el
-// que este repo fija y revisa en cada bump. Sin esta verificación, un proxy
-// TLS-intercepting corporativo, un mirror comprometido o cache-poisoning
-// podían servir un binario distinto y ejecutarlo como navegador de build sin
-// ninguna comprobación (ver docs/SECURITY_AUDIT_2026-07.md, AL-2).
+// chromiumSHA256 son los hashes SHA-256 esperados de chrome-headless-shell
+// para chromiumVersion, uno por plataforma (clave:
+// runtime.GOOS+"/"+runtime.GOARCH), calculados manualmente al fijar esta
+// versión — Chrome for Testing no publica un manifiesto de checksums
+// verificable, así que el hash "de confianza" es el que este repo fija y
+// revisa en cada bump. Sin esta verificación, un proxy TLS-intercepting
+// corporativo, un mirror comprometido o cache-poisoning podían servir un
+// binario distinto y ejecutarlo como navegador de build sin ninguna
+// comprobación (ver docs/SECURITY_AUDIT_2026-07.md, AL-2).
 var chromiumSHA256 = map[string]string{
-	"darwin/arm64":  "a75add0d61f398ac7ec51237a10a8369688e3b78e8467612c3cfa5205e29abef",
-	"darwin/amd64":  "282bd931ee7e2460e215d9dfc7db3e2122a050f37fd89ee4496c4ef17cbb3368",
-	"linux/amd64":   "f2c1d48c310a2fc79aad59e985103902f27b70fd186b3f663ee67c4c722f5566",
-	"windows/amd64": "864a03252382fcfaf0475a1d7cad30b99cb54883060dcb5526249f4ca08aa03a",
+	"darwin/arm64":  "24b96cdbbb55fcab49aed4be0ebe5d55e8cf2ae7cd3c6a84435e7eeaf535c52d",
+	"darwin/amd64":  "af65548fcd4865412aaeb74445909f5fa654a401f31bc27f2b192c7f9e1be571",
+	"linux/amd64":   "2eb973561a10d11ba3296eeb798775db86c57731dd71a7b650763c4ed64a9646",
+	"windows/amd64": "714f4b9d17cb82a41ee10734dde15fd8c27c08b3229ce799c0c6a7dcc7730e1e",
 }
 
 // ChromiumInstaller gestiona la descarga e instalación de Chromium
@@ -170,9 +189,10 @@ func chromiumPlatformKey() string {
 	return runtime.GOOS + "/" + runtime.GOARCH
 }
 
-// getDownloadURL retorna la URL de descarga según el sistema operativo
+// getDownloadURL retorna la URL de descarga de chrome-headless-shell según
+// el sistema operativo.
 func (ci *ChromiumInstaller) getDownloadURL() (string, error) {
-	// Usamos Chromium for Testing builds (estables y confiables)
+	// Usamos Chrome for Testing builds (estables y confiables)
 	// https://googlechromelabs.github.io/chrome-for-testing/
 
 	if _, ok := chromiumSHA256[chromiumPlatformKey()]; !ok {
@@ -185,17 +205,17 @@ func (ci *ChromiumInstaller) getDownloadURL() (string, error) {
 	case "darwin":
 		// macOS (arm64 o x64)
 		if runtime.GOARCH == "arm64" {
-			return fmt.Sprintf("%s/%s/mac-arm64/chrome-mac-arm64.zip", baseURL, chromiumVersion), nil
+			return fmt.Sprintf("%s/%s/mac-arm64/chrome-headless-shell-mac-arm64.zip", baseURL, chromiumVersion), nil
 		}
-		return fmt.Sprintf("%s/%s/mac-x64/chrome-mac-x64.zip", baseURL, chromiumVersion), nil
+		return fmt.Sprintf("%s/%s/mac-x64/chrome-headless-shell-mac-x64.zip", baseURL, chromiumVersion), nil
 
 	case "linux":
 		// Linux x64
-		return fmt.Sprintf("%s/%s/linux64/chrome-linux64.zip", baseURL, chromiumVersion), nil
+		return fmt.Sprintf("%s/%s/linux64/chrome-headless-shell-linux64.zip", baseURL, chromiumVersion), nil
 
 	case "windows":
 		// Windows x64
-		return fmt.Sprintf("%s/%s/win64/chrome-win64.zip", baseURL, chromiumVersion), nil
+		return fmt.Sprintf("%s/%s/win64/chrome-headless-shell-win64.zip", baseURL, chromiumVersion), nil
 
 	default:
 		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
@@ -533,26 +553,27 @@ func (ci *ChromiumInstaller) extractFile(file *zip.File, destPath string, maxByt
 	return written, nil
 }
 
-// findExecutable encuentra el binario ejecutable de Chromium
+// findExecutable encuentra el binario ejecutable de chrome-headless-shell.
+// A diferencia del Chrome completo, headless-shell no trae un bundle .app en
+// macOS — el zip extrae directo a chrome-headless-shell-<plataforma>/
+// chrome-headless-shell[.exe] (verificado inspeccionando el zip real, no
+// solo por la convención de nombres de Chrome for Testing).
 func (ci *ChromiumInstaller) findExecutable(extractDir string) (string, error) {
 	var execName string
 
 	switch runtime.GOOS {
 	case "darwin":
-		// macOS: Chrome.app/Contents/MacOS/Chrome
 		if runtime.GOARCH == "arm64" {
-			execName = "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+			execName = "chrome-headless-shell-mac-arm64/chrome-headless-shell"
 		} else {
-			execName = "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+			execName = "chrome-headless-shell-mac-x64/chrome-headless-shell"
 		}
 
 	case "linux":
-		// Linux: chrome
-		execName = "chrome-linux64/chrome"
+		execName = "chrome-headless-shell-linux64/chrome-headless-shell"
 
 	case "windows":
-		// Windows: chrome.exe
-		execName = "chrome-win64/chrome.exe"
+		execName = "chrome-headless-shell-win64/chrome-headless-shell.exe"
 
 	default:
 		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
