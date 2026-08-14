@@ -112,9 +112,13 @@ var allowedUnsupportedInDocument = map[string]string{
 	"map":  "hueco de VALOR, no de tipo: un campo con comilla doble literal no es representable porque el dialecto no tiene escape para campos entrecomillados (ver quote() en formatter/util.go); el mapa sin comillas sí round-trippea",
 }
 
-var allowedUnsupportedInStrict = map[string]string{
-	"map": "mismo hueco de valor que en DocLang: comilla doble literal sin mecanismo de escape",
-}
+// Vacío a propósito: hoy NINGÚN fixture strict del corpus llega a un
+// UnsupportedElementError. Se verificó vaciándolo y corriendo el harness —
+// una entrada que nunca dispara es exactamente por donde se vuelve a colar un
+// skip ciego, así que el default correcto es fallar. GRID sí tiene sintaxis
+// strict propia (formatStrictGrid), y el hueco de valor de map solo aparece
+// en un fixture .doclang.
+var allowedUnsupportedInStrict = map[string]string{}
 
 // skipIfDeclaredGap saltea el fixture solo si el tipo que falló está en
 // allowed; si no, retorna y deja que el caller falle.
