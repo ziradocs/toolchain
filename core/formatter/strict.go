@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
+
 	"go.ziradocs.com/core/v2/ast"
 )
 
@@ -555,12 +557,14 @@ func formatPlantUML(e *ast.PlantUMLElement) string {
 //     plana, no por parseComboChartYAML. Por eso el formatter no
 //     distingue por ChartType: siempre emite la forma plana.
 //
-// El loop de propiedades plano NUNCA parsea "options:" (solo la vía
-// combo-YAML late o JSON lo pueblan, y esta última no es alcanzable de
-// forma determinista desde Data/Series ya poblados). Un chart con
-// Options no vacío fuera de JSON mode no es representable en modo strict
-// hoy (gap pre-existente del parser): se reporta en vez de perder datos
-// en silencio.
+// "options:" se emite como bloque YAML anidado al final. Esto ANTES devolvía
+// UnsupportedElementError, con el argumento de que el loop de propiedades
+// plano nunca poblaba Options — cierto hasta que el issue #146 le agregó
+// justamente ese case (ChartParser.parseNestedOptions). Desde entonces, y
+// hasta este fix, `fmt` moría en cualquier chart con options: — o sea en casi
+// todos los reales. El harness de round-trip no lo detectó porque SKIPeaba
+// todo fixture que devolviera UnsupportedElementError; ese skip ahora está
+// acotado a un allowlist (ver document_roundtrip_test.go).
 func formatChart(e *ast.ChartElement) (string, error) {
 	header := fmt.Sprintf("<<chart: %s width=%q height=%q>>", e.ChartType, fmtInt(e.Width), fmtInt(e.Height))
 
@@ -572,12 +576,7 @@ func formatChart(e *ast.ChartElement) (string, error) {
 		return header + "\n" + raw + "\n<</chart>>", nil
 	}
 
-	if len(e.Options) > 0 {
-		return "", newUnsupported("chart", "chart.Options no vacío no es representable en modo strict fuera de JSON mode (internal/elements/chart.go no parsea \"options:\" en el loop de propiedades plano)")
-	}
-
 	var b strings.Builder
-	b.WriteString(header + "\n")
 	if len(e.SeriesTypes) > 0 {
 		types, err := formatInlineArray("chart", "type", e.SeriesTypes)
 		if err != nil {
@@ -616,7 +615,37 @@ func formatChart(e *ast.ChartElement) (string, error) {
 		}
 		fmt.Fprintf(&b, "title: %s\n", quote(e.Title))
 	}
-	b.WriteString("<<end>>")
+	// options: va al final por legibilidad, no por necesidad: el parser corta
+	// el bloque anidado en el primer dedent (ChartParser.parseNestedOptions),
+	// así que una propiedad plana después tampoco lo rompería.
+	if len(e.Options) > 0 {
+		opts, err := marshalYAMLIndent2(e.Options)
+		if err != nil {
+			return "", fmt.Errorf("formatter: chart.Options no serializable a YAML: %w", err)
+		}
+		b.WriteString("options:\n")
+		b.WriteString(indent(strings.TrimRight(opts, "\n"), 2) + "\n")
+	}
+	return header + "\n" + indent(strings.TrimRight(b.String(), "\n"), 2) + "\n<<end>>", nil
+}
+
+// marshalYAMLIndent2 serializa v con 2 espacios por nivel en vez de los 4 que
+// usa yaml.Marshal para mappings anidados. No es cosmético: el bloque
+// resultante convive con el resto del cuerpo del chart, que va a 2, y una
+// mezcla de 2 y 4 hace que ChartFormatterRule (el re-indentador del
+// normalizer) lo vea como "mal formateado". El orden de las claves lo fija
+// yaml, que ordena los mapas alfabéticamente — sin eso la salida de fmt no
+// sería determinista, porque el orden de un map de Go es aleatorio.
+func marshalYAMLIndent2(v interface{}) (string, error) {
+	var b strings.Builder
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	if err := enc.Encode(v); err != nil {
+		return "", err
+	}
+	if err := enc.Close(); err != nil {
+		return "", err
+	}
 	return b.String(), nil
 }
 

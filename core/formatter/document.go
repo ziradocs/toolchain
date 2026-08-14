@@ -163,6 +163,13 @@ func formatDocumentElement(el ast.Element) (string, error) {
 		body = formatMermaid(e)
 	case *ast.PlantUMLElement:
 		body = formatPlantUML(e)
+	// Compartido con strict.go igual que formatMermaid/formatPlantUML: el
+	// bloque <<math>>…<<end>> es sintaxis válida en flex (MathParser.CanParse
+	// lo acepta en ambos modos, internal/elements/math.go:28), así que la
+	// misma serialización re-parsea en los dos dialectos. Un documento que
+	// escribió $$…$$ sale canonicalizado a <<math>>, que es lo que hace fmt.
+	case *ast.MathElement:
+		body, err = formatStrictMath(e)
 	case *ast.ChartElement:
 		body, err = formatChart(e)
 	case *ast.MapElement:

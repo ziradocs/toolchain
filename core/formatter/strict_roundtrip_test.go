@@ -5,6 +5,7 @@ package formatter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -259,8 +260,8 @@ func TestFormatStrict_RoundTrip_Corpus(t *testing.T) {
 			out, err := FormatStrict(doc)
 			if err != nil {
 				var uerr *UnsupportedElementError
-				if reflect.TypeOf(err) == reflect.TypeOf(uerr) {
-					t.Skipf("elemento no soportado por el dialecto strict: %v", err)
+				if errors.As(err, &uerr) {
+					skipIfDeclaredGap(t, allowedUnsupportedInStrict, uerr)
 				}
 				t.Fatalf("FormatStrict: %v", err)
 			}
