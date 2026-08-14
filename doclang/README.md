@@ -4,7 +4,7 @@ The documents CLI: `.doclang` source in, HTML / PDF / DOCX / Markdown out.
 
 Parsing, linting and rendering all live in [`core`](../core/); this module owns the DOCX and
 Markdown generators, the document themes, and the CLI itself. For the language itself see the
-[DocLang documentation](../docs/doclang/) and the [formal spec](../core/spec/).
+[DocLang documentation](https://ziradocs.com/docs/doclang/overview/) and the [formal spec](../core/spec/).
 
 ## Install
 
@@ -89,7 +89,7 @@ doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`
 |---|---|---|
 | `--lint-only` | `false` | Run the linter and stop; generate nothing. |
 | `--lint-config` | — | YAML lint policy (enable/disable rules, override severity by ID). Falls back to a `lint_policy:` block in the document's own frontmatter. |
-| `--filter` | — | External binary that transforms the AST between parse and lint. Repeatable; communicates over JSON on stdin/stdout — see the [JSON/AST contract](../docs/architecture/json-ast-contract.md). |
+| `--filter` | — | External binary that transforms the AST between parse and lint. Repeatable; communicates over JSON on stdin/stdout — see the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/). |
 | `--include-root` | *(input file's dir)* | Directory `@include` paths are confined to. Absolute paths and `..` escapes are rejected. |
 | `--asset-root` | *(input file's dir)* | Same confinement for local image sources. |
 | `--max-size` | 10 MB | Input size cap. Also settable via `DOCLANG_MAX_SIZE`. |
@@ -129,7 +129,7 @@ go build ./... && go vet ./... && go test ./...
 ```
 
 DOCX output depends on a personal fork of `docxgo`; the rationale and what diverges from
-upstream are documented in [`docs/developer/docxgo-fork.md`](../docs/developer/docxgo-fork.md).
+upstream are documented in the fork itself: [github.com/mmonterroca/docxgo](https://github.com/mmonterroca/docxgo).
 
 ## License
 

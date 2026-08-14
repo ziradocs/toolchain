@@ -164,9 +164,10 @@ cd doclang && go mod tidy
 
 ## 📚 Documentation
 
-- **User docs**: `docs/user/`, `docs/doclang/` (migrating to `docs.ziradocs.com` — see
-  `ziradocs/website`)
-- **Developer/architecture docs**: `docs/developer/`, `docs/architecture/`
+- **User and architecture docs**: `https://ziradocs.com/docs/` (Starlight, in the separate
+  `ziradocs/website` repo). The migration is done — this repo has no `docs/architecture/` or
+  `docs/doclang/` directory, so cite those pages by full URL, never by path.
+- **In-repo**: the formal spec (`core/spec/`), `docs/developer/`, `docs/user/guides/`
 - **Contributing**: `CONTRIBUTING.md` at the repo root
 
 ## ⚠️ Important Notes

@@ -174,6 +174,6 @@ Create a dark version:
 ## Support
 
 For issues or customization help:
-- Check the [SlideLang Documentation](../../docs/)
+- Check the [SlideLang Documentation](https://ziradocs.com/docs/slidelang/features/themes-styling/)
 - Use `slidelang themes validate modern-blue` to test modifications
 - Use `slidelang themes info modern-blue` for detailed theme information

@@ -1634,5 +1634,5 @@
     }
   },
   "title": "SlideLang/DocLang AST",
-  "description": "Contrato JSON/AST emitido por --format json. Ver docs/architecture/json-ast-contract.md. Política de compatibilidad: cambio breaking ⇒ major (ver ast.SchemaVersion)."
+  "description": "Contrato JSON/AST emitido por --format json. Ver https://ziradocs.com/docs/architecture/json-ast-contract/. Política de compatibilidad: cambio breaking ⇒ major (ver ast.SchemaVersion)."
 }

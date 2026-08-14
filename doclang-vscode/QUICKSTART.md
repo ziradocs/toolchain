@@ -113,7 +113,7 @@ Esto es una advertencia.
 
 ### Enlaces
 
-Visita la [documentación de DocLang](../docs/doclang/)
+Visita la [documentación de DocLang](https://ziradocs.com/docs/doclang/overview/)
 ```
 
 ## 🎯 Comandos Disponibles
@@ -224,7 +224,7 @@ npm run package
 ## 📚 Recursos
 
 - [README de la extensión](./README.md)
-- [Documentación de DocLang](../docs/doclang/)
+- [Documentación de DocLang](https://ziradocs.com/docs/doclang/overview/)
 - [VS Code Extension API](https://code.visualstudio.com/api)
 
 ## 🎥 Demo Workflow
@@ -232,7 +232,7 @@ npm run package
 ```
 1. Abrir VS Code en /Users/mmonterroca/cli
 2. Presionar F5 para lanzar Extension Development Host
-3. En la nueva ventana, abrir docs/doclang/DOCLANG_OVERVIEW.md
+3. En la nueva ventana, abrir cualquier `.doclang` de `examples/`
 4. Cmd+Shift+P > "DocLang: Open Preview to the Side"
 5. Ver el preview renderizado con TOC, Mermaid, etc.
 6. Editar el archivo

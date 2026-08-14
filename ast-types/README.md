@@ -1,6 +1,6 @@
 # @ziradocs/ast-types
 
-TypeScript types for the JSON/AST contract emitted by `slidelang build --format json` (see [`docs/architecture/json-ast-contract.md`](../docs/architecture/json-ast-contract.md) and [`schema/ast.schema.json`](../schema/ast.schema.json)).
+TypeScript types for the JSON/AST contract emitted by `slidelang build --format json` (see the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/) and [`schema/ast.schema.json`](../schema/ast.schema.json)).
 
 The types are generated from the Go structs in `core/ast/` — never hand-written — so the TypeScript contract can never silently drift from the real AST produced by the CLI.
 
@@ -82,4 +82,4 @@ The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails
 ### 2.0.0 (issues #60, #64)
 
 - **Breaking**: `ChecklistItem.type` changed from `"point_item"` (shared, ambiguous, with `PointItem`) to its own `"checklist_item"`.
-- **Additive**: prose fields (`content`, `title`, `author`, `source`, `headers`, `rows`, `caption`, `alt`) gained an optional sibling `*HTML` field with the same prose already rendered to inline HTML (Markdown applied, `{{variables}}` substituted and escaped) — see [`docs/architecture/json-ast-contract.md`](../docs/architecture/json-ast-contract.md#pre-rendered-html-fields-issue-64-since-schemaversion-200).
+- **Additive**: prose fields (`content`, `title`, `author`, `source`, `headers`, `rows`, `caption`, `alt`) gained an optional sibling `*HTML` field with the same prose already rendered to inline HTML (Markdown applied, `{{variables}}` substituted and escaped) — see the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/#pre-rendered-html-fields-issue-64-since-schemaversion-200).

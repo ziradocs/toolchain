@@ -1,6 +1,6 @@
 # Specialized Layouts - Complete Examples
 
-This folder contains demonstrative examples of all **18 specialized layouts** in slidelang, documented in the [Specialized Layouts Guide](../../docs/dsl/18_specialized_layouts.md).
+This folder contains demonstrative examples of all **18 specialized layouts** in slidelang, documented in the [Specialized Layouts Guide](https://ziradocs.com/docs/slidelang/language-reference/specialized-layouts/).
 
 ## 📋 Example Structure
 
@@ -140,10 +140,10 @@ The linter automatically verifies:
 
 ## 🔗 References
 
-- [Complete Layouts Documentation](../../docs/dsl/18_specialized_layouts.md)
-- [Flex Mode Syntax](../../docs/dsl/03_dsl_syntax_flex.md) 
-- [Themes Guide](../../docs/themes/THEME_USER_GUIDE.md)
-- [Use Cases](../../docs/dsl/15_use_cases.md)
+- [Complete Layouts Documentation](https://ziradocs.com/docs/slidelang/language-reference/specialized-layouts/)
+- [Flex Mode Syntax](https://ziradocs.com/docs/slidelang/language-reference/flex-mode/) 
+- [Themes Guide](https://ziradocs.com/docs/slidelang/features/themes-styling/)
+- [Use Cases](https://ziradocs.com/docs/slidelang/features/)
 
 ## 💡 Tips for Better Results
 

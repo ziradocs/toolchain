@@ -3,7 +3,7 @@
 SlideLang and DocLang convert plain-text markup into HTML/PDF/DOCX presentations and documents.
 This document covers how to report a security vulnerability. For a description of the sanitizer
 and the specific XSS/injection protections the renderer applies, see
-[docs/architecture/sanitization.md](docs/architecture/sanitization.md).
+[Sanitization](https://ziradocs.com/docs/architecture/sanitization/).
 
 ## Supported versions
 

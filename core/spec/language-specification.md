@@ -1,6 +1,6 @@
 # SlideLang Language Specification
 
-This document provides the formal technical specification for the SlideLang Domain-Specific Language (DSL) syntax. It is part of [Spec v0.1](README.md); for the exact, versioned shape of the AST that this syntax parses into, see the [JSON/AST contract](../../docs/architecture/json-ast-contract.md) and [`schema/ast.schema.json`](../../schema/ast.schema.json) — the TypeScript interfaces below are illustrative of the AST's general shape, not the authoritative reference.
+This document provides the formal technical specification for the SlideLang Domain-Specific Language (DSL) syntax. It is part of [Spec v0.1](README.md); for the exact, versioned shape of the AST that this syntax parses into, see the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/) and [`schema/ast.schema.json`](../../schema/ast.schema.json) — the TypeScript interfaces below are illustrative of the AST's general shape, not the authoritative reference.
 
 ## Language Overview
 

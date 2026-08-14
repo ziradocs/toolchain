@@ -30,7 +30,8 @@
 //     custom rules, and PostLint hooks.
 //
 //  2. The serialized AST (json) schema is versioned independently
-//     under ast.SchemaVersion (see @ziradocs/ast-types and docs/architecture/json-ast-contract.md).
+//     under ast.SchemaVersion (see @ziradocs/ast-types and the JSON/AST
+//     contract at https://ziradocs.com/docs/architecture/json-ast-contract/).
 //
 // The rest of the Go API (core/ast, core/linter, etc.) has NO SemVer guarantees
 // and may change in minor versions. The generated HTML structure and its
