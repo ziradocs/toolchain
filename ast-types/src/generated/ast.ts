@@ -29,19 +29,21 @@ import type { Position } from "./diagnostics";
  * 47 field, so a renderer can emit a real `<html lang>` and a rulepack (e.g.
  * A11Y005) can read it without depending on the author having written it
  * into the free-form Variables map.
- * 2.3.0 (issue #63): new LangRun type (Text, Lang) plus a LangRuns
+ * 2.4.0 (issue #63): new LangRun type (Text, Lang) plus a LangRuns
  * ([]LangRun, additive, omitempty) field on TextElement, PointItem,
- * ChecklistItem, and QuoteElement — exposes [texto]{lang=xx} inline spans as
- * structured runs, so a rulepack can flag a passage marked in a different
- * language than FrontMatter.Lang without re-parsing rendered HTML. Derived
- * fresh from Content on every build (renderer.PopulateLangRuns), same
+ * ChecklistItem, QuoteElement and — after that issue's code review, finding
+ * #9 — SpecialBlockElement, GridElement and ColumnElement too, since each of
+ * those also carries its own loose Content prose that PopulateLangRuns was
+ * skipping. Exposes [texto]{lang=xx} inline spans as structured runs, so a
+ * rulepack can flag a passage marked in a different language than
+ * FrontMatter.Lang without re-parsing rendered HTML. Derived fresh from
+ * Content on every build (renderer.PopulateLangRuns), same
  * re-derive-never-trust posture as the *HTML fields, but NOT cleared by
  * ast.ClearRenderedHTML — see that field's own doc comment for why.
- * 2.4.0 (issue #63 code review, finding #9): the same additive LangRuns
- * field extended to SpecialBlockElement, GridElement, and ColumnElement —
- * each of those also carries its own loose Content prose that
- * PopulateLangRuns was skipping. Same derivation and posture as 2.3.0's
- * fields.
+ * (Both halves are labelled 2.4.0 on purpose — issue #91: the first half used
+ * to say 2.3.0, but 38a06dc landed after the core/v2.3.0 tag and is first
+ * contained in core/v2.4.0, which is also what this file's own SchemaVersion
+ * constant said at the time.)
  * 2.5.0 (issue #100): FrontMatterNode.Numbering (additive, omitempty, tri-
  * state *bool) lets a document declare `numbering: false`/`numbering: true`
  * so `doclang build`'s section auto-numbering default no longer has to be a
