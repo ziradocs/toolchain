@@ -4,6 +4,7 @@
 package formatter
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -88,6 +89,46 @@ func (e *parseErr) Error() string { return e.msg }
 // nuevo mientras se investiga.
 var knownNormalizerBugs = map[string]string{}
 
+// allowedUnsupportedInDocument / allowedUnsupportedInStrict enumeran los
+// NodeType cuyo UnsupportedElementError los harnesses de round-trip aceptan
+// como hueco DECLARADO del dialecto. Cualquier otro tipo hace fallar el
+// fixture en vez de saltarlo.
+//
+// Antes el skip era ciego: cualquier UnsupportedElementError saltaba el
+// fixture entero. Eso escondió el issue #78 durante todo su ciclo de vida —
+// *ast.MathElement no tenía case en formatDocumentElement, caía al `default:`
+// genérico, y el único fixture con math
+// (examples/advanced_elements_test.doclang) se saltaba... por GRID, que
+// aparece antes en el documento. Dos huecos distintos, un solo skip, cero
+// señal. Y de paso el fixture no aportaba cobertura para nada más de lo que
+// contiene.
+//
+// La regla para agregar una entrada acá es que el hueco sea del DIALECTO
+// (no hay sintaxis que emitir sin perder datos en el reparse), no del
+// formatter (falta el case). Para lo segundo está
+// TestFormattersCoverAllElementImplementers.
+var allowedUnsupportedInDocument = map[string]string{
+	"grid": "DocLang no tiene sintaxis de texto para GRID — el case existe y lo declara explícitamente (formatDocumentElement)",
+	"map":  "hueco de VALOR, no de tipo: un campo con comilla doble literal no es representable porque el dialecto no tiene escape para campos entrecomillados (ver quote() en formatter/util.go); el mapa sin comillas sí round-trippea",
+}
+
+// Vacío a propósito: hoy NINGÚN fixture strict del corpus llega a un
+// UnsupportedElementError. Se verificó vaciándolo y corriendo el harness —
+// una entrada que nunca dispara es exactamente por donde se vuelve a colar un
+// skip ciego, así que el default correcto es fallar. GRID sí tiene sintaxis
+// strict propia (formatStrictGrid), y el hueco de valor de map solo aparece
+// en un fixture .doclang.
+var allowedUnsupportedInStrict = map[string]string{}
+
+// skipIfDeclaredGap saltea el fixture solo si el tipo que falló está en
+// allowed; si no, retorna y deja que el caller falle.
+func skipIfDeclaredGap(t *testing.T, allowed map[string]string, uerr *UnsupportedElementError) {
+	t.Helper()
+	if reason, ok := allowed[uerr.NodeType]; ok {
+		t.Skipf("hueco declarado del dialecto para %q (%s): %v", uerr.NodeType, reason, uerr)
+	}
+}
+
 func TestFormatDocument_RoundTrip_Corpus(t *testing.T) {
 	root := "../../examples"
 	var files []string
@@ -123,8 +164,8 @@ func TestFormatDocument_RoundTrip_Corpus(t *testing.T) {
 			out, err := FormatDocument(doc)
 			if err != nil {
 				var uerr *UnsupportedElementError
-				if reflect.TypeOf(err) == reflect.TypeOf(uerr) {
-					t.Skipf("elemento no soportado por el dialecto de DocLang: %v", err)
+				if errors.As(err, &uerr) {
+					skipIfDeclaredGap(t, allowedUnsupportedInDocument, uerr)
 				}
 				t.Fatalf("FormatDocument: %v", err)
 			}

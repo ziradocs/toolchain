@@ -29,9 +29,12 @@ type visitFn func(node Node) error
 // Node, y no es numerable/referenciable por decisión B).
 //
 // Su cobertura de tipos ast.Element se guarda con TestWalkCoversAllElementImplementers
-// (walk_test.go) — el mismo patrón de introspección de código fuente que
-// element_coverage_test.go (renderer) y element_sync_test.go (cmd/gen-schema):
-// un ast.Element nuevo sin case acá hace fallar ese test, no cae en silencio.
+// (walk_coverage_test.go) — el mismo patrón de introspección de código fuente
+// que element_coverage_test.go (renderer) y element_sync_test.go
+// (cmd/gen-schema), pero aplicado al DESCENSO y no a la visita: un Element
+// nuevo con sub-estructura recorrible (Items/Columns/Elements) que no tenga
+// case en walkElement hace fallar ese test, no cae en silencio. Los tipos hoja
+// no necesitan case: ya se visitan arriba del switch.
 func Walk(doc *AST, visit visitFn) error {
 	if doc == nil {
 		return nil
