@@ -91,7 +91,8 @@ func (r *ChartFormatterRule) needsFormatting(lines []string) bool {
 	totalNonEmptyLines := 0
 	inDatasetsContext := false
 
-	for _, line := range lines {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -105,6 +106,22 @@ func (r *ChartFormatterRule) needsFormatting(lines []string) bool {
 			if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") {
 				correctlyFormattedLines++
 			}
+			continue
+		}
+
+		// El sub-bloque de options: es YAML arbitrario de Chart.js (scales,
+		// elements, interaction, cualquier plugin...) — no tiene sentido
+		// juzgarlo contra isSubProperty, que solo conoce 6 nombres (issue
+		// #153: eso era justo lo que hacía que un chart YA bien indentado
+		// pudiera seguir cayendo bajo el 0.7 y ser reescrito). Se cuenta la
+		// línea "options:" misma y se salta entero lo que cuelga de ella,
+		// ni suma ni resta al ratio.
+		if trimmed == "options:" {
+			inDatasetsContext = false
+			if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") {
+				correctlyFormattedLines++
+			}
+			i = r.skipOptionsBlock(lines, i)
 			continue
 		}
 
@@ -276,11 +293,11 @@ func (r *ChartFormatterRule) formatChartData(lines []string) []string {
 	var result []string
 	baseIndent := "  " // 2 espacios de indentación base
 	inArrayContext := false
-	inOptionsContext := false
 	inDatasetsContext := false
 	arrayDepth := 0
 
-	for _, line := range lines {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
 		// Saltar líneas vacías
@@ -289,8 +306,21 @@ func (r *ChartFormatterRule) formatChartData(lines []string) []string {
 			continue
 		}
 
+		// El sub-bloque de options: se copia preservando su indentación
+		// relativa ORIGINAL en vez de reconstruirse desde una tabla de
+		// nombres — ver appendOptionsBlock para el porqué (issue #153).
+		if trimmed == "options:" && !inArrayContext {
+			result = append(result, baseIndent+"options:")
+			consumed := r.appendOptionsBlock(&result, lines, i, baseIndent)
+			i += consumed
+			inArrayContext = false
+			inDatasetsContext = false
+			arrayDepth = 0
+			continue
+		}
+
 		// Determinar el contexto y nivel de indentación basado en el contenido
-		indentLevel := r.calculateIndentLevelSemantic(trimmed, &inArrayContext, &inOptionsContext, &inDatasetsContext, &arrayDepth)
+		indentLevel := r.calculateIndentLevelSemantic(trimmed, &inArrayContext, &inDatasetsContext, &arrayDepth)
 
 		// Formatear la línea con la indentación apropiada
 		formattedLine := r.buildIndentedLine(trimmed, indentLevel, baseIndent)
@@ -300,8 +330,134 @@ func (r *ChartFormatterRule) formatChartData(lines []string) []string {
 	return result
 }
 
-// calculateIndentLevelSemantic calcula el nivel de indentación basado en el contexto semántico
-func (r *ChartFormatterRule) calculateIndentLevelSemantic(line string, inArray *bool, inOptions *bool, inDatasets *bool, arrayDepth *int) int {
+// appendOptionsBlock copia el sub-bloque options: preservando su
+// profundidad relativa ORIGINAL, en vez de reconstruirla desde una tabla de
+// 4 nombres (issue #153: options: es YAML arbitrario de Chart.js — scales,
+// elements, interaction, cualquier plugin — y una tabla de nombres fijos no
+// puede representarlo; cualquier clave fuera de esa tabla salía aplanada a
+// hermana de sus propios padres).
+//
+// ChartParser.parseNestedOptions (core/internal/elements/chart.go) toma su
+// propia profundidad de la PRIMERA línea hija, no de la línea "options:", y
+// solo compara indentación relativa (countLeadingSpaces no distingue tabs de
+// espacios a propósito). Por eso "copiar verbatim" sería incorrecto: si el
+// bloque original venía a 2 espacios y "options:" se reemite a nivel 1 (2
+// espacios), ambos quedan en la misma columna y el parser se traga toda
+// propiedad de primer nivel que venga después. Lo correcto es desplazar TODO
+// el sub-bloque por una constante — delta = 4 menos la indentación original
+// de su primera línea hija — de forma que esa primera línea quede exactamente
+// en nivel 2 (4 espacios) y el resto conserve su profundidad relativa exacta:
+// new_indent(línea) = old_indent(línea) + delta para cada línea del bloque,
+// así que la diferencia entre cualquier par de líneas no cambia. El límite
+// del sub-bloque se calcula igual que el parser: todo lo que esté MÁS
+// indentado que la línea "options:" original (blancas intercaladas
+// incluidas), recortando las blancas del final.
+//
+// lines[startIdx] es la línea "options:"; startIdx+1 en adelante es el
+// cuerpo. Devuelve cuántas líneas de body se consumieron, para que el loop
+// que llama pueda saltarlas.
+func (r *ChartFormatterRule) appendOptionsBlock(result *[]string, lines []string, startIdx int, baseIndent string) int {
+	optionsLineIndent := countLeadingSpaces(lines[startIdx])
+
+	end := startIdx + 1
+	for end < len(lines) {
+		if strings.TrimSpace(lines[end]) == "" {
+			end++
+			continue
+		}
+		if countLeadingSpaces(lines[end]) <= optionsLineIndent {
+			break
+		}
+		end++
+	}
+	// Recortar las líneas vacías del final: no pertenecen al bloque, las
+	// procesará el loop normal como separador con lo que venga después.
+	for end > startIdx+1 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+
+	if end == startIdx+1 {
+		return 0
+	}
+
+	firstChildIndent := -1
+	for j := startIdx + 1; j < end; j++ {
+		if strings.TrimSpace(lines[j]) != "" {
+			firstChildIndent = countLeadingSpaces(lines[j])
+			break
+		}
+	}
+	if firstChildIndent == -1 {
+		// Solo blancas: nada que preservar.
+		return end - startIdx - 1
+	}
+
+	const optionsBodyIndent = 4 // nivel 2 (2 * "  ")
+	delta := optionsBodyIndent - firstChildIndent
+
+	for j := startIdx + 1; j < end; j++ {
+		if strings.TrimSpace(lines[j]) == "" {
+			*result = append(*result, "")
+			continue
+		}
+		newIndent := countLeadingSpaces(lines[j]) + delta
+		if newIndent < 0 {
+			newIndent = 0
+		}
+		*result = append(*result, strings.Repeat(" ", newIndent)+strings.TrimLeft(lines[j], " \t"))
+	}
+
+	return end - startIdx - 1
+}
+
+// skipOptionsBlock encuentra el mismo límite de sub-bloque que
+// appendOptionsBlock (todo lo más indentado que la línea "options:" en
+// startIdx, blancas intercaladas incluidas, sin las blancas finales) pero
+// sin reformatear nada — needsFormatting lo usa para excluir esas líneas de
+// su ratio en vez de juzgarlas contra isSubProperty. Devuelve el índice de la
+// última línea del sub-bloque (o startIdx si no hay body), para que el loop
+// que llama pueda saltarlo con i = skipOptionsBlock(...); continue.
+func (r *ChartFormatterRule) skipOptionsBlock(lines []string, startIdx int) int {
+	optionsLineIndent := countLeadingSpaces(lines[startIdx])
+
+	end := startIdx + 1
+	for end < len(lines) {
+		if strings.TrimSpace(lines[end]) == "" {
+			end++
+			continue
+		}
+		if countLeadingSpaces(lines[end]) <= optionsLineIndent {
+			break
+		}
+		end++
+	}
+	for end > startIdx+1 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	return end - 1
+}
+
+// countLeadingSpaces cuenta espacios y tabs iniciales para comparar
+// profundidad relativa — mismo criterio que su análoga no exportada en
+// core/internal/elements/chart.go (paquetes distintos, no se puede reusar
+// directamente: countLeadingSpaces ahí tampoco distingue tabs de espacios,
+// porque lo único que le importa a parseNestedOptions es el orden relativo).
+func countLeadingSpaces(line string) int {
+	n := 0
+	for _, r := range line {
+		if r != ' ' && r != '\t' {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// calculateIndentLevelSemantic calcula el nivel de indentación basado en el
+// contexto semántico. options: nunca llega hasta acá — se intercepta antes,
+// en formatChartData, porque su contenido es YAML arbitrario que esta
+// función no puede reconstruir de forma segura (ver appendOptionsBlock).
+func (r *ChartFormatterRule) calculateIndentLevelSemantic(line string, inArray *bool, inDatasets *bool, arrayDepth *int) int {
 	// Handle data property specially so multi-line arrays keep their context
 	if strings.HasPrefix(line, "data:") {
 		trimmedData := strings.TrimSpace(line)
@@ -329,22 +485,16 @@ func (r *ChartFormatterRule) calculateIndentLevelSemantic(line string, inArray *
 	}
 
 	// Propiedades principales del chart (nivel 1) - solo si no estamos en contexto anidado
-	if r.isMainChartProperty(line) && !*inArray && !*inOptions {
+	if r.isMainChartProperty(line) && !*inArray {
 		// Reset contexts when we hit a main property
 		*inArray = false
 
 		// Check if this is datasets: to set the context
-		switch line {
-		case "datasets:":
+		if line == "datasets:" {
 			*inDatasets = true
-			*inOptions = false
-		case "options:":
-			*inOptions = true
-			*inDatasets = false
-		default:
+		} else {
 			// Any other main property ends the datasets context
 			*inDatasets = false
-			*inOptions = false
 		}
 
 		*arrayDepth = 0
@@ -381,21 +531,6 @@ func (r *ChartFormatterRule) calculateIndentLevelSemantic(line string, inArray *
 		return 2
 	}
 
-	// Manejo especial para options context
-	if *inOptions {
-		if line == "plugins:" {
-			return 2 // plugins va en nivel 2 dentro de options
-		}
-		if line == "title:" {
-			return 3 // title dentro de plugins va en nivel 3
-		}
-		if strings.HasPrefix(line, "display:") || strings.HasPrefix(line, "text:") {
-			return 4 // propiedades de title van en nivel 4
-		}
-		// Otras propiedades dentro de options
-		return 2
-	}
-
 	// Properties directas del chart que no son principales (como series cuando no estamos en array)
 	if strings.Contains(line, ":") && !*inArray {
 		return 1
@@ -424,8 +559,8 @@ func (r *ChartFormatterRule) buildIndentedLine(line string, level int, baseInden
 }
 
 // CalculateIndentLevelSemanticPublic expone calculateIndentLevelSemantic para testing
-func (r *ChartFormatterRule) CalculateIndentLevelSemanticPublic(line string, inArray *bool, inOptions *bool, inDatasets *bool, arrayDepth *int) int {
-	return r.calculateIndentLevelSemantic(line, inArray, inOptions, inDatasets, arrayDepth)
+func (r *ChartFormatterRule) CalculateIndentLevelSemanticPublic(line string, inArray *bool, inDatasets *bool, arrayDepth *int) int {
+	return r.calculateIndentLevelSemantic(line, inArray, inDatasets, arrayDepth)
 }
 
 // NeedsFormattingPublic expone needsFormatting para testing
