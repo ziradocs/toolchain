@@ -59,7 +59,7 @@ slidelang build slides.slidelang --lint-only            # diagnostics only, no o
 | `--lint-only` | `false` | Run the linter and stop; generate nothing. |
 | `--lint-config` | — | YAML lint policy (enable/disable rules, override severity by ID, e.g. `IMG001`). Falls back to a `lint_policy:` block in the document's own frontmatter. |
 | `--enable-normalization` | `false` | Apply the heuristic content normalizer. Deterministic rules, no network calls and no LLM, despite the deprecated `--enable-ai` alias. |
-| `--filter` | — | External binary that transforms the AST between parse and lint. Repeatable; communicates over JSON on stdin/stdout — see the [JSON/AST contract](../docs/architecture/json-ast-contract.md). |
+| `--filter` | — | External binary that transforms the AST between parse and lint. Repeatable; communicates over JSON on stdin/stdout — see the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/). |
 | `--include-root` | *(input file's dir)* | Directory `@include` paths are confined to. Absolute paths and `..` escapes are rejected. |
 | `--asset-root` | *(input file's dir)* | Same confinement for local images embedded by `--format pptx`. |
 | `--max-size` | 10 MB | Input size cap. Also settable via `SLIDELANG_MAX_SIZE`. |

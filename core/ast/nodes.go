@@ -629,7 +629,7 @@ type MermaidElement struct {
 	DiagramType string `json:"diagramType"` // "graph", "sequence", "class", etc.
 	Content     string `json:"content"`
 	Title       string `json:"title,omitempty"`
-	TitleHTML   string `json:"titleHTML,omitempty"` // Title con {{variables}} sustituidas y escapadas (sin markdown); Content es fuente de diagrama, no lleva *HTML (ver docs/architecture/json-ast-contract.md)
+	TitleHTML   string `json:"titleHTML,omitempty"` // Title con {{variables}} sustituidas y escapadas (sin markdown); Content es fuente de diagrama, no lleva *HTML (ver https://ziradocs.com/docs/architecture/json-ast-contract/)
 }
 
 func (m MermaidElement) element() {}

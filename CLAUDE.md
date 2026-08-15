@@ -129,7 +129,12 @@ Keep CLI-specific code out of `core`.
 
 ## Docs
 
-Documentation lives under `docs/` (`docs/user/`, `docs/doclang/`, `docs/architecture/`,
-`docs/developer/`). User-facing docs (`docs/user/`, `docs/doclang/`) are migrating to
-`docs.ziradocs.com` (Starlight, in the separate `ziradocs/website` repo) — this repo keeps
-developer/architecture docs and the formal spec (`core/spec/`) as source of truth.
+The migration to the docs site is **done**, and this repo no longer has a `docs/architecture/`
+or `docs/doclang/` directory — don't cite paths under them (issue #80: 21 citations across
+Go comments, READMEs, `SECURITY.md` and CLI `--help` text outlived the files they pointed at).
+
+- **User-facing and architecture docs** live at `ziradocs.com/docs/` (Starlight, in the separate
+  `ziradocs/website` repo). Cite them by full URL. `docs.ziradocs.com` redirects there, so the
+  canonical host — and the one Astro's `site` declares — is `ziradocs.com`.
+- **This repo keeps**: the formal spec (`core/spec/`, source of truth for the DSL grammar),
+  `docs/developer/` (releasing) and `docs/user/guides/`.

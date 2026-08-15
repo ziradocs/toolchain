@@ -18,7 +18,7 @@ The Go packages in this module (`parser`, `renderer`, `ast`, `config`, …) exis
 What this project commits to maintaining and versioning:
 
 1. **The CLI interface** — subcommands, flags, input formats (`.slidelang`, `.doclang`), output formats (`html`, `json`, `pdf`, `pptx`, `docx`, `markdown`; which ones apply depends on the CLI — see the root README's format table).
-2. **The AST serialized via `--format json`**, versioned semver by `ast.SchemaVersion` (see [`../schema/ast.schema.json`](../schema/ast.schema.json) and the `@ziradocs/ast-types` npm package). This is the recommended integration point for third parties — AI agents generating SlideLang, the web viewer, or any external consumer of the content tree. See [`docs/architecture/json-ast-contract.md`](../docs/architecture/json-ast-contract.md).
+2. **The AST serialized via `--format json`**, versioned semver by `ast.SchemaVersion` (see [`../schema/ast.schema.json`](../schema/ast.schema.json) and the `@ziradocs/ast-types` npm package). This is the recommended integration point for third parties — AI agents generating SlideLang, the web viewer, or any external consumer of the content tree. See the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/).
 3. **A future WASM entrypoint** (issue #134) to run the parser/renderer in-browser, as a wrapper over this same module.
 
 Generated HTML structure and CSS classes are **not** part of this contract and may change release to release without notice.
@@ -57,7 +57,7 @@ go test ./...
 
 - [`doc.go`](doc.go) — API stability policy (start here)
 - [`spec/`](spec/) — SlideLang/DocLang language specification and AST contract
-- [`docs/architecture/json-ast-contract.md`](../docs/architecture/json-ast-contract.md) — the `--format json` contract in detail
+- [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/) — the `--format json` contract in detail
 
 ## 📄 License
 

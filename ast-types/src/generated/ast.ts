@@ -644,7 +644,7 @@ export interface MermaidElement extends BaseNode {
   diagramType: string; // "graph", "sequence", "class", etc.
   content: string;
   title?: string;
-  titleHTML?: string; // Title con {{variables}} sustituidas y escapadas (sin markdown); Content es fuente de diagrama, no lleva *HTML (ver docs/architecture/json-ast-contract.md)
+  titleHTML?: string; // Title con {{variables}} sustituidas y escapadas (sin markdown); Content es fuente de diagrama, no lleva *HTML (ver https://ziradocs.com/docs/architecture/json-ast-contract/)
 }
 /**
  * PlantUMLElement representa un diagrama PlantUML

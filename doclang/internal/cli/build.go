@@ -491,7 +491,7 @@ Examples:
 	cmd.Flags().StringVar(&lintConfig, "lint-config", "", "Path to a YAML linter policy file. If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
 	cmd.Flags().StringVar(&reportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")
 	cmd.Flags().StringVar(&reportOut, "report-out", "", "Output path for the report (default: stdout)")
-	cmd.Flags().StringArrayVar(&filters, "filter", nil, "Path to an external filter binary that transforms the AST between parse and lint (repeatable; runs in the order given, each filter's output feeds the next). Communicates via JSON on stdin/stdout — see docs/architecture/json-ast-contract.md")
+	cmd.Flags().StringArrayVar(&filters, "filter", nil, "Path to an external filter binary that transforms the AST between parse and lint (repeatable; runs in the order given, each filter's output feeds the next). Communicates via JSON on stdin/stdout — see https://ziradocs.com/docs/architecture/json-ast-contract/")
 	cmd.Flags().StringVar(&includeRoot, "include-root", "", "Directory @include paths are confined to (default: the input file's directory); absolute paths and '..' outside it are rejected")
 
 	return cmd

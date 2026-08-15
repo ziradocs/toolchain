@@ -242,7 +242,7 @@ Apache-2.0 — see the [LICENSE](../LICENSE) at the repository root.
 
 ## Links
 
-- [DocLang Documentation](../docs/doclang/)
+- [DocLang Documentation](https://ziradocs.com/docs/doclang/overview/)
 - [SlideLang](../slidelang/)
 - [Report Issues](https://github.com/ziradocs/toolchain/issues)
 

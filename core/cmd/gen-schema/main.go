@@ -73,7 +73,7 @@ func main() {
 	root := r.Reflect(&ast.AST{})
 	root.ID = "https://go.ziradocs.com/core/schema/ast.schema.json"
 	root.Title = "SlideLang/DocLang AST"
-	root.Description = "Contrato JSON/AST emitido por --format json. Ver docs/architecture/json-ast-contract.md. Política de compatibilidad: cambio breaking ⇒ major (ver ast.SchemaVersion)."
+	root.Description = "Contrato JSON/AST emitido por --format json. Ver https://ziradocs.com/docs/architecture/json-ast-contract/. Política de compatibilidad: cambio breaking ⇒ major (ver ast.SchemaVersion)."
 
 	// Fusionar los $defs de cada tipo concreto de Element (y otros nodos con
 	// NodeType fijo) en el conjunto principal de definiciones.

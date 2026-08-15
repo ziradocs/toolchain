@@ -24,7 +24,8 @@ type visitFn func(node Node) error
 // Visita el propio doc primero, luego cada ContentBlock, luego cada Element
 // (recursivamente para los que contienen sub-elementos). No visita
 // FrontMatterNode (no tiene contenido de prosa recorrible ni sub-elementos;
-// ver docs/architecture/json-ast-contract.md) ni CodeGroupElement.CodeBlocks
+// ver https://ziradocs.com/docs/architecture/json-ast-contract/)
+// ni CodeGroupElement.CodeBlocks
 // (CodeBlock es un struct de valor sin BaseNode/posición — no implementa
 // Node, y no es numerable/referenciable por decisión B).
 //

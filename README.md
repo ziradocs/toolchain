@@ -57,7 +57,7 @@ parse → lint → render pipeline with a live-preview editor. Run it locally:
 cd playground && python3 -m http.server 8080   # then open http://localhost:8080/
 ```
 
-See the **[Playground guide](docs/user/guides/playground.md)** for what it
+See the **[Playground guide](https://ziradocs.com/docs/slidelang/guides/playground/)** for what it
 does and its known limits, or **[`playground/README.md`](playground/README.md)**
 for full build/export details.
 
@@ -83,7 +83,7 @@ Any LLM/agent (bring your own model) can emit valid ZiraDocs/DocLang using
 the calibrated prompts and syntax reference in **[`llm-kit/`](llm-kit/)** —
 system prompts, per-target grammar, use-case skeletons, and a
 linter-rule-mapped validation checklist. See the
-**[Generating with LLMs guide](docs/user/guides/generating-with-llms.md)**
+**[Generating with LLMs guide](https://ziradocs.com/docs/slidelang/guides/generating-with-llms/)**
 for a quick start, or **[`llms.txt`](llms.txt)** for the machine-readable
 entry point.
 
@@ -177,9 +177,13 @@ go test -v -cover ./...
 
 ## Documentation
 
-- **[Language spec](core/spec/)** — formal DSL specification (v0.1) and the JSON/AST contract.
-- **[DocLang Overview](docs/doclang/DOCLANG_OVERVIEW.md)** — introduction to DocLang.
-- **[User Guide](docs/user/)** · **[Architecture](docs/architecture/)** · **[Contributing](CONTRIBUTING.md)**
+User-facing documentation lives at **[ziradocs.com/docs](https://ziradocs.com/docs/)**; this
+repo keeps the formal spec and the developer/release docs.
+
+- **[Language spec](core/spec/)** — formal DSL specification (v0.1), in-repo and authoritative.
+- **[SlideLang docs](https://ziradocs.com/docs/slidelang/)** · **[DocLang docs](https://ziradocs.com/docs/doclang/overview/)**
+- **[JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/)** · **[Sanitization](https://ziradocs.com/docs/architecture/sanitization/)** · **[Offline rendering](https://ziradocs.com/docs/architecture/offline-rendering/)**
+- **[Releasing](docs/developer/releasing.md)** · **[Contributing](CONTRIBUTING.md)**
 - **[Backlog / open issues](https://github.com/ziradocs/toolchain/issues)** — bugs, security, features, refactors.
 
 ## License

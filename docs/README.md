@@ -1,56 +1,38 @@
 # ZiraDocs / DocLang — Documentation
 
-Welcome to the documentation for both DSLs in this monorepo. This documentation is organized by
-audience and use case.
+The user-facing documentation now lives at **[ziradocs.com/docs](https://ziradocs.com/docs/)**
+(Starlight, built from the separate `ziradocs/website` repo). The migration is done: the
+`docs/user/getting-started/`, `docs/user/language-reference/`, `docs/user/features/`,
+`docs/user/theme-implementation/`, `docs/doclang/` and `docs/architecture/` directories this
+file used to index no longer exist here.
 
-> **Where this is headed:** user-facing guides (getting started, language reference, features,
-> tutorials) are moving to **docs.ziradocs.com** as their canonical home, once that site has
-> equivalent coverage — see the [`docs/user/` migration issue](https://github.com/ziradocs/toolchain/issues)
-> for status. Until then, `docs/user/` here stays current and complete. Developer/architecture
-> docs, the formal spec, and DocLang's own reference stay in this repo either way.
+## Where things are now
 
-## Quick Navigation
+| What | Where |
+|---|---|
+| Getting started, quickstart | [ziradocs.com/docs/slidelang/getting-started/quickstart](https://ziradocs.com/docs/slidelang/getting-started/quickstart/) |
+| Language reference (SlideLang) | [ziradocs.com/docs/slidelang/language-reference/syntax-overview](https://ziradocs.com/docs/slidelang/language-reference/syntax-overview/) |
+| Features, themes, variables | [ziradocs.com/docs/slidelang/features](https://ziradocs.com/docs/slidelang/features/) |
+| DocLang | [ziradocs.com/docs/doclang/overview](https://ziradocs.com/docs/doclang/overview/) |
+| Theme creation | [ziradocs.com/docs/slidelang/theme-implementation/theme-creation](https://ziradocs.com/docs/slidelang/theme-implementation/theme-creation/) |
+| JSON/AST contract | [ziradocs.com/docs/architecture/json-ast-contract](https://ziradocs.com/docs/architecture/json-ast-contract/) |
+| Sanitization | [ziradocs.com/docs/architecture/sanitization](https://ziradocs.com/docs/architecture/sanitization/) |
+| Offline rendering & diagram backends | [ziradocs.com/docs/architecture/offline-rendering](https://ziradocs.com/docs/architecture/offline-rendering/) |
 
-### For Users
-- **[Getting Started](user/getting-started/)** — Installation, quickstart, and first presentation
-- **[Language Reference](user/language-reference/)** — Complete DSL syntax guide
-- **[Features](user/features/)** — Themes, variables, interactive elements
-- **[Guides](user/guides/)** — Playground, generating with LLMs, syntax-mode choice, migration
+`docs.ziradocs.com` redirects to the same pages, so either host works — but `ziradocs.com` is
+what Astro's `site` declares, and the one to write in new links.
 
-### DocLang
-- **[DocLang docs](doclang/)** — overview, frontmatter, strict/flex syntax reference, examples
+## What stays in this repo
 
-### For Developers
-- **[Developer docs](developer/)** — [releasing](developer/releasing.md), Chromium integration, docxgo fork, PlantUML offline, theme system
-- **[Architecture](architecture/)** — JSON/AST contract, HTML sanitization
-- **[Language Specification](../core/spec/)** — the formal grammar/semantics (v0.1) and the versioned AST/JSON contract
+- **[Language specification](../core/spec/)** — the formal grammar and semantics (v0.1).
+  Source of truth; the site's reference pages describe it, they don't replace it.
+- **[Releasing](developer/releasing.md)** — the two release scripts and the core→CLIs dance.
+- **[Guides](user/guides/)** — what hasn't moved yet.
+- **[2026-07 security audit](SECURITY_AUDIT_2026-07.md)** — findings and their status.
+- **[Contributing](../CONTRIBUTING.md)** · **[Security policy](../SECURITY.md)**
 
-### For Theme Creators
-- **[Theme Implementation Guide](user/theme-implementation/)** — Complete guide for creating custom themes
+## Reporting a docs problem
 
-## Quick Start
-
-1. **New to ZiraDocs?** → Start with [Getting Started](user/getting-started/quickstart.md)
-2. **Want to contribute?** → Check the root [Contributing Guide](../CONTRIBUTING.md)
-3. **Creating themes?** → See [Theme Implementation Guide](user/theme-implementation/)
-4. **Looking for specific features?** → Browse [Features](user/features/)
-5. **Security concerns?** → Read [SECURITY.md](../SECURITY.md)
-
-## What is ZiraDocs?
-
-ZiraDocs is a Domain Specific Language (DSL) for creating presentations, optimized for both AI generation and human authoring. It offers:
-
-- **Two syntax modes:** Strict (structured) and Flex (markdown-like)
-- **Rich features:** Interactive elements, charts, maps, themes, variables
-- **AI-optimized:** Designed for AI content generation, with a dedicated [`llm-kit/`](../llm-kit/)
-- **Multiple outputs:** HTML, PDF, DOCX (doclang), Markdown (doclang, partial)
-- **Secure by default:** HTML sanitization, URL scheme blocking, CSP on generated output
-
-## Security
-
-See [SECURITY.md](../SECURITY.md) for the sanitization model and how to report a vulnerability.
-
-## Documentation Status
-
-If you find an issue or gap in this documentation, search or open an issue in the
-[issue tracker](https://github.com/ziradocs/toolchain/issues) with the `documentation` label.
+Search or open an issue in the [issue tracker](https://github.com/ziradocs/toolchain/issues)
+with the `documentation` label. For a page on the site, the fix belongs in the
+`ziradocs/website` repo.

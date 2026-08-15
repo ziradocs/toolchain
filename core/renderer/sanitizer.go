@@ -237,7 +237,8 @@ var (
 // clases/atributos extra. Con este mapa, la salida solo puede ser una de las
 // cadenas literales de aquí abajo. Preserva la invariante de sanitización
 // (escapar todo el contenido de usuario, inyectar solo tags de un conjunto
-// fijo authored por el renderer — ver docs/architecture/sanitization.md).
+// fijo authored por el renderer — ver
+// https://ziradocs.com/docs/architecture/sanitization/).
 var inlineSpanTokens = map[string][2]string{
 	"danger":            {`<span class="slidelang-text-danger">`, `</span>`},
 	"info":              {`<span class="slidelang-text-info">`, `</span>`},

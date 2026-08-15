@@ -43,7 +43,7 @@ func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]inte
 // markdown, igual que el resto de campos "Title" de este archivo). Su
 // "content"/"data"/"series"/"labels"/"rawJSON"/"markers" es fuente de
 // diagrama o config, no texto para el DOM — ver la nota de no-goals en
-// docs/architecture/json-ast-contract.md.
+// https://ziradocs.com/docs/architecture/json-ast-contract/.
 func populateElementHTML(element ast.Element, variables map[string]interface{}) {
 	switch elem := element.(type) {
 	case *ast.TextElement:

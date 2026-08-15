@@ -30,9 +30,9 @@ stable `import "go.ziradocs.com/core/ast"`.
   blocks, and validation rules. `.doclang` is a sibling dialect: it always parses in
   the flex family (`DocumentFlexParser`) and treats `#`/`##`/`###` headings as a nested
   **section** hierarchy rather than separate slides — see
-  [`docs/user/language-reference/`](../../docs/user/language-reference/) for the
+  [`docs/user/language-reference/`](https://ziradocs.com/docs/slidelang/language-reference/syntax-overview/) for the
   user-facing (non-formal) walkthrough of both.
-- **[JSON/AST contract](../../docs/architecture/json-ast-contract.md)** — the
+- **[JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/)** — the
   authoritative, versioned description of what `--format json` emits: which fields
   each element serializes, the pre-rendered `*HTML` fields, and the semver
   compatibility policy for `SchemaVersion` (MAJOR/MINOR/PATCH rules).
@@ -47,9 +47,9 @@ stable `import "go.ziradocs.com/core/ast"`.
 
 | I want to know...                                    | Read...                                                        |
 |--------------------------------------------------------|-----------------------------------------------------------------|
-| How do I write `.slidelang`/`.doclang` files?           | [`docs/user/language-reference/`](../../docs/user/language-reference/) (practical, example-driven) |
+| How do I write `.slidelang`/`.doclang` files?           | [`docs/user/language-reference/`](https://ziradocs.com/docs/slidelang/language-reference/syntax-overview/) (practical, example-driven) |
 | What is the formal grammar of the DSL?                  | [`language-specification.md`](language-specification.md) (this directory) |
-| What does `--format json` actually emit, field by field? | [`docs/architecture/json-ast-contract.md`](../../docs/architecture/json-ast-contract.md) |
+| What does `--format json` actually emit, field by field? | [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/) |
 | What's the machine-readable JSON Schema for the AST?     | [`schema/ast.schema.json`](../../schema/ast.schema.json) |
 | Is a change to the AST breaking?                         | The MAJOR/MINOR/PATCH compatibility policy in [`ast-types/README.md`](../../ast-types/README.md#compatibility-policy) |
 
