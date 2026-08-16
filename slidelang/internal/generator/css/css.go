@@ -25,6 +25,14 @@ type CSSConfig struct {
 	RequiredLayouts  []string // Layouts actually used in the presentation
 	EnableNavigation bool     // Whether to include navigation CSS
 	EnableUtilities  bool     // Whether to include utilities CSS
+	// IncludeReset controls whether reset.css (body font-family, box-sizing:
+	// border-box, margin/padding reset) is prepended to the generated CSS.
+	// Issue #164: Build() never included it, so every EmbedAssets=true build
+	// (--format pdf, --embed-assets, RenderHTMLPreview, wasm) rendered
+	// without a body font-family or a global box-sizing reset. Callers that
+	// write reset.css as a separate linked file (the non-embedded path) must
+	// set this to false to avoid shipping the rules twice.
+	IncludeReset bool
 }
 
 // DefaultCSSConfig returns the default CSS configuration
@@ -39,6 +47,7 @@ func DefaultCSSConfig() CSSConfig {
 		RequiredLayouts:   []string{},       // No layouts by default
 		EnableNavigation:  true,             // Default enable navigation
 		EnableUtilities:   true,             // Default enable utilities
+		IncludeReset:      true,             // Default enable reset (issue #164)
 	}
 }
 
@@ -71,7 +80,8 @@ func GenerateCSS(config CSSConfig) (string, error) {
 		WithRequiredElements(config.RequiredElements).
 		WithRequiredLayouts(config.RequiredLayouts).
 		WithNavigation(config.EnableNavigation).
-		WithUtilities(config.EnableUtilities)
+		WithUtilities(config.EnableUtilities).
+		WithReset(config.IncludeReset)
 
 	css := builder.Build()
 

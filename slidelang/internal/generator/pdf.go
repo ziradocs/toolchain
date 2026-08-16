@@ -124,11 +124,17 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 // #160). PaperWidth/PaperHeight ya vienen en proporción 16:9
 // (13.333×7.5in, el tamaño estándar de PowerPoint widescreen) — no se activa
 // Landscape, porque ancho>alto ya describe una página apaisada; combinarlo
-// con Landscape:true rotaría la página dos veces. Márgenes en cero porque
-// cada slide ya trae su propio padding vía CSS y una página exacta al
-// tamaño del slide es lo que produce "un slide = una página" al combinarse
-// con `@media print { .slidelang-slide { page-break-after: always } }`
-// (internal/generator/css/builder.go).
+// con Landscape:true rotaría la página dos veces. Los campos Margin* se
+// dejan en su cero-valor y no en el fallback de DefaultPDFOptions: cdproto
+// serializa esos float64 SIN `omitempty` (page/page.go), así que el cero de
+// Go SÍ llega a Chromium como un margen cero explícito con o sin el gate
+// `> 0` de buildPrintToPDFParams — issue #165 documenta esto con detalle,
+// el gate resultó ser un no-op, no la causa de márgenes distintos de cero.
+// Una página exacta al tamaño del slide es lo que produce "un slide = una
+// página" al combinarse con el `@media print` que sí se ejecuta en un build
+// embebido: `internal/generator/css/assets/css/modules/responsive.css`
+// (issue #163 — el comentario de esta función solía apuntar al fallback
+// muerto en css/builder.go; ese literal nunca llega al HTML final).
 func slidesPDFOptions() renderer.PDFOptions {
 	return renderer.PDFOptions{
 		PaperWidth:  13.333,

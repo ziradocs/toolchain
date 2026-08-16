@@ -23,6 +23,7 @@ type CSSBuilder struct {
 	RequiredLayouts  []string // Layouts actually used in the presentation
 	EnableNavigation bool     // Whether to include navigation CSS
 	EnableUtilities  bool     // Whether to include utilities CSS (future use)
+	IncludeReset     bool     // Whether to prepend reset.css (issue #164)
 }
 
 // NewCSSBuilder creates a new CSS builder with defaults
@@ -37,6 +38,7 @@ func NewCSSBuilder() *CSSBuilder {
 		RequiredLayouts:   []string{},       // No layouts by default
 		EnableNavigation:  true,             // Default enable navigation
 		EnableUtilities:   true,             // Default enable utilities
+		IncludeReset:      true,             // Default enable reset
 	}
 }
 
@@ -88,6 +90,12 @@ func (cb *CSSBuilder) WithUtilities(enabled bool) *CSSBuilder {
 	return cb
 }
 
+// WithReset enables/disables prepending reset.css (issue #164)
+func (cb *CSSBuilder) WithReset(enabled bool) *CSSBuilder {
+	cb.IncludeReset = enabled
+	return cb
+}
+
 // Build generates the complete CSS
 func (cb *CSSBuilder) Build() string {
 	var css strings.Builder
@@ -118,6 +126,24 @@ func (cb *CSSBuilder) Build() string {
 				css.WriteString(mainCSS)
 				css.WriteString("\n")
 			}
+		}
+	}
+
+	// 1.6. Reset CSS. Issue #164: Build() only ever loaded
+	// LoadBaseCSSWithoutReset() below, so every EmbedAssets=true build
+	// (--format pdf, --embed-assets, RenderHTMLPreview, wasm) shipped with
+	// no `body { font-family }`, no `* { box-sizing: border-box }`, and no
+	// UA-default margin reset — Chrome fell back to Times for the whole
+	// deck. Gated behind IncludeReset because the non-embedded path
+	// (BuildCSS(), template/base.go) writes reset.css as its own linked
+	// file already; including it here too would just duplicate identical
+	// bytes into presentation.css, same reasoning as EnableNavigation
+	// below.
+	if cb.IncludeReset {
+		if resetCSS, err := cb.fileLoader.LoadResetCSS(); err == nil {
+			css.WriteString("/* === RESET STYLES === */\n")
+			css.WriteString(resetCSS)
+			css.WriteString("\n")
 		}
 	}
 
@@ -186,110 +212,23 @@ func (cb *CSSBuilder) Build() string {
 	return css.String()
 }
 
-// getResponsiveCSS returns responsive media queries from modular file
+// getResponsiveCSS returns responsive media queries from the modular file
+// (assets/css/modules/responsive.css, loaded via go:embed). There used to
+// be a hand-copied fallback literal here for when the load failed — but
+// moduleCSSFiles is a //go:embed of that exact path, so the read cannot
+// fail at runtime for any binary that compiled at all, and the literal had
+// already drifted out of sync with the real file (it still had the #163
+// pagination bug fixed in the file this reads). A duplicate that can only
+// go stale is worse than no duplicate — issue #163's exploration found two
+// more of these upstream, one already diverged. If this load ever
+// legitimately fails, an empty responsive block is the honest result, not
+// a second copy nobody will remember to keep in sync.
 func (cb *CSSBuilder) getResponsiveCSS() string {
-	// Try to load responsive CSS from modular file first
-	if responsiveCSS, err := cb.fileLoader.LoadResponsiveCSS(); err == nil {
-		return responsiveCSS
+	responsiveCSS, err := cb.fileLoader.LoadResponsiveCSS()
+	if err != nil {
+		return ""
 	}
-
-	// Fallback to namespaced responsive CSS
-	return cb.getNamespacedResponsiveCSS()
-}
-
-// getNamespacedResponsiveCSS returns responsive CSS with slidelang- namespacing
-func (cb *CSSBuilder) getNamespacedResponsiveCSS() string {
-	css := `/* Responsive breakpoints */
-@media (max-width: 768px) {
-    .slidelang-slide {
-        width: 95vw;
-        height: 85vh;
-        padding: 30px;
-    }
-    
-    .slidelang-slide.slidelang-title-slide h1 {
-        font-size: 2.5rem;
-    }
-    
-    .slidelang-slide.slidelang-content-slide h1 {
-        font-size: 2rem;
-    }
-    
-    .slidelang-element.slidelang-text {
-        font-size: 1.1rem;
-    }
-    
-    .slidelang-element.slidelang-points li {
-        font-size: 1rem;
-        padding-left: 1.5rem;
-    }
-    
-    .slidelang-element.slidelang-table {
-        font-size: 0.9rem;
-    }
-    
-    .slidelang-element.slidelang-table th,
-    .slidelang-element.slidelang-table td {
-        padding: 0.5rem;
-    }
-}
-
-@media (max-width: 480px) {
-    .slidelang-slide {
-        width: 98vw;
-        height: 90vh;
-        padding: 20px;
-    }
-    
-    .slidelang-slide.slidelang-title-slide h1 {
-        font-size: 2rem;
-    }
-    
-    .slidelang-slide.slidelang-title-slide h2 {
-        font-size: 1.3rem;
-    }
-    
-    .slidelang-slide.slidelang-content-slide h1 {
-        font-size: 1.5rem;
-    }
-    
-    .slidelang-element.slidelang-text {
-        font-size: 1rem;
-    }
-    
-    .slidelang-cards-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .slidelang-element.slidelang-image-gallery {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media print {
-    /* El container es flex en pantalla (una fila, un solo slide visible a la
-       vez); un flex container no fragmenta de forma confiable entre sus
-       items al imprimir (soporte de page-break-after/break-after dentro de
-       flexbox es inconsistente entre motores) - sin este reset, los N
-       slides (ya todos display:block por la regla de abajo) se compactan
-       como columnas de una sola fila en vez de apilarse uno por página
-       (issue #128). */
-    .slidelang-presentation-container {
-        display: block !important;
-    }
-
-    .slidelang-slide {
-        width: auto;
-        height: auto;
-        box-shadow: none;
-        page-break-after: always;
-        display: block !important;
-    }
-
-    /* Navigation print rules are handled in navigation.css */
-}
-`
-	return css
+	return responsiveCSS
 }
 
 // GetAvailableModules returns list of available CSS element modules
