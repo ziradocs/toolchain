@@ -286,11 +286,21 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 		if slide.HeaderFooterOverride != nil {
 			slideData.HeaderFooterOverride = ProcessSlideHeaderFooterOverride(slide.HeaderFooterOverride, variables)
 		}
+		// pendingModifierClasses acumula las clases CSS de una directiva
+		// modificadora (issue #72, ver directiveModifierClasses) para
+		// adjuntarlas al elemento REAL siguiente, en vez de colgarlas del
+		// <div> vacío de la propia directiva.
+		var pendingModifierClasses []string
+
 		// Convertir elementos (excluyendo presenter notes que ya se extrajeron)
 		for j, element := range slide.Elements {
 			// Skip presenter notes elements since they're now in the Notes field
 			if directive, ok := element.(*ast.DirectiveNode); ok {
 				if directive.Name == "notes" || directive.Name == "notes:" {
+					continue
+				}
+				if classes, isModifier := directiveModifierClasses(directive); isModifier {
+					pendingModifierClasses = append(pendingModifierClasses, classes...)
 					continue
 				}
 			}
@@ -459,7 +469,12 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				// agregarla también vía CSSClasses duplicaba la clase.
 				elementData.CSSClasses = []string{"directive-" + elem.Name}
 
-				// Configuraciones específicas por tipo de directiva
+				// Configuraciones específicas por tipo de directiva. Solo
+				// timer/transition llegan acá con un nombre reconocido —
+				// las 14 directivas modificadoras (issue #72) se
+				// interceptan más arriba, antes de construir elementData
+				// (ver directiveModifierClasses), y nunca alcanzan este
+				// switch.
 				switch elem.Name {
 				case "timer":
 					elementData.Title = "Timer"
@@ -474,59 +489,21 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 						elementData.CSSClasses = append(elementData.CSSClasses, "transition-"+transType.(string))
 					}
 
-				case "highlight":
-					elementData.Title = "Highlight"
-					if color, ok := elem.Parameters["color"]; ok {
-						elementData.CSSClasses = append(elementData.CSSClasses, "highlight-"+color.(string))
-					} else {
-						elementData.CSSClasses = append(elementData.CSSClasses, "highlight-default")
-					}
-
-				case "center":
-					elementData.CSSClasses = append(elementData.CSSClasses, "text-center")
-
-				case "fade-in":
-					elementData.CSSClasses = append(elementData.CSSClasses, "animate-fade-in")
-
-				case "slide-up":
-					elementData.CSSClasses = append(elementData.CSSClasses, "animate-slide-up")
-
-				case "bounce":
-					elementData.CSSClasses = append(elementData.CSSClasses, "animate-bounce")
-
-				case "large":
-					elementData.CSSClasses = append(elementData.CSSClasses, "text-large")
-
-				case "small":
-					elementData.CSSClasses = append(elementData.CSSClasses, "text-small")
-
-				case "spacing-wide":
-					elementData.CSSClasses = append(elementData.CSSClasses, "spacing-wide")
-
-				case "margin-large":
-					elementData.CSSClasses = append(elementData.CSSClasses, "margin-large")
-
-				case "float-left":
-					elementData.CSSClasses = append(elementData.CSSClasses, "float-left")
-
-				case "float-right":
-					elementData.CSSClasses = append(elementData.CSSClasses, "float-right")
-
-				case "auto-play":
-					elementData.CSSClasses = append(elementData.CSSClasses, "auto-play")
-
-				case "no-transition":
-					elementData.CSSClasses = append(elementData.CSSClasses, "no-transition")
-
-				case "full-screen":
-					elementData.CSSClasses = append(elementData.CSSClasses, "full-screen")
-
 				default:
-					// Directiva genérica
+					// Directiva genérica (nombre desconocido)
 					elementData.Title = "Directive: " + elem.Name
 				}
 			default:
 				log.Warn("Unknown element type: %T", element)
+			}
+
+			// Adjuntar las clases acumuladas de cualquier directiva
+			// modificadora que precedió a este elemento (issue #72) — se
+			// aplica sin importar el tipo (incluida otra directiva
+			// standalone como timer/transition, si es lo que sigue).
+			if len(pendingModifierClasses) > 0 {
+				elementData.CSSClasses = append(elementData.CSSClasses, pendingModifierClasses...)
+				pendingModifierClasses = nil
 			}
 
 			// En modos offline, pre-renderizar mermaid/chart/map vía el pipeline
@@ -599,6 +576,13 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 			}
 
 			slideData.Elements = append(slideData.Elements, elementData)
+		}
+
+		// Una directiva modificadora al FINAL del slide no tiene a quién
+		// atarse — se descarta, pero no en silencio (issue #72): mismo
+		// criterio de nunca-silenciar que ya aplica --format pptx.
+		if len(pendingModifierClasses) > 0 {
+			log.Warn("Slide %d: modifier directive class(es) %v have no following element to attach to and were discarded", i+1, pendingModifierClasses)
 		}
 
 		data.ContentBlocks = append(data.ContentBlocks, slideData)
@@ -1172,6 +1156,60 @@ func cellsLeadIsHeader(cells [][]ast.TableCell) bool {
 func generateElementID(elem ast.Element, slideIndex, elementIndex int) string {
 	// Solo devolvemos el índice del elemento, el template se encarga del resto
 	return fmt.Sprintf("%d", elementIndex)
+}
+
+// directiveModifierClasses reporta si directive es una directiva
+// "modificadora" (issue #72): en vez de dibujarse a sí misma en un <div>
+// vacío, adjunta su(s) clase(s) CSS al elemento SIGUIENTE del slide (ver el
+// acumulador pendingModifierClasses en el loop de arriba). Antes de este
+// fix, TODAS las directivas — incluidas estas 14 — colgaban su clase del
+// div de la propia directiva; para float-left/float-right eso significaba
+// que "flotar" un div vacío no hacía nada, porque el CSS
+// (.slidelang-element.slidelang-image.slidelang-float-left) exige las tres
+// clases en el MISMO elemento que la imagen.
+//
+// timer/transition NO son modificadoras: se dibujan como su propio widget
+// visible (ver template/base.go, rama .Type "directive"). Un nombre de
+// directiva desconocido tampoco lo es — deny-by-default, mismo criterio
+// que el clasificador de options de chart de core (issue #148): no
+// sabemos qué significaría atarlo a un vecino, así que se sigue dibujando
+// como el indicador genérico de siempre en vez de arriesgar.
+func directiveModifierClasses(directive *ast.DirectiveNode) ([]string, bool) {
+	switch directive.Name {
+	case "center":
+		return []string{"text-center"}, true
+	case "fade-in":
+		return []string{"animate-fade-in"}, true
+	case "slide-up":
+		return []string{"animate-slide-up"}, true
+	case "bounce":
+		return []string{"animate-bounce"}, true
+	case "large":
+		return []string{"text-large"}, true
+	case "small":
+		return []string{"text-small"}, true
+	case "spacing-wide":
+		return []string{"spacing-wide"}, true
+	case "margin-large":
+		return []string{"margin-large"}, true
+	case "float-left":
+		return []string{"float-left"}, true
+	case "float-right":
+		return []string{"float-right"}, true
+	case "auto-play":
+		return []string{"auto-play"}, true
+	case "no-transition":
+		return []string{"no-transition"}, true
+	case "full-screen":
+		return []string{"full-screen"}, true
+	case "highlight":
+		if color, ok := directive.Parameters["color"].(string); ok && color != "" {
+			return []string{"highlight-" + color}, true
+		}
+		return []string{"highlight-default"}, true
+	default:
+		return nil, false
+	}
 }
 
 // max retorna el mayor de dos enteros
