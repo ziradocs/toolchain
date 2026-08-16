@@ -1032,19 +1032,25 @@ func buildPrintToPDFParams(opts PDFOptions) *page.PrintToPDFParams {
 		WithPreferCSSPageSize(true).
 		WithGenerateTaggedPDF(true)
 
-	// Margins
-	if opts.MarginTop > 0 {
-		printParams = printParams.WithMarginTop(opts.MarginTop)
-	}
-	if opts.MarginBottom > 0 {
-		printParams = printParams.WithMarginBottom(opts.MarginBottom)
-	}
-	if opts.MarginLeft > 0 {
-		printParams = printParams.WithMarginLeft(opts.MarginLeft)
-	}
-	if opts.MarginRight > 0 {
-		printParams = printParams.WithMarginRight(opts.MarginRight)
-	}
+	// Margins. Issue #165: este bloque tenía un guard `> 0` que, a
+	// diferencia del de Scale más abajo, resultó ser un no-op — cdproto
+	// declara MarginTop/Bottom/Left/Right como float64 SIN `omitempty`
+	// (page/page.go), y su constructor PrintToPDF() no les siembra ningún
+	// default distinto de cero, así que el JSON que sale hacia Chromium
+	// lleva "marginTop":0 (y equivalentes) exista o no la llamada a
+	// WithMarginTop — llamarlo con 0 y no llamarlo producen el mismo
+	// struct. El guard no cambiaba una sola margen en ningún PDF que este
+	// toolchain haya generado nunca (confirmado: el único caller de
+	// producción es slidesPDFOptions(), cuyos Margin* ya estaban en su
+	// cero-valor). Se quita para que el código dependa de esta única
+	// fuente de verdad — igual que Scale — en vez de un condicional que
+	// aparentaba filtrar algo que la ausencia de `omitempty` ya volvía
+	// imposible de filtrar.
+	printParams = printParams.
+		WithMarginTop(opts.MarginTop).
+		WithMarginBottom(opts.MarginBottom).
+		WithMarginLeft(opts.MarginLeft).
+		WithMarginRight(opts.MarginRight)
 
 	// Paper size
 	if opts.PaperWidth > 0 && opts.PaperHeight > 0 {
