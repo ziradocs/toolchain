@@ -179,7 +179,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.InstallChromium, "install-chromium", false, "Auto-install Chromium if not found (for offline rendering and --format pdf)")
 	cmd.Flags().StringVar(&opts.PlantUMLServer, "plantuml-server", "", "Custom PlantUML server URL for offline modes and --format pdf (default: https://www.plantuml.com/plantuml)")
 	cmd.Flags().StringVar(&opts.PlantUMLFormat, "plantuml-format", "svg", "PlantUML image format for offline-assets mode: svg or png (offline-inline and --format pdf always use svg)")
-	cmd.Flags().StringVar(&opts.DiagramBackend, "diagram-backend", "chromium", "Backend for mermaid/plantuml diagrams in offline-* render modes and --format pdf: chromium (default) or kroki (no Chromium needed for these two; requires a Kroki server, see --kroki-server)")
+	cmd.Flags().StringVar(&opts.DiagramBackend, "diagram-backend", "chromium", "Backend for mermaid/plantuml diagrams in offline-* render modes, --format pdf, and --format pptx: chromium (default) or kroki (no Chromium needed for these; requires a Kroki server, see --kroki-server). --format pptx additionally requires kroki to embed mermaid/plantuml at all — chromium is not an option there, since pptx never instantiates a browser")
 	cmd.Flags().StringVar(&opts.KrokiServer, "kroki-server", "", "Custom Kroki server URL (default: public https://kroki.io); only used when --diagram-backend=kroki")
 
 	return cmd
