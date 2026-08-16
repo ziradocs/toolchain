@@ -26,13 +26,44 @@ func TestParseColor(t *testing.T) {
 		{"8-digit hex with translucent alpha is rejected", "#ff000080", 0, 0, 0, false},
 		{"4-digit shorthand with translucent alpha is rejected", "#f008", 0, 0, 0, false},
 		{"8-digit hex with fully transparent alpha is rejected", "#ffffff00", 0, 0, 0, false},
-		{"named CSS color rejected", "white", 0, 0, 0, false},
-		{"rgba() rejected", "rgba(255,255,255,0.5)", 0, 0, 0, false},
 		{"linear-gradient rejected", "linear-gradient(90deg, #fff, #000)", 0, 0, 0, false},
 		{"var() unresolved rejected", "var(--text-color)", 0, 0, 0, false},
 		{"empty string rejected", "", 0, 0, 0, false},
 		{"garbage hex length rejected", "#12345", 0, 0, 0, false},
 		{"non-hex digits rejected", "#gggggg", 0, 0, 0, false},
+
+		// issue #57: rgb()/rgba()/nombres CSS ya no se colapsan en
+		// "no evaluable" — son formas de color reales que un tema externo
+		// puede legítimamente escribir (core/renderer/css/themes/external.go
+		// extrae :root{} verbatim, sin normalizar formato).
+		{"named CSS color 'white'", "white", 0xff, 0xff, 0xff, true},
+		{"named CSS color mixed case", "ToMaTo", 0xff, 0x63, 0x47, true},
+		{"named CSS color 'gray'", "gray", 0x80, 0x80, 0x80, true},
+		{"unknown named color rejected", "notacolor", 0, 0, 0, false},
+		{"rgb() integer form", "rgb(119, 119, 119)", 119, 119, 119, true},
+		{"rgb() with irregular spacing", "rgb(119,  119 ,119)", 119, 119, 119, true},
+		{"rgb() percent form", "rgb(50%, 50%, 50%)", 128, 128, 128, true},
+		{"rgba() fully opaque accepted", "rgba(255, 0, 0, 1)", 0xff, 0, 0, true},
+		{"rgba() translucent still rejected", "rgba(255,255,255,0.5)", 0, 0, 0, false},
+		{"rgba() fully transparent still rejected", "rgba(0,0,0,0)", 0, 0, 0, false},
+		{"hsl() fully opaque accepted", "hsl(0, 100%, 50%)", 0xff, 0, 0, true},
+		{"hsla() translucent rejected", "hsla(0, 100%, 50%, 0.5)", 0, 0, 0, false},
+
+		// Guarda A1: csscolorparser acepta hex SIN "#" como fallback
+		// ("ffffff"); ParseColor lo rechaza explícitamente porque no es un
+		// color CSS válido dentro de una hoja de estilos.
+		{"hex without # prefix still rejected", "ffffff", 0, 0, 0, false},
+
+		// Hallazgo de code-review sobre PR #157: oklab()/oklch()/lab()/lch()
+		// cubren un gamut más amplio que sRGB -- un canal fuera de [0,1] es
+		// válido en esos espacios pero Color.RGBA255() sin Clamp() truncaba
+		// ese float directamente a uint8 sin recortar, dando un canal
+		// arbitrario en vez del valor visualmente más cercano dentro de
+		// sRGB. Los valores esperados son los que csscolorparser.Color.
+		// Clamp().RGBA255() produce -- verificados independientemente con
+		// go run, no adivinados.
+		{"oklch() out-of-gamut channel gets clamped, not truncated to garbage", "oklch(0.5 0.5 30)", 255, 0, 0, true},
+		{"lab() out-of-gamut channels get clamped", "lab(100 150 -150)", 255, 87, 255, true},
 	}
 
 	for _, tt := range tests {
@@ -109,6 +140,53 @@ func TestContrastRatio_UnparseableInputsFailGracefully(t *testing.T) {
 			ratio, ok := ContrastRatio(tt.fg, tt.bg)
 			if ok {
 				t.Fatalf("ContrastRatio(%q, %q) ok = true (ratio=%v), want false — must not fabricate a ratio", tt.fg, tt.bg, ratio)
+			}
+		})
+	}
+}
+
+// TestContrastRatio_RGBFormEvaluatesJustLikeItsHexEquivalent es el test
+// discriminante de issue #57: antes de A1, un tema con
+// --text-color: rgb(119,119,119) no producía NINGÚN diagnóstico de
+// contraste — ni "reprobó" ni "no evaluable", silencio indistinguible de
+// "pasó". #777777 sobre blanco da ~4.48:1, justo por debajo del umbral AA
+// de 4.5 — es exactamente el caso que el silencio estaba escondiendo.
+func TestContrastRatio_RGBFormEvaluatesJustLikeItsHexEquivalent(t *testing.T) {
+	hexRatio, hexOK := ContrastRatio("#777777", "#ffffff")
+	rgbRatio, rgbOK := ContrastRatio("rgb(119, 119, 119)", "#ffffff")
+
+	if !hexOK || !rgbOK {
+		t.Fatalf("expected both forms to parse: hexOK=%v rgbOK=%v", hexOK, rgbOK)
+	}
+	if math.Abs(hexRatio-rgbRatio) > 0.0001 {
+		t.Errorf("rgb() form gave a different ratio than its hex equivalent: hex=%v rgb=%v", hexRatio, rgbRatio)
+	}
+	if MeetsAA(rgbRatio, false) {
+		t.Errorf("ratio %v should fail AA (below 4.5:1) — this is the case the old silent skip was hiding", rgbRatio)
+	}
+}
+
+// TestContrastRatioDetail_DistinguishesWhichColorFailed es el companion de
+// ContrastRatio: un caller (ThemeContrastRule) necesita saber CUÁL de los
+// dos colores no parseó para poder nombrarlo en el diagnóstico, no solo
+// que el par falló.
+func TestContrastRatioDetail_DistinguishesWhichColorFailed(t *testing.T) {
+	tests := []struct {
+		name       string
+		fg, bg     string
+		wantStatus ContrastStatus
+	}{
+		{"both parseable", "#000000", "#ffffff", ContrastOK},
+		{"fg is the problem", "linear-gradient(90deg, #fff, #000)", "#ffffff", ContrastFgUnparseable},
+		{"bg is the problem", "#000000", "var(--bg)", ContrastBgUnparseable},
+		{"both unparseable reports fg first", "var(--fg)", "var(--bg)", ContrastFgUnparseable},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, status := ContrastRatioDetail(tt.fg, tt.bg)
+			if status != tt.wantStatus {
+				t.Errorf("ContrastRatioDetail(%q, %q) status = %v, want %v", tt.fg, tt.bg, status, tt.wantStatus)
 			}
 		})
 	}

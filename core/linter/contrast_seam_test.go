@@ -129,6 +129,35 @@ func TestThemeContrastRule_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestThemeContrastRule_EndToEnd_RGBForm es el mismo caso que
+// TestThemeContrastRule_EndToEnd pero con el color escrito como
+// rgb(119,119,119) en vez de #777777 — el discriminante de issue #57
+// desde la costura completa (Linter real + WithThemeVariables), no solo
+// desde a11y.ContrastRatio. Antes de A1 este par no producía NADA:
+// silencio, indistinguible de "pasó".
+func TestThemeContrastRule_EndToEnd_RGBForm(t *testing.T) {
+	rule := NewThemeContrastRule([]ContrastPair{
+		{Label: "body text on background", FgVariable: "--text-color", BgVariable: "--bg-color"},
+	})
+	vars := map[string]string{"--text-color": "rgb(119, 119, 119)", "--bg-color": "#ffffff"}
+
+	l := NewWithRules(rule).WithThemeVariables(vars)
+	diags := l.LintUnfiltered(newMinimalAST())
+
+	found := false
+	for _, d := range diags {
+		if d.RuleID == "CONTRAST001" {
+			found = true
+		}
+		if d.RuleID == "CONTRAST002" {
+			t.Fatalf("rgb() is evaluable — must not produce CONTRAST002, got %+v", diags)
+		}
+	}
+	if !found {
+		t.Fatalf("expected a CONTRAST001 diagnostic for a below-threshold rgb() pair, got %+v", diags)
+	}
+}
+
 // TestThemeContrastRule_MessageNeverContradictsItself pina el hallazgo del
 // segundo code review en el punto exacto donde se ve: el ratio #006ffb
 // sobre blanco (~4.499888:1) reprueba AA, pero el mensaje ANTES de la
@@ -163,7 +192,9 @@ func TestThemeContrastRule_MessageNeverContradictsItself(t *testing.T) {
 }
 
 // TestThemeContrastRule_PassingPairProducesNoDiagnostic es el contrapunto:
-// un par con contraste suficiente no debe producir ningún CONTRAST001.
+// un par con contraste suficiente y ambos colores evaluables no debe
+// producir ningún diagnóstico — ni CONTRAST001 (reprobó AA) ni CONTRAST002
+// (no evaluable): este par sí se evaluó y sí pasó.
 func TestThemeContrastRule_PassingPairProducesNoDiagnostic(t *testing.T) {
 	rule := NewThemeContrastRule([]ContrastPair{
 		{Label: "body text on background", FgVariable: "--text-color", BgVariable: "--bg-color"},
@@ -174,8 +205,8 @@ func TestThemeContrastRule_PassingPairProducesNoDiagnostic(t *testing.T) {
 	diags := l.LintUnfiltered(newMinimalAST())
 
 	for _, d := range diags {
-		if d.RuleID == "CONTRAST001" {
-			t.Fatalf("did not expect CONTRAST001 for a passing pair, got %+v", diags)
+		if d.RuleID == "CONTRAST001" || d.RuleID == "CONTRAST002" {
+			t.Fatalf("did not expect CONTRAST001/CONTRAST002 for a passing, fully-evaluable pair, got %+v", diags)
 		}
 	}
 }
@@ -234,20 +265,55 @@ func TestLinter_WithThemeVariables_RulesDoNotShareTheSameMapInstance(t *testing.
 	}
 }
 
-// TestThemeContrastRule_MissingOrUnparseableVariableIsSkipped cubre las dos
-// limitaciones aceptadas del seam: una variable ausente del mapa del tema,
-// y una variable presente pero con un valor no-hex (gradiente) — ninguna
-// de las dos debe producir un diagnóstico fabricado.
-func TestThemeContrastRule_MissingOrUnparseableVariableIsSkipped(t *testing.T) {
+// TestThemeContrastRule_MissingVariableIsSkippedSilently cubre la única
+// limitación que sigue siendo silenciosa a propósito: una variable ausente
+// del mapa del tema. Un mapa de variables parcial es normal (no todo tema
+// define todas las variables que un rulepack le pide), así que esto NO es
+// "no pude evaluar" — es "este tema no define esa variable" — y ruidearlo
+// llenaría la salida de falsos positivos.
+func TestThemeContrastRule_MissingVariableIsSkippedSilently(t *testing.T) {
+	vars := map[string]string{"--text-color": "#777777"} // --bg-color ausente
+	rule := NewThemeContrastRule([]ContrastPair{
+		{Label: "body text on background", FgVariable: "--text-color", BgVariable: "--bg-color"},
+	})
+	l := NewWithRules(rule).WithThemeVariables(vars)
+	diags := l.LintUnfiltered(newMinimalAST())
+	for _, d := range diags {
+		if d.RuleID == "CONTRAST001" || d.RuleID == "CONTRAST002" {
+			t.Fatalf("expected the pair to be skipped silently (missing variable, not unparseable), got %+v", diags)
+		}
+	}
+}
+
+// TestThemeContrastRule_UnparseableColorProducesCONTRAST002 es el
+// contrapunto (issue #57): una variable PRESENTE pero cuyo valor no es un
+// color CSS evaluable (gradiente, var() sin resolver) ya no se salta en
+// silencio — antes de A1-A3 esto era indistinguible de "pasó AA". Ahora
+// produce CONTRAST002, nunca CONTRAST001 (no hay ratio que reprobar), y el
+// mensaje nombra cuál de los dos colores fue el problema.
+func TestThemeContrastRule_UnparseableColorProducesCONTRAST002(t *testing.T) {
 	tests := []struct {
-		name string
-		vars map[string]string
+		name       string
+		vars       map[string]string
+		wantInMsg  string
+		wantNotMsg string
 	}{
-		{"bg variable missing entirely", map[string]string{"--text-color": "#777777"}},
-		{"bg variable is a gradient, not hex", map[string]string{
-			"--text-color": "#777777",
-			"--bg-color":   "linear-gradient(90deg, #fff, #000)",
-		}},
+		{
+			name: "bg is a gradient, not evaluable",
+			vars: map[string]string{
+				"--text-color": "#777777",
+				"--bg-color":   "linear-gradient(90deg, #fff, #000)",
+			},
+			wantInMsg: "background",
+		},
+		{
+			name: "fg is a gradient, not evaluable",
+			vars: map[string]string{
+				"--text-color": "linear-gradient(90deg, #fff, #000)",
+				"--bg-color":   "#ffffff",
+			},
+			wantInMsg: "foreground",
+		},
 	}
 
 	for _, tt := range tests {
@@ -257,10 +323,21 @@ func TestThemeContrastRule_MissingOrUnparseableVariableIsSkipped(t *testing.T) {
 			})
 			l := NewWithRules(rule).WithThemeVariables(tt.vars)
 			diags := l.LintUnfiltered(newMinimalAST())
-			for _, d := range diags {
-				if d.RuleID == "CONTRAST001" {
-					t.Fatalf("expected the pair to be skipped silently, got %+v", diags)
+
+			var found *diagnostics.Diagnostic
+			for i := range diags {
+				if diags[i].RuleID == "CONTRAST001" {
+					t.Fatalf("unparseable pair must never produce CONTRAST001 (no ratio to fail), got %+v", diags)
 				}
+				if diags[i].RuleID == "CONTRAST002" {
+					found = &diags[i]
+				}
+			}
+			if found == nil {
+				t.Fatalf("expected a CONTRAST002 diagnostic, got %+v", diags)
+			}
+			if !strings.Contains(found.Message, tt.wantInMsg) {
+				t.Errorf("message %q does not name which color failed (expected to contain %q)", found.Message, tt.wantInMsg)
 			}
 		})
 	}

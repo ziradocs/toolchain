@@ -26,10 +26,13 @@ type ContrastPair struct {
 // ThemeContrastRule es la regla de referencia para el seam de contraste
 // (issue #30): recibe el mapa de variables del tema activo vía ThemeAware
 // y, por cada ContrastPair configurado, calcula el ratio WCAG y emite un
-// diagnóstico si no alcanza el umbral AA. Un par cuya variable no está en
-// el mapa del tema, o cuyo valor no es un hex parseable (gradiente,
-// rgba(), var() sin resolver), se SALTA en silencio — no es una condición
-// de error, es una limitación conocida de este seam (ver core/a11y).
+// diagnóstico si no alcanza el umbral AA (CONTRAST001) o si un color no se
+// pudo evaluar (CONTRAST002, ver más abajo). Un par cuya variable no está
+// en el mapa del tema se SALTA en silencio — un mapa de variables parcial
+// es normal, y no es lo mismo "esta variable no existe en este tema" que
+// "esta variable existe pero su valor no se pudo evaluar" (issue #57): lo
+// primero se sigue saltando sin diagnóstico, lo segundo ahora sí lo
+// produce, para no quedar indistinguible de "pasó".
 //
 // Deliberadamente NO está en DefaultRules(): habilitarla por defecto
 // cambiaría la salida de lint de cualquier usuario existente y arriesga
@@ -73,8 +76,17 @@ func (r *ThemeContrastRule) Check(node ast.Node) []diagnostics.Diagnostic {
 			continue
 		}
 
-		ratio, ok := a11y.ContrastRatio(fg, bg)
-		if !ok {
+		ratio, status := a11y.ContrastRatioDetail(fg, bg)
+		switch status {
+		case a11y.ContrastFgUnparseable:
+			diags = append(diags, diagnostics.NewWarning(
+				fmt.Sprintf("%s: foreground color %q (%s) could not be evaluated for contrast — not a recognized CSS color format", pair.Label, fg, pair.FgVariable),
+				astNode.GetPosition(), "contrast-rule").WithRuleID("CONTRAST002"))
+			continue
+		case a11y.ContrastBgUnparseable:
+			diags = append(diags, diagnostics.NewWarning(
+				fmt.Sprintf("%s: background color %q (%s) could not be evaluated for contrast — not a recognized CSS color format", pair.Label, bg, pair.BgVariable),
+				astNode.GetPosition(), "contrast-rule").WithRuleID("CONTRAST002"))
 			continue
 		}
 
