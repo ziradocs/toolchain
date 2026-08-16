@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"testing"
 
+	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -72,5 +73,53 @@ func TestGenerateDocumentHTML_InlineDangerSpan_RendersWithMatchingCSSRule(t *tes
 	}
 	if !regexp.MustCompile(`\.slidelang-text-danger\s*\{`).MatchString(html) {
 		t.Errorf("expected a CSS rule for .slidelang-text-danger in the embedded <style>, none found")
+	}
+}
+
+// TestGenerateDocumentHTML_InlineSpans_DarkModeMeetsAA es hallazgo de
+// code-review sobre PR #158: los fallbacks hex de .slidelang-text-*/
+// .slidelang-highlight-* están verificados AA contra un fondo claro, pero
+// sin un override de --doclang-*-color/-bg/-text dentro de
+// html[data-theme="dark"], var(--doclang-*, fallback) sigue resolviendo al
+// MISMO fallback claro sobre --doclang-page-bg: #1a1a1a (3.05:1-3.60:1,
+// por debajo de 4.5:1). Este test extrae los hex REALES del HTML generado
+// (no una copia hardcodeada que podría desincronizarse) y los verifica con
+// a11y.ContrastRatio -- para texto, contra el --doclang-page-bg de dark
+// mode; para highlights, contra su propio --doclang-highlight-*-bg.
+func TestGenerateDocumentHTML_InlineSpans_DarkModeMeetsAA(t *testing.T) {
+	html := GenerateDocumentHTML(&ast.AST{}, DocumentHTMLOptions{InteractiveViewer: true}, nil)
+
+	darkBlock := regexp.MustCompile(`(?s)html\[data-theme="dark"\]\s*\{(.*?)\}`).FindStringSubmatch(html)
+	if darkBlock == nil {
+		t.Fatal("no html[data-theme=\"dark\"] block found in the generated <style>")
+	}
+	dark := darkBlock[1]
+
+	hexVar := func(name string) string {
+		m := regexp.MustCompile(`--` + regexp.QuoteMeta(name) + `:\s*(#[0-9a-fA-F]{3,8})`).FindStringSubmatch(dark)
+		if m == nil {
+			t.Fatalf("dark mode block has no override for --%s", name)
+		}
+		return m[1]
+	}
+
+	darkBg := hexVar("doclang-page-bg")
+
+	for _, textVar := range []string{
+		"doclang-danger-color", "doclang-info-color", "doclang-success-color",
+		"doclang-warning-color", "doclang-accent-color",
+	} {
+		fg := hexVar(textVar)
+		if ratio, ok := a11y.ContrastRatio(fg, darkBg); !ok || ratio < 4.5 {
+			t.Errorf("--%s = %s on dark bg %s: ratio = %.2f, want >= 4.5 (AA)", textVar, fg, darkBg, ratio)
+		}
+	}
+
+	for _, name := range []string{"warning", "info", "success"} {
+		bg := hexVar("doclang-highlight-" + name + "-bg")
+		fg := hexVar("doclang-highlight-" + name + "-text")
+		if ratio, ok := a11y.ContrastRatio(fg, bg); !ok || ratio < 4.5 {
+			t.Errorf("--doclang-highlight-%s-text = %s on --doclang-highlight-%s-bg = %s: ratio = %.2f, want >= 4.5 (AA)", name, fg, name, bg, ratio)
+		}
 	}
 }

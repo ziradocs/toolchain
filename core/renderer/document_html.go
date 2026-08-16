@@ -2406,6 +2406,28 @@ func generateViewerStyles(opts DocumentHTMLOptions) string {
             --doclang-toc-accent: #6fa3ef;
             --doclang-sidebar-bg: #1e1e1e;
             --doclang-sidebar-border: #333333;
+
+            /* Inline style spans (issue #81, hallazgo de code-review sobre
+               PR #158): los fallbacks hex de .slidelang-text-*/
+               .slidelang-highlight-* en generateDocumentStyles están
+               verificados AA contra un fondo claro (#ffffff/#fafafa/
+               #f5f5f5), pero sin un override acá el CSS var(--doclang-*,
+               fallback) sigue resolviendo al MISMO fallback claro sobre
+               --doclang-page-bg: #1a1a1a — 3.05:1-3.60:1, por debajo de
+               4.5:1. Estos valores están verificados con a11y.ContrastRatio
+               contra #1a1a1a (texto) y contra su propio bg (highlights),
+               todos >= 6.29:1. */
+            --doclang-danger-color: #f87171;
+            --doclang-info-color: #60a5fa;
+            --doclang-success-color: #4ade80;
+            --doclang-warning-color: #fbbf24;
+            --doclang-accent-color: #c084fc;
+            --doclang-highlight-warning-bg: #78350f;
+            --doclang-highlight-warning-text: #fde68a;
+            --doclang-highlight-info-bg: #1e3a5f;
+            --doclang-highlight-info-text: #bfdbfe;
+            --doclang-highlight-success-bg: #14532d;
+            --doclang-highlight-success-text: #bbf7d0;
         }
 
         /* Layout con Sidebar */
