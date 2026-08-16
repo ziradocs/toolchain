@@ -474,6 +474,49 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             color: #44337a;
         }
 
+        /* Inline style spans (issue #81): core/renderer/sanitizer.go's
+           inlineSpanTokens ([texto]{.danger} etc.) emits these classes for
+           BOTH CLIs — slidelang defines them in its own text.css, but
+           doclang never had a matching rule, so a doclang document using
+           this syntax rendered plain, unstyled text. Dedicated
+           --doclang-*-color variables (not the --doclang-alert-*-border
+           ones above): those are tuned for a thick left-border accent
+           against a light alert background, not for standalone body text —
+           several of them fail WCAG AA as text-on-white (verified with
+           a11y.ContrastRatio, issue #57's fix). The fallback hex values
+           below are the same ones slidelang's text.css already ships and
+           are independently AA-verified against white/near-white page
+           backgrounds (the doclang --doclang-page-bg across the four
+           themes is #ffffff/#fafafa/#f5f5f5). No doclang theme defines
+           these variables today, so every theme renders via the fallback;
+           a theme is free to override them like any other CSS variable. */
+        .slidelang-text-danger  { color: var(--doclang-danger-color,  #dc2626); }
+        .slidelang-text-info    { color: var(--doclang-info-color,    #2563eb); }
+        .slidelang-text-success { color: var(--doclang-success-color, #15803d); }
+        .slidelang-text-warning { color: var(--doclang-warning-color, #b45309); }
+        .slidelang-text-accent  { color: var(--doclang-accent-color,  #7c3aed); }
+        .slidelang-text-small   { font-size: 0.875em; }
+        .slidelang-text-large   { font-size: 1.25em; font-weight: 500; }
+
+        .slidelang-highlight-warning {
+            background: var(--doclang-highlight-warning-bg, #fef3c7);
+            color: var(--doclang-highlight-warning-text, #92400e);
+            padding: 0.1rem 0.2rem;
+            border-radius: 3px;
+        }
+        .slidelang-highlight-info {
+            background: var(--doclang-highlight-info-bg, #dbeafe);
+            color: var(--doclang-highlight-info-text, #1e40af);
+            padding: 0.1rem 0.2rem;
+            border-radius: 3px;
+        }
+        .slidelang-highlight-success {
+            background: var(--doclang-highlight-success-bg, #dcfce7);
+            color: var(--doclang-highlight-success-text, #166534);
+            padding: 0.1rem 0.2rem;
+            border-radius: 3px;
+        }
+
         /* Mermaid Diagrams */
         .mermaid-title {
             text-align: center;
@@ -2363,6 +2406,28 @@ func generateViewerStyles(opts DocumentHTMLOptions) string {
             --doclang-toc-accent: #6fa3ef;
             --doclang-sidebar-bg: #1e1e1e;
             --doclang-sidebar-border: #333333;
+
+            /* Inline style spans (issue #81, hallazgo de code-review sobre
+               PR #158): los fallbacks hex de .slidelang-text-* y
+               .slidelang-highlight-* en generateDocumentStyles están
+               verificados AA contra un fondo claro (#ffffff/#fafafa/
+               #f5f5f5), pero sin un override acá el CSS var(--doclang-*,
+               fallback) sigue resolviendo al MISMO fallback claro sobre
+               --doclang-page-bg: #1a1a1a — 3.05:1-3.60:1, por debajo de
+               4.5:1. Estos valores están verificados con a11y.ContrastRatio
+               contra #1a1a1a (texto) y contra su propio bg (highlights),
+               todos >= 6.29:1. */
+            --doclang-danger-color: #f87171;
+            --doclang-info-color: #60a5fa;
+            --doclang-success-color: #4ade80;
+            --doclang-warning-color: #fbbf24;
+            --doclang-accent-color: #c084fc;
+            --doclang-highlight-warning-bg: #78350f;
+            --doclang-highlight-warning-text: #fde68a;
+            --doclang-highlight-info-bg: #1e3a5f;
+            --doclang-highlight-info-text: #bfdbfe;
+            --doclang-highlight-success-bg: #14532d;
+            --doclang-highlight-success-text: #bbf7d0;
         }
 
         /* Layout con Sidebar */
