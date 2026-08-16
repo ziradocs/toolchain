@@ -189,11 +189,13 @@ func TestRenderChartNativePNG_PieDoughnutIgnoreExtraColumns(t *testing.T) {
 	}
 }
 
-// TestRenderChartNativePNG_OptionsFallBack cubre un hallazgo de code-review:
-// elem.Options (config Chart.js arbitraria - ejes secundarios, posición de
-// leyenda, etc.) no tiene equivalente en go-analyze/charts y
-// RenderChartNativePNG nunca la lee. Si el autor la configuró, debe
-// respetarse cayendo a chromedp en vez de descartarla en silencio.
+// TestRenderChartNativePNG_OptionsFallBack cubre un hallazgo de code-review
+// (originalmente sobre PR #163, sigue vigente tras el clasificador por
+// hoja del issue #148 — ver native_chart_options.go): una hoja de
+// elem.Options fuera del set reconocido (acá, un eje secundario scales.y1,
+// que go-analyze/charts no puede reproducir) debe respetarse cayendo a
+// chromedp en vez de descartarse en silencio. No toda clave de Options
+// descalifica ya (ver TestClassifyChartOptions), pero esta sigue haciéndolo.
 func TestRenderChartNativePNG_OptionsFallBack(t *testing.T) {
 	elem := newTestChartElement("bar")
 	elem.Options = map[string]interface{}{

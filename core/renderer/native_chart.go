@@ -35,14 +35,20 @@ var nativeChartSupportedTypes = map[string]bool{
 
 // SupportsNativeChartRendering indica si elem puede rasterizarse sin
 // Chromium. Expuesto para que los callers (fetchers, tests) decidan si
-// necesitan un ChromiumRenderer en absoluto antes de intentarlo. elem.Options
-// (config Chart.js arbitraria: ejes secundarios, posición de leyenda,
-// estilos de plugins) no tiene equivalente en go-analyze/charts y
-// RenderChartNativePNG nunca la lee — si el autor la configuró, se respeta
-// cayendo a chromedp+Chart.js en vez de descartarla en silencio (hallazgo de
-// code-review sobre PR #163).
+// necesitan un ChromiumRenderer en absoluto antes de intentarlo.
+// elem.Options (config Chart.js: plugins, scales, ejes secundarios...) ya
+// no descalifica el chart entero solo por existir (issue #148) — se
+// clasifica hoja por hoja vía classifyChartOptions (native_chart_options.go):
+// una clave conocida e ignorable (p. ej. "responsive") o traducible
+// (p. ej. plugins.title.text) no descalifica; cualquier hoja fuera de ese
+// set sí, y cae a chromedp+Chart.js en vez de descartarse en silencio
+// (hallazgo de code-review sobre PR #163, que sigue vigente para lo no
+// reconocido).
 func SupportsNativeChartRendering(elem *ast.ChartElement) bool {
-	return !elem.IsJSONMode && len(elem.Options) == 0 && nativeChartSupportedTypes[elem.ChartType]
+	if elem.IsJSONMode || !nativeChartSupportedTypes[elem.ChartType] {
+		return false
+	}
+	return classifyChartOptions(elem.Options)
 }
 
 // ChartDimensions vive en chart_dimensions.go, sin build tag: html.go la
@@ -50,14 +56,16 @@ func SupportsNativeChartRendering(elem *ast.ChartElement) bool {
 
 // RenderChartNativePNG rasteriza elem a PNG vía go-analyze/charts. Devuelve
 // ok=false (sin error) cuando elem.ChartType no tiene mapeo nativo, está en
-// IsJSONMode, o trae elem.Options — el caller debe caer a
-// ChromiumRenderer.RenderChartToPNG en esos casos. Un error (con ok=true)
-// indica que SÍ se intentó el camino nativo pero falló (p. ej. datos vacíos/
-// no numéricos/filas de largo irregular).
+// IsJSONMode, o elem.Options trae alguna hoja no reconocida por
+// classifyChartOptions — el caller debe caer a ChromiumRenderer.RenderChartToPNG
+// en esos casos. Un error (con ok=true) indica que SÍ se intentó el camino
+// nativo pero falló (p. ej. datos vacíos/no numéricos/filas de largo
+// irregular).
 func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byte, ok bool, err error) {
 	if !SupportsNativeChartRendering(elem) {
 		return nil, false, nil
 	}
+	ov := extractNativeChartOverrides(elem.Options)
 
 	p := charts.NewPainter(charts.PainterOptions{
 		OutputFormat: charts.ChartOutputPNG,
@@ -80,15 +88,23 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 		names := resolveSeriesNames(elem.Series, len(values))
 		if elem.ChartType == "bar" {
 			opt := charts.NewBarChartOptionWithData(values)
-			opt.Title.Text = elem.Title
+			applyTitleOverrides(&opt.Title, elem.Title, ov)
 			opt.CategoryAxis.Labels = categoryLabels
 			opt.Legend.SeriesNames = names
+			applyLegendOverrides(&opt.Legend, ov)
+			if len(opt.ValueAxis) > 0 {
+				applyYAxisOverrides(&opt.ValueAxis[0], ov)
+			}
 			err = p.BarChart(opt)
 		} else {
 			opt := charts.NewLineChartOptionWithData(values)
-			opt.Title.Text = elem.Title
+			applyTitleOverrides(&opt.Title, elem.Title, ov)
 			opt.XAxis.Labels = categoryLabels
 			opt.Legend.SeriesNames = names
+			applyLegendOverrides(&opt.Legend, ov)
+			if len(opt.YAxis) > 0 {
+				applyYAxisOverrides(&opt.YAxis[0], ov)
+			}
 			err = p.LineChart(opt)
 		}
 	case "pie":
@@ -97,8 +113,9 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 			return nil, true, pieErr
 		}
 		opt := charts.NewPieChartOptionWithData(pieValues)
-		opt.Title.Text = elem.Title
+		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = pieLabels
+		applyLegendOverrides(&opt.Legend, ov)
 		err = p.PieChart(opt)
 	case "doughnut":
 		doughnutValues, doughnutLabels, dErr := chartSingleSeriesValues(elem)
@@ -106,8 +123,9 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 			return nil, true, dErr
 		}
 		opt := charts.NewDoughnutChartOptionWithData(doughnutValues)
-		opt.Title.Text = elem.Title
+		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = doughnutLabels
+		applyLegendOverrides(&opt.Legend, ov)
 		err = p.DoughnutChart(opt)
 	default:
 		// No debería llegar acá: nativeChartSupportedTypes ya lo filtró.
