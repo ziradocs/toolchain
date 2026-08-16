@@ -1,0 +1,32 @@
+---
+title: "Inline Style Spans"
+author: "DocLang Team"
+date: "2026-08-15"
+theme: professional
+mode: flex
+---
+
+# Inline Style Spans
+
+Este documento existe para issue #81: antes de su fix, `doclang` emitía las
+clases de `[texto]{.clase}` sin ningún CSS que las respalde en el `<style>`
+embebido — el texto salía plano, indistinguible de prosa normal.
+
+# Colores de texto
+
+Un aviso [importante]{.danger} necesita destacar. Una nota [informativa]{.info}
+aclara contexto. Un resultado [correcto]{.success} confirma que algo salió
+bien. Una [advertencia]{.warning} pide atención sin ser un error. Un
+[término clave]{.accent} se resalta sin implicar estado.
+
+# Resaltados
+
+Un [dato crítico]{.highlight-warning} puede llevar fondo de color en vez de
+solo el texto. Lo mismo aplica a [contexto adicional]{.highlight-info} y a
+una [confirmación]{.highlight-success}.
+
+# Tamaño y subrayado
+
+Texto [pequeño]{.small} para notas al margen, texto [grande]{.large} para
+énfasis visual, y [subrayado]{.underline} para lo que necesita esa marca
+específica.
