@@ -889,12 +889,12 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
             </div>        {{else if eq .Type "directive"}}
             {{- if eq .DirectiveName "timer" -}}
                 <!-- Slide Timer -->
-                <div class="slidelang-element slidelang-directive slidelang-slide-timer" 
+                <div class="slidelang-element slidelang-directive slidelang-slide-timer {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                      id="slidelang-element-directive-{{.SlideIndex}}-{{.ElementID}}"
                      data-element-type="directive"
                      data-directive-name="{{.DirectiveName}}"
                      data-slide="{{.SlideIndex}}"
-                     data-directive="timer" 
+                     data-directive="timer"
                      data-duration="{{.Content}}">
                     <div class="timer-display">
                         <span class="timer-time">{{.Content}}s</span>
@@ -903,12 +903,12 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>
             {{- else if eq .DirectiveName "transition" -}}
                 <!-- Transition Directive -->
-                <div class="slidelang-element slidelang-directive slidelang-transition-marker" 
+                <div class="slidelang-element slidelang-directive slidelang-transition-marker {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                      id="slidelang-element-directive-{{.SlideIndex}}-{{.ElementID}}"
                      data-element-type="directive"
                      data-directive-name="{{.DirectiveName}}"
                      data-slide="{{.SlideIndex}}"
-                     data-directive="transition" 
+                     data-directive="transition"
                      {{directiveDataAttrs .DirectiveParams}}>
                 </div>
             {{- else -}}

@@ -469,12 +469,16 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				// agregarla también vía CSSClasses duplicaba la clase.
 				elementData.CSSClasses = []string{"directive-" + elem.Name}
 
-				// Configuraciones específicas por tipo de directiva. Solo
-				// timer/transition llegan acá con un nombre reconocido —
-				// las 14 directivas modificadoras (issue #72) se
-				// interceptan más arriba, antes de construir elementData
-				// (ver directiveModifierClasses), y nunca alcanzan este
-				// switch.
+				// Configuraciones específicas por tipo de directiva.
+				// timer/transition llegan acá con un nombre reconocido; las
+				// 13 directivas modificadoras (issue #72) se interceptan
+				// más arriba, antes de construir elementData (ver
+				// directiveModifierClasses), y nunca alcanzan este switch.
+				// auto-play NO es modificadora (ver el doc-comment de
+				// directiveModifierClasses) y cae al default de abajo,
+				// donde conserva su Title genérico -- su único consumidor
+				// real es el data-directive/data-interval que ya emite el
+				// template genérico vía directiveDataAttrs.
 				switch elem.Name {
 				case "timer":
 					elementData.Title = "Timer"
@@ -1162,7 +1166,7 @@ func generateElementID(elem ast.Element, slideIndex, elementIndex int) string {
 // "modificadora" (issue #72): en vez de dibujarse a sí misma en un <div>
 // vacío, adjunta su(s) clase(s) CSS al elemento SIGUIENTE del slide (ver el
 // acumulador pendingModifierClasses en el loop de arriba). Antes de este
-// fix, TODAS las directivas — incluidas estas 14 — colgaban su clase del
+// fix, TODAS las directivas — incluidas estas 13 — colgaban su clase del
 // div de la propia directiva; para float-left/float-right eso significaba
 // que "flotar" un div vacío no hacía nada, porque el CSS
 // (.slidelang-element.slidelang-image.slidelang-float-left) exige las tres
@@ -1174,6 +1178,18 @@ func generateElementID(elem ast.Element, slideIndex, elementIndex int) string {
 // que el clasificador de options de chart de core (issue #148): no
 // sabemos qué significaría atarlo a un vecino, así que se sigue dibujando
 // como el indicador genérico de siempre en vez de arriesgar.
+//
+// auto-play TAMPOCO es modificadora (hallazgo de code-review sobre este
+// mismo PR): a diferencia de las 13 de abajo, no tiene ninguna regla CSS
+// que dependa de una clase en el elemento vecino — su única semántica es
+// el par data-directive="auto-play"/data-interval que lee
+// initAutoPlay() en template/directives.go via
+// querySelectorAll('[data-directive="auto-play"]'). Clasificarla como
+// modificadora hacía que el converter la consumiera por completo (nunca
+// llega a construir su ElementData), así que esos data-* nunca se emitían
+// y auto-play dejaba de funcionar. Cae al default (no modificadora) y
+// sigue dibujándose como el directive genérico de siempre, que ya emite
+// data-directive/data-interval vía directiveDataAttrs.
 func directiveModifierClasses(directive *ast.DirectiveNode) ([]string, bool) {
 	switch directive.Name {
 	case "center":
@@ -1196,8 +1212,6 @@ func directiveModifierClasses(directive *ast.DirectiveNode) ([]string, bool) {
 		return []string{"float-left"}, true
 	case "float-right":
 		return []string{"float-right"}, true
-	case "auto-play":
-		return []string{"auto-play"}, true
 	case "no-transition":
 		return []string{"no-transition"}, true
 	case "full-screen":

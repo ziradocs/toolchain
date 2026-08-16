@@ -199,3 +199,76 @@ func TestRenderHTMLPreview_TimerDirective_StillRendersItsOwnElement(t *testing.T
 		t.Errorf("expected the timer directive to still render its own widget, got:\n%s", html)
 	}
 }
+
+// TestRenderHTMLPreview_AutoPlayDirective_EmitsDataAttributesForJS es el
+// discriminante del primer hallazgo de code-review sobre este PR: a
+// diferencia de las otras 13 directivas modificadoras, @auto-play no tiene
+// ninguna regla CSS que dependa de una clase en el elemento vecino -- su
+// única semántica real es el par data-directive="auto-play"/data-interval
+// que initAutoPlay() (template/directives.go) busca vía
+// querySelectorAll('[data-directive="auto-play"]'). Clasificarla como
+// modificadora (como hacía este PR originalmente) hace que el converter la
+// consuma por completo sin construir su ElementData, así que esos data-*
+// nunca se emiten en ningún lado y auto-play deja de funcionar. Este test
+// falla contra esa versión y pasa una vez que auto-play vuelve a
+// dibujarse standalone.
+func TestRenderHTMLPreview_AutoPlayDirective_EmitsDataAttributesForJS(t *testing.T) {
+	pos := pos()
+	directive := ast.NewDirectiveNode(pos, "auto-play")
+	directive.Parameters["interval"] = "3000"
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Coverage"
+	block.Elements = append(block.Elements, directive)
+	doc := ast.NewAST(pos)
+	doc.FrontMatter = ast.NewFrontMatterNode(pos)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	g := New(util.NewNoop())
+	html, err := g.RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	if !strings.Contains(html, `data-directive="auto-play"`) {
+		t.Errorf(`expected data-directive="auto-play" (what initAutoPlay's querySelectorAll looks for), got:\n%s`, html)
+	}
+	if !strings.Contains(html, `data-interval="3000"`) {
+		t.Errorf(`expected data-interval="3000" (what setupAutoPlay reads via el.dataset.interval), got:\n%s`, html)
+	}
+}
+
+// TestRenderHTMLPreview_ModifierBeforeTimer_AppliesToTimerDiv es el
+// discriminante del segundo hallazgo de code-review: el converter adjunta
+// las clases de una directiva modificadora al ElementData del elemento
+// siguiente sin importar su tipo -- "incluida otra directiva standalone",
+// dice su propio doc-comment -- pero las ramas timer/transition del
+// template no renderizaban .CSSClasses, así que esas clases llegaban al
+// ElementData y se perdían en silencio antes de tocar el HTML. Este test
+// falla si el template vuelve a ignorar .CSSClasses en la rama timer.
+func TestRenderHTMLPreview_ModifierBeforeTimer_AppliesToTimerDiv(t *testing.T) {
+	pos := pos()
+	timerDirective := ast.NewDirectiveNode(pos, "timer")
+	timerDirective.Parameters["duration"] = "30"
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Coverage"
+	block.Elements = append(block.Elements,
+		ast.NewDirectiveNode(pos, "center"),
+		timerDirective,
+	)
+	doc := ast.NewAST(pos)
+	doc.FrontMatter = ast.NewFrontMatterNode(pos)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	g := New(util.NewNoop())
+	html, err := g.RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+
+	timerDiv := regexp.MustCompile(`<div class="[^"]*"\s*\n?\s*id="slidelang-element-directive-[^"]*"`).FindString(html)
+	if timerDiv == "" {
+		t.Fatalf("could not find the timer directive's div, html:\n%s", html)
+	}
+	if !strings.Contains(timerDiv, "slidelang-text-center") {
+		t.Errorf("timer div is missing the preceding @center modifier's class, got: %s", timerDiv)
+	}
+}
