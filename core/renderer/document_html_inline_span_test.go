@@ -123,3 +123,32 @@ func TestGenerateDocumentHTML_InlineSpans_DarkModeMeetsAA(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateDocumentHTML_DarkModeBlock_IsValidCSS es la regresión para un
+// segundo hallazgo de code-review sobre el mismo PR: un comentario CSS en
+// el bloque dark-mode que se cierra antes de tiempo (un "*/" suelto dentro
+// de su propia prosa) hace que el navegador trate el resto hasta el
+// siguiente ";" como una declaración inválida y la descarte -- tragándose
+// una custom property real de paso. Los tests de arriba buscan el hex por
+// regex sobre el TEXTO FUENTE crudo, así que pasan sin importar si el CSS
+// de verdad parsea. Este test quita los comentarios bien formados
+// (no-greedy /* ... */) y exige que lo que quede en el bloque dark-mode sea
+// una lista de declaraciones válida -- lo que falla exactamente con ese
+// bug, porque la prosa que se escapa tras un cierre prematuro no tiene esa
+// forma.
+func TestGenerateDocumentHTML_DarkModeBlock_IsValidCSS(t *testing.T) {
+	html := GenerateDocumentHTML(&ast.AST{}, DocumentHTMLOptions{InteractiveViewer: true}, nil)
+
+	darkBlock := regexp.MustCompile(`(?s)html\[data-theme="dark"\]\s*\{(.*?)\}`).FindStringSubmatch(html)
+	if darkBlock == nil {
+		t.Fatal("no html[data-theme=\"dark\"] block found in the generated <style>")
+	}
+	dark := darkBlock[1]
+
+	withoutComments := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(dark, "")
+
+	declList := regexp.MustCompile(`^(\s*--[\w-]+:\s*[^;{}]+;\s*)*$`)
+	if !declList.MatchString(withoutComments) {
+		t.Errorf("dark-mode block is not valid CSS once well-formed comments are stripped -- a comment likely closes early and leaks prose as an invalid declaration:\n%s", withoutComments)
+	}
+}

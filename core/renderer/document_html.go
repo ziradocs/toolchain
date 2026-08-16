@@ -2408,7 +2408,7 @@ func generateViewerStyles(opts DocumentHTMLOptions) string {
             --doclang-sidebar-border: #333333;
 
             /* Inline style spans (issue #81, hallazgo de code-review sobre
-               PR #158): los fallbacks hex de .slidelang-text-*/
+               PR #158): los fallbacks hex de .slidelang-text-* y
                .slidelang-highlight-* en generateDocumentStyles están
                verificados AA contra un fondo claro (#ffffff/#fafafa/
                #f5f5f5), pero sin un override acá el CSS var(--doclang-*,
