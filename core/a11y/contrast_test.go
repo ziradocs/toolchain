@@ -53,6 +53,17 @@ func TestParseColor(t *testing.T) {
 		// ("ffffff"); ParseColor lo rechaza explícitamente porque no es un
 		// color CSS válido dentro de una hoja de estilos.
 		{"hex without # prefix still rejected", "ffffff", 0, 0, 0, false},
+
+		// Hallazgo de code-review sobre PR #157: oklab()/oklch()/lab()/lch()
+		// cubren un gamut más amplio que sRGB -- un canal fuera de [0,1] es
+		// válido en esos espacios pero Color.RGBA255() sin Clamp() truncaba
+		// ese float directamente a uint8 sin recortar, dando un canal
+		// arbitrario en vez del valor visualmente más cercano dentro de
+		// sRGB. Los valores esperados son los que csscolorparser.Color.
+		// Clamp().RGBA255() produce -- verificados independientemente con
+		// go run, no adivinados.
+		{"oklch() out-of-gamut channel gets clamped, not truncated to garbage", "oklch(0.5 0.5 30)", 255, 0, 0, true},
+		{"lab() out-of-gamut channels get clamped", "lab(100 150 -150)", 255, 87, 255, true},
 	}
 
 	for _, tt := range tests {

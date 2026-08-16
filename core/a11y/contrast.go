@@ -71,7 +71,15 @@ func ParseColor(s string) (r, g, b uint8, ok bool) {
 	if err != nil || c.A != 1.0 {
 		return 0, 0, 0, false
 	}
-	rv, gv, bv, _ := c.RGBA255()
+	// oklab()/oklch()/lab()/lch() cubren un gamut más amplio que sRGB: un
+	// canal fuera de [0,1] (p. ej. "oklch(0.7 0.4 30)" da R≈1.11) es
+	// perfectamente válido en esos espacios de color, pero Color.RGBA255()
+	// no hace ningún clipping (uint8(c.R*255+0.5) sobre un valor negativo o
+	// >1 produce un canal uint8 con truncamiento indefinido, no el valor
+	// visualmente más cercano dentro de sRGB) -- hallazgo de code-review
+	// sobre PR #157. Clamp() (que la librería expone justo para esto)
+	// recorta cada canal a [0,1] antes de la conversión.
+	rv, gv, bv, _ := c.Clamp().RGBA255()
 	return rv, gv, bv, true
 }
 
