@@ -16,8 +16,9 @@ package a11y
 import (
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
+
+	"github.com/mazznoer/csscolorparser"
 )
 
 // Umbrales WCAG 2.2, Success Criteria 1.4.3 (AA) y 1.4.6 (AAA). "Large
@@ -30,64 +31,48 @@ const (
 	AAALargeText  = 4.5
 )
 
-// fullyOpaqueAlpha es el único valor de canal alfa que ParseColor acepta
-// para #rgba/#rrggbbaa — ver su doc comment.
-const fullyOpaqueAlpha = 0xff
-
-// ParseColor interpreta un color hexadecimal CSS: #rgb, #rgba, #rrggbb o
-// #rrggbbaa. Formas no soportadas devuelven ok=false en vez de un valor
-// adivinado: nombres de color CSS ("white", "tomato") y funciones
-// (linear-gradient(...), rgba(...), var(...) sin resolver) no son hex, y
-// una variable de tema real puede legítimamente contener cualquiera de
-// esas — un rulepack de contraste debe poder saltarse ese par en vez de
-// recibir un ratio inventado.
+// ParseColor interpreta un color CSS: nombres ("white", "rebeccapurple"),
+// hex (#rgb, #rgba, #rrggbb, #rrggbbaa) y funciones (rgb(), rgba(), hsl(),
+// hsla(), hwb(), lab(), lch(), oklab(), oklch()) — delega en
+// github.com/mazznoer/csscolorparser (CSS Color Module Level 4), que ya
+// viaja en el binario de los dos CLIs como dependencia indirecta de
+// core/renderer (vía go-staticmaps, para mapas), así que esto no agrega
+// peso nuevo. Formas no soportadas devuelven ok=false en vez de un valor
+// adivinado: gradientes (linear-gradient(...)) y var(...) sin resolver no
+// son un color, y una variable de tema real puede legítimamente contener
+// cualquiera de esos — un rulepack de contraste debe poder saltarse ese
+// par en vez de recibir un ratio inventado.
 //
-// Un canal alfa presente (#rgba/#rrggbbaa) que NO sea totalmente opaco
-// también devuelve ok=false, por la misma razón: el contraste solo tiene
-// sentido calculado sobre el color YA COMPUESTO contra su fondo real, y
-// este paquete no tiene ese fondo — tratar cualquier alfa como si fuera
-// 100% opaco (comportamiento previo, ahora corregido) le daría a un color
-// translúcido/transparente el mismo trato que a rgba(), que si es
-// correctamente rechazado por CanParse: dos formas del mismo color
-// obtendrían resultados opuestos. Un alfa totalmente opaco (ff) es
-// indistinguible de la forma sin alfa, así que se acepta igual.
+// Dos guardas se conservan sobre lo que la librería aceptaría de por sí:
+//
+//   - Un canal alfa presente que NO sea totalmente opaco devuelve
+//     ok=false, por la misma razón de siempre: el contraste solo tiene
+//     sentido calculado sobre el color YA COMPUESTO contra su fondo real,
+//     y este paquete no tiene ese fondo. Tratar cualquier alfa como si
+//     fuera 100% opaco le daría a un color translúcido/transparente el
+//     mismo trato que a un rgba() correctamente rechazado: dos formas del
+//     mismo color obtendrían resultados opuestos.
+//   - Hex sigue exigiendo el prefijo "#". csscolorparser.Parse acepta hex
+//     pelón como fallback ("ffffff" sin "#"), que no es un color CSS
+//     válido dentro de una hoja de estilos — se rechaza explícitamente
+//     en vez de heredar esa tolerancia extra.
 func ParseColor(s string) (r, g, b uint8, ok bool) {
 	s = strings.TrimSpace(s)
-	if !strings.HasPrefix(s, "#") {
+	if s == "" {
 		return 0, 0, 0, false
 	}
-	hex := s[1:]
-
-	expand := func(c byte) string { return string([]byte{c, c}) }
-
-	var rs, gs, bs, as string
-	switch len(hex) {
-	case 3: // #rgb
-		rs, gs, bs = expand(hex[0]), expand(hex[1]), expand(hex[2])
-	case 4: // #rgba
-		rs, gs, bs, as = expand(hex[0]), expand(hex[1]), expand(hex[2]), expand(hex[3])
-	case 6: // #rrggbb
-		rs, gs, bs = hex[0:2], hex[2:4], hex[4:6]
-	case 8: // #rrggbbaa
-		rs, gs, bs, as = hex[0:2], hex[2:4], hex[4:6], hex[6:8]
-	default:
-		return 0, 0, 0, false
-	}
-
-	if as != "" {
-		av, err := strconv.ParseUint(as, 16, 8)
-		if err != nil || av != fullyOpaqueAlpha {
+	if !strings.HasPrefix(s, "#") && !strings.Contains(s, "(") {
+		if _, named := csscolorparser.NamedColors[strings.ToLower(s)]; !named {
 			return 0, 0, 0, false
 		}
 	}
 
-	rv, err1 := strconv.ParseUint(rs, 16, 8)
-	gv, err2 := strconv.ParseUint(gs, 16, 8)
-	bv, err3 := strconv.ParseUint(bs, 16, 8)
-	if err1 != nil || err2 != nil || err3 != nil {
+	c, err := csscolorparser.Parse(s)
+	if err != nil || c.A != 1.0 {
 		return 0, 0, 0, false
 	}
-	return uint8(rv), uint8(gv), uint8(bv), true
+	rv, gv, bv, _ := c.RGBA255()
+	return rv, gv, bv, true
 }
 
 // RelativeLuminance calcula la luminancia relativa de un color sRGB según
@@ -110,17 +95,45 @@ func RelativeLuminance(r, g, b uint8) float64 {
 }
 
 // ContrastRatio calcula el ratio de contraste WCAG entre fg y bg (ambos
-// colores hex, ver ParseColor). El ratio siempre es >= 1 (el mayor de los
-// dos luminance sobre el menor, +0.05 en cada uno). ok=false si cualquiera
-// de los dos colores no es un hex parseable.
+// colores CSS parseables, ver ParseColor). El ratio siempre es >= 1 (el
+// mayor de los dos luminance sobre el menor, +0.05 en cada uno). ok=false
+// si cualquiera de los dos colores no es parseable — sin decir cuál; para
+// distinguirlo, ver ContrastRatioDetail.
 func ContrastRatio(fg, bg string) (ratio float64, ok bool) {
+	ratio, status := ContrastRatioDetail(fg, bg)
+	return ratio, status == ContrastOK
+}
+
+// ContrastStatus distingue por qué ContrastRatioDetail no pudo (o sí pudo)
+// calcular un ratio — ver su doc comment.
+type ContrastStatus int
+
+const (
+	// ContrastOK indica que ambos colores parsearon y el ratio es válido.
+	ContrastOK ContrastStatus = iota
+	// ContrastFgUnparseable indica que fg no es un color CSS parseable
+	// (ver ParseColor) — bg puede o no serlo, no importa: se reporta el
+	// primer color que falla.
+	ContrastFgUnparseable
+	// ContrastBgUnparseable indica que fg sí parseó pero bg no.
+	ContrastBgUnparseable
+)
+
+// ContrastRatioDetail es ContrastRatio con el motivo de un fallo: a
+// diferencia de ContrastRatio, que colapsa "no evaluable" (gradiente,
+// var() sin resolver) y "evaluado y pasa" en el mismo booleano, esto le
+// permite al caller (ver linter.ThemeContrastRule) distinguir un color que
+// no se pudo evaluar de un color que sí se evaluó — y nombrar cuál de los
+// dos fue el problema, en vez de fabricar un diagnóstico de contraste
+// reprobado o quedarse callado sobre lo que nunca se revisó.
+func ContrastRatioDetail(fg, bg string) (ratio float64, status ContrastStatus) {
 	fr, fgc, fb, fok := ParseColor(fg)
 	if !fok {
-		return 0, false
+		return 0, ContrastFgUnparseable
 	}
 	br, bgc, bb, bok := ParseColor(bg)
 	if !bok {
-		return 0, false
+		return 0, ContrastBgUnparseable
 	}
 
 	l1 := RelativeLuminance(fr, fgc, fb) + 0.05
@@ -128,7 +141,7 @@ func ContrastRatio(fg, bg string) (ratio float64, ok bool) {
 	if l1 < l2 {
 		l1, l2 = l2, l1
 	}
-	return l1 / l2, true
+	return l1 / l2, ContrastOK
 }
 
 // MeetsAA reporta si ratio cumple el umbral WCAG 2.2 AA (SC 1.4.3) para
