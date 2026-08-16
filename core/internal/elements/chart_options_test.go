@@ -145,8 +145,9 @@ func TestChartParser_MalformedOptionsDoesNotBreakChart(t *testing.T) {
 
 // TestChartParser_NoOptionsBlockLeavesOptionsNil protege el gate nativo de
 // PPTX/DOCX por el otro lado: un chart SIN options: tiene que dejar el campo
-// en nil, porque renderer.SupportsNativeChartRendering usa exactamente
-// len(Options) == 0 para decidir si puede rasterizar sin Chromium.
+// en nil (o vacío) — renderer.classifyChartOptions (issue #148) trata un
+// Options nil/vacío como trivialmente calificado (no hay ninguna hoja que
+// clasificar), así que este caso sigue siendo nativo-capaz sin cambios.
 func TestChartParser_NoOptionsBlockLeavesOptionsNil(t *testing.T) {
 	chart := parseChartLines(t, []string{
 		"<<chart: bar>>",
