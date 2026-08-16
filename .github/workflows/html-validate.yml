@@ -17,6 +17,13 @@ name: Validación de HTML sobre golden files
 # .slidelang. El job doclang-html-validate de abajo espeja el mismo
 # patrón para que una regresión futura del lado doclang falle CI igual
 # que ya pasa del lado slidelang.
+#
+# Issue #163/#167 follow-up: ninguno de los dos jobs de arriba atrapa una
+# imagen LOCAL rota (`![x](assets/no-existe.png)`) — el build no falla por
+# eso, solo emite un <img> cuyo src nunca resuelve, y html-validate no
+# valida que un src exista en disco. El job example-assets de abajo es un
+# chequeo estático aparte (scripts/check-example-assets.py, sin Go/Node,
+# corre en segundos) contra ESE hueco específico.
 
 on:
   pull_request:
@@ -27,6 +34,8 @@ on:
       - "!slidelang/internal/serializer/**"
       - "doclang/**"
       - "examples/**"
+      - "scripts/check-example-assets.py"
+      - "scripts/check-example-assets-baseline.txt"
       - ".htmlvalidate.json"
       - ".github/workflows/html-validate.yml"
   push:
@@ -38,6 +47,8 @@ on:
       - "!slidelang/internal/serializer/**"
       - "doclang/**"
       - "examples/**"
+      - "scripts/check-example-assets.py"
+      - "scripts/check-example-assets-baseline.txt"
       - ".htmlvalidate.json"
       - ".github/workflows/html-validate.yml"
 
@@ -128,3 +139,16 @@ jobs:
 
       - name: Validar HTML generado
         run: npx html-validate --config="${{ github.workspace }}/.htmlvalidate.json" "/tmp/doclang-html-validate-out/**/*.html"
+
+  example-assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verificar que las imágenes locales referenciadas en examples/ existan
+        run: python3 scripts/check-example-assets.py

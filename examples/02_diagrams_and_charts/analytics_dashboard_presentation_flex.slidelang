@@ -25,10 +25,9 @@ variables:
 # {{company}} - Executive Report {{period}}
 ## Sustained growth and strategic expansion in enterprise analytics
 
-![TechFlow Logo](assets/techflow-logo.png)
+**Period:** {{period}} | **Revenue:** {{revenue}} ({{growth_rate}} vs Q4 2024)
 
-**Period:** {{period}} | **Revenue:** {{revenue}} ({{growth_rate}} vs Q4 2024)  
-**Prepared by:**Outlook for 2025**
+**Date:** {{report_date}} | **Prepared by:** Business Intelligence Team
 
 **{{company}}** is positioned for a year of exceptional growth. With solid fundamentals, a talented team led by {{ceo}} and {{cto}}, and an expanding market, we project:
 
@@ -45,8 +44,6 @@ variables:
 - If investors are present: mention that we are open to Series B funding to accelerate expansion
 - CEO quote should be read WITH PASSION and conviction
 - Transition: "Now let's look at the technical details..."
-
----} | **Date:** {{report_date}}
 
 @notes:
 - **OPENING**: "The best quarter in {{company}}'s history"
