@@ -204,8 +204,8 @@ func TestRenderChartNativePNG_OptionsFallBack(t *testing.T) {
 		},
 	}
 
-	if SupportsNativeChartRendering(elem) {
-		t.Fatal("SupportsNativeChartRendering() = true, want false when elem.Options is set")
+	if SupportsNativeChartRenderingWithOptions(elem) {
+		t.Fatal("SupportsNativeChartRenderingWithOptions() = true, want false for an unrecognized leaf")
 	}
 
 	_, ok, err := RenderChartNativePNG(elem, 640, 480)
@@ -352,4 +352,34 @@ func TestSupportsNativeChartRendering(t *testing.T) {
 			t.Error("SupportsNativeChartRendering() = true, want false for IsJSONMode")
 		}
 	})
+
+	// Regresión de code-review (PR #159): SupportsNativeChartRendering debe
+	// conservar el contrato ESTRICTO pre-#148 (cualquier Options no vacío
+	// descalifica) sin importar qué tan inocua sea la clave — incluso una
+	// que classifyChartOptions sí aprobaría. slidelang/offline.go consume
+	// este símbolo por nombre, y CI corre tanto build-test (slidelang
+	// contra el core PUBLICADO) como workspace-integration (slidelang
+	// contra el core del árbol vía go.work); si este gate empezara a
+	// delegar en classifyChartOptions, un mismo test de slidelang pasaría
+	// en un job y fallaría en el otro según qué core resuelva. La
+	// clasificación hoja-por-hoja vive en
+	// SupportsNativeChartRenderingWithOptions — ver el test siguiente.
+	t.Run("options_present_is_always_false_even_when_every_leaf_is_ignorable", func(t *testing.T) {
+		elem := newTestChartElement("bar")
+		elem.Options = map[string]interface{}{"responsive": true}
+		if SupportsNativeChartRendering(elem) {
+			t.Error("SupportsNativeChartRendering() = true, want false: this gate does not classify leaves")
+		}
+	})
+}
+
+// TestSupportsNativeChartRenderingWithOptions_ApprovesIgnorableOnlyOptions
+// es el contrapunto directo del subtest anterior: la clasificación
+// hoja-por-hoja del issue #148 vive acá, no en SupportsNativeChartRendering.
+func TestSupportsNativeChartRenderingWithOptions_ApprovesIgnorableOnlyOptions(t *testing.T) {
+	elem := newTestChartElement("bar")
+	elem.Options = map[string]interface{}{"responsive": true}
+	if !SupportsNativeChartRenderingWithOptions(elem) {
+		t.Error("SupportsNativeChartRenderingWithOptions() = false, want true for an ignorable-only options set")
+	}
 }

@@ -46,17 +46,21 @@ func isBoolValue(v interface{}) bool {
 	return ok
 }
 
-func isNumericValue(v interface{}) bool {
-	_, err := toFloat64(v)
-	return err == nil
-}
-
 func isTopOrBottomPosition(v interface{}) bool {
 	s, ok := v.(string)
 	return ok && (s == "top" || s == "bottom")
 }
 
-func alwaysMappable(interface{}) bool { return true }
+// isStringValue es el predicado de plugins.title.text: exactamente lo que
+// extractNativeChartOverrides sabe traducir (una string, aprobada aunque
+// venga vacía — el extractor ya no-opea sobre "" sin más, ver su
+// comentario). alwaysMappable (removido en review de PR #159) dejaba pasar
+// listas/números/nil, que el extractor descarta en silencio sin que el
+// autor se entere de que su "text:" no llegó al chart.
+func isStringValue(v interface{}) bool {
+	_, ok := v.(string)
+	return ok
+}
 
 // optionLeafRules es el set de la primera pasada (issue #148): elegido por
 // lo que de veras aparece en el corpus (plugins.title.* + legend.position
@@ -66,15 +70,27 @@ func alwaysMappable(interface{}) bool { return true }
 // ejes secundarios como scales.y1, scales.x.grid — que ni existe en
 // CategoryAxisOption, stacked, cualquier plugin no listado acá) descalifica
 // por ausencia de la tabla.
+//
+// scales.y.min/scales.y.max NO están en este set (removidos en review de
+// PR #159), aunque son numéricos y en principio "traducibles" a
+// ValueAxisOption.Min/Max: go-analyze/charts (range.go's
+// prepareValueAxisRange) solo aplica minCfg/maxCfg cuando EXPANDEN el rango
+// de los datos reales (minCfg <= minVal, maxCfg >= maxVal) — un min/max
+// que recorta el rango (la semántica que Chart.js sí tiene, y la razón por
+// la que un autor escribiría scales.y.max: 50 sobre datos 0..100) se
+// ignora en silencio y el chart nativo sale con un rango distinto al que
+// Chart.js habría dibujado. Sin acceso a los datos del chart en este
+// clasificador (solo ve el árbol de Options), no se puede distinguir en
+// qué caso cae un min/max dado, así que se descalifican los dos por
+// completo — degradar a chromedp es correcto acá, un ráster nativo
+// silenciosamente distinto no lo es.
 var optionLeafRules = map[string]optionLeafRule{
 	"responsive":              {ignorable: true},
 	"maintainAspectRatio":     {ignorable: true},
-	"plugins.title.text":      {mappable: alwaysMappable},
+	"plugins.title.text":      {mappable: isStringValue},
 	"plugins.title.display":   {mappable: isBoolValue},
 	"plugins.legend.display":  {mappable: isBoolValue},
 	"plugins.legend.position": {mappable: isTopOrBottomPosition},
-	"scales.y.min":            {mappable: isNumericValue},
-	"scales.y.max":            {mappable: isNumericValue},
 	"scales.y.beginAtZero":    {mappable: isBoolValue},
 }
 
@@ -131,7 +147,6 @@ type nativeChartOverrides struct {
 	titleHide    bool // options.plugins.title.display == false
 	legendHide   bool // options.plugins.legend.display == false
 	legendBottom bool // options.plugins.legend.position == "bottom" ("top" es el default nativo, no requiere override)
-	yMin, yMax   *float64
 	yBeginAtZero bool // options.scales.y.beginAtZero == true
 }
 
@@ -165,12 +180,6 @@ func extractNativeChartOverrides(options map[string]interface{}) nativeChartOver
 
 	if scales, ok := options["scales"].(map[string]interface{}); ok {
 		if y, ok := scales["y"].(map[string]interface{}); ok {
-			if v, err := toFloat64(y["min"]); err == nil {
-				out.yMin = &v
-			}
-			if v, err := toFloat64(y["max"]); err == nil {
-				out.yMax = &v
-			}
 			if begin, ok := y["beginAtZero"].(bool); ok && begin {
 				out.yBeginAtZero = true
 			}
@@ -211,7 +220,7 @@ func applyLegendOverrides(l *charts.LegendOption, ov nativeChartOverrides) {
 	}
 }
 
-// applyYAxisOverrides traduce scales.y.{min,max,beginAtZero} sobre el eje Y
+// applyYAxisOverrides traduce scales.y.beginAtZero sobre el eje Y
 // (ValueAxisOption — el mismo tipo subyacente que BarChartOption.ValueAxis[0]
 // y LineChartOption.YAxis[0] usan, YAxisOption es un alias, no un tipo
 // nuevo). Solo aplica a bar/line: pie/doughnut no tienen eje, así que un
@@ -219,18 +228,15 @@ func applyLegendOverrides(l *charts.LegendOption, ov nativeChartOverrides) {
 // quién aplicárselo — exactamente lo que Chart.js también hace (scales no
 // significa nada para un pie chart).
 //
-// Precedencia: min explícito gana sobre beginAtZero. beginAtZero fuerza
-// Min=0 SOLO si min no vino ya seteado — si un autor escribe ambos (config
-// redundante/contradictoria), el valor explícito es más específico que la
-// heurística de "empieza en cero".
+// scales.y.min/max NO se traducen acá (removidos de optionLeafRules en
+// review de PR #159, ver su comentario): go-analyze/charts solo respeta un
+// Min/Max configurado cuando EXPANDE el rango de los datos reales, no
+// cuando lo recorta, así que un min/max que sí llegara hasta acá podría
+// dibujar un rango distinto al que Chart.js habría producido. El
+// clasificador ya los descalifica antes de que extractNativeChartOverrides
+// los vea.
 func applyYAxisOverrides(axis *charts.ValueAxisOption, ov nativeChartOverrides) {
-	if ov.yMin != nil {
-		axis.Min = ov.yMin
-	}
-	if ov.yMax != nil {
-		axis.Max = ov.yMax
-	}
-	if ov.yBeginAtZero && axis.Min == nil {
+	if ov.yBeginAtZero {
 		axis.Min = charts.Ptr(0.0)
 	}
 }

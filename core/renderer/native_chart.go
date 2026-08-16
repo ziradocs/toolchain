@@ -34,17 +34,36 @@ var nativeChartSupportedTypes = map[string]bool{
 }
 
 // SupportsNativeChartRendering indica si elem puede rasterizarse sin
-// Chromium. Expuesto para que los callers (fetchers, tests) decidan si
-// necesitan un ChromiumRenderer en absoluto antes de intentarlo.
-// elem.Options (config Chart.js: plugins, scales, ejes secundarios...) ya
-// no descalifica el chart entero solo por existir (issue #148) — se
-// clasifica hoja por hoja vía classifyChartOptions (native_chart_options.go):
-// una clave conocida e ignorable (p. ej. "responsive") o traducible
-// (p. ej. plugins.title.text) no descalifica; cualquier hoja fuera de ese
-// set sí, y cae a chromedp+Chart.js en vez de descartarse en silencio
-// (hallazgo de code-review sobre PR #163, que sigue vigente para lo no
-// reconocido).
+// Chromium bajo el contrato ESTRICTO pre-#148: cualquier elem.Options no
+// vacío descalifica, sin mirar sus hojas. Expuesto para que los callers
+// (fetchers, tests) decidan si necesitan un ChromiumRenderer en absoluto
+// antes de intentarlo.
+//
+// Este comportamiento se conserva sin cambios a propósito — no delega en
+// classifyChartOptions — porque slidelang/internal/generator/offline.go ya
+// lo consume por nombre, y CI corre workspace-integration (slidelang contra
+// el core DEL ÁRBOL vía go.work) además de build-test (slidelang contra el
+// core PUBLICADO): cambiar la conducta de este símbolo existente rompería
+// uno de los dos gates sin importar el orden en que se mergee (ver el
+// comentario de workspace-integration en .github/workflows/ci.yml). Usar
+// SupportsNativeChartRenderingWithOptions para la clasificación hoja-por-
+// hoja del issue #148 — slidelang migra a ese símbolo en el PR consumidor,
+// después de bump-core.
 func SupportsNativeChartRendering(elem *ast.ChartElement) bool {
+	if elem.IsJSONMode || !nativeChartSupportedTypes[elem.ChartType] {
+		return false
+	}
+	return len(elem.Options) == 0
+}
+
+// SupportsNativeChartRenderingWithOptions es SupportsNativeChartRendering
+// más la clasificación hoja-por-hoja de elem.Options (issue #148): una clave
+// conocida e ignorable (p. ej. "responsive") o traducible (p. ej.
+// plugins.title.text) no descalifica; cualquier hoja fuera de ese set sí, y
+// cae a chromedp+Chart.js en vez de descartarse en silencio (hallazgo de
+// code-review sobre PR #163, que sigue vigente para lo no reconocido). Ver
+// native_chart_options.go para classifyChartOptions y el set reconocido.
+func SupportsNativeChartRenderingWithOptions(elem *ast.ChartElement) bool {
 	if elem.IsJSONMode || !nativeChartSupportedTypes[elem.ChartType] {
 		return false
 	}
@@ -62,7 +81,7 @@ func SupportsNativeChartRendering(elem *ast.ChartElement) bool {
 // nativo pero falló (p. ej. datos vacíos/no numéricos/filas de largo
 // irregular).
 func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byte, ok bool, err error) {
-	if !SupportsNativeChartRendering(elem) {
+	if !SupportsNativeChartRenderingWithOptions(elem) {
 		return nil, false, nil
 	}
 	ov := extractNativeChartOverrides(elem.Options)

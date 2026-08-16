@@ -70,11 +70,31 @@ func TestClassifyChartOptions_Table(t *testing.T) {
 			false,
 		},
 		{
-			"scales.y.min/max/beginAtZero",
+			"scales.y.beginAtZero",
 			map[string]interface{}{"scales": map[string]interface{}{
-				"y": map[string]interface{}{"min": 0, "max": 100, "beginAtZero": true},
+				"y": map[string]interface{}{"beginAtZero": true},
 			}},
 			true,
+		},
+		{
+			// Removidos de optionLeafRules en review de PR #159:
+			// go-analyze/charts (range.go) solo respeta min/max cuando
+			// EXPANDEN el rango de los datos reales, no cuando lo recortan
+			// -- la semántica que Chart.js sí tiene. Sin ver los datos del
+			// chart, el clasificador no puede distinguir esos dos casos,
+			// así que ambos descalifican.
+			"scales.y.min descalifica (go-analyze/charts no lo recorta como Chart.js)",
+			map[string]interface{}{"scales": map[string]interface{}{
+				"y": map[string]interface{}{"min": 50},
+			}},
+			false,
+		},
+		{
+			"scales.y.max descalifica (mismo motivo que min)",
+			map[string]interface{}{"scales": map[string]interface{}{
+				"y": map[string]interface{}{"max": 50},
+			}},
+			false,
 		},
 		{
 			"scales.y1 (eje secundario) descalifica",
@@ -120,6 +140,17 @@ func TestClassifyChartOptions_Table(t *testing.T) {
 			"valor con tipo inesperado en ruta conocida descalifica (legend.position no-string)",
 			map[string]interface{}{"plugins": map[string]interface{}{
 				"legend": map[string]interface{}{"position": 42},
+			}},
+			false,
+		},
+		{
+			// Review de PR #159: alwaysMappable dejaba pasar cualquier tipo
+			// para plugins.title.text, aunque extractNativeChartOverrides
+			// solo sabe traducir strings -- un número/lista/nil pasaba el
+			// gate y luego se descartaba en silencio en la extracción.
+			"plugins.title.text no-string descalifica (el extractor solo traduce strings)",
+			map[string]interface{}{"plugins": map[string]interface{}{
+				"title": map[string]interface{}{"text": 42},
 			}},
 			false,
 		},
@@ -213,7 +244,7 @@ func TestExtractNativeChartOverrides_TranslatesEachMappableKey(t *testing.T) {
 			"legend": map[string]interface{}{"display": false, "position": "bottom"},
 		},
 		"scales": map[string]interface{}{
-			"y": map[string]interface{}{"min": 0, "max": 100, "beginAtZero": true},
+			"y": map[string]interface{}{"beginAtZero": true},
 		},
 	}
 
@@ -230,12 +261,6 @@ func TestExtractNativeChartOverrides_TranslatesEachMappableKey(t *testing.T) {
 	}
 	if !ov.legendBottom {
 		t.Error("legendBottom = false, want true (plugins.legend.position: bottom)")
-	}
-	if ov.yMin == nil || *ov.yMin != 0 {
-		t.Errorf("yMin = %v, want 0", ov.yMin)
-	}
-	if ov.yMax == nil || *ov.yMax != 100 {
-		t.Errorf("yMax = %v, want 100", ov.yMax)
 	}
 	if !ov.yBeginAtZero {
 		t.Error("yBeginAtZero = false, want true")
@@ -262,25 +287,11 @@ func TestApplyTitleOverrides_ElemTitleWinsOverOptionsRescue(t *testing.T) {
 	}
 }
 
-// TestApplyYAxisOverrides_ExplicitMinWinsOverBeginAtZero confirma la
-// precedencia documentada: un min explícito es más específico que la
-// heurística "empieza en cero" -- si un autor escribe ambos (config
-// redundante), el valor explícito no debe ser pisado.
-func TestApplyYAxisOverrides_ExplicitMinWinsOverBeginAtZero(t *testing.T) {
-	explicitMin := -10.0
-	ov := nativeChartOverrides{yMin: &explicitMin, yBeginAtZero: true}
-
-	var axis charts.ValueAxisOption
-	applyYAxisOverrides(&axis, ov)
-
-	if axis.Min == nil || *axis.Min != -10.0 {
-		t.Errorf("Min = %v, want -10 (explicit min must not be overwritten by beginAtZero)", axis.Min)
-	}
-}
-
-// TestApplyYAxisOverrides_BeginAtZeroAppliesWhenNoExplicitMin es el
-// contrapunto: sin un min explícito, beginAtZero SÍ fuerza Min=0.
-func TestApplyYAxisOverrides_BeginAtZeroAppliesWhenNoExplicitMin(t *testing.T) {
+// TestApplyYAxisOverrides_BeginAtZeroSetsMinToZero cubre la única
+// traducción que applyYAxisOverrides hace hoy: scales.y.min/max se
+// removieron de optionLeafRules (review de PR #159, ver su comentario), así
+// que ya no hay una precedencia explícita-min-vs-beginAtZero que probar.
+func TestApplyYAxisOverrides_BeginAtZeroSetsMinToZero(t *testing.T) {
 	ov := nativeChartOverrides{yBeginAtZero: true}
 
 	var axis charts.ValueAxisOption
@@ -308,8 +319,8 @@ func TestRenderChartNativePNG_ApprovedOptionsStillRasterize(t *testing.T) {
 		},
 	}
 
-	if !SupportsNativeChartRendering(elem) {
-		t.Fatal("SupportsNativeChartRendering() = false, want true for an all-approved options set")
+	if !SupportsNativeChartRenderingWithOptions(elem) {
+		t.Fatal("SupportsNativeChartRenderingWithOptions() = false, want true for an all-approved options set")
 	}
 
 	data, ok, err := RenderChartNativePNG(elem, 640, 480)
