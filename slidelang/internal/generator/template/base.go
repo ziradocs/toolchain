@@ -576,13 +576,13 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
 func (tb *TemplateBuilder) GetElementTemplate() string {
 	template := `{{define "element"}}
         {{if eq .Type "text"}}
-            <div class="slidelang-element slidelang-text" 
+            <div class="slidelang-element slidelang-text {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-text-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="text"
                  data-slide="{{.SlideIndex}}">
                 <p>{{.Content | markdownInline}}</p>
             </div>        {{else if eq .Type "points"}}
-            <div class="slidelang-element slidelang-points" 
+            <div class="slidelang-element slidelang-points {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-points-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="points"
                  data-slide="{{.SlideIndex}}">
@@ -617,7 +617,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{end}}
             </div>
         {{else if eq .Type "code"}}
-            <div class="slidelang-element slidelang-code" 
+            <div class="slidelang-element slidelang-code {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-code-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="code"
                  data-language="{{.Language}}"
@@ -626,7 +626,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 <pre><code{{if .Language}} class="language-{{.Language}}"{{end}}>{{.Content}}</code></pre>
             </div>
         {{else if eq .Type "image"}}
-            <div class="slidelang-element slidelang-image slidelang-image-context-{{.Context}}"
+            <div class="slidelang-element slidelang-image slidelang-image-context-{{.Context}} {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-image-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="image"
                  data-slide="{{.SlideIndex}}"
@@ -642,7 +642,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{if .Caption}}<div class="caption">{{.Caption}}</div>{{end}}
             </div>
         {{else if eq .Type "table"}}
-            <div class="slidelang-element slidelang-table"
+            <div class="slidelang-element slidelang-table {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-table-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="table"
                  data-slide="{{.SlideIndex}}">
@@ -712,7 +712,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{end}}
             </div>
         {{else if eq .Type "media"}}
-            <div class="slidelang-element slidelang-media"
+            <div class="slidelang-element slidelang-media {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-media-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="media"
                  data-slide="{{.SlideIndex}}">
@@ -727,7 +727,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{end}}
             </div>
         {{else if eq .Type "code_group"}}
-            <div class="slidelang-element slidelang-code-group" 
+            <div class="slidelang-element slidelang-code-group {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-code-group-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="code_group"
                  data-slide="{{.SlideIndex}}">
@@ -747,7 +747,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>
             </div>        {{else if eq .Type "special_block"}}
             {{if eq .BlockType "details"}}
-                <div class="slidelang-element slidelang-special-block slidelang-details"
+                <div class="slidelang-element slidelang-special-block slidelang-details {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                      id="slidelang-element-special-block-{{.SlideIndex}}-{{.ElementID}}"
                      data-element-type="special_block"
                      data-block-type="{{.BlockType}}"
@@ -757,7 +757,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     <div class="slidelang-content">{{.Content | markdown}}</div>
                 </div>
             {{else}}
-                <div class="slidelang-element slidelang-special-block slidelang-{{.BlockType}}" 
+                <div class="slidelang-element slidelang-special-block slidelang-{{.BlockType}} {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                      id="slidelang-element-special-block-{{.SlideIndex}}-{{.ElementID}}"
                      data-element-type="special_block"
                      data-block-type="{{.BlockType}}"
@@ -768,7 +768,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>
             {{end}}
         {{else if eq .Type "mermaid"}}
-            <div class="slidelang-element slidelang-mermaid"
+            <div class="slidelang-element slidelang-mermaid {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-mermaid-wrapper-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="mermaid"
                  data-slide="{{.SlideIndex}}">
@@ -780,7 +780,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                      {{if .Title}}aria-labelledby="slidelang-element-mermaid-title-{{.SlideIndex}}-{{.ElementID}}"{{else}}aria-label="Diagrama {{.DiagramType}}"{{end}}>{{.PreRenderedHTML}}</div>
             </div>
         {{else if eq .Type "plantuml"}}
-            <div class="slidelang-element slidelang-plantuml"
+            <div class="slidelang-element slidelang-plantuml {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-plantuml-wrapper-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="plantuml"
                  data-slide="{{.SlideIndex}}">
@@ -795,7 +795,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>
             </div>
         {{else if eq .Type "math"}}
-            <div class="slidelang-element slidelang-math"
+            <div class="slidelang-element slidelang-math {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-math-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="math"
                  data-slide="{{.SlideIndex}}">
@@ -803,7 +803,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{if .Caption}}<div class="slidelang-math-caption">{{.Caption}}</div>{{end}}
             </div>
         {{else if eq .Type "chart"}}
-            <div class="slidelang-element slidelang-chart"
+            <div class="slidelang-element slidelang-chart {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-chart-wrapper-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="chart"
                  data-chart-type="{{.ChartType | chartJSType}}"
@@ -822,7 +822,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>{{end}}
             </div>
         {{else if eq .Type "map"}}
-            <div class="element map"
+            <div class="element map {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-map-wrapper-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="map"
                  data-slide="{{.SlideIndex}}">
@@ -833,7 +833,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                      role="img"
                      {{if .Title}}aria-labelledby="slidelang-element-map-title-{{.SlideIndex}}-{{.ElementID}}"{{else if .MapOptions.title}}aria-labelledby="slidelang-element-map-subtitle-{{.SlideIndex}}-{{.ElementID}}"{{else}}aria-label="Mapa"{{end}}>{{.PreRenderedHTML}}</div>
             </div>        {{else if eq .Type "quote"}}
-            <div class="element quote" 
+            <div class="element quote {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-quote-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="quote"
                  data-slide="{{.SlideIndex}}">
@@ -850,7 +850,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     {{end}}
                 </blockquote>
             </div>        {{else if eq .Type "checklist"}}
-            <div class="element checklist" 
+            <div class="element checklist {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-checklist-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="checklist"
                  data-slide="{{.SlideIndex}}">
@@ -889,12 +889,12 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
             </div>        {{else if eq .Type "directive"}}
             {{- if eq .DirectiveName "timer" -}}
                 <!-- Slide Timer -->
-                <div class="slidelang-element slidelang-directive slidelang-slide-timer" 
+                <div class="slidelang-element slidelang-directive slidelang-slide-timer {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                      id="slidelang-element-directive-{{.SlideIndex}}-{{.ElementID}}"
                      data-element-type="directive"
                      data-directive-name="{{.DirectiveName}}"
                      data-slide="{{.SlideIndex}}"
-                     data-directive="timer" 
+                     data-directive="timer"
                      data-duration="{{.Content}}">
                     <div class="timer-display">
                         <span class="timer-time">{{.Content}}s</span>
@@ -903,12 +903,12 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>
             {{- else if eq .DirectiveName "transition" -}}
                 <!-- Transition Directive -->
-                <div class="slidelang-element slidelang-directive slidelang-transition-marker" 
+                <div class="slidelang-element slidelang-directive slidelang-transition-marker {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                      id="slidelang-element-directive-{{.SlideIndex}}-{{.ElementID}}"
                      data-element-type="directive"
                      data-directive-name="{{.DirectiveName}}"
                      data-slide="{{.SlideIndex}}"
-                     data-directive="transition" 
+                     data-directive="transition"
                      {{directiveDataAttrs .DirectiveParams}}>
                 </div>
             {{- else -}}
@@ -926,7 +926,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>
             {{- end -}}
         {{else if eq .Type "grid"}}
-            <div class="slidelang-element slidelang-grid" 
+            <div class="slidelang-element slidelang-grid {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-grid-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="grid"
                  data-slide="{{.SlideIndex}}">
@@ -941,7 +941,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{end}}
             </div>
         {{else if eq .Type "column"}}
-            <div class="slidelang-element slidelang-column"
+            <div class="slidelang-element slidelang-column {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-column-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="column"
                  data-slide="{{.SlideIndex}}">

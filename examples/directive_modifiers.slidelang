@@ -1,0 +1,30 @@
+---
+mode: flex
+title: "Directive Modifiers"
+theme: modern-blue
+---
+
+# Directive Modifiers
+
+Este ejemplo existe para issue #72: antes de su fix, `@float-left` colgaba
+su clase del `<div>` vacío de la propia directiva — flotar un div vacío no
+hace nada, porque el CSS (`.slidelang-element.slidelang-image.slidelang-float-left`)
+exige las tres clases en el mismo elemento que la imagen.
+
+## Imagen flotada
+
+@float-left
+![Un logo de ejemplo](https://via.placeholder.com/150)
+
+El texto de este párrafo debe fluir alrededor de la imagen de arriba, no
+debajo de ella — esa es la prueba visual de que `@float-left` de verdad se
+adjuntó a la imagen y no se quedó en un elemento invisible sin efecto.
+
+## Varios modificadores acumulados
+
+@float-right
+@large
+![Otro logo](https://via.placeholder.com/150)
+
+Dos directivas consecutivas (`@float-right` seguida de `@large`) deben
+acumularse y aplicarse las dos al mismo elemento siguiente.
