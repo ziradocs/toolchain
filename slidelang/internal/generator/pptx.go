@@ -730,12 +730,37 @@ func (g *Generator) pptxAddDiagram(s *pptx.Slide, diagramType, content, title st
 
 	// Mismo criterio de escalado que pptxAddChart: ancho fijo, alto
 	// derivado del aspect ratio real del PNG para no deformarlo.
+	//
+	// cfgErr != nil es tratado como fallo del fetch, no ignorado (hallazgo
+	// de code-review): un Kroki devolviendo 200 con un cuerpo que no es una
+	// imagen (HTML de error, SVG cuando se pidió png) llegaba hasta acá con
+	// drawWidth/drawHeight por defecto y esos bytes-no-imagen se le pasaban
+	// tal cual a AddImageFromBytesWithSize -- pptxgo no valida ahí, solo
+	// registra el error y lo propaga hasta que falle Save() al final del
+	// build, abortando el deck completo por un solo diagrama.
+	cfg, _, cfgErr := image.DecodeConfig(bytes.NewReader(data))
+	if cfgErr != nil {
+		g.logger.Warn("PPTX: kroki devolvió una respuesta que no es una imagen decodificable para el diagrama %s: %v", diagramType, cfgErr)
+		return g.pptxAddText(s, fmt.Sprintf("[Diagram failed to render: %s]", diagramType), cursorY)
+	}
 	drawWidth := pptxChartWidthEMU
 	drawHeight := pptxDefaultImageEMU
-	if cfg, _, cfgErr := image.DecodeConfig(bytes.NewReader(data)); cfgErr == nil && cfg.Width > 0 && cfg.Height > 0 {
+	if cfg.Width > 0 && cfg.Height > 0 {
 		drawHeight = drawWidth * cfg.Height / cfg.Width
 	}
-	drawWidth, drawHeight = pptxFitInSlide(drawWidth, drawHeight, cursorY)
+
+	// Reservar la altura del caption ANTES de ajustar la imagen (hallazgo
+	// de code-review): a diferencia de pptxAddChart (que nunca agrega un
+	// caption -- el título del chart ya sale DENTRO del PNG), acá title se
+	// agrega en un textbox aparte después de la imagen. Sin esta reserva,
+	// pptxFitInSlide dejaba que una imagen alta consumiera todo el espacio
+	// hasta el margen inferior, y el textbox del título quedaba fuera del
+	// slide.
+	captionReserve := 0
+	if title != "" {
+		captionReserve = pptxEstimateLines(title)*pptxLineHeightEMU + pptxParaGapEMU
+	}
+	drawWidth, drawHeight = pptxFitInSlide(drawWidth, drawHeight, cursorY+captionReserve)
 
 	s.AddImageFromBytesWithSize(data, pptxMarginEMU, cursorY, drawWidth, drawHeight)
 
