@@ -326,6 +326,15 @@ func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 				elementTypes["plantuml"] = true
 			case *ast.MathElement:
 				elementTypes["math"] = true
+			case *ast.ChartElement:
+				// Issue #166: faltaba este case, así que un deck con un
+				// chart nunca pedía charts.css — el <img> del chart
+				// (renderChartOfflineInline en offline-inline, el modo que
+				// --format pdf siempre usa) salía a su tamaño intrínseco de
+				// 800x600 (ChartDimensions, core/renderer/chart_dimensions.go)
+				// sin ningún max-width/max-height que lo acotara a la
+				// página.
+				elementTypes["charts"] = true
 			}
 		}
 	}
