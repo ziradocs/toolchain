@@ -7,6 +7,7 @@ package generator
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	_ "image/gif"  // registra el decoder GIF para image.DecodeConfig
@@ -22,6 +23,7 @@ import (
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/renderer/chromium"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -59,11 +61,15 @@ import (
 //     (mmonterroca/pptxgo#25), PowerPoint redibujaría el chart con los datos
 //     editables y la mayoría de estas claves tendrían equivalente directo en
 //     su vocabulario, en vez de tener que replicarlas en un rasterizador.
-//   - Mermaid/PlantUML/Map/Math siguen sin cubrirse: los cuatro exigen
-//     rasterizar con un motor externo. Mermaid y PlantUML sí tienen ya un
-//     camino HTTP puro vía KrokiFetcher, pero devuelve SVG y una imagen
-//     embebida en .pptx tiene que ser ráster, así que el hueco real es
-//     SVG→PNG, no el fetch. Ver issue #144.
+//   - Mermaid/PlantUML se cubren CONDICIONALMENTE (issue #144): solo con
+//     --diagram-backend kroki (+ opcionalmente --kroki-server), pidiéndole
+//     al servidor Kroki el PNG directo en vez de svg (chromium.KrokiFetcher
+//     ya soporta el parámetro format). Sin ese flag se omiten con un
+//     warning que dice qué hacer — nunca en silencio, y nunca salen a la
+//     red sin que el operador lo haya pedido: --format pptx se define por
+//     no necesitar navegador NI red en la máquina.
+//   - Map/Math NO tienen camino bajo ningún --diagram-backend: Leaflet y
+//     MathJax necesitan un navegador de verdad, y Kroki no los resuelve.
 //   - SpecialBlockElement/CodeGroupElement/GridElement tampoco: son
 //     contenedores con layout propio, no un shape suelto.
 //
@@ -113,8 +119,18 @@ func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts Genera
 
 	p := pptx.New()
 
+	// kroki es el directorio temporal (creado LAZY, solo si de verdad
+	// aparece un mermaid/plantuml con --diagram-backend kroki) donde
+	// KrokiFetcher.FetchAndSave escribe el PNG que luego se lee y se
+	// embebe -- --format pptx nunca persiste archivos de diagrama junto a
+	// su salida (a diferencia de offline-assets), así que este directorio
+	// se limpia al terminar el build, un solo temp dir para todo el deck,
+	// no uno por diagrama.
+	kroki := &pptxKrokiContext{}
+	defer kroki.cleanup()
+
 	for i := range astNode.ContentBlocks {
-		g.pptxAddSlide(p, &astNode.ContentBlocks[i], opts)
+		g.pptxAddSlide(p, &astNode.ContentBlocks[i], opts, kroki)
 	}
 
 	outputPath := filepath.Join(outputDir, resolveOutputFilename(astNode, "pptx"))
@@ -137,7 +153,7 @@ func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts Genera
 // para el resto — el mismo mapeo semántico que ya usa el HTML propio de
 // slidelang (template/base.go: Heading para bloques "title", Title para
 // los demás).
-func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, opts GeneratorOptions) {
+func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, opts GeneratorOptions, kroki *pptxKrokiContext) {
 	isTitleBlock := block.BlockType == "title"
 
 	layout := pptx.LayoutTitleAndContent
@@ -170,7 +186,7 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 	}
 
 	for i := range block.Elements {
-		cursorY = g.pptxAddElement(s, block.Elements[i], cursorY, opts)
+		cursorY = g.pptxAddElement(s, block.Elements[i], cursorY, opts, kroki)
 	}
 }
 
@@ -179,7 +195,7 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 // comentario del paquete para qué queda fuera y por qué) se omite con un
 // warning explícito — nunca en silencio, para que "faltan diagramas en este
 // deck" sea visible en el log del build, no un misterio.
-func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int, opts GeneratorOptions) int {
+func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int, opts GeneratorOptions, kroki *pptxKrokiContext) int {
 	switch e := elem.(type) {
 	case *ast.TextElement:
 		return g.pptxAddText(s, e.Content, cursorY)
@@ -197,8 +213,18 @@ func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int,
 		return g.pptxAddCode(s, e, cursorY)
 	case *ast.ChartElement:
 		return g.pptxAddChart(s, e, cursorY)
+	case *ast.MermaidElement:
+		return g.pptxAddDiagram(s, "mermaid", e.Content, e.Title, cursorY, opts, kroki)
+	case *ast.PlantUMLElement:
+		return g.pptxAddDiagram(s, "plantuml", e.Content, e.Title, cursorY, opts, kroki)
+	case *ast.MapElement:
+		g.logger.Warn("PPTX: map element skipped, no hay camino sin Chromium (Leaflet necesita navegador) — --format pptx no usa Chromium")
+		return g.pptxAddText(s, "[Map not rendered]", cursorY)
+	case *ast.MathElement:
+		g.logger.Warn("PPTX: math element skipped, no hay camino sin Chromium (MathJax necesita navegador) — --format pptx no usa Chromium")
+		return g.pptxAddText(s, "[Math not rendered]", cursorY)
 	default:
-		g.logger.Warn("PPTX: element type %T not supported yet, skipped (issue #144 tracks the remaining coverage)", elem)
+		g.logger.Warn("PPTX: element type %T not supported yet, skipped (issue #144 tracks the remaining coverage: SpecialBlock/CodeGroup/Grid)", elem)
 		return cursorY
 	}
 }
@@ -631,6 +657,93 @@ func (g *Generator) pptxAddChart(s *pptx.Slide, e *ast.ChartElement, cursorY int
 	// sobre un canvas de 7.5in, así que el textbox arrancaba en 7.592in.
 	// Hallazgo de code-review.
 	return cursorY + drawHeight + pptxParaGapEMU
+}
+
+// pptxKrokiContext es el directorio temporal compartido por todos los
+// fetches Kroki de un mismo build de PPTX (issue #144) — creado LAZY (nil
+// hasta el primer diagrama que de verdad lo necesite) para no pagar el
+// costo de un MkdirTemp/RemoveAll en decks sin mermaid/plantuml, y
+// compartido entre diagramas para no crear un directorio por cada uno.
+type pptxKrokiContext struct {
+	tempDir string
+}
+
+// dir devuelve el directorio temporal, creándolo en la primera llamada.
+func (k *pptxKrokiContext) dir() (string, error) {
+	if k.tempDir != "" {
+		return k.tempDir, nil
+	}
+	dir, err := os.MkdirTemp("", "slidelang-pptx-kroki-*")
+	if err != nil {
+		return "", err
+	}
+	k.tempDir = dir
+	return dir, nil
+}
+
+// cleanup borra el directorio temporal si se llegó a crear. No-op si nunca
+// se usó (el caso común: un deck sin mermaid/plantuml, o con
+// --diagram-backend=chromium por default).
+func (k *pptxKrokiContext) cleanup() {
+	if k.tempDir != "" {
+		_ = os.RemoveAll(k.tempDir)
+	}
+}
+
+// pptxAddDiagram renderiza un diagrama mermaid/plantuml vía Kroki (formato
+// png) y lo embebe como imagen (issue #144). --format pptx nunca instancia
+// Chromium — Generator ni siquiera tiene el campo — así que la única vía
+// sin navegador es pedirle a un servidor Kroki el PNG directo:
+// chromium.KrokiFetcher ya soporta el parámetro format explícito (ver su
+// doc comment sobre por qué no bastaba con pedir siempre svg), pedirle
+// "png" ya funciona sin cambios en core.
+//
+// Sin --diagram-backend kroki configurado, se omite con un warning que
+// dice QUÉ hacer, no solo que se omitió: convertir un build offline (sin
+// red) en uno que hace peticiones HTTP salientes sin que el operador lo
+// haya pedido explícitamente sería peor que omitir el diagrama —
+// warning-y-skip es la política, decidida en el propio issue #144.
+func (g *Generator) pptxAddDiagram(s *pptx.Slide, diagramType, content, title string, cursorY int, opts GeneratorOptions, kroki *pptxKrokiContext) int {
+	if opts.DiagramBackend != "kroki" {
+		g.logger.Warn("PPTX: %s diagram skipped — --format pptx no usa Chromium, pasa --diagram-backend kroki (+ opcionalmente --kroki-server) para incluirlo", diagramType)
+		return g.pptxAddText(s, fmt.Sprintf("[Diagram not rendered: %s]", diagramType), cursorY)
+	}
+
+	dir, err := kroki.dir()
+	if err != nil {
+		g.logger.Warn("PPTX: failed to create temp dir for kroki fetch: %v", err)
+		return g.pptxAddText(s, fmt.Sprintf("[Diagram not rendered: %s]", diagramType), cursorY)
+	}
+
+	fetcher := chromium.NewKrokiFetcher(opts.KrokiServer, diagramType, "png", dir)
+	relPath, err := fetcher.FetchAndSave(context.Background(), content, dir)
+	if err != nil {
+		g.logger.Warn("PPTX: kroki fetch failed for %s diagram: %v", diagramType, err)
+		return g.pptxAddText(s, fmt.Sprintf("[Diagram failed to render: %s]", diagramType), cursorY)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, relPath))
+	if err != nil {
+		g.logger.Warn("PPTX: failed to read rendered %s diagram: %v", diagramType, err)
+		return g.pptxAddText(s, fmt.Sprintf("[Diagram not rendered: %s]", diagramType), cursorY)
+	}
+
+	// Mismo criterio de escalado que pptxAddChart: ancho fijo, alto
+	// derivado del aspect ratio real del PNG para no deformarlo.
+	drawWidth := pptxChartWidthEMU
+	drawHeight := pptxDefaultImageEMU
+	if cfg, _, cfgErr := image.DecodeConfig(bytes.NewReader(data)); cfgErr == nil && cfg.Width > 0 && cfg.Height > 0 {
+		drawHeight = drawWidth * cfg.Height / cfg.Width
+	}
+	drawWidth, drawHeight = pptxFitInSlide(drawWidth, drawHeight, cursorY)
+
+	s.AddImageFromBytesWithSize(data, pptxMarginEMU, cursorY, drawWidth, drawHeight)
+
+	newCursorY := cursorY + drawHeight + pptxParaGapEMU
+	if title != "" {
+		newCursorY = g.pptxAddText(s, title, newCursorY)
+	}
+	return newCursorY
 }
 
 // pptxChartIgnoringOptions devuelve una copia de e sin el bloque options:,

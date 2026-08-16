@@ -423,19 +423,53 @@ func TestPPTX_UnmappedChartTypeStillFallsBackToPlaceholder(t *testing.T) {
 
 // TestPPTX_StillWarnsOnGenuinelyUnsupportedElements protege el default del
 // switch: ampliar la cobertura no debe convertir el warning explícito en un
-// descarte silencioso para lo que sigue sin cubrirse.
+// descarte silencioso para lo que sigue sin cubrirse. Usa GridElement (un
+// contenedor, issue #144 sigue trackeándolo) — no MermaidElement, que desde
+// #144 tiene su propio case (ver TestPPTX_MermaidWithoutKrokiBackend_WarnsAndSkips
+// para su comportamiento hoy: soportado condicionalmente, no "genuinamente
+// no soportado").
 func TestPPTX_StillWarnsOnGenuinelyUnsupportedElements(t *testing.T) {
 	xml := buildPPTXWithElements(t, "unsupported",
-		ast.NewMermaidElement(pos(), "flowchart", "graph TD; A-->B"),
+		ast.NewGridElement(pos()),
 		ast.NewTextElement(pos(), "text-marker-after"),
 	)
 
-	if strings.Contains(xml, "graph TD") {
-		t.Error("the mermaid source leaked into the slide as literal text")
-	}
 	// El elemento siguiente sí debe llegar: omitir uno no puede truncar el
 	// resto del slide.
 	if !strings.Contains(xml, "text-marker-after") {
 		t.Error("skipping an unsupported element dropped the elements after it")
+	}
+}
+
+// TestPPTX_MapAndMath_HaveNoOfflineCamino confirma que map/math se quedan
+// fuera y con un warning específico (no el genérico de "element type %T not
+// supported yet") bajo CUALQUIER --diagram-backend: Leaflet y MathJax
+// necesitan navegador, y --diagram-backend kroki no cambia eso — solo
+// resuelve mermaid/plantuml.
+func TestPPTX_MapAndMath_HaveNoOfflineCamino(t *testing.T) {
+	dir := t.TempDir()
+	doc := ast.NewAST(pos())
+	doc.FrontMatter = ast.NewFrontMatterNode(pos())
+	doc.FilePath = "map-math.slidelang"
+	block := ast.NewContentBlock(pos(), "content")
+	block.Title = "Coverage"
+	block.Elements = append(block.Elements,
+		ast.NewMapElement(pos(), "static"),
+		ast.NewMathElement(pos(), "x^2"),
+	)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	g := New(util.NewNoop())
+	opts := GeneratorOptions{AssetRoot: dir, DiagramBackend: "kroki"}
+	if err := g.generatePPTX(doc, dir, opts); err != nil {
+		t.Fatalf("generatePPTX() error = %v", err)
+	}
+
+	xml := zipEntryContent(t, filepath.Join(dir, "map-math.pptx"), "ppt/slides/slide1.xml")
+	if !strings.Contains(xml, "[Map not rendered]") {
+		t.Errorf("expected the map placeholder, slide1.xml: %s", xml)
+	}
+	if !strings.Contains(xml, "[Math not rendered]") {
+		t.Errorf("expected the math placeholder, slide1.xml: %s", xml)
 	}
 }
