@@ -398,6 +398,15 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				// de un <video>/<audio>.
 				source := ProcessVariables(elem.Source, variables)
 				elementData.Source = renderer.ValidateURLScheme(source)
+				// InlinedSource (issue #181, el equivalente de #167 para
+				// <video>/<audio>): mismo razonamiento que ImageElement
+				// arriba — bajo offline-inline no hay base URL contra la
+				// cual una fuente relativa resuelva. TryInlineLocalMedia
+				// hace su propio chequeo de esquema, así que no depende de
+				// ValidateURLScheme.
+				if inlined, ok := renderer.TryInlineLocalMedia(source, ctx); ok {
+					elementData.InlinedSource = htmltemplate.URL(inlined)
+				}
 				elementData.MediaType = elem.MediaType
 				elementData.Autoplay = elem.Autoplay
 				elementData.Controls = elem.Controls

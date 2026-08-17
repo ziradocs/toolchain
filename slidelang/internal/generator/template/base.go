@@ -727,9 +727,9 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  data-slide="{{.SlideIndex}}">
                 {{if .Source}}
                     {{if eq .MediaType "audio"}}
-                    <audio src="{{.Source}}"{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></audio>
+                    <audio src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></audio>
                     {{else}}
-                    <video src="{{.Source}}"{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></video>
+                    <video src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></video>
                     {{end}}
                 {{else}}
                 <div class="slidelang-media-blocked" role="note" style="padding:1em;text-align:center;color:#a94442;background:#f2dede;border:1px solid #ebccd1;border-radius:4px;">Media blocked or missing source</div>
