@@ -1017,6 +1017,19 @@ func DefaultPDFOptions() PDFOptions {
 	return renderer.DefaultPDFOptions()
 }
 
+// nonNegativeMargin clampea un margen negativo a 0. CDP rechaza un margen
+// negativo con un error duro ("top margin is negative", -32602) en vez de
+// ignorarlo — a diferencia de los demás campos de PDFOptions, que solo
+// necesitan protegerse contra el cero (ver el comentario de Scale más
+// abajo), un margen negativo no tiene ninguna interpretación válida que
+// preservar, así que clampear es más seguro que dejarlo pasar.
+func nonNegativeMargin(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
 // buildPrintToPDFParams arma los parámetros de Page.printToPDF a partir de
 // PDFOptions. Extraído de RenderHTMLToPDF (issue #62 prerequisito) para que
 // GenerateTaggedPDF y el resto de opciones sean verificables sin un Chromium
@@ -1032,19 +1045,33 @@ func buildPrintToPDFParams(opts PDFOptions) *page.PrintToPDFParams {
 		WithPreferCSSPageSize(true).
 		WithGenerateTaggedPDF(true)
 
-	// Margins
-	if opts.MarginTop > 0 {
-		printParams = printParams.WithMarginTop(opts.MarginTop)
-	}
-	if opts.MarginBottom > 0 {
-		printParams = printParams.WithMarginBottom(opts.MarginBottom)
-	}
-	if opts.MarginLeft > 0 {
-		printParams = printParams.WithMarginLeft(opts.MarginLeft)
-	}
-	if opts.MarginRight > 0 {
-		printParams = printParams.WithMarginRight(opts.MarginRight)
-	}
+	// Margins. Issue #165: este bloque tenía un guard `> 0` que, a
+	// diferencia del de Scale más abajo, resultó ser un no-op para
+	// CUALQUIER valor no-negativo — cdproto declara MarginTop/Bottom/Left/
+	// Right como float64 SIN `omitempty` (page/page.go), y su constructor
+	// PrintToPDF() no les siembra ningún default distinto de cero, así que
+	// el JSON que sale hacia Chromium lleva "marginTop":0 (y equivalentes)
+	// exista o no la llamada a WithMarginTop — llamarlo con 0 y no
+	// llamarlo producen el mismo struct. El guard no cambiaba una sola
+	// margen en ningún PDF que este toolchain haya generado nunca
+	// (confirmado: el único caller de producción es slidesPDFOptions(),
+	// cuyos Margin* ya estaban en su cero-valor).
+	//
+	// Pero el guard SÍ hacía algo para un valor negativo: lo descartaba en
+	// silencio, dejando el margen en su cero-valor de cdproto. Quitarlo sin
+	// más deja pasar un negativo tal cual hacia CDP, que lo rechaza con un
+	// error duro ("top margin is negative") — un doclang con
+	// `page.margins.top: "-1in"` en su front matter pasaba de generar un
+	// PDF (con margen 0) a tronar el build entero (hallazgo de code
+	// review). nonNegativeMargin conserva la propiedad que hacía cero-riesgo
+	// a este cambio — un valor negativo se clampea a 0 en vez de
+	// propagarse — sin resucitar el guard `> 0` que también descartaba
+	// valores positivos legítimos vía `omitempty` inexistente.
+	printParams = printParams.
+		WithMarginTop(nonNegativeMargin(opts.MarginTop)).
+		WithMarginBottom(nonNegativeMargin(opts.MarginBottom)).
+		WithMarginLeft(nonNegativeMargin(opts.MarginLeft)).
+		WithMarginRight(nonNegativeMargin(opts.MarginRight))
 
 	// Paper size
 	if opts.PaperWidth > 0 && opts.PaperHeight > 0 {
