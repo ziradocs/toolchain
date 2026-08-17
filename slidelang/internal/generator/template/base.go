@@ -201,6 +201,10 @@ func (tb *TemplateBuilder) Build() string {
 			RequiredLayouts:  tb.RequiredLayouts,
 			EnableNavigation: tb.EnableNavigation,
 			EnableUtilities:  tb.EnableUtilities,
+			// IncludeReset: true — this is the embedded path (--format pdf,
+			// --embed-assets), and there is no separate reset.css file for
+			// it to duplicate against (issue #164).
+			IncludeReset: true,
 			// Note: CSS namespacing is always enabled by default
 		}
 
@@ -311,6 +315,11 @@ func (tb *TemplateBuilder) BuildCSS() (string, error) {
 		// para el modo embebido, ver el otro cssConfig en Build() más abajo).
 		EnableNavigation: false,
 		EnableUtilities:  false,
+		// IncludeReset: false por el mismo motivo — reset.css ya se escribe
+		// y se linkea aparte (generateResetCSS, html_modular.go); incluirlo
+		// también acá duplicaría las mismas reglas dentro de
+		// presentation.css (issue #164).
+		IncludeReset: false,
 		// Note: CSS namespacing is always enabled by default
 	}
 

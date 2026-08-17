@@ -96,12 +96,52 @@
         display: block !important;
     }
 
-    .slidelang-slide {
-        width: auto;
+    /* reset.css (issue #164, ahora sí presente en todo build embebido) trae
+       `html, body { height: 100% }` y `body { overflow: hidden }` — la
+       forma exacta que recorta el flujo multi-página al imprimir. Sin
+       neutralizarlo acá, arreglar #164 solo regresaría #163: el fix de la
+       fuente terminaría rompiendo la paginación que este mismo bloque
+       arregla. */
+    html,
+    body {
         height: auto;
+        overflow: visible;
+    }
+
+    /* --format pdf (slidesPDFOptions, slidelang/internal/generator/pdf.go)
+       manda PaperWidth=13.333in / PaperHeight=7.5in con márgenes en 0 a
+       Chromium vía CDP — el área imprimible es exactamente esa caja. No se
+       usa `@page` acá: los parámetros CDP ya la fijan, y con
+       WithPreferCSSPageSize(true) siempre activo
+       (core/renderer/chromium/chromium_renderer.go), un `@page` empezaría a
+       gobernar el tamaño de página en su lugar — una fuente de riesgo
+       innecesaria para algo que ya funciona. Si slidesPDFOptions() cambia
+       de tamaño de papel, este bloque hay que actualizarlo con él. */
+    .slidelang-slide {
+        width: 13.333in;
+        height: 7.5in;
+        max-width: none;
         box-shadow: none;
+        border-radius: 0;
+        margin: 0;
+        /* Issue #163: sobrevivían max-width/padding/overflow-y/border-radius/
+           background de slides.css porque este bloque solo reseteaba
+           width/height/box-shadow/display. overflow-y:auto convertía cada
+           slide en su propio scroll container, que Chrome fragmentaba de
+           forma impredecible entre páginas. Con box-sizing:border-box (del
+           reset) el padding de 60px queda contenido en los 7.5in en vez de
+           sumarse — y overflow:hidden es la semántica correcta para un
+           slide: es un lienzo de tamaño fijo, no un documento que fluye. */
+        overflow: hidden;
         page-break-after: always;
+        page-break-inside: avoid;
+        break-inside: avoid;
         display: block !important;
+    }
+
+    /* Sin esto, el último slide deja una página en blanco extra al final. */
+    .slidelang-slide:last-of-type {
+        page-break-after: auto;
     }
 
     /* Navigation print rules are handled in navigation.css */
