@@ -158,10 +158,25 @@ type ElementData struct {
 	// de lo que ahorra). El template usa InlinedSource cuando está
 	// presente y cae a Source si no.
 	InlinedSource htmltemplate.URL
-	Alt           string
-	Caption       string
-	Items         []PointItemData
-	ListType      string // "ordered" para <ol>, "unordered" para <ul>
+	// SkipLazyLoad (issue #167, hallazgo encontrado verificando el fix de
+	// arriba con Chromium real): el template SIEMPRE emitía
+	// loading="lazy" en <img> — correcto para el viewer interactivo
+	// (difiere la carga hasta que el usuario navega a ese slide), pero
+	// bajo offline-inline (PDF) rompe CUALQUIER imagen (local o remota)
+	// que no esté en el slide inicial: sin scroll/IntersectionObserver
+	// real en la página inyectada por Page.SetDocumentContent, el
+	// navegador nunca dispara la carga diferida — confirmado con
+	// chromedp real: la imagen queda con naturalWidth=0/complete=false
+	// indefinidamente, sin importar cuánto se espere. Bajo
+	// ctx.ImageMode == "offline-inline" no hay ninguna razón para diferir
+	// la carga (el documento entero se imprime de una vez, no se navega),
+	// así que se omite el atributo — independiente de si esta imagen en
+	// particular se inlineó con éxito (InlinedSource) o es remota.
+	SkipLazyLoad bool
+	Alt          string
+	Caption      string
+	Items        []PointItemData
+	ListType     string // "ordered" para <ol>, "unordered" para <ul>
 	// Checklist data
 	ChecklistItems []ChecklistItemData
 	// Grid data

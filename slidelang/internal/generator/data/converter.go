@@ -347,6 +347,12 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				if inlined, ok := renderer.TryInlineLocalImage(source, ctx); ok {
 					elementData.InlinedSource = htmltemplate.URL(inlined)
 				}
+				// SkipLazyLoad: independiente de si esta imagen puntual se
+				// inlineó (arriba) — una imagen REMOTA bajo offline-inline
+				// tiene el mismo problema de carga diferida que nunca
+				// dispara sin scroll real, ver el comentario del campo en
+				// types.go.
+				elementData.SkipLazyLoad = ctx != nil && ctx.ImageMode == "offline-inline"
 				// Alt/Caption: sin pre-escapar, por la misma razón que Source.
 				elementData.Alt = ProcessVariables(elem.Alt, variables)
 				elementData.Caption = ProcessVariables(elem.Caption, variables)

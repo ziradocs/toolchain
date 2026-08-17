@@ -634,7 +634,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{if .Source}}
                 <img src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"
                      alt="{{.Alt}}"
-                     loading="lazy"
+                     {{if not .SkipLazyLoad}}loading="lazy"{{end}}
                      style="object-fit: contain;">
                 {{else}}
                 <div class="slidelang-image-blocked" role="img" aria-label="{{.Alt}}" style="padding:1em;text-align:center;color:#a94442;background:#f2dede;border:1px solid #ebccd1;border-radius:4px;">Image blocked for security</div>
