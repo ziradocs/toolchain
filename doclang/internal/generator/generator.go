@@ -60,6 +60,13 @@ type GeneratorOptions struct {
 	MapMode string // "browser" (default), "offline-assets", "offline-inline"
 	// Math (LaTeX/MathJax) options (issue #239-B)
 	MathMode string // "browser" (default), "offline-assets", "offline-inline"
+	// ImageMode (issue #167): "offline-inline" inlinea fuentes de imagen
+	// LOCALES como data: URI, confinadas a AssetRoot. --format pdf lo
+	// fuerza incondicionalmente (ver pdf.go) porque su problema — el HTML
+	// se inyecta en about:blank, sin base URL — existe pase lo que pase
+	// diga este campo; para --format html sí sigue lo que declare
+	// --render-mode, igual que ChartMode/MapMode/etc arriba.
+	ImageMode string
 	// Image format options (for charts and maps in offline modes)
 	ImageFormat string // "png" (default) or "webp"
 	WebPQuality int    // WebP quality: 1-100 (default: 85)
