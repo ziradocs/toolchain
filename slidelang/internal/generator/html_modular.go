@@ -335,6 +335,13 @@ func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 				// sin ningún max-width/max-height que lo acotara a la
 				// página.
 				elementTypes["charts"] = true
+			case *ast.MermaidElement:
+				// Issue #173: mismo hueco que #166 tenía para charts —
+				// ningún case pedía mermaid.css, así que el <svg> del
+				// diagrama (renderMermaidOfflineInline en offline-inline)
+				// salía a su alto intrínseco sin cota, sin nada que lo
+				// acotara a la página del PDF.
+				elementTypes["mermaid"] = true
 			}
 		}
 	}

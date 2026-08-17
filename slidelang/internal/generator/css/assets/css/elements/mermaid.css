@@ -1,0 +1,76 @@
+/* Elementos mermaid (issue #173) — mismo hueco que #166 tenía para charts,
+   pero la salida offline-inline (la que --format pdf siempre fuerza,
+   pdf.go:58) es distinta: un chart offline-inline es un <img> (charts.css
+   escala ese <img> con max-width/max-height directo). Mermaid en
+   offline-inline es un <div class="slidelang-mermaid-diagram
+   slidelang-mermaid-inline"> que envuelve un <svg> crudo
+   (renderMermaidOfflineInline, core/renderer/html.go) — un max-height sobre
+   el <div> recorta el <svg> de adentro en vez de escalarlo, así que el
+   clamp tiene que caer en el svg descendiente.
+
+   Nota de colisión: el wrapper de este elemento es
+   .slidelang-element.slidelang-mermaid Y la caja interna es
+   .slidelang-mermaid (mismo token — template/base.go, a diferencia de
+   charts/plantuml que usan un sufijo -container para la caja interna). Por
+   eso las reglas de layout de la caja interna van con el selector
+   compuesto completo, no con un .slidelang-mermaid suelto que pegaría en
+   ambas cajas. */
+.slidelang-element.slidelang-mermaid {
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.slidelang-element.slidelang-mermaid .slidelang-mermaid-container {
+    max-width: 100%;
+    overflow: hidden;
+}
+
+/* mermaid v11 emite su <svg> con width="100%" (atributo XML) y un
+   style="max-width: Npx" INLINE. NO tocar `width` acá: el <svg> vive
+   dentro de un contenedor sin ancho propio (.slidelang-mermaid-container
+   solo trae max-width:100%, y el slide de título es un flex column) — un
+   `width: auto` de hoja de autor entra en dependencia circular con ese
+   contenedor y el navegador colapsa el <svg> a 0x0 (confirmado con
+   getBoundingClientRect() contra un build real: {width:0, height:0} con
+   `width:auto` puesto, dimensiones correctas al quitarlo). Dejando
+   `width` intacto, el atributo width="100%" del propio SVG gobierna, y
+   `height: auto` calcula la altura proporcional al viewBox — mismo
+   patrón está `svg { max-width: 100%; height: auto }` que cualquier SVG
+   responsive.
+
+   `max-height` sí hace falta (mermaid nunca la setea inline, a diferencia
+   de max-width) para no dejar que un diagrama alto se salga de la página.
+   Valor en pulgadas, no vh: dentro del about:blank inyectado
+   (Page.SetDocumentContent, AL-5) con PreferCSSPageSize activo, la
+   resolución de unidades de viewport contra la página de 13.333x7.5in de
+   --format pdf no está garantizada — calibrado empíricamente contra el
+   alto real de página (7.5in, slidesPDFOptions/responsive.css) en vez de
+   asumir que 55vh (como usa charts.css, sobre un <img> de tamaño
+   intrínseco conocido) se comporta igual sobre un <svg> de alto
+   intrínseco sin cota. */
+.slidelang-element.slidelang-mermaid .slidelang-mermaid-diagram svg {
+    max-height: 5in;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+}
+
+/* offline-assets (--format html --render-mode offline-assets) emite un
+   <img> en vez de un <div><svg>; max-width/max-height sí lo escalan
+   directo, mismo patrón que charts.css. */
+.slidelang-element.slidelang-mermaid .slidelang-mermaid-diagram img {
+    max-width: 100%;
+    max-height: 5in;
+    height: auto;
+}
+
+.slidelang-element.slidelang-mermaid .slidelang-mermaid-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    color: var(--slidelang-danger-color, #dc3545);
+    background: var(--slidelang-bg-danger-light, #f8d7da);
+    border-radius: var(--slidelang-border-radius, 8px);
+    font-weight: 500;
+}
