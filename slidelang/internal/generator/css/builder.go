@@ -248,6 +248,7 @@ func GetAvailableModules() []string {
 		"plantuml",        // PlantUML diagrams (issue #38)
 		"math",            // Math equations (issue #38)
 		"charts",          // Chart images (issue #166)
+		"mermaid",         // Mermaid diagrams (issue #173)
 	}
 }
 
