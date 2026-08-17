@@ -12,13 +12,34 @@ import (
 // RenderContext mantiene el contexto de rendering compartido
 // Permite configurar opciones como PlantUML mode sin modificar todas las firmas
 type RenderContext struct {
-	PlantUMLMode   string          // "browser", "offline-assets", "offline-inline"
-	PlantUMLServer string          // Custom server URL
-	PlantUMLFormat string          // "svg" or "png"
-	MermaidMode    string          // "browser", "offline-assets", "offline-inline"
-	ChartMode      string          // "browser", "offline-assets", "offline-inline"
-	MapMode        string          // "browser", "offline-assets", "offline-inline"
-	MathMode       string          // "browser", "offline-assets", "offline-inline" (issue #239-B)
+	PlantUMLMode   string // "browser", "offline-assets", "offline-inline"
+	PlantUMLServer string // Custom server URL
+	PlantUMLFormat string // "svg" or "png"
+	MermaidMode    string // "browser", "offline-assets", "offline-inline"
+	ChartMode      string // "browser", "offline-assets", "offline-inline"
+	MapMode        string // "browser", "offline-assets", "offline-inline"
+	MathMode       string // "browser", "offline-assets", "offline-inline" (issue #239-B)
+	// ImageMode (issue #167) gobierna renderImageElement de forma más
+	// angosta que los *Mode de arriba: solo "offline-inline" cambia algo
+	// (inlinea fuentes locales como data: URI); "browser" y
+	// "offline-assets" se comportan igual — offline-assets NO copia la
+	// imagen a un assets/ propio en esta primera pasada, queda para un
+	// follow-up si hace falta. El motivo del modo "offline-inline" es
+	// estructural, no una preferencia de formato: el pipeline de PDF
+	// inyecta el HTML final en about:blank vía Page.SetDocumentContent
+	// (docs/SECURITY_AUDIT_2026-07.md, AL-5), que no tiene base URL contra
+	// la cual una <img src="ruta/relativa"> pueda resolver — sin inlinear,
+	// la imagen queda rota en CUALQUIER PDF, sin importar que el archivo
+	// exista.
+	ImageMode string
+	// AssetRoot confina las fuentes de imagen LOCALES elegibles para
+	// inlinear bajo ImageMode == "offline-inline" (vía
+	// util.ResolveConfinedPath — mismo mecanismo de confinamiento AL-4 que
+	// ya usan DOCX/PPTX). Vacío deshabilita el inlineo por completo: sin
+	// una raíz de confinamiento explícita, una fuente local se deja tal
+	// cual (mismo comportamiento roto de siempre) en vez de leer del
+	// filesystem sin límite alguno.
+	AssetRoot      string
 	OutputDir      string          // Output directory for assets
 	Fetcher        PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
 	MermaidFetcher MermaidFetcher  // Mermaid fetcher inicializado
@@ -62,6 +83,8 @@ func NewDefaultRenderContext() *RenderContext {
 		ChartMode:      "browser",
 		MapMode:        "browser",
 		MathMode:       "browser",
+		ImageMode:      "browser",
+		AssetRoot:      "",
 		OutputDir:      "",
 		Fetcher:        nil,
 		MermaidFetcher: nil,

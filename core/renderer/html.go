@@ -6,10 +6,14 @@ package renderer
 import (
 	"encoding/json"
 	"fmt"
+	"mime"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/core/v2/xref"
 )
 
@@ -31,7 +35,7 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 		return renderCodeElement(elem, variables)
 
 	case *ast.ImageElement:
-		return renderImageElement(elem, variables)
+		return renderImageElement(elem, variables, ctx)
 
 	case *ast.TableElement:
 		return renderTableElement(elem, variables)
@@ -152,14 +156,28 @@ func renderCodeElement(elem *ast.CodeElement, variables map[string]interface{}) 
 	return fmt.Sprintf(`<pre><code class="language-%s">%s</code></pre>`, language, content)
 }
 
-// renderImageElement procesa imágenes con caption opcional
-func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}) string {
+// renderImageElement procesa imágenes con caption opcional. ctx puede ser
+// nil (mismo contrato que el resto de RenderElementToHTML) — solo se
+// consulta para el inlineo de fuentes locales bajo offline-inline (issue
+// #167, ver TryInlineLocalImage).
+func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}, ctx *RenderContext) string {
 	source := ProcessVariables(elem.Source, variables)
 	alt := ProcessVariables(elem.Alt, variables)
 	caption := ProcessVariables(elem.Caption, variables)
 
-	// Sanitizar URL de la imagen para prevenir javascript: y data: URIs peligrosas
-	source = SanitizeURL(source)
+	// TryInlineLocalImage produce su propio data: URI ya seguro para
+	// interpolar (el alfabeto base64 no puede romper un atributo entre
+	// comillas) — NO pasa por SanitizeURL, que rechaza el scheme "data"
+	// (sanitizer.go) y descartaría exactamente lo que esta rama acaba de
+	// construir. Solo se intenta cuando corresponde (ctx.ImageMode ==
+	// "offline-inline" y la fuente es local); en cualquier otro caso cae
+	// al SanitizeURL(source) de siempre, comportamiento sin cambios.
+	if inlined, ok := TryInlineLocalImage(source, ctx); ok {
+		source = inlined
+	} else {
+		// Sanitizar URL de la imagen para prevenir javascript: y data: URIs peligrosas
+		source = SanitizeURL(source)
+	}
 	// Escapar atributos para prevenir inyección
 	alt = EscapeHTMLAttribute(alt)
 	caption = EscapeHTML(caption)
@@ -189,6 +207,74 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 		return fmt.Sprintf(`<figure%s><img src="%s" alt="%s"></figure>`, idAttr, source, alt)
 	}
 	return fmt.Sprintf(`<img src="%s" alt="%s">`, source, alt)
+}
+
+// TryInlineLocalImage lee una imagen local del filesystem y la devuelve
+// como data: URI, para el modo offline-inline (issue #167): el pipeline de
+// PDF inyecta el HTML final en about:blank vía Page.SetDocumentContent
+// (docs/SECURITY_AUDIT_2026-07.md, AL-5), que no tiene base URL contra la
+// cual una <img src="ruta/relativa"> pueda resolver — sin inlinear, esa
+// imagen queda rota en CUALQUIER PDF, exista o no el archivo. Retorna
+// ("", false) cuando no aplica o falla; el caller cae al SanitizeURL(source)
+// de siempre, sin cambio de comportamiento.
+//
+// Deliberadamente NO pasa por SanitizeURL/ValidateURLScheme: ambas rechazan
+// el scheme "data" (sanitizer.go), que es justo lo que esta función
+// produce — mismo criterio que ya usan renderChartOfflineInline y
+// renderMapOfflineInline más abajo en este archivo, que tampoco sanitizan
+// su propio data: URI. Los bytes los lee ESTE proceso Go en build time,
+// desde una ruta confinada a ctx.AssetRoot (util.ResolveConfinedPath —
+// mismo confinamiento AL-4 que ya aplica a la incrustación de imágenes en
+// DOCX/PPTX) — nada se busca desde el contexto de la página renderizada,
+// así que el modelo de amenaza de AL-5 (una página no confiable
+// alcanzando fuera de su sandbox) no aplica acá.
+//
+// Exportada: slidelang tiene su propio camino de render de ImageElement
+// (data/converter.go + template/base.go, no pasa por RenderElementToHTML),
+// pero quiere el mismo comportamiento — reusar esta función evita una
+// segunda implementación de una ruta con confinamiento de filesystem.
+//
+// A diferencia de los demás métodos de este archivo que leen ctx.Logger,
+// esta función es alcanzable SIN pasar antes por resolveRenderContext —
+// ninguna de las dos rutas que la llaman (renderImageElement más arriba, vía
+// RenderElementToHTML; el converter.go de slidelang, directo) garantiza que
+// ctx ya fue normalizado. Un *RenderContext armado a mano con Logger sin
+// asignar (zero-value nil) truena con nil-pointer en el primer .Warn() de
+// abajo — hallazgo de code-review; ya pasó una vez en esta misma serie, con
+// los literales de slidelang en offline.go que salieron sin Logger y
+// necesitaron un commit de seguimiento. logger acá abajo es la misma
+// normalización que resolveRenderContext le aplicaría a ctx.Logger, sin
+// mutar el ctx del caller.
+func TryInlineLocalImage(source string, ctx *RenderContext) (string, bool) {
+	if ctx == nil || ctx.ImageMode != "offline-inline" || source == "" || ctx.AssetRoot == "" {
+		return "", false
+	}
+	logger := ctx.Logger
+	if logger == nil {
+		logger = util.NewNoop()
+	}
+	parsed, err := url.Parse(source)
+	if err != nil || parsed.Scheme != "" {
+		// Remoto (http/https/mailto/...) o ya es un data: URI — nada que inlinear.
+		return "", false
+	}
+
+	resolved, err := util.ResolveConfinedPath(ctx.AssetRoot, source)
+	if err != nil {
+		logger.Warn("[IMAGE] local image %q rejected: %v", source, err)
+		return "", false
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		logger.Warn("[IMAGE] failed to read local image %q: %v", source, err)
+		return "", false
+	}
+
+	mimeType := mime.TypeByExtension(filepath.Ext(resolved))
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64Encode(data)), true
 }
 
 // tableUsesCellStructure reports whether elem.Cells declares anything that
