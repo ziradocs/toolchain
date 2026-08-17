@@ -22,9 +22,14 @@ type RenderContextOptions struct {
 	ChartMode      string
 	MapMode        string
 	MathMode       string // issue #239-B
-	OutputDir      string
-	ImageFormat    string
-	WebPQuality    int
+	// ImageMode/AssetRoot: ver el comentario de renderer.RenderContext —
+	// mismos campos, mismo significado, solo pasados por el caller en vez
+	// de resueltos acá (issue #167).
+	ImageMode   string
+	AssetRoot   string
+	OutputDir   string
+	ImageFormat string
+	WebPQuality int
 	// DiagramBackend selecciona qué implementación satisface
 	// MermaidFetcher/PlantUMLFetcher en los modos offline: "chromium"
 	// (default, sin este campo) o "kroki" (KrokiServer, sin Chromium en
@@ -143,6 +148,11 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 		mathFetcher = NewMathFetcher(cr, renderer.NoopFetcherLogger{})
 	}
 
+	imageMode := opts.ImageMode
+	if imageMode == "" {
+		imageMode = "browser"
+	}
+
 	logger := opts.Logger
 	if logger == nil {
 		logger = util.NewNoop()
@@ -161,6 +171,8 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 		ChartMode:      chartMode,
 		MapMode:        mapMode,
 		MathMode:       mathMode,
+		ImageMode:      imageMode,
+		AssetRoot:      opts.AssetRoot,
 		OutputDir:      opts.OutputDir,
 		Fetcher:        fetcher,
 		MermaidFetcher: mermaidFetcher,
