@@ -94,21 +94,43 @@ func TestBuildPrintToPDFParams_ZeroValueDefaults(t *testing.T) {
 }
 
 // TestBuildPrintToPDFParams_MarginsAlwaysPropagated cubre issue #165: el
-// guard `> 0` que precedía a esto era un no-op (ver el comentario en
-// buildPrintToPDFParams) pero seguía siendo código que mentía sobre lo que
-// hacía — un futuro cdproto que agregara `omitempty` a estos campos habría
-// reintroducido en silencio el mismo bug que el guard `> 0` de Scale ya tuvo
-// una vez (ver TestBuildPrintToPDFParams_OnlyZeroMeansUnset). Cubre negativo
-// también: una margen no es válida en negativo, pero esta función no valida
-// rango — igual que con Scale, eso es responsabilidad del caller, no de
-// buildPrintToPDFParams silenciando el valor.
+// guard `> 0` que precedía a esto era un no-op para cualquier valor no
+// negativo (ver el comentario en buildPrintToPDFParams) pero seguía siendo
+// código que mentía sobre lo que hacía — un futuro cdproto que agregara
+// `omitempty` a estos campos habría reintroducido en silencio el mismo bug
+// que el guard `> 0` de Scale ya tuvo una vez (ver
+// TestBuildPrintToPDFParams_OnlyZeroMeansUnset). Cubre solo valores
+// no-negativos: para negativos ver
+// TestBuildPrintToPDFParams_NegativeMarginsClamped — a diferencia de Scale,
+// CDP rechaza un margen negativo con un error duro en vez de aceptarlo, así
+// que "propagar tal cual" no es el contrato correcto para ese caso (hallazgo
+// de code review: la primera versión de este test incluía -1 esperando que
+// se propagara, lo que convertía un margen negativo de "silenciosamente
+// clampeado a 0" en "build entero abortado").
 func TestBuildPrintToPDFParams_MarginsAlwaysPropagated(t *testing.T) {
-	for _, margin := range []float64{0, 0.4, 1.5, -1} {
+	for _, margin := range []float64{0, 0.4, 1.5} {
 		opts := PDFOptions{MarginTop: margin, MarginBottom: margin, MarginLeft: margin, MarginRight: margin}
 		params := buildPrintToPDFParams(opts)
 		if params.MarginTop != margin || params.MarginBottom != margin || params.MarginLeft != margin || params.MarginRight != margin {
 			t.Errorf("margins for input %v = %+v, want all four = %v", margin, params, margin)
 		}
+	}
+}
+
+// TestBuildPrintToPDFParams_NegativeMarginsClamped cubre el hallazgo de code
+// review sobre la primera versión de este PR: quitar el guard `> 0` sin más
+// dejaba pasar un margen negativo tal cual hacia CDP, que lo rechaza con un
+// error duro ("top margin is negative", -32602) en vez de ignorarlo como
+// hacía el guard viejo — un doclang con `page.margins.top: "-1in"` en su
+// front matter pasaba de generar un PDF (con margen en 0) a tronar el build
+// entero. nonNegativeMargin clampea a 0 en su lugar, preservando la
+// tolerancia que tenía el código antes de este PR sin resucitar el guard
+// `> 0` (que también descartaba valores positivos legítimos vía un
+// `omitempty` que nunca existió).
+func TestBuildPrintToPDFParams_NegativeMarginsClamped(t *testing.T) {
+	params := buildPrintToPDFParams(PDFOptions{MarginTop: -1, MarginBottom: -2.5, MarginLeft: -0.1, MarginRight: -100})
+	if params.MarginTop != 0 || params.MarginBottom != 0 || params.MarginLeft != 0 || params.MarginRight != 0 {
+		t.Errorf("negative margins = %+v, want all four clamped to 0", params)
 	}
 }
 
