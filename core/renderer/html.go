@@ -71,7 +71,7 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 		return renderMathElement(elem, variables, ctx)
 
 	case *ast.MediaElement:
-		return renderMediaElement(elem, variables)
+		return renderMediaElement(elem, variables, ctx)
 
 	default:
 		return fmt.Sprintf("<!-- Unsupported element type: %T -->", element)
@@ -246,6 +246,47 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 // normalización que resolveRenderContext le aplicaría a ctx.Logger, sin
 // mutar el ctx del caller.
 func TryInlineLocalImage(source string, ctx *RenderContext) (string, bool) {
+	return tryInlineLocalAsset(source, ctx, 0, "IMAGE", "image")
+}
+
+// maxInlineMediaBytes limita TryInlineLocalMedia (issue #181): un video/
+// audio local puede ser mucho más grande que cualquier imagen real, y
+// base64 infla ~33% el resultado que cruza el socket CDP vía
+// Page.SetDocumentContent — un archivo de 100MB se vuelve ~134MB de HTML
+// inyectado. TryInlineLocalImage (arriba) NO tiene este cap a propósito:
+// ya está publicada (v2.19.0) y agregarle un límite ahí sería una
+// regresión de comportamiento para cualquier imagen real por encima del
+// cap, que volvería a caer en el "src relativo roto" que #167 existió
+// para arreglar. 64 MiB es generoso para cualquier imagen real (no
+// debería regresar nada de #167) pero acota el peor caso de video.
+const maxInlineMediaBytes = 64 * 1024 * 1024
+
+// TryInlineLocalMedia es el equivalente de TryInlineLocalImage (issue
+// #167) para <video>/<audio> locales bajo offline-inline (issue #181) —
+// mismo confinamiento AL-4 (util.ResolveConfinedPath), mismo contrato de
+// retorno ("", false) cuando no aplica o falla. Nombre separado en vez de
+// generalizar TryInlineLocalImage a "TryInlineLocalAsset": esa función ya
+// está publicada (core/v2.19.0) y renombrarla forzaría a los consumidores
+// a migrar en el mismo release — mantenerla intacta y agregar esta al
+// lado es un cambio puramente aditivo.
+//
+// La justificación real de este símbolo es --format html
+// --render-mode offline-inline, NO --format pdf: headless Chromium
+// capturando un <video>/<audio> en un PDF solo muestra el poster/primer
+// frame en el mejor caso (ver el doc comment de renderMediaElement), así
+// que inlinear los bytes de un video en un PDF que no puede reproducirlo
+// no compra mucho. En un HTML offline-inline autocontenido, el video
+// local sí reproduce de verdad.
+func TryInlineLocalMedia(source string, ctx *RenderContext) (string, bool) {
+	return tryInlineLocalAsset(source, ctx, maxInlineMediaBytes, "MEDIA", "media source")
+}
+
+// tryInlineLocalAsset es la lógica compartida entre TryInlineLocalImage y
+// TryInlineLocalMedia. maxBytes <= 0 significa sin límite (el contrato
+// histórico de TryInlineLocalImage); tag/kind alimentan el mensaje de
+// log — p. ej. tag="IMAGE" kind="image" reproduce exactamente el texto
+// que TryInlineLocalImage ya emitía antes de esta extracción.
+func tryInlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag, kind string) (string, bool) {
 	if ctx == nil || ctx.ImageMode != "offline-inline" || source == "" || ctx.AssetRoot == "" {
 		return "", false
 	}
@@ -261,12 +302,20 @@ func TryInlineLocalImage(source string, ctx *RenderContext) (string, bool) {
 
 	resolved, err := util.ResolveConfinedPath(ctx.AssetRoot, source)
 	if err != nil {
-		logger.Warn("[IMAGE] local image %q rejected: %v", source, err)
+		logger.Warn("[%s] local %s %q rejected: %v", tag, kind, source, err)
 		return "", false
 	}
+
+	if maxBytes > 0 {
+		if info, err := os.Stat(resolved); err == nil && info.Size() > maxBytes {
+			logger.Warn("[%s] local %s %q (%d bytes) exceeds the %d byte inline limit, left unresolved", tag, kind, source, info.Size(), maxBytes)
+			return "", false
+		}
+	}
+
 	data, err := os.ReadFile(resolved)
 	if err != nil {
-		logger.Warn("[IMAGE] failed to read local image %q: %v", source, err)
+		logger.Warn("[%s] failed to read local %s %q: %v", tag, kind, source, err)
 		return "", false
 	}
 
@@ -317,14 +366,22 @@ func tableUsesCellStructure(elem *ast.TableElement) bool {
 // external filter via the JSON --filter pipeline (issue #240), not just
 // this package's own parser; same defensive pattern as SanitizeColor/
 // inlineSpanTokens. Source goes through SanitizeURL (blocks javascript:/
-// data:/vbscript:/file:), same as renderImageElement.
+// data:/vbscript:/file:), same as renderImageElement — unless
+// TryInlineLocalMedia (issue #181) already resolved it to a data: URI, in
+// which case SanitizeURL is skipped entirely (it rejects the "data" scheme
+// by design; see the equivalent comment on renderImageElement).
+//
+// ctx can be nil (same contract as the rest of RenderElementToHTML) — only
+// consulted for local-source inlining under offline-inline.
 //
 // PDF/offline caveat: under chromedp (renderer/chromium) a <video>/<audio>
 // doesn't play real content during headless capture — the tag is still
 // emitted (with its controls, if Controls=true) showing the initial frame/
 // poster, not a limitation introduced here but inherent to capturing video
-// with a headless browser with no user interaction.
-func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}) string {
+// with a headless browser with no user interaction. This is why
+// TryInlineLocalMedia's real payoff is --format html --render-mode
+// offline-inline, not --format pdf — see its doc comment.
+func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}, ctx *RenderContext) string {
 	tag := "video"
 	if elem.MediaType == "audio" {
 		tag = "audio"
@@ -338,7 +395,11 @@ func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}
 		// rejected something when nothing was ever provided.
 		return `<div class="media-error">Media element has no source</div>`
 	}
-	source = SanitizeURL(source)
+	if inlined, ok := TryInlineLocalMedia(source, ctx); ok {
+		source = inlined
+	} else {
+		source = SanitizeURL(source)
+	}
 	if source == "" {
 		return `<div class="media-error">Media source blocked for security reasons</div>`
 	}
