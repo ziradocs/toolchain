@@ -1,0 +1,60 @@
+/* Elementos de chart (issue #166). Dos rutas posibles, con CSS distinto
+   requerido en cada una:
+
+   - Modo browser (renderChartBrowser, core/renderer/html.go): un <canvas>
+     que Chart.js dimensiona vía su propio JS (`responsive: true`) — las
+     reglas de .slidelang-chart-canvas de acá son solo una red de
+     seguridad, no lo que gobierna su tamaño en el día a día.
+   - Modos offline (offline-assets/offline-inline, éste último el que
+     --format pdf siempre fuerza): el chart nativo (go-analyze/charts, sin
+     Chromium) se rasteriza a un PNG de 800x600 por default
+     (core/renderer/chart_dimensions.go) y llega como
+     <div class="slidelang-chart-wrapper"><img class="slidelang-chart-image
+     slidelang-chart-inline"></div> — namespaceado desde
+     renderer.OfflineElementClasses por data/converter.go. Esta es la ruta
+     que faltaba estilar: sin max-width/max-height, el <img> se queda a su
+     tamaño intrínseco y no cabe en la página del PDF. */
+.slidelang-element.slidelang-chart {
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.slidelang-element.slidelang-chart .slidelang-chart-container,
+.slidelang-element.slidelang-chart .slidelang-chart-wrapper {
+    max-width: 100%;
+    overflow: hidden;
+}
+
+/* max-height acota el chart a una fracción de la página/slide en vez de
+   dejarlo a su alto intrínseco de 600px — issue #166: esos 600px llenan
+   exactamente la caja imprimible de --format pdf (7.5in de página menos
+   padding, ver #163/#165) sin dejar lugar al <h2> del título que
+   template/base.go ya renderiza encima. */
+.slidelang-element.slidelang-chart .slidelang-chart-image {
+    max-width: 100%;
+    max-height: 55vh;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+}
+
+.slidelang-element.slidelang-chart .slidelang-chart-canvas {
+    max-width: 100%;
+    height: auto;
+}
+
+.slidelang-element.slidelang-chart .slidelang-chart-title {
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.slidelang-element.slidelang-chart .slidelang-chart-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    color: var(--slidelang-danger-color, #dc3545);
+    background: var(--slidelang-bg-danger-light, #f8d7da);
+    border-radius: var(--slidelang-border-radius, 8px);
+    font-weight: 500;
+}
