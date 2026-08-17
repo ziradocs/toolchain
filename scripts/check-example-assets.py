@@ -39,6 +39,16 @@ BASELINE_FILE = Path(__file__).resolve().parent / "check-example-assets-baseline
 
 IMAGE_REF_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
+# CommonMark allows an optional title after the path, separated by
+# whitespace: `![alt](path "title")` or `![alt](path 'title')`. IMAGE_REF_RE
+# captures everything up to the closing paren, so without stripping this the
+# captured "path" for a titled reference includes the title text too, and
+# resolving `assets/logo.png "TechFlow"` against disk always misses — a
+# false positive that reports an existing, correctly-referenced asset as
+# broken (found in code review; no file under examples/ uses this form
+# today, so it hasn't fired yet).
+TITLE_SUFFIX_RE = re.compile(r"""^(\S+)\s+(?:"[^"]*"|'[^']*')\s*$""")
+
 REMOTE_SCHEMES = ("http://", "https://", "data:")
 
 
@@ -56,6 +66,13 @@ def load_baseline():
             continue
         entries.add((path, raw_ref))
     return entries
+
+
+def strip_title(raw_path: str) -> str:
+    """Strip an optional CommonMark title (path "title" / path 'title'),
+    returning just the path portion that should resolve to a file."""
+    m = TITLE_SUFFIX_RE.match(raw_path)
+    return m.group(1) if m else raw_path
 
 
 def is_local_reference(path: str) -> bool:
@@ -76,12 +93,13 @@ def find_missing_assets():
             rel_path = str(source_file.relative_to(REPO_ROOT))
             for match in IMAGE_REF_RE.finditer(content):
                 raw_path = match.group(1).strip()
-                if not is_local_reference(raw_path):
+                path = strip_title(raw_path)
+                if not is_local_reference(path):
                     continue
                 # Local image references are never URL-encoded in this
                 # codebase's examples, but decode defensively rather than
                 # false-flagging a literal %20 in a filename.
-                decoded_path = urllib.parse.unquote(raw_path)
+                decoded_path = urllib.parse.unquote(path)
                 resolved = (source_file.parent / decoded_path).resolve()
                 if not resolved.is_file():
                     line_no = content.count("\n", 0, match.start()) + 1
