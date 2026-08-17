@@ -76,8 +76,8 @@ github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT0
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
 go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
-go.ziradocs.com/core/v2 v2.19.0 h1:VL6jBwNyQ9Fq5QVcnNEDZHsD8xmNe1erLrzGRkBHe08=
-go.ziradocs.com/core/v2 v2.19.0/go.mod h1:9t1VSQ5WHcEUeEtiwPxxU7T0NfXx4noLfK2ehM4q7nI=
+go.ziradocs.com/core/v2 v2.20.0 h1:f2cd+OPi8CTxaFFmFUMjxSsbfD4pNReBx1SDrJduWoI=
+go.ziradocs.com/core/v2 v2.20.0/go.mod h1:9t1VSQ5WHcEUeEtiwPxxU7T0NfXx4noLfK2ehM4q7nI=
 golang.org/x/image v0.43.0 h1:FLxcP4ec2350nTfOC8ysKtqYSIFbk/QGjw1ZHNP4tsY=
 golang.org/x/image v0.43.0/go.mod h1:rrpelvGFt+kLPAjPM4HeWPgrl0FtafueU//e5N0qk/Q=
 golang.org/x/net v0.0.0-20210614182718-04defd469f4e/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=
