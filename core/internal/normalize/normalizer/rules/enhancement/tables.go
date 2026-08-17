@@ -214,8 +214,13 @@ func (r *TablesRule) detectLinePattern(line string) string {
 	tabCount := strings.Count(line, "\t")
 	colonCount := strings.Count(line, ":")
 
-	// Priorizar pipes (más común en tablas)
-	if pipeCount >= 2 {
+	// Priorizar pipes (más común en tablas). Issue #174: exigir "|" inicial,
+	// igual que TableParser.CanParse (core/internal/elements/table.go) y
+	// TextParser.isOtherElementType — sin esto, 3+ líneas de prosa seguidas
+	// con 2+ "|" cada una (p. ej. varios renglones de "**A:** 1 | **B:** 2")
+	// se reescribían en una tabla markdown falsa antes de que el parser
+	// corriera.
+	if strings.HasPrefix(line, "|") && pipeCount >= 2 {
 		return "pipe"
 	}
 	// Tabs también son comunes

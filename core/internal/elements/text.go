@@ -97,7 +97,28 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				break
 			}
 
-			// Stop if another element type is detected
+			// Stop if another element type is detected.
+			//
+			// issue #174 — historial de este bloque: la primera versión de
+			// este fix intentó agregar un guard `i > startIndex` acá, para
+			// que isOtherElementType dejara de evaluarse contra la PRIMERA
+			// línea (la que TextParser.CanParse ya aceptó porque ningún
+			// parser anterior del registry la reclamó). La intención era
+			// correcta para el caso de #174 (pipes/### que nadie reclama),
+			// pero el guard era demasiado ancho: TestFormatDocument_RoundTrip_Corpus
+			// (formatter, examples/dimensions_test.doclang) reveló una
+			// regresión real — un "<<end>>" huérfano que sobrevive al
+			// round-trip de ChartElement/MapElement (formatChart/formatMap
+			// cierran con "<<end>>" genérico) deja de ser descartado en
+			// silencio por el chequeo `<<...>>` de isOtherElementType y
+			// pasa a renderizarse como su propio TextElement con contenido
+			// literal "<<end>>". Ese descarte silencioso, aunque accidental,
+			// es comportamiento del que este mismo corpus depende hoy.
+			//
+			// La corrección real, más angosta, vive en isOtherElementType:
+			// cada predicado se sincronizó con lo que el dispatcher de
+			// verdad reclama (ver los comentarios de "|" y "##" ahí abajo),
+			// en vez de ensanchar CUÁNDO se llama al predicado completo.
 			if p.isOtherElementType(trimmed, ctx.Mode) {
 				break
 			}
@@ -142,9 +163,26 @@ func (p *TextParser) isOtherElementType(line string, mode string) bool {
 		return true
 	}
 
-	// Subsection headers in DocLang (##, ###, ####, etc.) - but NOT # (H1)
-	// H1 is handled separately and creates new sections
-	if strings.HasPrefix(line, "##") {
+	// Subsection headers — SOLO "## " (issue #174). Antes esto era
+	// HasPrefix(line, "##") sin exigir el espacio, así que además de "## "
+	// también capturaba "### "/"#### " y hasta "##SinEspacio". El único
+	// consumidor real de un heading "##" es el loop externo de flex.go
+	// (parseSection/parseSlide), que exige EXACTAMENTE "# "/"## " —con
+	// espacio— para tratar una línea como límite de bloque/subtítulo;
+	// nunca reconoce "### " ni más hashes como nada especial. Ese
+	// desacople es lo que causaba la "zona muerta": un "### Foo" que
+	// llegaba como primera línea de un párrafo (nadie más lo reclama)
+	// hacía que este chequeo lo tratara como "otro elemento", Parse
+	// retornaba ConsumedLines:0 sin error, y el failsafe de flex.go
+	// avanzaba una línea sin emitir nada — la línea desaparecía en
+	// silencio. Angostar el predicado a "## " exacto dos cosas: sigue
+	// deteniendo el párrafo antes de un "## " genuino que aparezca más
+	// adelante en el mismo bloque (necesario — el loop externo de flex.go
+	// solo revisa `p.currentLine`, no las líneas que TextParser ya
+	// escaneó hacia adelante dentro de un mismo Parse()), y dejar que
+	// "###"+ (que nadie reclama en ningún nivel) se trate como texto
+	// normal en vez de desaparecer.
+	if strings.HasPrefix(line, "## ") {
 		return true
 	}
 
@@ -173,8 +211,13 @@ func (p *TextParser) isOtherElementType(line string, mode string) bool {
 		return true
 	}
 
-	// Tables (markdown style)
-	if strings.Contains(line, "|") && strings.Count(line, "|") >= 2 {
+	// Tables (markdown style). Issue #174: este predicado exigía CONTAINS en
+	// vez de HasPrefix, así que prosa con 2+ "|" que no abre con "|" (p. ej.
+	// "**A:** 1 | **B:** 2 | **C:** 3") se clasificaba como "otro elemento"
+	// aunque TableParser.CanParse (table.go) — el único parser que en
+	// verdad reclama tablas markdown — exige un "|" INICIAL, igual que
+	// IsNewElement (common.go). Ahora espeja esa regla exactamente.
+	if strings.HasPrefix(line, "|") && strings.Count(line, "|") >= 2 {
 		return true
 	}
 
