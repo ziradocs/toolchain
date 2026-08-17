@@ -1,0 +1,70 @@
+# Baseline of pre-existing broken local image references under examples/,
+# frozen at the time check-example-assets.py was added (issue #163/#167
+# follow-up). Entries here do NOT fail the check — they're debt that
+# predates this guard, not something it approved.
+#
+# The two references this same change actually fixed
+# (analytics_dashboard_presentation_flex.slidelang's missing logo,
+# 01.5_layouts_and_images_flex.slidelang's nine missing portfolio/client
+# images) are NOT listed below: they're fixed, not baselined.
+#
+# Format: one "<path-relative-to-repo-root><TAB><raw reference as written>"
+# per line — the exact pair check-example-assets.py reports on a failure.
+# Fixing an entry means removing its line here, not just fixing the file:
+# if the line stays, the check can't tell the file was fixed and won't
+# catch a future regression that reintroduces a similarly-named but still
+# broken reference.
+#
+# New broken references are NOT covered by this baseline and will fail CI.
+examples/01_title_and_content/01.2_text_formatting_flex.slidelang	assets/dashboard-screenshot.png
+examples/01_title_and_content/01.2_text_formatting_flex.slidelang	assets/workflow-diagram.png
+examples/01_title_and_content/01.2_text_formatting_flex.slidelang	assets/feature-creation.png
+examples/01_title_and_content/01.2_text_formatting_flex.slidelang	assets/feature-collaboration.png
+examples/01_title_and_content/01.2_text_formatting_flex.slidelang	assets/feature-analytics.png
+examples/01_title_and_content/01.2_text_formatting_flex.slidelang	assets/before-formatting.png
+examples/01_title_and_content/01.2_text_formatting_flex.slidelang	assets/after-formatting.png
+examples/01_title_and_content/01.3_lists_and_tables_flex.slidelang	assets/project-icon.png
+examples/01_title_and_content/01.4_special_blocks_flex.slidelang	assets/docs-icon.png
+examples/01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang	assets/syntax-icon.png
+examples/01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang	assets/link-icon.png
+examples/01_title_and_content/01_title_and_content_flex.slidelang	assets/clouddocs-logo.png
+examples/02_diagrams_and_charts/02.2_technical_diagrams_flex.slidelang	assets/technical-icon.png
+examples/02_diagrams_and_charts/02_diagrams_and_charts_flex.slidelang	assets/techscale-logo.png
+examples/18_specialized_layouts/18.1_code_examples_flex.slidelang	assets/dev-logo.png
+examples/18_specialized_layouts/18.2_comparison_analysis_flex.slidelang	assets/analysis-icon.png
+examples/18_specialized_layouts/18.2_comparison_analysis_flex.slidelang	assets/flowmaster-ui.png
+examples/18_specialized_layouts/18.2_comparison_analysis_flex.slidelang	assets/techflow-ui.png
+examples/18_specialized_layouts/18.3_headers_footers_basic_flex.slidelang	assets/slidelang-logo.png
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/success-icon.png
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/banco-before.png
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/banco-after.png
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/hospital-dashboard.png
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/manufactura-before.png
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/manufactura-after.png
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/sarah-johnson.jpg
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/luis-garcia.jpg
+examples/18_specialized_layouts/18.3_testimonials_success_flex.slidelang	assets/priya-patel.jpg
+examples/18_specialized_layouts/18.4_dashboard_metrics_flex.slidelang	assets/dashboard-icon.png
+examples/18_specialized_layouts/18.4_dashboard_metrics_flex.slidelang	assets/executive-dashboard.png
+examples/18_specialized_layouts/18.4_dashboard_metrics_flex.slidelang	assets/support-before.png
+examples/18_specialized_layouts/18.4_dashboard_metrics_flex.slidelang	assets/support-after.png
+examples/18_specialized_layouts/18.4_headers_footers_advanced_flex.slidelang	./assets/techcorp-logo.png
+examples/18_specialized_layouts/18.4_headers_footers_advanced_flex.slidelang	assets/slide-basic.png
+examples/18_specialized_layouts/18.4_headers_footers_advanced_flex.slidelang	assets/slide-advanced.png
+examples/18_specialized_layouts/18.5_headers_footers_granular_flex.slidelang	assets/control-icon.png
+examples/18_specialized_layouts/18.5_headers_footers_granular_flex.slidelang	assets/uniform-slides.png
+examples/18_specialized_layouts/18.5_headers_footers_granular_flex.slidelang	assets/contextual-slides.png
+examples/18_specialized_layouts/auto_closing_demo.slidelang	assets/logo.png
+examples/18_specialized_layouts/closing_demo.slidelang	assets/logo.png
+examples/18_specialized_layouts/product_launch_presentation_flex.slidelang	assets/techflow-logo.png
+examples/18_specialized_layouts/product_launch_presentation_flex.slidelang	assets/process-before.png
+examples/18_specialized_layouts/product_launch_presentation_flex.slidelang	assets/process-after.png
+examples/18_specialized_layouts/product_launch_presentation_flex.slidelang	assets/carlos-rodriguez.jpg
+examples/18_specialized_layouts/product_launch_presentation_flex.slidelang	assets/ana-martinez.jpg
+examples/18_specialized_layouts/product_launch_presentation_flex.slidelang	assets/david-chen.jpg
+examples/18_specialized_layouts/product_launch_presentation_flex.slidelang	assets/dashboard-screenshot.png
+examples/openai_fixed.slidelang	ejercicio-fisico.jpg
+examples/openai_fixed.slidelang	bienestar-mental.jpg
+examples/openai_fixed.slidelang	tipos-ejercicio.jpg
+examples/openai_fixed.slidelang	plan-semanal.jpg
+examples/openai_fixed.slidelang	motivacion.jpg
