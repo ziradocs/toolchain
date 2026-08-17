@@ -157,5 +157,11 @@ func slidesPDFOptions() renderer.PDFOptions {
 		PaperHeight: 7.5,
 		Landscape:   false,
 		Scale:       1.0,
+		// OverflowSelector (issue #175, core/v2.21.0): con el lienzo de
+		// tamaño fijo de arriba, un slide cuyo contenido no cabe se recorta
+		// en silencio — esto le pide a RenderHTMLToPDF que mida y avise en
+		// vez de callar. doclang no setea este campo: su PDF fluye entre
+		// páginas y no recorta nada que medir.
+		OverflowSelector: ".slidelang-slide",
 	}
 }
