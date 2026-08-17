@@ -148,14 +148,14 @@ func TestRenderMediaElement_EmitsAttributes(t *testing.T) {
 	video.Controls = true
 	video.Loop = true
 
-	got := renderMediaElement(video, nil)
+	got := renderMediaElement(video, nil, nil)
 	want := `<video src="demo.mp4" controls loop></video>`
 	if got != want {
 		t.Errorf("got:  %s\nwant: %s", got, want)
 	}
 
 	audio := ast.NewMediaElement(pos, "audio", "clip.mp3")
-	got = renderMediaElement(audio, nil)
+	got = renderMediaElement(audio, nil, nil)
 	want = `<audio src="clip.mp3"></audio>`
 	if got != want {
 		t.Errorf("got:  %s\nwant: %s", got, want)
@@ -169,7 +169,7 @@ func TestRenderMediaElement_BlocksDangerousSource(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	media := ast.NewMediaElement(pos, "video", `javascript:alert(document.domain)`)
 
-	got := renderMediaElement(media, nil)
+	got := renderMediaElement(media, nil, nil)
 	if strings.Contains(got, "javascript:") {
 		t.Errorf("dangerous source was not blocked: %s", got)
 	}
@@ -190,7 +190,7 @@ func TestRenderMediaElement_EmptySourceGetsDistinctMessage(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	media := ast.NewMediaElement(pos, "video", "")
 
-	got := renderMediaElement(media, nil)
+	got := renderMediaElement(media, nil, nil)
 	if !strings.Contains(got, "media-error") {
 		t.Errorf("expected a media-error fallback for an empty source, got: %s", got)
 	}
@@ -208,7 +208,7 @@ func TestRenderMediaElement_UnknownMediaTypeFallsBackToVideo(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	media := ast.NewMediaElement(pos, `script onload=alert(1) x`, "demo.mp4")
 
-	got := renderMediaElement(media, nil)
+	got := renderMediaElement(media, nil, nil)
 	if strings.Contains(got, "onload") {
 		t.Fatalf("MediaType was interpolated raw as a tag name: %s", got)
 	}
