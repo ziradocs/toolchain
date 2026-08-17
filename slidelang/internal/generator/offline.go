@@ -12,6 +12,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/renderer/chromium"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // offline.go conecta slidelang al pipeline de rendering offline que ya vive en
@@ -190,7 +191,9 @@ func wireMermaidFetcher(ctx *renderer.RenderContext, astNode *ast.AST, opts Gene
 func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string, opts GeneratorOptions) (*renderer.RenderContext, func(), error) {
 	noop := func() {}
 	if !opts.IsOffline() {
-		return renderer.NewDefaultRenderContext(), noop, nil
+		ctx := renderer.NewDefaultRenderContext()
+		ctx.Logger = g.logger
+		return ctx, noop, nil
 	}
 
 	needsChromium := hasInteractiveElements(astNode, opts.DiagramBackend)
@@ -205,7 +208,9 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 	// Un deck de solo texto no necesita Chromium aunque se pida offline; no
 	// forzamos su instalación/arranque para nada (issue #92).
 	if !needsChromium && !needsPlantUML && !needsMermaidViaKroki {
-		return renderer.NewDefaultRenderContext(), noop, nil
+		ctx := renderer.NewDefaultRenderContext()
+		ctx.Logger = g.logger
+		return ctx, noop, nil
 	}
 
 	// Un deck con SOLO PlantUML y/o mermaid-vía-Kroki (sin chart/map/math, o
@@ -214,6 +219,7 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 	// extendido a mermaid por "quitar Chrome del pipeline").
 	if !needsChromium {
 		ctx := renderer.NewDefaultRenderContext()
+		ctx.Logger = g.logger
 		ctx.OutputDir = outputDir
 		wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
 		wireMermaidFetcher(ctx, astNode, opts, outputDir)
@@ -249,6 +255,7 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 		if !hasChromiumOnlyElements(astNode, opts.DiagramBackend) {
 			g.logger.Warn("HTML: Chromium no disponible, las ecuaciones se mostrarán como LaTeX sin tipografiar (%v)", err)
 			ctx := renderer.NewDefaultRenderContext()
+			ctx.Logger = g.logger
 			ctx.OutputDir = outputDir
 			wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
 			wireMermaidFetcher(ctx, astNode, opts, outputDir)
@@ -257,7 +264,7 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 		return nil, noop, fmt.Errorf("failed to initialize Chromium for offline rendering: %w", err)
 	}
 
-	ctx := buildInteractiveRenderContext(chromiumR, astNode, outputDir, opts)
+	ctx := buildInteractiveRenderContext(chromiumR, astNode, outputDir, opts, g.logger)
 
 	g.logger.Info("HTML", "✅ Offline rendering habilitado (render-mode: %s, image-format: %s)", opts.RenderMode, resolveImageFormat(opts.ImageFormat))
 
@@ -336,8 +343,18 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 	ctx := &renderer.RenderContext{
 		ChartMode:    opts.RenderMode,
 		PlantUMLMode: "browser",
+		// ImageMode/AssetRoot (issue #167): opts.RenderMode ya es la
+		// misma fuente de verdad que ChartMode de arriba usa — este
+		// camino no tiene un modo por-elemento separado, un único
+		// --render-mode gobierna todo, imágenes locales incluidas.
+		// generatePDF (pdf.go) fuerza opts.RenderMode a "offline-inline"
+		// antes de llegar acá, así que un PDF sigue inlineando sin
+		// depender de qué haya en la línea de comandos.
+		ImageMode:    opts.RenderMode,
+		AssetRoot:    opts.AssetRoot,
 		OutputDir:    outputDir,
 		ChartFetcher: chartFetcher,
+		Logger:       g.logger,
 		Ctx:          context.Background(),
 	}
 	// Un chart nativo puede convivir con PlantUML en el mismo deck (PlantUML
@@ -379,7 +396,7 @@ func resolveWebPQuality(webpQuality int) int {
 // cablea aparte vía wirePlantUMLFetcher (no necesita `chromiumR` — su
 // fetcher es HTTP puro), pero se resuelve acá para tener un solo punto de
 // entrada que ambos callers usan.
-func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode *ast.AST, outputDir string, opts GeneratorOptions) *renderer.RenderContext {
+func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode *ast.AST, outputDir string, opts GeneratorOptions, logger util.Logger) *renderer.RenderContext {
 	imageFormat := resolveImageFormat(opts.ImageFormat)
 	webpQuality := resolveWebPQuality(opts.WebPQuality)
 
@@ -395,10 +412,15 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 		MapMode:      opts.RenderMode,
 		MathMode:     opts.RenderMode,
 		PlantUMLMode: "browser",
+		// ImageMode/AssetRoot (issue #167): mismo criterio que
+		// tryBuildNativeContext arriba en este archivo.
+		ImageMode:    opts.RenderMode,
+		AssetRoot:    opts.AssetRoot,
 		OutputDir:    outputDir,
 		ChartFetcher: chartFetcher,
 		MapFetcher:   mapFetcher,
 		MathFetcher:  mathFetcher,
+		Logger:       logger,
 		Ctx:          context.Background(),
 	}
 	// chromiumR ya está instanciado acá (lo necesitan chart/map/math), pero

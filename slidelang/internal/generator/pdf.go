@@ -87,12 +87,28 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 	// PR #56).
 	ctx := renderer.NewDefaultRenderContext()
 	if hasInteractiveElements(astNode, pdfOpts.DiagramBackend) {
-		ctx = buildInteractiveRenderContext(chromiumRenderer, astNode, outputDir, pdfOpts)
+		ctx = buildInteractiveRenderContext(chromiumRenderer, astNode, outputDir, pdfOpts, g.logger)
 	} else {
 		ctx.OutputDir = outputDir
 		wirePlantUMLFetcher(ctx, astNode, pdfOpts, outputDir)
 		wireMermaidFetcher(ctx, astNode, pdfOpts, outputDir)
 	}
+	// issue #167: un deck con SOLO imágenes locales (sin chart/mermaid/map/
+	// math) cae en el branch de arriba, que buildInteractiveRenderContext
+	// nunca toca — sin esto, el caso más común de #167 (una imagen local,
+	// nada más) se quedaría sin inlinear pese a que pdfOpts.RenderMode ya
+	// viene forzado a "offline-inline" un poco más arriba en este archivo.
+	ctx.ImageMode = pdfOpts.RenderMode
+	ctx.AssetRoot = pdfOpts.AssetRoot
+	// ctx.Logger ya viene del branch interactivo (arriba) cuando aplica; el
+	// branch NewDefaultRenderContext() (else, o el caso sin elementos
+	// interactivos) trae util.NewNoop() por default (context.go) — sin esto
+	// los ctx.Logger.Warn(...) de TryInlineLocalImage (rutas locales
+	// rechazadas por AL-5, archivos faltantes) nunca llegaban a stderr en el
+	// caso más común de #167, un deck de solo imágenes. Asignación
+	// incondicional: pisa el logger ya-correcto del branch interactivo con
+	// el mismo valor, así que es inocua ahí.
+	ctx.Logger = g.logger
 
 	presentationConfig, err := g.preparePresentationConfig(astNode, outputDir, pdfOpts, ctx)
 	if err != nil {
