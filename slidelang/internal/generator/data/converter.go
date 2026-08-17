@@ -331,6 +331,22 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				// "atacante" en un string plano), así que el template renderiza
 				// un aviso en vez de un <img> cuando Source == "".
 				elementData.Source = renderer.ValidateURLScheme(source)
+				// InlinedSource (issue #167): --format pdf inyecta el HTML
+				// final en about:blank, sin base URL contra la cual una
+				// <img src="ruta/relativa"> resuelva — TryInlineLocalImage
+				// lee el archivo del disco (confinado a ctx.AssetRoot) y lo
+				// devuelve como data: URI. Solo aplica bajo
+				// ctx.ImageMode == "offline-inline" (pdf.go lo fuerza
+				// siempre); en cualquier otro modo ok es false y el template
+				// cae a Source sin cambio de comportamiento. Se intenta
+				// sobre el `source` YA procesado por variables pero SIN
+				// pasar por ValidateURLScheme — TryInlineLocalImage hace su
+				// propio chequeo de esquema (url.Parse) antes de tocar el
+				// filesystem, así que no depende del resultado de la línea
+				// de arriba.
+				if inlined, ok := renderer.TryInlineLocalImage(source, ctx); ok {
+					elementData.InlinedSource = htmltemplate.URL(inlined)
+				}
 				// Alt/Caption: sin pre-escapar, por la misma razón que Source.
 				elementData.Alt = ProcessVariables(elem.Alt, variables)
 				elementData.Caption = ProcessVariables(elem.Caption, variables)

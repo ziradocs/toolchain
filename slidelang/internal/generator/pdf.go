@@ -93,6 +93,13 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 		wirePlantUMLFetcher(ctx, astNode, pdfOpts, outputDir)
 		wireMermaidFetcher(ctx, astNode, pdfOpts, outputDir)
 	}
+	// issue #167: un deck con SOLO imágenes locales (sin chart/mermaid/map/
+	// math) cae en el branch de arriba, que buildInteractiveRenderContext
+	// nunca toca — sin esto, el caso más común de #167 (una imagen local,
+	// nada más) se quedaría sin inlinear pese a que pdfOpts.RenderMode ya
+	// viene forzado a "offline-inline" un poco más arriba en este archivo.
+	ctx.ImageMode = pdfOpts.RenderMode
+	ctx.AssetRoot = pdfOpts.AssetRoot
 
 	presentationConfig, err := g.preparePresentationConfig(astNode, outputDir, pdfOpts, ctx)
 	if err != nil {

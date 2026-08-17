@@ -437,6 +437,7 @@ Examples:
 				ChartMode:         renderMode,         // 🆕 Global render mode
 				MapMode:           renderMode,         // 🆕 Global render mode
 				MathMode:          renderMode,         // issue #239-B: Global render mode
+				ImageMode:         renderMode,         // issue #167: Global render mode
 				ImageFormat:       imageFormat,        // 🆕 Image format (png/webp)
 				WebPQuality:       webpQuality,        // 🆕 WebP quality
 				ChromiumPath:      chromiumPath,       // 🆕 Custom Chromium path

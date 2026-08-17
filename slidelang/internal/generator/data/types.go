@@ -145,10 +145,23 @@ type ElementData struct {
 	Content  string
 	Language string
 	Source   string
-	Alt      string
-	Caption  string
-	Items    []PointItemData
-	ListType string // "ordered" para <ol>, "unordered" para <ul>
+	// InlinedSource (issue #167) lleva la fuente LOCAL de una imagen ya
+	// inlineada como data: URI, cuando aplica — separado de Source
+	// deliberadamente: Source es un string plano porque QuoteElement
+	// reusa este mismo campo para su texto de atribución (converter.go,
+	// case *ast.QuoteElement), no una URL, y html/template solo deja
+	// pasar un data: URI sin neutrearlo a "#ZgotmplZ" cuando el valor
+	// Go es del tipo con nombre htmltemplate.URL — marcar TODO Source
+	// así habría afectado esa cita sin necesidad (verificado que el tipo
+	// no cambia el escapado en un nodo de texto plano, pero mezclar los
+	// dos usos en un campo con ese nombre confunde al próximo lector más
+	// de lo que ahorra). El template usa InlinedSource cuando está
+	// presente y cae a Source si no.
+	InlinedSource htmltemplate.URL
+	Alt           string
+	Caption       string
+	Items         []PointItemData
+	ListType      string // "ordered" para <ol>, "unordered" para <ul>
 	// Checklist data
 	ChecklistItems []ChecklistItemData
 	// Grid data

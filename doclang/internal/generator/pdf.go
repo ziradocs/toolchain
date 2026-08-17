@@ -155,6 +155,16 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		ChartMode:      offlineMode,
 		MapMode:        offlineMode,
 		MathMode:       offlineMode,
+		// ImageMode (issue #167): forzado incondicionalmente, igual que
+		// los cuatro de arriba — a diferencia de --format html, acá NO
+		// sigue opts.ImageMode/--render-mode. El HTML de un PDF SIEMPRE
+		// se inyecta en about:blank (ver el comentario de offlineMode más
+		// arriba), así que una <img src="ruta/relativa"> local está
+		// SIEMPRE rota sin importar qué diga --render-mode — no hay un
+		// modo "browser" válido para el resultado final de un PDF, igual
+		// que no lo hay para mermaid/chart/map/math acá.
+		ImageMode:      offlineMode,
+		AssetRoot:      opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
 		OutputDir:      outputDir,
 		ImageFormat:    opts.ImageFormat,
 		WebPQuality:    opts.WebPQuality,

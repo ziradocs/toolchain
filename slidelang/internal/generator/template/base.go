@@ -632,7 +632,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  data-slide="{{.SlideIndex}}"
                  data-context="{{.Context}}">
                 {{if .Source}}
-                <img src="{{.Source}}"
+                <img src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"
                      alt="{{.Alt}}"
                      loading="lazy"
                      style="object-fit: contain;">

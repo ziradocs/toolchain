@@ -141,6 +141,8 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		ChartMode:      opts.ChartMode,
 		MapMode:        opts.MapMode,
 		MathMode:       opts.MathMode,
+		ImageMode:      opts.ImageMode, // issue #167
+		AssetRoot:      opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
 		OutputDir:      outputDir,
 		ImageFormat:    opts.ImageFormat,
 		WebPQuality:    opts.WebPQuality,

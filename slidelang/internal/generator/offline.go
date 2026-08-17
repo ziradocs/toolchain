@@ -336,6 +336,15 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 	ctx := &renderer.RenderContext{
 		ChartMode:    opts.RenderMode,
 		PlantUMLMode: "browser",
+		// ImageMode/AssetRoot (issue #167): opts.RenderMode ya es la
+		// misma fuente de verdad que ChartMode de arriba usa — este
+		// camino no tiene un modo por-elemento separado, un único
+		// --render-mode gobierna todo, imágenes locales incluidas.
+		// generatePDF (pdf.go) fuerza opts.RenderMode a "offline-inline"
+		// antes de llegar acá, así que un PDF sigue inlineando sin
+		// depender de qué haya en la línea de comandos.
+		ImageMode:    opts.RenderMode,
+		AssetRoot:    opts.AssetRoot,
 		OutputDir:    outputDir,
 		ChartFetcher: chartFetcher,
 		Ctx:          context.Background(),
@@ -395,6 +404,10 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 		MapMode:      opts.RenderMode,
 		MathMode:     opts.RenderMode,
 		PlantUMLMode: "browser",
+		// ImageMode/AssetRoot (issue #167): mismo criterio que
+		// tryBuildNativeContext arriba en este archivo.
+		ImageMode:    opts.RenderMode,
+		AssetRoot:    opts.AssetRoot,
 		OutputDir:    outputDir,
 		ChartFetcher: chartFetcher,
 		MapFetcher:   mapFetcher,
