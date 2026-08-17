@@ -195,3 +195,31 @@ func TestTryInlineLocalImage_DataURISourceNotReencoded(t *testing.T) {
 		t.Errorf("a data: URI source should not be treated as a local path to inline")
 	}
 }
+
+// TestTryInlineLocalImage_NilLoggerDoesNotPanic covers a code-review finding:
+// every other test in this file builds ctx via NewDefaultRenderContext(),
+// which sets Logger to util.NewNoop() — none of them exercise a ctx that
+// skipped that constructor. TryInlineLocalImage is reachable via two paths
+// (renderImageElement above, and slidelang's data/converter.go directly)
+// neither of which is guaranteed to have called resolveRenderContext first,
+// so a hand-built *RenderContext with Logger left at its nil zero-value must
+// not panic on the rejected/missing-file path, where a .Warn() call is made.
+func TestTryInlineLocalImage_NilLoggerDoesNotPanic(t *testing.T) {
+	ctx := &RenderContext{
+		ImageMode: "offline-inline",
+		AssetRoot: t.TempDir(),
+		// Logger deliberately left unset (nil) — the zero-value a struct
+		// literal produces if a caller forgets it, same shape the slidelang
+		// literals in offline.go had before their own fix.
+	}
+
+	// Missing file: exercises the second ctx.Logger.Warn call.
+	if _, ok := TryInlineLocalImage("does-not-exist.png", ctx); ok {
+		t.Errorf("expected ok=false for a missing file")
+	}
+
+	// Path escape: exercises the first ctx.Logger.Warn call.
+	if _, ok := TryInlineLocalImage("../secret.png", ctx); ok {
+		t.Errorf("expected ok=false for a path that escapes AssetRoot")
+	}
+}

@@ -233,9 +233,25 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 // (data/converter.go + template/base.go, no pasa por RenderElementToHTML),
 // pero quiere el mismo comportamiento — reusar esta función evita una
 // segunda implementación de una ruta con confinamiento de filesystem.
+//
+// A diferencia de los demás métodos de este archivo que leen ctx.Logger,
+// esta función es alcanzable SIN pasar antes por resolveRenderContext —
+// ninguna de las dos rutas que la llaman (renderImageElement más arriba, vía
+// RenderElementToHTML; el converter.go de slidelang, directo) garantiza que
+// ctx ya fue normalizado. Un *RenderContext armado a mano con Logger sin
+// asignar (zero-value nil) truena con nil-pointer en el primer .Warn() de
+// abajo — hallazgo de code-review; ya pasó una vez en esta misma serie, con
+// los literales de slidelang en offline.go que salieron sin Logger y
+// necesitaron un commit de seguimiento. logger acá abajo es la misma
+// normalización que resolveRenderContext le aplicaría a ctx.Logger, sin
+// mutar el ctx del caller.
 func TryInlineLocalImage(source string, ctx *RenderContext) (string, bool) {
 	if ctx == nil || ctx.ImageMode != "offline-inline" || source == "" || ctx.AssetRoot == "" {
 		return "", false
+	}
+	logger := ctx.Logger
+	if logger == nil {
+		logger = util.NewNoop()
 	}
 	parsed, err := url.Parse(source)
 	if err != nil || parsed.Scheme != "" {
@@ -245,12 +261,12 @@ func TryInlineLocalImage(source string, ctx *RenderContext) (string, bool) {
 
 	resolved, err := util.ResolveConfinedPath(ctx.AssetRoot, source)
 	if err != nil {
-		ctx.Logger.Warn("[IMAGE] local image %q rejected: %v", source, err)
+		logger.Warn("[IMAGE] local image %q rejected: %v", source, err)
 		return "", false
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
-		ctx.Logger.Warn("[IMAGE] failed to read local image %q: %v", source, err)
+		logger.Warn("[IMAGE] failed to read local image %q: %v", source, err)
 		return "", false
 	}
 
