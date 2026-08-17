@@ -31,6 +31,17 @@ type PDFOptions struct {
 
 	// Scale
 	Scale float64
+
+	// OverflowSelector (issue #175): si no está vacío, RenderHTMLToPDF mide
+	// scrollHeight vs. clientHeight de cada elemento que haga match, bajo
+	// emulación de print (las reglas que recortan viven en @media print),
+	// justo antes de imprimir — y emite un WARNING por cada uno recortado.
+	// Vacío = apagado, el default. No puede vivir hardcodeado en
+	// core/renderer/chromium (CLAUDE.md: "Keep CLI-specific code out of
+	// core") porque el selector real (".slidelang-slide") es específico de
+	// slidelang; doclang no lo setea porque su PDF fluye entre páginas en
+	// vez de recortar — no hay nada que medir.
+	OverflowSelector string
 }
 
 // DefaultPDFOptions retorna opciones por defecto (A4, portrait).

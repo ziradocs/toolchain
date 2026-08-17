@@ -7,12 +7,14 @@ package chromium
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
@@ -418,6 +420,7 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 		navigateAndSetContent(htmlContent),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 		r.waitForFontsReady(),
+		r.checkPageOverflow(opts.OverflowSelector),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			r.logger.Info("PDF", "Generating PDF...")
 
@@ -478,6 +481,93 @@ func (r *ChromiumRenderer) waitForFontsReady() chromedp.Action {
 		if err != nil {
 			r.logger.Info("PDF", "font loading wait ended early (%v), continuing to print anyway", err)
 		}
+		return nil
+	})
+}
+
+// checkPageOverflow mide, bajo emulación de print, qué elementos que hacen
+// match con selector se desbordan de su propia caja (scrollHeight/Width >
+// clientHeight/Width) y avisa por cada uno — issue #175: --format pdf
+// (desde #168) trata cada elemento de página como un lienzo de tamaño fijo
+// con overflow:hidden en vez de dejar que el contenido fluya, así que un
+// desborde hoy se recorta EN SILENCIO. selector vacío = no-op inmediato
+// (doclang no lo setea: su PDF fluye entre páginas, no recorta nada que
+// medir).
+//
+// La emulación de print es obligatoria para que la medición signifique
+// algo: las reglas que fijan el tamaño de la caja y activan overflow:hidden
+// viven en @media print (p. ej. responsive.css de slidelang) — medir en
+// modo pantalla mide una caja completamente distinta. Se restaura a "" al
+// salir por higiene, aunque printToPDF (más abajo en RenderHTMLToPDF)
+// fuerza su propia emulación de print de todos modos, independiente de
+// cualquier override previo.
+//
+// Nunca falla el build: cualquier error de la medición se degrada a un log
+// informativo y la función retorna nil, mismo patrón que
+// waitForFontsReady — un WARNING perdido es aceptable, un PDF que no se
+// genera no lo es.
+//
+// Límite de precisión confirmado empíricamente (no solo teórico): esta
+// medición corre en el DOM en vivo bajo emulación de print
+// (Emulation.setEmulatedMedia), un paso DISTINTO del pipeline interno que
+// Page.printToPDF usa para el rasterizado final — ambos deberían coincidir,
+// y coinciden con margen amplio (confirmado con un desborde de ~2x la
+// altura de página: la medición lo detecta y el WARNING sale), pero un
+// desborde de apenas una fracción de línea justo en el borde de la página
+// puede recortarse en el PDF final sin que esta medición lo capture,
+// porque las dos pasadas de layout no son bit-a-bit idénticas a esa
+// escala. La tolerancia de 2px de abajo ya asume esto — no es un bug de
+// este código, es el techo de fidelidad de medir "por fuera" del pipeline
+// real de impresión en vez de inspeccionar el PDF ya generado.
+func (r *ChromiumRenderer) checkPageOverflow(selector string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		if selector == "" {
+			return nil
+		}
+
+		if err := emulation.SetEmulatedMedia().WithMedia("print").Do(ctx); err != nil {
+			r.logger.Info("PDF", "overflow check: no se pudo activar emulación de print (%v), se omite la medición", err)
+			return nil
+		}
+		defer func() {
+			_ = emulation.SetEmulatedMedia().WithMedia("").Do(ctx)
+		}()
+
+		selectorJSON, err := json.Marshal(selector)
+		if err != nil {
+			r.logger.Info("PDF", "overflow check: selector inválido (%v), se omite la medición", err)
+			return nil
+		}
+
+		var overflowing []struct {
+			Index int    `json:"index"`
+			Title string `json:"title"`
+		}
+		// Tolerancia de 2px: un elemento exactamente del alto de su caja
+		// puede reportar una diferencia sub-pixel por redondeo (mismo
+		// fenómeno que #163 documentó al calibrar el alto de página), que
+		// no es un desborde real de contenido.
+		js := fmt.Sprintf(`Array.from(document.querySelectorAll(%s)).reduce(function(acc, el, i) {
+			if (el.scrollHeight - el.clientHeight > 2 || el.scrollWidth - el.clientWidth > 2) {
+				var idx = el.hasAttribute('data-slide') ? parseInt(el.getAttribute('data-slide'), 10) : i;
+				acc.push({index: idx, title: el.getAttribute('data-slide-title') || ''});
+			}
+			return acc;
+		}, [])`, selectorJSON)
+
+		if err := chromedp.Evaluate(js, &overflowing).Do(ctx); err != nil {
+			r.logger.Info("PDF", "overflow check: no se pudo medir (%v), se omite", err)
+			return nil
+		}
+
+		for _, o := range overflowing {
+			// El título va como ARG, nunca interpolado en el format string
+			// — sanitizeLogArgs (util/logger.go) neutraliza \r\n/ESC/U+2028
+			// solo en los args, y un título de slide puede venir de
+			// contenido del autor del deck.
+			r.logger.Warn("PDF", "slide %d (%q) content overflows the page and was clipped", o.Index+1, o.Title)
+		}
+
 		return nil
 	})
 }
