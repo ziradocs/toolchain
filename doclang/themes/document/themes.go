@@ -312,10 +312,11 @@ func GetPageViewTheme() Theme {
 		Version:     "1.0.0",
 		Variables: ThemeVariables{
 			// Page Layout - Visual pages con fondo gris
-			"--doclang-page-bg":        "#f5f5f5",             // Gris de fondo (canvas)
-			"--doclang-page-max-width": "210mm",               // A4 width
-			"--doclang-page-padding":   "25mm 30mm 25mm 30mm", // Top Right Bottom Left
-			"--doclang-page-margin":    "20px auto",           // Separación entre páginas
+			"--doclang-page-bg":         "#f5f5f5",             // Gris de fondo (canvas, NO la hoja — issue #58)
+			"--doclang-page-surface-bg": "#ffffff",             // Fondo real de la hoja (.document-page)
+			"--doclang-page-max-width":  "210mm",               // A4 width
+			"--doclang-page-padding":    "25mm 30mm 25mm 30mm", // Top Right Bottom Left
+			"--doclang-page-margin":     "20px auto",           // Separación entre páginas
 
 			// Page Visual Effects
 			"--doclang-page-shadow":       "0 2px 8px rgba(0,0,0,0.15), 0 4px 16px rgba(0,0,0,0.08)",

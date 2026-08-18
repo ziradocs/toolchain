@@ -874,7 +874,14 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         }
 
         body.page-view-mode .document-page {
-            background: #ffffff;
+            /* issue #58: era un literal #ffffff sin var() — el único de
+               las seis propiedades de este selector. --doclang-page-bg en
+               page-view mode significa "canvas gris" (el margen alrededor
+               de la hoja, arriba), no "papel" — a diferencia del modo
+               default, donde SÍ es la superficie. --doclang-page-surface-bg
+               es la variable real de la hoja, con el mismo fallback para
+               no cambiar el render de los temas embebidos. */
+            background: var(--doclang-page-surface-bg, #ffffff);
             max-width: var(--doclang-page-max-width, 210mm);
             min-height: 297mm; /* A4 height */
             margin: 0 auto var(--doclang-page-break-margin, 40px) auto;
@@ -2390,6 +2397,14 @@ func generateViewerStyles(opts DocumentHTMLOptions) string {
         /* Dark Mode Variables */
         html[data-theme="dark"] {
             --doclang-page-bg: #1a1a1a;
+            /* issue #58: sin esto, page-view mode + dark renderizaba texto
+               claro (--doclang-text-color de acá abajo) sobre la hoja
+               hardcodeada a #ffffff — ilegible. Mismo valor que
+               --doclang-page-bg porque en modo default ambas variables ya
+               son iguales (ver los temas embebidos), y page-view no tiene
+               ninguna razón para divergir en dark cuando no diverge en
+               claro salvo por el bug que este PR arregla. */
+            --doclang-page-surface-bg: #1a1a1a;
             --doclang-text-color: #e0e0e0;
             --doclang-text-light: #b0b0b0;
             --doclang-h1-color: #ffffff;
