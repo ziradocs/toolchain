@@ -629,3 +629,75 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestTableParser_ParseMarkdownTable_StopsOnProseWithInternalPipe covers
+// issue #191: parseMarkdownTable used to stop only on lines with zero "|"
+// anywhere, so ordinary prose right after a table that happened to contain
+// a "|" not at the start (e.g. "Total anual | 2024") got absorbed as a
+// garbage extra row instead of ending the table. The fix requires the same
+// leading "|" that TableParser.CanParse/IsNewElement/strict mode's own
+// table continuation already require.
+func TestTableParser_ParseMarkdownTable_StopsOnProseWithInternalPipe(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| Header A | Header B |",
+			"|---|---|",
+			"| 1 | 2 |",
+			"Total anual | 2024",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatal("Element is not TableElement")
+	}
+
+	if len(table.Rows) != 1 {
+		t.Fatalf("len(Rows) = %d, want 1 (la línea de prosa no debe absorberse como fila)", len(table.Rows))
+	}
+	if result.ConsumedLines != 3 {
+		t.Errorf("ConsumedLines = %d, want 3 (header + separador + 1 fila, sin la línea de prosa)", result.ConsumedLines)
+	}
+}
+
+// TestTableParser_ParseMarkdownTable_MultiRowStillConsumesAll es la
+// no-regresión de issue #191: una tabla markdown canónica multi-fila, donde
+// cada fila real abre con "|", debe seguir consumiéndose exactamente igual
+// que antes del fix.
+func TestTableParser_ParseMarkdownTable_MultiRowStillConsumesAll(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| Header A | Header B |",
+			"|---|---|",
+			"| val1 | val2 |",
+			"| val3 | val4 |",
+			"| val5 | val6 |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatal("Element is not TableElement")
+	}
+
+	if len(table.Rows) != 3 {
+		t.Fatalf("len(Rows) = %d, want 3", len(table.Rows))
+	}
+	if result.ConsumedLines != 5 {
+		t.Errorf("ConsumedLines = %d, want 5", result.ConsumedLines)
+	}
+}
