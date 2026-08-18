@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -294,7 +295,18 @@ func (p *DocumentFlexParser) parseSectionContent(block *ast.ContentBlock) {
 			p.inCodeBlock = !p.inCodeBlock
 		}
 
-		// Failsafe: advance at least one line if nothing was parsed
+		// Failsafe: advance at least one line if nothing was parsed.
+		// issue #192: antes esto avanzaba sin emitir nada — a diferencia de
+		// flex.go, acá las dos ramas exitosas hacen `continue`, así que este
+		// camino ni siquiera miraba result.Error/result.Diagnostics: era el
+		// más silencioso de los dos failsafes. p.currentLine todavía apunta
+		// a la línea culpable en este punto (el warning se ancla ANTES del
+		// ++, a diferencia de flex.go donde había que capturar el índice).
+		if !isFlexFailsafeExempt(trimmed) {
+			p.addWarningWithRuleID(
+				fmt.Sprintf("Unrecognized line, content was discarded: %q. Check DSL Flex syntax documentation.", trimmed),
+				"FLEX001")
+		}
 		p.currentLine++
 	}
 }
@@ -343,4 +355,13 @@ func (p *DocumentFlexParser) addError(msg string) {
 	pos := diagnostics.NewPosition(p.currentLine+1, 1)
 	diag := diagnostics.NewError(msg, pos, "document-flex-parser")
 	p.diagnostics = append(p.diagnostics, diag)
+}
+
+// addWarningWithRuleID añade un warning diagnóstico anclado a p.currentLine
+// con un RuleID adjunto — mismo patrón que strictBody.addWarningWithRuleID
+// (strict.go:602-606).
+func (p *DocumentFlexParser) addWarningWithRuleID(msg, ruleID string) {
+	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(msg, pos, "document-flex-parser").WithRuleID(ruleID))
 }

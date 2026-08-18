@@ -500,16 +500,18 @@ HR Department"
 
 **Let's test what we've learned:**
 
-<<quiz>>
-question: "What percentage of successful cyber attacks exploit human error?"
-options:
-  - "25%"
-  - "50%"
-  - "68%"
-  - "95%"
-answer: 2
-explanation: "68% of breaches involve human error, making awareness training crucial for cybersecurity."
-<</quiz>>
+:::tip Quiz: Human Error in Cyber Attacks
+**Question:** What percentage of successful cyber attacks exploit human error?
+
+- 25%
+- 50%
+- 68%
+- 95%
+
+**Answer:** 68%
+
+**Explanation:** 68% of breaches involve human error, making awareness training crucial for cybersecurity.
+:::
 
 **More questions on your completion assessment**
 

@@ -209,10 +209,10 @@ Requires a constant internet connection.
 
 All elements working together:
 
-<<info>>
+:::info
 **Complete Example**
 This section demonstrates how to combine CodeGroups, PlantUML, Grids, and Columns in a single document.
-<<end>>
+:::
 
 ::: grid
 

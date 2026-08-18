@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -244,8 +245,18 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 			// Even if no element was created, advance if lines were consumed
 			p.currentLine += result.ConsumedLines
 		} else {
-			// Failsafe: advance at least one line to prevent infinite loops
+			// Failsafe: advance at least one line to prevent infinite loops.
+			// issue #192: antes esto avanzaba sin emitir nada — la línea
+			// desaparecía en silencio, --lint-only reportaba éxito. Capturar
+			// el índice ANTES de p.currentLine++ (el warning debe apuntar a
+			// la línea descartada, no a la siguiente).
+			droppedLine := p.currentLine
 			p.currentLine++
+			if !isFlexFailsafeExempt(nextLine) {
+				p.addWarningAtWithRuleID(droppedLine,
+					fmt.Sprintf("Unrecognized line, content was discarded: %q. Check DSL Flex syntax documentation.", nextLine),
+					"FLEX001")
+			}
 		}
 
 		// Handle errors
@@ -271,6 +282,18 @@ func (p *FlexParser) addError(msg string) {
 	pos := diagnostics.NewPosition(p.currentLine+1, 1)
 	diag := diagnostics.NewError(msg, pos, "flex-parser")
 	p.diagnostics = append(p.diagnostics, diag)
+}
+
+// addWarningAtWithRuleID añade un warning diagnóstico anclado a lineIndex
+// (0-based) con un RuleID adjunto — mismo patrón que strictBody.addWarningWithRuleID
+// (strict.go), adaptado para recibir el índice explícito: a diferencia de
+// strict, el failsafe de este parser llama a esto DESPUÉS de p.currentLine++
+// (issue #192), así que no puede apoyarse en p.currentLine como strict sí
+// hace.
+func (p *FlexParser) addWarningAtWithRuleID(lineIndex int, msg, ruleID string) {
+	pos := diagnostics.NewPosition(lineIndex+1, 1)
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(msg, pos, "flex-parser").WithRuleID(ruleID))
 }
 
 // metadataBlockCloseIndex checks whether lines[openIdx] == "---" opens a
@@ -321,4 +344,30 @@ func isMetadataLine(line string) bool {
 		}
 	}
 	return true
+}
+
+// isFlexFailsafeExempt reporta si trimmed es un residuo de cierre
+// arquitectónico conocido que el failsafe de FLEX001 no debe advertir —
+// compartido entre FlexParser (flex.go) y DocumentFlexParser
+// (document_flex.go), issue #192, paso (c): la lista se derivó corriendo
+// el registro completo sobre examples/ y tabulando cada FLEX001 por forma
+// de línea, no adivinando.
+//
+//   - "<<end>>": el cierre genérico de bloques GRID/COLUMN/chart/map
+//     (formatChart/formatMap en core/formatter/strict.go lo emiten así).
+//     TestTextParser_Parse_OrphanEndTagStillDropped y
+//     TestFormatDocument_RoundTrip_Corpus fijan este descarte como
+//     contrato — NO se puede tocar.
+//   - ":::" (bare, sin tipo): el cierre de un sub-bloque anidado (columna
+//     dentro de grid, tab dentro de tabs) comparte la misma sintaxis ":::"
+//     que el cierre del bloque padre (ver el comentario de
+//     IsJustASeparator en internal/elements/common.go, issue #57). Cuando
+//     un bloque padre se corta temprano porque un hijo abre su propio
+//     ":::tipo" (SpecialBlockParser: "Don't consume this line, let the
+//     next parser handle it"), el ":::" que en verdad cerraba al padre
+//     queda huérfano una vez que el hijo consume el suyo — confirmado
+//     recorriendo examples/: SIEMPRE es el segundo de dos ":::" bare
+//     consecutivos, nunca uno aislado sin un bloque anidado por delante.
+func isFlexFailsafeExempt(trimmed string) bool {
+	return trimmed == "<<end>>" || trimmed == ":::"
 }

@@ -24,7 +24,7 @@ Testing charts and maps with custom dimensions.
       title:
         display: true
         text: "Default Size (800x600)"
-<</chart>>
+<<end>>
 
 ---
 
@@ -46,7 +46,7 @@ Testing charts and maps with custom dimensions.
       title:
         display: true
         text: "Wide Chart (1200x400)"
-<</chart>>
+<<end>>
 
 ---
 
@@ -61,7 +61,7 @@ Testing charts and maps with custom dimensions.
       title:
         display: true
         text: "Square Chart (600x600)"
-<</chart>>
+<<end>>
 
 ---
 
@@ -138,7 +138,7 @@ Testing charts and maps with custom dimensions.
     scales:
       y:
         beginAtZero: true
-<</chart>>
+<<end>>
 
 ---
 
