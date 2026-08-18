@@ -37,7 +37,7 @@ const (
 	//   3. Actualizar chromiumVersion y las 4 entradas de chromiumSHA256 en el
 	//      mismo commit — nunca solo una de las dos (ver AL-2: el hash debe
 	//      corresponder exactamente a la versión que se descarga).
-	chromiumVersion = "151.0.7922.138"
+	chromiumVersion = "152.0.7977.42"
 )
 
 // --install-chromium descarga chrome-headless-shell, NO el Chrome completo
@@ -93,10 +93,10 @@ var (
 // binario distinto y ejecutarlo como navegador de build sin ninguna
 // comprobación (ver docs/SECURITY_AUDIT_2026-07.md, AL-2).
 var chromiumSHA256 = map[string]string{
-	"darwin/arm64":  "24b96cdbbb55fcab49aed4be0ebe5d55e8cf2ae7cd3c6a84435e7eeaf535c52d",
-	"darwin/amd64":  "af65548fcd4865412aaeb74445909f5fa654a401f31bc27f2b192c7f9e1be571",
-	"linux/amd64":   "2eb973561a10d11ba3296eeb798775db86c57731dd71a7b650763c4ed64a9646",
-	"windows/amd64": "714f4b9d17cb82a41ee10734dde15fd8c27c08b3229ce799c0c6a7dcc7730e1e",
+	"darwin/arm64":  "4cca5044201c5472469d26bef44a24aa2ec2e0ce2d1ef4959b8dae3fa662cec1",
+	"darwin/amd64":  "f5dc6fc2a0009b5503fffad9006d2dc7bfc6f0650c2cbbeb1b294676cf74a97a",
+	"linux/amd64":   "129686a270d84ac4637c614802c554634aa827aa13214216f81e0a0b9410f8cf",
+	"windows/amd64": "deb28f3f311f684d48677167f02887b9f65864e4520fb0932e1cc254b4203b22",
 }
 
 // ChromiumInstaller gestiona la descarga e instalación de Chromium
