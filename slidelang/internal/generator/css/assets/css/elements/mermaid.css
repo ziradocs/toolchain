@@ -55,6 +55,29 @@
     margin: 0 auto;
 }
 
+/* Camino BROWSER (--render-mode browser, el default de --format html): la
+   regla de arriba no lo cubre. .slidelang-mermaid-diagram lo emite SOLO
+   renderMermaidOfflineInline/-Assets (core/renderer/html.go, namespaced
+   desde OfflineElementClasses); en modo browser no existe ese wrapper —
+   mermaid.js renderiza en runtime e inyecta el <svg> como hijo DIRECTO de
+   la caja interna .slidelang-mermaid (`element.innerHTML = svg`,
+   js/modules/mermaid.js). Verificado: un build en modo default trae 0
+   ocurrencias de "slidelang-mermaid-diagram", así que hasta acá el camino
+   browser era el único sin ninguna cota de altura y un diagrama alto se
+   salía de la slide. El clamp de runtime que adjustSVG decía tener nunca
+   funcionó — apuntaba a .slidelang-element.mermaid, una clase que el
+   template no emite (falta el prefijo en el segundo token).
+
+   Combinador hijo (>) a propósito: acota la regla a la inyección de
+   runtime y no vuelve a pegar sobre el <svg> offline, que ya tiene la suya
+   y no es hijo directo de la caja interna. Solo `max-height`, mismo valor
+   y mismo criterio que arriba: `width` NO se toca (dependencia circular →
+   colapso a 0x0) y `height: auto` ya lo pone adjustSVG inline, donde
+   ninguna regla de hoja de autor lo alcanzaría de todos modos. */
+.slidelang-element.slidelang-mermaid > .slidelang-mermaid > svg {
+    max-height: 5in;
+}
+
 /* offline-assets (--format html --render-mode offline-assets) emite un
    <img> en vez de un <div><svg>; max-width/max-height sí lo escalan
    directo, mismo patrón que charts.css. */
