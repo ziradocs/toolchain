@@ -465,8 +465,16 @@ func (p *TableParser) parseMarkdownTable(lines []string, startIndex int) ([]stri
 	for i := startIndex; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
 
-		// Stop at empty lines or lines without |
-		if line == "" || !strings.Contains(line, "|") {
+		// Stop at empty lines or lines that don't open with "|". Issue #191:
+		// esto era Contains("|") — un solo pipe en CUALQUIER posición bastaba
+		// para seguir consumiendo la línea como fila, así que una tabla
+		// seguida de prosa con un "|" suelto (p. ej. "Total anual | 2024")
+		// se absorbía como fila de basura en vez de cortar la tabla. Las
+		// otras tres puertas del sistema — TableParser.CanParse (:49),
+		// IsNewElement (common.go:342) y la continuación de tabla en modo
+		// strict (parser/strict.go:893) — ya exigían un "|" INICIAL; esta
+		// era la única que no.
+		if line == "" || !strings.HasPrefix(line, "|") {
 			break
 		}
 
