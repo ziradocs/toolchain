@@ -175,6 +175,24 @@ func wireMermaidFetcher(ctx *renderer.RenderContext, astNode *ast.AST, opts Gene
 	ctx.MermaidFetcher = chromium.NewKrokiFetcher(opts.KrokiServer, "mermaid", "svg", outputDir)
 }
 
+// applyAssetContext cablea ImageMode/AssetRoot (issue #167) sobre un ctx ya
+// construido. issue #189: SetupOfflineRenderContext tiene tres ramas de
+// retorno temprano (deck de solo texto, PlantUML/mermaid-vía-Kroki-only,
+// degradación sin Chromium) que reciclan renderer.NewDefaultRenderContext()
+// en vez de armar un struct literal completo como sí hacen
+// tryBuildNativeContext y buildInteractiveRenderContext — #167 parchó esos
+// dos struct literals y pdf.go, y se saltó estas tres. Sin esto, un deck sin
+// chart/mermaid/map/math (el caso más común de #167: solo texto + una
+// imagen local, o solo audio/video de #181) nunca inlinea nada bajo
+// --render-mode offline-inline: TryInlineLocalImage/TryInlineLocalMedia
+// (html.go) gatean en silencio sobre ctx.ImageMode/ctx.AssetRoot, sin
+// emitir ningún warning cuando el modo no es "offline-inline" — el fallo es
+// indistinguible de "no aplicaba".
+func applyAssetContext(ctx *renderer.RenderContext, opts GeneratorOptions) {
+	ctx.ImageMode = opts.RenderMode
+	ctx.AssetRoot = opts.AssetRoot
+}
+
 // SetupOfflineRenderContext arma el *renderer.RenderContext que el caller debe
 // pasar explícitamente (issue #134/G1a) a GenerateWithOptions para que
 // renderer.RenderElementToHTML pre-renderice mermaid/chart/map en modos
@@ -210,6 +228,8 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 	if !needsChromium && !needsPlantUML && !needsMermaidViaKroki {
 		ctx := renderer.NewDefaultRenderContext()
 		ctx.Logger = g.logger
+		ctx.OutputDir = outputDir
+		applyAssetContext(ctx, opts)
 		return ctx, noop, nil
 	}
 
@@ -221,6 +241,7 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 		ctx := renderer.NewDefaultRenderContext()
 		ctx.Logger = g.logger
 		ctx.OutputDir = outputDir
+		applyAssetContext(ctx, opts)
 		wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
 		wireMermaidFetcher(ctx, astNode, opts, outputDir)
 		return ctx, noop, nil
@@ -257,6 +278,7 @@ func (g *Generator) SetupOfflineRenderContext(astNode *ast.AST, outputDir string
 			ctx := renderer.NewDefaultRenderContext()
 			ctx.Logger = g.logger
 			ctx.OutputDir = outputDir
+			applyAssetContext(ctx, opts)
 			wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
 			wireMermaidFetcher(ctx, astNode, opts, outputDir)
 			return ctx, noop, nil
