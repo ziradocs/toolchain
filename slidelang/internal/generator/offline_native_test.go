@@ -294,3 +294,61 @@ func TestSetupOfflineRenderContext_MapDeckStillNeedsChromium(t *testing.T) {
 		t.Fatal("expected an error initializing Chromium for a map deck with a broken ChromiumPath — maps must route to Chromium (which keeps the go-staticmaps→Chromium fallback), not to a fallback-less native fetcher")
 	}
 }
+
+// TestSetupOfflineRenderContext_WiresAssetContext es la regresión de issue
+// #189: SetupOfflineRenderContext tiene tres ramas de retorno temprano que
+// reciclan renderer.NewDefaultRenderContext() (ImageMode: "browser",
+// AssetRoot: "") en vez de armar un struct literal completo como sí hacen
+// tryBuildNativeContext/buildInteractiveRenderContext — #167 parchó esos dos
+// y pdf.go, y se saltó estas tres. Sin applyAssetContext, un deck sin
+// chart/mermaid/map/math nunca inlinea imágenes/media locales bajo
+// --render-mode offline-inline, y el fallo es silencioso: el gate de
+// TryInlineLocalImage/TryInlineLocalMedia (core/renderer/html.go) no emite
+// ningún warning cuando ImageMode no es "offline-inline" — es indistinguible
+// de "no aplicaba". Las tres subpruebas cubren las tres ramas rotas; todas
+// fallaban antes del fix.
+func TestSetupOfflineRenderContext_WiresAssetContext(t *testing.T) {
+	tests := []struct {
+		name string
+		doc  *ast.AST
+	}{
+		{
+			name: "deck de solo texto",
+			doc:  astWithElements(ast.NewTextElement(nativePos(), "hola")),
+		},
+		{
+			name: "deck solo PlantUML",
+			doc:  astWithElements(ast.NewPlantUMLElement(nativePos(), "sequence", "A -> B")),
+		},
+		{
+			name: "deck solo math, Chromium roto (degradación)",
+			doc:  astWithElements(ast.NewMathElement(nativePos(), "E = mc^2")),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := New(util.NewNoop())
+			assetRoot := t.TempDir()
+			opts := GeneratorOptions{
+				RenderMode:      "offline-inline",
+				AssetRoot:       assetRoot,
+				ChromiumPath:    "/nonexistent/definitely-not-a-real-chromium-binary",
+				InstallChromium: false,
+			}
+
+			ctx, cleanup, err := g.SetupOfflineRenderContext(tt.doc, t.TempDir(), opts)
+			defer cleanup()
+			if err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+
+			if ctx.ImageMode != "offline-inline" {
+				t.Errorf("ctx.ImageMode = %q, want %q", ctx.ImageMode, "offline-inline")
+			}
+			if ctx.AssetRoot != assetRoot {
+				t.Errorf("ctx.AssetRoot = %q, want %q", ctx.AssetRoot, assetRoot)
+			}
+		})
+	}
+}
