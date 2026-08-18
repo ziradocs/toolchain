@@ -346,26 +346,21 @@ const SlideLangMermaid = {
     adjustSVG: function(element) {
         const svg = element.querySelector('svg');
         if (!svg) return;
-        
+
         svg.style.maxWidth = '100%';
         svg.style.height = 'auto';
         svg.style.minHeight = '200px';
         svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-        
-        // Obtener dimensiones originales y ajustar al contenedor
-        const container = svg.closest('.slidelang-element.mermaid');
-        if (container) {
-            const containerHeight = container.clientHeight;
-            
-            // Ajustar si el diagrama es muy alto
-            try {
-                if (svg.getBBox && svg.getBBox().height > containerHeight * 0.8) {
-                    svg.style.maxHeight = (containerHeight * 0.8) + 'px';
-                }
-            } catch(e) {
-                // Silently handle getBBox errors
-            }
-        }
+
+        // El clamp de altura lo posee mermaid.css (.slidelang-element.slidelang-mermaid
+        // .slidelang-mermaid-diagram svg { max-height: 5in }), no este método — issue
+        // "clamp muerto en mermaid.js". Este bloque intentaba clampar contra
+        // svg.closest('.slidelang-element.mermaid'), una clase que el template nunca
+        // emite (es slidelang-mermaid, no mermaid), así que el clamp de acá era
+        // código muerto. Y aunque el selector se hubiera arreglado, la comparación
+        // seguiría siendo casi circular: el wrapper no tiene altura propia
+        // (mermaid.css solo le da margin/text-align), así que container.clientHeight
+        // lo determina el propio SVG.
     },
     
     detectDiagramType: function(content) {
