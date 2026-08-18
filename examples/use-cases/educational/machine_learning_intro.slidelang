@@ -19,15 +19,14 @@ variables:
 
 # Welcome to {{course}}
 
-<<poll>>
-question: "What's your programming experience level?"
-options:
-  - "Beginner - Limited coding experience"
-  - "Intermediate - Comfortable with Python"
-  - "Advanced - Strong programming background"
-  - "Expert - Professional developer"
-multiple: false
-<</poll>>
+:::note Poll: Programming Experience
+**Question:** What's your programming experience level?
+
+- Beginner - Limited coding experience
+- Intermediate - Comfortable with Python
+- Advanced - Strong programming background
+- Expert - Professional developer
+:::
 
 **{{students}} students** enrolled this semester
 
@@ -57,7 +56,7 @@ graph LR
     style B fill:#E74C3C,color:#fff
     style E fill:#27AE60,color:#fff
     style G fill:#3498DB,color:#fff
-<</mermaid>>
+<<end>>
 
 **Key difference**: ML learns patterns from data instead of explicit programming
 
@@ -109,7 +108,7 @@ graph TD
     style A fill:#3498DB,color:#fff
     style F fill:#E74C3C,color:#fff
     style I fill:#27AE60,color:#fff
-<</mermaid>>
+<<end>>
 
 **Iterative process**: Continuous improvement through feedback loops
 
@@ -127,7 +126,7 @@ data:
       values: [78, 85, 65, 82, 73]
     - name: "Expected Growth (%)"
       values: [95, 92, 88, 90, 89]
-<</chart>>
+<<end>>
 
 **Finance leads** current adoption at 85%, with transportation showing highest growth potential
 
@@ -212,7 +211,7 @@ data:
   series:
     - name: "Time Allocation (%)"
       values: [60, 20, 15, 5]
-<</chart>>
+<<end>>
 
 **80% of ML work** is data preparation - quality data is crucial for success
 
@@ -220,16 +219,18 @@ data:
 
 # Interactive Knowledge Check
 
-<<quiz>>
-question: "Which type of ML would you use for email spam detection?"
-options:
-  - "Unsupervised learning - no labels needed"
-  - "Supervised learning - we have spam/not spam labels"
-  - "Reinforcement learning - learn from user feedback"
-  - "Semi-supervised learning - mix of labeled and unlabeled"
-answer: 1
-explanation: "Email spam detection uses supervised learning because we have labeled examples of spam and legitimate emails to train the model."
-<</quiz>>
+:::tip Quiz: Email Spam Detection
+**Question:** Which type of ML would you use for email spam detection?
+
+- Unsupervised learning - no labels needed
+- Supervised learning - we have spam/not spam labels
+- Reinforcement learning - learn from user feedback
+- Semi-supervised learning - mix of labeled and unlabeled
+
+**Answer:** Supervised learning - we have spam/not spam labels
+
+**Explanation:** Email spam detection uses supervised learning because we have labeled examples of spam and legitimate emails to train the model.
+:::
 
 ---
 
