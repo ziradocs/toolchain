@@ -178,3 +178,58 @@ func BenchmarkCSSBuilder(b *testing.B) {
 		_ = builder.Build()
 	}
 }
+
+// TestMermaidCSS_ClampsBothRenderPaths fija que mermaid.css acote la altura
+// del <svg> en los DOS caminos de render, que emiten markup distinto:
+//
+//   - offline-inline/-assets: core envuelve el <svg> en un
+//     <div class="slidelang-mermaid-diagram"> (renderMermaidOfflineInline,
+//     namespaced desde renderer.OfflineElementClasses).
+//   - browser (el default de --format html): NO existe ese wrapper —
+//     mermaid.js renderiza en runtime e inyecta el <svg> como hijo DIRECTO
+//     de la caja interna .slidelang-mermaid.
+//
+// La regla original de #173 solo cubría el primero, así que el camino
+// browser quedó sin ninguna cota y un diagrama alto se salía de la slide
+// (medido: 1044px de alto renderizado sin la regla, 480px = 5in con ella).
+// El clamp de runtime que adjustSVG decía tener nunca funcionó — apuntaba a
+// .slidelang-element.mermaid, clase que el template no emite.
+//
+// No hay infra de tests JS/CSS en el repo (cero package.json, cero
+// *.spec.js) — ese es justamente el hueco que dejó vivir el bug. Esto es lo
+// más cerca que se puede fijar desde Go: que las dos reglas se emitan.
+func TestMermaidCSS_ClampsBothRenderPaths(t *testing.T) {
+	css := NewCSSBuilder().WithRequiredElements([]string{"mermaid"}).Build()
+
+	tests := []struct {
+		path     string
+		selector string
+	}{
+		{
+			path:     "offline-inline/-assets (wrapper .slidelang-mermaid-diagram)",
+			selector: ".slidelang-element.slidelang-mermaid .slidelang-mermaid-diagram svg",
+		},
+		{
+			path:     "browser (svg inyectado por mermaid.js como hijo directo)",
+			selector: ".slidelang-element.slidelang-mermaid > .slidelang-mermaid > svg",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			idx := strings.Index(css, tt.selector)
+			if idx == -1 {
+				t.Fatalf("mermaid.css no emite el selector del camino %s:\n  %s", tt.path, tt.selector)
+			}
+			// El selector por sí solo no prueba nada: lo que acota la altura
+			// es el max-height de su bloque.
+			block := css[idx:]
+			if end := strings.Index(block, "}"); end != -1 {
+				block = block[:end]
+			}
+			if !strings.Contains(block, "max-height") {
+				t.Errorf("el bloque de %q no declara max-height — sin eso el <svg> renderiza a su alto intrínseco y desborda la slide", tt.selector)
+			}
+		})
+	}
+}

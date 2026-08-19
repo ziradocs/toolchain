@@ -352,8 +352,7 @@ const SlideLangMermaid = {
         svg.style.minHeight = '200px';
         svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
-        // El clamp de altura lo posee mermaid.css (.slidelang-element.slidelang-mermaid
-        // .slidelang-mermaid-diagram svg { max-height: 5in }), no este método — issue
+        // El clamp de altura lo posee mermaid.css, no este método — issue
         // "clamp muerto en mermaid.js". Este bloque intentaba clampar contra
         // svg.closest('.slidelang-element.mermaid'), una clase que el template nunca
         // emite (es slidelang-mermaid, no mermaid), así que el clamp de acá era
@@ -361,6 +360,16 @@ const SlideLangMermaid = {
         // seguiría siendo casi circular: el wrapper no tiene altura propia
         // (mermaid.css solo le da margin/text-align), así que container.clientHeight
         // lo determina el propio SVG.
+        //
+        // OJO con cuál regla de mermaid.css aplica acá: adjustSVG SOLO corre en el
+        // camino browser, y ahí NO existe .slidelang-mermaid-diagram (ese wrapper lo
+        // emite renderMermaidOfflineInline/-Assets en core, para los modos offline).
+        // La regla que cubre este <svg> es la del combinador hijo,
+        // `.slidelang-element.slidelang-mermaid > .slidelang-mermaid > svg`, agregada
+        // justamente porque la de -diagram no matchea nada en runtime.
+        //
+        // Por eso `max-height` NO se setea inline acá: un estilo inline le ganaría a
+        // esa regla y volvería a dejar el clamp en manos de un cálculo circular.
     },
     
     detectDiagramType: function(content) {
