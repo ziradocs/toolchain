@@ -349,10 +349,15 @@ func checkChartElement(elem *ast.ChartElement) []diagnostics.Diagnostic {
 	chartType := elem.ChartType
 	var payload map[string]interface{}
 	if elem.IsJSONMode && len(elem.RawJSON) > 0 {
-		// Un RawJSON que no parsea no llega hasta acá: elements/chart.go solo
-		// prende IsJSONMode tras un json.Valid(), y si falla emite CHART002.
-		// Aun así se ignora el error en vez de reportarlo: duplicar CHART002
-		// desde otro gate no agrega información.
+		// El error se ignora a propósito, y no es un caso muerto: un
+		// top-level que no sea objeto (un arreglo, un string, un número) es
+		// JSON válido, así que pasa el json.Valid() de elements/chart.go,
+		// prende IsJSONMode y nunca dispara CHART002 — pero el unmarshal a
+		// map de acá sí falla y payload queda nil. Eso es justo lo que se
+		// quiere: sin objeto no hay data.datasets, CHART004 dispara abajo, y
+		// el renderer coincide (ResolveChartJSONMode también exige objeto y
+		// degrada el chart a "{}"). Reportar aparte el fallo del unmarshal
+		// solo duplicaría el mismo defecto con otro ID.
 		if err := json.Unmarshal(elem.RawJSON, &payload); err == nil {
 			if declared, ok := payload["type"].(string); ok && declared != "" {
 				chartType = declared
