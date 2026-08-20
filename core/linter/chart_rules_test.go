@@ -140,6 +140,33 @@ func TestChartElement_ValidConfigs_LintClean(t *testing.T) {
 	}
 }
 
+// Un payload cuyo top-level NO es un objeto (un arreglo, un string, un
+// número) es JSON perfectamente válido: pasa json.Valid(), así que
+// elements/chart.go prende IsJSONMode y CHART002 nunca dispara. En el
+// renderer, ResolveChartJSONMode SÍ falla ahí (exige objeto) y degrada el
+// chart a "{}" — lienzo en blanco. O sea que CHART004 debe dispararle, y el
+// unmarshal fallido del linter no debe paniquear ni tragarse el caso.
+func TestChartElement_NonObjectJSONPayload_EmitsCHART004(t *testing.T) {
+	for name, payload := range map[string]string{
+		"arreglo top-level": `[1, 2, 3]`,
+		"string top-level":  `"solo un string"`,
+		"número top-level":  `42`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			diags := chartDiags(jsonModeChart(t, "bar", payload))
+
+			if findDiagnosticByRuleID(diags, "CHART004") == nil {
+				t.Errorf("se esperaba CHART004, obtenidos: %v", ruleIDs(diags))
+			}
+			// El tipo del tag sigue siendo válido: el payload no puede
+			// declarar uno propio, pero eso no lo vuelve desconocido.
+			if findDiagnosticByRuleID(diags, "CHART003") != nil {
+				t.Errorf("no se esperaba CHART003 con un tag tipado, obtenidos: %v", ruleIDs(diags))
+			}
+		})
+	}
+}
+
 // CHART001 conserva su significado y su alcance en el camino YAML: un chart
 // sin datos de ninguna forma lo sigue disparando, sin cambios.
 func TestChartElement_NoDataAtAll_StillEmitsCHART001(t *testing.T) {
