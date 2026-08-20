@@ -418,6 +418,15 @@ func (tb *TemplateBuilder) buildCDNIncludes() string {
 	// para que un CDN comprometido no pueda inyectar contenido arbitrario en la página.
 	// Los hashes están atados a la URL versionada exacta; si se bumpea una versión,
 	// hay que recomputar el hash correspondiente (sha384, base64) contra la nueva URL.
+	// ChartJSTreemapCDNScriptTag registra el controlador "treemap", que el
+	// bundle base de Chart.js no trae. Va DESPUÉS de ese bundle: se
+	// auto-registra contra el `Chart` global que aquel publica, y al revés no
+	// quedaría registrado (todo <<chart: treemap>> saldría en blanco).
+	// Igual que MathCDNScriptTag, reusa la constante de core en vez de
+	// re-pinear versión y hash acá — el plugin declara peer chart.js >=3.0.0,
+	// así que sirve tanto para el 4.4.0 de esta plantilla como para el 4.5.1
+	// que core pinea en su propio camino.
+	//
 	// MathCDNScriptTag (issue #38): MathJax se necesita en modo browser para
 	// tipografiar los .slidelang-math-block que el template emite (delimitadores
 	// \[...\]) — sin este <script>, Math renderiza como LaTeX crudo sin
@@ -425,6 +434,7 @@ func (tb *TemplateBuilder) buildCDNIncludes() string {
 	// en vez de re-pinear el hash acá.
 	return `    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.min.js" integrity="sha384-Wm9qzEgq4j1jEnuFK2FxKTlwuhbV2QqtGhcchvjDoKxeJ7WWAW7fysBq+1s6myfX" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" integrity="sha384-FcQlsUOd0TJjROrBxhJdUhXTUgNJQxTMcxZe6nHbaEfFL1zjQ+bq/uRoBQxb0KMo" crossorigin="anonymous"></script>
+    ` + renderer.ChartJSTreemapCDNScriptTag + `
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
     ` + renderer.MathCDNScriptTag + `

@@ -236,7 +236,8 @@ interface ImageElement extends ElementNode {
 
 interface ChartElement extends ElementNode {
   type: "chart"
-  chartType: "bar" | "line" | "pie" | "combo" | "scatter" | "radar"
+  chartType: "bar" | "line" | "pie" | "doughnut" | "radar" | "polarArea"
+           | "scatter" | "bubble" | "combo" | "treemap"
   data: ChartData
   configuration: ChartConfig
 }
