@@ -4,6 +4,8 @@
 package linter
 
 import (
+	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -280,30 +282,128 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 							elem.GetPosition(), "linter").WithRuleID("SPECIAL001"))
 				}
 
-			case *ast.ChartElement: // Validar que los gráficos tengan datos
-				hasData := false
-
-				// Verificar si tiene datos en formato tradicional (YAML)
-				if len(elem.Data) > 0 || len(elem.Series) > 0 {
-					hasData = true
-				}
-
-				// Verificar si tiene datos en formato JSON
-				if elem.IsJSONMode && len(elem.RawJSON) > 0 {
-					hasData = true
-				}
-
-				if !hasData {
-					diags = append(diags,
-						diagnostics.NewWarning(
-							"Chart elements should have data defined",
-							elem.GetPosition(), "linter").WithRuleID("CHART001"))
-				}
+			case *ast.ChartElement:
+				diags = append(diags, checkChartElement(elem)...)
 			}
 		}
 	}
 
 	return diags
+}
+
+// knownChartTypes es el vocabulario de tipos que el pipeline sabe dibujar:
+// los ocho controladores del bundle base de Chart.js v4, más "combo" (un
+// pseudo-tipo del DSL, que el renderer traduce a un bar con tipos por
+// dataset) y "treemap" (que registra el plugin chartjs-chart-treemap, cargado
+// junto al bundle).
+//
+// Deliberadamente NO se comparte con renderer.nativeChartSupportedTypes, que
+// responde otra pregunta —¿se puede rasterizar sin Chromium?— y es más
+// angosto a propósito. Tampoco se exporta: nadie fuera de este paquete lo
+// necesita, y un símbolo público nuevo en core arrastraría el baile de
+// bump-core para los dos CLIs sin ganar nada.
+var knownChartTypes = map[string]bool{
+	"bar":       true,
+	"bubble":    true,
+	"combo":     true,
+	"doughnut":  true,
+	"line":      true,
+	"pie":       true,
+	"polarArea": true,
+	"radar":     true,
+	"scatter":   true,
+	"treemap":   true,
+}
+
+// knownChartTypesList devuelve el vocabulario ordenado, para nombrarlo en el
+// mensaje del diagnóstico (un "unknown type" que no dice cuáles SÍ valen
+// obliga a ir a buscar la lista a otro lado).
+func knownChartTypesList() string {
+	names := make([]string, 0, len(knownChartTypes))
+	for name := range knownChartTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// checkChartElement produce los diagnósticos de un chart. Son tres gates
+// distintos sobre el mismo elemento:
+//
+//   - CHART001 (preexistente): el chart no tiene datos de ninguna forma.
+//   - CHART003 (issue #208): el tipo del tag no está en el vocabulario.
+//   - CHART004 (issue #207): el payload de un chart en modo JSON no es una
+//     config de Chart.js.
+//
+// Los tres comparten el mismo modo de falla observable —lienzo en blanco, sin
+// error de consola ni nada en los logs— y hasta ahora solo el primero existía,
+// y solo cubría el camino YAML.
+func checkChartElement(elem *ast.ChartElement) []diagnostics.Diagnostic {
+	var diags []diagnostics.Diagnostic
+
+	// El tipo EFECTIVO tiene que resolverse igual que en el renderer
+	// (renderer.ResolveChartJSONMode): en modo JSON manda el "type" del
+	// payload, y solo si falta o viene vacío se usa el token del tag. Si acá
+	// se exigiera el tipo en el tag, un <<chart: bar>> con cuerpo
+	// {"data":{...}} —que renderiza perfecto— lintearía sucio.
+	chartType := elem.ChartType
+	var payload map[string]interface{}
+	if elem.IsJSONMode && len(elem.RawJSON) > 0 {
+		// Un RawJSON que no parsea no llega hasta acá: elements/chart.go solo
+		// prende IsJSONMode tras un json.Valid(), y si falla emite CHART002.
+		// Aun así se ignora el error en vez de reportarlo: duplicar CHART002
+		// desde otro gate no agrega información.
+		if err := json.Unmarshal(elem.RawJSON, &payload); err == nil {
+			if declared, ok := payload["type"].(string); ok && declared != "" {
+				chartType = declared
+			}
+		}
+	}
+
+	if chartType != "" && !knownChartTypes[chartType] {
+		diags = append(diags,
+			diagnostics.NewWarning(
+				"Unknown chart type: "+chartType+" (expected one of: "+knownChartTypesList()+")",
+				elem.GetPosition(), "linter").WithRuleID("CHART003"))
+	}
+
+	if elem.IsJSONMode && len(elem.RawJSON) > 0 {
+		// Chart.js exige data.datasets como arreglo; sin eso no dibuja nada,
+		// por muy válido que sea el JSON. Un ID propio y no CHART001 porque el
+		// arreglo es distinto: acá SÍ hay payload, lo que falla es su forma
+		// (típicamente un emisor que serializó una estructura plana).
+		if !hasChartJSDatasets(payload) {
+			diags = append(diags,
+				diagnostics.NewWarning(
+					"JSON-mode chart payload is not a Chart.js config: expected data.datasets to be a non-empty array",
+					elem.GetPosition(), "linter").WithRuleID("CHART004"))
+		}
+		// CHART001 no se evalúa en modo JSON: sí hay payload, y su calidad ya
+		// es asunto de CHART004. Reportar los dos por el mismo defecto solo
+		// haría ruido.
+		return diags
+	}
+
+	if len(elem.Data) == 0 && len(elem.Series) == 0 {
+		diags = append(diags,
+			diagnostics.NewWarning(
+				"Chart elements should have data defined",
+				elem.GetPosition(), "linter").WithRuleID("CHART001"))
+	}
+
+	return diags
+}
+
+// hasChartJSDatasets indica si payload trae un data.datasets no vacío, que es
+// lo mínimo que Chart.js necesita para dibujar algo. nil-safe: un payload que
+// no era un objeto JSON llega como nil.
+func hasChartJSDatasets(payload map[string]interface{}) bool {
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	datasets, ok := data["datasets"].([]interface{})
+	return ok && len(datasets) > 0
 }
 
 // tableHasAnyCellWhere reports whether any cell across elem.Cells matches
