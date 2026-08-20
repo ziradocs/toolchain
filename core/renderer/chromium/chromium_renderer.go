@@ -167,6 +167,7 @@ func buildChartHTML(chartConfig string, width, height int) string {
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="%s">
     `+renderer.ChartJSCDNScriptTag+`
+    `+renderer.ChartJSTreemapCDNScriptTag+`
     <style>
         body { margin: 0; padding: 0; background: white; }
         #chartContainer { width: %dpx; height: %dpx; }
