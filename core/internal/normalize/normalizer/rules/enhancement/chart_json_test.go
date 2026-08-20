@@ -344,6 +344,47 @@ Content after the chart.`,
   "y": [[1, 2]]
 } `,
 		},
+		{
+			// issue #209: chartBlockPattern estaba anclado como
+			// `^(<<chart:\s*\w+>>)\s*$`, así que un tag con atributos
+			// no matcheaba y su JSON se saltaba la limpieza entera. El
+			// comentario sobrevivía, json.Valid() fallaba al parsear y el
+			// chart caía en CHART002 + lienzo vacío.
+			name: "tag con atributos también recibe la limpieza de comentarios",
+			input: `## Chart con width/height
+
+<<chart: line width="1200" height="400">>
+{
+  "x": ["Q1", "Q2"],
+  "y": [[1, 2]]  // millones MXN
+}`,
+			expected: `## Chart con width/height
+
+<<chart: line width="1200" height="400">>
+{
+  "x": ["Q1", "Q2"],
+  "y": [[1, 2]]  
+}`,
+		},
+		{
+			// Guard de no-regresión del mismo cambio: `[^>]*` no debe
+			// tragarse el cierre `>>` ni volver laxo el anclaje.
+			name: "un tag sin cerrar sigue sin matchear",
+			input: `## Chart mal cerrado
+
+<<chart: line width="1200"
+{
+  "x": ["Q1"],
+  "y": [[1]]  // sin tocar
+}`,
+			expected: `## Chart mal cerrado
+
+<<chart: line width="1200"
+{
+  "x": ["Q1"],
+  "y": [[1]]  // sin tocar
+}`,
+		},
 	}
 
 	for _, tt := range tests {
