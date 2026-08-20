@@ -1085,6 +1085,10 @@ func generateDocumentScripts(opts DocumentHTMLOptions) string {
 	if chartMode == "browser" {
 		scripts.WriteString("    " + ChartJSCDNScriptTag)
 		scripts.WriteString("\n")
+		// Debe ir después del bundle base: se auto-registra contra el
+		// `Chart` global que aquel deja publicado.
+		scripts.WriteString("    " + ChartJSTreemapCDNScriptTag)
+		scripts.WriteString("\n")
 	}
 
 	// Leaflet para mapas (solo en browser mode)

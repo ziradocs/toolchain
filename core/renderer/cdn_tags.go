@@ -18,8 +18,19 @@ package renderer
 const (
 	MermaidCDNScriptTag = `<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.6/dist/mermaid.min.js" integrity="sha384-qX9VvWkP79m/O121ZE6sOYp0nf/pldQgtvWDbkpzi+3mUo4Wn4Ix4cFzNPay3VaB" crossorigin="anonymous"></script>`
 	ChartJSCDNScriptTag = `<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js" integrity="sha384-hfkuqrKeWFmnTMWN31VWyoe8xgdTADD11kgxmdpx2uyE6j5Az5uZq6u6AKYYmAOw" crossorigin="anonymous"></script>`
-	LeafletCDNCSSTag    = `<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">`
-	LeafletCDNScriptTag = `<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>`
+	// ChartJSTreemapCDNScriptTag registra el controlador "treemap", que
+	// Chart.js no trae en su bundle base. Cargado por <script> DESPUÉS de
+	// ChartJSCDNScriptTag se auto-registra contra el `Chart` global (el
+	// camino de bundler es el que exige un Chart.register explícito), así
+	// que no hace falta glue de JS en ninguno de los dos DSLs — el orden de
+	// los dos tags sí importa.
+	//
+	// Hash sha384 calculado 2026-08-20 contra el archivo real (16,114 bytes)
+	// y cruzado contra el sha256 que publica la API de jsdelivr para este
+	// mismo paquete/versión, igual que MathCDNScriptTag abajo.
+	ChartJSTreemapCDNScriptTag = `<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@4.2.0/dist/chartjs-chart-treemap.min.js" integrity="sha384-qVcAkelfFwpumhtj6YgqLeENwq7QLDtQgKn9TjKFOUJv+Lln+42SQR1sTdP+Ay1S" crossorigin="anonymous"></script>`
+	LeafletCDNCSSTag           = `<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">`
+	LeafletCDNScriptTag        = `<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>`
 	// MathCDNScriptTag (issue #239-B) usa el bundle tex-svg.js de MathJax:
 	// TeX de entrada + SVG autocontenido de salida (glifos embebidos como
 	// <path>, sin web-fonts externas) — la razón por la que se eligió
