@@ -18,10 +18,19 @@ import (
 // cleanJSONComments): una regexp ciega no distingue un "//" que forma
 // parte de un valor string (p.ej. una URL) de un comentario real, y
 // terminaba corrompiendo JSON válido (#108, #110).
+//
+// El `[^>]*` de chartBlockPattern tolera atributos después del tipo
+// (issue #209): el patrón era `^(<<chart:\s*\w+>>)\s*$`, que solo
+// aceptaba el tag pelado, así que un `<<chart: bar width="1200">>` se
+// saltaba la limpieza por completo. Ese salto no era inocuo — si su JSON
+// traía comentarios, nadie los quitaba, `json.Valid()` fallaba al parsear
+// y el chart terminaba en CHART002 + lienzo vacío. Sigue anclado en ambos
+// extremos y sigue exigiendo el cierre `>>`; `[^>]*` no puede tragarse el
+// cierre porque excluye `>`.
 var (
 	jsonTrailingCommaObj = regexp.MustCompile(`,\s*}`)
 	jsonTrailingCommaArr = regexp.MustCompile(`,\s*]`)
-	chartBlockPattern    = regexp.MustCompile(`^(<<chart:\s*\w+>>)\s*$`)
+	chartBlockPattern    = regexp.MustCompile(`^(<<chart:\s*\w+[^>]*>>)\s*$`)
 )
 
 // ChartJSONRule limpia comentarios inline en JSON para charts si es necesario
