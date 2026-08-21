@@ -54,7 +54,7 @@ for the complete, rule-ID-mapped list), and both CLIs ship an MCP server
 The **element** rules fire identically on `.slidelang` and `.doclang`,
 because both formats use the same element parsers: table column counts
 (`TABLE003`, error), code groups (`CODEGROUP001/002`), image sources
-(`IMG001`), empty code blocks (`CODE001`), chart data (`CHART001`),
+(`IMG001`), empty code blocks (`CODE001`), charts (`CHART001/003/004`),
 special-block types (`SPECIAL001`). A malformed table is caught in either
 format. Two document-level rules also fire on both: `CORE001` (at least
 one block) and `FRONT003` — the DocLang *parser* tolerates a file with no

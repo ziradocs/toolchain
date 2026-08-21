@@ -74,9 +74,12 @@ types strict lacks.
   correct render.
 - Types: `bar`, `line`, `combo`, `doughnut`, `radar`, `scatter`. No closing
   tag — do **not** write `<</chart>>`.
-- The linter (`CHART001`) only warns if a chart has **no** data at all
-  (neither `data`/`series` YAML nor a JSON payload) — it does not validate
-  column/series consistency, so get this right yourself.
+- The linter warns on three separate things. `CHART001`: no data at all
+  (neither `data`/`series` YAML nor a JSON payload). `CHART003`: the type in
+  the tag isn't one of the types listed above. `CHART004`: a JSON-mode
+  payload that isn't a Chart.js config (`data.datasets` missing or empty).
+  Column/series consistency is still **not** checked, so get that right
+  yourself.
 
 ## Mermaid
 

@@ -89,7 +89,7 @@ MCP `lint` tool honours that policy, which ZiraDocs's does not.
 The **element** rules are the ones that matter here, and they fire exactly
 as they do for ZiraDocs, because the element parsers are shared:
 `TABLE003` (every row must match the header's column count — an error),
-`CODEGROUP001/002`, `IMG001`, `CODE001`, `CHART001`, `SPECIAL001`.
+`CODEGROUP001/002`, `IMG001`, `CODE001`, `CHART001/003/004`, `SPECIAL001`.
 
 What doesn't carry over: the strict-mode rules (DocLang ignores `mode:`,
 so they never fire) and the per-layout slide schemas, which are written
