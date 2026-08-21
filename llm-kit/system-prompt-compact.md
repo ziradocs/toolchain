@@ -47,7 +47,7 @@ Opening paragraph.
 ```
 
 ## Elements (marker — strict / flex, same in both formats)
-Charts: `<<chart: bar|line|combo|doughnut|radar|scatter>>` then
+Charts: `<<chart: bar|line|pie|doughnut|radar|polarArea|scatter|bubble|combo|treemap>>` then
 `data: [[label,v1,v2..]]` + `series: [...]`. Mermaid: `<<mermaid>>` + code,
 no closing tag. Map: `<<map>>` (type, markers w/ lat+lng). Special blocks:
 `::: info|warning|danger|success|tip|details` ... `:::` — **these 6 values

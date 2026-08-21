@@ -1310,22 +1310,39 @@ type ChartJSConfig struct {
 	Options map[string]interface{} `json:"options"`
 }
 
-// ChartJSData representa la estructura de datos de Chart.js
+// ChartJSData representa la estructura de datos de Chart.js.
+//
+// Labels lleva omitempty por el treemap: ese controlador no consume
+// data.labels, y emitir un "labels":null al lado del tree solo mete ruido
+// en el config. Para los demás tipos no cambia nada — cuando hay labels se
+// serializan igual.
 type ChartJSData struct {
-	Labels   []string         `json:"labels"`
+	Labels   []string         `json:"labels,omitempty"`
 	Datasets []ChartJSDataset `json:"datasets"`
 }
 
-// ChartJSDataset representa un dataset de Chart.js
+// ChartJSDataset representa un dataset de Chart.js.
+//
+// Tree/Key/Groups/Labels son exclusivos de chartjs-chart-treemap, cuyo
+// dataset no se parece al de ningún tipo nativo: no hay data[] plano, sino
+// un tree de objetos más key (qué campo trae el número) y groups (por qué
+// campo agrupar). Todos con omitempty para que un chart normal serialice
+// exactamente igual que antes. Data también, por la misma razón: un
+// treemap no lo usa.
 type ChartJSDataset struct {
-	Label           string        `json:"label"`
-	Data            []interface{} `json:"data"`
-	Type            string        `json:"type,omitempty"`
-	BackgroundColor interface{}   `json:"backgroundColor,omitempty"`
-	BorderColor     interface{}   `json:"borderColor,omitempty"`
-	BorderWidth     int           `json:"borderWidth,omitempty"`
-	YAxisID         string        `json:"yAxisID,omitempty"`
-	Tension         float64       `json:"tension,omitempty"`
+	Label           string                   `json:"label"`
+	Data            []interface{}            `json:"data,omitempty"`
+	Type            string                   `json:"type,omitempty"`
+	BackgroundColor interface{}              `json:"backgroundColor,omitempty"`
+	BorderColor     interface{}              `json:"borderColor,omitempty"`
+	BorderWidth     int                      `json:"borderWidth,omitempty"`
+	YAxisID         string                   `json:"yAxisID,omitempty"`
+	Tension         float64                  `json:"tension,omitempty"`
+	Tree            []map[string]interface{} `json:"tree,omitempty"`
+	Key             string                   `json:"key,omitempty"`
+	Groups          []string                 `json:"groups,omitempty"`
+	Labels          map[string]interface{}   `json:"labels,omitempty"`
+	Spacing         float64                  `json:"spacing,omitempty"`
 }
 
 // ConvertChartElementToChartJS convierte un ChartElement del AST a configuración Chart.js
@@ -1350,15 +1367,29 @@ func ConvertChartElementToChartJS(chart *ast.ChartElement, elementID string, var
 	}
 
 	// Procesar datasets
-	if len(chart.Series) > 0 {
-		config.Data.Datasets = createDatasetsFromSeries(chart, variables)
-	} else if len(chart.Data) > 0 {
-		config.Data.Datasets = createDatasetsFromData(chart, variables)
-	}
+	if chart.ChartType == "treemap" {
+		// El treemap no comparte NADA de la forma de los demás tipos, así
+		// que no pasa por createDatasetsFrom*: ni datasets por serie/columna
+		// ni extracción de labels (data.labels no se consume). Espejo exacto
+		// de la rama treemap de renderer.GenerateChartConfigWithMode en core
+		// — los dos DSLs tienen que emitir el MISMO config para el mismo
+		// chart, que es la lección de #11/#55.
+		config.Data.Labels = nil
+		config.Data.Datasets = []ChartJSDataset{buildTreemapDataset(chart, variables)}
+		config.Options["plugins"] = map[string]interface{}{
+			"legend": map[string]interface{}{"display": false},
+		}
+	} else {
+		if len(chart.Series) > 0 {
+			config.Data.Datasets = createDatasetsFromSeries(chart, variables)
+		} else if len(chart.Data) > 0 {
+			config.Data.Datasets = createDatasetsFromData(chart, variables)
+		}
 
-	// Si no hay labels explícitos pero hay datos, extraer labels de los datos
-	if len(config.Data.Labels) == 0 && len(chart.Data) > 0 {
-		config.Data.Labels = extractLabelsFromData(chart.Data)
+		// Si no hay labels explícitos pero hay datos, extraer labels de los datos
+		if len(config.Data.Labels) == 0 && len(chart.Data) > 0 {
+			config.Data.Labels = extractLabelsFromData(chart.Data)
+		}
 	}
 
 	// Agregar opciones personalizadas
@@ -1388,7 +1419,11 @@ func convertChartType(chartType string) string {
 	switch chartType {
 	case "combo":
 		return "bar" // Chart.js usa 'bar' para mixed charts
-	case "doughnut", "pie", "line", "bar", "area", "scatter", "bubble", "polarArea", "radar":
+	case "doughnut", "pie", "line", "bar", "area", "scatter", "bubble", "polarArea", "radar", "treemap":
+		// treemap no viene en el bundle base de Chart.js: lo registra
+		// renderer.ChartJSTreemapCDNScriptTag, que buildCDNIncludes emite
+		// junto al bundle. Sin él en esta lista caía al fallback "bar" de
+		// abajo y un <<chart: treemap>> se dibujaba como barras.
 		return chartType
 	default:
 		return "bar" // fallback
@@ -1411,6 +1446,59 @@ func createComboChartScales() map[string]interface{} {
 				"drawOnChartArea": false,
 			},
 		},
+	}
+}
+
+// buildTreemapDataset arma el único dataset de un chart treemap a partir de
+// la MISMA matriz que usan todos los demás tipos del DSL (columna 0 =
+// etiqueta de la hoja, columna 1 = valor), así que el treemap no estrena
+// sintaxis propia.
+//
+// Cada pieza de acá se verificó contra el plugin real corriendo en Chromium,
+// y las tres primeras no son cosméticas — cada una por su cuenta deja el
+// treemap ilegible o invisible:
+//
+//   - BackgroundColor NO es indexable en un TreemapElement: un arreglo llega
+//     crudo a options.backgroundColor del elemento y el rectángulo queda sin
+//     relleno. Va un color único. No se pierde información: en un treemap el
+//     dato lo codifica el área, no el color.
+//   - Labels{display:true} prende el formatter POR DEFECTO del plugin
+//     (nombre + valor dentro del rectángulo). Es lo que evita el callback JS
+//     que documenta el plugin, que no sobreviviría al json.Marshal de este
+//     config ni al <script type="application/json"> por donde viaja.
+//   - Groups hace falta aunque cada hoja sea única: sin él ese formatter
+//     dibuja SOLO el número.
+func buildTreemapDataset(chart *ast.ChartElement, variables map[string]interface{}) ChartJSDataset {
+	tree := make([]map[string]interface{}, 0, len(chart.Data))
+	for _, row := range chart.Data {
+		if len(row) < 2 {
+			continue
+		}
+		label := row[0]
+		if s, ok := label.(string); ok {
+			label = ProcessVariables(s, variables)
+		}
+		tree = append(tree, map[string]interface{}{
+			"label": label,
+			"value": row[1],
+		})
+	}
+
+	label := "Data"
+	if len(chart.Series) > 0 && chart.Series[0] != "" {
+		label = ProcessVariables(chart.Series[0], variables)
+	}
+
+	return ChartJSDataset{
+		Label:           label,
+		Tree:            tree,
+		Key:             "value",
+		Groups:          []string{"label"},
+		Labels:          map[string]interface{}{"display": true},
+		Spacing:         0.5,
+		BackgroundColor: "#3498db",
+		BorderColor:     "#ffffff",
+		BorderWidth:     1,
 	}
 }
 
