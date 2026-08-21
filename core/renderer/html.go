@@ -1143,6 +1143,30 @@ func GenerateChartConfigForExport(elem *ast.ChartElement) string {
 	return GenerateChartConfigWithMode(elem, true)
 }
 
+// MergeChartOptions fusiona recursivamente el bloque `options:` del autor
+// (source) sobre los defaults del renderer (target), mutando target in
+// place: cuando una clave existe como mapa en ambos lados, sus hojas se
+// combinan en vez de que source reemplace el mapa completo — así un
+// `options: plugins: title: ...` del autor no borra un default hermano ya
+// puesto en ese mismo mapa (p. ej. plugins.legend, puesto por
+// applyExportOptimizations). Única fuente de verdad para este merge, consumida tanto por
+// GenerateChartConfigWithMode (doclang) como por slidelang/.../mergeOptions,
+// en la línea de lo que issue #55 hizo con ResolveChartJSONMode — antes cada
+// CLI mezclaba estas opciones de forma distinta (uno superficial, el otro
+// recursivo) y el mismo chart con el mismo `options:` producía configs
+// distintas según el DSL, la misma clase de bug que el issue histórico #11.
+func MergeChartOptions(target, source map[string]interface{}) {
+	for key, value := range source {
+		if existingMap, ok := target[key].(map[string]interface{}); ok {
+			if sourceMap, ok := value.(map[string]interface{}); ok {
+				MergeChartOptions(existingMap, sourceMap)
+				continue
+			}
+		}
+		target[key] = value
+	}
+}
+
 // GenerateChartConfigWithMode genera la configuración con modo específico
 func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string {
 	config := make(map[string]interface{})
@@ -1285,9 +1309,7 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string 
 
 	// Merge con opciones del usuario si existen
 	if elem.Options != nil {
-		for k, v := range elem.Options {
-			options[k] = v
-		}
+		MergeChartOptions(options, elem.Options)
 	}
 
 	config["options"] = options
