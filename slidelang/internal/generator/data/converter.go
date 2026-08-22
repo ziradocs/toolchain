@@ -1501,40 +1501,49 @@ func extractLabelsFromData(data [][]interface{}) []string {
 	return labels
 }
 
-// mergeOptions combina opciones personalizadas con la configuración base
+// mergeOptions combina opciones personalizadas con la configuración base.
+// El merge recursivo en sí es renderer.MergeChartOptions — la misma función
+// que usa doclang (core/renderer/html.go's GenerateChartConfigWithMode) —
+// para que un `options:` con claves anidadas produzca el mismo resultado en
+// ambos DSLs (issue #11/#55). Lo que sigue siendo específico de slidelang es
+// la conversión de callbacks: Chart.js acepta funciones JS en `callbacks`,
+// pero el AST solo puede traer el cuerpo como string, así que se marca con
+// `_function`/`body` para que charts.js (cargado en el browser generado por
+// slidelang) lo reconstruya en tiempo de carga — doclang nunca ejecuta ese
+// JS (su salida es HTML/PDF/DOCX/Markdown estático), así que esa conversión
+// no aplica ahí y se queda solo en este paquete.
 func mergeOptions(target, source map[string]interface{}) {
-	for key, value := range source {
-		if existingValue, exists := target[key]; exists {
-			// Si ambos valores son mapas, hacer merge recursivo
-			if existingMap, ok := existingValue.(map[string]interface{}); ok {
-				if sourceMap, ok := value.(map[string]interface{}); ok {
-					mergeOptions(existingMap, sourceMap)
-					continue
-				}
-			}
+	renderer.MergeChartOptions(target, source)
+	convertCallbackStrings(target)
+}
+
+// convertCallbackStrings recorre options ya fusionado buscando cualquier
+// mapa bajo la clave "callbacks", a cualquier profundidad, y envuelve sus
+// valores string en el marcador {_function: true, body: <string>} que
+// charts.js reconoce (modules/charts.js). Los defaults del renderer nunca
+// traen "callbacks", así que esto solo afecta a lo que vino de options del
+// autor — equivalente al procesamiento que antes vivía inline en el merge
+// recursivo, ahora separado porque el merge en sí se delega a core.
+func convertCallbackStrings(options map[string]interface{}) {
+	for key, value := range options {
+		valueMap, ok := value.(map[string]interface{})
+		if !ok {
+			continue
 		}
 
-		// Manejar callbacks especiales de Chart.js
 		if key == "callbacks" {
-			if callbacksMap, ok := value.(map[string]interface{}); ok {
-				processedCallbacks := make(map[string]interface{})
-				for cbKey, cbValue := range callbacksMap {
-					if cbString, ok := cbValue.(string); ok {
-						// Marcar como función JavaScript para que el template la procese
-						processedCallbacks[cbKey] = map[string]interface{}{
-							"_function": true,
-							"body":      cbString,
-						}
-					} else {
-						processedCallbacks[cbKey] = cbValue
+			for cbKey, cbValue := range valueMap {
+				if cbString, ok := cbValue.(string); ok {
+					valueMap[cbKey] = map[string]interface{}{
+						"_function": true,
+						"body":      cbString,
 					}
 				}
-				target[key] = processedCallbacks
-				continue
 			}
+			continue
 		}
 
-		target[key] = value
+		convertCallbackStrings(valueMap)
 	}
 }
 
