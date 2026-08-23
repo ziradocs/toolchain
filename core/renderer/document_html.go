@@ -101,6 +101,19 @@ func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderCon
 	// Header HTML
 	html.WriteString(generateDocumentHeader(doc, opts, cspNonce, ctx.Logger))
 
+	// Watermark (issue #179): a single position:fixed overlay, emitted once
+	// right after <body> opens, covers every printed physical page —
+	// Chromium repeats fixed-positioned elements on each page when printing
+	// to PDF. This single mechanism handles flow mode, page-view mode, the
+	// static TOC (which lives outside both), and any page-view
+	// .document-page whose content overflows onto more than one physical
+	// sheet — a per-.document-page div (the original design) covered none
+	// of those, since the TOC and any overflow page fall outside the
+	// .document-page it was attached to.
+	if rw, ok := ResolveWatermark(opts.Watermark, variables); ok {
+		html.WriteString(WatermarkHTML(rw, "doclang-watermark-fixed"))
+	}
+
 	// Interactive Viewer: Sidebar con TOC
 	if opts.InteractiveViewer && opts.TOC {
 		html.WriteString(generateViewerSidebar(doc, opts, variables))
@@ -994,25 +1007,19 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         /* Watermark (issue #179): color/opacity/font-size/rotation are all
            inline styles from renderer.WatermarkHTML - this block only
            supplies the STRUCTURAL rules (positioning, tiling, no pointer
-           interaction). .doclang-watermark is a child of .document-page
-           (position: relative, see above), so position: absolute here
-           anchors it to that one page; .doclang-watermark-fixed is the
-           flow-mode (no page-view) sibling, a direct child of body,
-           which Chromium repeats on every printed page. */
-        .doclang-watermark,
+           interaction). A single instance is emitted as a direct child of
+           body, position: fixed, which Chromium repeats on every printed
+           page — covering flow mode, page-view mode, the static TOC and
+           any content that overflows a page-view .document-page onto more
+           than one physical sheet, all with one <div>. */
         .doclang-watermark-fixed {
-            position: absolute;
+            position: fixed;
             inset: 0;
             overflow: hidden;
             pointer-events: none;
             z-index: 500;
         }
 
-        .doclang-watermark-fixed {
-            position: fixed;
-        }
-
-        .doclang-watermark-rotator,
         .doclang-watermark-fixed-rotator {
             position: absolute;
             top: 50%;
@@ -1027,7 +1034,6 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             gap: 3em;
         }
 
-        .doclang-watermark-rotator span,
         .doclang-watermark-fixed-rotator span {
             white-space: nowrap;
             font-weight: 600;
@@ -1835,16 +1841,8 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 		return generatePageViewBody(doc, opts, variables, docTitle, ctx)
 	}
 
-	// Standard mode (continuous flow, no distinct .document-page per
-	// section): one `position: fixed` watermark on <body> covers every
-	// printed page, since Chromium repeats fixed-positioned elements on
-	// each page when printing to PDF — the page-view branch above instead
-	// draws one per .document-page (see openDocumentPageDiv).
-	if rw, ok := ResolveWatermark(opts.Watermark, variables); ok {
-		body.WriteString(WatermarkHTML(rw, "doclang-watermark-fixed"))
-	}
-
-	// Standard mode: continuous flow
+	// Standard mode: continuous flow. The watermark itself is emitted once
+	// by GenerateDocumentHTML, right after <body> opens — see its comment.
 	sectionNum := 1
 	for i, slide := range doc.ContentBlocks {
 		title, numbered := resolveSectionTitle(slide)
@@ -1931,16 +1929,8 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 	}
 	header, footer := resolveHeaderFooterConfig(opts.HeaderFooter, currentBlockType)
 
-	// Resolved once for the whole document — unlike header/footer, a
-	// watermark has no per-blockType override, so every .document-page
-	// gets the exact same rendered HTML.
-	watermarkHTML := ""
-	if rw, ok := ResolveWatermark(opts.Watermark, variables); ok {
-		watermarkHTML = WatermarkHTML(rw, "doclang-watermark")
-	}
-
 	// Start first page
-	body.WriteString(openDocumentPageDiv(header, footer, variables, watermarkHTML))
+	body.WriteString(openDocumentPageDiv(header, footer, variables))
 	body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables))
 	body.WriteString(`    <div class="page-content">
 `)
@@ -1992,7 +1982,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 			pageNum++
 			currentBlockType = doc.ContentBlocks[i+1].BlockType
 			header, footer = resolveHeaderFooterConfig(opts.HeaderFooter, currentBlockType)
-			body.WriteString(openDocumentPageDiv(header, footer, variables, watermarkHTML))
+			body.WriteString(openDocumentPageDiv(header, footer, variables))
 			body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables))
 			body.WriteString(`    <div class="page-content">
 `)
@@ -2021,7 +2011,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 // regla `.page-header { height: var(--doclang-header-height, 15mm) }` ya
 // existente recoge este mismo custom property, así que no hace falta
 // además fijar height inline ahí.
-func openDocumentPageDiv(header *ast.HeaderConfig, footer *ast.FooterConfig, variables map[string]interface{}, watermarkHTML string) string {
+func openDocumentPageDiv(header *ast.HeaderConfig, footer *ast.FooterConfig, variables map[string]interface{}) string {
 	var parts []string
 	if header != nil {
 		if h := sanitizeStyleValue(ProcessVariables(header.Height, variables)); h != "" {
@@ -2033,15 +2023,12 @@ func openDocumentPageDiv(header *ast.HeaderConfig, footer *ast.FooterConfig, var
 			parts = append(parts, "--doclang-footer-height: "+h+";")
 		}
 	}
-	var openTag string
 	if len(parts) == 0 {
-		openTag = `<div class="document-page">
+		return `<div class="document-page">
 `
-	} else {
-		openTag = fmt.Sprintf(`<div class="document-page" style="%s">
-`, strings.Join(parts, " "))
 	}
-	return openTag + watermarkHTML
+	return fmt.Sprintf(`<div class="document-page" style="%s">
+`, strings.Join(parts, " "))
 }
 
 // resolveHeaderFooterConfig aplica la cascada global → layout_defaults[blockType]

@@ -221,7 +221,7 @@ func TestBlendOverOpaque(t *testing.T) {
 
 func TestRenderWatermarkPNG(t *testing.T) {
 	rw := ResolvedWatermark{Text: "DRAFT", Color: "#ff0000", Opacity: 0.3, Rotation: -45, FontSize: "24pt", Repeat: true}
-	data, err := RenderWatermarkPNG(rw, 400, 300)
+	data, err := RenderWatermarkPNG(rw, 400, 300, 150)
 	if err != nil {
 		t.Fatalf("RenderWatermarkPNG() error = %v", err)
 	}
@@ -254,7 +254,53 @@ func TestRenderWatermarkPNG(t *testing.T) {
 
 func TestRenderWatermarkPNG_InvalidSize(t *testing.T) {
 	rw := ResolvedWatermark{Text: "DRAFT", Color: "#000000", Opacity: 0.5, FontSize: "24pt"}
-	if _, err := RenderWatermarkPNG(rw, 0, 100); err == nil {
+	if _, err := RenderWatermarkPNG(rw, 0, 100, 150); err == nil {
 		t.Error("expected an error for a zero-width canvas, got nil")
+	}
+}
+
+func TestRenderWatermarkPNG_InvalidDPI(t *testing.T) {
+	rw := ResolvedWatermark{Text: "DRAFT", Color: "#000000", Opacity: 0.5, FontSize: "24pt"}
+	if _, err := RenderWatermarkPNG(rw, 400, 300, 0); err == nil {
+		t.Error("expected an error for a zero DPI, got nil")
+	}
+}
+
+// TestRenderWatermarkPNG_DPIScalesGlyphSize verifies dpi actually governs
+// how large the rasterized text is, not just the canvas dimensions: a
+// fixed FontSize rendered at a higher DPI on the same canvas must occupy
+// visibly more of it. Without wiring dpi into truetype.Options (it
+// defaults to 72), a "72pt" glyph would render at the same pixel size
+// whether the canvas were built for 72 or 150 DPI — a mismatch between
+// the physical size the caller intended and what actually lands on the
+// page.
+func TestRenderWatermarkPNG_DPIScalesGlyphSize(t *testing.T) {
+	rw := ResolvedWatermark{Text: "M", Color: "#000000", Opacity: 1.0, FontSize: "72pt", Repeat: false}
+
+	countOpaquePixels := func(dpi int) int {
+		data, err := RenderWatermarkPNG(rw, 300, 300, dpi)
+		if err != nil {
+			t.Fatalf("RenderWatermarkPNG(dpi=%d) error = %v", dpi, err)
+		}
+		img, err := png.Decode(strings.NewReader(string(data)))
+		if err != nil {
+			t.Fatalf("output is not a valid PNG: %v", err)
+		}
+		bounds := img.Bounds()
+		count := 0
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				if _, _, _, a := img.At(x, y).RGBA(); a > 0 {
+					count++
+				}
+			}
+		}
+		return count
+	}
+
+	low := countOpaquePixels(72)
+	high := countOpaquePixels(150)
+	if high <= low {
+		t.Errorf("expected more opaque pixels at 150 DPI than at 72 DPI for the same FontSize, got %d (72 DPI) vs %d (150 DPI)", low, high)
 	}
 }

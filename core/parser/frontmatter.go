@@ -246,6 +246,18 @@ func (w *rawWatermark) UnmarshalYAML(value *yaml.Node) error {
 		// `watermark: "BORRADOR"` — shorthand for
 		// `{enabled: true, text: "BORRADOR"}`, the same "the interesting
 		// value is what a scalar means" pattern as `page: A4`.
+		//
+		// Only a genuine !!str scalar counts: yaml.Node.Decode into a
+		// string target is lenient and happily stringifies !!bool/!!int/
+		// !!float/!!null ("false" -> "false"), so without this check
+		// `watermark: false` would silently become a watermark reading
+		// "false" instead of surfacing FRONT007 — worse than the map-form
+		// typo cases this type already guards against, since it also
+		// implicitly turns the watermark ON.
+		if value.Tag != "!!str" {
+			w.badShape = value.Tag
+			return nil
+		}
 		w.Text = value
 		return nil
 	case yaml.MappingNode:
@@ -855,19 +867,23 @@ func (p *FrontMatterParser) convertWatermark(raw *rawWatermark) *ast.WatermarkCo
 	}
 
 	if raw.Text != nil {
-		var text string
-		if err := raw.Text.Decode(&text); err != nil {
+		// raw.Text.Decode(&text) alone isn't enough: it's lenient and
+		// stringifies !!bool/!!int/!!float/!!null nodes instead of erroring
+		// (`text: false` -> "false"), so the Tag must be checked explicitly
+		// — same reasoning as the scalar-shorthand branch of UnmarshalYAML
+		// above.
+		if raw.Text.Tag != "!!str" {
 			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.text': expected a string, got %v — ignored", raw.Text.Tag))
 		} else {
-			config.Text = text
+			config.Text = raw.Text.Value
 		}
 	}
 
 	if raw.Color != nil {
-		var color string
-		if err := raw.Color.Decode(&color); err != nil {
+		if raw.Color.Tag != "!!str" {
 			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.color': expected a string, got %v — ignored", raw.Color.Tag))
 		} else {
+			color := raw.Color.Value
 			if _, _, _, ok := a11y.ParseColor(color); !ok {
 				p.watermarkFrontMatterWarning(fmt.Sprintf("'watermark.color': %q is not a recognized CSS color — kept as-is", color))
 			}
@@ -903,10 +919,10 @@ func (p *FrontMatterParser) convertWatermark(raw *rawWatermark) *ast.WatermarkCo
 	}
 
 	if raw.FontSize != nil {
-		var fontSize string
-		if err := raw.FontSize.Decode(&fontSize); err != nil {
+		if raw.FontSize.Tag != "!!str" {
 			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.font_size': expected a string, got %v — ignored", raw.FontSize.Tag))
 		} else {
+			fontSize := raw.FontSize.Value
 			if _, err := util.ParseLengthInches(fontSize); err != nil {
 				p.watermarkFrontMatterWarning(fmt.Sprintf("'watermark.font_size': %q is not a recognized length (e.g. 72pt, 2cm, 40px) — kept as-is", fontSize))
 			}

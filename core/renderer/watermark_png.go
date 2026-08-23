@@ -50,16 +50,28 @@ var watermarkFont = sync.OnceValue(func() *truetype.Font {
 // font, not the document's own theme font — docxgo exposes no path to a
 // vector watermark, so this is a deliberate fidelity tradeoff, documented
 // in llm-kit/reference/frontmatter.md, not an oversight.
-func RenderWatermarkPNG(rw ResolvedWatermark, widthPx, heightPx int) ([]byte, error) {
+//
+// dpi is the resolution the caller rasterized widthPx/heightPx at (e.g.
+// 150 for doclang's DOCX backend, ParseLengthInches(pageSize)*dpi). It
+// must match: rw.FontSize is a physical unit (points/inches/cm/...), and
+// truetype.Options.DPI is what converts that physical size into the
+// correct number of PIXELS on THIS canvas — passing a mismatched or zero
+// DPI (truetype defaults to 72) would rasterize text at the wrong
+// fraction of the canvas, sized as if the canvas were a different
+// resolution than it actually is.
+func RenderWatermarkPNG(rw ResolvedWatermark, widthPx, heightPx, dpi int) ([]byte, error) {
 	if widthPx <= 0 || heightPx <= 0 {
 		return nil, fmt.Errorf("renderer: invalid watermark canvas size %dx%d", widthPx, heightPx)
+	}
+	if dpi <= 0 {
+		return nil, fmt.Errorf("renderer: invalid watermark DPI %d", dpi)
 	}
 
 	points := 72.0
 	if inches, err := util.ParseLengthInches(rw.FontSize); err == nil {
 		points = inches * 72
 	}
-	face := truetype.NewFace(watermarkFont(), &truetype.Options{Size: points})
+	face := truetype.NewFace(watermarkFont(), &truetype.Options{Size: points, DPI: float64(dpi)})
 
 	dc := gg.NewContext(widthPx, heightPx)
 	dc.SetFontFace(face)

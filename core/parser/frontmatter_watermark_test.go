@@ -278,6 +278,89 @@ func TestFrontMatterParser_WatermarkDuplicateKeyWarns(t *testing.T) {
 	}
 }
 
+// TestFrontMatterParser_WatermarkScalarBoolRejected covers `watermark:
+// false` — YAML's node.Decode into a string target is lenient and would
+// otherwise stringify the bool ("false" -> Text: "false"), silently
+// turning ON a watermark that reads "false" instead of surfacing a
+// warning. Only a genuine string scalar counts as the shorthand.
+func TestFrontMatterParser_WatermarkScalarBoolRejected(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\nwatermark: false\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node.Watermark != nil {
+		t.Errorf("Watermark = %+v, want nil for a bool scalar", node.Watermark)
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT007" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT007 warning for a bool 'watermark:' scalar, got: %+v", diags)
+	}
+}
+
+// TestFrontMatterParser_WatermarkScalarIntRejected covers `watermark: 123`
+// — same leniency hole as the bool case, with a number instead.
+func TestFrontMatterParser_WatermarkScalarIntRejected(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\nwatermark: 123\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node.Watermark != nil {
+		t.Errorf("Watermark = %+v, want nil for an int scalar", node.Watermark)
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT007" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT007 warning for an int 'watermark:' scalar, got: %+v", diags)
+	}
+}
+
+// TestFrontMatterParser_WatermarkMapTextBoolRejected covers the map-form
+// equivalent, `watermark: {text: false}` — the same Decode leniency
+// applies to the 'text' key inside the map, not just the top-level
+// scalar shorthand.
+func TestFrontMatterParser_WatermarkMapTextBoolRejected(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\nwatermark:\n  text: false\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node.Watermark == nil {
+		t.Fatal("Watermark should not be nil — a bad 'text' key doesn't invalidate the whole block")
+	}
+	if node.Watermark.Text != "" {
+		t.Errorf("Text = %q, want empty for a bool 'text:' value", node.Watermark.Text)
+	}
+	foundWarning := false
+	for _, d := range diags {
+		if d.RuleID == "FRONT007" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected a FRONT007 warning for a bool 'watermark.text', got: %+v", diags)
+	}
+}
+
 // TestFrontMatterParser_WatermarkBadShapeDoesNotKillFrontMatter covers a
 // sequence value for `watermark:` — must degrade to a warning, never a
 // parse-killing error.

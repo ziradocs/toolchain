@@ -20,10 +20,10 @@ func TestGenerateDocumentHTML_NilWatermark_Unchanged(t *testing.T) {
 
 	html := GenerateDocumentHTML(doc, DocumentHTMLOptions{Title: "Reporte"}, nil)
 
-	// The structural CSS rules (.doclang-watermark, .doclang-watermark-fixed)
-	// are always present in the stylesheet — unused selectors are inert.
-	// Only the actual div markup must be absent.
-	if strings.Contains(html, `class="doclang-watermark"`) || strings.Contains(html, `class="doclang-watermark-fixed"`) {
+	// The structural CSS rule (.doclang-watermark-fixed) is always present
+	// in the stylesheet — an unused selector is inert. Only the actual div
+	// markup must be absent.
+	if strings.Contains(html, `class="doclang-watermark-fixed"`) {
 		t.Errorf("nil Watermark must not emit any watermark div, got:\n%s", html)
 	}
 }
@@ -48,8 +48,13 @@ func TestGenerateDocumentHTML_WatermarkFlowMode(t *testing.T) {
 	}
 }
 
-// TestGenerateDocumentHTML_WatermarkPageView covers page-view mode: one
-// watermark div per .document-page, not a single fixed one.
+// TestGenerateDocumentHTML_WatermarkPageView covers page-view mode: the
+// same single fixed-position watermark used by flow mode, not one per
+// .document-page. A per-page div would miss the static TOC (rendered
+// outside any .document-page) and any block that overflows a page-view
+// .document-page onto more than one physical printed sheet — the
+// position:fixed mechanism, repeated by Chromium on every printed page,
+// covers both without extra markup.
 func TestGenerateDocumentHTML_WatermarkPageView(t *testing.T) {
 	doc := simpleDoc(
 		ast.ContentBlock{BlockType: "title", Heading: "Doc"},
@@ -58,22 +63,28 @@ func TestGenerateDocumentHTML_WatermarkPageView(t *testing.T) {
 
 	html := GenerateDocumentHTML(doc, DocumentHTMLOptions{
 		PageBreaks: true,
+		TOC:        true,
 		Watermark:  &ast.WatermarkConfig{Enabled: true, Text: "BORRADOR"},
 		HeaderFooter: &ast.HeaderFooterConfig{
 			Header: &ast.HeaderConfig{Enabled: true, Text: &ast.HeaderFooterText{Center: "x"}},
 		},
 	}, nil)
 
-	if strings.Contains(html, `class="doclang-watermark-fixed"`) {
-		t.Errorf("page-view mode must not also emit the flow-mode fixed watermark, got:\n%s", html)
+	if !strings.Contains(html, `class="doclang-watermark-fixed"`) {
+		t.Errorf("expected the fixed-position watermark in page-view mode too, got:\n%s", html)
 	}
-	gotDocPages := strings.Count(html, `class="document-page"`) + strings.Count(html, `class="document-page" style=`)
-	gotWatermarks := strings.Count(html, `class="doclang-watermark"`)
-	if gotDocPages == 0 {
-		t.Fatal("expected at least one .document-page in page-view mode")
+	if strings.Count(html, `class="doclang-watermark-fixed"`) != 1 {
+		t.Errorf("expected exactly one watermark div regardless of .document-page count, got:\n%s", html)
 	}
-	if gotWatermarks != gotDocPages {
-		t.Errorf("expected one watermark per .document-page (%d pages), got %d watermark divs:\n%s", gotDocPages, gotWatermarks, html)
+	if !strings.Contains(html, `class="toc"`) {
+		t.Fatal("test setup expected a TOC to be present")
+	}
+	// The single fixed div must be emitted before the TOC in document
+	// order — irrelevant for print (position:fixed ignores DOM order) but
+	// confirms it isn't nested inside a .document-page that the TOC falls
+	// outside of.
+	if strings.Index(html, `class="doclang-watermark-fixed"`) > strings.Index(html, `class="toc"`) {
+		t.Errorf("expected the watermark div before the TOC in document order, got:\n%s", html)
 	}
 }
 
@@ -86,7 +97,7 @@ func TestGenerateDocumentHTML_WatermarkDisabled(t *testing.T) {
 		Watermark: &ast.WatermarkConfig{Enabled: false, Text: "BORRADOR"},
 	}, nil)
 
-	if strings.Contains(html, `class="doclang-watermark"`) || strings.Contains(html, `class="doclang-watermark-fixed"`) {
+	if strings.Contains(html, `class="doclang-watermark-fixed"`) {
 		t.Errorf("enabled:false must not emit any watermark div, got:\n%s", html)
 	}
 }
