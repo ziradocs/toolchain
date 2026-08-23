@@ -351,6 +351,53 @@ func TestResolveChartJSONMode(t *testing.T) {
 	})
 }
 
+// TestMergeChartOptions_AuthorNestedOverrideKeepsSiblingDefaults cubre el bug
+// de merge de options descrito junto a issue #11/#55: antes de este fix,
+// GenerateChartConfigWithMode mezclaba el `options:` del autor con un merge
+// SUPERFICIAL por clave de primer nivel (`options[k] = v`), así que un
+// `options: plugins: title: ...` del autor reemplazaba el mapa `plugins`
+// entero, borrando cualquier default que el renderer ya hubiera puesto ahí.
+// El único default anidado que existe en el camino no-JSON de core es
+// plugins.legend, puesto por applyExportOptimizations solo cuando forExport
+// es true (GenerateChartConfig sin export nunca puebla `plugins`, así que un
+// test sobre ese camino pasaría igual antes y después del fix, sin probar
+// nada) — por eso este test usa GenerateChartConfigForExport.
+func TestMergeChartOptions_AuthorNestedOverrideKeepsSiblingDefaults(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	chart := ast.NewChartElement(pos, "bar")
+	chart.Data = [][]interface{}{{"A", float64(1)}, {"B", float64(2)}}
+	chart.Options = map[string]interface{}{
+		"plugins": map[string]interface{}{
+			"title": map[string]interface{}{
+				"display": true,
+				"text":    "Custom title",
+			},
+		},
+	}
+
+	config := GenerateChartConfigForExport(chart)
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(config), &decoded); err != nil {
+		t.Fatalf("chart config is not valid JSON: %v\n%s", err, config)
+	}
+
+	plugins, ok := decoded["options"].(map[string]interface{})["plugins"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("options.plugins missing or not an object: %v", decoded["options"])
+	}
+
+	title, ok := plugins["title"].(map[string]interface{})
+	if !ok || title["text"] != "Custom title" {
+		t.Fatalf("options.plugins.title = %v, want the author's override to survive", plugins["title"])
+	}
+
+	legend, ok := plugins["legend"].(map[string]interface{})
+	if !ok || legend["position"] != "top" {
+		t.Fatalf("options.plugins.legend = %v, want the applyExportOptimizations default (position: top) to survive the author's plugins.title override", plugins["legend"])
+	}
+}
+
 // TestRenderTextElement_RawHTMLEscapesVariableValues es una regresión
 // encontrada en code-review de la PR de XSS (docs/SECURITY_AUDIT_2026-07.md,
 // CR-2): un TextElement crudo (p. ej. un heading de subsección) sustituía
