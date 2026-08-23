@@ -1,0 +1,35 @@
+/* Watermark (issue #179) — repeating, semi-transparent text overlay from
+   frontmatter `watermark:`. color/opacity/font-size/rotation are all
+   inline styles baked into the HTML by renderer.WatermarkHTML (core);
+   this file only supplies the STRUCTURAL rules: positioning within the
+   slide, tiling via flex-wrap, and no pointer interaction. */
+
+.slidelang-slide .slidelang-watermark {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    /* Above every other slide element (header/footer included) so the
+       watermark is never hidden behind content — the conventional
+       document/print watermark placement. */
+    z-index: 1000;
+}
+
+.slidelang-watermark-rotator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 200%;
+    height: 200%;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    justify-content: center;
+    align-items: center;
+    gap: 3em;
+}
+
+.slidelang-watermark-rotator span {
+    white-space: nowrap;
+    font-weight: 600;
+}

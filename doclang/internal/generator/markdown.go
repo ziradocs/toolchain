@@ -77,6 +77,12 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 		if doc.FrontMatter.HeaderFooter != nil {
 			writeHeaderFooterYAML(&md, doc.FrontMatter.HeaderFooter)
 		}
+		// watermark: (issue #179): mismo passthrough puro que header/footer
+		// arriba — Markdown no tiene concepto de página, así que no hay
+		// nada que renderizar de esto, solo preservarlo en el round-trip.
+		if doc.FrontMatter.Watermark != nil {
+			writeWatermarkYAML(&md, doc.FrontMatter.Watermark)
+		}
 		md.WriteString("---\n\n")
 	}
 
@@ -517,6 +523,33 @@ func writeHeaderFooterYAML(md *strings.Builder, hf *ast.HeaderFooterConfig) {
 				writeFooterConfigYAML(md, layout.Footer, "      ")
 			}
 		}
+	}
+}
+
+// writeWatermarkYAML re-serializa watermark: (issue #179) de vuelta a
+// YAML para el round-trip de Markdown, mismo criterio de fidelidad que
+// writeHeaderFooterYAML: las llaves emitidas espejan exactamente las que
+// core/parser/frontmatter.go's rawWatermark espera leer de vuelta.
+func writeWatermarkYAML(md *strings.Builder, w *ast.WatermarkConfig) {
+	md.WriteString("watermark:\n")
+	fmt.Fprintf(md, "  enabled: %t\n", w.Enabled)
+	if w.Text != "" {
+		fmt.Fprintf(md, "  text: %s\n", yamlQuotedScalar(w.Text))
+	}
+	if w.Color != "" {
+		fmt.Fprintf(md, "  color: %s\n", yamlQuotedScalar(w.Color))
+	}
+	if w.Opacity != nil {
+		fmt.Fprintf(md, "  opacity: %v\n", *w.Opacity)
+	}
+	if w.Rotation != nil {
+		fmt.Fprintf(md, "  rotation: %v\n", *w.Rotation)
+	}
+	if w.FontSize != "" {
+		fmt.Fprintf(md, "  font_size: %s\n", yamlQuotedScalar(w.FontSize))
+	}
+	if w.Repeat != nil {
+		fmt.Fprintf(md, "  repeat: %t\n", *w.Repeat)
 	}
 }
 

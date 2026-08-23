@@ -94,9 +94,11 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 
 	title := ""
 	var headerFooterConfig *ast.HeaderFooterConfig
+	var watermarkConfig *ast.WatermarkConfig
 	if astNode.FrontMatter != nil {
 		title = astNode.FrontMatter.Title
 		headerFooterConfig = astNode.FrontMatter.HeaderFooter
+		watermarkConfig = astNode.FrontMatter.Watermark
 		// theme == "" es el selector en "document default" (el caller no
 		// pasó un segundo argumento, o lo pasó vacío a propósito) — cae al
 		// `theme:` del propio front matter, mismo orden de prioridad que
@@ -124,6 +126,7 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 		ShowHeaders:  theme == "page-view",
 		ShowFooters:  theme == "page-view",
 		HeaderFooter: headerFooterConfig,
+		Watermark:    watermarkConfig, // watermark: front matter (issue #179)
 		EmbedAssets:  true,
 	}
 	html := renderer.GenerateDocumentHTML(astNode, opts, renderer.NewDefaultRenderContext())

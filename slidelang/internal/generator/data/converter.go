@@ -235,6 +235,16 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 		log.Info("GEN", "🎯 Processed header/footer configuration")
 	}
 
+	// Procesar watermark (issue #179) — global, sin cascada por slide/layout,
+	// así que a diferencia de header/footer no hace falta un *WatermarkData
+	// propio: renderer.WatermarkHTML ya produce el fragmento final.
+	if astNode.FrontMatter != nil {
+		if rw, ok := renderer.ResolveWatermark(astNode.FrontMatter.Watermark, variables); ok {
+			data.Watermark = htmltemplate.HTML(renderer.WatermarkHTML(rw, "slidelang-watermark"))
+			log.Info("GEN", "🎯 Processed watermark configuration")
+		}
+	}
+
 	// Convertir slides
 	log.Info("GEN", "🎨 Converting %d slides to template data", len(astNode.ContentBlocks))
 

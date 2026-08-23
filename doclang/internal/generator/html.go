@@ -110,6 +110,7 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		ShowFooters:       opts.ShowFooters,       // 🆕 Para page-view
 		InteractiveViewer: opts.InteractiveViewer, // 🆕 Viewer interactivo
 		HeaderFooter:      opts.HeaderFooter,      // 🆕 header:/footer:/layout_defaults: (issue #117)
+		Watermark:         opts.Watermark,         // watermark: front matter (issue #179)
 		EmbedAssets:       true,
 		// PlantUML/Mermaid/Chart/Map modes: DocumentHTMLOptions.GenerateDocumentHTML
 		// no las usa para construir fetchers (eso es ctx, abajo — issue #134/G1b),

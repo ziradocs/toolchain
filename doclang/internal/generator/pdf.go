@@ -76,6 +76,13 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	// <div class="page-header">/<div class="page-footer"> que
 	// generatePageViewBody hornearía dentro del HTML impreso — pedirle
 	// ambos a la vez producía un header/footer duplicado (issue #117).
+	//
+	// Watermark (issue #179) SÍ se pasa: a diferencia de header/footer no
+	// tiene equivalente en el template de impresión de Chromium (no hay
+	// "PrintToPDF watermark option"), es un <div> dentro de la propia
+	// página HTML — el mismo camino que dibuja el resto del contenido que
+	// termina impreso. No hay chrome de Chromium con el que pueda
+	// duplicarse.
 
 	// 2. Crear ChromiumRenderer ANTES de generar el HTML (issue "quitar
 	// Chrome del pipeline", Fase 3): mermaid/chart/map/math necesitan un
@@ -130,7 +137,8 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		PageBreaks:        opts.PageBreaks,
 		Theme:             opts.Theme,
 		ThemeVariables:    opts.ThemeVariables,
-		InteractiveViewer: false, // No viewer en PDF
+		InteractiveViewer: false,          // No viewer en PDF
+		Watermark:         opts.Watermark, // watermark: front matter (issue #179)
 		EmbedAssets:       true,
 		PlantUMLMode:      offlineMode,
 		PlantUMLFormat:    offlinePlantUMLFormat,

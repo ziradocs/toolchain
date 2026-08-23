@@ -39,6 +39,16 @@ type GeneratorOptions struct {
 	// and DOCX (native Section.Header/Footer). Markdown has no notion of a
 	// page, so it only passes the raw front matter through on round-trip.
 	HeaderFooter *ast.HeaderFooterConfig
+	// Watermark is the parsed `watermark:` front matter namespace (issue
+	// #179). nil means the document has no opinion. Unlike HeaderFooter,
+	// it applies uniformly with no per-blockType/layout cascade. Consumed
+	// by HTML (renderer.DocumentHTMLOptions.Watermark), PDF (same HTML
+	// renderer — a page-drawn overlay, not a Chromium print template, so
+	// pdf.go needs no code of its own for it), and DOCX (rasterized via
+	// renderer.RenderWatermarkPNG, since docxgo has no w:pict/VML API for
+	// a native text watermark). Markdown round-trips it, same as
+	// HeaderFooter.
+	Watermark *ast.WatermarkConfig
 	// PlantUML options
 	PlantUMLMode   string // "browser" (default), "offline-assets", "offline-inline"
 	PlantUMLServer string // Custom PlantUML server (default: https://www.plantuml.com/plantuml)
@@ -181,9 +191,11 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 
 	title := ""
 	var headerFooterConfig *ast.HeaderFooterConfig
+	var watermarkConfig *ast.WatermarkConfig
 	if doc.FrontMatter != nil {
 		title = doc.FrontMatter.Title
 		headerFooterConfig = doc.FrontMatter.HeaderFooter
+		watermarkConfig = doc.FrontMatter.Watermark
 	}
 
 	renderOpts := renderer.DocumentHTMLOptions{
@@ -193,6 +205,7 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 		ShowHeaders:    theme.Name == "page-view",
 		ShowFooters:    theme.Name == "page-view",
 		HeaderFooter:   headerFooterConfig, // 🆕 header:/footer:/layout_defaults: (issue #117)
+		Watermark:      watermarkConfig,    // watermark: front matter (issue #179)
 		EmbedAssets:    true,
 		PlantUMLMode:   "browser",
 		MermaidMode:    "browser",

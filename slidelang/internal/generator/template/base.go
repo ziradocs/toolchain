@@ -455,7 +455,9 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
              id="slidelang-slide-{{$index}}">
             {{/* Header del slide */}}
             {{template "slide-header" (dict "slide" $slide "presentation" $ "index" $index)}}
-            
+            {{/* Watermark (issue #179) — global, sin cascada por slide */}}
+            {{template "slide-watermark" (dict "presentation" $)}}
+
             {{if $slide.IsTitle}}
                 {{/* Layout inteligente para slides de título */}}
                 <div class="slidelang-title-slide-container">
@@ -997,6 +999,17 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
          título y el de contenido para que no diverjan entre sí. */}}
     {{define "slide-h1-fallback"}}
         <h1 class="slidelang-sr-only">Slide {{add1 .index}}</h1>
+    {{end}}
+
+    {{/* Watermark (issue #179): a diferencia de header/footer no hay
+         cascada por slide/layout — .Watermark ya es el fragmento HTML
+         final (renderer.WatermarkHTML), pre-escapado y marcado safe como
+         htmltemplate.HTML por data.PrepareTemplateDataWithRenderMode. El
+         "if" se apoya en que htmltemplate.HTML es un string subyacente:
+         "" (sin watermark) es falsy para el motor de templates de Go. */}}
+    {{define "slide-watermark"}}
+        {{$presentation := .presentation}}
+        {{if $presentation.Watermark}}{{$presentation.Watermark}}{{end}}
     {{end}}
 
     {{/* Template para header del slide */}}
