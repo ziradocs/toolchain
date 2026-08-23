@@ -17,8 +17,16 @@ const slidelangVarPrefix = "slidelang-"
 // paren has already been located by findMatchingParen — i.e. it never has
 // to stop at the first ")", which is what let a nested var() inside a
 // fallback (var(--a, var(--b))) go unprefixed under the old regex-only
-// implementation (motor-temas-v2.md §2.1).
-var varInnerRe = regexp.MustCompile(`^--([a-zA-Z0-9_-]+)\s*(?:,\s*(.*))?$`)
+// implementation (motor-temas-v2.md §2.1). The (?s) flag makes "." match
+// newlines too: inner can legitimately contain one when a theme author
+// hand-formats a wrapped fallback chain (var(--a, var(--b,\n  #fff))) —
+// without it, the fallback capture group failed to reach the trailing $
+// as soon as a newline sat anywhere past the leading ",", and
+// FindStringSubmatch returned no match at all, which left the ENTIRE
+// var(...) call — including the outer name — unprocessed by both
+// namespaceVarBody and UnprefixedVarNames' walk (code-review finding on
+// PR #223).
+var varInnerRe = regexp.MustCompile(`(?s)^--([a-zA-Z0-9_-]+)\s*(?:,\s*(.*))?$`)
 
 // NamespaceValue rewrites every var(--x) usage in a CSS value (or an
 // arbitrary CSS fragment — it does not require a single declaration's
@@ -188,19 +196,63 @@ func UnprefixedVarNames(css string) []string {
 // selectors.
 var classSelectorRe = regexp.MustCompile(`\.([a-zA-Z][\w-]*)`)
 
+// protectedSpanRe matches the CSS regions where a literal "." followed by
+// letters is never a class selector: comments, quoted strings, and
+// url(...) calls. Without excluding these, url("./Brand.woff2") reports
+// a bogus class ".woff2" (code-review finding on PR #223) — a false
+// positive that would fail --strict for exactly the @font-face CSS
+// motor-temas-v2.md §2.3 is meant to enable. The comment alternative is
+// scoped (?s:...) so it alone matches across newlines; the others stay
+// single-line-safe on purpose (an unterminated quote/url on one line
+// should not swallow the rest of the stylesheet looking for its close).
+var protectedSpanRe = regexp.MustCompile(`(?s:/\*.*?\*/)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|url\(\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^)]*)\s*\)`)
+
+// rewriteOutsideProtectedSpans applies fn to every substring of css that
+// falls outside a comment/string/url() span (see protectedSpanRe),
+// reassembling the result with each protected span copied through
+// byte-for-byte untouched. Shared by UnprefixedClassSelectors (fn only
+// scans) and CSSFileLoader.ApplyNamespacing (fn rewrites) so an asset
+// path's extension or a string literal's content is never mistaken for a
+// class selector by either.
+func rewriteOutsideProtectedSpans(css string, fn func(string) string) string {
+	var out strings.Builder
+	last := 0
+	for _, m := range protectedSpanRe.FindAllStringIndex(css, -1) {
+		start, end := m[0], m[1]
+		out.WriteString(fn(css[last:start]))
+		out.WriteString(css[start:end])
+		last = end
+	}
+	out.WriteString(fn(css[last:]))
+	return out.String()
+}
+
+// RewriteOutsideProtectedSpans is the exported form of
+// rewriteOutsideProtectedSpans, for callers outside this package (e.g.
+// CSSFileLoader.ApplyNamespacing in the css package) that need the same
+// comment/string/url() protection when rewriting class selectors.
+func RewriteOutsideProtectedSpans(css string, fn func(string) string) string {
+	return rewriteOutsideProtectedSpans(css, fn)
+}
+
 // UnprefixedClassSelectors returns, in first-appearance order and without
 // duplicates, every class selector in css that does not start with the
-// slidelang- prefix.
+// slidelang- prefix. Scans only outside comments/strings/url() calls (see
+// protectedSpanRe) so an asset filename or string content is never
+// reported as a selector.
 func UnprefixedClassSelectors(css string) []string {
 	seen := make(map[string]bool)
 	var classes []string
-	for _, m := range classSelectorRe.FindAllStringSubmatch(css, -1) {
-		class := m[1]
-		if strings.HasPrefix(class, slidelangVarPrefix) || seen[class] {
-			continue
+	rewriteOutsideProtectedSpans(css, func(segment string) string {
+		for _, m := range classSelectorRe.FindAllStringSubmatch(segment, -1) {
+			class := m[1]
+			if strings.HasPrefix(class, slidelangVarPrefix) || seen[class] {
+				continue
+			}
+			seen[class] = true
+			classes = append(classes, class)
 		}
-		seen[class] = true
-		classes = append(classes, class)
-	}
+		return segment
+	})
 	return classes
 }

@@ -106,10 +106,13 @@ func TestCSSBuilder_ExternalThemeDeclarationIsNamespaced(t *testing.T) {
 // modern-blue theme from slidelang/themes/ — not a synthetic fixture — and
 // checks the exact blockquote rule motor-temas-v2.md §2.1 calls out
 // (styles.css:154-160): three var() references with no --slidelang- prefix,
-// none of which resolved against the theme's own :root block before this
-// fix. If this theme's styles.css is ever edited to already use the
-// --slidelang- prefix, this test starts failing on the "not yet namespaced"
-// assumption below and should be updated or retired then, not silenced.
+// none of which resolved against the theme's own :root block. Its source
+// CSS was itself corrected (code-review finding on PR #223: namespacing
+// only the var()s left the RULE dead regardless — the generated HTML only
+// ever emits class="slidelang-slide", so ".slide blockquote" never matched
+// anything no matter what its declarations resolved to), so this test now
+// checks the SELECTOR too, not just the variable names — that is the part
+// a var()-only assertion cannot catch.
 func TestCSSBuilder_ModernBlueLiveRegression(t *testing.T) {
 	themesDir, err := filepath.Abs(filepath.Join("..", "..", "..", "themes"))
 	if err != nil {
@@ -137,5 +140,17 @@ func TestCSSBuilder_ModernBlueLiveRegression(t *testing.T) {
 		if !strings.Contains(out, wanted) {
 			t.Errorf("expected %s in the bundle", wanted)
 		}
+	}
+
+	// The selector check: the generated HTML's slide container only ever
+	// carries class="slidelang-slide" (see
+	// internal/generator/template/integration_test.go), so a blockquote
+	// rule still scoped to the bare ".slide" never matches any element,
+	// no matter how correctly its var()s resolve.
+	if strings.Contains(out, ".slide blockquote") {
+		t.Error("found un-namespaced selector '.slide blockquote' in the bundle — this rule can never match slidelang-slide, so the blockquote stays unstyled regardless of its variables")
+	}
+	if !strings.Contains(out, ".slidelang-slide blockquote") {
+		t.Error("expected the namespaced selector '.slidelang-slide blockquote' in the bundle")
 	}
 }

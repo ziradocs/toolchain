@@ -141,3 +141,83 @@ func TestNamespaceStylesheet_ModernBlueBlockquoteRegression(t *testing.T) {
 		}
 	}
 }
+
+// TestNamespaceValue_MultilineFallback is a code-review finding on PR #223:
+// varInnerRe used a bare (.*)$, and Go's "." does not match "\n" without
+// the (?s) flag — so a hand-formatted fallback chain that wraps mid-value
+// (the outer var's fallback itself contains a var() whose OWN fallback is
+// on the next line) failed FindStringSubmatch entirely, leaving the whole
+// var(...) call — including the OUTER name — unprocessed. A newline
+// immediately after the leading comma was already safe (\s* absorbs it);
+// this covers the case that wasn't.
+func TestNamespaceValue_MultilineFallback(t *testing.T) {
+	css := "var(--a, var(--b,\n  #fff))"
+	got := NamespaceValue(css)
+	for _, want := range []string{"--slidelang-a", "--slidelang-b"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in output, got %q", want, got)
+		}
+	}
+}
+
+// TestUnprefixedVarNames_MultilineFallback is the UnprefixedVarNames half
+// of the same finding: the strict validator must still detect an
+// unprefixed name inside a multiline fallback, not just NamespaceValue's
+// rewriter.
+func TestUnprefixedVarNames_MultilineFallback(t *testing.T) {
+	css := "var(--a, var(--b,\n  #fff))"
+	names := UnprefixedVarNames(css)
+	found := map[string]bool{}
+	for _, n := range names {
+		found[n] = true
+	}
+	if !found["a"] || !found["b"] {
+		t.Errorf("UnprefixedVarNames(%q) = %v, want both \"a\" and \"b\"", css, names)
+	}
+}
+
+// TestUnprefixedClassSelectors_IgnoresAssetURLs is the P1 code-review
+// finding on PR #223: classSelectorRe matched ANY "." followed by letters
+// anywhere in the stylesheet, so url("./Brand.woff2") reported a bogus
+// class ".woff2" — which would fail --strict for exactly the @font-face
+// CSS motor-temas-v2.md §2.3 (self-hosted fonts) is meant to enable.
+func TestUnprefixedClassSelectors_IgnoresAssetURLs(t *testing.T) {
+	css := `@font-face {
+  font-family: 'Brand';
+  src: url("./Brand.woff2") format("woff2"), url('./Brand.woff') format('woff');
+}
+.slidelang-real-class { color: red; }`
+	got := UnprefixedClassSelectors(css)
+	for _, unwanted := range []string{"woff2", "woff", "Brand"} {
+		for _, c := range got {
+			if c == unwanted {
+				t.Errorf("UnprefixedClassSelectors reported %q as a class selector (from inside url()/a string), got %v", unwanted, got)
+			}
+		}
+	}
+}
+
+// TestUnprefixedClassSelectors_IgnoresQuotedContentAndComments covers the
+// other two protected-span cases: a string literal (content:) and a
+// comment, either of which can legally contain "." followed by letters
+// with no selector meaning at all.
+func TestUnprefixedClassSelectors_IgnoresQuotedContentAndComments(t *testing.T) {
+	css := `/* see .not-a-selector.example for context */
+.icon::after { content: ".not-a-selector-either"; }
+.slidelang-real { color: blue; }`
+	got := UnprefixedClassSelectors(css)
+	for _, c := range got {
+		if strings.Contains(c, "not-a-selector") {
+			t.Errorf("UnprefixedClassSelectors reported %q from inside a comment/string, got %v", c, got)
+		}
+	}
+	found := false
+	for _, c := range got {
+		if c == "icon" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the real .icon selector to still be detected, got %v", got)
+	}
+}

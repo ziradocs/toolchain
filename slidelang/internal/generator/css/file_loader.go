@@ -187,22 +187,30 @@ func (loader *CSSFileLoader) ApplyNamespacing(css string) string {
 	// Regex para encontrar selectores CSS (.class-name)
 	classRegex := regexp.MustCompile(`\.([a-zA-Z][\w-]*)`)
 
-	return classRegex.ReplaceAllStringFunc(css, func(match string) string {
-		className := match[1:] // Remover el punto
+	// themes.RewriteOutsideProtectedSpans: sin esto, un url("./Brand.woff2")
+	// o content: "..." con un "." seguido de letras se reescribiría como si
+	// fuera un selector — mismo hallazgo de code-review que motivó
+	// protectedSpanRe en namespace.go, acá con más riesgo porque esta
+	// función SÍ reescribe (no solo detecta), así que el bug corrompería la
+	// ruta de un asset en vez de solo dar un falso positivo de validación.
+	return themes.RewriteOutsideProtectedSpans(css, func(segment string) string {
+		return classRegex.ReplaceAllStringFunc(segment, func(match string) string {
+			className := match[1:] // Remover el punto
 
-		// Excluir clases que no deben tener prefijo
-		for _, exclude := range loader.ExcludeClasses {
-			if className == exclude {
+			// Excluir clases que no deben tener prefijo
+			for _, exclude := range loader.ExcludeClasses {
+				if className == exclude {
+					return match
+				}
+			}
+
+			// Evitar double-prefixing si ya tiene el prefijo
+			if strings.HasPrefix(className, loader.Prefix) {
 				return match
 			}
-		}
 
-		// Evitar double-prefixing si ya tiene el prefijo
-		if strings.HasPrefix(className, loader.Prefix) {
-			return match
-		}
-
-		return "." + loader.Prefix + className
+			return "." + loader.Prefix + className
+		})
 	})
 }
 
