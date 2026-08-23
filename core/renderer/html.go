@@ -991,12 +991,14 @@ func renderChartElement(elem *ast.ChartElement, variables map[string]interface{}
 		chartConfig = "{}"
 	} else {
 		// Para offline modes (que generan PNG), usar configuración optimizada
-		// Para browser mode, usar configuración estándar
-		if ctx.ChartMode == "offline-assets" || ctx.ChartMode == "offline-inline" {
-			chartConfig = GenerateChartConfigForExport(elem)
-		} else {
-			chartConfig = GenerateChartConfig(elem)
-		}
+		// Para browser mode, usar configuración estándar. Llama a
+		// GenerateChartConfigWithMode directamente (no a los dos wrappers
+		// exportados de arriba) para poder pasarle ctx.ChartCategoricalColors
+		// — este es el único call site del paquete con un *RenderContext en
+		// scope, así que es el único lugar donde un tema resuelto (cuando
+		// slidelang empiece a poblar el campo) puede entrar.
+		forExport := IsOfflineRenderMode(ctx.ChartMode)
+		chartConfig = GenerateChartConfigWithMode(elem, forExport, ctx.ChartCategoricalColors)
 	}
 
 	// Obtener dimensiones (usar defaults si no están especificadas) — única
@@ -1135,12 +1137,12 @@ func resolveSeriesNames(series []string, numSeries int) []string {
 // Exportada para uso en generadores DOCX/PDF
 // Si forExport es true, optimiza fuentes y tamaños para PNG export
 func GenerateChartConfig(elem *ast.ChartElement) string {
-	return GenerateChartConfigWithMode(elem, false)
+	return GenerateChartConfigWithMode(elem, false, nil)
 }
 
 // GenerateChartConfigForExport genera configuración optimizada para exportación a PNG/PDF
 func GenerateChartConfigForExport(elem *ast.ChartElement) string {
-	return GenerateChartConfigWithMode(elem, true)
+	return GenerateChartConfigWithMode(elem, true, nil)
 }
 
 // MergeChartOptions fusiona recursivamente el bloque `options:` del autor
@@ -1167,8 +1169,39 @@ func MergeChartOptions(target, source map[string]interface{}) {
 	}
 }
 
-// GenerateChartConfigWithMode genera la configuración con modo específico
-func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string {
+// defaultChartColors6/8 son las paletas categóricas hardcodeadas que
+// GenerateChartConfigWithMode usaba inline en cada rama antes de que
+// RenderContext.ChartCategoricalColors pudiera reemplazarlas — se
+// mantienen como dos tamaños distintos (no unificados en una sola de 8)
+// para no cambiar el output de ningún caller existente cuando no hay
+// override: combo y bar/line siempre ciclaron 6 colores, pie/doughnut
+// siempre cicló 8 (issue #244).
+var (
+	defaultChartColors6 = []string{"#3498db", "#2ecc71", "#e74c3c", "#f39c12", "#9b59b6", "#1abc9c"}
+	defaultChartColors8 = []string{"#3498db", "#2ecc71", "#e74c3c", "#f39c12", "#9b59b6", "#1abc9c", "#34495e", "#16a085"}
+)
+
+// chartCategoricalPalette devuelve override si no está vacío, o fallback
+// en caso contrario — así un RenderContext.ChartCategoricalColors nil
+// (todo caller hoy) reproduce exactamente la paleta literal que reemplaza.
+func chartCategoricalPalette(override, fallback []string) []string {
+	if len(override) > 0 {
+		return override
+	}
+	return fallback
+}
+
+// GenerateChartConfigWithMode genera la configuración con modo específico.
+// categoricalColors, si no está vacío, reemplaza la paleta hardcodeada de
+// cada rama de tipo de chart de abajo (motor-temas-v2.md §2.2's
+// chart-cat-* — un set ORDENADO indexado por módulo, igual que las
+// paletas fijas que reemplaza). nil reproduce el comportamiento de
+// siempre byte por byte — es lo que pasan las dos funciones exportadas de
+// arriba, y lo único que cualquier caller externo de hoy (doclang's
+// docx.go, vía GenerateChartConfigForExport) puede seguir observando: el
+// camino que sí resuelve un tema real (slidelang, vía RenderContext) llega
+// en un PR aparte.
+func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool, categoricalColors []string) string {
 	config := make(map[string]interface{})
 
 	// Tipo de chart
@@ -1224,7 +1257,7 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string 
 			dataset["data"] = seriesData
 
 			// Colores por defecto
-			colors := []string{"#3498db", "#2ecc71", "#e74c3c", "#f39c12", "#9b59b6", "#1abc9c"}
+			colors := chartCategoricalPalette(categoricalColors, defaultChartColors6)
 			dataset["backgroundColor"] = colors[i%len(colors)]
 			dataset["borderColor"] = colors[i%len(colors)]
 			dataset["borderWidth"] = 2
@@ -1307,7 +1340,7 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string 
 		// ramas (combo arriba, bar/line abajo): colors[:len(values)] paniqueaba
 		// con "slice bounds out of range" en cuanto values tenía más filas que
 		// colores (8), con input perfectamente válido (issue #244).
-		colors := []string{"#3498db", "#2ecc71", "#e74c3c", "#f39c12", "#9b59b6", "#1abc9c", "#34495e", "#16a085"}
+		colors := chartCategoricalPalette(categoricalColors, defaultChartColors8)
 		backgroundColors := make([]string, len(values))
 		for i := range values {
 			backgroundColors[i] = colors[i%len(colors)]
@@ -1336,7 +1369,7 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string 
 				dataset["data"] = seriesData
 
 				// Colores
-				colors := []string{"#3498db", "#2ecc71", "#e74c3c", "#f39c12", "#9b59b6", "#1abc9c"}
+				colors := chartCategoricalPalette(categoricalColors, defaultChartColors6)
 				color := colors[i%len(colors)]
 
 				if elem.ChartType == "line" {

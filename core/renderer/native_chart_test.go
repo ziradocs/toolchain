@@ -383,3 +383,57 @@ func TestSupportsNativeChartRenderingWithOptions_ApprovesIgnorableOnlyOptions(t 
 		t.Error("SupportsNativeChartRenderingWithOptions() = false, want true for an ignorable-only options set")
 	}
 }
+
+// TestNativeChartTheme_EmptyOverrideIsNilPalette es la mitad de no-regresión
+// del override de motor-temas-v2.md §2.2 para el rasterizador nativo: nil
+// debe producir un ColorPalette nil (idéntico al zero value de opt.Theme
+// antes de que este campo existiera), no un ColorPalette con la paleta por
+// defecto envuelta — go-analyze/charts distingue "sin Theme seteado" (usa
+// PainterOptions.Theme) de "Theme == GetDefaultTheme()" solo por identidad
+// de puntero en algunos casos internos, así que envolver innecesariamente
+// no es equivalente incluso si el resultado visual sería el mismo hoy.
+func TestNativeChartTheme_EmptyOverrideIsNilPalette(t *testing.T) {
+	if got := nativeChartTheme(nil); got != nil {
+		t.Errorf("nativeChartTheme(nil) = %v, want nil", got)
+	}
+	if got := nativeChartTheme([]string{}); got != nil {
+		t.Errorf("nativeChartTheme([]string{}) = %v, want nil", got)
+	}
+}
+
+// TestRenderChartNativePNGWithColors_CategoricalColorsOverrideChangesOutput
+// es el hallazgo bloqueante de la revisión de PR2 (motor-temas-v2.md §2.2):
+// antes de este cambio, RenderChartNativePNG no tenía forma de recibir el
+// tema — chromium.ChartFetcher.renderFunc prefiere este camino para
+// bar/line/pie/doughnut (issue #130), así que sin este parámetro
+// RenderContext.ChartCategoricalColors era letra muerta para la mayoría de
+// los charts reales en el camino offline/PDF, con GenerateChartConfigWithMode
+// sirviendo solo a combo/scatter/JSON-mode. No hay golden de píxeles exacto
+// (ver decodePNGAndCheck) así que la prueba es la más fuerte que se puede
+// hacer sin acoplarse a la rasterización interna de go-analyze/charts: el
+// PNG con override debe ser BYTE-DISTINTO del PNG sin override, para cada
+// tipo que este rasterizador soporta. Corre contra RenderChartNativePNGWithColors,
+// no RenderChartNativePNG — ese último mantiene su firma de 3 args a
+// propósito (ver su doc comment) y siempre pasa nil.
+func TestRenderChartNativePNGWithColors_CategoricalColorsOverrideChangesOutput(t *testing.T) {
+	override := []string{"#ff0000", "#00ff00"}
+
+	for _, chartType := range []string{"bar", "line", "pie", "doughnut"} {
+		t.Run(chartType, func(t *testing.T) {
+			elem := newTestChartElement(chartType)
+
+			defaultData, ok, err := RenderChartNativePNGWithColors(elem, 640, 480, nil)
+			if !ok || err != nil {
+				t.Fatalf("RenderChartNativePNGWithColors(nil) ok=%v err=%v", ok, err)
+			}
+			overriddenData, ok, err := RenderChartNativePNGWithColors(elem, 640, 480, override)
+			if !ok || err != nil {
+				t.Fatalf("RenderChartNativePNGWithColors(override) ok=%v err=%v", ok, err)
+			}
+
+			if bytes.Equal(defaultData, overriddenData) {
+				t.Error("override produced byte-identical PNG to the default palette — ChartCategoricalColors is not reaching the native rasterizer")
+			}
+		})
+	}
+}

@@ -17,9 +17,24 @@ import (
 type ChartFetcher struct {
 	*BaseFetcher
 	renderer *ChromiumRenderer
+	// categoricalColors es RenderContext.ChartCategoricalColors, cableado
+	// hasta acá porque renderFunc prefiere el rasterizador nativo (abajo)
+	// para bar/line/pie/doughnut — el camino chartConfig/Chart.js (que sí
+	// ve ChartCategoricalColors vía GenerateChartConfigWithMode) nunca se
+	// ejecuta para esos tipos salvo que el render nativo falle. Sin este
+	// campo el tema le llegaría solo a combo/scatter/JSON-mode, que es la
+	// minoría de los charts reales (motor-temas-v2.md §2.2).
+	categoricalColors []string
 }
 
-// NewChartFetcher crea un nuevo fetcher con Chromium renderer
+// NewChartFetcher crea un nuevo fetcher con Chromium renderer. Firma sin
+// cambios a propósito (issue "una sola danza" de motor-temas-v2.md): este
+// símbolo lo llama slidelang/internal/generator/offline.go directamente, y
+// CI corre workspace-integration (slidelang contra el core DEL ÁRBOL vía
+// go.work) — agregarle un parámetro acá rompería ese build entre el merge
+// de este PR y el PR de slidelang que lo consuma. Usar SetCategoricalColors
+// (mismo patrón que SetImageFormat) para setear el override después de
+// construir.
 func NewChartFetcher(renderer *ChromiumRenderer, logger FetcherLogger) *ChartFetcher {
 	return &ChartFetcher{
 		BaseFetcher: NewBaseFetcher(renderer, logger, "charts", "CHART"),
@@ -27,16 +42,25 @@ func NewChartFetcher(renderer *ChromiumRenderer, logger FetcherLogger) *ChartFet
 	}
 }
 
+// SetCategoricalColors setea el override de RenderContext.ChartCategoricalColors
+// que renderFunc reenvía a RenderChartNativePNGWithColors — ver el comentario
+// del campo categoricalColors. nil dado (el zero value si nunca se llama)
+// reproduce el render nativo por defecto.
+func (f *ChartFetcher) SetCategoricalColors(categoricalColors []string) {
+	f.categoricalColors = categoricalColors
+}
+
 // renderFunc arma la función de renderizado compartida por FetchAndSave/
 // FetchInline: issue #130 — intenta primero go-analyze/charts (sin
-// Chromium) vía renderer.RenderChartNativePNG cuando elem lo soporta (bar/line/pie/
-// doughnut, no IsJSONMode) y el formato pedido es PNG (go-analyze/charts no
-// produce WebP); si no aplica, o si el intento nativo falla, cae al pipeline
-// chromedp existente — nunca un error duro por preferir lo nativo.
+// Chromium) vía renderer.RenderChartNativePNGWithColors cuando elem lo soporta
+// (bar/line/pie/doughnut, no IsJSONMode) y el formato pedido es PNG
+// (go-analyze/charts no produce WebP); si no aplica, o si el intento nativo
+// falla, cae al pipeline chromedp existente — nunca un error duro por
+// preferir lo nativo.
 func (f *ChartFetcher) renderFunc(ctx context.Context, elem *ast.ChartElement, chartConfig string, width, height int) func() ([]byte, error) {
 	return func() ([]byte, error) {
 		if f.GetImageFormat() != "webp" && elem != nil {
-			if data, ok, nativeErr := renderer.RenderChartNativePNG(elem, width, height); ok {
+			if data, ok, nativeErr := renderer.RenderChartNativePNGWithColors(elem, width, height, f.categoricalColors); ok {
 				if nativeErr == nil {
 					return data, nil
 				}

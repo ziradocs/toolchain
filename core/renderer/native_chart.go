@@ -73,18 +73,41 @@ func SupportsNativeChartRenderingWithOptions(elem *ast.ChartElement) bool {
 // ChartDimensions vive en chart_dimensions.go, sin build tag: html.go la
 // llama y se compila también para wasm (playground).
 
-// RenderChartNativePNG rasteriza elem a PNG vía go-analyze/charts. Devuelve
-// ok=false (sin error) cuando elem.ChartType no tiene mapeo nativo, está en
-// IsJSONMode, o elem.Options trae alguna hoja no reconocida por
-// classifyChartOptions — el caller debe caer a ChromiumRenderer.RenderChartToPNG
-// en esos casos. Un error (con ok=true) indica que SÍ se intentó el camino
-// nativo pero falló (p. ej. datos vacíos/no numéricos/filas de largo
-// irregular).
+// RenderChartNativePNG rasteriza elem a PNG vía go-analyze/charts con la
+// paleta por defecto. Firma sin cambios a propósito (issue "una sola danza"
+// de motor-temas-v2.md): slidelang/internal/generator/offline.go llama a
+// este símbolo por nombre, y CI corre workspace-integration (slidelang
+// contra el core DEL ÁRBOL vía go.work) — agregarle un parámetro acá
+// rompería ese build entre el merge de este PR y el PR de slidelang que
+// consuma el tema. Ver RenderChartNativePNGWithColors para el override.
 func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byte, ok bool, err error) {
+	return RenderChartNativePNGWithColors(elem, width, height, nil)
+}
+
+// RenderChartNativePNGWithColors es RenderChartNativePNG con un override de
+// paleta categórica. Devuelve ok=false (sin error) cuando elem.ChartType no
+// tiene mapeo nativo, está en IsJSONMode, o elem.Options trae alguna hoja no
+// reconocida por classifyChartOptions — el caller debe caer a
+// ChromiumRenderer.RenderChartToPNG en esos casos. Un error (con ok=true)
+// indica que SÍ se intentó el camino nativo pero falló (p. ej. datos
+// vacíos/no numéricos/filas de largo irregular).
+//
+// categoricalColors es el mismo override que RenderContext.ChartCategoricalColors
+// (motor-temas-v2.md §2.2): nil/vacío reproduce la paleta por defecto de
+// go-analyze/charts, sin cambio de comportamiento. Existe porque este
+// rasterizador NUNCA pasa por GenerateChartConfigWithMode — trabaja
+// directamente sobre elem, así que el chart-cat-* de un tema no le llega
+// por ningún otro camino. Sin esto, cualquier caller que prefiera este
+// rasterizador (chromium.ChartFetcher.renderFunc lo intenta primero para
+// bar/line/pie/doughnut, issue #130 — que es la mayoría de los charts
+// reales) ignoraría el tema en silencio incluso con
+// RenderContext.ChartCategoricalColors seteado.
+func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, categoricalColors []string) (data []byte, ok bool, err error) {
 	if !SupportsNativeChartRenderingWithOptions(elem) {
 		return nil, false, nil
 	}
 	ov := extractNativeChartOverrides(elem.Options)
+	theme := nativeChartTheme(categoricalColors)
 
 	p := charts.NewPainter(charts.PainterOptions{
 		OutputFormat: charts.ChartOutputPNG,
@@ -107,6 +130,7 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 		names := resolveSeriesNames(elem.Series, len(values))
 		if elem.ChartType == "bar" {
 			opt := charts.NewBarChartOptionWithData(values)
+			opt.Theme = theme
 			applyTitleOverrides(&opt.Title, elem.Title, ov)
 			opt.CategoryAxis.Labels = categoryLabels
 			opt.Legend.SeriesNames = names
@@ -117,6 +141,7 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 			err = p.BarChart(opt)
 		} else {
 			opt := charts.NewLineChartOptionWithData(values)
+			opt.Theme = theme
 			applyTitleOverrides(&opt.Title, elem.Title, ov)
 			opt.XAxis.Labels = categoryLabels
 			opt.Legend.SeriesNames = names
@@ -132,6 +157,7 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 			return nil, true, pieErr
 		}
 		opt := charts.NewPieChartOptionWithData(pieValues)
+		opt.Theme = theme
 		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = pieLabels
 		applyLegendOverrides(&opt.Legend, ov)
@@ -142,6 +168,7 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 			return nil, true, dErr
 		}
 		opt := charts.NewDoughnutChartOptionWithData(doughnutValues)
+		opt.Theme = theme
 		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = doughnutLabels
 		applyLegendOverrides(&opt.Legend, ov)
@@ -159,6 +186,23 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 		return nil, true, fmt.Errorf("native chart encode failed: %w", err)
 	}
 	return buf, true, nil
+}
+
+// nativeChartTheme construye el ColorPalette de go-analyze/charts que
+// aplica categoricalColors a la paleta por defecto — nil/vacío devuelve nil,
+// que asignado a opt.Theme es idéntico a no tocarlo (el zero value de la
+// interfaz), así que un caller sin tema reproduce el render de antes byte
+// por byte. charts.ParseColor acepta directamente los strings hex que trae
+// un theme.json (p. ej. "#3498db").
+func nativeChartTheme(categoricalColors []string) charts.ColorPalette {
+	if len(categoricalColors) == 0 {
+		return nil
+	}
+	colors := make([]charts.Color, len(categoricalColors))
+	for i, c := range categoricalColors {
+		colors[i] = charts.ParseColor(c)
+	}
+	return charts.GetDefaultTheme().WithSeriesColors(colors)
 }
 
 // chartSeriesValues transpone elem.Data (una fila por categoría: [label, v1,

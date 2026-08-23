@@ -58,3 +58,29 @@ func TestBuildDefaultOutputCSP_IncludesNonceAndRequiredHosts(t *testing.T) {
 		t.Error("expected style-src to use 'unsafe-inline' (Mermaid injects unnonced runtime styles)")
 	}
 }
+
+// TestBuildDefaultOutputCSP_FontSrcSelfHostedOnly is the §2.3 regression:
+// before this, there was no font-src directive at all, so with
+// default-src 'self' any @font-face a theme declared was blocked SILENTLY
+// (no console violation without opening DevTools). font-src must now be
+// present and scoped to 'self'/data: only — no external host — matching
+// the §2.3 decision to always self-host a theme's fonts rather than link
+// to a provider.
+func TestBuildDefaultOutputCSP_FontSrcSelfHostedOnly(t *testing.T) {
+	csp := BuildDefaultOutputCSP("test-nonce-123")
+
+	if !strings.Contains(csp, "font-src") {
+		t.Fatal("expected CSP to declare a font-src directive")
+	}
+
+	fontSrc := strings.Split(strings.Split(csp, "font-src ")[1], ";")[0]
+	if !strings.Contains(fontSrc, "'self'") {
+		t.Error("expected font-src to include 'self' (same-origin bundled fonts)")
+	}
+	if !strings.Contains(fontSrc, "data:") {
+		t.Error("expected font-src to include data: (offline-inline/--embed-assets embeds fonts as data: URIs)")
+	}
+	if strings.Contains(fontSrc, "https://") || strings.Contains(fontSrc, "http://") {
+		t.Errorf("font-src must not reference an external font provider — the motor always self-hosts, got: %q", fontSrc)
+	}
+}

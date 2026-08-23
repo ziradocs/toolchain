@@ -30,6 +30,12 @@ type RenderContextOptions struct {
 	OutputDir   string
 	ImageFormat string
 	WebPQuality int
+	// ChartCategoricalColors ver renderer.RenderContext.ChartCategoricalColors
+	// — se reenvía tal cual tanto al RenderContext devuelto (camino
+	// chartConfig/Chart.js) como al ChartFetcher construido acá (camino
+	// nativo go-analyze/charts, que es el que de hecho corre para bar/line/
+	// pie/doughnut — ver el comentario de ChartFetcher.categoricalColors).
+	ChartCategoricalColors []string
 	// DiagramBackend selecciona qué implementación satisface
 	// MermaidFetcher/PlantUMLFetcher en los modos offline: "chromium"
 	// (default, sin este campo) o "kroki" (KrokiServer, sin Chromium en
@@ -125,6 +131,7 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 	if cr != nil && renderer.IsOfflineRenderMode(chartMode) {
 		cf := NewChartFetcher(cr, renderer.NoopFetcherLogger{})
 		cf.SetImageFormat(imageFormat, webpQuality)
+		cf.SetCategoricalColors(opts.ChartCategoricalColors)
 		chartFetcher = cf
 	}
 
@@ -164,22 +171,23 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 	}
 
 	return &renderer.RenderContext{
-		PlantUMLMode:   plantumlMode,
-		PlantUMLServer: opts.PlantUMLServer,
-		PlantUMLFormat: plantumlFormat,
-		MermaidMode:    mermaidMode,
-		ChartMode:      chartMode,
-		MapMode:        mapMode,
-		MathMode:       mathMode,
-		ImageMode:      imageMode,
-		AssetRoot:      opts.AssetRoot,
-		OutputDir:      opts.OutputDir,
-		Fetcher:        fetcher,
-		MermaidFetcher: mermaidFetcher,
-		ChartFetcher:   chartFetcher,
-		MapFetcher:     mapFetcher,
-		MathFetcher:    mathFetcher,
-		Logger:         logger,
-		Ctx:            ctx,
+		PlantUMLMode:           plantumlMode,
+		PlantUMLServer:         opts.PlantUMLServer,
+		PlantUMLFormat:         plantumlFormat,
+		MermaidMode:            mermaidMode,
+		ChartMode:              chartMode,
+		MapMode:                mapMode,
+		MathMode:               mathMode,
+		ImageMode:              imageMode,
+		AssetRoot:              opts.AssetRoot,
+		OutputDir:              opts.OutputDir,
+		Fetcher:                fetcher,
+		MermaidFetcher:         mermaidFetcher,
+		ChartFetcher:           chartFetcher,
+		MapFetcher:             mapFetcher,
+		MathFetcher:            mathFetcher,
+		Logger:                 logger,
+		Ctx:                    ctx,
+		ChartCategoricalColors: opts.ChartCategoricalColors,
 	}
 }
