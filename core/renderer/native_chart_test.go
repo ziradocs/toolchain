@@ -474,3 +474,33 @@ func TestRenderChartNativePNGWithColors_CategoricalColorsOverrideChangesOutput(t
 		})
 	}
 }
+
+// TestChartColorFromCSS is the second-round PR #224 finding: go-analyze/
+// charts' own charts.ParseColor silently mishandles two forms a theme's
+// chart-cat-* token can legally use — hsl()/hsla() comes back opaque
+// black (no error to detect), and an 8-digit hex (#rrggbbaa) parses RGB
+// correctly but always returns A=255, dropping the alpha channel. Both
+// confirmed empirically against the pinned go-analyze/charts version.
+// Chart.js, on the browser path, understands both correctly (the
+// browser's own CSS Color engine), so either gap reopens the native-vs-
+// Chart.js divergence this theming path exists to close.
+func TestChartColorFromCSS(t *testing.T) {
+	cases := []struct {
+		name  string
+		color string
+		want  charts.Color
+	}{
+		{"hex6", "#3498db", charts.Color{R: 0x34, G: 0x98, B: 0xdb, A: 0xff}},
+		{"hex8 preserves alpha", "#3498db80", charts.Color{R: 0x34, G: 0x98, B: 0xdb, A: 0x80}},
+		{"rgba preserves alpha", "rgba(52, 152, 219, 0.5)", charts.Color{R: 0x34, G: 0x98, B: 0xdb, A: 0x80}},
+		{"hsl converts to the right RGB, not black", "hsl(204, 70%, 53%)", charts.Color{R: 0x33, G: 0x98, B: 0xdb, A: 0xff}},
+		{"named color", "red", charts.Color{R: 0xff, G: 0x00, B: 0x00, A: 0xff}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := chartColorFromCSS(c.color); got != c.want {
+				t.Errorf("chartColorFromCSS(%q) = %+v, want %+v", c.color, got, c.want)
+			}
+		})
+	}
+}

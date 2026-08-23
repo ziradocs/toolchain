@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/go-analyze/charts"
+	"github.com/mazznoer/csscolorparser"
 
 	"go.ziradocs.com/core/v2/ast"
 )
@@ -192,8 +193,10 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 // aplica categoricalColors a la paleta por defecto — nil/vacío devuelve nil,
 // que asignado a opt.Theme es idéntico a no tocarlo (el zero value de la
 // interfaz), así que un caller sin tema reproduce el render de antes byte
-// por byte. charts.ParseColor acepta directamente los strings hex que trae
-// un theme.json (p. ej. "#3498db").
+// por byte. Cada color pasa por chartColorFromCSS, no por charts.ParseColor
+// directamente — ver su doc comment: acepta cualquier sintaxis de color
+// CSS válida que un theme.json pueda traer (hex, rgb()/rgba(), hsl()/
+// hsla(), nombres), no solo el hex plano que motivó el ejemplo original.
 //
 // count es cuántas series/segmentos necesita colorear ESTE chart.
 // go-analyze/charts@v0.6.0's getSeriesColor no repite por módulo puro una
@@ -219,9 +222,46 @@ func nativeChartTheme(categoricalColors []string, count int) charts.ColorPalette
 	}
 	colors := make([]charts.Color, count)
 	for i := range colors {
-		colors[i] = charts.ParseColor(categoricalColors[i%len(categoricalColors)])
+		colors[i] = chartColorFromCSS(categoricalColors[i%len(categoricalColors)])
 	}
 	return charts.GetDefaultTheme().WithSeriesColors(colors)
+}
+
+// chartColorFromCSS parses a chart-cat-* token the way a browser actually
+// would, not the way go-analyze/charts' own charts.ParseColor does.
+// charts.ParseColor only understands hex/rgb()/rgba() and a handful of
+// named colors: hsl()/hsla() silently comes back as opaque black (R=G=B=0,
+// A=255 — no error, no zero value to detect), and an 8-digit hex
+// (#rrggbbaa) parses its RGB correctly but drops the alpha channel
+// entirely (A always 255) — both confirmed empirically against the
+// installed go-analyze/charts version. Chart.js, on the browser path,
+// parses the SAME token with the browser's full CSS Color engine, so
+// either gap reintroduces the native-vs-Chart.js divergence this whole
+// theming path exists to close (code-review finding on PR #224): a theme
+// using hsl() for its chart-cat-* tokens rendered every native chart
+// series solid black.
+//
+// csscolorparser (CSS Color Module Level 4 — hex incl. #rgba/#rrggbbaa,
+// rgb()/rgba(), hsl()/hsla(), hwb(), lab(), lch(), oklab(), oklch(), named
+// colors) already ships in both CLIs' binaries as an indirect dependency
+// of core/renderer (via go-staticmaps, for maps) and is core/a11y's own
+// color parser — reused here for the SAME reason a11y uses it: it is the
+// closest thing available to what a browser accepts. Unlike a11y.ParseColor
+// (contrast math needs a fully opaque, already-composited color, so it
+// rejects any real alpha), a chart-cat-* color's alpha is meaningful and
+// preserved as-is — go-analyze/charts.Color carries its own A channel.
+// charts.ParseColor is kept only as a fallback for the rare input
+// csscolorparser rejects, so a chart never hard-fails over an unusual
+// (or literally invalid) color string — degrading to charts.ParseColor's
+// own best-effort result (typically transparent/black) beats aborting the
+// whole render.
+func chartColorFromCSS(s string) charts.Color {
+	c, err := csscolorparser.Parse(s)
+	if err != nil {
+		return charts.ParseColor(s)
+	}
+	r, g, b, a := c.Clamp().RGBA255()
+	return charts.Color{R: r, G: g, B: b, A: a}
 }
 
 // chartSeriesValues transpone elem.Data (una fila por categoría: [label, v1,
