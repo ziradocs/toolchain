@@ -5,6 +5,7 @@ package parser
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -31,6 +32,7 @@ type rawFrontMatter struct {
 	Numbering *rawNumbering          `yaml:"numbering"`
 	TOC       *rawTOC                `yaml:"toc"`
 	Page      *rawPage               `yaml:"page"`
+	Watermark *rawWatermark          `yaml:"watermark"`
 	Variables map[string]interface{} `yaml:"variables"`
 	// Configuración de headers y footers
 	Header         *rawHeaderConfig            `yaml:"header"`
@@ -212,6 +214,98 @@ func (p *rawPage) UnmarshalYAML(value *yaml.Node) error {
 		return nil
 	default:
 		p.badShape = value.Tag
+		return nil
+	}
+}
+
+// rawWatermark backs `watermark:` (issue #179). See rawTOC's doc comment
+// for the shared "value never aborts Parse" contract both types follow,
+// and for why the MappingNode branch walks Content by hand instead of
+// decoding into a tagged struct — a typo in any of these seven keys must
+// surface as a warning, not decode to a silently-incomplete watermark.
+type rawWatermark struct {
+	Enabled  *yaml.Node
+	Text     *yaml.Node
+	Color    *yaml.Node
+	Opacity  *yaml.Node
+	Rotation *yaml.Node
+	FontSize *yaml.Node
+	Repeat   *yaml.Node
+	// unknownKeys holds any `watermark:` map key other than the seven
+	// recognized ones — reported as a FRONT007 warning by convertWatermark.
+	unknownKeys []string
+	// duplicateKeys holds any known key repeated in the map — see
+	// rawTOC.duplicateKeys' doc comment for why this is tracked.
+	duplicateKeys []string
+	badShape      string
+}
+
+func (w *rawWatermark) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// `watermark: "BORRADOR"` — shorthand for
+		// `{enabled: true, text: "BORRADOR"}`, the same "the interesting
+		// value is what a scalar means" pattern as `page: A4`.
+		//
+		// Only a genuine !!str scalar counts: yaml.Node.Decode into a
+		// string target is lenient and happily stringifies !!bool/!!int/
+		// !!float/!!null ("false" -> "false"), so without this check
+		// `watermark: false` would silently become a watermark reading
+		// "false" instead of surfacing FRONT007 — worse than the map-form
+		// typo cases this type already guards against, since it also
+		// implicitly turns the watermark ON.
+		if value.Tag != "!!str" {
+			w.badShape = value.Tag
+			return nil
+		}
+		w.Text = value
+		return nil
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(value.Content); i += 2 {
+			key, val := value.Content[i], value.Content[i+1]
+			switch key.Value {
+			case "enabled":
+				if w.Enabled != nil {
+					w.duplicateKeys = append(w.duplicateKeys, key.Value)
+				}
+				w.Enabled = val
+			case "text":
+				if w.Text != nil {
+					w.duplicateKeys = append(w.duplicateKeys, key.Value)
+				}
+				w.Text = val
+			case "color":
+				if w.Color != nil {
+					w.duplicateKeys = append(w.duplicateKeys, key.Value)
+				}
+				w.Color = val
+			case "opacity":
+				if w.Opacity != nil {
+					w.duplicateKeys = append(w.duplicateKeys, key.Value)
+				}
+				w.Opacity = val
+			case "rotation":
+				if w.Rotation != nil {
+					w.duplicateKeys = append(w.duplicateKeys, key.Value)
+				}
+				w.Rotation = val
+			case "font_size":
+				if w.FontSize != nil {
+					w.duplicateKeys = append(w.duplicateKeys, key.Value)
+				}
+				w.FontSize = val
+			case "repeat":
+				if w.Repeat != nil {
+					w.duplicateKeys = append(w.duplicateKeys, key.Value)
+				}
+				w.Repeat = val
+			default:
+				w.unknownKeys = append(w.unknownKeys, key.Value)
+			}
+		}
+		return nil
+	default:
+		w.badShape = value.Tag
 		return nil
 	}
 }
@@ -418,6 +512,7 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	}
 	node.TOC = p.convertTOC(raw.TOC)
 	node.Page = p.convertPage(raw.Page)
+	node.Watermark = p.convertWatermark(raw.Watermark)
 	node.Variables = raw.Variables
 	node.Raw = yamlContent
 
@@ -716,6 +811,135 @@ func (p *FrontMatterParser) convertPageMargins(node *yaml.Node) *ast.PageMargins
 		p.pageFrontMatterWarning(fmt.Sprintf("Invalid 'page.margins': expected a string or a map with top/right/bottom/left, got %v — ignored", node.Tag))
 		return nil
 	}
+}
+
+// Defaults applied by convertWatermark when `watermark:` is present but a
+// given key isn't — chosen to match the "subtle diagonal repeating text"
+// visual the feature exists for (issue #179), not a bold/opaque stamp.
+const (
+	defaultWatermarkOpacity  = 0.08
+	defaultWatermarkRotation = -45.0
+	defaultWatermarkColor    = "#000000"
+	defaultWatermarkFontSize = "72pt"
+)
+
+// watermarkFrontMatterWarning is tocFrontMatterWarning's FRONT007
+// counterpart for `watermark:`.
+func (p *FrontMatterParser) watermarkFrontMatterWarning(message string) {
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(message, diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT007"))
+}
+
+// convertWatermark convierte rawWatermark a ast.WatermarkConfig. A
+// diferencia de convertTOC/convertPage, nil solo se devuelve si raw es nil
+// o su forma es inválida — no hay "documento sin opinión" a medias acá:
+// declarar `watermark:` en cualquier forma (incluido el atajo escalar) es
+// en sí mismo la señal de intención, así que Enabled arranca en true y solo
+// un `enabled: false` explícito lo apaga. Esto es deliberadamente distinto
+// del bool plano de HeaderConfig.Enabled (que exige `enabled: true`
+// explícito) — ahí "declarado" y "encendido" son cosas separadas porque un
+// documento puede declarar header/footer con overrides por-layout sin
+// querer que el global se dibuje; acá no existe ese caso de uso.
+func (p *FrontMatterParser) convertWatermark(raw *rawWatermark) *ast.WatermarkConfig {
+	if raw == nil {
+		return nil
+	}
+	if raw.badShape != "" {
+		p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark:' value (%s); expected a string or a map with 'enabled'/'text'/'color'/'opacity'/'rotation'/'font_size'/'repeat' — ignored", raw.badShape))
+		return nil
+	}
+	if len(raw.unknownKeys) > 0 {
+		p.watermarkFrontMatterWarning(fmt.Sprintf("Unrecognized key(s) in 'watermark:' (%s); expected 'enabled'/'text'/'color'/'opacity'/'rotation'/'font_size'/'repeat' — ignored", strings.Join(raw.unknownKeys, ", ")))
+	}
+	if len(raw.duplicateKeys) > 0 {
+		p.watermarkFrontMatterWarning(fmt.Sprintf("Duplicate key(s) in 'watermark:' (%s); the last occurrence wins", strings.Join(raw.duplicateKeys, ", ")))
+	}
+
+	config := &ast.WatermarkConfig{Enabled: true}
+
+	if raw.Enabled != nil {
+		var enabled bool
+		if err := raw.Enabled.Decode(&enabled); err != nil {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.enabled': expected true/false, got %q — ignored", raw.Enabled.Value))
+		} else {
+			config.Enabled = enabled
+		}
+	}
+
+	if raw.Text != nil {
+		// raw.Text.Decode(&text) alone isn't enough: it's lenient and
+		// stringifies !!bool/!!int/!!float/!!null nodes instead of erroring
+		// (`text: false` -> "false"), so the Tag must be checked explicitly
+		// — same reasoning as the scalar-shorthand branch of UnmarshalYAML
+		// above.
+		if raw.Text.Tag != "!!str" {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.text': expected a string, got %v — ignored", raw.Text.Tag))
+		} else {
+			config.Text = raw.Text.Value
+		}
+	}
+
+	if raw.Color != nil {
+		if raw.Color.Tag != "!!str" {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.color': expected a string, got %v — ignored", raw.Color.Tag))
+		} else {
+			color := raw.Color.Value
+			if _, _, _, ok := a11y.ParseColor(color); !ok {
+				p.watermarkFrontMatterWarning(fmt.Sprintf("'watermark.color': %q is not a recognized CSS color — kept as-is", color))
+			}
+			config.Color = color
+		}
+	}
+
+	if raw.Opacity != nil {
+		var opacity float64
+		if err := raw.Opacity.Decode(&opacity); err != nil {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.opacity': expected a number, got %q — ignored", raw.Opacity.Value))
+		} else if math.IsNaN(opacity) || math.IsInf(opacity, 0) {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.opacity': %q must be finite — ignored", raw.Opacity.Value))
+		} else {
+			clamped := math.Min(1, math.Max(0, opacity))
+			if clamped != opacity {
+				p.watermarkFrontMatterWarning(fmt.Sprintf("'watermark.opacity': %v is outside 0.0-1.0 — clamped to %v", opacity, clamped))
+			}
+			config.Opacity = &clamped
+		}
+	}
+
+	if raw.Rotation != nil {
+		var rotation float64
+		if err := raw.Rotation.Decode(&rotation); err != nil {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.rotation': expected a number, got %q — ignored", raw.Rotation.Value))
+		} else if math.IsNaN(rotation) || math.IsInf(rotation, 0) {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.rotation': %q must be finite — ignored", raw.Rotation.Value))
+		} else {
+			normalized := math.Mod(rotation, 360)
+			config.Rotation = &normalized
+		}
+	}
+
+	if raw.FontSize != nil {
+		if raw.FontSize.Tag != "!!str" {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.font_size': expected a string, got %v — ignored", raw.FontSize.Tag))
+		} else {
+			fontSize := raw.FontSize.Value
+			if _, err := util.ParseLengthInches(fontSize); err != nil {
+				p.watermarkFrontMatterWarning(fmt.Sprintf("'watermark.font_size': %q is not a recognized length (e.g. 72pt, 2cm, 40px) — kept as-is", fontSize))
+			}
+			config.FontSize = fontSize
+		}
+	}
+
+	if raw.Repeat != nil {
+		var repeat bool
+		if err := raw.Repeat.Decode(&repeat); err != nil {
+			p.watermarkFrontMatterWarning(fmt.Sprintf("Invalid 'watermark.repeat': expected true/false, got %q — ignored", raw.Repeat.Value))
+		} else {
+			config.Repeat = &repeat
+		}
+	}
+
+	return config
 }
 
 // convertFooterConfig convierte configuración de footer

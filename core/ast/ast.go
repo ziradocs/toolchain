@@ -74,7 +74,13 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // serialized JSON, not in-process) had no way to learn that a language mark
 // existed and didn't take without re-deriving it by hand. Same
 // derivation/posture as LangRuns.
-const SchemaVersion = "2.7.0"
+//
+// 2.8.0 (issue #179): FrontMatterNode.Watermark (*WatermarkConfig,
+// additive, omitempty) — a repeating, semi-transparent text overlay
+// namespace (`watermark:`), rendered behind content on every
+// slide/page. FontSize is stored verbatim like PageConfig.Size, not
+// resolved to any renderer's unit.
+const SchemaVersion = "2.8.0"
 
 // Node representa un nodo base en el AST
 type Node interface {

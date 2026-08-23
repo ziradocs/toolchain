@@ -29,6 +29,7 @@ theme: string
 lang: string  # BCP 47 language tag (e.g. "es", "en-US", "zh-Hans-CN"); no top-level default
 numbering: boolean  # DocLang only; see below — no top-level default
 variables: object
+watermark: string | object  # repeating overlay, both CLIs — see llm-kit/reference/frontmatter.md
 ```
 
 `lang` declares the document's *default* language. A passage in a different language can be

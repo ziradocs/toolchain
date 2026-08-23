@@ -35,9 +35,16 @@ type DocumentHTMLOptions struct {
 	// (fallback hardcodeado título + "Página N", gateado solo por
 	// ShowHeaders/ShowFooters).
 	HeaderFooter *ast.HeaderFooterConfig
-	EmbedAssets  bool
-	CustomCSS    string
-	CustomJS     string
+	// Watermark is the parsed `watermark:` front matter namespace (issue
+	// #179) — a repeating, semi-transparent text overlay drawn on top of
+	// content, behind nothing: unlike HeaderFooter, there is no theme
+	// gate or enabled-cascade to resolve, since a watermark applies
+	// uniformly to every page. nil or an Enabled:false config draws
+	// nothing. See ResolveWatermark for how a nil/empty field degrades.
+	Watermark   *ast.WatermarkConfig
+	EmbedAssets bool
+	CustomCSS   string
+	CustomJS    string
 	// PlantUML options
 	PlantUMLMode   string // "browser", "offline-assets", "offline-inline"
 	PlantUMLServer string // Custom PlantUML server URL
@@ -93,6 +100,19 @@ func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderCon
 
 	// Header HTML
 	html.WriteString(generateDocumentHeader(doc, opts, cspNonce, ctx.Logger))
+
+	// Watermark (issue #179): a single position:fixed overlay, emitted once
+	// right after <body> opens, covers every printed physical page —
+	// Chromium repeats fixed-positioned elements on each page when printing
+	// to PDF. This single mechanism handles flow mode, page-view mode, the
+	// static TOC (which lives outside both), and any page-view
+	// .document-page whose content overflows onto more than one physical
+	// sheet — a per-.document-page div (the original design) covered none
+	// of those, since the TOC and any overflow page fall outside the
+	// .document-page it was attached to.
+	if rw, ok := ResolveWatermark(opts.Watermark, variables); ok {
+		html.WriteString(WatermarkHTML(rw, "doclang-watermark-fixed"))
+	}
 
 	// Interactive Viewer: Sidebar con TOC
 	if opts.InteractiveViewer && opts.TOC {
@@ -984,6 +1004,41 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             font-variant-numeric: tabular-nums;
         }
 
+        /* Watermark (issue #179): color/opacity/font-size/rotation are all
+           inline styles from renderer.WatermarkHTML - this block only
+           supplies the STRUCTURAL rules (positioning, tiling, no pointer
+           interaction). A single instance is emitted as a direct child of
+           body, position: fixed, which Chromium repeats on every printed
+           page — covering flow mode, page-view mode, the static TOC and
+           any content that overflows a page-view .document-page onto more
+           than one physical sheet, all with one <div>. */
+        .doclang-watermark-fixed {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 500;
+        }
+
+        .doclang-watermark-fixed-rotator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 200%;
+            height: 200%;
+            display: flex;
+            flex-wrap: wrap;
+            align-content: center;
+            justify-content: center;
+            align-items: center;
+            gap: 3em;
+        }
+
+        .doclang-watermark-fixed-rotator span {
+            white-space: nowrap;
+            font-weight: 600;
+        }
+
         body.page-view-mode .page-numbers-style-bold {
             font-weight: 700;
         }
@@ -1790,7 +1845,8 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 		return generatePageViewBody(doc, opts, variables, docTitle, ctx)
 	}
 
-	// Standard mode: continuous flow
+	// Standard mode: continuous flow. The watermark itself is emitted once
+	// by GenerateDocumentHTML, right after <body> opens — see its comment.
 	sectionNum := 1
 	for i, slide := range doc.ContentBlocks {
 		title, numbered := resolveSectionTitle(slide)

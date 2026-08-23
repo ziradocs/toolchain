@@ -1,6 +1,6 @@
 {
   "name": "@ziradocs/ast-types",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "TypeScript types for the SlideLang/DocLang JSON/AST contract (--format json), generated from the Go structs in core/ast.",
   "license": "Apache-2.0",
   "type": "module",

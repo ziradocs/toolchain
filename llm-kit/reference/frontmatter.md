@@ -34,6 +34,7 @@ header:                # optional rich header config (see below)
 footer:                # optional rich footer config (see below)
 layout_defaults:       # per-layout header/footer overrides (see below)
 lint_policy:           # per-document linter policy (see below)
+watermark:             # optional repeating overlay, both CLIs (see below)
 ---
 ```
 
@@ -278,6 +279,59 @@ hit a real limit of their own backend:
   either slidelang or doclang — it's reachable only by constructing/
   decoding an AST directly (e.g. from JSON). Nothing you write in a
   `.slidelang`/`.doclang` file can set it today.
+
+## `watermark` (repeating overlay, both CLIs)
+
+A repeating, semi-transparent text overlay drawn on top of content, on
+every slide (slidelang) or page (doclang) — issue #179. Full shape:
+
+```yaml
+watermark:
+  enabled: true          # implicit true when the block is declared at all, even with no `enabled:` key
+  text: "BORRADOR"       # goes through the same {{variable}} substitution as header/footer text
+  color: "#000000"       # any CSS color slidelang/core/a11y.ParseColor accepts (hex, named, rgb(), ...)
+  opacity: 0.08           # 0.0-1.0; out-of-range values clamp with a warning
+  rotation: -45            # degrees, clockwise; normalized into (-360, 360) via modulo
+  font_size: "72pt"       # cm | mm | in | pt | px — NOT rem/em/%, see below
+  repeat: true            # tile diagonally vs. a single centered instance
+```
+
+**Shorthand form.** A bare string is shorthand for `{enabled: true, text:
+"..."}`, the same "the interesting value is what a scalar means" pattern
+`page: A4` uses:
+
+```yaml
+watermark: "BORRADOR"
+```
+
+**Declaring the block is itself "on."** Unlike `header:`/`footer:` (whose
+`enabled` is a plain bool defaulting to `false` — a block declared without
+`enabled: true` draws nothing), `watermark:` defaults `enabled` to `true`
+the moment the block exists in any shape, scalar or map. Only an explicit
+`enabled: false` turns it off. There's no per-block-type or
+per-layout-override use case here the way there is for header/footer, so
+there's no reason to let a document declare watermark config without
+intending it to show.
+
+**`font_size` units.** Same resolver as `page.margins`
+(`core/util.ParseLengthInches`): `cm`, `mm`, `in`, `pt`, `px` only. A CSS
+relative unit like `rem`/`em`/`%` degrades to a `FRONT007` warning and is
+conserved verbatim — it would resolve fine in slidelang/doclang's own HTML
+output, but PPTX and DOCX have no notion of "relative to the root font
+size" to resolve it against, so the same input would silently mean two
+different sizes depending on output format. Rejecting it uniformly avoids
+that split.
+
+Only include this if you actually need a repeating overlay — most decks
+and documents don't.
+
+**Status: parsed, not yet rendered.** As of this change, `core`'s parser
+accepts, validates and normalizes `watermark:` into the AST exactly as
+described above — but no slidelang/doclang output format consumes it yet.
+Per-format rendering (HTML/PDF/PPTX/DOCX/Markdown) lands in a follow-up
+PR against issue #179; this section will be replaced with the real
+per-format fidelity notes once that merges. Until then, declaring
+`watermark:` in a document's front matter is a no-op at build time.
 
 ## Theme resolution priority (both CLIs)
 
