@@ -138,3 +138,32 @@ Go comments, READMEs, `SECURITY.md` and CLI `--help` text outlived the files the
   canonical host — and the one Astro's `site` declares — is `ziradocs.com`.
 - **This repo keeps**: the formal spec (`core/spec/`, source of truth for the DSL grammar),
   `docs/developer/` (releasing) and `docs/user/guides/`.
+
+
+## Motor de temas — arreglos v2 (en curso)
+
+`docs/developer/motor-temas-v2.md` es el plan vigente. Cubre **el motor**: qué tiene que saber hacer
+el intérprete para que cualquier tema externo funcione. **Léelo antes de tocar
+`internal/generator/css/`, los módulos JS de `mermaid`/`charts`, o `core/renderer/plantuml_*`.**
+
+Los catálogos de temas son contenido y **no viven en este repo**: tienen su propia licencia y su
+propio versionado. Aquí queda un único tema de referencia neutro (`default`), que es además el
+fallback de `ResolveTheme` cuando un `.slidelang` declara un tema ausente.
+
+Cuatro cosas del motor que ese documento demuestra y que explican comportamiento que de otro modo
+parece inexplicable:
+
+- El `styles.css` de un tema externo se escribe crudo en el bundle (`CSSBuilder.Build()`), **sin**
+  pasar por `ProcessCSSVariables`. Por eso `modern-blue` y los dos `startup-tech` referencian
+  `var(--bg-code)` sin prefijo y no resuelven a nada: su hoja de estilos no tiene efecto. Este es
+  el bug que bloquea todo lo demás.
+- `mermaid.js` inicializa fijo en `theme:'default'` / `fontFamily:'arial'` y `charts.js` trae un
+  `defaultColors` escrito a mano. Ni Mermaid ni Chart.js ni los mapas consultan el tema, y
+  `charts.css`/`mermaid.css`/`plantuml.css` solo usan variables del estado de error.
+- No hay un solo `@font-face` en el toolchain: las fuentes que un tema declara caen a las del
+  sistema en silencio.
+- PlantUML se renderiza a imagen en un servidor remoto (`plantuml.com` o Kroki), así que no se
+  tematiza con CSS: hay que inyectar `skinparam` en el fuente antes de codificar.
+
+`slidelang/themes/embed.go` embebe los siete temas actuales **solo para el build WASM** — el CLI
+instalado con `go install` no los trae, los busca en `./themes` y `~/.slidelang/themes`.
