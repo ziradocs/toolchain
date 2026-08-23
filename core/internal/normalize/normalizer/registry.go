@@ -36,7 +36,7 @@ func GetTransformRules(log util.Logger) []base.TransformRule {
 		enhancement.NewGraphicsRule("comment"),  // Convertir placeholders a charts válidos
 		// Prioridad 4-5 - Mejoras finales
 		enhancement.NewMermaidRule(),
-		enhancement.NewChartJSONRule(), // NUEVA: Convierte JSON de Chart.js a YAML
+		enhancement.NewChartJSONRule(), // Limpia comentarios inline y comas finales en el JSON de un chart
 		enhancement.NewMermaidFormatterRule(),
 		enhancement.NewMermaidSyntaxFixerRule(), // NUEVA: Corrige sintaxis específica de Mermaid
 		enhancement.NewChartFormatterRule(),
