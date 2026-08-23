@@ -34,6 +34,7 @@ header:                # optional rich header config (see below)
 footer:                # optional rich footer config (see below)
 layout_defaults:       # per-layout header/footer overrides (see below)
 lint_policy:           # per-document linter policy (see below)
+watermark:             # optional repeating overlay, both CLIs (see below)
 ---
 ```
 
@@ -278,6 +279,102 @@ hit a real limit of their own backend:
   either slidelang or doclang — it's reachable only by constructing/
   decoding an AST directly (e.g. from JSON). Nothing you write in a
   `.slidelang`/`.doclang` file can set it today.
+
+## `watermark` (repeating overlay, both CLIs)
+
+A repeating, semi-transparent text overlay drawn on top of content, on
+every slide (slidelang) or page (doclang) — issue #179. Full shape:
+
+```yaml
+watermark:
+  enabled: true          # implicit true when the block is declared at all, even with no `enabled:` key
+  text: "BORRADOR"       # goes through the same {{variable}} substitution as header/footer text
+  color: "#000000"       # any CSS color slidelang/core/a11y.ParseColor accepts (hex, named, rgb(), ...)
+  opacity: 0.08           # 0.0-1.0; out-of-range values clamp with a warning
+  rotation: -45            # degrees, clockwise; normalized into (-360, 360) via modulo
+  font_size: "72pt"       # cm | mm | in | pt | px — NOT rem/em/%, see below
+  repeat: true            # tile diagonally vs. a single centered instance
+```
+
+**Shorthand form.** A bare string is shorthand for `{enabled: true, text:
+"..."}`, the same "the interesting value is what a scalar means" pattern
+`page: A4` uses:
+
+```yaml
+watermark: "BORRADOR"
+```
+
+**Declaring the block is itself "on."** Unlike `header:`/`footer:` (whose
+`enabled` is a plain bool defaulting to `false` — a block declared without
+`enabled: true` draws nothing), `watermark:` defaults `enabled` to `true`
+the moment the block exists in any shape, scalar or map. Only an explicit
+`enabled: false` turns it off. There's no per-block-type or
+per-layout-override use case here the way there is for header/footer, so
+there's no reason to let a document declare watermark config without
+intending it to show.
+
+**`font_size` units.** Same resolver as `page.margins`
+(`core/util.ParseLengthInches`): `cm`, `mm`, `in`, `pt`, `px` only. A CSS
+relative unit like `rem`/`em`/`%` degrades to a `FRONT007` warning and is
+conserved verbatim — it would resolve fine in slidelang/doclang's own HTML
+output, but PPTX and DOCX have no notion of "relative to the root font
+size" to resolve it against, so the same input would silently mean two
+different sizes depending on output format. Rejecting it uniformly avoids
+that split.
+
+Only include this if you actually need a repeating overlay — most decks
+and documents don't.
+
+**Fidelity varies by output format (issue #179's PR).** slidelang renders
+this identically across html/pdf; doclang the same across html/pdf; PPTX
+and DOCX each hit a real limit of their own underlying library:
+
+- **HTML/PDF (both CLIs).** Full fidelity: real opacity, real rotation,
+  tiled or single instance, author's `color`. Drawn on top of content
+  (`pointer-events: none`, so nothing under it becomes unclickable) rather
+  than behind it — the conventional placement for a document/print
+  watermark, unlike PPTX below.
+- **PPTX.** `pptxgo`'s `drawingml.Color`/`Paragraph.Color` carry no alpha
+  channel — `SrgbClr.Alpha` exists in the OOXML struct but has no public
+  setter in the library as pinned today. The opacity is instead
+  **pre-blended**: the author's color is mixed toward the slide's
+  background (white, since `pptx.go` never calls `Slide.Background`) by
+  the requested opacity, and the resulting flat color is drawn as the
+  **first** shape on the slide — behind everything else, the only
+  placement where a pre-blended flat color reads correctly (an opaque
+  image or table on top of it looks exactly like it does over any other
+  slide background). `repeat: true` is **ignored**: PPTX always draws a
+  single centered instance, not a tile — a diagonal grid would mean dozens
+  of individual shapes per slide (PowerPoint's own selection panel would
+  list every one of them), and behind opaque content that reads as visual
+  noise rather than a watermark the moment a table or image crosses it. A
+  single centered mark is the conventional Office watermark shape and the
+  only one that survives "behind content" placement cleanly. A `--format
+  pptx` build with `watermark:` set logs a WARNING noting both
+  divergences.
+- **DOCX.** `docxgo` exposes no `w:pict`/VML/text-box API — the classic
+  Word watermark mechanism — so there is no way to place a native,
+  editable text watermark. Instead, the resolved watermark (tiled and
+  rotated, exactly like HTML/PDF) is **rasterized to a PNG** at 150 DPI
+  sized to the document's actual page dimensions
+  (`section.PageSize()`, not `page:` front matter — see below), embedded
+  as a floating image anchored in the header with `BehindText: true`, the
+  same mechanism Word's own watermark feature uses internally. The
+  tradeoff: the text renders in the embedded Go Regular font, not the
+  document's theme font, and it's a bitmap, not editable/selectable text
+  in Word — real opacity and rotation are preserved exactly, since they're
+  baked into the pixels.
+- **DOCX page size caveat.** The PNG is sized from `section.PageSize()`
+  (docxgo's own page geometry, currently always its A4 default — `docx.go`
+  never calls `SetPageSize` or reads `page:` front matter at all), not
+  from the `page:` namespace above. If a future change wires `page:` into
+  the DOCX backend's actual page size, the watermark PNG sizing needs to
+  move with it; until then, sizing from `page:` instead of the real page
+  geometry would produce a mis-scaled watermark the moment they disagree.
+- **Markdown.** No page concept exists, so `watermark:` is round-tripped
+  back into the front matter verbatim (a build → re-parse cycle doesn't
+  lose it) but nothing is rendered from it — same treatment as
+  `header:`/`footer:`/`layout_defaults:`.
 
 ## Theme resolution priority (both CLIs)
 

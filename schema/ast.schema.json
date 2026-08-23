@@ -679,6 +679,9 @@
         },
         "page": {
           "$ref": "#/$defs/PageConfig"
+        },
+        "watermark": {
+          "$ref": "#/$defs/WatermarkConfig"
         }
       },
       "additionalProperties": false,
@@ -1630,6 +1633,36 @@
         "position",
         "endPosition",
         "content"
+      ]
+    },
+    "WatermarkConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "rotation": {
+          "type": "number"
+        },
+        "font_size": {
+          "type": "string"
+        },
+        "repeat": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
       ]
     }
   },

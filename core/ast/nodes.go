@@ -130,7 +130,13 @@ type FrontMatterNode struct {
 	// pointers/raw strings rather than resolved values.
 	TOC  *TOCConfig  `json:"toc,omitempty"`
 	Page *PageConfig `json:"page,omitempty"`
-	Raw  string      `json:"-"` // YAML crudo
+	// Watermark is the parsed `watermark:` front matter namespace (issue
+	// #179) — a repeating, semi-transparent overlay drawn behind content
+	// on every slide/page. Same tri-state-pointer discipline as
+	// Numbering/TOC: "not declared" must stay distinguishable from a field
+	// declared at its zero value.
+	Watermark *WatermarkConfig `json:"watermark,omitempty"`
+	Raw       string           `json:"-"` // YAML crudo
 }
 
 // TOCConfig is the parsed `toc:` front matter namespace. Both fields are
@@ -170,6 +176,28 @@ type PageMargins struct {
 	Right  string `json:"right,omitempty"`
 	Bottom string `json:"bottom,omitempty"`
 	Left   string `json:"left,omitempty"`
+}
+
+// WatermarkConfig is the parsed `watermark:` front matter namespace (issue
+// #179): a repeating, semi-transparent text overlay rendered behind
+// content on every slide (slidelang) or page (doclang). All fields besides
+// Enabled/Text are optional pointers so a consumer can tell "author didn't
+// say" apart from "author said the zero value" and apply its own default —
+// same tri-state discipline as TOCConfig. FontSize is stored verbatim
+// (`"72pt"`, `"2cm"`), never pre-resolved, for the same public-JSON-contract
+// reason PageConfig.Size is: see core/util/length.go for the shared
+// resolver every consumer should use instead of re-parsing it ad hoc.
+type WatermarkConfig struct {
+	Enabled bool `json:"enabled"`
+	// Text passes through the same {{variable}} substitution as
+	// header/footer text (renderer.ProcessVariables) — an author can write
+	// `watermark: "{{title}} — BORRADOR"`.
+	Text     string   `json:"text,omitempty"`
+	Color    string   `json:"color,omitempty"`
+	Opacity  *float64 `json:"opacity,omitempty"`  // 0.0-1.0
+	Rotation *float64 `json:"rotation,omitempty"` // degrees, clockwise
+	FontSize string   `json:"font_size,omitempty"`
+	Repeat   *bool    `json:"repeat,omitempty"`
 }
 
 // NewFrontMatterNode crea un nuevo nodo de FrontMatter

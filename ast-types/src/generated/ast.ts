@@ -65,8 +65,13 @@ import type { Position } from "./diagnostics";
  * serialized JSON, not in-process) had no way to learn that a language mark
  * existed and didn't take without re-deriving it by hand. Same
  * derivation/posture as LangRuns.
+ * 2.8.0 (issue #179): FrontMatterNode.Watermark (*WatermarkConfig,
+ * additive, omitempty) — a repeating, semi-transparent text overlay
+ * namespace (`watermark:`), rendered behind content on every
+ * slide/page. FontSize is stored verbatim like PageConfig.Size, not
+ * resolved to any renderer's unit.
  */
-export const SchemaVersion = "2.7.0";
+export const SchemaVersion = "2.8.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -282,6 +287,14 @@ export interface FrontMatterNode extends BaseNode {
    */
   toc?: TOCConfig;
   page?: PageConfig;
+  /**
+   * Watermark is the parsed `watermark:` front matter namespace (issue
+   * #179) — a repeating, semi-transparent overlay drawn behind content
+   * on every slide/page. Same tri-state-pointer discipline as
+   * Numbering/TOC: "not declared" must stay distinguishable from a field
+   * declared at its zero value.
+   */
+  watermark?: WatermarkConfig;
 }
 /**
  * TOCConfig is the parsed `toc:` front matter namespace. Both fields are
@@ -324,6 +337,31 @@ export interface PageMargins {
   right?: string;
   bottom?: string;
   left?: string;
+}
+/**
+ * WatermarkConfig is the parsed `watermark:` front matter namespace (issue
+ * #179): a repeating, semi-transparent text overlay rendered behind
+ * content on every slide (slidelang) or page (doclang). All fields besides
+ * Enabled/Text are optional pointers so a consumer can tell "author didn't
+ * say" apart from "author said the zero value" and apply its own default —
+ * same tri-state discipline as TOCConfig. FontSize is stored verbatim
+ * (`"72pt"`, `"2cm"`), never pre-resolved, for the same public-JSON-contract
+ * reason PageConfig.Size is: see core/util/length.go for the shared
+ * resolver every consumer should use instead of re-parsing it ad hoc.
+ */
+export interface WatermarkConfig {
+  enabled: boolean;
+  /**
+   * Text passes through the same {{variable}} substitution as
+   * header/footer text (renderer.ProcessVariables) — an author can write
+   * `watermark: "{{title}} — BORRADOR"`.
+   */
+  text?: string;
+  color?: string;
+  opacity?: number /* float64 */; // 0.0-1.0
+  rotation?: number /* float64 */; // degrees, clockwise
+  font_size?: string;
+  repeat?: boolean;
 }
 /**
  * ContentBlock representa un bloque de contenido (slide en presentaciones, sección en documentos)

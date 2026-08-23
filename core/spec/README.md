@@ -1,6 +1,6 @@
 # SlideLang / DocLang spec — v0.1
 
-**Spec v0.1, tracks `ast.SchemaVersion` 2.5.0.**
+**Spec v0.1, tracks `ast.SchemaVersion` 2.8.0.**
 
 This directory is the entry point for the formal specification of the SlideLang/DocLang
 language family. It lives with the core library (`core`) rather than in a
