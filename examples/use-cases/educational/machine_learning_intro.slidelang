@@ -118,14 +118,14 @@ graph TD
 
 <<chart: radar>>
 title: "ML Impact Across Industries"
-colors: ["#2C3E50", "#E74C3C"]
-data:
-  labels: ["Healthcare", "Finance", "Transportation", "Entertainment", "Retail"]
-  series:
-    - name: "Current Adoption (%)"
-      values: [78, 85, 65, 82, 73]
-    - name: "Expected Growth (%)"
-      values: [95, 92, 88, 90, 89]
+data: [
+  ["Healthcare", 78, 95],
+  ["Finance", 85, 92],
+  ["Transportation", 65, 88],
+  ["Entertainment", 82, 90],
+  ["Retail", 73, 89]
+]
+series: ["Current Adoption (%)", "Expected Growth (%)"]
 <<end>>
 
 **Finance leads** current adoption at 85%, with transportation showing highest growth potential
@@ -205,12 +205,12 @@ print(f"Model explains {r2*100:.1f}% of variance")
 
 <<chart: pie>>
 title: "Time Spent in ML Projects"
-colors: ["#E74C3C", "#3498DB", "#27AE60", "#F39C12"]
-data:
-  labels: ["Data Collection & Cleaning", "Feature Engineering", "Model Training", "Evaluation & Deployment"]
-  series:
-    - name: "Time Allocation (%)"
-      values: [60, 20, 15, 5]
+data: [
+  ["Data Collection & Cleaning", 60],
+  ["Feature Engineering", 20],
+  ["Model Training", 15],
+  ["Evaluation & Deployment", 5]
+]
 <<end>>
 
 **80% of ML work** is data preparation - quality data is crucial for success

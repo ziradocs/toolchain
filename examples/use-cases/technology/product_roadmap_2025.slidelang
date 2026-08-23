@@ -61,29 +61,33 @@ variables:
 **Understanding our competitive environment**
 
 <<chart: bubble>>
-  data: [
-    {x: 85, y: 65, r: 15, label: "CloudSync Pro"},
-    {x: 70, y: 80, r: 25, label: "Microsoft Teams"},
-    {x: 60, y: 70, r: 20, label: "Slack"},
-    {x: 75, y: 55, r: 18, label: "Zoom Workspace"},
-    {x: 50, y: 60, r: 12, label: "Asana"},
-    {x: 80, y: 45, r: 10, label: "Emerging Players"}
-  ]
-  options:
-    responsive: true
-    plugins:
-      title:
-        display: true
-        text: "Competitive Positioning: Innovation vs Market Share"
-    scales:
-      x:
-        title:
-          display: true
-          text: "Innovation Score"
-      y:
-        title:
-          display: true
-          text: "Market Penetration"
+{
+  "type": "bubble",
+  "data": {
+    "datasets": [{
+      "label": "Competitive Positioning",
+      "data": [
+        {"x": 85, "y": 65, "r": 15, "label": "CloudSync Pro"},
+        {"x": 70, "y": 80, "r": 25, "label": "Microsoft Teams"},
+        {"x": 60, "y": 70, "r": 20, "label": "Slack"},
+        {"x": 75, "y": 55, "r": 18, "label": "Zoom Workspace"},
+        {"x": 50, "y": 60, "r": 12, "label": "Asana"},
+        {"x": 80, "y": 45, "r": 10, "label": "Emerging Players"}
+      ]
+    }]
+  },
+  "options": {
+    "responsive": true,
+    "plugins": {
+      "title": {"display": true, "text": "Competitive Positioning: Innovation vs Market Share"}
+    },
+    "scales": {
+      "x": {"title": {"display": true, "text": "Innovation Score"}},
+      "y": {"title": {"display": true, "text": "Market Penetration"}}
+    }
+  }
+}
+<</chart>>
 
 **Market Size: {{market_size}} | Growth Rate: 12% annually**
 

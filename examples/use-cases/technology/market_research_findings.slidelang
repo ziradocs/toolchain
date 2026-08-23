@@ -178,30 +178,34 @@ variables:
 **Market positioning and opportunities**
 
 <<chart: bubble>>
-  data: [
-    {x: 85, y: 75, r: 20, label: "Market Leader A"},
-    {x: 70, y: 82, r: 18, label: "Market Leader B"},
-    {x: 78, y: 65, r: 15, label: "Challenger C"},
-    {x: 60, y: 70, r: 12, label: "Specialist D"},
-    {x: 55, y: 55, r: 10, label: "Emerging E"},
-    {x: 82, y: 45, r: 8, label: "Niche F"},
-    {x: 40, y: 60, r: 6, label: "New Entrants"}
-  ]
-  options:
-    responsive: true
-    plugins:
-      title:
-        display: true
-        text: "Competitive Positioning: Market Share vs Customer Satisfaction"
-    scales:
-      x:
-        title:
-          display: true
-          text: "Market Share Index"
-      y:
-        title:
-          display: true
-          text: "Customer Satisfaction Score"
+{
+  "type": "bubble",
+  "data": {
+    "datasets": [{
+      "label": "Competitive Positioning",
+      "data": [
+        {"x": 85, "y": 75, "r": 20, "label": "Market Leader A"},
+        {"x": 70, "y": 82, "r": 18, "label": "Market Leader B"},
+        {"x": 78, "y": 65, "r": 15, "label": "Challenger C"},
+        {"x": 60, "y": 70, "r": 12, "label": "Specialist D"},
+        {"x": 55, "y": 55, "r": 10, "label": "Emerging E"},
+        {"x": 82, "y": 45, "r": 8, "label": "Niche F"},
+        {"x": 40, "y": 60, "r": 6, "label": "New Entrants"}
+      ]
+    }]
+  },
+  "options": {
+    "responsive": true,
+    "plugins": {
+      "title": {"display": true, "text": "Competitive Positioning: Market Share vs Customer Satisfaction"}
+    },
+    "scales": {
+      "x": {"title": {"display": true, "text": "Market Share Index"}},
+      "y": {"title": {"display": true, "text": "Customer Satisfaction Score"}}
+    }
+  }
+}
+<</chart>>
 
 **Market leaders show satisfaction gaps, creating challenger opportunities**
 
@@ -277,15 +281,16 @@ variables:
 **Price elasticity across market segments**
 
 <<chart: line>>
-  data:
-    labels: ["$10", "$25", "$50", "$75", "$100", "$150", "$200+"]
-    series:
-      - name: "Enterprise Adoption %"
-        values: [5, 15, 35, 65, 85, 78, 45]
-      - name: "Mid-Market Adoption %"
-        values: [25, 55, 75, 65, 45, 25, 10]
-      - name: "Small Business Adoption %"
-        values: [65, 85, 70, 45, 25, 10, 2]
+  data: [
+    ["$10", 5, 25, 65],
+    ["$25", 15, 55, 85],
+    ["$50", 35, 75, 70],
+    ["$75", 65, 65, 45],
+    ["$100", 85, 45, 25],
+    ["$150", 78, 25, 10],
+    ["$200+", 45, 10, 2]
+  ]
+  series: ["Enterprise Adoption %", "Mid-Market Adoption %", "Small Business Adoption %"]
   options:
     responsive: true
     plugins:

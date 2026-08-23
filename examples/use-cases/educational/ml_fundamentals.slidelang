@@ -103,25 +103,29 @@ variables:
 **Learning with a teacher who provides correct answers**
 
 <<chart: scatter>>
-  data: [
-    [{x: 1200, y: 180}, {x: 1400, y: 210}, {x: 1600, y: 240}, {x: 1800, y: 270}, {x: 2000, y: 300}, {x: 2200, y: 330}, {x: 2400, y: 360}]
-  ]
-  labels: ["House Size vs Price"]
-  options:
-    responsive: true
-    plugins:
-      title:
-        display: true
-        text: "Supervised Learning Example: Predicting House Prices"
-    scales:
-      x:
-        title:
-          display: true
-          text: "House Size (sq ft)"
-      y:
-        title:
-          display: true
-          text: "Price ($K)"
+{
+  "type": "scatter",
+  "data": {
+    "datasets": [{
+      "label": "House Size vs Price",
+      "data": [
+        {"x": 1200, "y": 180}, {"x": 1400, "y": 210}, {"x": 1600, "y": 240},
+        {"x": 1800, "y": 270}, {"x": 2000, "y": 300}, {"x": 2200, "y": 330}, {"x": 2400, "y": 360}
+      ]
+    }]
+  },
+  "options": {
+    "responsive": true,
+    "plugins": {
+      "title": {"display": true, "text": "Supervised Learning Example: Predicting House Prices"}
+    },
+    "scales": {
+      "x": {"title": {"display": true, "text": "House Size (sq ft)"}},
+      "y": {"title": {"display": true, "text": "Price ($K)"}}
+    }
+  }
+}
+<</chart>>
 
 **Goal:** Learn patterns from examples to predict new outcomes
 
@@ -138,27 +142,27 @@ variables:
 **Finding hidden patterns without knowing what to look for**
 
 <<chart: scatter>>
-  data: [
-    [{x: 25, y: 50}, {x: 30, y: 55}, {x: 28, y: 52}],
-    [{x: 45, y: 30}, {x: 50, y: 35}, {x: 48, y: 32}],
-    [{x: 70, y: 80}, {x: 75, y: 85}, {x: 72, y: 82}]
-  ]
-  labels: ["Group A", "Group B", "Group C"]
-  options:
-    responsive: true
-    plugins:
-      title:
-        display: true
-        text: "Customer Segmentation Example"
-    scales:
-      x:
-        title:
-          display: true
-          text: "Age"
-      y:
-        title:
-          display: true
-          text: "Income ($K)"
+{
+  "type": "scatter",
+  "data": {
+    "datasets": [
+      {"label": "Group A", "data": [{"x": 25, "y": 50}, {"x": 30, "y": 55}, {"x": 28, "y": 52}]},
+      {"label": "Group B", "data": [{"x": 45, "y": 30}, {"x": 50, "y": 35}, {"x": 48, "y": 32}]},
+      {"label": "Group C", "data": [{"x": 70, "y": 80}, {"x": 75, "y": 85}, {"x": 72, "y": 82}]}
+    ]
+  },
+  "options": {
+    "responsive": true,
+    "plugins": {
+      "title": {"display": true, "text": "Customer Segmentation Example"}
+    },
+    "scales": {
+      "x": {"title": {"display": true, "text": "Age"}},
+      "y": {"title": {"display": true, "text": "Income ($K)"}}
+    }
+  }
+}
+<</chart>>
 
 **Example:** Grouping customers by shopping behavior
 
