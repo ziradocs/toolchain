@@ -5,6 +5,7 @@ package chromium
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -144,6 +145,43 @@ func TestBuildMermaidSVGHTML_EscapesContent(t *testing.T) {
 	}
 	if !strings.Contains(html, "Content-Security-Policy") || !strings.Contains(html, "connect-src 'none'") {
 		t.Error("expected a restrictive CSP meta tag")
+	}
+}
+
+// TestBuildMermaidSVGHTML_ContainerHasDefiniteWidth cubre el fix del issue
+// #204 (misma familia que #173/#203, eje horizontal): sin un width explícito
+// en .mermaid, mermaid.js no tiene un ancho de contenedor que medir antes de
+// dibujar y cae a su default interno de 300px para diagramas sensibles al
+// contenedor (gantt confirmado empíricamente contra un build real — ver
+// mermaidSVGContainerWidthPx), angostando el timeline lo suficiente como
+// para que task/section labels se dibujen fuera del viewBox del propio SVG
+// (título y labels recortados, issue reportado). Esto solo puede fijarse en
+// el HTML que arma esta función — es el ancho que mermaid ve ANTES de
+// calcular su viewBox, corriente arriba de cualquier CSS/overflow que
+// mermaid.css pudiera aplicar después.
+func TestBuildMermaidSVGHTML_ContainerHasDefiniteWidth(t *testing.T) {
+	html := buildMermaidSVGHTML("graph TD; A-->B")
+
+	want := fmt.Sprintf(".mermaid { display: inline-block; width: %dpx; }", mermaidSVGContainerWidthPx)
+	if !strings.Contains(html, want) {
+		t.Errorf("expected .mermaid to have a definite width so gantt-like diagrams don't fall back to mermaid's internal 300px default, got:\n%s", html)
+	}
+}
+
+// TestBuildMermaidSVGHTML_PercentInContentDoesNotBreakFormatting cubre una
+// regresión que casi se cuela junto con el fix de arriba: mermaidCode debe
+// pasar como argumento %s de fmt.Sprintf, nunca concatenado dentro del
+// format string en sí — un '%' literal en el diagrama del usuario (p. ej. un
+// label "Growth +20%") no debe reinterpretarse como un verbo de fmt (que
+// dejaría un "%!" corrupto en el HTML en vez del contenido real).
+func TestBuildMermaidSVGHTML_PercentInContentDoesNotBreakFormatting(t *testing.T) {
+	html := buildMermaidSVGHTML("graph TD; A[Growth +20%] --> B[100% done]")
+
+	if strings.Contains(html, "%!") {
+		t.Errorf("literal '%%' in mermaid content corrupted the Sprintf output:\n%s", html)
+	}
+	if !strings.Contains(html, "Growth +20%") || !strings.Contains(html, "100% done") {
+		t.Errorf("expected the literal '%%' content to survive unchanged, got:\n%s", html)
 	}
 }
 

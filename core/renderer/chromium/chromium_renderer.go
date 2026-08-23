@@ -40,6 +40,41 @@ const (
 		"connect-src 'none'; object-src 'none'; base-uri 'none';"
 )
 
+// mermaidSVGContainerWidthPx es el ancho que se le da a .mermaid en
+// buildMermaidSVGHTML antes de que mermaid.js dibuje (issue #204, misma
+// familia que #173/#203 pero en el eje horizontal — ese commit clampó
+// max-height en CSS, corriente abajo del render; este bug nace antes,
+// dentro del propio SVG que mermaid entrega).
+//
+// Mermaid mide el ancho disponible para diagramas sensibles al contenedor
+// (gantt confirmado; probablemente timeline/quadrantChart comparten el
+// mecanismo) ANTES de dibujar, y si no encuentra un ancho definido cae a su
+// default interno de 300px (confirmado empíricamente: un .mermaid sin width
+// explícito produce viewBox="0 0 300 388" para un gantt de 4 secciones/12
+// tareas). Con el timeline comprimido a 300px, las barras quedan demasiado
+// angostas para su label y mermaid lo empuja afuera de la barra
+// (.taskTextOutsideLeft, text-anchor:end) o centra el título — ambos casos
+// posicionan texto en x negativo relativo al viewBox, que arranca en 0. Ese
+// texto queda recortado DENTRO del SVG que Chromium captura vía OuterHTML:
+// no es un problema de CSS/overflow corriente abajo (overflow-x en un
+// wrapper no revela contenido que el propio viewBox del SVG ya excluye), así
+// que ningún ajuste en mermaid.css puede arreglarlo.
+//
+// Es un hint de layout, no un tope: el <svg> resultante sigue trayendo
+// width="100%" + un style="max-width:Npx" inline (donde N es el ancho
+// NATURAL que mermaid calculó con este hint), así que corriente abajo sigue
+// escalando de forma responsive al contenedor real (slide/página) vía CSS
+// height:auto — un valor grande acá no fuerza un diagrama grande en la
+// salida final, solo evita que mermaid trunque contenido a un ancho
+// arbitrariamente chico antes de que la CSS responsive tenga oportunidad de
+// actuar. Mismo motivo por el que buildMermaidPNGHTML (abajo) ya le da a
+// #mermaidContainer un ancho fijo en vez de dejarlo sin definir — ese path
+// nunca mostró este bug porque ya evitaba el fallback de 300px.
+//
+// Verificado que diagramas NO sensibles al contenedor (flowchart) producen
+// el mismo viewBox sin importar este ancho — no es una regresión para ellos.
+const mermaidSVGContainerWidthPx = 1200
+
 // buildMermaidSVGHTML arma la página temporal usada para rasterizar un
 // diagrama Mermaid a SVG. El contenido es dato del usuario: se HTML-escapa
 // antes de insertarlo como texto del nodo ".mermaid" (Mermaid lee
@@ -48,24 +83,29 @@ const (
 // embebido dentro del propio diagrama. Ver docs/SECURITY_AUDIT_2026-07.md,
 // CR-6/AL-6 (issue #24).
 func buildMermaidSVGHTML(mermaidCode string) string {
-	return `<!DOCTYPE html>
+	// mermaidCode (vía BuildMermaidDiv) es dato del usuario: va como argumento
+	// %s, nunca concatenado dentro del format string en sí — un '%' literal en
+	// el diagrama del usuario (p. ej. un label "Growth +20%") no debe
+	// reinterpretarse como un verbo de fmt (mismo patrón ya usado por
+	// buildMermaidPNGHTML, abajo).
+	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="` + mermaidAndChartRenderCSP + `">
-    ` + renderer.MermaidCDNScriptTag + `
+    <meta http-equiv="Content-Security-Policy" content="%s">
+    `+renderer.MermaidCDNScriptTag+`
     <style>
         body { margin: 0; padding: 20px; background: white; }
-        .mermaid { display: inline-block; }
+        .mermaid { display: inline-block; width: %dpx; }
     </style>
 </head>
 <body>
-    ` + renderer.BuildMermaidDiv(mermaidCode) + `
+    %s
     <script>
-        mermaid.initialize(` + renderer.MermaidInitConfigJS(true) + `);
+        mermaid.initialize(`+renderer.MermaidInitConfigJS(true)+`);
     </script>
 </body>
-</html>`
+</html>`, mermaidAndChartRenderCSP, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode))
 }
 
 // buildMathSVGHTML arma la página temporal usada para rasterizar una
