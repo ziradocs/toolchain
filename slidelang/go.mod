@@ -7,7 +7,7 @@ require (
 	github.com/mmonterroca/pptxgo v0.0.0-20260802145618-9e8c8b31d00c
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/spf13/cobra v1.10.2
-	go.ziradocs.com/core/v2 v2.23.0
+	go.ziradocs.com/core/v2 v2.24.0
 )
 
 require (
