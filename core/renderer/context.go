@@ -44,12 +44,20 @@ type RenderContext struct {
 	// to color chart series/segments in the offline/PDF render path —
 	// nil/empty (every caller today) reproduces the existing hardcoded
 	// defaults exactly, byte for byte. Reaches TWO independent renderers,
-	// not one: GenerateChartConfigWithMode (Chart.js JSON, combo/scatter/
-	// JSON-mode charts and the browser path) AND RenderChartNativePNGWithColors
-	// via chromium.ChartFetcher's categoricalColors field (go-analyze/charts,
-	// which is what actually renders bar/line/pie/doughnut in offline/PDF —
-	// issue #130 makes it the preferred path for those types, so it is NOT
-	// a minor branch). Motor-temas-v2.md §2.2's chart-cat-* contract: this
+	// not one: GenerateChartConfigWithMode (Chart.js JSON, combo/scatter and
+	// the browser path — NOT JSON-mode, see below) AND
+	// RenderChartNativePNGWithColors via chromium.ChartFetcher's
+	// categoricalColors field (go-analyze/charts, which is what actually
+	// renders bar/line/pie/doughnut in offline/PDF — issue #130 makes it
+	// the preferred path for those types, so it is NOT a minor branch).
+	// A chart in JSON mode (elem.IsJSONMode/RawJSON — the author writes the
+	// Chart.js config by hand) reaches NEITHER: renderChartElement
+	// re-serializes RawJSON verbatim and skips GenerateChartConfigWithMode
+	// entirely, and RenderChartNativePNGWithColors's own
+	// SupportsNativeChartRenderingWithOptions gate rejects IsJSONMode
+	// upfront — this is intentional (an author's literal config should not
+	// be silently overridden by a theme), not a gap to close. Motor-temas-v2.md
+	// §2.2's chart-cat-* contract: this
 	// is an ORDERED set indexed by modulo, the same way the hardcoded
 	// defaults already are — it exists so a caller that HAS resolved a
 	// theme (slidelang, from --theme) can hand over its chart-cat-1..8

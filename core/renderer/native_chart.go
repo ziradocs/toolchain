@@ -107,7 +107,6 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 		return nil, false, nil
 	}
 	ov := extractNativeChartOverrides(elem.Options)
-	theme := nativeChartTheme(categoricalColors)
 
 	p := charts.NewPainter(charts.PainterOptions{
 		OutputFormat: charts.ChartOutputPNG,
@@ -127,6 +126,7 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 		if seriesErr != nil {
 			return nil, true, seriesErr
 		}
+		theme := nativeChartTheme(categoricalColors, len(values))
 		names := resolveSeriesNames(elem.Series, len(values))
 		if elem.ChartType == "bar" {
 			opt := charts.NewBarChartOptionWithData(values)
@@ -157,7 +157,7 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 			return nil, true, pieErr
 		}
 		opt := charts.NewPieChartOptionWithData(pieValues)
-		opt.Theme = theme
+		opt.Theme = nativeChartTheme(categoricalColors, len(pieValues))
 		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = pieLabels
 		applyLegendOverrides(&opt.Legend, ov)
@@ -168,7 +168,7 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 			return nil, true, dErr
 		}
 		opt := charts.NewDoughnutChartOptionWithData(doughnutValues)
-		opt.Theme = theme
+		opt.Theme = nativeChartTheme(categoricalColors, len(doughnutValues))
 		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = doughnutLabels
 		applyLegendOverrides(&opt.Legend, ov)
@@ -194,13 +194,32 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 // interfaz), así que un caller sin tema reproduce el render de antes byte
 // por byte. charts.ParseColor acepta directamente los strings hex que trae
 // un theme.json (p. ej. "#3498db").
-func nativeChartTheme(categoricalColors []string) charts.ColorPalette {
+//
+// count es cuántas series/segmentos necesita colorear ESTE chart.
+// go-analyze/charts@v0.6.0's getSeriesColor no repite por módulo puro una
+// vez que el índice pedido alcanza el largo de la paleta: reusa el color
+// de index%colorCount pero le ajusta saturación/luminosidad según
+// index/colorCount (ver adjustSeriesColor en su fuente), así que devuelve
+// una variante distinta, no el mismo color — al revés del contrato
+// chart-cat-* de motor-temas-v2.md §2.2 (un set ORDENADO que el motor debe
+// repetir exacto por módulo, igual que chartCategoricalPalette en html.go
+// ya hace para el camino Chart.js), y hacía que el mismo chart se viera
+// distinto entre el backend nativo y Chart.js para cualquier serie más
+// allá del largo de la paleta (hallazgo de code-review sobre PR #224). Se
+// expande categoricalColors a count entradas por módulo ANTES de
+// entregárselo a WithSeriesColors, para que ningún índice que
+// go-analyze/charts vaya a pedir quede nunca por debajo de colorCount y
+// esa rama de ajuste no se dispare nunca.
+func nativeChartTheme(categoricalColors []string, count int) charts.ColorPalette {
 	if len(categoricalColors) == 0 {
 		return nil
 	}
-	colors := make([]charts.Color, len(categoricalColors))
-	for i, c := range categoricalColors {
-		colors[i] = charts.ParseColor(c)
+	if count < len(categoricalColors) {
+		count = len(categoricalColors)
+	}
+	colors := make([]charts.Color, count)
+	for i := range colors {
+		colors[i] = charts.ParseColor(categoricalColors[i%len(categoricalColors)])
 	}
 	return charts.GetDefaultTheme().WithSeriesColors(colors)
 }

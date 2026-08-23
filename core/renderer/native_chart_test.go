@@ -11,6 +11,8 @@ import (
 	_ "image/png"
 	"testing"
 
+	"github.com/go-analyze/charts"
+
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -393,11 +395,46 @@ func TestSupportsNativeChartRenderingWithOptions_ApprovesIgnorableOnlyOptions(t 
 // de puntero en algunos casos internos, así que envolver innecesariamente
 // no es equivalente incluso si el resultado visual sería el mismo hoy.
 func TestNativeChartTheme_EmptyOverrideIsNilPalette(t *testing.T) {
-	if got := nativeChartTheme(nil); got != nil {
-		t.Errorf("nativeChartTheme(nil) = %v, want nil", got)
+	if got := nativeChartTheme(nil, 3); got != nil {
+		t.Errorf("nativeChartTheme(nil, 3) = %v, want nil", got)
 	}
-	if got := nativeChartTheme([]string{}); got != nil {
-		t.Errorf("nativeChartTheme([]string{}) = %v, want nil", got)
+	if got := nativeChartTheme([]string{}, 3); got != nil {
+		t.Errorf("nativeChartTheme([]string{}, 3) = %v, want nil", got)
+	}
+}
+
+// TestNativeChartTheme_RepeatsExactlyPastPaletteLength is the code-review
+// finding on PR #224: go-analyze/charts@v0.6.0's own getSeriesColor does
+// NOT wrap a short palette via pure modulo once the requested index
+// passes the palette's length — it returns colors[index%colorCount]
+// adjusted for saturation/lightness by index/colorCount (adjustSeriesColor
+// in its source), a different-looking shade, not an exact repeat. That
+// breaks the chart-cat-* contract (motor-temas-v2.md §2.2: an ORDERED set
+// the engine must repeat EXACTLY via modulo, matching
+// chartCategoricalPalette's colors[i%len(colors)] in html.go) — a chart
+// with more series than palette entries would render differently on the
+// native backend than on Chart.js. count must force every index the chart
+// will actually request to land inside the (pre-expanded) palette, so
+// go-analyze/charts' own adjustment branch never fires.
+func TestNativeChartTheme_RepeatsExactlyPastPaletteLength(t *testing.T) {
+	colors := []string{"#ff0000", "#00ff00"}
+	// count=5: indices 2,3,4 all fall past len(colors)=2 and must repeat
+	// the same two colors exactly, not an HSL-adjusted variant.
+	palette := nativeChartTheme(colors, 5)
+	if palette == nil {
+		t.Fatal("nativeChartTheme with a non-empty override returned nil")
+	}
+	want := []charts.Color{
+		charts.ParseColor(colors[0]),
+		charts.ParseColor(colors[1]),
+		charts.ParseColor(colors[0]),
+		charts.ParseColor(colors[1]),
+		charts.ParseColor(colors[0]),
+	}
+	for i, w := range want {
+		if got := palette.GetSeriesColor(i); got != w {
+			t.Errorf("GetSeriesColor(%d) = %v, want exact repeat %v (no HSL adjustment)", i, got, w)
+		}
 	}
 }
 

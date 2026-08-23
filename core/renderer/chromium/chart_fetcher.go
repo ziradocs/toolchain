@@ -22,8 +22,10 @@ type ChartFetcher struct {
 	// para bar/line/pie/doughnut — el camino chartConfig/Chart.js (que sí
 	// ve ChartCategoricalColors vía GenerateChartConfigWithMode) nunca se
 	// ejecuta para esos tipos salvo que el render nativo falle. Sin este
-	// campo el tema le llegaría solo a combo/scatter/JSON-mode, que es la
-	// minoría de los charts reales (motor-temas-v2.md §2.2).
+	// campo el tema le llegaría solo a combo/scatter, que es la minoría de
+	// los charts reales (motor-temas-v2.md §2.2) — un chart en modo JSON no
+	// recibe el tema por NINGÚN camino, a propósito: ver el comentario de
+	// RenderContext.ChartCategoricalColors.
 	categoricalColors []string
 }
 

@@ -109,3 +109,49 @@ func TestGenerateChartConfigWithMode_OverrideAppliesToAllThreeBranches(t *testin
 		}
 	})
 }
+
+// TestChartAreaFillColor is the code-review finding on PR #224:
+// `color + "33"` assumed color was always this file's own "#rrggbb"
+// literal — true before ChartCategoricalColors existed, false now that a
+// theme's chart-cat-* token can resolve to any valid CSS color syntax.
+func TestChartAreaFillColor(t *testing.T) {
+	cases := []struct {
+		name  string
+		color string
+		want  string
+	}{
+		{"hex6 expands with alpha suffix", "#3498db", "#3498db33"},
+		{"hex3 shorthand expands to hex6 then alpha", "#abc", "#aabbcc33"},
+		{"rgb() degrades to opaque, no corruption", "rgb(255, 0, 0)", "rgb(255, 0, 0)"},
+		{"named color degrades to opaque, no corruption", "red", "red"},
+		{"already-alpha hex8 degrades to opaque, no double-alpha", "#3498db80", "#3498db80"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := chartAreaFillColor(c.color); got != c.want {
+				t.Errorf("chartAreaFillColor(%q) = %q, want %q", c.color, got, c.want)
+			}
+		})
+	}
+}
+
+// TestGenerateChartConfigWithMode_NonHexOverrideProducesValidBackgroundColor
+// is the end-to-end version of the same finding: a line chart with a
+// non-hex-6 categorical override must not embed corrupted CSS (e.g.
+// "red33") in the generated Chart.js config.
+func TestGenerateChartConfigWithMode_NonHexOverrideProducesValidBackgroundColor(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	chart := ast.NewChartElement(pos, "line")
+	chart.Data = [][]interface{}{{"Q1", 10.0}}
+	chart.Series = []string{"A"}
+
+	config := GenerateChartConfigWithMode(chart, false, []string{"rgb(255, 0, 0)"})
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(config), &decoded); err != nil {
+		t.Fatalf("chart config is not valid JSON: %v\n%s", err, config)
+	}
+	dataset := decoded["data"].(map[string]interface{})["datasets"].([]interface{})[0].(map[string]interface{})
+	if bg := dataset["backgroundColor"]; bg != "rgb(255, 0, 0)" {
+		t.Errorf("backgroundColor = %v, want the unmodified rgb() color (not a corrupted \"rgb(255, 0, 0)33\")", bg)
+	}
+}

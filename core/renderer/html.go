@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -1191,6 +1192,37 @@ func chartCategoricalPalette(override, fallback []string) []string {
 	return fallback
 }
 
+// hex6ColorRe/hex3ColorRe recognize the two hex forms chartAreaFillColor can
+// safely expand — "#rrggbb" and its "#rgb" shorthand.
+var (
+	hex6ColorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	hex3ColorRe = regexp.MustCompile(`^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$`)
+)
+
+// chartAreaFillColor returns a translucent (~20% opacity) variant of color
+// for a line chart's area fill, suffixing a hex alpha channel — but only
+// when color is actually a 6- or 3-digit hex string. Before
+// RenderContext.ChartCategoricalColors existed, color could only ever be
+// one of this file's own hardcoded literals (always "#rrggbb"), so
+// `color + "33"` was safe by construction. Now color can be anything a
+// theme's chart-cat-* token resolves to — rgb()/rgba()/hsl()/a named
+// color/already-alpha'd 8-digit hex — and blindly concatenating onto any
+// of those produces broken CSS (e.g. "red33", or "#abc33", which is 5 hex
+// digits and invalid) that a canvas 2D context silently ignores, dropping
+// back to its own default fill (code-review finding on PR #224). For
+// anything outside the two safely-expandable forms, this degrades to the
+// opaque color instead of guessing — losing the translucency touch, never
+// producing invalid output.
+func chartAreaFillColor(color string) string {
+	if hex6ColorRe.MatchString(color) {
+		return color + "33"
+	}
+	if m := hex3ColorRe.FindStringSubmatch(color); m != nil {
+		return "#" + m[1] + m[1] + m[2] + m[2] + m[3] + m[3] + "33"
+	}
+	return color
+}
+
 // GenerateChartConfigWithMode genera la configuración con modo específico.
 // categoricalColors, si no está vacío, reemplaza la paleta hardcodeada de
 // cada rama de tipo de chart de abajo (motor-temas-v2.md §2.2's
@@ -1374,7 +1406,7 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool, categor
 
 				if elem.ChartType == "line" {
 					dataset["borderColor"] = color
-					dataset["backgroundColor"] = color + "33" // 20% opacity
+					dataset["backgroundColor"] = chartAreaFillColor(color) // ~20% opacity when safely expandable
 					dataset["fill"] = false
 					dataset["tension"] = 0.4
 				} else {
