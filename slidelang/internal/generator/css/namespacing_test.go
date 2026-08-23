@@ -109,3 +109,23 @@ func TestCSSFileLoader(t *testing.T) {
 
 	t.Logf("Base CSS length: %d, Element CSS length: %d", len(baseCSS), len(elementCSS))
 }
+
+// TestApplyNamespacing_RespectsKnownUnprefixedClassPrefixes is the fourth-
+// round PR #223 finding: themes.UnprefixedClassSelectors (the --strict
+// validator) already accepted a class carrying a
+// themes.KnownUnprefixedClassPrefixes prefix like "language-" via
+// hasKnownUnprefixedPrefix, but ApplyNamespacing (the rewriter a theme's
+// CSS actually goes through at load time) only ever consulted the
+// exact-match ExcludeClasses list — so .language-go passed
+// `themes validate --strict` yet was still rewritten to
+// .slidelang-language-go when the theme loaded, silently breaking
+// Prism.js/highlight.js syntax highlighting even though validation said
+// the theme was fine. Both paths must now agree.
+func TestApplyNamespacing_RespectsKnownUnprefixedClassPrefixes(t *testing.T) {
+	loader := NewCSSFileLoader()
+	css := `.language-go { color: red; }`
+	got := loader.ApplyNamespacing(css)
+	if got != css {
+		t.Errorf("ApplyNamespacing(%q) = %q, want unchanged — .language-go is a deliberately bare Prism.js/highlight.js convention", css, got)
+	}
+}

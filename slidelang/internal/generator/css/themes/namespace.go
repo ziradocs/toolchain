@@ -71,7 +71,7 @@ func NamespaceValue(css string) string {
 		out.WriteString(css[i:start])
 
 		openParen := start + len("var") // index of the "(" itself
-		closeParen := findMatchingParen(css, openParen)
+		closeParen := findMatchingParen(css, openParen, spans)
 		if closeParen == -1 {
 			// Unbalanced input (truncated/invalid CSS) — emit the rest
 			// verbatim rather than loop forever or panic on a slice.
@@ -128,9 +128,22 @@ func namespaceVarBody(inner string) string {
 // openIdx, counting nesting depth so a fallback containing its own
 // parenthesized calls (var(--a, rgba(0,0,0,.5))) resolves correctly. -1 if
 // the input never closes.
-func findMatchingParen(s string, openIdx int) int {
+//
+// spans (as returned by protectedSpanRe.FindAllStringIndex) marks the
+// comment/string/url() regions of s whose parens are NOT part of the CSS
+// grammar being balanced here — without skipping them, a fallback like
+// var(--token, "(") or var(--token, /* ( */ red) contains a "(" that is
+// really just DISPLAYED text inside a string/comment, with no matching ")"
+// of its own inside that span; counting it anyway left depth permanently
+// off by one, so the scan ran to the end of s without ever seeing it return
+// to 0, and NamespaceValue/UnprefixedVarNames silently gave up on the whole
+// var(...) call, name included (fourth-round finding on PR #223).
+func findMatchingParen(s string, openIdx int, spans [][]int) int {
 	depth := 0
 	for i := openIdx; i < len(s); i++ {
+		if insideAnySpan(i, spans) {
+			continue
+		}
 		switch s[i] {
 		case '(':
 			depth++
@@ -166,14 +179,28 @@ var declarationRe = regexp.MustCompile(`(^|[;{}]|\n)((?:[ \t]|(?s:/\*.*?\*/))*)-
 // declaration's LHS is never itself inside a var(...) call, so it needs
 // its own detection pass — done first so its output composes cleanly with
 // NamespaceValue's usage rewriting in NamespaceStylesheet.
+//
+// Runs only outside comment/string/url() spans (see protectedSpanRe):
+// declarationRe's lead alternation includes a bare ";", so text like
+// content: "; --brand: documentation only" was matching INSIDE the string
+// literal and rewriting display text to --slidelang-brand (fourth-round
+// finding on PR #223). rewriteOutsideProtectedSpans still lets a comment
+// sit between the lead char and "--name" on the same line
+// (declarationRe's own gap group also accepts a full /* ... */): the
+// segment immediately after a skipped comment span starts fresh, and
+// declarationRe's leading "^" alternative anchors to THAT segment's start,
+// so ":root { /* spacing */ --gap: 4px; }" still matches the declaration
+// right after the comment is excised.
 func namespaceDeclarations(css string) string {
-	return declarationRe.ReplaceAllStringFunc(css, func(match string) string {
-		sub := declarationRe.FindStringSubmatch(match)
-		lead, ws, name, colon := sub[1], sub[2], sub[3], sub[4]
-		if strings.HasPrefix(name, slidelangVarPrefix) {
-			return match
-		}
-		return lead + ws + "--" + slidelangVarPrefix + name + colon
+	return rewriteOutsideProtectedSpans(css, func(segment string) string {
+		return declarationRe.ReplaceAllStringFunc(segment, func(match string) string {
+			sub := declarationRe.FindStringSubmatch(match)
+			lead, ws, name, colon := sub[1], sub[2], sub[3], sub[4]
+			if strings.HasPrefix(name, slidelangVarPrefix) {
+				return match
+			}
+			return lead + ws + "--" + slidelangVarPrefix + name + colon
+		})
 	})
 }
 
@@ -230,7 +257,7 @@ func UnprefixedVarNames(css string) []string {
 				continue
 			}
 			openParen := start + len("var")
-			closeParen := findMatchingParen(s, openParen)
+			closeParen := findMatchingParen(s, openParen, spans)
 			if closeParen == -1 {
 				return
 			}
@@ -355,6 +382,22 @@ func hasKnownUnprefixedPrefix(class string) bool {
 	return false
 }
 
+// IsKnownUnprefixedClass reports whether class is one the engine
+// deliberately emits without the slidelang- prefix — an exact
+// KnownUnprefixedClasses entry or one carrying a KnownUnprefixedClassPrefixes
+// prefix. The single check shared by UnprefixedClassSelectors (the strict
+// validator) and CSSFileLoader.ApplyNamespacing (the rewriter, in the css
+// package) so the two can never diverge on which classes are exempt.
+// Before this existed, ApplyNamespacing consulted only the fixed-name half
+// (via its ExcludeClasses list) and not the prefix half: a theme's
+// .language-go passed `themes validate --strict` but was still rewritten to
+// .slidelang-language-go when the theme actually loaded, silently breaking
+// Prism.js/highlight.js syntax highlighting even though validation said the
+// theme was fine (fourth-round finding on PR #223).
+func IsKnownUnprefixedClass(class string) bool {
+	return KnownUnprefixedClasses[class] || hasKnownUnprefixedPrefix(class)
+}
+
 // UnprefixedClassSelectors returns, in first-appearance order and without
 // duplicates, every class selector in css that does not start with the
 // slidelang- prefix and is not a KnownUnprefixedClasses entry. Scans only
@@ -366,7 +409,7 @@ func UnprefixedClassSelectors(css string) []string {
 	rewriteOutsideProtectedSpans(css, func(segment string) string {
 		for _, m := range classSelectorRe.FindAllStringSubmatch(segment, -1) {
 			class := m[1]
-			if strings.HasPrefix(class, slidelangVarPrefix) || seen[class] || KnownUnprefixedClasses[class] || hasKnownUnprefixedPrefix(class) {
+			if strings.HasPrefix(class, slidelangVarPrefix) || seen[class] || IsKnownUnprefixedClass(class) {
 				continue
 			}
 			seen[class] = true

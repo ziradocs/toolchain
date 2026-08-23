@@ -343,3 +343,96 @@ func TestUnprefixedVarNames_VarWithQuotedFallback(t *testing.T) {
 		})
 	}
 }
+
+// TestNamespaceValue_ParenInsideProtectedSpanDoesNotUnbalance and
+// TestUnprefixedVarNames_ParenInsideProtectedSpanDoesNotUnbalance are the
+// fourth-round PR #223 finding: findMatchingParen counted every "(" and ")"
+// in the input regardless of whether they sat inside a comment/string/
+// url() span. A fallback whose protected content itself contains an
+// unmatched paren — var(--token, "("), var(--token, /* ( */ red),
+// var(--token, url("fallback(image.png")) — threw the depth count
+// permanently off by one, so the scan reached the end of the string
+// without returning to depth 0 and NamespaceValue/UnprefixedVarNames
+// silently gave up on the whole var(...) call, name included. The fix
+// skips any position inside a protected span while counting parens.
+func TestNamespaceValue_ParenInsideProtectedSpanDoesNotUnbalance(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+		want string
+	}{
+		{
+			"unmatched paren inside a quoted fallback",
+			`content: var(--token, "(");`,
+			`content: var(--slidelang-token, "(");`,
+		},
+		{
+			"unmatched paren inside a comment before the fallback value",
+			`color: var(--token, /* ( */ red);`,
+			`color: var(--slidelang-token, /* ( */ red);`,
+		},
+		{
+			"unmatched paren inside a url() path",
+			`background: var(--token, url("fallback(image.png"));`,
+			`background: var(--slidelang-token, url("fallback(image.png"));`,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := NamespaceValue(c.css); got != c.want {
+				t.Errorf("NamespaceValue(%q) = %q, want %q", c.css, got, c.want)
+			}
+		})
+	}
+}
+
+func TestUnprefixedVarNames_ParenInsideProtectedSpanDoesNotUnbalance(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+	}{
+		{"unmatched paren inside a quoted fallback", `content: var(--token, "(");`},
+		{"unmatched paren inside a comment before the fallback value", `color: var(--token, /* ( */ red);`},
+		{"unmatched paren inside a url() path", `background: var(--token, url("fallback(image.png"));`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := UnprefixedVarNames(c.css)
+			if len(got) != 1 || got[0] != "token" {
+				t.Errorf("UnprefixedVarNames(%q) = %v, want [\"token\"]", c.css, got)
+			}
+		})
+	}
+}
+
+// TestNamespaceDeclarations_IgnoresSemicolonInsideString is the fourth-round
+// PR #223 finding: declarationRe's lead alternation accepts a bare ";", and
+// namespaceDeclarations ran on the raw CSS with no protected-span
+// awareness — so a string literal containing "; --name:" (display text,
+// not a real declaration) was matched and rewritten anyway.
+func TestNamespaceDeclarations_IgnoresSemicolonInsideString(t *testing.T) {
+	css := `.slidelang-x::after { content: "; --brand: documentation only"; }`
+	got := namespaceDeclarations(css)
+	if got != css {
+		t.Errorf("namespaceDeclarations rewrote text inside a string literal: got %q, want unchanged %q", got, css)
+	}
+}
+
+// TestNamespaceDeclarations_StillHandlesCommentBeforeDeclaration guards
+// against a regression from fixing the finding above: routing
+// namespaceDeclarations through rewriteOutsideProtectedSpans must not lose
+// support for a real declaration preceded by a same-line comment (already
+// covered end-to-end by
+// TestNamespaceStylesheet_DeclarationAfterInlineComment) — here isolated to
+// namespaceDeclarations itself, since the fix changes how that comment
+// case reaches a match (the segment starting right after the excised
+// comment span, anchored by declarationRe's own "^" alternative, rather
+// than the comment being swallowed by the regex's gap group in one pass).
+func TestNamespaceDeclarations_StillHandlesCommentBeforeDeclaration(t *testing.T) {
+	css := ":root { /* spacing */ --gap: 4px; }"
+	got := namespaceDeclarations(css)
+	want := ":root { /* spacing */ --slidelang-gap: 4px; }"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

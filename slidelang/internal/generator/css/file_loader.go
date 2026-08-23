@@ -35,14 +35,19 @@ type CSSFileLoader struct {
 }
 
 // NewCSSFileLoader creates a new CSS file loader with namespacing.
-// ExcludeClasses is seeded from two sources: a small local set of
-// pseudo-selector names (defensive — classRegex requires a literal "."
-// before a name, so it can never actually match a bare ":hover"/"::before"
-// pseudo-class/element; this only guards a class LITERALLY named e.g.
-// "hover"), and themes.KnownUnprefixedClasses — the single source of
-// truth (shared with UnprefixedClassSelectors, the strict validator) for
-// class names the engine's own generated HTML legitimately emits without
-// the slidelang- prefix. This list used to also carry "html", "body",
+// ExcludeClasses now holds only a small local set of pseudo-selector names
+// (defensive — classRegex requires a literal "." before a name, so it can
+// never actually match a bare ":hover"/"::before" pseudo-class/element;
+// this only guards a class LITERALLY named e.g. "hover"). Classes the
+// engine's own generated HTML legitimately emits without the slidelang-
+// prefix are no longer copied into this list — ApplyNamespacing checks
+// themes.IsKnownUnprefixedClass directly (same function
+// UnprefixedClassSelectors, the strict validator, uses) so a name-based
+// entry and a prefix-based entry (e.g. "language-") are honored identically
+// by both instead of ExcludeClasses's plain equality check silently
+// missing the prefix half (fourth-round finding on PR #223: .language-go
+// passed --strict but ApplyNamespacing still rewrote it to
+// .slidelang-language-go). This list used to also carry "html", "body",
 // "*", "h1"-"h6", "p", "a", "img", "ul", "ol", "li", "table", "tr", "td",
 // "th", "button", "input", "textarea", "select", "form" — removed
 // (code-review finding on PR #223): since classRegex can never match a
@@ -52,13 +57,9 @@ type CSSFileLoader struct {
 // wrapper class, css/assets/css/elements/tables.css) — every table rule
 // in startup-tech was left unable to match anything.
 func NewCSSFileLoader() *CSSFileLoader {
-	excludeClasses := []string{"root", "before", "after", "hover", "focus", "visited"}
-	for class := range themes.KnownUnprefixedClasses {
-		excludeClasses = append(excludeClasses, class)
-	}
 	return &CSSFileLoader{
 		Prefix:         "slidelang-",
-		ExcludeClasses: excludeClasses,
+		ExcludeClasses: []string{"root", "before", "after", "hover", "focus", "visited"},
 	}
 }
 
@@ -215,6 +216,9 @@ func (loader *CSSFileLoader) ApplyNamespacing(css string) string {
 				if className == exclude {
 					return match
 				}
+			}
+			if themes.IsKnownUnprefixedClass(className) {
+				return match
 			}
 
 			// Evitar double-prefixing si ya tiene el prefijo
