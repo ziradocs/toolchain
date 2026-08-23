@@ -690,8 +690,24 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 	chart.Series = make([]string, len(config.Data.Series))
 	chart.SeriesTypes = make([]string, len(config.Data.Series))
 
-	// Reorganizar datos en el formato correcto para Chart.js
-	// Formato: cada serie es un array de valores [[serie1_values], [serie2_values], ...]
+	// Reorganizar datos al formato canónico fila-por-categoría que el resto
+	// del repo espera de chart.Data: cada fila es [etiqueta, valor_serie0,
+	// valor_serie1, ...] — el mismo shape que produce la forma plana
+	// "data: [[fila],...]" + "series:" (ver examples/02_diagrams_and_charts,
+	// y core/formatter/strict.go:544 sobre por qué esa es la única forma
+	// combo que el round-trip strict conoce). Tanto
+	// core/renderer/html.go:GenerateChartConfigWithMode como
+	// slidelang/internal/generator/data/converter.go:createDatasetsFromSeries
+	// leen row[i+1] de cada FILA para extraer la serie i (columna 0 se
+	// descarta como la etiqueta). Antes, esta función guardaba chart.Data
+	// indexado POR SERIE (chart.Data[serieIdx] = valores completos de esa
+	// serie) — un layout que ningún renderer del repo entiende: con N
+	// series de M valores cada una, row[i+1] leía el valor M-ésimo de la
+	// serie i+1 en vez del i-ésimo de la serie i, así que Chart.js terminaba
+	// con las labels sustituidas por los valores de la primera serie, la
+	// primera serie corrida una serie a la derecha, y la última serie vacía
+	// (fuera de rango) — un chart con datos, que pasa CHART001, pero visualmente
+	// incorrecto.
 	if len(config.Data.Series) > 0 {
 		// Verificar que todas las series tengan el mismo número de valores
 		seriesLength := len(config.Data.Series[0].Values)
@@ -701,11 +717,18 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 			}
 		}
 
-		// Crear un array por cada serie con sus valores
-		chart.Data = make([][]interface{}, len(config.Data.Series))
-		for seriesIdx, series := range config.Data.Series {
-			chart.Data[seriesIdx] = make([]interface{}, len(series.Values))
-			copy(chart.Data[seriesIdx], series.Values)
+		chart.Data = make([][]interface{}, seriesLength)
+		for catIdx := 0; catIdx < seriesLength; catIdx++ {
+			row := make([]interface{}, 0, len(config.Data.Series)+1)
+			if catIdx < len(config.Data.Labels) {
+				row = append(row, config.Data.Labels[catIdx])
+			} else {
+				row = append(row, "")
+			}
+			for _, series := range config.Data.Series {
+				row = append(row, series.Values[catIdx])
+			}
+			chart.Data[catIdx] = row
 		}
 	}
 

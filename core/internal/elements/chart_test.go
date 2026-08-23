@@ -6,10 +6,12 @@ package elements
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 func TestChartParser_CanParse(t *testing.T) {
@@ -90,6 +92,85 @@ func TestChartParser_Parse_WithDimensions(t *testing.T) {
 	}
 	if chart.Height != 800 {
 		t.Errorf("Height = %v, want 800", chart.Height)
+	}
+}
+
+// TestChartParser_Parse_ComboYAML_RendersCorrectSeries es el test
+// end-to-end que un test solo-de-AST no puede atrapar: parsea un combo
+// chart en la forma anidada "data: {labels:, series:}" y pasa el
+// ChartElement resultante por renderer.GenerateChartConfig — la misma
+// función que doclang usa para PDF/DOCX y que slidelang usa para
+// exportación nativa — para verificar el Chart.js config final, no solo
+// el AST intermedio.
+//
+// parseComboChartYAML guardaba chart.Data indexado POR SERIE
+// (chart.Data[serieIdx] = valores completos de esa serie), pero
+// GenerateChartConfigWithMode/createDatasetsFromSeries leen row[i+1] de
+// cada FILA de chart.Data para extraer la serie i — el shape fila-por-
+// categoría que usa la forma plana "data: [[fila],...]" + "series:" (ver
+// examples/02_diagrams_and_charts). Con el shape viejo, para 2 series de
+// 2 valores, Chart.js terminaba recibiendo labels=[28, 12] (los propios
+// valores de datos, no las categorías), la primera serie corrida una
+// posición y la última vacía — un chart con datos (pasa CHART001) pero
+// visualmente incorrecto.
+func TestChartParser_Parse_ComboYAML_RendersCorrectSeries(t *testing.T) {
+	parser := &ChartParser{}
+	ctx := &ParseContext{
+		Lines: []string{
+			`<<chart: combo>>`,
+			"  data:",
+			`    labels: ["2022", "2023"]`,
+			"    series:",
+			`      - name: "Revenue ($M)"`,
+			`        type: "bar"`,
+			"        values: [28, 35]",
+			`      - name: "Profit Margin (%)"`,
+			`        type: "line"`,
+			"        values: [12, 15]",
+			"<</chart>>",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	chart, ok := result.Element.(*ast.ChartElement)
+	if !ok {
+		t.Fatal("Element is not ChartElement")
+	}
+
+	configJSON := renderer.GenerateChartConfig(chart)
+
+	var config struct {
+		Data struct {
+			Labels   []interface{} `json:"labels"`
+			Datasets []struct {
+				Label string        `json:"label"`
+				Data  []interface{} `json:"data"`
+			} `json:"datasets"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		t.Fatalf("GenerateChartConfig produjo JSON inválido: %v\n%s", err, configJSON)
+	}
+
+	wantLabels := []interface{}{"2022", "2023"}
+	if !reflect.DeepEqual(config.Data.Labels, wantLabels) {
+		t.Errorf("labels = %#v, want %#v", config.Data.Labels, wantLabels)
+	}
+	if len(config.Data.Datasets) != 2 {
+		t.Fatalf("len(datasets) = %v, want 2\n%s", len(config.Data.Datasets), configJSON)
+	}
+
+	revenue, margin := config.Data.Datasets[0], config.Data.Datasets[1]
+	wantRevenue := []interface{}{float64(28), float64(35)}
+	wantMargin := []interface{}{float64(12), float64(15)}
+	if !reflect.DeepEqual(revenue.Data, wantRevenue) {
+		t.Errorf("datasets[0] (%s) data = %#v, want %#v", revenue.Label, revenue.Data, wantRevenue)
+	}
+	if !reflect.DeepEqual(margin.Data, wantMargin) {
+		t.Errorf("datasets[1] (%s) data = %#v, want %#v", margin.Label, margin.Data, wantMargin)
 	}
 }
 

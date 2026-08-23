@@ -224,14 +224,17 @@ Trigger AI-content detection so the normalizer's transform pipeline runs.
 	if len(normalized.Series) != 2 {
 		t.Fatalf("Series tras normalizar = %#v, want 2 series — el bloque data: anidado se aplanó/perdió", normalized.Series)
 	}
-	if len(normalized.Data) != 2 || len(normalized.Data[0]) != 2 || len(normalized.Data[1]) != 2 {
-		t.Fatalf("Data tras normalizar = %#v, want 2 series de 2 valores cada una", normalized.Data)
+	// chart.Data es fila-por-categoría (["etiqueta", valor_serie0, valor_serie1]),
+	// el shape que GenerateChartConfigWithMode/createDatasetsFromSeries leen
+	// vía row[i+1] — ver parseComboChartYAML.
+	if len(normalized.Data) != 2 || len(normalized.Data[0]) != 3 || len(normalized.Data[1]) != 3 {
+		t.Fatalf("Data tras normalizar = %#v, want 2 filas de 3 valores cada una ([etiqueta, revenue, margin])", normalized.Data)
 	}
-	if normalized.Data[0][0] != 28 || normalized.Data[0][1] != 35 {
-		t.Errorf("Data[0] = %#v, want [28 35] (serie Revenue)", normalized.Data[0])
+	if normalized.Data[0][0] != "2022" || normalized.Data[0][1] != 28 || normalized.Data[0][2] != 12 {
+		t.Errorf("Data[0] = %#v, want [2022 28 12]", normalized.Data[0])
 	}
-	if normalized.Data[1][0] != 12 || normalized.Data[1][1] != 15 {
-		t.Errorf("Data[1] = %#v, want [12 15] (serie Profit Margin)", normalized.Data[1])
+	if normalized.Data[1][0] != "2023" || normalized.Data[1][1] != 35 || normalized.Data[1][2] != 15 {
+		t.Errorf("Data[1] = %#v, want [2023 35 15]", normalized.Data[1])
 	}
 }
 
