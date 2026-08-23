@@ -36,6 +36,18 @@ var varInnerRe = regexp.MustCompile(`(?s)^--([a-zA-Z0-9_-]+)\s*(?:,\s*(.*))?$`)
 // NamespaceStylesheet's job, because a bare value never contains one.
 // Idempotent: a name that already carries the prefix is left alone.
 func NamespaceValue(css string) string {
+	return rewriteOutsideProtectedSpans(css, namespaceValueUnprotected)
+}
+
+// namespaceValueUnprotected is NamespaceValue's scanning loop, run only on
+// text already known to be outside a comment/string/url() span (see
+// protectedSpanRe) — split out so NamespaceValue can wrap it with
+// rewriteOutsideProtectedSpans without the loop itself needing to know
+// about protection. Without this split, content: "var(--brand)" — a
+// literal string meant to be DISPLAYED text, not a real usage — had its
+// text silently rewritten to "var(--slidelang-brand)" (code-review finding
+// on PR #223).
+func namespaceValueUnprotected(css string) string {
 	var out strings.Builder
 	i := 0
 	for {
@@ -114,8 +126,15 @@ func findMatchingParen(s string, openIdx int) int {
 // previous declaration, right after "}" closing a prior rule, or at the
 // start of a line in hand-formatted CSS); that is what stops it from also
 // matching the "--name" inside a var(--name) usage, which is always
-// preceded by "(".
-var declarationRe = regexp.MustCompile(`(^|[;{}]|\n)([ \t]*)--([a-zA-Z0-9_-]+)(\s*:)`)
+// preceded by "(". The gap group allows spaces/tabs AND full /* ... */
+// comments interleaved (zero or more of either) — without the comment
+// alternative, ":root { /* spacing */ --gap: 4px; }" left the DECLARATION
+// unprefixed while NamespaceValue still rewrote every var(--gap) usage to
+// var(--slidelang-gap), a mismatch that breaks the rule (code-review
+// finding on PR #223). A bare "\n" right after the comment already re-
+// anchors the lead-alternation on its own, so this only matters when the
+// comment sits on the same line as the declaration.
+var declarationRe = regexp.MustCompile(`(^|[;{}]|\n)((?:[ \t]|(?s:/\*.*?\*/))*)--([a-zA-Z0-9_-]+)(\s*:)`)
 
 // namespaceDeclarations rewrites custom-property declarations (--x: value)
 // to --slidelang-x: value. Split out from NamespaceValue because a
@@ -159,32 +178,40 @@ func UnprefixedVarNames(css string) []string {
 		}
 	}
 
+	// walk is only ever run on text already known to be outside a
+	// comment/string/url() span (see protectedSpanRe) — without that, a
+	// literal string like content: "var(--brand)" reported "brand" as an
+	// unprefixed variable USAGE, when it is just display text (code-review
+	// finding on PR #223, the detection half of the same bug fixed in
+	// NamespaceValue/namespaceValueUnprotected).
 	var walk func(s string)
 	walk = func(s string) {
-		i := 0
-		for {
-			idx := strings.Index(s[i:], "var(")
-			if idx == -1 {
-				return
-			}
-			start := i + idx
-			openParen := start + len("var")
-			closeParen := findMatchingParen(s, openParen)
-			if closeParen == -1 {
-				return
-			}
-			inner := s[openParen+1 : closeParen]
-			if m := varInnerRe.FindStringSubmatch(inner); m != nil {
-				name, fallback := m[1], m[2]
-				if !strings.HasPrefix(name, slidelangVarPrefix) {
-					add(name)
+		rewriteOutsideProtectedSpans(s, func(segment string) string {
+			i := 0
+			for {
+				idx := strings.Index(segment[i:], "var(")
+				if idx == -1 {
+					return segment
 				}
-				if fallback != "" {
-					walk(fallback)
+				start := i + idx
+				openParen := start + len("var")
+				closeParen := findMatchingParen(segment, openParen)
+				if closeParen == -1 {
+					return segment
 				}
+				inner := segment[openParen+1 : closeParen]
+				if m := varInnerRe.FindStringSubmatch(inner); m != nil {
+					name, fallback := m[1], m[2]
+					if !strings.HasPrefix(name, slidelangVarPrefix) {
+						add(name)
+					}
+					if fallback != "" {
+						walk(fallback)
+					}
+				}
+				i = closeParen + 1
 			}
-			i = closeParen + 1
-		}
+		})
 	}
 	walk(css)
 	return names
@@ -235,18 +262,44 @@ func RewriteOutsideProtectedSpans(css string, fn func(string) string) string {
 	return rewriteOutsideProtectedSpans(css, fn)
 }
 
+// KnownUnprefixedClasses lists every class name the engine's own generated
+// HTML legitimately emits WITHOUT the slidelang- prefix — a historical
+// inconsistency with the slidelang-* convention used everywhere else, not
+// a bug in a theme's CSS for targeting them bare. A theme MUST use these
+// exact bare names to match the real markup, so both
+// UnprefixedClassSelectors (the strict validator) and
+// CSSFileLoader.ApplyNamespacing's default ExcludeClasses (the rewriter,
+// which uses this same list — see file_loader.go) treat them as already
+// namespaced instead of flagging/prefixing them (code-review finding on
+// PR #223: --strict rejected startup-tech's correct
+// .slidelang-tab.active as if "active" needed the prefix, and the
+// rewriter had separately turned the code-group's real bare <div
+// class="tabs"> target into an unmatchable .slidelang-tabs).
+var KnownUnprefixedClasses = map[string]bool{
+	// "active" is toggled at runtime via classList.add/remove — confirmed
+	// in template/utilities.go's tab/details handlers, template/base.go's
+	// code-group markup.
+	"active": true,
+	// template/base.go's code-group element: <div class="tabs"> wraps the
+	// tab buttons, <div class="code-content"> wraps the panels — both
+	// siblings of prefixed classes (.slidelang-element.slidelang-code-group)
+	// but bare themselves.
+	"tabs":         true,
+	"code-content": true,
+}
+
 // UnprefixedClassSelectors returns, in first-appearance order and without
 // duplicates, every class selector in css that does not start with the
-// slidelang- prefix. Scans only outside comments/strings/url() calls (see
-// protectedSpanRe) so an asset filename or string content is never
-// reported as a selector.
+// slidelang- prefix and is not a KnownUnprefixedClasses entry. Scans only
+// outside comments/strings/url() calls (see protectedSpanRe) so an asset
+// filename or string content is never reported as a selector.
 func UnprefixedClassSelectors(css string) []string {
 	seen := make(map[string]bool)
 	var classes []string
 	rewriteOutsideProtectedSpans(css, func(segment string) string {
 		for _, m := range classSelectorRe.FindAllStringSubmatch(segment, -1) {
 			class := m[1]
-			if strings.HasPrefix(class, slidelangVarPrefix) || seen[class] {
+			if strings.HasPrefix(class, slidelangVarPrefix) || seen[class] || KnownUnprefixedClasses[class] {
 				continue
 			}
 			seen[class] = true

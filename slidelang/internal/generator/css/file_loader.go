@@ -34,18 +34,31 @@ type CSSFileLoader struct {
 	ExcludeClasses []string
 }
 
-// NewCSSFileLoader creates a new CSS file loader with namespacing
+// NewCSSFileLoader creates a new CSS file loader with namespacing.
+// ExcludeClasses is seeded from two sources: a small local set of
+// pseudo-selector names (defensive — classRegex requires a literal "."
+// before a name, so it can never actually match a bare ":hover"/"::before"
+// pseudo-class/element; this only guards a class LITERALLY named e.g.
+// "hover"), and themes.KnownUnprefixedClasses — the single source of
+// truth (shared with UnprefixedClassSelectors, the strict validator) for
+// class names the engine's own generated HTML legitimately emits without
+// the slidelang- prefix. This list used to also carry "html", "body",
+// "*", "h1"-"h6", "p", "a", "img", "ul", "ol", "li", "table", "tr", "td",
+// "th", "button", "input", "textarea", "select", "form" — removed
+// (code-review finding on PR #223): since classRegex can never match a
+// bare tag selector in the first place, the only real effect of those
+// entries was silently blocking a genuine CLASS that happens to share a
+// tag's name, confirmed for ".table" (the engine's own slidelang-table
+// wrapper class, css/assets/css/elements/tables.css) — every table rule
+// in startup-tech was left unable to match anything.
 func NewCSSFileLoader() *CSSFileLoader {
+	excludeClasses := []string{"root", "before", "after", "hover", "focus", "visited"}
+	for class := range themes.KnownUnprefixedClasses {
+		excludeClasses = append(excludeClasses, class)
+	}
 	return &CSSFileLoader{
-		Prefix: "slidelang-",
-		ExcludeClasses: []string{
-			// CSS variables and pseudo-selectors should not be prefixed
-			"root", "before", "after", "hover", "focus", "active", "visited",
-			// Global selectors that should not be prefixed
-			"html", "body", "*", "h1", "h2", "h3", "h4", "h5", "h6",
-			"p", "a", "img", "ul", "ol", "li", "table", "tr", "td", "th",
-			"button", "input", "textarea", "select", "form",
-		},
+		Prefix:         "slidelang-",
+		ExcludeClasses: excludeClasses,
 	}
 }
 

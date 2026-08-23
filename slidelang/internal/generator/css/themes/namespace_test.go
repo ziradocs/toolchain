@@ -221,3 +221,63 @@ func TestUnprefixedClassSelectors_IgnoresQuotedContentAndComments(t *testing.T) 
 		t.Errorf("expected the real .icon selector to still be detected, got %v", got)
 	}
 }
+
+// TestUnprefixedClassSelectors_AcceptsKnownUnprefixedClasses is the second
+// PR #223 review round's finding: --strict rejected startup-tech's
+// .slidelang-tab.active as if "active" needed the slidelang- prefix, even
+// though template/base.go's code-group toggles that exact bare class at
+// runtime (classList.add('active')) — a theme has no way to target the
+// real markup other than by using the bare name. KnownUnprefixedClasses
+// is the shared allowlist (also used by CSSFileLoader's default
+// ExcludeClasses) for exactly this.
+func TestUnprefixedClassSelectors_AcceptsKnownUnprefixedClasses(t *testing.T) {
+	css := `.slidelang-tab.active { color: red; }
+.slidelang-element.slidelang-code-group .tabs { display: flex; }
+.slidelang-element.slidelang-code-group .code-content { padding: 1rem; }`
+	got := UnprefixedClassSelectors(css)
+	if len(got) != 0 {
+		t.Errorf("UnprefixedClassSelectors(%q) = %v, want none — active/tabs/code-content are legitimately bare in the engine's own markup", css, got)
+	}
+}
+
+// TestNamespaceStylesheet_DeclarationAfterInlineComment is a second-round
+// PR #223 finding: declarationRe's gap group only allowed spaces/tabs
+// between the lead character ("{"/";"/"}"/newline) and "--name", so a
+// same-line comment between them (":root { /* spacing */ --gap: 4px; }")
+// left the DECLARATION unprefixed while NamespaceValue still rewrote every
+// var(--gap) usage — a mismatch that breaks the rule.
+func TestNamespaceStylesheet_DeclarationAfterInlineComment(t *testing.T) {
+	css := `:root { /* spacing */ --gap: 4px; }
+.slidelang-box { padding: var(--gap); }`
+	got := NamespaceStylesheet(css)
+	if !strings.Contains(got, "--slidelang-gap: 4px") {
+		t.Errorf("declaration after an inline comment was not namespaced, got:\n%s", got)
+	}
+	if !strings.Contains(got, "var(--slidelang-gap)") {
+		t.Errorf("expected the usage to stay namespaced too, got:\n%s", got)
+	}
+	if strings.Contains(got, "--gap:") {
+		t.Errorf("found a leftover un-namespaced declaration, got:\n%s", got)
+	}
+}
+
+// TestNamespaceValue_IgnoresStringContent and
+// TestUnprefixedVarNames_IgnoresStringContent are the second-round PR #223
+// finding that protectedSpanRe (added for UnprefixedClassSelectors) was
+// never applied to the var()-usage side: content: "var(--brand)" is
+// literal DISPLAYED text, not a real custom-property usage, but both the
+// rewriter and the detector treated it as one.
+func TestNamespaceValue_IgnoresStringContent(t *testing.T) {
+	css := `.icon::after { content: "var(--brand)"; }`
+	got := NamespaceValue(css)
+	if got != css {
+		t.Errorf("NamespaceValue rewrote text inside a string literal: got %q, want unchanged %q", got, css)
+	}
+}
+
+func TestUnprefixedVarNames_IgnoresStringContent(t *testing.T) {
+	css := `.icon::after { content: "var(--brand)"; }`
+	if got := UnprefixedVarNames(css); len(got) != 0 {
+		t.Errorf("UnprefixedVarNames(%q) = %v, want none — \"brand\" is inside a string literal, not a real usage", css, got)
+	}
+}

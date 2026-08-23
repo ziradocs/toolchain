@@ -154,3 +154,52 @@ func TestCSSBuilder_ModernBlueLiveRegression(t *testing.T) {
 		t.Error("expected the namespaced selector '.slidelang-slide blockquote' in the bundle")
 	}
 }
+
+// TestCSSBuilder_StartupTechLiveRegression is the second-round PR #223
+// finding: CSSFileLoader.ApplyNamespacing's default ExcludeClasses used to
+// list plain HTML tag names ("table", "button", etc.) meant to guard bare
+// tag selectors that classRegex can never match anyway (it requires a
+// leading "."), whose only real effect was silently skipping a genuine
+// CLASS sharing that name — confirmed for ".table", the engine's own
+// slidelang-table wrapper class. Conversely ".tabs" (the code-group's
+// bare <div class="tabs"> container, template/base.go) was WRONGLY
+// prefixed to ".slidelang-tabs", which the real markup never carries
+// either. Loads the real, currently-shipped startup-tech theme — not a
+// synthetic fixture.
+func TestCSSBuilder_StartupTechLiveRegression(t *testing.T) {
+	themesDir, err := filepath.Abs(filepath.Join("..", "..", "..", "themes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(themesDir, "startup-tech", "styles.css")); err != nil {
+		t.Skipf("real themes dir not found at %s (%v) — skipping live-theme regression", themesDir, err)
+	}
+	t.Setenv("SLIDELANG_THEMES_PATH", themesDir)
+
+	out := NewCSSBuilder().
+		WithTheme("startup-tech").
+		WithRequiredElements([]string{"text", "tables", "code"}).
+		Build()
+
+	if !strings.Contains(out, "/* === EXTERNAL THEME CSS === */") {
+		t.Fatal("startup-tech failed to load as an external theme — check its theme.json against ValidateTheme's required variables")
+	}
+
+	if strings.Contains(out, ".slidelang-element.table ") {
+		t.Error("found un-namespaced selector '.slidelang-element.table' — this can never match the real slidelang-table wrapper class, so table rules stay unstyled")
+	}
+	if !strings.Contains(out, ".slidelang-element.slidelang-table") {
+		t.Error("expected the namespaced selector '.slidelang-element.slidelang-table' in the bundle")
+	}
+
+	if strings.Contains(out, ".slidelang-code-group .slidelang-tabs") {
+		t.Error("found over-prefixed selector '.slidelang-code-group .slidelang-tabs' — the code-group's bare <div class=\"tabs\"> container never carries this class")
+	}
+	if !strings.Contains(out, ".slidelang-element.slidelang-code-group .tabs") {
+		t.Error("expected the (correctly bare) selector '.slidelang-element.slidelang-code-group .tabs' in the bundle")
+	}
+
+	if !strings.Contains(out, ".slidelang-tab.active") {
+		t.Error("expected the (correctly bare) compound selector '.slidelang-tab.active' in the bundle")
+	}
+}

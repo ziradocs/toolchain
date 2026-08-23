@@ -156,7 +156,7 @@ code {
     border: 1px solid rgba(139, 92, 246, 0.2);
 }
 
-.slidelang-element.slidelang-code-group .slidelang-tabs {
+.slidelang-element.slidelang-code-group .tabs {
     display: flex;
     background: rgba(139, 92, 246, 0.1);
     border-bottom: 1px solid rgba(139, 92, 246, 0.2);
@@ -285,7 +285,7 @@ code {
 }
 
 /* Electric tables */
-.slidelang-element.table table {
+.slidelang-element.slidelang-table table {
     width: 100%;
     border-collapse: collapse;
     margin: 2rem 0;
@@ -295,7 +295,7 @@ code {
     border: 1px solid rgba(139, 92, 246, 0.2);
 }
 
-.slidelang-element.table th {
+.slidelang-element.slidelang-table th {
     background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);
     color: white;
     padding: 1rem;
@@ -306,17 +306,17 @@ code {
     font-size: 0.9rem;
 }
 
-.slidelang-element.table td {
+.slidelang-element.slidelang-table td {
     padding: 0.75rem 1rem;
     border-bottom: 1px solid rgba(139, 92, 246, 0.1);
     color: var(--slidelang-text-color);
 }
 
-.slidelang-element.table tr:nth-child(even) {
+.slidelang-element.slidelang-table tr:nth-child(even) {
     background: rgba(139, 92, 246, 0.02);
 }
 
-.slidelang-element.table tr:hover {
+.slidelang-element.slidelang-table tr:hover {
     background: rgba(139, 92, 246, 0.05);
     transform: scale(1.001);
     transition: var(--slidelang-transition);
