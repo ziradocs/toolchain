@@ -125,6 +125,26 @@ func (r *ChartFormatterRule) needsFormatting(lines []string) bool {
 			continue
 		}
 
+		// "data:" sin valor (ni "[" de array multilínea) es el formato YAML
+		// anidado que ChartParser.parseComboChartYAML espera para combo
+		// charts (data.labels + data.series, ver core/internal/elements/
+		// chart.go) — mismo caso que options:, un sub-árbol YAML arbitrario
+		// que isMainProperty/isSubProperty (tablas de nombres fijos) no
+		// pueden juzgar. Sin este bypass, "series:"/"labels:" anidados bajo
+		// data: se contaban como propiedades de nivel top (isMainProperty
+		// las reconoce por nombre sin mirar el contexto) y arrastraban el
+		// ratio por debajo de 0.7 aunque el bloque ya estuviera bien
+		// formado — disparando formatChartData, que sí lo aplanaba y
+		// rompía el chart (ver el bypass simétrico más abajo).
+		if trimmed == "data:" {
+			inDatasetsContext = false
+			if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") {
+				correctlyFormattedLines++
+			}
+			i = r.skipOptionsBlock(lines, i)
+			continue
+		}
+
 		// Si encontramos otra propiedad principal, salimos del contexto datasets
 		if inDatasetsContext && r.isMainProperty(trimmed) && trimmed != "data:" {
 			inDatasetsContext = false
@@ -311,6 +331,22 @@ func (r *ChartFormatterRule) formatChartData(lines []string) []string {
 		// nombres — ver appendOptionsBlock para el porqué (issue #153).
 		if trimmed == "options:" && !inArrayContext {
 			result = append(result, baseIndent+"options:")
+			consumed := r.appendOptionsBlock(&result, lines, i, baseIndent)
+			i += consumed
+			inArrayContext = false
+			inDatasetsContext = false
+			arrayDepth = 0
+			continue
+		}
+
+		// "data:" sin valor es el YAML anidado de combo charts
+		// (data.labels + data.series) — mismo passthrough que options: y
+		// por la misma razón: reconstruirlo desde calculateIndentLevelSemantic
+		// trata "labels:"/"series:" anidados como propiedades de nivel top
+		// (son isMainChartProperty por nombre) y los aplana a hermanas de
+		// data:, destruyendo la estructura que parseComboChartYAML necesita.
+		if trimmed == "data:" && !inArrayContext {
+			result = append(result, baseIndent+"data:")
 			consumed := r.appendOptionsBlock(&result, lines, i, baseIndent)
 			i += consumed
 			inArrayContext = false

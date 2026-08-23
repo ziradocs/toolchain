@@ -168,6 +168,104 @@ options:
 	}
 }
 
+// TestChartFormatterRule_ComboDataBlock_SurvivesFormatting cubre el hermano
+// del bug de options: (issue #153) en el bloque "data:" de un combo chart:
+// ChartParser.parseComboChartYAML (core/internal/elements/chart.go) espera
+// "data:" bare seguido de un sub-árbol YAML anidado (labels: + series:, con
+// "- name/type/values" por serie). isMainChartProperty reconoce "series:" y
+// "labels:" por nombre sin mirar el contexto, así que — antes del bypass —
+// calculateIndentLevelSemantic los aplanaba a hermanas de "data:" en vez de
+// preservarlos anidados, y needsFormatting los contaba como mal formados
+// aunque el bloque ya fuera válido, dañando el ratio por debajo de 0.7 y
+// disparando exactamente esa reescritura destructiva.
+//
+// La reescritura solo se dispara cuando el detector de "contenido AI" del
+// documento completo cruza el umbral (por una frase en CUALQUIER parte del
+// documento, no necesariamente cerca del chart) — repro real: un combo chart
+// bien formado en examples/use-cases/consulting/client_discovery_workshop.slidelang
+// se corrompía en silencio solo porque el documento contenía la sección
+// "Immediate Action Items" varios cientos de líneas más abajo.
+func TestChartFormatterRule_ComboDataBlock_SurvivesFormatting(t *testing.T) {
+	content := `---
+mode: flex
+---
+
+# Combo Chart Test
+
+<<chart: combo>>
+  data:
+    labels: ["2022", "2023"]
+    series:
+      - name: "Revenue ($M)"
+        type: "bar"
+        values: [28, 35]
+      - name: "Profit Margin (%)"
+        type: "line"
+        values: [12, 15]
+        yAxisID: "y1"
+  options:
+    responsive: true
+<</chart>>
+
+---
+
+# Immediate Action Items
+
+Trigger AI-content detection so the normalizer's transform pipeline runs.
+`
+
+	normalized := findChart(t, parseNormalized(t, content))
+	unnormalized := findChart(t, mustParseUnnormalized(t, content))
+
+	if len(unnormalized.Series) != 2 {
+		t.Fatalf("fixture inválido: la ruta sin normalizar no dio 2 series, got %#v", unnormalized.Series)
+	}
+
+	if len(normalized.Series) != 2 {
+		t.Fatalf("Series tras normalizar = %#v, want 2 series — el bloque data: anidado se aplanó/perdió", normalized.Series)
+	}
+	if len(normalized.Data) != 2 || len(normalized.Data[0]) != 2 || len(normalized.Data[1]) != 2 {
+		t.Fatalf("Data tras normalizar = %#v, want 2 series de 2 valores cada una", normalized.Data)
+	}
+	if normalized.Data[0][0] != 28 || normalized.Data[0][1] != 35 {
+		t.Errorf("Data[0] = %#v, want [28 35] (serie Revenue)", normalized.Data[0])
+	}
+	if normalized.Data[1][0] != 12 || normalized.Data[1][1] != 15 {
+		t.Errorf("Data[1] = %#v, want [12 15] (serie Profit Margin)", normalized.Data[1])
+	}
+}
+
+// TestChartFormatterRule_Apply_WellFormedComboDataIsNotChurned confirma
+// no-churn a nivel de Apply(): un combo chart cuyo bloque data: ya está bien
+// anidado no debe reescribirse byte por byte, igual que el caso ya cubierto
+// de options: (TestChartFormatterRule_Apply_WellIndentedOptionsIsNotChurned).
+func TestChartFormatterRule_Apply_WellFormedComboDataIsNotChurned(t *testing.T) {
+	rule := enhancement.NewChartFormatterRule()
+
+	input := `<<chart: combo>>
+  data:
+    labels: ["2022", "2023"]
+    series:
+      - name: "Revenue ($M)"
+        type: "bar"
+        values: [28, 35]
+      - name: "Profit Margin (%)"
+        type: "line"
+        values: [12, 15]
+        yAxisID: "y1"
+  options:
+    responsive: true
+<</chart>>`
+
+	got, err := rule.Apply(input)
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if got != input {
+		t.Errorf("Apply() reescribió un combo chart ya bien formado.\n--- got ---\n%s\n--- want (input sin cambios) ---\n%s", got, input)
+	}
+}
+
 func mustParseUnnormalized(t *testing.T, content string) *ast.AST {
 	t.Helper()
 	p := parser.NewDocumentFlexParser(content, util.NewNoop())
