@@ -65,6 +65,12 @@ the end.
 - [ ] **Charts**: has data — either `data`/`series` YAML or a JSON payload
       (`CHART001` — warning if neither is present; column/series
       consistency is **not** checked by the linter, verify it yourself)
+- [ ] **Charts**: the type in the tag is a real chart type (`CHART003` —
+      warning for anything else, e.g. `json`, `gantt`, a typo like `barr`;
+      the message lists the accepted set)
+- [ ] **Charts**: a JSON-mode payload is an actual Chart.js config, i.e.
+      `data.datasets` is a non-empty array (`CHART004` — a flat
+      `{labels, data, series}` object is valid JSON but draws nothing)
 - [ ] **Images**: has a non-empty `source` (`IMG001` — error)
 - [ ] **Code**: block is not empty (`CODE001` — warning)
 
@@ -149,8 +155,8 @@ list is not ZiraDocs-only:
 
 - **Section 3 (element structure) applies in full.** DocLang uses the
   identical element parsers, so `TABLE003`, `CODEGROUP001/002`, `IMG001`,
-  `CODE001`, `CHART001` and `SPECIAL001` fire on `.doclang` exactly as they
-  do on `.slidelang`. A mismatched table row is an error in both.
+  `CODE001`, `CHART001/003/004` and `SPECIAL001` fire on `.doclang` exactly
+  as they do on `.slidelang`. A mismatched table row is an error in both.
 - **Sections 2, 5 and 6 don't meaningfully apply.** The strict-mode rules
   never fire (DocLang ignores `mode:`), and the per-layout schemas are
   written for slides. They can still emit cosmetic warnings — a first
