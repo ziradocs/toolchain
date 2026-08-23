@@ -436,3 +436,135 @@ func TestNamespaceDeclarations_StillHandlesCommentBeforeDeclaration(t *testing.T
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// TestNamespaceValue_CaseInsensitiveVarToken and
+// TestUnprefixedVarNames_CaseInsensitiveVarToken are the fifth-round PR
+// #223 finding: CSS function names are ASCII case-insensitive, and
+// Chromium resolves VAR(--x) exactly like var(--x), but the scanner
+// searched for the literal lowercase substring "var(" — so VAR(--brand,
+// red) was left completely untouched by both the rewriter and the strict
+// detector, silently leaving --brand unresolved even after its own
+// declaration was renamed to --slidelang-brand.
+func TestNamespaceValue_CaseInsensitiveVarToken(t *testing.T) {
+	got := NamespaceValue("color: VAR(--brand, red);")
+	want := "color: VAR(--slidelang-brand, red);"
+	if got != want {
+		t.Errorf("got %q, want %q — original casing should be preserved, only the name prefixed", got, want)
+	}
+}
+
+func TestUnprefixedVarNames_CaseInsensitiveVarToken(t *testing.T) {
+	got := UnprefixedVarNames("color: VAR(--brand, red);")
+	if len(got) != 1 || got[0] != "brand" {
+		t.Errorf("UnprefixedVarNames(%q) = %v, want [\"brand\"]", "color: VAR(--brand, red);", got)
+	}
+}
+
+// TestNamespaceValue_WhitespaceAndCommentBeforeVarName and
+// TestUnprefixedVarNames_WhitespaceAndCommentBeforeVarName are the other
+// half of the same finding: whitespace or a comment may legally sit
+// between a function's "(" and its first argument — var( --brand, red)
+// and var(/* docs */--brand, red) are both valid CSS — but varInnerRe's
+// un-anchored "^--" required "--name" to start immediately at position 0
+// of the captured body, so either form was left completely unprocessed.
+func TestNamespaceValue_WhitespaceAndCommentBeforeVarName(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+		want string
+	}{
+		{"leading whitespace", "var( --brand, red)", "var( --slidelang-brand, red)"},
+		{"leading comment", "var(/* docs */--brand, red)", "var(/* docs */--slidelang-brand, red)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := NamespaceValue(c.css); got != c.want {
+				t.Errorf("NamespaceValue(%q) = %q, want %q", c.css, got, c.want)
+			}
+		})
+	}
+}
+
+func TestUnprefixedVarNames_WhitespaceAndCommentBeforeVarName(t *testing.T) {
+	cases := []string{"var( --brand, red)", "var(/* docs */--brand, red)"}
+	for _, css := range cases {
+		t.Run(css, func(t *testing.T) {
+			got := UnprefixedVarNames(css)
+			if len(got) != 1 || got[0] != "brand" {
+				t.Errorf("UnprefixedVarNames(%q) = %v, want [\"brand\"]", css, got)
+			}
+		})
+	}
+}
+
+// TestNamespaceDeclarations_CommentBetweenNameAndColon is the fifth-round
+// PR #223 finding: a comment may legally sit between a custom property's
+// name and its colon (--brand/* docs */: red;, valid CSS Chromium
+// resolves correctly), but declarationRe only allowed whitespace there,
+// and namespaceDeclarations (as of the fourth-round fix) additionally
+// carved every comment out as an opaque span before scanning — splitting
+// "--brand" and ":" into two different segments that could never match
+// together. The declaration was left completely unprefixed while
+// NamespaceValue still rewrote every var(--brand) usage elsewhere,
+// breaking the rule.
+func TestNamespaceDeclarations_CommentBetweenNameAndColon(t *testing.T) {
+	css := "--brand/* docs */: red;"
+	got := namespaceDeclarations(css)
+	want := "--slidelang-brand/* docs */: red;"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestNamespaceStylesheet_CommentBetweenNameAndColon is the end-to-end
+// version: the declaration and a usage elsewhere must resolve to the same
+// namespaced name.
+func TestNamespaceStylesheet_CommentBetweenNameAndColon(t *testing.T) {
+	css := ":root {\n    --brand/* docs */: red;\n}\n.slidelang-box { color: var(--brand); }"
+	got := NamespaceStylesheet(css)
+	if !strings.Contains(got, "--slidelang-brand/* docs */: red;") {
+		t.Errorf("declaration with a comment before its colon was not namespaced, got:\n%s", got)
+	}
+	if !strings.Contains(got, "var(--slidelang-brand)") {
+		t.Errorf("expected the usage to stay namespaced too, got:\n%s", got)
+	}
+}
+
+// TestNamespaceDeclarations_DoesNotExposeFreeStandingCommentContent guards
+// the OTHER half of the fifth-round finding's own request ("sin perder la
+// protección contra coincidencias dentro de... comentarios"): a
+// free-standing documentation comment that merely CONTAINS
+// declaration-shaped text — not sitting between a real name and a real
+// colon — must stay fully opaque, or its display text would itself get
+// matched and rewritten. This is the adversarial case a naive "just stop
+// treating all comments as protected spans" fix would have reintroduced:
+// the comment here contains a brace and a colon of its own
+// (/* config: { --fake: red } */), which — without namespaceDeclarationSpans'
+// before/after check — a lead-character scan starting at the "{" INSIDE
+// the comment would incorrectly treat as a valid declaration start.
+func TestNamespaceDeclarations_DoesNotExposeFreeStandingCommentContent(t *testing.T) {
+	css := "/* config: { --fake: red } */ --real: blue;"
+	got := namespaceDeclarations(css)
+	want := "/* config: { --fake: red } */ --slidelang-real: blue;"
+	if got != want {
+		t.Errorf("got %q, want %q — the comment's own content must stay untouched, only --real should be namespaced", got, want)
+	}
+}
+
+// TestUnprefixedClassSelectors_IgnoresUppercaseURL and
+// TestApplyNamespacing_IgnoresUppercaseURL are the fifth-round PR #223
+// finding: CSS function names are ASCII case-insensitive and Chromium
+// accepts URL(...) exactly like url(...), but protectedSpanRe's url()
+// alternative matched only the literal lowercase "url(" — so
+// URL("./Brand.woff2") fell outside every protected span, and ".woff2"
+// was reported as (and, in ApplyNamespacing, actually rewritten into) a
+// bogus class selector, corrupting the asset path.
+func TestUnprefixedClassSelectors_IgnoresUppercaseURL(t *testing.T) {
+	css := `.slidelang-x { background: URL(./Brand.woff2); }`
+	got := UnprefixedClassSelectors(css)
+	for _, c := range got {
+		if strings.Contains(c, "woff2") {
+			t.Errorf("UnprefixedClassSelectors reported %q from inside an uppercase URL(), got %v", c, got)
+		}
+	}
+}

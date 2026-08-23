@@ -13,6 +13,19 @@ import (
 // host page's own custom properties.
 const slidelangVarPrefix = "slidelang-"
 
+// varTokenRe matches the CSS var() function token that opens a usage —
+// case-insensitively (CSS function names are ASCII case-insensitive, and
+// Chromium accepts VAR(--x)/Var(--x) exactly like var(--x)) and requiring
+// a word boundary immediately before it, so it can never match inside a
+// longer identifier that merely ends in "var" (e.g. a hypothetical custom
+// property named --my-var is never itself mistaken for a usage). No
+// whitespace is allowed between "var" and its own "(" — the CSS tokenizer
+// itself stops recognizing a function the moment whitespace precedes its
+// "(", so "var (" is not valid CSS var() syntax to begin with, unlike
+// whitespace/comments AFTER the "(" (see varInnerRe) (fifth-round finding
+// on PR #223).
+var varTokenRe = regexp.MustCompile(`(?i)\bvar\(`)
+
 // varInnerRe matches the body of a var(...) call once its balanced closing
 // paren has already been located by findMatchingParen — i.e. it never has
 // to stop at the first ")", which is what let a nested var() inside a
@@ -26,7 +39,15 @@ const slidelangVarPrefix = "slidelang-"
 // var(...) call — including the outer name — unprocessed by both
 // namespaceVarBody and UnprefixedVarNames' walk (code-review finding on
 // PR #223).
-var varInnerRe = regexp.MustCompile(`(?s)^--([a-zA-Z0-9_-]+)\s*(?:,\s*(.*))?$`)
+//
+// The leading group captures whitespace/comment trivia between "(" and
+// "--name" — var( --brand, red) and var(/* docs */--brand, red) are both
+// valid CSS (whitespace and comments may sit anywhere between a
+// function's "(" and its first argument), but the un-anchored "^--" left
+// either form unmatched entirely, silently skipping the whole call
+// (fifth-round finding on PR #223). Captured (not discarded) so
+// namespaceVarBody can preserve it verbatim in the output.
+var varInnerRe = regexp.MustCompile(`(?s)^((?:[ \t\r\n]|/\*.*?\*/)*)--([a-zA-Z0-9_-]+)\s*(?:,\s*(.*))?$`)
 
 // NamespaceValue rewrites every var(--x) usage in a CSS value (or an
 // arbitrary CSS fragment — it does not require a single declaration's
@@ -56,21 +77,21 @@ func NamespaceValue(css string) string {
 	var out strings.Builder
 	i := 0
 	for {
-		idx := strings.Index(css[i:], "var(")
-		if idx == -1 {
+		loc := varTokenRe.FindStringIndex(css[i:])
+		if loc == nil {
 			out.WriteString(css[i:])
 			break
 		}
-		start := i + idx
+		start := i + loc[0]
+		openParen := i + loc[1] - 1 // index of the "(" itself, whatever case "var"/"VAR"/"Var" matched
 
 		if insideAnySpan(start, spans) {
-			out.WriteString(css[i : start+len("var(")])
-			i = start + len("var(")
+			out.WriteString(css[i : openParen+1])
+			i = openParen + 1
 			continue
 		}
 		out.WriteString(css[i:start])
 
-		openParen := start + len("var") // index of the "(" itself
 		closeParen := findMatchingParen(css, openParen, spans)
 		if closeParen == -1 {
 			// Unbalanced input (truncated/invalid CSS) — emit the rest
@@ -80,7 +101,7 @@ func NamespaceValue(css string) string {
 		}
 
 		inner := css[openParen+1 : closeParen]
-		out.WriteString("var(")
+		out.WriteString(css[start : openParen+1]) // preserve the matched token's original casing, e.g. "VAR("
 		out.WriteString(namespaceVarBody(inner))
 		out.WriteString(")")
 		i = closeParen + 1
@@ -114,14 +135,14 @@ func namespaceVarBody(inner string) string {
 		// unrelated to CSS custom properties slipped in) — leave as-is.
 		return inner
 	}
-	name, fallback := m[1], m[2]
+	lead, name, fallback := m[1], m[2], m[3]
 	if !strings.HasPrefix(name, slidelangVarPrefix) {
 		name = slidelangVarPrefix + name
 	}
 	if fallback == "" {
-		return "--" + name
+		return lead + "--" + name
 	}
-	return "--" + name + ", " + NamespaceValue(fallback)
+	return lead + "--" + name + ", " + NamespaceValue(fallback)
 }
 
 // findMatchingParen returns the index of the ")" that closes the "(" at
@@ -164,15 +185,61 @@ func findMatchingParen(s string, openIdx int, spans [][]int) int {
 // previous declaration, right after "}" closing a prior rule, or at the
 // start of a line in hand-formatted CSS); that is what stops it from also
 // matching the "--name" inside a var(--name) usage, which is always
-// preceded by "(". The gap group allows spaces/tabs AND full /* ... */
-// comments interleaved (zero or more of either) — without the comment
+// preceded by "(". Both gap groups allow spaces/tabs AND full /* ... */
+// comments interleaved (zero or more of either) — one before the name,
+// one between the name and the colon. Without the leading comment
 // alternative, ":root { /* spacing */ --gap: 4px; }" left the DECLARATION
 // unprefixed while NamespaceValue still rewrote every var(--gap) usage to
-// var(--slidelang-gap), a mismatch that breaks the rule (code-review
-// finding on PR #223). A bare "\n" right after the comment already re-
-// anchors the lead-alternation on its own, so this only matters when the
+// var(--slidelang-gap) (code-review finding on PR #223). Without the
+// trailing one, "--brand/* docs */: red;" — equally valid CSS — had the
+// same mismatch in the other direction (fifth-round finding on PR #223).
+// A bare "\n" right after a comment already re-anchors the lead-
+// alternation on its own, so the leading group only matters when the
 // comment sits on the same line as the declaration.
-var declarationRe = regexp.MustCompile(`(^|[;{}]|\n)((?:[ \t]|(?s:/\*.*?\*/))*)--([a-zA-Z0-9_-]+)(\s*:)`)
+var declarationRe = regexp.MustCompile(`(^|[;{}]|\n)((?:[ \t]|(?s:/\*.*?\*/))*)--([a-zA-Z0-9_-]+)((?:[ \t]|(?s:/\*.*?\*/))*:)`)
+
+// declConnectingCommentBeforeRe and declConnectingCommentAfterRe recognize
+// when a comment (as found by protectedSpanRe) sits between a custom
+// property's bare name and its colon — declarationRe's trailing gap group
+// above — as opposed to a free-standing documentation comment that merely
+// CONTAINS declaration-shaped text, e.g.
+// "/* example: --fake: red; */ --real: blue;". Used only by
+// namespaceDeclarationSpans, to decide which comments namespaceDeclarations
+// must treat as transparent trivia (so a single legitimate declaration's
+// name and colon are visible together in one pass) versus which must stay
+// fully opaque (so a comment's own display text is never itself matched
+// and rewritten as if it were a real declaration).
+var declConnectingCommentBeforeRe = regexp.MustCompile(`--[a-zA-Z0-9_-]+[ \t]*$`)
+var declConnectingCommentAfterRe = regexp.MustCompile(`^[ \t]*:`)
+
+// namespaceDeclarationSpans returns the spans namespaceDeclarations must
+// treat as opaque — every string and url() span from protectedSpanRe
+// (always: content: "; --brand: docs" must never be mistaken for a real
+// declaration, fourth-round finding on PR #223), plus every COMMENT span
+// EXCEPT one immediately preceded by a bare "--name" (no colon yet) and
+// immediately followed by a colon (only whitespace in between) — that one
+// is trivia belonging to a single legitimate declaration
+// (--brand/* docs */: red;) and must stay visible to declarationRe instead
+// of being carved out and hidden from it (fifth-round finding on PR #223:
+// "el scanner de declaraciones debería tratar los comentarios como trivia
+// válida entre el nombre... y ':', sin perder la protección contra
+// coincidencias dentro de strings/comentarios" — this satisfies both
+// halves: the connecting comment stays visible, every OTHER comment stays
+// opaque, so a documentation comment that happens to contain
+// declaration-shaped text is never matched).
+func namespaceDeclarationSpans(css string) [][]int {
+	var spans [][]int
+	for _, m := range protectedSpanRe.FindAllStringIndex(css, -1) {
+		start, end := m[0], m[1]
+		if strings.HasPrefix(css[start:end], "/*") &&
+			declConnectingCommentBeforeRe.MatchString(css[:start]) &&
+			declConnectingCommentAfterRe.MatchString(css[end:]) {
+			continue
+		}
+		spans = append(spans, m)
+	}
+	return spans
+}
 
 // namespaceDeclarations rewrites custom-property declarations (--x: value)
 // to --slidelang-x: value. Split out from NamespaceValue because a
@@ -180,19 +247,20 @@ var declarationRe = regexp.MustCompile(`(^|[;{}]|\n)((?:[ \t]|(?s:/\*.*?\*/))*)-
 // its own detection pass — done first so its output composes cleanly with
 // NamespaceValue's usage rewriting in NamespaceStylesheet.
 //
-// Runs only outside comment/string/url() spans (see protectedSpanRe):
-// declarationRe's lead alternation includes a bare ";", so text like
+// Runs only outside the spans namespaceDeclarationSpans marks opaque
+// (strings, url() calls, and free-standing comments): declarationRe's lead
+// alternation includes a bare ";", so text like
 // content: "; --brand: documentation only" was matching INSIDE the string
 // literal and rewriting display text to --slidelang-brand (fourth-round
-// finding on PR #223). rewriteOutsideProtectedSpans still lets a comment
-// sit between the lead char and "--name" on the same line
-// (declarationRe's own gap group also accepts a full /* ... */): the
-// segment immediately after a skipped comment span starts fresh, and
-// declarationRe's leading "^" alternative anchors to THAT segment's start,
-// so ":root { /* spacing */ --gap: 4px; }" still matches the declaration
-// right after the comment is excised.
+// finding on PR #223). A comment namespaceDeclarationSpans identifies as
+// sitting between a bare name and its colon is deliberately NOT included
+// in that opaque list — see its doc comment — so declarationRe still sees
+// the name and colon together in both directions:
+// ":root { /* spacing */ --gap: 4px; }" (comment before the name) and
+// "--brand/* docs */: red;" (comment before the colon, fifth-round
+// finding).
 func namespaceDeclarations(css string) string {
-	return rewriteOutsideProtectedSpans(css, func(segment string) string {
+	return rewriteOutsideSpanList(css, namespaceDeclarationSpans(css), func(segment string) string {
 		return declarationRe.ReplaceAllStringFunc(segment, func(match string) string {
 			sub := declarationRe.FindStringSubmatch(match)
 			lead, ws, name, colon := sub[1], sub[2], sub[3], sub[4]
@@ -247,23 +315,23 @@ func UnprefixedVarNames(css string) []string {
 		spans := protectedSpanRe.FindAllStringIndex(s, -1)
 		i := 0
 		for {
-			idx := strings.Index(s[i:], "var(")
-			if idx == -1 {
+			loc := varTokenRe.FindStringIndex(s[i:])
+			if loc == nil {
 				return
 			}
-			start := i + idx
+			start := i + loc[0]
+			openParen := i + loc[1] - 1
 			if insideAnySpan(start, spans) {
-				i = start + len("var(")
+				i = openParen + 1
 				continue
 			}
-			openParen := start + len("var")
 			closeParen := findMatchingParen(s, openParen, spans)
 			if closeParen == -1 {
 				return
 			}
 			inner := s[openParen+1 : closeParen]
 			if m := varInnerRe.FindStringSubmatch(inner); m != nil {
-				name, fallback := m[1], m[2]
+				name, fallback := m[2], m[3]
 				if !strings.HasPrefix(name, slidelangVarPrefix) {
 					add(name)
 				}
@@ -293,7 +361,35 @@ var classSelectorRe = regexp.MustCompile(`\.([a-zA-Z][\w-]*)`)
 // scoped (?s:...) so it alone matches across newlines; the others stay
 // single-line-safe on purpose (an unterminated quote/url on one line
 // should not swallow the rest of the stylesheet looking for its close).
-var protectedSpanRe = regexp.MustCompile(`(?s:/\*.*?\*/)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|url\(\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^)]*)\s*\)`)
+// The url() alternative's function name is matched case-insensitively —
+// (?i:url) — because CSS function names are ASCII case-insensitive and
+// Chromium accepts URL(...)/Url(...) exactly like url(...); without it,
+// URL("./Brand.woff2") fell outside every protected span and ".woff2" was
+// reported — and, via CSSFileLoader.ApplyNamespacing, actually REWRITTEN —
+// as a class selector, corrupting the asset path (fifth-round finding on
+// PR #223).
+var protectedSpanRe = regexp.MustCompile(`(?s:/\*.*?\*/)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?i:url)\(\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^)]*)\s*\)`)
+
+// rewriteOutsideSpanList is rewriteOutsideProtectedSpans generalized over a
+// precomputed span list instead of a regex — needed when which spans count
+// as "protected" depends on more context than a single regex match can
+// express (see namespaceDeclarationSpans). Applies fn to every substring of
+// css that falls outside a span in spans, reassembling the result with
+// each span copied through byte-for-byte untouched. spans must be sorted
+// by start position and non-overlapping, as returned by
+// regexp.FindAllStringIndex.
+func rewriteOutsideSpanList(css string, spans [][]int, fn func(string) string) string {
+	var out strings.Builder
+	last := 0
+	for _, m := range spans {
+		start, end := m[0], m[1]
+		out.WriteString(fn(css[last:start]))
+		out.WriteString(css[start:end])
+		last = end
+	}
+	out.WriteString(fn(css[last:]))
+	return out.String()
+}
 
 // rewriteOutsideProtectedSpans applies fn to every substring of css that
 // falls outside a comment/string/url() span (see protectedSpanRe),
@@ -303,16 +399,7 @@ var protectedSpanRe = regexp.MustCompile(`(?s:/\*.*?\*/)|"(?:[^"\\]|\\.)*"|'(?:[
 // path's extension or a string literal's content is never mistaken for a
 // class selector by either.
 func rewriteOutsideProtectedSpans(css string, fn func(string) string) string {
-	var out strings.Builder
-	last := 0
-	for _, m := range protectedSpanRe.FindAllStringIndex(css, -1) {
-		start, end := m[0], m[1]
-		out.WriteString(fn(css[last:start]))
-		out.WriteString(css[start:end])
-		last = end
-	}
-	out.WriteString(fn(css[last:]))
-	return out.String()
+	return rewriteOutsideSpanList(css, protectedSpanRe.FindAllStringIndex(css, -1), fn)
 }
 
 // RewriteOutsideProtectedSpans is the exported form of

@@ -129,3 +129,20 @@ func TestApplyNamespacing_RespectsKnownUnprefixedClassPrefixes(t *testing.T) {
 		t.Errorf("ApplyNamespacing(%q) = %q, want unchanged — .language-go is a deliberately bare Prism.js/highlight.js convention", css, got)
 	}
 }
+
+// TestApplyNamespacing_IgnoresUppercaseURL is the fifth-round PR #223
+// finding: protectedSpanRe's url() alternative only matched the literal
+// lowercase "url(", but CSS function names are case-insensitive and
+// Chromium resolves URL(...) exactly like url(...). Without the fix,
+// URL(./Brand.woff2) fell outside every protected span and
+// ApplyNamespacing — which actually REWRITES, unlike the read-only
+// strict validator — corrupted the asset path by prefixing ".woff2" as if
+// it were a class selector.
+func TestApplyNamespacing_IgnoresUppercaseURL(t *testing.T) {
+	loader := NewCSSFileLoader()
+	css := `.slidelang-x { background: URL(./Brand.woff2); }`
+	got := loader.ApplyNamespacing(css)
+	if got != css {
+		t.Errorf("ApplyNamespacing(%q) = %q, want unchanged — an uppercase URL() path must stay protected", css, got)
+	}
+}
