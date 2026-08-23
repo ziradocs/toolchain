@@ -38,3 +38,29 @@ func TestBuildCDNIncludes_EmptyRenderModeEmitsCDN(t *testing.T) {
 		t.Error("empty render mode should emit CDN includes like browser")
 	}
 }
+
+// El plugin de treemap se auto-registra contra el `Chart` global que publica
+// el bundle base de Chart.js, así que el orden de los dos <script> no es
+// cosmético: al revés, el controlador "treemap" nunca queda registrado y todo
+// <<chart: treemap>> se dibuja en blanco, sin error de consola.
+func TestBuildCDNIncludes_TreemapPluginLoadsAfterChartJS(t *testing.T) {
+	got := NewTemplateBuilder().WithRenderMode("browser").buildCDNIncludes()
+
+	base := strings.Index(got, "/npm/chart.js@")
+	plugin := strings.Index(got, "/npm/chartjs-chart-treemap@")
+	if base < 0 || plugin < 0 {
+		t.Fatalf("browser debería emitir los dos tags (chart.js=%d treemap=%d)\ngot: %s", base, plugin, got)
+	}
+	if plugin < base {
+		t.Error("el plugin de treemap se emite ANTES que el bundle base — no se auto-registraría")
+	}
+	if !strings.Contains(got, `integrity="sha384-`) {
+		t.Error("los tags CDN deben llevar SRI")
+	}
+
+	for _, mode := range []string{"offline-assets", "offline-inline"} {
+		if strings.Contains(NewTemplateBuilder().WithRenderMode(mode).buildCDNIncludes(), "chartjs-chart-treemap") {
+			t.Errorf("mode %q: los charts van pre-rasterizados, el plugin no debería emitirse", mode)
+		}
+	}
+}

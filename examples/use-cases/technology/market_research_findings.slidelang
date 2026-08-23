@@ -122,11 +122,11 @@ variables:
 
 <<chart: treemap>>
   data: [
-    {value: 35, label: "Large Enterprise\n(1000+ employees)"},
-    {value: 28, label: "Mid-Market\n(250-999 employees)"},
-    {value: 22, label: "Growing Companies\n(50-249 employees)"},
-    {value: 12, label: "Small Business\n(10-49 employees)"},
-    {value: 3, label: "Micro Business\n(<10 employees)"}
+    ["Large Enterprise (1000+ employees)", 35],
+    ["Mid-Market (250-999 employees)", 28],
+    ["Growing Companies (50-249 employees)", 22],
+    ["Small Business (10-49 employees)", 12],
+    ["Micro Business (<10 employees)", 3]
   ]
   options:
     responsive: true
@@ -134,6 +134,8 @@ variables:
       title:
         display: true
         text: "Market Composition by Company Size"
+      legend:
+        display: false
 
 **Large enterprises represent highest value segment with fastest growth**
 

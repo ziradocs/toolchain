@@ -72,8 +72,13 @@ types strict lacks.
 - `series` length must equal the number of numeric columns per row — a
   mismatch doesn't hard-fail the parser, but keep it consistent for a
   correct render.
-- Types: `bar`, `line`, `combo`, `doughnut`, `radar`, `scatter`. No closing
-  tag — do **not** write `<</chart>>`.
+- Types: `bar`, `line`, `pie`, `doughnut`, `radar`, `polarArea`, `scatter`,
+  `bubble`, `combo`, `treemap`. No closing tag — do **not** write
+  `<</chart>>`.
+- `treemap` uses the same `data` matrix as everything else — first cell is
+  the leaf label, second is its value — and takes exactly one numeric column.
+  It has no legend and no axes: each rectangle is sized by its value and
+  captioned with its own label.
 - The linter (`CHART001`) only warns if a chart has **no** data at all
   (neither `data`/`series` YAML nor a JSON payload) — it does not validate
   column/series consistency, so get this right yourself.

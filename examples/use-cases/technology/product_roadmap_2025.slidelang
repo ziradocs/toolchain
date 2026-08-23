@@ -222,30 +222,17 @@ variables:
 
 **Introducing smart automation and insights**
 
-<<chart: gantt>>
-  data:
-    - task: "AI Content Assistant"
-      start: "2025-04-01"
-      end: "2025-05-15"
-      progress: 0
-    - task: "Predictive Workflow Engine"
-      start: "2025-04-15"
-      end: "2025-06-01"
-      progress: 0
-    - task: "Smart Meeting Summaries"
-      start: "2025-05-01"
-      end: "2025-06-15"
-      progress: 0
-    - task: "Automated Task Routing"
-      start: "2025-05-15"
-      end: "2025-06-30"
-      progress: 0
-  options:
-    responsive: true
-    plugins:
-      title:
-        display: true
-        text: "Q2 2025 AI Feature Development Timeline"
+<<mermaid>>
+  gantt
+    title Q2 2025 AI Feature Development Timeline
+    dateFormat   YYYY-MM-DD
+    axisFormat   %b %d
+    tickInterval 1month
+    section AI Features
+    AI Content Assistant        :ai1, 2025-04-01, 2025-05-15
+    Predictive Workflow Engine  :ai2, 2025-04-15, 2025-06-01
+    Smart Meeting Summaries     :ai3, 2025-05-01, 2025-06-15
+    Automated Task Routing      :ai4, 2025-05-15, 2025-06-30
 
 **Leveraging AI to enhance productivity and user experience**
 
