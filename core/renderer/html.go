@@ -1181,17 +1181,22 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string 
 	// Preparar datos
 	data := make(map[string]interface{})
 
-	// Labels (primera columna o configurado)
-	if len(elem.Data) > 0 && len(elem.Data[0]) > 0 {
-		labels := make([]interface{}, 0)
-		for _, row := range elem.Data {
-			if len(row) > 0 {
-				labels = append(labels, row[0])
+	// Labels (primera columna o configurado). NO aplican a treemap: ese
+	// controlador no consume data.labels en absoluto — cada hoja lleva su
+	// propia etiqueta dentro de dataset.tree, y emitir un data.labels
+	// paralelo solo mete ruido en el config.
+	if chartType != "treemap" {
+		if len(elem.Data) > 0 && len(elem.Data[0]) > 0 {
+			labels := make([]interface{}, 0)
+			for _, row := range elem.Data {
+				if len(row) > 0 {
+					labels = append(labels, row[0])
+				}
 			}
+			data["labels"] = labels
+		} else if len(elem.Labels) > 0 {
+			data["labels"] = elem.Labels
 		}
-		data["labels"] = labels
-	} else if len(elem.Labels) > 0 {
-		data["labels"] = elem.Labels
 	}
 
 	// Datasets
@@ -1226,6 +1231,62 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string 
 
 			datasets = append(datasets, dataset)
 		}
+	} else if elem.ChartType == "treemap" {
+		// Treemap (chartjs-chart-treemap): la forma del dataset no se parece
+		// a la de ningún tipo nativo — no hay data[] plano ni data.labels,
+		// sino un `tree` de objetos más `key` (qué campo trae el número) y
+		// `groups` (por qué campo agrupar). Se alimenta de la MISMA matriz
+		// que todos los demás tipos del DSL (columna 0 = etiqueta de la hoja,
+		// columna 1 = valor), así que el parser no necesita sintaxis propia.
+		//
+		// Todo lo que se emite acá es serializable a JSON: `captions` dibuja
+		// el nombre del grupo sin ninguna función (display:true por defecto),
+		// a diferencia de `labels.formatter`, que SÍ exige un callback JS y
+		// por lo tanto no sobreviviría a este json.Marshal ni al
+		// <script type="application/json"> por donde viaja el config.
+		tree := make([]map[string]interface{}, 0, len(elem.Data))
+		for _, row := range elem.Data {
+			if len(row) > 1 {
+				tree = append(tree, map[string]interface{}{
+					"label": row[0],
+					"value": row[1],
+				})
+			}
+		}
+
+		dataset := make(map[string]interface{})
+		dataset["label"] = "Data"
+		if len(elem.Series) > 0 && elem.Series[0] != "" {
+			dataset["label"] = elem.Series[0]
+		}
+		dataset["tree"] = tree
+		dataset["key"] = "value"
+		// groups NO es opcional aunque cada hoja sea única: sin él, el
+		// formatter por defecto de labels solo dibuja el número — el nombre
+		// de la hoja se saca del campo por el que se agrupa. Verificado en
+		// Chromium contra el plugin real.
+		dataset["groups"] = []string{"label"}
+		// labels.display trae su propio formatter por defecto (nombre + valor
+		// dentro del rectángulo), así que NO hace falta el callback JS que
+		// documenta el plugin — sigue siendo config puramente serializable.
+		// Su color por defecto es negro, que sobre el fondo de abajo da 6.7:1
+		// de contraste (AA), así que tampoco se sobreescribe.
+		dataset["labels"] = map[string]interface{}{"display": true}
+		dataset["spacing"] = 0.5
+		dataset["borderWidth"] = 1
+		dataset["borderColor"] = "#ffffff"
+
+		// Un solo color, NO la paleta ciclada de las demás ramas: en un
+		// TreemapElement backgroundColor no es indexable — verificado en
+		// Chromium, un arreglo llega crudo a options.backgroundColor y el
+		// rectángulo termina sin relleno. Pintar cada hoja distinto exigiría
+		// una opción "scriptable" (una función JS), que no sobrevive al
+		// json.Marshal de acá ni al <script type="application/json"> por
+		// donde viaja el config. Tampoco se pierde información: en un
+		// treemap el dato lo codifica el ÁREA, no el color.
+		dataset["backgroundColor"] = "#3498db"
+
+		datasets = append(datasets, dataset)
 	} else if elem.ChartType == "pie" || elem.ChartType == "doughnut" {
 		// Pie/Doughnut: un solo dataset con múltiples valores
 		dataset := make(map[string]interface{})
@@ -1302,9 +1363,33 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string 
 	options["responsive"] = true
 	options["maintainAspectRatio"] = false
 
+	if chartType == "treemap" {
+		// La leyenda de un treemap solo repite el label del dataset ("Data"),
+		// no discrimina nada — cada rectángulo ya trae su nombre dentro. Se
+		// apaga por defecto. Quitar dataset.label en su lugar NO sirve: la
+		// leyenda entonces dibuja "undefined" (verificado en Chromium).
+		//
+		// El merge de abajo (MergeChartOptions) es recursivo por clave, así
+		// que un options.plugins.title del autor NO pisa este default: solo
+		// se pierde si el autor toca options.plugins.legend directamente.
+		options["plugins"] = map[string]interface{}{
+			"legend": map[string]interface{}{"display": false},
+		}
+	}
+
 	// Si es para export, agregar configuración optimizada para PNG/PDF
 	if forExport {
 		applyExportOptimizations(options)
+		if chartType == "treemap" {
+			// applyExportOptimizations arma scales.x/scales.y con
+			// grid.display:true, pensado para los tipos cartesianos. El
+			// controlador de treemap declara sus propios ejes ocultos, así
+			// que dejar ese bloque puesto le pinta una rejilla y unos ticks
+			// encima al treemap. Se quita acá y no dentro de la función
+			// porque las escalas son lo ÚNICO que no aplica: el padding, la
+			// leyenda y el título grandes sí se quieren igual.
+			delete(options, "scales")
+		}
 	}
 
 	// Merge con opciones del usuario si existen
