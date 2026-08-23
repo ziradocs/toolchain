@@ -493,7 +493,7 @@ func (g *DOCXGenerator) renderWatermark(doc domain.Document, cfg *ast.WatermarkC
 	widthPx := pageSize.Width * dpi / twipsPerInch
 	heightPx := pageSize.Height * dpi / twipsPerInch
 
-	imageData, err := renderer.RenderWatermarkPNG(rw, widthPx, heightPx)
+	imageData, err := renderer.RenderWatermarkPNG(rw, widthPx, heightPx, dpi)
 	if err != nil {
 		return fmt.Errorf("failed to rasterize watermark: %w", err)
 	}
