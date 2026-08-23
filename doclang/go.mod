@@ -7,7 +7,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v3 v3.0.5
-	go.ziradocs.com/core/v2 v2.24.0
+	go.ziradocs.com/core/v2 v2.27.0
 	golang.org/x/text v0.40.0
 )
 
@@ -36,9 +36,9 @@ require (
 	github.com/tkrajina/gpxgo v1.4.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/image v0.43.0 // indirect
-	golang.org/x/net v0.33.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 )
