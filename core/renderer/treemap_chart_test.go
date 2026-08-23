@@ -179,6 +179,50 @@ func TestGenerateChartConfig_TreemapHidesLegendByDefault(t *testing.T) {
 	}
 }
 
+// TestGenerateChartConfig_TreemapLegendDefaultSurvivesAuthorTitleOverride es
+// el caso concreto que motivó MergeChartOptions (ver
+// TestMergeChartOptions_AuthorNestedOverrideKeepsSiblingDefaults): un autor
+// que agrega options: plugins: title: ... a un <<chart: treemap>> —sin
+// tocar legend— no debe hacer reaparecer la leyenda por defecto (apagada
+// arriba en GenerateChartConfigWithMode) ni perder su propio título.
+func TestGenerateChartConfig_TreemapLegendDefaultSurvivesAuthorTitleOverride(t *testing.T) {
+	chart := ast.NewChartElement(diagnostics.NewPosition(1, 1), "treemap")
+	chart.Data = [][]interface{}{
+		{"Large Enterprise", 35},
+		{"Mid-Market", 28},
+		{"Micro Business", 3},
+	}
+	chart.Options = map[string]interface{}{
+		"plugins": map[string]interface{}{
+			"title": map[string]interface{}{
+				"display": true,
+				"text":    "Segment breakdown",
+			},
+		},
+	}
+
+	raw := GenerateChartConfig(chart)
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("el config de treemap no es JSON válido: %v\n%s", err, raw)
+	}
+
+	plugins, ok := decoded["options"].(map[string]interface{})["plugins"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("options.plugins ausente: %#v", decoded["options"])
+	}
+
+	title, ok := plugins["title"].(map[string]interface{})
+	if !ok || title["text"] != "Segment breakdown" {
+		t.Fatalf("options.plugins.title = %#v, want el título del autor", plugins["title"])
+	}
+
+	legend, ok := plugins["legend"].(map[string]interface{})
+	if !ok || legend["display"] != false {
+		t.Errorf("options.plugins.legend = %#v, want {display:false} (el default del treemap debe sobrevivir al título del autor)", plugins["legend"])
+	}
+}
+
 // El plugin se auto-registra contra el `Chart` global que publica el bundle
 // base, así que el orden de los dos <script> no es cosmético: al revés, el
 // controlador "treemap" no queda registrado y todo treemap sale en blanco.

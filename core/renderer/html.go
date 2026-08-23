@@ -1369,10 +1369,9 @@ func GenerateChartConfigWithMode(elem *ast.ChartElement, forExport bool) string 
 		// apaga por defecto. Quitar dataset.label en su lugar NO sirve: la
 		// leyenda entonces dibuja "undefined" (verificado en Chromium).
 		//
-		// Un bloque options.plugins del autor pisa esto entero, porque el
-		// merge de abajo es por clave de primer nivel — conducta preexistente,
-		// igual para todos los tipos. Por eso el ejemplo del repo apaga la
-		// leyenda de forma explícita en su propio options:.
+		// El merge de abajo (MergeChartOptions) es recursivo por clave, así
+		// que un options.plugins.title del autor NO pisa este default: solo
+		// se pierde si el autor toca options.plugins.legend directamente.
 		options["plugins"] = map[string]interface{}{
 			"legend": map[string]interface{}{"display": false},
 		}
