@@ -325,13 +325,59 @@ that split.
 Only include this if you actually need a repeating overlay — most decks
 and documents don't.
 
-**Status: parsed, not yet rendered.** As of this change, `core`'s parser
-accepts, validates and normalizes `watermark:` into the AST exactly as
-described above — but no slidelang/doclang output format consumes it yet.
-Per-format rendering (HTML/PDF/PPTX/DOCX/Markdown) lands in a follow-up
-PR against issue #179; this section will be replaced with the real
-per-format fidelity notes once that merges. Until then, declaring
-`watermark:` in a document's front matter is a no-op at build time.
+**Fidelity varies by output format (issue #179's PR).** slidelang renders
+this identically across html/pdf; doclang the same across html/pdf; PPTX
+and DOCX each hit a real limit of their own underlying library:
+
+- **HTML/PDF (both CLIs).** Full fidelity: real opacity, real rotation,
+  tiled or single instance, author's `color`. Drawn on top of content
+  (`pointer-events: none`, so nothing under it becomes unclickable) rather
+  than behind it — the conventional placement for a document/print
+  watermark, unlike PPTX below. In doclang, a single `position: fixed`
+  overlay covers every printed page — including the table of contents and
+  any page-view block that overflows onto more than one physical sheet —
+  since Chromium repeats fixed-positioned elements per printed page.
+- **PPTX.** `pptxgo`'s `drawingml.Color`/`Paragraph.Color` carry no alpha
+  channel — `SrgbClr.Alpha` exists in the OOXML struct but has no public
+  setter in the library as pinned today. The opacity is instead
+  **pre-blended**: the author's color is mixed toward the slide's
+  background (white, since `pptx.go` never calls `Slide.Background`) by
+  the requested opacity, and the resulting flat color is drawn as the
+  **first** shape on the slide — behind everything else, the only
+  placement where a pre-blended flat color reads correctly (an opaque
+  image or table on top of it looks exactly like it does over any other
+  slide background). `repeat: true` is **ignored**: PPTX always draws a
+  single centered instance, not a tile — a diagonal grid would mean dozens
+  of individual shapes per slide (PowerPoint's own selection panel would
+  list every one of them), and behind opaque content that reads as visual
+  noise rather than a watermark the moment a table or image crosses it. A
+  single centered mark is the conventional Office watermark shape and the
+  only one that survives "behind content" placement cleanly. A `--format
+  pptx` build with `watermark:` set logs a WARNING noting both
+  divergences.
+- **DOCX.** `docxgo` exposes no `w:pict`/VML/text-box API — the classic
+  Word watermark mechanism — so there is no way to place a native,
+  editable text watermark. Instead, the resolved watermark (tiled and
+  rotated, exactly like HTML/PDF) is **rasterized to a PNG** at 150 DPI
+  sized to the document's actual page dimensions
+  (`section.PageSize()`, not `page:` front matter — see below), embedded
+  as a floating image anchored in the header with `BehindText: true`, the
+  same mechanism Word's own watermark feature uses internally. The
+  tradeoff: the text renders in the embedded Go Regular font, not the
+  document's theme font, and it's a bitmap, not editable/selectable text
+  in Word — real opacity and rotation are preserved exactly, since they're
+  baked into the pixels.
+- **DOCX page size caveat.** The PNG is sized from `section.PageSize()`
+  (docxgo's own page geometry, currently always its A4 default — `docx.go`
+  never calls `SetPageSize` or reads `page:` front matter at all), not
+  from the `page:` namespace above. If a future change wires `page:` into
+  the DOCX backend's actual page size, the watermark PNG sizing needs to
+  move with it; until then, sizing from `page:` instead of the real page
+  geometry would produce a mis-scaled watermark the moment they disagree.
+- **Markdown.** No page concept exists, so `watermark:` is round-tripped
+  back into the front matter verbatim (a build → re-parse cycle doesn't
+  lose it) but nothing is rendered from it — same treatment as
+  `header:`/`footer:`/`layout_defaults:`.
 
 ## Theme resolution priority (both CLIs)
 

@@ -410,9 +410,11 @@ Examples:
 
 			var pageConfig *ast.PageConfig
 			var headerFooterConfig *ast.HeaderFooterConfig
+			var watermarkConfig *ast.WatermarkConfig
 			if doc.FrontMatter != nil {
 				pageConfig = doc.FrontMatter.Page
 				headerFooterConfig = doc.FrontMatter.HeaderFooter
+				watermarkConfig = doc.FrontMatter.Watermark
 			}
 
 			opts := generator.GeneratorOptions{
@@ -428,6 +430,7 @@ Examples:
 				PageBreaks:        pageBreaksEnabled,
 				Page:              pageConfig,         // 🆕 page: front matter (size/margins), PDF only — see resolvePDFOptions
 				HeaderFooter:      headerFooterConfig, // 🆕 header:/footer:/layout_defaults: front matter (issue #117)
+				Watermark:         watermarkConfig,    // watermark: front matter (issue #179)
 				PlantUMLMode:      renderMode,         // 🆕 Global render mode
 				PlantUMLServer:    plantumlServer,     // 🆕 Custom server URL
 				PlantUMLFormat:    plantumlFormat,     // 🆕 Image format

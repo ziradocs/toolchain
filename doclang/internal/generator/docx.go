@@ -235,6 +235,11 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		return fmt.Errorf("error rendering header/footer: %w", err)
 	}
 
+	// Watermark (issue #179): rasterizado, ver renderWatermark.
+	if err := g.renderWatermark(doc, opts.Watermark, astDoc.FrontMatter.BuildVariables()); err != nil {
+		return fmt.Errorf("error rendering watermark: %w", err)
+	}
+
 	// Renderizar TOC (opts.TOC, issue #115 follow-up: antes se emitía
 	// incondicionalmente, así que `--toc=false`/`toc: false` no tenían
 	// ningún efecto en DOCX).
@@ -447,6 +452,77 @@ func (g *DOCXGenerator) renderHeaderFooter(doc domain.Document, hf *ast.HeaderFo
 		}
 	}
 
+	return nil
+}
+
+// renderWatermark rasteriza cfg (issue #179) a un PNG a tamaño de página
+// completo y lo ancla como imagen flotante DETRÁS del texto, en el header
+// del documento — docxgo no expone w:pict/VML (el mecanismo nativo de
+// Word para un watermark de texto vectorial), así que rasterizar es la
+// única forma de llegar a un resultado visualmente equivalente. La
+// tipografía sale de la fuente Go Regular embebida (ver
+// renderer.RenderWatermarkPNG), no de la del tema — limitación
+// documentada en llm-kit/reference/frontmatter.md, no un descuido.
+//
+// El tamaño sale de section.PageSize() (twips), NUNCA de `page:` front
+// matter: este backend no llama SetPageSize ni lee esa clave en ningún
+// otro lado (ver el comentario de GeneratorOptions.Watermark), así que
+// dimensionar desde `page:` en vez de la geometría real produciría un
+// watermark mal escalado en cuanto ambas difieran.
+func (g *DOCXGenerator) renderWatermark(doc domain.Document, cfg *ast.WatermarkConfig, variables map[string]interface{}) error {
+	rw, ok := renderer.ResolveWatermark(cfg, variables)
+	if !ok {
+		return nil
+	}
+
+	section, err := doc.DefaultSection()
+	if err != nil {
+		return fmt.Errorf("failed to get default section: %w", err)
+	}
+
+	// dpi es la resolución de RASTERIZADO (independiente del tamaño de
+	// visualización, que fija ImageSize.Width/HeightEMU abajo) — 150 da
+	// texto nítido sin inflar el .docx: sobre A4 (~8.27x11.69in) produce
+	// ~1240x1754px, un único PNG por documento (vive en el header part,
+	// Word lo repite en cada página).
+	const dpi = 150
+	const twipsPerInch = 1440
+	const emuPerTwip = 635 // 914400 EMU/inch ÷ 1440 twips/inch
+
+	pageSize := section.PageSize()
+	widthPx := pageSize.Width * dpi / twipsPerInch
+	heightPx := pageSize.Height * dpi / twipsPerInch
+
+	imageData, err := renderer.RenderWatermarkPNG(rw, widthPx, heightPx, dpi)
+	if err != nil {
+		return fmt.Errorf("failed to rasterize watermark: %w", err)
+	}
+
+	header, err := section.Header(domain.HeaderDefault)
+	if err != nil {
+		return fmt.Errorf("failed to get header for watermark: %w", err)
+	}
+	para, err := header.AddParagraph()
+	if err != nil {
+		return fmt.Errorf("failed to add watermark paragraph: %w", err)
+	}
+
+	size := domain.ImageSize{
+		WidthPx:   widthPx,
+		HeightPx:  heightPx,
+		WidthEMU:  pageSize.Width * emuPerTwip,
+		HeightEMU: pageSize.Height * emuPerTwip,
+	}
+	position := domain.ImagePosition{
+		Type:       domain.ImagePositionFloating,
+		BehindText: true,
+		WrapText:   domain.WrapNone,
+		HAlign:     domain.HAlignCenter,
+		VAlign:     domain.VAlignCenter,
+	}
+	if _, err := para.AddImageFromBytesWithPosition(imageData, domain.ImageFormatPNG, size, position); err != nil {
+		return fmt.Errorf("failed to embed watermark image: %w", err)
+	}
 	return nil
 }
 

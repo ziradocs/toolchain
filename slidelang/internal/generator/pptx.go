@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/gif"  // registra el decoder GIF para image.DecodeConfig
 	_ "image/jpeg" // registra el decoder JPEG para image.DecodeConfig
 	_ "image/png"  // registra el decoder PNG para image.DecodeConfig
@@ -19,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mmonterroca/pptxgo/drawingml"
 	"github.com/mmonterroca/pptxgo/pptx"
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
@@ -94,6 +96,7 @@ const (
 	pptxDefaultImageEMU   = 3200400  // ~3.5in: alto por defecto si no se puede leer la imagen (URL remota o lectura fallida)
 	pptxQuoteIndentEMU    = 457200   // 0.5in extra de sangría para el bloque de cita
 	pptxChartWidthEMU     = 6858000  // 7.5in: ancho fijo del chart, el alto sale de su aspect ratio
+	pptxSlideWidthEMU     = 12192000 // 13.333in: ancho completo del canvas (pptxgo.SlideSizeWidescreen16x9Width) — pptx.New() nunca se llama con WithSlideSize acá
 )
 
 // Fuentes y glifos de los elementos añadidos después del MVP v0.
@@ -129,8 +132,23 @@ func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts Genera
 	kroki := &pptxKrokiContext{}
 	defer kroki.cleanup()
 
+	// Resuelto una sola vez (issue #179): a diferencia de header/footer,
+	// watermark es global sin cascada por slide/layout, así que no hay
+	// nada que recalcular por ContentBlock. astNode.FrontMatter nil es
+	// defensivo, no esperado — slidelang exige frontmatter en el parser —
+	// pero un método a través de un puntero nil (BuildVariables) es seguro;
+	// un acceso directo a campo (Watermark) no lo sería.
+	var watermark renderer.ResolvedWatermark
+	var hasWatermark bool
+	if astNode.FrontMatter != nil {
+		watermark, hasWatermark = renderer.ResolveWatermark(astNode.FrontMatter.Watermark, astNode.FrontMatter.BuildVariables())
+	}
+	if hasWatermark {
+		g.logger.Warn("PPTX: watermark se dibuja con opacidad aproximada por pre-mezcla contra el fondo del slide (pptxgo no expone alpha en el color de texto) y siempre como una sola marca centrada — 'repeat: true' se ignora en --format pptx (ver llm-kit/reference/frontmatter.md)")
+	}
+
 	for i := range astNode.ContentBlocks {
-		g.pptxAddSlide(p, &astNode.ContentBlocks[i], opts, kroki)
+		g.pptxAddSlide(p, &astNode.ContentBlocks[i], opts, kroki, watermark, hasWatermark)
 	}
 
 	outputPath := filepath.Join(outputDir, resolveOutputFilename(astNode, "pptx"))
@@ -153,7 +171,7 @@ func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts Genera
 // para el resto — el mismo mapeo semántico que ya usa el HTML propio de
 // slidelang (template/base.go: Heading para bloques "title", Title para
 // los demás).
-func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, opts GeneratorOptions, kroki *pptxKrokiContext) {
+func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, opts GeneratorOptions, kroki *pptxKrokiContext, watermark renderer.ResolvedWatermark, hasWatermark bool) {
 	isTitleBlock := block.BlockType == "title"
 
 	layout := pptx.LayoutTitleAndContent
@@ -161,6 +179,15 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 		layout = pptx.LayoutTitleSlide
 	}
 	s := p.AddSlide(pptx.WithLayout(layout))
+
+	// Primer shape del spTree ⇒ detrás de todo lo demás (issue #179): la
+	// pre-mezcla de opacidad solo es visualmente exacta contra el fondo del
+	// slide, así que tiene que quedar debajo de cualquier contenido opaco
+	// que se agregue después. AddSlide/AddPlaceholder/AddTextBox de acá en
+	// adelante siempre agregan encima en el spTree.
+	if hasWatermark {
+		g.pptxAddWatermark(s, watermark)
+	}
 
 	heading := block.Title
 	if isTitleBlock {
@@ -188,6 +215,54 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 	for i := range block.Elements {
 		cursorY = g.pptxAddElement(s, block.Elements[i], cursorY, opts, kroki)
 	}
+}
+
+// pptxAddWatermark dibuja rw como una única marca centrada, rotada,
+// cubriendo el slide completo (issue #179). Dos divergencias deliberadas
+// respecto a HTML/PDF, ambas documentadas en
+// llm-kit/reference/frontmatter.md y advertidas una sola vez por build (ver
+// generatePPTX):
+//
+//   - Opacidad aproximada: pptxgo no expone un setter público para el
+//     alpha de drawingml.SrgbClr (el campo existe en el struct, el método
+//     no), así que en vez de un color translúcido se dibuja el color plano
+//     resultante de pre-mezclar rw.Color contra el fondo del slide
+//     (blanco — pptx.go nunca llama Slide.Background) a la opacidad
+//     pedida. Solo es exacto si lo que quede encima es opaco, que es
+//     exactamente por qué este shape se agrega PRIMERO en pptxAddSlide
+//     (antes de título/subtítulo/elementos): cualquier otra cosa queda
+//     por encima en el spTree.
+//   - rw.Repeat se ignora siempre: un mosaico serían N shapes rotados por
+//     slide (PowerPoint los listaría como N objetos individuales en el
+//     panel de selección), y detrás de contenido opaco un mosaico se lee
+//     como ruido en cuanto una tabla o imagen lo cruza. Una sola marca
+//     centrada es la forma convencional del watermark de Office y la
+//     única que sobrevive bien a la colocación "detrás del contenido".
+func (g *Generator) pptxAddWatermark(s *pptx.Slide, rw renderer.ResolvedWatermark) {
+	r, gr, b, ok := a11y.ParseColor(rw.Color)
+	if !ok {
+		r, gr, b = 0, 0, 0
+	}
+	blended := renderer.BlendOverOpaque(
+		color.RGBA{R: r, G: gr, B: b, A: 255},
+		color.RGBA{R: 255, G: 255, B: 255, A: 255},
+		rw.Opacity,
+	)
+
+	points := 44.0
+	if inches, err := util.ParseLengthInches(rw.FontSize); err == nil {
+		points = inches * 72
+	}
+
+	tb := s.AddTextBox(0, 0, pptxSlideWidthEMU, pptxSlideHeightEMU)
+	tb.Anchor(pptx.AnchorMiddle)
+	tb.WordWrap(false)
+	tb.Rotation(rw.Rotation)
+	tb.AddParagraph().
+		Text(rw.Text).
+		FontSize(points).
+		Color(drawingml.Color{R: blended.R, G: blended.G, B: blended.B}).
+		Alignment(pptx.AlignCenter)
 }
 
 // pptxAddElement despacha por tipo de ast.Element y devuelve el cursorY

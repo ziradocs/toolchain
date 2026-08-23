@@ -14,6 +14,15 @@ type PresentationData struct {
 	ContentBlocks []SlideData `json:"content_blocks"` // Bloques de contenido de la presentación
 	HasTitle      bool
 	HeaderFooter  *HeaderFooterData `json:"header_footer,omitempty"`
+	// Watermark is the pre-rendered HTML for a repeating overlay from
+	// frontmatter `watermark:` (issue #179) — renderer.WatermarkHTML's
+	// output, already escaped/sanitized, marked safe via htmltemplate.HTML
+	// so the presentation template can insert it verbatim without
+	// html/template re-escaping it. Empty when unset/disabled. Unlike
+	// HeaderFooter this has no per-slide/per-layout cascade — one global
+	// value applies to every slide, so there's no need for a richer
+	// *WatermarkData struct the way header/footer needs one.
+	Watermark htmltemplate.HTML `json:"-"`
 
 	// NUEVOS CAMPOS PARA VISUALIZADOR AVANZADO
 	Version           string                `json:"version"` // "2.0.0"

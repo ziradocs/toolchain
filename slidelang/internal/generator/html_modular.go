@@ -294,6 +294,15 @@ func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 		elementTypes["headers_footers"] = true
 	}
 
+	// Watermark (issue #179) is likewise frontmatter-level, not a
+	// per-slide ast.Element — unlike header/footer it has no
+	// global/layout/per-slide cascade to replicate, so gating on Enabled
+	// directly (rather than "configured at all") is just as cheap and
+	// avoids loading the module for a `watermark: {enabled: false}` block.
+	if astNode.FrontMatter != nil && astNode.FrontMatter.Watermark != nil && astNode.FrontMatter.Watermark.Enabled {
+		elementTypes["watermark"] = true
+	}
+
 	// Analyze all slides and their elements
 	for _, slide := range astNode.ContentBlocks {
 		for _, element := range slide.Elements {
