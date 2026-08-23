@@ -4,7 +4,6 @@
 package themes
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -448,54 +447,16 @@ func GenerateThemeCSS(theme Theme) string {
 			}
 		}
 
-		// Process the value to namespace any var() references
-		namespacedValue := namespaceVariableReferences(value)
+		// Process the value to namespace any var() references. This is a
+		// single value, never a declaration, so NamespaceValue (usages
+		// only) is the right entry point — see its doc comment for why
+		// GenerateThemeCSS and NamespaceStylesheet use different ones.
+		namespacedValue := NamespaceValue(value)
 
 		css += "  " + cssVar + ": " + namespacedValue + ";\n"
 	}
 	css += "}\n"
 	return css
-}
-
-// namespaceVariableReferences processes CSS values to namespace any var() references
-func namespaceVariableReferences(value string) string {
-	// This function handles nested var() calls by processing them recursively
-
-	// Use a more sophisticated approach to handle nested var() calls
-	result := value
-	changed := true
-	for changed {
-		changed = false
-		// Find var(--variable-name) or var(--variable-name, fallback-value)
-		re := regexp.MustCompile(`var\(--([a-zA-Z0-9_-]+)(?:\s*,\s*([^)]*))?\)`)
-
-		result = re.ReplaceAllStringFunc(result, func(match string) string {
-			matches := re.FindStringSubmatch(match)
-			varName := matches[1]
-			fallback := ""
-			if len(matches) > 2 && matches[2] != "" {
-				fallback = matches[2]
-			}
-
-			// Don't namespace if already namespaced
-			if strings.HasPrefix(varName, "slidelang-") {
-				return match
-			}
-
-			// Process the variable name
-			namespacedVar := "slidelang-" + varName
-			changed = true
-
-			// Reconstruct the var() function
-			if fallback != "" {
-				return "var(--" + namespacedVar + ", " + fallback + ")"
-			} else {
-				return "var(--" + namespacedVar + ")"
-			}
-		})
-	}
-
-	return result
 }
 
 // GetThemeNames returns all available embedded theme names

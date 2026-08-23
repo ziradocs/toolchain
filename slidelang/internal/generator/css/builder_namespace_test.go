@@ -1,0 +1,141 @@
+// Copyright 2026 Misael Monterroca
+// SPDX-License-Identifier: Apache-2.0
+
+package css
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// writeMinimalExternalTheme writes <dir>/<name>/theme.json + styles.css. The
+// manifest declares every variable ValidateTheme requires that
+// extractVariables' defaultVars does NOT backfill (--slidelang-background-
+// color, --slidelang-text-color) plus the one the test's styles.css
+// references, so LoadTheme's validation step does not reject the theme and
+// silently fall back to "default" before we ever reach CSSBuilder.Build().
+func writeMinimalExternalTheme(t *testing.T, root, name, stylesCSS string) {
+	t.Helper()
+	themeDir := filepath.Join(root, name)
+	if err := os.MkdirAll(themeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+  "name": "` + name + `",
+  "version": "1.0.0",
+  "description": "test theme",
+  "author": "test",
+  "variables": {
+    "--slidelang-background-color": "#ffffff",
+    "--slidelang-text-color": "#111111",
+    "--slidelang-bg-code": "#f7fafc"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(themeDir, "theme.json"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(themeDir, "styles.css"), []byte(stylesCSS), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCSSBuilder_ExternalThemeCSSIsNamespaced is the end-to-end regression
+// for §2.1 (docs/developer/motor-temas-v2.md): CSSBuilder.Build() used to
+// write an external theme's styles.css into the "EXTERNAL THEME CSS" block
+// raw, so var(--bg-code) never resolved against the --slidelang-bg-code the
+// :root block above it actually emits. This drives the real disk-loading
+// path (ThemeLoader → GetExternalTheme), not just the namespacer directly.
+func TestCSSBuilder_ExternalThemeCSSIsNamespaced(t *testing.T) {
+	dir := t.TempDir()
+	writeMinimalExternalTheme(t, dir, "unprefixed-test-theme", `.slide blockquote {
+    border-left: 4px solid var(--primary-color);
+    background: var(--bg-code);
+}`)
+	t.Setenv("SLIDELANG_THEMES_PATH", dir)
+
+	out := NewCSSBuilder().
+		WithTheme("unprefixed-test-theme").
+		WithRequiredElements([]string{"text"}).
+		Build()
+
+	if !strings.Contains(out, "/* === EXTERNAL THEME CSS === */") {
+		t.Fatal("expected the external theme's CSS block to be present — theme failed to load, check manifest validation")
+	}
+	if strings.Contains(out, "var(--bg-code)") {
+		t.Error("found un-namespaced var(--bg-code) in the bundle — external theme CSS is not going through NamespaceStylesheet")
+	}
+	if !strings.Contains(out, "var(--slidelang-bg-code)") {
+		t.Error("expected var(--slidelang-bg-code) in the bundle")
+	}
+	if !strings.Contains(out, "var(--slidelang-primary-color)") {
+		t.Error("expected var(--slidelang-primary-color) in the bundle")
+	}
+}
+
+// TestCSSBuilder_ExternalThemeDeclarationIsNamespaced covers the other half
+// of the §2.1 decision: a theme author's own local custom-property
+// *declaration* (not just its usages) must be namespaced too, so a helper
+// like --helper-spacing declared and used within the same styles.css keeps
+// working after namespacing.
+func TestCSSBuilder_ExternalThemeDeclarationIsNamespaced(t *testing.T) {
+	dir := t.TempDir()
+	writeMinimalExternalTheme(t, dir, "local-decl-theme", `:root {
+    --helper-spacing: 4px;
+}
+.slide .card {
+    padding: var(--helper-spacing);
+}`)
+	t.Setenv("SLIDELANG_THEMES_PATH", dir)
+
+	out := NewCSSBuilder().
+		WithTheme("local-decl-theme").
+		WithRequiredElements([]string{"text"}).
+		Build()
+
+	if !strings.Contains(out, "--slidelang-helper-spacing: 4px") {
+		t.Error("expected the local declaration to be namespaced to --slidelang-helper-spacing")
+	}
+	if !strings.Contains(out, "var(--slidelang-helper-spacing)") {
+		t.Error("expected the usage to resolve against the namespaced declaration")
+	}
+}
+
+// TestCSSBuilder_ModernBlueLiveRegression loads the real, currently-shipped
+// modern-blue theme from slidelang/themes/ — not a synthetic fixture — and
+// checks the exact blockquote rule motor-temas-v2.md §2.1 calls out
+// (styles.css:154-160): three var() references with no --slidelang- prefix,
+// none of which resolved against the theme's own :root block before this
+// fix. If this theme's styles.css is ever edited to already use the
+// --slidelang- prefix, this test starts failing on the "not yet namespaced"
+// assumption below and should be updated or retired then, not silenced.
+func TestCSSBuilder_ModernBlueLiveRegression(t *testing.T) {
+	themesDir, err := filepath.Abs(filepath.Join("..", "..", "..", "themes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(themesDir, "modern-blue", "styles.css")); err != nil {
+		t.Skipf("real themes dir not found at %s (%v) — skipping live-theme regression", themesDir, err)
+	}
+	t.Setenv("SLIDELANG_THEMES_PATH", themesDir)
+
+	out := NewCSSBuilder().
+		WithTheme("modern-blue").
+		WithRequiredElements([]string{"text", "quotes"}).
+		Build()
+
+	if !strings.Contains(out, "/* === EXTERNAL THEME CSS === */") {
+		t.Fatal("modern-blue failed to load as an external theme — check its theme.json against ValidateTheme's required variables")
+	}
+	for _, unwanted := range []string{"var(--primary-color)", "var(--secondary-color)", "var(--bg-code)"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("found un-namespaced %s in the bundle — modern-blue's blockquote is still not resolving", unwanted)
+		}
+	}
+	for _, wanted := range []string{"var(--slidelang-primary-color)", "var(--slidelang-secondary-color)", "var(--slidelang-bg-code)"} {
+		if !strings.Contains(out, wanted) {
+			t.Errorf("expected %s in the bundle", wanted)
+		}
+	}
+}

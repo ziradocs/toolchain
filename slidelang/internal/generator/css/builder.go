@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 )
 
@@ -107,7 +108,16 @@ func (cb *CSSBuilder) Build() string {
 	// create_theme scaffolding command), so it's trusted.
 	loadedTheme, err := cb.themeLoader.LoadTheme(cb.Theme, true)
 	if err != nil {
-		// Fallback to hardcoded themes if external loading fails
+		// Fallback to hardcoded themes if external loading fails. This is
+		// a SECOND, independent LoadTheme call from the one ResolveTheme
+		// already made upstream (see themes.ResolveTheme's callers) — it
+		// exists because Build() only received the theme *name*, not the
+		// already-resolved *Theme. A mismatch here (e.g. an external
+		// theme.json whose "name" field differs from its directory, so
+		// GetExternalTheme's cache lookup below misses) means the
+		// EXTERNAL THEME CSS block silently never gets written — surface
+		// it instead of failing quiet a second time.
+		util.Warn("CSS: no se pudo re-resolver el tema '%s' al construir el bundle, usando fallback embebido: %v", cb.Theme, err)
 		theme = themes.GetTheme(cb.Theme)
 	} else {
 		theme = *loadedTheme
@@ -117,13 +127,17 @@ func (cb *CSSBuilder) Build() string {
 	css.WriteString(themes.GenerateThemeCSS(theme))
 	css.WriteString("\n")
 
-	// 1.5. External theme custom CSS (if available)
+	// 1.5. External theme custom CSS (if available). Namespaced the same
+	// way the base CSS already is (LoadCSSWithVariableNamespacing) — §2.1:
+	// this used to write mainCSS raw, so a var(--x) written by a
+	// third-party styles.css never resolved against the --slidelang-x the
+	// :root block above actually emits.
 	if theme.IsExternal && err == nil {
 		// Get the original external theme to access custom CSS
 		if externalTheme, found := cb.themeLoader.GetExternalTheme(cb.Theme); found {
 			if mainCSS, exists := externalTheme.Styles["main"]; exists && mainCSS != "" {
 				css.WriteString("/* === EXTERNAL THEME CSS === */\n")
-				css.WriteString(mainCSS)
+				css.WriteString(themes.NamespaceStylesheet(mainCSS))
 				css.WriteString("\n")
 			}
 		}

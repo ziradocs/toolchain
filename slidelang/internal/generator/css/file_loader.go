@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 )
 
 //go:embed assets/css/base/*.css
@@ -230,48 +231,13 @@ func (loader *CSSFileLoader) ValidateNamespacedCSS(css string) []ValidationError
 	return errors
 }
 
-// ProcessCSSVariables processes CSS content to namespace variable references
+// ProcessCSSVariables namespaces both var(--x) usages and --x: declarations
+// in the given CSS to their --slidelang-x form. Delegates to
+// themes.NamespaceStylesheet — the canonical implementation, shared with
+// CSSBuilder.Build()'s external-theme CSS path (§2.1) — instead of keeping
+// a second copy of the same regex/paren-matching logic here.
 func (loader *CSSFileLoader) ProcessCSSVariables(css string) string {
-	// This function handles nested var() calls by processing them recursively
-
-	// First pass: Find all var() functions and process them
-	result := css
-
-	// Use a more sophisticated approach to handle nested var() calls
-	// We'll process from the inside out to handle nested variables correctly
-	changed := true
-	for changed {
-		changed = false
-		// Find var(--variable-name) or var(--variable-name, fallback-value)
-		re := regexp.MustCompile(`var\(--([a-zA-Z0-9_-]+)(?:\s*,\s*([^)]*))?\)`)
-
-		result = re.ReplaceAllStringFunc(result, func(match string) string {
-			matches := re.FindStringSubmatch(match)
-			varName := matches[1]
-			fallback := ""
-			if len(matches) > 2 && matches[2] != "" {
-				fallback = matches[2]
-			}
-
-			// Don't namespace if already namespaced
-			if strings.HasPrefix(varName, "slidelang-") {
-				return match
-			}
-
-			// Process the variable name
-			namespacedVar := "slidelang-" + varName
-			changed = true
-
-			// Reconstruct the var() function
-			if fallback != "" {
-				return "var(--" + namespacedVar + ", " + fallback + ")"
-			} else {
-				return "var(--" + namespacedVar + ")"
-			}
-		})
-	}
-
-	return result
+	return themes.NamespaceStylesheet(css)
 }
 
 // LoadCSSWithVariableNamespacing loads CSS content and processes variables for namespacing
