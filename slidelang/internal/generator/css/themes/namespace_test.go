@@ -229,14 +229,18 @@ func TestUnprefixedClassSelectors_IgnoresQuotedContentAndComments(t *testing.T) 
 // runtime (classList.add('active')) — a theme has no way to target the
 // real markup other than by using the bare name. KnownUnprefixedClasses
 // is the shared allowlist (also used by CSSFileLoader's default
-// ExcludeClasses) for exactly this.
+// ExcludeClasses) for exactly this. ".tabs"/".code-content" are NOT
+// examples here (a third-round finding on this PR: those two ARE
+// auto-prefixed by namespaceTemplateClasses, unlike "active" — see
+// KnownUnprefixedClasses's doc comment and
+// TestRenderHTMLPreview_EveryElementType_BareClassesAreKnown in package
+// generator, which verifies the full list against real rendered output).
 func TestUnprefixedClassSelectors_AcceptsKnownUnprefixedClasses(t *testing.T) {
 	css := `.slidelang-tab.active { color: red; }
-.slidelang-element.slidelang-code-group .tabs { display: flex; }
-.slidelang-element.slidelang-code-group .code-content { padding: 1rem; }`
+.slidelang-checklist-item.checked { color: green; }`
 	got := UnprefixedClassSelectors(css)
 	if len(got) != 0 {
-		t.Errorf("UnprefixedClassSelectors(%q) = %v, want none — active/tabs/code-content are legitimately bare in the engine's own markup", css, got)
+		t.Errorf("UnprefixedClassSelectors(%q) = %v, want none — active/checked are legitimately bare in the engine's own markup", css, got)
 	}
 }
 
@@ -279,5 +283,63 @@ func TestUnprefixedVarNames_IgnoresStringContent(t *testing.T) {
 	css := `.icon::after { content: "var(--brand)"; }`
 	if got := UnprefixedVarNames(css); len(got) != 0 {
 		t.Errorf("UnprefixedVarNames(%q) = %v, want none — \"brand\" is inside a string literal, not a real usage", css, got)
+	}
+}
+
+// TestNamespaceValue_VarWithQuotedFallback and
+// TestUnprefixedVarNames_VarWithQuotedFallback are the third-round PR #223
+// finding on the fix above: the FIRST version of the string/url()
+// protection fragmented css at protected-span boundaries BEFORE scanning
+// for var(...) calls, which broke a var(...) call whose OWN fallback
+// legitimately contains a string or url() — both valid, common CSS
+// (font-family: var(--font, "Helvetica Neue") needs the quotes because the
+// font name has a space). The fragmented scanner received only
+// "var(--font, " with no closing paren in sight and silently gave up on
+// the WHOLE call, name included. The fix checks only whether a "var("
+// match's START position is inside a protected span, without ever
+// splitting the string, so findMatchingParen still sees the whole,
+// correctly-balanced call.
+func TestNamespaceValue_VarWithQuotedFallback(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+		want string
+	}{
+		{
+			"quoted font name fallback",
+			`font-family: var(--font, "Helvetica Neue");`,
+			`font-family: var(--slidelang-font, "Helvetica Neue");`,
+		},
+		{
+			"url() with a quoted path fallback",
+			`background: var(--image, url("fallback.png"));`,
+			`background: var(--slidelang-image, url("fallback.png"));`,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := NamespaceValue(c.css); got != c.want {
+				t.Errorf("NamespaceValue(%q) = %q, want %q", c.css, got, c.want)
+			}
+		})
+	}
+}
+
+func TestUnprefixedVarNames_VarWithQuotedFallback(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+		want string
+	}{
+		{"quoted font name fallback", `font-family: var(--font, "Helvetica Neue");`, "font"},
+		{"url() with a quoted path fallback", `background: var(--image, url("fallback.png"));`, "image"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := UnprefixedVarNames(c.css)
+			if len(got) != 1 || got[0] != c.want {
+				t.Errorf("UnprefixedVarNames(%q) = %v, want [%q]", c.css, got, c.want)
+			}
+		})
 	}
 }

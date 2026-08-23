@@ -1,10 +1,10 @@
 /* Elementos de cita */
-.element.quote {
+.slidelang-element.slidelang-quote {
     margin: 1.5rem 0;
     padding: 0;
 }
 
-.element.quote blockquote {
+.slidelang-element.slidelang-quote blockquote {
     position: relative;
     margin: 0;
     padding: 1.5rem 2rem 1rem 3rem;
@@ -15,7 +15,7 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.element.quote blockquote:before {
+.slidelang-element.slidelang-quote blockquote:before {
     content: "\201C";
     position: absolute;
     top: 0.5rem;
@@ -27,14 +27,14 @@
     opacity: 0.3;
 }
 
-.element.quote blockquote p {
+.slidelang-element.slidelang-quote blockquote p {
     margin: 0;
     font-size: 1.2rem;
     line-height: 1.6;
     color: var(--text-color);
 }
 
-.element.quote blockquote .quote-footer {
+.slidelang-element.slidelang-quote blockquote .slidelang-quote-footer {
     margin-top: 1rem;
     font-style: normal;
     font-size: 0.9rem;
@@ -42,80 +42,80 @@
     text-align: right;
 }
 
-.element.quote blockquote .quote-footer:before {
+.slidelang-element.slidelang-quote blockquote .slidelang-quote-footer:before {
     content: "— ";
 }
 
-.element.quote blockquote .quote-footer cite {
+.slidelang-element.slidelang-quote blockquote .slidelang-quote-footer cite {
     font-weight: 500;
     color: var(--text-color);
 }
 
-.element.quote blockquote .quote-footer .source {
+.slidelang-element.slidelang-quote blockquote .slidelang-quote-footer .slidelang-source {
     color: var(--text-muted, #6c757d);
     font-style: italic;
 }
 
 /* Variantes de tema */
 /* Tema oscuro */
-.theme-dark .element.quote blockquote {
+.theme-dark .slidelang-element.slidelang-quote blockquote {
     background: var(--bg-secondary, #2d3748);
     border-left-color: var(--primary-color, #63b3ed);
 }
 
-.theme-dark .element.quote blockquote:before {
+.theme-dark .slidelang-element.slidelang-quote blockquote:before {
     color: var(--primary-color, #63b3ed);
 }
 
 /* Tema minimal */
-.theme-minimal .element.quote blockquote {
+.theme-minimal .slidelang-element.slidelang-quote blockquote {
     background: transparent;
     border-left: 3px solid var(--primary-color);
     box-shadow: none;
     padding: 1rem 0 1rem 2rem;
 }
 
-.theme-minimal .element.quote blockquote:before {
+.theme-minimal .slidelang-element.slidelang-quote blockquote:before {
     display: none;
 }
 
 /* Tema modern-blue */
-.theme-modern-blue .element.quote blockquote {
+.theme-modern-blue .slidelang-element.slidelang-quote blockquote {
     background: linear-gradient(135deg, rgba(99, 179, 237, 0.05) 0%, rgba(129, 140, 248, 0.05) 100%);
     border-left-color: var(--primary-color, #3182ce);
 }
 
-.theme-modern-blue .element.quote blockquote:before {
+.theme-modern-blue .slidelang-element.slidelang-quote blockquote:before {
     color: var(--primary-color, #3182ce);
 }
 
 /* Responsive design */
 @media (max-width: 768px) {
-    .element.quote blockquote {
+    .slidelang-element.slidelang-quote blockquote {
         padding: 1rem 1.5rem 0.8rem 2.5rem;
     }
 
-    .element.quote blockquote:before {
+    .slidelang-element.slidelang-quote blockquote:before {
         font-size: 2.5rem;
         left: 0.5rem;
     }
 
-    .element.quote blockquote p {
+    .slidelang-element.slidelang-quote blockquote p {
         font-size: 1.1rem;
     }
 }
 
 /* Animations para presentaciones */
-.element.quote blockquote {
+.slidelang-element.slidelang-quote blockquote {
     transition: all 0.3s ease;
 }
 
-.element.quote:hover blockquote {
+.slidelang-element.slidelang-quote:hover blockquote {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
     transform: translateY(-1px);
 }
 
 /* Estilos para citas sin autor */
-.element.quote blockquote:not(:has(.quote-footer)) {
+.slidelang-element.slidelang-quote blockquote:not(:has(.slidelang-quote-footer)) {
     padding-bottom: 1.5rem;
 }

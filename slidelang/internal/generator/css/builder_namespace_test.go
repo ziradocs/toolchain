@@ -161,11 +161,22 @@ func TestCSSBuilder_ModernBlueLiveRegression(t *testing.T) {
 // tag selectors that classRegex can never match anyway (it requires a
 // leading "."), whose only real effect was silently skipping a genuine
 // CLASS sharing that name — confirmed for ".table", the engine's own
-// slidelang-table wrapper class. Conversely ".tabs" (the code-group's
-// bare <div class="tabs"> container, template/base.go) was WRONGLY
-// prefixed to ".slidelang-tabs", which the real markup never carries
-// either. Loads the real, currently-shipped startup-tech theme — not a
-// synthetic fixture.
+// slidelang-table wrapper class.
+//
+// The code-group's ".tabs" container is namespaceTemplateClasses's job,
+// NOT ApplyNamespacing's or KnownUnprefixedClasses's: template/base.go's
+// literal <div class="tabs"> has no "{{" in that attribute, so the
+// template post-processor DOES auto-prefix it to "slidelang-tabs" — real,
+// rendered output confirmed empirically. A third-round finding on this PR
+// had this backwards (un-prefixed it, reintroducing the exact selector
+// mismatch this test exists to catch); TestRenderHTMLPreview_
+// EveryElementType_BareClassesAreKnown (package generator) is the
+// end-to-end check that would have caught that regression directly
+// against real output instead of relying on reading this test's own
+// assumption.
+//
+// Loads the real, currently-shipped startup-tech theme — not a synthetic
+// fixture.
 func TestCSSBuilder_StartupTechLiveRegression(t *testing.T) {
 	themesDir, err := filepath.Abs(filepath.Join("..", "..", "..", "themes"))
 	if err != nil {
@@ -192,11 +203,11 @@ func TestCSSBuilder_StartupTechLiveRegression(t *testing.T) {
 		t.Error("expected the namespaced selector '.slidelang-element.slidelang-table' in the bundle")
 	}
 
-	if strings.Contains(out, ".slidelang-code-group .slidelang-tabs") {
-		t.Error("found over-prefixed selector '.slidelang-code-group .slidelang-tabs' — the code-group's bare <div class=\"tabs\"> container never carries this class")
+	if strings.Contains(out, ".slidelang-code-group .tabs") {
+		t.Error("found un-namespaced selector '.slidelang-code-group .tabs' — the real template auto-prefixes this static class to .slidelang-tabs, so this selector can never match")
 	}
-	if !strings.Contains(out, ".slidelang-element.slidelang-code-group .tabs") {
-		t.Error("expected the (correctly bare) selector '.slidelang-element.slidelang-code-group .tabs' in the bundle")
+	if !strings.Contains(out, ".slidelang-element.slidelang-code-group .slidelang-tabs") {
+		t.Error("expected the namespaced selector '.slidelang-element.slidelang-code-group .slidelang-tabs' in the bundle")
 	}
 
 	if !strings.Contains(out, ".slidelang-tab.active") {

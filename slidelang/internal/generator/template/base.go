@@ -843,7 +843,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>{{end}}
             </div>
         {{else if eq .Type "map"}}
-            <div class="element map {{range .CSSClasses}}slidelang-{{.}} {{end}}"
+            <div class="slidelang-element slidelang-map {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-map-wrapper-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="map"
                  data-slide="{{.SlideIndex}}">
@@ -854,7 +854,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                      role="img"
                      {{if .Title}}aria-labelledby="slidelang-element-map-title-{{.SlideIndex}}-{{.ElementID}}"{{else if .MapOptions.title}}aria-labelledby="slidelang-element-map-subtitle-{{.SlideIndex}}-{{.ElementID}}"{{else}}aria-label="Mapa"{{end}}>{{.PreRenderedHTML}}</div>
             </div>        {{else if eq .Type "quote"}}
-            <div class="element quote {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+            <div class="slidelang-element slidelang-quote {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-quote-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="quote"
                  data-slide="{{.SlideIndex}}">
@@ -871,7 +871,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     {{end}}
                 </blockquote>
             </div>        {{else if eq .Type "checklist"}}
-            <div class="element checklist {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+            <div class="slidelang-element slidelang-checklist {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-checklist-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="checklist"
                  data-slide="{{.SlideIndex}}">

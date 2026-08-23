@@ -156,7 +156,7 @@ code {
     border: 1px solid rgba(139, 92, 246, 0.2);
 }
 
-.slidelang-element.slidelang-code-group .tabs {
+.slidelang-element.slidelang-code-group .slidelang-tabs {
     display: flex;
     background: rgba(139, 92, 246, 0.1);
     border-bottom: 1px solid rgba(139, 92, 246, 0.2);
