@@ -32,17 +32,33 @@ const slidelangVarPrefix = "slidelang-"
 // matching how Chromium's own tokenizer treats them.
 var varTokenRe = regexp.MustCompile(`(?i)var\(`)
 
-// isCSSIdentChar reports whether b can appear inside a CSS identifier —
-// used to confirm a varTokenRe match is not actually the tail of a longer
-// identifier before treating it as a real var() usage. Deliberately
-// ASCII-only, matching the identifier charset every other name-matching
-// regex in this file already uses (declarationRe, varInnerRe,
-// classSelectorRe) — full CSS identifier syntax also allows escapes and
-// non-ASCII characters, which a single-byte check can't recognize; a
-// hyphen or underscore immediately before the match is the case that
-// matters in practice, and the one plain \b gets wrong.
+// isCSSIdentChar reports whether the byte immediately before a varTokenRe
+// match means that match is NOT a real CSS var() function call — it's the
+// tail of a longer identifier, an escaped character, or a non-ASCII
+// character, any of which CSS identifier syntax allows to precede "var"
+// without it being the var() function.
+//
+// Beyond ASCII letters/digits/"_"/"-" (declarationRe, varInnerRe, and
+// classSelectorRe already treat these as the identifier charset
+// throughout this file — a hyphen or underscore immediately before the
+// match is the case \b got wrong, since Go's regexp \b treats "-" as a
+// non-word character), two more cases are checked (seventh-round finding
+// on PR #223):
+//   - a preceding "\" — an ESCAPE sequence: foo-\var(...) tokenizes as one
+//     identifier "foo-var" per CSS escape rules, not the function "var"
+//     (--value: foo-\var(--brand); is a token stream Chromium keeps
+//     completely literal).
+//   - a preceding byte >= 0x80 — the previous character was non-ASCII,
+//     which CSS identifiers may legally contain (--value: évar(--brand);
+//     is "évar" as one identifier, not "é" followed by a var() call).
+//
+// This remains a single-byte lookback, not a real CSS tokenizer: a
+// multi-character hex escape (\0076ar(...), a hex-escaped "v") is NOT
+// recognized, since only the byte immediately before the match is
+// inspected — a full fix would need a proper CSS identifier scanner. This
+// covers the two concrete cases review found, not the general case.
 func isCSSIdentChar(b byte) bool {
-	return b == '_' || b == '-' ||
+	return b == '_' || b == '-' || b == '\\' || b >= 0x80 ||
 		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
@@ -74,7 +90,19 @@ func isCSSIdentChar(b byte) bool {
 // var(--brand/* docs */) are equally valid CSS, but a bare \s* there
 // rejected any comment, again leaving the whole call unprocessed
 // (sixth-round finding on PR #223). Also captured and preserved verbatim.
-var varInnerRe = regexp.MustCompile(`(?s)^((?:[ \t\r\n]|/\*.*?\*/)*)--([a-zA-Z0-9_-]+)((?:[ \t\r\n]|/\*.*?\*/)*)(?:,\s*(.*))?$`)
+//
+// The fourth group captures the comma itself, SEPARATELY from the fifth
+// group's fallback content — var(--missing) (no fallback at all) and
+// var(--missing,) (an explicit, valid, EMPTY fallback) are different CSS
+// with different behavior when --missing is undefined: the former makes
+// the whole declaration invalid, the latter substitutes nothing and
+// leaves the rest of the value intact. Both leave a Go capture group
+// equal to "" when read with FindStringSubmatch, which cannot tell them
+// apart — namespaceVarBody must use FindStringSubmatchIndex instead, and
+// check whether the comma group's index is -1 (no comma at all) versus a
+// real (possibly zero-width) match (comma present) (seventh-round finding
+// on PR #223).
+var varInnerRe = regexp.MustCompile(`(?s)^((?:[ \t\r\n]|/\*.*?\*/)*)--([a-zA-Z0-9_-]+)((?:[ \t\r\n]|/\*.*?\*/)*)(,)?\s*(.*)$`)
 
 // NamespaceValue rewrites every var(--x) usage in a CSS value (or an
 // arbitrary CSS fragment — it does not require a single declaration's
@@ -164,18 +192,27 @@ func insideAnySpan(pos int, spans [][]int) bool {
 // (var(--a, #fff)) is left alone and one that nests another var() call
 // (var(--a, var(--b))) gets that inner call namespaced too.
 func namespaceVarBody(inner string) string {
-	m := varInnerRe.FindStringSubmatch(inner)
-	if m == nil {
+	loc := varInnerRe.FindStringSubmatchIndex(inner)
+	if loc == nil {
 		// Not a well-formed "--name[, fallback]" body (e.g. a JS var(x)
 		// unrelated to CSS custom properties slipped in) — leave as-is.
 		return inner
 	}
-	lead, name, trail, fallback := m[1], m[2], m[3], m[4]
+	lead := inner[loc[2]:loc[3]]
+	name := inner[loc[4]:loc[5]]
+	trail := inner[loc[6]:loc[7]]
+	hasComma := loc[8] != -1 // group 4 ("," itself) participated in the match
 	if !strings.HasPrefix(name, slidelangVarPrefix) {
 		name = slidelangVarPrefix + name
 	}
-	if fallback == "" {
+	if !hasComma {
 		return lead + "--" + name + trail
+	}
+	fallback := inner[loc[10]:loc[11]]
+	if fallback == "" {
+		// var(--missing,) — an explicit, valid EMPTY fallback, distinct
+		// from var(--missing) having none at all. Preserve the comma.
+		return lead + "--" + name + trail + ","
 	}
 	return lead + "--" + name + trail + ", " + NamespaceValue(fallback)
 }
@@ -397,7 +434,7 @@ func UnprefixedVarNames(css string) []string {
 			}
 			inner := s[openParen+1 : closeParen]
 			if m := varInnerRe.FindStringSubmatch(inner); m != nil {
-				name, fallback := m[2], m[4]
+				name, fallback := m[2], m[5]
 				if !strings.HasPrefix(name, slidelangVarPrefix) {
 					add(name)
 				}

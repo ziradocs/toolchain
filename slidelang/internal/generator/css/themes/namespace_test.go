@@ -669,3 +669,87 @@ func TestNamespaceDeclarations_MultipleConsecutiveCommentsBeforeColon(t *testing
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// TestNamespaceValue_PreservesEmptyFallbackComma is the seventh-round PR
+// #223 finding: var(--missing) and var(--missing,) are different CSS —
+// the former makes the whole declaration invalid if --missing is
+// undefined, the latter (an explicit, valid EMPTY fallback) substitutes
+// nothing and leaves the rest of the value intact — but namespaceVarBody
+// used to decide "was there a fallback?" purely by checking whether the
+// captured fallback STRING was empty, which cannot distinguish "no comma
+// at all" from "comma present, empty content after it", so the comma was
+// always silently dropped.
+func TestNamespaceValue_PreservesEmptyFallbackComma(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+		want string
+	}{
+		{"no fallback at all", "var(--missing)", "var(--slidelang-missing)"},
+		{"empty fallback, no space", "var(--missing,)", "var(--slidelang-missing,)"},
+		{"empty fallback, with space", "var(--missing, )", "var(--slidelang-missing,)"},
+		{"empty fallback surrounded by other tokens", "--value: before var(--missing,) after;", "--value: before var(--slidelang-missing,) after;"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := NamespaceValue(c.css); got != c.want {
+				t.Errorf("NamespaceValue(%q) = %q, want %q", c.css, got, c.want)
+			}
+		})
+	}
+}
+
+// TestUnprefixedVarNames_PreservesEmptyFallbackComma is the detector half
+// of the same finding — an empty fallback still counts as a real var()
+// usage with an unprefixed name, and must not be mistaken for "no usage
+// at all" during detection either.
+func TestUnprefixedVarNames_PreservesEmptyFallbackComma(t *testing.T) {
+	got := UnprefixedVarNames("var(--missing,)")
+	if len(got) != 1 || got[0] != "missing" {
+		t.Errorf("UnprefixedVarNames(%q) = %v, want [\"missing\"]", "var(--missing,)", got)
+	}
+}
+
+// TestNamespaceValue_DoesNotMatchAfterEscapeOrNonASCII and
+// TestUnprefixedVarNames_DoesNotMatchAfterEscapeOrNonASCII are the
+// seventh-round PR #223 finding, extending the sixth-round's identifier-
+// boundary fix: isCSSIdentChar only checked ASCII letters/digits/"_"/"-",
+// missing two other cases CSS identifier syntax allows immediately before
+// "var" without it being the var() function — an escape sequence
+// (foo-\var(...) tokenizes as the identifier "foo-var" per CSS escape
+// rules, not the function "var") and a non-ASCII character (évar(...) is
+// the identifier "évar", not "é" followed by a var() call). Both were
+// previously treated as real var() usages and rewritten.
+func TestNamespaceValue_DoesNotMatchAfterEscapeOrNonASCII(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+	}{
+		{"non-ASCII character before var(", "--value: évar(--brand);"},
+		{"backslash escape before var(", `--value: foo-\var(--brand);`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := NamespaceValue(c.css); got != c.css {
+				t.Errorf("NamespaceValue(%q) = %q, want unchanged — not the CSS var() function", c.css, got)
+			}
+		})
+	}
+}
+
+func TestUnprefixedVarNames_DoesNotMatchAfterEscapeOrNonASCII(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+	}{
+		{"non-ASCII character before var(", "--value: évar(--brand);"},
+		{"backslash escape before var(", `--value: foo-\var(--brand);`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := UnprefixedVarNames(c.css); len(got) != 0 {
+				t.Errorf("UnprefixedVarNames(%q) = %v, want none — not the CSS var() function", c.css, got)
+			}
+		})
+	}
+}
