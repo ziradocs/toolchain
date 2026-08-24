@@ -145,6 +145,25 @@ const CHART_SCALE_DIMENSIONS = {
     polarArea: ['r'],
 };
 
+// scaleDimensionByAxis classifies an EXISTING scale entry (one already
+// present in options.scales, not one this module materializes) by
+// dimension, for theming purposes only: scale.axis if the author declared
+// one, else the scale id's own first letter lowercased — the same
+// fallback Chart.js's own scale service (core.scale.js's
+// getRightToLeftAdapter/determineAxis path) uses to infer a scale's axis
+// when nothing else specifies it. NEVER use this to decide
+// materialization (requiredScaleIds/ensureThemeableScales) — a
+// code-review finding already established that a differently-named scale
+// does not suppress Chart.js's own default-id scale creation, and
+// classifying by axis/id here must not resurrect that bug from the other
+// direction.
+function scaleDimensionByAxis(id, scale) {
+    if (scale && typeof scale === 'object' && typeof scale.axis === 'string' && scale.axis) {
+        return scale.axis;
+    }
+    return typeof id === 'string' && id ? id.charAt(0).toLowerCase() : undefined;
+}
+
 // AXIS_ID_PROPS maps a scale dimension to the dataset property Chart.js
 // reads to override which scale id that dataset binds to for that
 // dimension. A code-review finding confirmed rAxisID is real, symmetric
@@ -261,16 +280,29 @@ function applyExtensionChartColors(themedConfig) {
     if (tokens['chart-grid'] || tokens['chart-axis']) {
         const scales = ensureThemeableScales(themedConfig);
         // radialScaleIds names every scale id that's actually radial for
-        // THIS config — computed per dataset (a dataset's own rAxisID
-        // override, or the literal 'r' default), not a single
-        // chart-level flag. A radar/polarArea chart's radial scale is not
-        // reliably keyed 'r': a dataset can redirect it via `rAxisID`
-        // (see AXIS_ID_PROPS's doc comment), and Chart.js still creates
-        // its OWN default 'r' scale alongside any custom-named one if
-        // nothing suppresses it — both need this angleLines/pointLabels
-        // treatment, not just whichever one happens to be keyed 'r'.
+        // THIS config: the dataset-driven set (a dataset's own rAxisID
+        // override, or the literal 'r' default — see AXIS_ID_PROPS's doc
+        // comment) UNION any scale already declared in options.scales
+        // that classifies as radial by its own axis/id
+        // (scaleDimensionByAxis). The union matters — a code-review
+        // finding caught the dataset-only set alone missing an explicit,
+        // author-declared radial scale that no dataset happens to
+        // reference (e.g. `options.scales.radial = {axis:'r'}` with a
+        // dataset that never sets rAxisID): Chart.js still creates AND
+        // draws that scale because it's explicitly configured, so it
+        // still needs angleLines/pointLabels themed, even though nothing
+        // in requiredScaleIds' materialization logic would ever add it.
+        // This union is used ONLY for this angleLines/pointLabels
+        // classification, never for materialization — doing that would
+        // resurrect the axis-suppresses-materialization bug from the
+        // other direction.
         const radialScaleIds = scaleIdsByDimension(themedConfig).r;
         if (scales && typeof scales === 'object') {
+            Object.keys(scales).forEach((key) => {
+                if (scaleDimensionByAxis(key, scales[key]) === 'r') {
+                    radialScaleIds.add(key);
+                }
+            });
             Object.keys(scales).forEach((key) => {
                 const scale = scales[key];
                 if (!scale || typeof scale !== 'object') {

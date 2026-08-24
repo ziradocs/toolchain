@@ -5,7 +5,9 @@ package themes
 
 import (
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -495,59 +497,283 @@ func IsValidMapColor(value string) bool {
 	return mapColorNamePattern.MatchString(value) || mapNamedColors[strings.ToLower(value)]
 }
 
-// cssNumber matches a plain CSS number (no unit), optionally with a
-// trailing '%' — used for rgb()/rgba() components (CSS allows either
-// 0-255 integers or percentages there) and for rgba()/hsla()'s alpha
-// component (CSS Color 4 allows alpha as a fraction or a percentage).
-// `[\d.]+` (the pattern this replaced) is not a real number grammar: it
-// accepts "1.2.3" and a bare ".", neither of which is valid CSS.
-const cssNumber = `(?:\d+(?:\.\d+)?|\.\d+)%?`
+// functionalColorCallRe splits a functional color notation into its
+// function name (rgb/rgba/hsl/hsla — CSS Color 4 makes each pair true
+// aliases, so the name doesn't fix the arity) and its raw argument list.
+// Everything about WHICH numbers are valid and how many there are is
+// handled by normalizeFunctionalColor itself, not by this regex — see its
+// doc comment for why. Deliberately does NOT match gradients or any other
+// CSS <image> syntax — Mermaid throws "Unsupported color format" for
+// those (reproduced with diagram-node-bg: linear-gradient(red, blue)), so
+// falling through to "invalid" for anything that isn't `name(...)` shaped
+// remains the safe default.
+var functionalColorCallRe = regexp.MustCompile(`(?i)^(rgba?|hsla?)\(\s*(.*?)\s*\)$`)
 
-// cssHue matches an hsl()/hsla() hue component: a signed number,
-// optionally carrying a CSS angle unit (deg/grad/rad/turn) per CSS Color
-// 4 — confirmed accepted by the exact Mermaid build this toolchain embeds
-// (mermaid@10.9.6, via khroma; a code-review finding): "hsl(-30,50%,50%)"
-// and "hsl(0.5turn,50%,50%)" both parse. Never a percentage — a
-// percentage hue is invalid CSS regardless of sign or unit (an earlier
-// review round's fix, still true here — cssHue's grammar has no '%'
-// anywhere in it).
-const cssHue = `-?(?:\d+(?:\.\d+)?|\.\d+)(?:deg|grad|rad|turn)?`
+// cssUnitSuffixes lists the unit suffixes parseCSSNumber recognizes, in an
+// order where no earlier entry is a suffix of a later one's remaining
+// text — "grad" must be checked before "rad", since "60grad" itself ends
+// in the three characters "rad".
+var cssUnitSuffixes = []string{"grad", "turn", "deg", "rad", "%"}
 
-// cssPercentage requires '%' — hsl()/hsla()'s saturation and lightness
-// components MUST be percentages; `hsl(120,50,50)` (no '%') is invalid
+// parseCSSNumber parses a single CSS numeric token: a signed number in
+// any form Go's strconv.ParseFloat accepts (including scientific
+// notation, e.g. "1e2") with an optional trailing '%' or CSS angle unit
+// (deg/grad/rad/turn). A code-review finding confirmed mermaid@10.9.6
+// accepts negative and scientific-notation numbers in rgb()/hsl()
+// components ("rgb(-10 0 0)", "rgb(1e2 0 0)") that an earlier
+// regex-based grammar (`[\d.]+`-shaped, no sign, no exponent) rejected
+// outright — parsing the number for real, the way any CSS engine does,
+// is what closes that gap instead of chasing one more hand-written
+// pattern.
+func parseCSSNumber(raw string) (value float64, percent bool, unit string, ok bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false, "", false
+	}
+	lower := strings.ToLower(trimmed)
+	numPart := trimmed
+	for _, suffix := range cssUnitSuffixes {
+		if strings.HasSuffix(lower, suffix) {
+			numPart = trimmed[:len(trimmed)-len(suffix)]
+			if suffix == "%" {
+				v, err := strconv.ParseFloat(strings.TrimSpace(numPart), 64)
+				if err != nil {
+					return 0, false, "", false
+				}
+				return v, true, "", true
+			}
+			v, err := strconv.ParseFloat(strings.TrimSpace(numPart), 64)
+			if err != nil {
+				return 0, false, "", false
+			}
+			return v, false, suffix, true
+		}
+	}
+	v, err := strconv.ParseFloat(numPart, 64)
+	if err != nil {
+		return 0, false, "", false
+	}
+	return v, false, "", true
+}
+
+// splitFunctionalArgs parses a functional color's raw argument text into
+// its (up to 3) color components plus an optional alpha, accepting both
+// legacy comma syntax (3 components, or 4 with alpha as the last comma
+// item — regardless of whether the function was spelled with or without
+// the trailing 'a', since CSS Color 4 makes rgb/rgba and hsl/hsla true
+// aliases: a code-review finding confirmed mermaid@10.9.6 accepts both
+// "rgba(10,20,30)" with 3 comma components and "rgb(10,20,30,0.5)" with
+// 4, neither of which an earlier strict-per-name-arity grammar allowed)
+// and modern space syntax (3 components, optionally followed by "/
+// alpha").
+func splitFunctionalArgs(args string) (components []string, alpha string, ok bool) {
+	if idx := strings.LastIndex(args, "/"); idx != -1 {
+		main := splitComponents(strings.TrimSpace(args[:idx]))
+		alphaPart := strings.TrimSpace(args[idx+1:])
+		if len(main) != 3 || alphaPart == "" {
+			return nil, "", false
+		}
+		return main, alphaPart, true
+	}
+	if strings.Contains(args, ",") {
+		parts := strings.Split(args, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		switch len(parts) {
+		case 3:
+			return parts, "", true
+		case 4:
+			return parts[:3], parts[3], true
+		default:
+			return nil, "", false
+		}
+	}
+	parts := strings.Fields(args)
+	if len(parts) != 3 {
+		return nil, "", false
+	}
+	return parts, "", true
+}
+
+func splitComponents(s string) []string {
+	if strings.Contains(s, ",") {
+		parts := strings.Split(s, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
+	}
+	return strings.Fields(s)
+}
+
+// rgbComponent parses one rgb()/rgba() red/green/blue component: a plain
+// number (0-255) or a percentage (0%-100%), clamped to the valid byte
+// range per CSS's out-of-range handling — a component can't itself carry
+// an angle unit.
+func rgbComponent(raw string) (float64, bool) {
+	v, percent, unit, ok := parseCSSNumber(raw)
+	if !ok || unit != "" {
+		return 0, false
+	}
+	if percent {
+		v = v / 100 * 255
+	}
+	return math.Max(0, math.Min(255, v)), true
+}
+
+// alphaComponent parses an alpha value: a plain number (0-1) or a
+// percentage (0%-100%), clamped — same out-of-range handling as any other
+// CSS Color 4 component.
+func alphaComponent(raw string) (float64, bool) {
+	v, percent, unit, ok := parseCSSNumber(raw)
+	if !ok || unit != "" {
+		return 0, false
+	}
+	if percent {
+		v /= 100
+	}
+	return math.Max(0, math.Min(1, v)), true
+}
+
+// hueDegrees parses an hsl()/hsla() hue component into degrees in
+// [0,360): a signed number, optionally carrying a CSS angle unit
+// (deg/grad/rad/turn) — confirmed accepted by the exact Mermaid build
+// this toolchain embeds (mermaid@10.9.6, via khroma; a code-review
+// finding): "hsl(-30,50%,50%)" and "hsl(0.5turn,50%,50%)" both parse.
+// Never a percentage — a percentage hue is invalid CSS regardless of sign
+// or unit.
+func hueDegrees(raw string) (float64, bool) {
+	v, percent, unit, ok := parseCSSNumber(raw)
+	if !ok || percent {
+		return 0, false
+	}
+	switch unit {
+	case "", "deg":
+	case "grad":
+		v *= 0.9
+	case "rad":
+		v *= 180 / math.Pi
+	case "turn":
+		v *= 360
+	}
+	v = math.Mod(v, 360)
+	if v < 0 {
+		v += 360
+	}
+	return v, true
+}
+
+// percentComponent parses an hsl()/hsla() saturation or lightness
+// component: MUST be a percentage — `hsl(120,50,50)` (no '%') is invalid
 // CSS and throws "Unsupported color format" in Mermaid, exactly like a
-// gradient does.
-const cssPercentage = `(?:\d+(?:\.\d+)?|\.\d+)%`
+// gradient does — clamped to 0-100.
+func percentComponent(raw string) (float64, bool) {
+	v, percent, unit, ok := parseCSSNumber(raw)
+	if !ok || !percent || unit != "" {
+		return 0, false
+	}
+	return math.Max(0, math.Min(100, v)), true
+}
 
-// mermaidFunctionalColorRe matches rgb()/rgba()/hsl()/hsla() — the
-// functional color notations Mermaid's theming layer accepts alongside hex
-// and named colors, per mermaid.js.org/config/theming.html — in BOTH the
-// legacy comma-separated syntax (CSS Color 3: rgb()/hsl() take exactly 3
-// components, rgba()/hsla() exactly 4, the function name fixing the
-// count) and the modern CSS Color 4 space-separated syntax (rgb()/rgba()
-// and hsl()/hsla() are true aliases there — either name, either
-// with-or-without an alpha component — with an optional "/ alpha"
-// suffix, e.g. "rgb(255 0 0 / 50%)"). A code-review finding confirmed
-// mermaid@10.9.6 accepts the modern form too; an earlier version of this
-// pattern only handled the legacy syntax, and its own comment incorrectly
-// implied Mermaid rejected anything else — silently producing incomplete
-// theming for any modern-syntax token instead of a crash, but still a
-// real gap. The legacy alternatives keep their original strict per-name
-// arity (unchanged, un-flagged by any review round): still deliberately
-// does NOT match gradients or any other CSS <image> syntax — Mermaid
-// throws "Unsupported color format" for those (reproduced with
-// diagram-node-bg: linear-gradient(red, blue)), so dropping an
-// unrecognized-but-maybe-valid token remains the safe default.
-var mermaidFunctionalColorRe = regexp.MustCompile(`(?i)^(?:` +
-	// legacy comma syntax
-	`rgb\(\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*\)` +
-	`|rgba\(\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*\)` +
-	`|hsl\(\s*` + cssHue + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssPercentage + `\s*\)` +
-	`|hsla\(\s*` + cssHue + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssNumber + `\s*\)` +
-	// modern CSS Color 4 space syntax, with an optional "/ alpha" suffix
-	`|rgba?\(\s*` + cssNumber + `\s+` + cssNumber + `\s+` + cssNumber + `(?:\s*/\s*` + cssNumber + `)?\s*\)` +
-	`|hsla?\(\s*` + cssHue + `\s+` + cssPercentage + `\s+` + cssPercentage + `(?:\s*/\s*` + cssNumber + `)?\s*\)` +
-	`)$`)
+// hslToRGB converts an hsl() triple (h in degrees, s and l as 0-1
+// fractions) to 0-255 RGB bytes, via the standard CSS Color reference
+// algorithm.
+func hslToRGB(h, s, l float64) (r, g, b float64) {
+	if s == 0 {
+		v := l * 255
+		return v, v, v
+	}
+	var q float64
+	if l < 0.5 {
+		q = l * (1 + s)
+	} else {
+		q = l + s - l*s
+	}
+	p := 2*l - q
+	hk := h / 360
+	return hueToRGBComponent(p, q, hk+1.0/3) * 255,
+		hueToRGBComponent(p, q, hk) * 255,
+		hueToRGBComponent(p, q, hk-1.0/3) * 255
+}
+
+func hueToRGBComponent(p, q, t float64) float64 {
+	if t < 0 {
+		t++
+	}
+	if t > 1 {
+		t--
+	}
+	switch {
+	case t < 1.0/6:
+		return p + (q-p)*6*t
+	case t < 1.0/2:
+		return q
+	case t < 2.0/3:
+		return p + (q-p)*(2.0/3-t)*6
+	default:
+		return p
+	}
+}
+
+// normalizeFunctionalColor parses an rgb()/rgba()/hsl()/hsla() value —
+// legacy comma syntax or modern CSS Color 4 space syntax, either function
+// name for either arity, any component grammar a real CSS number allows
+// (sign, scientific notation, out-of-range values that clamp rather than
+// fail) — and converts it to a hex string. This mirrors
+// normalizeMermaidColor's own strategy for named colors: rather than
+// keep hand-extending a regex to match Mermaid's actual accepted
+// grammar (a gap three separate review rounds found new instances of —
+// see cssNamedColorHex's doc comment for the analogous history on the
+// named-color side), parse the value as real CSS and emit hex, which
+// every real color parser (khroma included) accepts unconditionally
+// regardless of which functional syntax the theme author used.
+func normalizeFunctionalColor(value string) (string, bool) {
+	match := functionalColorCallRe.FindStringSubmatch(value)
+	if match == nil {
+		return "", false
+	}
+	fn := strings.ToLower(match[1])
+	components, alphaRaw, ok := splitFunctionalArgs(match[2])
+	if !ok {
+		return "", false
+	}
+
+	var r, g, b float64
+	switch fn {
+	case "rgb", "rgba":
+		var ok1, ok2, ok3 bool
+		r, ok1 = rgbComponent(components[0])
+		g, ok2 = rgbComponent(components[1])
+		b, ok3 = rgbComponent(components[2])
+		if !ok1 || !ok2 || !ok3 {
+			return "", false
+		}
+	case "hsl", "hsla":
+		h, okH := hueDegrees(components[0])
+		s, okS := percentComponent(components[1])
+		l, okL := percentComponent(components[2])
+		if !okH || !okS || !okL {
+			return "", false
+		}
+		r, g, b = hslToRGB(h, s/100, l/100)
+	default:
+		return "", false
+	}
+
+	if alphaRaw == "" {
+		return fmt.Sprintf("#%02X%02X%02X", round255(r), round255(g), round255(b)), true
+	}
+	a, ok := alphaComponent(alphaRaw)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("#%02X%02X%02X%02X", round255(r), round255(g), round255(b), round255(a*255)), true
+}
+
+func round255(v float64) int {
+	return int(math.Round(math.Max(0, math.Min(255, v))))
+}
 
 // cssNamedColorHex maps every CSS Color Module named color (Level 3
 // extended keywords + the Level 4 addition "rebeccapurple" + the special
@@ -624,13 +850,14 @@ func IsValidMermaidColor(value string) bool {
 }
 
 // normalizeMermaidColor validates value the same way IsValidMermaidColor
-// does, but returns the value Mermaid should actually receive: a named
-// color is rewritten to its hex equivalent (cssNamedColorHex) rather than
-// passed through as a name, so mermaid@10.9.6's own khroma-based parser
-// never has to recognize the keyword itself — only hex, which every real
-// CSS color parser (khroma included) supports unconditionally. Hex and
-// functional (rgb()/hsl()) values already in a form Mermaid parses
-// directly are returned unchanged.
+// does, but returns the value Mermaid should actually receive: both a
+// named color (cssNamedColorHex) and a functional rgb()/rgba()/hsl()/
+// hsla() value (normalizeFunctionalColor) are rewritten to their hex
+// equivalent rather than passed through, so mermaid@10.9.6's own
+// khroma-based parser never has to recognize the original syntax at all
+// — only hex, which every real CSS color parser (khroma included)
+// supports unconditionally. Only hex values already in that form are
+// returned unchanged.
 func normalizeMermaidColor(value string) (string, bool) {
 	trimmed := strings.TrimSpace(value)
 	if mapColorNamePattern.MatchString(trimmed) {
@@ -639,8 +866,8 @@ func normalizeMermaidColor(value string) (string, bool) {
 	if hex, ok := cssNamedColorHex[strings.ToLower(trimmed)]; ok {
 		return hex, true
 	}
-	if mermaidFunctionalColorRe.MatchString(trimmed) {
-		return trimmed, true
+	if hex, ok := normalizeFunctionalColor(trimmed); ok {
+		return hex, true
 	}
 	return "", false
 }

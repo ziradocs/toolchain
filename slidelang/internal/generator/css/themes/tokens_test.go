@@ -391,11 +391,16 @@ func TestIsValidMermaidColor(t *testing.T) {
 		// format" against the real Mermaid build this toolchain embeds
 		// (mermaid@10.9.6, core/renderer/cdn_tags.go) and must be rejected,
 		// not just accepted-by-accident of a loose regex.
-		"#12345":               false, // 5-digit hex: not a valid CSS hex length
-		"#1234567":             false, // 7-digit hex: not a valid CSS hex length
-		"hsl(120,50,50)":       false, // hsl() requires '%' on S/L
-		"rgb(10,20,30,40)":     false, // rgb() takes exactly 3 components, not 4
-		"rgba(10,20,30)":       false, // rgba() takes exactly 4 components, not 3
+		"#12345":         false, // 5-digit hex: not a valid CSS hex length
+		"#1234567":       false, // 7-digit hex: not a valid CSS hex length
+		"hsl(120,50,50)": false, // hsl() requires '%' on S/L
+		// A fourth code-review-flagged gap: rgb/rgba (and hsl/hsla) are
+		// true CSS Color 4 aliases of each other — the function name
+		// doesn't fix the arity. mermaid@10.9.6 accepts both of these;
+		// an earlier grammar rejected them because it hard-coded arity
+		// per function name instead of per argument count.
+		"rgb(10,20,30,40)":     true,
+		"rgba(10,20,30)":       true,
 		"rgb(1.2.3, 0, 0)":     false, // not a real number
 		"linear-gradient(red)": false,
 		"var(--x)":             false,
@@ -425,6 +430,16 @@ func TestIsValidMermaidColor(t *testing.T) {
 		"hsl(0.5turn,50%,50%)":   true,
 		"rgb(255 0 0 / 50%)":     true,
 		"hsl(120 50% 50% / 25%)": true,
+		// A fifth code-review-flagged gap, closed by parsing components
+		// as real CSS numbers (parseCSSNumber) instead of matching a
+		// no-sign, no-exponent digit pattern: mermaid@10.9.6 accepts a
+		// negative rgb() component, scientific notation, and an
+		// out-of-range (clamped, not rejected) hsl() saturation/
+		// lightness — none of which the previous regex-only grammar
+		// could ever accept short of one more hand-added alternative.
+		"rgb(-10 0 0)":       true,
+		"rgb(1e2 0 0)":       true,
+		"hsl(-30 -10% 120%)": true,
 	}
 	for in, want := range cases {
 		if got := IsValidMermaidColor(in); got != want {
@@ -459,16 +474,40 @@ func TestNormalizeMermaidColor_NamedColorBecomesHex(t *testing.T) {
 	}
 }
 
-// TestNormalizeMermaidColor_HexAndFunctionalPassThroughUnchanged confirms
-// the normalization is targeted: only named colors get rewritten — hex
-// and rgb()/hsl() forms Mermaid already parses directly must survive
-// byte-for-byte, not get needlessly reformatted.
-func TestNormalizeMermaidColor_HexAndFunctionalPassThroughUnchanged(t *testing.T) {
-	cases := []string{"#ff0000", "#F00", "rgba(0,0,0,0.5)", "hsl(120, 50%, 50%)"}
+// TestNormalizeMermaidColor_HexPassesThroughUnchanged confirms hex values
+// — already in the one form every real CSS color parser (khroma
+// included) accepts unconditionally — are never needlessly reformatted.
+func TestNormalizeMermaidColor_HexPassesThroughUnchanged(t *testing.T) {
+	cases := []string{"#ff0000", "#F00", "#12ab34cd"}
 	for _, in := range cases {
 		got, ok := normalizeMermaidColor(in)
 		if !ok || got != in {
 			t.Errorf("normalizeMermaidColor(%q) = (%q, %v), want (%q, true) unchanged", in, got, ok, in)
+		}
+	}
+}
+
+// TestNormalizeMermaidColor_FunctionalBecomesHex is the analogous repro
+// to TestNormalizeMermaidColor_NamedColorBecomesHex for functional
+// syntax: rgb()/hsl() are ALSO rewritten to hex now, not just passed
+// through — the same fix applied to the same underlying problem
+// (chasing a third-party parser's exact accepted grammar via regex is
+// how three separate review rounds each found a new gap; parsing the
+// value as real CSS numbers and emitting hex is what stops that from
+// having a fourth round).
+func TestNormalizeMermaidColor_FunctionalBecomesHex(t *testing.T) {
+	cases := map[string]string{
+		"rgb(255, 0, 0)":    "#FF0000",
+		"rgba(0,0,0,0.5)":   "#00000080",
+		"rgb(-10 0 0)":      "#000000",   // negative clamps to 0
+		"rgb(1e2 0 0)":      "#640000",   // scientific notation: 100 = 0x64
+		"rgba(10,20,30)":    "#0A141E",   // rgba() alias accepts 3 components
+		"rgb(10,20,30,0.5)": "#0A141E80", // rgb() alias accepts a 4th (alpha)
+	}
+	for in, want := range cases {
+		got, ok := normalizeMermaidColor(in)
+		if !ok || got != want {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, %v), want (%q, true)", in, got, ok, want)
 		}
 	}
 }

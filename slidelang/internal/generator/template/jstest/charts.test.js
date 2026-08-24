@@ -228,6 +228,33 @@ test('applyExtensionChartColors: a radar with two datasets, one overriding rAxis
     assert.equal(config.options.scales.r.angleLines.color, '#111');
 });
 
+// A code-review-flagged gap the previous two tests didn't cover: a
+// dataset-driven radialScaleIds set alone misses an EXPLICITLY declared
+// radial scale that no dataset happens to reference via rAxisID. Chart.js
+// still creates and draws "radial" here because the author put it in
+// options.scales directly — it's not dead config — so it still needs
+// angleLines/pointLabels themed, even though nothing in
+// requiredScaleIds' dataset-driven materialization logic would ever have
+// added it on its own.
+test('applyExtensionChartColors: an explicitly declared but dataset-unlinked radial scale still gets angleLines/pointLabels themed', () => {
+    const ctx = loadModule('charts.js');
+    ctx.SlideLang.metadata = { themeTokens: { chart: { 'chart-grid': '#111', 'chart-axis': '#222' } } };
+    const config = baseConfig('radar', {
+        // default dataset: no rAxisID override, so it still requires the
+        // literal default 'r' — "radial" is declared but unreferenced.
+        options: { scales: { radial: { axis: 'r' } } },
+    });
+
+    ctx.applyExtensionChartColors(config);
+
+    assert.ok(config.options.scales.r, 'expected the dataset-required literal "r" to still be materialized');
+    assert.equal(config.options.scales.r.angleLines.color, '#111');
+    assert.equal(config.options.scales.r.pointLabels.color, '#222');
+    assert.equal(config.options.scales.radial.grid.color, '#111', 'grid/ticks already themed every scale key unconditionally');
+    assert.equal(config.options.scales.radial.angleLines.color, '#111', 'the explicit radial scale must ALSO get angleLines themed, not just the materialized default');
+    assert.equal(config.options.scales.radial.pointLabels.color, '#222', 'the explicit radial scale must ALSO get pointLabels themed, not just the materialized default');
+});
+
 // The generalized model is also dataset.type-aware: a mixed/combo-style
 // config where one dataset's own `type` differs from the chart-level
 // type gets ITS required dimensions computed from its own type, not
