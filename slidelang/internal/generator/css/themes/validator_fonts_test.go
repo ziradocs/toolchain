@@ -236,6 +236,139 @@ func TestValidateAssets_FontFileTraversalRejected(t *testing.T) {
 	}
 }
 
+// TestValidateAssets_FontNameMissing is a code-review-flagged gap: a font
+// asset with a real, readable file but no 'name' passed validation before
+// this check existed, yet buildFontFaceRule (fonts.go) drops any entry
+// with an empty Name outright — an @font-face needs a font-family, so
+// there's nothing sensible to emit. The theme silently shipped a valid
+// font file backing zero @font-face rules — the exact "fell back to a
+// system font with no visible error" failure mode §2.3 exists to
+// eliminate, reached through the 'name' field instead of 'local' this
+// time.
+func TestValidateAssets_FontNameMissing(t *testing.T) {
+	manifest := `{
+  "name": "test-theme",
+  "version": "1.0.0",
+  "description": "test",
+  "author": "test",
+  "variables": {
+    "--slidelang-primary-color": "#000",
+    "--slidelang-secondary-color": "#111",
+    "--slidelang-font-main": "sans-serif",
+    "--slidelang-font-size-base": "1rem",
+    "--slidelang-line-height-base": "1.5",
+    "--slidelang-background-color": "#fff",
+    "--slidelang-text-color": "#000"
+  },
+  "assets": {
+    "fonts": [{"local":"fonts/local.woff2"}]
+  }
+}`
+	dir := t.TempDir()
+	fontPath := filepath.Join(dir, "fonts", "local.woff2")
+	if err := os.MkdirAll(filepath.Dir(fontPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fontPath, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "theme.json")
+	if err := os.WriteFile(path, []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	theme, err := LoadExternalTheme(path)
+	if err != nil {
+		t.Fatalf("LoadExternalTheme: %v", err)
+	}
+
+	result := NewThemeValidator().ValidateThemeDetailed(theme)
+	if result.IsValid {
+		t.Fatal("expected a font asset with no 'name' to fail validation")
+	}
+	if !containsSubstring(result.Errors, "requires 'name'") {
+		t.Errorf("expected an error about the missing 'name', got: %v", result.Errors)
+	}
+}
+
+// TestValidateAssets_FontFileNotRegular covers 'local' pointing at a FIFO
+// with a font extension — os.Stat's IsDir() alone (the old check) doesn't
+// catch this, and worse than a validation false positive, os.ReadFile on a
+// FIFO at build time (buildFontFaceRule) blocks forever with no
+// diagnostic. Skipped on platforms without a FIFO syscall (Windows).
+func TestValidateAssets_FontFileNotRegular(t *testing.T) {
+	dir := t.TempDir()
+	fontPath := filepath.Join(dir, "fonts", "local.woff2")
+	if err := os.MkdirAll(filepath.Dir(fontPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := mkfifoForTest(fontPath); err != nil {
+		t.Skipf("FIFO not supported on this platform: %v", err)
+	}
+	path := filepath.Join(dir, "theme.json")
+	if err := os.WriteFile(path, []byte(themeManifestWithFont("fonts/local.woff2")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	theme, err := LoadExternalTheme(path)
+	if err != nil {
+		t.Fatalf("LoadExternalTheme: %v", err)
+	}
+
+	result := NewThemeValidator().ValidateThemeDetailed(theme)
+	if result.IsValid {
+		t.Fatal("expected a FIFO at 'local' to fail validation")
+	}
+	if !containsSubstring(result.Errors, "not a regular file") {
+		t.Errorf("expected an error about 'local' not being a regular file, got: %v", result.Errors)
+	}
+}
+
+// TestValidateAssets_FontFileUnreadable covers a real, regular font file
+// the process can't read (permission denied). Skipped when the test
+// process can read anything regardless of mode bits (running as root, or
+// a filesystem that ignores them) — os.Chmod succeeding is not proof of
+// that, so this actually attempts the read rather than trusting the mode
+// bits alone.
+func TestValidateAssets_FontFileUnreadable(t *testing.T) {
+	dir := t.TempDir()
+	fontPath := filepath.Join(dir, "fonts", "local.woff2")
+	if err := os.MkdirAll(filepath.Dir(fontPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fontPath, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(fontPath, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(fontPath, 0644); err != nil {
+			t.Errorf("cleanup: chmod: %v", err)
+		}
+	})
+
+	if f, err := os.Open(fontPath); err == nil {
+		_ = f.Close()
+		t.Skip("process can read a 0000-mode file (likely running as root); permission check not testable here")
+	}
+
+	path := filepath.Join(dir, "theme.json")
+	if err := os.WriteFile(path, []byte(themeManifestWithFont("fonts/local.woff2")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	theme, err := LoadExternalTheme(path)
+	if err != nil {
+		t.Fatalf("LoadExternalTheme: %v", err)
+	}
+
+	result := NewThemeValidator().ValidateThemeDetailed(theme)
+	if result.IsValid {
+		t.Fatal("expected an unreadable 'local' file to fail validation")
+	}
+	if !containsSubstring(result.Errors, "not readable") {
+		t.Errorf("expected an error about 'local' not being readable, got: %v", result.Errors)
+	}
+}
+
 // TestValidateFontFamilyBacking_WarnsWhenUnbacked is the exact failure mode
 // elegant-minimal has today: a font-family stack names a family with no
 // matching assets.fonts entry. Must be a Warning (still loads), not an

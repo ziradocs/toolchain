@@ -181,6 +181,21 @@ func buildFontFaceRule(themeDir string, font ThemeFont) (string, bool) {
 		util.Warn("THEME FONTS: '%s' declara una ruta 'local' inválida (%s): %v", font.Name, font.Local, err)
 		return "", false
 	}
+	// A validated theme already went through validateFontFile's identical
+	// check, but this is the site that actually reads the file, and not
+	// every caller validates first (LoadExternalThemeFromBytes never calls
+	// loadAssets at all, and validation is opt-in even when it does). A
+	// FIFO or device node with a font extension makes os.ReadFile block
+	// forever below — this guard must run before that call, not after.
+	info, err := os.Stat(resolved)
+	if err != nil {
+		util.Warn("THEME FONTS: no se pudo leer el archivo de '%s' (%s): %v", font.Name, font.Local, err)
+		return "", false
+	}
+	if !info.Mode().IsRegular() {
+		util.Warn("THEME FONTS: '%s' declara 'local' (%s) que no es un archivo regular", font.Name, font.Local)
+		return "", false
+	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		util.Warn("THEME FONTS: no se pudo leer el archivo de '%s' (%s): %v", font.Name, font.Local, err)

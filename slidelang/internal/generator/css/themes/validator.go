@@ -303,6 +303,16 @@ func (tv *ThemeValidator) validateAssets(themeDir string, assets []ThemeAsset, r
 		// the exact network dependency this decision removes, plus a
 		// typeface-redistribution question this repo doesn't want to own.
 		if asset.Type == "font" {
+			// buildFontFaceRule (fonts.go) drops an entry outright when
+			// Name == "" — an @font-face with no font-family is nonsense
+			// CSS. A theme validated without this check can ship a real,
+			// readable font file that still silently produces zero
+			// @font-face rules, exactly the failure mode §2.3 exists to
+			// eliminate, just reached through the "name" field instead of
+			// "local".
+			if asset.Name == "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("font asset at %q requires 'name' — an entry with no font-family can never emit @font-face", asset.Path))
+			}
 			if asset.Path == "" {
 				result.Errors = append(result.Errors, fmt.Sprintf("font asset %q requires 'local' — fonts are always self-hosted with the theme", asset.Name))
 			}
@@ -350,6 +360,22 @@ func (tv *ThemeValidator) validateFontFile(themeDir string, asset ThemeAsset, re
 		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' path %q is a directory, not a font file", asset.Name, asset.Path))
 		return
 	}
+	// IsDir() alone lets a FIFO, socket, or device file with a font
+	// extension through — and worse than a validation false positive,
+	// os.ReadFile on a FIFO at build time (buildFontFaceRule) BLOCKS
+	// forever, hanging the whole build with no diagnostic. Mode().IsRegular
+	// must be checked before any attempt to open the path — opening a FIFO
+	// is exactly the blocking call this guards against.
+	if !info.Mode().IsRegular() {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' path %q is not a regular file", asset.Name, asset.Path))
+		return
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' file %q is not readable: %v", asset.Name, asset.Path, err))
+		return
+	}
+	_ = f.Close()
 	if _, _, ok := fontFormatFor(asset.Path); !ok {
 		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: %q has an unsupported font extension (supported: .woff2, .woff, .ttf, .otf)", asset.Name, asset.Path))
 	}
