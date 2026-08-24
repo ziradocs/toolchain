@@ -39,6 +39,51 @@ function categoricalColor(index) {
     return palette[index % palette.length];
 }
 
+// withAlpha (motor-temas-v2.md §2.2): categoricalColor() can now return a
+// theme's chart-cat-* token instead of one of the hardcoded hex
+// defaultColors, and a token isn't guaranteed to be #RRGGBB — it can be
+// any CSS color IsValidMapColor-class validation doesn't gate (rgb(),
+// hsl(), a 3-digit hex, a bare name like "red"). Appending the literal
+// string '80' — the old fill-alpha trick — only produces a valid color for
+// exactly the 6-digit-hex case; for anything else it silently produces an
+// invalid CSS color string ("red80", "rgb(...)80") that Chart.js's canvas
+// fillStyle then just ignores. ALPHA_FRACTION = 0x80/255, chosen so the
+// hex branch below reproduces the exact byte sequence ("...80") the old
+// code always produced — this is a behavior-preserving fix for
+// defaultColors, not a visual change.
+const ALPHA_FRACTION = 128 / 255;
+
+function withAlpha(color, alphaFraction) {
+    if (typeof color !== 'string') {
+        return color;
+    }
+    const hexMatch = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+    if (hexMatch) {
+        let hex = hexMatch[1];
+        if (hex.length === 3) {
+            hex = hex.split('').map((c) => c + c).join('');
+        } else if (hex.length === 8) {
+            hex = hex.slice(0, 6);
+        }
+        const alphaHex = Math.round(alphaFraction * 255).toString(16).padStart(2, '0');
+        return '#' + hex + alphaHex;
+    }
+    const rgbMatch = color.match(/^rgba?\(\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*(?:,\s*[\d.]+\s*)?\)$/i);
+    if (rgbMatch) {
+        return 'rgba(' + rgbMatch[1] + ', ' + rgbMatch[2] + ', ' + rgbMatch[3] + ', ' + alphaFraction + ')';
+    }
+    const hslMatch = color.match(/^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+%)\s*,\s*([\d.]+%)\s*(?:,\s*[\d.]+\s*)?\)$/i);
+    if (hslMatch) {
+        return 'hsla(' + hslMatch[1] + ', ' + hslMatch[2] + ', ' + hslMatch[3] + ', ' + alphaFraction + ')';
+    }
+    // Named color or anything else Chart.js/canvas would otherwise accept
+    // as-is: color-mix is the only format-agnostic way to apply alpha
+    // without a full CSS color parser, and has been supported in every
+    // Chart.js-capable browser (and the Chromium version this toolchain's
+    // offline/PDF path embeds) since 2023.
+    return 'color-mix(in srgb, ' + color + ' ' + Math.round(alphaFraction * 100) + '%, transparent)';
+}
+
 // applyExtensionChartColors (motor-temas-v2.md §2.2): superpone los
 // tokens chart-grid/-axis/-label/-tooltip-bg sobre lo que buildConfig() o
 // la config JSON del autor ya hayan producido, sin pisar nunca un valor
@@ -49,6 +94,14 @@ function categoricalColor(index) {
 // CUALQUIER variable que un tema declare en :root, así que un segundo
 // camino Go/JS para ese único token sería duplicar un mecanismo que ya
 // funciona.
+// CARTESIAN_CHART_TYPES are the Chart.js types that get an implicit
+// x/y scale pair when options.scales omits one — bar/line/scatter/bubble,
+// and (via buildConfig's originalType==='combo' -> chartType 'bar' mapping)
+// combo. pie/doughnut have no cartesian scales at all (applyThemeColors
+// deletes options.scales for them above), so they're deliberately excluded
+// here rather than gaining a spurious x/y.
+const CARTESIAN_CHART_TYPES = ['bar', 'line', 'scatter', 'bubble'];
+
 function applyExtensionChartColors(themedConfig) {
     const metadata = (typeof SlideLang !== 'undefined' && SlideLang.metadata) || {};
     const tokens = (metadata.themeTokens && metadata.themeTokens.chart) || null;
@@ -60,6 +113,22 @@ function applyExtensionChartColors(themedConfig) {
     }
 
     if (tokens['chart-grid'] || tokens['chart-axis']) {
+        // buildConfig() always declares scales.y explicitly but leaves x
+        // implicit (Chart.js creates it at chart-construction time from
+        // its own defaults) — so "scales exists" isn't enough to know
+        // every axis is present. Materialize x/y here, before iterating,
+        // whenever they're missing on a cartesian chart; this mirrors what
+        // Chart.js would do internally anyway, so it changes coloring only,
+        // never chart behavior.
+        if (CARTESIAN_CHART_TYPES.includes(themedConfig.type)) {
+            themedConfig.options.scales = themedConfig.options.scales || {};
+            if (!themedConfig.options.scales.x) {
+                themedConfig.options.scales.x = {};
+            }
+            if (!themedConfig.options.scales.y) {
+                themedConfig.options.scales.y = {};
+            }
+        }
         const scales = themedConfig.options.scales;
         if (scales && typeof scales === 'object') {
             Object.keys(scales).forEach((key) => {
@@ -329,8 +398,8 @@ const SlideLangCharts = {
                 if (config.type === 'pie' || config.type === 'doughnut') {
                     if (!dataset.backgroundColor) {
                         // Asignar un color diferente a cada segmento
-                        dataset.backgroundColor = dataset.data.map((_, segmentIndex) => 
-                            categoricalColor(segmentIndex) + '80'
+                        dataset.backgroundColor = dataset.data.map((_, segmentIndex) =>
+                            withAlpha(categoricalColor(segmentIndex), ALPHA_FRACTION)
                         );
                     }
                     if (!dataset.borderColor) {
@@ -341,7 +410,7 @@ const SlideLangCharts = {
                 } else {
                     // Para otros tipos de charts, usar un color por dataset
                     if (!dataset.backgroundColor) {
-                        dataset.backgroundColor = categoricalColor(index) + '80';
+                        dataset.backgroundColor = withAlpha(categoricalColor(index), ALPHA_FRACTION);
                     }
                     if (!dataset.borderColor) {
                         dataset.borderColor = categoricalColor(index);
@@ -494,7 +563,7 @@ const SlideLangCharts = {
                 const dataset = {
                     label: seriesName,
                     data: seriesData,
-                    backgroundColor: categoricalColor(index) + '80',
+                    backgroundColor: withAlpha(categoricalColor(index), ALPHA_FRACTION),
                     borderColor: categoricalColor(index),
                     borderWidth: 2,
                     tension: 0.1
@@ -516,7 +585,7 @@ const SlideLangCharts = {
             datasets.push({
                 label: 'Dataset 1',
                 data: data.map(row => row[1] || 0),
-                backgroundColor: categoricalColor(0) + '80',
+                backgroundColor: withAlpha(categoricalColor(0), ALPHA_FRACTION),
                 borderColor: categoricalColor(0),
                 borderWidth: 2,
                 tension: 0.1

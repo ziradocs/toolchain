@@ -101,12 +101,18 @@ func resolveTokenValue(vars ThemeVariables, raw string, seen map[string]bool, de
 		return value, true
 	}
 	canonical := CanonicalVarName(name)
-	if seen[canonical] {
-		return "", false // reference cycle
-	}
-	seen[canonical] = true
-	if refValue, ok := lookupCanonical(vars, canonical); ok {
-		return resolveTokenValue(vars, refValue, seen, depth+1)
+	// A cycle or an unresolved reference both fall through to hasFallback
+	// below rather than returning early — "var(--a, #fff)" where --a itself
+	// resolves to "var(--a)" (a self-cycle) must still yield "#fff", exactly
+	// like CSS's own var() fallback semantics. Only when there's no
+	// fallback to try does either case become a hard failure.
+	if !seen[canonical] {
+		seen[canonical] = true
+		if refValue, ok := lookupCanonical(vars, canonical); ok {
+			if resolved, ok := resolveTokenValue(vars, refValue, seen, depth+1); ok {
+				return resolved, true
+			}
+		}
 	}
 	if hasFallback {
 		return resolveTokenValue(vars, fallback, seen, depth+1)
@@ -192,7 +198,7 @@ func (t ThemeTokens) IsEmpty() bool {
 // literal value, grouped for its respective JS consumer.
 func ResolveThemeTokens(vars ThemeVariables) ThemeTokens {
 	return ThemeTokens{
-		Diagram:          resolveTokenGroup(vars, DiagramTokenNames),
+		Diagram:          resolveDiagramTokenGroup(vars, DiagramTokenNames),
 		Chart:            resolveTokenGroup(vars, chartScalarTokenNames),
 		ChartCategorical: resolveOrderedTokens(vars, "chart-cat-", maxChartCategorical),
 		ChartSequential:  resolveOrderedTokens(vars, "chart-seq-", maxChartSequential),
@@ -217,6 +223,27 @@ func resolveTokenGroup(vars ThemeVariables, names []string) map[string]string {
 		out[name] = resolved
 	}
 	return out
+}
+
+// resolveDiagramTokenGroup filters diagram-* tokens through
+// IsValidMermaidColor before they're allowed to reach mermaid.js's
+// themeVariables — unlike Chart.js's canvas fillStyle (which silently
+// ignores a string it can't parse as a color), Mermaid's own theming layer
+// throws "Unsupported color format" for a value it rejects (e.g. a
+// gradient or a bare var() that slipped through resolution), which aborts
+// mermaid.initialize() for the whole page. Same "drop rather than ship a
+// value the consumer would reject anyway" treatment as resolveMapTokenGroup.
+func resolveDiagramTokenGroup(vars ThemeVariables, names []string) map[string]string {
+	group := resolveTokenGroup(vars, names)
+	for name, value := range group {
+		if !IsValidMermaidColor(value) {
+			delete(group, name)
+		}
+	}
+	if len(group) == 0 {
+		return nil
+	}
+	return group
 }
 
 func resolveMapTokenGroup(vars ThemeVariables, names []string) map[string]string {
@@ -305,4 +332,26 @@ var mapNamedColors = map[string]bool{
 // the metadata payload honest about what actually applies.
 func IsValidMapColor(value string) bool {
 	return mapColorNamePattern.MatchString(value) || mapNamedColors[strings.ToLower(value)]
+}
+
+// mermaidFunctionalColorRe matches rgb()/rgba()/hsl()/hsla() — the
+// functional color notations Mermaid's theming layer accepts alongside hex
+// and named colors, per mermaid.js.org/config/theming.html. Deliberately
+// does NOT match gradients or any other CSS <image> syntax: Mermaid throws
+// "Unsupported color format" for those (reproduced with
+// diagram-node-bg: linear-gradient(red, blue)), so a token resolving to one
+// must be dropped, not passed through.
+var mermaidFunctionalColorRe = regexp.MustCompile(`(?i)^(rgba?|hsla?)\(\s*[\d.]+%?\s*(,\s*[\d.]+%?\s*){2,3}\)$`)
+
+// IsValidMermaidColor reports whether value is safe to hand to Mermaid's
+// themeVariables as a diagram-* token: hex (3/4/6/8 digit), a CSS3 named
+// color, or rgb()/rgba()/hsl()/hsla(). A §2.2 token that fails this check is
+// dropped server-side (see resolveDiagramTokenGroup) — see its doc comment
+// for why a bad value can't just be shipped and left to fail client-side.
+func IsValidMermaidColor(value string) bool {
+	value = strings.TrimSpace(value)
+	if mapColorNamePattern.MatchString(value) || mapNamedColors[strings.ToLower(value)] {
+		return true
+	}
+	return mermaidFunctionalColorRe.MatchString(value)
 }

@@ -76,6 +76,32 @@ func TestResolveTokenValue_Cycle(t *testing.T) {
 	}
 }
 
+// TestResolveTokenValue_CycleFallsBackToLiteral is the exact repro a code
+// review flagged: --a resolves to var(--a) (a self-cycle), and the
+// original caller's own var() reference declares a fallback. CSS's own
+// var() semantics say a cyclic/invalid custom property falls back to its
+// fallback, not to failure — the resolver must do the same instead of
+// discarding the fallback the moment the cycle is detected one hop down.
+func TestResolveTokenValue_CycleFallsBackToLiteral(t *testing.T) {
+	vars := ThemeVariables{"--a": "var(--a)"}
+	got, ok := resolveTokenValue(vars, "var(--a, #fff)", map[string]bool{}, 0)
+	if !ok || got != "#fff" {
+		t.Errorf("got (%q, %v), want (\"#fff\", true)", got, ok)
+	}
+}
+
+// TestResolveTokenValue_UnresolvableChainFallsBackToLiteral covers the
+// non-cyclic sibling case: --a exists but resolves to a reference that
+// itself doesn't resolve (missing, no fallback) — the outer var()'s own
+// fallback must still apply.
+func TestResolveTokenValue_UnresolvableChainFallsBackToLiteral(t *testing.T) {
+	vars := ThemeVariables{"--a": "var(--missing)"}
+	got, ok := resolveTokenValue(vars, "var(--a, #fff)", map[string]bool{}, 0)
+	if !ok || got != "#fff" {
+		t.Errorf("got (%q, %v), want (\"#fff\", true)", got, ok)
+	}
+}
+
 func TestResolveTokenValue_MissingNoFallback(t *testing.T) {
 	vars := ThemeVariables{}
 	_, ok := resolveTokenValue(vars, "var(--missing)", map[string]bool{}, 0)
@@ -197,6 +223,44 @@ func TestIsValidMapColor(t *testing.T) {
 		if got := IsValidMapColor(in); got != want {
 			t.Errorf("IsValidMapColor(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+func TestIsValidMermaidColor(t *testing.T) {
+	cases := map[string]bool{
+		"#fff":                 true,
+		"#ffffff":              true,
+		"crimson":              true,
+		"CRIMSON":              true,
+		"rgba(0,0,0,0.5)":      true,
+		"rgb(10, 20, 30)":      true,
+		"hsl(120, 50%, 50%)":   true,
+		"linear-gradient(red)": false,
+		"var(--x)":             false,
+		"":                     false,
+	}
+	for in, want := range cases {
+		if got := IsValidMermaidColor(in); got != want {
+			t.Errorf("IsValidMermaidColor(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+// TestResolveThemeTokens_DiagramTokenGradientDropped is the exact repro a
+// code review flagged: an unvalidated diagram-* token reaching Mermaid's
+// themeVariables as a gradient throws "Unsupported color format" inside
+// mermaid.initialize(), which mermaid.js's own error handling swallows —
+// leaving the module silently half-initialized. The token must never reach
+// that far; it has to be dropped server-side instead.
+func TestResolveThemeTokens_DiagramTokenGradientDropped(t *testing.T) {
+	vars := ThemeVariables{
+		"--slidelang-diagram-node-bg": "linear-gradient(red, blue)",
+		"--slidelang-diagram-edge":    "#2563eb",
+	}
+	tokens := ResolveThemeTokens(vars)
+	want := map[string]string{"diagram-edge": "#2563eb"}
+	if !reflect.DeepEqual(tokens.Diagram, want) {
+		t.Errorf("Diagram = %#v, want %#v (gradient must be dropped, not passed through)", tokens.Diagram, want)
 	}
 }
 
