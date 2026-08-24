@@ -99,6 +99,143 @@ func TestValidateAssets_FontWithLocalOnlyPasses(t *testing.T) {
 	}
 }
 
+// themeManifestWithFont builds a minimal, otherwise-valid theme.json
+// declaring a single font asset at the given 'local' path — shared by the
+// TestValidateAssets_FontFile* cases below, which each vary only what
+// exists on disk at that path.
+func themeManifestWithFont(localPath string) string {
+	return `{
+  "name": "test-theme",
+  "version": "1.0.0",
+  "description": "test",
+  "author": "test",
+  "variables": {
+    "--slidelang-primary-color": "#000",
+    "--slidelang-secondary-color": "#111",
+    "--slidelang-font-main": "sans-serif",
+    "--slidelang-font-size-base": "1rem",
+    "--slidelang-line-height-base": "1.5",
+    "--slidelang-background-color": "#fff",
+    "--slidelang-text-color": "#000"
+  },
+  "assets": {
+    "fonts": [{"name":"Local Font","local":"` + localPath + `"}]
+  }
+}`
+}
+
+// TestValidateAssets_FontFileMissing is a code-review-flagged gap: before
+// this test existed, `themes validate --strict` passed a theme whose font
+// 'local' pointed at a file that plain doesn't exist — loadAssets
+// (external.go) only os.Stats the path to fill in Size and silently
+// swallows the error otherwise, and the old validateAssets only checked
+// that Path was a non-empty string. The build would then also fail
+// silently: buildFontFaceRule hits the same missing file, logs a warning,
+// and just omits the @font-face rule — exactly the invisible
+// system-font-fallback failure mode §2.3 exists to eliminate.
+func TestValidateAssets_FontFileMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "theme.json")
+	if err := os.WriteFile(path, []byte(themeManifestWithFont("fonts/does-not-exist.woff2")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	theme, err := LoadExternalTheme(path)
+	if err != nil {
+		t.Fatalf("LoadExternalTheme: %v", err)
+	}
+
+	result := NewThemeValidator().ValidateThemeDetailed(theme)
+	if result.IsValid {
+		t.Fatal("expected a font asset whose 'local' file doesn't exist to fail validation")
+	}
+	if !containsSubstring(result.Errors, "does not exist") {
+		t.Errorf("expected an error about the missing file, got: %v", result.Errors)
+	}
+}
+
+// TestValidateAssets_FontFileUnsupportedExtension mirrors buildFontFaceRule's
+// own extension allowlist (fonts.go's fontFormatFor) — a font with a real
+// file but an extension the build doesn't know how to emit a format() hint
+// for should fail validation, not silently build without the @font-face.
+func TestValidateAssets_FontFileUnsupportedExtension(t *testing.T) {
+	dir := t.TempDir()
+	fontPath := filepath.Join(dir, "fonts", "local.eot")
+	if err := os.MkdirAll(filepath.Dir(fontPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fontPath, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "theme.json")
+	if err := os.WriteFile(path, []byte(themeManifestWithFont("fonts/local.eot")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	theme, err := LoadExternalTheme(path)
+	if err != nil {
+		t.Fatalf("LoadExternalTheme: %v", err)
+	}
+
+	result := NewThemeValidator().ValidateThemeDetailed(theme)
+	if result.IsValid {
+		t.Fatal("expected an unsupported font extension to fail validation")
+	}
+	if !containsSubstring(result.Errors, "unsupported font extension") {
+		t.Errorf("expected an error about the unsupported extension, got: %v", result.Errors)
+	}
+}
+
+// TestValidateAssets_FontFileIsDirectory covers 'local' pointing at a
+// directory instead of a file — os.Stat alone (what loadAssets already
+// does) doesn't distinguish the two, so this needs its own IsDir check.
+func TestValidateAssets_FontFileIsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	fontDir := filepath.Join(dir, "fonts", "local.woff2")
+	if err := os.MkdirAll(fontDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "theme.json")
+	if err := os.WriteFile(path, []byte(themeManifestWithFont("fonts/local.woff2")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	theme, err := LoadExternalTheme(path)
+	if err != nil {
+		t.Fatalf("LoadExternalTheme: %v", err)
+	}
+
+	result := NewThemeValidator().ValidateThemeDetailed(theme)
+	if result.IsValid {
+		t.Fatal("expected a directory at 'local' to fail validation")
+	}
+	if !containsSubstring(result.Errors, "is a directory") {
+		t.Errorf("expected an error about 'local' being a directory, got: %v", result.Errors)
+	}
+}
+
+// TestValidateAssets_FontFileTraversalRejected confirms the validator
+// rejects an out-of-theme 'local' the same way buildFontFaceRule's
+// util.ResolveConfinedPath call does at build time — a font backed by a
+// dangling reference to a file outside the theme directory must never be
+// reported valid.
+func TestValidateAssets_FontFileTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "theme.json")
+	if err := os.WriteFile(path, []byte(themeManifestWithFont("../../../etc/passwd")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	theme, err := LoadExternalTheme(path)
+	if err != nil {
+		t.Fatalf("LoadExternalTheme: %v", err)
+	}
+
+	result := NewThemeValidator().ValidateThemeDetailed(theme)
+	if result.IsValid {
+		t.Fatal("expected an out-of-theme 'local' path to fail validation")
+	}
+	if !containsSubstring(result.Errors, "invalid 'local' path") {
+		t.Errorf("expected an error about the invalid path, got: %v", result.Errors)
+	}
+}
+
 // TestValidateFontFamilyBacking_WarnsWhenUnbacked is the exact failure mode
 // elegant-minimal has today: a font-family stack names a family with no
 // matching assets.fonts entry. Must be a Warning (still loads), not an

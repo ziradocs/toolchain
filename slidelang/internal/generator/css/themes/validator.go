@@ -5,8 +5,12 @@ package themes
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ThemeValidator provides validation for external themes
@@ -113,7 +117,7 @@ func (tv *ThemeValidator) ValidateThemeDetailed(theme *ExternalTheme) *Validatio
 	tv.validateCSS(theme.Styles, result)
 
 	// Validate assets
-	tv.validateAssets(theme.Assets, result)
+	tv.validateAssets(filepath.Dir(theme.Path), theme.Assets, result)
 
 	// motor-temas-v2.md §2.3: a font declared in a stack but not backed by
 	// any assets.fonts entry silently falls back to the reader's installed
@@ -265,8 +269,9 @@ func (tv *ThemeValidator) validateCSS(styles map[string]string, result *Validati
 	}
 }
 
-// validateAssets validates theme assets
-func (tv *ThemeValidator) validateAssets(assets []ThemeAsset, result *ValidationResult) {
+// validateAssets validates theme assets. themeDir anchors font 'local'
+// paths for the existence/readability/extension check below.
+func (tv *ThemeValidator) validateAssets(themeDir string, assets []ThemeAsset, result *ValidationResult) {
 	totalSize := int64(0)
 
 	for _, asset := range assets {
@@ -304,12 +309,49 @@ func (tv *ThemeValidator) validateAssets(assets []ThemeAsset, result *Validation
 			if asset.URL != "" {
 				result.Errors = append(result.Errors, fmt.Sprintf("font asset %q must not declare 'url' — self-hosted fonts only ('local')", asset.Name))
 			}
+			if asset.Path != "" {
+				tv.validateFontFile(themeDir, asset, result)
+			}
 		}
 	}
 
 	// Check total assets size
 	if totalSize > tv.maxFileSize {
 		result.Errors = append(result.Errors, fmt.Sprintf("total assets size exceeds limit (%d bytes)", tv.maxFileSize))
+	}
+}
+
+// validateFontFile reports a hard error when a font asset's declared
+// 'local' path doesn't resolve to a real, readable font file with a
+// supported extension. Without this, `themes validate --strict` passes a
+// theme whose 'local' is a typo or a deleted file: loadAssets
+// (external.go) only os.Stats the path to fill in Size and silently
+// discards the error otherwise (asset.Size just stays 0), and the
+// existing checks above only look at whether Path is a non-empty string.
+// The build then fails silently too — buildFontFaceRule (fonts.go) hits
+// the same missing file, logs a warning, and drops the @font-face rule —
+// which is exactly the "fell back to a system font with no visible error"
+// failure mode motor-temas-v2.md §2.3 exists to eliminate. Reuses
+// util.ResolveConfinedPath and fontFormatFor rather than duplicating their
+// logic, so this check and the actual build path can never silently drift
+// apart on what counts as a valid font reference.
+func (tv *ThemeValidator) validateFontFile(themeDir string, asset ThemeAsset, result *ValidationResult) {
+	resolved, err := util.ResolveConfinedPath(themeDir, asset.Path)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: invalid 'local' path %q: %v", asset.Name, asset.Path, err))
+		return
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' file %q does not exist or is not readable", asset.Name, asset.Path))
+		return
+	}
+	if info.IsDir() {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' path %q is a directory, not a font file", asset.Name, asset.Path))
+		return
+	}
+	if _, _, ok := fontFormatFor(asset.Path); !ok {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: %q has an unsupported font extension (supported: .woff2, .woff, .ttf, .otf)", asset.Name, asset.Path))
 	}
 }
 
