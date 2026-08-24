@@ -15,16 +15,36 @@ const slidelangVarPrefix = "slidelang-"
 
 // varTokenRe matches the CSS var() function token that opens a usage —
 // case-insensitively (CSS function names are ASCII case-insensitive, and
-// Chromium accepts VAR(--x)/Var(--x) exactly like var(--x)) and requiring
-// a word boundary immediately before it, so it can never match inside a
-// longer identifier that merely ends in "var" (e.g. a hypothetical custom
-// property named --my-var is never itself mistaken for a usage). No
-// whitespace is allowed between "var" and its own "(" — the CSS tokenizer
-// itself stops recognizing a function the moment whitespace precedes its
-// "(", so "var (" is not valid CSS var() syntax to begin with, unlike
-// whitespace/comments AFTER the "(" (see varInnerRe) (fifth-round finding
-// on PR #223).
-var varTokenRe = regexp.MustCompile(`(?i)\bvar\(`)
+// Chromium accepts VAR(--x)/Var(--x) exactly like var(--x)). No whitespace
+// is allowed between "var" and its own "(" — the CSS tokenizer itself
+// stops recognizing a function the moment whitespace precedes its "(", so
+// "var (" is not valid CSS var() syntax to begin with, unlike
+// whitespace/comments AFTER the "(" (see varInnerRe).
+//
+// Deliberately does NOT use \b to reject a match inside a longer
+// identifier (e.g. a hypothetical --my-var, or foo-var(...) as some other
+// function call): Go's regexp \b treats "-" as a non-word character, so
+// there IS a word boundary between "-" and "v" — \bvar\( still wrongly
+// matched inside foo-var(...) (sixth-round finding on PR #223). The
+// scanning loops in NamespaceValue/UnprefixedVarNames instead check the
+// single byte immediately before each match via isCSSIdentChar, which
+// treats "-" (and "_", letters, digits) as identifier-continuing —
+// matching how Chromium's own tokenizer treats them.
+var varTokenRe = regexp.MustCompile(`(?i)var\(`)
+
+// isCSSIdentChar reports whether b can appear inside a CSS identifier —
+// used to confirm a varTokenRe match is not actually the tail of a longer
+// identifier before treating it as a real var() usage. Deliberately
+// ASCII-only, matching the identifier charset every other name-matching
+// regex in this file already uses (declarationRe, varInnerRe,
+// classSelectorRe) — full CSS identifier syntax also allows escapes and
+// non-ASCII characters, which a single-byte check can't recognize; a
+// hyphen or underscore immediately before the match is the case that
+// matters in practice, and the one plain \b gets wrong.
+func isCSSIdentChar(b byte) bool {
+	return b == '_' || b == '-' ||
+		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
 
 // varInnerRe matches the body of a var(...) call once its balanced closing
 // paren has already been located by findMatchingParen — i.e. it never has
@@ -47,7 +67,14 @@ var varTokenRe = regexp.MustCompile(`(?i)\bvar\(`)
 // either form unmatched entirely, silently skipping the whole call
 // (fifth-round finding on PR #223). Captured (not discarded) so
 // namespaceVarBody can preserve it verbatim in the output.
-var varInnerRe = regexp.MustCompile(`(?s)^((?:[ \t\r\n]|/\*.*?\*/)*)--([a-zA-Z0-9_-]+)\s*(?:,\s*(.*))?$`)
+//
+// The third group captures the same kind of trivia between "--name" and
+// whatever comes next (a "," introducing a fallback, or the end of the
+// body if there is none) — var(--brand/* docs */, red) and
+// var(--brand/* docs */) are equally valid CSS, but a bare \s* there
+// rejected any comment, again leaving the whole call unprocessed
+// (sixth-round finding on PR #223). Also captured and preserved verbatim.
+var varInnerRe = regexp.MustCompile(`(?s)^((?:[ \t\r\n]|/\*.*?\*/)*)--([a-zA-Z0-9_-]+)((?:[ \t\r\n]|/\*.*?\*/)*)(?:,\s*(.*))?$`)
 
 // NamespaceValue rewrites every var(--x) usage in a CSS value (or an
 // arbitrary CSS fragment — it does not require a single declaration's
@@ -84,6 +111,14 @@ func NamespaceValue(css string) string {
 		}
 		start := i + loc[0]
 		openParen := i + loc[1] - 1 // index of the "(" itself, whatever case "var"/"VAR"/"Var" matched
+
+		if start > 0 && isCSSIdentChar(css[start-1]) {
+			// Tail of a longer identifier (foo-var(...)), not a real
+			// var() token — emit through the match and keep scanning.
+			out.WriteString(css[i : openParen+1])
+			i = openParen + 1
+			continue
+		}
 
 		if insideAnySpan(start, spans) {
 			out.WriteString(css[i : openParen+1])
@@ -135,14 +170,14 @@ func namespaceVarBody(inner string) string {
 		// unrelated to CSS custom properties slipped in) — leave as-is.
 		return inner
 	}
-	lead, name, fallback := m[1], m[2], m[3]
+	lead, name, trail, fallback := m[1], m[2], m[3], m[4]
 	if !strings.HasPrefix(name, slidelangVarPrefix) {
 		name = slidelangVarPrefix + name
 	}
 	if fallback == "" {
-		return lead + "--" + name
+		return lead + "--" + name + trail
 	}
-	return lead + "--" + name + ", " + NamespaceValue(fallback)
+	return lead + "--" + name + trail + ", " + NamespaceValue(fallback)
 }
 
 // findMatchingParen returns the index of the ")" that closes the "(" at
@@ -185,60 +220,87 @@ func findMatchingParen(s string, openIdx int, spans [][]int) int {
 // previous declaration, right after "}" closing a prior rule, or at the
 // start of a line in hand-formatted CSS); that is what stops it from also
 // matching the "--name" inside a var(--name) usage, which is always
-// preceded by "(". Both gap groups allow spaces/tabs AND full /* ... */
-// comments interleaved (zero or more of either) — one before the name,
-// one between the name and the colon. Without the leading comment
-// alternative, ":root { /* spacing */ --gap: 4px; }" left the DECLARATION
-// unprefixed while NamespaceValue still rewrote every var(--gap) usage to
+// preceded by "(". Both gap groups allow CSS whitespace (space, tab,
+// newline, carriage return, form feed) AND full /* ... */ comments
+// interleaved (zero or more of either) — one before the name, one between
+// the name and the colon. Without the leading comment alternative,
+// ":root { /* spacing */ --gap: 4px; }" left the DECLARATION unprefixed
+// while NamespaceValue still rewrote every var(--gap) usage to
 // var(--slidelang-gap) (code-review finding on PR #223). Without the
 // trailing one, "--brand/* docs */: red;" — equally valid CSS — had the
 // same mismatch in the other direction (fifth-round finding on PR #223).
-// A bare "\n" right after a comment already re-anchors the lead-
-// alternation on its own, so the leading group only matters when the
-// comment sits on the same line as the declaration.
-var declarationRe = regexp.MustCompile(`(^|[;{}]|\n)((?:[ \t]|(?s:/\*.*?\*/))*)--([a-zA-Z0-9_-]+)((?:[ \t]|(?s:/\*.*?\*/))*:)`)
+// The trailing group originally allowed only "[ \t]" as whitespace,
+// missing "\n"/"\r"/"\f" — Chromium accepts a bare newline between name
+// and colon (--brand\n: red;) exactly as it accepts a comment there, but
+// that form was left unprefixed too (sixth-round finding on PR #223). A
+// bare "\n" right BEFORE the name already re-anchors the lead-alternation
+// on its own, so the leading group's whitespace class matters only when
+// trivia sits on the same line as the declaration; it is not widened to
+// match the trailing group, since nothing in review has shown it needs
+// "\r"/"\f" specifically (the trailing group's is the char class
+// declarationTrailingTriviaRe below has to mirror exactly, since both
+// must agree on what "trivia between name and colon" means).
+var declarationRe = regexp.MustCompile(`(^|[;{}]|\n)((?:[ \t]|(?s:/\*.*?\*/))*)--([a-zA-Z0-9_-]+)((?:[ \t\r\n\f]|(?s:/\*.*?\*/))*:)`)
 
-// declConnectingCommentBeforeRe and declConnectingCommentAfterRe recognize
-// when a comment (as found by protectedSpanRe) sits between a custom
-// property's bare name and its colon — declarationRe's trailing gap group
-// above — as opposed to a free-standing documentation comment that merely
-// CONTAINS declaration-shaped text, e.g.
-// "/* example: --fake: red; */ --real: blue;". Used only by
-// namespaceDeclarationSpans, to decide which comments namespaceDeclarations
-// must treat as transparent trivia (so a single legitimate declaration's
-// name and colon are visible together in one pass) versus which must stay
-// fully opaque (so a comment's own display text is never itself matched
-// and rewritten as if it were a real declaration).
-var declConnectingCommentBeforeRe = regexp.MustCompile(`--[a-zA-Z0-9_-]+[ \t]*$`)
-var declConnectingCommentAfterRe = regexp.MustCompile(`^[ \t]*:`)
+// declarationTrailingTriviaRe matches the trailing half of a single
+// legitimate declaration — a bare "--name" immediately followed by a run
+// of CSS trivia (the same class declarationRe's trailing group accepts:
+// whitespace and/or any number of comments, in any mix) and then a colon.
+// Matched directly against the WHOLE original css, not a pre-split
+// segment, so a run of SEVERAL consecutive comments
+// (--brand/* a *//* b */: red;) is recognized as one connected unit
+// rather than evaluated comment-by-comment: an earlier version of
+// namespaceDeclarationSpans classified each comment span individually
+// (is THIS specific comment immediately preceded by the name and
+// immediately followed by the colon?), which missed exactly this case —
+// neither individual comment is itself adjacent to BOTH the name and the
+// colon, even though the two of them together are (sixth-round finding
+// on PR #223, a regression introduced by the fifth-round's own fix).
+var declarationTrailingTriviaRe = regexp.MustCompile(`(?s)--[a-zA-Z0-9_-]+((?:[ \t\r\n\f]|/\*.*?\*/)*):`)
 
 // namespaceDeclarationSpans returns the spans namespaceDeclarations must
 // treat as opaque — every string and url() span from protectedSpanRe
 // (always: content: "; --brand: docs" must never be mistaken for a real
 // declaration, fourth-round finding on PR #223), plus every COMMENT span
-// EXCEPT one immediately preceded by a bare "--name" (no colon yet) and
-// immediately followed by a colon (only whitespace in between) — that one
-// is trivia belonging to a single legitimate declaration
-// (--brand/* docs */: red;) and must stay visible to declarationRe instead
-// of being carved out and hidden from it (fifth-round finding on PR #223:
-// "el scanner de declaraciones debería tratar los comentarios como trivia
-// válida entre el nombre... y ':', sin perder la protección contra
-// coincidencias dentro de strings/comentarios" — this satisfies both
-// halves: the connecting comment stays visible, every OTHER comment stays
-// opaque, so a documentation comment that happens to contain
-// declaration-shaped text is never matched).
+// that does NOT fall entirely inside a declarationTrailingTriviaRe match's
+// captured trivia run. A comment (or a run of several) sitting between a
+// bare name and its colon must stay visible to declarationRe instead of
+// being carved out and hidden from it; every OTHER comment — including a
+// free-standing documentation comment that merely CONTAINS
+// declaration-shaped text (/* example: --fake: red; */ --real: blue;) —
+// never falls inside such a captured run (nothing real precedes IT as a
+// bare, colon-less "--name"), so it stays fully opaque. This satisfies
+// both halves of the fifth-round finding that introduced this function:
+// treat connecting comments as trivia, without losing protection against
+// matches inside unrelated comments.
 func namespaceDeclarationSpans(css string) [][]int {
+	var transparentRuns [][]int
+	for _, m := range declarationTrailingTriviaRe.FindAllStringSubmatchIndex(css, -1) {
+		if triviaStart, triviaEnd := m[2], m[3]; triviaStart < triviaEnd {
+			transparentRuns = append(transparentRuns, []int{triviaStart, triviaEnd})
+		}
+	}
+
 	var spans [][]int
 	for _, m := range protectedSpanRe.FindAllStringIndex(css, -1) {
 		start, end := m[0], m[1]
-		if strings.HasPrefix(css[start:end], "/*") &&
-			declConnectingCommentBeforeRe.MatchString(css[:start]) &&
-			declConnectingCommentAfterRe.MatchString(css[end:]) {
+		if strings.HasPrefix(css[start:end], "/*") && withinAnyRun(start, end, transparentRuns) {
 			continue
 		}
 		spans = append(spans, m)
 	}
 	return spans
+}
+
+// withinAnyRun reports whether [start, end) falls entirely inside one of
+// runs (each a [start, end) pair).
+func withinAnyRun(start, end int, runs [][]int) bool {
+	for _, r := range runs {
+		if start >= r[0] && end <= r[1] {
+			return true
+		}
+	}
+	return false
 }
 
 // namespaceDeclarations rewrites custom-property declarations (--x: value)
@@ -321,6 +383,10 @@ func UnprefixedVarNames(css string) []string {
 			}
 			start := i + loc[0]
 			openParen := i + loc[1] - 1
+			if start > 0 && isCSSIdentChar(s[start-1]) {
+				i = openParen + 1
+				continue
+			}
 			if insideAnySpan(start, spans) {
 				i = openParen + 1
 				continue
@@ -331,7 +397,7 @@ func UnprefixedVarNames(css string) []string {
 			}
 			inner := s[openParen+1 : closeParen]
 			if m := varInnerRe.FindStringSubmatch(inner); m != nil {
-				name, fallback := m[2], m[3]
+				name, fallback := m[2], m[4]
 				if !strings.HasPrefix(name, slidelangVarPrefix) {
 					add(name)
 				}

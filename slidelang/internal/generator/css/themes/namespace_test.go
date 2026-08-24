@@ -568,3 +568,104 @@ func TestUnprefixedClassSelectors_IgnoresUppercaseURL(t *testing.T) {
 		}
 	}
 }
+
+// TestNamespaceValue_DoesNotMatchInsideLongerIdentifier and
+// TestUnprefixedVarNames_DoesNotMatchInsideLongerIdentifier are the
+// sixth-round PR #223 finding: Go's regexp \b treats "-" as a
+// non-word character, so \bvar\( still matched inside foo-var(...) — a
+// token stream Chromium keeps completely literal, since that "var(" is
+// not the CSS var() function at all, just the tail of some other
+// identifier/function name. Without the fix, --value: foo-var(--brand);
+// had --brand rewritten to --slidelang-brand even though no real var()
+// usage is present.
+func TestNamespaceValue_DoesNotMatchInsideLongerIdentifier(t *testing.T) {
+	css := "--value: foo-var(--brand);"
+	got := NamespaceValue(css)
+	if got != css {
+		t.Errorf("NamespaceValue(%q) = %q, want unchanged — foo-var(...) is not the CSS var() function", css, got)
+	}
+}
+
+func TestUnprefixedVarNames_DoesNotMatchInsideLongerIdentifier(t *testing.T) {
+	css := "--value: foo-var(--brand);"
+	if got := UnprefixedVarNames(css); len(got) != 0 {
+		t.Errorf("UnprefixedVarNames(%q) = %v, want none — foo-var(...) is not the CSS var() function", css, got)
+	}
+}
+
+// TestNamespaceValue_CommentAfterVarName and
+// TestUnprefixedVarNames_CommentAfterVarName are the sixth-round PR #223
+// finding: a comment is valid CSS trivia between a var() call's name and
+// whatever follows it (a comma introducing a fallback, or the closing
+// paren) — Chromium resolves both var(--brand/* docs */, red) and
+// var(--brand/* docs */) correctly — but varInnerRe only allowed \s*
+// there, so both forms were left completely unprocessed.
+func TestNamespaceValue_CommentAfterVarName(t *testing.T) {
+	cases := []struct {
+		name string
+		css  string
+		want string
+	}{
+		{"with fallback", "color: var(--brand/* docs */, red);", "color: var(--slidelang-brand/* docs */, red);"},
+		{"without fallback", "color: var(--brand/* docs */);", "color: var(--slidelang-brand/* docs */);"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := NamespaceValue(c.css); got != c.want {
+				t.Errorf("NamespaceValue(%q) = %q, want %q", c.css, got, c.want)
+			}
+		})
+	}
+}
+
+func TestUnprefixedVarNames_CommentAfterVarName(t *testing.T) {
+	cases := []string{
+		"color: var(--brand/* docs */, red);",
+		"color: var(--brand/* docs */);",
+	}
+	for _, css := range cases {
+		t.Run(css, func(t *testing.T) {
+			got := UnprefixedVarNames(css)
+			if len(got) != 1 || got[0] != "brand" {
+				t.Errorf("UnprefixedVarNames(%q) = %v, want [\"brand\"]", css, got)
+			}
+		})
+	}
+}
+
+// TestNamespaceDeclarations_NewlineBeforeColon is the sixth-round PR #223
+// finding: Chromium accepts a bare newline (or carriage return / form
+// feed) between a custom property's name and its colon, exactly like it
+// accepts a comment there, but declarationRe's trailing gap group only
+// listed "[ \t]" as whitespace — so "--brand\n: red;" was left unprefixed
+// while var(--brand) usages elsewhere still got rewritten.
+func TestNamespaceDeclarations_NewlineBeforeColon(t *testing.T) {
+	css := "--brand\n: red;"
+	got := namespaceDeclarations(css)
+	want := "--slidelang-brand\n: red;"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestNamespaceDeclarations_MultipleConsecutiveCommentsBeforeColon is the
+// sixth-round PR #223 finding, and a regression the fifth-round's own fix
+// introduced: namespaceDeclarationSpans used to classify each comment span
+// individually (is THIS comment immediately preceded by the bare name AND
+// immediately followed by the colon?), which correctly handled ONE
+// connecting comment but missed a RUN of several — in
+// --brand/* a *//* b */: red;, the first comment is followed by another
+// comment (not the colon) and the second comment is preceded by another
+// comment (not the bare name), so neither qualified individually even
+// though together they connect name to colon exactly like one comment
+// would. Fixed by recognizing the whole trivia run as one unit
+// (declarationTrailingTriviaRe) instead of judging each comment span in
+// isolation.
+func TestNamespaceDeclarations_MultipleConsecutiveCommentsBeforeColon(t *testing.T) {
+	css := "--brand/* a *//* b */: red;"
+	got := namespaceDeclarations(css)
+	want := "--slidelang-brand/* a *//* b */: red;"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
