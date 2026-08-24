@@ -107,6 +107,12 @@ func (f *NativeChartFetcher) render(elem *ast.ChartElement, hash string, width, 
 	}
 	f.mu.Unlock()
 
+	// Paleta por defecto: este fallback casi nunca se ejecuta en un build
+	// temátizado — el gate que construye NativeChartFetcher
+	// (tryBuildNativeContext en slidelang, TryAllChartsNative en core) ya
+	// rasterizó y Seed()ó cada chart con sus colores reales antes de que el
+	// fetcher se use para servir nada; esto solo corre si esa siembra falla
+	// (bug de programación del caller, no un camino de tema válido).
 	data, ok, err := RenderChartNativePNG(elem, width, height)
 	if !ok {
 		return nil, fmt.Errorf("chart type %q has no native renderer (caller must gate on SupportsNativeChartRendering before using NativeChartFetcher)", elem.ChartType)

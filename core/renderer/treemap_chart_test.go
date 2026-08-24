@@ -24,7 +24,7 @@ func treemapConfig(t *testing.T, forExport bool) (map[string]interface{}, map[st
 		{"Micro Business", 3},
 	}
 
-	raw := GenerateChartConfigWithMode(chart, forExport)
+	raw := GenerateChartConfigWithMode(chart, forExport, nil)
 
 	var decoded map[string]interface{}
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {

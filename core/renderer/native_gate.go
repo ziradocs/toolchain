@@ -61,6 +61,10 @@ func TryAllChartsNative(astNode *ast.AST, imageFormat string, diagramBackend str
 					return nil, false
 				}
 				width, height := ChartDimensions(e)
+				// Paleta por defecto: TryAllChartsNative es el gate de doclang
+				// (issue "quitar Chrome del pipeline"), que no consume temas de
+				// slidelang — motor-temas-v2.md queda fuera de doclang a
+				// propósito (no comparte internal/generator/css/).
 				data, ok, err := RenderChartNativePNG(e, width, height)
 				if !ok || err != nil {
 					return nil, false

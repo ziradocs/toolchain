@@ -11,6 +11,8 @@ import (
 	_ "image/png"
 	"testing"
 
+	"github.com/go-analyze/charts"
+
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -381,5 +383,124 @@ func TestSupportsNativeChartRenderingWithOptions_ApprovesIgnorableOnlyOptions(t 
 	elem.Options = map[string]interface{}{"responsive": true}
 	if !SupportsNativeChartRenderingWithOptions(elem) {
 		t.Error("SupportsNativeChartRenderingWithOptions() = false, want true for an ignorable-only options set")
+	}
+}
+
+// TestNativeChartTheme_EmptyOverrideIsNilPalette es la mitad de no-regresión
+// del override de motor-temas-v2.md §2.2 para el rasterizador nativo: nil
+// debe producir un ColorPalette nil (idéntico al zero value de opt.Theme
+// antes de que este campo existiera), no un ColorPalette con la paleta por
+// defecto envuelta — go-analyze/charts distingue "sin Theme seteado" (usa
+// PainterOptions.Theme) de "Theme == GetDefaultTheme()" solo por identidad
+// de puntero en algunos casos internos, así que envolver innecesariamente
+// no es equivalente incluso si el resultado visual sería el mismo hoy.
+func TestNativeChartTheme_EmptyOverrideIsNilPalette(t *testing.T) {
+	if got := nativeChartTheme(nil, 3); got != nil {
+		t.Errorf("nativeChartTheme(nil, 3) = %v, want nil", got)
+	}
+	if got := nativeChartTheme([]string{}, 3); got != nil {
+		t.Errorf("nativeChartTheme([]string{}, 3) = %v, want nil", got)
+	}
+}
+
+// TestNativeChartTheme_RepeatsExactlyPastPaletteLength is the code-review
+// finding on PR #224: go-analyze/charts@v0.6.0's own getSeriesColor does
+// NOT wrap a short palette via pure modulo once the requested index
+// passes the palette's length — it returns colors[index%colorCount]
+// adjusted for saturation/lightness by index/colorCount (adjustSeriesColor
+// in its source), a different-looking shade, not an exact repeat. That
+// breaks the chart-cat-* contract (motor-temas-v2.md §2.2: an ORDERED set
+// the engine must repeat EXACTLY via modulo, matching
+// chartCategoricalPalette's colors[i%len(colors)] in html.go) — a chart
+// with more series than palette entries would render differently on the
+// native backend than on Chart.js. count must force every index the chart
+// will actually request to land inside the (pre-expanded) palette, so
+// go-analyze/charts' own adjustment branch never fires.
+func TestNativeChartTheme_RepeatsExactlyPastPaletteLength(t *testing.T) {
+	colors := []string{"#ff0000", "#00ff00"}
+	// count=5: indices 2,3,4 all fall past len(colors)=2 and must repeat
+	// the same two colors exactly, not an HSL-adjusted variant.
+	palette := nativeChartTheme(colors, 5)
+	if palette == nil {
+		t.Fatal("nativeChartTheme with a non-empty override returned nil")
+	}
+	want := []charts.Color{
+		charts.ParseColor(colors[0]),
+		charts.ParseColor(colors[1]),
+		charts.ParseColor(colors[0]),
+		charts.ParseColor(colors[1]),
+		charts.ParseColor(colors[0]),
+	}
+	for i, w := range want {
+		if got := palette.GetSeriesColor(i); got != w {
+			t.Errorf("GetSeriesColor(%d) = %v, want exact repeat %v (no HSL adjustment)", i, got, w)
+		}
+	}
+}
+
+// TestRenderChartNativePNGWithColors_CategoricalColorsOverrideChangesOutput
+// es el hallazgo bloqueante de la revisión de PR2 (motor-temas-v2.md §2.2):
+// antes de este cambio, RenderChartNativePNG no tenía forma de recibir el
+// tema — chromium.ChartFetcher.renderFunc prefiere este camino para
+// bar/line/pie/doughnut (issue #130), así que sin este parámetro
+// RenderContext.ChartCategoricalColors era letra muerta para la mayoría de
+// los charts reales en el camino offline/PDF, con GenerateChartConfigWithMode
+// sirviendo solo a combo/scatter/JSON-mode. No hay golden de píxeles exacto
+// (ver decodePNGAndCheck) así que la prueba es la más fuerte que se puede
+// hacer sin acoplarse a la rasterización interna de go-analyze/charts: el
+// PNG con override debe ser BYTE-DISTINTO del PNG sin override, para cada
+// tipo que este rasterizador soporta. Corre contra RenderChartNativePNGWithColors,
+// no RenderChartNativePNG — ese último mantiene su firma de 3 args a
+// propósito (ver su doc comment) y siempre pasa nil.
+func TestRenderChartNativePNGWithColors_CategoricalColorsOverrideChangesOutput(t *testing.T) {
+	override := []string{"#ff0000", "#00ff00"}
+
+	for _, chartType := range []string{"bar", "line", "pie", "doughnut"} {
+		t.Run(chartType, func(t *testing.T) {
+			elem := newTestChartElement(chartType)
+
+			defaultData, ok, err := RenderChartNativePNGWithColors(elem, 640, 480, nil)
+			if !ok || err != nil {
+				t.Fatalf("RenderChartNativePNGWithColors(nil) ok=%v err=%v", ok, err)
+			}
+			overriddenData, ok, err := RenderChartNativePNGWithColors(elem, 640, 480, override)
+			if !ok || err != nil {
+				t.Fatalf("RenderChartNativePNGWithColors(override) ok=%v err=%v", ok, err)
+			}
+
+			if bytes.Equal(defaultData, overriddenData) {
+				t.Error("override produced byte-identical PNG to the default palette — ChartCategoricalColors is not reaching the native rasterizer")
+			}
+		})
+	}
+}
+
+// TestChartColorFromCSS is the second-round PR #224 finding: go-analyze/
+// charts' own charts.ParseColor silently mishandles two forms a theme's
+// chart-cat-* token can legally use — hsl()/hsla() comes back opaque
+// black (no error to detect), and an 8-digit hex (#rrggbbaa) parses RGB
+// correctly but always returns A=255, dropping the alpha channel. Both
+// confirmed empirically against the pinned go-analyze/charts version.
+// Chart.js, on the browser path, understands both correctly (the
+// browser's own CSS Color engine), so either gap reopens the native-vs-
+// Chart.js divergence this theming path exists to close.
+func TestChartColorFromCSS(t *testing.T) {
+	cases := []struct {
+		name  string
+		color string
+		want  charts.Color
+	}{
+		{"hex6", "#3498db", charts.Color{R: 0x34, G: 0x98, B: 0xdb, A: 0xff}},
+		{"hex8 preserves alpha", "#3498db80", charts.Color{R: 0x34, G: 0x98, B: 0xdb, A: 0x80}},
+		{"rgba preserves alpha", "rgba(52, 152, 219, 0.5)", charts.Color{R: 0x34, G: 0x98, B: 0xdb, A: 0x80}},
+		{"hsl converts to the right RGB, not black", "hsl(204, 70%, 53%)", charts.Color{R: 0x33, G: 0x98, B: 0xdb, A: 0xff}},
+		{"named color", "red", charts.Color{R: 0xff, G: 0x00, B: 0x00, A: 0xff}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := chartColorFromCSS(c.color); got != c.want {
+				t.Errorf("chartColorFromCSS(%q) = %+v, want %+v", c.color, got, c.want)
+			}
+		})
 	}
 }

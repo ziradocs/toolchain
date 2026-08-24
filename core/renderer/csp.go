@@ -46,6 +46,18 @@ func GenerateCSPNonce() (string, error) {
 // a diferencia de script-src, donde SÍ es la defensa real contra ejecución
 // de JS.
 //
+// font-src 'self' data: (motor-temas-v2.md §2.3): hasta ahora no existía
+// esta directiva — con default-src 'self' de arriba, cualquier @font-face
+// remoto se bloqueaba en silencio (sin violation visible sin abrir
+// DevTools), documentado en cdn_tags.go como la razón para elegir
+// MathJax-SVG (cero web-fonts) sobre KaTeX (que sí las necesita vía CDN).
+// No se agrega ningún host externo: la decisión de §2.3 es auto-hospedar
+// las fuentes de un tema siempre — como archivo same-origin en el bundle
+// (cubierto por 'self') o embebidas como data: URI en --embed-assets/
+// offline-inline (cubierto por data:) — así que abrir la directiva no
+// reabre superficie a un tercero, solo hace legible lo que antes fallaba
+// callado.
+//
 // img-src/object-src/connect-src son permisivos, SIN restringir scheme: un
 // documento puede referenciar cualquier imagen (markdown, logos de header/
 // footer, iconos de marcador de mapa por documento — ver elements/map.go),
@@ -64,6 +76,7 @@ func BuildDefaultOutputCSP(nonce string) string {
 		"default-src 'self'; "+
 			"script-src 'self' 'nonce-%s' https://cdn.jsdelivr.net https://unpkg.com; "+
 			"style-src 'self' 'unsafe-inline' https://unpkg.com; "+
+			"font-src 'self' data:; "+
 			"img-src 'self' * data:; "+
 			"object-src *; "+
 			"connect-src 'self' *; "+

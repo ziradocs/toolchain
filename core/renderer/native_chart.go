@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/go-analyze/charts"
+	"github.com/mazznoer/csscolorparser"
 
 	"go.ziradocs.com/core/v2/ast"
 )
@@ -73,14 +74,36 @@ func SupportsNativeChartRenderingWithOptions(elem *ast.ChartElement) bool {
 // ChartDimensions vive en chart_dimensions.go, sin build tag: html.go la
 // llama y se compila también para wasm (playground).
 
-// RenderChartNativePNG rasteriza elem a PNG vía go-analyze/charts. Devuelve
-// ok=false (sin error) cuando elem.ChartType no tiene mapeo nativo, está en
-// IsJSONMode, o elem.Options trae alguna hoja no reconocida por
-// classifyChartOptions — el caller debe caer a ChromiumRenderer.RenderChartToPNG
-// en esos casos. Un error (con ok=true) indica que SÍ se intentó el camino
-// nativo pero falló (p. ej. datos vacíos/no numéricos/filas de largo
-// irregular).
+// RenderChartNativePNG rasteriza elem a PNG vía go-analyze/charts con la
+// paleta por defecto. Firma sin cambios a propósito (issue "una sola danza"
+// de motor-temas-v2.md): slidelang/internal/generator/offline.go llama a
+// este símbolo por nombre, y CI corre workspace-integration (slidelang
+// contra el core DEL ÁRBOL vía go.work) — agregarle un parámetro acá
+// rompería ese build entre el merge de este PR y el PR de slidelang que
+// consuma el tema. Ver RenderChartNativePNGWithColors para el override.
 func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byte, ok bool, err error) {
+	return RenderChartNativePNGWithColors(elem, width, height, nil)
+}
+
+// RenderChartNativePNGWithColors es RenderChartNativePNG con un override de
+// paleta categórica. Devuelve ok=false (sin error) cuando elem.ChartType no
+// tiene mapeo nativo, está en IsJSONMode, o elem.Options trae alguna hoja no
+// reconocida por classifyChartOptions — el caller debe caer a
+// ChromiumRenderer.RenderChartToPNG en esos casos. Un error (con ok=true)
+// indica que SÍ se intentó el camino nativo pero falló (p. ej. datos
+// vacíos/no numéricos/filas de largo irregular).
+//
+// categoricalColors es el mismo override que RenderContext.ChartCategoricalColors
+// (motor-temas-v2.md §2.2): nil/vacío reproduce la paleta por defecto de
+// go-analyze/charts, sin cambio de comportamiento. Existe porque este
+// rasterizador NUNCA pasa por GenerateChartConfigWithMode — trabaja
+// directamente sobre elem, así que el chart-cat-* de un tema no le llega
+// por ningún otro camino. Sin esto, cualquier caller que prefiera este
+// rasterizador (chromium.ChartFetcher.renderFunc lo intenta primero para
+// bar/line/pie/doughnut, issue #130 — que es la mayoría de los charts
+// reales) ignoraría el tema en silencio incluso con
+// RenderContext.ChartCategoricalColors seteado.
+func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, categoricalColors []string) (data []byte, ok bool, err error) {
 	if !SupportsNativeChartRenderingWithOptions(elem) {
 		return nil, false, nil
 	}
@@ -104,9 +127,11 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 		if seriesErr != nil {
 			return nil, true, seriesErr
 		}
+		theme := nativeChartTheme(categoricalColors, len(values))
 		names := resolveSeriesNames(elem.Series, len(values))
 		if elem.ChartType == "bar" {
 			opt := charts.NewBarChartOptionWithData(values)
+			opt.Theme = theme
 			applyTitleOverrides(&opt.Title, elem.Title, ov)
 			opt.CategoryAxis.Labels = categoryLabels
 			opt.Legend.SeriesNames = names
@@ -117,6 +142,7 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 			err = p.BarChart(opt)
 		} else {
 			opt := charts.NewLineChartOptionWithData(values)
+			opt.Theme = theme
 			applyTitleOverrides(&opt.Title, elem.Title, ov)
 			opt.XAxis.Labels = categoryLabels
 			opt.Legend.SeriesNames = names
@@ -132,6 +158,7 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 			return nil, true, pieErr
 		}
 		opt := charts.NewPieChartOptionWithData(pieValues)
+		opt.Theme = nativeChartTheme(categoricalColors, len(pieValues))
 		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = pieLabels
 		applyLegendOverrides(&opt.Legend, ov)
@@ -142,6 +169,7 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 			return nil, true, dErr
 		}
 		opt := charts.NewDoughnutChartOptionWithData(doughnutValues)
+		opt.Theme = nativeChartTheme(categoricalColors, len(doughnutValues))
 		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = doughnutLabels
 		applyLegendOverrides(&opt.Legend, ov)
@@ -159,6 +187,81 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 		return nil, true, fmt.Errorf("native chart encode failed: %w", err)
 	}
 	return buf, true, nil
+}
+
+// nativeChartTheme construye el ColorPalette de go-analyze/charts que
+// aplica categoricalColors a la paleta por defecto — nil/vacío devuelve nil,
+// que asignado a opt.Theme es idéntico a no tocarlo (el zero value de la
+// interfaz), así que un caller sin tema reproduce el render de antes byte
+// por byte. Cada color pasa por chartColorFromCSS, no por charts.ParseColor
+// directamente — ver su doc comment: acepta cualquier sintaxis de color
+// CSS válida que un theme.json pueda traer (hex, rgb()/rgba(), hsl()/
+// hsla(), nombres), no solo el hex plano que motivó el ejemplo original.
+//
+// count es cuántas series/segmentos necesita colorear ESTE chart.
+// go-analyze/charts@v0.6.0's getSeriesColor no repite por módulo puro una
+// vez que el índice pedido alcanza el largo de la paleta: reusa el color
+// de index%colorCount pero le ajusta saturación/luminosidad según
+// index/colorCount (ver adjustSeriesColor en su fuente), así que devuelve
+// una variante distinta, no el mismo color — al revés del contrato
+// chart-cat-* de motor-temas-v2.md §2.2 (un set ORDENADO que el motor debe
+// repetir exacto por módulo, igual que chartCategoricalPalette en html.go
+// ya hace para el camino Chart.js), y hacía que el mismo chart se viera
+// distinto entre el backend nativo y Chart.js para cualquier serie más
+// allá del largo de la paleta (hallazgo de code-review sobre PR #224). Se
+// expande categoricalColors a count entradas por módulo ANTES de
+// entregárselo a WithSeriesColors, para que ningún índice que
+// go-analyze/charts vaya a pedir quede nunca por debajo de colorCount y
+// esa rama de ajuste no se dispare nunca.
+func nativeChartTheme(categoricalColors []string, count int) charts.ColorPalette {
+	if len(categoricalColors) == 0 {
+		return nil
+	}
+	if count < len(categoricalColors) {
+		count = len(categoricalColors)
+	}
+	colors := make([]charts.Color, count)
+	for i := range colors {
+		colors[i] = chartColorFromCSS(categoricalColors[i%len(categoricalColors)])
+	}
+	return charts.GetDefaultTheme().WithSeriesColors(colors)
+}
+
+// chartColorFromCSS parses a chart-cat-* token the way a browser actually
+// would, not the way go-analyze/charts' own charts.ParseColor does.
+// charts.ParseColor only understands hex/rgb()/rgba() and a handful of
+// named colors: hsl()/hsla() silently comes back as opaque black (R=G=B=0,
+// A=255 — no error, no zero value to detect), and an 8-digit hex
+// (#rrggbbaa) parses its RGB correctly but drops the alpha channel
+// entirely (A always 255) — both confirmed empirically against the
+// installed go-analyze/charts version. Chart.js, on the browser path,
+// parses the SAME token with the browser's full CSS Color engine, so
+// either gap reintroduces the native-vs-Chart.js divergence this whole
+// theming path exists to close (code-review finding on PR #224): a theme
+// using hsl() for its chart-cat-* tokens rendered every native chart
+// series solid black.
+//
+// csscolorparser (CSS Color Module Level 4 — hex incl. #rgba/#rrggbbaa,
+// rgb()/rgba(), hsl()/hsla(), hwb(), lab(), lch(), oklab(), oklch(), named
+// colors) already ships in both CLIs' binaries as an indirect dependency
+// of core/renderer (via go-staticmaps, for maps) and is core/a11y's own
+// color parser — reused here for the SAME reason a11y uses it: it is the
+// closest thing available to what a browser accepts. Unlike a11y.ParseColor
+// (contrast math needs a fully opaque, already-composited color, so it
+// rejects any real alpha), a chart-cat-* color's alpha is meaningful and
+// preserved as-is — go-analyze/charts.Color carries its own A channel.
+// charts.ParseColor is kept only as a fallback for the rare input
+// csscolorparser rejects, so a chart never hard-fails over an unusual
+// (or literally invalid) color string — degrading to charts.ParseColor's
+// own best-effort result (typically transparent/black) beats aborting the
+// whole render.
+func chartColorFromCSS(s string) charts.Color {
+	c, err := csscolorparser.Parse(s)
+	if err != nil {
+		return charts.ParseColor(s)
+	}
+	r, g, b, a := c.Clamp().RGBA255()
+	return charts.Color{R: r, G: g, B: b, A: a}
 }
 
 // chartSeriesValues transpone elem.Data (una fila por categoría: [label, v1,

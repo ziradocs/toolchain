@@ -39,13 +39,39 @@ type RenderContext struct {
 	// una raíz de confinamiento explícita, una fuente local se deja tal
 	// cual (mismo comportamiento roto de siempre) en vez de leer del
 	// filesystem sin límite alguno.
-	AssetRoot      string
-	OutputDir      string          // Output directory for assets
-	Fetcher        PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
-	MermaidFetcher MermaidFetcher  // Mermaid fetcher inicializado
-	ChartFetcher   ChartFetcher    // Chart fetcher inicializado
-	MapFetcher     MapFetcher      // Map fetcher inicializado
-	MathFetcher    MathFetcher     // Math fetcher inicializado
+	AssetRoot string
+	// ChartCategoricalColors overrides the built-in categorical palette used
+	// to color chart series/segments in the offline/PDF render path —
+	// nil/empty (every caller today) reproduces the existing hardcoded
+	// defaults exactly, byte for byte. Reaches TWO independent renderers,
+	// not one: GenerateChartConfigWithMode (Chart.js JSON, combo/scatter and
+	// the browser path — NOT JSON-mode, see below) AND
+	// RenderChartNativePNGWithColors via chromium.ChartFetcher's
+	// categoricalColors field (go-analyze/charts, which is what actually
+	// renders bar/line/pie/doughnut in offline/PDF — issue #130 makes it
+	// the preferred path for those types, so it is NOT a minor branch).
+	// A chart in JSON mode (elem.IsJSONMode/RawJSON — the author writes the
+	// Chart.js config by hand) reaches NEITHER: renderChartElement
+	// re-serializes RawJSON verbatim and skips GenerateChartConfigWithMode
+	// entirely, and RenderChartNativePNGWithColors's own
+	// SupportsNativeChartRenderingWithOptions gate rejects IsJSONMode
+	// upfront — this is intentional (an author's literal config should not
+	// be silently overridden by a theme), not a gap to close. Motor-temas-v2.md
+	// §2.2's chart-cat-* contract: this
+	// is an ORDERED set indexed by modulo, the same way the hardcoded
+	// defaults already are — it exists so a caller that HAS resolved a
+	// theme (slidelang, from --theme) can hand over its chart-cat-1..8
+	// tokens as literal colors (RenderContext has no notion of "theme"
+	// itself; it only carries already-resolved values). Never generate a
+	// new shade for a series past the set's length — wrap via modulo like
+	// the code that consumes this already does, don't invent one.
+	ChartCategoricalColors []string
+	OutputDir              string          // Output directory for assets
+	Fetcher                PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
+	MermaidFetcher         MermaidFetcher  // Mermaid fetcher inicializado
+	ChartFetcher           ChartFetcher    // Chart fetcher inicializado
+	MapFetcher             MapFetcher      // Map fetcher inicializado
+	MathFetcher            MathFetcher     // Math fetcher inicializado
 	// Logger recibe los warnings/debug best-effort de GenerateDocumentHTML
 	// (nonce CSP fallido, variable de tema rechazada por
 	// SanitizeCSSCustomProperty) — issue #134/G1c. Antes esos dos sitios
@@ -76,23 +102,24 @@ type RenderContext struct {
 // asignar su propio ctx.Logger antes de llamarla.
 func NewDefaultRenderContext() *RenderContext {
 	return &RenderContext{
-		PlantUMLMode:   "browser",
-		PlantUMLServer: "",
-		PlantUMLFormat: "svg",
-		MermaidMode:    "browser",
-		ChartMode:      "browser",
-		MapMode:        "browser",
-		MathMode:       "browser",
-		ImageMode:      "browser",
-		AssetRoot:      "",
-		OutputDir:      "",
-		Fetcher:        nil,
-		MermaidFetcher: nil,
-		ChartFetcher:   nil,
-		MapFetcher:     nil,
-		MathFetcher:    nil,
-		Logger:         util.NewNoop(),
-		Ctx:            context.Background(),
+		PlantUMLMode:           "browser",
+		PlantUMLServer:         "",
+		PlantUMLFormat:         "svg",
+		MermaidMode:            "browser",
+		ChartMode:              "browser",
+		MapMode:                "browser",
+		MathMode:               "browser",
+		ImageMode:              "browser",
+		AssetRoot:              "",
+		ChartCategoricalColors: nil,
+		OutputDir:              "",
+		Fetcher:                nil,
+		MermaidFetcher:         nil,
+		ChartFetcher:           nil,
+		MapFetcher:             nil,
+		MathFetcher:            nil,
+		Logger:                 util.NewNoop(),
+		Ctx:                    context.Background(),
 	}
 }
 
