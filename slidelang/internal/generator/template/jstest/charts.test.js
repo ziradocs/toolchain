@@ -181,6 +181,69 @@ test('applyExtensionChartColors: polarArea chart also materializes the radial "r
     assert.ok(config.options.scales.r, 'expected an "r" scale to be materialized for polarArea');
 });
 
+// A code-review-flagged correctness bug: Chart.js DOES support a
+// per-dataset rAxisID override for radial scales, symmetric with
+// xAxisID/yAxisID — confirmed empirically against Chart.js 4.5.1. A radar
+// dataset with `rAxisID: "radial"` binds to its own named scale, but
+// Chart.js still creates its OWN default 'r' scale alongside it if
+// nothing suppresses that requirement — exactly the same "custom-named
+// scale doesn't suppress the literal default" shape as the cartesian
+// revenue/y case above. An earlier version hard-coded 'r' as the only
+// possible radial scale id, so this dataset's real "radial" scale never
+// got themed, while Chart.js's OWN untamed default 'r' got materialized
+// and themed instead — the exact opposite of the intended chart.
+test('applyExtensionChartColors: a radar dataset with rAxisID override themes ITS scale, not just literal "r"', () => {
+    const ctx = loadModule('charts.js');
+    ctx.SlideLang.metadata = { themeTokens: { chart: { 'chart-grid': '#111', 'chart-axis': '#222' } } };
+    const config = baseConfig('radar', {
+        data: { datasets: [{ data: [1, 2, 3], rAxisID: 'radial' }] },
+    });
+
+    ctx.applyExtensionChartColors(config);
+
+    assert.ok(config.options.scales.radial, 'expected the dataset\'s own named "radial" scale to be materialized');
+    assert.equal(config.options.scales.radial.grid.color, '#111');
+    assert.equal(config.options.scales.radial.angleLines.color, '#111');
+    assert.equal(config.options.scales.radial.pointLabels.color, '#222');
+    assert.equal(config.options.scales.r, undefined, 'an explicit dataset.rAxisID override, like yAxisID, really does redirect Chart.js away from the default "r"');
+});
+
+test('applyExtensionChartColors: a radar with two datasets, one overriding rAxisID and one using the default, themes BOTH resulting radial scales', () => {
+    const ctx = loadModule('charts.js');
+    ctx.SlideLang.metadata = { themeTokens: { chart: { 'chart-grid': '#111' } } };
+    const config = baseConfig('radar', {
+        data: {
+            datasets: [
+                { data: [1, 2, 3], rAxisID: 'radial' },
+                { data: [4, 5, 6] }, // no override — still requires the literal default 'r'
+            ],
+        },
+    });
+
+    ctx.applyExtensionChartColors(config);
+
+    assert.ok(config.options.scales.radial, 'expected the override scale "radial" to be materialized');
+    assert.ok(config.options.scales.r, 'expected the literal default "r" to ALSO be materialized for the other dataset');
+    assert.equal(config.options.scales.radial.angleLines.color, '#111');
+    assert.equal(config.options.scales.r.angleLines.color, '#111');
+});
+
+// The generalized model is also dataset.type-aware: a mixed/combo-style
+// config where one dataset's own `type` differs from the chart-level
+// type gets ITS required dimensions computed from its own type, not
+// blindly inherited from the whole chart. This is a synthetic scenario
+// (this codebase's buildConfig never actually mixes radial and cartesian
+// datasets in one chart), included to lock in the intended generalization
+// the reviewer's rAxisID finding pointed at, not just the concrete radar
+// case.
+test('requiredScaleIds: a dataset.type override is used instead of the chart-level type', () => {
+    const ctx = loadModule('charts.js');
+    const config = baseConfig('bar', {
+        data: { datasets: [{ data: [1, 2, 3], type: 'radar' }] },
+    });
+    assert.deepEqual(toArray(ctx.requiredScaleIds(config)).sort(), ['r']);
+});
+
 test('applyExtensionChartColors: pie chart never gains any scale', () => {
     const ctx = loadModule('charts.js');
     ctx.SlideLang.metadata = { themeTokens: { chart: { 'chart-grid': '#111', 'chart-axis': '#222' } } };

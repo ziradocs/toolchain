@@ -141,7 +141,7 @@ func TestPropertyIsCyclic_HiddenInUnevaluatedFallback(t *testing.T) {
 		"--a":       "var(--defined, var(--a))",
 		"--defined": "#123456",
 	}
-	if !propertyIsCyclic(vars, "a", map[string]bool{}) {
+	if !propertyIsCyclic(vars, "a") {
 		t.Error("expected a self-reference hidden inside an unevaluated fallback to be detected as cyclic")
 	}
 }
@@ -151,7 +151,7 @@ func TestPropertyIsCyclic_NoFalsePositiveOnOrdinaryChain(t *testing.T) {
 		"--a": "var(--b)",
 		"--b": "#2563eb",
 	}
-	if propertyIsCyclic(vars, "a", map[string]bool{}) {
+	if propertyIsCyclic(vars, "a") {
 		t.Error("expected an ordinary, non-cyclic reference chain not to be flagged as cyclic")
 	}
 }
@@ -161,8 +161,59 @@ func TestPropertyIsCyclic_NoFalsePositiveThroughAGenuinelyUnrelatedFallback(t *t
 		"--a": "var(--missing, var(--b))",
 		"--b": "#111111",
 	}
-	if propertyIsCyclic(vars, "a", map[string]bool{}) {
+	if propertyIsCyclic(vars, "a") {
 		t.Error("expected a fallback that references an unrelated, non-cyclic property not to be flagged")
+	}
+}
+
+// TestPropertyIsCyclic_NoFalsePositiveWhenOnlyReferencingACycle is the
+// exact repro a code review flagged: chart-cat-1 references --b (via its
+// own fallback slot, though the same bug applied to a primary reference
+// too), and --b/--c form a genuine cycle between THEMSELVES — but
+// chart-cat-1 is not part of that cycle, it merely points at one edge of
+// it. Per CSS Custom Properties §3, --b and --c are guaranteed-invalid,
+// but chart-cat-1's own var(--b, red) reference simply fails to resolve
+// (because --b is invalid) and falls back to "red", exactly like any
+// other unresolvable reference. An earlier version of propertyIsCyclic
+// treated "the DFS revisited ANY node" as proof that the STARTING node
+// (chart-cat-1) was cyclic, when only a revisit of chart-cat-1 itself
+// would prove that — it incorrectly reported chart-cat-1 as cyclic and
+// discarded "red" for nothing.
+func TestPropertyIsCyclic_NoFalsePositiveWhenOnlyReferencingACycle(t *testing.T) {
+	vars := ThemeVariables{
+		"--chart-cat-1": "var(--b, red)",
+		"--b":           "var(--c)",
+		"--c":           "var(--b)",
+	}
+	if propertyIsCyclic(vars, "chart-cat-1") {
+		t.Error("expected a property that only references a cycle (without being part of it) not to be flagged as cyclic itself")
+	}
+	// --b and --c themselves genuinely are cyclic — confirms the fix
+	// didn't just make propertyIsCyclic permissive across the board.
+	if !propertyIsCyclic(vars, "b") {
+		t.Error("expected --b, which IS part of the b<->c cycle, to still be detected as cyclic")
+	}
+	if !propertyIsCyclic(vars, "c") {
+		t.Error("expected --c, which IS part of the b<->c cycle, to still be detected as cyclic")
+	}
+}
+
+// TestResolveOrderedTokens_ResolvesViaFallbackWhenOnlyReferencingACycle is
+// TestPropertyIsCyclic_NoFalsePositiveWhenOnlyReferencingACycle's
+// end-to-end version, through the real chart-cat-* entry point
+// (resolveOrderedTokens, via ResolveThemeTokens) — confirms chart-cat-1
+// actually resolves to "red", not just that propertyIsCyclic itself
+// returns the right bool in isolation.
+func TestResolveOrderedTokens_ResolvesViaFallbackWhenOnlyReferencingACycle(t *testing.T) {
+	vars := ThemeVariables{
+		"--slidelang-chart-cat-1": "var(--slidelang-b, red)",
+		"--slidelang-b":           "var(--slidelang-c)",
+		"--slidelang-c":           "var(--slidelang-b)",
+	}
+	tokens := ResolveThemeTokens(vars)
+	want := []string{"red"}
+	if !reflect.DeepEqual(tokens.ChartCategorical, want) {
+		t.Errorf("ChartCategorical = %#v, want %#v", tokens.ChartCategorical, want)
 	}
 }
 
@@ -364,11 +415,101 @@ func TestIsValidMermaidColor(t *testing.T) {
 		"aliceblue":     true,
 		"darkslategray": true,
 		"rebeccapurple": true,
+		// A third code-review-flagged gap: mermaid@10.9.6 accepts a hue
+		// with a sign and/or an angle unit, and the modern CSS Color 4
+		// space-separated syntax with an optional "/ alpha" — none of
+		// which the pattern used to cover, silently producing incomplete
+		// theming (dropped tokens, not a crash) for anyone using these
+		// otherwise-valid forms.
+		"hsl(-30,50%,50%)":       true,
+		"hsl(0.5turn,50%,50%)":   true,
+		"rgb(255 0 0 / 50%)":     true,
+		"hsl(120 50% 50% / 25%)": true,
 	}
 	for in, want := range cases {
 		if got := IsValidMermaidColor(in); got != want {
 			t.Errorf("IsValidMermaidColor(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// TestNormalizeMermaidColor_NamedColorBecomesHex is the exact repro a code
+// review flagged: mermaid@10.9.6's own khroma-based color parser does NOT
+// necessarily recognize every standard CSS named color — "cyan",
+// "steelblue", and "tomato" (all valid CSS, all in cssNamedColorHex) still
+// throw "Unsupported color format" against the real pinned bundle. The
+// fix is to never ship a named color to Mermaid at all: normalize it to
+// hex first, which every real color parser (khroma included) accepts
+// unconditionally.
+func TestNormalizeMermaidColor_NamedColorBecomesHex(t *testing.T) {
+	cases := map[string]string{
+		"cyan":          "#00FFFF",
+		"CYAN":          "#00FFFF", // case-insensitive lookup
+		"steelblue":     "#4682B4",
+		"tomato":        "#FF6347",
+		"aliceblue":     "#F0F8FF",
+		"rebeccapurple": "#663399",
+		"transparent":   "#00000000",
+	}
+	for in, want := range cases {
+		got, ok := normalizeMermaidColor(in)
+		if !ok || got != want {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, %v), want (%q, true)", in, got, ok, want)
+		}
+	}
+}
+
+// TestNormalizeMermaidColor_HexAndFunctionalPassThroughUnchanged confirms
+// the normalization is targeted: only named colors get rewritten — hex
+// and rgb()/hsl() forms Mermaid already parses directly must survive
+// byte-for-byte, not get needlessly reformatted.
+func TestNormalizeMermaidColor_HexAndFunctionalPassThroughUnchanged(t *testing.T) {
+	cases := []string{"#ff0000", "#F00", "rgba(0,0,0,0.5)", "hsl(120, 50%, 50%)"}
+	for _, in := range cases {
+		got, ok := normalizeMermaidColor(in)
+		if !ok || got != in {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, %v), want (%q, true) unchanged", in, got, ok, in)
+		}
+	}
+}
+
+func TestNormalizeMermaidColor_InvalidRejected(t *testing.T) {
+	for _, in := range []string{"linear-gradient(red)", "var(--x)", "notacolor", ""} {
+		if _, ok := normalizeMermaidColor(in); ok {
+			t.Errorf("normalizeMermaidColor(%q) unexpectedly succeeded", in)
+		}
+	}
+}
+
+// TestCSSNamedColorHex_CoversEveryMermaidNamedColor is a structural
+// safety net: it doesn't re-verify each hex value against an external
+// source, but it does guarantee cssNamedColorHex's key set is exactly
+// the full CSS Color Module set IsValidMermaidColor is documented to
+// accept — every name TestIsValidMermaidColor exercises as true (and a
+// spot-check of the full set's expected size) must have a hex entry, or
+// normalizeMermaidColor would silently start rejecting a name
+// IsValidMermaidColor claims to accept.
+func TestCSSNamedColorHex_CoversEveryMermaidNamedColor(t *testing.T) {
+	if len(cssNamedColorHex) != 149 {
+		t.Errorf("cssNamedColorHex has %d entries, want 149", len(cssNamedColorHex))
+	}
+	for _, name := range []string{"aliceblue", "cyan", "rebeccapurple", "transparent", "tomato", "steelblue"} {
+		if _, ok := cssNamedColorHex[name]; !ok {
+			t.Errorf("cssNamedColorHex missing %q", name)
+		}
+	}
+}
+
+// TestResolveThemeTokens_DiagramNamedColorReachesPayloadAsHex is the
+// end-to-end version of TestNormalizeMermaidColor_NamedColorBecomesHex,
+// through the real production entry point (ResolveThemeTokens) — confirms
+// a theme declaring a diagram-* token as a bare named color reaches the
+// metadata payload already normalized to hex, not as the name.
+func TestResolveThemeTokens_DiagramNamedColorReachesPayloadAsHex(t *testing.T) {
+	vars := ThemeVariables{"--slidelang-diagram-node-bg": "cyan"}
+	tokens := ResolveThemeTokens(vars)
+	if tokens.Diagram["diagram-node-bg"] != "#00FFFF" {
+		t.Errorf("diagram-node-bg = %q, want \"#00FFFF\" (normalized from \"cyan\")", tokens.Diagram["diagram-node-bg"])
 	}
 }
 
