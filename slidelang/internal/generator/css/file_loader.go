@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 )
 
 //go:embed assets/css/base/*.css
@@ -33,18 +34,32 @@ type CSSFileLoader struct {
 	ExcludeClasses []string
 }
 
-// NewCSSFileLoader creates a new CSS file loader with namespacing
+// NewCSSFileLoader creates a new CSS file loader with namespacing.
+// ExcludeClasses now holds only a small local set of pseudo-selector names
+// (defensive — classRegex requires a literal "." before a name, so it can
+// never actually match a bare ":hover"/"::before" pseudo-class/element;
+// this only guards a class LITERALLY named e.g. "hover"). Classes the
+// engine's own generated HTML legitimately emits without the slidelang-
+// prefix are no longer copied into this list — ApplyNamespacing checks
+// themes.IsKnownUnprefixedClass directly (same function
+// UnprefixedClassSelectors, the strict validator, uses) so a name-based
+// entry and a prefix-based entry (e.g. "language-") are honored identically
+// by both instead of ExcludeClasses's plain equality check silently
+// missing the prefix half (fourth-round finding on PR #223: .language-go
+// passed --strict but ApplyNamespacing still rewrote it to
+// .slidelang-language-go). This list used to also carry "html", "body",
+// "*", "h1"-"h6", "p", "a", "img", "ul", "ol", "li", "table", "tr", "td",
+// "th", "button", "input", "textarea", "select", "form" — removed
+// (code-review finding on PR #223): since classRegex can never match a
+// bare tag selector in the first place, the only real effect of those
+// entries was silently blocking a genuine CLASS that happens to share a
+// tag's name, confirmed for ".table" (the engine's own slidelang-table
+// wrapper class, css/assets/css/elements/tables.css) — every table rule
+// in startup-tech was left unable to match anything.
 func NewCSSFileLoader() *CSSFileLoader {
 	return &CSSFileLoader{
-		Prefix: "slidelang-",
-		ExcludeClasses: []string{
-			// CSS variables and pseudo-selectors should not be prefixed
-			"root", "before", "after", "hover", "focus", "active", "visited",
-			// Global selectors that should not be prefixed
-			"html", "body", "*", "h1", "h2", "h3", "h4", "h5", "h6",
-			"p", "a", "img", "ul", "ol", "li", "table", "tr", "td", "th",
-			"button", "input", "textarea", "select", "form",
-		},
+		Prefix:         "slidelang-",
+		ExcludeClasses: []string{"root", "before", "after", "hover", "focus", "visited"},
 	}
 }
 
@@ -186,22 +201,33 @@ func (loader *CSSFileLoader) ApplyNamespacing(css string) string {
 	// Regex para encontrar selectores CSS (.class-name)
 	classRegex := regexp.MustCompile(`\.([a-zA-Z][\w-]*)`)
 
-	return classRegex.ReplaceAllStringFunc(css, func(match string) string {
-		className := match[1:] // Remover el punto
+	// themes.RewriteOutsideProtectedSpans: sin esto, un url("./Brand.woff2")
+	// o content: "..." con un "." seguido de letras se reescribiría como si
+	// fuera un selector — mismo hallazgo de code-review que motivó
+	// protectedSpanRe en namespace.go, acá con más riesgo porque esta
+	// función SÍ reescribe (no solo detecta), así que el bug corrompería la
+	// ruta de un asset en vez de solo dar un falso positivo de validación.
+	return themes.RewriteOutsideProtectedSpans(css, func(segment string) string {
+		return classRegex.ReplaceAllStringFunc(segment, func(match string) string {
+			className := match[1:] // Remover el punto
 
-		// Excluir clases que no deben tener prefijo
-		for _, exclude := range loader.ExcludeClasses {
-			if className == exclude {
+			// Excluir clases que no deben tener prefijo
+			for _, exclude := range loader.ExcludeClasses {
+				if className == exclude {
+					return match
+				}
+			}
+			if themes.IsKnownUnprefixedClass(className) {
 				return match
 			}
-		}
 
-		// Evitar double-prefixing si ya tiene el prefijo
-		if strings.HasPrefix(className, loader.Prefix) {
-			return match
-		}
+			// Evitar double-prefixing si ya tiene el prefijo
+			if strings.HasPrefix(className, loader.Prefix) {
+				return match
+			}
 
-		return "." + loader.Prefix + className
+			return "." + loader.Prefix + className
+		})
 	})
 }
 
@@ -230,48 +256,13 @@ func (loader *CSSFileLoader) ValidateNamespacedCSS(css string) []ValidationError
 	return errors
 }
 
-// ProcessCSSVariables processes CSS content to namespace variable references
+// ProcessCSSVariables namespaces both var(--x) usages and --x: declarations
+// in the given CSS to their --slidelang-x form. Delegates to
+// themes.NamespaceStylesheet — the canonical implementation, shared with
+// CSSBuilder.Build()'s external-theme CSS path (§2.1) — instead of keeping
+// a second copy of the same regex/paren-matching logic here.
 func (loader *CSSFileLoader) ProcessCSSVariables(css string) string {
-	// This function handles nested var() calls by processing them recursively
-
-	// First pass: Find all var() functions and process them
-	result := css
-
-	// Use a more sophisticated approach to handle nested var() calls
-	// We'll process from the inside out to handle nested variables correctly
-	changed := true
-	for changed {
-		changed = false
-		// Find var(--variable-name) or var(--variable-name, fallback-value)
-		re := regexp.MustCompile(`var\(--([a-zA-Z0-9_-]+)(?:\s*,\s*([^)]*))?\)`)
-
-		result = re.ReplaceAllStringFunc(result, func(match string) string {
-			matches := re.FindStringSubmatch(match)
-			varName := matches[1]
-			fallback := ""
-			if len(matches) > 2 && matches[2] != "" {
-				fallback = matches[2]
-			}
-
-			// Don't namespace if already namespaced
-			if strings.HasPrefix(varName, "slidelang-") {
-				return match
-			}
-
-			// Process the variable name
-			namespacedVar := "slidelang-" + varName
-			changed = true
-
-			// Reconstruct the var() function
-			if fallback != "" {
-				return "var(--" + namespacedVar + ", " + fallback + ")"
-			} else {
-				return "var(--" + namespacedVar + ")"
-			}
-		})
-	}
-
-	return result
+	return themes.NamespaceStylesheet(css)
 }
 
 // LoadCSSWithVariableNamespacing loads CSS content and processes variables for namespacing

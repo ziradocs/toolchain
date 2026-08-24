@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/slidelang/v2/internal/generator/css"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 )
 
 // CreateThemeCmd creates a new theme command
@@ -98,6 +99,42 @@ type ThemeTemplate struct {
 	Assets      []string          `json:"assets,omitempty"`
 }
 
+// namespaceTemplate returns a copy of t with every variable name prefixed
+// --slidelang- and its BaseCSS fully namespaced (both var(--x) usages and
+// .class selectors) to --slidelang-x / .slidelang-x.
+//
+// The four literal template strings below (businessThemeCSS etc., in
+// theme_templates.go) are written unprefixed for readability — hand-
+// transcribing ~500 lines of CSS into its namespaced form risked
+// introducing exactly the typo-class of bug this fix targets. Rewriting
+// programmatically at generation time, with the same namespacer that now
+// fixes §2.1 for external themes, guarantees `themes create` never again
+// scaffolds the broken shape `themes validate --strict` was just taught
+// to reject (motor-temas-v2.md §2.1) — every theme this command produces
+// is valid --strict from the day it's created.
+func namespaceTemplate(t ThemeTemplate) ThemeTemplate {
+	variables := make(map[string]string, len(t.Variables))
+	for name, value := range t.Variables {
+		namespacedName := name
+		if !strings.HasPrefix(namespacedName, "--slidelang-") {
+			namespacedName = "--slidelang-" + strings.TrimPrefix(namespacedName, "--")
+		}
+		// Namespace value-side var() usages too (e.g. a gradient stop
+		// referencing another variable) even though none of the bundled
+		// templates currently do — defensive, not dead code: a future
+		// template author adding one would otherwise get a silent break
+		// identical to the bug this whole PR fixes.
+		variables[namespacedName] = themes.NamespaceValue(value)
+	}
+
+	cssContent := themes.NamespaceStylesheet(t.BaseCSS)
+	cssContent = css.NewCSSFileLoader().ApplyNamespacing(cssContent)
+
+	t.Variables = variables
+	t.BaseCSS = cssContent
+	return t
+}
+
 // getThemeTemplates returns predefined theme templates
 func getThemeTemplates() map[string]ThemeTemplate {
 	return map[string]ThemeTemplate{
@@ -180,6 +217,7 @@ func createTheme(themeName, templateType, outputPath, author, description string
 	if !exists {
 		return fmt.Errorf("unknown template type: %s. Available: business, academic, creative, minimal", templateType)
 	}
+	template = namespaceTemplate(template)
 
 	// Determine output path
 	if outputPath == "" {

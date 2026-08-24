@@ -227,6 +227,32 @@ func (tv *ThemeValidator) validateCSS(styles map[string]string, result *Validati
 		if tv.containsDangerousCSS(css) {
 			result.Errors = append(result.Errors, fmt.Sprintf("potentially dangerous CSS detected in %s section", section))
 		}
+
+		// Namespacing contract (motor-temas-v2.md §2.1) — strict mode
+		// only. ThemeLoader.LoadTheme uses the NON-strict validator and
+		// falls back to the "default" theme on any validation error, so
+		// promoting these to unconditional errors would make every theme
+		// shipped today that predates this contract (modern-blue,
+		// startup-tech, startup-tech-solid — none of them prefix their
+		// selectors, and the first two don't prefix their variables
+		// either) stop loading entirely instead of just rendering with
+		// broken decorative CSS, which is the regression these rules
+		// exist to prevent, not cause. The motor deliberately does not
+		// rewrite a third-party theme's CSS to fix this for it (that's
+		// what NamespaceStylesheet does for the toolchain's OWN base
+		// CSS) — an author finds out via `themes validate --strict`.
+		if tv.strictMode {
+			if unprefixed := UnprefixedVarNames(css); len(unprefixed) > 0 {
+				result.Errors = append(result.Errors, fmt.Sprintf(
+					"%s section: %d CSS variable(s) without the --slidelang- prefix (e.g. var(--%s)) — they will not resolve against this theme's own :root block",
+					section, len(unprefixed), unprefixed[0]))
+			}
+			if unprefixed := UnprefixedClassSelectors(css); len(unprefixed) > 0 {
+				result.Errors = append(result.Errors, fmt.Sprintf(
+					"%s section: %d class selector(s) without the .slidelang- prefix (e.g. .%s) — they will not match the toolchain's namespaced markup",
+					section, len(unprefixed), unprefixed[0]))
+			}
+		}
 	}
 }
 
