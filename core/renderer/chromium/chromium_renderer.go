@@ -498,17 +498,21 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 // no depende de ningún CDN (ver doclang/internal/generator/pdf.go, que
 // ahora fuerza offline-inline); lo único que le queda esperar acá es una
 // condición real y acotada: que el navegador termine de cargar cualquier
-// @font-face que el CSS de la página declare. Con document.fonts.size===0
-// (el caso de hoy: este toolchain solo usa font stacks de sistema, cero
-// @font-face — ver core/renderer/csp.go's ausencia deliberada de font-src)
-// la condición ya es verdadera en el primer poll, así que la espera real
-// converge casi de inmediato en vez de pagar 500ms fijos en todos los
-// builds. Acotado a 3s (mismo criterio de timeout que RenderMapToPNG) para
-// que un caso patológico no cuelgue el build entero; si el poll falla o
-// agota el timeout, se loguea y se sigue directo a imprimir — nunca bloquea
-// la generación del PDF por esto, que era justamente el problema con el
-// sleep fijo original: una espera que no puede fallar tampoco puede tener
-// una condición real detrás.
+// @font-face que el CSS de la página declare. Un deck cuyo tema no declara
+// fuentes (el caso de los temas embebidos) no tiene ningún @font-face en el
+// CSS, así que document.fonts.size===0 ya es verdadera en el primer poll y
+// la espera real converge casi de inmediato — pero un tema externo SÍ puede
+// declarar fuentes auto-hospedadas (motor-temas-v2.md §2.3, ver
+// slidelang/internal/generator/css/themes/fonts.go), en cuyo caso esta
+// espera es la que evita que el PDF imprima con la fuente todavía sin
+// cargar. font-src 'self' data: ya está abierto en core/renderer/csp.go
+// para permitirlo — no hace falta ninguna otra fuente externa. Acotado a 3s
+// (mismo criterio de timeout que RenderMapToPNG) para que un caso
+// patológico no cuelgue el build entero; si el poll falla o agota el
+// timeout, se loguea y se sigue directo a imprimir — nunca bloquea la
+// generación del PDF por esto, que era justamente el problema con el sleep
+// fijo original: una espera que no puede fallar tampoco puede tener una
+// condición real detrás.
 func (r *ChromiumRenderer) waitForFontsReady() chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)

@@ -115,6 +115,11 @@ func (tv *ThemeValidator) ValidateThemeDetailed(theme *ExternalTheme) *Validatio
 	// Validate assets
 	tv.validateAssets(theme.Assets, result)
 
+	// motor-temas-v2.md §2.3: a font declared in a stack but not backed by
+	// any assets.fonts entry silently falls back to the reader's installed
+	// fonts — the exact failure mode this whole feature exists to surface.
+	tv.validateFontFamilyBacking(theme, result)
+
 	// Validate compatibility
 	tv.validateCompatibility(&theme.Manifest.Compatibility, result)
 
@@ -200,7 +205,11 @@ func (tv *ThemeValidator) validateVariableValue(name, value string, result *Vali
 		if !tv.isValidSize(value) {
 			result.Errors = append(result.Errors, fmt.Sprintf("invalid size value for %s: %s", name, value))
 		}
-	case strings.Contains(name, "font-family"):
+	case hasFontStackSuffix(name):
+		// Previously matched on strings.Contains(name, "font-family"), which
+		// no real variable name contains — every theme uses -font-main/
+		// -font-code/-font-heading, so this branch never fired and
+		// isValidFontFamily was dead code.
 		if !tv.isValidFontFamily(value) {
 			result.Errors = append(result.Errors, fmt.Sprintf("invalid font family for %s: %s", name, value))
 		}
@@ -281,12 +290,78 @@ func (tv *ThemeValidator) validateAssets(assets []ThemeAsset, result *Validation
 		if asset.URL != "" && !tv.isValidURL(asset.URL) {
 			result.Errors = append(result.Errors, fmt.Sprintf("invalid asset URL: %s", asset.URL))
 		}
+
+		// motor-temas-v2.md §2.3: fonts are always self-hosted, so "local"
+		// is required and "url" is rejected outright — not just validated
+		// as a well-formed URL above. A font declared only via "url" would
+		// need a build-time download to actually self-host it, reintroducing
+		// the exact network dependency this decision removes, plus a
+		// typeface-redistribution question this repo doesn't want to own.
+		if asset.Type == "font" {
+			if asset.Path == "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("font asset %q requires 'local' — fonts are always self-hosted with the theme", asset.Name))
+			}
+			if asset.URL != "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("font asset %q must not declare 'url' — self-hosted fonts only ('local')", asset.Name))
+			}
+		}
 	}
 
 	// Check total assets size
 	if totalSize > tv.maxFileSize {
 		result.Errors = append(result.Errors, fmt.Sprintf("total assets size exceeds limit (%d bytes)", tv.maxFileSize))
 	}
+}
+
+// fontStackVariableSuffixes are the theme variable names that carry a
+// font-family stack, matched by suffix so both the --slidelang- prefixed
+// form (external themes) and the unprefixed form (embedded Go themes, see
+// variables.go) are covered.
+var fontStackVariableSuffixes = []string{"-font-main", "-font-code", "-font-heading"}
+
+// validateFontFamilyBacking warns when a font-family stack's first entry —
+// the only one that needs backing; the rest are system fallbacks by design,
+// see motor-temas-v2.md §2.3 — names a family that no assets.fonts entry
+// declares. This is the exact failure mode elegant-minimal has today
+// (Playfair Display/Crimson Text/Berkeley Mono, no assets section at all):
+// the family silently falls back to whatever the reader has installed. A
+// Warning, not an Error — many perfectly valid themes intentionally rely on
+// system fonts for a body-text stack ("'Segoe UI', Tahoma, ... sans-serif"
+// has no theme-shipped font at all) and that must keep loading.
+func (tv *ThemeValidator) validateFontFamilyBacking(theme *ExternalTheme, result *ValidationResult) {
+	knownFamilies := make(map[string]bool, len(theme.Manifest.Assets.Fonts))
+	for _, font := range theme.Manifest.Assets.Fonts {
+		if font.Name != "" {
+			knownFamilies[strings.ToLower(font.Name)] = true
+		}
+	}
+
+	for name, value := range theme.Variables {
+		if !hasFontStackSuffix(name) {
+			continue
+		}
+		entries := SplitFontStack(value)
+		if len(entries) == 0 {
+			continue
+		}
+		first := unquoteFontFamily(entries[0])
+		if first == "" || genericFontFamilyKeywords[strings.ToLower(first)] {
+			continue
+		}
+		if !knownFamilies[strings.ToLower(first)] {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"%s declares %q as its primary font, but no assets.fonts entry backs it — it will fall back to whatever the reader has installed", name, first))
+		}
+	}
+}
+
+func hasFontStackSuffix(varName string) bool {
+	for _, suffix := range fontStackVariableSuffixes {
+		if strings.HasSuffix(varName, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateCompatibility validates version compatibility

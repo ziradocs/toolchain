@@ -115,8 +115,8 @@ func (cb *CSSBuilder) Build() string {
 		// already-resolved *Theme. A mismatch here (e.g. an external
 		// theme.json whose "name" field differs from its directory, so
 		// GetExternalTheme's cache lookup below misses) means the
-		// EXTERNAL THEME CSS block silently never gets written — surface
-		// it instead of failing quiet a second time.
+		// EXTERNAL THEME CSS and THEME FONTS blocks silently never get
+		// written — surface it instead of failing quiet a second time.
 		util.Warn("CSS: no se pudo re-resolver el tema '%s' al construir el bundle, usando fallback embebido: %v", cb.Theme, err)
 		theme = themes.GetTheme(cb.Theme)
 	} else {
@@ -135,6 +135,22 @@ func (cb *CSSBuilder) Build() string {
 	if theme.IsExternal && err == nil {
 		// Get the original external theme to access custom CSS
 		if externalTheme, found := cb.themeLoader.GetExternalTheme(cb.Theme); found {
+			// 1.5a. Self-hosted theme fonts (motor-temas-v2.md §2.3). Emitted
+			// BEFORE the theme's own custom CSS so a styles.css rule that
+			// references the family (e.g. blockquote { font-family:
+			// var(--slidelang-font-heading) }) has its @font-face already
+			// declared earlier in the cascade — @font-face order doesn't
+			// affect the cascade, but keeping declaration before use here
+			// matches how THEME VARIABLES precedes EXTERNAL THEME CSS above.
+			// Reuses this same externalTheme lookup rather than a second
+			// GetExternalTheme call, so it shares the same
+			// manifest-name-vs-directory cache-miss hazard already
+			// documented above — the fix there needs to mention fonts too.
+			if fontsCSS := themes.GenerateFontFaceCSS(externalTheme); fontsCSS != "" {
+				css.WriteString("/* === THEME FONTS === */\n")
+				css.WriteString(fontsCSS)
+				css.WriteString("\n")
+			}
 			if mainCSS, exists := externalTheme.Styles["main"]; exists && mainCSS != "" {
 				css.WriteString("/* === EXTERNAL THEME CSS === */\n")
 				css.WriteString(themes.NamespaceStylesheet(mainCSS))
