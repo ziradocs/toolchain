@@ -147,80 +147,85 @@ const CHART_SCALE_DIMENSIONS = {
     polarArea: ['r'],
 };
 
-// scaleDimension mirrors Chart.js v4's own axis-determination order — a
-// scale's ID doesn't reliably say which dimension it colors (a
-// custom-named scale like "revenue" isn't 'y' just because something
-// looks for one). The real signal, in Chart.js's own priority order: the
-// scale's own declared `axis`, then whichever dataset references the
-// scale ID via xAxisID/yAxisID, then the scale ID's first letter
-// (Chart.js's own fallback). Deliberately bug-compatible with Chart.js
-// here — including the consequence that a scale with no `axis` and no
-// dataset reference (e.g. "revenue") is treated as dimension 'r' by
-// virtue of its first letter. Getting this wrong is exactly H5: treating
-// a named scale's KEY as its dimension, instead of asking what dimension
-// it actually is, is what let ensureThemeableScales add a spurious extra
-// 'y' next to an author's own "revenue: {axis:'y'}" scale.
-function scaleDimension(id, scale, datasetAxisById) {
-    if (scale && typeof scale.axis === 'string' && scale.axis) {
-        return scale.axis;
+// requiredScaleIds returns the literal scale keys Chart.js itself will
+// require (and, if missing, silently create with its OWN untamed
+// defaults) for themedConfig — the ONLY keys ensureThemeableScales may
+// materialize.
+//
+// A code-review-flagged correctness bug lived in an earlier version of
+// this function: it computed a scale's "dimension" by reading its
+// declared `axis` property (or a dataset's xAxisID/yAxisID reference) and
+// treated any EXISTING scale matching a required dimension as already
+// "covering" it — so a custom-named scale like "revenue": {axis:'y'}
+// was treated as satisfying the chart's 'y' requirement, and no literal
+// 'y' scale got materialized. That is NOT how Chart.js 4.x's own
+// mergeScaleConfig (core.controller.js) actually decides which scales to
+// create: it materializes a default scale under the LITERAL id 'x'/'y'
+// for every cartesian dataset unless that SPECIFIC dataset overrides it
+// via xAxisID/yAxisID — a differently-named scale elsewhere in options,
+// even with a matching `axis`, does not suppress that. Confirmed
+// empirically against Chart.js 4.5.1 (a code-review finding): a bar chart
+// with `scales: {revenue: {axis:'y'}, x: {...}}` and a dataset with no
+// yAxisID still gets Chart.js's own default 'y' scale rendered ALONGSIDE
+// "revenue" — untamed, with Chart.js's own default grid/tick colors,
+// because nothing told Chart.js to skip it.
+//
+// So the correct rule mirrors Chart.js's own per-dataset computation
+// directly: for cartesian types, the required id is
+// `dataset.xAxisID || 'x'` / `dataset.yAxisID || 'y'`, evaluated PER
+// DATASET (not deduplicated by "dimension" across the whole config). For
+// radial types (radar/polarArea) Chart.js has no per-dataset override —
+// the radial scale is always keyed literally 'r'.
+function requiredScaleIds(themedConfig) {
+    const dimensions = CHART_SCALE_DIMENSIONS[themedConfig.type];
+    if (!dimensions || !dimensions.length) {
+        return [];
     }
-    if (datasetAxisById[id]) {
-        return datasetAxisById[id];
+    if (dimensions.length === 1) {
+        return dimensions.slice(); // radial: no per-dataset override, always literally 'r'
     }
-    return String(id).charAt(0).toLowerCase();
-}
 
-// datasetAxisIds scans a config's datasets for xAxisID/yAxisID references
-// so scaleDimension can resolve a scale's dimension via dataset reference
-// — Chart.js's own 2nd-priority signal — instead of guessing from the ID.
-function datasetAxisIds(themedConfig) {
-    const byId = {};
     const datasets = (themedConfig.data && themedConfig.data.datasets) || [];
+    const ids = new Set();
+    if (!datasets.length) {
+        dimensions.forEach((d) => ids.add(d));
+        return Array.from(ids);
+    }
     datasets.forEach((dataset) => {
         if (!dataset || typeof dataset !== 'object') {
+            dimensions.forEach((d) => ids.add(d));
             return;
         }
-        if (typeof dataset.xAxisID === 'string') {
-            byId[dataset.xAxisID] = 'x';
-        }
-        if (typeof dataset.yAxisID === 'string') {
-            byId[dataset.yAxisID] = 'y';
-        }
+        ids.add(typeof dataset.xAxisID === 'string' && dataset.xAxisID ? dataset.xAxisID : 'x');
+        ids.add(typeof dataset.yAxisID === 'string' && dataset.yAxisID ? dataset.yAxisID : 'y');
     });
-    return byId;
+    return Array.from(ids);
 }
 
-// ensureThemeableScales materializes ONLY the scale dimensions Chart.js
-// itself would create implicitly for this chart type and that aren't
-// already covered by an existing scale — covered BY DIMENSION, not by
-// key, which is the H5 fix: buildConfig() always declares scales.y
-// explicitly but leaves x implicit, so "scales exists" was never enough
-// to know every dimension is covered, but naively adding whatever literal
-// keys ('x'/'y') were missing could add a spurious extra axis next to an
-// author's own differently-named scale for the same dimension. Bias, per
-// H4/H5's own resolution: when in doubt, don't materialize.
-function ensureThemeableScales(themedConfig, axisById) {
-    const dimensions = CHART_SCALE_DIMENSIONS[themedConfig.type];
-    const scales = themedConfig.options.scales;
-    if (!dimensions || !dimensions.length) {
-        return scales || null;
+// ensureThemeableScales materializes any of requiredScaleIds' keys that
+// options.scales doesn't already declare — mirroring exactly what
+// Chart.js would create by default, so that scale gets themed too instead
+// of rendering with Chart.js's own untamed defaults. Existing scales
+// (required or not — e.g. an author's own custom-named "revenue") are
+// left as-is here; the caller's coloring loop themes every key present,
+// not just the ones this function adds.
+function ensureThemeableScales(themedConfig) {
+    const requiredIds = requiredScaleIds(themedConfig);
+    if (!requiredIds.length) {
+        return themedConfig.options.scales || null;
     }
 
-    const existing = scales || {};
-    const covered = new Set();
-    Object.keys(existing).forEach((id) => {
-        covered.add(scaleDimension(id, existing[id], axisById));
+    const existing = themedConfig.options.scales || {};
+    let changed = false;
+    requiredIds.forEach((id) => {
+        if (!existing[id]) {
+            existing[id] = {};
+            changed = true;
+        }
     });
-
-    const missing = dimensions.filter((d) => !covered.has(d));
-    if (!missing.length) {
-        return scales || null;
+    if (changed) {
+        themedConfig.options.scales = existing;
     }
-
-    themedConfig.options.scales = existing;
-    missing.forEach((dimension) => {
-        existing[dimension] = {};
-    });
     return existing;
 }
 
@@ -235,8 +240,15 @@ function applyExtensionChartColors(themedConfig) {
     }
 
     if (tokens['chart-grid'] || tokens['chart-axis']) {
-        const axisById = datasetAxisIds(themedConfig);
-        const scales = ensureThemeableScales(themedConfig, axisById);
+        const scales = ensureThemeableScales(themedConfig);
+        // Radial charts (radar/polarArea) have exactly one scale, always
+        // keyed literally 'r' — Chart.js has no per-dataset override for
+        // it, unlike x/y. isRadial is computed once from the chart TYPE,
+        // not by inspecting each scale key, so it can't be fooled by a
+        // cartesian chart that happens to name a scale "r" for unrelated
+        // reasons.
+        const radialDimensions = CHART_SCALE_DIMENSIONS[themedConfig.type];
+        const isRadial = !!radialDimensions && radialDimensions.length === 1 && radialDimensions[0] === 'r';
         if (scales && typeof scales === 'object') {
             Object.keys(scales).forEach((key) => {
                 const scale = scales[key];
@@ -255,14 +267,14 @@ function applyExtensionChartColors(themedConfig) {
                         scale.ticks.color = tokens['chart-axis'];
                     }
                 }
-                // Radial scales (radar/polarArea) draw two more
-                // theme-relevant elements a cartesian scale doesn't have:
-                // the spokes (angleLines) and the category labels around
-                // the circle (pointLabels). Without these a radar chart's
+                // Radial scales draw two more theme-relevant elements a
+                // cartesian scale doesn't have: the spokes (angleLines)
+                // and the category labels around the circle
+                // (pointLabels). Without these a radar chart's
                 // concentric-circle grid and numeric ticks get themed but
                 // the spokes and category labels stay Chart.js-default —
                 // visibly half-done.
-                if (scaleDimension(key, scale, axisById) === 'r') {
+                if (isRadial && key === 'r') {
                     if (tokens['chart-grid']) {
                         scale.angleLines = scale.angleLines || {};
                         if (scale.angleLines.color === undefined) {

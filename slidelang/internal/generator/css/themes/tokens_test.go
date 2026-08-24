@@ -127,6 +127,64 @@ func TestResolveTokenValue_FallbackInsideCycleDoesNotRescue(t *testing.T) {
 	}
 }
 
+// TestPropertyIsCyclic_HiddenInUnevaluatedFallback is the exact repro a
+// code review flagged: --a: var(--defined, var(--a)), --defined:
+// #123456. Value substitution alone (resolveTokenValue) never even looks
+// at the fallback here because the primary reference (--defined) resolves
+// fine — but per CSS Custom Properties §3 the dependency graph includes
+// every var() reference a property's value contains, fallback or not,
+// regardless of whether it's ever actually evaluated at runtime. --a
+// self-references through its own fallback, so --a is cyclic and must
+// resolve to guaranteed-invalid (absent), not "#123456".
+func TestPropertyIsCyclic_HiddenInUnevaluatedFallback(t *testing.T) {
+	vars := ThemeVariables{
+		"--a":       "var(--defined, var(--a))",
+		"--defined": "#123456",
+	}
+	if !propertyIsCyclic(vars, "a", map[string]bool{}) {
+		t.Error("expected a self-reference hidden inside an unevaluated fallback to be detected as cyclic")
+	}
+}
+
+func TestPropertyIsCyclic_NoFalsePositiveOnOrdinaryChain(t *testing.T) {
+	vars := ThemeVariables{
+		"--a": "var(--b)",
+		"--b": "#2563eb",
+	}
+	if propertyIsCyclic(vars, "a", map[string]bool{}) {
+		t.Error("expected an ordinary, non-cyclic reference chain not to be flagged as cyclic")
+	}
+}
+
+func TestPropertyIsCyclic_NoFalsePositiveThroughAGenuinelyUnrelatedFallback(t *testing.T) {
+	vars := ThemeVariables{
+		"--a": "var(--missing, var(--b))",
+		"--b": "#111111",
+	}
+	if propertyIsCyclic(vars, "a", map[string]bool{}) {
+		t.Error("expected a fallback that references an unrelated, non-cyclic property not to be flagged")
+	}
+}
+
+// TestResolveThemeTokens_DiagramTokenCycleHiddenInFallbackDropped is the
+// end-to-end version of TestPropertyIsCyclic_HiddenInUnevaluatedFallback,
+// exercised through the real production entry point (resolveTokenGroup,
+// via ResolveThemeTokens) instead of calling propertyIsCyclic directly.
+func TestResolveThemeTokens_DiagramTokenCycleHiddenInFallbackDropped(t *testing.T) {
+	vars := ThemeVariables{
+		"--slidelang-diagram-node-bg":        "var(--slidelang-diagram-node-bg-source, var(--slidelang-diagram-node-bg))",
+		"--slidelang-diagram-node-bg-source": "#1e293b",
+		"--slidelang-diagram-edge":           "#2563eb",
+	}
+	tokens := ResolveThemeTokens(vars)
+	if _, ok := tokens.Diagram["diagram-node-bg"]; ok {
+		t.Errorf("expected diagram-node-bg (cyclic through its own hidden fallback) to be dropped, got %#v", tokens.Diagram)
+	}
+	if tokens.Diagram["diagram-edge"] != "#2563eb" {
+		t.Errorf("expected the unrelated diagram-edge token to still resolve normally, got %#v", tokens.Diagram)
+	}
+}
+
 // TestResolveTokenValue_UnresolvableChainFallsBackToLiteral covers the
 // non-cyclic sibling case: --a exists but resolves to a reference that
 // itself doesn't resolve (missing, no fallback) — the outer var()'s own
@@ -291,6 +349,21 @@ func TestIsValidMermaidColor(t *testing.T) {
 		"linear-gradient(red)": false,
 		"var(--x)":             false,
 		"":                     false,
+		// A code-review-flagged gap: the hue component reused the same
+		// pattern as rgb()/rgba()'s components, which allows a trailing
+		// '%' — but hsl()'s hue is a bare angle/number, never a
+		// percentage. "120%" as a hue is invalid CSS and throws
+		// "Unsupported color format" in Mermaid exactly like any other
+		// out-of-grammar value.
+		"hsl(120%, 50%, 50%)":       false,
+		"hsla(120%, 50%, 50%, 0.5)": false,
+		// A second code-review-flagged gap: mermaidNamedColors must cover
+		// the full CSS named-color set, not maps.js's narrow 41-name
+		// allowlist (mapNamedColors) — these are all valid CSS colors
+		// mermaid@10.9.6 accepts that the narrower list didn't have.
+		"aliceblue":     true,
+		"darkslategray": true,
+		"rebeccapurple": true,
 	}
 	for in, want := range cases {
 		if got := IsValidMermaidColor(in); got != want {

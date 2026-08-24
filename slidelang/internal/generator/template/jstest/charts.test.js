@@ -113,23 +113,37 @@ test('applyExtensionChartColors: bar chart with only scales.y materializes the m
     assert.equal(config.options.scales.y.ticks.color, '#222');
 });
 
-test('applyExtensionChartColors: H5 repro — a bar chart already themed via a custom-named y-dimension scale does not also gain a spurious "y"', () => {
+// A code-review-flagged correctness bug in an earlier round's "H5 fix":
+// it treated a differently-named scale whose declared `axis` matched a
+// required dimension (e.g. "revenue": {axis:'y'}) as already covering
+// that dimension, so no literal 'y' scale got materialized. That is NOT
+// how Chart.js 4.x actually behaves — confirmed empirically against
+// Chart.js 4.5.1 by the reviewer: a bar chart with `scales: {revenue:
+// {axis:'y'}, x: {...}}` and a dataset that does NOT explicitly set
+// yAxisID still gets Chart.js's own default 'y' scale rendered alongside
+// "revenue", untamed with Chart.js's own default appearance, because
+// nothing told Chart.js's own default-scale materialization to skip it.
+// The fix (requiredScaleIds) mirrors Chart.js's real per-dataset
+// computation instead of dimension-matching against existing scales.
+test('applyExtensionChartColors: a custom-named scale ("revenue": {axis:"y"}) does NOT suppress Chart.js\'s own default "y" — both get materialized and themed', () => {
     const ctx = loadModule('charts.js');
     ctx.SlideLang.metadata = { themeTokens: { chart: { 'chart-grid': '#111', 'chart-axis': '#222' } } };
     const config = baseConfig('bar', {
+        // no xAxisID/yAxisID override on the dataset — baseConfig's default
         options: { scales: { revenue: { axis: 'y', beginAtZero: true }, x: { type: 'category' } } },
     });
 
     ctx.applyExtensionChartColors(config);
 
-    assert.equal(config.options.scales.y, undefined, 'expected no spurious "y" scale next to "revenue" (axis: y)');
+    assert.ok(config.options.scales.y, 'expected Chart.js\'s own default "y" to still be materialized (and now themed) alongside "revenue"');
+    assert.equal(config.options.scales.y.grid.color, '#111');
+    assert.equal(config.options.scales.y.ticks.color, '#222');
     assert.equal(config.options.scales.revenue.grid.color, '#111');
     assert.equal(config.options.scales.x.grid.color, '#111');
-    // exactly the two the author declared, nothing added
-    assert.deepEqual(Object.keys(config.options.scales).sort(), ['revenue', 'x']);
+    assert.deepEqual(Object.keys(config.options.scales).sort(), ['revenue', 'x', 'y']);
 });
 
-test('applyExtensionChartColors: H5 repro via dataset yAxisID reference instead of an explicit axis field', () => {
+test('applyExtensionChartColors: a dataset that explicitly overrides yAxisID to a custom scale suppresses the default "y" (unlike a bare axis:"y" field)', () => {
     const ctx = loadModule('charts.js');
     ctx.SlideLang.metadata = { themeTokens: { chart: { 'chart-grid': '#111' } } };
     const config = baseConfig('bar', {
@@ -139,7 +153,8 @@ test('applyExtensionChartColors: H5 repro via dataset yAxisID reference instead 
 
     ctx.applyExtensionChartColors(config);
 
-    assert.equal(config.options.scales.y, undefined, 'a dataset yAxisID reference must count as covering "y", same as an explicit axis field');
+    assert.equal(config.options.scales.y, undefined, 'an explicit dataset.yAxisID override, unlike a bare axis field, really does redirect Chart.js away from the default "y"');
+    assert.equal(config.options.scales.revenue.grid.color, '#111');
 });
 
 test('applyExtensionChartColors: radar chart materializes the radial "r" scale and themes angleLines/pointLabels too', () => {
@@ -210,43 +225,53 @@ test('applyExtensionChartColors: a theme with no chart tokens at all leaves the 
     assert.deepEqual(config, original);
 });
 
-// --- scaleDimension / datasetAxisIds directly ---
+// --- requiredScaleIds directly ---
 
-test('scaleDimension: explicit scale.axis wins over everything else', () => {
+// toArray re-materializes a vm-sandbox array (created with the sandbox's
+// OWN Array constructor) as a plain array in THIS file's realm — Array.from
+// works cross-realm because it only relies on the iterable protocol, not
+// on prototype identity. Without this, assert.deepEqual fails with "same
+// structure but not reference-equal" even for structurally identical
+// arrays, the same cross-realm prototype gotcha datasetAxisIds' own test
+// hit earlier (see harness.js's doc comment).
+function toArray(sandboxArray) {
+    return Array.from(sandboxArray);
+}
+
+test('requiredScaleIds: cartesian dataset with no overrides requires literal "x" and "y"', () => {
     const ctx = loadModule('charts.js');
-    assert.equal(ctx.scaleDimension('revenue', { axis: 'y' }, {}), 'y');
+    const config = baseConfig('bar'); // baseConfig's dataset has no xAxisID/yAxisID
+    assert.deepEqual(toArray(ctx.requiredScaleIds(config)).sort(), ['x', 'y']);
 });
 
-test('scaleDimension: falls back to dataset xAxisID/yAxisID reference when scale.axis is absent', () => {
+test('requiredScaleIds: a dataset.yAxisID override replaces "y" with the override id', () => {
     const ctx = loadModule('charts.js');
-    assert.equal(ctx.scaleDimension('revenue', {}, { revenue: 'y' }), 'y');
+    const config = baseConfig('bar', { data: { datasets: [{ data: [1], yAxisID: 'revenue' }] } });
+    assert.deepEqual(toArray(ctx.requiredScaleIds(config)).sort(), ['revenue', 'x']);
 });
 
-test('scaleDimension: falls back to the scale id\'s first letter as the last resort, matching Chart.js\'s own default', () => {
+test('requiredScaleIds: multiple datasets union their required ids', () => {
     const ctx = loadModule('charts.js');
-    assert.equal(ctx.scaleDimension('revenue', {}, {}), 'r');
-    assert.equal(ctx.scaleDimension('x', {}, {}), 'x');
-});
-
-test('datasetAxisIds: collects xAxisID/yAxisID across all datasets', () => {
-    const ctx = loadModule('charts.js');
-    const config = {
+    const config = baseConfig('bar', {
         data: {
             datasets: [
                 { data: [1], yAxisID: 'revenue' },
                 { data: [2], xAxisID: 'quarter' },
-                { data: [3] }, // no axis reference — must not throw or add anything
+                { data: [3] }, // no override — still requires plain 'x'/'y'
             ],
         },
-    };
-    // Not assert.deepEqual: the object datasetAxisIds returns is created
-    // with the vm sandbox's OWN Object constructor (a different realm
-    // than this test file's), so its prototype is never reference-equal
-    // to a plain {} literal written here even when structurally
-    // identical — deepStrictEqual checks prototype identity too. Compare
-    // properties directly instead.
-    const result = ctx.datasetAxisIds(config);
-    assert.equal(result.revenue, 'y');
-    assert.equal(result.quarter, 'x');
-    assert.equal(Object.keys(result).length, 2);
+    });
+    assert.deepEqual(toArray(ctx.requiredScaleIds(config)).sort(), ['quarter', 'revenue', 'x', 'y']);
+});
+
+test('requiredScaleIds: radial types always require literal "r", regardless of dataset content', () => {
+    const ctx = loadModule('charts.js');
+    assert.deepEqual(toArray(ctx.requiredScaleIds(baseConfig('radar'))), ['r']);
+    assert.deepEqual(toArray(ctx.requiredScaleIds(baseConfig('polarArea', { data: { datasets: [] } }))), ['r']);
+});
+
+test('requiredScaleIds: a chart type outside CHART_SCALE_DIMENSIONS requires nothing', () => {
+    const ctx = loadModule('charts.js');
+    assert.deepEqual(toArray(ctx.requiredScaleIds(baseConfig('pie'))), []);
+    assert.deepEqual(toArray(ctx.requiredScaleIds(baseConfig('treemap'))), []);
 });

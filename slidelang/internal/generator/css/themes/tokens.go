@@ -163,6 +163,68 @@ func resolveTokenValue(vars ThemeVariables, raw string, seen map[string]bool, ow
 	return "", "", false
 }
 
+// varReferenceNames returns the canonical names of every var() reference a
+// value structurally contains — the primary reference AND, recursively,
+// any reference nested inside its fallback (a fallback can itself be
+// "var(--y, var(--z))", chaining further). A value outside the shape
+// parseWholeVarCall recognizes (a literal, or a var() embedded in a larger
+// expression like "1px solid var(--x)") contributes no references —
+// consistent with resolveTokenValue's own refusal to interpret those.
+func varReferenceNames(value string) []string {
+	name, fallback, hasFallback, isWhole := parseWholeVarCall(strings.TrimSpace(value))
+	if !isWhole {
+		return nil
+	}
+	names := []string{CanonicalVarName(name)}
+	if hasFallback {
+		names = append(names, varReferenceNames(fallback)...)
+	}
+	return names
+}
+
+// propertyIsCyclic reports whether canonical property name structurally
+// participates in a var() reference cycle — CSS Custom Properties §3's
+// "guaranteed-invalid" condition, computed as a PRE-PASS before any value
+// substitution and independent of it.
+//
+// This exists because resolveTokenValue's own cycle detection (the `seen`
+// map, checked during substitution) only walks the branch actually
+// substituted at runtime — it recurses into a var() call's fallback ONLY
+// when the primary reference fails. That misses a cycle hidden entirely
+// inside a fallback that never gets visited because the primary reference
+// resolves fine: "--a: var(--defined, var(--a))" with "--defined: #123456"
+// resolves --defined successfully and, before this fix, never looked at
+// the fallback "var(--a)" at all — but per spec the dependency graph
+// includes EVERY var() reference a property's value contains, fallback or
+// not, regardless of whether it's ever actually evaluated. --a
+// self-references through its own fallback, so --a is cyclic —
+// unconditionally, not only when the primary reference happens to fail
+// too.
+//
+// A property merely REFERENCING a cyclic property (without itself being
+// IN the cycle) is NOT what this reports false for by design: that case
+// is a normal "the reference didn't resolve", already handled correctly
+// by resolveTokenValue's existing substitution-time logic when it walks
+// into that property and fails. propertyIsCyclic only needs to answer, for
+// name itself: is name reachable from itself through this graph?
+func propertyIsCyclic(vars ThemeVariables, name string, path map[string]bool) bool {
+	if path[name] {
+		return true
+	}
+	raw, ok := lookupCanonical(vars, name)
+	if !ok {
+		return false // an undeclared reference can't be part of a cycle
+	}
+	path[name] = true
+	defer delete(path, name)
+	for _, ref := range varReferenceNames(raw) {
+		if propertyIsCyclic(vars, ref, path) {
+			return true
+		}
+	}
+	return false
+}
+
 // DiagramTokenNames are the diagram-* extension tokens motor-temas-v2.md
 // §2.2 defines, propagated to Mermaid's themeVariables (see mermaid.js's
 // buildMermaidThemeVariables for the exact mapping table).
@@ -256,6 +318,15 @@ func resolveTokenGroup(vars ThemeVariables, names []string) map[string]string {
 		if !ok {
 			continue
 		}
+		// propertyIsCyclic is a pre-pass, not redundant with the `seen`-based
+		// tracking resolveTokenValue does during substitution below — see
+		// its doc comment for exactly which case it catches that
+		// substitution-time tracking structurally can't (a cycle hidden
+		// inside a fallback branch that never gets visited because the
+		// primary reference resolves fine).
+		if propertyIsCyclic(vars, name, map[string]bool{}) {
+			continue
+		}
 		resolved, _, ok := resolveTokenValue(vars, raw, map[string]bool{name: true}, name, 0)
 		if !ok || resolved == "" {
 			continue
@@ -319,6 +390,9 @@ func resolveOrderedTokens(vars ThemeVariables, prefix string, max int) []string 
 		if !ok {
 			break
 		}
+		if propertyIsCyclic(vars, name, map[string]bool{}) {
+			break
+		}
 		resolved, _, ok := resolveTokenValue(vars, raw, map[string]bool{name: true}, name, 0)
 		if !ok || resolved == "" {
 			break
@@ -340,6 +414,9 @@ func resolveOrderedTokens(vars ThemeVariables, prefix string, max int) []string 
 func ResolveFontMain(vars ThemeVariables) string {
 	raw, ok := lookupCanonical(vars, "font-main")
 	if !ok {
+		return ""
+	}
+	if propertyIsCyclic(vars, "font-main", map[string]bool{}) {
 		return ""
 	}
 	resolved, _, ok := resolveTokenValue(vars, raw, map[string]bool{"font-main": true}, "font-main", 0)
@@ -389,13 +466,22 @@ func IsValidMapColor(value string) bool {
 }
 
 // cssNumber matches a plain CSS number (no unit), optionally with a
-// trailing '%' — used for rgb()/rgba() components, which CSS allows as
-// either 0-255 integers or percentages. `[\d.]+` (the pattern this
-// replaced) is not a real number grammar: it accepts "1.2.3" and a bare
-// ".", neither of which is valid CSS.
+// trailing '%' — used for rgb()/rgba() components (CSS allows either
+// 0-255 integers or percentages there) and for rgba()/hsla()'s alpha
+// component (CSS Color 4 allows alpha as a fraction or a percentage).
+// `[\d.]+` (the pattern this replaced) is not a real number grammar: it
+// accepts "1.2.3" and a bare ".", neither of which is valid CSS.
 const cssNumber = `(?:\d+(?:\.\d+)?|\.\d+)%?`
 
-// cssPercentage is cssNumber with '%' mandatory — hsl()/hsla()'s
+// cssPlainNumber is cssNumber with '%' forbidden — hsl()/hsla()'s FIRST
+// component (the hue) is a bare angle/number, never a percentage. A
+// code-review-flagged gap: cssNumber was reused here too, so
+// "hsl(120%,50%,50%)" passed IsValidMermaidColor even though a
+// percentage hue is invalid CSS and throws "Unsupported color format" in
+// Mermaid exactly like an out-of-grammar value does.
+const cssPlainNumber = `(?:\d+(?:\.\d+)?|\.\d+)`
+
+// cssPercentage is cssPlainNumber with '%' mandatory — hsl()/hsla()'s
 // saturation and lightness components MUST be percentages; `hsl(120,50,50)`
 // (no '%') is invalid CSS and throws "Unsupported color format" in Mermaid,
 // exactly like a gradient does.
@@ -405,10 +491,11 @@ const cssPercentage = `(?:\d+(?:\.\d+)?|\.\d+)%`
 // functional color notations Mermaid's theming layer accepts alongside hex
 // and named colors, per mermaid.js.org/config/theming.html. One alternative
 // per function name, each with that function's exact component count and
-// shape (rgb: 3 components; rgba: 4; hsl: hue + 2 mandatory percentages;
-// hsla: + alpha) — a shared `{2,3}`-repetition pattern (the previous
-// version) can't tell rgb from rgba apart, so it silently accepted
-// component-count mismatches and let hsl's percentage requirement slide.
+// shape (rgb: 3 components; rgba: 4; hsl: hue [plain number, no '%'] + 2
+// mandatory percentages; hsla: + alpha) — a shared `{2,3}`-repetition
+// pattern (the original version) can't tell rgb from rgba apart, so it
+// silently accepted component-count mismatches and let hsl's percentage
+// requirement slide both on S/L (no '%') and on the hue (stray '%').
 // Deliberately does NOT match gradients, any other CSS <image> syntax, or
 // modern space-separated syntax (e.g. "rgb(255 0 0 / 50%)"): Mermaid
 // throws "Unsupported color format" for anything outside what this
@@ -418,18 +505,61 @@ const cssPercentage = `(?:\d+(?:\.\d+)?|\.\d+)%`
 var mermaidFunctionalColorRe = regexp.MustCompile(`(?i)^(?:` +
 	`rgb\(\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*\)` +
 	`|rgba\(\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*\)` +
-	`|hsl\(\s*` + cssNumber + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssPercentage + `\s*\)` +
-	`|hsla\(\s*` + cssNumber + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssNumber + `\s*\)` +
+	`|hsl\(\s*` + cssPlainNumber + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssPercentage + `\s*\)` +
+	`|hsla\(\s*` + cssPlainNumber + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssNumber + `\s*\)` +
 	`)$`)
 
+// mermaidNamedColors is the full CSS Color Module (Level 3 extended
+// keywords + the Level 4 addition "rebeccapurple") named-color set — 148
+// names. A code-review-flagged gap: mapNamedColors (41 names, deliberately
+// mirroring maps.js's OWN small, hand-picked allowlist) was reused here
+// too, so a theme declaring a perfectly valid, common CSS color like
+// "aliceblue", "darkslategray", or "rebeccapurple" for a diagram-* token
+// got silently dropped even though mermaid@10.9.6 (via khroma, its color
+// parser) accepts all of them. Mermaid's acceptance surface is the full
+// CSS named-color grammar, not maps.js's narrow allowlist — the two
+// consumers have different needs and must not share one list.
+var mermaidNamedColors = map[string]bool{
+	"aliceblue": true, "antiquewhite": true, "aqua": true, "aquamarine": true, "azure": true,
+	"beige": true, "bisque": true, "black": true, "blanchedalmond": true, "blue": true,
+	"blueviolet": true, "brown": true, "burlywood": true, "cadetblue": true, "chartreuse": true,
+	"chocolate": true, "coral": true, "cornflowerblue": true, "cornsilk": true, "crimson": true,
+	"cyan": true, "darkblue": true, "darkcyan": true, "darkgoldenrod": true, "darkgray": true,
+	"darkgreen": true, "darkgrey": true, "darkkhaki": true, "darkmagenta": true, "darkolivegreen": true,
+	"darkorange": true, "darkorchid": true, "darkred": true, "darksalmon": true, "darkseagreen": true,
+	"darkslateblue": true, "darkslategray": true, "darkslategrey": true, "darkturquoise": true, "darkviolet": true,
+	"deeppink": true, "deepskyblue": true, "dimgray": true, "dimgrey": true, "dodgerblue": true,
+	"firebrick": true, "floralwhite": true, "forestgreen": true, "fuchsia": true, "gainsboro": true,
+	"ghostwhite": true, "gold": true, "goldenrod": true, "gray": true, "green": true,
+	"greenyellow": true, "grey": true, "honeydew": true, "hotpink": true, "indianred": true,
+	"indigo": true, "ivory": true, "khaki": true, "lavender": true, "lavenderblush": true,
+	"lawngreen": true, "lemonchiffon": true, "lightblue": true, "lightcoral": true, "lightcyan": true,
+	"lightgoldenrodyellow": true, "lightgray": true, "lightgreen": true, "lightgrey": true, "lightpink": true,
+	"lightsalmon": true, "lightseagreen": true, "lightskyblue": true, "lightslategray": true, "lightslategrey": true,
+	"lightsteelblue": true, "lightyellow": true, "lime": true, "limegreen": true, "linen": true,
+	"magenta": true, "maroon": true, "mediumaquamarine": true, "mediumblue": true, "mediumorchid": true,
+	"mediumpurple": true, "mediumseagreen": true, "mediumslateblue": true, "mediumspringgreen": true, "mediumturquoise": true,
+	"mediumvioletred": true, "midnightblue": true, "mintcream": true, "mistyrose": true, "moccasin": true,
+	"navajowhite": true, "navy": true, "oldlace": true, "olive": true, "olivedrab": true,
+	"orange": true, "orangered": true, "orchid": true, "palegoldenrod": true, "palegreen": true,
+	"paleturquoise": true, "palevioletred": true, "papayawhip": true, "peachpuff": true, "peru": true,
+	"pink": true, "plum": true, "powderblue": true, "purple": true, "rebeccapurple": true,
+	"red": true, "rosybrown": true, "royalblue": true, "saddlebrown": true, "salmon": true,
+	"sandybrown": true, "seagreen": true, "seashell": true, "sienna": true, "silver": true,
+	"skyblue": true, "slateblue": true, "slategray": true, "slategrey": true, "snow": true,
+	"springgreen": true, "steelblue": true, "tan": true, "teal": true, "thistle": true,
+	"tomato": true, "turquoise": true, "violet": true, "wheat": true, "white": true,
+	"whitesmoke": true, "yellow": true, "yellowgreen": true, "transparent": true,
+}
+
 // IsValidMermaidColor reports whether value is safe to hand to Mermaid's
-// themeVariables as a diagram-* token: hex (3/4/6/8 digit), a CSS3 named
+// themeVariables as a diagram-* token: hex (3/4/6/8 digit), any CSS named
 // color, or rgb()/rgba()/hsl()/hsla(). A §2.2 token that fails this check is
 // dropped server-side (see resolveDiagramTokenGroup) — see its doc comment
 // for why a bad value can't just be shipped and left to fail client-side.
 func IsValidMermaidColor(value string) bool {
 	value = strings.TrimSpace(value)
-	if mapColorNamePattern.MatchString(value) || mapNamedColors[strings.ToLower(value)] {
+	if mapColorNamePattern.MatchString(value) || mermaidNamedColors[strings.ToLower(value)] {
 		return true
 	}
 	return mermaidFunctionalColorRe.MatchString(value)
