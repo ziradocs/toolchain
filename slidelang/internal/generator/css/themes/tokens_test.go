@@ -27,7 +27,7 @@ func TestCanonicalVarName(t *testing.T) {
 
 func TestResolveTokenValue_Literal(t *testing.T) {
 	vars := ThemeVariables{}
-	got, ok := resolveTokenValue(vars, "#2563eb", map[string]bool{}, 0)
+	got, _, ok := resolveTokenValue(vars, "#2563eb", map[string]bool{}, "", 0)
 	if !ok || got != "#2563eb" {
 		t.Errorf("got (%q, %v), want (\"#2563eb\", true)", got, ok)
 	}
@@ -35,7 +35,7 @@ func TestResolveTokenValue_Literal(t *testing.T) {
 
 func TestResolveTokenValue_SingleVarReference(t *testing.T) {
 	vars := ThemeVariables{"--slidelang-primary-color": "#2563eb"}
-	got, ok := resolveTokenValue(vars, "var(--slidelang-primary-color)", map[string]bool{}, 0)
+	got, _, ok := resolveTokenValue(vars, "var(--slidelang-primary-color)", map[string]bool{}, "", 0)
 	if !ok || got != "#2563eb" {
 		t.Errorf("got (%q, %v), want (\"#2563eb\", true)", got, ok)
 	}
@@ -47,7 +47,7 @@ func TestResolveTokenValue_SingleVarReference(t *testing.T) {
 // var referencing an unprefixed lookup name.
 func TestResolveTokenValue_CrossPrefixReference(t *testing.T) {
 	vars := ThemeVariables{"--title-gradient": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"}
-	got, ok := resolveTokenValue(vars, "var(--title-gradient)", map[string]bool{}, 0)
+	got, _, ok := resolveTokenValue(vars, "var(--title-gradient)", map[string]bool{}, "", 0)
 	if !ok || got != "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" {
 		t.Errorf("got (%q, %v)", got, ok)
 	}
@@ -59,7 +59,7 @@ func TestResolveTokenValue_MultiHopChain(t *testing.T) {
 		"--b": "var(--c)",
 		"--c": "#111111",
 	}
-	got, ok := resolveTokenValue(vars, "var(--a)", map[string]bool{}, 0)
+	got, _, ok := resolveTokenValue(vars, "var(--a)", map[string]bool{}, "", 0)
 	if !ok || got != "#111111" {
 		t.Errorf("got (%q, %v), want (\"#111111\", true)", got, ok)
 	}
@@ -70,7 +70,7 @@ func TestResolveTokenValue_Cycle(t *testing.T) {
 		"--a": "var(--b)",
 		"--b": "var(--a)",
 	}
-	_, ok := resolveTokenValue(vars, "var(--a)", map[string]bool{}, 0)
+	_, _, ok := resolveTokenValue(vars, "var(--a)", map[string]bool{}, "", 0)
 	if ok {
 		t.Error("expected a reference cycle to fail resolution, not hang or succeed")
 	}
@@ -78,15 +78,52 @@ func TestResolveTokenValue_Cycle(t *testing.T) {
 
 // TestResolveTokenValue_CycleFallsBackToLiteral is the exact repro a code
 // review flagged: --a resolves to var(--a) (a self-cycle), and the
-// original caller's own var() reference declares a fallback. CSS's own
-// var() semantics say a cyclic/invalid custom property falls back to its
-// fallback, not to failure — the resolver must do the same instead of
-// discarding the fallback the moment the cycle is detected one hop down.
+// ANONYMOUS caller's own var() reference (owner="", not itself a named
+// custom property) declares a fallback. CSS's own var() semantics say a
+// consumer outside the cycle still gets its own fallback when the
+// reference it depends on is guaranteed-invalid — the resolver must do
+// the same instead of discarding the fallback the moment the cycle is
+// detected one hop down.
 func TestResolveTokenValue_CycleFallsBackToLiteral(t *testing.T) {
 	vars := ThemeVariables{"--a": "var(--a)"}
-	got, ok := resolveTokenValue(vars, "var(--a, #fff)", map[string]bool{}, 0)
+	got, _, ok := resolveTokenValue(vars, "var(--a, #fff)", map[string]bool{}, "", 0)
 	if !ok || got != "#fff" {
 		t.Errorf("got (%q, %v), want (\"#fff\", true)", got, ok)
+	}
+}
+
+// TestResolveTokenValue_SelfCycleWithOwnFallbackStaysInvalid is
+// CycleFallsBackToLiteral's counterpart: when the property that OWNS the
+// cyclic var() call is itself part of the cycle — "--a: var(--a, #fff)",
+// resolved as token "a" itself (owner="a", seeded exactly like the three
+// real production entry points seed it) — CSS does NOT let a property
+// rescue itself with its own fallback; every property in the cycle
+// computes to guaranteed-invalid regardless of any fallback along the way.
+// Real browsers implement it this way too: "--foo: var(--foo, red)" does
+// not resolve to red.
+func TestResolveTokenValue_SelfCycleWithOwnFallbackStaysInvalid(t *testing.T) {
+	vars := ThemeVariables{"--a": "var(--a, #fff)"}
+	_, _, ok := resolveTokenValue(vars, "var(--a, #fff)", map[string]bool{"a": true}, "a", 0)
+	if ok {
+		t.Error("expected a property that references itself, even via its own fallback, to stay guaranteed-invalid")
+	}
+}
+
+// TestResolveTokenValue_FallbackInsideCycleDoesNotRescue is the exact H6
+// repro: --a: var(--b, red), --b: var(--a, blue) — a two-property cycle
+// where EACH property's own declaration has a fallback. Per CSS Custom
+// Properties §3 the dependency cycle includes references inside fallbacks
+// too, so both --a and --b are guaranteed-invalid; neither "red" nor
+// "blue" may rescue a property that is itself part of the cycle. Before
+// this fix, resolveTokenValue returned "blue" for this case.
+func TestResolveTokenValue_FallbackInsideCycleDoesNotRescue(t *testing.T) {
+	vars := ThemeVariables{
+		"--a": "var(--b, red)",
+		"--b": "var(--a, blue)",
+	}
+	_, _, ok := resolveTokenValue(vars, "var(--a)", map[string]bool{}, "", 0)
+	if ok {
+		t.Error("expected a cycle formed through fallbacks to fail resolution, not rescue itself with either fallback")
 	}
 }
 
@@ -96,7 +133,7 @@ func TestResolveTokenValue_CycleFallsBackToLiteral(t *testing.T) {
 // fallback must still apply.
 func TestResolveTokenValue_UnresolvableChainFallsBackToLiteral(t *testing.T) {
 	vars := ThemeVariables{"--a": "var(--missing)"}
-	got, ok := resolveTokenValue(vars, "var(--a, #fff)", map[string]bool{}, 0)
+	got, _, ok := resolveTokenValue(vars, "var(--a, #fff)", map[string]bool{}, "", 0)
 	if !ok || got != "#fff" {
 		t.Errorf("got (%q, %v), want (\"#fff\", true)", got, ok)
 	}
@@ -104,7 +141,7 @@ func TestResolveTokenValue_UnresolvableChainFallsBackToLiteral(t *testing.T) {
 
 func TestResolveTokenValue_MissingNoFallback(t *testing.T) {
 	vars := ThemeVariables{}
-	_, ok := resolveTokenValue(vars, "var(--missing)", map[string]bool{}, 0)
+	_, _, ok := resolveTokenValue(vars, "var(--missing)", map[string]bool{}, "", 0)
 	if ok {
 		t.Error("expected a missing reference with no fallback to fail resolution")
 	}
@@ -112,7 +149,7 @@ func TestResolveTokenValue_MissingNoFallback(t *testing.T) {
 
 func TestResolveTokenValue_MissingWithLiteralFallback(t *testing.T) {
 	vars := ThemeVariables{}
-	got, ok := resolveTokenValue(vars, "var(--missing, #abcdef)", map[string]bool{}, 0)
+	got, _, ok := resolveTokenValue(vars, "var(--missing, #abcdef)", map[string]bool{}, "", 0)
 	if !ok || got != "#abcdef" {
 		t.Errorf("got (%q, %v), want (\"#abcdef\", true)", got, ok)
 	}
@@ -120,7 +157,7 @@ func TestResolveTokenValue_MissingWithLiteralFallback(t *testing.T) {
 
 func TestResolveTokenValue_MissingWithVarFallback(t *testing.T) {
 	vars := ThemeVariables{"--slidelang-backup": "#123456"}
-	got, ok := resolveTokenValue(vars, "var(--missing, var(--slidelang-backup))", map[string]bool{}, 0)
+	got, _, ok := resolveTokenValue(vars, "var(--missing, var(--slidelang-backup))", map[string]bool{}, "", 0)
 	if !ok || got != "#123456" {
 		t.Errorf("got (%q, %v), want (\"#123456\", true)", got, ok)
 	}
@@ -128,7 +165,7 @@ func TestResolveTokenValue_MissingWithVarFallback(t *testing.T) {
 
 func TestResolveTokenValue_EmbeddedVarNotWholeValueRefused(t *testing.T) {
 	vars := ThemeVariables{"--slidelang-x": "#000"}
-	_, ok := resolveTokenValue(vars, "1px solid var(--slidelang-x)", map[string]bool{}, 0)
+	_, _, ok := resolveTokenValue(vars, "1px solid var(--slidelang-x)", map[string]bool{}, "", 0)
 	if ok {
 		t.Error("expected a var() embedded inside a larger expression to be refused, not partially flattened")
 	}
@@ -210,10 +247,13 @@ func TestResolveThemeTokens_MapTokenNamedColorAccepted(t *testing.T) {
 func TestIsValidMapColor(t *testing.T) {
 	cases := map[string]bool{
 		"#fff":                 true,
+		"#ffff":                true,
 		"#ffffff":              true,
 		"#ffffffff":            true,
 		"CRIMSON":              true,
 		"crimson":              true,
+		"#12345":               false, // 5-digit hex: not a valid CSS hex length (mapColorNamePattern tightened for IsValidMermaidColor's sake — see its doc comment)
+		"#1234567":             false, // 7-digit hex: same
 		"rgba(0,0,0,0.5)":      false,
 		"linear-gradient(red)": false,
 		"var(--x)":             false,
@@ -228,13 +268,26 @@ func TestIsValidMapColor(t *testing.T) {
 
 func TestIsValidMermaidColor(t *testing.T) {
 	cases := map[string]bool{
-		"#fff":                 true,
-		"#ffffff":              true,
-		"crimson":              true,
-		"CRIMSON":              true,
-		"rgba(0,0,0,0.5)":      true,
-		"rgb(10, 20, 30)":      true,
-		"hsl(120, 50%, 50%)":   true,
+		"#fff":                     true,
+		"#ffff":                    true, // 4-digit hex (#rgba) is valid CSS
+		"#ffffff":                  true,
+		"#ffffffff":                true,
+		"crimson":                  true,
+		"CRIMSON":                  true,
+		"rgba(0,0,0,0.5)":          true,
+		"rgb(10, 20, 30)":          true,
+		"hsl(120, 50%, 50%)":       true,
+		"hsla(120, 50%, 50%, 0.5)": true,
+		// A code-review-flagged gap: these three throw "Unsupported color
+		// format" against the real Mermaid build this toolchain embeds
+		// (mermaid@10.9.6, core/renderer/cdn_tags.go) and must be rejected,
+		// not just accepted-by-accident of a loose regex.
+		"#12345":               false, // 5-digit hex: not a valid CSS hex length
+		"#1234567":             false, // 7-digit hex: not a valid CSS hex length
+		"hsl(120,50,50)":       false, // hsl() requires '%' on S/L
+		"rgb(10,20,30,40)":     false, // rgb() takes exactly 3 components, not 4
+		"rgba(10,20,30)":       false, // rgba() takes exactly 4 components, not 3
+		"rgb(1.2.3, 0, 0)":     false, // not a real number
 		"linear-gradient(red)": false,
 		"var(--x)":             false,
 		"":                     false,

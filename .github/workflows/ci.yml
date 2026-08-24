@@ -122,6 +122,31 @@ jobs:
             echo "::endgroup::"
           done
 
+  # motor-temas-v2.md §2.2 (chart-grid/-axis/-label/-tooltip-bg, withAlpha,
+  # detección de dimensión de escala) es lógica que vive por completo en
+  # template/assets/js/modules/charts.js — JS de navegador que
+  # slidelang/internal/generator/template embebe con go:embed, sin ningún
+  # binding Go que `go test` pueda ejercitar. Antes de este job esa lógica
+  # no tenía cobertura automatizada de ningún tipo — tres bugs reales
+  # (H3/H4/H5 de la ronda 2 de revisión de #228) sobrevivieron un `go test
+  # ./...` en verde precisamente por eso. jstest/harness.js evalúa el
+  # archivo fuente SIN MODIFICAR en un contexto node:vm con stubs mínimos
+  # (window/document/SlideLang) — el JS que llega al navegador queda byte
+  # por byte igual a que si este job no existiera.
+  js-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Tests de los módulos JS de slidelang (node --test, sin dependencias)
+        working-directory: slidelang
+        run: node --test
+
   lint:
     strategy:
       fail-fast: false

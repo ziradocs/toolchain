@@ -41,47 +41,78 @@ function categoricalColor(index) {
 
 // withAlpha (motor-temas-v2.md §2.2): categoricalColor() can now return a
 // theme's chart-cat-* token instead of one of the hardcoded hex
-// defaultColors, and a token isn't guaranteed to be #RRGGBB — it can be
-// any CSS color IsValidMapColor-class validation doesn't gate (rgb(),
-// hsl(), a 3-digit hex, a bare name like "red"). Appending the literal
-// string '80' — the old fill-alpha trick — only produces a valid color for
-// exactly the 6-digit-hex case; for anything else it silently produces an
-// invalid CSS color string ("red80", "rgb(...)80") that Chart.js's canvas
-// fillStyle then just ignores. ALPHA_FRACTION = 0x80/255, chosen so the
-// hex branch below reproduces the exact byte sequence ("...80") the old
-// code always produced — this is a behavior-preserving fix for
-// defaultColors, not a visual change.
+// defaultColors, and a token isn't guaranteed to be #RRGGBB or opaque — a
+// theme author can declare chart-cat-1 as #ff000020, rgba(255,0,0,0.1), or
+// any other alpha-carrying form for a deliberate translucent fill.
+//
+// A code-review-flagged regression: an earlier version of this function
+// always overwrote alpha with ALPHA_FRACTION regardless of whether the
+// color already declared its own — #ff000020 became #ff000080,
+// rgba(r,g,b,0.1) became rgba(r,g,b,0.5019…). Worse, it silently
+// contradicted an invariant native_chart.go's chartColorFromCSS documents
+// explicitly (established by a PR #224 review finding): a chart-cat-*
+// color's alpha "is meaningful and preserved as-is" in the native
+// (PDF/PPTX) render path. Overwriting it here reintroduced exactly the
+// browser-vs-native divergence that finding closed.
+//
+// Fixed rule: NEVER compose, NEVER overwrite. A color that already
+// declares alpha (4/8-digit hex, an explicit 4th rgb()/rgba() or
+// hsl()/hsla() component, or anything using the modern '/' alpha syntax)
+// is returned untouched. Only an opaque color gets ALPHA_FRACTION applied
+// — which is exactly what defaultColors always was, so this is still
+// byte-for-byte behavior-preserving for every theme that declares no
+// chart-cat-* tokens (i.e. every theme in the repo today).
 const ALPHA_FRACTION = 128 / 255;
 
 function withAlpha(color, alphaFraction) {
     if (typeof color !== 'string') {
         return color;
     }
-    const hexMatch = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+    const trimmed = color.trim();
+
+    const hexMatch = trimmed.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
     if (hexMatch) {
-        let hex = hexMatch[1];
-        if (hex.length === 3) {
-            hex = hex.split('').map((c) => c + c).join('');
-        } else if (hex.length === 8) {
-            hex = hex.slice(0, 6);
+        const hex = hexMatch[1];
+        if (hex.length === 4 || hex.length === 8) {
+            return trimmed; // already carries its own alpha nibble/byte
         }
+        const expanded = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
         const alphaHex = Math.round(alphaFraction * 255).toString(16).padStart(2, '0');
-        return '#' + hex + alphaHex;
+        return '#' + expanded + alphaHex;
     }
-    const rgbMatch = color.match(/^rgba?\(\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*(?:,\s*[\d.]+\s*)?\)$/i);
+
+    // Component regexes deliberately don't validate each component's own
+    // syntax (that's IsValidMapColor/IsValidMermaidColor's job upstream,
+    // for the token families that go through one) — only arity, to detect
+    // whether a 4th (alpha) component is already present.
+    const rgbMatch = trimmed.match(/^rgba?\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*([^,]+?)\s*(,\s*[^,]+?\s*)?\)$/i);
     if (rgbMatch) {
+        if (rgbMatch[4] !== undefined) {
+            return trimmed; // rgb()/rgba() with 4 components already has alpha
+        }
         return 'rgba(' + rgbMatch[1] + ', ' + rgbMatch[2] + ', ' + rgbMatch[3] + ', ' + alphaFraction + ')';
     }
-    const hslMatch = color.match(/^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+%)\s*,\s*([\d.]+%)\s*(?:,\s*[\d.]+\s*)?\)$/i);
+
+    const hslMatch = trimmed.match(/^hsla?\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*([^,]+?)\s*(,\s*[^,]+?\s*)?\)$/i);
     if (hslMatch) {
+        if (hslMatch[4] !== undefined) {
+            return trimmed;
+        }
         return 'hsla(' + hslMatch[1] + ', ' + hslMatch[2] + ', ' + hslMatch[3] + ', ' + alphaFraction + ')';
     }
+
+    if (trimmed.indexOf('/') !== -1) {
+        // Modern space-separated syntax (e.g. "rgb(255 0 0 / 50%)") can
+        // carry its own alpha after '/' — never assume it's opaque.
+        return trimmed;
+    }
+
     // Named color or anything else Chart.js/canvas would otherwise accept
-    // as-is: color-mix is the only format-agnostic way to apply alpha
-    // without a full CSS color parser, and has been supported in every
-    // Chart.js-capable browser (and the Chromium version this toolchain's
-    // offline/PDF path embeds) since 2023.
-    return 'color-mix(in srgb, ' + color + ' ' + Math.round(alphaFraction * 100) + '%, transparent)';
+    // as-is: color-mix is the only format-agnostic way to apply a DEFAULT
+    // alpha without a full CSS color parser, and has been supported in
+    // every Chart.js-capable browser (and the Chromium version this
+    // toolchain's offline/PDF path embeds) since 2023.
+    return 'color-mix(in srgb, ' + trimmed + ' ' + Math.round(alphaFraction * 100) + '%, transparent)';
 }
 
 // applyExtensionChartColors (motor-temas-v2.md §2.2): superpone los
@@ -94,13 +125,104 @@ function withAlpha(color, alphaFraction) {
 // CUALQUIER variable que un tema declare en :root, así que un segundo
 // camino Go/JS para ese único token sería duplicar un mecanismo que ya
 // funciona.
-// CARTESIAN_CHART_TYPES are the Chart.js types that get an implicit
-// x/y scale pair when options.scales omits one — bar/line/scatter/bubble,
-// and (via buildConfig's originalType==='combo' -> chartType 'bar' mapping)
-// combo. pie/doughnut have no cartesian scales at all (applyThemeColors
-// deletes options.scales for them above), so they're deliberately excluded
-// here rather than gaining a spurious x/y.
-const CARTESIAN_CHART_TYPES = ['bar', 'line', 'scatter', 'bubble'];
+
+// CHART_SCALE_DIMENSIONS (H4/H5 fix, a code-review-flagged gap): the set
+// of scale dimensions Chart.js itself creates implicitly for a chart type
+// when options.scales doesn't declare them — bar/line/scatter/bubble (and,
+// via buildConfig's originalType==='combo' -> chartType 'bar' mapping,
+// combo) get 'x'+'y'; radar/polarArea get the radial 'r' scale. Before
+// this fix only the cartesian set was covered, so a <<chart: radar>> never
+// received chart-grid/chart-axis at all. A type absent from this map
+// (pie, doughnut, treemap, or anything unrecognized) gets NO
+// materialization — correct for the first two (applyThemeColors deletes
+// options.scales for them above) and the safe default for anything else:
+// not applying a token is the harmless pre-existing behavior, a spurious
+// axis Chart.js wouldn't have drawn is a visual regression.
+const CHART_SCALE_DIMENSIONS = {
+    bar: ['x', 'y'],
+    line: ['x', 'y'],
+    scatter: ['x', 'y'],
+    bubble: ['x', 'y'],
+    radar: ['r'],
+    polarArea: ['r'],
+};
+
+// scaleDimension mirrors Chart.js v4's own axis-determination order — a
+// scale's ID doesn't reliably say which dimension it colors (a
+// custom-named scale like "revenue" isn't 'y' just because something
+// looks for one). The real signal, in Chart.js's own priority order: the
+// scale's own declared `axis`, then whichever dataset references the
+// scale ID via xAxisID/yAxisID, then the scale ID's first letter
+// (Chart.js's own fallback). Deliberately bug-compatible with Chart.js
+// here — including the consequence that a scale with no `axis` and no
+// dataset reference (e.g. "revenue") is treated as dimension 'r' by
+// virtue of its first letter. Getting this wrong is exactly H5: treating
+// a named scale's KEY as its dimension, instead of asking what dimension
+// it actually is, is what let ensureThemeableScales add a spurious extra
+// 'y' next to an author's own "revenue: {axis:'y'}" scale.
+function scaleDimension(id, scale, datasetAxisById) {
+    if (scale && typeof scale.axis === 'string' && scale.axis) {
+        return scale.axis;
+    }
+    if (datasetAxisById[id]) {
+        return datasetAxisById[id];
+    }
+    return String(id).charAt(0).toLowerCase();
+}
+
+// datasetAxisIds scans a config's datasets for xAxisID/yAxisID references
+// so scaleDimension can resolve a scale's dimension via dataset reference
+// — Chart.js's own 2nd-priority signal — instead of guessing from the ID.
+function datasetAxisIds(themedConfig) {
+    const byId = {};
+    const datasets = (themedConfig.data && themedConfig.data.datasets) || [];
+    datasets.forEach((dataset) => {
+        if (!dataset || typeof dataset !== 'object') {
+            return;
+        }
+        if (typeof dataset.xAxisID === 'string') {
+            byId[dataset.xAxisID] = 'x';
+        }
+        if (typeof dataset.yAxisID === 'string') {
+            byId[dataset.yAxisID] = 'y';
+        }
+    });
+    return byId;
+}
+
+// ensureThemeableScales materializes ONLY the scale dimensions Chart.js
+// itself would create implicitly for this chart type and that aren't
+// already covered by an existing scale — covered BY DIMENSION, not by
+// key, which is the H5 fix: buildConfig() always declares scales.y
+// explicitly but leaves x implicit, so "scales exists" was never enough
+// to know every dimension is covered, but naively adding whatever literal
+// keys ('x'/'y') were missing could add a spurious extra axis next to an
+// author's own differently-named scale for the same dimension. Bias, per
+// H4/H5's own resolution: when in doubt, don't materialize.
+function ensureThemeableScales(themedConfig, axisById) {
+    const dimensions = CHART_SCALE_DIMENSIONS[themedConfig.type];
+    const scales = themedConfig.options.scales;
+    if (!dimensions || !dimensions.length) {
+        return scales || null;
+    }
+
+    const existing = scales || {};
+    const covered = new Set();
+    Object.keys(existing).forEach((id) => {
+        covered.add(scaleDimension(id, existing[id], axisById));
+    });
+
+    const missing = dimensions.filter((d) => !covered.has(d));
+    if (!missing.length) {
+        return scales || null;
+    }
+
+    themedConfig.options.scales = existing;
+    missing.forEach((dimension) => {
+        existing[dimension] = {};
+    });
+    return existing;
+}
 
 function applyExtensionChartColors(themedConfig) {
     const metadata = (typeof SlideLang !== 'undefined' && SlideLang.metadata) || {};
@@ -113,23 +235,8 @@ function applyExtensionChartColors(themedConfig) {
     }
 
     if (tokens['chart-grid'] || tokens['chart-axis']) {
-        // buildConfig() always declares scales.y explicitly but leaves x
-        // implicit (Chart.js creates it at chart-construction time from
-        // its own defaults) — so "scales exists" isn't enough to know
-        // every axis is present. Materialize x/y here, before iterating,
-        // whenever they're missing on a cartesian chart; this mirrors what
-        // Chart.js would do internally anyway, so it changes coloring only,
-        // never chart behavior.
-        if (CARTESIAN_CHART_TYPES.includes(themedConfig.type)) {
-            themedConfig.options.scales = themedConfig.options.scales || {};
-            if (!themedConfig.options.scales.x) {
-                themedConfig.options.scales.x = {};
-            }
-            if (!themedConfig.options.scales.y) {
-                themedConfig.options.scales.y = {};
-            }
-        }
-        const scales = themedConfig.options.scales;
+        const axisById = datasetAxisIds(themedConfig);
+        const scales = ensureThemeableScales(themedConfig, axisById);
         if (scales && typeof scales === 'object') {
             Object.keys(scales).forEach((key) => {
                 const scale = scales[key];
@@ -146,6 +253,27 @@ function applyExtensionChartColors(themedConfig) {
                     scale.ticks = scale.ticks || {};
                     if (scale.ticks.color === undefined) {
                         scale.ticks.color = tokens['chart-axis'];
+                    }
+                }
+                // Radial scales (radar/polarArea) draw two more
+                // theme-relevant elements a cartesian scale doesn't have:
+                // the spokes (angleLines) and the category labels around
+                // the circle (pointLabels). Without these a radar chart's
+                // concentric-circle grid and numeric ticks get themed but
+                // the spokes and category labels stay Chart.js-default —
+                // visibly half-done.
+                if (scaleDimension(key, scale, axisById) === 'r') {
+                    if (tokens['chart-grid']) {
+                        scale.angleLines = scale.angleLines || {};
+                        if (scale.angleLines.color === undefined) {
+                            scale.angleLines.color = tokens['chart-grid'];
+                        }
+                    }
+                    if (tokens['chart-axis']) {
+                        scale.pointLabels = scale.pointLabels || {};
+                        if (scale.pointLabels.color === undefined) {
+                            scale.pointLabels.color = tokens['chart-axis'];
+                        }
                     }
                 }
             });

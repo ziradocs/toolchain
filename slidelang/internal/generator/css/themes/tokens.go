@@ -78,46 +78,89 @@ func parseWholeVarCall(value string) (name, fallback string, hasFallback, ok boo
 // to already be literals: variables.go:120 declares
 // "--bg-title-slide": "var(--title-gradient)" even for the built-in
 // embedded themes, and a theme.json author can chain --slidelang- tokens
-// the same way. A reference cycle (a resolves to b resolves to a) or
-// exceeding maxVarResolutionDepth aborts and returns ok=false — the token
-// is then treated as ABSENT, never emitted half-resolved, since neither
-// Chart.js's canvas fillStyle nor maps.js's marker-color allowlist accept
-// a var() reference.
+// the same way. Exceeding maxVarResolutionDepth aborts with ok=false — the
+// token is then treated as ABSENT, never emitted half-resolved, since
+// neither Chart.js's canvas fillStyle nor maps.js's marker-color allowlist
+// accept a var() reference.
+//
+// owner is the canonical name of the custom property whose declared value
+// IS raw — e.g. for the top-level call from resolveTokenGroup, raw is
+// vars[owner]. Pass "" for an anonymous, non-property expression (a
+// consumer like "background: var(--x, red)" that isn't itself a custom
+// property) — this only matters for cycle handling, see cycleRoot below.
 //
 // A value that isn't a whole var(...) call is returned as-is UNLESS it
 // still mentions "var(" somewhere (e.g. "1px solid var(--x)") — every
 // token this resolver serves is a bare color, and a value that doesn't
 // take that shape is refused rather than partially flattened.
-func resolveTokenValue(vars ThemeVariables, raw string, seen map[string]bool, depth int) (string, bool) {
-	value := strings.TrimSpace(raw)
+//
+// cycleRoot is non-empty only when ok is false AND the failure is a
+// reference cycle (as opposed to a missing reference or a depth-cap hit),
+// naming the canonical property where the cycle closes. This distinction
+// exists because CSS's own var() cycle semantics are stricter than a plain
+// "missing reference": per CSS Custom Properties §3, EVERY custom property
+// that participates in a cycle computes to its guaranteed-invalid value,
+// even one only reached through a would-be-rescuing fallback — so a frame
+// whose own property IS part of the cycle must not apply its own
+// fallback. Only once unwinding reaches the frame whose owner matches the
+// cycleRoot does the cycle "close": that frame clears the signal, so
+// whatever's above it (now outside the cycle, e.g. an anonymous consumer
+// with owner="") is free to use ITS OWN fallback again — this is what
+// makes "var(--a, #fff)" against "--a: var(--a)" still yield "#fff": the
+// anonymous consumer (owner="") can never equal a cycleRoot (always a real
+// property name), so it always gets to fall back once the cycle beneath it
+// fails.
+func resolveTokenValue(vars ThemeVariables, raw string, seen map[string]bool, owner string, depth int) (value, cycleRoot string, ok bool) {
+	trimmed := strings.TrimSpace(raw)
 	if depth > maxVarResolutionDepth {
-		return "", false
+		return "", "", false
 	}
-	name, fallback, hasFallback, isWhole := parseWholeVarCall(value)
+	name, fallback, hasFallback, isWhole := parseWholeVarCall(trimmed)
 	if !isWhole {
-		if strings.Contains(strings.ToLower(value), "var(") {
-			return "", false
+		if strings.Contains(strings.ToLower(trimmed), "var(") {
+			return "", "", false
 		}
-		return value, true
+		return trimmed, "", true
 	}
 	canonical := CanonicalVarName(name)
-	// A cycle or an unresolved reference both fall through to hasFallback
-	// below rather than returning early — "var(--a, #fff)" where --a itself
-	// resolves to "var(--a)" (a self-cycle) must still yield "#fff", exactly
-	// like CSS's own var() fallback semantics. Only when there's no
-	// fallback to try does either case become a hard failure.
-	if !seen[canonical] {
+
+	if seen[canonical] {
+		cycleRoot = canonical
+	} else {
 		seen[canonical] = true
-		if refValue, ok := lookupCanonical(vars, canonical); ok {
-			if resolved, ok := resolveTokenValue(vars, refValue, seen, depth+1); ok {
-				return resolved, true
+		if refValue, refOK := lookupCanonical(vars, canonical); refOK {
+			var resolved string
+			var resolvedOK bool
+			resolved, cycleRoot, resolvedOK = resolveTokenValue(vars, refValue, seen, canonical, depth+1)
+			if resolvedOK {
+				delete(seen, canonical)
+				return resolved, "", true
 			}
 		}
+		// seen is a path stack, not an accumulated set: pop before trying
+		// this var() call's own fallback below, so a sibling branch (the
+		// fallback) can freely reference canonical again without a false
+		// "cycle" against a path we've already left.
+		delete(seen, canonical)
 	}
+
+	if cycleRoot != "" {
+		if cycleRoot == owner {
+			// The cycle closes exactly at this frame's own property.
+			// hasFallback is deliberately not consulted here — this
+			// frame's fallback is exactly as guaranteed-invalid as its
+			// main value.
+			return "", "", false
+		}
+		// Still inside a cycle that closes elsewhere — this frame's
+		// fallback is equally invalid; propagate without trying it.
+		return "", cycleRoot, false
+	}
+
 	if hasFallback {
-		return resolveTokenValue(vars, fallback, seen, depth+1)
+		return resolveTokenValue(vars, fallback, seen, owner, depth+1)
 	}
-	return "", false
+	return "", "", false
 }
 
 // DiagramTokenNames are the diagram-* extension tokens motor-temas-v2.md
@@ -213,7 +256,7 @@ func resolveTokenGroup(vars ThemeVariables, names []string) map[string]string {
 		if !ok {
 			continue
 		}
-		resolved, ok := resolveTokenValue(vars, raw, map[string]bool{}, 0)
+		resolved, _, ok := resolveTokenValue(vars, raw, map[string]bool{name: true}, name, 0)
 		if !ok || resolved == "" {
 			continue
 		}
@@ -233,6 +276,11 @@ func resolveTokenGroup(vars ThemeVariables, names []string) map[string]string {
 // gradient or a bare var() that slipped through resolution), which aborts
 // mermaid.initialize() for the whole page. Same "drop rather than ship a
 // value the consumer would reject anyway" treatment as resolveMapTokenGroup.
+// Verified against the exact Mermaid build this toolchain embeds —
+// MermaidCDNScriptTag (core/renderer/cdn_tags.go) pins mermaid@10.9.6,
+// which parses theme colors with khroma (same parser through at least
+// Mermaid 11.x): hex accepts only 3/4/6/8 digits, and hsl()/hsla() require
+// '%' on saturation/lightness.
 func resolveDiagramTokenGroup(vars ThemeVariables, names []string) map[string]string {
 	group := resolveTokenGroup(vars, names)
 	for name, value := range group {
@@ -266,11 +314,12 @@ func resolveMapTokenGroup(vars ThemeVariables, names []string) map[string]string
 func resolveOrderedTokens(vars ThemeVariables, prefix string, max int) []string {
 	var out []string
 	for i := 1; i <= max; i++ {
-		raw, ok := lookupCanonical(vars, fmt.Sprintf("%s%d", prefix, i))
+		name := fmt.Sprintf("%s%d", prefix, i)
+		raw, ok := lookupCanonical(vars, name)
 		if !ok {
 			break
 		}
-		resolved, ok := resolveTokenValue(vars, raw, map[string]bool{}, 0)
+		resolved, _, ok := resolveTokenValue(vars, raw, map[string]bool{name: true}, name, 0)
 		if !ok || resolved == "" {
 			break
 		}
@@ -293,21 +342,26 @@ func ResolveFontMain(vars ThemeVariables) string {
 	if !ok {
 		return ""
 	}
-	resolved, ok := resolveTokenValue(vars, raw, map[string]bool{}, 0)
+	resolved, _, ok := resolveTokenValue(vars, raw, map[string]bool{"font-main": true}, "font-main", 0)
 	if !ok {
 		return ""
 	}
 	return resolved
 }
 
-// mapColorNamePattern mirrors maps.js's hexColorPattern exactly, which
-// itself mirrors core/renderer/sanitizer.go's hexColorPattern (that
-// comment names slidelang-core/renderer/sanitizer.go as the canonical
-// source). Duplicated rather than imported: sanitizer.go's version is
-// unexported, and exporting one would add a new core symbol this PR's
-// scope explicitly avoids (motor-temas-v2.md plan: PR4 pays no
-// bump-core.sh). Keep the three copies in sync by hand.
-var mapColorNamePattern = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
+// mapColorNamePattern is DELIBERATELY stricter than maps.js's
+// hexColorPattern (`{3,8}`, accepting the invalid lengths 5 and 7) and
+// core/renderer/sanitizer.go's own copy — `{3,4}|{6}|{8}` is the actual
+// set of valid CSS hex-color lengths (#rgb, #rgba, #rrggbb, #rrggbbaa).
+// This asymmetry is one-way and safe: an invalid 5/7-digit hex reaching
+// maps.js's client-side allowlist just gets ignored (falls back to
+// '#3388ff'), but the same value reaching Mermaid's themeVariables (see
+// IsValidMermaidColor below, which reuses this pattern) throws
+// "Unsupported color format" inside mermaid.initialize() and aborts the
+// whole module — so the server-side gate has to be the strict one. Keep
+// the other two copies in sync with each other; this one is intentionally
+// not identical to them.
+var mapColorNamePattern = regexp.MustCompile(`^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$`)
 
 // mapNamedColors mirrors maps.js's cssNamedColors / core/renderer/
 // sanitizer.go's cssNamedColors exactly — see mapColorNamePattern's doc
@@ -334,14 +388,39 @@ func IsValidMapColor(value string) bool {
 	return mapColorNamePattern.MatchString(value) || mapNamedColors[strings.ToLower(value)]
 }
 
+// cssNumber matches a plain CSS number (no unit), optionally with a
+// trailing '%' — used for rgb()/rgba() components, which CSS allows as
+// either 0-255 integers or percentages. `[\d.]+` (the pattern this
+// replaced) is not a real number grammar: it accepts "1.2.3" and a bare
+// ".", neither of which is valid CSS.
+const cssNumber = `(?:\d+(?:\.\d+)?|\.\d+)%?`
+
+// cssPercentage is cssNumber with '%' mandatory — hsl()/hsla()'s
+// saturation and lightness components MUST be percentages; `hsl(120,50,50)`
+// (no '%') is invalid CSS and throws "Unsupported color format" in Mermaid,
+// exactly like a gradient does.
+const cssPercentage = `(?:\d+(?:\.\d+)?|\.\d+)%`
+
 // mermaidFunctionalColorRe matches rgb()/rgba()/hsl()/hsla() — the
 // functional color notations Mermaid's theming layer accepts alongside hex
-// and named colors, per mermaid.js.org/config/theming.html. Deliberately
-// does NOT match gradients or any other CSS <image> syntax: Mermaid throws
-// "Unsupported color format" for those (reproduced with
-// diagram-node-bg: linear-gradient(red, blue)), so a token resolving to one
-// must be dropped, not passed through.
-var mermaidFunctionalColorRe = regexp.MustCompile(`(?i)^(rgba?|hsla?)\(\s*[\d.]+%?\s*(,\s*[\d.]+%?\s*){2,3}\)$`)
+// and named colors, per mermaid.js.org/config/theming.html. One alternative
+// per function name, each with that function's exact component count and
+// shape (rgb: 3 components; rgba: 4; hsl: hue + 2 mandatory percentages;
+// hsla: + alpha) — a shared `{2,3}`-repetition pattern (the previous
+// version) can't tell rgb from rgba apart, so it silently accepted
+// component-count mismatches and let hsl's percentage requirement slide.
+// Deliberately does NOT match gradients, any other CSS <image> syntax, or
+// modern space-separated syntax (e.g. "rgb(255 0 0 / 50%)"): Mermaid
+// throws "Unsupported color format" for anything outside what this
+// pattern accepts (reproduced with diagram-node-bg: linear-gradient(red,
+// blue)), so dropping an unrecognized-but-maybe-valid token is the safe
+// default — shipping one Mermaid rejects is not.
+var mermaidFunctionalColorRe = regexp.MustCompile(`(?i)^(?:` +
+	`rgb\(\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*\)` +
+	`|rgba\(\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*,\s*` + cssNumber + `\s*\)` +
+	`|hsl\(\s*` + cssNumber + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssPercentage + `\s*\)` +
+	`|hsla\(\s*` + cssNumber + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssPercentage + `\s*,\s*` + cssNumber + `\s*\)` +
+	`)$`)
 
 // IsValidMermaidColor reports whether value is safe to hand to Mermaid's
 // themeVariables as a diagram-* token: hex (3/4/6/8 digit), a CSS3 named
