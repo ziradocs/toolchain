@@ -50,7 +50,7 @@ import (
 // funciona sin navegador instalado. Eso decide qué queda fuera:
 //
 //   - ChartElement se cubre SOLO por el camino nativo en Go
-//     (renderer.RenderChartNativePNG, go-analyze/charts): bar/line/pie/
+//     (renderer.RenderChartNativePNGWithColors, go-analyze/charts): bar/line/pie/
 //     doughnut, no modo JSON. Un bloque options: NO descalifica el chart —
 //     se dibuja aproximado y se avisa qué claves se ignoraron; ver
 //     pptxChartIgnoringOptions para por qué la política acá difiere de la
@@ -287,7 +287,7 @@ func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int,
 	case *ast.CodeElement:
 		return g.pptxAddCode(s, e, cursorY)
 	case *ast.ChartElement:
-		return g.pptxAddChart(s, e, cursorY)
+		return g.pptxAddChart(s, e, cursorY, opts)
 	case *ast.MermaidElement:
 		return g.pptxAddDiagram(s, "mermaid", e.Content, e.Title, cursorY, opts, kroki)
 	case *ast.PlantUMLElement:
@@ -684,7 +684,7 @@ func (g *Generator) pptxAddCode(s *pptx.Slide, e *ast.CodeElement, cursorY int) 
 }
 
 // pptxAddChart rasteriza e a PNG con el renderer nativo en Go
-// (renderer.RenderChartNativePNG, go-analyze/charts) y lo embebe como imagen.
+// (renderer.RenderChartNativePNGWithColors, go-analyze/charts) y lo embebe como imagen.
 //
 // Nativo-only a propósito: --format pptx no instancia un ChromiumRenderer en
 // ningún punto (Generator ni siquiera tiene el campo), y ésa es justo la
@@ -693,14 +693,18 @@ func (g *Generator) pptxAddCode(s *pptx.Slide, e *ast.CodeElement, cursorY int) 
 // mapeado, en modo JSON, o con un bloque options: de Chart.js— cambiaría esa
 // garantía por un elemento; se omiten con warning, igual que antes, en vez de
 // arrastrar una dependencia de navegador a este formato.
-func (g *Generator) pptxAddChart(s *pptx.Slide, e *ast.ChartElement, cursorY int) int {
+func (g *Generator) pptxAddChart(s *pptx.Slide, e *ast.ChartElement, cursorY int, opts GeneratorOptions) int {
 	width, height := renderer.ChartDimensions(e)
 
 	// Un bloque options: NO descalifica el chart acá, a diferencia de lo que
 	// decide renderer.SupportsNativeChartRendering — ver pptxChartIgnoringOptions.
 	target, droppedOptions := pptxChartIgnoringOptions(e)
 
-	data, ok, err := renderer.RenderChartNativePNG(target, width, height)
+	// motor-temas-v2.md §2.2: mismo chart-cat-* que el camino HTML/PDF
+	// offline resuelve en offline.go — sin esto, pptx era el único formato
+	// que se quedaba con la paleta fija mientras HTML y PDF ya respetaban
+	// el tema.
+	data, ok, err := renderer.RenderChartNativePNGWithColors(target, width, height, resolveChartCategoricalColors(opts))
 	if !ok {
 		g.logger.Warn("PPTX: chart type %q no tiene render nativo (tipo no mapeado o modo JSON), omitido — --format pptx no usa Chromium", e.ChartType)
 		return g.pptxAddText(s, fmt.Sprintf("[Chart not rendered: %s]", e.ChartType), cursorY)
@@ -726,7 +730,7 @@ func (g *Generator) pptxAddChart(s *pptx.Slide, e *ast.ChartElement, cursorY int
 	s.AddImageFromBytesWithSize(data, pptxMarginEMU, cursorY, drawWidth, drawHeight)
 
 	// e.Title NO se emite como caption: el renderer nativo ya lo dibuja DENTRO
-	// del PNG (renderer.RenderChartNativePNG hace opt.Title.Text = elem.Title).
+	// del PNG (renderer.RenderChartNativePNGWithColors hace opt.Title.Text = elem.Title).
 	// Añadirlo debajo lo duplicaba, y con las dimensiones por defecto (800x600)
 	// la segunda copia además caía fuera del slide — el PNG terminaba en 7.492in
 	// sobre un canvas de 7.5in, así que el textbox arrancaba en 7.592in.

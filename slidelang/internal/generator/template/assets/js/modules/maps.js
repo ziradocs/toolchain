@@ -213,6 +213,23 @@ SlideLang.maps = {
         const isValidColor = (c) => typeof c === 'string' &&
             (hexColorPattern.test(c) || cssNamedColors.has(c.toLowerCase()));
 
+        // motor-temas-v2.md §2.2: map-line/map-label ya llegan resueltos a
+        // literal y filtrados server-side contra la misma allowlist
+        // (themes.IsValidMapColor, mantenida en sync a mano con la de
+        // arriba) — pero se revalidan con isValidColor de todas formas,
+        // igual que rawColor abajo: se interpolan en el mismo atributo
+        // style vía divIcon (AL-7), y este archivo ya trata esa
+        // interpolación como el punto donde SIEMPRE se revalida, sin
+        // asumir que el servidor lo hizo. Sustituyen el 'white' fijo del
+        // borde del marcador y del texto del valor; un tema que no
+        // declara estos tokens (todo tema del repo hoy) deja el blanco de
+        // siempre sin tocar.
+        const themeMapTokens = (typeof SlideLang !== 'undefined' &&
+            SlideLang.metadata && SlideLang.metadata.themeTokens &&
+            SlideLang.metadata.themeTokens.map) || {};
+        const markerBorderColor = isValidColor(themeMapTokens['map-line']) ? themeMapTokens['map-line'] : 'white';
+        const markerLabelColor = isValidColor(themeMapTokens['map-label']) ? themeMapTokens['map-label'] : 'white';
+
         markers.forEach(marker => {
             const lat = marker.lat || marker.Lat;
             const lng = marker.lng || marker.Lng;
@@ -239,12 +256,12 @@ SlideLang.maps = {
                             'width: ' + iconSize + 'px;' +
                             'height: ' + iconSize + 'px;' +
                             'border-radius: 50%;' +
-                            'border: 3px solid white;' +
+                            'border: 3px solid ' + markerBorderColor + ';' +
                             'box-shadow: 0 2px 6px rgba(0,0,0,0.3);' +
                             'display: flex;' +
                             'align-items: center;' +
                             'justify-content: center;' +
-                            'color: white;' +
+                            'color: ' + markerLabelColor + ';' +
                             'font-weight: bold;' +
                             'font-size: ' + (iconSize * 0.3) + 'px;' +
                         '">' + (value ? this.formatValue(value) : '') + '</div>',

@@ -43,6 +43,22 @@
     height: auto;
 }
 
+/* chart-surface (motor-temas-v2.md §2.2): fondo plano detrás del canvas.
+   A diferencia de chart-grid/-axis/-label/-tooltip-bg (dibujados sobre el
+   canvas por Chart.js, solo alcanzables vía su config JS), este es un
+   fondo CSS normal — GenerateThemeCSS ya emite CUALQUIER variable que un
+   tema declare en :root, así que no hace falta ningún plumbing Go/JS
+   nuevo, solo esta regla que la consuma. Se aplica también en
+   .slidelang-chart-container cuando envuelve el PNG pre-renderizado
+   (offline/PDF): inerte ahí, porque el PNG ya es opaco, pero no dañino.
+   Sin este token (todo tema del repo hoy) el fallback "transparent" es
+   exactamente el comportamiento de siempre (sin background-color, un
+   <canvas>/contenedor ya es transparente por defecto). */
+.slidelang-element.slidelang-chart .slidelang-chart-container,
+.slidelang-element.slidelang-chart .slidelang-chart-canvas {
+    background-color: var(--slidelang-chart-surface, transparent);
+}
+
 .slidelang-element.slidelang-chart .slidelang-chart-title {
     margin-bottom: 0.5rem;
     font-weight: 600;

@@ -19,7 +19,13 @@
     border-radius: var(--slidelang-border-radius, 8px);
     overflow: hidden;
     box-shadow: var(--slidelang-shadow-main, 0 2px 8px rgba(0,0,0,0.1));
-    background: var(--slidelang-bg-light, #f8f9fa);
+    /* map-surface (motor-temas-v2.md §2.2): un fondo dedicado detrás del
+       mapa, independiente de --slidelang-bg-light. Igual que chart-surface
+       (charts.css), es un fondo CSS normal — GenerateThemeCSS ya emite
+       cualquier variable que un tema declare, así que no hace falta
+       plumbing Go/JS. Un tema sin este token (todo tema del repo hoy)
+       sigue cayendo a --slidelang-bg-light, sin cambio de comportamiento. */
+    background: var(--slidelang-map-surface, var(--slidelang-bg-light, #f8f9fa));
     position: relative;
 }
 

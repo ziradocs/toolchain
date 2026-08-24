@@ -596,6 +596,21 @@ func (g *Generator) renderHTML(presentationConfig *PresentationConfig, htmlConte
 	// Prepare template data (con modo de rendering para el pre-render offline, #92)
 	templateData := data.PrepareTemplateDataWithRenderMode(presentationConfig.AST, presentationConfig.Theme.Name, presentationConfig.Options.RenderMode, g.logger, presentationConfig.RenderContext)
 
+	// motor-temas-v2.md §2.2: propagar los tokens de tema ya resueltos a
+	// literal (mermaid.js/charts.js/maps.js los leen del bloque de
+	// metadata). Se hace acá, no dentro de PrepareTemplateDataWithRenderMode
+	// (que solo recibe el NOMBRE del tema, no el *themes.Theme resuelto,
+	// y cambiar su firma tocaría una decena de call sites de test para un
+	// seam que ya existe aquí — presentationConfig.Theme.Variables es
+	// exactamente el mismo *themes.Theme que build.go resolvió para el
+	// linter, vía issue #30). Se calcula también en el camino offline/PDF
+	// (renderHTML es compartida con pdf.go) sin costo real: ese modo ya
+	// deja Charts/Diagrams/Maps vacíos (issue #92) porque mermaid.js/
+	// charts.js/maps.js no se cargan ahí, así que estos tokens quedan en
+	// el mismo blob de metadata inerte, nunca leídos.
+	templateData.ThemeTokens = themes.ResolveThemeTokens(presentationConfig.Theme.Variables)
+	templateData.ThemeFontMain = themes.ResolveFontMain(presentationConfig.Theme.Variables)
+
 	// Execute template to buffer first (for formatting)
 	var htmlBuffer strings.Builder
 	if err := tmpl.Execute(&htmlBuffer, templateData); err != nil {

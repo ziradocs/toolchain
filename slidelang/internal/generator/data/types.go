@@ -3,7 +3,11 @@
 
 package data
 
-import htmltemplate "html/template"
+import (
+	htmltemplate "html/template"
+
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
+)
 
 // PresentationData contiene todos los datos para el template HTML
 type PresentationData struct {
@@ -34,6 +38,23 @@ type PresentationData struct {
 	Charts            []ChartMetadata       `json:"charts"`   // Charts metadata for JavaScript rendering
 	Diagrams          []MermaidMetadata     `json:"diagrams"` // Mermaid diagrams metadata for JavaScript rendering
 	Maps              []MapMetadata         `json:"maps"`     // Maps metadata for JavaScript rendering
+	// ThemeTokens carries the motor-temas-v2.md §2.2 extension tokens
+	// (diagram-*/chart-*/map-*), already resolved to literal CSS values —
+	// see themes.ResolveThemeTokens. Zero-value (all fields empty) for
+	// every theme in the repo today, since none declares these tokens
+	// yet; mermaid.js/charts.js/maps.js fall back to their existing
+	// hardcoded defaults whenever a specific token is absent. Populated
+	// only in the browser render path (renderHTML) — offline/PDF modes
+	// never load this client-side JS at all (issue #92), so there's
+	// nothing for it to reach there.
+	ThemeTokens themes.ThemeTokens `json:"themeTokens"`
+	// ThemeFontMain is the theme's resolved font-main value (already
+	// flattened through any var() chain via themes.ResolveFontMain),
+	// threaded separately from ThemeTokens because font-main is an
+	// ordinary theme variable every theme already declares, not one of
+	// the new §2.2 extension tokens. Empty when it didn't resolve to a
+	// literal.
+	ThemeFontMain string `json:"themeFontMain"`
 }
 
 // PresentationFeatures contiene flags de características detectadas

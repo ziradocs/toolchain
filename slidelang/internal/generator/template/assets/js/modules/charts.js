@@ -12,9 +12,94 @@ const chartRegistry = new Map();
 
 // Default color palette for charts
 const defaultColors = [
-    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', 
+    '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
     '#06B6D4', '#8B5CF6', '#F97316', '#EC4899'
 ];
+
+// getCategoricalPalette / categoricalColor (motor-temas-v2.md §2.2): un
+// tema puede sobreescribir defaultColors índice por índice vía sus tokens
+// chart-cat-1..8, ya resueltos a literales server-side
+// (themes.ResolveThemeTokens) — Chart.js's fillStyle de canvas no acepta
+// var(). chart-cat-* es un set CON ORDEN (identidad de serie legible bajo
+// daltonismo): se preserva el MISMO wrap por módulo que este módulo ya
+// usaba con defaultColors, nunca se genera un matiz nuevo para una serie
+// N+1. Un tema que no declara chart-cat-* (todo tema del repo hoy) deja
+// defaultColors sin tocar.
+function getCategoricalPalette() {
+    const metadata = (typeof SlideLang !== 'undefined' && SlideLang.metadata) || {};
+    const tokens = metadata.themeTokens;
+    if (tokens && Array.isArray(tokens.chartCategorical) && tokens.chartCategorical.length > 0) {
+        return tokens.chartCategorical;
+    }
+    return defaultColors;
+}
+
+function categoricalColor(index) {
+    const palette = getCategoricalPalette();
+    return palette[index % palette.length];
+}
+
+// applyExtensionChartColors (motor-temas-v2.md §2.2): superpone los
+// tokens chart-grid/-axis/-label/-tooltip-bg sobre lo que buildConfig() o
+// la config JSON del autor ya hayan producido, sin pisar nunca un valor
+// que la config ya trae puesto. chart-surface NO se maneja acá: a
+// diferencia de estos (dibujados sobre canvas, solo alcanzables vía
+// opciones de Chart.js), es un fondo plano detrás del canvas y se
+// propaga por CSS normal (ver charts.css) — GenerateThemeCSS ya emite
+// CUALQUIER variable que un tema declare en :root, así que un segundo
+// camino Go/JS para ese único token sería duplicar un mecanismo que ya
+// funciona.
+function applyExtensionChartColors(themedConfig) {
+    const metadata = (typeof SlideLang !== 'undefined' && SlideLang.metadata) || {};
+    const tokens = (metadata.themeTokens && metadata.themeTokens.chart) || null;
+    if (!tokens) {
+        return;
+    }
+    if (!themedConfig.options) {
+        themedConfig.options = {};
+    }
+
+    if (tokens['chart-grid'] || tokens['chart-axis']) {
+        const scales = themedConfig.options.scales;
+        if (scales && typeof scales === 'object') {
+            Object.keys(scales).forEach((key) => {
+                const scale = scales[key];
+                if (!scale || typeof scale !== 'object') {
+                    return;
+                }
+                if (tokens['chart-grid']) {
+                    scale.grid = scale.grid || {};
+                    if (scale.grid.color === undefined) {
+                        scale.grid.color = tokens['chart-grid'];
+                    }
+                }
+                if (tokens['chart-axis']) {
+                    scale.ticks = scale.ticks || {};
+                    if (scale.ticks.color === undefined) {
+                        scale.ticks.color = tokens['chart-axis'];
+                    }
+                }
+            });
+        }
+    }
+
+    if (tokens['chart-label']) {
+        themedConfig.options.plugins = themedConfig.options.plugins || {};
+        themedConfig.options.plugins.legend = themedConfig.options.plugins.legend || {};
+        themedConfig.options.plugins.legend.labels = themedConfig.options.plugins.legend.labels || {};
+        if (themedConfig.options.plugins.legend.labels.color === undefined) {
+            themedConfig.options.plugins.legend.labels.color = tokens['chart-label'];
+        }
+    }
+
+    if (tokens['chart-tooltip-bg']) {
+        themedConfig.options.plugins = themedConfig.options.plugins || {};
+        themedConfig.options.plugins.tooltip = themedConfig.options.plugins.tooltip || {};
+        if (themedConfig.options.plugins.tooltip.backgroundColor === undefined) {
+            themedConfig.options.plugins.tooltip.backgroundColor = tokens['chart-tooltip-bg'];
+        }
+    }
+}
 
 /**
  * Charts Module - Following SlideLang Standard Pattern
@@ -245,21 +330,21 @@ const SlideLangCharts = {
                     if (!dataset.backgroundColor) {
                         // Asignar un color diferente a cada segmento
                         dataset.backgroundColor = dataset.data.map((_, segmentIndex) => 
-                            defaultColors[segmentIndex % defaultColors.length] + '80'
+                            categoricalColor(segmentIndex) + '80'
                         );
                     }
                     if (!dataset.borderColor) {
                         dataset.borderColor = dataset.data.map((_, segmentIndex) => 
-                            defaultColors[segmentIndex % defaultColors.length]
+                            categoricalColor(segmentIndex)
                         );
                     }
                 } else {
                     // Para otros tipos de charts, usar un color por dataset
                     if (!dataset.backgroundColor) {
-                        dataset.backgroundColor = defaultColors[index % defaultColors.length] + '80';
+                        dataset.backgroundColor = categoricalColor(index) + '80';
                     }
                     if (!dataset.borderColor) {
-                        dataset.borderColor = defaultColors[index % defaultColors.length];
+                        dataset.borderColor = categoricalColor(index);
                     }
                 }
                 if (!dataset.borderWidth) {
@@ -308,10 +393,12 @@ const SlideLangCharts = {
                 };
             }
         }
-        
+
+        applyExtensionChartColors(themedConfig);
+
         return themedConfig;
     },
-    
+
     createConfigFromAttributes: function(canvas) {
         const chartType = canvas.getAttribute('data-chart-type') || 'bar';
         const originalType = canvas.getAttribute('data-chart-original-type') || chartType;
@@ -407,8 +494,8 @@ const SlideLangCharts = {
                 const dataset = {
                     label: seriesName,
                     data: seriesData,
-                    backgroundColor: defaultColors[index % defaultColors.length] + '80',
-                    borderColor: defaultColors[index % defaultColors.length],
+                    backgroundColor: categoricalColor(index) + '80',
+                    borderColor: categoricalColor(index),
                     borderWidth: 2,
                     tension: 0.1
                 };
@@ -429,8 +516,8 @@ const SlideLangCharts = {
             datasets.push({
                 label: 'Dataset 1',
                 data: data.map(row => row[1] || 0),
-                backgroundColor: defaultColors[0] + '80',
-                borderColor: defaultColors[0],
+                backgroundColor: categoricalColor(0) + '80',
+                borderColor: categoricalColor(0),
                 borderWidth: 2,
                 tension: 0.1
             });
