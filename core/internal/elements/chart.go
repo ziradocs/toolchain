@@ -89,6 +89,24 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	chart := ast.NewChartElement(pos, chartType)
 	chart.Width = width
 	chart.Height = height
+
+	// diags se arma ACÁ, no en cada return, y de eso depende que CHART005
+	// llegue siempre. Parse tiene TRES salidas —JSON directo, YAML de combo, y
+	// el loop de propiedades— y el aviso de atributos desconocidos vivía
+	// duplicado en dos de ellas: la de combo devolvía un ParseResult sin
+	// Diagnostics, así que un `<<chart: combo title="...">>` volvía a perder
+	// el título en silencio, que es exactamente el defecto que CHART005
+	// existe para señalar (hallazgo de code review del PR #232). Declararlo
+	// una sola vez apenas parseada la apertura hace que agregar una cuarta
+	// salida no pueda repetir el olvido: el dato ya está en la variable que
+	// todas devuelven.
+	var diags []diagnostics.Diagnostic
+	if len(unknownAttrs) > 0 {
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("Atributo(s) no reconocido(s) en la apertura del chart (%s); solo se aceptan 'width' y 'height' — ignorado(s). El título va como llave del cuerpo: 'title:'",
+				strings.Join(unknownAttrs, ", ")),
+			pos, "chart-parser").WithRuleID("CHART005"))
+	}
 	consumedLines := 1 // skip <<chart:>> line
 	indentDetector := NewAutoDetectIndentation()
 
@@ -101,7 +119,6 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			if jsonContent != "" {
 				consumedLines += jsonLines
 
-				var diags []diagnostics.Diagnostic
 				if json.Valid([]byte(jsonContent)) {
 					chart.RawJSON = json.RawMessage(jsonContent)
 					chart.IsJSONMode = true
@@ -113,17 +130,9 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					// suelto ni reprocesarlo como propiedades data:/series:/etc. Este
 					// diagnóstico Warning no aborta el build (a diferencia de Error) y
 					// es la única señal específica de "el JSON estaba roto".
-					diags = []diagnostics.Diagnostic{
-						diagnostics.NewWarning(
-							"El JSON del chart es inválido y fue ignorado; el chart quedará sin datos",
-							pos, "chart-parser").WithRuleID("CHART002"),
-					}
-				}
-				if len(unknownAttrs) > 0 {
 					diags = append(diags, diagnostics.NewWarning(
-						fmt.Sprintf("Atributo(s) no reconocido(s) en la apertura del chart (%s); solo se aceptan 'width' y 'height' — ignorado(s)",
-							strings.Join(unknownAttrs, ", ")),
-						pos, "chart-parser").WithRuleID("CHART005"))
+						"El JSON del chart es inválido y fue ignorado; el chart quedará sin datos",
+						pos, "chart-parser").WithRuleID("CHART002"))
 				}
 				return &ParseResult{
 					Element:       chart,
@@ -144,6 +153,7 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				return &ParseResult{
 					Element:       chart,
 					ConsumedLines: consumedLines,
+					Diagnostics:   diags,
 					Error:         nil,
 				}
 			}
@@ -359,13 +369,6 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// Solo llaves de nivel superior a propósito: dentro de `options:` va
 	// config arbitraria de Chart.js (plugins, scales, datalabels...), así que
 	// validar ahí dispararía sobre cada llave legítima.
-	var diags []diagnostics.Diagnostic
-	if len(unknownAttrs) > 0 {
-		diags = append(diags, diagnostics.NewWarning(
-			fmt.Sprintf("Atributo(s) no reconocido(s) en la apertura del chart (%s); solo se aceptan 'width' y 'height' — ignorado(s). El título va como llave del cuerpo: 'title:'",
-				strings.Join(unknownAttrs, ", ")),
-			pos, "chart-parser").WithRuleID("CHART005"))
-	}
 	if len(unknownKeys) > 0 {
 		diags = append(diags, diagnostics.NewWarning(
 			fmt.Sprintf("Llave(s) no reconocida(s) en el bloque chart (%s); se esperaba 'data'/'series'/'labels'/'options'/'title'/'type' — ignorada(s). La config arbitraria de Chart.js va dentro de 'options:'",

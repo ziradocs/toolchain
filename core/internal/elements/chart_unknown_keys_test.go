@@ -139,6 +139,96 @@ func TestChartParser_DocumentedShapeIsSilentAndComplete(t *testing.T) {
 	}
 }
 
+// TestChartParser_ReportsUnknownAttributeOnEveryReturnPath es la regresión del
+// hallazgo de code review del PR #232: ChartParser.Parse tiene TRES salidas
+// —JSON directo, YAML de combo, y el loop de propiedades— y el aviso de
+// atributos desconocidos estaba escrito a mano en dos de ellas. La de combo
+// devolvía un ParseResult sin Diagnostics, así que
+// `<<chart: combo title="...">>` volvía a perder el título en silencio: justo
+// el defecto que CHART005 existe para señalar.
+//
+// El arreglo estructural es armar el diagnóstico una sola vez apenas parseada
+// la apertura, en una variable que las tres salidas devuelven. Este test es lo
+// que fija esa propiedad: si mañana aparece una cuarta salida que se olvide
+// de `diags`, hay que agregarle su caso acá y va a fallar hasta que lo haga.
+func TestChartParser_ReportsUnknownAttributeOnEveryReturnPath(t *testing.T) {
+	cases := []struct {
+		name string
+		// path nombra la salida de Parse que ejercita el caso, para que al
+		// fallar quede claro cuál se rompió.
+		path string
+		src  string
+	}{
+		{
+			name: "loop de propiedades",
+			path: "salida final, tras el loop de propiedades",
+			src: `<<chart:bar title="Performance Metrics">>
+  data: [85, 90]
+<<end>>`,
+		},
+		{
+			name: "JSON directo",
+			path: "return temprano de la rama IsJSONMode",
+			src: `<<chart:bar title="Performance Metrics">>
+{"type": "bar", "data": {"labels": ["Q1"], "datasets": [{"data": [85]}]}}
+<</chart>>`,
+		},
+		{
+			name: "YAML de combo",
+			path: "return temprano de la rama parseComboChartYAML",
+			src: `<<chart: combo title="Performance Metrics">>
+  data:
+    labels: ["Ene", "Feb"]
+    series:
+      - name: "Desktop"
+        type: "bar"
+        values: [65, 59]
+      - name: "Total"
+        type: "line"
+        values: [45, 52]
+<<end>>`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := parseChartBlock(t, tc.src)
+			if !hasDiagnostic(diags, "CHART005", "title") {
+				t.Errorf("no se reportó `title=` por la %s.\n"+
+					"El diagnóstico se arma una sola vez apenas parseada la apertura; esta salida está devolviendo un "+
+					"ParseResult sin propagar `diags`.\ndiagnósticos: %v", tc.path, diags)
+			}
+		})
+	}
+}
+
+// TestChartParser_ComboYAMLPathIsActuallyExercised evita que el caso combo de
+// arriba pase por la razón equivocada. `<<chart: combo>>` con la forma PLANA
+// (type/data/series) no entra a parseComboChartYAML: cae al loop de
+// propiedades, que ya reportaba bien. Si el fixture de combo dejara de tomar
+// la rama YAML —por un cambio en ChartConfig, en parseYAMLBlock o en el shape
+// del test— aquel caso seguiría verde sin cubrir nada.
+//
+// La huella de haber pasado por parseComboChartYAML es Labels: el loop plano
+// solo puebla Labels desde una llave `labels:` de nivel superior, que este
+// fixture no tiene.
+func TestChartParser_ComboYAMLPathIsActuallyExercised(t *testing.T) {
+	chart, _ := parseChartBlock(t, `<<chart: combo>>
+  data:
+    labels: ["Ene", "Feb"]
+    series:
+      - name: "Desktop"
+        type: "bar"
+        values: [65, 59]
+<<end>>`)
+
+	if len(chart.Labels) != 2 || chart.Labels[0] != "Ene" {
+		t.Fatalf("el fixture de combo no está tomando la rama parseComboChartYAML (Labels = %v).\n"+
+			"Sin esa rama, el caso \"YAML de combo\" de TestChartParser_ReportsUnknownAttributeOnEveryReturnPath "+
+			"no cubre el return temprano que motivó el test.", chart.Labels)
+	}
+}
+
 func hasDiagnostic(diags []string, ruleID, needle string) bool {
 	for _, d := range diags {
 		if strings.HasPrefix(d, ruleID+":") && strings.Contains(d, needle) {
