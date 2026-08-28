@@ -37,7 +37,7 @@ func FormatDocument(doc *ast.AST) (string, error) {
 	var fm string
 	if doc.FrontMatter != nil {
 		var err error
-		fm, err = formatFrontMatter(doc.FrontMatter, frontMatterOverrides(doc.FrontMatter, ""))
+		fm, err = formatFrontMatter(doc.FrontMatter, frontMatterOverrides(doc.FrontMatter, ""), frontMatterFallbacks(doc.FrontMatter))
 		if err != nil {
 			return "", err
 		}
@@ -93,6 +93,15 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool) (string
 		}
 		b.WriteString("\n")
 		if isSubsectionHeadingElement(el) {
+			// TODO: este separador defensivo ya no hace falta. HeadersRule
+			// dejó de correr sobre documentos — implementa
+			// base.DialectScopedRule y los dos parsers declaran su dialecto
+			// (ver base.Dialect) — así que el "---" antes de cada subsection
+			// heading es puro ruido en la salida de `fmt`. Sacarlo cambia el
+			// texto emitido de TODO documento doclang, así que va en su propio
+			// PR donde ese sea el único diff, y no mezclado con el cableado
+			// del dialecto.
+			//
 			// rules/content/headers.go (el normalizer AI que
 			// NewDocumentFlexParserWithNormalization corre por defecto) trata
 			// "##" como el título de un slide nuevo SOLO justo después de un

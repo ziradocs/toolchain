@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -110,6 +111,12 @@ func (f *Factory) ForFullContent() *Processor {
 // - Para usar en parser cuando ya se extrajo el frontmatter
 // - aiContent determina el nivel de procesamiento
 func (f *Factory) ForBodyContent(aiContent bool) *Processor {
+	return f.createProcessor(f.bodyContentConfig(aiContent))
+}
+
+// bodyContentConfig es la config compartida por ForBodyContent y
+// ForBodyContentInDialect.
+func (f *Factory) bodyContentConfig(aiContent bool) ProcessorConfig {
 	normConfig := normalizer.Config{
 		EnableDetection:  true,                    // Detectar patrones AI
 		EnableTransforms: true,                    // Aplicar transformaciones
@@ -130,7 +137,16 @@ func (f *Factory) ForBodyContent(aiContent bool) *Processor {
 		config.InferenceThreshold = 0.6
 	}
 
-	return f.createProcessor(config)
+	return config
+}
+
+// ForBodyContentInDialect es ForBodyContent declarando el dialecto que se
+// está normalizando. Es la variante que deben usar los parsers: ellos saben
+// con certeza si están parseando slides o un documento, y sin ese dato el
+// normalizador aplica reglas cuya premisa es el modelo de slides sobre
+// documentos (ver base.Dialect).
+func (f *Factory) ForBodyContentInDialect(aiContent bool, dialect base.Dialect) *Processor {
+	return f.createProcessor(f.bodyContentConfig(aiContent).WithDialect(dialect))
 }
 
 // ForMode crea un procesador basado en el modo de parsing detectado

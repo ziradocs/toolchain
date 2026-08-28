@@ -5,6 +5,8 @@ package elements
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -46,8 +48,19 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	width := 800  // default
 	height := 600 // default
 
+	// unknownAttrs junta los atributos de la línea de apertura que el chart no
+	// conoce, para reportarlos como CHART005 más abajo. Solo se leen `width` y
+	// `height`: cualquier otro par `k="v"` se ignoraba sin dejar rastro, y así
+	// shipeó la plantilla `report` de `doclang init` con un
+	// `<<chart:bar title="...">>` cuyo título no llegaba nunca al AST ni al
+	// render. `title` va como llave del cuerpo (`title:`), no como atributo.
+	var unknownAttrs []string
+
+	// SplitN y no Split: con Split, un valor que contenga ':' (p. ej.
+	// `title="Ventas: Q4"`) partía la línea en más de dos pedazos y attrStr
+	// quedaba truncado en el primer ':'.
 	if strings.Contains(line, ":") {
-		parts := strings.Split(line, ":")
+		parts := strings.SplitN(line, ":", 2)
 		if len(parts) > 1 {
 			attrStr := strings.TrimSpace(parts[1])
 			attrStr = strings.TrimSuffix(attrStr, ">>")
@@ -69,6 +82,8 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					height = val
 				}
 			}
+
+			unknownAttrs = unknownOpenerAttributes(attrStr, "width", "height")
 		}
 	}
 	chart := ast.NewChartElement(pos, chartType)
@@ -104,6 +119,12 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 							pos, "chart-parser").WithRuleID("CHART002"),
 					}
 				}
+				if len(unknownAttrs) > 0 {
+					diags = append(diags, diagnostics.NewWarning(
+						fmt.Sprintf("Atributo(s) no reconocido(s) en la apertura del chart (%s); solo se aceptan 'width' y 'height' — ignorado(s)",
+							strings.Join(unknownAttrs, ", ")),
+						pos, "chart-parser").WithRuleID("CHART005"))
+				}
 				return &ParseResult{
 					Element:       chart,
 					ConsumedLines: consumedLines,
@@ -129,6 +150,46 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	}
 
+	// baseIndent es la sangría de la PRIMERA línea de contenido del bloque, y
+	// define qué es una llave de nivel superior del chart. Sin este dato el
+	// loop de abajo era plano: escaneaba línea por línea y hacía switch sobre
+	// la llave sin importar a qué profundidad estuviera, así que un bloque
+	// anidado que el chart no conoce quedaba medio absorbido y medio tirado.
+	// El caso real (plantilla `report` de `doclang init`):
+	//
+	//	<<chart:bar>>
+	//	  labels: [...]
+	//	  datasets:                    <- llave inexistente en el DSL
+	//	    data: [85, 90, 88, 95]     <- se capturaba como si fuera top-level
+	//	    backgroundColor: "#3498db" <- se descartaba en silencio
+	//	<<end>>
+	//
+	// Acotar el switch a baseIndent arregla las dos mitades: el `data:`
+	// anidado deja de robarle el lugar al de verdad, y `datasets:` queda como
+	// lo que es, una llave desconocida — que ahora se reporta (CHART005) en
+	// vez de evaporarse.
+	//
+	// Lo que hay MÁS profundo que baseIndent no se toca ni se reporta: es
+	// contenido de la llave que lo abrió. Para `options:` eso es deliberado y
+	// correcto (es config arbitraria de Chart.js, la captura entera
+	// parseNestedOptions); para las filas de un `data: [` multilínea, el
+	// índice ya viene adelantado por parseMultiLineArray y no llegan acá.
+	baseIndent := -1
+	var unknownKeys []string
+
+	// TODO (bug aparte, preexistente, encontrado al barrer el corpus con
+	// CHART005): este loop no se detiene donde termina el bloque. Un chart sin
+	// `<<end>>` explícito —la convención de cierre por dedent que el corpus
+	// usa en todos lados— sigue escaneando y CONSUMIENDO las líneas de después
+	// hasta que isChartContentBoundary diga basta, y esas líneas se pierden
+	// del documento. En examples/use-cases/educational/ml_fundamentals.slidelang
+	// (chart de la línea 252) desaparecen del HTML renderizado tanto el
+	// párrafo "**Different algorithms excel at different problems**" como el
+	// bloque @notes: entero. Son 20 fixtures del corpus con la misma forma. El
+	// chart sí renderiza, así que la pérdida es silenciosa. Arreglarlo es
+	// tocar isChartContentBoundary y la terminación por dedent, con su propia
+	// validación contra los dos corpus — no va mezclado acá.
+
 	// Parsear propiedades del chart
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
@@ -150,6 +211,15 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 		// Skip empty lines
 		if trimmedLine == "" {
+			consumedLines++
+			continue
+		}
+
+		if baseIndent < 0 {
+			baseIndent = lineIndent(line)
+		}
+		if lineIndent(line) > baseIndent {
+			// Contenido de una llave anidada, no una llave del chart.
 			consumedLines++
 			continue
 		}
@@ -245,6 +315,25 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 							chart.SeriesTypes = types
 						}
 					}
+				default:
+					// Llave de nivel superior que el chart no conoce. Antes
+					// caía acá sin case y desaparecía sin dejar rastro; ver
+					// CHART005 abajo y el comentario de baseIndent arriba.
+					//
+					// El filtro por forma de identificador NO es cosmético.
+					// Este loop no siempre se detiene donde termina el bloque
+					// (bug aparte, ver el TODO más abajo), así que a veces
+					// escanea prosa del slide siguiente — y la prosa tiene dos
+					// puntos: "**Overall readiness**: 68%", "@notes:",
+					// "- **Metrics**: ...". Sin el filtro, CHART005 disparaba
+					// sobre 20 fixtures del corpus con "llaves" como
+					// "- **Traces" o cadena vacía. Un aviso que grita en
+					// contenido legítimo es peor que no avisar: se aprende a
+					// ignorarlo y deja de servir para el caso real
+					// (`datasets:`), que sí tiene forma de identificador.
+					if chartKeyRe.MatchString(key) {
+						unknownKeys = append(unknownKeys, key)
+					}
 				}
 			}
 		}
@@ -259,9 +348,35 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		chart.Data = [][]interface{}{}
 	}
 
+	// CHART005: una llave de nivel superior que el chart no conoce se ignora,
+	// pero se avisa. Warning y no Error, y sigue el mismo criterio que
+	// FRONT005/FRONT006/FRONT007 para `toc:`/`page:`/`watermark:`: un typo o
+	// una llave inventada no puede tumbar el build, pero tampoco puede
+	// evaporarse sin señal. Esa evaporación es justo cómo la plantilla
+	// `report` de `doclang init` shipeó con un `datasets:`/`backgroundColor:`
+	// que ni el AST ni el render veían nunca.
+	//
+	// Solo llaves de nivel superior a propósito: dentro de `options:` va
+	// config arbitraria de Chart.js (plugins, scales, datalabels...), así que
+	// validar ahí dispararía sobre cada llave legítima.
+	var diags []diagnostics.Diagnostic
+	if len(unknownAttrs) > 0 {
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("Atributo(s) no reconocido(s) en la apertura del chart (%s); solo se aceptan 'width' y 'height' — ignorado(s). El título va como llave del cuerpo: 'title:'",
+				strings.Join(unknownAttrs, ", ")),
+			pos, "chart-parser").WithRuleID("CHART005"))
+	}
+	if len(unknownKeys) > 0 {
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("Llave(s) no reconocida(s) en el bloque chart (%s); se esperaba 'data'/'series'/'labels'/'options'/'title'/'type' — ignorada(s). La config arbitraria de Chart.js va dentro de 'options:'",
+				strings.Join(unknownKeys, ", ")),
+			pos, "chart-parser").WithRuleID("CHART005"))
+	}
+
 	return &ParseResult{
 		Element:       chart,
 		ConsumedLines: consumedLines,
+		Diagnostics:   diags,
 		Error:         nil,
 	}
 }
@@ -809,6 +924,47 @@ func (p *ChartParser) parseInlineMatrix(value string) [][]interface{} {
 }
 
 // extractAttribute extrae el valor de un atributo HTML-style del string
+// unknownOpenerAttributes devuelve los nombres de atributo `k="v"` presentes
+// en attrStr que no estén en known. attrStr es lo que va después del ':' de la
+// apertura, ya sin el '>>' (p. ej. `bar title="Ventas" width="1200"`); el
+// primer token es el tipo del chart, no un atributo, y no se considera.
+func unknownOpenerAttributes(attrStr string, known ...string) []string {
+	isKnown := make(map[string]bool, len(known))
+	for _, k := range known {
+		isKnown[k] = true
+	}
+
+	var unknown []string
+	for _, m := range openerAttrRe.FindAllStringSubmatch(attrStr, -1) {
+		if name := m[1]; !isKnown[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	return unknown
+}
+
+// chartKeyRe describe la forma de una llave del bloque chart: un
+// identificador en minúsculas, como las seis que el parser reconoce
+// (data/series/labels/options/title/type). Se usa solo para decidir si vale la
+// pena reportar una llave desconocida — ver el comentario del `default:` en
+// Parse.
+var chartKeyRe = regexp.MustCompile(`^[a-z][a-zA-Z0-9_]*$`)
+
+// openerAttrRe matchea un par `nombre="valor"` o `nombre='valor'` de la línea
+// de apertura. Deliberadamente exige comillas: es la forma que emite el
+// formatter y la única que extractAttribute sabe leer, así que un
+// `width=1200` sin comillas ya se ignoraba antes de este cambio y no se
+// empieza a reportar acá (sería un cambio de comportamiento distinto, no el
+// hueco que se está tapando).
+var openerAttrRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*["'][^"']*["']`)
+
+// lineIndent devuelve cuántos espacios/tabs de sangría trae line. Un tab
+// cuenta como uno, igual que el resto del parser: lo que importa acá es
+// comparar líneas del mismo bloque entre sí, no medir columnas.
+func lineIndent(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " \t"))
+}
+
 // Ejemplo: `bar width="1200" height="600"` → extractAttribute(..., "width") = "1200"
 func extractAttribute(str, attrName string) string {
 	// Buscar patrón: attrName="value" o attrName='value'

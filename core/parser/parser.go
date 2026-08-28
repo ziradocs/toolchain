@@ -10,6 +10,7 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/normalize"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -112,7 +113,7 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 			}
 		}
 
-		processed, report := normalize.ProcessWithDetection(content, detectionResult, p.logger)
+		processed, report := normalize.ProcessWithDetection(content, detectionResult, base.DialectDocuments, p.logger)
 		if report.WasModified {
 			rulesApplied := len(report.GetTransformationsApplied())
 			changeBytes := len(processed) - len(content)
@@ -195,7 +196,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		}
 
 		// Usar la nueva API del factory para el pre-procesamiento
-		processed, report := normalize.ProcessWithDetection(content, detectionResult, p.logger)
+		processed, report := normalize.ProcessWithDetection(content, detectionResult, base.DialectSlides, p.logger)
 		preProcessReport = &report
 		if report.WasModified {
 			processedContent = processed
@@ -334,7 +335,7 @@ func (p *Parser) createAutoParser(bodyContent string, preProcessReport *normaliz
 
 			if detectionResult.Detected {
 				// Si es AI, aplicar procesamiento completo usando la nueva API
-				processed, report := normalize.ProcessContent(bodyContent, normalize.ContentModeFull, p.logger)
+				processed, report := normalize.ProcessContent(bodyContent, normalize.ContentModeFull, base.DialectSlides, p.logger)
 
 				if report.WasModified {
 					bodyContent = processed
@@ -362,6 +363,7 @@ func (p *Parser) applyBasicNormalization(content string) string {
 		EnableTransforms: true,                    // Sí queremos aplicar transformaciones
 		SkipRules:        []string{"frontmatter"}, // Saltar reglas de frontmatter ya que estamos procesando solo body content
 		BodyOnly:         true,                    // Indicar que estamos procesando solo el cuerpo
+		Dialect:          base.DialectSlides,      // este parser es el de slidelang
 	}
 
 	norm := normalizer.NewNormalizer(config, p.logger)
@@ -387,6 +389,7 @@ func (p *Parser) applyFullNormalization(content string) string {
 		EnableDetection:  false,                   // No necesitamos detección AI, sabemos que es AI
 		EnableTransforms: true,                    // Sí queremos aplicar todas las transformaciones
 		SkipRules:        []string{"frontmatter"}, // Saltar reglas de frontmatter ya que estamos procesando solo body content
+		Dialect:          base.DialectSlides,      // este parser es el de slidelang
 	}
 	norm := normalizer.NewNormalizer(config, p.logger)
 	normalized, report := norm.Normalize(content)

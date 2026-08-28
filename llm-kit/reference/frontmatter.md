@@ -92,6 +92,8 @@ be in this list too — see below, all three are now recognized.)
   no effect (no code reads it). Prefer the plain `numbering: true` /
   `numbering: false` form in new documents; the map form exists only for
   backward compatibility with documents/templates written before it.
+  `doclang fmt` canonicalizes it to the plain-bool form, dropping `style`
+  along the way — the AST only models the bool, and `style` has no consumer.
 
 ### `toc` (DocLang only)
 

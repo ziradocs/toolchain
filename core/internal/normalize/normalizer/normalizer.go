@@ -29,6 +29,11 @@ type Config struct {
 	EnableTransforms bool     // Habilitar transformaciones
 	SkipRules        []string // Reglas a saltar
 	BodyOnly         bool     // True si estamos procesando solo el cuerpo (sin frontmatter)
+	// Dialect es cuál de los dos DSLs se está normalizando. Su cero
+	// (base.DialectAny) aplica todas las reglas, o sea el comportamiento
+	// previo a que este campo existiera; los dos parsers lo declaran. Ver
+	// base.Dialect para por qué el dialecto se pasa en vez de adivinarse.
+	Dialect base.Dialect
 }
 
 // Normalizer es el pipeline principal de normalización
@@ -54,6 +59,9 @@ func NewNormalizer(config Config, log util.Logger) *Normalizer {
 	if len(config.SkipRules) > 0 {
 		normalizer.filterRules(config.SkipRules)
 	}
+
+	// Descartar las reglas cuya premisa no vale para este dialecto
+	normalizer.rules = base.FilterByDialect(normalizer.rules, config.Dialect)
 
 	// Ordenar reglas por prioridad
 	sort.Slice(normalizer.rules, func(i, j int) bool {
