@@ -129,7 +129,14 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	}
 
-	// Parsear propiedades del chart
+	// Parsear propiedades del chart.
+	//
+	// El loop lleva etiqueta porque los cortes de abajo viven dentro de un
+	// switch: un "break" pelado ahí rompe el SWITCH, no el for, y la
+	// ejecución cae en el consumedLines++ del final — que es justo el bug
+	// que esto arregla. Mismo motivo por el que map.go etiqueta su
+	// parseLoop.
+chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
 		trimmedLine := strings.TrimSpace(line)
@@ -154,99 +161,156 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			continue
 		}
 
-		// Parsear propiedades como "data:", "series:", etc.
-		if strings.Contains(trimmedLine, ":") {
-			parts := strings.SplitN(trimmedLine, ":", 2)
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
+		// Restos de un array multi-línea que su sub-parser dejó sin
+		// consumir. parseMultiLineArray corta por sangría
+		// (ShouldProcessLine) y eso lo deja corto en dos formas que el
+		// corpus sí escribe:
+		//
+		//   1. El corchete de cierre dedentado respecto a sus filas — el
+		//      corte dispara ANTES del chequeo de "]" del sub-parser:
+		//
+		//        data: [
+		//          [1820, 890],
+		//        ]              <- indent 2 < filas indent 4 => corte
+		//        labels: [...]
+		//
+		//   2. El array entero en columna 0: ShouldProcessLine con
+		//      ExpectedIndent == -1 y sangría 0 devuelve false en la PRIMERA
+		//      fila, así que el sub-parser consume 0 líneas y todas las
+		//      filas caen acá.
+		//
+		// En ambos casos son contenido del bloque, no el principio de lo que
+		// sigue: se consumen y se continúa. Sin esto, el allowlist de abajo
+		// las toma por prosa y corta el chart en la primera fila o en el
+		// corchete, perdiendo labels:/series:/options: — datos del propio
+		// chart, que es peor que el bug original.
+		if isArrayContinuation(trimmedLine) {
+			consumedLines++
+			continue
+		}
 
-				switch key {
-				case "data":
-					// Detectar si hay datos definidos
-					if value == "[" {
-						// Datos en formato array multi-línea - parsear las líneas siguientes
-						data, linesConsumed := p.parseMultiLineArray(ctx.Lines, i+1, indentDetector)
-						chart.Data = data
-						i += linesConsumed
-						consumedLines += linesConsumed
-					} else if strings.Contains(value, "[") {
-						// Datos inline - verificar si es array de arrays o array simple
-						if strings.HasPrefix(value, "[[") {
-							// Array de arrays inline: [[100, 500, 350, 220]]
-							chart.Data = p.parseInlineMatrix(value)
-						} else {
-							// Array simple inline: [100, 500, 350, 220]
-							if row := p.parseArrayRow(value); len(row) > 0 {
-								chart.Data = [][]interface{}{row}
-							}
-						}
-					}
-				case "series":
-					// Parsear series como array de strings
-					if value == "[" { // Series en formato array multi-línea
-						series, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
-						chart.Series = series
-						i += linesConsumed
-						consumedLines += linesConsumed
-					} else if strings.Contains(value, "[") {
-						// Series inline - parsear directamente del value
-						if series := p.parseQuotedStrings(value); len(series) > 0 {
-							chart.Series = series
-						}
-					}
-				case "labels":
-					// Parsear labels como array de strings
-					if value == "[" { // Labels en formato array multi-línea
-						labels, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
-						chart.Labels = labels
-						i += linesConsumed
-						consumedLines += linesConsumed
-					} else if strings.Contains(value, "[") {
-						// Labels inline - parsear directamente del value
-						if labels := p.parseQuotedStrings(value); len(labels) > 0 {
-							chart.Labels = labels
-						}
-					}
-				case "options":
-					// El bloque options: es YAML anidado arbitrario (la config
-					// de Chart.js: plugins, scales, datalabels...), no una
-					// propiedad de una línea como las de al lado, así que se
-					// captura entero por sangría y se deserializa aparte.
-					//
-					// Hasta este parche NO existía este case: el switch solo
-					// conocía data/series/labels/title/type, y todo bloque
-					// options: del DSL se descartaba en silencio antes de
-					// llegar al AST. Eso no era un hueco solo de PPTX —
-					// también borraba el título de los charts cuyo texto vive
-					// en options.plugins.title.text (que es como lo escriben
-					// los ejemplos de examples/02_diagrams_and_charts/), así
-					// que el HTML llevaba tiempo perdiendo títulos que el
-					// autor sí había pedido.
-					opts, linesConsumed := p.parseNestedOptions(ctx.Lines, i+1)
-					if opts != nil {
-						chart.Options = opts
-					}
-					i += linesConsumed
-					consumedLines += linesConsumed
-				case "title":
-					chart.Title = strings.Trim(value, "\"")
-				case "type":
-					// Parsear type array para combo charts: ["bar", "bar", "line"]
-					if value == "[" {
-						// Tipos en formato array multi-línea
-						types, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
-						chart.SeriesTypes = types
-						i += linesConsumed
-						consumedLines += linesConsumed
-					} else if strings.Contains(value, "[") {
-						// Tipos inline - parsear directamente del value
-						if types := p.parseQuotedStrings(value); len(types) > 0 {
-							chart.SeriesTypes = types
-						}
+		// Todo contenido del chart es una propiedad "clave: valor" del
+		// allowlist de abajo. Cualquier otra cosa —prosa, "@notes:", una
+		// clave desconocida— es la PRIMERA línea de después del bloque, así
+		// que cierra el chart cerrado por dedent y se corta SIN consumirla,
+		// para que el parser de nivel superior la procese como lo que es.
+		//
+		// Antes no había ninguno de estos tres cortes: la línea no
+		// reconocida caía hasta el consumedLines++ del final del loop, y
+		// como ConsumedLines es lo que le dice al llamador cuántas líneas
+		// saltar, todo lo que el chart escaneara de más DESAPARECÍA del
+		// documento sin diagnóstico (el chart en sí renderizaba bien, así
+		// que la pérdida era muda). Con un <<chart>> sin <<end>> —la
+		// convención documentada en spec/language-specification.md:75,
+		// element_terminator ::= "<<end>>" | block_boundary | EOF— eso se
+		// tragaba el párrafo y el bloque @notes: siguientes.
+		//
+		// El allowlist es el mecanismo que la spec (sec. "element_data",
+		// misma línea) ya nombra para esta garantía, y el que map.go usa
+		// desde siempre en su parseLoop. La alternativa de mermaid.go
+		// (ShouldProcessLine, corte por sangría) NO sirve acá: hay charts
+		// con las propiedades en columna 0 (examples/use-cases/educational/
+		// machine_learning_intro.slidelang), y ahí ShouldProcessLine corta
+		// en la primera línea del bloque y borra el chart entero.
+		if !strings.Contains(trimmedLine, ":") {
+			break chartLoop
+		}
+		parts := strings.SplitN(trimmedLine, ":", 2)
+		if len(parts) != 2 {
+			break chartLoop
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "data":
+			// Detectar si hay datos definidos
+			if value == "[" {
+				// Datos en formato array multi-línea - parsear las líneas siguientes
+				data, linesConsumed := p.parseMultiLineArray(ctx.Lines, i+1, indentDetector)
+				chart.Data = data
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				// Datos inline - verificar si es array de arrays o array simple
+				if strings.HasPrefix(value, "[[") {
+					// Array de arrays inline: [[100, 500, 350, 220]]
+					chart.Data = p.parseInlineMatrix(value)
+				} else {
+					// Array simple inline: [100, 500, 350, 220]
+					if row := p.parseArrayRow(value); len(row) > 0 {
+						chart.Data = [][]interface{}{row}
 					}
 				}
 			}
+		case "series":
+			// Parsear series como array de strings
+			if value == "[" { // Series en formato array multi-línea
+				series, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				chart.Series = series
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				// Series inline - parsear directamente del value
+				if series := p.parseQuotedStrings(value); len(series) > 0 {
+					chart.Series = series
+				}
+			}
+		case "labels":
+			// Parsear labels como array de strings
+			if value == "[" { // Labels en formato array multi-línea
+				labels, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				chart.Labels = labels
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				// Labels inline - parsear directamente del value
+				if labels := p.parseQuotedStrings(value); len(labels) > 0 {
+					chart.Labels = labels
+				}
+			}
+		case "options":
+			// El bloque options: es YAML anidado arbitrario (la config
+			// de Chart.js: plugins, scales, datalabels...), no una
+			// propiedad de una línea como las de al lado, así que se
+			// captura entero por sangría y se deserializa aparte.
+			//
+			// Hasta este parche NO existía este case: el switch solo
+			// conocía data/series/labels/title/type, y todo bloque
+			// options: del DSL se descartaba en silencio antes de
+			// llegar al AST. Eso no era un hueco solo de PPTX —
+			// también borraba el título de los charts cuyo texto vive
+			// en options.plugins.title.text (que es como lo escriben
+			// los ejemplos de examples/02_diagrams_and_charts/), así
+			// que el HTML llevaba tiempo perdiendo títulos que el
+			// autor sí había pedido.
+			opts, linesConsumed := p.parseNestedOptions(ctx.Lines, i+1)
+			if opts != nil {
+				chart.Options = opts
+			}
+			i += linesConsumed
+			consumedLines += linesConsumed
+		case "title":
+			chart.Title = strings.Trim(value, "\"")
+		case "type":
+			// Parsear type array para combo charts: ["bar", "bar", "line"]
+			if value == "[" {
+				// Tipos en formato array multi-línea
+				types, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				chart.SeriesTypes = types
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				// Tipos inline - parsear directamente del value
+				if types := p.parseQuotedStrings(value); len(types) > 0 {
+					chart.SeriesTypes = types
+				}
+			}
+		default:
+			// Clave desconocida: no es una propiedad del chart, así que la
+			// línea ya pertenece a lo que sigue al bloque. Cortar sin
+			// consumirla. Espeja el "default: break parseLoop" de map.go.
+			break chartLoop
 		}
 
 		consumedLines++
@@ -432,6 +496,31 @@ func (p *ChartParser) parseNumber(str string) interface{} {
 	}
 
 	return nil
+}
+
+// isArrayContinuation reporta si la línea es el resto de un array multi-línea
+// que su sub-parser dejó sin consumir: una fila literal ("[\"Q1\", 1],") o
+// puros delimitadores de cierre y comas ("]", "],", "}]"). Ninguna de las dos
+// es el inicio de contenido nuevo, así que el loop de propiedades las trata
+// como continuación del bloque en vez de como límite.
+//
+// Deliberadamente NO reconoce un escalar suelto en su propia línea (p. ej.
+// "45,"): eso es indistinguible de prosa, y tragárselo reabriría la pérdida
+// silenciosa que este allowlist existe para cerrar. El corpus escribe las
+// filas entre corchetes, así que no hace falta.
+func isArrayContinuation(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		return true
+	}
+	for _, r := range trimmed {
+		if r != ']' && r != '}' && r != ',' {
+			return false
+		}
+	}
+	return true
 }
 
 // isChartContentBoundary reporta si rawLine marca el fin del contenido de un
