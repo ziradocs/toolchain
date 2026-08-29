@@ -46,8 +46,21 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	// Extraer tipo y atributos: "<<chart: bar width="1200" height="600">>"
 	chartType := "bar"
-	width := 800  // default
-	height := 600 // default
+	// 0 = el autor no declaró la dimensión. NO se hornea acá el 800x600 del
+	// renderer: el AST es el contrato público (schema/ast.schema.json,
+	// ast-types), y meterle el default de UN consumidor borra la única
+	// información que distingue "el autor pidió 800" de "el autor no dijo
+	// nada" — que es justo lo que `doclang fmt` necesitaba para no escribir
+	// `width="800" height="600"` en documentos que nunca los declararon.
+	// Mismo criterio que `zoom` en map.go, que ya usaba el 0, y que
+	// PageConfig.Size/PageMargins en ast/nodes.go, que guardan el texto crudo
+	// del autor en vez de resolverlo.
+	//
+	// Quien renderiza aplica su propio default: renderer.ChartDimensions y el
+	// bloque de mapas de renderer/html.go arrancan en 800x600 y solo pisan si
+	// el campo es > 0.
+	width := 0
+	height := 0
 
 	// unknownAttrs junta los atributos de la línea de apertura que el chart no
 	// conoce, para reportarlos como CHART005 más abajo. Solo se leen `width` y

@@ -39,9 +39,12 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	// Extraer atributos si están presentes: <<map type="city" width="1200" height="800" zoom="10">>
 	mapType := "world" // default
-	width := 800       // default
-	height := 600      // default
-	zoom := 0          // 0 means not specified, will use defaults based on type
+	// 0 = sin declarar, igual que zoom acá abajo (que ya lo hacía) y que
+	// ChartParser. Ver el comentario largo en internal/elements/chart.go para
+	// por qué el default del renderer no va en el AST.
+	width := 0
+	height := 0
+	zoom := 0 // 0 means not specified, will use defaults based on type
 
 	// Extraer type si está presente
 	if mapTypeAttr := extractAttribute(line, "type"); mapTypeAttr != "" {

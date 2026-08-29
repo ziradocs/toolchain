@@ -566,7 +566,13 @@ func formatPlantUML(e *ast.PlantUMLElement) string {
 // todo fixture que devolviera UnsupportedElementError; ese skip ahora está
 // acotado a un allowlist (ver document_roundtrip_test.go).
 func formatChart(e *ast.ChartElement) (string, error) {
-	header := fmt.Sprintf("<<chart: %s width=%q height=%q>>", e.ChartType, fmtInt(e.Width), fmtInt(e.Height))
+	// width/height solo se emiten si el autor los declaró (Width/Height != 0).
+	// Antes salían SIEMPRE, porque ChartParser horneaba su 800x600 en el AST:
+	// `fmt` escribía `width="800" height="600"` en la apertura de charts que
+	// nunca los habían pedido. Mismo criterio que formatMap acá abajo, que ya
+	// omitía el default (aunque comparándolo contra una constante espejo, que
+	// con el parser arreglado dejó de hacer falta).
+	header := fmt.Sprintf("<<chart: %s%s>>", e.ChartType, formatDimensionAttrs(e.Width, e.Height))
 
 	if e.IsJSONMode {
 		raw, err := canonicalJSON(e.RawJSON)
@@ -669,28 +675,35 @@ func canonicalJSON(raw json.RawMessage) (string, error) {
 // Options con 3 claves conocidas (title/showValues/clustering, ver
 // internal/elements/map.go) — no es un mapa arbitrario como el de Chart —
 // así que es completamente representable.
-// mapDefaultWidth/mapDefaultHeight espejan los defaults hardcoded en
-// internal/elements/map.go (MapParser.Parse) — width/height solo se
-// emiten como atributos inline en la línea de apertura "<<map ...>>"
-// (único lugar donde el parser los lee, ver extractAttribute) cuando
-// difieren del default, para no ensuciar la salida común y para que un
-// mapa con dimensiones custom no pierda silenciosamente ese dato en el
-// round-trip (MapElement.Width/Height solo se puede fijar por ahí; no
-// existe una clave "width:"/"height:" en el cuerpo del bloque).
-const (
-	mapDefaultWidth  = 800
-	mapDefaultHeight = 600
-)
+// formatDimensionAttrs emite los atributos width/height de la línea de
+// apertura de un chart o un mapa, y solo los que el autor declaró: 0 es "no
+// dijo nada" (ver el comentario de ChartParser.Parse en
+// internal/elements/chart.go). Es el único lugar donde el parser los lee —
+// no existe una clave "width:"/"height:" en el cuerpo del bloque— así que
+// omitirlos acá cuando valen 0 es exactamente lo que hace falta para no
+// perder unas dimensiones custom ni inventar unas que nadie pidió.
+//
+// Acá vivían mapDefaultWidth/mapDefaultHeight, dos constantes que espejaban
+// los defaults del parser para poder omitirlos. Sobraban en cuanto el parser
+// dejó de hornearlos: ahora la señal está en el propio AST y no hay que
+// adivinarla comparando contra un valor mágico —que además tenía un falso
+// positivo real: un autor que declaraba `width="800"` a mano perdía el
+// atributo en el round-trip, porque coincidía con el default.
+func formatDimensionAttrs(width, height int) string {
+	var b strings.Builder
+	if width != 0 {
+		fmt.Fprintf(&b, " width=%q", fmtInt(width))
+	}
+	if height != 0 {
+		fmt.Fprintf(&b, " height=%q", fmtInt(height))
+	}
+	return b.String()
+}
 
 func formatMap(e *ast.MapElement) (string, error) {
 	var b strings.Builder
 	b.WriteString("<<map")
-	if e.Width != 0 && e.Width != mapDefaultWidth {
-		fmt.Fprintf(&b, " width=%q", fmtInt(e.Width))
-	}
-	if e.Height != 0 && e.Height != mapDefaultHeight {
-		fmt.Fprintf(&b, " height=%q", fmtInt(e.Height))
-	}
+	b.WriteString(formatDimensionAttrs(e.Width, e.Height))
 	b.WriteString(">>\n")
 	if e.MapType != "" {
 		fmt.Fprintf(&b, "type: %s\n", e.MapType)
