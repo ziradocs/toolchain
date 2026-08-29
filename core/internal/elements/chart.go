@@ -188,50 +188,54 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	}
 
-	// baseIndent es la sangría de la PRIMERA línea de contenido del bloque, y
-	// define qué es una llave de nivel superior del chart. Sin este dato el
-	// loop de abajo era plano: escaneaba línea por línea y hacía switch sobre
-	// la llave sin importar a qué profundidad estuviera, así que un bloque
-	// anidado que el chart no conoce quedaba medio absorbido y medio tirado.
-	// El caso real (plantilla `report` de `doclang init`):
+	// Parsear propiedades del chart.
 	//
-	//	<<chart:bar>>
-	//	  labels: [...]
-	//	  datasets:                    <- llave inexistente en el DSL
-	//	    data: [85, 90, 88, 95]     <- se capturaba como si fuera top-level
-	//	    backgroundColor: "#3498db" <- se descartaba en silencio
-	//	<<end>>
+	// El loop lleva etiqueta porque los cortes de abajo viven dentro de un
+	// switch: un "break" pelado ahí rompe el SWITCH, no el for, y la
+	// ejecución cae en el consumedLines++ del final — que es justo el bug
+	// que esto arregla. Mismo motivo por el que map.go etiqueta su
+	// parseLoop.
+	// arrayDepth lleva la cuenta de corchetes sin cerrar que quedaron
+	// abiertos por un array multi-línea; ver el bloque que lo consulta.
+	// openArrayKey recuerda QUÉ propiedad lo abrió (data/series/labels/type)
+	// para poder validar la forma de las líneas de continuación según el
+	// tipo: data usa filas entre corchetes ("["Q1", 1],"), pero
+	// series/labels/type aceptan strings sueltos sin envolver
+	// (parseMultiLineStringArray no los envuelve en "[...]" — ver esa
+	// función más abajo), así que exigirles el prefijo "[" cortaba el
+	// bloque de más en cuanto el array vivía en columna 0 (el mismo caso que
+	// motivó arrayDepth para data).
+	arrayDepth := 0
+	openArrayKey := ""
+	// bodyIndent fija el nivel de sangría del cuerpo del chart a partir de
+	// su PRIMERA línea de contenido. Cumple DOS roles:
 	//
-	// Acotar el switch a baseIndent arregla las dos mitades: el `data:`
-	// anidado deja de robarle el lugar al de verdad, y `datasets:` queda como
-	// lo que es, una llave desconocida — que ahora se reporta (CHART005) en
-	// vez de evaporarse.
+	//   - Un dedent por DEBAJO de ese nivel cierra el bloque
+	//     INCONDICIONALMENTE — antes de consultar isArrayContinuationForKey
+	//     o el allowlist. Es la convención de cierre que este archivo entero
+	//     existe para respetar (spec/language-specification.md:75).
+	//   - Una línea MÁS profunda que ese nivel (y fuera de un array
+	//     abierto — ver el chequeo de arrayDepth más abajo) es contenido de
+	//     la llave que la abrió, no una propiedad nueva del chart: se
+	//     consume y se ignora sin pasar por el switch. Sin este segundo rol,
+	//     el `data:` anidado bajo un `datasets:` inventado se leía como si
+	//     fuera EL `data:` de nivel superior — el defecto original que
+	//     motivó esta variable en el PR #232, antes de que este archivo
+	//     tuviera bodyIndent/arrayDepth/el allowlist de abajo.
 	//
-	// Lo que hay MÁS profundo que baseIndent no se toca ni se reporta: es
-	// contenido de la llave que lo abrió. Para `options:` eso es deliberado y
-	// correcto (es config arbitraria de Chart.js, la captura entera
-	// parseNestedOptions); para las filas de un `data: [` multilínea, el
-	// índice ya viene adelantado por parseMultiLineArray y no llegan acá.
-	baseIndent := -1
+	// Ambos roles se saltan a propósito cuando bodyIndent == 0 (chart con
+	// propiedades en columna 0 desde la primera línea, como
+	// examples/use-cases/educational/machine_learning_intro.slidelang): ahí
+	// la sangría no sirve para distinguir nada porque TODO el cuerpo vive en
+	// columna 0 — es el tratamiento heredado que ya existía antes de este
+	// mecanismo, y sigue intacto.
+	bodyIndent := -1
 	var unknownKeys []string
-
-	// TODO (bug aparte, preexistente, encontrado al barrer el corpus con
-	// CHART005): este loop no se detiene donde termina el bloque. Un chart sin
-	// `<<end>>` explícito —la convención de cierre por dedent que el corpus
-	// usa en todos lados— sigue escaneando y CONSUMIENDO las líneas de después
-	// hasta que isChartContentBoundary diga basta, y esas líneas se pierden
-	// del documento. En examples/use-cases/educational/ml_fundamentals.slidelang
-	// (chart de la línea 252) desaparecen del HTML renderizado tanto el
-	// párrafo "**Different algorithms excel at different problems**" como el
-	// bloque @notes: entero. Son 20 fixtures del corpus con la misma forma. El
-	// chart sí renderiza, así que la pérdida es silenciosa. Arreglarlo es
-	// tocar isChartContentBoundary y la terminación por dedent, con su propia
-	// validación contra los dos corpus — no va mezclado acá.
-
-	// Parsear propiedades del chart
+chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
 		trimmedLine := strings.TrimSpace(line)
+		lineStart := i
 
 		// Check for closing tag FIRST
 		if trimmedLine == "<<end>>" {
@@ -253,126 +257,254 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			continue
 		}
 
-		if baseIndent < 0 {
-			baseIndent = lineIndent(line)
+		// bodyIndent se fija UNA sola vez, con la sangría de la primera
+		// línea de contenido del chart. De ahí en más, cualquier línea que
+		// dedente por debajo de ese nivel cierra el bloque de inmediato —
+		// SIN mirar si tiene forma de propiedad reconocida
+		// (isChartPropertyKey) ni de continuación de array
+		// (isArrayContinuationForKey). El dedent es más fuerte que
+		// cualquiera de los dos: un chart con cuerpo sangrado que vuelve a
+		// columna 0 ya salió del bloque sin importar que esa línea diga
+		// "title: ..." (parece propiedad) o sea un string completo entre
+		// comillas (parece continuación de un array de labels/series sin
+		// cerrar) — de otro modo cualquiera de las dos listas podía
+		// "reconocer" contenido que el dedent ya había dejado afuera, y
+		// tragárselo.
+		currentIndent := CalculateIndentLevel(line)
+		if bodyIndent == -1 {
+			bodyIndent = currentIndent
+		} else if bodyIndent > 0 && currentIndent < bodyIndent {
+			break chartLoop
 		}
-		if lineIndent(line) > baseIndent {
-			// Contenido de una llave anidada, no una llave del chart.
+
+		// Dentro de un array multi-línea que su sub-parser dejó abierto,
+		// toda línea es contenido del array, no el principio de lo que
+		// sigue. parseMultiLineArray corta por sangría (ShouldProcessLine) y
+		// eso lo deja corto en dos formas que el corpus sí escribe: el
+		// corchete de cierre dedentado respecto a sus filas (el corte
+		// dispara ANTES de su chequeo de "]"), y el array entero en columna
+		// 0 (ExpectedIndent == -1 con sangría 0 devuelve false en la PRIMERA
+		// fila, así que consume 0 líneas y caen todas acá).
+		//
+		// Se decide por PROFUNDIDAD DE CORCHETES, no por la forma de la
+		// línea. Una heurística de "empieza con [" tragaba un enlace
+		// Markdown legítimo después de un chart cerrado por dedent
+		// ("[Ver fuente](https://example.com)"), que es exactamente la
+		// pérdida silenciosa que este allowlist existe para cerrar. Con
+		// arrayDepth la excepción solo aplica cuando hay un array realmente
+		// abierto.
+		//
+		// Los límites duros (<<end>>, "---", "<<", headings) se chequean
+		// ARRIBA de esto a propósito: un array sin cerrar no puede tragarse
+		// el resto del documento. Este chequeo va ANTES del de "más profundo
+		// que bodyIndent" de abajo: una continuación de array casi siempre
+		// vive más indentada que la propiedad que la abrió, así que sin este
+		// orden caería en el chequeo de nesting genérico sin decrementar
+		// arrayDepth.
+		if arrayDepth > 0 {
+			// Un array sin cerrar (falta el "]") no puede tragarse el resto
+			// del documento solo porque arrayDepth siga en positivo: eso
+			// reabre la misma pérdida silenciosa que este archivo cubre,
+			// nada más que con un array roto en vez de un dedent. Antes de
+			// aceptar la línea como continuación hay que verificar que TIENE
+			// FORMA de continuación de array PARA LA PROPIEDAD que lo abrió
+			// (isArrayContinuationForKey): un enlace Markdown
+			// ("[Ver fuente](https://example.com)") también empieza con
+			// "[", así que aceptar cualquier "[" a secas volvía a tragarlo
+			// si el array anterior había quedado sin cerrar. Si la línea no
+			// encaja, ya es prosa — se corta sin consumirla, igual que el
+			// resto de los límites de este loop.
+			if !isArrayContinuationForKey(openArrayKey, trimmedLine) {
+				break chartLoop
+			}
+			arrayDepth += bracketDelta(trimmedLine)
 			consumedLines++
 			continue
 		}
 
-		// Parsear propiedades como "data:", "series:", etc.
-		if strings.Contains(trimmedLine, ":") {
-			parts := strings.SplitN(trimmedLine, ":", 2)
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
+		// Más profundo que bodyIndent y sin un array abierto: contenido de
+		// la llave que lo abrió (una desconocida, o `options:` — data/
+		// series/labels/type multi-línea ya avanzaron `i` en su propio case
+		// y no llegan acá), no una propiedad nueva del chart. Ver el
+		// segundo rol de bodyIndent en su declaración, arriba, para el caso
+		// real que esto evita: el `data:`/`backgroundColor:` anidados bajo
+		// un `datasets:` inventado robándole el lugar al `data:` real de
+		// nivel superior.
+		if bodyIndent > 0 && currentIndent > bodyIndent {
+			consumedLines++
+			continue
+		}
 
-				switch key {
-				case "data":
-					// Detectar si hay datos definidos
-					if value == "[" {
-						// Datos en formato array multi-línea - parsear las líneas siguientes
-						data, linesConsumed := p.parseMultiLineArray(ctx.Lines, i+1, indentDetector)
-						chart.Data = data
-						i += linesConsumed
-						consumedLines += linesConsumed
-					} else if strings.Contains(value, "[") {
-						// Datos inline - verificar si es array de arrays o array simple
-						if strings.HasPrefix(value, "[[") {
-							// Array de arrays inline: [[100, 500, 350, 220]]
-							chart.Data = p.parseInlineMatrix(value)
-						} else {
-							// Array simple inline: [100, 500, 350, 220]
-							if row := p.parseArrayRow(value); len(row) > 0 {
-								chart.Data = [][]interface{}{row}
-							}
-						}
-					}
-				case "series":
-					// Parsear series como array de strings
-					if value == "[" { // Series en formato array multi-línea
-						series, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
-						chart.Series = series
-						i += linesConsumed
-						consumedLines += linesConsumed
-					} else if strings.Contains(value, "[") {
-						// Series inline - parsear directamente del value
-						if series := p.parseQuotedStrings(value); len(series) > 0 {
-							chart.Series = series
-						}
-					}
-				case "labels":
-					// Parsear labels como array de strings
-					if value == "[" { // Labels en formato array multi-línea
-						labels, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
-						chart.Labels = labels
-						i += linesConsumed
-						consumedLines += linesConsumed
-					} else if strings.Contains(value, "[") {
-						// Labels inline - parsear directamente del value
-						if labels := p.parseQuotedStrings(value); len(labels) > 0 {
-							chart.Labels = labels
-						}
-					}
-				case "options":
-					// El bloque options: es YAML anidado arbitrario (la config
-					// de Chart.js: plugins, scales, datalabels...), no una
-					// propiedad de una línea como las de al lado, así que se
-					// captura entero por sangría y se deserializa aparte.
-					//
-					// Hasta este parche NO existía este case: el switch solo
-					// conocía data/series/labels/title/type, y todo bloque
-					// options: del DSL se descartaba en silencio antes de
-					// llegar al AST. Eso no era un hueco solo de PPTX —
-					// también borraba el título de los charts cuyo texto vive
-					// en options.plugins.title.text (que es como lo escriben
-					// los ejemplos de examples/02_diagrams_and_charts/), así
-					// que el HTML llevaba tiempo perdiendo títulos que el
-					// autor sí había pedido.
-					opts, linesConsumed := p.parseNestedOptions(ctx.Lines, i+1)
-					if opts != nil {
-						chart.Options = opts
-					}
-					i += linesConsumed
-					consumedLines += linesConsumed
-				case "title":
-					chart.Title = strings.Trim(value, "\"")
-				case "type":
-					// Parsear type array para combo charts: ["bar", "bar", "line"]
-					if value == "[" {
-						// Tipos en formato array multi-línea
-						types, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
-						chart.SeriesTypes = types
-						i += linesConsumed
-						consumedLines += linesConsumed
-					} else if strings.Contains(value, "[") {
-						// Tipos inline - parsear directamente del value
-						if types := p.parseQuotedStrings(value); len(types) > 0 {
-							chart.SeriesTypes = types
-						}
-					}
-				default:
-					// Llave de nivel superior que el chart no conoce. Antes
-					// caía acá sin case y desaparecía sin dejar rastro; ver
-					// CHART005 abajo y el comentario de baseIndent arriba.
-					//
-					// El filtro por forma de identificador NO es cosmético.
-					// Este loop no siempre se detiene donde termina el bloque
-					// (bug aparte, ver el TODO más abajo), así que a veces
-					// escanea prosa del slide siguiente — y la prosa tiene dos
-					// puntos: "**Overall readiness**: 68%", "@notes:",
-					// "- **Metrics**: ...". Sin el filtro, CHART005 disparaba
-					// sobre 20 fixtures del corpus con "llaves" como
-					// "- **Traces" o cadena vacía. Un aviso que grita en
-					// contenido legítimo es peor que no avisar: se aprende a
-					// ignorarlo y deja de servir para el caso real
-					// (`datasets:`), que sí tiene forma de identificador.
-					if chartKeyRe.MatchString(key) {
-						unknownKeys = append(unknownKeys, key)
+		// Todo contenido del chart es una propiedad "clave: valor" del
+		// allowlist de abajo. Cualquier otra cosa —prosa, "@notes:", una
+		// clave que no pertenece al vocabulario de charts— es la PRIMERA
+		// línea de después del bloque, así que cierra el chart cerrado por
+		// dedent y se corta SIN consumirla, para que el parser de nivel
+		// superior la procese como lo que es.
+		//
+		// Antes no había ninguno de estos cortes: la línea no reconocida
+		// caía hasta el consumedLines++ del final del loop, y como
+		// ConsumedLines es lo que le dice al llamador cuántas líneas
+		// saltar, todo lo que el chart escaneara de más DESAPARECÍA del
+		// documento sin diagnóstico (el chart en sí renderizaba bien, así
+		// que la pérdida era muda). Con un <<chart>> sin <<end>> —la
+		// convención documentada en spec/language-specification.md:75,
+		// element_terminator ::= "<<end>>" | block_boundary | EOF— eso se
+		// tragaba el párrafo y el bloque @notes: siguientes.
+		//
+		// El allowlist es el mecanismo que la spec (sec. "element_data",
+		// misma línea) ya nombra para esta garantía, y el que map.go usa
+		// desde siempre en su parseLoop. La alternativa de mermaid.go
+		// (ShouldProcessLine, corte por sangría) NO sirve acá: hay charts
+		// con las propiedades en columna 0 (examples/use-cases/educational/
+		// machine_learning_intro.slidelang), y ahí ShouldProcessLine corta
+		// en la primera línea del bloque y borra el chart entero.
+		if !strings.Contains(trimmedLine, ":") {
+			break chartLoop
+		}
+		parts := strings.SplitN(trimmedLine, ":", 2)
+		if len(parts) != 2 {
+			break chartLoop
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "data":
+			// Detectar si hay datos definidos
+			if value == "[" {
+				// Datos en formato array multi-línea - parsear las líneas siguientes
+				data, linesConsumed := p.parseMultiLineArray(ctx.Lines, i+1, indentDetector)
+				chart.Data = data
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				// Datos inline - verificar si es array de arrays o array simple
+				if strings.HasPrefix(value, "[[") {
+					// Array de arrays inline: [[100, 500, 350, 220]]
+					chart.Data = p.parseInlineMatrix(value)
+				} else {
+					// Array simple inline: [100, 500, 350, 220]
+					if row := p.parseArrayRow(value); len(row) > 0 {
+						chart.Data = [][]interface{}{row}
 					}
 				}
+			}
+		case "series":
+			// Parsear series como array de strings
+			if value == "[" { // Series en formato array multi-línea
+				series, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				chart.Series = series
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				// Series inline - parsear directamente del value
+				if series := p.parseQuotedStrings(value); len(series) > 0 {
+					chart.Series = series
+				}
+			}
+		case "labels":
+			// Parsear labels como array de strings
+			if value == "[" { // Labels en formato array multi-línea
+				labels, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				chart.Labels = labels
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				// Labels inline - parsear directamente del value
+				if labels := p.parseQuotedStrings(value); len(labels) > 0 {
+					chart.Labels = labels
+				}
+			}
+		case "options":
+			// El bloque options: es YAML anidado arbitrario (la config
+			// de Chart.js: plugins, scales, datalabels...), no una
+			// propiedad de una línea como las de al lado, así que se
+			// captura entero por sangría y se deserializa aparte.
+			//
+			// Hasta este parche NO existía este case: el switch solo
+			// conocía data/series/labels/title/type, y todo bloque
+			// options: del DSL se descartaba en silencio antes de
+			// llegar al AST. Eso no era un hueco solo de PPTX —
+			// también borraba el título de los charts cuyo texto vive
+			// en options.plugins.title.text (que es como lo escriben
+			// los ejemplos de examples/02_diagrams_and_charts/), así
+			// que el HTML llevaba tiempo perdiendo títulos que el
+			// autor sí había pedido.
+			opts, linesConsumed := p.parseNestedOptions(ctx.Lines, i+1)
+			if opts != nil {
+				chart.Options = opts
+			}
+			i += linesConsumed
+			consumedLines += linesConsumed
+		case "title":
+			chart.Title = strings.Trim(value, "\"")
+		case "type":
+			// Parsear type array para combo charts: ["bar", "bar", "line"]
+			if value == "[" {
+				// Tipos en formato array multi-línea
+				types, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				chart.SeriesTypes = types
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				// Tipos inline - parsear directamente del value
+				if types := p.parseQuotedStrings(value); len(types) > 0 {
+					chart.SeriesTypes = types
+				}
+			}
+		default:
+			// isChartPropertyKey distingue dos formas de "no manejada por
+			// el switch": vocabulario de Chart.js que el normalizador
+			// reconoce y emite como sintaxis de chart (datasets:,
+			// backgroundColor:, fill:...) pero que el switch no consume, y
+			// una clave que no pertenece a ese vocabulario en absoluto.
+			//
+			// La primera SIGUE siendo contenido del bloque: cortar en ella
+			// dejaba el chart sin datos, disparaba CHART001 y mandaba el
+			// resto del bloque a texto (regresión que el PR de dedent
+			// encontró). Pero silenciarla del todo reabre el defecto
+			// original de CHART005 (PR #232): la plantilla `report` de
+			// `doclang init` shipeó con un `datasets:`/`backgroundColor:`
+			// que ni el AST ni el render veían nunca, sin ningún aviso. Se
+			// consume igual (no rompe el chart) pero se junta para el
+			// CHART005 de más abajo.
+			//
+			// La segunda no es una propiedad del chart, así que la línea ya
+			// pertenece a lo que sigue al bloque. Cortar sin consumirla.
+			// Espeja el "default: break parseLoop" de map.go.
+			if isChartPropertyKey(key) {
+				unknownKeys = append(unknownKeys, key)
+			} else {
+				break chartLoop
+			}
+		}
+
+		// Contar los corchetes de la línea de la propiedad MÁS los de lo que
+		// el sub-parser haya avanzado: si queda algo abierto, las líneas que
+		// siguen son del array y no límite del bloque.
+		//
+		// SOLO para las llaves del vocabulario de charts que aceptan forma
+		// de array (isArrayValuedKey): son las únicas cuyo valor puede dejar
+		// un corchete sin cerrar (los dos casos del corpus: cierre
+		// dedentado, array en columna 0). options: captura su bloque por
+		// sangría con un mecanismo aparte (parseNestedOptions) y descarta el
+		// contenido si no parsea como YAML — sumar sus corchetes acá contaba
+		// texto que el chart ni siquiera conserva. Sin este filtro, un
+		// options: malformado con un "[" suelto (p. ej. "plugins: [unclosed")
+		// dejaba arrayDepth en positivo y la línea "data: [1, 2]" que le
+		// sigue se leía como continuación de un array ajeno en vez de como
+		// la propiedad data: que es — el chart perdía sus datos.
+		if isArrayValuedKey(key) {
+			openArrayKey = key
+			for k := lineStart; k <= i && k < len(ctx.Lines); k++ {
+				arrayDepth += bracketDelta(strings.TrimSpace(ctx.Lines[k]))
+			}
+			if arrayDepth < 0 {
+				arrayDepth = 0
+			}
+			if arrayDepth == 0 {
+				openArrayKey = ""
 			}
 		}
 
@@ -386,20 +518,23 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		chart.Data = [][]interface{}{}
 	}
 
-	// CHART005: una llave de nivel superior que el chart no conoce se ignora,
-	// pero se avisa. Warning y no Error, y sigue el mismo criterio que
-	// FRONT005/FRONT006/FRONT007 para `toc:`/`page:`/`watermark:`: un typo o
-	// una llave inventada no puede tumbar el build, pero tampoco puede
-	// evaporarse sin señal. Esa evaporación es justo cómo la plantilla
-	// `report` de `doclang init` shipeó con un `datasets:`/`backgroundColor:`
-	// que ni el AST ni el render veían nunca.
+	// CHART005: una propiedad reconocida por el vocabulario de charts pero
+	// no manejada por el switch se ignora, pero se avisa. Warning y no
+	// Error, y sigue el mismo criterio que FRONT005/FRONT006/FRONT007 para
+	// `toc:`/`page:`/`watermark:`: un typo o una llave que el parser todavía
+	// no soporta no puede tumbar el build, pero tampoco puede evaporarse sin
+	// señal. Esa evaporación es justo cómo la plantilla `report` de
+	// `doclang init` shipeó con un `datasets:`/`backgroundColor:` que ni el
+	// AST ni el render veían nunca.
 	//
-	// Solo llaves de nivel superior a propósito: dentro de `options:` va
-	// config arbitraria de Chart.js (plugins, scales, datalabels...), así que
-	// validar ahí dispararía sobre cada llave legítima.
+	// Una clave que NO pertenece al vocabulario de charts en absoluto nunca
+	// llega acá: isChartPropertyKey ya cortó el bloque más arriba antes de
+	// juntarla, así que esta lista solo contiene vocabulario real de
+	// Chart.js que el parser todavía no traduce al AST — no prosa ni typos
+	// de otra naturaleza.
 	if len(unknownKeys) > 0 {
 		diags = append(diags, diagnostics.NewWarning(
-			fmt.Sprintf("Llave(s) no reconocida(s) en el bloque chart (%s); se esperaba 'data'/'series'/'labels'/'options'/'title'/'type' — ignorada(s). La config arbitraria de Chart.js va dentro de 'options:'",
+			fmt.Sprintf("Llave(s) de Chart.js reconocida(s) pero no soportada(s) por el parser (%s); su valor se ignora. La config arbitraria de Chart.js va dentro de 'options:'",
 				strings.Join(unknownKeys, ", ")),
 			pos, "chart-parser").WithRuleID("CHART005"))
 	}
@@ -578,6 +713,300 @@ func (p *ChartParser) parseNumber(str string) interface{} {
 	}
 
 	return nil
+}
+
+// bracketDelta cuenta los corchetes de apertura menos los de cierre de una
+// línea, ignorando los que van dentro de una cadena entre comillas (una
+// etiqueta como "Ventas [MXN]" no debe alterar la cuenta). El loop de
+// propiedades lo usa para saber si un array multi-línea quedó abierto.
+func bracketDelta(trimmed string) int {
+	depth := 0
+	inString := false
+	escaped := false
+	for _, r := range trimmed {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch {
+		case r == '\\':
+			escaped = true
+		case r == '"':
+			inString = !inString
+		case inString:
+			// dentro de una cadena los corchetes son texto
+		case r == '[':
+			depth++
+		case r == ']':
+			depth--
+		}
+	}
+	return depth
+}
+
+// isArrayContinuationForKey reporta si trimmed tiene forma de contenido de
+// continuación para el array multi-línea que abrió openKey. Usado solo
+// dentro de la rama arrayDepth > 0 para no tragar prosa (ni un enlace
+// Markdown, en cualquiera de sus dos formas — inline "[texto](url)" o por
+// referencia "[texto][ref]") cuando el array nunca cierra.
+//
+// Antes esto se decidía por PREFIJO ("empieza con \"[\"" o "contiene una
+// comilla"), y las dos formas se dejaban engañar por contenido que solo
+// PARECE continuación:
+//   - Un enlace también empieza con "[", así que calificaba como fila de
+//     data en cuanto el array anterior quedaba sin cerrar.
+//   - Cualquier frase con una comilla en cualquier parte calificaba como
+//     elemento de series/labels/type, aunque no fuera un string completo.
+//   - Y al revés: una fila de data legítima cuyo VALOR de texto contiene un
+//     enlace embebido ("[\"[Ver fuente](url)\", 5],") se rechazaba, porque
+//     el substring "](" aparecía sin que el chequeo supiera que estaba
+//     dentro de una cadena entre comillas.
+//
+// Ahora se valida por GRAMÁTICA, no por prefijo, con el mismo escaneo
+// consciente de comillas que bracketDelta:
+//   - "data": una fila entre corchetes (isDataArrayRow, la forma matriz de
+//     parseArrayRow) O un escalar suelto (isScalarContinuation) — data
+//     también soporta la forma plana de un solo valor por línea
+//     ("data: [\n1,\n2\n]"), que parseMultiLineArray tolera igual (ignora
+//     silenciosamente las filas sin corchetes) pero que antes ninguna de
+//     las dos formas de continuación reconocía.
+//   - cualquier otra clave array-valuada (series/labels/type/
+//     backgroundColor/borderColor/borderWidth/pointRadius/...): un escalar
+//     suelto (isScalarContinuation) — string entre comillas para las
+//     propiedades de texto, número para las numéricas
+//     (borderWidth/pointRadius/...). No hay una tabla de tipos por
+//     propiedad: aceptar cualquiera de las dos formas es más simple que
+//     mantenerla, y el costo (aceptar un número donde solo cabría un string,
+//     o viceversa) es el mismo tipo de ambigüedad ya asumida para el
+//     escalar entre comillas — contenido malformado o un array roto, no el
+//     corpus real.
+//
+// En cualquier caso, puros delimitadores de cierre/coma ("]", "],", "}]")
+// cierran el array sin importar el tipo.
+func isArrayContinuationForKey(openKey, trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	if isPureArrayCloser(trimmed) {
+		return true
+	}
+	if openKey == "data" && isDataArrayRow(trimmed) {
+		return true
+	}
+	return isScalarContinuation(trimmed)
+}
+
+// isPureArrayCloser reporta si trimmed consiste únicamente en delimitadores
+// de cierre y comas ("]", "],", "}]"...) — el resto de un array multi-línea
+// que su sub-parser dejó sin consumir, sin importar el tipo de array.
+func isPureArrayCloser(trimmed string) bool {
+	for _, r := range trimmed {
+		if r != ']' && r != '}' && r != ',' {
+			return false
+		}
+	}
+	return true
+}
+
+// isDataArrayRow reporta si trimmed es una fila de data completa en su
+// propia línea: un grupo delimitado y balanceado (consciente de comillas,
+// como bracketDelta) que arranca en la posición 0 y no deja nada después de
+// cerrar salvo una coma opcional.
+//
+// Dos formas, según el delimitador con el que arranca la línea:
+//   - "[...]": la fila matriz que produce parseArrayRow ("[\"Q1\", 1]," o
+//     "[10, 20]").
+//   - "{...}": un objeto de punto ("{x: 10, y: 20},"), la forma que
+//     Chart.js espera para datasets de scatter/bubble
+//     (https://www.chartjs.org/docs/latest/general/data-structures.html) —
+//     el corpus solo la escribe hoy dentro del modo JSON crudo (que tiene su
+//     propio parser, parseJSONBlock, ajeno a este), pero la forma DSL
+//     "data: [...]" con objetos por línea es sintaxis igual de válida y no
+//     tenía ninguna forma de sobrevivir como continuación.
+//
+// Un enlace Markdown también empieza con "[" pero después de su "]" de
+// cierre le sigue "(url)" o "[ref]", no fin de línea ni coma — eso es lo que
+// lo descarta en la forma "[...]"; ningún enlace empieza con "{", así que la
+// forma "{...}" no necesita ese mismo chequeo.
+func isDataArrayRow(trimmed string) bool {
+	switch {
+	case strings.HasPrefix(trimmed, "["):
+		return isBalancedGroupRow(trimmed, '[', ']')
+	case strings.HasPrefix(trimmed, "{"):
+		return isBalancedGroupRow(trimmed, '{', '}')
+	default:
+		return false
+	}
+}
+
+// isBalancedGroupRow reporta si trimmed es un único grupo delimitado por
+// open/close, balanceado y consciente de comillas (igual que bracketDelta),
+// que no deja nada después de cerrar salvo una coma opcional. Compartido por
+// isDataArrayRow para sus dos formas ("[...]" y "{...}") — el delimitador
+// contrario al elegido no se rastrea, así que un "{" dentro de una fila
+// "[...]" (o viceversa) se trata como texto normal, igual que cualquier otro
+// carácter que no sea el par que se está balanceando.
+func isBalancedGroupRow(trimmed string, open, close rune) bool {
+	depth := 0
+	inString := false
+	escaped := false
+	closeIdx := -1
+	for idx, r := range trimmed {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch {
+		case r == '\\':
+			escaped = true
+		case r == '"':
+			inString = !inString
+		case inString:
+			// dentro de una cadena los delimitadores son texto, igual que
+			// en bracketDelta — así una fila cuyo VALOR contiene un enlace
+			// embebido ("[\"[Ver fuente](url)\", 5]") no se confunde con
+			// el propio enlace.
+		case r == open:
+			depth++
+		case r == close:
+			depth--
+			if depth == 0 {
+				closeIdx = idx
+			}
+		}
+		if closeIdx != -1 {
+			break
+		}
+	}
+	if closeIdx == -1 {
+		// El delimitador inicial nunca cerró en esta línea: no es una fila
+		// autocontenida, así que no calificar como continuación es lo
+		// conservador (evita tragar contenido que no se puede validar).
+		return false
+	}
+	rest := strings.TrimSpace(trimmed[closeIdx+1:])
+	return rest == "" || rest == ","
+}
+
+// isQuotedScalar reporta si trimmed es un único string entre comillas
+// completo en su propia línea, con nada después salvo una coma opcional —
+// la forma que parseMultiLineStringArray espera para elementos de
+// series/labels/type y para cualquier otra propiedad array-valuada de solo
+// strings (backgroundColor, borderColor...). Una frase suelta con una
+// comilla en cualquier parte ("Nota: usa \"comillas\" aquí.") no arranca
+// con comilla, así que no califica; y una frase que sí arranca con comilla
+// pero sigue después de cerrarla ("\"cita\" y algo más") tampoco, porque el
+// cierre no queda al final.
+func isQuotedScalar(trimmed string) bool {
+	s := strings.TrimSuffix(trimmed, ",")
+	if len(s) < 2 || s[0] != '"' {
+		return false
+	}
+	escaped := false
+	for idx := 1; idx < len(s); idx++ {
+		c := s[idx]
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch c {
+		case '\\':
+			escaped = true
+		case '"':
+			return idx == len(s)-1
+		}
+	}
+	return false
+}
+
+// isScalarContinuation reporta si trimmed es un único escalar completo en su
+// propia línea, con nada después salvo una coma opcional: un string entre
+// comillas (isQuotedScalar), un número (isNumericScalar), o el literal
+// "null" — Chart.js documenta null como el valor explícito para un punto
+// omitido dentro de un dataset (https://www.chartjs.org/docs/latest/general/
+// data-structures.html), así que es una forma tan legítima de fila plana
+// como un número. Cubre la forma plana de cualquier array multi-línea de un
+// solo valor por línea, sea de texto (series/labels/type/backgroundColor/
+// borderColor) o numérico (borderWidth/pointRadius/pointHoverRadius, y la
+// forma plana de data).
+func isScalarContinuation(trimmed string) bool {
+	return isQuotedScalar(trimmed) || isNumericScalar(trimmed) || isNullScalar(trimmed)
+}
+
+// isNullScalar reporta si trimmed es el literal "null" completo en su propia
+// línea, con nada después salvo una coma opcional. No extiende
+// isNumericScalar (ParseFloat legítimamente no debe aceptar "null" como
+// número) sino que se prueba aparte, como una tercera forma de escalar.
+func isNullScalar(trimmed string) bool {
+	s := strings.TrimSuffix(strings.TrimSpace(trimmed), ",")
+	return strings.TrimSpace(s) == "null"
+}
+
+// isNumericScalar reporta si trimmed es un único número completo en su
+// propia línea, con nada después salvo una coma opcional ("1,", "2.5",
+// "-3"). strconv.ParseFloat ya rechaza cualquier cosa con texto extra
+// (no hace falta un chequeo de "nada después": ParseFloat falla en cuanto
+// sobra algo que no sea parte del número).
+func isNumericScalar(trimmed string) bool {
+	s := strings.TrimSuffix(strings.TrimSpace(trimmed), ",")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
+}
+
+// isArrayValuedKey reporta si key es una propiedad reconocida del vocabulario
+// de charts (chartPropertyKeys) DISTINTA de "options": cualquiera de ellas
+// puede llevar un valor de array multi-línea que un sub-parser deje sin
+// cerrar en las dos formas que el corpus escribe (cierre dedentado, array en
+// columna 0), así que todas necesitan el tracking de arrayDepth.
+//
+// "options" es la única exclusión deliberada: captura su bloque por sangría
+// con un mecanismo aparte (parseNestedOptions) que descarta el contenido
+// entero si no parsea como YAML — sumar sus corchetes al tracking contaba
+// texto que el chart ni siquiera conserva (un "[" suelto dentro de un
+// options: malformado dejaba arrayDepth en positivo para la propiedad que
+// seguía).
+//
+// Antes esto listaba a mano solo {data, series, labels, type} — el switch de
+// arriba solo ACTÚA sobre esas cuatro, pero otras del vocabulario
+// (backgroundColor, borderColor...) también pueden escribirse en forma de
+// array multi-línea aunque el switch las deje en el default sin procesar; no
+// estar en la lista a mano las dejaba sin tracking y un
+// "backgroundColor: [" cortaba el chart en la primera línea de colores.
+func isArrayValuedKey(key string) bool {
+	return key != "options" && isChartPropertyKey(key)
+}
+
+// chartPropertyKeys es el vocabulario de propiedades que el DSL reconoce como
+// sintaxis de chart. El switch de Parse solo ACTÚA sobre unas pocas
+// (data/series/labels/options/title/type); el resto se reconocen para poder
+// consumirlas sin cortar el bloque.
+//
+// La lista espeja isChartDataLine en
+// internal/normalize/normalizer/rules/enhancement/chart_formatter.go y
+// chartProperties en internal/normalize/normalizer/detector.go — el
+// normalizador emite estas claves y las trata como chart, así que el parser
+// no puede tratarlas como el fin del bloque. Mantenerlas en sync.
+var chartPropertyKeys = map[string]bool{
+	// las que el switch sí maneja
+	"data": true, "series": true, "labels": true,
+	"options": true, "title": true, "type": true,
+	// reconocidas por el normalizador, aún no consumidas por el switch
+	"datasets": true, "backgroundColor": true, "borderColor": true,
+	"borderWidth": true, "label": true, "fill": true, "tension": true,
+	"pointRadius": true, "pointHoverRadius": true, "xAxisID": true,
+	"yAxisID": true, "plugins": true, "legend": true, "responsive": true,
+	"text": true, "display": true, "position": true,
+}
+
+// isChartPropertyKey reporta si key pertenece al vocabulario de propiedades
+// de chart, es decir si la línea sigue siendo contenido del bloque aunque el
+// switch no la use.
+func isChartPropertyKey(key string) bool {
+	return chartPropertyKeys[key]
 }
 
 // isChartContentBoundary reporta si rawLine marca el fin del contenido de un
@@ -1046,20 +1475,6 @@ func unknownOpenerAttributes(attrStr string, known ...string) []string {
 	return unknown
 }
 
-// chartKeyRe describe la forma de una llave del bloque chart: un
-// identificador, como las seis que el parser reconoce
-// (data/series/labels/options/title/type). Se usa solo para decidir si vale la
-// pena reportar una llave desconocida — ver el comentario del `default:` en
-// Parse.
-//
-// Deliberadamente NO exige minúscula inicial (a diferencia de una versión
-// anterior de este regex, hallazgo de code review): los falsos positivos
-// documentados del corpus ("- **Traces", cadena vacía) tienen espacios y
-// puntuación, así que ya quedan afuera por el resto del patrón. Exigir
-// minúscula inicial no aportaba nada contra esos casos y en cambio dejaba
-// pasar en silencio un typo tan real como `Title:` en vez de `title:`.
-var chartKeyRe = regexp.MustCompile(`^[A-Za-z][a-zA-Z0-9_]*$`)
-
 // openerAttrRe matchea un par `nombre="valor"` o `nombre='valor'` de la línea
 // de apertura. Deliberadamente exige comillas: es la forma que emite el
 // formatter y la única que extractAttribute sabe leer, así que un
@@ -1067,13 +1482,6 @@ var chartKeyRe = regexp.MustCompile(`^[A-Za-z][a-zA-Z0-9_]*$`)
 // empieza a reportar acá (sería un cambio de comportamiento distinto, no el
 // hueco que se está tapando).
 var openerAttrRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*["'][^"']*["']`)
-
-// lineIndent devuelve cuántos espacios/tabs de sangría trae line. Un tab
-// cuenta como uno, igual que el resto del parser: lo que importa acá es
-// comparar líneas del mismo bloque entre sí, no medir columnas.
-func lineIndent(line string) int {
-	return len(line) - len(strings.TrimLeft(line, " \t"))
-}
 
 // Ejemplo: `bar width="1200" height="600"` → extractAttribute(..., "width") = "1200"
 func extractAttribute(str, attrName string) string {

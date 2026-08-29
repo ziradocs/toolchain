@@ -322,23 +322,37 @@ func TestChartParser_ReportsUnknownKeyInsideComboSeriesItem(t *testing.T) {
 	}
 }
 
-// TestChartParser_ReportsCapitalizedUnknownKey es la regresión de un tercer
-// hallazgo: chartKeyRe exigía minúscula inicial para decidir si una llave
-// desconocida del cuerpo valía la pena reportarse, un filtro pensado para
-// evitar falsos positivos de prosa que el loop escanea de más (ver el
-// comentario del `default:` en Parse) — pero esos falsos positivos
-// documentados ("- **Traces", cadena vacía) ya quedan afuera por tener
-// espacios y puntuación, no por el case. La minúscula inicial de más solo
-// lograba que un typo tan real como `Title:` (en vez de `title:`) se
-// descartara en silencio, sin CHART005, pese a no ser prosa de ningún tipo.
-func TestChartParser_ReportsCapitalizedUnknownKey(t *testing.T) {
-	_, diags := parseChartBlock(t, `<<chart: bar>>
-  Title: "Ventas"
-  data: [85, 90]
-<<end>>`)
+// TestChartParser_CapitalizedTypoEndsBlockWithoutConsuming era, en su
+// versión original, la regresión de un tercer hallazgo de code review:
+// chartKeyRe exigía minúscula inicial para decidir si una llave desconocida
+// del cuerpo valía la pena reportarse como CHART005, un filtro pensado para
+// evitar falsos positivos de prosa que el loop escaneaba de más — pero esos
+// falsos positivos documentados ("- **Traces", cadena vacía) ya quedaban
+// afuera por tener espacios y puntuación, no por el case, así que la
+// minúscula inicial de más solo lograba que un typo tan real como `Title:`
+// (en vez de `title:`) se descartara en silencio.
+//
+// Superseded por el arreglo estructural del PR que cierra el chart cerrado
+// por dedent (ver isChartPropertyKey/chartPropertyKeys en Parse): `Title:`
+// no pertenece al vocabulario de Chart.js que ese allowlist reconoce, así
+// que ahora corta el bloque ahí mismo (como cualquier prosa que sigue al
+// chart) en vez de reportar CHART005 y seguir consumiéndola como si fuera
+// contenido del chart. Es mejor comportamiento: la línea sobrevive visible
+// en el documento como el texto que en realidad es, en vez de desaparecer
+// con un aviso. Ya no hay señal que emitir — solo queda comprobar que el
+// bloque termina ANTES de esa línea y que ninguna línea siguiente ("data:")
+// se pierde con ella.
+func TestChartParser_CapitalizedTypoEndsBlockWithoutConsuming(t *testing.T) {
+	ctx := &ParseContext{Mode: "flex", Lines: []string{
+		"<<chart: bar>>",    // 0
+		`  Title: "Ventas"`, // 1
+		"  data: [85, 90]",  // 2
+		"<<end>>",           // 3
+	}}
+	res := (&ChartParser{}).Parse(ctx, 0)
 
-	if !hasDiagnostic(diags, "CHART005", "Title") {
-		t.Errorf("no se reportó `Title:` (mayúscula inicial) como llave desconocida del cuerpo.\ndiagnósticos: %v", diags)
+	if res.ConsumedLines != 1 {
+		t.Errorf("ConsumedLines = %d, want 1 — `Title:` no pertenece al vocabulario de chart y debe cortar el bloque sin consumirse, dejando `data:`/`<<end>>` como texto suelto para quien procese lo que sigue", res.ConsumedLines)
 	}
 }
 

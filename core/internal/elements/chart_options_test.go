@@ -141,6 +141,14 @@ func TestChartParser_MalformedOptionsDoesNotBreakChart(t *testing.T) {
 	if chart.ChartType != "bar" {
 		t.Errorf("ChartType = %q, want bar — a malformed options: block must not break the chart", chart.ChartType)
 	}
+
+	// El "[unclosed" dentro del options: descartado no debe filtrarse al
+	// tracking de arrayDepth: si lo hace, la línea "data: [1, 2]" que sigue
+	// se lee como continuación de ESE corchete ajeno en vez de como la
+	// propiedad data: que es, y chart.Data se pierde en silencio.
+	if len(chart.Data) == 0 || len(chart.Data[0]) != 2 {
+		t.Errorf("Data = %v, want [[1 2]] — el bloque options: malformado contaminó el arrayDepth y se tragó data:", chart.Data)
+	}
 }
 
 // TestChartParser_NoOptionsBlockLeavesOptionsNil protege el gate nativo de
