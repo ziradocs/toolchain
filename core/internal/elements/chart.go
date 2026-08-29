@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -148,8 +149,22 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	if chartType == "combo" && startIndex+1 < len(ctx.Lines) {
 		yamlContent, yamlLines := p.parseYAMLBlock(ctx.Lines, startIndex+1)
 		if yamlContent != "" {
-			if p.parseComboChartYAML(chart, yamlContent) {
+			if ok, unknownKeys := p.parseComboChartYAML(chart, yamlContent); ok {
 				consumedLines += yamlLines
+				// Mismo criterio que unknownKeys en el loop de propiedades de
+				// abajo (ver CHART005 más abajo): ChartConfig deserializa con
+				// yaml.v3, que ignora en silencio cualquier llave del mapeo que
+				// no tenga campo correspondiente en el struct. Un
+				// `<<chart: combo>>` con un `datasets:` de nivel superior (el
+				// mismo typo que la plantilla `report` de `doclang init` traía
+				// en la forma plana) pasaba por acá sin ningún aviso, aunque el
+				// resto del chart tuviera datos válidos.
+				if len(unknownKeys) > 0 {
+					diags = append(diags, diagnostics.NewWarning(
+						fmt.Sprintf("Llave(s) no reconocida(s) en el bloque chart (%s); se esperaba 'data'/'options' — ignorada(s)",
+							strings.Join(unknownKeys, ", ")),
+						pos, "chart-parser").WithRuleID("CHART005"))
+				}
 				return &ParseResult{
 					Element:       chart,
 					ConsumedLines: consumedLines,
@@ -792,13 +807,31 @@ type ChartConfig struct {
 	Options interface{} `yaml:"options,omitempty"`
 }
 
-// parseComboChartYAML parsea un combo chart usando YAML
-func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent string) bool {
+// parseComboChartYAML parsea un combo chart usando YAML. Además de (bool)
+// éxito, devuelve las llaves de nivel superior del YAML que ChartConfig no
+// modela: yaml.Unmarshal a un struct tagueado ignora en silencio cualquier
+// llave del mapeo sin campo correspondiente (a diferencia del loop de
+// propiedades de la forma plana, que sí las junta línea por línea en
+// unknownKeys), así que sin este segundo unmarshal a mapa un `datasets:` de
+// nivel superior en un combo chart se perdía sin CHART005 (hallazgo de code
+// review del PR #232).
+func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent string) (bool, []string) {
 	var config ChartConfig
 
 	err := yaml.Unmarshal([]byte(yamlContent), &config)
 	if err != nil {
-		return false
+		return false, nil
+	}
+
+	var unknownKeys []string
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal([]byte(yamlContent), &raw); err == nil {
+		for key := range raw {
+			if key != "data" && key != "options" {
+				unknownKeys = append(unknownKeys, key)
+			}
+		}
+		sort.Strings(unknownKeys)
 	}
 
 	// Asignar labels
@@ -831,7 +864,7 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 		seriesLength := len(config.Data.Series[0].Values)
 		for _, series := range config.Data.Series {
 			if len(series.Values) != seriesLength {
-				return false // Inconsistencia en datos
+				return false, nil // Inconsistencia en datos
 			}
 		}
 
@@ -863,7 +896,7 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 		}
 	}
 
-	return true
+	return true, unknownKeys
 }
 
 // parseInlineMatrix parsea arrays de arrays inline como [[100, 500, 350, 220]]
@@ -947,11 +980,18 @@ func unknownOpenerAttributes(attrStr string, known ...string) []string {
 }
 
 // chartKeyRe describe la forma de una llave del bloque chart: un
-// identificador en minúsculas, como las seis que el parser reconoce
+// identificador, como las seis que el parser reconoce
 // (data/series/labels/options/title/type). Se usa solo para decidir si vale la
 // pena reportar una llave desconocida — ver el comentario del `default:` en
 // Parse.
-var chartKeyRe = regexp.MustCompile(`^[a-z][a-zA-Z0-9_]*$`)
+//
+// Deliberadamente NO exige minúscula inicial (a diferencia de una versión
+// anterior de este regex, hallazgo de code review): los falsos positivos
+// documentados del corpus ("- **Traces", cadena vacía) tienen espacios y
+// puntuación, así que ya quedan afuera por el resto del patrón. Exigir
+// minúscula inicial no aportaba nada contra esos casos y en cambio dejaba
+// pasar en silencio un typo tan real como `Title:` en vez de `title:`.
+var chartKeyRe = regexp.MustCompile(`^[A-Za-z][a-zA-Z0-9_]*$`)
 
 // openerAttrRe matchea un par `nombre="valor"` o `nombre='valor'` de la línea
 // de apertura. Deliberadamente exige comillas: es la forma que emite el

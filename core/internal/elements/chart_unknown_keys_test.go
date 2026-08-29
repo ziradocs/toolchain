@@ -229,6 +229,59 @@ func TestChartParser_ComboYAMLPathIsActuallyExercised(t *testing.T) {
 	}
 }
 
+// TestChartParser_ReportsUnknownKeyInComboYAML es la regresión de un segundo
+// hallazgo de code review sobre el mismo defecto: TestChartParser_
+// ReportsUnknownAttributeOnEveryReturnPath cubre la llave de la APERTURA
+// (`title=`) en las tres salidas, pero `parseComboChartYAML` decodifica el
+// cuerpo YAML con yaml.Unmarshal a un struct tagueado (ChartConfig), que
+// ignora en silencio cualquier llave del mapeo sin campo correspondiente —
+// a diferencia del loop de propiedades de la forma plana, que sí las junta
+// línea por línea. Un `datasets:` de nivel superior en un combo chart (el
+// mismo typo de la plantilla `report` de `doclang init`, pero en la forma
+// YAML en vez de la plana) se perdía sin CHART005 aunque el resto del chart
+// tuviera datos válidos.
+func TestChartParser_ReportsUnknownKeyInComboYAML(t *testing.T) {
+	chart, diags := parseChartBlock(t, `<<chart: combo>>
+  data:
+    labels: ["Ene", "Feb"]
+    series:
+      - name: "Desktop"
+        type: "bar"
+        values: [65, 59]
+  datasets:
+    backgroundColor: "#3498db"
+<<end>>`)
+
+	if !hasDiagnostic(diags, "CHART005", "datasets") {
+		t.Errorf("no se reportó `datasets:` como llave desconocida del cuerpo YAML del combo chart.\ndiagnósticos: %v", diags)
+	}
+	// El combo debe seguir parseando bien pese a la llave desconocida: es un
+	// aviso, no un error que tumbe el chart.
+	if len(chart.Labels) != 2 {
+		t.Errorf("la llave desconocida no debería impedir que el resto del combo se parsee: Labels = %v", chart.Labels)
+	}
+}
+
+// TestChartParser_ReportsCapitalizedUnknownKey es la regresión de un tercer
+// hallazgo: chartKeyRe exigía minúscula inicial para decidir si una llave
+// desconocida del cuerpo valía la pena reportarse, un filtro pensado para
+// evitar falsos positivos de prosa que el loop escanea de más (ver el
+// comentario del `default:` en Parse) — pero esos falsos positivos
+// documentados ("- **Traces", cadena vacía) ya quedan afuera por tener
+// espacios y puntuación, no por el case. La minúscula inicial de más solo
+// lograba que un typo tan real como `Title:` (en vez de `title:`) se
+// descartara en silencio, sin CHART005, pese a no ser prosa de ningún tipo.
+func TestChartParser_ReportsCapitalizedUnknownKey(t *testing.T) {
+	_, diags := parseChartBlock(t, `<<chart: bar>>
+  Title: "Ventas"
+  data: [85, 90]
+<<end>>`)
+
+	if !hasDiagnostic(diags, "CHART005", "Title") {
+		t.Errorf("no se reportó `Title:` (mayúscula inicial) como llave desconocida del cuerpo.\ndiagnósticos: %v", diags)
+	}
+}
+
 func hasDiagnostic(diags []string, ruleID, needle string) bool {
 	for _, d := range diags {
 		if strings.HasPrefix(d, ruleID+":") && strings.Contains(d, needle) {
