@@ -593,15 +593,32 @@ func bracketDelta(trimmed string) int {
 // isArrayContinuationForKey reporta si trimmed tiene forma de contenido de
 // continuación para el array multi-línea que abrió openKey. Usado solo
 // dentro de la rama arrayDepth > 0 para no tragar prosa (ni un enlace
-// Markdown) cuando el array nunca cierra.
+// Markdown, en cualquiera de sus dos formas — inline "[texto](url)" o por
+// referencia "[texto][ref]") cuando el array nunca cierra.
 //
-// La forma depende de qué propiedad lo abrió:
-//   - "data": filas entre corchetes ("[\"Q1\", 1],") — parseMultiLineArray
-//     las produce así.
-//   - "series"/"labels"/"type": strings sueltos SIN envolver
-//     ("\"Revenue\","), que es como parseMultiLineStringArray los espera
-//     (ver esa función); exigirles el prefijo "[" de las filas de data
-//     cortaba el bloque de más en cuanto el array vivía en columna 0.
+// Antes esto se decidía por PREFIJO ("empieza con \"[\"" o "contiene una
+// comilla"), y las dos formas se dejaban engañar por contenido que solo
+// PARECE continuación:
+//   - Un enlace también empieza con "[", así que calificaba como fila de
+//     data en cuanto el array anterior quedaba sin cerrar.
+//   - Cualquier frase con una comilla en cualquier parte calificaba como
+//     elemento de series/labels/type, aunque no fuera un string completo.
+//   - Y al revés: una fila de data legítima cuyo VALOR de texto contiene un
+//     enlace embebido ("[\"[Ver fuente](url)\", 5],") se rechazaba, porque
+//     el substring "](" aparecía sin que el chequeo supiera que estaba
+//     dentro de una cadena entre comillas.
+//
+// Ahora se valida por GRAMÁTICA, no por prefijo, con el mismo escaneo
+// consciente de comillas que bracketDelta:
+//   - "data": la línea debe ser un único grupo de corchetes balanceado que
+//     ocupa toda la línea, con nada más que una coma opcional después de
+//     cerrar (isDataArrayRow) — la forma exacta que produce
+//     parseMultiLineArray/parseArrayRow.
+//   - cualquier otra clave array-valuada (series/labels/type/
+//     backgroundColor/...): la línea debe ser un único string entre
+//     comillas que ocupa toda la línea, con nada más que una coma opcional
+//     después de cerrar (isQuotedScalar) — la forma que produce
+//     parseMultiLineStringArray.
 //
 // En cualquier caso, puros delimitadores de cierre/coma ("]", "],", "}]")
 // cierran el array sin importar el tipo.
@@ -612,17 +629,10 @@ func isArrayContinuationForKey(openKey, trimmed string) bool {
 	if isPureArrayCloser(trimmed) {
 		return true
 	}
-	switch openKey {
-	case "data":
-		// Un enlace Markdown también empieza con "[", así que no basta el
-		// prefijo: se descarta si tiene forma de "[texto](url)".
-		return strings.HasPrefix(trimmed, "[") && !isMarkdownLinkShaped(trimmed)
-	case "series", "labels", "type":
-		return strings.Contains(trimmed, "\"")
-	default:
-		// No debería alcanzarse: openKey siempre viene de isArrayValuedKey.
-		return false
+	if openKey == "data" {
+		return isDataArrayRow(trimmed)
 	}
+	return isQuotedScalar(trimmed)
 }
 
 // isPureArrayCloser reporta si trimmed consiste únicamente en delimitadores
@@ -637,31 +647,110 @@ func isPureArrayCloser(trimmed string) bool {
 	return true
 }
 
-// isMarkdownLinkShaped reporta si trimmed tiene la forma de un enlace
-// Markdown ("[texto](url)"): empieza con "[", contiene "](" y cierra con
-// ")" después. Una fila de datos legítima ("[\"Q1\", 1],") no produce esa
-// secuencia, así que basta para distinguir las dos formas sin regexp.
-func isMarkdownLinkShaped(trimmed string) bool {
-	idx := strings.Index(trimmed, "](")
-	if idx == -1 {
+// isDataArrayRow reporta si trimmed es una fila de data completa en su
+// propia línea: un único grupo de corchetes balanceado (consciente de
+// comillas, como bracketDelta) que arranca en la posición 0 y no deja nada
+// después de cerrar salvo una coma opcional. parseArrayRow produce
+// exactamente esa forma ("[\"Q1\", 1]," o "[10, 20]"); un enlace Markdown
+// también empieza con "[" pero después de su "]" de cierre le sigue
+// "(url)" o "[ref]", no fin de línea ni coma — eso es lo que lo descarta.
+func isDataArrayRow(trimmed string) bool {
+	if !strings.HasPrefix(trimmed, "[") {
 		return false
 	}
-	return strings.Contains(trimmed[idx+2:], ")")
+	depth := 0
+	inString := false
+	escaped := false
+	closeIdx := -1
+	for idx, r := range trimmed {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch {
+		case r == '\\':
+			escaped = true
+		case r == '"':
+			inString = !inString
+		case inString:
+			// dentro de una cadena los corchetes son texto, igual que en
+			// bracketDelta — así una fila cuyo VALOR contiene un enlace
+			// embebido ("[\"[Ver fuente](url)\", 5]") no se confunde con
+			// el propio enlace.
+		case r == '[':
+			depth++
+		case r == ']':
+			depth--
+			if depth == 0 {
+				closeIdx = idx
+			}
+		}
+		if closeIdx != -1 {
+			break
+		}
+	}
+	if closeIdx == -1 {
+		// El corchete inicial nunca cerró en esta línea: no es una fila
+		// autocontenida, así que no calificar como continuación es lo
+		// conservador (evita tragar contenido que no se puede validar).
+		return false
+	}
+	rest := strings.TrimSpace(trimmed[closeIdx+1:])
+	return rest == "" || rest == ","
 }
 
-// isArrayValuedKey reporta si key es una de las propiedades cuyo case en el
-// switch de Parse corre un sub-parser de array multi-línea
-// (parseMultiLineArray / parseMultiLineStringArray) que puede dejar un
-// corchete sin cerrar en las dos formas que el corpus escribe. Acotar el
-// tracking de arrayDepth a estas evita que el texto de un options: (u otra
-// propiedad reconocida pero no manejada por el switch) contamine el estado
-// del array de datos.
-func isArrayValuedKey(key string) bool {
-	switch key {
-	case "data", "series", "labels", "type":
-		return true
+// isQuotedScalar reporta si trimmed es un único string entre comillas
+// completo en su propia línea, con nada después salvo una coma opcional —
+// la forma que parseMultiLineStringArray espera para elementos de
+// series/labels/type y para cualquier otra propiedad array-valuada de solo
+// strings (backgroundColor, borderColor...). Una frase suelta con una
+// comilla en cualquier parte ("Nota: usa \"comillas\" aquí.") no arranca
+// con comilla, así que no califica; y una frase que sí arranca con comilla
+// pero sigue después de cerrarla ("\"cita\" y algo más") tampoco, porque el
+// cierre no queda al final.
+func isQuotedScalar(trimmed string) bool {
+	s := strings.TrimSuffix(trimmed, ",")
+	if len(s) < 2 || s[0] != '"' {
+		return false
+	}
+	escaped := false
+	for idx := 1; idx < len(s); idx++ {
+		c := s[idx]
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch c {
+		case '\\':
+			escaped = true
+		case '"':
+			return idx == len(s)-1
+		}
 	}
 	return false
+}
+
+// isArrayValuedKey reporta si key es una propiedad reconocida del vocabulario
+// de charts (chartPropertyKeys) DISTINTA de "options": cualquiera de ellas
+// puede llevar un valor de array multi-línea que un sub-parser deje sin
+// cerrar en las dos formas que el corpus escribe (cierre dedentado, array en
+// columna 0), así que todas necesitan el tracking de arrayDepth.
+//
+// "options" es la única exclusión deliberada: captura su bloque por sangría
+// con un mecanismo aparte (parseNestedOptions) que descarta el contenido
+// entero si no parsea como YAML — sumar sus corchetes al tracking contaba
+// texto que el chart ni siquiera conserva (un "[" suelto dentro de un
+// options: malformado dejaba arrayDepth en positivo para la propiedad que
+// seguía).
+//
+// Antes esto listaba a mano solo {data, series, labels, type} — el switch de
+// arriba solo ACTÚA sobre esas cuatro, pero otras del vocabulario
+// (backgroundColor, borderColor...) también pueden escribirse en forma de
+// array multi-línea aunque el switch las deje en el default sin procesar; no
+// estar en la lista a mano las dejaba sin tracking y un
+// "backgroundColor: [" cortaba el chart en la primera línea de colores.
+func isArrayValuedKey(key string) bool {
+	return key != "options" && isChartPropertyKey(key)
 }
 
 // chartPropertyKeys es el vocabulario de propiedades que el DSL reconoce como

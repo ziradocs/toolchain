@@ -374,3 +374,78 @@ func TestChartParser_MarkdownLinkAfterUnclosedDataArraySurvives(t *testing.T) {
 		t.Errorf("Data = %v, want 1 fila", chart.Data)
 	}
 }
+
+// TestChartParser_BackgroundColorArrayIsTracked cubre la primera regresión
+// de la cuarta revisión: isArrayValuedKey solo listaba data/series/labels/
+// type a mano, las únicas que el switch de arriba maneja directamente. Pero
+// cualquier propiedad del vocabulario (chartPropertyKeys) puede escribirse
+// como array multi-línea aunque el switch la deje en el default sin
+// procesar — backgroundColor/borderColor son las de Chart.js. Sin tracking
+// para ellas, "backgroundColor: [" cortaba el chart en la primera línea de
+// colores y perdía cualquier data: posterior.
+func TestChartParser_BackgroundColorArrayIsTracked(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",       // 0
+		"  backgroundColor: [", // 1
+		`    "#FF0000",`,       // 2
+		`    "#00FF00"`,        // 3
+		"  ]",                  // 4
+		"  data: [1, 2]",       // 5
+	}
+	chart := assertChartConsumes(t, lines, 6)
+	if len(chart.Data) == 0 {
+		t.Errorf("Data = %v — backgroundColor: sin tracking se llevó data: por delante", chart.Data)
+	}
+}
+
+// TestChartParser_DataRowWithEmbeddedLinkTextSurvives cubre la segunda: la
+// validación anterior de "data" descartaba una fila legítima cuando su VALOR
+// de texto contenía algo con forma de enlace ("[\"[Ver fuente](url)\", 5],"),
+// porque buscaba la secuencia "](" con un substring plano, sin saber que
+// estaba dentro de una cadena entre comillas. isDataArrayRow ahora escanea
+// consciente de comillas (igual que bracketDelta), así que el contenido de
+// una cadena no puede disparar el rechazo.
+func TestChartParser_DataRowWithEmbeddedLinkTextSurvives(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>", // 0
+		"data: [",        // 1
+		`["[Ver fuente](https://example.com)", 5],`, // 2
+		"[10, 20]",           // 3
+		"]",                  // 4
+		`labels: ["A", "B"]`, // 5
+	}
+	chart := assertChartConsumes(t, lines, 6)
+	// chart.Data se queda vacío para las filas de este array: es el mismo
+	// gap PREEXISTENTE de columna 0 que TestChartParser_
+	// ColumnZeroSeriesArrayIsNotCutByDataRowShape ya documenta para series —
+	// parseMultiLineArray devuelve 0 líneas consumidas ahí, así que nunca
+	// llega a extraer los valores; nuestro tracking de arrayDepth solo evita
+	// el corte prematuro, no sustituye la extracción. Lo que este test fija
+	// es que la fila con el enlace embebido NO se rechaza como si fuera el
+	// fin del bloque: labels:, que va DESPUÉS del array, tiene que
+	// sobrevivir.
+	if len(chart.Labels) != 2 {
+		t.Errorf("Labels = %v, want 2 — la fila con el enlace embebido se rechazó como límite y se llevó labels: por delante", chart.Labels)
+	}
+}
+
+// TestChartParser_ReferenceStyleLinkAfterUnclosedDataArraySurvives cubre la
+// tercera: un enlace por referencia ("[texto][ref]") también empieza con
+// "[", igual que uno inline, y tiene que rechazarse igual dentro de un array
+// de data sin cerrar. isDataArrayRow lo hace por gramática (tras cerrar el
+// primer corchete no queda fin de línea ni coma, sino otro "[...]"), no por
+// buscar una forma de enlace específica.
+func TestChartParser_ReferenceStyleLinkAfterUnclosedDataArraySurvives(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",       // 0
+		"  data: [",            // 1 — nunca se cierra
+		"    [1, 2],",          // 2
+		"[Ver fuente][fuente]", // 3
+		"",                     // 4
+		"**prosa**",            // 5
+	}
+	chart := assertChartConsumes(t, lines, 3)
+	if len(chart.Data) != 1 {
+		t.Errorf("Data = %v, want 1 fila", chart.Data)
+	}
+}
