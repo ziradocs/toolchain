@@ -274,3 +274,48 @@ func TestChartParser_BracketInLabelDoesNotOpenArray(t *testing.T) {
 	}
 	assertChartConsumes(t, lines, 3)
 }
+
+// TestChartParser_UnclosedDataArrayDoesNotSwallowToEOF cubre la segunda
+// regresión de la revisión: mientras arrayDepth > 0 se aceptaba CUALQUIER
+// línea como continuación, sin validar su forma. Si al array de data: le
+// falta el "]" de cierre, la prosa, @notes: y sus puntos desaparecían hasta
+// EOF, un heading u otro elemento — la misma pérdida silenciosa que este
+// archivo existe para cerrar, ahora disparada por un array roto en vez de un
+// dedent.
+func TestChartParser_UnclosedDataArrayDoesNotSwallowToEOF(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",                   // 0
+		"  data: [",                        // 1  — nunca se cierra
+		"    [1, 2],",                      // 2
+		"",                                 // 3
+		"**Prosa que debería sobrevivir**", // 4
+		"",                                 // 5
+		"@notes:",                          // 6
+		"- esto no debería desaparecer",    // 7
+	}
+	chart := assertChartConsumes(t, lines, 4)
+	if len(chart.Data) != 1 {
+		t.Errorf("Data = %v, want 1 fila — la fila válida antes del corte debe conservarse", chart.Data)
+	}
+}
+
+// TestChartParser_MalformedOptionsArrayDoesNotLeakIntoData es el mismo cruce
+// que TestChartParser_MalformedOptionsDoesNotBreakChart en chart_options_test.go
+// pero asertando ConsumedLines directamente: el "[" suelto dentro de un
+// options: descartado no debe dejar arrayDepth en positivo para la propiedad
+// que sigue.
+func TestChartParser_MalformedOptionsArrayDoesNotLeakIntoData(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",         // 0
+		"  options:",             // 1
+		"    plugins: [unclosed", // 2
+		"     : : broken",        // 3
+		"  data: [1, 2]",         // 4
+		"",                       // 5
+		"**Prosa que sigue**",    // 6
+	}
+	chart := assertChartConsumes(t, lines, 6)
+	if len(chart.Data) == 0 || len(chart.Data[0]) != 2 {
+		t.Errorf("Data = %v, want [[1 2]] — el options: malformado se tragó data:", chart.Data)
+	}
+}

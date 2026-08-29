@@ -186,6 +186,18 @@ chartLoop:
 		// ARRIBA de esto a propósito: un array sin cerrar no puede tragarse
 		// el resto del documento.
 		if arrayDepth > 0 {
+			// Un array sin cerrar (falta el "]") no puede tragarse el resto
+			// del documento solo porque arrayDepth siga en positivo: eso
+			// reabre la misma pérdida silenciosa que este archivo cubre,
+			// nada más que con un array roto en vez de un dedent. Antes de
+			// aceptar la línea como continuación hay que verificar que TIENE
+			// FORMA de continuación de array (una fila "[...]" o puros
+			// delimitadores de cierre/coma). Si no, la línea ya es prosa —
+			// se corta sin consumirla, igual que el resto de los límites de
+			// este loop.
+			if !looksLikeArrayContinuation(trimmedLine) {
+				break chartLoop
+			}
 			arrayDepth += bracketDelta(trimmedLine)
 			consumedLines++
 			continue
@@ -327,11 +339,25 @@ chartLoop:
 		// Contar los corchetes de la línea de la propiedad MÁS los de lo que
 		// el sub-parser haya avanzado: si queda algo abierto, las líneas que
 		// siguen son del array y no límite del bloque.
-		for k := lineStart; k <= i && k < len(ctx.Lines); k++ {
-			arrayDepth += bracketDelta(strings.TrimSpace(ctx.Lines[k]))
-		}
-		if arrayDepth < 0 {
-			arrayDepth = 0
+		//
+		// SOLO para data/series/labels/type: son las únicas cuyo case de
+		// arriba corre un sub-parser de array multi-línea que puede dejar un
+		// corchete sin cerrar (los dos casos del corpus: cierre dedentado,
+		// array en columna 0). options: captura su bloque por sangría con un
+		// mecanismo aparte (parseNestedOptions) y descarta el contenido si no
+		// parsea como YAML — sumar sus corchetes acá contaba texto que el
+		// chart ni siquiera conserva. Sin este filtro, un options: malformado
+		// con un "[" suelto (p. ej. "plugins: [unclosed") dejaba arrayDepth
+		// en positivo y la línea "data: [1, 2]" que le sigue se leía como
+		// continuación de un array ajeno en vez de como la propiedad data:
+		// que es — el chart perdía sus datos.
+		if isArrayValuedKey(key) {
+			for k := lineStart; k <= i && k < len(ctx.Lines); k++ {
+				arrayDepth += bracketDelta(strings.TrimSpace(ctx.Lines[k]))
+			}
+			if arrayDepth < 0 {
+				arrayDepth = 0
+			}
 		}
 
 		consumedLines++
@@ -546,6 +572,40 @@ func bracketDelta(trimmed string) int {
 		}
 	}
 	return depth
+}
+
+// looksLikeArrayContinuation reporta si trimmed tiene forma de contenido de
+// un array multi-línea: una fila ("[\"Q1\", 1],") o puros delimitadores de
+// cierre y coma ("]", "],", "}]"). Usado solo dentro de la rama
+// arrayDepth > 0 para no tragar prosa cuando el array nunca cierra.
+func looksLikeArrayContinuation(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		return true
+	}
+	for _, r := range trimmed {
+		if r != ']' && r != '}' && r != ',' {
+			return false
+		}
+	}
+	return true
+}
+
+// isArrayValuedKey reporta si key es una de las propiedades cuyo case en el
+// switch de Parse corre un sub-parser de array multi-línea
+// (parseMultiLineArray / parseMultiLineStringArray) que puede dejar un
+// corchete sin cerrar en las dos formas que el corpus escribe. Acotar el
+// tracking de arrayDepth a estas evita que el texto de un options: (u otra
+// propiedad reconocida pero no manejada por el switch) contamine el estado
+// del array de datos.
+func isArrayValuedKey(key string) bool {
+	switch key {
+	case "data", "series", "labels", "type":
+		return true
+	}
+	return false
 }
 
 // chartPropertyKeys es el vocabulario de propiedades que el DSL reconoce como
