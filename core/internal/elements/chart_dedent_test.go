@@ -449,3 +449,104 @@ func TestChartParser_ReferenceStyleLinkAfterUnclosedDataArraySurvives(t *testing
 		t.Errorf("Data = %v, want 1 fila", chart.Data)
 	}
 }
+
+// TestChartParser_DedentClosesBeforeAllowlistLooksAtLine cubre la primera
+// regresión de la quinta revisión: el allowlist tenía prioridad sobre el
+// dedent. Con el cuerpo del chart sangrado, una línea de vuelta en columna 0
+// que por casualidad usa la forma "clave: valor" de una propiedad reconocida
+// ("title: Este texto ya pertenece al documento") se leía como parte del
+// chart en vez de como el dedent que cierra el bloque.
+//
+// bodyIndent fija la sangría desde la primera línea de contenido y hace que
+// CUALQUIER dedent por debajo de ese nivel cierre el bloque antes de mirar
+// si la línea "parece" una propiedad — el dedent es más fuerte que el
+// allowlist, no al revés.
+func TestChartParser_DedentClosesBeforeAllowlistLooksAtLine(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>", // 0
+		"  data: [1, 2]", // 1
+		"title: Este texto ya pertenece al documento", // 2
+	}
+	chart := assertChartConsumes(t, lines, 2)
+	if chart.Title != "" {
+		t.Errorf("Title = %q — el dedent no cerró el bloque antes del allowlist", chart.Title)
+	}
+}
+
+// TestChartParser_LegacyColumnZeroBodyKeepsAllowlistOnly confirma que el
+// tratamiento heredado sigue intacto: cuando el cuerpo entero vive en
+// columna 0 desde la primera línea (bodyIndent queda en 0), el dedent nunca
+// puede disparar — es la forma de
+// examples/use-cases/educational/machine_learning_intro.slidelang.
+func TestChartParser_LegacyColumnZeroBodyKeepsAllowlistOnly(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",
+		"data: [1, 2]",
+		`labels: ["A", "B"]`,
+		"",
+		"**prosa**",
+	}
+	chart := assertChartConsumes(t, lines, 4)
+	if len(chart.Labels) != 2 {
+		t.Errorf("Labels = %v, want 2 — el tratamiento heredado de columna 0 se rompió", chart.Labels)
+	}
+}
+
+// TestChartParser_DedentedQuoteAfterUnclosedArrayIsExcluded cubre la tercera:
+// una cita dedentada de vuelta a columna 0 satisfacía isQuotedScalar (es un
+// string completo entre comillas) y se leía como continuación de un array de
+// labels: sin cerrar. Es el mismo mecanismo que la regresión de title: — el
+// dedent debe cerrar el bloque ANTES de que isArrayContinuationForKey mire
+// la forma de la línea, no solo antes del allowlist.
+func TestChartParser_DedentedQuoteAfterUnclosedArrayIsExcluded(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>", // 0
+		"  labels: [",    // 1 — nunca se cierra
+		`    "A",`,       // 2
+		`"Una cita completa que pertenece al documento"`, // 3
+	}
+	chart := assertChartConsumes(t, lines, 3)
+	if len(chart.Labels) != 1 {
+		t.Errorf("Labels = %v, want 1 — la cita dedentada se tragó como si fuera parte de labels:", chart.Labels)
+	}
+}
+
+// TestChartParser_NumericArrayForNonDataKeyIsTracked cubre la segunda: los
+// escalares numéricos multi-línea cortaban el chart para propiedades
+// distintas de data. isArrayContinuationForKey solo conocía filas entre
+// corchetes (data) y strings entre comillas (todo lo demás) — pero
+// borderWidth/pointRadius/etc. de Chart.js son numéricos, no strings.
+func TestChartParser_NumericArrayForNonDataKeyIsTracked(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>", // 0
+		"borderWidth: [", // 1
+		"  1,",           // 2
+		"  2",            // 3
+		"]",              // 4
+		"data: [10, 20]", // 5
+	}
+	chart := assertChartConsumes(t, lines, 6)
+	if len(chart.Data) == 0 {
+		t.Errorf("Data = %v — borderWidth: numérico cortó el chart antes de data:", chart.Data)
+	}
+}
+
+// TestChartParser_FlatNumericDataArraySurvives cubre la misma segunda
+// regresión pero en la forma plana de data: un valor por línea, sin envolver
+// en filas "[...]" — que parseMultiLineArray ya tolera (ignora las líneas
+// sin corchetes en silencio) pero que isDataArrayRow por sí solo rechazaba
+// como continuación.
+func TestChartParser_FlatNumericDataArraySurvives(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",     // 0
+		"data: [",            // 1
+		"1,",                 // 2
+		"2",                  // 3
+		"]",                  // 4
+		`labels: ["A", "B"]`, // 5
+	}
+	chart := assertChartConsumes(t, lines, 6)
+	if len(chart.Labels) != 2 {
+		t.Errorf("Labels = %v, want 2 — la forma plana de data: cortó el chart antes de labels:", chart.Labels)
+	}
+}

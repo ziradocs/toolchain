@@ -148,6 +148,12 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// motivó arrayDepth para data).
 	arrayDepth := 0
 	openArrayKey := ""
+	// bodyIndent fija el nivel de sangría del cuerpo del chart a partir de
+	// su PRIMERA línea de contenido, y hace que un dedent por debajo de ese
+	// nivel cierre el bloque INCONDICIONALMENTE — antes de consultar
+	// isArrayContinuationForKey o el allowlist. Ver el bloque que lo
+	// establece, más abajo, para el porqué de -1 vs. 0 como estados.
+	bodyIndent := -1
 chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
@@ -172,6 +178,35 @@ chartLoop:
 		if trimmedLine == "" {
 			consumedLines++
 			continue
+		}
+
+		// bodyIndent se fija UNA sola vez, con la sangría de la primera
+		// línea de contenido del chart. De ahí en más, cualquier línea que
+		// dedente por debajo de ese nivel cierra el bloque de inmediato —
+		// SIN mirar si tiene forma de propiedad reconocida
+		// (isChartPropertyKey) ni de continuación de array
+		// (isArrayContinuationForKey). El dedent es más fuerte que
+		// cualquiera de los dos: es la convención de cierre que este
+		// archivo entero existe para respetar
+		// (spec/language-specification.md:75), y un chart con cuerpo
+		// sangrado que vuelve a columna 0 ya salió del bloque sin importar
+		// que esa línea diga "title: ..." (parece propiedad) o sea un
+		// string completo entre comillas (parece continuación de un array
+		// de labels/series sin cerrar) — de otro modo cualquiera de las dos
+		// listas podía "reconocer" contenido que el dedent ya había dejado
+		// afuera, y tragárselo.
+		//
+		// El chequeo se salta a propósito cuando bodyIndent == 0
+		// (chart con propiedades en columna 0 desde la primera línea, como
+		// examples/use-cases/educational/machine_learning_intro.slidelang):
+		// ahí el dedent no puede usarse para cerrar nada porque TODO el
+		// cuerpo vive en columna 0 — es el tratamiento heredado que ya
+		// existía antes de este mecanismo, y sigue intacto.
+		currentIndent := CalculateIndentLevel(line)
+		if bodyIndent == -1 {
+			bodyIndent = currentIndent
+		} else if bodyIndent > 0 && currentIndent < bodyIndent {
+			break chartLoop
 		}
 
 		// Dentro de un array multi-línea que su sub-parser dejó abierto,
@@ -610,15 +645,22 @@ func bracketDelta(trimmed string) int {
 //
 // Ahora se valida por GRAMÁTICA, no por prefijo, con el mismo escaneo
 // consciente de comillas que bracketDelta:
-//   - "data": la línea debe ser un único grupo de corchetes balanceado que
-//     ocupa toda la línea, con nada más que una coma opcional después de
-//     cerrar (isDataArrayRow) — la forma exacta que produce
-//     parseMultiLineArray/parseArrayRow.
+//   - "data": una fila entre corchetes (isDataArrayRow, la forma matriz de
+//     parseArrayRow) O un escalar suelto (isScalarContinuation) — data
+//     también soporta la forma plana de un solo valor por línea
+//     ("data: [\n1,\n2\n]"), que parseMultiLineArray tolera igual (ignora
+//     silenciosamente las filas sin corchetes) pero que antes ninguna de
+//     las dos formas de continuación reconocía.
 //   - cualquier otra clave array-valuada (series/labels/type/
-//     backgroundColor/...): la línea debe ser un único string entre
-//     comillas que ocupa toda la línea, con nada más que una coma opcional
-//     después de cerrar (isQuotedScalar) — la forma que produce
-//     parseMultiLineStringArray.
+//     backgroundColor/borderColor/borderWidth/pointRadius/...): un escalar
+//     suelto (isScalarContinuation) — string entre comillas para las
+//     propiedades de texto, número para las numéricas
+//     (borderWidth/pointRadius/...). No hay una tabla de tipos por
+//     propiedad: aceptar cualquiera de las dos formas es más simple que
+//     mantenerla, y el costo (aceptar un número donde solo cabría un string,
+//     o viceversa) es el mismo tipo de ambigüedad ya asumida para el
+//     escalar entre comillas — contenido malformado o un array roto, no el
+//     corpus real.
 //
 // En cualquier caso, puros delimitadores de cierre/coma ("]", "],", "}]")
 // cierran el array sin importar el tipo.
@@ -629,10 +671,10 @@ func isArrayContinuationForKey(openKey, trimmed string) bool {
 	if isPureArrayCloser(trimmed) {
 		return true
 	}
-	if openKey == "data" {
-		return isDataArrayRow(trimmed)
+	if openKey == "data" && isDataArrayRow(trimmed) {
+		return true
 	}
-	return isQuotedScalar(trimmed)
+	return isScalarContinuation(trimmed)
 }
 
 // isPureArrayCloser reporta si trimmed consiste únicamente en delimitadores
@@ -728,6 +770,31 @@ func isQuotedScalar(trimmed string) bool {
 		}
 	}
 	return false
+}
+
+// isScalarContinuation reporta si trimmed es un único escalar completo en su
+// propia línea, con nada después salvo una coma opcional: un string entre
+// comillas (isQuotedScalar) o un número (isNumericScalar). Cubre la forma
+// plana de cualquier array multi-línea de un solo valor por línea, sea de
+// texto (series/labels/type/backgroundColor/borderColor) o numérico
+// (borderWidth/pointRadius/pointHoverRadius, y la forma plana de data).
+func isScalarContinuation(trimmed string) bool {
+	return isQuotedScalar(trimmed) || isNumericScalar(trimmed)
+}
+
+// isNumericScalar reporta si trimmed es un único número completo en su
+// propia línea, con nada después salvo una coma opcional ("1,", "2.5",
+// "-3"). strconv.ParseFloat ya rechaza cualquier cosa con texto extra
+// (no hace falta un chequeo de "nada después": ParseFloat falla en cuanto
+// sobra algo que no sea parte del número).
+func isNumericScalar(trimmed string) bool {
+	s := strings.TrimSuffix(strings.TrimSpace(trimmed), ",")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
 }
 
 // isArrayValuedKey reporta si key es una propiedad reconocida del vocabulario
