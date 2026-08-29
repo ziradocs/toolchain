@@ -138,7 +138,16 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// parseLoop.
 	// arrayDepth lleva la cuenta de corchetes sin cerrar que quedaron
 	// abiertos por un array multi-línea; ver el bloque que lo consulta.
+	// openArrayKey recuerda QUÉ propiedad lo abrió (data/series/labels/type)
+	// para poder validar la forma de las líneas de continuación según el
+	// tipo: data usa filas entre corchetes ("["Q1", 1],"), pero
+	// series/labels/type aceptan strings sueltos sin envolver
+	// (parseMultiLineStringArray no los envuelve en "[...]" — ver esa
+	// función más abajo), así que exigirles el prefijo "[" cortaba el
+	// bloque de más en cuanto el array vivía en columna 0 (el mismo caso que
+	// motivó arrayDepth para data).
 	arrayDepth := 0
+	openArrayKey := ""
 chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
@@ -191,11 +200,14 @@ chartLoop:
 			// reabre la misma pérdida silenciosa que este archivo cubre,
 			// nada más que con un array roto en vez de un dedent. Antes de
 			// aceptar la línea como continuación hay que verificar que TIENE
-			// FORMA de continuación de array (una fila "[...]" o puros
-			// delimitadores de cierre/coma). Si no, la línea ya es prosa —
-			// se corta sin consumirla, igual que el resto de los límites de
-			// este loop.
-			if !looksLikeArrayContinuation(trimmedLine) {
+			// FORMA de continuación de array PARA LA PROPIEDAD que lo abrió
+			// (isArrayContinuationForKey): un enlace Markdown
+			// ("[Ver fuente](https://example.com)") también empieza con
+			// "[", así que aceptar cualquier "[" a secas volvía a tragarlo
+			// si el array anterior había quedado sin cerrar. Si la línea no
+			// encaja, ya es prosa — se corta sin consumirla, igual que el
+			// resto de los límites de este loop.
+			if !isArrayContinuationForKey(openArrayKey, trimmedLine) {
 				break chartLoop
 			}
 			arrayDepth += bracketDelta(trimmedLine)
@@ -352,11 +364,15 @@ chartLoop:
 		// continuación de un array ajeno en vez de como la propiedad data:
 		// que es — el chart perdía sus datos.
 		if isArrayValuedKey(key) {
+			openArrayKey = key
 			for k := lineStart; k <= i && k < len(ctx.Lines); k++ {
 				arrayDepth += bracketDelta(strings.TrimSpace(ctx.Lines[k]))
 			}
 			if arrayDepth < 0 {
 				arrayDepth = 0
+			}
+			if arrayDepth == 0 {
+				openArrayKey = ""
 			}
 		}
 
@@ -574,23 +590,63 @@ func bracketDelta(trimmed string) int {
 	return depth
 }
 
-// looksLikeArrayContinuation reporta si trimmed tiene forma de contenido de
-// un array multi-línea: una fila ("[\"Q1\", 1],") o puros delimitadores de
-// cierre y coma ("]", "],", "}]"). Usado solo dentro de la rama
-// arrayDepth > 0 para no tragar prosa cuando el array nunca cierra.
-func looksLikeArrayContinuation(trimmed string) bool {
+// isArrayContinuationForKey reporta si trimmed tiene forma de contenido de
+// continuación para el array multi-línea que abrió openKey. Usado solo
+// dentro de la rama arrayDepth > 0 para no tragar prosa (ni un enlace
+// Markdown) cuando el array nunca cierra.
+//
+// La forma depende de qué propiedad lo abrió:
+//   - "data": filas entre corchetes ("[\"Q1\", 1],") — parseMultiLineArray
+//     las produce así.
+//   - "series"/"labels"/"type": strings sueltos SIN envolver
+//     ("\"Revenue\","), que es como parseMultiLineStringArray los espera
+//     (ver esa función); exigirles el prefijo "[" de las filas de data
+//     cortaba el bloque de más en cuanto el array vivía en columna 0.
+//
+// En cualquier caso, puros delimitadores de cierre/coma ("]", "],", "}]")
+// cierran el array sin importar el tipo.
+func isArrayContinuationForKey(openKey, trimmed string) bool {
 	if trimmed == "" {
 		return false
 	}
-	if strings.HasPrefix(trimmed, "[") {
+	if isPureArrayCloser(trimmed) {
 		return true
 	}
+	switch openKey {
+	case "data":
+		// Un enlace Markdown también empieza con "[", así que no basta el
+		// prefijo: se descarta si tiene forma de "[texto](url)".
+		return strings.HasPrefix(trimmed, "[") && !isMarkdownLinkShaped(trimmed)
+	case "series", "labels", "type":
+		return strings.Contains(trimmed, "\"")
+	default:
+		// No debería alcanzarse: openKey siempre viene de isArrayValuedKey.
+		return false
+	}
+}
+
+// isPureArrayCloser reporta si trimmed consiste únicamente en delimitadores
+// de cierre y comas ("]", "],", "}]"...) — el resto de un array multi-línea
+// que su sub-parser dejó sin consumir, sin importar el tipo de array.
+func isPureArrayCloser(trimmed string) bool {
 	for _, r := range trimmed {
 		if r != ']' && r != '}' && r != ',' {
 			return false
 		}
 	}
 	return true
+}
+
+// isMarkdownLinkShaped reporta si trimmed tiene la forma de un enlace
+// Markdown ("[texto](url)"): empieza con "[", contiene "](" y cierra con
+// ")" después. Una fila de datos legítima ("[\"Q1\", 1],") no produce esa
+// secuencia, así que basta para distinguir las dos formas sin regexp.
+func isMarkdownLinkShaped(trimmed string) bool {
+	idx := strings.Index(trimmed, "](")
+	if idx == -1 {
+		return false
+	}
+	return strings.Contains(trimmed[idx+2:], ")")
 }
 
 // isArrayValuedKey reporta si key es una de las propiedades cuyo case en el

@@ -319,3 +319,58 @@ func TestChartParser_MalformedOptionsArrayDoesNotLeakIntoData(t *testing.T) {
 		t.Errorf("Data = %v, want [[1 2]] — el options: malformado se tragó data:", chart.Data)
 	}
 }
+
+// TestChartParser_ColumnZeroSeriesArrayIsNotCutByDataRowShape cubre la
+// tercera regresión de la revisión: la validación de continuación exigía
+// forma de fila entre corchetes ("[...]") para CUALQUIER array abierto, pero
+// parseMultiLineStringArray (series/labels/type) espera strings sueltos SIN
+// envolver ("\"Revenue\","), no filas. Con el array en columna 0 — el mismo
+// caso que motivó arrayDepth para data — el parser cortaba en la primera
+// fila de series y perdía todo lo que seguía, incluido un data: posterior.
+func TestChartParser_ColumnZeroSeriesArrayIsNotCutByDataRowShape(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>", // 0
+		"series: [",      // 1
+		`"Revenue",`,     // 2
+		`"Cost"`,         // 3
+		"]",              // 4
+		"data: [1, 2]",   // 5
+		"",               // 6
+		"**prosa**",      // 7
+	}
+	chart := assertChartConsumes(t, lines, 7)
+	// chart.Series se queda vacío incluso con este fix: es un gap PREEXISTENTE
+	// y separado (parseMultiLineStringArray, igual que parseMultiLineArray,
+	// devuelve 0 líneas consumidas cuando el array arranca en columna 0, así
+	// que nunca llega a extraer los valores) — confirmado que main sin
+	// parchear pierde el mismo contenido para "data:" en columna 0. Lo que
+	// este test fija es el truncamiento: que "data:" no termine tratado como
+	// texto suelto fuera del chart solo porque series: lo antecede sin
+	// sangría.
+	if len(chart.Data) == 0 {
+		t.Errorf("Data = %v — el corte prematuro en series: se llevó data: por delante, tratándolo como texto", chart.Data)
+	}
+}
+
+// TestChartParser_MarkdownLinkAfterUnclosedDataArraySurvives cubre la cuarta:
+// dentro de un array de data: sin cerrar, un enlace Markdown también empieza
+// con "[" y calificaba como continuación por esa sola razón — el enlace
+// desaparecía igual que si el array nunca hubiera quedado abierto.
+// isMarkdownLinkShaped lo distingue de una fila real ("[\"Q1\", 1],") por la
+// secuencia "](" que ninguna fila de datos produce.
+func TestChartParser_MarkdownLinkAfterUnclosedDataArraySurvives(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",                    // 0
+		"  data: [",                         // 1 — nunca se cierra
+		"    [1, 2],",                       // 2
+		"[Ver fuente](https://example.com)", // 3
+		"",                                  // 4
+		"**prosa**",                         // 5
+	}
+	// El array solo tiene una fila antes del enlace (nunca cierra), así que
+	// el bloque son las líneas 0-2; el enlace en la 3 debe sobrevivir.
+	chart := assertChartConsumes(t, lines, 3)
+	if len(chart.Data) != 1 {
+		t.Errorf("Data = %v, want 1 fila", chart.Data)
+	}
+}
