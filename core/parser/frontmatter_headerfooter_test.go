@@ -245,6 +245,60 @@ func TestFrontMatterParser_FooterPageNumbersAbsent(t *testing.T) {
 	}
 }
 
+// TestFrontMatterParser_LayoutDefaultsNilEntry is a code-review regression
+// (found alongside the CHART005 fixes in PR #232/#233): `layout_defaults:\n
+// name: null` is valid YAML — a mapping whose value is the null scalar — and
+// decodes to a nil `*rawLayoutConfig` for that key. Before this fix,
+// convertHeaderFooterConfig dereferenced that nil pointer
+// (`layoutConfig.Header`) unconditionally and panicked, crashing the parser
+// on a namespace that carries no information at all. This isn't only a
+// round-trip concern: the same shape panics on a hand-authored document,
+// with no formatter involved, so it must not depend on where the nil came
+// from.
+func TestFrontMatterParser_LayoutDefaultsNilEntry(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\nlayout_defaults:\n  title: null\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node == nil {
+		t.Fatal("node should not be nil")
+	}
+	if node.HeaderFooter == nil {
+		t.Fatal("HeaderFooter should not be nil: layout_defaults was declared")
+	}
+	if layout, ok := node.HeaderFooter.LayoutDefaults["title"]; ok {
+		t.Errorf("LayoutDefaults[\"title\"] = %+v, want the key absent for a null entry", layout)
+	}
+}
+
+// TestFrontMatterParser_LayoutDefaultsMixedNilAndPopulated proves the nil
+// guard only skips the null entry, not the whole map: a genuinely populated
+// sibling layout must still convert normally.
+func TestFrontMatterParser_LayoutDefaultsMixedNilAndPopulated(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntitle: Doc\nlayout_defaults:\n  title: null\n  content:\n    header:\n      enabled: true\n---\n\nContenido.")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error-severity diagnostic: %v", d)
+		}
+	}
+	if node == nil {
+		t.Fatal("node should not be nil")
+	}
+	layout, ok := node.HeaderFooter.LayoutDefaults["content"]
+	if !ok || layout == nil || layout.Header == nil || !layout.Header.Enabled {
+		t.Errorf("LayoutDefaults[\"content\"] did not convert, got %+v", layout)
+	}
+	if _, ok := node.HeaderFooter.LayoutDefaults["title"]; ok {
+		t.Errorf("LayoutDefaults[\"title\"] should be absent for a null entry")
+	}
+}
+
 // TestFrontMatterParser_FooterPageNumbersInvalidSequence covers the
 // rejection path for page_numbers, mirroring
 // TestFrontMatterParser_HeaderTextInvalidSequence.

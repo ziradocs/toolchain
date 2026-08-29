@@ -34,7 +34,6 @@ func TestGetTransformRules_ReturnsExpectedRuleSet(t *testing.T) {
 		"*frontmatter.YamlEscapingRule",
 		"*frontmatter.BackticksCleanupRule",
 		"*frontmatter.InjectionRule",
-		"*enhancement.ElementClosingTagsRule",
 		"*structure.SeparatorsRule",
 		"*structure.MarkdownSlideStructureRule",
 		"*content.TitleSubtitleRule",

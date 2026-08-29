@@ -559,6 +559,17 @@ func (p *FrontMatterParser) convertHeaderFooterConfig(raw *rawFrontMatter) *ast.
 	if raw.LayoutDefaults != nil {
 		config.LayoutDefaults = make(map[string]*ast.LayoutHeaderFooterConfig)
 		for layoutName, layoutConfig := range raw.LayoutDefaults {
+			// `layout_defaults:\n  nombre: null` es YAML válido (mapa con un
+			// valor nulo) y decodifica a un *rawLayoutConfig nil — no un caso
+			// hipotético: lo emite el propio formatter cuando fm.HeaderFooter.
+			// LayoutDefaults trae una entrada nil (map[string]*T público, nada
+			// impide construirlo así desde código), y también lo puede escribir
+			// a mano cualquier autor. Sin este guard, layoutConfig.Header abajo
+			// desreferencia un puntero nil y tumba el build entero por un
+			// namespace vacío que no aporta nada (hallazgo de code review).
+			if layoutConfig == nil {
+				continue
+			}
 			converted := &ast.LayoutHeaderFooterConfig{}
 
 			if layoutConfig.Header != nil {

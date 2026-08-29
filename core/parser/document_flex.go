@@ -12,6 +12,7 @@ import (
 	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/internal/normalize"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -66,7 +67,7 @@ func NewDocumentFlexParserWithNormalization(input string, log util.Logger) *Docu
 	}
 
 	// Normalizar el contenido usando la API del factory
-	processedContent, report := normalize.ProcessWithDetection(input, detectionResult, log)
+	processedContent, report := normalize.ProcessWithDetection(input, detectionResult, base.DialectDocuments, log)
 
 	wasModified := false
 	if report.WasModified {

@@ -9,78 +9,100 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
+// Los structs de configuración de este archivo (HeaderFooterConfig y su
+// familia, TOCConfig, PageConfig, PageMargins, WatermarkConfig) llevan un tag
+// `yaml:` que ESPEJA exactamente su tag `json:` — mismo nombre de llave, misma
+// presencia o ausencia de omitempty. No es decoración: core/formatter emite el
+// frontmatter con yaml.Marshal sobre estos structs (issue #230), y
+// go.yaml.in/yaml/v3 lee solo el tag `yaml:` (el fallback de "tag desnudo" no
+// aplica: un tag `json:"..."` contiene ':'), así que sin él cae a
+// strings.ToLower(field.Name) y emite `excludetitleslides`/`startfrom`/
+// `pagenumbers`/`layoutdefaults`/`fontsize` — llaves que parser/frontmatter.go
+// no lee.
+//
+// Copiar la AUSENCIA de omitempty es lo que sostiene el tri-estado, no un
+// descuido: WatermarkConfig.Enabled y los Enabled de Header/Footer/PageNumbers/
+// Border son bools planos. Si `enabled: false` se omitiera en watermark, el
+// reparse lo devolvería como true (convertWatermark arranca en Enabled: true
+// cuando la llave está declarada). Los punteros con omitempty sí se emiten
+// apuntando a su valor cero — yaml.v3 considera zero un puntero solo si es nil.
+//
+// FrontMatterNode NO se taguea a propósito: nunca se marshalea entero (Raw,
+// BaseNode, y el hecho de que HeaderFooter se parta en tres llaves de nivel
+// superior lo hacen imposible), y taguearlo insinuaría lo contrario.
+
 // HeaderFooterConfig representa la configuración global de headers y footers
 type HeaderFooterConfig struct {
-	Header         *HeaderConfig                        `json:"header,omitempty"`
-	Footer         *FooterConfig                        `json:"footer,omitempty"`
-	LayoutDefaults map[string]*LayoutHeaderFooterConfig `json:"layout_defaults,omitempty"`
+	Header         *HeaderConfig                        `json:"header,omitempty" yaml:"header,omitempty"`
+	Footer         *FooterConfig                        `json:"footer,omitempty" yaml:"footer,omitempty"`
+	LayoutDefaults map[string]*LayoutHeaderFooterConfig `json:"layout_defaults,omitempty" yaml:"layout_defaults,omitempty"`
 }
 
 // HeaderConfig configura la apariencia y contenido del header
 type HeaderConfig struct {
-	Enabled    bool              `json:"enabled"`
-	Height     string            `json:"height,omitempty"`     // e.g., "60px", "4rem"
-	Background string            `json:"background,omitempty"` // color o gradiente
-	Text       *HeaderFooterText `json:"text,omitempty"`
-	Logo       *LogoConfig       `json:"logo,omitempty"`
-	Border     *BorderConfig     `json:"border,omitempty"`
+	Enabled    bool              `json:"enabled" yaml:"enabled"`
+	Height     string            `json:"height,omitempty" yaml:"height,omitempty"`         // e.g., "60px", "4rem"
+	Background string            `json:"background,omitempty" yaml:"background,omitempty"` // color o gradiente
+	Text       *HeaderFooterText `json:"text,omitempty" yaml:"text,omitempty"`
+	Logo       *LogoConfig       `json:"logo,omitempty" yaml:"logo,omitempty"`
+	Border     *BorderConfig     `json:"border,omitempty" yaml:"border,omitempty"`
 }
 
 // FooterConfig configura la apariencia y contenido del footer
 type FooterConfig struct {
-	Enabled     bool               `json:"enabled"`
-	Height      string             `json:"height,omitempty"`     // e.g., "40px", "3rem"
-	Background  string             `json:"background,omitempty"` // color o gradiente
-	Text        *HeaderFooterText  `json:"text,omitempty"`
-	PageNumbers *PageNumbersConfig `json:"page_numbers,omitempty"`
-	Border      *BorderConfig      `json:"border,omitempty"`
+	Enabled     bool               `json:"enabled" yaml:"enabled"`
+	Height      string             `json:"height,omitempty" yaml:"height,omitempty"`         // e.g., "40px", "3rem"
+	Background  string             `json:"background,omitempty" yaml:"background,omitempty"` // color o gradiente
+	Text        *HeaderFooterText  `json:"text,omitempty" yaml:"text,omitempty"`
+	PageNumbers *PageNumbersConfig `json:"page_numbers,omitempty" yaml:"page_numbers,omitempty"`
+	Border      *BorderConfig      `json:"border,omitempty" yaml:"border,omitempty"`
 }
 
 // HeaderFooterText define el contenido de texto en headers/footers
 type HeaderFooterText struct {
-	Left   string `json:"left,omitempty"`
-	Center string `json:"center,omitempty"`
-	Right  string `json:"right,omitempty"`
+	Left   string `json:"left,omitempty" yaml:"left,omitempty"`
+	Center string `json:"center,omitempty" yaml:"center,omitempty"`
+	Right  string `json:"right,omitempty" yaml:"right,omitempty"`
 }
 
 // PageNumbersConfig configura la numeración de páginas
 type PageNumbersConfig struct {
-	Enabled              bool   `json:"enabled"`
-	Format               string `json:"format,omitempty"`   // e.g., "{{current}} / {{total}}", "Página {{current}}"
-	Position             string `json:"position,omitempty"` // "left", "center", "right"
-	ExcludeTitleSlides   bool   `json:"exclude_title_slides,omitempty"`
-	ExcludeClosingSlides bool   `json:"exclude_closing_slides,omitempty"`
-	StartFrom            int    `json:"start_from,omitempty"`
-	Style                string `json:"style,omitempty"` // "normal", "caption", "bold"
+	Enabled              bool   `json:"enabled" yaml:"enabled"`
+	Format               string `json:"format,omitempty" yaml:"format,omitempty"`     // e.g., "{{current}} / {{total}}", "Página {{current}}"
+	Position             string `json:"position,omitempty" yaml:"position,omitempty"` // "left", "center", "right"
+	ExcludeTitleSlides   bool   `json:"exclude_title_slides,omitempty" yaml:"exclude_title_slides,omitempty"`
+	ExcludeClosingSlides bool   `json:"exclude_closing_slides,omitempty" yaml:"exclude_closing_slides,omitempty"`
+	StartFrom            int    `json:"start_from,omitempty" yaml:"start_from,omitempty"`
+	Style                string `json:"style,omitempty" yaml:"style,omitempty"` // "normal", "caption", "bold"
 }
 
 // LogoConfig configura logos en headers
 type LogoConfig struct {
-	Source   string `json:"source,omitempty"`   // ruta al logo
-	Alt      string `json:"alt,omitempty"`      // texto alternativo
-	Height   string `json:"height,omitempty"`   // altura del logo
-	Position string `json:"position,omitempty"` // "left", "center", "right"
+	Source   string `json:"source,omitempty" yaml:"source,omitempty"`     // ruta al logo
+	Alt      string `json:"alt,omitempty" yaml:"alt,omitempty"`           // texto alternativo
+	Height   string `json:"height,omitempty" yaml:"height,omitempty"`     // altura del logo
+	Position string `json:"position,omitempty" yaml:"position,omitempty"` // "left", "center", "right"
 }
 
 // BorderConfig configura bordes en headers/footers
 type BorderConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Color    string `json:"color,omitempty"`
-	Width    string `json:"width,omitempty"`    // e.g., "1px", "2px"
-	Style    string `json:"style,omitempty"`    // "solid", "dashed", "dotted"
-	Position string `json:"position,omitempty"` // "top", "bottom", "both"
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
+	Color    string `json:"color,omitempty" yaml:"color,omitempty"`
+	Width    string `json:"width,omitempty" yaml:"width,omitempty"`       // e.g., "1px", "2px"
+	Style    string `json:"style,omitempty" yaml:"style,omitempty"`       // "solid", "dashed", "dotted"
+	Position string `json:"position,omitempty" yaml:"position,omitempty"` // "top", "bottom", "both"
 }
 
 // LayoutHeaderFooterConfig permite overrides por tipo de layout
 type LayoutHeaderFooterConfig struct {
-	Header *HeaderConfig `json:"header,omitempty"`
-	Footer *FooterConfig `json:"footer,omitempty"`
+	Header *HeaderConfig `json:"header,omitempty" yaml:"header,omitempty"`
+	Footer *FooterConfig `json:"footer,omitempty" yaml:"footer,omitempty"`
 }
 
 // ContentBlockHeaderFooterOverride permite overrides por bloque de contenido individual
 type ContentBlockHeaderFooterOverride struct {
-	Header *HeaderConfig `json:"header,omitempty"`
-	Footer *FooterConfig `json:"footer,omitempty"`
+	Header *HeaderConfig `json:"header,omitempty" yaml:"header,omitempty"`
+	Footer *FooterConfig `json:"footer,omitempty" yaml:"footer,omitempty"`
 }
 
 // FrontMatterNode contiene el YAML parseado del FrontMatter
@@ -147,8 +169,8 @@ type FrontMatterNode struct {
 // shorthand for "enabled, no opinion on depth") must not imply anything
 // about Depth.
 type TOCConfig struct {
-	Enabled *bool `json:"enabled,omitempty"`
-	Depth   *int  `json:"depth,omitempty"`
+	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Depth   *int  `json:"depth,omitempty" yaml:"depth,omitempty"`
 }
 
 // PageConfig is the parsed `page:` front matter namespace. Size and the
@@ -161,8 +183,8 @@ type TOCConfig struct {
 // See core/util/length.go for the shared resolver every consumer should use
 // instead of re-parsing these strings ad hoc.
 type PageConfig struct {
-	Size    string       `json:"size,omitempty"`
-	Margins *PageMargins `json:"margins,omitempty"`
+	Size    string       `json:"size,omitempty" yaml:"size,omitempty"`
+	Margins *PageMargins `json:"margins,omitempty" yaml:"margins,omitempty"`
 }
 
 // PageMargins holds one raw length string per side. `margins: 2cm` (the
@@ -172,10 +194,10 @@ type PageConfig struct {
 // 1/2/4-value CSS shorthand: nothing emits that today, and adding it later
 // is a parser change, not a contract change.
 type PageMargins struct {
-	Top    string `json:"top,omitempty"`
-	Right  string `json:"right,omitempty"`
-	Bottom string `json:"bottom,omitempty"`
-	Left   string `json:"left,omitempty"`
+	Top    string `json:"top,omitempty" yaml:"top,omitempty"`
+	Right  string `json:"right,omitempty" yaml:"right,omitempty"`
+	Bottom string `json:"bottom,omitempty" yaml:"bottom,omitempty"`
+	Left   string `json:"left,omitempty" yaml:"left,omitempty"`
 }
 
 // WatermarkConfig is the parsed `watermark:` front matter namespace (issue
@@ -188,16 +210,16 @@ type PageMargins struct {
 // reason PageConfig.Size is: see core/util/length.go for the shared
 // resolver every consumer should use instead of re-parsing it ad hoc.
 type WatermarkConfig struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool `json:"enabled" yaml:"enabled"`
 	// Text passes through the same {{variable}} substitution as
 	// header/footer text (renderer.ProcessVariables) — an author can write
 	// `watermark: "{{title}} — BORRADOR"`.
-	Text     string   `json:"text,omitempty"`
-	Color    string   `json:"color,omitempty"`
-	Opacity  *float64 `json:"opacity,omitempty"`  // 0.0-1.0
-	Rotation *float64 `json:"rotation,omitempty"` // degrees, clockwise
-	FontSize string   `json:"font_size,omitempty"`
-	Repeat   *bool    `json:"repeat,omitempty"`
+	Text     string   `json:"text,omitempty" yaml:"text,omitempty"`
+	Color    string   `json:"color,omitempty" yaml:"color,omitempty"`
+	Opacity  *float64 `json:"opacity,omitempty" yaml:"opacity,omitempty"`   // 0.0-1.0
+	Rotation *float64 `json:"rotation,omitempty" yaml:"rotation,omitempty"` // degrees, clockwise
+	FontSize string   `json:"font_size,omitempty" yaml:"font_size,omitempty"`
+	Repeat   *bool    `json:"repeat,omitempty" yaml:"repeat,omitempty"`
 }
 
 // NewFrontMatterNode crea un nuevo nodo de FrontMatter

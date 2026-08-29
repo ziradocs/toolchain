@@ -29,7 +29,7 @@ func FormatDocumentStrict(doc *ast.AST) (string, error) {
 	var fm string
 	if doc.FrontMatter != nil {
 		var err error
-		fm, err = formatFrontMatter(doc.FrontMatter, frontMatterOverrides(doc.FrontMatter, "strict"))
+		fm, err = formatFrontMatter(doc.FrontMatter, frontMatterOverrides(doc.FrontMatter, "strict"), frontMatterFallbacks(doc.FrontMatter))
 		if err != nil {
 			return "", err
 		}

@@ -22,7 +22,29 @@ func GetTransformRules(log util.Logger) []base.TransformRule {
 		&frontmatter.BackticksCleanupRule{},
 		// Prioridad 1 - Frontmatter y tags
 		frontmatter.NewInjectionRule(),
-		enhancement.NewElementClosingTagsRule(), // NUEVA: Normaliza >> a <</element>>
+		// Acá vivía ElementClosingTagsRule, que decía normalizar un `>>`
+		// suelto a `<</element>>`. Se borró por muerta y por mal encarada:
+		//
+		//   - Nunca podía dispararse. Su guard de apertura era
+		//     `HasPrefix(trimmed, "<<chart") && !HasSuffix(trimmed, ">>")`
+		//     (misma forma para map y plantuml), y toda apertura bien formada
+		//     termina en `>>` (`<<chart: bar>>`, `<<map>>`, `<<plantuml>>`).
+		//     Sus tests solo ejercitaban aperturas SIN cerrar (`<<chart` a
+		//     secas), que la gramática no admite — por eso el hueco pasó
+		//     desapercibido. Verificado a mano: un `>>` cerrando un `<<map>>`
+		//     o un `<<plantuml>>` seguía saliendo como un `> >` suelto.
+		//   - Emitía `<</plantuml>>`, que internal/elements/plantuml.go no
+		//     acepta (solo toma `<<end>>`).
+		//   - Y aunque se le arreglara el guard, no serviría: el normalizador
+		//     entero corre solo cuando el Detector puntúa el documento por
+		//     encima de 0.3, así que `>>` andaría o no según cosas ajenas
+		//     (p. ej. si el documento trae un mermaid sin indentar). Una
+		//     cuestión de sintaxis no puede depender de eso.
+		//
+		// Si algún día se quiere tolerar `>>` como terminador, va en los
+		// parsers de internal/elements/ (determinista) y en
+		// spec/language-specification.md, que hoy dice
+		// `element_terminator ::= "<<end>>" | block_boundary | EOF`.
 
 		// Prioridad 2 - Estructura básica
 		&structure.SeparatorsRule{},

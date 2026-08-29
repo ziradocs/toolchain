@@ -5,6 +5,9 @@ package elements
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -43,11 +46,35 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	// Extraer tipo y atributos: "<<chart: bar width="1200" height="600">>"
 	chartType := "bar"
-	width := 800  // default
-	height := 600 // default
+	// 0 = el autor no declaró la dimensión. NO se hornea acá el 800x600 del
+	// renderer: el AST es el contrato público (schema/ast.schema.json,
+	// ast-types), y meterle el default de UN consumidor borra la única
+	// información que distingue "el autor pidió 800" de "el autor no dijo
+	// nada" — que es justo lo que `doclang fmt` necesitaba para no escribir
+	// `width="800" height="600"` en documentos que nunca los declararon.
+	// Mismo criterio que `zoom` en map.go, que ya usaba el 0, y que
+	// PageConfig.Size/PageMargins en ast/nodes.go, que guardan el texto crudo
+	// del autor en vez de resolverlo.
+	//
+	// Quien renderiza aplica su propio default: renderer.ChartDimensions y el
+	// bloque de mapas de renderer/html.go arrancan en 800x600 y solo pisan si
+	// el campo es > 0.
+	width := 0
+	height := 0
 
+	// unknownAttrs junta los atributos de la línea de apertura que el chart no
+	// conoce, para reportarlos como CHART005 más abajo. Solo se leen `width` y
+	// `height`: cualquier otro par `k="v"` se ignoraba sin dejar rastro, y así
+	// shipeó la plantilla `report` de `doclang init` con un
+	// `<<chart:bar title="...">>` cuyo título no llegaba nunca al AST ni al
+	// render. `title` va como llave del cuerpo (`title:`), no como atributo.
+	var unknownAttrs []string
+
+	// SplitN y no Split: con Split, un valor que contenga ':' (p. ej.
+	// `title="Ventas: Q4"`) partía la línea en más de dos pedazos y attrStr
+	// quedaba truncado en el primer ':'.
 	if strings.Contains(line, ":") {
-		parts := strings.Split(line, ":")
+		parts := strings.SplitN(line, ":", 2)
 		if len(parts) > 1 {
 			attrStr := strings.TrimSpace(parts[1])
 			attrStr = strings.TrimSuffix(attrStr, ">>")
@@ -69,11 +96,31 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					height = val
 				}
 			}
+
+			unknownAttrs = unknownOpenerAttributes(attrStr, "width", "height")
 		}
 	}
 	chart := ast.NewChartElement(pos, chartType)
 	chart.Width = width
 	chart.Height = height
+
+	// diags se arma ACÁ, no en cada return, y de eso depende que CHART005
+	// llegue siempre. Parse tiene TRES salidas —JSON directo, YAML de combo, y
+	// el loop de propiedades— y el aviso de atributos desconocidos vivía
+	// duplicado en dos de ellas: la de combo devolvía un ParseResult sin
+	// Diagnostics, así que un `<<chart: combo title="...">>` volvía a perder
+	// el título en silencio, que es exactamente el defecto que CHART005
+	// existe para señalar (hallazgo de code review del PR #232). Declararlo
+	// una sola vez apenas parseada la apertura hace que agregar una cuarta
+	// salida no pueda repetir el olvido: el dato ya está en la variable que
+	// todas devuelven.
+	var diags []diagnostics.Diagnostic
+	if len(unknownAttrs) > 0 {
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("Atributo(s) no reconocido(s) en la apertura del chart (%s); solo se aceptan 'width' y 'height' — ignorado(s). El título va como llave del cuerpo: 'title:'",
+				strings.Join(unknownAttrs, ", ")),
+			pos, "chart-parser").WithRuleID("CHART005"))
+	}
 	consumedLines := 1 // skip <<chart:>> line
 	indentDetector := NewAutoDetectIndentation()
 
@@ -86,7 +133,6 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			if jsonContent != "" {
 				consumedLines += jsonLines
 
-				var diags []diagnostics.Diagnostic
 				if json.Valid([]byte(jsonContent)) {
 					chart.RawJSON = json.RawMessage(jsonContent)
 					chart.IsJSONMode = true
@@ -98,11 +144,9 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					// suelto ni reprocesarlo como propiedades data:/series:/etc. Este
 					// diagnóstico Warning no aborta el build (a diferencia de Error) y
 					// es la única señal específica de "el JSON estaba roto".
-					diags = []diagnostics.Diagnostic{
-						diagnostics.NewWarning(
-							"El JSON del chart es inválido y fue ignorado; el chart quedará sin datos",
-							pos, "chart-parser").WithRuleID("CHART002"),
-					}
+					diags = append(diags, diagnostics.NewWarning(
+						"El JSON del chart es inválido y fue ignorado; el chart quedará sin datos",
+						pos, "chart-parser").WithRuleID("CHART002"))
 				}
 				return &ParseResult{
 					Element:       chart,
@@ -118,11 +162,26 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	if chartType == "combo" && startIndex+1 < len(ctx.Lines) {
 		yamlContent, yamlLines := p.parseYAMLBlock(ctx.Lines, startIndex+1)
 		if yamlContent != "" {
-			if p.parseComboChartYAML(chart, yamlContent) {
+			if ok, unknownKeys := p.parseComboChartYAML(chart, yamlContent); ok {
 				consumedLines += yamlLines
+				// Mismo criterio que unknownKeys en el loop de propiedades de
+				// abajo (ver CHART005 más abajo): ChartConfig deserializa con
+				// yaml.v3, que ignora en silencio cualquier llave del mapeo que
+				// no tenga campo correspondiente en el struct. Un
+				// `<<chart: combo>>` con un `datasets:` de nivel superior (el
+				// mismo typo que la plantilla `report` de `doclang init` traía
+				// en la forma plana) pasaba por acá sin ningún aviso, aunque el
+				// resto del chart tuviera datos válidos.
+				if len(unknownKeys) > 0 {
+					diags = append(diags, diagnostics.NewWarning(
+						fmt.Sprintf("Llave(s) no reconocida(s) en el bloque chart (%s); se esperaba 'data'/'options' — ignorada(s)",
+							strings.Join(unknownKeys, ", ")),
+						pos, "chart-parser").WithRuleID("CHART005"))
+				}
 				return &ParseResult{
 					Element:       chart,
 					ConsumedLines: consumedLines,
+					Diagnostics:   diags,
 					Error:         nil,
 				}
 			}
@@ -149,11 +208,29 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	arrayDepth := 0
 	openArrayKey := ""
 	// bodyIndent fija el nivel de sangría del cuerpo del chart a partir de
-	// su PRIMERA línea de contenido, y hace que un dedent por debajo de ese
-	// nivel cierre el bloque INCONDICIONALMENTE — antes de consultar
-	// isArrayContinuationForKey o el allowlist. Ver el bloque que lo
-	// establece, más abajo, para el porqué de -1 vs. 0 como estados.
+	// su PRIMERA línea de contenido. Cumple DOS roles:
+	//
+	//   - Un dedent por DEBAJO de ese nivel cierra el bloque
+	//     INCONDICIONALMENTE — antes de consultar isArrayContinuationForKey
+	//     o el allowlist. Es la convención de cierre que este archivo entero
+	//     existe para respetar (spec/language-specification.md:75).
+	//   - Una línea MÁS profunda que ese nivel (y fuera de un array
+	//     abierto — ver el chequeo de arrayDepth más abajo) es contenido de
+	//     la llave que la abrió, no una propiedad nueva del chart: se
+	//     consume y se ignora sin pasar por el switch. Sin este segundo rol,
+	//     el `data:` anidado bajo un `datasets:` inventado se leía como si
+	//     fuera EL `data:` de nivel superior — el defecto original que
+	//     motivó esta variable en el PR #232, antes de que este archivo
+	//     tuviera bodyIndent/arrayDepth/el allowlist de abajo.
+	//
+	// Ambos roles se saltan a propósito cuando bodyIndent == 0 (chart con
+	// propiedades en columna 0 desde la primera línea, como
+	// examples/use-cases/educational/machine_learning_intro.slidelang): ahí
+	// la sangría no sirve para distinguir nada porque TODO el cuerpo vive en
+	// columna 0 — es el tratamiento heredado que ya existía antes de este
+	// mecanismo, y sigue intacto.
 	bodyIndent := -1
+	var unknownKeys []string
 chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
@@ -186,22 +263,13 @@ chartLoop:
 		// SIN mirar si tiene forma de propiedad reconocida
 		// (isChartPropertyKey) ni de continuación de array
 		// (isArrayContinuationForKey). El dedent es más fuerte que
-		// cualquiera de los dos: es la convención de cierre que este
-		// archivo entero existe para respetar
-		// (spec/language-specification.md:75), y un chart con cuerpo
-		// sangrado que vuelve a columna 0 ya salió del bloque sin importar
-		// que esa línea diga "title: ..." (parece propiedad) o sea un
-		// string completo entre comillas (parece continuación de un array
-		// de labels/series sin cerrar) — de otro modo cualquiera de las dos
-		// listas podía "reconocer" contenido que el dedent ya había dejado
-		// afuera, y tragárselo.
-		//
-		// El chequeo se salta a propósito cuando bodyIndent == 0
-		// (chart con propiedades en columna 0 desde la primera línea, como
-		// examples/use-cases/educational/machine_learning_intro.slidelang):
-		// ahí el dedent no puede usarse para cerrar nada porque TODO el
-		// cuerpo vive en columna 0 — es el tratamiento heredado que ya
-		// existía antes de este mecanismo, y sigue intacto.
+		// cualquiera de los dos: un chart con cuerpo sangrado que vuelve a
+		// columna 0 ya salió del bloque sin importar que esa línea diga
+		// "title: ..." (parece propiedad) o sea un string completo entre
+		// comillas (parece continuación de un array de labels/series sin
+		// cerrar) — de otro modo cualquiera de las dos listas podía
+		// "reconocer" contenido que el dedent ya había dejado afuera, y
+		// tragárselo.
 		currentIndent := CalculateIndentLevel(line)
 		if bodyIndent == -1 {
 			bodyIndent = currentIndent
@@ -228,7 +296,11 @@ chartLoop:
 		//
 		// Los límites duros (<<end>>, "---", "<<", headings) se chequean
 		// ARRIBA de esto a propósito: un array sin cerrar no puede tragarse
-		// el resto del documento.
+		// el resto del documento. Este chequeo va ANTES del de "más profundo
+		// que bodyIndent" de abajo: una continuación de array casi siempre
+		// vive más indentada que la propiedad que la abrió, así que sin este
+		// orden caería en el chequeo de nesting genérico sin decrementar
+		// arrayDepth.
 		if arrayDepth > 0 {
 			// Un array sin cerrar (falta el "]") no puede tragarse el resto
 			// del documento solo porque arrayDepth siga en positivo: eso
@@ -250,15 +322,29 @@ chartLoop:
 			continue
 		}
 
+		// Más profundo que bodyIndent y sin un array abierto: contenido de
+		// la llave que lo abrió (una desconocida, o `options:` — data/
+		// series/labels/type multi-línea ya avanzaron `i` en su propio case
+		// y no llegan acá), no una propiedad nueva del chart. Ver el
+		// segundo rol de bodyIndent en su declaración, arriba, para el caso
+		// real que esto evita: el `data:`/`backgroundColor:` anidados bajo
+		// un `datasets:` inventado robándole el lugar al `data:` real de
+		// nivel superior.
+		if bodyIndent > 0 && currentIndent > bodyIndent {
+			consumedLines++
+			continue
+		}
+
 		// Todo contenido del chart es una propiedad "clave: valor" del
 		// allowlist de abajo. Cualquier otra cosa —prosa, "@notes:", una
-		// clave desconocida— es la PRIMERA línea de después del bloque, así
-		// que cierra el chart cerrado por dedent y se corta SIN consumirla,
-		// para que el parser de nivel superior la procese como lo que es.
+		// clave que no pertenece al vocabulario de charts— es la PRIMERA
+		// línea de después del bloque, así que cierra el chart cerrado por
+		// dedent y se corta SIN consumirla, para que el parser de nivel
+		// superior la procese como lo que es.
 		//
-		// Antes no había ninguno de estos tres cortes: la línea no
-		// reconocida caía hasta el consumedLines++ del final del loop, y
-		// como ConsumedLines es lo que le dice al llamador cuántas líneas
+		// Antes no había ninguno de estos cortes: la línea no reconocida
+		// caía hasta el consumedLines++ del final del loop, y como
+		// ConsumedLines es lo que le dice al llamador cuántas líneas
 		// saltar, todo lo que el chart escaneara de más DESAPARECÍA del
 		// documento sin diagnóstico (el chart en sí renderizaba bien, así
 		// que la pérdida era muda). Con un <<chart>> sin <<end>> —la
@@ -368,17 +454,28 @@ chartLoop:
 				}
 			}
 		default:
-			// Una propiedad reconocida del vocabulario de charts que este
-			// switch no llega a usar (datasets:, backgroundColor:, fill:...)
-			// es contenido del bloque igual: se consume y se sigue. El
-			// normalizador las emite y las trata como sintaxis de chart
-			// (ver isChartDataLine en rules/enhancement/chart_formatter.go),
-			// así que cortar en ellas dejaba el chart sin datos, disparaba
-			// CHART001 y mandaba el resto del bloque a texto.
-			if !isChartPropertyKey(key) {
-				// Clave desconocida: no es una propiedad del chart, así que
-				// la línea ya pertenece a lo que sigue al bloque. Cortar sin
-				// consumirla. Espeja el "default: break parseLoop" de map.go.
+			// isChartPropertyKey distingue dos formas de "no manejada por
+			// el switch": vocabulario de Chart.js que el normalizador
+			// reconoce y emite como sintaxis de chart (datasets:,
+			// backgroundColor:, fill:...) pero que el switch no consume, y
+			// una clave que no pertenece a ese vocabulario en absoluto.
+			//
+			// La primera SIGUE siendo contenido del bloque: cortar en ella
+			// dejaba el chart sin datos, disparaba CHART001 y mandaba el
+			// resto del bloque a texto (regresión que el PR de dedent
+			// encontró). Pero silenciarla del todo reabre el defecto
+			// original de CHART005 (PR #232): la plantilla `report` de
+			// `doclang init` shipeó con un `datasets:`/`backgroundColor:`
+			// que ni el AST ni el render veían nunca, sin ningún aviso. Se
+			// consume igual (no rompe el chart) pero se junta para el
+			// CHART005 de más abajo.
+			//
+			// La segunda no es una propiedad del chart, así que la línea ya
+			// pertenece a lo que sigue al bloque. Cortar sin consumirla.
+			// Espeja el "default: break parseLoop" de map.go.
+			if isChartPropertyKey(key) {
+				unknownKeys = append(unknownKeys, key)
+			} else {
 				break chartLoop
 			}
 		}
@@ -387,17 +484,17 @@ chartLoop:
 		// el sub-parser haya avanzado: si queda algo abierto, las líneas que
 		// siguen son del array y no límite del bloque.
 		//
-		// SOLO para data/series/labels/type: son las únicas cuyo case de
-		// arriba corre un sub-parser de array multi-línea que puede dejar un
-		// corchete sin cerrar (los dos casos del corpus: cierre dedentado,
-		// array en columna 0). options: captura su bloque por sangría con un
-		// mecanismo aparte (parseNestedOptions) y descarta el contenido si no
-		// parsea como YAML — sumar sus corchetes acá contaba texto que el
-		// chart ni siquiera conserva. Sin este filtro, un options: malformado
-		// con un "[" suelto (p. ej. "plugins: [unclosed") dejaba arrayDepth
-		// en positivo y la línea "data: [1, 2]" que le sigue se leía como
-		// continuación de un array ajeno en vez de como la propiedad data:
-		// que es — el chart perdía sus datos.
+		// SOLO para las llaves del vocabulario de charts que aceptan forma
+		// de array (isArrayValuedKey): son las únicas cuyo valor puede dejar
+		// un corchete sin cerrar (los dos casos del corpus: cierre
+		// dedentado, array en columna 0). options: captura su bloque por
+		// sangría con un mecanismo aparte (parseNestedOptions) y descarta el
+		// contenido si no parsea como YAML — sumar sus corchetes acá contaba
+		// texto que el chart ni siquiera conserva. Sin este filtro, un
+		// options: malformado con un "[" suelto (p. ej. "plugins: [unclosed")
+		// dejaba arrayDepth en positivo y la línea "data: [1, 2]" que le
+		// sigue se leía como continuación de un array ajeno en vez de como
+		// la propiedad data: que es — el chart perdía sus datos.
 		if isArrayValuedKey(key) {
 			openArrayKey = key
 			for k := lineStart; k <= i && k < len(ctx.Lines); k++ {
@@ -421,9 +518,31 @@ chartLoop:
 		chart.Data = [][]interface{}{}
 	}
 
+	// CHART005: una propiedad reconocida por el vocabulario de charts pero
+	// no manejada por el switch se ignora, pero se avisa. Warning y no
+	// Error, y sigue el mismo criterio que FRONT005/FRONT006/FRONT007 para
+	// `toc:`/`page:`/`watermark:`: un typo o una llave que el parser todavía
+	// no soporta no puede tumbar el build, pero tampoco puede evaporarse sin
+	// señal. Esa evaporación es justo cómo la plantilla `report` de
+	// `doclang init` shipeó con un `datasets:`/`backgroundColor:` que ni el
+	// AST ni el render veían nunca.
+	//
+	// Una clave que NO pertenece al vocabulario de charts en absoluto nunca
+	// llega acá: isChartPropertyKey ya cortó el bloque más arriba antes de
+	// juntarla, así que esta lista solo contiene vocabulario real de
+	// Chart.js que el parser todavía no traduce al AST — no prosa ni typos
+	// de otra naturaleza.
+	if len(unknownKeys) > 0 {
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("Llave(s) de Chart.js reconocida(s) pero no soportada(s) por el parser (%s); su valor se ignora. La config arbitraria de Chart.js va dentro de 'options:'",
+				strings.Join(unknownKeys, ", ")),
+			pos, "chart-parser").WithRuleID("CHART005"))
+	}
+
 	return &ParseResult{
 		Element:       chart,
 		ConsumedLines: consumedLines,
+		Diagnostics:   diags,
 		Error:         nil,
 	}
 }
@@ -1130,13 +1249,32 @@ type ChartConfig struct {
 	Options interface{} `yaml:"options,omitempty"`
 }
 
-// parseComboChartYAML parsea un combo chart usando YAML
-func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent string) bool {
+// parseComboChartYAML parsea un combo chart usando YAML. Además de (bool)
+// éxito, devuelve las llaves de nivel superior del YAML que ChartConfig no
+// modela: yaml.Unmarshal a un struct tagueado ignora en silencio cualquier
+// llave del mapeo sin campo correspondiente (a diferencia del loop de
+// propiedades de la forma plana, que sí las junta línea por línea en
+// unknownKeys), así que sin este segundo unmarshal a mapa un `datasets:` de
+// nivel superior en un combo chart se perdía sin CHART005 (hallazgo de code
+// review del PR #232).
+func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent string) (bool, []string) {
 	var config ChartConfig
 
 	err := yaml.Unmarshal([]byte(yamlContent), &config)
 	if err != nil {
-		return false
+		return false, nil
+	}
+
+	var unknownKeys []string
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal([]byte(yamlContent), &raw); err == nil {
+		for key := range raw {
+			if key != "data" && key != "options" {
+				unknownKeys = append(unknownKeys, key)
+			}
+		}
+		unknownKeys = append(unknownKeys, unknownComboDataKeys(raw)...)
+		sort.Strings(unknownKeys)
 	}
 
 	// Asignar labels
@@ -1169,7 +1307,7 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 		seriesLength := len(config.Data.Series[0].Values)
 		for _, series := range config.Data.Series {
 			if len(series.Values) != seriesLength {
-				return false // Inconsistencia en datos
+				return false, nil // Inconsistencia en datos
 			}
 		}
 
@@ -1201,7 +1339,60 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 		}
 	}
 
-	return true
+	return true, unknownKeys
+}
+
+// unknownComboDataKeys extiende la detección de llaves desconocidas del
+// combo chart un nivel más adentro: el chequeo de nivel superior (data vs
+// options) no ve nada mal en un `data:` bien formado que en su INTERIOR
+// tenga un typo, porque yaml.Unmarshal a ChartData/ChartSeries ignora en
+// silencio cualquier campo del mapeo sin tag correspondiente — el mismo
+// defecto de fondo que motivó el chequeo de nivel superior (hallazgo de
+// code review), solo que un nivel más profundo. `data.Labels:` (mayúscula,
+// en vez de `labels:`) es el caso real: el chart queda con Labels vacío y
+// se renderiza sin etiquetas, sin ningún CHART005 que lo delate.
+//
+// raw ya viene deserializado a mapas genéricos (mismo yamlContent que
+// ChartConfig, ver la llamada en parseComboChartYAML), así que esto es
+// lectura pura, sin volver a tocar el YAML.
+func unknownComboDataKeys(raw map[string]interface{}) []string {
+	dataMap, ok := raw["data"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	var unknown []string
+	for key := range dataMap {
+		if key != "labels" && key != "series" {
+			unknown = append(unknown, "data."+key)
+		}
+	}
+
+	seriesList, ok := dataMap["series"].([]interface{})
+	if !ok {
+		return unknown
+	}
+	seenSeriesKey := map[string]bool{}
+	for _, item := range seriesList {
+		seriesMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for key := range seriesMap {
+			switch key {
+			case "name", "type", "values", "yAxisID":
+				continue
+			}
+			// Una sola entrada por llave, no una por cada serie que la repita:
+			// series suele tener varios elementos con la misma forma, y un
+			// typo en el nombre del campo se repite en todos.
+			if !seenSeriesKey[key] {
+				seenSeriesKey[key] = true
+				unknown = append(unknown, "data.series[]."+key)
+			}
+		}
+	}
+	return unknown
 }
 
 // parseInlineMatrix parsea arrays de arrays inline como [[100, 500, 350, 220]]
@@ -1265,6 +1456,33 @@ func (p *ChartParser) parseInlineMatrix(value string) [][]interface{} {
 }
 
 // extractAttribute extrae el valor de un atributo HTML-style del string
+// unknownOpenerAttributes devuelve los nombres de atributo `k="v"` presentes
+// en attrStr que no estén en known. attrStr es lo que va después del ':' de la
+// apertura, ya sin el '>>' (p. ej. `bar title="Ventas" width="1200"`); el
+// primer token es el tipo del chart, no un atributo, y no se considera.
+func unknownOpenerAttributes(attrStr string, known ...string) []string {
+	isKnown := make(map[string]bool, len(known))
+	for _, k := range known {
+		isKnown[k] = true
+	}
+
+	var unknown []string
+	for _, m := range openerAttrRe.FindAllStringSubmatch(attrStr, -1) {
+		if name := m[1]; !isKnown[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	return unknown
+}
+
+// openerAttrRe matchea un par `nombre="valor"` o `nombre='valor'` de la línea
+// de apertura. Deliberadamente exige comillas: es la forma que emite el
+// formatter y la única que extractAttribute sabe leer, así que un
+// `width=1200` sin comillas ya se ignoraba antes de este cambio y no se
+// empieza a reportar acá (sería un cambio de comportamiento distinto, no el
+// hueco que se está tapando).
+var openerAttrRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*["'][^"']*["']`)
+
 // Ejemplo: `bar width="1200" height="600"` → extractAttribute(..., "width") = "1200"
 func extractAttribute(str, attrName string) string {
 	// Buscar patrón: attrName="value" o attrName='value'
