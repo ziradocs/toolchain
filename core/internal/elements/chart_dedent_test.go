@@ -587,3 +587,43 @@ func TestChartParser_NullOutsideOpenArrayDoesNotLeak(t *testing.T) {
 	}
 	assertChartConsumes(t, lines, 3)
 }
+
+// TestChartParser_ScatterObjectRowsSurvive cubre la séptima revisión:
+// isDataArrayRow solo reconocía filas entre corchetes ("[...]"), pero
+// Chart.js documenta objetos "{x, y}" como la forma de un punto en un
+// dataset de scatter/bubble
+// (https://www.chartjs.org/docs/latest/general/data-structures.html). Con un
+// array de data: escrito como un objeto por línea, ninguna fila calificaba
+// como continuación y el chart se cortaba en la primera, perdiendo labels:
+// que venía después.
+func TestChartParser_ScatterObjectRowsSurvive(t *testing.T) {
+	lines := []string{
+		"<<chart: scatter>>", // 0
+		"data: [",            // 1
+		"{x: 10, y: 20},",    // 2
+		"{x: 15, y: 10}",     // 3
+		"]",                  // 4
+		`labels: ["A", "B"]`, // 5
+	}
+	chart := assertChartConsumes(t, lines, 6)
+	if len(chart.Labels) != 2 {
+		t.Errorf("Labels = %v, want 2 — las filas-objeto se rechazaron y se llevaron labels: por delante", chart.Labels)
+	}
+}
+
+// TestChartParser_ObjectRowOnlyQualifiesForData confirma que la forma
+// "{...}" solo califica como continuación para la clave "data" (gateado por
+// el mismo openKey que ya distingue filas-matriz de escalares entre
+// comillas) — un objeto dentro de un array de series/labels, que solo
+// esperan strings, no debe colar solo porque sus llaves balancean.
+func TestChartParser_ObjectRowOnlyQualifiesForData(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",  // 0
+		"series: [",       // 1 — nunca se cierra
+		`"Revenue",`,      // 2
+		"{not: a string}", // 3
+		"",                // 4
+		"**prosa**",       // 5
+	}
+	assertChartConsumes(t, lines, 3)
+}

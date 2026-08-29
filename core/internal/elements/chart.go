@@ -690,16 +690,44 @@ func isPureArrayCloser(trimmed string) bool {
 }
 
 // isDataArrayRow reporta si trimmed es una fila de data completa en su
-// propia línea: un único grupo de corchetes balanceado (consciente de
-// comillas, como bracketDelta) que arranca en la posición 0 y no deja nada
-// después de cerrar salvo una coma opcional. parseArrayRow produce
-// exactamente esa forma ("[\"Q1\", 1]," o "[10, 20]"); un enlace Markdown
-// también empieza con "[" pero después de su "]" de cierre le sigue
-// "(url)" o "[ref]", no fin de línea ni coma — eso es lo que lo descarta.
+// propia línea: un grupo delimitado y balanceado (consciente de comillas,
+// como bracketDelta) que arranca en la posición 0 y no deja nada después de
+// cerrar salvo una coma opcional.
+//
+// Dos formas, según el delimitador con el que arranca la línea:
+//   - "[...]": la fila matriz que produce parseArrayRow ("[\"Q1\", 1]," o
+//     "[10, 20]").
+//   - "{...}": un objeto de punto ("{x: 10, y: 20},"), la forma que
+//     Chart.js espera para datasets de scatter/bubble
+//     (https://www.chartjs.org/docs/latest/general/data-structures.html) —
+//     el corpus solo la escribe hoy dentro del modo JSON crudo (que tiene su
+//     propio parser, parseJSONBlock, ajeno a este), pero la forma DSL
+//     "data: [...]" con objetos por línea es sintaxis igual de válida y no
+//     tenía ninguna forma de sobrevivir como continuación.
+//
+// Un enlace Markdown también empieza con "[" pero después de su "]" de
+// cierre le sigue "(url)" o "[ref]", no fin de línea ni coma — eso es lo que
+// lo descarta en la forma "[...]"; ningún enlace empieza con "{", así que la
+// forma "{...}" no necesita ese mismo chequeo.
 func isDataArrayRow(trimmed string) bool {
-	if !strings.HasPrefix(trimmed, "[") {
+	switch {
+	case strings.HasPrefix(trimmed, "["):
+		return isBalancedGroupRow(trimmed, '[', ']')
+	case strings.HasPrefix(trimmed, "{"):
+		return isBalancedGroupRow(trimmed, '{', '}')
+	default:
 		return false
 	}
+}
+
+// isBalancedGroupRow reporta si trimmed es un único grupo delimitado por
+// open/close, balanceado y consciente de comillas (igual que bracketDelta),
+// que no deja nada después de cerrar salvo una coma opcional. Compartido por
+// isDataArrayRow para sus dos formas ("[...]" y "{...}") — el delimitador
+// contrario al elegido no se rastrea, así que un "{" dentro de una fila
+// "[...]" (o viceversa) se trata como texto normal, igual que cualquier otro
+// carácter que no sea el par que se está balanceando.
+func isBalancedGroupRow(trimmed string, open, close rune) bool {
 	depth := 0
 	inString := false
 	escaped := false
@@ -715,13 +743,13 @@ func isDataArrayRow(trimmed string) bool {
 		case r == '"':
 			inString = !inString
 		case inString:
-			// dentro de una cadena los corchetes son texto, igual que en
-			// bracketDelta — así una fila cuyo VALOR contiene un enlace
+			// dentro de una cadena los delimitadores son texto, igual que
+			// en bracketDelta — así una fila cuyo VALOR contiene un enlace
 			// embebido ("[\"[Ver fuente](url)\", 5]") no se confunde con
 			// el propio enlace.
-		case r == '[':
+		case r == open:
 			depth++
-		case r == ']':
+		case r == close:
 			depth--
 			if depth == 0 {
 				closeIdx = idx
@@ -732,7 +760,7 @@ func isDataArrayRow(trimmed string) bool {
 		}
 	}
 	if closeIdx == -1 {
-		// El corchete inicial nunca cerró en esta línea: no es una fila
+		// El delimitador inicial nunca cerró en esta línea: no es una fila
 		// autocontenida, así que no calificar como continuación es lo
 		// conservador (evita tragar contenido que no se puede validar).
 		return false
