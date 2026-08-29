@@ -29,6 +29,85 @@ func (c RuleCategory) String() string {
 	}
 }
 
+// Dialect identifica cuál de los dos DSLs se está normalizando. El
+// normalizador lo recibe de quien lo llama (parser.Parser para slidelang,
+// parser.DocumentFlexParser para doclang), que lo sabe con certeza, en vez de
+// adivinarlo por la forma del contenido.
+//
+// Existe porque adivinarlo salió mal: HeadersRule (rules/content/headers.go)
+// es una heurística de slidelang — "un solo '##' titula el slide, cualquier
+// otro '##' de la misma región delimitada por '---' es contenido" — y en
+// doclang los '##' son subsecciones legítimas de la sección que abre un '#'.
+// Sin este dato, HeadersRule degradaba a "**negrita**" el segundo y siguientes
+// '##' de cada sección de un documento, en `doclang build` y no solo en `fmt`:
+// el heading desaparecía de la jerarquía y del TOC, sin diagnóstico.
+type Dialect int
+
+const (
+	// DialectAny es el cero: quien llama no declaró dialecto, así que se
+	// aplican todas las reglas (el comportamiento previo a que esto
+	// existiera). No es un descuido tolerado: hay entry points del
+	// normalizador fuera de los dos parsers, y romperlos por omisión sería
+	// peor que dejarlos como estaban.
+	DialectAny Dialect = iota
+	// DialectSlides es slidelang: cada bloque es un slide.
+	DialectSlides
+	// DialectDocuments es doclang: cada bloque es una sección, con jerarquía
+	// de subsecciones adentro.
+	DialectDocuments
+)
+
+// String devuelve el nombre del dialecto
+func (d Dialect) String() string {
+	switch d {
+	case DialectSlides:
+		return "slides"
+	case DialectDocuments:
+		return "documents"
+	default:
+		return "any"
+	}
+}
+
+// DialectScopedRule es la interfaz OPCIONAL (mismo patrón que CategorizedRule
+// más abajo) que implementa una regla cuya premisa solo vale para un dialecto.
+// Una regla que no la implementa se aplica siempre, que es el caso de casi
+// todas.
+//
+// Hoy la implementa solo HeadersRule. TitleSubtitleRule
+// (rules/content/title_subtitle.go) y MarkdownSlideStructureRule
+// (rules/structure/markdown_slides.go) son las siguientes candidatas — ambas
+// ya traen su propio isDocLangDocument, dos implementaciones distintas que en
+// realidad chequean `lines[0] == "---"` bajo un nombre de dialecto. Migrarlas
+// NO es mecánico y por eso no se hizo acá: como todo `.slidelang` arranca con
+// frontmatter y las dos rutas de slidelang le pasan el documento completo al
+// normalizador, ese guard hoy las apaga para prácticamente todo slidelang bien
+// formado. Cambiarlo por `dialect == slides → aplicar` las volvería a ENCENDER
+// para slidelang, un cambio de comportamiento en dirección contraria a este
+// arreglo y que necesita su propia validación contra el corpus de slidelang.
+type DialectScopedRule interface {
+	TransformRule
+
+	// AppliesTo reporta si la regla debe correr para d.
+	AppliesTo(d Dialect) bool
+}
+
+// FilterByDialect descarta las reglas que declaran no aplicar a d. Con
+// DialectAny no descarta nada.
+func FilterByDialect(rules []TransformRule, d Dialect) []TransformRule {
+	if d == DialectAny {
+		return rules
+	}
+	filtered := make([]TransformRule, 0, len(rules))
+	for _, rule := range rules {
+		if scoped, ok := rule.(DialectScopedRule); ok && !scoped.AppliesTo(d) {
+			continue
+		}
+		filtered = append(filtered, rule)
+	}
+	return filtered
+}
+
 // TransformRule representa una regla de transformación específica
 type TransformRule interface {
 	// Apply aplica la regla al contenido y retorna el contenido transformado

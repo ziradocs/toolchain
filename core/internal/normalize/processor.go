@@ -9,6 +9,7 @@ import (
 
 	"go.ziradocs.com/core/v2/internal/normalize/inference"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -25,6 +26,14 @@ type ProcessorConfig struct {
 	// Configuración general
 	InferenceThreshold float64       // Umbral mínimo para aplicar inferencias
 	MaxProcessingTime  time.Duration // Tiempo máximo de procesamiento
+}
+
+// WithDialect devuelve una copia de la config declarando el dialecto que se
+// está normalizando. Ver base.Dialect: sin esto, reglas cuya premisa es el
+// modelo de slides corren igual sobre un documento.
+func (c ProcessorConfig) WithDialect(d base.Dialect) ProcessorConfig {
+	c.NormalizationConfig.Dialect = d
+	return c
 }
 
 // ProcessingReport contiene el reporte completo del procesamiento AI
@@ -77,6 +86,21 @@ func NewProcessor(config ProcessorConfig, log util.Logger) *Processor {
 		config:          config,
 		logger:          log,
 	}
+}
+
+// setDialect redeclara el dialecto del procesador, reconstruyendo su
+// normalizador para que el filtrado por dialecto (base.FilterByDialect, que
+// corre en NewNormalizer) vuelva a evaluarse. MUTA el receptor y se devuelve a
+// sí mismo solo para encadenar — de ahí "set" y no "with", que prometería una
+// copia. Es seguro porque todo Processor sale nuevo del factory en cada
+// llamada. Vive acá y no en el paquete que llama para no exponer los campos
+// internos del Processor.
+func (p *Processor) setDialect(d base.Dialect) *Processor {
+	p.config = p.config.WithDialect(d)
+	if p.normalizer != nil {
+		p.normalizer = normalizer.NewNormalizer(p.config.NormalizationConfig, p.logger)
+	}
+	return p
 }
 
 // Process ejecuta el pipeline completo de procesamiento AI
