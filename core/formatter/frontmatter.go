@@ -130,8 +130,33 @@ func asYAMLMap(v interface{}) interface{} {
 // silencio de la salida cuando Raw estaba vacío.
 func frontMatterOverrides(fm *ast.FrontMatterNode, mode string) map[string]interface{} {
 	overrides := map[string]interface{}{}
+	// mode gana sobre fm.Mode cuando el llamador lo fuerza: FormatStrict y
+	// FormatDocumentStrict pasan "strict" sin importar qué diga el AST,
+	// porque esos dos formatters siempre emiten el dialecto strict. Pero
+	// FormatDocument pasa "" — no fuerza ningún dialecto, flex/flex-full/auto
+	// son sinónimos para documentos (ver CLAUDE.md) — y antes de este fix eso
+	// significaba que fm.Mode NUNCA se consideraba por ese camino: un AST con
+	// Mode="flex-full" y Raw vacío (construido en código, o decodificado
+	// desde --format json) se formateaba sin `mode:`, y al reparsear el
+	// resultado el dialecto se perdía (hallazgo de code review).
+	//
+	// El fallback a fm.Mode SOLO aplica con Raw vacío, a propósito — a
+	// diferencia de todos los demás campos de este mapa. FrontMatterParser
+	// completa `raw.Mode = "auto"` cada vez que el documento NO declara
+	// `mode:` (FRONT001), así que en cualquier documento real ya parseado
+	// fm.Mode nunca está vacío aunque su Raw jamás haya tenido esa llave —
+	// es el único campo con este default silencioso. Overridear
+	// incondicionalmente, como title/lang/etc., horneraría `mode: auto` en
+	// la salida de `fmt` de cualquier documento del corpus que hoy no
+	// declara `mode:` (se comprobó: son más de diez fixtures bajo
+	// examples/), un cambio de comportamiento mucho más grande que el que
+	// este issue busca cerrar. Con Raw vacío ese resolver nunca corrió sobre
+	// contenido real — el nodo es código o `--format json` — así que ahí sí
+	// es el mismo hueco que title/lang/etc. y corresponde tratarlo igual.
 	if mode != "" {
 		overrides["mode"] = mode
+	} else if fm.Mode != "" && strings.TrimSpace(fm.Raw) == "" {
+		overrides["mode"] = fm.Mode
 	}
 	if fm.Title != "" {
 		overrides["title"] = fm.Title

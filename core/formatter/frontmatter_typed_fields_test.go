@@ -229,6 +229,25 @@ func TestTypedFrontMatterFieldsReparse(t *testing.T) {
 			},
 		},
 		{
+			// Regresión de code review sobre el PR #232: frontMatterOverrides
+			// solo escribía `mode` cuando el LLAMADOR lo forzaba (el parámetro
+			// `mode string`), nunca desde fm.Mode. FormatStrict/
+			// FormatDocumentStrict pasan "strict" a propósito (esos dos
+			// formatters siempre emiten ese dialecto), pero FormatDocument
+			// pasa "" — no fuerza ningún dialecto — así que un fm.Mode
+			// seteado en código nunca llegaba a la salida por ese camino: un
+			// AST con Mode="flex-full" y Raw vacío se formateaba sin `mode:`,
+			// y al reparsear el resultado el dialecto se perdía (documentos
+			// sin frontmatter, o sin `mode:` declarado, resuelven a "auto").
+			name: "mode flex-full sin Raw",
+			set:  func(fm *ast.FrontMatterNode) { fm.Mode = "flex-full" },
+			check: func(t *testing.T, fm *ast.FrontMatterNode) {
+				if fm.Mode != "flex-full" {
+					t.Errorf("se perdió `mode: flex-full` en el reparse: fm.Mode = %q", fm.Mode)
+				}
+			},
+		},
+		{
 			name: "page con margins",
 			set: func(fm *ast.FrontMatterNode) {
 				fm.Page = &ast.PageConfig{Size: "A4", Margins: &ast.PageMargins{Top: "2cm", Right: "2cm", Bottom: "2cm", Left: "2cm"}}
@@ -378,6 +397,43 @@ func TestFormatDocument_PreservesUnmodeledHeaderSubKeys(t *testing.T) {
 	}
 }
 
+// TestFormatDocument_DoesNotBakeInDefaultModeForRealDocuments es el límite
+// deliberado del fix de `mode` (code review sobre el PR #232, ver el
+// comentario de frontMatterOverrides): `mode` fallback a fm.Mode SOLO cuando
+// Raw está vacío, no cuando Raw simplemente no declara `mode:`.
+//
+// La razón es que `mode` no se comporta como title/lang/etc.: FrontMatterParser
+// completa `raw.Mode = "auto"` (FRONT001) cada vez que un documento real no
+// declara `mode:`, así que fm.Mode NUNCA está vacío tras un parse real, aunque
+// el autor jamás haya escrito esa llave. Overridear incondicionalmente
+// horneraría `mode: auto` en la salida de `fmt` de cualquier documento sin
+// `mode:` — más de diez fixtures bajo examples/ hoy, y potencialmente
+// cualquier documento de un usuario real —, un cambio de comportamiento que
+// ninguno de los otros campos de este mapa provoca porque ninguno tiene un
+// default silencioso análogo.
+func TestFormatDocument_DoesNotBakeInDefaultModeForRealDocuments(t *testing.T) {
+	doc, diags := parser.New(util.NewNoop()).ParseDocument("---\ntitle: Doc\n---\n\n# Sección\n\nContenido.", "test.doclang")
+	for _, d := range diags {
+		if d.Severity == "error" {
+			t.Fatalf("parse inesperadamente falló: %v", d)
+		}
+	}
+	if doc.FrontMatter.Mode == "" {
+		t.Fatal("se esperaba que el parser completara Mode con su default (\"auto\"); si esto cambió, revisar el resto del test")
+	}
+	if strings.TrimSpace(doc.FrontMatter.Raw) == "" {
+		t.Fatal("se esperaba Raw no vacío (el documento declara `title:`); si esto cambió, revisar el resto del test")
+	}
+
+	out, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatalf("FormatDocument: %v", err)
+	}
+	if strings.Contains(out, "mode:") {
+		t.Errorf("`fmt` agregó `mode:` a un documento real que nunca lo declaró — cambio de comportamiento no buscado por este fix:\n%s", out)
+	}
+}
+
 func reparseFrontMatter(t *testing.T, content string) *ast.FrontMatterNode {
 	t.Helper()
 	doc := parseDocumentOrFail(t, content)
@@ -404,7 +460,6 @@ func parseDocumentOrFail(t *testing.T, content string) *ast.AST {
 var frontMatterFieldsNotEmitted = map[string]string{
 	"BaseNode": "posición/tipo de nodo, no contenido del frontmatter",
 	"Raw":      "es la ENTRADA de formatFrontMatter, no un campo a emitir",
-	"Mode":     "sale del parámetro `mode` de frontMatterOverrides, no de fm. Consecuencia conocida y fuera del scope del issue #230: FormatDocument pasa \"\", así que un fm.Mode seteado sobre un nodo sin Raw no llega a la salida por ese camino (FormatStrict/FormatDocumentStrict sí fuerzan \"strict\")",
 }
 
 // TestFrontMatterOverridesCoverAllTypedFields es el guard estructural contra
