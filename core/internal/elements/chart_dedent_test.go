@@ -180,3 +180,97 @@ func TestChartParser_ExplicitEndStillConsumesIt(t *testing.T) {
 	}
 	assertChartConsumes(t, lines, 3)
 }
+
+// TestChartParser_RecognizedButUnhandledPropertyDoesNotCut cubre la primera
+// regresión que introdujo el allowlist: `datasets:` es sintaxis de chart para
+// el normalizador (isChartDataLine en
+// internal/normalize/normalizer/rules/enhancement/chart_formatter.go, y
+// chartProperties en internal/normalize/normalizer/detector.go), que la emite
+// normalmente seguida de `data:`. El switch de Parse no la usa, así que caía
+// en el default y cortaba el bloque ANTES de los datos: el chart quedaba
+// vacío, disparaba CHART001 y el resto del bloque se procesaba como texto.
+//
+// Reconocida pero no manejada != desconocida: se consume y se sigue.
+func TestChartParser_RecognizedButUnhandledPropertyDoesNotCut(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",            // 0
+		"  datasets:",               // 1
+		"  data: [10, 20, 30]",      // 2
+		`  labels: ["A", "B", "C"]`, // 3
+	}
+	chart := assertChartConsumes(t, lines, 4)
+
+	if len(chart.Data) == 0 {
+		t.Error("Data vacío — el bloque se cortó en datasets: y el chart dispararía CHART001")
+	}
+	if len(chart.Labels) != 3 {
+		t.Errorf("Labels = %v, want 3 — el bloque se cortó antes de labels:", chart.Labels)
+	}
+}
+
+// TestChartParser_UnhandledPropertiesAfterData confirma que el vocabulario
+// reconocido tampoco corta cuando aparece DESPUÉS de los datos, mezclado con
+// las claves que el switch sí usa.
+func TestChartParser_UnhandledPropertiesAfterData(t *testing.T) {
+	lines := []string{
+		"<<chart: line>>",
+		"  data: [1, 2]",
+		`  backgroundColor: "#16A085"`,
+		"  fill: false",
+		"  tension: 0.4",
+		`  labels: ["A", "B"]`,
+	}
+	chart := assertChartConsumes(t, lines, 6)
+	if len(chart.Labels) != 2 {
+		t.Errorf("Labels = %v, want 2 — una propiedad reconocida cortó el bloque", chart.Labels)
+	}
+}
+
+// TestChartParser_MarkdownLinkAfterChartSurvives cubre la segunda regresión:
+// la excepción de continuación de array se evaluaba para CUALQUIER línea y
+// aceptaba todo lo que empezara con "[", así que un enlace Markdown legítimo
+// después de un chart cerrado por dedent volvía a consumirse y desaparecía —
+// exactamente la pérdida silenciosa que este archivo cubre.
+//
+// Ahora la excepción solo aplica con un array realmente abierto
+// (arrayDepth > 0). Acá el array de data: abre y cierra en su propia línea,
+// así que el enlace es contenido de después del bloque.
+func TestChartParser_MarkdownLinkAfterChartSurvives(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",                    // 0
+		"  data: [10, 20]",                  // 1
+		"",                                  // 2
+		"[Ver fuente](https://example.com)", // 3
+	}
+	assertChartConsumes(t, lines, 3)
+}
+
+// TestChartParser_MarkdownLinkAfterMultiLineArraySurvives es el mismo cruce
+// pero con la forma que sí deja restos para el loop: el array multi-línea con
+// el corchete de cierre dedentado. Una vez que ese corchete cierra el array,
+// el enlace ya no es continuación.
+func TestChartParser_MarkdownLinkAfterMultiLineArraySurvives(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",                    // 0
+		"  data: [",                         // 1
+		"    [1820, 890],",                  // 2
+		"    [1650, 780]",                   // 3
+		"  ]",                               // 4
+		"",                                  // 5
+		"[Ver fuente](https://example.com)", // 6
+	}
+	assertChartConsumes(t, lines, 6)
+}
+
+// TestChartParser_BracketInLabelDoesNotOpenArray verifica que bracketDelta
+// ignora los corchetes dentro de una cadena: una etiqueta con corchetes no
+// debe dejar un array "abierto" y tragarse lo que sigue.
+func TestChartParser_BracketInLabelDoesNotOpenArray(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",
+		`  labels: ["Ventas [MXN]", "Costos [MXN]"]`,
+		"",
+		"[Ver fuente](https://example.com)",
+	}
+	assertChartConsumes(t, lines, 3)
+}

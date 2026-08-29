@@ -136,10 +136,14 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// ejecución cae en el consumedLines++ del final — que es justo el bug
 	// que esto arregla. Mismo motivo por el que map.go etiqueta su
 	// parseLoop.
+	// arrayDepth lleva la cuenta de corchetes sin cerrar que quedaron
+	// abiertos por un array multi-línea; ver el bloque que lo consulta.
+	arrayDepth := 0
 chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
 		trimmedLine := strings.TrimSpace(line)
+		lineStart := i
 
 		// Check for closing tag FIRST
 		if trimmedLine == "<<end>>" {
@@ -161,30 +165,28 @@ chartLoop:
 			continue
 		}
 
-		// Restos de un array multi-línea que su sub-parser dejó sin
-		// consumir. parseMultiLineArray corta por sangría
-		// (ShouldProcessLine) y eso lo deja corto en dos formas que el
-		// corpus sí escribe:
+		// Dentro de un array multi-línea que su sub-parser dejó abierto,
+		// toda línea es contenido del array, no el principio de lo que
+		// sigue. parseMultiLineArray corta por sangría (ShouldProcessLine) y
+		// eso lo deja corto en dos formas que el corpus sí escribe: el
+		// corchete de cierre dedentado respecto a sus filas (el corte
+		// dispara ANTES de su chequeo de "]"), y el array entero en columna
+		// 0 (ExpectedIndent == -1 con sangría 0 devuelve false en la PRIMERA
+		// fila, así que consume 0 líneas y caen todas acá).
 		//
-		//   1. El corchete de cierre dedentado respecto a sus filas — el
-		//      corte dispara ANTES del chequeo de "]" del sub-parser:
+		// Se decide por PROFUNDIDAD DE CORCHETES, no por la forma de la
+		// línea. Una heurística de "empieza con [" tragaba un enlace
+		// Markdown legítimo después de un chart cerrado por dedent
+		// ("[Ver fuente](https://example.com)"), que es exactamente la
+		// pérdida silenciosa que este allowlist existe para cerrar. Con
+		// arrayDepth la excepción solo aplica cuando hay un array realmente
+		// abierto.
 		//
-		//        data: [
-		//          [1820, 890],
-		//        ]              <- indent 2 < filas indent 4 => corte
-		//        labels: [...]
-		//
-		//   2. El array entero en columna 0: ShouldProcessLine con
-		//      ExpectedIndent == -1 y sangría 0 devuelve false en la PRIMERA
-		//      fila, así que el sub-parser consume 0 líneas y todas las
-		//      filas caen acá.
-		//
-		// En ambos casos son contenido del bloque, no el principio de lo que
-		// sigue: se consumen y se continúa. Sin esto, el allowlist de abajo
-		// las toma por prosa y corta el chart en la primera fila o en el
-		// corchete, perdiendo labels:/series:/options: — datos del propio
-		// chart, que es peor que el bug original.
-		if isArrayContinuation(trimmedLine) {
+		// Los límites duros (<<end>>, "---", "<<", headings) se chequean
+		// ARRIBA de esto a propósito: un array sin cerrar no puede tragarse
+		// el resto del documento.
+		if arrayDepth > 0 {
+			arrayDepth += bracketDelta(trimmedLine)
 			consumedLines++
 			continue
 		}
@@ -307,10 +309,29 @@ chartLoop:
 				}
 			}
 		default:
-			// Clave desconocida: no es una propiedad del chart, así que la
-			// línea ya pertenece a lo que sigue al bloque. Cortar sin
-			// consumirla. Espeja el "default: break parseLoop" de map.go.
-			break chartLoop
+			// Una propiedad reconocida del vocabulario de charts que este
+			// switch no llega a usar (datasets:, backgroundColor:, fill:...)
+			// es contenido del bloque igual: se consume y se sigue. El
+			// normalizador las emite y las trata como sintaxis de chart
+			// (ver isChartDataLine en rules/enhancement/chart_formatter.go),
+			// así que cortar en ellas dejaba el chart sin datos, disparaba
+			// CHART001 y mandaba el resto del bloque a texto.
+			if !isChartPropertyKey(key) {
+				// Clave desconocida: no es una propiedad del chart, así que
+				// la línea ya pertenece a lo que sigue al bloque. Cortar sin
+				// consumirla. Espeja el "default: break parseLoop" de map.go.
+				break chartLoop
+			}
+		}
+
+		// Contar los corchetes de la línea de la propiedad MÁS los de lo que
+		// el sub-parser haya avanzado: si queda algo abierto, las líneas que
+		// siguen son del array y no límite del bloque.
+		for k := lineStart; k <= i && k < len(ctx.Lines); k++ {
+			arrayDepth += bracketDelta(strings.TrimSpace(ctx.Lines[k]))
+		}
+		if arrayDepth < 0 {
+			arrayDepth = 0
 		}
 
 		consumedLines++
@@ -498,29 +519,62 @@ func (p *ChartParser) parseNumber(str string) interface{} {
 	return nil
 }
 
-// isArrayContinuation reporta si la línea es el resto de un array multi-línea
-// que su sub-parser dejó sin consumir: una fila literal ("[\"Q1\", 1],") o
-// puros delimitadores de cierre y comas ("]", "],", "}]"). Ninguna de las dos
-// es el inicio de contenido nuevo, así que el loop de propiedades las trata
-// como continuación del bloque en vez de como límite.
-//
-// Deliberadamente NO reconoce un escalar suelto en su propia línea (p. ej.
-// "45,"): eso es indistinguible de prosa, y tragárselo reabriría la pérdida
-// silenciosa que este allowlist existe para cerrar. El corpus escribe las
-// filas entre corchetes, así que no hace falta.
-func isArrayContinuation(trimmed string) bool {
-	if trimmed == "" {
-		return false
-	}
-	if strings.HasPrefix(trimmed, "[") {
-		return true
-	}
+// bracketDelta cuenta los corchetes de apertura menos los de cierre de una
+// línea, ignorando los que van dentro de una cadena entre comillas (una
+// etiqueta como "Ventas [MXN]" no debe alterar la cuenta). El loop de
+// propiedades lo usa para saber si un array multi-línea quedó abierto.
+func bracketDelta(trimmed string) int {
+	depth := 0
+	inString := false
+	escaped := false
 	for _, r := range trimmed {
-		if r != ']' && r != '}' && r != ',' {
-			return false
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch {
+		case r == '\\':
+			escaped = true
+		case r == '"':
+			inString = !inString
+		case inString:
+			// dentro de una cadena los corchetes son texto
+		case r == '[':
+			depth++
+		case r == ']':
+			depth--
 		}
 	}
-	return true
+	return depth
+}
+
+// chartPropertyKeys es el vocabulario de propiedades que el DSL reconoce como
+// sintaxis de chart. El switch de Parse solo ACTÚA sobre unas pocas
+// (data/series/labels/options/title/type); el resto se reconocen para poder
+// consumirlas sin cortar el bloque.
+//
+// La lista espeja isChartDataLine en
+// internal/normalize/normalizer/rules/enhancement/chart_formatter.go y
+// chartProperties en internal/normalize/normalizer/detector.go — el
+// normalizador emite estas claves y las trata como chart, así que el parser
+// no puede tratarlas como el fin del bloque. Mantenerlas en sync.
+var chartPropertyKeys = map[string]bool{
+	// las que el switch sí maneja
+	"data": true, "series": true, "labels": true,
+	"options": true, "title": true, "type": true,
+	// reconocidas por el normalizador, aún no consumidas por el switch
+	"datasets": true, "backgroundColor": true, "borderColor": true,
+	"borderWidth": true, "label": true, "fill": true, "tension": true,
+	"pointRadius": true, "pointHoverRadius": true, "xAxisID": true,
+	"yAxisID": true, "plugins": true, "legend": true, "responsive": true,
+	"text": true, "display": true, "position": true,
+}
+
+// isChartPropertyKey reporta si key pertenece al vocabulario de propiedades
+// de chart, es decir si la línea sigue siendo contenido del bloque aunque el
+// switch no la use.
+func isChartPropertyKey(key string) bool {
+	return chartPropertyKeys[key]
 }
 
 // isChartContentBoundary reporta si rawLine marca el fin del contenido de un
