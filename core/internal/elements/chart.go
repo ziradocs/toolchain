@@ -774,12 +774,25 @@ func isQuotedScalar(trimmed string) bool {
 
 // isScalarContinuation reporta si trimmed es un único escalar completo en su
 // propia línea, con nada después salvo una coma opcional: un string entre
-// comillas (isQuotedScalar) o un número (isNumericScalar). Cubre la forma
-// plana de cualquier array multi-línea de un solo valor por línea, sea de
-// texto (series/labels/type/backgroundColor/borderColor) o numérico
-// (borderWidth/pointRadius/pointHoverRadius, y la forma plana de data).
+// comillas (isQuotedScalar), un número (isNumericScalar), o el literal
+// "null" — Chart.js documenta null como el valor explícito para un punto
+// omitido dentro de un dataset (https://www.chartjs.org/docs/latest/general/
+// data-structures.html), así que es una forma tan legítima de fila plana
+// como un número. Cubre la forma plana de cualquier array multi-línea de un
+// solo valor por línea, sea de texto (series/labels/type/backgroundColor/
+// borderColor) o numérico (borderWidth/pointRadius/pointHoverRadius, y la
+// forma plana de data).
 func isScalarContinuation(trimmed string) bool {
-	return isQuotedScalar(trimmed) || isNumericScalar(trimmed)
+	return isQuotedScalar(trimmed) || isNumericScalar(trimmed) || isNullScalar(trimmed)
+}
+
+// isNullScalar reporta si trimmed es el literal "null" completo en su propia
+// línea, con nada después salvo una coma opcional. No extiende
+// isNumericScalar (ParseFloat legítimamente no debe aceptar "null" como
+// número) sino que se prueba aparte, como una tercera forma de escalar.
+func isNullScalar(trimmed string) bool {
+	s := strings.TrimSuffix(strings.TrimSpace(trimmed), ",")
+	return strings.TrimSpace(s) == "null"
 }
 
 // isNumericScalar reporta si trimmed es un único número completo en su

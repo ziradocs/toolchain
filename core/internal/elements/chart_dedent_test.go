@@ -550,3 +550,40 @@ func TestChartParser_FlatNumericDataArraySurvives(t *testing.T) {
 		t.Errorf("Labels = %v, want 2 — la forma plana de data: cortó el chart antes de labels:", chart.Labels)
 	}
 }
+
+// TestChartParser_NullScalarInMultiLineArraySurvives cubre la sexta
+// revisión: Chart.js documenta null como el valor explícito para un punto
+// omitido dentro de un dataset
+// (https://www.chartjs.org/docs/latest/general/data-structures.html), pero
+// isScalarContinuation solo conocía strings entre comillas y números —
+// "null," no calificaba como continuación y cortaba el chart en la primera
+// línea del array, perdiendo labels: por delante.
+func TestChartParser_NullScalarInMultiLineArraySurvives(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",          // 0
+		"data: [",                 // 1
+		"1,",                      // 2
+		"null,",                   // 3
+		"3",                       // 4
+		"]",                       // 5
+		`labels: ["A", "B", "C"]`, // 6
+	}
+	chart := assertChartConsumes(t, lines, 7)
+	if len(chart.Labels) != 3 {
+		t.Errorf("Labels = %v, want 3 — el null: sin reconocer cortó el chart antes de labels:", chart.Labels)
+	}
+}
+
+// TestChartParser_NullOutsideOpenArrayDoesNotLeak confirma que aceptar
+// "null" como escalar no se escapa del gate de arrayDepth > 0: una línea
+// "null" suelta DESPUÉS de un chart ya cerrado con <<end>> no debe leerse
+// como continuación de nada.
+func TestChartParser_NullOutsideOpenArrayDoesNotLeak(t *testing.T) {
+	lines := []string{
+		"<<chart: bar>>",
+		"  data: [1, 2]",
+		"<<end>>",
+		"null",
+	}
+	assertChartConsumes(t, lines, 3)
+}
