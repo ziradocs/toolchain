@@ -140,22 +140,24 @@ func frontMatterOverrides(fm *ast.FrontMatterNode, mode string) map[string]inter
 	// desde --format json) se formateaba sin `mode:`, y al reparsear el
 	// resultado el dialecto se perdía (hallazgo de code review).
 	//
-	// El fallback a fm.Mode SOLO aplica con Raw vacío, a propósito — a
-	// diferencia de todos los demás campos de este mapa. FrontMatterParser
-	// completa `raw.Mode = "auto"` cada vez que el documento NO declara
-	// `mode:` (FRONT001), así que en cualquier documento real ya parseado
-	// fm.Mode nunca está vacío aunque su Raw jamás haya tenido esa llave —
-	// es el único campo con este default silencioso. Overridear
-	// incondicionalmente, como title/lang/etc., horneraría `mode: auto` en
-	// la salida de `fmt` de cualquier documento del corpus que hoy no
-	// declara `mode:` (se comprobó: son más de diez fixtures bajo
-	// examples/), un cambio de comportamiento mucho más grande que el que
-	// este issue busca cerrar. Con Raw vacío ese resolver nunca corrió sobre
-	// contenido real — el nodo es código o `--format json` — así que ahí sí
-	// es el mismo hueco que title/lang/etc. y corresponde tratarlo igual.
+	// El fallback excluye el valor "auto" a propósito — NO por Raw vacío,
+	// que resultó ser el criterio equivocado (segunda vuelta de code
+	// review): un frontmatter genuinamente vacío (`---\n---`, documento
+	// real, jamás pasó por código) también deja Raw == "" y por lo tanto
+	// también se confundía con un AST construido en código. "auto" es la
+	// señal correcta porque es el ÚNICO valor que FrontMatterParser rellena
+	// en silencio (`raw.Mode = "auto"`, FRONT001) cuando el documento NO
+	// declara `mode:` — así que cualquier documento real sin `mode:`
+	// explícito, tenga Raw vacío o con otras llaves, resuelve a exactamente
+	// ese valor, nunca a otro. Excluirlo cierra los dos huecos a la vez: no
+	// hornea `mode: auto` en un documento que nunca lo pidió (ni con
+	// frontmatter vacío ni con frontmatter parcial), y sigue preservando
+	// cualquier valor que sí distingue algo real (flex-full, strict, o un
+	// "auto" que el propio Raw ya declaraba explícitamente, que de todos
+	// modos sobrevive por el pass-through normal de Raw).
 	if mode != "" {
 		overrides["mode"] = mode
-	} else if fm.Mode != "" && strings.TrimSpace(fm.Raw) == "" {
+	} else if fm.Mode != "" && fm.Mode != "auto" {
 		overrides["mode"] = fm.Mode
 	}
 	if fm.Title != "" {

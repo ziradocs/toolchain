@@ -262,6 +262,66 @@ func TestChartParser_ReportsUnknownKeyInComboYAML(t *testing.T) {
 	}
 }
 
+// TestChartParser_ReportsUnknownKeyInsideComboData es la regresión de un
+// cuarto hallazgo de code review, un nivel más profundo que
+// TestChartParser_ReportsUnknownKeyInComboYAML: aquel cubre una llave
+// desconocida de NIVEL SUPERIOR (`datasets:` junto a `data:`), pero
+// ChartData/ChartSeries (los structs que `data:` decodifica) tienen el MISMO
+// defecto en su interior — yaml.Unmarshal a un struct tagueado ignora en
+// silencio cualquier campo del mapeo sin tag correspondiente. `data.Labels:`
+// (mayúscula, en vez de `labels:`) no dispara ningún CHART005 y el chart se
+// renderiza con Labels vacío: el defecto no está resuelto, solo tapado un
+// nivel arriba.
+func TestChartParser_ReportsUnknownKeyInsideComboData(t *testing.T) {
+	chart, diags := parseChartBlock(t, `<<chart: combo>>
+  data:
+    Labels: ["Ene", "Feb"]
+    series:
+      - name: "Desktop"
+        type: "bar"
+        values: [65, 59]
+<<end>>`)
+
+	if !hasDiagnostic(diags, "CHART005", "data.Labels") {
+		t.Errorf("no se reportó `data.Labels:` (mayúscula, en vez de `labels:`) como llave desconocida.\ndiagnósticos: %v", diags)
+	}
+	if len(chart.Labels) != 0 {
+		t.Errorf("chart.Labels = %v; `Labels:` con mayúscula no es la llave `labels:` que ChartData conoce, no debería poblarse", chart.Labels)
+	}
+}
+
+// TestChartParser_ReportsUnknownKeyInsideComboSeriesItem cubre el mismo
+// defecto un nivel más adentro todavía: un campo desconocido DENTRO de un
+// elemento de `data.series:` (ChartSeries), no en `data:` mismo. Un solo
+// aviso por llave, no uno por cada serie que repita el typo — de ahí el
+// fixture con DOS series con la misma llave desconocida.
+func TestChartParser_ReportsUnknownKeyInsideComboSeriesItem(t *testing.T) {
+	chart, diags := parseChartBlock(t, `<<chart: combo>>
+  data:
+    labels: ["Ene", "Feb"]
+    series:
+      - name: "Desktop"
+        type: "bar"
+        Values: [65, 59]
+      - name: "Mobile"
+        type: "line"
+        Values: [10, 20]
+<<end>>`)
+
+	count := 0
+	for _, d := range diags {
+		if strings.HasPrefix(d, "CHART005:") {
+			count += strings.Count(d, "data.series[].Values")
+		}
+	}
+	if count != 1 {
+		t.Errorf("se esperaba que `data.series[].Values` aparezca UNA vez en los diagnósticos (una por llave, no una por serie que la repita), apareció %d veces: %v", count, diags)
+	}
+	if len(chart.Series) != 2 || chart.Series[0] != "Desktop" {
+		t.Errorf("el resto del combo debe seguir parseando pese al campo desconocido: Series = %v", chart.Series)
+	}
+}
+
 // TestChartParser_ReportsCapitalizedUnknownKey es la regresión de un tercer
 // hallazgo: chartKeyRe exigía minúscula inicial para decidir si una llave
 // desconocida del cuerpo valía la pena reportarse, un filtro pensado para

@@ -398,39 +398,62 @@ func TestFormatDocument_PreservesUnmodeledHeaderSubKeys(t *testing.T) {
 }
 
 // TestFormatDocument_DoesNotBakeInDefaultModeForRealDocuments es el límite
-// deliberado del fix de `mode` (code review sobre el PR #232, ver el
-// comentario de frontMatterOverrides): `mode` fallback a fm.Mode SOLO cuando
-// Raw está vacío, no cuando Raw simplemente no declara `mode:`.
+// deliberado del fix de `mode` (dos vueltas de code review sobre el PR #232,
+// ver el comentario de frontMatterOverrides): el fallback a fm.Mode excluye
+// el valor "auto" en vez de condicionarse a "Raw vacío".
 //
-// La razón es que `mode` no se comporta como title/lang/etc.: FrontMatterParser
-// completa `raw.Mode = "auto"` (FRONT001) cada vez que un documento real no
-// declara `mode:`, así que fm.Mode NUNCA está vacío tras un parse real, aunque
-// el autor jamás haya escrito esa llave. Overridear incondicionalmente
-// horneraría `mode: auto` en la salida de `fmt` de cualquier documento sin
-// `mode:` — más de diez fixtures bajo examples/ hoy, y potencialmente
-// cualquier documento de un usuario real —, un cambio de comportamiento que
-// ninguno de los otros campos de este mapa provoca porque ninguno tiene un
-// default silencioso análogo.
+// La primera versión del fix sí condicionaba por Raw vacío, y parecía
+// correcta: title/lang/etc. NUNCA valen algo si el autor no los escribió, así
+// que "Raw vacío" ahí siempre significa "AST construido en código". Pero
+// `mode` es distinto — FrontMatterParser completa `raw.Mode = "auto"`
+// (FRONT001) cada vez que un documento real no declara `mode:` — y ESE
+// default silencioso resulta indistinguible de un AST de código bajo el
+// criterio de Raw: un frontmatter genuinamente vacío (`---\n---`, documento
+// real, jamás pasó por código) también deja Raw == "", exactamente como un
+// FrontMatterNode armado a mano. La segunda vuelta de code review lo
+// encontró: ese repro también terminaba con `mode: auto` horneado. Excluir
+// "auto" cierra los dos huecos: es el único valor que ese resolver silencioso
+// puede producir, así que nunca hace falta distinguir Raw vacío de Raw
+// parcial para el caso "documento real sin mode: declarado" — ambos resuelven
+// a "auto" y ambos quedan excluidos por igual.
 func TestFormatDocument_DoesNotBakeInDefaultModeForRealDocuments(t *testing.T) {
-	doc, diags := parser.New(util.NewNoop()).ParseDocument("---\ntitle: Doc\n---\n\n# Sección\n\nContenido.", "test.doclang")
-	for _, d := range diags {
-		if d.Severity == "error" {
-			t.Fatalf("parse inesperadamente falló: %v", d)
-		}
-	}
-	if doc.FrontMatter.Mode == "" {
-		t.Fatal("se esperaba que el parser completara Mode con su default (\"auto\"); si esto cambió, revisar el resto del test")
-	}
-	if strings.TrimSpace(doc.FrontMatter.Raw) == "" {
-		t.Fatal("se esperaba Raw no vacío (el documento declara `title:`); si esto cambió, revisar el resto del test")
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "frontmatter con otras llaves, sin mode:",
+			content: "---\ntitle: Doc\n---\n\n# Sección\n\nContenido.",
+		},
+		{
+			// El repro de la segunda vuelta de code review: Raw == "" tanto
+			// acá como en un AST construido en código, así que un fix
+			// condicionado a "Raw vacío" no podía distinguirlos.
+			name:    "frontmatter genuinamente vacío",
+			content: "---\n---\n\n# Sección\n\nContenido.",
+		},
 	}
 
-	out, err := FormatDocument(doc)
-	if err != nil {
-		t.Fatalf("FormatDocument: %v", err)
-	}
-	if strings.Contains(out, "mode:") {
-		t.Errorf("`fmt` agregó `mode:` a un documento real que nunca lo declaró — cambio de comportamiento no buscado por este fix:\n%s", out)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, diags := parser.New(util.NewNoop()).ParseDocument(tc.content, "test.doclang")
+			for _, d := range diags {
+				if d.Severity == "error" {
+					t.Fatalf("parse inesperadamente falló: %v", d)
+				}
+			}
+			if doc.FrontMatter.Mode != "auto" {
+				t.Fatalf("se esperaba que el parser completara Mode con su default (\"auto\"), llegó %q; si esto cambió, revisar el resto del test", doc.FrontMatter.Mode)
+			}
+
+			out, err := FormatDocument(doc)
+			if err != nil {
+				t.Fatalf("FormatDocument: %v", err)
+			}
+			if strings.Contains(out, "mode:") {
+				t.Errorf("`fmt` agregó `mode:` a un documento real que nunca lo declaró — cambio de comportamiento no buscado por este fix:\n%s", out)
+			}
+		})
 	}
 }
 

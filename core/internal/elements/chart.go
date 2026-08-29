@@ -831,6 +831,7 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 				unknownKeys = append(unknownKeys, key)
 			}
 		}
+		unknownKeys = append(unknownKeys, unknownComboDataKeys(raw)...)
 		sort.Strings(unknownKeys)
 	}
 
@@ -897,6 +898,59 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 	}
 
 	return true, unknownKeys
+}
+
+// unknownComboDataKeys extiende la detección de llaves desconocidas del
+// combo chart un nivel más adentro: el chequeo de nivel superior (data vs
+// options) no ve nada mal en un `data:` bien formado que en su INTERIOR
+// tenga un typo, porque yaml.Unmarshal a ChartData/ChartSeries ignora en
+// silencio cualquier campo del mapeo sin tag correspondiente — el mismo
+// defecto de fondo que motivó el chequeo de nivel superior (hallazgo de
+// code review), solo que un nivel más profundo. `data.Labels:` (mayúscula,
+// en vez de `labels:`) es el caso real: el chart queda con Labels vacío y
+// se renderiza sin etiquetas, sin ningún CHART005 que lo delate.
+//
+// raw ya viene deserializado a mapas genéricos (mismo yamlContent que
+// ChartConfig, ver la llamada en parseComboChartYAML), así que esto es
+// lectura pura, sin volver a tocar el YAML.
+func unknownComboDataKeys(raw map[string]interface{}) []string {
+	dataMap, ok := raw["data"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	var unknown []string
+	for key := range dataMap {
+		if key != "labels" && key != "series" {
+			unknown = append(unknown, "data."+key)
+		}
+	}
+
+	seriesList, ok := dataMap["series"].([]interface{})
+	if !ok {
+		return unknown
+	}
+	seenSeriesKey := map[string]bool{}
+	for _, item := range seriesList {
+		seriesMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for key := range seriesMap {
+			switch key {
+			case "name", "type", "values", "yAxisID":
+				continue
+			}
+			// Una sola entrada por llave, no una por cada serie que la repita:
+			// series suele tener varios elementos con la misma forma, y un
+			// typo en el nombre del campo se repite en todos.
+			if !seenSeriesKey[key] {
+				seenSeriesKey[key] = true
+				unknown = append(unknown, "data.series[]."+key)
+			}
+		}
+	}
+	return unknown
 }
 
 // parseInlineMatrix parsea arrays de arrays inline como [[100, 500, 350, 220]]
