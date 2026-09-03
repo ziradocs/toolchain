@@ -63,7 +63,7 @@ frontmatter block.
 
 What is **not** symmetric:
 
-- The slide-shaped rules — strict-mode checks (`STRICT001/002`), parse
+- The slide-shaped rules — strict-mode checks (`STRICT002`), parse
   heuristics (`PARSE001/002`) and the 19 per-layout schemas
   (`validation-checklist.md` §2 and §5) — are written against the slide
   model. On a DocLang document they mostly don't apply; the layout schemas

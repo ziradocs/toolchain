@@ -160,3 +160,76 @@ func TestValidateElementCountLimits_DoubleDigitMax_MessageHasDecimalString(t *te
 		t.Errorf("el mensaje contiene el caracter de control corrupto '?' (rune 63), obtenido: %q", diag.Message)
 	}
 }
+
+// Issue #240: un slide de título con SOLO `title:` (sin `heading:`) no puede
+// ser un error. La plantilla ya lo renderiza —cae a $slide.Title cuando no
+// hay Heading— y el kit de LLMs siempre documentó "heading o title", así que
+// LAYOUT001 era la única pieza que lo rechazaba: el resultado era que la
+// forma documentada rompía el build, y en el PRIMER slide de cualquier deck.
+func TestSlideLayoutValidation_TitleOnly_NoLAYOUT001(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "title")
+	block.Title = "Only a title, exactly as the reference allows"
+	block.Subtitle = "One line"
+
+	diags := (&SlideLayoutValidationRule{}).Check(block)
+
+	if diag := findDiagnostic(diags, "LAYOUT001"); diag != nil {
+		t.Fatalf("no se esperaba LAYOUT001 con `title` presente, se obtuvo: %+v", diag)
+	}
+}
+
+// `heading` sigue siendo la propiedad canónica y sigue bastando por sí sola.
+func TestSlideLayoutValidation_HeadingOnly_NoLAYOUT001(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "title")
+	block.Heading = "ZiraDocs Strict Mode"
+
+	diags := (&SlideLayoutValidationRule{}).Check(block)
+
+	if diag := findDiagnostic(diags, "LAYOUT001"); diag != nil {
+		t.Fatalf("no se esperaba LAYOUT001 con `heading` presente, se obtuvo: %+v", diag)
+	}
+}
+
+// Lo que el cambio NO relaja: un slide de título sin NADA con qué titularse
+// sigue siendo Error. Es el caso que STRICT001 cubría y que, tras retirarla
+// (era una regla muerta: LAYOUT001 disparaba siempre antes), tiene que
+// seguir cubriendo LAYOUT001 por sí sola.
+func TestSlideLayoutValidation_TitleBlockWithNeither_LAYOUT001IsError(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "title")
+
+	diags := (&SlideLayoutValidationRule{}).Check(block)
+
+	diag := findDiagnostic(diags, "LAYOUT001")
+	if diag == nil {
+		t.Fatal("se esperaba un diagnóstico LAYOUT001 sin heading ni title")
+	}
+	if diag.Severity != diagnostics.Error {
+		t.Errorf("severity = %v, want %v (Error)", diag.Severity, diagnostics.Error)
+	}
+	if !strings.Contains(diag.Message, "'title'") {
+		t.Errorf("el mensaje debe nombrar ambas propiedades para que sea accionable, se obtuvo: %q", diag.Message)
+	}
+}
+
+// STRICT001 se retiró en el issue #240 por duplicar a LAYOUT001. Este guard
+// evita que vuelva por la puerta de atrás: si alguien la reintroduce, un
+// bloque de título vacío en modo strict emitiría DOS errores para el mismo
+// defecto.
+func TestStrictModeValidation_TitleBlockWithNeither_OnlyLAYOUT001(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	astNode := ast.NewAST(pos)
+	astNode.FrontMatter = ast.NewFrontMatterNode(pos)
+	astNode.FrontMatter.Mode = "strict"
+	astNode.ContentBlocks = append(astNode.ContentBlocks, *ast.NewContentBlock(pos, "title"))
+
+	diags := (&StrictModeValidationRule{}).Check(astNode)
+
+	for i := range diags {
+		if diags[i].RuleID == "STRICT001" || diags[i].Code == "STRICT001" {
+			t.Fatalf("STRICT001 se retiró (issue #240): duplica LAYOUT001, se obtuvo: %+v", diags[i])
+		}
+	}
+}

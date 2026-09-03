@@ -41,7 +41,7 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 			ValidationRules: []LayoutValidationRule{
 				{
 					Name:        "title_requires_heading",
-					Description: "Title slides must have a heading property",
+					Description: "Title slides must have a heading (or, failing that, a title) property",
 					Validator:   validateTitleSlideHeading,
 				},
 				{
@@ -317,14 +317,37 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 
 // Funciones de validación específicas
 
+// validateTitleSlideHeading exige que un bloque de título tenga CON QUÉ
+// titularse: `heading` (la propiedad canónica) o, en su defecto, `title`.
+//
+// Antes exigía `heading` a secas, y con eso contradecía a los otros dos
+// consumidores del mismo dato (issue #240):
+//
+//   - El renderer ya trata `title` como fallback legítimo: la plantilla cae
+//     a {{$slide.Title}} cuando no hay Heading (slidelang/internal/
+//     generator/template/base.go, rama $slide.IsTitle). O sea que un slide
+//     con solo `title:` renderiza perfecto pero NO compilaba: este Error lo
+//     mataba antes de llegar al generador.
+//   - STRICT001 (rules.go) decía exactamente lo contrario —"heading O
+//     title"—, y como las dos reglas viven en DefaultRules(), LAYOUT001
+//     ganaba siempre: STRICT001 no podía disparar sin que LAYOUT001 hubiera
+//     disparado ya. Era una regla muerta, y se retiró en el mismo cambio.
+//     Esta función es ahora la única dueña de la validación.
+//
+// Que la propiedad canónica siga siendo `heading` no cambia: es la que
+// RequiredProperties declara y la que la documentación recomienda. Lo que
+// cambia es que `title` deja de ser un error cuando alcanza para titular el
+// slide — que es justo la forma más probable de que un deck válido en
+// apariencia falle el build, porque le pega al PRIMER slide de cualquier
+// documento.
 func validateTitleSlideHeading(slide *ast.ContentBlock) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 
-	if slide.Heading == "" {
+	if slide.Heading == "" && slide.Title == "" {
 		diag := diagnostics.Diagnostic{
 			Severity: diagnostics.Error,
 			Code:     "LAYOUT001",
-			Message:  "Title slides must have a 'heading' property",
+			Message:  "Title slides must have a 'heading' or a 'title' property",
 			Position: slide.Position,
 		}
 		diags = append(diags, diag)
