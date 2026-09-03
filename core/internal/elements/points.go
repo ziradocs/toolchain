@@ -22,6 +22,15 @@ func (p *PointsParser) CanParse(line string, mode string) bool {
 		return true
 	}
 
+	// "* * *" es un thematic break, no una viñeta — ver el mismo guard en
+	// isListItem (issue #242). Va acá TAMBIÉN, y no solo allá, porque es
+	// CanParse lo que consulta el registry para elegir parser: dejarlo solo
+	// en isListItem no cambiaba nada, PointsParser seguía reclamando la
+	// línea y el bullet "* *" seguía saliendo en la diapositiva.
+	if isThematicBreak(trimmed) {
+		return false
+	}
+
 	// Both modes: Markdown list syntax
 	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "+ ") {
 		return true
@@ -189,6 +198,30 @@ func (p *PointsParser) parseMarkdownList(lines []string, startIndex int, element
 			firstItemProcessed = true
 		}
 
+		// Un item de nivel base que cambia de marcador cierra la lista SIN
+		// consumirse: es el primer item de la lista SIGUIENTE (issue #241).
+		//
+		// El tipo se detectaba una sola vez, en el primer item, y de ahí en
+		// más cualquier item entraba al mismo elemento. Así, el patrón más
+		// común de un deck —"los puntos clave, y luego los pasos"— terminaba
+		// en un único PointsElement `unordered` con los cuatro items
+		// pegados: la numeración se perdía sin ningún diagnóstico. Ni la
+		// línea en blanco ni el cambio de marcador lo separaban, porque la
+		// blanca ya se tolera a propósito dentro de una lista (más arriba en
+		// este mismo loop) y el marcador no se volvía a mirar nunca.
+		//
+		// Solo aplica al NIVEL BASE. Un item más indentado es un sub-punto y
+		// lo maneja el bloque de abajo: "- alpha" con "  1. anidado" debajo
+		// sigue siendo una sola lista con un sub-punto, no dos listas.
+		//
+		// Un cambio de carácter DENTRO del mismo tipo ("-" a "*") no separa:
+		// detectListType devuelve "unordered" para los dos. CommonMark sí
+		// abriría lista nueva ahí; replicarlo es un cambio aparte, y este
+		// issue es sobre perder el listType, no sobre partir viñetas.
+		if firstItemProcessed && indent == baseIndent && p.detectListType(trimmed) != element.ListType {
+			break
+		}
+
 		// Extract content
 		content := p.extractListContent(trimmed)
 		if content != "" {
@@ -226,6 +259,17 @@ func (p *PointsParser) ExtractListContent(line string) string {
 
 // isListItem checks if a line is a list item
 func (p *PointsParser) isListItem(line string) bool {
+	// "* * *" es un thematic break de CommonMark, no una viñeta (issue
+	// #242). Sin este guard, PointsParser lo reclamaba antes que nadie —
+	// empieza con "* "— y la diapositiva mostraba un bullet con el texto
+	// "* *". El guard solo alcanza a las formas con "*" y "_": la de guiones
+	// ("- - -") queda fuera a propósito, igual que en isThematicBreak, para
+	// no cambiar de paso el comportamiento de un marcador que además es el
+	// separador de bloque del dialecto.
+	if isThematicBreak(line) {
+		return false
+	}
+
 	if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "+ ") {
 		return true
 	}

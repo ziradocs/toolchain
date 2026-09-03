@@ -97,6 +97,34 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				break
 			}
 
+			// Un thematic break de CommonMark ("***", "___", "* * *") se
+			// descarta en vez de salir como texto literal (issue #242).
+			// Dentro de un bloque no tiene dónde ir: el único separador
+			// estructural del dialecto es "---", y no hay nodo de regla
+			// horizontal en el AST — así que la alternativa a descartarlo
+			// era seguir imprimiendo los asteriscos en la diapositiva, que
+			// es lo único que nadie quiere.
+			//
+			// Si abre el párrafo se consume la línea y se devuelve un
+			// elemento vacío: el loop del dialecto flex avanza sin emitir
+			// nada y sin FLEX001 (la rama ConsumedLines > 0 con Element nil
+			// existe justo para esto). Si aparece a media prosa se corta SIN
+			// consumir, y la siguiente vuelta cae en el caso de arriba —
+			// misma disciplina que el resto de los cortes de este loop.
+			//
+			// Va ANTES de isOtherElementType y no después: el predicado de
+			// listas de ahí abajo mira el prefijo "* ", así que "* * *"
+			// entraba por lista, cortaba con ConsumedLines 0 y terminaba en
+			// el failsafe con un FLEX001 — la línea no desaparecía, pero se
+			// reportaba como sintaxis no reconocida en vez de descartarse
+			// como lo que es.
+			if isThematicBreak(trimmed) {
+				if i == startIndex {
+					consumed++
+				}
+				break
+			}
+
 			// Stop if another element type is detected.
 			//
 			// issue #174 — historial de este bloque: la primera versión de
@@ -255,4 +283,41 @@ func (p *TextParser) isStartOfNumberedList(line string) bool {
 	}
 
 	return false
+}
+
+// isThematicBreak reporta si line (ya trimmed) es un thematic break de
+// CommonMark escrito con asteriscos o guiones bajos: tres o más del MISMO
+// carácter, con espacios o tabs opcionales entre ellos y nada más en la
+// línea. Acepta "***", "___", "* * *" y "_____"; rechaza "**", "*-*" y
+// cualquier línea con texto.
+//
+// La forma con guiones ("---") queda deliberadamente afuera: en los dos
+// dialectos flex esa línea ya es el separador de bloque, y el loop de nivel
+// superior la resuelve antes de que ningún elemento la vea. La forma con
+// viñetas ("- - -") también: PointsParser la reclama antes como lista, y
+// arrebatársela sería un cambio de otro alcance.
+func isThematicBreak(line string) bool {
+	if len(line) < 3 {
+		return false
+	}
+
+	var marker rune
+	count := 0
+	for _, r := range line {
+		switch r {
+		case ' ', '\t':
+			continue
+		case '*', '_':
+			if marker == 0 {
+				marker = r
+			} else if r != marker {
+				return false
+			}
+			count++
+		default:
+			return false
+		}
+	}
+
+	return count >= 3
 }
