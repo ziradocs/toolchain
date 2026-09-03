@@ -86,10 +86,12 @@ func (f *ChartFetcher) renderFunc(ctx context.Context, elem *ast.ChartElement, c
 				f.logger.Warn(f.logTag, "native chart render failed, falling back to Chromium: %v", nativeErr)
 			}
 		}
+		// Solo la superficie: grid/axis/label son opciones de Chart.js y ya
+		// vienen dentro de chartConfig desde GenerateChartConfigWithTheme.
 		if f.GetImageFormat() == "webp" {
-			return f.renderer.RenderChartToWebP(ctx, chartConfig, width, height, f.webpQuality)
+			return f.renderer.RenderChartToWebPWithSurface(ctx, chartConfig, width, height, f.webpQuality, f.themeColors.Surface)
 		}
-		return f.renderer.RenderChartToPNG(ctx, chartConfig, width, height)
+		return f.renderer.RenderChartToPNGWithSurface(ctx, chartConfig, width, height, f.themeColors.Surface)
 	}
 }
 

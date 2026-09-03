@@ -200,7 +200,26 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int) string {
 // Chart.js (PNG o WebP, ambos comparten el mismo HTML). chartConfig ya llega
 // re-serializado con json.Marshal desde el llamador (html.go), por lo que
 // `<`,`>`,`&` están escapados como \u00xx y no rompen el <script>.
-func buildChartHTML(chartConfig string, width, height int) string {
+// chartSurfaceCSS decide el valor de `background:` de la página temporal.
+// surface es un token chart-surface de un tema EXTERNO, o sea contenido no
+// confiable que aquí se interpola SIN escapar dentro de un <style> — el
+// mismo riesgo que motivó renderer.SanitizeCSSCustomProperty (audit BA-11:
+// un valor como `red; } </style><script>...` cierra la regla y el bloque).
+// Se reusa esa función auditada en vez de escribir un segundo chequeo casi
+// igual; si el valor no pasa, se cae a "white", que es el comportamiento
+// histórico y siempre seguro, en vez de romper la página.
+func chartSurfaceCSS(surface string) string {
+	if surface == "" {
+		return "white"
+	}
+	safe, ok := renderer.SanitizeCSSCustomProperty("--chart-surface", surface)
+	if !ok {
+		return "white"
+	}
+	return safe
+}
+
+func buildChartHTML(chartConfig string, width, height int, surface string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -209,7 +228,7 @@ func buildChartHTML(chartConfig string, width, height int) string {
     `+renderer.ChartJSCDNScriptTag+`
     `+renderer.ChartJSTreemapCDNScriptTag+`
     <style>
-        body { margin: 0; padding: 0; background: white; }
+        body { margin: 0; padding: 0; background: %s; }
         #chartContainer { width: %dpx; height: %dpx; }
     </style>
 </head>
@@ -229,7 +248,7 @@ func buildChartHTML(chartConfig string, width, height int) string {
         }, 1500);
     </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, width, height, chartConfig)
+</html>`, mermaidAndChartRenderCSP, chartSurfaceCSS(surface), width, height, chartConfig)
 }
 
 // setDocumentContentAction navega a about:blank e inyecta htmlContent
@@ -775,9 +794,25 @@ func (r *ChromiumRenderer) RenderMermaidToPNG(ctx context.Context, mermaidCode s
 // RenderChartToPNG renderiza un gráfico Chart.js a PNG. ctx acota/cancela
 // esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderChartToPNG(ctx context.Context, chartConfig string, width, height int) ([]byte, error) {
+	return r.RenderChartToPNGWithSurface(ctx, chartConfig, width, height, "")
+}
+
+// RenderChartToPNGWithSurface es RenderChartToPNG con el token chart-surface
+// de motor-temas-v2.md §2.2. Entrada NUEVA en vez de un parámetro más:
+// RenderChartToPNG la llama doclang (docx.go) por nombre y CI corre
+// workspace-integration contra el core del árbol. "" reproduce el fondo
+// blanco de siempre.
+//
+// Solo recibe la superficie y no el ChartThemeColors completo porque es lo
+// único que esta capa puede honrar: grid/axis/label son opciones de Chart.js
+// y viajan DENTRO de chartConfig (ver applyScaleThemeColors), no por acá. El
+// fondo, en cambio, no es una opción de Chart.js — el canvas es transparente
+// y lo que se ve es el body de la página, así que tiene que entrar por el
+// HTML.
+func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, chartConfig string, width, height int, surface string) ([]byte, error) {
 	r.logger.Info("CHART", "Rendering chart to PNG...")
 
-	html := buildChartHTML(chartConfig, width, height)
+	html := buildChartHTML(chartConfig, width, height, surface)
 
 	var pngData []byte
 
@@ -873,9 +908,16 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 // RenderChartToWebP renderiza un gráfico Chart.js directamente a WebP. ctx
 // acota/cancela esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderChartToWebP(ctx context.Context, chartConfig string, width, height int, quality int) ([]byte, error) {
+	return r.RenderChartToWebPWithSurface(ctx, chartConfig, width, height, quality, "")
+}
+
+// RenderChartToWebPWithSurface — ver RenderChartToPNGWithSurface. Existe para
+// que el fondo no se pierda cuando el fetcher está configurado en WebP: sin
+// esto, el mismo tema daría un PNG con fondo temátizado y un WebP blanco.
+func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, chartConfig string, width, height int, quality int, surface string) ([]byte, error) {
 	r.logger.Info("CHART", "Rendering chart to WebP (quality: %d)...", quality)
 
-	html := buildChartHTML(chartConfig, width, height)
+	html := buildChartHTML(chartConfig, width, height, surface)
 
 	var webpData []byte
 

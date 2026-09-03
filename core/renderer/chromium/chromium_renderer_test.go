@@ -204,7 +204,7 @@ func TestBuildChartHTML_CSP(t *testing.T) {
 	// chartConfig llega ya re-serializado (json.Marshal) desde el llamador;
 	// este test solo verifica las defensas propias del template (CSP), no
 	// el re-encoding upstream (cubierto en html.go).
-	html := buildChartHTML(`{"type":"bar","data":{}}`, 400, 300)
+	html := buildChartHTML(`{"type":"bar","data":{}}`, 400, 300, "")
 
 	if !strings.Contains(html, "Content-Security-Policy") {
 		t.Fatal("expected a CSP meta tag in the generated chart HTML")
