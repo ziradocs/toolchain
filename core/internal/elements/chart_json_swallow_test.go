@@ -130,7 +130,9 @@ func TestChartParser_BrokenJSONDoesNotSwallowOrdinaryMarkdown(t *testing.T) {
 	}{
 		{"lista numerada", "1. Primer paso"},
 		{"enlace Markdown", "[Más contexto](https://example.com)"},
+		{"enlace de referencia", "[Más contexto]"},
 		{"párrafo entrecomillado", `"Una cita que abre con comillas"`},
+		{"palabra entrecomillada con dos puntos", `"Nota": este texto debe sobrevivir`},
 	}
 
 	for _, tt := range tests {
@@ -175,46 +177,105 @@ func TestChartParser_LastArrayElementWithoutCommaStaysInThePayload(t *testing.T)
 	}
 }
 
-func TestIsJSONPayloadLine(t *testing.T) {
-	tests := []struct {
-		line        string
-		insideArray bool
-		want        bool
-	}{
-		// Estructura y pares clave/valor.
-		{"{", false, true},
-		{"},", false, true},
-		{"}]", false, true},
-		{`"type": "bar",`, false, true},
-		{`"data": {`, false, true},
-		{`"labels": [`, false, true},
-		{`["Q1", 1],`, false, true},
-		{`{"x": 10, "y": 20},`, false, true},
-		{"// un comentario", false, true},
-
-		// Escalares: solo dentro de un array.
-		{`"B"`, true, true},
-		{"42,", true, true},
-		{"true", true, true},
-		{"null,", true, true},
-		{`"B"`, false, false},
-		{"42,", false, false},
-
-		// Prosa que la versión por primer carácter dejaba pasar.
-		{"1. Primer paso", false, false},
-		{"1. Primer paso", true, false},
-		{"[Más contexto](https://example.com)", false, false},
-		{"[Más contexto](https://example.com)", true, false},
-		{`"Una cita que abre con comillas"`, false, false},
-		{"Prosa normal.", false, false},
-		{"- viñeta", false, false},
-		{"type: bar", false, false}, // YAML, degradación documentada
+// El barrido: un catálogo de prosa que puede seguir a un chart roto, contra
+// uno de líneas JSON legítimas. Existe porque este guard se arregló dos veces
+// caso por caso —primero la prosa que empieza con letra, después la que
+// empieza con dígito, "[" o comilla— y cada ronda encontró la siguiente forma
+// una por una. Agregar una fila acá es más barato que descubrirla en un deck.
+func TestIsJSONPayloadLine_ProseIsNeverPayload(t *testing.T) {
+	prose := []string{
+		"Prosa normal.",
+		"1. Primer paso",
+		"2) Segundo paso",
+		"- viñeta",
+		"* viñeta",
+		"[Más contexto]",
+		"[Más contexto](https://example.com)",
+		"[1]: https://example.com",
+		`"Nota": este texto debe sobrevivir`,
+		`"Nota": texto`,
+		`"Nota": null y algo`,
+		"> cita en bloque",
+		"| a | b |",
+		"**Negritas** al inicio",
+		":::note",
+		"@notes:",
+		"123 unidades vendidas",
+		"true, pero no es JSON",
+		"null hipótesis",
+		"-- separador",
+		"-5 grados bajo cero",
+		"{esto no es json}",
+		"[a, b, c]",
+		"### Subsección",
+		"![img](x.png)",
+		"2024-01-01 fue la fecha",
+		"— raya de diálogo",
+		"¿Y esto?",
+		"«comillas latinas»",
 	}
 
-	for _, tt := range tests {
-		if got := isJSONPayloadLine(tt.line, tt.insideArray); got != tt.want {
-			t.Errorf("isJSONPayloadLine(%q, insideArray=%v) = %v, want %v",
-				tt.line, tt.insideArray, got, tt.want)
+	for _, line := range prose {
+		for _, insideArray := range []bool{false, true} {
+			if isJSONPayloadLine(line, insideArray) {
+				t.Errorf("isJSONPayloadLine(%q, insideArray=%v) = true; es prosa y se perdería", line, insideArray)
+			}
 		}
+	}
+}
+
+func TestIsJSONPayloadLine_JSONIsAlwaysPayload(t *testing.T) {
+	valid := []string{
+		"{", "}", "},", "]", "],", "}]", "[", "{}",
+		`["Q1", 1],`,
+		`{"x": 10, "y": 20},`,
+		`"type": "bar",`,
+		`"data": {`,
+		`"labels": [`,
+		`"a": 42`,
+		`"a": -1,`,
+		`"a": true,`,
+		`"a": null`,
+		`"a":`,
+		`"a": [1, 2,`,
+		`"borderColor": "rgba(0,0,0,0.1)",`,
+		"// comentario",
+		"/* bloque */",
+	}
+
+	for _, line := range valid {
+		if !isJSONPayloadLine(line, false) {
+			t.Errorf("isJSONPayloadLine(%q, false) = false; es JSON y el bloque se cortaría de más", line)
+		}
+	}
+}
+
+// Un escalar suelto es un elemento de array legítimo dentro de "[", y nada
+// fuera. Ese contexto es lo único que separa a `"B"` —el último elemento de
+// un array multi-línea, que va sin coma— de un párrafo entrecomillado.
+func TestIsJSONPayloadLine_LoneScalarNeedsAnOpenArray(t *testing.T) {
+	for _, line := range []string{`"B"`, `"A",`, "42,", "true", "null,", "-3.5,"} {
+		if !isJSONPayloadLine(line, true) {
+			t.Errorf("isJSONPayloadLine(%q, insideArray=true) = false; es un elemento del array", line)
+		}
+		if isJSONPayloadLine(line, false) {
+			t.Errorf("isJSONPayloadLine(%q, insideArray=false) = true; fuera de un array no es JSON", line)
+		}
+	}
+}
+
+// La ambigüedad que queda, fijada a propósito para que se vea si alguien la
+// cambia: DENTRO de un array abierto, un párrafo entrecomillado tiene
+// exactamente la misma forma que el último elemento del array. No hay manera
+// de separarlos por la línea sola. La consecuencia elegida es que la prosa
+// queda visible en la diapositiva, no borrada.
+func TestIsJSONPayloadLine_QuotedProseInsideArrayIsIndistinguishable(t *testing.T) {
+	const line = `"Una cita que abre con comillas"`
+
+	if isJSONPayloadLine(line, false) {
+		t.Errorf("fuera de un array, %q debe rechazarse", line)
+	}
+	if !isJSONPayloadLine(line, true) {
+		t.Errorf("dentro de un array, %q se acepta a propósito: es indistinguible de un elemento", line)
 	}
 }

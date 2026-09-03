@@ -1244,9 +1244,21 @@ func isJSONPayloadLine(trimmed string, insideArray bool) bool {
 	}
 
 	// Una fila completa —objeto {..} o array [..]— sola en su línea y sin
-	// nada después salvo una coma. Es el chequeo que descarta un enlace
-	// Markdown: después de su "]" viene "(url)", no fin de línea.
-	if isDataArrayRow(trimmed) {
+	// nada después salvo una coma. isDataArrayRow verifica la FORMA (que el
+	// grupo cierre y no quede nada detrás), y json.Valid verifica que ADEMÁS
+	// sea JSON.
+	//
+	// Los dos chequeos hacen falta y ninguno sobra. Solo la forma dejaba
+	// pasar "[Más contexto]", que cierra limpio pero cuyo contenido no es
+	// JSON de ninguna manera — un enlace de referencia Markdown, prosa
+	// perfectamente común. Solo json.Valid dejaría pasar una línea que
+	// arranca con un valor válido y sigue con otra cosa.
+	//
+	// isDataArrayRow queda intacta: la usa también el loop de propiedades,
+	// donde el DSL SÍ admite filas que no son JSON (la forma de punto
+	// "{x: 10, y: 20}" de scatter, con las llaves sin comillas). Ese
+	// requisito extra vale solo acá, donde el bloque se declaró JSON.
+	if isDataArrayRow(trimmed) && json.Valid([]byte(strings.TrimSpace(strings.TrimSuffix(trimmed, ",")))) {
 		return true
 	}
 
@@ -1275,15 +1287,47 @@ func isJSONPunctuationOnly(trimmed string) bool {
 }
 
 // isJSONKeyLine reporta si trimmed abre con una cadena JSON completa seguida
-// de ":" — o sea, una clave de objeto. Lo que va después no se valida: puede
-// ser un escalar, el "{" de un objeto anidado, o el "[" de un array que
-// sigue en las líneas de abajo.
+// de ":" y de algo que PUEDA ser un valor JSON.
+//
+// Validar el arranque del valor no es opcional: sin eso, `"Nota": este texto
+// debe sobrevivir` —prosa que abre con una palabra entrecomillada y dos
+// puntos, cosa que el español escribe todo el tiempo— tenía exactamente la
+// forma de una clave y se tragaba el resto del bloque.
+//
+// Acá sí alcanza con mirar el primer carácter, a diferencia del chequeo de
+// línea completa: la gramática de JSON dice que un valor solo puede empezar
+// con comilla, "{", "[", "-" o dígito. Los literales true/false/null se
+// exigen completos, porque si no cualquier palabra que empiece con "t", "f"
+// o "n" pasaría — "texto", justamente.
 func isJSONKeyLine(trimmed string) bool {
 	end := jsonStringEnd(trimmed)
 	if end == -1 {
 		return false
 	}
-	return strings.HasPrefix(strings.TrimSpace(trimmed[end+1:]), ":")
+	rest := strings.TrimSpace(trimmed[end+1:])
+	if !strings.HasPrefix(rest, ":") {
+		return false
+	}
+	return isJSONValueStart(strings.TrimSpace(rest[1:]))
+}
+
+// isJSONValueStart reporta si rest puede ser el principio de un valor JSON.
+// El vacío cuenta: una clave puede dejar su valor para las líneas de abajo
+// (`"data":` y en la siguiente el `{`).
+func isJSONValueStart(rest string) bool {
+	if rest == "" {
+		return true
+	}
+
+	switch rest[0] {
+	case '"', '{', '[', '-':
+		return true
+	}
+	if rest[0] >= '0' && rest[0] <= '9' {
+		return true
+	}
+
+	return isBooleanScalar(rest) || isNullScalar(rest)
 }
 
 // jsonStringEnd devuelve el índice de la comilla que cierra la cadena que
