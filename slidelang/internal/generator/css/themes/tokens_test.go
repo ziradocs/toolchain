@@ -555,6 +555,92 @@ func TestNormalizeMermaidColor_RejectsGoOnlyFloatSyntax(t *testing.T) {
 	}
 }
 
+// whitespaceBetweenNumberAndUnit is a code-review finding's corpus: CSS
+// dimensions are single tokens ("10%", "30deg"), so whitespace between
+// the number and its unit is not valid CSS. An earlier version of
+// parseCSSNumberLexeme trimmed its input, which quietly undid the lexeme
+// check for exactly this case — "rgb(10 %,0,0)" was accepted as 10% and
+// emitted "#1A0000". Note that neither this corpus nor
+// nonFiniteHueSyntax below would be caught by
+// TestNormalizeMermaidColor_NeverEmitsNonHex: both produced perfectly
+// well-formed hex, just from input that is not a color. Wrong-but-hex
+// output needs its own cases.
+var whitespaceBetweenNumberAndUnit = []string{
+	"rgb(10 %,0,0)",
+	"rgba(0,0,0,50 %)",
+	"hsl(30 deg,50%,50%)",
+	"hsl(30,50 %,50%)",
+	"hsl(30\tdeg,50%,50%)",
+	"hsl(30 turn,50%,50%)",
+}
+
+func TestNormalizeMermaidColor_RejectsWhitespaceBetweenNumberAndUnit(t *testing.T) {
+	for _, in := range whitespaceBetweenNumberAndUnit {
+		if got, ok := normalizeMermaidColor(in); ok {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, true), want rejected: a CSS dimension is one token, so no whitespace may sit between the number and its unit", in, got)
+		}
+	}
+}
+
+// nonFiniteHueSyntax is a code-review finding's corpus for the one
+// component where saturating an overflow is NOT the right answer. Every
+// other component lives on a bounded scale, so ±Inf clamps to the end of
+// it and stays finite; a hue is an angle on a circle, and math.Mod(±Inf,
+// 360) is NaN. That NaN then vanished inside hslToRGB — its comparison
+// chain is all-false for NaN, so it fell through to the default branch
+// and returned a finite 0 per channel — making "hsl(1e400 100% 50%)"
+// render as BLACK rather than being dropped, with allFinite at the
+// output boundary unable to see it. The last two entries are the reason
+// the check has to run again AFTER the unit conversion: the literal
+// itself is finite and only overflows once scaled into degrees.
+var nonFiniteHueSyntax = []string{
+	"hsl(1e400 100% 50%)",
+	"hsl(-1e400 100% 50%)",
+	"hsl(1e400deg 100% 50%)",
+	"hsla(1e400, 100%, 50%, 0.5)",
+	"hsl(1e308turn 100% 50%)",
+	"hsl(1e308rad 100% 50%)",
+}
+
+func TestNormalizeMermaidColor_RejectsNonFiniteHue(t *testing.T) {
+	for _, in := range nonFiniteHueSyntax {
+		if got, ok := normalizeMermaidColor(in); ok {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, true), want rejected: a non-finite hue has no residue mod 360", in, got)
+		}
+	}
+}
+
+// TestNormalizeMermaidColor_HugeButFiniteHueStillResolves is the
+// counterpart that keeps the fix above from becoming an
+// over-rejection: only a genuinely non-finite hue is dropped, not merely
+// a large one. 1e305 turns is absurd but finite even after scaling, so
+// it still wraps into [0,360) and produces a color.
+func TestNormalizeMermaidColor_HugeButFiniteHueStillResolves(t *testing.T) {
+	if got, ok := normalizeMermaidColor("hsl(1e305turn 100% 50%)"); !ok || !mapColorNamePattern.MatchString(got) {
+		t.Errorf("normalizeMermaidColor(\"hsl(1e305turn 100%% 50%%)\") = (%q, %v), want a hex color", got, ok)
+	}
+}
+
+// TestNormalizeMermaidColor_LegitimateWhitespaceStillAccepted guards the
+// other direction of the whitespace fix: space AROUND a component (and
+// the modern slash-alpha syntax's own spacing) is perfectly valid CSS and
+// must keep working — only space INSIDE a dimension is illegal.
+func TestNormalizeMermaidColor_LegitimateWhitespaceStillAccepted(t *testing.T) {
+	cases := map[string]string{
+		"rgb( 10 , 20 , 30 )":    "#0A141E",
+		"rgb(255 0 0 / 50%)":     "#FF000080",
+		"hsl(120 50% 50% / 25%)": "#40BF4040",
+		"hsl( 120 , 50% , 50% )": "#40BF40",
+		"  rgb(10,20,30)  ":      "#0A141E",
+		"hsl(-30 -10% 120%)":     "#FFFFFF",
+	}
+	for in, want := range cases {
+		if got, ok := normalizeMermaidColor(in); !ok || got != want {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, %v), want (%q, true)", in, got, ok, want)
+		}
+	}
+}
+
 // TestNormalizeMermaidColor_NeverEmitsNonHex is the generic invariant the
 // NaN bug violated, stated directly instead of case by case: whatever
 // normalizeMermaidColor accepts, what it RETURNS must always be a literal
@@ -569,9 +655,11 @@ func TestNormalizeMermaidColor_NeverEmitsNonHex(t *testing.T) {
 		"red", "cyan", "transparent", "#fff", "#ffff", "#ffffff", "#ffffffff",
 		"rgb(255, 0, 0)", "rgba(0,0,0,0.5)", "rgb(-10 0 0)", "rgb(1e2 0 0)",
 		"hsl(-30 -10% 120%)", "hsl(0.5turn,50%,50%)", "rgb(255 0 0 / 50%)",
-		"rgb(1e400 0 0)", "rgb(.5 0 0)", "rgb(+10 0 0)",
+		"rgb(1e400 0 0)", "rgb(.5 0 0)", "rgb(+10 0 0)", "hsl(1e305turn 100% 50%)",
 		"linear-gradient(red, blue)", "var(--x)", "notacolor", "",
 	}, goOnlyFloatSyntax...)
+	corpus = append(corpus, whitespaceBetweenNumberAndUnit...)
+	corpus = append(corpus, nonFiniteHueSyntax...)
 
 	for _, in := range corpus {
 		got, ok := normalizeMermaidColor(in)
@@ -614,6 +702,10 @@ func TestParseCSSNumber_CSSLexemeGrammar(t *testing.T) {
 	rejected := []string{
 		"NaN", "nan", "Inf", "-Inf", "Infinity", "0x1p2", "0x10", "1_0",
 		"10.", ".", "1e", "1.2.3", "e5", "+", "-", "", "  ", "abc",
+		// Whitespace between the number and its unit: a CSS dimension is
+		// a single token, so these are not valid CSS (a code-review
+		// finding — parseCSSNumberLexeme used to trim them into validity).
+		"10 %", "30 deg", "0.5 turn",
 	}
 	for _, in := range rejected {
 		if v, _, _, ok := parseCSSNumber(in); ok {

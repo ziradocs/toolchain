@@ -575,12 +575,22 @@ func parseCSSNumber(raw string) (value float64, percent bool, unit string, ok bo
 // only then converts it. The order is load-bearing — see
 // cssNumberLexemeRe's doc comment for the bug that comes from trusting
 // strconv.ParseFloat's error as the only gate.
+//
+// It deliberately does NOT trim raw. Its callers hand it either a
+// whole already-trimmed component or that component minus a unit suffix,
+// so any whitespace still present at this point sits BETWEEN the number
+// and its unit — which CSS does not allow, because a dimension like
+// "10%" or "30deg" is a single token, not two. A code-review finding
+// caught an earlier version trimming here anyway, which quietly undid
+// the lexeme check for every dimension: "rgb(10 %,0,0)" was accepted as
+// 10%, "hsl(30 deg,50%,50%)" as 30deg. Trimming here would also
+// contradict this same grammar's rejection of "10." — there is no
+// reading under which "10 %" is valid CSS but "10." is not.
 func parseCSSNumberLexeme(raw string) (float64, bool) {
-	trimmed := strings.TrimSpace(raw)
-	if !cssNumberLexemeRe.MatchString(trimmed) {
+	if !cssNumberLexemeRe.MatchString(raw) {
 		return 0, false
 	}
-	v, err := strconv.ParseFloat(trimmed, 64)
+	v, err := strconv.ParseFloat(raw, 64)
 	if err != nil && !errors.Is(err, strconv.ErrRange) {
 		return 0, false
 	}
@@ -685,9 +695,23 @@ func alphaComponent(raw string) (float64, bool) {
 // finding): "hsl(-30,50%,50%)" and "hsl(0.5turn,50%,50%)" both parse.
 // Never a percentage — a percentage hue is invalid CSS regardless of sign
 // or unit.
+// A non-finite hue is rejected outright, before AND after the unit
+// conversion, unlike every other component — those live on a bounded
+// scale where saturating IS the CSS-defined clamp (an overflowing
+// "rgb(1e400 0 0)" is simply the reddest red), but a hue is an angle on a
+// circle and ±Inf has no residue mod 360: math.Mod(±Inf, 360) is NaN.
+// A code-review finding traced where that NaN ended up: hslToRGB's
+// comparison chain is all-false for NaN, so it fell through to the
+// default branch and returned a perfectly finite 0 for every channel —
+// "hsl(1e400 100% 50%)" silently rendered BLACK instead of being
+// dropped, and normalizeFunctionalColor's allFinite guard could not see
+// it because by then the NaN was gone. Both checks are needed: the first
+// catches an overflowing literal (1e400), the second catches a finite
+// literal that overflows only once scaled into degrees (1e308turn,
+// 1e308rad).
 func hueDegrees(raw string) (float64, bool) {
 	v, percent, unit, ok := parseCSSNumber(raw)
-	if !ok || percent {
+	if !ok || percent || !allFinite(v) {
 		return 0, false
 	}
 	switch unit {
@@ -698,6 +722,9 @@ func hueDegrees(raw string) (float64, bool) {
 		v *= 180 / math.Pi
 	case "turn":
 		v *= 360
+	}
+	if !allFinite(v) {
+		return 0, false
 	}
 	v = math.Mod(v, 360)
 	if v < 0 {
