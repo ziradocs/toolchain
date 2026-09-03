@@ -5,8 +5,12 @@ package themes
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+
+	"go.ziradocs.com/core/v2/util"
 )
 
 // ThemeValidator provides validation for external themes
@@ -113,7 +117,12 @@ func (tv *ThemeValidator) ValidateThemeDetailed(theme *ExternalTheme) *Validatio
 	tv.validateCSS(theme.Styles, result)
 
 	// Validate assets
-	tv.validateAssets(theme.Assets, result)
+	tv.validateAssets(filepath.Dir(theme.Path), theme.Assets, result)
+
+	// motor-temas-v2.md §2.3: a font declared in a stack but not backed by
+	// any assets.fonts entry silently falls back to the reader's installed
+	// fonts — the exact failure mode this whole feature exists to surface.
+	tv.validateFontFamilyBacking(theme, result)
 
 	// Validate compatibility
 	tv.validateCompatibility(&theme.Manifest.Compatibility, result)
@@ -200,7 +209,11 @@ func (tv *ThemeValidator) validateVariableValue(name, value string, result *Vali
 		if !tv.isValidSize(value) {
 			result.Errors = append(result.Errors, fmt.Sprintf("invalid size value for %s: %s", name, value))
 		}
-	case strings.Contains(name, "font-family"):
+	case hasFontStackSuffix(name):
+		// Previously matched on strings.Contains(name, "font-family"), which
+		// no real variable name contains — every theme uses -font-main/
+		// -font-code/-font-heading, so this branch never fired and
+		// isValidFontFamily was dead code.
 		if !tv.isValidFontFamily(value) {
 			result.Errors = append(result.Errors, fmt.Sprintf("invalid font family for %s: %s", name, value))
 		}
@@ -256,8 +269,9 @@ func (tv *ThemeValidator) validateCSS(styles map[string]string, result *Validati
 	}
 }
 
-// validateAssets validates theme assets
-func (tv *ThemeValidator) validateAssets(assets []ThemeAsset, result *ValidationResult) {
+// validateAssets validates theme assets. themeDir anchors font 'local'
+// paths for the existence/readability/extension check below.
+func (tv *ThemeValidator) validateAssets(themeDir string, assets []ThemeAsset, result *ValidationResult) {
 	totalSize := int64(0)
 
 	for _, asset := range assets {
@@ -281,12 +295,141 @@ func (tv *ThemeValidator) validateAssets(assets []ThemeAsset, result *Validation
 		if asset.URL != "" && !tv.isValidURL(asset.URL) {
 			result.Errors = append(result.Errors, fmt.Sprintf("invalid asset URL: %s", asset.URL))
 		}
+
+		// motor-temas-v2.md §2.3: fonts are always self-hosted, so "local"
+		// is required and "url" is rejected outright — not just validated
+		// as a well-formed URL above. A font declared only via "url" would
+		// need a build-time download to actually self-host it, reintroducing
+		// the exact network dependency this decision removes, plus a
+		// typeface-redistribution question this repo doesn't want to own.
+		if asset.Type == "font" {
+			// buildFontFaceRule (fonts.go) drops an entry outright when
+			// Name == "" — an @font-face with no font-family is nonsense
+			// CSS. A theme validated without this check can ship a real,
+			// readable font file that still silently produces zero
+			// @font-face rules, exactly the failure mode §2.3 exists to
+			// eliminate, just reached through the "name" field instead of
+			// "local".
+			if asset.Name == "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("font asset at %q requires 'name' — an entry with no font-family can never emit @font-face", asset.Path))
+			}
+			if asset.Path == "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("font asset %q requires 'local' — fonts are always self-hosted with the theme", asset.Name))
+			}
+			if asset.URL != "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("font asset %q must not declare 'url' — self-hosted fonts only ('local')", asset.Name))
+			}
+			if asset.Path != "" {
+				tv.validateFontFile(themeDir, asset, result)
+			}
+		}
 	}
 
 	// Check total assets size
 	if totalSize > tv.maxFileSize {
 		result.Errors = append(result.Errors, fmt.Sprintf("total assets size exceeds limit (%d bytes)", tv.maxFileSize))
 	}
+}
+
+// validateFontFile reports a hard error when a font asset's declared
+// 'local' path doesn't resolve to a real, readable font file with a
+// supported extension. Without this, `themes validate --strict` passes a
+// theme whose 'local' is a typo or a deleted file: loadAssets
+// (external.go) only os.Stats the path to fill in Size and silently
+// discards the error otherwise (asset.Size just stays 0), and the
+// existing checks above only look at whether Path is a non-empty string.
+// The build then fails silently too — buildFontFaceRule (fonts.go) hits
+// the same missing file, logs a warning, and drops the @font-face rule —
+// which is exactly the "fell back to a system font with no visible error"
+// failure mode motor-temas-v2.md §2.3 exists to eliminate. Reuses
+// util.ResolveConfinedPath and fontFormatFor rather than duplicating their
+// logic, so this check and the actual build path can never silently drift
+// apart on what counts as a valid font reference.
+func (tv *ThemeValidator) validateFontFile(themeDir string, asset ThemeAsset, result *ValidationResult) {
+	resolved, err := util.ResolveConfinedPath(themeDir, asset.Path)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: invalid 'local' path %q: %v", asset.Name, asset.Path, err))
+		return
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' file %q does not exist or is not readable", asset.Name, asset.Path))
+		return
+	}
+	if info.IsDir() {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' path %q is a directory, not a font file", asset.Name, asset.Path))
+		return
+	}
+	// IsDir() alone lets a FIFO, socket, or device file with a font
+	// extension through — and worse than a validation false positive,
+	// os.ReadFile on a FIFO at build time (buildFontFaceRule) BLOCKS
+	// forever, hanging the whole build with no diagnostic. Mode().IsRegular
+	// must be checked before any attempt to open the path — opening a FIFO
+	// is exactly the blocking call this guards against.
+	if !info.Mode().IsRegular() {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' path %q is not a regular file", asset.Name, asset.Path))
+		return
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: 'local' file %q is not readable: %v", asset.Name, asset.Path, err))
+		return
+	}
+	_ = f.Close()
+	if _, _, ok := fontFormatFor(asset.Path); !ok {
+		result.Errors = append(result.Errors, fmt.Sprintf("font asset %q: %q has an unsupported font extension (supported: .woff2, .woff, .ttf, .otf)", asset.Name, asset.Path))
+	}
+}
+
+// fontStackVariableSuffixes are the theme variable names that carry a
+// font-family stack, matched by suffix so both the --slidelang- prefixed
+// form (external themes) and the unprefixed form (embedded Go themes, see
+// variables.go) are covered.
+var fontStackVariableSuffixes = []string{"-font-main", "-font-code", "-font-heading"}
+
+// validateFontFamilyBacking warns when a font-family stack's first entry —
+// the only one that needs backing; the rest are system fallbacks by design,
+// see motor-temas-v2.md §2.3 — names a family that no assets.fonts entry
+// declares. This is the exact failure mode elegant-minimal has today
+// (Playfair Display/Crimson Text/Berkeley Mono, no assets section at all):
+// the family silently falls back to whatever the reader has installed. A
+// Warning, not an Error — many perfectly valid themes intentionally rely on
+// system fonts for a body-text stack ("'Segoe UI', Tahoma, ... sans-serif"
+// has no theme-shipped font at all) and that must keep loading.
+func (tv *ThemeValidator) validateFontFamilyBacking(theme *ExternalTheme, result *ValidationResult) {
+	knownFamilies := make(map[string]bool, len(theme.Manifest.Assets.Fonts))
+	for _, font := range theme.Manifest.Assets.Fonts {
+		if font.Name != "" {
+			knownFamilies[strings.ToLower(font.Name)] = true
+		}
+	}
+
+	for name, value := range theme.Variables {
+		if !hasFontStackSuffix(name) {
+			continue
+		}
+		entries := SplitFontStack(value)
+		if len(entries) == 0 {
+			continue
+		}
+		first := unquoteFontFamily(entries[0])
+		if first == "" || genericFontFamilyKeywords[strings.ToLower(first)] {
+			continue
+		}
+		if !knownFamilies[strings.ToLower(first)] {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"%s declares %q as its primary font, but no assets.fonts entry backs it — it will fall back to whatever the reader has installed", name, first))
+		}
+	}
+}
+
+func hasFontStackSuffix(varName string) bool {
+	for _, suffix := range fontStackVariableSuffixes {
+		if strings.HasSuffix(varName, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateCompatibility validates version compatibility
