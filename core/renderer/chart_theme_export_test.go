@@ -337,3 +337,134 @@ func TestApplyChartThemeColors_TreemapLabels(t *testing.T) {
 		t.Errorf("dataset.labels.display = %v, want true", labels["display"])
 	}
 }
+
+// --- Regresiones de la tercera ronda de revisión sobre este PR ---
+
+// TestApplyChartThemeColors_DoesNotContaminateTheAST es la regresión más
+// grave que introdujo el pase post-merge: MergeChartOptions asignaba por
+// REFERENCIA las ramas que solo existen en elem.Options (plugins.title,
+// scales.y1 — justo las dos cuya alcanzabilidad se acababa de arreglar), así
+// que applyChartThemeColors escribía sus colores DENTRO del AST. Al
+// renderizar el mismo AST con otro tema, esos colores parecían overrides del
+// autor y ganaban, así que el segundo render salía con el tema del primero.
+//
+// El test renderiza dos veces el MISMO elem, que es lo que ningún test
+// anterior hacía — y es exactamente el escenario de un build que emite el
+// mismo chart en dos modos, o de un AST reutilizado.
+func TestApplyChartThemeColors_DoesNotContaminateTheAST(t *testing.T) {
+	elem := exportThemeChart()
+	elem.Options = map[string]interface{}{
+		"plugins": map[string]interface{}{
+			"title": map[string]interface{}{"display": true, "text": "T"},
+		},
+		"scales": map[string]interface{}{
+			"y1": map[string]interface{}{"position": "right"},
+		},
+	}
+
+	first := GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{Axis: "#first-axis", Label: "#first-label"})
+	if !strings.Contains(first, "#first-label") {
+		t.Fatalf("el primer render no aplicó el tema: %s", first)
+	}
+
+	second := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{Axis: "#second-axis", Label: "#second-label"}))
+
+	plugins := second["options"].(map[string]interface{})["plugins"].(map[string]interface{})
+	title := plugins["title"].(map[string]interface{})
+	if title["color"] != "#second-label" {
+		t.Errorf("plugins.title.color = %v, want #second-label (el primer render contaminó el AST)", title["color"])
+	}
+	if got := nestedColor(t, scaleOf(t, second, "y1"), "ticks"); got != "#second-axis" {
+		t.Errorf("scales.y1.ticks.color = %v, want #second-axis (el primer render contaminó el AST)", got)
+	}
+
+	// Y la comprobación directa de la invariante: el AST quedó como estaba.
+	astPlugins := elem.Options["plugins"].(map[string]interface{})
+	astTitle := astPlugins["title"].(map[string]interface{})
+	if _, contaminated := astTitle["color"]; contaminated {
+		t.Errorf("el render escribió un color dentro de elem.Options: %#v", astTitle)
+	}
+	astScales := elem.Options["scales"].(map[string]interface{})
+	astY1 := astScales["y1"].(map[string]interface{})
+	if _, contaminated := astY1["ticks"]; contaminated {
+		t.Errorf("el render escribió ticks dentro de elem.Options: %#v", astY1)
+	}
+}
+
+// TestMergeChartOptions_DoesNotAliasSource fija la invariante en la función
+// que la causaba, no solo en su síntoma: el config generado nunca debe
+// compartir estructura con el mapa de origen. Vale para todos los callers,
+// incluido slidelang/.../mergeOptions.
+func TestMergeChartOptions_DoesNotAliasSource(t *testing.T) {
+	source := map[string]interface{}{
+		"plugins": map[string]interface{}{
+			"title": map[string]interface{}{"text": "T"},
+		},
+		"lista": []interface{}{map[string]interface{}{"a": 1}},
+	}
+	target := make(map[string]interface{})
+	MergeChartOptions(target, source)
+
+	target["plugins"].(map[string]interface{})["title"].(map[string]interface{})["color"] = "#x"
+	target["lista"].([]interface{})[0].(map[string]interface{})["a"] = 99
+
+	srcTitle := source["plugins"].(map[string]interface{})["title"].(map[string]interface{})
+	if _, leaked := srcTitle["color"]; leaked {
+		t.Errorf("escribir en el target mutó el source: %#v", srcTitle)
+	}
+	if got := source["lista"].([]interface{})[0].(map[string]interface{})["a"]; got != 1 {
+		t.Errorf("escribir en el target mutó un slice del source: a = %v, want 1", got)
+	}
+}
+
+// TestApplyChartThemeColors_ComboWithRadialSeries cubre la segunda
+// regresión: un combo se normaliza a "bar", pero cada dataset lleva su
+// propio type. Con SeriesTypes ["radar"] el dataset ES radial y Chart.js crea
+// "r", mientras que el config exportado la ignoraba por completo. El
+// navegador ya calcula la dimensión por dataset; el servidor ahora también.
+func TestApplyChartThemeColors_ComboWithRadialSeries(t *testing.T) {
+	elem := &ast.ChartElement{
+		ChartType:   "combo",
+		SeriesTypes: []string{"radar"},
+		Data: [][]interface{}{
+			{"Q1", 10.0},
+			{"Q2", 20.0},
+		},
+		Series: []string{"A"},
+	}
+	cfg := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{
+		Grid: "#111111", Axis: "#222222",
+	}))
+
+	r := scaleOf(t, cfg, "r")
+	if got := nestedColor(t, r, "angleLines"); got != "#111111" {
+		t.Errorf("scales.r.angleLines.color = %v, want #111111", got)
+	}
+	if got := nestedColor(t, r, "pointLabels"); got != "#222222" {
+		t.Errorf("scales.r.pointLabels.color = %v, want #222222", got)
+	}
+}
+
+// TestApplyChartThemeColors_RadialAxisIDOverride comprueba el otro tramo del
+// criterio por dataset que ya usa charts.js: si el dataset apunta a una
+// escala radial con nombre propio vía rAxisID, es ESA la que hay que
+// tematizar.
+func TestApplyChartThemeColors_RadialAxisIDOverride(t *testing.T) {
+	elem := exportThemeChart()
+	elem.ChartType = "radar"
+	elem.Options = map[string]interface{}{
+		"scales": map[string]interface{}{
+			"radial": map[string]interface{}{"axis": "r"},
+		},
+	}
+	cfg := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{Grid: "#111111"}))
+
+	// La "r" por defecto se materializa igual (ningún dataset la redirige),
+	// y la declarada por el autor también se tematiza.
+	if got := nestedColor(t, scaleOf(t, cfg, "r"), "angleLines"); got != "#111111" {
+		t.Errorf("scales.r.angleLines.color = %v, want #111111", got)
+	}
+	if got := nestedColor(t, scaleOf(t, cfg, "radial"), "grid"); got != "#111111" {
+		t.Errorf("scales.radial.grid.color = %v, want #111111", got)
+	}
+}

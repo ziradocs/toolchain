@@ -1163,6 +1163,20 @@ func GenerateChartConfigForExport(elem *ast.ChartElement) string {
 // CLI mezclaba estas opciones de forma distinta (uno superficial, el otro
 // recursivo) y el mismo chart con el mismo `options:` producía configs
 // distintas según el DSL, la misma clase de bug que el issue histórico #11.
+// El valor que se asigna se CLONA en profundidad cuando es un mapa. Sin eso,
+// una rama que existe en source pero no en target (p. ej. plugins.title o
+// scales.y1, que solo aporta el autor) quedaba compartida por referencia
+// entre el config generado y elem.Options, o sea el AST. Mientras nadie
+// escribiera en el config después del merge eso era inocuo; en cuanto
+// applyChartThemeColors empezó a hacerlo, el primer render dejaba sus
+// colores DENTRO del AST, y un segundo render del mismo AST con otro tema
+// los veía como overrides del autor y no los reemplazaba (hallazgo de
+// code-review: dos temas seguidos daban el color del primero).
+//
+// Se arregla acá y no en el call site para que la invariante —el config
+// generado nunca comparte estructura con el AST— valga para todos los
+// callers, incluido slidelang/.../mergeOptions, que hace exactamente el
+// mismo merge sobre un config que después también se muta.
 func MergeChartOptions(target, source map[string]interface{}) {
 	for key, value := range source {
 		if existingMap, ok := target[key].(map[string]interface{}); ok {
@@ -1171,7 +1185,29 @@ func MergeChartOptions(target, source map[string]interface{}) {
 				continue
 			}
 		}
-		target[key] = value
+		target[key] = deepCopyChartValue(value)
+	}
+}
+
+// deepCopyChartValue clona mapas y slices recursivamente; cualquier otro
+// valor (string, número, bool, nil) es inmutable en la práctica para lo que
+// hace este paquete y se devuelve tal cual.
+func deepCopyChartValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		clone := make(map[string]interface{}, len(typed))
+		for k, v := range typed {
+			clone[k] = deepCopyChartValue(v)
+		}
+		return clone
+	case []interface{}:
+		clone := make([]interface{}, len(typed))
+		for i, v := range typed {
+			clone[i] = deepCopyChartValue(v)
+		}
+		return clone
+	default:
+		return value
 	}
 }
 
@@ -1529,6 +1565,76 @@ func setColorIfUnset(parent map[string]interface{}, block, color string) {
 	}
 }
 
+// radialScaleIDs devuelve los ids de escala radial que ESTE config necesita,
+// calculados POR DATASET y no solo con el tipo global — el mismo criterio que
+// scaleIdsByDimension en charts.js (PR #228).
+//
+// Mirar solo el tipo global no alcanza y el caso es real: un `combo` se
+// normaliza a "bar" antes de llegar acá, pero cada dataset lleva su propio
+// `type` (elem.SeriesTypes). Con SeriesTypes ["radar"] el dataset ES radial y
+// Chart.js crea "r", mientras que el config exportado no la materializaba ni
+// le aplicaba angleLines/pointLabels (hallazgo de code-review).
+//
+// Se respeta además el override por dataset `rAxisID`, igual que hace
+// charts.js: si el dataset apunta a una escala radial con nombre propio, es
+// ESA la que hay que tematizar, no la "r" por defecto.
+func radialScaleIDs(config map[string]interface{}, chartType string) map[string]bool {
+	ids := make(map[string]bool)
+
+	addFor := func(dataset map[string]interface{}) {
+		effective := chartType
+		if dataset != nil {
+			if own, ok := dataset["type"].(string); ok && own != "" {
+				effective = own
+			}
+		}
+		if !radialChartTypes[effective] {
+			return
+		}
+		id := "r"
+		if dataset != nil {
+			if override, ok := dataset["rAxisID"].(string); ok && override != "" {
+				id = override
+			}
+		}
+		ids[id] = true
+	}
+
+	datasets, _ := datasetsOf(config)
+	if len(datasets) == 0 {
+		addFor(nil)
+		return ids
+	}
+	for _, dataset := range datasets {
+		addFor(dataset)
+	}
+	return ids
+}
+
+// datasetsOf devuelve los datasets del config. El tipo concreto es
+// []map[string]interface{} mientras el config lo arma este paquete, pero se
+// acepta también []interface{} por si alguna vez llega deserializado.
+func datasetsOf(config map[string]interface{}) ([]map[string]interface{}, bool) {
+	data, ok := config["data"].(map[string]interface{})
+	if !ok {
+		return nil, false
+	}
+	switch typed := data["datasets"].(type) {
+	case []map[string]interface{}:
+		return typed, true
+	case []interface{}:
+		out := make([]map[string]interface{}, 0, len(typed))
+		for _, raw := range typed {
+			if dataset, ok := raw.(map[string]interface{}); ok {
+				out = append(out, dataset)
+			}
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
 // applyChartThemeColors superpone los tokens chart-* no categóricos sobre la
 // config ya completa (después de MergeChartOptions). Es el equivalente
 // server-side de applyExtensionChartColors en charts.js, y se escribió
@@ -1552,14 +1658,14 @@ func applyChartThemeColors(config map[string]interface{}, chartType string, them
 	// Escalas. Pueden no existir: para treemap se borran arriba a propósito,
 	// y ahí no hay ninguna que pintar.
 	if scales, ok := options["scales"].(map[string]interface{}); ok {
-		// radar/polarArea dibujan sobre "r", que applyExportOptimizations no
-		// crea (solo arma x/y). Sin esto, esos dos tipos —que SIEMPRE pasan
-		// por Chromium, porque no tienen rasterizador nativo— terminaban con
-		// x/y temátizados que no se ven y su escala real sin tocar (hallazgo
-		// de code-review).
-		if radialChartTypes[chartType] {
-			if _, exists := scales["r"]; !exists {
-				scales["r"] = make(map[string]interface{})
+		radialIDs := radialScaleIDs(config, chartType)
+		// La escala radial no la crea applyExportOptimizations (solo arma
+		// x/y). Sin materializarla, radar/polarArea —que SIEMPRE pasan por
+		// Chromium, porque no tienen rasterizador nativo— quedaban con x/y
+		// temátizados que no se ven y su escala real sin tocar.
+		for id := range radialIDs {
+			if _, exists := scales[id]; !exists {
+				scales[id] = make(map[string]interface{})
 			}
 		}
 		for id, raw := range scales {
@@ -1574,7 +1680,7 @@ func applyChartThemeColors(config map[string]interface{}, chartType string, them
 			// no tiene: los rayos y las etiquetas alrededor del círculo.
 			// charts.js ya los pinta en el navegador; sin esto el PNG se
 			// vería a medio tematizar.
-			if id == "r" || radialChartTypes[chartType] {
+			if radialIDs[id] {
 				setColorIfUnset(scale, "angleLines", themeColors.Grid)
 				setColorIfUnset(scale, "pointLabels", themeColors.Axis)
 			}
@@ -1619,11 +1725,7 @@ func applyTreemapLabelColor(config map[string]interface{}, chartType, label stri
 	if chartType != "treemap" {
 		return
 	}
-	data, ok := config["data"].(map[string]interface{})
-	if !ok {
-		return
-	}
-	datasets, ok := data["datasets"].([]map[string]interface{})
+	datasets, ok := datasetsOf(config)
 	if !ok {
 		return
 	}
