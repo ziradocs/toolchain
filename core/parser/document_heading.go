@@ -57,6 +57,14 @@ func buildHeadingElement(text string, level, lineIndex int, explicitID string) *
 		anchorSource = explicitID
 	}
 	anchor := deriveAnchor(anchorSource)
+	if anchor == "" {
+		// El anchor derivado no dejó nada utilizable (un encabezado que es
+		// solo un emoji). Acá ya no hay a quién avisarle —DocLang strict
+		// reporta el caso del `id:` declarado antes de llegar hasta acá—,
+		// así que se cae al fallback en vez de emitir `id=""`, que es un
+		// error de html-validate y un ancla inalcanzable.
+		anchor = renderer.AnchorFallback
+	}
 
 	pos := diagnostics.NewPosition(lineIndex+1, 1)
 	htmlContent := fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", level, anchor, processedText, level)

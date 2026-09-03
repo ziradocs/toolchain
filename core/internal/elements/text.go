@@ -125,6 +125,32 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				break
 			}
 
+			// Un "###".."######" a media prosa corta el párrafo (issue
+			// #194): desde ese issue son encabezados de subsección, y el
+			// loop de flex.go los materializa — pero solo mira la línea
+			// donde ARRANCA cada iteración, así que uno pegado al párrafo
+			// anterior, sin línea en blanco de por medio, se lo tragaba
+			// este escaneo hacia adelante y "Antes.\n### Título\nDespués."
+			// salía como un solo texto con las almohadillas en medio.
+			// Cortando acá sin consumir, la vuelta siguiente del loop
+			// arranca justo en el "###" y lo convierte en encabezado.
+			//
+			// El `i > startIndex` es el punto entero de ponerlo acá y no en
+			// isOtherElementType: si el "###" ABRE el escaneo, cortar
+			// devolvería ConsumedLines 0 y la línea desaparecería en el
+			// failsafe — la zona muerta que #174 arregló, y que sus tests
+			// fijan. En el pipeline real ese caso no llega (el loop de flex
+			// intercepta la línea antes del registry), pero TextParser tiene
+			// su propio contrato y no debe depender de quién lo llame.
+			//
+			// Limitado a flex porque en strict el cuerpo de un TEXT lo arma
+			// el parser de strict, y ahí "### Foo" es texto literal: es lo
+			// que `slidelang fmt` emite al transpilar un encabezado (issue
+			// #259), así que cortarlo rompería ese round-trip.
+			if i > startIndex && ctx.Mode == "flex" && flexSubsectionHeadingPrefix(trimmed) {
+				break
+			}
+
 			// Stop if another element type is detected.
 			//
 			// issue #174 — historial de este bloque: la primera versión de
@@ -320,4 +346,25 @@ func isThematicBreak(line string) bool {
 	}
 
 	return count >= 3
+}
+
+// flexSubsectionHeadingPrefix reporta si line abre un encabezado de
+// subsección Markdown de nivel 3 a 6. Es el mismo criterio que
+// parser.flexSubsectionLevel —tres a seis almohadillas, espacio o tab, y
+// texto— pero vive acá porque core/internal/elements no puede importar
+// core/parser (el registry es una dependencia DEL parser). Si uno cambia,
+// el otro tiene que cambiar: un "###" que el loop intercepte pero que este
+// predicado no corte vuelve a pegar el encabezado al párrafo anterior.
+func flexSubsectionHeadingPrefix(line string) bool {
+	level := 0
+	for level < len(line) && line[level] == '#' {
+		level++
+	}
+	if level < 3 || level > 6 || level >= len(line) {
+		return false
+	}
+	if line[level] != ' ' && line[level] != '\t' {
+		return false
+	}
+	return strings.TrimSpace(line[level:]) != ""
 }

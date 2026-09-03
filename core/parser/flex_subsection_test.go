@@ -213,3 +213,108 @@ func TestFlexParser_SubsectionHeadingNotStolenFromCodeOrSpecialBlock(t *testing.
 		}
 	}
 }
+
+// Dos encabezados con el mismo texto derivaban el mismo `id`. Dos ids
+// iguales en una página son un error de html-validate (`no-dup-id`) y, peor,
+// rompen la navegación: `#details` resuelve siempre al primero.
+func TestFlexParser_SubsectionHeadingAnchorsAreUnique(t *testing.T) {
+	astNode, _ := parseFlexBody(t,
+		"## Slide uno", "", "### Details", "",
+		"## Slide dos", "", "### Details", "",
+		"## Slide tres", "", "### Details",
+	)
+
+	var ids []string
+	for i := range astNode.ContentBlocks {
+		for _, el := range astNode.ContentBlocks[i].Elements {
+			if te, ok := el.(*ast.TextElement); ok && te.IsRawHTML {
+				ids = append(ids, te.Content)
+			}
+		}
+	}
+	if len(ids) != 3 {
+		t.Fatalf("se esperaban 3 encabezados, hay %d", len(ids))
+	}
+	for i, want := range []string{`id="details"`, `id="details-2"`, `id="details-3"`} {
+		if !strings.Contains(ids[i], want) {
+			t.Errorf("encabezado %d: %q no contiene %q", i, ids[i], want)
+		}
+	}
+}
+
+// El sufijo del deduplicador no puede pisar un anchor real: un deck con
+// "Details", "Details 2" y otro "Details" no debe producir dos `details-2`.
+func TestFlexParser_SubsectionHeadingDedupDoesNotCollideWithRealAnchor(t *testing.T) {
+	astNode, _ := parseFlexBody(t,
+		"## Slide", "", "### Details", "", "### Details 2", "", "### Details",
+	)
+
+	seen := map[string]bool{}
+	for _, el := range astNode.ContentBlocks[0].Elements {
+		te, ok := el.(*ast.TextElement)
+		if !ok || !te.IsRawHTML {
+			continue
+		}
+		start := strings.Index(te.Content, `id="`) + 4
+		id := te.Content[start : start+strings.Index(te.Content[start:], `"`)]
+		if seen[id] {
+			t.Errorf("id duplicado %q en %q", id, te.Content)
+		}
+		seen[id] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("se esperaban 3 ids distintos, hay %d: %v", len(seen), seen)
+	}
+}
+
+// Un encabezado que no deja un solo carácter utilizable no puede quedar con
+// `id=""`, que es igual de inválido que uno que empieza por dígito.
+func TestFlexParser_SubsectionHeadingWithNoUsableCharactersFallsBack(t *testing.T) {
+	astNode, _ := parseFlexBody(t, "## Slide", "", "### 🚀")
+
+	_, content := headingAt(t, &astNode.ContentBlocks[0], 0)
+	if strings.Contains(content, `id=""`) {
+		t.Errorf("el encabezado quedó con id vacío: %q", content)
+	}
+	if !strings.Contains(content, `id="h"`) {
+		t.Errorf("se esperaba el anchor de fallback en %q", content)
+	}
+}
+
+// Un encabezado con dígito inicial produce un anchor direccionable.
+func TestFlexParser_SubsectionHeadingAnchorStartsWithLetter(t *testing.T) {
+	astNode, _ := parseFlexBody(t, "## Slide", "", "### 1. Primer paso")
+
+	_, content := headingAt(t, &astNode.ContentBlocks[0], 0)
+	if !strings.Contains(content, `id="h-1-primer-paso"`) {
+		t.Errorf("anchor inesperado en %q", content)
+	}
+}
+
+// El loop solo mira la línea donde arranca cada iteración, así que un
+// encabezado pegado al párrafo anterior lo tenía que soltar TextParser.
+func TestFlexParser_SubsectionHeadingGluedToPreviousParagraph(t *testing.T) {
+	astNode, _ := parseFlexBody(t,
+		"## Slide", "",
+		"Paragraph before.",
+		"### Nested heading",
+		"Paragraph after.",
+	)
+
+	block := &astNode.ContentBlocks[0]
+	if len(block.Elements) != 3 {
+		t.Fatalf("se esperaban 3 elementos (texto, encabezado, texto), hay %d", len(block.Elements))
+	}
+	if level, content := headingAt(t, block, 1); level != 3 || !strings.Contains(content, "Nested heading") {
+		t.Errorf("elemento 1: nivel %d, content %q", level, content)
+	}
+	for _, i := range []int{0, 2} {
+		te, ok := block.Elements[i].(*ast.TextElement)
+		if !ok || te.IsRawHTML {
+			t.Fatalf("elemento %d: se esperaba texto plano", i)
+		}
+		if strings.Contains(te.Content, "###") {
+			t.Errorf("elemento %d se tragó el encabezado: %q", i, te.Content)
+		}
+	}
+}

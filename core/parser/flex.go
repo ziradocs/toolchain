@@ -5,11 +5,13 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -28,6 +30,9 @@ type FlexParser struct {
 	// slide son DOS llamadas distintas a parseContentBlock: la primera
 	// consume la metadata y devuelve nil, la segunda arma el slide.
 	pendingLayout string
+	// usedAnchors cuenta cuántas veces se emitió cada anchor de encabezado
+	// en ESTE documento, para desduplicarlos (ver uniqueHeadingAnchor).
+	usedAnchors map[string]int
 	// reportedInertKeys recuerda por qué llaves inertes ya se avisó, para
 	// avisar UNA vez por documento y no una por slide. Sin esto, un deck que
 	// repite `header:`/`footer:` en cada bloque sacaba una decena de avisos
@@ -315,8 +320,9 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 		// un fence o de un `:::` no pasa por acá — CodeParser y
 		// SpecialBlockParser consumen el bloque entero de una sola vez.
 		if level := flexSubsectionLevel(nextLine); level > 0 {
+			text := strings.TrimSpace(nextLine[level:])
 			block.Elements = append(block.Elements,
-				buildHeadingElement(strings.TrimSpace(nextLine[level:]), level, p.currentLine, ""))
+				buildHeadingElement(text, level, p.currentLine, p.uniqueHeadingAnchor(text)))
 			p.currentLine++
 			continue
 		}
@@ -481,6 +487,52 @@ func isLayoutName(value string) bool {
 // parser, así que se repite acá — corta, y con el puntero para que se
 // mantengan sincronizadas.
 //
+// uniqueHeadingAnchor devuelve el anchor de un encabezado garantizando que
+// no se repita dentro del documento: el segundo `### Details` de un deck ya
+// no produce un `id="details"` duplicado, sino `details-2`.
+//
+// Dos ids iguales en una página son un error de html-validate (`no-dup-id`),
+// y en la práctica rompen la navegación: `#details` resuelve siempre al
+// primero, así que el segundo es inalcanzable.
+//
+// La desduplicación vive en el parser —y no en el renderer— porque acá el
+// `id` queda dentro del AST, así que lo que emite el HTML y lo que reporta
+// `--format json` no pueden divergir. Eso es viable en SlideLang porque
+// NADA vuelve a derivar estos anchors: no hay TOC ni xref del lado de las
+// presentaciones. En DocLang no se puede hacer lo mismo sin tocar a la vez
+// las ~7 re-derivaciones de document_html.go, que seguirían apuntando al
+// anchor sin sufijo; ese caso queda como issue aparte.
+//
+// El anchor deduplicado se pasa como `explicitID` a buildHeadingElement, que
+// lo vuelve a correr por deriveAnchor. Es seguro porque la función es
+// idempotente sobre su propia salida: "details-2" ya está saneado y ya
+// empieza por letra, así que vuelve igual.
+func (p *FlexParser) uniqueHeadingAnchor(text string) string {
+	base := deriveAnchor(text)
+	if base == "" {
+		// Un encabezado que es solo un emoji no deja anchor. El fallback
+		// entra acá y no solo en buildHeadingElement para que también
+		// participe del conteo: dos encabezados así dan "h" y "h-2", no dos
+		// "h".
+		base = renderer.AnchorFallback
+	}
+	if p.usedAnchors == nil {
+		p.usedAnchors = make(map[string]int)
+	}
+
+	// Se prueba el anchor y, si ya se usó, se le va sumando sufijo hasta dar
+	// con uno libre. El bucle, y no un contador por base, porque el sufijo
+	// puede chocar con un anchor REAL: un deck con "### Details",
+	// "### Details 2" y otro "### Details" derivaría "details", "details-2"
+	// y —con el atajo— un segundo "details-2".
+	candidate := base
+	for n := 2; p.usedAnchors[candidate] > 0; n++ {
+		candidate = base + "-" + strconv.Itoa(n)
+	}
+	p.usedAnchors[candidate]++
+	return candidate
+}
+
 // flexSubsectionLevel devuelve el nivel (3 a 6) si line es un encabezado de
 // subsección Markdown, y 0 si no lo es (issue #194).
 //
