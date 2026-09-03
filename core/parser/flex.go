@@ -302,6 +302,25 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 			continue
 		}
 
+		// `###`..`######` es un encabezado de SUBSECCIÓN dentro del slide
+		// (issue #194). `# ` y `## ` no llegan acá: los intercepta el
+		// bloque de arriba, donde son frontera de slide y subtítulo
+		// respectivamente — por eso el predicado empieza en 3 y no copia
+		// tal cual el isSubsectionHeader de DocumentFlexParser, que sí
+		// cuenta `##` (en un documento no hay slides que delimitar).
+		//
+		// Va DESPUÉS del salto de líneas en blanco y ANTES de
+		// registry.Parse: si el registry corre primero, TextParser reclama
+		// la línea como párrafo y el heading se pierde. Un `###` dentro de
+		// un fence o de un `:::` no pasa por acá — CodeParser y
+		// SpecialBlockParser consumen el bloque entero de una sola vez.
+		if level := flexSubsectionLevel(nextLine); level > 0 {
+			block.Elements = append(block.Elements,
+				buildHeadingElement(strings.TrimSpace(nextLine[level:]), level, p.currentLine, ""))
+			p.currentLine++
+			continue
+		}
+
 		// Update context
 		ctx.CurrentLine = p.currentLine
 
@@ -462,6 +481,36 @@ func isLayoutName(value string) bool {
 // parser, así que se repite acá — corta, y con el puntero para que se
 // mantengan sincronizadas.
 //
+// flexSubsectionLevel devuelve el nivel (3 a 6) si line es un encabezado de
+// subsección Markdown, y 0 si no lo es (issue #194).
+//
+// Empieza en 3 a propósito: en un slide, `# ` abre un slide nuevo y `## ` es
+// frontera o subtítulo, y las dos las resuelve el loop de parseContentBlock
+// antes de llegar acá. Termina en 6 porque Markdown tampoco reconoce más:
+// `####### x` (siete) es un párrafo, y como tal cae al registry igual que
+// hoy.
+//
+// Exige espacio o tab después de los `#` y algo de texto después: `###` a
+// secas, o `###foo`, no son encabezados — el primero es una línea suelta y
+// el segundo bien podría ser un hashtag o un ancla escrita a mano. En los
+// dos casos la línea sigue su curso hacia el registry.
+func flexSubsectionLevel(line string) int {
+	level := 0
+	for level < len(line) && line[level] == '#' {
+		level++
+	}
+	if level < 3 || level > 6 || level >= len(line) {
+		return 0
+	}
+	if line[level] != ' ' && line[level] != '\t' {
+		return 0
+	}
+	if strings.TrimSpace(line[level:]) == "" {
+		return 0
+	}
+	return level
+}
+
 // slidelang tiene su propia versión más ancha (config.IsSlideTitle, que suma
 // "cover" e "intro" para elegir plantilla). No se comparte porque core no
 // puede importar slidelang; la diferencia es deliberada: acá la pregunta es
