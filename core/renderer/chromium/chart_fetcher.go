@@ -125,6 +125,13 @@ func (f *ChartFetcher) renderFunc(ctx context.Context, elem *ast.ChartElement, c
 // alimenta WithSeriesColors y esa serie no se dibuja. Si algún día un token
 // categórico empezara a afectar algo fuera de las series, esto habría que
 // revisarlo.
+//
+// OJO con generalizar ese razonamiento: vale para ESTE fetcher y solo
+// porque acá chartConfig entra al hash. renderer.NativeChartFetcher —el
+// atajo sin Chromium— IGNORA chartConfig por completo, así que allá la
+// paleta nunca estuvo cubierta y su chartHash sí tiene que incluirla
+// explícitamente (hallazgo de code-review sobre este PR; ver el comentario
+// de NativeChartFetcher.chartHash).
 func cacheKeyInput(elem *ast.ChartElement, chartConfig string, width, height int, themeColors renderer.ChartThemeColors) string {
 	title := ""
 	if elem != nil {
