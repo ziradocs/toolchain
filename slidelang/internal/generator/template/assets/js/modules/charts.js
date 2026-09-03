@@ -12,9 +12,356 @@ const chartRegistry = new Map();
 
 // Default color palette for charts
 const defaultColors = [
-    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', 
+    '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
     '#06B6D4', '#8B5CF6', '#F97316', '#EC4899'
 ];
+
+// getCategoricalPalette / categoricalColor (motor-temas-v2.md §2.2): un
+// tema puede sobreescribir defaultColors índice por índice vía sus tokens
+// chart-cat-1..8, ya resueltos a literales server-side
+// (themes.ResolveThemeTokens) — Chart.js's fillStyle de canvas no acepta
+// var(). chart-cat-* es un set CON ORDEN (identidad de serie legible bajo
+// daltonismo): se preserva el MISMO wrap por módulo que este módulo ya
+// usaba con defaultColors, nunca se genera un matiz nuevo para una serie
+// N+1. Un tema que no declara chart-cat-* (todo tema del repo hoy) deja
+// defaultColors sin tocar.
+function getCategoricalPalette() {
+    const metadata = (typeof SlideLang !== 'undefined' && SlideLang.metadata) || {};
+    const tokens = metadata.themeTokens;
+    if (tokens && Array.isArray(tokens.chartCategorical) && tokens.chartCategorical.length > 0) {
+        return tokens.chartCategorical;
+    }
+    return defaultColors;
+}
+
+function categoricalColor(index) {
+    const palette = getCategoricalPalette();
+    return palette[index % palette.length];
+}
+
+// withAlpha (motor-temas-v2.md §2.2): categoricalColor() can now return a
+// theme's chart-cat-* token instead of one of the hardcoded hex
+// defaultColors, and a token isn't guaranteed to be #RRGGBB or opaque — a
+// theme author can declare chart-cat-1 as #ff000020, rgba(255,0,0,0.1), or
+// any other alpha-carrying form for a deliberate translucent fill.
+//
+// A code-review-flagged regression: an earlier version of this function
+// always overwrote alpha with ALPHA_FRACTION regardless of whether the
+// color already declared its own — #ff000020 became #ff000080,
+// rgba(r,g,b,0.1) became rgba(r,g,b,0.5019…). Worse, it silently
+// contradicted an invariant native_chart.go's chartColorFromCSS documents
+// explicitly (established by a PR #224 review finding): a chart-cat-*
+// color's alpha "is meaningful and preserved as-is" in the native
+// (PDF/PPTX) render path. Overwriting it here reintroduced exactly the
+// browser-vs-native divergence that finding closed.
+//
+// Fixed rule: NEVER compose, NEVER overwrite. A color that already
+// declares alpha (4/8-digit hex, an explicit 4th rgb()/rgba() or
+// hsl()/hsla() component, or anything using the modern '/' alpha syntax)
+// is returned untouched. Only an opaque color gets ALPHA_FRACTION applied
+// — which is exactly what defaultColors always was, so this is still
+// byte-for-byte behavior-preserving for every theme that declares no
+// chart-cat-* tokens (i.e. every theme in the repo today).
+const ALPHA_FRACTION = 128 / 255;
+
+function withAlpha(color, alphaFraction) {
+    if (typeof color !== 'string') {
+        return color;
+    }
+    const trimmed = color.trim();
+
+    const hexMatch = trimmed.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+    if (hexMatch) {
+        const hex = hexMatch[1];
+        if (hex.length === 4 || hex.length === 8) {
+            return trimmed; // already carries its own alpha nibble/byte
+        }
+        const expanded = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+        const alphaHex = Math.round(alphaFraction * 255).toString(16).padStart(2, '0');
+        return '#' + expanded + alphaHex;
+    }
+
+    // Component regexes deliberately don't validate each component's own
+    // syntax (that's IsValidMapColor/IsValidMermaidColor's job upstream,
+    // for the token families that go through one) — only arity, to detect
+    // whether a 4th (alpha) component is already present.
+    const rgbMatch = trimmed.match(/^rgba?\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*([^,]+?)\s*(,\s*[^,]+?\s*)?\)$/i);
+    if (rgbMatch) {
+        if (rgbMatch[4] !== undefined) {
+            return trimmed; // rgb()/rgba() with 4 components already has alpha
+        }
+        return 'rgba(' + rgbMatch[1] + ', ' + rgbMatch[2] + ', ' + rgbMatch[3] + ', ' + alphaFraction + ')';
+    }
+
+    const hslMatch = trimmed.match(/^hsla?\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*([^,]+?)\s*(,\s*[^,]+?\s*)?\)$/i);
+    if (hslMatch) {
+        if (hslMatch[4] !== undefined) {
+            return trimmed;
+        }
+        return 'hsla(' + hslMatch[1] + ', ' + hslMatch[2] + ', ' + hslMatch[3] + ', ' + alphaFraction + ')';
+    }
+
+    if (trimmed.indexOf('/') !== -1) {
+        // Modern space-separated syntax (e.g. "rgb(255 0 0 / 50%)") can
+        // carry its own alpha after '/' — never assume it's opaque.
+        return trimmed;
+    }
+
+    // Named color or anything else Chart.js/canvas would otherwise accept
+    // as-is: color-mix is the only format-agnostic way to apply a DEFAULT
+    // alpha without a full CSS color parser, and has been supported in
+    // every Chart.js-capable browser (and the Chromium version this
+    // toolchain's offline/PDF path embeds) since 2023.
+    return 'color-mix(in srgb, ' + trimmed + ' ' + Math.round(alphaFraction * 100) + '%, transparent)';
+}
+
+// applyExtensionChartColors (motor-temas-v2.md §2.2): superpone los
+// tokens chart-grid/-axis/-label/-tooltip-bg sobre lo que buildConfig() o
+// la config JSON del autor ya hayan producido, sin pisar nunca un valor
+// que la config ya trae puesto. chart-surface NO se maneja acá: a
+// diferencia de estos (dibujados sobre canvas, solo alcanzables vía
+// opciones de Chart.js), es un fondo plano detrás del canvas y se
+// propaga por CSS normal (ver charts.css) — GenerateThemeCSS ya emite
+// CUALQUIER variable que un tema declare en :root, así que un segundo
+// camino Go/JS para ese único token sería duplicar un mecanismo que ya
+// funciona.
+
+// CHART_SCALE_DIMENSIONS is the set of scale dimensions Chart.js itself
+// creates implicitly for a chart type when options.scales doesn't declare
+// them — bar/line/scatter/bubble (and, via buildConfig's
+// originalType==='combo' -> chartType 'bar' mapping, combo) get 'x'+'y';
+// radar/polarArea get the radial 'r' scale. A type absent from this map
+// (pie, doughnut, treemap, or anything unrecognized) gets NO
+// materialization — correct for the first two (applyThemeColors deletes
+// options.scales for them above) and the safe default for anything else:
+// not applying a token is the harmless pre-existing behavior, a spurious
+// axis Chart.js wouldn't have drawn is a visual regression.
+const CHART_SCALE_DIMENSIONS = {
+    bar: ['x', 'y'],
+    line: ['x', 'y'],
+    scatter: ['x', 'y'],
+    bubble: ['x', 'y'],
+    radar: ['r'],
+    polarArea: ['r'],
+};
+
+// scaleDimensionByAxis classifies an EXISTING scale entry (one already
+// present in options.scales, not one this module materializes) by
+// dimension, for theming purposes only: scale.axis if the author declared
+// one, else the scale id's own first letter lowercased — the same
+// fallback Chart.js's own scale service (core.scale.js's
+// getRightToLeftAdapter/determineAxis path) uses to infer a scale's axis
+// when nothing else specifies it. NEVER use this to decide
+// materialization (requiredScaleIds/ensureThemeableScales) — a
+// code-review finding already established that a differently-named scale
+// does not suppress Chart.js's own default-id scale creation, and
+// classifying by axis/id here must not resurrect that bug from the other
+// direction.
+function scaleDimensionByAxis(id, scale) {
+    if (scale && typeof scale === 'object' && typeof scale.axis === 'string' && scale.axis) {
+        return scale.axis;
+    }
+    return typeof id === 'string' && id ? id.charAt(0).toLowerCase() : undefined;
+}
+
+// AXIS_ID_PROPS maps a scale dimension to the dataset property Chart.js
+// reads to override which scale id that dataset binds to for that
+// dimension. A code-review finding confirmed rAxisID is real, symmetric
+// with xAxisID/yAxisID — Chart.js does not special-case radial scales as
+// always-literally-'r': a radar dataset can declare `rAxisID: "radial"`
+// to bind to its own named radial scale, and — just like the cartesian
+// case — if nothing redirects it, Chart.js still creates its own untamed
+// default 'r' scale alongside any custom-named one. An earlier version of
+// this code hard-coded 'r' as the only possible radial scale id, so
+// `{data:{datasets:[{rAxisID:'radial'}]}}` on a radar chart materialized
+// and themed 'r' while Chart.js rendered its OWN default 'r' (grid
+// rgba(0,0,0,0.1), ticks #666) untamed right alongside the real,
+// custom-named 'radial' scale the dataset actually used.
+const AXIS_ID_PROPS = { x: 'xAxisID', y: 'yAxisID', r: 'rAxisID' };
+
+// scaleIdsByDimension groups the scale ids Chart.js requires for
+// themedConfig by dimension ('x'/'y'/'r'), computed PER DATASET using
+// that dataset's own `type` when set — Chart.js's mixed/combo charts let
+// a dataset override the chart-level type (buildConfig's per-series
+// seriesTypes for <<chart: combo>>), and a dataset's required dimensions
+// depend on what geometry IT draws, not just on the chart as a whole.
+//
+// A code-review-flagged correctness bug lived in an earlier version of
+// this logic: it computed a scale's "dimension" by reading its declared
+// `axis` property and treated any EXISTING scale matching a required
+// dimension as already "covering" it — so a custom-named scale like
+// "revenue": {axis:'y'} was treated as satisfying the chart's 'y'
+// requirement, and no literal 'y' scale got materialized. That is NOT how
+// Chart.js 4.x's own mergeScaleConfig (core.controller.js) actually
+// decides which scales to create: it materializes a default scale under
+// the LITERAL id 'x'/'y'/'r' for every dataset unless that SPECIFIC
+// dataset overrides it via xAxisID/yAxisID/rAxisID — a differently-named
+// scale elsewhere in options, even with a matching `axis`, does not
+// suppress that. Confirmed empirically against Chart.js 4.5.1 (a
+// code-review finding): a bar chart with `scales: {revenue: {axis:'y'},
+// x: {...}}` and a dataset with no yAxisID still gets Chart.js's own
+// default 'y' scale rendered ALONGSIDE "revenue" — untamed, with Chart.js's
+// own default grid/tick colors, because nothing told Chart.js to skip it.
+function scaleIdsByDimension(themedConfig) {
+    const byDimension = { x: new Set(), y: new Set(), r: new Set() };
+    const datasets = (themedConfig.data && themedConfig.data.datasets) || [];
+
+    const addForDataset = (dataset) => {
+        const type = (dataset && typeof dataset.type === 'string' && dataset.type) || themedConfig.type;
+        const dimensions = CHART_SCALE_DIMENSIONS[type];
+        if (!dimensions) {
+            return;
+        }
+        dimensions.forEach((dimension) => {
+            const prop = AXIS_ID_PROPS[dimension];
+            const override = dataset && typeof dataset === 'object' ? dataset[prop] : undefined;
+            byDimension[dimension].add(typeof override === 'string' && override ? override : dimension);
+        });
+    };
+
+    if (!datasets.length) {
+        addForDataset(null);
+    } else {
+        datasets.forEach(addForDataset);
+    }
+    return byDimension;
+}
+
+// requiredScaleIds flattens scaleIdsByDimension into the full set of
+// literal scale keys Chart.js itself will require (and, if missing,
+// silently create with its OWN untamed defaults) for themedConfig — the
+// ONLY keys ensureThemeableScales may materialize.
+function requiredScaleIds(themedConfig) {
+    const byDimension = scaleIdsByDimension(themedConfig);
+    const ids = new Set();
+    ['x', 'y', 'r'].forEach((dimension) => {
+        byDimension[dimension].forEach((id) => ids.add(id));
+    });
+    return Array.from(ids);
+}
+
+// ensureThemeableScales materializes any of requiredScaleIds' keys that
+// options.scales doesn't already declare — mirroring exactly what
+// Chart.js would create by default, so that scale gets themed too instead
+// of rendering with Chart.js's own untamed defaults. Existing scales
+// (required or not — e.g. an author's own custom-named "revenue") are
+// left as-is here; the caller's coloring loop themes every key present,
+// not just the ones this function adds.
+function ensureThemeableScales(themedConfig) {
+    const requiredIds = requiredScaleIds(themedConfig);
+    if (!requiredIds.length) {
+        return themedConfig.options.scales || null;
+    }
+
+    const existing = themedConfig.options.scales || {};
+    let changed = false;
+    requiredIds.forEach((id) => {
+        if (!existing[id]) {
+            existing[id] = {};
+            changed = true;
+        }
+    });
+    if (changed) {
+        themedConfig.options.scales = existing;
+    }
+    return existing;
+}
+
+function applyExtensionChartColors(themedConfig) {
+    const metadata = (typeof SlideLang !== 'undefined' && SlideLang.metadata) || {};
+    const tokens = (metadata.themeTokens && metadata.themeTokens.chart) || null;
+    if (!tokens) {
+        return;
+    }
+    if (!themedConfig.options) {
+        themedConfig.options = {};
+    }
+
+    if (tokens['chart-grid'] || tokens['chart-axis']) {
+        const scales = ensureThemeableScales(themedConfig);
+        // radialScaleIds names every scale id that's actually radial for
+        // THIS config: the dataset-driven set (a dataset's own rAxisID
+        // override, or the literal 'r' default — see AXIS_ID_PROPS's doc
+        // comment) UNION any scale already declared in options.scales
+        // that classifies as radial by its own axis/id
+        // (scaleDimensionByAxis). The union matters — a code-review
+        // finding caught the dataset-only set alone missing an explicit,
+        // author-declared radial scale that no dataset happens to
+        // reference (e.g. `options.scales.radial = {axis:'r'}` with a
+        // dataset that never sets rAxisID): Chart.js still creates AND
+        // draws that scale because it's explicitly configured, so it
+        // still needs angleLines/pointLabels themed, even though nothing
+        // in requiredScaleIds' materialization logic would ever add it.
+        // This union is used ONLY for this angleLines/pointLabels
+        // classification, never for materialization — doing that would
+        // resurrect the axis-suppresses-materialization bug from the
+        // other direction.
+        const radialScaleIds = scaleIdsByDimension(themedConfig).r;
+        if (scales && typeof scales === 'object') {
+            Object.keys(scales).forEach((key) => {
+                if (scaleDimensionByAxis(key, scales[key]) === 'r') {
+                    radialScaleIds.add(key);
+                }
+            });
+            Object.keys(scales).forEach((key) => {
+                const scale = scales[key];
+                if (!scale || typeof scale !== 'object') {
+                    return;
+                }
+                if (tokens['chart-grid']) {
+                    scale.grid = scale.grid || {};
+                    if (scale.grid.color === undefined) {
+                        scale.grid.color = tokens['chart-grid'];
+                    }
+                }
+                if (tokens['chart-axis']) {
+                    scale.ticks = scale.ticks || {};
+                    if (scale.ticks.color === undefined) {
+                        scale.ticks.color = tokens['chart-axis'];
+                    }
+                }
+                // Radial scales draw two more theme-relevant elements a
+                // cartesian scale doesn't have: the spokes (angleLines)
+                // and the category labels around the circle
+                // (pointLabels). Without these a radar chart's
+                // concentric-circle grid and numeric ticks get themed but
+                // the spokes and category labels stay Chart.js-default —
+                // visibly half-done.
+                if (radialScaleIds.has(key)) {
+                    if (tokens['chart-grid']) {
+                        scale.angleLines = scale.angleLines || {};
+                        if (scale.angleLines.color === undefined) {
+                            scale.angleLines.color = tokens['chart-grid'];
+                        }
+                    }
+                    if (tokens['chart-axis']) {
+                        scale.pointLabels = scale.pointLabels || {};
+                        if (scale.pointLabels.color === undefined) {
+                            scale.pointLabels.color = tokens['chart-axis'];
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    if (tokens['chart-label']) {
+        themedConfig.options.plugins = themedConfig.options.plugins || {};
+        themedConfig.options.plugins.legend = themedConfig.options.plugins.legend || {};
+        themedConfig.options.plugins.legend.labels = themedConfig.options.plugins.legend.labels || {};
+        if (themedConfig.options.plugins.legend.labels.color === undefined) {
+            themedConfig.options.plugins.legend.labels.color = tokens['chart-label'];
+        }
+    }
+
+    if (tokens['chart-tooltip-bg']) {
+        themedConfig.options.plugins = themedConfig.options.plugins || {};
+        themedConfig.options.plugins.tooltip = themedConfig.options.plugins.tooltip || {};
+        if (themedConfig.options.plugins.tooltip.backgroundColor === undefined) {
+            themedConfig.options.plugins.tooltip.backgroundColor = tokens['chart-tooltip-bg'];
+        }
+    }
+}
 
 /**
  * Charts Module - Following SlideLang Standard Pattern
@@ -244,22 +591,22 @@ const SlideLangCharts = {
                 if (config.type === 'pie' || config.type === 'doughnut') {
                     if (!dataset.backgroundColor) {
                         // Asignar un color diferente a cada segmento
-                        dataset.backgroundColor = dataset.data.map((_, segmentIndex) => 
-                            defaultColors[segmentIndex % defaultColors.length] + '80'
+                        dataset.backgroundColor = dataset.data.map((_, segmentIndex) =>
+                            withAlpha(categoricalColor(segmentIndex), ALPHA_FRACTION)
                         );
                     }
                     if (!dataset.borderColor) {
                         dataset.borderColor = dataset.data.map((_, segmentIndex) => 
-                            defaultColors[segmentIndex % defaultColors.length]
+                            categoricalColor(segmentIndex)
                         );
                     }
                 } else {
                     // Para otros tipos de charts, usar un color por dataset
                     if (!dataset.backgroundColor) {
-                        dataset.backgroundColor = defaultColors[index % defaultColors.length] + '80';
+                        dataset.backgroundColor = withAlpha(categoricalColor(index), ALPHA_FRACTION);
                     }
                     if (!dataset.borderColor) {
-                        dataset.borderColor = defaultColors[index % defaultColors.length];
+                        dataset.borderColor = categoricalColor(index);
                     }
                 }
                 if (!dataset.borderWidth) {
@@ -308,10 +655,12 @@ const SlideLangCharts = {
                 };
             }
         }
-        
+
+        applyExtensionChartColors(themedConfig);
+
         return themedConfig;
     },
-    
+
     createConfigFromAttributes: function(canvas) {
         const chartType = canvas.getAttribute('data-chart-type') || 'bar';
         const originalType = canvas.getAttribute('data-chart-original-type') || chartType;
@@ -407,8 +756,8 @@ const SlideLangCharts = {
                 const dataset = {
                     label: seriesName,
                     data: seriesData,
-                    backgroundColor: defaultColors[index % defaultColors.length] + '80',
-                    borderColor: defaultColors[index % defaultColors.length],
+                    backgroundColor: withAlpha(categoricalColor(index), ALPHA_FRACTION),
+                    borderColor: categoricalColor(index),
                     borderWidth: 2,
                     tension: 0.1
                 };
@@ -429,8 +778,8 @@ const SlideLangCharts = {
             datasets.push({
                 label: 'Dataset 1',
                 data: data.map(row => row[1] || 0),
-                backgroundColor: defaultColors[0] + '80',
-                borderColor: defaultColors[0],
+                backgroundColor: withAlpha(categoricalColor(0), ALPHA_FRACTION),
+                borderColor: categoricalColor(0),
                 borderWidth: 2,
                 tension: 0.1
             });

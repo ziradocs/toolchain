@@ -55,9 +55,7 @@ const SlideLangMermaid = {
                 gantt: {
                     numberSectionStyles: 4
                 },
-                themeVariables: {
-                    fontFamily: 'arial'
-                },
+                themeVariables: this.buildMermaidThemeVariables(),
                 sequence: {
                     diagramMarginX: 50,
                     diagramMarginY: 10
@@ -66,16 +64,55 @@ const SlideLangMermaid = {
                 parseEscape: false,
                 suppressErrors: false
             });
-            
+
             // console.log('[SlideLang.mermaid] Mermaid configured with version:', mermaid.version || 'unknown');
-            
+
         } catch (error) {
             if (typeof console !== 'undefined' && console.error) {
                 console.error('[SlideLang.mermaid] Error configuring Mermaid:', error);
             }
         }
     },
-    
+
+    // buildMermaidThemeVariables (motor-temas-v2.md §2.2): empieza del
+    // literal que este asset siempre emitió (fontFamily: 'arial') y solo
+    // sobreescribe los slots para los que el tema resolvió un token —
+    // themeTokens.diagram ya llega con valores LITERALES (nunca var()),
+    // resueltos server-side por themes.ResolveThemeTokens, porque un SVG
+    // generado por Mermaid no puede resolver custom properties CSS. Un
+    // deck cuyo tema no declara diagram-*/font-main (todo tema del repo
+    // hoy) recibe exactamente el literal de siempre, sin cambios.
+    buildMermaidThemeVariables: function() {
+        const themeVariables = { fontFamily: 'arial' };
+        const metadata = (typeof SlideLang !== 'undefined' && SlideLang.metadata) || {};
+
+        if (metadata.themeFontMain) {
+            themeVariables.fontFamily = metadata.themeFontMain;
+        }
+
+        const diagram = (metadata.themeTokens && metadata.themeTokens.diagram) || {};
+        const mapToken = (token, ...keys) => {
+            const value = diagram[token];
+            if (!value) {
+                return;
+            }
+            keys.forEach((key) => {
+                themeVariables[key] = value;
+            });
+        };
+        // Mapeo de motor-temas-v2.md §2.2 (tabla "Mapeo a Mermaid").
+        mapToken('diagram-node-bg', 'mainBkg', 'primaryColor');
+        mapToken('diagram-node-fg', 'primaryTextColor', 'textColor');
+        mapToken('diagram-node-line', 'primaryBorderColor', 'nodeBorder');
+        mapToken('diagram-edge', 'lineColor');
+        mapToken('diagram-edge-label-bg', 'edgeLabelBackground');
+        mapToken('diagram-accent-bg', 'secondaryColor');
+        mapToken('diagram-cluster-bg', 'clusterBkg', 'clusterBorder');
+        mapToken('diagram-note-bg', 'noteBkgColor');
+
+        return themeVariables;
+    },
+
     loadDiagramsFromMetadata: function() {
         // Prioridad 1: Obtener datos de metadata
         const metadata = SlideLang.metadata || {};

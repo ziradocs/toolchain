@@ -13,6 +13,7 @@ import (
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/renderer/chromium"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 )
 
 // offline.go conecta slidelang al pipeline de rendering offline que ya vive en
@@ -330,6 +331,11 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 	if resolveImageFormat(opts.ImageFormat) == "webp" {
 		return nil, false
 	}
+	// motor-temas-v2.md §2.2: chart-cat-* es el único grupo de tokens con
+	// plumbing de core hoy (PR #224) — se resuelve ANTES del loop porque
+	// RenderChartNativePNGWithColors necesita los colores en el momento
+	// mismo del render nativo, no después.
+	categoricalColors := resolveChartCategoricalColors(opts)
 	chartFetcher := renderer.NewNativeChartFetcher()
 	if astNode != nil {
 		for _, block := range astNode.ContentBlocks {
@@ -350,7 +356,7 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 						return nil, false
 					}
 					width, height := renderer.ChartDimensions(e)
-					data, ok, err := renderer.RenderChartNativePNG(e, width, height)
+					data, ok, err := renderer.RenderChartNativePNGWithColors(e, width, height, categoricalColors)
 					if !ok || err != nil {
 						return nil, false
 					}
@@ -372,12 +378,13 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 		// generatePDF (pdf.go) fuerza opts.RenderMode a "offline-inline"
 		// antes de llegar acá, así que un PDF sigue inlineando sin
 		// depender de qué haya en la línea de comandos.
-		ImageMode:    opts.RenderMode,
-		AssetRoot:    opts.AssetRoot,
-		OutputDir:    outputDir,
-		ChartFetcher: chartFetcher,
-		Logger:       g.logger,
-		Ctx:          context.Background(),
+		ImageMode:              opts.RenderMode,
+		AssetRoot:              opts.AssetRoot,
+		OutputDir:              outputDir,
+		ChartFetcher:           chartFetcher,
+		ChartCategoricalColors: categoricalColors,
+		Logger:                 g.logger,
+		Ctx:                    context.Background(),
 	}
 	// Un chart nativo puede convivir con PlantUML en el mismo deck (PlantUML
 	// no entra al switch de arriba, así que no hace bail-out a Chromium) —
@@ -388,6 +395,25 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 	wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
 	wireMermaidFetcher(ctx, astNode, opts, outputDir)
 	return ctx, true
+}
+
+// resolveChartCategoricalColors resuelve chart-cat-1..8 del tema ya
+// resuelto (opts.ResolvedTheme, issue #30 — build.go lo puebla antes de
+// llegar a SetupOfflineRenderContext/generatePDF) a literales, para el
+// camino offline/PDF/pptx. Es el único grupo de tokens de
+// motor-temas-v2.md §2.2 con plumbing de core hoy (PR #224 publicó
+// RenderContext.ChartCategoricalColors/RenderChartNativePNGWithColors/
+// ChartFetcher.SetCategoricalColors) — el resto
+// (chart-surface/grid/axis/label/tooltip-bg, diagram-*, map-*) no tiene
+// seam offline todavía y queda para un PR aparte con su propio bump.
+// nil cuando no hay tema resuelto o no declara el token, reproduciendo el
+// comportamiento de siempre byte a byte, tal como
+// RenderContext.ChartCategoricalColors documenta.
+func resolveChartCategoricalColors(opts GeneratorOptions) []string {
+	if opts.ResolvedTheme == nil {
+		return nil
+	}
+	return themes.ResolveThemeTokens(opts.ResolvedTheme.Variables).ChartCategorical
 }
 
 // resolveImageFormat aplica el default "png" cuando --image-format no se
@@ -421,10 +447,18 @@ func resolveWebPQuality(webpQuality int) int {
 func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode *ast.AST, outputDir string, opts GeneratorOptions, logger util.Logger) *renderer.RenderContext {
 	imageFormat := resolveImageFormat(opts.ImageFormat)
 	webpQuality := resolveWebPQuality(opts.WebPQuality)
+	// motor-temas-v2.md §2.2: mismo chart-cat-* que tryBuildNativeContext
+	// resuelve arriba — issue #130 hace que ChartFetcher PREFIERA el
+	// rasterizador nativo (SetCategoricalColors) para bar/line/pie/
+	// doughnut, y solo caiga a GenerateChartConfigWithMode (que lee
+	// ctx.ChartCategoricalColors directamente) para combo/scatter/
+	// JSON-mode — hay que cablear los dos, no uno.
+	categoricalColors := resolveChartCategoricalColors(opts)
 
 	fetcherLog := renderer.NoopFetcherLogger{}
 	chartFetcher := chromium.NewChartFetcher(chromiumR, fetcherLog)
 	chartFetcher.SetImageFormat(imageFormat, webpQuality)
+	chartFetcher.SetCategoricalColors(categoricalColors)
 	mapFetcher := chromium.NewMapFetcher(chromiumR, fetcherLog)
 	mapFetcher.SetImageFormat(imageFormat, webpQuality)
 	mathFetcher := chromium.NewMathFetcher(chromiumR, fetcherLog)
@@ -436,14 +470,15 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 		PlantUMLMode: "browser",
 		// ImageMode/AssetRoot (issue #167): mismo criterio que
 		// tryBuildNativeContext arriba en este archivo.
-		ImageMode:    opts.RenderMode,
-		AssetRoot:    opts.AssetRoot,
-		OutputDir:    outputDir,
-		ChartFetcher: chartFetcher,
-		MapFetcher:   mapFetcher,
-		MathFetcher:  mathFetcher,
-		Logger:       logger,
-		Ctx:          context.Background(),
+		ImageMode:              opts.RenderMode,
+		AssetRoot:              opts.AssetRoot,
+		OutputDir:              outputDir,
+		ChartFetcher:           chartFetcher,
+		ChartCategoricalColors: categoricalColors,
+		MapFetcher:             mapFetcher,
+		MathFetcher:            mathFetcher,
+		Logger:                 logger,
+		Ctx:                    context.Background(),
 	}
 	// chromiumR ya está instanciado acá (lo necesitan chart/map/math), pero
 	// con DiagramBackend=="kroki" mermaid igual va por KrokiFetcher en vez

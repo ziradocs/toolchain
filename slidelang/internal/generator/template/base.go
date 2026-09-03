@@ -537,6 +537,8 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
         "date": "{{.Date}}",
         "version": "{{.Version}}",
         "theme": "{{.Theme}}",
+        "themeFontMain": {{.ThemeFontMain | toJSON}},
+        "themeTokens": {{.ThemeTokens | toJSON}},
         "slides": [{{range $index, $slide := .ContentBlocks}}{{if $index}},{{end}}
             {
                 "id": "slide-{{$index}}",
