@@ -38,9 +38,39 @@ func TestPPTXTextContent(t *testing.T) {
 			want: "###### Seis",
 		},
 		{
-			name: "heading con formato inline pierde las tags",
-			el:   ast.NewRawHTMLTextElement(pos, `<h3 id="x"><strong>Foo</strong> bar</h3>`),
-			want: "### Foo bar",
+			name: "negrita vuelve a su Markdown",
+			el:   ast.NewRawHTMLTextElement(pos, `<h3 id="x"><strong>Important</strong> result`+"</h3>"),
+			want: "### **Important** result",
+		},
+		{
+			name: "cursiva",
+			el:   ast.NewRawHTMLTextElement(pos, `<h3 id="x">un <em>detalle</em></h3>`),
+			want: "### un *detalle*",
+		},
+		{
+			name: "código inline",
+			el:   ast.NewRawHTMLTextElement(pos, `<h3 id="x">usa <code>go build</code></h3>`),
+			want: "### usa `go build`",
+		},
+		{
+			name: "tachado y resaltado",
+			el:   ast.NewRawHTMLTextElement(pos, `<h3 id="x"><del>viejo</del> y <mark>nuevo</mark></h3>`),
+			want: "### ~~viejo~~ y ==nuevo==",
+		},
+		{
+			name: "enlace",
+			el:   ast.NewRawHTMLTextElement(pos, `<h3 id="x">ver <a href="https://x.com">esto</a></h3>`),
+			want: "### ver [esto](https://x.com)",
+		},
+		{
+			name: "span de idioma vuelve a su sintaxis",
+			el:   ast.NewRawHTMLTextElement(pos, `<h3 id="x">dice <span lang="fr">bonjour</span></h3>`),
+			want: "### dice [bonjour]{lang=fr}",
+		},
+		{
+			name: "una tag tecleada por el autor sigue escapada y no se reinterpreta",
+			el:   ast.NewRawHTMLTextElement(pos, `<h3 id="x">usar &lt;strong&gt; a mano</h3>`),
+			want: "### usar <strong> a mano",
 		},
 		{
 			name: "entidades HTML se decodifican",
