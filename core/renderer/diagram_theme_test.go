@@ -4,6 +4,7 @@
 package renderer
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -133,5 +134,197 @@ func TestMermaidInitConfigJS_ThemeCannotBreakTheSecurityPair(t *testing.T) {
 	}
 	if !strings.Contains(got, strings.Trim(string(escaped), `"`)) {
 		t.Errorf("esperaba el cierre de script en su forma escapada (%s): %s", escaped, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fuentes auto-hospedadas
+// ---------------------------------------------------------------------------
+
+// dataURI arma un data: URI de fuente con base64 real, que es lo que
+// DiagramFontFace.valid() exige (el regex por sí solo no prueba que decodifique).
+func dataURI(mime string, payload string) string {
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString([]byte(payload))
+}
+
+func fontTheme(faces ...DiagramFontFace) DiagramThemeColors {
+	return DiagramThemeColors{FontFamily: "Inter", Fonts: faces}
+}
+
+// TestFontFaceCSS_EmitsUsableRule fija la forma de la regla: familia
+// entrecomillada, src tal cual, format() DERIVADO del MIME y font-display
+// block (ver el comentario de FontFaceCSS para por qué block y no swap).
+func TestFontFaceCSS_EmitsUsableRule(t *testing.T) {
+	src := dataURI("font/woff2", "bytes de la fuente")
+	css := fontTheme(DiagramFontFace{Family: "Inter", Weight: "700", Style: "italic", Src: src}).FontFaceCSS()
+
+	for _, want := range []string{
+		"@font-face {",
+		`font-family: "Inter";`,
+		"src: url(" + src + `) format("woff2");`,
+		"font-weight: 700;",
+		"font-style: italic;",
+		"font-display: block;",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("la regla no contiene %q:\n%s", want, css)
+		}
+	}
+}
+
+// TestFontFaceCSS_FormatComesFromMIME comprueba las cuatro extensiones
+// soportadas. El format() NO viaja como campo justamente para que no pueda
+// contradecir al contenido: acá se fija esa derivación.
+func TestFontFaceCSS_FormatComesFromMIME(t *testing.T) {
+	for mime, want := range map[string]string{
+		"font/woff2": "woff2",
+		"font/woff":  "woff",
+		"font/ttf":   "truetype",
+		"font/otf":   "opentype",
+	} {
+		css := fontTheme(DiagramFontFace{Family: "F", Src: dataURI(mime, "x")}).FontFaceCSS()
+		if !strings.Contains(css, `format("`+want+`")`) {
+			t.Errorf("%s debería emitir format(%q):\n%s", mime, want, css)
+		}
+	}
+}
+
+// TestFontFaceCSS_RejectsUnusableSources: una cara que no puede cargar se
+// descarta ENTERA. Emitirla a medias deja al navegador cayendo al fallback en
+// silencio, que es el modo de falla que motor-temas-v2.md §2.3 quiere quitar
+// —y acá además significaría que Mermaid mide con métricas equivocadas—.
+func TestFontFaceCSS_RejectsUnusableSources(t *testing.T) {
+	casos := map[string]DiagramFontFace{
+		"sin familia":        {Family: "  ", Src: dataURI("font/woff2", "x")},
+		"sin src":            {Family: "F"},
+		"mime no soportado":  {Family: "F", Src: dataURI("font/eot", "x")},
+		"no es data:":        {Family: "F", Src: "https://fonts.example/f.woff2"},
+		"no es base64":       {Family: "F", Src: "data:font/woff2;base64,no-es-base64!"},
+		"base64 mal padeado": {Family: "F", Src: "data:font/woff2;base64,AAAAA"},
+		"file://":            {Family: "F", Src: "file:///etc/passwd"},
+	}
+	for nombre, face := range casos {
+		if css := fontTheme(face).FontFaceCSS(); css != "" {
+			t.Errorf("%s debería descartarse, emitió:\n%s", nombre, css)
+		}
+		if sh := fontTheme(face).FontLoadShorthands(); len(sh) != 0 {
+			t.Errorf("%s no debería aportar shorthand, dio %#v", nombre, sh)
+		}
+	}
+}
+
+// TestFontFaceCSS_FamilyCannotEscapeTheStyleBlock es la invariante de
+// seguridad de esta pieza. El destino es un <style>, que en HTML es texto
+// crudo: la secuencia `</style` lo cierra INCLUSO dentro de un string CSS, y
+// la CSP de la página temporal trae 'unsafe-inline' para script. Un nombre de
+// familia viene del tema, así que tiene que salir sin ningún `<` ni `>`
+// literal.
+func TestFontFaceCSS_FamilyCannotEscapeTheStyleBlock(t *testing.T) {
+	hostil := `x</style><script>alert(1)</script>`
+	css := fontTheme(DiagramFontFace{Family: hostil, Src: dataURI("font/woff2", "x")}).FontFaceCSS()
+
+	if css == "" {
+		t.Fatal("la cara era válida salvo por el nombre; no debía descartarse")
+	}
+	if strings.Contains(css, "<") || strings.Contains(css, ">") {
+		t.Errorf("el nombre de familia dejó pasar un < o > literal:\n%s", css)
+	}
+	if strings.Contains(strings.ToLower(css), "</style") {
+		t.Errorf("el nombre pudo cerrar el bloque <style>:\n%s", css)
+	}
+	// Y el escape es el de CSS, no un borrado: el nombre sigue siendo el
+	// mismo code point para el navegador.
+	if !strings.Contains(css, `\3c `) || !strings.Contains(css, `\3e `) {
+		t.Errorf("esperaba escapes hexadecimales CSS, no caracteres perdidos:\n%s", css)
+	}
+	// La comilla y la barra siguen escapándose como antes.
+	quoted := fontTheme(DiagramFontFace{Family: `a"b\c`, Src: dataURI("font/woff2", "x")}).FontFaceCSS()
+	if !strings.Contains(quoted, `"a\"b\\c"`) {
+		t.Errorf("comilla/barra sin escapar:\n%s", quoted)
+	}
+}
+
+// TestFontLoadShorthands_AreValidCSSFontShorthands: document.fonts.load()
+// RECHAZA un shorthand inválido en vez de cargar, así que la forma importa —
+// orden style/weight/size/family, y un rango de pesos omitido porque es
+// sintaxis de descriptor y no de la propiedad font.
+func TestFontLoadShorthands_AreValidCSSFontShorthands(t *testing.T) {
+	src := dataURI("font/woff2", "x")
+	got := DiagramThemeColors{Fonts: []DiagramFontFace{
+		{Family: "Inter", Src: src},
+		{Family: "Inter", Weight: "700", Style: "italic", Src: src},
+		{Family: "Inter Variable", Weight: "400 700", Src: src},
+		{Family: "Inter", Weight: "normal", Style: "normal", Src: src},
+		{Family: "Inter", Weight: "no-es-un-peso", Src: src},
+	}}.FontLoadShorthands()
+
+	want := []string{
+		`16px "Inter"`,
+		`italic 700 16px "Inter"`,
+		`16px "Inter Variable"`, // el rango se omite: load() emparejaría igual la familia
+		`normal 16px "Inter"`,   // style normal se omite, weight normal es válido en el shorthand
+		`16px "Inter"`,          // peso inválido: se omite el descriptor, no la cara
+	}
+	if len(got) != len(want) {
+		t.Fatalf("esperaba %d shorthands, got %d: %#v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("shorthand[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestIsZero_FontsOnlyThemeIsNotZero: al entrar Fonts el struct dejó de ser
+// comparable y IsZero pasó a ser campo por campo. La consecuencia que importa
+// es esta — un tema que SOLO declara fuentes tiene que seguir emitiendo
+// themeVariables, o su fontFamily nunca llegaría a Mermaid.
+func TestIsZero_FontsOnlyThemeIsNotZero(t *testing.T) {
+	soloFuentes := DiagramThemeColors{Fonts: []DiagramFontFace{{Family: "Inter", Src: dataURI("font/woff2", "x")}}}
+
+	if soloFuentes.IsZero() {
+		t.Error("un tema con fuentes no es el zero value")
+	}
+	if soloFuentes.MermaidThemeVariables() == nil {
+		t.Error("un tema con fuentes debe emitir themeVariables")
+	}
+	if !(DiagramThemeColors{}).IsZero() {
+		t.Error("el zero value sí es cero")
+	}
+	// Y campo por campo sigue cubriendo cada color por separado.
+	for nombre, tema := range map[string]DiagramThemeColors{
+		"NodeBG": {NodeBG: "#000"}, "NodeFG": {NodeFG: "#000"}, "NodeLine": {NodeLine: "#000"},
+		"Edge": {Edge: "#000"}, "EdgeLabelBG": {EdgeLabelBG: "#000"}, "AccentBG": {AccentBG: "#000"},
+		"ClusterBG": {ClusterBG: "#000"}, "NoteBG": {NoteBG: "#000"}, "FontFamily": {FontFamily: "Inter"},
+	} {
+		if tema.IsZero() {
+			t.Errorf("un tema con solo %s no es cero", nombre)
+		}
+	}
+}
+
+// TestCacheFingerprint_DigestsFontBytes es la lección de #250 en su forma
+// específica para fuentes: el CONTENIDO del archivo tiene que entrar a la
+// clave —cambiar la fuente conservando el nombre de familia cambia métricas y
+// por lo tanto el SVG— pero entra como digest, no como los megabytes de
+// base64.
+func TestCacheFingerprint_DigestsFontBytes(t *testing.T) {
+	uno := fontTheme(DiagramFontFace{Family: "Inter", Src: dataURI("font/woff2", "version A")})
+	otro := fontTheme(DiagramFontFace{Family: "Inter", Src: dataURI("font/woff2", "version B")})
+
+	if uno.CacheFingerprint() == otro.CacheFingerprint() {
+		t.Error("dos archivos distintos con la misma familia deben dar fingerprints distintos")
+	}
+	if uno.CacheFingerprint() != fontTheme(DiagramFontFace{Family: "Inter", Src: dataURI("font/woff2", "version A")}).CacheFingerprint() {
+		t.Error("el mismo tema debe dar el mismo fingerprint")
+	}
+	// Los bytes NO viajan en el fingerprint: solo su digest.
+	if strings.Contains(uno.CacheFingerprint(), base64.StdEncoding.EncodeToString([]byte("version A"))) {
+		t.Errorf("el fingerprint no debe cargar el base64 crudo:\n%s", uno.CacheFingerprint())
+	}
+	// Y los colores siguen distinguiéndose, que es lo que ya cubría el hash
+	// anterior.
+	if (DiagramThemeColors{Edge: "#111"}).CacheFingerprint() == (DiagramThemeColors{Edge: "#222"}).CacheFingerprint() {
+		t.Error("dos colores distintos deben dar fingerprints distintos")
 	}
 }

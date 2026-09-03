@@ -33,7 +33,20 @@ const (
 	// su script únicamente desde jsdelivr y no necesitan imágenes externas.
 	mermaidAndChartRenderCSP = "default-src 'none'; script-src https://cdn.jsdelivr.net 'unsafe-inline'; " +
 		"style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none';"
-	mapRenderCSP = "default-src 'none'; script-src https://unpkg.com 'unsafe-inline'; " +
+	// mermaidRenderCSP es mermaidAndChartRenderCSP más font-src: las páginas
+	// de Mermaid pueden traer los @font-face auto-hospedados del tema
+	// (motor-temas-v2.md §2.3), y default-src 'none' los bloquearía sin este
+	// permiso. Solo data:, nunca red ni file:// — un tema entrega sus fuentes
+	// ya embebidas (ver renderer.DiagramFontFace), así que la política no
+	// necesita abrir ninguna ruta nueva hacia afuera y el perfil CR-6 sigue
+	// intacto.
+	//
+	// Es una política ESTÁTICA, presente aunque el tema no declare fuentes:
+	// una CSP que cambia según la entrada no se puede auditar leyéndola, y
+	// font-src data: no otorga alcance alguno (son bytes del mismo documento)
+	// así que no hay privilegio que recortar dinámicamente.
+	mermaidRenderCSP = mermaidAndChartRenderCSP + " font-src data:;"
+	mapRenderCSP     = "default-src 'none'; script-src https://unpkg.com 'unsafe-inline'; " +
 		"style-src https://unpkg.com 'unsafe-inline'; " +
 		"img-src https://*.tile.openstreetmap.org https://server.arcgisonline.com " +
 		"https://raw.githubusercontent.com https://cdnjs.cloudflare.com data:; " +
@@ -75,6 +88,71 @@ const (
 // el mismo viewBox sin importar este ancho — no es una regresión para ellos.
 const mermaidSVGContainerWidthPx = 1200
 
+// mermaidFontLoadTimeoutMs acota la espera por las fuentes del tema. Mismo
+// criterio y mismo valor que ChromiumRenderer.waitForFontsReady: una fuente
+// patológica degrada a la métrica fallback en vez de colgar el build. Con
+// data: URIs no hay red de por medio, así que en la práctica resuelve de
+// inmediato.
+const mermaidFontLoadTimeoutMs = 3000
+
+// mermaidBootstrapJS arma el cuerpo del <script> de las dos páginas
+// temporales de Mermaid. Vive en UNA sola función justamente porque son dos:
+// una revisión de #250 encontró un P1 por cubrir una de dos puertas
+// equivalentes, y este archivo ya tenía ese par duplicado a mano.
+//
+// Sin fuentes: idéntico byte por byte al de siempre — mermaid.initialize()
+// con startOnLoad y, en el caso PNG, la señal de afterRender al mismo nivel.
+//
+// Con fuentes hay que invertir el orden, y por eso startOnLoad pasa a false:
+// un @font-face NO se descarga hasta que algo lo usa, así que si Mermaid
+// dibuja primero mide con la fuente fallback y hornea esas métricas en el
+// SVG. Se piden explícitamente vía document.fonts.load() y recién después se
+// llama mermaid.run().
+//
+// Que startOnLoad:false alcance para suprimir el auto-render está verificado
+// contra el bundle pinneado (mermaid@10.9.6, el mismo SRI de
+// renderer.MermaidCDNScriptTag): su listener de "load" es
+// `if (mermaid.startOnLoad) { const {startOnLoad} = getConfig(); startOnLoad
+// && mermaid.run() }`, o sea que consulta el CONFIG —que initialize() sí
+// fija— y no solo la propiedad del objeto. mermaid.run() existe en esa
+// versión y su querySelector por defecto ya es ".mermaid".
+//
+// afterRender es la señal de "ya terminé" que espera el caller (el PNG la
+// usa, el SVG no la necesita porque chromedp espera al nodo svg). En el
+// camino con fuentes se mueve DENTRO del then() de run(): dejarla al nivel de
+// script haría que #renderComplete quedara listo antes de que el diagrama
+// exista, y la captura saldría vacía.
+func mermaidBootstrapJS(theme renderer.DiagramThemeColors, afterRender string) string {
+	shorthands := theme.FontLoadShorthands()
+	if len(shorthands) == 0 {
+		return "        mermaid.initialize(" + renderer.MermaidInitConfigJS(true, theme.MermaidExtras()...) + ");\n" + afterRender
+	}
+	// Los shorthands se serializan con encoding/json por la misma razón que
+	// los colores del tema (ver renderer.MermaidExtras): un nombre de familia
+	// es dato del tema y no puede romper el literal ni cerrar el <script>.
+	faces, _ := json.Marshal(shorthands)
+	return fmt.Sprintf(`        mermaid.initialize(%s);
+        (function () {
+            var faces = %s;
+            function done() {
+%s
+            }
+            function draw() { mermaid.run().catch(function () {}).then(done); }
+            if (!document.fonts) { draw(); return; }
+            var loaded = Promise.all(faces.map(function (f) { return document.fonts.load(f); }));
+            var deadline = new Promise(function (r) { setTimeout(r, %d); });
+            Promise.race([loaded, deadline]).catch(function () {}).then(draw);
+        })();
+`, renderer.MermaidInitConfigJS(false, theme.MermaidExtras()...), faces, afterRender, mermaidFontLoadTimeoutMs)
+}
+
+// mermaidRenderCompleteJS es la señal que espera el camino PNG.
+const mermaidRenderCompleteJS = `        // Esperar a que Mermaid termine de renderizar
+        setTimeout(() => {
+            document.getElementById('renderComplete').setAttribute('data-ready', 'true');
+        }, 1500);
+`
+
 // buildMermaidSVGHTML arma la página temporal usada para rasterizar un
 // diagrama Mermaid a SVG. El contenido es dato del usuario: se HTML-escapa
 // antes de insertarlo como texto del nodo ".mermaid" (Mermaid lee
@@ -95,17 +173,16 @@ func buildMermaidSVGHTML(mermaidCode string, theme renderer.DiagramThemeColors) 
     <meta http-equiv="Content-Security-Policy" content="%s">
     `+renderer.MermaidCDNScriptTag+`
     <style>
-        body { margin: 0; padding: 20px; background: white; }
+%s        body { margin: 0; padding: 20px; background: white; }
         .mermaid { display: inline-block; width: %dpx; }
     </style>
 </head>
 <body>
     %s
     <script>
-        mermaid.initialize(%s);
-    </script>
+%s    </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJS(true, theme.MermaidExtras()...))
+</html>`, mermaidRenderCSP, theme.FontFaceCSS(), mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode), mermaidBootstrapJS(theme, ""))
 }
 
 // buildMathSVGHTML arma la página temporal usada para rasterizar una
@@ -175,7 +252,7 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int, theme renderer.D
     <meta http-equiv="Content-Security-Policy" content="%s">
     `+renderer.MermaidCDNScriptTag+`
     <style>
-        body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; }
+%s        body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; }
         #mermaidContainer { width: %dpx; height: %dpx; display: flex; justify-content: center; align-items: center; }
         .mermaid { display: inline-block; }
     </style>
@@ -186,14 +263,9 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int, theme renderer.D
     </div>
     <div id="renderComplete" style="display:none;">ready</div>
     <script>
-        mermaid.initialize(%s);
-        // Esperar a que Mermaid termine de renderizar
-        setTimeout(() => {
-            document.getElementById('renderComplete').setAttribute('data-ready', 'true');
-        }, 1500);
-    </script>
+%s    </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJS(true, theme.MermaidExtras()...))
+</html>`, mermaidRenderCSP, theme.FontFaceCSS(), width, height, renderer.BuildMermaidDiv(mermaidCode), mermaidBootstrapJS(theme, mermaidRenderCompleteJS))
 }
 
 // buildChartHTML arma la página temporal usada para rasterizar un chart de

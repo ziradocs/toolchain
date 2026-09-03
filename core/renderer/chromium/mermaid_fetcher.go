@@ -7,7 +7,6 @@ package chromium
 
 import (
 	"context"
-	"encoding/json"
 
 	"go.ziradocs.com/core/v2/renderer"
 )
@@ -47,10 +46,14 @@ func (f *MermaidFetcher) cacheKey(mermaidCode string) string {
 	if f.themeColors.IsZero() {
 		return GenerateContentHash(mermaidCode)
 	}
-	// JSON y no concatenación: un color CSS puede traer comas y separadores
-	// (rgb(1,2,3)), y un join ingenuo volvería ambiguos dos temas distintos.
-	theme, _ := json.Marshal(f.themeColors)
-	return GenerateContentHash(mermaidCode + "|" + string(theme))
+	// CacheFingerprint y no json.Marshal directo: un color CSS puede traer
+	// comas y separadores (rgb(1,2,3)) —así que un join ingenuo volvería
+	// ambiguos dos temas distintos— y además las fuentes del tema viajan
+	// embebidas en base64. Los bytes de una fuente SÍ tienen que entrar a la
+	// clave (cambiar el archivo conservando el nombre de familia cambia las
+	// métricas, y por lo tanto el SVG), pero entran como digest: derivar la
+	// clave no necesita rehashear megabytes por diagrama.
+	return GenerateContentHash(mermaidCode + "|" + f.themeColors.CacheFingerprint())
 }
 
 // NewMermaidFetcher crea un nuevo fetcher con Chromium renderer
