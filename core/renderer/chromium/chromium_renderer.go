@@ -82,7 +82,7 @@ const mermaidSVGContainerWidthPx = 1200
 // securityLevel:'strict' + htmlLabels:false para bloquear HTML/script
 // embebido dentro del propio diagrama. Ver docs/SECURITY_AUDIT_2026-07.md,
 // CR-6/AL-6 (issue #24).
-func buildMermaidSVGHTML(mermaidCode string) string {
+func buildMermaidSVGHTML(mermaidCode string, theme renderer.DiagramThemeColors) string {
 	// mermaidCode (vía BuildMermaidDiv) es dato del usuario: va como argumento
 	// %s, nunca concatenado dentro del format string en sí — un '%' literal en
 	// el diagrama del usuario (p. ej. un label "Growth +20%") no debe
@@ -102,10 +102,10 @@ func buildMermaidSVGHTML(mermaidCode string) string {
 <body>
     %s
     <script>
-        mermaid.initialize(`+renderer.MermaidInitConfigJS(true)+`);
+        mermaid.initialize(%s);
     </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode))
+</html>`, mermaidAndChartRenderCSP, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJS(true, theme.MermaidExtras()...))
 }
 
 // buildMathSVGHTML arma la página temporal usada para rasterizar una
@@ -167,7 +167,7 @@ func buildMathPNGHTML(latex string, width, height int) string {
 // buildMermaidPNGHTML arma la página temporal usada para rasterizar un
 // diagrama Mermaid a PNG (ver buildMermaidSVGHTML para el razonamiento de
 // seguridad, idéntico aquí).
-func buildMermaidPNGHTML(mermaidCode string, width, height int) string {
+func buildMermaidPNGHTML(mermaidCode string, width, height int, theme renderer.DiagramThemeColors) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -193,7 +193,7 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int) string {
         }, 1500);
     </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJS(true))
+</html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJS(true, theme.MermaidExtras()...))
 }
 
 // buildChartHTML arma la página temporal usada para rasterizar un chart de
@@ -639,9 +639,18 @@ func (r *ChromiumRenderer) checkPageOverflow(selector string) chromedp.Action {
 // RenderMermaidToSVG renderiza un diagrama Mermaid a SVG. ctx acota/cancela
 // esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderMermaidToSVG(ctx context.Context, mermaidCode string) (string, error) {
+	return r.RenderMermaidToSVGWithTheme(ctx, mermaidCode, renderer.DiagramThemeColors{})
+}
+
+// RenderMermaidToSVGWithTheme es RenderMermaidToSVG con los tokens diagram-*
+// de motor-temas-v2.md §2.2. Entrada NUEVA en vez de un parámetro más: la
+// firma anterior la consumen el MermaidFetcher y doclang, y CI corre
+// workspace-integration contra el core del árbol además de build-test contra
+// el publicado. Zero value reproduce el SVG de siempre.
+func (r *ChromiumRenderer) RenderMermaidToSVGWithTheme(ctx context.Context, mermaidCode string, theme renderer.DiagramThemeColors) (string, error) {
 	r.logger.Info("MERMAID", "Rendering diagram to SVG...")
 
-	html := buildMermaidSVGHTML(mermaidCode)
+	html := buildMermaidSVGHTML(mermaidCode, theme)
 
 	var svgContent string
 
@@ -754,9 +763,16 @@ func (r *ChromiumRenderer) RenderMathToPNG(ctx context.Context, latex string, wi
 // RenderMermaidToPNG renderiza un diagrama Mermaid a PNG. ctx acota/cancela
 // esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderMermaidToPNG(ctx context.Context, mermaidCode string, width, height int) ([]byte, error) {
+	return r.RenderMermaidToPNGWithTheme(ctx, mermaidCode, width, height, renderer.DiagramThemeColors{})
+}
+
+// RenderMermaidToPNGWithTheme — ver RenderMermaidToSVGWithTheme. Existe para
+// que el tema no se pierda en el camino PNG (doclang/docx.go lo usa), y para
+// que las dos páginas temporales de Mermaid se traten igual.
+func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, mermaidCode string, width, height int, theme renderer.DiagramThemeColors) ([]byte, error) {
 	r.logger.Info("MERMAID", "Rendering diagram to PNG...")
 
-	html := buildMermaidPNGHTML(mermaidCode, width, height)
+	html := buildMermaidPNGHTML(mermaidCode, width, height, theme)
 
 	var pngData []byte
 
