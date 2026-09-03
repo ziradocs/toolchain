@@ -1116,11 +1116,115 @@ func (p *ChartParser) parseJSONBlock(lines []string, startIndex int) (string, in
 		}
 	}
 
-	// Si llegamos aquí, el JSON no está completo o hay error
+	// Si llegamos aquí, el JSON NUNCA balanceó: está truncado o mal formado.
+	//
+	// Devolver todo lo escaneado era la pérdida silenciosa del issue #237.
+	// El loop de arriba solo se detiene ante un límite duro
+	// (isChartContentBoundary) o EOF, así que un payload roto se llevaba por
+	// delante todo lo que hubiera en medio —prosa, viñetas, el <<end>> del
+	// propio chart, y con una comilla sin cerrar hasta los slides
+	// siguientes enteros, porque inString apagaba también el chequeo de
+	// límite. El chart quedaba sin datos (CHART002 lo dice) pero el
+	// contenido borrado no lo reportaba nadie: ConsumedLines es lo único
+	// que decide qué sobrevive.
+	//
+	// El recorte va ACÁ y no dentro del loop a propósito. El escaneo de
+	// arriba queda intacto, y con él el caso que su propio code-review fijó
+	// (#12e2): un string JSON que abarca varias líneas es legítimo en este
+	// parser, porque la compactación borra los saltos de línea antes de
+	// validar — ver TestChartParser_ParseJSONBlock_BoundaryInsideStringDoesNotBreak.
+	// Ese payload BALANCEA, así que retorna arriba y nunca llega hasta acá.
+	// Solo el payload que no balanceó se recorta, y ahí la forma de cada
+	// línea ya es la única evidencia disponible.
 	if len(jsonLines) > 0 {
-		return strings.Join(jsonLines, "\n"), linesConsumed
+		extent := jsonPayloadExtent(jsonLines)
+		return strings.Join(jsonLines[:extent], "\n"), extent
 	}
 	return "", 0
+}
+
+// jsonPayloadExtent devuelve cuántas de jsonLines pertenecen de verdad al
+// payload de un chart cuyo JSON no balanceó. Se llama solo en ese caso: un
+// payload que cierra retorna antes, sin pasar por acá.
+//
+// Dos criterios, el mismo par que el issue #234 fijó para el loop de
+// propiedades:
+//
+//   - Dedent: si el payload arranca indentado, una línea menos sangrada que
+//     su primera línea ya salió del bloque. No aplica cuando arranca en
+//     columna 0, donde la sangría no distingue nada.
+//   - Forma: una línea que no puede ser JSON (isJSONPayloadLine) es la
+//     primera de lo que sigue, no la continuación de lo que se rompió.
+//
+// La línea 0 se exime del criterio de forma: es la que abrió el bloque, y
+// Parse solo llama a parseJSONBlock cuando empieza con "{".
+func jsonPayloadExtent(jsonLines []string) int {
+	bodyIndent := -1
+
+	for i, line := range jsonLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		currentIndent := CalculateIndentLevel(line)
+		if bodyIndent == -1 {
+			bodyIndent = currentIndent
+		} else if bodyIndent > 0 && currentIndent < bodyIndent {
+			return i
+		}
+
+		if i > 0 && !isJSONPayloadLine(trimmed) {
+			return i
+		}
+	}
+
+	return len(jsonLines)
+}
+
+// isJSONPayloadLine reporta si trimmed puede ser una línea del payload JSON
+// de un chart. Solo lo consulta jsonPayloadExtent, o sea solo cuando el
+// payload ya se sabe roto: la pregunta no es "¿esto es JSON válido?" sino
+// "¿esto puede seguir siendo el JSON, o ya es la prosa de después?".
+//
+// Es una lista de primeros caracteres, no un parser: alcanza para separar
+// JSON de prosa, que es lo único que hace falta acá. Se aceptan además "//",
+// "/*" y "*/" porque el JSON que escribe un modelo trae comentarios a
+// menudo — es la razón de existir de ChartJSONRule (internal/normalize), que
+// los limpia antes del parser en el camino de la CLI pero no en el de la API
+// de Go, donde la normalización puede venir apagada.
+//
+// Degradación conocida y elegida: una llave sin comillas ("type: bar", que
+// es YAML y no JSON) corta el bloque y sale como texto en la diapositiva.
+// Visible es mejor que mudo, que es justamente el punto de este recorte.
+func isJSONPayloadLine(trimmed string) bool {
+	if trimmed == "" {
+		return true
+	}
+
+	switch trimmed[0] {
+	case '{', '}', '[', ']', '"', ',', ':':
+		return true
+	}
+
+	if trimmed[0] >= '0' && trimmed[0] <= '9' {
+		return true
+	}
+
+	// Un número negativo ("-5,"), no una viñeta Markdown ("- item"): el
+	// signo tiene que ir pegado al dígito. Esa diferencia es la que salva a
+	// la lista de viñetas que sigue a un chart roto.
+	if trimmed[0] == '-' && len(trimmed) > 1 && trimmed[1] >= '0' && trimmed[1] <= '9' {
+		return true
+	}
+
+	for _, prefix := range []string{"true", "false", "null", "//", "/*", "*/"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // parseYAMLBlock extrae un bloque YAML completo
