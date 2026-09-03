@@ -38,7 +38,11 @@ func probeMonoFontDataURI(t *testing.T) string {
 		}
 		return "data:" + c.mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 	}
-	t.Skip("no hay ninguna fuente monoespaciada conocida en esta máquina para la sonda")
+	// Ruidoso a propósito: estos son los ÚNICOS tests que prueban que el
+	// arreglo sirve (el resto verifica que la página emita lo correcto, que
+	// es necesario pero no suficiente). Si se saltan, el verde de CI no dice
+	// nada sobre las métricas.
+	t.Skip("SIN COBERTURA EMPÍRICA: no hay ninguna fuente monoespaciada conocida en esta máquina, así que la única prueba de que la fuente llega al layout no corrió")
 	return ""
 }
 
