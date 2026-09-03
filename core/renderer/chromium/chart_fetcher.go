@@ -88,11 +88,32 @@ func (f *ChartFetcher) renderFunc(ctx context.Context, elem *ast.ChartElement, c
 		}
 		// Solo la superficie: grid/axis/label son opciones de Chart.js y ya
 		// vienen dentro de chartConfig desde GenerateChartConfigWithTheme.
+		//
+		// El gate de modo JSON hay que repetirlo ACÁ. Arriba lo aplica
+		// RenderChartNativePNGWithTheme vía
+		// SupportsNativeChartRenderingWithOptions, pero esta rama de Chromium
+		// se alcanza igual cuando el nativo dice que no — y un chart en modo
+		// JSON siempre dice que no. Sin este chequeo, la config literal del
+		// autor terminaba dibujada sobre un fondo temátizado, rompiendo por
+		// la segunda puerta la invariante que RenderContext.ChartCategoricalColors
+		// documenta (hallazgo de code-review: el test anterior solo cubría la
+		// puerta nativa).
+		surface := f.surfaceFor(elem)
 		if f.GetImageFormat() == "webp" {
-			return f.renderer.RenderChartToWebPWithSurface(ctx, chartConfig, width, height, f.webpQuality, f.themeColors.Surface)
+			return f.renderer.RenderChartToWebPWithSurface(ctx, chartConfig, width, height, f.webpQuality, surface)
 		}
-		return f.renderer.RenderChartToPNGWithSurface(ctx, chartConfig, width, height, f.themeColors.Surface)
+		return f.renderer.RenderChartToPNGWithSurface(ctx, chartConfig, width, height, surface)
 	}
+}
+
+// surfaceFor decide qué chart-surface recibe este chart. Extraído a método
+// para poder probar la decisión sin arrancar un navegador: el render real
+// exige Chromium, pero la REGLA es lo que se rompió y lo que hay que fijar.
+func (f *ChartFetcher) surfaceFor(elem *ast.ChartElement) string {
+	if elem != nil && elem.IsJSONMode {
+		return ""
+	}
+	return f.themeColors.Surface
 }
 
 // cacheKeyInput arma el string a hashear para el cache de disco de

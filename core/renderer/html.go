@@ -992,14 +992,19 @@ func renderChartElement(elem *ast.ChartElement, variables map[string]interface{}
 		chartConfig = "{}"
 	} else {
 		// Para offline modes (que generan PNG), usar configuración optimizada
-		// Para browser mode, usar configuración estándar. Llama a
-		// GenerateChartConfigWithMode directamente (no a los dos wrappers
-		// exportados de arriba) para poder pasarle ctx.ChartCategoricalColors
-		// — este es el único call site del paquete con un *RenderContext en
-		// scope, así que es el único lugar donde un tema resuelto (cuando
-		// slidelang empiece a poblar el campo) puede entrar.
+		// Llama a GenerateChartConfigWithTheme directamente (no a los dos
+		// wrappers exportados de arriba, ni a GenerateChartConfigWithMode)
+		// para poder pasarle AMBOS grupos de tema del contexto — este es el
+		// único call site del paquete con un *RenderContext en scope, así
+		// que es el único lugar donde un tema resuelto puede entrar.
+		//
+		// Que sea la entrada CON tema es lo que hace que el cableado exista
+		// de verdad: un hallazgo de code-review encontró que este call site
+		// seguía en GenerateChartConfigWithMode, que delega con
+		// ChartThemeColors{} — o sea que los tokens nuevos existían en la
+		// API, tenían tests, y jamás llegaban a un chart real.
 		forExport := IsOfflineRenderMode(ctx.ChartMode)
-		chartConfig = GenerateChartConfigWithMode(elem, forExport, ctx.ChartCategoricalColors)
+		chartConfig = GenerateChartConfigWithTheme(elem, forExport, ctx.ChartCategoricalColors, ctx.ChartThemeColors)
 	}
 
 	// Obtener dimensiones (usar defaults si no están especificadas) — única
@@ -1459,7 +1464,7 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 
 	// Si es para export, agregar configuración optimizada para PNG/PDF
 	if forExport {
-		applyExportOptimizations(options, themeColors)
+		applyExportOptimizations(options)
 		if chartType == "treemap" {
 			// applyExportOptimizations arma scales.x/scales.y con
 			// grid.display:true, pensado para los tipos cartesianos. El
@@ -1479,6 +1484,18 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 
 	config["options"] = options
 
+	// El tema se aplica AL FINAL, después del merge, y nunca antes. Un
+	// hallazgo de code-review mostró por qué: aplicarlo dentro de
+	// applyExportOptimizations dejaba dos ramas muertas, porque en ese
+	// momento `options` todavía no tiene ni plugins.title ni scales.y1 —
+	// esos los aporta el autor y llegan recién en MergeChartOptions. Correr
+	// después arregla eso y, de paso, permite la semántica correcta: el
+	// autor SIEMPRE gana (cada color se pone solo si la clave no existe),
+	// igual que los guards `=== undefined` de charts.js en el navegador.
+	if forExport {
+		applyChartThemeColors(config, chartType, themeColors)
+	}
+
 	// Convertir a JSON
 	jsonBytes, err := json.Marshal(config)
 	if err != nil {
@@ -1489,61 +1506,133 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 }
 
 // applyExportOptimizations aplica configuración optimizada para exportación a PNG/PDF
-// applyScaleThemeColors pinta una escala de Chart.js con los tokens de tema.
-// Las tres claves están verificadas contra el bundle EXACTO que este
-// toolchain fija (chart.js@4.5.1, cdn_tags.go), que las registra como
-// opciones ruteadas de verdad:
-//
-//	route("scale.grid","color","","borderColor")
-//	route("scale.ticks","color","","color")
-//	route("scale.border","color","","borderColor")
-//
-// border.color es la mitad que le falta al camino de navegador de #228 —allá
-// solo se pinta ticks.color— y es lo que hace que la LÍNEA del eje termine
-// del mismo color que en el rasterizador nativo, que la pinta vía
-// WithX/YAxisColor. Sin esto, el mismo chart-axis daría dos resultados según
-// el backend, que es exactamente la divergencia que cerró un hallazgo de
-// revisión de #224.
-//
-// Los mapas ticks/grid ya los acaba de crear applyExportOptimizations, así
-// que las aserciones de tipo siempre aciertan; se comprueban igual para no
-// pancear si ese orden cambia.
-func applyScaleThemeColors(scale map[string]interface{}, themeColors ChartThemeColors) {
-	if themeColors.Grid != "" {
-		if grid, ok := scale["grid"].(map[string]interface{}); ok {
-			grid["color"] = themeColors.Grid
-		}
-	}
-	if themeColors.Axis == "" {
+// radialChartTypes son los tipos que NO dibujan sobre ejes cartesianos sino
+// sobre una escala radial "r". Espeja CHART_SCALE_DIMENSIONS de charts.js
+// (PR #228) para que el export y el navegador coincidan.
+var radialChartTypes = map[string]bool{"radar": true, "polarArea": true}
+
+// setColorIfUnset pone color en child[key] solo si nadie lo puso antes,
+// creando el bloque si hace falta. Es la traducción del guard
+// `=== undefined` que usa charts.js: el tema es un DEFAULT, nunca pisa lo
+// que el autor escribió en su bloque options:.
+func setColorIfUnset(parent map[string]interface{}, block, color string) {
+	if color == "" {
 		return
 	}
-	if ticks, ok := scale["ticks"].(map[string]interface{}); ok {
-		ticks["color"] = themeColors.Axis
+	child, ok := parent[block].(map[string]interface{})
+	if !ok {
+		child = make(map[string]interface{})
+		parent[block] = child
 	}
-	border := make(map[string]interface{})
-	if existing, ok := scale["border"].(map[string]interface{}); ok {
-		border = existing
+	if _, exists := child["color"]; !exists {
+		child["color"] = color
 	}
-	border["color"] = themeColors.Axis
-	scale["border"] = border
 }
 
-// themeColors son los tokens chart-* no categóricos (ChartThemeColors). Se
-// aplican SOLO acá, en el camino de export, y no en el de navegador: ese ya
-// lo cubre PR #228 desde el lado del cliente (charts.js lee el blob de
-// metadata), y duplicarlo server-side generaría dos fuentes de verdad para
-// el mismo pixel.
+// applyChartThemeColors superpone los tokens chart-* no categóricos sobre la
+// config ya completa (después de MergeChartOptions). Es el equivalente
+// server-side de applyExtensionChartColors en charts.js, y se escribió
+// espejándolo a propósito: mantener las dos rutas convergentes por
+// construcción es lo que evita que el mismo token se vea distinto en el
+// navegador y en el PNG, que es la clase de divergencia que ya cerró un
+// hallazgo de revisión de #224.
 //
-// El mapeo espeja el de nativeChartTheme para que las dos rutas de
-// rasterización converjan (ver su doc comment): grid→grid.color,
-// axis→ticks.color + border.color, label→legend/title. El border.color es
-// justamente la mitad que le faltaba a #228 en el navegador —allá solo se
-// pinta ticks.color— y es lo que hace que la línea del eje termine del
-// mismo color en ambos backends.
-//
-// Cada color se aplica solo si el token no viene vacío, así que un caller
-// sin tema produce el MISMO config de siempre, byte por byte.
-func applyExportOptimizations(options map[string]interface{}, themeColors ChartThemeColors) {
+// chart-surface NO se maneja acá: no es una opción de Chart.js (el canvas es
+// transparente), sino el fondo de la página — entra por buildChartHTML, ver
+// RenderChartToPNGWithSurface.
+func applyChartThemeColors(config map[string]interface{}, chartType string, themeColors ChartThemeColors) {
+	if themeColors.IsZero() {
+		return
+	}
+	options, ok := config["options"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Escalas. Pueden no existir: para treemap se borran arriba a propósito,
+	// y ahí no hay ninguna que pintar.
+	if scales, ok := options["scales"].(map[string]interface{}); ok {
+		// radar/polarArea dibujan sobre "r", que applyExportOptimizations no
+		// crea (solo arma x/y). Sin esto, esos dos tipos —que SIEMPRE pasan
+		// por Chromium, porque no tienen rasterizador nativo— terminaban con
+		// x/y temátizados que no se ven y su escala real sin tocar (hallazgo
+		// de code-review).
+		if radialChartTypes[chartType] {
+			if _, exists := scales["r"]; !exists {
+				scales["r"] = make(map[string]interface{})
+			}
+		}
+		for id, raw := range scales {
+			scale, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			setColorIfUnset(scale, "grid", themeColors.Grid)
+			setColorIfUnset(scale, "ticks", themeColors.Axis)
+			setColorIfUnset(scale, "border", themeColors.Axis)
+			// Una escala radial dibuja dos elementos más que una cartesiana
+			// no tiene: los rayos y las etiquetas alrededor del círculo.
+			// charts.js ya los pinta en el navegador; sin esto el PNG se
+			// vería a medio tematizar.
+			if id == "r" || radialChartTypes[chartType] {
+				setColorIfUnset(scale, "angleLines", themeColors.Grid)
+				setColorIfUnset(scale, "pointLabels", themeColors.Axis)
+			}
+		}
+	}
+
+	if themeColors.Label != "" {
+		plugins, ok := options["plugins"].(map[string]interface{})
+		if !ok {
+			plugins = make(map[string]interface{})
+			options["plugins"] = plugins
+		}
+		if legend, ok := plugins["legend"].(map[string]interface{}); ok {
+			setColorIfUnset(legend, "labels", themeColors.Label)
+		} else {
+			plugins["legend"] = map[string]interface{}{
+				"labels": map[string]interface{}{"color": themeColors.Label},
+			}
+		}
+		// El título solo existe si el autor lo declaró; por eso se pinta acá
+		// y no en applyExportOptimizations, que corre antes del merge y nunca
+		// lo ve.
+		if title, ok := plugins["title"].(map[string]interface{}); ok {
+			if _, exists := title["color"]; !exists {
+				title["color"] = themeColors.Label
+			}
+		}
+		applyTreemapLabelColor(config, chartType, themeColors.Label)
+	}
+}
+
+// applyTreemapLabelColor pinta las etiquetas DENTRO de los rectángulos de un
+// treemap. Es el único tipo donde chart-label no llega por la leyenda: la
+// config generada la apaga (solo repetiría el label del dataset) y borra las
+// escalas, así que el único texto visible del chart vive en
+// dataset.labels.color — cuyo default en chartjs-chart-treemap@4.2.0 (el
+// bundle que fija cdn_tags.go) es "black", verificado en su fuente:
+// labels:{align:"center",color:"black",display:!1,...}. Nuestro generador sí
+// enciende display, así que sin esto las etiquetas quedaban negras incluso
+// sobre una superficie oscura (hallazgo de code-review).
+func applyTreemapLabelColor(config map[string]interface{}, chartType, label string) {
+	if chartType != "treemap" {
+		return
+	}
+	data, ok := config["data"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	datasets, ok := data["datasets"].([]map[string]interface{})
+	if !ok {
+		return
+	}
+	for _, dataset := range datasets {
+		setColorIfUnset(dataset, "labels", label)
+	}
+}
+
+func applyExportOptimizations(options map[string]interface{}) {
 	// Layout padding
 	options["layout"] = map[string]interface{}{
 		"padding": 30,
@@ -1571,11 +1660,6 @@ func applyExportOptimizations(options map[string]interface{}, themeColors ChartT
 		"boxWidth":      20,
 		"boxHeight":     20,
 	}
-	if themeColors.Label != "" {
-		if labels, ok := legend["labels"].(map[string]interface{}); ok {
-			labels["color"] = themeColors.Label
-		}
-	}
 	plugins["legend"] = legend
 
 	// Título con fuentes grandes (si existe)
@@ -1585,9 +1669,6 @@ func applyExportOptimizations(options map[string]interface{}, themeColors ChartT
 			"weight": "bold",
 		}
 		title["padding"] = 25
-		if themeColors.Label != "" {
-			title["color"] = themeColors.Label
-		}
 	}
 
 	options["plugins"] = plugins
@@ -1614,7 +1695,6 @@ func applyExportOptimizations(options map[string]interface{}, themeColors ChartT
 		"lineWidth": 1.5,
 		"display":   true,
 	}
-	applyScaleThemeColors(x, themeColors)
 	scales["x"] = x
 
 	// Eje Y
@@ -1636,7 +1716,6 @@ func applyExportOptimizations(options map[string]interface{}, themeColors ChartT
 	if _, hasBeginAtZero := y["beginAtZero"]; !hasBeginAtZero {
 		y["beginAtZero"] = true
 	}
-	applyScaleThemeColors(y, themeColors)
 	scales["y"] = y
 
 	// Eje Y1 (para combo charts)
@@ -1653,7 +1732,6 @@ func applyExportOptimizations(options map[string]interface{}, themeColors ChartT
 			"lineWidth": 1.5,
 			"display":   true,
 		}
-		applyScaleThemeColors(y1, themeColors)
 		scales["y1"] = y1
 	}
 

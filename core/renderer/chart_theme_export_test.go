@@ -6,6 +6,7 @@
 package renderer
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -171,5 +172,168 @@ func TestRenderChartNativePNGWithTheme_JSONModeRejected(t *testing.T) {
 	}
 	if err != nil {
 		t.Errorf("el rechazo debe ser ok=false sin error, got %v", err)
+	}
+}
+
+// --- Hallazgos de la segunda ronda de revisión sobre este PR ---
+
+// capturingChartFetcher intercepta el chartConfig que renderChartElement le
+// entrega al camino offline. Es el ÚNICO punto donde se puede observar lo
+// que de verdad se manda a rasterizar: en modo offline el config no aparece
+// en el HTML devuelto (ahí va un <img> al PNG ya generado), así que un test
+// que mire el HTML no prueba nada de esto.
+type capturingChartFetcher struct{ config string }
+
+func (f *capturingChartFetcher) FetchAndSave(ctx context.Context, elem *ast.ChartElement, chartConfig string, outputDir string, width, height int) (string, error) {
+	f.config = chartConfig
+	return "charts/fake.png", nil
+}
+
+func (f *capturingChartFetcher) FetchInline(ctx context.Context, elem *ast.ChartElement, chartConfig string, width, height int) ([]byte, error) {
+	f.config = chartConfig
+	return []byte("fake"), nil
+}
+
+func (f *capturingChartFetcher) GetImageFormat() string { return "png" }
+
+// TestRenderChartElement_ThemeReachesTheRealCallSite es el P1 más grave que
+// encontró la revisión: los tokens existían en la API, tenían tests, y jamás
+// llegaban a un chart real porque renderChartElement seguía llamando a
+// GenerateChartConfigWithMode, que delega con el zero value.
+//
+// Este test afirma sobre el ÚNICO call site con un RenderContext en scope,
+// no sobre la función que yo había agregado — que es exactamente la
+// diferencia que dejó pasar el bug: mis tests anteriores ejercitaban una
+// entrada que en producción nadie llamaba.
+func TestRenderChartElement_ThemeReachesTheRealCallSite(t *testing.T) {
+	fetcher := &capturingChartFetcher{}
+	ctx := NewDefaultRenderContext()
+	ctx.ChartMode = "offline-assets"
+	ctx.ChartFetcher = fetcher
+	ctx.OutputDir = t.TempDir()
+	ctx.ChartThemeColors = ChartThemeColors{Grid: "#123456", Axis: "#654321", Label: "#abcdef"}
+
+	renderChartElement(exportThemeChart(), nil, ctx)
+
+	if fetcher.config == "" {
+		t.Fatal("el fetcher nunca recibió un config")
+	}
+	for _, want := range []string{"#123456", "#654321", "#abcdef"} {
+		if !strings.Contains(fetcher.config, want) {
+			t.Errorf("el token %s no llegó al config que se manda a rasterizar:\n%s", want, fetcher.config)
+		}
+	}
+}
+
+// TestApplyChartThemeColors_AuthorAlwaysWins fija la semántica que habilita
+// correr después del merge: el tema es un DEFAULT. Si el autor puso el color
+// en su bloque options:, gana el autor — igual que los guards `=== undefined`
+// de charts.js.
+func TestApplyChartThemeColors_AuthorAlwaysWins(t *testing.T) {
+	elem := exportThemeChart()
+	elem.Options = map[string]interface{}{
+		"scales": map[string]interface{}{
+			"y": map[string]interface{}{
+				"grid": map[string]interface{}{"color": "#author"},
+			},
+		},
+	}
+	cfg := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{Grid: "#theme"}))
+
+	if got := nestedColor(t, scaleOf(t, cfg, "y"), "grid"); got != "#author" {
+		t.Errorf("scales.y.grid.color = %v, want #author (el tema no debe pisar al autor)", got)
+	}
+	if got := nestedColor(t, scaleOf(t, cfg, "x"), "grid"); got != "#theme" {
+		t.Errorf("scales.x.grid.color = %v, want #theme (donde el autor no puso nada)", got)
+	}
+}
+
+// TestApplyChartThemeColors_TitleAndY1AreReachable cubre el P2 de las ramas
+// muertas: aplicar el tema dentro de applyExportOptimizations era inútil para
+// plugins.title y scales.y1, porque esos los aporta el autor y llegan recién
+// en MergeChartOptions, después. Correr al final los vuelve alcanzables.
+func TestApplyChartThemeColors_TitleAndY1AreReachable(t *testing.T) {
+	elem := exportThemeChart()
+	elem.Options = map[string]interface{}{
+		"plugins": map[string]interface{}{
+			"title": map[string]interface{}{"display": true, "text": "T"},
+		},
+		"scales": map[string]interface{}{
+			"y1": map[string]interface{}{"position": "right"},
+		},
+	}
+	cfg := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{Axis: "#eeeeee", Label: "#dddddd"}))
+
+	plugins := cfg["options"].(map[string]interface{})["plugins"].(map[string]interface{})
+	title, ok := plugins["title"].(map[string]interface{})
+	if !ok {
+		t.Fatal("no hay plugins.title")
+	}
+	if title["color"] != "#dddddd" {
+		t.Errorf("plugins.title.color = %v, want #dddddd", title["color"])
+	}
+	if got := nestedColor(t, scaleOf(t, cfg, "y1"), "ticks"); got != "#eeeeee" {
+		t.Errorf("scales.y1.ticks.color = %v, want #eeeeee", got)
+	}
+}
+
+// TestApplyChartThemeColors_RadialScale cubre el P2 de radar/polarArea: no
+// dibujan sobre x/y sino sobre "r", que applyExportOptimizations no crea.
+// Antes quedaban con x/y temátizados que no se ven y su escala real intacta.
+// El navegador (#228) ya pinta r + angleLines + pointLabels; el export
+// converge acá.
+func TestApplyChartThemeColors_RadialScale(t *testing.T) {
+	for _, chartType := range []string{"radar", "polarArea"} {
+		elem := exportThemeChart()
+		elem.ChartType = chartType
+		cfg := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{
+			Grid: "#111111", Axis: "#222222",
+		}))
+		r := scaleOf(t, cfg, "r")
+
+		if got := nestedColor(t, r, "grid"); got != "#111111" {
+			t.Errorf("%s: scales.r.grid.color = %v, want #111111", chartType, got)
+		}
+		if got := nestedColor(t, r, "angleLines"); got != "#111111" {
+			t.Errorf("%s: scales.r.angleLines.color = %v, want #111111", chartType, got)
+		}
+		if got := nestedColor(t, r, "pointLabels"); got != "#222222" {
+			t.Errorf("%s: scales.r.pointLabels.color = %v, want #222222", chartType, got)
+		}
+	}
+}
+
+// TestApplyChartThemeColors_TreemapLabels cubre el último P2: en un treemap
+// la leyenda va apagada y las escalas se borran, así que el único texto
+// visible vive en dataset.labels.color — cuyo default en
+// chartjs-chart-treemap@4.2.0 es "black". Sin esto quedaba negro sobre una
+// superficie oscura.
+func TestApplyChartThemeColors_TreemapLabels(t *testing.T) {
+	elem := &ast.ChartElement{
+		ChartType: "treemap",
+		Data: [][]interface{}{
+			{"A", 10.0},
+			{"B", 20.0},
+		},
+	}
+	cfg := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{Label: "#f0f0f0"}))
+
+	data := cfg["data"].(map[string]interface{})
+	datasets := data["datasets"].([]interface{})
+	if len(datasets) == 0 {
+		t.Fatal("el treemap no generó datasets")
+	}
+	dataset := datasets[0].(map[string]interface{})
+	labels, ok := dataset["labels"].(map[string]interface{})
+	if !ok {
+		t.Fatal("el dataset del treemap no trae bloque labels")
+	}
+	if labels["color"] != "#f0f0f0" {
+		t.Errorf("dataset.labels.color = %v, want #f0f0f0", labels["color"])
+	}
+	// Y la config generada sigue encendiendo las etiquetas, que es lo que
+	// vuelve visible este color.
+	if labels["display"] != true {
+		t.Errorf("dataset.labels.display = %v, want true", labels["display"])
 	}
 }
