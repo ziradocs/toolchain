@@ -520,6 +520,119 @@ func TestNormalizeMermaidColor_InvalidRejected(t *testing.T) {
 	}
 }
 
+// goOnlyFloatSyntax is the corpus a code-review finding produced: values
+// strconv.ParseFloat accepts (Go's float literal grammar) that are NOT
+// valid CSS numbers. The NaN cases were the dangerous ones — they reached
+// round255, and converting NaN to an int is UNDEFINED in Go, so the
+// emitted "hex" was platform-dependent garbage: "#-80000000000000000000"
+// on linux/amd64 (the reviewer's Ubuntu repro), silently "#000000" on
+// darwin/arm64. Either way mermaid.js gets something it never should:
+// on amd64 a string that is not a color at all, which can abort its init.
+var goOnlyFloatSyntax = []string{
+	"rgb(NaN 0 0)",      // the reviewer's exact repro
+	"rgba(0 0 0 / NaN)", // same, via the alpha channel
+	"rgb(Inf 0 0)",
+	"rgb(0x1p2 0 0)", // Go hex-float literal
+	"rgb(-Inf 0 0)",
+	"rgb(Infinity 0 0)",
+	"rgb(nan 0 0)",  // ParseFloat is case-insensitive about these
+	"rgb(1_0 0 0)",  // Go digit separator
+	"rgb(0x10 0 0)", // Go hex integer literal
+	"hsl(NaN 50% 50%)",
+	"hsl(NaN, 50%, 50%)",
+	"rgb(10. 0 0)", // a '.' with no digit after it is not a CSS number
+}
+
+// TestNormalizeMermaidColor_RejectsGoOnlyFloatSyntax pins the fix for
+// that finding: validating the CSS <number-token> lexeme BEFORE calling
+// ParseFloat. Checking only ParseFloat's error cannot catch any of these
+// — it returns no error for a single one of them.
+func TestNormalizeMermaidColor_RejectsGoOnlyFloatSyntax(t *testing.T) {
+	for _, in := range goOnlyFloatSyntax {
+		if got, ok := normalizeMermaidColor(in); ok {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, true), want rejected: Go float syntax is not CSS number syntax", in, got)
+		}
+	}
+}
+
+// TestNormalizeMermaidColor_NeverEmitsNonHex is the generic invariant the
+// NaN bug violated, stated directly instead of case by case: whatever
+// normalizeMermaidColor accepts, what it RETURNS must always be a literal
+// hex color — the one notation every real CSS color parser (khroma
+// included) handles unconditionally, which is the whole point of
+// normalizing. It is deliberately asserted with mapColorNamePattern, the
+// same pattern the validator accepts hex by, so the two can never drift
+// into a state where this function emits something its own validator
+// would reject.
+func TestNormalizeMermaidColor_NeverEmitsNonHex(t *testing.T) {
+	corpus := append([]string{
+		"red", "cyan", "transparent", "#fff", "#ffff", "#ffffff", "#ffffffff",
+		"rgb(255, 0, 0)", "rgba(0,0,0,0.5)", "rgb(-10 0 0)", "rgb(1e2 0 0)",
+		"hsl(-30 -10% 120%)", "hsl(0.5turn,50%,50%)", "rgb(255 0 0 / 50%)",
+		"rgb(1e400 0 0)", "rgb(.5 0 0)", "rgb(+10 0 0)",
+		"linear-gradient(red, blue)", "var(--x)", "notacolor", "",
+	}, goOnlyFloatSyntax...)
+
+	for _, in := range corpus {
+		got, ok := normalizeMermaidColor(in)
+		if !ok {
+			continue
+		}
+		if !mapColorNamePattern.MatchString(got) {
+			t.Errorf("normalizeMermaidColor(%q) = %q — accepted a value but emitted a non-hex string", in, got)
+		}
+	}
+}
+
+// TestNormalizeFunctionalColor_OutOfRangeExponentClamps documents the one
+// error a VALID CSS lexeme can still produce: ParseFloat returns ErrRange
+// for "1e400" along with the saturated value (+Inf), and saturating is
+// exactly the clamp CSS asks for on an out-of-range component — so it is
+// accepted and clamped, not dropped. (Before the lexeme fix this was
+// rejected outright, since the old code treated any ParseFloat error as
+// fatal.)
+func TestNormalizeFunctionalColor_OutOfRangeExponentClamps(t *testing.T) {
+	got, ok := normalizeMermaidColor("rgb(1e400 0 0)")
+	if !ok || got != "#FF0000" {
+		t.Errorf("normalizeMermaidColor(\"rgb(1e400 0 0)\") = (%q, %v), want (\"#FF0000\", true)", got, ok)
+	}
+}
+
+func TestParseCSSNumber_CSSLexemeGrammar(t *testing.T) {
+	accepted := map[string]float64{
+		"0": 0, "10": 10, "+10": 10, "-10": -10,
+		".5": 0.5, "-.5": -0.5, "10.5": 10.5,
+		"1e2": 100, "1E2": 100, "1e+2": 100, "1e-2": 0.01, ".5e1": 5,
+	}
+	for in, want := range accepted {
+		v, percent, unit, ok := parseCSSNumber(in)
+		if !ok || v != want || percent || unit != "" {
+			t.Errorf("parseCSSNumber(%q) = (%v, %v, %q, %v), want (%v, false, \"\", true)", in, v, percent, unit, ok, want)
+		}
+	}
+
+	rejected := []string{
+		"NaN", "nan", "Inf", "-Inf", "Infinity", "0x1p2", "0x10", "1_0",
+		"10.", ".", "1e", "1.2.3", "e5", "+", "-", "", "  ", "abc",
+	}
+	for _, in := range rejected {
+		if v, _, _, ok := parseCSSNumber(in); ok {
+			t.Errorf("parseCSSNumber(%q) = (%v, true), want rejected: not a CSS number lexeme", in, v)
+		}
+	}
+
+	// Units and percentages ride on the same lexeme check.
+	if v, percent, unit, ok := parseCSSNumber("-30deg"); !ok || v != -30 || percent || unit != "deg" {
+		t.Errorf("parseCSSNumber(\"-30deg\") = (%v, %v, %q, %v), want (-30, false, \"deg\", true)", v, percent, unit, ok)
+	}
+	if v, percent, unit, ok := parseCSSNumber("50%"); !ok || v != 50 || !percent || unit != "" {
+		t.Errorf("parseCSSNumber(\"50%%\") = (%v, %v, %q, %v), want (50, true, \"\", true)", v, percent, unit, ok)
+	}
+	if _, _, _, ok := parseCSSNumber("NaNdeg"); ok {
+		t.Error("parseCSSNumber(\"NaNdeg\") accepted a non-CSS number carrying a valid unit")
+	}
+}
+
 // TestCSSNamedColorHex_CoversEveryMermaidNamedColor is a structural
 // safety net: it doesn't re-verify each hex value against an external
 // source, but it does guarantee cssNamedColorHex's key set is exactly

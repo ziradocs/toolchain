@@ -4,6 +4,7 @@
 package themes
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -515,9 +516,28 @@ var functionalColorCallRe = regexp.MustCompile(`(?i)^(rgba?|hsla?)\(\s*(.*?)\s*\
 // in the three characters "rad".
 var cssUnitSuffixes = []string{"grad", "turn", "deg", "rad", "%"}
 
-// parseCSSNumber parses a single CSS numeric token: a signed number in
-// any form Go's strconv.ParseFloat accepts (including scientific
-// notation, e.g. "1e2") with an optional trailing '%' or CSS angle unit
+// cssNumberLexemeRe matches the CSS <number-token> grammar (CSS Syntax
+// Level 3 §4.3.3) and nothing else: an optional sign, digits with an
+// optional fractional part (a '.' must be followed by at least one
+// digit — "10." is not a CSS number), and an optional decimal exponent.
+//
+// It exists because strconv.ParseFloat implements GO's float literal
+// grammar, not CSS's, and the two are different languages: ParseFloat
+// accepts "NaN", "Inf", "Infinity", hex-float literals ("0x1p2") and
+// digit separators ("1_0"), returning NO error for any of them. A
+// code-review finding showed this was not merely an over-permissive
+// filter but a correctness bug: "rgb(NaN 0 0)" produced a NaN component,
+// converting NaN to an int is undefined in Go, and the formatter then
+// emitted a platform-dependent garbage string ("#-80000000000000000000"
+// on linux/amd64) as if it were a hex color — handing mermaid.js exactly
+// the kind of unparseable value this whole normalization step exists to
+// prevent, with an init abort as the possible outcome. Validating the
+// lexeme BEFORE parsing is what closes that; checking ParseFloat's error
+// alone cannot.
+var cssNumberLexemeRe = regexp.MustCompile(`^[+-]?(?:[0-9]+|[0-9]*\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
+
+// parseCSSNumber parses a single CSS numeric token: a CSS number (see
+// cssNumberLexemeRe) with an optional trailing '%' or CSS angle unit
 // (deg/grad/rad/turn). A code-review finding confirmed mermaid@10.9.6
 // accepts negative and scientific-notation numbers in rgb()/hsl()
 // components ("rgb(-10 0 0)", "rgb(1e2 0 0)") that an earlier
@@ -531,29 +551,51 @@ func parseCSSNumber(raw string) (value float64, percent bool, unit string, ok bo
 		return 0, false, "", false
 	}
 	lower := strings.ToLower(trimmed)
-	numPart := trimmed
 	for _, suffix := range cssUnitSuffixes {
-		if strings.HasSuffix(lower, suffix) {
-			numPart = trimmed[:len(trimmed)-len(suffix)]
-			if suffix == "%" {
-				v, err := strconv.ParseFloat(strings.TrimSpace(numPart), 64)
-				if err != nil {
-					return 0, false, "", false
-				}
-				return v, true, "", true
-			}
-			v, err := strconv.ParseFloat(strings.TrimSpace(numPart), 64)
-			if err != nil {
-				return 0, false, "", false
-			}
-			return v, false, suffix, true
+		if !strings.HasSuffix(lower, suffix) {
+			continue
 		}
+		v, numOK := parseCSSNumberLexeme(trimmed[:len(trimmed)-len(suffix)])
+		if !numOK {
+			return 0, false, "", false
+		}
+		if suffix == "%" {
+			return v, true, "", true
+		}
+		return v, false, suffix, true
 	}
-	v, err := strconv.ParseFloat(numPart, 64)
-	if err != nil {
+	v, numOK := parseCSSNumberLexeme(trimmed)
+	if !numOK {
 		return 0, false, "", false
 	}
 	return v, false, "", true
+}
+
+// parseCSSNumberLexeme validates raw against the CSS number grammar and
+// only then converts it. The order is load-bearing — see
+// cssNumberLexemeRe's doc comment for the bug that comes from trusting
+// strconv.ParseFloat's error as the only gate.
+func parseCSSNumberLexeme(raw string) (float64, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if !cssNumberLexemeRe.MatchString(trimmed) {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil && !errors.Is(err, strconv.ErrRange) {
+		return 0, false
+	}
+	// ErrRange is the one error a VALID CSS lexeme can still produce
+	// ("1e400"), and ParseFloat already returns the saturated value for
+	// it — which is exactly the clamp CSS asks for on an out-of-range
+	// component, so it is accepted rather than dropped.
+	if math.IsNaN(v) {
+		// Unreachable while the lexeme check above stands: no CSS
+		// number lexeme parses to NaN. Kept so that loosening that
+		// grammar later cannot silently reintroduce the garbage-hex
+		// output described in cssNumberLexemeRe's doc comment.
+		return 0, false
+	}
+	return v, true
 }
 
 // splitFunctionalArgs parses a functional color's raw argument text into
@@ -761,14 +803,36 @@ func normalizeFunctionalColor(value string) (string, bool) {
 		return "", false
 	}
 
+	// Fail closed on anything non-finite before formatting. round255
+	// converts to int, and converting a NaN to an int is UNDEFINED in Go:
+	// it yields a platform-dependent garbage integer, which %02X then
+	// renders into a "#..." string that is not a hex color at all
+	// ("#-80000000000000000000" on linux/amd64) — precisely the
+	// unparseable value handed to mermaid.js that a code-review finding
+	// reproduced. parseCSSNumber's lexeme validation is what actually
+	// prevents a NaN from ever getting here; this is the output-boundary
+	// invariant (never emit a non-hex string) that keeps any future path
+	// from reintroducing it silently.
+	if !allFinite(r, g, b) {
+		return "", false
+	}
 	if alphaRaw == "" {
 		return fmt.Sprintf("#%02X%02X%02X", round255(r), round255(g), round255(b)), true
 	}
 	a, ok := alphaComponent(alphaRaw)
-	if !ok {
+	if !ok || !allFinite(a) {
 		return "", false
 	}
 	return fmt.Sprintf("#%02X%02X%02X%02X", round255(r), round255(g), round255(b), round255(a*255)), true
+}
+
+func allFinite(values ...float64) bool {
+	for _, v := range values {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return false
+		}
+	}
+	return true
 }
 
 func round255(v float64) int {
