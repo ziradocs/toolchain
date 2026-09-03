@@ -33,6 +33,10 @@ type FlexParser struct {
 	// repite `header:`/`footer:` en cada bloque sacaba una decena de avisos
 	// idénticos — el corpus escribe esas dos en 17 ejemplos cada una.
 	reportedInertKeys map[string]bool
+	// frontMatterConsumed marca que quien construyó este parser YA sacó el
+	// front matter global y le está pasando solo el cuerpo. Ver
+	// newFlexBodyParser.
+	frontMatterConsumed bool
 }
 
 // NewFlexParser crea un nuevo parser flexible. log==nil degrada a un Noop
@@ -53,13 +57,38 @@ func NewFlexParser(input string, log util.Logger) *FlexParser {
 	}
 }
 
+// newFlexBodyParser construye un FlexParser para un cuerpo al que YA se le
+// sacó el front matter global — el caso de Parser.Parse, que lo separa con
+// FrontMatterParser antes de elegir dialecto.
+//
+// La distinción importa desde el issue #239. Un bloque de metadata por slide
+// (`---\nlayout: stats\n---`) es idéntico, carácter por carácter, a un front
+// matter global: los dos son "---", líneas `clave: valor`, "---". Lo único
+// que los separa es la posición, y eso solo lo sabe quien llama. Sin esta
+// marca, un `layout:` puesto pegado al front matter global caía en el
+// parseo de front matter de Parse, se consumía como tal, y el layout se
+// perdía — con una línea en blanco de por medio funcionaba y sin ella no,
+// una diferencia que la gramática no declara en ningún lado.
+//
+// Es un constructor aparte y no un parámetro de NewFlexParser porque ese es
+// API pública de core (ver core/doc.go): quien lo use con el documento
+// completo sigue teniendo el mismo comportamiento de siempre.
+func newFlexBodyParser(body string, log util.Logger) *FlexParser {
+	p := NewFlexParser(body, log)
+	p.frontMatterConsumed = true
+	return p
+}
+
 // Parse parsea el input y retorna el AST y diagnósticos
 func (p *FlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 	pos := diagnostics.NewPosition(1, 1)
 	astNode := ast.NewAST(pos)
 
-	// Parse front matter if present
-	if p.currentLine < len(p.lines) && strings.TrimSpace(p.lines[p.currentLine]) == "---" {
+	// Parse front matter if present. Si quien llamó ya lo sacó, el "---"
+	// que abre el cuerpo NO es front matter: es el bloque de metadata del
+	// primer slide, y lo resuelve parseContentBlock.
+	if !p.frontMatterConsumed &&
+		p.currentLine < len(p.lines) && strings.TrimSpace(p.lines[p.currentLine]) == "---" {
 		p.parseFrontMatter(astNode)
 	}
 

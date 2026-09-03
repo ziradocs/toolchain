@@ -60,11 +60,11 @@ mistake.
 
 ## Two things worth knowing before you start prompting
 
-- **Flex mode has no per-slide layout typing.** A `---\nlayout: <type>\n---`
-  block in flex-mode ZiraDocs does nothing — the parser discards it as
-  inert metadata. If you need a specific layout's schema validation
-  (comparison, stats, timeline, etc.), ask for **strict mode**'s
-  `SLIDE <type>` instead.
+- **Flex mode types slides with a `layout:` block.** A `---\nlayout: <type>\n---`
+  block placed right before a heading sets that slide's layout, and the
+  linter validates it against the same 19 schemas strict mode uses. Only
+  `layout` is read from that block; any other key is reported as having no
+  effect. Strict mode's `SLIDE <type>` does the same job with a keyword.
 - **The AI normalizer isn't a validity crutch.** It rewrites loose
   Markdown-ish flex content into canonical elements, but it never runs in
   strict mode and won't invent missing data or fix a chart's series/column

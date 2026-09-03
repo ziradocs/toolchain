@@ -212,3 +212,47 @@ func TestFlexParser_LayoutNameIsCaseInsensitive(t *testing.T) {
 		t.Errorf("la mayúscula no es un nombre inválido: %+v", d)
 	}
 }
+
+// El primer `layout:` del documento no puede depender de una línea en
+// blanco. Un bloque de metadata por slide es idéntico, carácter por
+// carácter, a un front matter global; lo único que los separa es que el
+// global ya lo consumió Parser.Parse antes de elegir dialecto. Sin esa marca
+// (newFlexBodyParser), un `layout:` pegado al front matter caía en el parseo
+// de front matter de FlexParser.Parse y se perdía — con blanca de por medio
+// andaba y sin ella no, una diferencia que la gramática no declara.
+func TestParser_FirstLayoutBlockDoesNotNeedABlankLine(t *testing.T) {
+	const withBlank = "---\nmode: flex\ntitle: t\n---\n\n---\nlayout: stats\n---\n## Métricas\nTexto.\n"
+	const withoutBlank = "---\nmode: flex\ntitle: t\n---\n---\nlayout: stats\n---\n## Métricas\nTexto.\n"
+
+	for name, src := range map[string]string{"con blanca": withBlank, "sin blanca": withoutBlank} {
+		t.Run(name, func(t *testing.T) {
+			p := New(util.NewNoop())
+			p.SetNormalization(false)
+			astNode, _ := p.Parse(src, "t.slidelang")
+
+			if astNode.FrontMatter == nil || astNode.FrontMatter.Mode != "flex" {
+				t.Fatalf("el front matter global tiene que seguir leyéndose, se obtuvo %+v", astNode.FrontMatter)
+			}
+			if len(astNode.ContentBlocks) != 1 {
+				t.Fatalf("bloques = %d, want 1", len(astNode.ContentBlocks))
+			}
+			if got := astNode.ContentBlocks[0].BlockType; got != "stats" {
+				t.Errorf("BlockType = %q, want %q", got, "stats")
+			}
+		})
+	}
+}
+
+// NewFlexParser es API pública de core: quien lo use con el documento
+// completo tiene que seguir viendo su front matter parseado como antes. Solo
+// el constructor interno de cuerpo se salta ese paso.
+func TestNewFlexParser_StillParsesFrontMatterWhenGivenTheWholeDocument(t *testing.T) {
+	astNode, _ := NewFlexParser("---\nmode: flex\ntitle: t\n---\n\n# Deck\n", util.NewNoop()).Parse()
+
+	if astNode.FrontMatter == nil {
+		t.Fatal("FrontMatter = nil; NewFlexParser con el documento completo debe parsearlo")
+	}
+	if len(astNode.ContentBlocks) != 1 || astNode.ContentBlocks[0].Heading != "Deck" {
+		t.Errorf("bloques = %+v, want uno con heading 'Deck'", astNode.ContentBlocks)
+	}
+}

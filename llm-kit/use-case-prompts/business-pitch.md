@@ -6,8 +6,8 @@ percentages, market size, unit economics. Tone: action-oriented, confident,
 grounded in numbers rather than adjectives.
 
 Both skeletons below are flex mode — every slide is just `title`/`content`
-type (flex has no per-slide layout typing; the section breaks below are
-plain `---` separators, not a `layout:` block — see `reference/slidelang-flex.md`).
+type unless a `layout:` block types it (a lone `---` between slides is a
+plain separator, not a layout block — see `reference/slidelang-flex.md`).
 
 ## Skeleton (elevator pitch, ~5 slides)
 

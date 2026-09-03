@@ -282,3 +282,23 @@ func TestSlideLayoutValidation_KnownAndUntypedDoNotWarn(t *testing.T) {
 		t.Errorf("un bloque sin tipo no puede reportar LAYOUT_UNKNOWN: %+v", d)
 	}
 }
+
+// LAYOUT_UNKNOWN no puede acusar a un tipo que los generadores SÍ conocen.
+// slidelang mapea "cover"/"intro" al layout de título y "chapter"/
+// "with_directive" al de contenido (config.IsSlideTitle/IsSlideContent), así
+// que son válidos de punta a punta aunque no tengan schema propio.
+func TestSlideLayoutValidation_SchemalessButKnownTypesDoNotWarn(t *testing.T) {
+	for _, slideType := range []string{"cover", "intro", "chapter", "with_directive"} {
+		t.Run(slideType, func(t *testing.T) {
+			pos := diagnostics.NewPosition(1, 1)
+			block := ast.NewContentBlock(pos, slideType)
+			block.Title = "X"
+
+			diags := (&SlideLayoutValidationRule{}).Check(block)
+
+			if d := findDiagnostic(diags, "LAYOUT_UNKNOWN"); d != nil {
+				t.Errorf("%q lo reconoce el generador; no puede reportarse como desconocido: %+v", slideType, d)
+			}
+		})
+	}
+}

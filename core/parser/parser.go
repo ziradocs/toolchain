@@ -269,7 +269,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			// AI deshabilitado, aplicar normalización básica manual
 			processedBodyContent = p.applyBasicNormalization(bodyContent)
 		}
-		flexParser := NewFlexParser(processedBodyContent, p.logger)
+		flexParser := newFlexBodyParser(processedBodyContent, p.logger)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -285,7 +285,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			// AI deshabilitado, aplicar normalización completa manual
 			processedBodyContent = p.applyFullNormalization(bodyContent)
 		}
-		flexParser := NewFlexParser(processedBodyContent, p.logger)
+		flexParser := newFlexBodyParser(processedBodyContent, p.logger)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -348,7 +348,7 @@ func (p *Parser) createAutoParser(bodyContent string, preProcessReport *normaliz
 	}
 
 	// Crear parser flex con el contenido (procesado o no)
-	flexParser := NewFlexParser(bodyContent, p.logger)
+	flexParser := newFlexBodyParser(bodyContent, p.logger)
 
 	return flexParser
 }

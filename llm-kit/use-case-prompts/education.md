@@ -32,8 +32,8 @@ creator. Gather a show of hands — no poll tag is emitted.
 ## Skeleton
 
 The skeleton below is flex mode — every slide is just `title`/`content`
-type (flex has no per-slide layout typing; section breaks are plain `---`
-separators, not a `layout:` block — see `reference/slidelang-flex.md`).
+type unless a `layout:` block types it (a lone `---` between slides is a
+plain separator, not a layout block — see `reference/slidelang-flex.md`).
 
 ```
 ---

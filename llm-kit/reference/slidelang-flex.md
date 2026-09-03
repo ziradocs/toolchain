@@ -43,17 +43,29 @@ Intro paragraph.
   `#`/`##` immediately after each separator. A slide with no heading and no
   elements will warn or, in `content`-type slides, fail the title check the
   linter runs.
-- Flex mode always types a slide as `title` (the deck's first `# ` heading
-  only) or `content` (everything else) — there is **no way in flex mode to
-  set a slide's layout to `comparison`/`stats`/`section`/etc.** A
-  `---\nlayout: <type>\n---` mini-frontmatter block placed before a
-  heading looks plausible but does nothing: `FlexParser.parseContentBlock`
-  (`parser/flex.go`) treats it as inert metadata and discards it without
-  reading `layout` at all — the parser's own comment names this
-  unimplemented ("tracked separately"). If you need a specific layout's
-  schema validation (see `../validation-checklist.md` for the full table),
-  use strict mode's `SLIDE <type>` instead — that's the only mode with real
-  layout typing today.
+- Without a `layout:` block, a slide is typed `title` (the deck's first
+  `# ` heading only) or `content` (everything else).
+- **To type a slide, put a `layout:` block right before its heading:**
+
+  ```
+  ---
+  layout: stats
+  ---
+  ## Quarterly Metrics
+  ```
+
+  That sets the slide's layout, and the linter then validates it against
+  that layout's schema — the same 19 schemas strict mode uses, listed in
+  `../validation-checklist.md` §5. An explicit `layout:` also overrides the
+  positional rule above, so a mid-deck slide can be `title` and the first
+  one need not be.
+
+  The name must be one of the recognized layouts; an unknown one still
+  types the slide but warns (`LAYOUT_UNKNOWN`). Only `layout` is read —
+  any other key in that block is reported as having no effect (`FLEX002`).
+  Read the schema first: several layouts cap how many elements a slide may
+  hold, so declaring `layout: testimonial` on a slide with eight elements
+  trades a plain `content` slide for a pile of warnings.
 
 ## Elements
 

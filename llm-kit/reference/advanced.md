@@ -136,10 +136,10 @@ All of these render **client-side** in the browser (mermaid.js) — there is
 no server-side or build-time diagram rendering in the default browser
 render path.
 
-## Layout typing (ZiraDocs only — strict mode only)
+## Layout typing (ZiraDocs only)
 
-Only **strict mode** can set a slide's layout type, and only via
-`SLIDE <type>` (see `slidelang-strict.md`):
+Both modes can set a slide's layout type. In **strict mode** it is the
+`SLIDE <type>` keyword (see `slidelang-strict.md`):
 
 ```
 SLIDE comparison
@@ -160,16 +160,34 @@ The linter then validates the slide against that layout's schema (see
 `../validation-checklist.md` for the full table of required properties,
 allowed/forbidden elements, and min/max element counts per layout).
 
-**A `---\nlayout: <type>\n---` mini-frontmatter block does *not* work in
-flex mode — don't use it.** `FlexParser.parseContentBlock`
-(`parser/flex.go`) treats any `---`-delimited block containing only simple
-`key: value` lines as inert metadata and discards it without reading
-`layout` at all (the parser's own comment names this "no parser support
-today, tracked separately" — see also `slidelang-flex.md`'s "Structure
-rules"). The heading that follows is parsed as an ordinary `title`/`content`
-slide; the `layout:` line has zero effect. If you need a specific layout's
-schema validation (comparison/stats/timeline/etc.) in an LLM-generated
-deck, use strict mode's `SLIDE <type>` — flex mode has no equivalent today.
+In **flex mode** it is a `layout:` block placed immediately before the
+slide's heading:
+
+```
+---
+layout: comparison
+---
+## Solution Comparison
+
+::: info
+### Traditional Approach
+- High costs
+:::
+
+::: success
+### Our Approach
+- Cost-effective
+:::
+```
+
+Same schemas, same validation. Three things worth knowing:
+
+- An explicit `layout:` overrides the positional rule that types the deck's
+  first `# ` heading as `title`.
+- Only `layout` is read from that block. Any other key (`header:`,
+  `footer:`, `author:`) is reported as having no effect (`FLEX002`).
+- An unrecognized name still types the slide but warns
+  (`LAYOUT_UNKNOWN`), which is how a typo like `comparision` surfaces.
 
 DocLang has no layout system either — sections are just Markdown headings,
 no `layout:` frontmatter block applies there.

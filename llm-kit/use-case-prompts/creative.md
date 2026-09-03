@@ -5,9 +5,8 @@ authentic, emotional, storytelling-focused. Favor `> quote` blocks,
 timeline-style pacing, and images over dense tables/charts.
 
 All patterns and the skeleton below are flex mode — every slide is just
-`title`/`content` type (flex has no per-slide layout typing; section
-breaks are plain `---` separators, not a `layout:` block — see
-`reference/slidelang-flex.md`).
+type unless a `layout:` block types it (a lone `---` between slides is a
+plain separator, not a layout block — see `reference/slidelang-flex.md`).
 
 ## Storytelling patterns
 
