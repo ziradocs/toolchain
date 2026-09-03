@@ -306,9 +306,13 @@ func TestIsJSONPayloadLine_LoneScalarNeedsAnOpenArray(t *testing.T) {
 
 // La ambigüedad que queda, fijada a propósito para que se vea si alguien la
 // cambia: DENTRO de un array abierto, un párrafo entrecomillado tiene
-// exactamente la misma forma que el último elemento del array. No hay manera
-// de separarlos por la línea sola. La consecuencia elegida es que la prosa
-// queda visible en la diapositiva, no borrada.
+// exactamente la misma forma que el último elemento del array (el que va sin
+// coma). No hay manera de separarlos por la línea sola.
+//
+// Ojo con la consecuencia, que NO es la misma que la de la llave YAML: acá
+// la línea se ACEPTA como payload, así que esa prosa se consume y
+// desaparece. Es pérdida silenciosa residual, acotada a las líneas que sigan
+// pareciendo elementos del array.
 func TestIsJSONPayloadLine_QuotedProseInsideArrayIsIndistinguishable(t *testing.T) {
 	const line = `"Una cita que abre con comillas"`
 

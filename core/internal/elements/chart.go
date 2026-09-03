@@ -1217,12 +1217,23 @@ func jsonPayloadExtent(jsonLines []string) int {
 // (internal/normalize), que los limpia antes del parser en el camino de la
 // CLI pero no en el de la API de Go.
 //
-// Degradación conocida y elegida: una llave sin comillas ("type: bar", que
-// es YAML y no JSON) corta el bloque y sale como texto. Y dentro de un array
-// abierto, un párrafo que empieza y termina con comillas sigue siendo
-// indistinguible de un elemento del array — ahí la forma de la línea no
-// alcanza para decidir. En los dos casos la prosa queda VISIBLE en la
-// diapositiva, que es lo que este recorte prefiere sobre borrarla.
+// Quedan dos degradaciones conocidas, y NO tienen la misma consecuencia:
+//
+//   - Una llave sin comillas ("type: bar", que es YAML y no JSON) se
+//     rechaza, así que corta el bloque y la línea vuelve al documento: sale
+//     VISIBLE como texto en la diapositiva. Es el lado seguro.
+//   - Dentro de un array abierto, un párrafo que empieza y termina con
+//     comillas tiene exactamente la forma del último elemento del array (el
+//     que va sin coma). No hay manera de separarlos por la línea sola, así
+//     que se ACEPTA como payload — o sea que esa prosa SÍ se consume y
+//     desaparece, igual que antes de este recorte.
+//
+// El segundo caso es pérdida silenciosa residual, no una degradación
+// benigna, y conviene llamarlo por su nombre. Está acotado: solo alcanza a
+// las líneas que sigan pareciendo elementos del array, y el corte llega en
+// la primera que no lo parezca. Lo fija
+// TestIsJSONPayloadLine_QuotedProseInsideArrayIsIndistinguishable, para que
+// un cambio de criterio se vea.
 func isJSONPayloadLine(trimmed string, insideArray bool) bool {
 	if trimmed == "" {
 		return true
