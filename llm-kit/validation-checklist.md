@@ -44,10 +44,11 @@ the end.
 
 ## 2. Strict-mode-only rules (only apply when `mode: strict`)
 
-- [ ] Every `title`-type slide has a `heading` or `title` property
-      (`STRICT001` — error)
 - [ ] Every `content`-type slide (or untyped slide) has either a `title` or
       at least one element (`STRICT002` — error)
+
+(The `title`-slide check is **not** strict-only: it is `LAYOUT001` in §5,
+and it applies to any slide typed `title` in either mode.)
 
 ## 3. Element structure
 
@@ -90,7 +91,7 @@ forbidden element types, and min/max element counts. Violations surface as
 
 | Layout | Required props | Allowed elements | Forbidden elements | Min/Max | Specific rule |
 |---|---|---|---|---|---|
-| `title` | `heading` | *(none — properties only)* | text, code, points, table, image | 0 / 0 | `LAYOUT001` heading required (error); `LAYOUT002` warns if content elements present |
+| `title` | `heading` (or `title`) | *(none — properties only)* | text, code, points, table, image | 0 / 0 | `LAYOUT001` errors only when **both** `heading` and `title` are missing; `LAYOUT002` warns if content elements present |
 | `title_slide` | `heading` | *(none)* | text, code, points, table | 0 / 1 | — |
 | `content` | `title` | text, code, points, table, image, special_block, mermaid, chart, map, directive | *(none)* | 1 / ∞ | `LAYOUT003` missing title (warning); `LAYOUT004` no elements (**error**) |
 | `section` | `title` | text, points | code, table, chart, map | 1 / 3 | `LAYOUT005` complex elements present (warning) |

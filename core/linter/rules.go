@@ -164,16 +164,22 @@ func (r *StrictModeValidationRule) Check(node ast.Node) []diagnostics.Diagnostic
 	if astNode, ok := node.(*ast.AST); ok {
 		// Solo aplicar si está en modo strict
 		if astNode.FrontMatter != nil && astNode.FrontMatter.Mode == "strict" {
-			// Validar que los bloques tipo "title" tengan heading o title
 			for _, block := range astNode.ContentBlocks {
-				if block.BlockType == "title" {
-					if block.Heading == "" && block.Title == "" {
-						diags = append(diags,
-							diagnostics.NewError(
-								"Title blocks must have either a 'heading' or a 'title'",
-								block.GetPosition(), "linter").WithRuleID("STRICT001"))
-					}
-				}
+				// STRICT001 ("los bloques tipo title necesitan heading o
+				// title") vivía aquí y se retiró en el issue #240: era una
+				// regla MUERTA. LAYOUT001 (layout_validation.go,
+				// validateTitleSlideHeading) valida exactamente el mismo
+				// bloque —cualquier ContentBlock con BlockType "title", en
+				// los dos dialectos strict, porque SlideLayoutValidationRule
+				// también corre sobre ContentBlock genérico— y ambas están
+				// en DefaultRules(). Mientras LAYOUT001 exigía `heading` a
+				// secas era la más estricta de las dos, así que ganaba
+				// siempre y STRICT001 nunca podía disparar sola. Ahora que
+				// LAYOUT001 acepta `title` como fallback, las dos dirían lo
+				// mismo, y tener el mismo chequeo con dos IDs solo produce
+				// diagnósticos duplicados. STRICT002 se queda: no hay otra
+				// regla que cubra "bloque de contenido sin título ni
+				// elementos" en modo strict.
 
 				// Validar que los bloques de contenido tengan al menos un elemento o título
 				if block.BlockType == "content" || block.BlockType == "" {

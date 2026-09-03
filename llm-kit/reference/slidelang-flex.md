@@ -72,8 +72,10 @@ things:
 - Rewrite a ` ```mermaid ` fenced block into `<<mermaid>>...`.
 - Rewrite `:::code-item{title="..."}` tab wrappers into canonical
   ` ```lang [label] ` fenced blocks inside a code-group.
-- Convert a raw Chart.js-style JSON payload into the canonical
-  `data`/`series` YAML chart schema.
+- Strip comments and trailing commas from a raw Chart.js-style JSON chart
+  payload. The payload is kept verbatim in `rawJSON` (`isJSONMode: true`);
+  it is **not** converted to the `data`/`series` schema, so a chart written
+  that way reaches the AST with `data` empty.
 - Repair loose `#`/`##` heading soup into title/subtitle/section structure.
 - Escape/repair minor frontmatter YAML issues.
 

@@ -107,9 +107,13 @@ spellings are tolerated (and auto-normalized) in flex mode:
 Passing the parser is not the same as passing `slidelang build --lint-only`.
 Strict mode adds its own rules on top of the general ones — see
 `../validation-checklist.md` for the complete, rule-ID-mapped checklist
-(`STRICT001`/`STRICT002` are the strict-specific ones: title slides need a
-`heading` or `title`; content slides need a `title` or at least one
-element).
+(`STRICT002` is the strict-specific one: content slides need a `title` or at
+least one element).
+
+A `title` slide needs a `heading` **or** a `title` — `LAYOUT001`, an error,
+fires only when both are missing. Prefer `heading`: it is the canonical
+property, the one the layout schema lists as required, and the one the
+renderer reaches for first.
 
 ## Worked example (from `examples/gallery/01_strict_mode_basics.slidelang`)
 

@@ -99,8 +99,9 @@ you (`PARSE001`, error), tables same column count (`TABLE003`, error), code
 groups >=1 block (`CODEGROUP001`, error), images have source (`IMG001`,
 error). Set `mode:` explicitly even though a missing one is only a warning
 (`FRONT001`) that silently defaults to `auto`. Empty slides otherwise just
-warn (`SLIDE002`). Strict-only: title slides need heading/title
-(`STRICT001`), content slides need title or elements (`STRICT002`).
+warn (`SLIDE002`). Title slides need `heading` or `title` (`LAYOUT001`,
+error — prefer `heading`). Strict-only: content slides need title or
+elements (`STRICT002`).
 Per-layout min/max element + forbidden-element checks apply if you set a
 `layout`/slide type beyond the defaults.
 
