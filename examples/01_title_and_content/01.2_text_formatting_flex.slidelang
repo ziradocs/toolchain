@@ -254,17 +254,14 @@ We can also use [multiple references][ref2] in the same paragraph.
 
 ### Horizontal Separators
 
-The basic separator uses three dashes:
+The only separator that splits a slide is three dashes on their own line:
 
 ---
 
-You can also use asterisks:
-
-***
-
-Or underscores:
-
-___
+The other CommonMark thematic breaks — `***`, `___`, `* * *` — are accepted
+and dropped: they do not split a slide and they do not render. Use `---` when
+you want a new slide, and a `##` heading when you want a visible section
+break inside one.
 
 ### Separators with Context
 
