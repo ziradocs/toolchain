@@ -476,6 +476,57 @@ func (r *SlideLayoutValidationRule) setLayoutPolicy(p *PolicyConfig) {
 	r.policy = p
 }
 
+// schemalessKnownSlideTypes son tipos de slide que los generadores SÍ
+// reconocen pero para los que no hay schema en GetSlideLayoutSchemas.
+//
+// slidelang los mapea a una plantilla concreta —"cover"/"intro" salen con el
+// layout de título y "chapter"/"with_directive" con el de contenido, ver
+// config.IsSlideTitle/IsSlideContent— así que son válidos de punta a punta y
+// LAYOUT_UNKNOWN no puede acusarlos de inexistentes. Simplemente no tienen
+// reglas propias que validar.
+//
+// La lista se repite acá porque core no puede importar slidelang (la
+// dependencia va al revés). Si allá se agrega un tipo, agregarlo también acá
+// o LAYOUT_UNKNOWN empezará a marcarlo — es el precio de que el catálogo de
+// tipos viva en el consumidor y el linter en core, y por eso conviene que
+// crezca poco: un tipo nuevo casi siempre está mejor como schema, que además
+// lo valida.
+var schemalessKnownSlideTypes = map[string]bool{
+	"cover":          true,
+	"intro":          true,
+	"chapter":        true,
+	"with_directive": true,
+}
+
+// isSchemalessKnownSlideType reporta si slideType es uno de esos.
+func isSchemalessKnownSlideType(slideType string) bool {
+	return schemalessKnownSlideTypes[slideType]
+}
+
+// sortedRecognizedSlideTypes devuelve, en orden alfabético, TODOS los tipos
+// de slide que se aceptan: los que tienen schema y los que no.
+//
+// Los cuatro sin schema (schemalessKnownSlideTypes) tienen que estar en la
+// lista aunque no se validen. El mensaje de LAYOUT_UNKNOWN existe para que
+// quien escribió un nombre malo encuentre el bueno, y omitirlos hacía que a
+// un typo de "cover" se le sugiriera una lista sin "cover" — la sugerencia
+// mandaba justo a donde no está la respuesta.
+//
+// El orden es alfabético porque el recorrido de un mapa en Go no es
+// determinista, y un mensaje que cambia de orden entre corridas es ruido en
+// cualquier diff de salida.
+func sortedRecognizedSlideTypes(schemas map[string]SlideLayoutSchema) []string {
+	names := make([]string, 0, len(schemas)+len(schemalessKnownSlideTypes))
+	for name := range schemas {
+		names = append(names, name)
+	}
+	for name := range schemalessKnownSlideTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 
@@ -486,10 +537,31 @@ func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnosti
 		}
 
 		// Obtener el esquema de validación para este tipo de slide
+		if isSchemalessKnownSlideType(slideType) {
+			return diags
+		}
+
 		schemas := GetSlideLayoutSchemas()
 		schema, exists := schemas[slideType]
 		if !exists {
-			return diags // No validar tipos desconocidos
+			// Un tipo sin schema no se puede validar, pero tampoco se puede
+			// ignorar en silencio: el slide se renderiza con el layout
+			// genérico y nada avisa de que el nombre no existe. Un typo
+			// ("comparision") o un layout inventado se veía exactamente
+			// igual que uno correcto (issue #239).
+			//
+			// La lista de nombres sale de los propios schemas, no de una
+			// constante aparte: agregar un layout no puede dejar este
+			// mensaje desactualizado.
+			diags = append(diags, diagnostics.Diagnostic{
+				Severity: diagnostics.Warning,
+				Code:     "LAYOUT_UNKNOWN",
+				Message: "Unknown slide layout '" + slideType + "'; no schema validates it. Recognized layouts: " +
+					strings.Join(sortedRecognizedSlideTypes(schemas), ", "),
+				Position: slide.Position,
+				Source:   "linter",
+			})
+			return diags
 		}
 		schema = r.policy.ResolveLayoutSchema(slideType, schema)
 

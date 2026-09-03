@@ -10,8 +10,8 @@ Tone: clear, cited, logical flow. Avoid marketing language; prefer
 precision over hype.
 
 The skeleton below is flex mode — every slide is just `title`/`content`
-type (flex has no per-slide layout typing; the section breaks below are
-plain `---` separators, not a `layout:` block — see `reference/slidelang-flex.md`).
+type unless a `layout:` block types it (a lone `---` between slides is a
+plain separator, not a layout block — see `reference/slidelang-flex.md`).
 
 ## Skeleton
 

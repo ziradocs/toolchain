@@ -70,18 +70,24 @@ Prohibited (not implemented, never emit): `<</chart>>`, `<</mermaid>>`,
 interactive ideas (poll/quiz) with no element, describe them as plain text
 instead.
 
-## Layout typing (strict mode only — NOT flex)
+## Layout typing (both modes)
 ```
-SLIDE comparison
+SLIDE comparison          # strict
   title: "Title"
+```
+```
+---                       # flex: right before the heading
+layout: comparison
+---
+## Title
 ```
 19 recognized layouts each have required props / allowed-forbidden
 elements / min-max element counts — see `validation-checklist.md` §5
 before using anything beyond `content`/`default`/`section`/`closing`.
-**Flex mode has no equivalent** — a `---\nlayout: X\n---` block before a
-flex heading is silently discarded (inert metadata, not parsed), and every
-flex slide is just `title`/`content`. Only strict's `SLIDE <type>` sets a
-real layout.
+In flex, only `layout` is read from that block (other keys warn as
+inert), an explicit layout overrides the "first `#` is the title slide"
+rule, and an unrecognized name still types the slide but warns.
+Without a `layout:` block every flex slide is `title`/`content`.
 
 ## Workflow
 1. Clarify audience/goal/length if unclear (short questions).

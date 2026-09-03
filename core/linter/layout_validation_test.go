@@ -233,3 +233,82 @@ func TestStrictModeValidation_TitleBlockWithNeither_OnlyLAYOUT001(t *testing.T) 
 		}
 	}
 }
+
+// Issue #239: un BlockType sin schema no se podía validar, pero se ignoraba
+// en SILENCIO — un typo ("comparision") o un layout inventado se veían igual
+// que uno correcto. Con `layout:` en flex esa puerta se abre de par en par,
+// así que el nombre desconocido tiene que reportarse.
+func TestSlideLayoutValidation_UnknownLayoutWarns(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "comparision") // typo de "comparison"
+	block.Title = "Con typo"
+
+	diags := (&SlideLayoutValidationRule{}).Check(block)
+
+	diag := findDiagnostic(diags, "LAYOUT_UNKNOWN")
+	if diag == nil {
+		t.Fatal("se esperaba LAYOUT_UNKNOWN para un layout sin schema")
+	}
+	if diag.Severity != diagnostics.Warning {
+		t.Errorf("severity = %v, want %v — no puede romper el build", diag.Severity, diagnostics.Warning)
+	}
+	if !strings.Contains(diag.Message, "comparision") {
+		t.Errorf("el mensaje debe nombrar el layout ofensor, se obtuvo: %q", diag.Message)
+	}
+	// La lista de nombres sale de los schemas, no de una constante aparte:
+	// agregar un layout no puede dejar este mensaje desactualizado.
+	for name := range GetSlideLayoutSchemas() {
+		if !strings.Contains(diag.Message, name) {
+			t.Errorf("el mensaje omite el layout conocido %q: %q", name, diag.Message)
+		}
+	}
+
+	// Y los que se aceptan SIN schema también van en la lista. El mensaje
+	// existe para que quien escribió un nombre malo encuentre el bueno;
+	// omitirlos hacía que a un typo de "cover" se le sugiriera una lista sin
+	// "cover", mandando justo a donde no está la respuesta.
+	for name := range schemalessKnownSlideTypes {
+		if !strings.Contains(diag.Message, name) {
+			t.Errorf("el mensaje omite el tipo aceptado sin schema %q: %q", name, diag.Message)
+		}
+	}
+}
+
+// Un layout CON schema no dispara LAYOUT_UNKNOWN, y un bloque sin tipo
+// tampoco: son los dos caminos que ya existían y que este aviso no puede
+// invadir.
+func TestSlideLayoutValidation_KnownAndUntypedDoNotWarn(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	known := ast.NewContentBlock(pos, "stats")
+	known.Title = "Métricas"
+	known.Elements = append(known.Elements, ast.NewTextElement(pos, "algo"))
+	if d := findDiagnostic((&SlideLayoutValidationRule{}).Check(known), "LAYOUT_UNKNOWN"); d != nil {
+		t.Errorf("un layout con schema no puede reportar LAYOUT_UNKNOWN: %+v", d)
+	}
+
+	untyped := ast.NewContentBlock(pos, "")
+	if d := findDiagnostic((&SlideLayoutValidationRule{}).Check(untyped), "LAYOUT_UNKNOWN"); d != nil {
+		t.Errorf("un bloque sin tipo no puede reportar LAYOUT_UNKNOWN: %+v", d)
+	}
+}
+
+// LAYOUT_UNKNOWN no puede acusar a un tipo que los generadores SÍ conocen.
+// slidelang mapea "cover"/"intro" al layout de título y "chapter"/
+// "with_directive" al de contenido (config.IsSlideTitle/IsSlideContent), así
+// que son válidos de punta a punta aunque no tengan schema propio.
+func TestSlideLayoutValidation_SchemalessButKnownTypesDoNotWarn(t *testing.T) {
+	for _, slideType := range []string{"cover", "intro", "chapter", "with_directive"} {
+		t.Run(slideType, func(t *testing.T) {
+			pos := diagnostics.NewPosition(1, 1)
+			block := ast.NewContentBlock(pos, slideType)
+			block.Title = "X"
+
+			diags := (&SlideLayoutValidationRule{}).Check(block)
+
+			if d := findDiagnostic(diags, "LAYOUT_UNKNOWN"); d != nil {
+				t.Errorf("%q lo reconoce el generador; no puede reportarse como desconocido: %+v", slideType, d)
+			}
+		})
+	}
+}

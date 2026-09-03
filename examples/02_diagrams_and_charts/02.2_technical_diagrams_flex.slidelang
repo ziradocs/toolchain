@@ -527,7 +527,7 @@ layout: content
 :::
 
 ---
-layout: quote
+layout: testimonial
 ---
 
 > "Clear technical diagrams reduce developer onboarding time by 60%. Visualizing complex architectures is fundamental to project success."
@@ -535,7 +535,7 @@ layout: quote
 > **— Alex Chen, Principal Software Architect**
 
 ---
-layout: end
+layout: closing
 ---
 
 # Architecture Visualized!

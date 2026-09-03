@@ -363,7 +363,7 @@ layout: content
 *[HTML]: HyperText Markup Language
 
 ---
-layout: quote
+layout: testimonial
 ---
 
 > "The richness of inline syntax makes it possible to create complete technical documentation without sacrificing readability. Each element has its specific purpose in effective communication."
@@ -371,7 +371,7 @@ layout: quote
 > **— Dr. Sarah Mitchell, Technical Writing Researcher**
 
 ---
-layout: end
+layout: closing
 ---
 
 # Complete Syntax Covered!
