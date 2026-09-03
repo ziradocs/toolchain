@@ -508,7 +508,16 @@ func IsValidMapColor(value string) bool {
 // those (reproduced with diagram-node-bg: linear-gradient(red, blue)), so
 // falling through to "invalid" for anything that isn't `name(...)` shaped
 // remains the safe default.
-var functionalColorCallRe = regexp.MustCompile(`(?i)^(rgba?|hsla?)\(\s*(.*?)\s*\)$`)
+//
+// The `s` flag (dot-all) is load-bearing: in Go's regexp, `.` does NOT
+// match a newline by default, so without it an argument list containing
+// one never matched at all and the whole color was dropped before
+// splitFunctionalArgs — which handles it fine — ever saw it. A newline is
+// ordinary CSS whitespace and Mermaid accepts it, and a theme's
+// manifest.json can carry one inside a variable's string value, so
+// "rgb(255,\n0,\n0)" is a value a real theme can produce (a code-review
+// finding).
+var functionalColorCallRe = regexp.MustCompile(`(?is)^(rgba?|hsla?)\(\s*(.*?)\s*\)$`)
 
 // cssUnitSuffixes lists the unit suffixes parseCSSNumber recognizes, in an
 // order where no earlier entry is a suffix of a later one's remaining

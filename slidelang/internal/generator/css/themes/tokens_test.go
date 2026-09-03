@@ -641,6 +641,43 @@ func TestNormalizeMermaidColor_LegitimateWhitespaceStillAccepted(t *testing.T) {
 	}
 }
 
+// TestNormalizeMermaidColor_NewlineIsOrdinaryWhitespace is a code-review
+// finding's repro: a newline is ordinary CSS whitespace, Mermaid accepts
+// it, and a theme's manifest.json can carry one inside a variable's
+// string value — but functionalColorCallRe used `.*?` without the dot-all
+// flag, and Go's `.` does not match a newline, so the pattern failed
+// outright and the color was dropped before splitFunctionalArgs (which
+// handles newlines fine, via strings.Fields and per-part TrimSpace) ever
+// saw it.
+func TestNormalizeMermaidColor_NewlineIsOrdinaryWhitespace(t *testing.T) {
+	cases := map[string]string{
+		"rgb(255\n0\n0)":        "#FF0000",
+		"rgb(255,\n0,\n0)":      "#FF0000",
+		"hsl(120 100%\n50%)":    "#00FF00",
+		"hsl(120,\n100%,\n50%)": "#00FF00",
+		"rgba(255 0\n0 / 50%)":  "#FF000080",
+		"rgb(255,\r\n0,\r\n0)":  "#FF0000", // CRLF too
+		"rgb(\n255, 0, 0\n)":    "#FF0000", // newlines just inside the parens
+	}
+	for in, want := range cases {
+		if got, ok := normalizeMermaidColor(in); !ok || got != want {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, %v), want (%q, true)", in, got, ok, want)
+		}
+	}
+}
+
+// TestNormalizeMermaidColor_NewlineInsideDimensionStillRejected keeps the
+// dot-all fix from widening more than intended: a newline is whitespace
+// like any other, so it is legal BETWEEN components and illegal INSIDE a
+// dimension, exactly like a space (see whitespaceBetweenNumberAndUnit).
+func TestNormalizeMermaidColor_NewlineInsideDimensionStillRejected(t *testing.T) {
+	for _, in := range []string{"rgb(10\n%,0,0)", "hsl(30\ndeg,50%,50%)"} {
+		if got, ok := normalizeMermaidColor(in); ok {
+			t.Errorf("normalizeMermaidColor(%q) = (%q, true), want rejected: a newline inside a dimension is no more legal than a space", in, got)
+		}
+	}
+}
+
 // TestNormalizeMermaidColor_NeverEmitsNonHex is the generic invariant the
 // NaN bug violated, stated directly instead of case by case: whatever
 // normalizeMermaidColor accepts, what it RETURNS must always be a literal
