@@ -6,6 +6,7 @@ package elements
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1116,11 +1117,260 @@ func (p *ChartParser) parseJSONBlock(lines []string, startIndex int) (string, in
 		}
 	}
 
-	// Si llegamos aquí, el JSON no está completo o hay error
+	// Si llegamos aquí, el JSON NUNCA balanceó: está truncado o mal formado.
+	//
+	// Devolver todo lo escaneado era la pérdida silenciosa del issue #237.
+	// El loop de arriba solo se detiene ante un límite duro
+	// (isChartContentBoundary) o EOF, así que un payload roto se llevaba por
+	// delante todo lo que hubiera en medio —prosa, viñetas, el <<end>> del
+	// propio chart, y con una comilla sin cerrar hasta los slides
+	// siguientes enteros, porque inString apagaba también el chequeo de
+	// límite. El chart quedaba sin datos (CHART002 lo dice) pero el
+	// contenido borrado no lo reportaba nadie: ConsumedLines es lo único
+	// que decide qué sobrevive.
+	//
+	// El recorte va ACÁ y no dentro del loop a propósito. El escaneo de
+	// arriba queda intacto, y con él el caso que su propio code-review fijó
+	// (#12e2): un string JSON que abarca varias líneas es legítimo en este
+	// parser, porque la compactación borra los saltos de línea antes de
+	// validar — ver TestChartParser_ParseJSONBlock_BoundaryInsideStringDoesNotBreak.
+	// Ese payload BALANCEA, así que retorna arriba y nunca llega hasta acá.
+	// Solo el payload que no balanceó se recorta, y ahí la forma de cada
+	// línea ya es la única evidencia disponible.
 	if len(jsonLines) > 0 {
-		return strings.Join(jsonLines, "\n"), linesConsumed
+		extent := jsonPayloadExtent(jsonLines)
+		return strings.Join(jsonLines[:extent], "\n"), extent
 	}
 	return "", 0
+}
+
+// jsonPayloadExtent devuelve cuántas de jsonLines pertenecen de verdad al
+// payload de un chart cuyo JSON no balanceó. Se llama solo en ese caso: un
+// payload que cierra retorna antes, sin pasar por acá.
+//
+// Dos criterios, el mismo par que el issue #234 fijó para el loop de
+// propiedades:
+//
+//   - Dedent: si el payload arranca indentado, una línea menos sangrada que
+//     su primera línea ya salió del bloque. No aplica cuando arranca en
+//     columna 0, donde la sangría no distingue nada.
+//   - Forma: una línea que no puede ser JSON (isJSONPayloadLine) es la
+//     primera de lo que sigue, no la continuación de lo que se rompió.
+//
+// La línea 0 se exime del criterio de forma: es la que abrió el bloque, y
+// Parse solo llama a parseJSONBlock cuando empieza con "{".
+func jsonPayloadExtent(jsonLines []string) int {
+	bodyIndent := -1
+	// arrayDepth lleva la cuenta de corchetes sin cerrar, igual que el loop
+	// de propiedades. Decide si un escalar suelto ("B", 42) tiene dónde
+	// vivir: dentro de un array es un elemento legítimo; fuera no es JSON de
+	// ninguna forma, y por lo tanto es prosa. Sin ese contexto habría que
+	// aceptar todo escalar suelto, y con eso se cuela cualquier párrafo
+	// entrecomillado.
+	arrayDepth := 0
+
+	for i, line := range jsonLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		currentIndent := CalculateIndentLevel(line)
+		if bodyIndent == -1 {
+			bodyIndent = currentIndent
+		} else if bodyIndent > 0 && currentIndent < bodyIndent {
+			return i
+		}
+
+		if i > 0 && !isJSONPayloadLine(trimmed, arrayDepth > 0) {
+			return i
+		}
+
+		arrayDepth += bracketDelta(trimmed)
+		if arrayDepth < 0 {
+			arrayDepth = 0
+		}
+	}
+
+	return len(jsonLines)
+}
+
+// isJSONPayloadLine reporta si trimmed puede ser una línea del payload JSON
+// de un chart. Solo lo consulta jsonPayloadExtent, o sea solo cuando el
+// payload ya se sabe roto: la pregunta no es "¿esto es JSON válido?" sino
+// "¿esto puede seguir siendo el JSON, o ya es la prosa de después?".
+//
+// Cada forma se valida como TOKEN COMPLETO, no por su primer carácter. La
+// primera versión de este guard miraba solo el carácter inicial, y con eso
+// seguía tragándose Markdown perfectamente común: "1. Primer paso" pasaba
+// por empezar con dígito, "[Más contexto](url)" por empezar con "[", y un
+// párrafo entrecomillado por empezar con comilla. Los tres son exactamente
+// la pérdida silenciosa que este recorte existe para cerrar.
+//
+// insideArray dice si hay un "[" sin cerrar entre las líneas ya aceptadas.
+// Es lo que separa un escalar suelto legítimo —el último elemento de un
+// array multi-línea, que va sin coma— de un párrafo que casualmente abre y
+// cierra comillas.
+//
+// Se aceptan comentarios ("//", "/*", "*/") porque el JSON que escribe un
+// modelo los trae seguido — es la razón de existir de ChartJSONRule
+// (internal/normalize), que los limpia antes del parser en el camino de la
+// CLI pero no en el de la API de Go.
+//
+// Quedan dos degradaciones conocidas, y NO tienen la misma consecuencia:
+//
+//   - Una llave sin comillas ("type: bar", que es YAML y no JSON) se
+//     rechaza, así que corta el bloque y la línea vuelve al documento: sale
+//     VISIBLE como texto en la diapositiva. Es el lado seguro.
+//   - Dentro de un array abierto, un párrafo que empieza y termina con
+//     comillas tiene exactamente la forma del último elemento del array (el
+//     que va sin coma). No hay manera de separarlos por la línea sola, así
+//     que se ACEPTA como payload — o sea que esa prosa SÍ se consume y
+//     desaparece, igual que antes de este recorte.
+//
+// El segundo caso es pérdida silenciosa residual, no una degradación
+// benigna, y conviene llamarlo por su nombre. Está acotado: solo alcanza a
+// las líneas que sigan pareciendo elementos del array, y el corte llega en
+// la primera que no lo parezca. Lo fija
+// TestIsJSONPayloadLine_QuotedProseInsideArrayIsIndistinguishable, para que
+// un cambio de criterio se vea.
+func isJSONPayloadLine(trimmed string, insideArray bool) bool {
+	if trimmed == "" {
+		return true
+	}
+
+	for _, prefix := range []string{"//", "/*", "*/"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+
+	// Solo estructura: "{", "}", "},", "]", "}]", "[", ...
+	if isJSONPunctuationOnly(trimmed) {
+		return true
+	}
+
+	// Un par `"clave": ...`, la forma más común dentro de un objeto.
+	if isJSONKeyLine(trimmed) {
+		return true
+	}
+
+	// Una fila completa —objeto {..} o array [..]— sola en su línea y sin
+	// nada después salvo una coma. isDataArrayRow verifica la FORMA (que el
+	// grupo cierre y no quede nada detrás), y json.Valid verifica que ADEMÁS
+	// sea JSON.
+	//
+	// Los dos chequeos hacen falta y ninguno sobra. Solo la forma dejaba
+	// pasar "[Más contexto]", que cierra limpio pero cuyo contenido no es
+	// JSON de ninguna manera — un enlace de referencia Markdown, prosa
+	// perfectamente común. Solo json.Valid dejaría pasar una línea que
+	// arranca con un valor válido y sigue con otra cosa.
+	//
+	// isDataArrayRow queda intacta: la usa también el loop de propiedades,
+	// donde el DSL SÍ admite filas que no son JSON (la forma de punto
+	// "{x: 10, y: 20}" de scatter, con las llaves sin comillas). Ese
+	// requisito extra vale solo acá, donde el bloque se declaró JSON.
+	if isDataArrayRow(trimmed) && json.Valid([]byte(strings.TrimSpace(strings.TrimSuffix(trimmed, ",")))) {
+		return true
+	}
+
+	// Escalares sueltos: solo tienen dónde vivir dentro de un array.
+	if insideArray && (isScalarContinuation(trimmed) || isBooleanScalar(trimmed)) {
+		return true
+	}
+
+	return false
+}
+
+// isJSONPunctuationOnly reporta si trimmed se compone solo de delimitadores
+// JSON y espacios — las líneas que abren o cierran objetos y arrays.
+func isJSONPunctuationOnly(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	for _, r := range trimmed {
+		switch r {
+		case '{', '}', '[', ']', ',', ' ', '\t':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isJSONKeyLine reporta si trimmed abre con una cadena JSON completa seguida
+// de ":" y de algo que pueda ser JSON.
+//
+// La validación es de la LÍNEA ENTERA, envuelta como cuerpo de objeto
+// ("{" + línea), no del primer carácter del valor. La versión anterior sí
+// miraba solo el primer carácter, y por eso seguía tragándose prosa que abre
+// con una palabra entrecomillada y dos puntos —cosa que el español escribe
+// todo el tiempo— en cuanto el valor arrancaba con algo de forma JSON:
+//
+//	"Resultado": 123 unidades vendidas   ← el valor abre con dígito
+//	"Fecha": 2024-01-01 fue la fecha     ← ídem
+//	"Nota": "texto" adicional            ← el valor abre con comilla
+//
+// En los tres, lo que delata a la prosa es lo que viene DESPUÉS del primer
+// token del valor, así que solo se ve validando la línea entera.
+//
+// El chequeo del ":" sigue haciendo falta aparte: sin él, envolver una cadena
+// suelta ("{" + `"una cita"`) la haría pasar por clave a medio escribir.
+func isJSONKeyLine(trimmed string) bool {
+	end := jsonStringEnd(trimmed)
+	if end == -1 {
+		return false
+	}
+	if !strings.HasPrefix(strings.TrimSpace(trimmed[end+1:]), ":") {
+		return false
+	}
+	return isPlausibleJSONPrefix("{" + trimmed)
+}
+
+// isPlausibleJSONPrefix reporta si s puede ser el principio de un JSON bien
+// formado: se decodifica token por token y solo se acepta que la entrada se
+// agote, nunca que falle por sintaxis.
+//
+// Es lo que distingue un contenedor que sigue en las líneas de abajo —"{",
+// "[1, 2,"— de una línea que ya dejó de ser JSON. Un valor completo también
+// pasa por acá (la entrada se agota después de leerlo), así que no hace falta
+// un camino aparte para él; en cambio un valor completo SEGUIDO de prosa
+// falla, que es justo el caso de `"Nota": "texto" adicional`.
+func isPlausibleJSONPrefix(s string) bool {
+	dec := json.NewDecoder(strings.NewReader(s))
+	for {
+		if _, err := dec.Token(); err != nil {
+			return err == io.EOF || err == io.ErrUnexpectedEOF
+		}
+	}
+}
+
+// jsonStringEnd devuelve el índice de la comilla que cierra la cadena que
+// empieza en trimmed[0], o -1 si trimmed no abre con una cadena completa.
+// Consciente de escapes, igual que bracketDelta e isQuotedScalar.
+func jsonStringEnd(trimmed string) int {
+	if len(trimmed) < 2 || trimmed[0] != '"' {
+		return -1
+	}
+	escaped := false
+	for idx := 1; idx < len(trimmed); idx++ {
+		switch {
+		case escaped:
+			escaped = false
+		case trimmed[idx] == '\\':
+			escaped = true
+		case trimmed[idx] == '"':
+			return idx
+		}
+	}
+	return -1
+}
+
+// isBooleanScalar completa a isScalarContinuation, que cubre cadena, número
+// y null pero no los booleanos.
+func isBooleanScalar(trimmed string) bool {
+	s := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(trimmed), ","))
+	return s == "true" || s == "false"
 }
 
 // parseYAMLBlock extrae un bloque YAML completo
