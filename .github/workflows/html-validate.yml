@@ -18,6 +18,30 @@ name: Validación de HTML sobre golden files
 # patrón para que una regresión futura del lado doclang falle CI igual
 # que ya pasa del lado slidelang.
 #
+# Los dos jobs de HTML corren en matriz sobre `deps`, y ese eje es el punto
+# más importante de este workflow. Con `published`, `go build` dentro de
+# slidelang/ o doclang/ resuelve `go.ziradocs.com/core/v2` desde el proxy —
+# es lo que recibe quien instala las CLIs, y hay que seguir validándolo. Pero
+# eso significa que un PR que SOLO toca core/ se validaba contra una core que
+# no contenía su propio cambio: el job daba verde sin haber ejecutado una
+# línea del código en revisión. La pata `workspace` escribe un go.work en la
+# raíz antes de compilar, así que valida el árbol de trabajo completo.
+#
+# Es el mismo hueco que ci.yml ya documenta y cierra para build-test con el
+# job workspace-integration; ver ahí el razonamiento largo. Este workflow
+# nunca adoptó ese patrón, así que la única señal que tenía sobre el HTML de
+# un PR de core venía de una dependencia que no lo contenía.
+#
+# Esto no es teórico. Con la serie del issue #194 (encabezados de subsección
+# en flex) la pata publicada daba verde y la de workspace 33 errores: 31 ids
+# derivados que empiezan por dígito, un id duplicado, y un <img src=""> que
+# ya estaba en main desde #252 y que solo iba a aparecer en el próximo bump.
+#
+# Las dos patas son gates: la publicada representa la instalación real y la
+# de workspace, la consistencia del árbol consigo mismo. fail-fast: false
+# para poder ver de un vistazo si un fallo es de una o de las dos, que es lo
+# que dice si el problema entra ahora o en el próximo bump.
+#
 # Issue #163/#167 follow-up: ninguno de los dos jobs de arriba atrapa una
 # imagen LOCAL rota (`![x](assets/no-existe.png)`) — el build no falla por
 # eso, solo emite un <img> cuyo src nunca resuelve, y html-validate no
@@ -60,6 +84,11 @@ jobs:
   html-validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        deps: [published, workspace]
+    name: html-validate (${{ matrix.deps }})
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +102,10 @@ jobs:
 
       - name: Instalar html-validate
         run: npm install --no-save html-validate@11
+
+      - name: Usar el core del árbol de trabajo
+        if: matrix.deps == 'workspace'
+        run: printf 'go 1.26.5\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
 
       - name: Build de la CLI slidelang
         working-directory: slidelang
@@ -103,6 +136,11 @@ jobs:
   doclang-html-validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        deps: [published, workspace]
+    name: doclang-html-validate (${{ matrix.deps }})
     steps:
       - uses: actions/checkout@v4
 
@@ -116,6 +154,10 @@ jobs:
 
       - name: Instalar html-validate
         run: npm install --no-save html-validate@11
+
+      - name: Usar el core del árbol de trabajo
+        if: matrix.deps == 'workspace'
+        run: printf 'go 1.26.5\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
 
       - name: Build de la CLI doclang
         working-directory: doclang
