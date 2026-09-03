@@ -599,12 +599,22 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
 func (tb *TemplateBuilder) GetElementTemplate() string {
 	template := `{{define "element"}}
         {{if eq .Type "text"}}
+            {{if .HeadingHTML}}
+            <div class="slidelang-element slidelang-text slidelang-heading slidelang-heading-{{.HeadingLevel}} {{range .CSSClasses}}slidelang-{{.}} {{end}}"
+                 id="slidelang-element-text-{{.SlideIndex}}-{{.ElementID}}"
+                 data-element-type="heading"
+                 data-heading-level="{{.HeadingLevel}}"
+                 data-slide="{{.SlideIndex}}">
+                {{.HeadingHTML}}
+            </div>
+            {{else}}
             <div class="slidelang-element slidelang-text {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-text-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="text"
                  data-slide="{{.SlideIndex}}">
                 <p>{{.Content | markdownInline}}</p>
-            </div>        {{else if eq .Type "points"}}
+            </div>
+            {{end}}        {{else if eq .Type "points"}}
             <div class="slidelang-element slidelang-points {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
                  id="slidelang-element-points-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="points"

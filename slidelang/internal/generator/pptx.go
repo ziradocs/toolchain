@@ -272,6 +272,46 @@ func (g *Generator) pptxAddWatermark(s *pptx.Slide, rw renderer.ResolvedWatermar
 		Alignment(pptx.AlignCenter)
 }
 
+// pptxHeadingRe reconoce el `<hN id="…">…</hN>` que
+// parser.buildHeadingElement produce para un encabezado de subsección
+// (issue #194). Es la misma forma que formatter.subsectionHeadingRe
+// reconoce del otro lado.
+var pptxHeadingRe = regexp.MustCompile(`(?s)^<h([1-6])(?: id="[^"]*")?>(.*)</h[1-6]>$`)
+
+// pptxTagRe borra cualquier tag inline que el encabezado traiga
+// (<strong>, <em>, <code>, <span lang>): PPTX recibe una línea de texto,
+// no HTML.
+var pptxTagRe = regexp.MustCompile(`<[^>]*>`)
+
+// pptxTextContent devuelve el texto que va a la diapositiva por un
+// TextElement.
+//
+// Un encabezado de subsección llega como HTML crudo en Content, así que
+// hay que des-renderizarlo: si se mandara tal cual, la diapositiva
+// mostraría `<h3 id="foo">Foo</h3>` literal. Se reconstruye la línea
+// Markdown de origen ("### Foo"), que es EXACTAMENTE lo que este generador
+// recibía antes de #194 — cuando la línea todavía era un TextElement común
+// sin reconocer. El PPTX de cualquier deck del corpus sale igual que antes.
+//
+// Que PPTX no tenga un estilo propio de encabezado es una limitación
+// aparte, no una regresión de #194.
+func pptxTextContent(e *ast.TextElement) string {
+	if !e.IsRawHTML {
+		return e.Content
+	}
+	m := pptxHeadingRe.FindStringSubmatch(e.Content)
+	if m == nil {
+		// TextElement RawHTML que no es un encabezado. Hoy no existe
+		// ninguno (buildHeadingElement es el único productor), pero si
+		// apareciera, mostrar el texto sin tags es mejor que mostrar el
+		// markup.
+		return renderer.UnescapeHTML(pptxTagRe.ReplaceAllString(e.Content, ""))
+	}
+	level := int(m[1][0] - '0')
+	return strings.Repeat("#", level) + " " +
+		renderer.UnescapeHTML(pptxTagRe.ReplaceAllString(m[2], ""))
+}
+
 // pptxAddElement despacha por tipo de ast.Element y devuelve el cursorY
 // actualizado para el próximo elemento. Un tipo no cubierto (ver el
 // comentario del paquete para qué queda fuera y por qué) se omite con un
@@ -280,7 +320,7 @@ func (g *Generator) pptxAddWatermark(s *pptx.Slide, rw renderer.ResolvedWatermar
 func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int, opts GeneratorOptions, kroki *pptxKrokiContext) int {
 	switch e := elem.(type) {
 	case *ast.TextElement:
-		return g.pptxAddText(s, e.Content, cursorY)
+		return g.pptxAddText(s, pptxTextContent(e), cursorY)
 	case *ast.PointsElement:
 		return g.pptxAddPoints(s, e, cursorY)
 	case *ast.TableElement:

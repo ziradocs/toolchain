@@ -324,6 +324,19 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 
 			switch elem := element.(type) {
 			case *ast.TextElement:
+				if elem.IsRawHTML {
+					// Encabezado de subsección (issue #194): el Content ya
+					// es el <hN id> que armó el parser, HTML de confianza.
+					// ProcessVariablesEscapeValues sustituye {{variable}}
+					// escapando SOLO el valor — ProcessVariables a secas
+					// dejaría pasar el HTML de una variable, y el genérico
+					// ProcessVariablesSecure escaparía también el <hN> y lo
+					// volvería texto visible.
+					elementData.HeadingHTML = htmltemplate.HTML(
+						renderer.ProcessVariablesEscapeValues(elem.Content, variables))
+					elementData.HeadingLevel = elem.Level
+					break
+				}
 				elementData.Content = ProcessVariables(elem.Content, variables)
 			case *ast.CodeElement:
 				elementData.Content = ProcessVariables(elem.Content, variables)

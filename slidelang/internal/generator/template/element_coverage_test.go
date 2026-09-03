@@ -78,3 +78,48 @@ func executeElement(t *testing.T, tmpl *htmltemplate.Template, ed data.ElementDa
 	}
 	return buf.String()
 }
+
+// Issue #194: un encabezado de subsección viaja como Type "text" con
+// HeadingHTML lleno. El template tiene que emitirlo tal cual y SIN
+// envolverlo en <p> — un <h3> dentro de un <p> es HTML inválido, y el
+// navegador lo cierra donde no toca.
+func TestElementTemplate_SubsectionHeadingRendersUnwrapped(t *testing.T) {
+	tmpl := mustParseElementTemplate(t)
+
+	got := executeElement(t, tmpl, data.ElementData{
+		Type:         "text",
+		HeadingHTML:  htmltemplate.HTML(`<h3 id="foo">Foo</h3>`),
+		HeadingLevel: 3,
+	})
+
+	if !strings.Contains(got, `<h3 id="foo">Foo</h3>`) {
+		t.Errorf("el <h3> no salió intacto:\n%s", got)
+	}
+	if strings.Contains(got, "&lt;h3") {
+		t.Errorf("el <h3> se escapó — saldría como texto visible:\n%s", got)
+	}
+	if strings.Contains(got, "<p>") {
+		t.Errorf("el heading quedó envuelto en <p>, que es HTML inválido:\n%s", got)
+	}
+	if !strings.Contains(got, `data-element-type="heading"`) {
+		t.Errorf("falta el marcador que un tema usa para estilarlo:\n%s", got)
+	}
+	if !strings.Contains(got, `data-heading-level="3"`) {
+		t.Errorf("falta el nivel:\n%s", got)
+	}
+}
+
+// Y el texto normal debe seguir yendo dentro de un <p>: la rama nueva no
+// puede robarse el caso común.
+func TestElementTemplate_PlainTextStillWrappedInParagraph(t *testing.T) {
+	tmpl := mustParseElementTemplate(t)
+
+	got := executeElement(t, tmpl, data.ElementData{Type: "text", Content: "Un párrafo."})
+
+	if !strings.Contains(got, "<p>") {
+		t.Errorf("el texto normal dejó de ir en <p>:\n%s", got)
+	}
+	if strings.Contains(got, `data-element-type="heading"`) {
+		t.Errorf("el texto normal cayó en la rama de heading:\n%s", got)
+	}
+}
