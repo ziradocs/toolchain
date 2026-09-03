@@ -503,12 +503,24 @@ func isSchemalessKnownSlideType(slideType string) bool {
 	return schemalessKnownSlideTypes[slideType]
 }
 
-// sortedLayoutNames devuelve los nombres de layout conocidos en orden
-// alfabético, para que el mensaje de LAYOUT_UNKNOWN sea determinista (el
-// recorrido de un mapa en Go no lo es).
-func sortedLayoutNames(schemas map[string]SlideLayoutSchema) []string {
-	names := make([]string, 0, len(schemas))
+// sortedRecognizedSlideTypes devuelve, en orden alfabético, TODOS los tipos
+// de slide que se aceptan: los que tienen schema y los que no.
+//
+// Los cuatro sin schema (schemalessKnownSlideTypes) tienen que estar en la
+// lista aunque no se validen. El mensaje de LAYOUT_UNKNOWN existe para que
+// quien escribió un nombre malo encuentre el bueno, y omitirlos hacía que a
+// un typo de "cover" se le sugiriera una lista sin "cover" — la sugerencia
+// mandaba justo a donde no está la respuesta.
+//
+// El orden es alfabético porque el recorrido de un mapa en Go no es
+// determinista, y un mensaje que cambia de orden entre corridas es ruido en
+// cualquier diff de salida.
+func sortedRecognizedSlideTypes(schemas map[string]SlideLayoutSchema) []string {
+	names := make([]string, 0, len(schemas)+len(schemalessKnownSlideTypes))
 	for name := range schemas {
+		names = append(names, name)
+	}
+	for name := range schemalessKnownSlideTypes {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -545,7 +557,7 @@ func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnosti
 				Severity: diagnostics.Warning,
 				Code:     "LAYOUT_UNKNOWN",
 				Message: "Unknown slide layout '" + slideType + "'; no schema validates it. Recognized layouts: " +
-					strings.Join(sortedLayoutNames(schemas), ", "),
+					strings.Join(sortedRecognizedSlideTypes(schemas), ", "),
 				Position: slide.Position,
 				Source:   "linter",
 			})

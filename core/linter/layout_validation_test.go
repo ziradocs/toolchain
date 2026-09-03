@@ -262,6 +262,16 @@ func TestSlideLayoutValidation_UnknownLayoutWarns(t *testing.T) {
 			t.Errorf("el mensaje omite el layout conocido %q: %q", name, diag.Message)
 		}
 	}
+
+	// Y los que se aceptan SIN schema también van en la lista. El mensaje
+	// existe para que quien escribió un nombre malo encuentre el bueno;
+	// omitirlos hacía que a un typo de "cover" se le sugiriera una lista sin
+	// "cover", mandando justo a donde no está la respuesta.
+	for name := range schemalessKnownSlideTypes {
+		if !strings.Contains(diag.Message, name) {
+			t.Errorf("el mensaje omite el tipo aceptado sin schema %q: %q", name, diag.Message)
+		}
+	}
 }
 
 // Un layout CON schema no dispara LAYOUT_UNKNOWN, y un bloque sin tipo
