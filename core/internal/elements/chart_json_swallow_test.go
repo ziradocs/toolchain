@@ -133,6 +133,9 @@ func TestChartParser_BrokenJSONDoesNotSwallowOrdinaryMarkdown(t *testing.T) {
 		{"enlace de referencia", "[Más contexto]"},
 		{"párrafo entrecomillado", `"Una cita que abre con comillas"`},
 		{"palabra entrecomillada con dos puntos", `"Nota": este texto debe sobrevivir`},
+		{"valor numérico seguido de prosa", `"Resultado": 123 unidades vendidas`},
+		{"fecha seguida de prosa", `"Fecha": 2024-01-01 fue la fecha`},
+		{"cadena seguida de prosa", `"Nota": "texto" adicional`},
 	}
 
 	for _, tt := range tests {
@@ -182,43 +185,74 @@ func TestChartParser_LastArrayElementWithoutCommaStaysInThePayload(t *testing.T)
 // caso por caso —primero la prosa que empieza con letra, después la que
 // empieza con dígito, "[" o comilla— y cada ronda encontró la siguiente forma
 // una por una. Agregar una fila acá es más barato que descubrirla en un deck.
-func TestIsJSONPayloadLine_ProseIsNeverPayload(t *testing.T) {
-	prose := []string{
-		"Prosa normal.",
-		"1. Primer paso",
-		"2) Segundo paso",
-		"- viñeta",
-		"* viñeta",
-		"[Más contexto]",
-		"[Más contexto](https://example.com)",
-		"[1]: https://example.com",
-		`"Nota": este texto debe sobrevivir`,
-		`"Nota": texto`,
-		`"Nota": null y algo`,
-		"> cita en bloque",
-		"| a | b |",
-		"**Negritas** al inicio",
-		":::note",
-		"@notes:",
-		"123 unidades vendidas",
-		"true, pero no es JSON",
-		"null hipótesis",
-		"-- separador",
-		"-5 grados bajo cero",
-		"{esto no es json}",
-		"[a, b, c]",
-		"### Subsección",
-		"![img](x.png)",
-		"2024-01-01 fue la fecha",
-		"— raya de diálogo",
-		"¿Y esto?",
-		"«comillas latinas»",
-	}
+// proseShapes son las formas de prosa que pueden seguir a un chart roto.
+// Ninguna puede aceptarse, ni suelta, ni dentro de un array, ni DESPUÉS de
+// una clave — esa última composición es la que faltaba y por la que
+// `"Resultado": 123 unidades vendidas` sobrevivió a dos rondas de arreglos:
+// los fragmentos se probaban aislados, nunca en posición de valor.
+var proseShapes = []string{
+	"Prosa normal.",
+	"1. Primer paso",
+	"2) Segundo paso",
+	"- viñeta",
+	"* viñeta",
+	"[Más contexto]",
+	"[Más contexto](https://example.com)",
+	"[1]: https://example.com",
+	`"Nota": este texto debe sobrevivir`,
+	`"Nota": texto`,
+	`"Nota": null y algo`,
+	"> cita en bloque",
+	"| a | b |",
+	"**Negritas** al inicio",
+	":::note",
+	"@notes:",
+	"123 unidades vendidas",
+	"true, pero no es JSON",
+	"null hipótesis",
+	"-- separador",
+	"-5 grados bajo cero",
+	"{esto no es json}",
+	"[a, b, c]",
+	"### Subsección",
+	"![img](x.png)",
+	"2024-01-01 fue la fecha",
+	"— raya de diálogo",
+	"¿Y esto?",
+	"«comillas latinas»",
 
-	for _, line := range prose {
+	// Prosa en posición de valor: el primer token parece JSON y lo que sigue
+	// lo delata. Es la clase entera que motivó validar la línea completa en
+	// vez del primer carácter.
+	`"Resultado": 123 unidades vendidas`,
+	`"Fecha": 2024-01-01 fue la fecha`,
+	`"Nota": "texto" adicional`,
+	`"Total": 42 en total`,
+	`"Lista": [a, b]`,
+	`"Obj": {esto no}`,
+	`"Bool": true y algo`,
+	`"X": -5 grados`,
+}
+
+func TestIsJSONPayloadLine_ProseIsNeverPayload(t *testing.T) {
+	for _, line := range proseShapes {
 		for _, insideArray := range []bool{false, true} {
 			if isJSONPayloadLine(line, insideArray) {
 				t.Errorf("isJSONPayloadLine(%q, insideArray=%v) = true; es prosa y se perdería", line, insideArray)
+			}
+		}
+	}
+}
+
+// La misma prosa, ahora en posición de VALOR. Sin esta composición, un
+// fragmento se veía rechazado suelto y aun así pasaba tras una clave, porque
+// `"Clave": ` cambia qué predicado lo evalúa.
+func TestIsJSONPayloadLine_ProseAfterAKeyIsNeverPayload(t *testing.T) {
+	for _, line := range proseShapes {
+		composed := `"Clave": ` + line
+		for _, insideArray := range []bool{false, true} {
+			if isJSONPayloadLine(composed, insideArray) {
+				t.Errorf("isJSONPayloadLine(%q, insideArray=%v) = true; es prosa y se perdería", composed, insideArray)
 			}
 		}
 	}
@@ -239,6 +273,12 @@ func TestIsJSONPayloadLine_JSONIsAlwaysPayload(t *testing.T) {
 		`"a":`,
 		`"a": [1, 2,`,
 		`"borderColor": "rgba(0,0,0,0.1)",`,
+		// Varios pares en una línea, y valores con ":" o "," adentro: el
+		// chequeo de línea completa tiene que aceptarlos, no solo el primero.
+		`"a": 1, "b": 2,`,
+		`"a": {"b": 1},`,
+		`"a": "texto con : dos puntos",`,
+		`"a": "coma, adentro",`,
 		"// comentario",
 		"/* bloque */",
 	}

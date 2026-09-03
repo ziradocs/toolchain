@@ -6,6 +6,7 @@ package elements
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1287,47 +1288,50 @@ func isJSONPunctuationOnly(trimmed string) bool {
 }
 
 // isJSONKeyLine reporta si trimmed abre con una cadena JSON completa seguida
-// de ":" y de algo que PUEDA ser un valor JSON.
+// de ":" y de algo que pueda ser JSON.
 //
-// Validar el arranque del valor no es opcional: sin eso, `"Nota": este texto
-// debe sobrevivir` —prosa que abre con una palabra entrecomillada y dos
-// puntos, cosa que el español escribe todo el tiempo— tenía exactamente la
-// forma de una clave y se tragaba el resto del bloque.
+// La validación es de la LÍNEA ENTERA, envuelta como cuerpo de objeto
+// ("{" + línea), no del primer carácter del valor. La versión anterior sí
+// miraba solo el primer carácter, y por eso seguía tragándose prosa que abre
+// con una palabra entrecomillada y dos puntos —cosa que el español escribe
+// todo el tiempo— en cuanto el valor arrancaba con algo de forma JSON:
 //
-// Acá sí alcanza con mirar el primer carácter, a diferencia del chequeo de
-// línea completa: la gramática de JSON dice que un valor solo puede empezar
-// con comilla, "{", "[", "-" o dígito. Los literales true/false/null se
-// exigen completos, porque si no cualquier palabra que empiece con "t", "f"
-// o "n" pasaría — "texto", justamente.
+//	"Resultado": 123 unidades vendidas   ← el valor abre con dígito
+//	"Fecha": 2024-01-01 fue la fecha     ← ídem
+//	"Nota": "texto" adicional            ← el valor abre con comilla
+//
+// En los tres, lo que delata a la prosa es lo que viene DESPUÉS del primer
+// token del valor, así que solo se ve validando la línea entera.
+//
+// El chequeo del ":" sigue haciendo falta aparte: sin él, envolver una cadena
+// suelta ("{" + `"una cita"`) la haría pasar por clave a medio escribir.
 func isJSONKeyLine(trimmed string) bool {
 	end := jsonStringEnd(trimmed)
 	if end == -1 {
 		return false
 	}
-	rest := strings.TrimSpace(trimmed[end+1:])
-	if !strings.HasPrefix(rest, ":") {
+	if !strings.HasPrefix(strings.TrimSpace(trimmed[end+1:]), ":") {
 		return false
 	}
-	return isJSONValueStart(strings.TrimSpace(rest[1:]))
+	return isPlausibleJSONPrefix("{" + trimmed)
 }
 
-// isJSONValueStart reporta si rest puede ser el principio de un valor JSON.
-// El vacío cuenta: una clave puede dejar su valor para las líneas de abajo
-// (`"data":` y en la siguiente el `{`).
-func isJSONValueStart(rest string) bool {
-	if rest == "" {
-		return true
+// isPlausibleJSONPrefix reporta si s puede ser el principio de un JSON bien
+// formado: se decodifica token por token y solo se acepta que la entrada se
+// agote, nunca que falle por sintaxis.
+//
+// Es lo que distingue un contenedor que sigue en las líneas de abajo —"{",
+// "[1, 2,"— de una línea que ya dejó de ser JSON. Un valor completo también
+// pasa por acá (la entrada se agota después de leerlo), así que no hace falta
+// un camino aparte para él; en cambio un valor completo SEGUIDO de prosa
+// falla, que es justo el caso de `"Nota": "texto" adicional`.
+func isPlausibleJSONPrefix(s string) bool {
+	dec := json.NewDecoder(strings.NewReader(s))
+	for {
+		if _, err := dec.Token(); err != nil {
+			return err == io.EOF || err == io.ErrUnexpectedEOF
+		}
 	}
-
-	switch rest[0] {
-	case '"', '{', '[', '-':
-		return true
-	}
-	if rest[0] >= '0' && rest[0] <= '9' {
-		return true
-	}
-
-	return isBooleanScalar(rest) || isNullScalar(rest)
 }
 
 // jsonStringEnd devuelve el índice de la comilla que cierra la cadena que
