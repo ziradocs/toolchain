@@ -395,11 +395,137 @@ func TestSupportsNativeChartRenderingWithOptions_ApprovesIgnorableOnlyOptions(t 
 // de puntero en algunos casos internos, así que envolver innecesariamente
 // no es equivalente incluso si el resultado visual sería el mismo hoy.
 func TestNativeChartTheme_EmptyOverrideIsNilPalette(t *testing.T) {
-	if got := nativeChartTheme(nil, 3); got != nil {
+	if got := nativeChartTheme(nil, 3, ChartThemeColors{}); got != nil {
 		t.Errorf("nativeChartTheme(nil, 3) = %v, want nil", got)
 	}
-	if got := nativeChartTheme([]string{}, 3); got != nil {
+	if got := nativeChartTheme([]string{}, 3, ChartThemeColors{}); got != nil {
 		t.Errorf("nativeChartTheme([]string{}, 3) = %v, want nil", got)
+	}
+}
+
+// TestNativeChartTheme_ThemeColorsAloneStillProduceAPalette guarda el guard
+// de salida temprana de nativeChartTheme, que antes miraba SOLO
+// categoricalColors. Un tema que declara chart-grid pero ningún chart-cat-*
+// es perfectamente válido, y con el guard viejo no habría recibido nada en
+// absoluto — en silencio, que es el modo de falla que motor-temas-v2.md
+// existe para eliminar.
+func TestNativeChartTheme_ThemeColorsAloneStillProduceAPalette(t *testing.T) {
+	for name, tc := range map[string]ChartThemeColors{
+		"solo surface": {Surface: "#101010"},
+		"solo grid":    {Grid: "#202020"},
+		"solo axis":    {Axis: "#303030"},
+		"solo label":   {Label: "#404040"},
+	} {
+		if got := nativeChartTheme(nil, 3, tc); got == nil {
+			t.Errorf("%s: nativeChartTheme(nil, 3, %+v) = nil, want una paleta", name, tc)
+		}
+	}
+}
+
+// TestNativeChartTheme_ThemeColorsApplyToPalette verifica que cada token
+// aterriza en el getter que le corresponde de go-analyze/charts, no solo
+// que la paleta sea no-nil. Sin esto, un mapeo equivocado (p. ej. mandar
+// chart-grid al color del eje) pasaría todos los demás tests.
+func TestNativeChartTheme_ThemeColorsApplyToPalette(t *testing.T) {
+	tc := ChartThemeColors{
+		Surface: "#111111",
+		Grid:    "#222222",
+		Axis:    "#333333",
+		Label:   "#444444",
+	}
+	p := nativeChartTheme(nil, 1, tc)
+	if p == nil {
+		t.Fatal("nativeChartTheme devolvió nil con tokens de tema puestos")
+	}
+	cases := []struct {
+		name string
+		got  charts.Color
+		want string
+	}{
+		{"background", p.GetBackgroundColor(), tc.Surface},
+		{"axis split line", p.GetAxisSplitLineColor(), tc.Grid},
+		// Nombres asimétricos en go-analyze/charts: el setter es
+		// WithX/YAxisColor pero el getter es GetX/YAxisStrokeColor — y ese
+		// setter toca SOLO el trazo del eje, por eso el mapeo de chart-axis
+		// llama además a WithX/YAxisTextColor para el texto de las marcas.
+		{"x axis stroke", p.GetXAxisStrokeColor(), tc.Axis},
+		{"y axis stroke", p.GetYAxisStrokeColor(), tc.Axis},
+		{"x axis text", p.GetXAxisTextColor(), tc.Axis},
+		{"y axis text", p.GetYAxisTextColor(), tc.Axis},
+		{"legend text", p.GetLegendTextColor(), tc.Label},
+		{"title text", p.GetTitleTextColor(), tc.Label},
+		{"label text", p.GetLabelTextColor(), tc.Label},
+	}
+	for _, c := range cases {
+		if want := chartColorFromCSS(c.want); c.got != want {
+			t.Errorf("%s = %v, want %v (de %q)", c.name, c.got, want, c.want)
+		}
+	}
+}
+
+// TestNativeChartTheme_ThemeColorsComposeWithCategorical confirma que los
+// dos overrides se componen en la MISMA paleta en vez de pisarse: un tema
+// declara ambos grupos a la vez y los dos tienen que sobrevivir.
+func TestNativeChartTheme_ThemeColorsComposeWithCategorical(t *testing.T) {
+	categorical := []string{"#ff0000", "#00ff00"}
+	p := nativeChartTheme(categorical, 2, ChartThemeColors{Grid: "#222222"})
+	if p == nil {
+		t.Fatal("nativeChartTheme devolvió nil con ambos overrides puestos")
+	}
+	if got, want := p.GetSeriesColor(0), chartColorFromCSS(categorical[0]); got != want {
+		t.Errorf("GetSeriesColor(0) = %v, want %v — el override de tema pisó la paleta categórica", got, want)
+	}
+	if got, want := p.GetAxisSplitLineColor(), chartColorFromCSS("#222222"); got != want {
+		t.Errorf("GetAxisSplitLineColor() = %v, want %v — la paleta categórica pisó el override de tema", got, want)
+	}
+}
+
+// TestRenderChartNativePNGWithColors_UnchangedByThemeEntryPoint fija el
+// contrato de compatibilidad: el símbolo viejo tiene que seguir produciendo
+// exactamente los mismos bytes que antes, que es lo que permite mergear
+// este PR de core antes que el consumidor sin romper nada.
+func TestRenderChartNativePNGWithColors_UnchangedByThemeEntryPoint(t *testing.T) {
+	elem := &ast.ChartElement{
+		ChartType: "bar",
+		Data:      [][]interface{}{{"Q1", 1.0}, {"Q2", 2.0}},
+		Series:    []string{"A"},
+	}
+	viejo, ok1, err1 := RenderChartNativePNGWithColors(elem, 400, 300, nil)
+	nuevo, ok2, err2 := RenderChartNativePNGWithTheme(elem, 400, 300, nil, ChartThemeColors{})
+	if err1 != nil || err2 != nil || !ok1 || !ok2 {
+		t.Fatalf("render falló: (%v, %v) / (%v, %v)", ok1, err1, ok2, err2)
+	}
+	if !bytes.Equal(viejo, nuevo) {
+		t.Error("el zero value de ChartThemeColors cambió los bytes del PNG — debe ser byte por byte idéntico")
+	}
+}
+
+// TestRenderChartNativePNGWithTheme_ThemeChangesOutput es la contraparte:
+// que el tema efectivamente llegue hasta el rasterizador. Sin esto, todo
+// lo anterior podría pasar con un cableado que nunca se usa.
+func TestRenderChartNativePNGWithTheme_ThemeChangesOutput(t *testing.T) {
+	elem := &ast.ChartElement{
+		ChartType: "bar",
+		Data:      [][]interface{}{{"Q1", 1.0}, {"Q2", 2.0}},
+		Series:    []string{"A"},
+	}
+	sinTema, _, err := RenderChartNativePNGWithTheme(elem, 400, 300, nil, ChartThemeColors{})
+	if err != nil {
+		t.Fatalf("render sin tema falló: %v", err)
+	}
+	for name, tc := range map[string]ChartThemeColors{
+		"surface": {Surface: "#123456"},
+		"grid":    {Grid: "#123456"},
+		"axis":    {Axis: "#123456"},
+		"label":   {Label: "#123456"},
+	} {
+		conTema, _, err := RenderChartNativePNGWithTheme(elem, 400, 300, nil, tc)
+		if err != nil {
+			t.Fatalf("%s: render con tema falló: %v", name, err)
+		}
+		if bytes.Equal(sinTema, conTema) {
+			t.Errorf("%s: el PNG no cambió — el token no llegó al rasterizador", name)
+		}
 	}
 }
 
@@ -420,7 +546,7 @@ func TestNativeChartTheme_RepeatsExactlyPastPaletteLength(t *testing.T) {
 	colors := []string{"#ff0000", "#00ff00"}
 	// count=5: indices 2,3,4 all fall past len(colors)=2 and must repeat
 	// the same two colors exactly, not an HSL-adjusted variant.
-	palette := nativeChartTheme(colors, 5)
+	palette := nativeChartTheme(colors, 5, ChartThemeColors{})
 	if palette == nil {
 		t.Fatal("nativeChartTheme with a non-empty override returned nil")
 	}
