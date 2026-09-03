@@ -66,12 +66,29 @@ type RenderContext struct {
 	// new shade for a series past the set's length — wrap via modulo like
 	// the code that consumes this already does, don't invent one.
 	ChartCategoricalColors []string
-	OutputDir              string          // Output directory for assets
-	Fetcher                PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
-	MermaidFetcher         MermaidFetcher  // Mermaid fetcher inicializado
-	ChartFetcher           ChartFetcher    // Chart fetcher inicializado
-	MapFetcher             MapFetcher      // Map fetcher inicializado
-	MathFetcher            MathFetcher     // Math fetcher inicializado
+	// ChartThemeColors son los tokens chart-* NO categóricos de
+	// motor-temas-v2.md §2.2 (surface/grid/axis/label) para el camino
+	// offline/PDF. Zero value (todo caller de hoy) reproduce el render
+	// anterior byte por byte, igual que ChartCategoricalColors.
+	//
+	// Va SEPARADO de ChartCategoricalColors, no fusionado en un struct
+	// único, porque ese campo ya es consumido por slidelang: cambiarle el
+	// tipo rompería workspace-integration (slidelang contra el core del
+	// árbol) entre el merge de este PR y el consumidor.
+	//
+	// Ver ChartThemeColors para POR QUÉ chart-tooltip-bg y chart-seq-1..5
+	// no están acá: no es plumbing faltante, es que no hay nada que puedan
+	// pintar en un PNG estático. Siguen siendo browser-only.
+	//
+	// Igual que ChartCategoricalColors, NO alcanza a un chart en modo JSON:
+	// la config literal del autor no se sobreescribe con el tema.
+	ChartThemeColors ChartThemeColors
+	OutputDir        string          // Output directory for assets
+	Fetcher          PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
+	MermaidFetcher   MermaidFetcher  // Mermaid fetcher inicializado
+	ChartFetcher     ChartFetcher    // Chart fetcher inicializado
+	MapFetcher       MapFetcher      // Map fetcher inicializado
+	MathFetcher      MathFetcher     // Math fetcher inicializado
 	// Logger recibe los warnings/debug best-effort de GenerateDocumentHTML
 	// (nonce CSP fallido, variable de tema rechazada por
 	// SanitizeCSSCustomProperty) — issue #134/G1c. Antes esos dos sitios
@@ -112,6 +129,7 @@ func NewDefaultRenderContext() *RenderContext {
 		ImageMode:              "browser",
 		AssetRoot:              "",
 		ChartCategoricalColors: nil,
+		ChartThemeColors:       ChartThemeColors{},
 		OutputDir:              "",
 		Fetcher:                nil,
 		MermaidFetcher:         nil,

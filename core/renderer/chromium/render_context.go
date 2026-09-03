@@ -36,6 +36,11 @@ type RenderContextOptions struct {
 	// nativo go-analyze/charts, que es el que de hecho corre para bar/line/
 	// pie/doughnut — ver el comentario de ChartFetcher.categoricalColors).
 	ChartCategoricalColors []string
+	// ChartThemeColors ver renderer.RenderContext.ChartThemeColors — se
+	// reenvía al ChartFetcher (camino nativo, el único que hoy los consume)
+	// y al RenderContext devuelto, para que el PR que tematice el camino
+	// Chart.js los tenga ya disponibles ahí sin volver a tocar este archivo.
+	ChartThemeColors renderer.ChartThemeColors
 	// DiagramBackend selecciona qué implementación satisface
 	// MermaidFetcher/PlantUMLFetcher en los modos offline: "chromium"
 	// (default, sin este campo) o "kroki" (KrokiServer, sin Chromium en
@@ -132,6 +137,7 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 		cf := NewChartFetcher(cr, renderer.NoopFetcherLogger{})
 		cf.SetImageFormat(imageFormat, webpQuality)
 		cf.SetCategoricalColors(opts.ChartCategoricalColors)
+		cf.SetChartThemeColors(opts.ChartThemeColors)
 		chartFetcher = cf
 	}
 
@@ -189,5 +195,6 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 		Logger:                 logger,
 		Ctx:                    ctx,
 		ChartCategoricalColors: opts.ChartCategoricalColors,
+		ChartThemeColors:       opts.ChartThemeColors,
 	}
 }

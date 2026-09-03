@@ -104,6 +104,53 @@ func RenderChartNativePNG(elem *ast.ChartElement, width, height int) (data []byt
 // reales) ignoraría el tema en silencio incluso con
 // RenderContext.ChartCategoricalColors seteado.
 func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, categoricalColors []string) (data []byte, ok bool, err error) {
+	return RenderChartNativePNGWithTheme(elem, width, height, categoricalColors, ChartThemeColors{})
+}
+
+// ChartThemeColors agrupa los tokens chart-* NO categóricos de
+// motor-temas-v2.md §2.2 que el camino offline/PDF puede honrar de verdad.
+// Es un struct por valor y su zero value significa "sin tema": cada campo
+// vacío deja intacto el color por defecto de go-analyze/charts, así que un
+// caller que no lo llene reproduce el render de antes byte por byte (el
+// mismo contrato de ChartCategoricalColors, ver RenderContext).
+//
+// Deliberadamente NO cubre dos grupos del contrato §2.2, y no es un olvido
+// sino una imposibilidad estructural del render offline:
+//
+//   - chart-tooltip-bg: un tooltip solo existe bajo hover. El camino nativo
+//     produce un PNG estático y el camino Chromium toma el screenshot sin
+//     puntero, así que ese color no se vería jamás. Emitirlo sería cablear
+//     algo que no puede pintar un pixel.
+//   - chart-seq-1..5: ni GenerateChartConfigWithMode ni este rasterizador
+//     consumen una rampa secuencial — todas las paletas de ambos son
+//     categóricas. No hay destinatario al cual dárselos.
+//
+// Ambos siguen siendo válidos en el navegador (PR #228, vía el blob de
+// metadata que consume charts.js), que es donde sí hay hover; acá quedan
+// documentados como browser-only para que nadie los busque después.
+type ChartThemeColors struct {
+	Surface string // chart-surface: fondo del lienzo del chart
+	Grid    string // chart-grid: líneas de rejilla
+	Axis    string // chart-axis: línea del eje y el texto de sus marcas
+	Label   string // chart-label: texto de leyenda, título y etiquetas de valor
+}
+
+// IsZero reporta si no hay ningún color de tema puesto — el caso de todo
+// caller que no resolvió un tema. Exportado porque chromium.ChartFetcher
+// (otro paquete) lo necesita para decidir si el tema entra al cache key.
+func (c ChartThemeColors) IsZero() bool {
+	return c == ChartThemeColors{}
+}
+
+// RenderChartNativePNGWithTheme es RenderChartNativePNGWithColors más los
+// tokens chart-* no categóricos (ver ChartThemeColors). Punto de entrada
+// nuevo en vez de un parámetro más en el existente, por la misma razón que
+// RenderChartNativePNGWithColors nació al lado de RenderChartNativePNG:
+// slidelang llama a los símbolos anteriores por nombre y CI corre
+// workspace-integration contra el core DEL ÁRBOL, así que cambiarle la
+// firma a uno ya existente rompe ese build entre el merge de este PR y el
+// PR de slidelang que lo consuma. Todo aditivo.
+func RenderChartNativePNGWithTheme(elem *ast.ChartElement, width, height int, categoricalColors []string, themeColors ChartThemeColors) (data []byte, ok bool, err error) {
 	if !SupportsNativeChartRenderingWithOptions(elem) {
 		return nil, false, nil
 	}
@@ -127,7 +174,7 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 		if seriesErr != nil {
 			return nil, true, seriesErr
 		}
-		theme := nativeChartTheme(categoricalColors, len(values))
+		theme := nativeChartTheme(categoricalColors, len(values), themeColors)
 		names := resolveSeriesNames(elem.Series, len(values))
 		if elem.ChartType == "bar" {
 			opt := charts.NewBarChartOptionWithData(values)
@@ -158,7 +205,7 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 			return nil, true, pieErr
 		}
 		opt := charts.NewPieChartOptionWithData(pieValues)
-		opt.Theme = nativeChartTheme(categoricalColors, len(pieValues))
+		opt.Theme = nativeChartTheme(categoricalColors, len(pieValues), themeColors)
 		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = pieLabels
 		applyLegendOverrides(&opt.Legend, ov)
@@ -169,7 +216,7 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 			return nil, true, dErr
 		}
 		opt := charts.NewDoughnutChartOptionWithData(doughnutValues)
-		opt.Theme = nativeChartTheme(categoricalColors, len(doughnutValues))
+		opt.Theme = nativeChartTheme(categoricalColors, len(doughnutValues), themeColors)
 		applyTitleOverrides(&opt.Title, elem.Title, ov)
 		opt.Legend.SeriesNames = doughnutLabels
 		applyLegendOverrides(&opt.Legend, ov)
@@ -213,18 +260,59 @@ func RenderChartNativePNGWithColors(elem *ast.ChartElement, width, height int, c
 // entregárselo a WithSeriesColors, para que ningún índice que
 // go-analyze/charts vaya a pedir quede nunca por debajo de colorCount y
 // esa rama de ajuste no se dispare nunca.
-func nativeChartTheme(categoricalColors []string, count int) charts.ColorPalette {
-	if len(categoricalColors) == 0 {
+// themeColors son los tokens chart-* no categóricos (ver ChartThemeColors).
+// El guard de salida temprana mira AMBAS entradas: antes bastaba
+// categoricalColors porque era la única, y dejarlo así habría hecho que un
+// tema que declara chart-grid pero ningún chart-cat-* no recibiera
+// absolutamente nada, en silencio.
+//
+// Mapeo a la API de go-analyze/charts@v0.6.0, elegido para converger con lo
+// que PR #228 ya hace en el navegador y no reintroducir la divergencia
+// navegador↔nativo que un hallazgo de revisión de #224 cerró:
+//
+//   - Grid  → WithAxisSplitLineColor           (charts.js: scale.grid.color)
+//   - Axis  → WithX/YAxisColor + WithX/YAxisTextColor (charts.js:
+//     scale.ticks.color pinta el texto de las marcas; acá se pinta también
+//     la LÍNEA del eje, que Chart.js expone aparte como scales.*.border.color
+//     y que el PR de Chart.js debe setear con este mismo token para que las
+//     dos rutas terminen iguales)
+//   - Label → WithLegendTextColor + WithTitleTextColor + WithLabelTextColor
+//     (charts.js: plugins.legend.labels.color; el título va acá porque el
+//     rasterizador nativo lo dibuja DENTRO del PNG, mientras que el camino
+//     HTML lo pinta en un <div> aparte fuera de la imagen)
+//   - Surface → WithBackgroundColor
+func nativeChartTheme(categoricalColors []string, count int, themeColors ChartThemeColors) charts.ColorPalette {
+	if len(categoricalColors) == 0 && themeColors.IsZero() {
 		return nil
 	}
-	if count < len(categoricalColors) {
-		count = len(categoricalColors)
+	palette := charts.GetDefaultTheme()
+	if len(categoricalColors) > 0 {
+		if count < len(categoricalColors) {
+			count = len(categoricalColors)
+		}
+		colors := make([]charts.Color, count)
+		for i := range colors {
+			colors[i] = chartColorFromCSS(categoricalColors[i%len(categoricalColors)])
+		}
+		palette = palette.WithSeriesColors(colors)
 	}
-	colors := make([]charts.Color, count)
-	for i := range colors {
-		colors[i] = chartColorFromCSS(categoricalColors[i%len(categoricalColors)])
+	if themeColors.Surface != "" {
+		palette = palette.WithBackgroundColor(chartColorFromCSS(themeColors.Surface))
 	}
-	return charts.GetDefaultTheme().WithSeriesColors(colors)
+	if themeColors.Grid != "" {
+		palette = palette.WithAxisSplitLineColor(chartColorFromCSS(themeColors.Grid))
+	}
+	if themeColors.Axis != "" {
+		axis := chartColorFromCSS(themeColors.Axis)
+		palette = palette.WithXAxisColor(axis).WithYAxisColor(axis).
+			WithXAxisTextColor(axis).WithYAxisTextColor(axis)
+	}
+	if themeColors.Label != "" {
+		label := chartColorFromCSS(themeColors.Label)
+		palette = palette.WithLegendTextColor(label).WithTitleTextColor(label).
+			WithLabelTextColor(label)
+	}
+	return palette
 }
 
 // chartColorFromCSS parses a chart-cat-* token the way a browser actually
