@@ -233,3 +233,52 @@ func TestStrictModeValidation_TitleBlockWithNeither_OnlyLAYOUT001(t *testing.T) 
 		}
 	}
 }
+
+// Issue #239: un BlockType sin schema no se podía validar, pero se ignoraba
+// en SILENCIO — un typo ("comparision") o un layout inventado se veían igual
+// que uno correcto. Con `layout:` en flex esa puerta se abre de par en par,
+// así que el nombre desconocido tiene que reportarse.
+func TestSlideLayoutValidation_UnknownLayoutWarns(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "comparision") // typo de "comparison"
+	block.Title = "Con typo"
+
+	diags := (&SlideLayoutValidationRule{}).Check(block)
+
+	diag := findDiagnostic(diags, "LAYOUT_UNKNOWN")
+	if diag == nil {
+		t.Fatal("se esperaba LAYOUT_UNKNOWN para un layout sin schema")
+	}
+	if diag.Severity != diagnostics.Warning {
+		t.Errorf("severity = %v, want %v — no puede romper el build", diag.Severity, diagnostics.Warning)
+	}
+	if !strings.Contains(diag.Message, "comparision") {
+		t.Errorf("el mensaje debe nombrar el layout ofensor, se obtuvo: %q", diag.Message)
+	}
+	// La lista de nombres sale de los schemas, no de una constante aparte:
+	// agregar un layout no puede dejar este mensaje desactualizado.
+	for name := range GetSlideLayoutSchemas() {
+		if !strings.Contains(diag.Message, name) {
+			t.Errorf("el mensaje omite el layout conocido %q: %q", name, diag.Message)
+		}
+	}
+}
+
+// Un layout CON schema no dispara LAYOUT_UNKNOWN, y un bloque sin tipo
+// tampoco: son los dos caminos que ya existían y que este aviso no puede
+// invadir.
+func TestSlideLayoutValidation_KnownAndUntypedDoNotWarn(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	known := ast.NewContentBlock(pos, "stats")
+	known.Title = "Métricas"
+	known.Elements = append(known.Elements, ast.NewTextElement(pos, "algo"))
+	if d := findDiagnostic((&SlideLayoutValidationRule{}).Check(known), "LAYOUT_UNKNOWN"); d != nil {
+		t.Errorf("un layout con schema no puede reportar LAYOUT_UNKNOWN: %+v", d)
+	}
+
+	untyped := ast.NewContentBlock(pos, "")
+	if d := findDiagnostic((&SlideLayoutValidationRule{}).Check(untyped), "LAYOUT_UNKNOWN"); d != nil {
+		t.Errorf("un bloque sin tipo no puede reportar LAYOUT_UNKNOWN: %+v", d)
+	}
+}

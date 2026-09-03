@@ -22,6 +22,17 @@ type FlexParser struct {
 	logger        util.Logger
 	registry      *elements.Registry
 	hasTitleBlock bool // Rastrea si ya hemos encontrado un bloque de título
+	// pendingLayout guarda el `layout:` de un bloque de metadata por slide
+	// hasta que aparezca el bloque al que le toca (issue #239). Vive en el
+	// parser y no en una variable local porque el bloque de metadata y el
+	// slide son DOS llamadas distintas a parseContentBlock: la primera
+	// consume la metadata y devuelve nil, la segunda arma el slide.
+	pendingLayout string
+	// reportedInertKeys recuerda por qué llaves inertes ya se avisó, para
+	// avisar UNA vez por documento y no una por slide. Sin esto, un deck que
+	// repite `header:`/`footer:` en cada bloque sacaba una decena de avisos
+	// idénticos — el corpus escribe esas dos en 17 ejemplos cada una.
+	reportedInertKeys map[string]bool
 }
 
 // NewFlexParser crea un nuevo parser flexible. log==nil degrada a un Noop
@@ -107,11 +118,15 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	// "---\nlayout: title\n---"), is a per-slide metadata/layout-override
 	// block — not a real slide separator. A real separator is a lone
 	// "---" immediately followed by a new "# "/"## " heading (or EOF).
-	// This DSL shape has no parser support today (tracked separately);
-	// consume it as inert metadata rather than let its lines leak into
-	// the next slide as orphaned/misattributed content.
+	//
+	// Hasta el issue #239 el bloque se consumía entero y se tiraba, así que
+	// `layout:` no hacía nada y el modo flex solo podía producir slides
+	// `title`/`content` — aunque el linter trae 19 schemas por layout y las
+	// plantillas los estilan. Ahora se LEE: `layout` queda pendiente para el
+	// bloque siguiente y el resto de las llaves se reportan como inertes.
 	if line == "---" {
 		if closeIdx := metadataBlockCloseIndex(p.lines, p.currentLine); closeIdx != -1 {
+			p.readMetadataBlock(p.currentLine, closeIdx)
 			p.currentLine = closeIdx + 1
 			return nil
 		}
@@ -122,14 +137,31 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	blockType := "content" // Default block type for flex mode
 	blockTitle := ""
 	blockSubtitle := ""
+
+	// Un `layout:` explícito le gana a la heurística posicional de abajo
+	// ("solo el primer # es title"). Es lo que lo hace útil: sin esto no
+	// habría forma de que el segundo slide de un deck fuera `stats`, ni de
+	// que el primero NO fuera `title`.
+	layout := p.pendingLayout
+	p.pendingLayout = ""
+	if layout != "" {
+		blockType = layout
+		if isTitleLayout(layout) {
+			p.hasTitleBlock = true
+		}
+	}
+
 	// Check for block type indicators and extract titles
 	if strings.HasPrefix(line, "# ") {
-		// Solo el primer bloque con # se marca como title, los demás como content
-		if !p.hasTitleBlock {
-			blockType = "title"
-			p.hasTitleBlock = true
-		} else {
-			blockType = "content"
+		// Solo el primer bloque con # se marca como title, los demás como
+		// content — salvo que un `layout:` ya haya decidido el tipo.
+		if layout == "" {
+			if !p.hasTitleBlock {
+				blockType = "title"
+				p.hasTitleBlock = true
+			} else {
+				blockType = "content"
+			}
 		}
 		blockTitle = strings.TrimSpace(line[2:]) // Extract title text
 		p.currentLine++                          // consume the title line
@@ -151,16 +183,24 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 			}
 		}
 	} else if strings.HasPrefix(line, "## ") {
-		blockType = "content"                    // Map ## to content type for template compatibility
+		if layout == "" {
+			blockType = "content" // Map ## to content type for template compatibility
+		}
 		blockTitle = strings.TrimSpace(line[3:]) // Extract section title text
 		p.currentLine++                          // consume the section line
 	}
 
 	block := ast.NewContentBlock(pos, blockType)
 
-	// Set the title if we extracted one
+	// Set the title if we extracted one.
+	//
+	// A qué campo va depende del TIPO ya resuelto, no de la forma del
+	// heading: un slide de título se titula con Heading (es lo que la
+	// plantilla y el schema `title` esperan) y cualquier otro con Title. Con
+	// `layout: title` sobre un "## Foo", eso manda el texto a Heading —
+	// antes habría ido a Title y el slide habría quedado sin heading.
 	if blockTitle != "" {
-		if blockType == "title" {
+		if isTitleLayout(blockType) {
 			block.Heading = blockTitle
 		} else {
 			block.Title = blockTitle
@@ -269,8 +309,24 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 		p.diagnostics = append(p.diagnostics, result.Diagnostics...)
 	}
 
-	// Only return block if it has elements or is a title/section/content block with a title
-	if len(block.Elements) > 0 || blockType == "title" || blockType == "section" || (blockType == "content" && block.Title != "") {
+	// Un bloque se emite si tiene ALGO: elementos, o un título con el que
+	// presentarse.
+	//
+	// Antes la condición era un allowlist de tipos —"title", "section", o
+	// "content" con título— y eso alcanzaba mientras flex solo sabía
+	// producir "title" y "content". Con `layout:` (issue #239) cualquier
+	// nombre de layout llega hasta acá, así que un slide `layout: stats` con
+	// su heading y sin elementos todavía —el estado normal de un deck a
+	// medio escribir— caía al `return nil` y DESAPARECÍA sin diagnóstico. Es
+	// la misma clase de pérdida silenciosa que el resto de este lote cierra,
+	// destapada por la función nueva.
+	//
+	// Las dos condiciones de tipo se conservan por compatibilidad: un bloque
+	// "title"/"section" sin título ni elementos seguía emitiéndose antes, y
+	// el linter ya lo reporta con SLIDE002/PARSE001. Quitarlas sería un
+	// cambio aparte, sin relación con este.
+	if len(block.Elements) > 0 || block.Title != "" || block.Heading != "" ||
+		blockType == "title" || blockType == "section" {
 		return block
 	}
 
@@ -294,6 +350,95 @@ func (p *FlexParser) addWarningAtWithRuleID(lineIndex int, msg, ruleID string) {
 	pos := diagnostics.NewPosition(lineIndex+1, 1)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "flex-parser").WithRuleID(ruleID))
+}
+
+// readMetadataBlock lee el bloque de metadata por slide que abre en openIdx
+// y cierra en closeIdx (los dos "---"), y guarda su `layout:` para el bloque
+// que sigue (issue #239).
+//
+// El nombre del layout NO se valida contra la lista de schemas: eso vive en
+// el linter, y el parser no puede importarlo sin invertir la dirección de
+// dependencias. Acá solo se exige la forma de un identificador; de un nombre
+// desconocido se encarga LAYOUT_UNKNOWN, que es donde está la lista.
+//
+// Las demás llaves se reportan como inertes con severidad Info, no Warning:
+// el corpus las escribe a montones (`header:`/`footer:` en 17 ejemplos cada
+// una, `rating`/`position`/`avatar` en 8) y subirlas a Warning llenaría de
+// ruido decks que hoy compilan limpios. Que sean visibles alcanza para que
+// alguien note que no hacen nada.
+func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
+	for i := openIdx + 1; i < closeIdx; i++ {
+		trimmed := strings.TrimSpace(p.lines[i])
+		if trimmed == "" {
+			continue
+		}
+
+		sep := strings.Index(trimmed, ":")
+		if sep <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(trimmed[:sep])
+		value := strings.Trim(strings.TrimSpace(trimmed[sep+1:]), `"'`)
+
+		if key != "layout" {
+			if p.reportedInertKeys == nil {
+				p.reportedInertKeys = make(map[string]bool)
+			}
+			if !p.reportedInertKeys[key] {
+				p.reportedInertKeys[key] = true
+				p.diagnostics = append(p.diagnostics,
+					diagnostics.NewInfo(
+						fmt.Sprintf("Per-slide metadata key %q has no effect; only 'layout' is read here.", key),
+						diagnostics.NewPosition(i+1, 1), "flex-parser").WithRuleID("FLEX002"))
+			}
+			continue
+		}
+
+		value = strings.ToLower(value)
+		if !isLayoutName(value) {
+			p.addWarningAtWithRuleID(i,
+				fmt.Sprintf("Invalid layout name %q; expected an identifier like 'stats' or 'comparison' — ignored.", value),
+				"FLEX003")
+			continue
+		}
+		p.pendingLayout = value
+	}
+}
+
+// isLayoutName exige la forma de un identificador de layout: minúscula
+// inicial, después letras, dígitos, "_" o "-". No dice nada sobre si el
+// nombre existe — de eso se ocupa el linter, que es quien tiene la lista.
+func isLayoutName(value string) bool {
+	if value == "" {
+		return false
+	}
+	if value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '_', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isTitleLayout reporta si un layout se titula con `heading` en vez de con
+// `title`. Son los dos únicos que el linter declara con `heading` en
+// RequiredProperties (linter.GetSlideLayoutSchemas: "title" y "title_slide"),
+// y core no puede consultar esa lista sin importar el linter desde el
+// parser, así que se repite acá — corta, y con el puntero para que se
+// mantengan sincronizadas.
+//
+// slidelang tiene su propia versión más ancha (config.IsSlideTitle, que suma
+// "cover" e "intro" para elegir plantilla). No se comparte porque core no
+// puede importar slidelang; la diferencia es deliberada: acá la pregunta es
+// "¿qué campo del AST se llena?" y allá "¿qué plantilla se usa?".
+func isTitleLayout(layout string) bool {
+	return layout == "title" || layout == "title_slide"
 }
 
 // metadataBlockCloseIndex checks whether lines[openIdx] == "---" opens a

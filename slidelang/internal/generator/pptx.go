@@ -27,6 +27,7 @@ import (
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/renderer/chromium"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/generator/config"
 )
 
 // pptx.go implementa --format pptx, AST → .pptx vía pptxgo
@@ -172,7 +173,13 @@ func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts Genera
 // slidelang (template/base.go: Heading para bloques "title", Title para
 // los demás).
 func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, opts GeneratorOptions, kroki *pptxKrokiContext, watermark renderer.ResolvedWatermark, hasWatermark bool) {
-	isTitleBlock := block.BlockType == "title"
+	// config.IsSlideTitle y no `== "title"`: desde el issue #239 un bloque
+	// flex puede declarar `layout: title_slide` (y strict siempre pudo con
+	// SLIDE title_slide), y esos también van con LayoutTitleSlide. El
+	// converter de HTML ya resolvía el tipo con esta misma función; PPTX
+	// comparaba contra el literal y por eso un title_slide caía en el layout
+	// de contenido.
+	isTitleBlock := config.IsSlideTitle(block.BlockType)
 
 	layout := pptx.LayoutTitleAndContent
 	if isTitleBlock {

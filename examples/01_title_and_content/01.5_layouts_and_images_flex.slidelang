@@ -32,7 +32,7 @@ layout: section
 We create memorable visual experiences by combining strategic design, advanced technology, and effective storytelling for brands that want to stand out.
 
 ---
-layout: two_columns
+layout: comparison
 ---
 
 # Design Services
@@ -70,7 +70,7 @@ layout: two_columns
   - Infographics and visualizations
 
 ---
-layout: image_showcase
+layout: feature_showcase
 ---
 
 # Featured Project Gallery
@@ -88,7 +88,7 @@ layout: image_showcase
 **Marketing Video** - Audiovisual production for a digital campaign
 
 ---
-layout: grid_layout
+layout: comparison
 ---
 
 # Success Stories by Industry
@@ -185,7 +185,7 @@ layout: comparison
 | **Delivery** | Final files | + Documentation | + Team training |
 
 ---
-layout: testimonials
+layout: testimonial
 ---
 
 # What Our Clients Say
@@ -212,7 +212,7 @@ layout: testimonials
 > ⭐⭐⭐⭐⭐
 
 ---
-layout: contact_cta
+layout: call_to_action
 ---
 
 # Ready to Create Something Amazing?
@@ -236,7 +236,7 @@ hello@techflowcreative.com
 Tech City, TC 12345
 
 ---
-layout: end
+layout: closing
 ---
 
 # Let's Start Your Project!

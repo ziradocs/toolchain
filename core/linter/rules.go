@@ -476,6 +476,18 @@ func (r *SlideLayoutValidationRule) setLayoutPolicy(p *PolicyConfig) {
 	r.policy = p
 }
 
+// sortedLayoutNames devuelve los nombres de layout conocidos en orden
+// alfabético, para que el mensaje de LAYOUT_UNKNOWN sea determinista (el
+// recorrido de un mapa en Go no lo es).
+func sortedLayoutNames(schemas map[string]SlideLayoutSchema) []string {
+	names := make([]string, 0, len(schemas))
+	for name := range schemas {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 
@@ -489,7 +501,24 @@ func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnosti
 		schemas := GetSlideLayoutSchemas()
 		schema, exists := schemas[slideType]
 		if !exists {
-			return diags // No validar tipos desconocidos
+			// Un tipo sin schema no se puede validar, pero tampoco se puede
+			// ignorar en silencio: el slide se renderiza con el layout
+			// genérico y nada avisa de que el nombre no existe. Un typo
+			// ("comparision") o un layout inventado se veía exactamente
+			// igual que uno correcto (issue #239).
+			//
+			// La lista de nombres sale de los propios schemas, no de una
+			// constante aparte: agregar un layout no puede dejar este
+			// mensaje desactualizado.
+			diags = append(diags, diagnostics.Diagnostic{
+				Severity: diagnostics.Warning,
+				Code:     "LAYOUT_UNKNOWN",
+				Message: "Unknown slide layout '" + slideType + "'; no schema validates it. Recognized layouts: " +
+					strings.Join(sortedLayoutNames(schemas), ", "),
+				Position: slide.Position,
+				Source:   "linter",
+			})
+			return diags
 		}
 		schema = r.policy.ResolveLayoutSchema(slideType, schema)
 

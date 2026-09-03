@@ -333,7 +333,7 @@ layout: content
 - **Stack Overflow**: Tag `techflow`
 
 ---
-layout: quote
+layout: testimonial
 ---
 
 > "Clear documentation with visual examples reduces integration time by 70%. Special blocks and diagrams make complex concepts accessible."
@@ -341,7 +341,7 @@ layout: quote
 > **— Dr. Elena Rodriguez, Developer Experience Research**
 
 ---
-layout: end
+layout: closing
 ---
 
 # Documentation Complete!

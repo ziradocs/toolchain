@@ -179,7 +179,7 @@ layout: content
 - **Documentation**: Confluence
 
 ---
-layout: quote
+layout: testimonial
 ---
 
 > "Clear task organization and progress visibility are essential to the project's success. Every table, list, and metric brings us closer to our goal."
@@ -187,7 +187,7 @@ layout: quote
 > **— Sarah Johnson, Project Manager**
 
 ---
-layout: end
+layout: closing
 ---
 
 # Project Underway!
