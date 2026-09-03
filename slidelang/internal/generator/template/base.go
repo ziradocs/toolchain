@@ -1052,8 +1052,13 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     {{end}}
                     
                     <div class="header-content">
-                        {{/* Logo */}}
-                        {{if $finalHeaderConfig.Logo}}
+                        {{/* Logo: se exige Source, no solo que el bloque
+                             Logo exista. Un override por layout que solo
+                             fija la altura deja Source vacio y emitia
+                             <img src="">, que es error de html-validate y
+                             ademas dispara una peticion de red al propio
+                             documento. */}}
+                        {{if and $finalHeaderConfig.Logo $finalHeaderConfig.Logo.Source}}
                             <div class="slidelang-header-logo {{if $finalHeaderConfig.Logo.Position}}slidelang-logo-{{$finalHeaderConfig.Logo.Position}}{{else}}slidelang-logo-left{{end}}">
                                 <img src="{{$finalHeaderConfig.Logo.Source}}"
                                      alt="{{if $finalHeaderConfig.Logo.Alt}}{{$finalHeaderConfig.Logo.Alt}}{{else}}Logo{{end}}"
