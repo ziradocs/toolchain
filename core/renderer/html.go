@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -1193,6 +1194,8 @@ func MergeChartOptions(target, source map[string]interface{}) {
 // valor (string, número, bool, nil) es inmutable en la práctica para lo que
 // hace este paquete y se devuelve tal cual.
 func deepCopyChartValue(value interface{}) interface{} {
+	// Los dos casos calientes van primero, sin reflexión: son los que
+	// produce el parser y los que arma este paquete.
 	switch typed := value.(type) {
 	case map[string]interface{}:
 		clone := make(map[string]interface{}, len(typed))
@@ -1206,9 +1209,55 @@ func deepCopyChartValue(value interface{}) interface{} {
 			clone[i] = deepCopyChartValue(v)
 		}
 		return clone
+	}
+
+	// Cualquier OTRO contenedor se clona por reflexión. Enumerar tipos a
+	// mano dejaba fuera formas de Go perfectamente válidas —
+	// []map[string]interface{} es la más obvia, y este mismo paquete la usa
+	// para los datasets— así que un caller programático podía mutar el
+	// target y seguir alterando el source, contradiciendo justo la
+	// invariante que este clon existe para sostener (hallazgo de
+	// code-review). Con reflexión la invariante vale para todo slice, array
+	// y mapa, no para una lista que hay que acordarse de extender.
+	//
+	// Lo que NO se clona, a propósito: punteros, structs y canales. Un
+	// options: de chart viene de JSON/YAML decodificado, donde no aparecen;
+	// copiarlos por reflexión traería sus propios problemas (ciclos, campos
+	// no exportados) a cambio de nada.
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		clone := reflect.MakeSlice(reflect.SliceOf(rv.Type().Elem()), rv.Len(), rv.Len())
+		for i := 0; i < rv.Len(); i++ {
+			copyReflectedInto(clone.Index(i), rv.Index(i))
+		}
+		return clone.Interface()
+	case reflect.Map:
+		clone := reflect.MakeMapWithSize(rv.Type(), rv.Len())
+		iter := rv.MapRange()
+		for iter.Next() {
+			entry := reflect.New(rv.Type().Elem()).Elem()
+			copyReflectedInto(entry, iter.Value())
+			clone.SetMapIndex(iter.Key(), entry)
+		}
+		return clone.Interface()
 	default:
 		return value
 	}
+}
+
+// copyReflectedInto escribe en dst la copia profunda de src, reusando
+// deepCopyChartValue para que un elemento anidado (p. ej. el
+// map[string]interface{} dentro de un []map[string]interface{}) pase por la
+// misma lógica en vez de copiarse superficialmente.
+func copyReflectedInto(dst, src reflect.Value) {
+	copied := deepCopyChartValue(src.Interface())
+	cv := reflect.ValueOf(copied)
+	if copied != nil && cv.Type().AssignableTo(dst.Type()) {
+		dst.Set(cv)
+		return
+	}
+	dst.Set(src)
 }
 
 // defaultChartColors6/8 son las paletas categóricas hardcodeadas que
@@ -1565,6 +1614,24 @@ func setColorIfUnset(parent map[string]interface{}, block, color string) {
 	}
 }
 
+// scaleDimensionByAxis clasifica una escala YA declarada en options.scales:
+// su `axis` si el autor lo puso, y si no la primera letra de su id — el mismo
+// fallback que usa Chart.js para inferir el eje, y el mismo criterio que
+// scaleDimensionByAxis en charts.js, de donde se porta.
+//
+// Sirve solo para decidir los colores específicamente radiales
+// (angleLines/pointLabels). NUNCA para decidir qué escalas materializar: una
+// escala con nombre propio no suprime la que Chart.js crea por su cuenta.
+func scaleDimensionByAxis(id string, scale map[string]interface{}) string {
+	if axis, ok := scale["axis"].(string); ok && axis != "" {
+		return strings.ToLower(axis)
+	}
+	if id == "" {
+		return ""
+	}
+	return strings.ToLower(id[:1])
+}
+
 // radialScaleIDs devuelve los ids de escala radial que ESTE config necesita,
 // calculados POR DATASET y no solo con el tipo global — el mismo criterio que
 // scaleIdsByDimension en charts.js (PR #228).
@@ -1663,9 +1730,29 @@ func applyChartThemeColors(config map[string]interface{}, chartType string, them
 		// x/y). Sin materializarla, radar/polarArea —que SIEMPRE pasan por
 		// Chromium, porque no tienen rasterizador nativo— quedaban con x/y
 		// temátizados que no se ven y su escala real sin tocar.
+		//
+		// La materialización usa SOLO los ids que piden los datasets: una
+		// escala con nombre propio declarada por el autor no suprime la que
+		// Chart.js crea por su cuenta (ver el doc de scaleIdsByDimension en
+		// charts.js, donde esa distinción costó su propia ronda de revisión).
 		for id := range radialIDs {
 			if _, exists := scales[id]; !exists {
 				scales[id] = make(map[string]interface{})
+			}
+		}
+		// Segunda mitad del criterio del navegador: además de las requeridas
+		// por datasets, cuentan como radiales las escalas YA declaradas que
+		// se clasifican así por su propio axis/id. Esto se usa ÚNICAMENTE
+		// para decidir angleLines/pointLabels, nunca para materializar —
+		// hacerlo también para materializar resucitaría el bug del párrafo
+		// anterior desde el otro lado.
+		for id, raw := range scales {
+			scale, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if scaleDimensionByAxis(id, scale) == "r" {
+				radialIDs[id] = true
 			}
 		}
 		for id, raw := range scales {

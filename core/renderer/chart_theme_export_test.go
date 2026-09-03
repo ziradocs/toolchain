@@ -445,11 +445,20 @@ func TestApplyChartThemeColors_ComboWithRadialSeries(t *testing.T) {
 	}
 }
 
-// TestApplyChartThemeColors_RadialAxisIDOverride comprueba el otro tramo del
-// criterio por dataset que ya usa charts.js: si el dataset apunta a una
-// escala radial con nombre propio vía rAxisID, es ESA la que hay que
-// tematizar.
-func TestApplyChartThemeColors_RadialAxisIDOverride(t *testing.T) {
+// TestApplyChartThemeColors_ExplicitRadialScaleGetsRadialColors es la
+// segunda mitad del criterio del navegador, que el port se había saltado: la
+// ruta JS une las escalas requeridas por datasets CON las ya declaradas que
+// se clasifican como radiales por su axis/id. Con solo la primera mitad, una
+// escala que el autor declara como `radial: {axis: r}` recibía grid/ticks/
+// border por el loop general pero no angleLines/pointLabels, que son
+// justamente los dos colores específicamente radiales.
+//
+// Reemplaza a un test anterior que se llamaba RadialAxisIDOverride y no
+// configuraba ningún rAxisID: solo comprobaba grid, que se aplica a TODAS
+// las escalas, así que quedaba verde sin ejercer ni el override ni la
+// clasificación explícita. Un test que pasa por la razón equivocada es peor
+// que no tenerlo.
+func TestApplyChartThemeColors_ExplicitRadialScaleGetsRadialColors(t *testing.T) {
 	elem := exportThemeChart()
 	elem.ChartType = "radar"
 	elem.Options = map[string]interface{}{
@@ -457,14 +466,104 @@ func TestApplyChartThemeColors_RadialAxisIDOverride(t *testing.T) {
 			"radial": map[string]interface{}{"axis": "r"},
 		},
 	}
+	cfg := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{
+		Grid: "#111111", Axis: "#222222",
+	}))
+
+	// La "r" por defecto se materializa igual: ningún dataset la redirige, y
+	// una escala con nombre propio NO suprime la que Chart.js crea sola.
+	for _, id := range []string{"r", "radial"} {
+		scale := scaleOf(t, cfg, id)
+		if got := nestedColor(t, scale, "angleLines"); got != "#111111" {
+			t.Errorf("scales.%s.angleLines.color = %v, want #111111", id, got)
+		}
+		if got := nestedColor(t, scale, "pointLabels"); got != "#222222" {
+			t.Errorf("scales.%s.pointLabels.color = %v, want #222222", id, got)
+		}
+	}
+}
+
+// TestApplyChartThemeColors_ExplicitRadialByIDPrefix cubre el otro tramo de
+// la clasificación: sin `axis` declarado, Chart.js infiere el eje por la
+// primera letra del id, y el port hace lo mismo.
+func TestApplyChartThemeColors_ExplicitRadialByIDPrefix(t *testing.T) {
+	elem := exportThemeChart()
+	elem.ChartType = "radar"
+	elem.Options = map[string]interface{}{
+		"scales": map[string]interface{}{
+			"rSecundaria": map[string]interface{}{"beginAtZero": true},
+		},
+	}
 	cfg := decodeConfig(t, GenerateChartConfigWithTheme(elem, true, nil, ChartThemeColors{Grid: "#111111"}))
 
-	// La "r" por defecto se materializa igual (ningún dataset la redirige),
-	// y la declarada por el autor también se tematiza.
-	if got := nestedColor(t, scaleOf(t, cfg, "r"), "angleLines"); got != "#111111" {
-		t.Errorf("scales.r.angleLines.color = %v, want #111111", got)
+	if got := nestedColor(t, scaleOf(t, cfg, "rSecundaria"), "angleLines"); got != "#111111" {
+		t.Errorf("scales.rSecundaria.angleLines.color = %v, want #111111", got)
 	}
-	if got := nestedColor(t, scaleOf(t, cfg, "radial"), "grid"); got != "#111111" {
-		t.Errorf("scales.radial.grid.color = %v, want #111111", got)
+	// Y una cartesiana NO debe recibir los colores radiales.
+	if x, ok := scaleOf(t, cfg, "x")["angleLines"]; ok {
+		t.Errorf("una escala cartesiana no debe recibir angleLines: %#v", x)
+	}
+}
+
+// TestRadialScaleIDs_DatasetAxisOverride ejerce el override por dataset que
+// el port trae de charts.js. Se prueba sobre radialScaleIDs directamente y no
+// end-to-end a propósito: hoy ningún camino del generador emite rAxisID en un
+// dataset (los arma este paquete desde elem.Data/SeriesTypes), así que un
+// test end-to-end no podría llegar acá. El soporte se mantiene porque espeja
+// al navegador y porque un config que sí lo traiga debe tematizar la escala
+// correcta, no la "r" por defecto.
+func TestRadialScaleIDs_DatasetAxisOverride(t *testing.T) {
+	config := map[string]interface{}{
+		"data": map[string]interface{}{
+			"datasets": []map[string]interface{}{
+				{"type": "radar", "rAxisID": "propia"},
+				{"type": "radar"},
+				{"type": "bar"},
+			},
+		},
+	}
+	ids := radialScaleIDs(config, "bar")
+
+	if !ids["propia"] {
+		t.Error("el dataset con rAxisID debe pedir SU escala")
+	}
+	if !ids["r"] {
+		t.Error("el dataset radial sin override debe seguir pidiendo la \"r\" por defecto")
+	}
+	if len(ids) != 2 {
+		t.Errorf("el dataset de barras no debe aportar ninguna escala radial: %#v", ids)
+	}
+}
+
+// TestMergeChartOptions_DeepCopiesAnyContainer cubre el P3: enumerar tipos a
+// mano dejaba fuera formas válidas de Go como []map[string]interface{} —
+// que este mismo paquete usa para los datasets— y por ahí el target seguía
+// aliaseando al source.
+func TestMergeChartOptions_DeepCopiesAnyContainer(t *testing.T) {
+	source := map[string]interface{}{
+		"datasets":  []map[string]interface{}{{"n": 1}},
+		"nombres":   []string{"a", "b"},
+		"porTipo":   map[string]string{"k": "v"},
+		"anidadoEn": []interface{}{[]map[string]interface{}{{"n": 1}}},
+	}
+	target := make(map[string]interface{})
+	MergeChartOptions(target, source)
+
+	target["datasets"].([]map[string]interface{})[0]["n"] = 2
+	target["nombres"].([]string)[0] = "z"
+	target["porTipo"].(map[string]string)["k"] = "otro"
+	target["anidadoEn"].([]interface{})[0].([]map[string]interface{})[0]["n"] = 2
+
+	if got := source["datasets"].([]map[string]interface{})[0]["n"]; got != 1 {
+		t.Errorf("[]map[string]interface{} quedó aliaseado: n = %v, want 1", got)
+	}
+	if got := source["nombres"].([]string)[0]; got != "a" {
+		t.Errorf("[]string quedó aliaseado: [0] = %v, want a", got)
+	}
+	if got := source["porTipo"].(map[string]string)["k"]; got != "v" {
+		t.Errorf("map[string]string quedó aliaseado: k = %v, want v", got)
+	}
+	if got := source["anidadoEn"].([]interface{})[0].([]map[string]interface{})[0]["n"]; got != 1 {
+		t.Errorf("el contenedor anidado quedó aliaseado: n = %v, want 1", got)
 	}
 }
