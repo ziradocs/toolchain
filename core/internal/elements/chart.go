@@ -1160,6 +1160,13 @@ func (p *ChartParser) parseJSONBlock(lines []string, startIndex int) (string, in
 // Parse solo llama a parseJSONBlock cuando empieza con "{".
 func jsonPayloadExtent(jsonLines []string) int {
 	bodyIndent := -1
+	// arrayDepth lleva la cuenta de corchetes sin cerrar, igual que el loop
+	// de propiedades. Decide si un escalar suelto ("B", 42) tiene dónde
+	// vivir: dentro de un array es un elemento legítimo; fuera no es JSON de
+	// ninguna forma, y por lo tanto es prosa. Sin ese contexto habría que
+	// aceptar todo escalar suelto, y con eso se cuela cualquier párrafo
+	// entrecomillado.
+	arrayDepth := 0
 
 	for i, line := range jsonLines {
 		trimmed := strings.TrimSpace(line)
@@ -1174,8 +1181,13 @@ func jsonPayloadExtent(jsonLines []string) int {
 			return i
 		}
 
-		if i > 0 && !isJSONPayloadLine(trimmed) {
+		if i > 0 && !isJSONPayloadLine(trimmed, arrayDepth > 0) {
 			return i
+		}
+
+		arrayDepth += bracketDelta(trimmed)
+		if arrayDepth < 0 {
+			arrayDepth = 0
 		}
 	}
 
@@ -1187,44 +1199,119 @@ func jsonPayloadExtent(jsonLines []string) int {
 // payload ya se sabe roto: la pregunta no es "¿esto es JSON válido?" sino
 // "¿esto puede seguir siendo el JSON, o ya es la prosa de después?".
 //
-// Es una lista de primeros caracteres, no un parser: alcanza para separar
-// JSON de prosa, que es lo único que hace falta acá. Se aceptan además "//",
-// "/*" y "*/" porque el JSON que escribe un modelo trae comentarios a
-// menudo — es la razón de existir de ChartJSONRule (internal/normalize), que
-// los limpia antes del parser en el camino de la CLI pero no en el de la API
-// de Go, donde la normalización puede venir apagada.
+// Cada forma se valida como TOKEN COMPLETO, no por su primer carácter. La
+// primera versión de este guard miraba solo el carácter inicial, y con eso
+// seguía tragándose Markdown perfectamente común: "1. Primer paso" pasaba
+// por empezar con dígito, "[Más contexto](url)" por empezar con "[", y un
+// párrafo entrecomillado por empezar con comilla. Los tres son exactamente
+// la pérdida silenciosa que este recorte existe para cerrar.
+//
+// insideArray dice si hay un "[" sin cerrar entre las líneas ya aceptadas.
+// Es lo que separa un escalar suelto legítimo —el último elemento de un
+// array multi-línea, que va sin coma— de un párrafo que casualmente abre y
+// cierra comillas.
+//
+// Se aceptan comentarios ("//", "/*", "*/") porque el JSON que escribe un
+// modelo los trae seguido — es la razón de existir de ChartJSONRule
+// (internal/normalize), que los limpia antes del parser en el camino de la
+// CLI pero no en el de la API de Go.
 //
 // Degradación conocida y elegida: una llave sin comillas ("type: bar", que
-// es YAML y no JSON) corta el bloque y sale como texto en la diapositiva.
-// Visible es mejor que mudo, que es justamente el punto de este recorte.
-func isJSONPayloadLine(trimmed string) bool {
+// es YAML y no JSON) corta el bloque y sale como texto. Y dentro de un array
+// abierto, un párrafo que empieza y termina con comillas sigue siendo
+// indistinguible de un elemento del array — ahí la forma de la línea no
+// alcanza para decidir. En los dos casos la prosa queda VISIBLE en la
+// diapositiva, que es lo que este recorte prefiere sobre borrarla.
+func isJSONPayloadLine(trimmed string, insideArray bool) bool {
 	if trimmed == "" {
 		return true
 	}
 
-	switch trimmed[0] {
-	case '{', '}', '[', ']', '"', ',', ':':
-		return true
-	}
-
-	if trimmed[0] >= '0' && trimmed[0] <= '9' {
-		return true
-	}
-
-	// Un número negativo ("-5,"), no una viñeta Markdown ("- item"): el
-	// signo tiene que ir pegado al dígito. Esa diferencia es la que salva a
-	// la lista de viñetas que sigue a un chart roto.
-	if trimmed[0] == '-' && len(trimmed) > 1 && trimmed[1] >= '0' && trimmed[1] <= '9' {
-		return true
-	}
-
-	for _, prefix := range []string{"true", "false", "null", "//", "/*", "*/"} {
+	for _, prefix := range []string{"//", "/*", "*/"} {
 		if strings.HasPrefix(trimmed, prefix) {
 			return true
 		}
 	}
 
+	// Solo estructura: "{", "}", "},", "]", "}]", "[", ...
+	if isJSONPunctuationOnly(trimmed) {
+		return true
+	}
+
+	// Un par `"clave": ...`, la forma más común dentro de un objeto.
+	if isJSONKeyLine(trimmed) {
+		return true
+	}
+
+	// Una fila completa —objeto {..} o array [..]— sola en su línea y sin
+	// nada después salvo una coma. Es el chequeo que descarta un enlace
+	// Markdown: después de su "]" viene "(url)", no fin de línea.
+	if isDataArrayRow(trimmed) {
+		return true
+	}
+
+	// Escalares sueltos: solo tienen dónde vivir dentro de un array.
+	if insideArray && (isScalarContinuation(trimmed) || isBooleanScalar(trimmed)) {
+		return true
+	}
+
 	return false
+}
+
+// isJSONPunctuationOnly reporta si trimmed se compone solo de delimitadores
+// JSON y espacios — las líneas que abren o cierran objetos y arrays.
+func isJSONPunctuationOnly(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	for _, r := range trimmed {
+		switch r {
+		case '{', '}', '[', ']', ',', ' ', '\t':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isJSONKeyLine reporta si trimmed abre con una cadena JSON completa seguida
+// de ":" — o sea, una clave de objeto. Lo que va después no se valida: puede
+// ser un escalar, el "{" de un objeto anidado, o el "[" de un array que
+// sigue en las líneas de abajo.
+func isJSONKeyLine(trimmed string) bool {
+	end := jsonStringEnd(trimmed)
+	if end == -1 {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(trimmed[end+1:]), ":")
+}
+
+// jsonStringEnd devuelve el índice de la comilla que cierra la cadena que
+// empieza en trimmed[0], o -1 si trimmed no abre con una cadena completa.
+// Consciente de escapes, igual que bracketDelta e isQuotedScalar.
+func jsonStringEnd(trimmed string) int {
+	if len(trimmed) < 2 || trimmed[0] != '"' {
+		return -1
+	}
+	escaped := false
+	for idx := 1; idx < len(trimmed); idx++ {
+		switch {
+		case escaped:
+			escaped = false
+		case trimmed[idx] == '\\':
+			escaped = true
+		case trimmed[idx] == '"':
+			return idx
+		}
+	}
+	return -1
+}
+
+// isBooleanScalar completa a isScalarContinuation, que cubre cadena, número
+// y null pero no los booleanos.
+func isBooleanScalar(trimmed string) bool {
+	s := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(trimmed), ","))
+	return s == "true" || s == "false"
 }
 
 // parseYAMLBlock extrae un bloque YAML completo
