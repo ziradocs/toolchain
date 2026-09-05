@@ -11,7 +11,6 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
-	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -501,21 +500,46 @@ func isLayoutName(value string) bool {
 // NADA vuelve a derivar estos anchors: no hay TOC ni xref del lado de las
 // presentaciones. En DocLang no se puede hacer lo mismo sin tocar a la vez
 // las ~7 re-derivaciones de document_html.go, que seguirían apuntando al
-// anchor sin sufijo; ese caso queda como issue aparte.
+// anchor sin sufijo; ese caso queda como issue aparte (#267).
 //
-// El anchor deduplicado se pasa como `explicitID` a buildHeadingElement, que
-// lo vuelve a correr por deriveAnchor. Es seguro porque la función es
-// idempotente sobre su propia salida: "details-2" ya está saneado y ya
-// empieza por letra, así que vuelve igual.
+// El prefijo "heading-" es DELIBERADO y no cosmético — hace tres cosas a la
+// vez, y las tres importan (hallazgo de code review, ronda 2):
+//
+//   - Garantiza que el id empiece por letra sin tocar deriveAnchor/
+//     SanitizeAnchor, que son compartidas con DocLang. La primera versión de
+//     este fix agregaba esa garantía ahí, y con eso migraba en silencio TODO
+//     anchor de DocLang que empezara por dígito (`#1-intro` → `#h-1-intro`),
+//     rompiendo enlaces externos a documentos ya publicados — un cambio real
+//     pero que nadie pidió. Un id que empieza por dígito es válido en
+//     HTML5 (a diferencia de HTML4) y funciona con `getElementById` y como
+//     fragmento de URL; lo único que no puede es usarse tal cual como
+//     selector CSS, y este toolchain no lo hace. No había necesidad de
+//     tocar DocLang para arreglar esto en SlideLang.
+//   - Evita la colisión con los ids ESTRUCTURALES que el generador de
+//     SlideLang ya emite: `slidelang-slide-{N}`, `slidelang-element-*-{N}-
+//     {M}`, `slidelang-metadata`, `slidelang-current-slide` (ver
+//     slidelang/internal/generator/template/base.go). Sin este prefijo,
+//     "### slidelang slide 0" deriva exactamente `id="slidelang-slide-0"` —
+//     que YA existe como el contenedor del primer slide — y html-validate
+//     lo reporta como `no-dup-id` (hallazgo de code review, ronda 2,
+//     reproducido tal cual). Como el prefijo es fijo y nunca empieza por
+//     "slidelang-", ningún encabezado puede producir ese string completo:
+//     "heading-slidelang-slide-0" ≠ "slidelang-slide-0".
+//   - Cubre el caso vacío (un encabezado que es solo un emoji) sin un
+//     fallback aparte: "heading-" + "" es simplemente "heading", ya no vacío
+//     y ya con letra inicial, y participa igual del conteo de abajo.
+//
+// El anchor final se pasa como `explicitID` a buildHeadingElement, que lo
+// vuelve a correr por deriveAnchor. Es seguro porque la función es
+// idempotente sobre su propia salida: "heading-details-2" ya está saneado,
+// así que vuelve igual.
 func (p *FlexParser) uniqueHeadingAnchor(text string) string {
 	base := deriveAnchor(text)
-	if base == "" {
-		// Un encabezado que es solo un emoji no deja anchor. El fallback
-		// entra acá y no solo en buildHeadingElement para que también
-		// participe del conteo: dos encabezados así dan "h" y "h-2", no dos
-		// "h".
-		base = renderer.AnchorFallback
+	prefixed := "heading"
+	if base != "" {
+		prefixed = "heading-" + base
 	}
+
 	if p.usedAnchors == nil {
 		p.usedAnchors = make(map[string]int)
 	}
@@ -523,11 +547,11 @@ func (p *FlexParser) uniqueHeadingAnchor(text string) string {
 	// Se prueba el anchor y, si ya se usó, se le va sumando sufijo hasta dar
 	// con uno libre. El bucle, y no un contador por base, porque el sufijo
 	// puede chocar con un anchor REAL: un deck con "### Details",
-	// "### Details 2" y otro "### Details" derivaría "details", "details-2"
-	// y —con el atajo— un segundo "details-2".
-	candidate := base
+	// "### Details 2" y otro "### Details" derivaría "heading-details",
+	// "heading-details-2" y —con el atajo— un segundo "heading-details-2".
+	candidate := prefixed
 	for n := 2; p.usedAnchors[candidate] > 0; n++ {
-		candidate = base + "-" + strconv.Itoa(n)
+		candidate = prefixed + "-" + strconv.Itoa(n)
 	}
 	p.usedAnchors[candidate]++
 	return candidate

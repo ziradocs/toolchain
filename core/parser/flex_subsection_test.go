@@ -76,7 +76,7 @@ func TestFlexParser_SubsectionHeadingDerivesAnchor(t *testing.T) {
 	astNode, _ := parseFlexBody(t, "## Slide", "", "### Resultados del Trimestre")
 
 	_, content := headingAt(t, &astNode.ContentBlocks[0], 0)
-	if !strings.Contains(content, `id="resultados-del-trimestre"`) {
+	if !strings.Contains(content, `id="heading-resultados-del-trimestre"`) {
 		t.Errorf("Content %q no trae el anchor derivado del texto", content)
 	}
 }
@@ -235,7 +235,7 @@ func TestFlexParser_SubsectionHeadingAnchorsAreUnique(t *testing.T) {
 	if len(ids) != 3 {
 		t.Fatalf("se esperaban 3 encabezados, hay %d", len(ids))
 	}
-	for i, want := range []string{`id="details"`, `id="details-2"`, `id="details-3"`} {
+	for i, want := range []string{`id="heading-details"`, `id="heading-details-2"`, `id="heading-details-3"`} {
 		if !strings.Contains(ids[i], want) {
 			t.Errorf("encabezado %d: %q no contiene %q", i, ids[i], want)
 		}
@@ -276,7 +276,7 @@ func TestFlexParser_SubsectionHeadingWithNoUsableCharactersFallsBack(t *testing.
 	if strings.Contains(content, `id=""`) {
 		t.Errorf("el encabezado quedó con id vacío: %q", content)
 	}
-	if !strings.Contains(content, `id="h"`) {
+	if !strings.Contains(content, `id="heading"`) {
 		t.Errorf("se esperaba el anchor de fallback en %q", content)
 	}
 }
@@ -286,7 +286,7 @@ func TestFlexParser_SubsectionHeadingAnchorStartsWithLetter(t *testing.T) {
 	astNode, _ := parseFlexBody(t, "## Slide", "", "### 1. Primer paso")
 
 	_, content := headingAt(t, &astNode.ContentBlocks[0], 0)
-	if !strings.Contains(content, `id="h-1-primer-paso"`) {
+	if !strings.Contains(content, `id="heading-1-primer-paso"`) {
 		t.Errorf("anchor inesperado en %q", content)
 	}
 }
@@ -315,6 +315,31 @@ func TestFlexParser_SubsectionHeadingGluedToPreviousParagraph(t *testing.T) {
 		}
 		if strings.Contains(te.Content, "###") {
 			t.Errorf("elemento %d se tragó el encabezado: %q", i, te.Content)
+		}
+	}
+}
+
+// Un encabezado cuyo texto deriva exactamente al id estructural que el
+// generador de SlideLang usa para el contenedor del slide
+// ("slidelang-slide-0") o para cualquier otro elemento
+// ("slidelang-element-*") no debe colisionar con ellos. El prefijo
+// "heading-" es lo que lo garantiza: ningún id estructural de SlideLang
+// empieza por "heading-", así que el string completo nunca puede coincidir
+// (code review, ronda 2, reproducido con html-validate → no-dup-id).
+func TestFlexParser_SubsectionHeadingAnchorDoesNotCollideWithGeneratorStructuralIDs(t *testing.T) {
+	for _, text := range []string{
+		"slidelang slide 0",
+		"slidelang element text 0 5",
+		"slidelang metadata",
+		"slidelang current slide",
+	} {
+		astNode, _ := parseFlexBody(t, "## Slide", "", "### "+text)
+		_, content := headingAt(t, &astNode.ContentBlocks[0], 0)
+		if strings.Contains(content, `id="slidelang-`) {
+			t.Errorf("%q derivó un id que empieza como un id estructural de SlideLang: %q", text, content)
+		}
+		if !strings.HasPrefix(content, `<h3 id="heading-`) {
+			t.Errorf("%q no llevó el prefijo heading-: %q", text, content)
 		}
 	}
 }

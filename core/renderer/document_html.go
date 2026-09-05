@@ -1761,17 +1761,6 @@ func DeriveAnchor(text string) string {
 	return SanitizeAnchor(strings.ToLower(strings.ReplaceAll(text, " ", "-")))
 }
 
-// AnchorFallback es el anchor a usar cuando DeriveAnchor no deja nada
-// utilizable — "### 🚀" no tiene un solo carácter que sobreviva, y `id=""`
-// es tan inválido como uno que empieza por dígito.
-//
-// Es una constante exportada y no un fallback dentro de DeriveAnchor porque
-// el vacío significa cosas distintas según quién pregunte: para un `id:`
-// DECLARADO por el autor es un error que hay que reportarle (DocLang strict
-// lo hace, "no usable characters"), y solo para un anchor DERIVADO —donde no
-// hay id que corregir— corresponde inventar uno. Quien deriva decide.
-const AnchorFallback = anchorFallbackPrefix
-
 // SanitizeAnchor limpia un anchor para usarlo en href/id.
 //
 // La lista de ReplaceAll es cosmética (quita puntuación que el filtro final
@@ -1805,50 +1794,7 @@ func SanitizeAnchor(anchor string) string {
 			cleaned.WriteRune(r)
 		}
 	}
-	return ensureAnchorStartsWithLetter(cleaned.String())
-}
-
-// anchorFallbackPrefix es lo que se antepone a un anchor que no empieza por
-// letra, y también el anchor entero cuando no queda nada que sanear.
-const anchorFallbackPrefix = "h"
-
-// ensureAnchorStartsWithLetter garantiza que el anchor sea usable como `id`
-// y como selector.
-//
-// Un encabezado "## 1. Primer paso" derivaba `id="1-primer-paso"`, y uno
-// que es solo un emoji derivaba `id=""`. Los dos son errores de
-// html-validate (`valid-id`) bajo el preset `recommended` que este repo usa
-// como gate, y el primero además NO es direccionable por CSS: `#1-primer-paso`
-// no es un selector válido, hay que escaparlo como `#\31 -primer-paso`. O
-// sea que el problema no es la opinión del linter, es que el ancla no sirve
-// para lo único que existe.
-//
-// El arreglo vive acá, en SanitizeAnchor, y no en cada llamador, porque por
-// acá pasan las DOS familias de anchor: los derivados de un texto
-// (DeriveAnchor) y los declarados a mano por el autor (`id:` en un SECTION
-// strict de DocLang) — un `id: "1-intro"` escrito a mano es igual de
-// inválido. Y como es el algoritmo único del toolchain, el `id` que embebe
-// el parser y el `href` que arma el TOC se mueven juntos por construcción:
-// los enlaces internos siguen funcionando sin coordinar nada.
-//
-// Es idempotente: la salida siempre empieza por letra, así que volver a
-// pasarla por acá no la cambia. Consecuencia a tener presente: un enlace
-// EXTERNO a "#1-intro" de un documento ya publicado deja de resolver, y
-// pasa a ser "#h-1-intro". No hay forma de arreglar el ancla sin moverla.
-func ensureAnchorStartsWithLetter(anchor string) string {
-	// El vacío se deja pasar A PROPÓSITO: un `id:` declarado a mano que se
-	// sanea hasta quedar vacío es un error que DocLang strict reporta
-	// ("no usable characters"), y avisarle al autor es mejor que inventarle
-	// un anchor. El caso derivado —un encabezado que es solo un emoji, donde
-	// no hay id que corregir— lo cubre DeriveAnchor, que sí pone el
-	// fallback.
-	if anchor == "" {
-		return ""
-	}
-	if c := anchor[0]; c >= 'a' && c <= 'z' {
-		return anchor
-	}
-	return anchorFallbackPrefix + "-" + anchor
+	return cleaned.String()
 }
 
 // addIDsToHeaders agrega IDs a los headers H2/H3 que no tienen ID para navegación TOC
