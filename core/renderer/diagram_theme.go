@@ -83,7 +83,7 @@ func (d DiagramThemeColors) MermaidThemeVariables() map[string]string {
 	}
 	vars := map[string]string{"fontFamily": mermaidDefaultFontFamily}
 	if d.FontFamily != "" {
-		vars["fontFamily"] = d.FontFamily
+		vars["fontFamily"] = sanitizeFontFamilyList(d.FontFamily)
 	}
 	set := func(value string, keys ...string) {
 		if value == "" {
@@ -102,6 +102,98 @@ func (d DiagramThemeColors) MermaidThemeVariables() map[string]string {
 	set(d.ClusterBG, "clusterBkg", "clusterBorder")
 	set(d.NoteBG, "noteBkgColor")
 	return vars
+}
+
+// safeFontIdentRe reconoce una secuencia de uno o más identificadores CSS
+// separados por espacio —"Inter", "Open Sans", "-apple-system"— que Mermaid
+// puede insertar SIN comillas sin que se corrompa. Deliberadamente NO acepta
+// un identificador que empiece con un dígito, ni uno que empiece con guion
+// seguido de dígito (`-1font`): ninguno de los dos es un <ident-token> CSS
+// válido.
+var safeFontIdentRe = regexp.MustCompile(`^-{0,2}[A-Za-z_][A-Za-z0-9_-]*(?:\s+-{0,2}[A-Za-z_][A-Za-z0-9_-]*)*$`)
+
+// splitFontFamilyList separa una lista `font-family` por comas de nivel
+// superior, respetando comillas: una coma DENTRO de un string CSS
+// (`"Weird, Font", sans-serif`) no es un separador.
+func splitFontFamilyList(raw string) []string {
+	var tokens []string
+	var b strings.Builder
+	var quote byte
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		switch {
+		case quote != 0:
+			b.WriteByte(c)
+			if c == '\\' && i+1 < len(raw) {
+				i++
+				b.WriteByte(raw[i])
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+			b.WriteByte(c)
+		case c == ',':
+			tokens = append(tokens, b.String())
+			b.Reset()
+		default:
+			b.WriteByte(c)
+		}
+	}
+	tokens = append(tokens, b.String())
+	return tokens
+}
+
+// sanitizeFontFamilyList repara el valor crudo de font-main —una lista
+// font-family separada por comas, tal como el autor del tema la escribió en
+// su CSS— para que CADA entrada sea CSS válido, sin cambiar nada que ya lo
+// fuera.
+//
+// Existe porque Mermaid inserta este valor CRUDO dentro de hojas de estilo
+// reales, y ninguna de las dos rutas por las que lo hace falla de forma
+// ruidosa. Verificado empíricamente contra el bundle pinneado (mermaid@10.9.6)
+// y contra Chromium directo, no asumido:
+//
+//   - `CSSStyleSheet.insertRule(":root { --mermaid-font-family: " + valor + "}")`
+//     para la custom property que Mermaid expone. Un apóstrofe sin comillas
+//     abre un string CSS sin cerrar que se traga el `}` que sigue —
+//     comprobado: el valor resultante de la custom property queda
+//     literalmente "O'Brien}" en vez de "O'Brien", con la llave incluida.
+//   - `elemento.style.setProperty("font-family", valor)`, que usa Mermaid
+//     para pintar cada nodo de texto. Este NO lanza excepción ante un valor
+//     inválido: lo ignora en silencio (`getPropertyValue` devuelve "" tras
+//     el intento) — comprobado con el mismo apóstrofe y con un identificador
+//     que empieza en guion+dígito ("-1Font").
+//
+// En los dos casos el resultado visible es el mismo: Mermaid "descarta" la
+// fuente declarada y cae a su fallback, sin ningún error que lo delate.
+//
+// La regla es "entre comillas SOLO si hace falta": una entrada que ya es un
+// identificador CSS válido se deja tal cual — indispensable para las
+// palabras clave genéricas (sans-serif, system-ui) y para el caso especial
+// -apple-system, que DEJAN de reconocerse si se entrecomillan (verificado:
+// quedan como texto literal buscando una fuente que no existe). Una entrada
+// que el autor ya escribió entre comillas se respeta sin tocar. Solo lo
+// demás se envuelve con cssEscapeString, que es válido para cualquier
+// contenido — apóstrofes incluidos, porque no hace falta escaparlos dentro
+// de un string CSS delimitado por comillas dobles.
+func sanitizeFontFamilyList(raw string) string {
+	tokens := splitFontFamilyList(raw)
+	out := make([]string, 0, len(tokens))
+	for _, tok := range tokens {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		if tok[0] == '"' || tok[0] == '\'' || safeFontIdentRe.MatchString(tok) {
+			out = append(out, tok)
+			continue
+		}
+		out = append(out, cssEscapeString(tok))
+	}
+	return strings.Join(out, ", ")
 }
 
 // MermaidExtras devuelve los MermaidExtra que este tema aporta a

@@ -117,6 +117,16 @@ const mermaidFontLoadTimeoutMs = 3000
 // fija— y no solo la propiedad del objeto. mermaid.run() existe en esa
 // versión y su querySelector por defecto ya es ".mermaid".
 //
+// Promise.allSettled y no Promise.all: con dos o más fuentes, si UNA se
+// rechaza (data: URI corrupta, bytes que no son un formato de fuente válido)
+// Promise.all se resuelve con el rechazo ni bien esa promesa se asienta, SIN
+// esperar a las demás — es contrato de ECMAScript, no un detalle de
+// Chromium. El .catch().then(draw) de abajo dispararía draw() de inmediato,
+// adelantándose a fuentes BUENAS que todavía estaban cargando. allSettled
+// espera a que TODAS se asienten (éxito o fracaso da igual) antes de
+// resolver, y nunca rechaza — degrada una fuente rota sin arrastrar a las
+// demás.
+//
 // afterRender es la señal de "ya terminé" que espera el caller (el PNG la
 // usa, el SVG no la necesita porque chromedp espera al nodo svg). En el
 // camino con fuentes se mueve DENTRO del then() de run(): dejarla al nivel de
@@ -139,9 +149,9 @@ func mermaidBootstrapJS(theme renderer.DiagramThemeColors, afterRender string) s
             }
             function draw() { mermaid.run().catch(function () {}).then(done); }
             if (!document.fonts) { draw(); return; }
-            var loaded = Promise.all(faces.map(function (f) { return document.fonts.load(f); }));
+            var loaded = Promise.allSettled(faces.map(function (f) { return document.fonts.load(f); }));
             var deadline = new Promise(function (r) { setTimeout(r, %d); });
-            Promise.race([loaded, deadline]).catch(function () {}).then(draw);
+            Promise.race([loaded, deadline]).then(draw);
         })();
 `, renderer.MermaidInitConfigJS(false, theme.MermaidExtras()...), faces, afterRender, mermaidFontLoadTimeoutMs)
 }
@@ -152,6 +162,64 @@ const mermaidRenderCompleteJS = `        // Esperar a que Mermaid termine de ren
             document.getElementById('renderComplete').setAttribute('data-ready', 'true');
         }, 1500);
 `
+
+// firstUnquotedByte devuelve el índice de la primera aparición de target en
+// s que NO está dentro de un atributo entrecomillado (comilla simple o
+// doble) — o -1 si no aparece. HTML no exige escapar `>` dentro del VALOR de
+// un atributo, así que buscar el primer `>` a secas podría cortar dentro de
+// la etiqueta si algún atributo lo trajera.
+func firstUnquotedByte(s string, target byte) int {
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
+		case target:
+			return i
+		}
+	}
+	return -1
+}
+
+// embedFontFacesInSVG inserta las reglas @font-face del tema como el primer
+// hijo del <svg> extraído, para que el ARCHIVO guardado sea autocontenido.
+//
+// Sin esto, el SVG que RenderMermaidToSVGWithTheme devuelve carga con la
+// fuente correcta SOLO porque chromedp lo capturó desde una página que tenía
+// el @font-face en su <head> — pero ese <head> nunca viaja con el SVG. En
+// offline-assets el archivo se sirve vía <img>, un contexto que NO hereda
+// ningún <style> de un documento padre (ninguno: ni el del deck ni el de la
+// página temporal); en offline-inline el SVG puede acabar viendo la fuente
+// del documento final, pero para entonces Mermaid ya calculó nodos, wrapping
+// y aristas con las métricas del fallback, así que el layout ya quedó mal
+// aunque el glifo se pinte con la fuente correcta.
+//
+// Verificado empíricamente que esto SÍ resuelve el caso <img>: a diferencia
+// de una fuente referenciada por url() de red (bloqueada en el contexto
+// "imagen" de un <img>), una fuente embebida como data: URI dentro del
+// propio archivo SVG no depende de ninguna carga externa, y Chromium la
+// aplica igual.
+//
+// Zero value de theme.FontFaceCSS() es "" — el SVG sale byte por byte igual
+// al de siempre.
+func embedFontFacesInSVG(svg string, theme renderer.DiagramThemeColors) string {
+	css := theme.FontFaceCSS()
+	if css == "" {
+		return svg
+	}
+	i := firstUnquotedByte(svg, '>')
+	if i < 0 {
+		return svg
+	}
+	return svg[:i+1] + "<style>" + css + "</style>" + svg[i+1:]
+}
 
 // buildMermaidSVGHTML arma la página temporal usada para rasterizar un
 // diagrama Mermaid a SVG. El contenido es dato del usuario: se HTML-escapa
@@ -749,6 +817,8 @@ func (r *ChromiumRenderer) RenderMermaidToSVGWithTheme(ctx context.Context, merm
 	if err != nil {
 		return "", fmt.Errorf("mermaid rendering failed: %w", err)
 	}
+
+	svgContent = embedFontFacesInSVG(svgContent, theme)
 
 	r.logger.Info("MERMAID", "✅ SVG rendered (%.2f KB)", float64(len(svgContent))/1024)
 	return svgContent, nil

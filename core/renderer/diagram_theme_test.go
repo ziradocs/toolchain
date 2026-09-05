@@ -328,3 +328,115 @@ func TestCacheFingerprint_DigestsFontBytes(t *testing.T) {
 		t.Error("dos colores distintos deben dar fingerprints distintos")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// sanitizeFontFamilyList — font-main real que Mermaid, verificado, descarta
+// ---------------------------------------------------------------------------
+
+// TestSanitizeFontFamilyList_LeavesSafeIdentsUnquoted es la mitad
+// "no rompas lo que ya funcionaba" del arreglo: un nombre simple no gana
+// comillas que no tenía, y las palabras clave genéricas (sans-serif) y el
+// caso especial -apple-system se dejan intactos — AMBOS dejan de
+// reconocerse si se entrecomillan (verificado contra Chromium: entrecomillado
+// pasan a buscar una fuente instalada literalmente llamada así).
+func TestSanitizeFontFamilyList_LeavesSafeIdentsUnquoted(t *testing.T) {
+	for _, raw := range []string{
+		"Inter",
+		"arial",
+		"Open Sans",
+		"-apple-system",
+		"sans-serif",
+		"system-ui",
+		"-apple-system, BlinkMacSystemFont, sans-serif",
+		`"Segoe UI", Roboto, sans-serif`,
+	} {
+		got := sanitizeFontFamilyList(raw)
+		want := raw // sin comas de más que reordenar espacios: mismo contenido
+		// normalizamos solo el espaciado alrededor de comas para comparar,
+		// ya que el join siempre usa ", ".
+		wantNorm := strings.Join(func() []string {
+			var out []string
+			for _, t := range splitFontFamilyList(raw) {
+				out = append(out, strings.TrimSpace(t))
+			}
+			return out
+		}(), ", ")
+		if got != wantNorm {
+			t.Errorf("sanitizeFontFamilyList(%q) = %q, want %q (raw: %q)", raw, got, wantNorm, want)
+		}
+	}
+}
+
+// TestSanitizeFontFamilyList_QuotesWhatMermaidWouldDiscard es la mitad
+// positiva: cada caso de acá es un valor real que, sin entrecomillar,
+// Mermaid descarta en silencio. Verificado empíricamente contra Chromium
+// (no asumido): un apóstrofe sin comillas corrompe el valor de la custom
+// property --mermaid-font-family que Mermaid arma vía insertRule (se traga
+// la `}` de cierre), y `element.style.setProperty("font-family", valor)`
+// —la otra ruta interna de Mermaid— ignora en silencio un identificador que
+// empieza con guion seguido de dígito o con un dígito.
+func TestSanitizeFontFamilyList_QuotesWhatMermaidWouldDiscard(t *testing.T) {
+	casos := map[string]string{
+		"apóstrofe":               "O'Brien Sans",
+		"guion seguido de dígito": "-1Font",
+		"empieza con dígito":      "123Font",
+		"comilla doble suelta":    `Weird"Name`,
+	}
+	for nombre, raw := range casos {
+		got := sanitizeFontFamilyList(raw)
+		if len(got) < 2 || got[0] != '"' || got[len(got)-1] != '"' {
+			t.Errorf("%s (%q): esperaba quedar entrecomillado, dio %q", nombre, raw, got)
+		}
+		// Y el contenido original sigue ahí, solo protegido por las comillas
+		// (cssEscapeString escapa \" y \\, pero un apóstrofe no necesita
+		// escape dentro de un string delimitado por comillas dobles).
+		if !strings.Contains(got, "Sans") && nombre == "apóstrofe" {
+			t.Errorf("se perdió contenido: %q -> %q", raw, got)
+		}
+	}
+}
+
+// TestSanitizeFontFamilyList_RespectsAuthorQuoting: una entrada que el autor
+// YA escribió entre comillas —el caso común documentado en ResolveFontMain,
+// un font-main con fallback tipo `'Inter', sans-serif`— se deja tal cual,
+// sin volver a escaparla ni tocar su contenido.
+func TestSanitizeFontFamilyList_RespectsAuthorQuoting(t *testing.T) {
+	got := sanitizeFontFamilyList(`"L'Oreal Display", sans-serif`)
+	want := `"L'Oreal Display", sans-serif`
+	if got != want {
+		t.Errorf("sanitizeFontFamilyList = %q, want %q (no debía tocar una entrada ya entrecomillada)", got, want)
+	}
+}
+
+// TestSanitizeFontFamilyList_CommaInsideQuotesIsNotASeparator cubre el
+// splitter: una coma DENTRO de un string CSS no separa la lista.
+func TestSanitizeFontFamilyList_CommaInsideQuotesIsNotASeparator(t *testing.T) {
+	tokens := splitFontFamilyList(`"Weird, Font Name", sans-serif`)
+	if len(tokens) != 2 {
+		t.Fatalf("esperaba 2 entradas, dio %d: %#v", len(tokens), tokens)
+	}
+	if strings.TrimSpace(tokens[0]) != `"Weird, Font Name"` {
+		t.Errorf("la primera entrada perdió la coma interna: %q", tokens[0])
+	}
+}
+
+// TestSanitizeFontFamilyList_SkipsEmptyEntries: una lista con coma colgante
+// (`"Inter,"` o `"Inter, ,sans-serif"`) no debe producir un token vacío —el
+// join uniría con ", " y dejaría comas dobles.
+func TestSanitizeFontFamilyList_SkipsEmptyEntries(t *testing.T) {
+	got := sanitizeFontFamilyList("Inter, , sans-serif,")
+	if got != "Inter, sans-serif" {
+		t.Errorf("sanitizeFontFamilyList = %q, want %q", got, "Inter, sans-serif")
+	}
+}
+
+// TestMermaidThemeVariables_FontFamilyGoesThroughSanitizer fija que
+// MermaidThemeVariables usa sanitizeFontFamilyList y no el valor crudo — la
+// consecuencia real, al nivel del mapa que de verdad llega a
+// mermaid.initialize().
+func TestMermaidThemeVariables_FontFamilyGoesThroughSanitizer(t *testing.T) {
+	vars := DiagramThemeColors{FontFamily: "O'Brien Sans"}.MermaidThemeVariables()
+	if vars["fontFamily"] != `"O'Brien Sans"` {
+		t.Errorf(`themeVariables["fontFamily"] = %q, want %q`, vars["fontFamily"], `"O'Brien Sans"`)
+	}
+}
