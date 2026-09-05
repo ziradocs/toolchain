@@ -1,8 +1,9 @@
 # ZiraDocs — Flex Mode (`flex` / `flex-full` / `auto`)
 
-Flex mode is Markdown-like: `#`/`##` headings, `-`/`*`/`1.` lists, fenced
-code, pipe tables, `> ` quotes, plus ZiraDocs's own tags for charts,
-mermaid, maps, special blocks, and directives. Anything that doesn't match
+Flex mode is Markdown-like: `#`/`##` headings, `###`..`######` subsection
+headings inside a slide, `-`/`*`/`1.` lists, fenced code, pipe tables,
+`> ` quotes, plus ZiraDocs's own tags for charts, mermaid, maps, special
+blocks, and directives. Anything that doesn't match
 a known element falls through to plain text — very little is a hard parse
 error.
 
@@ -45,6 +46,9 @@ Intro paragraph.
   linter runs.
 - Without a `layout:` block, a slide is typed `title` (the deck's first
   `# ` heading only) or `content` (everything else).
+- `###` through `######` are **subsection headings inside the current
+  slide**, not new slides: they render as `<h3>`..`<h6>` with an anchor
+  derived from the text. Only `#` and `##` affect slide structure.
 - **To type a slide, put a `layout:` block right before its heading:**
 
   ```

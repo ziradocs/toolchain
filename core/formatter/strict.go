@@ -101,7 +101,7 @@ func formatStrictElement(el ast.Element) (string, error) {
 
 	switch e := el.(type) {
 	case *ast.TextElement:
-		body = formatStrictText(e)
+		body, err = formatStrictText(e)
 	case *ast.PointsElement:
 		body = formatStrictPoints(e)
 	case *ast.CodeElement:
@@ -151,8 +151,42 @@ func formatStrictElement(el ast.Element) (string, error) {
 	return strings.TrimRight(indent(body, 2), "\n") + "\n", nil
 }
 
-func formatStrictText(e *ast.TextElement) string {
-	return "TEXT\n" + indent(e.Content, 2)
+// formatStrictText serializa un TextElement como bloque TEXT.
+//
+// El caso IsRawHTML es el encabezado de subsección que el dialecto flex de
+// SlideLang produce desde `###`..`######` (issue #194). El dialecto strict
+// no tiene forma de escribir un encabezado dentro de un slide (issue #259),
+// así que se re-emite la línea Markdown de origen —"### Foo"— dentro del
+// TEXT, reusando el mismo formatSubsectionHeading que DocLang.
+//
+// Dos consecuencias, las dos verificadas contra los 74 ejemplos del repo:
+//
+//   - El texto no se pierde, pero deja de ir PEGADO al párrafo vecino. Antes
+//     de #194 la línea "### Foo" era un TextElement común, y TextParser la
+//     fusionaba con las líneas de alrededor: en 8 ejemplos el fmt emitía un
+//     solo TEXT con el encabezado y el párrafo siguiente en la MISMA línea
+//     (header_test.slidelang llegaba a juntar los niveles 3, 4, 5 y 6 y su
+//     prosa en una). Ahora cada encabezado es su propio elemento. La salida
+//     cambia; el contenido no.
+//   - El énfasis inline SÍ se pierde: "### **Foo**" vuelve como "### Foo".
+//     buildHeadingElement ya convirtió "**Foo**" en <strong>Foo</strong> y
+//     formatSubsectionHeading corre stripTags. Es la misma pérdida que
+//     DocLang documenta como la única de su formatter (ver
+//     formatSubsectionHeading), y afecta a 21 encabezados en 5 ejemplos.
+//     Es reversible en principio —ProcessInlineMarkdownSecureLine escapa el
+//     HTML ANTES de aplicar Markdown, así que un <strong> en la salida solo
+//     puede venir de "**"— pero escribir esa inversa es trabajo aparte:
+//     issue #260.
+func formatStrictText(e *ast.TextElement) (string, error) {
+	content := e.Content
+	if e.IsRawHTML {
+		md, err := formatSubsectionHeading(e)
+		if err != nil {
+			return "", err
+		}
+		content = md
+	}
+	return "TEXT\n" + indent(content, 2), nil
 }
 
 func formatStrictPoints(e *ast.PointsElement) string {

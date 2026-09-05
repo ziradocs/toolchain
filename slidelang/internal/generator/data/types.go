@@ -171,10 +171,30 @@ type SlideHeaderFooterData struct {
 
 // ElementData representa un elemento para el template
 type ElementData struct {
-	Type     string
-	Content  string
-	Language string
-	Source   string
+	Type string
+	// HeadingHTML lleva el `<hN id="…">…</hN>` ya construido de un
+	// encabezado de subsección (`###`..`######` en flex, issue #194).
+	// Vacío para cualquier otro TextElement.
+	//
+	// Es htmltemplate.HTML —o sea, se interpola sin escapar— porque el
+	// contenido NO viene del autor en crudo: parser.buildHeadingElement ya
+	// escapó el texto y solo dejó las tags inline que él mismo generó, y
+	// acá encima se pasa por renderer.ProcessVariablesEscapeValues, que
+	// escapa el valor de cada {{variable}} sustituida sin tocar el HTML
+	// que lo rodea. Es la misma ruta que usa populateElementHTML en core
+	// para el mismo elemento (renderer/populate_inline_html.go).
+	//
+	// Va en su propio campo en vez de reusar Content porque el template
+	// tiene que decidir entre envolver en <p> (texto) o no (encabezado):
+	// un <h3> dentro de un <p> es HTML inválido.
+	HeadingHTML htmltemplate.HTML
+	// HeadingLevel es el nivel 3-6 del encabezado, para que un tema pueda
+	// distinguirlos sin re-parsear el HTML (mismo motivo que ast.
+	// TextElement.Level, issue #22).
+	HeadingLevel int
+	Content      string
+	Language     string
+	Source       string
 	// InlinedSource (issue #167) lleva la fuente LOCAL de una imagen ya
 	// inlineada como data: URI, cuando aplica — separado de Source
 	// deliberadamente: Source es un string plano porque QuoteElement

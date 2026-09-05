@@ -33,7 +33,7 @@ parser doesn't have one:
 | Target | Structure | AI normalization | Validation tooling |
 |---|---|---|---|
 | **ZiraDocs strict** | Rigid `SLIDE <type>` keyword blocks | Never runs | `slidelang build --lint-only`, MCP `lint`/`get_ast` |
-| **ZiraDocs flex** | Markdown-like, `#`/`##`/`---` | Always on (via the CLI) | Same as above |
+| **ZiraDocs flex** | Markdown-like: `#`/`##` open a slide, `###`+ are subsections inside it, `---` separates | Always on (via the CLI) | Same as above |
 | **DocLang flex** | Markdown section hierarchy (`#`/`##`/`###`) | Always on (via the CLI) | **None** |
 
 The DocLang parser always uses its flex/section grammar regardless of any

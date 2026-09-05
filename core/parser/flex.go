@@ -5,6 +5,7 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -28,6 +29,9 @@ type FlexParser struct {
 	// slide son DOS llamadas distintas a parseContentBlock: la primera
 	// consume la metadata y devuelve nil, la segunda arma el slide.
 	pendingLayout string
+	// usedAnchors cuenta cuántas veces se emitió cada anchor de encabezado
+	// en ESTE documento, para desduplicarlos (ver uniqueHeadingAnchor).
+	usedAnchors map[string]int
 	// reportedInertKeys recuerda por qué llaves inertes ya se avisó, para
 	// avisar UNA vez por documento y no una por slide. Sin esto, un deck que
 	// repite `header:`/`footer:` en cada bloque sacaba una decena de avisos
@@ -302,6 +306,26 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 			continue
 		}
 
+		// `###`..`######` es un encabezado de SUBSECCIÓN dentro del slide
+		// (issue #194). `# ` y `## ` no llegan acá: los intercepta el
+		// bloque de arriba, donde son frontera de slide y subtítulo
+		// respectivamente — por eso el predicado empieza en 3 y no copia
+		// tal cual el isSubsectionHeader de DocumentFlexParser, que sí
+		// cuenta `##` (en un documento no hay slides que delimitar).
+		//
+		// Va DESPUÉS del salto de líneas en blanco y ANTES de
+		// registry.Parse: si el registry corre primero, TextParser reclama
+		// la línea como párrafo y el heading se pierde. Un `###` dentro de
+		// un fence o de un `:::` no pasa por acá — CodeParser y
+		// SpecialBlockParser consumen el bloque entero de una sola vez.
+		if level := flexSubsectionLevel(nextLine); level > 0 {
+			text := strings.TrimSpace(nextLine[level:])
+			block.Elements = append(block.Elements,
+				buildHeadingElement(text, level, p.currentLine, p.uniqueHeadingAnchor(text)))
+			p.currentLine++
+			continue
+		}
+
 		// Update context
 		ctx.CurrentLine = p.currentLine
 
@@ -462,6 +486,107 @@ func isLayoutName(value string) bool {
 // parser, así que se repite acá — corta, y con el puntero para que se
 // mantengan sincronizadas.
 //
+// uniqueHeadingAnchor devuelve el anchor de un encabezado garantizando que
+// no se repita dentro del documento: el segundo `### Details` de un deck ya
+// no produce un `id="details"` duplicado, sino `details-2`.
+//
+// Dos ids iguales en una página son un error de html-validate (`no-dup-id`),
+// y en la práctica rompen la navegación: `#details` resuelve siempre al
+// primero, así que el segundo es inalcanzable.
+//
+// La desduplicación vive en el parser —y no en el renderer— porque acá el
+// `id` queda dentro del AST, así que lo que emite el HTML y lo que reporta
+// `--format json` no pueden divergir. Eso es viable en SlideLang porque
+// NADA vuelve a derivar estos anchors: no hay TOC ni xref del lado de las
+// presentaciones. En DocLang no se puede hacer lo mismo sin tocar a la vez
+// las ~7 re-derivaciones de document_html.go, que seguirían apuntando al
+// anchor sin sufijo; ese caso queda como issue aparte (#267).
+//
+// El prefijo "heading-" es DELIBERADO y no cosmético — hace tres cosas a la
+// vez, y las tres importan (hallazgo de code review, ronda 2):
+//
+//   - Garantiza que el id empiece por letra sin tocar deriveAnchor/
+//     SanitizeAnchor, que son compartidas con DocLang. La primera versión de
+//     este fix agregaba esa garantía ahí, y con eso migraba en silencio TODO
+//     anchor de DocLang que empezara por dígito (`#1-intro` → `#h-1-intro`),
+//     rompiendo enlaces externos a documentos ya publicados — un cambio real
+//     pero que nadie pidió. Un id que empieza por dígito es válido en
+//     HTML5 (a diferencia de HTML4) y funciona con `getElementById` y como
+//     fragmento de URL; lo único que no puede es usarse tal cual como
+//     selector CSS, y este toolchain no lo hace. No había necesidad de
+//     tocar DocLang para arreglar esto en SlideLang.
+//   - Evita la colisión con los ids ESTRUCTURALES que el generador de
+//     SlideLang ya emite: `slidelang-slide-{N}`, `slidelang-element-*-{N}-
+//     {M}`, `slidelang-metadata`, `slidelang-current-slide` (ver
+//     slidelang/internal/generator/template/base.go). Sin este prefijo,
+//     "### slidelang slide 0" deriva exactamente `id="slidelang-slide-0"` —
+//     que YA existe como el contenedor del primer slide — y html-validate
+//     lo reporta como `no-dup-id` (hallazgo de code review, ronda 2,
+//     reproducido tal cual). Como el prefijo es fijo y nunca empieza por
+//     "slidelang-", ningún encabezado puede producir ese string completo:
+//     "heading-slidelang-slide-0" ≠ "slidelang-slide-0".
+//   - Cubre el caso vacío (un encabezado que es solo un emoji) sin un
+//     fallback aparte: "heading-" + "" es simplemente "heading", ya no vacío
+//     y ya con letra inicial, y participa igual del conteo de abajo.
+//
+// El anchor final se pasa como `explicitID` a buildHeadingElement, que lo
+// vuelve a correr por deriveAnchor. Es seguro porque la función es
+// idempotente sobre su propia salida: "heading-details-2" ya está saneado,
+// así que vuelve igual.
+func (p *FlexParser) uniqueHeadingAnchor(text string) string {
+	base := deriveAnchor(text)
+	prefixed := "heading"
+	if base != "" {
+		prefixed = "heading-" + base
+	}
+
+	if p.usedAnchors == nil {
+		p.usedAnchors = make(map[string]int)
+	}
+
+	// Se prueba el anchor y, si ya se usó, se le va sumando sufijo hasta dar
+	// con uno libre. El bucle, y no un contador por base, porque el sufijo
+	// puede chocar con un anchor REAL: un deck con "### Details",
+	// "### Details 2" y otro "### Details" derivaría "heading-details",
+	// "heading-details-2" y —con el atajo— un segundo "heading-details-2".
+	candidate := prefixed
+	for n := 2; p.usedAnchors[candidate] > 0; n++ {
+		candidate = prefixed + "-" + strconv.Itoa(n)
+	}
+	p.usedAnchors[candidate]++
+	return candidate
+}
+
+// flexSubsectionLevel devuelve el nivel (3 a 6) si line es un encabezado de
+// subsección Markdown, y 0 si no lo es (issue #194).
+//
+// Empieza en 3 a propósito: en un slide, `# ` abre un slide nuevo y `## ` es
+// frontera o subtítulo, y las dos las resuelve el loop de parseContentBlock
+// antes de llegar acá. Termina en 6 porque Markdown tampoco reconoce más:
+// `####### x` (siete) es un párrafo, y como tal cae al registry igual que
+// hoy.
+//
+// Exige espacio o tab después de los `#` y algo de texto después: `###` a
+// secas, o `###foo`, no son encabezados — el primero es una línea suelta y
+// el segundo bien podría ser un hashtag o un ancla escrita a mano. En los
+// dos casos la línea sigue su curso hacia el registry.
+func flexSubsectionLevel(line string) int {
+	level := 0
+	for level < len(line) && line[level] == '#' {
+		level++
+	}
+	if level < 3 || level > 6 || level >= len(line) {
+		return 0
+	}
+	if line[level] != ' ' && line[level] != '\t' {
+		return 0
+	}
+	if strings.TrimSpace(line[level:]) == "" {
+		return 0
+	}
+	return level
+}
+
 // slidelang tiene su propia versión más ancha (config.IsSlideTitle, que suma
 // "cover" e "intro" para elegir plantilla). No se comparte porque core no
 // puede importar slidelang; la diferencia es deliberada: acá la pregunta es
