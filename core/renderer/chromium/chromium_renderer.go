@@ -209,6 +209,18 @@ func firstUnquotedByte(s string, target byte) int {
 //
 // Zero value de theme.FontFaceCSS() es "" — el SVG sale byte por byte igual
 // al de siempre.
+//
+// El CSS va envuelto en CDATA: el SVG extraído es XML de verdad (a
+// diferencia del <style> HTML de la página temporal, cuyo escape de
+// cssEscapeString apunta a OTRO riesgo — que `</style` cierre el bloque de
+// texto crudo). Un nombre de familia con un `&` sin escapar — CSS válido,
+// cssEscapeString no lo toca porque no hace falta escaparlo para CSS — deja
+// de ser XML bien formado, y la consecuencia NO es una degradación menor:
+// comprobado en Chromium real que un <img> cuyo SVG trae un `&` crudo
+// simplemente NO CARGA, período — se pierde el diagrama entero, no solo la
+// fuente. CDATA acepta `&`, `<` y `>` literales sin escapar; solo la
+// secuencia `]]>` no puede aparecer dentro, y wrapCDATA la parte en dos
+// secciones si por algún motivo apareciera.
 func embedFontFacesInSVG(svg string, theme renderer.DiagramThemeColors) string {
 	css := theme.FontFaceCSS()
 	if css == "" {
@@ -218,7 +230,19 @@ func embedFontFacesInSVG(svg string, theme renderer.DiagramThemeColors) string {
 	if i < 0 {
 		return svg
 	}
-	return svg[:i+1] + "<style>" + css + "</style>" + svg[i+1:]
+	return svg[:i+1] + "<style>" + wrapCDATA(css) + "</style>" + svg[i+1:]
+}
+
+// wrapCDATA envuelve s en una sección CDATA de XML. `]]>` es la única
+// secuencia que CDATA no puede contener; en la práctica nunca debería
+// aparecer en CSS de @font-face (el base64 de una fuente usa un alfabeto sin
+// '<' '>' '&' ']', y family/weight/style ya pasaron por sus propios
+// validadores), pero esta guarda no depende de esa suposición: parte
+// cualquier aparición en dos secciones CDATA adyacentes, la técnica estándar
+// para escapar `]]>` dentro de CDATA.
+func wrapCDATA(s string) string {
+	escaped := strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+	return "<![CDATA[" + escaped + "]]>"
 }
 
 // buildMermaidSVGHTML arma la página temporal usada para rasterizar un

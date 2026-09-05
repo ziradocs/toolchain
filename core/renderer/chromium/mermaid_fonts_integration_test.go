@@ -10,7 +10,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strconv"
@@ -499,4 +501,105 @@ document.fonts.load = function (spec) {
 		t.Fatal("mermaid.run() nunca se llamó dentro del tiempo de espera")
 	}
 	return *ranAfterMs
+}
+
+// ---------------------------------------------------------------------------
+// Tercera ronda: el CSS embebido no se serializaba como XML
+// ---------------------------------------------------------------------------
+
+// TestEmbedFontFacesInSVG_AmpersandIsWellFormedXML es el hallazgo "el CSS
+// embebido no se serializa como XML". Un nombre de familia con `&` es CSS
+// perfectamente válido —cssEscapeString no lo toca porque no hace falta
+// escaparlo para CSS— pero insertado crudo dentro de un <style> de un
+// documento XML de verdad (el SVG extraído, a diferencia del <style> HTML de
+// la página temporal) deja de ser XML bien formado.
+//
+// Se verifica con encoding/xml, que decodifica el documento completo token
+// por token: si CUALQUIER parte no es XML bien formado, Decode falla. No es
+// una aproximación — un decoder XML real, no una heurística de string.
+func TestEmbedFontFacesInSVG_AmpersandIsWellFormedXML(t *testing.T) {
+	theme := renderer.DiagramThemeColors{Fonts: []renderer.DiagramFontFace{
+		{Family: `AT&T Sans <Special> "Edition"`, Src: "data:font/woff2;base64,QUJD"},
+	}}
+	svg := embedFontFacesInSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>`, theme)
+
+	if !strings.Contains(svg, "AT&T Sans") {
+		t.Fatalf("el nombre de familia no llegó al SVG:\n%s", svg)
+	}
+
+	dec := xml.NewDecoder(strings.NewReader(svg))
+	for {
+		_, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("el SVG no es XML bien formado: %v\n%s", err, svg)
+		}
+	}
+}
+
+// TestEmbedFontFacesInSVG_NegativeControl_RawAmpersandBreaksXML es el control
+// negativo: sin CDATA (la versión previa a este arreglo), el mismo tema
+// SÍ debe romper el XML — o el test de arriba no estaría detectando nada.
+func TestEmbedFontFacesInSVG_NegativeControl_RawAmpersandBreaksXML(t *testing.T) {
+	theme := renderer.DiagramThemeColors{Fonts: []renderer.DiagramFontFace{
+		{Family: "AT&T Sans", Src: "data:font/woff2;base64,QUJD"},
+	}}
+	css := theme.FontFaceCSS()
+	svgRoto := `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><style>` + css + `</style></svg>`
+
+	dec := xml.NewDecoder(strings.NewReader(svgRoto))
+	var sawError bool
+	for {
+		_, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			sawError = true
+			break
+		}
+	}
+	if !sawError {
+		t.Fatal("la reconstrucción sin CDATA debía romper el XML, y no lo hizo — el control negativo no detecta nada")
+	}
+}
+
+// TestRenderMermaidToSVGWithTheme_AmpersandFamilyStillLoadsAsImg es la
+// consecuencia real y grave del hallazgo, verificada en Chromium de verdad:
+// antes del arreglo, un <img> cuyo SVG trae un & crudo NO CARGA — se pierde
+// el diagrama completo, no solo la fuente (comprobado fuera de esta suite,
+// vía herramienta de navegador, con DOMParser e <img> reales). Con CDATA
+// tiene que cargar Y aplicar la fuente, igual que los casos sin `&`.
+func TestRenderMermaidToSVGWithTheme_AmpersandFamilyStillLoadsAsImg(t *testing.T) {
+	src := probeMonoFontDataURI(t)
+	const familia = "Zira & Probe Mono"
+	theme := renderer.DiagramThemeColors{Fonts: []renderer.DiagramFontFace{{Family: familia, Src: src}}}
+	const label = "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"
+
+	// La regla que aplica la familia al <text> también trae un '&' crudo, y
+	// se envuelve en su PROPIO CDATA — a propósito, para que un fallo de
+	// well-formedness en el harness del test no se confunda con el hallazgo
+	// bajo prueba, que es específicamente sobre embedFontFacesInSVG.
+	textStyle := `<style><![CDATA[text { font-family: "` + familia + `"; font-size: 24px; }]]></style>`
+	base := `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="100">` + textStyle +
+		`<text x="5" y="50">` + label + `</text></svg>`
+
+	r := newTestChromiumRenderer(t)
+	// El @font-face lo arma FontFaceCSS() y lo inserta embedFontFacesInSVG
+	// —las dos funciones de producción bajo prueba— no un string a mano.
+	conFuente := embedFontFacesInSVG(base, theme)
+	sinFuente := embedFontFacesInSVG(base, renderer.DiagramThemeColors{}) // zero value: no-op, byte por byte igual a base
+
+	anchoConFuente := darkPixelExtentOfSVGAsImg(t, r, conFuente)
+	anchoSinFuente := darkPixelExtentOfSVGAsImg(t, r, sinFuente)
+	t.Logf("familia con '&': ancho con @font-face=%d, sin @font-face=%d", anchoConFuente, anchoSinFuente)
+
+	if anchoConFuente == 0 {
+		t.Fatal("el <img> no cargó en absoluto: el & crudo debe haber roto el XML")
+	}
+	if anchoConFuente <= anchoSinFuente {
+		t.Errorf("el <img> cargó pero no aplicó la fuente: con=%d sin=%d", anchoConFuente, anchoSinFuente)
+	}
 }
