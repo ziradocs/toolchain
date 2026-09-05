@@ -38,8 +38,10 @@ currently build.
   The first `#` becomes the document's title section; every subsequent `#`
   starts a new top-level section.
 - `##` / `###` do **not** start new sections — they become nested heading
-  elements (`<h2>`/`<h3>`) *inside* the current section. This is the
-  opposite of ZiraDocs flex mode, where every `##` can start new content.
+  elements (`<h2>`/`<h3>`) *inside* the current section. The difference with
+  SlideLang's flex mode is only `##`: there it starts a new slide, because a
+  slide needs a boundary and a document section doesn't. `###` and deeper
+  behave the same in both — nested headings inside the current block.
 - A bare `---` line is treated as an ignorable separator (harmless, but
   unnecessary — you don't need slide-style `---` separators in DocLang).
 

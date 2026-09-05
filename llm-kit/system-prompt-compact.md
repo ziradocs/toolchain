@@ -10,7 +10,8 @@ Purpose: generate valid `.slidelang` (presentations) and `.doclang`
    normalization ever runs — exact syntax required.
 2. **ZiraDocs flex** (`mode: flex`/`flex-full`/`auto`; `flex-ai` still
    accepted as a deprecated alias for `flex-full`): Markdown-like,
-   `#`/`##` headings, `---` slide separators. AI normalizer always runs
+   `#`/`##` headings, `###`..`######` as subsection headings inside the
+   slide, `---` slide separators. AI normalizer always runs
    via the CLI, so loose input gets rewritten — but don't invent syntax
    anyway.
 3. **DocLang flex** (`.doclang`, the default dialect; `flex`/`flex-full`/
