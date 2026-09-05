@@ -272,6 +272,91 @@ func (g *Generator) pptxAddWatermark(s *pptx.Slide, rw renderer.ResolvedWatermar
 		Alignment(pptx.AlignCenter)
 }
 
+// pptxHeadingRe reconoce el `<hN id="…">…</hN>` que
+// parser.buildHeadingElement produce para un encabezado de subsección
+// (issue #194). Es la misma forma que formatter.subsectionHeadingRe
+// reconoce del otro lado.
+var pptxHeadingRe = regexp.MustCompile(`(?s)^<h([1-6])(?: id="[^"]*")?>(.*)</h[1-6]>$`)
+
+// pptxInlineHTMLToMarkdown son las inversas de los formatos inline que
+// renderer.ProcessInlineMarkdownFormatsSecure puede emitir dentro de un
+// encabezado. Se aplican en orden: `<code>` primero, porque su contenido no
+// debe reinterpretarse, y el resto después.
+//
+// La inversión es determinista, no una heurística: el procesador ESCAPA el
+// HTML antes de aplicar Markdown, así que un `<strong>` en la salida solo
+// puede venir de `**`. Un `<strong>` que el autor haya tecleado nunca llegó
+// a ser una tag — quedó como `&lt;strong&gt;` y sigue ahí, sin tocar.
+var pptxInlineHTMLToMarkdown = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	{regexp.MustCompile(`(?s)<code>(.*?)</code>`), "`$1`"},
+	{regexp.MustCompile(`(?s)<strong>(.*?)</strong>`), "**$1**"},
+	{regexp.MustCompile(`(?s)<em>(.*?)</em>`), "*$1*"},
+	{regexp.MustCompile(`(?s)<del>(.*?)</del>`), "~~$1~~"},
+	{regexp.MustCompile(`(?s)<mark>(.*?)</mark>`), "==$1=="},
+	{regexp.MustCompile(`(?s)<a href="([^"]*)">(.*?)</a>`), "[$2]($1)"},
+}
+
+// pptxTagRe borra cualquier tag que sobreviva a las inversas de arriba —
+// red de seguridad, no la ruta normal.
+var pptxTagRe = regexp.MustCompile(`<[^>]*>`)
+
+// pptxTextContent devuelve el texto que va a la diapositiva por un
+// TextElement.
+//
+// Un encabezado de subsección llega como HTML crudo en Content, así que hay
+// que des-renderizarlo: si se mandara tal cual, la diapositiva mostraría
+// `<h3 id="foo">Foo</h3>` literal. Y no alcanza con borrar las tags:
+// `pptxAddText` resuelve el formato inline con `pptxSplitInline`, que lee
+// MARKDOWN. Borrar `<strong>` dejaría "Important" como un run plano, cuando
+// antes de #194 —con la línea todavía como texto literal `### **Important**`—
+// sí salía en negrita. Por eso se reconstruye el Markdown de origen y no el
+// texto pelado: el PPTX de cualquier deck sale igual que antes.
+//
+// Cubre los seis formatos que un encabezado puede traer: negrita, cursiva,
+// código, tachado, resaltado y enlaces, más el `<span lang>` de
+// accesibilidad, que tiene su propia inversa en core
+// (renderer.LangSpanHTMLToSource) y se aplica primero por la misma razón
+// que en el formatter. Los dos primeros y el lang son los que
+// `pptxSplitInline` convierte en runs; el resto vuelve a su marcador
+// Markdown, que es exactamente lo que la diapositiva mostraba antes.
+//
+// El des-escapado va AL FINAL, y ese orden importa: un encabezado que
+// contenga `&lt;strong&gt;` —una tag que el autor tecleó y que el
+// procesador neutralizó— se convertiría en una tag real si se des-escapara
+// primero, y las inversas de arriba la tomarían por Markdown.
+//
+// core/formatter tiene su propia versión de esto (formatSubsectionHeading),
+// que hoy borra el énfasis en vez de invertirlo. Las dos convergen en el
+// issue #260.
+func pptxTextContent(e *ast.TextElement) string {
+	if !e.IsRawHTML {
+		return e.Content
+	}
+	m := pptxHeadingRe.FindStringSubmatch(e.Content)
+	if m == nil {
+		// TextElement RawHTML que no es un encabezado. Hoy no existe
+		// ninguno (buildHeadingElement es el único productor), pero si
+		// apareciera, mostrar el texto sin tags es mejor que el markup.
+		return pptxInlineHTMLToText(e.Content)
+	}
+	level := int(m[1][0] - '0')
+	return strings.Repeat("#", level) + " " + pptxInlineHTMLToText(m[2])
+}
+
+// pptxInlineHTMLToText convierte el HTML inline de un encabezado de vuelta a
+// su fuente Markdown. Ver pptxTextContent para el porqué del orden.
+func pptxInlineHTMLToText(html string) string {
+	out := renderer.LangSpanHTMLToSource(html)
+	for _, r := range pptxInlineHTMLToMarkdown {
+		out = r.re.ReplaceAllString(out, r.repl)
+	}
+	out = pptxTagRe.ReplaceAllString(out, "")
+	return renderer.UnescapeHTML(out)
+}
+
 // pptxAddElement despacha por tipo de ast.Element y devuelve el cursorY
 // actualizado para el próximo elemento. Un tipo no cubierto (ver el
 // comentario del paquete para qué queda fuera y por qué) se omite con un
@@ -280,7 +365,7 @@ func (g *Generator) pptxAddWatermark(s *pptx.Slide, rw renderer.ResolvedWatermar
 func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int, opts GeneratorOptions, kroki *pptxKrokiContext) int {
 	switch e := elem.(type) {
 	case *ast.TextElement:
-		return g.pptxAddText(s, e.Content, cursorY)
+		return g.pptxAddText(s, pptxTextContent(e), cursorY)
 	case *ast.PointsElement:
 		return g.pptxAddPoints(s, e, cursorY)
 	case *ast.TableElement:
