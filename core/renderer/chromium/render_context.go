@@ -41,6 +41,10 @@ type RenderContextOptions struct {
 	// y al RenderContext devuelto, para que el PR que tematice el camino
 	// Chart.js los tenga ya disponibles ahí sin volver a tocar este archivo.
 	ChartThemeColors renderer.ChartThemeColors
+	// DiagramThemeColors ver renderer.RenderContext.DiagramThemeColors — se
+	// reenvía al MermaidFetcher (el único que hoy los consume) y al
+	// RenderContext devuelto.
+	DiagramThemeColors renderer.DiagramThemeColors
 	// DiagramBackend selecciona qué implementación satisface
 	// MermaidFetcher/PlantUMLFetcher en los modos offline: "chromium"
 	// (default, sin este campo) o "kroki" (KrokiServer, sin Chromium en
@@ -115,7 +119,14 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 			// instanciar un ChromiumRenderer.
 			mermaidFetcher = NewKrokiFetcher(opts.KrokiServer, "mermaid", "svg", opts.OutputDir)
 		} else if cr != nil {
-			mermaidFetcher = NewMermaidFetcher(cr, renderer.NoopFetcherLogger{})
+			mf := NewMermaidFetcher(cr, renderer.NoopFetcherLogger{})
+			// El tema solo se cablea en el camino Chromium: la rama de
+			// arriba (Kroki) renderiza en un servidor remoto, donde no hay
+			// mermaid.initialize() que interceptar — hueco DECLARADO, ver
+			// renderer.RenderContext.DiagramThemeColors y
+			// TestNewRenderContext_KrokiIsNotThemed.
+			mf.SetDiagramThemeColors(opts.DiagramThemeColors)
+			mermaidFetcher = mf
 		}
 	}
 
@@ -196,5 +207,6 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 		Ctx:                    ctx,
 		ChartCategoricalColors: opts.ChartCategoricalColors,
 		ChartThemeColors:       opts.ChartThemeColors,
+		DiagramThemeColors:     opts.DiagramThemeColors,
 	}
 }
