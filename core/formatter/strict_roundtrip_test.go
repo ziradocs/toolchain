@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -174,7 +175,34 @@ func normalizeElement(el ast.Element) ast.Element {
 		}
 		c.Columns = cols
 		return &c
+	case *ast.MathElement:
+		// Sin case, MathElement conservaba su Position igual que quiz/poll: el
+		// hueco existía desde el issue #239-B y no se había notado porque
+		// ningún fixture del corpus formateaba una ecuación en una posición
+		// que el formateo moviera. Lo encontró el test de cobertura de abajo.
+		c := *e
+		c.Position, c.EndPosition = zeroPosition, zeroPosition
+		c.CaptionHTML = ""
+		return &c
+	case *ast.QuizElement:
+		c := *e
+		c.Position, c.EndPosition = zeroPosition, zeroPosition
+		c.QuestionHTML, c.OptionsHTML, c.ExplanationHTML = "", nil, ""
+		c.LangRuns, c.DiscardedLangRuns = nil, nil
+		return &c
+	case *ast.PollElement:
+		c := *e
+		c.Position, c.EndPosition = zeroPosition, zeroPosition
+		c.QuestionHTML, c.OptionsHTML = "", nil
+		c.LangRuns, c.DiscardedLangRuns = nil, nil
+		return &c
 	default:
+		// Un tipo sin case conserva su Position, y entonces el round-trip
+		// falla por el corrimiento de líneas que el propio formateo produce
+		// — no por una pérdida de datos. Pasó al agregar quiz/poll (issue
+		// #198): el harness los comparaba con posición y el fallo parecía de
+		// contenido. TestNormalizeElementCoversAllImplementers, abajo, es lo
+		// que hace que la próxima vez se sepa desde el nombre del test.
 		return el
 	}
 }
@@ -297,5 +325,47 @@ func TestFormatStrict_RoundTrip_Corpus(t *testing.T) {
 			}
 			tested++
 		})
+	}
+}
+
+// TestNormalizeElementCoversAllImplementers cierra el hueco que destapó el
+// issue #198: normalizeElement es un type switch escrito a mano, y un tipo sin
+// case cae al default, que devuelve el elemento CON su Position.
+//
+// El síntoma es engañoso. El round-trip de corpus compara ASTs completos, así
+// que el elemento nuevo falla por el corrimiento de líneas que el propio
+// formateo produce —el formatter reescribe el documento y las líneas se
+// mueven— y el error se lee como una pérdida de datos que no ocurrió. Se
+// perdió un rato entendiendo eso; este test hace que la próxima vez el fallo
+// diga el nombre del tipo que falta.
+func TestNormalizeElementCoversAllImplementers(t *testing.T) {
+	implementers, err := findElementImplementers(filepath.Join("..", "ast"))
+	if err != nil {
+		t.Fatalf("findElementImplementers: %v", err)
+	}
+	if len(implementers) == 0 {
+		t.Fatal("no se encontró ningún implementador de element() en ../ast")
+	}
+
+	cases, err := findSwitchCaseTypes("strict_roundtrip_test.go", "normalizeElement")
+	if err != nil {
+		t.Fatalf("findSwitchCaseTypes: %v", err)
+	}
+
+	// ColumnElement no aparece suelto en block.Elements: vive dentro de
+	// GridElement.Columns, y el case de Grid ya normaliza sus columnas.
+	skip := map[string]bool{"ColumnElement": true}
+
+	var missing []string
+	for name := range implementers {
+		if !cases[name] && !skip[name] {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("normalizeElement no tiene case para: %v\n"+
+			"→ sin case, el tipo conserva su Position y el round-trip de corpus falla por el "+
+			"corrimiento de líneas del formateo, no por una pérdida real de datos", missing)
 	}
 }
