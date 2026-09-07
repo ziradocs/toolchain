@@ -148,6 +148,12 @@ type SlideData struct {
 	Elements  []ElementData
 	IsTitle   bool
 	IsContent bool
+	// ChromeClassType es el nombre que va en la clase
+	// `slidelang-<nombre>-slide`: el tipo mismo, salvo para los alias
+	// (`title_slide`, `cover`, `intro`, `chapter`), donde es el canónico de su
+	// familia. Ver config.ChromeClassType. `data-slide-type` sigue llevando el
+	// tipo verbatim.
+	ChromeClassType string
 	// UsesContentChrome indica que el slide lleva también la clase
 	// `slidelang-content-slide` (issue #254). Ver config.UsesContentChrome.
 	UsesContentChrome bool

@@ -411,3 +411,59 @@ func appliesToSlide(selector string, slideClasses []string) bool {
 	}
 	return len(parts) > 0
 }
+
+// Elegir un alias no puede cambiar cómo se ve el slide.
+//
+// `title_slide`, `cover` e `intro` son alias de `title` para config.IsSlideTitle,
+// y `chapter` lo es de `section` para IsSlideContent — en todas partes menos en
+// la clase CSS, que se armaba con el tipo verbatim. Un `title_slide` emitía
+// `slidelang-title_slide-slide`, un nombre que ningún tema conoce, y salía con
+// fondo blanco y alineado arriba: igual que un slide de contenido, no como el
+// slide de título que pidió el autor.
+//
+// El test compara la CLASE, no el atributo: `data-slide-type` sigue siendo el
+// tipo verbatim a propósito, porque es lo que el linter valida y lo que usa el
+// CSS de layouts.
+func TestRenderHTMLPreview_SlideTypeAliasesShareTheirFamilyClass(t *testing.T) {
+	for alias, canonical := range map[string]string{
+		"title_slide": "title",
+		"cover":       "title",
+		"intro":       "title",
+		"chapter":     "section",
+	} {
+		t.Run(alias, func(t *testing.T) {
+			html, err := New(util.NewNoop()).RenderHTMLPreview(
+				astWithSlideTypes(alias), GeneratorOptions{}, renderer.NewDefaultRenderContext())
+			if err != nil {
+				t.Fatalf("RenderHTMLPreview: %v", err)
+			}
+
+			// Se miran las clases del DIV, no el documento entero: el bundle
+			// CSS va embebido y sí menciona algunos de estos nombres en sus
+			// selectores.
+			classes := slideClassesFor(t, html, alias)
+			has := func(c string) bool {
+				for _, got := range classes {
+					if got == c {
+						return true
+					}
+				}
+				return false
+			}
+
+			if !has("slidelang-" + canonical + "-slide") {
+				t.Errorf("un slide %q no lleva la clase de su familia (slidelang-%s-slide): "+
+					"ningún tema tiene una regla para su nombre propio, así que se queda sin vestido.\nClases: %v",
+					alias, canonical, classes)
+			}
+			if has("slidelang-" + alias + "-slide") {
+				t.Errorf("un slide %q emite slidelang-%s-slide, que no matchea ninguna regla de ningún tema.\nClases: %v",
+					alias, alias, classes)
+			}
+			// El atributo NO se canonicaliza: es el contrato del AST.
+			if !strings.Contains(html, `data-slide-type="`+alias+`"`) {
+				t.Errorf("data-slide-type dejó de ser el tipo verbatim para %q", alias)
+			}
+		})
+	}
+}

@@ -271,6 +271,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 			Logo:              slide.Logo,
 			IsTitle:           config.IsSlideTitle(slide.BlockType),
 			IsContent:         config.IsSlideContent(slide.BlockType),
+			ChromeClassType:   config.ChromeClassType(slide.BlockType),
 			UsesContentChrome: config.UsesContentChrome(slide.BlockType),
 			LayoutColumns:     layoutColumns(slide.LayoutConfig),
 			LayoutAlign:       layoutAlign(slide.LayoutConfig),
