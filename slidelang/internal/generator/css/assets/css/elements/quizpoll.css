@@ -90,7 +90,18 @@
 }
 
 /* Impreso (PDF): sin interacción posible, así que la respuesta y su
- * explicación tienen que estar visibles de entrada. */
+ * explicación tienen que estar visibles de entrada.
+ *
+ * Hasta acá se revelaba la explicación y nada más, así que un PDF traía el
+ * "porque" sin el "cuál": tres opciones idénticas y un párrafo explicando una
+ * que el lector no puede identificar. Peor que no imprimir la explicación,
+ * porque parece completo.
+ *
+ * El marcador es `[data-correct]`, que el template pone en la opción correcta,
+ * y se estila SOLO acá adentro. En el navegador el quiz se responde, así que
+ * marcarla ahí sería dar la respuesta antes de la pregunta. El atributo no
+ * filtra nada nuevo: `data-answer` ya está en el contenedor desde que existe el
+ * elemento, porque el JS lo necesita. */
 @media print {
     .slidelang-element.slidelang-quiz .slidelang-explanation[hidden] {
         display: block;
@@ -99,5 +110,18 @@
     .slidelang-element.slidelang-quiz .slidelang-option,
     .slidelang-element.slidelang-poll .slidelang-poll-option {
         cursor: default;
+    }
+
+    .slidelang-element.slidelang-quiz .slidelang-option[data-correct] {
+        border-color: var(--primary-color);
+        font-weight: 600;
+    }
+
+    /* El ✓ va además del borde y de la negrita: un PDF se imprime en blanco y
+     * negro y se lee con daltonismo, así que la marca no puede ser solo color
+     * ni solo grosor de línea. */
+    .slidelang-element.slidelang-quiz .slidelang-option[data-correct]::after {
+        content: " ✓";
+        font-weight: 700;
     }
 }

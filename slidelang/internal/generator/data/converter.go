@@ -285,6 +285,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 			InteractiveElements: interactiveElements,
 			Notes:               notes,
 		}
+		slideData.DisplayTitle = displayTitle(slideData)
 
 		// Procesar numeración de páginas para este slide
 		if data.HeaderFooter != nil {
@@ -978,6 +979,16 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 			}
 		case *ast.QuoteElement:
 			interactiveTypes = append(interactiveTypes, "quote")
+		case *ast.QuizElement:
+			// Un quiz y un poll son los ÚNICOS elementos del toolchain que el
+			// visor responde con clics: el JS de quizpoll.js marca la opción,
+			// revela la explicación y llena las barras del poll. Faltaban acá,
+			// así que un slide con un quiz salía con `data-interactive="false"`
+			// —el metadato diciendo lo contrario de lo que se ve— mientras un
+			// slide con una cita salía con `true`.
+			interactiveTypes = append(interactiveTypes, "quiz")
+		case *ast.PollElement:
+			interactiveTypes = append(interactiveTypes, "poll")
 		}
 	}
 
@@ -994,16 +1005,43 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 	return len(uniqueTypes) > 0, uniqueTypes
 }
 
-// estimateSlideDuration calcula la duración estimada de un slide en segundos
+// displayTitle elige, entre los dos campos donde puede vivir el título de un
+// slide, el que corresponde a su familia: `Heading` en los de título, `Title` en
+// el resto. Si el campo que le toca está vacío cae al otro, porque un slide sin
+// identificador es peor que uno identificado por el campo "equivocado".
+func displayTitle(s SlideData) string {
+	primary, fallback := s.Title, s.Heading
+	if config.ChromeClassType(s.Type) == "title" {
+		primary, fallback = s.Heading, s.Title
+	}
+	if primary != "" {
+		return primary
+	}
+	return fallback
+}
+
+// estimateSlideDuration calcula la duración estimada de un slide en segundos.
+//
+// El switch consultaba `slide.Type`, que es el NodeType del BaseNode embebido
+// —"content_block" para TODO slide— y no el tipo declarado por el autor, que
+// vive en `slide.BlockType`. Ninguna rama matcheaba nunca, así que el ajuste por
+// tipo no existía y un slide de título pesaba lo mismo que uno de contenido.
+// Los dos campos se llaman parecido y uno de ellos se promueve por embedding,
+// que es lo que hace este error invisible al leerlo.
+//
+// La familia se resuelve con config.ChromeClassType, la misma función que
+// decide la clase del chrome: `cover` e `intro` son títulos y `chapter` es una
+// sección, y una segunda tabla de alias acá volvería a desincronizarse de la
+// primera en cuanto alguien agregue un tipo.
 func estimateSlideDuration(slide ast.ContentBlock) int {
 	baseDuration := 30 // 30 segundos por defecto
 
-	switch slide.Type {
+	switch config.ChromeClassType(slide.BlockType) {
 	case "title":
 		baseDuration = 10
 	case "section":
 		baseDuration = 15
-	case "closing":
+	case "closing", "end":
 		baseDuration = 20
 	}
 
