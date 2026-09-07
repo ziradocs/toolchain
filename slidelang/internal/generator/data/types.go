@@ -191,6 +191,17 @@ type ElementData struct {
 	// tiene que decidir entre envolver en <p> (texto) o no (encabezado):
 	// un <h3> dentro de un <p> es HTML inválido.
 	HeadingHTML htmltemplate.HTML
+	// Los campos Quiz* llevan un quiz o un poll (issue #198). Van prefijados
+	// porque `Options` ya existe en este struct, con otro tipo y otro dueño:
+	// es la config de Chart.js.
+	//
+	// QuizAnswer es 0-based y -1 significa "no declarado"; el template no
+	// ramifica sobre eso, simplemente ninguna opción matchea.
+	Question        string
+	QuizOptions     []string
+	QuizAnswer      int
+	QuizExplanation string
+	QuizMultiple    bool
 	// HeadingLevel es el nivel 3-6 del encabezado, para que un tema pueda
 	// distinguirlos sin re-parsear el HTML (mismo motivo que ast.
 	// TextElement.Level, issue #22).

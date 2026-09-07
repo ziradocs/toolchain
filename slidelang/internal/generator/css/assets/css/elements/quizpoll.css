@@ -1,0 +1,103 @@
+/* Quiz y poll — issue #198
+ *
+ * Los nombres de clase de aquí abajo (.slidelang-question, .slidelang-option, .slidelang-option.slidelang-correct,
+ * .slidelang-explanation, .slidelang-poll-option, .slidelang-poll-results, .slidelang-progress-bar) son el contrato
+ * PÚBLICO que documenta features/themes-styling.md: un tema los sobreescribe.
+ * Van sin el prefijo slidelang- a propósito, y por eso están declarados en
+ * KnownUnprefixedClasses (css/themes/namespace.go). */
+
+.slidelang-element.slidelang-quiz .slidelang-question,
+.slidelang-element.slidelang-poll .slidelang-question {
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+}
+
+.slidelang-element.slidelang-quiz .slidelang-options,
+.slidelang-element.slidelang-poll .slidelang-options {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.slidelang-element.slidelang-quiz .slidelang-option,
+.slidelang-element.slidelang-poll .slidelang-poll-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    padding: 0.6rem 0.9rem;
+    background: var(--bg-white);
+    border: 2px solid var(--border-color);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.slidelang-element.slidelang-quiz .slidelang-option:hover,
+.slidelang-element.slidelang-poll .slidelang-poll-option:hover {
+    border-color: var(--primary-color);
+}
+
+/* El estado que revela el JS al hacer clic. En PDF y en cualquier salida sin
+ * JavaScript la respuesta ya viene marcada desde el HTML. */
+.slidelang-element.slidelang-quiz .slidelang-option.slidelang-correct {
+    border-color: var(--success-color);
+    background: var(--bg-light);
+    font-weight: 600;
+}
+
+.slidelang-element.slidelang-quiz .slidelang-option.slidelang-incorrect {
+    border-color: var(--danger-color);
+}
+
+.slidelang-element.slidelang-quiz .slidelang-explanation {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.9rem;
+    background: var(--bg-light);
+    border-left: 4px solid var(--primary-color);
+    border-radius: var(--border-radius);
+}
+
+.slidelang-element.slidelang-poll .slidelang-poll-option.slidelang-selected {
+    border-color: var(--primary-color);
+    font-weight: 600;
+}
+
+.slidelang-element.slidelang-poll .slidelang-poll-results {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.slidelang-element.slidelang-poll .slidelang-progress-bar {
+    height: 0.5rem;
+    background: var(--bg-light);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+}
+
+.slidelang-element.slidelang-poll .slidelang-progress-fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--primary-color);
+    transition: var(--transition);
+}
+
+/* Impreso (PDF): sin interacción posible, así que la respuesta y su
+ * explicación tienen que estar visibles de entrada. */
+@media print {
+    .slidelang-element.slidelang-quiz .slidelang-explanation[hidden] {
+        display: block;
+    }
+
+    .slidelang-element.slidelang-quiz .slidelang-option,
+    .slidelang-element.slidelang-poll .slidelang-poll-option {
+        cursor: default;
+    }
+}

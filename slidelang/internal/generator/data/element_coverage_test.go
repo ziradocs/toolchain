@@ -18,10 +18,7 @@ import (
 // implementador de ast.Element (el ast del DSL, en go.ziradocs.com/core/v2/ast
 // — no el go/ast de este archivo) deliberadamente no tiene un case propio en
 // el switch principal de PrepareTemplateDataWithRenderMode (converter.go).
-var excludedFromElementCoverage = map[string]string{
-	"QuizElement": "pendiente: el soporte de quiz/poll en slidelang (converter, template, CSS, JS, PPTX) va en su propio PR, después del bump de core — un PR que agrega símbolos a core nunca se mezcla con el que los consume. Hasta entonces el elemento cae al elementData casi vacío, que es visible pero sin estilo. Issue #198",
-	"PollElement": "pendiente: el soporte de quiz/poll en slidelang (converter, template, CSS, JS, PPTX) va en su propio PR, después del bump de core — un PR que agrega símbolos a core nunca se mezcla con el que los consume. Hasta entonces el elemento cae al elementData casi vacío, que es visible pero sin estilo. Issue #198",
-}
+var excludedFromElementCoverage = map[string]string{}
 
 // TestConverterCoversAllElementImplementers cubre issue #35: el switch
 // principal de PrepareTemplateDataWithRenderMode (converter.go) debe tener un

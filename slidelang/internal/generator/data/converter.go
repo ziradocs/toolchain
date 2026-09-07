@@ -504,6 +504,17 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 				elementData.Content = ProcessVariables(elem.Content, variables)
 				elementData.Author = ProcessVariables(elem.Author, variables)
 				elementData.Source = ProcessVariables(elem.Source, variables)
+			case *ast.QuizElement:
+				elementData.Question = ProcessVariables(elem.Question, variables)
+				elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
+				elementData.QuizAnswer = elem.Answer
+				elementData.QuizExplanation = ProcessVariables(elem.Explanation, variables)
+
+			case *ast.PollElement:
+				elementData.Question = ProcessVariables(elem.Question, variables)
+				elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
+				elementData.QuizMultiple = elem.Multiple
+
 			case *ast.ChecklistElement:
 				elementData.ChecklistItems = ConvertChecklistItemsWithVariables(elem.Items, variables)
 			case *ast.GridElement:
@@ -1773,4 +1784,16 @@ func generateMapsMetadata(slides []ast.ContentBlock, variables map[string]interf
 	}
 
 	return maps
+}
+
+// processVariablesInSlice sustituye {{variables}} en cada string de un slice.
+func processVariablesInSlice(values []string, variables map[string]interface{}) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = ProcessVariables(v, variables)
+	}
+	return out
 }

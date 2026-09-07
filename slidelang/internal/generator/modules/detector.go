@@ -43,6 +43,7 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 	// Verificar si hay contenido que requiere módulos específicos
 	hasMermaid := false
 	hasCharts := false
+	hasQuizPoll := false
 	hasMaps := false
 	hasDirectives := false
 	hasCodeGroups := false
@@ -57,6 +58,8 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 				if strings.HasPrefix(strings.ToLower(elem.Language), "mermaid") {
 					hasMermaid = true
 				}
+			case *ast.QuizElement, *ast.PollElement:
+				hasQuizPoll = true
 			case *ast.SpecialBlockElement:
 				switch strings.ToLower(elem.BlockType) {
 				case "mermaid", "diagram":
@@ -123,6 +126,9 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 	}
 	if hasMaps && !contains(config.ExcludeModules, "maps") {
 		modules = append(modules, "maps")
+	}
+	if hasQuizPoll && !contains(config.ExcludeModules, "quizpoll") {
+		modules = append(modules, "quizpoll")
 	}
 	if hasDirectives && !contains(config.ExcludeModules, "directives") {
 		modules = append(modules, "directives")

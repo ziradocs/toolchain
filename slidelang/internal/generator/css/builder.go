@@ -271,6 +271,7 @@ func GetAvailableModules() []string {
 		"blocks",          // Special blocks and cards
 		"quotes",          // Quote elements
 		"checklists",      // Checklist elements
+		"quizpoll",        // Quiz y poll (issue #198)
 		"grids",           // Grid layouts and columns
 		"maps",            // Map elements (Leaflet)
 		"media",           // Audio/video elements (issue #21)

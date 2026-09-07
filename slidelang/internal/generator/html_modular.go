@@ -184,6 +184,20 @@ func (c *ChartsModuleGenerator) GenerateAssets(outputDir string, logger interfac
 	return nil
 }
 
+// QuizPollModuleGenerator genera assets para el módulo de quiz/poll (issue #198)
+type QuizPollModuleGenerator struct{}
+
+func (q *QuizPollModuleGenerator) GenerateAssets(outputDir string, logger interface {
+	Info(string, string, ...interface{})
+}) error {
+	jsPath := filepath.Join(outputDir, "quizpoll.js")
+	if err := os.WriteFile(jsPath, []byte(templateBuilder.GetQuizPollJS()), 0644); err != nil {
+		return err
+	}
+	logger.Info("MODULES", "Generated quizpoll assets: %s", jsPath)
+	return nil
+}
+
 // MermaidModuleGenerator genera assets para el módulo de mermaid
 type MermaidModuleGenerator struct{}
 
@@ -273,6 +287,8 @@ func getModuleGenerator(module string) ModuleAssetGenerator {
 		return &MermaidModuleGenerator{}
 	case "maps":
 		return &MapsModuleGenerator{}
+	case "quizpoll":
+		return &QuizPollModuleGenerator{}
 	default:
 		return nil
 	}
@@ -364,6 +380,8 @@ func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 				elementTypes["quotes"] = true
 			case *ast.ChecklistElement:
 				elementTypes["checklists"] = true
+			case *ast.QuizElement, *ast.PollElement:
+				elementTypes["quizpoll"] = true
 			case *ast.MapElement:
 				elementTypes["maps"] = true
 			case *ast.GridElement:
