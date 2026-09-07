@@ -448,12 +448,12 @@ func (tb *TemplateBuilder) buildCDNIncludes() string {
 func (tb *TemplateBuilder) buildHTMLBody() string {
 	template := `    <div class="slidelang-presentation-container">
         {{range $index, $slide := .ContentBlocks}}
-        <div class="slidelang-slide slidelang-{{$slide.ChromeClassType}}-slide{{if $slide.UsesContentChrome}} slidelang-content-slide{{end}}{{if eq $index 0}} slidelang-active{{end}}" 
+        <div class="slidelang-slide slidelang-{{$slide.ChromeClassType}}-slide{{if $slide.UsesContentChrome}} slidelang-content-slide{{end}}{{if eq $index 0}} slidelang-active{{end}}"
              data-slide="{{$index}}"
              data-slide-type="{{$slide.Type}}"
              {{if $slide.LayoutColumns}}data-layout-columns="{{$slide.LayoutColumns}}"{{end}}
              {{if $slide.LayoutAlign}}data-layout-align="{{$slide.LayoutAlign}}"{{end}}
-             data-slide-title="{{if eq $slide.Type "title"}}{{$slide.Heading}}{{else}}{{$slide.Title}}{{end}}"
+             data-slide-title="{{$slide.DisplayTitle}}"
              data-duration="{{$slide.Duration}}"
              data-transition="{{$slide.Transition}}"
              data-interactive="{{$slide.HasInteractive}}"
@@ -480,7 +480,7 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
                             <h2 class="slidelang-subtitle">{{$slide.Subtitle}}</h2>
                         {{end}}
                     </div>
-                    
+
                     {{/* Contenido de elementos del slide */}}
                     {{if $slide.Elements}}
                         <div class="slidelang-title-content">
@@ -549,7 +549,7 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
             {
                 "id": "slide-{{$index}}",
                 "type": "{{$slide.Type}}",
-                "title": "{{$slide.Title}}",
+                "title": "{{$slide.DisplayTitle}}",
                 "duration": {{$slide.Duration}},
                 "transition": "{{$slide.Transition}}",
                 "hasInteractive": {{$slide.HasInteractive}},
@@ -614,14 +614,14 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{.HeadingHTML}}
             </div>
             {{else}}
-            <div class="slidelang-element slidelang-text {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+            <div class="slidelang-element slidelang-text {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-text-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="text"
                  data-slide="{{.SlideIndex}}">
                 <p>{{.Content | markdownInline}}</p>
             </div>
             {{end}}        {{else if eq .Type "points"}}
-            <div class="slidelang-element slidelang-points {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+            <div class="slidelang-element slidelang-points {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-points-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="points"
                  data-slide="{{.SlideIndex}}">
@@ -656,7 +656,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{end}}
             </div>
         {{else if eq .Type "code"}}
-            <div class="slidelang-element slidelang-code {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+            <div class="slidelang-element slidelang-code {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-code-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="code"
                  data-language="{{.Language}}"
@@ -766,7 +766,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{end}}
             </div>
         {{else if eq .Type "code_group"}}
-            <div class="slidelang-element slidelang-code-group {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+            <div class="slidelang-element slidelang-code-group {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-code-group-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="code_group"
                  data-slide="{{.SlideIndex}}">
@@ -796,7 +796,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     <div class="slidelang-content">{{.Content | markdown}}</div>
                 </div>
             {{else}}
-                <div class="slidelang-element slidelang-special-block slidelang-{{.BlockType}} {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+                <div class="slidelang-element slidelang-special-block slidelang-{{.BlockType}} {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                      id="slidelang-element-special-block-{{.SlideIndex}}-{{.ElementID}}"
                      data-element-type="special_block"
                      data-block-type="{{.BlockType}}"
@@ -896,8 +896,8 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  data-slide="{{.SlideIndex}}">
                 <p class="question">{{.Question | markdownInline}}</p>
                 <ol class="options">
-                    {{range $i, $opt := .QuizOptions}}
-                    <li><button type="button" class="option" data-index="{{$i}}">{{$opt | markdownInline}}</button></li>
+                    {{$answer := .QuizAnswer}}{{range $i, $opt := .QuizOptions}}
+                    <li><button type="button" class="option" data-index="{{$i}}"{{if eq $i $answer}} data-correct="true"{{end}}>{{$opt | markdownInline}}</button></li>
                     {{end}}
                 </ol>
                 {{if .QuizExplanation}}<p class="explanation" hidden>{{.QuizExplanation | markdownInline}}</p>{{end}}
@@ -982,7 +982,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>
             {{- else -}}
                 <!-- Generic Directive -->
-                <div class="slidelang-element slidelang-directive {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+                <div class="slidelang-element slidelang-directive {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                      id="slidelang-element-directive-{{.SlideIndex}}-{{.ElementID}}"
                      data-element-type="directive"
                      data-directive-name="{{.DirectiveName}}"
@@ -995,7 +995,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 </div>
             {{- end -}}
         {{else if eq .Type "grid"}}
-            <div class="slidelang-element slidelang-grid {{range .CSSClasses}}slidelang-{{.}} {{end}}" 
+            <div class="slidelang-element slidelang-grid {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-grid-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="grid"
                  data-slide="{{.SlideIndex}}">
@@ -1065,12 +1065,12 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
         {{/* Contexto: recibe un objeto con slide y presentationData */}}
         {{$slide := .slide}}
         {{$presentation := .presentation}}
-        
+
         {{/* Solo renderizar si hay configuración de headers/footers */}}
         {{if $presentation.HeaderFooter}}
             {{/* Determinar configuración de header según prioridad */}}
             {{$finalHeaderConfig := $presentation.HeaderFooter.GlobalHeader}}
-            
+
             {{/* Aplicar layout defaults si existe */}}
             {{if and $presentation.HeaderFooter.LayoutDefaults $slide.Type}}
                 {{if index $presentation.HeaderFooter.LayoutDefaults $slide.Type}}
@@ -1080,23 +1080,23 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     {{end}}
                 {{end}}
             {{end}}
-            
+
             {{/* Aplicar overrides del slide si existe */}}
             {{if and $slide.HeaderFooterOverride $slide.HeaderFooterOverride.Header}}
                 {{$finalHeaderConfig = $slide.HeaderFooterOverride.Header}}
             {{end}}
-            
+
             {{/* Renderizar header solo si está habilitado */}}
             {{if and $finalHeaderConfig $finalHeaderConfig.Enabled}}
-                <div class="slide-header" 
+                <div class="slide-header"
                      {{if $finalHeaderConfig.Height}}style="height: {{$finalHeaderConfig.Height}}; {{if $finalHeaderConfig.Background}}background: {{$finalHeaderConfig.Background}};{{end}}"{{end}}>
-                    
+
                     {{/* Borde superior */}}
                     {{if and $finalHeaderConfig.Border $finalHeaderConfig.Border.Enabled (or (eq $finalHeaderConfig.Border.Position "top") (eq $finalHeaderConfig.Border.Position "both"))}}
-                        <div class="header-border header-border-top" 
+                        <div class="header-border header-border-top"
                              style="border-top: {{if $finalHeaderConfig.Border.Width}}{{$finalHeaderConfig.Border.Width}}{{else}}1px{{end}} {{if $finalHeaderConfig.Border.Style}}{{$finalHeaderConfig.Border.Style}}{{else}}solid{{end}} {{if $finalHeaderConfig.Border.Color}}{{$finalHeaderConfig.Border.Color}}{{else}}#ccc{{end}};"></div>
                     {{end}}
-                    
+
                     <div class="header-content">
                         {{/* Logo: se exige Source, no solo que el bloque
                              Logo exista. Un override por layout que solo
@@ -1111,7 +1111,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                                      {{if $finalHeaderConfig.Logo.Height}}style="height: {{$finalHeaderConfig.Logo.Height}};"{{end}}>
                             </div>
                         {{end}}
-                        
+
                         {{/* Texto del header */}}
                         {{if $finalHeaderConfig.Text}}
                             <div class="header-text">
@@ -1127,28 +1127,28 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                             </div>
                         {{end}}
                     </div>
-                    
+
                     {{/* Borde inferior */}}
                     {{if and $finalHeaderConfig.Border $finalHeaderConfig.Border.Enabled (or (eq $finalHeaderConfig.Border.Position "bottom") (eq $finalHeaderConfig.Border.Position "both"))}}
-                        <div class="header-border header-border-bottom" 
+                        <div class="header-border header-border-bottom"
                              style="border-bottom: {{if $finalHeaderConfig.Border.Width}}{{$finalHeaderConfig.Border.Width}}{{else}}1px{{end}} {{if $finalHeaderConfig.Border.Style}}{{$finalHeaderConfig.Border.Style}}{{else}}solid{{end}} {{if $finalHeaderConfig.Border.Color}}{{$finalHeaderConfig.Border.Color}}{{else}}#ccc{{end}};"></div>
                     {{end}}
                 </div>
             {{end}}
         {{end}}
     {{end}}
-    
+
     {{/* Template para footer del slide */}}
     {{define "slide-footer"}}
         {{/* Contexto: recibe un objeto con slide y presentationData */}}
         {{$slide := .slide}}
         {{$presentation := .presentation}}
-        
+
         {{/* Solo renderizar si hay configuración de headers/footers */}}
         {{if $presentation.HeaderFooter}}
             {{/* Determinar configuración de footer según prioridad */}}
             {{$finalFooterConfig := $presentation.HeaderFooter.GlobalFooter}}
-            
+
             {{/* Aplicar layout defaults si existe */}}
             {{if and $presentation.HeaderFooter.LayoutDefaults $slide.Type}}
                 {{if index $presentation.HeaderFooter.LayoutDefaults $slide.Type}}
@@ -1158,23 +1158,23 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     {{end}}
                 {{end}}
             {{end}}
-            
+
             {{/* Aplicar overrides del slide si existe */}}
             {{if and $slide.HeaderFooterOverride $slide.HeaderFooterOverride.Footer}}
                 {{$finalFooterConfig = $slide.HeaderFooterOverride.Footer}}
             {{end}}
-            
+
             {{/* Renderizar footer solo si está habilitado */}}
             {{if and $finalFooterConfig $finalFooterConfig.Enabled}}
-                <div class="slide-footer" 
+                <div class="slide-footer"
                      {{if $finalFooterConfig.Height}}style="height: {{$finalFooterConfig.Height}}; {{if $finalFooterConfig.Background}}background: {{$finalFooterConfig.Background}};{{end}}"{{end}}>
-                    
+
                     {{/* Borde superior */}}
                     {{if and $finalFooterConfig.Border $finalFooterConfig.Border.Enabled (or (eq $finalFooterConfig.Border.Position "top") (eq $finalFooterConfig.Border.Position "both"))}}
-                        <div class="footer-border footer-border-top" 
+                        <div class="footer-border footer-border-top"
                              style="border-top: {{if $finalFooterConfig.Border.Width}}{{$finalFooterConfig.Border.Width}}{{else}}1px{{end}} {{if $finalFooterConfig.Border.Style}}{{$finalFooterConfig.Border.Style}}{{else}}solid{{end}} {{if $finalFooterConfig.Border.Color}}{{$finalFooterConfig.Border.Color}}{{else}}#ccc{{end}};"></div>
                     {{end}}
-                    
+
                     <div class="footer-content">
                         {{/* Texto del footer */}}
                         {{if $finalFooterConfig.Text}}
@@ -1190,7 +1190,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                                 {{end}}
                             </div>
                         {{end}}
-                        
+
                         {{/* Números de página */}}
                         {{if and $finalFooterConfig.PageNumbers $finalFooterConfig.PageNumbers.Enabled $slide.ShowPageNumber}}
                             <div class="slidelang-page-numbers slidelang-page-numbers-{{if $finalFooterConfig.PageNumbers.Position}}{{$finalFooterConfig.PageNumbers.Position}}{{else}}right{{end}} slidelang-page-numbers-style-{{if $finalFooterConfig.PageNumbers.Style}}{{$finalFooterConfig.PageNumbers.Style}}{{else}}normal{{end}}">
@@ -1198,10 +1198,10 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                             </div>
                         {{end}}
                     </div>
-                    
+
                     {{/* Borde inferior */}}
                     {{if and $finalFooterConfig.Border $finalFooterConfig.Border.Enabled (or (eq $finalFooterConfig.Border.Position "bottom") (eq $finalFooterConfig.Border.Position "both"))}}
-                        <div class="footer-border footer-border-bottom" 
+                        <div class="footer-border footer-border-bottom"
                              style="border-bottom: {{if $finalFooterConfig.Border.Width}}{{$finalFooterConfig.Border.Width}}{{else}}1px{{end}} {{if $finalFooterConfig.Border.Style}}{{$finalFooterConfig.Border.Style}}{{else}}solid{{end}} {{if $finalFooterConfig.Border.Color}}{{$finalFooterConfig.Border.Color}}{{else}}#ccc{{end}};"></div>
                     {{end}}
                 </div>

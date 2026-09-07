@@ -285,6 +285,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 			InteractiveElements: interactiveElements,
 			Notes:               notes,
 		}
+		slideData.DisplayTitle = displayTitle(slideData)
 
 		// Procesar numeración de páginas para este slide
 		if data.HeaderFooter != nil {
@@ -978,6 +979,31 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 			}
 		case *ast.QuoteElement:
 			interactiveTypes = append(interactiveTypes, "quote")
+		case *ast.QuizElement:
+			// El criterio de esta función es "el visor puede hacerle algo a
+			// esto", y quiz y poll faltaban: quizpoll.js marca la opción,
+			// revela la explicación y llena las barras. Un slide con un quiz
+			// salía con `data-interactive="false"` —el metadato diciendo lo
+			// contrario de lo que se ve— mientras uno con una cita salía con
+			// `true`.
+			interactiveTypes = append(interactiveTypes, "quiz")
+		case *ast.PollElement:
+			interactiveTypes = append(interactiveTypes, "poll")
+		case *ast.CodeGroupElement:
+			// El mismo hueco, encontrado al revisar el de quiz/poll: las tabs
+			// de un code-group SÍ se clickean —`initInteractiveElements` de
+			// template/utilities.go les asigna `.onclick`— y solo llegaban acá
+			// las escritas como `::: code-group`, que caen en la rama de
+			// SpecialBlockElement. Un `<<code-group>>` real quedaba fuera.
+			interactiveTypes = append(interactiveTypes, "code")
+		case *ast.MediaElement:
+			// Un <video>/<audio> es interactivo si —y solo si— lleva los
+			// controles del navegador. Sin `controls` es una pieza que se
+			// reproduce sola y no hay nada que el visor pueda tocar, así que
+			// marcarlo sería el error simétrico al que esta función tenía.
+			if e.Controls {
+				interactiveTypes = append(interactiveTypes, e.MediaType)
+			}
 		}
 	}
 
@@ -994,16 +1020,50 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 	return len(uniqueTypes) > 0, uniqueTypes
 }
 
-// estimateSlideDuration calcula la duración estimada de un slide en segundos
+// displayTitle elige, entre los dos campos donde puede vivir el título de un
+// slide, el que corresponde a su familia: `Heading` en los de título, `Title` en
+// el resto. Si el campo que le toca está vacío cae al otro, porque un slide sin
+// identificador es peor que uno identificado por el campo "equivocado".
+func displayTitle(s SlideData) string {
+	// Un slide de título cae a `Title` si no trae `Heading`: los dos campos
+	// nombran la misma cosa ahí y el `<h1>` hace exactamente ese fallback, así
+	// que copiarlo mantiene el metadato y lo visible de acuerdo.
+	if config.ChromeClassType(s.Type) == "title" {
+		if s.Heading != "" {
+			return s.Heading
+		}
+		return s.Title
+	}
+	// En la dirección contraria NO hay fallback. Un slide de contenido con solo
+	// `heading:` renderiza un `<h1>` que dice "Slide N" —el heading no es su
+	// título—, así que caer a `Heading` haría que el atributo afirmara un
+	// título que no está en la diapositiva. Una omisión visible es mejor que una
+	// contradicción; el linter ya avisa que a ese slide le falta `title:`.
+	return s.Title
+}
+
+// estimateSlideDuration calcula la duración estimada de un slide en segundos.
+//
+// El switch consultaba `slide.Type`, que es el NodeType del BaseNode embebido
+// —"content_block" para TODO slide— y no el tipo declarado por el autor, que
+// vive en `slide.BlockType`. Ninguna rama matcheaba nunca, así que el ajuste por
+// tipo no existía y un slide de título pesaba lo mismo que uno de contenido.
+// Los dos campos se llaman parecido y uno de ellos se promueve por embedding,
+// que es lo que hace este error invisible al leerlo.
+//
+// La familia se resuelve con config.ChromeClassType, la misma función que
+// decide la clase del chrome: `cover` e `intro` son títulos y `chapter` es una
+// sección, y una segunda tabla de alias acá volvería a desincronizarse de la
+// primera en cuanto alguien agregue un tipo.
 func estimateSlideDuration(slide ast.ContentBlock) int {
 	baseDuration := 30 // 30 segundos por defecto
 
-	switch slide.Type {
+	switch config.ChromeClassType(slide.BlockType) {
 	case "title":
 		baseDuration = 10
 	case "section":
 		baseDuration = 15
-	case "closing":
+	case "closing", "end":
 		baseDuration = 20
 	}
 

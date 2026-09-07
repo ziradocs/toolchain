@@ -154,6 +154,19 @@ type SlideData struct {
 	// familia. Ver config.ChromeClassType. `data-slide-type` sigue llevando el
 	// tipo verbatim.
 	ChromeClassType string
+	// DisplayTitle es el texto que identifica al slide para quien lo lee de
+	// afuera: el atributo `data-slide-title`, el índice del JSON embebido, un
+	// visor externo que consuma cualquiera de los dos.
+	//
+	// Existe porque el título de un slide vive en DOS campos según su tipo:
+	// `Heading` en los de título, `Title` en el resto. Elegir entre ellos con un
+	// `eq .Type "title"` en la plantilla dejaba fuera a `title_slide`, `cover` e
+	// `intro` —que son slides de título por todos lados menos por esa
+	// comparación—, así que salían con `data-slide-title=""` teniendo un título
+	// bien puesto. Resolverlo una vez acá, con la familia canónica, evita repetir
+	// la misma condición en cada consumidor y que cada copia se equivoque
+	// distinto.
+	DisplayTitle string
 	// UsesContentChrome indica que el slide lleva también la clase
 	// `slidelang-content-slide` (issue #254). Ver config.UsesContentChrome.
 	UsesContentChrome bool
