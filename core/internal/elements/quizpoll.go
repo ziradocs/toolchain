@@ -108,7 +108,20 @@ func parseQuizPollBlock(ctx *ParseContext, startIndex int, tag string) (quizPoll
 	pos := diagnostics.NewPosition(startIndex+1, 1)
 	source := tag + "-parser"
 
-	rawLines, consumed := readQuizPollBody(ctx.Lines, startIndex, tag)
+	rawLines, consumed, closedBy := readQuizPollBody(ctx.Lines, startIndex, tag)
+
+	// Un bloque que no se cerró explícitamente se REPORTA. Sin esto, todo lo
+	// que hace terminar el bloque antes de tiempo —una frontera dentro de un
+	// escalar de bloque, un dedent inesperado, el fin del archivo— quedaba sin
+	// señal cuando el cuerpo alcanzaba a ser válido, y el autor solo veía un
+	// contenido raro más adelante. `<<end>>` está exento del failsafe de flex,
+	// así que este es el único lugar desde donde se puede avisar.
+	if closedBy != closedByCloser {
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("El bloque %s no se cerró con '<<end>>'; termina donde empieza el contenido siguiente y puede quedar incompleto", tag),
+			pos, source).WithRuleID(quizPollRuleID(tag, "unclosed")))
+	}
+
 	yamlText := dedentBlock(rawLines)
 	if strings.TrimSpace(yamlText) == "" {
 		return body, consumed, diags
@@ -143,11 +156,12 @@ func parseQuizPollBlock(ctx *ParseContext, startIndex int, tag string) (quizPoll
 // en columna 0 (ver AutoDetectIndentation en common.go) — y los dos decks
 // originales del issue #198 escriben el cuerpo justo así, sin sangrar. Con ese
 // gate el bloque consumiría cero líneas y el cuerpo entero caería como prosa.
-func readQuizPollBody(lines []string, startIndex int, tag string) ([]string, int) {
+func readQuizPollBody(lines []string, startIndex int, tag string) ([]string, int, quizPollCloser) {
 	closer := "<</" + tag + ">>"
 	raw := make([]string, 0, 8)
 	consumed := 1 // el tag de apertura
 	bodyIndent := -1
+	closedBy := closedByEOF
 
 	for i := startIndex + 1; i < len(lines); i++ {
 		line := lines[i]
@@ -169,11 +183,7 @@ func readQuizPollBody(lines []string, startIndex int, tag string) ([]string, int
 		// reportan con Error, así que el build se detiene.
 		if trimmed == "<<end>>" || trimmed == closer {
 			consumed++
-			break
-		}
-
-		// Frontera real: la línea es del documento. Se corta SIN consumir.
-		if IsEmbeddedBlockBoundary(line) {
+			closedBy = closedByCloser
 			break
 		}
 
@@ -183,15 +193,44 @@ func readQuizPollBody(lines []string, startIndex int, tag string) ([]string, int
 			continue
 		}
 
+		indent := CalculateIndentLevel(line)
+
+		// Frontera real: la línea es del documento. Se corta SIN consumir.
+		//
+		// El guard de sangría NO es cosmético. Sin él, una línea de
+		// continuación de un escalar de bloque YAML se tomaba por frontera:
+		//
+		//	explanation: |
+		//	  Ver el ejemplo
+		//	  # Nota importante      <- se leía como heading del documento
+		//	  mas texto
+		//
+		// El bloque se cortaba ahí, el `# Nota importante` abría un slide
+		// fantasma y `mas texto` caía adentro como prosa. Y era SILENCIOSO:
+		// el quiz ya tenía `options` y `answer`, así que ningún diagnóstico
+		// disparaba — la pérdida de contenido del issue #192, exacta.
+		//
+		// Una frontera de verdad nunca está más sangrada que el cuerpo:
+		// IsStrictBlockBoundary ya exige columna 0 para SLIDE/SECTION, y un
+		// `# `/`---` de nivel de documento tampoco va sangrado. Así que
+		// cualquier línea más profunda que bodyIndent es contenido, no
+		// frontera.
+		if indent <= bodyIndent || bodyIndent == -1 {
+			if IsEmbeddedBlockBoundary(line) {
+				closedBy = closedByBoundary
+				break
+			}
+		}
+
 		// bodyIndent se fija con la primera línea de contenido y solo sirve
 		// para detectar el dedent que cierra un bloque sin cerrador explícito
 		// (el caso de strict, donde el cuerpo va sangrado bajo el tag). Con el
 		// cuerpo en columna 0 queda en 0 y la comparación nunca dispara: el
 		// bloque termina solo por cerrador o por frontera, que es lo correcto.
-		indent := CalculateIndentLevel(line)
 		if bodyIndent == -1 {
 			bodyIndent = indent
 		} else if indent < bodyIndent {
+			closedBy = closedByDedent
 			break
 		}
 
@@ -199,8 +238,20 @@ func readQuizPollBody(lines []string, startIndex int, tag string) ([]string, int
 		consumed++
 	}
 
-	return raw, consumed
+	return raw, consumed, closedBy
 }
+
+// closedByX indica CÓMO terminó el bloque. Solo el cerrador explícito es un
+// final limpio; los otros tres significan que el autor no cerró el bloque, y
+// eso se reporta en vez de deducirse en silencio.
+type quizPollCloser int
+
+const (
+	closedByEOF quizPollCloser = iota
+	closedByCloser
+	closedByBoundary
+	closedByDedent
+)
 
 // dedentBlock quita la sangría común de las líneas para que yaml.v3 las acepte:
 // un documento YAML no puede arrancar con indentación. Los tabs iniciales se
@@ -279,14 +330,16 @@ func sortedQuizPollKeys(tag string) []string {
 // core/linter/policy.go (que permite habilitarlos/deshabilitarlos por ID) tenga
 // una sola fuente que leer.
 func quizPollRuleID(tag, reason string) string {
-	switch {
-	case tag == "quiz" && reason == "invalidYAML":
-		return "QUIZ004"
-	case tag == "quiz" && reason == "unknownKey":
-		return "QUIZ005"
-	case tag == "poll" && reason == "invalidYAML":
-		return "POLL003"
-	default:
-		return "POLL004"
+	ids := map[string]map[string]string{
+		"quiz": {"invalidYAML": "QUIZ004", "unknownKey": "QUIZ005", "unclosed": "QUIZ006"},
+		"poll": {"invalidYAML": "POLL003", "unknownKey": "POLL004", "unclosed": "POLL005"},
 	}
+	if id, ok := ids[tag][reason]; ok {
+		return id
+	}
+	// Un mapa exhaustivo en vez de un switch con default: el default anterior
+	// devolvía POLL004 para CUALQUIER combinación no contemplada, así que un
+	// motivo nuevo del lado de quiz habría salido etiquetado como regla de
+	// poll. Acá una combinación desconocida es visiblemente eso.
+	return "QUIZPOLL_UNKNOWN"
 }

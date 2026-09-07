@@ -818,7 +818,13 @@ func hasRequiredProperty(slide *ast.ContentBlock, property string) bool {
 	case "title":
 		return slide.Title != ""
 	case "heading":
-		return slide.Heading != ""
+		// `title` acepta también `title` como fallback desde el issue #240:
+		// la plantilla cae a {{$slide.Title}} cuando no hay Heading, así que
+		// un slide con solo `title:` renderiza perfecto, y exigir `heading`
+		// mataba el build de un deck válido. `title_slide` declara la misma
+		// propiedad y la valida por esta vía genérica, así que tiene que
+		// aceptar el mismo fallback o se reintroduce el bug con otro código.
+		return slide.Heading != "" || slide.Title != ""
 	case "subtitle":
 		return slide.Subtitle != ""
 	case "logo":

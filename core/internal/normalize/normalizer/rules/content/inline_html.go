@@ -33,7 +33,10 @@ var codeSpanPattern = regexp.MustCompile("(?is)<code\\b[^>]*>.*?</code>|`[^`]*`"
 
 // cleanCodeContent reconoce el interior de un `<code>` que SÍ se puede pasar a
 // backticks: sin tags anidadas ni corchetes, que son la sintaxis de destino.
-var cleanCodeContent = regexp.MustCompile(`(?is)^<code\b[^>]*>([^<>\[\]]*)</code>$`)
+// El interior excluye TAMBIÉN el backtick: pasar un `<code>a`b</code>` a
+// backticks produciría "`a`b`", que se lee como código "a" seguido de "b`"
+// suelto. Un <code> así se deja literal, igual que uno con tags adentro.
+var cleanCodeContent = regexp.MustCompile("(?is)^<code\\b[^>]*>([^<>\\[\\]`]*)</code>$")
 
 // InlineHTMLTagsRule reescribe las tags HTML inline que un autor (o un modelo)
 // escribe por costumbre a la sintaxis que el DSL sí entiende (issue #243).
@@ -91,7 +94,15 @@ func (r *InlineHTMLTagsRule) Apply(content string) (string, error) {
 			inEmbeddedBlock = false
 			continue
 		}
-		if strings.HasPrefix(trimmed, "<<") && strings.HasSuffix(trimmed, ">>") {
+		// Una frontera de documento también termina un bloque embebido: los
+		// parsers los cierran así cuando falta el `<<end>>`. Sin esto, UN
+		// bloque terminado por `---` —el separador de slides, o sea la forma
+		// más común— dejaba la regla apagada para todo el resto del archivo.
+		if trimmed == "---" || strings.HasPrefix(trimmed, "# ") || strings.HasPrefix(trimmed, "## ") {
+			inEmbeddedBlock = false
+			continue
+		}
+		if strings.HasPrefix(trimmed, "<<") {
 			inEmbeddedBlock = true
 			continue
 		}

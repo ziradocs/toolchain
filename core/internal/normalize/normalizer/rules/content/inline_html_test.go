@@ -172,3 +172,32 @@ func TestInlineHTMLTagsRule_NoSentinelLeaks(t *testing.T) {
 		}
 	}
 }
+
+// Un backtick dentro de un <code> rompía la reescritura: "<code>a`b</code>"
+// salía como "`a`b`", que se lee como código "a" seguido de "b`" suelto.
+func TestInlineHTMLTagsRule_BacktickInsideCodeIsNotRewritten(t *testing.T) {
+	for _, in := range []string{
+		"Escribe <code>a`b</code> así",
+		"Corre <code>echo `date`</code> y listo",
+	} {
+		if got := applyInlineHTML(t, in); got != in {
+			t.Errorf("Apply(%q) = %q; un <code> con backtick debe quedar literal", in, got)
+		}
+	}
+}
+
+// Un bloque embebido terminado por una frontera de documento (no por
+// `<<end>>`) apagaba la regla para TODO el resto del archivo. Y `---` es el
+// separador de slides, o sea la forma más común de que eso pase.
+func TestInlineHTMLTagsRule_BoundaryReopensAfterEmbeddedBlock(t *testing.T) {
+	for _, boundary := range []string{"---", "# Otro slide", "## Otra sección"} {
+		in := "<<chart: bar>>\ndata: [1]\n" + boundary + "\n\nTexto con <u>subrayado</u>."
+		got := applyInlineHTML(t, in)
+		if !strings.Contains(got, "[subrayado]{.underline}") {
+			t.Errorf("tras %q la regla quedó apagada:\n%s", boundary, got)
+		}
+		if !strings.Contains(got, "data: [1]") {
+			t.Errorf("tras %q se tocó el cuerpo del bloque:\n%s", boundary, got)
+		}
+	}
+}

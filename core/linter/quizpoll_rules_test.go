@@ -152,3 +152,33 @@ func TestElementStructureRule_DispatchesQuizAndPoll(t *testing.T) {
 		}
 	}
 }
+
+// Issue #256 le dio a `title_slide` la validación de propiedad que le faltaba,
+// y eso reintroducía el bug de #240 con otro código: exigir `heading` a secas
+// mata un deck en el que la plantilla renderiza perfecto desde `title:`.
+// `hasRequiredProperty("heading")` acepta el mismo fallback que LAYOUT001.
+func TestValidateRequiredProperties_TitleSlideAcceptsTitleAsHeadingFallback(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	schemas := GetSlideLayoutSchemas()
+
+	withTitle := ast.NewContentBlock(pos, "title_slide")
+	withTitle.Title = "Mi presentación"
+	if diags := validateRequiredProperties("title_slide", schemas["title_slide"], withTitle); len(diags) != 0 {
+		t.Errorf("un title_slide con `title:` no debe reportar nada: %v", quizDiagIDs(diags))
+	}
+
+	withHeading := ast.NewContentBlock(pos, "title_slide")
+	withHeading.Heading = "Mi presentación"
+	if diags := validateRequiredProperties("title_slide", schemas["title_slide"], withHeading); len(diags) != 0 {
+		t.Errorf("un title_slide con `heading:` no debe reportar nada: %v", quizDiagIDs(diags))
+	}
+
+	// Sin ninguno de los dos sí es un hallazgo: era el hueco que #256 cerró.
+	empty := ast.NewContentBlock(pos, "title_slide")
+	diags := validateRequiredProperties("title_slide", schemas["title_slide"], empty)
+	// Las reglas de layout identifican por Code, no por RuleID (ver
+	// diagnosticRuleID en policy.go, que acepta los dos).
+	if len(diags) != 1 || diags[0].Code != "LAYOUT_REQUIRED_PROPERTY" {
+		t.Errorf("un title_slide sin heading ni title debe reportar: %+v", diags)
+	}
+}
