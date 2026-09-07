@@ -1,0 +1,25 @@
+/* Layout: stats — issue #254
+ *
+ * Forma real en el corpus (12 decks): una tabla de cifras y, debajo, uno o dos
+ * bloques ":::" con los aprendizajes. La tabla es el protagonista; los bloques
+ * se leen como una tira de indicadores. */
+
+.slidelang-slide[data-slide-type="stats"] .slidelang-element.slidelang-table table {
+    width: 100%;
+    /* Las cifras se comparan de un vistazo solo si los dígitos se alinean en
+     * columna: tabular-nums fuerza el ancho fijo por dígito. */
+    font-variant-numeric: tabular-nums;
+}
+
+.slidelang-slide[data-slide-type="stats"] .slidelang-element.slidelang-table th {
+    background: var(--primary-color);
+    color: var(--text-on-primary);
+}
+
+.slidelang-slide[data-slide-type="stats"] .slidelang-element.slidelang-table td:first-child {
+    font-weight: 600;
+}
+
+.slidelang-slide[data-slide-type="stats"] .slidelang-element.slidelang-special-block {
+    margin: 0;
+}

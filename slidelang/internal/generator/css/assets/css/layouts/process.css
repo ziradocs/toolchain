@@ -1,0 +1,34 @@
+/* Layout: process — issue #254
+ *
+ * Forma real en el corpus: un "##" por hito seguido de su párrafo, repetido.
+ * Se dibuja como una secuencia de pasos: un riel vertical y un cuadrado por cada
+ * entrada.
+ *
+ * No se usa un contador CSS para numerar: los decks del corpus ya escriben el
+ * número en el propio heading, y agregar otro lo duplicaría. */
+
+.slidelang-slide[data-slide-type="process"] .slidelang-content-elements {
+    border-left: 3px solid var(--primary-color);
+    padding-left: 1.75rem;
+    margin-left: 0.5rem;
+}
+
+.slidelang-slide[data-slide-type="process"] .slidelang-element.slidelang-heading-2 {
+    position: relative;
+    margin-top: 1.5rem;
+}
+
+.slidelang-slide[data-slide-type="process"] .slidelang-element.slidelang-heading-2::before {
+    content: "";
+    position: absolute;
+    left: -2.3rem;
+    top: 0.45em;
+    width: 0.7rem;
+    height: 0.7rem;
+    background: var(--primary-color);
+    border-radius: 2px;
+}
+
+.slidelang-slide[data-slide-type="process"] .slidelang-element.slidelang-text {
+    color: var(--text-muted);
+}

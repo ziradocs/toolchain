@@ -1,0 +1,32 @@
+/* Layout: dashboard — issue #254
+ *
+ * Forma real en el corpus (8 decks): varios "###" que titulan una métrica,
+ * cada uno seguido de su detalle. Se leen como fichas, no como una lista
+ * corrida.
+ *
+ * Se apunta a .slidelang-heading-3, que es la clase que el template le pone a
+ * un heading de nivel 3 (ver GetElementTemplate). */
+
+.slidelang-slide[data-slide-type="dashboard"] .slidelang-content-elements {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1rem;
+    align-items: start;
+}
+
+.slidelang-slide[data-slide-type="dashboard"] .slidelang-element.slidelang-heading-3 {
+    background: var(--bg-white);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-main);
+    padding: 1rem 1.25rem;
+    margin: 0;
+}
+
+/* Lo que estructura el slide entero ocupa el ancho completo en vez de
+ * convertirse en una ficha más. */
+.slidelang-slide[data-slide-type="dashboard"] .slidelang-content-elements > .slidelang-element.slidelang-heading-2,
+.slidelang-slide[data-slide-type="dashboard"] .slidelang-content-elements > .slidelang-element.slidelang-table,
+.slidelang-slide[data-slide-type="dashboard"] .slidelang-content-elements > .slidelang-element.slidelang-chart,
+.slidelang-slide[data-slide-type="dashboard"] .slidelang-content-elements > .slidelang-element.slidelang-image {
+    grid-column: 1 / -1;
+}

@@ -283,12 +283,48 @@ func GetAvailableModules() []string {
 	}
 }
 
-// GetAvailableLayouts returns list of available layout modules
+// GetAvailableLayouts devuelve los layouts que TIENEN un archivo CSS propio
+// (issue #254).
+//
+// Los nombres son valores de `data-slide-type`, o sea BlockType verbatim: los
+// mismos que declara linter.GetSlideLayoutSchemas. Un layout que no está acá no
+// es inválido — simplemente se ve como `content`, que es lo que la base ya
+// estila.
+//
+// La lista es explícita y no derivada del sistema de archivos embebido a
+// propósito: el detector y la documentación la consumen, y un archivo CSS
+// huérfano (uno que existe y que nadie pide) tiene que fallar el CI, cosa que
+// una lista derivada no podría detectar. TestLayoutCSSInventoryIsBidirectional
+// verifica las dos direcciones.
 func GetAvailableLayouts() []string {
 	return []string{
-		"specialized",  // Specialized presentation layouts
-		"infographics", // Infographic and data visualization layouts
+		"call_to_action", // Cierre centrado sobre color pleno
+		"code_example",   // Código con más cuerpo y cota de alto
+		"comparison",     // Bloques lado a lado
+		"dashboard",      // Fichas de métricas en grilla
+		"hero",           // Enunciado a pantalla completa
+		"process",        // Riel vertical con marcador cuadrado
+		"stats",          // Tabla de cifras + indicadores
+		"testimonial",    // Cita destacada con atribución
+		"timeline",       // Riel vertical con marcador redondo
 	}
+}
+
+// layoutsWithCSS es el índice de GetAvailableLayouts, para consultas por
+// nombre.
+var layoutsWithCSS = func() map[string]bool {
+	index := make(map[string]bool, len(GetAvailableLayouts()))
+	for _, name := range GetAvailableLayouts() {
+		index[name] = true
+	}
+	return index
+}()
+
+// HasLayoutCSS reporta si un tipo de slide tiene CSS de layout propio. El
+// detector lo usa para pedir solo nombres que existen, y por eso un fallo de
+// carga en LoadLayoutCSS solo puede significar un bug de inventario.
+func HasLayoutCSS(layout string) bool {
+	return layoutsWithCSS[layout]
 }
 
 // GetCoreModules returns modules that are always recommended for basic presentations

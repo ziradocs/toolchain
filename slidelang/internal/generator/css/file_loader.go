@@ -156,6 +156,13 @@ func (loader *CSSFileLoader) LoadLayoutCSS(layouts []string) (string, error) {
 			fmt.Fprintf(&css, "/* === LAYOUT: %s === */\n", strings.ToUpper(layout))
 			css.WriteString(layoutCSS)
 			css.WriteString("\n\n")
+		} else {
+			// Avisa, igual que LoadElementCSS. Antes se tragaba el error, y por
+			// eso pasó inadvertido que GetAvailableLayouts anunciaba un
+			// "infographics" sin archivo (issue #254). El detector solo pide
+			// nombres con HasLayoutCSS, así que un fallo acá solo puede ser un
+			// bug de inventario — justo cuando conviene el ruido.
+			util.Warn("CSS: layout '%s' requerido pero sin archivo (%s): %v", layout, filename, err)
 		}
 	}
 

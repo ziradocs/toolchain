@@ -1,0 +1,20 @@
+/* Layout: code_example — issue #254
+ *
+ * El código es el contenido, no una ilustración: se le da más cuerpo de letra
+ * y una cota de alto para que no empuje la explicación fuera de la pantalla. */
+
+.slidelang-slide[data-slide-type="code_example"] .slidelang-element.slidelang-code pre {
+    font-size: 1.05em;
+    line-height: 1.5;
+    max-height: 55vh;
+    overflow: auto;
+}
+
+/* Las viñetas que explican el código van compactas: acompañan, no compiten. */
+.slidelang-slide[data-slide-type="code_example"] .slidelang-element.slidelang-points {
+    font-size: 0.95em;
+}
+
+.slidelang-slide[data-slide-type="code_example"] .slidelang-element.slidelang-points li {
+    margin-bottom: 0.25rem;
+}

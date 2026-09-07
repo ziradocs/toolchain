@@ -4,8 +4,12 @@
 package css
 
 import (
+	"io/fs"
+	"regexp"
 	"strings"
 	"testing"
+
+	"go.ziradocs.com/core/v2/linter"
 )
 
 func TestCSSBuilderDefault(t *testing.T) {
@@ -85,16 +89,99 @@ func TestAvailableModulesHaveCSSFiles(t *testing.T) {
 	}
 }
 
+// TestCSSBuilderLayouts verifica que cada layout anunciado emita CSS REAL.
+//
+// La versión anterior solo buscaba el header "LAYOUT MODULES", que Build()
+// escribe incondicionalmente antes de intentar la carga: pasaba en verde
+// aunque el archivo no existiera, y de hecho lo hacía —GetAvailableLayouts
+// anunciaba un "infographics" sin archivo (issue #254). Ahora se exige el
+// selector del layout, que solo puede venir del archivo.
 func TestCSSBuilderLayouts(t *testing.T) {
-	layouts := []string{"specialized", "infographics"}
+	for _, layout := range GetAvailableLayouts() {
+		css := NewCSSBuilder().WithRequiredLayouts([]string{layout}).Build()
 
-	for _, layout := range layouts {
-		builder := NewCSSBuilder().WithRequiredLayouts([]string{layout})
-		css := builder.Build()
-
-		// Verificar que los layouts están incluidos
 		if !strings.Contains(css, "/* === LAYOUT MODULES === */") {
-			t.Errorf("Layout %s no incluye sección de layouts", layout)
+			t.Errorf("layout %q: falta la sección de layouts", layout)
+		}
+		header := "/* === LAYOUT: " + strings.ToUpper(layout) + " === */"
+		if !strings.Contains(css, header) {
+			t.Errorf("layout %q: falta el header %q — el archivo no se cargó", layout, header)
+		}
+		selector := `[data-slide-type="` + layout + `"]`
+		if !strings.Contains(css, selector) {
+			t.Errorf("layout %q: el CSS emitido no contiene %q; un layout se selecciona por data-slide-type", layout, selector)
+		}
+	}
+}
+
+// Un layout sin CSS propio (content, default, o uno todavía sin diseñar) no
+// debe emitir nada: el bundle se poda igual que con los elementos.
+func TestCSSBuilderLayouts_UnknownLayoutEmitsNothing(t *testing.T) {
+	css := NewCSSBuilder().WithRequiredLayouts([]string{}).Build()
+	if strings.Contains(css, "/* === LAYOUT MODULES === */") {
+		t.Error("sin layouts requeridos no debe emitirse la sección de layouts")
+	}
+}
+
+// TestLayoutCSSInventoryIsBidirectional cierra las dos direcciones del
+// inventario: un nombre anunciado sin archivo (el bug de "infographics") y un
+// archivo huérfano que nadie pide. Una lista derivada del FS solo podría
+// detectar la primera.
+func TestLayoutCSSInventoryIsBidirectional(t *testing.T) {
+	loader := NewCSSFileLoader()
+	for _, layout := range GetAvailableLayouts() {
+		css, _ := loader.LoadLayoutCSS([]string{layout})
+		if strings.TrimSpace(css) == "" {
+			t.Errorf("layout %q está en GetAvailableLayouts() pero assets/css/layouts/%s.css no existe o está vacío", layout, layout)
+		}
+		if !HasLayoutCSS(layout) {
+			t.Errorf("layout %q está en GetAvailableLayouts() pero HasLayoutCSS lo niega", layout)
+		}
+	}
+
+	entries, err := fs.ReadDir(layoutCSSFiles, "assets/css/layouts")
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, entry := range entries {
+		name := strings.TrimSuffix(entry.Name(), ".css")
+		if !HasLayoutCSS(name) {
+			t.Errorf("assets/css/layouts/%s existe pero no está en GetAvailableLayouts(): nadie lo va a pedir nunca", entry.Name())
+		}
+	}
+}
+
+// Un layout tiene que existir como tipo de slide, o su CSS nunca matchea nada.
+func TestAvailableLayoutsAreRecognizedSlideTypes(t *testing.T) {
+	schemas := linter.GetSlideLayoutSchemas()
+	for _, layout := range GetAvailableLayouts() {
+		if _, ok := schemas[layout]; !ok {
+			t.Errorf("layout %q tiene CSS pero no es un tipo de slide con schema en el linter", layout)
+		}
+	}
+}
+
+// El CSS de layout usa tokens del tema, nunca colores literales: si no, un tema
+// externo no puede cambiarlos.
+func TestLayoutCSSUsesThemeTokensNotHexColors(t *testing.T) {
+	entries, err := fs.ReadDir(layoutCSSFiles, "assets/css/layouts")
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	hex := regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
+	for _, entry := range entries {
+		data, err := layoutCSSFiles.ReadFile("assets/css/layouts/" + entry.Name())
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", entry.Name(), err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			// Los comentarios pueden mencionar cualquier cosa.
+			if strings.HasPrefix(strings.TrimSpace(line), "*") || strings.HasPrefix(strings.TrimSpace(line), "/*") {
+				continue
+			}
+			if hex.MatchString(line) {
+				t.Errorf("%s: color literal en %q — usá una variable del tema", entry.Name(), strings.TrimSpace(line))
+			}
 		}
 	}
 }

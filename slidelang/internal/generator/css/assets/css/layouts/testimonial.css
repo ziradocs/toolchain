@@ -1,0 +1,35 @@
+/* Layout: testimonial — issue #254
+ *
+ * Forma real en el corpus (13 decks): una cita "> " y, debajo, una lista con
+ * la atribución o las métricas del caso. La cita manda.
+ *
+ * Se apunta a blockquote/cite por TAG y no a las clases del template: el
+ * footer de la cita usa clases sin prefijo (".quote-footer", ".source") y
+ * ApplyNamespacing las reescribiría a ".slidelang-*" al cargar este archivo,
+ * dejando el selector sin matchear. */
+
+.slidelang-slide[data-slide-type="testimonial"] .slidelang-content-elements {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.slidelang-slide[data-slide-type="testimonial"] blockquote {
+    font-size: 1.5em;
+    font-style: italic;
+    line-height: 1.5;
+    max-width: 42rem;
+    border-left: none;
+    background: var(--bg-quote);
+    border-radius: var(--border-radius-lg);
+    padding: 1.5rem 2rem;
+}
+
+.slidelang-slide[data-slide-type="testimonial"] cite {
+    display: block;
+    margin-top: 0.75rem;
+    font-style: normal;
+    color: var(--text-muted);
+}

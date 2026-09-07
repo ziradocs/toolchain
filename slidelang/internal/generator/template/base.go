@@ -444,7 +444,7 @@ func (tb *TemplateBuilder) buildCDNIncludes() string {
 func (tb *TemplateBuilder) buildHTMLBody() string {
 	template := `    <div class="slidelang-presentation-container">
         {{range $index, $slide := .ContentBlocks}}
-        <div class="slidelang-slide slidelang-{{$slide.Type}}-slide{{if eq $index 0}} slidelang-active{{end}}" 
+        <div class="slidelang-slide slidelang-{{$slide.Type}}-slide{{if $slide.UsesContentChrome}} slidelang-content-slide{{end}}{{if eq $index 0}} slidelang-active{{end}}" 
              data-slide="{{$index}}"
              data-slide-type="{{$slide.Type}}"
              data-slide-title="{{if eq $slide.Type "title"}}{{$slide.Heading}}{{else}}{{$slide.Title}}{{end}}"

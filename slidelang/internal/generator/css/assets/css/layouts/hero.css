@@ -1,0 +1,33 @@
+/* Layout: hero — issue #254
+ *
+ * Un enunciado corto que ocupa la pantalla. Se centra en los dos ejes y el
+ * título crece; el resto del contenido queda contenido para que no compita.
+ *
+ * El fondo reusa el token del slide de título (--bg-title-slide) en vez de
+ * declarar un color: así un tema externo lo cambia sin tocar este archivo. */
+
+.slidelang-slide[data-slide-type="hero"] {
+    background: var(--bg-title-slide);
+}
+
+.slidelang-slide[data-slide-type="hero"] .slidelang-content-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+}
+
+.slidelang-slide[data-slide-type="hero"] h1 {
+    font-size: 3.5em;
+    line-height: 1.1;
+    /* El subrayado que la base le da al h1 de un slide de contenido compite
+     * con un titular a este tamaño. */
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.slidelang-slide[data-slide-type="hero"] .slidelang-element.slidelang-image img {
+    max-height: 40vh;
+}
