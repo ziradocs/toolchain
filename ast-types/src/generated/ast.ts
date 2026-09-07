@@ -71,7 +71,7 @@ import type { Position } from "./diagnostics";
  * slide/page. FontSize is stored verbatim like PageConfig.Size, not
  * resolved to any renderer's unit.
  */
-export const SchemaVersion = "2.8.0";
+export const SchemaVersion = "2.9.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -103,6 +103,8 @@ export const NodeTypeGrid: NodeType = "grid"; // Grid layout container
 export const NodeTypeColumn: NodeType = "column"; // Column within grid layout
 export const NodeTypeMath: NodeType = "math"; // Ecuación/fórmula LaTeX (issue #239)
 export const NodeTypeMedia: NodeType = "media"; // Audio/video embebido (issue #21)
+export const NodeTypeQuiz: NodeType = "quiz"; // Pregunta de opción múltiple con respuesta correcta (issue #198)
+export const NodeTypePoll: NodeType = "poll"; // Encuesta sin respuesta correcta (issue #198)
 /**
  * BaseNode contiene campos comunes para todos los nodos
  */
@@ -436,7 +438,9 @@ export type Element =
   | ColumnElement
   | DirectiveNode
   | MathElement
-  | MediaElement;
+  | MediaElement
+  | QuizElement
+  | PollElement;
 /**
  * TextElement representa un bloque de texto
  */
@@ -813,6 +817,54 @@ export interface ChecklistItem extends BaseNode {
   discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
   checked: boolean;
   subItems?: ChecklistItem[];
+}
+/**
+ * QuizElement representa una pregunta de opción múltiple con una respuesta
+ * correcta (issue #198). Es estático en todos los formatos: no hay backend, así
+ * que la "interacción" del HTML es local al visor y el resto de los renderers
+ * (PDF, PPTX, DOCX, Markdown) muestran la respuesta ya revelada.
+ * Options/OptionsHTML son slices PARALELOS, no una lista de structs: una opción
+ * es texto y nada más — no tiene estado propio, posición ni sub-items, a
+ * diferencia de ChecklistItem. El precedente es TableElement.Headers/
+ * HeadersHTML. Un struct por opción obligaría a un NodeType nuevo, su caso en
+ * walk.go y filas en los tests de cobertura, sin ningún dato que justifique el
+ * nodo.
+ */
+export interface QuizElement extends BaseNode {
+  question: string;
+  questionHTML?: string; // ver TextElement.ContentHTML
+  options: string[];
+  optionsHTML?: string[]; // ver TextElement.ContentHTML
+  /**
+   * Answer es el índice 0-BASED de la opción correcta: `answer: 1` señala la
+   * segunda opción. -1 significa "no declarado" — no es un puntero para que
+   * ningún consumidor (converter, PPTX, DOCX, formatter, el tipo TS) tenga
+   * que ramificar; el linter es el único que lo interpreta, y reporta tanto
+   * el faltante como el fuera de rango con QUIZ001.
+   */
+  answer: number /* int */;
+  explanation?: string;
+  explanationHTML?: string; // ver TextElement.ContentHTML
+  langRuns?: LangRun[]; // de Question; ver TextElement.LangRuns
+  discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
+}
+/**
+ * PollElement representa una encuesta: una pregunta y sus opciones, sin
+ * respuesta correcta (issue #198). Estático como QuizElement — el conteo que
+ * el HTML muestra al hacer clic es local al visor, no hay recolección de
+ * respuestas.
+ */
+export interface PollElement extends BaseNode {
+  question: string;
+  questionHTML?: string; // ver TextElement.ContentHTML
+  options: string[];
+  optionsHTML?: string[]; // ver TextElement.ContentHTML
+  /**
+   * Multiple habilita elegir más de una opción a la vez.
+   */
+  multiple: boolean;
+  langRuns?: LangRun[]; // de Question; ver TextElement.LangRuns
+  discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
 }
 /**
  * GridElement representa un contenedor de grid layout

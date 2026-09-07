@@ -892,6 +892,74 @@ func NewChecklistItem(pos diagnostics.Position, content string, checked bool) *C
 	}
 }
 
+// QuizElement representa una pregunta de opción múltiple con una respuesta
+// correcta (issue #198). Es estático en todos los formatos: no hay backend, así
+// que la "interacción" del HTML es local al visor y el resto de los renderers
+// (PDF, PPTX, DOCX, Markdown) muestran la respuesta ya revelada.
+//
+// Options/OptionsHTML son slices PARALELOS, no una lista de structs: una opción
+// es texto y nada más — no tiene estado propio, posición ni sub-items, a
+// diferencia de ChecklistItem. El precedente es TableElement.Headers/
+// HeadersHTML. Un struct por opción obligaría a un NodeType nuevo, su caso en
+// walk.go y filas en los tests de cobertura, sin ningún dato que justifique el
+// nodo.
+type QuizElement struct {
+	BaseNode     `tstype:",extends,required"`
+	Question     string   `json:"question"`
+	QuestionHTML string   `json:"questionHTML,omitempty"` // ver TextElement.ContentHTML
+	Options      []string `json:"options"`
+	OptionsHTML  []string `json:"optionsHTML,omitempty"` // ver TextElement.ContentHTML
+	// Answer es el índice 0-BASED de la opción correcta: `answer: 1` señala la
+	// segunda opción. -1 significa "no declarado" — no es un puntero para que
+	// ningún consumidor (converter, PPTX, DOCX, formatter, el tipo TS) tenga
+	// que ramificar; el linter es el único que lo interpreta, y reporta tanto
+	// el faltante como el fuera de rango con QUIZ001.
+	Answer            int       `json:"answer"`
+	Explanation       string    `json:"explanation,omitempty"`
+	ExplanationHTML   string    `json:"explanationHTML,omitempty"`   // ver TextElement.ContentHTML
+	LangRuns          []LangRun `json:"langRuns,omitempty"`          // de Question; ver TextElement.LangRuns
+	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"` // ver TextElement.DiscardedLangRuns
+}
+
+func (q QuizElement) element() {}
+
+// NewQuizElement crea un nuevo elemento de quiz. Answer arranca en -1 ("no
+// declarado"), nunca en 0, que sería indistinguible de "la primera opción es la
+// correcta".
+func NewQuizElement(pos diagnostics.Position) *QuizElement {
+	return &QuizElement{
+		BaseNode: NewBaseNode(NodeTypeQuiz, pos),
+		Options:  make([]string, 0),
+		Answer:   -1,
+	}
+}
+
+// PollElement representa una encuesta: una pregunta y sus opciones, sin
+// respuesta correcta (issue #198). Estático como QuizElement — el conteo que
+// el HTML muestra al hacer clic es local al visor, no hay recolección de
+// respuestas.
+type PollElement struct {
+	BaseNode     `tstype:",extends,required"`
+	Question     string   `json:"question"`
+	QuestionHTML string   `json:"questionHTML,omitempty"` // ver TextElement.ContentHTML
+	Options      []string `json:"options"`
+	OptionsHTML  []string `json:"optionsHTML,omitempty"` // ver TextElement.ContentHTML
+	// Multiple habilita elegir más de una opción a la vez.
+	Multiple          bool      `json:"multiple"`
+	LangRuns          []LangRun `json:"langRuns,omitempty"`          // de Question; ver TextElement.LangRuns
+	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"` // ver TextElement.DiscardedLangRuns
+}
+
+func (p PollElement) element() {}
+
+// NewPollElement crea un nuevo elemento de poll
+func NewPollElement(pos diagnostics.Position) *PollElement {
+	return &PollElement{
+		BaseNode: NewBaseNode(NodeTypePoll, pos),
+		Options:  make([]string, 0),
+	}
+}
+
 // GridElement representa un contenedor de grid layout
 type GridElement struct {
 	BaseNode    `tstype:",extends,required"`

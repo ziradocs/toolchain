@@ -128,6 +128,10 @@ func formatStrictElement(el ast.Element) (string, error) {
 		body, err = formatStrictQuote(e)
 	case *ast.ChecklistElement:
 		body, err = formatStrictChecklist(e)
+	case *ast.QuizElement:
+		body, err = formatQuiz(e)
+	case *ast.PollElement:
+		body, err = formatPoll(e)
 	case *ast.GridElement:
 		body, err = formatStrictGrid(e)
 	case *ast.MathElement:

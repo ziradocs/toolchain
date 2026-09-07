@@ -136,6 +136,12 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 			populateChecklistItemLangRuns(&elem.Items[i], variables)
 		}
 
+	case *ast.QuizElement:
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Question, false, variables)
+
+	case *ast.PollElement:
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Question, false, variables)
+
 	case *ast.SpecialBlockElement:
 		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, false, variables)
 

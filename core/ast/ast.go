@@ -80,7 +80,7 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // namespace (`watermark:`), rendered behind content on every
 // slide/page. FontSize is stored verbatim like PageConfig.Size, not
 // resolved to any renderer's unit.
-const SchemaVersion = "2.8.0"
+const SchemaVersion = "2.9.0"
 
 // Node representa un nodo base en el AST
 type Node interface {
@@ -116,6 +116,8 @@ const (
 	NodeTypeColumn        NodeType = "column"         // Column within grid layout
 	NodeTypeMath          NodeType = "math"           // Ecuación/fórmula LaTeX (issue #239)
 	NodeTypeMedia         NodeType = "media"          // Audio/video embebido (issue #21)
+	NodeTypeQuiz          NodeType = "quiz"           // Pregunta de opción múltiple con respuesta correcta (issue #198)
+	NodeTypePoll          NodeType = "poll"           // Encuesta sin respuesta correcta (issue #198)
 )
 
 // BaseNode contiene campos comunes para todos los nodos

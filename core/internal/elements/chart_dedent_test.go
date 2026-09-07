@@ -133,9 +133,14 @@ func TestChartParser_MultiLineArrayCloserIsBlockContent(t *testing.T) {
 }
 
 // TestChartParser_UnindentedArrayRowsAreBlockContent fija la segunda forma:
-// con el array en columna 0, ShouldProcessLine devuelve false en la PRIMERA
-// fila (ExpectedIndent == -1 y sangría 0), así que parseMultiLineArray
-// consume 0 líneas y todas las filas caen al loop de propiedades.
+// el array entero en columna 0.
+//
+// Antes del issue #236, ShouldProcessLine devolvía false en la PRIMERA fila
+// (ExpectedIndent == -1 y sangría 0), así que parseMultiLineArray consumía 0
+// líneas: el bloque seguía completo porque el loop de propiedades recogía las
+// filas por arrayDepth, pero los VALORES nunca llegaban a chart.Data. Ahora la
+// sangría esperada del array se fija con su primera fila real (arrayRowIndent)
+// y los datos sí se extraen — ver el assert de Data más abajo.
 //
 // Es la forma del fixture de
 // internal/normalize/normalizer/rules/enhancement/chart_formatter_options_test.go
@@ -156,6 +161,11 @@ func TestChartParser_UnindentedArrayRowsAreBlockContent(t *testing.T) {
 		"**Prosa que sigue al chart**", // 9
 	}
 	chart := assertChartConsumes(t, lines, 9)
+
+	// Issue #236: los valores del array en columna 0 ahora llegan al AST.
+	if len(chart.Data) != 1 || len(chart.Data[0]) != 2 {
+		t.Errorf("Data = %v, se esperaba una fila con dos celdas — el array en columna 0 no se extrajo", chart.Data)
+	}
 
 	if chart.Options == nil {
 		t.Fatal("Options = nil — las filas del array en columna 0 cortaron el bloque antes de options:")
@@ -339,14 +349,15 @@ func TestChartParser_ColumnZeroSeriesArrayIsNotCutByDataRowShape(t *testing.T) {
 		"**prosa**",      // 7
 	}
 	chart := assertChartConsumes(t, lines, 7)
-	// chart.Series se queda vacío incluso con este fix: es un gap PREEXISTENTE
-	// y separado (parseMultiLineStringArray, igual que parseMultiLineArray,
-	// devuelve 0 líneas consumidas cuando el array arranca en columna 0, así
-	// que nunca llega a extraer los valores) — confirmado que main sin
-	// parchear pierde el mismo contenido para "data:" en columna 0. Lo que
-	// este test fija es el truncamiento: que "data:" no termine tratado como
-	// texto suelto fuera del chart solo porque series: lo antecede sin
-	// sangría.
+
+	// Issue #236: chart.Series solía quedar vacío acá — parseMultiLineStringArray
+	// devolvía 0 líneas consumidas con el array en columna 0 y nunca llegaba a
+	// extraer los valores. Ese hueco está cerrado; lo que este test fijaba
+	// originalmente (que "data:" no termine tratado como texto suelto por venir
+	// después de un series: sin sangrar) sigue vigente en el assert de abajo.
+	if len(chart.Series) != 2 || chart.Series[0] != "Revenue" || chart.Series[1] != "Cost" {
+		t.Errorf("Series = %v, se esperaba [Revenue Cost] — el array en columna 0 no se extrajo", chart.Series)
+	}
 	if len(chart.Data) == 0 {
 		t.Errorf("Data = %v — el corte prematuro en series: se llevó data: por delante, tratándolo como texto", chart.Data)
 	}

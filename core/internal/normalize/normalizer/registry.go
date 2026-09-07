@@ -53,6 +53,7 @@ func GetTransformRules(log util.Logger) []base.TransformRule {
 
 		// Prioridad 3 - Contenido y slides
 		content.NewHeadersRule(),
+		content.NewInlineHTMLTagsRule(), // issue #243: <u>/<sub>/<sup>/<kbd>/<mark>/<small>/<code> → sintaxis del DSL
 		// structure.NewTitleSlideRule(), // DISABLED: Conflicts with DocLang first section
 		enhancement.NewCodeGroupFormatterRule(), // NUEVA: Normaliza sintaxis de code-groups
 		enhancement.NewGraphicsRule("comment"),  // Convertir placeholders a charts válidos

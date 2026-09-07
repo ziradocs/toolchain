@@ -517,6 +517,18 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         .slidelang-text-accent  { color: var(--doclang-accent-color,  #7c3aed); }
         .slidelang-text-small   { font-size: 0.875em; }
         .slidelang-text-large   { font-size: 1.25em; font-weight: 500; }
+        /* [x]{.kbd} — una tecla. Es el único token nuevo de #243 que emite
+           clase: <sub>/<sup> son tags peladas y el navegador ya las posiciona. */
+        .slidelang-kbd {
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+            font-size: 0.85em;
+            padding: 0.15em 0.4em;
+            border: 1px solid #ccc;
+            border-bottom-width: 2px;
+            border-radius: 4px;
+            background: #f7f7f7;
+            white-space: nowrap;
+        }
 
         .slidelang-highlight-warning {
             background: var(--doclang-highlight-warning-bg, #fef3c7);

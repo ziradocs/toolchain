@@ -396,6 +396,51 @@ Embedded elements add rich content:
 | Diagrams | `<<mermaid>>` | Mermaid diagrams |
 | Maps | `<<map>>` | Geographic maps |
 | Grid | `<<grid>>` / `<<column>>` / `<<end>>` | Column layouts — see "Grid and Column Layouts" above |
+| Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
+| Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
+
+### Quiz and Poll
+
+`<<quiz>>` and `<<poll>>` carry a **YAML body**, unlike the other embedded
+elements. They are valid in both dialects and in both modes.
+
+```slidelang
+<<quiz>>
+question: "Which type of ML would you use for email spam detection?"
+options:
+  - "Unsupervised learning"
+  - "Supervised learning"
+  - "Reinforcement learning"
+answer: 1
+explanation: "We have labeled examples of spam and legitimate email."
+<<end>>
+
+<<poll>>
+question: "What's your programming experience level?"
+options: ["Beginner", "Intermediate", "Advanced", "Expert"]
+multiple: false
+<<end>>
+```
+
+| Key | Element | Meaning |
+|---|---|---|
+| `question` | both | The prompt. |
+| `options` | both | A YAML list or an inline array — both forms are accepted. |
+| `answer` | quiz | **0-based** index of the correct option: `answer: 1` selects the *second* option. |
+| `explanation` | quiz | Shown with the answer. Optional. |
+| `multiple` | poll | Allows selecting more than one option. Optional, defaults to `false`. |
+
+A key outside that set is reported and ignored rather than dropped silently
+(`QUIZ005` / `POLL004`), and a body that is not valid YAML is reported as
+`QUIZ004` / `POLL003` — the block is still consumed, so nothing after it is
+reprocessed as prose.
+
+`<<end>>` is the canonical closer. `<</quiz>>` and `<</poll>>` are also
+accepted, the same way `<</chart>>` is.
+
+**Both are static.** There is no backend and no collection of answers: a quiz
+renders with the correct option marked and its explanation visible, and a poll
+renders as a list. Any interaction is local to whoever opens the HTML.
 
 ## 🔍 **Validation Rules**
 

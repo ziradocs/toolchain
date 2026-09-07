@@ -245,6 +245,13 @@ func (n *Normalizer) applyBasicFormatting(content string, report *NormalizationR
 	basicRules := []string{
 		"MermaidFormatter",   // Para formatear bloques mermaid con indentación
 		"CodeGroupFormatter", // Para normalizar sintaxis de code-groups (::::code-group / :::code-item{})
+		// InlineHTMLTags (issue #243) entra por la misma razón que
+		// CodeGroupFormatter: sin ella, un `<u>texto</u>` escrito a mano llega
+		// al sanitizer, que lo escapa, y las tags salen visibles en la
+		// diapositiva. Y el caso es JUSTAMENTE el del documento humano, que es
+		// el que el detector no puntúa — condicionarla a la detección la
+		// dejaría fuera exactamente donde hace falta.
+		"InlineHTMLTags",
 	}
 
 	currentContent := content

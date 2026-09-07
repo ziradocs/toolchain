@@ -164,6 +164,10 @@ func formatDocumentElement(el ast.Element) (string, error) {
 		body, err = formatFlexQuote(e)
 	case *ast.ChecklistElement:
 		body = formatFlexChecklist(e.Items)
+	case *ast.QuizElement:
+		body, err = formatQuiz(e)
+	case *ast.PollElement:
+		body, err = formatPoll(e)
 	case *ast.SpecialBlockElement:
 		body = formatSpecialBlock(e)
 	case *ast.CodeGroupElement:

@@ -401,6 +401,16 @@ func (p *strictBody) parseIndentedElements(
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
+		} else if strings.HasPrefix(trimmedLine, "<<quiz>>") {
+			element := p.parseQuizElement()
+			if element != nil {
+				block.Elements = append(block.Elements, element)
+			}
+		} else if strings.HasPrefix(trimmedLine, "<<poll>>") {
+			element := p.parsePollElement()
+			if element != nil {
+				block.Elements = append(block.Elements, element)
+			}
 		} else if strings.HasPrefix(trimmedLine, "<<grid>>") {
 			element := p.parseGridElement()
 			if element != nil {
@@ -831,6 +841,39 @@ func (p *strictBody) parseMapElement() ast.Element {
 
 	result := mapParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "<<map>>")
+}
+
+// parseQuizElement y parsePollElement despachan los tags de quiz/poll en el
+// dialecto strict (issue #198). Strict NO usa el registry de elementos —
+// parseIndentedElements es una cadena if/else escrita a mano —, así que
+// registrar los parsers no alcanza: hace falta una rama por tag. Estas dos
+// funciones viven en strictBody, compartido por StrictParser (slidelang) y
+// DocumentStrictParser (doclang), así que una sola rama cubre los dos
+// dialectos.
+func (p *strictBody) parseQuizElement() ast.Element {
+	return p.parseEmbeddedElement(&elements.QuizParser{}, "<<quiz>>")
+}
+
+func (p *strictBody) parsePollElement() ast.Element {
+	return p.parseEmbeddedElement(&elements.PollParser{}, "<<poll>>")
+}
+
+// parseEmbeddedElement corre un ElementParser del registry sobre la posición
+// actual del cuerpo strict. Es el cuerpo compartido de parseMapElement y
+// compañía, extraído al agregar quiz/poll para no clonarlo dos veces más.
+func (p *strictBody) parseEmbeddedElement(parser elements.ElementParser, tag string) ast.Element {
+	if p.currentLine >= len(p.lines) {
+		return nil
+	}
+
+	ctx := &elements.ParseContext{
+		Mode:        "strict",
+		Lines:       p.lines,
+		CurrentLine: p.currentLine,
+		Logger:      p.logger,
+	}
+
+	return p.applyElementResult(parser.Parse(ctx, p.currentLine), tag)
 }
 
 // parseMarkdownTableElement parsea tablas en formato markdown

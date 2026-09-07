@@ -65,6 +65,10 @@ func DecodeElement(raw json.RawMessage) (Element, error) {
 		target = &QuoteElement{}
 	case NodeTypeChecklist:
 		target = &ChecklistElement{}
+	case NodeTypeQuiz:
+		target = &QuizElement{}
+	case NodeTypePoll:
+		target = &PollElement{}
 	case NodeTypeGrid:
 		target = &GridElement{}
 	case NodeTypeColumn:
