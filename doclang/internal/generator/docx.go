@@ -2368,16 +2368,16 @@ func (g *DOCXGenerator) renderQuiz(doc domain.Document, elem *ast.QuizElement) e
 		return err
 	}
 	for i, option := range elem.Options {
-		text := fmt.Sprintf("%d. %s", i+1, option)
+		prefix := fmt.Sprintf("%d. ", i+1)
 		if i == elem.Answer {
-			text = "✅ " + text
+			prefix = "✅ " + prefix
 		}
-		if err := g.renderQuizPollLine(doc, text, i == elem.Answer, false); err != nil {
+		if err := g.renderQuizPollLine(doc, prefix, option, i == elem.Answer, false); err != nil {
 			return err
 		}
 	}
 	if elem.Explanation != "" {
-		return g.renderQuizPollLine(doc, elem.Explanation, false, true)
+		return g.renderQuizPollLine(doc, "", elem.Explanation, false, true)
 	}
 	return nil
 }
@@ -2387,7 +2387,7 @@ func (g *DOCXGenerator) renderPoll(doc domain.Document, elem *ast.PollElement) e
 		return err
 	}
 	for i, option := range elem.Options {
-		if err := g.renderQuizPollLine(doc, fmt.Sprintf("%d. %s", i+1, option), false, false); err != nil {
+		if err := g.renderQuizPollLine(doc, fmt.Sprintf("%d. ", i+1), option, false, false); err != nil {
 			return err
 		}
 	}
@@ -2405,23 +2405,18 @@ func (g *DOCXGenerator) renderQuizPollQuestion(doc domain.Document, question str
 	if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter) / 2); err != nil {
 		return fmt.Errorf("invalid spacing after: %w", err)
 	}
-	r, err := p.AddRun()
-	if err != nil {
-		return err
-	}
-	_ = r.SetText(question)
-	if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-		return fmt.Errorf("invalid font size: %w", err)
-	}
-	_ = r.SetColor(g.parseColor(g.style.TextColor))
-	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-	_ = r.SetBold(true)
-	return nil
+	return g.renderQuizPollContent(p, question, true, false)
 }
 
 // renderQuizPollLine escribe una opción o la explicación, sangradas bajo la
 // pregunta igual que los items de un checklist.
-func (g *DOCXGenerator) renderQuizPollLine(doc domain.Document, text string, bold, italic bool) error {
+//
+// prefix es el numerador ("1. ", "✅ 2. ") y va en su PROPIO run, separado del
+// texto del autor: concatenarlos y mandar la cadena entera al renderer inline
+// haría que el markdown del numerador —hoy ninguno, mañana cualquiera— se
+// interpretara, y sobre todo desplaza los offsets de los patterns respecto del
+// texto que el autor escribió.
+func (g *DOCXGenerator) renderQuizPollLine(doc domain.Document, prefix, text string, bold, italic bool) error {
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
@@ -2432,23 +2427,62 @@ func (g *DOCXGenerator) renderQuizPollLine(doc domain.Document, text string, bol
 	if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter) / 2); err != nil {
 		return fmt.Errorf("invalid spacing after: %w", err)
 	}
-	r, err := p.AddRun()
-	if err != nil {
-		return err
+	if prefix != "" {
+		r, err := p.AddRun()
+		if err != nil {
+			return err
+		}
+		_ = r.SetText(prefix)
+		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+			return fmt.Errorf("invalid font size: %w", err)
+		}
+		_ = r.SetColor(g.parseColor(g.style.TextColor))
+		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+		if bold {
+			_ = r.SetBold(true)
+		}
+		if italic {
+			_ = r.SetItalic(true)
+		}
 	}
-	_ = r.SetText(text)
-	if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-		return fmt.Errorf("invalid font size: %w", err)
+	return g.renderQuizPollContent(p, text, bold, italic)
+}
+
+// renderQuizPollContent manda el texto del autor por el mismo renderer inline
+// que usan párrafos, celdas de tabla y checklists, con el estilo del quiz
+// (negrita en la pregunta y en la opción correcta, cursiva en la explicación)
+// como base sobre CADA run que ese renderer produzca.
+//
+// Antes las tres cosas se escribían con un `SetText` directo, así que el
+// contenido salía crudo: una pregunta `¿Cuál usa **negrita** y [Ctrl]{.kbd}?`
+// llegaba al .docx con los asteriscos y las llaves a la vista. Es el único
+// lugar del generador DOCX que se saltaba `walkDocxInlinePatterns`; párrafos,
+// tablas y checklists ya pasaban por él.
+//
+// El estilo base va como postRun y no como un `SetText` previo porque
+// walkDocxInlinePatterns crea un run por tramo: uno por el texto de relleno y
+// uno por cada match de un pattern. postRun corre sobre todos, así que
+// `**negrita**` dentro de la pregunta sale negrita-dentro-de-negrita en vez de
+// perder el énfasis base en ese tramo. Corre DESPUÉS del style del pattern, y
+// por eso solo estampa bold/italic: agregar acá tamaño, color o fuente pisaría
+// la fuente monoespaciada que el pattern de código acaba de poner.
+func (g *DOCXGenerator) renderQuizPollContent(p domain.Paragraph, text string, bold, italic bool) error {
+	if text == "" {
+		return nil
 	}
-	_ = r.SetColor(g.parseColor(g.style.TextColor))
-	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-	if bold {
-		_ = r.SetBold(true)
+	var base func(r domain.Run) error
+	if bold || italic {
+		base = func(r domain.Run) error {
+			if bold {
+				_ = r.SetBold(true)
+			}
+			if italic {
+				_ = r.SetItalic(true)
+			}
+			return nil
+		}
 	}
-	if italic {
-		_ = r.SetItalic(true)
-	}
-	return nil
+	return g.walkDocxInlinePatterns(p, text, g.docxInlinePatterns(), base)
 }
 
 func (g *DOCXGenerator) renderChecklist(doc domain.Document, elem *ast.ChecklistElement) error {

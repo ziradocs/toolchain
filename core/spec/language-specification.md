@@ -503,6 +503,13 @@ A key outside that set is reported and ignored rather than dropped silently
 `QUIZ004` / `POLL003` — the block is still consumed, so nothing after it is
 reprocessed as prose.
 
+**`question`, each `option` and `explanation` are prose**, and carry the same
+inline formatting as any paragraph: `**bold**`, `*italic*`, `` `code` ``, links
+and the `[x]{.class}` spans. They are rendered, not printed verbatim — so a `*`
+that is meant literally has to be escaped, exactly as in a paragraph. Which
+formats honour which token is a property of the output, not of the element; see
+the per-format table in the inline-formatting reference.
+
 `<<end>>` is the canonical closer. `<</quiz>>` and `<</poll>>` are also
 accepted, the same way `<</chart>>` is.
 
