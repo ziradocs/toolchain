@@ -280,6 +280,40 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		}
 		return md.String()
 
+	case *ast.QuizElement:
+		// Markdown no tiene interacción, así que el quiz sale RESUELTO: la
+		// opción correcta marcada y la explicación visible. Un quiz que no se
+		// puede responder tiene que al menos enseñar la respuesta — mismo
+		// criterio que el HTML estático de core y que PPTX.
+		var md strings.Builder
+		if elem.Question != "" {
+			fmt.Fprintf(&md, "**%s**\n\n", elem.Question)
+		}
+		for i, option := range elem.Options {
+			marker := ""
+			if i == elem.Answer {
+				marker = " ✅"
+			}
+			fmt.Fprintf(&md, "%d. %s%s\n", i+1, option, marker)
+		}
+		if elem.Answer >= 0 && elem.Answer < len(elem.Options) {
+			fmt.Fprintf(&md, "\n**Respuesta:** %s\n", elem.Options[elem.Answer])
+		}
+		if elem.Explanation != "" {
+			fmt.Fprintf(&md, "\n*%s*\n", elem.Explanation)
+		}
+		return md.String()
+
+	case *ast.PollElement:
+		var md strings.Builder
+		if elem.Question != "" {
+			fmt.Fprintf(&md, "**%s**\n\n", elem.Question)
+		}
+		for i, option := range elem.Options {
+			fmt.Fprintf(&md, "%d. %s\n", i+1, option)
+		}
+		return md.String()
+
 	case *ast.MermaidElement:
 		return fmt.Sprintf("```mermaid\n%s\n```\n", elem.Content)
 
