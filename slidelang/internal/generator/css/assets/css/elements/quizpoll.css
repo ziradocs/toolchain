@@ -112,7 +112,13 @@
         cursor: default;
     }
 
-    .slidelang-element.slidelang-quiz .slidelang-option[data-correct] {
+    /* El `:not(.slidelang-correct)` no es defensivo, evita una regresión
+     * concreta: si alguien responde el quiz en el navegador y DESPUÉS imprime,
+     * el JS ya puso `.slidelang-correct` con su propio color. Las dos reglas
+     * tienen la misma especificidad (0,4,0) y esta va después en el bundle, así
+     * que sin el `:not` le pisaba el verde de acierto con el color primario
+     * —justo en la página impresa donde la señal más importa. */
+    .slidelang-element.slidelang-quiz .slidelang-option[data-correct]:not(.slidelang-correct) {
         border-color: var(--primary-color);
         font-weight: 600;
     }

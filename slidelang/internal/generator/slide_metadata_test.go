@@ -219,3 +219,89 @@ func printMediaBlock(t *testing.T, html string) string {
 	t.Fatal("el @media print no cierra")
 	return ""
 }
+
+// `data-slide-title` no debe afirmar un título que la diapositiva no muestra.
+//
+// Un slide de contenido con solo `heading:` renderiza un `<h1>` que dice
+// "Slide N" —el heading no es su título—, así que un fallback a `Heading`
+// convertiría una omisión visible en una contradicción entre el metadato y lo
+// que se ve. En la dirección de título el fallback sí corresponde: ahí los dos
+// campos nombran la misma cosa y el `<h1>` hace exactamente ese fallback.
+func TestRenderHTMLPreview_DisplayTitleDoesNotFallBackToHeadingOnContentSlides(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		slideType      string
+		title, heading string
+		wantAttr       string
+	}{
+		{"contenido con solo heading", "content", "", "Solo heading", ""},
+		{"contenido con title", "content", "Su título", "Otro heading", "Su título"},
+		{"título con solo title", "title_slide", "Su título", "", "Su título"},
+		{"título prefiere heading", "title_slide", "Su título", "El heading", "El heading"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := diagnostics.NewPosition(1, 1)
+			block := ast.NewContentBlock(pos, tc.slideType)
+			block.Title = tc.title
+			block.Heading = tc.heading
+			doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+			html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+			if err != nil {
+				t.Fatalf("RenderHTMLPreview: %v", err)
+			}
+			if got := slideDivAttr(t, html, "data-slide-title", 0); got != tc.wantAttr {
+				t.Errorf("data-slide-title = %q, se esperaba %q", got, tc.wantAttr)
+			}
+		})
+	}
+}
+
+// Las tabs de un code-group y un media con controles también se clickean.
+//
+// Se encontraron al revisar el arreglo de quiz/poll: el criterio de
+// detectInteractiveElements es "el visor puede hacerle algo a esto", y estos dos
+// lo cumplen. Un `<<code-group>>` solo llegaba si venía escrito `::: code-group`
+// —por la rama de SpecialBlockElement—, no como elemento propio.
+func TestRenderHTMLPreview_ClickableElementsAreMarkedInteractive(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	video := ast.NewMediaElement(pos, "video", "https://example.com/v.mp4")
+	video.Controls = true
+	silent := ast.NewMediaElement(pos, "video", "https://example.com/v.mp4")
+
+	for _, tc := range []struct {
+		name string
+		elem ast.Element
+		want string // "" = no debe marcarse como interactivo
+	}{
+		{"code-group", ast.NewCodeGroupElement(pos), "code"},
+		{"video con controles", video, "video"},
+		{"video sin controles", silent, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			block := ast.NewContentBlock(pos, "content")
+			block.Title = "Slide"
+			block.Elements = []ast.Element{tc.elem}
+			doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+			html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+			if err != nil {
+				t.Fatalf("RenderHTMLPreview: %v", err)
+			}
+			got := slideDivAttr(t, html, "data-interactive", 0)
+			if tc.want == "" {
+				if got != "false" {
+					t.Errorf("data-interactive = %q; sin controles no hay nada que tocar", got)
+				}
+				return
+			}
+			if got != "true" {
+				t.Errorf("data-interactive = %q, se esperaba true", got)
+			}
+			if types := slideDivAttr(t, html, "data-interactive-types", 0); !strings.Contains(types, tc.want) {
+				t.Errorf("data-interactive-types = %q, se esperaba que incluyera %q", types, tc.want)
+			}
+		})
+	}
+}
