@@ -115,15 +115,19 @@ func TestRenderHTMLPreview_QuizAndPollAreInteractive(t *testing.T) {
 // Ninguna rama del switch matcheaba nunca, así que el ajuste por tipo no
 // existía: una sección y un cierre duraban lo mismo que un slide cualquiera.
 //
-// El caso `title` (10s) NO se puede observar acá: hay un piso de 15 segundos de
-// "tiempo de lectura" que lo domina, y ese piso es un defecto aparte que este
-// cambio no toca. Se afirma lo que sí se puede afirmar.
+// Los slides de este test llevan un elemento con texto a propósito. Con CERO
+// palabras se dispara un piso de 15 segundos de "tiempo de lectura" que tapa las
+// bases menores —el caso `title`, de 10s— y ese piso tiene su propio defecto
+// (se aplica con 0 palabras y no con 1, porque `wordCount*60/200` da 0 hasta las
+// 49). Es aparte, queda en #288, y acá se evita medir a través de él.
 func TestRenderHTMLPreview_SlideDurationUsesTheDeclaredType(t *testing.T) {
 	for _, tc := range []struct {
 		slideType string
 		want      string
 	}{
 		{"content", "30"},
+		{"title", "10"},
+		{"title_slide", "10"}, // alias de title
 		{"section", "15"},
 		{"chapter", "15"}, // alias de section
 		{"closing", "20"},
@@ -133,6 +137,7 @@ func TestRenderHTMLPreview_SlideDurationUsesTheDeclaredType(t *testing.T) {
 			pos := diagnostics.NewPosition(1, 1)
 			block := ast.NewContentBlock(pos, tc.slideType)
 			block.Title = "Slide"
+			block.Elements = []ast.Element{ast.NewTextElement(pos, "Una línea corta.")}
 			doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
 
 			html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
