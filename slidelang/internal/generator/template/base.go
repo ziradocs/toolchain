@@ -451,6 +451,8 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
         <div class="slidelang-slide slidelang-{{$slide.Type}}-slide{{if $slide.UsesContentChrome}} slidelang-content-slide{{end}}{{if eq $index 0}} slidelang-active{{end}}" 
              data-slide="{{$index}}"
              data-slide-type="{{$slide.Type}}"
+             {{if $slide.LayoutColumns}}data-layout-columns="{{$slide.LayoutColumns}}"{{end}}
+             {{if $slide.LayoutAlign}}data-layout-align="{{$slide.LayoutAlign}}"{{end}}
              data-slide-title="{{if eq $slide.Type "title"}}{{$slide.Heading}}{{else}}{{$slide.Title}}{{end}}"
              data-duration="{{$slide.Duration}}"
              data-transition="{{$slide.Transition}}"

@@ -30,3 +30,17 @@
     gap: 0.75rem;
     max-width: 44rem;
 }
+
+/* Opción `columns` (issue #255). Es puro CSS: el template emite
+ * data-layout-columns y esta regla lo honra, sin JavaScript de por medio. */
+.slidelang-slide[data-slide-type="call_to_action"][data-layout-columns="1"] .slidelang-content-elements { grid-template-columns: 1fr; }
+.slidelang-slide[data-slide-type="call_to_action"][data-layout-columns="2"] .slidelang-content-elements { grid-template-columns: repeat(2, 1fr); }
+.slidelang-slide[data-slide-type="call_to_action"][data-layout-columns="3"] .slidelang-content-elements { grid-template-columns: repeat(3, 1fr); }
+.slidelang-slide[data-slide-type="call_to_action"][data-layout-columns="4"] .slidelang-content-elements { grid-template-columns: repeat(4, 1fr); }
+
+/* Opción `align` (issue #255). */
+.slidelang-slide[data-slide-type="call_to_action"][data-layout-align="left"] .slidelang-content-wrapper,
+.slidelang-slide[data-slide-type="call_to_action"][data-layout-align="left"] .slidelang-content-elements {
+    align-items: flex-start;
+    text-align: left;
+}

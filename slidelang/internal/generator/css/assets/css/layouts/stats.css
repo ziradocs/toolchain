@@ -23,3 +23,10 @@
 .slidelang-slide[data-slide-type="stats"] .slidelang-element.slidelang-special-block {
     margin: 0;
 }
+
+/* Opción `columns` (issue #255). Es puro CSS: el template emite
+ * data-layout-columns y esta regla lo honra, sin JavaScript de por medio. */
+.slidelang-slide[data-slide-type="stats"][data-layout-columns="1"] .slidelang-content-elements { grid-template-columns: 1fr; }
+.slidelang-slide[data-slide-type="stats"][data-layout-columns="2"] .slidelang-content-elements { grid-template-columns: repeat(2, 1fr); }
+.slidelang-slide[data-slide-type="stats"][data-layout-columns="3"] .slidelang-content-elements { grid-template-columns: repeat(3, 1fr); }
+.slidelang-slide[data-slide-type="stats"][data-layout-columns="4"] .slidelang-content-elements { grid-template-columns: repeat(4, 1fr); }

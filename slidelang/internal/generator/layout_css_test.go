@@ -125,3 +125,60 @@ func TestRenderHTMLPreview_TypedSlidesKeepContentChrome(t *testing.T) {
 		t.Error("un slide `content` recibió la clase de contenido duplicada")
 	}
 }
+
+// Issue #255: la opción llega al DOM como `data-layout-*` y el CSS la honra
+// sin JavaScript. Es el mismo tipo de acoplamiento que rompió quiz/poll —
+// atributo emitido por un lado y selector escrito por otro—, así que se ata
+// con un test.
+func TestRenderHTMLPreview_LayoutOptionsReachTheDOMAndTheCSS(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	comparison := ast.NewContentBlock(pos, "comparison")
+	comparison.Title = "Comparación"
+	comparison.Elements = []ast.Element{ast.NewTextElement(pos, "A")}
+	comparison.LayoutConfig = &ast.LayoutConfig{Columns: 2}
+
+	hero := ast.NewContentBlock(pos, "hero")
+	hero.Title = "Titular"
+	hero.Elements = []ast.Element{ast.NewTextElement(pos, "B")}
+	hero.LayoutConfig = &ast.LayoutConfig{Align: "left"}
+
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*comparison, *hero}}
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+
+	for _, attr := range []string{`data-layout-columns="2"`, `data-layout-align="left"`} {
+		if !strings.Contains(html, attr) {
+			t.Errorf("el DOM no emite %s", attr)
+		}
+	}
+	for _, selector := range []string{`[data-layout-columns="2"]`, `[data-layout-align="left"]`} {
+		if !strings.Contains(html, selector) {
+			t.Errorf("el CSS no tiene ninguna regla para %s — el atributo no haría nada", selector)
+		}
+	}
+}
+
+// Un slide sin opciones no debe arrastrar atributos vacíos.
+func TestRenderHTMLPreview_NoLayoutOptionsEmitsNoAttributes(t *testing.T) {
+	html, err := New(util.NewNoop()).RenderHTMLPreview(
+		astWithSlideTypes("comparison"), GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	// Se mira el <div> del slide, no el documento entero: el bundle SIEMPRE
+	// trae los selectores `[data-layout-columns="N"]` del CSS, que no son
+	// atributos emitidos.
+	start := strings.Index(html, "<div class=\"slidelang-slide")
+	if start == -1 {
+		t.Fatal("no se encontró el div del slide")
+	}
+	div := html[start : start+strings.Index(html[start:], ">")]
+	for _, attr := range []string{"data-layout-columns", "data-layout-align"} {
+		if strings.Contains(div, attr) {
+			t.Errorf("un slide sin opciones emitió %s en su div:\n%s", attr, div)
+		}
+	}
+}

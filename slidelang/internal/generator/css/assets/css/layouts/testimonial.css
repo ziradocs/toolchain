@@ -33,3 +33,10 @@
     font-style: normal;
     color: var(--text-muted);
 }
+
+/* Opción `align` (issue #255). */
+.slidelang-slide[data-slide-type="testimonial"][data-layout-align="left"] .slidelang-content-wrapper,
+.slidelang-slide[data-slide-type="testimonial"][data-layout-align="left"] .slidelang-content-elements {
+    align-items: flex-start;
+    text-align: left;
+}

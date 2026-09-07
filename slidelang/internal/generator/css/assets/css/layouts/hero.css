@@ -31,3 +31,10 @@
 .slidelang-slide[data-slide-type="hero"] .slidelang-element.slidelang-image img {
     max-height: 40vh;
 }
+
+/* Opción `align` (issue #255). */
+.slidelang-slide[data-slide-type="hero"][data-layout-align="left"] .slidelang-content-wrapper,
+.slidelang-slide[data-slide-type="hero"][data-layout-align="left"] .slidelang-content-elements {
+    align-items: flex-start;
+    text-align: left;
+}
