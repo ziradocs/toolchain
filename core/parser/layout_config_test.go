@@ -256,3 +256,65 @@ func TestFlexParser_SecondMetadataBlockWithLayoutReplacesOptions(t *testing.T) {
 		t.Errorf("LayoutConfig = %+v, se esperaba nil: el layout nuevo no declaró opciones", last.LayoutConfig)
 	}
 }
+
+// Un segundo bloque de metadata que solo trae opciones las declara sobre el
+// layout que el bloque anterior fijó.
+//
+// Antes, el layout efectivo de ese bloque arrancaba en "" —el layout vive en
+// p.pendingLayout, no en el bloque— así que `layouts.Accepts("", "align")` era
+// false, la opción se perdía y en su lugar salía un FLEX002 diciendo que la
+// llave "no tiene efecto". Que sí lo tiene: escrita una línea más arriba, en el
+// bloque que declara el layout, funciona. El mismo documento partido en dos
+// bloques significaba dos cosas distintas.
+func TestFlexParser_OptionsOnlyMetadataBlockInheritsPendingLayout(t *testing.T) {
+	astNode, diags := parseFlexBody(t,
+		"# Deck", "",
+		"---", "layout: call_to_action", "columns: 2", "---",
+		"---", "align: left", "---",
+		"## X", "", "Texto.",
+	)
+
+	last := astNode.ContentBlocks[len(astNode.ContentBlocks)-1]
+	if last.BlockType != "call_to_action" {
+		t.Fatalf("BlockType = %q, se esperaba call_to_action", last.BlockType)
+	}
+	if last.LayoutConfig == nil {
+		t.Fatal("LayoutConfig es nil: el bloque de solo-opciones no heredó el layout pendiente")
+	}
+	// Se acumula: `columns` viene del primer bloque, `align` del segundo. Un
+	// reemplazo en vez de una fusión perdería el columns sin decir nada.
+	if last.LayoutConfig.Align != "left" {
+		t.Errorf("Align = %q, se esperaba left", last.LayoutConfig.Align)
+	}
+	if last.LayoutConfig.Columns != 2 {
+		t.Errorf("Columns = %d, se esperaba 2: el bloque de solo-opciones pisó lo del primero en vez de sumarse",
+			last.LayoutConfig.Columns)
+	}
+	if d := findDiag(diags, "FLEX002"); d != nil {
+		t.Errorf("una opción válida del layout heredado se reportó como inerte: %s", d.Message)
+	}
+}
+
+// Y el layout heredado es el que decide qué opción es válida: `align` no es
+// opción de `comparison`, así que ahí sí corresponde el diagnóstico. Sin esto,
+// heredar el layout podría degenerar en aceptar cualquier llave.
+func TestFlexParser_InheritedLayoutStillRejectsForeignOptions(t *testing.T) {
+	astNode, diags := parseFlexBody(t,
+		"# Deck", "",
+		"---", "layout: comparison", "---",
+		"---", "align: left", "---",
+		"## X", "", "Texto.",
+	)
+
+	last := astNode.ContentBlocks[len(astNode.ContentBlocks)-1]
+	if last.LayoutConfig != nil {
+		t.Errorf("LayoutConfig = %+v, se esperaba nil: comparison no acepta align", last.LayoutConfig)
+	}
+	d := findDiag(diags, "FLEX002")
+	if d == nil {
+		t.Fatal("se esperaba FLEX002 por una opción que el layout heredado no acepta")
+	}
+	if !strings.Contains(d.Message, "comparison") {
+		t.Errorf("el mensaje debe nombrar el layout heredado, dice: %s", d.Message)
+	}
+}

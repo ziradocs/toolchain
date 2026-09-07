@@ -273,6 +273,32 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 	return block
 }
 
+// canParseStrict pregunta al ElementParser si la línea le corresponde, en vez
+// de que el despacho strict lo adivine con un HasPrefix propio.
+//
+// El dialecto strict NO usa GetDefaultRegistry: parseIndentedElements es una
+// cadena if/else escrita a mano, así que cada tag tenía su propia condición
+// duplicando —mal— lo que el parser del elemento ya declara en su CanParse. Las
+// dos copias se separaron:
+//
+//   - `<<quiz>>`, `<<poll>>` y `<<grid>>` exigen la línea EXACTA en su CanParse
+//     (no llevan atributos), pero el despacho usaba HasPrefix: en strict
+//     `<<quiz>>loquesea` entraba al parser de quiz, mientras que en flex —que sí
+//     va por el registry— la misma línea es texto. El mismo documento
+//     significaba dos cosas según el dialecto.
+//   - `<<map …>>` y la forma multilínea `<<chart` van al revés: el CanParse las
+//     acepta y el HasPrefix del despacho (`<<map>>`, `<<chart:`) las rechazaba,
+//     así que en strict terminaban en el catch-all como línea no reconocida.
+//
+// Con esta función la declaración del elemento es la única fuente de verdad y
+// la deriva no puede volver a abrirse: un tag nuevo o un cambio de frontera de
+// palabra se escribe una vez, en su CanParse, y los dos dialectos lo heredan.
+// El literal "strict" es el modo que este cuerpo parsea; es el mismo que
+// document_strict.go usa, porque comparten strictBody.
+func canParseStrict(parser elements.ElementParser, trimmedLine string) bool {
+	return parser.CanParse(trimmedLine, "strict")
+}
+
 // parseIndentedElements consume el cuerpo indentado de un bloque strict
 // —propiedades `clave: valor` y elementos— hasta la primera línea no vacía
 // sin indentar, que pertenece ya al siguiente bloque y NO se consume.
@@ -395,53 +421,47 @@ func (p *strictBody) parseIndentedElements(
 				block.Elements = append(block.Elements, element)
 			}
 			p.logger.Debug("PARSE", "Finished parseSpecialBlockElement")
-		} else if strings.HasPrefix(trimmedLine, "<<mermaid>>") {
+		} else if canParseStrict(&elements.MermaidParser{}, trimmedLine) {
 			element := p.parseMermaidElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "<<plantuml>>") {
+		} else if canParseStrict(&elements.PlantUMLParser{}, trimmedLine) {
 			element := p.parsePlantUMLElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "<<chart:") {
+		} else if canParseStrict(&elements.ChartParser{}, trimmedLine) {
 			element := p.parseChartElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if (&elements.MediaParser{}).CanParse(trimmedLine, "strict") {
-			// CanParse (not a hand-rolled HasPrefix, unlike this switch's other
-			// branches) so the "<<video"/"<<audio" word-boundary fix in
-			// elements.MediaParser stays the single source of truth instead of
-			// being duplicated here and risking drift — a bare HasPrefix would
-			// also dispatch an unrelated/typo'd "<<videofoo ...>>" into
-			// parseMediaElement.
+		} else if canParseStrict(&elements.MediaParser{}, trimmedLine) {
 			element := p.parseMediaElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "<<map>>") {
+		} else if canParseStrict(&elements.MapParser{}, trimmedLine) {
 			element := p.parseMapElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "<<quiz>>") {
+		} else if canParseStrict(&elements.QuizParser{}, trimmedLine) {
 			element := p.parseQuizElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "<<poll>>") {
+		} else if canParseStrict(&elements.PollParser{}, trimmedLine) {
 			element := p.parsePollElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "<<grid>>") {
+		} else if canParseStrict(&elements.GridParser{}, trimmedLine) {
 			element := p.parseGridElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "<<math>>") {
+		} else if canParseStrict(&elements.MathParser{}, trimmedLine) {
 			element := p.parseMathElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
