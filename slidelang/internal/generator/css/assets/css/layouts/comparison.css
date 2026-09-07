@@ -1,0 +1,27 @@
+/* Layout: comparison — issue #254
+ *
+ * Forma real del contenido en el corpus (14 decks): dos o tres bloques ":::"
+ * cada uno con sus viñetas. La comparación se lee lado a lado, no apilada.
+ *
+ * El selector raíz es el ATRIBUTO data-slide-type, no una clase: es el
+ * BlockType verbatim —el mismo string que el linter valida y que viaja en el
+ * JSON del AST— y además queda fuera del alcance de ApplyNamespacing, que
+ * reescribe cualquier ".foo" a ".slidelang-foo". */
+
+.slidelang-slide[data-slide-type="comparison"] .slidelang-content-elements {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1.5rem;
+    align-items: stretch;
+}
+
+.slidelang-slide[data-slide-type="comparison"] .slidelang-element.slidelang-special-block {
+    margin: 0;
+    height: 100%;
+}
+
+/* Cualquier cosa que no sea un bloque —un párrafo de introducción, una tabla—
+ * ocupa el ancho completo en vez de convertirse en una columna más. */
+.slidelang-slide[data-slide-type="comparison"] .slidelang-content-elements > .slidelang-element:not(.slidelang-special-block) {
+    grid-column: 1 / -1;
+}

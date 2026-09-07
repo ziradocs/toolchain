@@ -14,6 +14,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/slidelang/v2/internal/generator/config"
+	"go.ziradocs.com/slidelang/v2/internal/generator/css"
 	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
 	"go.ziradocs.com/slidelang/v2/internal/generator/data"
 	"go.ziradocs.com/slidelang/v2/internal/generator/formatter"
@@ -29,7 +30,11 @@ type PresentationConfig struct {
 	Theme            *themes.Theme
 	RequiredModules  []string
 	RequiredElements []string
-	Builder          *templateBuilder.TemplateBuilder
+	// RequiredLayouts son los tipos de slide del documento que tienen CSS de
+	// layout propio (issue #254). Se poda igual que RequiredElements: solo se
+	// emite el CSS de los layouts que el deck realmente usa.
+	RequiredLayouts []string
+	Builder         *templateBuilder.TemplateBuilder
 	// RenderContext controla el modo de rendering (browser/offline-assets/
 	// offline-inline) de mermaid/chart/map — pasado explícitamente por el
 	// caller (issue #134/G1a) en vez de leído de un global de core.
@@ -274,6 +279,42 @@ func getModuleGenerator(module string) ModuleAssetGenerator {
 }
 
 // generateModularAssets genera archivos CSS y JS separados por módulo
+// detectRequiredLayoutsFromAST devuelve, ordenados y sin repetir, los tipos de
+// slide del documento que tienen CSS de layout propio (issue #254).
+//
+// Es el eslabón que faltaba: el AST llevaba el layout de punta a punta desde
+// #252, el bundle tenía un hueco para CSS de layout desde siempre, y nada los
+// conectaba — RequiredLayouts se quedaba vacío y la rama que lo emite nunca
+// corría. Un `stats` y un `content` salían idénticos.
+//
+// Filtra por HasLayoutCSS en vez de pedir todos los tipos vistos: así un
+// layout sin archivo (`content`, `default`, o uno todavía sin diseñar) no
+// dispara el warning de LoadLayoutCSS, que queda reservado para lo que sí es
+// un bug de inventario.
+func (g *Generator) detectRequiredLayoutsFromAST(astNode *ast.AST) []string {
+	if astNode == nil {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	for i := range astNode.ContentBlocks {
+		layout := strings.ToLower(astNode.ContentBlocks[i].BlockType)
+		if css.HasLayoutCSS(layout) {
+			seen[layout] = true
+		}
+	}
+
+	layouts := make([]string, 0, len(seen))
+	for layout := range seen {
+		layouts = append(layouts, layout)
+	}
+	// El recorrido de un mapa en Go no es determinista, y el orden decide el
+	// orden del CSS en el bundle: sin esto el mismo deck produciría bundles
+	// distintos entre corridas.
+	sort.Strings(layouts)
+	return layouts
+}
+
 // detectRequiredElementsFromAST analyzes the AST and returns required CSS element modules
 func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 	elementTypes := make(map[string]bool)
@@ -392,6 +433,7 @@ func (g *Generator) preparePresentationConfig(astNode *ast.AST, outputDir string
 	// Detectar módulos y elementos requeridos
 	presentationConfig.RequiredModules = g.detectRequiredModules(astNode, opts)
 	presentationConfig.RequiredElements = g.detectRequiredElementsFromAST(astNode)
+	presentationConfig.RequiredLayouts = g.detectRequiredLayoutsFromAST(astNode)
 
 	// Crear builder
 	presentationConfig.Builder = g.createTemplateBuilder(presentationConfig)
@@ -471,6 +513,7 @@ func (g *Generator) createTemplateBuilder(presentationConfig *PresentationConfig
 		WithEmbedAssets(presentationConfig.Options.EmbedAssets).
 		WithModules(presentationConfig.RequiredModules).
 		WithRequiredElements(presentationConfig.RequiredElements).
+		WithRequiredLayouts(presentationConfig.RequiredLayouts).
 		WithNavigation(!presentationConfig.Options.NoNavigation).
 		WithUtilities(!presentationConfig.Options.NoUtilities).
 		WithRenderMode(presentationConfig.Options.RenderMode)

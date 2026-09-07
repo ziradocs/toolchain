@@ -266,11 +266,12 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 			Type:  slide.BlockType,
 			Title: ProcessVariables(slide.Title, variables),
 			// Propiedades específicas para slides tipo "title"
-			Heading:   ProcessVariables(slide.Heading, variables),
-			Subtitle:  ProcessVariables(slide.Subtitle, variables),
-			Logo:      slide.Logo,
-			IsTitle:   config.IsSlideTitle(slide.BlockType),
-			IsContent: config.IsSlideContent(slide.BlockType),
+			Heading:           ProcessVariables(slide.Heading, variables),
+			Subtitle:          ProcessVariables(slide.Subtitle, variables),
+			Logo:              slide.Logo,
+			IsTitle:           config.IsSlideTitle(slide.BlockType),
+			IsContent:         config.IsSlideContent(slide.BlockType),
+			UsesContentChrome: config.UsesContentChrome(slide.BlockType),
 			// Numeración del slide
 			SlideNumber: i + 1,
 

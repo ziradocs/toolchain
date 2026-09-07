@@ -2,6 +2,34 @@
 
 This folder contains demonstrative examples of all **18 specialized layouts** in slidelang, documented in the [Specialized Layouts Guide](https://ziradocs.com/docs/slidelang/language-reference/specialized-layouts/).
 
+## What a layout actually does
+
+Declaring a layout types the slide, picks the schema the linter validates it
+against, and — since [#254](https://github.com/ziradocs/toolchain/issues/254) —
+selects a stylesheet. Nine of the recognized layouts ship CSS today:
+
+| Layout | What the CSS does |
+|---|---|
+| `comparison` | Side-by-side grid; `:::` blocks become the columns |
+| `stats` | Full-width table with tabular figures; blocks below read as a KPI strip |
+| `testimonial` | Centered quote, larger and italic, with the attribution below |
+| `hero` | Centered on both axes, oversized title, no underline |
+| `dashboard` | `###` headings become metric cards in a grid |
+| `timeline` | Vertical rail with a round marker per `##` |
+| `process` | Same rail, square marker |
+| `call_to_action` | Centered over a solid background |
+| `code_example` | Larger code with a height cap; bullets compact |
+
+`title`, `section`, `closing`, `content` and `default` are styled by the base
+stylesheet and need no file of their own. **Any other layout renders like
+`content`** — it is still valid, still typed, still linted; it just has no
+dedicated look yet. `before_after` and `feature_showcase` need the template to
+group a heading with the elements that follow it before CSS can pair them into
+columns, which is tracked separately.
+
+A layout's rules only load when the deck actually uses it, the same way element
+CSS is pruned.
+
 ## 📋 Example Structure
 
 ### 🎯 Main File

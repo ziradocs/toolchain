@@ -148,6 +148,9 @@ type SlideData struct {
 	Elements  []ElementData
 	IsTitle   bool
 	IsContent bool
+	// UsesContentChrome indica que el slide lleva también la clase
+	// `slidelang-content-slide` (issue #254). Ver config.UsesContentChrome.
+	UsesContentChrome bool
 	// Numeración específica del slide
 	SlideNumber    int  `json:"slide_number"`     // Número absoluto (1, 2, 3...)
 	DisplayNumber  int  `json:"display_number"`   // Número para mostrar (puede empezar en start_from)
