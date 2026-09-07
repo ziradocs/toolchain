@@ -64,6 +64,32 @@ func TestCheckQuizElement_AnswerOutOfRangeIsError(t *testing.T) {
 	}
 }
 
+// Sin opciones, "entre 0 y -1" no dice nada: el mensaje tiene que nombrar la
+// causa real.
+func TestCheckQuizElement_NoOptionsGetsAReadableMessage(t *testing.T) {
+	diags := checkQuizElement(newQuiz("Q", nil, -1))
+
+	var quiz001 *diagnostics.Diagnostic
+	for i := range diags {
+		if diags[i].RuleID == "QUIZ001" {
+			quiz001 = &diags[i]
+		}
+	}
+	if quiz001 == nil {
+		t.Fatalf("falta QUIZ001: %v", quizDiagIDs(diags))
+	}
+	if strings.Contains(quiz001.Message, "and -1") {
+		t.Errorf("el mensaje expone el rango sin sentido: %q", quiz001.Message)
+	}
+	if !strings.Contains(quiz001.Message, "no options") {
+		t.Errorf("el mensaje no nombra la causa: %q", quiz001.Message)
+	}
+	// Sigue siendo Error: un quiz sin opciones no se puede responder ni leer.
+	if !quiz001.IsError() {
+		t.Error("QUIZ001 debe seguir siendo Error sin opciones")
+	}
+}
+
 func TestCheckQuizElement_ValidAnswerIsClean(t *testing.T) {
 	for _, answer := range []int{0, 1, 3} {
 		if diags := checkQuizElement(newQuiz("Q", []string{"a", "b", "c", "d"}, answer)); len(diags) != 0 {

@@ -158,6 +158,15 @@ func readQuizPollBody(lines []string, startIndex int, tag string) ([]string, int
 		// frontera y los dejaría sin consumir. `<</quiz>>` sin consumir sería
 		// además un FLEX001 por línea (isFlexFailsafeExempt solo perdona
 		// `<<end>>`), así que se consumen acá y ese failsafe no se toca.
+		//
+		// El cierre se decide POR LÍNEA, así que una línea que sea exactamente
+		// `<<end>>` cierra el bloque aunque el YAML la considerara parte de un
+		// escalar de bloque (`question: |`). Es la misma ambigüedad que tiene
+		// chart —y cualquier terminador orientado a líneas— y se acepta porque
+		// la alternativa (decidir la extensión con el parser de YAML) haría que
+		// un cuerpo mal formado se tragara el resto del documento. El caso no
+		// es silencioso: el bloque queda sin `options`, y QUIZ001/QUIZ002 lo
+		// reportan con Error, así que el build se detiene.
 		if trimmed == "<<end>>" || trimmed == closer {
 			consumed++
 			break

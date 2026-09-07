@@ -427,12 +427,19 @@ func checkQuizElement(elem *ast.QuizElement) []diagnostics.Diagnostic {
 	// Answer == -1 (no declarado) entra por acá también, que es lo correcto:
 	// un quiz sin respuesta es un quiz roto.
 	if elem.Answer < 0 || elem.Answer >= len(elem.Options) {
+		// Sin opciones NINGÚN índice puede ser válido, así que el rango
+		// "entre 0 y -1" que saldría de la fórmula no dice nada. Sigue siendo
+		// Error y no solo el Warning de QUIZ002: un quiz sin opciones no se
+		// puede responder ni leer, y dejarlo pasar produciría un bloque vacío
+		// en la diapositiva.
+		message := fmt.Sprintf(
+			"Quiz answer must be a 0-based index between 0 and %d (got %d) — answer: 1 selects the second option",
+			len(elem.Options)-1, elem.Answer)
+		if len(elem.Options) == 0 {
+			message = "Quiz has no options, so no answer index can be valid — add the 'options' list"
+		}
 		diags = append(diags,
-			diagnostics.NewError(
-				fmt.Sprintf(
-					"Quiz answer must be a 0-based index between 0 and %d (got %d) — answer: 1 selects the second option",
-					len(elem.Options)-1, elem.Answer),
-				elem.GetPosition(), "linter").WithRuleID("QUIZ001"))
+			diagnostics.NewError(message, elem.GetPosition(), "linter").WithRuleID("QUIZ001"))
 	}
 
 	if len(elem.Options) < 2 {
