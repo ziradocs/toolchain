@@ -4,6 +4,7 @@
 package layouts
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -114,5 +115,69 @@ func TestOptionsReturnsACopy(t *testing.T) {
 	var cfg Config
 	if err := Apply(&cfg, "comparison", "columns", "9"); err == nil {
 		t.Error("mutar la copia devuelta cambió el registro")
+	}
+}
+
+// Toda opción del registro tiene que tener un campo donde escribirse.
+//
+// Apply valida por spec.Type pero asigna con un `switch key`. Una opción nueva
+// en el registro sin su rama devolvía `err == nil` sin haber escrito nada:
+// Config seguía en cero, el parser no colgaba ningún LayoutConfig, y la
+// opción se perdía sin diagnóstico — un validador que reporta éxito habiendo
+// tirado el valor, en el paquete escrito para que eso no pase. El test
+// recorre el registro entero, así que agregar `rows` sin la rama falla acá y
+// no en el render de alguien.
+func TestApply_EveryRegisteredOptionReachesConfig(t *testing.T) {
+	for _, layout := range LayoutsWithOptions() {
+		for _, spec := range Options(layout) {
+			t.Run(layout+"/"+spec.Name, func(t *testing.T) {
+				value := ""
+				switch spec.Type {
+				case OptionInt:
+					value = strconv.Itoa(spec.Min)
+				case OptionEnum:
+					if len(spec.Values) == 0 {
+						t.Fatalf("la opción enum %q no declara valores", spec.Name)
+					}
+					value = spec.Values[0]
+				}
+
+				var cfg Config
+				if err := Apply(&cfg, layout, spec.Name, value); err != nil {
+					t.Fatalf("Apply(%s, %s=%s) devolvió error: %v", layout, spec.Name, value, err)
+				}
+				if cfg.IsZero() {
+					t.Errorf("Apply(%s, %s=%s) devolvió nil sin escribir nada en Config: "+
+						"la opción está en el registro pero Apply no tiene rama que la asigne",
+						layout, spec.Name, value)
+				}
+			})
+		}
+	}
+}
+
+// La copia que devuelve Options tiene que ser completa: `Values` es un slice,
+// y devolver un alias del arreglo del registro deja que un llamador lo
+// corrompa para todos. TestOptionsReturnsACopy solo mutaba `Max`, un campo de
+// valor, así que pasaba igual.
+func TestOptionsReturnsADeepCopy(t *testing.T) {
+	specs := Options("hero")
+	var target *OptionSpec
+	for i := range specs {
+		if len(specs[i].Values) > 0 {
+			target = &specs[i]
+			break
+		}
+	}
+	if target == nil {
+		t.Skip("ninguna opción de `hero` declara Values")
+	}
+
+	original := target.Values[0]
+	target.Values[0] = "mutado"
+
+	if again := Options("hero"); again[0].Values[0] != original {
+		t.Errorf("mutar la copia cambió el registro: Values[0] = %q, se esperaba %q",
+			again[0].Values[0], original)
 	}
 }

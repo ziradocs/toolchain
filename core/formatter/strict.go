@@ -11,6 +11,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/layouts"
 )
 
 // FormatStrict serializa doc a la forma canónica del dialecto strict de
@@ -83,11 +84,19 @@ func formatStrictContentBlock(block *ast.ContentBlock) (string, error) {
 	}
 	// Opciones de layout (issue #255). Van sin comillas: son un entero acotado
 	// y un enum de un conjunto cerrado, así que no hay texto libre que citar.
+	//
+	// Se emiten solo si el layout las acepta. Un AST con `hero` y `Columns: 3`
+	// es alcanzable —el linter solo advierte (LAYOUT_OPTION_NOT_APPLICABLE) y
+	// ast/decode.go lo acepta desde JSON—, y emitirlo producía un archivo que
+	// el parser strict rechaza con un ERROR duro ("Unknown content block
+	// property: columns"). Que lo que sale de aquí vuelva a entrar es el
+	// contrato del formatter; fabricar un archivo que no compila lo rompe más
+	// que perder una opción que ese layout nunca iba a leer.
 	if block.LayoutConfig != nil {
-		if block.LayoutConfig.Align != "" {
+		if block.LayoutConfig.Align != "" && layouts.Accepts(block.BlockType, "align") {
 			fmt.Fprintf(&b, "  align: %s\n", block.LayoutConfig.Align)
 		}
-		if block.LayoutConfig.Columns != 0 {
+		if block.LayoutConfig.Columns != 0 && layouts.Accepts(block.BlockType, "columns") {
 			fmt.Fprintf(&b, "  columns: %d\n", block.LayoutConfig.Columns)
 		}
 	}

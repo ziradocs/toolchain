@@ -153,3 +153,106 @@ func TestStrictParser_UnknownPropertyNamesTheLayoutOptions(t *testing.T) {
 		t.Errorf("el mensaje no dice qué opciones acepta hero: %q", msg)
 	}
 }
+
+// Una opción mal puesta tiene que reportarse en CADA slide donde aparece.
+//
+// El parser deduplica las llaves inertes por nombre —`header:`/`footer:` viven
+// en 17 ejemplos cada una y repetirlas llenaría el reporte de ruido—, pero el
+// mensaje de una opción de layout nombra el layout de ESE slide. Con la
+// deduplicación puesta, el segundo slide quedaba sin una sola línea: el
+// parser tampoco escribe la opción, así que el AST no tiene LayoutConfig y el
+// linter no tiene nada que mirar. Silencio completo, en el caso exacto que
+// #255 existe para atrapar.
+func TestFlexParser_InapplicableOptionIsReportedOnEverySlide(t *testing.T) {
+	_, diags := parseFlexBody(t,
+		"# Deck", "",
+		"---", "layout: hero", "columns: 2", "---",
+		"## A", "", "Texto.", "",
+		"---", "layout: testimonial", "columns: 3", "---",
+		"## B", "", "Texto.",
+	)
+
+	var reported []string
+	for _, d := range diags {
+		if strings.Contains(d.Message, `"columns"`) {
+			reported = append(reported, d.Message)
+		}
+	}
+	if len(reported) != 2 {
+		t.Fatalf("se esperaban 2 diagnósticos por `columns`, hay %d: %v", len(reported), reported)
+	}
+	if !strings.Contains(reported[0], "hero") {
+		t.Errorf("el primero no nombra el layout del primer slide: %q", reported[0])
+	}
+	if !strings.Contains(reported[1], "testimonial") {
+		t.Errorf("el segundo no nombra el layout del segundo slide: %q", reported[1])
+	}
+}
+
+// Las llaves que NO son opciones de layout sí se siguen deduplicando: es para
+// lo que existe el mapa, y subirlas a un diagnóstico por slide llenaría de
+// ruido decks que hoy compilan limpios.
+func TestFlexParser_InertKeyIsReportedOnce(t *testing.T) {
+	_, diags := parseFlexBody(t,
+		"# Deck", "",
+		"---", "layout: comparison", "header: A", "---",
+		"## A", "", "Texto.", "",
+		"---", "layout: comparison", "header: B", "---",
+		"## B", "", "Texto.",
+	)
+
+	n := 0
+	for _, d := range diags {
+		if strings.Contains(d.Message, `"header"`) {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("se esperaba 1 diagnóstico por `header`, hay %d", n)
+	}
+}
+
+// Un segundo bloque de metadata no puede borrar las opciones del primero.
+//
+// Dos bloques seguidos son legales, y la asignación de lo pendiente era
+// incondicional: el segundo pisaba con un Config vacío opciones bien escritas,
+// en el bloque correcto, sobre un layout que las acepta — y desaparecían sin
+// un solo diagnóstico.
+func TestFlexParser_SecondMetadataBlockDoesNotEraseOptions(t *testing.T) {
+	astNode, _ := parseFlexBody(t,
+		"# Deck", "",
+		"---", "layout: comparison", "columns: 3", "---",
+		"---", "foo: bar", "---",
+		"## X", "", "Texto.",
+	)
+
+	last := astNode.ContentBlocks[len(astNode.ContentBlocks)-1]
+	if last.BlockType != "comparison" {
+		t.Fatalf("BlockType = %q, se esperaba comparison", last.BlockType)
+	}
+	if last.LayoutConfig == nil {
+		t.Fatal("LayoutConfig es nil: el segundo bloque de metadata borró las opciones del primero")
+	}
+	if last.LayoutConfig.Columns != 3 {
+		t.Errorf("Columns = %d, se esperaba 3", last.LayoutConfig.Columns)
+	}
+}
+
+// Y un segundo bloque que SÍ declara layout se queda con el suyo: las opciones
+// pertenecen al layout del bloque que las declaró, no se arrastran.
+func TestFlexParser_SecondMetadataBlockWithLayoutReplacesOptions(t *testing.T) {
+	astNode, _ := parseFlexBody(t,
+		"# Deck", "",
+		"---", "layout: comparison", "columns: 3", "---",
+		"---", "layout: stats", "---",
+		"## X", "", "Texto.",
+	)
+
+	last := astNode.ContentBlocks[len(astNode.ContentBlocks)-1]
+	if last.BlockType != "stats" {
+		t.Fatalf("BlockType = %q, se esperaba stats", last.BlockType)
+	}
+	if last.LayoutConfig != nil {
+		t.Errorf("LayoutConfig = %+v, se esperaba nil: el layout nuevo no declaró opciones", last.LayoutConfig)
+	}
+}
