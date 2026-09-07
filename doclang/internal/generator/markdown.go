@@ -285,9 +285,17 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		// opción correcta marcada y la explicación visible. Un quiz que no se
 		// puede responder tiene que al menos enseñar la respuesta — mismo
 		// criterio que el HTML estático de core y que PPTX.
+		//
+		// El énfasis va en una ETIQUETA fija y nunca envolviendo el texto del
+		// autor. `**%s**` sobre la pregunta rompía el markdown en cuanto la
+		// pregunta traía el suyo: `¿Cuál usa **negrita**?` salía como
+		// `**¿Cuál usa **negrita**?**`, que cualquier renderer lee como tres
+		// tramos de énfasis mal cerrados. Lo mismo hacía `*%s*` con la
+		// explicación. Una etiqueta es contenido nuestro, así que envolverla es
+		// seguro; el texto del autor se copia tal cual.
 		var md strings.Builder
 		if elem.Question != "" {
-			fmt.Fprintf(&md, "**%s**\n\n", elem.Question)
+			fmt.Fprintf(&md, "**Pregunta:** %s\n\n", elem.Question)
 		}
 		for i, option := range elem.Options {
 			marker := ""
@@ -300,14 +308,14 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 			fmt.Fprintf(&md, "\n**Respuesta:** %s\n", elem.Options[elem.Answer])
 		}
 		if elem.Explanation != "" {
-			fmt.Fprintf(&md, "\n*%s*\n", elem.Explanation)
+			fmt.Fprintf(&md, "\n**Explicación:** %s\n", elem.Explanation)
 		}
 		return md.String()
 
 	case *ast.PollElement:
 		var md strings.Builder
 		if elem.Question != "" {
-			fmt.Fprintf(&md, "**%s**\n\n", elem.Question)
+			fmt.Fprintf(&md, "**Pregunta:** %s\n\n", elem.Question)
 		}
 		for i, option := range elem.Options {
 			fmt.Fprintf(&md, "%d. %s\n", i+1, option)

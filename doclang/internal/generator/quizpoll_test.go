@@ -28,12 +28,12 @@ func TestMarkdownGenerator_QuizIsRenderedSolved(t *testing.T) {
 	md := (&MarkdownGenerator{}).renderElement(newQuizElement())
 
 	for _, want := range []string{
-		"**¿Capital de Francia?**",
+		"**Pregunta:** ¿Capital de Francia?",
 		"1. Berlín",
 		"2. París ✅",
 		"3. Madrid",
 		"**Respuesta:** París",
-		"*Desde 987.*",
+		"**Explicación:** Desde 987.",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("falta %q en:\n%s", want, md)
@@ -104,5 +104,43 @@ func TestDOCXSpanTokenPattern_MatchesTheCanonicalForm(t *testing.T) {
 	// Un span de idioma NO es un token de clase: lo maneja docxLangPattern.
 	if docxSpanTokenTextPattern.MatchString("[bonjour]{lang=fr}") {
 		t.Error("el patrón de clase se comió un span de idioma")
+	}
+}
+
+// El énfasis de la salida Markdown va en una etiqueta fija, nunca envolviendo
+// el texto del autor.
+//
+// Antes la pregunta se emitía como `**%s**` y la explicación como `*%s*`, así
+// que un quiz cuyo enunciado ya traía énfasis salía con los delimitadores
+// cruzados: `**¿Cuál usa **negrita**?**`. Cualquier renderer de Markdown lo lee
+// como tramos mal cerrados y el resultado no se parece ni al original ni a lo
+// que el autor quiso. El texto del autor tiene que llegar byte por byte.
+func TestMarkdownGenerator_DoesNotWrapAuthorTextInEmphasis(t *testing.T) {
+	q := ast.NewQuizElement(diagnostics.NewPosition(1, 1))
+	q.Question = "¿Cuál usa **negrita** y `código`?"
+	q.Options = []string{"La *cursiva*", "La `código`"}
+	q.Answer = 1
+	q.Explanation = "Porque **esto** importa."
+
+	md := (&MarkdownGenerator{}).renderElement(q)
+
+	for _, want := range []string{
+		"¿Cuál usa **negrita** y `código`?",
+		"1. La *cursiva*",
+		"2. La `código` ✅",
+		"Porque **esto** importa.",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("el texto del autor no sobrevivió intacto; falta %q en:\n%s", want, md)
+		}
+	}
+	// La forma concreta que producía el bug.
+	for _, unwanted := range []string{
+		"**¿Cuál usa **negrita**",
+		"*Porque **esto** importa.*",
+	} {
+		if strings.Contains(md, unwanted) {
+			t.Errorf("se envolvió el texto del autor en énfasis: %q está en:\n%s", unwanted, md)
+		}
 	}
 }
