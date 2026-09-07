@@ -78,6 +78,13 @@ var registry = map[string][]OptionSpec{
 // Options devuelve las opciones que un layout acepta, ordenadas por nombre.
 func Options(layout string) []OptionSpec {
 	specs := append([]OptionSpec(nil), registry[layout]...)
+	// La copia del slice de specs no alcanza: `Values` es a su vez un slice, y
+	// sin copiarlo el llamador recibe un alias del arreglo del registro y una
+	// escritura suya lo corrompe para todos. Hoy nadie lo escribe, pero
+	// devolver media copia invita a creer que es completa.
+	for i := range specs {
+		specs[i].Values = append([]string(nil), specs[i].Values...)
+	}
 	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
 	return specs
 }
@@ -176,8 +183,11 @@ func Apply(cfg *Config, layout, key, value string) error {
 		if n < spec.Min || n > spec.Max {
 			return fmt.Errorf("%q must be between %d and %d, got %d", key, spec.Min, spec.Max, n)
 		}
-		if key == "columns" {
+		switch key {
+		case "columns":
 			cfg.Columns = n
+		default:
+			return errNoField(key)
 		}
 	case OptionEnum:
 		v := strings.ToLower(strings.TrimSpace(value))
@@ -191,9 +201,27 @@ func Apply(cfg *Config, layout, key, value string) error {
 		if !ok {
 			return fmt.Errorf("%q must be one of %s, got %q", key, strings.Join(spec.Values, "/"), value)
 		}
-		if key == "align" {
+		switch key {
+		case "align":
 			cfg.Align = v
+		default:
+			return errNoField(key)
 		}
 	}
 	return nil
+}
+
+// errNoField es lo que Apply devuelve para una opción que está en el registro
+// pero no tiene campo donde escribirse.
+//
+// Sin esto, agregar una `rows` al registro y olvidar la rama daba `err == nil`
+// sin haber escrito nada: `Config.IsZero()` seguía siendo true, el parser no
+// colgaba ningún LayoutConfig del bloque, y la opción se perdía sin
+// diagnóstico. Una función de validación que devuelve éxito habiendo tirado el
+// valor, en el paquete escrito justamente para que una opción no se pierda en
+// silencio. Es un error de programación, no del documento — por eso el texto
+// habla del registro y no del autor.
+func errNoField(key string) error {
+	return fmt.Errorf("layout option %q is declared in the registry but Apply has no field to write it to "+
+		"(add the case to Apply and a field to Config)", key)
 }

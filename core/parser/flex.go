@@ -433,6 +433,7 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 	// es una opción suya, y nada obliga a que `layout:` venga primero en el
 	// bloque.
 	layout := ""
+	declaredLayout := false
 	for i := openIdx + 1; i < closeIdx; i++ {
 		key, value, ok := splitMetadataLine(p.lines[i])
 		if !ok || key != "layout" {
@@ -446,6 +447,7 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 			continue
 		}
 		layout = value
+		declaredLayout = true
 		p.pendingLayout = value
 	}
 
@@ -468,13 +470,23 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 		// Una llave que ES opción de otro layout se nombra como tal: es el
 		// caso de copiar un bloque de un slide a otro, y decir solo "no tiene
 		// efecto" no ayudaría a encontrarlo.
-		if p.reportedInertKeys == nil {
-			p.reportedInertKeys = make(map[string]bool)
+		//
+		// La deduplicación NO alcanza a las opciones de layout, y es a
+		// propósito: existe para que `header:`/`footer:`/`rating:` —llaves
+		// inertes que el corpus escribe a montones, iguales en todos los
+		// slides— no llenen el reporte de ruido. Una opción mal puesta es lo
+		// contrario: el mensaje nombra el layout de ESE slide, así que
+		// deduplicar por nombre de llave silenciaba el segundo slide por
+		// completo, que es justo el caso que #255 existe para atrapar.
+		if !layouts.IsKnownOption(key) {
+			if p.reportedInertKeys == nil {
+				p.reportedInertKeys = make(map[string]bool)
+			}
+			if p.reportedInertKeys[key] {
+				continue
+			}
+			p.reportedInertKeys[key] = true
 		}
-		if p.reportedInertKeys[key] {
-			continue
-		}
-		p.reportedInertKeys[key] = true
 
 		message := fmt.Sprintf("Per-slide metadata key %q has no effect; only 'layout' is read here.", key)
 		if layouts.IsKnownOption(key) {
@@ -489,7 +501,16 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 			diagnostics.NewInfo(message, diagnostics.NewPosition(i+1, 1), "flex-parser").WithRuleID("FLEX002"))
 	}
 
-	p.pendingLayoutConfig = config
+	// Solo se pisa lo pendiente si ESTE bloque tiene algo que decir: o declara
+	// un layout —y entonces las opciones son las suyas, aunque no traiga
+	// ninguna—, o aporta opciones. Dos bloques de metadata seguidos son
+	// legales (metadataBlockCloseIndex los reconoce), y con una asignación
+	// incondicional el segundo borraba en silencio las opciones del primero:
+	// bien escritas, en el bloque correcto, sobre un layout que las acepta, y
+	// desaparecían sin una sola línea de diagnóstico.
+	if declaredLayout || !config.IsZero() {
+		p.pendingLayoutConfig = config
+	}
 }
 
 // splitMetadataLine parte una línea "clave: valor" del bloque de metadata.
