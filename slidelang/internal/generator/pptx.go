@@ -425,18 +425,81 @@ func pptxEstimateLines(text string) int {
 // (renderInlineMarkdown) pero sobre la API fluida de pptxgo en vez de
 // domain.Run/domain.Paragraph.
 type pptxInlineSegment struct {
-	text   string
-	bold   bool
-	italic bool
-	code   bool
-	lang   string
+	text      string
+	bold      bool
+	italic    bool
+	code      bool
+	underline bool
+	lang      string
+	// color es el color del token de clase que produjo este segmento; nil
+	// significa "el que herede".
+	color *drawingml.Color
+	// fontSizePt es un tamaño absoluto en puntos, 0 = el del cuerpo.
+	fontSizePt float64
 }
 
 var (
 	pptxCodeRe   = regexp.MustCompile("`([^`]+)`")
 	pptxBoldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	pptxItalicRe = regexp.MustCompile(`\*([^*]+)\*`)
+	// pptxSpanTokenRe reconoce `[texto]{.clase}`.
+	//
+	// Es una copia local del `inlineSpanPattern` de core/renderer, que no está
+	// exportado; doclang tiene la suya por la misma razón
+	// (docxSpanTokenTextPattern). Duplicar un regex es peor que compartirlo, y
+	// exportarlo de core es lo correcto — pero eso exige un release de core y
+	// un bump de los dos CLIs para un cambio que no cambia comportamiento.
+	// Mientras tanto, la copia queda anclada acá con su origen nombrado.
+	pptxSpanTokenRe = regexp.MustCompile(`\[([^\[\]]+)\]\{\.([a-zA-Z0-9-]+)\}`)
 )
+
+// pptxBodyFontSizePt es el tamaño del texto de cuerpo. PPTX no lo escribe:
+// los runs salen sin `sz` y heredan el default del layout. El número está acá
+// porque `small` y `large` son múltiplos de él y la API solo acepta tamaños
+// absolutos; es el mismo 18pt que el comentario de pptxCodeFontSizePt ya cita
+// como "cuerpo completo".
+const pptxBodyFontSizePt = 18.0
+
+// pptxSpanTokenStyle traduce un token de clase al formato que PPTX sabe
+// expresar. Los valores replican los fallbacks del CSS de slidelang
+// (assets/css/elements/text.css) para que una diapositiva y su HTML no se vean
+// de dos colores distintos.
+//
+// Cinco de los catorce tokens NO están acá y salen como texto plano: los tres
+// `highlight-*`, que necesitan un fondo, y `sub`/`sup`, que necesitan una línea
+// base — pptxgo no expone ninguna de las dos (su Paragraph ofrece Bold, Italic,
+// Underline, Color, Font, FontSize y Lang, y nada más). Salir en plano es la
+// degradación correcta: se pierde el estilo, nunca el texto. Lo que NO puede
+// seguir pasando —y es el bug que esto cierra— es que el token salga LITERAL,
+// con corchetes y llaves, en medio de la diapositiva.
+//
+// `large` es font-weight 500 en CSS. Acá va solo el tamaño: PPTX no tiene pesos
+// intermedios y poner Bold sobre un 500 exagera más de lo que aproxima.
+var pptxSpanTokenStyle = map[string]pptxInlineSegment{
+	"underline": {underline: true},
+	"kbd":       {code: true},
+	"small":     {fontSizePt: pptxBodyFontSizePt * 0.875},
+	"large":     {fontSizePt: pptxBodyFontSizePt * 1.25},
+	"danger":    {color: &drawingml.Color{R: 0xdc, G: 0x26, B: 0x26}},
+	"info":      {color: &drawingml.Color{R: 0x25, G: 0x63, B: 0xeb}},
+	"success":   {color: &drawingml.Color{R: 0x15, G: 0x80, B: 0x3d}},
+	"warning":   {color: &drawingml.Color{R: 0xb4, G: 0x53, B: 0x09}},
+	"accent":    {color: &drawingml.Color{R: 0x7c, G: 0x3a, B: 0xed}},
+
+	// Los cinco de abajo están en el mapa CON ESTILO VACÍO, y eso es el punto:
+	// son tokens que el toolchain reconoce y que PPTX no puede pintar —los
+	// `highlight-*` necesitan un fondo y `sub`/`sup` una línea base, y el
+	// Paragraph de pptxgo no expone ninguna de las dos. Estar en el mapa los
+	// separa de un token INVENTADO: el conocido-sin-estilo emite su texto
+	// interno en plano, el inventado emite la sintaxis literal para que se vea
+	// el typo. Dejarlos fuera del mapa los mandaba a la segunda rama y ponía
+	// "[x]{.sub}" en medio de la diapositiva, que es el bug que esto cierra.
+	"highlight-warning": {},
+	"highlight-info":    {},
+	"highlight-success": {},
+	"sub":               {},
+	"sup":               {},
+}
 
 // pptxBasicPatterns es el subconjunto code/bold/italic usado tanto por el
 // scan de nivel superior de pptxSplitInline como, recursivamente, por el
@@ -543,7 +606,49 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		var langLoc []int
 		if loc := renderer.InlineLangSpanPattern.FindStringSubmatchIndex(remaining[pos:]); loc != nil && loc[0] < bestRelPos {
 			langLoc = loc
+			bestRelPos = loc[0]
 			best = nil // el span de idioma gana sobre code/bold/italic en esta posición
+		}
+
+		// Token de clase `[texto]{.clase}`. Se evalúa después del span de
+		// idioma y contra el mismo bestRelPos, así que el que empiece antes
+		// gana; los dos comparten delimitador y no pueden anidarse (el
+		// content-class de ambos excluye "[").
+		if loc := pptxSpanTokenRe.FindStringSubmatchIndex(remaining[pos:]); loc != nil && loc[0] < bestRelPos {
+			matchStart, matchEnd := pos+loc[0], pos+loc[1]
+			inner := remaining[pos+loc[2] : pos+loc[3]]
+			class := remaining[pos+loc[4] : pos+loc[5]]
+
+			if matchStart > pos {
+				segments = append(segments, pptxInlineSegment{text: remaining[pos:matchStart]})
+			}
+			// Un token DESCONOCIDO se emite literal, con corchetes y llaves.
+			// Es lo que hace el HTML (ver el comentario de inlineSpanPattern en
+			// core/renderer/sanitizer.go) y lo que hace acá al lado el span de
+			// idioma con un tag inválido: quedarse solo con el texto interno
+			// escondería el typo del autor.
+			style, known := pptxSpanTokenStyle[class]
+			if !known {
+				segments = append(segments, pptxInlineSegment{text: remaining[matchStart:matchEnd]})
+				pos = matchEnd
+				continue
+			}
+			// El texto interno se procesa por code/bold/italic, igual que el de
+			// un span de idioma, y el estilo del token se estampa encima de
+			// cada segmento resultante.
+			for _, seg := range pptxSplitBasic(inner) {
+				seg.underline = seg.underline || style.underline
+				seg.code = seg.code || style.code
+				if style.color != nil {
+					seg.color = style.color
+				}
+				if style.fontSizePt != 0 {
+					seg.fontSizePt = style.fontSizePt
+				}
+				segments = append(segments, seg)
+			}
+			pos = matchEnd
+			continue
 		}
 
 		if langLoc != nil {
@@ -618,6 +723,15 @@ func pptxApplyInlineBase(para *pptx.Paragraph, content string, baseItalic bool) 
 		}
 		if seg.code {
 			para.Font("Courier New")
+		}
+		if seg.underline {
+			para.Underline()
+		}
+		if seg.color != nil {
+			para.Color(*seg.color)
+		}
+		if seg.fontSizePt != 0 {
+			para.FontSize(seg.fontSizePt)
 		}
 		// seg.lang ya viene validado por a11y.IsValidLangTag en
 		// pptxSplitInline (un tag inválido nunca llega a set near text con
