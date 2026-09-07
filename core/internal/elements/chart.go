@@ -20,20 +20,31 @@ import (
 // ChartParser maneja el parsing de gráficos Chart.js
 type ChartParser struct{}
 
-// CanParse determina si puede parsear una línea como Chart
+// CanParse determina si puede parsear una línea como Chart: `<<chart: tipo>>`
+// (inline) o `<<chart` solo en su línea (abridor multilínea, cerrado por
+// `<<end>>`).
+//
+// El segundo disyuntivo de la versión anterior —`HasPrefix(trimmed, "<<chart")`—
+// subsumía al primero y no tenía frontera de palabra, así que `<<charts>>`,
+// `<<chartfoo>>` y `<<chart-de-cuentas>>` entraban todos al parser de chart. Es
+// el mismo agujero que `matchesMediaTag` (media.go) ya cerró para
+// `<<video`/`<<audio`, con la misma consecuencia: un tag mal escrito no se
+// reporta, se parsea como otra cosa y se traga las líneas que le siguen. Medido
+// en flex sobre `main`: `<<chart-de-cuentas>>` producía un ChartElement.
+//
+// Lo que sigue a `<<chart` tiene que ser el fin de la línea o un ":". No se
+// acepta " " —no hay forma `<<chart bar>>` en la gramática— ni ">>", que sería
+// un abridor multilínea con un cierre de más.
 func (p *ChartParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
-
-	switch mode {
-	case "strict":
-		// Acepta tanto <<chart: (inline) como <<chart (multilínea)
-		return strings.HasPrefix(trimmed, "<<chart:") || strings.HasPrefix(trimmed, "<<chart")
-	case "flex":
-		// Acepta tanto <<chart: (inline) como <<chart (multilínea)
-		return strings.HasPrefix(trimmed, "<<chart:") || strings.HasPrefix(trimmed, "<<chart")
+	if mode != "strict" && mode != "flex" {
+		return false
 	}
-
-	return false
+	rest, ok := strings.CutPrefix(trimmed, "<<chart")
+	if !ok {
+		return false
+	}
+	return rest == "" || strings.HasPrefix(rest, ":")
 }
 
 // Parse parsea un elemento Chart

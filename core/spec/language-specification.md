@@ -392,12 +392,25 @@ Embedded elements add rich content:
 
 | Element | Syntax | Description |
 |---------|--------|-------------|
-| Charts | `<<chart: type>>` | Data visualizations |
+| Charts | `<<chart: type>>` or `<<chart` … `<<end>>` | Data visualizations |
 | Diagrams | `<<mermaid>>` | Mermaid diagrams |
-| Maps | `<<map>>` | Geographic maps |
+| Maps | `<<map>>` or `<<map attr="…">>` | Geographic maps |
 | Grid | `<<grid>>` / `<<column>>` / `<<end>>` | Column layouts — see "Grid and Column Layouts" above |
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
+
+**Tag boundaries.** A tag that takes no attributes — `<<quiz>>`, `<<poll>>`,
+`<<grid>>` — must be written **alone on its line**. `<<quiz>>anything` is not a
+quiz in either dialect: it is ordinary content, and in `strict` the line is
+reported as unrecognized (a warning in presentations, an error in documents,
+which is the same severity split every unrecognized line gets).
+
+A tag that does take attributes — `<<map …>>`, `<<chart: …>>`, `<<video …>>` —
+matches only on a **whole-word** tag name. `<<mapa>>`, `<<charts>>` and
+`<<videofoo …>>` are not mistyped tags that get parsed anyway; they are ordinary
+content. This matters more than it looks: a tag matched on a loose prefix
+consumes the lines under it, so a mistyped `<<mapa>>` above a `title:` used to
+absorb the slide's title and leave the slide untitled, with nothing reported.
 
 ### Layout options
 
@@ -420,6 +433,26 @@ columns: 2
 ---
 ## Two side by side
 ```
+
+Consecutive metadata blocks before the same slide are one declaration. A block
+that does not write `layout:` inherits the layout the previous one set, and its
+options are **added** to those already declared:
+
+```slidelang
+---
+layout: call_to_action
+columns: 2
+---
+---
+align: left
+---
+## Both options apply
+```
+
+A block that **does** write `layout:` starts over: the options carried so far
+belonged to the previous layout, and applying them to the new one would invent a
+declaration nobody wrote. Inheritance never crosses a slide — the layout and its
+options are consumed by the block that follows them.
 
 **Strict** puts them as properties under the `SLIDE` line, like `title:`:
 

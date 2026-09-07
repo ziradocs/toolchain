@@ -432,7 +432,15 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 	// Dos pasadas: el layout tiene que conocerse ANTES de decidir si una llave
 	// es una opción suya, y nada obliga a que `layout:` venga primero en el
 	// bloque.
-	layout := ""
+	//
+	// El layout efectivo arranca en el pendiente, no en "": dos bloques de
+	// metadata seguidos son legales, y un bloque que solo trae opciones las
+	// declara sobre el layout que el anterior fijó. Sin esto, `layouts.Accepts`
+	// se preguntaba por el layout "" —que no acepta nada—, la opción se perdía y
+	// el FLEX002 que salía en su lugar decía que la llave no hace nada, cuando
+	// escrita en el bloque de arriba sí la hace. p.pendingLayout se limpia en
+	// cuanto un bloque real lo consume, así que la herencia no cruza un slide.
+	layout := p.pendingLayout
 	declaredLayout := false
 	for i := openIdx + 1; i < closeIdx; i++ {
 		key, value, ok := splitMetadataLine(p.lines[i])
@@ -451,7 +459,15 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 		p.pendingLayout = value
 	}
 
-	var config layouts.Config
+	// Las opciones se acumulan sobre las que ya venían, salvo que ESTE bloque
+	// declare un layout: entonces estrena, porque las pendientes eran del
+	// layout anterior y aplicarlas al nuevo sería inventar una declaración que
+	// nadie escribió.
+	config := p.pendingLayoutConfig
+	if declaredLayout {
+		config = layouts.Config{}
+	}
+	appliedHere := false
 	for i := openIdx + 1; i < closeIdx; i++ {
 		key, value, ok := splitMetadataLine(p.lines[i])
 		if !ok || key == "layout" {
@@ -463,7 +479,9 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 			if err := layouts.Apply(&config, layout, key, value); err != nil {
 				p.addWarningAtWithRuleID(i,
 					fmt.Sprintf("Invalid value for layout option: %v — ignored.", err), "FLEX004")
+				continue
 			}
+			appliedHere = true
 			continue
 		}
 
@@ -503,12 +521,15 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 
 	// Solo se pisa lo pendiente si ESTE bloque tiene algo que decir: o declara
 	// un layout —y entonces las opciones son las suyas, aunque no traiga
-	// ninguna—, o aporta opciones. Dos bloques de metadata seguidos son
-	// legales (metadataBlockCloseIndex los reconoce), y con una asignación
-	// incondicional el segundo borraba en silencio las opciones del primero:
-	// bien escritas, en el bloque correcto, sobre un layout que las acepta, y
+	// ninguna—, o aporta opciones. Con una asignación incondicional, un bloque
+	// que no dice nada borraba en silencio las opciones del anterior: bien
+	// escritas, en el bloque correcto, sobre un layout que las acepta, y
 	// desaparecían sin una sola línea de diagnóstico.
-	if declaredLayout || !config.IsZero() {
+	//
+	// La condición mira appliedHere y no config.IsZero(): config ya trae lo
+	// heredado, así que preguntar si está vacío respondería "no" por lo que
+	// escribió otro bloque, no por lo que escribió este.
+	if declaredLayout || appliedHere {
 		p.pendingLayoutConfig = config
 	}
 }
