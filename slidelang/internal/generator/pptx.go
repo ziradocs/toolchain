@@ -545,10 +545,10 @@ var pptxBasicPatterns = []struct {
 // "[x]{.danger}" en negrita. La rama de idioma sí recursaba (por el finding #2
 // del issue #63), y esa asimetría es la que se empareja acá.
 //
-// Dentro de `code` NO se interpretan tokens, y eso espeja al HTML: ahí
-// `` `[c]{.success}` `` sale como `<code>[c]{.success}</code>`, con el token
+// Dentro de `code` NO se interpretan tokens, y eso espeja al HTML: ahí un
+// token entre backticks sale como <code>[c]{.success}</code>, con la sintaxis
 // literal, mientras `**[b]{.danger}**` sí compone a
-// `<strong><span class="slidelang-text-danger">b</span></strong>`. Un span de
+// <strong><span class="slidelang-text-danger">b</span></strong>. Un span de
 // código es texto que se muestra tal cual; ese es el punto de escribirlo.
 func applySpanTokens(text string, base pptxInlineSegment) []pptxInlineSegment {
 	base.text = text
