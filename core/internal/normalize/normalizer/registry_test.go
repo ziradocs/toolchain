@@ -38,6 +38,7 @@ func TestGetTransformRules_ReturnsExpectedRuleSet(t *testing.T) {
 		"*structure.MarkdownSlideStructureRule",
 		"*content.TitleSubtitleRule",
 		"*content.HeadersRule",
+		"*content.InlineHTMLTagsRule",
 		"*enhancement.CodeGroupFormatterRule",
 		"*enhancement.GraphicsRule",
 		"*enhancement.MermaidRule",

@@ -48,6 +48,12 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 	case *ast.ChecklistElement:
 		return renderChecklistElement(elem, variables)
 
+	case *ast.QuizElement:
+		return renderQuizElement(elem, variables)
+
+	case *ast.PollElement:
+		return renderPollElement(elem, variables)
+
 	case *ast.MermaidElement:
 		return renderMermaidElement(elem, variables, ctx)
 
@@ -608,6 +614,70 @@ func renderChecklistElement(elem *ast.ChecklistElement, variables map[string]int
 	}
 
 	html.WriteString("</ul>")
+	return html.String()
+}
+
+// renderQuizElement y renderPollElement emiten el markup ESTÁTICO de un quiz o
+// un poll (issue #198): esta es la única versión que ven DocLang (HTML y PDF) y
+// el preview, donde no hay JavaScript. Por eso el quiz sale con la opción
+// correcta ya marcada (`.option.correct`) y la explicación visible — un quiz
+// que no se puede responder tiene que al menos enseñar la respuesta.
+//
+// slidelang envuelve esto en su propio `.slidelang-element.slidelang-quiz` y le
+// agrega los <button> y el JS de interacción; las clases internas de acá
+// (`.question`, `.option`, `.option.correct`, `.explanation`, `.poll-option`)
+// son el contrato público que documenta features/themes-styling.md, y el JS de
+// slidelang se ata a ellas.
+func renderQuizElement(elem *ast.QuizElement, variables map[string]interface{}) string {
+	var html strings.Builder
+	fmt.Fprintf(&html, `<div class="quiz" data-answer="%d">`, elem.Answer)
+
+	if elem.Question != "" {
+		fmt.Fprintf(&html, `<p class="question">%s</p>`,
+			ProcessTextWithVariablesAndMarkdownSecure(elem.Question, variables))
+	}
+
+	if len(elem.Options) > 0 {
+		html.WriteString(`<ol class="options">`)
+		for i, option := range elem.Options {
+			class := "option"
+			if i == elem.Answer {
+				class = "option correct"
+			}
+			fmt.Fprintf(&html, `<li class="%s" data-index="%d">%s</li>`,
+				class, i, ProcessTextWithVariablesAndMarkdownSecure(option, variables))
+		}
+		html.WriteString("</ol>")
+	}
+
+	if elem.Explanation != "" {
+		fmt.Fprintf(&html, `<p class="explanation">%s</p>`,
+			ProcessTextWithVariablesAndMarkdownSecure(elem.Explanation, variables))
+	}
+
+	html.WriteString("</div>")
+	return html.String()
+}
+
+func renderPollElement(elem *ast.PollElement, variables map[string]interface{}) string {
+	var html strings.Builder
+	fmt.Fprintf(&html, `<div class="poll" data-multiple="%t">`, elem.Multiple)
+
+	if elem.Question != "" {
+		fmt.Fprintf(&html, `<p class="question">%s</p>`,
+			ProcessTextWithVariablesAndMarkdownSecure(elem.Question, variables))
+	}
+
+	if len(elem.Options) > 0 {
+		html.WriteString(`<ol class="options">`)
+		for i, option := range elem.Options {
+			fmt.Fprintf(&html, `<li class="poll-option" data-index="%d">%s</li>`,
+				i, ProcessTextWithVariablesAndMarkdownSecure(option, variables))
+		}
+		html.WriteString("</ol>")
+	}
+
+	html.WriteString("</div>")
 	return html.String()
 }
 

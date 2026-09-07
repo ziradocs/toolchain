@@ -249,8 +249,21 @@ var inlineSpanTokens = map[string][2]string{
 	"highlight-info":    {`<mark class="slidelang-highlight-info">`, `</mark>`},
 	"highlight-success": {`<mark class="slidelang-highlight-success">`, `</mark>`},
 	"underline":         {`<u>`, `</u>`},
-	"small":             {`<small class="slidelang-text-small">`, `</small>`},
-	"large":             {`<span class="slidelang-text-large">`, `</span>`},
+	// sub/sup/kbd (issue #243): Markdown no tiene forma de escribirlos, así
+	// que tanto humanos como modelos alcanzan la tag HTML — que el sanitizer
+	// escapa, y sale el markup literal en la diapositiva. Son tags inertes
+	// (sin atributos, sin comportamiento), así que agregarlos al conjunto
+	// cerrado que el renderer EMITE no toca el modelo de seguridad: el HTML
+	// del usuario se sigue escapando entero.
+	//
+	// No se agregan formas Markdown-extendidas (`^x^`, `~x~`, `++x++`): `~x~`
+	// colisionaría con el tachado `~~x~~` y ninguna de las tres es
+	// CommonMark. La forma canónica es el token.
+	"sub":   {`<sub>`, `</sub>`},
+	"sup":   {`<sup>`, `</sup>`},
+	"kbd":   {`<kbd class="slidelang-kbd">`, `</kbd>`},
+	"small": {`<small class="slidelang-text-small">`, `</small>`},
+	"large": {`<span class="slidelang-text-large">`, `</span>`},
 }
 
 // cssNamedColors es la allowlist de nombres de color CSS aceptados para

@@ -93,6 +93,8 @@ func TestNodeTypes(t *testing.T) {
 		NodeTypeChecklistItem,
 		NodeTypeGrid,
 		NodeTypeColumn,
+		NodeTypeQuiz,
+		NodeTypePoll,
 	}
 
 	// Verify all node types are unique

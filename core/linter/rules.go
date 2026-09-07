@@ -5,6 +5,7 @@ package linter
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -290,6 +291,12 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 
 			case *ast.ChartElement:
 				diags = append(diags, checkChartElement(elem)...)
+
+			case *ast.QuizElement:
+				diags = append(diags, checkQuizElement(elem)...)
+
+			case *ast.PollElement:
+				diags = append(diags, checkPollElement(elem)...)
 			}
 		}
 	}
@@ -400,6 +407,76 @@ func checkChartElement(elem *ast.ChartElement) []diagnostics.Diagnostic {
 			diagnostics.NewWarning(
 				"Chart elements should have data defined",
 				elem.GetPosition(), "linter").WithRuleID("CHART001"))
+	}
+
+	return diags
+}
+
+// checkQuizElement valida un quiz (issue #198).
+//
+// Que falte `question:` se reporta acá y no en el parser a propósito: el bloque
+// está bien formado y renderiza igual, así que es un hallazgo de CALIDAD del
+// contenido, como CHART001 ("chart sin datos"). El parser solo reporta lo que
+// le impide construir el elemento (YAML roto, llaves que no existen).
+func checkQuizElement(elem *ast.QuizElement) []diagnostics.Diagnostic {
+	var diags []diagnostics.Diagnostic
+
+	// Único Error de los dos elementos: un índice fuera de rango no tiene
+	// degradación razonable — el quiz no puede señalar ninguna opción como
+	// correcta, así que ni siquiera funciona como material de lectura.
+	// Answer == -1 (no declarado) entra por acá también, que es lo correcto:
+	// un quiz sin respuesta es un quiz roto.
+	if elem.Answer < 0 || elem.Answer >= len(elem.Options) {
+		// Sin opciones NINGÚN índice puede ser válido, así que el rango
+		// "entre 0 y -1" que saldría de la fórmula no dice nada. Sigue siendo
+		// Error y no solo el Warning de QUIZ002: un quiz sin opciones no se
+		// puede responder ni leer, y dejarlo pasar produciría un bloque vacío
+		// en la diapositiva.
+		message := fmt.Sprintf(
+			"Quiz answer must be a 0-based index between 0 and %d (got %d) — answer: 1 selects the second option",
+			len(elem.Options)-1, elem.Answer)
+		if len(elem.Options) == 0 {
+			message = "Quiz has no options, so no answer index can be valid — add the 'options' list"
+		}
+		diags = append(diags,
+			diagnostics.NewError(message, elem.GetPosition(), "linter").WithRuleID("QUIZ001"))
+	}
+
+	if len(elem.Options) < 2 {
+		diags = append(diags,
+			diagnostics.NewWarning(
+				"Quiz elements should offer at least 2 options",
+				elem.GetPosition(), "linter").WithRuleID("QUIZ002"))
+	}
+
+	if strings.TrimSpace(elem.Question) == "" {
+		diags = append(diags,
+			diagnostics.NewWarning(
+				"Quiz elements should have a question",
+				elem.GetPosition(), "linter").WithRuleID("QUIZ003"))
+	}
+
+	return diags
+}
+
+// checkPollElement valida un poll. Sin equivalente de QUIZ001: un poll no
+// tiene respuesta correcta, así que no hay nada que pueda quedar fuera de
+// rango.
+func checkPollElement(elem *ast.PollElement) []diagnostics.Diagnostic {
+	var diags []diagnostics.Diagnostic
+
+	if len(elem.Options) < 2 {
+		diags = append(diags,
+			diagnostics.NewWarning(
+				"Poll elements should offer at least 2 options",
+				elem.GetPosition(), "linter").WithRuleID("POLL001"))
+	}
+
+	if strings.TrimSpace(elem.Question) == "" {
+		diags = append(diags,
+			diagnostics.NewWarning(
+				"Poll elements should have a question",
+				elem.GetPosition(), "linter").WithRuleID("POLL002"))
 	}
 
 	return diags
@@ -527,8 +604,47 @@ func sortedRecognizedSlideTypes(schemas map[string]SlideLayoutSchema) []string {
 	return names
 }
 
+// schemaFor resuelve el schema de un tipo de slide aplicando la política, o
+// reporta que no hay ninguno que validar (tipo vacío, sin schema, o uno de los
+// reconocidos sin schema).
+func (r *SlideLayoutValidationRule) schemaFor(slideType string) (SlideLayoutSchema, bool) {
+	if slideType == "" || isSchemalessKnownSlideType(slideType) {
+		return SlideLayoutSchema{}, false
+	}
+	schema, exists := GetSlideLayoutSchemas()[slideType]
+	if !exists {
+		return SlideLayoutSchema{}, false
+	}
+	return r.policy.ResolveLayoutSchema(slideType, schema), true
+}
+
 func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
+
+	// Los límites de conteo se emiten en la visita a la RAÍZ, no en la de cada
+	// bloque, porque su severidad depende del dialecto del documento y el modo
+	// solo se conoce desde el FrontMatter (issue #253).
+	//
+	// Guardar el modo en el receptor durante la visita de la raíz para usarlo
+	// después sería lo obvio y está descartado a propósito: LintUnfiltered
+	// promete no mutar el receptor, para que un *Linter se pueda compartir
+	// entre documentos y entre goroutines. Recorrer los bloques desde acá
+	// mantiene la regla sin estado.
+	if astNode, ok := node.(*ast.AST); ok {
+		mode := ""
+		if astNode.FrontMatter != nil {
+			mode = astNode.FrontMatter.Mode
+		}
+		for i := range astNode.ContentBlocks {
+			slide := &astNode.ContentBlocks[i]
+			schema, ok := r.schemaFor(slide.BlockType)
+			if !ok {
+				continue
+			}
+			diags = append(diags, validateElementCountLimits(slide.BlockType, schema, slide, mode)...)
+		}
+		return diags
+	}
 
 	if slide, ok := node.(*ast.ContentBlock); ok {
 		slideType := slide.BlockType
@@ -573,8 +689,9 @@ func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnosti
 			}
 		}
 
-		// Validar límites básicos de elementos (solo warnings)
-		diags = append(diags, validateElementCountLimits(slideType, schema, slide)...)
+		// Los límites de conteo se emiten en la visita a la raíz (ver arriba).
+
+		diags = append(diags, validateRequiredProperties(slideType, schema, slide)...)
 
 		// Validar elementos permitidos/prohibidos
 		for _, element := range slide.Elements {
@@ -599,18 +716,36 @@ func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnosti
 }
 
 // validateElementCountLimits valida que la cantidad de elementos del slide
-// esté dentro de los límites Min/MaxElements del schema, generando warnings
+// esté dentro de los límites Min/MaxElements del schema, generando
 // LAYOUT_MIN_ELEMENTS / LAYOUT_MAX_ELEMENTS. Extraída como función standalone
 // (en vez de vivir inline en Check) para poder testearse con un
 // SlideLayoutSchema construido a mano — incluyendo límites >= 10, algo que
 // ningún schema hardcodeado en GetSlideLayoutSchemas() alcanza hoy — sin
 // depender del dispatch completo de Check() ni del mapa de schemas real.
-func validateElementCountLimits(slideType string, schema SlideLayoutSchema, slide *ast.ContentBlock) []diagnostics.Diagnostic {
+//
+// En flex estos dos bajan a Info; en strict siguen siendo Warning (issue
+// #253). El motivo no es el volumen sino que el número MIDE COSAS DISTINTAS en
+// cada dialecto: en strict el autor declara cada TEXT/POINTS, así que "al menos
+// 2 elementos" describe lo que escribió; en flex los párrafos se fusionan, una
+// corrida de viñetas es UN elemento `points` y un heading no es elemento, así
+// que el mismo slide visual da un conteo menor sin que haya nada que corregir.
+// Aplicar límites calibrados para strict a contenido flex reportaba un desajuste
+// que no era un defecto de autoría: 55 de los 101 avisos que aparecieron al
+// tipar los decks flex del corpus.
+//
+// Los validators de FORMA (que un testimonial tenga cita y autor, que un
+// code_example tenga código) y LAYOUT_FORBIDDEN_ELEMENT siguen en Warning en
+// los dos dialectos: esos sí describen la estructura, no su densidad.
+func validateElementCountLimits(slideType string, schema SlideLayoutSchema, slide *ast.ContentBlock, mode string) []diagnostics.Diagnostic {
+	severity := diagnostics.Warning
+	if mode == "flex" || mode == "flex-full" || mode == "flex-ai" || mode == "auto" {
+		severity = diagnostics.Info
+	}
 	var diags []diagnostics.Diagnostic
 
 	if schema.MinElements > 0 && len(slide.Elements) < schema.MinElements {
 		diags = append(diags, diagnostics.Diagnostic{
-			Severity: diagnostics.Warning,
+			Severity: severity,
 			Code:     "LAYOUT_MIN_ELEMENTS",
 			Message:  "Slide type '" + slideType + "' should have at least " + strconv.Itoa(schema.MinElements) + " elements",
 			Position: slide.Position,
@@ -620,7 +755,7 @@ func validateElementCountLimits(slideType string, schema SlideLayoutSchema, slid
 
 	if schema.MaxElements > 0 && len(slide.Elements) > schema.MaxElements {
 		diags = append(diags, diagnostics.Diagnostic{
-			Severity: diagnostics.Warning,
+			Severity: severity,
 			Code:     "LAYOUT_MAX_ELEMENTS",
 			Message:  "Slide type '" + slideType + "' should have at most " + strconv.Itoa(schema.MaxElements) + " elements",
 			Position: slide.Position,
@@ -632,12 +767,64 @@ func validateElementCountLimits(slideType string, schema SlideLayoutSchema, slid
 }
 
 // Helper function to check if slide has required property
+// layoutsWithOwnPropertyValidator son los layouts cuya propiedad obligatoria ya
+// la comprueba un validador propio, con su código y su severidad:
+//
+//	title   → LAYOUT001 (Error; acepta `heading` O `title`, ver issue #240)
+//	content → LAYOUT003 (Warning)
+//	hero    → LAYOUT009 (Error)
+//
+// La regla genérica los saltea para no emitir dos diagnósticos por la misma
+// causa. Se listan acá, y no se les quita RequiredProperties del schema, porque
+// el schema sigue siendo la declaración de qué exige cada layout — lo que
+// cambia es quién la reporta.
+var layoutsWithOwnPropertyValidator = map[string]bool{
+	"title":   true,
+	"content": true,
+	"hero":    true,
+}
+
+// validateRequiredProperties comprueba las propiedades que el schema declara
+// obligatorias (issue #256).
+//
+// Hasta este cambio, RequiredProperties era un campo declarado que no leía
+// nadie: tres layouts tenían un validador escrito a mano y los otros dieciséis
+// declaraban una propiedad obligatoria que nada exigía. El caso más claro era
+// `title_slide`, que declara `heading` y NO tiene ValidationRules, así que su
+// propiedad obligatoria no la verificaba ninguna ruta del código.
+func validateRequiredProperties(slideType string, schema SlideLayoutSchema, slide *ast.ContentBlock) []diagnostics.Diagnostic {
+	if layoutsWithOwnPropertyValidator[slideType] {
+		return nil
+	}
+
+	var diags []diagnostics.Diagnostic
+	for _, property := range schema.RequiredProperties {
+		if hasRequiredProperty(slide, property) {
+			continue
+		}
+		diags = append(diags, diagnostics.Diagnostic{
+			Severity: diagnostics.Warning,
+			Code:     "LAYOUT_REQUIRED_PROPERTY",
+			Message:  "Slide type '" + slideType + "' requires a '" + property + "' property",
+			Position: slide.Position,
+			Source:   "linter",
+		})
+	}
+	return diags
+}
+
 func hasRequiredProperty(slide *ast.ContentBlock, property string) bool {
 	switch property {
 	case "title":
 		return slide.Title != ""
 	case "heading":
-		return slide.Heading != ""
+		// `title` acepta también `title` como fallback desde el issue #240:
+		// la plantilla cae a {{$slide.Title}} cuando no hay Heading, así que
+		// un slide con solo `title:` renderiza perfecto, y exigir `heading`
+		// mataba el build de un deck válido. `title_slide` declara la misma
+		// propiedad y la valida por esta vía genérica, así que tiene que
+		// aceptar el mismo fallback o se reintroduce el bug con otro código.
+		return slide.Heading != "" || slide.Title != ""
 	case "subtitle":
 		return slide.Subtitle != ""
 	case "logo":

@@ -70,6 +70,15 @@ func clearElementHTML(element Element) {
 			clearChecklistItemHTML(&elem.Items[i])
 		}
 
+	case *QuizElement:
+		elem.QuestionHTML = ""
+		elem.OptionsHTML = nil
+		elem.ExplanationHTML = ""
+
+	case *PollElement:
+		elem.QuestionHTML = ""
+		elem.OptionsHTML = nil
+
 	case *SpecialBlockElement:
 		elem.TitleHTML = ""
 		elem.ContentHTML = ""

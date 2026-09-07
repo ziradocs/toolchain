@@ -123,7 +123,6 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			pos, "chart-parser").WithRuleID("CHART005"))
 	}
 	consumedLines := 1 // skip <<chart:>> line
-	indentDetector := NewAutoDetectIndentation()
 
 	// Detectar si el siguiente contenido es JSON
 	if startIndex+1 < len(ctx.Lines) {
@@ -375,7 +374,7 @@ chartLoop:
 			// Detectar si hay datos definidos
 			if value == "[" {
 				// Datos en formato array multi-línea - parsear las líneas siguientes
-				data, linesConsumed := p.parseMultiLineArray(ctx.Lines, i+1, indentDetector)
+				data, linesConsumed := p.parseMultiLineArray(ctx.Lines, i+1)
 				chart.Data = data
 				i += linesConsumed
 				consumedLines += linesConsumed
@@ -394,7 +393,7 @@ chartLoop:
 		case "series":
 			// Parsear series como array de strings
 			if value == "[" { // Series en formato array multi-línea
-				series, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				series, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1)
 				chart.Series = series
 				i += linesConsumed
 				consumedLines += linesConsumed
@@ -407,7 +406,7 @@ chartLoop:
 		case "labels":
 			// Parsear labels como array de strings
 			if value == "[" { // Labels en formato array multi-línea
-				labels, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				labels, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1)
 				chart.Labels = labels
 				i += linesConsumed
 				consumedLines += linesConsumed
@@ -444,7 +443,7 @@ chartLoop:
 			// Parsear type array para combo charts: ["bar", "bar", "line"]
 			if value == "[" {
 				// Tipos en formato array multi-línea
-				types, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1, indentDetector)
+				types, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1)
 				chart.SeriesTypes = types
 				i += linesConsumed
 				consumedLines += linesConsumed
@@ -549,16 +548,60 @@ chartLoop:
 }
 
 // parseMultiLineArray parsea un array multi-línea de datos para charts
-func (p *ChartParser) parseMultiLineArray(lines []string, startIndex int, indentDetector *AutoDetectIndentation) ([][]interface{}, int) {
+// arrayRowIndent decide dónde termina un array multi-línea de un chart, por
+// sangría.
+//
+// Existe porque AutoDetectIndentation.ShouldProcessLine no sirve acá: tiene un
+// caso especial que devuelve false cuando la PRIMERA línea que ve está en
+// columna 0 (ExpectedIndent == -1 && currentIndent == 0). Para el loop de
+// propiedades del chart eso es correcto —una propiedad sin sangrar marca el
+// final del bloque—, pero para el cuerpo de un array es fatal: aborta en la
+// primera fila y el sub-parser consume 0 líneas, así que los valores nunca
+// llegan a chart.Data/Series/Labels (issue #236).
+//
+// Acá la sangría esperada se fija con la primera fila REAL, sea cual sea —
+// incluida la columna 0 — y solo un dedent POR DEBAJO de ella termina el
+// array. Es la misma semántica de bodyIndent que el issue #234 introdujo para
+// el loop externo.
+//
+// Se afectaba contenido real: examples/use-cases/educational/
+// machine_learning_intro.slidelang escribe `data:`/`labels:` sin sangrar. Por
+// CLI el defecto quedaba enmascarado porque ChartFormatterRule (el
+// normalizador) reindenta el cuerpo antes del parser; se veía por API con
+// SetNormalization(false), y en cualquier documento `mode: strict`, donde el
+// normalizador no corre.
+type arrayRowIndent struct {
+	expected int
+}
+
+func newArrayRowIndent() *arrayRowIndent {
+	return &arrayRowIndent{expected: -1}
+}
+
+func (a *arrayRowIndent) shouldProcess(line string) bool {
+	if strings.TrimSpace(line) == "" {
+		return true
+	}
+	indent := CalculateIndentLevel(line)
+	if a.expected == -1 {
+		a.expected = indent
+		return true
+	}
+	return indent >= a.expected
+}
+
+func (p *ChartParser) parseMultiLineArray(lines []string, startIndex int) ([][]interface{}, int) {
 	var data [][]interface{}
 	linesConsumed := 0
+
+	rowIndent := newArrayRowIndent()
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
 		// Check if this line should be processed
-		if !indentDetector.ShouldProcessLine(line, false, i+1, "CHART-PARSER") {
+		if !rowIndent.shouldProcess(line) {
 			break
 		}
 
@@ -566,6 +609,15 @@ func (p *ChartParser) parseMultiLineArray(lines []string, startIndex int, indent
 		if trimmed == "" {
 			linesConsumed++
 			continue
+		}
+
+		// Misma decisión de "esto todavía es el array" que toma el loop
+		// externo cuando arrayDepth > 0. Compartir el predicado es lo que
+		// hace que arreglar la extracción (issue #236) no mueva la EXTENSIÓN
+		// del bloque: un array sin cerrar sigue cortándose en la primera
+		// línea que ya es prosa, en vez de tragarse el resto del documento.
+		if !isArrayContinuationForKey("data", trimmed) {
+			break
 		}
 
 		// Check for end of array
@@ -589,16 +641,18 @@ func (p *ChartParser) parseMultiLineArray(lines []string, startIndex int, indent
 }
 
 // parseMultiLineStringArray parsea un array multi-línea de strings para series
-func (p *ChartParser) parseMultiLineStringArray(lines []string, startIndex int, indentDetector *AutoDetectIndentation) ([]string, int) {
+func (p *ChartParser) parseMultiLineStringArray(lines []string, startIndex int) ([]string, int) {
 	var series []string
 	linesConsumed := 0
+
+	rowIndent := newArrayRowIndent()
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
 		// Check if this line should be processed
-		if !indentDetector.ShouldProcessLine(line, false, i+1, "CHART-PARSER") {
+		if !rowIndent.shouldProcess(line) {
 			break
 		}
 
@@ -606,6 +660,15 @@ func (p *ChartParser) parseMultiLineStringArray(lines []string, startIndex int, 
 		if trimmed == "" {
 			linesConsumed++
 			continue
+		}
+
+		// Ver el comentario equivalente en parseMultiLineArray. Acá la clave
+		// es "" y no "data" a propósito: series/labels/types solo aceptan
+		// strings, así que una fila-objeto "{x: 1}" NO es continuación
+		// válida — es la distinción que fija
+		// TestChartParser_ObjectRowOnlyQualifiesForData.
+		if !isArrayContinuationForKey("", trimmed) {
+			break
 		}
 
 		// Check for end of array
@@ -1025,23 +1088,7 @@ func isChartPropertyKey(key string) bool {
 // los dos conocía "SLIDE ", así que un chart en modo strict sin <<end>> se
 // tragaba todos los slides siguientes hasta EOF).
 func isChartContentBoundary(rawLine string) bool {
-	if IsStrictBlockBoundary(rawLine) {
-		return true
-	}
-	trimmed := strings.TrimSpace(rawLine)
-	if trimmed == "<<end>>" || trimmed == "---" {
-		return true
-	}
-	if strings.HasPrefix(trimmed, "<<") {
-		return true
-	}
-	if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "##") {
-		return true // H1 crea nuevas secciones, no H2/H3 ("##", "###")
-	}
-	if strings.HasPrefix(trimmed, "##") {
-		return true // H2/H3 son subsection headers
-	}
-	return false
+	return IsEmbeddedBlockBoundary(rawLine)
 }
 
 // parseJSONBlock parsea un bloque JSON completo desde las líneas

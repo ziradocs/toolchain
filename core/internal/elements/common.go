@@ -114,6 +114,8 @@ func GetDefaultRegistry() *Registry {
 	registry.Register(&ChartParser{})
 	registry.Register(&MediaParser{}) // Audio/video embebido (issue #21) — mismo estilo de marcador que ChartParser
 	registry.Register(&MapParser{})
+	registry.Register(&QuizParser{}) // <<quiz>>/<<poll>> (issue #198) — tags exactos, sin atributos
+	registry.Register(&PollParser{})
 	registry.Register(&CodeGroupParser{})
 	registry.Register(&CodeParser{})
 	registry.Register(&GridParser{}) // Grid layout parser debe ir ANTES que SpecialBlockParser
@@ -214,6 +216,37 @@ loop:
 		}
 	}
 	return indentLevel
+}
+
+// IsEmbeddedBlockBoundary reporta si rawLine termina el cuerpo de un elemento
+// embebido (`<<chart>>`, `<<quiz>>`, `<<poll>>`…) SIN ser su cierre: una línea
+// que pertenece al documento y no al bloque.
+//
+// El llamador la consulta DESPUÉS de haber descartado sus propios cerradores
+// (`<<end>>`, `<</chart>>`), porque la rama de `<<` de acá abajo también los
+// matchearía. Y corta sin consumir la línea: es del documento, y consumirla es
+// exactamente la pérdida silenciosa del issue #192.
+//
+// Vivía como isChartContentBoundary en chart.go; se promovió al agregar
+// quiz/poll (issue #198), que necesitan el mismo criterio. Chart delega.
+func IsEmbeddedBlockBoundary(rawLine string) bool {
+	if IsStrictBlockBoundary(rawLine) {
+		return true
+	}
+	trimmed := strings.TrimSpace(rawLine)
+	if trimmed == "<<end>>" || trimmed == "---" {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "<<") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "##") {
+		return true // H1 crea nuevas secciones, no H2/H3 ("##", "###")
+	}
+	if strings.HasPrefix(trimmed, "##") {
+		return true // H2/H3 son subsection headers
+	}
+	return false
 }
 
 // AutoDetectIndentation estructura que ayuda con la auto-detección de indentación

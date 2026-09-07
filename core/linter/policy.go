@@ -19,7 +19,8 @@ import (
 // el ID de diagnóstico que emite (p. ej. "IMG001", "LAYOUT003") — no por el
 // nombre del struct Go que la implementa. Esto importa porque un solo Rule
 // struct (p. ej. ElementStructureRule) puede emitir varios IDs distintos
-// (TABLE001/002/003, CODEGROUP001/002, SPECIAL001, CHART001) desde la
+// (TABLE001/002/003, CODEGROUP001/002, SPECIAL001, CHART001, QUIZ001-003,
+// POLL001/002) desde la
 // misma llamada a Check() — no hay forma de togglear uno sin el otro a
 // nivel de struct sin partir esos structs en reglas más finas (fuera de
 // scope: eso es "autorear lógica nueva", no "configurar lo que ya existe").

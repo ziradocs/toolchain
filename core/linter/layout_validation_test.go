@@ -121,7 +121,7 @@ func TestValidateElementCountLimits_DoubleDigitMin_MessageHasDecimalString(t *te
 	slide := ast.NewContentBlock(pos, "content")
 	slide.Elements = append(slide.Elements, ast.NewTextElement(pos, "solo un elemento"))
 
-	diags := validateElementCountLimits("content", schema, slide)
+	diags := validateElementCountLimits("content", schema, slide, "strict")
 
 	diag := findDiagnostic(diags, "LAYOUT_MIN_ELEMENTS")
 	if diag == nil {
@@ -145,7 +145,7 @@ func TestValidateElementCountLimits_DoubleDigitMax_MessageHasDecimalString(t *te
 		slide.Elements = append(slide.Elements, ast.NewTextElement(pos, "elemento "+strconv.Itoa(i)))
 	}
 
-	diags := validateElementCountLimits("content", schema, slide)
+	diags := validateElementCountLimits("content", schema, slide, "strict")
 
 	diag := findDiagnostic(diags, "LAYOUT_MAX_ELEMENTS")
 	if diag == nil {
@@ -310,5 +310,64 @@ func TestSlideLayoutValidation_SchemalessButKnownTypesDoNotWarn(t *testing.T) {
 				t.Errorf("%q lo reconoce el generador; no puede reportarse como desconocido: %+v", slideType, d)
 			}
 		})
+	}
+}
+
+// Issue #253: los límites de conteo miden cosas distintas en cada dialecto —
+// en strict el autor declara cada elemento, en flex los párrafos se fusionan y
+// una corrida de viñetas es un solo `points`. Por eso en flex bajan a Info y en
+// strict siguen en Warning.
+func TestValidateElementCountLimits_SeverityDependsOnDialect(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	schema := SlideLayoutSchema{MinElements: 3, MaxElements: 4}
+
+	tooFew := ast.NewContentBlock(pos, "comparison")
+	tooFew.Elements = append(tooFew.Elements, ast.NewTextElement(pos, "uno"))
+
+	tooMany := ast.NewContentBlock(pos, "comparison")
+	for i := 0; i < 9; i++ {
+		tooMany.Elements = append(tooMany.Elements, ast.NewTextElement(pos, "e"+strconv.Itoa(i)))
+	}
+
+	for _, tc := range []struct {
+		mode string
+		want diagnostics.Severity
+	}{
+		{"strict", diagnostics.Warning},
+		{"", diagnostics.Warning}, // sin frontmatter declarado: no degradar
+		{"flex", diagnostics.Info},
+		{"flex-full", diagnostics.Info},
+		{"auto", diagnostics.Info},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			minDiags := validateElementCountLimits("comparison", schema, tooFew, tc.mode)
+			if d := findDiagnostic(minDiags, "LAYOUT_MIN_ELEMENTS"); d == nil {
+				t.Fatalf("falta LAYOUT_MIN_ELEMENTS: %+v", minDiags)
+			} else if d.Severity != tc.want {
+				t.Errorf("LAYOUT_MIN_ELEMENTS severidad %v, se esperaba %v", d.Severity, tc.want)
+			}
+
+			maxDiags := validateElementCountLimits("comparison", schema, tooMany, tc.mode)
+			if d := findDiagnostic(maxDiags, "LAYOUT_MAX_ELEMENTS"); d == nil {
+				t.Fatalf("falta LAYOUT_MAX_ELEMENTS: %+v", maxDiags)
+			} else if d.Severity != tc.want {
+				t.Errorf("LAYOUT_MAX_ELEMENTS severidad %v, se esperaba %v", d.Severity, tc.want)
+			}
+		})
+	}
+}
+
+// Los validators de FORMA no se degradan: describen estructura, no densidad.
+func TestSlideLayoutValidationRule_ShapeValidatorsStayWarningInFlex(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	slide := ast.NewContentBlock(pos, "stats")
+	slide.Title = "Métricas"
+	slide.Elements = append(slide.Elements, ast.NewTextElement(pos, "solo texto"))
+
+	rule := &SlideLayoutValidationRule{}
+	for _, d := range rule.Check(slide) {
+		if d.Code == "LAYOUT007" && d.Severity != diagnostics.Warning {
+			t.Errorf("LAYOUT007 bajó a %v; los validators de forma no se degradan", d.Severity)
+		}
 	}
 }

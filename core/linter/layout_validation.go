@@ -12,13 +12,24 @@ import (
 
 // SlideLayoutSchema define las propiedades válidas para cada tipo de slide
 type SlideLayoutSchema struct {
-	RequiredProperties []string               // Propiedades obligatorias
-	OptionalProperties []string               // Propiedades opcionales
-	AllowedElements    []string               // Tipos de elementos permitidos
-	ForbiddenElements  []string               // Tipos de elementos prohibidos
-	MinElements        int                    // Mínimo número de elementos
-	MaxElements        int                    // Máximo número de elementos (0 = ilimitado)
-	ValidationRules    []LayoutValidationRule // Reglas de validación específicas
+	// RequiredProperties son las propiedades que el layout exige. Se validan
+	// con LAYOUT_REQUIRED_PROPERTY, salvo en los layouts que tienen su propio
+	// validador de propiedades (ver layoutsWithOwnPropertyValidator en
+	// rules.go), que emiten su código específico.
+	RequiredProperties []string `json:"requiredProperties,omitempty"`
+	// ForbiddenElements son los tipos de elemento desaconsejados para este
+	// layout; se reportan con LAYOUT_FORBIDDEN_ELEMENT.
+	//
+	// No hay AllowedElements. Existía como campo declarado y NADIE lo leía
+	// (issue #256): era un inventario que se quedó viejo — `quote` no figuraba
+	// entre los permitidos de `testimonial`, el layout cuyo validador busca
+	// justamente una cita— y evaluarlo tal cual habría producido 127 avisos en
+	// 34 de los 74 ejemplos. La lista de prohibidos es el mecanismo real, y es
+	// la que se mantiene.
+	ForbiddenElements []string               `json:"forbiddenElements,omitempty"`
+	MinElements       int                    // Mínimo número de elementos
+	MaxElements       int                    // Máximo número de elementos (0 = ilimitado)
+	ValidationRules   []LayoutValidationRule // Reglas de validación específicas
 }
 
 // LayoutValidationRule define una regla de validación específica
@@ -33,8 +44,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 	return map[string]SlideLayoutSchema{
 		"title": {
 			RequiredProperties: []string{"heading"},
-			OptionalProperties: []string{"subtitle", "logo", "author", "date"},
-			AllowedElements:    []string{}, // Solo propiedades, no elementos de contenido
 			ForbiddenElements:  []string{"text", "code", "points", "table", "image"},
 			MinElements:        0,
 			MaxElements:        0,
@@ -53,16 +62,12 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"title_slide": {
 			RequiredProperties: []string{"heading"},
-			OptionalProperties: []string{"subtitle", "logo"},
-			AllowedElements:    []string{},
 			ForbiddenElements:  []string{"text", "code", "points", "table"},
 			MinElements:        0,
 			MaxElements:        1, // Máximo un elemento decorativo
 		},
 		"content": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{},
-			AllowedElements:    []string{"text", "code", "points", "table", "image", "special_block", "mermaid", "chart", "map", "directive"},
 			ForbiddenElements:  []string{},
 			MinElements:        1,
 			MaxElements:        0, // Ilimitado
@@ -81,8 +86,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"section": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"subtitle"},
-			AllowedElements:    []string{"text", "points"},
 			ForbiddenElements:  []string{"code", "table", "chart", "map"},
 			MinElements:        1,
 			MaxElements:        3,
@@ -96,8 +99,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"comparison": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{},
-			AllowedElements:    []string{"text", "points", "table", "special_block"},
 			ForbiddenElements:  []string{"code", "mermaid", "chart"},
 			MinElements:        2,
 			MaxElements:        4,
@@ -111,8 +112,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"stats": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{},
-			AllowedElements:    []string{"text", "chart", "table", "special_block"},
 			ForbiddenElements:  []string{"code", "mermaid"},
 			MinElements:        1,
 			MaxElements:        3,
@@ -126,8 +125,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"code_example": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{},
-			AllowedElements:    []string{"text", "code", "points"},
 			ForbiddenElements:  []string{"table", "chart", "map"},
 			MinElements:        1,
 			MaxElements:        4,
@@ -141,8 +138,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"hero": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"subtitle", "background", "cta", "overlay"},
-			AllowedElements:    []string{"text", "image", "special_block"},
 			ForbiddenElements:  []string{"code", "table", "chart"},
 			MinElements:        0,
 			MaxElements:        3,
@@ -156,8 +151,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"testimonial": {
 			RequiredProperties: []string{},
-			OptionalProperties: []string{"quote", "author", "position", "company", "avatar", "rating"},
-			AllowedElements:    []string{"text", "image", "special_block"},
 			ForbiddenElements:  []string{"code", "table", "chart"},
 			MinElements:        1,
 			MaxElements:        3,
@@ -171,8 +164,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"timeline": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"events"},
-			AllowedElements:    []string{"text", "points", "special_block"},
 			ForbiddenElements:  []string{"code", "table", "chart"},
 			MinElements:        2,
 			MaxElements:        6,
@@ -186,8 +177,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"before_after": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{},
-			AllowedElements:    []string{"text", "image", "points", "special_block"},
 			ForbiddenElements:  []string{"code", "chart"},
 			MinElements:        2,
 			MaxElements:        4,
@@ -201,8 +190,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"pricing": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"plans"},
-			AllowedElements:    []string{"text", "table", "special_block"},
 			ForbiddenElements:  []string{"code", "chart", "mermaid"},
 			MinElements:        1,
 			MaxElements:        4,
@@ -216,8 +203,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"team": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"members"},
-			AllowedElements:    []string{"text", "image", "special_block"},
 			ForbiddenElements:  []string{"code", "chart", "table"},
 			MinElements:        1,
 			MaxElements:        8,
@@ -231,8 +216,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"feature_showcase": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"features"},
-			AllowedElements:    []string{"text", "points", "image", "special_block"},
 			ForbiddenElements:  []string{"code", "table"},
 			MinElements:        2,
 			MaxElements:        6,
@@ -246,8 +229,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"call_to_action": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"subtitle", "primary_cta", "secondary_cta", "urgency"},
-			AllowedElements:    []string{"text", "special_block"},
 			ForbiddenElements:  []string{"code", "table", "chart", "mermaid"},
 			MinElements:        1,
 			MaxElements:        3,
@@ -261,8 +242,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"dashboard": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"widgets"},
-			AllowedElements:    []string{"text", "chart", "table", "special_block"},
 			ForbiddenElements:  []string{"code", "mermaid"},
 			MinElements:        1,
 			MaxElements:        6,
@@ -276,8 +255,6 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"process": {
 			RequiredProperties: []string{"title"},
-			OptionalProperties: []string{"steps"},
-			AllowedElements:    []string{"text", "points", "special_block"},
 			ForbiddenElements:  []string{"code", "table", "chart"},
 			MinElements:        2,
 			MaxElements:        6,
@@ -291,16 +268,12 @@ func GetSlideLayoutSchemas() map[string]SlideLayoutSchema {
 		},
 		"default": {
 			RequiredProperties: []string{},
-			OptionalProperties: []string{"title"},
-			AllowedElements:    []string{"text", "code", "points", "table", "image", "special_block", "mermaid", "chart", "map", "directive"},
 			ForbiddenElements:  []string{},
 			MinElements:        0,
 			MaxElements:        0, // Ilimitado
 		},
 		"closing": {
 			RequiredProperties: []string{}, // No requiere propiedades específicas
-			OptionalProperties: []string{"heading", "subtitle", "logo", "contact", "author"},
-			AllowedElements:    []string{"text", "image", "points"}, // Permite texto simple e imágenes
 			ForbiddenElements:  []string{"code", "table", "chart", "mermaid", "map"},
 			MinElements:        0,
 			MaxElements:        3, // Mantener simple

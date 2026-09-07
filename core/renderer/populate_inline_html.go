@@ -90,6 +90,15 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 			populateChecklistItemHTML(&elem.Items[i], variables)
 		}
 
+	case *ast.QuizElement:
+		elem.QuestionHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Question, variables)
+		elem.OptionsHTML = processStringSliceHTML(elem.Options, variables)
+		elem.ExplanationHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Explanation, variables)
+
+	case *ast.PollElement:
+		elem.QuestionHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Question, variables)
+		elem.OptionsHTML = processStringSliceHTML(elem.Options, variables)
+
 	case *ast.SpecialBlockElement:
 		// Title SÍ lleva markdown aquí (a diferencia de otros campos "Title"
 		// vars-only de este archivo): el template real de slidelang
@@ -169,4 +178,18 @@ func populateChecklistItemHTML(item *ast.ChecklistItem, variables map[string]int
 	for i := range item.SubItems {
 		populateChecklistItemHTML(&item.SubItems[i], variables)
 	}
+}
+
+// processStringSliceHTML renderiza cada string de un slice a su HTML inline,
+// devolviendo nil para un slice vacío para que el campo *HTML quede omitido en
+// el JSON (`omitempty`) en vez de salir como un array vacío.
+func processStringSliceHTML(values []string, variables map[string]interface{}) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = ProcessTextWithVariablesAndMarkdownSecure(v, variables)
+	}
+	return out
 }

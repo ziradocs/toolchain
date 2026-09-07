@@ -425,6 +425,12 @@
               },
               {
                 "$ref": "#/$defs/MediaElement"
+              },
+              {
+                "$ref": "#/$defs/QuizElement"
+              },
+              {
+                "$ref": "#/$defs/PollElement"
               }
             ]
           },
@@ -538,6 +544,12 @@
               },
               {
                 "$ref": "#/$defs/MediaElement"
+              },
+              {
+                "$ref": "#/$defs/QuizElement"
+              },
+              {
+                "$ref": "#/$defs/PollElement"
               }
             ]
           },
@@ -1334,6 +1346,69 @@
         "listType"
       ]
     },
+    "PollElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "poll"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question": {
+          "type": "string"
+        },
+        "questionHTML": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "optionsHTML": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "multiple": {
+          "type": "boolean"
+        },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
+        "discardedLangRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "question",
+        "options",
+        "multiple"
+      ]
+    },
     "Position": {
       "properties": {
         "line": {
@@ -1348,6 +1423,75 @@
       "required": [
         "line",
         "column"
+      ]
+    },
+    "QuizElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "quiz"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question": {
+          "type": "string"
+        },
+        "questionHTML": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "optionsHTML": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "answer": {
+          "type": "integer"
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "explanationHTML": {
+          "type": "string"
+        },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
+        "discardedLangRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "question",
+        "options",
+        "answer"
       ]
     },
     "QuoteElement": {

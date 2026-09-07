@@ -912,8 +912,23 @@ func TestProcessInlineMarkdownFormatsSecure_BracketedSpans(t *testing.T) {
 		{"highlight-info", "<mark", "</mark>"},
 		{"highlight-success", "<mark", "</mark>"},
 		{"underline", "<u>", "</u>"},
+		{"sub", "<sub>", "</sub>"},
+		{"sup", "<sup>", "</sup>"},
+		{"kbd", "<kbd", "</kbd>"},
 		{"small", "<small", "</small>"},
 		{"large", "<span", "</span>"},
+	}
+	// La lista de arriba está escrita a mano; sin esto, agregar un token al
+	// mapa y olvidar su fila dejaría el token nuevo sin cobertura y el test
+	// seguiría verde (issue #243).
+	if len(pairs) != len(inlineSpanTokens) {
+		t.Errorf("pairs cubre %d tokens pero inlineSpanTokens tiene %d — agregá la fila que falta",
+			len(pairs), len(inlineSpanTokens))
+	}
+	for _, p := range pairs {
+		if _, ok := inlineSpanTokens[p.token]; !ok {
+			t.Errorf("pairs nombra el token %q, que ya no existe en inlineSpanTokens", p.token)
+		}
 	}
 	for _, p := range pairs {
 		input := "[X]{." + p.token + "}"
