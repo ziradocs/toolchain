@@ -1,0 +1,43 @@
+---
+mode: flex
+title: "Quiz and Poll"
+author: "ZiraDocs"
+---
+
+# Quiz and Poll
+
+## Warm-up poll
+
+<<poll>>
+question: "How much have you worked with this toolchain?"
+options:
+  - "First time"
+  - "A few decks"
+  - "Regularly"
+multiple: false
+<<end>>
+
+The poll is static: whoever opens the HTML sees their own selection, and nothing
+is sent anywhere.
+
+## Knowledge check
+
+<<quiz>>
+question: "Which index does `answer: 1` select?"
+options: ["The first option", "The second option", "None — it is 1-based"]
+answer: 1
+explanation: "`answer` is 0-based, so 1 is the second option."
+<<end>>
+
+## Several answers at once
+
+<<poll>>
+question: "Which formats do you export?"
+options: ["HTML", "PDF", "PPTX", "DOCX"]
+multiple: true
+<<end>>
+
+## Inline spans
+
+Water is H[2]{.sub}O and the area is r[2]{.sup}. Press [Ctrl]{.kbd} + [C]{.kbd}
+to copy, and this is [underlined]{.underline}.

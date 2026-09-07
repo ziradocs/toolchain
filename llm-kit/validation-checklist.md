@@ -145,9 +145,12 @@ flag their absence:
       leftover bracket placeholders (`[CHART: ...]`, `[DIAGRAM: ...]`) in
       the final version
 - [ ] No unsupported closing tags anywhere (`<</chart>>`, `<</mermaid>>`,
-      `<</map>>`) and no unimplemented interactive tags (`<<poll>>`,
-      `<<quiz>>`, `:::poll`, `:::qa_session`, `:::reveal`) — see
-      `reference/elements.md`'s "no unsupported closing tags" section
+      `<</map>>`) and no unimplemented interactive tags (`:::poll`,
+      `:::qa_session`, `:::reveal`) — see `reference/elements.md`'s "no
+      unsupported closing tags" section
+- [ ] Every `<<quiz>>` has a `question`, at least 2 `options` and an `answer`
+      that is a valid 0-based index into them — an out-of-range `answer` is a
+      hard error (`QUIZ001`), and a block left unclosed is `QUIZ006`
 
 ## For DocLang: what's actually checked
 

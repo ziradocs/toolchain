@@ -166,9 +166,10 @@ Important caution.
 `success`, `tip`, `details`** (linter rule `SPECIAL001`). Anything else —
 `note`, `error`, `example`, `poll`, `qa_session`, `reveal`, `notes` — is
 **not** a real element type and will only warn, not render as intended.
-Represent unsupported interactive ideas (polls, quizzes, progressive
-reveal) as plain prose instead of inventing a block type. Presenter notes
-are the exception — they exist, as the `@notes` directive, not as a block.
+Represent unsupported interactive ideas (progressive reveal) as plain prose
+instead of inventing a block type. Two exceptions exist as their own tags, not
+as block types: presenter notes are the `@notes` directive, and polls and
+quizzes are `<<poll>>`/`<<quiz>>` (see "Quiz and poll").
 
 ## Code groups
 
@@ -221,6 +222,74 @@ Flex uses the bare list form directly, no `CHECKLIST` keyword:
 - [x] Done item
 - [ ] Todo item
 ```
+
+## Quiz and poll
+
+Both take a **YAML body** closed by `<<end>>` (`<</quiz>>`/`<</poll>>` are
+tolerated). `options` accepts a YAML list or an inline array.
+
+```
+<<quiz>>
+question: "Which type of ML would you use for email spam detection?"
+options:
+  - "Unsupervised learning"
+  - "Supervised learning"
+  - "Reinforcement learning"
+answer: 1
+explanation: "We have labeled examples of spam and legitimate email."
+<<end>>
+
+<<poll>>
+question: "What's your programming experience level?"
+options: ["Beginner", "Intermediate", "Advanced"]
+multiple: false
+<<end>>
+```
+
+| Key | Element | Notes |
+|---|---|---|
+| `question` | both | |
+| `options` | both | YAML list or inline array; at least 2 |
+| `answer` | quiz | **0-based**: `answer: 1` selects the *second* option |
+| `explanation` | quiz | optional |
+| `multiple` | poll | optional, defaults to `false` |
+
+**Errors and warnings.** `answer` out of range (or missing) is `QUIZ001`, an
+**error** that fails the build. Fewer than 2 options is `QUIZ002`/`POLL001`; a
+missing question is `QUIZ003`/`POLL002`; an unrecognized key is
+`QUIZ005`/`POLL004`; a block left unclosed is `QUIZ006`/`POLL005`.
+
+**Both are static.** No answers are collected — there is no backend. The HTML
+reveals the correct option on click, locally to whoever opens it; every other
+format (PDF, PPTX, DOCX, Markdown) renders the quiz already solved. Never write
+copy promising the audience their responses are recorded.
+
+## Inline spans
+
+Markdown has no spelling for underline, subscript, superscript or keyboard
+keys. **Never write the raw HTML tag** — the sanitizer escapes all user HTML,
+so `<u>x</u>` shows up on the slide as literal text. Use the token instead:
+
+| Token | Renders as |
+|---|---|
+| `[x]{.underline}` | underline |
+| `[x]{.sub}` | subscript |
+| `[x]{.sup}` | superscript |
+| `[x]{.kbd}` | a keyboard key |
+| `[x]{.small}` / `[x]{.large}` | smaller / larger text |
+| `[x]{.danger}` `.info` `.success` `.warning` `.accent` | colored text |
+| `[x]{.highlight-warning}` `.highlight-info` `.highlight-success` | highlight |
+| `[x]{lang=fr}` | marks a passage in another language |
+
+Highlight also has a Markdown form, `==x==`. Strikethrough is `~~x~~`.
+
+The content normalizer rewrites a raw `<u>`, `<sub>`, `<sup>`, `<kbd>`,
+`<mark>`, `<small>` or `<code>` into its token when the pair opens and closes on
+the same line — but it is a safety net, not a guarantee: write the token.
+
+DOCX represents `underline` and `kbd`; `sub`/`sup` keep their text and lose the
+position, because the DOCX library has no vertical-alignment support. PPTX does
+not interpret these tokens at all.
 
 ## Grid layout
 
@@ -300,7 +369,9 @@ path, which works on in-memory source with no base directory — so an
 ## No unsupported closing tags
 
 Legacy/invalid syntax that must never appear in output: `<</chart>>`,
-`<</mermaid>>`, `<</map>>`, `<<poll>>`, `<<quiz>>`, `:::poll`,
-`:::qa_session`, `:::reveal`, `:::notes` (as a block type — the `@notes`
-directive is the real presenter-notes mechanism). None of these are
-implemented by the parser.
+`<</mermaid>>`, `<</map>>`, `:::poll`, `:::qa_session`, `:::reveal`,
+`:::notes` (as a block type — the `@notes` directive is the real
+presenter-notes mechanism). None of these are implemented by the parser.
+
+`<<quiz>>` and `<<poll>>` are implemented — see "Quiz and poll" above. Their
+canonical closer is `<<end>>`; `<</quiz>>`/`<</poll>>` are tolerated.

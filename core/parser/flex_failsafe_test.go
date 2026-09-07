@@ -115,7 +115,11 @@ func TestFlexParser_Failsafe_ExemptsKnownResidues(t *testing.T) {
 // examples/ (33 hits iniciales sin exenciones, 0 tras exentar <<end>>/:::
 // y sanear el resto del corpus — <</chart>>/<</mermaid>> hacia <<end>>,
 // <<info>> hacia :::info, y los bloques <<poll>>/<<quiz>> sin parser hacia
-// :::note/:::tip). No queda un test permanente para esto porque examples/
+// :::note/:::tip). Ese último saneo se REVIRTIÓ al implementar el issue #198:
+// quiz y poll ya tienen parser, los dos decks volvieron a su forma de tag, y
+// el parser consume sus dos cerradores para no generar FLEX001 — por eso la
+// lista de exenciones sigue siendo la misma. No queda un test permanente para
+// esto porque examples/
 // no es una fixture de este paquete — el guard real es que el corpus no
 // emita FLEX001, verificado manualmente antes de este PR y cubierto en
 // spirit por TestFormatDocument_RoundTrip_Corpus (formatter) y por

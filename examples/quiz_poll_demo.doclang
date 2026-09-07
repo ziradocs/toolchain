@@ -1,0 +1,32 @@
+---
+title: "Assessment"
+author: "ZiraDocs"
+---
+
+# Assessment
+
+A quiz in a document has no interaction, so it renders already solved: the
+correct option is marked and the explanation is visible. That is deliberate —
+a quiz nobody can answer should at least teach the answer.
+
+<<quiz>>
+question: "Which closer is canonical for an embedded block?"
+options:
+  - "<</quiz>>"
+  - "<<end>>"
+  - "Both, but only one is canonical"
+answer: 1
+explanation: "`<<end>>` is canonical; `<</quiz>>` is tolerated for older decks."
+<<end>>
+
+# Poll
+
+<<poll>>
+question: "Which output format do you use most?"
+options: ["HTML", "PDF", "DOCX", "Markdown"]
+<<end>>
+
+# Inline spans
+
+Water is H[2]{.sub}O. Press [Ctrl]{.kbd} to copy, and this is
+[underlined]{.underline}.
