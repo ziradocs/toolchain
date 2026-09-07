@@ -371,3 +371,48 @@ func TestSlideLayoutValidationRule_ShapeValidatorsStayWarningInFlex(t *testing.T
 		}
 	}
 }
+
+// Issue #255: los parsers ya rechazan una opción inválida, pero un AST puede
+// entrar por --format json o desde un filtro externo sin pasar por ninguno.
+// Esta regla es el único control en ese camino.
+func TestValidateLayoutConfig(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	valid := ast.NewContentBlock(pos, "comparison")
+	valid.LayoutConfig = &ast.LayoutConfig{Columns: 2}
+	if diags := validateLayoutConfig("comparison", valid); len(diags) != 0 {
+		t.Errorf("una opción válida no debe reportar: %+v", diags)
+	}
+
+	noConfig := ast.NewContentBlock(pos, "comparison")
+	if diags := validateLayoutConfig("comparison", noConfig); len(diags) != 0 {
+		t.Errorf("sin LayoutConfig no debe reportar: %+v", diags)
+	}
+
+	for _, tc := range []struct {
+		name, layout string
+		config       *ast.LayoutConfig
+		wantCode     string
+	}{
+		{"fuera de rango", "comparison", &ast.LayoutConfig{Columns: 9}, "LAYOUT_OPTION_RANGE"},
+		{"enum inválido", "hero", &ast.LayoutConfig{Align: "justify"}, "LAYOUT_OPTION_RANGE"},
+		{"opción de otro layout", "hero", &ast.LayoutConfig{Columns: 2}, "LAYOUT_OPTION_NOT_APPLICABLE"},
+		{"layout sin opciones", "content", &ast.LayoutConfig{Columns: 2}, "LAYOUT_OPTION_NOT_APPLICABLE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			slide := ast.NewContentBlock(pos, tc.layout)
+			slide.LayoutConfig = tc.config
+
+			diags := validateLayoutConfig(tc.layout, slide)
+			if len(diags) != 1 {
+				t.Fatalf("se esperaba 1 diagnóstico, hay %d: %+v", len(diags), diags)
+			}
+			if diags[0].Code != tc.wantCode {
+				t.Errorf("código %q, se esperaba %q", diags[0].Code, tc.wantCode)
+			}
+			if diags[0].IsError() {
+				t.Error("estas dos son Warning, no Error: el slide se sigue renderizando")
+			}
+		})
+	}
+}

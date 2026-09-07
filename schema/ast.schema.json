@@ -557,6 +557,9 @@
         },
         "header_footer_override": {
           "$ref": "#/$defs/ContentBlockHeaderFooterOverride"
+        },
+        "layout_config": {
+          "$ref": "#/$defs/LayoutConfig"
         }
       },
       "additionalProperties": false,
@@ -884,6 +887,18 @@
         "text",
         "lang"
       ]
+    },
+    "LayoutConfig": {
+      "properties": {
+        "columns": {
+          "type": "integer"
+        },
+        "align": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "LayoutHeaderFooterConfig": {
       "properties": {

@@ -399,6 +399,41 @@ Embedded elements add rich content:
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
 
+### Layout options
+
+A slide's layout can carry **options** that change how its content is arranged.
+They are declared per layout — an option written on a layout that does not
+accept it is reported, not silently ignored.
+
+| Option | Layouts | Values |
+|---|---|---|
+| `columns` | `comparison`, `stats`, `dashboard`, `call_to_action` | an integer from 1 to 4 |
+| `align` | `hero`, `testimonial`, `call_to_action` | `left` or `center` |
+
+**Flex** puts them in the same block as `layout:`; the order inside the block
+does not matter.
+
+```slidelang
+---
+layout: comparison
+columns: 2
+---
+## Two side by side
+```
+
+**Strict** puts them as properties under the `SLIDE` line, like `title:`:
+
+```slidelang
+SLIDE comparison
+  title: "Two side by side"
+  columns: 2
+```
+
+A value outside its range is reported (`FLEX004` in flex, a parse error in
+strict) and the option is dropped — never applied halfway. They travel in the
+AST as `layout_config`, and the HTML emits them as `data-layout-*` attributes,
+so a theme can react to them in pure CSS.
+
 ### Quiz and Poll
 
 `<<quiz>>` and `<<poll>>` carry a **YAML body**, unlike the other embedded

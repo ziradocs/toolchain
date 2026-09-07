@@ -81,6 +81,16 @@ func formatStrictContentBlock(block *ast.ContentBlock) (string, error) {
 		}
 		fmt.Fprintf(&b, "  logo: %s\n", quote(block.Logo))
 	}
+	// Opciones de layout (issue #255). Van sin comillas: son un entero acotado
+	// y un enum de un conjunto cerrado, así que no hay texto libre que citar.
+	if block.LayoutConfig != nil {
+		if block.LayoutConfig.Align != "" {
+			fmt.Fprintf(&b, "  align: %s\n", block.LayoutConfig.Align)
+		}
+		if block.LayoutConfig.Columns != 0 {
+			fmt.Fprintf(&b, "  columns: %d\n", block.LayoutConfig.Columns)
+		}
+	}
 
 	for _, el := range block.Elements {
 		elText, err := formatStrictElement(el)
