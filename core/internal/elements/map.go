@@ -14,18 +14,29 @@ import (
 // MapParser maneja el parsing de mapas Leaflet
 type MapParser struct{}
 
-// CanParse determina si puede parsear una línea como Map
+// CanParse determina si puede parsear una línea como Map: `<<map>>` pelado o
+// `<<map attr="…">>` con atributos.
+//
+// La condición anterior —`HasPrefix("<<map") && Contains(">>")`— no tenía
+// frontera de palabra: `<<mapa>>`, `<<maps>>` y `<<mapping x="1">>` entraban
+// todos al parser de mapas. Medido en flex sobre `main`, `<<mapa>>` producía un
+// MapElement, y en un bloque strict el `title:` de abajo terminaba adentro del
+// mapa en vez de ser el título del slide — el slide perdía su título y nadie
+// nombraba el tag mal escrito.
+//
+// La regla es la de matchesMediaTag (media.go), que ya litigó exactamente esto
+// para `<<video`/`<<audio`: la línea cierra con ">>", y lo que sigue a `<<map`
+// es ese ">>" o un espacio (vienen atributos).
 func (p *MapParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
-
-	switch mode {
-	case "strict":
-		return strings.HasPrefix(trimmed, "<<map") && strings.Contains(trimmed, ">>")
-	case "flex":
-		return strings.HasPrefix(trimmed, "<<map") && strings.Contains(trimmed, ">>")
+	if mode != "strict" && mode != "flex" {
+		return false
 	}
-
-	return false
+	rest, ok := strings.CutPrefix(trimmed, "<<map")
+	if !ok || !strings.HasSuffix(trimmed, ">>") {
+		return false
+	}
+	return rest == ">>" || strings.HasPrefix(rest, " ")
 }
 
 // Parse parsea un elemento Map

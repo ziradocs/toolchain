@@ -399,11 +399,18 @@ Embedded elements add rich content:
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
 
-A tag that takes no attributes — `<<quiz>>`, `<<poll>>`, `<<grid>>` — must be
-written **alone on its line**. `<<quiz>>anything` is not a quiz, in either
-dialect: it is ordinary content, and in `strict` the line is reported as
-unrecognized. The tags that do take attributes (`<<map …>>`, `<<chart …>>`,
-`<<video …>>`) accept them in both dialects.
+**Tag boundaries.** A tag that takes no attributes — `<<quiz>>`, `<<poll>>`,
+`<<grid>>` — must be written **alone on its line**. `<<quiz>>anything` is not a
+quiz in either dialect: it is ordinary content, and in `strict` the line is
+reported as unrecognized (a warning in presentations, an error in documents,
+which is the same severity split every unrecognized line gets).
+
+A tag that does take attributes — `<<map …>>`, `<<chart: …>>`, `<<video …>>` —
+matches only on a **whole-word** tag name. `<<mapa>>`, `<<charts>>` and
+`<<videofoo …>>` are not mistyped tags that get parsed anyway; they are ordinary
+content. This matters more than it looks: a tag matched on a loose prefix
+consumes the lines under it, so a mistyped `<<mapa>>` above a `title:` used to
+absorb the slide's title and leave the slide untitled, with nothing reported.
 
 ### Layout options
 

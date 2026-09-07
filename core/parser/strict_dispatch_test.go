@@ -69,6 +69,23 @@ func TestStrictParser_DispatchMatchesElementCanParse(t *testing.T) {
 			body: []string{"<<chart", "type: bar", "labels: [a, b]", "data: [1, 2]", "<<end>>"},
 			want: ast.NodeTypeChart,
 		},
+		{
+			name: "chart inline es un chart",
+			body: []string{"<<chart: bar>>", "labels: [a, b]", "data: [1, 2]", "<<end>>"},
+			want: ast.NodeTypeChart,
+		},
+		// Los negativos de frontera de palabra. Sin ellos, "consultar el
+		// CanParse" arregla la deriva de quiz/poll/grid y a la vez PROMUEVE la
+		// laxitud de chart/map, que aceptaban cualquier prefijo: la suite
+		// quedaba verde encima de una regresión. Un tag mal escrito que se
+		// parsea como otro elemento se traga las líneas de abajo —el `title:`
+		// de un slide strict terminaba adentro del mapa— y nunca se reporta.
+		{name: "charts no es un chart", body: []string{"<<charts>>", "type: bar"}, want: ""},
+		{name: "chartfoo no es un chart", body: []string{"<<chartfoo>>", "type: bar"}, want: ""},
+		{name: "chart-de-cuentas no es un chart", body: []string{"<<chart-de-cuentas>>"}, want: ""},
+		{name: "mapa no es un map", body: []string{"<<mapa>>"}, want: ""},
+		{name: "maps no es un map", body: []string{"<<maps>>"}, want: ""},
+		{name: "mapping con atributos no es un map", body: []string{`<<mapping x="1">>`}, want: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lines := []string{"SLIDE content", `  title: "S"`}
@@ -87,7 +104,8 @@ func TestStrictParser_DispatchMatchesElementCanParse(t *testing.T) {
 				// como el elemento que su propio parser rechaza.
 				for _, e := range astNode.ContentBlocks[0].Elements {
 					switch e.GetType() {
-					case ast.NodeTypeQuiz, ast.NodeTypePoll, ast.NodeTypeGrid:
+					case ast.NodeTypeQuiz, ast.NodeTypePoll, ast.NodeTypeGrid,
+						ast.NodeTypeChart, ast.NodeTypeMap:
 						t.Fatalf("la línea produjo un %s; su CanParse la rechaza", e.GetType())
 					}
 				}
@@ -109,5 +127,28 @@ func TestStrictParser_DispatchMatchesElementCanParse(t *testing.T) {
 				t.Fatalf("no se produjo un %s; elementos: %v", tc.want, types)
 			}
 		})
+	}
+}
+
+// Un tag mal escrito no puede quedarse con las propiedades del slide.
+//
+// Este es el daño concreto de que `<<map` no tuviera frontera de palabra:
+// `<<mapa>>` se parseaba como un mapa, el mapa consumía el `title:` de abajo
+// como uno de sus atributos, y el slide terminaba sin título. Un typo de una
+// letra borraba el título y no se reportaba en ningún lado.
+func TestStrictParser_MistypedTagDoesNotSwallowSlideProperties(t *testing.T) {
+	astNode, _ := NewStrictParser(strings.Join([]string{
+		"SLIDE content",
+		"  <<mapa>>",
+		`  title: "Ventas por región"`,
+		"  TEXT",
+		"    Contenido real",
+	}, "\n"), util.NewNoop()).Parse()
+
+	if len(astNode.ContentBlocks) != 1 {
+		t.Fatalf("se esperaba 1 bloque, hay %d", len(astNode.ContentBlocks))
+	}
+	if got := astNode.ContentBlocks[0].Title; got != "Ventas por región" {
+		t.Errorf("Title = %q: el tag mal escrito se quedó con la propiedad del slide", got)
 	}
 }
