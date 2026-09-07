@@ -38,3 +38,12 @@
     align-items: flex-start;
     text-align: left;
 }
+
+/* `center` es lo que ya hace la regla base, pero se declara igual: una opción
+ * cuyo valor no tiene ninguna regla que lo lea es un atributo que se emite al
+ * vacío, y deja de sostenerse en cuanto un tema externo toque la base. */
+.slidelang-slide[data-slide-type="hero"][data-layout-align="center"] .slidelang-content-wrapper,
+.slidelang-slide[data-slide-type="hero"][data-layout-align="center"] .slidelang-content-elements {
+    align-items: center;
+    text-align: center;
+}

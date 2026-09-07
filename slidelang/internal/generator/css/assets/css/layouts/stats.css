@@ -25,7 +25,25 @@
 }
 
 /* Opción `columns` (issue #255). Es puro CSS: el template emite
- * data-layout-columns y esta regla lo honra, sin JavaScript de por medio. */
+ * data-layout-columns y esta regla lo honra, sin JavaScript de por medio.
+ *
+ * A diferencia de comparison y dashboard, la regla base de stats no arma
+ * ninguna grilla: la tabla manda y los bloques se apilan debajo. Por eso el
+ * contenedor se convierte en grid ACÁ, dentro del mismo bloque que declara
+ * las columnas — sin esto, `grid-template-columns` caía sobre una caja de
+ * bloque y la opción no hacía absolutamente nada. */
+.slidelang-slide[data-slide-type="stats"][data-layout-columns] .slidelang-content-elements {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+}
+
+/* La tabla —y cualquier otra cosa que no sea un bloque ":::"— ocupa el ancho
+ * completo: las columnas reparten la tira de indicadores, no la tabla. */
+.slidelang-slide[data-slide-type="stats"][data-layout-columns] .slidelang-content-elements > .slidelang-element:not(.slidelang-special-block) {
+    grid-column: 1 / -1;
+}
+
 .slidelang-slide[data-slide-type="stats"][data-layout-columns="1"] .slidelang-content-elements { grid-template-columns: 1fr; }
 .slidelang-slide[data-slide-type="stats"][data-layout-columns="2"] .slidelang-content-elements { grid-template-columns: repeat(2, 1fr); }
 .slidelang-slide[data-slide-type="stats"][data-layout-columns="3"] .slidelang-content-elements { grid-template-columns: repeat(3, 1fr); }
