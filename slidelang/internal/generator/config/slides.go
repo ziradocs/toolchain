@@ -28,13 +28,25 @@ func IsSlideContent(slideType string) bool {
 	return false
 }
 
-// slideTypesWithOwnChrome son los tipos que la CSS base (y los temas externos)
-// ya visten por su cuenta: fondo propio, tipografía propia. El resto hereda el
-// vestido de "contenido".
+// slideTypesWithOwnChrome son los tipos que ya se visten por su cuenta: fondo
+// propio, tipografía propia. El resto hereda el vestido de "contenido".
+//
+// Los primeros los viste la CSS base (y los temas externos). `hero` y
+// `call_to_action` los viste su propio archivo de layout (issue #254), y por
+// eso pertenecen acá aunque la base no los conozca: darles ADEMÁS el vestido
+// de contenido no era neutro, era destructivo. El fondo blanco de
+// `.slidelang-content-slide` empata en especificidad con el fondo del layout
+// y le gana por orden —el CSS del tema se escribe después del de layouts—,
+// pero el `color: var(--text-on-primary)` del layout sobrevive porque nadie
+// lo pisa. Resultado: un `call_to_action` quedaba con texto blanco sobre
+// fondo blanco, y en el ejemplo real
+// examples/18_specialized_layouts/product_launch_presentation_flex.slidelang
+// sus tres viñetas de oferta no se veían en pantalla.
 var slideTypesWithOwnChrome = map[string]bool{
 	"title": true, "title_slide": true, "cover": true, "intro": true,
 	"section": true, "chapter": true,
 	"closing": true, "end": true,
+	"hero": true, "call_to_action": true,
 }
 
 // UsesContentChrome reporta si un slide debe llevar TAMBIÉN la clase

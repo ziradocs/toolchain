@@ -272,6 +272,8 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 			IsTitle:           config.IsSlideTitle(slide.BlockType),
 			IsContent:         config.IsSlideContent(slide.BlockType),
 			UsesContentChrome: config.UsesContentChrome(slide.BlockType),
+			LayoutColumns:     layoutColumns(slide.LayoutConfig),
+			LayoutAlign:       layoutAlign(slide.LayoutConfig),
 			// Numeración del slide
 			SlideNumber: i + 1,
 
@@ -1796,4 +1798,20 @@ func processVariablesInSlice(values []string, variables map[string]interface{}) 
 		out[i] = ProcessVariables(v, variables)
 	}
 	return out
+}
+
+// layoutColumns y layoutAlign leen las opciones del layout tolerando el nil
+// (issue #255): un slide sin opciones no tiene LayoutConfig, que es lo normal.
+func layoutColumns(cfg *ast.LayoutConfig) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.Columns
+}
+
+func layoutAlign(cfg *ast.LayoutConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.Align
 }

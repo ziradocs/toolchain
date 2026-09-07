@@ -151,6 +151,11 @@ type SlideData struct {
 	// UsesContentChrome indica que el slide lleva también la clase
 	// `slidelang-content-slide` (issue #254). Ver config.UsesContentChrome.
 	UsesContentChrome bool
+	// LayoutColumns y LayoutAlign son las opciones del layout (issue #255).
+	// El template las emite como atributos `data-layout-*` y el CSS las honra
+	// sin JavaScript: una variante de layout es puro CSS.
+	LayoutColumns int
+	LayoutAlign   string
 	// Numeración específica del slide
 	SlideNumber    int  `json:"slide_number"`     // Número absoluto (1, 2, 3...)
 	DisplayNumber  int  `json:"display_number"`   // Número para mostrar (puede empezar en start_from)

@@ -30,3 +30,17 @@
 .slidelang-slide[data-slide-type="dashboard"] .slidelang-content-elements > .slidelang-element.slidelang-image {
     grid-column: 1 / -1;
 }
+
+/* Opción `columns` (issue #255). Es puro CSS: el template emite
+ * data-layout-columns y esta regla lo honra, sin JavaScript de por medio.
+ *
+ * `display: grid` se repite acá aunque la regla base ya lo declare: ver el
+ * comentario equivalente en comparison.css. */
+.slidelang-slide[data-slide-type="dashboard"][data-layout-columns] .slidelang-content-elements {
+    display: grid;
+}
+
+.slidelang-slide[data-slide-type="dashboard"][data-layout-columns="1"] .slidelang-content-elements { grid-template-columns: 1fr; }
+.slidelang-slide[data-slide-type="dashboard"][data-layout-columns="2"] .slidelang-content-elements { grid-template-columns: repeat(2, 1fr); }
+.slidelang-slide[data-slide-type="dashboard"][data-layout-columns="3"] .slidelang-content-elements { grid-template-columns: repeat(3, 1fr); }
+.slidelang-slide[data-slide-type="dashboard"][data-layout-columns="4"] .slidelang-content-elements { grid-template-columns: repeat(4, 1fr); }
