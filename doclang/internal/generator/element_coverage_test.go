@@ -27,13 +27,9 @@ import (
 // (code review de #39).
 var excludedFromElementCoverage = map[string]map[string]string{
 	"markdown.go renderElement": {
-		"QuizElement": "pendiente: el render estático de quiz/poll en doclang va en su propio PR, después del bump de core (un PR que agrega símbolos a core no se mezcla con el que los consume). El HTML de doclang ya los renderiza vía core/renderer; falta DOCX y Markdown. Issue #198",
-		"PollElement": "pendiente: el render estático de quiz/poll en doclang va en su propio PR, después del bump de core (un PR que agrega símbolos a core no se mezcla con el que los consume). El HTML de doclang ya los renderiza vía core/renderer; falta DOCX y Markdown. Issue #198",
 		"ColumnElement": "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — el generator lo consume vía column.Content dentro del case de GridElement, no por su propio case",
 	},
 	"docx.go renderElement": {
-		"QuizElement": "pendiente: el render estático de quiz/poll en doclang va en su propio PR, después del bump de core (un PR que agrega símbolos a core no se mezcla con el que los consume). El HTML de doclang ya los renderiza vía core/renderer; falta DOCX y Markdown. Issue #198",
-		"PollElement": "pendiente: el render estático de quiz/poll en doclang va en su propio PR, después del bump de core (un PR que agrega símbolos a core no se mezcla con el que los consume). El HTML de doclang ya los renderiza vía core/renderer; falta DOCX y Markdown. Issue #198",
 		"ColumnElement": "sub-elemento de GridElement.Columns, no aparece directamente en block.Elements/section.Elements — el generator lo consume vía column.Content dentro del case de GridElement, no por su propio case",
 	},
 }

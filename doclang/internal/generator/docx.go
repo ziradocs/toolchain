@@ -1109,6 +1109,10 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 		return g.renderQuote(doc, e)
 	case *ast.ChecklistElement:
 		return g.renderChecklist(doc, e)
+	case *ast.QuizElement:
+		return g.renderQuiz(doc, e)
+	case *ast.PollElement:
+		return g.renderPoll(doc, e)
 	case *ast.SpecialBlockElement:
 		return g.renderSpecialBlock(doc, e)
 	case *ast.CodeGroupElement:
@@ -1312,7 +1316,7 @@ func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level in
 // (parser.parseSubsectionHeader runs the full inline pipeline at parse
 // time), so renderInlineMarkdown (which expects unrendered markdown SOURCE)
 // cannot be reused here.
-var docxHeadingTagPattern = regexp.MustCompile(`<(/?)(strong|em|code|mark|del|a|span)([^>]*)>`)
+var docxHeadingTagPattern = regexp.MustCompile(`<(/?)(strong|em|code|mark|del|a|span|u|sub|sup|kbd|small)([^>]*)>`)
 
 // docxHeadingSpanLangAttr extracts lang="xx" from a <span ...> open tag's
 // attribute string.
@@ -1339,8 +1343,8 @@ var docxHeadingSpanLangAttr = regexp.MustCompile(`\blang="([^"]*)"`)
 // routing that path through here too is not a regression.
 func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, size, color string, baseBold bool) error {
 	type activeState struct {
-		bold, italic, code bool
-		lang               string
+		bold, italic, code, underline bool
+		lang                          string
 	}
 	stack := []activeState{{bold: baseBold}}
 
@@ -1367,6 +1371,9 @@ func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, siz
 		}
 		if top.code {
 			_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+		}
+		if top.underline {
+			_ = r.SetUnderline(domain.UnderlineStyle(1))
 		}
 		if top.lang != "" && a11y.IsValidLangTag(top.lang) {
 			if err := r.SetLanguage(&domain.Language{Val: top.lang}); err != nil {
@@ -1406,8 +1413,18 @@ func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, siz
 				next.bold = true
 			case "em":
 				next.italic = true
-			case "code":
+			case "code", "kbd":
+				// kbd es una tecla: la fuente monoespaciada es lo más cercano
+				// que DOCX ofrece, y es lo mismo que hace el HTML.
 				next.code = true
+			case "u":
+				next.underline = true
+			case "sub", "sup", "small":
+				// Reconocidos como MARKUP para que su contenido no salga con
+				// las tags literales, pero sin formato propio: la librería de
+				// DOCX (docxgo v2.12.0) no expone vertAlign, así que subíndice
+				// y superíndice no se pueden representar. El texto se conserva;
+				// lo que se pierde es la posición.
 			case "span":
 				if m := docxHeadingSpanLangAttr.FindStringSubmatch(attrs); m != nil {
 					next.lang = m[1]
@@ -1564,6 +1581,58 @@ func (g *DOCXGenerator) docxLinkPattern() docxInlinePattern {
 	}
 }
 
+// docxSpanTokenTextPattern reconoce un token de span `[texto]{.clase}`.
+//
+// Es una COPIA de inlineSpanPattern (core/renderer/sanitizer.go), que no está
+// exportado. Exportarlo obligaría a un tag de core nuevo antes de poder
+// consumirlo acá, y la forma del delimitador no ha cambiado nunca; lo que sí
+// vive local es qué hace DOCX con cada clase, más abajo. Si core cambia el
+// delimitador, este patrón deja de matchear y los tokens vuelven a salir
+// literales — que es exactamente lo que este código arregla, así que el
+// síntoma sería visible.
+var docxSpanTokenTextPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{\.([a-zA-Z0-9-]+)\}`)
+
+// docxSpanTokenPattern representa en DOCX los tokens de span del issue #243.
+//
+// Sin esto, el texto salía con el token LITERAL —"[Ctrl]{.kbd}"— porque el
+// pipeline inline de DOCX lee Markdown y no conocía esta forma. Y desde que el
+// normalizador reescribe `<kbd>` a su token, ese literal es lo que vería
+// cualquiera que escriba la tag.
+//
+// Se representa lo que la librería permite: `underline` subraya y `kbd`/`code`
+// pasan a fuente monoespaciada. Las demás clases —`sub`, `sup`, los colores,
+// los resaltados— conservan el TEXTO y pierden el formato: docxgo v2.12.0 no
+// expone vertAlign ni resaltado por run. Perder el formato es aceptable;
+// mostrar la sintaxis del token no lo es.
+func (g *DOCXGenerator) docxSpanTokenPattern() docxInlinePattern {
+	return docxInlinePattern{
+		regex: docxSpanTokenTextPattern,
+		apply: func(p domain.Paragraph, text string, class string, matchedText string, postRun func(r domain.Run) error) error {
+			r, err := p.AddRun()
+			if err != nil {
+				return err
+			}
+			_ = r.SetText(text)
+			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+				return err
+			}
+			_ = r.SetColor(g.parseColor(g.style.TextColor))
+			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+
+			switch class {
+			case "underline":
+				_ = r.SetUnderline(domain.UnderlineStyle(1))
+			case "kbd", "code":
+				_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+			}
+			if postRun != nil {
+				return postRun(r)
+			}
+			return nil
+		},
+	}
+}
+
 func (g *DOCXGenerator) docxLangPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// [text]{lang=xx} - idioma inline (issue #63). Regex compartido con
@@ -1584,6 +1653,7 @@ func (g *DOCXGenerator) docxInlinePatterns() []docxInlinePattern {
 		g.docxItalicPattern(),
 		g.docxLinkPattern(),
 		g.docxLangPattern(),
+		g.docxSpanTokenPattern(),
 	}
 }
 
@@ -2285,6 +2355,100 @@ func (g *DOCXGenerator) renderQuote(doc domain.Document, elem *ast.QuoteElement)
 
 	// Contenido con markdown inline
 	return g.renderInlineMarkdown(p, elem.Content)
+}
+
+// renderQuiz y renderPoll escriben un quiz o un poll en el DOCX (issue #198).
+//
+// Un .docx no tiene interacción, así que el quiz sale RESUELTO: la opción
+// correcta marcada y la explicación visible. Mismo criterio que el HTML
+// estático de core, que PPTX y que la salida Markdown — un quiz que no se
+// puede responder tiene que al menos enseñar la respuesta.
+func (g *DOCXGenerator) renderQuiz(doc domain.Document, elem *ast.QuizElement) error {
+	if err := g.renderQuizPollQuestion(doc, elem.Question); err != nil {
+		return err
+	}
+	for i, option := range elem.Options {
+		text := fmt.Sprintf("%d. %s", i+1, option)
+		if i == elem.Answer {
+			text = "✅ " + text
+		}
+		if err := g.renderQuizPollLine(doc, text, i == elem.Answer, false); err != nil {
+			return err
+		}
+	}
+	if elem.Explanation != "" {
+		return g.renderQuizPollLine(doc, elem.Explanation, false, true)
+	}
+	return nil
+}
+
+func (g *DOCXGenerator) renderPoll(doc domain.Document, elem *ast.PollElement) error {
+	if err := g.renderQuizPollQuestion(doc, elem.Question); err != nil {
+		return err
+	}
+	for i, option := range elem.Options {
+		if err := g.renderQuizPollLine(doc, fmt.Sprintf("%d. %s", i+1, option), false, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (g *DOCXGenerator) renderQuizPollQuestion(doc domain.Document, question string) error {
+	if question == "" {
+		return nil
+	}
+	p, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter) / 2); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+	r, err := p.AddRun()
+	if err != nil {
+		return err
+	}
+	_ = r.SetText(question)
+	if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = r.SetColor(g.parseColor(g.style.TextColor))
+	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+	_ = r.SetBold(true)
+	return nil
+}
+
+// renderQuizPollLine escribe una opción o la explicación, sangradas bajo la
+// pregunta igual que los items de un checklist.
+func (g *DOCXGenerator) renderQuizPollLine(doc domain.Document, text string, bold, italic bool) error {
+	p, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := p.SetIndent(domain.Indentation{Left: 360}); err != nil {
+		return fmt.Errorf("invalid indent: %w", err)
+	}
+	if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter) / 2); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+	r, err := p.AddRun()
+	if err != nil {
+		return err
+	}
+	_ = r.SetText(text)
+	if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = r.SetColor(g.parseColor(g.style.TextColor))
+	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+	if bold {
+		_ = r.SetBold(true)
+	}
+	if italic {
+		_ = r.SetItalic(true)
+	}
+	return nil
 }
 
 func (g *DOCXGenerator) renderChecklist(doc domain.Document, elem *ast.ChecklistElement) error {
