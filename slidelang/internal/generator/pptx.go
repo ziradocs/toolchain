@@ -461,17 +461,25 @@ var (
 const pptxBodyFontSizePt = 18.0
 
 // pptxSpanTokenStyle traduce un token de clase al formato que PPTX sabe
-// expresar. Los valores replican los fallbacks del CSS de slidelang
-// (assets/css/elements/text.css) para que una diapositiva y su HTML no se vean
-// de dos colores distintos.
-//
-// Cinco de los catorce tokens NO están acá y salen como texto plano: los tres
-// `highlight-*`, que necesitan un fondo, y `sub`/`sup`, que necesitan una línea
-// base — pptxgo no expone ninguna de las dos (su Paragraph ofrece Bold, Italic,
-// Underline, Color, Font, FontSize y Lang, y nada más). Salir en plano es la
-// degradación correcta: se pierde el estilo, nunca el texto. Lo que NO puede
-// seguir pasando —y es el bug que esto cierra— es que el token salga LITERAL,
+// expresar. El Paragraph de pptxgo ofrece Bold, Italic, Underline, Color, Font,
+// FontSize y Lang, y nada más; lo que no cabe ahí sale como texto plano, que es
+// la degradación correcta —se pierde el estilo, nunca el texto. Lo que NO puede
+// seguir pasando, y es el bug que esto cierra, es que el token salga LITERAL,
 // con corchetes y llaves, en medio de la diapositiva.
+//
+// **Los colores son FIJOS y PPTX es ciego al tema.** Son los del bundle por
+// defecto, no los del tema que el deck haya elegido: este generador no lee
+// `slidelang/themes/*.json` en ningún lado, así que un deck con `--theme
+// startup-tech` tendrá su `accent` verde menta en el HTML y morado azulado en
+// la diapositiva. Es una limitación del generador entero, no de esta tabla, y
+// queda anotada aparte.
+//
+// (Una versión anterior de este comentario decía que los valores replicaban los
+// fallbacks del CSS "para que la diapositiva y su HTML no se vean de dos colores
+// distintos". Era falso en los dos sentidos: esos fallbacks nunca se usan
+// —el bundle siempre define la custom property— así que los cinco colores
+// diferían del HTML incluso SIN tema. Ahora son los del bundle por defecto, que
+// al menos hace coincidir ese caso.)
 //
 // `large` es font-weight 500 en CSS. Acá va solo el tamaño: PPTX no tiene pesos
 // intermedios y poner Bold sobre un 500 exagera más de lo que aproxima.
@@ -480,11 +488,11 @@ var pptxSpanTokenStyle = map[string]pptxInlineSegment{
 	"kbd":       {code: true},
 	"small":     {fontSizePt: pptxBodyFontSizePt * 0.875},
 	"large":     {fontSizePt: pptxBodyFontSizePt * 1.25},
-	"danger":    {color: &drawingml.Color{R: 0xdc, G: 0x26, B: 0x26}},
-	"info":      {color: &drawingml.Color{R: 0x25, G: 0x63, B: 0xeb}},
-	"success":   {color: &drawingml.Color{R: 0x15, G: 0x80, B: 0x3d}},
-	"warning":   {color: &drawingml.Color{R: 0xb4, G: 0x53, B: 0x09}},
-	"accent":    {color: &drawingml.Color{R: 0x7c, G: 0x3a, B: 0xed}},
+	"danger":    {color: &drawingml.Color{R: 0xef, G: 0x44, B: 0x44}},
+	"info":      {color: &drawingml.Color{R: 0x3b, G: 0x82, B: 0xf6}},
+	"success":   {color: &drawingml.Color{R: 0x10, G: 0xb9, B: 0x81}},
+	"warning":   {color: &drawingml.Color{R: 0xf5, G: 0x9e, B: 0x0b}},
+	"accent":    {color: &drawingml.Color{R: 0x06, G: 0xb6, B: 0xd4}},
 
 	// Los cinco de abajo están en el mapa CON ESTILO VACÍO, y eso es el punto:
 	// son tokens que el toolchain reconoce y que PPTX no puede pintar —los
@@ -494,11 +502,20 @@ var pptxSpanTokenStyle = map[string]pptxInlineSegment{
 	// interno en plano, el inventado emite la sintaxis literal para que se vea
 	// el typo. Dejarlos fuera del mapa los mandaba a la segunda rama y ponía
 	// "[x]{.sub}" en medio de la diapositiva, que es el bug que esto cierra.
-	"highlight-warning": {},
-	"highlight-info":    {},
-	"highlight-success": {},
-	"sub":               {},
-	"sup":               {},
+	// Los `highlight-*` pierden el FONDO, que es lo que PPTX no puede expresar,
+	// pero conservan su color de texto: pptxgo sí tiene Color(), y renunciar a
+	// él teniendo la API sería una pérdida gratuita. Estos tres valores sí
+	// salen del fallback del CSS, porque `--slidelang-highlight-*-text` es de
+	// las pocas variables que el bundle NO redefine.
+	"highlight-warning": {color: &drawingml.Color{R: 0x92, G: 0x40, B: 0x0e}},
+	"highlight-info":    {color: &drawingml.Color{R: 0x1e, G: 0x40, B: 0xaf}},
+	"highlight-success": {color: &drawingml.Color{R: 0x16, G: 0x65, B: 0x34}},
+
+	// `sub` y `sup` necesitan una línea base, que el Paragraph de pptxgo no
+	// expone. Van con estilo vacío para que su texto salga en plano en vez de
+	// con la sintaxis a la vista.
+	"sub": {},
+	"sup": {},
 }
 
 // pptxBasicPatterns es el subconjunto code/bold/italic usado tanto por el
@@ -516,6 +533,68 @@ var pptxBasicPatterns = []struct {
 	{pptxCodeRe, false, false, true},
 	{pptxBoldRe, true, false, false},
 	{pptxItalicRe, false, true, false},
+}
+
+// applySpanTokens parte text por tokens `[x]{.clase}` y estampa base sobre cada
+// segmento resultante. Es lo que hace que un token DENTRO de negrita o cursiva
+// se resuelva en vez de salir literal.
+//
+// El bug que cierra: las ramas de code/bold/italic emitían su texto interno
+// verbatim como un solo segmento, así que en `**[x]{.danger}**` ganaba el `**`
+// por posición y el token no se volvía a mirar nunca — la diapositiva imprimía
+// "[x]{.danger}" en negrita. La rama de idioma sí recursaba (por el finding #2
+// del issue #63), y esa asimetría es la que se empareja acá.
+//
+// Dentro de `code` NO se interpretan tokens, y eso espeja al HTML: ahí
+// `` `[c]{.success}` `` sale como `<code>[c]{.success}</code>`, con el token
+// literal, mientras `**[b]{.danger}**` sí compone a
+// `<strong><span class="slidelang-text-danger">b</span></strong>`. Un span de
+// código es texto que se muestra tal cual; ese es el punto de escribirlo.
+func applySpanTokens(text string, base pptxInlineSegment) []pptxInlineSegment {
+	base.text = text
+	if base.code || !strings.Contains(text, "]{.") {
+		return []pptxInlineSegment{base}
+	}
+
+	var out []pptxInlineSegment
+	emit := func(s string, style pptxInlineSegment) {
+		if s == "" {
+			return
+		}
+		seg := base
+		seg.text = s
+		seg.underline = seg.underline || style.underline
+		seg.code = seg.code || style.code
+		if style.color != nil {
+			seg.color = style.color
+		}
+		if style.fontSizePt != 0 {
+			seg.fontSizePt = style.fontSizePt
+		}
+		out = append(out, seg)
+	}
+
+	pos := 0
+	for pos < len(text) {
+		loc := pptxSpanTokenRe.FindStringSubmatchIndex(text[pos:])
+		if loc == nil {
+			emit(text[pos:], pptxInlineSegment{})
+			break
+		}
+		start, end := pos+loc[0], pos+loc[1]
+		inner := text[pos+loc[2] : pos+loc[3]]
+		class := text[pos+loc[4] : pos+loc[5]]
+
+		emit(text[pos:start], pptxInlineSegment{})
+		if style, known := pptxSpanTokenStyle[class]; known {
+			emit(inner, style)
+		} else {
+			// Desconocido: la sintaxis completa, para que se vea el typo.
+			emit(text[start:end], pptxInlineSegment{})
+		}
+		pos = end
+	}
+	return out
 }
 
 // pptxSplitBasic segmenta content en texto plano + code/bold/italic
@@ -560,7 +639,8 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 		if best.start > pos {
 			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
 		}
-		segments = append(segments, pptxInlineSegment{text: best.inner, bold: best.bold, italic: best.italic, code: best.code})
+		segments = append(segments, applySpanTokens(best.inner,
+			pptxInlineSegment{bold: best.bold, italic: best.italic, code: best.code})...)
 		pos = best.end
 	}
 
@@ -686,7 +766,8 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		if best.start > pos {
 			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
 		}
-		segments = append(segments, pptxInlineSegment{text: best.inner, bold: best.bold, italic: best.italic, code: best.code})
+		segments = append(segments, applySpanTokens(best.inner,
+			pptxInlineSegment{bold: best.bold, italic: best.italic, code: best.code})...)
 		pos = best.end
 	}
 
