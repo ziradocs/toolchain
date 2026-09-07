@@ -92,9 +92,10 @@ element has a strict marker; grid is the one that differs per mode**
 flex — see the table's note). Deeper worked examples (multi-series charts,
 subgraph mermaid diagrams, layout frontmatter) are in `reference/advanced.md`.
 
-**Never invent syntax.** If a requested feature has no element (polls,
-quizzes, progressive reveal are the recurring examples — presenter notes
-*do* exist, as the `@notes` directive, rendered by ZiraDocs only),
+**Never invent syntax.** If a requested feature has no element (progressive
+reveal is the recurring example — presenter notes *do* exist, as the `@notes`
+directive, rendered by ZiraDocs only; polls and quizzes exist too, as the
+`<<poll>>`/`<<quiz>>` tags),
 represent it as plain descriptive text instead of emitting a speculative
 tag — see the "no unsupported closing tags" section of
 `reference/elements.md`.

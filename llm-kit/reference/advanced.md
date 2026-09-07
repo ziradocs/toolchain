@@ -24,17 +24,30 @@ see `elements.md`'s quick-table note).
     responsive: true
 ```
 
-### Scatter
+### Scatter and bubble — raw JSON only
+
+The row-based `data:`/`series:` form does **not** work for these two. Chart.js
+needs point objects (`{x, y}`, plus `r` for bubble) and the DSL only produces
+one value per series per row, so a scatter written that way renders with the
+wrong shape. The escape hatch is a raw Chart.js config, which the parser passes
+through untouched:
 
 ```
 <<chart: scatter>>
-  data: [
-    [1, 65, 60],
-    [2, 70, 68],
-    [3, 75, 74]
-  ]
-  series: ["Team A", "Team B"]
+{
+  "type": "scatter",
+  "data": {
+    "datasets": [
+      {"label": "Team A", "data": [{"x": 1, "y": 65}, {"x": 2, "y": 70}]},
+      {"label": "Team B", "data": [{"x": 1, "y": 60}, {"x": 2, "y": 68}]}
+    ]
+  }
+}
+<<end>>
 ```
+
+Bubble is the same with an `r` per point. Tracked as
+[toolchain#235](https://github.com/ziradocs/toolchain/issues/235).
 
 ### Radar
 

@@ -96,8 +96,8 @@ things:
 - Escape/repair minor frontmatter YAML issues.
 
 It will **not** invent missing data, fix a chart's series/column mismatch,
-or turn an unsupported element (a poll, a quiz, presenter notes) into a
-real one — those still need to be written correctly or represented as
+or turn an unsupported element (progressive reveal, a Q&A session block) into
+a real one — those still need to be written correctly or represented as
 plain-text placeholders (see `elements.md`'s "no unsupported
 closing tags" section).
 

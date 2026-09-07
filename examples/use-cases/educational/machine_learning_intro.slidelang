@@ -19,14 +19,15 @@ variables:
 
 # Welcome to {{course}}
 
-:::note Poll: Programming Experience
-**Question:** What's your programming experience level?
-
-- Beginner - Limited coding experience
-- Intermediate - Comfortable with Python
-- Advanced - Strong programming background
-- Expert - Professional developer
-:::
+<<poll>>
+question: "What's your programming experience level?"
+options:
+  - "Beginner - Limited coding experience"
+  - "Intermediate - Comfortable with Python"
+  - "Advanced - Strong programming background"
+  - "Expert - Professional developer"
+multiple: false
+<<end>>
 
 **{{students}} students** enrolled this semester
 
@@ -219,18 +220,16 @@ data: [
 
 # Interactive Knowledge Check
 
-:::tip Quiz: Email Spam Detection
-**Question:** Which type of ML would you use for email spam detection?
-
-- Unsupervised learning - no labels needed
-- Supervised learning - we have spam/not spam labels
-- Reinforcement learning - learn from user feedback
-- Semi-supervised learning - mix of labeled and unlabeled
-
-**Answer:** Supervised learning - we have spam/not spam labels
-
-**Explanation:** Email spam detection uses supervised learning because we have labeled examples of spam and legitimate emails to train the model.
-:::
+<<quiz>>
+question: "Which type of ML would you use for email spam detection?"
+options:
+  - "Unsupervised learning - no labels needed"
+  - "Supervised learning - we have spam/not spam labels"
+  - "Reinforcement learning - learn from user feedback"
+  - "Semi-supervised learning - mix of labeled and unlabeled"
+answer: 1
+explanation: "Email spam detection uses supervised learning because we have labeled examples of spam and legitimate emails to train the model."
+<<end>>
 
 ---
 

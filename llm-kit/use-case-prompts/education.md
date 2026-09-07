@@ -5,22 +5,40 @@ Summary**. Tone: progressive complexity, interactive framing — but see the
 important caveat below about what "interactive" can actually mean in
 ZiraDocs output.
 
-## Interactive elements: placeholder only, never invented tags
+## Interactive elements: the two real tags, and nothing else
 
-ZiraDocs has **no** poll, quiz, or presenter-notes element. If a training
-deck calls for audience interaction, represent it as descriptive plain text
-— never emit `<<poll>>`, `<<quiz>>`, `:::poll`, `:::qa_session`, `:::reveal`,
-or a `:::notes` block. These are not implemented by the parser; at best
-they're silently dropped, at worst they produce a linter warning
-(`SPECIAL001` for an unrecognized special-block type).
+Polls and quizzes are real elements. Use `<<poll>>` and `<<quiz>>` with a YAML
+body closed by `<<end>>` — never `:::poll`, `:::qa_session`, `:::reveal` or a
+`:::notes` block, which are not implemented (`SPECIAL001`). Presenter notes are
+the `@notes` directive.
 
 ```
 # Pre-Session Check
 
-**Interactive Poll (placeholder)**: Ask "What's your experience with data
-visualization?" Options: beginner | some Excel | some Python/R | regular
-creator. Gather a show of hands — no poll tag is emitted.
+<<poll>>
+question: "What's your experience with data visualization?"
+options:
+  - "Beginner"
+  - "Some Excel"
+  - "Some Python/R"
+  - "I build them regularly"
+<<end>>
+
+<<quiz>>
+question: "Which chart type fits a part-to-whole comparison?"
+options: ["Line", "Pie", "Scatter"]
+answer: 1
+explanation: "A pie chart shows shares of a single total."
+<<end>>
 ```
+
+`answer` is a **0-based index**: `answer: 1` selects the *second* option. An
+out-of-range value is a hard error (`QUIZ001`), not a warning.
+
+Both are **static**: the HTML reveals the answer on click, and every other
+format (PDF, PPTX, DOCX, Markdown) renders the quiz already solved. Nothing is
+collected — there is no backend, so never promise the audience their answers
+are recorded.
 
 ```
 # Knowledge Check (placeholder)
