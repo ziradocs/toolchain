@@ -83,12 +83,23 @@ type RenderContext struct {
 	// Igual que ChartCategoricalColors, NO alcanza a un chart en modo JSON:
 	// la config literal del autor no se sobreescribe con el tema.
 	ChartThemeColors ChartThemeColors
-	OutputDir        string          // Output directory for assets
-	Fetcher          PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
-	MermaidFetcher   MermaidFetcher  // Mermaid fetcher inicializado
-	ChartFetcher     ChartFetcher    // Chart fetcher inicializado
-	MapFetcher       MapFetcher      // Map fetcher inicializado
-	MathFetcher      MathFetcher     // Math fetcher inicializado
+	// DiagramThemeColors son los tokens diagram-* de §2.2 para el camino
+	// offline/PDF de Mermaid. Zero value (todo caller de hoy) reproduce el
+	// render anterior byte por byte.
+	//
+	// Solo alcanza al camino Chromium: Mermaid vía --diagram-backend kroki se
+	// renderiza en un servidor REMOTO, donde no hay mermaid.initialize() que
+	// interceptar. Tematizar ese backend exige inyectar una directiva
+	// %%{init:...}%% en el fuente antes del POST — otro mecanismo, y con la
+	// misma incógnita que PlantUML (no controlamos la versión de Mermaid que
+	// corre esa instancia). Queda como hueco DECLARADO, no silencioso.
+	DiagramThemeColors DiagramThemeColors
+	OutputDir          string          // Output directory for assets
+	Fetcher            PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
+	MermaidFetcher     MermaidFetcher  // Mermaid fetcher inicializado
+	ChartFetcher       ChartFetcher    // Chart fetcher inicializado
+	MapFetcher         MapFetcher      // Map fetcher inicializado
+	MathFetcher        MathFetcher     // Math fetcher inicializado
 	// Logger recibe los warnings/debug best-effort de GenerateDocumentHTML
 	// (nonce CSP fallido, variable de tema rechazada por
 	// SanitizeCSSCustomProperty) — issue #134/G1c. Antes esos dos sitios
@@ -130,6 +141,7 @@ func NewDefaultRenderContext() *RenderContext {
 		AssetRoot:              "",
 		ChartCategoricalColors: nil,
 		ChartThemeColors:       ChartThemeColors{},
+		DiagramThemeColors:     DiagramThemeColors{},
 		OutputDir:              "",
 		Fetcher:                nil,
 		MermaidFetcher:         nil,

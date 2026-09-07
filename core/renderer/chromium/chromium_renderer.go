@@ -33,7 +33,20 @@ const (
 	// su script únicamente desde jsdelivr y no necesitan imágenes externas.
 	mermaidAndChartRenderCSP = "default-src 'none'; script-src https://cdn.jsdelivr.net 'unsafe-inline'; " +
 		"style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none';"
-	mapRenderCSP = "default-src 'none'; script-src https://unpkg.com 'unsafe-inline'; " +
+	// mermaidRenderCSP es mermaidAndChartRenderCSP más font-src: las páginas
+	// de Mermaid pueden traer los @font-face auto-hospedados del tema
+	// (motor-temas-v2.md §2.3), y default-src 'none' los bloquearía sin este
+	// permiso. Solo data:, nunca red ni file:// — un tema entrega sus fuentes
+	// ya embebidas (ver renderer.DiagramFontFace), así que la política no
+	// necesita abrir ninguna ruta nueva hacia afuera y el perfil CR-6 sigue
+	// intacto.
+	//
+	// Es una política ESTÁTICA, presente aunque el tema no declare fuentes:
+	// una CSP que cambia según la entrada no se puede auditar leyéndola, y
+	// font-src data: no otorga alcance alguno (son bytes del mismo documento)
+	// así que no hay privilegio que recortar dinámicamente.
+	mermaidRenderCSP = mermaidAndChartRenderCSP + " font-src data:;"
+	mapRenderCSP     = "default-src 'none'; script-src https://unpkg.com 'unsafe-inline'; " +
 		"style-src https://unpkg.com 'unsafe-inline'; " +
 		"img-src https://*.tile.openstreetmap.org https://server.arcgisonline.com " +
 		"https://raw.githubusercontent.com https://cdnjs.cloudflare.com data:; " +
@@ -75,6 +88,163 @@ const (
 // el mismo viewBox sin importar este ancho — no es una regresión para ellos.
 const mermaidSVGContainerWidthPx = 1200
 
+// mermaidFontLoadTimeoutMs acota la espera por las fuentes del tema. Mismo
+// criterio y mismo valor que ChromiumRenderer.waitForFontsReady: una fuente
+// patológica degrada a la métrica fallback en vez de colgar el build. Con
+// data: URIs no hay red de por medio, así que en la práctica resuelve de
+// inmediato.
+const mermaidFontLoadTimeoutMs = 3000
+
+// mermaidBootstrapJS arma el cuerpo del <script> de las dos páginas
+// temporales de Mermaid. Vive en UNA sola función justamente porque son dos:
+// una revisión de #250 encontró un P1 por cubrir una de dos puertas
+// equivalentes, y este archivo ya tenía ese par duplicado a mano.
+//
+// Sin fuentes: idéntico byte por byte al de siempre — mermaid.initialize()
+// con startOnLoad y, en el caso PNG, la señal de afterRender al mismo nivel.
+//
+// Con fuentes hay que invertir el orden, y por eso startOnLoad pasa a false:
+// un @font-face NO se descarga hasta que algo lo usa, así que si Mermaid
+// dibuja primero mide con la fuente fallback y hornea esas métricas en el
+// SVG. Se piden explícitamente vía document.fonts.load() y recién después se
+// llama mermaid.run().
+//
+// Que startOnLoad:false alcance para suprimir el auto-render está verificado
+// contra el bundle pinneado (mermaid@10.9.6, el mismo SRI de
+// renderer.MermaidCDNScriptTag): su listener de "load" es
+// `if (mermaid.startOnLoad) { const {startOnLoad} = getConfig(); startOnLoad
+// && mermaid.run() }`, o sea que consulta el CONFIG —que initialize() sí
+// fija— y no solo la propiedad del objeto. mermaid.run() existe en esa
+// versión y su querySelector por defecto ya es ".mermaid".
+//
+// Promise.allSettled y no Promise.all: con dos o más fuentes, si UNA se
+// rechaza (data: URI corrupta, bytes que no son un formato de fuente válido)
+// Promise.all se resuelve con el rechazo ni bien esa promesa se asienta, SIN
+// esperar a las demás — es contrato de ECMAScript, no un detalle de
+// Chromium. El .catch().then(draw) de abajo dispararía draw() de inmediato,
+// adelantándose a fuentes BUENAS que todavía estaban cargando. allSettled
+// espera a que TODAS se asienten (éxito o fracaso da igual) antes de
+// resolver, y nunca rechaza — degrada una fuente rota sin arrastrar a las
+// demás.
+//
+// afterRender es la señal de "ya terminé" que espera el caller (el PNG la
+// usa, el SVG no la necesita porque chromedp espera al nodo svg). En el
+// camino con fuentes se mueve DENTRO del then() de run(): dejarla al nivel de
+// script haría que #renderComplete quedara listo antes de que el diagrama
+// exista, y la captura saldría vacía.
+func mermaidBootstrapJS(theme renderer.DiagramThemeColors, afterRender string) string {
+	shorthands := theme.FontLoadShorthands()
+	if len(shorthands) == 0 {
+		return "        mermaid.initialize(" + renderer.MermaidInitConfigJS(true, theme.MermaidExtras()...) + ");\n" + afterRender
+	}
+	// Los shorthands se serializan con encoding/json por la misma razón que
+	// los colores del tema (ver renderer.MermaidExtras): un nombre de familia
+	// es dato del tema y no puede romper el literal ni cerrar el <script>.
+	faces, _ := json.Marshal(shorthands)
+	return fmt.Sprintf(`        mermaid.initialize(%s);
+        (function () {
+            var faces = %s;
+            function done() {
+%s
+            }
+            function draw() { mermaid.run().catch(function () {}).then(done); }
+            if (!document.fonts) { draw(); return; }
+            var loaded = Promise.allSettled(faces.map(function (f) { return document.fonts.load(f); }));
+            var deadline = new Promise(function (r) { setTimeout(r, %d); });
+            Promise.race([loaded, deadline]).then(draw);
+        })();
+`, renderer.MermaidInitConfigJS(false, theme.MermaidExtras()...), faces, afterRender, mermaidFontLoadTimeoutMs)
+}
+
+// mermaidRenderCompleteJS es la señal que espera el camino PNG.
+const mermaidRenderCompleteJS = `        // Esperar a que Mermaid termine de renderizar
+        setTimeout(() => {
+            document.getElementById('renderComplete').setAttribute('data-ready', 'true');
+        }, 1500);
+`
+
+// firstUnquotedByte devuelve el índice de la primera aparición de target en
+// s que NO está dentro de un atributo entrecomillado (comilla simple o
+// doble) — o -1 si no aparece. HTML no exige escapar `>` dentro del VALOR de
+// un atributo, así que buscar el primer `>` a secas podría cortar dentro de
+// la etiqueta si algún atributo lo trajera.
+func firstUnquotedByte(s string, target byte) int {
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
+		case target:
+			return i
+		}
+	}
+	return -1
+}
+
+// embedFontFacesInSVG inserta las reglas @font-face del tema como el primer
+// hijo del <svg> extraído, para que el ARCHIVO guardado sea autocontenido.
+//
+// Sin esto, el SVG que RenderMermaidToSVGWithTheme devuelve carga con la
+// fuente correcta SOLO porque chromedp lo capturó desde una página que tenía
+// el @font-face en su <head> — pero ese <head> nunca viaja con el SVG. En
+// offline-assets el archivo se sirve vía <img>, un contexto que NO hereda
+// ningún <style> de un documento padre (ninguno: ni el del deck ni el de la
+// página temporal); en offline-inline el SVG puede acabar viendo la fuente
+// del documento final, pero para entonces Mermaid ya calculó nodos, wrapping
+// y aristas con las métricas del fallback, así que el layout ya quedó mal
+// aunque el glifo se pinte con la fuente correcta.
+//
+// Verificado empíricamente que esto SÍ resuelve el caso <img>: a diferencia
+// de una fuente referenciada por url() de red (bloqueada en el contexto
+// "imagen" de un <img>), una fuente embebida como data: URI dentro del
+// propio archivo SVG no depende de ninguna carga externa, y Chromium la
+// aplica igual.
+//
+// Zero value de theme.FontFaceCSS() es "" — el SVG sale byte por byte igual
+// al de siempre.
+//
+// El CSS va envuelto en CDATA: el SVG extraído es XML de verdad (a
+// diferencia del <style> HTML de la página temporal, cuyo escape de
+// cssEscapeString apunta a OTRO riesgo — que `</style` cierre el bloque de
+// texto crudo). Un nombre de familia con un `&` sin escapar — CSS válido,
+// cssEscapeString no lo toca porque no hace falta escaparlo para CSS — deja
+// de ser XML bien formado, y la consecuencia NO es una degradación menor:
+// comprobado en Chromium real que un <img> cuyo SVG trae un `&` crudo
+// simplemente NO CARGA, período — se pierde el diagrama entero, no solo la
+// fuente. CDATA acepta `&`, `<` y `>` literales sin escapar; solo la
+// secuencia `]]>` no puede aparecer dentro, y wrapCDATA la parte en dos
+// secciones si por algún motivo apareciera.
+func embedFontFacesInSVG(svg string, theme renderer.DiagramThemeColors) string {
+	css := theme.FontFaceCSS()
+	if css == "" {
+		return svg
+	}
+	i := firstUnquotedByte(svg, '>')
+	if i < 0 {
+		return svg
+	}
+	return svg[:i+1] + "<style>" + wrapCDATA(css) + "</style>" + svg[i+1:]
+}
+
+// wrapCDATA envuelve s en una sección CDATA de XML. `]]>` es la única
+// secuencia que CDATA no puede contener; en la práctica nunca debería
+// aparecer en CSS de @font-face (el base64 de una fuente usa un alfabeto sin
+// '<' '>' '&' ']', y family/weight/style ya pasaron por sus propios
+// validadores), pero esta guarda no depende de esa suposición: parte
+// cualquier aparición en dos secciones CDATA adyacentes, la técnica estándar
+// para escapar `]]>` dentro de CDATA.
+func wrapCDATA(s string) string {
+	escaped := strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+	return "<![CDATA[" + escaped + "]]>"
+}
+
 // buildMermaidSVGHTML arma la página temporal usada para rasterizar un
 // diagrama Mermaid a SVG. El contenido es dato del usuario: se HTML-escapa
 // antes de insertarlo como texto del nodo ".mermaid" (Mermaid lee
@@ -82,7 +252,7 @@ const mermaidSVGContainerWidthPx = 1200
 // securityLevel:'strict' + htmlLabels:false para bloquear HTML/script
 // embebido dentro del propio diagrama. Ver docs/SECURITY_AUDIT_2026-07.md,
 // CR-6/AL-6 (issue #24).
-func buildMermaidSVGHTML(mermaidCode string) string {
+func buildMermaidSVGHTML(mermaidCode string, theme renderer.DiagramThemeColors) string {
 	// mermaidCode (vía BuildMermaidDiv) es dato del usuario: va como argumento
 	// %s, nunca concatenado dentro del format string en sí — un '%' literal en
 	// el diagrama del usuario (p. ej. un label "Growth +20%") no debe
@@ -95,17 +265,16 @@ func buildMermaidSVGHTML(mermaidCode string) string {
     <meta http-equiv="Content-Security-Policy" content="%s">
     `+renderer.MermaidCDNScriptTag+`
     <style>
-        body { margin: 0; padding: 20px; background: white; }
+%s        body { margin: 0; padding: 20px; background: white; }
         .mermaid { display: inline-block; width: %dpx; }
     </style>
 </head>
 <body>
     %s
     <script>
-        mermaid.initialize(`+renderer.MermaidInitConfigJS(true)+`);
-    </script>
+%s    </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode))
+</html>`, mermaidRenderCSP, theme.FontFaceCSS(), mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode), mermaidBootstrapJS(theme, ""))
 }
 
 // buildMathSVGHTML arma la página temporal usada para rasterizar una
@@ -167,7 +336,7 @@ func buildMathPNGHTML(latex string, width, height int) string {
 // buildMermaidPNGHTML arma la página temporal usada para rasterizar un
 // diagrama Mermaid a PNG (ver buildMermaidSVGHTML para el razonamiento de
 // seguridad, idéntico aquí).
-func buildMermaidPNGHTML(mermaidCode string, width, height int) string {
+func buildMermaidPNGHTML(mermaidCode string, width, height int, theme renderer.DiagramThemeColors) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -175,7 +344,7 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int) string {
     <meta http-equiv="Content-Security-Policy" content="%s">
     `+renderer.MermaidCDNScriptTag+`
     <style>
-        body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; }
+%s        body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; }
         #mermaidContainer { width: %dpx; height: %dpx; display: flex; justify-content: center; align-items: center; }
         .mermaid { display: inline-block; }
     </style>
@@ -186,14 +355,9 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int) string {
     </div>
     <div id="renderComplete" style="display:none;">ready</div>
     <script>
-        mermaid.initialize(%s);
-        // Esperar a que Mermaid termine de renderizar
-        setTimeout(() => {
-            document.getElementById('renderComplete').setAttribute('data-ready', 'true');
-        }, 1500);
-    </script>
+%s    </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJS(true))
+</html>`, mermaidRenderCSP, theme.FontFaceCSS(), width, height, renderer.BuildMermaidDiv(mermaidCode), mermaidBootstrapJS(theme, mermaidRenderCompleteJS))
 }
 
 // buildChartHTML arma la página temporal usada para rasterizar un chart de
@@ -639,9 +803,18 @@ func (r *ChromiumRenderer) checkPageOverflow(selector string) chromedp.Action {
 // RenderMermaidToSVG renderiza un diagrama Mermaid a SVG. ctx acota/cancela
 // esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderMermaidToSVG(ctx context.Context, mermaidCode string) (string, error) {
+	return r.RenderMermaidToSVGWithTheme(ctx, mermaidCode, renderer.DiagramThemeColors{})
+}
+
+// RenderMermaidToSVGWithTheme es RenderMermaidToSVG con los tokens diagram-*
+// de motor-temas-v2.md §2.2. Entrada NUEVA en vez de un parámetro más: la
+// firma anterior la consumen el MermaidFetcher y doclang, y CI corre
+// workspace-integration contra el core del árbol además de build-test contra
+// el publicado. Zero value reproduce el SVG de siempre.
+func (r *ChromiumRenderer) RenderMermaidToSVGWithTheme(ctx context.Context, mermaidCode string, theme renderer.DiagramThemeColors) (string, error) {
 	r.logger.Info("MERMAID", "Rendering diagram to SVG...")
 
-	html := buildMermaidSVGHTML(mermaidCode)
+	html := buildMermaidSVGHTML(mermaidCode, theme)
 
 	var svgContent string
 
@@ -668,6 +841,8 @@ func (r *ChromiumRenderer) RenderMermaidToSVG(ctx context.Context, mermaidCode s
 	if err != nil {
 		return "", fmt.Errorf("mermaid rendering failed: %w", err)
 	}
+
+	svgContent = embedFontFacesInSVG(svgContent, theme)
 
 	r.logger.Info("MERMAID", "✅ SVG rendered (%.2f KB)", float64(len(svgContent))/1024)
 	return svgContent, nil
@@ -754,9 +929,16 @@ func (r *ChromiumRenderer) RenderMathToPNG(ctx context.Context, latex string, wi
 // RenderMermaidToPNG renderiza un diagrama Mermaid a PNG. ctx acota/cancela
 // esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderMermaidToPNG(ctx context.Context, mermaidCode string, width, height int) ([]byte, error) {
+	return r.RenderMermaidToPNGWithTheme(ctx, mermaidCode, width, height, renderer.DiagramThemeColors{})
+}
+
+// RenderMermaidToPNGWithTheme — ver RenderMermaidToSVGWithTheme. Existe para
+// que el tema no se pierda en el camino PNG (doclang/docx.go lo usa), y para
+// que las dos páginas temporales de Mermaid se traten igual.
+func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, mermaidCode string, width, height int, theme renderer.DiagramThemeColors) ([]byte, error) {
 	r.logger.Info("MERMAID", "Rendering diagram to PNG...")
 
-	html := buildMermaidPNGHTML(mermaidCode, width, height)
+	html := buildMermaidPNGHTML(mermaidCode, width, height, theme)
 
 	var pngData []byte
 

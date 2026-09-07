@@ -132,7 +132,7 @@ func TestGenerateLeafletHTML_CSP(t *testing.T) {
 
 func TestBuildMermaidSVGHTML_EscapesContent(t *testing.T) {
 	payload := `</div><img src=x onerror=alert(document.domain)><script>alert(1)</script>`
-	html := buildMermaidSVGHTML(payload)
+	html := buildMermaidSVGHTML(payload, renderer.DiagramThemeColors{})
 
 	if strings.Contains(html, "<img src=x onerror") || strings.Contains(html, "<script>alert(1)</script>") {
 		t.Errorf("mermaid content was not escaped, breakout survived:\n%s", html)
@@ -160,7 +160,7 @@ func TestBuildMermaidSVGHTML_EscapesContent(t *testing.T) {
 // calcular su viewBox, corriente arriba de cualquier CSS/overflow que
 // mermaid.css pudiera aplicar después.
 func TestBuildMermaidSVGHTML_ContainerHasDefiniteWidth(t *testing.T) {
-	html := buildMermaidSVGHTML("graph TD; A-->B")
+	html := buildMermaidSVGHTML("graph TD; A-->B", renderer.DiagramThemeColors{})
 
 	want := fmt.Sprintf(".mermaid { display: inline-block; width: %dpx; }", mermaidSVGContainerWidthPx)
 	if !strings.Contains(html, want) {
@@ -175,7 +175,7 @@ func TestBuildMermaidSVGHTML_ContainerHasDefiniteWidth(t *testing.T) {
 // label "Growth +20%") no debe reinterpretarse como un verbo de fmt (que
 // dejaría un "%!" corrupto en el HTML en vez del contenido real).
 func TestBuildMermaidSVGHTML_PercentInContentDoesNotBreakFormatting(t *testing.T) {
-	html := buildMermaidSVGHTML("graph TD; A[Growth +20%] --> B[100% done]")
+	html := buildMermaidSVGHTML("graph TD; A[Growth +20%] --> B[100% done]", renderer.DiagramThemeColors{})
 
 	if strings.Contains(html, "%!") {
 		t.Errorf("literal '%%' in mermaid content corrupted the Sprintf output:\n%s", html)
@@ -187,7 +187,7 @@ func TestBuildMermaidSVGHTML_PercentInContentDoesNotBreakFormatting(t *testing.T
 
 func TestBuildMermaidPNGHTML_EscapesContent(t *testing.T) {
 	payload := `</div><img src=x onerror=alert(document.domain)>`
-	html := buildMermaidPNGHTML(payload, 400, 300)
+	html := buildMermaidPNGHTML(payload, 400, 300, renderer.DiagramThemeColors{})
 
 	if strings.Contains(html, "<img src=x onerror") {
 		t.Errorf("mermaid content was not escaped, breakout survived:\n%s", html)
