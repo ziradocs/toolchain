@@ -71,7 +71,7 @@ import type { Position } from "./diagnostics";
  * slide/page. FontSize is stored verbatim like PageConfig.Size, not
  * resolved to any renderer's unit.
  */
-export const SchemaVersion = "2.9.0";
+export const SchemaVersion = "2.10.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -416,6 +416,17 @@ export interface ContentBlock extends BaseNode {
    * Configuración específica de header/footer para este bloque
    */
   header_footer_override?: ContentBlockHeaderFooterOverride;
+  /**
+   * LayoutConfig lleva las opciones de presentación del layout de este
+   * slide (issue #255): `columns`, `align`. Solo se puebla cuando el autor
+   * declaró alguna.
+   * Es un struct tipado y no un mapa libre a propósito: con un mapa, un
+   * typo (`colums: 3`) sería indistinguible de una llave que algún renderer
+   * podría usar, y volveríamos al modo de falla silencioso que los issues
+   * #237 y #239 acaban de cerrar. Qué opciones acepta cada layout lo declara
+   * core/layouts; el linter valida contra eso.
+   */
+  layout_config?: LayoutConfig;
 }
 /**
  * Element es una interfaz para elementos dentro de un bloque de contenido
@@ -817,6 +828,25 @@ export interface ChecklistItem extends BaseNode {
   discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
   checked: boolean;
   subItems?: ChecklistItem[];
+}
+/**
+ * LayoutConfig son las opciones de presentación de un slide (issue #255).
+ * El cero de cada campo significa "no declarado", y el campo entero se omite
+ * del JSON cuando no hay ninguna: un slide sin opciones no arrastra un objeto
+ * vacío por el contrato.
+ * Espeja layouts.Config; se declara acá y no se reusa aquel para que `core/ast`
+ * no dependa de `core/layouts` — el AST es el tipo más consumido del toolchain
+ * y no debería arrastrar la lógica de validación con él.
+ */
+export interface LayoutConfig {
+  /**
+   * Columns es cuántas columnas usa la retícula del slide (1-4).
+   */
+  columns?: number /* int */;
+  /**
+   * Align es la alineación del contenido: "left" o "center".
+   */
+  align?: string;
 }
 /**
  * QuizElement representa una pregunta de opción múltiple con una respuesta

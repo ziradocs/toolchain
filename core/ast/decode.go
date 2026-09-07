@@ -107,6 +107,7 @@ type contentBlockAlias struct {
 	Logo                 string                            `json:"logo,omitempty"`
 	Elements             []json.RawMessage                 `json:"elements"`
 	HeaderFooterOverride *ContentBlockHeaderFooterOverride `json:"header_footer_override,omitempty"`
+	LayoutConfig         *LayoutConfig                     `json:"layout_config,omitempty"`
 }
 
 // UnmarshalJSON decodifica un ContentBlock, despachando polimórficamente su
@@ -128,6 +129,7 @@ func (c *ContentBlock) UnmarshalJSON(data []byte) error {
 	c.SubtitleHTML = alias.SubtitleHTML
 	c.Logo = alias.Logo
 	c.HeaderFooterOverride = alias.HeaderFooterOverride
+	c.LayoutConfig = alias.LayoutConfig
 
 	c.Elements = make([]Element, 0, len(alias.Elements))
 	for _, raw := range alias.Elements {

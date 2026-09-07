@@ -12,6 +12,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/layouts"
 )
 
 // PresentationHasSlidesRule verifica que la presentación tenga al menos un slide
@@ -692,6 +693,7 @@ func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnosti
 		// Los límites de conteo se emiten en la visita a la raíz (ver arriba).
 
 		diags = append(diags, validateRequiredProperties(slideType, schema, slide)...)
+		diags = append(diags, validateLayoutConfig(slideType, slide)...)
 
 		// Validar elementos permitidos/prohibidos
 		for _, element := range slide.Elements {
@@ -767,6 +769,58 @@ func validateElementCountLimits(slideType string, schema SlideLayoutSchema, slid
 }
 
 // Helper function to check if slide has required property
+// validateLayoutConfig comprueba las opciones de layout de un slide (issue
+// #255).
+//
+// Los dos parsers ya rechazan una opción inválida al leerla, así que esta
+// regla parece redundante — y no lo es: un AST puede entrar por `--format
+// json` o desde un filtro externo sin pasar por ningún parser, y ahí este es
+// el único punto de control. Es el mismo motivo por el que las reglas de
+// elementos existen aunque los element parsers ya validen.
+func validateLayoutConfig(slideType string, slide *ast.ContentBlock) []diagnostics.Diagnostic {
+	if slide.LayoutConfig == nil {
+		return nil
+	}
+
+	var diags []diagnostics.Diagnostic
+	report := func(key, value string) {
+		if !layouts.Accepts(slideType, key) {
+			accepted := layouts.OptionNames(slideType)
+			message := "Layout '" + slideType + "' accepts no options, so '" + key + "' has no effect"
+			if len(accepted) > 0 {
+				message = "Option '" + key + "' is not accepted by layout '" + slideType +
+					"'; it accepts: " + strings.Join(accepted, ", ")
+			}
+			diags = append(diags, diagnostics.Diagnostic{
+				Severity: diagnostics.Warning,
+				Code:     "LAYOUT_OPTION_NOT_APPLICABLE",
+				Message:  message,
+				Position: slide.Position,
+				Source:   "linter",
+			})
+			return
+		}
+		var cfg layouts.Config
+		if err := layouts.Apply(&cfg, slideType, key, value); err != nil {
+			diags = append(diags, diagnostics.Diagnostic{
+				Severity: diagnostics.Warning,
+				Code:     "LAYOUT_OPTION_RANGE",
+				Message:  "Invalid layout option: " + err.Error(),
+				Position: slide.Position,
+				Source:   "linter",
+			})
+		}
+	}
+
+	if slide.LayoutConfig.Columns != 0 {
+		report("columns", strconv.Itoa(slide.LayoutConfig.Columns))
+	}
+	if slide.LayoutConfig.Align != "" {
+		report("align", slide.LayoutConfig.Align)
+	}
+	return diags
+}
+
 // layoutsWithOwnPropertyValidator son los layouts cuya propiedad obligatoria ya
 // la comprueba un validador propio, con su código y su severidad:
 //

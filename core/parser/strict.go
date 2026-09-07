@@ -10,6 +10,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/layouts"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -231,6 +232,30 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 		case "logo":
 			block.Logo = value
 		default:
+			// Antes de rechazar la llave, se prueba como opción del layout
+			// del slide (issue #255): en strict las opciones van como
+			// propiedades bajo el `SLIDE <tipo>`, no en un bloque aparte.
+			if layouts.Accepts(blockType, key) {
+				var config layouts.Config
+				if block.LayoutConfig != nil {
+					config = layouts.Config{Columns: block.LayoutConfig.Columns, Align: block.LayoutConfig.Align}
+				}
+				if err := layouts.Apply(&config, blockType, key, value); err != nil {
+					p.addError(fmt.Sprintf("Invalid layout option: %v", err))
+					return
+				}
+				block.LayoutConfig = &ast.LayoutConfig{Columns: config.Columns, Align: config.Align}
+				return
+			}
+			// El mensaje nombra las opciones del layout cuando las tiene: sin
+			// eso, un `columns:` bajo un `SLIDE hero` decía solo "propiedad
+			// desconocida" y no ayudaba a encontrar el layout correcto.
+			if accepted := layouts.OptionNames(blockType); len(accepted) > 0 {
+				p.addError(fmt.Sprintf(
+					"Unknown content block property: %s. Layout %q accepts these options: %s.",
+					key, blockType, strings.Join(accepted, ", ")))
+				return
+			}
 			p.addError(fmt.Sprintf("Unknown content block property: %s. Check DSL Strict syntax documentation.", key))
 		}
 	}, nil, func(trimmed string) {

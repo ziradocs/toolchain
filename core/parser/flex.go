@@ -11,6 +11,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/layouts"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -32,6 +33,9 @@ type FlexParser struct {
 	// usedAnchors cuenta cuántas veces se emitió cada anchor de encabezado
 	// en ESTE documento, para desduplicarlos (ver uniqueHeadingAnchor).
 	usedAnchors map[string]int
+	// pendingLayoutConfig son las opciones leídas del mismo bloque de
+	// metadata que pendingLayout, para el bloque que sigue (issue #255).
+	pendingLayoutConfig layouts.Config
 	// reportedInertKeys recuerda por qué llaves inertes ya se avisó, para
 	// avisar UNA vez por documento y no una por slide. Sin esto, un deck que
 	// repite `header:`/`footer:` en cada bloque sacaba una decena de avisos
@@ -176,7 +180,9 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	// habría forma de que el segundo slide de un deck fuera `stats`, ni de
 	// que el primero NO fuera `title`.
 	layout := p.pendingLayout
+	layoutConfig := p.pendingLayoutConfig
 	p.pendingLayout = ""
+	p.pendingLayoutConfig = layouts.Config{}
 	if layout != "" {
 		blockType = layout
 		if isTitleLayout(layout) {
@@ -224,6 +230,9 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	}
 
 	block := ast.NewContentBlock(pos, blockType)
+	if !layoutConfig.IsZero() {
+		block.LayoutConfig = &ast.LayoutConfig{Columns: layoutConfig.Columns, Align: layoutConfig.Align}
+	}
 
 	// Set the title if we extracted one.
 	//
@@ -420,33 +429,15 @@ func (p *FlexParser) addWarningAtWithRuleID(lineIndex int, msg, ruleID string) {
 // ruido decks que hoy compilan limpios. Que sean visibles alcanza para que
 // alguien note que no hacen nada.
 func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
+	// Dos pasadas: el layout tiene que conocerse ANTES de decidir si una llave
+	// es una opción suya, y nada obliga a que `layout:` venga primero en el
+	// bloque.
+	layout := ""
 	for i := openIdx + 1; i < closeIdx; i++ {
-		trimmed := strings.TrimSpace(p.lines[i])
-		if trimmed == "" {
+		key, value, ok := splitMetadataLine(p.lines[i])
+		if !ok || key != "layout" {
 			continue
 		}
-
-		sep := strings.Index(trimmed, ":")
-		if sep <= 0 {
-			continue
-		}
-		key := strings.TrimSpace(trimmed[:sep])
-		value := strings.Trim(strings.TrimSpace(trimmed[sep+1:]), `"'`)
-
-		if key != "layout" {
-			if p.reportedInertKeys == nil {
-				p.reportedInertKeys = make(map[string]bool)
-			}
-			if !p.reportedInertKeys[key] {
-				p.reportedInertKeys[key] = true
-				p.diagnostics = append(p.diagnostics,
-					diagnostics.NewInfo(
-						fmt.Sprintf("Per-slide metadata key %q has no effect; only 'layout' is read here.", key),
-						diagnostics.NewPosition(i+1, 1), "flex-parser").WithRuleID("FLEX002"))
-			}
-			continue
-		}
-
 		value = strings.ToLower(value)
 		if !isLayoutName(value) {
 			p.addWarningAtWithRuleID(i,
@@ -454,8 +445,67 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 				"FLEX003")
 			continue
 		}
+		layout = value
 		p.pendingLayout = value
 	}
+
+	var config layouts.Config
+	for i := openIdx + 1; i < closeIdx; i++ {
+		key, value, ok := splitMetadataLine(p.lines[i])
+		if !ok || key == "layout" {
+			continue
+		}
+
+		// Una opción declarada para ESTE layout se aplica.
+		if layouts.Accepts(layout, key) {
+			if err := layouts.Apply(&config, layout, key, value); err != nil {
+				p.addWarningAtWithRuleID(i,
+					fmt.Sprintf("Invalid value for layout option: %v — ignored.", err), "FLEX004")
+			}
+			continue
+		}
+
+		// Una llave que ES opción de otro layout se nombra como tal: es el
+		// caso de copiar un bloque de un slide a otro, y decir solo "no tiene
+		// efecto" no ayudaría a encontrarlo.
+		if p.reportedInertKeys == nil {
+			p.reportedInertKeys = make(map[string]bool)
+		}
+		if p.reportedInertKeys[key] {
+			continue
+		}
+		p.reportedInertKeys[key] = true
+
+		message := fmt.Sprintf("Per-slide metadata key %q has no effect; only 'layout' is read here.", key)
+		if layouts.IsKnownOption(key) {
+			if accepted := layouts.OptionNames(layout); len(accepted) > 0 {
+				message = fmt.Sprintf("%q is not an option of layout %q; it accepts: %s — ignored.",
+					key, layout, strings.Join(accepted, ", "))
+			} else if layout != "" {
+				message = fmt.Sprintf("%q is a layout option, but layout %q accepts none — ignored.", key, layout)
+			}
+		}
+		p.diagnostics = append(p.diagnostics,
+			diagnostics.NewInfo(message, diagnostics.NewPosition(i+1, 1), "flex-parser").WithRuleID("FLEX002"))
+	}
+
+	p.pendingLayoutConfig = config
+}
+
+// splitMetadataLine parte una línea "clave: valor" del bloque de metadata.
+// Devuelve ok=false para una línea vacía o sin ":".
+func splitMetadataLine(line string) (key, value string, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", "", false
+	}
+	sep := strings.Index(trimmed, ":")
+	if sep <= 0 {
+		return "", "", false
+	}
+	return strings.TrimSpace(trimmed[:sep]),
+		strings.Trim(strings.TrimSpace(trimmed[sep+1:]), `"'`),
+		true
 }
 
 // isLayoutName exige la forma de un identificador de layout: minúscula

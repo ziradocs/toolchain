@@ -317,6 +317,16 @@ type ContentBlock struct {
 	Elements []Element `json:"elements"`
 	// Configuración específica de header/footer para este bloque
 	HeaderFooterOverride *ContentBlockHeaderFooterOverride `json:"header_footer_override,omitempty"`
+	// LayoutConfig lleva las opciones de presentación del layout de este
+	// slide (issue #255): `columns`, `align`. Solo se puebla cuando el autor
+	// declaró alguna.
+	//
+	// Es un struct tipado y no un mapa libre a propósito: con un mapa, un
+	// typo (`colums: 3`) sería indistinguible de una llave que algún renderer
+	// podría usar, y volveríamos al modo de falla silencioso que los issues
+	// #237 y #239 acaban de cerrar. Qué opciones acepta cada layout lo declara
+	// core/layouts; el linter valida contra eso.
+	LayoutConfig *LayoutConfig `json:"layout_config,omitempty"`
 }
 
 // SectionTitle resuelve el título a mostrar de este ContentBlock y si
@@ -890,6 +900,22 @@ func NewChecklistItem(pos diagnostics.Position, content string, checked bool) *C
 		Checked:  checked,
 		SubItems: make([]ChecklistItem, 0),
 	}
+}
+
+// LayoutConfig son las opciones de presentación de un slide (issue #255).
+//
+// El cero de cada campo significa "no declarado", y el campo entero se omite
+// del JSON cuando no hay ninguna: un slide sin opciones no arrastra un objeto
+// vacío por el contrato.
+//
+// Espeja layouts.Config; se declara acá y no se reusa aquel para que `core/ast`
+// no dependa de `core/layouts` — el AST es el tipo más consumido del toolchain
+// y no debería arrastrar la lógica de validación con él.
+type LayoutConfig struct {
+	// Columns es cuántas columnas usa la retícula del slide (1-4).
+	Columns int `json:"columns,omitempty"`
+	// Align es la alineación del contenido: "left" o "center".
+	Align string `json:"align,omitempty"`
 }
 
 // QuizElement representa una pregunta de opción múltiple con una respuesta

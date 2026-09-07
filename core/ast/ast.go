@@ -80,7 +80,7 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // namespace (`watermark:`), rendered behind content on every
 // slide/page. FontSize is stored verbatim like PageConfig.Size, not
 // resolved to any renderer's unit.
-const SchemaVersion = "2.9.0"
+const SchemaVersion = "2.10.0"
 
 // Node representa un nodo base en el AST
 type Node interface {
