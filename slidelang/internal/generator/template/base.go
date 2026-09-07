@@ -274,6 +274,8 @@ func (tb *TemplateBuilder) Build() string {
 				html.WriteString(`    <script src="charts.js"></script>` + "\n")
 			case "maps":
 				html.WriteString(`    <script src="maps.js"></script>` + "\n")
+			case "quizpoll":
+				html.WriteString(`    <script src="quizpoll.js"></script>` + "\n")
 			}
 		}
 	}
@@ -363,6 +365,8 @@ func (tb *TemplateBuilder) BuildJSWithModules(modules []string) string {
 			moduleJS = GetChartsJS()
 		case "maps":
 			moduleJS = GetMapsJS()
+		case "quizpoll":
+			moduleJS = GetQuizPollJS()
 		case "directives":
 			moduleJS = GetDirectivesJS()
 		}
@@ -882,6 +886,36 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                         </div>
                     {{end}}
                 </blockquote>
+            </div>        {{else if eq .Type "quiz"}}
+            <div class="slidelang-element slidelang-quiz {{range .CSSClasses}}slidelang-{{.}} {{end}}"
+                 id="slidelang-element-quiz-{{.SlideIndex}}-{{.ElementID}}"
+                 data-element-type="quiz"
+                 data-answer="{{.QuizAnswer}}"
+                 data-slide="{{.SlideIndex}}">
+                <p class="question">{{.Question | markdownInline}}</p>
+                <ol class="options">
+                    {{range $i, $opt := .QuizOptions}}
+                    <li><button type="button" class="option" data-index="{{$i}}">{{$opt | markdownInline}}</button></li>
+                    {{end}}
+                </ol>
+                {{if .QuizExplanation}}<p class="explanation" hidden>{{.QuizExplanation | markdownInline}}</p>{{end}}
+            </div>        {{else if eq .Type "poll"}}
+            <div class="slidelang-element slidelang-poll {{range .CSSClasses}}slidelang-{{.}} {{end}}"
+                 id="slidelang-element-poll-{{.SlideIndex}}-{{.ElementID}}"
+                 data-element-type="poll"
+                 data-multiple="{{.QuizMultiple}}"
+                 data-slide="{{.SlideIndex}}">
+                <p class="question">{{.Question | markdownInline}}</p>
+                <ol class="options">
+                    {{range $i, $opt := .QuizOptions}}
+                    <li><button type="button" class="poll-option" data-index="{{$i}}">{{$opt | markdownInline}}</button></li>
+                    {{end}}
+                </ol>
+                <div class="poll-results" hidden>
+                    {{range $i, $opt := .QuizOptions}}
+                    <div class="progress-bar" data-index="{{$i}}"><span class="progress-fill"></span></div>
+                    {{end}}
+                </div>
             </div>        {{else if eq .Type "checklist"}}
             <div class="slidelang-element slidelang-checklist {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-checklist-{{.SlideIndex}}-{{.ElementID}}"

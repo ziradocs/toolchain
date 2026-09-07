@@ -376,6 +376,10 @@ func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int,
 		return g.pptxAddQuote(s, e, cursorY)
 	case *ast.ChecklistElement:
 		return g.pptxAddChecklist(s, e, cursorY)
+	case *ast.QuizElement:
+		return g.pptxAddQuiz(s, e, cursorY)
+	case *ast.PollElement:
+		return g.pptxAddPoll(s, e, cursorY)
 	case *ast.CodeElement:
 		return g.pptxAddCode(s, e, cursorY)
 	case *ast.ChartElement:
@@ -712,6 +716,65 @@ func (g *Generator) pptxAddChecklist(s *pptx.Slide, e *ast.ChecklistElement, cur
 		for _, sub := range item.SubItems {
 			pptxAddChecklistParagraph(tb, sub, 1)
 		}
+	}
+
+	return cursorY + height + pptxParaGapEMU
+}
+
+// pptxAddQuiz y pptxAddPoll dibujan un quiz o un poll en una diapositiva
+// (issue #198).
+//
+// PPTX no tiene interacción, así que el quiz sale RESUELTO: la opción correcta
+// lleva un ✓ y la explicación va debajo. Es la misma decisión que el HTML
+// estático de core — un quiz que no se puede responder tiene que al menos
+// enseñar la respuesta.
+func (g *Generator) pptxAddQuiz(s *pptx.Slide, e *ast.QuizElement, cursorY int) int {
+	lines := pptxEstimateLines(e.Question) + len(e.Options)
+	if e.Explanation != "" {
+		lines += pptxEstimateLines(e.Explanation)
+	}
+	if lines < 1 {
+		lines = 1
+	}
+	height := lines * pptxLineHeightEMU
+
+	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
+	if e.Question != "" {
+		para := tb.AddParagraph()
+		pptxApplyInline(para, e.Question)
+		para.Bold()
+	}
+	for i, option := range e.Options {
+		marker := fmt.Sprintf("%d. ", i+1)
+		if i == e.Answer {
+			marker = "✓ " + marker
+		}
+		pptxApplyInline(tb.AddParagraph(), marker+option)
+	}
+	if e.Explanation != "" {
+		para := tb.AddParagraph()
+		pptxApplyInline(para, e.Explanation)
+		para.Italic()
+	}
+
+	return cursorY + height + pptxParaGapEMU
+}
+
+func (g *Generator) pptxAddPoll(s *pptx.Slide, e *ast.PollElement, cursorY int) int {
+	lines := pptxEstimateLines(e.Question) + len(e.Options)
+	if lines < 1 {
+		lines = 1
+	}
+	height := lines * pptxLineHeightEMU
+
+	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
+	if e.Question != "" {
+		para := tb.AddParagraph()
+		pptxApplyInline(para, e.Question)
+		para.Bold()
+	}
+	for i, option := range e.Options {
+		pptxApplyInline(tb.AddParagraph(), fmt.Sprintf("%d. %s", i+1, option))
 	}
 
 	return cursorY + height + pptxParaGapEMU

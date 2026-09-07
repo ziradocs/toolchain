@@ -34,6 +34,9 @@ func GetInitJS(modules []string) string {
             SlideLang.charts.init();
         }
 `
+		case "quizpoll":
+			// quizpoll.js se auto-inicializa al cargarse (escucha clicks en el
+			// document), así que no necesita registro ni init explícito.
 		case "maps":
 			initModules += `        if (SlideLang.maps) {
             SlideLang.registerModule('maps', SlideLang.maps);

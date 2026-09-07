@@ -198,6 +198,8 @@ func DetectRequiredElements(elementTypes []string) []string {
 			module = "quotes"
 		case "checklist":
 			module = "checklists"
+		case "quiz", "poll":
+			module = "quizpoll"
 		case "map":
 			module = "maps"
 		case "header", "footer":
