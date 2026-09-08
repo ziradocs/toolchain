@@ -420,7 +420,14 @@ alone on its line and closed by `<<end>>`: it carries no `>>` by definition.
 
 A tag that takes **no** attributes closes by being the whole line:
 `<<mermaid>>`, `<<plantuml>>` and `<<math>>` match only when nothing follows
-them, the same rule `<<quiz>>`, `<<poll>>` and `<<grid>>` already had.
+them, the same rule `<<quiz>>`, `<<poll>>` and `<<grid>>` already had in the
+strict dialect.
+
+This section is about the `<<…>>` family only. The `:::` blocks match their
+name on a loose prefix and have no boundary of their own — `::: gridJUNK` is
+still parsed, and consumes the lines under it exactly as a mistyped `<<…>>` tag
+used to. That is tracked separately in
+[toolchain#307](https://github.com/ziradocs/toolchain/issues/307).
 
 The three halves of the rule exist for the same reason and are worth naming
 separately, because closing one and calling the boundary done is how the other
