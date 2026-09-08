@@ -992,12 +992,14 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 		case *ast.MapElement:
 			interactiveTypes = append(interactiveTypes, "map")
 		case *ast.CodeElement:
-			// Un fence ```mermaid se renderiza como diagrama
-			// (`.slidelang-mermaid`), no como bloque de código, así que no
-			// recibe el botón de copiar y no entra por ningún lado.
-			if !strings.HasPrefix(strings.ToLower(e.Language), "mermaid") {
-				interactiveTypes = append(interactiveTypes, "code")
-			}
+			// Sin mirar el lenguaje: la plantilla decide por TIPO de nodo, no
+			// por el lenguaje del fence. Un ```mermaid escrito en el fuente
+			// llega acá como MermaidElement (`.slidelang-mermaid`), pero un
+			// CodeElement con `Language: "mermaid"` construido por API
+			// renderiza `.slidelang-code` y sí recibe el botón de copiar. La
+			// primera versión de este cambio filtraba por lenguaje y marcaba
+			// ese caso como no interactivo; el test de controles lo cazó.
+			interactiveTypes = append(interactiveTypes, "code")
 		case *ast.SpecialBlockElement:
 			switch strings.ToLower(e.BlockType) {
 			case "chart", "charts":
@@ -1005,8 +1007,21 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 			case "map", "maps":
 				interactiveTypes = append(interactiveTypes, "map")
 			case "code-group", "codegroup":
+				// Un bloque especial con este tipo NO trae tabs: solo la
+				// forma pegada `:::code-group` produce un CodeGroupElement
+				// real (rama de más abajo), y la separada `::: code-group`
+				// —que dos ejemplos del corpus usan— cae acá y renderiza el
+				// contenido crudo, sin `.slidelang-tab` y sin nada que
+				// clickear. Se deja marcado a propósito: el defecto está en
+				// que esa forma renderiza mal, no en el metadato, y arreglarlo
+				// acá escondería el síntoma. Ver el issue enlazado en el PR.
 				interactiveTypes = append(interactiveTypes, "code")
-			case "details", "collapsible":
+			case "details":
+				// `.slidelang-details` sí lo agarra initInteractiveElements.
+				// `collapsible` estaba en esta misma lista y no: emite
+				// `.slidelang-collapsible`, que ningún selector del JS busca,
+				// y no aparece ni en los schemas del linter ni en el kit ni en
+				// el corpus.
 				interactiveTypes = append(interactiveTypes, "interactive")
 			}
 		case *ast.QuizElement:
