@@ -65,9 +65,14 @@ func TestFlexParser_TruncatedChartTagDoesNotSwallowContent(t *testing.T) {
 }
 
 // El abridor multilínea sigue siendo válido: la regla nueva no puede exigirle
-// el `>>` que por definición no lleva. Sin este positivo, "simplificar"
-// CanParse a la forma de map/media (sufijo `>>` obligatorio) pasaría los
-// negativos y rompería la forma multilínea en silencio.
+// el `>>` que por definición no lleva.
+//
+// No es el único que cazaría esa mutación —"simplificar" CanParse a la forma
+// de map/media también rompe TestChartParser_CanParse (strict y flex) y la
+// fila `chart multilínea es un chart` del despacho strict—, así que este caso
+// no es lo que separa el rojo del verde. Vale por dónde está: en el mismo
+// archivo que los negativos, para que quien los lea vea qué NO se está
+// prohibiendo.
 func TestFlexParser_MultilineChartOpenerStillParses(t *testing.T) {
 	astNode, _ := parseFlexBody(t,
 		"# Deck", "",

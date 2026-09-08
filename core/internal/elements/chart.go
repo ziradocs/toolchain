@@ -50,10 +50,14 @@ type ChartParser struct{}
 // Por qué no se copia tal cual la regla de map/media, que exigen
 // `HasSuffix(">>")` sin condición: `<<chart` solo en su línea es un abridor
 // legítimo de la forma multilínea (cerrada por `<<end>>`) y no lleva ">>". De
-// ahí la disyunción, en vez de un guardia único arriba. Con esto chart es el
-// último de esta clase: media y map ya exigían el sufijo, y
+// ahí la disyunción, en vez de un guardia único arriba.
+//
+// Lo que esto cierra es la forma TRUNCADA, y ahí sí no queda ninguna:
 // mermaid/plantuml/math llevan el ">>" dentro del prefijo que matchean, así
-// que no tienen forma truncada.
+// que no la tienen, y media y map ya exigían el sufijo. Lo que NO cierra es la
+// basura pegada después de un tag bien formado —`<<mermaid>>basura` sigue
+// siendo un mermaid que se traga las líneas de abajo, y en flex sin emitir
+// diagnóstico, mientras chart ahí avisa—. Eso es #289 y sigue abierto.
 func (p *ChartParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 	if mode != "strict" && mode != "flex" {

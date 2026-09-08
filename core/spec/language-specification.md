@@ -412,6 +412,14 @@ content. This matters more than it looks: a tag matched on a loose prefix
 consumes the lines under it, so a mistyped `<<mapa>>` above a `title:` used to
 absorb the slide's title and leave the slide untitled, with nothing reported.
 
+The same tags must also **close on the line they open**. `<<chart: bar` with no
+`>>`, and `<<chart: bar>>trailing`, are ordinary content, not charts. The one
+exception is the multi-line opener `<<chart`, written alone on its line and
+closed by `<<end>>`: it carries no `>>` by definition. Both halves of the rule
+exist for the same reason — the opening boundary decides whether a *mistyped*
+tag is reparsed as something else, and the terminator decides whether an
+*unfinished* one is.
+
 ### Layout options
 
 A slide's layout can carry **options** that change how its content is arranged.
