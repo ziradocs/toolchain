@@ -257,7 +257,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 
 	for i, slide := range astNode.ContentBlocks {
 		// Detectar elementos interactivos
-		hasInteractive, interactiveElements := detectInteractiveElements(slide.Elements)
+		hasInteractive, interactiveElements := detectInteractiveElements(slide.Elements, offline)
 
 		// Extraer presenter notes de los elementos
 		notes := extractPresenterNotes(slide.Elements, variables)
@@ -982,15 +982,34 @@ func isSlideTypeClosing(slideType string) bool {
 // Ojo con el nombre: `hasInteractiveElements` (offline.go, pdf.go) es OTRA
 // función y otra pregunta —"¿hace falta Chromium para rasterizar esto?"—, y
 // ahí mermaid sí cuenta. Las dos no tienen por qué coincidir.
-func detectInteractiveElements(elements []ast.Element) (bool, []string) {
+func detectInteractiveElements(elements []ast.Element, offline bool) (bool, []string) {
 	interactiveTypes := []string{}
+
+	// En los modos offline el chart y el mapa ya vienen RASTERIZADOS: el
+	// generador los dibuja al build y emite un <img>, sin <canvas> y sin
+	// Chart.js ni Leaflet en el bundle. Lo que queda es una imagen, y una
+	// imagen no se toca. Medido sobre el mismo deck con --embed-assets:
+	//
+	//	                 canvas  Chart.js  Leaflet  copiar  quiz
+	//	browser              1         1        4       sí    sí
+	//	offline-assets       0         0        0       sí    sí
+	//	offline-inline       0         0        0       sí    sí
+	//
+	// Por eso el gate va SOLO sobre chart y map: el botón de copiar, las tabs
+	// y quiz/poll siguen enganchados en los tres modos, así que filtrar la
+	// función entera por modo sería el error simétrico.
+	addRasterizable := func(t string) {
+		if !offline {
+			interactiveTypes = append(interactiveTypes, t)
+		}
+	}
 
 	for _, elem := range elements {
 		switch e := elem.(type) {
 		case *ast.ChartElement:
-			interactiveTypes = append(interactiveTypes, "chart")
+			addRasterizable("chart")
 		case *ast.MapElement:
-			interactiveTypes = append(interactiveTypes, "map")
+			addRasterizable("map")
 		case *ast.CodeElement:
 			// Sin mirar el lenguaje: la plantilla decide por TIPO de nodo, no
 			// por el lenguaje del fence. Un ```mermaid escrito en el fuente
@@ -1001,11 +1020,14 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 			// ese caso como no interactivo; el test de controles lo cazó.
 			interactiveTypes = append(interactiveTypes, "code")
 		case *ast.SpecialBlockElement:
+			// `chart`/`charts` y `map`/`maps` NO están acá abajo. Un bloque
+			// especial con ese tipo no es un chart ni un mapa: la plantilla le
+			// da un contenedor de prosa, el linter emite SPECIAL001, y el HTML
+			// no trae ni un <canvas> ni un .slidelang-map-container. Medido con
+			// `::: chart` + una línea de texto: cero canvas y
+			// `data-interactive="true"`. Las ramas existían por el nombre del
+			// bloque, no por lo que se renderiza.
 			switch strings.ToLower(e.BlockType) {
-			case "chart", "charts":
-				interactiveTypes = append(interactiveTypes, "chart")
-			case "map", "maps":
-				interactiveTypes = append(interactiveTypes, "map")
 			case "code-group", "codegroup":
 				// Un bloque especial con este tipo NO trae tabs: solo la
 				// forma pegada `:::code-group` produce un CodeGroupElement

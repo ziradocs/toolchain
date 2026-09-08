@@ -205,3 +205,115 @@ func containsAll(have []string, want []string) bool {
 	}
 	return true
 }
+
+// Todo bloque `::: tipo` que la función reconozca por NOMBRE tiene que traer un
+// control en el markup, y ninguno de los que no reconoce puede traerlo.
+//
+// Las ramas de `chart`/`charts` y `map`/`maps` existían por el nombre del
+// bloque, no por lo que se renderiza: `::: chart` con una línea de texto emite
+// un contenedor de prosa, el linter tira SPECIAL001, no hay ni un `<canvas>` —y
+// el slide salía con `data-interactive="true"`. Enumerar la lista completa acá
+// es lo que impide volver a agregar una rama por el nombre.
+func TestRenderHTMLPreview_EverySpecialBlockTypeMatchesItsMarkup(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	for _, tc := range []struct {
+		blockType string
+		want      bool
+	}{
+		// Los que la función reconoce hoy.
+		{"code-group", true}, // ver #300: la forma con espacio no trae tabs
+		{"codegroup", true},
+		{"details", true},
+
+		// Los que se retiraron en este cambio.
+		{"chart", false},
+		{"charts", false},
+		{"map", false},
+		{"maps", false},
+
+		// Y los tipos de bloque que nunca estuvieron, como control: si alguno
+		// empezara a traer un control, este test lo dice.
+		{"note", false},
+		{"tip", false},
+		{"warning", false},
+		{"info", false},
+		{"collapsible", false},
+	} {
+		t.Run(tc.blockType, func(t *testing.T) {
+			block := ast.NewContentBlock(pos, "content")
+			block.Title = "Slide"
+			sb := ast.NewSpecialBlockElement(pos, tc.blockType, "Contenido de prosa.")
+			block.Elements = []ast.Element{sb}
+			doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+			html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+			if err != nil {
+				t.Fatalf("RenderHTMLPreview: %v", err)
+			}
+
+			want := "false"
+			if tc.want {
+				want = "true"
+			}
+			if got := slideDivAttr(t, html, "data-interactive", 0); got != want {
+				t.Errorf("data-interactive = %q, se esperaba %q", got, want)
+			}
+			if tc.want {
+				return
+			}
+			// Un bloque marcado como NO interactivo no puede traer ningún
+			// selector de control en su markup.
+			for _, sel := range jsControlSelectors {
+				if hasElementWithClasses(html, sel.classes) {
+					t.Errorf("el markup de `::: %s` trae %s (%v)", tc.blockType, sel.name, sel.classes)
+				}
+			}
+		})
+	}
+}
+
+// Un chart y un mapa PRE-RENDERIZADOS no son interactivos: en los modos offline
+// el generador los dibuja al build y emite un <img>, sin <canvas> y sin Chart.js
+// ni Leaflet en el bundle. El metadato decía `true` igual.
+//
+// El test recorre los tres modos con el MISMO deck, y afirma también los
+// elementos que NO dependen del modo: el botón de copiar y el quiz siguen
+// enganchados en offline, así que un gate por modo sobre toda la función sería
+// el error simétrico al que esto corrige.
+func TestRenderHTMLPreview_OfflineModesDropRasterizedInteractivity(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	for _, mode := range []string{"browser", "offline-assets", "offline-inline"} {
+		t.Run(mode, func(t *testing.T) {
+			chartBlock := ast.NewContentBlock(pos, "content")
+			chartBlock.Title = "Chart"
+			chartBlock.Elements = []ast.Element{ast.NewChartElement(pos, "bar")}
+
+			codeBlock := ast.NewContentBlock(pos, "content")
+			codeBlock.Title = "Code"
+			codeBlock.Elements = []ast.Element{ast.NewCodeElement(pos, "go", "fmt.Println()")}
+
+			doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*chartBlock, *codeBlock}}
+
+			html, err := New(util.NewNoop()).RenderHTMLPreview(doc,
+				GeneratorOptions{RenderMode: mode}, renderer.NewDefaultRenderContext())
+			if err != nil {
+				t.Fatalf("RenderHTMLPreview(%s): %v", mode, err)
+			}
+
+			wantChart := "true"
+			if mode != "browser" {
+				wantChart = "false"
+			}
+			if got := slideDivAttr(t, html, "data-interactive", 0); got != wantChart {
+				t.Errorf("el slide del chart en %s: data-interactive = %q, se esperaba %q", mode, got, wantChart)
+			}
+			// El código no depende del modo: initCopyButtons le cuelga el
+			// botón en los tres.
+			if got := slideDivAttr(t, html, "data-interactive", 1); got != "true" {
+				t.Errorf("el slide del código en %s: data-interactive = %q, se esperaba \"true\"", mode, got)
+			}
+		})
+	}
+}
