@@ -67,10 +67,102 @@ func TestDOCXGenerator_SpanTokenComposesWithInnerFormatting(t *testing.T) {
 	}
 }
 
+// El estilo BASE del contexto —la cursiva de una explicación de quiz, la
+// negrita de una pregunta— tiene que seguir llegando a los runs que produce el
+// token, y eso depende de que el estampado del token propague su `postRun`.
+//
+// Sin este test la propagación quedaba sin cubrir: quitarla dejaba TODA la
+// suite en verde, y el daño es exactamente el caso que la descripción del PR
+// dice haber verificado a mano. Medido con la propagación quitada, la
+// explicación en cursiva pierde la cursiva justo en el tramo del token:
+// `'Ctrl' [B, Consolas]` en vez de `[B, I, Consolas]`.
+func TestDOCXGenerator_SpanTokenKeepsTheSurroundingBaseStyle(t *testing.T) {
+	q := ast.NewQuizElement(diagnostics.NewPosition(1, 1))
+	q.Question = "¿Sirve [**Ctrl**]{.kbd}?"
+	q.Options = []string{"Con [**Ctrl**]{.kbd}", "No"}
+	q.Answer = 0
+	q.Explanation = "Explicación con [**Ctrl**]{.kbd} adentro."
+
+	output := filepath.Join(t.TempDir(), "quiz-token.docx")
+	if err := New(newTestLogger()).Generate(astWithElements(q), output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	xml := docxDocumentXML(t, output)
+
+	if strings.Contains(xml, escapeForDocxText("**Ctrl**")) {
+		t.Fatal("el token salió literal dentro del quiz")
+	}
+
+	// Tres runs con el mismo texto, uno por campo. El de la explicación es el
+	// que lleva la cursiva base; los otros dos, la negrita de la pregunta y de
+	// la opción correcta.
+	var estilos []string
+	for _, run := range docxRunsContaining(xml, "Ctrl") {
+		var s string
+		if strings.Contains(run, "<w:b") {
+			s += "B"
+		}
+		if strings.Contains(run, "<w:i") {
+			s += "I"
+		}
+		if strings.Contains(run, `w:ascii="Consolas"`) {
+			s += "M"
+		}
+		estilos = append(estilos, s)
+	}
+	if len(estilos) != 3 {
+		t.Fatalf("se esperaban 3 runs con el token, hay %d: %v", len(estilos), estilos)
+	}
+	// El de la explicación tiene que traer la cursiva del contexto además de
+	// la negrita de adentro y la monoespaciada del token.
+	var conCursiva int
+	for _, s := range estilos {
+		if strings.Contains(s, "I") {
+			conCursiva++
+		}
+		if !strings.Contains(s, "B") || !strings.Contains(s, "M") {
+			t.Errorf("un run del token perdió la negrita interna o la fuente del token: %q (todos: %v)", s, estilos)
+		}
+	}
+	if conCursiva != 1 {
+		t.Errorf("runs con la cursiva base de la explicación: %d, se esperaba 1 (estilos: %v)", conCursiva, estilos)
+	}
+}
+
+// docxRunsContaining devuelve TODOS los <w:r>…</w:r> cuyo <w:t> es text.
+// docxRunContaining (docx_quizpoll_inline_test.go) devuelve solo el primero,
+// que no sirve cuando el mismo texto aparece en varios campos.
+func docxRunsContaining(xml, text string) []string {
+	var out []string
+	needle := ">" + escapeForDocxText(text) + "<"
+	for pos := 0; ; {
+		start := strings.Index(xml[pos:], "<w:r>")
+		if start < 0 {
+			return out
+		}
+		start += pos
+		end := strings.Index(xml[start:], "</w:r>")
+		if end < 0 {
+			return out
+		}
+		run := xml[start : start+end+len("</w:r>")]
+		if strings.Contains(run, needle) {
+			out = append(out, run)
+		}
+		pos = start + end
+	}
+}
+
 // El estilo del token se estampa DESPUÉS del estilo del pattern interno y solo
 // agrega: si pusiera fuente base, le pisaría la Consolas al patrón de code.
 // Este test fija esa dirección con el caso donde chocan —un `code` adentro de
 // un token que no toca la fuente.
+//
+// Efecto lateral de que el pattern de code ahora corra ahí adentro, que antes
+// no pasaba: un “ `cod` “ dentro de un token también hereda el TAMAÑO y el
+// COLOR del código inline, no solo la fuente. Es lo mismo que le pasa a un
+// “ `cod` “ suelto en prosa, así que la salida queda más consistente, pero es
+// un cambio observable.
 func TestDOCXGenerator_SpanTokenStampDoesNotClobberInnerCodeFont(t *testing.T) {
 	text := ast.NewTextElement(diagnostics.NewPosition(1, 1), "Un [`cod`]{.underline} suelto.")
 
