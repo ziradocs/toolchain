@@ -946,46 +946,85 @@ func isSlideTypeClosing(slideType string) bool {
 
 // === FUNCIONES AUXILIARES PARA VISUALIZADOR AVANZADO ===
 
-// detectInteractiveElements analiza los elementos de un slide para detectar elementos interactivos
+// detectInteractiveElements dice qué elementos de un slide el visor puede
+// TOCAR. Es lo que sale a `data-interactive` / `data-interactive-types` y al
+// JSON del visor.
+//
+// El criterio —fijado en #290 al arreglar media— es literal: tiene que existir
+// un control, un handler o una librería que responda al puntero. No basta con
+// que el elemento lo pinte JavaScript.
+//
+// Quién queda adentro y por qué, verificado sobre el HTML generado:
+//
+//   - chart: Chart.js trae tooltips al pasar el puntero.
+//   - map: Leaflet arrastra, hace zoom y abre popups.
+//   - code: `initCopyButtons` (template/utilities.go) le cuelga un botón
+//     "Copiar" a todo `.slidelang-element.slidelang-code`, sin condición.
+//   - code-group / details: `initInteractiveElements` les asigna `.onclick`.
+//   - quiz / poll: quizpoll.js marca la opción, revela la explicación y llena
+//     las barras.
+//   - video / audio: solo con `controls` (#290).
+//
+// Y quién NO, que es lo que este criterio corrigió:
+//
+//   - quote: el HTML de una cita es un `<blockquote>` pelado. No tiene botón,
+//     ni handler, ni línea de JS; lo único que reacciona al puntero es un
+//     `:hover` decorativo de CSS. Salía con `data-interactive="true"`,
+//     `["quote"]`.
+//   - mermaid: el diagrama lo dibuja JS, pero el resultado es un SVG estático.
+//     mermaid.js solo escucha `slideChanged` y `DOMContentLoaded` —ciclo de
+//     vida, no interacción— e inicializa con `securityLevel: 'strict'`, que en
+//     Mermaid desactiva las directivas `click`; hay un test
+//     (TestMermaidAsset_SafeAndConsistent) que impide relajarlo. Que un
+//     elemento necesite JavaScript para existir no es lo mismo que que el
+//     visor pueda hacerle algo.
+//
+// Ojo con el nombre: `hasInteractiveElements` (offline.go, pdf.go) es OTRA
+// función y otra pregunta —"¿hace falta Chromium para rasterizar esto?"—, y
+// ahí mermaid sí cuenta. Las dos no tienen por qué coincidir.
 func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 	interactiveTypes := []string{}
 
 	for _, elem := range elements {
 		switch e := elem.(type) {
-		case *ast.MermaidElement:
-			interactiveTypes = append(interactiveTypes, "mermaid")
 		case *ast.ChartElement:
 			interactiveTypes = append(interactiveTypes, "chart")
 		case *ast.MapElement:
 			interactiveTypes = append(interactiveTypes, "map")
 		case *ast.CodeElement:
-			if strings.HasPrefix(strings.ToLower(e.Language), "mermaid") {
-				interactiveTypes = append(interactiveTypes, "mermaid")
-			} else {
-				interactiveTypes = append(interactiveTypes, "code")
-			}
+			// Sin mirar el lenguaje: la plantilla decide por TIPO de nodo, no
+			// por el lenguaje del fence. Un ```mermaid escrito en el fuente
+			// llega acá como MermaidElement (`.slidelang-mermaid`), pero un
+			// CodeElement con `Language: "mermaid"` construido por API
+			// renderiza `.slidelang-code` y sí recibe el botón de copiar. La
+			// primera versión de este cambio filtraba por lenguaje y marcaba
+			// ese caso como no interactivo; el test de controles lo cazó.
+			interactiveTypes = append(interactiveTypes, "code")
 		case *ast.SpecialBlockElement:
 			switch strings.ToLower(e.BlockType) {
-			case "mermaid", "diagram":
-				interactiveTypes = append(interactiveTypes, "mermaid")
 			case "chart", "charts":
 				interactiveTypes = append(interactiveTypes, "chart")
 			case "map", "maps":
 				interactiveTypes = append(interactiveTypes, "map")
 			case "code-group", "codegroup":
+				// Un bloque especial con este tipo NO trae tabs: solo la
+				// forma pegada `:::code-group` produce un CodeGroupElement
+				// real (rama de más abajo), y la separada `::: code-group`
+				// —que dos ejemplos del corpus usan— cae acá y renderiza el
+				// contenido crudo, sin `.slidelang-tab` y sin nada que
+				// clickear. Se deja marcado a propósito: el defecto está en
+				// que esa forma renderiza mal, no en el metadato, y arreglarlo
+				// acá escondería el síntoma. Ver el issue enlazado en el PR.
 				interactiveTypes = append(interactiveTypes, "code")
-			case "details", "collapsible":
+			case "details":
+				// `.slidelang-details` sí lo agarra initInteractiveElements.
+				// `collapsible` estaba en esta misma lista y no: emite
+				// `.slidelang-collapsible`, que ningún selector del JS busca,
+				// y no aparece ni en los schemas del linter ni en el kit ni en
+				// el corpus.
 				interactiveTypes = append(interactiveTypes, "interactive")
 			}
-		case *ast.QuoteElement:
-			interactiveTypes = append(interactiveTypes, "quote")
 		case *ast.QuizElement:
-			// El criterio de esta función es "el visor puede hacerle algo a
-			// esto", y quiz y poll faltaban: quizpoll.js marca la opción,
-			// revela la explicación y llena las barras. Un slide con un quiz
-			// salía con `data-interactive="false"` —el metadato diciendo lo
-			// contrario de lo que se ve— mientras uno con una cita salía con
-			// `true`.
 			interactiveTypes = append(interactiveTypes, "quiz")
 		case *ast.PollElement:
 			interactiveTypes = append(interactiveTypes, "poll")
