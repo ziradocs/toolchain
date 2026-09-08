@@ -32,9 +32,28 @@ type ChartParser struct{}
 // reporta, se parsea como otra cosa y se traga las líneas que le siguen. Medido
 // en flex sobre `main`: `<<chart-de-cuentas>>` producía un ChartElement.
 //
-// Lo que sigue a `<<chart` tiene que ser el fin de la línea o un ":". No se
-// acepta " " —no hay forma `<<chart bar>>` en la gramática— ni ">>", que sería
-// un abridor multilínea con un cierre de más.
+// Lo que sigue a `<<chart` tiene que ser el fin de la línea (abridor
+// multilínea) o un ":" con un ">>" cerrando la misma línea. No se acepta " "
+// —no hay forma `<<chart bar>>` en la gramática— ni ">>" pelado, que sería un
+// abridor multilínea con un cierre de más.
+//
+// El terminador es la mitad que faltaba: la frontera inicial sola dejaba pasar
+// el tag truncado (`<<chart: bar`, un `>>` que se quedó en el teclado) y el
+// tag con basura pegada (`<<chart: bar>>x`). El daño no es "no se ve el
+// chart": el parser abre un cuerpo multilínea y consume las líneas de abajo,
+// que en un slide son sus propiedades. Y el cuerpo de un chart tiene su propia
+// llave `title`, así que —medido en strict sobre `main`— el `title:` del slide
+// no se pierde en el vacío: termina siendo el título del ChartElement
+// inventado. El slide se queda sin título y el deck muestra uno de más, en el
+// lugar equivocado. Nada de esto se reporta; el build sale en verde.
+//
+// Por qué no se copia tal cual la regla de map/media, que exigen
+// `HasSuffix(">>")` sin condición: `<<chart` solo en su línea es un abridor
+// legítimo de la forma multilínea (cerrada por `<<end>>`) y no lleva ">>". De
+// ahí la disyunción, en vez de un guardia único arriba. Con esto chart es el
+// último de esta clase: media y map ya exigían el sufijo, y
+// mermaid/plantuml/math llevan el ">>" dentro del prefijo que matchean, así
+// que no tienen forma truncada.
 func (p *ChartParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 	if mode != "strict" && mode != "flex" {
@@ -44,7 +63,10 @@ func (p *ChartParser) CanParse(line string, mode string) bool {
 	if !ok {
 		return false
 	}
-	return rest == "" || strings.HasPrefix(rest, ":")
+	if rest == "" {
+		return true
+	}
+	return strings.HasPrefix(rest, ":") && strings.HasSuffix(rest, ">>")
 }
 
 // Parse parsea un elemento Chart

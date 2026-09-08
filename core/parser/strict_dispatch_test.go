@@ -83,6 +83,12 @@ func TestStrictParser_DispatchMatchesElementCanParse(t *testing.T) {
 		{name: "charts no es un chart", body: []string{"<<charts>>", "type: bar"}, want: ""},
 		{name: "chartfoo no es un chart", body: []string{"<<chartfoo>>", "type: bar"}, want: ""},
 		{name: "chart-de-cuentas no es un chart", body: []string{"<<chart-de-cuentas>>"}, want: ""},
+		// Y los negativos de terminador, la otra mitad de la frontera. La
+		// primera versión de estos negativos solo cubrió el prefijo, así que
+		// `<<charts>>` quedó cerrado pero `<<chart: bar` —el mismo tag, sin el
+		// `>>`— siguió entrando y comiéndose el resto del slide.
+		{name: "chart inline truncado no es un chart", body: []string{"<<chart: bar", "labels: [a, b]"}, want: ""},
+		{name: "chart inline con basura pegada no es un chart", body: []string{"<<chart: bar>>basura", "labels: [a, b]"}, want: ""},
 		{name: "mapa no es un map", body: []string{"<<mapa>>"}, want: ""},
 		{name: "maps no es un map", body: []string{"<<maps>>"}, want: ""},
 		{name: "mapping con atributos no es un map", body: []string{`<<mapping x="1">>`}, want: ""},
@@ -132,23 +138,46 @@ func TestStrictParser_DispatchMatchesElementCanParse(t *testing.T) {
 
 // Un tag mal escrito no puede quedarse con las propiedades del slide.
 //
-// Este es el daño concreto de que `<<map` no tuviera frontera de palabra:
-// `<<mapa>>` se parseaba como un mapa, el mapa consumía el `title:` de abajo
-// como uno de sus atributos, y el slide terminaba sin título. Un typo de una
-// letra borraba el título y no se reportaba en ningún lado.
+// Este es el daño concreto de que la frontera no estuviera completa. `<<mapa>>`
+// (prefijo sin frontera) se parseaba como un mapa y `<<chart: bar` (frontera
+// inicial pero sin terminador) como un chart; en los dos casos el elemento
+// consumía el `title:` de abajo como parte de su cuerpo y el slide terminaba
+// sin título. Un typo de una letra, o un `>>` que se quedó en el teclado,
+// borraba el título sin reportar nada.
+//
+// El mecanismo, medido con `<<chart: bar` sobre `main`: el chart también tiene
+// una llave `title` en su cuerpo YAML, así que el `title:` del slide no se
+// pierde en el vacío —termina siendo el título del chart inventado. El slide
+// queda sin título y el deck muestra uno de más, en el lugar equivocado.
+//
+// Dos cosas que este fixture NO afirma porque midiéndolas no se cumplen: el
+// `logo:` de abajo sobrevive (no es llave de chart), y el BlockType no se
+// mueve, porque en strict lo fija el encabezado `SLIDE <tipo>`, que va arriba
+// del tag.
 func TestStrictParser_MistypedTagDoesNotSwallowSlideProperties(t *testing.T) {
-	astNode, _ := NewStrictParser(strings.Join([]string{
-		"SLIDE content",
-		"  <<mapa>>",
-		`  title: "Ventas por región"`,
-		"  TEXT",
-		"    Contenido real",
-	}, "\n"), util.NewNoop()).Parse()
+	for _, tc := range []struct {
+		name string
+		tag  string
+	}{
+		{name: "prefijo sin frontera", tag: "<<mapa>>"},
+		{name: "inline sin terminador", tag: "<<chart: bar"},
+		{name: "inline con basura pegada", tag: "<<chart: bar>>basura"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			astNode, _ := NewStrictParser(strings.Join([]string{
+				"SLIDE content",
+				"  " + tc.tag,
+				`  title: "Ventas por región"`,
+				"  TEXT",
+				"    Contenido real",
+			}, "\n"), util.NewNoop()).Parse()
 
-	if len(astNode.ContentBlocks) != 1 {
-		t.Fatalf("se esperaba 1 bloque, hay %d", len(astNode.ContentBlocks))
-	}
-	if got := astNode.ContentBlocks[0].Title; got != "Ventas por región" {
-		t.Errorf("Title = %q: el tag mal escrito se quedó con la propiedad del slide", got)
+			if len(astNode.ContentBlocks) != 1 {
+				t.Fatalf("se esperaba 1 bloque, hay %d", len(astNode.ContentBlocks))
+			}
+			if got := astNode.ContentBlocks[0].Title; got != "Ventas por región" {
+				t.Errorf("Title = %q: el tag mal escrito se quedó con la propiedad del slide", got)
+			}
+		})
 	}
 }
