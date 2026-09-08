@@ -24,15 +24,31 @@ var version = "dev"
 //
 // A local `go build` still reports "dev": ReadBuildInfo returns "(devel)"
 // there, which carries no more information than the fallback and reads worse.
+//
+// The decision lives in pickVersion, a pure function, because that is the only
+// shape a test can actually pin: a test that calls resolveVersion() from inside
+// `go test` reads the *test* binary's build info, so it exercises whichever
+// branch the harness happens to produce and stays green no matter what the
+// fallback does. The first version of this fix had exactly that hole — muting
+// the fallback left every test passing.
 func resolveVersion() string {
-	if version != "dev" {
-		return version
+	built := ""
+	if info, ok := debug.ReadBuildInfo(); ok {
+		built = info.Main.Version
 	}
-	info, ok := debug.ReadBuildInfo()
-	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
-		return version
+	return pickVersion(version, built)
+}
+
+// pickVersion resolves the version to print from the ldflags-stamped value and
+// the one embedded in the module's build info.
+func pickVersion(stamped, fromBuildInfo string) string {
+	if stamped != "dev" {
+		return stamped
 	}
-	return info.Main.Version
+	if fromBuildInfo == "" || fromBuildInfo == "(devel)" {
+		return stamped
+	}
+	return fromBuildInfo
 }
 
 func main() {

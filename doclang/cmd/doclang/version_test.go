@@ -5,39 +5,57 @@ package main
 
 import "testing"
 
-// Un binario instalado con `go install …@latest` es un release, pero
-// goreleaser no lo tocó, así que `version` sigue en "dev" y `--version`
-// respondía "dev". Medido sobre el binario publicado de v2.32.4:
-// `go version -m` leía v2.32.4 y `--version` decía dev.
+// Un binario instalado con `go install …@latest` es un release, pero goreleaser
+// no lo tocó, así que `version` sigue en "dev" y `--version` respondía "dev".
+// Medido sobre el binario publicado de v2.32.4: `go version -m` leía v2.32.4 y
+// `--version` decía dev.
 //
-// El fallback lee la versión del módulo del propio binario. Los dos casos que
-// NO tiene que tocar son los que este test fija: un valor estampado gana
-// siempre, y "(devel)" —lo que devuelve un `go build` local— no aporta nada
-// sobre el fallback y se queda en "dev".
-func TestResolveVersion_PrefersTheStampedValue(t *testing.T) {
-	original := version
-	t.Cleanup(func() { version = original })
-
-	version = "v9.9.9"
-	if got := resolveVersion(); got != "v9.9.9" {
-		t.Errorf("resolveVersion() = %q, se esperaba el valor estampado %q", got, "v9.9.9")
+// La tabla prueba pickVersion, que es pura. La primera versión de este test
+// llamaba a resolveVersion() y por eso no probaba nada: adentro de `go test`,
+// ReadBuildInfo describe al binario de PRUEBA, así que el resultado dependía
+// del harness y no del arreglo — mutar el fallback para que descartara siempre
+// la build info dejaba los cuatro tests en verde.
+func TestPickVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		stamped       string
+		fromBuildInfo string
+		want          string
+	}{
+		{"instalado con @latest", "dev", "v2.32.5", "v2.32.5"},
+		{"go build local", "dev", "(devel)", "dev"},
+		{"sin build info", "dev", "", "dev"},
+		{"estampado por goreleaser", "v2.32.5", "", "v2.32.5"},
+		{"el estampado le gana a la build info", "v2.32.5", "v9.9.9", "v2.32.5"},
+		// Un `go install` de un commit sin tag da una pseudo-versión. Es
+		// fea pero es MÁS informativa que "dev": identifica el commit.
+		{"pseudo-versión", "dev", "v0.0.0-20260908120000-abcdef123456", "v0.0.0-20260908120000-abcdef123456"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pickVersion(tc.stamped, tc.fromBuildInfo); got != tc.want {
+				t.Errorf("pickVersion(%q, %q) = %q, se esperaba %q", tc.stamped, tc.fromBuildInfo, got, tc.want)
+			}
+		})
 	}
 }
 
-// Con `version` en "dev", el resultado sale de debug.ReadBuildInfo. Dentro de
-// `go test` el binario de prueba reporta "(devel)" o vacío, así que lo que se
-// puede afirmar sin depender del entorno es que NUNCA devuelve "(devel)": o
-// hay una versión de módulo de verdad, o se queda en "dev".
-func TestResolveVersion_NeverReportsDevel(t *testing.T) {
+// Y el cableado: resolveVersion tiene que pasar por pickVersion. Lo único
+// afirmable sin depender del entorno es que nunca deja escapar "(devel)" ni
+// vacío.
+func TestResolveVersion_NeverLeaksDevelOrEmpty(t *testing.T) {
 	original := version
 	t.Cleanup(func() { version = original })
 
 	version = "dev"
-	got := resolveVersion()
-	if got == "(devel)" {
-		t.Errorf("resolveVersion() = %q: ese valor no se le muestra a nadie", got)
-	}
-	if got == "" {
+	switch got := resolveVersion(); got {
+	case "(devel)":
+		t.Error("resolveVersion() devolvió \"(devel)\": ese valor no se le muestra a nadie")
+	case "":
 		t.Error("resolveVersion() devolvió vacío")
+	}
+
+	version = "v9.9.9"
+	if got := resolveVersion(); got != "v9.9.9" {
+		t.Errorf("resolveVersion() = %q con un valor estampado, se esperaba %q", got, "v9.9.9")
 	}
 }
