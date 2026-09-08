@@ -1506,6 +1506,40 @@ func docxSimpleRunApply(style func(r domain.Run) error) func(p domain.Paragraph,
 	}
 }
 
+// docxEmphasisRunApply es docxSimpleRunApply para los patterns que SÍ pueden
+// llevar un token de span adentro: `**[Ctrl]{.kbd}**` y `*[x]{.underline}*`.
+//
+// Sin esto la composición funcionaba en una sola dirección. `[**Ctrl**]{.kbd}`
+// —token afuera— quedó resuelto al hacer que el token recursara por
+// code/bold/italic; pero `**[Ctrl]{.kbd}**` —énfasis afuera— matchea primero el
+// patrón de negrita, cuyo apply escribía el interior con un SetText crudo, así
+// que el token salía LITERAL al .docx. La asimetría estaba anotada en el
+// comentario del pattern y no cubierta por ningún test.
+//
+// El `code` NO usa esto, a propósito: adentro de un span de código el token se
+// muestra tal cual, que es el punto de escribirlo, y es lo que hacen el HTML
+// (`<code>[c]{.success}</code>`) y PPTX (applySpanTokens devuelve el segmento
+// sin tocar cuando base.code). El link tampoco: su texto es la etiqueta del
+// hipervínculo.
+//
+// La recursión termina por el mismo argumento de siempre: el interior es
+// estrictamente más corto que el match en cada nivel —la negrita se lleva los
+// cuatro asteriscos, el token los corchetes y las llaves.
+func (g *DOCXGenerator) docxEmphasisRunApply(style func(r domain.Run) error) func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error {
+	return func(p domain.Paragraph, text string, _ string, _ string, postRun func(r domain.Run) error) error {
+		stamp := func(r domain.Run) error {
+			if err := style(r); err != nil {
+				return err
+			}
+			if postRun != nil {
+				return postRun(r)
+			}
+			return nil
+		}
+		return g.walkDocxInlinePatterns(p, text, []docxInlinePattern{g.docxSpanTokenPattern()}, stamp)
+	}
+}
+
 // docxCodePattern, docxBoldPattern, docxItalicPattern, docxLinkPattern,
 // docxLangPattern construyen cada uno de los 5 patterns por separado (issue
 // #63 code review advisor follow-up on finding #2): docxInlinePatterns() y
@@ -1535,12 +1569,12 @@ func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// **bold** - negrita
 		regex: regexp.MustCompile(`\*\*([^*]+)\*\*`),
-		apply: docxSimpleRunApply(func(r domain.Run) error {
-			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-				return err
-			}
-			_ = r.SetColor(g.parseColor(g.style.TextColor))
-			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
+		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
+		// le pisaría la Consolas a un `[x]{.kbd}` anidado. Es la misma trampa
+		// que del lado del token, en la dirección contraria —medido:
+		// `**[Ctrl]{.kbd}**` salía en negrita pero con la fuente del cuerpo.
+		apply: g.docxEmphasisRunApply(func(r domain.Run) error {
 			_ = r.SetBold(true)
 			return nil
 		}),
@@ -1551,12 +1585,12 @@ func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// *italic* - cursiva
 		regex: regexp.MustCompile(`\*([^*]+)\*`),
-		apply: docxSimpleRunApply(func(r domain.Run) error {
-			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-				return err
-			}
-			_ = r.SetColor(g.parseColor(g.style.TextColor))
-			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
+		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
+		// le pisaría la Consolas a un `[x]{.kbd}` anidado. Es la misma trampa
+		// que del lado del token, en la dirección contraria —medido:
+		// `**[Ctrl]{.kbd}**` salía en negrita pero con la fuente del cuerpo.
+		apply: g.docxEmphasisRunApply(func(r domain.Run) error {
 			_ = r.SetItalic(true)
 			return nil
 		}),
@@ -1634,11 +1668,10 @@ var docxSpanTokenTextPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{\.([a-zA-Z0-9
 // pregunta—; sin propagarlo, el tramo del token se ve MENOS marcado que el
 // texto que lo rodea.
 //
-// Lo que este pattern NO arregla, porque el match nunca llega hasta acá: la
-// forma inversa `**[Ctrl]{.kbd}**`. Ahí matchea primero el patrón de negrita,
-// que escribe su texto interno con un SetText crudo, y el token sale literal.
-// Es preexistente, no lo usa ningún ejemplo del sitio ni del kit, y está
-// anotado en el PR.
+// La forma inversa `**[Ctrl]{.kbd}**` —énfasis afuera, token adentro— la
+// resuelve docxEmphasisRunApply, que hace el camino simétrico: negrita y
+// cursiva recursan por ESTE pattern. Adentro de un span de código no, a
+// propósito.
 func (g *DOCXGenerator) docxSpanTokenPattern() docxInlinePattern {
 	return docxInlinePattern{
 		regex: docxSpanTokenTextPattern,
