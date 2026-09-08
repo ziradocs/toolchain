@@ -245,3 +245,61 @@ func TestDOCXGenerator_SpanTokenInsideCodeStaysLiteral(t *testing.T) {
 		t.Errorf("el token dentro de un span de código se interpretó; debería quedar literal:\n%s", xml)
 	}
 }
+
+// El span de IDIOMA es el otro pattern con corchetes, y la primera versión de
+// este arreglo lo dejó afuera de la recursión: reprodujo exactamente la misma
+// asimetría que venía a cerrar, sobre la feature de accesibilidad de #62/#63.
+//
+// Medido entonces: `**[bonjour]{lang=fr}**` salía como un run literal
+// `[bonjour]{lang=fr}` en negrita y SIN atributo de idioma, mientras el HTML
+// del mismo documento daba `<strong><span lang="fr">bonjour</span></strong>`.
+func TestDOCXGenerator_LangSpanInsideEmphasisAlsoComposes(t *testing.T) {
+	text := ast.NewTextElement(diagnostics.NewPosition(1, 1),
+		"Uno **[bonjour]{lang=fr}** dos *[hola]{lang=es}* tres.")
+
+	output := filepath.Join(t.TempDir(), "lang-inverse.docx")
+	if err := New(newTestLogger()).Generate(astWithElements(text), output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	xml := docxDocumentXML(t, output)
+
+	for _, literal := range []string{"[bonjour]{lang=fr}", "[hola]{lang=es}"} {
+		if strings.Contains(xml, escapeForDocxText(literal)) {
+			t.Errorf("%q salió literal al .docx", literal)
+		}
+	}
+
+	fr := docxRunContaining(t, xml, "bonjour")
+	if !strings.Contains(fr, "<w:b") {
+		t.Errorf("el run perdió la negrita de afuera:\n%s", fr)
+	}
+	if !strings.Contains(fr, `w:val="fr"`) {
+		t.Errorf("el run perdió el idioma del span:\n%s", fr)
+	}
+
+	es := docxRunContaining(t, xml, "hola")
+	if !strings.Contains(es, "<w:i") {
+		t.Errorf("el run perdió la cursiva de afuera:\n%s", es)
+	}
+	if !strings.Contains(es, `w:val="es"`) {
+		t.Errorf("el run perdió el idioma del span:\n%s", es)
+	}
+}
+
+// Un LINK dentro de énfasis sigue saliendo literal, y eso NO cambia acá: el
+// texto de un link es la etiqueta del hipervínculo, no un span de estilo. El
+// test existe porque el PR enumera las exclusiones deliberadas y una exclusión
+// sin test es una afirmación sin respaldo — que es como se coló la de `lang`.
+func TestDOCXGenerator_LinkInsideEmphasisStaysLiteral(t *testing.T) {
+	text := ast.NewTextElement(diagnostics.NewPosition(1, 1), "Uno **[texto](https://example.com)** dos.")
+
+	output := filepath.Join(t.TempDir(), "link-inverse.docx")
+	if err := New(newTestLogger()).Generate(astWithElements(text), output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	xml := docxDocumentXML(t, output)
+
+	if !strings.Contains(xml, escapeForDocxText("[texto](https://example.com)")) {
+		t.Errorf("el link dentro de negrita dejó de salir literal; si eso se arregló, el PR tiene que decirlo:\n%s", xml)
+	}
+}

@@ -1516,11 +1516,20 @@ func docxSimpleRunApply(style func(r domain.Run) error) func(p domain.Paragraph,
 // que el token salía LITERAL al .docx. La asimetría estaba anotada en el
 // comentario del pattern y no cubierta por ningún test.
 //
+// Recursa por los DOS patterns que llevan corchetes con significado: el token
+// de span y el de idioma. Dejar afuera al de idioma reproducía exactamente la
+// misma asimetría, sobre la feature de accesibilidad de #62/#63 — medido,
+// `**[bonjour]{lang=fr}**` salía literal al .docx mientras el HTML del mismo
+// documento daba `<strong><span lang="fr">bonjour</span></strong>`. Que la
+// primera versión de este arreglo la repitiera es la razón de que estén los
+// dos nombrados acá y no uno solo.
+//
 // El `code` NO usa esto, a propósito: adentro de un span de código el token se
 // muestra tal cual, que es el punto de escribirlo, y es lo que hacen el HTML
 // (`<code>[c]{.success}</code>`) y PPTX (applySpanTokens devuelve el segmento
 // sin tocar cuando base.code). El link tampoco: su texto es la etiqueta del
-// hipervínculo.
+// hipervínculo, y `**[texto](url)**` sigue saliendo literal —preexistente, sin
+// cambio acá.
 //
 // La recursión termina por el mismo argumento de siempre: el interior es
 // estrictamente más corto que el match en cada nivel —la negrita se lleva los
@@ -1536,7 +1545,8 @@ func (g *DOCXGenerator) docxEmphasisRunApply(style func(r domain.Run) error) fun
 			}
 			return nil
 		}
-		return g.walkDocxInlinePatterns(p, text, []docxInlinePattern{g.docxSpanTokenPattern()}, stamp)
+		return g.walkDocxInlinePatterns(p, text,
+			[]docxInlinePattern{g.docxSpanTokenPattern(), g.docxLangPattern()}, stamp)
 	}
 }
 
