@@ -222,8 +222,6 @@ func TestRenderHTMLPreview_EverySpecialBlockTypeMatchesItsMarkup(t *testing.T) {
 		want      bool
 	}{
 		// Los que la función reconoce hoy.
-		{"code-group", true}, // ver #300: la forma con espacio no trae tabs
-		{"codegroup", true},
 		{"details", true},
 
 		// Los que se retiraron en este cambio.
@@ -231,6 +229,10 @@ func TestRenderHTMLPreview_EverySpecialBlockTypeMatchesItsMarkup(t *testing.T) {
 		{"charts", false},
 		{"map", false},
 		{"maps", false},
+		// `::: code-group` (separado) renderiza sin tabs — #300. El
+		// `<<code-group>>` real llega como CodeGroupElement, no por acá.
+		{"code-group", false},
+		{"codegroup", false},
 
 		// Y los tipos de bloque que nunca estuvieron, como control: si alguno
 		// empezara a traer un control, este test lo dice.
@@ -259,11 +261,25 @@ func TestRenderHTMLPreview_EverySpecialBlockTypeMatchesItsMarkup(t *testing.T) {
 			if got := slideDivAttr(t, html, "data-interactive", 0); got != want {
 				t.Errorf("data-interactive = %q, se esperaba %q", got, want)
 			}
+			// Las DOS direcciones, sin atajos. La primera versión de este
+			// test hacía `if tc.want { return }` justo acá, o sea que no
+			// verificaba ningún positivo — y los positivos eran precisamente
+			// donde estaba el residuo: `code-group` decía `true` sin traer un
+			// solo `.slidelang-tab`. Un test que solo comprueba la mitad que
+			// ya sabés que está bien no es un test.
 			if tc.want {
+				var found string
+				for _, sel := range jsControlSelectors {
+					if hasElementWithClasses(html, sel.classes) {
+						found = sel.name
+						break
+					}
+				}
+				if found == "" {
+					t.Errorf("`::: %s` dice interactivo y su markup no trae ningún selector de control", tc.blockType)
+				}
 				return
 			}
-			// Un bloque marcado como NO interactivo no puede traer ningún
-			// selector de control en su markup.
 			for _, sel := range jsControlSelectors {
 				if hasElementWithClasses(html, sel.classes) {
 					t.Errorf("el markup de `::: %s` trae %s (%v)", tc.blockType, sel.name, sel.classes)

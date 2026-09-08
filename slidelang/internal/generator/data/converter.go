@@ -1020,24 +1020,25 @@ func detectInteractiveElements(elements []ast.Element, offline bool) (bool, []st
 			// ese caso como no interactivo; el test de controles lo cazó.
 			interactiveTypes = append(interactiveTypes, "code")
 		case *ast.SpecialBlockElement:
-			// `chart`/`charts` y `map`/`maps` NO están acá abajo. Un bloque
-			// especial con ese tipo no es un chart ni un mapa: la plantilla le
-			// da un contenedor de prosa, el linter emite SPECIAL001, y el HTML
-			// no trae ni un <canvas> ni un .slidelang-map-container. Medido con
-			// `::: chart` + una línea de texto: cero canvas y
-			// `data-interactive="true"`. Las ramas existían por el nombre del
-			// bloque, no por lo que se renderiza.
+			// Solo queda `details`, que es el único blockType cuyo markup
+			// trae un control: `.slidelang-details` lo engancha
+			// initInteractiveElements.
+			//
+			// Salieron `chart`/`charts`, `map`/`maps` y `code-group`/
+			// `codegroup`. Los tres grupos estaban acá por el NOMBRE del
+			// bloque, no por lo que se renderiza: la plantilla les da un
+			// contenedor de prosa, el linter emite SPECIAL001 y el HTML no
+			// trae ni un <canvas>, ni un .slidelang-map-container, ni un
+			// .slidelang-tab.
+			//
+			// Con `code-group` había dudado, argumentando que el defecto
+			// estaba en el render (#300) y no en el metadato. Es al revés: el
+			// metadato tiene que describir lo que hay HOY, y hoy no hay tabs.
+			// El `<<code-group>>` de verdad llega como CodeGroupElement y
+			// tiene su propia rama, así que la forma que sí funciona no
+			// pierde nada. Cuando #300 arregle el render, esta rama vuelve
+			// con un test que la respalde.
 			switch strings.ToLower(e.BlockType) {
-			case "code-group", "codegroup":
-				// Un bloque especial con este tipo NO trae tabs: solo la
-				// forma pegada `:::code-group` produce un CodeGroupElement
-				// real (rama de más abajo), y la separada `::: code-group`
-				// —que dos ejemplos del corpus usan— cae acá y renderiza el
-				// contenido crudo, sin `.slidelang-tab` y sin nada que
-				// clickear. Se deja marcado a propósito: el defecto está en
-				// que esa forma renderiza mal, no en el metadato, y arreglarlo
-				// acá escondería el síntoma. Ver el issue enlazado en el PR.
-				interactiveTypes = append(interactiveTypes, "code")
 			case "details":
 				// `.slidelang-details` sí lo agarra initInteractiveElements.
 				// `collapsible` estaba en esta misma lista y no: emite
