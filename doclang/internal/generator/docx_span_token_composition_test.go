@@ -58,9 +58,12 @@ func TestDOCXGenerator_SpanTokenComposesWithInnerFormatting(t *testing.T) {
 		t.Errorf("el run de underline perdió el subrayado del token:\n%s", u)
 	}
 
-	// Una clase que DOCX no sabe representar —`danger` no tiene color por run
-	// en docxgo v2.12.0— conserva el texto y el formato interno, y no imprime
-	// la sintaxis. Perder el color es aceptable; mostrar el token no.
+	// Una clase que el generador todavía no representa —`danger` no estila
+	// nada— conserva el texto y el formato interno, y no imprime la sintaxis.
+	// Que no lo represente NO es un límite de la librería: docxgo expone
+	// SetColor, y este mismo archivo lo usa para el color base. Es un hueco por
+	// hacer (#283), y lo que este test fija es lo mínimo exigible mientras
+	// tanto: el token no se ve y el formato de adentro no se pierde.
 	danger := docxRunContaining(t, xml, "combine")
 	if !strings.Contains(danger, "<w:b") {
 		t.Errorf("el run de una clase sin representación perdió la negrita de adentro:\n%s", danger)

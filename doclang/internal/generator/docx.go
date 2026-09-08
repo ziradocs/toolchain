@@ -1603,11 +1603,12 @@ var docxSpanTokenTextPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{\.([a-zA-Z0-9
 // monoespaciada. Las demás clases conservan el TEXTO y pierden el formato.
 // Perder el formato es aceptable; mostrar la sintaxis del token no lo es.
 //
-// De esas que se pierden, solo `sub`/`sup` son un límite de la librería:
-// docxgo v2.12.0 no expone vertAlign. Los `highlight-*` NO lo son —`domain.Run`
-// sí tiene `SetHighlight(HighlightColor)`—, así que ahí es un hueco por hacer,
-// no una imposibilidad; va con el `==mark==` que sale literal, en #283. Este
-// comentario decía "ni resaltado por run" y era falso.
+// De esas que se pierden, las únicas que son un límite de la LIBRERÍA son
+// `sub`/`sup`: docxgo v2.12.0 no expone vertAlign. Los cinco colores y los tres
+// `highlight-*` son un hueco por hacer, no una imposibilidad —`domain.Run` tiene
+// `SetColor` (este archivo lo usa para el color base) y `SetHighlight`—, y van
+// con el `==mark==` que sale literal, en #283. Este comentario los daba por
+// imposibles y era falso.
 //
 // El contenido interno se procesa RECURSIVAMENTE por code/bold/italic, no con
 // un SetText único. La primera versión sí escribía un run pelado, y por eso
