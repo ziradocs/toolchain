@@ -56,9 +56,46 @@ echo "🔎 Verificando GOWORK=off go build en slidelang y doclang..."
 (cd doclang && GOWORK=off go build ./...)
 echo "✅ Ambos CLIs compilan contra el core publicado que tienen pineado."
 
+# 4b. `core/$VERSION` puede existir YA, y es el caso normal: cuando el release
+#     lleva un cambio de core, `scripts/bump-core.sh $VERSION` lo cortó y lo
+#     empujó antes, porque los CLIs necesitaban poder pinearlo.
+#
+#     Este script tageaba los cuatro a ciegas. Con `set -e`, el `git tag
+#     core/$VERSION` fallaba con "already exists" DESPUÉS de haber creado el
+#     `$VERSION` pelado local, así que abortaba a mitad y dejaba basura. En la
+#     práctica eso quemaba el número: el release salía con el siguiente libre
+#     —pasó con v2.32.3, que quedó saltada— y cada core-bump costaba una
+#     versión de producto.
+#
+#     Reusarlo es correcto siempre que apunte al MISMO commit que se está
+#     liberando; si apunta a otro, el release publicaría binarios construidos
+#     contra un core distinto del que dice su tag, y eso sí hay que frenarlo.
+CORE_TAG="core/$VERSION"
+REUSE_CORE_TAG=false
+if git rev-parse -q --verify "refs/tags/$CORE_TAG" >/dev/null; then
+  REUSE_CORE_TAG=true
+elif git ls-remote --exit-code --tags origin "refs/tags/$CORE_TAG" >/dev/null 2>&1; then
+  git fetch -q origin "refs/tags/$CORE_TAG:refs/tags/$CORE_TAG"
+  REUSE_CORE_TAG=true
+fi
+
+if [[ "$REUSE_CORE_TAG" == true ]]; then
+  CORE_TAG_COMMIT=$(git rev-list -n 1 "$CORE_TAG")
+  HEAD_COMMIT=$(git rev-parse HEAD)
+  if [[ "$CORE_TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
+    echo "🔥 $CORE_TAG ya existe pero apunta a $CORE_TAG_COMMIT, y estás liberando $HEAD_COMMIT."
+    echo "   Publicar así daría binarios construidos contra un core distinto del que declara su tag."
+    echo "   Revisá si el bump quedó sin mergear, o usá el siguiente número libre."
+    exit 1
+  fi
+  echo "ℹ️ $CORE_TAG ya existe en este mismo commit (lo cortó bump-core.sh). Se reusa."
+fi
+
 echo "🚀 Todo se ve bien. Creando tags para $VERSION..."
 git tag "$VERSION"
-git tag "core/$VERSION"
+if [[ "$REUSE_CORE_TAG" == false ]]; then
+  git tag "$CORE_TAG"
+fi
 git tag "doclang/$VERSION"
 git tag "slidelang/$VERSION"
 
@@ -73,7 +110,11 @@ echo "☁️ Empujando $VERSION (el tag que dispara el release)..."
 git push origin "refs/tags/$VERSION"
 
 echo "☁️ Empujando los tags de submódulo (core/doclang/slidelang)..."
-git push origin "refs/tags/core/$VERSION" "refs/tags/doclang/$VERSION" "refs/tags/slidelang/$VERSION"
+SUBMODULE_TAGS=("refs/tags/doclang/$VERSION" "refs/tags/slidelang/$VERSION")
+if [[ "$REUSE_CORE_TAG" == false ]]; then
+  SUBMODULE_TAGS+=("refs/tags/$CORE_TAG")
+fi
+git push origin "${SUBMODULE_TAGS[@]}"
 
 # 6. Confirmar que el workflow realmente arrancó; si no, dispararlo a mano.
 #    Requiere `gh` autenticado (mismo supuesto que el resto del repo).

@@ -10,11 +10,23 @@ scripts/release.sh vX.Y.Z
 ```
 
 Cuts a coordinated release of the three CLIs' binaries: creates the bare `vX.Y.Z` tag plus the
-three module tags (`core/vX.Y.Z`, `doclang/vX.Y.Z`, `slidelang/vX.Y.Z`) on the current commit,
+module tags (`core/vX.Y.Z`, `doclang/vX.Y.Z`, `slidelang/vX.Y.Z`) on the current commit,
 pushes the `vX.Y.Z` tag first (in its own push — see the comment in the script for why: empirically,
 pushing all four tags at once has failed to trigger `on: push: tags:` reliably), then pushes the
-three module tags together. `vX.Y.Z` matches `.github/workflows/release.yml`'s trigger, which runs
+module tags together. `vX.Y.Z` matches `.github/workflows/release.yml`'s trigger, which runs
 `goreleaser` and publishes the actual binaries/packages.
+
+**`core/vX.Y.Z` is the exception, and it is the common case.** When the release carries a `core`
+change, `scripts/bump-core.sh vX.Y.Z` already cut and pushed that tag — the CLIs needed it in order
+to pin it. So `release.sh` **reuses** an existing `core/vX.Y.Z` instead of re-creating it, and only
+creates it when it is absent.
+
+It reuses it **only if it points at the commit being released**. If it points somewhere else, the
+script stops: publishing would ship binaries built against a different `core` than the one its own
+tag names. Before this check the script tagged all four blindly, so with `set -e` the duplicate
+`git tag core/vX.Y.Z` aborted the run *after* creating the bare `vX.Y.Z` locally — which in practice
+burned the number (the release went out on the next free one; `v2.32.3` was skipped that way) and
+made every core bump cost a product version.
 
 Use this when cutting an actual product release — a version users install.
 
