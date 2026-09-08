@@ -20,10 +20,10 @@ func (p *PlantUMLParser) CanParse(line string, mode string) bool {
 
 	switch mode {
 	case "strict":
-		return strings.HasPrefix(trimmed, "<<plantuml>>")
+		return trimmed == "<<plantuml>>"
 	case "flex":
 		// En flex mode, soportar <<plantuml>>, @startuml, y ```plantuml
-		if strings.HasPrefix(trimmed, "<<plantuml>>") {
+		if trimmed == "<<plantuml>>" {
 			return true
 		}
 		if strings.HasPrefix(trimmed, "@startuml") {

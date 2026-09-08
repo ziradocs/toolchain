@@ -52,12 +52,10 @@ type ChartParser struct{}
 // legítimo de la forma multilínea (cerrada por `<<end>>`) y no lleva ">>". De
 // ahí la disyunción, en vez de un guardia único arriba.
 //
-// Lo que esto cierra es la forma TRUNCADA, y ahí sí no queda ninguna:
-// mermaid/plantuml/math llevan el ">>" dentro del prefijo que matchean, así
-// que no la tienen, y media y map ya exigían el sufijo. Lo que NO cierra es la
-// basura pegada después de un tag bien formado —`<<mermaid>>basura` sigue
-// siendo un mermaid que se traga las líneas de abajo, y en flex sin emitir
-// diagnóstico, mientras chart ahí avisa—. Eso es #289 y sigue abierto.
+// El terminador tiene que ser además el ÚNICO, y eso lo decide
+// closesInlineTagOnce (common.go), compartido con map y media. Exigir solo el
+// sufijo dejaba pasar `<<chart: bar>>basura>>`, que termina en ">>" — la
+// primera versión de esta corrección se quedó ahí.
 func (p *ChartParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 	if mode != "strict" && mode != "flex" {
@@ -70,7 +68,7 @@ func (p *ChartParser) CanParse(line string, mode string) bool {
 	if rest == "" {
 		return true
 	}
-	return strings.HasPrefix(rest, ":") && strings.HasSuffix(rest, ">>")
+	return strings.HasPrefix(rest, ":") && closesInlineTagOnce(rest)
 }
 
 // Parse parsea un elemento Chart

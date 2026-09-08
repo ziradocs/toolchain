@@ -33,7 +33,7 @@ func (p *MapParser) CanParse(line string, mode string) bool {
 		return false
 	}
 	rest, ok := strings.CutPrefix(trimmed, "<<map")
-	if !ok || !strings.HasSuffix(trimmed, ">>") {
+	if !ok || !closesInlineTagOnce(rest) {
 		return false
 	}
 	return rest == ">>" || strings.HasPrefix(rest, " ")

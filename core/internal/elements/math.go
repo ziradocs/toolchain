@@ -24,9 +24,9 @@ func (p *MathParser) CanParse(line string, mode string) bool {
 
 	switch mode {
 	case "strict":
-		return strings.HasPrefix(trimmed, "<<math>>")
+		return trimmed == "<<math>>"
 	case "flex":
-		if strings.HasPrefix(trimmed, "<<math>>") {
+		if trimmed == "<<math>>" {
 			return true
 		}
 		// $$ debe ser el inicio de la línea (no "el valor es $$x$$ acá") —

@@ -429,3 +429,24 @@ func splitTopLevelCommas(s string) ([]string, bool) {
 	}
 	return append(items, s[start:]), true
 }
+
+// closesInlineTagOnce valida el CIERRE de un tag inline con atributos, donde
+// `rest` es lo que sigue al nombre del tag (`" lat=…>>"` para `<<map lat=…>>`).
+// La regla es que la línea termine en ">>" y que no traiga ningún otro ">>"
+// antes: un tag inline abre y cierra exactamente una vez.
+//
+// El `HasSuffix(">>")` a secas —que es lo que map, media y, tras una primera
+// corrección incompleta, chart usaban— no alcanza: `<<chart: bar>>basura>>`
+// termina en ">>" y pasaba. Y no es un caso de laboratorio; medido en la CLI
+// publicada, esa línea produce un chart de tipo `bar>>basura` que se traga el
+// `title:` del slide, y como el slide se queda sin título, LastSlideClosingRule
+// lo reclasifica de `content` a `closing` si es el último. El build termina en
+// verde, solo con warnings.
+//
+// Vive acá y no copiado en cada parser porque la lección de esta ronda es
+// precisamente esa: tres copias de "está cerrado" es como se llega a la cuarta
+// vez. Un tag nuevo con atributos se rutea por acá.
+func closesInlineTagOnce(rest string) bool {
+	inner, ok := strings.CutSuffix(rest, ">>")
+	return ok && !strings.Contains(inner, ">>")
+}
