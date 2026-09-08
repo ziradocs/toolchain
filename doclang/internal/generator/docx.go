@@ -1604,31 +1604,41 @@ var docxSpanTokenTextPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{\.([a-zA-Z0-9
 // los resaltados— conservan el TEXTO y pierden el formato: docxgo v2.12.0 no
 // expone vertAlign ni resaltado por run. Perder el formato es aceptable;
 // mostrar la sintaxis del token no lo es.
+//
+// El contenido interno se procesa RECURSIVAMENTE por code/bold/italic, no con
+// un SetText único. La primera versión sí escribía un run pelado, y por eso
+// `[**Ctrl**]{.kbd}` llegaba al DOCX con los asteriscos a la vista —justo la
+// composición que el sitio documenta con `[**combine**]{.danger}`, y que en
+// HTML sale como `<kbd><strong>Ctrl</strong></kbd>`. Es el mismo arreglo que
+// docxApplyLangSpan ya tenía (finding #2 del review de #63) y el que PPTX hace
+// con applySpanTokens.
+//
+// El subset es docxLangInnerPatterns(), no el set completo: excluye links y
+// otro token anidado, y estructuralmente no puede volver a entrar a este mismo
+// pattern. El interior es además estrictamente más corto que el match —el
+// match se lleva los "[", "]", "{", "." y "}"— así que la recursión termina.
+//
+// El estilo del token se estampa como postRun, o sea DESPUÉS del estilo del
+// pattern interno, y solo AGREGA: si pusiera tamaño, color o fuente base le
+// pisaría la Consolas al patrón de code, que es la trampa que ya está
+// documentada del lado de PPTX.
 func (g *DOCXGenerator) docxSpanTokenPattern() docxInlinePattern {
 	return docxInlinePattern{
 		regex: docxSpanTokenTextPattern,
 		apply: func(p domain.Paragraph, text string, class string, matchedText string, postRun func(r domain.Run) error) error {
-			r, err := p.AddRun()
-			if err != nil {
-				return err
+			stampClass := func(r domain.Run) error {
+				switch class {
+				case "underline":
+					_ = r.SetUnderline(domain.UnderlineStyle(1))
+				case "kbd", "code":
+					_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+				}
+				if postRun != nil {
+					return postRun(r)
+				}
+				return nil
 			}
-			_ = r.SetText(text)
-			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-				return err
-			}
-			_ = r.SetColor(g.parseColor(g.style.TextColor))
-			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-
-			switch class {
-			case "underline":
-				_ = r.SetUnderline(domain.UnderlineStyle(1))
-			case "kbd", "code":
-				_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
-			}
-			if postRun != nil {
-				return postRun(r)
-			}
-			return nil
+			return g.walkDocxInlinePatterns(p, text, g.docxLangInnerPatterns(), stampClass)
 		},
 	}
 }
