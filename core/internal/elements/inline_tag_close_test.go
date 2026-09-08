@@ -56,6 +56,15 @@ func TestInlineTags_CloseExactlyOnce(t *testing.T) {
 		{`<<video src="a.mp4">>basura>>`, false},
 		{`<<audio src="a.mp3">>basura>>`, false},
 
+		// Un cierre SOLAPADO. La segunda versión de la regla —cortar el
+		// sufijo y buscar otro ">>" en el resto— los aceptaba los cuatro:
+		// cortar ">>" de ">>>" deja ">", y ahí ya no hay nada que encontrar.
+		{`<<chart: bar>>>`, false},
+		{`<<map lat="19.4">>>`, false},
+		{`<<video src="a.mp4">>>`, false},
+		{`<<audio src="a.mp3">>>`, false},
+		{`<<map>>>`, false},
+
 		// Sin terminador.
 		{`<<chart: bar`, false},
 		{`<<map lat="19.4"`, false},
