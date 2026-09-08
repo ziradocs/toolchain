@@ -333,3 +333,77 @@ func TestRenderHTMLPreview_OfflineModesDropRasterizedInteractivity(t *testing.T)
 		})
 	}
 }
+
+// El metadato del slide no era el único lugar que ramificaba por el NOMBRE del
+// bloque: `generateFeaturesSummary`, `getRequiredLibraries` (data/converter.go)
+// y el detector de módulos (modules/detector.go) hacían lo mismo, y el test de
+// arriba no los veía porque solo mira selectores de control por slide.
+//
+// Medido antes del arreglo: un deck con `::: chart` y `::: map` de pura prosa
+// salía con `data-interactive="false"` en todos sus slides —correcto— y a la
+// vez con `"hasMaps": true` y el módulo de Leaflet empaquetado.
+func TestRenderHTMLPreview_ProseSpecialBlocksDoNotPullLibraries(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	for _, blockType := range []string{"chart", "charts", "map", "maps", "mermaid", "diagram", "code-group"} {
+		t.Run(blockType, func(t *testing.T) {
+			block := ast.NewContentBlock(pos, "content")
+			block.Title = "Slide"
+			block.Elements = []ast.Element{ast.NewSpecialBlockElement(pos, blockType, "Contenido de prosa.")}
+			doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+			html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+			if err != nil {
+				t.Fatalf("RenderHTMLPreview: %v", err)
+			}
+
+			// Ni el resumen de features ni la lista de librerías del JSON
+			// embebido pueden declarar algo que el markup no tiene.
+			for _, claim := range []string{`"hasCharts": true`, `"hasMaps": true`, `"hasMermaid": true`} {
+				if strings.Contains(html, claim) {
+					t.Errorf("`::: %s` declara %s y su markup es prosa", blockType, claim)
+				}
+			}
+			for _, lib := range []string{`"chartjs"`, `"leaflet"`, `"mermaid"`} {
+				if strings.Contains(html, `"libraries": [`) && strings.Contains(librariesOf(html), lib) {
+					t.Errorf("`::: %s` pide la librería %s y su markup es prosa", blockType, lib)
+				}
+			}
+		})
+	}
+}
+
+// Y el positivo, para que "no pedir librerías" no se cumpla no pidiéndolas
+// nunca: un chart de verdad sí las pide.
+func TestRenderHTMLPreview_RealChartStillPullsItsLibrary(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Slide"
+	block.Elements = []ast.Element{ast.NewChartElement(pos, "bar")}
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	if !strings.Contains(html, `"hasCharts": true`) {
+		t.Error("un ChartElement real dejó de declarar hasCharts")
+	}
+	if !strings.Contains(librariesOf(html), `"chartjs"`) {
+		t.Errorf("un ChartElement real dejó de pedir chartjs; libraries = %s", librariesOf(html))
+	}
+}
+
+// librariesOf extrae el arreglo "libraries" del JSON embebido.
+func librariesOf(html string) string {
+	i := strings.Index(html, `"libraries": [`)
+	if i < 0 {
+		return ""
+	}
+	rest := html[i:]
+	j := strings.Index(rest, "]")
+	if j < 0 {
+		return rest
+	}
+	return rest[:j+1]
+}

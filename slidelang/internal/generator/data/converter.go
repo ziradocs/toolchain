@@ -1206,16 +1206,15 @@ func generateFeaturesSummary(slides []ast.ContentBlock) *PresentationFeatures {
 					features.HasNotes = true
 				}
 			case *ast.SpecialBlockElement:
-				switch strings.ToLower(e.BlockType) {
-				case "mermaid", "diagram":
-					features.HasMermaid = true
-				case "chart", "charts":
-					features.HasCharts = true
-				case "map", "maps":
-					features.HasMaps = true
-				case "code-group", "codegroup":
-					features.HasCode = true
-				}
+				// Sin ramas por el NOMBRE del bloque. Un `::: chart` emite un
+				// contenedor de prosa: cero `<canvas>`, cero
+				// `.slidelang-chart-canvas`. Lo mismo `::: map` (sin
+				// `.slidelang-map-container`), `::: mermaid` y `::: diagram`
+				// (sin el `.slidelang-mermaid` anidado que busca el módulo) y
+				// `::: code-group` (sin `.slidelang-tab`). Declarar
+				// `hasCharts: true` por el nombre del bloque le miente al que
+				// lee el metadato, igual que se lo mentía data-interactive.
+				_ = e
 			}
 		}
 	}
@@ -1252,23 +1251,10 @@ func getRequiredLibraries(slides []ast.ContentBlock) []string {
 					seen["mermaid"] = true
 				}
 			case *ast.SpecialBlockElement:
-				switch strings.ToLower(e.BlockType) {
-				case "mermaid", "diagram":
-					if !seen["mermaid"] {
-						libraries = append(libraries, "mermaid")
-						seen["mermaid"] = true
-					}
-				case "chart", "charts":
-					if !seen["chartjs"] {
-						libraries = append(libraries, "chartjs")
-						seen["chartjs"] = true
-					}
-				case "map", "maps":
-					if !seen["leaflet"] {
-						libraries = append(libraries, "leaflet")
-						seen["leaflet"] = true
-					}
-				}
+				// Idem: ninguna de esas librerías tiene a qué engancharse en
+				// el markup de un bloque especial. Pedirlas por el nombre
+				// hacía que un `::: map` de pura prosa declarara Leaflet.
+				_ = e
 			}
 		}
 	}

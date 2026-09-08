@@ -61,16 +61,24 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 			case *ast.QuizElement, *ast.PollElement:
 				hasQuizPoll = true
 			case *ast.SpecialBlockElement:
-				switch strings.ToLower(elem.BlockType) {
-				case "mermaid", "diagram":
-					hasMermaid = true
-				case "chart", "charts":
-					hasCharts = true
-				case "map", "maps":
-					hasMaps = true
-				case "code-group", "codegroup":
-					hasCodeGroups = true
-				case "details", "collapsible":
+				// Solo `details`, que es el único nombre de bloque cuyo markup
+				// trae algo que un módulo pueda enganchar
+				// (`.slidelang-details`, que busca initInteractiveElements).
+				//
+				// Salieron mermaid/diagram, chart/charts, map/maps y
+				// code-group/codegroup: medido sobre el HTML generado, un
+				// bloque especial con esos nombres emite un contenedor de
+				// prosa y nada más —sin `.slidelang-chart-canvas`, sin
+				// `.slidelang-map-container`, sin el `.slidelang-mermaid`
+				// anidado, sin `.slidelang-tab`—, así que el módulo se
+				// empaquetaba para no encontrar nada. También salió
+				// `collapsible`, que emite `.slidelang-collapsible` y ningún
+				// selector del JS lo busca.
+				//
+				// Los elementos REALES (MermaidElement, ChartElement,
+				// MapElement, CodeGroupElement) siguen abajo con su propio
+				// case, así que la sintaxis que sí renderiza no pierde nada.
+				if strings.EqualFold(elem.BlockType, "details") {
 					hasCollapsibles = true
 				}
 			case *ast.MermaidElement:
