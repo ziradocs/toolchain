@@ -1599,36 +1599,63 @@ var docxSpanTokenTextPattern = regexp.MustCompile(`\[([^\[\]]+)\]\{\.([a-zA-Z0-9
 // normalizador reescribe `<kbd>` a su token, ese literal es lo que vería
 // cualquiera que escriba la tag.
 //
-// Se representa lo que la librería permite: `underline` subraya y `kbd`/`code`
-// pasan a fuente monoespaciada. Las demás clases —`sub`, `sup`, los colores,
-// los resaltados— conservan el TEXTO y pierden el formato: docxgo v2.12.0 no
-// expone vertAlign ni resaltado por run. Perder el formato es aceptable;
-// mostrar la sintaxis del token no lo es.
+// Hoy se representan dos: `underline` subraya y `kbd`/`code` pasan a fuente
+// monoespaciada. Las demás clases conservan el TEXTO y pierden el formato.
+// Perder el formato es aceptable; mostrar la sintaxis del token no lo es.
+//
+// De esas que se pierden, las únicas que son un límite de la LIBRERÍA son
+// `sub`/`sup`: docxgo v2.12.0 no expone vertAlign. Los cinco colores y los tres
+// `highlight-*` son un hueco por hacer, no una imposibilidad —`domain.Run` tiene
+// `SetColor` (este archivo lo usa para el color base) y `SetHighlight`—, y van
+// con el `==mark==` que sale literal, en #283. Este comentario los daba por
+// imposibles y era falso.
+//
+// El contenido interno se procesa RECURSIVAMENTE por code/bold/italic, no con
+// un SetText único. La primera versión sí escribía un run pelado, y por eso
+// `[**Ctrl**]{.kbd}` llegaba al DOCX con los asteriscos a la vista —justo la
+// composición que el sitio documenta con `[**combine**]{.danger}`, y que en
+// HTML sale como `<kbd><strong>Ctrl</strong></kbd>`. Es el mismo arreglo que
+// docxApplyLangSpan ya tenía (finding #2 del review de #63) y el que PPTX hace
+// con applySpanTokens.
+//
+// El subset es docxLangInnerPatterns() y no el set completo, igual que hace
+// docxApplyLangSpan. La diferencia es INOBSERVABLE —el regex del token captura
+// `[^\[\]]+`, y link, idioma y el propio token exigen un "[", así que ninguno
+// puede matchear ahí adentro—, o sea que es una elección defensiva, no un
+// cambio de comportamiento: pasar el set completo deja la suite igual de verde.
+// El interior es además estrictamente más corto que el match —se lleva los
+// "[", "]", "{", "." y "}"— así que la recursión termina.
+//
+// El estilo del token se estampa como postRun, o sea DESPUÉS del estilo del
+// pattern interno, y solo AGREGA: si pusiera tamaño, color o fuente base le
+// pisaría la Consolas al patrón de code, que es la trampa que ya está
+// documentada del lado de PPTX. Ese mismo postRun propaga el estilo BASE del
+// contexto —la cursiva de una explicación de quiz, la negrita de una
+// pregunta—; sin propagarlo, el tramo del token se ve MENOS marcado que el
+// texto que lo rodea.
+//
+// Lo que este pattern NO arregla, porque el match nunca llega hasta acá: la
+// forma inversa `**[Ctrl]{.kbd}**`. Ahí matchea primero el patrón de negrita,
+// que escribe su texto interno con un SetText crudo, y el token sale literal.
+// Es preexistente, no lo usa ningún ejemplo del sitio ni del kit, y está
+// anotado en el PR.
 func (g *DOCXGenerator) docxSpanTokenPattern() docxInlinePattern {
 	return docxInlinePattern{
 		regex: docxSpanTokenTextPattern,
 		apply: func(p domain.Paragraph, text string, class string, matchedText string, postRun func(r domain.Run) error) error {
-			r, err := p.AddRun()
-			if err != nil {
-				return err
+			stampClass := func(r domain.Run) error {
+				switch class {
+				case "underline":
+					_ = r.SetUnderline(domain.UnderlineStyle(1))
+				case "kbd", "code":
+					_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+				}
+				if postRun != nil {
+					return postRun(r)
+				}
+				return nil
 			}
-			_ = r.SetText(text)
-			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-				return err
-			}
-			_ = r.SetColor(g.parseColor(g.style.TextColor))
-			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-
-			switch class {
-			case "underline":
-				_ = r.SetUnderline(domain.UnderlineStyle(1))
-			case "kbd", "code":
-				_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
-			}
-			if postRun != nil {
-				return postRun(r)
-			}
-			return nil
+			return g.walkDocxInlinePatterns(p, text, g.docxLangInnerPatterns(), stampClass)
 		},
 	}
 }
