@@ -54,10 +54,13 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 		for _, element := range slide.Elements {
 			switch elem := element.(type) {
 			case *ast.CodeElement:
-				// Detectar diagramas Mermaid
-				if strings.HasPrefix(strings.ToLower(elem.Language), "mermaid") {
-					hasMermaid = true
-				}
+				// Un CodeElement renderiza `.slidelang-code`, no el
+				// `.slidelang-mermaid` anidado que busca el módulo, aunque su
+				// lenguaje diga "mermaid". Un ```mermaid escrito en el fuente
+				// llega como MermaidElement y entra por su propio case, más
+				// abajo; el que caía acá era el construido por API, y le
+				// empaquetaba un módulo que no tiene a qué engancharse.
+				_ = elem
 			case *ast.QuizElement, *ast.PollElement:
 				hasQuizPoll = true
 			case *ast.SpecialBlockElement:
@@ -81,6 +84,12 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 				if strings.EqualFold(elem.BlockType, "details") {
 					hasCollapsibles = true
 				}
+			case *ast.CodeGroupElement:
+				// El case que faltaba: el módulo de code-group se empaquetaba
+				// solo por la rama del bloque especial, o sea por el NOMBRE.
+				// Un `::::code-group` de verdad —el que sí emite
+				// `.slidelang-tab`— no lo pedía.
+				hasCodeGroups = true
 			case *ast.MermaidElement:
 				hasMermaid = true
 			case *ast.ChartElement:

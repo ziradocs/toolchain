@@ -1145,9 +1145,13 @@ func estimateSlideDuration(slide ast.ContentBlock) int {
 		case *ast.MermaidElement, *ast.ChartElement, *ast.MapElement:
 			hasComplexElements = true
 		case *ast.SpecialBlockElement:
-			if e.BlockType == "mermaid" || e.BlockType == "chart" || e.BlockType == "map" {
-				hasComplexElements = true
-			}
+			// La quinta rama por NOMBRE de bloque, y la última. Un bloque
+			// especial llamado `chart`, `map` o `mermaid` renderiza prosa: se
+			// lee como prosa, así que sumar los 15 segundos de "elemento
+			// complejo" le daba 45 a un párrafo. Sus palabras ya se cuentan
+			// abajo, que es todo lo que hace falta.
+			//
+			// Los elementos REALES siguen sumando, en el case de arriba.
 			wordCount += len(strings.Fields(e.Content))
 		}
 	}
@@ -1193,11 +1197,24 @@ func generateFeaturesSummary(slides []ast.ContentBlock) *PresentationFeatures {
 			case *ast.MapElement:
 				features.HasMaps = true
 			case *ast.CodeElement:
-				if strings.HasPrefix(strings.ToLower(e.Language), "mermaid") {
-					features.HasMermaid = true
-				} else {
-					features.HasCode = true
-				}
+				// Sin mirar el lenguaje, por la misma razón que
+				// detectInteractiveElements: la plantilla decide por TIPO de
+				// nodo. Un ```mermaid del fuente llega como MermaidElement y
+				// tiene su propio case; un CodeElement con Language "mermaid"
+				// renderiza `.slidelang-code` —hasta recibe el botón de
+				// copiar—, así que declarar hasMermaid por su lenguaje describe
+				// un diagrama que no está en la página.
+				_ = e
+				features.HasCode = true
+			case *ast.CodeGroupElement:
+				// El case que faltaba desde siempre. Ninguna de estas tres
+				// funciones tenía el elemento REAL: el `hasCode` de un deck
+				// cuyo código vive en `::::code-group` salía de la rama por
+				// NOMBRE del bloque especial, o sea por accidente. Al retirar
+				// esa rama, dos decks del corpus —con 5 y 13 tabs de verdad—
+				// pasaron a declarar `hasCode: false`. Lo cazó el barrido de
+				// corpus, no los tests.
+				features.HasCode = true
 			case *ast.QuoteElement:
 				features.HasQuotes = true
 			case *ast.DirectiveNode:
@@ -1246,10 +1263,10 @@ func getRequiredLibraries(slides []ast.ContentBlock) []string {
 					seen["leaflet"] = true
 				}
 			case *ast.CodeElement:
-				if strings.HasPrefix(strings.ToLower(e.Language), "mermaid") && !seen["mermaid"] {
-					libraries = append(libraries, "mermaid")
-					seen["mermaid"] = true
-				}
+				// Idem: un CodeElement renderiza `.slidelang-code`, que el
+				// módulo de mermaid no busca. Pedir la librería por el lenguaje
+				// del fence la cargaba para no encontrar nada.
+				_ = e
 			case *ast.SpecialBlockElement:
 				// Idem: ninguna de esas librerías tiene a qué engancharse en
 				// el markup de un bloque especial. Pedirlas por el nombre

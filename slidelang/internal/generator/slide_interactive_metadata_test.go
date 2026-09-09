@@ -407,3 +407,119 @@ func librariesOf(html string) string {
 	}
 	return rest[:j+1]
 }
+
+// La duración era la QUINTA función que ramificaba por el nombre del bloque, y
+// la última: `estimateSlideDuration` sumaba los 15 segundos de "elemento
+// complejo" a un `::: chart` de pura prosa, así que un párrafo pesaba 45
+// segundos en vez de 30. Un chart de verdad sí los suma, y eso no cambia.
+func TestRenderHTMLPreview_ProseSpecialBlockDoesNotCostComplexTime(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	dur := func(elem ast.Element) string {
+		block := ast.NewContentBlock(pos, "content")
+		block.Title = "Slide"
+		block.Elements = []ast.Element{elem}
+		doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+		html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+		if err != nil {
+			t.Fatalf("RenderHTMLPreview: %v", err)
+		}
+		return slideDivAttr(t, html, "data-duration", 0)
+	}
+
+	base := dur(ast.NewSpecialBlockElement(pos, "note", "Contenido de prosa."))
+	for _, blockType := range []string{"chart", "map", "mermaid"} {
+		t.Run(blockType, func(t *testing.T) {
+			if got := dur(ast.NewSpecialBlockElement(pos, blockType, "Contenido de prosa.")); got != base {
+				t.Errorf("`::: %s` de prosa dura %s y un `::: note` idéntico dura %s: se le cobró tiempo de elemento complejo", blockType, got, base)
+			}
+		})
+	}
+
+	t.Run("un chart real sí cuesta más", func(t *testing.T) {
+		if got := dur(ast.NewChartElement(pos, "bar")); got == base {
+			t.Errorf("un ChartElement real dura %s, igual que un bloque de prosa: se perdió el ajuste por elemento complejo", got)
+		}
+	})
+}
+
+// Un `CodeElement` con lenguaje mermaid renderiza `.slidelang-code` —el test de
+// interactividad de más arriba fija que hasta recibe el botón de copiar—, así
+// que declarar `hasMermaid`, pedir la librería y empaquetar el módulo describen
+// un diagrama que no está en la página. Era la misma decisión por LENGUAJE en
+// vez de por tipo de nodo, en tres funciones.
+func TestRenderHTMLPreview_CodeElementWithMermaidLanguageIsCode(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Slide"
+	block.Elements = []ast.Element{ast.NewCodeElement(pos, "mermaid", "graph TD\nA-->B")}
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+
+	if strings.Contains(html, `"hasMermaid": true`) {
+		t.Error(`declara "hasMermaid": true y su markup es un bloque de código`)
+	}
+	if strings.Contains(librariesOf(html), `"mermaid"`) {
+		t.Errorf("pide la librería mermaid; libraries = %s", librariesOf(html))
+	}
+	// Y sí es código: el markup que initCopyButtons engancha.
+	if !hasElementWithClasses(html, []string{"slidelang-element", "slidelang-code"}) {
+		t.Error("el markup dejó de ser un bloque de código")
+	}
+}
+
+// El positivo del par: un MermaidElement de verdad sí declara y sí pide.
+func TestRenderHTMLPreview_RealMermaidStillPullsItsLibrary(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Slide"
+	block.Elements = []ast.Element{ast.NewMermaidElement(pos, "graph", "graph TD\nA-->B")}
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	if !strings.Contains(html, `"hasMermaid": true`) {
+		t.Error("un MermaidElement real dejó de declarar hasMermaid")
+	}
+	if !strings.Contains(librariesOf(html), `"mermaid"`) {
+		t.Errorf("un MermaidElement real dejó de pedir mermaid; libraries = %s", librariesOf(html))
+	}
+}
+
+// El elemento REAL de code-group nunca tuvo case en las funciones de features,
+// librerías y módulos: el `hasCode` de un deck cuyo código vive en
+// `::::code-group` salía de la rama por NOMBRE del bloque especial, o sea por
+// accidente. Al retirar esa rama, dos decks del corpus con tabs de verdad
+// pasaron a declarar `hasCode: false` — lo cazó el barrido de corpus, no los
+// tests, y por eso este test existe.
+func TestRenderHTMLPreview_RealCodeGroupDeclaresItself(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	cg := ast.NewCodeGroupElement(pos)
+	cg.CodeBlocks = []ast.CodeBlock{
+		{Label: "Go", Language: "go", Content: "fmt.Println()"},
+		{Label: "Python", Language: "python", Content: "print()"},
+	}
+
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Slide"
+	block.Elements = []ast.Element{cg}
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+
+	if !hasElementWithClasses(html, []string{"slidelang-tab"}) {
+		t.Fatal("el fixture no produjo tabs; el test no estaría midiendo nada")
+	}
+	if !strings.Contains(html, `"hasCode": true`) {
+		t.Error(`un code-group real con tabs no declara "hasCode": true`)
+	}
+}
