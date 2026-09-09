@@ -286,20 +286,61 @@ func TestDOCXGenerator_LangSpanInsideEmphasisAlsoComposes(t *testing.T) {
 	}
 }
 
-// Un LINK dentro de énfasis sigue saliendo literal, y eso NO cambia acá: el
-// texto de un link es la etiqueta del hipervínculo, no un span de estilo. El
-// test existe porque el PR enumera las exclusiones deliberadas y una exclusión
-// sin test es una afirmación sin respaldo — que es como se coló la de `lang`.
-func TestDOCXGenerator_LinkInsideEmphasisStaysLiteral(t *testing.T) {
-	text := ast.NewTextElement(diagnostics.NewPosition(1, 1), "Uno **[texto](https://example.com)** dos.")
+// Código y link dentro de énfasis también componen. Los dejé afuera de la
+// recursión y escribí un test que fijaba la fuga como si fuera lo correcto:
+// **`codigo`** y **[texto](url)** derramaban sus delimitadores al .docx
+// mientras el HTML del mismo documento daba <strong><code>codigo</code></strong>
+// y <strong><a href=…>. Un test puede convertir un defecto en contrato; este es
+// el reemplazo de aquel.
+func TestDOCXGenerator_CodeAndLinkInsideEmphasisAlsoCompose(t *testing.T) {
+	text := ast.NewTextElement(diagnostics.NewPosition(1, 1),
+		"Uno **`codigo`** dos **[texto](https://example.com)** tres *`c2`* fin.")
 
-	output := filepath.Join(t.TempDir(), "link-inverse.docx")
+	output := filepath.Join(t.TempDir(), "code-link-emphasis.docx")
 	if err := New(newTestLogger()).Generate(astWithElements(text), output, GeneratorOptions{Format: "docx"}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
 	xml := docxDocumentXML(t, output)
 
-	if !strings.Contains(xml, escapeForDocxText("[texto](https://example.com)")) {
-		t.Errorf("el link dentro de negrita dejó de salir literal; si eso se arregló, el PR tiene que decirlo:\n%s", xml)
+	for _, literal := range []string{"`codigo`", "[texto](https://example.com)", "`c2`"} {
+		if strings.Contains(xml, escapeForDocxText(literal)) {
+			t.Errorf("%q salió literal al .docx", literal)
+		}
+	}
+
+	cod := docxRunContaining(t, xml, "codigo")
+	if !strings.Contains(cod, "<w:b") {
+		t.Errorf("el run de código perdió la negrita de afuera:\n%s", cod)
+	}
+	if !strings.Contains(cod, `w:ascii="Consolas"`) {
+		t.Errorf("el run perdió la fuente del código:\n%s", cod)
+	}
+
+	link := docxRunContaining(t, xml, "texto")
+	if !strings.Contains(link, "<w:b") {
+		t.Errorf("el run del link perdió la negrita de afuera:\n%s", link)
+	}
+
+	c2 := docxRunContaining(t, xml, "c2")
+	if !strings.Contains(c2, "<w:i") {
+		t.Errorf("el run de código perdió la cursiva de afuera:\n%s", c2)
+	}
+}
+
+// Y el negativo que sí es correcto, y que meter `code` en la recursión NO
+// afloja: adentro de un span de CÓDIGO el token queda literal, aunque ese
+// código esté dentro de negrita. Lo garantiza que el apply del pattern de
+// código escriba su contenido con un SetText, sin recursión.
+func TestDOCXGenerator_SpanTokenInsideCodeInsideEmphasisStaysLiteral(t *testing.T) {
+	text := ast.NewTextElement(diagnostics.NewPosition(1, 1), "Uno **`[c]{.success}`** dos.")
+
+	output := filepath.Join(t.TempDir(), "token-in-code-in-bold.docx")
+	if err := New(newTestLogger()).Generate(astWithElements(text), output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	xml := docxDocumentXML(t, output)
+
+	if !strings.Contains(xml, escapeForDocxText("[c]{.success}")) {
+		t.Errorf("el token dentro de un span de código se interpretó; debería quedar literal:\n%s", xml)
 	}
 }
