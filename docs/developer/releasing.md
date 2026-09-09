@@ -45,8 +45,8 @@ made every core bump cost a product version.
 
 **This decision has an executable gate**: `scripts/test-release-core-tag-reuse.sh`, run by
 `.github/workflows/release-script.yml` on any change to `release.sh` itself. It builds throwaway git
-repositories with their own bare `origin`, prepends a stub directory to `PATH` so a fake `go`
-shadows the real one (and `gh` is deliberately absent), and runs the real script across seven
+repositories with their own bare `origin`, prepends a stub directory to `PATH` holding a fake `go` (the
+script builds both CLIs) and a fake `gh` (it never talks to GitHub), and runs the real script across seven
 scenarios: the real flow reuses, a release with no core change creates, and a local-only tag, a tag
 off another line, a `core/` changed after the tag, a stale `go.mod` pin and an `ls-remote` failure
 each stop it. Every scenario asserts three things — exit code, a message substring that identifies

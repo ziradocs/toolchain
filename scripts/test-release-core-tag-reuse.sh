@@ -36,9 +36,27 @@ mkdir -p "$TMP/stub"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/stub/go"
 chmod +x "$TMP/stub/go"
 
-# PATH mínimo y deliberado: sin el directorio de `gh`, así el paso 6 de
-# release.sh (esperar/disparar el workflow) toma su rama de "gh no está
-# instalado" en vez de hablarle a GitHub.
+# El `gh` falso. La primera versión de este harness NO lo traía, apostando a
+# que `command -v gh` fallara por un PATH recortado: pasaba en macOS (gh vive en
+# /opt/homebrew/bin) y fallaba en el runner de Ubuntu, donde gh está en
+# /usr/bin, o sea DENTRO del PATH mínimo. Depender de la ausencia de una
+# herramienta no es hermético; el stub sí.
+#
+# Simula el caso normal —el push del tag disparó el workflow— para que el paso 6
+# de release.sh no espere seis rondas ni intente dispararlo a mano. Cualquier
+# otro subcomando falla ruidoso: es un cable trampa, este sandbox no le habla a
+# GitHub.
+cat > "$TMP/stub/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "run list")      echo '{"headBranch":"v2.99.0","createdAt":"2026-01-01T00:00:00Z"}'; exit 0 ;;
+  "workflow run")  exit 0 ;;
+esac
+echo "stub de gh: subcomando no esperado en el sandbox: $*" >&2
+exit 1
+EOF
+chmod +x "$TMP/stub/gh"
+
 BASE_PATH="$TMP/stub:/usr/bin:/bin"
 
 # El wrapper de git que hace fallar SOLO `ls-remote`, para el escenario de
