@@ -214,8 +214,13 @@ func renderOfflinePlantUML(content, renderMode string, ctx *renderer.RenderConte
 }
 
 func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode string, log util.Logger, ctx *renderer.RenderContext) PresentationData {
-	// `utilities` va prendido por defecto (modules.DefaultModuleConfig), que
-	// es lo que este punto de entrada histórico supone.
+	// `utilities` prendido no es un default de conveniencia: es lo que hacen
+	// los dos callers que quedan arriba en la cadena. El del servidor de
+	// preview de temas (cli/preview_theme.go) arma su TemplateBuilder con los
+	// defaults —EnableUtilities: true, template/base.go— y su comando no
+	// expone `--no-utilities`, así que ahí utilities.js SIEMPRE se empaqueta.
+	// El camino que sí honra la opción (generator.renderHTML) entra por
+	// PrepareTemplateDataWithOptions y no por acá.
 	return PrepareTemplateDataWithOptions(astNode, themeName, TemplateDataOptions{
 		RenderMode:       renderMode,
 		UtilitiesEnabled: true,
