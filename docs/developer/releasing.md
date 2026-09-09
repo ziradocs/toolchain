@@ -43,6 +43,18 @@ Before any of this the script tagged all four blindly, so with `set -e` the dupl
 burned the number (the release went out on the next free one; `v2.32.3` was skipped that way) and
 made every core bump cost a product version.
 
+**This decision has an executable gate**: `scripts/test-release-core-tag-reuse.sh`, run by
+`.github/workflows/release-script.yml` on any change to `release.sh` itself. It builds throwaway git
+repositories with their own bare `origin`, prepends a stub directory to `PATH` so a fake `go`
+shadows the real one (and `gh` is deliberately absent), and runs the real script across seven
+scenarios: the real flow reuses, a release with no core change creates, and a local-only tag, a tag
+off another line, a `core/` changed after the tag, a stale `go.mod` pin and an `ls-remote` failure
+each stop it. Every scenario asserts three things — exit code, a message substring that identifies
+*that* condition, and the tags left in the bare `origin`. The message assertion is what separates
+"aborted correctly" from "aborted for the wrong reason", which is exactly how the first version of
+this guard traded one abort for another: run against it, four scenarios still exit 1, and only the
+message shows they abort on the wrong condition. Nothing touches the network or the real repository.
+
 Use this when cutting an actual product release — a version users install.
 
 Guards: requires SemVer starting with `v`, a clean working tree, the tagged major version to

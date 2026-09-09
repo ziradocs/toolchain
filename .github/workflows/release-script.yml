@@ -1,0 +1,49 @@
+name: Release script
+
+# `scripts/release.sh` no tenía ningún gate: no es Go, así que ci.yml no lo
+# mira, y su PR ni siquiera dispara checks. La lógica de "reusar el core/vX.Y.Z
+# que ya cortó bump-core.sh" se rompió dos veces seguidas —primero abortando por
+# colisión de tag, después exigiendo que el tag apuntara a HEAD— y las dos veces
+# la rotura recién apareció el día del release, con el número de versión ya
+# quemado.
+#
+# scripts/test-release-core-tag-reuse.sh arma repos de git temporales con su
+# propio origin bare y corre el script de verdad contra siete escenarios. No
+# toca la red.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/release.sh"
+      - "scripts/test-release-core-tag-reuse.sh"
+      - ".github/workflows/release-script.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/release.sh"
+      - "scripts/test-release-core-tag-reuse.sh"
+      - ".github/workflows/release-script.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core-tag-reuse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sintaxis de los scripts de release
+        run: |
+          set -euo pipefail
+          bash -n scripts/release.sh
+          bash -n scripts/bump-core.sh
+          bash -n scripts/test-release-core-tag-reuse.sh
+
+      - name: Escenarios de reuso del tag de core
+        run: bash scripts/test-release-core-tag-reuse.sh
