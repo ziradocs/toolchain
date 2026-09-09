@@ -131,11 +131,15 @@ correr_release() { # $1 = repo, $2 = prefijo extra de PATH (opcional)
 tags_origin() { git -C "$1/origin.git" tag -l | sort | tr '\n' ' '; }
 sha_tag_origin() { git -C "$1/origin.git" rev-list -n 1 "$2"; }
 
+# reportar TERMINA el escenario, con código 2. No incrementa el contador: corre
+# dentro del subshell de correr_escenario, así que una variable del padre no se
+# vería. El 2 es lo que distingue "falló y ya lo expliqué" de cualquier otro
+# código, que es un fallo de PREPARACIÓN sin reportar y el padre lo dice.
 reportar() { # $1 = escenario, $2 = qué falló
   echo "❌ $1: $2"
   echo "   ---- salida de release.sh ----"
   sed 's/^/   /' "$TMP/salida.txt"
-  fallos=$((fallos + 1))
+  exit 2
 }
 
 verificar() { # $1 = escenario, $2 = rc obtenido, $3 = rc esperado, $4 = substring esperado
@@ -187,8 +191,13 @@ escenario_flujo_real() {
 escenario_sin_tag() {
   local esc="sin-tag (nadie cortó core antes; se crea)" d="$TMP/sin-tag"
   nuevo_repo sin-tag
-  pin_core "$d/repo" "$VERSION"
-  git -C "$d/repo" add -A && git -C "$d/repo" commit -q -m "bump core a $VERSION"
+  # Los dos go.mod siguen pineando VERSION_VIEJA, y tiene que ser así: en un
+  # release sin cambios de core NADIE cortó core/$VERSION, así que un
+  # `GOWORK=off go build` real no podría resolver ese pin. La primera versión
+  # de este fixture pineaba $VERSION y solo pasaba porque `go` está stubbeado:
+  # modelaba un estado imposible. Acá el commit posterior toca un CLI, que es
+  # lo que un release así lleva.
+  commit_en "$d/repo" slidelang/main.go "cambio de CLI sin tocar core" "slidelang: cambio"
   git -C "$d/repo" push -q origin main
   local head; head=$(git -C "$d/repo" rev-parse HEAD)
 
@@ -302,16 +311,41 @@ escenario_ls_remote_falla() {
   echo "✅ $esc"
 }
 
-# El `|| true` es necesario y no es un descuido: bajo `set -e`, un escenario que
-# devuelve != 0 cortaría la corrida ahí y los demás no se reportarían. Los
-# fallos se cuentan en `fallos`, y ese es el que decide el código de salida.
-escenario_flujo_real || true
-escenario_sin_tag || true
-escenario_solo_local || true
-escenario_otra_linea || true
-escenario_core_cambio || true
-escenario_go_mod_viejo || true
-escenario_ls_remote_falla || true
+# Cada escenario corre en su propio subshell y el padre captura el código.
+#
+# La versión anterior era `escenario_x || true`, y eso APAGA errexit dentro de
+# toda la función: en bash, `set -e` se ignora en cualquier comando que sea
+# operando de un `&&`/`||`, y la supresión alcanza al cuerpo entero. Medido: un
+# `git commit` de preparación que fallaba con "nothing to commit" no cortaba
+# nada y el escenario llegaba a imprimir ✅. Un falso verde en el harness es
+# peor que no tener harness.
+#
+# El subshell no puede ir en un `||` por la misma razón, así que el padre apaga
+# errexit explícitamente alrededor de la llamada y lo vuelve a prender. Como el
+# contador vive en el padre, `reportar` no puede tocarlo: sale con 2 y el padre
+# cuenta.
+correr_escenario() { # $1 = nombre de la función del escenario
+  local rc=0
+  set +e
+  ( set -euo pipefail; "$1" )
+  rc=$?
+  set -e
+  case "$rc" in
+    0) ;;
+    2) fallos=$((fallos + 1)) ;;  # ya lo explicó reportar
+    *) echo "❌ $1: el escenario cortó con código $rc ANTES de afirmar nada."
+       echo "   Eso es un fallo de preparación del propio harness, no del script bajo prueba."
+       fallos=$((fallos + 1)) ;;
+  esac
+}
+
+correr_escenario escenario_flujo_real
+correr_escenario escenario_sin_tag
+correr_escenario escenario_solo_local
+correr_escenario escenario_otra_linea
+correr_escenario escenario_core_cambio
+correr_escenario escenario_go_mod_viejo
+correr_escenario escenario_ls_remote_falla
 
 echo
 if (( fallos > 0 )); then

@@ -50,7 +50,10 @@ script builds both CLIs) and a fake `gh` (it never talks to GitHub), and runs th
 scenarios: the real flow reuses, a release with no core change creates, and a local-only tag, a tag
 off another line, a `core/` changed after the tag, a stale `go.mod` pin and an `ls-remote` failure
 each stop it. Every scenario asserts three things — exit code, a message substring that identifies
-*that* condition, and the tags left in the bare `origin`. The message assertion is what separates
+*that* condition, and the tags left in the bare `origin`. Each one runs in its own subshell under
+`set -euo pipefail`, with the parent capturing the exit code: a scenario invoked as
+`escenario_x || true` would have `errexit` suppressed throughout its body, so a failed *setup* step
+could run on to print a green tick — a false green in the gate itself. The message assertion is what separates
 "aborted correctly" from "aborted for the wrong reason", which is exactly how the first version of
 this guard traded one abort for another: run against it, four scenarios still exit 1, and only the
 message shows they abort on the wrong condition. Nothing touches the network or the real repository.
