@@ -214,6 +214,34 @@ func renderOfflinePlantUML(content, renderMode string, ctx *renderer.RenderConte
 }
 
 func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode string, log util.Logger, ctx *renderer.RenderContext) PresentationData {
+	// `utilities` va prendido por defecto (modules.DefaultModuleConfig), que
+	// es lo que este punto de entrada histórico supone.
+	return PrepareTemplateDataWithOptions(astNode, themeName, TemplateDataOptions{
+		RenderMode:       renderMode,
+		UtilitiesEnabled: true,
+	}, log, ctx)
+}
+
+// TemplateDataOptions son las opciones del BUILD que cambian lo que los datos
+// del template pueden AFIRMAR, no lo que se renderiza.
+//
+// Hoy hay dos, y las dos entran por la misma puerta: un elemento se anuncia
+// como interactivo solo si el bundle final trae el JS que lo engancha.
+// `RenderMode` decide eso para chart y map (en offline vienen rasterizados) y
+// `UtilitiesEnabled` para código, code-group y details (los engancha
+// utilities.js, que `--no-utilities` no empaqueta).
+type TemplateDataOptions struct {
+	// RenderMode es "browser", "offline-assets" u "offline-inline".
+	RenderMode string
+	// UtilitiesEnabled es `!opts.NoUtilities` del generador.
+	UtilitiesEnabled bool
+}
+
+// PrepareTemplateDataWithOptions es el fondo de la cadena de entrada
+// (PrepareTemplateData → …WithTheme → …WithRenderMode → …WithOptions) y el
+// único que ve todas las opciones del build.
+func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts TemplateDataOptions, log util.Logger, ctx *renderer.RenderContext) PresentationData {
+	renderMode := opts.RenderMode
 	offline := renderer.IsOfflineRenderMode(renderMode)
 	data := PresentationData{
 		HasTitle: astNode.FrontMatter != nil,
@@ -257,7 +285,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 
 	for i, slide := range astNode.ContentBlocks {
 		// Detectar elementos interactivos
-		hasInteractive, interactiveElements := detectInteractiveElements(slide.Elements, offline)
+		hasInteractive, interactiveElements := detectInteractiveElements(slide.Elements, offline, opts.UtilitiesEnabled)
 
 		// Extraer presenter notes de los elementos
 		notes := extractPresenterNotes(slide.Elements, variables)
@@ -959,8 +987,14 @@ func isSlideTypeClosing(slideType string) bool {
 //   - chart: Chart.js trae tooltips al pasar el puntero.
 //   - map: Leaflet arrastra, hace zoom y abre popups.
 //   - code: `initCopyButtons` (template/utilities.go) le cuelga un botón
-//     "Copiar" a todo `.slidelang-element.slidelang-code`, sin condición.
+//     "Copiar" a todo `.slidelang-element.slidelang-code`, sea cual sea el
+//     lenguaje del fence.
 //   - code-group / details: `initInteractiveElements` les asigna `.onclick`.
+//
+// Los tres últimos viven en utilities.js, así que `--no-utilities` los deja sin
+// handler; chart y map se rasterizan en los modos offline. Por eso la función
+// recibe las dos opciones del build: el metadato describe el bundle que se
+// generó, no el que se podría haber generado.
 //   - quiz / poll: quizpoll.js marca la opción, revela la explicación y llena
 //     las barras.
 //   - video / audio: solo con `controls` (#290).
@@ -982,8 +1016,29 @@ func isSlideTypeClosing(slideType string) bool {
 // Ojo con el nombre: `hasInteractiveElements` (offline.go, pdf.go) es OTRA
 // función y otra pregunta —"¿hace falta Chromium para rasterizar esto?"—, y
 // ahí mermaid sí cuenta. Las dos no tienen por qué coincidir.
-func detectInteractiveElements(elements []ast.Element, offline bool) (bool, []string) {
+func detectInteractiveElements(elements []ast.Element, offline, utilitiesEnabled bool) (bool, []string) {
 	interactiveTypes := []string{}
+
+	// `--no-utilities` no empaqueta utilities.js, y con él se van
+	// `initCopyButtons` (el botón de copiar de todo `.slidelang-code`) e
+	// `initInteractiveElements` (los `.onclick` de las tabs de un code-group y
+	// del toggle de un details). El markup NO cambia —las clases siguen ahí—,
+	// así que lo único que distingue los dos builds es el JS del bundle.
+	//
+	// Medido sobre el mismo deck, con --no-utilities: `initCopyButtons` e
+	// `initInteractiveElements` ausentes del HTML servido, y sin embargo los
+	// tres elementos salían con `data-interactive="true"`. Es exactamente el
+	// mismo error que el de los modos offline, con otro interruptor.
+	//
+	// El gate va SOLO sobre esos tres. Quiz y poll los engancha quizpoll.js,
+	// chart y map sus propios módulos, y un <video controls> lo maneja el
+	// navegador: ninguno depende de utilities.js, así que filtrar la función
+	// entera por la opción sería el error simétrico.
+	addUtilityDriven := func(t string) {
+		if utilitiesEnabled {
+			interactiveTypes = append(interactiveTypes, t)
+		}
+	}
 
 	// En los modos offline el chart y el mapa ya vienen RASTERIZADOS: el
 	// generador los dibuja al build y emite un <img>, sin <canvas> y sin
@@ -1018,7 +1073,7 @@ func detectInteractiveElements(elements []ast.Element, offline bool) (bool, []st
 			// renderiza `.slidelang-code` y sí recibe el botón de copiar. La
 			// primera versión de este cambio filtraba por lenguaje y marcaba
 			// ese caso como no interactivo; el test de controles lo cazó.
-			interactiveTypes = append(interactiveTypes, "code")
+			addUtilityDriven("code")
 		case *ast.SpecialBlockElement:
 			// Solo queda `details`, que es el único blockType cuyo markup
 			// trae un control: `.slidelang-details` lo engancha
@@ -1045,7 +1100,7 @@ func detectInteractiveElements(elements []ast.Element, offline bool) (bool, []st
 				// `.slidelang-collapsible`, que ningún selector del JS busca,
 				// y no aparece ni en los schemas del linter ni en el kit ni en
 				// el corpus.
-				interactiveTypes = append(interactiveTypes, "interactive")
+				addUtilityDriven("interactive")
 			}
 		case *ast.QuizElement:
 			interactiveTypes = append(interactiveTypes, "quiz")
@@ -1057,7 +1112,7 @@ func detectInteractiveElements(elements []ast.Element, offline bool) (bool, []st
 			// template/utilities.go les asigna `.onclick`— y solo llegaban acá
 			// las escritas como `::: code-group`, que caen en la rama de
 			// SpecialBlockElement. Un `<<code-group>>` real quedaba fuera.
-			interactiveTypes = append(interactiveTypes, "code")
+			addUtilityDriven("code")
 		case *ast.MediaElement:
 			// Un <video>/<audio> es interactivo si —y solo si— lleva los
 			// controles del navegador. Sin `controls` es una pieza que se

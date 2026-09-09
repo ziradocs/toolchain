@@ -17,11 +17,11 @@ import (
 // excludedFromElementCoverage documenta, tipo por tipo, por qué un
 // implementador de ast.Element (el ast del DSL, en go.ziradocs.com/core/v2/ast
 // — no el go/ast de este archivo) deliberadamente no tiene un case propio en
-// el switch principal de PrepareTemplateDataWithRenderMode (converter.go).
+// el switch principal de PrepareTemplateDataWithOptions (converter.go).
 var excludedFromElementCoverage = map[string]string{}
 
 // TestConverterCoversAllElementImplementers cubre issue #35: el switch
-// principal de PrepareTemplateDataWithRenderMode (converter.go) debe tener un
+// principal de PrepareTemplateDataWithOptions (converter.go) debe tener un
 // case para cada tipo que implementa ast.Element (identificado por su método
 // marcador `element()`), salvo los documentados en
 // excludedFromElementCoverage arriba.
@@ -43,9 +43,9 @@ func TestConverterCoversAllElementImplementers(t *testing.T) {
 		t.Fatal("no se encontró ningún implementador de element() en ../../../../core/ast; ¿cambió la ruta o el nombre del método marcador?")
 	}
 
-	converterCases, err := findSwitchCaseTypes("converter.go", "PrepareTemplateDataWithRenderMode")
+	converterCases, err := findSwitchCaseTypes("converter.go", "PrepareTemplateDataWithOptions")
 	if err != nil {
-		t.Fatalf("findSwitchCaseTypes(converter.go, PrepareTemplateDataWithRenderMode): %v", err)
+		t.Fatalf("findSwitchCaseTypes(converter.go, PrepareTemplateDataWithOptions): %v", err)
 	}
 
 	var missing []string
@@ -59,7 +59,7 @@ func TestConverterCoversAllElementImplementers(t *testing.T) {
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Errorf("PrepareTemplateDataWithRenderMode no tiene case para: %v\n"+
+		t.Errorf("PrepareTemplateDataWithOptions no tiene case para: %v\n"+
 			"→ agregá un case, o documentá la exclusión en excludedFromElementCoverage (element_coverage_test.go) con el motivo", missing)
 	}
 
@@ -71,7 +71,7 @@ func TestConverterCoversAllElementImplementers(t *testing.T) {
 	}
 	sort.Strings(stale)
 	if len(stale) > 0 {
-		t.Errorf("PrepareTemplateDataWithRenderMode tiene case(s) para tipos que ya no implementan element(): %v", stale)
+		t.Errorf("PrepareTemplateDataWithOptions tiene case(s) para tipos que ya no implementan element(): %v", stale)
 	}
 }
 
@@ -125,7 +125,7 @@ func receiverTypeName(expr ast.Expr) string {
 // findSwitchCaseTypes parsea file (relativo a este paquete) en busca de la
 // función funcName, y devuelve el set de nombres de tipo `*ast.X` cubiertos
 // por CUALQUIER type switch (`switch x := y.(type)`) dentro de su cuerpo —
-// no solo el primero, porque PrepareTemplateDataWithRenderMode tiene un
+// no solo el primero, porque PrepareTemplateDataWithOptions tiene un
 // segundo switch más abajo (el pre-render offline de mermaid/chart/map, que
 // es un subconjunto del principal). Unir ambos es seguro: nunca agrega un
 // tipo que el switch principal no cubra ya.

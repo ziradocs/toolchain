@@ -46,50 +46,36 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 	hasQuizPoll := false
 	hasMaps := false
 	hasDirectives := false
-	hasCodeGroups := false
-	hasCollapsibles := false
 
 	// Recorrer los slides para detectar contenido especial
 	for _, slide := range astNode.ContentBlocks {
 		for _, element := range slide.Elements {
-			switch elem := element.(type) {
-			case *ast.CodeElement:
-				// Un CodeElement renderiza `.slidelang-code`, no el
-				// `.slidelang-mermaid` anidado que busca el módulo, aunque su
-				// lenguaje diga "mermaid". Un ```mermaid escrito en el fuente
-				// llega como MermaidElement y entra por su propio case, más
-				// abajo; el que caía acá era el construido por API, y le
-				// empaquetaba un módulo que no tiene a qué engancharse.
-				_ = elem
+			// No hay case para CodeElement, SpecialBlockElement ni
+			// CodeGroupElement, y es deliberado:
+			//
+			//   - CodeElement salió porque decidía por el LENGUAJE del fence:
+			//     un `Language: "mermaid"` pedía el módulo de Mermaid, pero
+			//     renderiza `.slidelang-code`, no el `.slidelang-mermaid`
+			//     anidado que el módulo busca. Un ```mermaid escrito en el
+			//     fuente llega como MermaidElement y entra por su propio case,
+			//     abajo; el que caía acá era el construido por API, con un
+			//     módulo empaquetado que no tenía a qué engancharse.
+			//
+			//   - SpecialBlockElement salió porque decidía por el NOMBRE del
+			//     bloque: `::: chart` y sus hermanos emiten un contenedor de
+			//     prosa —sin `.slidelang-chart-canvas`, sin
+			//     `.slidelang-map-container`, sin `.slidelang-tab`— y pedían
+			//     charts/maps/mermaid/utilities igual.
+			//
+			//   - CodeGroupElement (y el `details` de SpecialBlockElement)
+			//     solo alimentaban las banderas `hasCodeGroups`/
+			//     `hasCollapsibles`, que no decidían nada: ver el gate de
+			//     `utilities` más abajo. Si la carga de utilities se vuelve
+			//     condicional algún día, estos dos casos vuelven junto con el
+			//     código suelto, que es el otro tercio del predicado real.
+			switch element.(type) {
 			case *ast.QuizElement, *ast.PollElement:
 				hasQuizPoll = true
-			case *ast.SpecialBlockElement:
-				// Solo `details`, que es el único nombre de bloque cuyo markup
-				// trae algo que un módulo pueda enganchar
-				// (`.slidelang-details`, que busca initInteractiveElements).
-				//
-				// Salieron mermaid/diagram, chart/charts, map/maps y
-				// code-group/codegroup: medido sobre el HTML generado, un
-				// bloque especial con esos nombres emite un contenedor de
-				// prosa y nada más —sin `.slidelang-chart-canvas`, sin
-				// `.slidelang-map-container`, sin el `.slidelang-mermaid`
-				// anidado, sin `.slidelang-tab`—, así que el módulo se
-				// empaquetaba para no encontrar nada. También salió
-				// `collapsible`, que emite `.slidelang-collapsible` y ningún
-				// selector del JS lo busca.
-				//
-				// Los elementos REALES (MermaidElement, ChartElement,
-				// MapElement, CodeGroupElement) siguen abajo con su propio
-				// case, así que la sintaxis que sí renderiza no pierde nada.
-				if strings.EqualFold(elem.BlockType, "details") {
-					hasCollapsibles = true
-				}
-			case *ast.CodeGroupElement:
-				// El case que faltaba: el módulo de code-group se empaquetaba
-				// solo por la rama del bloque especial, o sea por el NOMBRE.
-				// Un `::::code-group` de verdad —el que sí emite
-				// `.slidelang-tab`— no lo pedía.
-				hasCodeGroups = true
 			case *ast.MermaidElement:
 				hasMermaid = true
 			case *ast.ChartElement:
@@ -127,10 +113,24 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 		modules = append(modules, "responsive")
 	}
 
-	if config.EnableUtilities && (hasCodeGroups || hasCollapsibles) {
-		modules = append(modules, "utilities")
-	} else if config.EnableUtilities {
-		// Incluir utilities por defecto si está habilitado
+	// Las dos ramas que había acá —una con `hasCodeGroups || hasCollapsibles`,
+	// la otra sin— agregaban EXACTAMENTE el mismo módulo, así que ninguna de
+	// las dos banderas decidía nada: `utilities` entra siempre que la opción
+	// esté prendida. Escribirlo de una sola forma es lo que el código hace, y
+	// borra la sugerencia de una carga condicional que nunca existió.
+	//
+	// Hacer la carga condicional DE VERDAD es otra decisión y otra PR: el
+	// predicado no serían code-group y details, porque `initCopyButtons`
+	// (template/utilities.go) le cuelga un botón a TODO `.slidelang-code`, así
+	// que habría que contar también el código suelto — y el bundle cambiaría
+	// en todos los decks que no tienen ninguno de los tres. Esta PR es sobre
+	// el metadato.
+	//
+	// El `!contains(ExcludeModules, …)` es por simetría con los demás módulos.
+	// Hoy es redundante —`--no-utilities` apaga EnableUtilities y además mete
+	// "utilities" en la lista de exclusión (html_modular.go buildExcludeList)—
+	// pero era el único módulo que no consultaba la lista.
+	if config.EnableUtilities && !contains(config.ExcludeModules, "utilities") {
 		modules = append(modules, "utilities")
 	}
 

@@ -523,3 +523,92 @@ func TestRenderHTMLPreview_RealCodeGroupDeclaresItself(t *testing.T) {
 		t.Error(`un code-group real con tabs no declara "hasCode": true`)
 	}
 }
+
+// `--no-utilities` es el otro interruptor que deja el metadato mintiendo.
+//
+// utilities.js trae `initCopyButtons` —el botón de copiar de todo
+// `.slidelang-element.slidelang-code`— e `initInteractiveElements` —los
+// `.onclick` de las tabs de un code-group y del toggle de un details—. Con la
+// opción apagada el módulo no se empaqueta y esos tres elementos se quedan sin
+// handler, pero salían igual con `data-interactive="true"`.
+//
+// El test NO puede medir esto con jsControlSelectors: el markup no cambia entre
+// los dos builds —`.slidelang-code` sigue ahí, solo que sin botón—, así que un
+// guard sobre las clases pasa en los dos y no distingue nada. Lo que distingue
+// es el BUNDLE, y por eso las afirmaciones van sobre el JS embebido
+// (RenderHTMLPreview fuerza EmbedAssets, así que el módulo, si entra, entra
+// inline en el HTML).
+//
+// El par es una sola presentación construida dos veces: lo único que cambia es
+// la opción.
+func TestRenderHTMLPreview_NoUtilitiesDropsHandlerDrivenInteractivity(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+
+	quiz := ast.NewQuizElement(pos)
+	quiz.Question = "¿Dos más dos?"
+	quiz.Options = []string{"3", "4"}
+	quiz.Answer = 1
+
+	// Un slide por elemento, en este orden, para poder preguntar por índice.
+	slides := []struct {
+		name string
+		elem ast.Element
+		// wantConUtilities y wantSinUtilities son el data-interactive esperado
+		// en cada uno de los dos builds.
+		wantConUtilities bool
+		wantSinUtilities bool
+	}{
+		{name: "código", elem: ast.NewCodeElement(pos, "go", "fmt.Println()"), wantConUtilities: true, wantSinUtilities: false},
+		{name: "code-group", elem: ast.NewCodeGroupElement(pos), wantConUtilities: true, wantSinUtilities: false},
+		{name: "details", elem: ast.NewSpecialBlockElement(pos, "details", "Contenido plegable"), wantConUtilities: true, wantSinUtilities: false},
+		// Los que NO dependen de utilities.js: filtrar la función entera por
+		// la opción sería el error simétrico, y estas dos filas lo impiden.
+		{name: "quiz (quizpoll.js)", elem: quiz, wantConUtilities: true, wantSinUtilities: true},
+		{name: "chart (charts.js)", elem: ast.NewChartElement(pos, "bar"), wantConUtilities: true, wantSinUtilities: true},
+	}
+
+	blocks := make([]ast.ContentBlock, 0, len(slides))
+	for _, s := range slides {
+		b := ast.NewContentBlock(pos, "content")
+		b.Title = s.name
+		b.Elements = []ast.Element{s.elem}
+		blocks = append(blocks, *b)
+	}
+	doc := &ast.AST{ContentBlocks: blocks}
+
+	for _, build := range []struct {
+		name         string
+		opts         GeneratorOptions
+		wantHandlers bool
+	}{
+		{name: "con utilities", opts: GeneratorOptions{}, wantHandlers: true},
+		{name: "--no-utilities", opts: GeneratorOptions{NoUtilities: true}, wantHandlers: false},
+	} {
+		t.Run(build.name, func(t *testing.T) {
+			html, err := New(util.NewNoop()).RenderHTMLPreview(doc, build.opts, renderer.NewDefaultRenderContext())
+			if err != nil {
+				t.Fatalf("RenderHTMLPreview: %v", err)
+			}
+
+			// Primero el bundle, que es la premisa de todo lo demás: si los
+			// handlers no están donde este test cree, las afirmaciones sobre
+			// el metadato no miden nada.
+			for _, handler := range []string{"initCopyButtons", "initInteractiveElements"} {
+				if got := strings.Contains(html, handler); got != build.wantHandlers {
+					t.Fatalf("%s en el JS empaquetado = %v, se esperaba %v", handler, got, build.wantHandlers)
+				}
+			}
+
+			for i, s := range slides {
+				want := "false"
+				if (build.wantHandlers && s.wantConUtilities) || (!build.wantHandlers && s.wantSinUtilities) {
+					want = "true"
+				}
+				if got := slideDivAttr(t, html, "data-interactive", i); got != want {
+					t.Errorf("slide %d (%s): data-interactive = %q, se esperaba %q",
+						i, s.name, got, want)
+				}
+			}
+		})
+	}
+}
