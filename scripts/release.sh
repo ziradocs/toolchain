@@ -56,39 +56,81 @@ echo "🔎 Verificando GOWORK=off go build en slidelang y doclang..."
 (cd doclang && GOWORK=off go build ./...)
 echo "✅ Ambos CLIs compilan contra el core publicado que tienen pineado."
 
-# 4b. `core/$VERSION` puede existir YA, y es el caso normal: cuando el release
-#     lleva un cambio de core, `scripts/bump-core.sh $VERSION` lo cortó y lo
-#     empujó antes, porque los CLIs necesitaban poder pinearlo.
+# 4b. `core/$VERSION` puede existir YA, y es el caso NORMAL: cuando el release
+#     lleva un cambio de core, `scripts/bump-core.sh $VERSION` lo cortó antes,
+#     porque los CLIs necesitaban poder pinearlo.
 #
 #     Este script tageaba los cuatro a ciegas. Con `set -e`, el `git tag
 #     core/$VERSION` fallaba con "already exists" DESPUÉS de haber creado el
-#     `$VERSION` pelado local, así que abortaba a mitad y dejaba basura. En la
-#     práctica eso quemaba el número: el release salía con el siguiente libre
-#     —pasó con v2.32.3, que quedó saltada— y cada core-bump costaba una
-#     versión de producto.
+#     `$VERSION` pelado local, así que abortaba a mitad. En la práctica eso
+#     quemaba el número: el release salía con el siguiente libre —pasó con
+#     v2.32.3, que quedó saltada— y cada bump de core costaba una versión.
 #
-#     Reusarlo es correcto siempre que apunte al MISMO commit que se está
-#     liberando; si apunta a otro, el release publicaría binarios construidos
-#     contra un core distinto del que dice su tag, y eso sí hay que frenarlo.
+#     Qué NO se puede exigir: que el tag apunte a HEAD. En el flujo real nunca
+#     lo hace. El tag se corta sobre el `origin/main` del momento y DESPUÉS
+#     mergean el PR del bump y los PRs de los CLIs, así que para cuando se
+#     libera, el tag es un ancestro varios commits atrás. Una primera versión
+#     de este guard exigía el mismo commit y abortaba siempre.
+#
+#     Lo que sí importa es que el core PUBLICADO bajo ese tag sea el que se
+#     está liberando, y eso son tres condiciones verificables:
+#       (a) el commit del tag es ancestro de HEAD — el tag salió de esta línea;
+#       (b) `core/` no cambió entre el tag y HEAD — lo taggeado es lo que hay;
+#       (c) los dos go.mod pinean exactamente ese `core/$VERSION` — que es lo
+#           que goreleaser va a resolver del proxy.
+remote_ref_existe() {
+  local tipo=$1 patron=$2
+  local salida rc=0
+  salida=$(git ls-remote "$tipo" origin "$patron") || rc=$?
+  if (( rc != 0 )); then
+    echo "Error: no pude consultar '$patron' en origin — git ls-remote salió $rc." >&2
+    echo "Eso es una falla de red/credenciales, NO un 'no existe'. Abortando antes de taggear nada." >&2
+    exit 1
+  fi
+  [[ -n "$salida" ]]
+}
+
 CORE_TAG="core/$VERSION"
 REUSE_CORE_TAG=false
-if git rev-parse -q --verify "refs/tags/$CORE_TAG" >/dev/null; then
+
+#     El REMOTO es la autoridad, siempre, aunque haya un tag local con ese
+#     nombre: un local que apunte a otro commit que el de origin es justo el
+#     estado peligroso, y consultar solo local no lo vería. El helper falla
+#     CERRADO —un ls-remote que sale distinto de 0 aborta en vez de leerse
+#     como "no existe"—, igual que en bump-core.sh, de donde está copiado.
+if remote_ref_existe --tags "refs/tags/$CORE_TAG"; then
   REUSE_CORE_TAG=true
-elif git ls-remote --exit-code --tags origin "refs/tags/$CORE_TAG" >/dev/null 2>&1; then
-  git fetch -q origin "refs/tags/$CORE_TAG:refs/tags/$CORE_TAG"
-  REUSE_CORE_TAG=true
+  git fetch -q --force origin "refs/tags/$CORE_TAG:refs/tags/$CORE_TAG"
+elif git rev-parse -q --verify "refs/tags/$CORE_TAG" >/dev/null; then
+  echo "🔥 $CORE_TAG existe LOCAL pero no en origin."
+  echo "   goreleaser resuelve el core desde el proxy, que lee origin: un tag que no está allá"
+  echo "   no existe para el build. Empujalo (o borralo) antes de liberar."
+  exit 1
 fi
 
 if [[ "$REUSE_CORE_TAG" == true ]]; then
   CORE_TAG_COMMIT=$(git rev-list -n 1 "$CORE_TAG")
-  HEAD_COMMIT=$(git rev-parse HEAD)
-  if [[ "$CORE_TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
-    echo "🔥 $CORE_TAG ya existe pero apunta a $CORE_TAG_COMMIT, y estás liberando $HEAD_COMMIT."
-    echo "   Publicar así daría binarios construidos contra un core distinto del que declara su tag."
-    echo "   Revisá si el bump quedó sin mergear, o usá el siguiente número libre."
+  if ! git merge-base --is-ancestor "$CORE_TAG_COMMIT" HEAD; then
+    echo "🔥 $CORE_TAG apunta a $(git rev-parse --short "$CORE_TAG_COMMIT"), que NO es ancestro de HEAD."
+    echo "   Ese tag salió de otra línea de commits; el core publicado no es el de este release."
     exit 1
   fi
-  echo "ℹ️ $CORE_TAG ya existe en este mismo commit (lo cortó bump-core.sh). Se reusa."
+  if ! git diff --quiet "$CORE_TAG_COMMIT" HEAD -- core/; then
+    echo "🔥 core/ cambió entre $CORE_TAG y HEAD:"
+    git diff --stat "$CORE_TAG_COMMIT" HEAD -- core/ | sed 's/^/     /'
+    echo "   El tag no describe el core que se está liberando. Cortá un core/ nuevo con bump-core.sh."
+    exit 1
+  fi
+  for m in slidelang doclang; do
+    if ! grep -qE "go\.ziradocs\.com/core/v[0-9]+ +$VERSION\b" "$m/go.mod"; then
+      echo "🔥 $m/go.mod no pinea core $VERSION:"
+      grep -E "go\.ziradocs\.com/core/v[0-9]+" "$m/go.mod" | sed 's/^/     /'
+      echo "   Falta mergear el PR del bump antes de liberar."
+      exit 1
+    fi
+  done
+  echo "ℹ️ $CORE_TAG ya existe (lo cortó bump-core.sh) en $(git rev-parse --short "$CORE_TAG_COMMIT"):"
+  echo "   ancestro de HEAD, core/ sin cambios desde entonces, y ambos go.mod lo pinean. Se reusa."
 fi
 
 echo "🚀 Todo se ve bien. Creando tags para $VERSION..."

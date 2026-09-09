@@ -21,9 +21,24 @@ change, `scripts/bump-core.sh vX.Y.Z` already cut and pushed that tag — the CL
 to pin it. So `release.sh` **reuses** an existing `core/vX.Y.Z` instead of re-creating it, and only
 creates it when it is absent.
 
-It reuses it **only if it points at the commit being released**. If it points somewhere else, the
-script stops: publishing would ship binaries built against a different `core` than the one its own
-tag names. Before this check the script tagged all four blindly, so with `set -e` the duplicate
+**What it cannot require is that the tag point at HEAD** — in the real flow it never does. The tag
+is cut on whatever `origin/main` was at the time; *then* the bump PR merges, then the CLI PRs merge,
+so by release time the tag is an ancestor several commits back.
+
+What matters is that the `core` published under that tag is the one being released, which is three
+checkable conditions:
+
+1. the tag's commit is an **ancestor of HEAD** — it came from this line of commits;
+2. **`core/` did not change** between the tag and HEAD — what was tagged is what is here;
+3. both `go.mod` files **pin exactly that `core/vX.Y.Z`** — which is what goreleaser resolves from
+   the proxy.
+
+Any of the three failing stops the release with the reason. The remote is the authority even when a
+local tag of that name exists, because a local tag pointing somewhere other than origin's is
+precisely the dangerous state; the lookup **fails closed** (a `git ls-remote` error aborts rather
+than reading as "does not exist"), reusing the same helper as `bump-core.sh`.
+
+Before any of this the script tagged all four blindly, so with `set -e` the duplicate
 `git tag core/vX.Y.Z` aborted the run *after* creating the bare `vX.Y.Z` locally — which in practice
 burned the number (the release went out on the next free one; `v2.32.3` was skipped that way) and
 made every core bump cost a product version.
