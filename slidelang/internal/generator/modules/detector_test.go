@@ -27,6 +27,10 @@ func TestDetectRequiredModulesWithConfig_DecidesByNodeTypeNotByName(t *testing.T
 	pos := diagnostics.NewPosition(1, 1)
 
 	codeGroup := ast.NewCodeGroupElement(pos)
+	codeGroup.CodeBlocks = []ast.CodeBlock{
+		{Label: "Go", Language: "go", Content: "fmt.Println()"},
+		{Label: "Python", Language: "python", Content: "print()"},
+	}
 
 	for _, tc := range []struct {
 		name   string
@@ -126,8 +130,13 @@ func TestDetectRequiredModulesWithConfig_DecidesByNodeTypeNotByName(t *testing.T
 func TestDetectRequiredModulesWithConfig_UtilitiesSoloDependeDeLaOpcion(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 
+	// Con bloques de verdad: un code-group vacío no renderiza una sola
+	// `.slidelang-tab` y el linter lo rechaza con CODEGROUP001 (error), así
+	// que como fixture de "el deck tiene tabs" sería falso.
+	cg := ast.NewCodeGroupElement(pos)
+	cg.CodeBlocks = []ast.CodeBlock{{Label: "Go", Language: "go", Content: "fmt.Println()"}}
 	conTabs := ast.NewContentBlock(pos, "content")
-	conTabs.Elements = []ast.Element{ast.NewCodeGroupElement(pos)}
+	conTabs.Elements = []ast.Element{cg}
 
 	soloTexto := ast.NewContentBlock(pos, "content")
 	soloTexto.Elements = []ast.Element{ast.NewTextElement(pos, "prosa y nada más")}

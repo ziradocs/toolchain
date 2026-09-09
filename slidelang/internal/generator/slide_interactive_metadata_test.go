@@ -549,22 +549,43 @@ func TestRenderHTMLPreview_NoUtilitiesDropsHandlerDrivenInteractivity(t *testing
 	quiz.Options = []string{"3", "4"}
 	quiz.Answer = 1
 
+	// Un code-group con bloques de verdad. Uno vacío —que era el fixture de la
+	// primera versión de este test— renderiza CERO `.slidelang-tab`, no tiene
+	// nada que pulsar y encima el linter lo rechaza con CODEGROUP001: afirmar
+	// que es interactivo con utilities prendido habría sido fijar algo falso,
+	// aunque el gate que el test mide sí quedara probado.
+	codeGroup := ast.NewCodeGroupElement(pos)
+	codeGroup.CodeBlocks = []ast.CodeBlock{
+		{Label: "Go", Language: "go", Content: "fmt.Println()"},
+		{Label: "Python", Language: "python", Content: "print()"},
+	}
+
 	// Un slide por elemento, en este orden, para poder preguntar por índice.
 	slides := []struct {
 		name string
 		elem ast.Element
+		// control son las clases del selector que el JS usa para engancharlo.
+		// Se afirman en los DOS builds a propósito: que el markup sea idéntico
+		// con y sin utilities es la premisa del test, y es lo que hace que un
+		// guard sobre las clases no pueda distinguir los dos casos.
+		control []string
 		// wantConUtilities y wantSinUtilities son el data-interactive esperado
 		// en cada uno de los dos builds.
 		wantConUtilities bool
 		wantSinUtilities bool
 	}{
-		{name: "código", elem: ast.NewCodeElement(pos, "go", "fmt.Println()"), wantConUtilities: true, wantSinUtilities: false},
-		{name: "code-group", elem: ast.NewCodeGroupElement(pos), wantConUtilities: true, wantSinUtilities: false},
-		{name: "details", elem: ast.NewSpecialBlockElement(pos, "details", "Contenido plegable"), wantConUtilities: true, wantSinUtilities: false},
+		{name: "código", elem: ast.NewCodeElement(pos, "go", "fmt.Println()"),
+			control: []string{"slidelang-element", "slidelang-code"}, wantConUtilities: true, wantSinUtilities: false},
+		{name: "code-group", elem: codeGroup,
+			control: []string{"slidelang-tab"}, wantConUtilities: true, wantSinUtilities: false},
+		{name: "details", elem: ast.NewSpecialBlockElement(pos, "details", "Contenido plegable"),
+			control: []string{"slidelang-details"}, wantConUtilities: true, wantSinUtilities: false},
 		// Los que NO dependen de utilities.js: filtrar la función entera por
 		// la opción sería el error simétrico, y estas dos filas lo impiden.
-		{name: "quiz (quizpoll.js)", elem: quiz, wantConUtilities: true, wantSinUtilities: true},
-		{name: "chart (charts.js)", elem: ast.NewChartElement(pos, "bar"), wantConUtilities: true, wantSinUtilities: true},
+		{name: "quiz (quizpoll.js)", elem: quiz,
+			control: []string{"slidelang-option"}, wantConUtilities: true, wantSinUtilities: true},
+		{name: "chart (charts.js)", elem: ast.NewChartElement(pos, "bar"),
+			control: []string{"slidelang-chart-canvas"}, wantConUtilities: true, wantSinUtilities: true},
 	}
 
 	blocks := make([]ast.ContentBlock, 0, len(slides))
@@ -600,6 +621,14 @@ func TestRenderHTMLPreview_NoUtilitiesDropsHandlerDrivenInteractivity(t *testing
 			}
 
 			for i, s := range slides {
+				// El markup es el mismo en los dos builds: si esto falla, el
+				// fixture no tiene control que enganchar y las afirmaciones de
+				// abajo no estarían midiendo el gate sino un elemento vacío.
+				if !hasElementWithClasses(html, s.control) {
+					t.Errorf("slide %d (%s): el markup no trae %v, así que el fixture no tiene control que perder",
+						i, s.name, s.control)
+				}
+
 				want := "false"
 				if (build.wantHandlers && s.wantConUtilities) || (!build.wantHandlers && s.wantSinUtilities) {
 					want = "true"
