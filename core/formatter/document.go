@@ -92,45 +92,10 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool) (string
 			continue
 		}
 		b.WriteString("\n")
-		if isSubsectionHeadingElement(el) {
-			// TODO: este separador defensivo ya no hace falta. HeadersRule
-			// dejó de correr sobre documentos — implementa
-			// base.DialectScopedRule y los dos parsers declaran su dialecto
-			// (ver base.Dialect) — así que el "---" antes de cada subsection
-			// heading es puro ruido en la salida de `fmt`. Sacarlo cambia el
-			// texto emitido de TODO documento doclang, así que va en su propio
-			// PR donde ese sea el único diff, y no mezclado con el cableado
-			// del dialecto.
-			//
-			// rules/content/headers.go (el normalizer AI que
-			// NewDocumentFlexParserWithNormalization corre por defecto) trata
-			// "##" como el título de un slide nuevo SOLO justo después de un
-			// separador "---", y demueve a "**negrita**" cualquier "##"
-			// posterior dentro del mismo bloque lógico — una heurística
-			// pensada para slidelang (cada "---" = un slide) que malinterpreta
-			// subsection headers legítimos de DocLang. El corpus real (p. ej.
-			// examples/dimensions_test.doclang) siempre antepone "---" a cada
-			// "##"/"###" — replicar esa convención rodea el bug sin tener que
-			// tocar el normalizer compartido (fuera del scope de fmt).
-			b.WriteString("---\n\n")
-		}
 		b.WriteString(elText)
 	}
 
 	return b.String(), nil
-}
-
-// isSubsectionHeadingElement reporta si el, si es un TextElement RawHTML,
-// tiene forma de subsection header (<hN>...</hN>) — sin correr el regex
-// completo, solo lo suficiente para decidir si hace falta el separador
-// "---" defensivo contra rules/content/headers.go (ver comentario en el
-// llamador).
-func isSubsectionHeadingElement(el ast.Element) bool {
-	t, ok := el.(*ast.TextElement)
-	if !ok || !t.IsRawHTML {
-		return false
-	}
-	return strings.HasPrefix(t.Content, "<h") && subsectionHeadingRe.MatchString(t.Content)
 }
 
 func formatDocumentElement(el ast.Element) (string, error) {
