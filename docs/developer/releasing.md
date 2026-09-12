@@ -31,7 +31,13 @@ checkable conditions:
 1. the tag's commit is an **ancestor of HEAD** — it came from this line of commits;
 2. **`core/` did not change** between the tag and HEAD — what was tagged is what is here;
 3. both `go.mod` files **pin exactly that `core/vX.Y.Z`** — which is what goreleaser resolves from
-   the proxy.
+   the proxy. *Exactly* is literal: the pinned version is extracted and string-compared, not matched
+   with `grep -E "$VERSION\b"`. In an ERE `-` is a word boundary, so `v2.32.5\b` matches
+   `v2.32.5-0.2026…-abc123` — and that is not a contrived string, it is the pseudo-version Go writes
+   by itself. Once `core/v2.32.4` is cut, any `go get go.ziradocs.com/core/v2@main` on a later commit
+   pins `v2.32.5-0.<ts>-<sha>`: precisely the version about to be released, followed by a hyphen. The
+   release went through announcing that both `go.mod` pinned it, with goreleaser resolving an
+   **untagged** commit.
 
 Any of the three failing stops the release with the reason. The remote is the authority even when a
 local tag of that name exists, because a local tag pointing somewhere other than origin's is
@@ -43,13 +49,26 @@ Before any of this the script tagged all four blindly, so with `set -e` the dupl
 burned the number (the release went out on the next free one; `v2.32.3` was skipped that way) and
 made every core bump cost a product version.
 
+**The other three tags get the same treatment**, for the same reason: they were still created blind,
+so any *second* run of the script died at `git tag "$VERSION"` with "already exists" — after clearing
+the whole core block, having done nothing. A second run is not exotic: the first one only has to die
+at the push (network) or at step 6 (`gh`) with the tags already created. Unlike `core/`, these three
+are cut by this script on HEAD, so the reuse condition is simpler — if the tag already exists it must
+point at HEAD; pointing anywhere else means that number was already released from another line of
+commits, and the release stops rather than publishing a binary that is not what it claims to be. The
+remote is the authority here too, and tags already on `origin` at HEAD are not re-pushed (the
+submodule push is skipped entirely when the list comes out empty — expanding an empty array would
+have turned `git push origin "${SUBMODULE_TAGS[@]}"` into a bare `git push origin`, which pushes the
+current *branch*).
+
 **This decision has an executable gate**: `scripts/test-release-core-tag-reuse.sh`, run by
 `.github/workflows/release-script.yml` on any change to `release.sh` itself. It builds throwaway git
 repositories with their own bare `origin`, prepends a stub directory to `PATH` holding a fake `go` (the
-script builds both CLIs) and a fake `gh` (it never talks to GitHub), and runs the real script across seven
-scenarios: the real flow reuses, a release with no core change creates, and a local-only tag, a tag
-off another line, a `core/` changed after the tag, a stale `go.mod` pin and an `ls-remote` failure
-each stop it. Every scenario asserts three things — exit code, a message substring that identifies
+script builds both CLIs) and a fake `gh` (it never talks to GitHub), and runs the real script across ten
+scenarios: the real flow reuses, a release with no core change creates, a second run of the script is
+a no-op, and a local-only tag, a tag off another line, a `core/` changed after the tag, a stale
+`go.mod` pin, a *suffixed* pin (the pseudo-version case above), a `vX.Y.Z` already on `origin` off
+HEAD, and an `ls-remote` failure each stop it. Every scenario asserts three things — exit code, a message substring that identifies
 *that* condition, and the tags left in the bare `origin`. Each one runs in its own subshell under
 `set -euo pipefail`, with the parent capturing the exit code: a scenario invoked as
 `escenario_x || true` would have `errexit` suppressed throughout its body, so a failed *setup* step

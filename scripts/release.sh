@@ -121,10 +121,29 @@ if [[ "$REUSE_CORE_TAG" == true ]]; then
     echo "   El tag no describe el core que se está liberando. Cortá un core/ nuevo con bump-core.sh."
     exit 1
   fi
+  #     La comparación es EXACTA, con el campo extraído, y no un grep con
+  #     `$VERSION\b`. Esa versión anterior daba falsos positivos porque en una
+  #     ERE el `-` es frontera de palabra: `v2.32.5\b` matchea
+  #     `v2.32.5-0.2026…-abc123`. Y ese no es un caso rebuscado — es el
+  #     pseudo-version que Go escribe sola. Con `core/v2.32.4` ya cortado,
+  #     cualquier `go get go.ziradocs.com/core/v2@main` sobre un commit
+  #     posterior pinea `v2.32.5-0.<ts>-<sha>`: exactamente la versión que se
+  #     está por liberar, seguida de un guion. Medido: el script decía "ambos
+  #     go.mod lo pinean. Se reusa." y liberaba, con goreleaser resolviendo un
+  #     commit SIN tag. Un `-rc1` a mano reproduce igual.
+  #
+  #     De paso desaparece la otra mitad del problema: `$VERSION` entraba sin
+  #     escapar a la ERE, así que sus puntos eran comodines.
+  #
+  #     El awk lee las dos formas del require —la de bloque, donde el módulo es
+  #     el primer campo, y la de una línea, donde lo precede `require`— y
+  #     saltea cualquier línea con `=>`, que es un replace y no un pin.
   for m in slidelang doclang; do
-    if ! grep -qE "go\.ziradocs\.com/core/v[0-9]+ +$VERSION\b" "$m/go.mod"; then
-      echo "🔥 $m/go.mod no pinea core $VERSION:"
-      grep -E "go\.ziradocs\.com/core/v[0-9]+" "$m/go.mod" | sed 's/^/     /'
+    pin=$(awk '/=>/ { next }
+               { for (i = 1; i < NF; i++)
+                   if ($i ~ /^go\.ziradocs\.com\/core\/v[0-9]+$/) { print $(i+1); exit } }' "$m/go.mod")
+    if [[ "$pin" != "$VERSION" ]]; then
+      echo "🔥 $m/go.mod no pinea core $VERSION, pinea: ${pin:-(ninguno)}"
       echo "   Falta mergear el PR del bump antes de liberar."
       exit 1
     fi
@@ -133,13 +152,72 @@ if [[ "$REUSE_CORE_TAG" == true ]]; then
   echo "   ancestro de HEAD, core/ sin cambios desde entonces, y ambos go.mod lo pinean. Se reusa."
 fi
 
-echo "🚀 Todo se ve bien. Creando tags para $VERSION..."
-git tag "$VERSION"
+# 4c. Los otros tres tags —`$VERSION`, `doclang/` y `slidelang/`— se creaban a
+#     CIEGAS, que es la misma falla que 4b arregla para core/ y por la que este
+#     script existe. Con `set -e`, cualquier segunda corrida moría en
+#     `git tag "$VERSION"` con "already exists", DESPUÉS de pasar todo el bloque
+#     de reuso y sin haber hecho nada. Y una segunda corrida no es rara: basta
+#     que la primera muera en el push (red) o en el paso 6 (`gh`), con los tags
+#     ya creados.
+#
+#     A diferencia de core/, estos tres los corta ESTE script sobre HEAD, así
+#     que la condición de reuso es más simple: si ya existe, tiene que apuntar a
+#     HEAD. Si apunta a otro commit, ese número ya se liberó desde otra línea y
+#     el release se detiene — reusarlo publicaría un binario que no es el que
+#     dice ser.
+#
+#     El remoto manda, igual que en 4b y por lo mismo: un tag local que apunte a
+#     otro commit que el de origin es el estado peligroso, y consultar solo
+#     local no lo vería. Se reusa el helper fail-closed.
+HEAD_COMMIT=$(git rev-parse HEAD)
+TAG_NECESITA_PUSH=false
+
+resolver_tag_en_head() { # $1 = nombre del tag
+  local tag=$1 sha
+  TAG_NECESITA_PUSH=false
+
+  if remote_ref_existe --tags "refs/tags/$tag"; then
+    git fetch -q --force origin "refs/tags/$tag:refs/tags/$tag"
+    sha=$(git rev-list -n 1 "refs/tags/$tag")
+    if [[ "$sha" != "$HEAD_COMMIT" ]]; then
+      echo "🔥 $tag ya existe en origin, en $(git rev-parse --short "$sha"), que NO es HEAD."
+      echo "   Ese número ya se liberó desde otro commit. Elegí el siguiente."
+      exit 1
+    fi
+    echo "ℹ️ $tag ya está en origin apuntando a HEAD (corrida previa). No se re-empuja."
+    return
+  fi
+
+  if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+    sha=$(git rev-list -n 1 "refs/tags/$tag")
+    if [[ "$sha" != "$HEAD_COMMIT" ]]; then
+      echo "🔥 $tag existe LOCAL en $(git rev-parse --short "$sha"), que NO es HEAD."
+      echo "   Empujarlo así publicaría otro commit. Borralo o movelo antes de liberar."
+      exit 1
+    fi
+    echo "ℹ️ $tag ya existía local en HEAD (corrida previa que no llegó a empujar). Se reusa."
+  else
+    git tag "$tag"
+  fi
+  TAG_NECESITA_PUSH=true
+}
+
+echo "🚀 Todo se ve bien. Resolviendo tags para $VERSION..."
+resolver_tag_en_head "$VERSION"
+PUSH_VERSION=$TAG_NECESITA_PUSH
 if [[ "$REUSE_CORE_TAG" == false ]]; then
   git tag "$CORE_TAG"
 fi
-git tag "doclang/$VERSION"
-git tag "slidelang/$VERSION"
+SUBMODULE_TAGS=()
+for sub in "doclang/$VERSION" "slidelang/$VERSION"; do
+  resolver_tag_en_head "$sub"
+  if [[ "$TAG_NECESITA_PUSH" == true ]]; then
+    SUBMODULE_TAGS+=("refs/tags/$sub")
+  fi
+done
+if [[ "$REUSE_CORE_TAG" == false ]]; then
+  SUBMODULE_TAGS+=("refs/tags/$CORE_TAG")
+fi
 
 # 5. Empujar el tag que dispara el release SOLO, en su propio push.
 #    (Empíricamente: con `git push origin --tags` empujando los 4 tags de
@@ -148,15 +226,24 @@ git tag "slidelang/$VERSION"
 #    v2.1.1-. El único release histórico que sí disparó por push -v2.0.0- se
 #    empujó como tag único, antes de que este script existiera. Empujar el
 #    tag de release aparte evita depender de ese comportamiento no documentado.)
-echo "☁️ Empujando $VERSION (el tag que dispara el release)..."
-git push origin "refs/tags/$VERSION"
-
-echo "☁️ Empujando los tags de submódulo (core/doclang/slidelang)..."
-SUBMODULE_TAGS=("refs/tags/doclang/$VERSION" "refs/tags/slidelang/$VERSION")
-if [[ "$REUSE_CORE_TAG" == false ]]; then
-  SUBMODULE_TAGS+=("refs/tags/$CORE_TAG")
+if [[ "$PUSH_VERSION" == true ]]; then
+  echo "☁️ Empujando $VERSION (el tag que dispara el release)..."
+  git push origin "refs/tags/$VERSION"
+else
+  echo "⏭️ $VERSION ya estaba en origin; no hay push que disparar. El paso 6 decide."
 fi
-git push origin "${SUBMODULE_TAGS[@]}"
+
+# El guard de lista vacía NO es defensivo: en una re-corrida completa los tres
+# tags ya están en origin, SUBMODULE_TAGS queda vacío y `git push origin
+# "${SUBMODULE_TAGS[@]}"` se expande a `git push origin` pelado — que empuja la
+# RAMA actual. Este script corre desde main y con el árbol limpio, así que sería
+# un push silencioso y no una falla visible.
+if (( ${#SUBMODULE_TAGS[@]} > 0 )); then
+  echo "☁️ Empujando los tags de submódulo (core/doclang/slidelang)..."
+  git push origin "${SUBMODULE_TAGS[@]}"
+else
+  echo "⏭️ Los tags de submódulo ya estaban en origin apuntando a HEAD."
+fi
 
 # 6. Confirmar que el workflow realmente arrancó; si no, dispararlo a mano.
 #    Requiere `gh` autenticado (mismo supuesto que el resto del repo).

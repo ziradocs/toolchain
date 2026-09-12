@@ -339,6 +339,79 @@ correr_escenario() { # $1 = nombre de la función del escenario
   esac
 }
 
+# 8. El pin de los CLIs no es `$VERSION` sino un pseudo-version que EMPIEZA con
+#    `$VERSION`. El chequeo anterior lo daba por bueno porque usaba
+#    `grep -E "$VERSION\\b"` y en una ERE el `-` es frontera de palabra.
+escenario_pin_sufijado() {
+  local esc="pin-sufijado (los CLIs pinean un pseudo-version de core)" d="$TMP/pin-sufijado"
+  nuevo_repo pin-sufijado
+  commit_en "$d/repo" core/parser.go "el core que se va a liberar" "core: cambio"
+  git -C "$d/repo" tag -a -m "core $VERSION" "$CORE_TAG"
+  # Lo que deja un `go get go.ziradocs.com/core/v2@main` sobre un commit
+  # posterior al tag anterior: la versión que se está por liberar, un guion, y
+  # un commit sin tag. Forma verificada contra un módulo público real.
+  pin_core "$d/repo" "$VERSION-0.20260910120000-abcdef123456"
+  git -C "$d/repo" add -A && git -C "$d/repo" commit -q -m "go get @main"
+  git -C "$d/repo" push -q origin main
+  git -C "$d/repo" push -q origin "refs/tags/$CORE_TAG"
+
+  local rc=0; correr_release "$d/repo" || rc=$?
+  verificar "$esc" "$rc" 1 "no pinea core $VERSION, pinea: $VERSION-0.20260910120000-abcdef123456" || return
+  if [[ "$(tags_origin "$d")" != "core/$VERSION " ]]; then
+    reportar "$esc" "abortó pero movió tags: '$(tags_origin "$d")'"; return
+  fi
+  echo "✅ $esc"
+}
+
+# 9. Una SEGUNDA corrida del script. Pasa cuando la primera muere en el push o
+#    en el paso 6 con los tags ya creados — y antes moría en `git tag
+#    "$VERSION"` con "already exists", después de pasar todo el bloque de reuso
+#    y sin hacer nada.
+escenario_re_corrida() {
+  local esc="re-corrida (correr el script dos veces seguidas)" d="$TMP/re-corrida"
+  nuevo_repo re-corrida
+  commit_en "$d/repo" core/parser.go "el core que se va a liberar" "core: cambio"
+  git -C "$d/repo" tag -a -m "core $VERSION" "$CORE_TAG"
+  pin_core "$d/repo" "$VERSION"
+  git -C "$d/repo" add -A && git -C "$d/repo" commit -q -m "bump core a $VERSION"
+  git -C "$d/repo" push -q origin main
+  git -C "$d/repo" push -q origin "refs/tags/$CORE_TAG"
+
+  local rc=0; correr_release "$d/repo" || rc=$?
+  verificar "$esc (primera)" "$rc" 0 "Se reusa." || return
+  local tags_tras_1; tags_tras_1=$(tags_origin "$d")
+  local sha_v; sha_v=$(sha_tag_origin "$d" "$VERSION")
+
+  rc=0; correr_release "$d/repo" || rc=$?
+  verificar "$esc (segunda)" "$rc" 0 "ya está en origin apuntando a HEAD" || return
+  if [[ "$(tags_origin "$d")" != "$tags_tras_1" ]]; then
+    reportar "$esc" "la segunda corrida cambió los tags: '$(tags_origin "$d")' vs '$tags_tras_1'"; return
+  fi
+  if [[ "$(sha_tag_origin "$d" "$VERSION")" != "$sha_v" ]]; then
+    reportar "$esc" "$VERSION se movió en la segunda corrida"; return
+  fi
+  echo "✅ $esc"
+}
+
+# 10. El número ya se liberó desde OTRO commit. Reusarlo publicaría un binario
+#     que no es el que dice ser, así que el release se detiene.
+escenario_version_en_otro_commit() {
+  local esc="version-en-otro-commit ($VERSION en origin fuera de HEAD)" d="$TMP/otro-commit"
+  nuevo_repo otro-commit
+  git -C "$d/repo" tag -a -m "release viejo" "$VERSION"
+  pin_core "$d/repo" "$VERSION_VIEJA"
+  commit_en "$d/repo" slidelang/main.go "cambio posterior al tag" "slidelang: cambio"
+  git -C "$d/repo" push -q origin main
+  git -C "$d/repo" push -q origin "refs/tags/$VERSION"
+
+  local rc=0; correr_release "$d/repo" || rc=$?
+  verificar "$esc" "$rc" 1 "que NO es HEAD" || return
+  if [[ "$(tags_origin "$d")" != "$VERSION " ]]; then
+    reportar "$esc" "abortó pero movió tags: '$(tags_origin "$d")'"; return
+  fi
+  echo "✅ $esc"
+}
+
 correr_escenario escenario_flujo_real
 correr_escenario escenario_sin_tag
 correr_escenario escenario_solo_local
@@ -346,10 +419,13 @@ correr_escenario escenario_otra_linea
 correr_escenario escenario_core_cambio
 correr_escenario escenario_go_mod_viejo
 correr_escenario escenario_ls_remote_falla
+correr_escenario escenario_pin_sufijado
+correr_escenario escenario_re_corrida
+correr_escenario escenario_version_en_otro_commit
 
 echo
 if (( fallos > 0 )); then
   echo "🔥 $fallos escenario(s) fallaron."
   exit 1
 fi
-echo "✅ Los 7 escenarios pasaron."
+echo "✅ Los 10 escenarios pasaron."
