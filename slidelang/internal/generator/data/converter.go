@@ -214,6 +214,39 @@ func renderOfflinePlantUML(content, renderMode string, ctx *renderer.RenderConte
 }
 
 func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode string, log util.Logger, ctx *renderer.RenderContext) PresentationData {
+	// `utilities` prendido no es un default de conveniencia: es lo que hacen
+	// los dos callers que quedan arriba en la cadena. El del servidor de
+	// preview de temas (cli/preview_theme.go) arma su TemplateBuilder con los
+	// defaults —EnableUtilities: true, template/base.go— y su comando no
+	// expone `--no-utilities`, así que ahí utilities.js SIEMPRE se empaqueta.
+	// El camino que sí honra la opción (generator.renderHTML) entra por
+	// PrepareTemplateDataWithOptions y no por acá.
+	return PrepareTemplateDataWithOptions(astNode, themeName, TemplateDataOptions{
+		RenderMode:       renderMode,
+		UtilitiesEnabled: true,
+	}, log, ctx)
+}
+
+// TemplateDataOptions son las opciones del BUILD que cambian lo que los datos
+// del template pueden AFIRMAR, no lo que se renderiza.
+//
+// Hoy hay dos, y las dos entran por la misma puerta: un elemento se anuncia
+// como interactivo solo si el bundle final trae el JS que lo engancha.
+// `RenderMode` decide eso para chart y map (en offline vienen rasterizados) y
+// `UtilitiesEnabled` para código, code-group y details (los engancha
+// utilities.js, que `--no-utilities` no empaqueta).
+type TemplateDataOptions struct {
+	// RenderMode es "browser", "offline-assets" u "offline-inline".
+	RenderMode string
+	// UtilitiesEnabled es `!opts.NoUtilities` del generador.
+	UtilitiesEnabled bool
+}
+
+// PrepareTemplateDataWithOptions es el fondo de la cadena de entrada
+// (PrepareTemplateData → …WithTheme → …WithRenderMode → …WithOptions) y el
+// único que ve todas las opciones del build.
+func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts TemplateDataOptions, log util.Logger, ctx *renderer.RenderContext) PresentationData {
+	renderMode := opts.RenderMode
 	offline := renderer.IsOfflineRenderMode(renderMode)
 	data := PresentationData{
 		HasTitle: astNode.FrontMatter != nil,
@@ -257,7 +290,7 @@ func PrepareTemplateDataWithRenderMode(astNode *ast.AST, themeName, renderMode s
 
 	for i, slide := range astNode.ContentBlocks {
 		// Detectar elementos interactivos
-		hasInteractive, interactiveElements := detectInteractiveElements(slide.Elements)
+		hasInteractive, interactiveElements := detectInteractiveElements(slide.Elements, offline, opts.UtilitiesEnabled)
 
 		// Extraer presenter notes de los elementos
 		notes := extractPresenterNotes(slide.Elements, variables)
@@ -959,8 +992,14 @@ func isSlideTypeClosing(slideType string) bool {
 //   - chart: Chart.js trae tooltips al pasar el puntero.
 //   - map: Leaflet arrastra, hace zoom y abre popups.
 //   - code: `initCopyButtons` (template/utilities.go) le cuelga un botón
-//     "Copiar" a todo `.slidelang-element.slidelang-code`, sin condición.
+//     "Copiar" a todo `.slidelang-element.slidelang-code`, sea cual sea el
+//     lenguaje del fence.
 //   - code-group / details: `initInteractiveElements` les asigna `.onclick`.
+//
+// Los tres últimos viven en utilities.js, así que `--no-utilities` los deja sin
+// handler; chart y map se rasterizan en los modos offline. Por eso la función
+// recibe las dos opciones del build: el metadato describe el bundle que se
+// generó, no el que se podría haber generado.
 //   - quiz / poll: quizpoll.js marca la opción, revela la explicación y llena
 //     las barras.
 //   - video / audio: solo con `controls` (#290).
@@ -982,15 +1021,55 @@ func isSlideTypeClosing(slideType string) bool {
 // Ojo con el nombre: `hasInteractiveElements` (offline.go, pdf.go) es OTRA
 // función y otra pregunta —"¿hace falta Chromium para rasterizar esto?"—, y
 // ahí mermaid sí cuenta. Las dos no tienen por qué coincidir.
-func detectInteractiveElements(elements []ast.Element) (bool, []string) {
+func detectInteractiveElements(elements []ast.Element, offline, utilitiesEnabled bool) (bool, []string) {
 	interactiveTypes := []string{}
+
+	// `--no-utilities` no empaqueta utilities.js, y con él se van
+	// `initCopyButtons` (el botón de copiar de todo `.slidelang-code`) e
+	// `initInteractiveElements` (los `.onclick` de las tabs de un code-group y
+	// del toggle de un details). El markup NO cambia —las clases siguen ahí—,
+	// así que lo único que distingue los dos builds es el JS del bundle.
+	//
+	// Medido sobre el mismo deck, con --no-utilities: `initCopyButtons` e
+	// `initInteractiveElements` ausentes del HTML servido, y sin embargo los
+	// tres elementos salían con `data-interactive="true"`. Es exactamente el
+	// mismo error que el de los modos offline, con otro interruptor.
+	//
+	// El gate va SOLO sobre esos tres. Quiz y poll los engancha quizpoll.js,
+	// chart y map sus propios módulos, y un <video controls> lo maneja el
+	// navegador: ninguno depende de utilities.js, así que filtrar la función
+	// entera por la opción sería el error simétrico.
+	addUtilityDriven := func(t string) {
+		if utilitiesEnabled {
+			interactiveTypes = append(interactiveTypes, t)
+		}
+	}
+
+	// En los modos offline el chart y el mapa ya vienen RASTERIZADOS: el
+	// generador los dibuja al build y emite un <img>, sin <canvas> y sin
+	// Chart.js ni Leaflet en el bundle. Lo que queda es una imagen, y una
+	// imagen no se toca. Medido sobre el mismo deck con --embed-assets:
+	//
+	//	                 canvas  Chart.js  Leaflet  copiar  quiz
+	//	browser              1         1        4       sí    sí
+	//	offline-assets       0         0        0       sí    sí
+	//	offline-inline       0         0        0       sí    sí
+	//
+	// Por eso el gate va SOLO sobre chart y map: el botón de copiar, las tabs
+	// y quiz/poll siguen enganchados en los tres modos, así que filtrar la
+	// función entera por modo sería el error simétrico.
+	addRasterizable := func(t string) {
+		if !offline {
+			interactiveTypes = append(interactiveTypes, t)
+		}
+	}
 
 	for _, elem := range elements {
 		switch e := elem.(type) {
 		case *ast.ChartElement:
-			interactiveTypes = append(interactiveTypes, "chart")
+			addRasterizable("chart")
 		case *ast.MapElement:
-			interactiveTypes = append(interactiveTypes, "map")
+			addRasterizable("map")
 		case *ast.CodeElement:
 			// Sin mirar el lenguaje: la plantilla decide por TIPO de nodo, no
 			// por el lenguaje del fence. Un ```mermaid escrito en el fuente
@@ -999,30 +1078,34 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 			// renderiza `.slidelang-code` y sí recibe el botón de copiar. La
 			// primera versión de este cambio filtraba por lenguaje y marcaba
 			// ese caso como no interactivo; el test de controles lo cazó.
-			interactiveTypes = append(interactiveTypes, "code")
+			addUtilityDriven("code")
 		case *ast.SpecialBlockElement:
+			// Solo queda `details`, que es el único blockType cuyo markup
+			// trae un control: `.slidelang-details` lo engancha
+			// initInteractiveElements.
+			//
+			// Salieron `chart`/`charts`, `map`/`maps` y `code-group`/
+			// `codegroup`. Los tres grupos estaban acá por el NOMBRE del
+			// bloque, no por lo que se renderiza: la plantilla les da un
+			// contenedor de prosa, el linter emite SPECIAL001 y el HTML no
+			// trae ni un <canvas>, ni un .slidelang-map-container, ni un
+			// .slidelang-tab.
+			//
+			// Con `code-group` había dudado, argumentando que el defecto
+			// estaba en el render (#300) y no en el metadato. Es al revés: el
+			// metadato tiene que describir lo que hay HOY, y hoy no hay tabs.
+			// El `<<code-group>>` de verdad llega como CodeGroupElement y
+			// tiene su propia rama, así que la forma que sí funciona no
+			// pierde nada. Cuando #300 arregle el render, esta rama vuelve
+			// con un test que la respalde.
 			switch strings.ToLower(e.BlockType) {
-			case "chart", "charts":
-				interactiveTypes = append(interactiveTypes, "chart")
-			case "map", "maps":
-				interactiveTypes = append(interactiveTypes, "map")
-			case "code-group", "codegroup":
-				// Un bloque especial con este tipo NO trae tabs: solo la
-				// forma pegada `:::code-group` produce un CodeGroupElement
-				// real (rama de más abajo), y la separada `::: code-group`
-				// —que dos ejemplos del corpus usan— cae acá y renderiza el
-				// contenido crudo, sin `.slidelang-tab` y sin nada que
-				// clickear. Se deja marcado a propósito: el defecto está en
-				// que esa forma renderiza mal, no en el metadato, y arreglarlo
-				// acá escondería el síntoma. Ver el issue enlazado en el PR.
-				interactiveTypes = append(interactiveTypes, "code")
 			case "details":
 				// `.slidelang-details` sí lo agarra initInteractiveElements.
 				// `collapsible` estaba en esta misma lista y no: emite
 				// `.slidelang-collapsible`, que ningún selector del JS busca,
 				// y no aparece ni en los schemas del linter ni en el kit ni en
 				// el corpus.
-				interactiveTypes = append(interactiveTypes, "interactive")
+				addUtilityDriven("interactive")
 			}
 		case *ast.QuizElement:
 			interactiveTypes = append(interactiveTypes, "quiz")
@@ -1034,7 +1117,7 @@ func detectInteractiveElements(elements []ast.Element) (bool, []string) {
 			// template/utilities.go les asigna `.onclick`— y solo llegaban acá
 			// las escritas como `::: code-group`, que caen en la rama de
 			// SpecialBlockElement. Un `<<code-group>>` real quedaba fuera.
-			interactiveTypes = append(interactiveTypes, "code")
+			addUtilityDriven("code")
 		case *ast.MediaElement:
 			// Un <video>/<audio> es interactivo si —y solo si— lleva los
 			// controles del navegador. Sin `controls` es una pieza que se
@@ -1122,9 +1205,13 @@ func estimateSlideDuration(slide ast.ContentBlock) int {
 		case *ast.MermaidElement, *ast.ChartElement, *ast.MapElement:
 			hasComplexElements = true
 		case *ast.SpecialBlockElement:
-			if e.BlockType == "mermaid" || e.BlockType == "chart" || e.BlockType == "map" {
-				hasComplexElements = true
-			}
+			// La quinta rama por NOMBRE de bloque, y la última. Un bloque
+			// especial llamado `chart`, `map` o `mermaid` renderiza prosa: se
+			// lee como prosa, así que sumar los 15 segundos de "elemento
+			// complejo" le daba 45 a un párrafo. Sus palabras ya se cuentan
+			// abajo, que es todo lo que hace falta.
+			//
+			// Los elementos REALES siguen sumando, en el case de arriba.
 			wordCount += len(strings.Fields(e.Content))
 		}
 	}
@@ -1170,11 +1257,24 @@ func generateFeaturesSummary(slides []ast.ContentBlock) *PresentationFeatures {
 			case *ast.MapElement:
 				features.HasMaps = true
 			case *ast.CodeElement:
-				if strings.HasPrefix(strings.ToLower(e.Language), "mermaid") {
-					features.HasMermaid = true
-				} else {
-					features.HasCode = true
-				}
+				// Sin mirar el lenguaje, por la misma razón que
+				// detectInteractiveElements: la plantilla decide por TIPO de
+				// nodo. Un ```mermaid del fuente llega como MermaidElement y
+				// tiene su propio case; un CodeElement con Language "mermaid"
+				// renderiza `.slidelang-code` —hasta recibe el botón de
+				// copiar—, así que declarar hasMermaid por su lenguaje describe
+				// un diagrama que no está en la página.
+				_ = e
+				features.HasCode = true
+			case *ast.CodeGroupElement:
+				// El case que faltaba desde siempre. Ninguna de estas tres
+				// funciones tenía el elemento REAL: el `hasCode` de un deck
+				// cuyo código vive en `::::code-group` salía de la rama por
+				// NOMBRE del bloque especial, o sea por accidente. Al retirar
+				// esa rama, dos decks del corpus —con 5 y 13 tabs de verdad—
+				// pasaron a declarar `hasCode: false`. Lo cazó el barrido de
+				// corpus, no los tests.
+				features.HasCode = true
 			case *ast.QuoteElement:
 				features.HasQuotes = true
 			case *ast.DirectiveNode:
@@ -1183,16 +1283,15 @@ func generateFeaturesSummary(slides []ast.ContentBlock) *PresentationFeatures {
 					features.HasNotes = true
 				}
 			case *ast.SpecialBlockElement:
-				switch strings.ToLower(e.BlockType) {
-				case "mermaid", "diagram":
-					features.HasMermaid = true
-				case "chart", "charts":
-					features.HasCharts = true
-				case "map", "maps":
-					features.HasMaps = true
-				case "code-group", "codegroup":
-					features.HasCode = true
-				}
+				// Sin ramas por el NOMBRE del bloque. Un `::: chart` emite un
+				// contenedor de prosa: cero `<canvas>`, cero
+				// `.slidelang-chart-canvas`. Lo mismo `::: map` (sin
+				// `.slidelang-map-container`), `::: mermaid` y `::: diagram`
+				// (sin el `.slidelang-mermaid` anidado que busca el módulo) y
+				// `::: code-group` (sin `.slidelang-tab`). Declarar
+				// `hasCharts: true` por el nombre del bloque le miente al que
+				// lee el metadato, igual que se lo mentía data-interactive.
+				_ = e
 			}
 		}
 	}
@@ -1224,28 +1323,15 @@ func getRequiredLibraries(slides []ast.ContentBlock) []string {
 					seen["leaflet"] = true
 				}
 			case *ast.CodeElement:
-				if strings.HasPrefix(strings.ToLower(e.Language), "mermaid") && !seen["mermaid"] {
-					libraries = append(libraries, "mermaid")
-					seen["mermaid"] = true
-				}
+				// Idem: un CodeElement renderiza `.slidelang-code`, que el
+				// módulo de mermaid no busca. Pedir la librería por el lenguaje
+				// del fence la cargaba para no encontrar nada.
+				_ = e
 			case *ast.SpecialBlockElement:
-				switch strings.ToLower(e.BlockType) {
-				case "mermaid", "diagram":
-					if !seen["mermaid"] {
-						libraries = append(libraries, "mermaid")
-						seen["mermaid"] = true
-					}
-				case "chart", "charts":
-					if !seen["chartjs"] {
-						libraries = append(libraries, "chartjs")
-						seen["chartjs"] = true
-					}
-				case "map", "maps":
-					if !seen["leaflet"] {
-						libraries = append(libraries, "leaflet")
-						seen["leaflet"] = true
-					}
-				}
+				// Idem: ninguna de esas librerías tiene a qué engancharse en
+				// el markup de un bloque especial. Pedirlas por el nombre
+				// hacía que un `::: map` de pura prosa declarara Leaflet.
+				_ = e
 			}
 		}
 	}

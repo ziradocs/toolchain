@@ -655,7 +655,14 @@ func (g *Generator) renderHTML(presentationConfig *PresentationConfig, htmlConte
 	}
 
 	// Prepare template data (con modo de rendering para el pre-render offline, #92)
-	templateData := data.PrepareTemplateDataWithRenderMode(presentationConfig.AST, presentationConfig.Theme.Name, presentationConfig.Options.RenderMode, g.logger, presentationConfig.RenderContext)
+	templateData := data.PrepareTemplateDataWithOptions(presentationConfig.AST, presentationConfig.Theme.Name, data.TemplateDataOptions{
+		RenderMode: presentationConfig.Options.RenderMode,
+		// El mismo `!NoUtilities` que decide si utilities.js entra al bundle
+		// (createTemplateBuilder, buildExcludeList). Sin esto los datos del
+		// template anunciaban como interactivo el código, el code-group y el
+		// details de un build que no trae los handlers.
+		UtilitiesEnabled: !presentationConfig.Options.NoUtilities,
+	}, g.logger, presentationConfig.RenderContext)
 
 	// motor-temas-v2.md §2.2: propagar los tokens de tema ya resueltos a
 	// literal (mermaid.js/charts.js/maps.js los leen del bloque de
