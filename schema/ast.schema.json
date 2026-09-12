@@ -1716,6 +1716,12 @@
           },
           "type": "array"
         },
+        "rowPositions": {
+          "items": {
+            "$ref": "#/$defs/Position"
+          },
+          "type": "array"
+        },
         "cells": {
           "items": {
             "items": {

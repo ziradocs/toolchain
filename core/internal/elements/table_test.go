@@ -701,3 +701,98 @@ func TestTableParser_ParseMarkdownTable_MultiRowStillConsumesAll(t *testing.T) {
 		t.Errorf("ConsumedLines = %d, want 5", result.ConsumedLines)
 	}
 }
+
+// TestTableParser_ParseMarkdownTable_CodeSpanWithPipe cubre F10 del audit
+// 2026-09-11: una celda con un code span que contiene "|" (“ `User | null` “)
+// se partía en 2 celdas de más — strings.Split(line, "|") no distinguía un
+// "|" real de uno dentro de backticks — así que una fila con menos columnas
+// de las que tiene salía marcada por TABLE003 (linter/rules.go) contra una
+// tabla que en realidad está bien formada.
+func TestTableParser_ParseMarkdownTable_CodeSpanWithPipe(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| Method | Return |",
+			"|---|---|",
+			"| `getUser()` | `User | null` |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatal("Element is not TableElement")
+	}
+
+	if len(table.Rows) != 1 {
+		t.Fatalf("len(Rows) = %d, want 1", len(table.Rows))
+	}
+	row := table.Rows[0]
+	if len(row) != 2 {
+		t.Fatalf("row = %#v, want 2 celdas (el \"|\" del code span no debe partir la fila)", row)
+	}
+	if row[1] != "`User | null`" {
+		t.Errorf("row[1] = %q, want \"`User | null`\" (pipe intacto dentro del code span)", row[1])
+	}
+}
+
+// TestTableParser_ParseMarkdownTable_EscapedPipe cubre la otra mitad de
+// F10: un "\|" fuera de un code span es un pipe escapado, no un separador —
+// se decodifica a "|" literal en la celda, la misma convención de GFM.
+func TestTableParser_ParseMarkdownTable_EscapedPipe(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			`| x \| y | z |`,
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table := result.Element.(*ast.TableElement)
+	if len(table.Rows) != 1 || len(table.Rows[0]) != 2 {
+		t.Fatalf("Rows = %#v, want 1 fila de 2 celdas", table.Rows)
+	}
+	if table.Rows[0][0] != "x | y" {
+		t.Errorf("Rows[0][0] = %q, want \"x | y\"", table.Rows[0][0])
+	}
+}
+
+// TestTableParser_ParseMarkdownTable_RowPositions cubre F10: RowPositions
+// tiene que ser paralelo a Rows y apuntar a la línea REAL de cada fila
+// (no a la del inicio de la tabla), para que TABLE003 pueda señalar la fila
+// que tiene el problema.
+func TestTableParser_ParseMarkdownTable_RowPositions(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			"| 1 | 2 |",
+			"| 3 | 4 |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	table := result.Element.(*ast.TableElement)
+
+	if len(table.RowPositions) != 2 {
+		t.Fatalf("len(RowPositions) = %d, want 2", len(table.RowPositions))
+	}
+	if table.RowPositions[0].Line != 3 {
+		t.Errorf("RowPositions[0].Line = %d, want 3 (la línea de \"| 1 | 2 |\")", table.RowPositions[0].Line)
+	}
+	if table.RowPositions[1].Line != 4 {
+		t.Errorf("RowPositions[1].Line = %d, want 4 (la línea de \"| 3 | 4 |\")", table.RowPositions[1].Line)
+	}
+}

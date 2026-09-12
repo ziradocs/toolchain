@@ -374,6 +374,10 @@ func normalizeElementForCompare(el ast.Element) ast.Element {
 	case *ast.TableElement:
 		c := *e
 		c.Position, c.EndPosition = zeroPos, zeroPos
+		// RowPositions apunta a líneas fuente reales — como Position, no
+		// sobrevive verbatim a un round-trip texto→AST→texto→AST incluso
+		// con un formatter perfecto.
+		c.RowPositions = nil
 		return &c
 	case *ast.MermaidElement:
 		c := *e

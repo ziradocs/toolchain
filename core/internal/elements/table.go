@@ -76,7 +76,7 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		startIndex++
 
 		// Parse YAML-style table
-		headers, rows, caption, label, cellsExplicit, yamlDiags, yamlConsumed := p.parseYAMLTable(ctx.Lines, startIndex, pos)
+		headers, rows, caption, label, cellsExplicit, rowPositions, yamlDiags, yamlConsumed := p.parseYAMLTable(ctx, startIndex, pos)
 		table.Caption = caption
 		table.Label = label
 		consumed += yamlConsumed
@@ -87,19 +87,23 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			// truth; Headers/Rows are DERIVED from Cells (rectangular grid)
 			// so linter.ElementStructureRule (TABLE003) doesn't report a
 			// false positive of "inconsistent columns" over a table with
-			// colspan/rowspan.
+			// colspan/rowspan. No hay una fila-fuente 1:1 que le corresponda
+			// a cada fila derivada, así que RowPositions se deja vacío para
+			// esta forma — TABLE003 no debería dispararse acá de todos modos.
 			table.Cells = cellsExplicit
 			table.Headers, table.Rows = ast.FlattenCellsToRows(cellsExplicit)
 		} else {
 			table.Headers = headers
 			table.Rows = rows
+			table.RowPositions = rowPositions
 			table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 		}
 	} else {
 		// Parse Markdown-style table
-		headers, rows, markdownConsumed := p.parseMarkdownTable(ctx.Lines, startIndex)
+		headers, rows, rowPositions, markdownConsumed := p.parseMarkdownTable(ctx, startIndex)
 		table.Headers = headers
 		table.Rows = rows
+		table.RowPositions = rowPositions
 		table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 		consumed = markdownConsumed
 	}
@@ -119,12 +123,13 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // ast.FlattenCellsToRows), ignorando los headers/rows acumulados acá (que
 // para un bloque "cells:" quedan vacíos, ya que esa sintaxis no declara
 // headers:/rows: por separado).
-func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnostics.Position) ([]string, [][]string, string, string, [][]ast.TableCell, []diagnostics.Diagnostic, int) {
+func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diagnostics.Position) ([]string, [][]string, string, string, [][]ast.TableCell, []diagnostics.Position, []diagnostics.Diagnostic, int) {
 	// Initialized as empty slices (not nil): Headers/Rows have no omitempty
 	// in the AST, so a nil value would serialize as JSON null instead of []
 	// (issue #8 - violates the contract's JSON Schema).
 	headers := []string{}
 	rows := [][]string{}
+	var rowPositions []diagnostics.Position
 	var caption string
 	var label string
 	// Named differently from "cells" on purpose: the "|" fallback branch
@@ -135,6 +140,7 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 	var diags []diagnostics.Diagnostic
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
+	lines := ctx.Lines
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -190,6 +196,7 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 				if strings.HasPrefix(rowTrimmed, "[") && strings.HasSuffix(rowTrimmed, "]") {
 					rowStr := trimInlineArrayBrackets(rowTrimmed)
 					rows = append(rows, splitInlineArray(rowStr))
+					rowPositions = append(rowPositions, ctx.Position(i))
 				}
 				consumed++
 				i++
@@ -251,7 +258,7 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
 		} else if strings.Contains(trimmedLine, "|") {
 			// Fallback: Parse table row (separated by |) for compatibility
-			cells := strings.Split(trimmedLine, "|")
+			cells := splitMarkdownTableRow(trimmedLine)
 			for j := range cells {
 				cells[j] = strings.TrimSpace(cells[j])
 			}
@@ -260,13 +267,14 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 				headers = cells
 			} else {
 				rows = append(rows, cells)
+				rowPositions = append(rowPositions, ctx.Position(i))
 			}
 		}
 
 		consumed++
 	}
 
-	return headers, rows, caption, label, explicitCells, diags, consumed
+	return headers, rows, caption, label, explicitCells, rowPositions, diags, consumed
 }
 
 // trimInlineArrayBrackets quita UN "[" inicial y UN "]" final del valor de
@@ -455,12 +463,46 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 	return cells, diags, true
 }
 
+// splitMarkdownTableRow parte una fila de tabla markdown por "|", respetando
+// code spans (`...`) y pipes escapados (\|) — ninguno de los dos es un
+// separador de celda de verdad. strings.Split(line, "|") partía ciegamente
+// por CADA "|", así que una celda con código (“ `User | null` “) o un pipe
+// escapado a propósito se fragmentaba en celdas de más, disparando TABLE003
+// ("número incorrecto de columnas") sobre una fila perfectamente válida
+// (F10, audit 2026-09-11).
+func splitMarkdownTableRow(line string) []string {
+	var cells []string
+	var current strings.Builder
+	inCode := false
+	runes := []rune(line)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		switch {
+		case r == '\\' && i+1 < len(runes) && runes[i+1] == '|':
+			current.WriteRune('|')
+			i++
+		case r == '`':
+			inCode = !inCode
+			current.WriteRune(r)
+		case r == '|' && !inCode:
+			cells = append(cells, current.String())
+			current.Reset()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	cells = append(cells, current.String())
+	return cells
+}
+
 // parseMarkdownTable parsea una tabla en formato Markdown
-func (p *TableParser) parseMarkdownTable(lines []string, startIndex int) ([]string, [][]string, int) {
+func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, int) {
 	// Inicializados como slices vacíos (no nil), ver comentario en parseYAMLTable.
 	headers := []string{}
 	rows := [][]string{}
+	var rowPositions []diagnostics.Position
 	consumed := 0
+	lines := ctx.Lines
 
 	for i := startIndex; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
@@ -485,7 +527,7 @@ func (p *TableParser) parseMarkdownTable(lines []string, startIndex int) ([]stri
 		}
 
 		// Parse table row
-		cells := strings.Split(line, "|")
+		cells := splitMarkdownTableRow(line)
 
 		// Clean up cells - remove empty first/last if they exist due to leading/trailing |
 		if len(cells) > 0 && strings.TrimSpace(cells[0]) == "" {
@@ -505,10 +547,11 @@ func (p *TableParser) parseMarkdownTable(lines []string, startIndex int) ([]stri
 			headers = cells
 		} else {
 			rows = append(rows, cells)
+			rowPositions = append(rowPositions, ctx.Position(i))
 		}
 
 		consumed++
 	}
 
-	return headers, rows, consumed
+	return headers, rows, rowPositions, consumed
 }
