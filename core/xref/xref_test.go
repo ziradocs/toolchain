@@ -78,7 +78,7 @@ func TestResolveRefs_InTextElement(t *testing.T) {
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	if err := ResolveRefs(doc, table); err != nil {
+	if err := ResolveRefs(doc, table, ""); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
 	want := "ver [Figura 3](#fig-x) para más detalle"
@@ -99,7 +99,7 @@ func TestResolveRefs_InsideBulletPoint(t *testing.T) {
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	if err := ResolveRefs(doc, table); err != nil {
+	if err := ResolveRefs(doc, table, ""); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
 	want := "resumen en [Tabla 2](#tbl-datos)"
@@ -119,7 +119,7 @@ func TestResolveRefs_InsideCaption(t *testing.T) {
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	if err := ResolveRefs(doc, table); err != nil {
+	if err := ResolveRefs(doc, table, ""); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
 	want := "comparar con [Figura 5](#fig-otra)"
@@ -135,7 +135,7 @@ func TestResolveRefs_UnresolvedLabelErrors(t *testing.T) {
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	err := ResolveRefs(doc, Table{})
+	err := ResolveRefs(doc, Table{}, "")
 	if err == nil {
 		t.Fatal("esperaba error por \\ref sin resolver")
 	}
@@ -195,5 +195,64 @@ func TestAnchorID_Slugifies(t *testing.T) {
 		if got := AnchorID(in); got != want {
 			t.Errorf("AnchorID(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestLabels_DefaultsToSpanish(t *testing.T) {
+	for _, lang := range []string{"", "fr", "pt-BR"} {
+		got := Labels(lang)
+		if got[KindFigure] != "Figura" || got[KindTable] != "Tabla" || got[KindEquation] != "Ecuación" {
+			t.Errorf("Labels(%q) = %+v, want los labels en español (fallback)", lang, got)
+		}
+	}
+}
+
+func TestLabels_English(t *testing.T) {
+	got := Labels("en")
+	if got[KindFigure] != "Figure" || got[KindTable] != "Table" || got[KindEquation] != "Equation" {
+		t.Errorf("Labels(\"en\") = %+v, want Figure/Table/Equation", got)
+	}
+}
+
+// TestResolveRefs_RespectsLang es el repro del audit 2026-09-11 (F7): un
+// documento con `lang: en` seguía mostrando "Tabla 1" en el texto resuelto
+// de un \ref, porque ResolveRefs no tenía forma de saber el idioma
+// declarado — entry.Kind (el string "Tabla") se usaba directo como texto.
+func TestResolveRefs_RespectsLang(t *testing.T) {
+	table := Table{"tbl:datos": {Kind: KindTable, Number: 1, AnchorID: "tbl-datos"}}
+	text := ast.NewTextElement(pos(), `see \ref{tbl:datos}`)
+	block := ast.NewContentBlock(pos(), "content")
+	block.Elements = append(block.Elements, text)
+	doc := ast.NewAST(pos())
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	if err := ResolveRefs(doc, table, "en"); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	want := "see [Table 1](#tbl-datos)"
+	if text.Content != want {
+		t.Errorf("Content = %q, want %q (lang=en debe producir \"Table\", no \"Tabla\")", text.Content, want)
+	}
+}
+
+// TestTransform_ReadsFrontMatterLang confirma que el built-in de #239
+// (Transform, lo que corre en el pipeline real) deriva lang de
+// doc.FrontMatter.Lang sin que el caller tenga que pasarlo aparte.
+func TestTransform_ReadsFrontMatterLang(t *testing.T) {
+	tbl := ast.NewTableElement(pos())
+	tbl.Label = "tbl:x"
+	text := ast.NewTextElement(pos(), `see \ref{tbl:x}`)
+	block := ast.NewContentBlock(pos(), "content")
+	block.Elements = append(block.Elements, tbl, text)
+	doc := ast.NewAST(pos())
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	doc.FrontMatter = &ast.FrontMatterNode{Lang: "en"}
+
+	if _, err := Transform(doc); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	want := "see [Table 1](#tbl-x)"
+	if got := doc.ContentBlocks[0].Elements[1].(*ast.TextElement).Content; got != want {
+		t.Errorf("Content = %q, want %q", got, want)
 	}
 }

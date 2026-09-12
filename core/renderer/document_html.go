@@ -74,6 +74,13 @@ type DocumentHTMLOptions struct {
 // elemento vía resolveRenderContext.
 func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderContext) string {
 	ctx = resolveRenderContext(ctx)
+	// ctx.Lang gobierna el texto de "Figura N"/"Tabla N" (ver su doc comment
+	// en context.go) — un caller que ya lo fijó explícitamente gana; si no,
+	// se deriva de FrontMatter.Lang, así los 9+ call sites que arman un
+	// RenderContext sin saber de xref no tienen que empezar a hacerlo.
+	if ctx.Lang == "" && doc.FrontMatter != nil {
+		ctx.Lang = doc.FrontMatter.Lang
+	}
 
 	// Nonce único para este documento: autoriza en la CSP tanto el <meta>
 	// emitido por generateDocumentHeader como cada <style>/<script> inline

@@ -32,6 +32,15 @@ type RenderContext struct {
 	// la imagen queda rota en CUALQUIER PDF, sin importar que el archivo
 	// exista.
 	ImageMode string
+	// Lang es el idioma (tag BCP 47, o "") a usar para el texto de las
+	// etiquetas auto-generadas de figuras/tablas ("Figura N"/"Tabla N" vs
+	// "Figure N"/"Table N" — ver xref.Labels). Vacío cae al default
+	// histórico ("es") vía Labels(""). GenerateDocumentHTML lo deriva de
+	// doc.FrontMatter.Lang cuando el caller no lo fijó explícitamente; un
+	// caller de RenderElementToHTML fuera de ese entry point (p. ej. un
+	// preview aislado de un solo elemento) no tiene ese contexto y se queda
+	// en el default, sin cambio de comportamiento.
+	Lang string
 	// AssetRoot confina las fuentes de imagen LOCALES elegibles para
 	// inlinear bajo ImageMode == "offline-inline" (vía
 	// util.ResolveConfinedPath — mismo mecanismo de confinamiento AL-4 que
@@ -127,6 +136,7 @@ func NewDefaultRenderContext() *RenderContext {
 		MapMode:                "browser",
 		MathMode:               "browser",
 		ImageMode:              "browser",
+		Lang:                   "",
 		AssetRoot:              "",
 		ChartCategoricalColors: nil,
 		ChartThemeColors:       ChartThemeColors{},

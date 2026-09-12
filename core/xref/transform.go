@@ -24,7 +24,11 @@ func Transform(doc *ast.AST) (*ast.AST, error) {
 	if err != nil {
 		return nil, fmt.Errorf("xref: asignando numeración: %w", err)
 	}
-	if err := ResolveRefs(doc, table); err != nil {
+	lang := ""
+	if doc.FrontMatter != nil {
+		lang = doc.FrontMatter.Lang
+	}
+	if err := ResolveRefs(doc, table, lang); err != nil {
 		return nil, fmt.Errorf("xref: %w", err)
 	}
 	return doc, nil

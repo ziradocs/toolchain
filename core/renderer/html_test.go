@@ -24,7 +24,7 @@ func TestRenderTableElement_SimpleTable_UnchangedHTML(t *testing.T) {
 	table.Rows = [][]string{{"1", "2"}}
 	table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
 
-	got := renderTableElement(table, nil)
+	got := renderTableElement(table, nil, nil)
 	want := `<table><thead><tr><th scope="col">A</th><th scope="col">B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>`
 	if got != want {
 		t.Errorf("simple table HTML changed:\ngot:  %s\nwant: %s", got, want)
@@ -49,7 +49,7 @@ func TestRenderTableElement_MergedCells_EmitsColspanAndScope(t *testing.T) {
 	}
 	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
 
-	got := renderTableElement(table, nil)
+	got := renderTableElement(table, nil, nil)
 
 	if !strings.Contains(got, `<th scope="col" colspan="2">A</th>`) {
 		t.Errorf("expected merged header cell with colspan=2, got: %s", got)
@@ -88,7 +88,7 @@ func TestRenderTableElement_HeaderCellInBodyRow_UsesCellPath(t *testing.T) {
 	}
 	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
 
-	got := renderTableElement(table, nil)
+	got := renderTableElement(table, nil, nil)
 
 	if !strings.Contains(got, "<th>Total</th>") {
 		t.Errorf("expected the body-row header cell to render as <th>, got: %s", got)
@@ -124,7 +124,7 @@ func TestRenderTableElement_LeadRowSpanningRowsNoThead(t *testing.T) {
 	}
 	table.Headers, table.Rows = ast.FlattenCellsToRows(table.Cells)
 
-	got := renderTableElement(table, nil)
+	got := renderTableElement(table, nil, nil)
 
 	if strings.Contains(got, "<thead>") {
 		t.Errorf("expected no <thead>: row 0's RowSpan=2 header cell reaches into row 1, which sits in <tbody> — a rowspan cannot cross the <thead>/<tbody> boundary, got: %s", got)
@@ -454,5 +454,86 @@ func TestRenderMermaidElement_DefaultModeEscapesContent(t *testing.T) {
 	}
 	if !strings.Contains(html, "&lt;img") {
 		t.Errorf("expected escaped payload to appear as HTML entities, got:\n%s", html)
+	}
+}
+
+// TestRenderTableElement_CaptionLangDefaultsToSpanish y
+// TestRenderTableElement_CaptionRespectsEnglishLang son el repro de F7 (audit
+// 2026-09-11): un documento con `lang: en` seguía mostrando "Tabla 1" en el
+// caption de una tabla numerada, porque el prefijo estaba hardcodeado en
+// español sin importar ctx. Un ctx nil (como en el resto de este archivo)
+// debe seguir cayendo al default histórico "es".
+func TestRenderTableElement_CaptionLangDefaultsToSpanish(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Headers = []string{"A"}
+	table.Rows = [][]string{{"1"}}
+	table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+	table.Label = "tbl:x"
+	table.Number = 1
+	table.Caption = "Datos"
+
+	got := renderTableElement(table, nil, nil)
+	if !strings.Contains(got, `<p class="table-caption">Tabla 1: Datos</p>`) {
+		t.Errorf("ctx nil debe caer al default \"es\" (\"Tabla 1: ...\"), got: %s", got)
+	}
+}
+
+func TestRenderTableElement_CaptionRespectsEnglishLang(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Headers = []string{"A"}
+	table.Rows = [][]string{{"1"}}
+	table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+	table.Label = "tbl:x"
+	table.Number = 1
+	table.Caption = "Data"
+
+	got := renderTableElement(table, nil, &RenderContext{Lang: "en"})
+	if !strings.Contains(got, `<p class="table-caption">Table 1: Data</p>`) {
+		t.Errorf("ctx.Lang=en debe producir \"Table 1: ...\", got: %s", got)
+	}
+}
+
+// TestRenderImageElement_CaptionRespectsEnglishLang es el par de imagen del
+// mismo hallazgo F7.
+func TestRenderImageElement_CaptionRespectsEnglishLang(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	img := ast.NewImageElement(pos, "x.png", "alt")
+	img.Label = "fig:x"
+	img.Number = 1
+	img.Caption = "Chart"
+
+	got := renderImageElement(img, nil, &RenderContext{Lang: "en"})
+	if !strings.Contains(got, "Figure 1: Chart") {
+		t.Errorf("ctx.Lang=en debe producir \"Figure 1: ...\", got: %s", got)
+	}
+}
+
+// TestGenerateDocumentHTML_DerivesLangFromFrontMatter confirma el cableado
+// end-to-end: un caller que arma ctx sin Lang explícito (el caso común, ver
+// los ~9 sitios de construcción de RenderContext en doclang/slidelang) igual
+// obtiene el idioma correcto porque GenerateDocumentHTML lo deriva de
+// doc.FrontMatter.Lang.
+func TestGenerateDocumentHTML_DerivesLangFromFrontMatter(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.Headers = []string{"A"}
+	table.Rows = [][]string{{"1"}}
+	table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+	table.Label = "tbl:x"
+	table.Number = 1
+	table.Caption = "Data"
+
+	block := ast.NewContentBlock(pos, "content")
+	block.Elements = append(block.Elements, table)
+	doc := ast.NewAST(pos)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	doc.FrontMatter = &ast.FrontMatterNode{Lang: "en"}
+
+	// ctx no fija Lang explícito — igual que casi todos los callers reales.
+	got := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, &RenderContext{})
+	if !strings.Contains(got, "Table 1: Data") {
+		t.Errorf("GenerateDocumentHTML no derivó Lang=\"en\" de FrontMatter.Lang; caption \"Table 1: Data\" no encontrado en el HTML")
 	}
 }
