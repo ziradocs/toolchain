@@ -61,6 +61,12 @@ func (p *ChartParser) CanParse(line string, mode string) bool {
 	if mode != "strict" && mode != "flex" {
 		return false
 	}
+	// Forma de fence de markdown (```chart/````chart), espejo de
+	// MermaidParser.CanParse (mermaid.go) — solo en flex, igual que mermaid:
+	// strict es keyword-driven y no tiene sintaxis de fence en absoluto.
+	if mode == "flex" && isFencedBlockOpener(trimmed, "chart") {
+		return true
+	}
 	rest, ok := strings.CutPrefix(trimmed, "<<chart")
 	if !ok {
 		return false
@@ -79,6 +85,37 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
+
+	// Forma de fence (```chart ... ```): a diferencia de <<chart>>/<<chart:
+	// tipo>>, que soportan JSON directo, YAML de combo, y un loop de
+	// propiedades key:value con su propia lógica de sangría/arrays, la forma
+	// de fence solo soporta JSON directo — es la única forma que el corpus
+	// real usa (examples/webp_test.doclang) y la que C2/C3 del plan de este
+	// track describen ("toda rama nueva de chart pasa por
+	// cleanJSONComments"). Un fence delimita su cuerpo sin ambigüedad
+	// (collectFencedBody, common.go), así que no hace falta ninguno de los
+	// mecanismos de balanceo/sangría que el resto de este archivo necesita
+	// para un cuerpo sin terminador propio.
+	if ctx.Mode == "flex" && isFencedBlockOpener(line, "chart") {
+		body, consumed := collectFencedBody(ctx.Lines, startIndex)
+		trimmedBody := strings.TrimSpace(body)
+		chart := ast.NewChartElement(pos, "bar")
+		if json.Valid([]byte(trimmedBody)) {
+			chart.RawJSON = json.RawMessage(trimmedBody)
+			chart.IsJSONMode = true
+			return &ParseResult{Element: chart, ConsumedLines: consumed, Error: nil}
+		}
+		return &ParseResult{
+			Element:       chart,
+			ConsumedLines: consumed,
+			Error:         nil,
+			Diagnostics: []diagnostics.Diagnostic{
+				diagnostics.NewWarning(
+					"El JSON del chart es inválido y fue ignorado; el chart quedará sin datos",
+					pos, "chart-parser").WithRuleID("CHART002"),
+			},
+		}
+	}
 
 	// Extraer tipo y atributos: "<<chart: bar width="1200" height="600">>"
 	chartType := "bar"

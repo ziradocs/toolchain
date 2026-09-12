@@ -476,3 +476,39 @@ func splitTopLevelCommas(s string) ([]string, bool) {
 func closesInlineTagOnce(rest string) bool {
 	return len(rest) >= 2 && strings.Index(rest, ">>") == len(rest)-2
 }
+
+// collectFencedBody recoge las líneas entre un fence de markdown ya abierto
+// en lines[startIndex] (` ```lang ` o ` ````lang `) y su cierre — una línea
+// que, sola, es exactamente ``` ``` “ o ```` ```` ````. A diferencia del
+// cuerpo de un `<<chart>>`/`<<map>>` sin fence (que necesita balancear
+// llaves o rastrear sangría porque no tiene un terminador propio, ver
+// ChartParser.parseJSONBlock), un fence SIEMPRE delimita su cuerpo sin
+// ambigüedad — el mismo motivo por el que MermaidParser.Parse (mermaid.go)
+// no necesita ninguno de esos mecanismos para su propia forma ` ```mermaid `.
+// Si el archivo termina sin cierre, devuelve todo lo que había hasta EOF
+// (consumed = len(lines)-startIndex, igual que quedarse sin `<<end>>`).
+//
+// Devuelve el cuerpo SIN el fence de apertura/cierre y consumed = total de
+// líneas ocupadas por el bloque completo (apertura + cuerpo + cierre).
+func collectFencedBody(lines []string, startIndex int) (body string, consumed int) {
+	consumed = 1 // la línea de apertura
+	var bodyLines []string
+	for i := startIndex + 1; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "```" || trimmed == "````" {
+			consumed++
+			return strings.Join(bodyLines, "\n"), consumed
+		}
+		bodyLines = append(bodyLines, lines[i])
+		consumed++
+	}
+	return strings.Join(bodyLines, "\n"), consumed
+}
+
+// isFencedBlockOpener reporta si trimmedLine abre un fence de markdown para
+// lang (` ```lang ` o ` ````lang `, sin nada más en la línea — el corpus
+// real y MermaidParser no toleran sufijos). Compartido por Chart/Map para no
+// duplicar la condición en cada CanParse.
+func isFencedBlockOpener(trimmedLine, lang string) bool {
+	return trimmedLine == "```"+lang || trimmedLine == "````"+lang
+}

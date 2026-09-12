@@ -82,17 +82,5 @@
   "examples/openai_fixed.slidelang::table_rows": {
     "source": 5,
     "html": 9
-  },
-  "examples/webp_test.doclang::chart": {
-    "source": 1,
-    "html": 0
-  },
-  "examples/webp_test.doclang::code_pre": {
-    "source": 0,
-    "html": 2
-  },
-  "examples/webp_test.doclang::map": {
-    "source": 1,
-    "html": 0
   }
 }

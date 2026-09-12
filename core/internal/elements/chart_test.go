@@ -615,3 +615,88 @@ func TestChartParser_ParseArrayRow_QuotedLabelWithComma(t *testing.T) {
 		})
 	}
 }
+
+// TestChartParser_CanParse_FencedForm y TestChartParser_Parse_FencedJSON son
+// el repro del audit 2026-09-11 (F4): un fence ```chart no se reconocía en
+// absoluto, a diferencia de ```mermaid — degradaba a un bloque de código
+// crudo, con el JSON visible como texto. Espejo del soporte que
+// MermaidParser ya tiene para su propio fence.
+func TestChartParser_CanParse_FencedForm(t *testing.T) {
+	parser := &ChartParser{}
+	tests := []struct {
+		name     string
+		line     string
+		mode     string
+		expected bool
+	}{
+		{"fenced flex triple backtick", "```chart", "flex", true},
+		{"fenced flex quadruple backtick", "````chart", "flex", true},
+		{"fenced strict not recognized", "```chart", "strict", false},
+		{"fenced wrong lang", "```json", "flex", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parser.CanParse(tt.line, tt.mode); got != tt.expected {
+				t.Errorf("CanParse(%q, %q) = %v, want %v", tt.line, tt.mode, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestChartParser_Parse_FencedJSON(t *testing.T) {
+	parser := &ChartParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"```chart",
+			`{"type":"bar","data":{"labels":["Q1","Q2"],"datasets":[{"label":"S1","data":[45,52]}]}}`,
+			"```",
+			"trailing paragraph",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	chart, ok := result.Element.(*ast.ChartElement)
+	if !ok {
+		t.Fatalf("Element is not ChartElement: %T", result.Element)
+	}
+	if !chart.IsJSONMode || len(chart.RawJSON) == 0 {
+		t.Fatal("expected IsJSONMode=true with populated RawJSON")
+	}
+	if result.ConsumedLines != 3 {
+		t.Errorf("ConsumedLines = %d, want 3 (opener + json line + closing fence)", result.ConsumedLines)
+	}
+}
+
+func TestChartParser_Parse_FencedInvalidJSON(t *testing.T) {
+	parser := &ChartParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"```chart",
+			`{not valid json`,
+			"```",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	chart, ok := result.Element.(*ast.ChartElement)
+	if !ok {
+		t.Fatalf("Element is not ChartElement: %T", result.Element)
+	}
+	if chart.IsJSONMode {
+		t.Error("expected IsJSONMode=false for invalid JSON")
+	}
+	found := false
+	for _, d := range result.Diagnostics {
+		if d.RuleID == "CHART002" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a CHART002 diagnostic for invalid JSON")
+	}
+}
