@@ -1221,6 +1221,26 @@ func resolveSeriesNames(series []string, numSeries int) []string {
 	return names
 }
 
+// isFlatSingleRowData decide si elem.Data es una única fila de valores
+// numéricos planos ([42, 27, 18, 13], típicamente con `labels:` declarado
+// aparte) en vez de la forma tabular por defecto (cada fila = [label, v1,
+// v2, ...]). El discriminador es la FORMA — una sola fila cuya primera
+// celda no es un string —, no la cantidad de labels declarados: tratar
+// [["Q1", 45, 32]] (una fila, primera celda string) como plano metería
+// "Q1" adentro del array de datos como si fuera un punto numérico.
+//
+// Mismo criterio, a propósito, que
+// slidelang/internal/generator/data/converter.go's createDatasetsFromData
+// (F3 del audit 2026-09-11): los dos DSLs tienen que emitir el MISMO
+// config para el mismo chart (issue #11/#55).
+func isFlatSingleRowData(data [][]interface{}) bool {
+	if len(data) != 1 || len(data[0]) == 0 {
+		return false
+	}
+	_, firstCellIsString := data[0][0].(string)
+	return !firstCellIsString
+}
+
 // GenerateChartConfig genera la configuración JSON de Chart.js desde un ChartElement
 // Exportada para uso en generadores DOCX/PDF
 // Si forExport es true, optimiza fuentes y tamaños para PNG export
@@ -1437,7 +1457,14 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 	// propia etiqueta dentro de dataset.tree, y emitir un data.labels
 	// paralelo solo mete ruido en el config.
 	if chartType != "treemap" {
-		if len(elem.Data) > 0 && len(elem.Data[0]) > 0 {
+		if isFlatSingleRowData(elem.Data) {
+			// Fila plana: la "columna 0" es un VALOR, no una categoría —
+			// derivar labels de ella metería el primer dato como si fuera
+			// su propia etiqueta. Solo los labels explícitos aplican.
+			if len(elem.Labels) > 0 {
+				data["labels"] = elem.Labels
+			}
+		} else if len(elem.Data) > 0 && len(elem.Data[0]) > 0 {
 			labels := make([]interface{}, 0)
 			for _, row := range elem.Data {
 				if len(row) > 0 {
@@ -1545,7 +1572,9 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 
 		// Datos
 		values := make([]interface{}, 0)
-		if len(elem.Data) > 0 {
+		if isFlatSingleRowData(elem.Data) {
+			values = append(values, elem.Data[0]...)
+		} else if len(elem.Data) > 0 {
 			for _, row := range elem.Data {
 				if len(row) > 1 {
 					values = append(values, row[1])
@@ -1564,6 +1593,35 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 			backgroundColors[i] = colors[i%len(colors)]
 		}
 		dataset["backgroundColor"] = backgroundColors
+
+		datasets = append(datasets, dataset)
+	} else if isFlatSingleRowData(elem.Data) {
+		// Fila plana de valores numéricos ([42, 27, 18, 13]): UNA serie
+		// sobre todos los valores, no N series de un punto cada una — la
+		// rama de abajo asume que la primera columna es una etiqueta y
+		// trataría los primeros dos valores como la etiqueta+dato de una
+		// serie sola, perdiendo el resto (F3, audit 2026-09-11).
+		dataset := make(map[string]interface{})
+		names := resolveSeriesNames(elem.Series, 1)
+		dataset["label"] = names[0]
+
+		seriesData := make([]interface{}, len(elem.Data[0]))
+		copy(seriesData, elem.Data[0])
+		dataset["data"] = seriesData
+
+		colors := chartCategoricalPalette(categoricalColors, defaultChartColors6)
+		color := colors[0]
+
+		if elem.ChartType == "line" {
+			dataset["borderColor"] = color
+			dataset["backgroundColor"] = chartAreaFillColor(color)
+			dataset["fill"] = false
+			dataset["tension"] = 0.4
+		} else {
+			dataset["backgroundColor"] = color
+			dataset["borderColor"] = color
+		}
+		dataset["borderWidth"] = 2
 
 		datasets = append(datasets, dataset)
 	} else {
