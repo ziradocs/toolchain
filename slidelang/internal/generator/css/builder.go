@@ -281,6 +281,7 @@ func GetAvailableModules() []string {
 		"charts",          // Chart images (issue #166)
 		"mermaid",         // Mermaid diagrams (issue #173)
 		"watermark",       // Repeating overlay from frontmatter (issue #179)
+		"code_group",      // :::code-group tabs (audit 2026-09-11, F5)
 	}
 }
 

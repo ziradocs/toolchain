@@ -1,0 +1,105 @@
+/* Code groups — sin este archivo, ningún panel de :::code-group se ocultaba
+ * (mostrar/ocultar por .active nunca tenía una regla display:none que
+ * pisar) y las pestañas salían como <button> sin estilo: todos los
+ * lenguajes se veían apilados a la vez, con botones de navegador crudos
+ * encima (issue del audit 2026-09-11, F5). El JS que alterna la clase
+ * .active ya funciona (template/utilities.go, switchCodeTab) — lo que
+ * faltaba era la mitad CSS.
+ *
+ * Selectores calcados de la marcación real (template/base.go, el bloque
+ * "code_group"): el contenedor de pestañas es ".tabs" a secas (NO
+ * ".slidelang-tabs" — el tema startup-tech ya apunta a ese selector que
+ * nunca matchea nada, un bug propio de ese catálogo de temas, fuera de este
+ * repo); cada panel es ".slidelang-code-block", no ".slidelang-code" (por
+ * eso code.css no lo alcanza — sus selectores no matchean esta marcación,
+ * y no hace falta que lo hagan: este archivo es autocontenido). */
+
+.slidelang-element.slidelang-code-group {
+    margin: 1.5rem 0;
+    border-radius: var(--border-radius, 8px);
+    overflow: hidden;
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+}
+
+.slidelang-element.slidelang-code-group .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    background: var(--bg-code-header, rgba(0, 0, 0, 0.15));
+    border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+}
+
+.slidelang-element.slidelang-code-group .slidelang-tab {
+    padding: 0.6rem 1.25rem;
+    background: transparent;
+    border: none;
+    color: var(--text-on-dark, #e2e8f0);
+    opacity: 0.7;
+    font-family: var(--font-main, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition, all 0.2s ease);
+    border-bottom: 2px solid transparent;
+}
+
+.slidelang-element.slidelang-code-group .slidelang-tab:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.slidelang-element.slidelang-code-group .slidelang-tab.active {
+    opacity: 1;
+    color: var(--primary-color, #4299e1);
+    border-bottom-color: var(--primary-color, #4299e1);
+}
+
+.slidelang-element.slidelang-code-group .code-content {
+    position: relative;
+}
+
+/* El corazón del fix: sin esto, TODOS los .slidelang-code-block se
+ * mostraban a la vez (el navegador no oculta nada por default) — el JS
+ * agrega/quita .active, pero necesita una regla CSS que le dé sentido a
+ * ese estado. */
+.slidelang-element.slidelang-code-group .slidelang-code-block {
+    display: none;
+}
+
+.slidelang-element.slidelang-code-group .slidelang-code-block.active {
+    display: block;
+}
+
+.slidelang-element.slidelang-code-group .slidelang-code-block pre {
+    margin: 0;
+    padding: 1.25rem 1.5rem;
+    background: var(--bg-code, #2d3748);
+    color: var(--text-on-dark, #e2e8f0);
+    overflow-x: auto;
+    max-height: calc(60vh - 4rem);
+    font-family: var(--font-code, 'Monaco', 'Menlo', 'Ubuntu Mono', monospace);
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.slidelang-element.slidelang-code-group .slidelang-code-block code {
+    font-family: inherit;
+    font-size: inherit;
+    background: none;
+    color: inherit;
+    padding: 0;
+    white-space: pre;
+}
+
+.slidelang-element.slidelang-code-group .slidelang-code-block pre::-webkit-scrollbar {
+    height: 10px;
+}
+
+.slidelang-element.slidelang-code-group .slidelang-code-block pre::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+}
+
+.slidelang-element.slidelang-code-group .slidelang-code-block pre::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+}
