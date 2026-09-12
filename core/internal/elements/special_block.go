@@ -115,6 +115,21 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		selfClosing = true
 	}
 
+	// ":::" o "::: :::" (sin tipo, con o sin autocierre): mismo caso vacío
+	// que el guard de arriba, solo que llega hasta acá porque el ":::" del
+	// cierre lo dejó vacío recién en el CutSuffix, no en el TrimSpace
+	// original. Sin este chequeo, `strings.Fields("")` devuelve un slice
+	// vacío y `parts[0]` abajo entra en pánico (encontrado por advisor
+	// contra "::: :::" — antes de este fix ":::" producía blockContent=":::"
+	// y NO paniqueaba; el pánico es nuevo del autocierre de este PR).
+	if blockContent == "" {
+		return &ParseResult{
+			Element:       nil,
+			ConsumedLines: 1,
+			Error:         nil,
+		}
+	}
+
 	parts := strings.Fields(blockContent)
 	blockType := parts[0]
 	title := ""

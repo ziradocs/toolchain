@@ -226,6 +226,31 @@ func TestSpecialBlockParser_NestedChart_PropagatesDiagnostics(t *testing.T) {
 	}
 }
 
+// TestSpecialBlockParser_EmptySelfClosing_DoesNotPanic cubre un hallazgo del
+// advisor: ":::" seguido inmediatamente de su propio autocierre en la misma
+// línea (sin tipo) — "::: :::" o "::::::" — dejaba blockContent == "" DESPUÉS
+// del CutSuffix del autocierre (el guard `blockContent == ""` de más arriba
+// solo atrapa el caso ANTES del corte). `strings.Fields("")` da un slice
+// vacío y `parts[0]` entraba en pánico. Antes del autocierre (PR #325) este
+// caso no existía: ":::" a secas producía blockContent=":::" (un blockType
+// literal ":::"), nunca vacío.
+func TestSpecialBlockParser_EmptySelfClosing_DoesNotPanic(t *testing.T) {
+	cases := []string{"::: :::", "::::::"}
+	for _, line := range cases {
+		t.Run(line, func(t *testing.T) {
+			parser := &SpecialBlockParser{}
+			ctx := &ParseContext{Mode: "flex", Lines: []string{line}}
+			result := parser.Parse(ctx, 0)
+			if result.Error != nil {
+				t.Fatalf("Parse(%q) error = %v", line, result.Error)
+			}
+			if result.ConsumedLines != 1 {
+				t.Errorf("ConsumedLines = %d, want 1", result.ConsumedLines)
+			}
+		})
+	}
+}
+
 func containsLine(content, want string) bool {
 	for _, line := range splitLinesForTest(content) {
 		if line == want {
