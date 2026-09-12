@@ -183,6 +183,49 @@ func TestSpecialBlockParser_StopsAtSlideSeparator_WithoutConsuming(t *testing.T)
 	}
 }
 
+// TestSpecialBlockParser_NestedChart_PropagatesDiagnostics cubre un hallazgo
+// del advisor sobre el propio F9: tryParseNestedContent descartaba
+// result.Diagnostics tanto en el camino de éxito como en el de rechazo — un
+// chart con JSON inválido anidado dentro de un ":::info" perdía CHART002 en
+// silencio (el mismo chart a nivel top emite el warning; anidado, no). El
+// bloque especial debe reexportar los diagnósticos de sus hijos delegados en
+// su propio ParseResult.Diagnostics, igual que hace con Elements.
+func TestSpecialBlockParser_NestedChart_PropagatesDiagnostics(t *testing.T) {
+	parser := &SpecialBlockParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			":::info",
+			"<<chart: bar>>",
+			"{ esto no es JSON válido",
+			"<</chart>>",
+			":::",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	block, ok := result.Element.(*ast.SpecialBlockElement)
+	if !ok {
+		t.Fatalf("Element is not SpecialBlockElement: %T", result.Element)
+	}
+	if len(block.Elements) != 1 {
+		t.Fatalf("len(Elements) = %d, want 1", len(block.Elements))
+	}
+
+	found := false
+	for _, d := range result.Diagnostics {
+		if d.RuleID == "CHART002" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Diagnostics = %+v, want CHART002 propagado desde el chart anidado", result.Diagnostics)
+	}
+}
+
 func containsLine(content, want string) bool {
 	for _, line := range splitLinesForTest(content) {
 		if line == want {

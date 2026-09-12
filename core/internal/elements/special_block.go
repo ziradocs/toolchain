@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // SpecialBlockParser maneja bloques especiales como :::info, :::warning, etc.
@@ -48,7 +49,7 @@ var nestedContentParsers = []ElementParser{
 // cuyo Parse falla o devuelve consumo 0 (bloque vacío, YAML inválido, etc.) NO
 // cuenta como delegación: cae al llamador, que la trata como prosa suelta,
 // igual que ANTES de que esta función existiera.
-func tryParseNestedContent(ctx *ParseContext, i int) (ast.Element, int, bool) {
+func tryParseNestedContent(ctx *ParseContext, i int) (ast.Element, int, []diagnostics.Diagnostic, bool) {
 	line := ctx.Lines[i]
 	for _, parser := range nestedContentParsers {
 		if !parser.CanParse(line, ctx.Mode) {
@@ -56,11 +57,11 @@ func tryParseNestedContent(ctx *ParseContext, i int) (ast.Element, int, bool) {
 		}
 		result := parser.Parse(ctx, i)
 		if result.Element != nil && result.ConsumedLines > 0 {
-			return result.Element, result.ConsumedLines, true
+			return result.Element, result.ConsumedLines, result.Diagnostics, true
 		}
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
-	return nil, 0, false
+	return nil, 0, nil, false
 }
 
 // Parse parsea un bloque especial desde las líneas proporcionadas
@@ -154,6 +155,7 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 	}
 
 	var nested []ast.Element
+	var nestedDiagnostics []diagnostics.Diagnostic
 	i := startIndex + 1
 	for i < len(ctx.Lines) {
 		trimmedLine := strings.TrimSpace(ctx.Lines[i])
@@ -184,8 +186,9 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 			break
 		}
 
-		if elem, n, ok := tryParseNestedContent(ctx, i); ok {
+		if elem, n, diags, ok := tryParseNestedContent(ctx, i); ok {
 			nested = append(nested, elem)
+			nestedDiagnostics = append(nestedDiagnostics, diags...)
 			for k := 0; k < n; k++ {
 				appendRawLine(ctx.Lines[i+k])
 			}
@@ -207,6 +210,7 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		Element:       block,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   nestedDiagnostics,
 	}
 }
 
