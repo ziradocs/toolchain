@@ -194,28 +194,43 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 }
 
+// plantUMLTypePattern empareja un tipo de diagrama con el patrón que lo
+// detecta. detectPlantUMLType recorre estos pares EN ORDEN — a diferencia
+// de un map, cuyo orden de iteración Go aleatoriza por proceso — porque
+// varios patrones se superponen a propósito (p. ej. "actor "/"database "
+// aparecen en más de una categoría) y el bloque de contenido real puede
+// matchear a más de uno. El orden de abajo es el orden en el que estas
+// categorías se escribieron originalmente (cuando todavía vivían en un
+// map.Iterate implícito), preservado tal cual para no cambiar qué tipo
+// gana en un bloque ambiguo — solo que ahora SIEMPRE es el mismo.
+type plantUMLTypePattern struct {
+	diagramType string
+	pattern     *regexp.Regexp
+}
+
+// plantUMLTypePatterns son los patrones comunes de PlantUML, en el orden de
+// prioridad que detectPlantUMLType respeta.
+var plantUMLTypePatterns = []plantUMLTypePattern{
+	{"sequence", regexp.MustCompile(`(?m)^[a-z0-9_]+\s*-+>|^participant\s|^actor\s|^boundary\s|^control\s|^entity\s|^database\s`)},
+	{"class", regexp.MustCompile(`(?m)^class\s|^interface\s|^abstract\s|^enum\s|extends\s|implements\s`)},
+	{"component", regexp.MustCompile(`(?m)^\[.*\]|^component\s|^package\s|^node\s|^cloud\s|^database\s`)},
+	{"usecase", regexp.MustCompile(`(?m)^usecase\s|^actor\s|^\(.*\)|-->\s*\(|\)\s*-->`)},
+	{"activity", regexp.MustCompile(`(?m)^:.*;$|^if\s*\(.*\)|^while\s*\(.*\)|^repeat|^fork|^partition`)},
+	{"state", regexp.MustCompile(`(?m)^state\s|^\[\*\]|state.*:|\s+-->\s+\[\*\]`)},
+	{"object", regexp.MustCompile(`(?m)^object\s|^map\s`)},
+	{"deployment", regexp.MustCompile(`(?m)^node\s|^artifact\s|^cloud\s|^database\s|^frame\s`)},
+	{"timing", regexp.MustCompile(`(?m)^robust\s|^concise\s|^clock\s|@\d+`)},
+	{"gantt", regexp.MustCompile(`(?m)^@startgantt|project starts|task\s|milestone\s`)},
+}
+
 // detectPlantUMLType detecta el tipo de diagrama PlantUML
 func detectPlantUMLType(content string) string {
 	content = strings.ToLower(content)
 
-	// Patrones comunes de PlantUML
-	patterns := map[string]*regexp.Regexp{
-		"sequence":   regexp.MustCompile(`(?m)^[a-z0-9_]+\s*-+>|^participant\s|^actor\s|^boundary\s|^control\s|^entity\s|^database\s`),
-		"class":      regexp.MustCompile(`(?m)^class\s|^interface\s|^abstract\s|^enum\s|extends\s|implements\s`),
-		"component":  regexp.MustCompile(`(?m)^\[.*\]|^component\s|^package\s|^node\s|^cloud\s|^database\s`),
-		"usecase":    regexp.MustCompile(`(?m)^usecase\s|^actor\s|^\(.*\)|-->\s*\(|\)\s*-->`),
-		"activity":   regexp.MustCompile(`(?m)^:.*;$|^if\s*\(.*\)|^while\s*\(.*\)|^repeat|^fork|^partition`),
-		"state":      regexp.MustCompile(`(?m)^state\s|^\[\*\]|state.*:|\s+-->\s+\[\*\]`),
-		"object":     regexp.MustCompile(`(?m)^object\s|^map\s`),
-		"deployment": regexp.MustCompile(`(?m)^node\s|^artifact\s|^cloud\s|^database\s|^frame\s`),
-		"timing":     regexp.MustCompile(`(?m)^robust\s|^concise\s|^clock\s|@\d+`),
-		"gantt":      regexp.MustCompile(`(?m)^@startgantt|project starts|task\s|milestone\s`),
-	}
-
 	// Buscar el primer patrón que coincida
-	for diagramType, pattern := range patterns {
-		if pattern.MatchString(content) {
-			return diagramType
+	for _, p := range plantUMLTypePatterns {
+		if p.pattern.MatchString(content) {
+			return p.diagramType
 		}
 	}
 

@@ -69,3 +69,34 @@ func TestPlantUMLParser_FlexModeDoesNotStopOnContentStartingWithSLIDE(t *testing
 		t.Errorf("Content = %q, want it to contain the closing @enduml", diagram.Content)
 	}
 }
+
+// TestDetectPlantUMLType_AmbiguousBlockIsDeterministic reproduce un bug
+// encontrado corriendo la verificación de corpus de issue #245 (no
+// relacionado con ese issue): detectPlantUMLType recorría un
+// map[string]*regexp.Regexp, y Go aleatoriza el orden de iteración de un
+// map por proceso — así que un bloque PlantUML AMBIGUO (uno cuyo contenido
+// matchea más de un patrón de categoría a la vez) podía resolver a un
+// DiagramType distinto entre corridas del mismo binario sobre el mismo
+// archivo. Reproducido con examples/advanced_elements_test.doclang: 5
+// corridas de un mismo binario devolvieron "component" x3 y "sequence" x2
+// para el mismo bloque.
+//
+// El fixture de abajo es ambiguo a propósito: "actor "/"database " matchean
+// las categorías sequence, component, usecase Y deployment a la vez (ver
+// los patrones en plantUMLTypePatterns). Con la lista ordenada (en vez de
+// un map), "sequence" — la primera de la lista — tiene que ganar siempre,
+// sin importar cuántas veces se llame ni en qué proceso.
+func TestDetectPlantUMLType_AmbiguousBlockIsDeterministic(t *testing.T) {
+	content := "@startuml\n" +
+		"actor Customer\n" +
+		"database \"Database\" as DB\n" +
+		"Customer -> DB : query\n" +
+		"@enduml\n"
+
+	const want = "sequence"
+	for i := 0; i < 50; i++ {
+		if got := detectPlantUMLType(content); got != want {
+			t.Fatalf("detectPlantUMLType() call #%d = %q, want %q (debe ser el mismo en cada llamada, no solo en la primera)", i, got, want)
+		}
+	}
+}
