@@ -178,6 +178,10 @@ interface Position {
 }
 ```
 
+`line`/`column` are 1-based and count from the first line of the source
+file, front matter included (issue #245) — never from the body a given
+parser happened to receive.
+
 #### Presentation Node
 ```typescript
 interface PresentationNode extends BaseNode {
