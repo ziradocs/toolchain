@@ -728,6 +728,7 @@ type ChartElement struct {
 	BaseNode    `tstype:",extends,required"`
 	ChartType   string                 `json:"chartType"`             // "bar", "line", "pie", "combo", etc.
 	SeriesTypes []string               `json:"seriesTypes,omitempty"` // Para combo charts: ["bar", "bar", "line"]
+	SeriesAxes  []string               `json:"seriesAxes,omitempty"`  // Para combo charts: id de escala Y por serie ("y", "y1", ...), paralelo a Series/SeriesTypes; "" = sin declarar
 	Data        [][]interface{}        `json:"data"`
 	Series      []string               `json:"series,omitempty"`
 	Labels      []string               `json:"labels,omitempty"` // Labels para los ejes

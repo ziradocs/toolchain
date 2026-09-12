@@ -174,6 +174,78 @@ func TestChartParser_Parse_ComboYAML_RendersCorrectSeries(t *testing.T) {
 	}
 }
 
+// TestChartParser_Parse_ComboYAML_SeriesAxes es el repro del audit
+// 2026-09-11 (F2): antes de este fix, parseComboChartYAML leía
+// data.series[].yAxisID del YAML solo para descartarlo — chart.SeriesAxes
+// no existía — así que un combo con una serie de magnitud muy distinta
+// (revenue en millones vs. margen en %) no tenía forma de pedir su propio
+// eje: Chart.js nunca recibía yAxisID ni una escala y1 declarada, y la
+// serie chica se dibujaba aplanada contra la escala de la grande.
+func TestChartParser_Parse_ComboYAML_SeriesAxes(t *testing.T) {
+	parser := &ChartParser{}
+	ctx := &ParseContext{
+		Lines: []string{
+			`<<chart: combo>>`,
+			"  data:",
+			`    labels: ["2022", "2023"]`,
+			"    series:",
+			`      - name: "Revenue ($M)"`,
+			`        type: "bar"`,
+			"        values: [28, 35]",
+			`      - name: "Profit Margin (%)"`,
+			`        type: "line"`,
+			"        values: [12, 15]",
+			`        yAxisID: "y1"`,
+			"<</chart>>",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	chart, ok := result.Element.(*ast.ChartElement)
+	if !ok {
+		t.Fatal("Element is not ChartElement")
+	}
+
+	wantAxes := []string{"", "y1"}
+	if !reflect.DeepEqual(chart.SeriesAxes, wantAxes) {
+		t.Fatalf("chart.SeriesAxes = %#v, want %#v", chart.SeriesAxes, wantAxes)
+	}
+
+	configJSON := renderer.GenerateChartConfig(chart)
+	var config struct {
+		Data struct {
+			Datasets []struct {
+				YAxisID string `json:"yAxisID"`
+			} `json:"datasets"`
+		} `json:"data"`
+		Options struct {
+			Scales map[string]interface{} `json:"scales"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		t.Fatalf("GenerateChartConfig produjo JSON inválido: %v\n%s", err, configJSON)
+	}
+
+	if len(config.Data.Datasets) != 2 {
+		t.Fatalf("len(datasets) = %d, want 2\n%s", len(config.Data.Datasets), configJSON)
+	}
+	if config.Data.Datasets[0].YAxisID != "" {
+		t.Errorf("datasets[0].yAxisID = %q, want \"\" (sin declarar, escala primaria)", config.Data.Datasets[0].YAxisID)
+	}
+	if config.Data.Datasets[1].YAxisID != "y1" {
+		t.Errorf("datasets[1].yAxisID = %q, want \"y1\"", config.Data.Datasets[1].YAxisID)
+	}
+	if _, ok := config.Options.Scales["y"]; !ok {
+		t.Errorf("options.scales.y ausente: %s", configJSON)
+	}
+	if _, ok := config.Options.Scales["y1"]; !ok {
+		t.Errorf("options.scales.y1 ausente pese a que una serie declaró yAxisID:\"y1\": %s", configJSON)
+	}
+}
+
 // TestChartParser_Parse_NoData_SerializesAsEmptyArray cubre issue #8: un chart
 // sin ninguna línea "data:" no debe serializar "data" como JSON null (viola el
 // JSON Schema del contrato), sino como [].

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -1221,6 +1222,37 @@ func resolveSeriesNames(series []string, numSeries int) []string {
 	return names
 }
 
+// resolveSeriesAxes decide el yAxisID de cada serie de un combo chart.
+// Si al menos una serie DECLARÓ su eje (data.series[].yAxisID en la forma
+// YAML anidada, o `yAxisID: [...]` en la plana), se honran exactamente esos
+// valores — "" para una serie que no lo declaró queda en la escala primaria
+// por defecto, sin heurística. Si NINGUNA serie declaró nada (el caso de
+// todo combo chart preexistente al campo SeriesAxes: #11/#55, F2 del audit
+// 2026-09-11), cae al mismo heurístico de siempre — índice>0 va a "y1" —
+// que ya usa slidelang/internal/generator/data/converter.go, para no
+// cambiarle el aspecto a un chart que nunca pidió ejes explícitos.
+func resolveSeriesAxes(declared []string, numSeries int) []string {
+	axes := make([]string, numSeries)
+
+	anyDeclared := false
+	for i := 0; i < numSeries && i < len(declared); i++ {
+		if declared[i] != "" {
+			anyDeclared = true
+			break
+		}
+	}
+
+	for i := range axes {
+		switch {
+		case anyDeclared && i < len(declared):
+			axes[i] = declared[i]
+		case !anyDeclared && i > 0:
+			axes[i] = "y1"
+		}
+	}
+	return axes
+}
+
 // isFlatSingleRowData decide si elem.Data es una única fila de valores
 // numéricos planos ([42, 27, 18, 13], típicamente con `labels:` declarado
 // aparte) en vez de la forma tabular por defecto (cada fila = [label, v1,
@@ -1484,6 +1516,7 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 		// Combo chart: cada serie puede tener su propio tipo
 		numSeries := len(elem.SeriesTypes)
 		names := resolveSeriesNames(elem.Series, numSeries)
+		axes := resolveSeriesAxes(elem.SeriesAxes, numSeries)
 		for i := 0; i < numSeries; i++ {
 			dataset := make(map[string]interface{})
 
@@ -1500,6 +1533,12 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 				}
 			}
 			dataset["data"] = seriesData
+
+			// Eje Y: solo se emite si la serie NO usa la escala primaria por
+			// defecto ("y"), que Chart.js ya asume sin necesidad de yAxisID.
+			if axes[i] != "" {
+				dataset["yAxisID"] = axes[i]
+			}
 
 			// Colores por defecto
 			colors := chartCategoricalPalette(categoricalColors, defaultChartColors6)
@@ -1671,6 +1710,50 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 	options := make(map[string]interface{})
 	options["responsive"] = true
 	options["maintainAspectRatio"] = false
+
+	if elem.ChartType == "combo" {
+		// Chart.js necesita las escalas declaradas explícitamente: sin esto
+		// (el estado antes de este fix) el navegador nunca emitía
+		// options.scales en absoluto, así que un dataset.yAxisID:"y1" apuntaba
+		// a una escala que Chart.js jamás materializaba y la serie se
+		// dibujaba sobre "y" igual que las demás — un combo con dos
+		// magnitudes muy distintas (p.ej. revenue en miles vs. margen en %)
+		// terminaba con la serie chica aplanada a ~0px de alto (F2, audit
+		// 2026-09-11). "y" siempre se declara; el resto son los yAxisID que
+		// resolveSeriesAxes le puso a algún dataset (declarados por el autor,
+		// o el heurístico índice>0 cuando nadie declaró nada).
+		scales := map[string]interface{}{
+			"y": map[string]interface{}{
+				"type":        "linear",
+				"display":     true,
+				"position":    "left",
+				"beginAtZero": true,
+			},
+		}
+		extraAxes := make(map[string]bool)
+		for _, dataset := range datasets {
+			if id, ok := dataset["yAxisID"].(string); ok && id != "" {
+				extraAxes[id] = true
+			}
+		}
+		ids := make([]string, 0, len(extraAxes))
+		for id := range extraAxes {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			scales[id] = map[string]interface{}{
+				"type":        "linear",
+				"display":     true,
+				"position":    "right",
+				"beginAtZero": true,
+				"grid": map[string]interface{}{
+					"drawOnChartArea": false,
+				},
+			}
+		}
+		options["scales"] = scales
+	}
 
 	if chartType == "treemap" {
 		// La leyenda de un treemap solo repite el label del dataset ("Data"),

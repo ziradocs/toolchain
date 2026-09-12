@@ -95,6 +95,12 @@
           },
           "type": "array"
         },
+        "seriesAxes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "data": {
           "items": {
             "items": true,

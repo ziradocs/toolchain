@@ -525,6 +525,23 @@ chartLoop:
 					chart.SeriesTypes = types
 				}
 			}
+		case "yAxisID":
+			// Espejo de "type" de arriba: eje Y por serie para la forma
+			// plana de combo charts, mismo campo que parseComboChartYAML
+			// llena desde data.series[].yAxisID en la forma YAML anidada —
+			// necesario para que `fmt` (que SIEMPRE reserializa a la forma
+			// plana, ver formatChart) sea lossless en vez de perder los ejes
+			// declarados en un chart que se re-parsea tras formatearse.
+			if value == "[" {
+				axes, linesConsumed := p.parseMultiLineStringArray(ctx.Lines, i+1)
+				chart.SeriesAxes = axes
+				i += linesConsumed
+				consumedLines += linesConsumed
+			} else if strings.Contains(value, "[") {
+				if axes := p.parseQuotedStrings(value); len(axes) > 0 {
+					chart.SeriesAxes = axes
+				}
+			}
 		default:
 			// isChartPropertyKey distingue dos formas de "no manejada por
 			// el switch": vocabulario de Chart.js que el normalizador
@@ -1652,6 +1669,7 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 	// Procesar series
 	chart.Series = make([]string, len(config.Data.Series))
 	chart.SeriesTypes = make([]string, len(config.Data.Series))
+	chart.SeriesAxes = make([]string, len(config.Data.Series))
 
 	// Reorganizar datos al formato canónico fila-por-categoría que el resto
 	// del repo espera de chart.Data: cada fila es [etiqueta, valor_serie0,
@@ -1695,10 +1713,11 @@ func (p *ChartParser) parseComboChartYAML(chart *ast.ChartElement, yamlContent s
 		}
 	}
 
-	// Asignar nombres y tipos de series
+	// Asignar nombres, tipos y eje Y de series
 	for i, series := range config.Data.Series {
 		chart.Series[i] = series.Name
 		chart.SeriesTypes[i] = series.Type
+		chart.SeriesAxes[i] = series.YAxisID
 	}
 
 	// Asignar options si existen

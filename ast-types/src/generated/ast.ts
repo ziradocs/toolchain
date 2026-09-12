@@ -70,8 +70,16 @@ import type { Position } from "./diagnostics";
  * namespace (`watermark:`), rendered behind content on every
  * slide/page. FontSize is stored verbatim like PageConfig.Size, not
  * resolved to any renderer's unit.
+ * 2.11.0 (audit 2026-09-11, F2): ChartElement.SeriesAxes ([]string,
+ * additive, omitempty) — the per-series Chart.js scale id
+ * (`data.series[].yAxisID` in the combo chart YAML form), parallel to
+ * Series/SeriesTypes. Before this field, parseComboChartYAML parsed
+ * yAxisID off the YAML only to discard it, so a combo chart with two
+ * differently-scaled series (e.g. revenue vs. margin %) had no way to put
+ * the second one on its own axis — it rendered flattened against the
+ * first series' scale.
  */
-export const SchemaVersion = "2.10.0";
+export const SchemaVersion = "2.11.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -714,6 +722,7 @@ export interface PlantUMLElement extends BaseNode {
 export interface ChartElement extends BaseNode {
   chartType: string; // "bar", "line", "pie", "combo", etc.
   seriesTypes?: string[]; // Para combo charts: ["bar", "bar", "line"]
+  seriesAxes?: string[]; // Para combo charts: id de escala Y por serie ("y", "y1", ...), paralelo a Series/SeriesTypes; "" = sin declarar
   data: any[][];
   series?: string[];
   labels?: string[]; // Labels para los ejes

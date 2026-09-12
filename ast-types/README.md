@@ -57,6 +57,10 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.11.0 (audit 2026-09-11, finding F2)
+
+- **Additive**: `chartElement.seriesAxes` (`string[] | undefined`) — the per-series Chart.js scale id for a combo chart (`"y"`, `"y1"`, ...), parallel to `series`/`seriesTypes`. Lets a combo chart put a series with a very different magnitude (e.g. a percentage next to a currency amount) on its own axis instead of being flattened against the first series' scale.
+
 ### 2.5.0 (issue #100)
 
 - **Additive**: `frontMatter.numbering` (`boolean | undefined`) — a tri-state override for DocLang's section auto-numbering: `true`/`false` for an explicit opinion in the document itself, or the field absent for "no opinion" (distinct from `false`), leaving the `--numbering`/`--numbering=false` CLI flag or its own default to decide. Has no effect on SlideLang output — section numbering is a DocLang-only concept. See `llm-kit/reference/frontmatter.md` for the frontmatter YAML shapes this maps from (including a legacy map form kept for backward compatibility).
