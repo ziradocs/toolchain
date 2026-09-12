@@ -82,6 +82,9 @@ func clearElementHTML(element Element) {
 	case *SpecialBlockElement:
 		elem.TitleHTML = ""
 		elem.ContentHTML = ""
+		for _, nested := range elem.Elements {
+			clearElementHTML(nested)
+		}
 
 	case *GridElement:
 		elem.ContentHTML = ""

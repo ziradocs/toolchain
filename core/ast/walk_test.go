@@ -10,8 +10,9 @@ import (
 )
 
 // TestWalkVisitsEveryReachableNode construye un AST con anidamiento real en
-// los tres contenedores conocidos (Grid→Column→Elements anidados, Points con
-// sub-points a 2 niveles, Checklist con sub-items a 2 niveles) y verifica que
+// los contenedores conocidos (Grid→Column→Elements anidados,
+// SpecialBlockElement→Elements anidados, Points con sub-points a 2 niveles,
+// Checklist con sub-items a 2 niveles) y verifica que
 // Walk visita exactamente el conjunto esperado de nodos, en orden de
 // documento. A diferencia de element_coverage_test.go (renderer) —que
 // verifica "todo tipo Element tiene un case"— esto verifica "todo nodo
@@ -42,11 +43,15 @@ func TestWalkVisitsEveryReachableNode(t *testing.T) {
 	childItem.SubItems = append(childItem.SubItems, *leafItem)
 	checklist.Items = append(checklist.Items, *childItem)
 
+	special := NewSpecialBlockElement(pos, "info", "")
+	special.Elements = append(special.Elements, NewTextElement(pos, "en un ::: anidado"))
+
 	block := NewContentBlock(pos, "content")
 	block.Elements = append(block.Elements,
 		grid,
 		points,
 		checklist,
+		special,
 		NewTableElement(pos), // leaf: no debe agregar visitas extra
 	)
 
@@ -76,6 +81,8 @@ func TestWalkVisitsEveryReachableNode(t *testing.T) {
 		NodeTypeChecklist,     // checklist
 		NodeTypeChecklistItem, // childItem
 		NodeTypeChecklistItem, // leafItem (nieto)
+		NodeTypeSpecialBlock,  // special
+		NodeTypeText,          // texto anidado en special
 		NodeTypeTable,         // tabla leaf
 	}
 

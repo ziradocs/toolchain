@@ -186,6 +186,53 @@ func DecodeAST(data []byte) (*AST, error) {
 	return &doc, nil
 }
 
+// specialBlockElementAlias — mismo patrón que columnElementAlias, para el
+// tercer sitio []Element: SpecialBlockElement.Elements (nodes.go). A
+// diferencia de columnElementAlias (que no declara LangRuns/DiscardedLangRuns
+// y por lo tanto los pierde al decodificar — un gap preexistente, fuera de
+// alcance acá), este alias lista TODOS los campos de SpecialBlockElement para
+// no repetir esa omisión.
+type specialBlockElementAlias struct {
+	BaseNode
+	BlockType         string            `json:"blockType"`
+	Title             string            `json:"title,omitempty"`
+	TitleHTML         string            `json:"titleHTML,omitempty"`
+	Content           string            `json:"content"`
+	ContentHTML       string            `json:"contentHTML,omitempty"`
+	LangRuns          []LangRun         `json:"langRuns,omitempty"`
+	DiscardedLangRuns []LangRun         `json:"discardedLangRuns,omitempty"`
+	Icon              string            `json:"icon,omitempty"`
+	Elements          []json.RawMessage `json:"elements,omitempty"`
+}
+
+func (s *SpecialBlockElement) UnmarshalJSON(data []byte) error {
+	var alias specialBlockElementAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return fmt.Errorf("decoding special block element: %w", err)
+	}
+
+	s.BaseNode = alias.BaseNode
+	s.BlockType = alias.BlockType
+	s.Title = alias.Title
+	s.TitleHTML = alias.TitleHTML
+	s.Content = alias.Content
+	s.ContentHTML = alias.ContentHTML
+	s.LangRuns = alias.LangRuns
+	s.DiscardedLangRuns = alias.DiscardedLangRuns
+	s.Icon = alias.Icon
+
+	s.Elements = make([]Element, 0, len(alias.Elements))
+	for _, raw := range alias.Elements {
+		elem, err := DecodeElement(raw)
+		if err != nil {
+			return fmt.Errorf("decoding special block elements: %w", err)
+		}
+		s.Elements = append(s.Elements, elem)
+	}
+	return nil
+}
+
 // element() no aplica acá — element() es el marcador de Element, y ColumnElement
 // ya lo implementa en nodes.go; este archivo solo agrega (de)serialización.
 var _ Element = (*ColumnElement)(nil)
+var _ Element = (*SpecialBlockElement)(nil)

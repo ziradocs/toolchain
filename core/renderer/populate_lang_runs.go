@@ -108,9 +108,9 @@ func populateContentBlockLangRuns(block *ast.ContentBlock, variables map[string]
 // SpecialBlockElement.Content, GridElement.Content and ColumnElement.Content
 // (see the field-by-field scoping note on each of those LangRuns fields for
 // why sibling fields like Title/Author are excluded) — table cells remain
-// out of scope for #63's v1. GridElement/ColumnElement additionally recurse
-// into Columns/Elements to reach any of the other carriers nested inside a
-// grid's columns.
+// out of scope for #63's v1. GridElement/ColumnElement/SpecialBlockElement
+// additionally recurse into Columns/Elements to reach any of the other
+// carriers nested inside a grid's columns or a ":::block"'s Elements.
 //
 // Deliberately NOT guarded by a coverage test the way populateElementHTML
 // is: LangRuns is a NEW FIELD on an EXISTING type, and every type-coverage
@@ -144,6 +144,9 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 
 	case *ast.SpecialBlockElement:
 		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, false, variables)
+		for _, nested := range elem.Elements {
+			populateElementLangRuns(nested, variables)
+		}
 
 	case *ast.GridElement:
 		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, false, variables)
