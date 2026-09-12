@@ -82,6 +82,23 @@ func (r *TitleSubtitleRule) Category() base.RuleCategory {
 	return base.CategoryContent
 }
 
+// AppliesTo implementa base.DialectScopedRule. Para DialectDocuments no
+// corre en absoluto — ya no depende de que isDocLangDocument adivine bien
+// (su "Estrategia 1" ya trata cualquier documento con frontmatter como
+// DocLang, así que en la práctica esto era casi siempre un no-op para
+// doclang de todas formas; AppliesTo lo hace correcto en vez de accidental).
+//
+// Para DialectSlides/DialectAny se conserva el guard heurístico de
+// isDocLangDocument dentro de Apply, sin tocarlo: es lo que hoy protege al
+// corpus de slidelang (que también arranca con frontmatter) de que esta
+// regla se dispare de más. Ver el comentario gemelo en
+// MarkdownSlideStructureRule.AppliesTo (rules/structure/markdown_slides.go)
+// para el razonamiento completo — las dos reglas comparten el mismo patrón
+// y el mismo riesgo de migración.
+func (r *TitleSubtitleRule) AppliesTo(d base.Dialect) bool {
+	return d != base.DialectDocuments
+}
+
 // isDocLangDocument verifica si el documento es DocLang (estructura jerárquica)
 // En DocLang, la estructura # → ## → ### es correcta y NO debe modificarse
 func (r *TitleSubtitleRule) isDocLangDocument(lines []string) bool {

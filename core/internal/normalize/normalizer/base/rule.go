@@ -74,17 +74,22 @@ func (d Dialect) String() string {
 // Una regla que no la implementa se aplica siempre, que es el caso de casi
 // todas.
 //
-// Hoy la implementa solo HeadersRule. TitleSubtitleRule
-// (rules/content/title_subtitle.go) y MarkdownSlideStructureRule
-// (rules/structure/markdown_slides.go) son las siguientes candidatas — ambas
-// ya traen su propio isDocLangDocument, dos implementaciones distintas que en
-// realidad chequean `lines[0] == "---"` bajo un nombre de dialecto. Migrarlas
-// NO es mecánico y por eso no se hizo acá: como todo `.slidelang` arranca con
-// frontmatter y las dos rutas de slidelang le pasan el documento completo al
-// normalizador, ese guard hoy las apaga para prácticamente todo slidelang bien
-// formado. Cambiarlo por `dialect == slides → aplicar` las volvería a ENCENDER
-// para slidelang, un cambio de comportamiento en dirección contraria a este
-// arreglo y que necesita su propia validación contra el corpus de slidelang.
+// La implementan HeadersRule, TitleSubtitleRule (rules/content/
+// title_subtitle.go) y MarkdownSlideStructureRule (rules/structure/
+// markdown_slides.go) — las tres traían su propio isDocLangDocument, tres
+// implementaciones ad-hoc que en el fondo chequeaban `lines[0] == "---"` bajo
+// un nombre de dialecto, y que un documento con exactamente 2 "##" bajo un
+// "#" (en vez de 3+) podía engañar (issue del audit 2026-09-11: un .doclang
+// legítimo se clasificaba como slidelang y se partía en "slides"). Migrarlas
+// NO fue mecánico: como todo `.slidelang` arranca con frontmatter y las dos
+// rutas de slidelang le pasan el documento completo al normalizador, ese
+// guard heurístico apaga a las tres para prácticamente todo slidelang bien
+// formado — así que AppliesTo(DialectDocuments) devuelve false (usa el
+// dialecto explícito, ya no adivina) pero el guard heurístico interno de cada
+// regla SE CONSERVA sin tocar para DialectSlides/DialectAny, precisamente
+// para no encenderlas de más ahí: eso sí sería un cambio de comportamiento en
+// dirección contraria a este arreglo, y necesitaría su propia validación
+// contra el corpus de slidelang.
 type DialectScopedRule interface {
 	TransformRule
 

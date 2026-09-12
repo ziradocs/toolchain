@@ -198,6 +198,27 @@ func (r *MarkdownSlideStructureRule) Category() base.RuleCategory {
 	return base.CategoryStructure
 }
 
+// AppliesTo implementa base.DialectScopedRule. Un documento nunca se parte en
+// "slides" — su premisa (un # seguido de múltiples ## sueltos es una
+// presentación mal delimitada) es exactamente la estructura correcta de un
+// doclang, así que para DialectDocuments no corre en absoluto: ya no depende
+// de que isDocLangDocument adivine bien. Ese adivinador es un falso negativo
+// conocido (issue del audit 2026-09-11: 1 #, exactamente 2 ##, con un fence
+// ```mermaid — Estrategia 2 exige h2Count>=3 con isDocLangDocument, así que
+// un documento legítimo con solo 2 subsecciones se clasificaba como
+// slidelang y se partía en slides, rompiendo su jerarquía).
+//
+// Para DialectSlides/DialectAny se conserva tal cual el guard heurístico de
+// isDocLangDocument dentro de Apply: es la MISMA regla que hoy protege al
+// corpus de slidelang bien formado (que también arranca con frontmatter) de
+// que esto se dispare de más — apagar ese guard en vez de conservarlo
+// encendería la regla para prácticamente todo slidelang, un cambio de
+// comportamiento que necesita su propia validación contra ese corpus y que
+// este cambio no hace.
+func (r *MarkdownSlideStructureRule) AppliesTo(d base.Dialect) bool {
+	return d != base.DialectDocuments
+}
+
 // isDocLangDocument verifica si el documento es DocLang (modo flex con estructura jerárquica)
 // En DocLang, ## son subsecciones bajo #, NO slides separados
 func (r *MarkdownSlideStructureRule) isDocLangDocument(lines []string) bool {
