@@ -1191,3 +1191,69 @@ func TestProcessInlineMarkdownFormatsSecure_PlainTextSentinelLookalikeNotMangled
 		t.Errorf("ProcessInlineMarkdownFormatsSecure(%q) = %q, want %q (plain text sentinel lookalike must survive untouched)", "`secret` <zdc0/>", result, want)
 	}
 }
+
+// TestProcessInlineMarkdownSecure_InlineImages es el repro del audit
+// 2026-09-11 (F8): ProcessInlineMarkdownFormatsSecure no tenía ninguna
+// pasada para ![alt](src), así que una imagen embebida en una celda de
+// tabla, un caption, contenido de grid/special-block, o dentro de un
+// enlace, degradaba a corchetes/paréntesis literales — o, en el caso del
+// enlace, a HTML roto ("!<a href=...>alt</a>").
+func TestProcessInlineMarkdownSecure_InlineImages(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Plain inline image",
+			input:    "![a photo](photo.png)",
+			expected: `<img src="photo.png" alt="a photo">`,
+		},
+		{
+			name:     "Image with empty alt",
+			input:    "![](photo.png)",
+			expected: `<img src="photo.png" alt="">`,
+		},
+		{
+			name:     "Image surrounded by prose",
+			input:    "see ![a photo](photo.png) above",
+			expected: `see <img src="photo.png" alt="a photo"> above`,
+		},
+		{
+			name:     "Linked image resolves to <a><img></a>, not garbled text",
+			input:    "[![a photo](photo.png)](https://example.com)",
+			expected: `<a href="https://example.com"><img src="photo.png" alt="a photo"></a>`,
+		},
+		{
+			// Mismo límite ya aceptado (y testeado) que la pasada de
+			// enlace, arriba ("Link with javascript: URL should be
+			// blocked"): el ")" de "alert(1)" cierra el grupo src antes de
+			// tiempo, y el ")" que de verdad cierra la sintaxis de imagen
+			// queda como texto literal. No es una regresión de este PR —
+			// el src peligroso sigue bloqueado (sin él sería
+			// "<img src=\"javascript:alert(1\" ...>)").
+			name:     "Image with javascript: src is blocked, falls back to alt text",
+			input:    "![a photo](javascript:alert(1))",
+			expected: "a photo)",
+		},
+		{
+			name:     "Image src with an escaped ampersand query string",
+			input:    "![a photo](photo.png?a=1&b=2)",
+			expected: `<img src="photo.png?a=1&amp;b=2" alt="a photo">`,
+		},
+		{
+			name:     "Alt text with an embedded quote does not break out of the attribute",
+			input:    `![a "great" photo](photo.png)`,
+			expected: `<img src="photo.png" alt="a &quot;great&quot; photo">`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ProcessInlineMarkdownSecure(tt.input)
+			if result != tt.expected {
+				t.Errorf("ProcessInlineMarkdownSecure(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}

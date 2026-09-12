@@ -171,6 +171,19 @@ var (
 	inlineItalicPattern             = regexp.MustCompile(`\*([^*\n]+)\*`)
 	inlineCodePattern               = regexp.MustCompile("`([^`]+)`")
 	inlineLinkPattern               = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+	// inlineImagePattern reconoce ![alt](src) — mismo par corchete+paréntesis
+	// que el enlace, con el "!" como único distintivo. Corre ANTES del
+	// enlace (ver el comentario grande en su pasada, más abajo) precisamente
+	// para que un enlace-a-imagen [![alt](img)](url) resuelva bien: una vez
+	// que esta pasada reemplaza "![alt](img)" por "<img ...>" (que no
+	// contiene "]"), lo que queda es "[<img ...>](url)", que SÍ matchea
+	// inlineLinkPattern con linkText="<img ...>". Si el orden fuera al
+	// revés, inlineLinkPattern vería primero "[![alt](img)](url)" completo
+	// y su grupo linkText ([^\]]+) cortaría en el "]" de "[alt]", matcheando
+	// solo "[alt](img)" como si fuera EL link — el "!["/"](url)" sobrantes
+	// quedan como texto literal, y el resultado observable es exactamente
+	// "!<a href=\"img\">alt</a>(url)" (issue del audit 2026-09-11, F8).
+	inlineImagePattern = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 	// inlineSpanPattern reconoce spans con clase estilo pandoc
 	// [contenido]{.token}: corchete + LLAVE, un delimitador que NO colisiona
 	// con el enlace [texto](url) (corchete + PARÉNTESIS) ni con
@@ -566,6 +579,56 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 		return `<span lang="` + EscapeHTMLAttribute(tag) + `">` + content + `</span>`
 	})
 
+	// Procesar imágenes ![alt](src) -> <img src="src" alt="alt"> — ANTES del
+	// enlace (ver el comentario de inlineImagePattern, arriba) para que
+	// ![alt](img) dentro de un enlace [![alt](img)](url) resuelva bien, y
+	// para que una imagen en una celda de tabla o un caption ya no
+	// degrade a corchetes/paréntesis literales (F8 del audit 2026-09-11).
+	text = inlineImagePattern.ReplaceAllStringFunc(text, func(match string) string {
+		submatches := inlineImagePattern.FindStringSubmatch(match)
+		if len(submatches) < 3 {
+			return match
+		}
+
+		// alt, a diferencia de linkText, se interpola dentro de un
+		// atributo ("alt=\"...\""), no como contenido — pero YA está
+		// escapado (el texto completo pasó por EscapeHTML antes de que esta
+		// función corriera, ver su doc comment), y EscapeHTML también
+		// neutraliza comillas ("\"" -> "&quot;", "'" -> "&#39;"), así que es
+		// seguro embeberlo tal cual en un atributo entrecomillado sin
+		// volver a escaparlo — hacerlo de nuevo lo double-encodearía
+		// ("&lt;" -> "&amp;lt;"). Mismo criterio que linkText en la pasada
+		// de enlace, más abajo.
+		alt := submatches[1]
+		src := submatches[2]
+
+		// issue #63 code review finding #8: mismo chequeo que las demás
+		// pasadas — ver bracketContentTagsBalanced.
+		if !bracketContentTagsBalanced(alt) {
+			return match
+		}
+
+		// Decodificar entidades escapadas para la URL (mismo motivo que la
+		// pasada de enlace, más abajo: un "&" real en la URL — p.ej. un
+		// query string — ya llegó como "&amp;" por el EscapeHTML de
+		// entrada).
+		src = strings.ReplaceAll(src, "&lt;", "<")
+		src = strings.ReplaceAll(src, "&gt;", ">")
+		src = strings.ReplaceAll(src, "&quot;", "\"")
+		src = strings.ReplaceAll(src, "&#39;", "'")
+		src = strings.ReplaceAll(src, "&amp;", "&")
+
+		sanitizedSrc := SanitizeURL(src)
+		if sanitizedSrc == "" {
+			// src peligroso: degradar al alt como texto plano, sin <img> —
+			// mismo criterio que un enlace con URL peligrosa cae a solo su
+			// texto visible, más abajo.
+			return alt
+		}
+
+		return fmt.Sprintf(`<img src="%s" alt="%s">`, sanitizedSrc, alt)
+	})
+
 	// Procesar enlaces [texto](url) -> <a href="url">texto</a>
 	// IMPORTANTE: Sanitizar URLs para prevenir javascript: y data: URIs
 	text = inlineLinkPattern.ReplaceAllStringFunc(text, func(match string) string {
@@ -758,7 +821,14 @@ func htmlTagsWellNested(html string) bool {
 		closing := m[1] == "/"
 		name := strings.ToLower(m[2])
 		attrs := m[3]
-		if name == "br" || strings.HasSuffix(strings.TrimSpace(attrs), "/") {
+		// "img" se suma a "br" (issue del audit 2026-09-11, F8): la nueva
+		// pasada de inlineImagePattern emite <img src="..." alt="...">
+		// SIN slash final (HTML5 no lo exige para un void element) — sin
+		// este caso, htmlTagsWellNested lo trataba como una apertura sin
+		// cierre y bracketContentTagsBalanced rechazaba cualquier
+		// [![alt](img)](url) (un enlace-a-imagen), dejándolo como
+		// corchetes/paréntesis literales en vez de <a><img></a>.
+		if name == "br" || name == "img" || strings.HasSuffix(strings.TrimSpace(attrs), "/") {
 			continue // void o self-closing: sin cierre que exigir
 		}
 		if !closing {
