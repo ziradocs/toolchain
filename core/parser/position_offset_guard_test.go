@@ -76,20 +76,27 @@ func funcKey(file string, fn *goast.FuncDecl) string {
 	return fmt.Sprintf("%s:?.%s", file, name)
 }
 
-// isIntLiteralPosition reporta si los dos argumentos de una llamada a
-// NewPosition son literales enteros (p. ej. NewPosition(1, 1),
-// NewPosition(2, 1)) — la forma que usan las posiciones ya absolutas por
-// definición (la raíz del AST, un error de preprocesador a nivel de
-// archivo). Cubrir esta forma con una regla genérica evita una allowlist de
-// una entrada por cada literal disperso en parser.go/strict.go/flex.go/
-// document_strict.go/document_flex.go.
+// isIntLiteralPosition reporta si una llamada a NewPosition es EXACTAMENTE
+// `NewPosition(1, 1)` — la única forma de literal entero que hoy usan las
+// posiciones ya absolutas por definición fuera de frontmatter.go (la raíz
+// del AST, un error de preprocesador a nivel de archivo; verificado con
+// `grep -rn diagnostics.NewPosition` que no hay ningún otro par de enteros
+// fuera de los cuatro helpers y frontmatter.go). Cubrir esta forma con una
+// regla genérica evita una allowlist de una entrada por cada literal
+// disperso en parser.go/strict.go/flex.go/document_strict.go/
+// document_flex.go — pero exigir el valor exacto (1, 1), no "dos literales
+// cualquiera", es lo que impide que un futuro `NewPosition(5, 1)` copiado
+// de uno de esos sitios pase el guard en silencio (hallazgo de code
+// review): un literal con OTRO valor no es "obviamente absoluto por
+// definición" de la misma forma, y tiene que justificarse agregando el
+// sitio a positionOffsetHelperKeys o cambiando a un helper.
 func isIntLiteralPosition(call *goast.CallExpr) bool {
 	if len(call.Args) < 2 {
 		return false
 	}
 	for _, arg := range call.Args[:2] {
 		lit, ok := arg.(*goast.BasicLit)
-		if !ok || lit.Kind != token.INT {
+		if !ok || lit.Kind != token.INT || lit.Value != "1" {
 			return false
 		}
 	}
