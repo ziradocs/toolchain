@@ -1,0 +1,28 @@
+---
+mode: flex
+title: "Reporte Trimestral de Ventas"
+author: "Equipo de Datos"
+theme: "modern-blue"
+---
+
+# Reporte Trimestral de Ventas
+
+Las ventas del trimestre crecieron de forma sostenida en las cuatro regiones cubiertas por el equipo comercial.
+
+## Resultados y Comparativa
+CHART: Ventas por región (barras)
+
+- Q1: $120,000
+- Q2: $150,000
+- Q3: $180,000
+- Q4: $210,000
+
+## Diagrama del Proceso de Cierre
+```mermaid
+graph TD
+A[Pedido recibido]-->B[Validación de crédito]
+B-->C[Despacho]
+C-->D[Facturación]
+```
+
+![gráfico de ventas](path/to/sample-image.png)

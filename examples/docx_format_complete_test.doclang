@@ -338,7 +338,7 @@ authentication:
 |--------|-------------|---------|
 | `login(provider)` | Starts a session with the specified provider | `Promise<User>` |
 | `logout()` | Closes the current session | `Promise<void>` |
-| `getUser()` | Gets the authenticated user | `User \| null` |
+| `getUser()` | Gets the authenticated user | `User` or `null` |
 | `isAuthenticated()` | Checks whether there is an active session | `boolean` |
 
 ### Implementation Checklist

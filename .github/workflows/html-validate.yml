@@ -60,6 +60,8 @@ on:
       - "examples/**"
       - "scripts/check-example-assets.py"
       - "scripts/check-example-assets-baseline.txt"
+      - "scripts/check-example-fidelity.py"
+      - "scripts/check-example-fidelity-baseline.json"
       - ".htmlvalidate.json"
       - ".github/workflows/html-validate.yml"
   push:
@@ -73,6 +75,8 @@ on:
       - "examples/**"
       - "scripts/check-example-assets.py"
       - "scripts/check-example-assets-baseline.txt"
+      - "scripts/check-example-fidelity.py"
+      - "scripts/check-example-fidelity-baseline.json"
       - ".htmlvalidate.json"
       - ".github/workflows/html-validate.yml"
 
@@ -194,3 +198,30 @@ jobs:
 
       - name: Verificar que las imágenes locales referenciadas en examples/ existan
         run: python3 scripts/check-example-assets.py
+
+  example-fidelity:
+    # A diferencia de example-assets (imágenes rotas) o de los dos jobs de
+    # arriba (HTML inválido), este job atrapa la clase de bug que ninguno de
+    # los dos ve: un ejemplo compila y produce HTML válido, pero pierde o
+    # garabatea contenido en silencio (un chart con el eje colapsado, una
+    # imagen que desaparece, un code-group cuyos paneles quedan apilados).
+    # Ver scripts/check-example-fidelity.py para el detalle del chequeo y su
+    # baseline.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Usar el core del árbol de trabajo
+        run: printf 'go 1.26.5\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
+
+      - name: Verificar fidelidad fuente↔HTML de todos los ejemplos
+        run: python3 scripts/check-example-fidelity.py

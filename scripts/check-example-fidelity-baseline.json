@@ -1,0 +1,106 @@
+{
+  "examples/01_title_and_content/01.2_text_formatting_flex.slidelang::image": {
+    "source": 7,
+    "html": 4
+  },
+  "examples/01_title_and_content/01.4_special_blocks_flex.slidelang::code_pre": {
+    "source": 5,
+    "html": 3
+  },
+  "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::code_pre": {
+    "source": 2,
+    "html": 0
+  },
+  "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::image": {
+    "source": 10,
+    "html": 1
+  },
+  "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::table": {
+    "source": 2,
+    "html": 1
+  },
+  "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::table_rows": {
+    "source": 18,
+    "html": 6
+  },
+  "examples/01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang::image": {
+    "source": 2,
+    "html": 1
+  },
+  "examples/02_diagrams_and_charts/02.1_data_analysis_flex.slidelang::table": {
+    "source": 2,
+    "html": 1
+  },
+  "examples/02_diagrams_and_charts/02.1_data_analysis_flex.slidelang::table_rows": {
+    "source": 16,
+    "html": 7
+  },
+  "examples/18_specialized_layouts/18.4_headers_footers_advanced_flex.slidelang::image": {
+    "source": 3,
+    "html": 25
+  },
+  "examples/advanced_elements_test.doclang::code_group": {
+    "source": 2,
+    "html": 1
+  },
+  "examples/advanced_elements_test.doclang::code_pre": {
+    "source": 5,
+    "html": 3
+  },
+  "examples/advanced_elements_test.doclang::image": {
+    "source": 0,
+    "html": 2
+  },
+  "examples/advanced_elements_test.doclang::plantuml": {
+    "source": 3,
+    "html": 2
+  },
+  "examples/checklist_demo.slidelang::checklist": {
+    "source": 23,
+    "html": 27
+  },
+  "examples/directives_example.slidelang::code_pre": {
+    "source": 0,
+    "html": 1
+  },
+  "examples/gallery/01_strict_mode_basics.slidelang::checklist": {
+    "source": 4,
+    "html": 0
+  },
+  "examples/gallery/02_technical_architecture.doclang::image": {
+    "source": 0,
+    "html": 1
+  },
+  "examples/gallery/06_strict_document.doclang::checklist": {
+    "source": 3,
+    "html": 0
+  },
+  "examples/gallery/06_strict_document.doclang::code_pre": {
+    "source": 0,
+    "html": 1
+  },
+  "examples/gallery/06_strict_document.doclang::table": {
+    "source": 0,
+    "html": 1
+  },
+  "examples/openai_fixed.slidelang::table": {
+    "source": 1,
+    "html": 2
+  },
+  "examples/openai_fixed.slidelang::table_rows": {
+    "source": 5,
+    "html": 9
+  },
+  "examples/webp_test.doclang::chart": {
+    "source": 1,
+    "html": 0
+  },
+  "examples/webp_test.doclang::code_pre": {
+    "source": 0,
+    "html": 2
+  },
+  "examples/webp_test.doclang::map": {
+    "source": 1,
+    "html": 0
+  }
+}

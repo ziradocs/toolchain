@@ -1,0 +1,230 @@
+---
+title: "CloudFirst Banking Platform — Technical Architecture Review"
+author: "Platform Engineering Team"
+date: "2025-01-15"
+theme: technical
+mode: flex
+toc: true
+numbering: true
+---
+
+# Current State
+
+CloudFirst Banking Platform serves 1.2M users at a peak transaction volume
+of 50K TPS, under a 99.9% availability SLA and a PCI DSS Level 1 compliance
+obligation. The architecture in production today is six years old and last
+saw a major update three years ago: a monolithic application core sitting
+behind a conventional load-balancer-and-web-server tier, backed by a legacy
+relational database, a document store, and a cache layer. External APIs and
+batch processors feed into the same monolithic core, and a reporting system
+reads directly from the legacy database.
+
+<<mermaid>>
+  flowchart TD
+      A[Load Balancer] --> B[Web Servers]
+      B --> C[Application Servers]
+      C --> D[Monolithic Core]
+      D --> E[(Legacy Database)]
+      D --> F[(Document Store)]
+      D --> G[(Cache Layer)]
+      H[External APIs] --> C
+      I[Batch Processors] --> D
+      J[Reporting System] --> E
+
+::: danger
+**Critical issues identified in this review:** a monolithic architecture
+that limits horizontal scaling, a legacy database creating performance
+bottlenecks at current transaction volume, security gaps in authentication
+and data encryption, technical debt consuming 65% of development cycles,
+and operational overhead that requires 24/7 manual monitoring.
+:::
+
+This report recommends a comprehensive modernization within 14 months. The
+sections below detail the findings behind that recommendation, the target
+architecture we propose, and the tradeoffs the platform team weighed in
+reaching it.
+
+# Findings
+
+## Performance and Scalability
+
+Every layer of the current stack is running measurably hotter than its
+target, and the database and storage tiers are already at critical
+bottleneck levels rather than merely elevated ones. API response time
+averages 350ms against a 100ms target; complex database queries take 2.5
+seconds against a 500ms target; and storage I/O sits at 950 IOPS against a
+2,000+ IOPS target. The overall performance rating from this assessment is
+4.2 out of 10.
+
+| Component | Current Performance | Target Performance | Bottleneck Level |
+|--------------------------|-------------------------|---------------------|-------------------|
+| API Response Time | 350ms average | <100ms | High |
+| Database Queries | 2.5s complex queries | <500ms | Critical |
+| Transaction Processing | 25K TPS peak | 50K TPS | High |
+| Memory Utilization | 85% average | <70% | Medium |
+| CPU Usage | 78% peak | <60% | Medium |
+| Storage I/O | 950 IOPS | 2000+ IOPS | Critical |
+
+The scalability picture is more urgent than the raw performance numbers
+suggest. Projecting current growth forward, the platform is expected to
+exceed its usable capacity within six months, well before any modernization
+program — even an accelerated one — could complete.
+
+<<chart: combo>>
+  data:
+    labels: ["Current Load", "Peak Load", "6 Month Projection", "12 Month Projection", "18 Month Projection"]
+    series:
+      - name: "Transaction Volume (K TPS)"
+        type: "bar"
+        values: [25, 40, 60, 80, 100]
+      - name: "System Capacity (%)"
+        type: "line"
+        values: [60, 95, 120, 150, 180]
+        yAxisID: "y1"
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Scalability Gap Analysis"
+
+## Security Posture
+
+The platform relies on single-factor authentication for internal systems,
+encrypts data only in transit (not at rest), applies coarse-grained access
+control, and has insufficient audit logging for its PCI DSS Level 1
+obligation. Measured against that standard, the platform is currently 68%
+compliant against a 73% threshold — a gap the team rates as **high risk**
+and recommends closing immediately, independent of the broader
+modernization timeline.
+
+## Technology Stack
+
+Several components of the current stack are past or near end of support,
+which compounds both the security and performance findings above: an
+unsupported database cannot receive the security patches a PCI DSS auditor
+will look for, and an unmaintained monitoring setup is part of why the
+platform currently requires manual, round-the-clock observation. The
+overall stack health score is 3.5 out of 10.
+
+| Technology Category | Current Stack | Age | Support Status | Recommended Action |
+|-----------------------|-----------------|---------|--------------------|----------------------------|
+| Runtime Platform | Java 8 | 7 years | Extended support | Upgrade to Java 17 |
+| Application Framework | Spring Boot 2.1 | 4 years | Maintenance mode | Upgrade to 3.x |
+| Database | Oracle 11g | 8 years | End of life | Migrate to PostgreSQL |
+| Message Queue | ActiveMQ 5.x | 6 years | Legacy | Upgrade to Kafka |
+| Cache Layer | EhCache | 5 years | Limited scalability | Migrate to Redis |
+| Monitoring | Custom scripts | 6 years | Unmaintained | Implement Prometheus |
+
+# Recommendations
+
+## Target Architecture
+
+We recommend replacing the monolithic core with a set of twelve
+domain-specific microservices — authentication, account, transaction,
+payment, and notification services among them — communicating through an
+event bus rather than direct synchronous calls wherever the domain allows
+it. A service mesh handles the cross-cutting concerns (retries, mutual TLS,
+observability) so that individual services stay focused on business logic.
+Each service owns its own database, which is what makes independent
+scaling and independent deployment possible in the first place.
+
+<<mermaid>>
+  flowchart TD
+      A[API Gateway] --> B[Authentication Service]
+      A --> C[Account Service]
+      A --> D[Transaction Service]
+      A --> E[Payment Service]
+      A --> F[Notification Service]
+      B --> G[(User Database)]
+      C --> H[(Account Database)]
+      D --> I[(Transaction Database)]
+      E --> J[(Payment Database)]
+      K[Event Bus] --> C
+      K --> D
+      K --> E
+      K --> F
+      L[Service Mesh] --> A
+      L --> B
+      L --> C
+      L --> D
+      L --> E
+      L --> F
+
+## Migration Strategy
+
+Rather than a single cutover, we recommend a strangler-fig migration in
+five phases, moving the lowest-risk services first to validate the
+approach before the higher-risk transaction and payment services move.
+
+| Phase | Duration | Services Migrated | Risk Level | Investment |
+|-------|-------------|------------------------------------|------------|------------|
+| Phase 1 | Months 1-3 | Authentication, Notifications | Low | $400K |
+| Phase 2 | Months 4-6 | Account Management | Medium | $600K |
+| Phase 3 | Months 7-10 | Transaction Processing | High | $800K |
+| Phase 4 | Months 11-12 | Payment Services | High | $600K |
+| Phase 5 | Months 13-14 | Legacy Decommission | Medium | $400K |
+
+Total modernization budget is $2.8M over 14 months. The two highest-risk
+phases — transaction processing and payment services — are deliberately
+scheduled after authentication and account management have already proven
+the migration pattern in production.
+
+## Security Enhancement
+
+We recommend moving to a zero-trust model across every security layer
+rather than patching the current perimeter-based approach in place, since
+several of the current gaps (flat network architecture, coarse-grained
+access control) are structural rather than configuration issues.
+
+| Security Layer | Current State | Target State | Implementation |
+|--------------------|--------------------|------------------------|------------------------------|
+| Identity & Access | Basic RBAC | Zero-trust IAM | AWS Cognito + SAML |
+| Network Security | Perimeter-based | Micro-segmentation | Service mesh + VPC |
+| Data Protection | Transit encryption | End-to-end encryption | KMS + field-level encryption |
+| API Security | Basic validation | OAuth 2.0 + rate limiting | API Gateway + JWT |
+| Monitoring | Log aggregation | SIEM + threat detection | CloudTrail + GuardDuty |
+| Compliance | Manual audits | Automated compliance | Config Rules + Audit |
+
+We recommend allocating 25% of the modernization budget to this workstream
+specifically, reflecting both the current 68%-of-73% compliance gap and the
+cost of a compliance failure at PCI DSS Level 1.
+
+# Option Comparison
+
+The platform team evaluated several infrastructure and vendor choices as
+part of this review. The comparison below reflects the recommended
+direction in each row, together with the alternative that was seriously
+considered and why it was set aside.
+
+| Decision Area | Recommended Option | Alternative Considered | Why the Alternative Was Set Aside |
+|---------------------|-----------------------------|------------------------------|-----------------------------------------------------------|
+| Cloud Platform | AWS (Amazon EKS) | Stay on-premises | Cannot meet the 6-month scalability deadline without managed elasticity |
+| Database | PostgreSQL on RDS | Stay on Oracle 11g | Oracle 11g is end-of-life; licensing cost also exceeds managed PostgreSQL |
+| Message Queue | Amazon MSK (Kafka) | Upgrade ActiveMQ in place | ActiveMQ's throughput ceiling does not clear the 50K+ TPS target |
+| Container Orchestration | Amazon EKS | Self-managed Kubernetes | Self-managed control plane adds operational load the team cannot absorb during migration |
+| CI/CD | GitHub Actions + ArgoCD (GitOps) | Keep Jenkins | Jenkins requires more custom maintenance and lacks native GitOps rollback |
+| Monitoring | Datadog + Prometheus/Grafana | Continue custom scripts | Current scripts are unmaintained and were flagged as a security gap themselves |
+
+Taken together, these choices consolidate the platform's technology vendor
+footprint from twelve primary vendors down to six, which the team expects
+to reduce integration overhead as much as it reduces the direct license
+cost.
+
+## Success Metrics
+
+| KPI | Current | Target |
+|------------------------|----------|-------------------------|
+| Availability | 99.9% | 99.95% |
+| API response time | 350ms | <100ms (95th percentile) |
+| Sustained throughput | 25K TPS | 50K TPS |
+| Security compliance score | 68% | 95% |
+| Deployment frequency | Weekly | Multiple daily deployments |
+
+::: warning
+The 6-month capacity horizon identified in the scalability findings above
+means Phase 1 of the migration (authentication and notifications) should
+begin architecture and cloud-foundation work immediately; deferring the
+program start date shortens the runway available before the platform is
+projected to exceed its current capacity.
+:::
