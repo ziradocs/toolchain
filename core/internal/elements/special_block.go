@@ -30,7 +30,19 @@ func (p *SpecialBlockParser) CanParse(line string, mode string) bool {
 // SpecialBlockParser (nested) y CanParse de sobra aceptan cualquier ":::algo"
 // y tienen que perder contra CodeGroupParser/GridParser en sus prefijos
 // más específicos (":::code-group", "::: grid").
+//
+// HeadingParser (PR-9 paso 3) SÍ se agrega acá aunque no viva en
+// GetDefaultRegistry: a nivel top el encabezado lo intercepta cada parser
+// de nivel superior ANTES del registry (flexSubsectionLevel/
+// isSubsectionHeader), así que agregarlo al registry compartido no lo
+// haría disparar ahí. Acá adentro, en cambio, es el ÚNICO lugar que puede
+// reconocer un "### Título" anidado como encabezado real — antes de esto,
+// esa línea nunca se delegaba y quedaba como prosa cruda en Content (ver
+// el comentario de TestSpecialBlockParser_NestedSpecialBlock, que este PR
+// actualiza). Va primero porque "#" no es ambiguo con ningún otro prefijo
+// de esta lista.
 var nestedContentParsers = []ElementParser{
+	&HeadingParser{},
 	&MermaidParser{},
 	&PlantUMLParser{},
 	&ChartParser{},
@@ -171,6 +183,50 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 
 	var nested []ast.Element
 	var nestedDiagnostics []diagnostics.Diagnostic
+	// delegatedCount cuenta SOLO los elementos realmente delegados (no la
+	// prosa sintética de flushProseRun): si termina en 0, `nested` se
+	// descarta entero más abajo — un bloque sin ningún elemento anidado no
+	// debe pasar a tener Elements no vacío solo porque tiene prosa, o el
+	// renderer lo desviaría de la rama de Content que usa hoy sin ganar
+	// nada (Elements vacío es, y debe seguir siendo, la señal de "no hay
+	// nada tipado adentro").
+	delegatedCount := 0
+
+	// proseRun acumula las líneas de prosa suelta ENTRE dos elementos
+	// delegados (o antes del primero / después del último), para volcarlas
+	// como un ast.TextElement sintético en `nested` cuando corresponda —
+	// necesario para que Elements sea una reconstrucción COMPLETA del
+	// cuerpo, no solo "las partes delegadas". Sin esto, el renderer (que
+	// una vez que Elements no está vacío deja de mirar Content del todo,
+	// ver renderSpecialBlockElement en core/renderer/html.go) perdía en
+	// silencio toda la prosa que rodeaba a un elemento anidado: agregado en
+	// PR-9 paso 3 (encabezados) porque un heading dentro de un ":::bloque"
+	// casi siempre viene acompañado de prosa/listas alrededor (ver
+	// examples/01_title_and_content/01.6_ui_elements_flex.slidelang), lo
+	// que hacía este bug mucho más fácil de disparar que con el chart/
+	// tabla/imagen aislados de paso 2 — hallazgo del advisor. IsRawHTML
+	// queda false (a diferencia del heading): es texto de markdown normal,
+	// el mismo que renderTextElement ya sabía procesar.
+	var proseRun strings.Builder
+	proseStartLine := -1
+	flushProseRun := func() {
+		if proseRun.Len() == 0 {
+			return
+		}
+		nested = append(nested, ast.NewTextElement(ctx.Position(proseStartLine), proseRun.String()))
+		proseRun.Reset()
+		proseStartLine = -1
+	}
+	appendProseLine := func(lineIndex int) {
+		if proseStartLine == -1 {
+			proseStartLine = lineIndex
+		}
+		if proseRun.Len() > 0 {
+			proseRun.WriteString("\n")
+		}
+		proseRun.WriteString(strings.TrimSpace(ctx.Lines[lineIndex]))
+	}
+
 	i := startIndex + 1
 	for i < len(ctx.Lines) {
 		trimmedLine := strings.TrimSpace(ctx.Lines[i])
@@ -202,7 +258,9 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		}
 
 		if elem, n, diags, ok := tryParseNestedContent(ctx, i); ok {
+			flushProseRun()
 			nested = append(nested, elem)
+			delegatedCount++
 			nestedDiagnostics = append(nestedDiagnostics, diags...)
 			for k := 0; k < n; k++ {
 				appendRawLine(ctx.Lines[i+k])
@@ -212,9 +270,15 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		}
 
 		appendRawLine(ctx.Lines[i])
+		appendProseLine(i)
 		i++
 	}
+	flushProseRun()
 	consumed := i - startIndex
+
+	if delegatedCount == 0 {
+		nested = nil
+	}
 
 	block := ast.NewSpecialBlockElement(pos, blockType, content.String())
 	block.Title = title

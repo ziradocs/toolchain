@@ -267,6 +267,49 @@ func TestFlexParser_SubsectionHeadingDedupDoesNotCollideWithRealAnchor(t *testin
 	}
 }
 
+// TestFlexParser_NestedHeadingSharesAnchorPoolWithTopLevel cubre PR-9 paso 3
+// (C31): un "### Details" DENTRO de un ":::info" y un "### Details" de nivel
+// top del mismo deck tienen que desambiguarse entre sí, no solo dentro de su
+// propio nivel — comparten el mismo p.usedAnchors porque
+// ctx.HeadingAnchor = p.uniqueHeadingAnchor viaja hasta el registry que
+// SpecialBlockParser usa para su contenido anidado (nestedContentParsers).
+// Antes de este paso, "### Details" dentro de un ":::info" ni siquiera se
+// promovía a heading (quedaba como prosa en Content); ahora que sí, tiene
+// que pasar por el MISMO deduplicador o produciría un id="heading-details"
+// duplicado — exactamente el escenario que C31 advertía.
+func TestFlexParser_NestedHeadingSharesAnchorPoolWithTopLevel(t *testing.T) {
+	astNode, _ := parseFlexBody(t,
+		"## Slide uno", "",
+		"### Details", "",
+		":::info", "### Details", ":::",
+	)
+
+	var ids []string
+	for _, el := range astNode.ContentBlocks[0].Elements {
+		switch v := el.(type) {
+		case *ast.TextElement:
+			if v.IsRawHTML {
+				ids = append(ids, v.Content)
+			}
+		case *ast.SpecialBlockElement:
+			for _, nested := range v.Elements {
+				if te, ok := nested.(*ast.TextElement); ok && te.IsRawHTML {
+					ids = append(ids, te.Content)
+				}
+			}
+		}
+	}
+	if len(ids) != 2 {
+		t.Fatalf("se esperaban 2 encabezados (uno top-level, uno anidado), hay %d: %v", len(ids), ids)
+	}
+	if !strings.Contains(ids[0], `id="heading-details"`) {
+		t.Errorf("heading top-level: %q no contiene id=\"heading-details\"", ids[0])
+	}
+	if !strings.Contains(ids[1], `id="heading-details-2"`) {
+		t.Errorf("heading anidado: %q no contiene id=\"heading-details-2\" (debía desambiguarse contra el top-level)", ids[1])
+	}
+}
+
 // Un encabezado que no deja un solo carácter utilizable no puede quedar con
 // `id=""`, que es igual de inválido que uno que empieza por dígito.
 func TestFlexParser_SubsectionHeadingWithNoUsableCharactersFallsBack(t *testing.T) {

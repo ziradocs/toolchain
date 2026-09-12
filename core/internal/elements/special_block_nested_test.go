@@ -4,14 +4,23 @@
 package elements
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // TestSpecialBlockParser_TableNestedInside cubre F9 (audit 2026-09-11): una
 // tabla dentro de un ":::info" se reconoce como un TableElement tipado en
 // Elements, no como texto crudo sin estructura.
+//
+// NOTA (hallazgo del advisor sobre PR-9 paso 3): "Antes de la tabla." tiene
+// que aparecer TAMBIÉN en Elements, como un TextElement sintético — no solo
+// en Content. Si Elements tuviera SOLO la tabla, renderSpecialBlockElement
+// (que renderiza Elements en vez de Content en cuanto Elements no está
+// vacío) perdería esa prosa en el HTML final. Elements es una
+// reconstrucción COMPLETA del cuerpo, no una lista de "solo lo delegado".
 func TestSpecialBlockParser_TableNestedInside(t *testing.T) {
 	parser := &SpecialBlockParser{}
 	ctx := &ParseContext{
@@ -37,12 +46,19 @@ func TestSpecialBlockParser_TableNestedInside(t *testing.T) {
 	if result.ConsumedLines != 6 {
 		t.Errorf("ConsumedLines = %d, want 6", result.ConsumedLines)
 	}
-	if len(block.Elements) != 1 {
-		t.Fatalf("len(Elements) = %d, want 1: %+v", len(block.Elements), block.Elements)
+	if len(block.Elements) != 2 {
+		t.Fatalf("len(Elements) = %d, want 2 (prosa + tabla): %+v", len(block.Elements), block.Elements)
 	}
-	table, ok := block.Elements[0].(*ast.TableElement)
+	prose, ok := block.Elements[0].(*ast.TextElement)
+	if !ok || prose.IsRawHTML {
+		t.Fatalf("Elements[0] no es un TextElement de prosa: %T", block.Elements[0])
+	}
+	if prose.Content != "Antes de la tabla." {
+		t.Errorf("prose.Content = %q, want %q", prose.Content, "Antes de la tabla.")
+	}
+	table, ok := block.Elements[1].(*ast.TableElement)
 	if !ok {
-		t.Fatalf("Elements[0] is not TableElement: %T", block.Elements[0])
+		t.Fatalf("Elements[1] is not TableElement: %T", block.Elements[1])
 	}
 	if len(table.Rows) != 1 || table.Rows[0][0] != "1" {
 		t.Errorf("table.Rows = %#v, want [[\"1\" \"2\"]]", table.Rows)
@@ -62,6 +78,20 @@ func TestSpecialBlockParser_TableNestedInside(t *testing.T) {
 // un ":::tipo" anidado CERRABA el bloque padre sin consumirlo (tratándolo
 // como si fuera un hermano de nivel superior), fragmentando el documento y
 // perdiendo el cierre real del padre.
+//
+// NOTA (PR-9 paso 3): "### Level 1"/"### Level 2" SÍ se promueven ahora a
+// encabezados tipados (HeadingParser, agregado a nestedContentParsers) —
+// esto invierte a propósito lo que esta misma prueba afirmaba antes de ese
+// paso ("no se promueve a heading ... eso lo hace el parser de nivel
+// superior"). No es una prueba rota: es la prueba adaptada al cambio de
+// diseño que PR-9 paso 3 introduce.
+//
+// NOTA 2 (hallazgo del advisor sobre el mismo paso 3): "Texto del nivel 1."
+// TAMBIÉN tiene que aparecer en Elements, como TextElement sintético entre
+// el heading y el reveal_content — Elements es una reconstrucción COMPLETA
+// del cuerpo (ver el comentario de flushProseRun en Parse), no solo la
+// lista de lo delegado; de lo contrario el renderer (que deja de mirar
+// Content en cuanto Elements no está vacío) perdería esa prosa.
 func TestSpecialBlockParser_NestedSpecialBlock(t *testing.T) {
 	parser := &SpecialBlockParser{}
 	ctx := &ParseContext{
@@ -92,12 +122,32 @@ func TestSpecialBlockParser_NestedSpecialBlock(t *testing.T) {
 	if block.BlockType != "reveal" {
 		t.Errorf("BlockType = %q, want \"reveal\"", block.BlockType)
 	}
-	if len(block.Elements) != 1 {
-		t.Fatalf("len(Elements) = %d, want 1 (el reveal_content anidado)", len(block.Elements))
+	if len(block.Elements) != 4 {
+		t.Fatalf("len(Elements) = %d, want 4 (heading \"Level 1\", prosa, reveal_content anidado, heading \"Level 2\"): %+v", len(block.Elements), block.Elements)
 	}
-	nested, ok := block.Elements[0].(*ast.SpecialBlockElement)
+
+	heading1, ok := block.Elements[0].(*ast.TextElement)
+	if !ok || !heading1.IsRawHTML {
+		t.Fatalf("Elements[0] no es un heading RawHTML: %T", block.Elements[0])
+	}
+	if heading1.Level != 3 {
+		t.Errorf("heading1.Level = %d, want 3", heading1.Level)
+	}
+	if !strings.Contains(heading1.Content, "Level 1") {
+		t.Errorf("heading1.Content = %q, quiere contener \"Level 1\"", heading1.Content)
+	}
+
+	prose, ok := block.Elements[1].(*ast.TextElement)
+	if !ok || prose.IsRawHTML {
+		t.Fatalf("Elements[1] no es un TextElement de prosa: %T", block.Elements[1])
+	}
+	if prose.Content != "Texto del nivel 1." {
+		t.Errorf("prose.Content = %q, want %q", prose.Content, "Texto del nivel 1.")
+	}
+
+	nested, ok := block.Elements[2].(*ast.SpecialBlockElement)
 	if !ok {
-		t.Fatalf("Elements[0] is not SpecialBlockElement: %T", block.Elements[0])
+		t.Fatalf("Elements[2] is not SpecialBlockElement: %T", block.Elements[2])
 	}
 	if nested.BlockType != "reveal_content" {
 		t.Errorf("nested.BlockType = %q, want \"reveal_content\"", nested.BlockType)
@@ -105,9 +155,18 @@ func TestSpecialBlockParser_NestedSpecialBlock(t *testing.T) {
 	if nested.Content != "Contenido revelado." {
 		t.Errorf("nested.Content = %q, want \"Contenido revelado.\"", nested.Content)
 	}
-	// "### Level 2" viene DESPUÉS del reveal_content anidado y sigue siendo
-	// prosa suelta del padre — no se promueve a heading (eso lo hace el
-	// parser de nivel superior, no éste) ni se pierde.
+
+	heading2, ok := block.Elements[3].(*ast.TextElement)
+	if !ok || !heading2.IsRawHTML {
+		t.Fatalf("Elements[3] no es un heading RawHTML: %T", block.Elements[3])
+	}
+	if !strings.Contains(heading2.Content, "Level 2") {
+		t.Errorf("heading2.Content = %q, quiere contener \"Level 2\"", heading2.Content)
+	}
+
+	// Content sigue teniendo TODAS las líneas crudas, incluidas las que
+	// también se delegaron a HeadingParser — dos vistas paralelas de la
+	// misma fuente, no una partición (ver el comentario de Parse).
 	if !containsLine(block.Content, "### Level 2") {
 		t.Errorf("Content no incluye \"### Level 2\": %q", block.Content)
 	}
@@ -211,8 +270,15 @@ func TestSpecialBlockParser_NestedChart_PropagatesDiagnostics(t *testing.T) {
 	if !ok {
 		t.Fatalf("Element is not SpecialBlockElement: %T", result.Element)
 	}
-	if len(block.Elements) != 1 {
-		t.Fatalf("len(Elements) = %d, want 1", len(block.Elements))
+	// El chart con JSON inválido solo consume su apertura + la línea
+	// inválida (no encuentra el "}" de cierre); "<</chart>>" queda como
+	// prosa suelta y ahora también se vuelca a Elements como TextElement
+	// sintético (ver flushProseRun en Parse) — 2 elementos, no 1.
+	if len(block.Elements) != 2 {
+		t.Fatalf("len(Elements) = %d, want 2 (chart + prosa \"<</chart>>\"): %+v", len(block.Elements), block.Elements)
+	}
+	if _, ok := block.Elements[0].(*ast.ChartElement); !ok {
+		t.Errorf("Elements[0] is not ChartElement: %T", block.Elements[0])
 	}
 
 	found := false
@@ -248,6 +314,48 @@ func TestSpecialBlockParser_EmptySelfClosing_DoesNotPanic(t *testing.T) {
 				t.Errorf("ConsumedLines = %d, want 1", result.ConsumedLines)
 			}
 		})
+	}
+}
+
+// TestSpecialBlockParser_RenderedHTML_KeepsProseAlongsideNestedElements
+// cubre el hallazgo del advisor sobre PR-9 paso 3: renderSpecialBlockElement
+// (core/renderer/html.go) renderiza SOLO block.Elements en cuanto no está
+// vacío — Content deja de mirarse por completo. Antes de este fix, la prosa
+// que rodeaba a un elemento anidado (un heading, una tabla, un chart) vivía
+// solo en Content y desaparecía del HTML en cuanto CUALQUIER elemento se
+// delegaba, sin que ningún test de este mismo paquete lo notara (los tests
+// de Parse solo miran el AST, nunca el HTML). Se prueba acá, no en
+// core/renderer, porque este paquete ya importa renderer (para
+// BuildHeadingElement) y renderer no puede importar de vuelta a este
+// paquete — así que renderer no puede tener un test que construya el AST
+// con el parser real sin duplicar la fixture a mano.
+func TestSpecialBlockParser_RenderedHTML_KeepsProseAlongsideNestedElements(t *testing.T) {
+	parser := &SpecialBlockParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			":::info",
+			"### Information",
+			"Antes considerada prosa suelta, ahora tiene que sobrevivir al render.",
+			":::",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	block := result.Element.(*ast.SpecialBlockElement)
+	if len(block.Elements) == 0 {
+		t.Fatalf("Elements vacío — este test no está probando lo que dice si no hay nada delegado")
+	}
+
+	html := renderer.RenderElementToHTML(block, nil, nil)
+	if !strings.Contains(html, "<h3") || !strings.Contains(html, "Information") {
+		t.Errorf("HTML no incluye el heading anidado: %s", html)
+	}
+	if !strings.Contains(html, "Antes considerada prosa suelta") {
+		t.Errorf("HTML perdió la prosa que acompañaba al heading anidado (el bug que este test cubre): %s", html)
 	}
 }
 
