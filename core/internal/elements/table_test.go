@@ -796,3 +796,30 @@ func TestTableParser_ParseMarkdownTable_RowPositions(t *testing.T) {
 		t.Errorf("RowPositions[1].Line = %d, want 4 (la línea de \"| 3 | 4 |\")", table.RowPositions[1].Line)
 	}
 }
+
+// TestTableParser_ParseMarkdownTable_OddBacktickCount_StillSplits cubre un
+// hallazgo de revisión: una celda con una cantidad IMPAR de backticks (un
+// "`" suelto que no abre ningún code span real) dejaba el rastreo de código
+// prendido para el resto de la fila, tragándose el "|" real que separa la
+// columna siguiente en vez de tratarlo como delimitador.
+func TestTableParser_ParseMarkdownTable_OddBacktickCount_StillSplits(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			"| use ` for code | see docs | z |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table := result.Element.(*ast.TableElement)
+	// 3 pipes reales tras el backtick suelto -> 3 celdas de datos, no 1.
+	if len(table.Rows) != 1 || len(table.Rows[0]) != 3 {
+		t.Fatalf("Rows = %#v, want 1 fila de 3 celdas", table.Rows)
+	}
+}

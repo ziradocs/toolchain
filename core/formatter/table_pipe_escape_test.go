@@ -104,3 +104,45 @@ func TestFormatPipeTable_CodeSpanPipe_NotDoubleEscaped(t *testing.T) {
 		t.Errorf("Rows[0][1] reparseado = %q, want \"`User | null`\"", reTable.Rows[0][1])
 	}
 }
+
+// TestFormatPipeTable_OddBacktickCount_StillEscapesRoundTrips es el
+// hallazgo de una revisión sobre el commit anterior: una celda con una
+// cantidad IMPAR de backticks ("use ` for code | see docs", un solo
+// backtick suelto) no tiene ningún code span real, pero el rastreo ciego de
+// backticks dejaba el toggle "dentro de código" prendido para el resto de
+// la celda — el "|" real que sigue quedaba sin escapar y el reparse lo leía
+// como un separador de columna de más.
+func TestFormatPipeTable_OddBacktickCount_StillEscapesRoundTrips(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(3, 1))
+	table.Headers = []string{"A", "B"}
+	table.Rows = [][]string{{"use ` for code | see docs", "z"}}
+
+	out, err := FormatStrict(chartDoc(table))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+
+	reparsed, diags := parser.New(util.NewNoop()).Parse(out, "test.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("reparse produjo un error: %v\n%s", d, out)
+		}
+	}
+	var reTable *ast.TableElement
+	for _, block := range reparsed.ContentBlocks {
+		for _, el := range block.Elements {
+			if tb, ok := el.(*ast.TableElement); ok {
+				reTable = tb
+			}
+		}
+	}
+	if reTable == nil {
+		t.Fatalf("no se encontró el TableElement reparseado:\n%s", out)
+	}
+	if len(reTable.Rows) != 1 || len(reTable.Rows[0]) != 2 {
+		t.Fatalf("Rows reparseado = %#v, want 1 fila de 2 celdas:\n%s", reTable.Rows, out)
+	}
+	if reTable.Rows[0][0] != "use ` for code | see docs" {
+		t.Errorf("Rows[0][0] reparseado = %q, want \"use ` for code | see docs\"", reTable.Rows[0][0])
+	}
+}

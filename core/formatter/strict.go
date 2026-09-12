@@ -323,23 +323,39 @@ func escapeTableCells(cells []string) []string {
 // reescapa, un round-trip fmt→reparse infla la fila con una columna de más
 // en silencio.
 //
-// Un "|" DENTRO de un code span no se toca: los backticks ya lo protegen
-// estructuralmente en el reparse (splitMarkdownTableRow no lo trata como
-// separador mientras esté dentro de backticks), y escaparlo ahí metería un
-// "\" visible dentro del <code> renderizado, que un code span no interpreta
-// como escape (cambiaría el contenido, no solo la sintaxis).
+// Un "|" DENTRO de un code span BIEN FORMADO no se toca: los backticks ya
+// lo protegen estructuralmente en el reparse (SplitMarkdownTableRow no lo
+// trata como separador mientras esté dentro de backticks), y escaparlo ahí
+// metería un "\" visible dentro del <code> renderizado, que un code span no
+// interpreta como escape (cambiaría el contenido, no solo la sintaxis).
+//
+// Pero una celda con una cantidad IMPAR de backticks no tiene ningún code
+// span real — un solo "`" suelto no abre nada — y aun así, rastreando
+// backticks ciegamente, el toggle queda en `true` para el resto de la celda
+// (hallazgo de revisión: "use ` for code | see docs" tiene un backtick
+// suelto, así que el "|" real que sigue se leía como "dentro de un code
+// span" y quedaba sin escapar, partiendo la celda en el reparse). Con
+// cantidad impar, esta función escapa TODOS los "|" de la celda sin rastrear
+// backticks — sigue siendo correcto en el reparse (SplitMarkdownTableRow
+// decodifica "\|" a "|" sin importar si está o no entre backticks), solo dejar
+// de ser la representación más prolija de un code span que en el fondo nunca
+// estuvo bien formado.
 func escapeTableCellPipe(cell string) string {
 	if !strings.Contains(cell, "|") {
 		return cell
 	}
+	trackCodeSpans := strings.Count(cell, "`")%2 == 0
+
 	var b strings.Builder
 	inCode := false
 	for _, r := range cell {
 		switch {
-		case r == '`':
+		case r == '`' && trackCodeSpans:
 			inCode = !inCode
 			b.WriteRune(r)
-		case r == '|' && !inCode:
+		case r == '|' && trackCodeSpans && inCode:
+			b.WriteRune(r)
+		case r == '|':
 			b.WriteString(`\|`)
 		default:
 			b.WriteRune(r)

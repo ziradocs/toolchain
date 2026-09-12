@@ -473,7 +473,17 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 // parser/strict.go (la tabla markdown de SlideLang strict, un parser
 // separado del de este paquete) tiene el mismo bug con el mismo split
 // ciego y necesita el mismo fix.
+//
+// Una cantidad IMPAR de backticks en toda la línea significa que ningún "`"
+// abre un code span real (uno queda suelto) — rastrearlos de todos modos
+// dejaría el estado "dentro de código" prendido para el resto de la línea,
+// tragándose como si fueran parte de una celda los "|" reales que vengan
+// después (hallazgo de revisión sobre formatter.escapeTableCellPipe, su
+// espejo de escritura, que tiene el mismo chequeo). Con conteo impar, esta
+// función ignora los backticks por completo y solo respeta "\|".
 func SplitMarkdownTableRow(line string) []string {
+	trackCodeSpans := strings.Count(line, "`")%2 == 0
+
 	var cells []string
 	var current strings.Builder
 	inCode := false
@@ -484,10 +494,12 @@ func SplitMarkdownTableRow(line string) []string {
 		case r == '\\' && i+1 < len(runes) && runes[i+1] == '|':
 			current.WriteRune('|')
 			i++
-		case r == '`':
+		case r == '`' && trackCodeSpans:
 			inCode = !inCode
 			current.WriteRune(r)
-		case r == '|' && !inCode:
+		case r == '|' && trackCodeSpans && inCode:
+			current.WriteRune(r)
+		case r == '|':
 			cells = append(cells, current.String())
 			current.Reset()
 		default:
