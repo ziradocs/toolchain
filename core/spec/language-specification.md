@@ -412,13 +412,30 @@ content. This matters more than it looks: a tag matched on a loose prefix
 consumes the lines under it, so a mistyped `<<mapa>>` above a `title:` used to
 absorb the slide's title and leave the slide untitled, with nothing reported.
 
-The same tags must also **close on the line they open**. `<<chart: bar` with no
-`>>`, and `<<chart: bar>>trailing`, are ordinary content, not charts. The one
-exception is the multi-line opener `<<chart`, written alone on its line and
-closed by `<<end>>`: it carries no `>>` by definition. Both halves of the rule
-exist for the same reason — the opening boundary decides whether a *mistyped*
-tag is reparsed as something else, and the terminator decides whether an
-*unfinished* one is.
+The same tags must also **close exactly once, on the line they open**. All
+three of these are ordinary content, not charts: `<<chart: bar` (no `>>`),
+`<<chart: bar>>trailing` (text after the close), and `<<chart: bar>>junk>>`
+(a second `>>`). The one exception is the multi-line opener `<<chart`, written
+alone on its line and closed by `<<end>>`: it carries no `>>` by definition.
+
+A tag that takes **no** attributes closes by being the whole line:
+`<<mermaid>>`, `<<plantuml>>` and `<<math>>` match only when nothing follows
+them, the same rule `<<quiz>>`, `<<poll>>` and `<<grid>>` already had in the
+strict dialect.
+
+This section is about the `<<…>>` family only. The `:::` blocks match their
+name on a loose prefix and have no boundary of their own — `::: gridJUNK` is
+still parsed, and consumes the lines under it exactly as a mistyped `<<…>>` tag
+used to. That is tracked separately in
+[toolchain#307](https://github.com/ziradocs/toolchain/issues/307).
+
+The three halves of the rule exist for the same reason and are worth naming
+separately, because closing one and calling the boundary done is how the other
+two survived: the opening boundary decides whether a *mistyped* tag is reparsed
+as something else, the terminator decides whether an *unfinished* one is, and
+requiring the terminator to be unique decides whether a *well-formed tag with
+text glued after it* is. A tag that gets reparsed anyway consumes the lines
+below it, which in a slide are its properties.
 
 ### Layout options
 

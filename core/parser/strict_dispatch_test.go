@@ -150,10 +150,15 @@ func TestStrictParser_DispatchMatchesElementCanParse(t *testing.T) {
 // pierde en el vacío —termina siendo el título del chart inventado. El slide
 // queda sin título y el deck muestra uno de más, en el lugar equivocado.
 //
-// Dos cosas que este fixture NO afirma porque midiéndolas no se cumplen: el
-// `logo:` de abajo sobrevive (no es llave de chart), y el BlockType no se
-// mueve, porque en strict lo fija el encabezado `SLIDE <tipo>`, que va arriba
-// del tag.
+// El `logo:` de abajo NO se afirma acá porque sobrevive: no es llave de chart.
+//
+// Sobre el BlockType: el PARSER no lo mueve —en strict lo fija el encabezado
+// `SLIDE <tipo>`, que va arriba del tag—, pero el pipeline completo sí. Un
+// slide que perdió su título y es el ÚLTIMO del deck cae en
+// `LastSlideClosingRule` (core/linter/rules.go), que lo reclasifica a
+// `closing` justamente por no tener título. Medido por CLI: el mismo deck sale
+// con `blockType: "closing"`. Este test aísla el parser, así que no lo ve; la
+// consecuencia completa está en el PR.
 func TestStrictParser_MistypedTagDoesNotSwallowSlideProperties(t *testing.T) {
 	for _, tc := range []struct {
 		name string

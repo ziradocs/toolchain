@@ -38,10 +38,10 @@ func (p *MediaParser) CanParse(line string, mode string) bool {
 // line already ends in ">>").
 func matchesMediaTag(trimmed, mediaType string) bool {
 	prefix := "<<" + mediaType
-	if !strings.HasPrefix(trimmed, prefix) || !strings.HasSuffix(trimmed, ">>") {
+	rest, ok := strings.CutPrefix(trimmed, prefix)
+	if !ok || !closesInlineTagOnce(rest) {
 		return false
 	}
-	rest := trimmed[len(prefix):]
 	return rest == ">>" || strings.HasPrefix(rest, " ")
 }
 

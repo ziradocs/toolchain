@@ -20,10 +20,10 @@ func (p *MermaidParser) CanParse(line string, mode string) bool {
 
 	switch mode {
 	case "strict":
-		return strings.HasPrefix(trimmed, "<<mermaid>>")
+		return trimmed == "<<mermaid>>"
 	case "flex":
 		// En flex mode, soportar tanto <<mermaid>> como ```mermaid
-		if strings.HasPrefix(trimmed, "<<mermaid>>") {
+		if trimmed == "<<mermaid>>" {
 			return true
 		}
 		// Detectar code blocks de Markdown con lenguaje "mermaid"
