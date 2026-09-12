@@ -158,10 +158,17 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 // así que quedárselos acá los duplicaría. Un frontmatter roto cae a ("", 0)
 // y de ahí al parser flex, que es quien reporta el error — el mismo que se
 // reportaba antes de que existiera este despacho. bodyOffset se lee ACÁ,
-// sobre el contenido ORIGINAL (antes de normalizar), y no en el parser
-// elegido, porque el normalizador nunca toca el frontmatter (SkipRules:
-// ["frontmatter"], ver factory.go) — así que el offset es el mismo en los
-// dos lados y no hace falta parsear el frontmatter una tercera vez (#245).
+// sobre el contenido ORIGINAL (antes de normalizar) — no porque haga falta
+// que el offset sobreviva idéntico a la normalización (el parser elegido
+// recibe este offset como EXPLÍCITO, vía newDocumentStrictParserAt/
+// newDocumentFlexParserAt, y un offset explícito le gana a lo que ese
+// parser derivaría de su propio recorte del frontmatter procesado — ver
+// lineOffsetExplicit y TestDocumentParsers_ExplicitOffsetWinsOverOwnStrip),
+// sino porque en la práctica de hoy el normalizador de cuerpo filtra toda
+// regla "frontmatter" (SkipRules: ["frontmatter"], ver factory.go) y el
+// largo del frontmatter no cambia — así que evita reparsearlo una tercera
+// vez sin costo de corrección si esa disciplina de las reglas cambiara
+// (#245).
 func peekDocument(content string) (mode string, bodyOffset int) {
 	fm, _, _ := (&FrontMatterParser{}).Parse(content)
 	if fm == nil {

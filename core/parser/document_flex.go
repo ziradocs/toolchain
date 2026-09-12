@@ -93,12 +93,17 @@ func newDocumentFlexParserAt(input string, lineOffset int, log util.Logger) *Doc
 
 // NewDocumentFlexParserWithNormalization crea un parser y aplica normalización AI
 func NewDocumentFlexParserWithNormalization(input string, log util.Logger) *DocumentFlexParser {
-	// El offset se lee del input ORIGINAL, antes de normalizar — spejo de
-	// Parser.ParseDocument, y necesario porque la normalización de cuerpo
-	// (normalize.ProcessWithDetection) nunca toca el frontmatter (filtra
-	// toda regla "frontmatter", ver factory.go), así que el largo del
-	// frontmatter es el mismo en los dos lados; leerlo acá evita reparsearlo
-	// dos veces (#245).
+	// El offset se lee del input ORIGINAL, antes de normalizar — espejo de
+	// Parser.ParseDocument. No hace falta que el offset sobreviva idéntico a
+	// la normalización para que esto sea CORRECTO: se pasa como offset
+	// EXPLÍCITO (newDocumentFlexParserAt, lineOffsetExplicit=true), que le
+	// gana a lo que el parser derivaría de su propio recorte del frontmatter
+	// ya normalizado — ver TestDocumentParsers_ExplicitOffsetWinsOverOwnStrip.
+	// Leerlo acá en vez de dejar que el parser lo derive es, hoy, además
+	// gratis: la normalización de cuerpo (normalize.ProcessWithDetection)
+	// filtra toda regla "frontmatter" (ver factory.go), así que el largo del
+	// frontmatter es el mismo en los dos lados y evita reparsearlo dos veces
+	// (#245).
 	_, bodyOffset := peekDocument(input)
 
 	// Detectar si el contenido parece ser generado por IA
