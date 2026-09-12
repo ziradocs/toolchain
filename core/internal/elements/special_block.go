@@ -91,28 +91,38 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 
 	block := ast.NewSpecialBlockElement(pos, blockType, content.String())
 	block.Title = title
-
-	// Add default icons
-	switch blockType {
-	case "info":
-		block.Icon = "💡"
-	case "warning":
-		block.Icon = "⚠️"
-	case "danger":
-		block.Icon = "🚨"
-	case "success":
-		block.Icon = "✅"
-	case "tip":
-		block.Icon = "💡"
-	case "note":
-		block.Icon = "📝"
-	case "example":
-		block.Icon = "💻"
-	}
+	block.Icon = KnownSpecialBlockTypes()[blockType]
 
 	return &ParseResult{
 		Element:       block,
 		ConsumedLines: consumed,
 		Error:         nil,
+	}
+}
+
+// KnownSpecialBlockTypes es la lista única de tipos de special block con
+// soporte de primera clase, mapeados a su ícono por defecto ("" si no lleva
+// uno). Antes de esto había TRES listas a mano que ya se contradecían
+// (issue del audit 2026-09-11, C12): el switch de arriba (7 tipos, sin
+// "details"/"left"/"right"/"highlight"), la whitelist del linter
+// (rules.go — 6 tipos, sin "note"/"example" que este parser SÍ reconoce), y
+// spec/language-specification.md:328-336, que documenta "left, right,
+// highlight" como válidos sin que ningún código los reconociera como tales.
+// Esta función es la fuente única que las tres deberían consultar — el
+// linter (SPECIAL001) ya lo hace; slidelang (template/base.go) queda para
+// el PR que consume el bump de core.
+func KnownSpecialBlockTypes() map[string]string {
+	return map[string]string{
+		"info":      "💡",
+		"warning":   "⚠️",
+		"danger":    "🚨",
+		"success":   "✅",
+		"tip":       "💡",
+		"note":      "📝",
+		"example":   "💻",
+		"details":   "",
+		"left":      "",
+		"right":     "",
+		"highlight": "",
 	}
 }

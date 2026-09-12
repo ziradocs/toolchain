@@ -12,6 +12,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/layouts"
 )
 
@@ -30,17 +31,34 @@ func (r *PresentationHasSlidesRule) Check(node ast.Node) []diagnostics.Diagnosti
 	return nil
 }
 
-// FrontMatterValidRule verifica que el FrontMatter sea válido
-type FrontMatterValidRule struct{}
+// FrontMatterValidRule verifica que el FrontMatter sea válido.
+//
+// FRONT003 (frontmatter faltante) NO es un error en DialectDocuments:
+// DocumentFlexParser tolera un .doclang sin frontmatter (CLAUDE.md,
+// confirmado en parser/document_flex.go) — un documento válido de punta a
+// punta reportaba un error de lint que ningún build real produce (issue del
+// audit 2026-09-11, F12). No se sintetiza un FrontMatterNode para "arreglar"
+// esto: cambiaría --format json y doclang fmt para todo .doclang sin
+// frontmatter (ver el comentario de FrontMatter en ast/ast.go).
+type FrontMatterValidRule struct {
+	dialect Dialect
+}
+
+// setDialect implementa dialectAware.
+func (r *FrontMatterValidRule) setDialect(d Dialect) {
+	r.dialect = d
+}
 
 func (r *FrontMatterValidRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 
 	if astNode, ok := node.(*ast.AST); ok {
 		if astNode.FrontMatter == nil {
-			diags = append(diags,
-				diagnostics.NewError("Missing FrontMatter",
-					astNode.GetPosition(), "linter").WithRuleID("FRONT003"))
+			if r.dialect != DialectDocuments {
+				diags = append(diags,
+					diagnostics.NewError("Missing FrontMatter",
+						astNode.GetPosition(), "linter").WithRuleID("FRONT003"))
+			}
 		} else {
 			if astNode.FrontMatter.Mode == "" {
 				diags = append(diags,
@@ -274,16 +292,15 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 					break
 				}
 
-				// Validar tipos de bloques especiales
-				validTypes := []string{"info", "warning", "danger", "success", "tip", "details"}
-				isValid := false
-				for _, validType := range validTypes {
-					if elem.BlockType == validType {
-						isValid = true
-						break
-					}
-				}
-				if !isValid {
+				// Validar tipos de bloques especiales contra la lista única
+				// (issue del audit 2026-09-11, C12): antes esta era su
+				// PROPIA lista hardcodeada de 6 tipos — sin "note"/"example"
+				// (que el parser SÍ reconoce y les da ícono) y sin
+				// "left"/"right"/"highlight" (que la spec SÍ documenta,
+				// language-specification.md:328-336) — que ya contradecía a
+				// las otras dos. elements.KnownSpecialBlockTypes() es ahora
+				// la fuente única.
+				if _, isValid := elements.KnownSpecialBlockTypes()[elem.BlockType]; !isValid {
 					diags = append(diags,
 						diagnostics.NewWarning(
 							"Unknown special block type: "+elem.BlockType,
@@ -547,11 +564,28 @@ type SlideLayoutValidationRule struct {
 	// Linter.WithPolicy), resuelve overrides de Min/MaxElements/
 	// ForbiddenElements por tipo de layout antes de validar (issue #207).
 	policy *PolicyConfig
+	// dialect, ver setDialect. Esta regla entera es un concepto de SLIDES
+	// (layouts como "title"/"content"/"hero") — para DialectDocuments no
+	// corre en absoluto.
+	dialect Dialect
 }
 
 // setLayoutPolicy implementa layoutPolicyAware (ver linter.go).
 func (r *SlideLayoutValidationRule) setLayoutPolicy(p *PolicyConfig) {
 	r.policy = p
+}
+
+// setDialect implementa dialectAware. Un documento SIEMPRE etiqueta su
+// primera sección BlockType "title" (mismo nombre que la convención de
+// slidelang, pero un significado completamente distinto: es solo "la
+// primera sección", no un slide de portada) — sin este gate, un .doclang
+// bien formado con prosa/tablas/imágenes en su primera sección disparaba
+// LAYOUT002 ("title slides shouldn't contain content elements") y
+// LAYOUT_FORBIDDEN_ELEMENT en CADA documento, porque el schema "title"
+// (pensado para una portada de presentación) prohíbe exactamente esos tipos
+// (issue del audit 2026-09-11, F11).
+func (r *SlideLayoutValidationRule) setDialect(d Dialect) {
+	r.dialect = d
 }
 
 // schemalessKnownSlideTypes son tipos de slide que los generadores SÍ
@@ -620,6 +654,15 @@ func (r *SlideLayoutValidationRule) schemaFor(slideType string) (SlideLayoutSche
 }
 
 func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnostic {
+	// Esta regla entera valida esquemas de LAYOUT DE SLIDES — no tiene
+	// sentido para un documento, cuya primera sección comparte BlockType
+	// "title" solo de nombre (ver el doc comment de setDialect). Cortar acá,
+	// antes de cualquier lógica, en vez de filtrar por tipo de layout más
+	// abajo: ningún schema de esta lista describe una sección de documento.
+	if r.dialect == DialectDocuments {
+		return nil
+	}
+
 	var diags []diagnostics.Diagnostic
 
 	// Los límites de conteo se emiten en la visita a la RAÍZ, no en la de cada
