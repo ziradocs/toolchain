@@ -286,7 +286,7 @@ func formatStrictImage(e *ast.ImageElement) (string, error) {
 
 func formatPipeTable(headers []string, rows [][]string) string {
 	var b strings.Builder
-	b.WriteString("| " + strings.Join(headers, " | ") + " |\n")
+	b.WriteString("| " + strings.Join(escapeTableCells(headers), " | ") + " |\n")
 	seps := make([]string, len(headers))
 	for i := range seps {
 		seps[i] = "---"
@@ -296,7 +296,54 @@ func formatPipeTable(headers []string, rows [][]string) string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("| " + strings.Join(row, " | ") + " |")
+		b.WriteString("| " + strings.Join(escapeTableCells(row), " | ") + " |")
+	}
+	return b.String()
+}
+
+// escapeTableCells aplica escapeTableCellPipe a cada celda de una fila.
+func escapeTableCells(cells []string) []string {
+	out := make([]string, len(cells))
+	for i, c := range cells {
+		out[i] = escapeTableCellPipe(c)
+	}
+	return out
+}
+
+// escapeTableCellPipe es el espejo, del lado de escritura, de
+// elements.splitMarkdownTableRow: un "|" LITERAL en el texto de una celda
+// (fuera de un code span) tiene que volver a escaparse a "\|" al
+// reserializar, o se convierte en un separador de columna de más al
+// reparsear — exactamente el bug que este PR (F10, audit 2026-09-11) cierra
+// del lado del parser, pero abierto de nuevo del lado de `fmt` si el
+// escritor no participa: antes de este fix, ninguna celda parseada de una
+// tabla markdown podía contener un "|" (el split ciego ya lo habría partido
+// como columna), así que este caso nunca era alcanzable — ahora que el
+// parser decodifica "\|" y protege code spans, si el formatter no lo
+// reescapa, un round-trip fmt→reparse infla la fila con una columna de más
+// en silencio.
+//
+// Un "|" DENTRO de un code span no se toca: los backticks ya lo protegen
+// estructuralmente en el reparse (splitMarkdownTableRow no lo trata como
+// separador mientras esté dentro de backticks), y escaparlo ahí metería un
+// "\" visible dentro del <code> renderizado, que un code span no interpreta
+// como escape (cambiaría el contenido, no solo la sintaxis).
+func escapeTableCellPipe(cell string) string {
+	if !strings.Contains(cell, "|") {
+		return cell
+	}
+	var b strings.Builder
+	inCode := false
+	for _, r := range cell {
+		switch {
+		case r == '`':
+			inCode = !inCode
+			b.WriteRune(r)
+		case r == '|' && !inCode:
+			b.WriteString(`\|`)
+		default:
+			b.WriteRune(r)
+		}
 	}
 	return b.String()
 }

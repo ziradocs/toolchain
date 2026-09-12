@@ -911,12 +911,13 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 	// null en vez de [] (issue #8 - viola el JSON Schema del contrato).
 	headers := []string{}
 	rows := [][]string{}
+	var rowPositions []diagnostics.Position
 
 	// Parse header row
 	headerParsed := false
 	line := strings.TrimSpace(p.lines[p.currentLine])
 	if strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|") {
-		cells := strings.Split(line, "|")
+		cells := elements.SplitMarkdownTableRow(line)
 		for i := 1; i < len(cells)-1; i++ { // Skip first and last empty cells
 			headers = append(headers, strings.TrimSpace(cells[i]))
 		}
@@ -967,7 +968,7 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 			continue
 		}
 
-		cells := strings.Split(line, "|")
+		cells := elements.SplitMarkdownTableRow(line)
 		var row []string
 		for i := 1; i < len(cells)-1; i++ { // Skip first and last empty cells
 			row = append(row, strings.TrimSpace(cells[i]))
@@ -975,6 +976,7 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 
 		if len(row) > 0 {
 			rows = append(rows, row)
+			rowPositions = append(rowPositions, p.position(p.currentLine))
 		}
 
 		p.currentLine++
@@ -982,6 +984,7 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 
 	table.Headers = headers
 	table.Rows = rows
+	table.RowPositions = rowPositions
 	// issue #20: derive Cells from the flat view in this hand-rolled
 	// markdown-table parser too (it doesn't go through
 	// elements.TableParser.Parse, which already derives Cells for every

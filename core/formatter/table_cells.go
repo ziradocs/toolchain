@@ -31,8 +31,10 @@ func formatTableElement(e *ast.TableElement) (string, error) {
 		// formatPipeTable delimits with "|", not quotes — it doesn't go
 		// through quote()/checkQuotable, so it doesn't inherit that
 		// limitation (a literal quote in a header/cell is representable in
-		// the pipe form unchanged; a literal "|" would be a different,
-		// pre-existing problem, out of scope here).
+		// the pipe form unchanged). A literal "|" in a cell IS re-escaped to
+		// "\|" by formatPipeTable (see escapeTableCellPipe) — needed since
+		// F10 (audit 2026-09-11) made a bare "|" inside a cell reachable at
+		// all (code spans, and "\|" decoded on parse).
 		return formatPipeTable(e.Headers, e.Rows), nil
 	}
 	return formatTableCellsBlock(e)

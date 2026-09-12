@@ -258,7 +258,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
 		} else if strings.Contains(trimmedLine, "|") {
 			// Fallback: Parse table row (separated by |) for compatibility
-			cells := splitMarkdownTableRow(trimmedLine)
+			cells := SplitMarkdownTableRow(trimmedLine)
 			for j := range cells {
 				cells[j] = strings.TrimSpace(cells[j])
 			}
@@ -463,14 +463,17 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 	return cells, diags, true
 }
 
-// splitMarkdownTableRow parte una fila de tabla markdown por "|", respetando
-// code spans (`...`) y pipes escapados (\|) — ninguno de los dos es un
-// separador de celda de verdad. strings.Split(line, "|") partía ciegamente
-// por CADA "|", así que una celda con código (“ `User | null` “) o un pipe
-// escapado a propósito se fragmentaba en celdas de más, disparando TABLE003
-// ("número incorrecto de columnas") sobre una fila perfectamente válida
-// (F10, audit 2026-09-11).
-func splitMarkdownTableRow(line string) []string {
+// SplitMarkdownTableRow parte una fila de tabla markdown por "|", respetando
+// code spans (con backticks) y pipes escapados (\|) — ninguno de los dos es
+// un separador de celda de verdad. strings.Split(line, "|") partía
+// ciegamente por CADA "|", así que una celda con código (p. ej.
+// "`User | null`") o un pipe escapado a propósito se fragmentaba en celdas
+// de más, disparando TABLE003 ("número incorrecto de columnas") sobre una
+// fila perfectamente válida (F10, audit 2026-09-11). Exportada porque
+// parser/strict.go (la tabla markdown de SlideLang strict, un parser
+// separado del de este paquete) tiene el mismo bug con el mismo split
+// ciego y necesita el mismo fix.
+func SplitMarkdownTableRow(line string) []string {
 	var cells []string
 	var current strings.Builder
 	inCode := false
@@ -527,7 +530,7 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 		}
 
 		// Parse table row
-		cells := splitMarkdownTableRow(line)
+		cells := SplitMarkdownTableRow(line)
 
 		// Clean up cells - remove empty first/last if they exist due to leading/trailing |
 		if len(cells) > 0 && strings.TrimSpace(cells[0]) == "" {
