@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // SpecialBlockParser maneja bloques especiales como :::info, :::warning, etc.
@@ -29,7 +28,7 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 	consumed := 1
 

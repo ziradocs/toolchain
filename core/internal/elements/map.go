@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MapParser maneja el parsing de mapas Leaflet
@@ -45,7 +44,7 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		return &ParseResult{Error: nil}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
 	// Extraer atributos si están presentes: <<map type="city" width="1200" height="800" zoom="10">>

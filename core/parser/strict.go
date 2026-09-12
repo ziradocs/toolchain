@@ -29,6 +29,33 @@ type strictBody struct {
 	currentLine int
 	diagnostics []diagnostics.Diagnostic
 	logger      util.Logger
+
+	// lineOffset son las líneas del archivo que preceden a lines[0]: el
+	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
+	// entero (#245).
+	lineOffset int
+}
+
+// position traduce un índice 0-based dentro de p.lines a una posición
+// 1-based relativa al ARCHIVO completo. Único constructor de posiciones
+// permitido en este archivo fuera de addErrorAt/addWarning/
+// addWarningWithRuleID (que ya lo delegan) — ver
+// position_offset_guard_test.go.
+func (p *strictBody) position(lineIndex int) diagnostics.Position {
+	return diagnostics.NewPosition(p.lineOffset+lineIndex+1, 1)
+}
+
+// parseContext construye el elements.ParseContext para esta posición del
+// cuerpo, hilando lineOffset — único punto de construcción, en vez de 18
+// literales `elements.ParseContext{...}` idénticos salvo por esto (#245).
+func (p *strictBody) parseContext() *elements.ParseContext {
+	return &elements.ParseContext{
+		Mode:        "strict",
+		Lines:       p.lines,
+		CurrentLine: p.currentLine,
+		Logger:      p.logger,
+		LineOffset:  p.lineOffset,
+	}
 }
 
 // StrictParser es un parser simple para modo Strict (versión inicial)
@@ -48,12 +75,23 @@ type StrictParser struct {
 // sobre PR #177: es API exportada, así que un caller externo pasando nil no
 // debe panicar en el primer log del parse).
 func NewStrictParser(input string, log util.Logger) *StrictParser {
+	return newStrictBodyParser(input, 0, log)
+}
+
+// newStrictBodyParser construye un StrictParser cuyo lines[0] es la línea
+// lineOffset+1 del archivo — el hermano no exportado que Parser.Parse usa
+// para pasarle el cuerpo (frontmatter ya separado) sin que las posiciones
+// resultantes vuelvan a contar desde 1 (#245). NewStrictParser es el caso
+// lineOffset=0: sigue siendo API pública de core (ver core/doc.go), así que
+// conserva su firma y comportamiento.
+func newStrictBodyParser(input string, lineOffset int, log util.Logger) *StrictParser {
 	if log == nil {
 		log = util.NewNoop()
 	}
 	return &StrictParser{strictBody{
-		lines:  strings.Split(input, "\n"),
-		logger: log,
+		lines:      strings.Split(input, "\n"),
+		logger:     log,
+		lineOffset: lineOffset,
 	}}
 }
 
@@ -212,7 +250,7 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 		return nil
 	}
 
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 	blockType := ""
 	if len(parts) > 1 {
 		blockType = parts[1]
@@ -563,12 +601,7 @@ func (p *strictBody) parseTextElement() ast.Element {
 	// Use modular TextParser
 	textParser := &elements.TextParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := textParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "TEXT")
@@ -582,12 +615,7 @@ func (p *strictBody) parsePointsElement() ast.Element {
 	// Use modular PointsParser completely
 	pointsParser := &elements.PointsParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := pointsParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "POINTS")
@@ -601,12 +629,7 @@ func (p *strictBody) parseCodeElement() ast.Element {
 	// Use modular CodeParser
 	codeParser := &elements.CodeParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := codeParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "CODE")
@@ -620,12 +643,7 @@ func (p *strictBody) parseImageElement() ast.Element {
 	// Use modular ImageParser
 	imageParser := &elements.ImageParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := imageParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "IMAGE")
@@ -640,13 +658,13 @@ func (p *strictBody) addError(msg string) {
 // línea culpable — el parser de documentos, por ejemplo, valida las
 // propiedades de una sección recién después de consumir todo su cuerpo.
 func (p *strictBody) addErrorAt(lineIndex int, msg string) {
-	pos := diagnostics.NewPosition(lineIndex+1, 1)
+	pos := p.position(lineIndex)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewError(msg, pos, "parser"))
 }
 
 func (p *strictBody) addWarning(msg string) {
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "parser"))
 }
@@ -655,7 +673,7 @@ func (p *strictBody) addWarning(msg string) {
 // diagnóstico sea greppable/suprimible por política de lint (mismo idioma
 // que FRONT005/TABLE004, ver frontmatter.go/table.go).
 func (p *strictBody) addWarningWithRuleID(msg, ruleID string) {
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "parser").WithRuleID(ruleID))
 }
@@ -668,12 +686,7 @@ func (p *strictBody) parseTableElement() ast.Element {
 	// Use modular TableParser
 	tableParser := &elements.TableParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := tableParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "TABLE")
@@ -687,12 +700,7 @@ func (p *strictBody) parseQuoteElement() ast.Element {
 	// Use modular QuoteParser
 	quoteParser := &elements.QuoteParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := quoteParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "QUOTE")
@@ -706,12 +714,7 @@ func (p *strictBody) parseChecklistElement() ast.Element {
 	// Use modular ChecklistParser
 	checklistParser := &elements.ChecklistParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := checklistParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "CHECKLIST")
@@ -725,12 +728,7 @@ func (p *strictBody) parseSpecialBlockElement() ast.Element {
 	// Use modular SpecialBlockParser
 	specialBlockParser := &elements.SpecialBlockParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := specialBlockParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, ":::")
@@ -744,12 +742,7 @@ func (p *strictBody) parseCodeGroupElement() ast.Element {
 	// Use modular CodeGroupParser
 	codeGroupParser := &elements.CodeGroupParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := codeGroupParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, ":::code-group")
@@ -763,12 +756,7 @@ func (p *strictBody) parseMermaidElement() ast.Element {
 	// Use modular MermaidParser
 	mermaidParser := &elements.MermaidParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := mermaidParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "<<mermaid>>")
@@ -782,12 +770,7 @@ func (p *strictBody) parseMathElement() ast.Element {
 	// Use modular MathParser (issue #239-B)
 	mathParser := &elements.MathParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := mathParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "<<math>>")
@@ -801,12 +784,7 @@ func (p *strictBody) parsePlantUMLElement() ast.Element {
 	// Use modular PlantUMLParser
 	plantUMLParser := &elements.PlantUMLParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := plantUMLParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "<<plantuml>>")
@@ -820,12 +798,7 @@ func (p *strictBody) parseChartElement() ast.Element {
 	// Use modular ChartParser
 	chartParser := &elements.ChartParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := chartParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "<<chart>>")
@@ -839,12 +812,7 @@ func (p *strictBody) parseMediaElement() ast.Element {
 	// Use modular MediaParser (issue #21)
 	mediaParser := &elements.MediaParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := mediaParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "media")
@@ -858,12 +826,7 @@ func (p *strictBody) parseGridElement() ast.Element {
 	// Use modular GridParser (strict form: <<grid>> … <<end>>)
 	gridParser := &elements.GridParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := gridParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "<<grid>>")
@@ -877,12 +840,7 @@ func (p *strictBody) parseMapElement() ast.Element {
 	// Use modular MapParser
 	mapParser := &elements.MapParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	result := mapParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "<<map>>")
@@ -911,12 +869,7 @@ func (p *strictBody) parseEmbeddedElement(parser elements.ElementParser, tag str
 		return nil
 	}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 
 	return p.applyElementResult(parser.Parse(ctx, p.currentLine), tag)
 }
@@ -944,7 +897,7 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 		}
 	}()
 
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 	table := ast.NewTableElement(pos)
 
 	// Inicializados como slices vacíos (no nil): Headers/Rows no llevan
@@ -1039,12 +992,7 @@ func (p *strictBody) parseDirectiveElement() ast.Element {
 	// Use modular DirectiveParser
 	directiveParser := &elements.DirectiveParser{}
 
-	ctx := &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-	}
+	ctx := p.parseContext()
 	result := directiveParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "@directive")
 }

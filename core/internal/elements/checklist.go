@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // ChecklistParser maneja elementos de listas de tareas/checklists
@@ -37,7 +36,7 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	element := ast.NewChecklistElement(pos)
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
@@ -48,15 +47,17 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		startIndex++
 
 		// Process indented checklist items
-		consumed += p.parseStrictChecklist(ctx.Lines, startIndex, element)
+		consumed += p.parseStrictChecklist(ctx, startIndex, element)
 	} else {
 		// Markdown-style parsing
-		consumed = p.parseMarkdownChecklist(ctx.Lines, startIndex, element)
+		consumed = p.parseMarkdownChecklist(ctx, startIndex, element)
 	}
 
 	// Set end position
 	if consumed > 0 {
-		element.EndPosition = diagnostics.NewPosition(startIndex+consumed, 1)
+		// índice de la última línea consumida (startIndex+consumed-1); misma
+		// aritmética que antes del offset (#245).
+		element.EndPosition = ctx.Position(startIndex + consumed - 1)
 	}
 
 	return &ParseResult{
@@ -67,7 +68,8 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 }
 
 // parseStrictChecklist parsea una lista de tareas en modo estricto
-func (p *ChecklistParser) parseStrictChecklist(lines []string, startIndex int, element *ast.ChecklistElement) int {
+func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int, element *ast.ChecklistElement) int {
+	lines := ctx.Lines
 	consumed := 0
 	expectedIndent := -1
 	var currentItem *ast.ChecklistItem
@@ -104,7 +106,7 @@ func (p *ChecklistParser) parseStrictChecklist(lines []string, startIndex int, e
 		if p.isStrictChecklistItem(trimmed) {
 			content, checked := p.parseStrictChecklistContent(trimmed)
 			if content != "" {
-				itemPos := diagnostics.NewPosition(i+1, 1)
+				itemPos := ctx.Position(i)
 				item := ast.NewChecklistItem(itemPos, content, checked)
 
 				if currentIndent == expectedIndent {
@@ -129,7 +131,8 @@ func (p *ChecklistParser) parseStrictChecklist(lines []string, startIndex int, e
 }
 
 // parseMarkdownChecklist parsea una lista de tareas en formato Markdown
-func (p *ChecklistParser) parseMarkdownChecklist(lines []string, startIndex int, element *ast.ChecklistElement) int {
+func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex int, element *ast.ChecklistElement) int {
+	lines := ctx.Lines
 	consumed := 0
 	baseIndent := -1
 	var currentItem *ast.ChecklistItem
@@ -162,7 +165,7 @@ func (p *ChecklistParser) parseMarkdownChecklist(lines []string, startIndex int,
 		// Extract content and checked status
 		content, checked := p.parseChecklistContent(trimmed)
 		if content != "" {
-			itemPos := diagnostics.NewPosition(i+1, 1)
+			itemPos := ctx.Position(i)
 			item := ast.NewChecklistItem(itemPos, content, checked)
 
 			// Si es un elemento principal (nivel base)

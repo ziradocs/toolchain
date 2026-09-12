@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // GridParser maneja bloques de grid layout con columnas anidadas
@@ -42,7 +41,7 @@ func (p *GridParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		return p.parseStrictGrid(ctx, startIndex)
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 	consumed := 1
 
@@ -140,7 +139,7 @@ func (p *GridParser) parseColumn(ctx *ParseContext, startIndex int) *ParseResult
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	consumed := 1
 
 	// Collect column content until ::: or another column
@@ -205,7 +204,7 @@ func (p *GridParser) parseColumn(ctx *ParseContext, startIndex int) *ParseResult
 // del bug pre-existente de :::code-group, que guarda la sangría base verbatim y
 // gana 2 espacios por pasada).
 func (p *GridParser) parseStrictGrid(ctx *ParseContext, startIndex int) *ParseResult {
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	baseIndent := leadingSpaceCount(ctx.Lines[startIndex])
 
 	gridElement := ast.NewGridElement(pos)
@@ -255,7 +254,7 @@ func (p *GridParser) parseStrictGrid(ctx *ParseContext, startIndex int) *ParseRe
 		case trimmedLine == "<<column>>":
 			flushColumn()
 			inColumn = true
-			colPos = diagnostics.NewPosition(i+1, 1)
+			colPos = ctx.Position(i)
 			consumed++
 		default:
 			content := dedentByLeadingSpaces(line, baseIndent)

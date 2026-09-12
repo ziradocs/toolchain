@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // PointsParser maneja elementos de listas/puntos
@@ -66,7 +65,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			Error:         nil,
 		}
 	}
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	element := ast.NewPointsElement(pos)
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
@@ -132,7 +131,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				content := p.extractListContent(trimmed)
 
 				if content != "" {
-					itemPos := diagnostics.NewPosition(i+1, 1)
+					itemPos := ctx.Position(i)
 					item := ast.NewPointItem(itemPos, content)
 
 					// Si es un elemento principal (nivel base)
@@ -150,7 +149,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	} else {
 		// Parse Markdown-style list (flex mode or compatibility)
-		consumed = p.parseMarkdownList(ctx.Lines, startIndex, element)
+		consumed = p.parseMarkdownList(ctx, startIndex, element)
 	}
 
 	return &ParseResult{
@@ -161,7 +160,8 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 }
 
 // parseMarkdownList parsea una lista en formato Markdown
-func (p *PointsParser) parseMarkdownList(lines []string, startIndex int, element *ast.PointsElement) int {
+func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, element *ast.PointsElement) int {
+	lines := ctx.Lines
 	consumed := 0
 	baseIndent := -1
 	firstItemProcessed := false
@@ -225,7 +225,7 @@ func (p *PointsParser) parseMarkdownList(lines []string, startIndex int, element
 		// Extract content
 		content := p.extractListContent(trimmed)
 		if content != "" {
-			itemPos := diagnostics.NewPosition(i+1, 1)
+			itemPos := ctx.Position(i)
 			item := ast.NewPointItem(itemPos, content)
 
 			// Si es un elemento principal (nivel base)

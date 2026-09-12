@@ -40,7 +40,7 @@ func (p *QuoteParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 
 	// Procesar modo strict
 	if ctx.Mode == "strict" {

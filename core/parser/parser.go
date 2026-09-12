@@ -94,8 +94,9 @@ func (p *Parser) EnableAIProcessing() {
 func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
 
-	// FASE 1: leer el modo (solo para despachar; ver el doc comment).
-	mode := peekDocumentMode(content)
+	// FASE 1: leer el modo y el offset del frontmatter (solo para despachar
+	// y para que el body-parser cuente desde el archivo; ver el doc comment).
+	mode, bodyOffset := peekDocument(content)
 
 	// FASE 2: normalización, nunca en strict.
 	processedContent := content
@@ -137,9 +138,9 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	var bodyDiagnostics []diagnostics.Diagnostic
 
 	if mode == "strict" {
-		astNode, bodyDiagnostics = NewDocumentStrictParser(processedContent, p.logger).Parse()
+		astNode, bodyDiagnostics = newDocumentStrictParserAt(processedContent, bodyOffset, p.logger).Parse()
 	} else {
-		astNode, bodyDiagnostics = NewDocumentFlexParser(processedContent, p.logger).Parse()
+		astNode, bodyDiagnostics = newDocumentFlexParserAt(processedContent, bodyOffset, p.logger).Parse()
 	}
 
 	if astNode != nil && filePath != "" {
@@ -150,18 +151,42 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	return astNode, allDiagnostics
 }
 
-// peekDocumentMode devuelve el `mode:` declarado en content, o "" si no hay
+// peekDocument devuelve el `mode:` declarado en content y cuántas líneas del
+// archivo ocupa su frontmatter (bodyLineOffset), o ("", 0) si no hay
 // frontmatter o no se puede leer. DESCARTA los diagnósticos a propósito: el
 // parser que se elija va a re-parsear el mismo frontmatter y emitirlos él,
-// así que quedárselos acá los duplicaría. Un frontmatter roto cae a "" y de
-// ahí al parser flex, que es quien reporta el error — el mismo que se
-// reportaba antes de que existiera este despacho.
-func peekDocumentMode(content string) string {
+// así que quedárselos acá los duplicaría. Un frontmatter roto cae a ("", 0)
+// y de ahí al parser flex, que es quien reporta el error — el mismo que se
+// reportaba antes de que existiera este despacho. bodyOffset se lee ACÁ,
+// sobre el contenido ORIGINAL (antes de normalizar), y no en el parser
+// elegido, porque el normalizador nunca toca el frontmatter (SkipRules:
+// ["frontmatter"], ver factory.go) — así que el offset es el mismo en los
+// dos lados y no hace falta parsear el frontmatter una tercera vez (#245).
+func peekDocument(content string) (mode string, bodyOffset int) {
 	fm, _, _ := (&FrontMatterParser{}).Parse(content)
 	if fm == nil {
-		return ""
+		return "", 0
 	}
-	return fm.Mode
+	return fm.Mode, bodyLineOffset(fm)
+}
+
+// bodyLineOffset son las líneas del archivo que ocupa el frontmatter que
+// FrontMatterParser.Parse separó — lo que hay que sumarle a un índice de
+// línea del CUERPO para obtener su línea en el ARCHIVO (#245).
+//
+// Depende de que FrontMatterNode.EndPosition apunte al `---` de cierre
+// (frontmatter.go: NewPosition(endIndex+1, 4), endIndex el índice 0-based de
+// esa línea): EndPosition.Line es entonces, por construcción, exactamente el
+// número de líneas del frontmatter. Es una coincidencia de esa
+// implementación puntual, no una garantía documentada de EndPosition en
+// general — TestBodyLineOffset fija el invariante para que un cambio ahí
+// falle ruidoso en vez de correr todas las posiciones del cuerpo en
+// silencio.
+func bodyLineOffset(fm *ast.FrontMatterNode) int {
+	if fm == nil {
+		return 0
+	}
+	return fm.EndPosition.Line
 }
 
 func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
@@ -174,6 +199,13 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	if frontMatter == nil {
 		return nil, allDiagnostics
 	}
+
+	// bodyOffset se deriva del frontMatter recién parseado del contenido
+	// ORIGINAL — antes de cualquier normalización — así que es válido para
+	// bodyContent tal como está ahora y para el bodyContent re-derivado más
+	// abajo tras normalizar (#245; ver H1 en el plan: el normalizador nunca
+	// toca el frontmatter, así que su largo no cambia entre los dos).
+	bodyOffset := bodyLineOffset(frontMatter)
 
 	// FASE 2: Pre-procesamiento AI solo si no es modo strict
 	processedContent := content
@@ -256,7 +288,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 
 	switch frontMatter.Mode {
 	case "strict":
-		strictParser := NewStrictParser(bodyContent, p.logger)
+		strictParser := newStrictBodyParser(bodyContent, bodyOffset, p.logger)
 		astNode, bodyDiagnostics = strictParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -269,7 +301,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			// AI deshabilitado, aplicar normalización básica manual
 			processedBodyContent = p.applyBasicNormalization(bodyContent)
 		}
-		flexParser := newFlexBodyParser(processedBodyContent, p.logger)
+		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -285,14 +317,14 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			// AI deshabilitado, aplicar normalización completa manual
 			processedBodyContent = p.applyFullNormalization(bodyContent)
 		}
-		flexParser := newFlexBodyParser(processedBodyContent, p.logger)
+		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
 	case "auto":
 		// Modo automático: detecta si es AI y aplica el procesamiento apropiado
 		// Si ya hubo pre-procesamiento, usamos ese resultado
-		autoParser := p.createAutoParser(bodyContent, preProcessReport)
+		autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
 		astNode, bodyDiagnostics = autoParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -306,7 +338,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 				Source:   "parser",
 			}
 			allDiagnostics = append(allDiagnostics, aiDiag)
-			autoParser := p.createAutoParser(bodyContent, preProcessReport)
+			autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
 			astNode, bodyDiagnostics = autoParser.Parse()
 			astNode.FrontMatter = frontMatter
 			astNode.FilePath = filePath
@@ -323,7 +355,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 }
 
 // createAutoParser crea un parser automático que detecta si es contenido generado por IA
-func (p *Parser) createAutoParser(bodyContent string, preProcessReport *normalize.ProcessingReport) *FlexParser {
+func (p *Parser) createAutoParser(bodyContent string, bodyOffset int, preProcessReport *normalize.ProcessingReport) *FlexParser {
 	// Si ya hubo pre-procesamiento AI, usamos ese resultado
 	if preProcessReport != nil && preProcessReport.WasModified {
 		p.logger.Debug("PARSE", "Auto-detección: usando contenido ya pre-procesado - %s", preProcessReport.Summary())
@@ -348,7 +380,7 @@ func (p *Parser) createAutoParser(bodyContent string, preProcessReport *normaliz
 	}
 
 	// Crear parser flex con el contenido (procesado o no)
-	flexParser := newFlexBodyParser(bodyContent, p.logger)
+	flexParser := newFlexBodyParser(bodyContent, bodyOffset, p.logger)
 
 	return flexParser
 }

@@ -30,6 +30,34 @@ type DocumentFlexParser struct {
 	hasTitleBlock bool
 	normalized    bool // Indica si el contenido fue normalizado
 	inCodeBlock   bool // Track si estamos dentro de un code block
+
+	// lineOffset son las líneas del archivo que preceden a lines[0]. Ver
+	// strictBody.lineOffset (strict.go) para la explicación completa (#245).
+	lineOffset int
+	// lineOffsetExplicit marca que lineOffset vino de un caller explícito
+	// (newDocumentFlexParserAt) y no debe pisarse con lo que
+	// parseFrontMatter derive de su propio recorte — el explícito, que se
+	// computa sobre el contenido ORIGINAL, siempre gana (issue #245, ver
+	// TestDocumentParsers_ExplicitOffsetWinsOverOwnStrip).
+	lineOffsetExplicit bool
+}
+
+// position traduce un índice 0-based dentro de p.lines a una posición
+// 1-based relativa al ARCHIVO completo (#245; ver position_offset_guard_test.go).
+func (p *DocumentFlexParser) position(lineIndex int) diagnostics.Position {
+	return diagnostics.NewPosition(p.lineOffset+lineIndex+1, 1)
+}
+
+// parseContext construye el elements.ParseContext para esta posición del
+// cuerpo, hilando lineOffset.
+func (p *DocumentFlexParser) parseContext() *elements.ParseContext {
+	return &elements.ParseContext{
+		Mode:        "flex",
+		CurrentLine: p.currentLine,
+		Logger:      p.logger,
+		Lines:       p.lines,
+		LineOffset:  p.lineOffset,
+	}
 }
 
 // NewDocumentFlexParser crea un nuevo parser para documentos
@@ -48,8 +76,31 @@ func NewDocumentFlexParser(input string, log util.Logger) *DocumentFlexParser {
 	}
 }
 
+// newDocumentFlexParserAt construye un DocumentFlexParser cuyo lines[0] es
+// la línea lineOffset+1 del archivo — el hermano no exportado que
+// Parser.ParseDocument usa para pasarle el cuerpo (frontmatter ya separado
+// del contenido ORIGINAL) sin que las posiciones resultantes vuelvan a
+// contar desde 1 (#245). NewDocumentFlexParser es el caso lineOffset=0 y
+// sigue siendo API pública de core (ver core/doc.go): conserva su firma y
+// comportamiento, incluido derivar su propio offset de lo que su
+// parseFrontMatter recorte si se lo llama con un documento completo.
+func newDocumentFlexParserAt(input string, lineOffset int, log util.Logger) *DocumentFlexParser {
+	p := NewDocumentFlexParser(input, log)
+	p.lineOffset = lineOffset
+	p.lineOffsetExplicit = true
+	return p
+}
+
 // NewDocumentFlexParserWithNormalization crea un parser y aplica normalización AI
 func NewDocumentFlexParserWithNormalization(input string, log util.Logger) *DocumentFlexParser {
+	// El offset se lee del input ORIGINAL, antes de normalizar — spejo de
+	// Parser.ParseDocument, y necesario porque la normalización de cuerpo
+	// (normalize.ProcessWithDetection) nunca toca el frontmatter (filtra
+	// toda regla "frontmatter", ver factory.go), así que el largo del
+	// frontmatter es el mismo en los dos lados; leerlo acá evita reparsearlo
+	// dos veces (#245).
+	_, bodyOffset := peekDocument(input)
+
 	// Detectar si el contenido parece ser generado por IA
 	detector := normalizer.NewDetector()
 	detectionResult := detector.Detect(input)
@@ -86,7 +137,7 @@ func NewDocumentFlexParserWithNormalization(input string, log util.Logger) *Docu
 	}
 
 	// Crear el parser con el contenido normalizado
-	parser := NewDocumentFlexParser(input, log)
+	parser := newDocumentFlexParserAt(input, bodyOffset, log)
 	parser.normalized = wasModified
 
 	return parser
@@ -119,19 +170,28 @@ func (p *DocumentFlexParser) parseFrontMatter(astNode *ast.AST) {
 		return
 	}
 
-	lines, fmDiagnostics := parseDocumentFrontMatter(p.input, astNode)
+	lines, fmDiagnostics, stripped := parseDocumentFrontMatter(p.input, astNode)
 	p.diagnostics = append(p.diagnostics, fmDiagnostics...)
 	p.lines = lines
 	p.currentLine = 0
+	// El offset explícito (construido sobre el contenido ORIGINAL por quien
+	// llamó al constructor ...At) le gana a lo que este recorte propio
+	// derive — ver el doc de lineOffsetExplicit (#245).
+	if !p.lineOffsetExplicit {
+		p.lineOffset = stripped
+	}
 }
 
 // parseDocumentFrontMatter parsea el frontmatter de input, lo cuelga de
-// astNode y devuelve las líneas del CUERPO (ya sin frontmatter) junto con
-// sus diagnósticos. Compartida por los dos dialectos documentales para que
-// ambos traten el frontmatter idéntico: mismas validaciones (FRONT001/002)
-// y, sobre todo, mismo re-encuadre de las líneas, que es lo que hace que
-// las posiciones de los diagnósticos del cuerpo sean relativas al cuerpo.
-func parseDocumentFrontMatter(input string, astNode *ast.AST) ([]string, []diagnostics.Diagnostic) {
+// astNode y devuelve las líneas del CUERPO (ya sin frontmatter), sus
+// diagnósticos, y cuántas líneas del archivo ocupaba el frontmatter
+// recortado (bodyLineOffset(frontMatter), 0 si no había frontmatter válido).
+// Compartida por los dos dialectos documentales para que ambos traten el
+// frontmatter idéntico: mismas validaciones (FRONT001/002) y, sobre todo,
+// mismo re-encuadre de las líneas — el tercer valor es lo que cada parser
+// suma al construir cada Position, para que las posiciones del CUERPO
+// cuenten desde el ARCHIVO y no desde este recorte (#245).
+func parseDocumentFrontMatter(input string, astNode *ast.AST) ([]string, []diagnostics.Diagnostic, int) {
 	// Use the proper FrontMatterParser to parse all YAML fields including Theme
 	fmParser := &FrontMatterParser{}
 	frontMatter, remainingContent, fmDiagnostics := fmParser.Parse(input)
@@ -139,7 +199,7 @@ func parseDocumentFrontMatter(input string, astNode *ast.AST) ([]string, []diagn
 	// Set the parsed frontmatter in the AST
 	astNode.FrontMatter = frontMatter
 
-	return strings.Split(remainingContent, "\n"), fmDiagnostics
+	return strings.Split(remainingContent, "\n"), fmDiagnostics, bodyLineOffset(frontMatter)
 }
 
 // parseSection parsea una sección del documento (equivalente a un "slide" en el AST)
@@ -155,7 +215,7 @@ func (p *DocumentFlexParser) parseSection() *ast.ContentBlock {
 	}
 
 	line := strings.TrimSpace(p.lines[p.currentLine])
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 
 	// SOLO `#` crea una nueva sección (content block en el AST)
 	if !strings.HasPrefix(line, "# ") {
@@ -201,12 +261,7 @@ func (p *DocumentFlexParser) parseSection() *ast.ContentBlock {
 // parseSectionContent parsea el contenido de una sección
 // Aquí `##` y `###` se convierten en TextElements con HTML
 func (p *DocumentFlexParser) parseSectionContent(block *ast.ContentBlock) {
-	ctx := &elements.ParseContext{
-		Mode:        "flex",
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-		Lines:       p.lines,
-	}
+	ctx := p.parseContext()
 
 	for p.currentLine < len(p.lines) {
 		if p.currentLine >= len(p.lines) {
@@ -348,12 +403,12 @@ func (p *DocumentFlexParser) parseSubsectionHeader(line string) ast.Element {
 
 	// En flex el anchor siempre se deriva del texto: no hay sintaxis para
 	// declarar un id (a diferencia de `SECTION … / id:` en strict).
-	return buildHeadingElement(text, level, p.currentLine, "")
+	return buildHeadingElement(text, level, p.position(p.currentLine), "")
 }
 
 // addError añade un error diagnóstico
 func (p *DocumentFlexParser) addError(msg string) {
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 	diag := diagnostics.NewError(msg, pos, "document-flex-parser")
 	p.diagnostics = append(p.diagnostics, diag)
 }
@@ -362,7 +417,7 @@ func (p *DocumentFlexParser) addError(msg string) {
 // con un RuleID adjunto — mismo patrón que strictBody.addWarningWithRuleID
 // (strict.go:602-606).
 func (p *DocumentFlexParser) addWarningWithRuleID(msg, ruleID string) {
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "document-flex-parser").WithRuleID(ruleID))
 }

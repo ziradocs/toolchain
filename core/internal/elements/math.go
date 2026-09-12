@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MathParser maneja el parsing de ecuaciones/fórmulas LaTeX en bloque (issue
@@ -43,7 +42,7 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		return &ParseResult{Error: nil}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	openingLine := strings.TrimSpace(ctx.Lines[startIndex])
 
 	isDollarFormat := strings.HasPrefix(openingLine, "$$") && !strings.HasPrefix(openingLine, "<<math>>")

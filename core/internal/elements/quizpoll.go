@@ -56,7 +56,7 @@ func (p *QuizParser) CanParse(line string, mode string) bool {
 func (p *QuizParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	body, consumed, diags := parseQuizPollBlock(ctx, startIndex, "quiz")
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	quiz := ast.NewQuizElement(pos)
 	quiz.Question = body.Question
 	quiz.Options = body.Options
@@ -83,7 +83,7 @@ func (p *PollParser) CanParse(line string, mode string) bool {
 func (p *PollParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	body, consumed, diags := parseQuizPollBlock(ctx, startIndex, "poll")
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	poll := ast.NewPollElement(pos)
 	poll.Question = body.Question
 	poll.Options = body.Options
@@ -105,7 +105,7 @@ func (p *PollParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 func parseQuizPollBlock(ctx *ParseContext, startIndex int, tag string) (quizPollBody, int, []diagnostics.Diagnostic) {
 	var body quizPollBody
 	var diags []diagnostics.Diagnostic
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	source := tag + "-parser"
 
 	rawLines, consumed, closedBy := readQuizPollBody(ctx.Lines, startIndex, tag)

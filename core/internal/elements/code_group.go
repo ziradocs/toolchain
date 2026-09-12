@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // CodeGroupParser maneja grupos de código (::::code-group o :::code-group)
@@ -47,7 +46,7 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	codeGroup := ast.NewCodeGroupElement(pos)
 	consumed := 1 // Skip :::code-group line
 

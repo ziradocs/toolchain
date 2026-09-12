@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // ImageParser maneja elementos de imagen
@@ -40,7 +39,7 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 	consumed := 1
 

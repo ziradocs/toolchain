@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MediaParser handles parsing of embedded audio/video elements (issue #21),
@@ -51,7 +50,7 @@ func (p *MediaParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		return &ParseResult{Error: nil}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
 	mediaType := "video"
