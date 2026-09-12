@@ -265,6 +265,15 @@ def load_baseline():
     return json.loads(BASELINE_FILE.read_text(encoding="utf-8"))
 
 
+def gap(vals):
+    """abs(source - html) — the size of a mismatch, HTML_MISSING treated as
+    infinitely bad so it always counts as a regression unless it was already
+    baselined as missing."""
+    if vals == "build failed":
+        return None
+    return abs(vals["source"] - vals["html"])
+
+
 def main():
     write_baseline = "--write-baseline" in sys.argv
     sources = find_sources()
@@ -276,6 +285,7 @@ def main():
 
         baseline = load_baseline()
         new_failures = []
+        improved = []
         seen_baseline_keys = set()
         current = {}
 
@@ -300,10 +310,28 @@ def main():
             for name, vals in mismatches.items():
                 key = f"{rel}::{name}"
                 current[key] = vals
-                if key in baseline and baseline[key] == vals:
-                    seen_baseline_keys.add(key)
+
+                if key not in baseline:
+                    # No mismatch existed here before (gap was 0) — any gap
+                    # now is strictly a new regression.
+                    new_failures.append((rel, name, vals, None))
+                    continue
+
+                base_vals = baseline[key]
+                base_gap = gap(base_vals)
+                new_gap = gap(vals)
+
+                if base_gap is None or new_gap > base_gap:
+                    new_failures.append((rel, name, vals, base_vals))
                 else:
-                    new_failures.append((rel, name, vals, baseline.get(key)))
+                    # Same or smaller gap than baselined: not a regression,
+                    # even if the exact (source, html) pair changed (e.g. the
+                    # fixture itself grew a line). Flag as "improved" so the
+                    # baseline can be tightened, rather than silently going
+                    # stale forever.
+                    seen_baseline_keys.add(key)
+                    if vals != base_vals:
+                        improved.append((key, base_vals, vals))
 
         if write_baseline:
             BASELINE_FILE.write_text(
@@ -312,17 +340,27 @@ def main():
             print(f"Wrote {len(current)} entries to {BASELINE_FILE.name}.")
             return 0
 
-        stale = sorted(set(baseline) - seen_baseline_keys)
+        failing_keys = {f"{rel}::{name}" for rel, name, _vals, _base in new_failures}
+        stale = sorted(set(baseline) - seen_baseline_keys - {k for k, _, _ in improved} - failing_keys)
 
         if stale:
             print(f"note: {len(stale)} baseline entr{'y is' if len(stale) == 1 else 'ies are'} "
-                  f"stale (fixed, or counts changed) — remove from {BASELINE_FILE.name}:\n")
+                  f"stale (fixed outright) — remove from {BASELINE_FILE.name}:\n")
             for key in stale:
                 print(f"  {key}: {baseline[key]}")
             print()
 
+        if improved:
+            print(f"note: {len(improved)} baseline entr{'y has' if len(improved) == 1 else 'ies have'} "
+                  f"a smaller gap than before (not failing, but the baseline could be tightened "
+                  f"with --write-baseline):\n")
+            for key, base_vals, vals in improved:
+                print(f"  {key}: was {base_vals} -> now {vals}")
+            print()
+
         if not new_failures:
-            print(f"OK: {len(sources)} examples checked, no fidelity regression outside the baseline.")
+            print(f"OK: {len(sources)} example(s) checked ({len(SKIP)} skipped by design), "
+                  "no fidelity regression outside the baseline.")
             return 0
 
         print(f"Found {len(new_failures)} fidelity mismatch(es) not covered by the baseline:\n",

@@ -30,11 +30,21 @@ los hay.
 `scripts/check-example-fidelity-baseline.json` sigue el mismo patrón que
 `scripts/check-example-assets-baseline.txt`: un mismatch que ya existía
 cuando se escribió el chequeo no bloquea CI por sí solo — se registra en el
-baseline con sus conteos exactos (archivo, chequeo, `{source, html}`). Un
-mismatch **falla** el chequeo solo si es nuevo o si sus conteos empeoraron
-respecto al baseline. Arreglar el bug de fondo dejará esa entrada "stale" (el
-script lo avisa) — hay que borrarla a mano del JSON, nunca declararla exenta
-para siempre.
+baseline con sus conteos exactos (archivo, chequeo, `{source, html}`). La
+comparación real es sobre el **gap** (`abs(source - html)`), no sobre el par
+exacto: un mismatch falla el chequeo solo si su gap es nuevo (no estaba en el
+baseline) o si empeoró respecto al gap baselineado. Un PR que reduce el gap
+sin cerrarlo del todo (p.ej. arregla la mitad de las imágenes que faltaban)
+no falla — el script lo marca como "mejorado, se puede ajustar el baseline"
+en vez de como fallo. Arreglar el bug de fondo del todo (gap llega a 0) deja
+esa entrada "stale" — el script lo avisa en ambos casos; hay que borrarla (o
+ajustarla) a mano del JSON, nunca declararla exenta para siempre.
+
+Nota para PRs que editan la fixture misma (no solo el renderer): si un PR
+cambia el `.slidelang`/`.doclang` de forma que el conteo del **fuente**
+cambia (p.ej. reescribir `POINTS` como `CHECKLIST`), la entrada baselineada
+para ese archivo queda sin sentido — hay que borrarla explícitamente, no
+solo dejar que el script la relaje.
 
 Para regenerar el baseline completo (por ejemplo, tras arreglar varios de los
 bugs que encontró) hazlo por partes: arregla el bug, corre el script, y
