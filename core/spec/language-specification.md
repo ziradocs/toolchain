@@ -57,16 +57,18 @@ presentation ::= frontmatter? slide+
 slide        ::= slide_type property* element*
 slide_type   ::= "SLIDE" identifier
 property     ::= identifier ":" value
-element      ::= text_element | points_element | image_element | 
-                 code_element | table_element | directive_element |
-                 special_block | embedded_element
+element      ::= text_element | points_element | checklist_element |
+                 image_element | code_element | table_element |
+                 directive_element | special_block | embedded_element
 
-text_element   ::= "TEXT" INDENT content_lines DEDENT
-points_element ::= "POINTS" INDENT point_item+ DEDENT  
-point_item     ::= "-" text_content NEWLINE
-image_element  ::= "IMAGE" INDENT property+ DEDENT
-code_element   ::= "CODE" INDENT code_content DEDENT
-table_element  ::= "TABLE" INDENT table_data DEDENT
+text_element      ::= "TEXT" INDENT content_lines DEDENT
+points_element    ::= "POINTS" INDENT point_item+ DEDENT  
+point_item        ::= "-" text_content NEWLINE
+checklist_element ::= "CHECKLIST" INDENT checklist_item+ DEDENT
+checklist_item     ::= ("-" | "*" | "+")? "[" ("x" | "X" | " ") "]" text_content NEWLINE
+image_element     ::= "IMAGE" INDENT property+ DEDENT
+code_element      ::= "CODE" INDENT code_content DEDENT
+table_element     ::= "TABLE" INDENT table_data DEDENT
 
 directive_element ::= "@" directive_name ":" directive_value
 special_block     ::= ":::" block_type NEWLINE block_content ":::"
