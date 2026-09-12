@@ -23,18 +23,20 @@ import (
 // en el orden de los atributos romperían el TOC de uno de los dialectos en
 // silencio.
 //
-// lineIndex es el índice 0-based de la línea que origina el encabezado; la
-// posición del diagnóstico se deriva sumándole 1. Se pasa explícito en vez
-// de leerse del estado del parser porque el parser strict construye el
-// encabezado DESPUÉS de consumir el cuerpo de la sección, cuando su línea
-// actual ya no es la del `SECTION`.
+// pos es la posición YA resuelta (relativa al archivo, offset incluido) del
+// encabezado. Se pasa explícita en vez de derivarse acá de un lineIndex
+// crudo por dos motivos: el parser strict construye el encabezado DESPUÉS
+// de consumir el cuerpo de la sección, cuando su línea actual ya no es la
+// del `SECTION` (necesita capturar la posición antes); y el offset del
+// frontmatter (#245) vive en cada parser, no en esta función compartida —
+// cada caller la resuelve con su propio p.position(...)/ctx.Position(...).
 //
 // explicitID vacío deriva el anchor del texto (lo que hace flex, único
 // camino posible ahí). No vacío, lo usa como base — pero pasa por
 // EXACTAMENTE el mismo saneado: el anchor se interpola crudo dentro de un
 // atributo HTML, así que un id de autor sin sanear sería una inyección
 // directa (`id: x"><script>`). Ver sanitizeAnchor.
-func buildHeadingElement(text string, level, lineIndex int, explicitID string) *ast.TextElement {
+func buildHeadingElement(text string, level int, pos diagnostics.Position, explicitID string) *ast.TextElement {
 	if level < 1 {
 		level = 1
 	}
@@ -58,7 +60,6 @@ func buildHeadingElement(text string, level, lineIndex int, explicitID string) *
 	}
 	anchor := deriveAnchor(anchorSource)
 
-	pos := diagnostics.NewPosition(lineIndex+1, 1)
 	htmlContent := fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", level, anchor, processedText, level)
 
 	// Expose the level as a semantic field alongside the rendered `<hN>`, so

@@ -5,7 +5,13 @@ package diagnostics
 
 import "fmt"
 
-// Position representa una posición en el código fuente (1-indexed)
+// Position representa una posición en el código fuente. Line y Column son
+// 1-based y cuentan desde la primera línea del ARCHIVO, frontmatter
+// incluido (issue #245) — nunca desde el cuerpo que un parser en particular
+// haya recibido. Todo constructor de una Position para contenido del cuerpo
+// tiene que sumar el offset del frontmatter que precede a ese cuerpo; ver
+// core/parser/position_offset_guard_test.go, que lo hace cumplir por
+// construcción.
 type Position struct {
 	Line   int `json:"line"`
 	Column int `json:"column"`

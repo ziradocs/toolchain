@@ -45,6 +45,28 @@ type FlexParser struct {
 	// front matter global y le está pasando solo el cuerpo. Ver
 	// newFlexBodyParser.
 	frontMatterConsumed bool
+	// lineOffset son las líneas del archivo que preceden a lines[0]: el
+	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
+	// entero (#245).
+	lineOffset int
+}
+
+// position traduce un índice 0-based dentro de p.lines a una posición
+// 1-based relativa al ARCHIVO completo (#245; ver position_offset_guard_test.go).
+func (p *FlexParser) position(lineIndex int) diagnostics.Position {
+	return diagnostics.NewPosition(p.lineOffset+lineIndex+1, 1)
+}
+
+// parseContext construye el elements.ParseContext para esta posición del
+// cuerpo, hilando lineOffset.
+func (p *FlexParser) parseContext() *elements.ParseContext {
+	return &elements.ParseContext{
+		Mode:        "flex",
+		CurrentLine: p.currentLine,
+		Logger:      p.logger,
+		Lines:       p.lines,
+		LineOffset:  p.lineOffset,
+	}
 }
 
 // NewFlexParser crea un nuevo parser flexible. log==nil degrada a un Noop
@@ -81,9 +103,14 @@ func NewFlexParser(input string, log util.Logger) *FlexParser {
 // Es un constructor aparte y no un parámetro de NewFlexParser porque ese es
 // API pública de core (ver core/doc.go): quien lo use con el documento
 // completo sigue teniendo el mismo comportamiento de siempre.
-func newFlexBodyParser(body string, log util.Logger) *FlexParser {
+//
+// lineOffset son las líneas del archivo que preceden a body (el frontmatter
+// que el caller ya separó); se suma al construir cada Position para que el
+// AST resultante cuente desde el ARCHIVO, no desde el cuerpo (#245).
+func newFlexBodyParser(body string, lineOffset int, log util.Logger) *FlexParser {
 	p := NewFlexParser(body, log)
 	p.frontMatterConsumed = true
+	p.lineOffset = lineOffset
 	return p
 }
 
@@ -117,7 +144,11 @@ func (p *FlexParser) parseFrontMatter(astNode *ast.AST) {
 		return
 	}
 
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	// Esta rama solo corre cuando frontMatterConsumed es false, es decir
+	// cuando lineOffset es siempre 0 — newFlexBodyParser (el único caller
+	// que pasa lineOffset != 0) fija frontMatterConsumed=true y por lo tanto
+	// nunca llega acá (#245).
+	pos := p.position(p.currentLine)
 	frontMatter := ast.NewFrontMatterNode(pos)
 	p.currentLine++ // skip opening ---
 
@@ -169,7 +200,7 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 		}
 	}
 
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 
 	blockType := "content" // Default block type for flex mode
 	blockTitle := ""
@@ -255,12 +286,7 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	}
 
 	// Parse block elements using the registry
-	ctx := &elements.ParseContext{
-		Mode:        "flex",
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-		Lines:       p.lines,
-	}
+	ctx := p.parseContext()
 	for p.currentLine < len(p.lines) {
 		// Check for next slide boundary
 		nextLine := strings.TrimSpace(p.lines[p.currentLine])
@@ -330,7 +356,7 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 		if level := flexSubsectionLevel(nextLine); level > 0 {
 			text := strings.TrimSpace(nextLine[level:])
 			block.Elements = append(block.Elements,
-				buildHeadingElement(text, level, p.currentLine, p.uniqueHeadingAnchor(text)))
+				buildHeadingElement(text, level, p.position(p.currentLine), p.uniqueHeadingAnchor(text)))
 			p.currentLine++
 			continue
 		}
@@ -397,7 +423,7 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 
 // addError añade un error diagnóstico
 func (p *FlexParser) addError(msg string) {
-	pos := diagnostics.NewPosition(p.currentLine+1, 1)
+	pos := p.position(p.currentLine)
 	diag := diagnostics.NewError(msg, pos, "flex-parser")
 	p.diagnostics = append(p.diagnostics, diag)
 }
@@ -409,7 +435,7 @@ func (p *FlexParser) addError(msg string) {
 // (issue #192), así que no puede apoyarse en p.currentLine como strict sí
 // hace.
 func (p *FlexParser) addWarningAtWithRuleID(lineIndex int, msg, ruleID string) {
-	pos := diagnostics.NewPosition(lineIndex+1, 1)
+	pos := p.position(lineIndex)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "flex-parser").WithRuleID(ruleID))
 }
@@ -516,7 +542,7 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 			}
 		}
 		p.diagnostics = append(p.diagnostics,
-			diagnostics.NewInfo(message, diagnostics.NewPosition(i+1, 1), "flex-parser").WithRuleID("FLEX002"))
+			diagnostics.NewInfo(message, p.position(i), "flex-parser").WithRuleID("FLEX002"))
 	}
 
 	// Solo se pisa lo pendiente si ESTE bloque tiene algo que decir: o declara

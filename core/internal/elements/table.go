@@ -63,7 +63,7 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	table := ast.NewTableElement(pos)
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // TextParser maneja elementos de texto (fallback parser)
@@ -41,7 +40,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 	consumed := 0
 

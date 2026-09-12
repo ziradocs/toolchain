@@ -77,7 +77,7 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		return &ParseResult{Error: nil}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
 	// Extraer tipo y atributos: "<<chart: bar width="1200" height="600">>"

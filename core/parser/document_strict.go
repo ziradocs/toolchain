@@ -42,6 +42,13 @@ type DocumentStrictParser struct {
 	strictBody
 	input         string
 	hasTitleBlock bool
+
+	// lineOffsetExplicit marca que strictBody.lineOffset vino de un caller
+	// explícito (newDocumentStrictParserAt) y no debe pisarse con lo que
+	// Parse derive de su propio recorte del frontmatter — ver el campo
+	// homónimo en DocumentFlexParser (document_flex.go) para la explicación
+	// completa (#245).
+	lineOffsetExplicit bool
 }
 
 // NewDocumentStrictParser crea el parser. log == nil degrada a Noop, mismo
@@ -60,6 +67,19 @@ func NewDocumentStrictParser(input string, log util.Logger) *DocumentStrictParse
 	}
 }
 
+// newDocumentStrictParserAt construye un DocumentStrictParser cuyo lines[0]
+// es la línea lineOffset+1 del archivo — hermano no exportado que
+// Parser.ParseDocument usa para pasarle el cuerpo (frontmatter ya separado
+// del contenido ORIGINAL) sin que las posiciones resultantes vuelvan a
+// contar desde 1 (#245). NewDocumentStrictParser es el caso lineOffset=0 y
+// sigue siendo API pública de core.
+func newDocumentStrictParserAt(input string, lineOffset int, log util.Logger) *DocumentStrictParser {
+	p := NewDocumentStrictParser(input, log)
+	p.lineOffset = lineOffset
+	p.lineOffsetExplicit = true
+	return p
+}
+
 // Parse recorre el documento: frontmatter opcional y luego una secuencia de
 // SECTION a indentación 0. Cualquier otra cosa en el nivel superior es un
 // error — no hay camino silencioso, que es el punto del dialecto.
@@ -67,10 +87,16 @@ func (p *DocumentStrictParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 	astNode := ast.NewAST(diagnostics.NewPosition(1, 1))
 
 	if p.currentLine < len(p.lines) && strings.TrimSpace(p.lines[p.currentLine]) == "---" {
-		lines, diags := parseDocumentFrontMatter(p.input, astNode)
+		lines, diags, stripped := parseDocumentFrontMatter(p.input, astNode)
 		p.diagnostics = append(p.diagnostics, diags...)
 		p.lines = lines
 		p.currentLine = 0
+		// El offset explícito (construido sobre el contenido ORIGINAL por
+		// quien llamó a newDocumentStrictParserAt) le gana a lo que este
+		// recorte propio derive (#245).
+		if !p.lineOffsetExplicit {
+			p.lineOffset = stripped
+		}
 	}
 
 	for p.currentLine < len(p.lines) {
@@ -138,7 +164,7 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 	// encabezado DENTRO del bloque anterior (niveles 2-6). Por lo mismo el
 	// título se sostiene en una variable y no se escribe en el bloque
 	// todavía.
-	scratch := ast.NewContentBlock(diagnostics.NewPosition(headerLine+1, 1), "content")
+	scratch := ast.NewContentBlock(p.position(headerLine), "content")
 
 	level := 0 // 0 = no declarado; el default (1) se aplica al final
 	explicitID := ""
@@ -225,7 +251,7 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 	}
 
 	parent := &astNode.ContentBlocks[len(astNode.ContentBlocks)-1]
-	parent.Elements = append(parent.Elements, buildHeadingElement(title, level, headerLine, explicitID))
+	parent.Elements = append(parent.Elements, buildHeadingElement(title, level, p.position(headerLine), explicitID))
 	parent.Elements = append(parent.Elements, scratch.Elements...)
 }
 
@@ -240,7 +266,7 @@ func (p *DocumentStrictParser) appendTopLevelSection(astNode *ast.AST, title str
 		p.hasTitleBlock = true
 	}
 
-	block := ast.NewContentBlock(diagnostics.NewPosition(headerLine+1, 1), blockType)
+	block := ast.NewContentBlock(p.position(headerLine), blockType)
 	if blockType == "title" {
 		block.Heading = title
 	} else {

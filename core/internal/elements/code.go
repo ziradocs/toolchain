@@ -40,7 +40,7 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
 	if ctx.Mode == "strict" {

@@ -34,6 +34,21 @@ type ParseContext struct {
 	CurrentLine int
 	Logger      util.Logger // Logger interface for structured logging
 	Lines       []string
+
+	// LineOffset son las líneas del archivo que preceden a Lines[0]: el
+	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines
+	// es el archivo entero (#245).
+	LineOffset int
+}
+
+// Position traduce un índice 0-based dentro de ctx.Lines a una posición
+// 1-based relativa al ARCHIVO completo, sumando LineOffset. Es el único
+// constructor de posiciones permitido en este paquete — un
+// diagnostics.NewPosition directo en un ElementParser volvería a contar
+// desde el cuerpo en vez de desde el archivo (#245; ver
+// position_offset_guard_test.go en core/parser).
+func (ctx *ParseContext) Position(lineIndex int) diagnostics.Position {
+	return diagnostics.NewPosition(ctx.LineOffset+lineIndex+1, 1)
 }
 
 // ParseResult encapsula el resultado del parsing de un elemento

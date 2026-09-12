@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // PlantUMLParser maneja el parsing de diagramas PlantUML
@@ -44,7 +43,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		return &ParseResult{Error: nil}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	openingLine := strings.TrimSpace(ctx.Lines[startIndex])
 
 	// Detectar formato: <<plantuml>>, @startuml, o ```plantuml

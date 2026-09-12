@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MermaidParser maneja el parsing de diagramas Mermaid
@@ -41,7 +40,7 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		return &ParseResult{Error: nil}
 	}
 
-	pos := diagnostics.NewPosition(startIndex+1, 1)
+	pos := ctx.Position(startIndex)
 	openingLine := strings.TrimSpace(ctx.Lines[startIndex])
 
 	// Detectar formato: <<mermaid>> o ```mermaid
