@@ -10,11 +10,72 @@ scripts/release.sh vX.Y.Z
 ```
 
 Cuts a coordinated release of the three CLIs' binaries: creates the bare `vX.Y.Z` tag plus the
-three module tags (`core/vX.Y.Z`, `doclang/vX.Y.Z`, `slidelang/vX.Y.Z`) on the current commit,
+module tags (`core/vX.Y.Z`, `doclang/vX.Y.Z`, `slidelang/vX.Y.Z`) on the current commit,
 pushes the `vX.Y.Z` tag first (in its own push — see the comment in the script for why: empirically,
 pushing all four tags at once has failed to trigger `on: push: tags:` reliably), then pushes the
-three module tags together. `vX.Y.Z` matches `.github/workflows/release.yml`'s trigger, which runs
+module tags together. `vX.Y.Z` matches `.github/workflows/release.yml`'s trigger, which runs
 `goreleaser` and publishes the actual binaries/packages.
+
+**`core/vX.Y.Z` is the exception, and it is the common case.** When the release carries a `core`
+change, `scripts/bump-core.sh vX.Y.Z` already cut and pushed that tag — the CLIs needed it in order
+to pin it. So `release.sh` **reuses** an existing `core/vX.Y.Z` instead of re-creating it, and only
+creates it when it is absent.
+
+**What it cannot require is that the tag point at HEAD** — in the real flow it never does. The tag
+is cut on whatever `origin/main` was at the time; *then* the bump PR merges, then the CLI PRs merge,
+so by release time the tag is an ancestor several commits back.
+
+What matters is that the `core` published under that tag is the one being released, which is three
+checkable conditions:
+
+1. the tag's commit is an **ancestor of HEAD** — it came from this line of commits;
+2. **`core/` did not change** between the tag and HEAD — what was tagged is what is here;
+3. both `go.mod` files **pin exactly that `core/vX.Y.Z`** — which is what goreleaser resolves from
+   the proxy. *Exactly* is literal: the pinned version is extracted and string-compared, not matched
+   with `grep -E "$VERSION\b"`. In an ERE `-` is a word boundary, so `v2.32.5\b` matches
+   `v2.32.5-0.2026…-abc123` — and that is not a contrived string, it is the pseudo-version Go writes
+   by itself. Once `core/v2.32.4` is cut, any `go get go.ziradocs.com/core/v2@main` on a later commit
+   pins `v2.32.5-0.<ts>-<sha>`: precisely the version about to be released, followed by a hyphen. The
+   release went through announcing that both `go.mod` pinned it, with goreleaser resolving an
+   **untagged** commit.
+
+Any of the three failing stops the release with the reason. The remote is the authority even when a
+local tag of that name exists, because a local tag pointing somewhere other than origin's is
+precisely the dangerous state; the lookup **fails closed** (a `git ls-remote` error aborts rather
+than reading as "does not exist"), reusing the same helper as `bump-core.sh`.
+
+Before any of this the script tagged all four blindly, so with `set -e` the duplicate
+`git tag core/vX.Y.Z` aborted the run *after* creating the bare `vX.Y.Z` locally — which in practice
+burned the number (the release went out on the next free one; `v2.32.3` was skipped that way) and
+made every core bump cost a product version.
+
+**The other three tags get the same treatment**, for the same reason: they were still created blind,
+so any *second* run of the script died at `git tag "$VERSION"` with "already exists" — after clearing
+the whole core block, having done nothing. A second run is not exotic: the first one only has to die
+at the push (network) or at step 6 (`gh`) with the tags already created. Unlike `core/`, these three
+are cut by this script on HEAD, so the reuse condition is simpler — if the tag already exists it must
+point at HEAD; pointing anywhere else means that number was already released from another line of
+commits, and the release stops rather than publishing a binary that is not what it claims to be. The
+remote is the authority here too, and tags already on `origin` at HEAD are not re-pushed (the
+submodule push is skipped entirely when the list comes out empty — expanding an empty array would
+have turned `git push origin "${SUBMODULE_TAGS[@]}"` into a bare `git push origin`, which pushes the
+current *branch*).
+
+**This decision has an executable gate**: `scripts/test-release-core-tag-reuse.sh`, run by
+`.github/workflows/release-script.yml` on any change to `release.sh` itself. It builds throwaway git
+repositories with their own bare `origin`, prepends a stub directory to `PATH` holding a fake `go` (the
+script builds both CLIs) and a fake `gh` (it never talks to GitHub), and runs the real script across ten
+scenarios: the real flow reuses, a release with no core change creates, a second run of the script is
+a no-op, and a local-only tag, a tag off another line, a `core/` changed after the tag, a stale
+`go.mod` pin, a *suffixed* pin (the pseudo-version case above), a `vX.Y.Z` already on `origin` off
+HEAD, and an `ls-remote` failure each stop it. Every scenario asserts three things — exit code, a message substring that identifies
+*that* condition, and the tags left in the bare `origin`. Each one runs in its own subshell under
+`set -euo pipefail`, with the parent capturing the exit code: a scenario invoked as
+`escenario_x || true` would have `errexit` suppressed throughout its body, so a failed *setup* step
+could run on to print a green tick — a false green in the gate itself. The message assertion is what separates
+"aborted correctly" from "aborted for the wrong reason", which is exactly how the first version of
+this guard traded one abort for another: run against it, four scenarios still exit 1, and only the
+message shows they abort on the wrong condition. Nothing touches the network or the real repository.
 
 Use this when cutting an actual product release — a version users install.
 
