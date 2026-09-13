@@ -135,7 +135,7 @@ series: ["Current Adoption (%)", "Expected Growth (%)"]
 
 # Hands-On Exercise: Linear Regression
 
-::: code-group
+:::code-group
 
 ```python [Basic Implementation]
 import numpy as np

@@ -115,7 +115,7 @@ layout: content
 
 # Multi-Language Code Groups
 
-::: code-group
+:::code-group
 
 ```javascript [JavaScript]
 // JavaScript implementation

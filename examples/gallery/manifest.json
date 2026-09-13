@@ -66,9 +66,19 @@
       "mode": "flex"
     },
     {
+      "file": "07_special_blocks_and_checklists.doclang",
+      "title": "Callouts and Checklists",
+      "mode": "doclang"
+    },
+    {
       "file": "08_code_and_code_groups.slidelang",
       "title": "Code and Code Groups",
       "mode": "flex"
+    },
+    {
+      "file": "08_code_and_code_groups.doclang",
+      "title": "Code and Code Groups",
+      "mode": "doclang"
     },
     {
       "file": "09_grid_layouts_and_tables.slidelang",

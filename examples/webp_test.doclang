@@ -1,3 +1,8 @@
+---
+mode: flex
+title: "WebP Support Test"
+---
+
 # WebP Support Test
 
 This document tests WebP image generation for charts and maps.

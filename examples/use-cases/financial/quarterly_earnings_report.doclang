@@ -1,0 +1,245 @@
+---
+title: "Q4 2024 Financial Results — Shareholder Report"
+author: "Financial Planning & Analysis Team"
+date: "2025-01-15"
+theme: professional
+mode: flex
+toc: true
+numbering: true
+---
+
+# Executive Summary
+
+TechGrowth Solutions closed 2024 with an outstanding fourth quarter, capping
+what has been an exceptional year for the business. Revenue reached
+**$187.3M**, up **23.8%** year over year, while EBITDA rose to **$42.1M**, a
+**22.5%** margin. Earnings per share came in at **$1.47**, beating consensus
+estimates by $0.12, and free cash flow grew 31% year over year to $38.4M.
+
+Every headline metric this quarter exceeded the ranges the company gave at
+the start of Q4, and the momentum was broad-based: revenue growth
+accelerated for the fourth consecutive quarter, net revenue retention climbed
+to 126%, and the active customer base grew 40% year over year to nearly
+4,000 accounts. The remainder of this report walks through the drivers of
+that performance, the state of the balance sheet, the guidance the company
+is issuing for 2025, and the risks the board and management team are
+actively managing.
+
+::: success
+**Q4 2024 at a glance**
+- Revenue: $187.3M (+23.8% year over year)
+- EBITDA: $42.1M (22.5% margin)
+- EPS: $1.47 (beat consensus by $0.12)
+- Free cash flow: $38.4M (+31% year over year)
+- Net revenue retention: 126%
+:::
+
+# Revenue Performance
+
+## Quarterly Trend
+
+Revenue has now grown for eight consecutive quarters, and — notably — the
+rate of growth itself has been accelerating rather than merely holding
+steady. Q4 2024's 23.8% year-over-year growth is the highest of the year,
+building on a base that was already growing at a low-20s clip twelve months
+earlier. Management attributes the acceleration to the maturation of the
+software segment and to the international expansion that began in early
+2024.
+
+<<chart: combo>>
+  data:
+    labels: ["Q1 2023", "Q2 2023", "Q3 2023", "Q4 2023", "Q1 2024", "Q2 2024", "Q3 2024", "Q4 2024"]
+    series:
+      - name: "Revenue ($M)"
+        type: "bar"
+        values: [127.4, 135.8, 142.6, 151.2, 158.7, 167.3, 175.9, 187.3]
+      - name: "YoY Growth %"
+        type: "line"
+        values: [18.2, 19.5, 21.1, 22.3, 24.6, 23.2, 23.4, 23.8]
+        yAxisID: "y1"
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Quarterly Revenue Progression"
+
+## Revenue Mix
+
+Software Solutions remains the largest and highest-margin segment,
+contributing 60% of total revenue in the quarter. Professional Services grew
+28% year over year and now represents just over a quarter of the business,
+while Support & Maintenance continues to provide a stable, recurring
+foundation underneath both.
+
+<<chart: doughnut>>
+  data: [112.4, 48.7, 26.2]
+  labels: ["Software Solutions (60%)", "Professional Services (26%)", "Support & Maintenance (14%)"]
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Q4 2024 Revenue Composition"
+      legend:
+        position: bottom
+
+## Geographic Distribution
+
+North America continues to anchor the business, but Asia-Pacific is the
+fastest-growing region on a percentage basis, expanding 28.6% year over
+year as the company's regional go-to-market investments begin to pay off.
+
+| Region | Q4 2024 | Q4 2023 | Growth | % of Total |
+|--------|---------|---------|--------|------------|
+| North America | $112.4M | $89.2M | +26.0% | 60% |
+| Europe | $48.7M | $41.8M | +16.5% | 26% |
+| Asia-Pacific | $18.9M | $14.7M | +28.6% | 10% |
+| Other | $7.3M | $5.5M | +32.7% | 4% |
+
+"Other" primarily reflects early revenue from Latin America and other
+emerging markets that the company began serving directly in 2024.
+
+# Profitability
+
+EBITDA reached $42.1M in Q4 2024, a 22.5% margin that represents 130 basis
+points of expansion over the prior-year quarter. The improvement reflects
+genuine operating leverage rather than one-time cost cuts: as the software
+segment scales, incremental revenue carries a materially higher margin than
+the company's historical average, and cost discipline in go-to-market
+spending has kept operating expenses growing more slowly than revenue.
+
+<<chart: combo>>
+  data:
+    labels: ["Q4 2023", "Q1 2024", "Q2 2024", "Q3 2024", "Q4 2024"]
+    series:
+      - name: "EBITDA ($M)"
+        type: "bar"
+        values: [32.1, 34.8, 37.2, 39.1, 42.1]
+      - name: "EBITDA Margin %"
+        type: "line"
+        values: [21.2, 21.9, 22.2, 22.2, 22.5]
+        yAxisID: "y1"
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "EBITDA Growth and Margin Expansion"
+
+The company's 22.5% EBITDA margin compares favorably to the industry
+average for its peer group, and management believes there is further room
+for expansion as the software mix continues to grow relative to
+professional services.
+
+# Cash Flow & Balance Sheet
+
+Operating cash flow of $41.2M and free cash flow of $38.4M both grew faster
+than revenue this quarter, reflecting strong collections and disciplined
+capital expenditure. The balance sheet strengthened accordingly: cash and
+equivalents grew to $95.7M while total debt was reduced by 23.1%, leaving
+the company in a net cash position of $70.7M — an improvement of $26.5M
+versus the prior-year quarter.
+
+| Metric | Q4 2024 | Q4 2023 | Change |
+|--------|---------|---------|--------|
+| Operating Cash Flow | $41.2M | $31.8M | +29.6% |
+| Free Cash Flow | $38.4M | $29.3M | +31.1% |
+| Cash & Equivalents | $95.7M | $73.2M | +30.7% |
+| Total Debt | $25.0M | $32.5M | -23.1% |
+
+This financial flexibility gives the company room to fund its 2025 growth
+initiatives largely from internally generated cash, without needing to draw
+on external financing or dilute shareholders.
+
+## Customer Metrics
+
+The customer base grew 40% year over year to 3,985 active accounts, and
+net revenue retention climbed to 126% — meaning that, on average, existing
+customers are expanding their spend well beyond what churn takes away.
+That combination of new-logo growth and expansion revenue from the existing
+base is the clearest evidence of durable, compounding demand for the
+platform.
+
+<<chart: combo>>
+  data:
+    labels: ["Q4 2023", "Q1 2024", "Q2 2024", "Q3 2024", "Q4 2024"]
+    series:
+      - name: "Active Customers"
+        type: "bar"
+        values: [2847, 3124, 3389, 3672, 3985]
+      - name: "Net Revenue Retention %"
+        type: "line"
+        values: [118, 121, 119, 123, 126]
+        yAxisID: "y1"
+  options:
+    responsive: true
+    plugins:
+      title:
+        display: true
+        text: "Customer Growth and Retention Metrics"
+
+# Outlook & Guidance
+
+For fiscal 2025, the company is guiding to revenue of $210–215M, implying
+18–22% growth over the $690.2M reported for full-year 2024, alongside
+continued EBITDA margin expansion to a 23–24% range. Free cash flow
+guidance of $45–50M reflects normal quarterly seasonality; annualizing Q4's
+free cash flow alone would already imply a $153.6M run rate, so management
+views the full-year guidance as conservative.
+
+| Metric | 2025 Guidance | 2024 Actual | Implied Growth |
+|--------|---------------|-------------|-----------------|
+| Revenue | $210-215M | $690.2M | +18-22% |
+| EBITDA Margin | 23-24% | 22.1% | +90-190 bps |
+| Free Cash Flow | $45-50M | $142.8M | see note below |
+
+Guidance assumes current market conditions and normal execution against the
+2025 initiatives described below; it does not assume any material
+acquisitions or currency effects beyond current spot rates.
+
+## Strategic Priorities for 2025
+
+Management has identified five initiatives, representing a combined $67M of
+planned investment, that it believes will sustain the current growth
+trajectory:
+
+1. **Product Innovation** — launch of an AI-powered analytics suite, extending
+   the platform's core differentiation.
+2. **International Expansion** — establishment of an Asia-Pacific
+   headquarters to support the region's outsized growth rate.
+3. **Strategic Partnerships** — integrations with major platforms to widen
+   distribution without a proportional increase in sales headcount.
+4. **Customer Success** — expanded support and services capacity to protect
+   and grow the already-strong 126% net revenue retention.
+5. **Operational Excellence** — infrastructure scaling to keep unit
+   economics improving as transaction volume grows.
+
+# Risk Factors
+
+The board's quarterly risk review identified five categories that continue
+to receive active management attention. None is assessed as an immediate
+threat to the guidance above, but each carries a defined mitigation
+strategy and an owner.
+
+| Risk Category | Mitigation Strategy | Status |
+|----------------|----------------------|--------|
+| Market Competition | Accelerated innovation | Active |
+| Customer Concentration | Diversification efforts | Ongoing |
+| Economic Slowdown | Cost flexibility | Prepared |
+| Talent Retention | Competitive compensation | Monitoring |
+| Technology Disruption | R&D investment | Investing |
+
+Customer concentration remains the item most worth watching: the top ten
+customers represent 28% of total revenue, and while none individually
+exceeds 5%, the board has asked management to keep diversification efforts
+as a standing agenda item until that figure declines further. The
+company's variable cost structure is designed to provide flexibility should
+broader economic conditions soften faster than currently anticipated.
+
+::: info
+Risk monitoring is integrated into the quarterly business review cycle
+rather than treated as a separate annual exercise, so any material change
+in these categories will be reflected in the next quarterly report rather
+than held for the annual filing.
+:::
