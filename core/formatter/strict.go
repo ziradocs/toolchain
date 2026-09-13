@@ -622,6 +622,19 @@ func formatPlantUML(e *ast.PlantUMLElement) string {
 // todos los reales. El harness de round-trip no lo detectó porque SKIPeaba
 // todo fixture que devolviera UnsupportedElementError; ese skip ahora está
 // acotado a un allowlist (ver document_roundtrip_test.go).
+// hasAnyChartSeriesAxis reporta si al menos una serie de un combo chart
+// declaró su propio eje Y — SeriesAxes puede venir con la misma longitud
+// que Series pero todas las entradas vacías (ninguna serie lo declaró), en
+// cuyo caso emitir `yAxisID: ["", "", ""]` sería ruido puro.
+func hasAnyChartSeriesAxis(axes []string) bool {
+	for _, a := range axes {
+		if a != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func formatChart(e *ast.ChartElement) (string, error) {
 	// width/height solo se emiten si el autor los declaró (Width/Height != 0).
 	// Antes salían SIEMPRE, porque ChartParser horneaba su 800x600 en el AST:
@@ -646,6 +659,13 @@ func formatChart(e *ast.ChartElement) (string, error) {
 			return "", err
 		}
 		fmt.Fprintf(&b, "type: %s\n", types)
+	}
+	if hasAnyChartSeriesAxis(e.SeriesAxes) {
+		axes, err := formatInlineArray("chart", "yAxisID", e.SeriesAxes)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "yAxisID: %s\n", axes)
 	}
 	if len(e.Data) > 0 {
 		b.WriteString("data: [\n")
