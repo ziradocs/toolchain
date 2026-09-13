@@ -359,6 +359,50 @@ func TestSpecialBlockParser_RenderedHTML_KeepsProseAlongsideNestedElements(t *te
 	}
 }
 
+// TestSpecialBlockParser_RenderedHTML_ListAlongsideHeadingIsValidHTML cubre
+// un segundo hallazgo de revisión sobre el mismo mecanismo: la prosa
+// sintética que flushProseRun agrega a Elements puede mezclar una línea
+// suelta con líneas "- item" en el MISMO TextElement (Points/Checklist
+// quedan fuera de nestedContentParsers a propósito — ver el comentario de
+// esa var), algo que a nivel top nunca pasa (PointsParser se adelanta a
+// TextParser en el registry). renderTextElement envolvía TODO el contenido
+// en <p>...</p> sin mirar si el markdown adentro ya trae un <ul> — <ul> es
+// contenido de flujo, <p> solo admite fraseo, así que el resultado era HTML
+// inválido (<p>...<ul>...</ul></p>). Cubierto acá con el parser real (no
+// solo la llamada directa a renderTextElement en core/renderer) porque es
+// el camino end-to-end real: un ":::bloque" con un heading Y una lista.
+func TestSpecialBlockParser_RenderedHTML_ListAlongsideHeadingIsValidHTML(t *testing.T) {
+	parser := &SpecialBlockParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			":::info",
+			"### Resumen",
+			"Cifras del trimestre:",
+			"- Q1: 45",
+			"- Q2: 32",
+			":::",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	block := result.Element.(*ast.SpecialBlockElement)
+
+	html := renderer.RenderElementToHTML(block, nil, nil)
+	if strings.Contains(html, "<p>") {
+		t.Errorf("un <ul> quedó envuelto en <p>, HTML inválido: %s", html)
+	}
+	if !strings.Contains(html, "<ul>") || !strings.Contains(html, "<li>Q1: 45</li>") {
+		t.Errorf("la lista no se procesó como se esperaba: %s", html)
+	}
+	if !strings.Contains(html, "Cifras del trimestre:") {
+		t.Errorf("se perdió la prosa que precedía a la lista: %s", html)
+	}
+}
+
 func containsLine(content, want string) bool {
 	for _, line := range splitLinesForTest(content) {
 		if line == want {
