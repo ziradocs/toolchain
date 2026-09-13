@@ -65,9 +65,9 @@ func walkContentBlock(block *ContentBlock, visit visitFn) error {
 
 // walkElement visita element y desciende a sus sub-estructuras según el tipo
 // concreto. Los tipos sin sub-estructura (TextElement, CodeElement,
-// ImageElement, TableElement, SpecialBlockElement, MermaidElement,
-// PlantUMLElement, ChartElement, MapElement, QuoteElement, DirectiveNode)
-// solo se visitan a sí mismos — caen al default.
+// ImageElement, TableElement, MermaidElement, PlantUMLElement, ChartElement,
+// MapElement, QuoteElement, DirectiveNode) solo se visitan a sí mismos —
+// caen al default.
 func walkElement(element Element, visit visitFn) error {
 	if err := visit(element); err != nil {
 		return err
@@ -88,6 +88,12 @@ func walkElement(element Element, visit visitFn) error {
 	case *GridElement:
 		for i := range elem.Columns {
 			if err := walkColumn(&elem.Columns[i], visit); err != nil {
+				return err
+			}
+		}
+	case *SpecialBlockElement:
+		for _, nested := range elem.Elements {
+			if err := walkElement(nested, visit); err != nil {
 				return err
 			}
 		}

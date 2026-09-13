@@ -68,7 +68,7 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 		return renderMapElement(elem, variables, ctx)
 
 	case *ast.SpecialBlockElement:
-		return renderSpecialBlockElement(elem, variables)
+		return renderSpecialBlockElement(elem, variables, ctx)
 
 	case *ast.CodeGroupElement:
 		return renderCodeGroupElement(elem, variables)
@@ -2344,9 +2344,11 @@ func renderMapOfflineInline(mapConfig MapConfig, width, height int, ctx *RenderC
 }
 
 // renderSpecialBlockElement procesa bloques especiales (info, warning, etc.)
-func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[string]interface{}) string {
+// renderSpecialBlockElement recibe ctx para propagarlo al contenido anidado
+// (un chart/mermaid/plantuml dentro de un ":::bloque" también debe respetar
+// el modo de rendering offline — mismo motivo que renderGridElement).
+func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[string]interface{}, ctx *RenderContext) string {
 	title := ProcessVariablesSecure(elem.Title, variables)
-	content := ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 	icon := EscapeHTML(elem.Icon)
 	blockType := EscapeHTMLAttribute(elem.BlockType)
 
@@ -2361,7 +2363,21 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 		fmt.Fprintf(&html, `<strong class="alert-title">%s</strong>`, title)
 	}
 
-	fmt.Fprintf(&html, `<div class="alert-content">%s</div>`, content)
+	// Elements, si el parser lo pobló (contenido anidado tipado), es la
+	// fuente de verdad estructural — Content queda como prosa suelta sin
+	// tipar y no se renderiza dos veces. Mismo criterio "o, no ambos" que
+	// GridElement.Columns todavía no aplica (issue #9) pero que
+	// SpecialBlockElement adopta desde el primer commit que puebla Elements.
+	if len(elem.Elements) > 0 {
+		html.WriteString(`<div class="alert-content">`)
+		for _, nested := range elem.Elements {
+			html.WriteString(RenderElementToHTML(nested, variables, ctx))
+		}
+		html.WriteString(`</div>`)
+	} else {
+		content := ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
+		fmt.Fprintf(&html, `<div class="alert-content">%s</div>`, content)
+	}
 	html.WriteString("</div>")
 
 	return html.String()

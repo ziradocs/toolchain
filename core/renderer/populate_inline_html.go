@@ -107,6 +107,9 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 		// RenderElementToHTML (usado solo por doclang, que no emite JSON).
 		elem.TitleHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Title, variables)
 		elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
+		for _, nested := range elem.Elements {
+			populateElementHTML(nested, variables)
+		}
 
 	case *ast.GridElement:
 		elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)

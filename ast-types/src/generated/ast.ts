@@ -692,6 +692,17 @@ export interface SpecialBlockElement extends BaseNode {
    */
   discardedLangRuns?: LangRun[];
   icon?: string;
+  /**
+   * Elements expone el contenido anidado de un ":::bloque" ya parseado a
+   * elementos tipados (tabla, imagen, otro ":::" anidado, etc. — issue #9,
+   * audit 2026-09-11), el mismo mecanismo que ColumnElement.Elements. NO
+   * reemplaza a Content: Content sigue siendo la fuente que `fmt` reemite
+   * (un special block no tiene forma de texto para Elements, igual que
+   * GridElement.Columns) y la que popula este campo cuando el bloque trae
+   * contenido parseable; cuando Elements no está vacío, Content/ContentHTML
+   * son solo la fuente/su render inline, no la fuente de verdad estructural.
+   */
+  elements?: Element[];
 }
 /**
  * CodeGroupElement representa un grupo de códigos con tabs
