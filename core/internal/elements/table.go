@@ -474,30 +474,84 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 // separado del de este paquete) tiene el mismo bug con el mismo split
 // ciego y necesita el mismo fix.
 //
-// Una cantidad IMPAR de backticks en toda la línea significa que ningún "`"
-// abre un code span real (uno queda suelto) — rastrearlos de todos modos
-// dejaría el estado "dentro de código" prendido para el resto de la línea,
-// tragándose como si fueran parte de una celda los "|" reales que vengan
-// después (hallazgo de revisión sobre formatter.escapeTableCellPipe, su
-// espejo de escritura, que tiene el mismo chequeo). Con conteo impar, esta
-// función ignora los backticks por completo y solo respeta "\|".
+// codeSpanRanges (abajo) implementa la regla real de CommonMark para code
+// spans: el delimitador no es "un backtick", es una CORRIDA de N backticks
+// consecutivos, y solo otra corrida de EXACTAMENTE N backticks la cierra —
+// un span delimitado por dos backticks seguidos, con un backtick suelto en
+// el medio, tiene contenido "a`b" (el backtick suelto del medio no
+// cierra nada, porque su corrida mide 1 y el delimitador mide 2). Una
+// corrida que abre pero no encuentra un cierre de su mismo largo en el
+// resto de la línea NO es un delimitador — son backticks literales, y el
+// escaneo sigue de largo (hallazgo de revisión: la versión anterior
+// alternaba inCode por cada CARÁCTER "`" suelto, así que una corrida de 2
+// backticks se leía como "abre, cierra" en vez de "abre un span de largo
+// 2" — cualquier "|" adentro de un span delimitado por 2+ backticks se
+// interpretaba mal como separador). Esto también reemplaza sin pérdida al
+// chequeo anterior de "cantidad de backticks impar en toda la línea": un
+// backtick suelto sin pareja de su mismo largo simplemente no matchea
+// nada aquí, y punto — no hace falta una heurística aparte para ese caso.
+func codeSpanRanges(runes []rune) []bool {
+	n := len(runes)
+	inSpan := make([]bool, n)
+	i := 0
+	for i < n {
+		if runes[i] != '`' {
+			i++
+			continue
+		}
+		start := i
+		for i < n && runes[i] == '`' {
+			i++
+		}
+		openLen := i - start
+
+		j := i
+		matched := false
+		for j < n {
+			if runes[j] != '`' {
+				j++
+				continue
+			}
+			closeStart := j
+			for j < n && runes[j] == '`' {
+				j++
+			}
+			if j-closeStart == openLen {
+				for k := start; k < j; k++ {
+					inSpan[k] = true
+				}
+				i = j
+				matched = true
+				break
+			}
+			// Corrida de otro largo: no cierra este delimitador: se
+			// reintenta desde donde terminó (puede ser la que sí matchea
+			// más adelante, o abrir su propio span en la próxima vuelta del
+			// for de arriba si esta tampoco encuentra cierre).
+		}
+		if !matched {
+			// Sin cierre de su mismo largo en el resto de la línea:
+			// backticks literales, no delimitador. i ya quedó al final de
+			// la corrida (por el conteo de arriba) — seguir desde ahí.
+			continue
+		}
+	}
+	return inSpan
+}
+
 func SplitMarkdownTableRow(line string) []string {
-	trackCodeSpans := strings.Count(line, "`")%2 == 0
+	runes := []rune(line)
+	inSpan := codeSpanRanges(runes)
 
 	var cells []string
 	var current strings.Builder
-	inCode := false
-	runes := []rune(line)
 	for i := 0; i < len(runes); i++ {
 		r := runes[i]
 		switch {
 		case r == '\\' && i+1 < len(runes) && runes[i+1] == '|':
 			current.WriteRune('|')
 			i++
-		case r == '`' && trackCodeSpans:
-			inCode = !inCode
-			current.WriteRune(r)
-		case r == '|' && trackCodeSpans && inCode:
+		case r == '|' && inSpan[i]:
 			current.WriteRune(r)
 		case r == '|':
 			cells = append(cells, current.String())

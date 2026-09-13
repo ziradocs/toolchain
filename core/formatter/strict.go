@@ -329,31 +329,39 @@ func escapeTableCells(cells []string) []string {
 // metería un "\" visible dentro del <code> renderizado, que un code span no
 // interpreta como escape (cambiaría el contenido, no solo la sintaxis).
 //
-// Pero una celda con una cantidad IMPAR de backticks no tiene ningún code
-// span real — un solo "`" suelto no abre nada — y aun así, rastreando
-// backticks ciegamente, el toggle queda en `true` para el resto de la celda
-// (hallazgo de revisión: "use ` for code | see docs" tiene un backtick
-// suelto, así que el "|" real que sigue se leía como "dentro de un code
-// span" y quedaba sin escapar, partiendo la celda en el reparse). Con
-// cantidad impar, esta función escapa TODOS los "|" de la celda sin rastrear
-// backticks — sigue siendo correcto en el reparse (SplitMarkdownTableRow
-// decodifica "\|" a "|" sin importar si está o no entre backticks), solo dejar
-// de ser la representación más prolija de un code span que en el fondo nunca
-// estuvo bien formado.
+// Un "`" suelto (una corrida de backticks sin otra corrida del MISMO largo
+// más adelante en la celda que la cierre) no abre ningún code span real —
+// codeSpanRunRanges no lo marca como tal, así que el "|" que sigue se
+// escapa igual que cualquier otro "|" literal (hallazgo de revisión: "use `
+// for code | see docs" tiene un backtick suelto; escaparlo es correcto en
+// el reparse — SplitMarkdownTableRow decodifica "\|" a "|" sin importar si
+// está o no entre backticks — aunque dejar de ser la representación más
+// prolija de un code span que en el fondo nunca estuvo bien formado).
+//
+// codeSpanRunRanges empareja CORRIDAS de backticks, no backticks sueltos —
+// espejo exacto de elements.codeSpanRanges (core/internal/elements/table.go),
+// no reusado directo porque este archivo es deliberadamente un espejo
+// autocontenido del parser (ver el comentario de strictNewElementKeywords
+// más abajo). Un span delimitado por dos o más backticks seguidos (la
+// forma CommonMark para meter un backtick literal adentro) se rompía antes
+// de esto: alternar por CARÁCTER en vez de por corrida leía dos backticks
+// consecutivos como "abre, cierra" en vez de "abre un delimitador de largo
+// 2", así que el "|" que en realidad está adentro del
+// span se escapaba igual que uno literal — metiendo un "\" visible dentro
+// del <code> renderizado en el próximo build, que un code span no
+// interpreta como escape (cambia el contenido, no solo la sintaxis;
+// hallazgo de segunda ronda de revisión).
 func escapeTableCellPipe(cell string) string {
 	if !strings.Contains(cell, "|") {
 		return cell
 	}
-	trackCodeSpans := strings.Count(cell, "`")%2 == 0
+	runes := []rune(cell)
+	inSpan := codeSpanRunRanges(runes)
 
 	var b strings.Builder
-	inCode := false
-	for _, r := range cell {
+	for i, r := range runes {
 		switch {
-		case r == '`' && trackCodeSpans:
-			inCode = !inCode
-			b.WriteRune(r)
-		case r == '|' && trackCodeSpans && inCode:
+		case r == '|' && inSpan[i]:
 			b.WriteRune(r)
 		case r == '|':
 			b.WriteString(`\|`)
@@ -362,6 +370,55 @@ func escapeTableCellPipe(cell string) string {
 		}
 	}
 	return b.String()
+}
+
+// codeSpanRunRanges marca, por índice de rune, qué posiciones caen dentro
+// de un code span delimitado por una corrida de backticks — ver el
+// comentario de escapeTableCellPipe. Espejo exacto de
+// elements.codeSpanRanges (core/internal/elements/table.go): el delimitador
+// es una CORRIDA de N backticks consecutivos, y solo otra corrida de
+// exactamente N backticks la cierra; una corrida sin cierre del mismo largo
+// en el resto del texto no es un delimitador, son backticks literales.
+func codeSpanRunRanges(runes []rune) []bool {
+	n := len(runes)
+	inSpan := make([]bool, n)
+	i := 0
+	for i < n {
+		if runes[i] != '`' {
+			i++
+			continue
+		}
+		start := i
+		for i < n && runes[i] == '`' {
+			i++
+		}
+		openLen := i - start
+
+		j := i
+		matched := false
+		for j < n {
+			if runes[j] != '`' {
+				j++
+				continue
+			}
+			closeStart := j
+			for j < n && runes[j] == '`' {
+				j++
+			}
+			if j-closeStart == openLen {
+				for k := start; k < j; k++ {
+					inSpan[k] = true
+				}
+				i = j
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+	}
+	return inSpan
 }
 
 // strictNewElementKeywords espeja la lista de internal/elements/common.go

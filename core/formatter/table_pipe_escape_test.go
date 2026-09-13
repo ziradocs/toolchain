@@ -146,3 +146,53 @@ func TestFormatPipeTable_OddBacktickCount_StillEscapesRoundTrips(t *testing.T) {
 		t.Errorf("Rows[0][0] reparseado = %q, want \"use ` for code | see docs\"", reTable.Rows[0][0])
 	}
 }
+
+// TestFormatPipeTable_DoubleBacktickSpanPipe_NotEscaped cubre un hallazgo
+// de segunda ronda de revisión: un "|" dentro de un code span delimitado
+// por una CORRIDA de dos backticks seguidos (la forma CommonMark para
+// meter un backtick literal adentro, como en el fixture de este test) se
+// reescapaba igual que uno literal —
+// metiendo un "\" visible dentro del <code> renderizado — porque la versión
+// anterior alternaba "dentro de código" por CARÁCTER "`" suelto: dos
+// backticks consecutivos se leían como "abre, cierra" en vez de "abre un
+// delimitador de largo 2".
+func TestFormatPipeTable_DoubleBacktickSpanPipe_NotEscaped(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(3, 1))
+	table.Headers = []string{"A", "B"}
+	table.Rows = [][]string{{"x", "``a|b``"}}
+
+	out, err := FormatStrict(chartDoc(table))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	if strings.Contains(out, `\|`) {
+		t.Fatalf("un \"|\" dentro de un span de 2 backticks no debería reescaparse:\n%s", out)
+	}
+	if !strings.Contains(out, "``a|b``") {
+		t.Fatalf("el code span debería salir intacto:\n%s", out)
+	}
+
+	reparsed, diags := parser.New(util.NewNoop()).Parse(out, "test.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("reparse produjo un error: %v\n%s", d, out)
+		}
+	}
+	var reTable *ast.TableElement
+	for _, block := range reparsed.ContentBlocks {
+		for _, el := range block.Elements {
+			if tb, ok := el.(*ast.TableElement); ok {
+				reTable = tb
+			}
+		}
+	}
+	if reTable == nil {
+		t.Fatalf("no se encontró el TableElement reparseado:\n%s", out)
+	}
+	if len(reTable.Rows) != 1 || len(reTable.Rows[0]) != 2 {
+		t.Fatalf("Rows reparseado = %#v, want 1 fila de 2 celdas:\n%s", reTable.Rows, out)
+	}
+	if reTable.Rows[0][1] != "``a|b``" {
+		t.Errorf("Rows[0][1] reparseado = %q, want \"``a|b``\"", reTable.Rows[0][1])
+	}
+}

@@ -703,7 +703,7 @@ func TestTableParser_ParseMarkdownTable_MultiRowStillConsumesAll(t *testing.T) {
 }
 
 // TestTableParser_ParseMarkdownTable_CodeSpanWithPipe cubre F10 del audit
-// 2026-09-11: una celda con un code span que contiene "|" (“ `User | null` “)
+// 2026-09-11: una celda con un code span que contiene "|" ("`User | null`")
 // se partía en 2 celdas de más — strings.Split(line, "|") no distinguía un
 // "|" real de uno dentro de backticks — así que una fila con menos columnas
 // de las que tiene salía marcada por TABLE003 (linter/rules.go) contra una
@@ -798,10 +798,10 @@ func TestTableParser_ParseMarkdownTable_RowPositions(t *testing.T) {
 }
 
 // TestTableParser_ParseMarkdownTable_OddBacktickCount_StillSplits cubre un
-// hallazgo de revisión: una celda con una cantidad IMPAR de backticks (un
-// "`" suelto que no abre ningún code span real) dejaba el rastreo de código
-// prendido para el resto de la fila, tragándose el "|" real que separa la
-// columna siguiente en vez de tratarlo como delimitador.
+// hallazgo de revisión: un "`" suelto (una corrida de largo 1 sin otra
+// corrida del mismo largo en el resto de la línea que la cierre) no abre
+// ningún code span real — codeSpanRanges no lo marca como delimitador, así
+// que los "|" reales que vienen después siguen siendo separadores.
 func TestTableParser_ParseMarkdownTable_OddBacktickCount_StillSplits(t *testing.T) {
 	parser := &TableParser{}
 	ctx := &ParseContext{
@@ -821,5 +821,40 @@ func TestTableParser_ParseMarkdownTable_OddBacktickCount_StillSplits(t *testing.
 	// 3 pipes reales tras el backtick suelto -> 3 celdas de datos, no 1.
 	if len(table.Rows) != 1 || len(table.Rows[0]) != 3 {
 		t.Fatalf("Rows = %#v, want 1 fila de 3 celdas", table.Rows)
+	}
+}
+
+// TestTableParser_ParseMarkdownTable_DoubleBacktickSpanWithPipe cubre un
+// hallazgo de segunda ronda de revisión: un code span delimitado por una
+// corrida de dos o más backticks seguidos (la forma CommonMark para meter
+// un backtick literal adentro) se rompía porque la versión anterior
+// alternaba "dentro de código" por cada CARÁCTER backtick suelto, no por
+// corrida — dos backticks consecutivos se leían como "abre, cierra" en vez
+// de "abre un delimitador de largo 2", así que el "|" que en realidad está
+// DENTRO del span se trataba como separador real. El fixture de este test
+// (sin ningún backtick suelto adentro) ya alcanza para reproducirlo: 4
+// backticks en total, pero agrupados en dos corridas de 2, no en 4 corridas
+// de 1.
+func TestTableParser_ParseMarkdownTable_DoubleBacktickSpanWithPipe(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			"| x | ``a|b`` |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table := result.Element.(*ast.TableElement)
+	if len(table.Rows) != 1 || len(table.Rows[0]) != 2 {
+		t.Fatalf("Rows = %#v, want 1 fila de 2 celdas (el \"|\" adentro del span de 2 backticks no debe partir la fila)", table.Rows)
+	}
+	if table.Rows[0][1] != "``a|b``" {
+		t.Errorf("Rows[0][1] = %q, want \"``a|b``\" (el span completo, con el pipe adentro intacto)", table.Rows[0][1])
 	}
 }
