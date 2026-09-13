@@ -8,10 +8,11 @@ theme: "modern-blue"
 # Charts, Built In
 ## Bar, line, doughnut, radar, and combo charts
 
-Charts render client-side by default via Chart.js. With `--render-mode
-offline-assets` or `offline-inline`, bar/line/pie/doughnut charts rasterize
-natively in Go at build time — no headless browser needed for those types;
-radar and combo charts still use a headless Chromium pass in offline modes.
+Charts render client-side by default via Chart.js. With
+`--render-mode offline-assets` or `offline-inline`, bar/line/pie/doughnut
+charts rasterize natively in Go at build time — no headless browser needed
+for those types; radar and combo charts still use a headless Chromium
+pass in offline modes.
 
 ---
 
