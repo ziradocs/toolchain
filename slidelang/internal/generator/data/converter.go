@@ -1786,8 +1786,18 @@ func createDatasetsFromData(chart *ast.ChartElement, variables map[string]interf
 	// espejo exacto de la misma regla en core/renderer/html.go, PR de esta
 	// misma serie). Antes de este fix, `len(chart.Data) == 1` solo miraba
 	// la CANTIDAD de filas, nunca su forma.
-	_, firstCellIsString := chart.Data[0][0].(string)
-	if len(chart.Data) == 1 && !firstCellIsString {
+	//
+	// chart.Data[0] puede ser una fila VACÍA (`data: [[]]` — el schema no lo
+	// prohíbe, y un AST armado a mano tampoco) — chart.Data[0][0] sin este
+	// guard entra en pánico (hallazgo de revisión independiente). Una fila
+	// vacía no es ni "string" ni "no string": no aporta ningún valor, así
+	// que cae al mismo camino tabular de abajo (que ya tolera len(row)==0 y
+	// simplemente no agrega nada para esa fila).
+	firstCellIsString := false
+	if len(chart.Data[0]) > 0 {
+		_, firstCellIsString = chart.Data[0][0].(string)
+	}
+	if len(chart.Data) == 1 && len(chart.Data[0]) > 0 && !firstCellIsString {
 		// Data inline: [890, 640, 390, 280] -> usar todos los valores
 		data = append(data, chart.Data[0]...)
 	} else {

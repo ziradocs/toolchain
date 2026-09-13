@@ -71,3 +71,24 @@ func TestConvertChartElementToChartJS_SingleRowWithLeadingLabel(t *testing.T) {
 		t.Errorf("Labels = %v, want [\"Q1\"] derivado de la primera columna", config.Data.Labels)
 	}
 }
+
+// TestConvertChartElementToChartJS_EmptyRow_DoesNotPanic cubre un hallazgo
+// de revisión independiente: data: [[]] (una sola fila, VACÍA) pasaba el
+// guard len(chart.Data)==0 (hay 1 fila) y entraba en pánico en
+// chart.Data[0][0] — el schema no prohíbe una fila vacía, y un AST armado a
+// mano (--filter, un consumidor de la API) tampoco. No hay ningún valor que
+// graficar, así que el dataset resultante queda vacío en vez de tirar el
+// build entero.
+func TestConvertChartElementToChartJS_EmptyRow_DoesNotPanic(t *testing.T) {
+	chart := ast.NewChartElement(diagnostics.NewPosition(1, 1), "bar")
+	chart.Data = [][]interface{}{{}}
+
+	config := ConvertChartElementToChartJS(chart, "chart-0", nil)
+
+	if len(config.Data.Datasets) != 1 {
+		t.Fatalf("esperaba 1 dataset, hay %d", len(config.Data.Datasets))
+	}
+	if len(config.Data.Datasets[0].Data) != 0 {
+		t.Errorf("Data = %v, want vacío (la única fila no tiene celdas)", config.Data.Datasets[0].Data)
+	}
+}
