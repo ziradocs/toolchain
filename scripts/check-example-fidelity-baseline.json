@@ -13,7 +13,7 @@
   },
   "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::image": {
     "source": 10,
-    "html": 1
+    "html": 6
   },
   "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::table": {
     "source": 2,
@@ -22,10 +22,6 @@
   "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::table_rows": {
     "source": 18,
     "html": 6
-  },
-  "examples/01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang::image": {
-    "source": 2,
-    "html": 1
   },
   "examples/02_diagrams_and_charts/02.1_data_analysis_flex.slidelang::table": {
     "source": 2,
