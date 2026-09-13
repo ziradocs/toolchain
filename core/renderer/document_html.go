@@ -78,8 +78,24 @@ func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderCon
 	// en context.go) — un caller que ya lo fijó explícitamente gana; si no,
 	// se deriva de FrontMatter.Lang, así los 9+ call sites que arman un
 	// RenderContext sin saber de xref no tienen que empezar a hacerlo.
-	if ctx.Lang == "" && doc.FrontMatter != nil {
-		ctx.Lang = doc.FrontMatter.Lang
+	//
+	// La derivación NO muta el *RenderContext del caller (hallazgo de
+	// revisión independiente): antes escribía directo en ctx.Lang, y como
+	// resolveRenderContext devuelve el MISMO puntero que recibe (no clona),
+	// un caller que reutiliza un único RenderContext para varios documentos
+	// —un batch, un servidor de larga vida— dejaba el Lang del primer
+	// documento pegado en los siguientes: el guard "ctx.Lang == \"\"" nunca
+	// se cumple de nuevo una vez que un documento anterior ya lo llenó, así
+	// que un segundo documento con su propio `lang: es` seguía mostrando
+	// "Table" en vez de "Tabla". Clonar (shallow copy — todos los campos son
+	// escalares o punteros a fetchers compartidos, copiarlos de nuevo no
+	// cambia a qué apuntan) y repuntar la variable LOCAL ctx dentro de esta
+	// función es suficiente: todo lo que sigue en este árbol de llamadas usa
+	// el clon, y el struct del caller queda intacto.
+	if ctx.Lang == "" && doc.FrontMatter != nil && doc.FrontMatter.Lang != "" {
+		derived := *ctx
+		derived.Lang = doc.FrontMatter.Lang
+		ctx = &derived
 	}
 
 	// Nonce único para este documento: autoriza en la CSP tanto el <meta>

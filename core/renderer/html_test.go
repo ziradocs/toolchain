@@ -537,3 +537,52 @@ func TestGenerateDocumentHTML_DerivesLangFromFrontMatter(t *testing.T) {
 		t.Errorf("GenerateDocumentHTML no derivó Lang=\"en\" de FrontMatter.Lang; caption \"Table 1: Data\" no encontrado en el HTML")
 	}
 }
+
+// TestGenerateDocumentHTML_DerivedLangDoesNotLeakAcrossReusedContext cubre
+// un hallazgo de revisión independiente: la derivación de Lang escribía
+// directo en el *RenderContext que el caller pasó — y resolveRenderContext
+// devuelve el MISMO puntero, no un clon. Un caller que reutiliza un único
+// RenderContext para varios documentos (un batch, un servidor de larga
+// vida) dejaba el Lang del primer documento pegado en los siguientes: el
+// guard "ctx.Lang == \"\"" nunca se volvía a cumplir, así que un segundo
+// documento con su propio `lang: es` seguía mostrando "Table" en vez de
+// "Tabla". Este test reutiliza el MISMO puntero *RenderContext para dos
+// documentos (inglés, luego español) — el segundo debe ver su propio
+// idioma, no el heredado del primero.
+func TestGenerateDocumentHTML_DerivedLangDoesNotLeakAcrossReusedContext(t *testing.T) {
+	makeDoc := func(lang string) *ast.AST {
+		pos := diagnostics.NewPosition(1, 1)
+		table := ast.NewTableElement(pos)
+		table.Headers = []string{"A"}
+		table.Rows = [][]string{{"1"}}
+		table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+		table.Label = "tbl:x"
+		table.Number = 1
+		table.Caption = "Data"
+
+		block := ast.NewContentBlock(pos, "content")
+		block.Elements = append(block.Elements, table)
+		doc := ast.NewAST(pos)
+		doc.ContentBlocks = append(doc.ContentBlocks, *block)
+		doc.FrontMatter = &ast.FrontMatterNode{Lang: lang}
+		return doc
+	}
+
+	shared := &RenderContext{}
+
+	firstHTML := GenerateDocumentHTML(makeDoc("en"), DocumentHTMLOptions{}, shared)
+	if !strings.Contains(firstHTML, "Table 1: Data") {
+		t.Fatalf("primer documento (en): esperaba \"Table 1: Data\", no lo encontró: %s", firstHTML)
+	}
+	if shared.Lang != "" {
+		t.Fatalf("GenerateDocumentHTML mutó el RenderContext del caller: shared.Lang = %q, want \"\" (sin tocar)", shared.Lang)
+	}
+
+	secondHTML := GenerateDocumentHTML(makeDoc("es"), DocumentHTMLOptions{}, shared)
+	if !strings.Contains(secondHTML, "Tabla 1: Data") {
+		t.Errorf("segundo documento (es) con el MISMO *RenderContext reutilizado: esperaba \"Tabla 1: Data\", got: %s", secondHTML)
+	}
+	if strings.Contains(secondHTML, "Table 1: Data") {
+		t.Errorf("segundo documento heredó el Lang=\"en\" del primero: %s", secondHTML)
+	}
+}
