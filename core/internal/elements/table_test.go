@@ -867,6 +867,17 @@ func TestTableParser_ParseMarkdownTable_DoubleBacktickSpanWithPipe(t *testing.T)
 // "veía" el pipe siguiente sin saber que él mismo ya estaba consumido por
 // el anterior. Un backslash escapa al "|" sólo si la corrida de
 // backslashes justo antes tiene largo IMPAR.
+//
+// Los backslashes que SOBREVIVEN como contenido literal se aparean de a
+// DOS (CommonMark §2.4: cada backslash escapa al que sigue; un par de
+// backslashes colapsa a UNO literal) — hallazgo de cuarta ronda de
+// revisión sobre el fix de tercera ronda: la versión anterior determinaba
+// bien la paridad (split o no split) pero escribía los backslashes
+// literales SIN aparear (una corrida de N escritos como N-1 sueltos en vez
+// de (N-1)/2 apareados), así que "\\\|" reconstruía DOS backslashes en vez
+// de uno — reventando el round-trip de escapeTableCellPipe (ver
+// table_pipe_escape_test.go) apenas la celda ya traía un backslash antes
+// del "|".
 func TestSplitMarkdownTableRow_BackslashParity(t *testing.T) {
 	tests := []struct {
 		name string
@@ -874,18 +885,23 @@ func TestSplitMarkdownTableRow_BackslashParity(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "un backslash escapa el pipe (impar)",
+			name: "un backslash escapa el pipe (impar), cero backslashes sobreviven",
 			line: `a\|b`,
 			want: []string{"a|b"},
 		},
 		{
-			name: "dos backslashes se cancelan entre sí, el pipe separa (par)",
+			name: "dos backslashes se aparean en uno solo, el pipe separa (par)",
 			line: `a\\|b`,
-			want: []string{`a\\`, "b"},
+			want: []string{`a\`, "b"},
 		},
 		{
-			name: "tres backslashes: los dos primeros se cancelan, el tercero escapa (impar)",
+			name: "tres backslashes: el primer par colapsa a uno, el tercero escapa (impar)",
 			line: `a\\\|b`,
+			want: []string{`a\|b`},
+		},
+		{
+			name: "cinco backslashes: dos pares colapsan a dos, el quinto escapa (impar)",
+			line: `a\\\\\|b`,
 			want: []string{`a\\|b`},
 		},
 	}

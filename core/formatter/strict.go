@@ -364,12 +364,39 @@ func escapeTableCellPipe(cell string) string {
 		case r == '|' && inSpan[i]:
 			b.WriteRune(r)
 		case r == '|':
-			b.WriteString(`\|`)
+			// Hallazgo de cuarta ronda de revisión: escribir siempre
+			// exactamente UN backslash ("\|") ignora los que ya haya
+			// justo antes en la celda (alcanzable desde una tabla YAML o
+			// un AST armado por un filtro, no solo desde este parser) —
+			// "a\|b" salía como "a\\|b", que el splitter (ahora que
+			// empareja de a dos, CommonMark §2.4) lee como "un backslash
+			// literal + pipe SEPARADOR", partiendo la fila de más. Si ya
+			// hay k backslashes escritos, hacen falta k+1 MÁS (total
+			// 2k+1, siempre impar) para que el splitter reconstruya
+			// exactamente esos k backslashes y el pipe quede literal —
+			// espejo exacto, del lado de escritura, del apareo que ahora
+			// hace elements.SplitMarkdownTableRow.
+			k := precedingBackslashRunLength(runes, i)
+			for j := 0; j <= k; j++ {
+				b.WriteRune('\\')
+			}
+			b.WriteRune('|')
 		default:
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
+}
+
+// precedingBackslashRunLength cuenta los backslashes consecutivos
+// inmediatamente antes de la posición i en runes (ya escritos a b por el
+// caso default de escapeTableCellPipe en vueltas anteriores del loop).
+func precedingBackslashRunLength(runes []rune, i int) int {
+	count := 0
+	for k := i - 1; k >= 0 && runes[k] == '\\'; k-- {
+		count++
+	}
+	return count
 }
 
 // codeSpanRunRanges marca, por índice de rune, qué posiciones caen dentro

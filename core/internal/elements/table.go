@@ -597,16 +597,28 @@ func SplitMarkdownTableRow(line string) []string {
 				i++
 			}
 			runLen := i - start
-			if runLen%2 == 1 && i < len(runes) && runes[i] == '|' {
-				// El último backslash de una corrida impar escapa este
-				// pipe: los anteriores (siempre en cantidad par) se
-				// escriben literales, y el pipe queda literal también.
-				for k := 0; k < runLen-1; k++ {
+			if i < len(runes) && runes[i] == '|' {
+				// Corrida seguida de un pipe: CommonMark empareja los
+				// backslashes de a DOS — cada par escapa al otro y
+				// colapsa a UN backslash literal (hallazgo de cuarta
+				// ronda de revisión: la versión anterior escribía los
+				// runLen-1 backslashes de una corrida impar uno por uno,
+				// sin aparear — "\\\|" reconstruía 2 backslashes en vez
+				// de 1). Si sobra uno (corrida impar), ese último escapa
+				// al pipe, que queda literal; si no sobra ninguno
+				// (corrida par), el pipe sigue sin escapar y es
+				// separador real.
+				for k := 0; k < runLen/2; k++ {
 					current.WriteRune('\\')
 				}
-				current.WriteRune('|')
-				i++
+				if runLen%2 == 1 {
+					current.WriteRune('|')
+					i++
+				}
 			} else {
+				// Fuera de esa posición, un backslash no es un escape
+				// (ver splitInlineArray/C8): se escribe literal, corrida
+				// completa, sin aparear.
 				for k := 0; k < runLen; k++ {
 					current.WriteRune('\\')
 				}

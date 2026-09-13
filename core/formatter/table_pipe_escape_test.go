@@ -197,6 +197,52 @@ func TestFormatPipeTable_DoubleBacktickSpanPipe_NotEscaped(t *testing.T) {
 	}
 }
 
+// TestFormatPipeTable_CellAlreadyContainsBackslashBeforePipe_RoundTrips
+// cubre un hallazgo de cuarta ronda de revisión: una celda cuyo contenido
+// YA trae un backslash literal justo antes de un "|" (alcanzable desde una
+// tabla YAML o un AST armado por un filtro/--format json, no sólo desde
+// este parser markdown) se reescapaba con un backslash MÁS sin mirar los
+// que ya había — "a\|b" salía como "a\\|b", que el splitter (una vez
+// corregido a aparear de a dos backslashes, CommonMark §2.4) lee como "un
+// backslash literal seguido de un pipe SEPARADOR", partiendo la fila en
+// una columna de más. Fix: contar los backslashes ya escritos e inyectar
+// k+1 más (total 2k+1, siempre impar) para que el splitter reconstruya
+// exactamente los k originales y el pipe quede literal.
+func TestFormatPipeTable_CellAlreadyContainsBackslashBeforePipe_RoundTrips(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(3, 1))
+	table.Headers = []string{"A", "B"}
+	table.Rows = [][]string{{`a\|b`, "z"}}
+
+	out, err := FormatStrict(chartDoc(table))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+
+	reparsed, diags := parser.New(util.NewNoop()).Parse(out, "test.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("reparse produjo un error: %v\n%s", d, out)
+		}
+	}
+	var reTable *ast.TableElement
+	for _, block := range reparsed.ContentBlocks {
+		for _, el := range block.Elements {
+			if tb, ok := el.(*ast.TableElement); ok {
+				reTable = tb
+			}
+		}
+	}
+	if reTable == nil {
+		t.Fatalf("no se encontró el TableElement reparseado:\n%s", out)
+	}
+	if len(reTable.Rows) != 1 || len(reTable.Rows[0]) != 2 {
+		t.Fatalf("Rows reparseado = %#v, want 1 fila de 2 celdas (el backslash preexistente no debe agregar una columna de más):\n%s", reTable.Rows, out)
+	}
+	if reTable.Rows[0][0] != `a\|b` {
+		t.Errorf("Rows[0][0] reparseado = %q, want %q (byte a byte, backslash incluido)", reTable.Rows[0][0], `a\|b`)
+	}
+}
+
 // TestEscapeTableCellPipe_EscapedBacktickDoesNotProtectPipe cubre un
 // hallazgo de tercera ronda de revisión: un backtick escapado
 // (precedido por un backslash) no es un delimitador de code span real —
