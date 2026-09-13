@@ -858,3 +858,70 @@ func TestTableParser_ParseMarkdownTable_DoubleBacktickSpanWithPipe(t *testing.T)
 		t.Errorf("Rows[0][1] = %q, want \"``a|b``\" (el span completo, con el pipe adentro intacto)", table.Rows[0][1])
 	}
 }
+
+// TestSplitMarkdownTableRow_BackslashParity cubre un hallazgo de tercera
+// ronda de revisión: el split anterior sólo miraba UN backslash hacia
+// atrás de un "|", así que "\\|" (un backslash escapado por otro backslash,
+// seguido de un pipe real y sin escapar) se leía igual que "\|" (un
+// backslash escapando al pipe) — el segundo backslash de la corrida
+// "veía" el pipe siguiente sin saber que él mismo ya estaba consumido por
+// el anterior. Un backslash escapa al "|" sólo si la corrida de
+// backslashes justo antes tiene largo IMPAR.
+func TestSplitMarkdownTableRow_BackslashParity(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want []string
+	}{
+		{
+			name: "un backslash escapa el pipe (impar)",
+			line: `a\|b`,
+			want: []string{"a|b"},
+		},
+		{
+			name: "dos backslashes se cancelan entre sí, el pipe separa (par)",
+			line: `a\\|b`,
+			want: []string{`a\\`, "b"},
+		},
+		{
+			name: "tres backslashes: los dos primeros se cancelan, el tercero escapa (impar)",
+			line: `a\\\|b`,
+			want: []string{`a\\|b`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SplitMarkdownTableRow(tt.line)
+			if len(got) != len(tt.want) {
+				t.Fatalf("SplitMarkdownTableRow(%q) = %#v, want %#v", tt.line, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("SplitMarkdownTableRow(%q)[%d] = %q, want %q", tt.line, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestCodeSpanRanges_EscapedBacktickDoesNotOpenSpan cubre un hallazgo de
+// tercera ronda de revisión, con precedente exacto en el spec de
+// CommonMark (sección "Backslash escapes": "\`not code`" se renderiza como
+// el texto literal "`not code`", nunca como <code>): un backtick escapado
+// (precedido por un backslash) no puede abrir un code span. Antes de este
+// fix, un backtick escapado emparejaba con el siguiente backtick real,
+// tratando como código un "|" que en realidad debía seguir siendo
+// separador de columna.
+func TestCodeSpanRanges_EscapedBacktickDoesNotOpenSpan(t *testing.T) {
+	line := "a\\`code|pipe`z"
+	got := SplitMarkdownTableRow(line)
+	want := []string{"a\\`code", "pipe`z"}
+	if len(got) != len(want) {
+		t.Fatalf("SplitMarkdownTableRow(%q) = %#v, want %#v (el backtick escapado no debe abrir un span, así que el \"|\" sigue siendo separador)", line, got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("SplitMarkdownTableRow(%q)[%d] = %q, want %q", line, i, got[i], want[i])
+		}
+	}
+}

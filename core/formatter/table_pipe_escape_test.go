@@ -196,3 +196,19 @@ func TestFormatPipeTable_DoubleBacktickSpanPipe_NotEscaped(t *testing.T) {
 		t.Errorf("Rows[0][1] reparseado = %q, want \"``a|b``\"", reTable.Rows[0][1])
 	}
 }
+
+// TestEscapeTableCellPipe_EscapedBacktickDoesNotProtectPipe cubre un
+// hallazgo de tercera ronda de revisión: un backtick escapado
+// (precedido por un backslash) no es un delimitador de code span real —
+// mismo precedente de CommonMark que elements.codeSpanRanges (ver su
+// comentario) — así que un "|" que aparece después de un backtick escapado
+// y un backtick real sigue siendo un pipe literal y debe reescaparse, no
+// tratarse como protegido dentro de un span inexistente.
+func TestEscapeTableCellPipe_EscapedBacktickDoesNotProtectPipe(t *testing.T) {
+	cell := "a\\`code|pipe`z"
+	got := escapeTableCellPipe(cell)
+	want := "a\\`code\\|pipe`z"
+	if got != want {
+		t.Errorf("escapeTableCellPipe(%q) = %q, want %q (el backtick escapado no abre span, el \"|\" debe reescaparse)", cell, got, want)
+	}
+}

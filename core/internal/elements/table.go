@@ -490,12 +490,21 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 // chequeo anterior de "cantidad de backticks impar en toda la línea": un
 // backtick suelto sin pareja de su mismo largo simplemente no matchea
 // nada aquí, y punto — no hace falta una heurística aparte para ese caso.
+//
+// Una corrida de backticks escapada (precedida por un número IMPAR de
+// backslashes, p. ej. "\`") no puede abrir un span (hallazgo de tercera
+// ronda de revisión, con precedente exacto en el ejemplo de la sección
+// "Backslash escapes" del spec de CommonMark: "\`not code`" se renderiza
+// como el texto literal "`not code`", nunca como <code>). backslashEscaped
+// (abajo) da esa paridad; un backtick escapado se salta sin abrir ni
+// cerrar nada, como si fuera texto común.
 func codeSpanRanges(runes []rune) []bool {
 	n := len(runes)
 	inSpan := make([]bool, n)
+	escaped := backslashEscaped(runes)
 	i := 0
 	for i < n {
-		if runes[i] != '`' {
+		if runes[i] != '`' || escaped[i] {
 			i++
 			continue
 		}
@@ -539,18 +548,70 @@ func codeSpanRanges(runes []rune) []bool {
 	return inSpan
 }
 
+// backslashEscaped marca, por índice de rune, qué posiciones quedan
+// escapadas por un backslash que las precede — es decir, escaped[i] es
+// true cuando el número de backslashes consecutivos justo antes de la
+// posición i es IMPAR (hallazgo de tercera ronda de revisión: la versión
+// anterior sólo miraba UN backslash hacia atrás, así que "\\|" —un
+// backslash escapado seguido de un pipe real y sin escapar— se leía igual
+// que "\|" —un backslash escapando al pipe—, porque el segundo backslash
+// de la corrida, tomado aislado, "veía" el pipe siguiente sin saber que él
+// mismo ya estaba consumido por el backslash anterior. Una corrida de N
+// backslashes consecutivos se empareja de a pares —cada par es un
+// backslash literal— y sólo el ÚLTIMO de una corrida IMPAR escapa al
+// carácter que sigue.
+func backslashEscaped(runes []rune) []bool {
+	n := len(runes)
+	escaped := make([]bool, n)
+	i := 0
+	for i < n {
+		if runes[i] != '\\' {
+			i++
+			continue
+		}
+		start := i
+		for i < n && runes[i] == '\\' {
+			i++
+		}
+		runLen := i - start
+		if runLen%2 == 1 && i < n {
+			escaped[i] = true
+		}
+	}
+	return escaped
+}
+
 func SplitMarkdownTableRow(line string) []string {
 	runes := []rune(line)
 	inSpan := codeSpanRanges(runes)
 
 	var cells []string
 	var current strings.Builder
-	for i := 0; i < len(runes); i++ {
+	i := 0
+	for i < len(runes) {
 		r := runes[i]
 		switch {
-		case r == '\\' && i+1 < len(runes) && runes[i+1] == '|':
-			current.WriteRune('|')
-			i++
+		case r == '\\':
+			start := i
+			for i < len(runes) && runes[i] == '\\' {
+				i++
+			}
+			runLen := i - start
+			if runLen%2 == 1 && i < len(runes) && runes[i] == '|' {
+				// El último backslash de una corrida impar escapa este
+				// pipe: los anteriores (siempre en cantidad par) se
+				// escriben literales, y el pipe queda literal también.
+				for k := 0; k < runLen-1; k++ {
+					current.WriteRune('\\')
+				}
+				current.WriteRune('|')
+				i++
+			} else {
+				for k := 0; k < runLen; k++ {
+					current.WriteRune('\\')
+				}
+			}
+			continue
 		case r == '|' && inSpan[i]:
 			current.WriteRune(r)
 		case r == '|':
@@ -559,6 +620,7 @@ func SplitMarkdownTableRow(line string) []string {
 		default:
 			current.WriteRune(r)
 		}
+		i++
 	}
 	cells = append(cells, current.String())
 	return cells

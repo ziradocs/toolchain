@@ -379,12 +379,18 @@ func escapeTableCellPipe(cell string) string {
 // es una CORRIDA de N backticks consecutivos, y solo otra corrida de
 // exactamente N backticks la cierra; una corrida sin cierre del mismo largo
 // en el resto del texto no es un delimitador, son backticks literales.
+//
+// Un backtick escapado (precedido por una corrida IMPAR de backslashes) no
+// abre span (hallazgo de tercera ronda de revisión, mismo fix que su
+// espejo en elements.codeSpanRanges — ver el comentario de esa función
+// para el precedente del spec de CommonMark).
 func codeSpanRunRanges(runes []rune) []bool {
 	n := len(runes)
 	inSpan := make([]bool, n)
+	escaped := backslashEscapedRunes(runes)
 	i := 0
 	for i < n {
-		if runes[i] != '`' {
+		if runes[i] != '`' || escaped[i] {
 			i++
 			continue
 		}
@@ -419,6 +425,31 @@ func codeSpanRunRanges(runes []rune) []bool {
 		}
 	}
 	return inSpan
+}
+
+// backslashEscapedRunes espeja elements.backslashEscaped
+// (core/internal/elements/table.go): escaped[i] es true cuando el número
+// de backslashes consecutivos justo antes de la posición i es IMPAR — sólo
+// el último backslash de una corrida impar escapa al carácter siguiente.
+func backslashEscapedRunes(runes []rune) []bool {
+	n := len(runes)
+	escaped := make([]bool, n)
+	i := 0
+	for i < n {
+		if runes[i] != '\\' {
+			i++
+			continue
+		}
+		start := i
+		for i < n && runes[i] == '\\' {
+			i++
+		}
+		runLen := i - start
+		if runLen%2 == 1 && i < n {
+			escaped[i] = true
+		}
+	}
+	return escaped
 }
 
 // strictNewElementKeywords espeja la lista de internal/elements/common.go
