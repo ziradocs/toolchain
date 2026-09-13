@@ -87,31 +87,7 @@ func (e *parseErr) Error() string { return e.msg }
 // formatStrictElement). Documentado aquí en vez de silenciado: si se
 // reintroduce un bug de este tipo, este mapa es el lugar para anotarlo de
 // nuevo mientras se investiga.
-var knownNormalizerBugs = map[string]string{
-	// normalizer_flex_stress_test.doclang (issue del audit 2026-09-11):
-	// tiene 3 encabezados "##" (Resultados y Comparativa, Diagrama del
-	// Proceso de Cierre, Referencias Visuales) — MarkdownSlideStructureRule.
-	// isDocLangDocument (rules/structure/markdown_slides.go) solo reconoce
-	// el documento como DocLang cuando hay EXACTAMENTE un "##" tras el "#";
-	// con 3, lo trata como si fuera una presentación SlideLang y le inserta
-	// separadores "---" de slide entre subsecciones al reformatear —
-	// cambia qué ContentBlock termina conteniendo la imagen final
-	// ("Referencias Visuales"), y eso corre su ImageContext inferido
-	// (title→hero) entre el parseo original y el reparseo del texto
-	// reformateado.
-	//
-	// No es un bug de ESTE fixture ni de este PR: es exactamente el hueco
-	// que PR-1 (rama fix-normalizer-dialect-scoping, "el normalizador ya
-	// sabe el dialecto") ya cierra — MarkdownSlideStructureRule gana
-	// AppliesTo(dialect) y deja de aplicarse a documentos DocLang sin
-	// importar cuántos "##" tengan. Confirmado corriendo este mismo test
-	// sobre esa rama: pasa limpio. Se skipea acá temporalmente porque esta
-	// rama (Ola 0, examples) se mergea ANTES que esa (Ola 1) por diseño del
-	// plan de auditoría — no tiene sentido tocar internal/normalize desde
-	// un PR que solo toca examples/. Retirar esta entrada en cuanto
-	// fix-normalizer-dialect-scoping esté en main.
-	"normalizer_flex_stress_test.doclang": "MarkdownSlideStructureRule no distingue dialecto todavía — fix en camino (rama fix-normalizer-dialect-scoping), este PR se mergea antes",
-}
+var knownNormalizerBugs = map[string]string{}
 
 // allowedUnsupportedInDocument / allowedUnsupportedInStrict enumeran los
 // NodeType cuyo UnsupportedElementError los harnesses de round-trip aceptan
