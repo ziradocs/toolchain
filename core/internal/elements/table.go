@@ -597,7 +597,20 @@ func SplitMarkdownTableRow(line string) []string {
 				i++
 			}
 			runLen := i - start
-			if i < len(runes) && runes[i] == '|' {
+			if inSpan[start] {
+				// Backslashes DENTRO de un code span son literales, no
+				// escapes — CommonMark §6.1: "backslash escapes do not
+				// work in code spans" (hallazgo de quinta ronda de
+				// revisión: la lógica de apareo/escape de abajo corría
+				// SIEMPRE, sin mirar inSpan, así que "`a\|b`" perdía el
+				// backslash — el span ya protege el "|" que sigue como no
+				// separador, pero el contenido en sí se reescribía). La
+				// corrida completa se preserva byte a byte, sin aparear
+				// ni interpretar nada.
+				for k := 0; k < runLen; k++ {
+					current.WriteRune('\\')
+				}
+			} else if i < len(runes) && runes[i] == '|' {
 				// Corrida seguida de un pipe: CommonMark empareja los
 				// backslashes de a DOS — cada par escapa al otro y
 				// colapsa a UN backslash literal (hallazgo de cuarta

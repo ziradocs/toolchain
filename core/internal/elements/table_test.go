@@ -920,6 +920,61 @@ func TestSplitMarkdownTableRow_BackslashParity(t *testing.T) {
 	}
 }
 
+// TestSplitMarkdownTableRow_BackslashInsideCodeSpanIsLiteral cubre un
+// hallazgo de quinta ronda de revisión: la rama de backslashes corría
+// SIEMPRE, sin mirar inSpan, así que una celda como "`a\|b`" (un code
+// span de un solo backtick que ya protege el "|" de adentro como no
+// separador) perdía igual el backslash — la lógica de apareo/escape de
+// pipes lo trataba como si estuviera a nivel de texto. CommonMark §6.1
+// es explícito: "backslash escapes do not work in code spans" — el
+// contenido entre backticks se preserva BYTE A BYTE, sin importar cuántos
+// backslashes consecutivos traiga ni si terminan justo antes de un "|".
+// Esto también cierra el round-trip de fmt: el formatter (ver
+// escapeTableCellPipe/table_pipe_escape_test.go) ya deja intacto un "|"
+// dentro de un span; si el parser desescapaba el backslash del contenido,
+// parse→format→reparse no era la identidad.
+func TestSplitMarkdownTableRow_BackslashInsideCodeSpanIsLiteral(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want []string
+	}{
+		{
+			name: "un backslash antes del pipe, DENTRO de un span de 1 backtick: sobrevive",
+			line: "`a\\|b`",
+			want: []string{"`a\\|b`"},
+		},
+		{
+			name: "dos backslashes (corrida par) antes del pipe, dentro de un span: sobreviven los dos, no se aparean",
+			line: "`a\\\\|b`",
+			want: []string{"`a\\\\|b`"},
+		},
+		{
+			name: "tres backslashes (corrida impar) antes del pipe, dentro de un span: sobreviven los tres",
+			line: "`a\\\\\\|b`",
+			want: []string{"`a\\\\\\|b`"},
+		},
+		{
+			name: "el mismo contenido FUERA de un span sí aplica el apareo/escape (sanity check, no debe romperse)",
+			line: `a\|b`,
+			want: []string{"a|b"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SplitMarkdownTableRow(tt.line)
+			if len(got) != len(tt.want) {
+				t.Fatalf("SplitMarkdownTableRow(%q) = %#v, want %#v", tt.line, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("SplitMarkdownTableRow(%q)[%d] = %q, want %q", tt.line, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 // TestCodeSpanRanges_EscapedBacktickDoesNotOpenSpan cubre un hallazgo de
 // tercera ronda de revisión, con precedente exacto en el spec de
 // CommonMark (sección "Backslash escapes": "\`not code`" se renderiza como

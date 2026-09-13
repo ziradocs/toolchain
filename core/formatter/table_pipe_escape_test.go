@@ -258,3 +258,50 @@ func TestEscapeTableCellPipe_EscapedBacktickDoesNotProtectPipe(t *testing.T) {
 		t.Errorf("escapeTableCellPipe(%q) = %q, want %q (el backtick escapado no abre span, el \"|\" debe reescaparse)", cell, got, want)
 	}
 }
+
+// TestFormatPipeTable_BackslashInsideCodeSpan_RoundTrips cubre un hallazgo
+// de quinta ronda de revisión: SplitMarkdownTableRow (el lado del parser)
+// desescapaba un backslash DENTRO de un code span — "`a\|b`" perdía el
+// backslash y quedaba "`a|b`" — aunque CommonMark §6.1 exige que el
+// contenido entre backticks se preserve byte a byte (los backslashes no
+// son escapes ahí adentro). El formatter (escapeTableCellPipe) ya dejaba
+// intacto un "|" dentro de un span bien formado; el bug era exclusivo del
+// parser, pero rompía el round-trip completo parse→format→reparse en
+// cuanto una celda con backslash-dentro-de-código se reformateaba.
+func TestFormatPipeTable_BackslashInsideCodeSpan_RoundTrips(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(3, 1))
+	table.Headers = []string{"A", "B"}
+	table.Rows = [][]string{{"x", "`a\\|b`"}}
+
+	out, err := FormatStrict(chartDoc(table))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	if !strings.Contains(out, "`a\\|b`") {
+		t.Fatalf("el code span con el backslash intacto debería salir sin cambios:\n%s", out)
+	}
+
+	reparsed, diags := parser.New(util.NewNoop()).Parse(out, "test.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("reparse produjo un error: %v\n%s", d, out)
+		}
+	}
+	var reTable *ast.TableElement
+	for _, block := range reparsed.ContentBlocks {
+		for _, el := range block.Elements {
+			if tb, ok := el.(*ast.TableElement); ok {
+				reTable = tb
+			}
+		}
+	}
+	if reTable == nil {
+		t.Fatalf("no se encontró el TableElement reparseado:\n%s", out)
+	}
+	if len(reTable.Rows) != 1 || len(reTable.Rows[0]) != 2 {
+		t.Fatalf("Rows reparseado = %#v, want 1 fila de 2 celdas:\n%s", reTable.Rows, out)
+	}
+	if reTable.Rows[0][1] != "`a\\|b`" {
+		t.Errorf("Rows[0][1] reparseado = %q, want \"`a\\\\|b`\" (el backslash dentro del span no es un escape, debe sobrevivir intacto)", reTable.Rows[0][1])
+	}
+}
