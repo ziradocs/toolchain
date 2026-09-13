@@ -39,6 +39,25 @@ type ParseContext struct {
 	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines
 	// es el archivo entero (#245).
 	LineOffset int
+
+	// HeadingAnchor, si no es nil, deduplica el anchor de un encabezado
+	// dentro del alcance que el caller decida (hoy: un deck completo de
+	// slidelang, vía FlexParser.uniqueHeadingAnchor). HeadingParser lo usa
+	// para los encabezados que reconoce DENTRO de contenido anidado
+	// (":::bloque", en el futuro una columna de grid) — el único lugar
+	// donde este registry produce encabezados hoy, porque a nivel top
+	// FlexParser/DocumentFlexParser interceptan "#"/"##" ANTES de llegar al
+	// registry (ver flex.go/document_flex.go) y nunca llaman a
+	// registry.Parse para esas líneas.
+	//
+	// nil (el default) cae a elements.DeriveAnchor sin deduplicar — el
+	// mismo comportamiento que DocumentFlexParser ya tiene hoy a nivel top
+	// (ningún dialecto de documento deduplica anchors todavía; agregarlo
+	// es una decisión de producto aparte, no un efecto colateral de poder
+	// anidar encabezados). Solo FlexParser fija este campo, porque solo
+	// slidelang tiene el estado de deduplicación por deck (C31: un parser
+	// de headings sin ese estado duplicaría ids dentro del mismo deck).
+	HeadingAnchor func(text string) string
 }
 
 // Position traduce un índice 0-based dentro de ctx.Lines a una posición

@@ -394,8 +394,8 @@ func (p *DocumentFlexParser) isSubsectionHeader(line string) bool {
 }
 
 // parseSubsectionHeader convierte ##, ###, etc. en TextElement con HTML.
-// El armado del elemento vive en buildHeadingElement, compartido con el
-// dialecto strict; acá solo se cuenta el nivel a partir de los `#`.
+// El armado del elemento vive en elements.BuildHeadingElement, compartido
+// con el dialecto strict; acá solo se cuenta el nivel a partir de los `#`.
 func (p *DocumentFlexParser) parseSubsectionHeader(line string) ast.Element {
 	// Contar cuántos # tiene
 	level := 0
@@ -408,7 +408,7 @@ func (p *DocumentFlexParser) parseSubsectionHeader(line string) ast.Element {
 
 	// En flex el anchor siempre se deriva del texto: no hay sintaxis para
 	// declarar un id (a diferencia de `SECTION … / id:` en strict).
-	return buildHeadingElement(text, level, p.position(p.currentLine), "")
+	return elements.BuildHeadingElement(text, level, p.position(p.currentLine), "")
 }
 
 // addError añade un error diagnóstico

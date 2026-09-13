@@ -10,6 +10,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -186,7 +187,7 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 		case "id":
 			explicitID = value
 			idLine = p.currentLine
-			if deriveAnchor(value) == "" {
+			if elements.DeriveAnchor(value) == "" {
 				p.addError(fmt.Sprintf(
 					"id %q has no usable characters for an anchor (only letters, digits, '-' and '_' survive)", value))
 			}
@@ -251,7 +252,7 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 	}
 
 	parent := &astNode.ContentBlocks[len(astNode.ContentBlocks)-1]
-	parent.Elements = append(parent.Elements, buildHeadingElement(title, level, p.position(headerLine), explicitID))
+	parent.Elements = append(parent.Elements, elements.BuildHeadingElement(title, level, p.position(headerLine), explicitID))
 	parent.Elements = append(parent.Elements, scratch.Elements...)
 }
 

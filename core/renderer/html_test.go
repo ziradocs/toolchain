@@ -447,6 +447,34 @@ func TestRenderTextElement_RawHTMLEscapesVariableValues(t *testing.T) {
 	}
 }
 
+// TestRenderTextElement_DoesNotWrapListInParagraph cubre un hallazgo de
+// revisión independiente sobre PR-9 (contenido anidado en ":::bloque"): un
+// TextElement no-crudo cuyo Content mezcla prosa suelta con líneas "- item"
+// (posible desde que special_block.go reconstruye la prosa entre elementos
+// anidados en un solo TextElement sintético — a nivel top esto no pasa
+// porque PointsParser se adelanta a TextParser y separa la lista en su
+// propio elemento) generaba <p>prosa<ul>...</ul></p> — un <ul> (contenido
+// de flujo) envuelto en <p> (solo admite fraseo), HTML inválido que
+// html-validate marca. El <ul> puede aparecer en cualquier posición del
+// string, no solo al principio, así que el chequeo no puede ser un simple
+// HasPrefix como el de los headings.
+func TestRenderTextElement_DoesNotWrapListInParagraph(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	elem := ast.NewTextElement(pos, "Antes de la lista:\n- item 1\n- item 2")
+
+	html := renderTextElement(elem, nil)
+
+	if strings.Contains(html, "<p>") {
+		t.Errorf("el <ul> quedó envuelto en <p>, HTML inválido: %s", html)
+	}
+	if !strings.Contains(html, "<ul>") || !strings.Contains(html, "<li>item 1</li>") {
+		t.Errorf("la lista no se procesó como se esperaba: %s", html)
+	}
+	if !strings.Contains(html, "Antes de la lista:") {
+		t.Errorf("se perdió la prosa que precedía a la lista: %s", html)
+	}
+}
+
 // TestRenderMermaidBrowser_EscapesContent cubre issue #73: a diferencia de
 // los raster builders de chromium_renderer.go (que ya escapaban el source vía
 // EscapeHTML desde PR #67), renderMermaidBrowser emitía el diagrama sin

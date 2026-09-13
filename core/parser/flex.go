@@ -66,6 +66,11 @@ func (p *FlexParser) parseContext() *elements.ParseContext {
 		Logger:      p.logger,
 		Lines:       p.lines,
 		LineOffset:  p.lineOffset,
+		// Un encabezado anidado (dentro de un ":::bloque") comparte el
+		// mismo pool de anchors por deck que uno de nivel top — dos
+		// "### Details" en el mismo deck, uno anidado y otro no, deben
+		// desambiguarse entre sí, no solo dentro de su propio nivel (C31).
+		HeadingAnchor: p.uniqueHeadingAnchor,
 	}
 }
 
@@ -356,7 +361,7 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 		if level := flexSubsectionLevel(nextLine); level > 0 {
 			text := strings.TrimSpace(nextLine[level:])
 			block.Elements = append(block.Elements,
-				buildHeadingElement(text, level, p.position(p.currentLine), p.uniqueHeadingAnchor(text)))
+				elements.BuildHeadingElement(text, level, p.position(p.currentLine), p.uniqueHeadingAnchor(text)))
 			p.currentLine++
 			continue
 		}
@@ -647,12 +652,12 @@ func isLayoutName(value string) bool {
 //     fallback aparte: "heading-" + "" es simplemente "heading", ya no vacío
 //     y ya con letra inicial, y participa igual del conteo de abajo.
 //
-// El anchor final se pasa como `explicitID` a buildHeadingElement, que lo
-// vuelve a correr por deriveAnchor. Es seguro porque la función es
-// idempotente sobre su propia salida: "heading-details-2" ya está saneado,
-// así que vuelve igual.
+// El anchor final se pasa como `explicitID` a elements.BuildHeadingElement,
+// que lo vuelve a correr por elements.DeriveAnchor. Es seguro porque la
+// función es idempotente sobre su propia salida: "heading-details-2" ya
+// está saneado, así que vuelve igual.
 func (p *FlexParser) uniqueHeadingAnchor(text string) string {
-	base := deriveAnchor(text)
+	base := elements.DeriveAnchor(text)
 	prefixed := "heading"
 	if base != "" {
 		prefixed = "heading-" + base

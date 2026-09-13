@@ -112,6 +112,30 @@ func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) 
 		return content
 	}
 
+	// ProcessInlineMarkdownSecure (arriba) puede meter un <ul> en CUALQUIER
+	// posición del string, no solo al principio — "Antes de la lista:\n-
+	// item 1\n- item 2" produce "Antes de la lista:<ul>...</ul>", prosa y
+	// lista en el MISMO string de contenido (es la única lista que ese
+	// procesador sabe generar; no hay forma "- " ordenada). <ul> es
+	// contenido de flujo, no fraseo: <p> solo admite fraseo, así que
+	// envolver esto en <p>...</p> es HTML inválido (un navegador real cierra
+	// el <p> antes del <ul> al parsear, partiendo el nodo de forma que el
+	// autor no pidió) — html-validate lo marca. No hace falta que empiece
+	// con la lista, a diferencia del chequeo de headings de arriba (un
+	// heading SIEMPRE es un TextElement de una sola línea que ES el
+	// heading, nunca mezclado con prosa antes). Encontrado al agregar
+	// reconstrucción de prosa entre elementos anidados dentro de un
+	// ":::bloque" (PR-9): esa prosa sintética SÍ puede mezclar líneas
+	// sueltas con líneas "- item" en el mismo TextElement, algo que a nivel
+	// top nunca pasa (PointsParser se adelanta a TextParser en el registry
+	// y separa la lista en su propio PointsElement antes de que esto se
+	// vuelva un problema). No envolver es seguro: el contenedor que recibe
+	// este HTML (un <div>, el body del documento) admite texto y bloques
+	// como hijos directos por igual.
+	if strings.Contains(content, "<ul>") {
+		return content
+	}
+
 	return fmt.Sprintf("<p>%s</p>", content)
 }
 

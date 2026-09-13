@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // SpecialBlockParser maneja bloques especiales como :::info, :::warning, etc.
@@ -16,6 +17,63 @@ type SpecialBlockParser struct{}
 func (p *SpecialBlockParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 	return strings.HasPrefix(trimmed, ":::") && len(trimmed) > 3
+}
+
+// nestedContentParsers son los parsers que el cuerpo de un ":::bloque"
+// delega para poblar Elements (issue #9, audit 2026-09-11, F9) — un
+// subconjunto DELIBERADO del registry completo (GetDefaultRegistry), no el
+// registry entero: Points/Checklist/Quote/Text quedan fuera a propósito,
+// porque esa prosa ya se renderiza bien desde Content vía markdown (no hay
+// nada que ganar tipándola), y promoverla habría sido un cambio de
+// comportamiento no pedido ni probado por la auditoría. El orden importa —
+// mismo criterio de especificidad que GetDefaultRegistry — porque
+// SpecialBlockParser (nested) y CanParse de sobra aceptan cualquier ":::algo"
+// y tienen que perder contra CodeGroupParser/GridParser en sus prefijos
+// más específicos (":::code-group", "::: grid").
+//
+// HeadingParser (PR-9 paso 3) SÍ se agrega acá aunque no viva en
+// GetDefaultRegistry: a nivel top el encabezado lo intercepta cada parser
+// de nivel superior ANTES del registry (flexSubsectionLevel/
+// isSubsectionHeader), así que agregarlo al registry compartido no lo
+// haría disparar ahí. Acá adentro, en cambio, es el ÚNICO lugar que puede
+// reconocer un "### Título" anidado como encabezado real — antes de esto,
+// esa línea nunca se delegaba y quedaba como prosa cruda en Content (ver
+// el comentario de TestSpecialBlockParser_NestedSpecialBlock, que este PR
+// actualiza). Va primero porque "#" no es ambiguo con ningún otro prefijo
+// de esta lista.
+var nestedContentParsers = []ElementParser{
+	&HeadingParser{},
+	&MermaidParser{},
+	&PlantUMLParser{},
+	&ChartParser{},
+	&MapParser{},
+	&CodeGroupParser{},
+	&CodeParser{},
+	&GridParser{},
+	&SpecialBlockParser{},
+	&ImageParser{},
+	&TableParser{},
+}
+
+// tryParseNestedContent intenta delegar la línea ctx.Lines[i] a alguno de
+// nestedContentParsers. Devuelve (elemento, líneas consumidas, true) si algún
+// parser la reclamó y produjo un elemento real — un CanParse que dice sí pero
+// cuyo Parse falla o devuelve consumo 0 (bloque vacío, YAML inválido, etc.) NO
+// cuenta como delegación: cae al llamador, que la trata como prosa suelta,
+// igual que ANTES de que esta función existiera.
+func tryParseNestedContent(ctx *ParseContext, i int) (ast.Element, int, []diagnostics.Diagnostic, bool) {
+	line := ctx.Lines[i]
+	for _, parser := range nestedContentParsers {
+		if !parser.CanParse(line, ctx.Mode) {
+			continue
+		}
+		result := parser.Parse(ctx, i)
+		if result.Element != nil && result.ConsumedLines > 0 {
+			return result.Element, result.ConsumedLines, result.Diagnostics, true
+		}
+		return nil, 0, nil, false
+	}
+	return nil, 0, nil, false
 }
 
 // Parse parsea un bloque especial desde las líneas proporcionadas
@@ -30,7 +88,6 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 
 	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
-	consumed := 1
 
 	// Verify it starts with :::
 	if !strings.HasPrefix(line, ":::") {
@@ -51,6 +108,40 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		}
 	}
 
+	// Autocierre en una sola línea (":::tipo attrs ... :::", C25/F13 del
+	// audit — la sintaxis canónica de atributos que PR-13 termina de
+	// implementar): acá solo se detecta lo justo para NO abrir un cuerpo a
+	// escanear cuando ya cerró en esta misma línea. Sin este chequeo, un
+	// bloque que en realidad ya cerró (":::embed ... :::" en un renglón,
+	// como examples/01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang)
+	// seguía escaneando hacia adelante buscando un cierre que ya pasó, y con
+	// la delegación de esta misma función terminaba ADOPTANDO como hijos
+	// anidados a los siguientes bloques ":::" del documento — un bloque roto
+	// se volvía MÁS dañino que antes (se tragaba hermanos enteros, headings
+	// incluidos) en vez de simplemente quedar mal parseado como ya pasaba.
+	// El parseo real de atributos ("type=\"youtube\"" como clave/valor, no
+	// como texto de Title) queda para PR-13; acá alcanza con no colgarse.
+	selfClosing := false
+	if rest, ok := strings.CutSuffix(blockContent, ":::"); ok && (rest == "" || strings.HasSuffix(rest, " ")) {
+		blockContent = strings.TrimSpace(rest)
+		selfClosing = true
+	}
+
+	// ":::" o "::: :::" (sin tipo, con o sin autocierre): mismo caso vacío
+	// que el guard de arriba, solo que llega hasta acá porque el ":::" del
+	// cierre lo dejó vacío recién en el CutSuffix, no en el TrimSpace
+	// original. Sin este chequeo, `strings.Fields("")` devuelve un slice
+	// vacío y `parts[0]` abajo entra en pánico (encontrado por advisor
+	// contra "::: :::" — antes de este fix ":::" producía blockContent=":::"
+	// y NO paniqueaba; el pánico es nuevo del autocierre de este PR).
+	if blockContent == "" {
+		return &ParseResult{
+			Element:       nil,
+			ConsumedLines: 1,
+			Error:         nil,
+		}
+	}
+
 	parts := strings.Fields(blockContent)
 	blockType := parts[0]
 	title := ""
@@ -58,45 +149,147 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		title = strings.Join(parts[1:], " ")
 	}
 
-	// Collect content until ::: or another special block
+	if selfClosing {
+		block := ast.NewSpecialBlockElement(pos, blockType, "")
+		block.Title = title
+		block.Icon = KnownSpecialBlockTypes()[blockType]
+		return &ParseResult{Element: block, ConsumedLines: 1, Error: nil}
+	}
+
+	// Collect content until ::: (cierre) — Content acumula CADA línea del
+	// cuerpo tal cual (mismo TrimSpace de siempre, sin cambios: sigue siendo
+	// lo que `fmt` reemite, formatSpecialBlock nunca mira Elements), incluso
+	// las que TAMBIÉN se delegan a un parser del registry: Content y
+	// Elements son dos vistas paralelas de la MISMA fuente, no una partición
+	// — el renderer elige una u otra (Elements si no está vacío), nunca las
+	// concatena.
+	//
+	// Un elemento anidado (tabla, imagen, chart, otro ":::" anidado...) se
+	// reconoce por DELEGACIÓN a tryParseNestedContent en vez de contar
+	// profundidad de ":::" a mano (C32 del audit: el corpus no cierra estos
+	// bloques de forma consistente, así que cualquier conteo textual se
+	// desincroniza tarde o temprano). Una línea ":::" PELADA sigue siendo,
+	// a este nivel, el cierre — nunca se delega — porque es exactamente lo
+	// que separa "otro ::: anidado" (con tipo) de "mi propio cierre" (sin
+	// tipo): un ":::sub ... :::" anidado consume su PROPIO cierre en la
+	// llamada recursiva antes de que este loop lo vuelva a ver.
 	var content strings.Builder
-	for i := startIndex + 1; i < len(ctx.Lines); i++ {
-		line := ctx.Lines[i]
-		trimmedLine := strings.TrimSpace(line)
-
-		if trimmedLine == ":::" {
-			// Found closing :::
-			consumed++
-			break
-		}
-
-		// If we find another special block (:::type), close current block
-		if strings.HasPrefix(trimmedLine, ":::") && len(trimmedLine) > 3 {
-			// Don't consume this line, let the next parser handle it
-			break
-		}
-
-		// If we find a new SLIDE, close the special block
-		if strings.HasPrefix(trimmedLine, "SLIDE ") {
-			// Don't consume this line, let the main parser handle it
-			break
-		}
-
+	appendRawLine := func(line string) {
 		if content.Len() > 0 {
 			content.WriteString("\n")
 		}
-		content.WriteString(trimmedLine)
-		consumed++
+		content.WriteString(strings.TrimSpace(line))
+	}
+
+	var nested []ast.Element
+	var nestedDiagnostics []diagnostics.Diagnostic
+	// delegatedCount cuenta SOLO los elementos realmente delegados (no la
+	// prosa sintética de flushProseRun): si termina en 0, `nested` se
+	// descarta entero más abajo — un bloque sin ningún elemento anidado no
+	// debe pasar a tener Elements no vacío solo porque tiene prosa, o el
+	// renderer lo desviaría de la rama de Content que usa hoy sin ganar
+	// nada (Elements vacío es, y debe seguir siendo, la señal de "no hay
+	// nada tipado adentro").
+	delegatedCount := 0
+
+	// proseRun acumula las líneas de prosa suelta ENTRE dos elementos
+	// delegados (o antes del primero / después del último), para volcarlas
+	// como un ast.TextElement sintético en `nested` cuando corresponda —
+	// necesario para que Elements sea una reconstrucción COMPLETA del
+	// cuerpo, no solo "las partes delegadas". Sin esto, el renderer (que
+	// una vez que Elements no está vacío deja de mirar Content del todo,
+	// ver renderSpecialBlockElement en core/renderer/html.go) perdía en
+	// silencio toda la prosa que rodeaba a un elemento anidado: agregado en
+	// PR-9 paso 3 (encabezados) porque un heading dentro de un ":::bloque"
+	// casi siempre viene acompañado de prosa/listas alrededor (ver
+	// examples/01_title_and_content/01.6_ui_elements_flex.slidelang), lo
+	// que hacía este bug mucho más fácil de disparar que con el chart/
+	// tabla/imagen aislados de paso 2 — hallazgo del advisor. IsRawHTML
+	// queda false (a diferencia del heading): es texto de markdown normal,
+	// el mismo que renderTextElement ya sabía procesar.
+	var proseRun strings.Builder
+	proseStartLine := -1
+	flushProseRun := func() {
+		if proseRun.Len() == 0 {
+			return
+		}
+		nested = append(nested, ast.NewTextElement(ctx.Position(proseStartLine), proseRun.String()))
+		proseRun.Reset()
+		proseStartLine = -1
+	}
+	appendProseLine := func(lineIndex int) {
+		if proseStartLine == -1 {
+			proseStartLine = lineIndex
+		}
+		if proseRun.Len() > 0 {
+			proseRun.WriteString("\n")
+		}
+		proseRun.WriteString(strings.TrimSpace(ctx.Lines[lineIndex]))
+	}
+
+	i := startIndex + 1
+	for i < len(ctx.Lines) {
+		trimmedLine := strings.TrimSpace(ctx.Lines[i])
+
+		if trimmedLine == ":::" {
+			// Found closing :::
+			i++
+			break
+		}
+
+		// Un límite de bloque que no es MI cierre — "SLIDE "/"SECTION "
+		// (strict), un "---" de separador de slide/frontmatter (flex) —
+		// corta sin consumir, para que el parser de nivel superior lo vea.
+		// Antes de este fix (audit 2026-09-11, F9) esta línea solo chequeaba
+		// "SLIDE ": un ":::bloque" sin su propio cierre, seguido de un "---"
+		// de límite de slide, se tragaba ese "---" como si fuera prosa —
+		// fusionando dos slides en una sola en silencio.
+		//
+		// A propósito NO se usa IsEmbeddedBlockBoundary acá (el helper
+		// compartido de chart/quiz/poll): ese helper también corta en
+		// "##"/"###" y en cualquier "<<...>>" — correcto para un chart, que
+		// es una sola unidad sin prosa propia, pero errado acá, donde un
+		// ":::bloque" SÍ puede llevar un "### heading-looking" como prosa
+		// suelta (TestFlexParser_SubsectionHeadingNotStolenFromCodeOrSpecialBlock)
+		// y SÍ tiene que poder delegar un "<<chart:...>>" anidado en vez de
+		// cortar antes de llegar a tryParseNestedContent.
+		if strings.TrimSpace(ctx.Lines[i]) == "---" || IsStrictBlockBoundary(ctx.Lines[i]) {
+			break
+		}
+
+		if elem, n, diags, ok := tryParseNestedContent(ctx, i); ok {
+			flushProseRun()
+			nested = append(nested, elem)
+			delegatedCount++
+			nestedDiagnostics = append(nestedDiagnostics, diags...)
+			for k := 0; k < n; k++ {
+				appendRawLine(ctx.Lines[i+k])
+			}
+			i += n
+			continue
+		}
+
+		appendRawLine(ctx.Lines[i])
+		appendProseLine(i)
+		i++
+	}
+	flushProseRun()
+	consumed := i - startIndex
+
+	if delegatedCount == 0 {
+		nested = nil
 	}
 
 	block := ast.NewSpecialBlockElement(pos, blockType, content.String())
 	block.Title = title
+	block.Elements = nested
 	block.Icon = KnownSpecialBlockTypes()[blockType]
 
 	return &ParseResult{
 		Element:       block,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   nestedDiagnostics,
 	}
 }
 
