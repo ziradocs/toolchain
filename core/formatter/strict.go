@@ -286,7 +286,7 @@ func formatStrictImage(e *ast.ImageElement) (string, error) {
 
 func formatPipeTable(headers []string, rows [][]string) string {
 	var b strings.Builder
-	b.WriteString("| " + strings.Join(headers, " | ") + " |\n")
+	b.WriteString("| " + strings.Join(escapeTableCells(headers), " | ") + " |\n")
 	seps := make([]string, len(headers))
 	for i := range seps {
 		seps[i] = "---"
@@ -296,9 +296,187 @@ func formatPipeTable(headers []string, rows [][]string) string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("| " + strings.Join(row, " | ") + " |")
+		b.WriteString("| " + strings.Join(escapeTableCells(row), " | ") + " |")
 	}
 	return b.String()
+}
+
+// escapeTableCells aplica escapeTableCellPipe a cada celda de una fila.
+func escapeTableCells(cells []string) []string {
+	out := make([]string, len(cells))
+	for i, c := range cells {
+		out[i] = escapeTableCellPipe(c)
+	}
+	return out
+}
+
+// escapeTableCellPipe es el espejo, del lado de escritura, de
+// elements.splitMarkdownTableRow: un "|" LITERAL en el texto de una celda
+// (fuera de un code span) tiene que volver a escaparse a "\|" al
+// reserializar, o se convierte en un separador de columna de más al
+// reparsear — exactamente el bug que este PR (F10, audit 2026-09-11) cierra
+// del lado del parser, pero abierto de nuevo del lado de `fmt` si el
+// escritor no participa: antes de este fix, ninguna celda parseada de una
+// tabla markdown podía contener un "|" (el split ciego ya lo habría partido
+// como columna), así que este caso nunca era alcanzable — ahora que el
+// parser decodifica "\|" y protege code spans, si el formatter no lo
+// reescapa, un round-trip fmt→reparse infla la fila con una columna de más
+// en silencio.
+//
+// Un "|" DENTRO de un code span BIEN FORMADO no se toca: los backticks ya
+// lo protegen estructuralmente en el reparse (SplitMarkdownTableRow no lo
+// trata como separador mientras esté dentro de backticks), y escaparlo ahí
+// metería un "\" visible dentro del <code> renderizado, que un code span no
+// interpreta como escape (cambiaría el contenido, no solo la sintaxis).
+//
+// Un "`" suelto (una corrida de backticks sin otra corrida del MISMO largo
+// más adelante en la celda que la cierre) no abre ningún code span real —
+// codeSpanRunRanges no lo marca como tal, así que el "|" que sigue se
+// escapa igual que cualquier otro "|" literal (hallazgo de revisión: "use `
+// for code | see docs" tiene un backtick suelto; escaparlo es correcto en
+// el reparse — SplitMarkdownTableRow decodifica "\|" a "|" sin importar si
+// está o no entre backticks — aunque dejar de ser la representación más
+// prolija de un code span que en el fondo nunca estuvo bien formado).
+//
+// codeSpanRunRanges empareja CORRIDAS de backticks, no backticks sueltos —
+// espejo exacto de elements.codeSpanRanges (core/internal/elements/table.go),
+// no reusado directo porque este archivo es deliberadamente un espejo
+// autocontenido del parser (ver el comentario de strictNewElementKeywords
+// más abajo). Un span delimitado por dos o más backticks seguidos (la
+// forma CommonMark para meter un backtick literal adentro) se rompía antes
+// de esto: alternar por CARÁCTER en vez de por corrida leía dos backticks
+// consecutivos como "abre, cierra" en vez de "abre un delimitador de largo
+// 2", así que el "|" que en realidad está adentro del
+// span se escapaba igual que uno literal — metiendo un "\" visible dentro
+// del <code> renderizado en el próximo build, que un code span no
+// interpreta como escape (cambia el contenido, no solo la sintaxis;
+// hallazgo de segunda ronda de revisión).
+func escapeTableCellPipe(cell string) string {
+	if !strings.Contains(cell, "|") {
+		return cell
+	}
+	runes := []rune(cell)
+	inSpan := codeSpanRunRanges(runes)
+
+	var b strings.Builder
+	for i, r := range runes {
+		switch {
+		case r == '|' && inSpan[i]:
+			b.WriteRune(r)
+		case r == '|':
+			// Hallazgo de cuarta ronda de revisión: escribir siempre
+			// exactamente UN backslash ("\|") ignora los que ya haya
+			// justo antes en la celda (alcanzable desde una tabla YAML o
+			// un AST armado por un filtro, no solo desde este parser) —
+			// "a\|b" salía como "a\\|b", que el splitter (ahora que
+			// empareja de a dos, CommonMark §2.4) lee como "un backslash
+			// literal + pipe SEPARADOR", partiendo la fila de más. Si ya
+			// hay k backslashes escritos, hacen falta k+1 MÁS (total
+			// 2k+1, siempre impar) para que el splitter reconstruya
+			// exactamente esos k backslashes y el pipe quede literal —
+			// espejo exacto, del lado de escritura, del apareo que ahora
+			// hace elements.SplitMarkdownTableRow.
+			k := precedingBackslashRunLength(runes, i)
+			for j := 0; j <= k; j++ {
+				b.WriteRune('\\')
+			}
+			b.WriteRune('|')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// precedingBackslashRunLength cuenta los backslashes consecutivos
+// inmediatamente antes de la posición i en runes (ya escritos a b por el
+// caso default de escapeTableCellPipe en vueltas anteriores del loop).
+func precedingBackslashRunLength(runes []rune, i int) int {
+	count := 0
+	for k := i - 1; k >= 0 && runes[k] == '\\'; k-- {
+		count++
+	}
+	return count
+}
+
+// codeSpanRunRanges marca, por índice de rune, qué posiciones caen dentro
+// de un code span delimitado por una corrida de backticks — ver el
+// comentario de escapeTableCellPipe. Espejo exacto de
+// elements.codeSpanRanges (core/internal/elements/table.go): el delimitador
+// es una CORRIDA de N backticks consecutivos, y solo otra corrida de
+// exactamente N backticks la cierra; una corrida sin cierre del mismo largo
+// en el resto del texto no es un delimitador, son backticks literales.
+//
+// Un backtick escapado (precedido por una corrida IMPAR de backslashes) no
+// abre span (hallazgo de tercera ronda de revisión, mismo fix que su
+// espejo en elements.codeSpanRanges — ver el comentario de esa función
+// para el precedente del spec de CommonMark).
+func codeSpanRunRanges(runes []rune) []bool {
+	n := len(runes)
+	inSpan := make([]bool, n)
+	escaped := backslashEscapedRunes(runes)
+	i := 0
+	for i < n {
+		if runes[i] != '`' || escaped[i] {
+			i++
+			continue
+		}
+		start := i
+		for i < n && runes[i] == '`' {
+			i++
+		}
+		openLen := i - start
+
+		j := i
+		matched := false
+		for j < n {
+			if runes[j] != '`' {
+				j++
+				continue
+			}
+			closeStart := j
+			for j < n && runes[j] == '`' {
+				j++
+			}
+			if j-closeStart == openLen {
+				for k := start; k < j; k++ {
+					inSpan[k] = true
+				}
+				i = j
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+	}
+	return inSpan
+}
+
+// backslashEscapedRunes espeja elements.backslashEscaped
+// (core/internal/elements/table.go): escaped[i] es true cuando el número
+// de backslashes consecutivos justo antes de la posición i es IMPAR — sólo
+// el último backslash de una corrida impar escapa al carácter siguiente.
+func backslashEscapedRunes(runes []rune) []bool {
+	n := len(runes)
+	escaped := make([]bool, n)
+	i := 0
+	for i < n {
+		if runes[i] != '\\' {
+			i++
+			continue
+		}
+		start := i
+		for i < n && runes[i] == '\\' {
+			i++
+		}
+		runLen := i - start
+		if runLen%2 == 1 && i < n {
+			escaped[i] = true
+		}
+	}
+	return escaped
 }
 
 // strictNewElementKeywords espeja la lista de internal/elements/common.go

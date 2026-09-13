@@ -51,11 +51,18 @@ func TestClearRenderedHTMLActuallyClears(t *testing.T) {
 	col.Elements = append(col.Elements, nestedText)
 	grid.Columns = append(grid.Columns, *col)
 
+	special := NewSpecialBlockElement(pos, "info", "x")
+	special.TitleHTML = hostile
+	special.ContentHTML = hostile
+	nestedInSpecial := NewTextElement(pos, "z")
+	nestedInSpecial.ContentHTML = hostile
+	special.Elements = append(special.Elements, nestedInSpecial)
+
 	block := NewContentBlock(pos, "content")
 	block.TitleHTML = hostile
 	block.HeadingHTML = hostile
 	block.SubtitleHTML = hostile
-	block.Elements = append(block.Elements, text, img, table, codeGroup, grid)
+	block.Elements = append(block.Elements, text, img, table, codeGroup, grid, special)
 
 	doc := NewAST(pos)
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
@@ -93,6 +100,14 @@ func TestClearRenderedHTMLActuallyClears(t *testing.T) {
 	gotNested := gotCol.Elements[0].(*TextElement)
 	if gotNested.ContentHTML != "" {
 		t.Errorf("TextElement anidado en Column no quedó vacío: %q", gotNested.ContentHTML)
+	}
+	gotSpecial := b.Elements[5].(*SpecialBlockElement)
+	if gotSpecial.TitleHTML != "" || gotSpecial.ContentHTML != "" {
+		t.Errorf("SpecialBlockElement *HTML no quedó vacío: %+v", gotSpecial)
+	}
+	gotNestedInSpecial := gotSpecial.Elements[0].(*TextElement)
+	if gotNestedInSpecial.ContentHTML != "" {
+		t.Errorf("TextElement anidado en SpecialBlockElement no quedó vacío: %q", gotNestedInSpecial.ContentHTML)
 	}
 }
 

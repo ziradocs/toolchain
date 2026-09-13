@@ -95,6 +95,11 @@ func normalizeElement(el ast.Element) ast.Element {
 		c := *e
 		c.Position, c.EndPosition = zeroPosition, zeroPosition
 		c.HeadersHTML, c.RowsHTML, c.CaptionHTML = nil, nil, ""
+		// RowPositions es posicional como Position/EndPosition (apunta a la
+		// línea fuente de cada fila) — el texto reformateado no la retiene
+		// verbatim, así que comparar esto crudo fallaría con un formatter
+		// perfecto igual que Position sin normalizar.
+		c.RowPositions = nil
 		return &c
 	case *ast.SpecialBlockElement:
 		c := *e

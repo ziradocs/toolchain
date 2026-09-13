@@ -1620,6 +1620,73 @@
         },
         "icon": {
           "type": "string"
+        },
+        "elements": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TextElement"
+              },
+              {
+                "$ref": "#/$defs/PointsElement"
+              },
+              {
+                "$ref": "#/$defs/CodeElement"
+              },
+              {
+                "$ref": "#/$defs/ImageElement"
+              },
+              {
+                "$ref": "#/$defs/TableElement"
+              },
+              {
+                "$ref": "#/$defs/SpecialBlockElement"
+              },
+              {
+                "$ref": "#/$defs/CodeGroupElement"
+              },
+              {
+                "$ref": "#/$defs/MermaidElement"
+              },
+              {
+                "$ref": "#/$defs/PlantUMLElement"
+              },
+              {
+                "$ref": "#/$defs/ChartElement"
+              },
+              {
+                "$ref": "#/$defs/MapElement"
+              },
+              {
+                "$ref": "#/$defs/QuoteElement"
+              },
+              {
+                "$ref": "#/$defs/ChecklistElement"
+              },
+              {
+                "$ref": "#/$defs/GridElement"
+              },
+              {
+                "$ref": "#/$defs/ColumnElement"
+              },
+              {
+                "$ref": "#/$defs/DirectiveNode"
+              },
+              {
+                "$ref": "#/$defs/MathElement"
+              },
+              {
+                "$ref": "#/$defs/MediaElement"
+              },
+              {
+                "$ref": "#/$defs/QuizElement"
+              },
+              {
+                "$ref": "#/$defs/PollElement"
+              }
+            ]
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -1713,6 +1780,12 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "type": "array"
+        },
+        "rowPositions": {
+          "items": {
+            "$ref": "#/$defs/Position"
           },
           "type": "array"
         },

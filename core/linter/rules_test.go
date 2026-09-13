@@ -243,3 +243,39 @@ func TestFrontMatterValidRule_DialectSlides_StillErrors(t *testing.T) {
 		t.Errorf("FRONT003 debe seguir siendo Error fuera de DialectDocuments, severity = %v", diag.Severity)
 	}
 }
+
+// TestElementStructureRule_TABLE003_PointsAtOffendingRow cubre F10 (audit
+// 2026-09-11): antes de TableElement.RowPositions, TABLE003 SIEMPRE
+// reportaba en elem.GetPosition() (el inicio de la tabla), sin importar en
+// qué fila real estaba el problema — con una tabla de varias filas, el
+// autor no tenía forma de saber cuál de todas era la culpable sin contarlas
+// a mano. Ahora usa RowPositions[i], paralelo a Rows.
+func TestElementStructureRule_TABLE003_PointsAtOffendingRow(t *testing.T) {
+	parser := &elements.TableParser{}
+	ctx := &elements.ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			"| 1 | 2 |",
+			"| 3 | 4 | 5 |", // línea 4: una celda de más
+		},
+	}
+	result := parser.Parse(ctx, 0)
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("Element is not TableElement: %+v", result.Element)
+	}
+
+	slide := &ast.ContentBlock{Elements: []ast.Element{table}}
+	diags := (&ElementStructureRule{}).Check(slide)
+
+	diag := findDiagnosticByRuleID(diags, "TABLE003")
+	if diag == nil {
+		t.Fatalf("se esperaba un diagnóstico TABLE003, obtenidos: %+v", diags)
+	}
+	if diag.Position.Line != 4 {
+		t.Errorf("Position.Line = %d, want 4 (la fila con la celda de más), no %d (el inicio de la tabla)",
+			diag.Position.Line, table.GetPosition().Line)
+	}
+}

@@ -76,7 +76,7 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		startIndex++
 
 		// Parse YAML-style table
-		headers, rows, caption, label, cellsExplicit, yamlDiags, yamlConsumed := p.parseYAMLTable(ctx.Lines, startIndex, pos)
+		headers, rows, caption, label, cellsExplicit, rowPositions, yamlDiags, yamlConsumed := p.parseYAMLTable(ctx, startIndex, pos)
 		table.Caption = caption
 		table.Label = label
 		consumed += yamlConsumed
@@ -87,19 +87,23 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			// truth; Headers/Rows are DERIVED from Cells (rectangular grid)
 			// so linter.ElementStructureRule (TABLE003) doesn't report a
 			// false positive of "inconsistent columns" over a table with
-			// colspan/rowspan.
+			// colspan/rowspan. No hay una fila-fuente 1:1 que le corresponda
+			// a cada fila derivada, así que RowPositions se deja vacío para
+			// esta forma — TABLE003 no debería dispararse acá de todos modos.
 			table.Cells = cellsExplicit
 			table.Headers, table.Rows = ast.FlattenCellsToRows(cellsExplicit)
 		} else {
 			table.Headers = headers
 			table.Rows = rows
+			table.RowPositions = rowPositions
 			table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 		}
 	} else {
 		// Parse Markdown-style table
-		headers, rows, markdownConsumed := p.parseMarkdownTable(ctx.Lines, startIndex)
+		headers, rows, rowPositions, markdownConsumed := p.parseMarkdownTable(ctx, startIndex)
 		table.Headers = headers
 		table.Rows = rows
+		table.RowPositions = rowPositions
 		table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 		consumed = markdownConsumed
 	}
@@ -119,12 +123,13 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // ast.FlattenCellsToRows), ignorando los headers/rows acumulados acá (que
 // para un bloque "cells:" quedan vacíos, ya que esa sintaxis no declara
 // headers:/rows: por separado).
-func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnostics.Position) ([]string, [][]string, string, string, [][]ast.TableCell, []diagnostics.Diagnostic, int) {
+func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diagnostics.Position) ([]string, [][]string, string, string, [][]ast.TableCell, []diagnostics.Position, []diagnostics.Diagnostic, int) {
 	// Initialized as empty slices (not nil): Headers/Rows have no omitempty
 	// in the AST, so a nil value would serialize as JSON null instead of []
 	// (issue #8 - violates the contract's JSON Schema).
 	headers := []string{}
 	rows := [][]string{}
+	var rowPositions []diagnostics.Position
 	var caption string
 	var label string
 	// Named differently from "cells" on purpose: the "|" fallback branch
@@ -135,6 +140,7 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 	var diags []diagnostics.Diagnostic
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
+	lines := ctx.Lines
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -190,6 +196,7 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 				if strings.HasPrefix(rowTrimmed, "[") && strings.HasSuffix(rowTrimmed, "]") {
 					rowStr := trimInlineArrayBrackets(rowTrimmed)
 					rows = append(rows, splitInlineArray(rowStr))
+					rowPositions = append(rowPositions, ctx.Position(i))
 				}
 				consumed++
 				i++
@@ -251,7 +258,7 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
 		} else if strings.Contains(trimmedLine, "|") {
 			// Fallback: Parse table row (separated by |) for compatibility
-			cells := strings.Split(trimmedLine, "|")
+			cells := SplitMarkdownTableRow(trimmedLine)
 			for j := range cells {
 				cells[j] = strings.TrimSpace(cells[j])
 			}
@@ -260,13 +267,14 @@ func (p *TableParser) parseYAMLTable(lines []string, startIndex int, pos diagnos
 				headers = cells
 			} else {
 				rows = append(rows, cells)
+				rowPositions = append(rowPositions, ctx.Position(i))
 			}
 		}
 
 		consumed++
 	}
 
-	return headers, rows, caption, label, explicitCells, diags, consumed
+	return headers, rows, caption, label, explicitCells, rowPositions, diags, consumed
 }
 
 // trimInlineArrayBrackets quita UN "[" inicial y UN "]" final del valor de
@@ -455,12 +463,202 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 	return cells, diags, true
 }
 
+// SplitMarkdownTableRow parte una fila de tabla markdown por "|", respetando
+// code spans (con backticks) y pipes escapados (\|) — ninguno de los dos es
+// un separador de celda de verdad. strings.Split(line, "|") partía
+// ciegamente por CADA "|", así que una celda con código (p. ej.
+// "`User | null`") o un pipe escapado a propósito se fragmentaba en celdas
+// de más, disparando TABLE003 ("número incorrecto de columnas") sobre una
+// fila perfectamente válida (F10, audit 2026-09-11). Exportada porque
+// parser/strict.go (la tabla markdown de SlideLang strict, un parser
+// separado del de este paquete) tiene el mismo bug con el mismo split
+// ciego y necesita el mismo fix.
+//
+// codeSpanRanges (abajo) implementa la regla real de CommonMark para code
+// spans: el delimitador no es "un backtick", es una CORRIDA de N backticks
+// consecutivos, y solo otra corrida de EXACTAMENTE N backticks la cierra —
+// un span delimitado por dos backticks seguidos, con un backtick suelto en
+// el medio, tiene contenido "a`b" (el backtick suelto del medio no
+// cierra nada, porque su corrida mide 1 y el delimitador mide 2). Una
+// corrida que abre pero no encuentra un cierre de su mismo largo en el
+// resto de la línea NO es un delimitador — son backticks literales, y el
+// escaneo sigue de largo (hallazgo de revisión: la versión anterior
+// alternaba inCode por cada CARÁCTER "`" suelto, así que una corrida de 2
+// backticks se leía como "abre, cierra" en vez de "abre un span de largo
+// 2" — cualquier "|" adentro de un span delimitado por 2+ backticks se
+// interpretaba mal como separador). Esto también reemplaza sin pérdida al
+// chequeo anterior de "cantidad de backticks impar en toda la línea": un
+// backtick suelto sin pareja de su mismo largo simplemente no matchea
+// nada aquí, y punto — no hace falta una heurística aparte para ese caso.
+//
+// Una corrida de backticks escapada (precedida por un número IMPAR de
+// backslashes, p. ej. "\`") no puede abrir un span (hallazgo de tercera
+// ronda de revisión, con precedente exacto en el ejemplo de la sección
+// "Backslash escapes" del spec de CommonMark: "\`not code`" se renderiza
+// como el texto literal "`not code`", nunca como <code>). backslashEscaped
+// (abajo) da esa paridad; un backtick escapado se salta sin abrir ni
+// cerrar nada, como si fuera texto común.
+func codeSpanRanges(runes []rune) []bool {
+	n := len(runes)
+	inSpan := make([]bool, n)
+	escaped := backslashEscaped(runes)
+	i := 0
+	for i < n {
+		if runes[i] != '`' || escaped[i] {
+			i++
+			continue
+		}
+		start := i
+		for i < n && runes[i] == '`' {
+			i++
+		}
+		openLen := i - start
+
+		j := i
+		matched := false
+		for j < n {
+			if runes[j] != '`' {
+				j++
+				continue
+			}
+			closeStart := j
+			for j < n && runes[j] == '`' {
+				j++
+			}
+			if j-closeStart == openLen {
+				for k := start; k < j; k++ {
+					inSpan[k] = true
+				}
+				i = j
+				matched = true
+				break
+			}
+			// Corrida de otro largo: no cierra este delimitador: se
+			// reintenta desde donde terminó (puede ser la que sí matchea
+			// más adelante, o abrir su propio span en la próxima vuelta del
+			// for de arriba si esta tampoco encuentra cierre).
+		}
+		if !matched {
+			// Sin cierre de su mismo largo en el resto de la línea:
+			// backticks literales, no delimitador. i ya quedó al final de
+			// la corrida (por el conteo de arriba) — seguir desde ahí.
+			continue
+		}
+	}
+	return inSpan
+}
+
+// backslashEscaped marca, por índice de rune, qué posiciones quedan
+// escapadas por un backslash que las precede — es decir, escaped[i] es
+// true cuando el número de backslashes consecutivos justo antes de la
+// posición i es IMPAR (hallazgo de tercera ronda de revisión: la versión
+// anterior sólo miraba UN backslash hacia atrás, así que "\\|" —un
+// backslash escapado seguido de un pipe real y sin escapar— se leía igual
+// que "\|" —un backslash escapando al pipe—, porque el segundo backslash
+// de la corrida, tomado aislado, "veía" el pipe siguiente sin saber que él
+// mismo ya estaba consumido por el backslash anterior. Una corrida de N
+// backslashes consecutivos se empareja de a pares —cada par es un
+// backslash literal— y sólo el ÚLTIMO de una corrida IMPAR escapa al
+// carácter que sigue.
+func backslashEscaped(runes []rune) []bool {
+	n := len(runes)
+	escaped := make([]bool, n)
+	i := 0
+	for i < n {
+		if runes[i] != '\\' {
+			i++
+			continue
+		}
+		start := i
+		for i < n && runes[i] == '\\' {
+			i++
+		}
+		runLen := i - start
+		if runLen%2 == 1 && i < n {
+			escaped[i] = true
+		}
+	}
+	return escaped
+}
+
+func SplitMarkdownTableRow(line string) []string {
+	runes := []rune(line)
+	inSpan := codeSpanRanges(runes)
+
+	var cells []string
+	var current strings.Builder
+	i := 0
+	for i < len(runes) {
+		r := runes[i]
+		switch {
+		case r == '\\':
+			start := i
+			for i < len(runes) && runes[i] == '\\' {
+				i++
+			}
+			runLen := i - start
+			if inSpan[start] {
+				// Backslashes DENTRO de un code span son literales, no
+				// escapes — CommonMark §6.1: "backslash escapes do not
+				// work in code spans" (hallazgo de quinta ronda de
+				// revisión: la lógica de apareo/escape de abajo corría
+				// SIEMPRE, sin mirar inSpan, así que "`a\|b`" perdía el
+				// backslash — el span ya protege el "|" que sigue como no
+				// separador, pero el contenido en sí se reescribía). La
+				// corrida completa se preserva byte a byte, sin aparear
+				// ni interpretar nada.
+				for k := 0; k < runLen; k++ {
+					current.WriteRune('\\')
+				}
+			} else if i < len(runes) && runes[i] == '|' {
+				// Corrida seguida de un pipe: CommonMark empareja los
+				// backslashes de a DOS — cada par escapa al otro y
+				// colapsa a UN backslash literal (hallazgo de cuarta
+				// ronda de revisión: la versión anterior escribía los
+				// runLen-1 backslashes de una corrida impar uno por uno,
+				// sin aparear — "\\\|" reconstruía 2 backslashes en vez
+				// de 1). Si sobra uno (corrida impar), ese último escapa
+				// al pipe, que queda literal; si no sobra ninguno
+				// (corrida par), el pipe sigue sin escapar y es
+				// separador real.
+				for k := 0; k < runLen/2; k++ {
+					current.WriteRune('\\')
+				}
+				if runLen%2 == 1 {
+					current.WriteRune('|')
+					i++
+				}
+			} else {
+				// Fuera de esa posición, un backslash no es un escape
+				// (ver splitInlineArray/C8): se escribe literal, corrida
+				// completa, sin aparear.
+				for k := 0; k < runLen; k++ {
+					current.WriteRune('\\')
+				}
+			}
+			continue
+		case r == '|' && inSpan[i]:
+			current.WriteRune(r)
+		case r == '|':
+			cells = append(cells, current.String())
+			current.Reset()
+		default:
+			current.WriteRune(r)
+		}
+		i++
+	}
+	cells = append(cells, current.String())
+	return cells
+}
+
 // parseMarkdownTable parsea una tabla en formato Markdown
-func (p *TableParser) parseMarkdownTable(lines []string, startIndex int) ([]string, [][]string, int) {
+func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, int) {
 	// Inicializados como slices vacíos (no nil), ver comentario en parseYAMLTable.
 	headers := []string{}
 	rows := [][]string{}
+	var rowPositions []diagnostics.Position
 	consumed := 0
+	lines := ctx.Lines
 
 	for i := startIndex; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
@@ -485,7 +683,7 @@ func (p *TableParser) parseMarkdownTable(lines []string, startIndex int) ([]stri
 		}
 
 		// Parse table row
-		cells := strings.Split(line, "|")
+		cells := SplitMarkdownTableRow(line)
 
 		// Clean up cells - remove empty first/last if they exist due to leading/trailing |
 		if len(cells) > 0 && strings.TrimSpace(cells[0]) == "" {
@@ -505,10 +703,11 @@ func (p *TableParser) parseMarkdownTable(lines []string, startIndex int) ([]stri
 			headers = cells
 		} else {
 			rows = append(rows, cells)
+			rowPositions = append(rowPositions, ctx.Position(i))
 		}
 
 		consumed++
 	}
 
-	return headers, rows, consumed
+	return headers, rows, rowPositions, consumed
 }

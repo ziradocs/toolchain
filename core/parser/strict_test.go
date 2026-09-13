@@ -1136,3 +1136,37 @@ Right
 		t.Errorf("len(Columns) = %d, want 2", len(grid.Columns))
 	}
 }
+
+// TestStrictParser_ParseMarkdownTableElement_CodeSpanAndEscapedPipe cubre
+// F10 (audit 2026-09-11): parseMarkdownTableElement (la tabla markdown de
+// SlideLang strict, un parser separado de elements.TableParser) tenía el
+// mismo strings.Split(line, "|") ciego — un "|" dentro de un code span o
+// escapado con "\|" partía la fila en celdas de más. Usa ahora
+// elements.SplitMarkdownTableRow, la misma función que el parser de
+// documentos.
+func TestStrictParser_ParseMarkdownTableElement_CodeSpanAndEscapedPipe(t *testing.T) {
+	p := NewStrictParser("", util.NewNoop())
+	p.lines = []string{
+		"| Method | Return |",
+		"|---|---|",
+		"| `getUser()` | `User | null` |",
+		`| a | x \| y |`,
+	}
+	p.currentLine = 0
+
+	element := p.parseMarkdownTableElement()
+	table, ok := element.(*ast.TableElement)
+	if !ok {
+		t.Fatalf("expected *ast.TableElement, got %T", element)
+	}
+
+	if len(table.Rows) != 2 {
+		t.Fatalf("len(Rows) = %d, want 2: %#v", len(table.Rows), table.Rows)
+	}
+	if len(table.Rows[0]) != 2 || table.Rows[0][1] != "`User | null`" {
+		t.Errorf("Rows[0] = %#v, want [\"`getUser()`\" \"`User | null`\"]", table.Rows[0])
+	}
+	if len(table.Rows[1]) != 2 || table.Rows[1][1] != "x | y" {
+		t.Errorf("Rows[1] = %#v, want [\"a\" \"x | y\"]", table.Rows[1])
+	}
+}

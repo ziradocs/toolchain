@@ -595,6 +595,15 @@ type TableElement struct {
 	HeadersHTML []string   `json:"headersHTML,omitempty"` // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
 	Rows        [][]string `json:"rows"`
 	RowsHTML    [][]string `json:"rowsHTML,omitempty"` // Rows ya renderizadas a HTML inline (ver TextElement.ContentHTML)
+	// RowPositions da la posición fuente de cada entrada de Rows (mismo
+	// índice), para que un diagnóstico sobre una fila en particular (p. ej.
+	// TABLE003, "número incorrecto de columnas") pueda apuntar a la fila real
+	// en vez de siempre al inicio de la tabla. omitempty y de longitud
+	// potencialmente MENOR que Rows a propósito: la forma "cells:" (celdas
+	// fusionadas) deriva Rows de una estructura sin una fila-fuente 1:1, así
+	// que no la puebla — un consumidor debe indexar con cuidado (ver
+	// linter.rules.go, que cae a GetPosition() si el índice no existe).
+	RowPositions []diagnostics.Position `json:"rowPositions,omitempty"`
 	// Cells exposes the real cell structure (issue #20, A11Y: colspan/
 	// rowspan/scope) IN ADDITION to Headers/Rows, never in their place —
 	// Headers/Rows remain the source existing renderers and slidelang
@@ -645,6 +654,15 @@ type SpecialBlockElement struct {
 	// Ver TextElement.DiscardedLangRuns.
 	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
 	Icon              string    `json:"icon,omitempty"`
+	// Elements expone el contenido anidado de un ":::bloque" ya parseado a
+	// elementos tipados (tabla, imagen, otro ":::" anidado, etc. — issue #9,
+	// audit 2026-09-11), el mismo mecanismo que ColumnElement.Elements. NO
+	// reemplaza a Content: Content sigue siendo la fuente que `fmt` reemite
+	// (un special block no tiene forma de texto para Elements, igual que
+	// GridElement.Columns) y la que popula este campo cuando el bloque trae
+	// contenido parseable; cuando Elements no está vacío, Content/ContentHTML
+	// son solo la fuente/su render inline, no la fuente de verdad estructural.
+	Elements []Element `json:"elements,omitempty"`
 }
 
 func (s SpecialBlockElement) element() {}

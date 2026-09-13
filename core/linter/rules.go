@@ -251,12 +251,23 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 				} // Validar que todas las filas tengan el mismo número de columnas
 				if len(elem.Headers) > 0 {
 					expectedCols := len(elem.Headers)
-					for _, row := range elem.Rows {
+					for i, row := range elem.Rows {
 						if len(row) != expectedCols {
+							// RowPositions es paralelo a Rows por índice, pero
+							// puede venir más corto (la forma "cells:" no lo
+							// puebla, ver TableElement.RowPositions) — cae al
+							// inicio de la tabla en vez de asumir el índice
+							// existe (F10, audit 2026-09-11: antes esto SIEMPRE
+							// apuntaba al inicio de la tabla, nunca a la fila
+							// real).
+							pos := elem.GetPosition()
+							if i < len(elem.RowPositions) {
+								pos = elem.RowPositions[i]
+							}
 							diags = append(diags,
 								diagnostics.NewError(
 									"Table row has incorrect number of columns",
-									elem.GetPosition(), "linter").WithRuleID("TABLE003"))
+									pos, "linter").WithRuleID("TABLE003"))
 							break
 						}
 					}

@@ -116,6 +116,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error fijando unión de elements: %v\n", err)
 		os.Exit(1)
 	}
+	if err := setElementsProperty(root.Definitions, "SpecialBlockElement", elementsUnion); err != nil {
+		fmt.Fprintf(os.Stderr, "error fijando unión de elements: %v\n", err)
+		os.Exit(1)
+	}
 
 	// ChartElement.RawJSON es json.RawMessage, que la reflexión mapea al schema
 	// booleano permisivo `true` (acepta cualquier valor JSON). En modo JSON

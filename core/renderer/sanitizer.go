@@ -169,7 +169,6 @@ var (
 	inlineNestedItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*([^*]*)\*([^*\n]+)\*\*\*($|[^*])`)
 	inlineBoldPattern               = regexp.MustCompile(`\*\*(.*?)\*\*`)
 	inlineItalicPattern             = regexp.MustCompile(`\*([^*\n]+)\*`)
-	inlineCodePattern               = regexp.MustCompile("`([^`]+)`")
 	inlineLinkPattern               = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 	// inlineImagePattern reconoce ![alt](src) — mismo par corchete+paréntesis
 	// que el enlace, con el "!" como único distintivo. Corre ANTES del
@@ -448,6 +447,137 @@ func ProcessInlineMarkdownSecureMultiline(text string) string {
 	return result.String()
 }
 
+// codeSpanMatch describe un code span de CommonMark encontrado por
+// findCodeSpans: fullStart/fullEnd son el rango de bytes del match
+// COMPLETO (delimitadores incluidos); contentStart/contentEnd son el rango
+// de bytes del contenido entre ellos.
+type codeSpanMatch struct {
+	fullStart, fullEnd       int
+	contentStart, contentEnd int
+}
+
+// findCodeSpans encuentra code spans de CommonMark en text: el delimitador
+// no es "un backtick", es una CORRIDA de N backticks consecutivos, y solo
+// otra corrida de EXACTAMENTE N backticks la cierra (hallazgo de tercera
+// ronda de revisión: inlineCodePattern, el regex de un solo backtick que
+// esta función reemplaza, dejaba un backtick literal visible a cada lado
+// de un span delimitado por 2+ backticks — p. ej. una celda de tabla con
+// una corrida de dos backticks seguidos rodeando "a|b" (la forma CommonMark
+// para meter un "|" o un backtick literal adentro, ya soportada del lado
+// del parser/formatter de tablas desde F10) — salía con un backtick
+// literal pegado a cada lado del <code>, en vez de un <code> real. Espejo
+// self-contained de
+// elements.codeSpanRanges/formatter.codeSpanRunRanges (mismo patrón que
+// esos dos: cada paquete de este módulo mantiene su propia copia en vez de
+// importar la de otro, ver el comentario de codeSpanRunRanges en
+// core/formatter/strict.go), adaptado a devolver matches con su contenido
+// en vez de un []bool por posición, porque los dos call sites de esta
+// función (ProcessInlineMarkdownFormatsSecure abajo, y
+// extractLangRunsFromMarkdown en populate_lang_runs.go) necesitan el rango
+// del match completo, no solo si cada byte "está en código".
+//
+// Un backtick precedido por una corrida IMPAR de backslashes está escapado
+// y no puede abrir span — mismo precedente del spec de CommonMark
+// (sección "Backslash escapes": "\`not code`" renderiza como el texto
+// literal "`not code`", nunca como <code>) que sus dos espejos.
+//
+// Escaneo por BYTE, no por rune: backtick (0x60) y backslash (0x5C) son
+// ASCII de 1 byte que nunca aparecen como parte de un byte de continuación
+// UTF-8 (0x80-0xBF) ni de un byte líder multi-byte (0xC0+), así que indexar
+// por byte es seguro con contenido UTF-8 arbitrario alrededor, y los
+// offsets resultantes siguen siendo válidos para indexar el string
+// original — que es exactamente lo que ambos call sites necesitan (uno
+// para slicear text[...], el otro para sumar un offset en bytes).
+func findCodeSpans(text string) []codeSpanMatch {
+	var spans []codeSpanMatch
+	n := len(text)
+	i := 0
+	for i < n {
+		if text[i] != '`' || backslashRunIsOddBefore(text, i) {
+			i++
+			continue
+		}
+		start := i
+		for i < n && text[i] == '`' {
+			i++
+		}
+		openLen := i - start
+		contentStart := i
+
+		j := i
+		matched := false
+		for j < n {
+			if text[j] != '`' {
+				j++
+				continue
+			}
+			closeStart := j
+			for j < n && text[j] == '`' {
+				j++
+			}
+			if j-closeStart == openLen {
+				spans = append(spans, codeSpanMatch{
+					fullStart:    start,
+					fullEnd:      j,
+					contentStart: contentStart,
+					contentEnd:   closeStart,
+				})
+				i = j
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			// Sin cierre de su mismo largo: backticks literales, no
+			// delimitador. i ya quedó al final de la corrida de apertura.
+			continue
+		}
+	}
+	return spans
+}
+
+// backslashRunIsOddBefore cuenta los backslashes consecutivos justo antes
+// de la posición i en text y reporta si esa cantidad es impar.
+func backslashRunIsOddBefore(text string, i int) bool {
+	count := 0
+	for k := i - 1; k >= 0 && text[k] == '\\'; k-- {
+		count++
+	}
+	return count%2 == 1
+}
+
+// commonMarkCodeSpanContent aplica la normalización de espacios de
+// CommonMark §6.1 al contenido de un code span (hallazgo de cuarta ronda
+// de revisión): si el contenido empieza Y termina con un espacio, Y no son
+// TODOS espacios, se quita exactamente UN espacio de cada extremo — así
+// una corrida de 2+ backticks con espacio de relleno a cada lado (la forma
+// CommonMark para meter un backtick literal adentro sin que quede pegado
+// al delimitador, p. ej. una corrida de dos backticks rodeando " `código` "
+// como contenido) sale
+// como "<code>`código`</code>", no "<code> `código` </code>" con los
+// espacios de relleno todavía visibles. Un contenido que es ÚNICAMENTE
+// espacios (p. ej. un span de un solo espacio, "` `") es la salvedad
+// explícita del spec y queda intacto — de lo contrario un span
+// deliberadamente vacío-visualmente se vaciaría del todo.
+//
+// No hace falta la conversión de saltos de línea a espacio que esa misma
+// sección también describe: esta función sólo ve contenido de UNA línea
+// (los tres entry points de ProcessInlineMarkdownFormatsSecure parten el
+// texto por líneas antes de llegar acá). Recorte por BYTE, no por rune:
+// igual que findCodeSpans, el espacio ASCII (0x20) nunca es parte de un
+// byte de continuación o líder UTF-8, así que confirmar que s[0]/s[len-1]
+// son ese byte antes de recortarlo es seguro con contenido UTF-8
+// arbitrario alrededor.
+func commonMarkCodeSpanContent(s string) string {
+	if len(s) < 2 || s[0] != ' ' || s[len(s)-1] != ' ' {
+		return s
+	}
+	if strings.Trim(s, " ") == "" {
+		return s
+	}
+	return s[1 : len(s)-1]
+}
+
 // ProcessInlineMarkdownFormatsSecure procesa los formatos inline de markdown de forma segura
 // NOTA: Asume que el texto ya fue escapado con EscapeHTML
 //
@@ -468,11 +598,18 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 	// El texto ya está escapado, ahora aplicamos formatos markdown
 
 	var codeSpans []string
-	text = inlineCodePattern.ReplaceAllStringFunc(text, func(match string) string {
-		submatches := inlineCodePattern.FindStringSubmatch(match)
-		codeSpans = append(codeSpans, submatches[1])
-		return fmt.Sprintf("<zdc%d/>", len(codeSpans)-1)
-	})
+	if spans := findCodeSpans(text); len(spans) > 0 {
+		var b strings.Builder
+		last := 0
+		for _, sp := range spans {
+			b.WriteString(text[last:sp.fullStart])
+			codeSpans = append(codeSpans, commonMarkCodeSpanContent(text[sp.contentStart:sp.contentEnd]))
+			fmt.Fprintf(&b, "<zdc%d/>", len(codeSpans)-1)
+			last = sp.fullEnd
+		}
+		b.WriteString(text[last:])
+		text = b.String()
+	}
 
 	// Procesar resaltado ==texto== -> <mark>texto</mark>
 	text = inlineHighlightPattern.ReplaceAllString(text, `<mark>$1</mark>`)
