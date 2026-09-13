@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 
@@ -395,6 +394,28 @@ func normalizeElementForCompare(el ast.Element) ast.Element {
 	}
 }
 
+// jsonKeyToStrip identifica una clave JSON a descartar, PERO sólo dentro de
+// un objeto que además tiene la forma estructural de un nodo AST concreto
+// (ver stripJSONKeys) — nunca por nombre de clave a secas.
+type jsonKeyToStrip struct {
+	// key es el nombre de la clave a borrar.
+	key string
+	// nodeType es el valor que el objeto que la contiene debe tener en su
+	// clave "type" (el discriminador que BaseNode.Type serializa en TODO
+	// nodo del AST, ast/ast.go:133) para que el borrado aplique.
+	nodeType string
+	// siblingKeys son otras claves NO-omitempty del mismo struct Go (por
+	// eso están garantizadas presentes en CUALQUIER instancia real, vacías
+	// o no) que deben coexistir en el objeto junto con "type". Exigir tanto
+	// el tipo como estas claves hermanas hace que la firma estructural sea,
+	// en la práctica, exclusiva del nodo real: un mapa arbitrario del
+	// documento (una variable de FrontMatter, un parámetro de directiva,
+	// una opción de chart/map) tendría que casualmente llamarse igual Y
+	// tener por casualidad "type" con ese valor exacto Y las mismas claves
+	// hermanas para colar un falso positivo.
+	siblingKeys []string
+}
+
 // jsonNormalizeKeysToStrip lista nombres de campo JSON que un AST puede
 // traer y que no sobreviven un round-trip de texto por diseño (metadata de
 // posición/índice que core agrega ANTES de que este módulo la consuma vía
@@ -409,20 +430,32 @@ func normalizeElementForCompare(el ast.Element) ast.Element {
 // vez de por campo Go funciona sin importar cuál core esté compilado: si el
 // core resuelto no tiene el campo, la clave simplemente no existe en el JSON
 // serializado, y borrar una clave ausente es un no-op.
-var jsonNormalizeKeysToStrip = []string{
-	"rowPositions",
+//
+// Acotado por tipo de nodo + claves hermanas (hallazgo de tercera ronda de
+// revisión): la versión anterior borraba "rowPositions" en CUALQUIER mapa a
+// CUALQUIER profundidad — una variable de usuario en FrontMatter.Variables,
+// un parámetro de directiva o una opción de chart/map llamada
+// "rowPositions" se habría perdido en silencio del lado del test sin que el
+// guard lo detectara. ast.TableElement es el único struct con este campo
+// (json:"rowPositions,omitempty"), y siempre serializa junto a
+// "type":"table" y las claves no-omitempty "headers"/"rows" (ast/nodes.go);
+// exigir las tres achica el borrado a esa forma exacta.
+var jsonNormalizeKeysToStrip = []jsonKeyToStrip{
+	{key: "rowPositions", nodeType: "table", siblingKeys: []string{"headers", "rows"}},
 }
 
 // stripJSONKeys recorre value (el resultado de decodificar JSON en
 // interface{}: map[string]interface{}, []interface{}, o un escalar) y
-// borra, en cualquier profundidad, toda clave de mapa cuyo nombre esté en
-// keys.
-func stripJSONKeys(value interface{}, keys []string) interface{} {
+// borra, en cualquier profundidad, toda clave de un mapa que matchee una
+// entrada de keys — solo cuando ese mapa también tiene la firma estructural
+// que esa entrada exige (ver jsonKeyToStrip).
+func stripJSONKeys(value interface{}, keys []jsonKeyToStrip) interface{} {
 	switch v := value.(type) {
 	case map[string]interface{}:
+		nodeType, _ := v["type"].(string)
 		out := make(map[string]interface{}, len(v))
 		for k, val := range v {
-			if slices.Contains(keys, k) {
+			if jsonKeyStripApplies(keys, v, k, nodeType) {
 				continue
 			}
 			out[k] = stripJSONKeys(val, keys)
@@ -437,6 +470,29 @@ func stripJSONKeys(value interface{}, keys []string) interface{} {
 	default:
 		return v
 	}
+}
+
+// jsonKeyStripApplies decide si key debe borrarse del objeto obj (cuyo
+// discriminador "type" ya se extrajo como nodeType): sólo si alguna entrada
+// de keys matchea el nombre Y el tipo de nodo Y todas sus siblingKeys están
+// presentes en obj.
+func jsonKeyStripApplies(keys []jsonKeyToStrip, obj map[string]interface{}, key, nodeType string) bool {
+	for _, k := range keys {
+		if k.key != key || k.nodeType != nodeType {
+			continue
+		}
+		allSiblingsPresent := true
+		for _, s := range k.siblingKeys {
+			if _, ok := obj[s]; !ok {
+				allSiblingsPresent = false
+				break
+			}
+		}
+		if allSiblingsPresent {
+			return true
+		}
+	}
+	return false
 }
 
 // astEqualIgnoringStrippedKeys compara a y b (ya normalizados por
@@ -484,4 +540,69 @@ func headingInnerText(html string) string {
 		return ""
 	}
 	return strings.TrimSpace(m[1])
+}
+
+// TestStripJSONKeys_OnlyStripsRowPositionsFromRealTableElement cubre un
+// hallazgo de tercera ronda de revisión: la versión anterior de
+// stripJSONKeys borraba "rowPositions" en CUALQUIER mapa a CUALQUIER
+// profundidad — una variable de usuario en FrontMatter.Variables (o un
+// parámetro de directiva, o una opción de chart/map) que se llamara
+// "rowPositions" por coincidencia se habría descartado en silencio del
+// lado del test, sin que el guard de round-trip lo detectara. Ahora el
+// borrado exige, además del nombre de clave, que el objeto que la contiene
+// tenga "type":"table" y las claves hermanas no-omitempty "headers"/"rows"
+// (la firma estructural real de ast.TableElement) — ver jsonKeyToStrip.
+func TestStripJSONKeys_OnlyStripsRowPositionsFromRealTableElement(t *testing.T) {
+	doc := map[string]interface{}{
+		"frontMatter": map[string]interface{}{
+			// Una variable de usuario que, por coincidencia, se llama igual
+			// que el campo interno que este guard existe para descartar.
+			"variables": map[string]interface{}{
+				"rowPositions": "no soy metadata de core, soy contenido del usuario",
+			},
+		},
+		"contentBlocks": []interface{}{
+			map[string]interface{}{
+				"elements": []interface{}{
+					// Un TableElement real: type+headers+rows+rowPositions.
+					map[string]interface{}{
+						"type":         "table",
+						"headers":      []interface{}{"A", "B"},
+						"rows":         []interface{}{[]interface{}{"x", "y"}},
+						"rowPositions": []interface{}{map[string]interface{}{"line": float64(3)}},
+					},
+					// Un elemento sin relación, con una clave que también se
+					// llama "rowPositions" pero no es una tabla — no debe
+					// tocarse (falta type:"table" y headers/rows).
+					map[string]interface{}{
+						"type": "directive",
+						"params": map[string]interface{}{
+							"rowPositions": "parámetro arbitrario de una directiva",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	got := stripJSONKeys(doc, jsonNormalizeKeysToStrip).(map[string]interface{})
+
+	frontMatter := got["frontMatter"].(map[string]interface{})
+	variables := frontMatter["variables"].(map[string]interface{})
+	if _, ok := variables["rowPositions"]; !ok {
+		t.Errorf("la variable de usuario FrontMatter.Variables[\"rowPositions\"] se borró; debería sobrevivir intacta")
+	}
+
+	elements := got["contentBlocks"].([]interface{})[0].(map[string]interface{})["elements"].([]interface{})
+
+	table := elements[0].(map[string]interface{})
+	if _, ok := table["rowPositions"]; ok {
+		t.Errorf("TableElement.RowPositions no se borró; debería descartarse de un nodo type:\"table\" real")
+	}
+
+	directive := elements[1].(map[string]interface{})
+	params := directive["params"].(map[string]interface{})
+	if _, ok := params["rowPositions"]; !ok {
+		t.Errorf("el parámetro de directiva \"rowPositions\" se borró; debería sobrevivir intacto (no es un TableElement)")
+	}
 }
