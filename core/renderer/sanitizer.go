@@ -546,6 +546,38 @@ func backslashRunIsOddBefore(text string, i int) bool {
 	return count%2 == 1
 }
 
+// commonMarkCodeSpanContent aplica la normalización de espacios de
+// CommonMark §6.1 al contenido de un code span (hallazgo de cuarta ronda
+// de revisión): si el contenido empieza Y termina con un espacio, Y no son
+// TODOS espacios, se quita exactamente UN espacio de cada extremo — así
+// una corrida de 2+ backticks con espacio de relleno a cada lado (la forma
+// CommonMark para meter un backtick literal adentro sin que quede pegado
+// al delimitador, p. ej. una corrida de dos backticks rodeando " `código` "
+// como contenido) sale
+// como "<code>`código`</code>", no "<code> `código` </code>" con los
+// espacios de relleno todavía visibles. Un contenido que es ÚNICAMENTE
+// espacios (p. ej. un span de un solo espacio, "` `") es la salvedad
+// explícita del spec y queda intacto — de lo contrario un span
+// deliberadamente vacío-visualmente se vaciaría del todo.
+//
+// No hace falta la conversión de saltos de línea a espacio que esa misma
+// sección también describe: esta función sólo ve contenido de UNA línea
+// (los tres entry points de ProcessInlineMarkdownFormatsSecure parten el
+// texto por líneas antes de llegar acá). Recorte por BYTE, no por rune:
+// igual que findCodeSpans, el espacio ASCII (0x20) nunca es parte de un
+// byte de continuación o líder UTF-8, así que confirmar que s[0]/s[len-1]
+// son ese byte antes de recortarlo es seguro con contenido UTF-8
+// arbitrario alrededor.
+func commonMarkCodeSpanContent(s string) string {
+	if len(s) < 2 || s[0] != ' ' || s[len(s)-1] != ' ' {
+		return s
+	}
+	if strings.Trim(s, " ") == "" {
+		return s
+	}
+	return s[1 : len(s)-1]
+}
+
 // ProcessInlineMarkdownFormatsSecure procesa los formatos inline de markdown de forma segura
 // NOTA: Asume que el texto ya fue escapado con EscapeHTML
 //
@@ -571,7 +603,7 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 		last := 0
 		for _, sp := range spans {
 			b.WriteString(text[last:sp.fullStart])
-			codeSpans = append(codeSpans, text[sp.contentStart:sp.contentEnd])
+			codeSpans = append(codeSpans, commonMarkCodeSpanContent(text[sp.contentStart:sp.contentEnd]))
 			fmt.Fprintf(&b, "<zdc%d/>", len(codeSpans)-1)
 			last = sp.fullEnd
 		}

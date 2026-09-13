@@ -1117,6 +1117,38 @@ func TestProcessInlineMarkdownFormatsSecure_CodeIsolation(t *testing.T) {
 	}
 }
 
+// TestProcessInlineMarkdownFormatsSecure_CodeSpanSpaceTrim cubre un
+// hallazgo de cuarta ronda de revisión: CommonMark §6.1 exige que, si el
+// contenido de un code span empieza Y termina con un espacio, y no son
+// TODOS espacios, se quite exactamente UN espacio de cada extremo — la
+// forma estándar de meter un backtick literal cerca del borde de un span
+// delimitado por una corrida de 2+ backticks (p. ej. dos backticks
+// rodeando un código con backticks visibles adentro) sin que ese espacio
+// de relleno quede visible en el HTML. Antes de este fix, el contenido se
+// conservaba literal (con los espacios de relleno adentro).
+func TestProcessInlineMarkdownFormatsSecure_CodeSpanSpaceTrim(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"espacio de relleno a ambos lados se recorta", "`` `code` ``", "<code>`code`</code>"},
+		{"un solo espacio de contenido sobrevive intacto (salvedad del spec)", "` `", "<code> </code>"},
+		{"contenido de sólo espacios sobrevive intacto (salvedad del spec)", "``  ``", "<code>  </code>"},
+		{"espacio de un solo lado no se recorta (debe ser AMBOS lados)", "` a`", "<code> a</code>"},
+		{"sin espacios no cambia", "`a`", "<code>a</code>"},
+		{"aplica también a un solo backtick, no sólo a corridas de 2+", "` a `", "<code>a</code>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ProcessInlineMarkdownFormatsSecure(EscapeHTML(tt.input))
+			if result != tt.expected {
+				t.Errorf("ProcessInlineMarkdownFormatsSecure(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 // TestProcessInlineMarkdownFormatsSecure_CodeSpanInLinkURL_SentinelRestoredNotLeaked
 // covers an advisor follow-up on finding #7: a code span landing inside a
 // link's URL slot ("[a](`url`)") flows through SanitizeURL →
