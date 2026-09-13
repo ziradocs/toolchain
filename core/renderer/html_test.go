@@ -47,7 +47,7 @@ func TestRenderTableElement_DoubleBacktickCodeSpan_RendersAsRealCode(t *testing.
 	table.Headers = []string{"A", "B"}
 	table.Rows = [][]string{{"x", "``a|b``"}}
 
-	got := renderTableElement(table, nil)
+	got := renderTableElement(table, nil, nil)
 	if !strings.Contains(got, "<code>a|b</code>") {
 		t.Errorf("renderTableElement con celda \"``a|b``\" = %q, quiere un <code>a|b</code> real, no backticks literales alrededor", got)
 	}
