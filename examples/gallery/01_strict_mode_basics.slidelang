@@ -23,7 +23,7 @@ SLIDE content
   title: "A Simple Checklist"
   TEXT
     Launch readiness for this quarter's release:
-  POINTS
+  CHECKLIST
     - [x] Define the deck structure
     - [x] Fill in real content
     - [ ] Review with the team

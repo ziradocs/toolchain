@@ -343,3 +343,85 @@ func TestChecklistParser_parseChecklistContent(t *testing.T) {
 		})
 	}
 }
+
+// TestChecklistParser_ParseStrict_AcceptsBulletPrefix es el repro del audit
+// 2026-09-11 (F6): CHECKLIST en modo strict solo aceptaba "[x] item" pelado
+// — "- [x] item" (la forma que POINTS acepta en el mismo dialecto, y que
+// CHECKLIST en modo flex también acepta) renderizaba una lista vacía, sin
+// ningún diagnóstico. gallery/01_strict_mode_basics.slidelang usaba POINTS
+// en su lugar para esquivar esto.
+func TestChecklistParser_ParseStrict_AcceptsBulletPrefix(t *testing.T) {
+	parser := &ChecklistParser{}
+	logger := util.NewNoop()
+
+	lines := []string{
+		"CHECKLIST",
+		"    - [x] Define the deck structure",
+		"    - [x] Fill in real content",
+		"    - [ ] Review with the team",
+		"    - [ ] Ship to the gallery",
+	}
+
+	ctx := &ParseContext{
+		Mode:   "strict",
+		Lines:  lines,
+		Logger: logger,
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	checklist, ok := result.Element.(*ast.ChecklistElement)
+	if !ok {
+		t.Fatalf("Parse() returned wrong element type: %T", result.Element)
+	}
+
+	if len(checklist.Items) != 4 {
+		t.Fatalf("Expected 4 items, got %d (bullet-prefixed strict CHECKLIST items were dropped)", len(checklist.Items))
+	}
+	want := []struct {
+		content string
+		checked bool
+	}{
+		{"Define the deck structure", true},
+		{"Fill in real content", true},
+		{"Review with the team", false},
+		{"Ship to the gallery", false},
+	}
+	for i, w := range want {
+		if checklist.Items[i].Content != w.content {
+			t.Errorf("Items[%d].Content = %q, want %q", i, checklist.Items[i].Content, w.content)
+		}
+		if checklist.Items[i].Checked != w.checked {
+			t.Errorf("Items[%d].Checked = %v, want %v", i, checklist.Items[i].Checked, w.checked)
+		}
+	}
+}
+
+// TestChecklistParser_ParseStrict_MixedBulletStyles confirma que "*"/"+"
+// también son aceptados como bullet (mismo alfabeto que POINTS/flex
+// CHECKLIST), y que la forma pelada histórica ("[x]" sin bullet) sigue
+// funcionando sin cambios en el mismo bloque.
+func TestChecklistParser_ParseStrict_MixedBulletStyles(t *testing.T) {
+	parser := &ChecklistParser{}
+	logger := util.NewNoop()
+
+	lines := []string{
+		"CHECKLIST",
+		"    - [x] Dash bullet",
+		"    * [x] Asterisk bullet",
+		"    + [ ] Plus bullet",
+		"    [ ] No bullet at all",
+	}
+
+	ctx := &ParseContext{Mode: "strict", Lines: lines, Logger: logger}
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	checklist := result.Element.(*ast.ChecklistElement)
+	if len(checklist.Items) != 4 {
+		t.Fatalf("Expected 4 items, got %d", len(checklist.Items))
+	}
+}

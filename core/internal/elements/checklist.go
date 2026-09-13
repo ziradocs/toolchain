@@ -207,17 +207,25 @@ func (p *ChecklistParser) parseChecklistContent(line string) (string, bool) {
 	return content, checked
 }
 
+// strictChecklistItemRe acepta tanto "[x] item" (histórico) como
+// "- [x] item"/"* [x] item"/"+ [x] item" (issue del audit 2026-09-11, F6):
+// CHECKLIST en modo strict exigía la forma pelada, inconsistente con POINTS
+// (que sí acepta bullet en strict, points.go) y con CHECKLIST en modo flex
+// (isChecklistItem, arriba) — un autor que escribía "- [x] item" bajo
+// CHECKLIST en strict veía la lista renderizarse vacía, sin ningún
+// diagnóstico (gallery/01_strict_mode_basics.slidelang usaba POINTS en su
+// lugar para esquivar esto, en vez de CHECKLIST). El bullet es opcional
+// (?:...)? para no romper el formato pelado ya existente.
+var strictChecklistItemRe = regexp.MustCompile(`^(?:[-*+]\s*)?\[([xX\s])\]\s*(.*)`)
+
 // isStrictChecklistItem verifica si una línea es un item de checklist en modo estricto
 func (p *ChecklistParser) isStrictChecklistItem(line string) bool {
-	// Strict mode format: [x] or [ ] or [X] at the beginning
-	re := regexp.MustCompile(`^\[([xX\s])\]\s*(.*)`)
-	return re.MatchString(line)
+	return strictChecklistItemRe.MatchString(line)
 }
 
 // parseStrictChecklistContent extrae el contenido y estado de un item de checklist en modo estricto
 func (p *ChecklistParser) parseStrictChecklistContent(line string) (string, bool) {
-	re := regexp.MustCompile(`^\[([xX\s])\]\s*(.*)`)
-	matches := re.FindStringSubmatch(line)
+	matches := strictChecklistItemRe.FindStringSubmatch(line)
 
 	if len(matches) < 3 {
 		return "", false
