@@ -1771,8 +1771,33 @@ func createDatasetsFromData(chart *ast.ChartElement, variables map[string]interf
 
 	// Estándar Chart.js: para pie/doughnut, los datos vienen como array simple
 	// Los datos ya vienen parseados correctamente como [[890, 640, 390, 280]]
-	// Simplemente extraemos todos los valores
-	if len(chart.Data) == 1 {
+	// Simplemente extraemos todos los valores.
+	//
+	// El discriminador es la PRIMERA celda: si NO es un string, es una fila
+	// plana de valores numéricos ([890, 640, 390, 280], típicamente con
+	// `labels:` explícito aparte) y hay que esparcirla entera como UNA
+	// serie. Si SÍ es un string ([["Q1", 45, 32]]), es la forma tabular de
+	// SIEMPRE con una sola fila — "Q1" es la categoría, no un valor — y
+	// tratarla igual que el caso plano metía el string adentro del array de
+	// datos (Chart.js recibía ["Q1", 45, 32] como si los tres fueran
+	// puntos), mientras que las labels derivadas (extractLabelsFromData,
+	// más abajo) solo veían esa única fila y producían 1 label para 3
+	// "valores" — un desalineamiento silencioso (F3 del audit 2026-09-11;
+	// espejo exacto de la misma regla en core/renderer/html.go, PR de esta
+	// misma serie). Antes de este fix, `len(chart.Data) == 1` solo miraba
+	// la CANTIDAD de filas, nunca su forma.
+	//
+	// chart.Data[0] puede ser una fila VACÍA (`data: [[]]` — el schema no lo
+	// prohíbe, y un AST armado a mano tampoco) — chart.Data[0][0] sin este
+	// guard entra en pánico (hallazgo de revisión independiente). Una fila
+	// vacía no es ni "string" ni "no string": no aporta ningún valor, así
+	// que cae al mismo camino tabular de abajo (que ya tolera len(row)==0 y
+	// simplemente no agrega nada para esa fila).
+	firstCellIsString := false
+	if len(chart.Data[0]) > 0 {
+		_, firstCellIsString = chart.Data[0][0].(string)
+	}
+	if len(chart.Data) == 1 && len(chart.Data[0]) > 0 && !firstCellIsString {
 		// Data inline: [890, 640, 390, 280] -> usar todos los valores
 		data = append(data, chart.Data[0]...)
 	} else {

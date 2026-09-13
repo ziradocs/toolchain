@@ -382,6 +382,15 @@ func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 				elementTypes["checklists"] = true
 			case *ast.QuizElement, *ast.PollElement:
 				elementTypes["quizpoll"] = true
+			case *ast.CodeGroupElement:
+				// Issue del audit 2026-09-11 (F5, C6): faltaba este case a
+				// propósito (modules/detector.go lo omite de la lista JS —
+				// no necesita JS aparte, el switcher de tabs ya vive en
+				// utilities.go), pero el hueco real era CSS: sin este case,
+				// ningún deck con un code-group pedía code_group.css, así
+				// que todos sus paneles se mostraban apilados a la vez con
+				// tabs sin estilo.
+				elementTypes["code_group"] = true
 			case *ast.MapElement:
 				elementTypes["maps"] = true
 			case *ast.GridElement:
