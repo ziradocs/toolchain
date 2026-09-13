@@ -701,3 +701,298 @@ func TestTableParser_ParseMarkdownTable_MultiRowStillConsumesAll(t *testing.T) {
 		t.Errorf("ConsumedLines = %d, want 5", result.ConsumedLines)
 	}
 }
+
+// TestTableParser_ParseMarkdownTable_CodeSpanWithPipe cubre F10 del audit
+// 2026-09-11: una celda con un code span que contiene "|" ("`User | null`")
+// se partía en 2 celdas de más — strings.Split(line, "|") no distinguía un
+// "|" real de uno dentro de backticks — así que una fila con menos columnas
+// de las que tiene salía marcada por TABLE003 (linter/rules.go) contra una
+// tabla que en realidad está bien formada.
+func TestTableParser_ParseMarkdownTable_CodeSpanWithPipe(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| Method | Return |",
+			"|---|---|",
+			"| `getUser()` | `User | null` |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table, ok := result.Element.(*ast.TableElement)
+	if !ok {
+		t.Fatal("Element is not TableElement")
+	}
+
+	if len(table.Rows) != 1 {
+		t.Fatalf("len(Rows) = %d, want 1", len(table.Rows))
+	}
+	row := table.Rows[0]
+	if len(row) != 2 {
+		t.Fatalf("row = %#v, want 2 celdas (el \"|\" del code span no debe partir la fila)", row)
+	}
+	if row[1] != "`User | null`" {
+		t.Errorf("row[1] = %q, want \"`User | null`\" (pipe intacto dentro del code span)", row[1])
+	}
+}
+
+// TestTableParser_ParseMarkdownTable_EscapedPipe cubre la otra mitad de
+// F10: un "\|" fuera de un code span es un pipe escapado, no un separador —
+// se decodifica a "|" literal en la celda, la misma convención de GFM.
+func TestTableParser_ParseMarkdownTable_EscapedPipe(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			`| x \| y | z |`,
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table := result.Element.(*ast.TableElement)
+	if len(table.Rows) != 1 || len(table.Rows[0]) != 2 {
+		t.Fatalf("Rows = %#v, want 1 fila de 2 celdas", table.Rows)
+	}
+	if table.Rows[0][0] != "x | y" {
+		t.Errorf("Rows[0][0] = %q, want \"x | y\"", table.Rows[0][0])
+	}
+}
+
+// TestTableParser_ParseMarkdownTable_RowPositions cubre F10: RowPositions
+// tiene que ser paralelo a Rows y apuntar a la línea REAL de cada fila
+// (no a la del inicio de la tabla), para que TABLE003 pueda señalar la fila
+// que tiene el problema.
+func TestTableParser_ParseMarkdownTable_RowPositions(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			"| 1 | 2 |",
+			"| 3 | 4 |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	table := result.Element.(*ast.TableElement)
+
+	if len(table.RowPositions) != 2 {
+		t.Fatalf("len(RowPositions) = %d, want 2", len(table.RowPositions))
+	}
+	if table.RowPositions[0].Line != 3 {
+		t.Errorf("RowPositions[0].Line = %d, want 3 (la línea de \"| 1 | 2 |\")", table.RowPositions[0].Line)
+	}
+	if table.RowPositions[1].Line != 4 {
+		t.Errorf("RowPositions[1].Line = %d, want 4 (la línea de \"| 3 | 4 |\")", table.RowPositions[1].Line)
+	}
+}
+
+// TestTableParser_ParseMarkdownTable_OddBacktickCount_StillSplits cubre un
+// hallazgo de revisión: un "`" suelto (una corrida de largo 1 sin otra
+// corrida del mismo largo en el resto de la línea que la cierre) no abre
+// ningún code span real — codeSpanRanges no lo marca como delimitador, así
+// que los "|" reales que vienen después siguen siendo separadores.
+func TestTableParser_ParseMarkdownTable_OddBacktickCount_StillSplits(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			"| use ` for code | see docs | z |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table := result.Element.(*ast.TableElement)
+	// 3 pipes reales tras el backtick suelto -> 3 celdas de datos, no 1.
+	if len(table.Rows) != 1 || len(table.Rows[0]) != 3 {
+		t.Fatalf("Rows = %#v, want 1 fila de 3 celdas", table.Rows)
+	}
+}
+
+// TestTableParser_ParseMarkdownTable_DoubleBacktickSpanWithPipe cubre un
+// hallazgo de segunda ronda de revisión: un code span delimitado por una
+// corrida de dos o más backticks seguidos (la forma CommonMark para meter
+// un backtick literal adentro) se rompía porque la versión anterior
+// alternaba "dentro de código" por cada CARÁCTER backtick suelto, no por
+// corrida — dos backticks consecutivos se leían como "abre, cierra" en vez
+// de "abre un delimitador de largo 2", así que el "|" que en realidad está
+// DENTRO del span se trataba como separador real. El fixture de este test
+// (sin ningún backtick suelto adentro) ya alcanza para reproducirlo: 4
+// backticks en total, pero agrupados en dos corridas de 2, no en 4 corridas
+// de 1.
+func TestTableParser_ParseMarkdownTable_DoubleBacktickSpanWithPipe(t *testing.T) {
+	parser := &TableParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"| A | B |",
+			"|---|---|",
+			"| x | ``a|b`` |",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	table := result.Element.(*ast.TableElement)
+	if len(table.Rows) != 1 || len(table.Rows[0]) != 2 {
+		t.Fatalf("Rows = %#v, want 1 fila de 2 celdas (el \"|\" adentro del span de 2 backticks no debe partir la fila)", table.Rows)
+	}
+	if table.Rows[0][1] != "``a|b``" {
+		t.Errorf("Rows[0][1] = %q, want \"``a|b``\" (el span completo, con el pipe adentro intacto)", table.Rows[0][1])
+	}
+}
+
+// TestSplitMarkdownTableRow_BackslashParity cubre un hallazgo de tercera
+// ronda de revisión: el split anterior sólo miraba UN backslash hacia
+// atrás de un "|", así que "\\|" (un backslash escapado por otro backslash,
+// seguido de un pipe real y sin escapar) se leía igual que "\|" (un
+// backslash escapando al pipe) — el segundo backslash de la corrida
+// "veía" el pipe siguiente sin saber que él mismo ya estaba consumido por
+// el anterior. Un backslash escapa al "|" sólo si la corrida de
+// backslashes justo antes tiene largo IMPAR.
+//
+// Los backslashes que SOBREVIVEN como contenido literal se aparean de a
+// DOS (CommonMark §2.4: cada backslash escapa al que sigue; un par de
+// backslashes colapsa a UNO literal) — hallazgo de cuarta ronda de
+// revisión sobre el fix de tercera ronda: la versión anterior determinaba
+// bien la paridad (split o no split) pero escribía los backslashes
+// literales SIN aparear (una corrida de N escritos como N-1 sueltos en vez
+// de (N-1)/2 apareados), así que "\\\|" reconstruía DOS backslashes en vez
+// de uno — reventando el round-trip de escapeTableCellPipe (ver
+// table_pipe_escape_test.go) apenas la celda ya traía un backslash antes
+// del "|".
+func TestSplitMarkdownTableRow_BackslashParity(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want []string
+	}{
+		{
+			name: "un backslash escapa el pipe (impar), cero backslashes sobreviven",
+			line: `a\|b`,
+			want: []string{"a|b"},
+		},
+		{
+			name: "dos backslashes se aparean en uno solo, el pipe separa (par)",
+			line: `a\\|b`,
+			want: []string{`a\`, "b"},
+		},
+		{
+			name: "tres backslashes: el primer par colapsa a uno, el tercero escapa (impar)",
+			line: `a\\\|b`,
+			want: []string{`a\|b`},
+		},
+		{
+			name: "cinco backslashes: dos pares colapsan a dos, el quinto escapa (impar)",
+			line: `a\\\\\|b`,
+			want: []string{`a\\|b`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SplitMarkdownTableRow(tt.line)
+			if len(got) != len(tt.want) {
+				t.Fatalf("SplitMarkdownTableRow(%q) = %#v, want %#v", tt.line, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("SplitMarkdownTableRow(%q)[%d] = %q, want %q", tt.line, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestSplitMarkdownTableRow_BackslashInsideCodeSpanIsLiteral cubre un
+// hallazgo de quinta ronda de revisión: la rama de backslashes corría
+// SIEMPRE, sin mirar inSpan, así que una celda como "`a\|b`" (un code
+// span de un solo backtick que ya protege el "|" de adentro como no
+// separador) perdía igual el backslash — la lógica de apareo/escape de
+// pipes lo trataba como si estuviera a nivel de texto. CommonMark §6.1
+// es explícito: "backslash escapes do not work in code spans" — el
+// contenido entre backticks se preserva BYTE A BYTE, sin importar cuántos
+// backslashes consecutivos traiga ni si terminan justo antes de un "|".
+// Esto también cierra el round-trip de fmt: el formatter (ver
+// escapeTableCellPipe/table_pipe_escape_test.go) ya deja intacto un "|"
+// dentro de un span; si el parser desescapaba el backslash del contenido,
+// parse→format→reparse no era la identidad.
+func TestSplitMarkdownTableRow_BackslashInsideCodeSpanIsLiteral(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want []string
+	}{
+		{
+			name: "un backslash antes del pipe, DENTRO de un span de 1 backtick: sobrevive",
+			line: "`a\\|b`",
+			want: []string{"`a\\|b`"},
+		},
+		{
+			name: "dos backslashes (corrida par) antes del pipe, dentro de un span: sobreviven los dos, no se aparean",
+			line: "`a\\\\|b`",
+			want: []string{"`a\\\\|b`"},
+		},
+		{
+			name: "tres backslashes (corrida impar) antes del pipe, dentro de un span: sobreviven los tres",
+			line: "`a\\\\\\|b`",
+			want: []string{"`a\\\\\\|b`"},
+		},
+		{
+			name: "el mismo contenido FUERA de un span sí aplica el apareo/escape (sanity check, no debe romperse)",
+			line: `a\|b`,
+			want: []string{"a|b"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SplitMarkdownTableRow(tt.line)
+			if len(got) != len(tt.want) {
+				t.Fatalf("SplitMarkdownTableRow(%q) = %#v, want %#v", tt.line, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("SplitMarkdownTableRow(%q)[%d] = %q, want %q", tt.line, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestCodeSpanRanges_EscapedBacktickDoesNotOpenSpan cubre un hallazgo de
+// tercera ronda de revisión, con precedente exacto en el spec de
+// CommonMark (sección "Backslash escapes": "\`not code`" se renderiza como
+// el texto literal "`not code`", nunca como <code>): un backtick escapado
+// (precedido por un backslash) no puede abrir un code span. Antes de este
+// fix, un backtick escapado emparejaba con el siguiente backtick real,
+// tratando como código un "|" que en realidad debía seguir siendo
+// separador de columna.
+func TestCodeSpanRanges_EscapedBacktickDoesNotOpenSpan(t *testing.T) {
+	line := "a\\`code|pipe`z"
+	got := SplitMarkdownTableRow(line)
+	want := []string{"a\\`code", "pipe`z"}
+	if len(got) != len(want) {
+		t.Fatalf("SplitMarkdownTableRow(%q) = %#v, want %#v (el backtick escapado no debe abrir un span, así que el \"|\" sigue siendo separador)", line, got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("SplitMarkdownTableRow(%q)[%d] = %q, want %q", line, i, got[i], want[i])
+		}
+	}
+}

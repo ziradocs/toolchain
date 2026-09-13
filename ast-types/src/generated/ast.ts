@@ -635,6 +635,17 @@ export interface TableElement extends BaseNode {
   rows: string[][];
   rowsHTML?: string[][]; // Rows ya renderizadas a HTML inline (ver TextElement.ContentHTML)
   /**
+   * RowPositions da la posición fuente de cada entrada de Rows (mismo
+   * índice), para que un diagnóstico sobre una fila en particular (p. ej.
+   * TABLE003, "número incorrecto de columnas") pueda apuntar a la fila real
+   * en vez de siempre al inicio de la tabla. omitempty y de longitud
+   * potencialmente MENOR que Rows a propósito: la forma "cells:" (celdas
+   * fusionadas) deriva Rows de una estructura sin una fila-fuente 1:1, así
+   * que no la puebla — un consumidor debe indexar con cuidado (ver
+   * linter.rules.go, que cae a GetPosition() si el índice no existe).
+   */
+  rowPositions?: Position[];
+  /**
    * Cells exposes the real cell structure (issue #20, A11Y: colspan/
    * rowspan/scope) IN ADDITION to Headers/Rows, never in their place —
    * Headers/Rows remain the source existing renderers and slidelang

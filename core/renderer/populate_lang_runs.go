@@ -266,8 +266,8 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 	var codeRanges [][2]int
 	offset := 0
 	for _, line := range strings.Split(content, "\n") {
-		for _, r := range inlineCodePattern.FindAllStringIndex(line, -1) {
-			codeRanges = append(codeRanges, [2]int{r[0] + offset, r[1] + offset})
+		for _, sp := range findCodeSpans(line) {
+			codeRanges = append(codeRanges, [2]int{sp.fullStart + offset, sp.fullEnd + offset})
 		}
 		offset += len(line) + 1 // +1 por el "\n" que Split consumió
 	}

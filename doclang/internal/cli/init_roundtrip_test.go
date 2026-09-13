@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -303,7 +304,8 @@ func TestInit_TemplatesRoundTripThroughFmt(t *testing.T) {
 			}
 			reparsed := parseTemplate(t, out, "el resultado de fmt sobre "+tmpl)
 
-			if want, got := normalizeAST(doc), normalizeAST(reparsed); !reflect.DeepEqual(want, got) {
+			want, got := normalizeAST(doc), normalizeAST(reparsed)
+			if !astEqualIgnoringStrippedKeys(t, want, got) {
 				t.Errorf("fmt sobre la plantilla %s no round-trippea: el AST reparseado difiere del original\n--- fmt ---\n%s", tmpl, out)
 			}
 
@@ -392,6 +394,86 @@ func normalizeElementForCompare(el ast.Element) ast.Element {
 	}
 }
 
+// astEqualIgnoringStrippedKeys compara a y b ignorando
+// TableElement.RowPositions — metadata de posición que core agrega ANTES
+// de que este módulo la consuma vía bump, y que por lo tanto puede no
+// sobrevivir un round-trip de texto simplemente porque el core resuelto en
+// este build (GOWORK=off, la versión PUBLICADA) todavía no la tiene.
+//
+// Trabaja sobre COPIAS PROFUNDAS de a/b (round-trip por JSON hacia un
+// *ast.AST fresco, no hacia un mapa genérico) para no mutar los AST reales
+// del llamador — TestInit_TemplatesRoundTripThroughFmt reusa `reparsed`
+// para el chequeo de idempotencia después de esta comparación.
+// clearRowPositionsForComparison limpia el campo en esas copias antes de
+// comparar con reflect.DeepEqual sobre los structs TIPADOS (no JSON
+// genérico): dos *ast.AST con el mismo contenido comparan iguales sin
+// importar el orden de iteración de sus mapas internos, igual que antes.
+//
+// Hallazgo de tercera ronda de revisión: una versión anterior de este
+// mecanismo (jsonKeyStripApplies) operaba sobre el JSON genérico ya
+// decodificado, buscando claves por nombre + una firma estructural
+// ("type":"table" + "headers"/"rows" como hermanas) — reducía muchísimo el
+// riesgo de falso positivo, pero un objeto de usuario que por coincidencia
+// tuviera esa forma exacta (mismos cuatro nombres de clave) seguía
+// pudiendo colar un borrado indebido, porque el mecanismo nunca conocía el
+// TIPO real del objeto, sólo su forma. Hallazgo de cuarta ronda de
+// revisión: reemplazado por completo por esta versión, que recorre el AST
+// TIPADO (ast.Walk) y sólo puede tocar un *ast.TableElement real — un
+// mapa/objeto arbitrario del documento (una variable de
+// FrontMatter.Variables, un parámetro de directiva, una opción de
+// chart/map) nunca puede ser confundido con uno, sin importar qué forma
+// tenga. RowPositions se limpia por reflect.FieldByName, no por
+// `tbl.RowPositions = nil` directo: FieldByName simplemente no encuentra
+// el campo (no-op seguro) si el core resuelto todavía no lo tiene, en vez
+// de un error de compilación — mismo motivo que motivó el mecanismo
+// original, ahora aplicado a la firma TIPADA en vez de al JSON genérico.
+func astEqualIgnoringStrippedKeys(t *testing.T, a, b *ast.AST) bool {
+	t.Helper()
+	aCopy := deepCopyAST(t, a)
+	bCopy := deepCopyAST(t, b)
+	clearRowPositionsForComparison(aCopy)
+	clearRowPositionsForComparison(bCopy)
+	return reflect.DeepEqual(aCopy, bCopy)
+}
+
+// deepCopyAST produce una copia de doc totalmente independiente (round-trip
+// por JSON hacia un *ast.AST fresco — ContentBlock.UnmarshalJSON,
+// ast/decode.go, reconstruye el árbol polimórfico de Elements igual que
+// cualquier otro consumidor de --format json) para que
+// clearRowPositionsForComparison pueda mutarla sin tocar el AST original.
+func deepCopyAST(t *testing.T, doc *ast.AST) *ast.AST {
+	t.Helper()
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var cp ast.AST
+	if err := json.Unmarshal(data, &cp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	return &cp
+}
+
+// clearRowPositionsForComparison pone en cero TableElement.RowPositions en
+// TODO *ast.TableElement de doc, a cualquier profundidad de anidado
+// (incluida una tabla dentro de un ::: bloque o una columna de grid,
+// ast.Walk desciende a Elements anidados) — ver el comentario de
+// astEqualIgnoringStrippedKeys para el porqué de la reflexión en vez de
+// una referencia directa al campo.
+func clearRowPositionsForComparison(doc *ast.AST) {
+	_ = ast.Walk(doc, func(node ast.Node) error {
+		tbl, ok := node.(*ast.TableElement)
+		if !ok {
+			return nil
+		}
+		f := reflect.ValueOf(tbl).Elem().FieldByName("RowPositions")
+		if f.IsValid() && f.CanSet() {
+			f.Set(reflect.Zero(f.Type()))
+		}
+		return nil
+	})
+}
+
 func stripFrontMatter(content string) string {
 	if !strings.HasPrefix(content, "---\n") {
 		return content
@@ -410,4 +492,108 @@ func headingInnerText(html string) string {
 		return ""
 	}
 	return strings.TrimSpace(m[1])
+}
+
+// buildRowPositionsFixture arma un *ast.AST con: una variable de usuario en
+// FrontMatter.Variables llamada literalmente "rowPositions" (un dato real
+// del documento, no metadata de core), una directiva con un parámetro del
+// mismo nombre, y dos tablas — una top-level y otra ANIDADA dentro de un
+// ":::bloque" (SpecialBlockElement.Elements, issue #9) — cada una con
+// RowPositions poblado si tablePos != nil. rowPositions distinto entre dos
+// llamadas (o nil vs. poblado) es la única diferencia que
+// astEqualIgnoringStrippedKeys debe ignorar; todo lo demás debe seguir
+// siendo sensible.
+func buildRowPositionsFixture(t *testing.T, tablePos []diagnostics.Position) *ast.AST {
+	t.Helper()
+
+	table := ast.NewTableElement(diagnostics.NewPosition(3, 1))
+	table.Headers = []string{"A", "B"}
+	table.Rows = [][]string{{"x", "y"}}
+	setFieldIfExists(t, table, "RowPositions", tablePos)
+
+	nestedTable := ast.NewTableElement(diagnostics.NewPosition(5, 1))
+	nestedTable.Headers = []string{"C", "D"}
+	nestedTable.Rows = [][]string{{"1", "2"}}
+	setFieldIfExists(t, nestedTable, "RowPositions", tablePos)
+
+	block := ast.NewSpecialBlockElement(diagnostics.NewPosition(4, 1), "info", "")
+	setFieldIfExists(t, block, "Elements", []ast.Element{nestedTable})
+
+	directive := ast.NewDirectiveNode(diagnostics.NewPosition(6, 1), "toc")
+	directive.Parameters["rowPositions"] = "parámetro arbitrario de una directiva, no relacionado con TableElement"
+
+	return &ast.AST{
+		FrontMatter: &ast.FrontMatterNode{
+			Mode: "flex",
+			Variables: map[string]interface{}{
+				"rowPositions": "no soy metadata de core, soy contenido del usuario",
+			},
+		},
+		ContentBlocks: []ast.ContentBlock{
+			{Elements: []ast.Element{table, block, directive}},
+		},
+	}
+}
+
+// setFieldIfExists pone obj.<name> = value por reflexión — nunca por
+// `obj.RowPositions = ...`/`obj.Elements = ...` directo, que no compilaría
+// si el core resuelto en este build (GOWORK=off, la versión PUBLICADA)
+// todavía no declara ese campo (RowPositions/#323 y
+// SpecialBlockElement.Elements/#324-325 son ambos de esta misma cadena de
+// PRs, sin publicar todavía). Si el campo no existe, es un no-op seguro:
+// la parte de esta fixture que depende de él simplemente no se ejercita en
+// ese build aislado, en vez de romper la compilación — mismo mecanismo y
+// mismo motivo que clearRowPositionsForComparison.
+func setFieldIfExists(t *testing.T, obj interface{}, name string, value interface{}) {
+	t.Helper()
+	f := reflect.ValueOf(obj).Elem().FieldByName(name)
+	if !f.IsValid() || !f.CanSet() {
+		return
+	}
+	f.Set(reflect.ValueOf(value))
+}
+
+// TestAstEqualIgnoringStrippedKeys_OnlyIgnoresRealTableRowPositions cubre
+// un hallazgo de cuarta ronda de revisión: el mecanismo anterior
+// (jsonKeyStripApplies) borraba "rowPositions" de cualquier objeto JSON
+// que tuviera la forma type:"table"+headers+rows, así que un dato de
+// usuario que coincidiera exactamente con esa firma —construible, aunque
+// improbable— también se habría perdido en la comparación. La versión
+// actual recorre el AST TIPADO (ast.Walk) y sólo puede tocar un
+// *ast.TableElement real, a cualquier profundidad de anidado (incluida una
+// tabla dentro de un ::: bloque).
+func TestAstEqualIgnoringStrippedKeys_OnlyIgnoresRealTableRowPositions(t *testing.T) {
+	posA := []diagnostics.Position{diagnostics.NewPosition(3, 1)}
+	posB := []diagnostics.Position{diagnostics.NewPosition(99, 1)}
+
+	a := buildRowPositionsFixture(t, posA)
+	b := buildRowPositionsFixture(t, posB)
+	if !astEqualIgnoringStrippedKeys(t, a, b) {
+		t.Errorf("dos AST que sólo difieren en RowPositions (tabla top-level Y anidada en un ::: bloque) deberían compararse iguales")
+	}
+
+	// Confirmar que la variable de FrontMatter y el parámetro de la
+	// directiva, ambos llamados "rowPositions", siguen intactos en las
+	// copias (nunca se tocan) y que la comparación sigue siendo SENSIBLE a
+	// una diferencia real en cualquiera de los dos.
+	c := buildRowPositionsFixture(t, posA)
+	c.FrontMatter.Variables["rowPositions"] = "un valor distinto"
+	if astEqualIgnoringStrippedKeys(t, a, c) {
+		t.Errorf("una diferencia real en FrontMatter.Variables[\"rowPositions\"] no debería ignorarse")
+	}
+
+	d := buildRowPositionsFixture(t, posA)
+	d.ContentBlocks[0].Elements[2].(*ast.DirectiveNode).Parameters["rowPositions"] = "otro valor"
+	if astEqualIgnoringStrippedKeys(t, a, d) {
+		t.Errorf("una diferencia real en el parámetro de directiva \"rowPositions\" no debería ignorarse")
+	}
+
+	// Sanity check: una diferencia real de CONTENIDO de tabla (no
+	// RowPositions) sigue detectándose — si esto también diera "igual",
+	// el guard de round-trip habría dejado de servir para algo.
+	e := buildRowPositionsFixture(t, posA)
+	e.ContentBlocks[0].Elements[0].(*ast.TableElement).Headers = []string{"X", "Y"}
+	if astEqualIgnoringStrippedKeys(t, a, e) {
+		t.Errorf("una diferencia real en TableElement.Headers no debería ignorarse")
+	}
 }
