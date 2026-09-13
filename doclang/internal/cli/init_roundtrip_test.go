@@ -4,10 +4,12 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -303,7 +305,8 @@ func TestInit_TemplatesRoundTripThroughFmt(t *testing.T) {
 			}
 			reparsed := parseTemplate(t, out, "el resultado de fmt sobre "+tmpl)
 
-			if want, got := normalizeAST(doc), normalizeAST(reparsed); !reflect.DeepEqual(want, got) {
+			want, got := normalizeAST(doc), normalizeAST(reparsed)
+			if !astEqualIgnoringStrippedKeys(t, want, got) {
 				t.Errorf("fmt sobre la plantilla %s no round-trippea: el AST reparseado difiere del original\n--- fmt ---\n%s", tmpl, out)
 			}
 
@@ -390,6 +393,77 @@ func normalizeElementForCompare(el ast.Element) ast.Element {
 	default:
 		return el
 	}
+}
+
+// jsonNormalizeKeysToStrip lista nombres de campo JSON que un AST puede
+// traer y que no sobreviven un round-trip de texto por diseño (metadata de
+// posición/índice que core agrega ANTES de que este módulo la consuma vía
+// bump) — pero que este test no puede referenciar por el campo Go: este
+// módulo resuelve go.ziradocs.com/core/v2 desde la versión PUBLICADA en
+// builds aislados (GOWORK=off), que puede no tener el campo todavía aunque
+// el core local del workspace (go.work, el checkout de quien desarrolla) sí
+// lo tenga. Referenciar el campo Go directo acá rompió build-test/
+// lint(doclang) en cuanto un PR de core agregó ast.TableElement.RowPositions
+// antes de que su propio bump consumidor aterrizara (hallazgo de segunda
+// ronda de revisión independiente). Descartar por NOMBRE DE CLAVE JSON en
+// vez de por campo Go funciona sin importar cuál core esté compilado: si el
+// core resuelto no tiene el campo, la clave simplemente no existe en el JSON
+// serializado, y borrar una clave ausente es un no-op.
+var jsonNormalizeKeysToStrip = []string{
+	"rowPositions",
+}
+
+// stripJSONKeys recorre value (el resultado de decodificar JSON en
+// interface{}: map[string]interface{}, []interface{}, o un escalar) y
+// borra, en cualquier profundidad, toda clave de mapa cuyo nombre esté en
+// keys.
+func stripJSONKeys(value interface{}, keys []string) interface{} {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			if slices.Contains(keys, k) {
+				continue
+			}
+			out[k] = stripJSONKeys(val, keys)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(v))
+		for i, val := range v {
+			out[i] = stripJSONKeys(val, keys)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+// astEqualIgnoringStrippedKeys compara a y b (ya normalizados por
+// normalizeAST) serializándolos a JSON y descartando
+// jsonNormalizeKeysToStrip en cualquier profundidad antes de comparar — ver
+// el comentario de esa variable. reflect.DeepEqual sobre el árbol genérico
+// decodificado (no sobre los structs Go originales) es correcto acá: los
+// mapas de Go se comparan por conjunto de claves/valores, sin importar el
+// orden de iteración.
+func astEqualIgnoringStrippedKeys(t *testing.T, a, b *ast.AST) bool {
+	t.Helper()
+	aJSON, err := json.Marshal(a)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	bJSON, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var aVal, bVal interface{}
+	if err := json.Unmarshal(aJSON, &aVal); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if err := json.Unmarshal(bJSON, &bVal); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	return reflect.DeepEqual(stripJSONKeys(aVal, jsonNormalizeKeysToStrip), stripJSONKeys(bVal, jsonNormalizeKeysToStrip))
 }
 
 func stripFrontMatter(content string) string {
