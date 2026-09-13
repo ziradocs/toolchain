@@ -33,46 +33,62 @@ var refPattern = regexp.MustCompile(`\\ref\{([^}]+)\}`)
 //
 // Un \ref a un label que no existe es un ERROR de build (no un no-op
 // silencioso) — mismo principio que un \ref roto en LaTeX.
+//
+// El idioma del texto generado ("Figura N" vs "Figure N") sale de
+// doc.FrontMatter.Lang vía Labels(lang) — ver su doc comment para el
+// fallback a "es" cuando no hay front matter o el tag no tiene labels
+// propios. Se deriva del propio doc en vez de recibirse como parámetro
+// aparte: core/doc.go no da garantías de SemVer sobre el Go API de core/xref
+// (solo cli.Options y el schema del AST las tienen), pero un tercer
+// parámetro cuyo único valor posible en todo el árbol de llamadas YA está
+// en doc era, de cualquier forma, ruido — Transform (el único caller real)
+// lo derivaba así mismo antes de pasarlo (hallazgo de code review: ver
+// git blame de este comentario).
 func ResolveRefs(doc *ast.AST, table Table) error {
+	lang := ""
+	if doc.FrontMatter != nil {
+		lang = doc.FrontMatter.Lang
+	}
+	labels := Labels(lang)
 	unresolvedSet := map[string]bool{}
 
 	err := ast.Walk(doc, func(n ast.Node) error {
 		switch v := n.(type) {
 		case *ast.ContentBlock:
-			v.Title = rewriteRefs(v.Title, table, unresolvedSet)
-			v.Heading = rewriteRefs(v.Heading, table, unresolvedSet)
-			v.Subtitle = rewriteRefs(v.Subtitle, table, unresolvedSet)
+			v.Title = rewriteRefs(v.Title, table, labels, unresolvedSet)
+			v.Heading = rewriteRefs(v.Heading, table, labels, unresolvedSet)
+			v.Subtitle = rewriteRefs(v.Subtitle, table, labels, unresolvedSet)
 		case *ast.TextElement:
-			v.Content = rewriteRefs(v.Content, table, unresolvedSet)
+			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
 		case *ast.PointItem:
-			v.Content = rewriteRefs(v.Content, table, unresolvedSet)
+			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
 		case *ast.ChecklistItem:
-			v.Content = rewriteRefs(v.Content, table, unresolvedSet)
+			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
 		case *ast.ImageElement:
-			v.Caption = rewriteRefs(v.Caption, table, unresolvedSet)
+			v.Caption = rewriteRefs(v.Caption, table, labels, unresolvedSet)
 		case *ast.TableElement:
-			v.Caption = rewriteRefs(v.Caption, table, unresolvedSet)
+			v.Caption = rewriteRefs(v.Caption, table, labels, unresolvedSet)
 		case *ast.MathElement:
-			v.Caption = rewriteRefs(v.Caption, table, unresolvedSet)
+			v.Caption = rewriteRefs(v.Caption, table, labels, unresolvedSet)
 		case *ast.SpecialBlockElement:
-			v.Title = rewriteRefs(v.Title, table, unresolvedSet)
-			v.Content = rewriteRefs(v.Content, table, unresolvedSet)
+			v.Title = rewriteRefs(v.Title, table, labels, unresolvedSet)
+			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
 		case *ast.QuoteElement:
-			v.Content = rewriteRefs(v.Content, table, unresolvedSet)
-			v.Author = rewriteRefs(v.Author, table, unresolvedSet)
-			v.Source = rewriteRefs(v.Source, table, unresolvedSet)
+			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
+			v.Author = rewriteRefs(v.Author, table, labels, unresolvedSet)
+			v.Source = rewriteRefs(v.Source, table, labels, unresolvedSet)
 		case *ast.GridElement:
-			v.Content = rewriteRefs(v.Content, table, unresolvedSet)
+			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
 		case *ast.ColumnElement:
-			v.Content = rewriteRefs(v.Content, table, unresolvedSet)
+			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
 		case *ast.MermaidElement:
-			v.Title = rewriteRefs(v.Title, table, unresolvedSet)
+			v.Title = rewriteRefs(v.Title, table, labels, unresolvedSet)
 		case *ast.PlantUMLElement:
-			v.Title = rewriteRefs(v.Title, table, unresolvedSet)
+			v.Title = rewriteRefs(v.Title, table, labels, unresolvedSet)
 		case *ast.ChartElement:
-			v.Title = rewriteRefs(v.Title, table, unresolvedSet)
+			v.Title = rewriteRefs(v.Title, table, labels, unresolvedSet)
 		case *ast.MapElement:
-			v.Title = rewriteRefs(v.Title, table, unresolvedSet)
+			v.Title = rewriteRefs(v.Title, table, labels, unresolvedSet)
 		}
 		return nil
 	})
@@ -81,20 +97,22 @@ func ResolveRefs(doc *ast.AST, table Table) error {
 	}
 
 	if len(unresolvedSet) > 0 {
-		labels := make([]string, 0, len(unresolvedSet))
+		unresolvedLabels := make([]string, 0, len(unresolvedSet))
 		for l := range unresolvedSet {
-			labels = append(labels, l)
+			unresolvedLabels = append(unresolvedLabels, l)
 		}
-		sort.Strings(labels)
-		return fmt.Errorf("referencia(s) \\ref sin resolver (sin figura/tabla con ese label): %s", strings.Join(labels, ", "))
+		sort.Strings(unresolvedLabels)
+		return fmt.Errorf("referencia(s) \\ref sin resolver (sin figura/tabla con ese label): %s", strings.Join(unresolvedLabels, ", "))
 	}
 	return nil
 }
 
 // rewriteRefs reemplaza cada \ref{label} de text por su link resuelto. Un
 // label no encontrado se deja literal en el texto (para que el mensaje de
-// error final sea legible) y se registra en unresolved.
-func rewriteRefs(text string, table Table, unresolved map[string]bool) string {
+// error final sea legible) y se registra en unresolved. labels traduce
+// entry.Kind al texto de display en el idioma del documento (ver
+// Labels(lang) en labels.go).
+func rewriteRefs(text string, table Table, labels map[Kind]string, unresolved map[string]bool) string {
 	if text == "" || !strings.Contains(text, `\ref{`) {
 		return text
 	}
@@ -106,6 +124,6 @@ func rewriteRefs(text string, table Table, unresolved map[string]bool) string {
 			unresolved[label] = true
 			return match
 		}
-		return fmt.Sprintf("[%s %d](#%s)", entry.Kind, entry.Number, entry.AnchorID)
+		return fmt.Sprintf("[%s %d](#%s)", labels[entry.Kind], entry.Number, entry.AnchorID)
 	})
 }

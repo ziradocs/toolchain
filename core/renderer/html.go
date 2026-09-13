@@ -40,7 +40,7 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 		return renderImageElement(elem, variables, ctx)
 
 	case *ast.TableElement:
-		return renderTableElement(elem, variables)
+		return renderTableElement(elem, variables, ctx)
 
 	case *ast.QuoteElement:
 		return renderQuoteElement(elem, variables)
@@ -204,7 +204,14 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	captionPrefix := ""
 	if elem.Label != "" && elem.Number > 0 {
 		idAttr = fmt.Sprintf(` id="%s"`, xref.AnchorID(elem.Label))
-		captionPrefix = fmt.Sprintf("Figura %d: ", elem.Number)
+		// ctx puede ser nil acá (ver el doc comment de TryInlineLocalImage
+		// más abajo: esta función es alcanzable sin pasar por
+		// resolveRenderContext) — Labels("") cae al default "es".
+		lang := ""
+		if ctx != nil {
+			lang = ctx.Lang
+		}
+		captionPrefix = fmt.Sprintf("%s %d: ", xref.Labels(lang)[xref.KindFigure], elem.Number)
 	}
 
 	if caption != "" {
@@ -430,7 +437,7 @@ func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}
 }
 
 // renderTableElement procesa tablas con headers y rows
-func renderTableElement(elem *ast.TableElement, variables map[string]interface{}) string {
+func renderTableElement(elem *ast.TableElement, variables map[string]interface{}, ctx *RenderContext) string {
 	var html strings.Builder
 
 	// issue #239: ver el comentario equivalente en renderImageElement.
@@ -473,7 +480,11 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 		caption := ProcessVariablesSecure(elem.Caption, variables)
 		prefix := ""
 		if elem.Label != "" && elem.Number > 0 {
-			prefix = fmt.Sprintf("Tabla %d: ", elem.Number)
+			lang := ""
+			if ctx != nil {
+				lang = ctx.Lang
+			}
+			prefix = fmt.Sprintf("%s %d: ", xref.Labels(lang)[xref.KindTable], elem.Number)
 		}
 		fmt.Fprintf(&html, `<p class="table-caption">%s%s</p>`, prefix, caption)
 	}

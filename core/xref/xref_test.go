@@ -197,3 +197,78 @@ func TestAnchorID_Slugifies(t *testing.T) {
 		}
 	}
 }
+
+func TestLabels_DefaultsToSpanish(t *testing.T) {
+	for _, lang := range []string{"", "fr", "pt-BR"} {
+		got := Labels(lang)
+		if got[KindFigure] != "Figura" || got[KindTable] != "Tabla" || got[KindEquation] != "Ecuación" {
+			t.Errorf("Labels(%q) = %+v, want los labels en español (fallback)", lang, got)
+		}
+	}
+}
+
+func TestLabels_English(t *testing.T) {
+	got := Labels("en")
+	if got[KindFigure] != "Figure" || got[KindTable] != "Table" || got[KindEquation] != "Equation" {
+		t.Errorf("Labels(\"en\") = %+v, want Figure/Table/Equation", got)
+	}
+}
+
+// TestLabels_EnglishBCP47Variants cubre un hallazgo de revisión: el doc
+// comment de Labels (y el de FrontMatter.Lang) prometen "tag BCP 47 tal como
+// llega" con "en-US" como ejemplo explícito, pero antes de este fix el
+// switch comparaba lang ENTERO contra el literal "en" — así que "en-US",
+// "en-GB" y "EN" (mayúsculas) caían al default en español, contradiciendo
+// esa misma documentación.
+func TestLabels_EnglishBCP47Variants(t *testing.T) {
+	for _, lang := range []string{"en-US", "en-GB", "EN", "en-US-x-test"} {
+		got := Labels(lang)
+		if got[KindFigure] != "Figure" || got[KindTable] != "Table" || got[KindEquation] != "Equation" {
+			t.Errorf("Labels(%q) = %+v, want Figure/Table/Equation (mismo idioma primario que \"en\")", lang, got)
+		}
+	}
+}
+
+// TestResolveRefs_RespectsLang es el repro del audit 2026-09-11 (F7): un
+// documento con `lang: en` seguía mostrando "Tabla 1" en el texto resuelto
+// de un \ref, porque ResolveRefs no tenía forma de saber el idioma
+// declarado — entry.Kind (el string "Tabla") se usaba directo como texto.
+func TestResolveRefs_RespectsLang(t *testing.T) {
+	table := Table{"tbl:datos": {Kind: KindTable, Number: 1, AnchorID: "tbl-datos"}}
+	text := ast.NewTextElement(pos(), `see \ref{tbl:datos}`)
+	block := ast.NewContentBlock(pos(), "content")
+	block.Elements = append(block.Elements, text)
+	doc := ast.NewAST(pos())
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	doc.FrontMatter = &ast.FrontMatterNode{Lang: "en"}
+
+	if err := ResolveRefs(doc, table); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	want := "see [Table 1](#tbl-datos)"
+	if text.Content != want {
+		t.Errorf("Content = %q, want %q (lang=en debe producir \"Table\", no \"Tabla\")", text.Content, want)
+	}
+}
+
+// TestTransform_ReadsFrontMatterLang confirma que el built-in de #239
+// (Transform, lo que corre en el pipeline real) deriva lang de
+// doc.FrontMatter.Lang sin que el caller tenga que pasarlo aparte.
+func TestTransform_ReadsFrontMatterLang(t *testing.T) {
+	tbl := ast.NewTableElement(pos())
+	tbl.Label = "tbl:x"
+	text := ast.NewTextElement(pos(), `see \ref{tbl:x}`)
+	block := ast.NewContentBlock(pos(), "content")
+	block.Elements = append(block.Elements, tbl, text)
+	doc := ast.NewAST(pos())
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	doc.FrontMatter = &ast.FrontMatterNode{Lang: "en"}
+
+	if _, err := Transform(doc); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	want := "see [Table 1](#tbl-x)"
+	if got := doc.ContentBlocks[0].Elements[1].(*ast.TextElement).Content; got != want {
+		t.Errorf("Content = %q, want %q", got, want)
+	}
+}
