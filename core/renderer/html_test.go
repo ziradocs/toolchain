@@ -31,6 +31,31 @@ func TestRenderTableElement_SimpleTable_UnchangedHTML(t *testing.T) {
 	}
 }
 
+// TestRenderTableElement_DoubleBacktickCodeSpan_RendersAsRealCode cubre un
+// hallazgo de tercera ronda de revisión: inlineCodePattern (el regex de un
+// solo backtick que ProcessInlineMarkdownFormatsSecure usaba para proteger
+// code spans) no reconocía un span delimitado por una CORRIDA de 2+
+// backticks (la forma CommonMark para meter un "|" o un backtick literal
+// adentro, ya soportada del lado del parser/formatter de tablas desde F10)
+// — el HTML final dejaba un backtick literal visible a cada lado del
+// <code>, en vez de un <code> real. El test anterior de esta misma celda
+// (TestTableParser_ParseMarkdownTable_DoubleBacktickSpanWithPipe /
+// TestFormatPipeTable_DoubleBacktickSpanPipe_NotEscaped) sólo cubría
+// parse/format/reparse, nunca el HTML final.
+func TestRenderTableElement_DoubleBacktickCodeSpan_RendersAsRealCode(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"A", "B"}
+	table.Rows = [][]string{{"x", "``a|b``"}}
+
+	got := renderTableElement(table, nil)
+	if !strings.Contains(got, "<code>a|b</code>") {
+		t.Errorf("renderTableElement con celda \"``a|b``\" = %q, quiere un <code>a|b</code> real, no backticks literales alrededor", got)
+	}
+	if strings.Contains(got, "`<code>") || strings.Contains(got, "</code>`") {
+		t.Errorf("renderTableElement dejó un backtick literal pegado al <code>: %q", got)
+	}
+}
+
 // TestRenderTableElement_MergedCells_EmitsColspanAndScope covers issue #20:
 // a table with Cells declaring colspan/scope must render via
 // renderTableCells, emitting the real colspan/scope attributes — something
