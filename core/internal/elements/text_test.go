@@ -4,7 +4,11 @@
 package elements
 
 import (
+	"strings"
 	"testing"
+
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // TestTextParser_IsOtherElementType_Pipes cubre issue #174: una línea de
@@ -166,5 +170,53 @@ func TestTextParser_Parse_OrphanEndTagStillDropped(t *testing.T) {
 	result := p.Parse(ctx, 0)
 	if result.Element != nil {
 		t.Errorf("Parse(%q) = %+v, want Element=nil (un <<end>> huérfano no debe convertirse en TextElement)", ctx.Lines[0], result.Element)
+	}
+}
+
+// TestTextParser_Parse_CodeSpanSplitAcrossSourceLine_RendersCorrectlyEitherWay
+// documenta un hallazgo de quinta ronda de revisión sobre
+// toolchain#326 (que esta misma sesión había abierto como un supuesto
+// fix): ese PR reordenaba el salto de línea de un párrafo para que un
+// code span quedara dentro de UNA sola línea del ARCHIVO FUENTE,
+// asumiendo que eso cambiaba el HTML final. Es falso — Parse (arriba, "In
+// flex mode: ...") junta cada línea consecutiva de un párrafo con un solo
+// espacio (`content.WriteString(" "); content.WriteString(trimmed)`)
+// ANTES de que el renderer vea nada, así que TextElement.Content —y por
+// lo tanto el HTML— es BYTE A BYTE el mismo sin importar en qué línea del
+// archivo fuente caía el salto, mientras las palabras y su orden no
+// cambien. Este test parsea la forma ORIGINAL (el span partido entre dos
+// líneas de Lines) y confirma que el HTML final ya sale bien formado — la
+// prueba de que #326 no cambiaba ningún comportamiento real, sólo
+// reflowaba el archivo fuente.
+func TestTextParser_Parse_CodeSpanSplitAcrossSourceLine_RendersCorrectlyEitherWay(t *testing.T) {
+	p := &TextParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"With `--render-mode",
+			"offline-assets` or `offline-inline`, charts rasterize natively.",
+		},
+	}
+
+	result := p.Parse(ctx, 0)
+	text, ok := result.Element.(*ast.TextElement)
+	if !ok {
+		t.Fatalf("Parse produjo %#v, want *ast.TextElement", result.Element)
+	}
+
+	wantContent := "With `--render-mode offline-assets` or `offline-inline`, charts rasterize natively."
+	if text.Content != wantContent {
+		t.Fatalf("Content = %q, want %q (el join con un solo espacio debe ser independiente del salto de línea original)", text.Content, wantContent)
+	}
+
+	html := renderer.ProcessTextWithVariablesAndMarkdownSecure(text.Content, nil)
+	if !strings.Contains(html, "<code>--render-mode offline-assets</code>") {
+		t.Errorf("HTML = %q, quiere un <code>--render-mode offline-assets</code> real", html)
+	}
+	if !strings.Contains(html, "<code>offline-inline</code>") {
+		t.Errorf("HTML = %q, quiere un <code>offline-inline</code> real", html)
+	}
+	if strings.Contains(html, "<code>or</code>") {
+		t.Errorf("HTML = %q, no debería haber un <code>or</code> espurio", html)
 	}
 }
