@@ -416,3 +416,46 @@ func TestValidateLayoutConfig(t *testing.T) {
 		})
 	}
 }
+
+// TestSlideLayoutValidationRule_DialectDocuments_SkipsEntirely es el repro
+// del audit 2026-09-11 (F11): un documento etiqueta su primera sección
+// BlockType "title" (mismo nombre que un slide de portada, significado
+// completamente distinto) — sin el gate de dialecto, el schema "title"
+// (pensado para una portada de presentación, que prohíbe texto/tablas/
+// imágenes) disparaba LAYOUT002/LAYOUT_FORBIDDEN_ELEMENT en CUALQUIER
+// documento con prosa normal en su primera sección.
+func TestSlideLayoutValidationRule_DialectDocuments_SkipsEntirely(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "title")
+	block.Heading = "Introducción"
+	block.Elements = append(block.Elements,
+		ast.NewTextElement(pos, "prosa normal de un documento"),
+		ast.NewTableElement(pos),
+	)
+
+	rule := &SlideLayoutValidationRule{}
+	rule.setDialect(DialectDocuments)
+	diags := rule.Check(block)
+	if len(diags) != 0 {
+		t.Errorf("DialectDocuments debe saltar la regla entera, hay %d diagnóstico(s): %+v", len(diags), diags)
+	}
+}
+
+// TestSlideLayoutValidationRule_DialectSlides_StillValidates es la otra
+// mitad: el mismo contenido, sin declarar dialecto (el comportamiento de
+// siempre para slidelang), SÍ debe seguir disparando LAYOUT_FORBIDDEN_ELEMENT
+// — es exactamente el caso que este schema existe para atrapar en una
+// presentación real. Sin este test, un dialecto mal cableado (por ejemplo
+// DialectDocuments por defecto) pasaría la mitad de arriba en verde
+// apagando la regla también para slidelang.
+func TestSlideLayoutValidationRule_DialectSlides_StillValidates(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(pos, "title")
+	block.Heading = "Portada"
+	block.Elements = append(block.Elements, ast.NewTextElement(pos, "no debería estar acá"))
+
+	diags := (&SlideLayoutValidationRule{}).Check(block)
+	if findDiagnostic(diags, "LAYOUT_FORBIDDEN_ELEMENT") == nil {
+		t.Error("se esperaba LAYOUT_FORBIDDEN_ELEMENT con dialecto por defecto (DialectAny) — la regla se apagó de más")
+	}
+}

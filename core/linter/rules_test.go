@@ -189,3 +189,57 @@ func TestElementStructureRule_UnknownSpecialBlock_StillEmitsSPECIAL001(t *testin
 		t.Fatalf("se esperaba el warning genérico SPECIAL001, obtenidos: %+v", diags)
 	}
 }
+
+// TestElementStructureRule_KnownSpecialBlockTypes_NoLongerConflict es el
+// repro del audit 2026-09-11 (C12): tres listas a mano de tipos de special
+// block ya se contradecían — esta regla tenía su propia whitelist de 6
+// tipos, sin "note"/"example" (que el parser SÍ reconoce y les da ícono,
+// internal/elements/special_block.go) ni "left"/"right"/"highlight" (que la
+// spec SÍ documenta, language-specification.md:328-336). Ahora consume
+// elements.KnownSpecialBlockTypes(), la lista única.
+func TestElementStructureRule_KnownSpecialBlockTypes_NoLongerConflict(t *testing.T) {
+	for _, typ := range []string{"note", "example", "left", "right", "highlight", "details"} {
+		t.Run(typ, func(t *testing.T) {
+			pos := diagnostics.NewPosition(1, 1)
+			block := ast.NewSpecialBlockElement(pos, typ, "contenido")
+			slide := &ast.ContentBlock{Elements: []ast.Element{block}}
+
+			diags := (&ElementStructureRule{}).Check(slide)
+			if findDiagnosticByRuleID(diags, "SPECIAL001") != nil {
+				t.Errorf("%q ya está documentado/reconocido en otro lado del código — no debería disparar SPECIAL001, obtenidos: %+v", typ, diags)
+			}
+		})
+	}
+}
+
+// TestFrontMatterValidRule_DialectDocuments_MissingFrontMatterIsNotError y
+// TestFrontMatterValidRule_DialectSlides_StillErrors son el repro del audit
+// 2026-09-11 (F12): DocumentFlexParser tolera un .doclang sin frontmatter
+// (CLAUDE.md), pero el linter lo reportaba como FRONT003 igual — un
+// documento válido de punta a punta fallaba el lint.
+func TestFrontMatterValidRule_DialectDocuments_MissingFrontMatterIsNotError(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	doc := ast.NewAST(pos)
+
+	rule := &FrontMatterValidRule{}
+	rule.setDialect(DialectDocuments)
+	diags := rule.Check(doc)
+
+	if findDiagnosticByRuleID(diags, "FRONT003") != nil {
+		t.Errorf("DialectDocuments no debe reportar FRONT003 para un .doclang sin frontmatter, obtenidos: %+v", diags)
+	}
+}
+
+func TestFrontMatterValidRule_DialectSlides_StillErrors(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	doc := ast.NewAST(pos)
+
+	diags := (&FrontMatterValidRule{}).Check(doc)
+	diag := findDiagnosticByRuleID(diags, "FRONT003")
+	if diag == nil {
+		t.Fatal("se esperaba FRONT003 con dialecto por defecto (DialectAny) — la regla se apagó de más")
+	}
+	if !diag.IsError() {
+		t.Errorf("FRONT003 debe seguir siendo Error fuera de DialectDocuments, severity = %v", diag.Severity)
+	}
+}

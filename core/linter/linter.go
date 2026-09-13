@@ -18,6 +18,68 @@ type Linter struct {
 	externalTimeout   time.Duration
 	themeVariables    map[string]string
 	themeVariablesSet bool
+	dialect           Dialect
+}
+
+// Dialect identifica cuál de los dos DSLs este *Linter está validando —
+// mismo propósito que base.Dialect en el normalizador
+// (internal/normalize/normalizer/base), declarado aparte en este paquete
+// (exportado) porque ese es `internal` y no se puede importar desde fuera
+// de core: WithDialect es la API pública que doclang/slidelang consumen.
+//
+// Antes de esto, el linter no tenía forma de saber qué dialecto estaba
+// validando y aplicaba reglas pensadas para slides (layout de "title
+// slide", FRONT003 como error) a cualquier documento por igual — un
+// `.doclang` bien formado disparaba LAYOUT002/LAYOUT_FORBIDDEN_ELEMENT en
+// su primera sección (que el parser SIEMPRE etiqueta BlockType "title",
+// ver document_flex.go/document_strict.go) y FRONT003 si no traía
+// frontmatter, aunque el parser lo tolera (issue del audit 2026-09-11,
+// F11/F12).
+type Dialect int
+
+const (
+	// DialectAny es el cero: quien llama no declaró dialecto — todas las
+	// reglas corren (el comportamiento de siempre, cero cambio para un
+	// caller que no llama WithDialect).
+	DialectAny Dialect = iota
+	// DialectSlides es slidelang: cada bloque es un slide.
+	DialectSlides
+	// DialectDocuments es doclang: cada bloque es una sección.
+	DialectDocuments
+)
+
+// String devuelve el nombre del dialecto.
+func (d Dialect) String() string {
+	switch d {
+	case DialectSlides:
+		return "slides"
+	case DialectDocuments:
+		return "documents"
+	default:
+		return "any"
+	}
+}
+
+// dialectAware lo implementan las reglas cuya validación depende del
+// dialecto (mismo patrón que layoutPolicyAware/ThemeAware, arriba). Una
+// regla que no la implementa corre igual en cualquier dialecto.
+type dialectAware interface {
+	setDialect(Dialect)
+}
+
+// WithDialect adjunta el dialecto a validar y lo propaga a cualquier regla
+// en l.rules que implemente dialectAware. Un dialecto DialectAny (el cero)
+// es un no-op: deja el comportamiento por defecto, todas las reglas
+// corriendo sin restricción — un caller que nunca llama WithDialect no ve
+// ningún cambio.
+func (l *Linter) WithDialect(d Dialect) *Linter {
+	l.dialect = d
+	for _, r := range l.rules {
+		if aware, ok := r.(dialectAware); ok {
+			aware.setDialect(d)
+		}
+	}
+	return l
 }
 
 type Rule interface {
@@ -185,6 +247,9 @@ func (l *Linter) AddRule(r Rule) *Linter {
 		if aware, ok := r.(ThemeAware); ok {
 			aware.SetThemeVariables(cloneStringMap(l.themeVariables))
 		}
+	}
+	if aware, ok := r.(dialectAware); ok {
+		aware.setDialect(l.dialect)
 	}
 	return l
 }
