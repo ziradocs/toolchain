@@ -90,6 +90,33 @@ func TestGenerateChartConfig_ComboDeclaredAxes_HonorsAuthor(t *testing.T) {
 	}
 }
 
+// TestGenerateChartConfig_ComboDeclaredAxes_ExplicitYDoesNotOverwritePrimary
+// cubre un hallazgo de revisión independiente: un autor que declara el eje
+// primario EXPLÍCITO ("y", no solo "" implícito — SeriesAxes: ["y", "y1"]
+// es una forma tan válida como ["", "y1"] de decir "esta serie va en la
+// primaria") hacía que extraAxes recolectara también "y" (cualquier
+// yAxisID no vacío entraba, sin excluir "y"), y el loop de abajo
+// SOBRESCRIBÍA scales["y"] con la config de eje SECUNDARIO
+// (position:"right", grid.drawOnChartArea:false) — perdiendo la escala
+// primaria izquierda entera.
+func TestGenerateChartConfig_ComboDeclaredAxes_ExplicitYDoesNotOverwritePrimary(t *testing.T) {
+	axisIDs, scales := decodeComboConfig(t, comboChart([]string{"y", "y1"}))
+
+	if axisIDs[0] != "y" || axisIDs[1] != "y1" {
+		t.Fatalf("axisIDs = %v, want [\"y\" \"y1\"]", axisIDs)
+	}
+	yScale, ok := scales["y"].(map[string]interface{})
+	if !ok {
+		t.Fatal("scales.y ausente")
+	}
+	if yScale["position"] != "left" {
+		t.Errorf("scales.y.position = %v, want \"left\" (la escala primaria no debe quedar sobrescrita por la secundaria)", yScale["position"])
+	}
+	if _, ok := scales["y1"]; !ok {
+		t.Error("scales.y1 ausente")
+	}
+}
+
 // TestGenerateChartConfig_ComboSingleSeries_NoExtraScale confirma que un
 // combo de una sola serie (o donde ninguna serie cae después del índice 0)
 // no le agrega una escala y1 de sobra que nadie referencia.

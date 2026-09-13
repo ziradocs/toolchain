@@ -1730,9 +1730,18 @@ func GenerateChartConfigWithTheme(elem *ast.ChartElement, forExport bool, catego
 				"beginAtZero": true,
 			},
 		}
+		// "y" queda afuera aunque algún dataset lo declare explícito (un
+		// autor que escribe SeriesAxes: ["y", "y1"] — "esta serie va en la
+		// primaria, esta otra en la secundaria" es una forma válida y
+		// explícita de declarar un combo, no solo el fallback heurístico):
+		// "y" YA está armado arriba como la escala primaria izquierda; sin
+		// este chequeo, el loop de abajo lo volvía a escribir con
+		// "position":"right" y "grid.drawOnChartArea":false, perdiendo la
+		// escala primaria izquierda entera (hallazgo de revisión
+		// independiente).
 		extraAxes := make(map[string]bool)
 		for _, dataset := range datasets {
-			if id, ok := dataset["yAxisID"].(string); ok && id != "" {
+			if id, ok := dataset["yAxisID"].(string); ok && id != "" && id != "y" {
 				extraAxes[id] = true
 			}
 		}
