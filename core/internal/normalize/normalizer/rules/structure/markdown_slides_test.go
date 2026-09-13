@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
 func TestMarkdownSlideStructureRule_Apply(t *testing.T) {
@@ -458,6 +460,25 @@ Additional information.`
 		_, err := rule.Apply(content)
 		if err != nil {
 			b.Fatalf("Error in benchmark: %v", err)
+		}
+	}
+}
+
+func TestMarkdownSlideStructureRule_AppliesTo(t *testing.T) {
+	rule := NewMarkdownSlideStructureRule()
+
+	tests := []struct {
+		dialect base.Dialect
+		want    bool
+	}{
+		{base.DialectAny, true},
+		{base.DialectSlides, true},
+		{base.DialectDocuments, false},
+	}
+
+	for _, tt := range tests {
+		if got := rule.AppliesTo(tt.dialect); got != tt.want {
+			t.Errorf("AppliesTo(%v) = %v, want %v", tt.dialect, got, tt.want)
 		}
 	}
 }

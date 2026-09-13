@@ -148,3 +148,89 @@ func documentHasSubsectionHeading(doc *ast.AST, title string) bool {
 	}
 	return false
 }
+
+// twoH2SectionsDoc es el repro empírico del bug reportado en el audit
+// 2026-09-11: un solo "#", exactamente DOS "##" debajo (no tres — el umbral
+// que MarkdownSlideStructureRule.isDocLangDocument exige en su "Estrategia 2"
+// para reconocer un doclang), y un <<mermaid>> sin indentar que dispara el
+// Detector (puntúa >0.3, ver el comentario grande de arriba) y enciende el
+// normalizador completo. Sin AppliesTo, el documento se clasificaba como
+// slidelang mal delimitado y se le insertaban separadores "---", partiendo
+// su jerarquía de secciones en "slides".
+const twoH2SectionsDoc = `---
+title: Quarterly Report
+mode: flex
+---
+
+# Quarterly Report
+
+## Results
+
+First line of results.
+Second line of results.
+
+<<mermaid>>
+graph TD
+A --> B
+<<end>>
+
+## Conclusions
+
+First line of conclusions.
+Second line.
+Third line.
+Fourth line.
+`
+
+// TestParseDocument_TwoH2SectionsSurviveNormalization es la mitad "documento"
+// del arreglo de MarkdownSlideStructureRule: con solo 2 "##" (no 3+), la
+// jerarquía # → ##/## debe sobrevivir intacta, sin que aparezcan
+// separadores "---" sintéticos partiéndola en ContentBlocks nuevos.
+func TestParseDocument_TwoH2SectionsSurviveNormalization(t *testing.T) {
+	doc, diags := New(util.NewNoop()).ParseDocument(twoH2SectionsDoc, "doc.doclang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("diagnóstico de error inesperado: %v", d)
+		}
+	}
+	if doc == nil {
+		t.Fatal("ParseDocument devolvió nil")
+	}
+
+	if len(doc.ContentBlocks) != 1 {
+		t.Fatalf("se esperaba 1 ContentBlock (una sola sección \"# Quarterly Report\"), hay %d — "+
+			"MarkdownSlideStructureRule insertó separadores \"---\" y partió el documento en slides.\n"+
+			"Su AppliesTo debe devolver false para base.DialectDocuments.", len(doc.ContentBlocks))
+	}
+
+	for _, want := range []string{"Results", "Conclusions"} {
+		if !documentHasSubsectionHeading(doc, want) {
+			t.Errorf("el subtítulo %q dejó de ser un heading al parsear — misma falla que el caso de HeadersRule.", want)
+		}
+	}
+}
+
+// TestNormalization_MarkdownSlideStructureStillAppliesToSlides es la otra
+// mitad: el mismo contenido, tratado como slidelang, SÍ debe partirse en
+// slides — es exactamente el patrón que la regla existe para corregir. Sin
+// este test, un dialecto mal cableado (por ejemplo AppliesTo devolviendo
+// false siempre) pasaría la mitad de arriba en verde mientras apaga la regla
+// también para slidelang.
+func TestNormalization_MarkdownSlideStructureStillAppliesToSlides(t *testing.T) {
+	doc, diags := New(util.NewNoop()).Parse(twoH2SectionsDoc, "deck.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("diagnóstico de error inesperado: %v", d)
+		}
+	}
+	if doc == nil {
+		t.Fatal("Parse devolvió nil")
+	}
+
+	if len(doc.ContentBlocks) < 2 {
+		t.Errorf("MarkdownSlideStructureRule dejó de aplicarse a slidelang: se esperaban >=2 slides "+
+			"(separadores \"---\" insertados antes de cada \"##\"), hay %d.\n"+
+			"Suele ser el dialecto mal cableado — parser.Parser.Parse debe seguir pasando base.DialectSlides.",
+			len(doc.ContentBlocks))
+	}
+}
