@@ -63,17 +63,9 @@
     "source": 0,
     "html": 1
   },
-  "examples/gallery/01_strict_mode_basics.slidelang::checklist": {
-    "source": 4,
-    "html": 0
-  },
   "examples/gallery/02_technical_architecture.doclang::image": {
     "source": 0,
     "html": 1
-  },
-  "examples/gallery/06_strict_document.doclang::checklist": {
-    "source": 3,
-    "html": 0
   },
   "examples/gallery/06_strict_document.doclang::code_pre": {
     "source": 0,
