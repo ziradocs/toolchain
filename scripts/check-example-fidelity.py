@@ -265,13 +265,28 @@ def load_baseline():
     return json.loads(BASELINE_FILE.read_text(encoding="utf-8"))
 
 
-def gap(vals):
-    """abs(source - html) — the size of a mismatch, HTML_MISSING treated as
-    infinitely bad so it always counts as a regression unless it was already
-    baselined as missing."""
+def signed_gap(vals):
+    """html - source: negative means html is MISSING elements (loss),
+    positive means html has EXTRA elements (duplication). None for
+    HTML_MISSING, treated as infinitely bad so it always counts as a
+    regression unless it was already baselined as missing.
+
+    Kept signed on purpose (hallazgo de revisión independiente): comparar
+    solo abs(source - html) trataba una pérdida (1 -> 0, gap 1) y una
+    duplicación (1 -> 2, gap 1) como el mismo "gap", así que un renderer que
+    cambiara de perder un elemento a DUPLICARLO pasaba el check con el mismo
+    baseline — una regresión real, solo que en la dirección opuesta,
+    disfrazada de "sin cambio". Comparar el par con signo exige que una
+    entrada "mejorada" reduzca la magnitud SIN cambiar de signo: acercarse a
+    0 desde el mismo lado en el que ya estaba, no cruzar al lado opuesto.
+    """
     if vals == "build failed":
         return None
-    return abs(vals["source"] - vals["html"])
+    return vals["html"] - vals["source"]
+
+
+def sign(n):
+    return (n > 0) - (n < 0)
 
 
 def main():
@@ -318,10 +333,26 @@ def main():
                     continue
 
                 base_vals = baseline[key]
-                base_gap = gap(base_vals)
-                new_gap = gap(vals)
+                base_signed = signed_gap(base_vals)
+                new_signed = signed_gap(vals)
 
-                if base_gap is None or new_gap > base_gap:
+                # Una entrada solo cuenta como "no peor" si se mueve hacia 0
+                # DESDE EL MISMO LADO en el que ya estaba baselineada (mismo
+                # signo) — nunca cruzando de pérdida a duplicación o
+                # viceversa, que es un defecto distinto disfrazado del mismo
+                # |gap| (ver signed_gap). base_signed == 0 no puede pasar en
+                # la práctica (una entrada solo entra al baseline con un
+                # mismatch real), pero sign(0) == 0 igual exige signo 0 en
+                # new_signed, que tampoco puede pasar — correcto por
+                # construcción, sin caso especial.
+                is_regression = (
+                    base_signed is None
+                    or new_signed is None
+                    or sign(new_signed) != sign(base_signed)
+                    or abs(new_signed) > abs(base_signed)
+                )
+
+                if is_regression:
                     new_failures.append((rel, name, vals, base_vals))
                 else:
                     # Same or smaller gap than baselined: not a regression,
