@@ -4,10 +4,12 @@
 package elements
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MapParser maneja el parsing de mapas Leaflet
@@ -31,11 +33,74 @@ func (p *MapParser) CanParse(line string, mode string) bool {
 	if mode != "strict" && mode != "flex" {
 		return false
 	}
+	// Forma de fence (```map/````map), espejo de ChartParser.CanParse —
+	// solo en flex, mismo motivo (strict es keyword-driven, sin fences).
+	if mode == "flex" && isFencedBlockOpener(trimmed, "map") {
+		return true
+	}
 	rest, ok := strings.CutPrefix(trimmed, "<<map")
 	if !ok || !closesInlineTagOnce(rest) {
 		return false
 	}
 	return rest == ">>" || strings.HasPrefix(rest, " ")
+}
+
+// mapJSONBody es la forma JSON que acepta ```map — la única forma que este
+// fence soporta (mismo alcance que ChartParser: ver su comentario en
+// chart.go). No es un passthrough tipo Chart.js (MapElement no tiene un
+// RawJSON como ChartElement, ni falta que le hace: un mapa no tiene
+// configuración de terceros que preservar literal, solo datos geográficos),
+// así que el JSON se decodifica a esta forma y se traduce a los mismos
+// campos que el loop de propiedades de abajo ya puebla — JSON es aquí una
+// SERIALIZACIÓN alternativa de los mismos datos, no un modo aparte.
+type mapJSONBody struct {
+	Type    string                 `json:"type"`
+	Center  []float64              `json:"center"`
+	Zoom    int                    `json:"zoom"`
+	Heatmap bool                   `json:"heatmap"`
+	Title   string                 `json:"title"`
+	Width   int                    `json:"width"`
+	Height  int                    `json:"height"`
+	Markers []mapJSONMarker        `json:"markers"`
+	Options map[string]interface{} `json:"options"`
+}
+
+// mapJSONMarker acepta tanto la forma "position: [lat,lng]" + "popup"
+// (convención Leaflet-nativa, la que usa el corpus real —
+// examples/webp_test.doclang) como "lat"/"lng" sueltos + "label" (los
+// nombres que usa el resto de este parser, marker: en el loop de
+// propiedades) — cualquiera de los dos, o una mezcla, resuelve al mismo
+// ast.MapMarker.
+type mapJSONMarker struct {
+	Position []float64 `json:"position"`
+	Lat      float64   `json:"lat"`
+	Lng      float64   `json:"lng"`
+	Popup    string    `json:"popup"`
+	Label    string    `json:"label"`
+	Details  string    `json:"details"`
+	Color    string    `json:"color"`
+	Size     string    `json:"size"`
+	Value    float64   `json:"value"`
+}
+
+func (m mapJSONMarker) toMarker() ast.MapMarker {
+	marker := ast.MapMarker{
+		Lat:     m.Lat,
+		Lng:     m.Lng,
+		Label:   m.Label,
+		Details: m.Details,
+		Color:   m.Color,
+		Size:    m.Size,
+		Value:   m.Value,
+	}
+	if len(m.Position) >= 2 {
+		marker.Lat = m.Position[0]
+		marker.Lng = m.Position[1]
+	}
+	if m.Popup != "" {
+		marker.Label = m.Popup
+	}
+	return marker
 }
 
 // Parse parsea un elemento Map
@@ -46,6 +111,60 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	pos := ctx.Position(startIndex)
 	line := strings.TrimSpace(ctx.Lines[startIndex])
+
+	// Forma de fence (```map ... ```): único cuerpo que soporta es JSON —
+	// mismo alcance que ChartParser.Parse, mismo motivo (collectFencedBody
+	// delimita el cuerpo sin ambigüedad, así que no hace falta el loop de
+	// propiedades key:value de abajo).
+	if ctx.Mode == "flex" && isFencedBlockOpener(line, "map") {
+		body, consumed := collectFencedBody(ctx.Lines, startIndex)
+		trimmedBody := strings.TrimSpace(body)
+
+		var parsed mapJSONBody
+		if err := json.Unmarshal([]byte(trimmedBody), &parsed); err != nil {
+			mapType := "world"
+			return &ParseResult{
+				Element:       ast.NewMapElement(pos, mapType),
+				ConsumedLines: consumed,
+				Error:         nil,
+				Diagnostics: []diagnostics.Diagnostic{
+					diagnostics.NewWarning(
+						"El JSON del mapa es inválido y fue ignorado; el mapa quedará sin datos",
+						pos, "map-parser").WithRuleID("MAP002"),
+				},
+			}
+		}
+
+		mapType := parsed.Type
+		if mapType == "" {
+			mapType = "world"
+		}
+		mapElement := ast.NewMapElement(pos, mapType)
+		mapElement.Zoom = parsed.Zoom
+		mapElement.Heatmap = parsed.Heatmap
+		mapElement.Width = parsed.Width
+		mapElement.Height = parsed.Height
+		if parsed.Title != "" {
+			if mapElement.Options == nil {
+				mapElement.Options = make(map[string]interface{})
+			}
+			mapElement.Options["title"] = parsed.Title
+		}
+		for k, v := range parsed.Options {
+			if mapElement.Options == nil {
+				mapElement.Options = make(map[string]interface{})
+			}
+			mapElement.Options[k] = v
+		}
+		if len(parsed.Center) >= 2 {
+			mapElement.Center = &ast.MapCoordinate{Lat: parsed.Center[0], Lng: parsed.Center[1]}
+		}
+		for _, m := range parsed.Markers {
+			mapElement.Markers = append(mapElement.Markers, m.toMarker())
+		}
+
+		return &ParseResult{Element: mapElement, ConsumedLines: consumed, Error: nil}
+	}
 
 	// Extraer atributos si están presentes: <<map type="city" width="1200" height="800" zoom="10">>
 	mapType := "world" // default

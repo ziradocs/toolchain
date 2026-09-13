@@ -750,3 +750,125 @@ func BenchmarkMapParser_CanParse(b *testing.B) {
 		parser.CanParse(line, mode)
 	}
 }
+
+// TestMapParser_CanParse_FencedForm y TestMapParser_Parse_FencedJSON son el
+// repro del audit 2026-09-11 (F4): un fence ```map no se reconocía en
+// absoluto y degradaba a un bloque de código crudo. Espejo del soporte que
+// ChartParser tiene para su propio fence (chart_test.go).
+func TestMapParser_CanParse_FencedForm(t *testing.T) {
+	parser := &MapParser{}
+	tests := []struct {
+		name     string
+		line     string
+		mode     string
+		expected bool
+	}{
+		{"fenced flex triple backtick", "```map", "flex", true},
+		{"fenced flex quadruple backtick", "````map", "flex", true},
+		{"fenced strict not recognized", "```map", "strict", false},
+		{"fenced wrong lang", "```json", "flex", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parser.CanParse(tt.line, tt.mode); got != tt.expected {
+				t.Errorf("CanParse(%q, %q) = %v, want %v", tt.line, tt.mode, got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestMapParser_Parse_FencedJSON usa el mismo shape Leaflet-nativo
+// (position/popup) que examples/webp_test.doclang, el repro real del
+// hallazgo.
+func TestMapParser_Parse_FencedJSON(t *testing.T) {
+	parser := &MapParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"```map",
+			`{`,
+			`  "center": [40.7128, -74.0060],`,
+			`  "zoom": 12,`,
+			`  "markers": [`,
+			`    {"position": [40.7128, -74.0060], "popup": "New York City"}`,
+			`  ]`,
+			`}`,
+			"```",
+		},
+	}
+
+	result := parser.Parse(ctx, 0)
+	if result.Error != nil {
+		t.Fatalf("Parse() error = %v", result.Error)
+	}
+	mapElement, ok := result.Element.(*ast.MapElement)
+	if !ok {
+		t.Fatalf("Element is not MapElement: %T", result.Element)
+	}
+	if mapElement.Center == nil || mapElement.Center.Lat != 40.7128 || mapElement.Center.Lng != -74.0060 {
+		t.Errorf("Center = %+v, want {40.7128 -74.0060}", mapElement.Center)
+	}
+	if mapElement.Zoom != 12 {
+		t.Errorf("Zoom = %d, want 12", mapElement.Zoom)
+	}
+	if len(mapElement.Markers) != 1 {
+		t.Fatalf("expected 1 marker, got %d", len(mapElement.Markers))
+	}
+	m := mapElement.Markers[0]
+	if m.Lat != 40.7128 || m.Lng != -74.0060 {
+		t.Errorf("marker lat/lng = %v/%v, want 40.7128/-74.0060 (from \"position\")", m.Lat, m.Lng)
+	}
+	if m.Label != "New York City" {
+		t.Errorf("marker Label = %q, want \"New York City\" (from \"popup\")", m.Label)
+	}
+	if result.ConsumedLines != 9 {
+		t.Errorf("ConsumedLines = %d, want 9", result.ConsumedLines)
+	}
+}
+
+func TestMapParser_Parse_FencedJSON_LatLngLabelFields(t *testing.T) {
+	// Forma alternativa: lat/lng/label sueltos en vez de position/popup.
+	parser := &MapParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"```map",
+			`{"markers": [{"lat": 1.5, "lng": 2.5, "label": "Direct fields"}]}`,
+			"```",
+		},
+	}
+	result := parser.Parse(ctx, 0)
+	mapElement := result.Element.(*ast.MapElement)
+	if len(mapElement.Markers) != 1 {
+		t.Fatalf("expected 1 marker, got %d", len(mapElement.Markers))
+	}
+	m := mapElement.Markers[0]
+	if m.Lat != 1.5 || m.Lng != 2.5 || m.Label != "Direct fields" {
+		t.Errorf("marker = %+v, want {Lat:1.5 Lng:2.5 Label:\"Direct fields\"}", m)
+	}
+}
+
+func TestMapParser_Parse_FencedInvalidJSON(t *testing.T) {
+	parser := &MapParser{}
+	ctx := &ParseContext{
+		Mode: "flex",
+		Lines: []string{
+			"```map",
+			`{not valid json`,
+			"```",
+		},
+	}
+	result := parser.Parse(ctx, 0)
+	if _, ok := result.Element.(*ast.MapElement); !ok {
+		t.Fatalf("Element is not MapElement: %T", result.Element)
+	}
+	found := false
+	for _, d := range result.Diagnostics {
+		if d.RuleID == "MAP002" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a MAP002 diagnostic for invalid JSON")
+	}
+}

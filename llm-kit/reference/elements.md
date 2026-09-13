@@ -31,8 +31,8 @@ theoretical existence.
 | checklist | `CHECKLIST` | `- [ ] todo` / `- [x] done` |
 | mermaid | `<<mermaid>>` | `<<mermaid>>` or fenced ` ```mermaid ` |
 | plantuml | `<<plantuml>>` | same |
-| chart | `<<chart:type>>` | same |
-| map | `<<map>>` | same |
+| chart | `<<chart:type>>` | `<<chart:type>>` or fenced ` ```chart ` (JSON body only) |
+| map | `<<map>>` | `<<map>>` or fenced ` ```map ` (JSON body only) |
 | math | `<<math>>` … `<<end>>` | `<<math>>` … `<<end>>` or `$$ … $$` |
 | grid | `<<grid>>` / `<<column>>` / `<<end>>` | `::: grid` / `::: column` |
 | special-block | `::: info\|warning\|danger\|success\|tip\|details` | same |
@@ -79,6 +79,15 @@ types strict lacks.
   the leaf label, second is its value — and takes exactly one numeric column.
   It has no legend and no axes: each rectangle is sized by its value and
   captioned with its own label.
+- Flex mode only, a fenced ` ```chart ` block is also recognized, but with a
+  single JSON object as its body only (not the `data:`/`series:` YAML form
+  above) — the same shape as `<<chart>>` followed directly by a `{`-prefixed
+  JSON payload:
+  ````
+  ```chart
+  {"type": "bar", "data": {"labels": ["Q1", "Q2"], "datasets": [{"data": [45, 52]}]}}
+  ```
+  ````
 - The linter warns on three separate things. `CHART001`: no data at all
   (neither `data`/`series` YAML nor a JSON payload). `CHART003`: the type in
   the tag isn't one of the types listed above. `CHART004`: a JSON-mode
@@ -119,6 +128,12 @@ types strict lacks.
 - Each marker needs `lat`, `lng`; `label` and `value` are optional but
   recommended.
 - Renders client-side via Leaflet in browser mode.
+- Flex mode only, a fenced ` ```map ` block is also recognized, with a single
+  JSON object as its body: `center`/`zoom`/`type`/`heatmap`/`title`/`width`/
+  `height`, plus `markers: [{"position": [lat, lng], "popup": "…"}, …]`
+  (Leaflet-style field names — `position`/`popup` — or this section's own
+  `lat`/`lng`/`label` also work per marker). Invalid JSON is reported
+  (`MAP002`) and the map renders with no data.
 
 ## Math (LaTeX)
 

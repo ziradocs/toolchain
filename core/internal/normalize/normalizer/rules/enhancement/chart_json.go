@@ -30,7 +30,11 @@ import (
 var (
 	jsonTrailingCommaObj = regexp.MustCompile(`,\s*}`)
 	jsonTrailingCommaArr = regexp.MustCompile(`,\s*]`)
-	chartBlockPattern    = regexp.MustCompile(`^(<<chart:\s*\w+[^>]*>>)\s*$`)
+	// El segundo disyunto acepta también la forma de fence ` ```chart `/
+	// ` ````chart ` (internal/elements/chart.go: ChartParser.CanParse) —
+	// esa forma solo admite JSON directo, así que su cuerpo con comentarios
+	// necesita la misma limpieza que la forma `<<chart:...>>`.
+	chartBlockPattern = regexp.MustCompile("^(<<chart:\\s*\\w+[^>]*>>|```chart|````chart)\\s*$")
 )
 
 // ChartJSONRule limpia comentarios inline en JSON para charts si es necesario

@@ -398,12 +398,29 @@ Embedded elements add rich content:
 
 | Element | Syntax | Description |
 |---------|--------|-------------|
-| Charts | `<<chart: type>>` or `<<chart` … `<<end>>` | Data visualizations |
-| Diagrams | `<<mermaid>>` | Mermaid diagrams |
-| Maps | `<<map>>` or `<<map attr="…">>` | Geographic maps |
+| Charts | `<<chart: type>>` or `<<chart` … `<<end>>`, or a fenced ` ```chart ` block (flex only, JSON body) | Data visualizations |
+| Diagrams | `<<mermaid>>`, or a fenced ` ```mermaid ` block (flex only) | Mermaid diagrams |
+| Maps | `<<map>>` or `<<map attr="…">>`, or a fenced ` ```map ` block (flex only, JSON body) | Geographic maps |
 | Grid | `<<grid>>` / `<<column>>` / `<<end>>` | Column layouts — see "Grid and Column Layouts" above |
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
+
+The fenced form (`` ```lang `` … `` ``` ``, four backticks also accepted for
+the opener/closer) exists so a markdown-savvy author or an LLM writing loose
+markdown can drop in a code fence instead of learning the native tag — it is
+recognized in **flex mode only** (strict is keyword-driven and has no fence
+syntax at all). For charts and maps, the fenced body must be a single JSON
+object — it is the only body shape the fence supports, unlike the native tags,
+which additionally accept a YAML-ish `key: value` property block (charts) or
+`key: value`/`marker:` lines (maps). A chart's fenced JSON becomes its raw
+Chart.js config, same as `<<chart>>` followed directly by a `{`-prefixed JSON
+block; a map's fenced JSON is a plain data serialization (`center`, `zoom`,
+`markers: [{position: [lat, lng], popup: "…"}, …]`, `type`, `heatmap`, `title`,
+`width`, `height`) translated into the same fields the native `<<map>>`
+properties populate — a map has no raw-passthrough mode, since it carries no
+third-party config to preserve verbatim. Invalid JSON in either fenced form is
+reported (`CHART002`/`MAP002`) and the element renders with no data, same
+severity as its native-tag equivalent.
 
 **Tag boundaries.** A tag that takes no attributes — `<<quiz>>`, `<<poll>>`,
 `<<grid>>` — must be written **alone on its line**. `<<quiz>>anything` is not a
