@@ -78,7 +78,7 @@ func TestResolveRefs_InTextElement(t *testing.T) {
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	if err := ResolveRefs(doc, table, ""); err != nil {
+	if err := ResolveRefs(doc, table); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
 	want := "ver [Figura 3](#fig-x) para más detalle"
@@ -99,7 +99,7 @@ func TestResolveRefs_InsideBulletPoint(t *testing.T) {
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	if err := ResolveRefs(doc, table, ""); err != nil {
+	if err := ResolveRefs(doc, table); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
 	want := "resumen en [Tabla 2](#tbl-datos)"
@@ -119,7 +119,7 @@ func TestResolveRefs_InsideCaption(t *testing.T) {
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	if err := ResolveRefs(doc, table, ""); err != nil {
+	if err := ResolveRefs(doc, table); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
 	want := "comparar con [Figura 5](#fig-otra)"
@@ -135,7 +135,7 @@ func TestResolveRefs_UnresolvedLabelErrors(t *testing.T) {
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	err := ResolveRefs(doc, Table{}, "")
+	err := ResolveRefs(doc, Table{})
 	if err == nil {
 		t.Fatal("esperaba error por \\ref sin resolver")
 	}
@@ -214,6 +214,21 @@ func TestLabels_English(t *testing.T) {
 	}
 }
 
+// TestLabels_EnglishBCP47Variants cubre un hallazgo de revisión: el doc
+// comment de Labels (y el de FrontMatter.Lang) prometen "tag BCP 47 tal como
+// llega" con "en-US" como ejemplo explícito, pero antes de este fix el
+// switch comparaba lang ENTERO contra el literal "en" — así que "en-US",
+// "en-GB" y "EN" (mayúsculas) caían al default en español, contradiciendo
+// esa misma documentación.
+func TestLabels_EnglishBCP47Variants(t *testing.T) {
+	for _, lang := range []string{"en-US", "en-GB", "EN", "en-US-x-test"} {
+		got := Labels(lang)
+		if got[KindFigure] != "Figure" || got[KindTable] != "Table" || got[KindEquation] != "Equation" {
+			t.Errorf("Labels(%q) = %+v, want Figure/Table/Equation (mismo idioma primario que \"en\")", lang, got)
+		}
+	}
+}
+
 // TestResolveRefs_RespectsLang es el repro del audit 2026-09-11 (F7): un
 // documento con `lang: en` seguía mostrando "Tabla 1" en el texto resuelto
 // de un \ref, porque ResolveRefs no tenía forma de saber el idioma
@@ -225,8 +240,9 @@ func TestResolveRefs_RespectsLang(t *testing.T) {
 	block.Elements = append(block.Elements, text)
 	doc := ast.NewAST(pos())
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	doc.FrontMatter = &ast.FrontMatterNode{Lang: "en"}
 
-	if err := ResolveRefs(doc, table, "en"); err != nil {
+	if err := ResolveRefs(doc, table); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
 	want := "see [Table 1](#tbl-datos)"

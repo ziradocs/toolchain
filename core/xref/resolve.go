@@ -34,9 +34,21 @@ var refPattern = regexp.MustCompile(`\\ref\{([^}]+)\}`)
 // Un \ref a un label que no existe es un ERROR de build (no un no-op
 // silencioso) — mismo principio que un \ref roto en LaTeX.
 //
-// lang selecciona el idioma del texto generado ("Figura N" vs "Figure N")
-// vía Labels(lang) — ver su doc comment para el fallback a "es".
-func ResolveRefs(doc *ast.AST, table Table, lang string) error {
+// El idioma del texto generado ("Figura N" vs "Figure N") sale de
+// doc.FrontMatter.Lang vía Labels(lang) — ver su doc comment para el
+// fallback a "es" cuando no hay front matter o el tag no tiene labels
+// propios. Se deriva del propio doc en vez de recibirse como parámetro
+// aparte: core/doc.go no da garantías de SemVer sobre el Go API de core/xref
+// (solo cli.Options y el schema del AST las tienen), pero un tercer
+// parámetro cuyo único valor posible en todo el árbol de llamadas YA está
+// en doc era, de cualquier forma, ruido — Transform (el único caller real)
+// lo derivaba así mismo antes de pasarlo (hallazgo de code review: ver
+// git blame de este comentario).
+func ResolveRefs(doc *ast.AST, table Table) error {
+	lang := ""
+	if doc.FrontMatter != nil {
+		lang = doc.FrontMatter.Lang
+	}
 	labels := Labels(lang)
 	unresolvedSet := map[string]bool{}
 
