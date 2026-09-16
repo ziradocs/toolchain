@@ -15,16 +15,19 @@ import (
 
 // DocumentHTMLOptions configura la generación del documento HTML
 type DocumentHTMLOptions struct {
-	Title             string
-	TOC               bool
-	TOCDepth          int
-	Numbering         bool
-	PageBreaks        bool
-	Theme             string
-	ThemeVariables    map[string]string // 🆕 Variables CSS del tema
-	ShowHeaders       bool              // 🆕 Mostrar headers (para page-view)
-	ShowFooters       bool              // 🆕 Mostrar footers con numeración (para page-view)
-	InteractiveViewer bool              // 🆕 Viewer interactivo con sidebar, dark mode, etc.
+	Title          string
+	TOC            bool
+	TOCDepth       int
+	Numbering      bool
+	PageBreaks     bool
+	Theme          string
+	ThemeVariables map[string]string // 🆕 Variables CSS del tema
+	// DiagramThemeColors is already resolved by the language adapter. It is
+	// used for Mermaid's browser configuration and matches the offline path.
+	DiagramThemeColors DiagramThemeColors
+	ShowHeaders        bool // 🆕 Mostrar headers (para page-view)
+	ShowFooters        bool // 🆕 Mostrar footers con numeración (para page-view)
+	InteractiveViewer  bool // 🆕 Viewer interactivo con sidebar, dark mode, etc.
 	// HeaderFooter es la config de front matter (`header:`/`footer:`/
 	// `layout_defaults:`) parseada a ast.HeaderFooterConfig — issue #117.
 	// Cuando está presente, gana sobre el gate de tema que gobierna
@@ -570,6 +573,52 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             color: var(--doclang-highlight-success-text, #166534);
             padding: 0.1rem 0.2rem;
             border-radius: 3px;
+        }
+
+        /* Quiz and poll are deliberately static in DocLang. A quiz is
+           printed already solved; a poll lists choices without inventing
+           response counts. */
+        .quiz, .poll {
+            margin: 1.5em 0;
+            padding: 1.25em;
+            background: var(--doclang-quiz-bg, var(--doclang-quote-bg, #f8fafc));
+            border: 1px solid var(--doclang-quiz-border, var(--doclang-table-border, #e2e8f0));
+            border-radius: var(--doclang-border-radius, 6px);
+        }
+
+        .quiz .question, .poll .question {
+            margin: 0 0 0.8em;
+            color: var(--doclang-quiz-question-color, var(--doclang-text-color, #2c3e50));
+            font-weight: 700;
+        }
+
+        .quiz .options, .poll .options {
+            margin: 0;
+            padding-left: 1.75em;
+        }
+
+        .quiz .option, .poll .poll-option {
+            margin: 0.4em 0;
+            padding: 0.35em 0.55em;
+            border-radius: calc(var(--doclang-border-radius, 6px) / 2);
+        }
+
+        .quiz .option.correct {
+            background: var(--doclang-quiz-correct-bg, var(--doclang-alert-success-bg, #f0fff4));
+            color: var(--doclang-quiz-correct-color, var(--doclang-alert-success-color, #22543d));
+            font-weight: 700;
+        }
+
+        .quiz .option.correct::after {
+            content: " ✓";
+            font-weight: 700;
+        }
+
+        .quiz .explanation {
+            margin: 0.9em 0 0;
+            padding-left: 0.8em;
+            border-left: 3px solid var(--doclang-quiz-accent, var(--doclang-link-color, #3498db));
+            color: var(--doclang-text-light, #718096);
         }
 
         /* Mermaid Diagrams */
@@ -1221,7 +1270,7 @@ func generateInitScripts(opts DocumentHTMLOptions, cspNonce string) string {
 	// Inicialización
 	scripts.WriteString("    " + scriptTag + `
         // Initialize Mermaid
-        mermaid.initialize(` + MermaidInitConfigJS(true, MermaidExtra{Key: "flowchart", Value: map[string]bool{"htmlLabels": false}}) + `);
+        mermaid.initialize(` + MermaidInitConfigJSWithTheme(true, opts.DiagramThemeColors, MermaidExtra{Key: "flowchart", Value: map[string]bool{"htmlLabels": false}}) + `);
 
         // Initialize Charts and Code Groups
         document.addEventListener('DOMContentLoaded', function() {

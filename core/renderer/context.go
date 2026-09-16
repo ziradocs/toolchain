@@ -92,12 +92,15 @@ type RenderContext struct {
 	// Igual que ChartCategoricalColors, NO alcanza a un chart en modo JSON:
 	// la config literal del autor no se sobreescribe con el tema.
 	ChartThemeColors ChartThemeColors
-	OutputDir        string          // Output directory for assets
-	Fetcher          PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
-	MermaidFetcher   MermaidFetcher  // Mermaid fetcher inicializado
-	ChartFetcher     ChartFetcher    // Chart fetcher inicializado
-	MapFetcher       MapFetcher      // Map fetcher inicializado
-	MathFetcher      MathFetcher     // Math fetcher inicializado
+	// DiagramThemeColors carries the resolved diagram visual contract to
+	// Mermaid and PlantUML. A zero value preserves the historical output.
+	DiagramThemeColors DiagramThemeColors
+	OutputDir          string          // Output directory for assets
+	Fetcher            PlantUMLFetcher // PlantUML fetcher inicializado (nil-able, ver interfaces en fetchers.go)
+	MermaidFetcher     MermaidFetcher  // Mermaid fetcher inicializado
+	ChartFetcher       ChartFetcher    // Chart fetcher inicializado
+	MapFetcher         MapFetcher      // Map fetcher inicializado
+	MathFetcher        MathFetcher     // Math fetcher inicializado
 	// Logger recibe los warnings/debug best-effort de GenerateDocumentHTML
 	// (nonce CSP fallido, variable de tema rechazada por
 	// SanitizeCSSCustomProperty) — issue #134/G1c. Antes esos dos sitios
@@ -140,6 +143,7 @@ func NewDefaultRenderContext() *RenderContext {
 		AssetRoot:              "",
 		ChartCategoricalColors: nil,
 		ChartThemeColors:       ChartThemeColors{},
+		DiagramThemeColors:     DiagramThemeColors{},
 		OutputDir:              "",
 		Fetcher:                nil,
 		MermaidFetcher:         nil,

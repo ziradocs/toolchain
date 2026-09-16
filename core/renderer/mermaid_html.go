@@ -69,8 +69,21 @@ type MermaidExtra struct {
 // base es significativo: los tests aseguran las subcadenas exactas
 // "securityLevel: 'strict'" y "htmlLabels: false".
 func MermaidInitConfigJS(startOnLoad bool, extra ...MermaidExtra) string {
+	return MermaidInitConfigJSWithTheme(startOnLoad, DiagramThemeColors{}, extra...)
+}
+
+// MermaidInitConfigJSWithTheme is MermaidInitConfigJS with the resolved
+// diagram visual contract added as themeVariables. The security fields remain
+// last, exactly as in MermaidInitConfigJS, so callers cannot weaken them.
+func MermaidInitConfigJSWithTheme(startOnLoad bool, theme DiagramThemeColors, extra ...MermaidExtra) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "{ startOnLoad: %v, theme: 'default'", startOnLoad)
+	if variables := theme.MermaidThemeVariables(); len(variables) > 0 {
+		valueJSON, err := json.Marshal(variables)
+		if err == nil {
+			fmt.Fprintf(&b, ", themeVariables: %s", valueJSON)
+		}
+	}
 	for _, opt := range extra {
 		valueJSON, err := json.Marshal(opt.Value)
 		if err != nil {

@@ -915,6 +915,7 @@ func renderPlantUMLElement(elem *ast.PlantUMLElement, variables map[string]inter
 	content = SanitizePlantUMLContent(content)
 
 	ctx = resolveRenderContext(ctx)
+	content = ApplyPlantUMLTheme(content, ctx.DiagramThemeColors)
 
 	var html strings.Builder
 	html.WriteString(`<div class="plantuml-container">`)
@@ -2228,8 +2229,11 @@ func renderMapElement(elem *ast.MapElement, variables map[string]interface{}, ct
 	return html.String()
 }
 
-// buildMapConfig construye MapConfig desde MapElement
-func buildMapConfig(elem *ast.MapElement, variables map[string]interface{}) MapConfig {
+// BuildMapConfig construye el contrato de renderizado común de un MapElement.
+// Los generadores que rasterizan fuera del HTML (DOCX/PPTX) deben usar esta
+// función en vez de reconstruir los marcadores a mano, para conservar la
+// sustitución segura de variables en labels/details.
+func BuildMapConfig(elem *ast.MapElement, variables map[string]interface{}) MapConfig {
 	config := MapConfig{
 		MapType: elem.MapType,
 		Zoom:    elem.Zoom,
@@ -2258,6 +2262,12 @@ func buildMapConfig(elem *ast.MapElement, variables map[string]interface{}) MapC
 	}
 
 	return config
+}
+
+// buildMapConfig se conserva como alias interno para los call sites del
+// renderer HTML. La forma exportada es la API para otros generadores.
+func buildMapConfig(elem *ast.MapElement, variables map[string]interface{}) MapConfig {
+	return BuildMapConfig(elem, variables)
 }
 
 // renderMapBrowser genera HTML para renderizado browser (CDN)

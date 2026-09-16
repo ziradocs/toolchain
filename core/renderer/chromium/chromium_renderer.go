@@ -82,7 +82,11 @@ const mermaidSVGContainerWidthPx = 1200
 // securityLevel:'strict' + htmlLabels:false para bloquear HTML/script
 // embebido dentro del propio diagrama. Ver docs/SECURITY_AUDIT_2026-07.md,
 // CR-6/AL-6 (issue #24).
-func buildMermaidSVGHTML(mermaidCode string) string {
+func buildMermaidSVGHTML(mermaidCode string, themes ...renderer.DiagramThemeColors) string {
+	theme := renderer.DiagramThemeColors{}
+	if len(themes) > 0 {
+		theme = themes[0]
+	}
 	// mermaidCode (vía BuildMermaidDiv) es dato del usuario: va como argumento
 	// %s, nunca concatenado dentro del format string en sí — un '%' literal en
 	// el diagrama del usuario (p. ej. un label "Growth +20%") no debe
@@ -102,7 +106,7 @@ func buildMermaidSVGHTML(mermaidCode string) string {
 <body>
     %s
     <script>
-        mermaid.initialize(`+renderer.MermaidInitConfigJS(true)+`);
+        mermaid.initialize(`+renderer.MermaidInitConfigJSWithTheme(true, theme)+`);
     </script>
 </body>
 </html>`, mermaidAndChartRenderCSP, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode))
@@ -115,7 +119,54 @@ func buildMermaidSVGHTML(mermaidCode string) string {
 // del usuario: BuildMathDiv (math_html.go) ya lo HTML-escapa antes de
 // insertarlo (MathJax lee el textContent del nodo, igual razonamiento de
 // seguridad que buildMermaidSVGHTML/CR-6/AL-6, issue #24).
-func buildMathSVGHTML(latex string) string {
+func mathThemeCSS(theme renderer.DiagramThemeColors) string {
+	var declarations []string
+	if color := theme.MermaidThemeVariables()["primaryTextColor"]; color != "" {
+		declarations = append(declarations, "color: "+color+" !important")
+	}
+	if color := theme.MermaidThemeVariables()["primaryColor"]; color != "" {
+		declarations = append(declarations, "background: "+color+" !important")
+	}
+	if len(declarations) == 0 {
+		return ""
+	}
+	return "body { " + strings.Join(declarations, "; ") + "; }\n        "
+}
+
+// embedMathThemeInSVG makes the visual contract survive extraction from the
+// temporary Chromium page. RenderMathToSVG returns only the <svg>, so body
+// CSS cannot reach offline assets loaded later through <img>. MathJax paths
+// use currentColor; setting color on the root SVG and adding a first-child
+// rect keeps both foreground and surface self-contained.
+func embedMathThemeInSVG(svg string, theme renderer.DiagramThemeColors) string {
+	variables := theme.MermaidThemeVariables()
+	foreground := variables["primaryTextColor"]
+	background := variables["primaryColor"]
+	if foreground == "" && background == "" {
+		return svg
+	}
+	end := strings.IndexByte(svg, '>')
+	if end < 0 {
+		return svg
+	}
+	var attrs strings.Builder
+	if foreground != "" {
+		attrs.WriteString(` color="`)
+		attrs.WriteString(foreground)
+		attrs.WriteByte('"')
+	}
+	var content string
+	if background != "" {
+		content = `<rect width="100%" height="100%" fill="` + background + `"/>`
+	}
+	return svg[:end] + attrs.String() + svg[end:end+1] + content + svg[end+1:]
+}
+
+func buildMathSVGHTML(latex string, themes ...renderer.DiagramThemeColors) string {
+	theme := renderer.DiagramThemeColors{}
+	if len(themes) > 0 {
+		theme = themes[0]
+	}
 	return `<!DOCTYPE html>
 <html>
 <head>
@@ -123,6 +174,7 @@ func buildMathSVGHTML(latex string) string {
     <meta http-equiv="Content-Security-Policy" content="` + mermaidAndChartRenderCSP + `">
     ` + renderer.MathCDNScriptTag + `
     <style>
+        ` + mathThemeCSS(theme) + `
         body { margin: 0; padding: 20px; background: white; }
     </style>
 </head>
@@ -138,7 +190,11 @@ func buildMathSVGHTML(latex string) string {
 // vía setTimeout heurístico (MathJax no expone un callback tan simple como
 // mermaid.initialize() para "ya tipografié"; se usa el mismo heurístico de
 // tiempo fijo que ya usa el path PNG de Mermaid, no un rigor menor).
-func buildMathPNGHTML(latex string, width, height int) string {
+func buildMathPNGHTML(latex string, width, height int, themes ...renderer.DiagramThemeColors) string {
+	theme := renderer.DiagramThemeColors{}
+	if len(themes) > 0 {
+		theme = themes[0]
+	}
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -146,6 +202,7 @@ func buildMathPNGHTML(latex string, width, height int) string {
     <meta http-equiv="Content-Security-Policy" content="%s">
     `+renderer.MathCDNScriptTag+`
     <style>
+        `+mathThemeCSS(theme)+`
         body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; }
         #mathContainer { width: %dpx; height: %dpx; display: flex; justify-content: center; align-items: center; }
     </style>
@@ -167,7 +224,11 @@ func buildMathPNGHTML(latex string, width, height int) string {
 // buildMermaidPNGHTML arma la página temporal usada para rasterizar un
 // diagrama Mermaid a PNG (ver buildMermaidSVGHTML para el razonamiento de
 // seguridad, idéntico aquí).
-func buildMermaidPNGHTML(mermaidCode string, width, height int) string {
+func buildMermaidPNGHTML(mermaidCode string, width, height int, themes ...renderer.DiagramThemeColors) string {
+	theme := renderer.DiagramThemeColors{}
+	if len(themes) > 0 {
+		theme = themes[0]
+	}
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -193,7 +254,7 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int) string {
         }, 1500);
     </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJS(true))
+</html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJSWithTheme(true, theme))
 }
 
 // buildChartHTML arma la página temporal usada para rasterizar un chart de
@@ -639,9 +700,16 @@ func (r *ChromiumRenderer) checkPageOverflow(selector string) chromedp.Action {
 // RenderMermaidToSVG renderiza un diagrama Mermaid a SVG. ctx acota/cancela
 // esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderMermaidToSVG(ctx context.Context, mermaidCode string) (string, error) {
+	return r.RenderMermaidToSVGWithTheme(ctx, mermaidCode, renderer.DiagramThemeColors{})
+}
+
+// RenderMermaidToSVGWithTheme renders Mermaid with resolved literal theme
+// values. It is intentionally separate from the legacy method so zero-value
+// callers retain byte-compatible output.
+func (r *ChromiumRenderer) RenderMermaidToSVGWithTheme(ctx context.Context, mermaidCode string, theme renderer.DiagramThemeColors) (string, error) {
 	r.logger.Info("MERMAID", "Rendering diagram to SVG...")
 
-	html := buildMermaidSVGHTML(mermaidCode)
+	html := buildMermaidSVGHTML(mermaidCode, theme)
 
 	var svgContent string
 
@@ -681,9 +749,16 @@ func (r *ChromiumRenderer) RenderMermaidToSVG(ctx context.Context, mermaidCode s
 // </mjx-container> — estructura de salida estable de MathJax v3+ para el
 // renderer SVG.
 func (r *ChromiumRenderer) RenderMathToSVG(ctx context.Context, latex string) (string, error) {
+	return r.RenderMathToSVGWithTheme(ctx, latex, renderer.DiagramThemeColors{})
+}
+
+// RenderMathToSVGWithTheme renders MathJax with the diagram surface/text
+// colors. Formulas intentionally share the neutral visual contract so both
+// DSLs use one set of resolved values in offline output.
+func (r *ChromiumRenderer) RenderMathToSVGWithTheme(ctx context.Context, latex string, theme renderer.DiagramThemeColors) (string, error) {
 	r.logger.Info("MATH", "Rendering equation to SVG...")
 
-	html := buildMathSVGHTML(latex)
+	html := buildMathSVGHTML(latex, theme)
 
 	var svgContent string
 
@@ -710,6 +785,7 @@ func (r *ChromiumRenderer) RenderMathToSVG(ctx context.Context, latex string) (s
 	if err != nil {
 		return "", fmt.Errorf("math rendering failed: %w", err)
 	}
+	svgContent = embedMathThemeInSVG(svgContent, theme)
 
 	r.logger.Info("MATH", "✅ SVG rendered (%.2f KB)", float64(len(svgContent))/1024)
 	return svgContent, nil
@@ -719,9 +795,15 @@ func (r *ChromiumRenderer) RenderMathToSVG(ctx context.Context, latex string) (s
 // principal: rasterizar para DOCX, que no puede embeber SVG). ctx acota/
 // cancela esta llamada puntual — mismo patrón que RenderMermaidToPNG.
 func (r *ChromiumRenderer) RenderMathToPNG(ctx context.Context, latex string, width, height int) ([]byte, error) {
+	return r.RenderMathToPNGWithTheme(ctx, latex, width, height, renderer.DiagramThemeColors{})
+}
+
+// RenderMathToPNGWithTheme is the PNG counterpart of
+// RenderMathToSVGWithTheme.
+func (r *ChromiumRenderer) RenderMathToPNGWithTheme(ctx context.Context, latex string, width, height int, theme renderer.DiagramThemeColors) ([]byte, error) {
 	r.logger.Info("MATH", "Rendering equation to PNG...")
 
-	html := buildMathPNGHTML(latex, width, height)
+	html := buildMathPNGHTML(latex, width, height, theme)
 
 	var pngData []byte
 
@@ -754,9 +836,15 @@ func (r *ChromiumRenderer) RenderMathToPNG(ctx context.Context, latex string, wi
 // RenderMermaidToPNG renderiza un diagrama Mermaid a PNG. ctx acota/cancela
 // esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderMermaidToPNG(ctx context.Context, mermaidCode string, width, height int) ([]byte, error) {
+	return r.RenderMermaidToPNGWithTheme(ctx, mermaidCode, width, height, renderer.DiagramThemeColors{})
+}
+
+// RenderMermaidToPNGWithTheme is the PNG counterpart of
+// RenderMermaidToSVGWithTheme.
+func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, mermaidCode string, width, height int, theme renderer.DiagramThemeColors) ([]byte, error) {
 	r.logger.Info("MERMAID", "Rendering diagram to PNG...")
 
-	html := buildMermaidPNGHTML(mermaidCode, width, height)
+	html := buildMermaidPNGHTML(mermaidCode, width, height, theme)
 
 	var pngData []byte
 
