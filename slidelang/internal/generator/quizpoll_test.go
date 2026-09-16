@@ -102,11 +102,17 @@ func TestQuizPoll_HTMLCSSAndJSAgreeOnClassNames(t *testing.T) {
 		"slidelang-option",
 		"slidelang-poll-option",
 		"slidelang-explanation",
-		"slidelang-poll-results",
 	} {
 		if !strings.Contains(js, "."+class) {
 			t.Errorf("el JS no se ata a .%s", class)
 		}
+	}
+
+	if strings.Contains(html, "slidelang-poll-results") {
+		t.Error("el poll standalone no debe fabricar barras que parezcan resultados agregados")
+	}
+	if !strings.Contains(html, `aria-pressed="false"`) || !strings.Contains(js, "setAttribute(") {
+		t.Error("el estado de selección del poll no se expone con aria-pressed")
 	}
 
 	// Y ninguna clase del contrato puede quedar sin prefijo: si aparece

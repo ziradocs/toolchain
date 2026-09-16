@@ -99,19 +99,20 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 
 	// Configurar opciones de renderizado usando el renderer del core
 	renderOpts := renderer.DocumentHTMLOptions{
-		Title:             title,
-		TOC:               opts.TOC,
-		TOCDepth:          opts.TOCDepth,
-		Numbering:         opts.Numbering,
-		PageBreaks:        opts.PageBreaks,
-		Theme:             opts.Theme,
-		ThemeVariables:    opts.ThemeVariables,    // 🆕 Pasar variables del tema
-		ShowHeaders:       opts.ShowHeaders,       // 🆕 Para page-view
-		ShowFooters:       opts.ShowFooters,       // 🆕 Para page-view
-		InteractiveViewer: opts.InteractiveViewer, // 🆕 Viewer interactivo
-		HeaderFooter:      opts.HeaderFooter,      // 🆕 header:/footer:/layout_defaults: (issue #117)
-		Watermark:         opts.Watermark,         // watermark: front matter (issue #179)
-		EmbedAssets:       true,
+		Title:              title,
+		TOC:                opts.TOC,
+		TOCDepth:           opts.TOCDepth,
+		Numbering:          opts.Numbering,
+		PageBreaks:         opts.PageBreaks,
+		Theme:              opts.Theme,
+		ThemeVariables:     opts.ThemeVariables, // 🆕 Pasar variables del tema
+		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
+		ShowHeaders:        opts.ShowHeaders,       // 🆕 Para page-view
+		ShowFooters:        opts.ShowFooters,       // 🆕 Para page-view
+		InteractiveViewer:  opts.InteractiveViewer, // 🆕 Viewer interactivo
+		HeaderFooter:       opts.HeaderFooter,      // 🆕 header:/footer:/layout_defaults: (issue #117)
+		Watermark:          opts.Watermark,         // watermark: front matter (issue #179)
+		EmbedAssets:        true,
 		// PlantUML/Mermaid/Chart/Map modes: DocumentHTMLOptions.GenerateDocumentHTML
 		// no las usa para construir fetchers (eso es ctx, abajo — issue #134/G1b),
 		// pero generateDocumentScripts (document_html.go) sigue leyendo estos
@@ -135,21 +136,22 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 	// GenerateDocumentHTML lo construya internamente a partir de
 	// ChromiumRenderer — ver renderer/chromium/render_context.go.
 	ctx := chromium.NewRenderContext(chromiumRenderer, chromium.RenderContextOptions{
-		PlantUMLMode:   opts.PlantUMLMode,
-		PlantUMLServer: opts.PlantUMLServer,
-		PlantUMLFormat: opts.PlantUMLFormat,
-		MermaidMode:    opts.MermaidMode,
-		ChartMode:      opts.ChartMode,
-		MapMode:        opts.MapMode,
-		MathMode:       opts.MathMode,
-		ImageMode:      opts.ImageMode, // issue #167
-		AssetRoot:      opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
-		OutputDir:      outputDir,
-		ImageFormat:    opts.ImageFormat,
-		WebPQuality:    opts.WebPQuality,
-		DiagramBackend: opts.DiagramBackend,
-		KrokiServer:    opts.KrokiServer,
-		Logger:         h.logger,
+		PlantUMLMode:       opts.PlantUMLMode,
+		PlantUMLServer:     opts.PlantUMLServer,
+		PlantUMLFormat:     opts.PlantUMLFormat,
+		MermaidMode:        opts.MermaidMode,
+		ChartMode:          opts.ChartMode,
+		MapMode:            opts.MapMode,
+		MathMode:           opts.MathMode,
+		ImageMode:          opts.ImageMode, // issue #167
+		AssetRoot:          opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
+		OutputDir:          outputDir,
+		ImageFormat:        opts.ImageFormat,
+		WebPQuality:        opts.WebPQuality,
+		DiagramBackend:     opts.DiagramBackend,
+		KrokiServer:        opts.KrokiServer,
+		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
+		Logger:             h.logger,
 	})
 	if nativeChartFetcher != nil {
 		// chromiumRenderer es nil acá (needsChromium se apagó arriba), así

@@ -44,9 +44,8 @@ type GeneratorOptions struct {
 	// core/renderer/chromium/kroki_fetcher.go). No afecta chart/map/math en
 	// los modos offline-*; en --format pptx (issue #144) SÍ afecta a
 	// mermaid/plantuml — "kroki" es la única forma de incluirlos, dado que
-	// --format pptx nunca instancia Chromium. map/math siguen sin camino en
-	// PPTX bajo cualquier valor de este flag (Leaflet/MathJax necesitan
-	// navegador).
+	// --format pptx nunca instancia Chromium para estos diagramas. Map/Math
+	// se controlan por RenderMode: offline-* los rasteriza durante el build.
 	DiagramBackend string
 	// KrokiServer es la URL base de un servidor Kroki propio (vacío = el
 	// público https://kroki.io). Solo aplica cuando DiagramBackend ==

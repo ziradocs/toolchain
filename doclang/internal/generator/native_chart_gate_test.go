@@ -51,6 +51,27 @@ func TestDOCXGenerator_Generate_NativeChartOnlyNeverInitializesChromium(t *testi
 	}
 }
 
+func TestDOCXGenerator_CanRenderMapOnlyWithoutChromium(t *testing.T) {
+	doc := astWithElements(ast.NewMapElement(diagnostics.NewPosition(1, 1), "static"))
+	gen := NewDOCXGenerator(newTestLogger(), t.TempDir())
+	if gen.needsChromiumRendering(doc) {
+		t.Error("a map-only DOCX must attempt the native map renderer before Chromium")
+	}
+	if !gen.canRenderWithoutChromium(doc) {
+		t.Error("a map-only DOCX must be eligible for the native renderer")
+	}
+}
+
+func TestDOCXGenerator_InvalidNativeChartStillNeedsChromium(t *testing.T) {
+	chart := ast.NewChartElement(diagnostics.NewPosition(1, 1), "bar")
+	// El tipo es elegible, pero no trae datos para rasterizar.
+	doc := astWithElements(chart)
+	gen := NewDOCXGenerator(newTestLogger(), t.TempDir())
+	if gen.canRenderWithoutChromium(doc) {
+		t.Error("a chart whose native rasterization fails must retain the Chromium fallback")
+	}
+}
+
 // TestDOCXGenerator_Generate_MermaidStillNeedsChromium confirma el otro
 // lado del gate: un documento con mermaid (Kroki no cubre DOCX — solo HTML/
 // PDF vía RenderContext) debe seguir intentando Chromium de verdad.

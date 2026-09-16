@@ -1,0 +1,70 @@
+---
+mode: flex
+title: "Rich Elements Validation"
+author: "ZiraDocs"
+theme: technical
+toc: true
+---
+
+# Delivery path
+
+## Mermaid flowchart
+
+<<mermaid>>
+flowchart LR
+    A[Author] --> B[DocLang AST]
+    B --> C[Renderer]
+    C --> D[HTML]
+    C --> E[PDF]
+    C --> F[DOCX]
+    D --> G[Review]
+    E --> G
+    F --> G
+<<end>>
+
+# Service collaboration
+
+## PlantUML sequence
+
+<<plantuml>>
+@startuml
+actor Author
+participant DocLang
+participant Renderer
+database Assets
+
+Author -> DocLang: build validation fixture
+DocLang -> Renderer: AST + resolved theme
+Renderer -> Assets: render rich elements
+Assets --> Renderer: themed images
+Renderer --> Author: document output
+@enduml
+<<end>>
+
+# Formula rendering
+
+The quality gate compares the same formula in browser and offline paths.
+
+<<math>>
+E = mc^2
+label: "eq:quality"
+<<end>>
+
+# Audience interaction
+
+## Static poll
+
+<<poll>>
+question: "Which output should the reviewer inspect first?"
+options: ["HTML", "PDF", "DOCX"]
+multiple: false
+<<end>>
+
+## Static quiz
+
+<<quiz>>
+question: "Which renderer keeps interactive responses synchronized across viewers?"
+options: ["The static document renderer", "A live websocket service", "The DOCX exporter"]
+answer: 1
+explanation: "A shared result requires a live channel. Documents show the answer and explanation statically."
+<<end>>

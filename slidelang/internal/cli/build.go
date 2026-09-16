@@ -168,15 +168,16 @@ Examples:
 	cmd.Flags().IntVar(&opts.MaxSizeMB, "max-size", 0, "Maximum input file size in MB (default: 10MB, override via SLIDELANG_MAX_SIZE env var)")
 
 	// Rendering mode (issue #92) — aplica a todos los elementos interactivos
-	// (mermaid, charts, maps) en la salida HTML. El JSON ignora el modo.
-	cmd.Flags().StringVar(&opts.RenderMode, "render-mode", "browser", "Rendering mode for interactive elements (mermaid, charts, maps) in HTML:\n"+
+	// (mermaid, charts, maps, math) en HTML. En PPTX, offline-* habilita el
+	// raster build-time de Map/Math; browser conserva los placeholders.
+	cmd.Flags().StringVar(&opts.RenderMode, "render-mode", "browser", "Rendering mode for interactive elements (mermaid, charts, maps, math) in HTML; for PPTX, offline-* rasterizes map/math at build time:\n"+
 		"  - browser: Use CDN, render in browser (default, smallest files, requires internet)\n"+
 		"  - offline-assets: Render at build time, save to assets/ folder (portable with folder)\n"+
 		"  - offline-inline: Render at build time, embed in HTML (single file, largest)")
 	cmd.Flags().StringVar(&opts.ImageFormat, "image-format", "png", "Image format for charts and maps: png or webp (only affects offline modes)")
 	cmd.Flags().IntVar(&opts.WebPQuality, "webp-quality", 85, "WebP quality: 1-100 (higher = better quality, larger file)")
-	cmd.Flags().StringVar(&opts.ChromiumPath, "chromium-path", "", "Custom path to Chromium/Chrome/Edge executable (for offline rendering and --format pdf)")
-	cmd.Flags().BoolVar(&opts.InstallChromium, "install-chromium", false, "Auto-install Chromium if not found (for offline rendering and --format pdf)")
+	cmd.Flags().StringVar(&opts.ChromiumPath, "chromium-path", "", "Custom path to Chromium/Chrome/Edge executable (for offline rendering, --format pdf, and PPTX math/map with --render-mode offline-*)")
+	cmd.Flags().BoolVar(&opts.InstallChromium, "install-chromium", false, "Auto-install Chromium if not found (for offline rendering, --format pdf, and PPTX math/map with --render-mode offline-*)")
 	cmd.Flags().StringVar(&opts.PlantUMLServer, "plantuml-server", "", "Custom PlantUML server URL for offline modes and --format pdf (default: https://www.plantuml.com/plantuml)")
 	cmd.Flags().StringVar(&opts.PlantUMLFormat, "plantuml-format", "svg", "PlantUML image format for offline-assets mode: svg or png (offline-inline and --format pdf always use svg)")
 	cmd.Flags().StringVar(&opts.DiagramBackend, "diagram-backend", "chromium", "Backend for mermaid/plantuml diagrams in offline-* render modes, --format pdf, and --format pptx: chromium (default) or kroki (no Chromium needed for these; requires a Kroki server, see --kroki-server). --format pptx additionally requires kroki to embed mermaid/plantuml at all — chromium is not an option there, since pptx never instantiates a browser")

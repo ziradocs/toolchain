@@ -100,6 +100,7 @@ func (g *Generator) generatePDF(astNode *ast.AST, outputDir string, opts Generat
 	// viene forzado a "offline-inline" un poco más arriba en este archivo.
 	ctx.ImageMode = pdfOpts.RenderMode
 	ctx.AssetRoot = pdfOpts.AssetRoot
+	ctx.DiagramThemeColors = resolveDiagramThemeColors(pdfOpts)
 	// ctx.Logger ya viene del branch interactivo (arriba) cuando aplica; el
 	// branch NewDefaultRenderContext() (else, o el caso sin elementos
 	// interactivos) trae util.NewNoop() por default (context.go) — sin esto

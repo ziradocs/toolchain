@@ -130,22 +130,23 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	const offlinePlantUMLFormat = "svg"
 
 	renderOpts := renderer.DocumentHTMLOptions{
-		Title:             title,
-		TOC:               opts.TOC,
-		TOCDepth:          opts.TOCDepth,
-		Numbering:         opts.Numbering,
-		PageBreaks:        opts.PageBreaks,
-		Theme:             opts.Theme,
-		ThemeVariables:    opts.ThemeVariables,
-		InteractiveViewer: false,          // No viewer en PDF
-		Watermark:         opts.Watermark, // watermark: front matter (issue #179)
-		EmbedAssets:       true,
-		PlantUMLMode:      offlineMode,
-		PlantUMLFormat:    offlinePlantUMLFormat,
-		MermaidMode:       offlineMode,
-		ChartMode:         offlineMode,
-		MapMode:           offlineMode,
-		MathMode:          offlineMode,
+		Title:              title,
+		TOC:                opts.TOC,
+		TOCDepth:           opts.TOCDepth,
+		Numbering:          opts.Numbering,
+		PageBreaks:         opts.PageBreaks,
+		Theme:              opts.Theme,
+		ThemeVariables:     opts.ThemeVariables,
+		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
+		InteractiveViewer:  false,          // No viewer en PDF
+		Watermark:          opts.Watermark, // watermark: front matter (issue #179)
+		EmbedAssets:        true,
+		PlantUMLMode:       offlineMode,
+		PlantUMLFormat:     offlinePlantUMLFormat,
+		MermaidMode:        offlineMode,
+		ChartMode:          offlineMode,
+		MapMode:            offlineMode,
+		MathMode:           offlineMode,
 		// Image format options (for charts and maps in offline modes)
 		ImageFormat: opts.ImageFormat, // 🆕 "png" o "webp"
 		WebPQuality: opts.WebPQuality, // 🆕 Calidad WebP (1-100)
@@ -171,14 +172,15 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		// SIEMPRE rota sin importar qué diga --render-mode — no hay un
 		// modo "browser" válido para el resultado final de un PDF, igual
 		// que no lo hay para mermaid/chart/map/math acá.
-		ImageMode:      offlineMode,
-		AssetRoot:      opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
-		OutputDir:      outputDir,
-		ImageFormat:    opts.ImageFormat,
-		WebPQuality:    opts.WebPQuality,
-		DiagramBackend: opts.DiagramBackend,
-		KrokiServer:    opts.KrokiServer,
-		Logger:         p.logger,
+		ImageMode:          offlineMode,
+		AssetRoot:          opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
+		OutputDir:          outputDir,
+		ImageFormat:        opts.ImageFormat,
+		WebPQuality:        opts.WebPQuality,
+		DiagramBackend:     opts.DiagramBackend,
+		KrokiServer:        opts.KrokiServer,
+		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
+		Logger:             p.logger,
 	})
 
 	htmlContent := renderer.GenerateDocumentHTML(doc, renderOpts, ctx)
