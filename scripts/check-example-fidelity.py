@@ -130,6 +130,19 @@ def parse_source(path):
 SCRIPT_STYLE_RE = re.compile(
     r"<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>", re.DOTALL | re.IGNORECASE
 )
+IMAGE_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+
+# These classes identify images synthesized by a rich renderer, not `![…](…)`
+# source elements.  Counting them as authored images makes a correct
+# PlantUML/Chart/Map/Mermaid/Math export look like duplicated content.
+GENERATED_IMAGE_CLASSES = (
+    "mermaid-diagram",
+    "math-diagram",
+    "plantuml-fallback",
+    "plantuml-diagram",
+    "chart-image",
+    "map-image",
+)
 
 
 def read_html(path):
@@ -150,6 +163,16 @@ def count_regex(html, pattern):
     return len(re.findall(pattern, html)) if html else 0
 
 
+def count_authored_images(html):
+    if not html:
+        return 0
+    return sum(
+        1
+        for tag in IMAGE_TAG_RE.findall(html)
+        if not any(class_name in tag for class_name in GENERATED_IMAGE_CLASSES)
+    )
+
+
 def parse_html(dialect, html):
     if html is None:
         return None
@@ -161,7 +184,7 @@ def parse_html(dialect, html):
         r["plantuml"] = count_sub(html, "plantuml-container")
         r["table"] = count_sub(html, "<table")
         r["tr"] = count_sub(html, "<tr")
-        r["image"] = count_regex(html, r"<img\s[^>]*src=")
+        r["image"] = count_authored_images(html)
         r["checklist"] = count_sub(html, "checklist-checkbox") or count_regex(
             html, r'type="checkbox"'
         )
@@ -179,7 +202,7 @@ def parse_html(dialect, html):
         r["plantuml"] = count_sub(html, "plantuml-container")
         r["table"] = count_sub(html, "<table")
         r["tr"] = count_sub(html, "<tr")
-        r["image"] = count_regex(html, r"<img\s[^>]*src=")
+        r["image"] = count_authored_images(html)
         r["checklist"] = count_regex(html, r'type="checkbox"')
         r["pre"] = count_sub(html, "<pre")
         r["alerts"] = {}

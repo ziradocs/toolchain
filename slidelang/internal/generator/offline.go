@@ -192,6 +192,7 @@ func wireMermaidFetcher(ctx *renderer.RenderContext, astNode *ast.AST, opts Gene
 func applyAssetContext(ctx *renderer.RenderContext, opts GeneratorOptions) {
 	ctx.ImageMode = opts.RenderMode
 	ctx.AssetRoot = opts.AssetRoot
+	ctx.DiagramThemeColors = resolveDiagramThemeColors(opts)
 }
 
 // SetupOfflineRenderContext arma el *renderer.RenderContext que el caller debe
@@ -383,6 +384,7 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 		OutputDir:              outputDir,
 		ChartFetcher:           chartFetcher,
 		ChartCategoricalColors: categoricalColors,
+		DiagramThemeColors:     resolveDiagramThemeColors(opts),
 		Logger:                 g.logger,
 		Ctx:                    context.Background(),
 	}
@@ -414,6 +416,28 @@ func resolveChartCategoricalColors(opts GeneratorOptions) []string {
 		return nil
 	}
 	return themes.ResolveThemeTokens(opts.ResolvedTheme.Variables).ChartCategorical
+}
+
+// resolveDiagramThemeColors translates SlideLang's already-resolved
+// diagram-* tokens to the neutral renderer contract. Keeping this adapter at
+// the language boundary means core never needs to know SlideLang's CSS
+// namespace, while HTML/PDF/PPTX offline renderers consume identical values.
+func resolveDiagramThemeColors(opts GeneratorOptions) renderer.DiagramThemeColors {
+	if opts.ResolvedTheme == nil {
+		return renderer.DiagramThemeColors{}
+	}
+	tokens := themes.ResolveThemeTokens(opts.ResolvedTheme.Variables).Diagram
+	return renderer.DiagramThemeColors{
+		FontFamily:       themes.ResolveFontMain(opts.ResolvedTheme.Variables),
+		NodeBackground:   tokens["diagram-node-bg"],
+		NodeForeground:   tokens["diagram-node-fg"],
+		NodeBorder:       tokens["diagram-node-line"],
+		Edge:             tokens["diagram-edge"],
+		EdgeLabelBack:    tokens["diagram-edge-label-bg"],
+		ClusterBack:      tokens["diagram-cluster-bg"],
+		NoteBack:         tokens["diagram-note-bg"],
+		AccentBackground: tokens["diagram-accent-bg"],
+	}
 }
 
 // resolveImageFormat aplica el default "png" cuando --image-format no se
@@ -454,6 +478,7 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 	// ctx.ChartCategoricalColors directamente) para combo/scatter/
 	// JSON-mode — hay que cablear los dos, no uno.
 	categoricalColors := resolveChartCategoricalColors(opts)
+	diagramThemeColors := resolveDiagramThemeColors(opts)
 
 	fetcherLog := renderer.NoopFetcherLogger{}
 	chartFetcher := chromium.NewChartFetcher(chromiumR, fetcherLog)
@@ -462,6 +487,7 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 	mapFetcher := chromium.NewMapFetcher(chromiumR, fetcherLog)
 	mapFetcher.SetImageFormat(imageFormat, webpQuality)
 	mathFetcher := chromium.NewMathFetcher(chromiumR, fetcherLog)
+	mathFetcher.SetDiagramThemeColors(diagramThemeColors)
 
 	ctx := &renderer.RenderContext{
 		ChartMode:    opts.RenderMode,
@@ -475,6 +501,7 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 		OutputDir:              outputDir,
 		ChartFetcher:           chartFetcher,
 		ChartCategoricalColors: categoricalColors,
+		DiagramThemeColors:     diagramThemeColors,
 		MapFetcher:             mapFetcher,
 		MathFetcher:            mathFetcher,
 		Logger:                 logger,
@@ -489,7 +516,9 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 		wireMermaidFetcher(ctx, astNode, opts, outputDir)
 	} else {
 		ctx.MermaidMode = opts.RenderMode
-		ctx.MermaidFetcher = chromium.NewMermaidFetcher(chromiumR, fetcherLog)
+		mermaidFetcher := chromium.NewMermaidFetcher(chromiumR, fetcherLog)
+		mermaidFetcher.SetDiagramThemeColors(diagramThemeColors)
+		ctx.MermaidFetcher = mermaidFetcher
 	}
 	wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
 	return ctx

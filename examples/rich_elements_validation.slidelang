@@ -1,0 +1,75 @@
+---
+mode: flex
+title: "Rich Elements Validation"
+author: "ZiraDocs"
+theme: "dark"
+---
+
+---
+layout: content
+---
+
+# Delivery path
+## Mermaid flowchart
+
+<<mermaid>>
+flowchart LR
+    A[Author] --> B[SlideLang AST]
+    B --> C[Renderer]
+    C --> D[HTML]
+    C --> E[PDF]
+    C --> F[PPTX]
+    D --> G[Review]
+    E --> G
+    F --> G
+<<end>>
+
+---
+
+# Service collaboration
+## PlantUML sequence
+
+<<plantuml>>
+@startuml
+actor Author
+participant SlideLang
+participant Renderer
+database Assets
+
+Author -> SlideLang: build validation fixture
+SlideLang -> Renderer: AST + resolved theme
+Renderer -> Assets: render rich elements
+Assets --> Renderer: themed images
+Renderer --> Author: presentation output
+@enduml
+<<end>>
+
+---
+
+# Formula rendering
+## MathJax output
+
+The quality gate compares the same formula in browser and offline paths.
+
+<<math>>
+E = mc^2
+label: "eq:quality"
+<<end>>
+
+---
+
+# Audience interaction
+## Static controls
+
+<<poll>>
+question: "Which output should the reviewer inspect first?"
+options: ["HTML", "PDF", "PPTX"]
+multiple: false
+<<end>>
+
+<<quiz>>
+question: "Which renderer keeps interactive responses synchronized across viewers?"
+options: ["The static HTML renderer", "A live websocket service", "The PPTX exporter"]
+answer: 1
+explanation: "A shared result requires a live channel. This fixture intentionally renders only local static controls."
+<<end>>

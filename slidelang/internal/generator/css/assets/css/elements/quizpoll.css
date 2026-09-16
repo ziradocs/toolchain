@@ -1,7 +1,7 @@
 /* Quiz y poll — issue #198
  *
  * Los nombres de clase de aquí abajo (.slidelang-question, .slidelang-option, .slidelang-option.slidelang-correct,
- * .slidelang-explanation, .slidelang-poll-option, .slidelang-poll-results, .slidelang-progress-bar) son el contrato
+ * .slidelang-explanation y .slidelang-poll-option) son el contrato
  * PÚBLICO que documenta features/themes-styling.md: un tema los sobreescribe.
  * Van sin el prefijo slidelang- a propósito, y por eso están declarados en
  * KnownUnprefixedClasses (css/themes/namespace.go). */
@@ -65,28 +65,6 @@
 .slidelang-element.slidelang-poll .slidelang-poll-option.slidelang-selected {
     border-color: var(--primary-color);
     font-weight: 600;
-}
-
-.slidelang-element.slidelang-poll .slidelang-poll-results {
-    margin-top: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-}
-
-.slidelang-element.slidelang-poll .slidelang-progress-bar {
-    height: 0.5rem;
-    background: var(--bg-light);
-    border-radius: var(--border-radius);
-    overflow: hidden;
-}
-
-.slidelang-element.slidelang-poll .slidelang-progress-fill {
-    display: block;
-    height: 100%;
-    width: 0;
-    background: var(--primary-color);
-    transition: var(--transition);
 }
 
 /* Impreso (PDF): sin interacción posible, así que la respuesta y su

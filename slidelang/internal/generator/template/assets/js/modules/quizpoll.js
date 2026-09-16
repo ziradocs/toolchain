@@ -5,7 +5,7 @@
  * de "encuesta" invita a suponer lo contrario.
  *
  * Se ata a las clases que documenta features/themes-styling.md — .option,
- * .option.correct, .explanation, .poll-option, .poll-results, .progress-bar —
+ * .option.correct, .explanation y .poll-option —
  * que son el contrato público con los temas. El HTML sin JS ya es válido: el
  * quiz impreso trae la respuesta marcada desde el servidor.
  */
@@ -45,25 +45,15 @@
         }
         chosen.classList.toggle('slidelang-selected');
 
-        var results = poll.querySelector('.slidelang-poll-results');
-        if (!results) {
-            return;
-        }
-        results.hidden = false;
-
-        // Conteo local: cuántas de las opciones visibles eligió esta persona.
-        // Con `multiple` puede ser más de una; sin él, exactamente una.
-        var selected = poll.querySelectorAll('.slidelang-poll-option.slidelang-selected').length;
-        var bars = results.querySelectorAll('.slidelang-progress-bar');
-        for (var j = 0; j < bars.length; j++) {
-            var fill = bars[j].querySelector('.slidelang-progress-fill');
-            if (!fill) {
-                continue;
-            }
-            var index = parseInt(bars[j].getAttribute('data-index'), 10);
-            var option = poll.querySelector('.slidelang-poll-option[data-index="' + index + '"]');
-            var isOn = option && option.classList.contains('slidelang-selected');
-            fill.style.width = (isOn && selected > 0) ? (100 / selected) + '%' : '0';
+        // Standalone SlideLang only owns local selection state. Aggregated
+        // response counts belong to a host with a live channel (for example
+        // SlideWeave), so the toolchain deliberately does not fabricate
+        // result bars from one viewer's choices.
+        for (var j = 0; j < options.length; j++) {
+            options[j].setAttribute(
+                'aria-pressed',
+                options[j].classList.contains('slidelang-selected') ? 'true' : 'false'
+            );
         }
     }
 

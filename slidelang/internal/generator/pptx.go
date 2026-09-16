@@ -46,9 +46,10 @@ import (
 // (Slide.Title, PlaceholderSubTitle) — evita inventar coordenadas para esos
 // dos, a diferencia del cuerpo.
 //
-// La propiedad que define este formato es que NO usa Chromium: Generator ni
-// siquiera tiene el campo, y es lo que hace de --format pptx la salida que
-// funciona sin navegador instalado. Eso decide qué queda fuera:
+// La propiedad por defecto de este formato es que NO usa Chromium: Generator
+// no lo inicializa salvo que el operador pida --render-mode offline-*. Eso
+// conserva la salida que funciona sin navegador instalado y evita renders o
+// accesos de red implícitos. Eso decide qué queda fuera por defecto:
 //
 //   - ChartElement se cubre SOLO por el camino nativo en Go
 //     (renderer.RenderChartNativePNGWithColors, go-analyze/charts): bar/line/pie/
@@ -71,8 +72,10 @@ import (
 //     warning que dice qué hacer — nunca en silencio, y nunca salen a la
 //     red sin que el operador lo haya pedido: --format pptx se define por
 //     no necesitar navegador NI red en la máquina.
-//   - Map/Math NO tienen camino bajo ningún --diagram-backend: Leaflet y
-//     MathJax necesitan un navegador de verdad, y Kroki no los resuelve.
+//   - Map/Math se rasterizan solo con --render-mode offline-assets u
+//     offline-inline. Map intenta primero el renderer nativo de Go y usa
+//     Chromium como fallback; MathJax usa Chromium. Si no están disponibles,
+//     el deck conserva el placeholder con un warning explícito.
 //   - SpecialBlockElement/CodeGroupElement/GridElement tampoco: son
 //     contenedores con layout propio, no un shape suelto.
 //
@@ -132,6 +135,13 @@ func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts Genera
 	// no uno por diagrama.
 	kroki := &pptxKrokiContext{}
 	defer kroki.cleanup()
+	rich := &pptxRichContext{}
+	defer rich.cleanup()
+
+	variables := map[string]interface{}(nil)
+	if astNode.FrontMatter != nil {
+		variables = astNode.FrontMatter.BuildVariables()
+	}
 
 	// Resuelto una sola vez (issue #179): a diferencia de header/footer,
 	// watermark es global sin cascada por slide/layout, así que no hay
@@ -149,7 +159,7 @@ func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts Genera
 	}
 
 	for i := range astNode.ContentBlocks {
-		g.pptxAddSlide(p, &astNode.ContentBlocks[i], opts, kroki, watermark, hasWatermark)
+		g.pptxAddSlide(p, &astNode.ContentBlocks[i], opts, variables, kroki, rich, watermark, hasWatermark)
 	}
 
 	outputPath := filepath.Join(outputDir, resolveOutputFilename(astNode, "pptx"))
@@ -172,7 +182,7 @@ func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts Genera
 // para el resto — el mismo mapeo semántico que ya usa el HTML propio de
 // slidelang (template/base.go: Heading para bloques "title", Title para
 // los demás).
-func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, opts GeneratorOptions, kroki *pptxKrokiContext, watermark renderer.ResolvedWatermark, hasWatermark bool) {
+func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, opts GeneratorOptions, variables map[string]interface{}, kroki *pptxKrokiContext, rich *pptxRichContext, watermark renderer.ResolvedWatermark, hasWatermark bool) {
 	// config.IsSlideTitle y no `== "title"`: desde el issue #239 un bloque
 	// flex puede declarar `layout: title_slide` (y strict siempre pudo con
 	// SLIDE title_slide), y esos también van con LayoutTitleSlide. El
@@ -220,7 +230,7 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 	}
 
 	for i := range block.Elements {
-		cursorY = g.pptxAddElement(s, block.Elements[i], cursorY, opts, kroki)
+		cursorY = g.pptxAddElement(s, block.Elements[i], cursorY, opts, variables, kroki, rich)
 	}
 }
 
@@ -362,7 +372,7 @@ func pptxInlineHTMLToText(html string) string {
 // comentario del paquete para qué queda fuera y por qué) se omite con un
 // warning explícito — nunca en silencio, para que "faltan diagramas en este
 // deck" sea visible en el log del build, no un misterio.
-func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int, opts GeneratorOptions, kroki *pptxKrokiContext) int {
+func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int, opts GeneratorOptions, variables map[string]interface{}, kroki *pptxKrokiContext, rich *pptxRichContext) int {
 	switch e := elem.(type) {
 	case *ast.TextElement:
 		return g.pptxAddText(s, pptxTextContent(e), cursorY)
@@ -385,15 +395,15 @@ func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int,
 	case *ast.ChartElement:
 		return g.pptxAddChart(s, e, cursorY, opts)
 	case *ast.MermaidElement:
-		return g.pptxAddDiagram(s, "mermaid", e.Content, e.Title, cursorY, opts, kroki)
+		content := renderer.ApplyMermaidTheme(e.Content, resolveDiagramThemeColors(opts))
+		return g.pptxAddDiagram(s, "mermaid", content, e.Title, cursorY, opts, kroki)
 	case *ast.PlantUMLElement:
-		return g.pptxAddDiagram(s, "plantuml", e.Content, e.Title, cursorY, opts, kroki)
+		content := renderer.ApplyPlantUMLTheme(renderer.SanitizePlantUMLContent(e.Content), resolveDiagramThemeColors(opts))
+		return g.pptxAddDiagram(s, "plantuml", content, e.Title, cursorY, opts, kroki)
 	case *ast.MapElement:
-		g.logger.Warn("PPTX: map element skipped, no hay camino sin Chromium (Leaflet necesita navegador) — --format pptx no usa Chromium")
-		return g.pptxAddText(s, "[Map not rendered]", cursorY)
+		return g.pptxAddMap(s, e, cursorY, opts, variables, rich)
 	case *ast.MathElement:
-		g.logger.Warn("PPTX: math element skipped, no hay camino sin Chromium (MathJax necesita navegador) — --format pptx no usa Chromium")
-		return g.pptxAddText(s, "[Math not rendered]", cursorY)
+		return g.pptxAddMath(s, e, cursorY, opts, rich)
 	default:
 		g.logger.Warn("PPTX: element type %T not supported yet, skipped (issue #144 tracks the remaining coverage: SpecialBlock/CodeGroup/Grid)", elem)
 		return cursorY
@@ -1117,6 +1127,120 @@ func (k *pptxKrokiContext) cleanup() {
 	if k.tempDir != "" {
 		_ = os.RemoveAll(k.tempDir)
 	}
+}
+
+// pptxRichContext conserva un Chromium opcional y lazy para los dos tipos que
+// no tienen representación PPTX nativa: MathJax y el fallback de mapas. El
+// formato sigue siendo browser-free por defecto: solo se intenta cuando el
+// operador pidió un render offline explícito.
+type pptxRichContext struct {
+	renderer  *chromium.ChromiumRenderer
+	attempted bool
+	err       error
+}
+
+func (r *pptxRichContext) chromium(log util.Logger, opts GeneratorOptions) (*chromium.ChromiumRenderer, error) {
+	if r.attempted {
+		return r.renderer, r.err
+	}
+	r.attempted = true
+	r.renderer, r.err = chromium.NewChromiumRenderer(
+		context.Background(), opts.ChromiumPath, opts.InstallChromium,
+		&renderer.ChromiumLoggerAdapter{Logger: log},
+	)
+	return r.renderer, r.err
+}
+
+func (r *pptxRichContext) cleanup() {
+	if r.renderer != nil {
+		r.renderer.Close()
+	}
+}
+
+func pptxRichRenderingEnabled(opts GeneratorOptions) bool {
+	return renderer.IsOfflineRenderMode(opts.RenderMode)
+}
+
+// pptxAddRasterPNG coloca un PNG conservando el aspect ratio y reservando el
+// caption antes de ajustar la imagen. Lo comparten mapas, fórmulas y diagramas
+// que ya llegaron rasterizados por Kroki.
+func (g *Generator) pptxAddRasterPNG(s *pptx.Slide, data []byte, title string, cursorY int) int {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		g.logger.Warn("PPTX: renderer returned a non-image response: %v", err)
+		return g.pptxAddText(s, "[Rich element failed to render]", cursorY)
+	}
+
+	drawWidth := pptxChartWidthEMU
+	drawHeight := pptxDefaultImageEMU
+	if cfg.Width > 0 && cfg.Height > 0 {
+		drawHeight = drawWidth * cfg.Height / cfg.Width
+	}
+	captionReserve := 0
+	if title != "" {
+		captionReserve = pptxEstimateLines(title)*pptxLineHeightEMU + pptxParaGapEMU
+	}
+	drawWidth, drawHeight = pptxFitInSlide(drawWidth, drawHeight, cursorY+captionReserve)
+	s.AddImageFromBytesWithSize(data, pptxMarginEMU, cursorY, drawWidth, drawHeight)
+
+	newCursorY := cursorY + drawHeight + pptxParaGapEMU
+	if title != "" {
+		newCursorY = g.pptxAddText(s, title, newCursorY)
+	}
+	return newCursorY
+}
+
+func (g *Generator) pptxAddMap(s *pptx.Slide, elem *ast.MapElement, cursorY int, opts GeneratorOptions, variables map[string]interface{}, rich *pptxRichContext) int {
+	if !pptxRichRenderingEnabled(opts) {
+		g.logger.Warn("PPTX: map element skipped — pass --render-mode offline-inline (or offline-assets) to rasterize it during the build")
+		return g.pptxAddText(s, "[Map not rendered]", cursorY)
+	}
+
+	config := renderer.BuildMapConfig(elem, variables)
+	data, err := renderer.RenderMapNativePNG(context.Background(), config, 1200, 800)
+	if err == nil {
+		return g.pptxAddRasterPNG(s, data, elem.Title, cursorY)
+	}
+	g.logger.Warn("PPTX: native map render failed, trying Chromium: %v", err)
+
+	cr, chromiumErr := rich.chromium(g.logger, opts)
+	if chromiumErr != nil {
+		g.logger.Warn("PPTX: map skipped because Chromium is unavailable: %v", chromiumErr)
+		return g.pptxAddText(s, "[Map not rendered]", cursorY)
+	}
+	data, err = cr.RenderMapToPNG(context.Background(), config, 1200, 800)
+	if err != nil {
+		g.logger.Warn("PPTX: map render failed: %v", err)
+		return g.pptxAddText(s, "[Map failed to render]", cursorY)
+	}
+	return g.pptxAddRasterPNG(s, data, elem.Title, cursorY)
+}
+
+func (g *Generator) pptxAddMath(s *pptx.Slide, elem *ast.MathElement, cursorY int, opts GeneratorOptions, rich *pptxRichContext) int {
+	if !pptxRichRenderingEnabled(opts) {
+		g.logger.Warn("PPTX: math element skipped — pass --render-mode offline-inline (or offline-assets) to rasterize it during the build")
+		return g.pptxAddText(s, "[Math not rendered]", cursorY)
+	}
+
+	cr, err := rich.chromium(g.logger, opts)
+	if err != nil {
+		g.logger.Warn("PPTX: math skipped because Chromium is unavailable: %v", err)
+		return g.pptxAddText(s, "[Math not rendered]", cursorY)
+	}
+	data, err := cr.RenderMathToPNGWithTheme(context.Background(), elem.Content, 1600, 400, resolveDiagramThemeColors(opts))
+	if err != nil {
+		g.logger.Warn("PPTX: math render failed: %v", err)
+		return g.pptxAddText(s, "[Math failed to render]", cursorY)
+	}
+	title := elem.Caption
+	if elem.Label != "" && elem.Number > 0 {
+		if title != "" {
+			title = fmt.Sprintf("(%d) %s", elem.Number, title)
+		} else {
+			title = fmt.Sprintf("(%d)", elem.Number)
+		}
+	}
+	return g.pptxAddRasterPNG(s, data, title, cursorY)
 }
 
 // pptxAddDiagram renderiza un diagrama mermaid/plantuml vía Kroki (formato

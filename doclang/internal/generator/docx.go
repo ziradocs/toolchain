@@ -29,6 +29,7 @@ type DOCXGenerator struct {
 	chromiumRenderer *chromium.ChromiumRenderer
 	tempDir          string
 	style            DOCXStyle
+	diagramTheme     renderer.DiagramThemeColors
 	// assetRoot confina las fuentes de imagen locales (elem.Source) a este
 	// directorio. Ver docs/SECURITY_AUDIT_2026-07.md, AL-4.
 	assetRoot string
@@ -151,25 +152,19 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		g.logger.Info("DOCX", "Using theme from frontmatter: %s", themeName)
 	}
 	g.style = GetStyleForTheme(themeName, g.logger)
+	g.diagramTheme = resolveDiagramThemeColors(opts.ThemeVariables)
 
-	// Inicializar ChromiumRenderer si hay elementos que requieren renderizado
-	// — salvo que TODOS esos elementos sean charts nativo-capaces (issue
-	// "quitar Chrome del pipeline"): renderer.TryAllChartsNative ya
-	// devuelve false ante cualquier mermaid/math/map, así que un resultado
-	// ok==true acá significa "solo charts, y todos rasterizan nativo" — el
-	// mismo gate que slidelang's tryBuildNativeContext (issue #164). El
-	// fetcher retornado se descarta: renderChart (más abajo) recalcula el
-	// render nativo directamente, en vez de sembrarlo — solo hay una
-	// llamada por chart en un DOCX, así que no hay una segunda pasada que
-	// evitar.
+	// Inicializar Chromium solo si queda algún elemento que no pueda seguir
+	// la ruta nativa. Charts y mapas son candidatos nativos; Mermaid y Math
+	// aún necesitan Chromium para un DOCX rasterizado.
 	if g.needsChromiumRendering(astDoc) {
 		// "" (nunca "kroki"): a diferencia de HTML/PDF, el renderer de DOCX no
 		// cablea KrokiFetcher para mermaid en ningún punto de este archivo —
 		// un mermaid en DOCX SIEMPRE pasa por g.chromiumRenderer más abajo, sin
 		// importar --diagram-backend. Pasar opts.DiagramBackend acá sería un
 		// falso "sin Chromium" para un documento con mermaid+chart nativo.
-		if _, allNative := renderer.TryAllChartsNative(astDoc, "png", ""); allNative {
-			g.logger.Info("DOCX", "✅ Chart rendering habilitado sin Chromium (todos los charts son nativo-capaces)")
+		if g.canRenderWithoutChromium(astDoc) {
+			g.logger.Info("DOCX", "✅ Chart/map rendering habilitado sin Chromium (todos los elementos ricos son nativo-capaces)")
 		} else {
 			g.logger.Info("DOCX", "Initializing Chromium renderer...")
 			chromiumLogger := &renderer.ChromiumLoggerAdapter{Logger: g.logger}
@@ -2163,7 +2158,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 
 	// Renderizar a PNG usando ChromiumRenderer con mayor resolución
 	// Usar dimensiones más grandes para que Mermaid tenga más espacio
-	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNG(context.Background(), elem.Content, 2400, 1600)
+	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), elem.Content, 2400, 1600, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
@@ -2214,7 +2209,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 
 	g.logger.Info("DOCX", "Rendering equation...")
 
-	pngBytes, err := g.chromiumRenderer.RenderMathToPNG(context.Background(), elem.Content, 1600, 400)
+	pngBytes, err := g.chromiumRenderer.RenderMathToPNGWithTheme(context.Background(), elem.Content, 1600, 400, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render equation: %v", err)
 		return g.renderPlaceholder(doc, "Equation (render failed)")
@@ -2359,41 +2354,27 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 }
 
 func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) error {
-	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX: Chromium not available, skipping map")
-		return nil
-	}
-
 	g.logger.Info("DOCX", "Rendering Leaflet map (%s, zoom=%d)...", elem.MapType, elem.Zoom)
 
-	// Convertir ast.MapElement a renderer.MapConfig
-	mapConfig := renderer.MapConfig{
-		Zoom:    elem.Zoom,
-		MapType: elem.MapType,
-		Heatmap: elem.Heatmap,
-	}
-
-	// Set center if provided, otherwise use default (0, 0)
-	if elem.Center != nil {
-		mapConfig.CenterLat = elem.Center.Lat
-		mapConfig.CenterLng = elem.Center.Lng
-	}
-
-	// Convertir markers
-	for _, m := range elem.Markers {
-		mapConfig.Markers = append(mapConfig.Markers, renderer.MapMarker{
-			Lat:   m.Lat,
-			Lng:   m.Lng,
-			Label: m.Label,
-			Color: m.Color,
-		})
-	}
-
-	// Renderizar a PNG
-	pngBytes, err := g.chromiumRenderer.RenderMapToPNG(context.Background(), mapConfig, 1200, 800)
+	// El mapa nativo cubre los datos vectoriales habituales (markers, rutas,
+	// áreas y heatmap) sin proceso de navegador. Compartir BuildMapConfig con
+	// HTML/PPTX evita que cada exportador traduzca el AST de forma distinta.
+	mapConfig := renderer.BuildMapConfig(elem, nil)
+	pngBytes, err := renderer.RenderMapNativePNG(context.Background(), mapConfig, 1200, 800)
 	if err != nil {
-		g.logger.Warn("DOCX: Failed to render map: %v", err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
+		// El navegador sigue siendo un respaldo para cualquier variante que el
+		// renderer nativo aún no soporte, pero ya no es una precondición para
+		// que un DOCX con mapas se genere.
+		if g.chromiumRenderer == nil {
+			g.logger.Warn("DOCX: Native map render failed and Chromium is unavailable: %v", err)
+			return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
+		}
+		g.logger.Warn("DOCX: Native map render failed; falling back to Chromium: %v", err)
+		pngBytes, err = g.chromiumRenderer.RenderMapToPNG(context.Background(), mapConfig, 1200, 800)
+		if err != nil {
+			g.logger.Warn("DOCX: Failed to render map: %v", err)
+			return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
+		}
 	}
 
 	// Guardar PNG temporalmente
@@ -2794,7 +2775,8 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	)
 
 	// Descargar diagrama a archivo PNG
-	assetPath, err := fetcher.FetchDiagramToAssets(context.Background(), elem.Content)
+	content := renderer.ApplyPlantUMLTheme(renderer.SanitizePlantUMLContent(elem.Content), g.diagramTheme)
+	assetPath, err := fetcher.FetchDiagramToAssets(context.Background(), content)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to fetch PlantUML diagram: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("PlantUML diagram failed: %s", elem.DiagramType))
@@ -3044,10 +3026,39 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 			// chromiumRenderer, así que renderMath cae en su guarda de nil
 			// y la ecuación desaparece del DOCX en silencio — math estaba
 			// soportado solo nominalmente.
-			case *ast.ChartElement, *ast.MapElement, *ast.MermaidElement, *ast.MathElement:
+			// MapElement no está aquí: renderMap intenta primero el renderer
+			// nativo y solo usa Chromium como respaldo si ya fue necesario por
+			// algún otro elemento. Así un DOCX con solo mapas no arranca un
+			// navegador de forma implícita.
+			case *ast.ChartElement, *ast.MermaidElement, *ast.MathElement:
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// canRenderWithoutChromium recognizes the subset the DOCX writer can render
+// natively. Maps have their own native renderer and charts already expose a
+// capability gate; Mermaid and Math deliberately return false because their
+// DOCX paths rasterize through Chromium.
+func (g *DOCXGenerator) canRenderWithoutChromium(astDoc *ast.AST) bool {
+	for _, block := range astDoc.ContentBlocks {
+		for _, elem := range block.Elements {
+			switch e := elem.(type) {
+			case *ast.ChartElement:
+				// Elegibilidad no basta: un chart de tipo soportado con datos
+				// malformados fallará al rasterizar. Si no comprobamos el render
+				// real acá, renderChart se quedaría sin Chromium y lo omitiría.
+				width, height := renderer.ChartDimensions(e)
+				_, ok, err := renderer.RenderChartNativePNG(e, width, height)
+				if !ok || err != nil {
+					return false
+				}
+			case *ast.MermaidElement, *ast.MathElement:
+				return false
+			}
+		}
+	}
+	return true
 }

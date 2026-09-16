@@ -43,10 +43,6 @@
     "source": 5,
     "html": 3
   },
-  "examples/advanced_elements_test.doclang::image": {
-    "source": 0,
-    "html": 2
-  },
   "examples/advanced_elements_test.doclang::plantuml": {
     "source": 3,
     "html": 2
@@ -56,10 +52,6 @@
     "html": 27
   },
   "examples/directives_example.slidelang::code_pre": {
-    "source": 0,
-    "html": 1
-  },
-  "examples/gallery/02_technical_architecture.doclang::image": {
     "source": 0,
     "html": 1
   },

@@ -441,12 +441,11 @@ func TestPPTX_StillWarnsOnGenuinelyUnsupportedElements(t *testing.T) {
 	}
 }
 
-// TestPPTX_MapAndMath_HaveNoOfflineCamino confirma que map/math se quedan
-// fuera y con un warning específico (no el genérico de "element type %T not
-// supported yet") bajo CUALQUIER --diagram-backend: Leaflet y MathJax
-// necesitan navegador, y --diagram-backend kroki no cambia eso — solo
-// resuelve mermaid/plantuml.
-func TestPPTX_MapAndMath_HaveNoOfflineCamino(t *testing.T) {
+// TestPPTX_MapAndMath_RequireExplicitOfflineRender confirma la política por
+// defecto: map/math no activan rasterización ni Chromium solo por producir un
+// PPTX. --render-mode offline-* habilita el render rico; --diagram-backend
+// kroki no cambia este gate porque solo resuelve mermaid/plantuml.
+func TestPPTX_MapAndMath_RequireExplicitOfflineRender(t *testing.T) {
 	dir := t.TempDir()
 	doc := ast.NewAST(pos())
 	doc.FrontMatter = ast.NewFrontMatterNode(pos())

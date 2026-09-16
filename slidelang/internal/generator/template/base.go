@@ -910,14 +910,9 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 <p class="question">{{.Question | markdownInline}}</p>
                 <ol class="options">
                     {{range $i, $opt := .QuizOptions}}
-                    <li><button type="button" class="poll-option" data-index="{{$i}}">{{$opt | markdownInline}}</button></li>
+                    <li><button type="button" class="poll-option" data-index="{{$i}}" aria-pressed="false">{{$opt | markdownInline}}</button></li>
                     {{end}}
                 </ol>
-                <div class="poll-results" hidden>
-                    {{range $i, $opt := .QuizOptions}}
-                    <div class="progress-bar" data-index="{{$i}}"><span class="progress-fill"></span></div>
-                    {{end}}
-                </div>
             </div>        {{else if eq .Type "checklist"}}
             <div class="slidelang-element slidelang-checklist {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-checklist-{{.SlideIndex}}-{{.ElementID}}"
