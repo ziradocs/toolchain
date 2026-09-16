@@ -41,6 +41,9 @@ type RenderContextOptions struct {
 	// y al RenderContext devuelto, para que el PR que tematice el camino
 	// Chart.js los tenga ya disponibles ahí sin volver a tocar este archivo.
 	ChartThemeColors renderer.ChartThemeColors
+	// DiagramThemeColors is forwarded to the local Chromium Mermaid fetcher.
+	// A remote Kroki renderer intentionally receives no local JS theme config.
+	DiagramThemeColors renderer.DiagramThemeColors
 	// DiagramBackend selecciona qué implementación satisface
 	// MermaidFetcher/PlantUMLFetcher en los modos offline: "chromium"
 	// (default, sin este campo) o "kroki" (KrokiServer, sin Chromium en
@@ -115,7 +118,9 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 			// instanciar un ChromiumRenderer.
 			mermaidFetcher = NewKrokiFetcher(opts.KrokiServer, "mermaid", "svg", opts.OutputDir)
 		} else if cr != nil {
-			mermaidFetcher = NewMermaidFetcher(cr, renderer.NoopFetcherLogger{})
+			fetcher := NewMermaidFetcher(cr, renderer.NoopFetcherLogger{})
+			fetcher.SetDiagramThemeColors(opts.DiagramThemeColors)
+			mermaidFetcher = fetcher
 		}
 	}
 
@@ -158,7 +163,9 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 	}
 	var mathFetcher renderer.MathFetcher
 	if cr != nil && renderer.IsOfflineRenderMode(mathMode) {
-		mathFetcher = NewMathFetcher(cr, renderer.NoopFetcherLogger{})
+		fetcher := NewMathFetcher(cr, renderer.NoopFetcherLogger{})
+		fetcher.SetDiagramThemeColors(opts.DiagramThemeColors)
+		mathFetcher = fetcher
 	}
 
 	imageMode := opts.ImageMode
@@ -196,5 +203,6 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 		Ctx:                    ctx,
 		ChartCategoricalColors: opts.ChartCategoricalColors,
 		ChartThemeColors:       opts.ChartThemeColors,
+		DiagramThemeColors:     opts.DiagramThemeColors,
 	}
 }

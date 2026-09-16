@@ -5,7 +5,11 @@
 
 package chromium
 
-import "context"
+import (
+	"context"
+
+	"go.ziradocs.com/core/v2/renderer"
+)
 
 // MathFetcher maneja la obtención y almacenamiento de ecuaciones LaTeX
 // renderizadas a SVG (issue #239-B) — mismo mecanismo que MermaidFetcher
@@ -15,7 +19,21 @@ import "context"
 // (RenderMathToSVG en vez de RenderMermaidToSVG).
 type MathFetcher struct {
 	*BaseFetcher
-	renderer *ChromiumRenderer
+	renderer    *ChromiumRenderer
+	themeColors renderer.DiagramThemeColors
+}
+
+// SetDiagramThemeColors applies the shared equation/diagram palette to the
+// MathJax page and keeps cached SVGs separate per theme.
+func (f *MathFetcher) SetDiagramThemeColors(themeColors renderer.DiagramThemeColors) {
+	f.themeColors = themeColors
+}
+
+func (f *MathFetcher) cacheKey(latex string) string {
+	if f.themeColors.IsZero() {
+		return GenerateContentHash(latex)
+	}
+	return GenerateContentHash(latex + "|" + f.themeColors.CacheFingerprint())
 }
 
 // NewMathFetcher crea un nuevo fetcher con Chromium renderer
@@ -32,10 +50,10 @@ func NewMathFetcher(renderer *ChromiumRenderer, logger FetcherLogger) *MathFetch
 // FetchAndSave renderiza una ecuación y la guarda como SVG. Retorna la ruta
 // relativa al archivo guardado.
 func (f *MathFetcher) FetchAndSave(ctx context.Context, latex string, outputDir string) (string, error) {
-	hash := GenerateContentHash(latex)
+	hash := f.cacheKey(latex)
 
 	renderFunc := func() ([]byte, error) {
-		svgContent, err := f.renderer.RenderMathToSVG(ctx, latex)
+		svgContent, err := f.renderer.RenderMathToSVGWithTheme(ctx, latex, f.themeColors)
 		if err != nil {
 			return nil, err
 		}
@@ -47,10 +65,10 @@ func (f *MathFetcher) FetchAndSave(ctx context.Context, latex string, outputDir 
 
 // FetchInline renderiza una ecuación y retorna el SVG como string.
 func (f *MathFetcher) FetchInline(ctx context.Context, latex string) (string, error) {
-	hash := GenerateContentHash(latex)
+	hash := f.cacheKey(latex)
 
 	renderFunc := func() ([]byte, error) {
-		svgContent, err := f.renderer.RenderMathToSVG(ctx, latex)
+		svgContent, err := f.renderer.RenderMathToSVGWithTheme(ctx, latex, f.themeColors)
 		if err != nil {
 			return nil, err
 		}

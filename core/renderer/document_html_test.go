@@ -231,6 +231,20 @@ func TestGenerateInitScripts_MermaidStrictConfig(t *testing.T) {
 	}
 }
 
+func TestGenerateDocumentStyles_StylesStaticQuizAndPoll(t *testing.T) {
+	styles := generateDocumentStyles(DocumentHTMLOptions{}, nil)
+	for _, want := range []string{
+		".quiz, .poll",
+		".quiz .option.correct",
+		`content: " ✓"`,
+		"--doclang-quiz-bg",
+	} {
+		if !strings.Contains(styles, want) {
+			t.Errorf("DocLang quiz/poll styles missing %q", want)
+		}
+	}
+}
+
 // bareInlineScriptPattern matchea un <script> SIN nonce y sin src= (externo,
 // no lo necesita) ni type="application/json" (no ejecutable, exento por la
 // propia spec de CSP) — usado para confirmar que ningún <script> inline se

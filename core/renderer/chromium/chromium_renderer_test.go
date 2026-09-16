@@ -281,3 +281,17 @@ func TestWithCallerCancel_CancelFuncIsIdempotent(t *testing.T) {
 	cancel()
 	cancel()
 }
+
+func TestEmbedMathThemeInSVG_MakesOfflineAssetSelfContained(t *testing.T) {
+	svg := `<svg viewBox="0 0 10 10"><g><path d="M0 0"/></g></svg>`
+	got := embedMathThemeInSVG(svg, renderer.DiagramThemeColors{
+		NodeForeground: "#f0f0f0",
+		NodeBackground: "#102030",
+	})
+	if !strings.Contains(got, `<svg viewBox="0 0 10 10" color="#f0f0f0">`) {
+		t.Fatalf("the foreground must be on the exported SVG root: %s", got)
+	}
+	if !strings.Contains(got, `<rect width="100%" height="100%" fill="#102030"/>`) {
+		t.Fatalf("the background must be embedded in the exported SVG: %s", got)
+	}
+}

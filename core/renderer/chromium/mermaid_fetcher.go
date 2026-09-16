@@ -5,12 +5,31 @@
 
 package chromium
 
-import "context"
+import (
+	"context"
+
+	"go.ziradocs.com/core/v2/renderer"
+)
 
 // MermaidFetcher maneja la obtención y almacenamiento de diagramas Mermaid renderizados
 type MermaidFetcher struct {
 	*BaseFetcher
-	renderer *ChromiumRenderer
+	renderer    *ChromiumRenderer
+	themeColors renderer.DiagramThemeColors
+}
+
+// SetDiagramThemeColors configures the resolved visual values used while
+// rasterizing Mermaid. It also changes the cache key, avoiding stale SVGs
+// when a caller rebuilds into the same assets directory with another theme.
+func (f *MermaidFetcher) SetDiagramThemeColors(themeColors renderer.DiagramThemeColors) {
+	f.themeColors = themeColors
+}
+
+func (f *MermaidFetcher) cacheKey(mermaidCode string) string {
+	if f.themeColors.IsZero() {
+		return GenerateContentHash(mermaidCode)
+	}
+	return GenerateContentHash(mermaidCode + "|" + f.themeColors.CacheFingerprint())
 }
 
 // NewMermaidFetcher crea un nuevo fetcher con Chromium renderer
@@ -27,12 +46,11 @@ func NewMermaidFetcher(renderer *ChromiumRenderer, logger FetcherLogger) *Mermai
 // FetchAndSave renderiza un diagrama Mermaid y lo guarda como SVG
 // Retorna la ruta relativa al archivo guardado
 func (f *MermaidFetcher) FetchAndSave(ctx context.Context, mermaidCode string, outputDir string) (string, error) {
-	// Generar hash del contenido
-	hash := GenerateContentHash(mermaidCode)
+	hash := f.cacheKey(mermaidCode)
 
 	// Función de renderizado
 	renderFunc := func() ([]byte, error) {
-		svgContent, err := f.renderer.RenderMermaidToSVG(ctx, mermaidCode)
+		svgContent, err := f.renderer.RenderMermaidToSVGWithTheme(ctx, mermaidCode, f.themeColors)
 		if err != nil {
 			return nil, err
 		}
@@ -45,12 +63,11 @@ func (f *MermaidFetcher) FetchAndSave(ctx context.Context, mermaidCode string, o
 
 // FetchInline renderiza un diagrama Mermaid y retorna el SVG como string
 func (f *MermaidFetcher) FetchInline(ctx context.Context, mermaidCode string) (string, error) {
-	// Generar hash del contenido
-	hash := GenerateContentHash(mermaidCode)
+	hash := f.cacheKey(mermaidCode)
 
 	// Función de renderizado
 	renderFunc := func() ([]byte, error) {
-		svgContent, err := f.renderer.RenderMermaidToSVG(ctx, mermaidCode)
+		svgContent, err := f.renderer.RenderMermaidToSVGWithTheme(ctx, mermaidCode, f.themeColors)
 		if err != nil {
 			return nil, err
 		}
