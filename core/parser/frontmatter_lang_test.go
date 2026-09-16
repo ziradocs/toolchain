@@ -92,3 +92,52 @@ func TestFrontMatterNode_BuildVariables_DoesNotIncludeLang(t *testing.T) {
 		t.Errorf("BuildVariables()[\"lang\"] = %v, want absent (lang is not a substitution built-in)", vars["lang"])
 	}
 }
+
+func TestFrontMatterParser_ThemeMode(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntheme: apex\ntheme_mode: dark\n---\n\nContenido.")
+	if node == nil {
+		t.Fatal("node should not be nil")
+	}
+	if node.ThemeMode != "dark" {
+		t.Errorf("ThemeMode = %q, want dark", node.ThemeMode)
+	}
+	for _, d := range diags {
+		if d.RuleID == "FRONT008" {
+			t.Errorf("did not expect FRONT008 for a valid theme_mode: %+v", d)
+		}
+	}
+}
+
+func TestFrontMatterParser_ThemeModeInvalid(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, diags := p.Parse("---\nmode: flex\ntheme_mode: sepia\n---\n\nContenido.")
+	if node == nil {
+		t.Fatal("node should not be nil")
+	}
+	// Preserve authored text, matching the formatter's non-destructive
+	// round-trip policy, while making an unresolvable visual mode an error.
+	if node.ThemeMode != "sepia" {
+		t.Errorf("ThemeMode = %q, want raw invalid value preserved", node.ThemeMode)
+	}
+	for _, d := range diags {
+		if d.RuleID == "FRONT008" {
+			return
+		}
+	}
+	t.Errorf("expected FRONT008 for invalid theme_mode, got: %+v", diags)
+}
+
+func TestFrontMatterNode_BuildVariables_DoesNotIncludeThemeMode(t *testing.T) {
+	p := &FrontMatterParser{}
+
+	node, _, _ := p.Parse("---\nmode: flex\ntheme_mode: dark\n---\n\nContenido.")
+	if node == nil {
+		t.Fatal("node should not be nil")
+	}
+	if _, ok := node.BuildVariables()["theme_mode"]; ok {
+		t.Error("BuildVariables()[\"theme_mode\"] must be absent; it is document metadata, not a prose placeholder")
+	}
+}

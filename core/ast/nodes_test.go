@@ -39,6 +39,7 @@ func TestFrontMatterNode_Fields(t *testing.T) {
 	fm.Author = "Test Author"
 	fm.Date = "2024-01-01"
 	fm.Theme = "default"
+	fm.ThemeMode = "dark"
 
 	if fm.Mode != "presentation" {
 		t.Errorf("Mode = %s, want presentation", fm.Mode)
@@ -50,6 +51,10 @@ func TestFrontMatterNode_Fields(t *testing.T) {
 
 	if fm.Author != "Test Author" {
 		t.Errorf("Author = %s, want Test Author", fm.Author)
+	}
+
+	if fm.ThemeMode != "dark" {
+		t.Errorf("ThemeMode = %s, want dark", fm.ThemeMode)
 	}
 }
 

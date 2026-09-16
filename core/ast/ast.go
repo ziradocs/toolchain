@@ -92,7 +92,12 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.12.0 (issues #340/#343/#344/#347/#348): additive kicker fields on
 // ContentBlock, ImageElement's fit/focus/bleed frame declaration, and the
 // new structured MetricElement discriminator.
-const SchemaVersion = "2.12.0"
+//
+// 2.13.0: FrontMatterNode.ThemeMode (additive, omitempty)
+// preserves the visual light/dark mode selected for a theme family. It is
+// deliberately distinct from FrontMatterNode.Mode, which already controls
+// the document language dialect (strict/flex/flex-full/flex-ai/auto).
+const SchemaVersion = "2.13.0"
 
 // Node representa un nodo base en el AST
 type Node interface {

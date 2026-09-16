@@ -57,6 +57,10 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.13.0
+
+- **Additive**: `frontMatter.theme_mode` (`"light" | "dark"` at the document-language level) selects a visual light/dark mode within the declared theme family. It does not reuse `frontMatter.mode`, which remains the SlideLang/DocLang dialect selector (`strict`, `flex`, etc.).
+
 ### 2.12.0 (issues #340/#343/#344/#347/#348)
 
 Adds structured KPIs (`MetricElement`), kicker, and image framing fields.

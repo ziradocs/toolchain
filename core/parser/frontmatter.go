@@ -28,6 +28,7 @@ type rawFrontMatter struct {
 	Author    string                 `yaml:"author"`
 	Date      string                 `yaml:"date"`
 	Theme     string                 `yaml:"theme"`
+	ThemeMode string                 `yaml:"theme_mode"`
 	Lang      string                 `yaml:"lang"`
 	Numbering *rawNumbering          `yaml:"numbering"`
 	TOC       *rawTOC                `yaml:"toc"`
@@ -506,6 +507,7 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node.Author = raw.Author
 	node.Date = raw.Date
 	node.Theme = raw.Theme
+	node.ThemeMode = raw.ThemeMode
 	node.Lang = raw.Lang
 	if raw.Numbering != nil {
 		node.Numbering = raw.Numbering.Enabled
@@ -531,6 +533,17 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 		p.diagnostics = append(p.diagnostics,
 			diagnostics.NewWarning(fmt.Sprintf("Invalid lang: %q is not a well-formed BCP 47 language tag (e.g. \"es\", \"en-US\", \"zh-Hans-CN\")", raw.Lang),
 				diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT004"))
+	}
+
+	// ThemeMode is visual metadata, not the document dialect in `mode:`.
+	// Keeping the field separate avoids overloading a long-standing grammar
+	// control with a light/dark switch. Preserve invalid input in the AST so
+	// formatters do not silently rewrite an author's document, but report it
+	// as an error because consumers cannot resolve an unknown visual mode.
+	if raw.ThemeMode != "" && raw.ThemeMode != "light" && raw.ThemeMode != "dark" {
+		p.diagnostics = append(p.diagnostics,
+			diagnostics.NewError(fmt.Sprintf("Invalid theme_mode: %q must be 'light' or 'dark'", raw.ThemeMode),
+				diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT008"))
 	}
 
 	// Procesar configuración de headers y footers

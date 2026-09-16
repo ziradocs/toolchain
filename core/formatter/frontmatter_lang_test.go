@@ -54,3 +54,28 @@ func TestFormatStrict_PreservesLangWithoutRaw(t *testing.T) {
 		t.Errorf("expected formatted frontmatter to preserve %q, got:\n%s", "lang: pt-BR", out)
 	}
 }
+
+func TestFormatters_PreserveThemeModeWithoutRaw(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	for name, format := range map[string]func(*ast.AST) (string, error){
+		"document": FormatDocument,
+		"strict":   FormatStrict,
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc := ast.NewAST(pos)
+			doc.FrontMatter = ast.NewFrontMatterNode(pos)
+			doc.FrontMatter.ThemeMode = "dark"
+			block := ast.NewContentBlock(diagnostics.NewPosition(2, 1), "content")
+			block.Elements = append(block.Elements, ast.NewTextElement(pos, "Contenu."))
+			doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+			out, err := format(doc)
+			if err != nil {
+				t.Fatalf("formatter: unexpected error: %v", err)
+			}
+			if !strings.Contains(out, "theme_mode: dark\n") {
+				t.Errorf("expected formatted frontmatter to preserve theme_mode, got:\n%s", out)
+			}
+		})
+	}
+}

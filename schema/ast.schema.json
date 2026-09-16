@@ -695,6 +695,9 @@
         "theme": {
           "type": "string"
         },
+        "theme_mode": {
+          "type": "string"
+        },
         "lang": {
           "type": "string"
         },
