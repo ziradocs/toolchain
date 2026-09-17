@@ -206,7 +206,12 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 	// árbol de shapes de PowerPoint (issue #347).
 	for _, element := range block.Elements {
 		if image, ok := element.(*ast.ImageElement); ok && image.Bleed {
-			_ = g.pptxAddImage(s, image, 0, opts)
+			// El caption es contenido de primer plano: agregarlo en este
+			// prepass lo escondería detrás de título y cuerpo. La copia evita
+			// mutar el AST, que puede reutilizarse por los demás renderers.
+			background := *image
+			background.Caption = ""
+			_ = g.pptxAddImage(s, &background, 0, opts)
 		}
 	}
 
@@ -261,6 +266,23 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 			continue
 		}
 		cursorY = g.pptxAddElement(s, block.Elements[i], cursorY, opts, variables, kroki, rich)
+	}
+	// El caption de una imagen bleed comparte la semántica visual de HTML y
+	// PDF: queda sobre la imagen, no forma parte del flujo de contenido.
+	g.pptxAddBleedCaptions(s, block)
+}
+
+// pptxAddBleedCaptions agrega los captions después de todas las demás shapes
+// para que PowerPoint los pinte sobre la imagen bleed y sobre los placeholders.
+func (g *Generator) pptxAddBleedCaptions(s *pptx.Slide, block *ast.ContentBlock) {
+	y := pptxSlideHeightEMU - pptxMarginEMU - pptxLineHeightEMU
+	for i := len(block.Elements) - 1; i >= 0; i-- {
+		image, ok := block.Elements[i].(*ast.ImageElement)
+		if !ok || !image.Bleed || strings.TrimSpace(image.Caption) == "" {
+			continue
+		}
+		pptxAddHeaderLine(s, image.Caption, y, 12)
+		y -= pptxLineHeightEMU
 	}
 }
 
@@ -1814,18 +1836,31 @@ func (g *Generator) pptxAddImage(s *pptx.Slide, e *ast.ImageElement, cursorY int
 	width := pptxContentWidthEMU / 2
 	height := pptxDefaultImageEMU
 	x, y := pptxMarginEMU, cursorY
+	sourceWidth, sourceHeight := 0, 0
 	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil && cfg.Width > 0 && cfg.Height > 0 {
+		sourceWidth, sourceHeight = cfg.Width, cfg.Height
 		height = width * cfg.Height / cfg.Width
 	}
 	if e.Bleed {
 		x, y = 0, 0
 		width, height = pptxSlideWidthEMU, pptxSlideHeightEMU
+		if e.Fit == "contain" && sourceWidth > 0 && sourceHeight > 0 {
+			// contain conserva la proporción y centra la imagen dentro del
+			// canvas, igual que object-fit: contain en HTML/PDF.
+			if sourceWidth*pptxSlideHeightEMU > sourceHeight*pptxSlideWidthEMU {
+				height = width * sourceHeight / sourceWidth
+				y = (pptxSlideHeightEMU - height) / 2
+			} else {
+				width = height * sourceWidth / sourceHeight
+				x = (pptxSlideWidthEMU - width) / 2
+			}
+		}
 	} else if e.Fit == "cover" {
 		// cover necesita un marco fijo; de otro modo mantener proporción ya
 		// equivale a contain y no hay nada que recortar.
 		height = pptxDefaultImageEMU
 	}
-	if e.Fit == "cover" {
+	if pptxImageUsesCover(e) {
 		if cropped, err := pptxCropImageCover(data, width, height, e.Focus); err == nil {
 			data = cropped
 		} else {
@@ -1844,6 +1879,12 @@ func (g *Generator) pptxAddImage(s *pptx.Slide, e *ast.ImageElement, cursorY int
 	}
 
 	return newCursorY
+}
+
+// pptxImageUsesCover define el encuadre efectivo: las imágenes bleed ocupan
+// todo el canvas y, si no se especifica fit, usan cover como HTML/PDF.
+func pptxImageUsesCover(e *ast.ImageElement) bool {
+	return e.Fit == "cover" || (e.Bleed && e.Fit == "")
 }
 
 // pptxCropImageCover materializa el crop antes de entregar la imagen a

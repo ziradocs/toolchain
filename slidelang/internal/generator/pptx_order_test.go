@@ -100,6 +100,7 @@ func TestGeneratePPTX_BleedImageIsBehindTitle(t *testing.T) {
 	block.Title = "titulo-sobre-bleed"
 	image := ast.NewImageElement(pos(), "bleed.png", "fondo")
 	image.Bleed = true
+	image.Caption = "caption-sobre-bleed"
 	block.Elements = []ast.Element{image}
 	doc.ContentBlocks = []ast.ContentBlock{*block}
 
@@ -111,11 +112,24 @@ func TestGeneratePPTX_BleedImageIsBehindTitle(t *testing.T) {
 	slideXML := zipEntryContent(t, filepath.Join(dir, "bleed.pptx"), "ppt/slides/slide1.xml")
 	imageAt := strings.Index(slideXML, "<p:pic>")
 	titleAt := strings.Index(slideXML, "titulo-sobre-bleed")
-	if imageAt < 0 || titleAt < 0 {
-		t.Fatalf("faltan imagen o título en slide1.xml: image=%d title=%d", imageAt, titleAt)
+	captionAt := strings.Index(slideXML, "caption-sobre-bleed")
+	if imageAt < 0 || titleAt < 0 || captionAt < 0 {
+		t.Fatalf("faltan imagen, título o caption en slide1.xml: image=%d title=%d caption=%d", imageAt, titleAt, captionAt)
 	}
 	if imageAt >= titleAt {
 		t.Errorf("la imagen bleed quedó sobre el título (image@%d, title@%d)", imageAt, titleAt)
+	}
+	if captionAt <= titleAt {
+		t.Errorf("el caption bleed no quedó en primer plano (title@%d, caption@%d)", titleAt, captionAt)
+	}
+}
+
+func TestPPTXImageUsesCoverForBleedDefault(t *testing.T) {
+	if !pptxImageUsesCover(&ast.ImageElement{Bleed: true}) {
+		t.Error("una imagen bleed sin fit debe usar cover por defecto")
+	}
+	if pptxImageUsesCover(&ast.ImageElement{Bleed: true, Fit: "contain"}) {
+		t.Error("fit: contain explícito no debe recortarse como cover")
 	}
 }
 
