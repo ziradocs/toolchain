@@ -78,3 +78,36 @@ func TestBuildHTMLHead_Lang_EscapesAttribute(t *testing.T) {
 		t.Errorf("lang attribute was not escaped, output contains raw <script>: %.300s", buf.String())
 	}
 }
+
+func TestBuildHTMLHead_ThemeMode(t *testing.T) {
+	tb := NewTemplateBuilder()
+	source := tb.buildHTMLHead("") + "</head><body></body></html>"
+
+	tmpl, err := htmltemplate.New("head").Parse(source)
+	if err != nil {
+		t.Fatalf("failed to parse head template: %v", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		mode string
+		want string
+	}{
+		{"dark is emitted", "dark", `data-theme-mode="dark"`},
+		{"absent mode is omitted", "", "data-theme-mode"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := tmpl.Execute(&buf, data.PresentationData{ThemeMode: tt.mode}); err != nil {
+				t.Fatalf("failed to execute head template: %v", err)
+			}
+			has := strings.Contains(buf.String(), tt.want)
+			if tt.mode != "" && !has {
+				t.Errorf("expected output to contain %q, got: %.200s", tt.want, buf.String())
+			}
+			if tt.mode == "" && has {
+				t.Errorf("expected output to omit %q, got: %.200s", tt.want, buf.String())
+			}
+		})
+	}
+}

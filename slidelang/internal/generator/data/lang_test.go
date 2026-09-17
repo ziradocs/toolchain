@@ -36,3 +36,21 @@ func TestPrepareTemplateData_Lang_AbsentFrontMatterLeavesEmpty(t *testing.T) {
 		t.Errorf("Lang = %q, want empty when there is no FrontMatter", got.Lang)
 	}
 }
+
+func TestPrepareTemplateData_ThemeMode(t *testing.T) {
+	astDoc := &ast.AST{FrontMatter: &ast.FrontMatterNode{ThemeMode: "dark"}}
+
+	got := PrepareTemplateDataWithRenderMode(astDoc, "default", "browser", util.NewNoop(), renderer.NewDefaultRenderContext())
+	if got.ThemeMode != "dark" {
+		t.Errorf("ThemeMode = %q, want dark", got.ThemeMode)
+	}
+}
+
+func TestPrepareTemplateData_ThemeModeInvalidIsNotRendered(t *testing.T) {
+	astDoc := &ast.AST{FrontMatter: &ast.FrontMatterNode{ThemeMode: "sepia"}}
+
+	got := PrepareTemplateDataWithRenderMode(astDoc, "default", "browser", util.NewNoop(), renderer.NewDefaultRenderContext())
+	if got.ThemeMode != "" {
+		t.Errorf("ThemeMode = %q, want empty for a non-renderable value", got.ThemeMode)
+	}
+}

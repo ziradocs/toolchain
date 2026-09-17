@@ -156,7 +156,7 @@ flag their absence:
 The parser can also emit these diagnostics, which are useful when repairing
 LLM-authored source: `CHART002`, `CHART005`, `CONTRAST001`, `CONTRAST002`,
 `DIRECTIVE001`, `FLEX002`, `FRONT002`, `FRONT004`, `FRONT005`, `FRONT006`,
-`FRONT007`, `IMG002`, `MAP002`, `POLL001`, `POLL002`, `QUIZ002`, `QUIZ003`,
+`FRONT007`, `FRONT008`, `IMG002`, `MAP002`, `POLL001`, `POLL002`, `QUIZ002`, `QUIZ003`,
 `TABLE004`, `TABLE005`, `TABLE006`, `METRIC001`, `METRIC002`, `METRIC003`,
 and `METRIC004`. They complement the rule IDs named inline above; none should
 be guessed from prose—use the parser's message and source position.

@@ -259,6 +259,9 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 		data.Author = astNode.FrontMatter.Author
 		data.Date = astNode.FrontMatter.Date
 		data.Lang = astNode.FrontMatter.Lang
+		if astNode.FrontMatter.ThemeMode == "light" || astNode.FrontMatter.ThemeMode == "dark" {
+			data.ThemeMode = astNode.FrontMatter.ThemeMode
+		}
 	}
 
 	// Obtener variables del frontmatter
