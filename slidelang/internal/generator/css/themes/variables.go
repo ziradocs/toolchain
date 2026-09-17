@@ -19,6 +19,10 @@ type Theme struct {
 	Author      string
 	Version     string
 	IsExternal  bool // Indicates if theme is loaded from external source
+	// ColorSchemes contiene overrides por preferencia del usuario. La clave
+	// "dark" se emite bajo prefers-color-scheme: dark; las variables base
+	// siempre describen el esquema claro (issues #342/#343).
+	ColorSchemes map[string]ThemeVariables
 }
 
 // GetDefaultTheme returns the default modern theme
@@ -45,9 +49,21 @@ func GetDefaultTheme() Theme {
 			"--accent-gradient": "linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)",
 
 			// Typography - Modern font stack
-			"--font-main":    "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-			"--font-code":    "'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace",
-			"--font-heading": "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+			"--font-main":         "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+			"--font-code":         "'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace",
+			"--font-heading":      "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+			"--font-size-base":    "1rem",
+			"--font-size-sm":      "0.875rem",
+			"--font-size-lg":      "1.25rem",
+			"--font-size-title":   "3.5rem",
+			"--line-height-base":  "1.5",
+			"--line-height-tight": "1.15",
+			"--space-1":           "0.25rem",
+			"--space-2":           "0.5rem",
+			"--space-3":           "0.75rem",
+			"--space-4":           "1rem",
+			"--space-6":           "1.5rem",
+			"--space-8":           "2rem",
 
 			// Modern spacing and shapes
 			"--border-radius":    "0.75rem", // 12px
@@ -152,6 +168,10 @@ func GetDefaultTheme() Theme {
 			"--bg-comparison-label":  "rgba(15, 23, 42, 0.9)",
 			"--bg-lightbox":          "rgba(15, 23, 42, 0.95)",
 		},
+		ColorSchemes: map[string]ThemeVariables{"dark": {
+			"--text-color": "#e2e8f0", "--text-light": "#94a3b8", "--bg-white": "#0f172a",
+			"--bg-light": "#172033", "--bg-content-slide": "#0f172a", "--bg-code": "#020617",
+		}},
 	}
 }
 
@@ -428,15 +448,26 @@ var EmbeddedThemes = map[string]Theme{
 
 // GenerateThemeCSS generates CSS variables for a theme with proper namespacing
 func GenerateThemeCSS(theme Theme) string {
-	names := make([]string, 0, len(theme.Variables))
-	for variable := range theme.Variables {
+	return generateThemeVariables(":root", theme.Variables) + generateColorSchemeCSS(theme.ColorSchemes)
+}
+
+func generateColorSchemeCSS(schemes map[string]ThemeVariables) string {
+	if len(schemes) == 0 || len(schemes["dark"]) == 0 {
+		return ""
+	}
+	return "@media (prefers-color-scheme: dark) {\n" + generateThemeVariables("  :root", schemes["dark"]) + "}\n"
+}
+
+func generateThemeVariables(selector string, variables ThemeVariables) string {
+	names := make([]string, 0, len(variables))
+	for variable := range variables {
 		names = append(names, variable)
 	}
 	sort.Strings(names)
 
-	css := ":root {\n"
+	css := selector + " {\n"
 	for _, variable := range names {
-		value := theme.Variables[variable]
+		value := variables[variable]
 		// Add slidelang- prefix if not already present
 		cssVar := variable
 		if !strings.HasPrefix(variable, "--slidelang-") {
@@ -453,7 +484,11 @@ func GenerateThemeCSS(theme Theme) string {
 		// GenerateThemeCSS and NamespaceStylesheet use different ones.
 		namespacedValue := NamespaceValue(value)
 
-		css += "  " + cssVar + ": " + namespacedValue + ";\n"
+		indent := "  "
+		if strings.HasPrefix(selector, "  ") {
+			indent = "    "
+		}
+		css += indent + cssVar + ": " + namespacedValue + ";\n"
 	}
 	css += "}\n"
 	return css

@@ -13,6 +13,8 @@ html, body {
 
 body {
     font-family: var(--slidelang-font-main);
+	font-size: var(--slidelang-font-size-base, 1rem);
+	line-height: var(--slidelang-line-height-base, 1.5);
     background: var(--slidelang-gradient-bg);
     color: var(--slidelang-text-color);
     overflow: hidden;
@@ -37,7 +39,7 @@ ul, ol {
 .slidelang-slide h1, .slidelang-slide h2, .slidelang-slide h3, .slidelang-slide h4, .slidelang-slide h5, .slidelang-slide h6 {
     margin-bottom: 1rem;
     font-weight: 600;
-    line-height: 1.2;
+	line-height: var(--slidelang-line-height-tight, 1.2);
 }
 
 .slidelang-slide h2 {
