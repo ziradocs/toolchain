@@ -37,6 +37,7 @@ theoretical existence.
 | grid | `<<grid>>` / `<<column>>` / `<<end>>` | `::: grid` / `::: column` |
 | special-block | `::: info\|warning\|danger\|success\|tip\|details` | same |
 | directive | `@name` | `@name` |
+| metric | `<<metric>>` | `<<metric>>` |
 
 **Grid uses a distinct spelling in each mode.** In strict, a grid is the
 delimited block `<<grid>>` … `<<end>>`, with each column introduced by
@@ -54,6 +55,43 @@ flex support the same 17 element types; what flex has more of is
 *spellings* for some of them (`$$ … $$` for math, fenced ` ```mermaid `,
 `::: grid`/`::: column` for grid, `![alt](src)`, `- [ ]`, `> quote`) — not
 types strict lacks.
+
+## Metric (KPI)
+
+Use a metric when a `stats` or `dashboard` slide needs a number with meaning.
+It is the only data-layout primitive that the linter recognizes as a metric;
+do not rely on a `$`, `%`, or the word "users" inside a paragraph.
+
+```
+<<metric>>
+  label: "Monthly recurring revenue"
+  value: "$42,300"
+  delta: "+12.4% vs. last month"
+  trend: up
+  caption: "Updated 2026-09-16"
+<<end>>
+```
+
+`label` and `value` should be present. `delta` and `caption` are optional;
+`trend` is one of `up`, `down`, or `flat`. Unknown fields are reported as
+`METRIC003`, an invalid `trend` as `METRIC004`, malformed YAML as `METRIC002`,
+and a missing `<<end>>` as `METRIC001`.
+
+## Slide layout options
+
+Put `columns` and `align` next to `layout` in a flex metadata block, or as
+properties in a strict `SLIDE`. `columns` is 1–4 and `align` is `left` or
+`center`; both are optional and only affect layouts that use normal content
+chrome.
+
+```
+---
+layout: comparison
+columns: 2
+align: center
+---
+## Before and after
+```
 
 ## Charts — canonical row-based schema
 
