@@ -65,6 +65,68 @@ func TestRenderHTMLPreview_SlideTitleReachesTheDOMForEveryTitleAlias(t *testing.
 	}
 }
 
+// @background con una ruta local debe recorrer el mismo camino HTML/PDF que
+// una URL remota. Antes, html/template sustituía url(...) por ZgotmplZ porque
+// Background era string, y las rutas locales quedaban descartadas antes.
+func TestRenderHTMLPreview_LocalImageBackgroundReachesSlideStyle(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	background := ast.NewDirectiveNode(pos, "background")
+	background.Parameters["image"] = "assets/cover image.png"
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Con fondo"
+	block.Elements = []ast.Element{background}
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	if !strings.Contains(html, `background: url(&#34;assets/cover image.png&#34;)`) {
+		t.Errorf("el fondo local no llegó al style del slide:\n%s", html)
+	}
+	if strings.Contains(html, "#ZgotmplZ") {
+		t.Errorf("html/template rechazó el fondo local como URL insegura:\n%s", html)
+	}
+}
+
+func TestRenderHTMLPreview_BleedImageIsCanvasLayer(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	image := ast.NewImageElement(pos, "cover.png", "Fondo")
+	image.Bleed = true
+	image.Caption = "Crédito de la fotografía"
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Texto encima"
+	block.Elements = []ast.Element{image}
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	layerAt := strings.Index(html, `class="slidelang-slide-bleed"`)
+	contentAt := strings.Index(html, `class="slidelang-content-wrapper"`)
+	if layerAt < 0 || contentAt < 0 || layerAt >= contentAt {
+		t.Fatalf("la capa bleed debe emitirse antes del contenido: layer=%d content=%d", layerAt, contentAt)
+	}
+	if n := strings.Count(html, "cover.png"); n != 1 {
+		t.Errorf("la imagen bleed debe emitirse una sola vez, apareció %d", n)
+	}
+	if !strings.Contains(html, `class="slidelang-slide-bleed-caption">Crédito de la fotografía`) {
+		t.Error("el caption de la imagen bleed no llegó a la capa de primer plano")
+	}
+	captionCSSAt := strings.Index(html, ".slidelang-slide-bleed-captions {")
+	captionCSSEnd := -1
+	if captionCSSAt >= 0 {
+		captionCSSEnd = strings.Index(html[captionCSSAt:], "}")
+	}
+	if captionCSSEnd < 0 || !strings.Contains(html[captionCSSAt:captionCSSAt+captionCSSEnd], "z-index: 2;") {
+		t.Error("el caption bleed debe tener una capa superior a la del contenido")
+	}
+	if !strings.Contains(html, `.slidelang-slide-bleed {`) || !strings.Contains(html, `position: absolute;`) {
+		t.Errorf("el HTML no trae reglas para posicionar bleed sobre el canvas")
+	}
+}
+
 // Un quiz y un poll son los únicos elementos que el visor responde con clics.
 // Faltaban en detectInteractiveElements, así que un slide con un quiz se
 // anunciaba como no interactivo mientras uno con una cita se anunciaba como

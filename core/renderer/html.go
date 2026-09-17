@@ -55,6 +55,9 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 	case *ast.PollElement:
 		return renderPollElement(elem, variables)
 
+	case *ast.MetricElement:
+		return renderMetricElement(elem, variables)
+
 	case *ast.MermaidElement:
 		return renderMermaidElement(elem, variables, ctx)
 
@@ -717,6 +720,23 @@ func renderPollElement(elem *ast.PollElement, variables map[string]interface{}) 
 	return html.String()
 }
 
+func renderMetricElement(elem *ast.MetricElement, variables map[string]interface{}) string {
+	var html strings.Builder
+	fmt.Fprintf(&html, `<section class="metric" data-trend="%s">`, EscapeHTML(elem.Trend))
+	if elem.Label != "" {
+		fmt.Fprintf(&html, `<p class="metric-label">%s</p>`, ProcessVariablesSecure(elem.Label, variables))
+	}
+	fmt.Fprintf(&html, `<p class="metric-value">%s</p>`, ProcessVariablesSecure(elem.Value, variables))
+	if elem.Delta != "" {
+		fmt.Fprintf(&html, `<p class="metric-delta">%s</p>`, ProcessVariablesSecure(elem.Delta, variables))
+	}
+	if elem.Caption != "" {
+		fmt.Fprintf(&html, `<p class="metric-caption">%s</p>`, ProcessVariablesSecure(elem.Caption, variables))
+	}
+	html.WriteString(`</section>`)
+	return html.String()
+}
+
 // OfflineElementClasses son las clases CSS literales que renderChartElement/
 // renderMermaidElement/renderMapElement (y sus 4 helpers *OfflineAssets/
 // *OfflineInline, debajo) emiten para el HTML alcanzable en modos offline —
@@ -755,7 +775,7 @@ var OfflineElementClasses = []string{
 // renderMermaidElement procesa diagramas Mermaid
 // Soporta 3 modos: browser (CDN), offline-assets (archivos), offline-inline (SVG embebido)
 func renderMermaidElement(elem *ast.MermaidElement, variables map[string]interface{}, ctx *RenderContext) string {
-	content := ProcessVariables(elem.Content, variables)
+	content := PrepareMermaidContent(ProcessVariables(elem.Content, variables), elem.DiagramType)
 	title := ProcessVariablesSecure(elem.Title, variables)
 
 	ctx = resolveRenderContext(ctx)

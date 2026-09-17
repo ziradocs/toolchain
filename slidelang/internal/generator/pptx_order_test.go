@@ -83,3 +83,77 @@ func TestGeneratePPTX_PreservesElementOrder(t *testing.T) {
 		t.Errorf("markers leaked across slides: block1/block2 content not cleanly separated")
 	}
 }
+
+// La imagen bleed representa el fondo visual de un slide. Debe estar antes
+// del título en el árbol de shapes para no taparlo al abrir el PPTX (#347).
+func TestGeneratePPTX_BleedImageIsBehindTitle(t *testing.T) {
+	dir := t.TempDir()
+	imagePath := filepath.Join(dir, "bleed.png")
+	if err := os.WriteFile(imagePath, tinyPNG, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	doc := ast.NewAST(pos())
+	doc.FrontMatter = ast.NewFrontMatterNode(pos())
+	doc.FilePath = "bleed.slidelang"
+	block := ast.NewContentBlock(pos(), "content")
+	block.Title = "titulo-sobre-bleed"
+	image := ast.NewImageElement(pos(), "bleed.png", "fondo")
+	image.Bleed = true
+	image.Caption = "caption-sobre-bleed"
+	block.Elements = []ast.Element{image}
+	doc.ContentBlocks = []ast.ContentBlock{*block}
+
+	g := New(util.NewNoop())
+	if err := g.generatePPTX(doc, dir, GeneratorOptions{AssetRoot: dir}); err != nil {
+		t.Fatalf("generatePPTX() error = %v", err)
+	}
+
+	slideXML := zipEntryContent(t, filepath.Join(dir, "bleed.pptx"), "ppt/slides/slide1.xml")
+	imageAt := strings.Index(slideXML, "<p:pic>")
+	titleAt := strings.Index(slideXML, "titulo-sobre-bleed")
+	captionAt := strings.Index(slideXML, "caption-sobre-bleed")
+	if imageAt < 0 || titleAt < 0 || captionAt < 0 {
+		t.Fatalf("faltan imagen, título o caption en slide1.xml: image=%d title=%d caption=%d", imageAt, titleAt, captionAt)
+	}
+	if imageAt >= titleAt {
+		t.Errorf("la imagen bleed quedó sobre el título (image@%d, title@%d)", imageAt, titleAt)
+	}
+	if captionAt <= titleAt {
+		t.Errorf("el caption bleed no quedó en primer plano (title@%d, caption@%d)", titleAt, captionAt)
+	}
+}
+
+func TestPPTXImageUsesCoverForBleedDefault(t *testing.T) {
+	if !pptxImageUsesCover(&ast.ImageElement{Bleed: true}) {
+		t.Error("una imagen bleed sin fit debe usar cover por defecto")
+	}
+	if pptxImageUsesCover(&ast.ImageElement{Bleed: true, Fit: "contain"}) {
+		t.Error("fit: contain explícito no debe recortarse como cover")
+	}
+}
+
+func TestGeneratePPTX_BackgroundImageUsesAssetRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "background.png"), tinyPNG, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	doc := ast.NewAST(pos())
+	doc.FrontMatter = ast.NewFrontMatterNode(pos())
+	doc.FilePath = "background.slidelang"
+	block := ast.NewContentBlock(pos(), "content")
+	background := ast.NewDirectiveNode(pos(), "background")
+	background.Parameters["image"] = "background.png"
+	block.Elements = []ast.Element{background}
+	doc.ContentBlocks = []ast.ContentBlock{*block}
+
+	if err := New(util.NewNoop()).generatePPTX(doc, dir, GeneratorOptions{AssetRoot: dir}); err != nil {
+		t.Fatalf("generatePPTX() error = %v", err)
+	}
+	for _, name := range zipEntryNames(t, filepath.Join(dir, "background.pptx")) {
+		if strings.HasPrefix(name, "ppt/media/") {
+			return
+		}
+	}
+	t.Error("el fondo relativo no fue embebido desde AssetRoot")
+}

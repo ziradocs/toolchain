@@ -33,6 +33,7 @@ func clearContentBlockHTML(block *ContentBlock) {
 	block.TitleHTML = ""
 	block.HeadingHTML = ""
 	block.SubtitleHTML = ""
+	block.KickerHTML = ""
 	for _, elem := range block.Elements {
 		clearElementHTML(elem)
 	}
@@ -78,6 +79,12 @@ func clearElementHTML(element Element) {
 	case *PollElement:
 		elem.QuestionHTML = ""
 		elem.OptionsHTML = nil
+
+	case *MetricElement:
+		elem.LabelHTML = ""
+		elem.ValueHTML = ""
+		elem.DeltaHTML = ""
+		elem.CaptionHTML = ""
 
 	case *SpecialBlockElement:
 		elem.TitleHTML = ""

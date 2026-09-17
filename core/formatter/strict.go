@@ -76,6 +76,12 @@ func formatStrictContentBlock(block *ast.ContentBlock) (string, error) {
 		}
 		fmt.Fprintf(&b, "  subtitle: %s\n", quote(block.Subtitle))
 	}
+	if block.Kicker != "" {
+		if err := checkQuotable("content_block", "kicker", block.Kicker); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "  kicker: %s\n", quote(block.Kicker))
+	}
 	if block.Logo != "" {
 		if err := checkQuotable("content_block", "logo", block.Logo); err != nil {
 			return "", err
@@ -151,6 +157,8 @@ func formatStrictElement(el ast.Element) (string, error) {
 		body, err = formatQuiz(e)
 	case *ast.PollElement:
 		body, err = formatPoll(e)
+	case *ast.MetricElement:
+		body, err = formatMetric(e)
 	case *ast.GridElement:
 		body, err = formatStrictGrid(e)
 	case *ast.MathElement:
@@ -280,6 +288,20 @@ func formatStrictImage(e *ast.ImageElement) (string, error) {
 		}
 		b.WriteString("\n")
 		fmt.Fprintf(&b, "  label: %s", quote(e.Label))
+	}
+	if e.Fit != "" {
+		b.WriteString("\n")
+		fmt.Fprintf(&b, "  fit: %s", quote(e.Fit))
+	}
+	if e.Focus != "" {
+		if err := checkQuotable("image", "focus", e.Focus); err != nil {
+			return "", err
+		}
+		b.WriteString("\n")
+		fmt.Fprintf(&b, "  focus: %s", quote(e.Focus))
+	}
+	if e.Bleed {
+		b.WriteString("\n  bleed: true")
 	}
 	return b.String(), nil
 }

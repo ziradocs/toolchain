@@ -60,11 +60,35 @@ func (p *DirectiveParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 
 	directive := ast.NewDirectiveNode(pos, name)
 	directive.Parameters = parameters
-
-	return &ParseResult{
+	result := &ParseResult{
 		Element:       directive,
 		ConsumedLines: 1,
 		Error:         nil,
+	}
+	// @reveal nunca tuvo consumidor: se retira de forma explícita en vez de
+	// dejarlo llegar al renderer como texto visible (issue #341).
+	if name == "reveal" {
+		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("@reveal fue retirada; usá una directiva modificadora como @fade-in", pos, "directive-parser").WithRuleID("DIRECTIVE001")}
+	} else if name == "layout" {
+		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("@layout fue retirada; declarà layout: en el bloque de metadata del slide", pos, "directive-parser").WithRuleID("DIRECTIVE002")}
+	} else if !knownDirective(name) {
+		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("La directiva @"+name+" no tiene consumidor y fue ignorada", pos, "directive-parser").WithRuleID("DIRECTIVE003")}
+	}
+	return result
+}
+
+// knownDirective enumera solo directivas que llegan a una semántica real:
+// metadata, un módulo JS o una clase del elemento siguiente. Mantener esta
+// lista explícita evita que una nueva grafía caiga en el renderer genérico sin
+// diagnóstico (issue #341).
+func knownDirective(name string) bool {
+	switch name {
+	case "background", "notes", "timer", "transition", "highlight", "auto-play",
+		"center", "fade-in", "slide-up", "bounce", "large", "small", "spacing-wide", "margin-large",
+		"float-left", "float-right", "no-transition", "full-screen":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -144,6 +168,16 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 		} else {
 			// @auto-play 5000
 			parameters["interval"] = paramString
+		}
+	case "background":
+		// El valor habitual de @background es crudo: puede ser un color, una
+		// ruta o data:image/...;base64,..., que contiene '=' como padding y
+		// no debe confundirse con key=value. Las dos formas nombradas siguen
+		// siendo útiles para callers que construyen metadatos explícitos.
+		if strings.HasPrefix(paramString, "color=") || strings.HasPrefix(paramString, "image=") {
+			p.parseKeyValueParams(paramString, parameters)
+		} else {
+			parameters["value"] = paramString
 		}
 	default:
 		// Generic key=value parameters

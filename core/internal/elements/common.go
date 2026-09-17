@@ -150,6 +150,7 @@ func GetDefaultRegistry() *Registry {
 	registry.Register(&MapParser{})
 	registry.Register(&QuizParser{}) // <<quiz>>/<<poll>> (issue #198) — tags exactos, sin atributos
 	registry.Register(&PollParser{})
+	registry.Register(&MetricParser{})
 	registry.Register(&CodeGroupParser{})
 	registry.Register(&CodeParser{})
 	registry.Register(&GridParser{}) // Grid layout parser debe ir ANTES que SpecialBlockParser

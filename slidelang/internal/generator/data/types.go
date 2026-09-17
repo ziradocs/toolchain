@@ -142,12 +142,22 @@ type SlideData struct {
 	Type  string
 	Title string
 	// Propiedades específicas para slides tipo "title"
-	Heading   string
-	Subtitle  string
-	Logo      string
-	Elements  []ElementData
-	IsTitle   bool
-	IsContent bool
+	Heading  string
+	Subtitle string
+	Kicker   string
+	// Background contiene CSS ya validado de @background. El tipo CSS evita
+	// que html/template vuelva a rechazar url(...) después de que el parser
+	// validó y escapó su origen.
+	Background htmltemplate.CSS
+	Logo       string
+	Elements   []ElementData
+	// BleedImages son capas visuales del slide: se emiten como hijos directos
+	// para que ocupen el canvas completo detrás del encabezado y del cuerpo.
+	BleedImages []ElementData `json:"-"`
+	// BleedCaptions conserva los captions de esas capas en primer plano.
+	BleedCaptions []string `json:"-"`
+	IsTitle       bool
+	IsContent     bool
 	// ChromeClassType es el nombre que va en la clase
 	// `slidelang-<nombre>-slide`: el tipo mismo, salvo para los alias
 	// (`title_slide`, `cover`, `intro`, `chapter`), donde es el canónico de su
@@ -176,9 +186,10 @@ type SlideData struct {
 	LayoutColumns int
 	LayoutAlign   string
 	// Numeración específica del slide
-	SlideNumber    int  `json:"slide_number"`     // Número absoluto (1, 2, 3...)
-	DisplayNumber  int  `json:"display_number"`   // Número para mostrar (puede empezar en start_from)
-	ShowPageNumber bool `json:"show_page_number"` // Si debe mostrar numeración en este slide
+	SlideNumber    int  `json:"slide_number"`            // Número absoluto (1, 2, 3...)
+	SectionIndex   *int `json:"section_index,omitempty"` // nil antes de la primera sección explícita
+	DisplayNumber  int  `json:"display_number"`          // Número para mostrar (puede empezar en start_from)
+	ShowPageNumber bool `json:"show_page_number"`        // Si debe mostrar numeración en este slide
 	// Header/Footer específico del slide
 	HeaderFooterOverride *SlideHeaderFooterData `json:"header_footer_override,omitempty"`
 
@@ -226,6 +237,11 @@ type ElementData struct {
 	QuizAnswer      int
 	QuizExplanation string
 	QuizMultiple    bool
+	MetricLabel     string
+	MetricValue     string
+	MetricDelta     string
+	MetricTrend     string
+	MetricCaption   string
 	// HeadingLevel es el nivel 3-6 del encabezado, para que un tema pueda
 	// distinguirlos sin re-parsear el HTML (mismo motivo que ast.
 	// TextElement.Level, issue #22).
@@ -331,7 +347,10 @@ type ElementData struct {
 	// Quote data
 	Author string // Autor de la cita
 	// Image context data
-	Context string `json:"context,omitempty"` // hero, gallery, content, standalone
+	Context    string `json:"context,omitempty"` // hero, gallery, content, standalone
+	ImageFit   string `json:"image_fit,omitempty"`
+	ImageFocus string `json:"image_focus,omitempty"`
+	ImageBleed bool   `json:"image_bleed,omitempty"`
 	// Directive data
 	DirectiveName   string                 `json:"directive_name,omitempty"`
 	DirectiveParams map[string]interface{} `json:"directive_params,omitempty"`

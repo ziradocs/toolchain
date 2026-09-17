@@ -89,7 +89,10 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // differently-scaled series (e.g. revenue vs. margin %) had no way to put
 // the second one on its own axis — it rendered flattened against the
 // first series' scale.
-const SchemaVersion = "2.11.0"
+// 2.12.0 (issues #340/#343/#344/#347/#348): additive kicker fields on
+// ContentBlock, ImageElement's fit/focus/bleed frame declaration, and the
+// new structured MetricElement discriminator.
+const SchemaVersion = "2.12.0"
 
 // Node representa un nodo base en el AST
 type Node interface {
@@ -127,6 +130,7 @@ const (
 	NodeTypeMedia         NodeType = "media"          // Audio/video embebido (issue #21)
 	NodeTypeQuiz          NodeType = "quiz"           // Pregunta de opción múltiple con respuesta correcta (issue #198)
 	NodeTypePoll          NodeType = "poll"           // Encuesta sin respuesta correcta (issue #198)
+	NodeTypeMetric        NodeType = "metric"         // KPI estructurado (issue #344)
 )
 
 // BaseNode contiene campos comunes para todos los nodos

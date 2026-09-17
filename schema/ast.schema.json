@@ -437,6 +437,9 @@
               },
               {
                 "$ref": "#/$defs/PollElement"
+              },
+              {
+                "$ref": "#/$defs/MetricElement"
               }
             ]
           },
@@ -489,6 +492,12 @@
           "type": "string"
         },
         "subtitleHTML": {
+          "type": "string"
+        },
+        "kicker": {
+          "type": "string"
+        },
+        "kickerHTML": {
           "type": "string"
         },
         "logo": {
@@ -556,6 +565,9 @@
               },
               {
                 "$ref": "#/$defs/PollElement"
+              },
+              {
+                "$ref": "#/$defs/MetricElement"
               }
             ]
           },
@@ -861,6 +873,15 @@
         },
         "context": {
           "type": "string"
+        },
+        "fit": {
+          "type": "string"
+        },
+        "focus": {
+          "type": "string"
+        },
+        "bleed": {
+          "type": "boolean"
         },
         "label": {
           "type": "string"
@@ -1174,6 +1195,62 @@
         "endPosition",
         "diagramType",
         "content"
+      ]
+    },
+    "MetricElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "metric"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "type": "string"
+        },
+        "labelHTML": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "valueHTML": {
+          "type": "string"
+        },
+        "delta": {
+          "type": "string"
+        },
+        "deltaHTML": {
+          "type": "string"
+        },
+        "trend": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "captionHTML": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "label",
+        "value"
       ]
     },
     "PageConfig": {
@@ -1683,6 +1760,9 @@
               },
               {
                 "$ref": "#/$defs/PollElement"
+              },
+              {
+                "$ref": "#/$defs/MetricElement"
               }
             ]
           },

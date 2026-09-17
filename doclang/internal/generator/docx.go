@@ -1108,6 +1108,8 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 		return g.renderQuiz(doc, e)
 	case *ast.PollElement:
 		return g.renderPoll(doc, e)
+	case *ast.MetricElement:
+		return g.renderMetric(doc, e)
 	case *ast.SpecialBlockElement:
 		return g.renderSpecialBlock(doc, e)
 	case *ast.CodeGroupElement:
@@ -2158,7 +2160,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 
 	// Renderizar a PNG usando ChromiumRenderer con mayor resolución
 	// Usar dimensiones más grandes para que Mermaid tenga más espacio
-	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), elem.Content, 2400, 1600, g.diagramTheme)
+	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), renderer.PrepareMermaidContent(elem.Content, elem.DiagramType), 2400, 1600, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
@@ -2425,6 +2427,26 @@ func (g *DOCXGenerator) renderQuote(doc domain.Document, elem *ast.QuoteElement)
 
 	// Contenido con markdown inline
 	return g.renderInlineMarkdown(p, elem.Content)
+}
+
+func (g *DOCXGenerator) renderMetric(doc domain.Document, elem *ast.MetricElement) error {
+	if elem.Label != "" {
+		if err := g.renderQuizPollQuestion(doc, elem.Label); err != nil {
+			return err
+		}
+	}
+	if err := g.renderQuizPollLine(doc, "", elem.Value, true, false); err != nil {
+		return err
+	}
+	if elem.Delta != "" {
+		if err := g.renderQuizPollLine(doc, "", elem.Delta, false, false); err != nil {
+			return err
+		}
+	}
+	if elem.Caption != "" {
+		return g.renderQuizPollLine(doc, "", elem.Caption, false, true)
+	}
+	return nil
 }
 
 // renderQuiz y renderPoll escriben un quiz o un poll en el DOCX (issue #198).

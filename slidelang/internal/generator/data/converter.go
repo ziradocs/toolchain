@@ -6,11 +6,13 @@ package data
 import (
 	"fmt"
 	htmltemplate "html/template"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/layouts"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/slidelang/v2/internal/generator/config"
@@ -288,6 +290,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 	mathOfflineCache := make(map[string]htmltemplate.HTML)
 	plantumlOfflineCache := make(map[string]htmltemplate.HTML)
 
+	sectionIndexes := layouts.SectionIndexBySlide(astNode)
 	for i, slide := range astNode.ContentBlocks {
 		// Detectar elementos interactivos
 		hasInteractive, interactiveElements := detectInteractiveElements(slide.Elements, offline, opts.UtilitiesEnabled)
@@ -301,6 +304,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 			// Propiedades específicas para slides tipo "title"
 			Heading:           ProcessVariables(slide.Heading, variables),
 			Subtitle:          ProcessVariables(slide.Subtitle, variables),
+			Kicker:            ProcessVariables(slide.Kicker, variables),
 			Logo:              slide.Logo,
 			IsTitle:           config.IsSlideTitle(slide.BlockType),
 			IsContent:         config.IsSlideContent(slide.BlockType),
@@ -318,6 +322,11 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 			InteractiveElements: interactiveElements,
 			Notes:               notes,
 		}
+		if i < len(sectionIndexes) && sectionIndexes[i] >= 0 {
+			sectionIndex := sectionIndexes[i]
+			slideData.SectionIndex = &sectionIndex
+		}
+		slideData.Background = slideBackground(slide, variables, ctx)
 		slideData.DisplayTitle = displayTitle(slideData)
 
 		// Procesar numeración de páginas para este slide
@@ -344,6 +353,11 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 		for j, element := range slide.Elements {
 			// Skip presenter notes elements since they're now in the Notes field
 			if directive, ok := element.(*ast.DirectiveNode); ok {
+				// Son metadatos del slide, no elementos visibles. @background se
+				// resolvió arriba; @reveal está retirado y el parser ya lo reportó.
+				if directive.Name == "background" || directive.Name == "reveal" {
+					continue
+				}
 				if directive.Name == "notes" || directive.Name == "notes:" {
 					continue
 				}
@@ -418,6 +432,9 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				elementData.Alt = ProcessVariables(elem.Alt, variables)
 				elementData.Caption = ProcessVariables(elem.Caption, variables)
 				elementData.Context = string(elem.Context)
+				elementData.ImageFit = elem.Fit
+				elementData.ImageFocus = elem.Focus
+				elementData.ImageBleed = elem.Bleed
 			case *ast.PointsElement:
 				elementData.Items = ConvertPointItemsWithVariables(elem.Items, variables)
 				elementData.ListType = elem.ListType
@@ -482,7 +499,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				elementData.CodeBlocks = ConvertCodeBlocksWithVariables(elem.CodeBlocks, variables)
 			case *ast.MermaidElement:
 				elementData.DiagramType = elem.DiagramType
-				elementData.Content = ProcessVariables(elem.Content, variables)
+				elementData.Content = renderer.PrepareMermaidContent(ProcessVariables(elem.Content, variables), elem.DiagramType)
 				elementData.Title = ProcessVariables(elem.Title, variables)
 			case *ast.PlantUMLElement:
 				// Issue #38. Reusa el sanitizador + los encoders de URL
@@ -551,6 +568,12 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				elementData.Question = ProcessVariables(elem.Question, variables)
 				elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
 				elementData.QuizMultiple = elem.Multiple
+			case *ast.MetricElement:
+				elementData.MetricLabel = ProcessVariables(elem.Label, variables)
+				elementData.MetricValue = ProcessVariables(elem.Value, variables)
+				elementData.MetricDelta = ProcessVariables(elem.Delta, variables)
+				elementData.MetricTrend = elem.Trend
+				elementData.MetricCaption = ProcessVariables(elem.Caption, variables)
 
 			case *ast.ChecklistElement:
 				elementData.ChecklistItems = ConvertChecklistItemsWithVariables(elem.Items, variables)
@@ -682,6 +705,17 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				}
 			}
 
+			if elementData.ImageBleed {
+				// Una bleed no puede quedarse dentro del flujo del cuerpo: su
+				// porcentaje de alto se resolvería contra un contenedor auto y
+				// nunca alcanzaría el canvas. El template la emite como capa
+				// directa, detrás de título/subtítulo y elementos (#347).
+				slideData.BleedImages = append(slideData.BleedImages, elementData)
+				if elementData.Caption != "" {
+					slideData.BleedCaptions = append(slideData.BleedCaptions, elementData.Caption)
+				}
+				continue
+			}
 			slideData.Elements = append(slideData.Elements, elementData)
 		}
 
@@ -1948,7 +1982,7 @@ func generateMermaidMetadata(slides []ast.ContentBlock, variables map[string]int
 				diagramID := fmt.Sprintf("slidelang-element-mermaid-%d-%s", slideIndex, elementID)
 
 				// Process content with variables
-				processedContent := ProcessVariables(mermaidElement.Content, variables)
+				processedContent := renderer.PrepareMermaidContent(ProcessVariables(mermaidElement.Content, variables), mermaidElement.DiagramType)
 
 				// DEBUG: Log del contenido del diagrama
 				// Crear metadata
@@ -2026,3 +2060,68 @@ func layoutAlign(cfg *ast.LayoutConfig) string {
 	}
 	return cfg.Align
 }
+
+// slideBackground extrae la única directiva de fondo por slide. El valor se
+// restringe a colores simples o a una URL/ruta de imagen que se vuelve a
+// escapar antes de marcarse como CSS confiable para el template.
+func slideBackground(slide ast.ContentBlock, variables map[string]interface{}, ctx *renderer.RenderContext) htmltemplate.CSS {
+	for _, element := range slide.Elements {
+		d, ok := element.(*ast.DirectiveNode)
+		if !ok || d.Name != "background" {
+			continue
+		}
+		value, _ := d.Parameters["color"].(string)
+		if value == "" {
+			value, _ = d.Parameters["image"].(string)
+		}
+		if value == "" {
+			value, _ = d.Parameters["value"].(string)
+		}
+		value = strings.TrimSpace(ProcessVariables(value, variables))
+		if value == "" {
+			return ""
+		}
+		if safeBackgroundColor(value) {
+			return htmltemplate.CSS(value)
+		}
+		if inlined, ok := renderer.TryInlineLocalImage(value, ctx); ok {
+			return backgroundImageCSS(inlined)
+		}
+		if safeBackgroundImageReference(value) {
+			return backgroundImageCSS(value)
+		}
+		return ""
+	}
+	return ""
+}
+
+func backgroundImageCSS(value string) htmltemplate.CSS {
+	escaped := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(value)
+	return htmltemplate.CSS(`url("` + escaped + `")`)
+}
+
+var safeBackgroundColorPattern = regexp.MustCompile(`^(?:#[0-9A-Fa-f]{3,8}|(?:rgb|hsl)a?\([0-9.%\s,+-]+\)|[A-Za-z-]+)$`)
+
+func safeBackgroundColor(value string) bool {
+	return safeBackgroundColorPattern.MatchString(value)
+}
+
+func safeBackgroundImageReference(value string) bool {
+	if strings.ContainsAny(value, "\x00\r\n\"") {
+		return false
+	}
+	if safeBackgroundDataImagePattern.MatchString(value) {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	// Rutas relativas/locales son el caso normal del DSL. Las únicas rutas
+	// remotas permitidas son http(s); javascript:, file: y data: fuera de la
+	// forma image/base64 cerrada se rechazan antes de marcar CSS confiable.
+	scheme := strings.ToLower(parsed.Scheme)
+	return scheme == "" || scheme == "http" || scheme == "https"
+}
+
+var safeBackgroundDataImagePattern = regexp.MustCompile(`^data:image/(?:png|jpeg|gif|webp|avif);base64,[A-Za-z0-9+/]+={0,2}$`)

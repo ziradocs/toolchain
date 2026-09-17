@@ -78,8 +78,11 @@ import type { Position } from "./diagnostics";
  * differently-scaled series (e.g. revenue vs. margin %) had no way to put
  * the second one on its own axis — it rendered flattened against the
  * first series' scale.
+ * 2.12.0 (issues #340/#343/#344/#347/#348): additive kicker fields on
+ * ContentBlock, ImageElement's fit/focus/bleed frame declaration, and the
+ * new structured MetricElement discriminator.
  */
-export const SchemaVersion = "2.11.0";
+export const SchemaVersion = "2.12.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -113,6 +116,7 @@ export const NodeTypeMath: NodeType = "math"; // Ecuación/fórmula LaTeX (issue
 export const NodeTypeMedia: NodeType = "media"; // Audio/video embebido (issue #21)
 export const NodeTypeQuiz: NodeType = "quiz"; // Pregunta de opción múltiple con respuesta correcta (issue #198)
 export const NodeTypePoll: NodeType = "poll"; // Encuesta sin respuesta correcta (issue #198)
+export const NodeTypeMetric: NodeType = "metric"; // KPI estructurado (issue #344)
 /**
  * BaseNode contiene campos comunes para todos los nodos
  */
@@ -401,6 +405,13 @@ export interface ContentBlock extends BaseNode {
   headingHTML?: string; // Heading con {{variables}} sustituidas y escapadas (sin markdown)
   subtitle?: string;
   subtitleHTML?: string; // Subtitle con {{variables}} sustituidas y escapadas (sin markdown)
+  /**
+   * Kicker es el antetítulo breve que contextualiza un slide y se renderiza
+   * antes del título. No es un heading adicional: el h1 sigue siendo Title o
+   * Heading según el tipo de slide (issue #348).
+   */
+  kicker?: string;
+  kickerHTML?: string;
   logo?: string;
   /**
    * Elements está en orden de documento, y ese orden ES el contrato de
@@ -459,7 +470,8 @@ export type Element =
   | MathElement
   | MediaElement
   | QuizElement
-  | PollElement;
+  | PollElement
+  | MetricElement;
 /**
  * TextElement representa un bloque de texto
  */
@@ -551,7 +563,18 @@ export interface ImageElement extends BaseNode {
   altHTML?: string; // Alt con {{variables}} sustituidas y escapadas (sin markdown)
   caption?: string;
   captionHTML?: string; // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+  /**
+   * Context es metadata histórica inferida desde la posición del elemento.
+   * Deprecated: ningún renderer la usa; los autores deben declarar Fit,
+   * Focus y Bleed para expresar el encuadre deseado (issue #347).
+   */
   context?: ImageContext;
+  /**
+   * Fit/Focus/Bleed describen el encuadre declarado por el autor.
+   */
+  fit?: string; // cover | contain
+  focus?: string; // "x% y%", válido con cover
+  bleed?: boolean;
   /**
    * Label es el identificador de referencia cruzada del MVP OSS (issue
    * #239, decisión B), p. ej. "fig:arquitectura" — declarado como
@@ -926,6 +949,22 @@ export interface PollElement extends BaseNode {
   multiple: boolean;
   langRuns?: LangRun[]; // de Question; ver TextElement.LangRuns
   discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
+}
+/**
+ * MetricElement representa un KPI declarativo. Trend está restringido por el
+ * parser a up/down/flat, para que los renderers no tengan que inferirlo desde
+ * símbolos dentro del texto (issue #344).
+ */
+export interface MetricElement extends BaseNode {
+  label: string;
+  labelHTML?: string;
+  value: string;
+  valueHTML?: string;
+  delta?: string;
+  deltaHTML?: string;
+  trend?: string;
+  caption?: string;
+  captionHTML?: string;
 }
 /**
  * GridElement representa un contenedor de grid layout
