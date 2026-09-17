@@ -78,6 +78,11 @@ func NewThemeValidator() *ThemeValidator {
 			"--slidelang-danger-text-color",
 			"--slidelang-info-text-color",
 			"--slidelang-text-muted",
+			// Typography and spacing contract (issue #343). Optional keeps old
+			// themes compatible; the loader supplies documented defaults.
+			"--slidelang-font-size-sm", "--slidelang-font-size-lg", "--slidelang-font-size-title",
+			"--slidelang-line-height-tight", "--slidelang-space-1", "--slidelang-space-2",
+			"--slidelang-space-3", "--slidelang-space-4", "--slidelang-space-6", "--slidelang-space-8",
 		},
 		maxFileSize:       10 * 1024 * 1024, // 10MB
 		allowedExtensions: []string{".json", ".theme"},
