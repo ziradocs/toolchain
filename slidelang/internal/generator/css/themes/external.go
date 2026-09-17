@@ -38,6 +38,9 @@ type ThemeManifest struct {
 
 	// Theme variables (CSS custom properties)
 	Variables map[string]string `json:"variables,omitempty"`
+	// ColorSchemes permite declarar overrides de variables por esquema, p.ej.
+	// {"dark":{"--slidelang-text-color":"#fff"}}.
+	ColorSchemes map[string]map[string]string `json:"colorSchemes,omitempty"`
 
 	// Compatibility constraints
 	Compatibility ThemeCompatibility `json:"compatibility"`
@@ -211,21 +214,27 @@ func (et *ExternalTheme) extractVariables() error {
 
 	// Add default variables that every theme should have (only if not already defined)
 	defaultVars := map[string]string{
-		"--slidelang-primary-color":    "#007bff",
-		"--slidelang-secondary-color":  "#6c757d",
-		"--slidelang-success-color":    "#28a745",
-		"--slidelang-danger-color":     "#dc3545",
-		"--slidelang-warning-color":    "#ffc107",
-		"--slidelang-info-color":       "#17a2b8",
-		"--slidelang-light-color":      "#f8f9fa",
-		"--slidelang-dark-color":       "#343a40",
-		"--slidelang-font-main":        "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-		"--slidelang-font-size-base":   "1rem",
-		"--slidelang-line-height-base": "1.5",
-		"--slidelang-border-radius":    "0.375rem",
-		"--slidelang-border-width":     "1px",
-		"--slidelang-box-shadow":       "0 0.5rem 1rem rgba(0, 0, 0, 0.15)",
-		"--slidelang-transition":       "all 0.15s ease-in-out",
+		"--slidelang-primary-color":     "#007bff",
+		"--slidelang-secondary-color":   "#6c757d",
+		"--slidelang-success-color":     "#28a745",
+		"--slidelang-danger-color":      "#dc3545",
+		"--slidelang-warning-color":     "#ffc107",
+		"--slidelang-info-color":        "#17a2b8",
+		"--slidelang-light-color":       "#f8f9fa",
+		"--slidelang-dark-color":        "#343a40",
+		"--slidelang-font-main":         "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+		"--slidelang-font-size-base":    "1rem",
+		"--slidelang-line-height-base":  "1.5",
+		"--slidelang-font-size-sm":      "0.875rem",
+		"--slidelang-font-size-lg":      "1.25rem",
+		"--slidelang-font-size-title":   "3.5rem",
+		"--slidelang-line-height-tight": "1.15",
+		"--slidelang-space-1":           "0.25rem", "--slidelang-space-2": "0.5rem", "--slidelang-space-3": "0.75rem",
+		"--slidelang-space-4": "1rem", "--slidelang-space-6": "1.5rem", "--slidelang-space-8": "2rem",
+		"--slidelang-border-radius": "0.375rem",
+		"--slidelang-border-width":  "1px",
+		"--slidelang-box-shadow":    "0 0.5rem 1rem rgba(0, 0, 0, 0.15)",
+		"--slidelang-transition":    "all 0.15s ease-in-out",
 	}
 
 	// Copy default variables only if they don't exist
@@ -378,13 +387,18 @@ func (et *ExternalTheme) GetVariables() map[string]string {
 
 // ToTheme converts ExternalTheme to internal Theme format
 func (et *ExternalTheme) ToTheme() Theme {
+	schemes := make(map[string]ThemeVariables, len(et.Manifest.ColorSchemes))
+	for name, values := range et.Manifest.ColorSchemes {
+		schemes[name] = ThemeVariables(values)
+	}
 	return Theme{
-		Name:        et.Manifest.Name,
-		Variables:   et.Variables,
-		Description: et.Manifest.Description,
-		Author:      et.Manifest.Author,
-		Version:     et.Manifest.Version,
-		IsExternal:  true,
+		Name:         et.Manifest.Name,
+		Variables:    et.Variables,
+		Description:  et.Manifest.Description,
+		Author:       et.Manifest.Author,
+		Version:      et.Manifest.Version,
+		IsExternal:   true,
+		ColorSchemes: schemes,
 	}
 }
 
