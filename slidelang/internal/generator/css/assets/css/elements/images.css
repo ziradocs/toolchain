@@ -53,7 +53,9 @@
     right: 1.5rem;
     bottom: 1rem;
     left: 1.5rem;
-    z-index: 1;
+    /* El contenido del slide también es z-index: 1. El caption es una
+       anotación de primer plano y debe quedar por encima de él. */
+    z-index: 2;
     text-align: center;
     color: var(--slidelang-text-on-image, #fff);
     text-shadow: 0 1px 3px rgb(0 0 0 / 70%);

@@ -114,6 +114,14 @@ func TestRenderHTMLPreview_BleedImageIsCanvasLayer(t *testing.T) {
 	if !strings.Contains(html, `class="slidelang-slide-bleed-caption">Crédito de la fotografía`) {
 		t.Error("el caption de la imagen bleed no llegó a la capa de primer plano")
 	}
+	captionCSSAt := strings.Index(html, ".slidelang-slide-bleed-captions {")
+	captionCSSEnd := -1
+	if captionCSSAt >= 0 {
+		captionCSSEnd = strings.Index(html[captionCSSAt:], "}")
+	}
+	if captionCSSEnd < 0 || !strings.Contains(html[captionCSSAt:captionCSSAt+captionCSSEnd], "z-index: 2;") {
+		t.Error("el caption bleed debe tener una capa superior a la del contenido")
+	}
 	if !strings.Contains(html, `.slidelang-slide-bleed {`) || !strings.Contains(html, `position: absolute;`) {
 		t.Errorf("el HTML no trae reglas para posicionar bleed sobre el canvas")
 	}
