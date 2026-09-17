@@ -461,6 +461,18 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
              data-interactive="{{$slide.HasInteractive}}"
              data-interactive-types="{{range $i, $elem := $slide.InteractiveElements}}{{if $i}},{{end}}{{$elem}}{{end}}"
              id="slidelang-slide-{{$index}}">
+			{{/* Las imágenes bleed son capas del canvas, no elementos del flujo. */}}
+			{{if $slide.BleedImages}}
+			<div class="slidelang-slide-bleed">
+				{{range $slide.BleedImages}}
+				{{if .Source}}<img src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"
+					 alt="{{.Alt}}"
+					 {{if .ImageFit}}data-fit="{{.ImageFit}}"{{end}}
+					 {{if .ImageFocus}}style="object-position: {{.ImageFocus}};"{{end}}>
+				{{end}}
+				{{end}}
+			</div>
+			{{end}}
             {{/* Header del slide */}}
             {{template "slide-header" (dict "slide" $slide "presentation" $ "index" $index)}}
             {{/* Watermark (issue #179) — global, sin cascada por slide */}}

@@ -89,6 +89,32 @@ func TestRenderHTMLPreview_LocalImageBackgroundReachesSlideStyle(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLPreview_BleedImageIsCanvasLayer(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	image := ast.NewImageElement(pos, "cover.png", "Fondo")
+	image.Bleed = true
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Texto encima"
+	block.Elements = []ast.Element{image}
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	layerAt := strings.Index(html, `class="slidelang-slide-bleed"`)
+	contentAt := strings.Index(html, `class="slidelang-content-wrapper"`)
+	if layerAt < 0 || contentAt < 0 || layerAt >= contentAt {
+		t.Fatalf("la capa bleed debe emitirse antes del contenido: layer=%d content=%d", layerAt, contentAt)
+	}
+	if n := strings.Count(html, "cover.png"); n != 1 {
+		t.Errorf("la imagen bleed debe emitirse una sola vez, apareció %d", n)
+	}
+	if !strings.Contains(html, `.slidelang-slide-bleed {`) || !strings.Contains(html, `position: absolute;`) {
+		t.Errorf("el HTML no trae reglas para posicionar bleed sobre el canvas")
+	}
+}
+
 // Un quiz y un poll son los únicos elementos que el visor responde con clics.
 // Faltaban en detectInteractiveElements, así que un slide con un quiz se
 // anunciaba como no interactivo mientras uno con una cita se anunciaba como

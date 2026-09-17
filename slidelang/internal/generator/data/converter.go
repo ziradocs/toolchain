@@ -6,6 +6,7 @@ package data
 import (
 	"fmt"
 	htmltemplate "html/template"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -325,7 +326,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 			sectionIndex := sectionIndexes[i]
 			slideData.SectionIndex = &sectionIndex
 		}
-		slideData.Background = slideBackground(slide)
+		slideData.Background = slideBackground(slide, variables, ctx)
 		slideData.DisplayTitle = displayTitle(slideData)
 
 		// Procesar numeración de páginas para este slide
@@ -704,6 +705,14 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				}
 			}
 
+			if elementData.ImageBleed {
+				// Una bleed no puede quedarse dentro del flujo del cuerpo: su
+				// porcentaje de alto se resolvería contra un contenedor auto y
+				// nunca alcanzaría el canvas. El template la emite como capa
+				// directa, detrás de título/subtítulo y elementos (#347).
+				slideData.BleedImages = append(slideData.BleedImages, elementData)
+				continue
+			}
 			slideData.Elements = append(slideData.Elements, elementData)
 		}
 
@@ -2052,7 +2061,7 @@ func layoutAlign(cfg *ast.LayoutConfig) string {
 // slideBackground extrae la única directiva de fondo por slide. El valor se
 // restringe a colores simples o a una URL/ruta de imagen que se vuelve a
 // escapar antes de marcarse como CSS confiable para el template.
-func slideBackground(slide ast.ContentBlock) htmltemplate.CSS {
+func slideBackground(slide ast.ContentBlock, variables map[string]interface{}, ctx *renderer.RenderContext) htmltemplate.CSS {
 	for _, element := range slide.Elements {
 		d, ok := element.(*ast.DirectiveNode)
 		if !ok || d.Name != "background" {
@@ -2065,20 +2074,27 @@ func slideBackground(slide ast.ContentBlock) htmltemplate.CSS {
 		if value == "" {
 			value, _ = d.Parameters["value"].(string)
 		}
-		value = strings.TrimSpace(value)
+		value = strings.TrimSpace(ProcessVariables(value, variables))
 		if value == "" {
 			return ""
 		}
 		if safeBackgroundColor(value) {
 			return htmltemplate.CSS(value)
 		}
+		if inlined, ok := renderer.TryInlineLocalImage(value, ctx); ok {
+			return backgroundImageCSS(inlined)
+		}
 		if safeBackgroundImageReference(value) {
-			escaped := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(value)
-			return htmltemplate.CSS(`url("` + escaped + `")`)
+			return backgroundImageCSS(value)
 		}
 		return ""
 	}
 	return ""
+}
+
+func backgroundImageCSS(value string) htmltemplate.CSS {
+	escaped := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(value)
+	return htmltemplate.CSS(`url("` + escaped + `")`)
 }
 
 var safeBackgroundColorPattern = regexp.MustCompile(`^(?:#[0-9A-Fa-f]{3,8}|(?:rgb|hsl)a?\([0-9.%\s,+-]+\)|[A-Za-z-]+)$`)
@@ -2088,11 +2104,21 @@ func safeBackgroundColor(value string) bool {
 }
 
 func safeBackgroundImageReference(value string) bool {
-	if strings.ContainsAny(value, "\x00\r\n'(){};") {
+	if strings.ContainsAny(value, "\x00\r\n\"") {
 		return false
 	}
-	// Rutas relativas/locales son el caso normal del DSL y deben llegar al
-	// HTML/PDF igual que las fuentes de IMAGE. Se aceptan junto con URL web y
-	// data:image; la comilla doble se escapa al construir url("…").
-	return value != ""
+	if safeBackgroundDataImagePattern.MatchString(value) {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	// Rutas relativas/locales son el caso normal del DSL. Las únicas rutas
+	// remotas permitidas son http(s); javascript:, file: y data: fuera de la
+	// forma image/base64 cerrada se rechazan antes de marcar CSS confiable.
+	scheme := strings.ToLower(parsed.Scheme)
+	return scheme == "" || scheme == "http" || scheme == "https"
 }
+
+var safeBackgroundDataImagePattern = regexp.MustCompile(`^data:image/(?:png|jpeg|gif|webp|avif);base64,[A-Za-z0-9+/]+={0,2}$`)

@@ -151,8 +151,11 @@ type SlideData struct {
 	Background htmltemplate.CSS
 	Logo       string
 	Elements   []ElementData
-	IsTitle    bool
-	IsContent  bool
+	// BleedImages son capas visuales del slide: se emiten como hijos directos
+	// para que ocupen el canvas completo detrás del encabezado y del cuerpo.
+	BleedImages []ElementData `json:"-"`
+	IsTitle     bool
+	IsContent   bool
 	// ChromeClassType es el nombre que va en la clase
 	// `slidelang-<nombre>-slide`: el tipo mismo, salvo para los alias
 	// (`title_slide`, `cover`, `intro`, `chapter`), donde es el canónico de su

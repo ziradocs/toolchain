@@ -200,7 +200,7 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 	s := p.AddSlide(pptx.WithLayout(layout))
 	// @background es metadata del slide: debe aplicarse antes que cualquier
 	// shape para quedar detrás del contenido y del watermark (issue #341).
-	g.pptxApplyBackground(s, block)
+	g.pptxApplyBackground(s, block, opts, variables)
 	// Las imágenes bleed son fondo visual, no contenido en flujo. Se agregan
 	// antes de los placeholders para que no cubran título/subtítulo en el
 	// árbol de shapes de PowerPoint (issue #347).
@@ -264,7 +264,7 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 	}
 }
 
-func (g *Generator) pptxApplyBackground(s *pptx.Slide, block *ast.ContentBlock) {
+func (g *Generator) pptxApplyBackground(s *pptx.Slide, block *ast.ContentBlock, opts GeneratorOptions, variables map[string]interface{}) {
 	for _, element := range block.Elements {
 		d, ok := element.(*ast.DirectiveNode)
 		if !ok || d.Name != "background" {
@@ -277,18 +277,31 @@ func (g *Generator) pptxApplyBackground(s *pptx.Slide, block *ast.ContentBlock) 
 		if value == "" {
 			value, _ = d.Parameters["value"].(string)
 		}
-		value = strings.TrimSpace(value)
+		value = strings.TrimSpace(renderer.ProcessVariables(value, variables))
 		if r, gr, b, ok := a11y.ParseColor(value); ok {
 			s.Background(drawingml.Color{R: r, G: gr, B: b})
 			return
 		}
-		// Una imagen local declarada explícitamente cubre el canvas. URLs se
-		// omiten en PPTX: el renderer no hace red implícita al exportar.
-		if value != "" {
-			if _, err := os.Stat(value); err == nil {
-				s.AddImageWithSize(value, 0, 0, pptxSlideWidthEMU, pptxSlideHeightEMU)
-			}
+		// Una imagen local declarada explícitamente cubre el canvas. Se usa
+		// el mismo confinamiento AL-4 de IMAGE: la directiva forma parte del
+		// fuente no confiable y no puede leer rutas absolutas ni "..".
+		if value == "" || strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+			return // PPTX no hace red implícita al exportar.
 		}
+		imagePath := value
+		if opts.AssetRoot != "" {
+			confined, err := util.ResolveConfinedPath(opts.AssetRoot, imagePath)
+			if err != nil {
+				g.logger.Warn("PPTX: background image source blocked (outside asset root): %s: %v", value, err)
+				return
+			}
+			imagePath = confined
+		}
+		if _, err := os.Stat(imagePath); err != nil {
+			g.logger.Warn("PPTX: background image not found: %s: %v", value, err)
+			return
+		}
+		s.AddImageWithSize(imagePath, 0, 0, pptxSlideWidthEMU, pptxSlideHeightEMU)
 		return
 	}
 }

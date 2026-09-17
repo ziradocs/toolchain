@@ -118,3 +118,28 @@ func TestGeneratePPTX_BleedImageIsBehindTitle(t *testing.T) {
 		t.Errorf("la imagen bleed quedó sobre el título (image@%d, title@%d)", imageAt, titleAt)
 	}
 }
+
+func TestGeneratePPTX_BackgroundImageUsesAssetRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "background.png"), tinyPNG, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	doc := ast.NewAST(pos())
+	doc.FrontMatter = ast.NewFrontMatterNode(pos())
+	doc.FilePath = "background.slidelang"
+	block := ast.NewContentBlock(pos(), "content")
+	background := ast.NewDirectiveNode(pos(), "background")
+	background.Parameters["image"] = "background.png"
+	block.Elements = []ast.Element{background}
+	doc.ContentBlocks = []ast.ContentBlock{*block}
+
+	if err := New(util.NewNoop()).generatePPTX(doc, dir, GeneratorOptions{AssetRoot: dir}); err != nil {
+		t.Fatalf("generatePPTX() error = %v", err)
+	}
+	for _, name := range zipEntryNames(t, filepath.Join(dir, "background.pptx")) {
+		if strings.HasPrefix(name, "ppt/media/") {
+			return
+		}
+	}
+	t.Error("el fondo relativo no fue embebido desde AssetRoot")
+}
