@@ -4,7 +4,6 @@
 package elements
 
 import (
-	"regexp"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -47,7 +46,7 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	isMarkdownFormat := strings.HasPrefix(openingLine, "```mermaid") || strings.HasPrefix(openingLine, "````mermaid")
 
 	consumedLines := 1 // skip opening line (<<mermaid>> or ```mermaid)
-	var content strings.Builder
+	var contentLines []string
 
 	if isMarkdownFormat {
 		// Formato Markdown: ```mermaid ... ```
@@ -62,10 +61,7 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				break
 			}
 
-			if content.Len() > 0 {
-				content.WriteString("\n")
-			}
-			content.WriteString(trimmed)
+			contentLines = append(contentLines, line)
 			consumedLines++
 		}
 	} else {
@@ -83,68 +79,22 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				break
 			}
 
-			// Check for slide separator (---) - STOP here for SlideLang
-			if trimmedLine == "---" {
-				break
-			}
-
 			// Check if this line should be processed based on indentation
 			// ALWAYS check ShouldProcessLine to detect when indentation changes or stops
 			if !indentDetector.ShouldProcessLine(line, false, i+1, "MERMAID-PARSER") {
 				break
 			}
 
-			// Skip empty lines
-			if trimmedLine == "" {
-				consumedLines++
-				continue
-			}
-
-			if content.Len() > 0 {
-				content.WriteString("\n")
-			}
-			content.WriteString(trimmedLine)
-
+			// Mermaid es un bloque opaco. El separador `---` es válido en su
+			// frontmatter y no puede terminarlo antes de <<end>>. Conservamos la
+			// línea cruda: la dedent común se aplica una sola vez al final.
+			contentLines = append(contentLines, line)
 			consumedLines++
 		}
 	}
 
-	// Detectar tipo de diagrama de forma más robusta
-	diagramType := "graph"
-	contentStr := content.String()
-
-	// Clean and normalize the content for Mermaid standard
-	contentStr = p.cleanAndNormalizeMermaidContent(contentStr)
-
-	firstLine := strings.ToLower(strings.TrimSpace(strings.Split(contentStr, "\n")[0]))
-
-	if strings.HasPrefix(firstLine, "flowchart") {
-		diagramType = "flowchart"
-	} else if strings.HasPrefix(firstLine, "graph ") {
-		diagramType = "flowchart"
-	} else if strings.HasPrefix(firstLine, "gantt") {
-		diagramType = "gantt"
-	} else if strings.Contains(contentStr, "sequenceDiagram") {
-		diagramType = "sequence"
-	} else if strings.Contains(contentStr, "classDiagram") {
-		diagramType = "class"
-	} else if strings.Contains(contentStr, "stateDiagram") {
-		diagramType = "state"
-	} else if strings.Contains(contentStr, "gitgraph") {
-		diagramType = "git"
-	} else if strings.Contains(contentStr, "pie title") {
-		diagramType = "pie"
-	} else if strings.Contains(contentStr, "journey") {
-		diagramType = "journey"
-	} else {
-		// Auto-detect based on content patterns
-		if strings.Contains(contentStr, "-->") || strings.Contains(contentStr, "---") {
-			diagramType = "flowchart"
-		} else if strings.Contains(contentStr, "section ") &&
-			(strings.Contains(contentStr, ":active") || strings.Contains(contentStr, "dateFormat")) {
-			diagramType = "gantt"
-		}
-	}
+	contentStr := dedentMermaidContent(contentLines)
+	diagramType := detectMermaidType(contentStr)
 
 	// Crear elemento Mermaid usando el constructor existente
 	mermaid := ast.NewMermaidElement(pos, diagramType, contentStr)
@@ -156,178 +106,81 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 }
 
-// cleanAndNormalizeMermaidContent normalizes Mermaid content to be ready for direct JSON use
-func (p *MermaidParser) cleanAndNormalizeMermaidContent(content string) string {
-	if content == "" {
-		return content
+// dedentMermaidContent aplica solo el dedent común del bloque. Mermaid usa
+// sangría como sintaxis (mindmap y frontmatter YAML), así que TrimSpace por
+// línea o descartar blancos internos corrompe el diagrama y hace que fmt
+// persista esa corrupción en el fuente.
+func dedentMermaidContent(lines []string) string {
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return ""
 	}
 
-	lines := strings.Split(content, "\n")
-	normalizedLines := make([]string, 0, len(lines))
-
+	common := -1
 	for _, line := range lines {
-		// Remove excessive whitespace but preserve structure
-		trimmed := strings.TrimSpace(line)
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := CalculateIndentLevel(line)
+		if common == -1 || indent < common {
+			common = indent
+		}
+	}
+	if common <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	for i, line := range lines {
+		cut := 0
+		for cut < len(line) && cut < common && (line[cut] == ' ' || line[cut] == '\t') {
+			cut++
+		}
+		lines[i] = line[cut:]
+	}
+	return strings.Join(lines, "\n")
+}
 
-		// Skip empty lines
+// detectMermaidType mira solo la primera instrucción real. Un frontmatter
+// YAML opcional precedido por --- no es una instrucción Mermaid.
+func detectMermaidType(content string) string {
+	lines := strings.Split(content, "\n")
+	inFrontmatter := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-
-		// Add line to normalized content
-		normalizedLines = append(normalizedLines, trimmed)
-	}
-
-	// Join with clean newlines
-	result := strings.Join(normalizedLines, "\n")
-
-	// Ensure content is properly formatted for Mermaid
-	result = p.ensureMermaidHeader(result)
-
-	// Apply automatic syntax fixes for common issues
-	result = p.applySyntaxFixes(result)
-
-	return result
-}
-
-// ensureMermaidHeader ensures the diagram has a proper header if needed
-func (p *MermaidParser) ensureMermaidHeader(content string) string {
-	if content == "" {
-		return content
-	}
-
-	lines := strings.Split(content, "\n")
-	if len(lines) == 0 {
-		return content
-	}
-
-	firstLine := strings.ToLower(strings.TrimSpace(lines[0]))
-
-	// Check if it already has a proper header
-	if strings.HasPrefix(firstLine, "flowchart") ||
-		strings.HasPrefix(firstLine, "graph ") ||
-		strings.HasPrefix(firstLine, "gantt") ||
-		strings.HasPrefix(firstLine, "sequencediagram") ||
-		strings.HasPrefix(firstLine, "classdiagram") ||
-		strings.HasPrefix(firstLine, "statediagram") ||
-		strings.HasPrefix(firstLine, "pie") ||
-		strings.HasPrefix(firstLine, "journey") ||
-		strings.HasPrefix(firstLine, "gitgraph") {
-		return content
-	}
-
-	// Auto-detect and add header if needed
-	if strings.Contains(content, "-->") || strings.Contains(content, "---") {
-		// Looks like a flowchart
-		return "flowchart TD\n" + content
-	}
-
-	// Return as-is if we can't determine the type
-	return content
-}
-
-// applySyntaxFixes applies automatic corrections for common Mermaid syntax issues
-func (p *MermaidParser) applySyntaxFixes(content string) string {
-	if content == "" {
-		return content
-	}
-
-	lines := strings.Split(content, "\n")
-	correctedLines := make([]string, 0, len(lines))
-
-	// Detect diagram type for specific fixes
-	isFlowchart := false
-	firstLine := strings.ToLower(strings.TrimSpace(lines[0]))
-	if strings.HasPrefix(firstLine, "flowchart") || strings.HasPrefix(firstLine, "graph ") {
-		isFlowchart = true
-	} else {
-		// Check if content looks like a flowchart
-		for _, line := range lines {
-			if strings.Contains(line, "-->") || strings.Contains(line, "---") {
-				isFlowchart = true
-				break
-			}
+		if trimmed == "---" {
+			inFrontmatter = !inFrontmatter
+			continue
+		}
+		if inFrontmatter {
+			continue
+		}
+		keyword := strings.Fields(strings.ToLower(trimmed))
+		if len(keyword) == 0 {
+			return "unknown"
+		}
+		switch keyword[0] {
+		case "flowchart", "graph":
+			return "flowchart"
+		case "sequencediagram":
+			return "sequence"
+		case "classdiagram":
+			return "class"
+		case "statediagram", "statediagram-v2":
+			return "state"
+		case "gitgraph":
+			return "git"
+		case "mindmap", "timeline", "erdiagram", "quadrantchart", "xychart-beta", "sankey-beta", "c4context", "c4container", "c4component", "c4dynamic", "gantt", "pie", "journey":
+			return keyword[0]
+		default:
+			return "unknown"
 		}
 	}
-
-	for _, line := range lines {
-		correctedLine := line
-
-		if isFlowchart {
-			correctedLine = p.fixFlowchartSyntax(correctedLine)
-		}
-
-		correctedLines = append(correctedLines, correctedLine)
-	}
-
-	return strings.Join(correctedLines, "\n")
-}
-
-// fixFlowchartSyntax corrects common flowchart syntax issues
-func (p *MermaidParser) fixFlowchartSyntax(line string) string {
-	// Fix numbered lists in node labels that cause "Unsupported markdown: list" error
-	// Using single quotes to escape special characters (cleaner and more readable)
-	// This preserves the original content while making it Mermaid-compatible
-
-	// Pattern for rectangular nodes: A[1. Text] -> A['1. Text']
-	numberedNodePattern := regexp.MustCompile(`([A-Z][A-Z0-9]*)\[(\d+\.\s+[^\]]+)\]`)
-	if numberedNodePattern.MatchString(line) {
-		correctedLine := numberedNodePattern.ReplaceAllStringFunc(line, func(match string) string {
-			parts := numberedNodePattern.FindStringSubmatch(match)
-			if len(parts) >= 3 {
-				nodeId := parts[1]  // A, B, C, etc.
-				content := parts[2] // "1. Text"
-				return nodeId + "['" + content + "']"
-			}
-			return match
-		})
-		return correctedLine
-	}
-
-	// Pattern for circle nodes: A((1. Text)) -> A(('1. Text'))
-	numberedCirclePattern := regexp.MustCompile(`([A-Z][A-Z0-9]*)\(\((\d+\.\s+[^\)]+)\)\)`)
-	if numberedCirclePattern.MatchString(line) {
-		correctedLine := numberedCirclePattern.ReplaceAllStringFunc(line, func(match string) string {
-			parts := numberedCirclePattern.FindStringSubmatch(match)
-			if len(parts) >= 3 {
-				nodeId := parts[1]
-				content := parts[2]
-				return nodeId + "(('" + content + "'))"
-			}
-			return match
-		})
-		return correctedLine
-	}
-
-	// Pattern for diamond nodes: A{1. Text} -> A{'1. Text'}
-	numberedDiamondPattern := regexp.MustCompile(`([A-Z][A-Z0-9]*)\{(\d+\.\s+[^\}]+)\}`)
-	if numberedDiamondPattern.MatchString(line) {
-		correctedLine := numberedDiamondPattern.ReplaceAllStringFunc(line, func(match string) string {
-			parts := numberedDiamondPattern.FindStringSubmatch(match)
-			if len(parts) >= 3 {
-				nodeId := parts[1]
-				content := parts[2]
-				return nodeId + "{'" + content + "'}"
-			}
-			return match
-		})
-		return correctedLine
-	}
-
-	// Pattern for parentheses nodes: A(1. Text) -> A('1. Text')
-	numberedParenPattern := regexp.MustCompile(`([A-Z][A-Z0-9]*)\((\d+\.\s+[^\)]+)\)`)
-	if numberedParenPattern.MatchString(line) {
-		correctedLine := numberedParenPattern.ReplaceAllStringFunc(line, func(match string) string {
-			parts := numberedParenPattern.FindStringSubmatch(match)
-			if len(parts) >= 3 {
-				nodeId := parts[1]
-				content := parts[2]
-				return nodeId + "('" + content + "')"
-			}
-			return match
-		})
-		return correctedLine
-	}
-
-	return line
+	return "unknown"
 }
