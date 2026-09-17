@@ -696,7 +696,11 @@
           "type": "string"
         },
         "theme_mode": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
         },
         "lang": {
           "type": "string"

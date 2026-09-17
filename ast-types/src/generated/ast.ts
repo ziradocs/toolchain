@@ -268,7 +268,7 @@ export interface FrontMatterNode extends BaseNode {
    * invalid value while emitting FRONT008, just as it does for other
    * author-declared metadata.
    */
-  theme_mode?: string;
+  theme_mode?: "light" | "dark";
   /**
    * Lang es el idioma principal declarado del documento, como tag BCP 47
    * (p.ej. "es", "en-US") — issue #62/#63: campo de primera clase para que
@@ -1056,4 +1056,3 @@ export const MaxCellSpan = 1000;
 
 //////////
 // source: walk.go
-
