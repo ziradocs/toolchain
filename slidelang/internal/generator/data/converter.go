@@ -711,6 +711,9 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				// nunca alcanzaría el canvas. El template la emite como capa
 				// directa, detrás de título/subtítulo y elementos (#347).
 				slideData.BleedImages = append(slideData.BleedImages, elementData)
+				if elementData.Caption != "" {
+					slideData.BleedCaptions = append(slideData.BleedCaptions, elementData.Caption)
+				}
 				continue
 			}
 			slideData.Elements = append(slideData.Elements, elementData)

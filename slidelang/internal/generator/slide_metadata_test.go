@@ -93,6 +93,7 @@ func TestRenderHTMLPreview_BleedImageIsCanvasLayer(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	image := ast.NewImageElement(pos, "cover.png", "Fondo")
 	image.Bleed = true
+	image.Caption = "Crédito de la fotografía"
 	block := ast.NewContentBlock(pos, "content")
 	block.Title = "Texto encima"
 	block.Elements = []ast.Element{image}
@@ -109,6 +110,9 @@ func TestRenderHTMLPreview_BleedImageIsCanvasLayer(t *testing.T) {
 	}
 	if n := strings.Count(html, "cover.png"); n != 1 {
 		t.Errorf("la imagen bleed debe emitirse una sola vez, apareció %d", n)
+	}
+	if !strings.Contains(html, `class="slidelang-slide-bleed-caption">Crédito de la fotografía`) {
+		t.Error("el caption de la imagen bleed no llegó a la capa de primer plano")
 	}
 	if !strings.Contains(html, `.slidelang-slide-bleed {`) || !strings.Contains(html, `position: absolute;`) {
 		t.Errorf("el HTML no trae reglas para posicionar bleed sobre el canvas")

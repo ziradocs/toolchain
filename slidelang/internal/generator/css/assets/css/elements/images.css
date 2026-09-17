@@ -48,6 +48,23 @@
     object-fit: contain;
 }
 
+.slidelang-slide-bleed-captions {
+    position: absolute;
+    right: 1.5rem;
+    bottom: 1rem;
+    left: 1.5rem;
+    z-index: 1;
+    text-align: center;
+    color: var(--slidelang-text-on-image, #fff);
+    text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
+}
+
+.slidelang-slide-bleed-caption {
+    margin: 0.25rem 0;
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
 .slidelang-element.slidelang-image img:hover {
     transform: scale(1.02);
     box-shadow: var(--shadow-lg);

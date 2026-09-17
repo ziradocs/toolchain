@@ -473,6 +473,11 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
 				{{end}}
 			</div>
 			{{end}}
+			{{if $slide.BleedCaptions}}
+			<div class="slidelang-slide-bleed-captions">
+				{{range $slide.BleedCaptions}}<p class="slidelang-slide-bleed-caption">{{.}}</p>{{end}}
+			</div>
+			{{end}}
             {{/* Header del slide */}}
             {{template "slide-header" (dict "slide" $slide "presentation" $ "index" $index)}}
             {{/* Watermark (issue #179) — global, sin cascada por slide */}}

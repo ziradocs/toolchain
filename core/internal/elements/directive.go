@@ -169,6 +169,16 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 			// @auto-play 5000
 			parameters["interval"] = paramString
 		}
+	case "background":
+		// El valor habitual de @background es crudo: puede ser un color, una
+		// ruta o data:image/...;base64,..., que contiene '=' como padding y
+		// no debe confundirse con key=value. Las dos formas nombradas siguen
+		// siendo útiles para callers que construyen metadatos explícitos.
+		if strings.HasPrefix(paramString, "color=") || strings.HasPrefix(paramString, "image=") {
+			p.parseKeyValueParams(paramString, parameters)
+		} else {
+			parameters["value"] = paramString
+		}
 	default:
 		// Generic key=value parameters
 		if strings.Contains(paramString, "=") {

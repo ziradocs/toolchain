@@ -3,7 +3,11 @@
 
 package elements
 
-import "testing"
+import (
+	"testing"
+
+	"go.ziradocs.com/core/v2/ast"
+)
 
 // Una directiva se acepta solo si hay un consumidor real. Estos tests cubren
 // la frontera del parser: las grafías retiradas y las desconocidas no vuelven
@@ -35,5 +39,16 @@ func TestDirectiveParser_KnownDirectiveDoesNotDiagnoseMissingConsumer(t *testing
 	result := (&DirectiveParser{}).Parse(&ParseContext{Lines: []string{"@timer 30"}}, 0)
 	if len(result.Diagnostics) != 0 {
 		t.Errorf("@timer produjo diagnostics inesperados: %#v", result.Diagnostics)
+	}
+}
+
+func TestDirectiveParser_BackgroundKeepsRawDataImage(t *testing.T) {
+	result := (&DirectiveParser{}).Parse(&ParseContext{Lines: []string{"@background: data:image/png;base64,AA=="}}, 0)
+	directive, ok := result.Element.(*ast.DirectiveNode)
+	if !ok {
+		t.Fatalf("Element = %T, se esperaba *ast.DirectiveNode", result.Element)
+	}
+	if got, want := directive.Parameters["value"], "data:image/png;base64,AA=="; got != want {
+		t.Errorf("background value = %#v, se esperaba %q", got, want)
 	}
 }
