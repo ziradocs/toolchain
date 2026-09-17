@@ -4,6 +4,7 @@
 package data
 
 import (
+	"reflect"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -38,7 +39,7 @@ func TestPrepareTemplateData_Lang_AbsentFrontMatterLeavesEmpty(t *testing.T) {
 }
 
 func TestPrepareTemplateData_ThemeMode(t *testing.T) {
-	astDoc := &ast.AST{FrontMatter: &ast.FrontMatterNode{ThemeMode: "dark"}}
+	astDoc := &ast.AST{FrontMatter: frontMatterWithThemeMode(t, "dark")}
 
 	got := PrepareTemplateDataWithRenderMode(astDoc, "default", "browser", util.NewNoop(), renderer.NewDefaultRenderContext())
 	if got.ThemeMode != "dark" {
@@ -47,10 +48,21 @@ func TestPrepareTemplateData_ThemeMode(t *testing.T) {
 }
 
 func TestPrepareTemplateData_ThemeModeInvalidIsNotRendered(t *testing.T) {
-	astDoc := &ast.AST{FrontMatter: &ast.FrontMatterNode{ThemeMode: "sepia"}}
+	astDoc := &ast.AST{FrontMatter: frontMatterWithThemeMode(t, "sepia")}
 
 	got := PrepareTemplateDataWithRenderMode(astDoc, "default", "browser", util.NewNoop(), renderer.NewDefaultRenderContext())
 	if got.ThemeMode != "" {
 		t.Errorf("ThemeMode = %q, want empty for a non-renderable value", got.ThemeMode)
 	}
+}
+
+func frontMatterWithThemeMode(t *testing.T, mode string) *ast.FrontMatterNode {
+	t.Helper()
+	fm := &ast.FrontMatterNode{}
+	field := reflect.ValueOf(fm).Elem().FieldByName("ThemeMode")
+	if !field.IsValid() {
+		t.Skip("the published core used by this compatibility build predates ThemeMode")
+	}
+	field.SetString(mode)
+	return fm
 }
