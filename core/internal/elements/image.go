@@ -4,9 +4,13 @@
 package elements
 
 import (
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // ImageParser maneja elementos de imagen
@@ -43,14 +47,15 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 	consumed := 1
 
-	var source, alt, caption, label string
+	var source, alt, caption, label, fit, focus string
+	var bleed bool
 
 	if ctx.Mode == "strict" {
 		// Parse strict mode IMAGE syntax
-		source, alt, caption, label, consumed = p.parseStrictImage(ctx.Lines, startIndex)
+		source, alt, caption, label, fit, focus, bleed, consumed = p.parseStrictImage(ctx.Lines, startIndex)
 	} else {
 		// Parse flex mode Markdown syntax
-		source, alt = p.parseMarkdownImage(line)
+		source, alt, fit, focus, bleed = p.parseMarkdownImage(line)
 	}
 
 	// Detectar contexto automáticamente
@@ -60,11 +65,22 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	element := ast.NewImageElementWithContext(pos, source, alt, context)
 	element.Caption = caption
 	element.Label = label
+	element.Fit = fit
+	element.Focus = focus
+	element.Bleed = bleed
+
+	var diags []diagnostics.Diagnostic
+	if err := validateImageFrame(fit, focus); err != nil {
+		diags = append(diags, diagnostics.NewWarning(err.Error(), pos, "image-parser").WithRuleID("IMG002"))
+		// Un valor inválido nunca llega a un renderer como estilo.
+		element.Fit, element.Focus = "", ""
+	}
 
 	return &ParseResult{
 		Element:       element,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
 }
 
@@ -274,7 +290,7 @@ func startsNewStrictElement(trimmed string) bool {
 }
 
 // parseStrictImage parsea la sintaxis IMAGE de strict mode
-func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, string, string, string, int) {
+func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, string, string, string, string, string, bool, int) {
 	line := strings.TrimSpace(lines[startIndex])
 	consumed := 1
 
@@ -285,6 +301,9 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 	alt := ""
 	caption := ""
 	label := ""
+	fit := ""
+	focus := ""
+	bleed := false
 
 	if len(parts) >= 2 {
 		source = parts[1]
@@ -340,26 +359,35 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 				case "label":
 					// issue #239: identificador de referencia cruzada (p. ej. "fig:arquitectura").
 					label = value
+				case "fit":
+					fit = value
+				case "focus":
+					focus = value
+				case "bleed":
+					parsed, err := strconv.ParseBool(value)
+					if err == nil {
+						bleed = parsed
+					}
 				}
 			}
 		}
 		consumed++
 	}
 
-	return source, alt, caption, label, consumed
+	return source, alt, caption, label, fit, focus, bleed, consumed
 }
 
 // parseMarkdownImage parsea la sintaxis ![alt](src) de Markdown
-func (p *ImageParser) parseMarkdownImage(line string) (string, string) {
+func (p *ImageParser) parseMarkdownImage(line string) (string, string, string, string, bool) {
 	// ![alt](src) format
 	if !strings.HasPrefix(line, "![") {
-		return "", ""
+		return "", "", "", "", false
 	}
 
 	// Find the closing ]
 	altEnd := strings.Index(line, "](")
 	if altEnd == -1 {
-		return "", ""
+		return "", "", "", "", false
 	}
 
 	alt := line[2:altEnd] // Extract alt text (skip ![)
@@ -368,12 +396,57 @@ func (p *ImageParser) parseMarkdownImage(line string) (string, string) {
 	srcStart := altEnd + 2
 	srcEnd := strings.Index(line[srcStart:], ")")
 	if srcEnd == -1 {
-		return "", alt
+		return "", alt, "", "", false
 	}
 
 	source := line[srcStart : srcStart+srcEnd]
+	fit, focus := "", ""
+	bleed := false
+	rest := strings.TrimSpace(line[srcStart+srcEnd+1:])
+	if strings.HasPrefix(rest, "{") && strings.HasSuffix(rest, "}") {
+		for _, match := range imageAttributePattern.FindAllStringSubmatch(rest[1:len(rest)-1], -1) {
+			key := match[1]
+			value := strings.Trim(match[2], "\"")
+			switch key {
+			case "fit":
+				fit = value
+			case "focus":
+				focus = value
+			case "bleed":
+				bleed, _ = strconv.ParseBool(value)
+			}
+		}
+	}
 
-	return source, alt
+	return source, alt, fit, focus, bleed
+}
+
+var imageAttributePattern = regexp.MustCompile(`([a-zA-Z]+)=("[^"]*"|[^\s}]+)`)
+
+func validateImageFrame(fit, focus string) error {
+	if fit != "" && fit != "cover" && fit != "contain" {
+		return fmt.Errorf("invalid image fit %q; expected cover or contain", fit)
+	}
+	if focus == "" {
+		return nil
+	}
+	if fit != "cover" {
+		return fmt.Errorf("image focus requires fit: cover")
+	}
+	parts := strings.Fields(focus)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid image focus %q; expected two percentages", focus)
+	}
+	for _, part := range parts {
+		if !strings.HasSuffix(part, "%") {
+			return fmt.Errorf("invalid image focus %q; expected percentages", focus)
+		}
+		value, err := strconv.ParseFloat(strings.TrimSuffix(part, "%"), 64)
+		if err != nil || value < 0 || value > 100 {
+			return fmt.Errorf("invalid image focus %q; percentages must be between 0%% and 100%%", focus)
+		}
+	}
+	return nil
 }
 
 // parseImageArguments parses arguments from an IMAGE line (handles quoted strings)

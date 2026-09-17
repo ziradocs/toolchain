@@ -30,6 +30,9 @@ type FlexParser struct {
 	// slide son DOS llamadas distintas a parseContentBlock: la primera
 	// consume la metadata y devuelve nil, la segunda arma el slide.
 	pendingLayout string
+	// pendingKicker guarda el antetítulo del mismo bloque de metadata para el
+	// slide siguiente. A diferencia de las opciones, no depende del layout.
+	pendingKicker string
 	// usedAnchors cuenta cuántas veces se emitió cada anchor de encabezado
 	// en ESTE documento, para desduplicarlos (ver uniqueHeadingAnchor).
 	usedAnchors map[string]int
@@ -217,8 +220,10 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	// que el primero NO fuera `title`.
 	layout := p.pendingLayout
 	layoutConfig := p.pendingLayoutConfig
+	kicker := p.pendingKicker
 	p.pendingLayout = ""
 	p.pendingLayoutConfig = layouts.Config{}
+	p.pendingKicker = ""
 	if layout != "" {
 		blockType = layout
 		if isTitleLayout(layout) {
@@ -289,6 +294,7 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	if blockSubtitle != "" {
 		block.Subtitle = blockSubtitle
 	}
+	block.Kicker = kicker
 
 	// Parse block elements using the registry
 	ctx := p.parseContext()
@@ -504,6 +510,10 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 		if !ok || key == "layout" {
 			continue
 		}
+		if key == "kicker" {
+			p.pendingKicker = value
+			continue
+		}
 
 		// Una opción declarada para ESTE layout se aplica.
 		if layouts.Accepts(layout, key) {
@@ -537,7 +547,7 @@ func (p *FlexParser) readMetadataBlock(openIdx, closeIdx int) {
 			p.reportedInertKeys[key] = true
 		}
 
-		message := fmt.Sprintf("Per-slide metadata key %q has no effect; only 'layout' is read here.", key)
+		message := fmt.Sprintf("Per-slide metadata key %q has no effect; only 'layout', its options, and 'kicker' are read here.", key)
 		if layouts.IsKnownOption(key) {
 			if accepted := layouts.OptionNames(layout); len(accepted) > 0 {
 				message = fmt.Sprintf("%q is not an option of layout %q; it accepts: %s — ignored.",

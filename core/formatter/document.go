@@ -133,6 +133,8 @@ func formatDocumentElement(el ast.Element) (string, error) {
 		body, err = formatQuiz(e)
 	case *ast.PollElement:
 		body, err = formatPoll(e)
+	case *ast.MetricElement:
+		body, err = formatMetric(e)
 	case *ast.SpecialBlockElement:
 		body = formatSpecialBlock(e)
 	case *ast.CodeGroupElement:
@@ -241,7 +243,21 @@ func formatFlexImage(e *ast.ImageElement) (string, error) {
 	if e.Caption != "" {
 		return "", newUnsupported("image", "image.Caption no es representable en la sintaxis Markdown de imagen de DocLang")
 	}
-	return fmt.Sprintf("![%s](%s)", e.Alt, e.Source), nil
+	attrs := ""
+	if e.Fit != "" || e.Focus != "" || e.Bleed {
+		parts := make([]string, 0, 3)
+		if e.Fit != "" {
+			parts = append(parts, "fit="+e.Fit)
+		}
+		if e.Focus != "" {
+			parts = append(parts, "focus="+quote(e.Focus))
+		}
+		if e.Bleed {
+			parts = append(parts, "bleed=true")
+		}
+		attrs = "{" + strings.Join(parts, " ") + "}"
+	}
+	return fmt.Sprintf("![%s](%s)%s", e.Alt, e.Source, attrs), nil
 }
 
 // formatFlexQuote serializa "> línea" por línea, con "-- Autor" final si

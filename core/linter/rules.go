@@ -326,6 +326,8 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 
 			case *ast.PollElement:
 				diags = append(diags, checkPollElement(elem)...)
+			case *ast.MetricElement:
+				diags = append(diags, checkMetricElement(elem)...)
 			}
 		}
 	}
@@ -511,6 +513,15 @@ func checkPollElement(elem *ast.PollElement) []diagnostics.Diagnostic {
 	return diags
 }
 
+func checkMetricElement(elem *ast.MetricElement) []diagnostics.Diagnostic {
+	if strings.TrimSpace(elem.Label) != "" && strings.TrimSpace(elem.Value) != "" {
+		return nil
+	}
+	return []diagnostics.Diagnostic{diagnostics.NewWarning(
+		"Metric elements should have both label and value", elem.GetPosition(), "linter").WithRuleID("METRIC005"),
+	}
+}
+
 // hasChartJSDatasets indica si payload trae un data.datasets no vacío, que es
 // lo mínimo que Chart.js necesita para dibujar algo. nil-safe: un payload que
 // no era un objeto JSON llega como nil.
@@ -599,33 +610,6 @@ func (r *SlideLayoutValidationRule) setDialect(d Dialect) {
 	r.dialect = d
 }
 
-// schemalessKnownSlideTypes son tipos de slide que los generadores SÍ
-// reconocen pero para los que no hay schema en GetSlideLayoutSchemas.
-//
-// slidelang los mapea a una plantilla concreta —"cover"/"intro" salen con el
-// layout de título y "chapter"/"with_directive" con el de contenido, ver
-// config.IsSlideTitle/IsSlideContent— así que son válidos de punta a punta y
-// LAYOUT_UNKNOWN no puede acusarlos de inexistentes. Simplemente no tienen
-// reglas propias que validar.
-//
-// La lista se repite acá porque core no puede importar slidelang (la
-// dependencia va al revés). Si allá se agrega un tipo, agregarlo también acá
-// o LAYOUT_UNKNOWN empezará a marcarlo — es el precio de que el catálogo de
-// tipos viva en el consumidor y el linter en core, y por eso conviene que
-// crezca poco: un tipo nuevo casi siempre está mejor como schema, que además
-// lo valida.
-var schemalessKnownSlideTypes = map[string]bool{
-	"cover":          true,
-	"intro":          true,
-	"chapter":        true,
-	"with_directive": true,
-}
-
-// isSchemalessKnownSlideType reporta si slideType es uno de esos.
-func isSchemalessKnownSlideType(slideType string) bool {
-	return schemalessKnownSlideTypes[slideType]
-}
-
 // sortedRecognizedSlideTypes devuelve, en orden alfabético, TODOS los tipos
 // de slide que se aceptan: los que tienen schema y los que no.
 //
@@ -639,29 +623,30 @@ func isSchemalessKnownSlideType(slideType string) bool {
 // determinista, y un mensaje que cambia de orden entre corridas es ruido en
 // cualquier diff de salida.
 func sortedRecognizedSlideTypes(schemas map[string]SlideLayoutSchema) []string {
-	names := make([]string, 0, len(schemas)+len(schemalessKnownSlideTypes))
-	for name := range schemas {
-		names = append(names, name)
-	}
-	for name := range schemalessKnownSlideTypes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	_ = schemas // the catalogue is the single source of recognized names.
+	return layouts.KnownSlideTypes()
 }
 
 // schemaFor resuelve el schema de un tipo de slide aplicando la política, o
 // reporta que no hay ninguno que validar (tipo vacío, sin schema, o uno de los
 // reconocidos sin schema).
 func (r *SlideLayoutValidationRule) schemaFor(slideType string) (SlideLayoutSchema, bool) {
-	if slideType == "" || isSchemalessKnownSlideType(slideType) {
+	if slideType == "" {
 		return SlideLayoutSchema{}, false
 	}
 	schema, exists := GetSlideLayoutSchemas()[slideType]
+	if !exists && layouts.IsKnownSlideType(slideType) {
+		return SlideLayoutSchema{}, false
+	}
 	if !exists {
 		return SlideLayoutSchema{}, false
 	}
 	return r.policy.ResolveLayoutSchema(slideType, schema), true
+}
+
+func hasLayoutSchema(slideType string) bool {
+	_, ok := GetSlideLayoutSchemas()[slideType]
+	return ok
 }
 
 func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnostic {
@@ -708,7 +693,7 @@ func (r *SlideLayoutValidationRule) Check(node ast.Node) []diagnostics.Diagnosti
 		}
 
 		// Obtener el esquema de validación para este tipo de slide
-		if isSchemalessKnownSlideType(slideType) {
+		if layouts.IsKnownSlideType(slideType) && !hasLayoutSchema(slideType) {
 			return diags
 		}
 

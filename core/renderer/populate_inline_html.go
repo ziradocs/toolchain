@@ -25,6 +25,7 @@ func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]inte
 	block.TitleHTML = ProcessVariablesSecure(block.Title, variables)
 	block.HeadingHTML = ProcessVariablesSecure(block.Heading, variables)
 	block.SubtitleHTML = ProcessVariablesSecure(block.Subtitle, variables)
+	block.KickerHTML = ProcessVariablesSecure(block.Kicker, variables)
 	for _, elem := range block.Elements {
 		populateElementHTML(elem, variables)
 	}
@@ -98,6 +99,12 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 	case *ast.PollElement:
 		elem.QuestionHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Question, variables)
 		elem.OptionsHTML = processStringSliceHTML(elem.Options, variables)
+
+	case *ast.MetricElement:
+		elem.LabelHTML = ProcessVariablesSecure(elem.Label, variables)
+		elem.ValueHTML = ProcessVariablesSecure(elem.Value, variables)
+		elem.DeltaHTML = ProcessVariablesSecure(elem.Delta, variables)
+		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
 
 	case *ast.SpecialBlockElement:
 		// Title SÍ lleva markdown aquí (a diferencia de otros campos "Title"

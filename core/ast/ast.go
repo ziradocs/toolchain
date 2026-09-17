@@ -127,6 +127,7 @@ const (
 	NodeTypeMedia         NodeType = "media"          // Audio/video embebido (issue #21)
 	NodeTypeQuiz          NodeType = "quiz"           // Pregunta de opción múltiple con respuesta correcta (issue #198)
 	NodeTypePoll          NodeType = "poll"           // Encuesta sin respuesta correcta (issue #198)
+	NodeTypeMetric        NodeType = "metric"         // KPI estructurado (issue #344)
 )
 
 // BaseNode contiene campos comunes para todos los nodos

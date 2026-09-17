@@ -64,6 +64,10 @@ Intro paragraph.
   positional rule above, so a mid-deck slide can be `title` and the first
   one need not be.
 
+  `columns: 1` through `columns: 4` and `align: left|center` may accompany
+  `layout:` in the same metadata block. They control the content grid and
+  alignment without changing the layout type.
+
   The name must be one of the recognized layouts; an unknown one still
   types the slide but warns (`LAYOUT_UNKNOWN`). Only `layout` is read —
   any other key in that block is reported as having no effect (`FLEX002`).

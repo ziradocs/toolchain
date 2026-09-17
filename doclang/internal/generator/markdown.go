@@ -322,6 +322,20 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		}
 		return md.String()
 
+	case *ast.MetricElement:
+		var md strings.Builder
+		if elem.Label != "" {
+			fmt.Fprintf(&md, "**%s:** ", elem.Label)
+		}
+		md.WriteString(elem.Value)
+		if elem.Delta != "" {
+			fmt.Fprintf(&md, " (%s)", elem.Delta)
+		}
+		if elem.Caption != "" {
+			fmt.Fprintf(&md, "\n\n%s", elem.Caption)
+		}
+		return md.String()
+
 	case *ast.MermaidElement:
 		return fmt.Sprintf("```mermaid\n%s\n```\n", elem.Content)
 

@@ -84,6 +84,17 @@ and it applies to any slide typed `title` in either mode.)
 ## 5. Per-layout schema (only applies when a slide has a recognized
    `layout`/`BlockType`)
 
+### Choosing a layout
+
+Use `content` for ordinary narrative slides; it is the safest default.
+Choose `section` only for a divider, `stats` for a small set of KPIs,
+`dashboard` for several metrics plus charts/tables, `comparison` for two
+alternatives, `timeline` or `process` for ordered steps, and `code_example`
+only when code is the focal point. `hero`, `testimonial`, `team`, `pricing`,
+`feature_showcase`, and `call_to_action` are rhetorical layouts: choose them
+only when that purpose is explicit. A specialized layout is not decoration;
+it opts into the validation in the table below.
+
 Every layout type below has a schema: required properties, allowed vs.
 forbidden element types, and min/max element counts. Violations surface as
 `LAYOUT_MIN_ELEMENTS`, `LAYOUT_MAX_ELEMENTS`, `LAYOUT_FORBIDDEN_ELEMENT`
@@ -96,7 +107,7 @@ forbidden element types, and min/max element counts. Violations surface as
 | `content` | `title` | text, code, points, table, image, special_block, mermaid, chart, map, directive | *(none)* | 1 / ∞ | `LAYOUT003` missing title (warning); `LAYOUT004` no elements (**error**) |
 | `section` | `title` | text, points | code, table, chart, map | 1 / 3 | `LAYOUT005` complex elements present (warning) |
 | `comparison` | `title` | text, points, table, special_block | code, mermaid, chart | 2 / 4 | `LAYOUT006` <2 elements (warning) |
-| `stats` | `title` | text, chart, table, special_block | code, mermaid | 1 / 3 | `LAYOUT007` no chart/table (warning) |
+| `stats` | `title` | text, chart, table, metric, special_block | code, mermaid | 1 / 3 | `LAYOUT007` no chart/table/metric (warning) |
 | `code_example` | `title` | text, code, points | table, chart, map | 1 / 4 | `LAYOUT008` no code block (**error**) |
 | `hero` | `title` | text, image, special_block | code, table, chart | 0 / 3 | `LAYOUT009` no title (**error**) |
 | `testimonial` | *(none)* | text, image, special_block | code, table, chart | 1 / 3 | `LAYOUT010` no quote/author signal (warning) |
@@ -106,7 +117,7 @@ forbidden element types, and min/max element counts. Violations surface as
 | `team` | `title` | text, image, special_block | code, chart, table | 1 / 8 | `LAYOUT014` no member/role signal (warning) |
 | `feature_showcase` | `title` | text, points, image, special_block | code, table | 2 / 6 | `LAYOUT015` <2 features (warning) |
 | `call_to_action` | `title` | text, special_block | code, table, chart, mermaid | 1 / 3 | `LAYOUT016` no CTA signal (warning) |
-| `dashboard` | `title` | text, chart, table, special_block | code, mermaid | 1 / 6 | `LAYOUT017` no metrics signal (warning) |
+| `dashboard` | `title` | text, chart, table, metric, special_block | code, mermaid | 1 / 6 | `LAYOUT017` no metric/chart/table (warning) |
 | `process` | `title` | text, points, special_block | code, table, chart | 2 / 6 | `LAYOUT018` <2 steps (warning) |
 | `default` | *(none)* | text, code, points, table, image, special_block, mermaid, chart, map, directive | *(none)* | 0 / ∞ | — |
 | `closing` | *(none)* | text, image, points | code, table, chart, mermaid, map | 0 / 3 | complex-element / >3-element warnings |
@@ -139,6 +150,16 @@ flag their absence:
       frontmatter `variables:` (or removed)
 
 ## 8. Output contract
+
+### Additional diagnostic IDs
+
+The parser can also emit these diagnostics, which are useful when repairing
+LLM-authored source: `CHART002`, `CHART005`, `CONTRAST001`, `CONTRAST002`,
+`DIRECTIVE001`, `FLEX002`, `FRONT002`, `FRONT004`, `FRONT005`, `FRONT006`,
+`FRONT007`, `IMG002`, `MAP002`, `POLL001`, `POLL002`, `QUIZ002`, `QUIZ003`,
+`TABLE004`, `TABLE005`, `TABLE006`, `METRIC001`, `METRIC002`, `METRIC003`,
+and `METRIC004`. They complement the rule IDs named inline above; none should
+be guessed from prose—use the parser's message and source position.
 
 - [ ] Final ZiraDocs output is presented as a single fenced
       ` ```slidelang ` block — no partial/duplicate frontmatter, no

@@ -11,13 +11,15 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	_ "image/gif"  // registra el decoder GIF para image.DecodeConfig
 	_ "image/jpeg" // registra el decoder JPEG para image.DecodeConfig
-	_ "image/png"  // registra el decoder PNG para image.DecodeConfig
+	"image/png"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mmonterroca/pptxgo/drawingml"
@@ -219,6 +221,9 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 
 	cursorY := pptxContentTopEMU
 	if isTitleBlock {
+		if block.Kicker != "" {
+			pptxAddHeaderLine(s, block.Kicker, 640080, 16)
+		}
 		if block.Subtitle != "" {
 			s.AddPlaceholder(pptx.PlaceholderSubTitle, 1).AddParagraph().Text(block.Subtitle)
 		}
@@ -227,11 +232,33 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 		// se apilan en freeform debajo del título+subtítulo centrados, igual
 		// que en un bloque de contenido normal.
 		cursorY = pptxTitleSlideBodyTop
+	} else {
+		if block.Kicker != "" {
+			pptxAddHeaderLine(s, block.Kicker, 274320, 13)
+		}
+		if block.Subtitle != "" {
+			pptxAddHeaderLine(s, block.Subtitle, 1371600, 16)
+			cursorY += pptxLineHeightEMU
+		}
 	}
 
 	for i := range block.Elements {
+		if d, ok := block.Elements[i].(*ast.DirectiveNode); ok && (d.Name == "background" || d.Name == "reveal") {
+			continue
+		}
 		cursorY = g.pptxAddElement(s, block.Elements[i], cursorY, opts, variables, kroki, rich)
 	}
+}
+
+// pptxAddHeaderLine agrega texto de encabezado fuera de los placeholders del
+// layout. Es necesario para subtitle en contenido y kicker, que PowerPoint no
+// modela como placeholders en LayoutTitleAndContent.
+func pptxAddHeaderLine(s *pptx.Slide, text string, y int, size float64) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	tb := s.AddTextBox(pptxMarginEMU, y, pptxContentWidthEMU, pptxLineHeightEMU)
+	tb.AddParagraph().Text(text).FontSize(size)
 }
 
 // pptxAddWatermark dibuja rw como una única marca centrada, rotada,
@@ -390,12 +417,14 @@ func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int,
 		return g.pptxAddQuiz(s, e, cursorY)
 	case *ast.PollElement:
 		return g.pptxAddPoll(s, e, cursorY)
+	case *ast.MetricElement:
+		return g.pptxAddMetric(s, e, cursorY)
 	case *ast.CodeElement:
 		return g.pptxAddCode(s, e, cursorY)
 	case *ast.ChartElement:
 		return g.pptxAddChart(s, e, cursorY, opts)
 	case *ast.MermaidElement:
-		content := renderer.ApplyMermaidTheme(e.Content, resolveDiagramThemeColors(opts))
+		content := renderer.ApplyMermaidTheme(renderer.PrepareMermaidContent(e.Content, e.DiagramType), resolveDiagramThemeColors(opts))
 		return g.pptxAddDiagram(s, "mermaid", content, e.Title, cursorY, opts, kroki)
 	case *ast.PlantUMLElement:
 		content := renderer.ApplyPlantUMLTheme(renderer.SanitizePlantUMLContent(e.Content), resolveDiagramThemeColors(opts))
@@ -982,6 +1011,30 @@ func (g *Generator) pptxAddPoll(s *pptx.Slide, e *ast.PollElement, cursorY int) 
 		pptxApplyInline(tb.AddParagraph(), fmt.Sprintf("%d. %s", i+1, option))
 	}
 
+	return cursorY + height + pptxParaGapEMU
+}
+
+func (g *Generator) pptxAddMetric(s *pptx.Slide, e *ast.MetricElement, cursorY int) int {
+	lines := pptxEstimateLines(e.Label) + pptxEstimateLines(e.Value) + pptxEstimateLines(e.Delta) + pptxEstimateLines(e.Caption)
+	if lines < 1 {
+		lines = 1
+	}
+	height := lines*pptxLineHeightEMU + pptxParaGapEMU
+	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
+	if e.Label != "" {
+		p := tb.AddParagraph()
+		pptxApplyInline(p, e.Label)
+		p.Bold()
+	}
+	pptxApplyInline(tb.AddParagraph(), e.Value)
+	if e.Delta != "" {
+		pptxApplyInline(tb.AddParagraph(), e.Delta)
+	}
+	if e.Caption != "" {
+		p := tb.AddParagraph()
+		pptxApplyInline(p, e.Caption)
+		p.Italic()
+	}
 	return cursorY + height + pptxParaGapEMU
 }
 
@@ -1704,16 +1757,94 @@ func (g *Generator) pptxAddImage(s *pptx.Slide, e *ast.ImageElement, cursorY int
 
 	width := pptxContentWidthEMU / 2
 	height := pptxDefaultImageEMU
+	x, y := pptxMarginEMU, cursorY
 	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil && cfg.Width > 0 && cfg.Height > 0 {
 		height = width * cfg.Height / cfg.Width
 	}
+	if e.Bleed {
+		x, y = 0, 0
+		width, height = pptxSlideWidthEMU, pptxSlideHeightEMU
+	} else if e.Fit == "cover" {
+		// cover necesita un marco fijo; de otro modo mantener proporción ya
+		// equivale a contain y no hay nada que recortar.
+		height = pptxDefaultImageEMU
+	}
+	if e.Fit == "cover" {
+		if cropped, err := pptxCropImageCover(data, width, height, e.Focus); err == nil {
+			data = cropped
+		} else {
+			g.logger.Warn("PPTX: could not crop image %s for cover: %v", e.Source, err)
+		}
+	}
 
-	s.AddImageFromBytesWithSize(data, pptxMarginEMU, cursorY, width, height)
+	s.AddImageFromBytesWithSize(data, x, y, width, height)
 
-	newCursorY := cursorY + height + pptxParaGapEMU
+	newCursorY := y + height + pptxParaGapEMU
+	if e.Bleed {
+		newCursorY = cursorY
+	}
 	if e.Caption != "" {
 		newCursorY = g.pptxAddText(s, e.Caption, newCursorY)
 	}
 
 	return newCursorY
+}
+
+// pptxCropImageCover materializa el crop antes de entregar la imagen a
+// pptxgo, cuya API todavía no expone a:srcRect. El PNG resultante conserva
+// exactamente el encuadre cover/focus en PowerPoint en vez de deformar la
+// imagen para llenar el marco (#347).
+func pptxCropImageCover(data []byte, targetW, targetH int, focus string) ([]byte, error) {
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	bounds := src.Bounds()
+	sw, sh := bounds.Dx(), bounds.Dy()
+	if sw == 0 || sh == 0 || targetW == 0 || targetH == 0 {
+		return data, nil
+	}
+	cropW, cropH := sw, sh
+	if sw*targetH > sh*targetW {
+		cropW = sh * targetW / targetH
+	} else {
+		cropH = sw * targetH / targetW
+	}
+	fx, fy := pptxImageFocus(focus)
+	left := bounds.Min.X + int(fx*float64(sw)) - cropW/2
+	top := bounds.Min.Y + int(fy*float64(sh)) - cropH/2
+	if left < bounds.Min.X {
+		left = bounds.Min.X
+	}
+	if top < bounds.Min.Y {
+		top = bounds.Min.Y
+	}
+	if left+cropW > bounds.Max.X {
+		left = bounds.Max.X - cropW
+	}
+	if top+cropH > bounds.Max.Y {
+		top = bounds.Max.Y - cropH
+	}
+	cropped := image.NewRGBA(image.Rect(0, 0, cropW, cropH))
+	draw.Draw(cropped, cropped.Bounds(), src, image.Point{X: left, Y: top}, draw.Src)
+	var out bytes.Buffer
+	if err := png.Encode(&out, cropped); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func pptxImageFocus(focus string) (float64, float64) {
+	parts := strings.Fields(focus)
+	if len(parts) != 2 {
+		return 0.5, 0.5
+	}
+	parse := func(value string) float64 {
+		n, err := strconv.ParseFloat(strings.TrimSuffix(value, "%"), 64)
+		if err != nil || n < 0 || n > 100 {
+			return 50
+		}
+		return n
+	}
+	return parse(parts[0]) / 100, parse(parts[1]) / 100
 }

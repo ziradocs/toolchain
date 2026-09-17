@@ -3,30 +3,13 @@
 
 package config
 
+import "go.ziradocs.com/core/v2/layouts"
+
 // IsSlideTitle determina si un tipo de slide es de título
-func IsSlideTitle(slideType string) bool {
-	titleTypes := []string{"title", "title_slide", "cover", "intro"}
-	for _, t := range titleTypes {
-		if slideType == t {
-			return true
-		}
-	}
-	return false
-}
+func IsSlideTitle(slideType string) bool { return layouts.IsTitleSlide(slideType) }
 
 // IsSlideContent determina si un tipo de slide es de contenido
-func IsSlideContent(slideType string) bool {
-	if slideType == "" || slideType == "content" {
-		return true
-	}
-	contentTypes := []string{"content", "section", "chapter", "code_example", "with_directive"}
-	for _, t := range contentTypes {
-		if slideType == t {
-			return true
-		}
-	}
-	return false
-}
+func IsSlideContent(slideType string) bool { return layouts.IsContentSlide(slideType) }
 
 // slideTypesWithOwnChrome son los tipos que ya se visten por su cuenta: fondo
 // propio, tipografía propia. El resto hereda el vestido de "contenido".
@@ -93,19 +76,7 @@ func UsesContentChrome(slideType string) bool {
 // `data-slide-type` NO se toca: sigue siendo el BlockType verbatim, que es lo
 // que el linter valida, lo que viaja en el JSON del AST y lo que el CSS de
 // layouts (issue #254) usa como selector.
-var chromeAliases = map[string]string{
-	"title_slide": "title",
-	"cover":       "title",
-	"intro":       "title",
-	"chapter":     "section",
-}
-
 // ChromeClassType devuelve el nombre que va en la clase
 // `slidelang-<nombre>-slide`. Para casi todos es el tipo mismo; para los alias
 // de arriba, el canónico de su familia.
-func ChromeClassType(slideType string) string {
-	if canonical, ok := chromeAliases[slideType]; ok {
-		return canonical
-	}
-	return slideType
-}
+func ChromeClassType(slideType string) string { return layouts.CanonicalSlideType(slideType) }

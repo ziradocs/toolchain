@@ -298,7 +298,12 @@ type ContentBlock struct {
 	HeadingHTML  string `json:"headingHTML,omitempty"` // Heading con {{variables}} sustituidas y escapadas (sin markdown)
 	Subtitle     string `json:"subtitle,omitempty"`
 	SubtitleHTML string `json:"subtitleHTML,omitempty"` // Subtitle con {{variables}} sustituidas y escapadas (sin markdown)
-	Logo         string `json:"logo,omitempty"`
+	// Kicker es el antetítulo breve que contextualiza un slide y se renderiza
+	// antes del título. No es un heading adicional: el h1 sigue siendo Title o
+	// Heading según el tipo de slide (issue #348).
+	Kicker     string `json:"kicker,omitempty"`
+	KickerHTML string `json:"kickerHTML,omitempty"`
+	Logo       string `json:"logo,omitempty"`
 	// Elements está en orden de documento, y ese orden ES el contrato de
 	// lectura/presentación (issue #62): todo renderer del repo (HTML, DOCX,
 	// Markdown, PPTX) emite/recorre Elements en este mismo orden, sin
@@ -499,6 +504,11 @@ type ImageElement struct {
 	Caption     string       `json:"caption,omitempty"`
 	CaptionHTML string       `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
 	Context     ImageContext `json:"context,omitempty"`
+	// Fit/Focus/Bleed describen el encuadre declarado por el autor. Context es
+	// una heurística heredada y no participa en estas decisiones (#347).
+	Fit   string `json:"fit,omitempty"`   // cover | contain
+	Focus string `json:"focus,omitempty"` // "x% y%", válido con cover
+	Bleed bool   `json:"bleed,omitempty"`
 	// Label es el identificador de referencia cruzada del MVP OSS (issue
 	// #239, decisión B), p. ej. "fig:arquitectura" — declarado como
 	// `label:` junto a `caption:`. Number lo asigna el pase de numeración
@@ -1003,6 +1013,28 @@ func NewPollElement(pos diagnostics.Position) *PollElement {
 		BaseNode: NewBaseNode(NodeTypePoll, pos),
 		Options:  make([]string, 0),
 	}
+}
+
+// MetricElement representa un KPI declarativo. Trend está restringido por el
+// parser a up/down/flat, para que los renderers no tengan que inferirlo desde
+// símbolos dentro del texto (issue #344).
+type MetricElement struct {
+	BaseNode    `tstype:",extends,required"`
+	Label       string `json:"label"`
+	LabelHTML   string `json:"labelHTML,omitempty"`
+	Value       string `json:"value"`
+	ValueHTML   string `json:"valueHTML,omitempty"`
+	Delta       string `json:"delta,omitempty"`
+	DeltaHTML   string `json:"deltaHTML,omitempty"`
+	Trend       string `json:"trend,omitempty"`
+	Caption     string `json:"caption,omitempty"`
+	CaptionHTML string `json:"captionHTML,omitempty"`
+}
+
+func (m MetricElement) element() {}
+
+func NewMetricElement(pos diagnostics.Position) *MetricElement {
+	return &MetricElement{BaseNode: NewBaseNode(NodeTypeMetric, pos)}
 }
 
 // GridElement representa un contenedor de grid layout
