@@ -57,7 +57,10 @@ properties:
 | `title` | Slide title (shown for `content`-type slides) |
 | `heading` | Primary heading (used by `title`-type slides) |
 | `subtitle` | Secondary heading |
+| `kicker` | Brief context line shown above the title/heading |
 | `logo` | Path to a logo image (must have a valid image extension: `.png/.jpg/.jpeg/.gif/.svg/.webp`) |
+| `columns` | Optional content grid width, from `1` to `4` |
+| `align` | Optional content alignment: `left` or `center` |
 
 Any other key is rejected with "Unknown content block property" — don't
 invent new frontmatter-like keys inside a slide block.
