@@ -11,10 +11,13 @@ import (
 
 // PresentationData contiene todos los datos para el template HTML
 type PresentationData struct {
-	Title         string
-	Author        string
-	Date          string
-	Lang          string      // Idioma BCP 47 declarado en frontmatter (issue #62/#63); "" si no se declaró
+	Title  string
+	Author string
+	Date   string
+	Lang   string // Idioma BCP 47 declarado en frontmatter (issue #62/#63); "" si no se declaró
+	// ThemeMode is the validated visual scheme selected in front matter. It is
+	// empty when the document leaves scheme selection to the system preference.
+	ThemeMode     string
 	ContentBlocks []SlideData `json:"content_blocks"` // Bloques de contenido de la presentación
 	HasTitle      bool
 	HeaderFooter  *HeaderFooterData `json:"header_footer,omitempty"`

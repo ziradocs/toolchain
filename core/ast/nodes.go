@@ -113,6 +113,13 @@ type FrontMatterNode struct {
 	Author   string `json:"author,omitempty"`
 	Date     string `json:"date,omitempty"`
 	Theme    string `json:"theme,omitempty"`
+	// ThemeMode selects the visual mode within the declared theme family.
+	// It intentionally uses `theme_mode:` rather than `mode:` because Mode
+	// already controls the document language dialect (strict/flex/etc.).
+	// Accepted values are "light" and "dark"; the parser preserves a raw
+	// invalid value while emitting FRONT008, just as it does for other
+	// author-declared metadata.
+	ThemeMode string `json:"theme_mode,omitempty" yaml:"theme_mode,omitempty"`
 	// Lang es el idioma principal declarado del documento, como tag BCP 47
 	// (p.ej. "es", "en-US") — issue #62/#63: campo de primera clase para que
 	// un renderer emita `<html lang>`/`w:lang` real. Deliberadamente NO se

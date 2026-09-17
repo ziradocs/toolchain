@@ -99,5 +99,19 @@ const replacement =
   "export type Element =\n  | " + ELEMENT_UNION.join("\n  | ") + ";";
 content = content.replace(placeholder, replacement);
 
+// Go keeps ThemeMode as string to preserve invalid authored values while the
+// parser reports FRONT008, but JSON/TypeScript consumers only receive the
+// two renderable schemes. Keep this replacement adjacent to the generated
+// contract so schema-drift catches any tygo format change.
+const themeModeField = "  theme_mode?: string;";
+if (!content.includes(themeModeField)) {
+  console.error(
+    "postprocess.cjs: no se encontró theme_mode?: string en " + astTsPath +
+      ". El output de tygo pudo haber cambiado de formato; revisar manualmente."
+  );
+  process.exit(1);
+}
+content = content.replace(themeModeField, '  theme_mode?: "light" | "dark";');
+
 fs.writeFileSync(astTsPath, content, "utf8");
 console.log("postprocess.cjs: Element union aplicada en " + astTsPath);

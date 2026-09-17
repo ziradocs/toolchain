@@ -131,6 +131,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error tipando rawJSON: %v\n", err)
 		os.Exit(1)
 	}
+	// ThemeMode is an open Go string so the parser can preserve an invalid
+	// authored value long enough for fmt to round-trip it with FRONT008, but
+	// the public JSON contract only accepts the two usable visual schemes.
+	if err := overrideProperty(root.Definitions, "FrontMatterNode", "theme_mode", themeModeSchema()); err != nil {
+		fmt.Fprintf(os.Stderr, "error tipando theme_mode: %v\n", err)
+		os.Exit(1)
+	}
 
 	data, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
@@ -211,4 +218,8 @@ func overrideProperty(defs jsonschema.Definitions, defName, propName string, sch
 	}
 	def.Properties.Set(propName, schema)
 	return nil
+}
+
+func themeModeSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{Type: "string", Enum: []any{"light", "dark"}}
 }

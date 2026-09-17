@@ -25,6 +25,7 @@ title: "..."
 author: "..."
 date: "..."
 theme: "modern-blue"   # CLI --theme flag overrides this if both are given
+theme_mode: dark        # light | dark — force the theme scheme instead of the system preference
 numbering: true        # true | false (DocLang only, see below) — opt out of section auto-numbering
 toc: true              # true | false | {enabled: bool, depth: int} (DocLang only, see below)
 page:                  # {size: "A4", margins: "2cm"} (DocLang only, PDF format only, see below)
@@ -62,6 +63,16 @@ should configure something (because you saw it in an example or an
   documents those four are synonyms: there is one flex grammar and nothing to
   auto-detect. Note this differs from SlideLang, where `strict` means the
   `SLIDE`-based grammar; `SLIDE` blocks never parse in a `.doclang` file.
+
+### `theme_mode` (both CLIs)
+
+- Optional `light` or `dark` choice for a theme's visual color scheme. It is
+  deliberately separate from `mode:`, which selects the document grammar.
+- When present, HTML and PDF output use the declared scheme instead of the
+  operating system preference. In SlideLang, a theme without a `dark`
+  `colorSchemes` override keeps its base variables.
+- Any other value emits parser error `FRONT008`. `fmt` preserves the authored
+  value so the source can be repaired without silently changing it.
 
 ### Known-ignored keys (do NOT rely on these)
 

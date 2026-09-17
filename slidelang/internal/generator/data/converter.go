@@ -259,6 +259,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 		data.Author = astNode.FrontMatter.Author
 		data.Date = astNode.FrontMatter.Date
 		data.Lang = astNode.FrontMatter.Lang
+		data.ThemeMode = frontMatterThemeMode(astNode.FrontMatter)
 	}
 
 	// Obtener variables del frontmatter

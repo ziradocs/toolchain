@@ -448,7 +448,16 @@ var EmbeddedThemes = map[string]Theme{
 
 // GenerateThemeCSS generates CSS variables for a theme with proper namespacing
 func GenerateThemeCSS(theme Theme) string {
-	return generateThemeVariables(":root", theme.Variables) + generateColorSchemeCSS(theme.ColorSchemes)
+	css := generateThemeVariables(":root", theme.Variables)
+	css += generateColorSchemeCSS(theme.ColorSchemes)
+	// A declared frontmatter theme_mode must win over the viewer's operating
+	// system preference. Keep these selectors after the media query and make
+	// them more specific than :root so either explicit value is deterministic.
+	if dark := theme.ColorSchemes["dark"]; len(dark) > 0 {
+		css += generateThemeVariables(`:root[data-theme-mode="light"]`, theme.Variables)
+		css += generateThemeVariables(`:root[data-theme-mode="dark"]`, dark)
+	}
+	return css
 }
 
 func generateColorSchemeCSS(schemes map[string]ThemeVariables) string {

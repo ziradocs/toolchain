@@ -28,7 +28,8 @@ import (
 // corazón del issue #230:
 //
 //   - overrides PISA lo que traiga Raw. Es para las llaves cuyo campo tipado
-//     es el valor COMPLETO de la llave: mode/title/author/date/theme/lang/
+//     es el valor COMPLETO de la llave: mode/title/author/date/theme/
+//     theme_mode/lang/
 //     variables (escalares o mapa libre) y numbering/toc/page/watermark
 //     (namespaces cerrados, donde el parser ya avisa FRONT005/FRONT006/
 //     FRONT007 de que cualquier sub-llave desconocida se ignora). Así una
@@ -171,6 +172,9 @@ func frontMatterOverrides(fm *ast.FrontMatterNode, mode string) map[string]inter
 	}
 	if fm.Theme != "" {
 		overrides["theme"] = fm.Theme
+	}
+	if fm.ThemeMode != "" {
+		overrides["theme_mode"] = fm.ThemeMode
 	}
 	if fm.Lang != "" {
 		overrides["lang"] = fm.Lang

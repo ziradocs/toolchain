@@ -81,8 +81,12 @@ import type { Position } from "./diagnostics";
  * 2.12.0 (issues #340/#343/#344/#347/#348): additive kicker fields on
  * ContentBlock, ImageElement's fit/focus/bleed frame declaration, and the
  * new structured MetricElement discriminator.
+ * 2.13.0: FrontMatterNode.ThemeMode (additive, omitempty)
+ * preserves the visual light/dark mode selected for a theme family. It is
+ * deliberately distinct from FrontMatterNode.Mode, which already controls
+ * the document language dialect (strict/flex/flex-full/flex-ai/auto).
  */
-export const SchemaVersion = "2.12.0";
+export const SchemaVersion = "2.13.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -256,6 +260,15 @@ export interface FrontMatterNode extends BaseNode {
   author?: string;
   date?: string;
   theme?: string;
+  /**
+   * ThemeMode selects the visual mode within the declared theme family.
+   * It intentionally uses `theme_mode:` rather than `mode:` because Mode
+   * already controls the document language dialect (strict/flex/etc.).
+   * Accepted values are "light" and "dark"; the parser preserves a raw
+   * invalid value while emitting FRONT008, just as it does for other
+   * author-declared metadata.
+   */
+  theme_mode?: "light" | "dark";
   /**
    * Lang es el idioma principal declarado del documento, como tag BCP 47
    * (p.ej. "es", "en-US") — issue #62/#63: campo de primera clase para que

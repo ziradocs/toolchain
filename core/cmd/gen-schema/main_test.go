@@ -139,3 +139,13 @@ func TestOverrideProperty_MissingProperty(t *testing.T) {
 		t.Fatal("expected an error when the definition has no \"rawJSON\" property, got nil")
 	}
 }
+
+func TestThemeModeSchema(t *testing.T) {
+	schema := themeModeSchema()
+	if schema.Type != "string" {
+		t.Errorf("theme mode schema type = %q, want string", schema.Type)
+	}
+	if len(schema.Enum) != 2 || schema.Enum[0] != "light" || schema.Enum[1] != "dark" {
+		t.Errorf("theme mode schema enum = %#v, want [light dark]", schema.Enum)
+	}
+}

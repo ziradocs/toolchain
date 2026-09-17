@@ -207,6 +207,17 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
 		lang = EscapeHTMLAttribute(doc.FrontMatter.Lang)
 	}
 
+	// theme_mode is an explicit document choice, so it takes precedence over
+	// the interactive viewer's saved preference. Only the two parser-accepted
+	// literals ever reach an HTML attribute; a manually-constructed invalid
+	// AST safely falls back to the historical light default.
+	themeMode := "light"
+	declaredThemeMode := ""
+	if doc.FrontMatter != nil && (doc.FrontMatter.ThemeMode == "light" || doc.FrontMatter.ThemeMode == "dark") {
+		themeMode = doc.FrontMatter.ThemeMode
+		declaredThemeMode = fmt.Sprintf(` data-theme-mode="%s"`, themeMode)
+	}
+
 	// Add classes based on options
 	bodyClass := "doclang-document"
 	if opts.ShowHeaders || opts.ShowFooters || headerFooterConfigured(opts.HeaderFooter) {
@@ -222,7 +233,7 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
 	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="%s" data-theme="light">
+<html lang="%s" data-theme="%s"%s>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -231,7 +242,7 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
     %s
 </head>
 <body class="%s">
-`, lang, cspMeta, EscapeHTML(title), generateDocumentStyles(opts, logger), generateDocumentScripts(opts), bodyClass)
+`, lang, themeMode, declaredThemeMode, cspMeta, EscapeHTML(title), generateDocumentStyles(opts, logger), generateDocumentScripts(opts), bodyClass)
 }
 
 // generateDocumentStyles genera los estilos CSS del documento. No recibe
@@ -2967,9 +2978,11 @@ func generateViewerScripts(opts DocumentHTMLOptions, cspNonce string) string {
                     localStorage.setItem('doclang-theme', newTheme);
                 });
 
-                // Restore saved theme
+                // A frontmatter theme_mode is an explicit document choice;
+                // only documents without it restore a viewer-local preference.
                 const savedTheme = localStorage.getItem('doclang-theme');
-                if (savedTheme === 'dark') {
+                const declaredTheme = document.documentElement.getAttribute('data-theme-mode');
+                if (!declaredTheme && savedTheme === 'dark') {
                     document.documentElement.setAttribute('data-theme', 'dark');
                     themeIcon.textContent = '☀️';
                     themeText.textContent = 'Light Mode';

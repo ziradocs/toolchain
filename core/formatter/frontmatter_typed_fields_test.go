@@ -20,7 +20,7 @@ import (
 )
 
 // Este archivo cubre el issue #230: frontMatterOverrides solo conocía
-// mode/title/author/date/theme/lang/variables, así que Numbering,
+// mode/title/author/date/theme/theme_mode/lang/variables, así que Numbering,
 // HeaderFooter, TOC, Page y Watermark desaparecían del texto emitido —sin
 // error— cuando FrontMatterNode.Raw estaba vacío (un nodo armado en código, o
 // decodificado desde --format json, donde Raw es json:"-"). Es el mismo hueco
@@ -63,6 +63,11 @@ func TestTypedFrontMatterFieldsSurviveEmptyRaw(t *testing.T) {
 		set  func(fm *ast.FrontMatterNode)
 		want []string
 	}{
+		{
+			name: "theme mode",
+			set:  func(fm *ast.FrontMatterNode) { fm.ThemeMode = "dark" },
+			want: []string{"theme_mode: dark"},
+		},
 		{
 			name: "numbering false",
 			set:  func(fm *ast.FrontMatterNode) { fm.Numbering = boolPtr(false) },

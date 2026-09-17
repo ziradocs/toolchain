@@ -397,7 +397,7 @@ func (tb *TemplateBuilder) buildHTMLHead(cspNonce string) string {
 	// declarado. html/template escapa .Lang automáticamente al interpolarlo
 	// en un atributo, así que no hace falta escapar a mano acá.
 	head := `<!DOCTYPE html>
-<html lang="{{.Lang}}{{if not .Lang}}es{{end}}">
+<html lang="{{.Lang}}{{if not .Lang}}es{{end}}{{if .ThemeMode}}" data-theme-mode="{{.ThemeMode}}{{end}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
