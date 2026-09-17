@@ -57,6 +57,10 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.12.0 (issues #340/#343/#344/#347/#348)
+
+Adds structured KPIs (`MetricElement`), kicker, and image framing fields.
+
 ### 2.11.0 (audit 2026-09-11, finding F2)
 
 - **Additive**: `chartElement.seriesAxes` (`string[] | undefined`) — the per-series Chart.js scale id for a combo chart (`"y"`, `"y1"`, ...), parallel to `series`/`seriesTypes`. Lets a combo chart put a series with a very different magnitude (e.g. a percentage next to a currency amount) on its own axis instead of being flattened against the first series' scale.

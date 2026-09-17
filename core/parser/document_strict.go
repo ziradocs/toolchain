@@ -191,7 +191,7 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 				p.addError(fmt.Sprintf(
 					"id %q has no usable characters for an anchor (only letters, digits, '-' and '_' survive)", value))
 			}
-		case "title", "heading", "subtitle", "logo":
+		case "title", "heading", "subtitle", "kicker", "logo":
 			// Propiedades de SLIDE. Aceptarlas acá dejaría dos fuentes de
 			// verdad para el título de una sección (la cadena del SECTION y
 			// esta propiedad) y silenciaría un archivo escrito contra el

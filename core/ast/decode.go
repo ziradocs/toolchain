@@ -69,6 +69,8 @@ func DecodeElement(raw json.RawMessage) (Element, error) {
 		target = &QuizElement{}
 	case NodeTypePoll:
 		target = &PollElement{}
+	case NodeTypeMetric:
+		target = &MetricElement{}
 	case NodeTypeGrid:
 		target = &GridElement{}
 	case NodeTypeColumn:
@@ -104,6 +106,8 @@ type contentBlockAlias struct {
 	HeadingHTML          string                            `json:"headingHTML,omitempty"`
 	Subtitle             string                            `json:"subtitle,omitempty"`
 	SubtitleHTML         string                            `json:"subtitleHTML,omitempty"`
+	Kicker               string                            `json:"kicker,omitempty"`
+	KickerHTML           string                            `json:"kickerHTML,omitempty"`
 	Logo                 string                            `json:"logo,omitempty"`
 	Elements             []json.RawMessage                 `json:"elements"`
 	HeaderFooterOverride *ContentBlockHeaderFooterOverride `json:"header_footer_override,omitempty"`
@@ -127,6 +131,8 @@ func (c *ContentBlock) UnmarshalJSON(data []byte) error {
 	c.HeadingHTML = alias.HeadingHTML
 	c.Subtitle = alias.Subtitle
 	c.SubtitleHTML = alias.SubtitleHTML
+	c.Kicker = alias.Kicker
+	c.KickerHTML = alias.KickerHTML
 	c.Logo = alias.Logo
 	c.HeaderFooterOverride = alias.HeaderFooterOverride
 	c.LayoutConfig = alias.LayoutConfig

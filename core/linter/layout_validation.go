@@ -440,7 +440,7 @@ func validateStatsSlideData(slide *ast.ContentBlock) []diagnostics.Diagnostic {
 	hasDataElement := false
 	for _, element := range slide.Elements {
 		elementType := string(element.GetType())
-		if elementType == "chart" || elementType == "table" {
+		if elementType == "chart" || elementType == "table" || elementType == "metric" {
 			hasDataElement = true
 			break
 		}
@@ -450,7 +450,7 @@ func validateStatsSlideData(slide *ast.ContentBlock) []diagnostics.Diagnostic {
 		diag := diagnostics.Diagnostic{
 			Severity: diagnostics.Warning,
 			Code:     "LAYOUT007",
-			Message:  "Stats slides should contain at least one chart or table element",
+			Message:  "Stats slides should contain at least one chart, table or metric element",
 			Position: slide.Position,
 		}
 		diags = append(diags, diag)
@@ -743,22 +743,9 @@ func validateDashboardSlide(slide *ast.ContentBlock) []diagnostics.Diagnostic {
 
 	for _, element := range slide.Elements {
 		elementType := string(element.GetType())
-		if elementType == "chart" || elementType == "table" {
+		if elementType == "chart" || elementType == "table" || elementType == "metric" {
 			hasDataElement = true
 			break
-		}
-		if element.GetType() == ast.NodeTypeText {
-			if textElement, ok := element.(*ast.TextElement); ok {
-				content := textElement.Content
-				// Buscar patrones de métricas
-				if strings.Contains(content, "%") || strings.Contains(content, "$") ||
-					strings.Contains(content, "€") || strings.Contains(content, "usuarios") ||
-					strings.Contains(content, "users") || strings.Contains(content, "métricas") ||
-					strings.Contains(content, "metrics") {
-					hasDataElement = true
-					break
-				}
-			}
 		}
 	}
 

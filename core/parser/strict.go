@@ -267,6 +267,8 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 			block.Heading = value
 		case "subtitle":
 			block.Subtitle = value
+		case "kicker":
+			block.Kicker = value
 		case "logo":
 			block.Logo = value
 		default:
@@ -491,6 +493,11 @@ func (p *strictBody) parseIndentedElements(
 			}
 		} else if canParseStrict(&elements.PollParser{}, trimmedLine) {
 			element := p.parsePollElement()
+			if element != nil {
+				block.Elements = append(block.Elements, element)
+			}
+		} else if canParseStrict(&elements.MetricParser{}, trimmedLine) {
+			element := p.parseMetricElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
@@ -865,6 +872,10 @@ func (p *strictBody) parseQuizElement() ast.Element {
 
 func (p *strictBody) parsePollElement() ast.Element {
 	return p.parseEmbeddedElement(&elements.PollParser{}, "<<poll>>")
+}
+
+func (p *strictBody) parseMetricElement() ast.Element {
+	return p.parseEmbeddedElement(&elements.MetricParser{}, "<<metric>>")
 }
 
 // parseEmbeddedElement corre un ElementParser del registry sobre la posición

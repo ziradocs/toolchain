@@ -323,7 +323,6 @@ Directives control slide and element behavior:
 | `@transition` | `@transition: type` | Slide transition |
 | `@layout` | `@layout: layout_name` | Slide layout |
 | `@timer` | `@timer: seconds` | Slide timing |
-| `@reveal` | `@reveal: animation` | Element reveal animation |
 
 ### Special Blocks
 

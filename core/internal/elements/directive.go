@@ -60,12 +60,17 @@ func (p *DirectiveParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 
 	directive := ast.NewDirectiveNode(pos, name)
 	directive.Parameters = parameters
-
-	return &ParseResult{
+	result := &ParseResult{
 		Element:       directive,
 		ConsumedLines: 1,
 		Error:         nil,
 	}
+	// @reveal nunca tuvo consumidor: se retira de forma explícita en vez de
+	// dejarlo llegar al renderer como texto visible (issue #341).
+	if name == "reveal" {
+		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("@reveal fue retirada; usá una directiva modificadora como @fade-in", pos, "directive-parser").WithRuleID("DIRECTIVE001")}
+	}
+	return result
 }
 
 // parseDirectiveNameAndParams parses directive name and parameters

@@ -451,6 +451,8 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
         <div class="slidelang-slide slidelang-{{$slide.ChromeClassType}}-slide{{if $slide.UsesContentChrome}} slidelang-content-slide{{end}}{{if eq $index 0}} slidelang-active{{end}}"
              data-slide="{{$index}}"
              data-slide-type="{{$slide.Type}}"
+			 {{if $slide.Background}}style="background: {{$slide.Background}}"{{end}}
+			 {{if $slide.SectionIndex}}data-section-index="{{$slide.SectionIndex}}"{{end}}
              {{if $slide.LayoutColumns}}data-layout-columns="{{$slide.LayoutColumns}}"{{end}}
              {{if $slide.LayoutAlign}}data-layout-align="{{$slide.LayoutAlign}}"{{end}}
              data-slide-title="{{$slide.DisplayTitle}}"
@@ -469,6 +471,9 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
                 <div class="slidelang-title-slide-container">
                     {{/* Sección de título principal */}}
                     <div class="slidelang-title-section">
+                        {{if $slide.Kicker}}
+                            <p class="slidelang-kicker">{{$slide.Kicker}}</p>
+                        {{end}}
                         {{if $slide.Heading}}
                             <h1 class="slidelang-main-title">{{$slide.Heading}}</h1>
                         {{else if $slide.Title}}
@@ -491,10 +496,16 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
             {{else}}
                 {{/* Layout para slides de contenido */}}
                 <div class="slidelang-content-wrapper">
+                    {{if $slide.Kicker}}
+                        <p class="slidelang-kicker">{{$slide.Kicker}}</p>
+                    {{end}}
                     {{if $slide.Title}}
                         <h1>{{$slide.Title}}</h1>
                     {{else}}
                         {{template "slide-h1-fallback" (dict "index" $index)}}
+                    {{end}}
+                    {{if $slide.Subtitle}}
+                        <p class="slidelang-subtitle">{{$slide.Subtitle}}</p>
                     {{end}}
                     {{if $slide.Elements}}
                     <div class="slidelang-content-elements">
@@ -669,12 +680,14 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  id="slidelang-element-image-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="image"
                  data-slide="{{.SlideIndex}}"
-                 data-context="{{.Context}}">
+                 data-context="{{.Context}}"
+                 {{if .ImageFit}}data-fit="{{.ImageFit}}"{{end}}
+                 {{if .ImageBleed}}data-bleed="true"{{end}}>
                 {{if .Source}}
                 <img src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"
                      alt="{{.Alt}}"
                      {{if not .SkipLazyLoad}}loading="lazy"{{end}}
-                     style="object-fit: contain;">
+                     {{if .ImageFocus}}style="object-position: {{.ImageFocus}};"{{end}}>
                 {{else}}
                 <div class="slidelang-image-blocked" role="img" aria-label="{{.Alt}}" style="padding:1em;text-align:center;color:#a94442;background:#f2dede;border:1px solid #ebccd1;border-radius:4px;">Image blocked for security</div>
                 {{end}}
@@ -913,7 +926,13 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                     <li><button type="button" class="poll-option" data-index="{{$i}}" aria-pressed="false">{{$opt | markdownInline}}</button></li>
                     {{end}}
                 </ol>
-            </div>        {{else if eq .Type "checklist"}}
+            </div>        {{else if eq .Type "metric"}}
+            <section class="slidelang-element slidelang-metric" data-element-type="metric" data-trend="{{.MetricTrend}}">
+                {{if .MetricLabel}}<p class="metric-label">{{.MetricLabel | markdownInline}}</p>{{end}}
+                <p class="metric-value">{{.MetricValue | markdownInline}}</p>
+                {{if .MetricDelta}}<p class="metric-delta">{{.MetricDelta | markdownInline}}</p>{{end}}
+                {{if .MetricCaption}}<p class="metric-caption">{{.MetricCaption | markdownInline}}</p>{{end}}
+            </section>        {{else if eq .Type "checklist"}}
             <div class="slidelang-element slidelang-checklist {{range .CSSClasses}}slidelang-{{.}} {{end}}"
                  id="slidelang-element-checklist-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="checklist"
