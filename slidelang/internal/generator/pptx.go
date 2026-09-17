@@ -198,6 +198,9 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 		layout = pptx.LayoutTitleSlide
 	}
 	s := p.AddSlide(pptx.WithLayout(layout))
+	// @background es metadata del slide: debe aplicarse antes que cualquier
+	// shape para quedar detrás del contenido y del watermark (issue #341).
+	g.pptxApplyBackground(s, block)
 
 	// Primer shape del spTree ⇒ detrás de todo lo demás (issue #179): la
 	// pre-mezcla de opacidad solo es visualmente exacta contra el fondo del
@@ -247,6 +250,35 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 			continue
 		}
 		cursorY = g.pptxAddElement(s, block.Elements[i], cursorY, opts, variables, kroki, rich)
+	}
+}
+
+func (g *Generator) pptxApplyBackground(s *pptx.Slide, block *ast.ContentBlock) {
+	for _, element := range block.Elements {
+		d, ok := element.(*ast.DirectiveNode)
+		if !ok || d.Name != "background" {
+			continue
+		}
+		value, _ := d.Parameters["color"].(string)
+		if value == "" {
+			value, _ = d.Parameters["image"].(string)
+		}
+		if value == "" {
+			value, _ = d.Parameters["value"].(string)
+		}
+		value = strings.TrimSpace(value)
+		if r, gr, b, ok := a11y.ParseColor(value); ok {
+			s.Background(drawingml.Color{R: r, G: gr, B: b})
+			return
+		}
+		// Una imagen local declarada explícitamente cubre el canvas. URLs se
+		// omiten en PPTX: el renderer no hace red implícita al exportar.
+		if value != "" {
+			if _, err := os.Stat(value); err == nil {
+				s.AddImageWithSize(value, 0, 0, pptxSlideWidthEMU, pptxSlideHeightEMU)
+			}
+		}
+		return
 	}
 }
 
