@@ -627,6 +627,20 @@ func sortedRecognizedSlideTypes(schemas map[string]SlideLayoutSchema) []string {
 	return layouts.KnownSlideTypes()
 }
 
+// schemalessKnownSlideTypes se conserva como vista derivada para los tests y
+// consumidores internos históricos; no es una segunda tabla. El catálogo de
+// core/layouts sigue siendo la fuente única (issue #345).
+var schemalessKnownSlideTypes = func() map[string]bool {
+	withSchema := GetSlideLayoutSchemas()
+	result := make(map[string]bool)
+	for _, name := range layouts.KnownSlideTypes() {
+		if _, ok := withSchema[name]; !ok {
+			result[name] = true
+		}
+	}
+	return result
+}()
+
 // schemaFor resuelve el schema de un tipo de slide aplicando la política, o
 // reporta que no hay ninguno que validar (tipo vacío, sin schema, o uno de los
 // reconocidos sin schema).

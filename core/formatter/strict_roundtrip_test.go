@@ -201,6 +201,11 @@ func normalizeElement(el ast.Element) ast.Element {
 		c.QuestionHTML, c.OptionsHTML = "", nil
 		c.LangRuns, c.DiscardedLangRuns = nil, nil
 		return &c
+	case *ast.MetricElement:
+		c := *e
+		c.Position, c.EndPosition = zeroPosition, zeroPosition
+		c.LabelHTML, c.ValueHTML, c.DeltaHTML, c.CaptionHTML = "", "", "", ""
+		return &c
 	default:
 		// Un tipo sin case conserva su Position, y entonces el round-trip
 		// falla por el corrimiento de líneas que el propio formateo produce
