@@ -1003,9 +1003,9 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                      data-slide="{{.SlideIndex}}"
                      data-directive="{{.DirectiveName}}"
                      {{directiveDataAttrs .DirectiveParams}}>
-                    {{- if and .Content (ne .DirectiveName "notes") -}}
-                        <span class="directive-indicator">@{{.DirectiveName}}</span>
-                    {{- end -}}
+                    {{/* Las directivas genéricas son metadatos; nunca se
+                        representan como texto dentro del slide. El parser
+                        ya diagnostica cualquier nombre sin consumidor. */}}
                 </div>
             {{- end -}}
         {{else if eq .Type "grid"}}

@@ -201,6 +201,14 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 	// @background es metadata del slide: debe aplicarse antes que cualquier
 	// shape para quedar detrás del contenido y del watermark (issue #341).
 	g.pptxApplyBackground(s, block)
+	// Las imágenes bleed son fondo visual, no contenido en flujo. Se agregan
+	// antes de los placeholders para que no cubran título/subtítulo en el
+	// árbol de shapes de PowerPoint (issue #347).
+	for _, element := range block.Elements {
+		if image, ok := element.(*ast.ImageElement); ok && image.Bleed {
+			_ = g.pptxAddImage(s, image, 0, opts)
+		}
+	}
 
 	// Primer shape del spTree ⇒ detrás de todo lo demás (issue #179): la
 	// pre-mezcla de opacidad solo es visualmente exacta contra el fondo del
@@ -246,6 +254,9 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 	}
 
 	for i := range block.Elements {
+		if image, ok := block.Elements[i].(*ast.ImageElement); ok && image.Bleed {
+			continue
+		}
 		if d, ok := block.Elements[i].(*ast.DirectiveNode); ok && (d.Name == "background" || d.Name == "reveal") {
 			continue
 		}

@@ -563,10 +563,14 @@ export interface ImageElement extends BaseNode {
   altHTML?: string; // Alt con {{variables}} sustituidas y escapadas (sin markdown)
   caption?: string;
   captionHTML?: string; // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+  /**
+   * Context es metadata histórica inferida desde la posición del elemento.
+   * Deprecated: ningún renderer la usa; los autores deben declarar Fit,
+   * Focus y Bleed para expresar el encuadre deseado (issue #347).
+   */
   context?: ImageContext;
   /**
-   * Fit/Focus/Bleed describen el encuadre declarado por el autor. Context es
-   * una heurística heredada y no participa en estas decisiones (#347).
+   * Fit/Focus/Bleed describen el encuadre declarado por el autor.
    */
   fit?: string; // cover | contain
   focus?: string; // "x% y%", válido con cover

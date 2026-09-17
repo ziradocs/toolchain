@@ -83,3 +83,38 @@ func TestGeneratePPTX_PreservesElementOrder(t *testing.T) {
 		t.Errorf("markers leaked across slides: block1/block2 content not cleanly separated")
 	}
 }
+
+// La imagen bleed representa el fondo visual de un slide. Debe estar antes
+// del título en el árbol de shapes para no taparlo al abrir el PPTX (#347).
+func TestGeneratePPTX_BleedImageIsBehindTitle(t *testing.T) {
+	dir := t.TempDir()
+	imagePath := filepath.Join(dir, "bleed.png")
+	if err := os.WriteFile(imagePath, tinyPNG, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	doc := ast.NewAST(pos())
+	doc.FrontMatter = ast.NewFrontMatterNode(pos())
+	doc.FilePath = "bleed.slidelang"
+	block := ast.NewContentBlock(pos(), "content")
+	block.Title = "titulo-sobre-bleed"
+	image := ast.NewImageElement(pos(), "bleed.png", "fondo")
+	image.Bleed = true
+	block.Elements = []ast.Element{image}
+	doc.ContentBlocks = []ast.ContentBlock{*block}
+
+	g := New(util.NewNoop())
+	if err := g.generatePPTX(doc, dir, GeneratorOptions{AssetRoot: dir}); err != nil {
+		t.Fatalf("generatePPTX() error = %v", err)
+	}
+
+	slideXML := zipEntryContent(t, filepath.Join(dir, "bleed.pptx"), "ppt/slides/slide1.xml")
+	imageAt := strings.Index(slideXML, "<p:pic>")
+	titleAt := strings.Index(slideXML, "titulo-sobre-bleed")
+	if imageAt < 0 || titleAt < 0 {
+		t.Fatalf("faltan imagen o título en slide1.xml: image=%d title=%d", imageAt, titleAt)
+	}
+	if imageAt >= titleAt {
+		t.Errorf("la imagen bleed quedó sobre el título (image@%d, title@%d)", imageAt, titleAt)
+	}
+}

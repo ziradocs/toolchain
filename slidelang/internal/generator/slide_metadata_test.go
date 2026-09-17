@@ -65,6 +65,30 @@ func TestRenderHTMLPreview_SlideTitleReachesTheDOMForEveryTitleAlias(t *testing.
 	}
 }
 
+// @background con una ruta local debe recorrer el mismo camino HTML/PDF que
+// una URL remota. Antes, html/template sustituía url(...) por ZgotmplZ porque
+// Background era string, y las rutas locales quedaban descartadas antes.
+func TestRenderHTMLPreview_LocalImageBackgroundReachesSlideStyle(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	background := ast.NewDirectiveNode(pos, "background")
+	background.Parameters["image"] = "assets/cover image.png"
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Con fondo"
+	block.Elements = []ast.Element{background}
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	html, err := New(util.NewNoop()).RenderHTMLPreview(doc, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	if !strings.Contains(html, `background: url(&#34;assets/cover image.png&#34;)`) {
+		t.Errorf("el fondo local no llegó al style del slide:\n%s", html)
+	}
+	if strings.Contains(html, "#ZgotmplZ") {
+		t.Errorf("html/template rechazó el fondo local como URL insegura:\n%s", html)
+	}
+}
+
 // Un quiz y un poll son los únicos elementos que el visor responde con clics.
 // Faltaban en detectInteractiveElements, así que un slide con un quiz se
 // anunciaba como no interactivo mientras uno con una cita se anunciaba como

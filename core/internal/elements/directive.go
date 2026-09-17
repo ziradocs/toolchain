@@ -69,8 +69,27 @@ func (p *DirectiveParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	// dejarlo llegar al renderer como texto visible (issue #341).
 	if name == "reveal" {
 		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("@reveal fue retirada; usá una directiva modificadora como @fade-in", pos, "directive-parser").WithRuleID("DIRECTIVE001")}
+	} else if name == "layout" {
+		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("@layout fue retirada; declarà layout: en el bloque de metadata del slide", pos, "directive-parser").WithRuleID("DIRECTIVE002")}
+	} else if !knownDirective(name) {
+		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("La directiva @"+name+" no tiene consumidor y fue ignorada", pos, "directive-parser").WithRuleID("DIRECTIVE003")}
 	}
 	return result
+}
+
+// knownDirective enumera solo directivas que llegan a una semántica real:
+// metadata, un módulo JS o una clase del elemento siguiente. Mantener esta
+// lista explícita evita que una nueva grafía caiga en el renderer genérico sin
+// diagnóstico (issue #341).
+func knownDirective(name string) bool {
+	switch name {
+	case "background", "notes", "timer", "transition", "highlight", "auto-play",
+		"center", "fade-in", "slide-up", "bounce", "large", "small", "spacing-wide", "margin-large",
+		"float-left", "float-right", "no-transition", "full-screen":
+		return true
+	default:
+		return false
+	}
 }
 
 // parseDirectiveNameAndParams parses directive name and parameters

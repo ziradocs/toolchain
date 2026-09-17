@@ -2050,9 +2050,9 @@ func layoutAlign(cfg *ast.LayoutConfig) string {
 }
 
 // slideBackground extrae la única directiva de fondo por slide. El valor se
-// restringe a colores CSS simples o a url(https/data) para que no se convierta
-// en una vía de inyección de estilos al llegar al atributo style del template.
-func slideBackground(slide ast.ContentBlock) string {
+// restringe a colores simples o a una URL/ruta de imagen que se vuelve a
+// escapar antes de marcarse como CSS confiable para el template.
+func slideBackground(slide ast.ContentBlock) htmltemplate.CSS {
 	for _, element := range slide.Elements {
 		d, ok := element.(*ast.DirectiveNode)
 		if !ok || d.Name != "background" {
@@ -2069,13 +2069,30 @@ func slideBackground(slide ast.ContentBlock) string {
 		if value == "" {
 			return ""
 		}
-		if strings.HasPrefix(value, "#") || strings.HasPrefix(value, "rgb(") || strings.HasPrefix(value, "hsl(") || regexp.MustCompile(`^[a-zA-Z-]+$`).MatchString(value) {
-			return value
+		if safeBackgroundColor(value) {
+			return htmltemplate.CSS(value)
 		}
-		if strings.HasPrefix(value, "https://") || strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "data:image/") {
-			return "url('" + value + "')"
+		if safeBackgroundImageReference(value) {
+			escaped := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(value)
+			return htmltemplate.CSS(`url("` + escaped + `")`)
 		}
 		return ""
 	}
 	return ""
+}
+
+var safeBackgroundColorPattern = regexp.MustCompile(`^(?:#[0-9A-Fa-f]{3,8}|(?:rgb|hsl)a?\([0-9.%\s,+-]+\)|[A-Za-z-]+)$`)
+
+func safeBackgroundColor(value string) bool {
+	return safeBackgroundColorPattern.MatchString(value)
+}
+
+func safeBackgroundImageReference(value string) bool {
+	if strings.ContainsAny(value, "\x00\r\n'(){};") {
+		return false
+	}
+	// Rutas relativas/locales son el caso normal del DSL y deben llegar al
+	// HTML/PDF igual que las fuentes de IMAGE. Se aceptan junto con URL web y
+	// data:image; la comilla doble se escapa al construir url("…").
+	return value != ""
 }

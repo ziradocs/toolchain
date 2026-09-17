@@ -503,9 +503,11 @@ type ImageElement struct {
 	AltHTML     string       `json:"altHTML,omitempty"` // Alt con {{variables}} sustituidas y escapadas (sin markdown)
 	Caption     string       `json:"caption,omitempty"`
 	CaptionHTML string       `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+	// Context es metadata histórica inferida desde la posición del elemento.
+	// Deprecated: ningún renderer la usa; los autores deben declarar Fit,
+	// Focus y Bleed para expresar el encuadre deseado (issue #347).
 	Context     ImageContext `json:"context,omitempty"`
-	// Fit/Focus/Bleed describen el encuadre declarado por el autor. Context es
-	// una heurística heredada y no participa en estas decisiones (#347).
+	// Fit/Focus/Bleed describen el encuadre declarado por el autor.
 	Fit   string `json:"fit,omitempty"`   // cover | contain
 	Focus string `json:"focus,omitempty"` // "x% y%", válido con cover
 	Bleed bool   `json:"bleed,omitempty"`

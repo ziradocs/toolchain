@@ -145,9 +145,10 @@ type SlideData struct {
 	Heading  string
 	Subtitle string
 	Kicker   string
-	// Background contiene un valor CSS validado de @background. Es vacío si
-	// el slide usa el fondo provisto por su tema.
-	Background string
+	// Background contiene CSS ya validado de @background. El tipo CSS evita
+	// que html/template vuelva a rechazar url(...) después de que el parser
+	// validó y escapó su origen.
+	Background htmltemplate.CSS
 	Logo       string
 	Elements   []ElementData
 	IsTitle    bool
