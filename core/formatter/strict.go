@@ -770,9 +770,8 @@ func formatMermaid(e *ast.MermaidElement) string {
 	return "<<mermaid>>\n" + indent(e.Content, 2)
 }
 
-// formatStrictMath emite <<math>> (issue #239-B) con una línea label:
-// opcional, mismo patrón exacto que el label de TABLE/IMAGE
-// (formatStrictImage/formatTableElement): quote() + checkQuotable() —
+// formatStrictMath emite <<math>> (issue #239-B) con líneas caption:/label:
+// opcionales, el mismo patrón que TABLE/IMAGE: quote() + checkQuotable() —
 // consistencia de round-trip, no una forma alterna sin comillas.
 //
 // A DIFERENCIA de formatMermaid (que no emite <<end>> — su contenido nunca
@@ -784,6 +783,12 @@ func formatMermaid(e *ast.MermaidElement) string {
 // corregido vía TestFormatStrict_RoundTrip_Corpus (formatter/strict_roundtrip_test.go).
 func formatStrictMath(e *ast.MathElement) (string, error) {
 	body := "<<math>>\n" + indent(e.Content, 2)
+	if e.Caption != "" {
+		if err := checkQuotable("math", "caption", e.Caption); err != nil {
+			return "", err
+		}
+		body += "\n" + indent("caption: "+quote(e.Caption), 2)
+	}
 	if e.Label != "" {
 		if err := checkQuotable("math", "label", e.Label); err != nil {
 			return "", err

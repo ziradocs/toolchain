@@ -9,6 +9,7 @@ SLIDE content
     Ver la ecuación de Einstein a continuación.
   <<math>>
     E = mc^2
+    caption: "Mass-energy equivalence"
     label: "eq:einstein"
   <<end>>
   TEXT

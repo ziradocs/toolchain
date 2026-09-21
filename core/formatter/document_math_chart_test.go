@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/xref"
 )
 
 // Los dos tests de este archivo arrancan de TEXTO DSL real, no de un AST
@@ -36,6 +37,7 @@ Prosa antes.
 
 <<math>>
 E = mc^2
+caption: "Mass-energy equivalence"
 label: "eq:einstein"
 <<end>>
 
@@ -50,6 +52,16 @@ $$
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
+	if _, err := xref.AssignNumbers(doc); err != nil {
+		t.Fatalf("AssignNumbers (original): %v", err)
+	}
+	originalMath := collectMath(doc)
+	if len(originalMath) != 2 {
+		t.Fatalf("el fixture debería producir 2 MathElement, produjo %d — ¿cambió MathParser?", len(originalMath))
+	}
+	if got := originalMath[0]; got.Content != "E = mc^2" || got.Caption != "Mass-energy equivalence" || got.Label != "eq:einstein" || got.Number != 1 {
+		t.Fatalf("MathElement original = %+v, want content, caption, label y número derivado preservados", got)
+	}
 
 	out, err := FormatDocument(doc)
 	if err != nil {
@@ -60,11 +72,11 @@ $$
 	if err != nil {
 		t.Fatalf("el output no re-parsea: %v\n%s", err, out)
 	}
+	if _, err := xref.AssignNumbers(reparsed); err != nil {
+		t.Fatalf("AssignNumbers (reparsed): %v", err)
+	}
 
 	want, got := collectMath(normalizeForComparison(doc)), collectMath(normalizeForComparison(reparsed))
-	if len(want) != 2 {
-		t.Fatalf("el fixture debería producir 2 MathElement, produjo %d — ¿cambió MathParser?", len(want))
-	}
 	if !reflect.DeepEqual(want, got) {
 		t.Errorf("los MathElement no round-tripean:\nwant %+v\ngot  %+v\nformateado:\n%s", want, got, out)
 	}
@@ -75,6 +87,9 @@ $$
 	// al primero.
 	if n := strings.Count(out, "<<math>>"); n != 2 {
 		t.Errorf("se esperaban 2 bloques <<math>> en la salida canónica, hay %d:\n%s", n, out)
+	}
+	if !strings.Contains(out, "caption: \"Mass-energy equivalence\"\nlabel: \"eq:einstein\"") {
+		t.Errorf("fmt no emitió caption: antes de label: en la forma canónica:\n%s", out)
 	}
 
 	// Idempotencia: `fmt` promete salida determinista, y el harness del corpus

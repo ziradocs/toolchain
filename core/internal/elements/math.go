@@ -48,16 +48,17 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	isDollarFormat := strings.HasPrefix(openingLine, "$$") && !strings.HasPrefix(openingLine, "<<math>>")
 
 	var content strings.Builder
-	var label string
+	var caption, label string
 	consumedLines := 1
 
 	if isDollarFormat {
 		consumedLines = p.parseDollarForm(ctx.Lines, startIndex, openingLine, &content)
 	} else {
-		consumedLines = p.parseAngleForm(ctx.Lines, startIndex, ctx.Mode, &content, &label)
+		consumedLines = p.parseAngleForm(ctx.Lines, startIndex, ctx.Mode, &content, &caption, &label)
 	}
 
 	math := ast.NewMathElement(pos, content.String())
+	math.Caption = caption
 	math.Label = label
 
 	return &ParseResult{
@@ -114,7 +115,7 @@ func (p *MathParser) parseDollarForm(lines []string, startIndex int, openingLine
 }
 
 // parseAngleForm recoge el contenido de un bloque `<<math>> ... <<end>>`,
-// tolerando una línea `label:` opcional dentro. NO usa detección de
+// tolerando líneas `caption:` y `label:` opcionales dentro. NO usa detección de
 // indentación (a diferencia de mermaid.go): mermaid.go asume contexto SLIDE
 // indentado 2 espacios, válido en modo strict — pero `<<math>>` también se
 // soporta en modo flex (doclang), donde el contenido va a columna 0, SIN
@@ -137,7 +138,7 @@ func (p *MathParser) parseDollarForm(lines []string, startIndex int, openingLine
 // en su propia línea (p. ej. una matriz o vector nombrado así) dispararía
 // esto por error si corriera también en flex — y flex ya termina
 // correctamente en "---" o EOF.
-func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string, content *strings.Builder, label *string) int {
+func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string, content *strings.Builder, caption, label *string) int {
 	consumed := 1
 
 	for i := startIndex + 1; i < len(lines); i++ {
@@ -154,6 +155,14 @@ func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string,
 			break
 		}
 		if trimmedLine == "" {
+			consumed++
+			continue
+		}
+		if strings.HasPrefix(trimmedLine, "caption:") {
+			// Igual que IMAGE/TABLE, el caption es prosa asociada a la
+			// ecuación y no parte del LaTeX crudo.
+			captionStr := strings.TrimPrefix(trimmedLine, "caption:")
+			*caption = strings.Trim(strings.TrimSpace(captionStr), "\"")
 			consumed++
 			continue
 		}

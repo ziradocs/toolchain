@@ -66,13 +66,14 @@ func TestMathParser_ParseStrictBlock(t *testing.T) {
 	}
 }
 
-func TestMathParser_ParseStrictBlockWithLabel(t *testing.T) {
+func TestMathParser_ParseStrictBlockWithCaptionAndLabel(t *testing.T) {
 	parser := &MathParser{}
 	ctx := &ParseContext{
 		Mode: "strict",
 		Lines: []string{
 			"<<math>>",
 			"  E = mc^2",
+			`  caption: "Mass-energy equivalence"`,
 			`  label: "eq:einstein"`,
 			"<<end>>",
 		},
@@ -85,6 +86,9 @@ func TestMathParser_ParseStrictBlockWithLabel(t *testing.T) {
 	math := result.Element.(*ast.MathElement)
 	if math.Content != "E = mc^2" {
 		t.Errorf("Content = %q, want %q", math.Content, "E = mc^2")
+	}
+	if math.Caption != "Mass-energy equivalence" {
+		t.Errorf("Caption = %q, want %q", math.Caption, "Mass-energy equivalence")
 	}
 	if math.Label != "eq:einstein" {
 		t.Errorf("Label = %q, want %q", math.Label, "eq:einstein")

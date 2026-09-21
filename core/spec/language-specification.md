@@ -444,6 +444,27 @@ A tag that takes **no** attributes closes by being the whole line:
 them, the same rule `<<quiz>>`, `<<poll>>` and `<<grid>>` already had in the
 strict dialect.
 
+### Math blocks
+
+Block equations use raw LaTeX. The portable, canonical form is an explicitly
+closed `<<math>>` block. It may include a prose `caption:` and a cross-reference
+`label:` after the LaTeX body, using the same quoted metadata syntax as images
+and tables:
+
+```
+<<math>>
+E = mc^2
+caption: "Mass-energy equivalence"
+label: "eq:einstein"
+<<end>>
+```
+
+`caption:` is not part of the LaTeX content. A labeled equation receives its
+equation number during the cross-reference pass; an unlabeled equation remains
+unnumbered. In the flex dialect, `$$ ... $$` remains supported for backwards
+compatibility, but cannot carry `caption:` or `label:` metadata. Formatters
+canonicalize block equations to the `<<math>>` form so that metadata is retained.
+
 This section is about the `<<…>>` family only. The `:::` blocks match their
 name on a loose prefix and have no boundary of their own — `::: gridJUNK` is
 still parsed, and consumes the lines under it exactly as a mistyped `<<…>>` tag
