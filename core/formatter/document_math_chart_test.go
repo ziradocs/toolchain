@@ -88,8 +88,24 @@ $$
 	if n := strings.Count(out, "<<math>>"); n != 2 {
 		t.Errorf("se esperaban 2 bloques <<math>> en la salida canónica, hay %d:\n%s", n, out)
 	}
-	if !strings.Contains(out, "caption: \"Mass-energy equivalence\"\nlabel: \"eq:einstein\"") {
-		t.Errorf("fmt no emitió caption: antes de label: en la forma canónica:\n%s", out)
+	// Comprueba el orden dentro del primer bloque, no contra el documento
+	// entero: fmt indenta el cuerpo y el segundo bloque <<math>> no tiene
+	// metadatos. Así la aserción prueba exactamente la forma canónica.
+	firstMathStart := strings.Index(out, "<<math>>")
+	if firstMathStart < 0 {
+		t.Fatalf("fmt no emitió el primer bloque <<math>>:\n%s", out)
+	}
+	firstMathEnd := strings.Index(out[firstMathStart:], "<<end>>")
+	if firstMathEnd < 0 {
+		t.Fatalf("fmt no cerró el primer bloque <<math>>:\n%s", out)
+	}
+	firstMathBlock := out[firstMathStart : firstMathStart+firstMathEnd+len("<<end>>")]
+	contentAt := strings.Index(firstMathBlock, "E = mc^2")
+	captionAt := strings.Index(firstMathBlock, `caption: "Mass-energy equivalence"`)
+	labelAt := strings.Index(firstMathBlock, `label: "eq:einstein"`)
+	endAt := strings.Index(firstMathBlock, "<<end>>")
+	if contentAt < 0 || captionAt < 0 || labelAt < 0 || endAt < 0 || contentAt >= captionAt || captionAt >= labelAt || labelAt >= endAt {
+		t.Errorf("el primer bloque math no preservó content < caption < label < end:\n%s", firstMathBlock)
 	}
 
 	// Idempotencia: `fmt` promete salida determinista, y el harness del corpus
