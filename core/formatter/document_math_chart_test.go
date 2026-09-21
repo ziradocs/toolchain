@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/xref"
 )
 
 // Los dos tests de este archivo arrancan de TEXTO DSL real, no de un AST
@@ -36,6 +37,7 @@ Prosa antes.
 
 <<math>>
 E = mc^2
+caption: "Mass-energy equivalence"
 label: "eq:einstein"
 <<end>>
 
@@ -50,6 +52,16 @@ $$
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
+	if _, err := xref.AssignNumbers(doc); err != nil {
+		t.Fatalf("AssignNumbers (original): %v", err)
+	}
+	originalMath := collectMath(doc)
+	if len(originalMath) != 2 {
+		t.Fatalf("el fixture debería producir 2 MathElement, produjo %d — ¿cambió MathParser?", len(originalMath))
+	}
+	if got := originalMath[0]; got.Content != "E = mc^2" || got.Caption != "Mass-energy equivalence" || got.Label != "eq:einstein" || got.Number != 1 {
+		t.Fatalf("MathElement original = %+v, want content, caption, label y número derivado preservados", got)
+	}
 
 	out, err := FormatDocument(doc)
 	if err != nil {
@@ -60,11 +72,11 @@ $$
 	if err != nil {
 		t.Fatalf("el output no re-parsea: %v\n%s", err, out)
 	}
+	if _, err := xref.AssignNumbers(reparsed); err != nil {
+		t.Fatalf("AssignNumbers (reparsed): %v", err)
+	}
 
 	want, got := collectMath(normalizeForComparison(doc)), collectMath(normalizeForComparison(reparsed))
-	if len(want) != 2 {
-		t.Fatalf("el fixture debería producir 2 MathElement, produjo %d — ¿cambió MathParser?", len(want))
-	}
 	if !reflect.DeepEqual(want, got) {
 		t.Errorf("los MathElement no round-tripean:\nwant %+v\ngot  %+v\nformateado:\n%s", want, got, out)
 	}
@@ -75,6 +87,25 @@ $$
 	// al primero.
 	if n := strings.Count(out, "<<math>>"); n != 2 {
 		t.Errorf("se esperaban 2 bloques <<math>> en la salida canónica, hay %d:\n%s", n, out)
+	}
+	// Comprueba el orden dentro del primer bloque, no contra el documento
+	// entero: fmt indenta el cuerpo y el segundo bloque <<math>> no tiene
+	// metadatos. Así la aserción prueba exactamente la forma canónica.
+	firstMathStart := strings.Index(out, "<<math>>")
+	if firstMathStart < 0 {
+		t.Fatalf("fmt no emitió el primer bloque <<math>>:\n%s", out)
+	}
+	firstMathEnd := strings.Index(out[firstMathStart:], "<<end>>")
+	if firstMathEnd < 0 {
+		t.Fatalf("fmt no cerró el primer bloque <<math>>:\n%s", out)
+	}
+	firstMathBlock := out[firstMathStart : firstMathStart+firstMathEnd+len("<<end>>")]
+	contentAt := strings.Index(firstMathBlock, "E = mc^2")
+	captionAt := strings.Index(firstMathBlock, `caption: "Mass-energy equivalence"`)
+	labelAt := strings.Index(firstMathBlock, `label: "eq:einstein"`)
+	endAt := strings.Index(firstMathBlock, "<<end>>")
+	if contentAt < 0 || captionAt < 0 || labelAt < 0 || endAt < 0 || contentAt >= captionAt || captionAt >= labelAt || labelAt >= endAt {
+		t.Errorf("el primer bloque math no preservó content < caption < label < end:\n%s", firstMathBlock)
 	}
 
 	// Idempotencia: `fmt` promete salida determinista, y el harness del corpus

@@ -47,6 +47,7 @@ The quality gate compares the same formula in browser and offline paths.
 
 <<math>>
 E = mc^2
+caption: "Mass-energy equivalence"
 label: "eq:quality"
 <<end>>
 
