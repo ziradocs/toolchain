@@ -122,5 +122,7 @@ if (!content.includes(themeModeField)) {
 }
 content = content.replace(themeModeField, '  theme_mode?: "light" | "dark";');
 
+content = content.replace(/\n+$/, "\n");
+
 fs.writeFileSync(astTsPath, content, "utf8");
 console.log("postprocess.cjs: Element union aplicada en " + astTsPath);
