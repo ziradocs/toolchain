@@ -26,9 +26,13 @@ content stays literal. Missing targets, multiple nodes on the target line,
 invalid IDs, and duplicate IDs are errors with source positions. No fallback
 matches by content, hash, or relative position after an edit.
 
-Anchored flex input bypasses heuristic normalization so the authored node
-boundaries and source locations remain authoritative; unanchored input keeps
-the existing normalization behavior. Identity is available on blocks,
+Annotation lines are removed before the ordinary parser and normalization
+run; frontmatter and literal code/diagram lines are never interpreted as
+annotations. Parsed positions are mapped back to authored source lines.
+If normalization rewrites an annotated source, identity association is
+rejected explicitly because a transformed line may no longer name the
+authored node. Unannotated documents retain their existing behavior.
+Identity is available on blocks,
 elements, and typed nested nodes that the parser exposes. A raw grid column
 body or raw code fragment is not a separate AST node and cannot be identified
 independently. The formatter rejects an identified node if its target dialect

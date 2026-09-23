@@ -151,6 +151,9 @@ type BaseNode struct {
 
 func (b BaseNode) GetNodeID() string    { return b.NodeID }
 func (b *BaseNode) SetNodeID(id string) { b.NodeID = id }
+func (b *BaseNode) SetPositions(start, end diagnostics.Position) {
+	b.Position, b.EndPosition = start, end
+}
 
 func (b BaseNode) GetType() NodeType {
 	return b.Type

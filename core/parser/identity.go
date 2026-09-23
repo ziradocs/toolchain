@@ -12,24 +12,41 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
-// A standalone comment attaches to the very next nonblank source line. The
-// line is blanked, rather than removed, so every parser retains its original
-// source positions. Ordinary comments remain ordinary source text.
 var nodeIDDirective = regexp.MustCompile(`^<!-- node-id: ([^[:space:]]+) -->$`)
 
 type pendingNodeID struct {
 	id     string
-	line   int
-	target int
+	line   int // original, authored source line
+	target int // line after removing annotations
 }
 
-func stripNodeIDDirectives(source string) (string, []pendingNodeID, []diagnostics.Diagnostic) {
+// stripNodeIDDirectives removes only standalone annotations outside literal
+// regions and frontmatter. The ordinary parser then sees the exact source it
+// would see if the author had never added annotations. lineMap translates
+// parser positions back to the authored source.
+func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []diagnostics.Diagnostic) {
 	lines := strings.Split(source, "\n")
 	var pending []pendingNodeID
 	var diags []diagnostics.Diagnostic
+	removed := make(map[int]bool)
+	frontmatterEnd := -1
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		for i := 1; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "---" {
+				frontmatterEnd = i
+				break
+			}
+		}
+		if frontmatterEnd < 0 {
+			frontmatterEnd = len(lines) - 1
+		}
+	}
 	literal := ""
 	codeIndent := -1
 	for i, line := range lines {
+		if i <= frontmatterEnd {
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 		indent := len(line) - len(strings.TrimLeft(line, " \t"))
 		if literal == "code" && trimmed != "" && indent < codeIndent {
@@ -78,20 +95,31 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []diagnostic
 		m := nodeIDDirective.FindStringSubmatch(trimmed)
 		if m == nil || !ast.ValidNodeID(m[1]) {
 			diags = append(diags, diagnostics.NewError("invalid node-id directive: expected <!-- node-id: Name --> (1-128 ASCII letters, digits, '.', '_' or '-', starting with a letter)", pos, "identity"))
-			lines[i] = ""
+			removed[i] = true
 			continue
 		}
 		pending = append(pending, pendingNodeID{m[1], i + 1, 0})
-		lines[i] = ""
+		removed[i] = true
+	}
+	kept := make([]string, 0, len(lines))
+	lineMap := []int{0} // one-based processed line -> authored line
+	originalToKept := make(map[int]int)
+	for i, line := range lines {
+		if removed[i] {
+			continue
+		}
+		kept = append(kept, line)
+		lineMap = append(lineMap, i+1)
+		originalToKept[i+1] = len(kept)
 	}
 	for i := range pending {
 		target := pending[i].line
-		for target < len(lines) && strings.TrimSpace(lines[target]) == "" {
+		for target < len(lines) && (removed[target] || strings.TrimSpace(lines[target]) == "") {
 			target++
 		}
-		pending[i].target = target + 1
+		pending[i].target = originalToKept[target+1] // zero for EOF/orphan
 	}
-	return strings.Join(lines, "\n"), pending, diags
+	return strings.Join(kept, "\n"), pending, lineMap, diags
 }
 
 func bindNodeIDs(doc *ast.AST, pending []pendingNodeID) []diagnostics.Diagnostic {
@@ -119,6 +147,59 @@ func bindNodeIDs(doc *ast.AST, pending []pendingNodeID) []diagnostics.Diagnostic
 		}
 		matches[0].SetNodeID(marker.id)
 	}
-	diags = append(diags, ast.ValidateNodeIDs(doc)...)
 	return diags
+}
+
+func restoreNodePositions(doc *ast.AST, lineMap []int) {
+	if doc == nil {
+		return
+	}
+	translate := func(pos diagnostics.Position) diagnostics.Position {
+		if pos.Line > 0 && pos.Line < len(lineMap) {
+			pos.Line = lineMap[pos.Line]
+		}
+		return pos
+	}
+	_ = ast.Walk(doc, func(node ast.Node) error {
+		if n, ok := node.(interface {
+			SetPositions(diagnostics.Position, diagnostics.Position)
+		}); ok {
+			n.SetPositions(translate(node.GetPosition()), translate(node.GetEndPosition()))
+		}
+		return nil
+	})
+	if doc.FrontMatter != nil {
+		doc.FrontMatter.SetPositions(translate(doc.FrontMatter.Position), translate(doc.FrontMatter.EndPosition))
+	}
+}
+
+func restoreDiagnosticPositions(diags []diagnostics.Diagnostic, lineMap []int) {
+	for i := range diags {
+		line := diags[i].Position.Line
+		if line > 0 && line < len(lineMap) {
+			diags[i].Position.Line = lineMap[line]
+		}
+		if diags[i].EndPosition != nil {
+			line = diags[i].EndPosition.Line
+			if line > 0 && line < len(lineMap) {
+				diags[i].EndPosition.Line = lineMap[line]
+			}
+		}
+	}
+}
+
+func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Diagnostic, pending []pendingNodeID, lineMap []int, normalizationModified bool) []diagnostics.Diagnostic {
+	if len(pending) == 0 && len(markerDiags) == 0 {
+		return parseDiags
+	}
+	if normalizationModified && len(pending) > 0 {
+		return append(append(parseDiags, markerDiags...), diagnostics.NewError("node-id association is ambiguous after source normalization; use canonical source or strict mode", diagnostics.NewPosition(pending[0].line, 1), "identity"))
+	}
+	bound := bindNodeIDs(doc, pending)
+	restoreNodePositions(doc, lineMap)
+	restoreDiagnosticPositions(parseDiags, lineMap)
+	parseDiags = append(parseDiags, markerDiags...)
+	parseDiags = append(parseDiags, bound...)
+	parseDiags = append(parseDiags, ast.ValidateNodeIDs(doc)...)
+	return parseDiags
 }

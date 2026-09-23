@@ -49,6 +49,7 @@ var positionOffsetHelperKeys = map[string]bool{
 	// frontmatter removal, so these line numbers are already file-absolute.
 	"identity.go:stripNodeIDDirectives": true,
 	"identity.go:bindNodeIDs":           true,
+	"identity.go:finishNodeIdentities":  true,
 }
 
 // allowedGuardFile es el único archivo con una excepción POR ARCHIVO
