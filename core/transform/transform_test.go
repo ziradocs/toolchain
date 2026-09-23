@@ -77,6 +77,8 @@ func TestRunFilters_Identity(t *testing.T) {
 	}
 
 	doc := sampleDoc(t)
+	doc.ContentBlocks[0].NodeID = "BlockA"
+	doc.ContentBlocks[0].Elements[0].(*ast.TextElement).NodeID = "TextA"
 	originalTitle := doc.ContentBlocks[0].Title
 
 	out, err := RunFilters(doc, []string{catPath}, DefaultFilterTimeout)
@@ -88,6 +90,30 @@ func TestRunFilters_Identity(t *testing.T) {
 	}
 	if out.FilePath != doc.FilePath {
 		t.Errorf("FilePath no se preservó: got %q, want %q (FilePath es json:\"-\", el filtro no puede reconstruirlo)", out.FilePath, doc.FilePath)
+	}
+	if out.ContentBlocks[0].NodeID != "BlockA" || out.ContentBlocks[0].Elements[0].(*ast.TextElement).NodeID != "TextA" {
+		t.Fatal("identity filter dropped node IDs")
+	}
+}
+
+func TestRunBuiltins_NodeIDCreationAndDeletion(t *testing.T) {
+	doc := sampleDoc(t)
+	doc.ContentBlocks[0].NodeID = "Existing"
+	// Removing a node is intentional and permitted.
+	out, err := RunBuiltins(doc, []Transform{func(d *ast.AST) (*ast.AST, error) {
+		d.ContentBlocks[0].Elements = nil
+		return d, nil
+	}})
+	if err != nil || out.ContentBlocks[0].NodeID != "Existing" {
+		t.Fatalf("deletion rejected or identity lost: %v", err)
+	}
+	_, err = RunBuiltins(out, []Transform{func(d *ast.AST) (*ast.AST, error) {
+		copy := d.ContentBlocks[0]
+		d.ContentBlocks = append(d.ContentBlocks, copy)
+		return d, nil
+	}})
+	if err == nil {
+		t.Fatal("duplicated node ID was accepted after transform")
 	}
 }
 

@@ -219,6 +219,11 @@ func restoreNodePositions(doc *ast.AST, lineMap []int) {
 		}); ok {
 			n.SetPositions(translate(node.GetPosition()), translate(node.GetEndPosition()))
 		}
+		if table, ok := node.(*ast.TableElement); ok {
+			for i := range table.RowPositions {
+				table.RowPositions[i] = translate(table.RowPositions[i])
+			}
+		}
 		return nil
 	})
 	if doc.FrontMatter != nil {

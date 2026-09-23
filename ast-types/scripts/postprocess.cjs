@@ -99,6 +99,15 @@ const replacement =
   "export type Element =\n  | " + ELEMENT_UNION.join("\n  | ") + ";";
 content = content.replace(placeholder, replacement);
 
+// The Go interface includes methods; the JSON-facing shape is BaseNode.
+// tygo otherwise reduces its embedded Node interface to `any`.
+const identityPlaceholder = /export type IdentityNode = \s*\n\s*Node;/;
+if (!identityPlaceholder.test(content)) {
+  console.error("postprocess.cjs: IdentityNode placeholder changed; review tygo output.");
+  process.exit(1);
+}
+content = content.replace(identityPlaceholder, "export type IdentityNode = BaseNode;");
+
 // Go keeps ThemeMode as string to preserve invalid authored values while the
 // parser reports FRONT008, but JSON/TypeScript consumers only receive the
 // two renderable schemes. Keep this replacement adjacent to the generated

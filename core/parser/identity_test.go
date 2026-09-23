@@ -11,6 +11,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/linter"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -119,4 +120,30 @@ func TestNodeIDInFrontmatterScalarRemainsLiteral(t *testing.T) {
 			t.Fatal("frontmatter scalar became node ID")
 		}
 	}
+}
+
+func TestNodeIDRestoresTableRowDiagnosticLine(t *testing.T) {
+	source := "---\nmode: strict\n---\n\n<!-- node-id: Slide -->\nSLIDE content\n  title: \"Table\"\n  <!-- node-id: Table -->\n  | A | B |\n  |---|---|\n  | 1 | 2 |\n  | 3 | 4 | 5 |\n"
+	p := New(util.NewNoop())
+	doc, issues := p.Parse(source, "")
+	assertNoIdentityErrors(t, issues)
+	if doc == nil || len(doc.ContentBlocks) != 1 {
+		t.Fatalf("unexpected AST: %+v", doc)
+	}
+	table, ok := doc.ContentBlocks[0].Elements[0].(*ast.TableElement)
+	if !ok {
+		t.Fatalf("missing table: %T", doc.ContentBlocks[0].Elements[0])
+	}
+	if len(table.RowPositions) < 2 || table.RowPositions[1].Line != 12 {
+		t.Fatalf("row positions not remapped: %+v", table.RowPositions)
+	}
+	for _, issue := range (&linter.ElementStructureRule{}).Check(&doc.ContentBlocks[0]) {
+		if issue.RuleID == "TABLE003" {
+			if issue.Position.Line != 12 {
+				t.Fatalf("TABLE003 line = %d, want 12", issue.Position.Line)
+			}
+			return
+		}
+	}
+	t.Fatal("expected TABLE003")
 }

@@ -9,6 +9,9 @@
           "type": "string",
           "const": "presentation"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -73,6 +76,9 @@
         "type": {
           "type": "string",
           "const": "chart"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -158,6 +164,9 @@
           "type": "string",
           "const": "checklist"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -191,6 +200,9 @@
         "type": {
           "type": "string",
           "const": "checklist_item"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -274,6 +286,9 @@
           "type": "string",
           "const": "code"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -311,6 +326,9 @@
           "type": "string",
           "const": "code_group"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -344,6 +362,9 @@
         "type": {
           "type": "string",
           "const": "column"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -460,6 +481,9 @@
         "type": {
           "type": "string",
           "const": "content_block"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -607,6 +631,9 @@
           "type": "string",
           "const": "directive"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -667,6 +694,9 @@
         "type": {
           "type": "string",
           "const": "frontmatter"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -738,6 +768,9 @@
         "type": {
           "type": "string",
           "const": "grid"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -850,6 +883,9 @@
         "type": {
           "type": "string",
           "const": "image"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -986,6 +1022,9 @@
           "type": "string",
           "const": "map"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1079,6 +1118,9 @@
           "type": "string",
           "const": "math"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1121,6 +1163,9 @@
         "type": {
           "type": "string",
           "const": "media"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1169,6 +1214,9 @@
           "type": "string",
           "const": "mermaid"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1209,6 +1257,9 @@
         "type": {
           "type": "string",
           "const": "metric"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1326,6 +1377,9 @@
           "type": "string",
           "const": "plantuml"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1366,6 +1420,9 @@
         "type": {
           "type": "string",
           "const": "point_item"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1419,6 +1476,9 @@
           "type": "string",
           "const": "points"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1456,6 +1516,9 @@
         "type": {
           "type": "string",
           "const": "poll"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1536,6 +1599,9 @@
           "type": "string",
           "const": "quiz"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1605,6 +1671,9 @@
           "type": "string",
           "const": "quote"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1662,6 +1731,9 @@
         "type": {
           "type": "string",
           "const": "special_block"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1828,6 +1900,9 @@
           "type": "string",
           "const": "table"
         },
+        "nodeId": {
+          "type": "string"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1913,6 +1988,9 @@
         "type": {
           "type": "string",
           "const": "text"
+        },
+        "nodeId": {
+          "type": "string"
         },
         "position": {
           "$ref": "#/$defs/Position"

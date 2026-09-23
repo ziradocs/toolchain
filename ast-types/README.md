@@ -57,6 +57,10 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.14.0
+
+- **Additive**: `nodeId` is an optional explicit source identity on AST nodes. It is independent of existing cross-reference and HTML anchor IDs. See [portable node identities](../docs/portable-node-identities.md) for source syntax, uniqueness, and formatter behavior.
+
 ### 2.13.0
 
 - **Additive**: `frontMatter.theme_mode` (`"light" | "dark"` at the document-language level) selects a visual light/dark mode within the declared theme family. It does not reuse `frontMatter.mode`, which remains the SlideLang/DocLang dialect selector (`strict`, `flex`, etc.).
