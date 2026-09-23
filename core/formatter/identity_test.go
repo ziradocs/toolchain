@@ -148,3 +148,42 @@ func TestNestedNodeIDsRoundTrip(t *testing.T) {
 		t.Fatalf("nested format not idempotent:\n%s\n---\n%s", formatted, again)
 	}
 }
+
+func TestDocumentNodeIDsRoundTrip(t *testing.T) {
+	source := "---\nmode: flex\n---\n\n<!-- node-id: SectionA -->\n# Report\n\nIntro text\n\n<!-- node-id: SubheadA -->\n## Findings\n\nDetails\n"
+	p := parser.New(util.NewNoop())
+	p.SetNormalization(false)
+	doc, issues := p.ParseDocument(source, "report.doclang")
+	for _, issue := range issues {
+		if issue.IsError() {
+			t.Fatal(issue)
+		}
+	}
+	if len(ids(doc)) != 2 {
+		t.Fatalf("document IDs: %v", ids(doc))
+	}
+	for name, format := range map[string]func(*ast.AST) (string, error){"flex": FormatDocument, "strict": FormatDocumentStrict} {
+		t.Run(name, func(t *testing.T) {
+			formatted, err := format(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reparsed, issues := p.ParseDocument(formatted, "")
+			for _, issue := range issues {
+				if issue.IsError() {
+					t.Fatal(issue)
+				}
+			}
+			if len(ids(reparsed)) != 2 {
+				t.Fatalf("document IDs lost: %v\n%s", ids(reparsed), formatted)
+			}
+			second, err := format(reparsed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if formatted != second {
+				t.Fatalf("document fmt not idempotent:\n%s\n---\n%s", formatted, second)
+			}
+		})
+	}
+}
