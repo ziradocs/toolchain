@@ -189,6 +189,9 @@ func DecodeAST(data []byte) (*AST, error) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("decoding AST: %w", err)
 	}
+	if issues := ValidateNodeIDs(&doc); len(issues) != 0 {
+		return nil, fmt.Errorf("decoding AST: %s", issues[0].String())
+	}
 	return &doc, nil
 }
 

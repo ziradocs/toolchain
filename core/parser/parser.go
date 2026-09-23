@@ -5,6 +5,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -93,6 +94,8 @@ func (p *Parser) EnableAIProcessing() {
 // de leerse.
 func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
+	content, nodeIDs, lineMap, identityDiags := stripNodeIDDirectives(content)
+	normalizationModified := false
 
 	// FASE 1: leer el modo y el offset del frontmatter (solo para despachar
 	// y para que el body-parser cuente desde el archivo; ver el doc comment).
@@ -116,6 +119,7 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 
 		processed, report := normalize.ProcessWithDetection(content, detectionResult, base.DialectDocuments, p.logger)
 		if report.WasModified {
+			normalizationModified = true
 			rulesApplied := len(report.GetTransformationsApplied())
 			changeBytes := len(processed) - len(content)
 			p.logger.Info("NORMALIZE", "Normalización aplicada → %d reglas, %+d bytes", rulesApplied, changeBytes)
@@ -148,7 +152,7 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
-	return astNode, allDiagnostics
+	return astNode, finishNodeIdentities(astNode, allDiagnostics, identityDiags, nodeIDs, lineMap, content, normalizationModified)
 }
 
 // peekDocument devuelve el `mode:` declarado en content y cuántas líneas del
@@ -198,13 +202,15 @@ func bodyLineOffset(fm *ast.FrontMatterNode) int {
 
 func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
+	content, nodeIDs, lineMap, identityDiags := stripNodeIDDirectives(content)
+	normalizationModified := false
 
 	// FASE 1: Parsear FrontMatter primero para determinar el modo
 	frontMatter, bodyContent, fmDiagnostics := p.frontMatterParser.Parse(content)
 	allDiagnostics = append(allDiagnostics, fmDiagnostics...)
 
 	if frontMatter == nil {
-		return nil, allDiagnostics
+		return nil, append(allDiagnostics, identityDiags...)
 	}
 
 	// bodyOffset se deriva del frontMatter recién parseado del contenido
@@ -238,6 +244,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		processed, report := normalize.ProcessWithDetection(content, detectionResult, base.DialectSlides, p.logger)
 		preProcessReport = &report
 		if report.WasModified {
+			normalizationModified = true
 			processedContent = processed
 
 			// Información esencial - siempre visible
@@ -308,6 +315,9 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			// AI deshabilitado, aplicar normalización básica manual
 			processedBodyContent = p.applyBasicNormalization(bodyContent)
 		}
+		if processedBodyContent != bodyContent {
+			normalizationModified = true
+		}
 		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
@@ -324,6 +334,9 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			// AI deshabilitado, aplicar normalización completa manual
 			processedBodyContent = p.applyFullNormalization(bodyContent)
 		}
+		if processedBodyContent != bodyContent {
+			normalizationModified = true
+		}
 		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
@@ -332,6 +345,9 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		// Modo automático: detecta si es AI y aplica el procesamiento apropiado
 		// Si ya hubo pre-procesamiento, usamos ese resultado
 		autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
+		if strings.Join(autoParser.lines, "\n") != bodyContent {
+			normalizationModified = true
+		}
 		astNode, bodyDiagnostics = autoParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -346,6 +362,9 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			}
 			allDiagnostics = append(allDiagnostics, aiDiag)
 			autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
+			if strings.Join(autoParser.lines, "\n") != bodyContent {
+				normalizationModified = true
+			}
 			astNode, bodyDiagnostics = autoParser.Parse()
 			astNode.FrontMatter = frontMatter
 			astNode.FilePath = filePath
@@ -358,7 +377,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
-	return astNode, allDiagnostics
+	return astNode, finishNodeIdentities(astNode, allDiagnostics, identityDiags, nodeIDs, lineMap, content, normalizationModified)
 }
 
 // createAutoParser crea un parser automático que detecta si es contenido generado por IA

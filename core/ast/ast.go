@@ -97,7 +97,9 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // preserves the visual light/dark mode selected for a theme family. It is
 // deliberately distinct from FrontMatterNode.Mode, which already controls
 // the document language dialect (strict/flex/flex-full/flex-ai/auto).
-const SchemaVersion = "2.13.0"
+// 2.14.0: optional, explicit NodeID on nodes with BaseNode. It is an
+// editorial identity, independent of reference/HTML ids on individual nodes.
+const SchemaVersion = "2.14.0"
 
 // Node representa un nodo base en el AST
 type Node interface {
@@ -141,9 +143,16 @@ const (
 // BaseNode contiene campos comunes para todos los nodos
 type BaseNode struct {
 	Type        NodeType             `json:"type"`
+	NodeID      string               `json:"nodeId,omitempty"`
 	Position    diagnostics.Position `json:"position"`
 	EndPosition diagnostics.Position `json:"endPosition"`
 	Comments    []string             `json:"comments,omitempty"`
+}
+
+func (b BaseNode) GetNodeID() string    { return b.NodeID }
+func (b *BaseNode) SetNodeID(id string) { b.NodeID = id }
+func (b *BaseNode) SetPositions(start, end diagnostics.Position) {
+	b.Position, b.EndPosition = start, end
 }
 
 func (b BaseNode) GetType() NodeType {

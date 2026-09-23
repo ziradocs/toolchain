@@ -9,6 +9,10 @@
           "type": "string",
           "const": "presentation"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -73,6 +77,10 @@
         "type": {
           "type": "string",
           "const": "chart"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -158,6 +166,10 @@
           "type": "string",
           "const": "checklist"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -191,6 +203,10 @@
         "type": {
           "type": "string",
           "const": "checklist_item"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -274,6 +290,10 @@
           "type": "string",
           "const": "code"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -311,6 +331,10 @@
           "type": "string",
           "const": "code_group"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -344,6 +368,10 @@
         "type": {
           "type": "string",
           "const": "column"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -460,6 +488,10 @@
         "type": {
           "type": "string",
           "const": "content_block"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -607,6 +639,10 @@
           "type": "string",
           "const": "directive"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -667,6 +703,10 @@
         "type": {
           "type": "string",
           "const": "frontmatter"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -738,6 +778,10 @@
         "type": {
           "type": "string",
           "const": "grid"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -850,6 +894,10 @@
         "type": {
           "type": "string",
           "const": "image"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -986,6 +1034,10 @@
           "type": "string",
           "const": "map"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1079,6 +1131,10 @@
           "type": "string",
           "const": "math"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1121,6 +1177,10 @@
         "type": {
           "type": "string",
           "const": "media"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1169,6 +1229,10 @@
           "type": "string",
           "const": "mermaid"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1209,6 +1273,10 @@
         "type": {
           "type": "string",
           "const": "metric"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1326,6 +1394,10 @@
           "type": "string",
           "const": "plantuml"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1366,6 +1438,10 @@
         "type": {
           "type": "string",
           "const": "point_item"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1419,6 +1495,10 @@
           "type": "string",
           "const": "points"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1456,6 +1536,10 @@
         "type": {
           "type": "string",
           "const": "poll"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1536,6 +1620,10 @@
           "type": "string",
           "const": "quiz"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1605,6 +1693,10 @@
           "type": "string",
           "const": "quote"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1662,6 +1754,10 @@
         "type": {
           "type": "string",
           "const": "special_block"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"
@@ -1828,6 +1924,10 @@
           "type": "string",
           "const": "table"
         },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
         "position": {
           "$ref": "#/$defs/Position"
         },
@@ -1913,6 +2013,10 @@
         "type": {
           "type": "string",
           "const": "text"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
         },
         "position": {
           "$ref": "#/$defs/Position"

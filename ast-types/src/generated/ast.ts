@@ -85,8 +85,10 @@ import type { Position } from "./diagnostics";
  * preserves the visual light/dark mode selected for a theme family. It is
  * deliberately distinct from FrontMatterNode.Mode, which already controls
  * the document language dialect (strict/flex/flex-full/flex-ai/auto).
+ * 2.14.0: optional, explicit NodeID on nodes with BaseNode. It is an
+ * editorial identity, independent of reference/HTML ids on individual nodes.
  */
-export const SchemaVersion = "2.13.0";
+export const SchemaVersion = "2.14.0";
 /**
  * Node representa un nodo base en el AST
  */
@@ -126,6 +128,7 @@ export const NodeTypeMetric: NodeType = "metric"; // KPI estructurado (issue #34
  */
 export interface BaseNode {
   type: NodeType;
+  nodeId?: string;
   position: Position;
   endPosition: Position;
   comments?: string[];
@@ -164,6 +167,14 @@ export interface DirectiveNode extends BaseNode {
   name: string;
   parameters?: { [key: string]: any};
 }
+
+//////////
+// source: identity.go
+
+/**
+ * IdentityNode is implemented by every AST node embedding BaseNode.
+ */
+export type IdentityNode = BaseNode;
 
 //////////
 // source: nodes.go
@@ -1056,4 +1067,3 @@ export const MaxCellSpan = 1000;
 
 //////////
 // source: walk.go
-

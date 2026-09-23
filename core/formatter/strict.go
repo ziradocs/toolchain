@@ -28,6 +28,14 @@ import (
 // tipados anidados (forma que ningún parser produce hoy) sigue devolviendo
 // UnsupportedElementError en vez de emitir texto que no re-parsearía.
 func FormatStrict(doc *ast.AST) (string, error) {
+	out, err := formatStrictWithoutIDs(doc)
+	if err != nil {
+		return "", err
+	}
+	return formatNodeIDs(doc, out, false)
+}
+
+func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 	var b strings.Builder
 
 	var fm string
