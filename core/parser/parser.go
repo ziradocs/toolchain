@@ -152,7 +152,7 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
-	return astNode, finishNodeIdentities(astNode, allDiagnostics, identityDiags, nodeIDs, lineMap, normalizationModified)
+	return astNode, finishNodeIdentities(astNode, allDiagnostics, identityDiags, nodeIDs, lineMap, content, normalizationModified)
 }
 
 // peekDocument devuelve el `mode:` declarado en content y cuántas líneas del
@@ -377,7 +377,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
-	return astNode, finishNodeIdentities(astNode, allDiagnostics, identityDiags, nodeIDs, lineMap, normalizationModified)
+	return astNode, finishNodeIdentities(astNode, allDiagnostics, identityDiags, nodeIDs, lineMap, content, normalizationModified)
 }
 
 // createAutoParser crea un parser automático que detecta si es contenido generado por IA

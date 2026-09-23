@@ -70,6 +70,21 @@ func TestNodeIDAnnotationsDoNotChangeParseSemantics(t *testing.T) {
 				p2.SetNormalization(normalize)
 				plain, _ := p1.Parse(prefix+tc.body, "")
 				marked, issues := p2.Parse(prefix+tc.annotated, "")
+				if tc.name == "auto-flex" && normalize {
+					found := false
+					for _, issue := range issues {
+						if issue.Source == "identity" && strings.Contains(issue.Message, "normalization") {
+							found = true
+							if issue.Position.Line != 5 {
+								t.Fatalf("normalization diagnostic line = %d", issue.Position.Line)
+							}
+						}
+					}
+					if !found {
+						t.Fatalf("expected explicit normalization ambiguity, got %v", issues)
+					}
+					return
+				}
 				assertNoIdentityErrors(t, issues)
 				if plain == nil || marked == nil {
 					t.Fatal("nil AST")

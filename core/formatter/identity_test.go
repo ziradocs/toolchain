@@ -116,6 +116,14 @@ func TestNodeIDDiagnosticsAndLiteralCode(t *testing.T) {
 	if _, found := ids(doc)["Deck"]; !found {
 		t.Fatal("flex slide lost identity")
 	}
+	strictLiterals := "---\nmode: strict\n---\nSLIDE content\n  CODE text\n    <!-- node-id: CodeLiteral -->\n  <<mermaid>>\n    <!-- node-id: DiagramLiteral -->\n  <<end>>\n"
+	literalDoc := parseIdentityFixture(t, strictLiterals)
+	if len(ids(literalDoc)) != 0 {
+		t.Fatalf("literal annotations were captured: %v", ids(literalDoc))
+	}
+	if !strings.Contains(literalDoc.ContentBlocks[0].Elements[0].(*ast.CodeElement).Content, "<!-- node-id: CodeLiteral -->") {
+		t.Fatal("code text changed")
+	}
 }
 
 func TestNestedNodeIDsRoundTrip(t *testing.T) {

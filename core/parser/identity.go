@@ -43,36 +43,70 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 	}
 	literal := ""
 	codeIndent := -1
+	groupFence := false
+	fenceClose := "```"
 	for i, line := range lines {
 		if i <= frontmatterEnd {
 			continue
 		}
 		trimmed := strings.TrimSpace(line)
 		indent := len(line) - len(strings.TrimLeft(line, " \t"))
-		if literal == "code" && trimmed != "" && indent < codeIndent {
-			literal = ""
+		if literal == "code" && trimmed != "" {
+			if codeIndent < 0 {
+				if indent == 0 {
+					literal = ""
+				} else {
+					codeIndent = indent
+				}
+			} else if indent < codeIndent {
+				literal = ""
+			}
 		}
 		if literal != "" {
 			switch literal {
 			case "fence":
-				if trimmed == "```" {
+				if trimmed == fenceClose {
 					literal = ""
 				}
 			case "diagram":
 				if trimmed == "<<end>>" {
 					literal = ""
 				}
+			case "math":
+				if trimmed == "$$" {
+					literal = ""
+				}
+			case "plantuml":
+				if trimmed == "@enduml" {
+					literal = ""
+				}
 			case "group":
-				if trimmed == ":::" {
+				if strings.HasPrefix(trimmed, "```") {
+					groupFence = !groupFence
+				}
+				if trimmed == ":::" && !groupFence {
 					literal = ""
 				}
 			}
-			if literal != "" || trimmed == "```" || trimmed == "<<end>>" || trimmed == ":::" {
+			if literal != "" || trimmed == fenceClose || trimmed == "<<end>>" || trimmed == ":::" || trimmed == "$$" || trimmed == "@enduml" {
 				continue
 			}
 		}
 		if strings.HasPrefix(trimmed, "```") {
 			literal = "fence"
+			if strings.HasPrefix(trimmed, "````") {
+				fenceClose = "````"
+			} else {
+				fenceClose = "```"
+			}
+			continue
+		}
+		if trimmed == "$$" {
+			literal = "math"
+			continue
+		}
+		if strings.HasPrefix(trimmed, "@startuml") {
+			literal = "plantuml"
 			continue
 		}
 		if trimmed == "<<mermaid>>" || trimmed == "<<plantuml>>" || trimmed == "<<math>>" || trimmed == "<<map>>" || strings.HasPrefix(trimmed, "<<chart:") {
@@ -81,11 +115,12 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 		}
 		if strings.HasPrefix(trimmed, ":::code-group") {
 			literal = "group"
+			groupFence = false
 			continue
 		}
 		if trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") {
 			literal = "code"
-			codeIndent = indent + 1
+			codeIndent = -1
 			continue
 		}
 		if !strings.HasPrefix(trimmed, "<!-- node-id:") {
@@ -122,12 +157,13 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 	return strings.Join(kept, "\n"), pending, lineMap, diags
 }
 
-func bindNodeIDs(doc *ast.AST, pending []pendingNodeID) []diagnostics.Diagnostic {
+func bindNodeIDs(doc *ast.AST, pending []pendingNodeID, source string) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 	if doc == nil {
 		return diags
 	}
 	byLine := make(map[int][]ast.IdentityNode)
+	lines := strings.Split(source, "\n")
 	_ = ast.Walk(doc, func(node ast.Node) error {
 		if n, ok := node.(ast.IdentityNode); ok && node != doc {
 			byLine[node.GetPosition().Line] = append(byLine[node.GetPosition().Line], n)
@@ -137,6 +173,23 @@ func bindNodeIDs(doc *ast.AST, pending []pendingNodeID) []diagnostics.Diagnostic
 	for _, marker := range pending {
 		pos := diagnostics.NewPosition(marker.line, 1)
 		matches := byLine[marker.target]
+		if len(matches) > 1 && marker.target > 0 && marker.target <= len(lines) {
+			// In auto mode a literal "SLIDE ..." can yield both a block
+			// and a text node on the same line. The explicit opener names the
+			// block; no text or positional similarity is involved.
+			line := strings.TrimSpace(lines[marker.target-1])
+			if strings.HasPrefix(line, "SLIDE ") || strings.HasPrefix(line, "SECTION ") || strings.HasPrefix(line, "# ") {
+				var blocks []ast.IdentityNode
+				for _, n := range matches {
+					if n.GetType() == ast.NodeTypeContentBlock {
+						blocks = append(blocks, n)
+					}
+				}
+				if len(blocks) == 1 {
+					matches = blocks
+				}
+			}
+		}
 		if len(matches) == 0 {
 			diags = append(diags, diagnostics.NewError(fmt.Sprintf("orphan node-id %q: next source line does not start an AST node", marker.id), pos, "identity"))
 			continue
@@ -188,14 +241,14 @@ func restoreDiagnosticPositions(diags []diagnostics.Diagnostic, lineMap []int) {
 	}
 }
 
-func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Diagnostic, pending []pendingNodeID, lineMap []int, normalizationModified bool) []diagnostics.Diagnostic {
+func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Diagnostic, pending []pendingNodeID, lineMap []int, source string, normalizationModified bool) []diagnostics.Diagnostic {
 	if len(pending) == 0 && len(markerDiags) == 0 {
 		return parseDiags
 	}
 	if normalizationModified && len(pending) > 0 {
 		return append(append(parseDiags, markerDiags...), diagnostics.NewError("node-id association is ambiguous after source normalization; use canonical source or strict mode", diagnostics.NewPosition(pending[0].line, 1), "identity"))
 	}
-	bound := bindNodeIDs(doc, pending)
+	bound := bindNodeIDs(doc, pending, source)
 	restoreNodePositions(doc, lineMap)
 	restoreDiagnosticPositions(parseDiags, lineMap)
 	parseDiags = append(parseDiags, markerDiags...)
