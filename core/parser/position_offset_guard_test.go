@@ -45,6 +45,10 @@ var positionOffsetHelperKeys = map[string]bool{
 	"flex.go:FlexParser.position":                  true,
 	"document_flex.go:DocumentFlexParser.position": true,
 	"common.go:ParseContext.Position":              true,
+	// Identity directives are scanned against the complete source before
+	// frontmatter removal, so these line numbers are already file-absolute.
+	"identity.go:stripNodeIDDirectives": true,
+	"identity.go:bindNodeIDs":           true,
 }
 
 // allowedGuardFile es el único archivo con una excepción POR ARCHIVO

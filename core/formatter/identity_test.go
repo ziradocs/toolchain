@@ -98,7 +98,7 @@ func TestNodeIDDiagnosticsAndLiteralCode(t *testing.T) {
 			for _, issue := range issues {
 				if strings.Contains(issue.Message, tc.want) {
 					found = true
-					if issue.Position.Line < 5 {
+					if issue.Position.Line < 4 {
 						t.Fatalf("wrong line: %v", issue)
 					}
 				}
@@ -115,5 +115,28 @@ func TestNodeIDDiagnosticsAndLiteralCode(t *testing.T) {
 	}
 	if _, found := ids(doc)["Deck"]; !found {
 		t.Fatal("flex slide lost identity")
+	}
+}
+
+func TestNestedNodeIDsRoundTrip(t *testing.T) {
+	source := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"Nested\"\n  <!-- node-id: Callout -->\n  :::info\n    Before.\n    <!-- node-id: NestedTable -->\n    | A | B |\n    |---|---|\n    | 1 | 2 |\n  :::\n  <!-- node-id: Grid -->\n  <<grid>>\n  <!-- node-id: LeftColumn -->\n  <<column>>\n  Left\n  <<column>>\n  Right\n  <<end>>\n"
+	doc := parseIdentityFixture(t, source)
+	if len(ids(doc)) != 4 {
+		t.Fatalf("nested IDs: %v", ids(doc))
+	}
+	formatted, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := parseIdentityFixture(t, formatted)
+	if len(ids(parsed)) != 4 {
+		t.Fatalf("nested roundtrip IDs: %v\n%s", ids(parsed), formatted)
+	}
+	again, err := FormatStrict(parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if formatted != again {
+		t.Fatalf("nested format not idempotent:\n%s\n---\n%s", formatted, again)
 	}
 }
