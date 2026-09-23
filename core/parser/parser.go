@@ -93,6 +93,9 @@ func (p *Parser) EnableAIProcessing() {
 // de leerse.
 func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
+	content, nodeIDs, identityDiags := stripNodeIDDirectives(content)
+	allDiagnostics = append(allDiagnostics, identityDiags...)
+	anchored := len(nodeIDs) > 0
 
 	// FASE 1: leer el modo y el offset del frontmatter (solo para despachar
 	// y para que el body-parser cuente desde el archivo; ver el doc comment).
@@ -100,7 +103,7 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 
 	// FASE 2: normalización, nunca en strict.
 	processedContent := content
-	if p.enableNormalize && mode != "strict" {
+	if p.enableNormalize && mode != "strict" && !anchored {
 		detector := normalizer.NewDetector()
 		detectionResult := detector.Detect(content)
 		p.lastDetectionResult = &detectionResult
@@ -148,6 +151,7 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
+	allDiagnostics = append(allDiagnostics, bindNodeIDs(astNode, nodeIDs)...)
 	return astNode, allDiagnostics
 }
 
@@ -198,6 +202,9 @@ func bodyLineOffset(fm *ast.FrontMatterNode) int {
 
 func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
+	content, nodeIDs, identityDiags := stripNodeIDDirectives(content)
+	allDiagnostics = append(allDiagnostics, identityDiags...)
+	anchored := len(nodeIDs) > 0
 
 	// FASE 1: Parsear FrontMatter primero para determinar el modo
 	frontMatter, bodyContent, fmDiagnostics := p.frontMatterParser.Parse(content)
@@ -217,7 +224,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	// FASE 2: Pre-procesamiento AI solo si no es modo strict
 	processedContent := content
 	var preProcessReport *normalize.ProcessingReport
-	if p.enableNormalize && frontMatter.Mode != "strict" {
+	if p.enableNormalize && frontMatter.Mode != "strict" && !anchored {
 		detector := normalizer.NewDetector()
 		detectionResult := detector.Detect(content)
 
@@ -301,7 +308,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		astNode.FilePath = filePath
 	case "flex": // Si el AI está habilitado, el contenido ya fue pre-procesado, usar tal como está
 		var processedBodyContent string
-		if p.enableNormalize {
+		if anchored || p.enableNormalize {
 			// El bodyContent ya proviene del processedContent que fue normalizado por AI
 			processedBodyContent = bodyContent
 		} else {
@@ -315,7 +322,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	case "flex-ai", "flex-full": // "flex-ai" es un alias deprecado de "flex-full" (mismo comportamiento)
 		// Si el AI está habilitado, el contenido ya fue pre-procesado, usar tal como está
 		var processedBodyContent string
-		if p.enableNormalize {
+		if anchored || p.enableNormalize {
 			// El bodyContent ya proviene del processedContent que fue normalizado por AI
 			processedBodyContent = bodyContent
 			p.logger.Debug("PARSE", "=== MODO FLEX-FULL: USANDO CONTENIDO PRE-PROCESADO POR AI ===")
@@ -329,6 +336,12 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
 	case "auto":
+		if anchored {
+			astNode, bodyDiagnostics = newFlexBodyParser(bodyContent, bodyOffset, p.logger).Parse()
+			astNode.FrontMatter = frontMatter
+			astNode.FilePath = filePath
+			break
+		}
 		// Modo automático: detecta si es AI y aplica el procesamiento apropiado
 		// Si ya hubo pre-procesamiento, usamos ese resultado
 		autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
@@ -358,6 +371,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
+	allDiagnostics = append(allDiagnostics, bindNodeIDs(astNode, nodeIDs)...)
 	return astNode, allDiagnostics
 }
 
