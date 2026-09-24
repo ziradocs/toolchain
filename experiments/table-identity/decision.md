@@ -1,0 +1,124 @@
+# Portable table row and cell identity: design probe
+
+Status: **proposal only**. No source grammar, AST, schema, formatter, or consumer
+contract in this directory is implemented by the current CLI. The companion
+`run_probe.py` exercises only synthetic input against an exact CLI commit.
+
+## Current boundary
+
+At base `7f08d545c20a24e333deb4e961e869dcf3f4a460` (AST 2.14.0),
+`TableElement` has `nodeId` through `BaseNode`. `Headers []string`,
+`Rows [][]string`, and `Cells [][]TableCell` have no authored row/cell IDs.
+`RowPositions` points to source rows for diagnostics; its length can be shorter
+than `Rows`, especially for merged cells. For pipe/simple tables, `Cells` is
+derived from `Headers/Rows`; for explicit `cells:` tables, the reverse happens
+with spans expanded into a rectangular flat view. `ast.Walk` and the node ID
+validator do not visit rows or cells. The formatter emits pipe syntax if the
+cell structure is simple and there is no caption/label; otherwise it emits
+`TABLE/cells:`. It serializes only currently known cell keys. The current
+`<!-- node-id: ... -->` directive names an AST node opener, not a row or cell.
+
+## Decision proposed for a separate implementation PR
+
+Use **one authored structured table form** whenever row or cell identity is
+needed. A conceptual example (not accepted syntax) is:
+
+```yaml
+TABLE
+  rows:
+    - nodeId: HeaderRow
+      section: header
+      cells:
+        - {nodeId: KeyHeader, content: Key, header: true, scope: col}
+        - {nodeId: ValueHeader, content: Value, header: true, scope: col}
+    - nodeId: DataRowA
+      section: body
+      cells:
+        - {nodeId: KeyA, content: A}
+        - {nodeId: ValueA, content: "1"}
+```
+
+This reuses the existing `TABLE` construct and cell attributes. It introduces
+row records as the **only authored authority** for an identified table, not a
+second content grammar. Proposed AST `tableRows` (name subject to review)
+contains row records with `nodeId`, optional `section`, and owned cell records
+with `nodeId`, content, header/scope/span. Legacy `headers`, `rows`, and
+`cells` are read-only compatibility projections in output. They must be
+computed from `tableRows` before serialization and after every transform;
+an input AST/filter that supplies conflicting projections must fail with a
+named diagnostic rather than choosing one silently. The formatter serializes
+only the canonical row records for this form. Its parser regenerates the same
+projections after reparse. Pipe and existing `TABLE/cells:` sources remain
+valid and get no fabricated row/cell IDs. A source migration tool could
+optionally rewrite an existing table to row records, but must ask the author
+to supply IDs for targets they want stable; normal `fmt` must never invent
+them.
+
+**ID policy.** IDs remain optional for each row and each authored cell, even
+within the structured form. A consumer may require IDs for the particular
+targets it references; the core parser should not require a complete grid of
+IDs. Empty IDs carry no durable identity. All nonempty row/cell IDs obey
+`ValidNodeID` and share one document-wide registry with existing node IDs,
+including slides and tables. Duplicating an identified row/cell without
+changing IDs is a duplicate error. No implicit rename. References to an ID
+belong to a separate portable treatment layer; that layer validates targets
+after transforms and rejects orphan IDs. The current core has no row/cell
+reference field, so an orphan treatment cannot currently be exercised as a
+CLI feature. An orphan source directive can be exercised today.
+
+**Semantics and spans.** A row's `section` would be portable content semantics
+(`header`, `body`, `footer`), separate from its identity. A cell's `header`
+and `scope` retain their current accessibility meaning. Other general
+semantics, such as a status value, need a separately justified typed field;
+they must not be inferred from text or carried in an appearance treatment.
+Private emphasis, tone, or appearance remain outside this public model.
+A merged cell has one identity on the authored anchor cell. Coordinates and
+expanded flat placeholders have no IDs and are never reference targets.
+Validation must detect overlap, out-of-grid spans, and row reorder/insert/
+delete that makes coverage invalid, with diagnostics attached to the affected
+authored row/cell ID. A valid span may change coordinates without changing its
+anchor identity. The current flattening function explicitly tolerates some
+overlap/undersized cases, so this would require new validation for the new
+form rather than treating the old flat projection as proof of validity.
+
+## Alternatives considered
+
+| Approach | Result |
+| --- | --- |
+| Parallel `rowIds[]` / `cellIds[][]` beside `Rows` | Reject: index coupling breaks on reorder/spans and creates competing authorities. |
+| Content, coordinates, source positions, or hashes | Reject: duplicates and edits make identity ambiguous or unstable. |
+| Put `nodeId` directly into existing `Cells[][]` only | Incomplete: no row identity; current simple-table formatter can drop cell metadata and merged flattening duplicates content. |
+| Use inline comments before each row/cell | Insufficient as the sole form: no distinct AST row/cell node opener today, especially in flow-style YAML and spanning cells. Could be sugar later if proven unambiguous. |
+| Structured authored rows with owned cells | Recommended: one authority, explicit identity, stable under edits and reorder, reuses existing table/cell vocabulary. |
+
+## Compatibility gate before implementation
+
+| Surface | Current 2.14.0 | Proposed candidate gate |
+| --- | --- | --- |
+| Legacy source | Pipe or `TABLE/cells:`; no row/cell IDs | Parse identically; no generated IDs; old `fmt` behavior preserved. |
+| New source | Unsupported; unknown keys may be ignored | New form parses explicitly or fails; never silently treats it as legacy `rows:`. |
+| JSON AST | Closed schema; table fields fixed | Versioned `tableRows`; regenerate schema and TS types, define strict projection consistency. |
+| Go `DecodeAST` | `encoding/json` ignores unknown fields | Reject unsupported `schemaVersion`/identity-bearing unknown fields in old readers or provide explicit downgrade rejection; never silently erase IDs. |
+| Formatter | Pipe or `cells:` output | Structured form whenever canonical row records exist; parse→format→reparse preserves IDs, section, spans, and content. |
+| Consumers/filters | May expect only 2.14 fields | Capability/version gate; explicit rejection or a deliberate lossy export requiring opt-in. |
+
+A minor bump is **not automatically safe** despite optional JSON fields: a
+2.14 Go decoder can silently discard an unknown `tableRows` field, and a
+formatter using the remaining projections can then erase identities. The JSON
+schema is closed (`additionalProperties: false`), so old validators reject the
+new field. The implementation decision must choose a version and migration
+policy after testing real reader behavior, and ensure all identity-bearing
+paths fail visibly on unsupported readers. Keeping the current `cells`
+projection while adding canonical rows is an additive shape only for readers
+that ignore new fields *and do not round-trip them*; it is not a preservation
+guarantee.
+
+## Probe interpretation
+
+`run_probe.py` writes source, CLI build JSON, formatter output, reparse JSON,
+exit status, diagnostics, SHA-256 digests, and a manifest into a user-chosen
+directory. Its inputs cover duplicate content, reorder, insert, edit, delete,
+table ID, row/cell ID attempts, duplicate/orphan directives, and regular and
+merged tables. The manifest must be read as **current CLI evidence**. The
+structured example above is design notation only and has not been fed to the
+CLI as a claimed supported form.
