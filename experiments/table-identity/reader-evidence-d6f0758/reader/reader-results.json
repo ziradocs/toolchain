@@ -1,0 +1,36 @@
+{
+  "baseline": {
+    "decodeAccepted": true,
+    "decodedVersion": "2.14.0",
+    "formatterAccepted": true,
+    "preDecodeGuard": "accept",
+    "schemaAccepted": true,
+    "tableRowsSurvivedDecode": false
+  },
+  "field_only": {
+    "decodeAccepted": true,
+    "decodedVersion": "2.14.0",
+    "formatterAccepted": true,
+    "preDecodeGuard": "reject unsupported identity-bearing tableRows",
+    "schemaAccepted": false,
+    "schemaError": "jsonschema: '/contentBlocks/0/elements/0' does not validate with https://go.ziradocs.com/core/schema/ast.schema.json#/$ref/properties/contentBlocks/items/$ref/properties/elements/items/oneOf/0/$ref/required: missing properties: 'content'",
+    "tableRowsSurvivedDecode": false
+  },
+  "version_and_field": {
+    "decodeAccepted": true,
+    "decodedVersion": "99.0.0",
+    "formatterAccepted": true,
+    "preDecodeGuard": "reject unsupported schemaVersion",
+    "schemaAccepted": false,
+    "schemaError": "jsonschema: '/contentBlocks/0/elements/0' does not validate with https://go.ziradocs.com/core/schema/ast.schema.json#/$ref/properties/contentBlocks/items/$ref/properties/elements/items/oneOf/0/$ref/required: missing properties: 'content'",
+    "tableRowsSurvivedDecode": false
+  },
+  "version_only": {
+    "decodeAccepted": true,
+    "decodedVersion": "99.0.0",
+    "formatterAccepted": true,
+    "preDecodeGuard": "reject unsupported schemaVersion",
+    "schemaAccepted": true,
+    "tableRowsSurvivedDecode": false
+  }
+}

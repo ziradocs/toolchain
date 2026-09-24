@@ -180,7 +180,7 @@ records. Existing `fmt` parses source, not foreign AST JSON; the formatter
 result above is through its public Go API after decode. The schema reports a
 generic union error, but `$defs.TableElement.additionalProperties` is `false`
 and `tableRows` is absent from its property list. These observations are
-captured in the [reader evidence](reader-evidence-73d4/reader-results.json).
+captured in the [reader evidence](reader-evidence-d6f0758/reader/reader-results.json).
 
 **Where to reject:** a new AST/JSON reader must inspect `schemaVersion` and
 the raw table object before `json.Unmarshal`/`DecodeAST` can erase unknown
