@@ -1,0 +1,9 @@
+---
+mode: strict
+title: Probe
+---
+SLIDE content
+  title: "A"
+  | Key | Value |
+  |---|---|
+  | B | 2 |

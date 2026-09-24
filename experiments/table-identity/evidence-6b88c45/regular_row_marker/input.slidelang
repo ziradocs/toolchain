@@ -1,0 +1,10 @@
+---
+mode: strict
+title: Probe
+---
+SLIDE content
+  title: "A"
+  | Key | Value |
+  |---|---|
+  <!-- node-id: RowA -->
+  | A | 1 |

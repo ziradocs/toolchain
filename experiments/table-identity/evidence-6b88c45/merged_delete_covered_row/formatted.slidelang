@@ -1,0 +1,11 @@
+---
+mode: strict
+title: Probe
+---
+
+SLIDE content
+  title: "A"
+  TABLE
+    cells:
+      - [{content: Key, header: true}, {content: Value, header: true}]
+      - [{content: A, rowspan: 2}, {content: "1"}]

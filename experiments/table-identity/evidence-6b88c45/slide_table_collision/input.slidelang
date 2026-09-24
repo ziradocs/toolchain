@@ -1,0 +1,11 @@
+---
+mode: strict
+title: Probe
+---
+<!-- node-id: Reused -->
+SLIDE content
+  title: "A"
+  <!-- node-id: Reused -->
+  | Key | Value |
+  |---|---|
+  | A | 1 |

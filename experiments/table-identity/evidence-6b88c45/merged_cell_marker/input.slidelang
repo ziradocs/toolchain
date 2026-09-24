@@ -1,0 +1,10 @@
+---
+mode: strict
+title: Probe
+---
+SLIDE content
+  title: "A"
+  TABLE
+    cells:
+      <!-- node-id: CellA -->
+      - [{content: A}, {content: 1}]

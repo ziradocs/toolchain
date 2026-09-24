@@ -122,3 +122,37 @@ table ID, row/cell ID attempts, duplicate/orphan directives, and regular and
 merged tables. The manifest must be read as **current CLI evidence**. The
 structured example above is design notation only and has not been fed to the
 CLI as a claimed supported form.
+
+### Observed current CLI (exact commit `6b88c45250650bea5e70825de44299d22e2ccbbd`)
+
+The committed [evidence](evidence-6b88c45/manifest.json) contains 18 synthetic
+cases and complete source/AST/formatter outputs. CLI binary SHA-256 is
+`3848f4f74c8317c65d4fead4b98d8d0e162c731a50c6ce88c8d9e82d1bdc249a`.
+On Ubuntu, from a detached exact-SHA checkout with a temporary `go.work` for
+`core`, `slidelang`, and `doclang`, the commands were:
+
+```sh
+GOWORK="$out/go.work" GOMODCACHE=/mac-remote-development/caches/go-mod \
+  GOCACHE=/mac-remote-development/caches/go-build \
+  go build -o "$out/slidelang-final" ./cmd/slidelang
+python3 experiments/table-identity/run_probe.py \
+  "$out/slidelang-final" "$out/probe-final-exact"
+```
+
+| Case | Observed result |
+| --- | --- |
+| Regular duplicate rows, reorder, insert, edit, delete | Build/format/reparse succeed; `rows` and `cells` reflect new order/content, with no row/cell IDs. Duplicate content is indistinguishable by identity. |
+| Whole-table `nodeId` | `TableA` survives build/format/reparse. |
+| Row marker; cell marker | Build and `fmt` fail with `orphan node-id` (`RowA`, `CellA`). |
+| Duplicate node IDs; slide/table collision | Build and `fmt` fail with `duplicate nodeId "Reused"`. |
+| Orphan node marker | Build and `fmt` fail with `orphan node-id "Missing"`. |
+| `id` keys inside `cells:` | Build/format/reparse succeed, but `HeaderKey`/`CellA` do not appear in the AST or formatted source: silent loss. |
+| Valid merged table | Build/format/reparse preserve authored cell spans; expanded `rows` duplicate covered content; `rowPositions` absent. |
+| Reordered/deleted/inserted rows affecting rowspan | Build/format/reparse still succeed without a span diagnostic. The expanded view can gain blank placeholders or extra columns; this does not prove the authored grid valid. |
+
+The CLI currently has no treatment/reference grammar for row/cell IDs, so an
+orphan *reference* cannot be tested as current behavior. The orphan directive
+cases test the existing node-ID parser only. A future implementation PR needs
+focused tests of registry collisions across slide/table/row/cell, of orphan
+references after transforms, and of exact projection checks on JSON/filter
+input; this proposal does not claim those tests already pass.
