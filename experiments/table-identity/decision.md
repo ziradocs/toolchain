@@ -156,3 +156,64 @@ cases test the existing node-ID parser only. A future implementation PR needs
 focused tests of registry collisions across slide/table/row/cell, of orphan
 references after transforms, and of exact projection checks on JSON/filter
 input; this proposal does not claim those tests already pass.
+
+## Reader and downgrade seam (isolated follow-up probe)
+
+`reader_probe.go` takes a real 2.14 CLI JSON fixture and injects a conceptual
+`tableRows` field with row/cell IDs. It tests four synthetic payloads against
+the committed 2.14 JSON Schema, `ast.DecodeAST`, and `formatter.FormatStrict`.
+`filter_candidate.py` injects the same field into the live `--filter` response.
+`99.0.0` is a deliberately unsupported test sentinel, **not** a proposed
+release number. Neither file implements the new table model.
+
+| Payload | 2.14 schema | 2.14 `DecodeAST` | 2.14 formatter after decode | Pre-decode guard sketch |
+| --- | --- | --- | --- | --- |
+| 2.14 baseline | accepts | accepts | succeeds | accepts |
+| Version sentinel only | **accepts** (version is any string) | accepts and retains sentinel | succeeds | rejects unsupported version |
+| `tableRows` only, version 2.14 | rejects (closed table shape) | accepts, **drops `tableRows`** | succeeds without row/cell IDs | rejects unsupported field |
+| Version sentinel + `tableRows` | rejects field | accepts, retains sentinel but **drops `tableRows`** | succeeds without row/cell IDs | rejects both via version check |
+
+The current CLI `--filter` follows the same loss path: the filter emits the
+sentinel version and row records; `RunFilters` calls `DecodeAST` on that output,
+then the CLI succeeds and its JSON contains the sentinel version but no row
+records. Existing `fmt` parses source, not foreign AST JSON; the formatter
+result above is through its public Go API after decode. The schema reports a
+generic union error, but `$defs.TableElement.additionalProperties` is `false`
+and `tableRows` is absent from its property list. These observations are
+captured in the [reader evidence](reader-evidence-73d4/reader-results.json).
+
+**Where to reject:** a new AST/JSON reader must inspect `schemaVersion` and
+the raw table object before `json.Unmarshal`/`DecodeAST` can erase unknown
+identity-bearing fields. A strict schema validation step can reject unknown
+fields, but the current schema does not gate its version string. The proposed
+new decoder/filter ingress should combine explicit supported-version and
+capability checks with strict unknown-field/projection validation. A new
+formatter must reject a table whose canonical records it cannot serialize;
+it must never fall back to the legacy `cells`/pipe view when that would erase
+IDs. The isolated pre-decode guard in `reader_probe.go` demonstrates the seam;
+it is **not installed in the CLI**. Existing binaries cannot be made safe by
+changing a future producer's version number alone.
+
+**Recommended policy for the implementation decision:**
+
+1. Keep legacy source and JSON with no row/cell identity on the 2.14 contract,
+   preserving current pipe/`cells:` behavior. A new CLI may offer explicit
+   2.14 output only when it can prove it contains no new identity/semantics.
+2. An authored row/cell ID requires a newly negotiated AST capability and a
+   versioned schema/type/formatter contract (version number still undecided).
+   Produce only for readers/filters that declare support; otherwise reject
+   before handing over JSON or invoking an old `--filter` binary.
+3. Reject automatic downgrade from the new contract to 2.14. A separately
+   named, explicitly lossy projection export could be offered for display,
+   with no promise that row/cell references survive. Never feed that export
+   back as an identity-preserving source.
+4. At new JSON/filter ingress, check supported version/capabilities on raw
+   bytes, validate row/cell IDs and projection equality, then decode. Fail on
+   unsupported versions, unknown identity-bearing fields, conflicts, and
+   orphan references. Only after this gate may a formatter or transform run.
+
+This policy entails work in schema generation, TypeScript types, Go decode,
+filter capability negotiation, both formatters, and cross-version tests. It
+does not require rewriting or mutating existing source files. The choice of
+release number and the precise source spelling remain gates for a separate
+implementation PR.

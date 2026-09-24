@@ -83,6 +83,16 @@ func main() {
 		must(json.Unmarshal(input, &generic))
 		schemaErr := schema.Validate(generic)
 		item := map[string]any{"schemaAccepted": schemaErr == nil}
+		// Demonstrate the only safe seam in this old pipeline: inspect the raw
+		// payload *before* DecodeAST discards fields it does not recognize.
+		// This is an isolated policy sketch, not a change to the real decoder.
+		if doc["schemaVersion"] != ast.SchemaVersion {
+			item["preDecodeGuard"] = "reject unsupported schemaVersion"
+		} else if _, found := table(doc)["tableRows"]; found {
+			item["preDecodeGuard"] = "reject unsupported identity-bearing tableRows"
+		} else {
+			item["preDecodeGuard"] = "accept"
+		}
 		if schemaErr != nil {
 			item["schemaError"] = schemaErr.Error()
 		}
