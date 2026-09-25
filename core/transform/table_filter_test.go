@@ -124,37 +124,42 @@ func TestLimitedCapabilityWriter(t *testing.T) {
 
 func TestTableRowsFilterStopsDescendantsHoldingPipes(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		body string
-		want string
+		name    string
+		body    string
+		want    string
+		timeout time.Duration
 	}{
 		{"handshake timeout", `if [ "$1" = "--ziradocs-capabilities" ]; then
   (sleep 0.3; echo orphan > MARKER) &
   wait
 fi
-cat`, "timed out"},
+cat`, "timed out", 0},
 		{"handshake oversize", `if [ "$1" = "--ziradocs-capabilities" ]; then
   (sleep 0.3; echo orphan > MARKER) &
   printf '%5000s' ''
   wait
 fi
-cat`, "exceeds"},
+cat`, "exceeds", 0},
 		{"handshake parent exits", `if [ "$1" = "--ziradocs-capabilities" ]; then
   echo '{"astSchemaVersions":["2.15.0"],"features":["table-rows-v1"]}'
   (sleep 0.3; echo orphan > MARKER) &
   exit 0
 fi
-cat`, "handshake failed"},
+cat`, "handshake failed", 2 * time.Second},
 		{"filter timeout", compatibleHandshake + `(sleep 0.3; echo orphan > MARKER) &
-wait`, "timed out"},
+wait`, "timed out", 0},
 		{"filter parent exits", compatibleHandshake + `(sleep 0.3; echo orphan > MARKER) &
-exit 0`, "exited with error"},
+exit 0`, "exited with error", 2 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "orphan")
 			path := writeFilter(t, strings.ReplaceAll(tc.body, "MARKER", marker))
+			timeout := tc.timeout
+			if timeout == 0 {
+				timeout = 50 * time.Millisecond
+			}
 			start := time.Now()
-			_, err := RunFilters(tableFilterFixture(), []string{path}, 50*time.Millisecond)
+			_, err := RunFilters(tableFilterFixture(), []string{path}, timeout)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("unexpected result: %v", err)
 			}
