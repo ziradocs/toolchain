@@ -1,0 +1,18 @@
+---
+mode: strict
+title: Table identity probe
+---
+<!-- node-id: SlideA -->
+SLIDE content
+  title: "A"
+  <!-- node-id: TableA -->
+  TABLE
+    tableRows:
+      - nodeId: HeaderRow
+        section: header
+        cells: [{nodeId: KeyHeader, content: Key, header: true, scope: col}, {nodeId: ValueHeader, content: Value, header: true, scope: col}]
+      - nodeId: DataRowA
+        cells: [{nodeId: KeyA, content: A, rowspan: 2}, {nodeId: ValueA, content: "1"}]
+      - nodeId: DataRowB
+        section: footer
+        cells: [{nodeId: ValueB, content: "2"}]
