@@ -91,6 +91,7 @@ import type { Position } from "./diagnostics";
  * semantic row sections. Documents without this capability still emit 2.14.0.
  */
 export const SchemaVersion = "2.15.0";
+export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableRowsCapability = "table-rows-v1";
 /**
