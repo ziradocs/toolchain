@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // PointsParser maneja elementos de listas/puntos
@@ -67,6 +68,9 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 	pos := ctx.Position(startIndex)
 	element := ast.NewPointsElement(pos)
+	if ctx.NestedListTypes {
+		return p.parseTypedList(ctx, startIndex, element)
+	}
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
@@ -157,6 +161,100 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		ConsumedLines: consumed,
 		Error:         nil,
 	}
+}
+
+// parseTypedList is the opt-in path. Each level has one list type, owned by
+// the item immediately above it. The path stores indices rather than Go
+// pointers, which remain correct when sibling slices grow.
+func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element *ast.PointsElement) *ParseResult {
+	strict := ctx.Mode == "strict" && strings.HasPrefix(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS")
+	start := startIndex
+	if strict {
+		start++
+	}
+	type level struct {
+		indent int
+		path   []int
+	}
+	var stack []level
+	baseIndent := -1
+	consumed := start - startIndex
+	var diags []diagnostics.Diagnostic
+	for i := start; i < len(ctx.Lines); i++ {
+		line := ctx.Lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if strict || (i+1 < len(ctx.Lines) && p.isListItem(strings.TrimSpace(ctx.Lines[i+1]))) {
+				consumed++
+				continue
+			}
+			break
+		}
+		indent := CalculateIndentLevel(line)
+		if !p.isListItem(trimmed) {
+			break
+		}
+		if baseIndent < 0 {
+			baseIndent = indent
+		}
+		if indent < baseIndent {
+			break
+		}
+		kind := p.detectListType(trimmed)
+		for len(stack) > 0 && stack[len(stack)-1].indent >= indent {
+			stack = stack[:len(stack)-1]
+		}
+		if len(stack) == 0 {
+			if indent != baseIndent {
+				diags = append(diags, diagnostics.NewError("orphan nested list item", ctx.Position(i), "points-parser"))
+				consumed++
+				continue
+			}
+			if len(element.Items) > 0 && kind != element.ListType {
+				if strict {
+					diags = append(diags, diagnostics.NewError("mixed markers in one list level", ctx.Position(i), "points-parser"))
+				} else {
+					break
+				}
+			}
+			if len(element.Items) == 0 {
+				element.ListType = kind
+			}
+			item := ast.NewPointItem(ctx.Position(i), p.extractListContent(trimmed))
+			if item.Content == "" {
+				diags = append(diags, diagnostics.NewError("empty list item", ctx.Position(i), "points-parser"))
+			} else {
+				element.Items = append(element.Items, *item)
+				stack = append(stack, level{indent: indent, path: []int{len(element.Items) - 1}})
+			}
+		} else {
+			parentLevel := stack[len(stack)-1]
+			parent := pointAtPath(element, parentLevel.path)
+			if parent.SubListType != "" && parent.SubListType != kind {
+				diags = append(diags, diagnostics.NewError("mixed markers in one nested list level", ctx.Position(i), "points-parser"))
+			} else if parent.SubListType == "" {
+				parent.SubListType = kind
+			}
+			item := ast.NewPointItem(ctx.Position(i), p.extractListContent(trimmed))
+			if item.Content == "" {
+				diags = append(diags, diagnostics.NewError("empty nested list item", ctx.Position(i), "points-parser"))
+			} else {
+				parent.SubPoints = append(parent.SubPoints, *item)
+				path := append(append([]int(nil), parentLevel.path...), len(parent.SubPoints)-1)
+				stack = append(stack, level{indent: indent, path: path})
+			}
+		}
+		consumed++
+	}
+	return &ParseResult{Element: element, ConsumedLines: consumed, Diagnostics: diags}
+}
+
+func pointAtPath(element *ast.PointsElement, path []int) *ast.PointItem {
+	item := &element.Items[path[0]]
+	for _, index := range path[1:] {
+		item = &item.SubPoints[index]
+	}
+	return item
 }
 
 // parseMarkdownList parsea una lista en formato Markdown

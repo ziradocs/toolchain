@@ -100,6 +100,8 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	// FASE 1: leer el modo y el offset del frontmatter (solo para despachar
 	// y para que el body-parser cuente desde el archivo; ver el doc comment).
 	mode, bodyOffset := peekDocument(content)
+	sourceFM, _, _ := (&FrontMatterParser{}).Parse(content)
+	nestedListTypes := sourceNestedListTypes(sourceFM)
 
 	// FASE 2: normalización, nunca en strict.
 	processedContent := content
@@ -142,9 +144,13 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	var bodyDiagnostics []diagnostics.Diagnostic
 
 	if mode == "strict" {
-		astNode, bodyDiagnostics = newDocumentStrictParserAt(processedContent, bodyOffset, p.logger).Parse()
+		bodyParser := newDocumentStrictParserAt(processedContent, bodyOffset, p.logger)
+		bodyParser.nestedListTypes = nestedListTypes
+		astNode, bodyDiagnostics = bodyParser.Parse()
 	} else {
-		astNode, bodyDiagnostics = newDocumentFlexParserAt(processedContent, bodyOffset, p.logger).Parse()
+		bodyParser := newDocumentFlexParserAt(processedContent, bodyOffset, p.logger)
+		bodyParser.nestedListTypes = nestedListTypes
+		astNode, bodyDiagnostics = bodyParser.Parse()
 	}
 
 	if astNode != nil && filePath != "" {
@@ -198,6 +204,18 @@ func bodyLineOffset(fm *ast.FrontMatterNode) int {
 		return 0
 	}
 	return fm.EndPosition.Line
+}
+
+func sourceNestedListTypes(fm *ast.FrontMatterNode) bool {
+	if fm == nil {
+		return false
+	}
+	for _, capability := range fm.ASTCapabilities {
+		if capability == ast.NestedListTypesCapability {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
@@ -303,6 +321,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	switch frontMatter.Mode {
 	case "strict":
 		strictParser := newStrictBodyParser(bodyContent, bodyOffset, p.logger)
+		strictParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		astNode, bodyDiagnostics = strictParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -319,6 +338,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			normalizationModified = true
 		}
 		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
+		flexParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -338,6 +358,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			normalizationModified = true
 		}
 		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
+		flexParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -345,6 +366,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		// Modo automático: detecta si es AI y aplica el procesamiento apropiado
 		// Si ya hubo pre-procesamiento, usamos ese resultado
 		autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
+		autoParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		if strings.Join(autoParser.lines, "\n") != bodyContent {
 			normalizationModified = true
 		}
@@ -362,6 +384,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			}
 			allDiagnostics = append(allDiagnostics, aiDiag)
 			autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
+			autoParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 			if strings.Join(autoParser.lines, "\n") != bodyContent {
 				normalizationModified = true
 			}

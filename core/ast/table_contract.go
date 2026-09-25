@@ -24,23 +24,111 @@ func UsesTableRows(doc *AST) bool {
 // SetTableContract is used only after parsing authored source. JSON/filter
 // ingress must validate the declared version and capabilities instead.
 func SetTableContract(doc *AST) {
-	if UsesTableRows(doc) {
+	tables, lists := UsesTableRows(doc), UsesNestedListTypes(doc)
+	switch {
+	case lists:
 		doc.SchemaVersion = SchemaVersion
+		doc.Capabilities = []string{NestedListTypesCapability}
+		if tables {
+			doc.Capabilities = []string{TableRowsCapability, NestedListTypesCapability}
+		}
+	case tables:
+		doc.SchemaVersion = TableSchemaVersion
 		doc.Capabilities = []string{TableRowsCapability}
 	}
+}
+
+func UsesNestedListTypes(doc *AST) bool {
+	used := false
+	_ = Walk(doc, func(n Node) error {
+		if p, ok := n.(*PointItem); ok && p.SubListType != "" {
+			used = true
+		}
+		return nil
+	})
+	return used
+}
+
+// NestedListOwners uses only authored node IDs. It is a filter boundary
+// check; without IDs, a filter could silently move a child to another list.
+func NestedListOwners(doc *AST) (map[string]string, error) {
+	owners := map[string]string{}
+	err := Walk(doc, func(n Node) error {
+		points, ok := n.(*PointsElement)
+		if !ok || !pointListHasType(points.Items) {
+			return nil
+		}
+		if points.GetNodeID() == "" {
+			return fmt.Errorf("nested-list filter requires nodeId on points element")
+		}
+		var visit func([]PointItem, string) error
+		visit = func(items []PointItem, owner string) error {
+			for _, item := range items {
+				if item.GetNodeID() == "" {
+					return fmt.Errorf("nested-list filter requires nodeId on every point item")
+				}
+				owners[item.GetNodeID()] = owner
+				if err := visit(item.SubPoints, item.GetNodeID()); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return visit(points.Items, points.GetNodeID())
+	})
+	return owners, err
+}
+
+func pointListHasType(items []PointItem) bool {
+	for _, item := range items {
+		if item.SubListType != "" || pointListHasType(item.SubPoints) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCapabilities(caps []string, expected ...string) bool {
+	if len(caps) != len(expected) {
+		return false
+	}
+	seen := make(map[string]bool, len(caps))
+	for _, c := range caps {
+		if seen[c] {
+			return false
+		}
+		seen[c] = true
+	}
+	for _, c := range expected {
+		if !seen[c] {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidateTableContract checks version, capability, identity and every
 // projection. A filter may edit/reorder authored rows, but must rederive its
 // compatibility views explicitly; a mismatch is never silently repaired.
 func ValidateTableContract(doc *AST) error {
-	used := UsesTableRows(doc)
-	if used {
-		if doc.SchemaVersion != SchemaVersion || len(doc.Capabilities) != 1 || doc.Capabilities[0] != TableRowsCapability {
-			return fmt.Errorf("tableRows requires schemaVersion %s and capability %s", SchemaVersion, TableRowsCapability)
+	tables, lists := UsesTableRows(doc), UsesNestedListTypes(doc)
+	switch {
+	case lists && tables:
+		if doc.SchemaVersion != SchemaVersion || !hasCapabilities(doc.Capabilities, TableRowsCapability, NestedListTypesCapability) {
+			return fmt.Errorf("nested lists and tableRows require schemaVersion %s and both capabilities", SchemaVersion)
 		}
-	} else if (doc.SchemaVersion != LegacySchemaVersion && doc.SchemaVersion != PreviousSchemaVersion) || len(doc.Capabilities) != 0 {
-		return fmt.Errorf("unsupported AST version/capabilities without tableRows: %q %v", doc.SchemaVersion, doc.Capabilities)
+	case lists:
+		if doc.SchemaVersion != SchemaVersion || !hasCapabilities(doc.Capabilities, NestedListTypesCapability) {
+			return fmt.Errorf("nested lists require schemaVersion %s and capability %s", SchemaVersion, NestedListTypesCapability)
+		}
+	case tables:
+		if doc.SchemaVersion != TableSchemaVersion || !hasCapabilities(doc.Capabilities, TableRowsCapability) {
+			return fmt.Errorf("tableRows requires schemaVersion %s and capability %s", TableSchemaVersion, TableRowsCapability)
+		}
+	default:
+		if (doc.SchemaVersion != LegacySchemaVersion && doc.SchemaVersion != PreviousSchemaVersion) || len(doc.Capabilities) != 0 {
+			return fmt.Errorf("unsupported AST version/capabilities without extensions: %q %v", doc.SchemaVersion, doc.Capabilities)
+		}
 	}
 	var failure error
 	_ = Walk(doc, func(n Node) error {
@@ -48,6 +136,12 @@ func ValidateTableContract(doc *AST) error {
 			if err := ValidateTableRows(t); err != nil {
 				failure = err
 				return err
+			}
+		}
+		if p, ok := n.(*PointItem); ok {
+			if (p.SubListType != "" && p.SubListType != "ordered" && p.SubListType != "unordered") || (lists && len(p.SubPoints) > 0 && p.SubListType == "") || (p.SubListType != "" && len(p.SubPoints) == 0) {
+				failure = fmt.Errorf("invalid PointItem.subListType: each parent with subPoints requires ordered/unordered and leaf items cannot declare it")
+				return failure
 			}
 		}
 		return nil
@@ -73,7 +167,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(root["schemaVersion"], &version); err != nil {
 		return fmt.Errorf("schemaVersion is missing or invalid: %w", err)
 	}
-	if version != PreviousSchemaVersion && version != LegacySchemaVersion && version != SchemaVersion {
+	if version != PreviousSchemaVersion && version != LegacySchemaVersion && version != TableSchemaVersion && version != SchemaVersion {
 		return fmt.Errorf("unsupported schemaVersion %q", version)
 	}
 	var caps []string
@@ -83,17 +177,20 @@ func ValidateRawTableContract(data []byte) error {
 			return fmt.Errorf("invalid capabilities: %w", err)
 		}
 	}
-	if version == SchemaVersion && (len(caps) != 1 || caps[0] != TableRowsCapability) {
-		return fmt.Errorf("schemaVersion %s requires capability %s", SchemaVersion, TableRowsCapability)
+	if version == TableSchemaVersion && !hasCapabilities(caps, TableRowsCapability) {
+		return fmt.Errorf("schemaVersion %s requires capability %s", TableSchemaVersion, TableRowsCapability)
 	}
-	if version != SchemaVersion && capsPresent {
+	if version == SchemaVersion && !hasCapabilities(caps, NestedListTypesCapability) && !hasCapabilities(caps, NestedListTypesCapability, TableRowsCapability) {
+		return fmt.Errorf("schemaVersion %s requires %s and optionally %s", SchemaVersion, NestedListTypesCapability, TableRowsCapability)
+	}
+	if version != SchemaVersion && version != TableSchemaVersion && capsPresent {
 		return fmt.Errorf("legacy schemaVersion cannot declare capabilities")
 	}
 	var whole map[string]any
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
-	count := 0
+	tableCount, listCount := 0, 0
 	var inspectElement func(any) error
 	inspectElement = func(value any) error {
 		switch v := value.(type) {
@@ -106,9 +203,9 @@ func ValidateRawTableContract(data []byte) error {
 		case map[string]any:
 			if v["type"] == string(NodeTypeTable) {
 				if rows, has := v["tableRows"]; has {
-					count++
-					if version != SchemaVersion {
-						return fmt.Errorf("tableRows requires schemaVersion %s", SchemaVersion)
+					tableCount++
+					if version != TableSchemaVersion && version != SchemaVersion {
+						return fmt.Errorf("tableRows requires schemaVersion %s or %s", TableSchemaVersion, SchemaVersion)
 					}
 					encoded, _ := json.Marshal(rows)
 					var parsed []TableRow
@@ -121,6 +218,36 @@ func ValidateRawTableContract(data []byte) error {
 			}
 			if _, has := v["tableRows"]; has && v["type"] != string(NodeTypeTable) {
 				return fmt.Errorf("tableRows on a non-table element")
+			}
+			if kind, has := v["subListType"]; has {
+				if v["type"] != string(NodeTypePointItem) {
+					return fmt.Errorf("subListType on a non-point item")
+				}
+				if kind != "ordered" && kind != "unordered" {
+					return fmt.Errorf("invalid subListType %v", kind)
+				}
+				children, ok := v["subPoints"].([]any)
+				if !ok || len(children) == 0 {
+					return fmt.Errorf("subListType requires nonempty subPoints")
+				}
+				listCount++
+			}
+			if v["type"] == string(NodeTypePointItem) {
+				if children, ok := v["subPoints"].([]any); ok && len(children) > 0 && version == SchemaVersion {
+					if _, has := v["subListType"]; !has {
+						return fmt.Errorf("nested list parent requires subListType")
+					}
+				}
+			}
+			if children, ok := v["items"]; ok {
+				if err := inspectElement(children); err != nil {
+					return err
+				}
+			}
+			if children, ok := v["subPoints"]; ok {
+				if err := inspectElement(children); err != nil {
+					return err
+				}
 			}
 			if nested, ok := v["elements"]; ok {
 				if err := inspectElement(nested); err != nil {
@@ -148,8 +275,11 @@ func ValidateRawTableContract(data []byte) error {
 			}
 		}
 	}
-	if version == SchemaVersion && count == 0 {
-		return fmt.Errorf("schemaVersion %s declares %s without tableRows", SchemaVersion, TableRowsCapability)
+	if (tableCount > 0) != (version == TableSchemaVersion || (version == SchemaVersion && hasCapabilities(caps, NestedListTypesCapability, TableRowsCapability))) {
+		return fmt.Errorf("tableRows presence does not match schemaVersion/capabilities")
+	}
+	if (listCount > 0) != (version == SchemaVersion) {
+		return fmt.Errorf("subListType presence does not match schemaVersion/capabilities")
 	}
 	return nil
 }

@@ -17,13 +17,14 @@ import (
 
 // FlexParser parsea archivos SlideLang en modo flexible
 type FlexParser struct {
-	input         string
-	lines         []string
-	currentLine   int
-	diagnostics   []diagnostics.Diagnostic
-	logger        util.Logger
-	registry      *elements.Registry
-	hasTitleBlock bool // Rastrea si ya hemos encontrado un bloque de título
+	nestedListTypes bool
+	input           string
+	lines           []string
+	currentLine     int
+	diagnostics     []diagnostics.Diagnostic
+	logger          util.Logger
+	registry        *elements.Registry
+	hasTitleBlock   bool // Rastrea si ya hemos encontrado un bloque de título
 	// pendingLayout guarda el `layout:` de un bloque de metadata por slide
 	// hasta que aparezca el bloque al que le toca (issue #239). Vive en el
 	// parser y no en una variable local porque el bloque de metadata y el
@@ -64,11 +65,12 @@ func (p *FlexParser) position(lineIndex int) diagnostics.Position {
 // cuerpo, hilando lineOffset.
 func (p *FlexParser) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
-		Mode:        "flex",
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-		Lines:       p.lines,
-		LineOffset:  p.lineOffset,
+		Mode:            "flex",
+		NestedListTypes: p.nestedListTypes,
+		CurrentLine:     p.currentLine,
+		Logger:          p.logger,
+		Lines:           p.lines,
+		LineOffset:      p.lineOffset,
 		// Un encabezado anidado (dentro de un ":::bloque") comparte el
 		// mismo pool de anchors por deck que uno de nivel top — dos
 		// "### Details" en el mismo deck, uno anidado y otro no, deben
@@ -174,6 +176,8 @@ func (p *FlexParser) parseFrontMatter(astNode *ast.AST) {
 
 	frontMatter.Raw = strings.TrimSuffix(content.String(), "\n")
 	astNode.FrontMatter = frontMatter
+	parsed, _, _ := (&FrontMatterParser{}).Parse("---\n" + frontMatter.Raw + "\n---\n")
+	p.nestedListTypes = sourceNestedListTypes(parsed)
 }
 
 // parseContentBlock parsea un bloque de contenido (slide en presentaciones, sección en documentos)

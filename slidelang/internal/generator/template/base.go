@@ -631,7 +631,8 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
 
 // GetElementTemplate returns the element template with namespaced classes
 func (tb *TemplateBuilder) GetElementTemplate() string {
-	template := `{{define "element"}}
+	template := `{{define "typed-point-item"}}<li>{{.Content | markdown}}{{if .SubPoints}}{{if eq .SubListType "ordered"}}<ol>{{range .SubPoints}}{{template "typed-point-item" .}}{{end}}</ol>{{else}}<ul>{{range .SubPoints}}{{template "typed-point-item" .}}{{end}}</ul>{{end}}{{end}}</li>{{end}}
+{{define "element"}}
         {{if eq .Type "text"}}
             {{if .HeadingHTML}}
             <div class="slidelang-element slidelang-text slidelang-heading slidelang-heading-{{.HeadingLevel}} {{range .CSSClasses}}slidelang-{{.}} {{end}}"
@@ -653,7 +654,9 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  id="slidelang-element-points-{{.SlideIndex}}-{{.ElementID}}"
                  data-element-type="points"
                  data-slide="{{.SlideIndex}}">
-                {{if eq .ListType "ordered"}}
+                {{if .TypedList}}
+                    {{if eq .ListType "ordered"}}<ol>{{range .Items}}{{template "typed-point-item" .}}{{end}}</ol>{{else}}<ul>{{range .Items}}{{template "typed-point-item" .}}{{end}}</ul>{{end}}
+                {{else if eq .ListType "ordered"}}
                     <ol>
                         {{range .Items}}
                             <li>{{.Content | markdown}}

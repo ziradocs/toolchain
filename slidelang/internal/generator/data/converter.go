@@ -439,6 +439,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 			case *ast.PointsElement:
 				elementData.Items = ConvertPointItemsWithVariables(elem.Items, variables)
 				elementData.ListType = elem.ListType
+				elementData.TypedList = convertedTypedPoints(elementData.Items)
 			case *ast.TableElement:
 				// Process headers with variables and markdown formatting
 				processedHeaders := make([]string, len(elem.Headers))

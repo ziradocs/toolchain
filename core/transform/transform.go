@@ -77,7 +77,7 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
 			return nil, fmt.Errorf("built-in transform #%d: %s", i, issues[0].String())
 		}
-		if ast.UsesTableRows(doc) || doc.SchemaVersion == ast.SchemaVersion || len(doc.Capabilities) > 0 {
+		if ast.UsesTableRows(doc) || ast.UsesNestedListTypes(doc) || doc.SchemaVersion == ast.TableSchemaVersion || doc.SchemaVersion == ast.SchemaVersion || len(doc.Capabilities) > 0 {
 			if err := ast.ValidateTableContract(doc); err != nil {
 				return nil, fmt.Errorf("built-in transform #%d: %w", i, err)
 			}
@@ -95,14 +95,24 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 // del filtro para diagnóstico.
 func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast.AST, error) {
 	for _, path := range filterPaths {
-		if ast.UsesTableRows(doc) {
+		var nestedOwners map[string]string
+		if ast.UsesTableRows(doc) || ast.UsesNestedListTypes(doc) {
 			if err := ast.ValidateTableContract(doc); err != nil {
 				return nil, fmt.Errorf("filter %q input: %w", path, err)
 			}
 			if err := ast.FilterTableIdentityReady(doc); err != nil {
-				return nil, fmt.Errorf("filter %q: %w", path, err)
+				if ast.UsesTableRows(doc) {
+					return nil, fmt.Errorf("filter %q: %w", path, err)
+				}
 			}
-			if err := negotiateTableRows(path, timeout); err != nil {
+			if ast.UsesNestedListTypes(doc) {
+				var err error
+				nestedOwners, err = ast.NestedListOwners(doc)
+				if err != nil {
+					return nil, fmt.Errorf("filter %q: %w", path, err)
+				}
+			}
+			if err := negotiateTableRows(path, timeout, doc); err != nil {
 				return nil, fmt.Errorf("filter %q: %w", path, err)
 			}
 		}
@@ -117,6 +127,18 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 				return nil, fmt.Errorf("filter %q: table row/cell identities or capability were removed or changed", path)
 			}
 		}
+		if ast.UsesNestedListTypes(before) {
+			if !ast.UsesNestedListTypes(doc) {
+				return nil, fmt.Errorf("filter %q: nested list types or capability were removed", path)
+			}
+			afterOwners, err := ast.NestedListOwners(doc)
+			if err != nil {
+				return nil, fmt.Errorf("filter %q: %w", path, err)
+			}
+			if !reflect.DeepEqual(nestedOwners, afterOwners) {
+				return nil, fmt.Errorf("filter %q: nested list nodeId ownership changed", path)
+			}
+		}
 		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
 			return nil, fmt.Errorf("filter %q: %s", path, issues[0].String())
 		}
@@ -127,7 +149,7 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 // negotiateTableRows sends no AST bytes. This is a compatibility gate, not
 // trust in a filter: decoded output and identity ownership are checked after
 // the filter runs too. Legacy 2.14 documents never invoke this handshake.
-func negotiateTableRows(path string, timeout time.Duration) error {
+func negotiateTableRows(path string, timeout time.Duration, doc *ast.AST) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--ziradocs-capabilities")
@@ -161,8 +183,31 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return fmt.Errorf("invalid trailing capability response")
 	}
-	if len(response.ASTSchemaVersions) != 1 || response.ASTSchemaVersions[0] != ast.SchemaVersion || len(response.Features) != 1 || response.Features[0] != ast.TableRowsCapability {
-		return fmt.Errorf("filter does not support schemaVersion %s and %s", ast.SchemaVersion, ast.TableRowsCapability)
+	versionSupported := false
+	for _, version := range response.ASTSchemaVersions {
+		if version == doc.SchemaVersion {
+			versionSupported = true
+		}
+	}
+	features := make(map[string]bool, len(response.Features))
+	for _, feature := range response.Features {
+		features[feature] = true
+	}
+	if !versionSupported || len(features) != len(response.Features) {
+		return fmt.Errorf("filter does not support schemaVersion %s and its capabilities", doc.SchemaVersion)
+	}
+	for _, feature := range doc.Capabilities {
+		if !features[feature] {
+			return fmt.Errorf("filter does not support schemaVersion %s and capability %s", doc.SchemaVersion, feature)
+		}
+	}
+	for _, feature := range response.Features {
+		if feature != ast.TableRowsCapability && feature != ast.NestedListTypesCapability {
+			return fmt.Errorf("filter reports unknown capability %s", feature)
+		}
+	}
+	if len(doc.Capabilities) == 0 {
+		return fmt.Errorf("extended AST missing capabilities")
 	}
 	return nil
 }
