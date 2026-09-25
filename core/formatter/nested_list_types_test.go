@@ -122,8 +122,8 @@ func TestNestedListTypesIDsSurviveReorderEditAndInsert(t *testing.T) {
 	points := doc.ContentBlocks[0].Elements[0].(*ast.PointsElement)
 	points.Items[0], points.Items[1] = points.Items[1], points.Items[0]
 	points.Items[0].Content = "ParentB edited"
-	child := ast.NewPointItem(points.GetPosition(), "ChildC")
-	child.NodeID = "ChildC"
+	child := ast.NewPointItem(points.GetPosition(), "ChildD")
+	child.NodeID = "ChildD"
 	points.Items[0].SubPoints = append(points.Items[0].SubPoints, *child)
 	want := shapes(points.Items)
 	formatted, err := FormatStrict(doc)
