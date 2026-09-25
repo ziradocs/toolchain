@@ -159,3 +159,26 @@ func TestNestedTableRowsProjectionConflict(t *testing.T) {
 		t.Fatalf("nested projection conflict accepted: %v", err)
 	}
 }
+
+func TestTableRowsRejectsUnsafeRawContractAndWidth(t *testing.T) {
+	legacy := NewAST(diagnostics.NewPosition(1, 1))
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["capabilities"] = nil
+	bad, _ := json.Marshal(raw)
+	if _, err := DecodeAST(bad); err == nil || !strings.Contains(err.Error(), "legacy schemaVersion") {
+		t.Fatalf("legacy null capability accepted: %v", err)
+	}
+	doc := contractFixture()
+	table := doc.ContentBlocks[0].Elements[0].(*TableElement)
+	table.TableRows[0].Cells = []TableRowCell{{Content: "A", ColSpan: int(^uint(0) >> 1)}, {Content: "B", ColSpan: int(^uint(0) >> 1)}}
+	if err := ValidateTableRows(table); err == nil || !strings.Contains(err.Error(), "supported width") {
+		t.Fatalf("oversized width accepted: %v", err)
+	}
+}

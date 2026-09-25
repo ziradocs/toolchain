@@ -77,15 +77,16 @@ func ValidateRawTableContract(data []byte) error {
 		return fmt.Errorf("unsupported schemaVersion %q", version)
 	}
 	var caps []string
-	if raw, ok := root["capabilities"]; ok {
-		if err := json.Unmarshal(raw, &caps); err != nil {
+	rawCaps, capsPresent := root["capabilities"]
+	if capsPresent {
+		if err := json.Unmarshal(rawCaps, &caps); err != nil {
 			return fmt.Errorf("invalid capabilities: %w", err)
 		}
 	}
 	if version == SchemaVersion && (len(caps) != 1 || caps[0] != TableRowsCapability) {
 		return fmt.Errorf("schemaVersion %s requires capability %s", SchemaVersion, TableRowsCapability)
 	}
-	if version == LegacySchemaVersion && len(caps) != 0 {
+	if version == LegacySchemaVersion && capsPresent {
 		return fmt.Errorf("legacy schemaVersion cannot declare capabilities")
 	}
 	var whole map[string]any

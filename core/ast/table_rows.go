@@ -50,7 +50,11 @@ func ValidateTableRows(t *TableElement) error {
 	}
 	width := 0
 	for _, c := range t.TableRows[0].Cells {
-		width += normalizedTableSpan(c.ColSpan)
+		span := normalizedTableSpan(c.ColSpan)
+		if span > MaxCellSpan-width {
+			return fmt.Errorf("tableRows first row exceeds supported width %d", MaxCellSpan)
+		}
+		width += span
 	}
 	if width == 0 || width > MaxCellSpan {
 		return fmt.Errorf("tableRows first row has invalid width %d", width)
