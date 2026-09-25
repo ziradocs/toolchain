@@ -130,7 +130,7 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 		if ctx.Err() != nil {
 			return fmt.Errorf("tableRows capability handshake timed out")
 		}
-		return fmt.Errorf("tableRows capability handshake failed: %w (%s)", err, stderr.String())
+		return fmt.Errorf("tableRows capability handshake failed: %w (%s)", err, stderr.buf.String())
 	}
 	if stdout.exceeded || stderr.exceeded {
 		return fmt.Errorf("tableRows capability handshake response exceeds 4096 bytes")
@@ -139,7 +139,7 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 		ASTSchemaVersions []string `json:"astSchemaVersions"`
 		Features          []string `json:"features"`
 	}
-	decoder := json.NewDecoder(bytes.NewReader(stdout.Bytes()))
+	decoder := json.NewDecoder(bytes.NewReader(stdout.buf.Bytes()))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&response); err != nil {
 		return fmt.Errorf("invalid tableRows capability response: %w", err)
@@ -155,17 +155,17 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 }
 
 type limitedWriter struct {
-	bytes.Buffer
+	buf      bytes.Buffer
 	limit    int
 	exceeded bool
 }
 
 func (w *limitedWriter) Write(p []byte) (int, error) {
-	if w.Len()+len(p) > w.limit {
+	if w.buf.Len()+len(p) > w.limit {
 		w.exceeded = true
 		return 0, fmt.Errorf("capability response exceeds %d bytes", w.limit)
 	}
-	return w.Buffer.Write(p)
+	return w.buf.Write(p)
 }
 
 func runExternalFilter(doc *ast.AST, binaryPath string, timeout time.Duration) (*ast.AST, error) {
