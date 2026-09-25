@@ -41,7 +41,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
+	"reflect"
 	"time"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -88,16 +90,69 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 // del filtro para diagnóstico.
 func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast.AST, error) {
 	for _, path := range filterPaths {
+		if ast.UsesTableRows(doc) {
+			if err := ast.FilterTableIdentityReady(doc); err != nil {
+				return nil, fmt.Errorf("filter %q: %w", path, err)
+			}
+			if err := negotiateTableRows(path, timeout); err != nil {
+				return nil, fmt.Errorf("filter %q: %w", path, err)
+			}
+		}
 		var err error
+		before := doc
 		doc, err = runExternalFilter(doc, path, timeout)
 		if err != nil {
 			return nil, fmt.Errorf("filter %q: %w", path, err)
+		}
+		if ast.UsesTableRows(before) {
+			if !ast.UsesTableRows(doc) || !reflect.DeepEqual(ast.TableIdentityOwners(before), ast.TableIdentityOwners(doc)) {
+				return nil, fmt.Errorf("filter %q: table row/cell identities or capability were removed or changed", path)
+			}
 		}
 		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
 			return nil, fmt.Errorf("filter %q: %s", path, issues[0].String())
 		}
 	}
 	return doc, nil
+}
+
+// negotiateTableRows sends no AST bytes. This is a compatibility gate, not
+// trust in a filter: decoded output and identity ownership are checked after
+// the filter runs too. Legacy 2.14 documents never invoke this handshake.
+func negotiateTableRows(path string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--ziradocs-capabilities")
+	cmd.Stdin = bytes.NewReader(nil)
+	stdout, stderr := &limitedWriter{limit: 4096}, &limitedWriter{limit: 4096}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil { return fmt.Errorf("tableRows capability handshake timed out") }
+		return fmt.Errorf("tableRows capability handshake failed: %w (%s)", err, stderr.String())
+	}
+	var response struct {
+		ASTSchemaVersions []string `json:"astSchemaVersions"`
+		Features []string `json:"features"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(stdout.Bytes()))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&response); err != nil { return fmt.Errorf("invalid tableRows capability response: %w", err) }
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF { return fmt.Errorf("invalid trailing capability response") }
+	if len(response.ASTSchemaVersions) != 1 || response.ASTSchemaVersions[0] != ast.SchemaVersion || len(response.Features) != 1 || response.Features[0] != ast.TableRowsCapability {
+		return fmt.Errorf("filter does not support schemaVersion %s and %s", ast.SchemaVersion, ast.TableRowsCapability)
+	}
+	return nil
+}
+
+type limitedWriter struct {
+	bytes.Buffer
+	limit int
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	if w.Len()+len(p) > w.limit { return 0, fmt.Errorf("capability response exceeds %d bytes", w.limit) }
+	return w.Buffer.Write(p)
 }
 
 func runExternalFilter(doc *ast.AST, binaryPath string, timeout time.Duration) (*ast.AST, error) {

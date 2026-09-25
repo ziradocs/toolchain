@@ -570,6 +570,26 @@ type TableCell struct {
 	RowSpan int `json:"rowSpan,omitempty"`
 }
 
+// TableRowCell is an authored cell in the opt-in tableRows form. Its NodeID
+// belongs to the same document-wide namespace as BaseNode.NodeID. A covered
+// coordinate of a merged cell has no separate identity.
+type TableRowCell struct {
+	NodeID   string `json:"nodeId,omitempty"`
+	Content  string `json:"content"`
+	IsHeader bool   `json:"isHeader,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	ColSpan  int    `json:"colSpan,omitempty"`
+	RowSpan  int    `json:"rowSpan,omitempty"`
+}
+
+// TableRow is the sole authored authority for an opt-in table. Cells,
+// Headers and Rows on TableElement are deterministic compatibility views.
+type TableRow struct {
+	NodeID  string         `json:"nodeId,omitempty"`
+	Section string         `json:"section,omitempty"` // header, body, footer; empty means body
+	Cells   []TableRowCell `json:"cells"`
+}
+
 // LangRun exposes a sub-span of an element's own prose (issue #63) that the
 // author marked as being in a different language than the document's
 // declared FrontMatter.Lang — e.g. a French phrase inside otherwise-Spanish
@@ -610,6 +630,9 @@ type LangRun struct {
 // TableElement representa una tabla con datos
 type TableElement struct {
 	BaseNode    `tstype:",extends,required"`
+	// TableRows is nil for legacy tables. A non-nil slice opts the table into
+	// the versioned row/cell identity contract; the other views are derived.
+	TableRows   []TableRow `json:"tableRows,omitempty"`
 	Headers     []string   `json:"headers"`
 	HeadersHTML []string   `json:"headersHTML,omitempty"` // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
 	Rows        [][]string `json:"rows"`

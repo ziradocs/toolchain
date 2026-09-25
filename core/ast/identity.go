@@ -29,19 +29,29 @@ type IdentityNode interface {
 func ValidateNodeIDs(doc *AST) []diagnostics.Diagnostic {
 	seen := make(map[string]diagnostics.Position)
 	var result []diagnostics.Diagnostic
-	_ = Walk(doc, func(node Node) error {
-		identified, ok := node.(IdentityNode)
-		if !ok || identified.GetNodeID() == "" {
-			return nil
+	check := func(id string, pos diagnostics.Position) {
+		if id == "" {
+			return
 		}
-		id := identified.GetNodeID()
-		pos := node.GetPosition()
 		if !ValidNodeID(id) {
 			result = append(result, diagnostics.NewError(fmt.Sprintf("invalid nodeId %q: use 1-128 ASCII letters, digits, '.', '_' or '-', starting with a letter", id), pos, "identity"))
 		} else if first, exists := seen[id]; exists {
 			result = append(result, diagnostics.NewError(fmt.Sprintf("duplicate nodeId %q (first at %d:%d)", id, first.Line, first.Column), pos, "identity"))
 		} else {
 			seen[id] = pos
+		}
+	}
+	_ = Walk(doc, func(node Node) error {
+		if identified, ok := node.(IdentityNode); ok {
+			check(identified.GetNodeID(), node.GetPosition())
+		}
+		if table, ok := node.(*TableElement); ok && table.HasTableRows() {
+			for _, row := range table.TableRows {
+				check(row.NodeID, table.GetPosition())
+				for _, cell := range row.Cells {
+					check(cell.NodeID, table.GetPosition())
+				}
+			}
 		}
 		return nil
 	})
