@@ -90,10 +90,12 @@ import type { Position } from "./diagnostics";
  * 2.15.0: opt-in authored tableRows with portable row/cell identities and
  * semantic row sections. Documents without this capability still emit 2.14.0.
  */
-export const SchemaVersion = "2.15.0";
+export const SchemaVersion = "2.16.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
+export const TableSchemaVersion = "2.15.0";
 export const TableRowsCapability = "table-rows-v1";
+export const NestedListTypesCapability = "nested-list-types-v1";
 /**
  * Node representa un nodo base en el AST
  */
@@ -566,6 +568,7 @@ export interface PointItem extends BaseNode {
   langRuns?: LangRun[]; // ver TextElement.LangRuns
   discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
   subPoints?: PointItem[];
+  subListType?: string; // type of this item's child list (opt-in)
 }
 /**
  * CodeElement representa un bloque de código
