@@ -35,8 +35,9 @@ func TestSerializeToJSON_SchemaVersionPresent(t *testing.T) {
 	if !ok || got == "" {
 		t.Fatalf("schemaVersion missing or empty in serialized output: %v", generic["schemaVersion"])
 	}
-	if got != ast.LegacySchemaVersion {
-		t.Errorf("schemaVersion = %q, want legacy %q", got, ast.LegacySchemaVersion)
+	const wantLegacyVersion = "2.14.0"
+	if got != wantLegacyVersion {
+		t.Errorf("schemaVersion = %q, want legacy %q", got, wantLegacyVersion)
 	}
 }
 
