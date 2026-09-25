@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -111,5 +112,76 @@ func TestNestedListTypesAbsentOptInKeepsLegacyContract(t *testing.T) {
 	doc := parseTypedStrict(t, source)
 	if doc.SchemaVersion != ast.LegacySchemaVersion || len(doc.Capabilities) != 0 || ast.UsesNestedListTypes(doc) {
 		t.Fatalf("legacy document inflated: %s %v", doc.SchemaVersion, doc.Capabilities)
+	}
+}
+
+func TestNestedListTypesOptInWithoutNestedItemsUsesLegacyJSON(t *testing.T) {
+	source := "---\nmode: strict\nast_capabilities: [nested-list-types-v1]\n---\nSLIDE content\n  title: \"List\"\n  POINTS\n    - ParentA\n"
+	doc := parseTypedStrict(t, source)
+	if doc.SchemaVersion != ast.LegacySchemaVersion || len(doc.Capabilities) != 0 || ast.UsesNestedListTypes(doc) {
+		t.Fatalf("empty opt-in inflated AST: %s %v", doc.SchemaVersion, doc.Capabilities)
+	}
+	formatted, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(formatted, "ast_capabilities:") {
+		t.Fatal("source opt-in was lost")
+	}
+}
+
+func TestNestedListTypesBothDSLsAndDialects(t *testing.T) {
+	for _, tc := range []struct {
+		name, source string
+		document     bool
+		format       func(*ast.AST) (string, error)
+	}{
+		{"slides flex", "---\nmode: flex\nast_capabilities: [nested-list-types-v1]\n---\n# List\n1. ParentA\n  - ChildA\n    1. ChildB\n", false, FormatStrict},
+		{"document flex", "---\nmode: flex\nast_capabilities: [nested-list-types-v1]\n---\n# List\n\n1. ParentA\n  - ChildA\n    1. ChildB\n", true, FormatDocument},
+		{"document strict", "---\nmode: strict\nast_capabilities: [nested-list-types-v1]\n---\nSECTION \"List\"\n  POINTS\n    1. ParentA\n      - ChildA\n        1. ChildB\n", true, FormatDocumentStrict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := parser.New(util.NewNoop())
+			p.SetNormalization(false)
+			parse := func(source string) *ast.AST {
+				var doc *ast.AST
+				var issues []diagnostics.Diagnostic
+				if tc.document {
+					doc, issues = p.ParseDocument(source, "fixture.doclang")
+				} else {
+					doc, issues = p.Parse(source, "fixture.slidelang")
+				}
+				for _, issue := range issues {
+					if issue.IsError() {
+						t.Fatalf("parse: %s", issue.Message)
+					}
+				}
+				if doc == nil {
+					t.Fatal("nil AST")
+				}
+				return doc
+			}
+			doc := parse(tc.source)
+			if doc.SchemaVersion != ast.SchemaVersion {
+				t.Fatalf("version %s", doc.SchemaVersion)
+			}
+			var points *ast.PointsElement
+			for _, element := range doc.ContentBlocks[0].Elements {
+				if p, ok := element.(*ast.PointsElement); ok {
+					points = p
+				}
+			}
+			if points == nil || points.Items[0].SubListType != "unordered" || points.Items[0].SubPoints[0].SubListType != "ordered" {
+				t.Fatalf("nested types missing: %+v", points)
+			}
+			formatted, err := tc.format(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reparsed := parse(formatted)
+			if !ast.UsesNestedListTypes(reparsed) {
+				t.Fatal("formatter lost nested list types")
+			}
+		})
 	}
 }

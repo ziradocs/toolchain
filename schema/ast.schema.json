@@ -2398,6 +2398,30 @@
               "subListType"
             ]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "point_item"
+              }
+            },
+            "required": [
+              "type",
+              "subListType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "subPoints": {
+                "type": "array",
+                "minItems": 1
+              }
+            },
+            "required": [
+              "subPoints"
+            ]
+          }
         }
       ],
       "properties": {
