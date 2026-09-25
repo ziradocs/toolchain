@@ -27,3 +27,12 @@ func configureBoundedFilterProcess(cmd *exec.Cmd) {
 		return nil
 	}
 }
+
+// WaitDelay can return after the parent exits while a child still owns an
+// inherited pipe. Kill the process group on every exit path, including a
+// successful parent exit, before returning to the caller.
+func cleanupFilterDescendants(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+}

@@ -132,6 +132,7 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--ziradocs-capabilities")
 	configureBoundedFilterProcess(cmd)
+	defer cleanupFilterDescendants(cmd)
 	cmd.Stdin = bytes.NewReader(nil)
 	stdout, stderr := &limitedWriter{limit: 4096, onExceeded: cancel}, &limitedWriter{limit: 4096, onExceeded: cancel}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
@@ -200,6 +201,7 @@ func runExternalFilter(doc *ast.AST, binaryPath string, timeout time.Duration) (
 
 	cmd := exec.CommandContext(ctx, binaryPath)
 	configureBoundedFilterProcess(cmd)
+	defer cleanupFilterDescendants(cmd)
 	cmd.Stdin = bytes.NewReader(input)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

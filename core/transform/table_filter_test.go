@@ -139,8 +139,16 @@ cat`, "timed out"},
   wait
 fi
 cat`, "exceeds"},
+		{"handshake parent exits", `if [ "$1" = "--ziradocs-capabilities" ]; then
+  echo '{"astSchemaVersions":["2.15.0"],"features":["table-rows-v1"]}'
+  (sleep 0.3; echo orphan > MARKER) &
+  exit 0
+fi
+cat`, "handshake failed"},
 		{"filter timeout", compatibleHandshake + `(sleep 0.3; echo orphan > MARKER) &
 wait`, "timed out"},
+		{"filter parent exits", compatibleHandshake + `(sleep 0.3; echo orphan > MARKER) &
+exit 0`, "exited with error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "orphan")

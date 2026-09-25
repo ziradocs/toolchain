@@ -24,3 +24,12 @@ func configureBoundedFilterProcess(cmd *exec.Cmd) {
 		return cmd.Process.Kill()
 	}
 }
+
+func cleanupFilterDescendants(cmd *exec.Cmd) {
+	if cmd.Process == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_ = exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
+}
