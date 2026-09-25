@@ -116,7 +116,7 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 					return nil, fmt.Errorf("filter %q: %w", path, err)
 				}
 			}
-			if err := negotiateTableRows(path, timeout, doc); err != nil {
+			if err := negotiateASTCapabilities(path, timeout, doc); err != nil {
 				return nil, fmt.Errorf("filter %q: %w", path, err)
 			}
 		}
@@ -150,10 +150,10 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 	return doc, nil
 }
 
-// negotiateTableRows sends no AST bytes. This is a compatibility gate, not
-// trust in a filter: decoded output and identity ownership are checked after
-// the filter runs too. Legacy 2.14 documents never invoke this handshake.
-func negotiateTableRows(path string, timeout time.Duration, doc *ast.AST) error {
+// negotiateASTCapabilities sends no AST bytes. Decoded output and identity
+// ownership are checked again after the filter runs. Legacy documents do
+// not invoke this handshake.
+func negotiateASTCapabilities(path string, timeout time.Duration, doc *ast.AST) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--ziradocs-capabilities")

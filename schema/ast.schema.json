@@ -1723,7 +1723,11 @@
           "type": "array"
         },
         "listType": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ordered",
+            "unordered"
+          ]
         }
       },
       "additionalProperties": false,

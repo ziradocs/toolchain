@@ -58,6 +58,8 @@ or array offsets.
 The capability array is a set when read; duplicate and unknown entries fail.
 The writer emits a deterministic order. A source declaration with no nested
 child list does not fabricate `subListType` or raise the JSON version.
+That unused source-only declaration is not carried through an AST JSON
+round-trip because no extension feature is present.
 Every parent with `subPoints` in 2.16 must declare `subListType`, and a leaf
 cannot declare it. JSON lacking the matching version/capability fails before
 unknown fields can be discarded. There is no legacy downgrade for 2.16.
@@ -72,9 +74,18 @@ external version/capability gate: it could discard `subListType`. The
 controlled CLI filter path below supplies that gate.
 
 For external filters, the CLI sends no AST bytes until the filter reports
-the exact schema version and every active capability through
+support for the document's schema version and every active capability through
 `--ziradocs-capabilities`. A filter may edit content or reorder siblings,
 but must retain the declared type on each nested parent and keep node IDs
 with their parent. The decoded result is validated again. The handshake
 retains its existing timeout and bounded response. Legacy documents still
 use the prior filter protocol.
+
+For a list-only document, a compatible filter may respond:
+
+```json
+{"astSchemaVersions":["2.16.0"],"features":["nested-list-types-v1"]}
+```
+
+For a document with both extensions, `features` must also include
+`table-rows-v1` and the filter must handle both contracts.
