@@ -2,6 +2,8 @@ package generator
 
 import (
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -47,5 +49,25 @@ func TestNestedListTypesMarkdownAndDOCX(t *testing.T) {
 		if start < 0 || !strings.Contains(xml[start:at], tc.marker) {
 			t.Fatalf("DOCX lost %s marker %s: %s", tc.text, tc.marker, xml)
 		}
+	}
+	indentPattern := regexp.MustCompile(`w:left="([0-9]+)"`)
+	var indents []int
+	for _, at := range []int{parent, child, grandchild} {
+		start := strings.LastIndex(xml[:at], "<w:p>")
+		if start < 0 {
+			t.Fatal("DOCX paragraph missing")
+		}
+		match := indentPattern.FindStringSubmatch(xml[start:at])
+		if len(match) != 2 {
+			t.Fatalf("DOCX indent missing near %d", at)
+		}
+		value, err := strconv.Atoi(match[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		indents = append(indents, value)
+	}
+	if !(indents[0] < indents[1] && indents[1] < indents[2]) {
+		t.Fatalf("DOCX nesting indent not increasing: %v", indents)
 	}
 }
