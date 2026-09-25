@@ -4,6 +4,7 @@ Status: opt-in AST capability `table-rows-v1` (schema version 2.15.0).
 Documents without `tableRows` continue to emit AST 2.14.0 without a
 `capabilities` field. This does not change the existing pipe table or
 `TABLE/cells:` source forms.
+Readers also accept existing 2.13.0 documents without `tableRows`.
 
 ## Authoring
 

@@ -39,7 +39,7 @@ func ValidateTableContract(doc *AST) error {
 		if doc.SchemaVersion != SchemaVersion || len(doc.Capabilities) != 1 || doc.Capabilities[0] != TableRowsCapability {
 			return fmt.Errorf("tableRows requires schemaVersion %s and capability %s", SchemaVersion, TableRowsCapability)
 		}
-	} else if doc.SchemaVersion != LegacySchemaVersion || len(doc.Capabilities) != 0 {
+	} else if (doc.SchemaVersion != LegacySchemaVersion && doc.SchemaVersion != PreviousSchemaVersion) || len(doc.Capabilities) != 0 {
 		return fmt.Errorf("unsupported AST version/capabilities without tableRows: %q %v", doc.SchemaVersion, doc.Capabilities)
 	}
 	var failure error
@@ -73,7 +73,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(root["schemaVersion"], &version); err != nil {
 		return fmt.Errorf("schemaVersion is missing or invalid: %w", err)
 	}
-	if version != LegacySchemaVersion && version != SchemaVersion {
+	if version != PreviousSchemaVersion && version != LegacySchemaVersion && version != SchemaVersion {
 		return fmt.Errorf("unsupported schemaVersion %q", version)
 	}
 	var caps []string
@@ -86,7 +86,7 @@ func ValidateRawTableContract(data []byte) error {
 	if version == SchemaVersion && (len(caps) != 1 || caps[0] != TableRowsCapability) {
 		return fmt.Errorf("schemaVersion %s requires capability %s", SchemaVersion, TableRowsCapability)
 	}
-	if version == LegacySchemaVersion && capsPresent {
+	if version != SchemaVersion && capsPresent {
 		return fmt.Errorf("legacy schemaVersion cannot declare capabilities")
 	}
 	var whole map[string]any

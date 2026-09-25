@@ -126,10 +126,15 @@ func TestTableRowsSchemaVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, doc := range []*AST{NewAST(diagnostics.NewPosition(1, 1)), contractFixture()} {
+	previous := NewAST(diagnostics.NewPosition(1, 1))
+	previous.SchemaVersion = PreviousSchemaVersion
+	for _, doc := range []*AST{previous, NewAST(diagnostics.NewPosition(1, 1)), contractFixture()} {
 		data, err := json.Marshal(doc)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if _, err := DecodeAST(data); err != nil {
+			t.Fatalf("decoder rejected version %s: %v", doc.SchemaVersion, err)
 		}
 		var value any
 		if err := json.Unmarshal(data, &value); err != nil {

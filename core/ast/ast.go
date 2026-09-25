@@ -103,6 +103,7 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // semantic row sections. Documents without this capability still emit 2.14.0.
 const SchemaVersion = "2.15.0"
 
+const PreviousSchemaVersion = "2.13.0"
 const LegacySchemaVersion = "2.14.0"
 const TableRowsCapability = "table-rows-v1"
 

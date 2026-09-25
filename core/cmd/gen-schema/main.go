@@ -111,7 +111,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.LegacySchemaVersion, ast.SchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.SchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
