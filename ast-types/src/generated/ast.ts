@@ -1113,6 +1113,15 @@ export const MaxCellSpan = 1000;
 // source: table_contract.go
 
 /**
+ * NestedListFingerprint captures ownership and list types by authored ID.
+ * Text and sibling order are intentionally absent so filters may edit them.
+ */
+export interface NestedListFingerprint {
+  OwnerID: string;
+  ListType: string;
+  SubListType: string;
+}
+/**
  * TableIdentityTarget is a portable resolution result. The pointers identify
  * authored records, never flattened coordinates. Callers must resolve again
  * after a transform that replaces or reorders the document tree.
