@@ -175,8 +175,8 @@ func TestNestedListTypesRejectEmptyOrOrphanedItems(t *testing.T) {
 }
 
 func TestNestedListTypesRejectUnknownOrDuplicateSourceCapability(t *testing.T) {
-	for _, capability := range []string{"unknown-feature", "nested-list-types-v1, nested-list-types-v1"} {
-		source := strings.Replace(typedStrictSource, "ast_capabilities: [nested-list-types-v1]", "ast_capabilities: ["+capability+"]", 1)
+	for _, declaration := range []string{"ast_capabilities: [unknown-feature]", "ast_capabilities: [nested-list-types-v1, nested-list-types-v1]", "ast_capabilities: []", "ast_capabilities: null", "ast_capabilities: true"} {
+		source := strings.Replace(typedStrictSource, "ast_capabilities: [nested-list-types-v1]", declaration, 1)
 		p := parser.New(util.NewNoop())
 		p.SetNormalization(false)
 		_, issues := p.Parse(source, "fixture.slidelang")
@@ -187,7 +187,7 @@ func TestNestedListTypesRejectUnknownOrDuplicateSourceCapability(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Fatalf("capability %q accepted: %v", capability, issues)
+			t.Fatalf("capability declaration %q accepted: %v", declaration, issues)
 		}
 	}
 }

@@ -42,8 +42,13 @@ func TestNestedListFilterNegotiationAndPreservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	changedContent := writeFilter(t, nestedHandshake+`sed 's/ChildA text/ChildB text/g'`)
-	if _, err := RunFilters(nestedFilterFixture(), []string{changedContent}, time.Second); err != nil {
+	changedDoc, err := RunFilters(nestedFilterFixture(), []string{changedContent}, time.Second)
+	if err != nil {
 		t.Fatalf("content edit rejected: %v", err)
+	}
+	changedPoints := changedDoc.ContentBlocks[0].Elements[0].(*ast.PointsElement)
+	if changedPoints.Items[0].SubPoints[0].Content != "ChildB text" {
+		t.Fatal("filter content edit was not applied")
 	}
 	marker := filepath.Join(t.TempDir(), "ran")
 	old := writeFilter(t, `if [ "$1" = "--ziradocs-capabilities" ]; then echo '{"astSchemaVersions":["2.15.0"],"features":["table-rows-v1"]}'; exit 0; fi
@@ -62,5 +67,28 @@ cat`)
 	renamed := writeFilter(t, nestedHandshake+`sed 's/"nodeId":"ChildA"/"nodeId":"ChildB"/g'`)
 	if _, err := RunFilters(nestedFilterFixture(), []string{renamed}, time.Second); err == nil || !strings.Contains(err.Error(), "ownership") {
 		t.Fatalf("changed child identity accepted: %v", err)
+	}
+}
+
+func TestNestedListFilterCombinedCapabilities(t *testing.T) {
+	doc := nestedFilterFixture()
+	pos := diagnostics.NewPosition(1, 1)
+	table := ast.NewTableElement(pos)
+	table.NodeID = "TableA"
+	table.TableRows = []ast.TableRow{{NodeID: "RowA", Cells: []ast.TableRowCell{{NodeID: "CellA", Content: "A"}}}}
+	table.SyncTableViews()
+	doc.ContentBlocks[0].Elements = append(doc.ContentBlocks[0].Elements, table)
+	ast.SetTableContract(doc)
+	missing := writeFilter(t, nestedHandshake+"cat")
+	if _, err := RunFilters(doc, []string{missing}, time.Second); err == nil || !strings.Contains(err.Error(), ast.TableRowsCapability) {
+		t.Fatalf("combined document accepted list-only filter: %v", err)
+	}
+	combined := writeFilter(t, `if [ "$1" = "--ziradocs-capabilities" ]; then
+echo '{"astSchemaVersions":["2.16.0"],"features":["nested-list-types-v1","table-rows-v1"]}'
+exit 0
+fi
+cat`)
+	if _, err := RunFilters(doc, []string{combined}, time.Second); err != nil {
+		t.Fatal(err)
 	}
 }

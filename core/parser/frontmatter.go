@@ -23,7 +23,7 @@ type FrontMatterParser struct {
 }
 
 type rawFrontMatter struct {
-	ASTCapabilities []string               `yaml:"ast_capabilities"`
+	ASTCapabilities *yaml.Node             `yaml:"ast_capabilities"`
 	Mode            string                 `yaml:"mode"`
 	Title           string                 `yaml:"title"`
 	Author          string                 `yaml:"author"`
@@ -504,15 +504,26 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node := ast.NewFrontMatterNode(diagnostics.NewPosition(1, 1))
 	node.EndPosition = diagnostics.NewPosition(endIndex+1, 4)
 	node.Mode = raw.Mode
-	node.ASTCapabilities = raw.ASTCapabilities
-	seenCapabilities := map[string]bool{}
-	for _, capability := range raw.ASTCapabilities {
-		if seenCapabilities[capability] {
-			p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("duplicate ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
-		}
-		seenCapabilities[capability] = true
-		if capability != ast.NestedListTypesCapability {
-			p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("unsupported ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
+	if raw.ASTCapabilities != nil {
+		if raw.ASTCapabilities.Kind != yaml.SequenceNode || len(raw.ASTCapabilities.Content) == 0 {
+			p.diagnostics = append(p.diagnostics, diagnostics.NewError("ast_capabilities must be a nonempty list", diagnostics.NewPosition(2, 1), "parser"))
+		} else {
+			seenCapabilities := map[string]bool{}
+			for _, entry := range raw.ASTCapabilities.Content {
+				if entry.Kind != yaml.ScalarNode || entry.Tag != "!!str" {
+					p.diagnostics = append(p.diagnostics, diagnostics.NewError("ast_capabilities entries must be strings", diagnostics.NewPosition(2, 1), "parser"))
+					continue
+				}
+				capability := entry.Value
+				node.ASTCapabilities = append(node.ASTCapabilities, capability)
+				if seenCapabilities[capability] {
+					p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("duplicate ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
+				}
+				seenCapabilities[capability] = true
+				if capability != ast.NestedListTypesCapability {
+					p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("unsupported ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
+				}
+			}
 		}
 	}
 	node.Title = raw.Title
