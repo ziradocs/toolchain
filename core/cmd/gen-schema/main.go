@@ -119,6 +119,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := overrideProperty(root.Definitions, "PointsElement", "listType", &jsonschema.Schema{Type: "string", Enum: []any{"ordered", "unordered"}}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := overrideProperty(root.Definitions, "TableRow", "section", &jsonschema.Schema{Type: "string", Enum: []any{"header", "body", "footer"}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

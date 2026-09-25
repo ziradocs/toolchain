@@ -33,9 +33,11 @@ The outer `PointsElement.listType` is `ordered`. ParentA has
 ParentB has `subListType: "ordered"`. Leaves have no `subListType`.
 `subListType` describes the **children's list**, never the marker used by
 the item itself. The first marker at a given level defines its list type.
-Mixing ordered and unordered markers among siblings in one list is an error;
-separate subtrees may use different types. Empty items are errors in the
-opt-in path. Numbering is presentation order and is never used as an ID.
+Mixing ordered and unordered markers among siblings in one nested list is an
+error; separate subtrees may use different types. In flex mode, changing the
+outer marker starts a new `PointsElement`, as it did before this extension.
+Empty items and malformed markers inside an opt-in `POINTS` block are errors.
+Numbering is presentation order and is never used as an ID.
 
 To keep identities through edits, place `<!-- node-id: ParentA -->` and
 `<!-- node-id: ChildA -->` before the corresponding items. IDs remain

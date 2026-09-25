@@ -94,6 +94,30 @@ func TestNestedListTypesStrictRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNestedListTypesIDsSurviveReorderEditAndInsert(t *testing.T) {
+	doc := parseTypedStrict(t, typedStrictSource)
+	points := doc.ContentBlocks[0].Elements[0].(*ast.PointsElement)
+	points.Items[0], points.Items[1] = points.Items[1], points.Items[0]
+	points.Items[0].Content = "ParentB edited"
+	child := ast.NewPointItem(points.GetPosition(), "ChildC")
+	child.NodeID = "ChildC"
+	points.Items[0].SubPoints = append(points.Items[0].SubPoints, *child)
+	want := shapes(points.Items)
+	formatted, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed := parseTypedStrict(t, formatted)
+	got := shapes(reparsed.ContentBlocks[0].Elements[0].(*ast.PointsElement).Items)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("IDs followed order/text instead of owners: %v -> %v", want, got)
+	}
+	points.Items[0].SubPoints[1].NodeID = "ChildA"
+	if _, err := FormatStrict(doc); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("duplicate ID accepted: %v", err)
+	}
+}
+
 func TestNestedListTypesRejectMixedSiblingMarkers(t *testing.T) {
 	source := strings.Replace(typedStrictSource, "      - ChildB", "      2. ChildB", 1)
 	p := parser.New(util.NewNoop())
@@ -105,6 +129,26 @@ func TestNestedListTypesRejectMixedSiblingMarkers(t *testing.T) {
 		}
 	}
 	t.Fatalf("missing marker diagnostic: %v", issues)
+}
+
+func TestNestedListTypesRejectEmptyOrOrphanedItems(t *testing.T) {
+	for _, tc := range []struct{ name, source, expected string }{
+		{"empty parent and orphan child", strings.Replace(typedStrictSource, "1. ParentA", "1. ", 1), "orphan nested list item"},
+		{"invalid child marker", strings.Replace(typedStrictSource, "- ChildA", "1) ChildA", 1), "invalid list marker"},
+		{"empty block", "---\nmode: strict\nast_capabilities: [nested-list-types-v1]\n---\nSLIDE content\n  POINTS\n", "empty POINTS list"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := parser.New(util.NewNoop())
+			p.SetNormalization(false)
+			_, issues := p.Parse(tc.source, "fixture.slidelang")
+			for _, issue := range issues {
+				if issue.IsError() && strings.Contains(issue.Message, tc.expected) {
+					return
+				}
+			}
+			t.Fatalf("missing %s diagnostic: %v", tc.expected, issues)
+		})
+	}
 }
 
 func TestNestedListTypesAbsentOptInKeepsLegacyContract(t *testing.T) {

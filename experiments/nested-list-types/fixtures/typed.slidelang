@@ -1,0 +1,20 @@
+---
+mode: strict
+ast_capabilities: [nested-list-types-v1]
+---
+SLIDE content
+  title: "List"
+  <!-- node-id: PointsA -->
+  POINTS
+    <!-- node-id: ParentA -->
+    1. ParentA
+      <!-- node-id: ChildA -->
+      - ChildA
+        <!-- node-id: GrandchildA -->
+        1. GrandchildA
+      <!-- node-id: ChildB -->
+      - ChildB
+    <!-- node-id: ParentB -->
+    2. ParentB
+      <!-- node-id: ChildC -->
+      1. ChildC

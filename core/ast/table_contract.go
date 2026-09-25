@@ -132,6 +132,10 @@ func ValidateTableContract(doc *AST) error {
 	}
 	var failure error
 	_ = Walk(doc, func(n Node) error {
+		if p, ok := n.(*PointsElement); ok && lists && p.ListType != "ordered" && p.ListType != "unordered" {
+			failure = fmt.Errorf("invalid PointsElement.listType %q", p.ListType)
+			return failure
+		}
 		if t, ok := n.(*TableElement); ok {
 			if err := ValidateTableRows(t); err != nil {
 				failure = err
@@ -201,6 +205,9 @@ func ValidateRawTableContract(data []byte) error {
 				}
 			}
 		case map[string]any:
+			if v["type"] == string(NodeTypePoints) && version == SchemaVersion && v["listType"] != "ordered" && v["listType"] != "unordered" {
+				return fmt.Errorf("invalid PointsElement.listType %v", v["listType"])
+			}
 			if v["type"] == string(NodeTypeTable) {
 				if rows, has := v["tableRows"]; has {
 					tableCount++
@@ -239,41 +246,18 @@ func ValidateRawTableContract(data []byte) error {
 					}
 				}
 			}
-			if children, ok := v["items"]; ok {
-				if err := inspectElement(children); err != nil {
-					return err
-				}
-			}
-			if children, ok := v["subPoints"]; ok {
-				if err := inspectElement(children); err != nil {
-					return err
-				}
-			}
-			if nested, ok := v["elements"]; ok {
-				if err := inspectElement(nested); err != nil {
-					return err
-				}
-			}
-			if columns, ok := v["columns"].([]any); ok {
-				for _, column := range columns {
-					if cm, ok := column.(map[string]any); ok {
-						if err := inspectElement(cm["elements"]); err != nil {
-							return err
-						}
+			for _, key := range []string{"contentBlocks", "elements", "columns", "items", "subPoints"} {
+				if child, ok := v[key]; ok {
+					if err := inspectElement(child); err != nil {
+						return err
 					}
 				}
 			}
 		}
 		return nil
 	}
-	if blocks, ok := whole["contentBlocks"].([]any); ok {
-		for _, block := range blocks {
-			if bm, ok := block.(map[string]any); ok {
-				if err := inspectElement(bm["elements"]); err != nil {
-					return err
-				}
-			}
-		}
+	if err := inspectElement(whole); err != nil {
+		return err
 	}
 	if (tableCount > 0) != (version == TableSchemaVersion || (version == SchemaVersion && hasCapabilities(caps, NestedListTypesCapability, TableRowsCapability))) {
 		return fmt.Errorf("tableRows presence does not match schemaVersion/capabilities")

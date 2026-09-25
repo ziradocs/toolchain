@@ -192,6 +192,16 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 		}
 		indent := CalculateIndentLevel(line)
 		if !p.isListItem(trimmed) {
+			if malformedPointMarker(trimmed) && (strict || len(stack) > 0) {
+				if baseIndent < 0 {
+					baseIndent = indent
+				}
+				if indent >= baseIndent {
+					diags = append(diags, diagnostics.NewError("empty or invalid list marker", ctx.Position(i), "points-parser"))
+					consumed++
+					continue
+				}
+			}
 			break
 		}
 		if baseIndent < 0 {
@@ -246,7 +256,24 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 		}
 		consumed++
 	}
+	if len(element.Items) == 0 {
+		diags = append(diags, diagnostics.NewError("empty POINTS list", ctx.Position(startIndex), "points-parser"))
+	}
 	return &ParseResult{Element: element, ConsumedLines: consumed, Diagnostics: diags}
+}
+
+func malformedPointMarker(line string) bool {
+	if line == "-" || line == "*" || line == "+" {
+		return true
+	}
+	i := 0
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	if i == 0 || i >= len(line) || (line[i] != '.' && line[i] != ')') {
+		return false
+	}
+	return i+1 == len(line) || line[i+1] == ' ' || line[i+1] == '\t'
 }
 
 func pointAtPath(element *ast.PointsElement, path []int) *ast.PointItem {

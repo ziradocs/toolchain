@@ -112,5 +112,8 @@ func TestNestedListContractRejectsSilentLoss(t *testing.T) {
 	})
 	check("missing type", func(root map[string]any) { delete(item(root), "subListType") })
 	check("invalid type", func(root map[string]any) { item(root)["subListType"] = "numbered" })
+	check("invalid outer type", func(root map[string]any) {
+		root["contentBlocks"].([]any)[0].(map[string]any)["elements"].([]any)[0].(map[string]any)["listType"] = "numbered"
+	})
 	check("orphan type", func(root map[string]any) { delete(item(root), "subPoints") })
 }

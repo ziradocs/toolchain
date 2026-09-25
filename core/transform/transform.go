@@ -66,6 +66,7 @@ const DefaultFilterTimeout = 30 * time.Second
 // de uno como entrada del siguiente. Se detiene en el primer error.
 func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 	for i, t := range builtins {
+		hadNestedLists := ast.UsesNestedListTypes(doc)
 		var err error
 		doc, err = t(doc)
 		if err != nil {
@@ -73,6 +74,9 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 		}
 		if doc == nil {
 			return nil, fmt.Errorf("built-in transform #%d devolvió un AST nil", i)
+		}
+		if hadNestedLists && !ast.UsesNestedListTypes(doc) {
+			return nil, fmt.Errorf("built-in transform #%d removed nested list types", i)
 		}
 		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
 			return nil, fmt.Errorf("built-in transform #%d: %s", i, issues[0].String())
@@ -100,8 +104,8 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 			if err := ast.ValidateTableContract(doc); err != nil {
 				return nil, fmt.Errorf("filter %q input: %w", path, err)
 			}
-			if err := ast.FilterTableIdentityReady(doc); err != nil {
-				if ast.UsesTableRows(doc) {
+			if ast.UsesTableRows(doc) {
+				if err := ast.FilterTableIdentityReady(doc); err != nil {
 					return nil, fmt.Errorf("filter %q: %w", path, err)
 				}
 			}
@@ -160,15 +164,15 @@ func negotiateTableRows(path string, timeout time.Duration, doc *ast.AST) error 
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		if stdout.exceeded || stderr.exceeded {
-			return fmt.Errorf("tableRows capability handshake response exceeds 4096 bytes")
+			return fmt.Errorf("AST capability handshake response exceeds 4096 bytes")
 		}
 		if ctx.Err() != nil {
-			return fmt.Errorf("tableRows capability handshake timed out")
+			return fmt.Errorf("AST capability handshake timed out")
 		}
-		return fmt.Errorf("tableRows capability handshake failed: %w (%s)", err, stderr.buf.String())
+		return fmt.Errorf("AST capability handshake failed: %w (%s)", err, stderr.buf.String())
 	}
 	if stdout.exceeded || stderr.exceeded {
-		return fmt.Errorf("tableRows capability handshake response exceeds 4096 bytes")
+		return fmt.Errorf("AST capability handshake response exceeds 4096 bytes")
 	}
 	var response struct {
 		ASTSchemaVersions []string `json:"astSchemaVersions"`
@@ -177,7 +181,7 @@ func negotiateTableRows(path string, timeout time.Duration, doc *ast.AST) error 
 	decoder := json.NewDecoder(bytes.NewReader(stdout.buf.Bytes()))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&response); err != nil {
-		return fmt.Errorf("invalid tableRows capability response: %w", err)
+		return fmt.Errorf("invalid AST capability response: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
