@@ -1,4 +1,10 @@
-# Nested list types validation
+# Initial nested list types validation
+
+This is the pre-review `c2fea7d` record. The final review-fix commit has
+its own retained receipt under
+`/mac-remote-development/evidence/ziradocs-toolchain/ce-t3/<SHA>/` on the
+Ubuntu validation host. Do not treat the binary hashes below as hashes of
+the final commit.
 
 Validation ran on `misael@misael-ubuntu.taild699ea.ts.net` in an isolated
 checkout of `c2fea7db076d2ddbe9c76eefc194ea667a009684` under
@@ -26,7 +32,8 @@ and ParentB. That JSON passed `schema/ast.schema.json`. The candidate DocLang
 CLI emitted nested Markdown and DOCX, while SlideLang emitted HTML and PPTX;
 the DOCX and PPTX were valid ZIP/XML packages. This DOCX probe checked
 package integrity only. It did not establish native Word list semantics,
-so typed DOCX support was withdrawn in the follow-up fix. A legacy filter advertising
+so typed DOCX support was withdrawn in the follow-up fix. A legacy filter
+advertising
 only AST 2.14.0 failed the CLI handshake in both languages before receiving
 AST bytes. A compatible 2.16.0 filter passed and preserved the list types.
 
