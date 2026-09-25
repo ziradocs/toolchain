@@ -45,6 +45,9 @@ func ValidateTableRows(t *TableElement) error {
 	if len(t.TableRows) == 0 {
 		return fmt.Errorf("tableRows must contain at least one authored row")
 	}
+	if t.TableRows[0].Cells == nil {
+		return fmt.Errorf("table row %q must declare cells (use [] for a fully covered row)", t.TableRows[0].NodeID)
+	}
 	width := 0
 	for _, c := range t.TableRows[0].Cells {
 		width += normalizedTableSpan(c.ColSpan)

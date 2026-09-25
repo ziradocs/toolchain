@@ -54,6 +54,10 @@ func TestTableRowsFilterHandshakeAndPreservation(t *testing.T) {
 	if _, err := RunFilters(tableFilterFixture(), []string{changed}, time.Second*2); err == nil || !strings.Contains(err.Error(), "identities") {
 		t.Fatalf("renamed row ID accepted: %v", err)
 	}
+	removedCellID := writeFilter(t, compatibleHandshake+`sed 's/"nodeId":"CellA"/"nodeId":""/g'`)
+	if _, err := RunFilters(tableFilterFixture(), []string{removedCellID}, time.Second*2); err == nil || !strings.Contains(err.Error(), "identities") {
+		t.Fatalf("removed cell ID accepted: %v", err)
+	}
 	downgrade := writeFilter(t, compatibleHandshake+`sed 's/2\.15\.0/2.14.0/g'`)
 	if _, err := RunFilters(tableFilterFixture(), []string{downgrade}, time.Second*2); err == nil || !strings.Contains(err.Error(), "legacy schemaVersion") {
 		t.Fatalf("downgrade accepted: %v", err)
@@ -84,6 +88,21 @@ func TestTableRowsFilterIncompatibleNeverReceivesAST(t *testing.T) {
 	good := writeFilter(t, compatibleHandshake+"cat")
 	if _, err := RunFilters(tableFilterFixture(), []string{good, bad}, time.Second*2); err == nil {
 		t.Fatal("incompatible second filter in chain accepted")
+	}
+	missingFeature := writeFilter(t, `if [ "$1" = "--ziradocs-capabilities" ]; then echo '{"astSchemaVersions":["2.15.0"],"features":[]}'; exit 0; fi
+cat`)
+	if _, err := RunFilters(tableFilterFixture(), []string{missingFeature}, time.Second*2); err == nil || !strings.Contains(err.Error(), "does not support") {
+		t.Fatalf("missing feature accepted: %v", err)
+	}
+	oversize := writeFilter(t, `if [ "$1" = "--ziradocs-capabilities" ]; then printf '%5000s' x; exit 0; fi
+cat`)
+	if _, err := RunFilters(tableFilterFixture(), []string{oversize}, time.Second*2); err == nil || !strings.Contains(err.Error(), "handshake") {
+		t.Fatalf("oversized response accepted: %v", err)
+	}
+	hung := writeFilter(t, `if [ "$1" = "--ziradocs-capabilities" ]; then while :; do :; done; fi
+cat`)
+	if _, err := RunFilters(tableFilterFixture(), []string{hung}, time.Millisecond*40); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("hanging handshake accepted: %v", err)
 	}
 	// Legacy documents retain the old protocol, with no handshake.
 	legacy := ast.NewAST(diagnostics.NewPosition(1, 1))
