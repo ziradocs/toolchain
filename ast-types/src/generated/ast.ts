@@ -568,7 +568,12 @@ export interface PointItem extends BaseNode {
   langRuns?: LangRun[]; // ver TextElement.LangRuns
   discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
   subPoints?: PointItem[];
-  subListType?: string; // type of this item's child list (opt-in)
+  /**
+   * SubListType describes the list owned by this item's SubPoints, not
+   * the marker used for this item in its parent's list. It is emitted only
+   * by the nested-list-types-v1 opt-in.
+   */
+  subListType?: string;
 }
 /**
  * CodeElement representa un bloque de código

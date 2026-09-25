@@ -20,24 +20,103 @@
             "allOf": [
               {
                 "$ref": "#/$defs/TableRowsPresent"
+              },
+              {
+                "not": {
+                  "$ref": "#/$defs/NestedListPresent"
+                }
               }
             ],
+            "properties": {
+              "capabilities": {
+                "const": [
+                  "table-rows-v1"
+                ]
+              }
+            },
             "required": [
               "capabilities"
             ]
           },
           "else": {
-            "not": {
-              "anyOf": [
+            "if": {
+              "properties": {
+                "schemaVersion": {
+                  "const": "2.16.0"
+                }
+              },
+              "required": [
+                "schemaVersion"
+              ]
+            },
+            "then": {
+              "allOf": [
                 {
-                  "required": [
-                    "capabilities"
-                  ]
+                  "$ref": "#/$defs/NestedListPresent"
                 },
                 {
-                  "$ref": "#/$defs/TableRowsPresent"
+                  "$ref": "#/$defs/TypedPointTree"
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "capabilities": {
+                        "contains": {
+                          "const": "table-rows-v1"
+                        }
+                      }
+                    },
+                    "required": [
+                      "capabilities"
+                    ]
+                  },
+                  "then": {
+                    "$ref": "#/$defs/TableRowsPresent"
+                  },
+                  "else": {
+                    "not": {
+                      "$ref": "#/$defs/TableRowsPresent"
+                    }
+                  }
                 }
+              ],
+              "properties": {
+                "capabilities": {
+                  "items": {
+                    "enum": [
+                      "table-rows-v1",
+                      "nested-list-types-v1"
+                    ]
+                  },
+                  "contains": {
+                    "const": "nested-list-types-v1"
+                  },
+                  "type": "array",
+                  "maxItems": 2,
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "capabilities"
               ]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "capabilities"
+                    ]
+                  },
+                  {
+                    "$ref": "#/$defs/TableRowsPresent"
+                  },
+                  {
+                    "$ref": "#/$defs/NestedListPresent"
+                  }
+                ]
+              }
             }
           }
         }
@@ -68,13 +147,15 @@
           "enum": [
             "2.13.0",
             "2.14.0",
-            "2.15.0"
+            "2.15.0",
+            "2.16.0"
           ]
         },
         "capabilities": {
-          "const": [
-            "table-rows-v1"
-          ]
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "frontMatter": {
           "$ref": "#/$defs/FrontMatterNode"
@@ -1376,6 +1457,75 @@
         "value"
       ]
     },
+    "NestedListPresent": {
+      "anyOf": [
+        {
+          "required": [
+            "subListType"
+          ]
+        },
+        {
+          "properties": {
+            "contentBlocks": {
+              "contains": {
+                "$ref": "#/$defs/NestedListPresent"
+              }
+            }
+          },
+          "required": [
+            "contentBlocks"
+          ]
+        },
+        {
+          "properties": {
+            "elements": {
+              "contains": {
+                "$ref": "#/$defs/NestedListPresent"
+              }
+            }
+          },
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "properties": {
+            "columns": {
+              "contains": {
+                "$ref": "#/$defs/NestedListPresent"
+              }
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        },
+        {
+          "properties": {
+            "items": {
+              "contains": {
+                "$ref": "#/$defs/NestedListPresent"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ]
+        },
+        {
+          "properties": {
+            "subPoints": {
+              "contains": {
+                "$ref": "#/$defs/NestedListPresent"
+              }
+            }
+          },
+          "required": [
+            "subPoints"
+          ]
+        }
+      ]
+    },
     "PageConfig": {
       "properties": {
         "size": {
@@ -1526,6 +1676,13 @@
             "$ref": "#/$defs/PointItem"
           },
           "type": "array"
+        },
+        "subListType": {
+          "type": "string",
+          "enum": [
+            "ordered",
+            "unordered"
+          ]
         }
       },
       "additionalProperties": false,
@@ -2217,6 +2374,60 @@
         "endPosition",
         "content"
       ]
+    },
+    "TypedPointTree": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "point_item"
+              },
+              "subPoints": {
+                "type": "array",
+                "minItems": 1
+              }
+            },
+            "required": [
+              "type",
+              "subPoints"
+            ]
+          },
+          "then": {
+            "required": [
+              "subListType"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "contentBlocks": {
+          "items": {
+            "$ref": "#/$defs/TypedPointTree"
+          }
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/TypedPointTree"
+          }
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/TypedPointTree"
+          }
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TypedPointTree"
+          }
+        },
+        "subPoints": {
+          "items": {
+            "$ref": "#/$defs/TypedPointTree"
+          }
+        }
+      },
+      "type": "object"
     },
     "WatermarkConfig": {
       "properties": {

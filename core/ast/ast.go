@@ -101,6 +101,9 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // editorial identity, independent of reference/HTML ids on individual nodes.
 // 2.15.0: opt-in authored tableRows with portable row/cell identities and
 // semantic row sections. Documents without this capability still emit 2.14.0.
+// 2.16.0: opt-in PointItem.subListType for the list owned by subPoints.
+// Documents using both extensions declare both capabilities; tables alone
+// remain 2.15.0, and documents without either extension remain 2.14.0.
 const SchemaVersion = "2.16.0"
 
 const PreviousSchemaVersion = "2.13.0"
