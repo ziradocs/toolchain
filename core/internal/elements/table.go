@@ -289,7 +289,11 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			} else {
 				tableRows = make([]ast.TableRow, len(parsed))
 				for n, row := range parsed {
-					tableRows[n] = ast.TableRow{NodeID: row.NodeID, Section: row.Section, Cells: make([]ast.TableRowCell, len(row.Cells))}
+					var cells []ast.TableRowCell
+					if row.Cells != nil {
+						cells = make([]ast.TableRowCell, len(row.Cells))
+					}
+					tableRows[n] = ast.TableRow{NodeID: row.NodeID, Section: row.Section, Cells: cells}
 					for j, cell := range row.Cells {
 						tableRows[n].Cells[j] = ast.TableRowCell{NodeID: cell.NodeID, Content: cell.Content, IsHeader: cell.Header,
 							Scope: cell.Scope, ColSpan: cell.Colspan, RowSpan: cell.Rowspan}

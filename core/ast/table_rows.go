@@ -77,8 +77,8 @@ func ValidateTableRows(t *TableElement) error {
 			return fmt.Errorf("table row %q section %q follows a later section", row.NodeID, section)
 		}
 		stage = next
-		if len(row.Cells) == 0 {
-			return fmt.Errorf("table row %q has no authored cells", row.NodeID)
+		if row.Cells == nil {
+			return fmt.Errorf("table row %q must declare cells (use [] for a fully covered row)", row.NodeID)
 		}
 		col := 0
 		for _, cell := range row.Cells {

@@ -19,7 +19,7 @@ import (
 // content, or hash. A formatter that cannot represent a nested node fails
 // rather than silently moving its identity to another node.
 func formatNodeIDs(doc *ast.AST, source string, document bool) (string, error) {
-	if ast.UsesTableRows(doc) {
+	if ast.UsesTableRows(doc) || doc.SchemaVersion == ast.SchemaVersion || len(doc.Capabilities) > 0 {
 		if err := ast.ValidateTableContract(doc); err != nil {
 			return "", fmt.Errorf("invalid table contract: %w", err)
 		}

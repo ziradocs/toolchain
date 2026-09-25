@@ -77,6 +77,7 @@ func TestTableRowsRejectInvalidSource(t *testing.T) {
 		{"mixed", "      - cells: [{content: A}]\n    headers: [A]\n", "cannot be combined"},
 		{"unknown", "      - cells: [{content: A, fakeId: X}]\n", "invalid tableRows YAML"},
 		{"section order", "      - section: footer\n        cells: [{content: A}]\n      - section: header\n        cells: [{content: B}]\n", "follows a later section"},
+		{"missing cells", "      - nodeId: RowA\n", "must declare cells"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, issues := parseTableRowsFixture(t, identifiedTableSource(tc.body))
@@ -147,5 +148,25 @@ func TestTableRowsMergedRoundTrip(t *testing.T) {
 	got := reparsed.ContentBlocks[0].Elements[0].(*ast.TableElement)
 	if got.TableRows[1].Cells[0].NodeID != "AnchorA" || got.TableRows[1].Cells[0].RowSpan != 2 || len(got.TableRows[2].Cells) != 1 {
 		t.Fatalf("merged anchor changed: %+v", got.TableRows)
+	}
+}
+
+func TestTableRowsFullyCoveredRow(t *testing.T) {
+	source := identifiedTableSource("      - section: header\n        cells: [{content: A, header: true}, {content: B, header: true}]\n      - nodeId: RowA\n        cells: [{nodeId: AnchorA, content: A, colspan: 2, rowspan: 2}]\n      - nodeId: CoveredRow\n        cells: []\n")
+	doc, issues := parseTableRowsFixture(t, source)
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	out, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, issues := parseTableRowsFixture(t, out)
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	got := reparsed.ContentBlocks[0].Elements[0].(*ast.TableElement)
+	if got.TableRows[2].NodeID != "CoveredRow" || len(got.TableRows[2].Cells) != 0 || got.Rows[1][1] != "A" {
+		t.Fatalf("covered row lost: %+v", got)
 	}
 }
