@@ -99,7 +99,7 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 // del filtro para diagnóstico.
 func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast.AST, error) {
 	for _, path := range filterPaths {
-		var nestedOwners map[string]string
+		var nestedFingerprints map[string]ast.NestedListFingerprint
 		if ast.UsesTableRows(doc) || ast.UsesNestedListTypes(doc) {
 			if err := ast.ValidateTableContract(doc); err != nil {
 				return nil, fmt.Errorf("filter %q input: %w", path, err)
@@ -111,7 +111,7 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 			}
 			if ast.UsesNestedListTypes(doc) {
 				var err error
-				nestedOwners, err = ast.NestedListOwners(doc)
+				nestedFingerprints, err = ast.NestedListFingerprints(doc)
 				if err != nil {
 					return nil, fmt.Errorf("filter %q: %w", path, err)
 				}
@@ -135,12 +135,12 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 			if !ast.UsesNestedListTypes(doc) {
 				return nil, fmt.Errorf("filter %q: nested list types or capability were removed", path)
 			}
-			afterOwners, err := ast.NestedListOwners(doc)
+			afterFingerprints, err := ast.NestedListFingerprints(doc)
 			if err != nil {
 				return nil, fmt.Errorf("filter %q: %w", path, err)
 			}
-			if !reflect.DeepEqual(nestedOwners, afterOwners) {
-				return nil, fmt.Errorf("filter %q: nested list nodeId ownership changed", path)
+			if !reflect.DeepEqual(nestedFingerprints, afterFingerprints) {
+				return nil, fmt.Errorf("filter %q: nested list nodeId ownership or list types changed", path)
 			}
 		}
 		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {

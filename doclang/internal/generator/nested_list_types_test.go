@@ -1,12 +1,15 @@
 package generator
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/yuin/goldmark"
+	goldast "github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -19,55 +22,92 @@ func typedDocumentPoints() *ast.PointsElement {
 	parent.SubListType = "unordered"
 	child := ast.NewPointItem(pos, "ChildA")
 	child.SubListType = "ordered"
-	child.SubPoints = append(child.SubPoints, *ast.NewPointItem(pos, "ChildB"))
-	parent.SubPoints = append(parent.SubPoints, *child)
+	child.SubPoints = append(child.SubPoints, *ast.NewPointItem(pos, "GrandchildA"))
+	parent.SubPoints = append(parent.SubPoints, *child, *ast.NewPointItem(pos, "ChildB"))
 	points.Items = append(points.Items, *parent)
+	second := ast.NewPointItem(pos, "ParentB")
+	second.SubListType = "ordered"
+	second.SubPoints = append(second.SubPoints, *ast.NewPointItem(pos, "ChildC"))
+	points.Items = append(points.Items, *second)
 	return points
 }
 
-func TestNestedListTypesMarkdownAndDOCX(t *testing.T) {
+// Goldmark builds a CommonMark tree here; checking marker text alone would
+// miss a child list parsed as a sibling of its numbered parent.
+func commonMarkListShape(t *testing.T, markdown string) string {
+	t.Helper()
+	root := goldmark.New().Parser().Parse(text.NewReader([]byte(markdown)))
+	list, ok := root.FirstChild().(*goldast.List)
+	if !ok || list.NextSibling() != nil {
+		t.Fatalf("expected one root list, got:\n%s", markdown)
+	}
+	var shape func(*goldast.List) string
+	shape = func(list *goldast.List) string {
+		kind := "unordered"
+		if list.IsOrdered() {
+			kind = "ordered"
+		}
+		var items []string
+		for node := list.FirstChild(); node != nil; node = node.NextSibling() {
+			if node.Kind() != goldast.KindListItem {
+				t.Fatalf("unexpected list child %s", node.Kind())
+			}
+			var nested []string
+			for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+				if sub, ok := child.(*goldast.List); ok {
+					nested = append(nested, shape(sub))
+				}
+			}
+			items = append(items, fmt.Sprintf("%d[%s]", len(items)+1, strings.Join(nested, ",")))
+		}
+		return kind + "(" + strings.Join(items, ",") + ")"
+	}
+	return shape(list)
+}
+
+func TestNestedListTypesMarkdownCommonMarkTree(t *testing.T) {
 	points := typedDocumentPoints()
 	md := NewMarkdownGenerator(newTestLogger()).renderElement(points)
-	if !strings.Contains(md, "1. ParentA\n  - ChildA\n    1. ChildB\n") {
-		t.Fatalf("Markdown lost nested list markers: %s", md)
+	want := "ordered(1[unordered(1[ordered(1[])],2[])],2[ordered(1[])])"
+	if got := commonMarkListShape(t, md); got != want {
+		t.Fatalf("CommonMark tree = %s, want %s:\n%s", got, want, md)
 	}
+	if !strings.Contains(md, "1. ParentA\n   - ChildA\n     1. GrandchildA\n   - ChildB\n2. ParentB\n   1. ChildC\n") {
+		t.Fatalf("Markdown marker/content columns changed:\n%s", md)
+	}
+}
+
+func TestNestedListTypesMarkdownMarkerWidthAtTen(t *testing.T) {
+	points := ast.NewPointsElement(diagnostics.NewPosition(1, 1))
+	points.ListType = "ordered"
+	for i := 1; i <= 10; i++ {
+		item := ast.NewPointItem(points.GetPosition(), fmt.Sprintf("Parent%d", i))
+		if i == 9 || i == 10 {
+			item.SubListType = "unordered"
+			item.SubPoints = append(item.SubPoints, *ast.NewPointItem(points.GetPosition(), fmt.Sprintf("Child%d", i)))
+		}
+		points.Items = append(points.Items, *item)
+	}
+	md := NewMarkdownGenerator(newTestLogger()).renderElement(points)
+	if !strings.Contains(md, "9. Parent9\n   - Child9\n10. Parent10\n    - Child10\n") {
+		t.Fatalf("child indentation did not follow marker width:\n%s", md)
+	}
+	want := "ordered(1[],2[],3[],4[],5[],6[],7[],8[],9[unordered(1[])],10[unordered(1[])])"
+	if got := commonMarkListShape(t, md); got != want {
+		t.Fatalf("CommonMark tree = %s, want %s:\n%s", got, want, md)
+	}
+}
+
+func TestNestedListTypesDOCXRejectsBeforeOutput(t *testing.T) {
 	doc := newTestAST()
-	doc.ContentBlocks[0].Elements = append(doc.ContentBlocks[0].Elements, points)
+	doc.ContentBlocks[0].Elements = append(doc.ContentBlocks[0].Elements, typedDocumentPoints())
 	ast.SetTableContract(doc)
 	output := filepath.Join(t.TempDir(), "nested.docx")
-	if err := NewDOCXGenerator(newTestLogger(), "").Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
-		t.Fatal(err)
+	err := NewDOCXGenerator(newTestLogger(), "").Generate(doc, output, GeneratorOptions{Format: "docx"})
+	if err == nil || !strings.Contains(err.Error(), "nested-list-types-v1") {
+		t.Fatalf("DOCX accepted typed nested lists: %v", err)
 	}
-	xml := docxDocumentXML(t, output)
-	parent, child, grandchild := strings.Index(xml, "ParentA"), strings.Index(xml, "ChildA"), strings.Index(xml, "ChildB")
-	if parent < 0 || child <= parent || grandchild <= child {
-		t.Fatalf("DOCX lost nested item order: %s", xml)
-	}
-	for _, tc := range []struct{ text, marker string }{{"ParentA", "1."}, {"ChildA", "•"}, {"ChildB", "1."}} {
-		at := strings.Index(xml, tc.text)
-		start := strings.LastIndex(xml[:at], "<w:p>")
-		if start < 0 || !strings.Contains(xml[start:at], tc.marker) {
-			t.Fatalf("DOCX lost %s marker %s: %s", tc.text, tc.marker, xml)
-		}
-	}
-	indentPattern := regexp.MustCompile(`w:left="([0-9]+)"`)
-	var indents []int
-	for _, at := range []int{parent, child, grandchild} {
-		start := strings.LastIndex(xml[:at], "<w:p>")
-		if start < 0 {
-			t.Fatal("DOCX paragraph missing")
-		}
-		match := indentPattern.FindStringSubmatch(xml[start:at])
-		if len(match) != 2 {
-			t.Fatalf("DOCX indent missing near %d", at)
-		}
-		value, err := strconv.Atoi(match[1])
-		if err != nil {
-			t.Fatal(err)
-		}
-		indents = append(indents, value)
-	}
-	if !(indents[0] < indents[1] && indents[1] < indents[2]) {
-		t.Fatalf("DOCX nesting indent not increasing: %v", indents)
+	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+		t.Fatalf("DOCX wrote output before rejecting capability: %v", statErr)
 	}
 }

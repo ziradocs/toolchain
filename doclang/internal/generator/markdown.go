@@ -34,16 +34,19 @@ func markdownTypedPoints(items []ast.PointItem) bool {
 	return false
 }
 
-func renderTypedMarkdownPoints(items []ast.PointItem, listType string, depth int) string {
+func renderTypedMarkdownPoints(items []ast.PointItem, listType string, indent int) string {
 	var b strings.Builder
 	for i, item := range items {
 		marker := "-"
 		if listType == "ordered" {
 			marker = fmt.Sprintf("%d.", i+1)
 		}
-		fmt.Fprintf(&b, "%s%s %s\n", strings.Repeat("  ", depth), marker, item.Content)
+		fmt.Fprintf(&b, "%s%s %s\n", strings.Repeat(" ", indent), marker, item.Content)
 		if len(item.SubPoints) > 0 {
-			b.WriteString(renderTypedMarkdownPoints(item.SubPoints, item.SubListType, depth+1))
+			// CommonMark nests a child list at the parent's content column.
+			// Ordered markers widen at 10, 100, etc.; a fixed step can turn
+			// children into siblings when the parent marker is numbered.
+			b.WriteString(renderTypedMarkdownPoints(item.SubPoints, item.SubListType, indent+len(marker)+1))
 		}
 	}
 	return b.String()

@@ -136,6 +136,9 @@ func sanitizeBookmarkID(s string) string {
 // Generate genera un documento DOCX desde el AST
 func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts GeneratorOptions) error {
 	g.logger.Info("DOCX", "Building DOCX document...")
+	if ast.UsesNestedListTypes(astDoc) {
+		return fmt.Errorf("DOCX does not yet support nested-list-types-v1 as native Word lists")
+	}
 
 	// Crear directorio temporal para imágenes renderizadas
 	tempDir, err := os.MkdirTemp("", "doclang-docx-*")
@@ -1888,9 +1891,6 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 // Stubs para elementos restantes (implementar después)
 
 func (g *DOCXGenerator) renderPoints(doc domain.Document, elem *ast.PointsElement) error {
-	if docxTypedPoints(elem.Items) {
-		return g.renderTypedPoints(doc, elem.Items, elem.ListType, 1)
-	}
 	for i, item := range elem.Items {
 		p, err := doc.AddParagraph()
 		if err != nil {
@@ -1930,53 +1930,6 @@ func (g *DOCXGenerator) renderPoints(doc domain.Document, elem *ast.PointsElemen
 		}
 	}
 
-	return nil
-}
-
-func docxTypedPoints(items []ast.PointItem) bool {
-	for _, item := range items {
-		if item.SubListType != "" || docxTypedPoints(item.SubPoints) {
-			return true
-		}
-	}
-	return false
-}
-
-func (g *DOCXGenerator) renderTypedPoints(doc domain.Document, items []ast.PointItem, listType string, depth int) error {
-	for i, item := range items {
-		p, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-		if err := p.SetIndent(domain.Indentation{Left: g.parseTwips(g.style.ListIndent) * depth}); err != nil {
-			return fmt.Errorf("invalid indent: %w", err)
-		}
-		if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter) / 2); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
-		}
-		r, err := p.AddRun()
-		if err != nil {
-			return err
-		}
-		bullet := "• "
-		if listType == "ordered" {
-			bullet = fmt.Sprintf("%d. ", i+1)
-		}
-		_ = r.SetText(bullet)
-		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = r.SetColor(g.parseColor(g.style.TextColor))
-		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-		if err := g.renderInlineMarkdown(p, item.Content); err != nil {
-			return err
-		}
-		if len(item.SubPoints) > 0 {
-			if err := g.renderTypedPoints(doc, item.SubPoints, item.SubListType, depth+1); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 

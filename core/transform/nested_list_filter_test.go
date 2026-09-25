@@ -2,6 +2,7 @@ package transform
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,12 +18,16 @@ func nestedFilterFixture() *ast.AST {
 	block := ast.NewContentBlock(pos, "content")
 	points := ast.NewPointsElement(pos)
 	points.NodeID = "PointsA"
+	points.ListType = "ordered"
 	parent := ast.NewPointItem(pos, "ParentA")
 	parent.NodeID = "ParentA"
 	parent.SubListType = "ordered"
 	child := ast.NewPointItem(pos, "ChildA text")
 	child.NodeID = "ChildA"
 	parent.SubPoints = append(parent.SubPoints, *child)
+	second := ast.NewPointItem(pos, "ChildB text")
+	second.NodeID = "ChildB"
+	parent.SubPoints = append(parent.SubPoints, *second)
 	points.Items = append(points.Items, *parent)
 	block.Elements = append(block.Elements, points)
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
@@ -64,9 +69,32 @@ cat`)
 	if _, err := RunFilters(nestedFilterFixture(), []string{removed}, time.Second); err == nil {
 		t.Fatal("removed subListType accepted")
 	}
-	renamed := writeFilter(t, nestedHandshake+`sed 's/"nodeId":"ChildA"/"nodeId":"ChildB"/g'`)
+	renamed := writeFilter(t, nestedHandshake+`sed 's/"nodeId":"ChildA"/"nodeId":"ChildC"/g'`)
 	if _, err := RunFilters(nestedFilterFixture(), []string{renamed}, time.Second); err == nil || !strings.Contains(err.Error(), "ownership") {
 		t.Fatalf("changed child identity accepted: %v", err)
+	}
+	typeOnly := writeFilter(t, nestedHandshake+`sed 's/"subListType":"ordered"/"subListType":"unordered"/g'`)
+	if _, err := RunFilters(nestedFilterFixture(), []string{typeOnly}, time.Second); err == nil || !strings.Contains(err.Error(), "list types changed") {
+		t.Fatalf("changed nested list type accepted: %v", err)
+	}
+	outerTypeOnly := writeFilter(t, nestedHandshake+`sed 's/"listType":"ordered"/"listType":"unordered"/g'`)
+	if _, err := RunFilters(nestedFilterFixture(), []string{outerTypeOnly}, time.Second); err == nil || !strings.Contains(err.Error(), "list types changed") {
+		t.Fatalf("changed outer list type accepted: %v", err)
+	}
+}
+
+func TestNestedListFilterAllowsSiblingReorder(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 unavailable")
+	}
+	filter := writeFilter(t, nestedHandshake+`python3 -c 'import json,sys; d=json.load(sys.stdin); d["contentBlocks"][0]["elements"][0]["items"][0]["subPoints"].reverse(); json.dump(d,sys.stdout)'`)
+	out, err := RunFilters(nestedFilterFixture(), []string{filter}, time.Second)
+	if err != nil {
+		t.Fatalf("sibling reorder rejected: %v", err)
+	}
+	children := out.ContentBlocks[0].Elements[0].(*ast.PointsElement).Items[0].SubPoints
+	if children[0].NodeID != "ChildB" || children[1].NodeID != "ChildA" {
+		t.Fatalf("filter reorder not applied: %v", children)
 	}
 }
 

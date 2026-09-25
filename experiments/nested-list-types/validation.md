@@ -24,7 +24,9 @@ The candidate SlideLang CLI emitted AST 2.16.0 with
 `["nested-list-types-v1"]`, preserving the types owned by ParentA, ChildA,
 and ParentB. That JSON passed `schema/ast.schema.json`. The candidate DocLang
 CLI emitted nested Markdown and DOCX, while SlideLang emitted HTML and PPTX;
-the DOCX and PPTX were valid ZIP/XML packages. A legacy filter advertising
+the DOCX and PPTX were valid ZIP/XML packages. This DOCX probe checked
+package integrity only. It did not establish native Word list semantics,
+so typed DOCX support was withdrawn in the follow-up fix. A legacy filter advertising
 only AST 2.14.0 failed the CLI handshake in both languages before receiving
 AST bytes. A compatible 2.16.0 filter passed and preserved the list types.
 

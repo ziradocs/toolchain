@@ -67,9 +67,12 @@ Every parent with `subPoints` in 2.16 must declare `subListType`, and a leaf
 cannot declare it. JSON lacking the matching version/capability fails before
 unknown fields can be discarded. There is no legacy downgrade for 2.16.
 
-Core HTML, SlideLang HTML, DocLang Markdown, DOCX, and PPTX render the
-opt-in hierarchy and types. PPTX has nine paragraph levels; deeper typed
-lists fail before output. Existing non-opt-in output is unchanged.
+Core HTML, SlideLang HTML, DocLang Markdown, and PPTX render the opt-in
+hierarchy and types. DOCX rejects a typed nested list before writing output:
+the current Word renderer uses visible marker text rather than native Word
+list numbering, so it cannot preserve this capability. PPTX has nine
+paragraph levels; deeper typed lists fail before output. Existing non-opt-in
+output is unchanged.
 
 Previously published readers cannot be changed retroactively. A reader that
 ignores unknown JSON fields must not receive a 2.16 document without an

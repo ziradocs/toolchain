@@ -49,10 +49,18 @@ func UsesNestedListTypes(doc *AST) bool {
 	return used
 }
 
-// NestedListOwners uses only authored node IDs. It is a filter boundary
-// check; without IDs, a filter could silently move a child to another list.
-func NestedListOwners(doc *AST) (map[string]string, error) {
-	owners := map[string]string{}
+// NestedListFingerprint captures ownership and list types by authored ID.
+// Text and sibling order are intentionally absent so filters may edit them.
+type NestedListFingerprint struct {
+	OwnerID     string
+	ListType    string
+	SubListType string
+}
+
+// NestedListFingerprints requires authored IDs so a filter cannot silently
+// move a child or change its list type while retaining the same ID.
+func NestedListFingerprints(doc *AST) (map[string]NestedListFingerprint, error) {
+	fingerprints := map[string]NestedListFingerprint{}
 	err := Walk(doc, func(n Node) error {
 		points, ok := n.(*PointsElement)
 		if !ok || !pointListHasType(points.Items) {
@@ -61,13 +69,14 @@ func NestedListOwners(doc *AST) (map[string]string, error) {
 		if points.GetNodeID() == "" {
 			return fmt.Errorf("nested-list filter requires nodeId on points element")
 		}
+		fingerprints[points.GetNodeID()] = NestedListFingerprint{ListType: points.ListType}
 		var visit func([]PointItem, string) error
 		visit = func(items []PointItem, owner string) error {
 			for _, item := range items {
 				if item.GetNodeID() == "" {
 					return fmt.Errorf("nested-list filter requires nodeId on every point item")
 				}
-				owners[item.GetNodeID()] = owner
+				fingerprints[item.GetNodeID()] = NestedListFingerprint{OwnerID: owner, SubListType: item.SubListType}
 				if err := visit(item.SubPoints, item.GetNodeID()); err != nil {
 					return err
 				}
@@ -76,7 +85,7 @@ func NestedListOwners(doc *AST) (map[string]string, error) {
 		}
 		return visit(points.Items, points.GetNodeID())
 	})
-	return owners, err
+	return fingerprints, err
 }
 
 func pointListHasType(items []PointItem) bool {
