@@ -55,7 +55,7 @@ func TestTableRowsFilterHandshakeAndPreservation(t *testing.T) {
 		t.Fatalf("renamed row ID accepted: %v", err)
 	}
 	downgrade := writeFilter(t, compatibleHandshake+`sed 's/2\.15\.0/2.14.0/g'`)
-	if _, err := RunFilters(tableFilterFixture(), []string{downgrade}, time.Second*2); err == nil || !strings.Contains(err.Error(), "requires schemaVersion") {
+	if _, err := RunFilters(tableFilterFixture(), []string{downgrade}, time.Second*2); err == nil || !strings.Contains(err.Error(), "legacy schemaVersion") {
 		t.Fatalf("downgrade accepted: %v", err)
 	}
 	legacyBytes, err := json.Marshal(ast.NewAST(diagnostics.NewPosition(1, 1)))

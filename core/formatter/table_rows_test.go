@@ -86,3 +86,66 @@ func TestTableRowsRejectInvalidSource(t *testing.T) {
 		})
 	}
 }
+
+func TestTableRowsAuthoredEditsKeepIDs(t *testing.T) {
+	source := identifiedTableSource("      - section: header\n        cells: [{content: Key, header: true}]\n      - nodeId: RowA\n        cells: [{nodeId: CellA, content: A}]\n      - nodeId: RowB\n        cells: [{nodeId: CellB, content: B}]\n")
+	doc, issues := parseTableRowsFixture(t, source)
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	table := doc.ContentBlocks[0].Elements[0].(*ast.TableElement)
+	// Identity travels with the authored record through reorder, insertion,
+	// and content edits, rather than being re-created from text or position.
+	table.TableRows[1], table.TableRows[2] = table.TableRows[2], table.TableRows[1]
+	table.TableRows = append(table.TableRows[:2], append([]ast.TableRow{{Cells: []ast.TableRowCell{{Content: "X"}}}}, table.TableRows[2:]...)...)
+	table.TableRows[3].Cells[0].Content = "A edited"
+	table.SyncTableViews()
+	out, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, issues := parseTableRowsFixture(t, out)
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	got := reparsed.ContentBlocks[0].Elements[0].(*ast.TableElement).TableRows
+	if got[1].NodeID != "RowB" || got[1].Cells[0].NodeID != "CellB" || got[2].NodeID != "" || got[3].NodeID != "RowA" || got[3].Cells[0].Content != "A edited" {
+		t.Fatalf("identity drift after edits: %+v", got)
+	}
+	// Deleting an identified source row is allowed and does not recycle its ID.
+	table.TableRows = append(table.TableRows[:1], table.TableRows[2:]...)
+	table.SyncTableViews()
+	if _, err := FormatStrict(doc); err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+	// Copying an identified row without new IDs must fail.
+	table.TableRows = append(table.TableRows, table.TableRows[2])
+	table.SyncTableViews()
+	if _, err := FormatStrict(doc); err == nil || !strings.Contains(err.Error(), "duplicate nodeId") {
+		t.Fatalf("duplicate row accepted: %v", err)
+	}
+}
+
+func TestTableRowsMergedRoundTrip(t *testing.T) {
+	source := identifiedTableSource("      - section: header\n        cells: [{content: Key, header: true}, {content: Value, header: true}]\n      - nodeId: RowA\n        cells: [{nodeId: AnchorA, content: A, rowspan: 2}, {content: '1'}]\n      - nodeId: RowB\n        cells: [{content: '2'}]\n")
+	doc, issues := parseTableRowsFixture(t, source)
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	table := doc.ContentBlocks[0].Elements[0].(*ast.TableElement)
+	if table.Rows[1][0] != "A" {
+		t.Fatalf("flat span projection: %+v", table.Rows)
+	}
+	out, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, issues := parseTableRowsFixture(t, out)
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	got := reparsed.ContentBlocks[0].Elements[0].(*ast.TableElement)
+	if got.TableRows[1].Cells[0].NodeID != "AnchorA" || got.TableRows[1].Cells[0].RowSpan != 2 || len(got.TableRows[2].Cells) != 1 {
+		t.Fatalf("merged anchor changed: %+v", got.TableRows)
+	}
+}
