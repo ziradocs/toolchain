@@ -14,5 +14,5 @@ SLIDE content
       - nodeId: DataRowA
         cells: [{nodeId: KeyA, content: A, rowspan: 2}, {nodeId: ValueA, content: "1"}]
       - nodeId: DataRowB
-        section: footer
+        section: body
         cells: [{nodeId: ValueB, content: "2"}]
