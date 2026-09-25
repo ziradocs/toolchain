@@ -98,7 +98,9 @@ func ValidateRawTableContract(data []byte) error {
 		switch v := value.(type) {
 		case []any:
 			for _, child := range v {
-				if err := inspect(child); err != nil { return err }
+				if err := inspect(child); err != nil {
+					return err
+				}
 			}
 		case map[string]any:
 			if v["type"] == string(NodeTypeTable) {
@@ -117,12 +119,16 @@ func ValidateRawTableContract(data []byte) error {
 				}
 			}
 			for _, child := range v {
-				if err := inspect(child); err != nil { return err }
+				if err := inspect(child); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
 	}
-	if err := inspect(whole); err != nil { return err }
+	if err := inspect(whole); err != nil {
+		return err
+	}
 	if version == SchemaVersion && count == 0 {
 		return fmt.Errorf("schemaVersion %s declares %s without tableRows", SchemaVersion, TableRowsCapability)
 	}
@@ -135,13 +141,21 @@ func TableIdentityOwners(doc *AST) map[string]string {
 	out := map[string]string{}
 	_ = Walk(doc, func(n Node) error {
 		t, ok := n.(*TableElement)
-		if !ok || !t.HasTableRows() { return nil }
+		if !ok || !t.HasTableRows() {
+			return nil
+		}
 		owner := t.NodeID
-		if owner != "" { out[owner] = "table" }
+		if owner != "" {
+			out[owner] = "table"
+		}
 		for _, row := range t.TableRows {
-			if row.NodeID != "" { out[row.NodeID] = "row@" + owner }
+			if row.NodeID != "" {
+				out[row.NodeID] = "row@" + owner
+			}
 			for _, cell := range row.Cells {
-				if cell.NodeID != "" { out[cell.NodeID] = "cell@" + owner + "/" + row.NodeID }
+				if cell.NodeID != "" {
+					out[cell.NodeID] = "cell@" + owner + "/" + row.NodeID
+				}
 			}
 		}
 		return nil
@@ -155,7 +169,9 @@ func FilterTableIdentityReady(doc *AST) error {
 	var failure error
 	_ = Walk(doc, func(n Node) error {
 		t, ok := n.(*TableElement)
-		if !ok || !t.HasTableRows() { return nil }
+		if !ok || !t.HasTableRows() {
+			return nil
+		}
 		if t.NodeID == "" {
 			failure = fmt.Errorf("filtering tableRows requires an explicit table nodeId to verify ownership")
 			return failure
@@ -179,25 +195,38 @@ func FilterTableIdentityReady(doc *AST) error {
 // authored records, never flattened coordinates. Callers must resolve again
 // after a transform that replaces or reorders the document tree.
 type TableIdentityTarget struct {
-	Kind string // table, row, cell
+	Kind  string // table, row, cell
 	Table *TableElement
-	Row *TableRow
-	Cell *TableRowCell
+	Row   *TableRow
+	Cell  *TableRowCell
 }
 
 func ResolveTableIdentity(doc *AST, id string) (TableIdentityTarget, bool) {
 	var target TableIdentityTarget
-	if id == "" { return target, false }
+	if id == "" {
+		return target, false
+	}
 	_ = Walk(doc, func(n Node) error {
 		t, ok := n.(*TableElement)
-		if !ok { return nil }
-		if t.NodeID == id { target = TableIdentityTarget{Kind: "table", Table: t}; return nil }
+		if !ok {
+			return nil
+		}
+		if t.NodeID == id {
+			target = TableIdentityTarget{Kind: "table", Table: t}
+			return nil
+		}
 		for i := range t.TableRows {
 			row := &t.TableRows[i]
-			if row.NodeID == id { target = TableIdentityTarget{Kind: "row", Table: t, Row: row}; return nil }
+			if row.NodeID == id {
+				target = TableIdentityTarget{Kind: "row", Table: t, Row: row}
+				return nil
+			}
 			for j := range row.Cells {
 				cell := &row.Cells[j]
-				if cell.NodeID == id { target = TableIdentityTarget{Kind: "cell", Table: t, Row: row, Cell: cell}; return nil }
+				if cell.NodeID == id {
+					target = TableIdentityTarget{Kind: "cell", Table: t, Row: row, Cell: cell}
+					return nil
+				}
 			}
 		}
 		return nil

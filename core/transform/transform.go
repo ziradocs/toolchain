@@ -127,18 +127,24 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 	stdout, stderr := &limitedWriter{limit: 4096}, &limitedWriter{limit: 4096}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil { return fmt.Errorf("tableRows capability handshake timed out") }
+		if ctx.Err() != nil {
+			return fmt.Errorf("tableRows capability handshake timed out")
+		}
 		return fmt.Errorf("tableRows capability handshake failed: %w (%s)", err, stderr.String())
 	}
 	var response struct {
 		ASTSchemaVersions []string `json:"astSchemaVersions"`
-		Features []string `json:"features"`
+		Features          []string `json:"features"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(stdout.Bytes()))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&response); err != nil { return fmt.Errorf("invalid tableRows capability response: %w", err) }
+	if err := decoder.Decode(&response); err != nil {
+		return fmt.Errorf("invalid tableRows capability response: %w", err)
+	}
 	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF { return fmt.Errorf("invalid trailing capability response") }
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("invalid trailing capability response")
+	}
 	if len(response.ASTSchemaVersions) != 1 || response.ASTSchemaVersions[0] != ast.SchemaVersion || len(response.Features) != 1 || response.Features[0] != ast.TableRowsCapability {
 		return fmt.Errorf("filter does not support schemaVersion %s and %s", ast.SchemaVersion, ast.TableRowsCapability)
 	}
@@ -151,7 +157,9 @@ type limitedWriter struct {
 }
 
 func (w *limitedWriter) Write(p []byte) (int, error) {
-	if w.Len()+len(p) > w.limit { return 0, fmt.Errorf("capability response exceeds %d bytes", w.limit) }
+	if w.Len()+len(p) > w.limit {
+		return 0, fmt.Errorf("capability response exceeds %d bytes", w.limit)
+	}
 	return w.Buffer.Write(p)
 }
 

@@ -47,22 +47,40 @@ func formatTableElement(e *ast.TableElement) (string, error) {
 }
 
 func formatTableRowsBlock(e *ast.TableElement) (string, error) {
-	if err := checkQuotable("table", "caption", e.Caption); err != nil && e.Caption != "" { return "", err }
-	if err := checkQuotable("table", "label", e.Label); err != nil && e.Label != "" { return "", err }
+	if err := checkQuotable("table", "caption", e.Caption); err != nil && e.Caption != "" {
+		return "", err
+	}
+	if err := checkQuotable("table", "label", e.Label); err != nil && e.Label != "" {
+		return "", err
+	}
 	outer := &yaml.Node{Kind: yaml.SequenceNode}
 	for _, row := range e.TableRows {
 		r := &yaml.Node{Kind: yaml.MappingNode}
-		if row.NodeID != "" { appendYAMLKV(r, "nodeId", row.NodeID) }
-		if row.Section != "" { appendYAMLKV(r, "section", row.Section) }
+		if row.NodeID != "" {
+			appendYAMLKV(r, "nodeId", row.NodeID)
+		}
+		if row.Section != "" {
+			appendYAMLKV(r, "section", row.Section)
+		}
 		cells := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
 		for _, cell := range row.Cells {
 			c := &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle}
-			if cell.NodeID != "" { appendYAMLKV(c, "nodeId", cell.NodeID) }
+			if cell.NodeID != "" {
+				appendYAMLKV(c, "nodeId", cell.NodeID)
+			}
 			appendYAMLKV(c, "content", cell.Content)
-			if cell.IsHeader { appendYAMLKV(c, "header", true) }
-			if cell.Scope != "" { appendYAMLKV(c, "scope", cell.Scope) }
-			if cell.ColSpan > 1 { appendYAMLKV(c, "colspan", cell.ColSpan) }
-			if cell.RowSpan > 1 { appendYAMLKV(c, "rowspan", cell.RowSpan) }
+			if cell.IsHeader {
+				appendYAMLKV(c, "header", true)
+			}
+			if cell.Scope != "" {
+				appendYAMLKV(c, "scope", cell.Scope)
+			}
+			if cell.ColSpan > 1 {
+				appendYAMLKV(c, "colspan", cell.ColSpan)
+			}
+			if cell.RowSpan > 1 {
+				appendYAMLKV(c, "rowspan", cell.RowSpan)
+			}
 			cells.Content = append(cells.Content, c)
 		}
 		key := &yaml.Node{}
@@ -71,11 +89,17 @@ func formatTableRowsBlock(e *ast.TableElement) (string, error) {
 		outer.Content = append(outer.Content, r)
 	}
 	encoded, err := yaml.Marshal(outer)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	var b strings.Builder
 	b.WriteString("TABLE\n")
-	if e.Caption != "" { fmt.Fprintf(&b, "  caption: %s\n", quote(e.Caption)) }
-	if e.Label != "" { fmt.Fprintf(&b, "  label: %s\n", quote(e.Label)) }
+	if e.Caption != "" {
+		fmt.Fprintf(&b, "  caption: %s\n", quote(e.Caption))
+	}
+	if e.Label != "" {
+		fmt.Fprintf(&b, "  label: %s\n", quote(e.Label))
+	}
 	b.WriteString("  tableRows:\n")
 	b.WriteString(indent(strings.TrimRight(string(encoded), "\n"), 4))
 	return strings.TrimRight(b.String(), "\n"), nil

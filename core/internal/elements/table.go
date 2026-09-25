@@ -290,7 +290,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 					for j, cell := range row.Cells {
 						tableRows[n].Cells[j] = ast.TableRowCell{NodeID: cell.NodeID, Content: cell.Content, IsHeader: cell.Header,
 							Scope: cell.Scope, ColSpan: cell.Colspan, RowSpan: cell.Rowspan}
-						}
+					}
 				}
 			}
 			continue
@@ -326,18 +326,18 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 }
 
 type yamlTableRowEntry struct {
-	NodeID string `yaml:"nodeId"`
-	Section string `yaml:"section"`
-	Cells []yamlTableRowCellEntry `yaml:"cells"`
+	NodeID  string                  `yaml:"nodeId"`
+	Section string                  `yaml:"section"`
+	Cells   []yamlTableRowCellEntry `yaml:"cells"`
 }
 
 type yamlTableRowCellEntry struct {
-	NodeID string `yaml:"nodeId"`
+	NodeID  string `yaml:"nodeId"`
 	Content string `yaml:"content"`
-	Header bool `yaml:"header"`
-	Scope string `yaml:"scope"`
-	Colspan int `yaml:"colspan"`
-	Rowspan int `yaml:"rowspan"`
+	Header  bool   `yaml:"header"`
+	Scope   string `yaml:"scope"`
+	Colspan int    `yaml:"colspan"`
+	Rowspan int    `yaml:"rowspan"`
 }
 
 // trimInlineArrayBrackets quita UN "[" inicial y UN "]" final del valor de

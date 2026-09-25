@@ -505,15 +505,15 @@ const (
 // ImageElement representa una imagen
 type ImageElement struct {
 	BaseNode    `tstype:",extends,required"`
-	Source      string       `json:"source"`
-	Alt         string       `json:"alt,omitempty"`
-	AltHTML     string       `json:"altHTML,omitempty"` // Alt con {{variables}} sustituidas y escapadas (sin markdown)
-	Caption     string       `json:"caption,omitempty"`
-	CaptionHTML string       `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+	Source      string `json:"source"`
+	Alt         string `json:"alt,omitempty"`
+	AltHTML     string `json:"altHTML,omitempty"` // Alt con {{variables}} sustituidas y escapadas (sin markdown)
+	Caption     string `json:"caption,omitempty"`
+	CaptionHTML string `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
 	// Context es metadata histórica inferida desde la posición del elemento.
 	// Deprecated: ningún renderer la usa; los autores deben declarar Fit,
 	// Focus y Bleed para expresar el encuadre deseado (issue #347).
-	Context     ImageContext `json:"context,omitempty"`
+	Context ImageContext `json:"context,omitempty"`
 	// Fit/Focus/Bleed describen el encuadre declarado por el autor.
 	Fit   string `json:"fit,omitempty"`   // cover | contain
 	Focus string `json:"focus,omitempty"` // "x% y%", válido con cover
@@ -629,7 +629,7 @@ type LangRun struct {
 
 // TableElement representa una tabla con datos
 type TableElement struct {
-	BaseNode    `tstype:",extends,required"`
+	BaseNode `tstype:",extends,required"`
 	// TableRows is nil for legacy tables. A non-nil slice opts the table into
 	// the versioned row/cell identity contract; the other views are derived.
 	TableRows   []TableRow `json:"tableRows,omitempty"`

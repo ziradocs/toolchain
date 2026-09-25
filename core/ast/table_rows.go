@@ -64,9 +64,12 @@ func ValidateTableRows(t *TableElement) error {
 		}
 		var next int
 		switch section {
-		case "header": next = 0
-		case "body": next = 1
-		case "footer": next = 2
+		case "header":
+			next = 0
+		case "body":
+			next = 1
+		case "footer":
+			next = 2
 		default:
 			return fmt.Errorf("table row %q has invalid section %q", row.NodeID, row.Section)
 		}
