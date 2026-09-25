@@ -45,6 +45,9 @@ func TestTableRowsSpanAnchorsAndInvalidation(t *testing.T) {
 	// silently retargeted to a new coordinate.
 	table.TableRows = table.TableRows[:2]
 	table.SyncTableViews()
+	if _, found := ResolveTableIdentity(doc, "RowB"); found {
+		t.Fatal("deleted row still resolves")
+	}
 	if err := ValidateTableRows(table); err == nil || !strings.Contains(err.Error(), "outside the table grid") {
 		t.Fatalf("expected invalidated span, got %v", err)
 	}
@@ -128,5 +131,31 @@ func TestTableRowsSchemaVersions(t *testing.T) {
 		if err := schema.Validate(value); err != nil {
 			t.Fatalf("schema rejected version %s: %v", doc.SchemaVersion, err)
 		}
+	}
+}
+
+func TestNestedTableRowsProjectionConflict(t *testing.T) {
+	doc := contractFixture()
+	block := &doc.ContentBlocks[0]
+	table := block.Elements[0]
+	callout := NewSpecialBlockElement(diagnostics.NewPosition(1, 1), "info", "")
+	callout.Elements = []Element{table}
+	block.Elements = []Element{callout}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeAST(data); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	nested := raw["contentBlocks"].([]any)[0].(map[string]any)["elements"].([]any)[0].(map[string]any)["elements"].([]any)[0].(map[string]any)
+	nested["headers"] = []any{"Wrong"}
+	bad, _ := json.Marshal(raw)
+	if _, err := DecodeAST(bad); err == nil || !strings.Contains(err.Error(), "projections") {
+		t.Fatalf("nested projection conflict accepted: %v", err)
 	}
 }

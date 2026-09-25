@@ -77,6 +77,11 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
 			return nil, fmt.Errorf("built-in transform #%d: %s", i, issues[0].String())
 		}
+		if ast.UsesTableRows(doc) || doc.SchemaVersion == ast.SchemaVersion || len(doc.Capabilities) > 0 {
+			if err := ast.ValidateTableContract(doc); err != nil {
+				return nil, fmt.Errorf("built-in transform #%d: %w", i, err)
+			}
+		}
 	}
 	return doc, nil
 }
@@ -91,6 +96,9 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast.AST, error) {
 	for _, path := range filterPaths {
 		if ast.UsesTableRows(doc) {
+			if err := ast.ValidateTableContract(doc); err != nil {
+				return nil, fmt.Errorf("filter %q input: %w", path, err)
+			}
 			if err := ast.FilterTableIdentityReady(doc); err != nil {
 				return nil, fmt.Errorf("filter %q: %w", path, err)
 			}

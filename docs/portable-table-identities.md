@@ -40,7 +40,8 @@ In AST JSON they remain deterministic compatibility projections computed
 from the canonical authored rows. A JSON/filter response with divergent
 projections is rejected. Consumers should resolve row/cell IDs through
 `ast.ResolveTableIdentity`; the returned record is the authored target and
-must be resolved again after a transform replaces the AST. This API does not
+must be resolved again after a transform replaces the AST. A missing result
+is an orphan reference for the consuming layer to reject. This API does not
 define a private treatment or appearance grammar.
 
 ## JSON compatibility and filters

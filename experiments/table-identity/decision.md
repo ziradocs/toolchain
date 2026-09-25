@@ -1,8 +1,10 @@
 # Portable table row and cell identity: design probe
 
-Status: **proposal only**. No source grammar, AST, schema, formatter, or consumer
-contract in this directory is implemented by the current CLI. The companion
-`run_probe.py` exercises only synthetic input against an exact CLI commit.
+Status: historical design probe against base 2.14.0. The separate opt-in
+implementation is documented in [portable table identities](../../docs/portable-table-identities.md).
+The companion `run_probe.py` exercises only synthetic 2.14 input against its
+recorded exact CLI commit; its results describe that older candidate, not
+the implemented opt-in contract.
 
 ## Current boundary
 

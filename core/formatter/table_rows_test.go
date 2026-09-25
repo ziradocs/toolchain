@@ -170,3 +170,14 @@ func TestTableRowsFullyCoveredRow(t *testing.T) {
 		t.Fatalf("covered row lost: %+v", got)
 	}
 }
+
+func TestTableRowsFormatterRejectsUnrepresentableContract(t *testing.T) {
+	doc, issues := parseTableRowsFixture(t, identifiedTableSource("      - cells: [{content: A}]\n"))
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	doc.SchemaVersion = ast.LegacySchemaVersion
+	if _, err := FormatStrict(doc); err == nil || !strings.Contains(err.Error(), "requires schemaVersion") {
+		t.Fatalf("formatter downgraded tableRows: %v", err)
+	}
+}
