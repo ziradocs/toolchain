@@ -28,6 +28,8 @@ identified row/cell requires fresh explicit IDs; duplicates are errors. The
 parser and formatter never generate or rename IDs. `section` is optional and
 means `body` when omitted; valid values are `header`, `body`, and `footer` in
 that order. It declares content structure, not emphasis, tone, or styling.
+The core HTML renderer emits these sections as `<thead>`, `<tbody>`, and
+`<tfoot>`; a rowspan crossing section boundaries is rejected.
 Existing cell `header`, `scope`, `colspan`, and `rowspan` keep their current
 meaning. A merged cell's ID belongs to its authored anchor. Covered grid
 coordinates have no IDs. Invalid overlap, incomplete coverage, or a span that

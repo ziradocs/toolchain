@@ -55,6 +55,9 @@ func ValidateTableRows(t *TableElement) error {
 	if width == 0 || width > MaxCellSpan {
 		return fmt.Errorf("tableRows first row has invalid width %d", width)
 	}
+	if len(t.TableRows) > 1_000_000/width {
+		return fmt.Errorf("tableRows grid exceeds the supported size")
+	}
 	occupied := make([][]bool, len(t.TableRows))
 	for i := range occupied {
 		occupied[i] = make([]bool, width)
@@ -94,6 +97,15 @@ func ValidateTableRows(t *TableElement) error {
 			}
 			if cell.Scope != "" && (cell.Scope != "row" && cell.Scope != "col" || !cell.IsHeader) {
 				return fmt.Errorf("table cell %q has invalid header scope %q", cell.NodeID, cell.Scope)
+			}
+			for r := i + 1; r < i+rs; r++ {
+				targetSection := t.TableRows[r].Section
+				if targetSection == "" {
+					targetSection = "body"
+				}
+				if targetSection != section {
+					return fmt.Errorf("table cell %q rowspan crosses %s/%s section boundary", cell.NodeID, section, targetSection)
+				}
 			}
 			for r := i; r < i+rs; r++ {
 				for c := col; c < col+cs; c++ {

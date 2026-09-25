@@ -475,7 +475,9 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 		html.WriteString("<table>")
 	}
 
-	if tableUsesCellStructure(elem) {
+	if elem.HasTableRows() {
+		renderAuthoredTableRows(&html, elem, variables)
+	} else if tableUsesCellStructure(elem) {
 		renderTableCells(&html, elem.Cells, variables)
 	} else {
 		// Headers
@@ -518,6 +520,30 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 	}
 
 	return html.String()
+}
+
+// renderAuthoredTableRows follows portable section semantics. Validation
+// prevents rowspans from crossing these HTML row-group boundaries.
+func renderAuthoredTableRows(html *strings.Builder, elem *ast.TableElement, variables map[string]interface{}) {
+	current := ""
+	for i, row := range elem.TableRows {
+		section := row.Section
+		if section == "" {
+			section = "body"
+		}
+		tag := map[string]string{"header": "thead", "body": "tbody", "footer": "tfoot"}[section]
+		if tag != current {
+			if current != "" {
+				fmt.Fprintf(html, "</%s>", current)
+			}
+			fmt.Fprintf(html, "<%s>", tag)
+			current = tag
+		}
+		writeTableCellRow(html, elem.Cells[i], variables)
+	}
+	if current != "" {
+		fmt.Fprintf(html, "</%s>", current)
+	}
 }
 
 // renderTableCells emits <thead>/<tbody> from the real cell structure

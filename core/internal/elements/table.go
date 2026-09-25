@@ -84,9 +84,27 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 		if tableRows != nil {
 			table.TableRows = tableRows
-			table.SyncTableViews()
-			if err := ast.ValidateTableRows(table); err != nil {
-				diags = append(diags, diagnostics.NewError(err.Error(), pos, "table-parser"))
+			width := 0
+			for _, cell := range tableRows[0].Cells {
+				span := cell.ColSpan
+				if span < 1 {
+					span = 1
+				}
+				if span > ast.MaxCellSpan-width {
+					width = ast.MaxCellSpan + 1
+					break
+				}
+				width += span
+			}
+			if tableRows[0].Cells == nil {
+				diags = append(diags, diagnostics.NewError("table row must declare cells", pos, "table-parser"))
+			} else if width == 0 || width > ast.MaxCellSpan || len(tableRows) > 1_000_000/width {
+				diags = append(diags, diagnostics.NewError("tableRows grid exceeds the supported size or has no columns", pos, "table-parser"))
+			} else {
+				table.SyncTableViews()
+				if err := ast.ValidateTableRows(table); err != nil {
+					diags = append(diags, diagnostics.NewError(err.Error(), pos, "table-parser"))
+				}
 			}
 		} else if len(cellsExplicit) > 0 {
 			// Explicit merged cells (issue #20): Cells is the source of

@@ -48,6 +48,16 @@ func TestTableRowsSpanAnchorsAndInvalidation(t *testing.T) {
 	if err := ValidateTableRows(table); err == nil || !strings.Contains(err.Error(), "outside the table grid") {
 		t.Fatalf("expected invalidated span, got %v", err)
 	}
+	// A span that reaches a different semantic section cannot be represented
+	// as valid HTML thead/tbody/tfoot row groups.
+	table.TableRows = []TableRow{
+		{Section: "header", Cells: []TableRowCell{{Content: "H", IsHeader: true, RowSpan: 2}}},
+		{Section: "body", Cells: []TableRowCell{}},
+	}
+	table.SyncTableViews()
+	if err := ValidateTableRows(table); err == nil || !strings.Contains(err.Error(), "section boundary") {
+		t.Fatalf("cross-section span accepted: %v", err)
+	}
 }
 
 func TestTableRowsRawDecodeRejectsLossAndConflict(t *testing.T) {

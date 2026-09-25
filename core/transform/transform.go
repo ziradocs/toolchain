@@ -132,6 +132,9 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 		}
 		return fmt.Errorf("tableRows capability handshake failed: %w (%s)", err, stderr.String())
 	}
+	if stdout.exceeded || stderr.exceeded {
+		return fmt.Errorf("tableRows capability handshake response exceeds 4096 bytes")
+	}
 	var response struct {
 		ASTSchemaVersions []string `json:"astSchemaVersions"`
 		Features          []string `json:"features"`
@@ -153,11 +156,13 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 
 type limitedWriter struct {
 	bytes.Buffer
-	limit int
+	limit    int
+	exceeded bool
 }
 
 func (w *limitedWriter) Write(p []byte) (int, error) {
 	if w.Len()+len(p) > w.limit {
+		w.exceeded = true
 		return 0, fmt.Errorf("capability response exceeds %d bytes", w.limit)
 	}
 	return w.Buffer.Write(p)
