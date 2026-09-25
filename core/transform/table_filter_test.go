@@ -94,9 +94,9 @@ cat`)
 	if _, err := RunFilters(tableFilterFixture(), []string{missingFeature}, time.Second*2); err == nil || !strings.Contains(err.Error(), "does not support") {
 		t.Fatalf("missing feature accepted: %v", err)
 	}
-	oversize := writeFilter(t, `if [ "$1" = "--ziradocs-capabilities" ]; then printf '%5000s' x; exit 0; fi
+	oversize := writeFilter(t, `if [ "$1" = "--ziradocs-capabilities" ]; then echo '{"astSchemaVersions":["2.15.0"],"features":["table-rows-v1"]}'; printf '%5000s' ''; exit 0; fi
 cat`)
-	if _, err := RunFilters(tableFilterFixture(), []string{oversize}, time.Second*2); err == nil || !strings.Contains(err.Error(), "handshake") {
+	if _, err := RunFilters(tableFilterFixture(), []string{oversize}, time.Second*2); err == nil {
 		t.Fatalf("oversized response accepted: %v", err)
 	}
 	hung := writeFilter(t, `if [ "$1" = "--ziradocs-capabilities" ]; then while :; do :; done; fi
@@ -109,5 +109,15 @@ cat`)
 	legacyFilter := writeFilter(t, "if [ \"$1\" = \"--ziradocs-capabilities\" ]; then exit 1; fi\ncat")
 	if _, err := RunFilters(legacy, []string{legacyFilter}, time.Second*2); err != nil {
 		t.Fatalf("legacy filter required handshake: %v", err)
+	}
+}
+
+func TestLimitedCapabilityWriter(t *testing.T) {
+	w := &limitedWriter{limit: 4}
+	if _, err := w.Write([]byte("abcd")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("e")); err == nil || !w.exceeded {
+		t.Fatalf("oversize write accepted: %v", err)
 	}
 }
