@@ -23,7 +23,7 @@ type FrontMatterParser struct {
 }
 
 type rawFrontMatter struct {
-	ASTCapabilities *yaml.Node             `yaml:"ast_capabilities"`
+	ASTCapabilities yaml.Node              `yaml:"ast_capabilities"`
 	Mode            string                 `yaml:"mode"`
 	Title           string                 `yaml:"title"`
 	Author          string                 `yaml:"author"`
@@ -504,7 +504,7 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node := ast.NewFrontMatterNode(diagnostics.NewPosition(1, 1))
 	node.EndPosition = diagnostics.NewPosition(endIndex+1, 4)
 	node.Mode = raw.Mode
-	if raw.ASTCapabilities != nil {
+	if raw.ASTCapabilities.Kind != 0 {
 		if raw.ASTCapabilities.Kind != yaml.SequenceNode || len(raw.ASTCapabilities.Content) == 0 {
 			p.diagnostics = append(p.diagnostics, diagnostics.NewError("ast_capabilities must be a nonempty list", diagnostics.NewPosition(2, 1), "parser"))
 		} else {

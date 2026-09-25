@@ -164,8 +164,8 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 }
 
 // parseTypedList is the opt-in path. Each level has one list type, owned by
-// the item immediately above it. The path stores indices rather than Go
-// pointers, which remain correct when sibling slices grow.
+// the item immediately above it. Pointers to ancestors remain valid because
+// we pop a level before appending a sibling to that level's slice.
 func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element *ast.PointsElement) *ParseResult {
 	strict := ctx.Mode == "strict" && strings.HasPrefix(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS")
 	start := startIndex
@@ -174,7 +174,7 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 	}
 	type level struct {
 		indent int
-		path   []int
+		item   *ast.PointItem
 	}
 	var stack []level
 	baseIndent := -1
@@ -235,11 +235,10 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 				diags = append(diags, diagnostics.NewError("empty list item", ctx.Position(i), "points-parser"))
 			} else {
 				element.Items = append(element.Items, *item)
-				stack = append(stack, level{indent: indent, path: []int{len(element.Items) - 1}})
+				stack = append(stack, level{indent: indent, item: &element.Items[len(element.Items)-1]})
 			}
 		} else {
-			parentLevel := stack[len(stack)-1]
-			parent := pointAtPath(element, parentLevel.path)
+			parent := stack[len(stack)-1].item
 			if parent.SubListType != "" && parent.SubListType != kind {
 				diags = append(diags, diagnostics.NewError("mixed markers in one nested list level", ctx.Position(i), "points-parser"))
 			} else if parent.SubListType == "" {
@@ -250,8 +249,7 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 				diags = append(diags, diagnostics.NewError("empty nested list item", ctx.Position(i), "points-parser"))
 			} else {
 				parent.SubPoints = append(parent.SubPoints, *item)
-				path := append(append([]int(nil), parentLevel.path...), len(parent.SubPoints)-1)
-				stack = append(stack, level{indent: indent, path: path})
+				stack = append(stack, level{indent: indent, item: &parent.SubPoints[len(parent.SubPoints)-1]})
 			}
 		}
 		consumed++
@@ -274,14 +272,6 @@ func malformedPointMarker(line string) bool {
 		return false
 	}
 	return i+1 == len(line) || line[i+1] == ' ' || line[i+1] == '\t'
-}
-
-func pointAtPath(element *ast.PointsElement, path []int) *ast.PointItem {
-	item := &element.Items[path[0]]
-	for _, index := range path[1:] {
-		item = &item.SubPoints[index]
-	}
-	return item
 }
 
 // parseMarkdownList parsea una lista en formato Markdown

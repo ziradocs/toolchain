@@ -16,6 +16,9 @@ ast_capabilities: [nested-list-types-v1]
 ---
 ```
 
+`table-rows-v1` is inferred from authored `tableRows` and is not a source
+`ast_capabilities` entry. The source key accepts only the nested-list opt-in.
+
 Then use the existing list markers and indentation. A parent item owns the
 list directly beneath it:
 
