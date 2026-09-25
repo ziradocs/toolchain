@@ -34,6 +34,13 @@ func nestedListFixture(withTable bool) *AST {
 }
 
 func TestNestedListContractVersionMatrix(t *testing.T) {
+	tableOnlyWithUnusedListOptIn := contractFixture()
+	tableOnlyWithUnusedListOptIn.FrontMatter = NewFrontMatterNode(diagnostics.NewPosition(1, 1))
+	tableOnlyWithUnusedListOptIn.FrontMatter.ASTCapabilities = []string{NestedListTypesCapability}
+	SetTableContract(tableOnlyWithUnusedListOptIn)
+	if tableOnlyWithUnusedListOptIn.SchemaVersion != TableSchemaVersion || !hasCapabilities(tableOnlyWithUnusedListOptIn.Capabilities, TableRowsCapability) {
+		t.Fatalf("unused list opt-in inflated table document: %s %v", tableOnlyWithUnusedListOptIn.SchemaVersion, tableOnlyWithUnusedListOptIn.Capabilities)
+	}
 	compiler := jsonschema.NewCompiler()
 	schema, err := compiler.Compile(filepath.Join("..", "..", "schema", "ast.schema.json"))
 	if err != nil {

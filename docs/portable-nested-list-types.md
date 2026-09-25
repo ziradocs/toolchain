@@ -66,6 +66,11 @@ Core HTML, SlideLang HTML, DocLang Markdown, DOCX, and PPTX render the
 opt-in hierarchy and types. PPTX has nine paragraph levels; deeper typed
 lists fail before output. Existing non-opt-in output is unchanged.
 
+Previously published readers cannot be changed retroactively. A reader that
+ignores unknown JSON fields must not receive a 2.16 document without an
+external version/capability gate: it could discard `subListType`. The
+controlled CLI filter path below supplies that gate.
+
 For external filters, the CLI sends no AST bytes until the filter reports
 the exact schema version and every active capability through
 `--ziradocs-capabilities`. A filter may edit content or reorder siblings,

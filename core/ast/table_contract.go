@@ -21,8 +21,8 @@ func UsesTableRows(doc *AST) bool {
 	return used
 }
 
-// SetTableContract is used only after parsing authored source. JSON/filter
-// ingress must validate the declared version and capabilities instead.
+// SetTableContract derives the table and nested-list source capabilities
+// after parsing. JSON/filter ingress validates declarations instead.
 func SetTableContract(doc *AST) {
 	tables, lists := UsesTableRows(doc), UsesNestedListTypes(doc)
 	switch {
@@ -107,9 +107,10 @@ func hasCapabilities(caps []string, expected ...string) bool {
 	return true
 }
 
-// ValidateTableContract checks version, capability, identity and every
-// projection. A filter may edit/reorder authored rows, but must rederive its
-// compatibility views explicitly; a mismatch is never silently repaired.
+// ValidateTableContract checks both opt-in contracts: version/capability,
+// nested child-list types, table identity, and table projections. A filter
+// may edit/reorder authored rows but must rederive compatibility views;
+// a mismatch is never silently repaired.
 func ValidateTableContract(doc *AST) error {
 	tables, lists := UsesTableRows(doc), UsesNestedListTypes(doc)
 	switch {
@@ -160,8 +161,8 @@ func ValidateTableContract(doc *AST) error {
 }
 
 // ValidateRawTableContract runs before DecodeAST's permissive Go unmarshal.
-// It blocks unknown versions, lost capabilities, and malformed row records
-// before any unrecognized identity-bearing field could be discarded.
+// It blocks unknown versions, lost capabilities, malformed rows, and nested
+// list fields before unrecognized semantic fields could be discarded.
 func ValidateRawTableContract(data []byte) error {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {

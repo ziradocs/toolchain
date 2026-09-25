@@ -505,7 +505,12 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node.EndPosition = diagnostics.NewPosition(endIndex+1, 4)
 	node.Mode = raw.Mode
 	node.ASTCapabilities = raw.ASTCapabilities
+	seenCapabilities := map[string]bool{}
 	for _, capability := range raw.ASTCapabilities {
+		if seenCapabilities[capability] {
+			p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("duplicate ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
+		}
+		seenCapabilities[capability] = true
 		if capability != ast.NestedListTypesCapability {
 			p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("unsupported ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
 		}

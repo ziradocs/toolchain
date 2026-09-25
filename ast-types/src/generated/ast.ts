@@ -557,7 +557,7 @@ export interface TextElement extends BaseNode {
  */
 export interface PointsElement extends BaseNode {
   items: PointItem[];
-  listType: string; // "ordered" para numeradas, "unordered" para bullets
+  listType: "ordered" | "unordered"; // "ordered" para numeradas, "unordered" para bullets
 }
 /**
  * PointItem representa un item en una lista
@@ -573,7 +573,7 @@ export interface PointItem extends BaseNode {
    * the marker used for this item in its parent's list. It is emitted only
    * by the nested-list-types-v1 opt-in.
    */
-  subListType?: string;
+  subListType?: "ordered" | "unordered";
 }
 /**
  * CodeElement representa un bloque de código

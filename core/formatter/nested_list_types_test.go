@@ -94,6 +94,29 @@ func TestNestedListTypesStrictRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNestedListTypesHomogeneousDepthThree(t *testing.T) {
+	ordered := strings.Replace(strings.Replace(typedStrictSource, "- ChildA", "1. ChildA", 1), "- ChildB", "2. ChildB", 1)
+	unordered := typedStrictSource
+	for _, replacement := range [][2]string{{"1. ParentA", "- ParentA"}, {"2. ParentB", "- ParentB"}, {"1. GrandchildA", "- GrandchildA"}, {"1. ChildC", "- ChildC"}} {
+		unordered = strings.Replace(unordered, replacement[0], replacement[1], 1)
+	}
+	for _, tc := range []struct{ source, kind string }{{ordered, "ordered"}, {unordered, "unordered"}} {
+		doc := parseTypedStrict(t, tc.source)
+		points := doc.ContentBlocks[0].Elements[0].(*ast.PointsElement)
+		if points.ListType != tc.kind || points.Items[0].SubListType != tc.kind || points.Items[0].SubPoints[0].SubListType != tc.kind {
+			t.Fatalf("homogeneous %s types lost: %+v", tc.kind, points)
+		}
+		formatted, err := FormatStrict(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reparsed := parseTypedStrict(t, formatted)
+		if !reflect.DeepEqual(shapes(points.Items), shapes(reparsed.ContentBlocks[0].Elements[0].(*ast.PointsElement).Items)) {
+			t.Fatalf("homogeneous %s round-trip changed", tc.kind)
+		}
+	}
+}
+
 func TestNestedListTypesIDsSurviveReorderEditAndInsert(t *testing.T) {
 	doc := parseTypedStrict(t, typedStrictSource)
 	points := doc.ContentBlocks[0].Elements[0].(*ast.PointsElement)
@@ -148,6 +171,24 @@ func TestNestedListTypesRejectEmptyOrOrphanedItems(t *testing.T) {
 			}
 			t.Fatalf("missing %s diagnostic: %v", tc.expected, issues)
 		})
+	}
+}
+
+func TestNestedListTypesRejectUnknownOrDuplicateSourceCapability(t *testing.T) {
+	for _, capability := range []string{"unknown-feature", "nested-list-types-v1, nested-list-types-v1"} {
+		source := strings.Replace(typedStrictSource, "ast_capabilities: [nested-list-types-v1]", "ast_capabilities: ["+capability+"]", 1)
+		p := parser.New(util.NewNoop())
+		p.SetNormalization(false)
+		_, issues := p.Parse(source, "fixture.slidelang")
+		found := false
+		for _, issue := range issues {
+			if issue.IsError() && strings.Contains(issue.Message, "ast_capabilities") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("capability %q accepted: %v", capability, issues)
+		}
 	}
 }
 

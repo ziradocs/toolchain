@@ -1595,7 +1595,7 @@ func pptxTypedPoints(items []ast.PointItem) bool {
 func pptxNestedListDepth(doc *ast.AST) int {
 	maximum := 0
 	_ = ast.Walk(doc, func(n ast.Node) error {
-		if points, ok := n.(*ast.PointsElement); ok {
+		if points, ok := n.(*ast.PointsElement); ok && pptxTypedPoints(points.Items) {
 			var visit func([]ast.PointItem, int)
 			visit = func(items []ast.PointItem, depth int) {
 				if depth > maximum {

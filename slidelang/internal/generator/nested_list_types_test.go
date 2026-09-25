@@ -3,6 +3,7 @@
 package generator
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -22,6 +23,40 @@ func typedSlidePoints() *ast.PointsElement {
 	parent.SubPoints = append(parent.SubPoints, *child)
 	points.Items = append(points.Items, *parent)
 	return points
+}
+
+func TestNestedListTypesPPTXRejectsUnsupportedDepthBeforeOutput(t *testing.T) {
+	points := ast.NewPointsElement(pos())
+	item := ast.NewPointItem(pos(), "ParentA")
+	item.SubListType = "ordered"
+	current := item
+	for depth := 2; depth <= 10; depth++ {
+		child := ast.NewPointItem(pos(), "ChildA")
+		if depth < 10 {
+			child.SubListType = "ordered"
+		}
+		current.SubPoints = append(current.SubPoints, *child)
+		current = &current.SubPoints[0]
+	}
+	points.Items = append(points.Items, *item)
+	doc := ast.NewAST(pos())
+	doc.FilePath = "typed-list.slidelang"
+	block := ast.NewContentBlock(pos(), "content")
+	block.Elements = append(block.Elements, points)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	ast.SetTableContract(doc)
+	dir := t.TempDir()
+	err := New(util.NewNoop()).generatePPTX(doc, dir, GeneratorOptions{AssetRoot: dir})
+	if err == nil || !strings.Contains(err.Error(), "9 nested list levels") {
+		t.Fatalf("unsupported depth accepted: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("output created before depth rejection: %v", entries)
+	}
 }
 
 func TestNestedListTypesSlideHTMLAndPPTX(t *testing.T) {
