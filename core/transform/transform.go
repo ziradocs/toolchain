@@ -131,10 +131,14 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--ziradocs-capabilities")
+	configureBoundedFilterProcess(cmd)
 	cmd.Stdin = bytes.NewReader(nil)
-	stdout, stderr := &limitedWriter{limit: 4096}, &limitedWriter{limit: 4096}
+	stdout, stderr := &limitedWriter{limit: 4096, onExceeded: cancel}, &limitedWriter{limit: 4096, onExceeded: cancel}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
+		if stdout.exceeded || stderr.exceeded {
+			return fmt.Errorf("tableRows capability handshake response exceeds 4096 bytes")
+		}
 		if ctx.Err() != nil {
 			return fmt.Errorf("tableRows capability handshake timed out")
 		}
@@ -163,14 +167,18 @@ func negotiateTableRows(path string, timeout time.Duration) error {
 }
 
 type limitedWriter struct {
-	buf      bytes.Buffer
-	limit    int
-	exceeded bool
+	buf        bytes.Buffer
+	limit      int
+	exceeded   bool
+	onExceeded func()
 }
 
 func (w *limitedWriter) Write(p []byte) (int, error) {
 	if w.buf.Len()+len(p) > w.limit {
 		w.exceeded = true
+		if w.onExceeded != nil {
+			w.onExceeded()
+		}
 		return 0, fmt.Errorf("capability response exceeds %d bytes", w.limit)
 	}
 	return w.buf.Write(p)
@@ -191,6 +199,7 @@ func runExternalFilter(doc *ast.AST, binaryPath string, timeout time.Duration) (
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binaryPath)
+	configureBoundedFilterProcess(cmd)
 	cmd.Stdin = bytes.NewReader(input)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -123,7 +123,17 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	gateJSON := fmt.Sprintf(`{"if":{"properties":{"schemaVersion":{"const":%q}}},"then":{"required":["capabilities"]},"else":{"not":{"required":["capabilities"]}}}`, ast.SchemaVersion)
+	// This recursive schema follows ContentBlock.elements, nested special
+	// blocks, and grid columns. The root gate must agree with DecodeAST even
+	// when the only authored table sits inside another element.
+	presenceJSON := `{"anyOf":[{"required":["tableRows"]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/TableRowsPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/TableRowsPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/TableRowsPresent"}}}}]}`
+	var presence jsonschema.Schema
+	if err := json.Unmarshal([]byte(presenceJSON), &presence); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["TableRowsPresent"] = &presence
+	gateJSON := fmt.Sprintf(`{"if":{"properties":{"schemaVersion":{"const":%q}},"required":["schemaVersion"]},"then":{"required":["capabilities"],"allOf":[{"$ref":"#/$defs/TableRowsPresent"}]},"else":{"not":{"anyOf":[{"required":["capabilities"]},{"$ref":"#/$defs/TableRowsPresent"}]}}}`, ast.SchemaVersion)
 	var gate jsonschema.Schema
 	if err := json.Unmarshal([]byte(gateJSON), &gate); err != nil {
 		fmt.Fprintln(os.Stderr, err)

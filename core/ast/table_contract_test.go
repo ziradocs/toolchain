@@ -146,6 +146,51 @@ func TestTableRowsSchemaVersions(t *testing.T) {
 	}
 }
 
+func TestTableRowsSchemaGateMatchesDecoder(t *testing.T) {
+	compiler := jsonschema.NewCompiler()
+	schema, err := compiler.Compile(filepath.Join("..", "..", "schema", "ast.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(doc *AST, valid bool) {
+		t.Helper()
+		data, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var value any
+		if err := json.Unmarshal(data, &value); err != nil {
+			t.Fatal(err)
+		}
+		if err := schema.Validate(value); (err == nil) != valid {
+			t.Fatalf("schema validity = %t, want %t: %v", err == nil, valid, err)
+		}
+		if _, err := DecodeAST(data); (err == nil) != valid {
+			t.Fatalf("decoder validity = %t, want %t: %v", err == nil, valid, err)
+		}
+	}
+	withoutRows := NewAST(diagnostics.NewPosition(1, 1))
+	withoutRows.SchemaVersion = SchemaVersion
+	withoutRows.Capabilities = []string{TableRowsCapability}
+	check(withoutRows, false)
+
+	direct := contractFixture()
+	direct.SchemaVersion = LegacySchemaVersion
+	direct.Capabilities = nil
+	check(direct, false)
+
+	nested := contractFixture()
+	block := &nested.ContentBlocks[0]
+	table := block.Elements[0]
+	callout := NewSpecialBlockElement(diagnostics.NewPosition(1, 1), "info", "")
+	callout.Elements = []Element{table}
+	block.Elements = []Element{callout}
+	check(nested, true)
+	nested.SchemaVersion = PreviousSchemaVersion
+	nested.Capabilities = nil
+	check(nested, false)
+}
+
 func TestNestedTableRowsProjectionConflict(t *testing.T) {
 	doc := contractFixture()
 	block := &doc.ContentBlocks[0]

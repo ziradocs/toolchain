@@ -121,3 +121,42 @@ func TestLimitedCapabilityWriter(t *testing.T) {
 		t.Fatalf("oversize write accepted: %v", err)
 	}
 }
+
+func TestTableRowsFilterStopsDescendantsHoldingPipes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"handshake timeout", `if [ "$1" = "--ziradocs-capabilities" ]; then
+  (sleep 0.3; echo orphan > MARKER) &
+  wait
+fi
+cat`, "timed out"},
+		{"handshake oversize", `if [ "$1" = "--ziradocs-capabilities" ]; then
+  (sleep 0.3; echo orphan > MARKER) &
+  printf '%5000s' ''
+  wait
+fi
+cat`, "exceeds"},
+		{"filter timeout", compatibleHandshake + `(sleep 0.3; echo orphan > MARKER) &
+wait`, "timed out"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "orphan")
+			path := writeFilter(t, strings.ReplaceAll(tc.body, "MARKER", marker))
+			start := time.Now()
+			_, err := RunFilters(tableFilterFixture(), []string{path}, 50*time.Millisecond)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("unexpected result: %v", err)
+			}
+			if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+				t.Fatalf("filter exceeded bounded wait: %s", elapsed)
+			}
+			time.Sleep(350 * time.Millisecond)
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("descendant survived cancellation: %v", err)
+			}
+		})
+	}
+}
