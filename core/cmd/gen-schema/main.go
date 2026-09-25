@@ -140,7 +140,7 @@ func main() {
 		os.Exit(1)
 	}
 	root.Definitions["NestedListPresent"] = &listPresence
-	typedTreeJSON := `{"type":"object","allOf":[{"if":{"properties":{"type":{"const":"point_item"},"subPoints":{"type":"array","minItems":1}},"required":["type","subPoints"]},"then":{"required":["subListType"]}}],"properties":{"contentBlocks":{"items":{"$ref":"#/$defs/TypedPointTree"}},"elements":{"items":{"$ref":"#/$defs/TypedPointTree"}},"columns":{"items":{"$ref":"#/$defs/TypedPointTree"}},"items":{"items":{"$ref":"#/$defs/TypedPointTree"}},"subPoints":{"items":{"$ref":"#/$defs/TypedPointTree"}}}}`
+	typedTreeJSON := `{"type":"object","allOf":[{"if":{"properties":{"type":{"const":"point_item"},"subPoints":{"type":"array","minItems":1}},"required":["type","subPoints"]},"then":{"required":["subListType"]}},{"if":{"properties":{"type":{"const":"point_item"}},"required":["type","subListType"]},"then":{"required":["subPoints"],"properties":{"subPoints":{"type":"array","minItems":1}}}}],"properties":{"contentBlocks":{"items":{"$ref":"#/$defs/TypedPointTree"}},"elements":{"items":{"$ref":"#/$defs/TypedPointTree"}},"columns":{"items":{"$ref":"#/$defs/TypedPointTree"}},"items":{"items":{"$ref":"#/$defs/TypedPointTree"}},"subPoints":{"items":{"$ref":"#/$defs/TypedPointTree"}}}}`
 	var typedTree jsonschema.Schema
 	if err := json.Unmarshal([]byte(typedTreeJSON), &typedTree); err != nil {
 		fmt.Fprintln(os.Stderr, err)
