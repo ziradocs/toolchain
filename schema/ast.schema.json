@@ -11,17 +11,32 @@
               "schemaVersion": {
                 "const": "2.15.0"
               }
-            }
+            },
+            "required": [
+              "schemaVersion"
+            ]
           },
           "then": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/TableRowsPresent"
+              }
+            ],
             "required": [
               "capabilities"
             ]
           },
           "else": {
             "not": {
-              "required": [
-                "capabilities"
+              "anyOf": [
+                {
+                  "required": [
+                    "capabilities"
+                  ]
+                },
+                {
+                  "$ref": "#/$defs/TableRowsPresent"
+                }
               ]
             }
           }
@@ -2100,6 +2115,51 @@
       "type": "object",
       "required": [
         "content"
+      ]
+    },
+    "TableRowsPresent": {
+      "anyOf": [
+        {
+          "required": [
+            "tableRows"
+          ]
+        },
+        {
+          "properties": {
+            "contentBlocks": {
+              "contains": {
+                "$ref": "#/$defs/TableRowsPresent"
+              }
+            }
+          },
+          "required": [
+            "contentBlocks"
+          ]
+        },
+        {
+          "properties": {
+            "elements": {
+              "contains": {
+                "$ref": "#/$defs/TableRowsPresent"
+              }
+            }
+          },
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "properties": {
+            "columns": {
+              "contains": {
+                "$ref": "#/$defs/TableRowsPresent"
+              }
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        }
       ]
     },
     "TextElement": {
