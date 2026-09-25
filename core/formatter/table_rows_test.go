@@ -181,3 +181,27 @@ func TestTableRowsFormatterRejectsUnrepresentableContract(t *testing.T) {
 		t.Fatalf("formatter downgraded tableRows: %v", err)
 	}
 }
+
+func TestTableRowsRepeatedContentUsesExplicitIDs(t *testing.T) {
+	source := identifiedTableSource("      - section: header\n        cells: [{content: Key, header: true}]\n      - nodeId: First\n        cells: [{nodeId: FirstCell, content: A}]\n      - nodeId: Second\n        cells: [{nodeId: SecondCell, content: A}]\n")
+	doc, issues := parseTableRowsFixture(t, source)
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	table := doc.ContentBlocks[0].Elements[0].(*ast.TableElement)
+	if table.Rows[0][0] != table.Rows[1][0] || table.TableRows[1].Cells[0].NodeID == table.TableRows[2].Cells[0].NodeID {
+		t.Fatal("probe did not create duplicate content with distinct identities")
+	}
+	out, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, issues := parseTableRowsFixture(t, out)
+	if len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	got := reparsed.ContentBlocks[0].Elements[0].(*ast.TableElement).TableRows
+	if got[1].NodeID != "First" || got[2].NodeID != "Second" || got[1].Cells[0].NodeID != "FirstCell" || got[2].Cells[0].NodeID != "SecondCell" {
+		t.Fatalf("duplicate content identity drift: %+v", got)
+	}
+}

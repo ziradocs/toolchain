@@ -61,6 +61,13 @@ func TestTableRowsSpanAnchorsAndInvalidation(t *testing.T) {
 	if err := ValidateTableRows(table); err == nil || !strings.Contains(err.Error(), "section boundary") {
 		t.Fatalf("cross-section span accepted: %v", err)
 	}
+	doc = contractFixture()
+	table = doc.ContentBlocks[0].Elements[0].(*TableElement)
+	table.TableRows = append(table.TableRows[:2], append([]TableRow{{NodeID: "Inserted", Cells: []TableRowCell{{Content: "X"}, {Content: "0"}}}}, table.TableRows[2:]...)...)
+	table.SyncTableViews()
+	if err := ValidateTableRows(table); err == nil || !strings.Contains(err.Error(), "outside the table grid") {
+		t.Fatalf("insertion into span accepted: %v", err)
+	}
 }
 
 func TestTableRowsRawDecodeRejectsLossAndConflict(t *testing.T) {
@@ -176,6 +183,20 @@ func TestTableRowsRejectsUnsafeRawContractAndWidth(t *testing.T) {
 		t.Fatalf("legacy null capability accepted: %v", err)
 	}
 	doc := contractFixture()
+	candidateData, _ := json.Marshal(doc)
+	var candidate map[string]any
+	_ = json.Unmarshal(candidateData, &candidate)
+	candidate["schemaVersion"] = "99.0.0"
+	bad, _ = json.Marshal(candidate)
+	if _, err := DecodeAST(bad); err == nil || !strings.Contains(err.Error(), "unsupported schemaVersion") {
+		t.Fatalf("unknown version accepted: %v", err)
+	}
+	candidate["schemaVersion"] = SchemaVersion
+	candidate["capabilities"] = []any{"unknown-feature"}
+	bad, _ = json.Marshal(candidate)
+	if _, err := DecodeAST(bad); err == nil || !strings.Contains(err.Error(), "requires capability") {
+		t.Fatalf("unknown capability accepted: %v", err)
+	}
 	table := doc.ContentBlocks[0].Elements[0].(*TableElement)
 	table.TableRows[0].Cells = []TableRowCell{{Content: "A", ColSpan: int(^uint(0) >> 1)}, {Content: "B", ColSpan: int(^uint(0) >> 1)}}
 	if err := ValidateTableRows(table); err == nil || !strings.Contains(err.Error(), "supported width") {
