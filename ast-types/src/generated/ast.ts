@@ -87,8 +87,12 @@ import type { Position } from "./diagnostics";
  * the document language dialect (strict/flex/flex-full/flex-ai/auto).
  * 2.14.0: optional, explicit NodeID on nodes with BaseNode. It is an
  * editorial identity, independent of reference/HTML ids on individual nodes.
+ * 2.15.0: opt-in authored tableRows with portable row/cell identities and
+ * semantic row sections. Documents without this capability still emit 2.14.0.
  */
-export const SchemaVersion = "2.14.0";
+export const SchemaVersion = "2.15.0";
+export const LegacySchemaVersion = "2.14.0";
+export const TableRowsCapability = "table-rows-v1";
 /**
  * Node representa un nodo base en el AST
  */
@@ -138,6 +142,7 @@ export interface BaseNode {
  */
 export interface AST extends BaseNode {
   schemaVersion: string;
+  capabilities?: string[];
   /**
    * omitempty: doclang tolera archivos sin frontmatter (a diferencia de
    * slidelang, que lo exige), y sin omitempty este puntero nil serializaría
@@ -638,6 +643,28 @@ export interface TableCell {
   rowSpan?: number /* int */;
 }
 /**
+ * TableRowCell is an authored cell in the opt-in tableRows form. Its NodeID
+ * belongs to the same document-wide namespace as BaseNode.NodeID. A covered
+ * coordinate of a merged cell has no separate identity.
+ */
+export interface TableRowCell {
+  nodeId?: string;
+  content: string;
+  isHeader?: boolean;
+  scope?: string;
+  colSpan?: number /* int */;
+  rowSpan?: number /* int */;
+}
+/**
+ * TableRow is the sole authored authority for an opt-in table. Cells,
+ * Headers and Rows on TableElement are deterministic compatibility views.
+ */
+export interface TableRow {
+  nodeId?: string;
+  section?: string; // header, body, footer; empty means body
+  cells: TableRowCell[];
+}
+/**
  * LangRun exposes a sub-span of an element's own prose (issue #63) that the
  * author marked as being in a different language than the document's
  * declared FrontMatter.Lang — e.g. a French phrase inside otherwise-Spanish
@@ -677,6 +704,11 @@ export interface LangRun {
  * TableElement representa una tabla con datos
  */
 export interface TableElement extends BaseNode {
+  /**
+   * TableRows is nil for legacy tables. A non-nil slice opts the table into
+   * the versioned row/cell identity contract; the other views are derived.
+   */
+  tableRows?: TableRow[];
   headers: string[];
   headersHTML?: string[]; // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
   rows: string[][];
@@ -1064,6 +1096,21 @@ export interface MathElement extends BaseNode {
  * count while staying cheap to allocate.
  */
 export const MaxCellSpan = 1000;
+
+//////////
+// source: table_contract.go
+
+/**
+ * TableIdentityTarget is a portable resolution result. The pointers identify
+ * authored records, never flattened coordinates. Callers must resolve again
+ * after a transform that replaces or reorders the document tree.
+ */
+export interface TableIdentityTarget {
+  Kind: string; // table, row, cell
+  Table?: TableElement;
+  Row?: TableRow;
+  Cell?: TableRowCell;
+}
 
 //////////
 // source: walk.go

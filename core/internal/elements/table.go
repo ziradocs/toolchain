@@ -261,6 +261,9 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			}
 			continue
 		} else if strings.HasPrefix(trimmedLine, "tableRows:") {
+			if newDeclared {
+				diags = append(diags, diagnostics.NewError("tableRows may be declared only once", pos, "table-parser"))
+			}
 			newDeclared = true
 			blockIndent := currentIndent
 			consumed++
@@ -302,6 +305,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			labelStr := strings.TrimPrefix(trimmedLine, "label:")
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
 		} else if strings.Contains(trimmedLine, "|") {
+			legacyDeclared = true
 			// Fallback: Parse table row (separated by |) for compatibility
 			cells := SplitMarkdownTableRow(trimmedLine)
 			for j := range cells {

@@ -4,6 +4,29 @@
   "$ref": "#/$defs/AST",
   "$defs": {
     "AST": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schemaVersion": {
+                "const": "2.15.0"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "capabilities"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "capabilities"
+              ]
+            }
+          }
+        }
+      ],
       "properties": {
         "type": {
           "type": "string",
@@ -26,7 +49,16 @@
           "type": "array"
         },
         "schemaVersion": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "2.14.0",
+            "2.15.0"
+          ]
+        },
+        "capabilities": {
+          "const": [
+            "table-rows-v1"
+          ]
         },
         "frontMatter": {
           "$ref": "#/$defs/FrontMatterNode"
@@ -1940,6 +1972,12 @@
           },
           "type": "array"
         },
+        "tableRows": {
+          "items": {
+            "$ref": "#/$defs/TableRow"
+          },
+          "type": "array"
+        },
         "headers": {
           "items": {
             "type": "string"
@@ -2006,6 +2044,61 @@
         "endPosition",
         "headers",
         "rows"
+      ]
+    },
+    "TableRow": {
+      "properties": {
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
+        "section": {
+          "type": "string",
+          "enum": [
+            "header",
+            "body",
+            "footer"
+          ]
+        },
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/TableRowCell"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "cells"
+      ]
+    },
+    "TableRowCell": {
+      "properties": {
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
+        "content": {
+          "type": "string"
+        },
+        "isHeader": {
+          "type": "boolean"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "colSpan": {
+          "type": "integer"
+        },
+        "rowSpan": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "content"
       ]
     },
     "TextElement": {

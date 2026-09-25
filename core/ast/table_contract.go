@@ -88,17 +88,17 @@ func ValidateRawTableContract(data []byte) error {
 	if version == LegacySchemaVersion && len(caps) != 0 {
 		return fmt.Errorf("legacy schemaVersion cannot declare capabilities")
 	}
-	var whole any
+	var whole map[string]any
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
 	count := 0
-	var inspect func(any) error
-	inspect = func(value any) error {
+	var inspectElement func(any) error
+	inspectElement = func(value any) error {
 		switch v := value.(type) {
 		case []any:
 			for _, child := range v {
-				if err := inspect(child); err != nil {
+				if err := inspectElement(child); err != nil {
 					return err
 				}
 			}
@@ -118,16 +118,34 @@ func ValidateRawTableContract(data []byte) error {
 					}
 				}
 			}
-			for _, child := range v {
-				if err := inspect(child); err != nil {
+			if _, has := v["tableRows"]; has && v["type"] != string(NodeTypeTable) {
+				return fmt.Errorf("tableRows on a non-table element")
+			}
+			if nested, ok := v["elements"]; ok {
+				if err := inspectElement(nested); err != nil {
 					return err
+				}
+			}
+			if columns, ok := v["columns"].([]any); ok {
+				for _, column := range columns {
+					if cm, ok := column.(map[string]any); ok {
+						if err := inspectElement(cm["elements"]); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
 		return nil
 	}
-	if err := inspect(whole); err != nil {
-		return err
+	if blocks, ok := whole["contentBlocks"].([]any); ok {
+		for _, block := range blocks {
+			if bm, ok := block.(map[string]any); ok {
+				if err := inspectElement(bm["elements"]); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	if version == SchemaVersion && count == 0 {
 		return fmt.Errorf("schemaVersion %s declares %s without tableRows", SchemaVersion, TableRowsCapability)
