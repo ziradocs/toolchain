@@ -1,21 +1,18 @@
 # Initial nested list types validation
 
 This is the pre-review `c2fea7d` record. The final review-fix commit has
-its own retained receipt under
-`/mac-remote-development/evidence/ziradocs-toolchain/ce-t3/<SHA>/` on the
-Ubuntu validation host. Do not treat the binary hashes below as hashes of
-the final commit.
+its own retained receipt outside this repository. Do not treat the binary
+hashes below as hashes of the final commit.
 
-Validation ran on `misael@misael-ubuntu.taild699ea.ts.net` in an isolated
-checkout of `c2fea7db076d2ddbe9c76eefc194ea667a009684` under
-`/mac-remote-development/checkouts/ziradocs-toolchain/ce-t3-c2`.
+Validation ran on a Linux host in an isolated checkout of
+`c2fea7db076d2ddbe9c76eefc194ea667a009684`.
 The Go dependency fingerprint was
 `c748f1b46d005585b8f33d9d5bb225df0151e5a726c40867cfc62c00a7ea9355`
 (Go 1.27.0, three modules' `go.mod`/`go.sum` files). The TypeScript dependency
 fingerprint was
 `43478e0acda6eed70a74b5a96b8790d7d671d1a717b253a140b839a269d640ad`
-(Node 24.21.0, package manifest and lockfile). Both bundles were populated
-once and reused from `/mac-remote-development/dependencies/ziradocs-toolchain/`.
+(Node 24.21.0, package manifest and lockfile). Both dependency bundles were
+populated once and reused.
 
 With an ephemeral `go.work` using this checkout's core, each module passed:
 
