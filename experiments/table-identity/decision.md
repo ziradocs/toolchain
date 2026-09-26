@@ -127,15 +127,15 @@ CLI as a claimed supported form.
 
 ### Observed current CLI (exact commit `6b88c45250650bea5e70825de44299d22e2ccbbd`)
 
-The committed [evidence](evidence-6b88c45/manifest.json) contains 18 synthetic
-cases and complete source/AST/formatter outputs. CLI binary SHA-256 is
+The probe run produced 18 synthetic cases with complete source/AST/formatter
+outputs. Those raw outputs are not committed; rerunning `run_probe.py` at the
+same commit regenerates them. CLI binary SHA-256 is
 `3848f4f74c8317c65d4fead4b98d8d0e162c731a50c6ce88c8d9e82d1bdc249a`.
-On Ubuntu, from a detached exact-SHA checkout with a temporary `go.work` for
+On Linux, from a detached exact-SHA checkout with a temporary `go.work` for
 `core`, `slidelang`, and `doclang`, the commands were:
 
 ```sh
-GOWORK="$out/go.work" GOMODCACHE=/mac-remote-development/caches/go-mod \
-  GOCACHE=/mac-remote-development/caches/go-build \
+GOWORK="$out/go.work" \
   go build -o "$out/slidelang-final" ./cmd/slidelang
 python3 experiments/table-identity/run_probe.py \
   "$out/slidelang-final" "$out/probe-final-exact"
@@ -181,8 +181,8 @@ then the CLI succeeds and its JSON contains the sentinel version but no row
 records. Existing `fmt` parses source, not foreign AST JSON; the formatter
 result above is through its public Go API after decode. The schema reports a
 generic union error, but `$defs.TableElement.additionalProperties` is `false`
-and `tableRows` is absent from its property list. These observations are
-captured in the [reader evidence](reader-evidence-d6f0758/reader/reader-results.json).
+and `tableRows` is absent from its property list. Running `reader_probe.go`
+and `filter_candidate.py` reproduces these observations.
 
 **Where to reject:** a new AST/JSON reader must inspect `schemaVersion` and
 the raw table object before `json.Unmarshal`/`DecodeAST` can erase unknown
