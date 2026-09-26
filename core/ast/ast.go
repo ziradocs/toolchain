@@ -99,7 +99,13 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // the document language dialect (strict/flex/flex-full/flex-ai/auto).
 // 2.14.0: optional, explicit NodeID on nodes with BaseNode. It is an
 // editorial identity, independent of reference/HTML ids on individual nodes.
-const SchemaVersion = "2.14.0"
+// 2.15.0: opt-in authored tableRows with portable row/cell identities and
+// semantic row sections. Documents without this capability still emit 2.14.0.
+const SchemaVersion = "2.15.0"
+
+const PreviousSchemaVersion = "2.13.0"
+const LegacySchemaVersion = "2.14.0"
+const TableRowsCapability = "table-rows-v1"
 
 // Node representa un nodo base en el AST
 type Node interface {
@@ -179,7 +185,8 @@ func NewBaseNode(nodeType NodeType, pos diagnostics.Position) BaseNode {
 // AST es el nodo raíz de un documento (presentación o documento)
 type AST struct {
 	BaseNode      `tstype:",extends,required"`
-	SchemaVersion string `json:"schemaVersion"`
+	SchemaVersion string   `json:"schemaVersion"`
+	Capabilities  []string `json:"capabilities,omitempty"`
 	// omitempty: doclang tolera archivos sin frontmatter (a diferencia de
 	// slidelang, que lo exige), y sin omitempty este puntero nil serializaría
 	// como "frontMatter": null, violando el JSON Schema (que lo declara
@@ -196,7 +203,7 @@ type AST struct {
 func NewAST(pos diagnostics.Position) *AST {
 	return &AST{
 		BaseNode:      NewBaseNode(NodeTypePresentation, pos),
-		SchemaVersion: SchemaVersion,
+		SchemaVersion: LegacySchemaVersion,
 		ContentBlocks: make([]ContentBlock, 0),
 	}
 }

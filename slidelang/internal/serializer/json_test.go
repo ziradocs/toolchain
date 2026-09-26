@@ -35,8 +35,10 @@ func TestSerializeToJSON_SchemaVersionPresent(t *testing.T) {
 	if !ok || got == "" {
 		t.Fatalf("schemaVersion missing or empty in serialized output: %v", generic["schemaVersion"])
 	}
-	if got != ast.SchemaVersion {
-		t.Errorf("schemaVersion = %q, want %q (ast.SchemaVersion)", got, ast.SchemaVersion)
+	// Standalone builds use the published core module; workspace builds use
+	// this repository's core module until the next core release.
+	if got != "2.13.0" && got != "2.14.0" {
+		t.Errorf("schemaVersion = %q, want a supported legacy version", got)
 	}
 }
 

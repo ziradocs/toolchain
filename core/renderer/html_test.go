@@ -162,6 +162,22 @@ func TestRenderTableElement_LeadRowSpanningRowsNoThead(t *testing.T) {
 	}
 }
 
+func TestRenderAuthoredTableRowsSections(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.TableRows = []ast.TableRow{
+		{Section: "header", Cells: []ast.TableRowCell{{Content: "Key", IsHeader: true}}},
+		{Cells: []ast.TableRowCell{{Content: "A"}}},
+		{Section: "footer", Cells: []ast.TableRowCell{{Content: "End"}}},
+	}
+	table.SyncTableViews()
+	got := renderTableElement(table, nil, nil)
+	for _, part := range []string{"<thead><tr><th>Key</th></tr></thead>", "<tbody><tr><td>A</td></tr></tbody>", "<tfoot><tr><td>End</td></tr></tfoot>"} {
+		if !strings.Contains(got, part) {
+			t.Fatalf("missing %q in %s", part, got)
+		}
+	}
+}
+
 // TestRenderMediaElement_EmitsAttributes covers issue #21: video/audio must
 // emit the right tag and the 4 boolean attributes only when true (no
 // attribute by default, no "true"/"false" value — native HTML boolean
