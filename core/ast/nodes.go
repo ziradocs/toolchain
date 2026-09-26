@@ -108,11 +108,14 @@ type ContentBlockHeaderFooterOverride struct {
 // FrontMatterNode contiene el YAML parseado del FrontMatter
 type FrontMatterNode struct {
 	BaseNode `tstype:",extends,required"`
-	Mode     string `json:"mode"`
-	Title    string `json:"title,omitempty"`
-	Author   string `json:"author,omitempty"`
-	Date     string `json:"date,omitempty"`
-	Theme    string `json:"theme,omitempty"`
+	// ASTCapabilities is a source-only opt-in. The serialized contract uses
+	// AST.Capabilities, derived from features actually present.
+	ASTCapabilities []string `json:"-"`
+	Mode            string   `json:"mode"`
+	Title           string   `json:"title,omitempty"`
+	Author          string   `json:"author,omitempty"`
+	Date            string   `json:"date,omitempty"`
+	Theme           string   `json:"theme,omitempty"`
 	// ThemeMode selects the visual mode within the declared theme family.
 	// It intentionally uses `theme_mode:` rather than `mode:` because Mode
 	// already controls the document language dialect (strict/flex/etc.).
@@ -461,6 +464,10 @@ type PointItem struct {
 	LangRuns          []LangRun   `json:"langRuns,omitempty"`          // ver TextElement.LangRuns
 	DiscardedLangRuns []LangRun   `json:"discardedLangRuns,omitempty"` // ver TextElement.DiscardedLangRuns
 	SubPoints         []PointItem `json:"subPoints,omitempty"`
+	// SubListType describes the list owned by this item's SubPoints, not
+	// the marker used for this item in its parent's list. It is emitted only
+	// by the nested-list-types-v1 opt-in.
+	SubListType string `json:"subListType,omitempty"`
 }
 
 // NewPointItem crea un nuevo item de punto

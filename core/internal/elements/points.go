@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // PointsParser maneja elementos de listas/puntos
@@ -67,6 +68,9 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 	pos := ctx.Position(startIndex)
 	element := ast.NewPointsElement(pos)
+	if ctx.NestedListTypes {
+		return p.parseTypedList(ctx, startIndex, element)
+	}
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
@@ -157,6 +161,117 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		ConsumedLines: consumed,
 		Error:         nil,
 	}
+}
+
+// parseTypedList is the opt-in path. Each level has one list type, owned by
+// the item immediately above it. Pointers to ancestors remain valid because
+// we pop a level before appending a sibling to that level's slice.
+func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element *ast.PointsElement) *ParseResult {
+	strict := ctx.Mode == "strict" && strings.HasPrefix(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS")
+	start := startIndex
+	if strict {
+		start++
+	}
+	type level struct {
+		indent int
+		item   *ast.PointItem
+	}
+	var stack []level
+	baseIndent := -1
+	consumed := start - startIndex
+	var diags []diagnostics.Diagnostic
+	for i := start; i < len(ctx.Lines); i++ {
+		line := ctx.Lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if strict || (i+1 < len(ctx.Lines) && p.isListItem(strings.TrimSpace(ctx.Lines[i+1]))) {
+				consumed++
+				continue
+			}
+			break
+		}
+		indent := CalculateIndentLevel(line)
+		if !p.isListItem(trimmed) {
+			if malformedPointMarker(trimmed) && (strict || len(stack) > 0) {
+				if baseIndent < 0 {
+					baseIndent = indent
+				}
+				if indent >= baseIndent {
+					diags = append(diags, diagnostics.NewError("empty or invalid list marker", ctx.Position(i), "points-parser"))
+					consumed++
+					continue
+				}
+			}
+			break
+		}
+		if baseIndent < 0 {
+			baseIndent = indent
+		}
+		if indent < baseIndent {
+			break
+		}
+		kind := p.detectListType(trimmed)
+		for len(stack) > 0 && stack[len(stack)-1].indent >= indent {
+			stack = stack[:len(stack)-1]
+		}
+		if len(stack) == 0 {
+			if indent != baseIndent {
+				diags = append(diags, diagnostics.NewError("orphan nested list item", ctx.Position(i), "points-parser"))
+				consumed++
+				continue
+			}
+			if len(element.Items) > 0 && kind != element.ListType {
+				if strict {
+					diags = append(diags, diagnostics.NewError("mixed markers in one list level", ctx.Position(i), "points-parser"))
+				} else {
+					break
+				}
+			}
+			if len(element.Items) == 0 {
+				element.ListType = kind
+			}
+			item := ast.NewPointItem(ctx.Position(i), p.extractListContent(trimmed))
+			if item.Content == "" {
+				diags = append(diags, diagnostics.NewError("empty list item", ctx.Position(i), "points-parser"))
+			} else {
+				element.Items = append(element.Items, *item)
+				stack = append(stack, level{indent: indent, item: &element.Items[len(element.Items)-1]})
+			}
+		} else {
+			parent := stack[len(stack)-1].item
+			if parent.SubListType != "" && parent.SubListType != kind {
+				diags = append(diags, diagnostics.NewError("mixed markers in one nested list level", ctx.Position(i), "points-parser"))
+			} else if parent.SubListType == "" {
+				parent.SubListType = kind
+			}
+			item := ast.NewPointItem(ctx.Position(i), p.extractListContent(trimmed))
+			if item.Content == "" {
+				diags = append(diags, diagnostics.NewError("empty nested list item", ctx.Position(i), "points-parser"))
+			} else {
+				parent.SubPoints = append(parent.SubPoints, *item)
+				stack = append(stack, level{indent: indent, item: &parent.SubPoints[len(parent.SubPoints)-1]})
+			}
+		}
+		consumed++
+	}
+	if len(element.Items) == 0 {
+		diags = append(diags, diagnostics.NewError("empty POINTS list", ctx.Position(startIndex), "points-parser"))
+	}
+	return &ParseResult{Element: element, ConsumedLines: consumed, Diagnostics: diags}
+}
+
+func malformedPointMarker(line string) bool {
+	if line == "-" || line == "*" || line == "+" {
+		return true
+	}
+	i := 0
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	if i == 0 || i >= len(line) || (line[i] != '.' && line[i] != ')') {
+		return false
+	}
+	return i+1 == len(line) || line[i+1] == ' ' || line[i+1] == '\t'
 }
 
 // parseMarkdownList parsea una lista en formato Markdown

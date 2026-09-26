@@ -53,6 +53,8 @@ table. The 2.15 schema and generated TypeScript types describe both legacy
 and opt-in shapes; the Go decoder checks the version/capability relationship
 and projections on raw JSON before permissive Go unmarshalling can discard
 identity. Unsupported versions and malformed row records fail.
+When a document also uses [portable nested list types](portable-nested-list-types.md),
+it emits 2.16.0 with both capabilities. Table-only documents stay at 2.15.0.
 
 For a document with `tableRows`, the CLI asks **each** external filter for
 capabilities before sending AST bytes. It runs the filter with

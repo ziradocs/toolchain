@@ -136,6 +136,9 @@ func sanitizeBookmarkID(s string) string {
 // Generate genera un documento DOCX desde el AST
 func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts GeneratorOptions) error {
 	g.logger.Info("DOCX", "Building DOCX document...")
+	if ast.UsesNestedListTypes(astDoc) {
+		return fmt.Errorf("DOCX does not yet support nested-list-types-v1 as native Word lists")
+	}
 
 	// Crear directorio temporal para imágenes renderizadas
 	tempDir, err := os.MkdirTemp("", "doclang-docx-*")

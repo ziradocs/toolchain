@@ -89,6 +89,7 @@ func (p *DocumentStrictParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 
 	if p.currentLine < len(p.lines) && strings.TrimSpace(p.lines[p.currentLine]) == "---" {
 		lines, diags, stripped := parseDocumentFrontMatter(p.input, astNode)
+		p.nestedListTypes = sourceNestedListTypes(astNode.FrontMatter)
 		p.diagnostics = append(p.diagnostics, diags...)
 		p.lines = lines
 		p.currentLine = 0

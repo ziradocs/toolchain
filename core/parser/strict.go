@@ -25,10 +25,11 @@ import (
 // de hangs encontrados fuzzeando el parser (issues #45/#155), y una copia
 // paralela las perdería en cuanto una de las dos derivara.
 type strictBody struct {
-	lines       []string
-	currentLine int
-	diagnostics []diagnostics.Diagnostic
-	logger      util.Logger
+	nestedListTypes bool
+	lines           []string
+	currentLine     int
+	diagnostics     []diagnostics.Diagnostic
+	logger          util.Logger
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]: el
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
@@ -50,11 +51,12 @@ func (p *strictBody) position(lineIndex int) diagnostics.Position {
 // literales `elements.ParseContext{...}` idénticos salvo por esto (#245).
 func (p *strictBody) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
-		Mode:        "strict",
-		Lines:       p.lines,
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-		LineOffset:  p.lineOffset,
+		Mode:            "strict",
+		NestedListTypes: p.nestedListTypes,
+		Lines:           p.lines,
+		CurrentLine:     p.currentLine,
+		Logger:          p.logger,
+		LineOffset:      p.lineOffset,
 	}
 }
 

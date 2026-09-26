@@ -30,10 +30,11 @@ const (
 
 // ParseContext proporciona contexto para el parsing de elementos
 type ParseContext struct {
-	Mode        string // "strict" or "flex"
-	CurrentLine int
-	Logger      util.Logger // Logger interface for structured logging
-	Lines       []string
+	Mode            string // "strict" or "flex"
+	NestedListTypes bool   // explicit ast_capabilities source opt-in
+	CurrentLine     int
+	Logger          util.Logger // Logger interface for structured logging
+	Lines           []string
 
 	// LineOffset son las líneas del archivo que preceden a Lines[0]: el
 	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines

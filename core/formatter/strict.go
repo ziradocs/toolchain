@@ -39,9 +39,9 @@ func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 	var b strings.Builder
 
 	var fm string
-	if doc.FrontMatter != nil {
+	if fmNode := nestedListFrontMatter(doc, "strict"); fmNode != nil {
 		var err error
-		fm, err = formatFrontMatter(doc.FrontMatter, frontMatterOverrides(doc.FrontMatter, "strict"), frontMatterFallbacks(doc.FrontMatter))
+		fm, err = formatFrontMatter(fmNode, frontMatterOverrides(fmNode, "strict"), frontMatterFallbacks(fmNode))
 		if err != nil {
 			return "", err
 		}
@@ -255,7 +255,11 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 		}
 		if len(item.SubPoints) > 0 {
 			b.WriteString("\n")
-			b.WriteString(indent(formatPointItems(item.SubPoints, "unordered"), 2))
+			childType := item.SubListType
+			if childType == "" {
+				childType = "unordered"
+			}
+			b.WriteString(indent(formatPointItems(item.SubPoints, childType), 2))
 		}
 	}
 	return b.String()

@@ -122,6 +122,19 @@ if (!content.includes(themeModeField)) {
 }
 content = content.replace(themeModeField, '  theme_mode?: "light" | "dark";');
 
+// The Go parser stores these as strings, while the JSON contract accepts
+// exactly the two list marker classes.
+for (const [field, typed] of [
+  ["  listType: string;", '  listType: "ordered" | "unordered";'],
+  ["  subListType?: string;", '  subListType?: "ordered" | "unordered";'],
+]) {
+  if (!content.includes(field)) {
+    console.error("postprocess.cjs: list type field changed: " + field);
+    process.exit(1);
+  }
+  content = content.replace(field, typed);
+}
+
 content = content.replace(/\n+$/, "\n");
 
 fs.writeFileSync(astTsPath, content, "utf8");
