@@ -223,7 +223,12 @@ func renderCodeElement(elem *ast.CodeElement, variables map[string]interface{}) 
 	}
 	// Sanitizar el nombre del lenguaje para prevenir inyección en el atributo class
 	language = EscapeHTMLAttribute(language)
-	return fmt.Sprintf(`<pre><code class="language-%s">%s</code></pre>`, language, content)
+	block := fmt.Sprintf(`<pre><code class="language-%s">%s</code></pre>`, language, content)
+	if elem.Filename == "" {
+		return block
+	}
+	// Nombre de archivo (code-filename-v1) como pie del bloque.
+	return fmt.Sprintf(`<figure class="code-block"><figcaption class="code-filename">%s</figcaption>%s</figure>`, EscapeHTML(elem.Filename), block)
 }
 
 // renderImageElement procesa imágenes con caption opcional. ctx puede ser

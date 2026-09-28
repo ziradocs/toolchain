@@ -204,7 +204,7 @@ func formatStrictElement(el ast.Element) (string, error) {
 	case *ast.PointsElement:
 		body = formatStrictPoints(e)
 	case *ast.CodeElement:
-		body = formatStrictCode(e)
+		body, err = formatStrictCode(e)
 	case *ast.ImageElement:
 		body, err = formatStrictImage(e)
 	case *ast.TableElement:
@@ -345,12 +345,31 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 	return b.String()
 }
 
-func formatStrictCode(e *ast.CodeElement) string {
+func formatStrictCode(e *ast.CodeElement) (string, error) {
 	header := "CODE"
 	if e.Language != "" {
 		header += " " + e.Language
 	}
-	return header + "\n" + indent(e.Content, 2)
+	if e.Filename != "" {
+		if err := checkCodeFilename(e); err != nil {
+			return "", err
+		}
+		header += " " + e.Filename
+	}
+	return header + "\n" + indent(e.Content, 2), nil
+}
+
+// checkCodeFilename valida que el nombre de archivo de un CODE tenga forma
+// que re-parsee: es un token (sin espacios) y necesita un lenguaje delante,
+// porque `CODE archivo.ts` se leería como lenguaje.
+func checkCodeFilename(e *ast.CodeElement) error {
+	if e.Language == "" || strings.ContainsAny(e.Language, " \t") {
+		return newUnsupported("code", fmt.Sprintf("el archivo %q necesita un lenguaje de un solo token delante para re-parsear", e.Filename))
+	}
+	if strings.ContainsAny(e.Filename, " \t\r\n") || strings.HasPrefix(e.Filename, "[") || strings.HasPrefix(e.Filename, "{") {
+		return newUnsupported("code", fmt.Sprintf("el nombre de archivo %q no es representable como un token", e.Filename))
+	}
+	return nil
 }
 
 func formatStrictImage(e *ast.ImageElement) (string, error) {

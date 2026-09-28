@@ -99,18 +99,22 @@ import type { Position } from "./diagnostics";
  * 2.18.0: MediaElement.poster and .caption (media-figure-v1). Like
  * table-rows-v1, the capability is inferred from authored syntax
  * (`poster=`/`caption=` on <<video>>/<<audio>>), not declared in frontmatter.
+ * 2.19.0: CodeElement.filename (code-filename-v1), inferred from the authored
+ * `CODE <lang> <file>` or fence ```lang file``` syntax.
  */
-export const SchemaVersion = "2.18.0";
+export const SchemaVersion = "2.19.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
 export const NestedListSchemaVersion = "2.16.0";
 export const TypedHeadingsSchemaVersion = "2.17.0";
 export const MediaFigureSchemaVersion = "2.18.0";
+export const CodeFilenameSchemaVersion = "2.19.0";
 export const TableRowsCapability = "table-rows-v1";
 export const NestedListTypesCapability = "nested-list-types-v1";
 export const TypedHeadingsCapability = "typed-headings-v1";
 export const MediaFigureCapability = "media-figure-v1";
+export const CodeFilenameCapability = "code-filename-v1";
 /**
  * Node representa un nodo base en el AST
  */
@@ -625,6 +629,12 @@ export interface CodeElement extends BaseNode {
   language?: string;
   content: string;
   contentHTML?: string; // Content con {{variables}} sustituidas y escapado HTML (sin markdown, ver renderCodeElement)
+  /**
+   * Filename (code-filename-v1, AST 2.19.0) es el nombre de archivo que el
+   * autor le dio al bloque (`CODE typescript renewals.ts`). Antes el parser
+   * strict lo descartaba y el flex lo mezclaba con Language.
+   */
+  filename?: string;
 }
 /**
  * ImageContext representa el contexto de uso de una imagen

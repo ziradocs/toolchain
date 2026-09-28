@@ -523,6 +523,10 @@ type CodeElement struct {
 	Language    string `json:"language,omitempty"`
 	Content     string `json:"content"`
 	ContentHTML string `json:"contentHTML,omitempty"` // Content con {{variables}} sustituidas y escapado HTML (sin markdown, ver renderCodeElement)
+	// Filename (code-filename-v1, AST 2.19.0) es el nombre de archivo que el
+	// autor le dio al bloque (`CODE typescript renewals.ts`). Antes el parser
+	// strict lo descartaba y el flex lo mezclaba con Language.
+	Filename string `json:"filename,omitempty"`
 }
 
 func (c CodeElement) element() {}

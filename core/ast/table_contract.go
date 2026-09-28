@@ -123,6 +123,12 @@ func ValidateTableContract(doc *AST) error {
 	}
 	var failure error
 	_ = Walk(doc, func(n Node) error {
+		if c, ok := n.(*CodeElement); ok && c.Filename != "" {
+			if strings.ContainsAny(c.Filename, " \t\r\n") || strings.HasPrefix(c.Filename, "[") || strings.HasPrefix(c.Filename, "{") {
+				failure = fmt.Errorf("code filename %q must be a single token not starting with '[' or '{'", c.Filename)
+				return failure
+			}
+		}
 		if h, ok := n.(*HeadingElement); ok {
 			if err := ValidateHeading(h); err != nil {
 				failure = err
@@ -186,7 +192,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
-	tableCount, listCount, headingCount, mediaCount := 0, 0, 0, 0
+	tableCount, listCount, headingCount, mediaCount, codeFileCount := 0, 0, 0, 0, 0
 	var inspectElement func(any) error
 	inspectElement = func(value any) error {
 		switch v := value.(type) {
@@ -208,6 +214,15 @@ func ValidateRawTableContract(data []byte) error {
 				decoder.DisallowUnknownFields()
 				if err := decoder.Decode(&parsed); err != nil {
 					return fmt.Errorf("invalid heading element: %w", err)
+				}
+			}
+			if _, has := v["filename"]; has {
+				if v["type"] != string(NodeTypeCode) {
+					return fmt.Errorf("filename on a non-code element")
+				}
+				codeFileCount++
+				if !declared[CodeFilenameCapability] {
+					return fmt.Errorf("code filename requires schemaVersion %s and capability %s", CodeFilenameSchemaVersion, CodeFilenameCapability)
 				}
 			}
 			if v["type"] == string(NodeTypeMedia) {
@@ -282,6 +297,9 @@ func ValidateRawTableContract(data []byte) error {
 	}
 	if (headingCount > 0) != declared[TypedHeadingsCapability] {
 		return fmt.Errorf("heading presence does not match schemaVersion/capabilities")
+	}
+	if (codeFileCount > 0) != declared[CodeFilenameCapability] {
+		return fmt.Errorf("code filename presence does not match schemaVersion/capabilities")
 	}
 	if (mediaCount > 0) != declared[MediaFigureCapability] {
 		return fmt.Errorf("media poster/caption presence does not match schemaVersion/capabilities")

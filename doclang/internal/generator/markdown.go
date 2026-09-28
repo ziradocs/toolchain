@@ -254,6 +254,11 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		return md.String()
 
 	case *ast.CodeElement:
+		if elem.Filename != "" {
+			// Nombre de archivo (code-filename-v1) visible en cualquier
+			// visor de Markdown, como etiqueta sobre la fence.
+			return fmt.Sprintf("`%s`\n\n```%s\n%s\n```\n", elem.Filename, elem.Language, elem.Content)
+		}
 		return fmt.Sprintf("```%s\n%s\n```\n", elem.Language, elem.Content)
 
 	case *ast.ImageElement:

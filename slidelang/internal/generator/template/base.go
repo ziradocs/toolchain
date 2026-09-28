@@ -692,6 +692,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  data-element-type="code"
                  data-language="{{.Language}}"
                  data-slide="{{.SlideIndex}}">
+                {{if .CodeFilename}}<div class="filename">{{.CodeFilename}}</div>{{end}}
                 {{if .Language}}<div class="language">{{.Language}}</div>{{end}}
                 <pre><code{{if .Language}} class="language-{{.Language}}"{{end}}>{{.Content}}</code></pre>
             </div>

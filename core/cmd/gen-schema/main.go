@@ -112,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -183,6 +183,22 @@ func main() {
 		os.Exit(1)
 	}
 	root.Definitions["MediaFigurePresent"] = &mediaPresence
+	codePresenceJSON := `{"anyOf":[{"required":["type","filename"],"properties":{"type":{"const":"code"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/CodeFilenamePresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/CodeFilenamePresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/CodeFilenamePresent"}}}}]}`
+	var codePresence jsonschema.Schema
+	if err := json.Unmarshal([]byte(codePresenceJSON), &codePresence); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["CodeFilenamePresent"] = &codePresence
+	var codeFilename jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"type":"string","pattern":"^[^\\s\\[{][^\\s]*$"}`), &codeFilename); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := overrideProperty(root.Definitions, "CodeElement", "filename", &codeFilename); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	gateJSON, err := contractGateJSON()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -334,6 +350,7 @@ func contractGateJSON() ([]byte, error) {
 		{ast.NestedListTypesCapability, ast.NestedListSchemaVersion, "NestedListPresent"},
 		{ast.TypedHeadingsCapability, ast.TypedHeadingsSchemaVersion, "TypedHeadingPresent"},
 		{ast.MediaFigureCapability, ast.MediaFigureSchemaVersion, "MediaFigurePresent"},
+		{ast.CodeFilenameCapability, ast.CodeFilenameSchemaVersion, "CodeFilenamePresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {

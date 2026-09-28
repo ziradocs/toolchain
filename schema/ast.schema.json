@@ -100,6 +100,28 @@
                 "properties": {
                   "capabilities": {
                     "contains": {
+                      "const": "code-filename-v1"
+                    }
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/CodeFilenamePresent"
+              },
+              "else": {
+                "not": {
+                  "$ref": "#/$defs/CodeFilenamePresent"
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
                       "const": "nested-list-types-v1"
                     }
                   }
@@ -246,6 +268,41 @@
               "if": {
                 "properties": {
                   "schemaVersion": {
+                    "const": "2.19.0"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "enum": [
+                        "table-rows-v1",
+                        "nested-list-types-v1",
+                        "typed-headings-v1",
+                        "media-figure-v1",
+                        "code-filename-v1"
+                      ]
+                    },
+                    "contains": {
+                      "const": "code-filename-v1"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
                     "enum": [
                       "2.13.0",
                       "2.14.0"
@@ -296,7 +353,8 @@
             "2.15.0",
             "2.16.0",
             "2.17.0",
-            "2.18.0"
+            "2.18.0",
+            "2.19.0"
           ]
         },
         "capabilities": {
@@ -591,6 +649,10 @@
         },
         "contentHTML": {
           "type": "string"
+        },
+        "filename": {
+          "type": "string",
+          "pattern": "^[^\\s\\[{][^\\s]*$"
         }
       },
       "additionalProperties": false,
@@ -600,6 +662,57 @@
         "position",
         "endPosition",
         "content"
+      ]
+    },
+    "CodeFilenamePresent": {
+      "anyOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "code"
+            }
+          },
+          "required": [
+            "type",
+            "filename"
+          ]
+        },
+        {
+          "properties": {
+            "contentBlocks": {
+              "contains": {
+                "$ref": "#/$defs/CodeFilenamePresent"
+              }
+            }
+          },
+          "required": [
+            "contentBlocks"
+          ]
+        },
+        {
+          "properties": {
+            "elements": {
+              "contains": {
+                "$ref": "#/$defs/CodeFilenamePresent"
+              }
+            }
+          },
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "properties": {
+            "columns": {
+              "contains": {
+                "$ref": "#/$defs/CodeFilenamePresent"
+              }
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        }
       ]
     },
     "CodeGroupElement": {

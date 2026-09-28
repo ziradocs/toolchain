@@ -307,6 +307,8 @@ type ElementData struct {
 	// misma tabla). Calculado acá, en Go, en vez de en el template, porque
 	// html/template no tiene un "all()" para evaluarlo inline.
 	CellsLeadIsHeader bool
+	// CodeFilename (code-filename-v1): nombre de archivo del bloque de código.
+	CodeFilename string
 	// Media data (issue #21)
 	MediaType string // "video" o "audio"
 	Autoplay  bool

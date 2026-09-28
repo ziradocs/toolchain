@@ -61,6 +61,7 @@ or array offsets.
 | Both extensions | `2.16.0` | both capability strings |
 | Any of the above plus typed headings | `2.17.0` | adds `typed-headings-v1` |
 | Any of the above plus media poster/caption | `2.18.0` | adds `media-figure-v1` |
+| Any of the above plus code filenames | `2.19.0` | adds `code-filename-v1` |
 
 The capability array is a set when read; duplicate and unknown entries fail.
 The writer emits a deterministic order. A source declaration with no nested
