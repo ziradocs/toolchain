@@ -76,7 +76,10 @@ type SlideNotEmptyRule struct{}
 
 func (r *SlideNotEmptyRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	if slide, ok := node.(*ast.ContentBlock); ok {
-		if len(slide.Elements) == 0 && slide.Title == "" {
+		// Un slide con solo encabezado (típico de un slide de título),
+		// subtítulo, antetítulo o logo no está vacío.
+		if len(slide.Elements) == 0 && slide.Title == "" && slide.Heading == "" &&
+			slide.Subtitle == "" && slide.Kicker == "" && slide.Logo == "" {
 			return []diagnostics.Diagnostic{
 				diagnostics.NewWarning("Slide appears to be empty (no title or elements)",
 					slide.GetPosition(), "linter").WithRuleID("SLIDE002"),
