@@ -384,6 +384,12 @@ func chartSeriesValues(elem *ast.ChartElement) (values [][]float64, categoryLabe
 		categoryLabels[rowIdx] = fmt.Sprintf("%v", row[0])
 
 		for seriesIdx := 0; seriesIdx < numSeries; seriesIdx++ {
+			// Un null es un punto ausente: la librería nativa lo dibuja como
+			// hueco con su valor centinela, igual que Chart.js en el browser.
+			if row[seriesIdx+1] == nil {
+				values[seriesIdx][rowIdx] = charts.GetNullValue()
+				continue
+			}
 			v, numErr := toFloat64(row[seriesIdx+1])
 			if numErr != nil {
 				return nil, nil, fmt.Errorf("chart data row %d, series %d: %w", rowIdx, seriesIdx, numErr)

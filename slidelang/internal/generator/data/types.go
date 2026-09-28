@@ -313,6 +313,11 @@ type ElementData struct {
 	Controls  bool
 	Loop      bool
 	Muted     bool
+	// Poster (media-figure-v1): URL validada con ValidateURLScheme;
+	// InlinedPoster es su forma data: bajo offline-inline, igual que
+	// InlinedSource. El pie de media reutiliza Caption (el de imágenes).
+	Poster        string
+	InlinedPoster htmltemplate.URL
 	// Special block data
 	BlockType string
 	Title     string

@@ -885,6 +885,12 @@ type MediaElement struct {
 	// A11Y practice — exposed as a separate field (not implied by Autoplay)
 	// so a rule can require it explicitly.
 	Muted bool `json:"muted,omitempty"`
+	// Poster y Caption (media-figure-v1, AST 2.18.0): la imagen que se
+	// muestra antes de reproducir un video y el pie de la figura. Antes el
+	// parser descartaba poster= y caption= sin diagnóstico.
+	Poster      string `json:"poster,omitempty"`
+	Caption     string `json:"caption,omitempty"`
+	CaptionHTML string `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas
 }
 
 func (m MediaElement) element() {}

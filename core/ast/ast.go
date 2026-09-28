@@ -108,16 +108,21 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // of the raw `<hN id>` TextElement. The version of a document is the version
 // of the newest extension it actually uses (see extensions.go); documents
 // using no extension remain 2.14.0.
-const SchemaVersion = "2.17.0"
+// 2.18.0: MediaElement.poster and .caption (media-figure-v1). Like
+// table-rows-v1, the capability is inferred from authored syntax
+// (`poster=`/`caption=` on <<video>>/<<audio>>), not declared in frontmatter.
+const SchemaVersion = "2.18.0"
 
 const PreviousSchemaVersion = "2.13.0"
 const LegacySchemaVersion = "2.14.0"
 const TableSchemaVersion = "2.15.0"
 const NestedListSchemaVersion = "2.16.0"
 const TypedHeadingsSchemaVersion = "2.17.0"
+const MediaFigureSchemaVersion = "2.18.0"
 const TableRowsCapability = "table-rows-v1"
 const NestedListTypesCapability = "nested-list-types-v1"
 const TypedHeadingsCapability = "typed-headings-v1"
+const MediaFigureCapability = "media-figure-v1"
 
 // Node representa un nodo base en el AST
 type Node interface {

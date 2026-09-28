@@ -57,6 +57,13 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.18.0
+
+- **Opt-in**: `MediaElement.poster`, `.caption` and `.captionHTML`.
+  `media-figure-v1` is inferred from the authored `poster=`/`caption=`
+  attributes and emits 2.18.0 alone or with the other capabilities. See
+  [figures and media](../docs/portable-figures-media.md).
+
 ### 2.17.0
 
 - **Opt-in**: `HeadingElement` (`type: "heading"`) carries a subsection

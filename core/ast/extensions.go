@@ -30,6 +30,19 @@ var extensions = []extension{
 	{TableRowsCapability, TableSchemaVersion, UsesTableRows},
 	{NestedListTypesCapability, NestedListSchemaVersion, UsesNestedListTypes},
 	{TypedHeadingsCapability, TypedHeadingsSchemaVersion, UsesTypedHeadings},
+	{MediaFigureCapability, MediaFigureSchemaVersion, UsesMediaFigure},
+}
+
+// UsesMediaFigure reporta si algún MediaElement declara poster o caption.
+func UsesMediaFigure(doc *AST) bool {
+	used := false
+	_ = Walk(doc, func(n Node) error {
+		if m, ok := n.(*MediaElement); ok && (m.Poster != "" || m.Caption != "") {
+			used = true
+		}
+		return nil
+	})
+	return used
 }
 
 // UsesTypedHeadings reporta si doc contiene algún HeadingElement, incluidos
@@ -167,6 +180,7 @@ func describeUsed(caps []string) string {
 		TableRowsCapability:       "tableRows",
 		NestedListTypesCapability: "nested lists",
 		TypedHeadingsCapability:   "typed headings",
+		MediaFigureCapability:     "media poster/caption",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {

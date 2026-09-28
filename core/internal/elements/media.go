@@ -4,9 +4,11 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MediaParser handles parsing of embedded audio/video elements (issue #21),
@@ -66,11 +68,22 @@ func (p *MediaParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	media.Autoplay = hasBooleanAttribute(attrStr, "autoplay")
 	media.Loop = hasBooleanAttribute(attrStr, "loop")
 	media.Muted = hasBooleanAttribute(attrStr, "muted")
+	// poster= y caption= (media-figure-v1). Antes se descartaban en silencio.
+	media.Poster = extractAttribute(attrStr, "poster")
+	media.Caption = extractAttribute(attrStr, "caption")
+
+	var diags []diagnostics.Diagnostic
+	for _, name := range unknownMediaAttributes(attrStr) {
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("unknown <<%s>> attribute %q is ignored; supported: src, poster, caption, controls, autoplay, loop, muted", mediaType, name),
+			pos, "media-parser").WithRuleID("MEDIA001"))
+	}
 
 	return &ParseResult{
 		Element:       media,
 		ConsumedLines: 1,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
 }
 
@@ -113,4 +126,29 @@ func stripQuotedAttributeValues(str string) string {
 		b.WriteByte(c)
 	}
 	return b.String()
+}
+
+// knownMediaAttributes son los atributos que MediaParser entiende. Cualquier
+// otro se reporta con MEDIA001 en vez de desaparecer sin aviso.
+var knownMediaAttributes = map[string]bool{
+	"src": true, "poster": true, "caption": true,
+	"controls": true, "autoplay": true, "loop": true, "muted": true,
+}
+
+// unknownMediaAttributes lista, en orden, los nombres de atributo (con o sin
+// valor) que no están en knownMediaAttributes. Los valores entre comillas se
+// eliminan antes de tokenizar, así que el texto de un caption nunca se
+// confunde con un atributo.
+func unknownMediaAttributes(attrStr string) []string {
+	var out []string
+	for _, token := range strings.Fields(stripQuotedAttributeValues(attrStr)) {
+		name := strings.TrimSuffix(token, "=")
+		if i := strings.IndexByte(name, '='); i >= 0 {
+			name = name[:i]
+		}
+		if name != "" && !knownMediaAttributes[name] {
+			out = append(out, name)
+		}
+	}
+	return out
 }

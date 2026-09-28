@@ -156,11 +156,9 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
 
 	case *ast.MediaElement:
-		// issue #21: no prose fields (Source is a URL, not DOM text; no
-		// Caption/Title). Explicit case, not an oversight — same principle
-		// as the issue #82 comment below: satisfies
-		// element_coverage_test.go's coverage guard without needing to
-		// populate anything.
+		// Source y Poster son URLs, no prosa; Caption (media-figure-v1) es
+		// prosa vars-only, igual que MathElement.Caption.
+		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
 
 	default:
 		// Issue #82: silencio explícito, no un olvido. Todo ast.Element que

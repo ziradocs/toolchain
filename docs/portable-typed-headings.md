@@ -86,7 +86,8 @@ uses. A source opt-in that produces no heading keeps the lower version.
 | None | `2.14.0` (also reads `2.13.0`) | absent |
 | `tableRows` only | `2.15.0` | `["table-rows-v1"]` |
 | Typed nested lists, optionally with `tableRows` | `2.16.0` | those capabilities |
-| Typed headings, optionally with the others | `2.17.0` | those capabilities |
+| Typed headings, optionally with the others above | `2.17.0` | those capabilities |
+| Media poster/caption, optionally with any of the above | `2.18.0` | adds `media-figure-v1` |
 
 The decoder and the JSON Schema reject an unknown version or capability, a
 duplicate capability, a heading without `typed-headings-v1`, the capability

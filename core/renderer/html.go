@@ -494,8 +494,27 @@ func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}
 	if elem.Muted {
 		attrs.WriteString(" muted")
 	}
+	// poster (media-figure-v1): misma política de URL que src. Un poster
+	// bloqueado se omite (el video sigue siendo reproducible) en vez de
+	// invalidar el elemento.
+	if elem.Poster != "" && tag == "video" {
+		poster := ProcessVariables(elem.Poster, variables)
+		if inlined, ok := TryInlineLocalImage(poster, ctx); ok {
+			poster = inlined
+		} else {
+			poster = SanitizeURL(poster)
+		}
+		if poster != "" {
+			fmt.Fprintf(&attrs, ` poster="%s"`, poster) // SanitizeURL ya escapa para atributo
+		}
+	}
 
-	return fmt.Sprintf(`<%s src="%s"%s></%s>`, tag, source, attrs.String(), tag)
+	media := fmt.Sprintf(`<%s src="%s"%s></%s>`, tag, source, attrs.String(), tag)
+	if elem.Caption == "" {
+		return media
+	}
+	caption := ProcessVariablesSecure(elem.Caption, variables)
+	return fmt.Sprintf(`<figure class="media-figure">%s<figcaption>%s</figcaption></figure>`, media, caption)
 }
 
 // renderTableElement procesa tablas con headers y rows

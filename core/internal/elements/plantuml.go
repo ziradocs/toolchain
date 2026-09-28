@@ -17,14 +17,14 @@ type PlantUMLParser struct{}
 func (p *PlantUMLParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
+	// <<plantuml>> y <<plantuml title="…">> en los dos modos (ver
+	// parseDiagramTag).
+	if matched, _, _ := parseDiagramTag(trimmed, "plantuml"); matched {
+		return mode == "strict" || mode == "flex"
+	}
 	switch mode {
-	case "strict":
-		return trimmed == "<<plantuml>>"
 	case "flex":
-		// En flex mode, soportar <<plantuml>>, @startuml, y ```plantuml
-		if trimmed == "<<plantuml>>" {
-			return true
-		}
+		// En flex mode, soportar también @startuml y ```plantuml
 		if strings.HasPrefix(trimmed, "@startuml") {
 			return true
 		}
@@ -187,10 +187,15 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	// Crear elemento PlantUML
 	element := ast.NewPlantUMLElement(pos, diagramType, contentStr)
+	var tagErr error
+	if !isMarkdownFormat && !isNativeFormat {
+		_, element.Title, tagErr = parseDiagramTag(openingLine, "plantuml")
+	}
 
 	return &ParseResult{
 		Element:       element,
 		ConsumedLines: consumedLines,
+		Error:         tagErr,
 	}
 }
 

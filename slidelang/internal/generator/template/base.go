@@ -789,11 +789,13 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  data-element-type="media"
                  data-slide="{{.SlideIndex}}">
                 {{if .Source}}
+                    {{if .Caption}}<figure class="slidelang-media-figure">{{end}}
                     {{if eq .MediaType "audio"}}
                     <audio src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></audio>
                     {{else}}
-                    <video src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></video>
+                    <video src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"{{if .InlinedPoster}} poster="{{.InlinedPoster}}"{{else if .Poster}} poster="{{.Poster}}"{{end}}{{if .Controls}} controls{{end}}{{if .Autoplay}} autoplay{{end}}{{if .Loop}} loop{{end}}{{if .Muted}} muted{{end}}></video>
                     {{end}}
+                    {{if .Caption}}<figcaption>{{.Caption}}</figcaption></figure>{{end}}
                 {{else}}
                 <div class="slidelang-media-blocked" role="note" style="padding:1em;text-align:center;color:#a94442;background:#f2dede;border:1px solid #ebccd1;border-radius:4px;">Media blocked or missing source</div>
                 {{end}}

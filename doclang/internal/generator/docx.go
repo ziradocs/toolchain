@@ -3041,6 +3041,30 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 		return g.renderPlaceholder(doc, fmt.Sprintf("%s not found: %s", label, safeSource))
 	}
 
+	// Pie de la figura (media-figure-v1): mismo estilo que el pie de una
+	// ecuación o una imagen. El poster no tiene representación en DOCX: el
+	// documento enlaza el video, no lo incrusta.
+	if elem.Caption != "" {
+		captionPara, err := doc.AddParagraph()
+		if err != nil {
+			return err
+		}
+		if err := captionPara.SetAlignment(domain.AlignmentCenter); err != nil {
+			return fmt.Errorf("invalid alignment: %w", err)
+		}
+		r, err := captionPara.AddRun()
+		if err != nil {
+			return err
+		}
+		_ = r.SetText(elem.Caption)
+		if err := r.SetSize(g.parseSize(g.style.FontSizeBase) - 2); err != nil {
+			return fmt.Errorf("invalid font size: %w", err)
+		}
+		_ = r.SetColor(g.parseColor(g.style.TextLightColor))
+		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+		_ = r.SetItalic(true)
+	}
+
 	return nil
 }
 
