@@ -16,16 +16,20 @@ import (
 // `options` antes que `answer` se lee como la fuente que el autor escribió, no
 // como un volcado alfabético.
 type quizYAML struct {
-	Question    string   `yaml:"question"`
-	Options     []string `yaml:"options,omitempty"`
-	Answer      *int     `yaml:"answer,omitempty"`
-	Explanation string   `yaml:"explanation,omitempty"`
+	Question    string    `yaml:"question"`
+	Options     []string  `yaml:"options,omitempty"`
+	Answer      *int      `yaml:"answer,omitempty"`
+	Results     []float64 `yaml:"results,omitempty,flow"`
+	Responses   *int      `yaml:"responses,omitempty"`
+	Explanation string    `yaml:"explanation,omitempty"`
 }
 
 type pollYAML struct {
-	Question string   `yaml:"question"`
-	Options  []string `yaml:"options,omitempty"`
-	Multiple bool     `yaml:"multiple,omitempty"`
+	Question  string    `yaml:"question"`
+	Options   []string  `yaml:"options,omitempty"`
+	Multiple  bool      `yaml:"multiple,omitempty"`
+	Results   []float64 `yaml:"results,omitempty,flow"`
+	Responses *int      `yaml:"responses,omitempty"`
 }
 
 // formatQuiz y formatPoll re-emiten el bloque tal como el parser lo acepta
@@ -45,6 +49,8 @@ func formatQuiz(e *ast.QuizElement) (string, error) {
 	body := quizYAML{
 		Question:    e.Question,
 		Options:     e.Options,
+		Results:     e.Results,
+		Responses:   e.Responses,
 		Explanation: e.Explanation,
 	}
 	if e.Answer >= 0 {
@@ -56,9 +62,11 @@ func formatQuiz(e *ast.QuizElement) (string, error) {
 
 func formatPoll(e *ast.PollElement) (string, error) {
 	return formatQuizPollBlock("poll", pollYAML{
-		Question: e.Question,
-		Options:  e.Options,
-		Multiple: e.Multiple,
+		Question:  e.Question,
+		Options:   e.Options,
+		Multiple:  e.Multiple,
+		Results:   e.Results,
+		Responses: e.Responses,
 	})
 }
 

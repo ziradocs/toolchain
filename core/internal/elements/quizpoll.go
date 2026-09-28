@@ -29,6 +29,10 @@ type quizPollBody struct {
 	Answer      *int     `yaml:"answer"`
 	Explanation string   `yaml:"explanation"`
 	Multiple    bool     `yaml:"multiple"`
+	// Results/Responses (quiz-poll-results-v1). Se leen siempre; el parser
+	// exige después el opt-in del frontmatter (ver QuizPollResultsOptIn).
+	Results   []float64 `yaml:"results"`
+	Responses *int      `yaml:"responses"`
 }
 
 // quizPollKeys son las llaves que cada tag reconoce. Todo lo demás se reporta
@@ -36,8 +40,8 @@ type quizPollBody struct {
 // el website documentaba y un `answer:` escrito dentro de un poll, que es el
 // error de copiar un quiz y cambiarle el tag.
 var quizPollKeys = map[string]map[string]bool{
-	"quiz": {"question": true, "options": true, "answer": true, "explanation": true},
-	"poll": {"question": true, "options": true, "multiple": true},
+	"quiz": {"question": true, "options": true, "answer": true, "explanation": true, "results": true, "responses": true},
+	"poll": {"question": true, "options": true, "multiple": true, "results": true, "responses": true},
 }
 
 // QuizParser parsea `<<quiz>> … <<end>>` (issue #198).
@@ -61,6 +65,8 @@ func (p *QuizParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	quiz.Question = body.Question
 	quiz.Options = body.Options
 	quiz.Explanation = body.Explanation
+	quiz.Results = body.Results
+	quiz.Responses = body.Responses
 	if body.Answer != nil {
 		quiz.Answer = *body.Answer
 	}
@@ -88,6 +94,8 @@ func (p *PollParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	poll.Question = body.Question
 	poll.Options = body.Options
 	poll.Multiple = body.Multiple
+	poll.Results = body.Results
+	poll.Responses = body.Responses
 	if poll.Options == nil {
 		poll.Options = make([]string, 0)
 	}

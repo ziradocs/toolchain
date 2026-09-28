@@ -28,6 +28,9 @@ func extensionFrontMatter(doc *ast.AST, mode string) *ast.FrontMatterNode {
 	if ast.UsesTypedHeadings(doc) {
 		caps = append(caps, ast.TypedHeadingsCapability)
 	}
+	if ast.UsesQuizPollResults(doc) {
+		caps = append(caps, ast.QuizPollResultsCapability)
+	}
 	if len(caps) == 0 {
 		return fm
 	}

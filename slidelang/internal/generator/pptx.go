@@ -1049,6 +1049,9 @@ func (g *Generator) pptxAddChecklist(s *pptx.Slide, e *ast.ChecklistElement, cur
 // enseñar la respuesta.
 func (g *Generator) pptxAddQuiz(s *pptx.Slide, e *ast.QuizElement, cursorY int) int {
 	lines := pptxEstimateLines(e.Question) + len(e.Options)
+	if e.Responses != nil {
+		lines++
+	}
 	if e.Explanation != "" {
 		lines += pptxEstimateLines(e.Explanation)
 	}
@@ -1068,7 +1071,10 @@ func (g *Generator) pptxAddQuiz(s *pptx.Slide, e *ast.QuizElement, cursorY int) 
 		if i == e.Answer {
 			marker = "✓ " + marker
 		}
-		pptxApplyInline(tb.AddParagraph(), marker+option)
+		pptxApplyInline(tb.AddParagraph(), marker+option+pptxResultSuffix(e.Results, i))
+	}
+	if label := renderer.QuizPollResponsesLabel(e.Responses); label != "" {
+		tb.AddParagraph().Text(label).Italic()
 	}
 	if e.Explanation != "" {
 		para := tb.AddParagraph()
@@ -1081,6 +1087,9 @@ func (g *Generator) pptxAddQuiz(s *pptx.Slide, e *ast.QuizElement, cursorY int) 
 
 func (g *Generator) pptxAddPoll(s *pptx.Slide, e *ast.PollElement, cursorY int) int {
 	lines := pptxEstimateLines(e.Question) + len(e.Options)
+	if e.Responses != nil {
+		lines++
+	}
 	if lines < 1 {
 		lines = 1
 	}
@@ -1093,10 +1102,21 @@ func (g *Generator) pptxAddPoll(s *pptx.Slide, e *ast.PollElement, cursorY int) 
 		para.Bold()
 	}
 	for i, option := range e.Options {
-		pptxApplyInline(tb.AddParagraph(), fmt.Sprintf("%d. %s", i+1, option))
+		pptxApplyInline(tb.AddParagraph(), fmt.Sprintf("%d. %s", i+1, option)+pptxResultSuffix(e.Results, i))
+	}
+	if label := renderer.QuizPollResponsesLabel(e.Responses); label != "" {
+		tb.AddParagraph().Text(label).Italic()
 	}
 
 	return cursorY + height + pptxParaGapEMU
+}
+
+// pptxResultSuffix agrega " — 40%" a una opción con results.
+func pptxResultSuffix(results []float64, i int) string {
+	if label := renderer.QuizPollResultLabel(results, i); label != "" {
+		return " — " + label
+	}
+	return ""
 }
 
 func (g *Generator) pptxAddMetric(s *pptx.Slide, e *ast.MetricElement, cursorY int) int {

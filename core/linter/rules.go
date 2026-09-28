@@ -454,6 +454,7 @@ func checkChartElement(elem *ast.ChartElement) []diagnostics.Diagnostic {
 // le impide construir el elemento (YAML roto, llaves que no existen).
 func checkQuizElement(elem *ast.QuizElement) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
+	diags = append(diags, checkQuizPollResults(elem.Results, elem.Responses, len(elem.Options), elem.GetPosition(), "QUIZ003")...)
 
 	// Único Error de los dos elementos: un índice fuera de rango no tiene
 	// degradación razonable — el quiz no puede señalar ninguna opción como
@@ -498,6 +499,7 @@ func checkQuizElement(elem *ast.QuizElement) []diagnostics.Diagnostic {
 // rango.
 func checkPollElement(elem *ast.PollElement) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
+	diags = append(diags, checkQuizPollResults(elem.Results, elem.Responses, len(elem.Options), elem.GetPosition(), "POLL003")...)
 
 	if len(elem.Options) < 2 {
 		diags = append(diags,
@@ -990,5 +992,31 @@ func (r *LastSlideClosingRule) Check(node ast.Node) []diagnostics.Diagnostic {
 		}
 	}
 
+	return diags
+}
+
+// checkQuizPollResults valida results/responses (quiz-poll-results-v1): un
+// porcentaje por opción, cada uno entre 0 y 100, y responses no negativo. No
+// exige que los porcentajes sumen 100: el redondeo, las respuestas múltiples
+// y los resultados parciales lo hacen legítimo.
+func checkQuizPollResults(results []float64, responses *int, options int, pos diagnostics.Position, rule string) []diagnostics.Diagnostic {
+	var diags []diagnostics.Diagnostic
+	if len(results) > 0 && len(results) != options {
+		diags = append(diags, diagnostics.NewError(
+			fmt.Sprintf("results must have one percentage per option: %d options, %d results", options, len(results)),
+			pos, "linter").WithRuleID(rule))
+	}
+	for i, r := range results {
+		if r < 0 || r > 100 {
+			diags = append(diags, diagnostics.NewError(
+				fmt.Sprintf("result %d is %v; percentages must be between 0 and 100", i, r),
+				pos, "linter").WithRuleID(rule))
+		}
+	}
+	if responses != nil && *responses < 0 {
+		diags = append(diags, diagnostics.NewError(
+			fmt.Sprintf("responses must be zero or more, got %d", *responses),
+			pos, "linter").WithRuleID(rule))
+	}
 	return diags
 }

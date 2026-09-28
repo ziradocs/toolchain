@@ -932,10 +932,11 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  data-slide="{{.SlideIndex}}">
                 <p class="question">{{.Question | markdownInline}}</p>
                 <ol class="options">
-                    {{$answer := .QuizAnswer}}{{range $i, $opt := .QuizOptions}}
-                    <li><button type="button" class="option" data-index="{{$i}}"{{if eq $i $answer}} data-correct="true"{{end}}>{{$opt | markdownInline}}</button></li>
+                    {{$answer := .QuizAnswer}}{{$results := .QuizResults}}{{range $i, $opt := .QuizOptions}}
+                    <li><button type="button" class="option" data-index="{{$i}}"{{if eq $i $answer}} data-correct="true"{{end}}>{{$opt | markdownInline}}</button>{{with index $results $i}} <span class="result">{{.}}</span>{{end}}</li>
                     {{end}}
                 </ol>
+                {{if .QuizResponses}}<p class="responses">{{.QuizResponses}}</p>{{end}}
                 {{if .QuizExplanation}}<p class="explanation" hidden>{{.QuizExplanation | markdownInline}}</p>{{end}}
             </div>        {{else if eq .Type "poll"}}
             <div class="slidelang-element slidelang-poll {{range .CSSClasses}}slidelang-{{.}} {{end}}"
@@ -945,10 +946,11 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                  data-slide="{{.SlideIndex}}">
                 <p class="question">{{.Question | markdownInline}}</p>
                 <ol class="options">
-                    {{range $i, $opt := .QuizOptions}}
-                    <li><button type="button" class="poll-option" data-index="{{$i}}" aria-pressed="false">{{$opt | markdownInline}}</button></li>
+                    {{$results := .QuizResults}}{{range $i, $opt := .QuizOptions}}
+                    <li><button type="button" class="poll-option" data-index="{{$i}}" aria-pressed="false">{{$opt | markdownInline}}</button>{{with index $results $i}} <span class="result">{{.}}</span>{{end}}</li>
                     {{end}}
                 </ol>
+                {{if .QuizResponses}}<p class="responses">{{.QuizResponses}}</p>{{end}}
             </div>        {{else if eq .Type "metric"}}
             <section class="slidelang-element slidelang-metric" data-element-type="metric" data-trend="{{.MetricTrend}}">
                 {{if .MetricLabel}}<p class="metric-label">{{.MetricLabel | markdownInline}}</p>{{end}}

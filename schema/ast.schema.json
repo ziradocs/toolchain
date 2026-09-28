@@ -122,6 +122,28 @@
                 "properties": {
                   "capabilities": {
                     "contains": {
+                      "const": "quiz-poll-results-v1"
+                    }
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/QuizPollResultsPresent"
+              },
+              "else": {
+                "not": {
+                  "$ref": "#/$defs/QuizPollResultsPresent"
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
                       "const": "nested-list-types-v1"
                     }
                   }
@@ -303,6 +325,42 @@
               "if": {
                 "properties": {
                   "schemaVersion": {
+                    "const": "2.20.0"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "enum": [
+                        "table-rows-v1",
+                        "nested-list-types-v1",
+                        "typed-headings-v1",
+                        "media-figure-v1",
+                        "code-filename-v1",
+                        "quiz-poll-results-v1"
+                      ]
+                    },
+                    "contains": {
+                      "const": "quiz-poll-results-v1"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
                     "enum": [
                       "2.13.0",
                       "2.14.0"
@@ -354,7 +412,8 @@
             "2.16.0",
             "2.17.0",
             "2.18.0",
-            "2.19.0"
+            "2.19.0",
+            "2.20.0"
           ]
         },
         "capabilities": {
@@ -2183,6 +2242,18 @@
         "multiple": {
           "type": "boolean"
         },
+        "results": {
+          "items": {
+            "type": "number",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "type": "array"
+        },
+        "responses": {
+          "type": "integer",
+          "minimum": 0
+        },
         "langRuns": {
           "items": {
             "$ref": "#/$defs/LangRun"
@@ -2266,6 +2337,18 @@
         "answer": {
           "type": "integer"
         },
+        "results": {
+          "items": {
+            "type": "number",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "type": "array"
+        },
+        "responses": {
+          "type": "integer",
+          "minimum": 0
+        },
         "explanation": {
           "type": "string"
         },
@@ -2294,6 +2377,71 @@
         "question",
         "options",
         "answer"
+      ]
+    },
+    "QuizPollResultsPresent": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "results"
+              ]
+            },
+            {
+              "required": [
+                "responses"
+              ]
+            }
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "quiz",
+                "poll"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "properties": {
+            "contentBlocks": {
+              "contains": {
+                "$ref": "#/$defs/QuizPollResultsPresent"
+              }
+            }
+          },
+          "required": [
+            "contentBlocks"
+          ]
+        },
+        {
+          "properties": {
+            "elements": {
+              "contains": {
+                "$ref": "#/$defs/QuizPollResultsPresent"
+              }
+            }
+          },
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "properties": {
+            "columns": {
+              "contains": {
+                "$ref": "#/$defs/QuizPollResultsPresent"
+              }
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        }
       ]
     },
     "QuoteElement": {

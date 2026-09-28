@@ -645,6 +645,12 @@ accepted, the same way `<</chart>>` is.
 renders with the correct option marked and its explanation visible, and a poll
 renders as a list. Any interaction is local to whoever opens the HTML.
 
+With frontmatter `ast_capabilities: [quiz-poll-results-v1]`, both blocks
+accept `results` (one percentage from 0 to 100 per option, in order; the values
+need not add up to 100) and `responses` (a non-negative integer). Without the
+opt-in these keys are an error. Documents that use them emit schema 2.20.0. See
+[quiz and poll results](../../docs/portable-quiz-poll-results.md).
+
 ## 🔍 **Validation Rules**
 
 ### Structural Validation

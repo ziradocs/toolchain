@@ -261,6 +261,13 @@ func restoreDiagnosticPositions(diags []diagnostics.Diagnostic, lineMap []int) {
 func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Diagnostic, pending []pendingNodeID, lineMap []int, source string, normalizationModified bool) []diagnostics.Diagnostic {
 	if doc != nil {
 		ast.PromoteTypedHeadings(doc)
+		// results/responses de quiz y poll son opt-in explícito: sin la
+		// declaración en frontmatter se rechazan en vez de ignorarse.
+		if ast.UsesQuizPollResults(doc) && !ast.SourceDeclaresCapability(doc.FrontMatter, ast.QuizPollResultsCapability) {
+			parseDiags = append(parseDiags, diagnostics.NewError(
+				fmt.Sprintf("quiz/poll results and responses require ast_capabilities: [%s] in frontmatter", ast.QuizPollResultsCapability),
+				doc.GetPosition(), "parser"))
+		}
 		ast.SetTableContract(doc)
 	}
 	if len(pending) == 0 && len(markerDiags) == 0 {

@@ -18,8 +18,9 @@ ast_capabilities: [nested-list-types-v1]
 
 `table-rows-v1` is inferred from authored `tableRows` and is not a source
 `ast_capabilities` entry. The source key accepts the nested-list opt-in and
-`typed-headings-v1` (see [portable typed headings](portable-typed-headings.md)),
-alone or together.
+`typed-headings-v1` (see [portable typed headings](portable-typed-headings.md))
+and `quiz-poll-results-v1` (see [quiz and poll results](portable-quiz-poll-results.md)),
+in any combination.
 
 Then use the existing list markers and indentation. A parent item owns the
 list directly beneath it:
@@ -62,6 +63,7 @@ or array offsets.
 | Any of the above plus typed headings | `2.17.0` | adds `typed-headings-v1` |
 | Any of the above plus media poster/caption | `2.18.0` | adds `media-figure-v1` |
 | Any of the above plus code filenames | `2.19.0` | adds `code-filename-v1` |
+| Any of the above plus quiz/poll results | `2.20.0` | adds `quiz-poll-results-v1` |
 
 The capability array is a set when read; duplicate and unknown entries fail.
 The writer emits a deterministic order. A source declaration with no nested
