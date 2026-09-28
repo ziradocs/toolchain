@@ -563,24 +563,13 @@ func validateTimelineSlide(slide *ast.ContentBlock) []diagnostics.Diagnostic {
 func validateBeforeAfterSlide(slide *ast.ContentBlock) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 
-	hasBeforeSection := false
-	hasAfterSection := false
-
-	for _, element := range slide.Elements {
-		if element.GetType() == ast.NodeTypeText {
-			if textElement, ok := element.(*ast.TextElement); ok {
-				content := textElement.Content
-				if len(content) > 0 {
-					lowerContent := strings.ToLower(content)
-					if strings.Contains(lowerContent, "antes") || strings.Contains(lowerContent, "before") {
-						hasBeforeSection = true
-					}
-					if strings.Contains(lowerContent, "después") || strings.Contains(lowerContent, "after") {
-						hasAfterSection = true
-					}
-				}
-			}
-		}
+	// La señal se busca en todo el texto autoral del slide (encabezados,
+	// puntos, métricas, columnas…), no solo en TextElement. Además, dos
+	// columnas de grid o dos métricas ya son las dos secciones.
+	hasBeforeSection := slideTextContains(slide, "antes", "before")
+	hasAfterSection := slideTextContains(slide, "después", "despues", "after")
+	if !(hasBeforeSection && hasAfterSection) && hasTwoPartStructure(slide) {
+		hasBeforeSection, hasAfterSection = true, true
 	}
 
 	if !hasBeforeSection || !hasAfterSection {
@@ -597,30 +586,30 @@ func validateBeforeAfterSlide(slide *ast.ContentBlock) []diagnostics.Diagnostic 
 	return diags
 }
 
+// hasTwoPartStructure reporta si el slide ya se divide en dos partes por su
+// estructura: un grid con dos o más columnas, o dos o más métricas.
+func hasTwoPartStructure(slide *ast.ContentBlock) bool {
+	metrics := 0
+	for _, el := range slide.Elements {
+		switch e := el.(type) {
+		case *ast.GridElement:
+			if len(e.Columns) >= 2 {
+				return true
+			}
+		case *ast.MetricElement:
+			metrics++
+		}
+	}
+	return metrics >= 2
+}
+
 func validatePricingSlide(slide *ast.ContentBlock) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 
-	hasPricing := false
-
-	for _, element := range slide.Elements {
-		if element.GetType() == ast.NodeTypeTable {
-			hasPricing = true
-			break
-		}
-		if element.GetType() == ast.NodeTypeText {
-			if textElement, ok := element.(*ast.TextElement); ok {
-				content := textElement.Content
-				// Buscar símbolos de moneda o patrones de precio
-				if strings.Contains(content, "$") || strings.Contains(content, "€") ||
-					strings.Contains(content, "£") || strings.Contains(content, "precio") ||
-					strings.Contains(content, "price") || strings.Contains(content, "/mes") ||
-					strings.Contains(content, "/month") {
-					hasPricing = true
-					break
-				}
-			}
-		}
-	}
+	// Una tabla o una métrica ya expresan un plan con precio; si no, se
+	// busca una moneda o un término de precio en todo el texto autoral.
+	hasPricing := hasElement(slide, ast.NodeTypeTable) || hasElement(slide, ast.NodeTypeMetric) ||
+		slideTextContains(slide, "$", "€", "£", "precio", "price", "/mes", "/month")
 
 	if !hasPricing {
 		diag := diagnostics.Diagnostic{
@@ -694,31 +683,15 @@ func validateFeatureShowcaseSlide(slide *ast.ContentBlock) []diagnostics.Diagnos
 func validateCallToActionSlide(slide *ast.ContentBlock) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 
-	hasCTA := false
-
+	// Palabras típicas de CTA en todo el texto autoral (sin distinguir
+	// mayúsculas), un enlace, o un bloque info/success.
+	hasCTA := slideTextContains(slide,
+		"comenzar", "empezar", "registr", "prueba", "descargar", "contactar", "agenda",
+		"start", "try", "download", "contact", "sign up", "get started", "book", "](")
 	for _, element := range slide.Elements {
-		if element.GetType() == ast.NodeTypeText {
-			if textElement, ok := element.(*ast.TextElement); ok {
-				content := textElement.Content
-				// Buscar patrones típicos de CTA
-				if strings.Contains(content, "Comenzar") || strings.Contains(content, "Empezar") ||
-					strings.Contains(content, "Registr") || strings.Contains(content, "Prueba") ||
-					strings.Contains(content, "Descargar") || strings.Contains(content, "Contactar") ||
-					strings.Contains(content, "Start") || strings.Contains(content, "Try") ||
-					strings.Contains(content, "Download") || strings.Contains(content, "Contact") ||
-					strings.Contains(content, "Sign up") || strings.Contains(content, "Get started") {
-					hasCTA = true
-					break
-				}
-			}
-		}
-		if element.GetType() == ast.NodeTypeSpecialBlock {
-			if blockElement, ok := element.(*ast.SpecialBlockElement); ok {
-				if blockElement.BlockType == "info" || blockElement.BlockType == "success" {
-					hasCTA = true
-					break
-				}
-			}
+		if blockElement, ok := element.(*ast.SpecialBlockElement); ok &&
+			(blockElement.BlockType == "info" || blockElement.BlockType == "success") {
+			hasCTA = true
 		}
 	}
 
