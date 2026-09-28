@@ -76,13 +76,37 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		startIndex++
 
 		// Parse YAML-style table
-		headers, rows, caption, label, cellsExplicit, rowPositions, yamlDiags, yamlConsumed := p.parseYAMLTable(ctx, startIndex, pos)
+		headers, rows, caption, label, cellsExplicit, tableRows, rowPositions, yamlDiags, yamlConsumed := p.parseYAMLTable(ctx, startIndex, pos)
 		table.Caption = caption
 		table.Label = label
 		consumed += yamlConsumed
 		diags = append(diags, yamlDiags...)
 
-		if len(cellsExplicit) > 0 {
+		if tableRows != nil {
+			table.TableRows = tableRows
+			width := 0
+			for _, cell := range tableRows[0].Cells {
+				span := cell.ColSpan
+				if span < 1 {
+					span = 1
+				}
+				if span > ast.MaxCellSpan-width {
+					width = ast.MaxCellSpan + 1
+					break
+				}
+				width += span
+			}
+			if tableRows[0].Cells == nil {
+				diags = append(diags, diagnostics.NewError("table row must declare cells", pos, "table-parser"))
+			} else if width == 0 || width > ast.MaxCellSpan || len(tableRows) > 1_000_000/width {
+				diags = append(diags, diagnostics.NewError("tableRows grid exceeds the supported size or has no columns", pos, "table-parser"))
+			} else {
+				table.SyncTableViews()
+				if err := ast.ValidateTableRows(table); err != nil {
+					diags = append(diags, diagnostics.NewError(err.Error(), pos, "table-parser"))
+				}
+			}
+		} else if len(cellsExplicit) > 0 {
 			// Explicit merged cells (issue #20): Cells is the source of
 			// truth; Headers/Rows are DERIVED from Cells (rectangular grid)
 			// so linter.ElementStructureRule (TABLE003) doesn't report a
@@ -123,7 +147,7 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // ast.FlattenCellsToRows), ignorando los headers/rows acumulados acá (que
 // para un bloque "cells:" quedan vacíos, ya que esa sintaxis no declara
 // headers:/rows: por separado).
-func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diagnostics.Position) ([]string, [][]string, string, string, [][]ast.TableCell, []diagnostics.Position, []diagnostics.Diagnostic, int) {
+func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diagnostics.Position) ([]string, [][]string, string, string, [][]ast.TableCell, []ast.TableRow, []diagnostics.Position, []diagnostics.Diagnostic, int) {
 	// Initialized as empty slices (not nil): Headers/Rows have no omitempty
 	// in the AST, so a nil value would serialize as JSON null instead of []
 	// (issue #8 - violates the contract's JSON Schema).
@@ -137,6 +161,8 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	// split by pipes) unrelated to this one — same name in nested scopes
 	// would still compile (shadowing), but would confuse a reader.
 	var explicitCells [][]ast.TableCell
+	var tableRows []ast.TableRow
+	var legacyDeclared, newDeclared bool
 	var diags []diagnostics.Diagnostic
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
@@ -170,6 +196,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 
 		// Parse YAML table properties
 		if strings.HasPrefix(trimmedLine, "headers:") {
+			legacyDeclared = true
 			headersStr := strings.TrimPrefix(trimmedLine, "headers:")
 			headersStr = strings.TrimSpace(headersStr)
 
@@ -179,6 +206,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				headers = append(headers, splitInlineArray(headersStr)...)
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
+			legacyDeclared = true
 			// Process rows array
 			consumed++
 			i++
@@ -203,6 +231,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			}
 			continue
 		} else if strings.HasPrefix(trimmedLine, "cells:") {
+			legacyDeclared = true
 			// Explicit merged cells (issue #20): the value is a YAML
 			// sequence of cell rows, indented under "cells:". Collect the
 			// lines that belong to it, then parse them as full YAML — more
@@ -249,6 +278,47 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 					pos, "table-parser").WithRuleID("TABLE004"))
 			}
 			continue
+		} else if strings.HasPrefix(trimmedLine, "tableRows:") {
+			if newDeclared {
+				diags = append(diags, diagnostics.NewError("tableRows may be declared only once", pos, "table-parser"))
+			}
+			newDeclared = true
+			blockIndent := currentIndent
+			consumed++
+			i++
+			var blockLines []string
+			for i < len(lines) {
+				rl := lines[i]
+				trim := strings.TrimSpace(rl)
+				indent := CalculateIndentLevel(rl)
+				if trim != "" && (indent < blockIndent || indent == blockIndent && !strings.HasPrefix(trim, "-")) {
+					i--
+					break
+				}
+				blockLines = append(blockLines, rl)
+				consumed++
+				i++
+			}
+			var parsed []yamlTableRowEntry
+			decoder := yaml.NewDecoder(strings.NewReader(strings.Join(blockLines, "\n")))
+			decoder.KnownFields(true)
+			if err := decoder.Decode(&parsed); err != nil || len(parsed) == 0 {
+				diags = append(diags, diagnostics.NewError("invalid tableRows YAML: expected nonempty rows with known fields", pos, "table-parser"))
+			} else {
+				tableRows = make([]ast.TableRow, len(parsed))
+				for n, row := range parsed {
+					var cells []ast.TableRowCell
+					if row.Cells != nil {
+						cells = make([]ast.TableRowCell, len(row.Cells))
+					}
+					tableRows[n] = ast.TableRow{NodeID: row.NodeID, Section: row.Section, Cells: cells}
+					for j, cell := range row.Cells {
+						tableRows[n].Cells[j] = ast.TableRowCell{NodeID: cell.NodeID, Content: cell.Content, IsHeader: cell.Header,
+							Scope: cell.Scope, ColSpan: cell.Colspan, RowSpan: cell.Rowspan}
+					}
+				}
+			}
+			continue
 		} else if strings.HasPrefix(trimmedLine, "caption:") {
 			captionStr := strings.TrimPrefix(trimmedLine, "caption:")
 			caption = strings.Trim(strings.TrimSpace(captionStr), "\"")
@@ -257,6 +327,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			labelStr := strings.TrimPrefix(trimmedLine, "label:")
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
 		} else if strings.Contains(trimmedLine, "|") {
+			legacyDeclared = true
 			// Fallback: Parse table row (separated by |) for compatibility
 			cells := SplitMarkdownTableRow(trimmedLine)
 			for j := range cells {
@@ -274,7 +345,25 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 		consumed++
 	}
 
-	return headers, rows, caption, label, explicitCells, rowPositions, diags, consumed
+	if newDeclared && legacyDeclared {
+		diags = append(diags, diagnostics.NewError("tableRows cannot be combined with authored headers/rows/cells", pos, "table-parser"))
+	}
+	return headers, rows, caption, label, explicitCells, tableRows, rowPositions, diags, consumed
+}
+
+type yamlTableRowEntry struct {
+	NodeID  string                  `yaml:"nodeId"`
+	Section string                  `yaml:"section"`
+	Cells   []yamlTableRowCellEntry `yaml:"cells"`
+}
+
+type yamlTableRowCellEntry struct {
+	NodeID  string `yaml:"nodeId"`
+	Content string `yaml:"content"`
+	Header  bool   `yaml:"header"`
+	Scope   string `yaml:"scope"`
+	Colspan int    `yaml:"colspan"`
+	Rowspan int    `yaml:"rowspan"`
 }
 
 // trimInlineArrayBrackets quita UN "[" inicial y UN "]" final del valor de

@@ -247,7 +247,15 @@ func restoreDiagnosticPositions(diags []diagnostics.Diagnostic, lineMap []int) {
 }
 
 func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Diagnostic, pending []pendingNodeID, lineMap []int, source string, normalizationModified bool) []diagnostics.Diagnostic {
+	if doc != nil {
+		ast.SetTableContract(doc)
+	}
 	if len(pending) == 0 && len(markerDiags) == 0 {
+		if doc != nil && ast.UsesTableRows(doc) {
+			if err := ast.ValidateTableContract(doc); err != nil {
+				parseDiags = append(parseDiags, diagnostics.NewError(err.Error(), doc.GetPosition(), "table-identity"))
+			}
+		}
 		return parseDiags
 	}
 	if normalizationModified && len(pending) > 0 {
@@ -258,6 +266,12 @@ func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Di
 	restoreDiagnosticPositions(parseDiags, lineMap)
 	parseDiags = append(parseDiags, markerDiags...)
 	parseDiags = append(parseDiags, bound...)
-	parseDiags = append(parseDiags, ast.ValidateNodeIDs(doc)...)
+	idIssues := ast.ValidateNodeIDs(doc)
+	parseDiags = append(parseDiags, idIssues...)
+	if ast.UsesTableRows(doc) && len(idIssues) == 0 {
+		if err := ast.ValidateTableContract(doc); err != nil {
+			parseDiags = append(parseDiags, diagnostics.NewError(err.Error(), doc.GetPosition(), "table-identity"))
+		}
+	}
 	return parseDiags
 }

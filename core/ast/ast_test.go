@@ -52,8 +52,8 @@ func TestNewAST(t *testing.T) {
 	if ast.SchemaVersion == "" {
 		t.Error("NewAST() did not populate SchemaVersion")
 	}
-	if ast.SchemaVersion != SchemaVersion {
-		t.Errorf("SchemaVersion = %q, want %q (the package constant)", ast.SchemaVersion, SchemaVersion)
+	if ast.SchemaVersion != LegacySchemaVersion {
+		t.Errorf("SchemaVersion = %q, want legacy %q", ast.SchemaVersion, LegacySchemaVersion)
 	}
 }
 

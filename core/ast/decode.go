@@ -185,12 +185,18 @@ func (c *ColumnElement) UnmarshalJSON(data []byte) error {
 // polimórfico (Variables es un map plano) y se decodifica con reflexión
 // estándar.
 func DecodeAST(data []byte) (*AST, error) {
+	if err := ValidateRawTableContract(data); err != nil {
+		return nil, fmt.Errorf("decoding AST contract: %w", err)
+	}
 	var doc AST
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("decoding AST: %w", err)
 	}
 	if issues := ValidateNodeIDs(&doc); len(issues) != 0 {
 		return nil, fmt.Errorf("decoding AST: %s", issues[0].String())
+	}
+	if err := ValidateTableContract(&doc); err != nil {
+		return nil, fmt.Errorf("decoding AST: %w", err)
 	}
 	return &doc, nil
 }

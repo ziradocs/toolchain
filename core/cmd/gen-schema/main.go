@@ -111,6 +111,35 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.SchemaVersion}}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := overrideProperty(root.Definitions, "AST", "capabilities", &jsonschema.Schema{Const: []string{ast.TableRowsCapability}}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := overrideProperty(root.Definitions, "TableRow", "section", &jsonschema.Schema{Type: "string", Enum: []any{"header", "body", "footer"}}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	// This recursive schema follows ContentBlock.elements, nested special
+	// blocks, and grid columns. The root gate must agree with DecodeAST even
+	// when the only authored table sits inside another element.
+	presenceJSON := `{"anyOf":[{"required":["tableRows"]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/TableRowsPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/TableRowsPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/TableRowsPresent"}}}}]}`
+	var presence jsonschema.Schema
+	if err := json.Unmarshal([]byte(presenceJSON), &presence); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["TableRowsPresent"] = &presence
+	gateJSON := fmt.Sprintf(`{"if":{"properties":{"schemaVersion":{"const":%q}},"required":["schemaVersion"]},"then":{"required":["capabilities"],"allOf":[{"$ref":"#/$defs/TableRowsPresent"}]},"else":{"not":{"anyOf":[{"required":["capabilities"]},{"$ref":"#/$defs/TableRowsPresent"}]}}}`, ast.SchemaVersion)
+	var gate jsonschema.Schema
+	if err := json.Unmarshal([]byte(gateJSON), &gate); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["AST"].AllOf = append(root.Definitions["AST"].AllOf, &gate)
 
 	// Reemplazar "elements: any[]" (lo único que la reflexión pura no puede
 	// resolver, por ser una interfaz Go) con una unión discriminada real.
