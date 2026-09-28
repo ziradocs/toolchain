@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/util"
@@ -1882,6 +1885,11 @@ func SanitizeAnchor(anchor string) string {
 	anchor = strings.ReplaceAll(anchor, "'", "")
 	anchor = strings.ReplaceAll(anchor, "\"", "")
 	anchor = strings.ReplaceAll(anchor, "`", "")
+	// Transliterar antes de filtrar: la lista blanca de abajo borraba toda
+	// letra con diacrítico, así que "Acompañar" daba "acompaar" y "Übersicht"
+	// daba "bersicht". NFD separa la letra base de su marca y la marca se
+	// descarta; las pocas letras que no se descomponen van por un mapa.
+	anchor = transliterateAnchor(anchor)
 	// Eliminar emojis y caracteres especiales (mantener solo letras, números, guiones)
 	var cleaned strings.Builder
 	for _, r := range anchor {
@@ -3130,4 +3138,28 @@ func generateViewerScripts(opts DocumentHTMLOptions, cspNonce string) string {
         });
     </script>
 `
+}
+
+// anchorLetterMap cubre las letras latinas que NFD no descompone en letra base
+// más marca.
+var anchorLetterMap = map[rune]string{
+	'ß': "ss", 'æ': "ae", 'œ': "oe", 'ø': "o", 'đ': "d", 'ł': "l", 'þ': "th", 'ð': "d",
+}
+
+// transliterateAnchor quita los diacríticos de s conservando la letra base
+// (á→a, ñ→n, ü→u, ç→c) y reemplaza las letras de anchorLetterMap. Lo que no
+// es latino (emoji, otros alfabetos) pasa igual y lo filtra SanitizeAnchor.
+func transliterateAnchor(s string) string {
+	var b strings.Builder
+	for _, r := range norm.NFD.String(s) {
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		if rep, ok := anchorLetterMap[r]; ok {
+			b.WriteString(rep)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

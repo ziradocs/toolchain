@@ -253,3 +253,23 @@ func TestTypedHeadingNodeIDsSurviveReorder(t *testing.T) {
 		t.Fatalf("identity moved on reorder: %v vs %v", a, b)
 	}
 }
+
+// Un encabezado con ñ conserva la letra en su anchor, en los dos dialectos.
+func TestHeadingAnchorKeepsAccentedLetters(t *testing.T) {
+	flex, fd := parseSlides(t, "---\nmode: flex\nast_capabilities: [typed-headings-v1]\n---\n# Deck\n\n## S\n\n### Acompañar\n")
+	requireNoErrors(t, fd)
+	strict, sd := parseSlides(t, "---\nmode: strict\nast_capabilities: [typed-headings-v1]\n---\nSLIDE content\n  title: \"S\"\n  SECTION \"Acompañar\"\n")
+	requireNoErrors(t, sd)
+	for _, doc := range []*ast.AST{flex, strict} {
+		var anchor string
+		_ = ast.Walk(doc, func(n ast.Node) error {
+			if h, ok := n.(*ast.HeadingElement); ok {
+				anchor = h.Anchor
+			}
+			return nil
+		})
+		if anchor != "heading-acompanar" {
+			t.Fatalf("anchor = %q, want heading-acompanar", anchor)
+		}
+	}
+}
