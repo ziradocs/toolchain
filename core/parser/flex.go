@@ -275,6 +275,7 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	}
 
 	block := ast.NewContentBlock(pos, blockType)
+	block.LayoutDeclared = layout != ""
 	if !layoutConfig.IsZero() {
 		block.LayoutConfig = &ast.LayoutConfig{Columns: layoutConfig.Columns, Align: layoutConfig.Align}
 	}

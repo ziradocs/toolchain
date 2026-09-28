@@ -370,6 +370,10 @@ func IsNewElement(line string, mode string) bool {
 			"TEXT", "POINTS", "CODE", "IMAGE", "TABLE",
 			"QUOTE", "CHECKLIST", "MERMAID", "CHART", "MAP",
 			"DIRECTIVE", "SPECIAL_BLOCK", "CODE_GROUP", "MATH",
+			// Encabezado de subsección dentro de un SLIDE (v2.38). Sin él, un
+			// QUOTE o CHECKLIST seguido de un SECTION se tragaba el encabezado
+			// como texto y su node-id quedaba huérfano.
+			"SECTION ",
 		}
 		for _, keyword := range keywords {
 			if strings.HasPrefix(trimmed, keyword) {
