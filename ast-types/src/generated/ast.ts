@@ -102,7 +102,8 @@ import type { Position } from "./diagnostics";
  * 2.19.0: CodeElement.filename (code-filename-v1), inferred from the authored
  * `CODE <lang> <file>` or fence ```lang file``` syntax.
  * 2.20.0: QuizElement/PollElement .results (percent 0-100 per option) and
- * .responses, behind the frontmatter opt-in quiz-poll-results-v1.
+ * .responses (quiz-poll-results-v1), inferred from the new `results:` and
+ * `responses:` keys.
  */
 export const SchemaVersion = "2.20.0";
 export const PreviousSchemaVersion = "2.13.0";
