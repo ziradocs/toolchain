@@ -267,6 +267,8 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 	}
 
 	block := ast.NewContentBlock(pos, blockType)
+	// `SLIDE <tipo>` declara el layout: ninguna regla lo puede reclasificar.
+	block.LayoutDeclared = blockType != ""
 	p.currentLine++
 
 	p.parseIndentedElements(block, func(key, value string) {

@@ -301,8 +301,12 @@ func (fm *FrontMatterNode) BuildVariables() map[string]interface{} {
 type ContentBlock struct {
 	BaseNode  `tstype:",extends,required"`
 	BlockType string `json:"blockType,omitempty"` // "title", "content", "section", etc.
-	Title     string `json:"title,omitempty"`
-	TitleHTML string `json:"titleHTML,omitempty"` // Title con {{variables}} sustituidas y escapadas (sin markdown)
+	// LayoutDeclared dice, solo en memoria, si el autor declaró BlockType
+	// (`SLIDE <tipo>` en strict, `layout:` en flex). Las reglas que infieren
+	// un layout (LastSlideClosingRule) no deben pisar uno declarado.
+	LayoutDeclared bool   `json:"-" tstype:"-"`
+	Title          string `json:"title,omitempty"`
+	TitleHTML      string `json:"titleHTML,omitempty"` // Title con {{variables}} sustituidas y escapadas (sin markdown)
 	// Propiedades específicas para bloques tipo "title" (usado en presentaciones)
 	Heading      string `json:"heading,omitempty"`
 	HeadingHTML  string `json:"headingHTML,omitempty"` // Heading con {{variables}} sustituidas y escapadas (sin markdown)

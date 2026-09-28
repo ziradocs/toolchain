@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -49,6 +50,7 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	pos := ctx.Position(startIndex)
 	codeGroup := ast.NewCodeGroupElement(pos)
 	consumed := 1 // Skip :::code-group line
+	var groupErr error
 
 	// En modo strict, el formatter (formatter/strict.go: formatCodeGroup +
 	// formatStrictElement con indent(body, 2)) emite el bloque completo
@@ -79,16 +81,18 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 
 		// Look for start of code block ```language [label]
 		if strings.HasPrefix(line, "```") {
-			// Extract language and label
-			parts := strings.Fields(line[3:])
-			language := ""
+			// ```lenguaje [etiqueta]: la etiqueta es todo lo que va entre los
+			// corchetes, espacios incluidos. Antes se partía por espacios y
+			// una etiqueta como [With Visualization] se perdía sin aviso.
+			language, rest, _ := strings.Cut(strings.TrimSpace(line[3:]), " ")
+			rest = strings.TrimSpace(rest)
 			label := ""
-
-			if len(parts) > 0 {
-				language = parts[0]
-			}
-			if len(parts) > 1 && strings.HasPrefix(parts[1], "[") && strings.HasSuffix(parts[1], "]") {
-				label = parts[1][1 : len(parts[1])-1]
+			if rest != "" {
+				if len(rest) >= 2 && strings.HasPrefix(rest, "[") && strings.HasSuffix(rest, "]") {
+					label = strings.TrimSpace(rest[1 : len(rest)-1])
+				} else if groupErr == nil {
+					groupErr = fmt.Errorf("code-group fence %q must be ```language [label]", line)
+				}
 			}
 
 			consumed++ // Skip ``` line
@@ -120,6 +124,11 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 			}
 			codeGroup.CodeBlocks = append(codeGroup.CodeBlocks, codeBlock)
 		} else {
+			// Una línea fuera de las fences no tiene lugar en el AST del
+			// code-group; antes desaparecía sin diagnóstico.
+			if line != "" && groupErr == nil {
+				groupErr = fmt.Errorf("unexpected content inside :::code-group outside a code fence: %q", line)
+			}
 			// Skip non-code lines
 			consumed++
 		}
@@ -128,6 +137,6 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	return &ParseResult{
 		Element:       codeGroup,
 		ConsumedLines: consumed,
-		Error:         nil,
+		Error:         groupErr,
 	}
 }

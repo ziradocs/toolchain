@@ -963,8 +963,11 @@ func (r *LastSlideClosingRule) Check(node ast.Node) []diagnostics.Diagnostic {
 		lastSlideIndex := len(astNode.ContentBlocks) - 1
 		lastSlide := &astNode.ContentBlocks[lastSlideIndex]
 
-		// Verificar si el último slide no tiene título y no tiene layout específico
-		if lastSlide.Title == "" && lastSlide.Heading == "" &&
+		// Verificar si el último slide no tiene título y no tiene layout
+		// específico. Un layout declarado por el autor (`SLIDE content` en
+		// strict, `layout:` en flex) nunca se reclasifica: antes un
+		// `SLIDE content` final sin título salía como closing en silencio.
+		if !lastSlide.LayoutDeclared && lastSlide.Title == "" && lastSlide.Heading == "" &&
 			(lastSlide.BlockType == "" || lastSlide.BlockType == "content" || lastSlide.BlockType == "default") {
 
 			// Auto-asignar layout closing al último slide sin título

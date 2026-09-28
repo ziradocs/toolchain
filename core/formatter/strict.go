@@ -622,7 +622,7 @@ func backslashEscapedRunes(runes []rune) []bool {
 var strictNewElementKeywords = []string{
 	"TEXT", "POINTS", "CODE", "IMAGE", "TABLE",
 	"QUOTE", "CHECKLIST", "MERMAID", "CHART", "MAP",
-	"DIRECTIVE", "SPECIAL_BLOCK", "CODE_GROUP",
+	"DIRECTIVE", "SPECIAL_BLOCK", "CODE_GROUP", "MATH", "SECTION ",
 }
 
 // startsWithStrictSymbolicMarker espeja la mitad simbólica de
