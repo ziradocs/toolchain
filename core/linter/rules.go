@@ -71,15 +71,28 @@ func (r *FrontMatterValidRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	return diags
 }
 
+// blockHasContent dice si un slide tiene algo que mostrar: elementos, o
+// cualquiera de las propiedades que el renderer pinta sin elementos. Un slide
+// con solo encabezado (típico de un slide de título), subtítulo, antetítulo o
+// logo no está vacío.
+//
+// Es el único criterio de "slide vacío" de este archivo (issue #257):
+// SLIDE002, SYNTAX001, PARSE001 y PARSE002 repetían cada una su propia
+// condición, y las tres últimas se quedaron mirando solo Title y Elements
+// cuando SLIDE002 aprendió a leer Heading. Un slide de título escrito con
+// `heading:` (strict) o con `# H1` (flex) salía como vacío, y dos seguidos
+// rompían el build con PARSE001.
+func blockHasContent(b *ast.ContentBlock) bool {
+	return len(b.Elements) > 0 || b.Title != "" || b.Heading != "" ||
+		b.Subtitle != "" || b.Kicker != "" || b.Logo != ""
+}
+
 // SlideNotEmptyRule verifica que los slides no estén vacíos
 type SlideNotEmptyRule struct{}
 
 func (r *SlideNotEmptyRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	if slide, ok := node.(*ast.ContentBlock); ok {
-		// Un slide con solo encabezado (típico de un slide de título),
-		// subtítulo, antetítulo o logo no está vacío.
-		if len(slide.Elements) == 0 && slide.Title == "" && slide.Heading == "" &&
-			slide.Subtitle == "" && slide.Kicker == "" && slide.Logo == "" {
+		if !blockHasContent(slide) {
 			return []diagnostics.Diagnostic{
 				diagnostics.NewWarning("Slide appears to be empty (no title or elements)",
 					slide.GetPosition(), "linter").WithRuleID("SLIDE002"),
@@ -141,17 +154,23 @@ func (r *ParseErrorDetectionRule) Check(node ast.Node) []diagnostics.Diagnostic 
 
 	if astNode, ok := node.(*ast.AST); ok {
 		// Verificar si hay slides con elementos mal formateados
-		for i, slide := range astNode.ContentBlocks {
-			// Verificar si el slide tiene título pero no elementos (posible error de sintaxis)
-			if slide.Title == "" && len(slide.Elements) == 0 {
+		for i := range astNode.ContentBlocks {
+			slide := &astNode.ContentBlocks[i]
+			empty := !blockHasContent(slide)
+
+			// Un slide sin nada suele ser contenido mal indentado que el
+			// parser dejó fuera del bloque (posible error de sintaxis)
+			if empty {
 				diags = append(diags,
 					diagnostics.NewWarning(
 						"Slide appears empty - check syntax. Content should be indented under SLIDE declaration",
 						slide.GetPosition(), "linter").WithRuleID("SYNTAX001"))
 			}
 
-			// Verificar slides consecutivos vacíos (posible bucle de parsing)
-			if i > 0 && len(slide.Elements) == 0 && len(astNode.ContentBlocks[i-1].Elements) == 0 {
+			// Verificar slides consecutivos vacíos (posible bucle de parsing).
+			// Un slide con solo título o encabezado ya no cuenta: dos
+			// portadas o divisores seguidos son un deck válido.
+			if i > 0 && empty && !blockHasContent(&astNode.ContentBlocks[i-1]) {
 				diags = append(diags,
 					diagnostics.NewError(
 						"Multiple consecutive empty slides detected - possible parsing error",
@@ -160,7 +179,7 @@ func (r *ParseErrorDetectionRule) Check(node ast.Node) []diagnostics.Diagnostic 
 		}
 
 		// Verificar si el AST parece mal formado (muy pocos slides vs contenido esperado)
-		if len(astNode.ContentBlocks) == 1 && astNode.ContentBlocks[0].Title == "" && len(astNode.ContentBlocks[0].Elements) == 0 {
+		if len(astNode.ContentBlocks) == 1 && !blockHasContent(&astNode.ContentBlocks[0]) {
 			diags = append(diags,
 				diagnostics.NewWarning(
 					"Document appears to have parsing issues - ensure content is properly indented",

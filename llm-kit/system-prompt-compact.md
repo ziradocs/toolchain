@@ -103,11 +103,11 @@ Without a `layout:` block every flex slide is `title`/`content`.
 
 ## Validation summary (ZiraDocs; full mapping in validation-checklist.md)
 Must pass: frontmatter present (`FRONT003`, error), >=1 slide (`CORE001`,
-error), no two consecutive zero-element slides — title alone doesn't save
-you (`PARSE001`, error), tables same column count (`TABLE003`, error), code
-groups >=1 block (`CODEGROUP001`, error), images have source (`IMG001`,
-error). Set `mode:` explicitly even though a missing one is only a warning
-(`FRONT001`) that silently defaults to `auto`. Empty slides otherwise just
+error), no two consecutive empty slides — no elements and no
+title/heading/subtitle/kicker/logo (`PARSE001`, error), tables same column
+count (`TABLE003`, error), code groups >=1 block (`CODEGROUP001`, error),
+images have source (`IMG001`, error). Set `mode:` explicitly even though a
+missing one is only a warning (`FRONT001`) that silently defaults to `auto`. Empty slides otherwise just
 warn (`SLIDE002`). Title slides need `heading` or `title` (`LAYOUT001`,
 error — prefer `heading`). Strict-only: content slides need title or
 elements (`STRICT002`).
