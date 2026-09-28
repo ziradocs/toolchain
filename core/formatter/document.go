@@ -134,7 +134,7 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	case *ast.PointsElement:
 		body = formatPointItems(e.Items, e.ListType)
 	case *ast.CodeElement:
-		body = formatFlexCode(e)
+		body, err = formatFlexCode(e)
 	case *ast.ImageElement:
 		body, err = formatFlexImage(e)
 	case *ast.TableElement:
@@ -251,8 +251,15 @@ func stripTags(s string) string {
 	return renderer.UnescapeHTML(s)
 }
 
-func formatFlexCode(e *ast.CodeElement) string {
-	return "```" + e.Language + "\n" + e.Content + "\n```"
+func formatFlexCode(e *ast.CodeElement) (string, error) {
+	info := e.Language
+	if e.Filename != "" {
+		if err := checkCodeFilename(e); err != nil {
+			return "", err
+		}
+		info += " " + e.Filename
+	}
+	return "```" + info + "\n" + e.Content + "\n```", nil
 }
 
 // formatFlexImage serializa "![alt](source)". No hay forma de portar

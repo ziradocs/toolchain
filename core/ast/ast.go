@@ -111,7 +111,9 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.18.0: MediaElement.poster and .caption (media-figure-v1). Like
 // table-rows-v1, the capability is inferred from authored syntax
 // (`poster=`/`caption=` on <<video>>/<<audio>>), not declared in frontmatter.
-const SchemaVersion = "2.18.0"
+// 2.19.0: CodeElement.filename (code-filename-v1), inferred from the authored
+// `CODE <lang> <file>` or fence ```lang file``` syntax.
+const SchemaVersion = "2.19.0"
 
 const PreviousSchemaVersion = "2.13.0"
 const LegacySchemaVersion = "2.14.0"
@@ -119,10 +121,12 @@ const TableSchemaVersion = "2.15.0"
 const NestedListSchemaVersion = "2.16.0"
 const TypedHeadingsSchemaVersion = "2.17.0"
 const MediaFigureSchemaVersion = "2.18.0"
+const CodeFilenameSchemaVersion = "2.19.0"
 const TableRowsCapability = "table-rows-v1"
 const NestedListTypesCapability = "nested-list-types-v1"
 const TypedHeadingsCapability = "typed-headings-v1"
 const MediaFigureCapability = "media-figure-v1"
+const CodeFilenameCapability = "code-filename-v1"
 
 // Node representa un nodo base en el AST
 type Node interface {

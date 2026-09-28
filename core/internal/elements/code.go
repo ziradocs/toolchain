@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -44,31 +45,40 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
 	if ctx.Mode == "strict" {
-		element, consumed := p.parseStrictCode(ctx, startIndex, pos, line)
+		element, consumed, err := p.parseStrictCode(ctx, startIndex, pos, line)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,
-			Error:         nil,
+			Error:         err,
 		}
 	} else {
-		element, consumed := p.parseFlexCode(ctx, startIndex, pos, line)
+		element, consumed, err := p.parseFlexCode(ctx, startIndex, pos, line)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,
-			Error:         nil,
+			Error:         err,
 		}
 	}
 }
 
 // parseStrictCode handles strict mode code parsing: CODE language
-func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int) {
+func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, error) {
 	parts := strings.Fields(line)
 	consumedLines := 1 // skip CODE line
 
-	// Extract language if specified
-	language := ""
+	// `CODE <lenguaje> <archivo>`: el tercer token es el nombre de archivo
+	// (code-filename-v1). Antes se descartaba en silencio, igual que
+	// cualquier token de más; ahora un cuarto token es un error.
+	language, filename := "", ""
+	var headerErr error
 	if len(parts) > 1 {
 		language = parts[1]
+	}
+	if len(parts) > 2 {
+		filename = parts[2]
+	}
+	if len(parts) > 3 {
+		headerErr = fmt.Errorf("CODE takes at most a language and a filename; unexpected %q", strings.Join(parts[3:], " "))
 	}
 	var content strings.Builder
 	expectedIndent := -1 // Auto-detect indentation level
@@ -119,13 +129,14 @@ func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diag
 	}
 
 	codeElement := ast.NewCodeElement(pos, language, strings.TrimSuffix(content.String(), "\n"))
-	return codeElement, consumedLines
+	codeElement.Filename = filename
+	return codeElement, consumedLines, headerErr
 }
 
 // parseFlexCode handles flex mode code parsing: ```language
-func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int) {
-	// Extract language from ```language
-	language := strings.TrimSpace(line[3:])
+func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, error) {
+	// ```lenguaje [archivo] o ```lenguaje title="archivo"
+	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[3:]))
 	consumedLines := 1 // skip opening ``` line
 
 	var content strings.Builder
@@ -147,5 +158,40 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 	}
 
 	codeElement := ast.NewCodeElement(pos, language, content.String())
-	return codeElement, consumedLines
+	codeElement.Filename = filename
+	return codeElement, consumedLines, headerErr
+}
+
+// parseFenceInfo separa la línea de info de una fence (```ts renewals.ts o
+// ```ts title="renewals.ts") en lenguaje y nombre de archivo. Antes todo el
+// resto de la línea terminaba en Language ("ts renewals.ts"), así que el
+// lenguaje quedaba contaminado y el nombre sin campo propio.
+func parseFenceInfo(info string) (language, filename string, err error) {
+	if info == "" {
+		return "", "", nil
+	}
+	language, rest, _ := strings.Cut(info, " ")
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return language, "", nil
+	}
+	// `[etiqueta]` (la sintaxis de code-group) y `{1,3-5}` (líneas
+	// resaltadas) no son nombres de archivo: conservan el comportamiento
+	// anterior, en el que la línea completa queda como Language.
+	if strings.HasPrefix(rest, "[") || strings.HasPrefix(rest, "{") {
+		return info, "", nil
+	}
+	if value, ok := strings.CutPrefix(rest, "title="); ok {
+		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+			value = value[1 : len(value)-1]
+		}
+		if strings.TrimSpace(value) == "" || strings.ContainsAny(value, " \t") {
+			return language, "", fmt.Errorf("code fence title %q must be a filename without spaces", value)
+		}
+		return language, value, nil
+	}
+	if strings.ContainsAny(rest, " \t") {
+		return language, "", fmt.Errorf("code fence info %q takes at most a language and a filename", info)
+	}
+	return language, rest, nil
 }

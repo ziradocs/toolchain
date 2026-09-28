@@ -86,7 +86,7 @@ point_item        ::= ("-" | "*" | "+" | DIGIT+ ".") text_content NEWLINE
 checklist_element ::= "CHECKLIST" INDENT checklist_item+ DEDENT
 checklist_item     ::= ("-" | "*" | "+")? "[" ("x" | "X" | " ") "]" text_content NEWLINE
 image_element     ::= "IMAGE" INDENT property+ DEDENT
-code_element      ::= "CODE" INDENT code_content DEDENT
+code_element      ::= "CODE" (language filename?)? INDENT code_content DEDENT
 table_element     ::= "TABLE" INDENT table_data DEDENT
 
 directive_element ::= "@" directive_name ":" directive_value
@@ -104,6 +104,11 @@ may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on
 its parent as `subListType`; mixed ordered/unordered siblings in one list are
 diagnosed. See [portable nested list types](../../docs/portable-nested-list-types.md).
+
+`CODE typescript renewals.ts` records `renewals.ts` as the block's filename
+(`CodeElement.filename`, schema 2.19.0, inferred capability
+`code-filename-v1`); a flex fence takes it after the language or as
+`title="…"`. See [code block filenames](../../docs/portable-code-filenames.md).
 
 A `heading_element` is a subsection heading inside a slide, the strict form of
 flex `###`–`######`. `level:` defaults to 3; `id:` overrides the anchor, which

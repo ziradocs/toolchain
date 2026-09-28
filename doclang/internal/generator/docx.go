@@ -1938,6 +1938,27 @@ func (g *DOCXGenerator) renderPoints(doc domain.Document, elem *ast.PointsElemen
 }
 
 func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) error {
+	// Nombre de archivo (code-filename-v1) en negrita sobre el bloque.
+	if elem.Filename != "" {
+		p, err := doc.AddParagraph()
+		if err != nil {
+			return err
+		}
+		if err := p.SetSpacingAfter(0); err != nil {
+			return fmt.Errorf("invalid spacing after: %w", err)
+		}
+		r, err := p.AddRun()
+		if err != nil {
+			return err
+		}
+		_ = r.SetText(elem.Filename)
+		_ = r.SetBold(true)
+		if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
+			return fmt.Errorf("invalid font size: %w", err)
+		}
+		_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+	}
+
 	// Párrafo para código con fondo y monospace
 	lines := strings.Split(elem.Content, "\n")
 

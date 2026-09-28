@@ -401,6 +401,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 			case *ast.CodeElement:
 				elementData.Content = ProcessVariables(elem.Content, variables)
 				elementData.Language = elem.Language
+				elementData.CodeFilename = elem.Filename
 			case *ast.ImageElement:
 				source := ProcessVariables(elem.Source, variables)
 				// Validar el esquema para prevenir javascript: y data: URIs

@@ -1170,9 +1170,18 @@ func (g *Generator) pptxAddCode(s *pptx.Slide, e *ast.CodeElement, cursorY int) 
 	// líneas reales, no por pptxCharsPerLine, porque un bloque de código
 	// típico es angosto y contarlo como prosa sobreestimaría la altura.
 	lineCount := strings.Count(e.Content, "\n") + 1
+	if e.Filename != "" {
+		lineCount++ // línea del nombre de archivo (code-filename-v1)
+	}
 	height := lineCount * pptxLineHeightEMU
 
 	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
+	if e.Filename != "" {
+		name := tb.AddParagraph().NoBullet()
+		name.Text(e.Filename)
+		name.Font(pptxMonoFont)
+		name.FontSize(pptxCodeFontSizePt)
+	}
 	para := tb.AddParagraph().NoBullet()
 	para.Text(e.Content)
 	para.Font(pptxMonoFont)

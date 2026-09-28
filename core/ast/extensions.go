@@ -31,6 +31,19 @@ var extensions = []extension{
 	{NestedListTypesCapability, NestedListSchemaVersion, UsesNestedListTypes},
 	{TypedHeadingsCapability, TypedHeadingsSchemaVersion, UsesTypedHeadings},
 	{MediaFigureCapability, MediaFigureSchemaVersion, UsesMediaFigure},
+	{CodeFilenameCapability, CodeFilenameSchemaVersion, UsesCodeFilename},
+}
+
+// UsesCodeFilename reporta si algún CodeElement declara filename.
+func UsesCodeFilename(doc *AST) bool {
+	used := false
+	_ = Walk(doc, func(n Node) error {
+		if c, ok := n.(*CodeElement); ok && c.Filename != "" {
+			used = true
+		}
+		return nil
+	})
+	return used
 }
 
 // UsesMediaFigure reporta si algún MediaElement declara poster o caption.
@@ -181,6 +194,7 @@ func describeUsed(caps []string) string {
 		NestedListTypesCapability: "nested lists",
 		TypedHeadingsCapability:   "typed headings",
 		MediaFigureCapability:     "media poster/caption",
+		CodeFilenameCapability:    "code filenames",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {
