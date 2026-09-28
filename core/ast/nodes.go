@@ -416,9 +416,47 @@ type TextElement struct {
 	// what renderer.PopulateLangRuns already found and silently discarded.
 	// Same re-derivation/never-cleared rules as LangRuns.
 	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
+	// HeadingSource y HeadingAnchor son la fuente autoral de un encabezado
+	// legado (IsRawHTML con Level > 0): el texto inline tal como se escribió y
+	// el anchor ya resuelto. Viven solo en memoria (no se serializan) para que
+	// el parser pueda promover el encabezado a HeadingElement cuando el
+	// documento declara typed-headings-v1, sin des-renderizar el HTML (lo cual
+	// pierde el énfasis inline) y sin pasar la bandera por cada parser.
+	HeadingSource string `json:"-" tstype:"-"`
+	HeadingAnchor string `json:"-" tstype:"-"`
 }
 
 func (t TextElement) element() {}
+
+// HeadingElement es un encabezado portable y tipado (typed-headings-v1, AST
+// 2.17.0). Reemplaza, solo cuando el documento lo pide, al TextElement con
+// HTML crudo `<hN id>` que siguen produciendo los documentos legados.
+//
+//   - Level es el nivel HTML (1-6). SlideLang usa 3-6 dentro de un slide;
+//     DocLang 2-6 dentro de una sección.
+//   - Text es la fuente inline autoral (Markdown inline de una línea), no
+//     HTML. Es lo que un formatter reemite, así que el énfasis sobrevive.
+//   - Anchor es el id HTML ya resuelto (derivado del texto o declarado con
+//     `id:` en strict). Es independiente de NodeID: el anchor puede cambiar
+//     al reordenar encabezados con el mismo texto, el NodeID autoral no.
+//   - TextHTML es Text renderizado (inline, sanitizado), poblado por
+//     renderer.PopulateInlineHTML; nunca se confía en el de un filtro.
+type HeadingElement struct {
+	BaseNode          `tstype:",extends,required"`
+	Level             int       `json:"level"`
+	Text              string    `json:"text"`
+	Anchor            string    `json:"anchor"`
+	TextHTML          string    `json:"textHTML,omitempty"`
+	LangRuns          []LangRun `json:"langRuns,omitempty"`
+	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
+}
+
+func (h HeadingElement) element() {}
+
+// NewHeadingElement crea un encabezado tipado.
+func NewHeadingElement(pos diagnostics.Position, level int, text, anchor string) *HeadingElement {
+	return &HeadingElement{BaseNode: NewBaseNode(NodeTypeHeading, pos), Level: level, Text: text, Anchor: anchor}
+}
 
 // NewTextElement crea un nuevo elemento de texto
 func NewTextElement(pos diagnostics.Position, content string) *TextElement {

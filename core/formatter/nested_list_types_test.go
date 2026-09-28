@@ -65,7 +65,7 @@ func parseTypedStrict(t *testing.T, source string) *ast.AST {
 
 func TestNestedListTypesStrictRoundTrip(t *testing.T) {
 	doc := parseTypedStrict(t, typedStrictSource)
-	if doc.SchemaVersion != ast.SchemaVersion || !reflect.DeepEqual(doc.Capabilities, []string{ast.NestedListTypesCapability}) {
+	if doc.SchemaVersion != ast.NestedListSchemaVersion || !reflect.DeepEqual(doc.Capabilities, []string{ast.NestedListTypesCapability}) {
 		t.Fatalf("contract: %s %v", doc.SchemaVersion, doc.Capabilities)
 	}
 	points := doc.ContentBlocks[0].Elements[0].(*ast.PointsElement)
@@ -247,7 +247,7 @@ func TestNestedListTypesBothDSLsAndDialects(t *testing.T) {
 				return doc
 			}
 			doc := parse(tc.source)
-			if doc.SchemaVersion != ast.SchemaVersion {
+			if doc.SchemaVersion != ast.NestedListSchemaVersion {
 				t.Fatalf("version %s", doc.SchemaVersion)
 			}
 			var points *ast.PointsElement

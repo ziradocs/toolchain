@@ -54,6 +54,12 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 			elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 		}
 
+	case *ast.HeadingElement:
+		// Mismo orden que el legado: Markdown inline de una línea primero y
+		// después {{variables}} con el valor escapado (ver
+		// renderer.HeadingHTML y el caso IsRawHTML de arriba).
+		elem.TextHTML = ProcessVariablesEscapeValues(ProcessInlineMarkdownSecureLine(elem.Text), variables)
+
 	case *ast.PointsElement:
 		for i := range elem.Items {
 			populatePointItemHTML(&elem.Items[i], variables)

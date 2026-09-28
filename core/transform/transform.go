@@ -67,6 +67,7 @@ const DefaultFilterTimeout = 30 * time.Second
 func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 	for i, t := range builtins {
 		hadNestedLists := ast.UsesNestedListTypes(doc)
+		hadHeadings := ast.UsesTypedHeadings(doc)
 		var err error
 		doc, err = t(doc)
 		if err != nil {
@@ -78,10 +79,13 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 		if hadNestedLists && !ast.UsesNestedListTypes(doc) {
 			return nil, fmt.Errorf("built-in transform #%d removed nested list types", i)
 		}
+		if hadHeadings && !ast.UsesTypedHeadings(doc) {
+			return nil, fmt.Errorf("built-in transform #%d removed typed headings", i)
+		}
 		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
 			return nil, fmt.Errorf("built-in transform #%d: %s", i, issues[0].String())
 		}
-		if ast.UsesTableRows(doc) || ast.UsesNestedListTypes(doc) || doc.SchemaVersion == ast.TableSchemaVersion || doc.SchemaVersion == ast.SchemaVersion || len(doc.Capabilities) > 0 {
+		if ast.DeclaresExtendedContract(doc) {
 			if err := ast.ValidateTableContract(doc); err != nil {
 				return nil, fmt.Errorf("built-in transform #%d: %w", i, err)
 			}
@@ -100,7 +104,8 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast.AST, error) {
 	for _, path := range filterPaths {
 		var nestedFingerprints map[string]ast.NestedListFingerprint
-		if ast.UsesTableRows(doc) || ast.UsesNestedListTypes(doc) {
+		var headingFingerprints map[string]int
+		if ast.UsesExtensions(doc) {
 			if err := ast.ValidateTableContract(doc); err != nil {
 				return nil, fmt.Errorf("filter %q input: %w", path, err)
 			}
@@ -115,6 +120,9 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 				if err != nil {
 					return nil, fmt.Errorf("filter %q: %w", path, err)
 				}
+			}
+			if ast.UsesTypedHeadings(doc) {
+				headingFingerprints = ast.TypedHeadingFingerprints(doc)
 			}
 			if err := negotiateASTCapabilities(path, timeout, doc); err != nil {
 				return nil, fmt.Errorf("filter %q: %w", path, err)
@@ -141,6 +149,14 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 			}
 			if !reflect.DeepEqual(nestedFingerprints, afterFingerprints) {
 				return nil, fmt.Errorf("filter %q: nested list nodeId ownership or list types changed", path)
+			}
+		}
+		if ast.UsesTypedHeadings(before) {
+			if !ast.UsesTypedHeadings(doc) {
+				return nil, fmt.Errorf("filter %q: typed headings or capability were removed", path)
+			}
+			if !reflect.DeepEqual(headingFingerprints, ast.TypedHeadingFingerprints(doc)) {
+				return nil, fmt.Errorf("filter %q: typed heading nodeId set or levels changed", path)
 			}
 		}
 		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
@@ -205,8 +221,12 @@ func negotiateASTCapabilities(path string, timeout time.Duration, doc *ast.AST) 
 			return fmt.Errorf("filter does not support schemaVersion %s and capability %s", doc.SchemaVersion, feature)
 		}
 	}
+	known := map[string]bool{}
+	for _, c := range ast.KnownCapabilities() {
+		known[c] = true
+	}
 	for _, feature := range response.Features {
-		if feature != ast.TableRowsCapability && feature != ast.NestedListTypesCapability {
+		if !known[feature] {
 			return fmt.Errorf("filter reports unknown capability %s", feature)
 		}
 	}

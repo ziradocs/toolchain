@@ -5,7 +5,6 @@ package parser
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -34,9 +33,10 @@ type FlexParser struct {
 	// pendingKicker guarda el antetítulo del mismo bloque de metadata para el
 	// slide siguiente. A diferencia de las opciones, no depende del layout.
 	pendingKicker string
-	// usedAnchors cuenta cuántas veces se emitió cada anchor de encabezado
-	// en ESTE documento, para desduplicarlos (ver uniqueHeadingAnchor).
-	usedAnchors map[string]int
+	// headingAnchors cuenta cuántas veces se emitió cada anchor de
+	// encabezado en ESTE documento, para desduplicarlos (ver
+	// uniqueHeadingAnchor y elements.HeadingAnchors).
+	headingAnchors elements.HeadingAnchors
 	// pendingLayoutConfig son las opciones leídas del mismo bloque de
 	// metadata que pendingLayout, para el bloque que sigue (issue #255).
 	pendingLayoutConfig layouts.Config
@@ -671,27 +671,7 @@ func isLayoutName(value string) bool {
 // función es idempotente sobre su propia salida: "heading-details-2" ya
 // está saneado, así que vuelve igual.
 func (p *FlexParser) uniqueHeadingAnchor(text string) string {
-	base := elements.DeriveAnchor(text)
-	prefixed := "heading"
-	if base != "" {
-		prefixed = "heading-" + base
-	}
-
-	if p.usedAnchors == nil {
-		p.usedAnchors = make(map[string]int)
-	}
-
-	// Se prueba el anchor y, si ya se usó, se le va sumando sufijo hasta dar
-	// con uno libre. El bucle, y no un contador por base, porque el sufijo
-	// puede chocar con un anchor REAL: un deck con "### Details",
-	// "### Details 2" y otro "### Details" derivaría "heading-details",
-	// "heading-details-2" y —con el atajo— un segundo "heading-details-2".
-	candidate := prefixed
-	for n := 2; p.usedAnchors[candidate] > 0; n++ {
-		candidate = prefixed + "-" + strconv.Itoa(n)
-	}
-	p.usedAnchors[candidate]++
-	return candidate
+	return p.headingAnchors.Unique(text)
 }
 
 // flexSubsectionLevel devuelve el nivel (3 a 6) si line es un encabezado de

@@ -6,119 +6,209 @@
     "AST": {
       "allOf": [
         {
-          "if": {
-            "properties": {
-              "schemaVersion": {
-                "const": "2.15.0"
-              }
-            },
-            "required": [
-              "schemaVersion"
-            ]
-          },
-          "then": {
-            "allOf": [
-              {
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
+                      "const": "table-rows-v1"
+                    }
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              },
+              "then": {
                 "$ref": "#/$defs/TableRowsPresent"
               },
-              {
+              "else": {
+                "not": {
+                  "$ref": "#/$defs/TableRowsPresent"
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
+                      "const": "nested-list-types-v1"
+                    }
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/NestedListPresent"
+              },
+              "else": {
                 "not": {
                   "$ref": "#/$defs/NestedListPresent"
                 }
               }
-            ],
-            "properties": {
-              "capabilities": {
-                "const": [
-                  "table-rows-v1"
-                ]
-              }
             },
-            "required": [
-              "capabilities"
-            ]
-          },
-          "else": {
-            "if": {
-              "properties": {
-                "schemaVersion": {
-                  "const": "2.16.0"
-                }
-              },
-              "required": [
-                "schemaVersion"
-              ]
-            },
-            "then": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/NestedListPresent"
-                },
-                {
-                  "$ref": "#/$defs/TypedPointTree"
-                },
-                {
-                  "if": {
-                    "properties": {
-                      "capabilities": {
-                        "contains": {
-                          "const": "table-rows-v1"
-                        }
-                      }
-                    },
-                    "required": [
-                      "capabilities"
-                    ]
-                  },
-                  "then": {
-                    "$ref": "#/$defs/TableRowsPresent"
-                  },
-                  "else": {
-                    "not": {
-                      "$ref": "#/$defs/TableRowsPresent"
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
+                      "const": "typed-headings-v1"
                     }
                   }
-                }
-              ],
-              "properties": {
-                "capabilities": {
-                  "items": {
-                    "enum": [
-                      "table-rows-v1",
-                      "nested-list-types-v1"
-                    ]
-                  },
-                  "contains": {
-                    "const": "nested-list-types-v1"
-                  },
-                  "type": "array",
-                  "maxItems": 2,
-                  "minItems": 1,
-                  "uniqueItems": true
-                }
+                },
+                "required": [
+                  "capabilities"
+                ]
               },
-              "required": [
-                "capabilities"
-              ]
+              "then": {
+                "$ref": "#/$defs/TypedHeadingPresent"
+              },
+              "else": {
+                "not": {
+                  "$ref": "#/$defs/TypedHeadingPresent"
+                }
+              }
             },
-            "else": {
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "capabilities"
-                    ]
-                  },
-                  {
-                    "$ref": "#/$defs/TableRowsPresent"
-                  },
-                  {
-                    "$ref": "#/$defs/NestedListPresent"
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
+                      "const": "nested-list-types-v1"
+                    }
                   }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/TypedPointTree"
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
+                    "const": "2.15.0"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "enum": [
+                        "table-rows-v1"
+                      ]
+                    },
+                    "contains": {
+                      "const": "table-rows-v1"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "capabilities"
                 ]
               }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
+                    "const": "2.16.0"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "enum": [
+                        "table-rows-v1",
+                        "nested-list-types-v1"
+                      ]
+                    },
+                    "contains": {
+                      "const": "nested-list-types-v1"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
+                    "const": "2.17.0"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "enum": [
+                        "table-rows-v1",
+                        "nested-list-types-v1",
+                        "typed-headings-v1"
+                      ]
+                    },
+                    "contains": {
+                      "const": "typed-headings-v1"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
+                    "enum": [
+                      "2.13.0",
+                      "2.14.0"
+                    ]
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "capabilities"
+                  ]
+                }
+              }
             }
-          }
+          ]
         }
       ],
       "properties": {
@@ -148,7 +238,8 @@
             "2.13.0",
             "2.14.0",
             "2.15.0",
-            "2.16.0"
+            "2.16.0",
+            "2.17.0"
           ]
         },
         "capabilities": {
@@ -597,6 +688,9 @@
               },
               {
                 "$ref": "#/$defs/MetricElement"
+              },
+              {
+                "$ref": "#/$defs/HeadingElement"
               }
             ]
           },
@@ -729,6 +823,9 @@
               },
               {
                 "$ref": "#/$defs/MetricElement"
+              },
+              {
+                "$ref": "#/$defs/HeadingElement"
               }
             ]
           },
@@ -1017,6 +1114,68 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "HeadingElement": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "heading"
+        },
+        "nodeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "endPosition": {
+          "$ref": "#/$defs/Position"
+        },
+        "comments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "level": {
+          "type": "integer",
+          "maximum": 6,
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
+        },
+        "anchor": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]*$"
+        },
+        "textHTML": {
+          "type": "string"
+        },
+        "langRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        },
+        "discardedLangRuns": {
+          "items": {
+            "$ref": "#/$defs/LangRun"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "position",
+        "endPosition",
+        "level",
+        "text",
+        "anchor"
+      ]
     },
     "ImageElement": {
       "properties": {
@@ -2075,6 +2234,9 @@
               },
               {
                 "$ref": "#/$defs/MetricElement"
+              },
+              {
+                "$ref": "#/$defs/HeadingElement"
               }
             ]
           },
@@ -2377,6 +2539,56 @@
         "position",
         "endPosition",
         "content"
+      ]
+    },
+    "TypedHeadingPresent": {
+      "anyOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "heading"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "properties": {
+            "contentBlocks": {
+              "contains": {
+                "$ref": "#/$defs/TypedHeadingPresent"
+              }
+            }
+          },
+          "required": [
+            "contentBlocks"
+          ]
+        },
+        {
+          "properties": {
+            "elements": {
+              "contains": {
+                "$ref": "#/$defs/TypedHeadingPresent"
+              }
+            }
+          },
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "properties": {
+            "columns": {
+              "contains": {
+                "$ref": "#/$defs/TypedHeadingPresent"
+              }
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        }
       ]
     },
     "TypedPointTree": {

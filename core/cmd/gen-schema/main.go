@@ -50,6 +50,7 @@ var elementTypes = []struct {
 	{"QuizElement", ast.NodeTypeQuiz, &ast.QuizElement{}},
 	{"PollElement", ast.NodeTypePoll, &ast.PollElement{}},
 	{"MetricElement", ast.NodeTypeMetric, &ast.MetricElement{}},
+	{"HeadingElement", ast.NodeTypeHeading, &ast.HeadingElement{}},
 }
 
 // nodeTypeConsts fija el valor literal del discriminador "type" para defs que
@@ -111,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.SchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -126,6 +127,23 @@ func main() {
 	if err := overrideProperty(root.Definitions, "TableRow", "section", &jsonschema.Schema{Type: "string", Enum: []any{"header", "body", "footer"}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	// Mismas reglas que ast.ValidateHeading: nivel 1-6, texto de una línea no
+	// vacío y anchor dentro de la lista blanca de renderer.SanitizeAnchor.
+	for prop, raw := range map[string]string{
+		"level":  `{"type":"integer","minimum":1,"maximum":6}`,
+		"text":   `{"type":"string","pattern":"^[^\\r\\n]*\\S[^\\r\\n]*$"}`,
+		"anchor": `{"type":"string","pattern":"^[a-z0-9_-]*$"}`,
+	} {
+		var constraint jsonschema.Schema
+		if err := json.Unmarshal([]byte(raw), &constraint); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := overrideProperty(root.Definitions, "HeadingElement", prop, &constraint); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	// This recursive schema follows ContentBlock.elements, nested special
 	// blocks, and grid columns. The root gate must agree with DecodeAST even
@@ -151,7 +169,18 @@ func main() {
 		os.Exit(1)
 	}
 	root.Definitions["TypedPointTree"] = &typedTree
-	gateJSON := fmt.Sprintf(`{"if":{"properties":{"schemaVersion":{"const":%q}},"required":["schemaVersion"]},"then":{"required":["capabilities"],"properties":{"capabilities":{"const":[%q]}},"allOf":[{"$ref":"#/$defs/TableRowsPresent"},{"not":{"$ref":"#/$defs/NestedListPresent"}}]},"else":{"if":{"properties":{"schemaVersion":{"const":%q}},"required":["schemaVersion"]},"then":{"required":["capabilities"],"properties":{"capabilities":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"enum":[%q,%q]},"contains":{"const":%q}}},"allOf":[{"$ref":"#/$defs/NestedListPresent"},{"$ref":"#/$defs/TypedPointTree"},{"if":{"properties":{"capabilities":{"contains":{"const":%q}}},"required":["capabilities"]},"then":{"$ref":"#/$defs/TableRowsPresent"},"else":{"not":{"$ref":"#/$defs/TableRowsPresent"}}}]},"else":{"not":{"anyOf":[{"required":["capabilities"]},{"$ref":"#/$defs/TableRowsPresent"},{"$ref":"#/$defs/NestedListPresent"}]}}}}`, ast.TableSchemaVersion, ast.TableRowsCapability, ast.SchemaVersion, ast.TableRowsCapability, ast.NestedListTypesCapability, ast.NestedListTypesCapability, ast.TableRowsCapability)
+	headingPresenceJSON := `{"anyOf":[{"required":["type"],"properties":{"type":{"const":"heading"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/TypedHeadingPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/TypedHeadingPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/TypedHeadingPresent"}}}}]}`
+	var headingPresence jsonschema.Schema
+	if err := json.Unmarshal([]byte(headingPresenceJSON), &headingPresence); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["TypedHeadingPresent"] = &headingPresence
+	gateJSON, err := contractGateJSON()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	var gate jsonschema.Schema
 	if err := json.Unmarshal([]byte(gateJSON), &gate); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -280,4 +309,48 @@ func overrideProperty(defs jsonschema.Definitions, defName, propName string, sch
 
 func themeModeSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "string", Enum: []any{"light", "dark"}}
+}
+
+// contractGateJSON arma el gate de versión/capabilities del AST a partir de la
+// misma regla que ast/extensions.go:
+//
+//   - por cada capability, declararla equivale a que su contenido esté
+//     presente (en cualquier profundidad de elementos);
+//   - cada versión extendida exige capabilities únicas, solo de extensiones de
+//     su versión o anteriores, y la de su propia versión;
+//   - las versiones legadas no declaran capabilities;
+//   - nested-list-types-v1 además exige el árbol de puntos tipado.
+func contractGateJSON() ([]byte, error) {
+	type ext struct{ capability, version, present string }
+	exts := []ext{
+		{ast.TableRowsCapability, ast.TableSchemaVersion, "TableRowsPresent"},
+		{ast.NestedListTypesCapability, ast.NestedListSchemaVersion, "NestedListPresent"},
+		{ast.TypedHeadingsCapability, ast.TypedHeadingsSchemaVersion, "TypedHeadingPresent"},
+	}
+	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
+	declares := func(capability string) map[string]any {
+		return map[string]any{"required": []any{"capabilities"}, "properties": map[string]any{"capabilities": map[string]any{"contains": map[string]any{"const": capability}}}}
+	}
+	versionIs := func(v string) map[string]any {
+		return map[string]any{"required": []any{"schemaVersion"}, "properties": map[string]any{"schemaVersion": map[string]any{"const": v}}}
+	}
+	var all []any
+	for _, e := range exts {
+		all = append(all, map[string]any{"if": declares(e.capability), "then": ref(e.present), "else": map[string]any{"not": ref(e.present)}})
+	}
+	all = append(all, map[string]any{"if": declares(ast.NestedListTypesCapability), "then": ref("TypedPointTree")})
+	var allowed []any
+	for _, e := range exts {
+		allowed = append(allowed, e.capability)
+		all = append(all, map[string]any{"if": versionIs(e.version), "then": map[string]any{
+			"required": []any{"capabilities"},
+			"properties": map[string]any{"capabilities": map[string]any{
+				"type": "array", "uniqueItems": true,
+				"items":    map[string]any{"enum": append([]any(nil), allowed...)},
+				"contains": map[string]any{"const": e.capability},
+			}},
+		}})
+	}
+	all = append(all, map[string]any{"if": map[string]any{"required": []any{"schemaVersion"}, "properties": map[string]any{"schemaVersion": map[string]any{"enum": []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion}}}}, "then": map[string]any{"not": map[string]any{"required": []any{"capabilities"}}}})
+	return json.Marshal(map[string]any{"allOf": all})
 }

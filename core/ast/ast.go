@@ -104,13 +104,20 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.16.0: opt-in PointItem.subListType for the list owned by subPoints.
 // Documents using both extensions declare both capabilities; tables alone
 // remain 2.15.0, and documents without either extension remain 2.14.0.
-const SchemaVersion = "2.16.0"
+// 2.17.0: opt-in typed HeadingElement (level, authored text, anchor) in place
+// of the raw `<hN id>` TextElement. The version of a document is the version
+// of the newest extension it actually uses (see extensions.go); documents
+// using no extension remain 2.14.0.
+const SchemaVersion = "2.17.0"
 
 const PreviousSchemaVersion = "2.13.0"
 const LegacySchemaVersion = "2.14.0"
 const TableSchemaVersion = "2.15.0"
+const NestedListSchemaVersion = "2.16.0"
+const TypedHeadingsSchemaVersion = "2.17.0"
 const TableRowsCapability = "table-rows-v1"
 const NestedListTypesCapability = "nested-list-types-v1"
+const TypedHeadingsCapability = "typed-headings-v1"
 
 // Node representa un nodo base en el AST
 type Node interface {
@@ -149,6 +156,7 @@ const (
 	NodeTypeQuiz          NodeType = "quiz"           // Pregunta de opción múltiple con respuesta correcta (issue #198)
 	NodeTypePoll          NodeType = "poll"           // Encuesta sin respuesta correcta (issue #198)
 	NodeTypeMetric        NodeType = "metric"         // KPI estructurado (issue #344)
+	NodeTypeHeading       NodeType = "heading"        // Encabezado tipado opt-in (typed-headings-v1, AST 2.17.0)
 )
 
 // BaseNode contiene campos comunes para todos los nodos

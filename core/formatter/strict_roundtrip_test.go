@@ -75,6 +75,14 @@ func normalizeElement(el ast.Element) ast.Element {
 		c := *e
 		c.Position, c.EndPosition = zeroPosition, zeroPosition
 		c.ContentHTML = ""
+		// Fuente autoral en memoria (no serializada); el Content ya compara
+		// el encabezado renderizado.
+		c.HeadingSource, c.HeadingAnchor = "", ""
+		return &c
+	case *ast.HeadingElement:
+		c := *e
+		c.Position, c.EndPosition = zeroPosition, zeroPosition
+		c.TextHTML = ""
 		return &c
 	case *ast.PointsElement:
 		c := *e

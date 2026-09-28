@@ -31,6 +31,9 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 	case *ast.TextElement:
 		return renderTextElement(elem, variables)
 
+	case *ast.HeadingElement:
+		return renderHeadingElement(elem, variables)
+
 	case *ast.PointsElement:
 		return renderPointsElement(elem, variables)
 

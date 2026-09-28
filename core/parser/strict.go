@@ -5,6 +5,7 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -26,10 +27,16 @@ import (
 // paralela las perdería en cuanto una de las dos derivara.
 type strictBody struct {
 	nestedListTypes bool
-	lines           []string
-	currentLine     int
-	diagnostics     []diagnostics.Diagnostic
-	logger          util.Logger
+	// slideHeadings habilita `SECTION "Texto"` como encabezado de subsección
+	// dentro de un SLIDE (issue #259). Solo el dialecto de presentaciones lo
+	// activa: en DocLang strict un SECTION es un bloque de nivel superior y
+	// uno indentado sigue siendo un error.
+	slideHeadings  bool
+	headingAnchors elements.HeadingAnchors
+	lines          []string
+	currentLine    int
+	diagnostics    []diagnostics.Diagnostic
+	logger         util.Logger
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]: el
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
@@ -91,9 +98,10 @@ func newStrictBodyParser(input string, lineOffset int, log util.Logger) *StrictP
 		log = util.NewNoop()
 	}
 	return &StrictParser{strictBody{
-		lines:      strings.Split(input, "\n"),
-		logger:     log,
-		lineOffset: lineOffset,
+		lines:         strings.Split(input, "\n"),
+		logger:        log,
+		lineOffset:    lineOffset,
+		slideHeadings: true,
 	}}
 }
 
@@ -399,6 +407,15 @@ func (p *strictBody) parseIndentedElements(
 		}
 		if stopAt != nil && stopAt(trimmedLine) {
 			break
+		}
+		// Encabezado de subsección de un slide. Va antes que las propiedades
+		// porque `SECTION "Q1: ventas"` tiene un ':' que parseBlockPropertyLine
+		// leería como clave/valor.
+		if p.slideHeadings && startsSectionKeyword(trimmedLine) {
+			if element := p.parseSlideHeading(); element != nil {
+				block.Elements = append(block.Elements, element)
+			}
+			continue
 		} // Parsear propiedades del bloque
 		if key, value, ok := parseBlockPropertyLine(trimmedLine); ok {
 			handleProperty(key, value)
@@ -1017,4 +1034,79 @@ func (p *strictBody) parseDirectiveElement() ast.Element {
 	ctx := p.parseContext()
 	result := directiveParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "@directive")
+}
+
+// minSlideHeadingLevel es el nivel más alto de un encabezado dentro de un
+// slide, igual que en flex: `#` abre un slide y `##` es su subtítulo, así que
+// un encabezado de subsección empieza en 3.
+const minSlideHeadingLevel = 3
+
+// parseSlideHeading consume un `SECTION "Texto"` dentro de un SLIDE y sus
+// propiedades indentadas (`level:` 3-6, por omisión 3, e `id:`). A diferencia
+// del SECTION de DocLang no tiene cuerpo: un slide es plano, así que los
+// elementos que siguen al encabezado van al mismo nivel de indentación que
+// él. Produce exactamente el mismo elemento que `###` en flex, con el anchor
+// repartido por la misma secuencia (elements.HeadingAnchors), de modo que
+// flex y strict emiten AST idéntico y `slidelang fmt` no pierde el
+// encabezado.
+func (p *strictBody) parseSlideHeading() ast.Element {
+	headerLine := p.currentLine
+	header := p.lines[headerLine]
+	headerIndent := len(header) - len(strings.TrimLeft(header, " \t"))
+	title, errMsg := parseSectionHeader(strings.TrimSpace(header))
+	p.currentLine++
+	if errMsg != "" {
+		p.addErrorAt(headerLine, errMsg)
+		return nil
+	}
+	if strings.TrimSpace(title) == "" {
+		p.addErrorAt(headerLine, fmt.Sprintf("%s inside a SLIDE requires a non-empty title", sectionKeyword))
+		return nil
+	}
+
+	level := minSlideHeadingLevel
+	explicitID := ""
+	for p.currentLine < len(p.lines) {
+		line := p.lines[p.currentLine]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			break
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		if indent <= headerIndent {
+			break
+		}
+		key, value, ok := parseBlockPropertyLine(trimmed)
+		switch {
+		case ok && key == "level":
+			n, convErr := strconv.Atoi(strings.TrimSpace(value))
+			if convErr != nil || n < minSlideHeadingLevel || n > maxSectionLevel {
+				p.addError(fmt.Sprintf("level of a %s inside a SLIDE must be an integer between %d and %d, got %q", sectionKeyword, minSlideHeadingLevel, maxSectionLevel, value))
+			} else {
+				level = n
+			}
+		case ok && key == "id":
+			explicitID = value
+			if elements.DeriveAnchor(value) == "" {
+				p.addError(fmt.Sprintf("id %q has no usable characters for an anchor (only letters, digits, '-' and '_' survive)", value))
+				explicitID = ""
+			}
+		case ok:
+			p.addError(fmt.Sprintf("Unknown %s property inside a SLIDE: %s. It accepts `level:` and `id:`.", sectionKeyword, key))
+		default:
+			p.addError(fmt.Sprintf("a %s inside a SLIDE has no body: %q must go at the slide's element indentation, not under the heading", sectionKeyword, trimmed))
+		}
+		p.currentLine++
+	}
+
+	anchor := ""
+	if explicitID != "" {
+		anchor = elements.DeriveAnchor(explicitID)
+		if !p.headingAnchors.Reserve(anchor) {
+			p.addErrorAt(headerLine, fmt.Sprintf("duplicate heading id %q in this presentation", anchor))
+		}
+	} else {
+		anchor = p.headingAnchors.Unique(title)
+	}
+	return elements.BuildHeadingElement(title, level, p.position(headerLine), anchor)
 }

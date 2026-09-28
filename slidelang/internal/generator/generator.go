@@ -119,6 +119,12 @@ func (g *Generator) GenerateWithOptions(astNode *ast.AST, format string, outputD
 		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 
+	// Los encabezados tipados se bajan a su forma legada para todo formato
+	// salvo JSON, que conserva el nodo tipado (ver renderer.LowerTypedHeadings).
+	if format != "json" {
+		astNode = renderer.LowerTypedHeadings(astNode)
+	}
+
 	switch format {
 	case "json":
 		return g.generateJSON(astNode, outputDir)
@@ -193,6 +199,7 @@ func (g *Generator) RenderASTJSON(astNode *ast.AST) ([]byte, error) {
 // asset a disco, un HTML con referencias a CSS/JS externos quedaría roto
 // para quien lo reciba.
 func (g *Generator) RenderHTMLPreview(astNode *ast.AST, opts GeneratorOptions, ctx *renderer.RenderContext) (string, error) {
+	astNode = renderer.LowerTypedHeadings(astNode) // ver GenerateWithOptions
 	opts.EmbedAssets = true
 	presentationConfig, err := g.preparePresentationConfig(astNode, "", opts, ctx)
 	if err != nil {

@@ -71,6 +71,8 @@ func DecodeElement(raw json.RawMessage) (Element, error) {
 		target = &PollElement{}
 	case NodeTypeMetric:
 		target = &MetricElement{}
+	case NodeTypeHeading:
+		target = &HeadingElement{}
 	case NodeTypeGrid:
 		target = &GridElement{}
 	case NodeTypeColumn:

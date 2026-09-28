@@ -4,7 +4,7 @@
 package elements
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -55,20 +55,25 @@ func BuildHeadingElement(text string, level int, pos diagnostics.Position, expli
 	// Se usa la variante "Line" (no la ProcessInlineMarkdownSecure genérica):
 	// un header es una sola línea y nunca debe interpretarse como lista
 	// ("- Foo" no debe volverse <ul><li>Foo</li></ul> dentro de un <h3>).
-	processedText := renderer.ProcessInlineMarkdownSecureLine(text)
-
 	anchorSource := text
 	if explicitID != "" {
 		anchorSource = explicitID
 	}
 	anchor := DeriveAnchor(anchorSource)
 
-	htmlContent := fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", level, anchor, processedText, level)
+	// renderer.HeadingHTML es el único productor del `<hN id>`: lo usan este
+	// constructor y la bajada de HeadingElement a la forma legada, así que un
+	// encabezado tipado y uno legado no pueden divergir en el HTML.
+	htmlContent := renderer.HeadingHTML(level, text, anchor)
 
 	// Expose the level as a semantic field alongside the rendered `<hN>`, so
 	// a linter rule doesn't have to re-parse the HTML (issue #22).
 	el := ast.NewRawHTMLTextElement(pos, htmlContent)
 	el.Level = level
+	// Fuente autoral en memoria para promover a HeadingElement cuando el
+	// documento declara typed-headings-v1 (ver ast.PromoteTypedHeadings).
+	el.HeadingSource = text
+	el.HeadingAnchor = anchor
 	return el
 }
 
@@ -146,4 +151,46 @@ func (p *HeadingParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       BuildHeadingElement(text, level, ctx.Position(startIndex), explicitID),
 		ConsumedLines: 1,
 	}
+}
+
+// HeadingAnchors reparte los anchors de los encabezados de un deck de
+// SlideLang: el prefijo fijo "heading-" más un sufijo numérico cuando el
+// anchor ya se usó (ver el comentario de FlexParser.uniqueHeadingAnchor para
+// por qué el prefijo existe). Vive acá, y no en el parser, porque el parser
+// flex, el strict y el formatter tienen que reproducir exactamente la misma
+// secuencia: el formatter decide si emitir `id:` comparando el anchor real
+// contra el que el parser derivaría en esa misma posición.
+type HeadingAnchors struct {
+	used map[string]int
+}
+
+// Derive devuelve el anchor que Unique asignaría a text, sin registrarlo.
+func (a *HeadingAnchors) Derive(text string) string {
+	base := DeriveAnchor(text)
+	prefixed := "heading"
+	if base != "" {
+		prefixed = "heading-" + base
+	}
+	candidate := prefixed
+	for n := 2; a.used[candidate] > 0; n++ {
+		candidate = prefixed + "-" + strconv.Itoa(n)
+	}
+	return candidate
+}
+
+// Unique deriva el anchor de text y lo registra.
+func (a *HeadingAnchors) Unique(text string) string {
+	candidate := a.Derive(text)
+	a.Reserve(candidate)
+	return candidate
+}
+
+// Reserve registra un anchor declarado por el autor. Devuelve false si ya se
+// había usado, en cuyo caso el caller reporta el duplicado.
+func (a *HeadingAnchors) Reserve(anchor string) bool {
+	if a.used == nil {
+		a.used = make(map[string]int)
+	}
+	a.used[anchor]++
+	return a.used[anchor] == 1
 }
