@@ -18,7 +18,12 @@ import (
 // implementador de ast.Element (el ast del DSL, en go.ziradocs.com/core/v2/ast
 // — no el go/ast de este archivo) deliberadamente no tiene un case propio en
 // el switch principal de PrepareTemplateDataWithOptions (converter.go).
-var excludedFromElementCoverage = map[string]string{}
+var excludedFromElementCoverage = map[string]string{
+	// Se baja a su TextElement legado (renderer.LegacyHeadingElement) justo
+	// antes de armar elementData, así que el switch lo ve como "text" y la
+	// plantilla nunca recibe un tipo que no conoce.
+	"HeadingElement": "bajado a TextElement legado antes del switch",
+}
 
 // TestConverterCoversAllElementImplementers cubre issue #35: el switch
 // principal de PrepareTemplateDataWithOptions (converter.go) debe tener un

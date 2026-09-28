@@ -35,7 +35,7 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 	var b strings.Builder
 
 	var fm string
-	if fmNode := nestedListFrontMatter(doc, "strict"); fmNode != nil {
+	if fmNode := extensionFrontMatter(doc, "strict"); fmNode != nil {
 		var err error
 		fm, err = formatFrontMatter(fmNode, frontMatterOverrides(fmNode, "strict"), frontMatterFallbacks(fmNode))
 		if err != nil {
@@ -149,6 +149,10 @@ type documentHeading struct {
 // énfasis. Un canonicalizador legítimo, no una pérdida silenciosa: el
 // documento resultante re-parsea a la misma estructura.
 func asDocumentHeading(el ast.Element) (documentHeading, bool) {
+	if h, ok := el.(*ast.HeadingElement); ok {
+		// El tipado trae la fuente autoral: nada que des-renderizar.
+		return documentHeading{level: h.Level, id: h.Anchor, text: h.Text}, true
+	}
 	t, ok := el.(*ast.TextElement)
 	if !ok || !t.IsRawHTML {
 		return documentHeading{}, false

@@ -92,13 +92,20 @@ import type { Position } from "./diagnostics";
  * 2.16.0: opt-in PointItem.subListType for the list owned by subPoints.
  * Documents using both extensions declare both capabilities; tables alone
  * remain 2.15.0, and documents without either extension remain 2.14.0.
+ * 2.17.0: opt-in typed HeadingElement (level, authored text, anchor) in place
+ * of the raw `<hN id>` TextElement. The version of a document is the version
+ * of the newest extension it actually uses (see extensions.go); documents
+ * using no extension remain 2.14.0.
  */
-export const SchemaVersion = "2.16.0";
+export const SchemaVersion = "2.17.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
+export const NestedListSchemaVersion = "2.16.0";
+export const TypedHeadingsSchemaVersion = "2.17.0";
 export const TableRowsCapability = "table-rows-v1";
 export const NestedListTypesCapability = "nested-list-types-v1";
+export const TypedHeadingsCapability = "typed-headings-v1";
 /**
  * Node representa un nodo base en el AST
  */
@@ -133,6 +140,7 @@ export const NodeTypeMedia: NodeType = "media"; // Audio/video embebido (issue #
 export const NodeTypeQuiz: NodeType = "quiz"; // Pregunta de opción múltiple con respuesta correcta (issue #198)
 export const NodeTypePoll: NodeType = "poll"; // Encuesta sin respuesta correcta (issue #198)
 export const NodeTypeMetric: NodeType = "metric"; // KPI estructurado (issue #344)
+export const NodeTypeHeading: NodeType = "heading"; // Encabezado tipado opt-in (typed-headings-v1, AST 2.17.0)
 /**
  * BaseNode contiene campos comunes para todos los nodos
  */
@@ -178,6 +186,10 @@ export interface DirectiveNode extends BaseNode {
   name: string;
   parameters?: { [key: string]: any};
 }
+
+//////////
+// source: extensions.go
+
 
 //////////
 // source: identity.go
@@ -506,7 +518,8 @@ export type Element =
   | MediaElement
   | QuizElement
   | PollElement
-  | MetricElement;
+  | MetricElement
+  | HeadingElement;
 /**
  * TextElement representa un bloque de texto
  */
@@ -553,6 +566,28 @@ export interface TextElement extends BaseNode {
    * what renderer.PopulateLangRuns already found and silently discarded.
    * Same re-derivation/never-cleared rules as LangRuns.
    */
+  discardedLangRuns?: LangRun[];
+}
+/**
+ * HeadingElement es un encabezado portable y tipado (typed-headings-v1, AST
+ * 2.17.0). Reemplaza, solo cuando el documento lo pide, al TextElement con
+ * HTML crudo `<hN id>` que siguen produciendo los documentos legados.
+ *   - Level es el nivel HTML (1-6). SlideLang usa 3-6 dentro de un slide;
+ *     DocLang 2-6 dentro de una sección.
+ *   - Text es la fuente inline autoral (Markdown inline de una línea), no
+ *     HTML. Es lo que un formatter reemite, así que el énfasis sobrevive.
+ *   - Anchor es el id HTML ya resuelto (derivado del texto o declarado con
+ *     `id:` en strict). Es independiente de NodeID: el anchor puede cambiar
+ *     al reordenar encabezados con el mismo texto, el NodeID autoral no.
+ *   - TextHTML es Text renderizado (inline, sanitizado), poblado por
+ *     renderer.PopulateInlineHTML; nunca se confía en el de un filtro.
+ */
+export interface HeadingElement extends BaseNode {
+  level: number /* int */;
+  text: string;
+  anchor: string;
+  textHTML?: string;
+  langRuns?: LangRun[];
   discardedLangRuns?: LangRun[];
 }
 /**

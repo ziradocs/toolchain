@@ -11,6 +11,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/layouts"
 )
 
@@ -39,7 +40,7 @@ func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 	var b strings.Builder
 
 	var fm string
-	if fmNode := nestedListFrontMatter(doc, "strict"); fmNode != nil {
+	if fmNode := extensionFrontMatter(doc, "strict"); fmNode != nil {
 		var err error
 		fm, err = formatFrontMatter(fmNode, frontMatterOverrides(fmNode, "strict"), frontMatterFallbacks(fmNode))
 		if err != nil {
@@ -48,11 +49,13 @@ func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 	}
 	b.WriteString(fm)
 
+	// Una sola secuencia de anchors para todo el deck, igual que el parser.
+	anchors := &elements.HeadingAnchors{}
 	for i, block := range doc.ContentBlocks {
 		if i > 0 || fm != "" {
 			b.WriteString("\n")
 		}
-		blockText, err := formatStrictContentBlock(&block)
+		blockText, err := formatStrictContentBlock(&block, anchors)
 		if err != nil {
 			return "", err
 		}
@@ -62,7 +65,7 @@ func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 	return b.String(), nil
 }
 
-func formatStrictContentBlock(block *ast.ContentBlock) (string, error) {
+func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.HeadingAnchors) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "SLIDE %s\n", block.BlockType)
 
@@ -116,6 +119,13 @@ func formatStrictContentBlock(block *ast.ContentBlock) (string, error) {
 	}
 
 	for _, el := range block.Elements {
+		if heading, ok, err := strictSlideHeading(el, anchors); ok || err != nil {
+			if err != nil {
+				return "", err
+			}
+			b.WriteString(heading)
+			continue
+		}
 		elText, err := formatStrictElement(el)
 		if err != nil {
 			return "", err
@@ -124,6 +134,62 @@ func formatStrictContentBlock(block *ast.ContentBlock) (string, error) {
 	}
 
 	return b.String(), nil
+}
+
+// strictSlideHeading serializa un encabezado de subsección —el tipado
+// (HeadingElement) o el legado (TextElement RawHTML `<hN id>`)— con la
+// sintaxis strict `SECTION "Texto"` + `level:` (issue #259). Antes el legado
+// salía como la línea Markdown `### Texto` dentro de un TEXT y, al reparsear,
+// el encabezado se volvía prosa.
+//
+// `id:` se emite solo cuando el anchor real no es el que el parser derivaría
+// en esa posición del deck (anchors reproduce su secuencia), así que un
+// encabezado sin id declarado vuelve igual y uno cuyo anchor dependía de otro
+// contexto no cambia al reordenar o reparsear. El texto del tipado es la
+// fuente autoral exacta; el del legado se des-renderiza con la misma pérdida
+// de énfasis que documenta formatSubsectionHeading. ok=false significa que el
+// elemento no es un encabezado.
+func strictSlideHeading(el ast.Element, anchors *elements.HeadingAnchors) (string, bool, error) {
+	var level int
+	var text, anchor string
+	switch e := el.(type) {
+	case *ast.HeadingElement:
+		level, text, anchor = e.Level, e.Text, e.Anchor
+	case *ast.TextElement:
+		h, ok := asDocumentHeading(e)
+		if !ok {
+			return "", false, nil
+		}
+		level, text, anchor = h.level, h.text, h.id
+	default:
+		return "", false, nil
+	}
+	if level < 3 || level > 6 {
+		return "", true, newUnsupported("heading", fmt.Sprintf("un encabezado de nivel %d no es representable dentro de un SLIDE (strict acepta 3-6)", level))
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", true, newUnsupported("heading", "un encabezado sin texto no es representable como SECTION")
+	}
+	if err := checkSectionTitle("heading", text); err != nil {
+		return "", true, err
+	}
+	var b strings.Builder
+	// Sin escapar: parseSectionHeader toma el título hasta la ÚLTIMA comilla,
+	// así que las comillas internas sobreviven tal cual.
+	fmt.Fprintf(&b, "  SECTION \"%s\"\n", text)
+	fmt.Fprintf(&b, "    level: %d\n", level)
+	if anchor != anchors.Derive(text) {
+		if anchor == "" || elements.DeriveAnchor(anchor) != anchor {
+			return "", true, newUnsupported("heading", fmt.Sprintf("el anchor %q no es representable con `id:`", anchor))
+		}
+		if !anchors.Reserve(anchor) {
+			return "", true, newUnsupported("heading", fmt.Sprintf("anchor de encabezado duplicado %q", anchor))
+		}
+		fmt.Fprintf(&b, "    id: %s\n", anchor)
+	} else {
+		anchors.Unique(text)
+	}
+	return b.String(), true, nil
 }
 
 // formatStrictElement despacha por NodeType, indentando el resultado 2
@@ -144,6 +210,14 @@ func formatStrictElement(el ast.Element) (string, error) {
 	case *ast.TableElement:
 		body, err = formatTableElement(e)
 	case *ast.SpecialBlockElement:
+		// El cuerpo de un bloque especial se re-emite como texto crudo y el
+		// parser strict no reconoce `###` dentro de él (HeadingParser solo
+		// corre en flex): un encabezado tipado anidado se volvería prosa al
+		// reparsear. Se rechaza en vez de perderlo en silencio.
+		if nestedTypedHeading(e.Elements) {
+			err = newUnsupported("heading", fmt.Sprintf("un encabezado tipado dentro de un bloque :::%s no es representable en el dialecto strict", e.BlockType))
+			break
+		}
 		body = formatSpecialBlock(e)
 	case *ast.CodeGroupElement:
 		body = formatCodeGroup(e)
@@ -173,6 +247,12 @@ func formatStrictElement(el ast.Element) (string, error) {
 		body, err = formatStrictMath(e)
 	case *ast.MediaElement:
 		body, err = formatMedia(e)
+	case *ast.HeadingElement:
+		// Un encabezado hijo directo de un SLIDE o de una sección lo
+		// serializan strictSlideHeading y formatDocumentStrict como SECTION;
+		// llegar acá significa que está anidado (bloque especial, columna),
+		// donde strict no tiene sintaxis de encabezado.
+		err = newUnsupported("heading", "un encabezado tipado solo es representable como hijo directo de un SLIDE o de una sección")
 	default:
 		err = newUnsupported(string(el.GetType()), "tipo de elemento no reconocido por el formatter strict")
 	}
@@ -1144,4 +1224,20 @@ func formatDirective(e *ast.DirectiveNode) (string, error) {
 		parts[i] = fmt.Sprintf("%s=%s", k, quote(value))
 	}
 	return "@" + e.Name + " " + strings.Join(parts, " "), nil
+}
+
+// nestedTypedHeading reporta si elements (o un bloque especial anidado dentro
+// de ellos) contiene un HeadingElement.
+func nestedTypedHeading(elements []ast.Element) bool {
+	for _, el := range elements {
+		switch e := el.(type) {
+		case *ast.HeadingElement:
+			return true
+		case *ast.SpecialBlockElement:
+			if nestedTypedHeading(e.Elements) {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -1085,6 +1085,10 @@ func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentB
 // renderElement dispatcher para diferentes tipos de elementos
 func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) error {
 	switch e := elem.(type) {
+	case *ast.HeadingElement:
+		// Ver markdown.go: Generate ya baja los encabezados tipados a su forma
+		// legada, que el DOCX escribe como encabezado nativo de Word.
+		return g.renderText(doc, renderer.LegacyHeadingElement(e))
 	case *ast.TextElement:
 		return g.renderText(doc, e)
 	case *ast.PointsElement:

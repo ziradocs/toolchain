@@ -482,6 +482,10 @@ func pptxInlineHTMLToText(html string) string {
 // deck" sea visible en el log del build, no un misterio.
 func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int, opts GeneratorOptions, variables map[string]interface{}, kroki *pptxKrokiContext, rich *pptxRichContext) int {
 	switch e := elem.(type) {
+	case *ast.HeadingElement:
+		// GenerateWithOptions ya baja los encabezados tipados; esto cubre a un
+		// caller que llegue con el AST sin bajar.
+		return g.pptxAddText(s, pptxTextContent(renderer.LegacyHeadingElement(e)), cursorY)
 	case *ast.TextElement:
 		return g.pptxAddText(s, pptxTextContent(e), cursorY)
 	case *ast.PointsElement:

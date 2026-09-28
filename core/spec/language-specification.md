@@ -74,9 +74,13 @@ slide_type   ::= "SLIDE" identifier
 property     ::= identifier ":" value
 element      ::= text_element | points_element | checklist_element |
                  image_element | code_element | table_element |
-                 directive_element | special_block | embedded_element
+                 heading_element | directive_element | special_block |
+                 embedded_element
 
 text_element      ::= "TEXT" INDENT content_lines DEDENT
+heading_element   ::= "SECTION" quoted_string NEWLINE
+                      (INDENT heading_property+ DEDENT)?
+heading_property  ::= "level" ":" ("3" | "4" | "5" | "6") | "id" ":" identifier
 points_element    ::= "POINTS" INDENT point_item+ DEDENT
 point_item        ::= ("-" | "*" | "+" | DIGIT+ ".") text_content NEWLINE
 checklist_element ::= "CHECKLIST" INDENT checklist_item+ DEDENT
@@ -100,6 +104,24 @@ may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on
 its parent as `subListType`; mixed ordered/unordered siblings in one list are
 diagnosed. See [portable nested list types](../../docs/portable-nested-list-types.md).
+
+A `heading_element` is a subsection heading inside a slide, the strict form of
+flex `###`–`######`. `level:` defaults to 3; `id:` overrides the anchor, which
+is otherwise `heading-` plus the anchor derived from the title, suffixed when
+already used earlier in the deck (flex headings inside `:::` blocks also take
+a place in that sequence).
+
+The keyword is shared with the Document Strict Mode Grammar below, but the
+construct is different. In a document, `SECTION` is a top-level container: it
+starts at column 0, its body elements are indented under it, and level 1 opens
+a new section. Inside a slide, `SECTION` is a leaf element: it sits at the
+slide's element indentation, only `level:` (3–6) and `id:` may be indented under
+it, and the elements after it stay at the slide's element indentation, never
+under the heading. Indenting an element under a slide heading is an error. Flex and strict produce the same AST for headings
+that are direct children of a slide. With frontmatter `ast_capabilities: [typed-headings-v1]`,
+headings in either dialect become typed `heading` nodes (schema 2.17.0)
+instead of raw-HTML text; without it they keep the legacy form. See
+[portable typed headings](../../docs/portable-typed-headings.md).
 
 `element_data` for an `embedded_element` is **not** delimited line-by-line —
 it runs until whichever `element_terminator` comes first: an explicit
@@ -153,7 +175,9 @@ Differences from the presentation grammar, all deliberate:
 `title` block (its text lands in `Heading`), the rest are `content` blocks (text in `Title`),
 the same positional rule the flex dialect uses. Levels 2-6 are **not** blocks: they become
 `<hN id="…">` heading elements inside the currently open block, carrying their depth in
-`TextElement.Level`. This mirrors what `#`/`##` produce in flex, which is what lets the
+`TextElement.Level` (or, with `ast_capabilities: [typed-headings-v1]`, typed
+`heading` nodes with `level`, authored `text` and `anchor`). This mirrors what
+`#`/`##` produce in flex, which is what lets the
 document renderer, the TOC generator and the transform stages (`xref`, numbering) consume
 either dialect without a single per-dialect branch.
 

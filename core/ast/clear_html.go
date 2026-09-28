@@ -44,6 +44,9 @@ func clearElementHTML(element Element) {
 	case *TextElement:
 		elem.ContentHTML = ""
 
+	case *HeadingElement:
+		elem.TextHTML = ""
+
 	case *PointsElement:
 		for i := range elem.Items {
 			clearPointItemHTML(&elem.Items[i])

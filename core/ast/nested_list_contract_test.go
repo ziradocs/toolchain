@@ -59,7 +59,7 @@ func TestNestedListContractVersionMatrix(t *testing.T) {
 		if err := schema.Validate(value); err != nil {
 			t.Fatal(err)
 		}
-		if doc.SchemaVersion != SchemaVersion {
+		if doc.SchemaVersion != NestedListSchemaVersion {
 			t.Fatalf("wrong version %s", doc.SchemaVersion)
 		}
 		caps := doc.Capabilities

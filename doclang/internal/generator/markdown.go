@@ -180,6 +180,10 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 // renderElement convierte un elemento AST a Markdown
 func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 	switch elem := element.(type) {
+	case *ast.HeadingElement:
+		// Generator.Generate ya baja los encabezados tipados; este case cubre
+		// a un caller que llame renderElement directo con el AST sin bajar.
+		return m.renderElement(renderer.LegacyHeadingElement(elem))
 	case *ast.TextElement:
 		// Level (issue #22) es la fuente de verdad cuando está poblado —
 		// mismo criterio que docx.go's renderText: evita el acoplamiento

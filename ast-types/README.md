@@ -57,6 +57,14 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.17.0
+
+- **Opt-in**: `HeadingElement` (`type: "heading"`) carries a subsection
+  heading as `level`, authored inline `text`, and resolved `anchor`, instead
+  of a raw-HTML `TextElement`. `typed-headings-v1` uses explicit frontmatter
+  opt-in and emits 2.17.0 alone or with the other capabilities. See
+  [portable typed headings](../docs/portable-typed-headings.md).
+
 ### 2.16.0
 
 - **Opt-in**: `PointItem.subListType` preserves the type of that item's

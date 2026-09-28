@@ -368,6 +368,13 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				}
 			}
 
+			// El generador baja los encabezados tipados antes de llegar acá (ver
+			// GenerateWithOptions); si alguien llama directo con el AST tipado,
+			// se baja aquí para que la plantilla siga viendo un "text".
+			if heading, ok := element.(*ast.HeadingElement); ok {
+				element = renderer.LegacyHeadingElement(heading)
+			}
+
 			elementData := ElementData{
 				Type: string(element.GetType()),
 				// NUEVOS CAMPOS PARA VISUALIZADOR AVANZADO

@@ -17,7 +17,9 @@ ast_capabilities: [nested-list-types-v1]
 ```
 
 `table-rows-v1` is inferred from authored `tableRows` and is not a source
-`ast_capabilities` entry. The source key accepts only the nested-list opt-in.
+`ast_capabilities` entry. The source key accepts the nested-list opt-in and
+`typed-headings-v1` (see [portable typed headings](portable-typed-headings.md)),
+alone or together.
 
 Then use the existing list markers and indentation. A parent item owns the
 list directly beneath it:
@@ -57,6 +59,7 @@ or array offsets.
 | Authored `tableRows` only | `2.15.0` | `["table-rows-v1"]` |
 | Typed nested lists only | `2.16.0` | `["nested-list-types-v1"]` |
 | Both extensions | `2.16.0` | both capability strings |
+| Any of the above plus typed headings | `2.17.0` | adds `typed-headings-v1` |
 
 The capability array is a set when read; duplicate and unknown entries fail.
 The writer emits a deterministic order. A source declaration with no nested

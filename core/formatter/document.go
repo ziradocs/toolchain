@@ -43,7 +43,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 	var b strings.Builder
 
 	var fm string
-	if fmNode := nestedListFrontMatter(doc, "flex"); fmNode != nil {
+	if fmNode := extensionFrontMatter(doc, "flex"); fmNode != nil {
 		var err error
 		fm, err = formatFrontMatter(fmNode, frontMatterOverrides(fmNode, ""), frontMatterFallbacks(fmNode))
 		if err != nil {
@@ -116,6 +116,20 @@ func formatDocumentElement(el ast.Element) (string, error) {
 			body, err = formatSubsectionHeading(e)
 		} else {
 			body = e.Content
+		}
+	case *ast.HeadingElement:
+		// El flex de DocLang deriva el anchor del texto y no tiene sintaxis
+		// para declararlo; un anchor que no se re-deriva se perdería, así que
+		// se rechaza en vez de emitir un `##` que cambiaría el destino de una
+		// referencia. El texto es la fuente autoral exacta.
+		if e.Level < 2 || e.Level > 6 {
+			err = newUnsupported("heading", fmt.Sprintf("un encabezado de nivel %d no es representable en el flex de DocLang (2-6)", e.Level))
+		} else if e.Anchor != renderer.DeriveAnchor(e.Text) {
+			err = newUnsupported("heading", fmt.Sprintf("el anchor %q no se deriva de %q y el flex de DocLang no puede declararlo; usa el dialecto strict", e.Anchor, e.Text))
+		} else if strings.ContainsAny(e.Text, "\r\n") {
+			err = newUnsupported("heading", "el texto de un encabezado no puede tener saltos de línea")
+		} else {
+			body = strings.Repeat("#", e.Level) + " " + e.Text
 		}
 	case *ast.PointsElement:
 		body = formatPointItems(e.Items, e.ListType)

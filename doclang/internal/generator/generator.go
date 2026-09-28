@@ -105,6 +105,13 @@ func New(log util.Logger) *Generator {
 func (g *Generator) Generate(doc *ast.AST, outputFile string, opts GeneratorOptions) error {
 	g.logger.Info("GENERATOR", "Generating %s document to %s", opts.Format, outputFile)
 
+	// Los encabezados tipados (typed-headings-v1) se bajan a su forma legada
+	// antes de cualquier generador: HTML, PDF, TOC, numeración, Markdown y
+	// DOCX consumen solo esa forma, y renderer.HeadingHTML garantiza que es
+	// idéntica a la de un documento sin el opt-in. El AST del caller no se
+	// modifica.
+	doc = renderer.LowerTypedHeadings(doc)
+
 	switch opts.Format {
 	case "html":
 		return g.generateHTML(doc, outputFile, opts)
@@ -177,6 +184,7 @@ func (g *Generator) RenderASTJSON(doc *ast.AST) ([]byte, error) {
 // build.go — el theme resuelto acá siempre pasó ya por
 // validateThemeName cuando viene de un cliente MCP (ver preview.go, ME-2).
 func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
+	doc = renderer.LowerTypedHeadings(doc) // ver Generate
 	if themeName == "" && doc.FrontMatter != nil {
 		themeName = doc.FrontMatter.Theme
 	}

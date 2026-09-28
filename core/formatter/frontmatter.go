@@ -11,19 +11,31 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 )
 
-func nestedListFrontMatter(doc *ast.AST, mode string) *ast.FrontMatterNode {
+// extensionFrontMatter declara en `ast_capabilities` las extensiones de
+// fuente que el documento usa de verdad (listas anidadas tipadas y
+// encabezados tipados; tableRows tiene sintaxis propia y no necesita
+// opt-in), en orden canónico. Sin ellas deja el frontmatter tal cual, así
+// que un documento legado no gana una declaración que no pidió.
+func extensionFrontMatter(doc *ast.AST, mode string) *ast.FrontMatterNode {
 	if doc == nil {
 		return nil
 	}
 	fm := doc.FrontMatter
-	if !ast.UsesNestedListTypes(doc) {
+	var caps []string
+	if ast.UsesNestedListTypes(doc) {
+		caps = append(caps, ast.NestedListTypesCapability)
+	}
+	if ast.UsesTypedHeadings(doc) {
+		caps = append(caps, ast.TypedHeadingsCapability)
+	}
+	if len(caps) == 0 {
 		return fm
 	}
 	if fm == nil {
 		fm = &ast.FrontMatterNode{Mode: mode}
 	}
 	copyFM := *fm
-	copyFM.ASTCapabilities = []string{ast.NestedListTypesCapability}
+	copyFM.ASTCapabilities = caps
 	return &copyFM
 }
 
