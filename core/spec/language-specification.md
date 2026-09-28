@@ -448,10 +448,12 @@ Embedded elements add rich content:
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
 
-`<<plantuml>>` accepts the same `title="…"` caption. The only attribute either
+`<<plantuml>>` accepts the same `title="…"` caption; a chart's caption is its
+existing `title:` property. The only attribute either
 diagram tag accepts is `title`; anything else is an error. `<<video …>>` and
 `<<audio …>>` accept `src`, `poster` (video), `caption`, `controls`,
-`autoplay`, `loop` and `muted`; any other attribute is reported as warning
+`autoplay`, `loop` and `muted` (`src` and `poster` are references that the
+toolchain never downloads); any other attribute is reported as warning
 `MEDIA001`, and `poster`/`caption` move the document to schema 2.18.0 with the
 inferred capability `media-figure-v1`. In chart `data`, `null` is a missing
 value kept in its column. A map marker without usable coordinates is an error.

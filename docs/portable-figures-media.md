@@ -20,8 +20,11 @@ The caption fills the existing `title` field of `MermaidElement` and
 change. Single quotes are accepted when the caption contains double quotes.
 Any other attribute, a repeated or empty `title`, or malformed quoting is an
 error; previously such a tag fell through to plain text. `slidelang fmt` and
-`doclang fmt` write the caption back on the tag. Charts keep their existing
-`title:` property.
+`doclang fmt` write the caption back on the tag.
+
+Charts need no new syntax: the existing `title:` property of a `<<chart>>`
+block fills `ChartElement.title` in both dialects and is the portable chart
+caption, already preserved by `fmt`.
 
 ## Media poster and caption (schema 2.18.0)
 
@@ -39,9 +42,11 @@ poster or caption keeps the legacy contract. The decoder and the JSON Schema
 reject poster or caption without the capability and the capability without
 them.
 
-HTML renders the poster (same URL policy as `src`; a blocked poster is
-dropped, the video stays playable) and wraps a captioned element in
-`<figure>`/`<figcaption>`. DocLang Markdown and DOCX add the caption under the
+`poster` is a reference, like `src`: the toolchain never downloads it. HTML
+emits it as the `poster` attribute under the same URL policy as `src` (a
+blocked poster is dropped and the video stays playable); only in
+`offline-inline` mode is a local file embedded, and a remote URL is never
+fetched to do so. Resolving the reference is the consumer's job. HTML also wraps a captioned element in `<figure>`/`<figcaption>`. DocLang Markdown and DOCX add the caption under the
 media link. Any other attribute on the tag now produces warning `MEDIA001`
 instead of disappearing.
 
