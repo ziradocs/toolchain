@@ -72,6 +72,9 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 		if doc == nil {
 			return nil, fmt.Errorf("built-in transform #%d devolvió un AST nil", i)
 		}
+		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
+			return nil, fmt.Errorf("built-in transform #%d: %s", i, issues[0].String())
+		}
 	}
 	return doc, nil
 }
@@ -89,6 +92,9 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 		doc, err = runExternalFilter(doc, path, timeout)
 		if err != nil {
 			return nil, fmt.Errorf("filter %q: %w", path, err)
+		}
+		if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
+			return nil, fmt.Errorf("filter %q: %s", path, issues[0].String())
 		}
 	}
 	return doc, nil

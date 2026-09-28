@@ -32,6 +32,14 @@ import (
 // formatMermaid, formatPlantUML, formatChart, formatMap, formatDirective)
 // en vez de duplicarlos.
 func FormatDocument(doc *ast.AST) (string, error) {
+	out, err := formatDocumentWithoutIDs(doc)
+	if err != nil {
+		return "", err
+	}
+	return formatNodeIDs(doc, out, true)
+}
+
+func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 	var b strings.Builder
 
 	var fm string

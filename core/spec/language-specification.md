@@ -8,6 +8,21 @@ SlideLang is a presentation markup language that supports two syntax modes:
 - **Strict Mode**: Keyword-driven, structured syntax
 - **Flex Mode**: Markdown-extended syntax with embedded elements
 
+### Explicit node identities (AST schema 2.14.0)
+
+In either mode, a standalone `<!-- node-id: Name -->` line attaches `Name` to
+the AST node beginning on the next nonblank line. The annotation may precede
+a slide, section, heading, or typed element, including a typed nested element.
+It does not attach to frontmatter, delimiters, or text inside code/diagrams.
+The name is case sensitive, document-wide unique, 1–128 ASCII characters,
+starts with a letter, and then uses letters, digits, `.`, `_`, or `-`.
+
+`nodeId` is an optional editorial identity and does not replace the existing
+`id`/`label` fields used for cross references or HTML anchors. A duplicate
+node needs a fresh explicit ID. Invalid, duplicate, orphan, or ambiguous
+annotations are errors. No ID is generated from content or source position.
+See [the identity contract](../../docs/portable-node-identities.md).
+
 ## 📋 **Formal Grammar**
 
 ### Common Elements

@@ -100,6 +100,17 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	// Keep the public JSON validator aligned with ast.ValidNodeID, including
+	// nested node definitions. A filter can introduce nodeId without going
+	// through the source parser.
+	for _, def := range root.Definitions {
+		if def.Properties == nil {
+			continue
+		}
+		if prop, ok := def.Properties.Get("nodeId"); ok {
+			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
+		}
+	}
 
 	// Reemplazar "elements: any[]" (lo único que la reflexión pura no puede
 	// resolver, por ser una interfaz Go) con una unión discriminada real.
