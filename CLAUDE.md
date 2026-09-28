@@ -14,7 +14,7 @@ Note on the codebase language: comments, log messages, and many docs are in **Sp
 
 ## Module layout & the go.mod gotcha
 
-Three independent Go modules, each `/v2` (Go 1.26.5):
+Three independent Go modules, each `/v2` (Go 1.26.8):
 
 - `core/` — module `go.ziradocs.com/core/v2`
 - `slidelang/`  — module `go.ziradocs.com/slidelang/v2`
@@ -26,7 +26,7 @@ Three independent Go modules, each `/v2` (Go 1.26.5):
 
 **Consequence of no root module:** you cannot build or test the whole repo from the root. `go build ./...` at the root fails. Always `cd` into the specific module first.
 
-**The vanity import (`go.ziradocs.com`, separate `ziradocs/website` repo) required a fix for any of this to work at all.** The site's `go-import.astro` serves a 4-field meta tag per module (`prefix vcs reporoot subdir`, e.g. `go.ziradocs.com/core/v2 git https://github.com/ziradocs/toolchain core`), a form supported since Go 1.25 that declares the module's physical subdirectory explicitly instead of making `go` derive it by stripping the major-version suffix — the derivation is ambiguous for a `/v2`+ module living in a same-named subdirectory (`core/go.mod` declaring `.../core/v2`) and was breaking `go install` outright before this fix. Confirmed working end-to-end (clean module cache, no `GOWORK`, no `GOPRIVATE`) against real CI-shaped builds and `go install`. One thing worth knowing: requires the installing machine to have **Go ≥1.25** already (the initial go-import handshake can't self-upgrade); not a new burden here since this repo already requires 1.26.5.
+**The vanity import (`go.ziradocs.com`, separate `ziradocs/website` repo) required a fix for any of this to work at all.** The site's `go-import.astro` serves a 4-field meta tag per module (`prefix vcs reporoot subdir`, e.g. `go.ziradocs.com/core/v2 git https://github.com/ziradocs/toolchain core`), a form supported since Go 1.25 that declares the module's physical subdirectory explicitly instead of making `go` derive it by stripping the major-version suffix — the derivation is ambiguous for a `/v2`+ module living in a same-named subdirectory (`core/go.mod` declaring `.../core/v2`) and was breaking `go install` outright before this fix. Confirmed working end-to-end (clean module cache, no `GOWORK`, no `GOPRIVATE`) against real CI-shaped builds and `go install`. One thing worth knowing: requires the installing machine to have **Go ≥1.25** already (the initial go-import handshake can't self-upgrade); not a new burden here since this repo already requires 1.26.8.
 
 **The `core/v2.1.0`, `slidelang/v2.1.0`, `doclang/v2.1.0` tags are permanently broken and must never be used or reused.** They were cut on 2026-07-21, before the `/v2` module-path migration (`5820531`, 2026-07-22), so the `go.mod` at those revisions still declares the unversioned path. Since v2.1.0 > v2.0.6 in semver, `@latest` (and even an explicit `@v2.0.6` request, since `go` enumerates all matching tags) resolved to the broken tag and failed — this is why the first valid post-migration release is `v2.1.1`.
 

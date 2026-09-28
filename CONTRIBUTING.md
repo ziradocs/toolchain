@@ -55,9 +55,9 @@ the whole repo from the root:
 
 | Module | Path | Go version |
 |---|---|---|
-| `core` | `go.ziradocs.com/core/v2` | 1.26.5 |
-| `slidelang` | `go.ziradocs.com/slidelang/v2` | 1.26.5 |
-| `doclang` | `go.ziradocs.com/doclang/v2` | 1.26.5 |
+| `core` | `go.ziradocs.com/core/v2` | 1.26.8 |
+| `slidelang` | `go.ziradocs.com/slidelang/v2` | 1.26.8 |
+| `doclang` | `go.ziradocs.com/doclang/v2` | 1.26.8 |
 
 `slidelang` and `doclang` depend on a **published** `go.ziradocs.com/core/v2` — no `replace`
 directive. CI, goreleaser, and `go install` for external consumers all fetch it over the network
@@ -83,7 +83,7 @@ derive it by stripping the major-version suffix (which is ambiguous when the mod
 subdirectory has the same name regardless of major version, as here, and was silently resolving
 to the wrong module or failing outright — this is what made removing `replace` safe to do at
 all). Requires Go ≥1.25 on the installing machine for the initial handshake — not a new
-constraint, since this repo already requires 1.26.5.
+constraint, since this repo already requires 1.26.8.
 
 **A casualty of the same investigation: `core/v2.1.0`, `slidelang/v2.1.0`, and `doclang/v2.1.0`
 are permanently broken tags — never use them, and never reuse that version number.** They were
@@ -117,7 +117,7 @@ go build -o doclang ./cmd/doclang
 ./doclang build doc.doclang --format docx --toc --numbering
 ```
 
-Requirements: Go 1.26.5+. For PDF output and offline diagram/chart/map rendering you also need
+Requirements: Go 1.26.8+. For PDF output and offline diagram/chart/map rendering you also need
 Chrome/Chromium available, or run with `--install-chromium` to have the CLI fetch a pinned build.
 
 ### Git hooks (optional)

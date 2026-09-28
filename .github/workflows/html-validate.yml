@@ -109,7 +109,7 @@ jobs:
 
       - name: Usar el core del árbol de trabajo
         if: matrix.deps == 'workspace'
-        run: printf 'go 1.26.5\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
+        run: printf 'go 1.26.8\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
 
       - name: Build de la CLI slidelang
         working-directory: slidelang
@@ -161,7 +161,7 @@ jobs:
 
       - name: Usar el core del árbol de trabajo
         if: matrix.deps == 'workspace'
-        run: printf 'go 1.26.5\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
+        run: printf 'go 1.26.8\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
 
       - name: Build de la CLI doclang
         working-directory: doclang
@@ -221,7 +221,7 @@ jobs:
           python-version: "3.12"
 
       - name: Usar el core del árbol de trabajo
-        run: printf 'go 1.26.5\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
+        run: printf 'go 1.26.8\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
 
       - name: Verificar fidelidad fuente↔HTML de todos los ejemplos
         run: python3 scripts/check-example-fidelity.py

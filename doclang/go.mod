@@ -1,6 +1,6 @@
 module go.ziradocs.com/doclang/v2
 
-go 1.26.5
+go 1.26.8
 
 require (
 	github.com/mmonterroca/docxgo/v2 v2.12.0
