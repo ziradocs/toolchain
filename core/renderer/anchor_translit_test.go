@@ -8,14 +8,14 @@ import "testing"
 // Los anchors transliteran en vez de borrar letras con diacrítico.
 func TestDeriveAnchorTransliterates(t *testing.T) {
 	for in, want := range map[string]string{
-		"Acompañar":           "acompanar",
+		"Acompañar":            "acompanar",
 		"Configuración rápida": "configuracion-rapida",
-		"Übersicht":           "ubersicht",
-		"Français ça va":      "francais-ca-va",
-		"Straße":              "strasse",
-		"Ærø":                 "aero",
-		"Emoji 🚀 only":        "emoji--only",
-		"日本語 title":           "-title",
+		"Übersicht":            "ubersicht",
+		"Français ça va":       "francais-ca-va",
+		"Straße":               "strasse",
+		"Ærø":                  "aero",
+		"Emoji 🚀 only":         "emoji--only",
+		"日本語 title":            "-title",
 	} {
 		got := DeriveAnchor(in)
 		if got != want {
