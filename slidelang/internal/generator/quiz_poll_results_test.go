@@ -16,7 +16,7 @@ import (
 )
 
 func TestQuizPollResultsInSlideHTML(t *testing.T) {
-	doc := parseSlideLang(t, "---\nmode: strict\nast_capabilities: [quiz-poll-results-v1]\n---\nSLIDE content\n  title: \"S\"\n  <<poll>>\n    question: \"Plan?\"\n    options: [\"Basic\", \"Pro\"]\n    results: [35, 65]\n    responses: 40\n  <<end>>\n")
+	doc := parseSlideLang(t, "---\nmode: strict\n---\nSLIDE content\n  title: \"S\"\n  <<poll>>\n    question: \"Plan?\"\n    options: [\"Basic\", \"Pro\"]\n    results: [35, 65]\n    responses: 40\n  <<end>>\n")
 	dir := t.TempDir()
 	if err := New(util.NewNoop()).GenerateWithOptions(doc, "html", dir, GeneratorOptions{AssetRoot: dir}, renderer.NewDefaultRenderContext()); err != nil {
 		t.Fatal(err)

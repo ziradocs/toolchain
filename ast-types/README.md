@@ -60,8 +60,9 @@ The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails
 ### 2.20.0
 
 - **Opt-in**: `QuizElement`/`PollElement` `.results` (percent 0-100 per
-  option) and `.responses`. `quiz-poll-results-v1` uses explicit frontmatter
-  opt-in and emits 2.20.0 alone or with the other capabilities. See
+  option) and `.responses`. `quiz-poll-results-v1` is inferred from the
+  authored `results:`/`responses:` keys and emits 2.20.0 alone or with the
+  other capabilities. See
   [quiz and poll results](../docs/portable-quiz-poll-results.md).
 
 ### 2.19.0

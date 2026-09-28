@@ -13,7 +13,7 @@ import (
 )
 
 func TestQuizPollResultsInMarkdownAndDOCX(t *testing.T) {
-	doc := parseDocLang(t, "---\ntitle: D\nast_capabilities: [quiz-poll-results-v1]\n---\n# Doc\n\n<<poll>>\n  question: \"Plan?\"\n  options: [\"Basic\", \"Pro\"]\n  results: [35, 65]\n  responses: 40\n<<end>>\n")
+	doc := parseDocLang(t, "---\ntitle: D\n---\n# Doc\n\n<<poll>>\n  question: \"Plan?\"\n  options: [\"Basic\", \"Pro\"]\n  results: [35, 65]\n  responses: 40\n<<end>>\n")
 	dir := t.TempDir()
 	md := filepath.Join(dir, "d.md")
 	if err := New(util.NewNoop()).Generate(doc, md, GeneratorOptions{Format: "markdown"}); err != nil {

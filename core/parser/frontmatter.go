@@ -520,7 +520,7 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 					p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("duplicate ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
 				}
 				seenCapabilities[capability] = true
-				if capability != ast.NestedListTypesCapability && capability != ast.TypedHeadingsCapability && capability != ast.QuizPollResultsCapability {
+				if capability != ast.NestedListTypesCapability && capability != ast.TypedHeadingsCapability {
 					p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("unsupported ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
 				}
 			}

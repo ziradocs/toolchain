@@ -29,8 +29,8 @@ type quizPollBody struct {
 	Answer      *int     `yaml:"answer"`
 	Explanation string   `yaml:"explanation"`
 	Multiple    bool     `yaml:"multiple"`
-	// Results/Responses (quiz-poll-results-v1). Se leen siempre; el parser
-	// exige después el opt-in del frontmatter (ver QuizPollResultsOptIn).
+	// Results/Responses (quiz-poll-results-v1): la capability se infiere de
+	// estas llaves, que antes no existían.
 	Results   []float64 `yaml:"results"`
 	Responses *int      `yaml:"responses"`
 }

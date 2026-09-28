@@ -14,7 +14,6 @@ import (
 
 const pollWithResults = `---
 mode: strict
-ast_capabilities: [quiz-poll-results-v1]
 ---
 SLIDE content
   title: "S"
@@ -52,7 +51,7 @@ func TestQuizPollResultsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "quiz-poll-results-v1") || !strings.Contains(out, "results: [20, 45.5, 34.5]") {
+	if strings.Contains(out, "ast_capabilities") || !strings.Contains(out, "results: [20, 45.5, 34.5]") {
 		t.Fatalf("fmt output:\n%s", out)
 	}
 	again := firstOfType[*ast.PollElement](t, mustParse(t, out, false))
@@ -61,9 +60,10 @@ func TestQuizPollResultsRoundTrip(t *testing.T) {
 	}
 }
 
-// Sin el opt-in, results no se ignora: es un error.
-func TestQuizPollResultsRequireOptIn(t *testing.T) {
-	src := strings.Replace(pollWithResults, "ast_capabilities: [quiz-poll-results-v1]\n", "", 1)
+// La capability se infiere de la sintaxis nueva: no hace falta declararla, y
+// declararla en frontmatter es un error, igual que table-rows-v1.
+func TestQuizPollResultsCapabilityIsInferred(t *testing.T) {
+	src := strings.Replace(pollWithResults, "mode: strict\n", "mode: strict\nast_capabilities: [quiz-poll-results-v1]\n", 1)
 	_, diags := parseAny(src)
 	found := false
 	for _, d := range diags {
@@ -72,7 +72,7 @@ func TestQuizPollResultsRequireOptIn(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("results accepted without opt-in: %v", diags)
+		t.Fatalf("frontmatter declaration of an inferred capability accepted: %v", diags)
 	}
 }
 
@@ -83,7 +83,7 @@ func TestQuizPollResultsLint(t *testing.T) {
 		{"[20, 120, 0]", ""},
 		{"[20, -1, 81]", ""},
 	} {
-		src := "---\nmode: strict\nast_capabilities: [quiz-poll-results-v1]\n---\nSLIDE content\n  title: \"S\"\n  <<poll>>\n    question: \"Q?\"\n    options: [\"A\", \"B\", \"C\"]\n    results: " + tc.results + "\n  <<end>>\n"
+		src := "---\nmode: strict\n---\nSLIDE content\n  title: \"S\"\n  <<poll>>\n    question: \"Q?\"\n    options: [\"A\", \"B\", \"C\"]\n    results: " + tc.results + "\n  <<end>>\n"
 		doc, _ := parseAny(src)
 		if doc == nil {
 			t.Fatalf("no AST for %s", tc.results)

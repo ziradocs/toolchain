@@ -5,15 +5,9 @@ and, optionally, the number of responses.
 
 ## Authoring
 
-Declare the capability in frontmatter; without it, `results` and `responses`
-are an error instead of being ignored:
-
-```yaml
----
-mode: strict
-ast_capabilities: [quiz-poll-results-v1]
----
-```
+The capability `quiz-poll-results-v1` is inferred from the new `results:` and
+`responses:` keys; no frontmatter declaration is needed, and declaring it in
+`ast_capabilities` is an error, as for `table-rows-v1`:
 
 ```slidelang
 <<poll>>
@@ -34,7 +28,8 @@ non-negative integer. The same keys work in `<<quiz>>`.
 The linter reports `QUIZ003`/`POLL003` when `results` does not have one value
 per option, when a value is outside 0–100, or when `responses` is negative.
 The decoder and the JSON Schema also enforce the ranges and reject the fields
-without the capability or the capability without the fields.
+without the capability or the capability without the fields. Before this
+change the keys were reported as unknown and dropped.
 
 ## AST, versions and output
 
@@ -43,4 +38,4 @@ that uses them emits schema 2.20.0 with `quiz-poll-results-v1`, alongside any
 other capability it uses. HTML and slides show the percentage next to each
 option and the response count below the list; DocLang Markdown and DOCX and
 SlideLang PPTX append the percentage to each option line and add the count.
-`fmt` writes both keys back and declares the capability.
+`fmt` writes both keys back.

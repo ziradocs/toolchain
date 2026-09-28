@@ -18,9 +18,8 @@ ast_capabilities: [nested-list-types-v1]
 
 `table-rows-v1` is inferred from authored `tableRows` and is not a source
 `ast_capabilities` entry. The source key accepts the nested-list opt-in and
-`typed-headings-v1` (see [portable typed headings](portable-typed-headings.md))
-and `quiz-poll-results-v1` (see [quiz and poll results](portable-quiz-poll-results.md)),
-in any combination.
+`typed-headings-v1` (see [portable typed headings](portable-typed-headings.md)),
+alone or together.
 
 Then use the existing list markers and indentation. A parent item owns the
 list directly beneath it:
