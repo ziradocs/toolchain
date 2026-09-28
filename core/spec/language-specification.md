@@ -23,6 +23,25 @@ node needs a fresh explicit ID. Invalid, duplicate, orphan, or ambiguous
 annotations are errors. No ID is generated from content or source position.
 See [the identity contract](../../docs/portable-node-identities.md).
 
+### AST capabilities
+
+Extensions to the JSON AST are versioned by capability. A document declares
+exactly the capabilities it uses, and its `schemaVersion` is the version of
+the newest one; a document that uses none stays at 2.14.0. Whether the author
+has to opt in follows one rule:
+
+- **New syntax infers its capability.** Syntax that did not exist before
+  (`tableRows:`, `poster=`/`caption=` on media, a filename on `CODE`,
+  `results:`/`responses:` on quiz and poll) cannot change the meaning of an
+  existing document, so using it is the opt-in: `table-rows-v1`,
+  `media-figure-v1`, `code-filename-v1` and `quiz-poll-results-v1` are never
+  written in frontmatter, and declaring them there is an error.
+- **Changing the meaning of existing syntax needs an explicit opt-in.** When the
+  same source would produce a different AST (typed child list types, typed
+  headings), the author declares it with `ast_capabilities` in frontmatter:
+  `nested-list-types-v1` and `typed-headings-v1`. Without the declaration the
+  source keeps its previous meaning.
+
 ## 📋 **Formal Grammar**
 
 ### Common Elements
@@ -644,6 +663,13 @@ accepted, the same way `<</chart>>` is.
 **Both are static.** There is no backend and no collection of answers: a quiz
 renders with the correct option marked and its explanation visible, and a poll
 renders as a list. Any interaction is local to whoever opens the HTML.
+
+Both blocks accept `results` (one percentage from 0 to 100 per option, in
+order; the values need not add up to 100) and `responses` (a non-negative
+integer). They are new syntax, so the capability `quiz-poll-results-v1` is
+inferred from them (see "AST capabilities"). Documents that use them emit
+schema 2.20.0. See
+[quiz and poll results](../../docs/portable-quiz-poll-results.md).
 
 ## 🔍 **Validation Rules**
 

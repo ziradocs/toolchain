@@ -240,11 +240,16 @@ type ElementData struct {
 	QuizAnswer      int
 	QuizExplanation string
 	QuizMultiple    bool
-	MetricLabel     string
-	MetricValue     string
-	MetricDelta     string
-	MetricTrend     string
-	MetricCaption   string
+	// QuizResults es la etiqueta de porcentaje por opción ("40%" o ""),
+	// paralela a QuizOptions; QuizResponses es "N responses" o ""
+	// (quiz-poll-results-v1).
+	QuizResults   []string
+	QuizResponses string
+	MetricLabel   string
+	MetricValue   string
+	MetricDelta   string
+	MetricTrend   string
+	MetricCaption string
 	// HeadingLevel es el nivel 3-6 del encabezado, para que un tema pueda
 	// distinguirlos sin re-parsear el HTML (mismo motivo que ast.
 	// TextElement.Level, issue #22).

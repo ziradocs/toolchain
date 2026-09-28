@@ -32,6 +32,23 @@ var extensions = []extension{
 	{TypedHeadingsCapability, TypedHeadingsSchemaVersion, UsesTypedHeadings},
 	{MediaFigureCapability, MediaFigureSchemaVersion, UsesMediaFigure},
 	{CodeFilenameCapability, CodeFilenameSchemaVersion, UsesCodeFilename},
+	{QuizPollResultsCapability, QuizPollResultsSchemaVersion, UsesQuizPollResults},
+}
+
+// UsesQuizPollResults reporta si algún quiz o poll declara results o
+// responses.
+func UsesQuizPollResults(doc *AST) bool {
+	used := false
+	_ = Walk(doc, func(n Node) error {
+		switch e := n.(type) {
+		case *QuizElement:
+			used = used || len(e.Results) > 0 || e.Responses != nil
+		case *PollElement:
+			used = used || len(e.Results) > 0 || e.Responses != nil
+		}
+		return nil
+	})
+	return used
 }
 
 // UsesCodeFilename reporta si algún CodeElement declara filename.
@@ -195,6 +212,7 @@ func describeUsed(caps []string) string {
 		TypedHeadingsCapability:   "typed headings",
 		MediaFigureCapability:     "media poster/caption",
 		CodeFilenameCapability:    "code filenames",
+		QuizPollResultsCapability: "quiz/poll results",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {

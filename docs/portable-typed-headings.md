@@ -89,6 +89,7 @@ uses. A source opt-in that produces no heading keeps the lower version.
 | Typed headings, optionally with the others above | `2.17.0` | those capabilities |
 | Media poster/caption, optionally with any of the above | `2.18.0` | adds `media-figure-v1` |
 | Code filenames, optionally with any of the above | `2.19.0` | adds `code-filename-v1` |
+| Quiz/poll results, optionally with any of the above | `2.20.0` | adds `quiz-poll-results-v1` |
 
 The decoder and the JSON Schema reject an unknown version or capability, a
 duplicate capability, a heading without `typed-headings-v1`, the capability

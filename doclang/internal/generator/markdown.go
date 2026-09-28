@@ -341,7 +341,10 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 			if i == elem.Answer {
 				marker = " ✅"
 			}
-			fmt.Fprintf(&md, "%d. %s%s\n", i+1, option, marker)
+			fmt.Fprintf(&md, "%d. %s%s%s\n", i+1, option, quizPollResultSuffix(elem.Results, i), marker)
+		}
+		if label := renderer.QuizPollResponsesLabel(elem.Responses); label != "" {
+			fmt.Fprintf(&md, "\n*%s*\n", label)
 		}
 		if elem.Answer >= 0 && elem.Answer < len(elem.Options) {
 			fmt.Fprintf(&md, "\n**Respuesta:** %s\n", elem.Options[elem.Answer])
@@ -357,7 +360,10 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 			fmt.Fprintf(&md, "**Pregunta:** %s\n\n", elem.Question)
 		}
 		for i, option := range elem.Options {
-			fmt.Fprintf(&md, "%d. %s\n", i+1, option)
+			fmt.Fprintf(&md, "%d. %s%s\n", i+1, option, quizPollResultSuffix(elem.Results, i))
+		}
+		if label := renderer.QuizPollResponsesLabel(elem.Responses); label != "" {
+			fmt.Fprintf(&md, "\n*%s*\n", label)
 		}
 		return md.String()
 

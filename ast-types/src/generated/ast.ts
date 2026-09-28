@@ -101,8 +101,11 @@ import type { Position } from "./diagnostics";
  * (`poster=`/`caption=` on <<video>>/<<audio>>), not declared in frontmatter.
  * 2.19.0: CodeElement.filename (code-filename-v1), inferred from the authored
  * `CODE <lang> <file>` or fence ```lang file``` syntax.
+ * 2.20.0: QuizElement/PollElement .results (percent 0-100 per option) and
+ * .responses (quiz-poll-results-v1), inferred from the new `results:` and
+ * `responses:` keys.
  */
-export const SchemaVersion = "2.19.0";
+export const SchemaVersion = "2.20.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
@@ -110,11 +113,13 @@ export const NestedListSchemaVersion = "2.16.0";
 export const TypedHeadingsSchemaVersion = "2.17.0";
 export const MediaFigureSchemaVersion = "2.18.0";
 export const CodeFilenameSchemaVersion = "2.19.0";
+export const QuizPollResultsSchemaVersion = "2.20.0";
 export const TableRowsCapability = "table-rows-v1";
 export const NestedListTypesCapability = "nested-list-types-v1";
 export const TypedHeadingsCapability = "typed-headings-v1";
 export const MediaFigureCapability = "media-figure-v1";
 export const CodeFilenameCapability = "code-filename-v1";
+export const QuizPollResultsCapability = "quiz-poll-results-v1";
 /**
  * Node representa un nodo base en el AST
  */
@@ -1053,6 +1058,13 @@ export interface QuizElement extends BaseNode {
    * el faltante como el fuera de rango con QUIZ001.
    */
   answer: number /* int */;
+  /**
+   * Results y Responses (quiz-poll-results-v1, AST 2.20.0): el porcentaje de
+   * respuestas de cada opción, paralelo a Options (0-100, sin exigir que
+   * sumen 100), y el total de respuestas si se conoce.
+   */
+  results?: number /* float64 */[];
+  responses?: number /* int */;
   explanation?: string;
   explanationHTML?: string; // ver TextElement.ContentHTML
   langRuns?: LangRun[]; // de Question; ver TextElement.LangRuns
@@ -1073,6 +1085,11 @@ export interface PollElement extends BaseNode {
    * Multiple habilita elegir más de una opción a la vez.
    */
   multiple: boolean;
+  /**
+   * Results y Responses: ver QuizElement.Results.
+   */
+  results?: number /* float64 */[];
+  responses?: number /* int */;
   langRuns?: LangRun[]; // de Question; ver TextElement.LangRuns
   discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
 }

@@ -581,11 +581,15 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
 				elementData.QuizAnswer = elem.Answer
 				elementData.QuizExplanation = ProcessVariables(elem.Explanation, variables)
+				elementData.QuizResults = quizResultLabels(elem.Results, len(elem.Options))
+				elementData.QuizResponses = renderer.QuizPollResponsesLabel(elem.Responses)
 
 			case *ast.PollElement:
 				elementData.Question = ProcessVariables(elem.Question, variables)
 				elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
 				elementData.QuizMultiple = elem.Multiple
+				elementData.QuizResults = quizResultLabels(elem.Results, len(elem.Options))
+				elementData.QuizResponses = renderer.QuizPollResponsesLabel(elem.Responses)
 			case *ast.MetricElement:
 				elementData.MetricLabel = ProcessVariables(elem.Label, variables)
 				elementData.MetricValue = ProcessVariables(elem.Value, variables)
@@ -2143,3 +2147,13 @@ func safeBackgroundImageReference(value string) bool {
 }
 
 var safeBackgroundDataImagePattern = regexp.MustCompile(`^data:image/(?:png|jpeg|gif|webp|avif);base64,[A-Za-z0-9+/]+={0,2}$`)
+
+// quizResultLabels arma una etiqueta por opción (vacía cuando no hay dato)
+// para que la plantilla pueda indexarla sin salirse del rango.
+func quizResultLabels(results []float64, options int) []string {
+	out := make([]string, options)
+	for i := range out {
+		out[i] = renderer.QuizPollResultLabel(results, i)
+	}
+	return out
+}

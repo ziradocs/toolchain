@@ -2492,7 +2492,12 @@ func (g *DOCXGenerator) renderQuiz(doc domain.Document, elem *ast.QuizElement) e
 		if i == elem.Answer {
 			prefix = "✅ " + prefix
 		}
-		if err := g.renderQuizPollLine(doc, prefix, option, i == elem.Answer, false); err != nil {
+		if err := g.renderQuizPollLine(doc, prefix, option+quizPollResultSuffix(elem.Results, i), i == elem.Answer, false); err != nil {
+			return err
+		}
+	}
+	if label := renderer.QuizPollResponsesLabel(elem.Responses); label != "" {
+		if err := g.renderQuizPollLine(doc, "", label, false, true); err != nil {
 			return err
 		}
 	}
@@ -2507,11 +2512,23 @@ func (g *DOCXGenerator) renderPoll(doc domain.Document, elem *ast.PollElement) e
 		return err
 	}
 	for i, option := range elem.Options {
-		if err := g.renderQuizPollLine(doc, fmt.Sprintf("%d. ", i+1), option, false, false); err != nil {
+		if err := g.renderQuizPollLine(doc, fmt.Sprintf("%d. ", i+1), option+quizPollResultSuffix(elem.Results, i), false, false); err != nil {
 			return err
 		}
 	}
+	if label := renderer.QuizPollResponsesLabel(elem.Responses); label != "" {
+		return g.renderQuizPollLine(doc, "", label, false, true)
+	}
 	return nil
+}
+
+// quizPollResultSuffix agrega " — 40%" a una opción que trae results
+// (quiz-poll-results-v1); vacío si no.
+func quizPollResultSuffix(results []float64, i int) string {
+	if label := renderer.QuizPollResultLabel(results, i); label != "" {
+		return " — " + label
+	}
+	return ""
 }
 
 func (g *DOCXGenerator) renderQuizPollQuestion(doc domain.Document, question string) error {

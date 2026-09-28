@@ -123,6 +123,18 @@ func ValidateTableContract(doc *AST) error {
 	}
 	var failure error
 	_ = Walk(doc, func(n Node) error {
+		switch e := n.(type) {
+		case *QuizElement:
+			if err := validateQuizPollResults(e.Results, e.Responses); err != nil {
+				failure = err
+				return err
+			}
+		case *PollElement:
+			if err := validateQuizPollResults(e.Results, e.Responses); err != nil {
+				failure = err
+				return err
+			}
+		}
 		if c, ok := n.(*CodeElement); ok && c.Filename != "" {
 			if strings.ContainsAny(c.Filename, " \t\r\n") || strings.HasPrefix(c.Filename, "[") || strings.HasPrefix(c.Filename, "{") {
 				failure = fmt.Errorf("code filename %q must be a single token not starting with '[' or '{'", c.Filename)
@@ -192,7 +204,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
-	tableCount, listCount, headingCount, mediaCount, codeFileCount := 0, 0, 0, 0, 0
+	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount := 0, 0, 0, 0, 0, 0
 	var inspectElement func(any) error
 	inspectElement = func(value any) error {
 		switch v := value.(type) {
@@ -214,6 +226,17 @@ func ValidateRawTableContract(data []byte) error {
 				decoder.DisallowUnknownFields()
 				if err := decoder.Decode(&parsed); err != nil {
 					return fmt.Errorf("invalid heading element: %w", err)
+				}
+			}
+			_, hasResults := v["results"]
+			_, hasResponses := v["responses"]
+			if hasResults || hasResponses {
+				if v["type"] != string(NodeTypeQuiz) && v["type"] != string(NodeTypePoll) {
+					return fmt.Errorf("results/responses on a non-quiz/poll element")
+				}
+				resultsCount++
+				if !declared[QuizPollResultsCapability] {
+					return fmt.Errorf("quiz/poll results require schemaVersion %s and capability %s", QuizPollResultsSchemaVersion, QuizPollResultsCapability)
 				}
 			}
 			if _, has := v["filename"]; has {
@@ -297,6 +320,9 @@ func ValidateRawTableContract(data []byte) error {
 	}
 	if (headingCount > 0) != declared[TypedHeadingsCapability] {
 		return fmt.Errorf("heading presence does not match schemaVersion/capabilities")
+	}
+	if (resultsCount > 0) != declared[QuizPollResultsCapability] {
+		return fmt.Errorf("quiz/poll results presence does not match schemaVersion/capabilities")
 	}
 	if (codeFileCount > 0) != declared[CodeFilenameCapability] {
 		return fmt.Errorf("code filename presence does not match schemaVersion/capabilities")
@@ -404,4 +430,19 @@ func ResolveTableIdentity(doc *AST, id string) (TableIdentityTarget, bool) {
 		return nil
 	})
 	return target, target.Kind != ""
+}
+
+// validateQuizPollResults aplica las mismas cotas que el JSON Schema: cada
+// porcentaje entre 0 y 100 y responses no negativo. Que haya uno por opción lo
+// reporta el linter, no el decoder.
+func validateQuizPollResults(results []float64, responses *int) error {
+	for i, r := range results {
+		if r < 0 || r > 100 {
+			return fmt.Errorf("quiz/poll result %d is %v; percentages must be between 0 and 100", i, r)
+		}
+	}
+	if responses != nil && *responses < 0 {
+		return fmt.Errorf("quiz/poll responses must be zero or more, got %d", *responses)
+	}
+	return nil
 }

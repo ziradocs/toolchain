@@ -1060,7 +1060,12 @@ type QuizElement struct {
 	// ningún consumidor (converter, PPTX, DOCX, formatter, el tipo TS) tenga
 	// que ramificar; el linter es el único que lo interpreta, y reporta tanto
 	// el faltante como el fuera de rango con QUIZ001.
-	Answer            int       `json:"answer"`
+	Answer int `json:"answer"`
+	// Results y Responses (quiz-poll-results-v1, AST 2.20.0): el porcentaje de
+	// respuestas de cada opción, paralelo a Options (0-100, sin exigir que
+	// sumen 100), y el total de respuestas si se conoce.
+	Results           []float64 `json:"results,omitempty"`
+	Responses         *int      `json:"responses,omitempty"`
 	Explanation       string    `json:"explanation,omitempty"`
 	ExplanationHTML   string    `json:"explanationHTML,omitempty"`   // ver TextElement.ContentHTML
 	LangRuns          []LangRun `json:"langRuns,omitempty"`          // de Question; ver TextElement.LangRuns
@@ -1091,7 +1096,10 @@ type PollElement struct {
 	Options      []string `json:"options"`
 	OptionsHTML  []string `json:"optionsHTML,omitempty"` // ver TextElement.ContentHTML
 	// Multiple habilita elegir más de una opción a la vez.
-	Multiple          bool      `json:"multiple"`
+	Multiple bool `json:"multiple"`
+	// Results y Responses: ver QuizElement.Results.
+	Results           []float64 `json:"results,omitempty"`
+	Responses         *int      `json:"responses,omitempty"`
 	LangRuns          []LangRun `json:"langRuns,omitempty"`          // de Question; ver TextElement.LangRuns
 	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"` // ver TextElement.DiscardedLangRuns
 }

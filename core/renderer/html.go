@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -767,11 +768,12 @@ func renderQuizElement(elem *ast.QuizElement, variables map[string]interface{}) 
 			if i == elem.Answer {
 				class = "option correct"
 			}
-			fmt.Fprintf(&html, `<li class="%s" data-index="%d">%s</li>`,
-				class, i, ProcessTextWithVariablesAndMarkdownSecure(option, variables))
+			fmt.Fprintf(&html, `<li class="%s" data-index="%d">%s%s</li>`,
+				class, i, ProcessTextWithVariablesAndMarkdownSecure(option, variables), resultSpan(elem.Results, i))
 		}
 		html.WriteString("</ol>")
 	}
+	html.WriteString(responsesParagraph(elem.Responses))
 
 	if elem.Explanation != "" {
 		fmt.Fprintf(&html, `<p class="explanation">%s</p>`,
@@ -794,11 +796,12 @@ func renderPollElement(elem *ast.PollElement, variables map[string]interface{}) 
 	if len(elem.Options) > 0 {
 		html.WriteString(`<ol class="options">`)
 		for i, option := range elem.Options {
-			fmt.Fprintf(&html, `<li class="poll-option" data-index="%d">%s</li>`,
-				i, ProcessTextWithVariablesAndMarkdownSecure(option, variables))
+			fmt.Fprintf(&html, `<li class="poll-option" data-index="%d">%s%s</li>`,
+				i, ProcessTextWithVariablesAndMarkdownSecure(option, variables), resultSpan(elem.Results, i))
 		}
 		html.WriteString("</ol>")
 	}
+	html.WriteString(responsesParagraph(elem.Responses))
 
 	html.WriteString("</div>")
 	return html.String()
@@ -2594,4 +2597,41 @@ func renderGridElement(elem *ast.GridElement, variables map[string]interface{}, 
 
 	html.WriteString("</div>")
 	return html.String()
+}
+
+// QuizPollResultLabel devuelve el porcentaje de la opción i ("40%") o "" si
+// el quiz/poll no trae results para ella (quiz-poll-results-v1). Lo comparten
+// HTML y los generadores de los CLIs para que el número salga igual en todos.
+func QuizPollResultLabel(results []float64, i int) string {
+	if i < 0 || i >= len(results) {
+		return ""
+	}
+	return strconv.FormatFloat(results[i], 'f', -1, 64) + "%"
+}
+
+// QuizPollResponsesLabel devuelve "N responses" o "" si no se declaró.
+func QuizPollResponsesLabel(responses *int) string {
+	if responses == nil {
+		return ""
+	}
+	if *responses == 1 {
+		return "1 response"
+	}
+	return strconv.Itoa(*responses) + " responses"
+}
+
+func resultSpan(results []float64, i int) string {
+	label := QuizPollResultLabel(results, i)
+	if label == "" {
+		return ""
+	}
+	return fmt.Sprintf(` <span class="result" data-percent="%s">%s</span>`, strings.TrimSuffix(label, "%"), label)
+}
+
+func responsesParagraph(responses *int) string {
+	label := QuizPollResponsesLabel(responses)
+	if label == "" {
+		return ""
+	}
+	return fmt.Sprintf(`<p class="responses" data-responses="%d">%s</p>`, *responses, label)
 }

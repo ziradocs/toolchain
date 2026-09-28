@@ -112,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -190,6 +190,29 @@ func main() {
 		os.Exit(1)
 	}
 	root.Definitions["CodeFilenamePresent"] = &codePresence
+	resultsPresenceJSON := `{"anyOf":[{"required":["type"],"properties":{"type":{"enum":["quiz","poll"]}},"anyOf":[{"required":["results"]},{"required":["responses"]}]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/QuizPollResultsPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/QuizPollResultsPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/QuizPollResultsPresent"}}}}]}`
+	var resultsPresence jsonschema.Schema
+	if err := json.Unmarshal([]byte(resultsPresenceJSON), &resultsPresence); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["QuizPollResultsPresent"] = &resultsPresence
+	for _, def := range []string{"QuizElement", "PollElement"} {
+		for prop, raw := range map[string]string{
+			"results":   `{"type":"array","items":{"type":"number","minimum":0,"maximum":100}}`,
+			"responses": `{"type":"integer","minimum":0}`,
+		} {
+			var constraint jsonschema.Schema
+			if err := json.Unmarshal([]byte(raw), &constraint); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			if err := overrideProperty(root.Definitions, def, prop, &constraint); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+		}
+	}
 	var codeFilename jsonschema.Schema
 	if err := json.Unmarshal([]byte(`{"type":"string","pattern":"^[^\\s\\[{][^\\s]*$"}`), &codeFilename); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -351,6 +374,7 @@ func contractGateJSON() ([]byte, error) {
 		{ast.TypedHeadingsCapability, ast.TypedHeadingsSchemaVersion, "TypedHeadingPresent"},
 		{ast.MediaFigureCapability, ast.MediaFigureSchemaVersion, "MediaFigurePresent"},
 		{ast.CodeFilenameCapability, ast.CodeFilenameSchemaVersion, "CodeFilenamePresent"},
+		{ast.QuizPollResultsCapability, ast.QuizPollResultsSchemaVersion, "QuizPollResultsPresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {

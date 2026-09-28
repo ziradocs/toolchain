@@ -113,7 +113,10 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // (`poster=`/`caption=` on <<video>>/<<audio>>), not declared in frontmatter.
 // 2.19.0: CodeElement.filename (code-filename-v1), inferred from the authored
 // `CODE <lang> <file>` or fence ```lang file``` syntax.
-const SchemaVersion = "2.19.0"
+// 2.20.0: QuizElement/PollElement .results (percent 0-100 per option) and
+// .responses (quiz-poll-results-v1), inferred from the new `results:` and
+// `responses:` keys.
+const SchemaVersion = "2.20.0"
 
 const PreviousSchemaVersion = "2.13.0"
 const LegacySchemaVersion = "2.14.0"
@@ -122,11 +125,13 @@ const NestedListSchemaVersion = "2.16.0"
 const TypedHeadingsSchemaVersion = "2.17.0"
 const MediaFigureSchemaVersion = "2.18.0"
 const CodeFilenameSchemaVersion = "2.19.0"
+const QuizPollResultsSchemaVersion = "2.20.0"
 const TableRowsCapability = "table-rows-v1"
 const NestedListTypesCapability = "nested-list-types-v1"
 const TypedHeadingsCapability = "typed-headings-v1"
 const MediaFigureCapability = "media-figure-v1"
 const CodeFilenameCapability = "code-filename-v1"
+const QuizPollResultsCapability = "quiz-poll-results-v1"
 
 // Node representa un nodo base en el AST
 type Node interface {
