@@ -154,7 +154,7 @@ cd doclang && go mod tidy
 
 ### Build Failures
 
-- Go 1.26.5+ required (see each module's `go.mod`)
+- Go 1.26.8+ required (see each module's `go.mod`)
 - Run `go mod tidy` in the affected module
 - Check for syntax errors with `go vet`
 

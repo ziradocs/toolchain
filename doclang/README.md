@@ -19,7 +19,7 @@ cd doclang
 go build -o doclang ./cmd/doclang
 ```
 
-Requires Go 1.26.5+. `--format pdf` and the offline rendering modes additionally need
+Requires Go 1.26.8+. `--format pdf` and the offline rendering modes additionally need
 Chrome/Chromium — see [Interactive elements](#interactive-elements).
 
 ## How `.doclang` differs from `.slidelang`

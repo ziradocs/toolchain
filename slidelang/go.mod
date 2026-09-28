@@ -1,6 +1,6 @@
 module go.ziradocs.com/slidelang/v2
 
-go 1.26.5
+go 1.26.8
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
