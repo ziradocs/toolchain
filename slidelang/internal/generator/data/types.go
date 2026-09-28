@@ -284,6 +284,7 @@ type ElementData struct {
 	Caption      string
 	Items        []PointItemData
 	ListType     string // "ordered" para <ol>, "unordered" para <ul>
+	TypedList    bool
 	// Checklist data
 	ChecklistItems []ChecklistItemData
 	// Grid data
@@ -393,8 +394,9 @@ type MapMarkerData struct {
 
 // PointItemData representa un item de lista
 type PointItemData struct {
-	Content   string
-	SubPoints []PointItemData
+	Content     string
+	SubPoints   []PointItemData
+	SubListType string
 }
 
 // ChecklistItemData representa un item de checklist

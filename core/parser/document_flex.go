@@ -20,16 +20,17 @@ import (
 // Diferencia clave con FlexParser: `##` y `###` NO crean nuevos slides,
 // sino que se convierten en elementos <h2> y <h3> dentro del slide actual
 type DocumentFlexParser struct {
-	input         string
-	originalInput string // Input original antes de normalización
-	lines         []string
-	currentLine   int
-	diagnostics   []diagnostics.Diagnostic
-	logger        util.Logger
-	registry      *elements.Registry
-	hasTitleBlock bool
-	normalized    bool // Indica si el contenido fue normalizado
-	inCodeBlock   bool // Track si estamos dentro de un code block
+	nestedListTypes bool
+	input           string
+	originalInput   string // Input original antes de normalización
+	lines           []string
+	currentLine     int
+	diagnostics     []diagnostics.Diagnostic
+	logger          util.Logger
+	registry        *elements.Registry
+	hasTitleBlock   bool
+	normalized      bool // Indica si el contenido fue normalizado
+	inCodeBlock     bool // Track si estamos dentro de un code block
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]. Ver
 	// strictBody.lineOffset (strict.go) para la explicación completa (#245).
@@ -52,11 +53,12 @@ func (p *DocumentFlexParser) position(lineIndex int) diagnostics.Position {
 // cuerpo, hilando lineOffset.
 func (p *DocumentFlexParser) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
-		Mode:        "flex",
-		CurrentLine: p.currentLine,
-		Logger:      p.logger,
-		Lines:       p.lines,
-		LineOffset:  p.lineOffset,
+		Mode:            "flex",
+		NestedListTypes: p.nestedListTypes,
+		CurrentLine:     p.currentLine,
+		Logger:          p.logger,
+		Lines:           p.lines,
+		LineOffset:      p.lineOffset,
 	}
 }
 
@@ -156,6 +158,7 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 	// Parse front matter if present
 	if p.currentLine < len(p.lines) && strings.TrimSpace(p.lines[p.currentLine]) == "---" {
 		p.parseFrontMatter(astNode)
+		p.nestedListTypes = sourceNestedListTypes(astNode.FrontMatter)
 	}
 
 	// Parse document sections (content blocks in AST terms)

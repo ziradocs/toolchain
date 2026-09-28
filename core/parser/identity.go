@@ -251,7 +251,7 @@ func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Di
 		ast.SetTableContract(doc)
 	}
 	if len(pending) == 0 && len(markerDiags) == 0 {
-		if doc != nil && ast.UsesTableRows(doc) {
+		if doc != nil && (ast.UsesTableRows(doc) || ast.UsesNestedListTypes(doc)) {
 			if err := ast.ValidateTableContract(doc); err != nil {
 				parseDiags = append(parseDiags, diagnostics.NewError(err.Error(), doc.GetPosition(), "table-identity"))
 			}
@@ -268,7 +268,7 @@ func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Di
 	parseDiags = append(parseDiags, bound...)
 	idIssues := ast.ValidateNodeIDs(doc)
 	parseDiags = append(parseDiags, idIssues...)
-	if ast.UsesTableRows(doc) && len(idIssues) == 0 {
+	if (ast.UsesTableRows(doc) || ast.UsesNestedListTypes(doc)) && len(idIssues) == 0 {
 		if err := ast.ValidateTableContract(doc); err != nil {
 			parseDiags = append(parseDiags, diagnostics.NewError(err.Error(), doc.GetPosition(), "table-identity"))
 		}

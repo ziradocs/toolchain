@@ -18,12 +18,22 @@ func ConvertPointItemsWithVariables(items []ast.PointItem, variables map[string]
 	result := make([]PointItemData, 0, len(items))
 	for _, item := range items {
 		pointData := PointItemData{
-			Content:   ProcessVariables(item.Content, variables), // Markdown se procesa en template
-			SubPoints: ConvertPointItemsWithVariables(item.SubPoints, variables),
+			Content:     ProcessVariables(item.Content, variables), // Markdown se procesa en template
+			SubPoints:   ConvertPointItemsWithVariables(item.SubPoints, variables),
+			SubListType: item.SubListType,
 		}
 		result = append(result, pointData)
 	}
 	return result
+}
+
+func convertedTypedPoints(items []PointItemData) bool {
+	for _, item := range items {
+		if item.SubListType != "" || convertedTypedPoints(item.SubPoints) {
+			return true
+		}
+	}
+	return false
 }
 
 // convertCodeBlocks convierte bloques de código del AST a template data

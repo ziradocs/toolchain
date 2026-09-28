@@ -91,7 +91,7 @@ func TestTableRowsRawDecodeRejectsLossAndConflict(t *testing.T) {
 	}
 	delete(table, "tableRows")
 	bad, _ = json.Marshal(raw)
-	if _, err := DecodeAST(bad); err == nil || !strings.Contains(err.Error(), "without tableRows") {
+	if _, err := DecodeAST(bad); err == nil || !strings.Contains(err.Error(), "tableRows presence") {
 		t.Fatalf("lost authored rows accepted: %v", err)
 	}
 	raw["schemaVersion"] = LegacySchemaVersion
@@ -170,7 +170,7 @@ func TestTableRowsSchemaGateMatchesDecoder(t *testing.T) {
 		}
 	}
 	withoutRows := NewAST(diagnostics.NewPosition(1, 1))
-	withoutRows.SchemaVersion = SchemaVersion
+	withoutRows.SchemaVersion = TableSchemaVersion
 	withoutRows.Capabilities = []string{TableRowsCapability}
 	check(withoutRows, false)
 
@@ -241,7 +241,7 @@ func TestTableRowsRejectsUnsafeRawContractAndWidth(t *testing.T) {
 	if _, err := DecodeAST(bad); err == nil || !strings.Contains(err.Error(), "unsupported schemaVersion") {
 		t.Fatalf("unknown version accepted: %v", err)
 	}
-	candidate["schemaVersion"] = SchemaVersion
+	candidate["schemaVersion"] = TableSchemaVersion
 	candidate["capabilities"] = []any{"unknown-feature"}
 	bad, _ = json.Marshal(candidate)
 	if _, err := DecodeAST(bad); err == nil || !strings.Contains(err.Error(), "requires capability") {

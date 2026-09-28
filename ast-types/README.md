@@ -57,6 +57,13 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.16.0
+
+- **Opt-in**: `PointItem.subListType` preserves the type of that item's
+  `subPoints` at every nesting level. `nested-list-types-v1` uses explicit
+  frontmatter opt-in and emits 2.16.0 alone or with `table-rows-v1`.
+  See [portable nested list types](../docs/portable-nested-list-types.md).
+
 ### 2.15.0
 
 - **Opt-in**: `tableRows` holds authored rows/cells with optional explicit

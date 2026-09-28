@@ -25,6 +25,33 @@ type MarkdownGenerator struct {
 	headingOffset int
 }
 
+func markdownTypedPoints(items []ast.PointItem) bool {
+	for _, item := range items {
+		if item.SubListType != "" || markdownTypedPoints(item.SubPoints) {
+			return true
+		}
+	}
+	return false
+}
+
+func renderTypedMarkdownPoints(items []ast.PointItem, listType string, indent int) string {
+	var b strings.Builder
+	for i, item := range items {
+		marker := "-"
+		if listType == "ordered" {
+			marker = fmt.Sprintf("%d.", i+1)
+		}
+		fmt.Fprintf(&b, "%s%s %s\n", strings.Repeat(" ", indent), marker, item.Content)
+		if len(item.SubPoints) > 0 {
+			// CommonMark nests a child list at the parent's content column.
+			// Ordered markers widen at 10, 100, etc.; a fixed step can turn
+			// children into siblings when the parent marker is numbered.
+			b.WriteString(renderTypedMarkdownPoints(item.SubPoints, item.SubListType, indent+len(marker)+1))
+		}
+	}
+	return b.String()
+}
+
 // NewMarkdownGenerator crea un nuevo generador Markdown
 func NewMarkdownGenerator(log util.Logger) *MarkdownGenerator {
 	return &MarkdownGenerator{
@@ -209,6 +236,9 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		return elem.Content + "\n"
 
 	case *ast.PointsElement:
+		if markdownTypedPoints(elem.Items) {
+			return renderTypedMarkdownPoints(elem.Items, elem.ListType, 0)
+		}
 		var md strings.Builder
 		for i, item := range elem.Items {
 			if elem.ListType == "ordered" {

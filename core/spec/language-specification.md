@@ -77,8 +77,8 @@ element      ::= text_element | points_element | checklist_element |
                  directive_element | special_block | embedded_element
 
 text_element      ::= "TEXT" INDENT content_lines DEDENT
-points_element    ::= "POINTS" INDENT point_item+ DEDENT  
-point_item        ::= "-" text_content NEWLINE
+points_element    ::= "POINTS" INDENT point_item+ DEDENT
+point_item        ::= ("-" | "*" | "+" | DIGIT+ ".") text_content NEWLINE
 checklist_element ::= "CHECKLIST" INDENT checklist_item+ DEDENT
 checklist_item     ::= ("-" | "*" | "+")? "[" ("x" | "X" | " ") "]" text_content NEWLINE
 image_element     ::= "IMAGE" INDENT property+ DEDENT
@@ -94,6 +94,12 @@ element_terminator ::= "<<end>>" | block_boundary | EOF
 identifier ::= LETTER (LETTER | DIGIT | "_")*
 value      ::= STRING | NUMBER | BOOLEAN
 ```
+
+With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
+may own an indented list of child `point_item`s at any depth. Each child
+list has one marker type, ordered or unordered. The AST records that type on
+its parent as `subListType`; mixed ordered/unordered siblings in one list are
+diagnosed. See [portable nested list types](../../docs/portable-nested-list-types.md).
 
 `element_data` for an `embedded_element` is **not** delimited line-by-line —
 it runs until whichever `element_terminator` comes first: an explicit

@@ -111,11 +111,15 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.SchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.SchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := overrideProperty(root.Definitions, "AST", "capabilities", &jsonschema.Schema{Const: []string{ast.TableRowsCapability}}); err != nil {
+	if err := overrideProperty(root.Definitions, "PointItem", "subListType", &jsonschema.Schema{Type: "string", Enum: []any{"ordered", "unordered"}}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := overrideProperty(root.Definitions, "PointsElement", "listType", &jsonschema.Schema{Type: "string", Enum: []any{"ordered", "unordered"}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -133,7 +137,21 @@ func main() {
 		os.Exit(1)
 	}
 	root.Definitions["TableRowsPresent"] = &presence
-	gateJSON := fmt.Sprintf(`{"if":{"properties":{"schemaVersion":{"const":%q}},"required":["schemaVersion"]},"then":{"required":["capabilities"],"allOf":[{"$ref":"#/$defs/TableRowsPresent"}]},"else":{"not":{"anyOf":[{"required":["capabilities"]},{"$ref":"#/$defs/TableRowsPresent"}]}}}`, ast.SchemaVersion)
+	listPresenceJSON := `{"anyOf":[{"required":["subListType"]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/NestedListPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/NestedListPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/NestedListPresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/NestedListPresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/NestedListPresent"}}}}]}`
+	var listPresence jsonschema.Schema
+	if err := json.Unmarshal([]byte(listPresenceJSON), &listPresence); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["NestedListPresent"] = &listPresence
+	typedTreeJSON := `{"type":"object","allOf":[{"if":{"properties":{"type":{"const":"point_item"},"subPoints":{"type":"array","minItems":1}},"required":["type","subPoints"]},"then":{"required":["subListType"]}},{"if":{"properties":{"type":{"const":"point_item"}},"required":["type","subListType"]},"then":{"required":["subPoints"],"properties":{"subPoints":{"type":"array","minItems":1}}}}],"properties":{"contentBlocks":{"items":{"$ref":"#/$defs/TypedPointTree"}},"elements":{"items":{"$ref":"#/$defs/TypedPointTree"}},"columns":{"items":{"$ref":"#/$defs/TypedPointTree"}},"items":{"items":{"$ref":"#/$defs/TypedPointTree"}},"subPoints":{"items":{"$ref":"#/$defs/TypedPointTree"}}}}`
+	var typedTree jsonschema.Schema
+	if err := json.Unmarshal([]byte(typedTreeJSON), &typedTree); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["TypedPointTree"] = &typedTree
+	gateJSON := fmt.Sprintf(`{"if":{"properties":{"schemaVersion":{"const":%q}},"required":["schemaVersion"]},"then":{"required":["capabilities"],"properties":{"capabilities":{"const":[%q]}},"allOf":[{"$ref":"#/$defs/TableRowsPresent"},{"not":{"$ref":"#/$defs/NestedListPresent"}}]},"else":{"if":{"properties":{"schemaVersion":{"const":%q}},"required":["schemaVersion"]},"then":{"required":["capabilities"],"properties":{"capabilities":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"enum":[%q,%q]},"contains":{"const":%q}}},"allOf":[{"$ref":"#/$defs/NestedListPresent"},{"$ref":"#/$defs/TypedPointTree"},{"if":{"properties":{"capabilities":{"contains":{"const":%q}}},"required":["capabilities"]},"then":{"$ref":"#/$defs/TableRowsPresent"},"else":{"not":{"$ref":"#/$defs/TableRowsPresent"}}}]},"else":{"not":{"anyOf":[{"required":["capabilities"]},{"$ref":"#/$defs/TableRowsPresent"},{"$ref":"#/$defs/NestedListPresent"}]}}}}`, ast.TableSchemaVersion, ast.TableRowsCapability, ast.SchemaVersion, ast.TableRowsCapability, ast.NestedListTypesCapability, ast.NestedListTypesCapability, ast.TableRowsCapability)
 	var gate jsonschema.Schema
 	if err := json.Unmarshal([]byte(gateJSON), &gate); err != nil {
 		fmt.Fprintln(os.Stderr, err)

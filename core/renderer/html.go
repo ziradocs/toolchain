@@ -144,6 +144,9 @@ func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) 
 
 // renderPointsElement procesa listas (ordenadas o no ordenadas)
 func renderPointsElement(elem *ast.PointsElement, variables map[string]interface{}) string {
+	if typedPoints(elem.Items) {
+		return renderTypedPoints(elem.Items, elem.ListType, variables)
+	}
 	var html strings.Builder
 
 	if elem.ListType == "ordered" {
@@ -175,6 +178,34 @@ func renderPointsElement(elem *ast.PointsElement, variables map[string]interface
 		html.WriteString("</ul>")
 	}
 
+	return html.String()
+}
+
+func typedPoints(items []ast.PointItem) bool {
+	for _, item := range items {
+		if item.SubListType != "" || typedPoints(item.SubPoints) {
+			return true
+		}
+	}
+	return false
+}
+
+func renderTypedPoints(items []ast.PointItem, listType string, variables map[string]interface{}) string {
+	tag := "ul"
+	if listType == "ordered" {
+		tag = "ol"
+	}
+	var html strings.Builder
+	html.WriteString("<" + tag + ">")
+	for _, item := range items {
+		content := ProcessTextWithVariablesAndMarkdownSecure(item.Content, variables)
+		fmt.Fprintf(&html, "<li>%s", content)
+		if len(item.SubPoints) > 0 {
+			html.WriteString(renderTypedPoints(item.SubPoints, item.SubListType, variables))
+		}
+		html.WriteString("</li>")
+	}
+	html.WriteString("</" + tag + ">")
 	return html.String()
 }
 

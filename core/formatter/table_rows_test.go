@@ -34,7 +34,7 @@ func TestTableRowsRoundTripAndIdentity(t *testing.T) {
 	if len(issues) != 0 {
 		t.Fatalf("parse diagnostics: %v", issues)
 	}
-	if doc.SchemaVersion != ast.SchemaVersion || len(doc.Capabilities) != 1 || doc.Capabilities[0] != ast.TableRowsCapability {
+	if doc.SchemaVersion != ast.TableSchemaVersion || len(doc.Capabilities) != 1 || doc.Capabilities[0] != ast.TableRowsCapability {
 		t.Fatalf("missing opt-in contract: %s %v", doc.SchemaVersion, doc.Capabilities)
 	}
 	table := doc.ContentBlocks[0].Elements[0].(*ast.TableElement)

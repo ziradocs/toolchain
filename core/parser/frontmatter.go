@@ -23,18 +23,19 @@ type FrontMatterParser struct {
 }
 
 type rawFrontMatter struct {
-	Mode      string                 `yaml:"mode"`
-	Title     string                 `yaml:"title"`
-	Author    string                 `yaml:"author"`
-	Date      string                 `yaml:"date"`
-	Theme     string                 `yaml:"theme"`
-	ThemeMode string                 `yaml:"theme_mode"`
-	Lang      string                 `yaml:"lang"`
-	Numbering *rawNumbering          `yaml:"numbering"`
-	TOC       *rawTOC                `yaml:"toc"`
-	Page      *rawPage               `yaml:"page"`
-	Watermark *rawWatermark          `yaml:"watermark"`
-	Variables map[string]interface{} `yaml:"variables"`
+	ASTCapabilities yaml.Node              `yaml:"ast_capabilities"`
+	Mode            string                 `yaml:"mode"`
+	Title           string                 `yaml:"title"`
+	Author          string                 `yaml:"author"`
+	Date            string                 `yaml:"date"`
+	Theme           string                 `yaml:"theme"`
+	ThemeMode       string                 `yaml:"theme_mode"`
+	Lang            string                 `yaml:"lang"`
+	Numbering       *rawNumbering          `yaml:"numbering"`
+	TOC             *rawTOC                `yaml:"toc"`
+	Page            *rawPage               `yaml:"page"`
+	Watermark       *rawWatermark          `yaml:"watermark"`
+	Variables       map[string]interface{} `yaml:"variables"`
 	// Configuración de headers y footers
 	Header         *rawHeaderConfig            `yaml:"header"`
 	Footer         *rawFooterConfig            `yaml:"footer"`
@@ -503,6 +504,28 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	node := ast.NewFrontMatterNode(diagnostics.NewPosition(1, 1))
 	node.EndPosition = diagnostics.NewPosition(endIndex+1, 4)
 	node.Mode = raw.Mode
+	if raw.ASTCapabilities.Kind != 0 {
+		if raw.ASTCapabilities.Kind != yaml.SequenceNode || len(raw.ASTCapabilities.Content) == 0 {
+			p.diagnostics = append(p.diagnostics, diagnostics.NewError("ast_capabilities must be a nonempty list", diagnostics.NewPosition(2, 1), "parser"))
+		} else {
+			seenCapabilities := map[string]bool{}
+			for _, entry := range raw.ASTCapabilities.Content {
+				if entry.Kind != yaml.ScalarNode || entry.Tag != "!!str" {
+					p.diagnostics = append(p.diagnostics, diagnostics.NewError("ast_capabilities entries must be strings", diagnostics.NewPosition(2, 1), "parser"))
+					continue
+				}
+				capability := entry.Value
+				node.ASTCapabilities = append(node.ASTCapabilities, capability)
+				if seenCapabilities[capability] {
+					p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("duplicate ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
+				}
+				seenCapabilities[capability] = true
+				if capability != ast.NestedListTypesCapability {
+					p.diagnostics = append(p.diagnostics, diagnostics.NewError(fmt.Sprintf("unsupported ast_capabilities entry %q", capability), diagnostics.NewPosition(2, 1), "parser"))
+				}
+			}
+		}
+	}
 	node.Title = raw.Title
 	node.Author = raw.Author
 	node.Date = raw.Date

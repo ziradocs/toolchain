@@ -35,9 +35,9 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 	var b strings.Builder
 
 	var fm string
-	if doc.FrontMatter != nil {
+	if fmNode := nestedListFrontMatter(doc, "strict"); fmNode != nil {
 		var err error
-		fm, err = formatFrontMatter(doc.FrontMatter, frontMatterOverrides(doc.FrontMatter, "strict"), frontMatterFallbacks(doc.FrontMatter))
+		fm, err = formatFrontMatter(fmNode, frontMatterOverrides(fmNode, "strict"), frontMatterFallbacks(fmNode))
 		if err != nil {
 			return "", err
 		}

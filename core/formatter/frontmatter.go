@@ -11,6 +11,22 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 )
 
+func nestedListFrontMatter(doc *ast.AST, mode string) *ast.FrontMatterNode {
+	if doc == nil {
+		return nil
+	}
+	fm := doc.FrontMatter
+	if !ast.UsesNestedListTypes(doc) {
+		return fm
+	}
+	if fm == nil {
+		fm = &ast.FrontMatterNode{Mode: mode}
+	}
+	copyFM := *fm
+	copyFM.ASTCapabilities = []string{ast.NestedListTypesCapability}
+	return &copyFM
+}
+
 // formatFrontMatter serializa fm a un bloque "---\n...\n---\n" canónico,
 // compartido entre slidelang (FormatStrict) y doclang (FormatDocument).
 //
@@ -131,6 +147,9 @@ func asYAMLMap(v interface{}) interface{} {
 // silencio de la salida cuando Raw estaba vacío.
 func frontMatterOverrides(fm *ast.FrontMatterNode, mode string) map[string]interface{} {
 	overrides := map[string]interface{}{}
+	if len(fm.ASTCapabilities) > 0 {
+		overrides["ast_capabilities"] = fm.ASTCapabilities
+	}
 	// mode gana sobre fm.Mode cuando el llamador lo fuerza: FormatStrict y
 	// FormatDocumentStrict pasan "strict" sin importar qué diga el AST,
 	// porque esos dos formatters siempre emiten el dialecto strict. Pero

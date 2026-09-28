@@ -124,6 +124,9 @@ const (
 )
 
 func (g *Generator) generatePPTX(astNode *ast.AST, outputDir string, opts GeneratorOptions) error {
+	if ast.UsesNestedListTypes(astNode) && pptxNestedListDepth(astNode) > 9 {
+		return fmt.Errorf("PPTX supports at most 9 nested list levels")
+	}
 	g.logger.Info("PPTX", "Building PPTX presentation...")
 
 	p := pptx.New()
@@ -1554,6 +1557,9 @@ func pptxFitInSlide(w, h, cursorY int) (int, int) {
 // Level, hasta el primer nivel de anidación — mismo alcance que el resto
 // del MVP v0) y devuelve el cursorY actualizado.
 func (g *Generator) pptxAddPoints(s *pptx.Slide, e *ast.PointsElement, cursorY int) int {
+	if pptxTypedPoints(e.Items) {
+		return g.pptxAddTypedPoints(s, e, cursorY)
+	}
 	totalLines := 0
 	for _, item := range e.Items {
 		totalLines += pptxEstimateLines(item.Content)
@@ -1574,6 +1580,65 @@ func (g *Generator) pptxAddPoints(s *pptx.Slide, e *ast.PointsElement, cursorY i
 		}
 	}
 
+	return cursorY + height + pptxParaGapEMU
+}
+
+func pptxTypedPoints(items []ast.PointItem) bool {
+	for _, item := range items {
+		if item.SubListType != "" || pptxTypedPoints(item.SubPoints) {
+			return true
+		}
+	}
+	return false
+}
+
+func pptxNestedListDepth(doc *ast.AST) int {
+	maximum := 0
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if points, ok := n.(*ast.PointsElement); ok && pptxTypedPoints(points.Items) {
+			var visit func([]ast.PointItem, int)
+			visit = func(items []ast.PointItem, depth int) {
+				if depth > maximum {
+					maximum = depth
+				}
+				for _, item := range items {
+					if len(item.SubPoints) > 0 {
+						visit(item.SubPoints, depth+1)
+					}
+				}
+			}
+			visit(points.Items, 1)
+		}
+		return nil
+	})
+	return maximum
+}
+
+func (g *Generator) pptxAddTypedPoints(s *pptx.Slide, e *ast.PointsElement, cursorY int) int {
+	var totalLines int
+	var count func([]ast.PointItem)
+	count = func(items []ast.PointItem) {
+		for _, item := range items {
+			totalLines += pptxEstimateLines(item.Content)
+			count(item.SubPoints)
+		}
+	}
+	count(e.Items)
+	if totalLines < 1 {
+		totalLines = 1
+	}
+	height := totalLines * pptxLineHeightEMU
+	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
+	var add func([]ast.PointItem, string, int)
+	add = func(items []ast.PointItem, kind string, level int) {
+		for _, item := range items {
+			g.pptxAddPointParagraph(tb, item, kind, level)
+			if len(item.SubPoints) > 0 {
+				add(item.SubPoints, item.SubListType, level+1)
+			}
+		}
+	}
+	add(e.Items, e.ListType, 0)
 	return cursorY + height + pptxParaGapEMU
 }
 

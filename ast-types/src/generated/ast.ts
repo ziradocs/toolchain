@@ -89,11 +89,16 @@ import type { Position } from "./diagnostics";
  * editorial identity, independent of reference/HTML ids on individual nodes.
  * 2.15.0: opt-in authored tableRows with portable row/cell identities and
  * semantic row sections. Documents without this capability still emit 2.14.0.
+ * 2.16.0: opt-in PointItem.subListType for the list owned by subPoints.
+ * Documents using both extensions declare both capabilities; tables alone
+ * remain 2.15.0, and documents without either extension remain 2.14.0.
  */
-export const SchemaVersion = "2.15.0";
+export const SchemaVersion = "2.16.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
+export const TableSchemaVersion = "2.15.0";
 export const TableRowsCapability = "table-rows-v1";
+export const NestedListTypesCapability = "nested-list-types-v1";
 /**
  * Node representa un nodo base en el AST
  */
@@ -555,7 +560,7 @@ export interface TextElement extends BaseNode {
  */
 export interface PointsElement extends BaseNode {
   items: PointItem[];
-  listType: string; // "ordered" para numeradas, "unordered" para bullets
+  listType: "ordered" | "unordered"; // "ordered" para numeradas, "unordered" para bullets
 }
 /**
  * PointItem representa un item en una lista
@@ -566,6 +571,12 @@ export interface PointItem extends BaseNode {
   langRuns?: LangRun[]; // ver TextElement.LangRuns
   discardedLangRuns?: LangRun[]; // ver TextElement.DiscardedLangRuns
   subPoints?: PointItem[];
+  /**
+   * SubListType describes the list owned by this item's SubPoints, not
+   * the marker used for this item in its parent's list. It is emitted only
+   * by the nested-list-types-v1 opt-in.
+   */
+  subListType?: "ordered" | "unordered";
 }
 /**
  * CodeElement representa un bloque de código
@@ -1101,6 +1112,15 @@ export const MaxCellSpan = 1000;
 //////////
 // source: table_contract.go
 
+/**
+ * NestedListFingerprint captures ownership and list types by authored ID.
+ * Text and sibling order are intentionally absent so filters may edit them.
+ */
+export interface NestedListFingerprint {
+  OwnerID: string;
+  ListType: string;
+  SubListType: string;
+}
 /**
  * TableIdentityTarget is a portable resolution result. The pointers identify
  * authored records, never flattened coordinates. Callers must resolve again
