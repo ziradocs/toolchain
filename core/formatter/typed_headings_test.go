@@ -200,3 +200,48 @@ func TestTypedHeadingFormatterRejectsUnrepresentableHeadings(t *testing.T) {
 		t.Fatal("multiline heading accepted")
 	}
 }
+
+// Un encabezado tipado anidado en un bloque especial no tiene sintaxis strict
+// (el cuerpo del bloque se re-emite crudo y strict no reconoce `###` ahí): los
+// formatters strict lo rechazan en vez de convertirlo en prosa, y el flex de
+// DocLang, que sí lo reparsea como encabezado, lo conserva.
+func TestNestedTypedHeadingsFailClosedInStrict(t *testing.T) {
+	slides := mustParse(t, "---\nmode: flex\nast_capabilities: [typed-headings-v1]\n---\n# Deck\n\n## Slide\n\n::: note\n### Inside\nBody.\n:::\n", false)
+	if len(typedHeadings(t, slides)) != 1 {
+		t.Fatal("fixture has no nested typed heading")
+	}
+	if _, err := FormatStrict(slides); err == nil || !strings.Contains(err.Error(), "bloque :::note") {
+		t.Fatalf("slide strict formatter degraded a nested heading: %v", err)
+	}
+	doc := mustParse(t, "---\nast_capabilities: [typed-headings-v1]\n---\n# Doc\n\n::: note\n### Inside\nBody.\n:::\n", true)
+	want := typedHeadings(t, doc)
+	if len(want) != 1 {
+		t.Fatalf("doc fixture headings = %+v", want)
+	}
+	if _, err := FormatDocumentStrict(doc); err == nil || !strings.Contains(err.Error(), "bloque :::note") {
+		t.Fatalf("document strict formatter degraded a nested heading: %v", err)
+	}
+	flexOut, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatalf("document flex formatter: %v", err)
+	}
+	if got := typedHeadings(t, mustParse(t, flexOut, true)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("flex lost the nested heading\n got: %+v\nwant: %+v\n%s", got, want, flexOut)
+	}
+}
+
+// Una columna de grid con elementos tipados ya se rechaza en strict; el
+// encabezado tipado no abre una excepción.
+func TestTypedHeadingInGridColumnFailsClosed(t *testing.T) {
+	doc := mustParse(t, typedFlexDeck, false)
+	pos := doc.ContentBlocks[0].Position
+	grid := ast.NewGridElement(pos)
+	col := ast.NewColumnElement(pos, "")
+	col.Elements = []ast.Element{ast.NewHeadingElement(pos, 3, "Col", "heading-col")}
+	grid.Columns = []ast.ColumnElement{*col}
+	last := len(doc.ContentBlocks) - 1
+	doc.ContentBlocks[last].Elements = append(doc.ContentBlocks[last].Elements, grid)
+	if _, err := FormatStrict(doc); err == nil {
+		t.Fatal("heading inside a grid column was formatted")
+	}
+}

@@ -47,9 +47,13 @@ SLIDE content
 
 Without `id:`, the anchor is `heading-` plus the anchor derived from the text,
 with a numeric suffix when an earlier heading in the same deck already used
-it. Flex and strict use the same sequence, so both dialects produce the same
-AST. DocLang anchors keep their existing rule (derived from the text, or
-`id:` on a strict `SECTION`).
+it. Flex and strict use the same sequence for headings that are direct
+children of a slide, so both dialects produce the same AST for them. Flex also
+recognizes headings inside `:::` blocks, and those take their place in the
+sequence; strict has no heading syntax inside a block, so the strict
+formatters refuse a typed heading nested in a block instead of turning it into
+text (the DocLang flex formatter keeps it). DocLang anchors keep their
+existing rule (derived from the text, or `id:` on a strict `SECTION`).
 
 ## AST
 

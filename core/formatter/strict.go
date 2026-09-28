@@ -210,6 +210,14 @@ func formatStrictElement(el ast.Element) (string, error) {
 	case *ast.TableElement:
 		body, err = formatTableElement(e)
 	case *ast.SpecialBlockElement:
+		// El cuerpo de un bloque especial se re-emite como texto crudo y el
+		// parser strict no reconoce `###` dentro de él (HeadingParser solo
+		// corre en flex): un encabezado tipado anidado se volvería prosa al
+		// reparsear. Se rechaza en vez de perderlo en silencio.
+		if nestedTypedHeading(e.Elements) {
+			err = newUnsupported("heading", fmt.Sprintf("un encabezado tipado dentro de un bloque :::%s no es representable en el dialecto strict", e.BlockType))
+			break
+		}
 		body = formatSpecialBlock(e)
 	case *ast.CodeGroupElement:
 		body = formatCodeGroup(e)
@@ -1216,4 +1224,20 @@ func formatDirective(e *ast.DirectiveNode) (string, error) {
 		parts[i] = fmt.Sprintf("%s=%s", k, quote(value))
 	}
 	return "@" + e.Name + " " + strings.Join(parts, " "), nil
+}
+
+// nestedTypedHeading reporta si elements (o un bloque especial anidado dentro
+// de ellos) contiene un HeadingElement.
+func nestedTypedHeading(elements []ast.Element) bool {
+	for _, el := range elements {
+		switch e := el.(type) {
+		case *ast.HeadingElement:
+			return true
+		case *ast.SpecialBlockElement:
+			if nestedTypedHeading(e.Elements) {
+				return true
+			}
+		}
+	}
+	return false
 }

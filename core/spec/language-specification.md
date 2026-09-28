@@ -108,9 +108,10 @@ diagnosed. See [portable nested list types](../../docs/portable-nested-list-type
 A `heading_element` is a subsection heading inside a slide, the strict form of
 flex `###`–`######`. `level:` defaults to 3; `id:` overrides the anchor, which
 is otherwise `heading-` plus the anchor derived from the title, suffixed when
-already used earlier in the deck. It has no body: the elements after it stay
-at the slide's element indentation. Flex and strict produce the same AST for
-the same headings. With frontmatter `ast_capabilities: [typed-headings-v1]`,
+already used earlier in the deck (flex headings inside `:::` blocks also take
+a place in that sequence). It has no body: the elements after it stay at the
+slide's element indentation. Flex and strict produce the same AST for headings
+that are direct children of a slide. With frontmatter `ast_capabilities: [typed-headings-v1]`,
 headings in either dialect become typed `heading` nodes (schema 2.17.0)
 instead of raw-HTML text; without it they keep the legacy form. See
 [portable typed headings](../../docs/portable-typed-headings.md).
