@@ -499,6 +499,14 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				elementData.Controls = elem.Controls
 				elementData.Loop = elem.Loop
 				elementData.Muted = elem.Muted
+				if elem.Poster != "" {
+					poster := ProcessVariables(elem.Poster, variables)
+					elementData.Poster = renderer.ValidateURLScheme(poster)
+					if inlined, ok := renderer.TryInlineLocalImage(poster, ctx); ok {
+						elementData.InlinedPoster = htmltemplate.URL(inlined)
+					}
+				}
+				elementData.Caption = ProcessVariables(elem.Caption, variables)
 			case *ast.SpecialBlockElement:
 				elementData.BlockType = elem.BlockType
 				elementData.Title = ProcessVariables(elem.Title, variables)

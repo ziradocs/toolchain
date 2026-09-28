@@ -5,6 +5,7 @@ package elements
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -73,34 +74,49 @@ type mapJSONBody struct {
 // ast.MapMarker.
 type mapJSONMarker struct {
 	Position []float64 `json:"position"`
-	Lat      float64   `json:"lat"`
-	Lng      float64   `json:"lng"`
-	Popup    string    `json:"popup"`
-	Label    string    `json:"label"`
-	Details  string    `json:"details"`
-	Color    string    `json:"color"`
-	Size     string    `json:"size"`
-	Value    float64   `json:"value"`
+	// Punteros para distinguir "ausente" de un 0 legítimo (el ecuador o el
+	// meridiano de Greenwich): un marcador sin coordenadas se rechaza en vez
+	// de aparecer en 0,0.
+	Lat     *float64 `json:"lat"`
+	Lng     *float64 `json:"lng"`
+	Popup   string   `json:"popup"`
+	Label   string   `json:"label"`
+	Details string   `json:"details"`
+	Color   string   `json:"color"`
+	Size    string   `json:"size"`
+	Value   float64  `json:"value"`
 }
 
-func (m mapJSONMarker) toMarker() ast.MapMarker {
+func (m mapJSONMarker) toMarker() (ast.MapMarker, error) {
 	marker := ast.MapMarker{
-		Lat:     m.Lat,
-		Lng:     m.Lng,
 		Label:   m.Label,
 		Details: m.Details,
 		Color:   m.Color,
 		Size:    m.Size,
 		Value:   m.Value,
 	}
-	if len(m.Position) >= 2 {
+	switch {
+	case len(m.Position) >= 2:
 		marker.Lat = m.Position[0]
 		marker.Lng = m.Position[1]
+	case m.Lat != nil && m.Lng != nil:
+		marker.Lat, marker.Lng = *m.Lat, *m.Lng
+	default:
+		return marker, fmt.Errorf("map marker %q has no coordinates: use position: [lat, lng] or both lat and lng", firstNonEmpty(m.Popup, m.Label))
 	}
 	if m.Popup != "" {
 		marker.Label = m.Popup
 	}
-	return marker
+	return marker, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Parse parsea un elemento Map
@@ -159,11 +175,19 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		if len(parsed.Center) >= 2 {
 			mapElement.Center = &ast.MapCoordinate{Lat: parsed.Center[0], Lng: parsed.Center[1]}
 		}
+		var markerErr error
 		for _, m := range parsed.Markers {
-			mapElement.Markers = append(mapElement.Markers, m.toMarker())
+			marker, err := m.toMarker()
+			if err != nil {
+				if markerErr == nil {
+					markerErr = err
+				}
+				continue
+			}
+			mapElement.Markers = append(mapElement.Markers, marker)
 		}
 
-		return &ParseResult{Element: mapElement, ConsumedLines: consumed, Error: nil}
+		return &ParseResult{Element: mapElement, ConsumedLines: consumed, Error: markerErr}
 	}
 
 	// Extraer atributos si están presentes: <<map type="city" width="1200" height="800" zoom="10">>
@@ -216,6 +240,26 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	consumedLines := 1 // skip <<map>> line
 	var currentMarker *ast.MapMarker
+	currentHasLng := false
+	// markerErr registra el primer marcador sin coordenadas válidas. Antes
+	// esos marcadores salían en 0,0 (o se descartaban) sin diagnóstico.
+	var markerErr error
+	fail := func(err error) {
+		if markerErr == nil {
+			markerErr = err
+		}
+	}
+	finishMarker := func() {
+		if currentMarker == nil {
+			return
+		}
+		if !currentHasLng {
+			fail(fmt.Errorf("map marker at lat %v has no lng", currentMarker.Lat))
+		} else {
+			mapElement.Markers = append(mapElement.Markers, *currentMarker)
+		}
+		currentMarker = nil
+	}
 
 	// Parsear propiedades del mapa
 parseLoop:
@@ -237,8 +281,10 @@ parseLoop:
 
 		// Check for inline marker format: "marker: lat, lng, label, details, color"
 		if strings.HasPrefix(trimmedLine, "marker:") {
-			marker := parseInlineMarker(trimmedLine)
-			if marker != nil {
+			marker, err := parseInlineMarker(trimmedLine)
+			if err != nil {
+				fail(err)
+			} else {
 				mapElement.Markers = append(mapElement.Markers, *marker)
 			}
 			consumedLines++
@@ -293,18 +339,23 @@ parseLoop:
 				case "options":
 					// Inicio de la sección de opciones
 				case "- lat":
-					// Nuevo marcador
-					if currentMarker != nil {
-						// Guardar marcador anterior
-						mapElement.Markers = append(mapElement.Markers, *currentMarker)
+					// Nuevo marcador: cierra el anterior, que necesita su lng.
+					finishMarker()
+					lat, err := parseCoordinate("lat", value)
+					if err != nil {
+						fail(err)
 					}
-					// Crear nuevo marcador
-					lat := parseLatLng(value)
 					currentMarker = &ast.MapMarker{Lat: lat}
+					currentHasLng = false
 				case "lng":
 					if currentMarker != nil {
-						lng := parseLatLng(value)
-						currentMarker.Lng = lng
+						lng, err := parseCoordinate("lng", value)
+						if err != nil {
+							fail(err)
+						} else {
+							currentMarker.Lng = lng
+							currentHasLng = true
+						}
 					}
 				case "label":
 					if currentMarker != nil {
@@ -359,15 +410,23 @@ parseLoop:
 	}
 
 	// Agregar último marcador si existe
-	if currentMarker != nil {
-		mapElement.Markers = append(mapElement.Markers, *currentMarker)
-	}
+	finishMarker()
 
 	return &ParseResult{
 		Element:       mapElement,
 		ConsumedLines: consumedLines,
-		Error:         nil,
+		Error:         markerErr,
 	}
+}
+
+// parseCoordinate lee una latitud o longitud; a diferencia de parseLatLng, un
+// valor ilegible es un error y no un 0 silencioso.
+func parseCoordinate(name, value string) (float64, error) {
+	v, err := strconv.ParseFloat(strings.Trim(strings.TrimSpace(value), "\""), 64)
+	if err != nil {
+		return 0, fmt.Errorf("map marker %s %q is not a number", name, value)
+	}
+	return v, nil
 }
 
 // parseLatLng parsea coordenadas lat/lng
@@ -395,7 +454,7 @@ func parseValue(value string) float64 {
 // parseInlineMarker parsea un marcador en formato inline
 // Formato: "marker: lat, lng, label, details, color, value"
 // Ejemplo: marker: 40.7128, -74.0060, "New York HQ", "Main headquarters", "blue"
-func parseInlineMarker(line string) *ast.MapMarker {
+func parseInlineMarker(line string) (*ast.MapMarker, error) {
 	// Remover el prefijo "marker:"
 	content := strings.TrimPrefix(line, "marker:")
 	content = strings.TrimSpace(content)
@@ -404,19 +463,16 @@ func parseInlineMarker(line string) *ast.MapMarker {
 	fields := parseCSVLine(content)
 
 	if len(fields) < 2 {
-		return nil // Necesita al menos lat, lng
+		return nil, fmt.Errorf("map marker %q needs at least lat, lng", content)
 	}
 
 	marker := &ast.MapMarker{}
-
-	// Lat (campo 0)
-	if lat, err := strconv.ParseFloat(strings.TrimSpace(fields[0]), 64); err == nil {
-		marker.Lat = lat
+	var err error
+	if marker.Lat, err = parseCoordinate("lat", fields[0]); err != nil {
+		return nil, err
 	}
-
-	// Lng (campo 1)
-	if lng, err := strconv.ParseFloat(strings.TrimSpace(fields[1]), 64); err == nil {
-		marker.Lng = lng
+	if marker.Lng, err = parseCoordinate("lng", fields[1]); err != nil {
+		return nil, err
 	}
 
 	// Label (campo 2) - opcional
@@ -441,7 +497,7 @@ func parseInlineMarker(line string) *ast.MapMarker {
 		}
 	}
 
-	return marker
+	return marker, nil
 }
 
 // parseCSVLine parsea una línea CSV respetando strings entre comillas

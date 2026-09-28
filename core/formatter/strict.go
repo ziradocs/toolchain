@@ -222,9 +222,9 @@ func formatStrictElement(el ast.Element) (string, error) {
 	case *ast.CodeGroupElement:
 		body = formatCodeGroup(e)
 	case *ast.MermaidElement:
-		body = formatMermaid(e)
+		body, err = formatMermaid(e)
 	case *ast.PlantUMLElement:
-		body = formatPlantUML(e)
+		body, err = formatPlantUML(e)
 	case *ast.ChartElement:
 		body, err = formatChart(e)
 	case *ast.MapElement:
@@ -858,8 +858,34 @@ func validateStrictGridContent(e *ast.GridElement) error {
 	return nil
 }
 
-func formatMermaid(e *ast.MermaidElement) string {
-	return "<<mermaid>>\n" + indent(e.Content, 2)
+func formatMermaid(e *ast.MermaidElement) (string, error) {
+	open, err := diagramTagOpen("mermaid", e.Title)
+	if err != nil {
+		return "", err
+	}
+	return open + "\n" + indent(e.Content, 2), nil
+}
+
+// diagramTagOpen emite la apertura de un diagrama con su pie opcional
+// (`<<mermaid title="Texto">>`), el inverso de elements.parseDiagramTag. Usa
+// comillas simples si el pie trae dobles; un pie con saltos de línea, con
+// `>>` o con los dos tipos de comillas no tiene forma que re-parsee y se
+// rechaza en vez de perderse.
+func diagramTagOpen(tag, title string) (string, error) {
+	if title == "" {
+		return "<<" + tag + ">>", nil
+	}
+	if strings.ContainsAny(title, "\r\n") || strings.Contains(title, ">>") {
+		return "", newUnsupported(tag, fmt.Sprintf("el pie %q no es representable en la apertura <<%s>>", title, tag))
+	}
+	switch {
+	case !strings.Contains(title, `"`):
+		return fmt.Sprintf(`<<%s title="%s">>`, tag, title), nil
+	case !strings.Contains(title, "'"):
+		return fmt.Sprintf(`<<%s title='%s'>>`, tag, title), nil
+	default:
+		return "", newUnsupported(tag, fmt.Sprintf("el pie %q mezcla comillas simples y dobles", title))
+	}
 }
 
 // formatStrictMath emite <<math>> (issue #239-B) con líneas caption:/label:
@@ -891,8 +917,12 @@ func formatStrictMath(e *ast.MathElement) (string, error) {
 	return body, nil
 }
 
-func formatPlantUML(e *ast.PlantUMLElement) string {
-	return "<<plantuml>>\n" + indent(e.Content, 2)
+func formatPlantUML(e *ast.PlantUMLElement) (string, error) {
+	open, err := diagramTagOpen("plantuml", e.Title)
+	if err != nil {
+		return "", err
+	}
+	return open + "\n" + indent(e.Content, 2), nil
 }
 
 // formatChart maneja los dos sub-dialectos que el parser strict de
@@ -1162,6 +1192,18 @@ func formatMedia(e *ast.MediaElement) (string, error) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "<<%s src=%s", mediaType, quote(e.Source))
+	for _, attr := range []struct{ name, value string }{{"poster", e.Poster}, {"caption", e.Caption}} {
+		if attr.value == "" {
+			continue
+		}
+		if err := checkQuotable("media", attr.name, attr.value); err != nil {
+			return "", err
+		}
+		if strings.Contains(attr.value, ">>") {
+			return "", newUnsupported("media", fmt.Sprintf("%s %q contiene '>>', que cerraría la apertura", attr.name, attr.value))
+		}
+		fmt.Fprintf(&b, " %s=%s", attr.name, quote(attr.value))
+	}
 	if e.Controls {
 		b.WriteString(" controls")
 	}

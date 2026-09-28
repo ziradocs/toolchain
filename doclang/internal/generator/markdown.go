@@ -498,7 +498,12 @@ func renderMediaElementMarkdown(elem *ast.MediaElement) string {
 	if safeSource == "" {
 		return fmt.Sprintf("*[%s bloqueado por seguridad]*\n", label)
 	}
-	return fmt.Sprintf("[%s %s: %s](%s)\n", icon, label, safeSource, safeSource)
+	out := fmt.Sprintf("[%s %s: %s](%s)\n", icon, label, safeSource, safeSource)
+	if elem.Caption != "" {
+		// Pie de la figura (media-figure-v1), igual que el de una imagen.
+		out += fmt.Sprintf("*%s*\n", escapeMarkdownInline(elem.Caption))
+	}
+	return out
 }
 
 // newlineRun matches one or more consecutive line-break characters. Usado

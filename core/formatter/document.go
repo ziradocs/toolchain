@@ -162,9 +162,9 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	case *ast.CodeGroupElement:
 		body = formatCodeGroup(e)
 	case *ast.MermaidElement:
-		body = formatMermaid(e)
+		body, err = formatMermaid(e)
 	case *ast.PlantUMLElement:
-		body = formatPlantUML(e)
+		body, err = formatPlantUML(e)
 	// Compartido con strict.go igual que formatMermaid/formatPlantUML: el
 	// bloque <<math>>…<<end>> es sintaxis válida en flex (MathParser.CanParse
 	// lo acepta en ambos modos, internal/elements/math.go:28), así que la

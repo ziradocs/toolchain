@@ -123,9 +123,11 @@ func clearElementHTML(element Element) {
 	case *MathElement:
 		elem.CaptionHTML = ""
 
-	case *DirectiveNode, *ColumnElement, *MediaElement:
-		// No *HTML fields of their own: DirectiveNode and MediaElement
-		// (issue #21 — Source is a URL, not prose) have no field to clear;
+	case *MediaElement:
+		elem.CaptionHTML = ""
+
+	case *DirectiveNode, *ColumnElement:
+		// No *HTML fields of their own: DirectiveNode has no field to clear;
 		// the ColumnElement case is already covered by clearColumnHTML when
 		// it appears inside a Grid (it never appears loose in
 		// block.Elements — same exclusions documented for

@@ -112,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -176,6 +176,13 @@ func main() {
 		os.Exit(1)
 	}
 	root.Definitions["TypedHeadingPresent"] = &headingPresence
+	mediaPresenceJSON := `{"anyOf":[{"required":["type"],"properties":{"type":{"const":"media"}},"anyOf":[{"required":["poster"]},{"required":["caption"]}]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/MediaFigurePresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/MediaFigurePresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/MediaFigurePresent"}}}}]}`
+	var mediaPresence jsonschema.Schema
+	if err := json.Unmarshal([]byte(mediaPresenceJSON), &mediaPresence); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	root.Definitions["MediaFigurePresent"] = &mediaPresence
 	gateJSON, err := contractGateJSON()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -326,6 +333,7 @@ func contractGateJSON() ([]byte, error) {
 		{ast.TableRowsCapability, ast.TableSchemaVersion, "TableRowsPresent"},
 		{ast.NestedListTypesCapability, ast.NestedListSchemaVersion, "NestedListPresent"},
 		{ast.TypedHeadingsCapability, ast.TypedHeadingsSchemaVersion, "TypedHeadingPresent"},
+		{ast.MediaFigureCapability, ast.MediaFigureSchemaVersion, "MediaFigurePresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {

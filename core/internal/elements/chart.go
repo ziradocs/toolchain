@@ -809,6 +809,13 @@ func (p *ChartParser) parseArrayRow(line string) []interface{} {
 		if part == "" {
 			continue
 		}
+		// `null` es el valor ausente de Chart.js. Se conserva en su columna:
+		// descartarlo corría los valores siguientes a la serie de al lado
+		// (["B", null, 20] se volvía ["B", 20]), una corrupción silenciosa.
+		if part == "null" {
+			row = append(row, nil)
+			continue
+		}
 
 		// Try to parse as number
 		if strings.Contains(part, "\"") {

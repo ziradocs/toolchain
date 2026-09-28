@@ -186,7 +186,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
-	tableCount, listCount, headingCount := 0, 0, 0
+	tableCount, listCount, headingCount, mediaCount := 0, 0, 0, 0
 	var inspectElement func(any) error
 	inspectElement = func(value any) error {
 		switch v := value.(type) {
@@ -208,6 +208,16 @@ func ValidateRawTableContract(data []byte) error {
 				decoder.DisallowUnknownFields()
 				if err := decoder.Decode(&parsed); err != nil {
 					return fmt.Errorf("invalid heading element: %w", err)
+				}
+			}
+			if v["type"] == string(NodeTypeMedia) {
+				_, hasPoster := v["poster"]
+				_, hasCaption := v["caption"]
+				if hasPoster || hasCaption {
+					mediaCount++
+					if !declared[MediaFigureCapability] {
+						return fmt.Errorf("media poster/caption requires schemaVersion %s and capability %s", MediaFigureSchemaVersion, MediaFigureCapability)
+					}
 				}
 			}
 			if v["type"] == string(NodeTypePoints) && declared[NestedListTypesCapability] && v["listType"] != "ordered" && v["listType"] != "unordered" {
@@ -272,6 +282,9 @@ func ValidateRawTableContract(data []byte) error {
 	}
 	if (headingCount > 0) != declared[TypedHeadingsCapability] {
 		return fmt.Errorf("heading presence does not match schemaVersion/capabilities")
+	}
+	if (mediaCount > 0) != declared[MediaFigureCapability] {
+		return fmt.Errorf("media poster/caption presence does not match schemaVersion/capabilities")
 	}
 	return nil
 }

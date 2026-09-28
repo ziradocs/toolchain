@@ -16,14 +16,14 @@ type MermaidParser struct{}
 func (p *MermaidParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
+	// <<mermaid>> y <<mermaid title="…">> en los dos modos; un tag con
+	// atributos inválidos también se reclama para reportarlo en vez de
+	// dejarlo caer a prosa (ver parseDiagramTag).
+	if matched, _, _ := parseDiagramTag(trimmed, "mermaid"); matched {
+		return mode == "strict" || mode == "flex"
+	}
 	switch mode {
-	case "strict":
-		return trimmed == "<<mermaid>>"
 	case "flex":
-		// En flex mode, soportar tanto <<mermaid>> como ```mermaid
-		if trimmed == "<<mermaid>>" {
-			return true
-		}
 		// Detectar code blocks de Markdown con lenguaje "mermaid"
 		if strings.HasPrefix(trimmed, "```mermaid") || strings.HasPrefix(trimmed, "````mermaid") {
 			return true
@@ -98,11 +98,15 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	// Crear elemento Mermaid usando el constructor existente
 	mermaid := ast.NewMermaidElement(pos, diagramType, contentStr)
+	var tagErr error
+	if !isMarkdownFormat {
+		_, mermaid.Title, tagErr = parseDiagramTag(openingLine, "mermaid")
+	}
 
 	return &ParseResult{
 		Element:       mermaid,
 		ConsumedLines: consumedLines,
-		Error:         nil,
+		Error:         tagErr,
 	}
 }
 

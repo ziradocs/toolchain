@@ -442,11 +442,20 @@ Embedded elements add rich content:
 | Element | Syntax | Description |
 |---------|--------|-------------|
 | Charts | `<<chart: type>>` or `<<chart` … `<<end>>`, or a fenced ` ```chart ` block (flex only, JSON body) | Data visualizations |
-| Diagrams | `<<mermaid>>`, or a fenced ` ```mermaid ` block (flex only) | Mermaid diagrams |
+| Diagrams | `<<mermaid>>` or `<<mermaid title="…">>`, or a fenced ` ```mermaid ` block (flex only) | Mermaid diagrams; `title` is the figure caption |
 | Maps | `<<map>>` or `<<map attr="…">>`, or a fenced ` ```map ` block (flex only, JSON body) | Geographic maps |
 | Grid | `<<grid>>` / `<<column>>` / `<<end>>` | Column layouts — see "Grid and Column Layouts" above |
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
+
+`<<plantuml>>` accepts the same `title="…"` caption. The only attribute either
+diagram tag accepts is `title`; anything else is an error. `<<video …>>` and
+`<<audio …>>` accept `src`, `poster` (video), `caption`, `controls`,
+`autoplay`, `loop` and `muted`; any other attribute is reported as warning
+`MEDIA001`, and `poster`/`caption` move the document to schema 2.18.0 with the
+inferred capability `media-figure-v1`. In chart `data`, `null` is a missing
+value kept in its column. A map marker without usable coordinates is an error.
+See [figures and media](../../docs/portable-figures-media.md).
 
 The fenced form (`` ```lang `` … `` ``` ``, four backticks also accepted for
 the opener/closer) exists so a markdown-savvy author or an LLM writing loose

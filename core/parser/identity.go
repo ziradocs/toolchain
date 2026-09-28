@@ -43,6 +43,7 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 	}
 	literal := ""
 	codeIndent := -1
+	diagramIndent := -1
 	groupFence := false
 	fenceClose := "```"
 	for i, line := range lines {
@@ -61,6 +62,16 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 			} else if indent < codeIndent {
 				literal = ""
 			}
+		}
+		// Un diagrama (<<mermaid>>, <<plantuml>>, <<chart:…>>, <<map>>,
+		// <<math>>) no exige <<end>>: el parser también lo cierra cuando una
+		// línea vuelve a la indentación de la apertura o menos (siguiente
+		// elemento, SLIDE/SECTION, encabezado de flex). El pre-pase tiene que
+		// cerrarlo en el mismo punto; si esperaba solo a <<end>>, se tragaba
+		// el `<!-- node-id -->` del elemento siguiente y el build fallaba con
+		// un node-id huérfano.
+		if literal == "diagram" && trimmed != "" && trimmed != "<<end>>" && indent <= diagramIndent {
+			literal = ""
 		}
 		if literal != "" {
 			switch literal {
@@ -109,8 +120,9 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 			literal = "plantuml"
 			continue
 		}
-		if trimmed == "<<mermaid>>" || trimmed == "<<plantuml>>" || trimmed == "<<math>>" || trimmed == "<<map>>" || strings.HasPrefix(trimmed, "<<chart:") {
+		if isDiagramOpener(trimmed) {
 			literal = "diagram"
+			diagramIndent = indent
 			continue
 		}
 		if strings.HasPrefix(trimmed, ":::code-group") {
@@ -275,4 +287,19 @@ func finishNodeIdentities(doc *ast.AST, parseDiags, markerDiags []diagnostics.Di
 		}
 	}
 	return parseDiags
+}
+
+// isDiagramOpener reconoce la línea que abre un bloque de diagrama literal,
+// con o sin atributos (`<<mermaid title="…">>`).
+func isDiagramOpener(trimmed string) bool {
+	if strings.HasPrefix(trimmed, "<<chart") {
+		return true
+	}
+	for _, tag := range []string{"mermaid", "plantuml", "math", "map"} {
+		open := "<<" + tag
+		if trimmed == open+">>" || (strings.HasPrefix(trimmed, open+" ") && strings.HasSuffix(trimmed, ">>")) {
+			return true
+		}
+	}
+	return false
 }

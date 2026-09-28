@@ -96,16 +96,21 @@ import type { Position } from "./diagnostics";
  * of the raw `<hN id>` TextElement. The version of a document is the version
  * of the newest extension it actually uses (see extensions.go); documents
  * using no extension remain 2.14.0.
+ * 2.18.0: MediaElement.poster and .caption (media-figure-v1). Like
+ * table-rows-v1, the capability is inferred from authored syntax
+ * (`poster=`/`caption=` on <<video>>/<<audio>>), not declared in frontmatter.
  */
-export const SchemaVersion = "2.17.0";
+export const SchemaVersion = "2.18.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
 export const NestedListSchemaVersion = "2.16.0";
 export const TypedHeadingsSchemaVersion = "2.17.0";
+export const MediaFigureSchemaVersion = "2.18.0";
 export const TableRowsCapability = "table-rows-v1";
 export const NestedListTypesCapability = "nested-list-types-v1";
 export const TypedHeadingsCapability = "typed-headings-v1";
+export const MediaFigureCapability = "media-figure-v1";
 /**
  * Node representa un nodo base en el AST
  */
@@ -910,6 +915,14 @@ export interface MediaElement extends BaseNode {
    * so a rule can require it explicitly.
    */
   muted?: boolean;
+  /**
+   * Poster y Caption (media-figure-v1, AST 2.18.0): la imagen que se
+   * muestra antes de reproducir un video y el pie de la figura. Antes el
+   * parser descartaba poster= y caption= sin diagnóstico.
+   */
+  poster?: string;
+  caption?: string;
+  captionHTML?: string; // Caption con {{variables}} sustituidas y escapadas
 }
 /**
  * MapElement representa mapas con marcadores

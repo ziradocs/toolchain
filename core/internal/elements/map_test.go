@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -359,6 +360,8 @@ func TestMapParser_Parse_EmptyZoom(t *testing.T) {
 	}
 }
 
+// Un marcador sin lng ya no aparece en 0 sin aviso: el parse reporta el
+// error y conserva solo los marcadores con coordenadas completas.
 func TestMapParser_Parse_IncompleteMarker(t *testing.T) {
 	parser := &MapParser{}
 	mockLog := &mockLogger{}
@@ -380,45 +383,45 @@ func TestMapParser_Parse_IncompleteMarker(t *testing.T) {
 	}
 
 	result := parser.Parse(ctx, 0)
-
-	// Verificar que no hay errores
-	if result.Error != nil {
-		t.Fatalf("Parse() error = %v, expected nil", result.Error)
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "no lng") {
+		t.Fatalf("Parse() error = %v, want missing-lng error", result.Error)
 	}
-
-	// Verificar elemento del mapa
 	mapElement, ok := result.Element.(*ast.MapElement)
 	if !ok {
 		t.Fatalf("Parse() Element type = %T, expected *ast.MapElement", result.Element)
 	}
+	if len(mapElement.Markers) != 1 || mapElement.Markers[0].Label != "London" {
+		t.Fatalf("Markers = %+v, want only London", mapElement.Markers)
+	}
+}
 
-	// Debe tener 2 marcadores, incluso si uno está incompleto
-	if len(mapElement.Markers) != 2 {
-		t.Fatalf("Markers length = %v, expected 2", len(mapElement.Markers))
+// Las otras formas de marcador tampoco caen a 0,0: inline con campos que
+// faltan o no son números, y JSON sin position ni lat/lng.
+func TestMapParser_MarkersWithoutCoordinatesFailClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		lines []string
+	}{
+		{"inline one field", []string{"<<map>>", "  marker: 40.7128"}},
+		{"inline lat not a number", []string{"<<map>>", "  marker: north, -74.0, \"A\""}},
+		{"inline lng not a number", []string{"<<map>>", "  marker: 40.7, west, \"A\""}},
+		{"yaml lat not a number", []string{"<<map>>", "  markers:", "  - lat: north", "    lng: 1"}},
+		{"json no coordinates", []string{"```map", `{"markers": [{"popup": "Nowhere"}]}`, "```"}},
+		{"json lat only", []string{"```map", `{"markers": [{"lat": 10, "popup": "Half"}]}`, "```"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ParseContext{Mode: "flex", Logger: &mockLogger{}, Lines: tc.lines}
+			result := (&MapParser{}).Parse(ctx, 0)
+			if result.Error == nil {
+				t.Fatalf("accepted marker without coordinates: %+v", result.Element)
+			}
+		})
 	}
-
-	// Verificar marcador incompleto
-	marker1 := mapElement.Markers[0]
-	if marker1.Lat != 40.7128 {
-		t.Errorf("Marker1 Lat = %v, expected 40.7128", marker1.Lat)
-	}
-	if marker1.Lng != 0 {
-		t.Errorf("Marker1 Lng = %v, expected 0 (default for missing lng)", marker1.Lng)
-	}
-	if marker1.Label != "Incomplete marker" {
-		t.Errorf("Marker1 Label = %v, expected 'Incomplete marker'", marker1.Label)
-	}
-
-	// Verificar marcador completo
-	marker2 := mapElement.Markers[1]
-	if marker2.Lat != 51.5074 {
-		t.Errorf("Marker2 Lat = %v, expected 51.5074", marker2.Lat)
-	}
-	if marker2.Lng != -0.1278 {
-		t.Errorf("Marker2 Lng = %v, expected -0.1278", marker2.Lng)
-	}
-	if marker2.Label != "London" {
-		t.Errorf("Marker2 Label = %v, expected 'London'", marker2.Label)
+	// Un 0 explícito sigue siendo una coordenada válida.
+	ctx := &ParseContext{Mode: "flex", Logger: &mockLogger{}, Lines: []string{"```map", `{"markers": [{"lat": 0, "lng": 0, "popup": "Null Island"}]}`, "```"}}
+	result := (&MapParser{}).Parse(ctx, 0)
+	if result.Error != nil || len(result.Element.(*ast.MapElement).Markers) != 1 {
+		t.Fatalf("explicit 0,0 rejected: %v", result.Error)
 	}
 }
 
