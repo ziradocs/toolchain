@@ -568,7 +568,7 @@ func validateBeforeAfterSlide(slide *ast.ContentBlock) []diagnostics.Diagnostic 
 	// columnas de grid o dos métricas ya son las dos secciones.
 	hasBeforeSection := slideTextContains(slide, "antes", "before")
 	hasAfterSection := slideTextContains(slide, "después", "despues", "after")
-	if !(hasBeforeSection && hasAfterSection) && hasTwoPartStructure(slide) {
+	if (!hasBeforeSection || !hasAfterSection) && hasTwoPartStructure(slide) {
 		hasBeforeSection, hasAfterSection = true, true
 	}
 
