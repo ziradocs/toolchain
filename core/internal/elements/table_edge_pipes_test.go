@@ -242,7 +242,7 @@ func TestTrimMarkdownRowEdges(t *testing.T) {
 		{"both edge pipes", "| a | b |", []string{" a ", " b "}},
 		{"no edge pipes", "a | b", []string{"a ", " b"}},
 		{"leading only", "| a | b", []string{" a ", " b"}},
-		{"trailing only", "a | b |", []string{"a ", " b"}},
+		{"trailing only", "a | b |", []string{"a ", " b "}},
 		{"surrounding whitespace on the line", "   | a | b |   ", []string{" a ", " b "}},
 		{"empty middle cell", "| a || c |", []string{" a ", "", " c "}},
 		{"empty first data cell", "|  | b |", []string{"  ", " b "}},
