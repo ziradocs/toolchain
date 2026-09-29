@@ -142,6 +142,41 @@ func TestTableParser_TableBlockPipeRows_EdgePipesDoNotCreateColumns(t *testing.T
 			wantHeaders: []string{"Code", "Range"},
 			wantRows:    [][]string{{"a---b", "1-2"}, {"---", "x"}},
 		},
+		{
+			name: "a later row of dashes is data, only the row after the header is the delimiter",
+			lines: []string{
+				"TABLE",
+				"  | a | b |",
+				"  |---|---|",
+				"  | 1 | 2 |",
+				"  | - | - |",
+				"  |---|---|",
+			},
+			wantHeaders: []string{"a", "b"},
+			wantRows:    [][]string{{"1", "2"}, {"-", "-"}, {"---", "---"}},
+		},
+		{
+			name: "dash row right after the header is the delimiter, as in GFM",
+			lines: []string{
+				"TABLE",
+				"  | a | b |",
+				"  | - | - |",
+				"  | 1 | 2 |",
+			},
+			wantHeaders: []string{"a", "b"},
+			wantRows:    [][]string{{"1", "2"}},
+		},
+		{
+			name: "a delimiter row with the wrong number of cells is data",
+			lines: []string{
+				"TABLE",
+				"  | a | b |",
+				"  |---|",
+				"  | 1 | 2 |",
+			},
+			wantHeaders: []string{"a", "b"},
+			wantRows:    [][]string{{"---"}, {"1", "2"}},
+		},
 	}
 	for _, mode := range []string{"strict", "flex"} {
 		for _, tt := range tests {

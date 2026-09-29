@@ -105,6 +105,57 @@ func TestFormatStrict_TableBlockEdgePipes_KeepsColumnsAndIsIdempotent(t *testing
 	}
 }
 
+// Una fila de datos de guiones ("n/a" como "| - | - |") no es la fila
+// delimitadora: sólo lo es la que sigue inmediatamente al header. Tiene que
+// sobrevivir al parseo del TABLE y al ciclo fmt -> reparse.
+func TestFormatStrict_TableBlockDashDataRow_SurvivesRoundTrip(t *testing.T) {
+	src := `---
+mode: strict
+title: "T"
+---
+
+SLIDE content
+  title: "A"
+  TABLE
+    | a | b |
+    |---|---|
+    | 1 | 2 |
+    | - | - |
+`
+	want := [][]string{{"1", "2"}, {"-", "-"}}
+
+	doc, diags := parser.New(util.NewNoop()).Parse(src, "t.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("parse error: %v", d)
+		}
+	}
+	if table := firstTableOf(t, doc); !reflect.DeepEqual(table.Rows, want) {
+		t.Fatalf("parsed Rows = %#v, want %#v", table.Rows, want)
+	}
+
+	first, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	reparsed, diags := parser.New(util.NewNoop()).Parse(first, "t.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("reparse error: %v\n%s", d, first)
+		}
+	}
+	if table := firstTableOf(t, reparsed); !reflect.DeepEqual(table.Rows, want) {
+		t.Errorf("reparsed Rows = %#v, want %#v\n%s", table.Rows, want, first)
+	}
+	second, err := FormatStrict(reparsed)
+	if err != nil {
+		t.Fatalf("second FormatStrict: %v", err)
+	}
+	if first != second {
+		t.Errorf("fmt is not idempotent:\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}
+
 func TestFormatDocumentStrict_TableBlockEdgePipes_KeepsColumnsAndIsIdempotent(t *testing.T) {
 	doc, diags := parser.New(util.NewNoop()).ParseDocument(edgePipeDocSrc, "t.doclang")
 	for _, d := range diags {

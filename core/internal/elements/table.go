@@ -163,6 +163,9 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	var explicitCells [][]ast.TableCell
 	var tableRows []ast.TableRow
 	var legacyDeclared, newDeclared bool
+	// delimiterSeen: the markdown delimiter row (|---|---|) after a pipe
+	// header has already been skipped. Only that one row is syntax.
+	var delimiterSeen bool
 	var diags []diagnostics.Diagnostic
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
@@ -335,11 +338,15 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			}
 
 			// The delimiter row of a markdown table (|---|:-:|) is syntax,
-			// not data. parseMarkdownTable skips it for the same reason;
-			// without this check it became a row of "---" cells. It is only
-			// recognised after the header row, so a first row is always the
+			// not data; without this check it became a row of "---" cells.
+			// As in GFM, it only counts as the delimiter when it comes
+			// immediately after the header row and has one cell per header
+			// column, so a later row of dashes (an "n/a" marker such as
+			// "| - | - |") stays data, and the first row is always the
 			// header, as before.
-			if len(headers) > 0 && isMarkdownSeparatorRow(cells) {
+			if !delimiterSeen && len(headers) > 0 && len(rows) == 0 &&
+				len(cells) == len(headers) && isMarkdownSeparatorRow(cells) {
+				delimiterSeen = true
 				consumed++
 				continue
 			}
