@@ -329,9 +329,19 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 		} else if strings.Contains(trimmedLine, "|") {
 			legacyDeclared = true
 			// Fallback: Parse table row (separated by |) for compatibility
-			cells := SplitMarkdownTableRow(trimmedLine)
+			cells := TrimMarkdownRowEdges(trimmedLine, SplitMarkdownTableRow(trimmedLine))
 			for j := range cells {
 				cells[j] = strings.TrimSpace(cells[j])
+			}
+
+			// The delimiter row of a markdown table (|---|:-:|) is syntax,
+			// not data. parseMarkdownTable skips it for the same reason;
+			// without this check it became a row of "---" cells. It is only
+			// recognised after the header row, so a first row is always the
+			// header, as before.
+			if len(headers) > 0 && isMarkdownSeparatorRow(cells) {
+				consumed++
+				continue
 			}
 
 			if len(headers) == 0 {
@@ -740,6 +750,51 @@ func SplitMarkdownTableRow(line string) []string {
 	return cells
 }
 
+// TrimMarkdownRowEdges quita las celdas vacías que producen los pipes de
+// borde de una fila markdown ("| a | b |" se parte, con
+// SplitMarkdownTableRow, en ["", " a ", " b ", ""]). Recibe la línea original
+// además de las celdas porque la regla depende de ella: se descarta a lo más
+// UNA celda vacía al principio, y sólo si la línea (sin espacios en los
+// extremos) empieza con "|", y a lo más UNA al final, y sólo si termina con
+// "|". Una fila sin pipes de borde ("a | b") no pierde nada, una celda vacía
+// legítima en medio ("| a || c |") se conserva, y una celda vacía legítima
+// pegada al borde ("| | b |") también, porque ese caso trae dos pipes
+// seguidos y sólo el primero es el de borde.
+//
+// Antes cada llamador hacía este recorte por su cuenta, y el fallback de
+// pipes dentro de un bloque TABLE no lo hacía: una fila "| Métrica | Q2 |"
+// salía con cinco columnas en vez de tres.
+func TrimMarkdownRowEdges(line string, cells []string) []string {
+	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "|") && len(cells) > 0 && strings.TrimSpace(cells[0]) == "" {
+		cells = cells[1:]
+	}
+	if strings.HasSuffix(line, "|") && len(cells) > 0 && strings.TrimSpace(cells[len(cells)-1]) == "" {
+		cells = cells[:len(cells)-1]
+	}
+	return cells
+}
+
+// isMarkdownSeparatorRow reporta si una fila ya partida es la fila
+// delimitadora de una tabla markdown: al menos una celda y todas del estilo
+// "---", ":--", "--:" o ":-:" (guiones con dos puntos opcionales en los
+// extremos). Es más estricta que buscar "---" en la línea, que también
+// atraparía una celda de datos como "a---b".
+func isMarkdownSeparatorRow(cells []string) bool {
+	if len(cells) == 0 {
+		return false
+	}
+	for _, c := range cells {
+		c = strings.TrimSpace(c)
+		c = strings.TrimPrefix(c, ":")
+		c = strings.TrimSuffix(c, ":")
+		if c == "" || strings.Trim(c, "-") != "" {
+			return false
+		}
+	}
+	return true
+}
+
 // parseMarkdownTable parsea una tabla en formato Markdown
 func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, int) {
 	// Inicializados como slices vacíos (no nil), ver comentario en parseYAMLTable.
@@ -772,15 +827,8 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 		}
 
 		// Parse table row
-		cells := SplitMarkdownTableRow(line)
-
-		// Clean up cells - remove empty first/last if they exist due to leading/trailing |
-		if len(cells) > 0 && strings.TrimSpace(cells[0]) == "" {
-			cells = cells[1:]
-		}
-		if len(cells) > 0 && strings.TrimSpace(cells[len(cells)-1]) == "" {
-			cells = cells[:len(cells)-1]
-		}
+		// Drop the empty pieces that the leading/trailing "|" leave behind.
+		cells := TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line))
 
 		// Trim whitespace from each cell
 		for j := range cells {
