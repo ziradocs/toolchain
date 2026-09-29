@@ -28,19 +28,19 @@ the end.
       `auto` silently changes which grammar your file is parsed as)
 - [ ] At least one slide exists (`CORE001` — error if the presentation has
       zero content blocks)
-- [ ] No slide is completely empty — no title, no elements (`SLIDE002` —
-      warning) — this also flags likely indentation mistakes (`SYNTAX001` —
-      warning: "check syntax, content should be indented under SLIDE
-      declaration")
-- [ ] No two consecutive slides with zero elements (`PARSE001` — **error**:
-      a strong signal of a parsing/structural bug, not just sparse content).
-      This checks `len(Elements) == 0` only — a **title is not enough**: two
-      adjacent title-only divider slides (title set, no `TEXT`/`POINTS`/etc.)
-      still trip this. Give consecutive divider-style slides at least one
-      element each, or separate them with real content.
+- [ ] No slide is completely empty (`SLIDE002` — warning) — this also
+      flags likely indentation mistakes (`SYNTAX001` — warning: "check
+      syntax, content should be indented under SLIDE declaration"). A slide
+      counts as empty only when it has no elements **and** none of
+      `title`, `heading`, `subtitle`, `kicker` or `logo`: a title slide with
+      just `heading:` (strict) or just `# H1` (flex) is not empty.
+- [ ] No two consecutive empty slides, by that same definition (`PARSE001` —
+      **error**: a strong signal of a parsing/structural bug, not just
+      sparse content). Two adjacent title-only or heading-only slides — a
+      cover followed by a `closing` with only `heading:`, say — are fine.
 - [ ] The document doesn't look like a single mis-parsed blob — i.e. not
-      exactly one slide with no title and no elements (`PARSE002` —
-      warning: "ensure content is properly indented")
+      exactly one slide, and that one empty by the same definition
+      (`PARSE002` — warning: "ensure content is properly indented")
 
 ## 2. Strict-mode-only rules (only apply when `mode: strict`)
 
