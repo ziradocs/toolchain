@@ -2137,7 +2137,12 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	img, err := p.AddImageWithSize(imagePath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert image %s: %v", imagePath, err)
-		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", imagePath))
+		// El marcador va DENTRO del documento, así que cita la fuente tal
+		// como la escribió el autor (elem.Source) y no imagePath: tras
+		// ResolveConfinedPath ese es la ruta absoluta de la máquina que
+		// compiló, que no tiene nada que hacer en un .docx que se comparte.
+		// El log de arriba sí la conserva, porque es donde sirve para depurar.
+		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
 	}
 
 	_ = img // Imagen insertada exitosamente
