@@ -206,6 +206,7 @@ func DefaultRules() []Rule {
 		&FrontMatterValidRule{},
 		&SlideNotEmptyRule{},
 		&ImageHasSourceRule{},
+		&LinkDestinationRule{},
 		&CodeHasContentRule{},
 		&ParseErrorDetectionRule{},
 		// Nuevas reglas de validación estricta

@@ -73,6 +73,12 @@ and it applies to any slide typed `title` in either mode.)
       `data.datasets` is a non-empty array (`CHART004` — a flat
       `{labels, data, series}` object is valid JSON but draws nothing)
 - [ ] **Images**: has a non-empty `source` (`IMG001` — error)
+- [ ] **Links and images**: every destination uses `http:`, `https:`,
+      `mailto:`, `tel:`, `ftp:` or is relative/`#anchor` (`LINK001` —
+      warning). Anything else (`javascript:`, `data:`, `vbscript:`, `file:`,
+      an unknown scheme) or an invalid URL is dropped: the link renders as its
+      text alone and a block image is not drawn. Parentheses inside a
+      destination are fine when balanced, e.g. `.../wiki/Foo_(bar)`
 - [ ] **Code**: block is not empty (`CODE001` — warning)
 
 ## 4. Slide properties
@@ -180,7 +186,7 @@ list is not ZiraDocs-only:
 
 - **Section 3 (element structure) applies in full.** DocLang uses the
   identical element parsers, so `TABLE003`, `CODEGROUP001/002`, `IMG001`,
-  `CODE001`, `CHART001/003/004` and `SPECIAL001` fire on `.doclang` exactly
+  `LINK001`, `CODE001`, `CHART001/003/004` and `SPECIAL001` fire on `.doclang` exactly
   as they do on `.slidelang`. A mismatched table row is an error in both.
 - **Sections 2, 5 and 6 don't meaningfully apply.** The strict-mode rules
   never fire (DocLang ignores `mode:`), and the per-layout schemas are

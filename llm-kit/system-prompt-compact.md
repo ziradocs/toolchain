@@ -110,7 +110,9 @@ images have source (`IMG001`, error). Set `mode:` explicitly even though a
 missing one is only a warning (`FRONT001`) that silently defaults to `auto`. Empty slides otherwise just
 warn (`SLIDE002`). Title slides need `heading` or `title` (`LAYOUT001`,
 error — prefer `heading`). Strict-only: content slides need title or
-elements (`STRICT002`).
+elements (`STRICT002`). Link and image destinations must be `http(s):`,
+`mailto:`, `tel:`, `ftp:` or relative; any other scheme is dropped and warns
+(`LINK001`).
 Per-layout min/max element + forbidden-element checks apply if you set a
 `layout`/slide type beyond the defaults.
 

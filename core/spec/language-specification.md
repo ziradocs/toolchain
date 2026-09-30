@@ -375,6 +375,33 @@ ${expression}
 - `lower` - Lowercase
 - `title` - Title case
 
+### Links and images
+
+Prose fields (paragraphs, list and checklist items, table cells, quotes,
+special blocks, columns, metrics, quiz and poll text, headings) accept inline
+links and images:
+
+```
+[link text](destination)
+![alt text](destination)
+```
+
+The destination runs to the `)` that balances the parentheses opened inside
+it, as in CommonMark, so `[Foo](https://es.wikipedia.org/wiki/Foo_(bar))` keeps
+its full URL. It must close on the same line and cannot be empty; otherwise the
+text is not a link and is kept literally. Complete character references in
+the destination, ending in `;` (`&#106;`, `&colon;`, `&amp;`), are decoded
+before it is checked; a bare `&name` without `;`, as in a query string
+(`?a=1&section=2`), is left as written.
+
+Only `http:`, `https:`, `mailto:`, `tel:`, `ftp:` and scheme-less (relative
+or `#anchor`) destinations are emitted. Any other scheme (`javascript:`,
+`data:`, `vbscript:`, `file:`, or an unknown one), or a destination that is
+not a valid URL, is dropped: a link renders as its text alone, an inline image
+as its alt text, and a block image is not drawn. The linter reports each such
+destination as `LINK001` (warning). Destinations built from `{{variables}}` are
+resolved at render time and are not checked by the linter.
+
 ### Comments
 
 ```slidelang
@@ -684,6 +711,8 @@ schema 2.20.0. See
 2. **Element Validation:**
    - Chart elements must have valid data structure
    - Image elements must have valid source paths
+   - Link and image destinations must use an allowed scheme (`LINK001`, see
+     [Links and images](#links-and-images))
    - Code elements should specify language for highlighting
    - Grid blocks must contain only column elements as direct children
    - Column elements should only be used within grid containers

@@ -5,7 +5,6 @@ package renderer
 
 import (
 	"fmt"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -75,43 +74,10 @@ func ValidateURLScheme(rawURL string) string {
 	if rawURL == "" {
 		return ""
 	}
-
-	// Trim whitespace
-	rawURL = strings.TrimSpace(rawURL)
-
-	// Parse URL
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		// If URL is invalid, return empty string for safety
+	if problem, _ := ClassifyURL(rawURL); problem != URLAllowed {
 		return ""
 	}
-
-	// Get scheme in lowercase
-	scheme := strings.ToLower(parsedURL.Scheme)
-
-	// Block dangerous schemes
-	dangerousSchemes := []string{"javascript", "data", "vbscript", "file"}
-	for _, dangerous := range dangerousSchemes {
-		if scheme == dangerous {
-			return ""
-		}
-	}
-
-	// Allow http, https, mailto, tel, ftp, and relative URLs
-	safeSchemes := []string{"http", "https", "mailto", "tel", "ftp", ""}
-	isSafe := false
-	for _, safe := range safeSchemes {
-		if scheme == safe {
-			isSafe = true
-			break
-		}
-	}
-
-	if !isSafe {
-		return ""
-	}
-
-	return rawURL
+	return strings.TrimSpace(rawURL)
 }
 
 // SanitizeURL validates and sanitizes URLs to prevent javascript: and data: URI attacks
@@ -169,7 +135,14 @@ var (
 	inlineNestedItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*([^*]*)\*([^*\n]+)\*\*\*($|[^*])`)
 	inlineBoldPattern               = regexp.MustCompile(`\*\*(.*?)\*\*`)
 	inlineItalicPattern             = regexp.MustCompile(`\*([^*\n]+)\*`)
-	inlineLinkPattern               = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+	// inlineLinkPattern e inlineImagePattern reconocen solo la APERTURA
+	// ("[texto](" / "![alt](") y no el destino: RE2 no puede exigir
+	// paréntesis balanceados, y el patrón completo anterior (`\(([^)]+)\)`)
+	// cortaba el destino en el primer ")". Eso dejaba un ")" suelto en el
+	// texto de `[x](javascript:alert(1))` y truncaba el href de
+	// https://es.wikipedia.org/wiki/Foo_(bar). El destino lo recorre
+	// ScanLinkDestination (inline_links.go) desde replaceInlineLinks.
+	inlineLinkPattern = regexp.MustCompile(`\[([^\]]+)\]\(`)
 	// inlineImagePattern reconoce ![alt](src) — mismo par corchete+paréntesis
 	// que el enlace, con el "!" como único distintivo. Corre ANTES del
 	// enlace (ver el comentario grande en su pasada, más abajo) precisamente
@@ -182,7 +155,7 @@ var (
 	// solo "[alt](img)" como si fuera EL link — el "!["/"](url)" sobrantes
 	// quedan como texto literal, y el resultado observable es exactamente
 	// "!<a href=\"img\">alt</a>(url)" (issue del audit 2026-09-11, F8).
-	inlineImagePattern = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+	inlineImagePattern = regexp.MustCompile(`!\[([^\]]*)\]\(`)
 	// inlineSpanPattern reconoce spans con clase estilo pandoc
 	// [contenido]{.token}: corchete + LLAVE, un delimitador que NO colisiona
 	// con el enlace [texto](url) (corchete + PARÉNTESIS) ni con
@@ -595,6 +568,15 @@ func commonMarkCodeSpanContent(s string) string {
 // este archivo — y ninguna de las pasadas restantes (marcado, span,
 // enlace) reconoce "<zdcN>" como sintaxis propia.
 func ProcessInlineMarkdownFormatsSecure(text string) string {
+	return processInlineFormats(text, nil)
+}
+
+// processInlineFormats es el cuerpo de ProcessInlineMarkdownFormatsSecure.
+// Si record no es nil, recibe cada enlace e imagen inline que las pasadas de
+// imagen y enlace resuelven, con la decisión tomada sobre su destino; así lo
+// consume FindInlineLinks (y a través de él la regla LINK001) sin duplicar
+// la lógica de estas pasadas.
+func processInlineFormats(text string, record func(InlineLink)) string {
 	// El texto ya está escapado, ahora aplicamos formatos markdown
 
 	var codeSpans []string
@@ -721,12 +703,7 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 	// ![alt](img) dentro de un enlace [![alt](img)](url) resuelva bien, y
 	// para que una imagen en una celda de tabla o un caption ya no
 	// degrade a corchetes/paréntesis literales (F8 del audit 2026-09-11).
-	text = inlineImagePattern.ReplaceAllStringFunc(text, func(match string) string {
-		submatches := inlineImagePattern.FindStringSubmatch(match)
-		if len(submatches) < 3 {
-			return match
-		}
-
+	text = replaceInlineLinks(text, inlineImagePattern, func(match, alt, src string) string {
 		// alt, a diferencia de linkText, se interpola dentro de un
 		// atributo ("alt=\"...\""), no como contenido — pero YA está
 		// escapado (el texto completo pasó por EscapeHTML antes de que esta
@@ -736,26 +713,22 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 		// volver a escaparlo — hacerlo de nuevo lo double-encodearía
 		// ("&lt;" -> "&amp;lt;"). Mismo criterio que linkText en la pasada
 		// de enlace, más abajo.
-		alt := submatches[1]
-		src := submatches[2]
-
+		//
 		// issue #63 code review finding #8: mismo chequeo que las demás
 		// pasadas — ver bracketContentTagsBalanced.
 		if !bracketContentTagsBalanced(alt) {
 			return match
 		}
 
-		// Decodificar entidades escapadas para la URL (mismo motivo que la
-		// pasada de enlace, más abajo: un "&" real en la URL — p.ej. un
-		// query string — ya llegó como "&amp;" por el EscapeHTML de
-		// entrada).
-		src = strings.ReplaceAll(src, "&lt;", "<")
-		src = strings.ReplaceAll(src, "&gt;", ">")
-		src = strings.ReplaceAll(src, "&quot;", "\"")
-		src = strings.ReplaceAll(src, "&#39;", "'")
-		src = strings.ReplaceAll(src, "&amp;", "&")
-
-		sanitizedSrc := SanitizeURL(src)
+		// Decodificar entidades para la URL (mismo motivo que la pasada de
+		// enlace, más abajo: un "&" real en la URL — p.ej. un query string —
+		// ya llegó como "&amp;" por el EscapeHTML de entrada, y las
+		// referencias de carácter del autor se decodifican antes del filtro
+		// de esquemas, ver decodeLinkDestination).
+		sanitizedSrc := SanitizeURL(decodeLinkDestination(src))
+		if record != nil {
+			record(InlineLink{Image: true, Text: alt, Destination: unescapeLinkDestination(src), Dropped: sanitizedSrc == ""})
+		}
 		if sanitizedSrc == "" {
 			// src peligroso: degradar al alt como texto plano, sin <img> —
 			// mismo criterio que un enlace con URL peligrosa cae a solo su
@@ -767,17 +740,11 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 	})
 
 	// Procesar enlaces [texto](url) -> <a href="url">texto</a>
-	// IMPORTANTE: Sanitizar URLs para prevenir javascript: y data: URIs
-	text = inlineLinkPattern.ReplaceAllStringFunc(text, func(match string) string {
-		// Extraer texto y URL
-		submatches := inlineLinkPattern.FindStringSubmatch(match)
-		if len(submatches) < 3 {
-			return match
-		}
-
-		linkText := submatches[1]
-		linkURL := submatches[2]
-
+	// IMPORTANTE: Sanitizar URLs para prevenir javascript: y data: URIs.
+	// El destino lo delimita replaceInlineLinks con paréntesis balanceados
+	// (ver ScanLinkDestination). Con esquema no permitido se emite solo el
+	// texto del enlace, y el linter lo reporta como LINK001.
+	text = replaceInlineLinks(text, inlineLinkPattern, func(match, linkText, linkURL string) string {
 		// issue #63 code review finding #8: mismo chequeo que las pasadas de
 		// span — ver bracketContentTagsBalanced. linkText, no linkURL: la URL
 		// no lleva tags HTML, es el texto visible el que puede cruzar un tag
@@ -786,15 +753,12 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 			return match
 		}
 
-		// Decode HTML entities that were escaped (for URLs in variables)
-		linkURL = strings.ReplaceAll(linkURL, "&lt;", "<")
-		linkURL = strings.ReplaceAll(linkURL, "&gt;", ">")
-		linkURL = strings.ReplaceAll(linkURL, "&quot;", "\"")
-		linkURL = strings.ReplaceAll(linkURL, "&#39;", "'")
-		linkURL = strings.ReplaceAll(linkURL, "&amp;", "&")
-
-		// Sanitizar URL
-		sanitizedURL := SanitizeURL(linkURL)
+		// Deshacer el EscapeHTML de entrada (URLs de variables incluidas) y
+		// decodificar las referencias de carácter del autor antes del filtro.
+		sanitizedURL := SanitizeURL(decodeLinkDestination(linkURL))
+		if record != nil {
+			record(InlineLink{Text: linkText, Destination: unescapeLinkDestination(linkURL), Dropped: sanitizedURL == ""})
+		}
 		if sanitizedURL == "" {
 			// URL peligrosa, mostrar solo el texto sin enlace
 			return linkText
