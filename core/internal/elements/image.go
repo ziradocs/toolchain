@@ -11,6 +11,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // ImageParser maneja elementos de imagen
@@ -392,17 +393,19 @@ func (p *ImageParser) parseMarkdownImage(line string) (string, string, string, s
 
 	alt := line[2:altEnd] // Extract alt text (skip ![)
 
-	// Find the closing )
+	// El destino termina en el ")" que balancea los paréntesis internos,
+	// no en el primero: con strings.Index(")") una fuente como
+	// "foto_(1).png" o "javascript:alert(1)" se truncaba y el ")" restante
+	// se perdía. Mismo escáner que las imágenes y enlaces inline.
 	srcStart := altEnd + 2
-	srcEnd := strings.Index(line[srcStart:], ")")
-	if srcEnd == -1 {
+	source, consumed, ok := renderer.ScanLinkDestination(line[srcStart:])
+	if !ok {
 		return "", alt, "", "", false
 	}
 
-	source := line[srcStart : srcStart+srcEnd]
 	fit, focus := "", ""
 	bleed := false
-	rest := strings.TrimSpace(line[srcStart+srcEnd+1:])
+	rest := strings.TrimSpace(line[srcStart+consumed:])
 	if strings.HasPrefix(rest, "{") && strings.HasSuffix(rest, "}") {
 		for _, match := range imageAttributePattern.FindAllStringSubmatch(rest[1:len(rest)-1], -1) {
 			key := match[1]

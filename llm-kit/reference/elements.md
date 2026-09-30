@@ -317,6 +317,14 @@ reveals the correct option on click, locally to whoever opens it; every other
 format (PDF, PPTX, DOCX, Markdown) renders the quiz already solved. Never write
 copy promising the audience their responses are recorded.
 
+## Links
+
+`[text](url)` and `![alt](url)` work in any prose field. Parentheses inside
+the URL are fine when they balance (`.../wiki/Foo_(bar)`). Only `http:`,
+`https:`, `mailto:`, `tel:`, `ftp:` and relative or `#anchor` URLs are emitted;
+any other scheme, `javascript:` included, is dropped (the link keeps only its
+text) and the linter warns with `LINK001`.
+
 ## Inline spans
 
 Markdown has no spelling for underline, subscript, superscript or keyboard

@@ -214,9 +214,12 @@ func TestProcessInlineMarkdownSecure(t *testing.T) {
 			expected: `<a href="https://example.com">Click here</a>`,
 		},
 		{
+			// El destino llega hasta el ")" que balancea el de void(0), como
+			// en CommonMark; antes se cortaba en el primero y quedaba un ")"
+			// suelto en el texto.
 			name:     "Link with javascript: URL should be blocked",
 			input:    "[Click here](javascript:void(0))",
-			expected: "Click here)", // The ) from void(0) is left because markdown doesn't support () in URLs
+			expected: "Click here",
 		},
 		{
 			name:     "Link with javascript: URL without parens",
@@ -1257,16 +1260,12 @@ func TestProcessInlineMarkdownSecure_InlineImages(t *testing.T) {
 			expected: `<a href="https://example.com"><img src="photo.png" alt="a photo"></a>`,
 		},
 		{
-			// Mismo límite ya aceptado (y testeado) que la pasada de
-			// enlace, arriba ("Link with javascript: URL should be
-			// blocked"): el ")" de "alert(1)" cierra el grupo src antes de
-			// tiempo, y el ")" que de verdad cierra la sintaxis de imagen
-			// queda como texto literal. No es una regresión de este PR —
-			// el src peligroso sigue bloqueado (sin él sería
-			// "<img src=\"javascript:alert(1\" ...>)").
+			// El src llega hasta el ")" que balancea el de "alert(1)" (ver
+			// ScanLinkDestination); antes se cortaba en el primero y el ")"
+			// que cierra la imagen quedaba suelto ("a photo)").
 			name:     "Image with javascript: src is blocked, falls back to alt text",
 			input:    "![a photo](javascript:alert(1))",
-			expected: "a photo)",
+			expected: "a photo",
 		},
 		{
 			name:     "Image src with an escaped ampersand query string",
