@@ -187,3 +187,27 @@ func TestDOCX_ImageConfinement_EmptyAssetRootStillConfines(t *testing.T) {
 		}
 	}
 }
+
+// TestDOCX_MissingImagePlaceholderUsesAuthorSource: el marcador de una imagen
+// que no se encuentra citaba la ruta ya resuelta contra el AssetRoot, o sea
+// la ruta absoluta de la máquina que compiló, y esa ruta quedaba escrita
+// dentro del documento. Debe citar la fuente como la escribió el autor.
+func TestDOCX_MissingImagePlaceholderUsesAuthorSource(t *testing.T) {
+	assetRoot := t.TempDir()
+	logger := newTestLogger()
+	gen := New(logger)
+	doc := astWithImage("img/missing.png")
+	output := filepath.Join(t.TempDir(), "out.docx")
+
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx", AssetRoot: assetRoot}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+	if !strings.Contains(xml, "[Image not found: img/missing.png]") {
+		t.Errorf("placeholder with the author's source not found in document.xml")
+	}
+	if strings.Contains(xml, assetRoot) {
+		t.Errorf("document.xml contains the build machine's asset root %q", assetRoot)
+	}
+}
