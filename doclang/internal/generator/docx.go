@@ -1485,14 +1485,30 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 // cuando el tag no valida, finding #5), y postRun: un hook opcional que
 // corre sobre cada run creado — el patrón de idioma lo usa para propagar
 // SetLanguage a cada run que produzca su recursión sobre el texto interno.
+//
+// find, cuando no es nil, reemplaza a regex para ubicar el match y devuelve
+// los índices con la misma forma que regexp.FindStringSubmatchIndex. Existe
+// para los patterns que un regex no puede describir: el de links necesita
+// leer el destino hasta el ")" que balancea los paréntesis abiertos adentro.
 type docxInlinePattern struct {
 	regex *regexp.Regexp
+	find  func(s string) []int
 	apply func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error
 }
 
-// docxSimpleRunApply factoriza el patrón repetido de los 4 patterns "de un
-// solo run" (code/bold/italic/link): crear un run, aplicarle style, y
-// propagar postRun si esta llamada viene de una recursión (finding #2).
+// index ubica el próximo match del pattern en s.
+func (pt *docxInlinePattern) index(s string) []int {
+	if pt.find != nil {
+		return pt.find(s)
+	}
+	return pt.regex.FindStringSubmatchIndex(s)
+}
+
+// docxSimpleRunApply factoriza el patrón de los patterns "de un solo run"
+// (hoy solo code; bold/italic recursan con docxEmphasisRunApply y link usa
+// docxApplyLink porque su estilo depende del destino): crear un run,
+// aplicarle style, y propagar postRun si esta llamada viene de una
+// recursión (finding #2).
 func docxSimpleRunApply(style func(r domain.Run) error) func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error {
 	return func(p domain.Paragraph, text string, _ string, _ string, postRun func(r domain.Run) error) error {
 		r, err := p.AddRun()
@@ -1530,8 +1546,8 @@ func docxSimpleRunApply(style func(r domain.Run) error) func(p domain.Paragraph,
 // estrictamente más corto que el match en cada nivel —la negrita se lleva los
 // cuatro asteriscos, el token los corchetes y las llaves.
 // docxEmphasisInnerPatterns es lo que puede aparecer adentro de un `**…**` o un
-// `*…*`: token de span, idioma, código y link. Es el set completo menos los
-// propios bold/italic, que ya matchearon afuera.
+// `*…*`: token de span, idioma, código, imagen y link. Es el set completo
+// menos los propios bold/italic, que ya matchearon afuera.
 //
 // La lista se fue armando a los tropezones, y cada omisión costó una ronda:
 // primero solo el token (`**[bonjour]{lang=fr}**` salía literal), después el
@@ -1554,6 +1570,7 @@ func (g *DOCXGenerator) docxEmphasisInnerPatterns() []docxInlinePattern {
 		g.docxSpanTokenPattern(),
 		g.docxLangPattern(),
 		g.docxCodePattern(),
+		g.docxImagePattern(),
 		g.docxLinkPattern(),
 	}
 }
@@ -1632,20 +1649,131 @@ func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
 
 func (g *DOCXGenerator) docxLinkPattern() docxInlinePattern {
 	return docxInlinePattern{
-		// [text](url) - links
-		regex: regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`),
-		apply: docxSimpleRunApply(func(r domain.Run) error {
+		// [text](url) - links. El destino se lee con el mismo escáner que
+		// el renderer HTML (renderer.FindInlineLinkIndex): termina en el ")"
+		// que balancea los paréntesis abiertos adentro. Con el regex local
+		// `\(([^)]+)\)` el destino se cortaba en el primer ")", así que
+		// [Wiki](https://es.wikipedia.org/wiki/Foo_(bar)) y
+		// [x](javascript:alert(1)) dejaban un ")" suelto en el .docx que el
+		// HTML del mismo documento no tiene. Un destino sin cierre
+		// balanceado no es un link y queda literal, igual que en HTML.
+		find:  docxFindInlineLink,
+		apply: g.docxApplyLink,
+	}
+}
+
+// docxFindInlineLink es renderer.FindInlineLinkIndex sobre s con las imágenes
+// inline enmascaradas. El HTML resuelve las imágenes en una pasada ANTES que
+// los links, así que una imagen es atómica para el link: en
+// [![alt](img.png)](url) la etiqueta es la imagen entera y el destino es url.
+// Sin esa pasada, el patrón de link tomaba "![alt" como etiqueta e "img.png"
+// como destino, y el destino de afuera quedaba como texto en el .docx. Cada
+// imagen se reemplaza por relleno del mismo largo, sin corchetes ni
+// paréntesis, de modo que los índices sirven tal cual sobre s y la sintaxis
+// del link la sigue decidiendo core.
+func docxFindInlineLink(s string) []int {
+	if !strings.Contains(s, "![") {
+		return renderer.FindInlineLinkIndex(s)
+	}
+	masked := []byte(s)
+	for pos := 0; pos < len(s); {
+		loc := docxFindInlineImage(s[pos:])
+		if loc == nil {
+			break
+		}
+		for i := pos + loc[0]; i < pos+loc[1]; i++ {
+			masked[i] = 'x'
+		}
+		pos += loc[1]
+	}
+	return renderer.FindInlineLinkIndex(string(masked))
+}
+
+// docxInlineImageOpen es la apertura de una imagen inline, la misma que
+// inlineImagePattern en core/renderer/sanitizer.go (no exportado). El destino
+// se lee con renderer.ScanLinkDestination, que sí lo está, así que la regla de
+// paréntesis balanceados es la de core.
+var docxInlineImageOpen = regexp.MustCompile(`!\[([^\]]*)\]\(`)
+
+// docxFindInlineImage devuelve los índices de la primera imagen ![alt](src)
+// de s con destino balanceado, con la forma de regexp.FindStringSubmatchIndex
+// (grupo 1 el alt, grupo 2 el destino), o nil si no hay ninguna. Una apertura
+// sin destino válido se salta, igual que en el renderer HTML.
+func docxFindInlineImage(s string) []int {
+	for search := 0; search < len(s); {
+		loc := docxInlineImageOpen.FindStringSubmatchIndex(s[search:])
+		if loc == nil {
+			return nil
+		}
+		start := search + loc[0]
+		openEnd := search + loc[1]
+		if dest, n, ok := renderer.ScanLinkDestination(s[openEnd:]); ok {
+			return []int{start, openEnd + n, search + loc[2], search + loc[3], openEnd, openEnd + len(dest)}
+		}
+		search = start + 1
+	}
+	return nil
+}
+
+// docxImagePattern representa una imagen inline ![alt](src) con su alt como
+// texto. DOCX no incrusta imágenes inline, y el alt es lo mismo que el HTML
+// deja visible cuando descarta la imagen, así que sale el alt sea cual sea el
+// destino, y el destino nunca llega al texto del documento. Sin este pattern
+// el de link se quedaba con "[alt](src)" y salía un "!" literal seguido del
+// alt subrayado como si fuera link. Un alt vacío no deja nada.
+func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
+	return docxInlinePattern{
+		find: docxFindInlineImage,
+		apply: func(p domain.Paragraph, alt string, _ string, _ string, postRun func(r domain.Run) error) error {
+			if alt == "" {
+				return nil
+			}
+			r, err := p.AddRun()
+			if err != nil {
+				return err
+			}
+			_ = r.SetText(alt)
 			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 				return err
 			}
-			_ = r.SetColor(g.parseColor(g.style.LinkColor))
+			_ = r.SetColor(g.parseColor(g.style.TextColor))
 			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+			if postRun != nil {
+				return postRun(r)
+			}
+			return nil
+		},
+	}
+}
+
+// docxApplyLink escribe la etiqueta de un link. DOCX no emite hipervínculo
+// (docxgo no lo soporta), así que un link se marca con color y subrayado.
+// La etiqueta puede llevar imágenes ([![alt](img)](url)), que salen como su
+// alt con el mismo estilo que el resto de la etiqueta.
+//
+// Un destino que el renderer HTML descarta sale como texto plano: en HTML esa
+// etiqueta tampoco es un link, y subrayarla en el .docx haría pasar por enlace
+// algo que el documento bloqueó. El criterio es el del HTML, que emite el
+// enlace solo si SanitizeURL (ValidateURLScheme) devuelve algo no vacío: así
+// cuentan como bloqueados tanto un esquema no permitido como un destino de
+// puro espacio ("[x]( )", "&#32;", "&nbsp;"), que ClassifyURL solo daría por
+// una URL relativa válida. Igual que en HTML, las referencias de carácter se
+// decodifican antes de validar, para que &#106;avascript: no pase.
+func (g *DOCXGenerator) docxApplyLink(p domain.Paragraph, text string, dest string, _ string, postRun func(r domain.Run) error) error {
+	blocked := renderer.ValidateURLScheme(renderer.DecodeLinkDestination(dest)) == ""
+	stamp := func(r domain.Run) error {
+		if !blocked {
+			_ = r.SetColor(g.parseColor(g.style.LinkColor))
 			// Links con subrayado (usar UnderlineNone + 1 = single)
 			_ = r.SetUnderline(domain.UnderlineStyle(1))
 			// TODO: Agregar hyperlink real cuando docxgo lo soporte
-			return nil
-		}),
+		}
+		if postRun != nil {
+			return postRun(r)
+		}
+		return nil
 	}
+	return g.walkDocxInlinePatterns(p, text, []docxInlinePattern{g.docxImagePattern()}, stamp)
 }
 
 // docxSpanTokenTextPattern reconoce un token de span `[texto]{.clase}`.
@@ -1737,13 +1865,18 @@ func (g *DOCXGenerator) docxLangPattern() docxInlinePattern {
 }
 
 // docxInlinePatterns es el set completo usado en prosa de cuerpo: code,
-// bold, italic, links, idioma (issue #63) — en ese orden (code primero para
-// evitar procesar ** dentro de `).
+// bold, italic, imágenes, links, idioma (issue #63) — en ese orden (code
+// primero para evitar procesar ** dentro de `). Imagen y link no dependen
+// del orden: el walker se queda con el match que empieza primero, un link
+// que contiene una imagen empieza en su "[" (antes que la imagen), y
+// docxFindInlineLink enmascara las imágenes, así que nunca devuelve un link
+// que empiece adentro de una.
 func (g *DOCXGenerator) docxInlinePatterns() []docxInlinePattern {
 	return []docxInlinePattern{
 		g.docxCodePattern(),
 		g.docxBoldPattern(),
 		g.docxItalicPattern(),
+		g.docxImagePattern(),
 		g.docxLinkPattern(),
 		g.docxLangPattern(),
 		g.docxSpanTokenPattern(),
@@ -1819,7 +1952,7 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 
 		for i := range patterns {
 			pattern := &patterns[i]
-			loc := pattern.regex.FindStringSubmatchIndex(remaining[pos:])
+			loc := pattern.index(remaining[pos:])
 			if loc != nil && loc[0] < minPos {
 				minPos = loc[0]
 				matchedPattern = pattern
