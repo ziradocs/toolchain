@@ -5,6 +5,7 @@ package renderer
 
 import (
 	"fmt"
+	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 )
@@ -20,6 +21,25 @@ import (
 // Markdown inline de una línea); el anchor debe venir ya saneado.
 func HeadingHTML(level int, text, anchor string) string {
 	return fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", level, anchor, ProcessInlineMarkdownSecureLine(text), level)
+}
+
+// headingContentHTML devuelve el `<hN id>` de un TextElement crudo con sus
+// {{variables}} resueltas, con la misma regla que un párrafo: las variables
+// se sustituyen en la fuente y después corre el Markdown inline, así que el
+// filtro de esquemas ve el destino final y el Markdown de un valor se
+// interpreta igual que en el cuerpo. El parser arma Content antes de conocer
+// las variables, por eso se vuelve a armar desde HeadingSource.
+//
+// Solo se reconstruye si Content sigue siendo lo que HeadingHTML produce con
+// esa fuente; si no hay fuente (llegó por un --filter externo) o Content se
+// cambió después de parsear, se sustituye sobre Content con
+// ProcessVariablesEscapeValues, que no entra a las etiquetas.
+func headingContentHTML(el *ast.TextElement, variables map[string]interface{}) string {
+	if len(variables) > 0 && el.Level > 0 && strings.Contains(el.HeadingSource, "{{") &&
+		el.Content == HeadingHTML(el.Level, el.HeadingSource, el.HeadingAnchor) {
+		return HeadingHTML(el.Level, ProcessVariables(el.HeadingSource, variables), el.HeadingAnchor)
+	}
+	return ProcessVariablesEscapeValues(el.Content, variables)
 }
 
 // LegacyHeadingElement baja un HeadingElement al TextElement RawHTML con

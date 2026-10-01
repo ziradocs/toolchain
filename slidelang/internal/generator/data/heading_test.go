@@ -95,3 +95,40 @@ func TestPrepareTemplateData_SubsectionHeadingEscapesVariableValues(t *testing.T
 		t.Errorf("el <h3> que lo envuelve se escapó también: %q", html)
 	}
 }
+
+// El heading de una diapositiva tiene que salir igual que un párrafo con la
+// misma entrada y las mismas variables: el párrafo sustituye en Content y el
+// template le aplica markdownInline (ProcessInlineMarkdownSecureMultiline).
+// Antes el heading sustituía sobre el <hN> ya armado por el parser, así que el
+// valor de una variable usada como destino entraba al href sin pasar por el
+// filtro de esquemas, y el Markdown de un valor salía literal.
+func TestPrepareTemplateData_SubsectionHeadingMatchesParagraphText(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	for _, tc := range []struct {
+		name  string
+		input string
+		vars  map[string]interface{}
+	}{
+		{"destino con esquema bloqueado", "[a]({{v}})", map[string]interface{}{"v": "javascript:alert(1)"}},
+		{"destino permitido", "Ver [doc]({{u}})", map[string]interface{}{"u": "https://x.com/p?a=1&b=2"}},
+		{"cursiva en el valor", "Hola {{n}}", map[string]interface{}{"n": "*Ana*"}},
+		{"enlace en el valor", "Hola {{n}}", map[string]interface{}{"n": "[x](https://x.com)"}},
+		{"HTML en el valor", "Hola {{n}}", map[string]interface{}{"n": "<b>x</b>"}},
+		{"variable dentro del valor", "Hola {{n}}", map[string]interface{}{"n": "{{w}}", "w": "no"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fm := &ast.FrontMatterNode{Variables: tc.vars}
+			paragraph := headingElementData(t, ast.NewTextElement(pos, tc.input), fm)
+			want := `<h3 id="h">` + renderer.ProcessInlineMarkdownSecureMultiline(paragraph.Content) + `</h3>`
+
+			legacy := renderer.LegacyHeadingElement(ast.NewHeadingElement(pos, 3, tc.input, "h"))
+			if got := string(headingElementData(t, legacy, fm).HeadingHTML); got != want {
+				t.Errorf("HeadingHTML del legado\n got %q\nwant %q", got, want)
+			}
+			typed := ast.NewHeadingElement(pos, 3, tc.input, "h")
+			if got := string(headingElementData(t, typed, fm).HeadingHTML); got != want {
+				t.Errorf("HeadingHTML del tipado\n got %q\nwant %q", got, want)
+			}
+		})
+	}
+}

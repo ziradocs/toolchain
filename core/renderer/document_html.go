@@ -1691,8 +1691,11 @@ func extractSubsections(slide ast.ContentBlock, maxDepth int, variables map[stri
 		// interacción independiente del bug original de ME-9 (encontrado en
 		// code-review de esta misma PR). Ver docs/SECURITY_AUDIT_2026-07.md,
 		// ME-9 (issue #31).
+		// headingContentHTML resuelve las {{variables}} igual que el cuerpo
+		// del documento, así que el título del TOC es el mismo HTML que el
+		// <hN> y no se vuelve a sustituir abajo.
 		if textElem, ok := elem.(*ast.TextElement); ok && textElem.IsRawHTML {
-			subsections = append(subsections, extractHeadingsInOrder(textElem.Content, maxDepth, variables)...)
+			subsections = append(subsections, extractHeadingsInOrder(headingContentHTML(textElem, variables), maxDepth)...)
 		}
 	}
 
@@ -1707,7 +1710,7 @@ func extractSubsections(slide ast.ContentBlock, maxDepth int, variables map[stri
 // silenciosamente cualquier segundo heading del mismo nivel en el mismo
 // elemento, porque siempre tomaba el primer strings.Index de ese nivel en
 // todo el content y nunca avanzaba el cursor de búsqueda.
-func extractHeadingsInOrder(content string, maxDepth int, variables map[string]interface{}) []Subsection {
+func extractHeadingsInOrder(content string, maxDepth int) []Subsection {
 	subsections := make([]Subsection, 0)
 
 	pos := 0
@@ -1732,11 +1735,11 @@ func extractHeadingsInOrder(content string, maxDepth int, variables map[string]i
 		title := content[openTagEnd:titleEnd]
 
 		// El título puede contener HTML interno como <strong>, <em>, <code>, etc.
-		// Mantenerlo para que se renderice correctamente en el TOC. Usar
-		// ProcessVariablesEscapeValues (no ProcessVariables): escapa el
-		// valor de cada {{variable}} sustituida sin tocar el HTML de
-		// alrededor (ver docs/SECURITY_AUDIT_2026-07.md, CR-2).
-		titleProcessed := ProcessVariablesEscapeValues(title, variables)
+		// Mantenerlo para que se renderice correctamente en el TOC. Las
+		// {{variables}} ya vienen resueltas (extractSubsections le pasa el
+		// resultado de headingContentHTML), con el valor escapado; ver
+		// docs/SECURITY_AUDIT_2026-07.md, CR-2.
+		titleProcessed := title
 
 		// Para el anchor, intentar extraerlo del atributo id si existe
 		anchor := ""

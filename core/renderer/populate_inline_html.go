@@ -49,16 +49,16 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 	switch elem := element.(type) {
 	case *ast.TextElement:
 		if elem.IsRawHTML {
-			elem.ContentHTML = ProcessVariablesEscapeValues(elem.Content, variables)
+			elem.ContentHTML = headingContentHTML(elem, variables)
 		} else {
 			elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 		}
 
 	case *ast.HeadingElement:
-		// Mismo orden que el legado: Markdown inline de una línea primero y
-		// después {{variables}} con el valor escapado (ver
-		// renderer.HeadingHTML y el caso IsRawHTML de arriba).
-		elem.TextHTML = ProcessVariablesEscapeValues(ProcessInlineMarkdownSecureLine(elem.Text), variables)
+		// Mismo orden que un párrafo y que el legado (headingContentHTML):
+		// {{variables}} primero y después el Markdown inline de una línea,
+		// para que el filtro de esquemas vea el destino ya sustituido.
+		elem.TextHTML = ProcessInlineMarkdownSecureLine(ProcessVariables(elem.Text, variables))
 
 	case *ast.PointsElement:
 		for i := range elem.Items {

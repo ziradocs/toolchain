@@ -387,13 +387,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				if elem.IsRawHTML {
 					// Encabezado de subsección (issue #194): el Content ya
 					// es el <hN id> que armó el parser, HTML de confianza.
-					// ProcessVariablesEscapeValues sustituye {{variable}}
-					// escapando SOLO el valor — ProcessVariables a secas
-					// dejaría pasar el HTML de una variable, y el genérico
-					// ProcessVariablesSecure escaparía también el <hN> y lo
-					// volvería texto visible.
-					elementData.HeadingHTML = htmltemplate.HTML(
-						renderer.ProcessVariablesEscapeValues(elem.Content, variables))
+					elementData.HeadingHTML = htmltemplate.HTML(subsectionHeadingHTML(elem, variables))
 					elementData.HeadingLevel = elem.Level
 					break
 				}
@@ -810,6 +804,25 @@ func removeInteractiveLibraries(libs []string) []string {
 		}
 	}
 	return out
+}
+
+// subsectionHeadingHTML resuelve las {{variables}} de un encabezado de
+// subsección con la misma regla que un párrafo: se sustituyen en la fuente
+// y después corre el Markdown inline, así que el filtro de esquemas ve el
+// destino final. El parser arma Content antes de conocer las variables, por
+// eso se vuelve a armar desde HeadingSource cuando Content sigue siendo lo
+// que renderer.HeadingHTML produce con esa fuente. Si no (sin fuente, o
+// Content cambiado después de parsear), ProcessVariablesEscapeValues
+// sustituye sobre el HTML escapando solo el valor; ProcessVariables a secas
+// dejaría pasar el HTML de una variable, y ProcessVariablesSecure escaparía
+// también el <hN>. Es la misma regla que el renderer de documentos aplica a
+// sus encabezados.
+func subsectionHeadingHTML(elem *ast.TextElement, variables map[string]interface{}) string {
+	if len(variables) > 0 && elem.Level > 0 && strings.Contains(elem.HeadingSource, "{{") &&
+		elem.Content == renderer.HeadingHTML(elem.Level, elem.HeadingSource, elem.HeadingAnchor) {
+		return renderer.HeadingHTML(elem.Level, ProcessVariables(elem.HeadingSource, variables), elem.HeadingAnchor)
+	}
+	return renderer.ProcessVariablesEscapeValues(elem.Content, variables)
 }
 
 // ProcessTextWithVariablesAndMarkdown es un wrapper para el renderer compartido
