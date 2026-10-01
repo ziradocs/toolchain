@@ -54,6 +54,12 @@ func inlineAllowedClasses() map[string]bool {
 // etiqueta o atributo fuera de la allowlist, cada clase desconocida, cada
 // lang inválido y cada href/src con un esquema que el filtro no permite.
 func inlineHTMLProblems(out string) []string {
+	return htmlProblems(out, inlineAllowedAttrs)
+}
+
+// htmlProblems es inlineHTMLProblems con la allowlist de etiquetas y
+// atributos como parámetro (los encabezados agregan <hN id>).
+func htmlProblems(out string, allowedAttrs map[string]map[string]bool) []string {
 	classes := inlineAllowedClasses()
 	var problems []string
 	z := html.NewTokenizer(strings.NewReader(out))
@@ -66,7 +72,7 @@ func inlineHTMLProblems(out string) []string {
 			continue
 		}
 		tok := z.Token()
-		allowed, ok := inlineAllowedAttrs[tok.Data]
+		allowed, ok := allowedAttrs[tok.Data]
 		if !ok {
 			problems = append(problems, "etiqueta <"+tok.Data+">")
 			continue

@@ -8,7 +8,9 @@ name: Parser fuzzing
 # (testdata/fuzz/) se commitea al repo y se re-ejecuta automáticamente como
 # test de regresión en cualquier `go test` normal, con o sin -fuzz.
 # También corre FuzzInlineMarkdownAllowlist (core/renderer), que comprueba que
-# el HTML de las pasadas inline solo tenga etiquetas y atributos permitidos.
+# el HTML de las pasadas inline solo tenga etiquetas y atributos permitidos,
+# y FuzzHeadingVariablesAllowlist, que compone esa propiedad con {{variables}}
+# y con el envoltorio <hN> de los encabezados.
 
 on:
   push:
@@ -57,7 +59,8 @@ jobs:
             ./parser:FuzzStrictParse \
             ./parser:FuzzFlexParse \
             ./parser:FuzzDocumentFlexParse \
-            ./renderer:FuzzInlineMarkdownAllowlist; do
+            ./renderer:FuzzInlineMarkdownAllowlist \
+            ./renderer:FuzzHeadingVariablesAllowlist; do
             pkg="${entry%%:*}"
             target="${entry#*:}"
             echo "::group::$target"
