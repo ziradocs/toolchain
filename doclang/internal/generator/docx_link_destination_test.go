@@ -110,6 +110,12 @@ func TestDOCXGenerator_BlockedLinkDestinationRendersAsPlainText(t *testing.T) {
 		{"data", "Ver [Dat](data:text/html,hola) y [ok](https://x.com) fin.", "Ver Dat y ok fin.", "Dat"},
 		{"entidad que arma javascript", "Ver [Ent](&#106;avascript:alert(1)) y [ok](https://x.com) fin.", "Ver Ent y ok fin.", "Ent"},
 		{"dentro de negrita", "Ver **[Neg](javascript:void(0))** y [ok](https://x.com) fin.", "Ver Neg y ok fin.", "Neg"},
+		// Un destino de puro espacio también lo descarta el HTML: ValidateURLScheme
+		// lo recorta a "" y SanitizeURL lo trata como bloqueado. ClassifyURL
+		// solo no alcanza, porque un destino vacío es una URL relativa válida.
+		{"solo espacio", "Ver [Esp]( ) y [ok](https://x.com) fin.", "Ver Esp y ok fin.", "Esp"},
+		{"espacio como entidad numérica", "Ver [Sp](&#32;) y [ok](https://x.com) fin.", "Ver Sp y ok fin.", "Sp"},
+		{"espacio duro como entidad", "Ver [Nb](&nbsp;) y [ok](https://x.com) fin.", "Ver Nb y ok fin.", "Nb"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			xml := generateDocxText(t, tc.input)
@@ -132,5 +138,61 @@ func TestDOCXGenerator_BlockedLinkDestinationRendersAsPlainText(t *testing.T) {
 				t.Errorf("la etiqueta del destino bloqueado salió con el color de link %s:\n%s", linkColor, run)
 			}
 		})
+	}
+}
+
+// DOCX no incrusta imágenes inline, así que de ![alt](src) queda el alt como
+// texto, igual que el texto que el HTML deja cuando descarta la imagen. Antes
+// no había pattern de imagen y el de link se quedaba con "[alt](src)": salía
+// un "!" literal y el alt subrayado como link. Con una imagen dentro de un
+// link, el pattern de link tomaba "![alt" como etiqueta y "img.png" como
+// destino, y el destino de afuera quedaba como texto en el .docx aunque el
+// HTML lo descarta. En ningún caso un destino (permitido o bloqueado) debe
+// llegar al texto del documento.
+func TestDOCXGenerator_InlineImageRendersAltText(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		input     string
+		visible   string
+		alt       string
+		underline bool
+		absent    []string
+	}{
+		{"imagen permitida", "Ver ![logo](https://x.com/logo.png) fin.", "Ver logo fin.", "logo", false, []string{"!", "https://x.com/logo.png"}},
+		{"imagen con src bloqueado", "Ver ![malo](javascript:alert(1)) fin.", "Ver malo fin.", "malo", false, []string{"!", "javascript:"}},
+		{"imagen dentro de link permitido", "Ver [![alt](img.png)](https://x.com) fin.", "Ver alt fin.", "alt", true, []string{"!", "img.png", "https://x.com"}},
+		{"imagen dentro de link bloqueado", "Ver [![alt](img.png)](javascript:alert(1)) fin.", "Ver alt fin.", "alt", false, []string{"!", "img.png", "javascript:"}},
+		{"imagen bloqueada dentro de link permitido", "Ver [![alt](javascript:alert(1))](https://x.com) fin.", "Ver alt fin.", "alt", true, []string{"!", "javascript:", "https://x.com"}},
+		{"texto e imagen en la etiqueta", "Ver [mira ![alt](img.png)](https://x.com) fin.", "Ver mira alt fin.", "alt", true, []string{"!", "img.png", "https://x.com"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			xml := generateDocxText(t, tc.input)
+			got := docxVisibleText(xml)
+			if !strings.Contains(got, tc.visible) {
+				t.Errorf("texto visible = %q, quería que contuviera %q", got, tc.visible)
+			}
+			for _, a := range tc.absent {
+				if strings.Contains(got, a) {
+					t.Errorf("%q apareció como texto en el .docx: %q", a, got)
+				}
+			}
+			run := docxRunContaining(t, xml, tc.alt)
+			if hasU := strings.Contains(run, "<w:u "); hasU != tc.underline {
+				t.Errorf("subrayado del alt = %v, quería %v:\n%s", hasU, tc.underline, run)
+			}
+		})
+	}
+}
+
+// Sin el cierre "](" de afuera no hay link: queda el "[" literal y la imagen
+// como su alt, que es lo que el HTML deja visible ("[" seguido del <img>).
+func TestDOCXGenerator_ImageInsideUnclosedLinkLabel(t *testing.T) {
+	xml := generateDocxText(t, "Ver [![alt](img.png) fin.")
+	got := docxVisibleText(xml)
+	if !strings.Contains(got, "Ver [alt fin.") {
+		t.Errorf("texto visible = %q, quería que contuviera %q", got, "Ver [alt fin.")
+	}
+	if run := docxRunContaining(t, xml, "alt"); strings.Contains(run, "<w:u ") {
+		t.Errorf("el alt salió subrayado como link:\n%s", run)
 	}
 }
