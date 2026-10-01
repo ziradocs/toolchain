@@ -262,10 +262,11 @@ func assertFindInlineLinksMatchesHTML(t *testing.T, input string) {
 	t.Helper()
 	links := FindInlineLinks(input)
 	// Text sigue escapado, así que un "<zd" ahí solo puede ser un centinela.
-	// Destination está desescapado: solo cuenta si el autor no lo escribió.
-	authored := strings.Contains(input, "<zd")
+	// Destination está desescapado y puede traer un "<zd" que el autor
+	// escribió, pero nunca más de los que hay en la entrada.
+	authored := strings.Count(input, "<zd")
 	for _, l := range links {
-		if strings.Contains(l.Text, "<zd") || (!authored && strings.Contains(l.Destination, "<zd")) {
+		if strings.Contains(l.Text, "<zd") || strings.Count(l.Destination, "<zd") > authored {
 			t.Errorf("FindInlineLinks(%q) filtró un centinela interno: %#v", input, l)
 		}
 	}
