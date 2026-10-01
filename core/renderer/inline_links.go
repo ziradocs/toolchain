@@ -192,11 +192,14 @@ func ClassifyURL(rawURL string) (problem URLProblem, scheme string) {
 // tal como lo procesó el renderer.
 type InlineLink struct {
 	Image bool
-	// Text es la etiqueta del enlace o el alt de la imagen ya procesados
-	// (escapados y con los formatos inline aplicados).
+	// Text es la etiqueta del enlace ya procesada (escapada y con los
+	// formatos inline aplicados) o, en una imagen, el alt en texto plano
+	// escapado, el mismo que va al atributo.
 	Text string
 	// Destination es el destino tal como lo escribió el autor, sin los
-	// paréntesis externos y sin decodificar referencias de carácter.
+	// paréntesis externos y sin decodificar referencias de carácter. Un code
+	// span dentro del destino aparece como <code>…</code>, que es lo que
+	// el renderer valida.
 	Destination string
 	// Dropped es true cuando el renderer descartó el destino (esquema no
 	// permitido o URL inválida) y emitió solo el texto o el alt.

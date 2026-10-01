@@ -579,6 +579,10 @@ func ProcessInlineMarkdownFormatsSecure(text string) string {
 func processInlineFormats(text string, record func(InlineLink)) string {
 	// El texto ya está escapado, ahora aplicamos formatos markdown
 
+	// emitted guarda el HTML de las pasadas de imagen y enlace, las únicas
+	// que meten texto del autor dentro de un atributo (alt, src, href); ver
+	// inlineEmitted.
+	var emitted inlineEmitted
 	var codeSpans []string
 	if spans := findCodeSpans(text); len(spans) > 0 {
 		var b strings.Builder
@@ -705,14 +709,12 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// degrade a corchetes/paréntesis literales (F8 del audit 2026-09-11).
 	text = replaceInlineLinks(text, inlineImagePattern, func(match, alt, src string) string {
 		// alt, a diferencia de linkText, se interpola dentro de un
-		// atributo ("alt=\"...\""), no como contenido — pero YA está
-		// escapado (el texto completo pasó por EscapeHTML antes de que esta
-		// función corriera, ver su doc comment), y EscapeHTML también
-		// neutraliza comillas ("\"" -> "&quot;", "'" -> "&#39;"), así que es
-		// seguro embeberlo tal cual en un atributo entrecomillado sin
-		// volver a escaparlo — hacerlo de nuevo lo double-encodearía
-		// ("&lt;" -> "&amp;lt;"). Mismo criterio que linkText en la pasada
-		// de enlace, más abajo.
+		// atributo ("alt=\"...\""), no como contenido. El texto del autor
+		// YA está escapado (pasó por EscapeHTML antes de que esta función
+		// corriera, ver su doc comment), pero alt también puede traer HTML
+		// de las pasadas anteriores, y ese sí lleva comillas
+		// (<span class="...">, <span lang="...">): por eso se interpola
+		// inlineAltText(alt), su texto plano, y no alt tal cual.
 		//
 		// issue #63 code review finding #8: mismo chequeo que las demás
 		// pasadas — ver bracketContentTagsBalanced.
@@ -725,9 +727,13 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 		// ya llegó como "&amp;" por el EscapeHTML de entrada, y las
 		// referencias de carácter del autor se decodifican antes del filtro
 		// de esquemas, ver decodeLinkDestination).
+		src = inlineDestinationText(src, codeSpans)
 		sanitizedSrc := SanitizeURL(decodeLinkDestination(src))
+		altText := inlineAltText(alt, codeSpans)
 		if record != nil {
-			record(InlineLink{Image: true, Text: alt, Destination: unescapeLinkDestination(src), Dropped: sanitizedSrc == ""})
+			// Lo mismo que va a los atributos: el destino con el código
+			// restaurado y el alt como texto plano, sin centinelas internos.
+			record(InlineLink{Image: true, Text: altText, Destination: unescapeLinkDestination(src), Dropped: sanitizedSrc == ""})
 		}
 		if sanitizedSrc == "" {
 			// src peligroso: degradar al alt como texto plano, sin <img> —
@@ -736,7 +742,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 			return alt
 		}
 
-		return fmt.Sprintf(`<img src="%s" alt="%s">`, sanitizedSrc, alt)
+		return emitted.hide(fmt.Sprintf(`<img src="%s" alt="%s">`, sanitizedSrc, altText), match)
 	})
 
 	// Procesar enlaces [texto](url) -> <a href="url">texto</a>
@@ -753,26 +759,32 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 			return match
 		}
 
+		// Una imagen dentro del destino ya es un centinela de emitted: el
+		// destino es texto, así que vuelve a ser la fuente que escribió el
+		// autor y no el <img> emitido. Después se restaura el código (ver
+		// inlineDestinationText), para que SanitizeURL valide el valor que
+		// de verdad se emite.
+		linkURL = inlineDestinationText(emitted.sources(linkURL), codeSpans)
+
 		// Deshacer el EscapeHTML de entrada (URLs de variables incluidas) y
 		// decodificar las referencias de carácter del autor antes del filtro.
 		sanitizedURL := SanitizeURL(decodeLinkDestination(linkURL))
 		if record != nil {
-			record(InlineLink{Text: linkText, Destination: unescapeLinkDestination(linkURL), Dropped: sanitizedURL == ""})
+			record(InlineLink{Text: restoreRawCodeSentinels(emitted.expand(linkText), codeSpans), Destination: unescapeLinkDestination(linkURL), Dropped: sanitizedURL == ""})
 		}
 		if sanitizedURL == "" {
 			// URL peligrosa, mostrar solo el texto sin enlace
 			return linkText
 		}
 
-		// Restaurar un centinela de código que cae dentro del grupo URL
-		// (p.ej. "[a](`url`)", donde el code span ES el destino del
-		// enlace) — ver el comentario de restoreCodeSentinelsInURL sobre
-		// por qué esto se hace ACÁ, localizado a sanitizedURL, y no en el
-		// pase global de restauración de más abajo.
-		sanitizedURL = restoreCodeSentinelsInURL(sanitizedURL, codeSpans)
-
-		return fmt.Sprintf(`<a href="%s">%s</a>`, sanitizedURL, linkText)
+		return emitted.hide(fmt.Sprintf(`<a href="%s">%s</a>`, sanitizedURL, linkText), match)
 	})
+
+	// Restaurar el HTML de imágenes y enlaces antes que el código: un
+	// enlace puede llevar un centinela de código en su etiqueta, y ninguno
+	// de los dos puede llevarlo crudo en un atributo (el alt se armó como
+	// texto plano y el href pasó por SanitizeURL).
+	text = emitted.expand(text)
 
 	// Restaurar los centinelas de código al final, ya con <code>...</code> —
 	// ver el comentario de esta función sobre por qué código se protege
@@ -789,11 +801,10 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// exactamente esa cadena tras el escape de entrada. Restaurarla acá de
 	// forma global (como hacía una versión anterior de este fix) mangla
 	// texto de usuario arbitrario que nunca tuvo nada que ver con el
-	// esquema interno de centinelas. La única fuente REAL de la forma
-	// escapada es SanitizeURL → EscapeHTMLAttribute sobre una URL que
-	// contenía un centinela crudo, y esa restauración ya se hizo arriba,
-	// LOCALIZADA a sanitizedURL, en el momento en que se conoce con certeza
-	// que la forma escapada vino de ahí.
+	// esquema interno de centinelas. Un centinela dentro de un destino de
+	// enlace o imagen ya se restauró antes de validarlo (ver
+	// inlineDestinationText), así que tampoco hace falta la forma escapada
+	// para ese caso.
 	//
 	// UN SOLO pase con ReplaceAllStringFunc, no N pases de strings.ReplaceAll
 	// (code-review de esta misma PR, hallazgo confirmado): un loop de
@@ -828,53 +839,140 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	return text
 }
 
-// restoreCodeSentinelsInURL restaura, DENTRO de una URL ya sanitizada
-// (post-SanitizeURL), un centinela de código que cayó en el destino de un
-// enlace — p.ej. "[a](`url`)", donde el code span ES la URL. SanitizeURL →
-// EscapeHTMLAttribute escapa el centinela crudo una vez ("<zdc0/>" →
-// "&lt;zdc0/&gt;") antes de que este helper corra, así que acá solo hace
-// falta la forma escapada.
+// inlineDestinationText arma el destino de un enlace o imagen tal como se va
+// a emitir, ANTES de validarlo: un code span dentro del destino (p.ej.
+// "[a](`url`)", donde el code span ES la URL) vuelve a ser <code>…</code> y
+// recién entonces el destino pasa por decodeLinkDestination y SanitizeURL.
+// Antes se validaba el centinela "<zdcN/>" y el <code> se metía después,
+// dentro del href ya validado, así que el filtro de esquemas no veía el valor
+// que se emitía (con "[0](`0%0X0`)" salía un href que el filtro rechaza).
 //
-// Deliberadamente LOCALIZADO a `url` (advisor + code-review de esta misma
-// PR, hallazgo confirmado): una versión anterior de este fix hacía esta
-// misma sustitución de forma GLOBAL sobre el texto completo al final de
-// ProcessInlineMarkdownFormatsSecure. Eso era inseguro — a diferencia del
-// centinela crudo ("<zdcN/>", que solo esta función puede producir porque
-// el texto llega pre-escapado), la forma ESCAPADA sí puede originarse en
-// texto de usuario ORDINARIO: EscapeHTML (aplicado a TODO el texto de
-// entrada antes de que esta función corra) convierte cualquier "<" de
-// usuario en "&lt;" sin tocar el "/", así que un usuario que escribe
-// literalmente "<zdc0/>" en prosa normal —sin código, sin URL de por
-// medio— produce exactamente "&lt;zdc0/&gt;". Un reemplazo global habría
-// mangleado ese texto de usuario, reemplazándolo por <code>...</code> sin
-// relación alguna. Restaurar solo dentro de `url`, en el único punto del
-// pipeline donde se sabe con certeza que la forma escapada vino
-// legítimamente de SanitizeURL, evita ese falso positivo por completo.
-func restoreCodeSentinelsInURL(url string, codeSpans []string) string {
+// Solo la forma cruda del centinela, por la misma razón que la restauración
+// global de más arriba: "&lt;zdcN/&gt;" puede escribirlo un autor en texto
+// normal y no tiene relación con ningún code span.
+func inlineDestinationText(dest string, codeSpans []string) string {
+	return restoreRawCodeSentinels(dest, codeSpans)
+}
+
+// restoreRawCodeSentinels cambia cada centinela crudo "<zdcN/>" de text por
+// su <code>…</code>, como la restauración global del final de
+// processInlineFormats. Lo usan el destino antes de validarlo y el texto de
+// un enlace que se registra para FindInlineLinks, que se arma antes de esa
+// restauración.
+func restoreRawCodeSentinels(text string, codeSpans []string) string {
 	if len(codeSpans) == 0 {
-		return url
+		return text
 	}
-	return zdcEscapedSentinelPattern.ReplaceAllStringFunc(url, func(match string) string {
-		sub := zdcEscapedSentinelPattern.FindStringSubmatch(match)
-		idx, err := strconv.Atoi(sub[1])
+	return zdcRawSentinelPattern.ReplaceAllStringFunc(text, func(match string) string {
+		idx, err := strconv.Atoi(zdcRawSentinelPattern.FindStringSubmatch(match)[1])
 		if err != nil || idx < 0 || idx >= len(codeSpans) {
 			return match
 		}
-		return "&lt;code&gt;" + codeSpans[idx] + "&lt;/code&gt;"
+		return "<code>" + codeSpans[idx] + "</code>"
 	})
 }
 
-// zdcRawSentinelPattern/zdcEscapedSentinelPattern reconocen, por separado,
-// las dos formas en que un centinela de código interno puede aparecer —
-// ver los comentarios sobre dónde se usa cada uno en
-// ProcessInlineMarkdownFormatsSecure y restoreCodeSentinelsInURL. Separados
-// en dos patrones (no uno con dos grupos de alternancia) a propósito: cada
-// uno se usa en un contexto distinto donde solo esa forma es segura de
-// restaurar — mantenerlos separados hace ese alcance explícito en el tipo.
-var (
-	zdcRawSentinelPattern     = regexp.MustCompile(`<zdc(\d+)/>`)
-	zdcEscapedSentinelPattern = regexp.MustCompile(`&lt;zdc(\d+)/&gt;`)
-)
+// zdcRawSentinelPattern reconoce el centinela crudo de un code span — ver
+// ProcessInlineMarkdownFormatsSecure. Solo la forma cruda: la escapada
+// ("&lt;zdcN/&gt;") puede originarse en texto del autor.
+var zdcRawSentinelPattern = regexp.MustCompile(`<zdc(\d+)/>`)
+
+// inlineEmitted guarda el HTML que emiten las pasadas de imagen y enlace de
+// processInlineFormats, las únicas que meten texto del autor dentro de un
+// atributo (el alt y el src de <img>, el href de <a>). Cada salida se
+// reemplaza en el texto por un centinela crudo <zdeN/> y se restaura al
+// final, con expand.
+//
+// Sin esto, una pasada posterior volvía a leer como Markdown el texto que una
+// anterior ya había metido en un atributo: en ![[x](y)](z) la imagen emitía
+// alt="[x" y después la pasada de enlace encontraba un enlace que empezaba
+// adentro de ese alt y escribía <a href="..."> ahí, cuyas comillas cerraban el
+// atributo y dejaban el resto del destino como atributos nuevos del <img>.
+// Codificar como entidades la sintaxis Markdown dentro del atributo cerraría
+// ese caso, pero es una lista negra: cada pasada nueva con otro delimitador lo
+// reabriría. Con el centinela, el HTML ya emitido es opaco para todas las
+// pasadas que siguen, que es la misma garantía que ya tienen los code spans
+// con <zdcN/>.
+//
+// Igual que <zdcN/>, el centinela es seguro de forjar porque el texto llega
+// pre-escapado: un "<" crudo solo puede venir de este archivo. Por la misma
+// razón solo se restaura la forma cruda; "&lt;zde0/&gt;" sí puede escribirlo
+// un autor y se deja como texto.
+type inlineEmitted struct {
+	html   []string
+	source []string
+}
+
+var zdeRawSentinelPattern = regexp.MustCompile(`<zde(\d+)/>`)
+
+// hide guarda html (y source, el Markdown escapado que lo produjo) y devuelve
+// el centinela que lo reemplaza en el texto.
+func (e *inlineEmitted) hide(html, source string) string {
+	e.html = append(e.html, html)
+	e.source = append(e.source, source)
+	return "<zde" + strconv.Itoa(len(e.html)-1) + "/>"
+}
+
+// expand restaura en text el HTML de cada centinela, recursivamente: un
+// enlace puede contener el centinela de una imagen emitida antes que él.
+func (e *inlineEmitted) expand(text string) string {
+	return e.expandBelow(text, len(e.html))
+}
+
+// expandBelow solo acepta índices menores que limit. Un elemento únicamente
+// puede contener centinelas emitidos antes que él, así que el límite baja en
+// cada nivel y la recursión termina aunque el contenido se viera raro.
+func (e *inlineEmitted) expandBelow(text string, limit int) string {
+	if limit == 0 || !strings.Contains(text, "<zde") {
+		return text
+	}
+	return zdeRawSentinelPattern.ReplaceAllStringFunc(text, func(match string) string {
+		idx, err := strconv.Atoi(zdeRawSentinelPattern.FindStringSubmatch(match)[1])
+		if err != nil || idx < 0 || idx >= limit {
+			return match
+		}
+		return e.expandBelow(e.html[idx], idx)
+	})
+}
+
+// sources reemplaza cada centinela de text por el Markdown que lo produjo.
+// Lo usa la pasada de enlace sobre su destino, que es texto y no HTML: en
+// [a](![b](c)) el destino es "![b](c)", no el <img> que la pasada de imagen
+// ya emitió.
+func (e *inlineEmitted) sources(text string) string {
+	if len(e.html) == 0 || !strings.Contains(text, "<zde") {
+		return text
+	}
+	return zdeRawSentinelPattern.ReplaceAllStringFunc(text, func(match string) string {
+		idx, err := strconv.Atoi(zdeRawSentinelPattern.FindStringSubmatch(match)[1])
+		if err != nil || idx < 0 || idx >= len(e.source) {
+			return match
+		}
+		return e.source[idx]
+	})
+}
+
+// inlineAltText convierte el alt de una imagen, tal como lo dejaron las
+// pasadas anteriores, en el texto plano que va en el atributo alt (como en
+// CommonMark, que usa el contenido sin formato): el código vuelve a ser su
+// contenido y se quitan las etiquetas de énfasis, resaltado y spans, que
+// además de no tener sentido en un atributo traen comillas propias
+// (<span class="...">). Primero el código, porque bracketTagRe también
+// reconoce el centinela <zdcN/>. Quitar etiquetas con un regex es correcto
+// solo porque el texto llega pre-escapado: todo "<" crudo lo emitió este
+// archivo, y el contenido de un code span tampoco tiene ninguno.
+func inlineAltText(alt string, codeSpans []string) string {
+	if len(codeSpans) > 0 {
+		alt = zdcRawSentinelPattern.ReplaceAllStringFunc(alt, func(match string) string {
+			idx, err := strconv.Atoi(zdcRawSentinelPattern.FindStringSubmatch(match)[1])
+			if err != nil || idx < 0 || idx >= len(codeSpans) {
+				return match
+			}
+			return codeSpans[idx]
+		})
+	}
+	return bracketTagRe.ReplaceAllString(alt, "")
+}
 
 // bracketTagRe reconoce un tag HTML de apertura o cierre — usado por
 // htmlTagsWellNested. Grupo 3 (atributos + posible "/" final) se usa para

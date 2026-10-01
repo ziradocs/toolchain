@@ -7,12 +7,15 @@ name: Parser fuzzing
 # Los PR reejecutan el corpus mediante `go test`. El corpus de crashes encontrados
 # (testdata/fuzz/) se commitea al repo y se re-ejecuta automáticamente como
 # test de regresión en cualquier `go test` normal, con o sin -fuzz.
+# También corre FuzzInlineMarkdownAllowlist (core/renderer), que comprueba que
+# el HTML de las pasadas inline solo tenga etiquetas y atributos permitidos.
 
 on:
   push:
     branches: [main]
     paths:
       - "core/parser/**"
+      - "core/renderer/**"
       - ".github/workflows/fuzz.yml"
   schedule:
     # Semanal — más tiempo de fuzzing que el que se justifica en cada PR.
@@ -46,8 +49,18 @@ jobs:
           else
             fuzztime=30s
           fi
-          for target in FuzzParse FuzzFrontMatter FuzzStrictParse FuzzFlexParse FuzzDocumentFlexParse; do
+          # Cada entrada es paquete:target; `go test -fuzz` acepta un solo
+          # paquete por corrida.
+          for entry in \
+            ./parser:FuzzParse \
+            ./parser:FuzzFrontMatter \
+            ./parser:FuzzStrictParse \
+            ./parser:FuzzFlexParse \
+            ./parser:FuzzDocumentFlexParse \
+            ./renderer:FuzzInlineMarkdownAllowlist; do
+            pkg="${entry%%:*}"
+            target="${entry#*:}"
             echo "::group::$target"
-            go test ./parser/... -run '^$' -fuzz "^$target$" -fuzztime="$fuzztime"
+            go test "$pkg" -run '^$' -fuzz "^$target$" -fuzztime="$fuzztime"
             echo "::endgroup::"
           done
