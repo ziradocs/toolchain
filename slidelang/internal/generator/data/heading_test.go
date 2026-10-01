@@ -11,6 +11,7 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/core/v2/xref"
 )
 
 // headingElementData corre la conversión sobre un deck de un solo slide con
@@ -134,5 +135,52 @@ func TestPrepareTemplateData_SubsectionHeadingMatchesParagraphText(t *testing.T)
 				t.Errorf("HeadingHTML del tipado\n got %q\nwant %q", got, want)
 			}
 		})
+	}
+}
+
+// xref reescribe el Content de un encabezado legado después de parsear, así
+// que Content deja de ser lo que renderer.HeadingHTML produce con la fuente.
+// renderer.HeadingContentHTML reconoce ese caso (xref mantiene HeadingSource
+// y HeadingContent al día) y vuelve a armar el encabezado: el enlace con
+// variable lleva el valor, el Markdown del valor se interpreta y el \ref
+// sale como enlace, igual que en el párrafo con la misma fuente. Con la copia
+// local que slidelang usaba antes, el encabezado caía al camino sin fuente y
+// quedaba href="{{u}}", *Ana* literal y el \ref como Markdown literal.
+func TestPrepareTemplateData_SubsectionHeadingAfterXrefMatchesParagraphText(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	const source = "Ver [doc]({{u}}) y \\ref{eq:e} {{n}}"
+	heading := renderer.LegacyHeadingElement(ast.NewHeadingElement(pos, 3, source, "h"))
+	paragraph := ast.NewTextElement(pos, source)
+	math := ast.NewMathElement(pos, "e = mc^2")
+	math.Label = "eq:e"
+
+	block := ast.NewContentBlock(pos, "content")
+	block.Title = "Slide"
+	block.Elements = []ast.Element{heading, paragraph, math}
+	doc := &ast.AST{
+		FrontMatter: &ast.FrontMatterNode{Variables: map[string]interface{}{
+			"u": "https://ok.example/p",
+			"n": "*Ana*",
+		}},
+		ContentBlocks: []ast.ContentBlock{*block},
+	}
+	doc, err := xref.Transform(doc)
+	if err != nil {
+		t.Fatalf("xref.Transform: %v", err)
+	}
+
+	got := PrepareTemplateDataWithRenderMode(doc, "default", "browser", util.NewNoop(), renderer.NewDefaultRenderContext())
+	if len(got.ContentBlocks) != 1 || len(got.ContentBlocks[0].Elements) < 2 {
+		t.Fatalf("se esperaba 1 slide con al menos 2 elementos")
+	}
+	elements := got.ContentBlocks[0].Elements
+	want := `<h3 id="h">` + renderer.ProcessInlineMarkdownSecureMultiline(elements[1].Content) + `</h3>`
+	if string(elements[0].HeadingHTML) != want {
+		t.Errorf("HeadingHTML\n got %q\nwant %q", elements[0].HeadingHTML, want)
+	}
+	for _, needle := range []string{`<a href="https://ok.example/p">doc</a>`, `<em>Ana</em>`, `href="#eq-e"`} {
+		if !strings.Contains(string(elements[0].HeadingHTML), needle) {
+			t.Errorf("HeadingHTML = %q, falta %q", elements[0].HeadingHTML, needle)
+		}
 	}
 }
