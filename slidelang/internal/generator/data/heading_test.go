@@ -115,6 +115,10 @@ func TestPrepareTemplateData_SubsectionHeadingMatchesParagraphText(t *testing.T)
 		{"enlace en el valor", "Hola {{n}}", map[string]interface{}{"n": "[x](https://x.com)"}},
 		{"HTML en el valor", "Hola {{n}}", map[string]interface{}{"n": "<b>x</b>"}},
 		{"variable dentro del valor", "Hola {{n}}", map[string]interface{}{"n": "{{w}}", "w": "no"}},
+		// Sin "{{" literal en la fuente: el placeholder solo aparece al
+		// decodificar el destino, ya dentro del href emitido.
+		{"placeholder con entidades en el destino", "[c](&#123;&#123;v}})", map[string]interface{}{"v": "javascript:alert(1)"}},
+		{"placeholder con entidades en el src", "![c](&#123;&#123;v}})", map[string]interface{}{"v": "javascript:alert(1)"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fm := &ast.FrontMatterNode{Variables: tc.vars}

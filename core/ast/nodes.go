@@ -428,6 +428,14 @@ type TextElement struct {
 	// pierde el énfasis inline) y sin pasar la bandera por cada parser.
 	HeadingSource string `json:"-" tstype:"-"`
 	HeadingAnchor string `json:"-" tstype:"-"`
+	// HeadingContent es el Content que el parser armó desde HeadingSource.
+	// Mientras Content siga igual a él, el renderer puede volver a armar el
+	// encabezado desde la fuente (p. ej. con las {{variables}} sustituidas
+	// antes del Markdown inline). Una transformación que reescriba el
+	// encabezado (xref) actualiza los tres campos juntos; cualquier otro
+	// cambio a Content deja de coincidir y el renderer usa Content tal cual.
+	// Solo en memoria, como HeadingSource.
+	HeadingContent string `json:"-" tstype:"-"`
 }
 
 func (t TextElement) element() {}

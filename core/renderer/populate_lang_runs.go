@@ -124,7 +124,7 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 		content := elem.Content
 		if elem.IsRawHTML {
 			// El mismo HTML que se emite, con las {{variables}} ya resueltas.
-			content = headingContentHTML(elem, variables)
+			content = HeadingContentHTML(elem, variables)
 		}
 		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(content, elem.IsRawHTML, variables)
 	case *ast.HeadingElement:

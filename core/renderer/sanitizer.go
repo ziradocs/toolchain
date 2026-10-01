@@ -1126,21 +1126,56 @@ func ProcessVariablesEscapeValues(text string, variables map[string]interface{})
 
 // htmlTagEnd devuelve el índice que sigue al ">" que cierra la etiqueta que
 // empieza en text[start], saltando los ">" que caen dentro de un valor entre
-// comillas dobles o simples. Si la etiqueta no cierra, devuelve len(text):
-// el resto se trata como parte de la etiqueta y no se sustituye.
+// comillas dobles o simples. Como en el tokenizador de HTML, una comilla solo
+// abre un valor si es lo primero después del "=" de un atributo (con espacios
+// de por medio o no); una comilla dentro del nombre de un atributo o de un
+// valor sin comillas es un carácter más, y un valor sin comillas termina en
+// el primer espacio o ">". Si la etiqueta no cierra, devuelve len(text): el
+// resto se trata como parte de la etiqueta y no se sustituye.
+//
+// Donde este escáner y un navegador pudieran diferir, el escáner extiende la
+// etiqueta y no la acorta, así que a lo sumo deja sin sustituir un texto que
+// el navegador mostraría; nunca sustituye dentro de un atributo.
 func htmlTagEnd(text string, start int) int {
+	const (
+		inName = iota
+		beforeValue
+		unquotedValue
+		quotedValue
+	)
+	state := inName
 	var quote byte
 	for i := start + 1; i < len(text); i++ {
 		c := text[i]
-		switch {
-		case quote != 0:
+		space := c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+		switch state {
+		case quotedValue:
 			if c == quote {
-				quote = 0
+				state = inName
 			}
-		case c == '"' || c == '\'':
-			quote = c
-		case c == '>':
-			return i + 1
+		case beforeValue:
+			switch {
+			case c == '>':
+				return i + 1
+			case c == '"' || c == '\'':
+				quote, state = c, quotedValue
+			case !space:
+				state = unquotedValue
+			}
+		case unquotedValue:
+			switch {
+			case c == '>':
+				return i + 1
+			case space:
+				state = inName
+			}
+		default:
+			switch c {
+			case '>':
+				return i + 1
+			case '=':
+				state = beforeValue
+			}
 		}
 	}
 	return len(text)

@@ -811,14 +811,20 @@ func removeInteractiveLibraries(libs []string) []string {
 // y después corre el Markdown inline, así que el filtro de esquemas ve el
 // destino final. El parser arma Content antes de conocer las variables, por
 // eso se vuelve a armar desde HeadingSource cuando Content sigue siendo lo
-// que renderer.HeadingHTML produce con esa fuente. Si no (sin fuente, o
-// Content cambiado después de parsear), ProcessVariablesEscapeValues
-// sustituye sobre el HTML escapando solo el valor; ProcessVariables a secas
-// dejaría pasar el HTML de una variable, y ProcessVariablesSecure escaparía
-// también el <hN>. Es la misma regla que el renderer de documentos aplica a
-// sus encabezados.
+// que renderer.HeadingHTML produce con esa fuente. Se reconstruye aunque la
+// fuente no tenga "{{" literal: un placeholder escrito con entidades
+// (&#123;&#123;v}}) solo aparece como {{v}} dentro del href ya emitido, y
+// ahí no se debe sustituir. Si Content no coincide (sin fuente, o cambiado
+// después de parsear), ProcessVariablesEscapeValues sustituye sobre el HTML
+// escapando solo el valor; ProcessVariables a secas dejaría pasar el HTML
+// de una variable, y ProcessVariablesSecure escaparía también el <hN>.
+//
+// Es la regla de renderer.HeadingContentHTML, escrita aquí solo con
+// funciones del core que slidelang fija hoy; después del bump a un core que
+// la incluya, este helper se reemplaza por esa función, que además reconoce
+// los encabezados que xref reescribió.
 func subsectionHeadingHTML(elem *ast.TextElement, variables map[string]interface{}) string {
-	if len(variables) > 0 && elem.Level > 0 && strings.Contains(elem.HeadingSource, "{{") &&
+	if elem.Level > 0 && elem.HeadingSource != "" &&
 		elem.Content == renderer.HeadingHTML(elem.Level, elem.HeadingSource, elem.HeadingAnchor) {
 		return renderer.HeadingHTML(elem.Level, ProcessVariables(elem.HeadingSource, variables), elem.HeadingAnchor)
 	}

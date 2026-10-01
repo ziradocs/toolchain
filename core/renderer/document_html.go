@@ -1691,11 +1691,11 @@ func extractSubsections(slide ast.ContentBlock, maxDepth int, variables map[stri
 		// interacción independiente del bug original de ME-9 (encontrado en
 		// code-review de esta misma PR). Ver docs/SECURITY_AUDIT_2026-07.md,
 		// ME-9 (issue #31).
-		// headingContentHTML resuelve las {{variables}} igual que el cuerpo
+		// HeadingContentHTML resuelve las {{variables}} igual que el cuerpo
 		// del documento, así que el título del TOC es el mismo HTML que el
 		// <hN> y no se vuelve a sustituir abajo.
 		if textElem, ok := elem.(*ast.TextElement); ok && textElem.IsRawHTML {
-			subsections = append(subsections, extractHeadingsInOrder(headingContentHTML(textElem, variables), maxDepth)...)
+			subsections = append(subsections, extractHeadingsInOrder(HeadingContentHTML(textElem, variables), maxDepth)...)
 		}
 	}
 
@@ -1737,7 +1737,7 @@ func extractHeadingsInOrder(content string, maxDepth int) []Subsection {
 		// El título puede contener HTML interno como <strong>, <em>, <code>, etc.
 		// Mantenerlo para que se renderice correctamente en el TOC. Las
 		// {{variables}} ya vienen resueltas (extractSubsections le pasa el
-		// resultado de headingContentHTML), con el valor escapado; ver
+		// resultado de HeadingContentHTML), con el valor escapado; ver
 		// docs/SECURITY_AUDIT_2026-07.md, CR-2.
 		titleProcessed := title
 

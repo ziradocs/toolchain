@@ -25,6 +25,11 @@ var headingVariableCases = []struct {
 	{"destino permitido", "Ver [doc]({{u}})", map[string]interface{}{"u": "https://x.com/p?a=1&b=2"}},
 	{"imagen con src de variable", "![logo]({{v}})", map[string]interface{}{"v": "javascript:alert(1)"}},
 	{"variable como parte del esquema", "[x](java{{w}})", map[string]interface{}{"w": "script:alert(1)"}},
+	// Un placeholder escrito con entidades no es una variable en la fuente,
+	// pero el destino se decodifica y el href emitido trae "{{v}}" literal:
+	// no se puede sustituir ahí, ni con la fuente ni sin ella.
+	{"placeholder con entidades en el destino", "[c](&#123;&#123;v}})", map[string]interface{}{"v": "javascript:alert(1)"}},
+	{"placeholder con entidades en el src", "![c](&#123;&#123;v}})", map[string]interface{}{"v": "javascript:alert(1)"}},
 	{"cursiva en el valor", "Hola {{n}}", map[string]interface{}{"n": "*Ana*"}},
 	{"negrita en el valor", "Hola {{n}}", map[string]interface{}{"n": "**Ana**"}},
 	{"enlace en el valor", "Hola {{n}}", map[string]interface{}{"n": "[x](https://x.com)"}},
@@ -170,6 +175,13 @@ func TestProcessVariablesEscapeValues_SkipsTags(t *testing.T) {
 		{"comillas dobles con >", `<img alt="x>{{v}}" src="y"> {{v}}`, `<img alt="x>{{v}}" src="y"> &lt;b&gt;&quot;x&quot;&lt;/b&gt;`},
 		{"comillas simples con > y comilla doble", `<a title='">{{v}}'>t</a>`, `<a title='">{{v}}'>t</a>`},
 		{"etiqueta sin cerrar", `{{v}} <a href="{{v}}`, `&lt;b&gt;&quot;x&quot;&lt;/b&gt; <a href="{{v}}`},
+		// Una comilla solo abre un valor justo después del "=": en x' es parte
+		// del nombre, así que '>' es el valor y el ">" que cierra la etiqueta
+		// es el que sigue a href={{v}}.
+		{"comilla en el nombre de un atributo", `<a x'='>' href={{v}}>a</a>`, `<a x'='>' href={{v}}>a</a>`},
+		{"espacios alrededor del igual", `<a href = "x>{{v}}">{{v}}</a>`, `<a href = "x>{{v}}">&lt;b&gt;&quot;x&quot;&lt;/b&gt;</a>`},
+		{"comilla dentro de un valor sin comillas", `<a href=x'y>{{v}}</a>`, `<a href=x'y>&lt;b&gt;&quot;x&quot;&lt;/b&gt;</a>`},
+		{"igual dentro de un valor sin comillas", `<a href=a="b>{{v}}</a>`, `<a href=a="b>&lt;b&gt;&quot;x&quot;&lt;/b&gt;</a>`},
 		{"sin etiquetas", `a {{v}} b`, `a &lt;b&gt;&quot;x&quot;&lt;/b&gt; b`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

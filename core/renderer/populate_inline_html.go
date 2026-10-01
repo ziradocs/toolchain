@@ -49,13 +49,13 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 	switch elem := element.(type) {
 	case *ast.TextElement:
 		if elem.IsRawHTML {
-			elem.ContentHTML = headingContentHTML(elem, variables)
+			elem.ContentHTML = HeadingContentHTML(elem, variables)
 		} else {
 			elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 		}
 
 	case *ast.HeadingElement:
-		// Mismo orden que un párrafo y que el legado (headingContentHTML):
+		// Mismo orden que un párrafo y que el legado (HeadingContentHTML):
 		// {{variables}} primero y después el Markdown inline de una línea,
 		// para que el filtro de esquemas vea el destino ya sustituido.
 		elem.TextHTML = ProcessInlineMarkdownSecureLine(ProcessVariables(elem.Text, variables))
