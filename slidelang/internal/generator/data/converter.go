@@ -387,7 +387,12 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				if elem.IsRawHTML {
 					// Encabezado de subsección (issue #194): el Content ya
 					// es el <hN id> que armó el parser, HTML de confianza.
-					elementData.HeadingHTML = htmltemplate.HTML(subsectionHeadingHTML(elem, variables))
+					// renderer.HeadingContentHTML lo vuelve a armar desde la
+					// fuente con las {{variables}} sustituidas antes del
+					// Markdown inline, igual que un párrafo, también cuando
+					// xref reescribió un \ref del encabezado; sin fuente,
+					// sustituye sobre el HTML sin entrar a las etiquetas.
+					elementData.HeadingHTML = htmltemplate.HTML(renderer.HeadingContentHTML(elem, variables))
 					elementData.HeadingLevel = elem.Level
 					break
 				}
@@ -804,31 +809,6 @@ func removeInteractiveLibraries(libs []string) []string {
 		}
 	}
 	return out
-}
-
-// subsectionHeadingHTML resuelve las {{variables}} de un encabezado de
-// subsección con la misma regla que un párrafo: se sustituyen en la fuente
-// y después corre el Markdown inline, así que el filtro de esquemas ve el
-// destino final. El parser arma Content antes de conocer las variables, por
-// eso se vuelve a armar desde HeadingSource cuando Content sigue siendo lo
-// que renderer.HeadingHTML produce con esa fuente. Se reconstruye aunque la
-// fuente no tenga "{{" literal: un placeholder escrito con entidades
-// (&#123;&#123;v}}) solo aparece como {{v}} dentro del href ya emitido, y
-// ahí no se debe sustituir. Si Content no coincide (sin fuente, o cambiado
-// después de parsear), ProcessVariablesEscapeValues sustituye sobre el HTML
-// escapando solo el valor; ProcessVariables a secas dejaría pasar el HTML
-// de una variable, y ProcessVariablesSecure escaparía también el <hN>.
-//
-// Es la regla de renderer.HeadingContentHTML, escrita aquí solo con
-// funciones del core que slidelang fija hoy; después del bump a un core que
-// la incluya, este helper se reemplaza por esa función, que además reconoce
-// los encabezados que xref reescribió.
-func subsectionHeadingHTML(elem *ast.TextElement, variables map[string]interface{}) string {
-	if elem.Level > 0 && elem.HeadingSource != "" &&
-		elem.Content == renderer.HeadingHTML(elem.Level, elem.HeadingSource, elem.HeadingAnchor) {
-		return renderer.HeadingHTML(elem.Level, ProcessVariables(elem.HeadingSource, variables), elem.HeadingAnchor)
-	}
-	return renderer.ProcessVariablesEscapeValues(elem.Content, variables)
 }
 
 // ProcessTextWithVariablesAndMarkdown es un wrapper para el renderer compartido
