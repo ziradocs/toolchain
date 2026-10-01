@@ -4,6 +4,7 @@
 package renderer
 
 import (
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -210,6 +211,125 @@ func TestFindInlineLinks_IgnoresTextInsideEmittedAttributes(t *testing.T) {
 	}
 }
 
+// inlineEmittedLinks tokeniza out y devuelve los atributos de cada <a> y
+// cada <img>, ya decodificados como los lee un navegador.
+func inlineEmittedLinks(out string) (hrefs []string, imgs [][2]string) {
+	z := html.NewTokenizer(strings.NewReader(out))
+	for {
+		tt := z.Next()
+		if tt == html.ErrorToken {
+			return hrefs, imgs
+		}
+		if tt != html.StartTagToken && tt != html.SelfClosingTagToken {
+			continue
+		}
+		tok := z.Token()
+		attrs := map[string]string{}
+		for _, a := range tok.Attr {
+			attrs[a.Key] = a.Val
+		}
+		switch tok.Data {
+		case "a":
+			hrefs = append(hrefs, attrs["href"])
+		case "img":
+			imgs = append(imgs, [2]string{attrs["src"], attrs["alt"]})
+		}
+	}
+}
+
+// htmlInputStream aplica el preprocesado de la entrada que hace un navegador
+// (y el tokenizador) antes de leer un atributo: "\r\n" y "\r" pasan a "\n" y
+// NUL a U+FFFD. Sin esto, un alt con "\r" no coincidiría con lo que se lee.
+func htmlInputStream(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.ReplaceAll(s, "\x00", "\uFFFD")
+}
+
+// assertFindInlineLinksMatchesHTML comprueba que FindInlineLinks describe lo
+// que ProcessInlineMarkdownSecure emite: ningún campo lleva un centinela
+// interno, y cada <a> y cada <img> del HTML tiene un registro no descartado
+// con el mismo destino (y, en la imagen, el mismo alt). Al revés no se exige:
+// una imagen dentro del destino de un enlace se registra aunque el destino
+// vuelva a ser texto.
+func assertFindInlineLinksMatchesHTML(t *testing.T, input string) {
+	t.Helper()
+	links := FindInlineLinks(input)
+	// Text sigue escapado, así que un "<zd" ahí solo puede ser un centinela.
+	// Destination está desescapado: solo cuenta si el autor no lo escribió.
+	authored := strings.Contains(input, "<zd")
+	for _, l := range links {
+		if strings.Contains(l.Text, "<zd") || (!authored && strings.Contains(l.Destination, "<zd")) {
+			t.Errorf("FindInlineLinks(%q) filtró un centinela interno: %#v", input, l)
+		}
+	}
+	var hrefs []string
+	var imgs [][2]string
+	for _, line := range strings.Split(input, "\n") {
+		h, i := inlineEmittedLinks(ProcessInlineMarkdownSecure(line))
+		hrefs = append(hrefs, h...)
+		imgs = append(imgs, i...)
+	}
+	recorded := func(image bool, dest, alt string) bool {
+		for _, l := range links {
+			if l.Image != image || l.Dropped || htmlInputStream(NormalizeAttributeWhitespace(strings.TrimSpace(DecodeLinkDestination(l.Destination)))) != dest {
+				continue
+			}
+			if !image || htmlInputStream(html.UnescapeString(l.Text)) == alt {
+				return true
+			}
+		}
+		return false
+	}
+	for _, href := range hrefs {
+		if !recorded(false, href, "") {
+			t.Errorf("FindInlineLinks(%q) = %#v no registra el enlace emitido con href %q", input, links, href)
+		}
+	}
+	for _, img := range imgs {
+		if !recorded(true, img[0], img[1]) {
+			t.Errorf("FindInlineLinks(%q) = %#v no registra la imagen emitida con src %q y alt %q", input, links, img[0], img[1])
+		}
+	}
+}
+
+// Los registros de FindInlineLinks (y con ellos LINK001) llevan lo mismo
+// que va a los atributos. Antes el registro de una imagen usaba el src y el
+// alt crudos, así que un code span en el destino aparecía como el centinela
+// interno "<zdc0/>" y el alt traía HTML de las pasadas anteriores.
+func TestFindInlineLinks_MatchesEmittedHTML(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  []InlineLink
+	}{
+		{"código como src descartado", "![x](`javascript:alert(1)`)",
+			[]InlineLink{{Image: true, Text: "x", Destination: "<code>javascript:alert(1)</code>", Dropped: true}}},
+		{"código como src", "![a](`u`)",
+			[]InlineLink{{Image: true, Text: "a", Destination: "<code>u</code>"}}},
+		{"formatos y código en el alt", "![**a** `c` [x]{.danger}](y)",
+			[]InlineLink{{Image: true, Text: "a c x", Destination: "y"}}},
+		{"código como destino de enlace", "[a](`url`)",
+			[]InlineLink{{Text: "a", Destination: "<code>url</code>"}}},
+		{"código en la etiqueta de un enlace descartado", "[`c`](javascript:x)",
+			[]InlineLink{{Text: "<code>c</code>", Destination: "javascript:x", Dropped: true}}},
+		{"imagen dentro de un enlace", "[![a](i.png)](https://x.com)",
+			[]InlineLink{{Image: true, Text: "a", Destination: "i.png"}, {Text: `<img src="i.png" alt="a">`, Destination: "https://x.com"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FindInlineLinks(tc.input); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("FindInlineLinks(%q)\n got %#v\nwant %#v", tc.input, got, tc.want)
+			}
+			assertFindInlineLinksMatchesHTML(t, tc.input)
+		})
+	}
+	for _, tc := range inlineAttributeCases {
+		t.Run("tabla/"+tc.name, func(t *testing.T) {
+			assertFindInlineLinksMatchesHTML(t, tc.input)
+		})
+	}
+}
+
 // FuzzInlineMarkdownAllowlist comprueba la propiedad general: para cualquier
 // entrada, la salida de las tres entradas públicas solo tiene etiquetas y
 // atributos de la allowlist, clases de inlineSpanTokens, lang válidos y
@@ -233,5 +353,6 @@ func FuzzInlineMarkdownAllowlist(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		assertInlineHTMLAllowlisted(t, input)
+		assertFindInlineLinksMatchesHTML(t, input)
 	})
 }

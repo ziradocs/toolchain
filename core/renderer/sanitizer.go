@@ -727,9 +727,13 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 		// ya llegó como "&amp;" por el EscapeHTML de entrada, y las
 		// referencias de carácter del autor se decodifican antes del filtro
 		// de esquemas, ver decodeLinkDestination).
-		sanitizedSrc := SanitizeURL(decodeLinkDestination(inlineDestinationText(src, codeSpans)))
+		src = inlineDestinationText(src, codeSpans)
+		sanitizedSrc := SanitizeURL(decodeLinkDestination(src))
+		altText := inlineAltText(alt, codeSpans)
 		if record != nil {
-			record(InlineLink{Image: true, Text: alt, Destination: unescapeLinkDestination(src), Dropped: sanitizedSrc == ""})
+			// Lo mismo que va a los atributos: el destino con el código
+			// restaurado y el alt como texto plano, sin centinelas internos.
+			record(InlineLink{Image: true, Text: altText, Destination: unescapeLinkDestination(src), Dropped: sanitizedSrc == ""})
 		}
 		if sanitizedSrc == "" {
 			// src peligroso: degradar al alt como texto plano, sin <img> —
@@ -738,7 +742,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 			return alt
 		}
 
-		return emitted.hide(fmt.Sprintf(`<img src="%s" alt="%s">`, sanitizedSrc, inlineAltText(alt, codeSpans)), match)
+		return emitted.hide(fmt.Sprintf(`<img src="%s" alt="%s">`, sanitizedSrc, altText), match)
 	})
 
 	// Procesar enlaces [texto](url) -> <a href="url">texto</a>
@@ -766,7 +770,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 		// decodificar las referencias de carácter del autor antes del filtro.
 		sanitizedURL := SanitizeURL(decodeLinkDestination(linkURL))
 		if record != nil {
-			record(InlineLink{Text: emitted.expand(linkText), Destination: unescapeLinkDestination(linkURL), Dropped: sanitizedURL == ""})
+			record(InlineLink{Text: restoreRawCodeSentinels(emitted.expand(linkText), codeSpans), Destination: unescapeLinkDestination(linkURL), Dropped: sanitizedURL == ""})
 		}
 		if sanitizedURL == "" {
 			// URL peligrosa, mostrar solo el texto sin enlace
@@ -847,10 +851,19 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 // global de más arriba: "&lt;zdcN/&gt;" puede escribirlo un autor en texto
 // normal y no tiene relación con ningún code span.
 func inlineDestinationText(dest string, codeSpans []string) string {
+	return restoreRawCodeSentinels(dest, codeSpans)
+}
+
+// restoreRawCodeSentinels cambia cada centinela crudo "<zdcN/>" de text por
+// su <code>…</code>, como la restauración global del final de
+// processInlineFormats. Lo usan el destino antes de validarlo y el texto de
+// un enlace que se registra para FindInlineLinks, que se arma antes de esa
+// restauración.
+func restoreRawCodeSentinels(text string, codeSpans []string) string {
 	if len(codeSpans) == 0 {
-		return dest
+		return text
 	}
-	return zdcRawSentinelPattern.ReplaceAllStringFunc(dest, func(match string) string {
+	return zdcRawSentinelPattern.ReplaceAllStringFunc(text, func(match string) string {
 		idx, err := strconv.Atoi(zdcRawSentinelPattern.FindStringSubmatch(match)[1])
 		if err != nil || idx < 0 || idx >= len(codeSpans) {
 			return match
