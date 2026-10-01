@@ -1485,9 +1485,23 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 // cuando el tag no valida, finding #5), y postRun: un hook opcional que
 // corre sobre cada run creado — el patrón de idioma lo usa para propagar
 // SetLanguage a cada run que produzca su recursión sobre el texto interno.
+//
+// find, cuando no es nil, reemplaza a regex para ubicar el match y devuelve
+// los índices con la misma forma que regexp.FindStringSubmatchIndex. Existe
+// para los patterns que un regex no puede describir: el de links necesita
+// leer el destino hasta el ")" que balancea los paréntesis abiertos adentro.
 type docxInlinePattern struct {
 	regex *regexp.Regexp
+	find  func(s string) []int
 	apply func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error
+}
+
+// index ubica el próximo match del pattern en s.
+func (pt *docxInlinePattern) index(s string) []int {
+	if pt.find != nil {
+		return pt.find(s)
+	}
+	return pt.regex.FindStringSubmatchIndex(s)
 }
 
 // docxSimpleRunApply factoriza el patrón repetido de los 4 patterns "de un
@@ -1632,8 +1646,15 @@ func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
 
 func (g *DOCXGenerator) docxLinkPattern() docxInlinePattern {
 	return docxInlinePattern{
-		// [text](url) - links
-		regex: regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`),
+		// [text](url) - links. El destino se lee con el mismo escáner que
+		// el renderer HTML (renderer.FindInlineLinkIndex): termina en el ")"
+		// que balancea los paréntesis abiertos adentro. Con el regex local
+		// `\(([^)]+)\)` el destino se cortaba en el primer ")", así que
+		// [Wiki](https://es.wikipedia.org/wiki/Foo_(bar)) y
+		// [x](javascript:alert(1)) dejaban un ")" suelto en el .docx que el
+		// HTML del mismo documento no tiene. Un destino sin cierre
+		// balanceado no es un link y queda literal, igual que en HTML.
+		find: renderer.FindInlineLinkIndex,
 		apply: docxSimpleRunApply(func(r domain.Run) error {
 			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 				return err
@@ -1819,7 +1840,7 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 
 		for i := range patterns {
 			pattern := &patterns[i]
-			loc := pattern.regex.FindStringSubmatchIndex(remaining[pos:])
+			loc := pattern.index(remaining[pos:])
 			if loc != nil && loc[0] < minPos {
 				minPos = loc[0]
 				matchedPattern = pattern
