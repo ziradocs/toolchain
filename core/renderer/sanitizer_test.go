@@ -1160,9 +1160,11 @@ func TestProcessInlineMarkdownFormatsSecure_CodeSpanSpaceTrim(t *testing.T) {
 // form left the escaped sentinel visible in the final href instead of the
 // intended restored content. The escaped-sentinel restore emits
 // "&lt;code&gt;...&lt;/code&gt;" (entities, matching what already lived in
-// that href attribute before this fix — see the comment on the restore
-// loop in sanitizer.go), not raw "<code>...</code>" tags, which would
-// otherwise land unescaped inside an href="..." attribute value. This is a
+// that href attribute before this fix), not raw "<code>...</code>" tags,
+// which would otherwise land unescaped inside an href="..." attribute value.
+// The code span is now restored into the destination BEFORE SanitizeURL
+// (inlineDestinationText), so the scheme filter validates the value that is
+// actually emitted, and EscapeHTMLAttribute produces those entities. This is a
 // pre-existing edge case (a code span used as a URL was never a
 // well-formed link before this fix either — it used to leak the literal
 // content escaped the exact same way), not a new regression; the fix just
@@ -1215,10 +1217,10 @@ func TestProcessInlineMarkdownFormatsSecure_CodeSpanContentLooksLikeSentinel(t *
 // entirely outside any code span or link URL, produces exactly
 // "&lt;zdc0/&gt;" after that entry-point escape. A global replace would
 // mangle that unrelated user text into <code>...</code> using whatever
-// content happens to sit at index 0. The fix scopes the escaped-form
-// restore to restoreCodeSentinelsInURL, called only on the specific
-// sanitized URL string where the escaped form can legitimately originate —
-// plain text elsewhere in the document is never touched by it.
+// content happens to sit at index 0. Only the raw form is ever restored
+// (a code span inside a link or image destination is restored into the
+// destination before validation, see inlineDestinationText), so plain text
+// elsewhere in the document is never touched.
 func TestProcessInlineMarkdownFormatsSecure_PlainTextSentinelLookalikeNotMangled(t *testing.T) {
 	result := ProcessInlineMarkdownFormatsSecure(EscapeHTML("`secret` <zdc0/>"))
 	want := "<code>secret</code> &lt;zdc0/&gt;"
