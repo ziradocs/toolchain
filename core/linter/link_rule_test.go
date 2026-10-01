@@ -158,3 +158,42 @@ func TestLinkDestinationRuleDocument(t *testing.T) {
 		t.Errorf("block image with balanced parentheses flagged:\n%s", joined)
 	}
 }
+
+// Las {{variables}} del frontmatter se sustituyen antes de evaluar el
+// destino, igual que en el renderer: un destino armado con una variable (o
+// con una variable que es solo parte del esquema) se reporta en un párrafo,
+// en un encabezado y en una imagen de bloque. Antes la regla saltaba todo
+// destino con {{...}}, aunque el renderer lo descartara. Un placeholder sin
+// variable definida sigue sin reportarse, porque queda literal y es una URL
+// relativa válida.
+func TestLinkDestinationRuleResolvesVariables(t *testing.T) {
+	src := "---\ntitle: \"Probe\"\nvariables:\n  v: \"javascript:alert(1)\"\n  w: \"script:alert(1)\"\n  ok: \"https://x.com\"\n---\n\n# Probe\n\n" +
+		"## Encabezado [h]({{v}})\n\n" +
+		"Texto con [a](java{{w}}) y [b]({{ok}}) y [c]({{nada}}).\n\n" +
+		"![Img]({{v}})\n"
+	doc, parseDiags := parser.New(util.NewNoop()).ParseDocument(src, "test.doclang")
+	if doc == nil {
+		t.Fatalf("parse returned no AST: %v", parseDiags)
+	}
+	found := link001(New().WithDialect(DialectDocuments).Lint(doc))
+	var msgs []string
+	for _, d := range found {
+		msgs = append(msgs, d.Message)
+	}
+	joined := strings.Join(msgs, "\n")
+	if len(found) != 3 {
+		t.Fatalf("got %d LINK001, want 3 (encabezado, párrafo, imagen de bloque):\n%s", len(found), joined)
+	}
+	for _, want := range []string{
+		`Link destination "javascript:alert(1)" uses the "javascript:" scheme`,
+		`Link destination "javascript:alert(1)" uses the "javascript:" scheme`,
+		"the image is not rendered",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing LINK001 containing %q; got:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "x.com") || strings.Contains(joined, "nada") {
+		t.Errorf("LINK001 for an allowed or undefined destination:\n%s", joined)
+	}
+}

@@ -24,6 +24,7 @@ var headingVariableCases = []struct {
 	{"destino con esquema bloqueado", "[a]({{v}})", map[string]interface{}{"v": "javascript:alert(1)"}},
 	{"destino permitido", "Ver [doc]({{u}})", map[string]interface{}{"u": "https://x.com/p?a=1&b=2"}},
 	{"imagen con src de variable", "![logo]({{v}})", map[string]interface{}{"v": "javascript:alert(1)"}},
+	{"variable como parte del esquema", "[x](java{{w}})", map[string]interface{}{"w": "script:alert(1)"}},
 	{"cursiva en el valor", "Hola {{n}}", map[string]interface{}{"n": "*Ana*"}},
 	{"negrita en el valor", "Hola {{n}}", map[string]interface{}{"n": "**Ana**"}},
 	{"enlace en el valor", "Hola {{n}}", map[string]interface{}{"n": "[x](https://x.com)"}},
