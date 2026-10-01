@@ -98,14 +98,13 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) string {
 	var content string
 
-	// Si es HTML crudo, no procesar como Markdown ni escapar el HTML
-	// existente, pero SÍ escapar el valor de cada {{variable}} sustituida
-	// (elem.Content ya es HTML de confianza — p. ej. un heading de
-	// subsección con <strong>/<em>/<code> reales — así que no podemos
-	// escaparlo todo con ProcessVariablesSecure sin corromperlo).
+	// Si es HTML crudo (un heading de subsección), HeadingContentHTML lo
+	// vuelve a armar desde la fuente con las {{variables}} ya sustituidas,
+	// igual que un párrafo; sin fuente, sustituye sobre el HTML de confianza
+	// escapando solo el valor y sin entrar a las etiquetas.
 	// Ver docs/SECURITY_AUDIT_2026-07.md, CR-2.
 	if elem.IsRawHTML {
-		content = ProcessVariablesEscapeValues(elem.Content, variables)
+		content = HeadingContentHTML(elem, variables)
 	} else {
 		content = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 	}

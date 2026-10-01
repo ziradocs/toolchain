@@ -1087,20 +1087,98 @@ func ProcessVariablesSecure(text string, variables map[string]interface{}) strin
 // variable. Ver docs/SECURITY_AUDIT_2026-07.md, CR-2: sin esto, una variable
 // de frontmatter referenciada en un heading (## Foo {{var}}) se inyectaba sin
 // escapar en el TOC/sidebar del documento.
+//
+// Solo sustituye en el texto entre etiquetas. Un {{placeholder}} dentro de
+// una etiqueta (el href o el src que ya pasó el filtro de esquemas, un alt)
+// queda literal: sustituirlo ahí reescribiría un atributo ya validado. Quien
+// necesite variables en un destino tiene que sustituirlas antes de las
+// pasadas inline, como ProcessTextWithVariablesAndMarkdownSecure.
 func ProcessVariablesEscapeValues(text string, variables map[string]interface{}) string {
 	if variables == nil {
 		return text
 	}
 
-	return variablePlaceholderPattern.ReplaceAllStringFunc(text, func(match string) string {
-		varName := match[2 : len(match)-2]
+	substitute := func(segment string) string {
+		return variablePlaceholderPattern.ReplaceAllStringFunc(segment, func(match string) string {
+			varName := match[2 : len(match)-2]
 
-		if value, exists := variables[varName]; exists {
-			return EscapeHTML(fmt.Sprintf("%v", value))
+			if value, exists := variables[varName]; exists {
+				return EscapeHTML(fmt.Sprintf("%v", value))
+			}
+
+			return match
+		})
+	}
+
+	var b strings.Builder
+	for {
+		start := strings.IndexByte(text, '<')
+		if start < 0 {
+			b.WriteString(substitute(text))
+			return b.String()
 		}
+		end := htmlTagEnd(text, start)
+		b.WriteString(substitute(text[:start]))
+		b.WriteString(text[start:end])
+		text = text[end:]
+	}
+}
 
-		return match
-	})
+// htmlTagEnd devuelve el índice que sigue al ">" que cierra la etiqueta que
+// empieza en text[start], saltando los ">" que caen dentro de un valor entre
+// comillas dobles o simples. Como en el tokenizador de HTML, una comilla solo
+// abre un valor si es lo primero después del "=" de un atributo (con espacios
+// de por medio o no); una comilla dentro del nombre de un atributo o de un
+// valor sin comillas es un carácter más, y un valor sin comillas termina en
+// el primer espacio o ">". Si la etiqueta no cierra, devuelve len(text): el
+// resto se trata como parte de la etiqueta y no se sustituye.
+//
+// Donde este escáner y un navegador pudieran diferir, el escáner extiende la
+// etiqueta y no la acorta, así que a lo sumo deja sin sustituir un texto que
+// el navegador mostraría; nunca sustituye dentro de un atributo.
+func htmlTagEnd(text string, start int) int {
+	const (
+		inName = iota
+		beforeValue
+		unquotedValue
+		quotedValue
+	)
+	state := inName
+	var quote byte
+	for i := start + 1; i < len(text); i++ {
+		c := text[i]
+		space := c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+		switch state {
+		case quotedValue:
+			if c == quote {
+				state = inName
+			}
+		case beforeValue:
+			switch {
+			case c == '>':
+				return i + 1
+			case c == '"' || c == '\'':
+				quote, state = c, quotedValue
+			case !space:
+				state = unquotedValue
+			}
+		case unquotedValue:
+			switch {
+			case c == '>':
+				return i + 1
+			case space:
+				state = inName
+			}
+		default:
+			switch c {
+			case '>':
+				return i + 1
+			case '=':
+				state = beforeValue
+			}
+		}
+	}
+	return len(text)
 }
 
 // ProcessTextWithVariablesAndMarkdownSecure procesa variables y formato Markdown de forma segura

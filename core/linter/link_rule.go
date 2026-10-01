@@ -5,7 +5,6 @@ package linter
 
 import (
 	"fmt"
-	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -23,21 +22,36 @@ import (
 // mismas pasadas del renderer y reporta qué destinos descartó, así que la
 // regla marca un destino exactamente cuando el HTML lo pierde. Para la imagen
 // de bloque se usa renderer.ValidateURLScheme, el mismo filtro que aplican
-// los generadores. ClassifyURL solo decide el texto del mensaje. No resuelve
-// variables: un destino con {{...}} se conoce hasta renderizar y se deja
-// pasar.
+// los generadores. ClassifyURL solo decide el texto del mensaje.
+//
+// Las {{variables}} del frontmatter se sustituyen antes de buscar enlaces,
+// igual que el renderer (FrontMatterNode.BuildVariables y después las pasadas
+// inline), así que se evalúa el destino que de verdad se emite, aunque la
+// variable sea solo una parte de él. Por eso la regla corre sobre el
+// documento completo (*ast.AST) y no por bloque: el bloque no conoce el
+// frontmatter. Un placeholder sin variable definida queda literal, como en el
+// HTML.
 type LinkDestinationRule struct{}
 
 func (r *LinkDestinationRule) Check(node ast.Node) []diagnostics.Diagnostic {
-	block, ok := node.(*ast.ContentBlock)
+	doc, ok := node.(*ast.AST)
 	if !ok {
 		return nil
 	}
+	variables := doc.FrontMatter.BuildVariables()
+	var diags []diagnostics.Diagnostic
+	for i := range doc.ContentBlocks {
+		diags = append(diags, checkLinkDestinations(&doc.ContentBlocks[i], variables)...)
+	}
+	return diags
+}
+
+func checkLinkDestinations(block *ast.ContentBlock, variables map[string]interface{}) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 	inline := func(pos diagnostics.Position, texts ...string) {
 		for _, text := range texts {
-			for _, link := range renderer.FindInlineLinks(text) {
-				if !link.Dropped || strings.Contains(link.Destination, "{{") {
+			for _, link := range renderer.FindInlineLinks(renderer.ProcessVariables(text, variables)) {
+				if !link.Dropped {
 					continue
 				}
 				dest := renderer.DecodeLinkDestination(link.Destination)
@@ -70,7 +84,15 @@ func (r *LinkDestinationRule) Check(node ast.Node) []diagnostics.Diagnostic {
 		p := positionOr(el.GetPosition(), pos)
 		switch e := el.(type) {
 		case *ast.TextElement:
-			inline(p, e.Content)
+			// Un encabezado legado guarda en Content el <hN> ya armado, donde
+			// no queda sintaxis de enlace; su fuente es HeadingSource, la
+			// misma de la que el renderer lo vuelve a armar con las
+			// variables sustituidas.
+			if e.IsRawHTML && e.HeadingSource != "" {
+				inline(p, e.HeadingSource)
+			} else {
+				inline(p, e.Content)
+			}
 		case *ast.HeadingElement:
 			inline(p, e.Text)
 		case *ast.PointsElement:
@@ -113,8 +135,8 @@ func (r *LinkDestinationRule) Check(node ast.Node) []diagnostics.Diagnostic {
 			inline(p, e.Options...)
 		case *ast.ImageElement:
 			// IMG001 ya cubre la fuente vacía.
-			if e.Source != "" && !strings.Contains(e.Source, "{{") && renderer.ValidateURLScheme(e.Source) == "" {
-				diags = append(diags, linkDestinationDiagnostic(e.Source, e.Source, true, true, p))
+			if source := renderer.ProcessVariables(e.Source, variables); source != "" && renderer.ValidateURLScheme(source) == "" {
+				diags = append(diags, linkDestinationDiagnostic(source, source, true, true, p))
 			}
 		}
 	}

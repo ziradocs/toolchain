@@ -74,6 +74,7 @@ func BuildHeadingElement(text string, level int, pos diagnostics.Position, expli
 	// documento declara typed-headings-v1 (ver ast.PromoteTypedHeadings).
 	el.HeadingSource = text
 	el.HeadingAnchor = anchor
+	el.HeadingContent = htmlContent
 	return el
 }
 

@@ -59,7 +59,20 @@ func ResolveRefs(doc *ast.AST, table Table) error {
 			v.Heading = rewriteRefs(v.Heading, table, labels, unresolvedSet)
 			v.Subtitle = rewriteRefs(v.Subtitle, table, labels, unresolvedSet)
 		case *ast.TextElement:
+			// Un encabezado legado guarda el <hN> ya armado en Content, así
+			// que ahí el \ref resuelto queda como Markdown literal. Si
+			// Content sigue siendo el que el parser armó desde la fuente, se
+			// reescribe también HeadingSource y se mantiene HeadingContent al
+			// día: el renderer vuelve a armar el encabezado desde esa fuente
+			// (con las {{variables}} sustituidas) y el enlace sale como en un
+			// párrafo. Content se reescribe igual que siempre para los demás
+			// consumidores.
+			synced := v.IsRawHTML && v.HeadingSource != "" && v.Content == v.HeadingContent
 			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
+			if synced {
+				v.HeadingSource = rewriteRefs(v.HeadingSource, table, labels, unresolvedSet)
+				v.HeadingContent = v.Content
+			}
 		case *ast.PointItem:
 			v.Content = rewriteRefs(v.Content, table, labels, unresolvedSet)
 		case *ast.ChecklistItem:

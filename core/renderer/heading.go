@@ -22,6 +22,28 @@ func HeadingHTML(level int, text, anchor string) string {
 	return fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", level, anchor, ProcessInlineMarkdownSecureLine(text), level)
 }
 
+// HeadingContentHTML devuelve el `<hN id>` de un TextElement crudo
+// (encabezado legado) con sus {{variables}} resueltas, con la misma regla que
+// un párrafo: las variables se sustituyen en la fuente y después corre el
+// Markdown inline, así que el filtro de esquemas ve el destino final y el
+// Markdown de un valor se interpreta igual que en el cuerpo. El parser arma
+// Content antes de conocer las variables, por eso se vuelve a armar desde
+// HeadingSource.
+//
+// Solo se reconstruye mientras Content siga siendo el que se armó desde esa
+// fuente: igual a HeadingContent (que xref mantiene al día cuando reescribe un
+// \ref del encabezado) o igual a lo que HeadingHTML produce con ella. Si no
+// hay fuente (llegó por un --filter externo) o Content se cambió por otro
+// camino, se sustituye sobre Content con ProcessVariablesEscapeValues, que no
+// entra a las etiquetas.
+func HeadingContentHTML(el *ast.TextElement, variables map[string]interface{}) string {
+	if el.Level > 0 && el.HeadingSource != "" &&
+		(el.Content == el.HeadingContent || el.Content == HeadingHTML(el.Level, el.HeadingSource, el.HeadingAnchor)) {
+		return HeadingHTML(el.Level, ProcessVariables(el.HeadingSource, variables), el.HeadingAnchor)
+	}
+	return ProcessVariablesEscapeValues(el.Content, variables)
+}
+
 // LegacyHeadingElement baja un HeadingElement al TextElement RawHTML con
 // Level que producen los documentos legados. Conserva posición, NodeID,
 // comentarios y LangRuns; ContentHTML se reconstruye desde TextHTML cuando ya
@@ -38,6 +60,7 @@ func LegacyHeadingElement(h *ast.HeadingElement) *ast.TextElement {
 	el.DiscardedLangRuns = h.DiscardedLangRuns
 	el.HeadingSource = h.Text
 	el.HeadingAnchor = h.Anchor
+	el.HeadingContent = el.Content
 	if h.TextHTML != "" {
 		el.ContentHTML = fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", h.Level, h.Anchor, h.TextHTML, h.Level)
 	}

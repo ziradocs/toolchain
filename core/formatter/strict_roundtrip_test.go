@@ -77,7 +77,7 @@ func normalizeElement(el ast.Element) ast.Element {
 		c.ContentHTML = ""
 		// Fuente autoral en memoria (no serializada); el Content ya compara
 		// el encabezado renderizado.
-		c.HeadingSource, c.HeadingAnchor = "", ""
+		c.HeadingSource, c.HeadingAnchor, c.HeadingContent = "", "", ""
 		return &c
 	case *ast.HeadingElement:
 		c := *e
