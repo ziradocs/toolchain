@@ -1504,9 +1504,11 @@ func (pt *docxInlinePattern) index(s string) []int {
 	return pt.regex.FindStringSubmatchIndex(s)
 }
 
-// docxSimpleRunApply factoriza el patrón repetido de los 4 patterns "de un
-// solo run" (code/bold/italic/link): crear un run, aplicarle style, y
-// propagar postRun si esta llamada viene de una recursión (finding #2).
+// docxSimpleRunApply factoriza el patrón de los patterns "de un solo run"
+// (hoy solo code; bold/italic recursan con docxEmphasisRunApply y link usa
+// docxApplyLink porque su estilo depende del destino): crear un run,
+// aplicarle style, y propagar postRun si esta llamada viene de una
+// recursión (finding #2).
 func docxSimpleRunApply(style func(r domain.Run) error) func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error {
 	return func(p domain.Paragraph, text string, _ string, _ string, postRun func(r domain.Run) error) error {
 		r, err := p.AddRun()
@@ -1654,19 +1656,41 @@ func (g *DOCXGenerator) docxLinkPattern() docxInlinePattern {
 		// [x](javascript:alert(1)) dejaban un ")" suelto en el .docx que el
 		// HTML del mismo documento no tiene. Un destino sin cierre
 		// balanceado no es un link y queda literal, igual que en HTML.
-		find: renderer.FindInlineLinkIndex,
-		apply: docxSimpleRunApply(func(r domain.Run) error {
-			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-				return err
-			}
-			_ = r.SetColor(g.parseColor(g.style.LinkColor))
-			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-			// Links con subrayado (usar UnderlineNone + 1 = single)
-			_ = r.SetUnderline(domain.UnderlineStyle(1))
-			// TODO: Agregar hyperlink real cuando docxgo lo soporte
-			return nil
-		}),
+		find:  renderer.FindInlineLinkIndex,
+		apply: g.docxApplyLink,
 	}
+}
+
+// docxApplyLink escribe la etiqueta de un link. DOCX no emite hipervínculo
+// (docxgo no lo soporta), así que un link se marca con color y subrayado.
+// Un destino que el renderer HTML descarta (esquema no permitido o URL
+// inválida, la misma decisión que reporta LINK001) sale como texto plano:
+// en HTML esa etiqueta tampoco es un link, y subrayarla en el .docx haría
+// pasar por enlace algo que el documento bloqueó. Igual que en HTML, se
+// decodifican las referencias de carácter antes de validar, para que
+// &#106;avascript: no pase como URL relativa.
+func (g *DOCXGenerator) docxApplyLink(p domain.Paragraph, text string, dest string, _ string, postRun func(r domain.Run) error) error {
+	r, err := p.AddRun()
+	if err != nil {
+		return err
+	}
+	_ = r.SetText(text)
+	if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+		return err
+	}
+	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+	if problem, _ := renderer.ClassifyURL(renderer.DecodeLinkDestination(dest)); problem != renderer.URLAllowed {
+		_ = r.SetColor(g.parseColor(g.style.TextColor))
+	} else {
+		_ = r.SetColor(g.parseColor(g.style.LinkColor))
+		// Links con subrayado (usar UnderlineNone + 1 = single)
+		_ = r.SetUnderline(domain.UnderlineStyle(1))
+		// TODO: Agregar hyperlink real cuando docxgo lo soporte
+	}
+	if postRun != nil {
+		return postRun(r)
+	}
+	return nil
 }
 
 // docxSpanTokenTextPattern reconoce un token de span `[texto]{.clase}`.

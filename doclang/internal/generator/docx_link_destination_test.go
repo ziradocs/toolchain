@@ -49,7 +49,6 @@ func TestDOCXGenerator_LinkDestinationWithBalancedParentheses(t *testing.T) {
 		link    string
 	}{
 		{"wiki con paréntesis", "Ver [Wiki](https://es.wikipedia.org/wiki/Foo_(bar)) fin.", "Ver Wiki fin.", "Wiki"},
-		{"javascript con paréntesis", "Ver [Elegir](javascript:alert(1)) fin.", "Ver Elegir fin.", "Elegir"},
 		{"paréntesis anidados", "Ver [a](https://x.com/(a(b))) fin.", "Ver a fin.", "a"},
 		{"texto después del cierre se conserva", "Ver [a](https://x.com/f(1)) y más)", "Ver a y más)", "a"},
 	} {
@@ -92,5 +91,46 @@ func TestDOCXGenerator_LinkWithParenthesesInsideEmphasis(t *testing.T) {
 	}
 	if !strings.Contains(run, "<w:u ") {
 		t.Errorf("el run del link perdió el subrayado:\n%s", run)
+	}
+}
+
+var docxColorPattern = regexp.MustCompile(`<w:color [^>]*>`)
+
+// Un destino que el renderer HTML descarta (esquema no permitido, la misma
+// decisión que reporta LINK001) no es un link en HTML: sale solo la etiqueta.
+// En DOCX la etiqueta salía subrayada y con el color de link, haciendo pasar
+// por enlace algo que el documento bloqueó; ahora sale como texto plano.
+// Cada caso lleva además un link permitido en el mismo párrafo para comparar
+// contra su color, en vez de fijar el valor de un estilo concreto.
+func TestDOCXGenerator_BlockedLinkDestinationRendersAsPlainText(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, visible, blocked string
+	}{
+		{"javascript con paréntesis", "Ver [Elegir](javascript:alert(1)) y [ok](https://x.com) fin.", "Ver Elegir y ok fin.", "Elegir"},
+		{"data", "Ver [Dat](data:text/html,hola) y [ok](https://x.com) fin.", "Ver Dat y ok fin.", "Dat"},
+		{"entidad que arma javascript", "Ver [Ent](&#106;avascript:alert(1)) y [ok](https://x.com) fin.", "Ver Ent y ok fin.", "Ent"},
+		{"dentro de negrita", "Ver **[Neg](javascript:void(0))** y [ok](https://x.com) fin.", "Ver Neg y ok fin.", "Neg"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			xml := generateDocxText(t, tc.input)
+			if got := docxVisibleText(xml); !strings.Contains(got, tc.visible) {
+				t.Errorf("texto visible = %q, quería que contuviera %q", got, tc.visible)
+			}
+			allowed := docxRunContaining(t, xml, "ok")
+			if !strings.Contains(allowed, "<w:u ") {
+				t.Fatalf("el link permitido perdió el subrayado:\n%s", allowed)
+			}
+			linkColor := docxColorPattern.FindString(allowed)
+			if linkColor == "" {
+				t.Fatalf("el link permitido no lleva color:\n%s", allowed)
+			}
+			run := docxRunContaining(t, xml, tc.blocked)
+			if strings.Contains(run, "<w:u ") {
+				t.Errorf("la etiqueta del destino bloqueado salió subrayada:\n%s", run)
+			}
+			if strings.Contains(run, linkColor) {
+				t.Errorf("la etiqueta del destino bloqueado salió con el color de link %s:\n%s", linkColor, run)
+			}
+		})
 	}
 }
