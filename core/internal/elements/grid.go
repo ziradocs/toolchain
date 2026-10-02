@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // GridParser maneja bloques de grid layout con columnas anidadas
@@ -56,6 +57,7 @@ func (p *GridParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	// Create grid element
 	gridElement := ast.NewGridElement(pos)
+	var typedDiagnostics []diagnostics.Diagnostic
 	var strayContent strings.Builder
 	// Blank lines seen since the last stray-content line. Only flushed into
 	// strayContent if another stray-content line follows (a paragraph break
@@ -91,7 +93,13 @@ func (p *GridParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		if strings.HasPrefix(trimmedLine, "::: column") {
 			pendingBlankLines = 0
 			// Parse this column
-			columnResult := p.parseColumn(ctx, i)
+			var columnResult *ParseResult
+			if isFlexTypedColumnMarker(trimmedLine) {
+				columnResult = p.parseTypedColumnFlex(ctx, i)
+				typedDiagnostics = append(typedDiagnostics, columnResult.Diagnostics...)
+			} else {
+				columnResult = p.parseColumn(ctx, i)
+			}
 			if columnResult.Element != nil {
 				if columnElement, ok := columnResult.Element.(*ast.ColumnElement); ok {
 					gridElement.Columns = append(gridElement.Columns, *columnElement)
@@ -126,7 +134,97 @@ func (p *GridParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       gridElement,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   typedDiagnostics,
 	}
+}
+
+// isFlexTypedColumnMarker reporta si trimmedLine abre una columna flex
+// tipada (`::: column typed`, issue #373). Es una coincidencia exacta de tres
+// palabras: `::: column` con cualquier otro sufijo sigue siendo una columna
+// cruda, como siempre (CanParse y el despacho de columnas son de prefijo).
+func isFlexTypedColumnMarker(trimmedLine string) bool {
+	fields := strings.Fields(trimmedLine)
+	return len(fields) == 3 && fields[0] == ":::" && fields[1] == "column" && fields[2] == "typed"
+}
+
+// isStrictTypedColumnMarker es el equivalente strict: la línea completa,
+// recortada, es `<<column typed>>`.
+func isStrictTypedColumnMarker(trimmedLine string) bool {
+	return trimmedLine == "<<column typed>>"
+}
+
+// parseTypedColumnFlex parsea una columna `::: column typed` (issue #373):
+// su cuerpo se reparte entre los parsers de elemento del registry flex, el
+// mismo bucle que usa el cuerpo de un slide (TextParser es el respaldo), y el
+// resultado llena ColumnElement.Elements en vez de Content.
+//
+// El cuerpo termina en `:::`, en la siguiente `::: column`, en un separador
+// `---` o en una frontera de slide. Como cada elemento consume su propio
+// bloque completo, un `:::` que le pertenece a un bloque especial o a una
+// valla de código se lo traga ese elemento y nunca se lee como cierre de la
+// columna. No se tipan los encabezados (`###`): el registry no tiene
+// HeadingParser y quedan como TextElement, igual que un TEXT strict con esa
+// línea. Un grid anidado es un error, ver parseTypedColumnBody en strict.
+func (p *GridParser) parseTypedColumnFlex(ctx *ParseContext, startIndex int) *ParseResult {
+	pos := ctx.Position(startIndex)
+	column := ast.NewColumnElement(pos, "")
+	registry := GetDefaultRegistry()
+	var diags []diagnostics.Diagnostic
+
+	consumed := 1
+	i := startIndex + 1
+	for i < len(ctx.Lines) {
+		line := ctx.Lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == ":::" ||
+			strings.HasPrefix(trimmed, "::: column") ||
+			trimmed == "---" ||
+			strings.HasPrefix(trimmed, "# ") ||
+			strings.HasPrefix(trimmed, "## ") ||
+			IsStrictBlockBoundary(line) {
+			break
+		}
+		if trimmed == "" {
+			consumed++
+			i++
+			continue
+		}
+		if strings.HasPrefix(trimmed, "::: grid") {
+			diags = append(diags, diagnostics.NewError(
+				"a ::: grid cannot be nested inside a typed column", ctx.Position(i), "parser"))
+			consumed++
+			i++
+			continue
+		}
+
+		ctx.CurrentLine = i
+		result := registry.Parse(ctx, i)
+		diags = append(diags, result.Diagnostics...)
+		if result.Error != nil {
+			diags = append(diags, diagnostics.NewError(result.Error.Error(), ctx.Position(i), "parser"))
+		}
+		if result.Element != nil && result.ConsumedLines > 0 {
+			column.Elements = append(column.Elements, result.Element)
+			consumed += result.ConsumedLines
+			i += result.ConsumedLines
+			continue
+		}
+		if result.ConsumedLines > 0 {
+			consumed += result.ConsumedLines
+			i += result.ConsumedLines
+			continue
+		}
+		// Failsafe: ningún parser reclamó la línea. Se avisa en vez de
+		// descartarla en silencio (misma regla que el bucle de un slide).
+		diags = append(diags, diagnostics.NewWarning(
+			"Unrecognized line, content was discarded: "+`"`+trimmed+`"`+". Check DSL Flex syntax documentation.",
+			ctx.Position(i), "parser").WithRuleID("FLEX001"))
+		consumed++
+		i++
+	}
+
+	return &ParseResult{Element: column, ConsumedLines: consumed, Diagnostics: diags}
 }
 
 // parseColumn parsea una columna individual dentro del grid
@@ -196,6 +294,12 @@ func (p *GridParser) parseColumn(ctx *ParseContext, startIndex int) *ParseResult
 // produce el parser flex, así que la forma strict round-trip-ea al MISMO AST
 // que "::: grid" para la misma estructura lógica.
 //
+// Columna tipada (issue #373): `<<column typed>>` abre una columna cuyo cuerpo,
+// sangrado bajo el marcador, se parsea con la gramática de un SLIDE y llena
+// Elements en vez de Content. La forma cruda no cambia y las dos conviven en el
+// mismo grid. El cuerpo se delimita por sangría, no por `<<end>>`; ver
+// docs/portable-typed-columns.md.
+//
 // Indentación: formatStrictElement indenta el elemento completo 2 espacios, así
 // que las líneas de contenido llegan con esa sangría base. parseStrictGrid la
 // quita (dedentByLeadingSpaces hasta baseIndent, la sangría del marcador
@@ -213,8 +317,13 @@ func (p *GridParser) parseStrictGrid(ctx *ParseContext, startIndex int) *ParseRe
 	var stray []string
 	var colLines []string
 	var columns []ast.ColumnElement
+	var diags []diagnostics.Diagnostic
 	inColumn := false
 	colPos := pos
+	// afterTyped es true entre el cuerpo de una columna tipada y el siguiente
+	// marcador: una línea a la sangría del grid ahí no es prosa suelta (eso
+	// sólo existe antes de la primera columna) sino un cuerpo mal sangrado.
+	afterTyped := false
 
 	flushColumn := func() {
 		if inColumn {
@@ -228,7 +337,7 @@ func (p *GridParser) parseStrictGrid(ctx *ParseContext, startIndex int) *ParseRe
 		flushColumn()
 		gridElement.Columns = columns
 		gridElement.Content = strings.Join(stray, "\n")
-		return &ParseResult{Element: gridElement, ConsumedLines: consumed}
+		return &ParseResult{Element: gridElement, ConsumedLines: consumed, Diagnostics: diags}
 	}
 
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
@@ -254,9 +363,51 @@ func (p *GridParser) parseStrictGrid(ctx *ParseContext, startIndex int) *ParseRe
 		case trimmedLine == "<<column>>":
 			flushColumn()
 			inColumn = true
+			afterTyped = false
 			colPos = ctx.Position(i)
 			consumed++
+		case isStrictTypedColumnMarker(trimmedLine):
+			flushColumn()
+			afterTyped = true
+			// El cuerpo es la tira de líneas más sangradas que el marcador,
+			// con las en blanco finales fuera: son separación, no contenido.
+			// Delimitarlo por sangría (y no por la primera `<<end>>`) es lo
+			// que deja que un chart o un quiz dentro de la columna cierre
+			// con su propia `<<end>>`.
+			end := i + 1
+			for j := i + 1; j < len(ctx.Lines); j++ {
+				if strings.TrimSpace(ctx.Lines[j]) == "" {
+					continue
+				}
+				if leadingSpaceCount(ctx.Lines[j]) <= baseIndent {
+					break
+				}
+				end = j + 1
+			}
+			col := ast.NewColumnElement(ctx.Position(i), "")
+			if ctx.TypedColumnBody == nil {
+				diags = append(diags, diagnostics.NewError(
+					"typed columns are not supported in this context", ctx.Position(i), "parser"))
+			} else {
+				body := make([]string, 0, end-i-1)
+				for _, bl := range ctx.Lines[i+1 : end] {
+					body = append(body, dedentByLeadingSpaces(bl, baseIndent))
+				}
+				els, bodyDiags := ctx.TypedColumnBody(body, ctx.LineOffset+i+1)
+				col.Elements = els
+				diags = append(diags, bodyDiags...)
+			}
+			columns = append(columns, *col)
+			consumed += end - i
+			i = end - 1
 		default:
+			if !inColumn && afterTyped {
+				diags = append(diags, diagnostics.NewError(
+					"the body of a typed column must be indented under its <<column typed>> marker",
+					ctx.Position(i), "parser"))
+				consumed++
+				continue
+			}
 			content := dedentByLeadingSpaces(line, baseIndent)
 			if inColumn {
 				colLines = append(colLines, content)

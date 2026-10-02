@@ -92,9 +92,14 @@ Rules:
 - A `<<grid>>` inside a typed column is an error in this version. The grid
   markers are recognized on trimmed lines, and flex has no unambiguous nested
   closer, so both dialects reject the case instead of guessing.
-- An unrecognized line is reported with the same severity the surrounding
-  dialect uses for a `SLIDE` or `SECTION` body (`STRICT003` warning in
-  slides, error in documents). Nothing is dropped silently.
+- An unrecognized line is an error in both SlideLang and DocLang. A `SLIDE`
+  body downgrades it to a `STRICT003` warning only because existing decks
+  depend on that; typed columns are new syntax with no such legacy, so nothing
+  is dropped silently.
+- A body line indented only one space deeper than the marker, instead of two,
+  is an error rather than a silent end of the body. A line at the grid's own
+  indentation after a typed column is an error too (it would otherwise read as
+  loose prose).
 
 ## Flex grammar
 
@@ -127,10 +132,19 @@ Right side.
 ## Same AST in both dialects
 
 For the same logical column the two dialects produce the same elements (types
-and fields), ignoring `position`. The covered set is `TEXT`, `POINTS`, `CODE`,
-`IMAGE`, `TABLE`, `QUOTE`, `CHECKLIST` and `<<chart>>`, and the test suite
-asserts exactly that set. Where the dialects cannot be equal the design says
-so instead of hiding it:
+and fields), ignoring `position` and `nodeId`. The covered set is `TEXT`,
+`POINTS`, `CODE`, `IMAGE`, `TABLE`, `QUOTE`, `CHECKLIST` and `<<chart>>`, and
+the test suite asserts exactly that set. Where the dialects cannot be equal the
+design says so instead of hiding it:
+
+- **Image paths.** Flex and strict already resolve `source` and infer
+  `context` differently for an image at slide level (flex prefixes
+  `assets/images/`). A typed column inherits that difference; it does not add
+  one, so the image case compares everything except those two fields.
+- **Pipe tables in flex.** A flex pipe table directly after `::: column` or
+  `::: column typed`, with no blank line between them, is read with the
+  `::: grid` line as a table row. This already happens in raw columns and is
+  not changed here; leave a blank line before the table (the tests do).
 
 - **Headings.** `###` and `SECTION` are not typed inside a column. A flex
   `### Title` becomes a `TextElement` (the registry has no heading parser) and a

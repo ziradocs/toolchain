@@ -58,7 +58,9 @@ count**. Code group: `:::code-group` with fenced blocks inside, needs
 `- [x]` (strict: `CHECKLIST`). Quote: `> text` (strict: `QUOTE`). Grid:
 `::: grid` / `::: column` in flex, but **`<<grid>>` / `<<column>>` /
 `<<end>>` in strict** — the flex spelling is invalid there, never use it
-in a strict-mode document. Math (block/display only, never
+in a strict-mode document. A column that needs real elements (for a
+`node-id`) opens with `<<column typed>>` (strict, body indented two spaces)
+or `::: column typed` (flex). Math (block/display only, never
 inline `$x$`): `<<math>>` LaTeX `<<end>>` or `$$ ... $$` starting the line.
 Directives: `@notes` (presenter notes), `@timer`, `@transition`,
 `@highlight`, `@delay`, `@auto-play` — ZiraDocs renders these, DocLang

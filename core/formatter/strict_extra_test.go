@@ -316,18 +316,18 @@ func TestFormatStrict_GridEmptySupported(t *testing.T) {
 	}
 }
 
-// TestFormatStrict_GridWithTypedColumnElementsUnsupported: la forma strict de
-// grid guarda el cuerpo de cada columna como Content en bruto (lo que produce
-// el parser y consume el renderer). Una columna con Elements TIPADOS anidados
-// —forma que ningún parser produce hoy, pero que un AST de otro origen (p. ej.
-// un transpiler) podría traer— no tiene representación en la forma de texto
-// Content-based, así que se reporta en vez de perder esos Elements en silencio.
-func TestFormatStrict_GridWithTypedColumnElementsUnsupported(t *testing.T) {
+// TestFormatStrict_GridColumnMixingContentAndElementsUnsupported: la forma
+// strict guarda el cuerpo de una columna como texto crudo (<<column>>) o como
+// elementos (<<column typed>>), no las dos cosas a la vez. Una columna que
+// trae Content y Elements —posible en un AST de otro origen— se reporta en vez
+// de perder uno de los dos en silencio. Una columna solo con Elements ya es
+// representable (issue #373), ver typed_columns_test.go.
+func TestFormatStrict_GridColumnMixingContentAndElementsUnsupported(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	doc := ast.NewAST(pos)
 	block := ast.NewContentBlock(pos, "content")
 	grid := ast.NewGridElement(pos)
-	col := ast.NewColumnElement(pos, "")
+	col := ast.NewColumnElement(pos, "raw body")
 	col.Elements = append(col.Elements, ast.NewTextElement(pos, "typed nested text"))
 	grid.Columns = append(grid.Columns, *col)
 	block.Elements = append(block.Elements, grid)
@@ -335,7 +335,7 @@ func TestFormatStrict_GridWithTypedColumnElementsUnsupported(t *testing.T) {
 
 	_, err := FormatStrict(doc)
 	if err == nil {
-		t.Fatal("FormatStrict: expected UnsupportedElementError for a column with typed Elements, got nil")
+		t.Fatal("FormatStrict: expected UnsupportedElementError for a column with Content and Elements, got nil")
 	}
 	var uerr *UnsupportedElementError
 	if reflect.TypeOf(err) != reflect.TypeOf(uerr) {

@@ -25,9 +25,10 @@ import (
 // formatear (ver docs/plan/mvp-estandar-oss.md, feature fmt --strict).
 // GRID/COLUMN ahora tiene sintaxis strict propia (<<grid>>/<<column>>/<<end>>,
 // ver formatStrictGrid y elements.GridParser.parseStrictGrid), así que se
-// serializa igual que el resto; solo un GridElement con columnas de Elements
-// tipados anidados (forma que ningún parser produce hoy) sigue devolviendo
-// UnsupportedElementError en vez de emitir texto que no re-parsearía.
+// serializa igual que el resto, con `<<column typed>>` para una columna de
+// Elements (issue #373). Una columna que mezcla Content y Elements, o que anida
+// un grid, devuelve UnsupportedElementError en vez de emitir texto que no
+// re-parsearía.
 func FormatStrict(doc *ast.AST) (string, error) {
 	out, err := formatStrictWithoutIDs(doc)
 	if err != nil {
@@ -811,12 +812,14 @@ func formatCodeGroup(e *ast.CodeGroupElement) string {
 // luego indenta todo 2 espacios; el parser quita esa sangría base al reparsear,
 // así que el round-trip es idempotente.
 //
-// Un GridElement cuyas columnas traen Elements tipados anidados (en vez de
-// Content en bruto) no es representable en esta forma de texto — ningún parser
-// produce esa forma hoy (el pipeline flex/strict usa Content por columna), pero
-// un AST de otro origen (p. ej. un futuro transpiler) podría; se reporta en vez
-// de perder esos Elements en silencio, mismo principio que chart.Options o el
-// contenido no representable de QUOTE/CHECKLIST.
+// Una columna con Elements (la forma tipada, issue #373) se escribe como
+// `<<column typed>>` seguida de cada elemento con formatStrictElement, a la
+// sangría de dos espacios bajo el marcador que el parser exige. Una columna
+// con Content se escribe cruda, como siempre, y las dos pueden mezclarse en un
+// grid. Una columna con las dos cosas a la vez no tiene forma de texto que
+// conserve ambas y se rechaza (mismo principio que chart.Options o el
+// contenido no representable de QUOTE/CHECKLIST: se reporta en vez de perder
+// algo en silencio), igual que un grid o un encabezado tipado anidados.
 func formatStrictGrid(e *ast.GridElement) (string, error) {
 	if err := validateStrictGridContent(e); err != nil {
 		return "", err
@@ -829,6 +832,21 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 		b.WriteString(e.Content)
 	}
 	for _, col := range e.Columns {
+		if len(col.Elements) > 0 {
+			b.WriteString("\n<<column typed>>")
+			for _, nested := range col.Elements {
+				text, err := formatStrictElement(nested)
+				if err != nil {
+					return "", err
+				}
+				if text == "" {
+					continue
+				}
+				b.WriteString("\n")
+				b.WriteString(strings.TrimRight(text, "\n"))
+			}
+			continue
+		}
 		b.WriteString("\n<<column>>")
 		if col.Content != "" {
 			b.WriteString("\n")
@@ -842,10 +860,11 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 // validateStrictGridContent rechaza contenido que el parser strict de grid
 // reinterpretaría como marcador (rompiendo el re-parse), mismo patrón que
 // validateStrictQuoteContent/validateStrictChecklistItems: una línea de
-// Content cuyo texto trimeado sea <<column>>, <<end>> o <<grid>> no
-// round-trip-earía (el parser matchea esos marcadores sobre la línea trimeada,
-// sin importar la sangría); y una columna con Elements tipados anidados no
-// tiene representación en la forma de texto Content-based.
+// Content cuyo texto trimeado sea <<column>>, <<column typed>>, <<end>> o
+// <<grid>> no round-trip-earía (el parser matchea esos marcadores sobre la
+// línea trimeada, sin importar la sangría); una columna que mezcla Content y
+// Elements no tiene forma de texto que conserve las dos; y un grid anidado en
+// una columna tipada tampoco (el parser lo rechaza).
 //
 // "SLIDE …" a propósito NO se rechaza: el parser solo lo trata como límite de
 // slide cuando está SIN sangría (isSlideBoundary mira la línea cruda), y
@@ -856,7 +875,7 @@ func validateStrictGridContent(e *ast.GridElement) error {
 	checkContent := func(where, content string) error {
 		for _, line := range strings.Split(content, "\n") {
 			t := strings.TrimSpace(line)
-			if t == "<<grid>>" || t == "<<column>>" || t == "<<end>>" {
+			if t == "<<grid>>" || t == "<<column>>" || t == "<<column typed>>" || t == "<<end>>" {
 				return newUnsupported("grid", fmt.Sprintf("%s contiene una línea (%q) que el parser strict interpretaría como un marcador de grid, no como texto — no representable sin pérdida", where, t))
 			}
 		}
@@ -868,7 +887,15 @@ func validateStrictGridContent(e *ast.GridElement) error {
 	}
 	for i := range e.Columns {
 		if len(e.Columns[i].Elements) > 0 {
-			return newUnsupported("grid", "una columna con Elements tipados anidados no es representable en el dialecto strict: la forma <<grid>>/<<column>> guarda el cuerpo de cada columna como Content en bruto (lo que produce el parser y consume el renderer), no como sub-elementos tipados")
+			if e.Columns[i].Content != "" {
+				return newUnsupported("grid", fmt.Sprintf("la columna %d trae Content y Elements a la vez; la forma strict guarda el cuerpo de una columna como texto crudo (<<column>>) o como elementos (<<column typed>>), no las dos cosas", i+1))
+			}
+			for _, nested := range e.Columns[i].Elements {
+				if _, isGrid := nested.(*ast.GridElement); isGrid {
+					return newUnsupported("grid", fmt.Sprintf("la columna %d anida un grid; el dialecto strict no lo admite dentro de una columna tipada", i+1))
+				}
+			}
+			continue
 		}
 		if err := checkContent(fmt.Sprintf("la columna %d", i+1), e.Columns[i].Content); err != nil {
 			return err

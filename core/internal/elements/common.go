@@ -59,6 +59,17 @@ type ParseContext struct {
 	// slidelang tiene el estado de deduplicación por deck (C31: un parser
 	// de headings sin ese estado duplicaría ids dentro del mismo deck).
 	HeadingAnchor func(text string) string
+
+	// TypedColumnBody parsea el cuerpo de una columna strict tipada
+	// (`<<column typed>>`, issue #373) con la gramática del cuerpo de un
+	// SLIDE. lines ya viene dedentado respecto del marcador de la columna y
+	// lineOffset es la línea del archivo que precede a lines[0], para que las
+	// posiciones de los elementos sean las reales (el ligado de node-id es por
+	// línea). Lo fija strictBody: el parser de elementos strict vive en
+	// core/parser, que este paquete no puede importar. nil en los contextos
+	// que no lo proveen (el grid reporta entonces un error en vez de perder
+	// el cuerpo).
+	TypedColumnBody func(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic)
 }
 
 // Position traduce un índice 0-based dentro de ctx.Lines a una posición

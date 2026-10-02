@@ -344,7 +344,8 @@ interface GridElement extends ElementNode {
 
 interface ColumnElement extends ElementNode {
   type: "column"
-  content: ElementNode[]
+  content: string          // raw body; empty in a typed column
+  elements?: ElementNode[] // typed body (see "Typed columns")
 }
 ```
 
@@ -473,6 +474,39 @@ Content for second column
 The flex `::: grid` / `::: column` form is a syntax error in strict mode —
 it is not recognized, translated, or accepted there. Both forms produce the
 same typed `GridElement`/`ColumnElement` pair.
+
+##### Typed columns
+
+By default a column body is raw text, stored in `ColumnElement.content`, so an
+element inside it cannot carry a `<!-- node-id: Name -->` identity. A column
+opts into a typed body with its own opening marker: `<<column typed>>` in
+strict and `::: column typed` in flex. The marker must be exactly that text
+(after trimming); any other suffix leaves the column raw. Raw and typed columns
+can be mixed in one grid.
+
+```slidelang
+<<grid>>
+<<column typed>>
+  <!-- node-id: ColTextA -->
+  TEXT
+    Left side.
+<<column>>
+Right side.
+<<end>>
+```
+
+In strict, the body of a typed column is the run of lines indented deeper than
+the marker, parsed with the grammar of a `SLIDE` body; because it is delimited by
+indentation, an element inside it (a chart, a quiz) closes with its own
+`<<end>>` without closing the grid. In flex the body is ordinary flex content,
+ending at `:::`, the next `::: column`, a `---` separator or a slide boundary.
+The parser fills `ColumnElement.elements` and leaves `content` empty. A
+property line, a `SECTION` heading or a nested grid inside a typed column is an
+error, and a heading line is plain text (`TextElement`), never a typed heading.
+`slidelang fmt` writes a column with `elements` as `<<column typed>>` and
+round-trips it, `nodeId` included. This adds no schema field or version:
+`ColumnElement.elements` is part of the 2.14.0 contract. See
+`docs/portable-typed-columns.md` for the full design.
 
 **Features:**
 - Automatic equal-width columns
@@ -716,6 +750,8 @@ schema 2.20.0. See
    - Code elements should specify language for highlighting
    - Grid blocks must contain only column elements as direct children
    - Column elements should only be used within grid containers
+   - A typed column (`<<column typed>>` / `::: column typed`) accepts elements only; a
+     nested grid, a property line or a heading is an error
 
 3. **Directive Validation:**
    - Required parameters must be present

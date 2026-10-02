@@ -91,6 +91,27 @@ Each `<<column>>` starts a column (body = raw Markdown content); `<<end>>`
 closes the grid. Lines before the first `<<column>>` are loose prose spanning
 the grid.
 
+A column whose body must be real elements (for example to give an element a
+`<!-- node-id: Name -->`) opens with `<<column typed>>` instead. Its body is
+indented two spaces under the marker and follows the same grammar as a
+`SLIDE` body, and it ends at the first line not indented deeper than the
+marker, so an element inside it (a chart, a quiz) closes with its own
+`<<end>>`:
+
+```
+<<grid>>
+<<column typed>>
+  <!-- node-id: LeftText -->
+  TEXT
+    Left side.
+<<column>>
+Raw right side.
+<<end>>
+```
+
+Raw and typed columns can be mixed. Inside a typed column, `key: value`
+lines, `SECTION` headings and a nested `<<grid>>` are errors.
+
 **Strict mode explicitly rejects the loose/Markdown spellings of the
 diagram/chart/map elements** — this is a strict-only trap, since these
 spellings are tolerated (and auto-normalized) in flex mode:
