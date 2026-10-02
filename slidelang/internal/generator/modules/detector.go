@@ -47,44 +47,61 @@ func DetectRequiredModulesWithConfig(astNode *ast.AST, config ModuleConfig) []st
 	hasMaps := false
 	hasDirectives := false
 
+	// classifyElement marca las banderas que corresponden a UN elemento, y
+	// si es un GridElement desciende a cada columna (issue #373): una
+	// columna tipada (<<column typed>>/::: column typed) puede traer un
+	// quiz/chart/mermaid/map/directiva anidado que necesita el mismo módulo
+	// JS que si estuviera a nivel de slide. Una columna cruda no tiene
+	// Elements, así que no aporta nada acá, igual que antes de este cambio.
+	var classifyElement func(element ast.Element)
+	classifyElement = func(element ast.Element) {
+		// No hay case para CodeElement, SpecialBlockElement ni
+		// CodeGroupElement, y es deliberado:
+		//
+		//   - CodeElement salió porque decidía por el LENGUAJE del fence:
+		//     un `Language: "mermaid"` pedía el módulo de Mermaid, pero
+		//     renderiza `.slidelang-code`, no el `.slidelang-mermaid`
+		//     anidado que el módulo busca. Un ```mermaid escrito en el
+		//     fuente llega como MermaidElement y entra por su propio case,
+		//     abajo; el que caía acá era el construido por API, con un
+		//     módulo empaquetado que no tenía a qué engancharse.
+		//
+		//   - SpecialBlockElement salió porque decidía por el NOMBRE del
+		//     bloque: `::: chart` y sus hermanos emiten un contenedor de
+		//     prosa —sin `.slidelang-chart-canvas`, sin
+		//     `.slidelang-map-container`, sin `.slidelang-tab`— y pedían
+		//     charts/maps/mermaid/utilities igual.
+		//
+		//   - CodeGroupElement (y el `details` de SpecialBlockElement)
+		//     solo alimentaban las banderas `hasCodeGroups`/
+		//     `hasCollapsibles`, que no decidían nada: ver el gate de
+		//     `utilities` más abajo. Si la carga de utilities se vuelve
+		//     condicional algún día, estos dos casos vuelven junto con el
+		//     código suelto, que es el otro tercio del predicado real.
+		switch elem := element.(type) {
+		case *ast.QuizElement, *ast.PollElement:
+			hasQuizPoll = true
+		case *ast.MermaidElement:
+			hasMermaid = true
+		case *ast.ChartElement:
+			hasCharts = true
+		case *ast.MapElement:
+			hasMaps = true
+		case *ast.DirectiveNode:
+			hasDirectives = true
+		case *ast.GridElement:
+			for _, col := range elem.Columns {
+				for _, nested := range col.Elements {
+					classifyElement(nested)
+				}
+			}
+		}
+	}
+
 	// Recorrer los slides para detectar contenido especial
 	for _, slide := range astNode.ContentBlocks {
 		for _, element := range slide.Elements {
-			// No hay case para CodeElement, SpecialBlockElement ni
-			// CodeGroupElement, y es deliberado:
-			//
-			//   - CodeElement salió porque decidía por el LENGUAJE del fence:
-			//     un `Language: "mermaid"` pedía el módulo de Mermaid, pero
-			//     renderiza `.slidelang-code`, no el `.slidelang-mermaid`
-			//     anidado que el módulo busca. Un ```mermaid escrito en el
-			//     fuente llega como MermaidElement y entra por su propio case,
-			//     abajo; el que caía acá era el construido por API, con un
-			//     módulo empaquetado que no tenía a qué engancharse.
-			//
-			//   - SpecialBlockElement salió porque decidía por el NOMBRE del
-			//     bloque: `::: chart` y sus hermanos emiten un contenedor de
-			//     prosa —sin `.slidelang-chart-canvas`, sin
-			//     `.slidelang-map-container`, sin `.slidelang-tab`— y pedían
-			//     charts/maps/mermaid/utilities igual.
-			//
-			//   - CodeGroupElement (y el `details` de SpecialBlockElement)
-			//     solo alimentaban las banderas `hasCodeGroups`/
-			//     `hasCollapsibles`, que no decidían nada: ver el gate de
-			//     `utilities` más abajo. Si la carga de utilities se vuelve
-			//     condicional algún día, estos dos casos vuelven junto con el
-			//     código suelto, que es el otro tercio del predicado real.
-			switch element.(type) {
-			case *ast.QuizElement, *ast.PollElement:
-				hasQuizPoll = true
-			case *ast.MermaidElement:
-				hasMermaid = true
-			case *ast.ChartElement:
-				hasCharts = true
-			case *ast.MapElement:
-				hasMaps = true
-			case *ast.DirectiveNode:
-				hasDirectives = true
-			}
+			classifyElement(element)
 		}
 	}
 

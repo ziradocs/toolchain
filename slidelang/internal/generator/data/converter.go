@@ -375,278 +375,7 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 				element = renderer.LegacyHeadingElement(heading)
 			}
 
-			elementData := ElementData{
-				Type: string(element.GetType()),
-				// NUEVOS CAMPOS PARA VISUALIZADOR AVANZADO
-				ElementID:  generateElementID(element, i, j),
-				SlideIndex: i,
-			}
-
-			switch elem := element.(type) {
-			case *ast.TextElement:
-				if elem.IsRawHTML {
-					// Encabezado de subsección (issue #194): el Content ya
-					// es el <hN id> que armó el parser, HTML de confianza.
-					// renderer.HeadingContentHTML lo vuelve a armar desde la
-					// fuente con las {{variables}} sustituidas antes del
-					// Markdown inline, igual que un párrafo, también cuando
-					// xref reescribió un \ref del encabezado; sin fuente,
-					// sustituye sobre el HTML sin entrar a las etiquetas.
-					elementData.HeadingHTML = htmltemplate.HTML(renderer.HeadingContentHTML(elem, variables))
-					elementData.HeadingLevel = elem.Level
-					break
-				}
-				elementData.Content = ProcessVariables(elem.Content, variables)
-			case *ast.CodeElement:
-				elementData.Content = ProcessVariables(elem.Content, variables)
-				elementData.Language = elem.Language
-				elementData.CodeFilename = elem.Filename
-			case *ast.ImageElement:
-				source := ProcessVariables(elem.Source, variables)
-				// Validar el esquema para prevenir javascript: y data: URIs
-				// peligrosas. NO se escapa aquí: el template ahora es
-				// html/template, que aplica su propio escape de atributo/URL
-				// al interpolar — escapar dos veces rompería query strings
-				// (ver docs/SECURITY_AUDIT_2026-07.md, CR-4).
-				// Si el esquema es peligroso, Source queda vacío: html/template
-				// también rechazaría por su cuenta un data: URI de placeholder
-				// (su propio filtro de URL no distingue "confiable" de
-				// "atacante" en un string plano), así que el template renderiza
-				// un aviso en vez de un <img> cuando Source == "".
-				elementData.Source = renderer.ValidateURLScheme(source)
-				// InlinedSource (issue #167): --format pdf inyecta el HTML
-				// final en about:blank, sin base URL contra la cual una
-				// <img src="ruta/relativa"> resuelva — TryInlineLocalImage
-				// lee el archivo del disco (confinado a ctx.AssetRoot) y lo
-				// devuelve como data: URI. Solo aplica bajo
-				// ctx.ImageMode == "offline-inline" (pdf.go lo fuerza
-				// siempre); en cualquier otro modo ok es false y el template
-				// cae a Source sin cambio de comportamiento. Se intenta
-				// sobre el `source` YA procesado por variables pero SIN
-				// pasar por ValidateURLScheme — TryInlineLocalImage hace su
-				// propio chequeo de esquema (url.Parse) antes de tocar el
-				// filesystem, así que no depende del resultado de la línea
-				// de arriba.
-				if inlined, ok := renderer.TryInlineLocalImage(source, ctx); ok {
-					elementData.InlinedSource = htmltemplate.URL(inlined)
-				}
-				// SkipLazyLoad: independiente de si esta imagen puntual se
-				// inlineó (arriba) — una imagen REMOTA bajo offline-inline
-				// tiene el mismo problema de carga diferida que nunca
-				// dispara sin scroll real, ver el comentario del campo en
-				// types.go.
-				elementData.SkipLazyLoad = ctx != nil && ctx.ImageMode == "offline-inline"
-				// Alt/Caption: sin pre-escapar, por la misma razón que Source.
-				elementData.Alt = ProcessVariables(elem.Alt, variables)
-				elementData.Caption = ProcessVariables(elem.Caption, variables)
-				elementData.Context = string(elem.Context)
-				elementData.ImageFit = elem.Fit
-				elementData.ImageFocus = elem.Focus
-				elementData.ImageBleed = elem.Bleed
-			case *ast.PointsElement:
-				elementData.Items = ConvertPointItemsWithVariables(elem.Items, variables)
-				elementData.ListType = elem.ListType
-				elementData.TypedList = convertedTypedPoints(elementData.Items)
-			case *ast.TableElement:
-				// Process headers with variables and markdown formatting
-				processedHeaders := make([]string, len(elem.Headers))
-				for i, header := range elem.Headers {
-					processedHeaders[i] = ProcessTextWithVariablesAndMarkdown(header, variables)
-				}
-				elementData.Headers = processedHeaders
-
-				// Process rows with variables and markdown formatting
-				processedRows := make([][]string, len(elem.Rows))
-				for i, row := range elem.Rows {
-					processedRow := make([]string, len(row))
-					for j, cell := range row {
-						processedRow[j] = ProcessTextWithVariablesAndMarkdown(cell, variables)
-					}
-					processedRows[i] = processedRow
-				}
-				elementData.Rows = processedRows
-				elementData.Caption = ProcessVariables(elem.Caption, variables)
-				// Cells (issue #20) solo se puebla cuando dice algo que
-				// Headers/Rows no dice ya — todo TableElement.Cells viene
-				// poblado (DeriveCellsFromFlat para el caso simple, ver
-				// core/ast/table_cells.go), así que sin este gate CADA
-				// tabla — incluso una sin ningún merge — activaría el
-				// branch "Cells" del template en vez del Headers/Rows de
-				// siempre, cambiando el HTML de toda tabla existente.
-				if tableUsesCellStructure(elem) {
-					elementData.Cells = ConvertTableCellsWithVariables(elem.Cells, variables)
-					elementData.CellsLeadIsHeader = cellsLeadIsHeader(elem.Cells)
-				}
-			case *ast.MediaElement:
-				// Mismo patrón que ImageElement arriba: ValidateURLScheme
-				// bloquea javascript:/data: peligrosos sin pre-escapar (lo
-				// hace html/template al interpolar); Source vacío es la
-				// señal que el template usa para mostrar el aviso en vez
-				// de un <video>/<audio>.
-				source := ProcessVariables(elem.Source, variables)
-				elementData.Source = renderer.ValidateURLScheme(source)
-				// InlinedSource (issue #181, el equivalente de #167 para
-				// <video>/<audio>): mismo razonamiento que ImageElement
-				// arriba — bajo offline-inline no hay base URL contra la
-				// cual una fuente relativa resuelva. TryInlineLocalMedia
-				// hace su propio chequeo de esquema, así que no depende de
-				// ValidateURLScheme.
-				if inlined, ok := renderer.TryInlineLocalMedia(source, ctx); ok {
-					elementData.InlinedSource = htmltemplate.URL(inlined)
-				}
-				elementData.MediaType = elem.MediaType
-				elementData.Autoplay = elem.Autoplay
-				elementData.Controls = elem.Controls
-				elementData.Loop = elem.Loop
-				elementData.Muted = elem.Muted
-				if elem.Poster != "" {
-					poster := ProcessVariables(elem.Poster, variables)
-					elementData.Poster = renderer.ValidateURLScheme(poster)
-					if inlined, ok := renderer.TryInlineLocalImage(poster, ctx); ok {
-						elementData.InlinedPoster = htmltemplate.URL(inlined)
-					}
-				}
-				elementData.Caption = ProcessVariables(elem.Caption, variables)
-			case *ast.SpecialBlockElement:
-				elementData.BlockType = elem.BlockType
-				elementData.Title = ProcessVariables(elem.Title, variables)
-				elementData.Content = ProcessVariables(elem.Content, variables)
-				elementData.Icon = elem.Icon
-			case *ast.CodeGroupElement:
-				elementData.CodeBlocks = ConvertCodeBlocksWithVariables(elem.CodeBlocks, variables)
-			case *ast.MermaidElement:
-				elementData.DiagramType = elem.DiagramType
-				elementData.Content = renderer.PrepareMermaidContent(ProcessVariables(elem.Content, variables), elem.DiagramType)
-				elementData.Title = ProcessVariables(elem.Title, variables)
-			case *ast.PlantUMLElement:
-				// Issue #38. Reusa el sanitizador + los encoders de URL
-				// exportados de core (los mismos que
-				// core/renderer/html.go's renderPlantUMLElement usa) en vez
-				// de re-derivar a mano el request al servidor PlantUML —
-				// pero renderiza vía el template/CSS propio de slidelang,
-				// NO delegando el <div> completo de core: el modo browser
-				// de core incluye un spinner de carga cuyo JS de
-				// limpieza (marcar .loaded) vive en
-				// core/renderer/document_html.go, exclusivo del documento
-				// HTML de doclang — reusar ese HTML tal cual dejaría un
-				// spinner sin nada que jamás lo oculte. Estos dos campos
-				// (SVGURL/PNGURL) alimentan el <object>/<img> de MODO
-				// BROWSER (template/base.go); en modos offline SÍ hay un
-				// camino propio (renderOfflinePlantUML más abajo en este
-				// archivo, issue de code-review sobre PR #56), que el
-				// template prefiere vía PreRenderedHTML cuando está seteado.
-				content := renderer.SanitizePlantUMLContent(ProcessVariables(elem.Content, variables))
-				elementData.DiagramType = elem.DiagramType
-				elementData.Title = ProcessVariables(elem.Title, variables)
-				elementData.PlantUMLSVGURL = renderer.GeneratePlantUMLSVGURL(content, "")
-				elementData.PlantUMLPNGURL = renderer.GeneratePlantUMLPNGURL(content, "")
-			case *ast.MathElement:
-				// Issue #38. Content es LaTeX crudo (core/ast/nodes.go) —
-				// NO se procesa con ProcessVariables como un Content de
-				// prosa, mismo criterio que MermaidElement.Content arriba.
-				// El template interpola {{.Content}} en un nodo de texto de
-				// html/template, cuyo auto-escaping estructural cumple la
-				// misma garantía que core/renderer/math_html.go's
-				// BuildMathDiv impone con su llamada explícita a
-				// EscapeHTML (issue #73) — la diferencia es que acá lo
-				// garantiza el motor de templates en sí, no una llamada que
-				// un futuro edit podría olvidar.
-				elementData.Content = elem.Content
-				elementData.MathLabel = elem.Label
-				elementData.MathNumber = elem.Number
-				elementData.Caption = ProcessVariables(elem.Caption, variables)
-			case *ast.ChartElement:
-				elementData.ChartType = elem.ChartType
-				elementData.SeriesTypes = elem.SeriesTypes
-				elementData.ChartData = elem.Data
-				elementData.Series = ProcessStringArray(elem.Series, variables)
-				elementData.Labels = ProcessStringArray(elem.Labels, variables)
-				elementData.Options = elem.Options
-				elementData.Title = ProcessVariables(elem.Title, variables)
-				elementData.IsJSONMode = elem.IsJSONMode
-			case *ast.MapElement:
-				elementData.MapType = elem.MapType
-				elementData.Markers = ConvertMapMarkersWithVariables(elem.Markers, variables)
-				elementData.Heatmap = elem.Heatmap
-				elementData.Zoom = elem.Zoom
-				elementData.Title = ProcessVariables(elem.Title, variables)
-				elementData.MapOptions = ProcessMapOptions(elem.Options, variables)
-			case *ast.QuoteElement:
-				elementData.Content = ProcessVariables(elem.Content, variables)
-				elementData.Author = ProcessVariables(elem.Author, variables)
-				elementData.Source = ProcessVariables(elem.Source, variables)
-			case *ast.QuizElement:
-				elementData.Question = ProcessVariables(elem.Question, variables)
-				elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
-				elementData.QuizAnswer = elem.Answer
-				elementData.QuizExplanation = ProcessVariables(elem.Explanation, variables)
-				elementData.QuizResults = quizResultLabels(elem.Results, len(elem.Options))
-				elementData.QuizResponses = renderer.QuizPollResponsesLabel(elem.Responses)
-
-			case *ast.PollElement:
-				elementData.Question = ProcessVariables(elem.Question, variables)
-				elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
-				elementData.QuizMultiple = elem.Multiple
-				elementData.QuizResults = quizResultLabels(elem.Results, len(elem.Options))
-				elementData.QuizResponses = renderer.QuizPollResponsesLabel(elem.Responses)
-			case *ast.MetricElement:
-				elementData.MetricLabel = ProcessVariables(elem.Label, variables)
-				elementData.MetricValue = ProcessVariables(elem.Value, variables)
-				elementData.MetricDelta = ProcessVariables(elem.Delta, variables)
-				elementData.MetricTrend = elem.Trend
-				elementData.MetricCaption = ProcessVariables(elem.Caption, variables)
-
-			case *ast.ChecklistElement:
-				elementData.ChecklistItems = ConvertChecklistItemsWithVariables(elem.Items, variables)
-			case *ast.GridElement:
-				elementData.Content = ProcessVariables(elem.Content, variables)
-				elementData.Columns = ConvertColumnsWithVariables(elem.Columns, variables)
-			case *ast.ColumnElement:
-				elementData.Content = ProcessVariables(elem.Content, variables)
-			case *ast.DirectiveNode:
-				elementData.Content = elem.Name
-
-				// Aplicar parámetros de directiva
-				elementData.DirectiveName = elem.Name
-				elementData.DirectiveParams = elem.Parameters
-
-				// Configurar clases CSS basadas en el tipo de directiva.
-				// No incluir "directive" aquí: el template ya tiene la clase
-				// estática "slidelang-directive" hardcodeada, así que
-				// agregarla también vía CSSClasses duplicaba la clase.
-				elementData.CSSClasses = []string{"directive-" + elem.Name}
-
-				// Configuraciones específicas por tipo de directiva.
-				// timer/transition llegan acá con un nombre reconocido; las
-				// 13 directivas modificadoras (issue #72) se interceptan
-				// más arriba, antes de construir elementData (ver
-				// directiveModifierClasses), y nunca alcanzan este switch.
-				// auto-play NO es modificadora (ver el doc-comment de
-				// directiveModifierClasses) y cae al default de abajo,
-				// donde conserva su Title genérico -- su único consumidor
-				// real es el data-directive/data-interval que ya emite el
-				// template genérico vía directiveDataAttrs.
-				switch elem.Name {
-				case "timer":
-					elementData.Title = "Timer"
-					if duration, ok := elem.Parameters["duration"]; ok {
-						elementData.Content = duration.(string)
-					}
-					elementData.CSSClasses = append(elementData.CSSClasses, "slide-timer")
-
-				case "transition":
-					elementData.Title = "Transition"
-					if transType, ok := elem.Parameters["type"]; ok {
-						elementData.CSSClasses = append(elementData.CSSClasses, "transition-"+transType.(string))
-					}
-
-				default:
-					// Directiva genérica (nombre desconocido)
-					elementData.Title = "Directive: " + elem.Name
-				}
-			default:
-				log.Warn("Unknown element type: %T", element)
-			}
+			elementData := convertElement(element, i, generateElementID(element, i, j), variables, offline, renderMode, ctx, log, mathOfflineCache, plantumlOfflineCache)
 
 			// Adjuntar las clases acumuladas de cualquier directiva
 			// modificadora que precedió a este elemento (issue #72) — se
@@ -655,75 +384,6 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 			if len(pendingModifierClasses) > 0 {
 				elementData.CSSClasses = append(elementData.CSSClasses, pendingModifierClasses...)
 				pendingModifierClasses = nil
-			}
-
-			// En modos offline, pre-renderizar mermaid/chart/map vía el pipeline
-			// compartido de core (issue #92). RenderElementToHTML despacha según
-			// ctx (offline-assets → <img src="assets/...">, offline-inline →
-			// SVG/data-URI inline), pasado explícitamente por el caller en vez de
-			// leído de un global (issue #134/G1a). El HTML se inyecta DENTRO del
-			// placeholder del template (que conserva role="img" + aria).
-			//
-			// Se pasa una copia del elemento con Title vacío: RenderElementToHTML
-			// emite su propio <div class="*-title"> si el elemento tiene título, lo
-			// que duplicaría el <h2> que el template de slidelang ya renderiza. El
-			// <h2> de slidelang gana (es un heading real con id, mejor para el
-			// outline de accesibilidad; ver #14).
-			//
-			// Nota sobre sustitución de {{variables}} en el path offline: mermaid y
-			// map ya la aplican DENTRO de RenderElementToHTML usando el parámetro
-			// `variables` que se les pasa (renderMermaidElement hace
-			// ProcessVariables(elem.Content,...), buildMapConfig hace
-			// ProcessVariablesSecure en cada marker.Label/Details) — no requieren
-			// nada especial aquí. Chart es la excepción: su export offline
-			// (GenerateChartConfigForExport/WithMode) construye el config
-			// Chart.js SOLO desde el elemento, sin recibir `variables` en
-			// absoluto, a diferencia del path browser (ConvertChartElementToChartJS
-			// SÍ sustituye Labels/Series vía ProcessStringArray). Sin esto, un
-			// chart con labels: ["{{quarter}}"] mostraría el placeholder literal
-			// en el PNG/WebP offline en vez del valor sustituido (review de PR
-			// #122). Se sustituye aquí, antes de RenderElementToHTML, reusando el
-			// mismo helper que ya usa el path browser.
-			if offline {
-				var offlineElem ast.Element
-				switch e := element.(type) {
-				case *ast.MermaidElement:
-					cp := *e
-					cp.Title = ""
-					offlineElem = &cp
-				case *ast.ChartElement:
-					cp := *e
-					cp.Title = ""
-					cp.Labels = ProcessStringArray(e.Labels, variables)
-					cp.Series = ProcessStringArray(e.Series, variables)
-					offlineElem = &cp
-				case *ast.MapElement:
-					cp := *e
-					cp.Title = ""
-					offlineElem = &cp
-				case *ast.PlantUMLElement:
-					// PlantUML/Math (issue #38, hallazgo de code-review sobre
-					// PR #56) NO pasan por RenderElementToHTML como
-					// mermaid/chart/map arriba: ese camino emitiría el
-					// <div class="plantuml-container"> de core, con su propio
-					// loader/spinner cuyo JS de limpieza es exclusivo del
-					// documento HTML de doclang (mismo motivo, ver el
-					// comentario del case *ast.PlantUMLElement más arriba en
-					// este archivo). Se llama al fetcher directamente y se
-					// arma el wrapper con las clases slidelang- propias, sin
-					// tocar renderer.OfflineElementClasses en core.
-					content := renderer.SanitizePlantUMLContent(ProcessVariables(e.Content, variables))
-					elementData.PreRenderedHTML = renderOfflinePlantUML(content, renderMode, ctx, log, plantumlOfflineCache)
-				case *ast.MathElement:
-					// Content es LaTeX crudo — no se procesa con
-					// ProcessVariables, mismo criterio que el case de arriba
-					// (browser) y que MermaidElement.Content.
-					elementData.PreRenderedHTML = renderOfflineMath(e.Content, renderMode, ctx, log, mathOfflineCache)
-				}
-				if offlineElem != nil {
-					elementData.PreRenderedHTML = htmltemplate.HTML(
-						offlineElementClassReplacer.Replace(renderer.RenderElementToHTML(offlineElem, variables, ctx)))
-				}
 			}
 
 			if elementData.ImageBleed {
@@ -795,6 +455,439 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 
 	log.Info("GEN", "✅ Template data prepared successfully (%d slides, theme: %s)", len(data.ContentBlocks), themeName)
 	return data
+}
+
+// convertElement convierte UN elemento (de un slide o de una columna
+// tipada de un GridElement, issue #373) a ElementData: el switch por tipo
+// que antes vivia inline en el loop principal de PrepareTemplateDataWithOptions.
+// No hace nada que dependa de la POSICION del elemento dentro del slide (las
+// clases de una directiva modificadora, promover un ImageBleed a capa del
+// slide): eso lo decide cada caller segun si el elemento es de primer nivel
+// o esta dentro de una columna (ver convertColumns).
+func convertElement(element ast.Element, slideIndex int, elementID string, variables map[string]interface{}, offline bool, renderMode string, ctx *renderer.RenderContext, log util.Logger, mathOfflineCache, plantumlOfflineCache map[string]htmltemplate.HTML) ElementData {
+	elementData := ElementData{
+		Type: string(element.GetType()),
+		// NUEVOS CAMPOS PARA VISUALIZADOR AVANZADO
+		ElementID:  elementID,
+		SlideIndex: slideIndex,
+	}
+
+	switch elem := element.(type) {
+	case *ast.TextElement:
+		if elem.IsRawHTML {
+			// Encabezado de subsección (issue #194): el Content ya
+			// es el <hN id> que armó el parser, HTML de confianza.
+			// renderer.HeadingContentHTML lo vuelve a armar desde la
+			// fuente con las {{variables}} sustituidas antes del
+			// Markdown inline, igual que un párrafo, también cuando
+			// xref reescribió un \ref del encabezado; sin fuente,
+			// sustituye sobre el HTML sin entrar a las etiquetas.
+			elementData.HeadingHTML = htmltemplate.HTML(renderer.HeadingContentHTML(elem, variables))
+			elementData.HeadingLevel = elem.Level
+			break
+		}
+		elementData.Content = ProcessVariables(elem.Content, variables)
+	case *ast.CodeElement:
+		elementData.Content = ProcessVariables(elem.Content, variables)
+		elementData.Language = elem.Language
+		elementData.CodeFilename = elem.Filename
+	case *ast.ImageElement:
+		source := ProcessVariables(elem.Source, variables)
+		// Validar el esquema para prevenir javascript: y data: URIs
+		// peligrosas. NO se escapa aquí: el template ahora es
+		// html/template, que aplica su propio escape de atributo/URL
+		// al interpolar — escapar dos veces rompería query strings
+		// (ver docs/SECURITY_AUDIT_2026-07.md, CR-4).
+		// Si el esquema es peligroso, Source queda vacío: html/template
+		// también rechazaría por su cuenta un data: URI de placeholder
+		// (su propio filtro de URL no distingue "confiable" de
+		// "atacante" en un string plano), así que el template renderiza
+		// un aviso en vez de un <img> cuando Source == "".
+		elementData.Source = renderer.ValidateURLScheme(source)
+		// InlinedSource (issue #167): --format pdf inyecta el HTML
+		// final en about:blank, sin base URL contra la cual una
+		// <img src="ruta/relativa"> resuelva — TryInlineLocalImage
+		// lee el archivo del disco (confinado a ctx.AssetRoot) y lo
+		// devuelve como data: URI. Solo aplica bajo
+		// ctx.ImageMode == "offline-inline" (pdf.go lo fuerza
+		// siempre); en cualquier otro modo ok es false y el template
+		// cae a Source sin cambio de comportamiento. Se intenta
+		// sobre el `source` YA procesado por variables pero SIN
+		// pasar por ValidateURLScheme — TryInlineLocalImage hace su
+		// propio chequeo de esquema (url.Parse) antes de tocar el
+		// filesystem, así que no depende del resultado de la línea
+		// de arriba.
+		if inlined, ok := renderer.TryInlineLocalImage(source, ctx); ok {
+			elementData.InlinedSource = htmltemplate.URL(inlined)
+		}
+		// SkipLazyLoad: independiente de si esta imagen puntual se
+		// inlineó (arriba) — una imagen REMOTA bajo offline-inline
+		// tiene el mismo problema de carga diferida que nunca
+		// dispara sin scroll real, ver el comentario del campo en
+		// types.go.
+		elementData.SkipLazyLoad = ctx != nil && ctx.ImageMode == "offline-inline"
+		// Alt/Caption: sin pre-escapar, por la misma razón que Source.
+		elementData.Alt = ProcessVariables(elem.Alt, variables)
+		elementData.Caption = ProcessVariables(elem.Caption, variables)
+		elementData.Context = string(elem.Context)
+		elementData.ImageFit = elem.Fit
+		elementData.ImageFocus = elem.Focus
+		elementData.ImageBleed = elem.Bleed
+	case *ast.PointsElement:
+		elementData.Items = ConvertPointItemsWithVariables(elem.Items, variables)
+		elementData.ListType = elem.ListType
+		elementData.TypedList = convertedTypedPoints(elementData.Items)
+	case *ast.TableElement:
+		// Process headers with variables and markdown formatting
+		processedHeaders := make([]string, len(elem.Headers))
+		for i, header := range elem.Headers {
+			processedHeaders[i] = ProcessTextWithVariablesAndMarkdown(header, variables)
+		}
+		elementData.Headers = processedHeaders
+
+		// Process rows with variables and markdown formatting
+		processedRows := make([][]string, len(elem.Rows))
+		for i, row := range elem.Rows {
+			processedRow := make([]string, len(row))
+			for j, cell := range row {
+				processedRow[j] = ProcessTextWithVariablesAndMarkdown(cell, variables)
+			}
+			processedRows[i] = processedRow
+		}
+		elementData.Rows = processedRows
+		elementData.Caption = ProcessVariables(elem.Caption, variables)
+		// Cells (issue #20) solo se puebla cuando dice algo que
+		// Headers/Rows no dice ya — todo TableElement.Cells viene
+		// poblado (DeriveCellsFromFlat para el caso simple, ver
+		// core/ast/table_cells.go), así que sin este gate CADA
+		// tabla — incluso una sin ningún merge — activaría el
+		// branch "Cells" del template en vez del Headers/Rows de
+		// siempre, cambiando el HTML de toda tabla existente.
+		if tableUsesCellStructure(elem) {
+			elementData.Cells = ConvertTableCellsWithVariables(elem.Cells, variables)
+			elementData.CellsLeadIsHeader = cellsLeadIsHeader(elem.Cells)
+		}
+	case *ast.MediaElement:
+		// Mismo patrón que ImageElement arriba: ValidateURLScheme
+		// bloquea javascript:/data: peligrosos sin pre-escapar (lo
+		// hace html/template al interpolar); Source vacío es la
+		// señal que el template usa para mostrar el aviso en vez
+		// de un <video>/<audio>.
+		source := ProcessVariables(elem.Source, variables)
+		elementData.Source = renderer.ValidateURLScheme(source)
+		// InlinedSource (issue #181, el equivalente de #167 para
+		// <video>/<audio>): mismo razonamiento que ImageElement
+		// arriba — bajo offline-inline no hay base URL contra la
+		// cual una fuente relativa resuelva. TryInlineLocalMedia
+		// hace su propio chequeo de esquema, así que no depende de
+		// ValidateURLScheme.
+		if inlined, ok := renderer.TryInlineLocalMedia(source, ctx); ok {
+			elementData.InlinedSource = htmltemplate.URL(inlined)
+		}
+		elementData.MediaType = elem.MediaType
+		elementData.Autoplay = elem.Autoplay
+		elementData.Controls = elem.Controls
+		elementData.Loop = elem.Loop
+		elementData.Muted = elem.Muted
+		if elem.Poster != "" {
+			poster := ProcessVariables(elem.Poster, variables)
+			elementData.Poster = renderer.ValidateURLScheme(poster)
+			if inlined, ok := renderer.TryInlineLocalImage(poster, ctx); ok {
+				elementData.InlinedPoster = htmltemplate.URL(inlined)
+			}
+		}
+		elementData.Caption = ProcessVariables(elem.Caption, variables)
+	case *ast.SpecialBlockElement:
+		elementData.BlockType = elem.BlockType
+		elementData.Title = ProcessVariables(elem.Title, variables)
+		elementData.Content = ProcessVariables(elem.Content, variables)
+		elementData.Icon = elem.Icon
+	case *ast.CodeGroupElement:
+		elementData.CodeBlocks = ConvertCodeBlocksWithVariables(elem.CodeBlocks, variables)
+	case *ast.MermaidElement:
+		elementData.DiagramType = elem.DiagramType
+		elementData.Content = renderer.PrepareMermaidContent(ProcessVariables(elem.Content, variables), elem.DiagramType)
+		elementData.Title = ProcessVariables(elem.Title, variables)
+	case *ast.PlantUMLElement:
+		// Issue #38. Reusa el sanitizador + los encoders de URL
+		// exportados de core (los mismos que
+		// core/renderer/html.go's renderPlantUMLElement usa) en vez
+		// de re-derivar a mano el request al servidor PlantUML —
+		// pero renderiza vía el template/CSS propio de slidelang,
+		// NO delegando el <div> completo de core: el modo browser
+		// de core incluye un spinner de carga cuyo JS de
+		// limpieza (marcar .loaded) vive en
+		// core/renderer/document_html.go, exclusivo del documento
+		// HTML de doclang — reusar ese HTML tal cual dejaría un
+		// spinner sin nada que jamás lo oculte. Estos dos campos
+		// (SVGURL/PNGURL) alimentan el <object>/<img> de MODO
+		// BROWSER (template/base.go); en modos offline SÍ hay un
+		// camino propio (renderOfflinePlantUML más abajo en este
+		// archivo, issue de code-review sobre PR #56), que el
+		// template prefiere vía PreRenderedHTML cuando está seteado.
+		content := renderer.SanitizePlantUMLContent(ProcessVariables(elem.Content, variables))
+		elementData.DiagramType = elem.DiagramType
+		elementData.Title = ProcessVariables(elem.Title, variables)
+		elementData.PlantUMLSVGURL = renderer.GeneratePlantUMLSVGURL(content, "")
+		elementData.PlantUMLPNGURL = renderer.GeneratePlantUMLPNGURL(content, "")
+	case *ast.MathElement:
+		// Issue #38. Content es LaTeX crudo (core/ast/nodes.go) —
+		// NO se procesa con ProcessVariables como un Content de
+		// prosa, mismo criterio que MermaidElement.Content arriba.
+		// El template interpola {{.Content}} en un nodo de texto de
+		// html/template, cuyo auto-escaping estructural cumple la
+		// misma garantía que core/renderer/math_html.go's
+		// BuildMathDiv impone con su llamada explícita a
+		// EscapeHTML (issue #73) — la diferencia es que acá lo
+		// garantiza el motor de templates en sí, no una llamada que
+		// un futuro edit podría olvidar.
+		elementData.Content = elem.Content
+		elementData.MathLabel = elem.Label
+		elementData.MathNumber = elem.Number
+		elementData.Caption = ProcessVariables(elem.Caption, variables)
+	case *ast.ChartElement:
+		elementData.ChartType = elem.ChartType
+		elementData.SeriesTypes = elem.SeriesTypes
+		elementData.ChartData = elem.Data
+		elementData.Series = ProcessStringArray(elem.Series, variables)
+		elementData.Labels = ProcessStringArray(elem.Labels, variables)
+		elementData.Options = elem.Options
+		elementData.Title = ProcessVariables(elem.Title, variables)
+		elementData.IsJSONMode = elem.IsJSONMode
+	case *ast.MapElement:
+		elementData.MapType = elem.MapType
+		elementData.Markers = ConvertMapMarkersWithVariables(elem.Markers, variables)
+		elementData.Heatmap = elem.Heatmap
+		elementData.Zoom = elem.Zoom
+		elementData.Title = ProcessVariables(elem.Title, variables)
+		elementData.MapOptions = ProcessMapOptions(elem.Options, variables)
+	case *ast.QuoteElement:
+		elementData.Content = ProcessVariables(elem.Content, variables)
+		elementData.Author = ProcessVariables(elem.Author, variables)
+		elementData.Source = ProcessVariables(elem.Source, variables)
+	case *ast.QuizElement:
+		elementData.Question = ProcessVariables(elem.Question, variables)
+		elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
+		elementData.QuizAnswer = elem.Answer
+		elementData.QuizExplanation = ProcessVariables(elem.Explanation, variables)
+		elementData.QuizResults = quizResultLabels(elem.Results, len(elem.Options))
+		elementData.QuizResponses = renderer.QuizPollResponsesLabel(elem.Responses)
+
+	case *ast.PollElement:
+		elementData.Question = ProcessVariables(elem.Question, variables)
+		elementData.QuizOptions = processVariablesInSlice(elem.Options, variables)
+		elementData.QuizMultiple = elem.Multiple
+		elementData.QuizResults = quizResultLabels(elem.Results, len(elem.Options))
+		elementData.QuizResponses = renderer.QuizPollResponsesLabel(elem.Responses)
+	case *ast.MetricElement:
+		elementData.MetricLabel = ProcessVariables(elem.Label, variables)
+		elementData.MetricValue = ProcessVariables(elem.Value, variables)
+		elementData.MetricDelta = ProcessVariables(elem.Delta, variables)
+		elementData.MetricTrend = elem.Trend
+		elementData.MetricCaption = ProcessVariables(elem.Caption, variables)
+
+	case *ast.ChecklistElement:
+		elementData.ChecklistItems = ConvertChecklistItemsWithVariables(elem.Items, variables)
+	case *ast.GridElement:
+		elementData.Content = ProcessVariables(elem.Content, variables)
+		elementData.Columns = convertColumns(elem.Columns, slideIndex, elementID, variables, offline, renderMode, ctx, log, mathOfflineCache, plantumlOfflineCache)
+	case *ast.ColumnElement:
+		elementData.Content = ProcessVariables(elem.Content, variables)
+	case *ast.DirectiveNode:
+		elementData.Content = elem.Name
+
+		// Aplicar parámetros de directiva
+		elementData.DirectiveName = elem.Name
+		elementData.DirectiveParams = elem.Parameters
+
+		// Configurar clases CSS basadas en el tipo de directiva.
+		// No incluir "directive" aquí: el template ya tiene la clase
+		// estática "slidelang-directive" hardcodeada, así que
+		// agregarla también vía CSSClasses duplicaba la clase.
+		elementData.CSSClasses = []string{"directive-" + elem.Name}
+
+		// Configuraciones específicas por tipo de directiva.
+		// timer/transition llegan acá con un nombre reconocido; las
+		// 13 directivas modificadoras (issue #72) se interceptan
+		// más arriba, antes de construir elementData (ver
+		// directiveModifierClasses), y nunca alcanzan este switch.
+		// auto-play NO es modificadora (ver el doc-comment de
+		// directiveModifierClasses) y cae al default de abajo,
+		// donde conserva su Title genérico -- su único consumidor
+		// real es el data-directive/data-interval que ya emite el
+		// template genérico vía directiveDataAttrs.
+		switch elem.Name {
+		case "timer":
+			elementData.Title = "Timer"
+			if duration, ok := elem.Parameters["duration"]; ok {
+				elementData.Content = duration.(string)
+			}
+			elementData.CSSClasses = append(elementData.CSSClasses, "slide-timer")
+
+		case "transition":
+			elementData.Title = "Transition"
+			if transType, ok := elem.Parameters["type"]; ok {
+				elementData.CSSClasses = append(elementData.CSSClasses, "transition-"+transType.(string))
+			}
+
+		default:
+			// Directiva genérica (nombre desconocido)
+			elementData.Title = "Directive: " + elem.Name
+		}
+	default:
+		log.Warn("Unknown element type: %T", element)
+	}
+
+	// En modos offline, pre-renderizar mermaid/chart/map vía el pipeline
+	// compartido de core (issue #92). RenderElementToHTML despacha según
+	// ctx (offline-assets → <img src="assets/...">, offline-inline →
+	// SVG/data-URI inline), pasado explícitamente por el caller en vez de
+	// leído de un global (issue #134/G1a). El HTML se inyecta DENTRO del
+	// placeholder del template (que conserva role="img" + aria).
+	//
+	// Se pasa una copia del elemento con Title vacío: RenderElementToHTML
+	// emite su propio <div class="*-title"> si el elemento tiene título, lo
+	// que duplicaría el <h2> que el template de slidelang ya renderiza. El
+	// <h2> de slidelang gana (es un heading real con id, mejor para el
+	// outline de accesibilidad; ver #14).
+	//
+	// Nota sobre sustitución de {{variables}} en el path offline: mermaid y
+	// map ya la aplican DENTRO de RenderElementToHTML usando el parámetro
+	// `variables` que se les pasa (renderMermaidElement hace
+	// ProcessVariables(elem.Content,...), buildMapConfig hace
+	// ProcessVariablesSecure en cada marker.Label/Details) — no requieren
+	// nada especial aquí. Chart es la excepción: su export offline
+	// (GenerateChartConfigForExport/WithMode) construye el config
+	// Chart.js SOLO desde el elemento, sin recibir `variables` en
+	// absoluto, a diferencia del path browser (ConvertChartElementToChartJS
+	// SÍ sustituye Labels/Series vía ProcessStringArray). Sin esto, un
+	// chart con labels: ["{{quarter}}"] mostraría el placeholder literal
+	// en el PNG/WebP offline en vez del valor sustituido (review de PR
+	// #122). Se sustituye aquí, antes de RenderElementToHTML, reusando el
+	// mismo helper que ya usa el path browser.
+	if offline {
+		var offlineElem ast.Element
+		switch e := element.(type) {
+		case *ast.MermaidElement:
+			cp := *e
+			cp.Title = ""
+			offlineElem = &cp
+		case *ast.ChartElement:
+			cp := *e
+			cp.Title = ""
+			cp.Labels = ProcessStringArray(e.Labels, variables)
+			cp.Series = ProcessStringArray(e.Series, variables)
+			offlineElem = &cp
+		case *ast.MapElement:
+			cp := *e
+			cp.Title = ""
+			offlineElem = &cp
+		case *ast.PlantUMLElement:
+			// PlantUML/Math (issue #38, hallazgo de code-review sobre
+			// PR #56) NO pasan por RenderElementToHTML como
+			// mermaid/chart/map arriba: ese camino emitiría el
+			// <div class="plantuml-container"> de core, con su propio
+			// loader/spinner cuyo JS de limpieza es exclusivo del
+			// documento HTML de doclang (mismo motivo, ver el
+			// comentario del case *ast.PlantUMLElement más arriba en
+			// este archivo). Se llama al fetcher directamente y se
+			// arma el wrapper con las clases slidelang- propias, sin
+			// tocar renderer.OfflineElementClasses en core.
+			content := renderer.SanitizePlantUMLContent(ProcessVariables(e.Content, variables))
+			elementData.PreRenderedHTML = renderOfflinePlantUML(content, renderMode, ctx, log, plantumlOfflineCache)
+		case *ast.MathElement:
+			// Content es LaTeX crudo — no se procesa con
+			// ProcessVariables, mismo criterio que el case de arriba
+			// (browser) y que MermaidElement.Content.
+			elementData.PreRenderedHTML = renderOfflineMath(e.Content, renderMode, ctx, log, mathOfflineCache)
+		}
+		if offlineElem != nil {
+			elementData.PreRenderedHTML = htmltemplate.HTML(
+				offlineElementClassReplacer.Replace(renderer.RenderElementToHTML(offlineElem, variables, ctx)))
+		}
+	}
+
+	return elementData
+}
+
+// nestedElementID construye el ID de un elemento anidado en una columna
+// tipada de un GridElement (issue #373) a partir del ID del grid y la
+// posición columna/elemento. Lo usan tanto convertColumns (para
+// ElementData.ElementID, que el template usa en los id= del HTML) como
+// walkSlideElementsWithIDs (para que los generadores de metadata de
+// chart/mermaid/map emparejen el MISMO id vía el id del canvas/diagrama) —
+// si alguna vez divergieran, un chart dentro de una columna tendría un
+// <canvas id="..."> sin su configuración Chart.js, o viceversa.
+func nestedElementID(gridElementID string, columnIndex, nestedIndex int) string {
+	return fmt.Sprintf("%s-c%d-%d", gridElementID, columnIndex, nestedIndex)
+}
+
+// convertColumns convierte las columnas de un GridElement a datos de
+// template (issue #373). Una columna cruda (Content, sin Elements) se
+// comporta EXACTAMENTE igual que antes de este cambio: solo se procesan sus
+// variables, dejando ColumnData.Elements en nil (el template sigue
+// distinguiendo por longitud del slice, nunca por si Content está vacío,
+// para que una columna tipada sin ningún elemento de salida visible no se
+// confunda con una cruda vacía). Una columna tipada (Elements, Content
+// vacío) convierte cada elemento anidado con el mismo pipeline que un
+// elemento de slide (convertElement), para que un chart/mermaid/map/etc.
+// dentro de una columna cargue su propio CSS/JS (ver walkSlideElementsWithIDs
+// y html_modular.go, que recorren GridElement.Columns[*].Elements con el
+// mismo esquema de ID que nestedElementID define acá).
+//
+// Directivas dentro de una columna: @background/@reveal/@notes son
+// metadatos DEL SLIDE (fondo, modo presentador, notas), no de una columna
+// aislada, así que se descartan en silencio, igual que el loop de
+// slide.Elements. Una directiva modificadora (float-left, etc.) se acumula
+// POR COLUMNA, nunca entre columnas: una columna no hereda la clase
+// pendiente de la columna anterior, y una modificadora al final de la
+// columna sin elemento siguiente se descarta con el mismo aviso que al
+// final de un slide.
+//
+// Un ImageBleed dentro de una columna NO se iza a slideData.BleedImages: una
+// bleed es una capa que ocupa el slide completo (ver el comentario del campo
+// en types.go), algo sin sentido dentro del ancho acotado de una columna de
+// grid. Queda en línea, como cualquier otra imagen — decisión explícita,
+// no un descuido.
+func convertColumns(columns []ast.ColumnElement, slideIndex int, gridElementID string, variables map[string]interface{}, offline bool, renderMode string, ctx *renderer.RenderContext, log util.Logger, mathOfflineCache, plantumlOfflineCache map[string]htmltemplate.HTML) []ColumnData {
+	var result []ColumnData
+	for colIndex, column := range columns {
+		columnData := ColumnData{
+			Content: ProcessVariables(column.Content, variables),
+		}
+		if len(column.Elements) > 0 {
+			var pendingModifierClasses []string
+			for nestedIndex, nested := range column.Elements {
+				if directive, ok := nested.(*ast.DirectiveNode); ok {
+					if directive.Name == "background" || directive.Name == "reveal" {
+						continue
+					}
+					if directive.Name == "notes" || directive.Name == "notes:" {
+						continue
+					}
+					if classes, isModifier := directiveModifierClasses(directive); isModifier {
+						pendingModifierClasses = append(pendingModifierClasses, classes...)
+						continue
+					}
+				}
+				if heading, ok := nested.(*ast.HeadingElement); ok {
+					nested = renderer.LegacyHeadingElement(heading)
+				}
+				nestedID := nestedElementID(gridElementID, colIndex, nestedIndex)
+				nestedData := convertElement(nested, slideIndex, nestedID, variables, offline, renderMode, ctx, log, mathOfflineCache, plantumlOfflineCache)
+				if len(pendingModifierClasses) > 0 {
+					nestedData.CSSClasses = append(nestedData.CSSClasses, pendingModifierClasses...)
+					pendingModifierClasses = nil
+				}
+				columnData.Elements = append(columnData.Elements, nestedData)
+			}
+			if len(pendingModifierClasses) > 0 {
+				log.Warn("Slide %d: modifier directive class(es) %v inside a grid column have no following element to attach to and were discarded", slideIndex+1, pendingModifierClasses)
+			}
+		}
+		result = append(result, columnData)
+	}
+	return result
 }
 
 // removeInteractiveLibraries quita las librerías CDN de rendering client-side
@@ -1119,7 +1212,10 @@ func detectInteractiveElements(elements []ast.Element, offline, utilitiesEnabled
 		}
 	}
 
-	for _, elem := range elements {
+	// flattenElements (issue #373): un chart/map/code/quiz/etc. dentro de
+	// una columna tipada de un GridElement debe gatillar su misma clase
+	// "interactiva" que si estuviera a nivel de slide.
+	for _, elem := range flattenElements(elements) {
 		switch e := elem.(type) {
 		case *ast.ChartElement:
 			addRasterizable("chart")
@@ -1248,7 +1344,7 @@ func estimateSlideDuration(slide ast.ContentBlock) int {
 	wordCount := 0
 	hasComplexElements := false
 
-	for _, elem := range slide.Elements {
+	for _, elem := range flattenElements(slide.Elements) {
 		switch e := elem.(type) {
 		case *ast.TextElement:
 			wordCount += len(strings.Fields(e.Content))
@@ -1303,7 +1399,7 @@ func generateFeaturesSummary(slides []ast.ContentBlock) *PresentationFeatures {
 	features := &PresentationFeatures{}
 
 	for _, slide := range slides {
-		for _, elem := range slide.Elements {
+		for _, elem := range flattenElements(slide.Elements) {
 			switch e := elem.(type) {
 			case *ast.MermaidElement:
 				features.HasMermaid = true
@@ -1360,7 +1456,7 @@ func getRequiredLibraries(slides []ast.ContentBlock) []string {
 	seen := make(map[string]bool)
 
 	for _, slide := range slides {
-		for _, elem := range slide.Elements {
+		for _, elem := range flattenElements(slide.Elements) {
 			switch e := elem.(type) {
 			case *ast.MermaidElement:
 				if !seen["mermaid"] {
@@ -1469,6 +1565,55 @@ func cellsLeadIsHeader(cells [][]ast.TableCell) bool {
 func generateElementID(elem ast.Element, slideIndex, elementIndex int) string {
 	// Solo devolvemos el índice del elemento, el template se encarga del resto
 	return fmt.Sprintf("%d", elementIndex)
+}
+
+// flattenElements aplana los elementos de un slide bajando a los elementos
+// anidados de cada columna tipada de un GridElement (issue #373). Un
+// recorrido que solo necesita el TIPO de los elementos del slide —no su
+// posición/ID original— usa esto en vez de iterar slide.Elements
+// directamente, para no perder un chart/mermaid/map/código/directiva que
+// vive dentro de una columna tipada (p. ej. detectInteractiveElements,
+// getRequiredLibraries, generateFeaturesSummary, estimateSlideDuration).
+// Una columna cruda no tiene Elements que aplanar. Un GridElement anidado
+// dentro de una columna es un error de parseo (ver
+// docs/portable-typed-columns.md, "Strict grammar"), así que un solo nivel
+// de descenso basta: nunca hay un grid dentro de un grid.
+func flattenElements(elements []ast.Element) []ast.Element {
+	result := make([]ast.Element, 0, len(elements))
+	for _, elem := range elements {
+		result = append(result, elem)
+		if grid, ok := elem.(*ast.GridElement); ok {
+			for _, col := range grid.Columns {
+				result = append(result, col.Elements...)
+			}
+		}
+	}
+	return result
+}
+
+// walkSlideElementsWithIDs invoca fn con cada elemento del slide y el mismo
+// ID que convertElement/generateElementID le asignarían, incluido cada
+// elemento anidado en una columna tipada de un GridElement (issue #373).
+// Centraliza el esquema de IDs para que convertElement/convertColumns (el
+// ElementData.ElementID que el template usa en los id= del HTML) y los
+// generadores de metadata client-side (generateChartsMetadata,
+// generateMermaidMetadata, generateMapsMetadata, que emparejan por ese mismo
+// ID vía el id del canvas/diagrama/mapa) nunca diverjan. Sin esto, un chart
+// dentro de una columna tendría un <canvas id="..."> sin su configuración
+// Chart.js (o viceversa), porque cada recorrido habría inventado su propio
+// esquema de ID por separado.
+func walkSlideElementsWithIDs(slide ast.ContentBlock, fn func(elem ast.Element, elementID string)) {
+	for elementIndex, element := range slide.Elements {
+		id := generateElementID(element, 0, elementIndex)
+		fn(element, id)
+		if grid, ok := element.(*ast.GridElement); ok {
+			for colIndex, col := range grid.Columns {
+				for nestedIndex, nested := range col.Elements {
+					fn(nested, nestedElementID(id, colIndex, nestedIndex))
+				}
+			}
+		}
+	}
 }
 
 // directiveModifierClasses reporta si directive es una directiva
@@ -1943,9 +2088,12 @@ func generateChartsMetadata(slides []ast.ContentBlock, variables map[string]inte
 	var charts []ChartMetadata
 
 	for slideIndex, slide := range slides {
-		for elementIndex, element := range slide.Elements {
+		// walkSlideElementsWithIDs (issue #373): baja a GridElement.Columns[*].
+		// Elements con el MISMO esquema de ID que convertElement/convertColumns
+		// usan para el ElementData del chart, para que el <canvas id="..."> del
+		// HTML y esta metadata Chart.js nunca diverjan.
+		walkSlideElementsWithIDs(slide, func(element ast.Element, elementID string) {
 			if chartElement, ok := element.(*ast.ChartElement); ok {
-				elementID := generateElementID(element, slideIndex, elementIndex)
 				canvasID := fmt.Sprintf("slidelang-element-chart-%d-%s", slideIndex, elementID)
 
 				var metadata ChartMetadata
@@ -1986,7 +2134,7 @@ func generateChartsMetadata(slides []ast.ContentBlock, variables map[string]inte
 
 				charts = append(charts, metadata)
 			}
-		}
+		})
 	}
 
 	return charts
@@ -1997,9 +2145,11 @@ func generateMermaidMetadata(slides []ast.ContentBlock, variables map[string]int
 	var diagrams []MermaidMetadata
 
 	for slideIndex, slide := range slides {
-		for elementIndex, element := range slide.Elements {
+		// walkSlideElementsWithIDs (issue #373): mismo motivo que en
+		// generateChartsMetadata — un mermaid dentro de una columna tipada
+		// necesita el mismo ID que su ElementData.
+		walkSlideElementsWithIDs(slide, func(element ast.Element, elementID string) {
 			if mermaidElement, ok := element.(*ast.MermaidElement); ok {
-				elementID := generateElementID(element, slideIndex, elementIndex)
 				diagramID := fmt.Sprintf("slidelang-element-mermaid-%d-%s", slideIndex, elementID)
 
 				// Process content with variables
@@ -2016,7 +2166,7 @@ func generateMermaidMetadata(slides []ast.ContentBlock, variables map[string]int
 
 				diagrams = append(diagrams, metadata)
 			}
-		}
+		})
 	}
 
 	return diagrams
@@ -2027,9 +2177,11 @@ func generateMapsMetadata(slides []ast.ContentBlock, variables map[string]interf
 	var maps []MapMetadata
 
 	for slideIndex, slide := range slides {
-		for elementIndex, element := range slide.Elements {
+		// walkSlideElementsWithIDs (issue #373): mismo motivo que en
+		// generateChartsMetadata — un mapa dentro de una columna tipada
+		// necesita el mismo ID que su ElementData.
+		walkSlideElementsWithIDs(slide, func(element ast.Element, elementID string) {
 			if mapElement, ok := element.(*ast.MapElement); ok {
-				elementID := generateElementID(element, slideIndex, elementIndex)
 				mapID := fmt.Sprintf("slidelang-element-map-%d-%s", slideIndex, elementID)
 
 				// Convertir marcadores con variables
@@ -2048,7 +2200,7 @@ func generateMapsMetadata(slides []ast.ContentBlock, variables map[string]interf
 
 				maps = append(maps, metadata)
 			}
-		}
+		})
 	}
 
 	return maps

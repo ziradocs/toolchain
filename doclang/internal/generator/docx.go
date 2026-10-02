@@ -901,6 +901,43 @@ func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST, numbering bool) []TOCEn
 							break
 						}
 					}
+
+					// Columna tipada (issue #373, docs/portable-typed-columns.md):
+					// column.Content viene vacío y el contenido real está en
+					// column.Elements. renderGrid (más abajo) renderiza cada
+					// elemento anidado vía g.renderElement, que para un
+					// TextElement pasa por renderText — el mismo camino que
+					// promueve una línea "## "/"### "/"#### " a heading real
+					// de Word. Sin este bloque, un TextElement anidado con ese
+					// contenido literal (el diseño NO tipa headings dentro de
+					// columnas: ver "Headings" en el doc de diseño) saldría
+					// como heading en el documento pero invisible para el TOC
+					// estático, la misma divergencia que el bloque de arriba
+					// corrige para column.Content.
+					for _, nested := range column.Elements {
+						textElem, ok := nested.(*ast.TextElement)
+						if !ok {
+							continue
+						}
+						line := textElem.Content
+						if strings.TrimSpace(line) == "" {
+							continue
+						}
+						for _, hp := range gridColumnHeadingPatterns {
+							m := hp.pattern.FindStringSubmatch(line)
+							if m == nil {
+								continue
+							}
+							title := docxStripHeadingMarkup(m[1])
+							entries = append(entries, TOCEntry{
+								Title:      title,
+								Level:      hp.level,
+								BookmarkID: sanitizeBookmarkID(title),
+							})
+							g.logger.Info("DOCX", "  ➜ H%d (typed grid column): %s", hp.level, title)
+							break
+						}
+					}
 				}
 			}
 		}
@@ -3083,13 +3120,13 @@ func (g *DOCXGenerator) renderGrid(doc domain.Document, elem *ast.GridElement) e
 			_ = headerRun.SetItalic(true)
 		}
 
-		// Renderizar el contenido de la columna con indentación. parseColumn
-		// (core/elements/grid.go) solo puebla column.Content, nunca
-		// column.Elements — iterar Elements aquí siempre estaba vacío y las
-		// columnas de un grid en DOCX renderizaban sin texto (issue #56).
-		// Cada línea de Content se procesa como un TextElement independiente,
-		// reusando renderText para que un "## "/"### " dentro de una columna
-		// siga detectándose como heading.
+		// Renderizar el contenido de la columna con indentación. Una columna
+		// cruda (<<column>>/::: column, parseColumn en core/elements/grid.go)
+		// solo puebla column.Content — cada línea se procesa como un
+		// TextElement independiente, reusando renderText para que un
+		// "## "/"### " dentro de una columna siga detectándose como heading
+		// (issue #56). Antes de ese fix, iterar Elements aquí siempre estaba
+		// vacío y las columnas de un grid en DOCX renderizaban sin texto.
 		originalSpacing := g.style.TextSpaceAfter
 		g.style.TextSpaceAfter = fmt.Sprintf("%dpt", g.parseSize(g.style.TextSpaceAfter)/2)
 
@@ -3099,6 +3136,21 @@ func (g *DOCXGenerator) renderGrid(doc domain.Document, elem *ast.GridElement) e
 			}
 			textElem := ast.NewTextElement(column.GetPosition(), line)
 			if err := g.renderText(doc, textElem); err != nil {
+				g.style.TextSpaceAfter = originalSpacing
+				return err
+			}
+		}
+
+		// Columna tipada (issue #373, docs/portable-typed-columns.md):
+		// column.Content viene vacío y column.Elements trae cada elemento ya
+		// parseado (TEXT, POINTS, CODE, IMAGE, TABLE, QUOTE, CHECKLIST,
+		// <<chart>>, etc.), en el orden en que aparecen en la fuente. Se
+		// renderiza cada uno con el MISMO dispatcher que un elemento de
+		// sección (g.renderElement), para que una tabla/imagen/chart dentro
+		// de una columna salga igual que fuera de ella — algo que una
+		// columna cruda, por ser texto sin parsear, nunca pudo representar.
+		for _, nested := range column.Elements {
+			if err := g.renderElement(doc, nested); err != nil {
 				g.style.TextSpaceAfter = originalSpacing
 				return err
 			}

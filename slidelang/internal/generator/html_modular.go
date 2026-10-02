@@ -331,6 +331,78 @@ func (g *Generator) detectRequiredLayoutsFromAST(astNode *ast.AST) []string {
 	return layouts
 }
 
+// classifyElementCSSModule marca en elementTypes qué módulo(s) CSS necesita
+// UN elemento, y si es un GridElement, desciende a cada columna (issue
+// #373): una columna cruda no tiene Elements, pero una columna tipada
+// (<<column typed>>/::: column typed) sí, y un chart/mermaid/map/code/etc.
+// ahí adentro necesita exactamente el mismo módulo que si estuviera a nivel
+// de slide (mismo criterio que los issues #166/#173, que agregaron el case
+// de chart/mermaid a este switch porque faltaba el módulo CSS, no el JS).
+func classifyElementCSSModule(element ast.Element, elementTypes map[string]bool) {
+	switch elem := element.(type) {
+	case *ast.ImageElement:
+		elementTypes["images"] = true
+	case *ast.CodeElement:
+		elementTypes["code"] = true
+	case *ast.TableElement:
+		elementTypes["tables"] = true
+	case *ast.SpecialBlockElement:
+		// Map special block types to the blocks module
+		switch strings.ToLower(elem.BlockType) {
+		case "info", "warning", "danger", "success", "tip", "note", "error":
+			elementTypes["blocks"] = true
+		}
+	case *ast.QuoteElement:
+		elementTypes["quotes"] = true
+	case *ast.ChecklistElement:
+		elementTypes["checklists"] = true
+	case *ast.QuizElement, *ast.PollElement:
+		elementTypes["quizpoll"] = true
+	case *ast.CodeGroupElement:
+		// Issue del audit 2026-09-11 (F5, C6): faltaba este case a
+		// propósito (modules/detector.go lo omite de la lista JS —
+		// no necesita JS aparte, el switcher de tabs ya vive en
+		// utilities.go), pero el hueco real era CSS: sin este case,
+		// ningún deck con un code-group pedía code_group.css, así
+		// que todos sus paneles se mostraban apilados a la vez con
+		// tabs sin estilo.
+		elementTypes["code_group"] = true
+	case *ast.MapElement:
+		elementTypes["maps"] = true
+	case *ast.GridElement:
+		elementTypes["grids"] = true
+		for _, col := range elem.Columns {
+			for _, nested := range col.Elements {
+				classifyElementCSSModule(nested, elementTypes)
+			}
+		}
+	case *ast.ColumnElement:
+		elementTypes["grids"] = true
+	case *ast.MediaElement:
+		elementTypes["media"] = true
+	case *ast.PlantUMLElement:
+		elementTypes["plantuml"] = true
+	case *ast.MathElement:
+		elementTypes["math"] = true
+	case *ast.ChartElement:
+		// Issue #166: faltaba este case, así que un deck con un
+		// chart nunca pedía charts.css — el <img> del chart
+		// (renderChartOfflineInline en offline-inline, el modo que
+		// --format pdf siempre usa) salía a su tamaño intrínseco de
+		// 800x600 (ChartDimensions, core/renderer/chart_dimensions.go)
+		// sin ningún max-width/max-height que lo acotara a la
+		// página.
+		elementTypes["charts"] = true
+	case *ast.MermaidElement:
+		// Issue #173: mismo hueco que #166 tenía para charts —
+		// ningún case pedía mermaid.css, así que el <svg> del
+		// diagrama (renderMermaidOfflineInline en offline-inline)
+		// salía a su alto intrínseco sin cota, sin nada que lo
+		// acotara a la página del PDF.
+		elementTypes["mermaid"] = true
+	}
+}
+
 // detectRequiredElementsFromAST analyzes the AST and returns required CSS element modules
 func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 	elementTypes := make(map[string]bool)
@@ -363,63 +435,7 @@ func (g *Generator) detectRequiredElementsFromAST(astNode *ast.AST) []string {
 	// Analyze all slides and their elements
 	for _, slide := range astNode.ContentBlocks {
 		for _, element := range slide.Elements {
-			switch elem := element.(type) {
-			case *ast.ImageElement:
-				elementTypes["images"] = true
-			case *ast.CodeElement:
-				elementTypes["code"] = true
-			case *ast.TableElement:
-				elementTypes["tables"] = true
-			case *ast.SpecialBlockElement:
-				// Map special block types to the blocks module
-				switch strings.ToLower(elem.BlockType) {
-				case "info", "warning", "danger", "success", "tip", "note", "error":
-					elementTypes["blocks"] = true
-				}
-			case *ast.QuoteElement:
-				elementTypes["quotes"] = true
-			case *ast.ChecklistElement:
-				elementTypes["checklists"] = true
-			case *ast.QuizElement, *ast.PollElement:
-				elementTypes["quizpoll"] = true
-			case *ast.CodeGroupElement:
-				// Issue del audit 2026-09-11 (F5, C6): faltaba este case a
-				// propósito (modules/detector.go lo omite de la lista JS —
-				// no necesita JS aparte, el switcher de tabs ya vive en
-				// utilities.go), pero el hueco real era CSS: sin este case,
-				// ningún deck con un code-group pedía code_group.css, así
-				// que todos sus paneles se mostraban apilados a la vez con
-				// tabs sin estilo.
-				elementTypes["code_group"] = true
-			case *ast.MapElement:
-				elementTypes["maps"] = true
-			case *ast.GridElement:
-				elementTypes["grids"] = true
-			case *ast.ColumnElement:
-				elementTypes["grids"] = true
-			case *ast.MediaElement:
-				elementTypes["media"] = true
-			case *ast.PlantUMLElement:
-				elementTypes["plantuml"] = true
-			case *ast.MathElement:
-				elementTypes["math"] = true
-			case *ast.ChartElement:
-				// Issue #166: faltaba este case, así que un deck con un
-				// chart nunca pedía charts.css — el <img> del chart
-				// (renderChartOfflineInline en offline-inline, el modo que
-				// --format pdf siempre usa) salía a su tamaño intrínseco de
-				// 800x600 (ChartDimensions, core/renderer/chart_dimensions.go)
-				// sin ningún max-width/max-height que lo acotara a la
-				// página.
-				elementTypes["charts"] = true
-			case *ast.MermaidElement:
-				// Issue #173: mismo hueco que #166 tenía para charts —
-				// ningún case pedía mermaid.css, así que el <svg> del
-				// diagrama (renderMermaidOfflineInline en offline-inline)
-				// salía a su alto intrínseco sin cota, sin nada que lo
-				// acotara a la página del PDF.
-				elementTypes["mermaid"] = true
-			}
+			classifyElementCSSModule(element, elementTypes)
 		}
 	}
 
