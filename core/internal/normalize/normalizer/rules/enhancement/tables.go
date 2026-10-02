@@ -133,6 +133,21 @@ func (r *TablesRule) isInSpecialBlock(lines []string, index int) bool {
 	return false
 }
 
+// isContainerFence informa si line (ya sin espacios en los extremos) abre o
+// cierra un bloque contenedor ":::" — "::: grid", "::: column", ":::note", o
+// el ":::" a secas que cierra a cualquiera de ellos.
+//
+// Esas líneas son frontera de bloque, nunca datos de tabla. Sin este corte,
+// una tabla markdown pegada a "::: column" (sin línea en blanco de por medio)
+// entraba en la ventana de looksLikeTableData junto con las dos líneas de
+// marcadores — que no tienen patrón pero cuentan en `count` sin romper
+// `consistentPattern` — y extractTableData partía cada marcador por ":"
+// (SplitN) en una fila falsa: "::: grid" → ["", ":: grid"], ":::" → ["", "::"].
+// El resultado era una única tabla de nivel slide en lugar de un grid.
+func isContainerFence(line string) bool {
+	return strings.HasPrefix(line, ":::")
+}
+
 // looksLikeTableData verifica si una serie de líneas parece datos de tabla
 func (r *TablesRule) looksLikeTableData(lines []string, startIndex int) bool {
 	// Verificar que no estamos dentro de un bloque especial
@@ -171,7 +186,7 @@ func (r *TablesRule) looksLikeTableData(lines []string, startIndex int) bool {
 
 	for i := startIndex; i < len(lines) && count < 5; i++ {
 		line := strings.TrimSpace(lines[i])
-		if line == "" || line == "---" {
+		if line == "" || line == "---" || isContainerFence(line) {
 			break
 		}
 
@@ -248,7 +263,7 @@ func (r *TablesRule) extractTableData(lines []string, startIndex int) ([][]strin
 
 	for i := startIndex; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
-		if line == "" {
+		if line == "" || isContainerFence(line) {
 			break
 		}
 

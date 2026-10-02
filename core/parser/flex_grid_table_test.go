@@ -11,12 +11,14 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// parseFlexSinNormalizar parsea content como .slidelang flex con el
-// normalizador apagado, para que la prueba ejercite solo el parser.
-func parseFlexSinNormalizar(t *testing.T, content string) []ast.Element {
+// parseFlexSlides parsea content como .slidelang flex. Con normalizar=false
+// el cuerpo igual pasa por applyBasicNormalization (las reglas de
+// enhancement, entre ellas TablesRule, corren en ambos caminos): apagar la
+// normalización no aísla al parser de esas reglas.
+func parseFlexSlides(t *testing.T, content string, normalizar bool) []ast.Element {
 	t.Helper()
 	p := New(util.NewNoop())
-	p.SetNormalization(false)
+	p.SetNormalization(normalizar)
 	doc, diags := p.Parse(content, "grid_table.slidelang")
 	for _, d := range diags {
 		if d.IsError() {
@@ -52,20 +54,69 @@ func TestFlexParser_GridColumnWithTableRightAfterMarker(t *testing.T) {
 	}
 
 	for _, c := range casos {
-		t.Run(c.nombre, func(t *testing.T) {
-			els := parseFlexSinNormalizar(t, c.fuente)
-			if len(els) != 1 {
-				t.Fatalf("elementos = %d (%v), quería 1 GridElement", len(els), els)
+		for _, normalizar := range []bool{false, true} {
+			nombre := c.nombre + "/normalización apagada"
+			if normalizar {
+				nombre = c.nombre + "/normalización activa"
 			}
-			grid, ok := els[0].(*ast.GridElement)
-			if !ok {
-				t.Fatalf("elemento = %T, quería *ast.GridElement", els[0])
+			t.Run(nombre, func(t *testing.T) {
+				els := parseFlexSlides(t, c.fuente, normalizar)
+				if len(els) != 1 {
+					t.Fatalf("elementos = %d (%v), quería 1 GridElement", len(els), els)
+				}
+				grid, ok := els[0].(*ast.GridElement)
+				if !ok {
+					t.Fatalf("elemento = %T, quería *ast.GridElement", els[0])
+				}
+				if len(grid.Columns) != 1 {
+					t.Fatalf("columnas = %d, quería 1", len(grid.Columns))
+				}
+				if got := strings.TrimSpace(grid.Columns[0].Content); got != tabla {
+					t.Errorf("Content de la columna = %q, quería la tabla markdown %q", got, tabla)
+				}
+			})
+		}
+	}
+}
+
+// TestParseDocument_GridColumnWithTableRightAfterMarker es el mismo caso por
+// el camino documental (ParseDocument, dialecto flex de doclang), que
+// comparte las reglas de normalización de cuerpo.
+func TestParseDocument_GridColumnWithTableRightAfterMarker(t *testing.T) {
+	const tabla = "| A | B |\n|---|---|\n| 1 | 2 |"
+	fuente := "---\nmode: flex\n---\n# Sección\n\n::: grid\n::: column\n" + tabla + "\n:::\n:::\n"
+
+	for _, normalizar := range []bool{false, true} {
+		nombre := "normalización apagada"
+		if normalizar {
+			nombre = "normalización activa"
+		}
+		t.Run(nombre, func(t *testing.T) {
+			p := New(util.NewNoop())
+			p.SetNormalization(normalizar)
+			doc, diags := p.ParseDocument(fuente, "grid_table.doclang")
+			for _, d := range diags {
+				if d.IsError() {
+					t.Fatalf("error de parseo: %v", d.Message)
+				}
 			}
-			if len(grid.Columns) != 1 {
-				t.Fatalf("columnas = %d, quería 1", len(grid.Columns))
+			if len(doc.ContentBlocks) != 1 {
+				t.Fatalf("ContentBlocks = %d, quería 1", len(doc.ContentBlocks))
+			}
+			var grid *ast.GridElement
+			for _, el := range doc.ContentBlocks[0].Elements {
+				if g, ok := el.(*ast.GridElement); ok {
+					grid = g
+				}
+				if _, ok := el.(*ast.TableElement); ok {
+					t.Fatalf("la tabla salió como elemento de la sección en vez de quedar dentro de la columna del grid")
+				}
+			}
+			if grid == nil || len(grid.Columns) != 1 {
+				t.Fatalf("quería un GridElement con 1 columna, elementos = %v", doc.ContentBlocks[0].Elements)
 			}
 			if got := strings.TrimSpace(grid.Columns[0].Content); got != tabla {
-				t.Errorf("Content de la columna = %q, quería la tabla markdown %q", got, tabla)
+				t.Errorf("Content de la columna = %q, quería %q", got, tabla)
 			}
 		})
 	}
