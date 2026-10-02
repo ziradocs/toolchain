@@ -98,6 +98,13 @@ func TestTablesRule_Apply_ContainerFenceIsABoundary(t *testing.T) {
 			name:  "tabla markdown pegada a un bloque :::note",
 			input: "# Slide\n\n:::note\n| A | B |\n|---|---|\n| 1 | 2 |\n:::\n",
 		},
+		{
+			// Las filas con pipes no se reescriben por sí solas; lo que
+			// antes las arrastraba era la ventana que arrancaba en
+			// "::: column" y llegaba hasta el ":::" de cierre.
+			name:  "filas con pipes sin separador entre ::: column y :::",
+			input: "# Slide\n\n::: column\n| a | b |\n| c | d |\n| e | f |\n:::\n",
+		},
 	}
 
 	for _, tc := range tests {
@@ -114,8 +121,8 @@ func TestTablesRule_Apply_ContainerFenceIsABoundary(t *testing.T) {
 }
 
 // TestTablesRule_Apply_ContainerFenceClosingIsNotARow: cuando la regla SÍ
-// convierte (3+ líneas de datos dentro de un bloque), la ventana termina en
-// el ":::" de cierre y este no se convierte en la fila falsa ["", "::"].
+// convierte (3+ líneas clave:valor dentro de un bloque), la ventana termina
+// en el ":::" de cierre y este no se convierte en la fila falsa ["", "::"].
 func TestTablesRule_Apply_ContainerFenceClosingIsNotARow(t *testing.T) {
 	rule := NewTablesRule()
 
@@ -126,10 +133,6 @@ func TestTablesRule_Apply_ContainerFenceClosingIsNotARow(t *testing.T) {
 		{
 			name:  "lista clave:valor pegada al ::: de cierre",
 			input: "# Slide\n\n::: column\nname: value1\ntype: value2\nowner: value3\n:::\n",
-		},
-		{
-			name:  "filas con pipes sin separador pegadas al ::: de cierre",
-			input: "# Slide\n\n::: column\n| a | b |\n| c | d |\n| e | f |\n:::\n",
 		},
 	}
 
