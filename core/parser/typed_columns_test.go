@@ -205,6 +205,7 @@ func TestTypedColumn_Strict_Errors(t *testing.T) {
 		{"unrecognized", "  <<grid>>\n  <<column typed>>\n    TEXXT\n      body\n  <<end>>\n", "not an element"},
 		{"heading", "  <<grid>>\n  <<column typed>>\n    SECTION \"Title\"\n  <<end>>\n", "headings are not supported"},
 		{"nested grid", "  <<grid>>\n  <<column typed>>\n    <<grid>>\n    <<column>>\n    x\n    <<end>>\n  <<end>>\n", "cannot be nested"},
+		{"slide inside", "  <<grid>>\n  <<column typed>>\n    SLIDE content\n  <<end>>\n", "cannot be opened inside a column"},
 		{"shallow body", "  <<grid>>\n  <<column typed>>\n   TEXT\n  <<end>>\n", "indented two spaces"},
 		{"body at grid indent", "  <<grid>>\n  <<column typed>>\n  TEXT\n    stray\n  <<end>>\n", "must be indented under"},
 	}
@@ -343,6 +344,8 @@ func TestTypedColumn_StrictAndFlex_SameElements(t *testing.T) {
 		{"checklist", "    CHECKLIST\n      [x] Done\n      [ ] Todo", "- [x] Done\n- [ ] Todo"},
 		{"table", "    TABLE\n      headers: [\"A\", \"B\"]\n      rows:\n        [\"1\", \"2\"]", "\n| A | B |\n|---|---|\n| 1 | 2 |\n"}, // la línea en blanco ya es necesaria en una columna cruda: sin ella flex lee `::: grid` como fila de tabla
 		{"chart", "    <<chart: bar>>\n      data: [\n        [\"Q1\", 45],\n        [\"Q2\", 52]\n      ]\n    <<end>>", "<<chart: bar>>\n  data: [\n    [\"Q1\", 45],\n    [\"Q2\", 52]\n  ]\n<<end>>"},
+		{"heading line", "    TEXT\n      Intro\n    TEXT\n      ## Sub heading\n    TEXT\n      after heading", "Intro\n\n## Sub heading\nafter heading"},
+		{"rule line", "    TEXT\n      Intro\n    TEXT\n      ---\n    TEXT\n      after rule", "Intro\n\n---\n\nafter rule"},
 		{"two elements", "    TEXT\n      Intro.\n    POINTS\n      - one", "Intro.\n\n- one"},
 	}
 	for _, tc := range cases {
@@ -492,6 +495,46 @@ func TestTypedColumn_DocumentDialects(t *testing.T) {
 				t.Fatalf("typed element: %#v", grid.Columns[0].Elements[0])
 			}
 			if grid.Columns[1].Content != "Right side." {
+				t.Fatalf("raw column = %q", grid.Columns[1].Content)
+			}
+		})
+	}
+}
+
+// Un `## Heading` o un `---` dentro de una columna flex tipada no cortan el
+// cuerpo: se quedan en la columna (como en una cruda), nunca pasan a la prosa
+// suelta del grid sin avisar.
+func TestTypedColumn_Flex_HeadingAndRuleStayInsideTheColumn(t *testing.T) {
+	for name, body := range map[string]string{
+		"heading": "Intro\n\n## Sub heading\nafter heading",
+		"rule":    "Intro\n\n---\n\nafter rule",
+		"h1":      "Intro\n\n# Top heading\n\nafter top",
+	} {
+		t.Run(name, func(t *testing.T) {
+			src := typedColFlexHeader + "# Grid\n\n::: grid\n::: column typed\n" + body + "\n:::\n::: column\nRight\n:::\n:::\n"
+			doc, diags := parseTypedCols(t, src)
+			if countErrors(diags) != 0 {
+				t.Fatalf("unexpected errors: %v", diags)
+			}
+			grid := firstGridOf(t, doc)
+			if grid.Content != "" {
+				t.Fatalf("text leaked into the grid's loose prose: %q", grid.Content)
+			}
+			if len(grid.Columns) != 2 {
+				t.Fatalf("columns = %d, want 2", len(grid.Columns))
+			}
+			var all strings.Builder
+			for _, el := range grid.Columns[0].Elements {
+				if text, ok := el.(*ast.TextElement); ok {
+					all.WriteString(text.Content + "\n")
+				}
+			}
+			for _, want := range strings.Fields(strings.NewReplacer("#", "", "-", "").Replace(body)) {
+				if !strings.Contains(all.String(), want) {
+					t.Fatalf("word %q is not in the typed column: %v", want, grid.Columns[0].Elements)
+				}
+			}
+			if grid.Columns[1].Content != "Right" {
 				t.Fatalf("raw column = %q", grid.Columns[1].Content)
 			}
 		})

@@ -499,7 +499,7 @@ In strict, the body of a typed column is the run of lines indented deeper than
 the marker, parsed with the grammar of a `SLIDE` body; because it is delimited by
 indentation, an element inside it (a chart, a quiz) closes with its own
 `<<end>>` without closing the grid. In flex the body is ordinary flex content,
-ending at `:::`, the next `::: column`, a `---` separator or a slide boundary.
+ending at `:::`, the next `::: column` or a strict slide boundary (a `## Heading` or `---` inside it stays in the column as text).
 The parser fills `ColumnElement.elements` and leaves `content` empty. A
 property line, a `SECTION` heading or a nested grid inside a typed column is an
 error, and a heading line is plain text (`TextElement`), never a typed heading.

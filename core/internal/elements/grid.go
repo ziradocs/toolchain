@@ -158,8 +158,11 @@ func isStrictTypedColumnMarker(trimmedLine string) bool {
 // mismo bucle que usa el cuerpo de un slide (TextParser es el respaldo), y el
 // resultado llena ColumnElement.Elements en vez de Content.
 //
-// El cuerpo termina en `:::`, en la siguiente `::: column`, en un separador
-// `---` o en una frontera de slide. Como cada elemento consume su propio
+// El cuerpo termina en `:::`, en la siguiente `::: column` o en una frontera
+// de slide strict ("SLIDE "/"SECTION " en columna 0), los mismos cortes que una
+// columna cruda. A propósito NO corta en `# `, `## ` ni `---`: cortar ahí
+// sacaba el resto de la columna hacia la prosa suelta del grid sin ningún
+// diagnóstico, y una columna cruda sí los conserva dentro. Como cada elemento consume su propio
 // bloque completo, un `:::` que le pertenece a un bloque especial o a una
 // valla de código se lo traga ese elemento y nunca se lee como cierre de la
 // columna. No se tipan los encabezados (`###`): el registry no tiene
@@ -179,9 +182,6 @@ func (p *GridParser) parseTypedColumnFlex(ctx *ParseContext, startIndex int) *Pa
 
 		if trimmed == ":::" ||
 			strings.HasPrefix(trimmed, "::: column") ||
-			trimmed == "---" ||
-			strings.HasPrefix(trimmed, "# ") ||
-			strings.HasPrefix(trimmed, "## ") ||
 			IsStrictBlockBoundary(line) {
 			break
 		}
@@ -213,6 +213,17 @@ func (p *GridParser) parseTypedColumnFlex(ctx *ParseContext, startIndex int) *Pa
 		if result.ConsumedLines > 0 {
 			consumed += result.ConsumedLines
 			i += result.ConsumedLines
+			continue
+		}
+		// "# " y "## " no los reclama ningún parser del registry (a nivel de
+		// slide los intercepta el bucle de flex, que aquí no corre): dentro de
+		// una columna son prosa, igual que un TEXT strict con esa línea. Cada
+		// una queda como su propio TextElement para no perderla ni
+		// fusionarla con la prosa vecina.
+		if strings.HasPrefix(trimmed, "# ") || strings.HasPrefix(trimmed, "## ") {
+			column.Elements = append(column.Elements, ast.NewTextElement(ctx.Position(i), trimmed))
+			consumed++
+			i++
 			continue
 		}
 		// Failsafe: ningún parser reclamó la línea. Se avisa en vez de

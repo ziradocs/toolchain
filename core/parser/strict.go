@@ -97,6 +97,10 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 			sub.addError("headings are not supported inside a column; write the heading as TEXT")
 			return
 		}
+		if trimmed == "SLIDE" || strings.HasPrefix(trimmed, "SLIDE ") {
+			sub.addError("a SLIDE cannot be opened inside a column; close the grid with <<end>> first")
+			return
+		}
 		sub.addError(fmt.Sprintf(
 			"unexpected content inside a typed column: %q is not an element", trimmed))
 	})

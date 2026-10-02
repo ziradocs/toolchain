@@ -105,8 +105,8 @@ Rules:
 
 `::: column typed` opens a column whose body is parsed with the flex element
 registry (`TextParser` is the fallback), the same loop a flex slide uses,
-minus the `#`/`##` slide boundaries. The body ends at `:::`, at the next
-`::: column`, at a `---` separator, or at a slide boundary, so a raw `:::`
+with no `#`/`##`/`---` cuts. The body ends at `:::`, at the next
+`::: column`, or at a strict slide boundary, so a raw `:::`
 inside an element that owns it (a fenced code block, a special block) is
 consumed by that element and never read as the column closer. Loose prose
 becomes a `TextElement`, bullets a `PointsElement`, `![alt](src)` an
@@ -141,6 +141,12 @@ design says so instead of hiding it:
   `context` differently for an image at slide level (flex prefixes
   `assets/images/`). A typed column inherits that difference; it does not add
   one, so the image case compares everything except those two fields.
+- **Where a flex body ends.** A typed flex column ends only at `:::`, the
+  next `::: column` or a strict slide boundary, the same cuts a raw column has.
+  A `# `/`## ` heading line or a `---` inside it stays in the column, each as
+  its own `TextElement` (the same as a strict `TEXT` holding that line), so
+  the body is never split or dropped silently; an unclosed column therefore
+  runs to the end of the grid, as a raw one does.
 - **Pipe tables in flex.** A flex pipe table directly after `::: column` or
   `::: column typed`, with no blank line between them, is read with the
   `::: grid` line as a table row. This already happens in raw columns and is
@@ -215,7 +221,12 @@ The linter and the cross-reference/numbering transforms already walk
 
 ## Compatibility and release order
 
-Source compatibility is the section above: raw columns parse exactly as before.
+Source compatibility: raw columns parse exactly as before. The one change to
+existing source is that a line exactly equal to `<<column typed>>` (strict) or
+`::: column typed` (flex) now opens a typed column instead of being text or an
+ignored suffix, and `fmt` refuses a raw column whose content contains the
+literal line `<<column typed>>`, because it would not parse back as text. Release
+notes should carry that sentence; the repository has no changelog file.
 There is no schema change, so no regenerated schema or TypeScript types. The
 parser, formatter and spec live in `core`, so the release follows the
 repository sequence: `core/vX.Y.Z` first, then the pin bump in
