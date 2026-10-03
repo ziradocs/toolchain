@@ -223,3 +223,33 @@ func TestTypedBlock_OnlyTheOpeningIndentationIsRemoved(t *testing.T) {
 		t.Errorf("deeper body: code %q, want the extra indentation kept", code(deeper))
 	}
 }
+
+// A node-id comment inside a typed block binds to the nested element it
+// precedes (a ### line is text unless typed-headings is declared), and to the block itself when it precedes the opening line. The
+// comments are removed before the body is read, so they are not part of the
+// block's content.
+func TestTypedBlock_NodeIDsBindToNestedElements(t *testing.T) {
+	sb, _ := firstBlock(t, strictHead+
+		"  <!-- node-id: Box -->\n"+
+		"  :::card{typed}\n"+
+		"  <!-- node-id: Head -->\n"+
+		"  ### Heading\n"+
+		"  <!-- node-id: Code -->\n"+
+		"  ```go\n  x := 1\n  ```\n"+
+		"  :::\n")
+	if sb.NodeID != "Box" {
+		t.Errorf("block nodeId = %q, want Box", sb.NodeID)
+	}
+	got := map[ast.NodeType]string{}
+	for _, el := range sb.Elements {
+		if n, ok := el.(ast.IdentityNode); ok {
+			got[el.GetType()] = n.GetNodeID()
+		}
+	}
+	if got[ast.NodeTypeText] != "Head" || got[ast.NodeTypeCode] != "Code" {
+		t.Errorf("nested nodeIds = %v, want text Head and code Code", got)
+	}
+	if strings.Contains(sb.Content, "node-id") {
+		t.Errorf("content keeps the comment: %q", sb.Content)
+	}
+}
