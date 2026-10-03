@@ -18,9 +18,10 @@ func ConvertPointItemsWithVariables(items []ast.PointItem, variables map[string]
 	result := make([]PointItemData, 0, len(items))
 	for _, item := range items {
 		pointData := PointItemData{
-			Content:     ProcessVariables(item.Content, variables), // Markdown se procesa en template
-			SubPoints:   ConvertPointItemsWithVariables(item.SubPoints, variables),
-			SubListType: item.SubListType,
+			Content:       ProcessVariables(item.Content, variables), // Markdown se procesa en template
+			SubPoints:     ConvertPointItemsWithVariables(item.SubPoints, variables),
+			SubListType:   item.SubListType,
+			SubListMarker: item.SubListMarker,
 		}
 		result = append(result, pointData)
 	}

@@ -409,6 +409,8 @@ type PointItemData struct {
 	Content     string
 	SubPoints   []PointItemData
 	SubListType string
+	// SubListMarker carries ast.PointItem.SubListMarker to the template.
+	SubListMarker string
 }
 
 // ChecklistItemData representa un item de checklist
