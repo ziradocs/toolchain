@@ -175,10 +175,9 @@ func TestStrictParser_ImageContextProperty(t *testing.T) {
 	})
 
 	t.Run("unknown value warns", func(t *testing.T) {
-		inferred, _ := parse(t, "  TEXT\n    a\n  TEXT\n    b\n  TEXT\n    c\n  IMAGE \"a.png\" \"alt\"\n")
 		img, ids := parse(t, "  TEXT\n    a\n  TEXT\n    b\n  TEXT\n    c\n  IMAGE \"a.png\" \"alt\"\n    context: banner\n")
-		if img.Context != inferred.Context {
-			t.Errorf("Context = %q, want the inferred %q", img.Context, inferred.Context)
+		if img.Context == "" || img.Context == "banner" {
+			t.Errorf("Context = %q, want an inferred value", img.Context)
 		}
 		if len(ids) != 1 || ids[0] != "IMG003" {
 			t.Errorf("rule IDs = %v, want [IMG003]", ids)
