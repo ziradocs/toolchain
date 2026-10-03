@@ -3,7 +3,10 @@
 
 package enhancement
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestTablesRule_Apply_DoesNotRewriteJSONInsideCodeFence cubre issue #204:
 // isInSpecialBlock no reconocía fences de triple backtick (```chart,
@@ -72,5 +75,82 @@ func TestTablesRule_Apply_StillRewritesTableOutsideFence(t *testing.T) {
 	}
 	if got == input {
 		t.Fatalf("Apply() left 3+ key:value lines outside any fence unchanged, want a Markdown table rewrite:\n%s", got)
+	}
+}
+
+// TestTablesRule_Apply_ContainerFenceIsABoundary: las líneas ":::" (apertura
+// de "::: grid"/"::: column"/":::note" y el cierre a secas) son frontera de
+// bloque, no datos de tabla. Antes, una tabla markdown pegada a "::: column"
+// se reescribía junto con los marcadores (cada uno partido por ":" en una
+// fila falsa) y el grid desaparecía.
+func TestTablesRule_Apply_ContainerFenceIsABoundary(t *testing.T) {
+	rule := NewTablesRule()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "tabla markdown pegada a ::: column, sin líneas en blanco",
+			input: "# Slide\n\n::: grid\n::: column\n| A | B |\n|---|---|\n| 1 | 2 |\n:::\n:::\n",
+		},
+		{
+			name:  "tabla markdown pegada a un bloque :::note",
+			input: "# Slide\n\n:::note\n| A | B |\n|---|---|\n| 1 | 2 |\n:::\n",
+		},
+		{
+			// Las filas con pipes no se reescriben por sí solas; lo que
+			// antes las arrastraba era la ventana que arrancaba en
+			// "::: column" y llegaba hasta el ":::" de cierre.
+			name:  "filas con pipes sin separador entre ::: column y :::",
+			input: "# Slide\n\n::: column\n| a | b |\n| c | d |\n| e | f |\n:::\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := rule.Apply(tc.input)
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			if got != tc.input {
+				t.Fatalf("Apply() reescribió contenido con marcadores :::, quería no-op\n--- input ---\n%s\n--- got ---\n%s", tc.input, got)
+			}
+		})
+	}
+}
+
+// TestTablesRule_Apply_ContainerFenceClosingIsNotARow: cuando la regla SÍ
+// convierte (3+ líneas clave:valor dentro de un bloque), la ventana termina
+// en el ":::" de cierre y este no se convierte en la fila falsa ["", "::"].
+func TestTablesRule_Apply_ContainerFenceClosingIsNotARow(t *testing.T) {
+	rule := NewTablesRule()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "lista clave:valor pegada al ::: de cierre",
+			input: "# Slide\n\n::: column\nname: value1\ntype: value2\nowner: value3\n:::\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := rule.Apply(tc.input)
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			if got == tc.input {
+				t.Fatalf("Apply() dejó sin tocar las líneas de datos, quería la tabla:\n%s", got)
+			}
+			if !strings.Contains(got, "\n:::\n") && !strings.HasSuffix(got, "\n:::") {
+				t.Errorf("Apply() se comió el ::: de cierre:\n%s", got)
+			}
+			if strings.Contains(got, "| :: |") || strings.Contains(got, "|  | :: |") {
+				t.Errorf("Apply() convirtió el ::: en una fila de la tabla:\n%s", got)
+			}
+		})
 	}
 }
