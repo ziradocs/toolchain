@@ -121,7 +121,7 @@ align: center
   correct render.
 - Types: `bar`, `line`, `pie`, `doughnut`, `radar`, `polarArea`, `scatter`,
   `bubble`, `combo`, `treemap`. No closing tag — do **not** write
-  `<</chart>>`.
+  `<</chart>>` after a `key: value` body (it is only read after a JSON body).
 - `treemap` uses the same `data` matrix as everything else — first cell is
   the leaf label, second is its value — and takes exactly one numeric column.
   It has no legend and no axes: each rectangle is sized by its value and
@@ -461,10 +461,15 @@ path, which works on in-memory source with no base directory — so an
 
 ## No unsupported closing tags
 
-Legacy/invalid syntax that must never appear in output: `<</chart>>`,
-`<</mermaid>>`, `:::poll`, `:::qa_session`, `:::reveal`, `:::notes` (as a block
-type — the `@notes` directive is the real presenter-notes mechanism). None of
-these are implemented by the parser.
+Legacy/invalid syntax that must never appear in output: `<</mermaid>>`,
+`:::poll`, `:::qa_session`, `:::reveal`, `:::notes` (as a block type — the
+`@notes` directive is the real presenter-notes mechanism). The parser does not
+implement these: a `<</mermaid>>` line is dropped with `STRICT003`.
+
+`<</chart>>` depends on the chart body. After a JSON body it is read and
+consumed (it is what `fmt` writes there); after a `key: value` body it is dropped
+as an unrecognized line (`STRICT003`). Charts in this kit use the `key: value`
+body, so do not write it.
 
 A `<<map>>` is the exception for closers: its body ends at `<</map>>` or at the
 first line the map parser does not recognize (a `key: value` line it knows, a

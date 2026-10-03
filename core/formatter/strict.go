@@ -1225,7 +1225,7 @@ func formatMap(e *ast.MapElement) (string, error) {
 			fmt.Fprintf(&b, "  - lat: %s\n", formatFloat(m.Lat))
 			fmt.Fprintf(&b, "    lng: %s\n", formatFloat(m.Lng))
 			if m.Label != "" {
-				if err := checkQuotable("map", "marker.label", m.Label); err != nil {
+				if err := checkEdgeQuotable("map", "marker.label", m.Label); err != nil {
 					return "", err
 				}
 				fmt.Fprintf(&b, "    label: %s\n", quote(m.Label))
@@ -1234,19 +1234,19 @@ func formatMap(e *ast.MapElement) (string, error) {
 				fmt.Fprintf(&b, "    value: %s\n", formatFloat(m.Value))
 			}
 			if m.Color != "" {
-				if err := checkQuotable("map", "marker.color", m.Color); err != nil {
+				if err := checkEdgeQuotable("map", "marker.color", m.Color); err != nil {
 					return "", err
 				}
 				fmt.Fprintf(&b, "    color: %s\n", quote(m.Color))
 			}
 			if m.Size != "" {
-				if err := checkQuotable("map", "marker.size", m.Size); err != nil {
+				if err := checkEdgeQuotable("map", "marker.size", m.Size); err != nil {
 					return "", err
 				}
 				fmt.Fprintf(&b, "    size: %s\n", quote(m.Size))
 			}
 			if m.Details != "" {
-				if err := checkQuotable("map", "marker.details", m.Details); err != nil {
+				if err := checkEdgeQuotable("map", "marker.details", m.Details); err != nil {
 					return "", err
 				}
 				fmt.Fprintf(&b, "    details: %s\n", quote(m.Details))
@@ -1262,7 +1262,7 @@ func formatMap(e *ast.MapElement) (string, error) {
 	for _, k := range []string{"title", "showValues", "clustering"} {
 		if v, ok := e.Options[k]; ok {
 			if s, ok := v.(string); ok {
-				if err := checkQuotable("map", "options."+k, s); err != nil {
+				if err := checkEdgeQuotable("map", "options."+k, s); err != nil {
 					return "", err
 				}
 			}
@@ -1540,10 +1540,14 @@ func collectImages(doc *ast.AST) []*ast.ImageElement {
 // different number of blocks, the pairing is meaningless and the check is left
 // to the callers' round-trip comparisons.
 func checkNestedBlockElements(doc, parsed *ast.AST) error {
-	if parsed == nil {
-		return newUnsupported("special_block", "the formatted text cannot be read back to check the nested elements of its ::: blocks")
+	want := collectSpecialBlocks(doc)
+	if len(want) == 0 {
+		return nil
 	}
-	want, got := collectSpecialBlocks(doc), collectSpecialBlocks(parsed)
+	if parsed == nil {
+		return newUnsupported("special_block", "the formatted text cannot be read back to check its ::: blocks")
+	}
+	got := collectSpecialBlocks(parsed)
 	var losing []*ast.SpecialBlockElement
 	for i, block := range want {
 		if len(block.Elements) == 0 {
@@ -1558,16 +1562,32 @@ func checkNestedBlockElements(doc, parsed *ast.AST) error {
 		}
 		losing = append(losing, block)
 	}
-	if len(losing) == 0 {
-		return nil
+	if len(losing) > 0 {
+		block := innermostBlock(losing)
+		return newUnsupported("special_block", fmt.Sprintf(
+			"the %s block has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them", blockLabel(block)))
 	}
-	block := innermostBlock(losing)
+	if len(want) == len(got) {
+		// Whatever the cause, a block that does not read back with its type,
+		// title and raw content is not the same block: the closing line of an
+		// enclosing form (a four-colon fence, say) shows up in its content and
+		// the strict reader ends it early.
+		for i, block := range want {
+			if block.BlockType != got[i].BlockType || block.Title != got[i].Title || block.Content != got[i].Content {
+				return newUnsupported("special_block", fmt.Sprintf(
+					"the %s block does not read back with the same content in strict, so formatting would change it", blockLabel(block)))
+			}
+		}
+	}
+	return nil
+}
+
+func blockLabel(block *ast.SpecialBlockElement) string {
 	label := ":::" + block.BlockType
 	if block.Title != "" {
 		label += " " + block.Title
 	}
-	return newUnsupported("special_block", fmt.Sprintf(
-		"the %s block has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them", label))
+	return label
 }
 
 // innermostBlock picks, among blocks that lose nested elements, the first one

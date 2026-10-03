@@ -109,7 +109,7 @@ var knownNormalizerBugs = map[string]string{}
 // TestFormattersCoverAllElementImplementers.
 var allowedUnsupportedInDocument = map[string]string{
 	"grid": "DocLang no tiene sintaxis de texto para GRID — el case existe y lo declara explícitamente (formatDocumentElement)",
-	"map":  "hueco de VALOR, no de tipo: un campo con comilla doble literal no es representable porque el dialecto no tiene escape para campos entrecomillados (ver quote() en formatter/util.go); el mapa sin comillas sí round-trippea",
+	"map":  "hueco de VALOR, no de tipo: un valor de mapa que empieza o termina con comilla doble no es representable, porque el lector la recorta junto con las comillas que lo rodean (ver checkEdgeQuotable en formatter/util.go)",
 }
 
 // Vacío a propósito: hoy NINGÚN fixture strict del corpus llega a un

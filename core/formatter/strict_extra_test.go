@@ -572,7 +572,9 @@ func TestFormatStrict_UnescapableQuoteRejected(t *testing.T) {
 			name: "map marker label",
 			doc: func() *ast.AST {
 				m := ast.NewMapElement(pos, "leaflet")
-				m.Markers = []ast.MapMarker{{Lat: 1, Lng: 2, Label: q}}
+				// The map reader trims quotes at the ends of a value, so only a quote at an
+				// edge is unrepresentable; one in the middle reads back as written.
+				m.Markers = []ast.MapMarker{{Lat: 1, Lng: 2, Label: `"` + q}}
 				block := ast.NewContentBlock(pos, "content")
 				block.Elements = append(block.Elements, m)
 				return newDocWithBlock(block)
