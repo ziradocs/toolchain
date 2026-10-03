@@ -92,7 +92,7 @@ slide        ::= slide_type property* element*
 slide_type   ::= "SLIDE" identifier
 property     ::= identifier ":" value
 element      ::= text_element | points_element | checklist_element |
-                 image_element | code_element | table_element |
+                 quote_element | image_element | code_element | table_element |
                  heading_element | directive_element | special_block |
                  embedded_element
 
@@ -105,6 +105,8 @@ point_item        ::= ("-" | "*" | "+" | DIGIT+ ".") text_content NEWLINE
 checklist_element ::= "CHECKLIST" INDENT checklist_item+ DEDENT
 checklist_item     ::= ("-" | "*" | "+")? "[" ("x" | "X" | " ") "]" text_content NEWLINE
 image_element     ::= "IMAGE" INDENT property+ DEDENT
+quote_element     ::= "QUOTE" INDENT quote_line (BLANK* quote_line)*
+                      ("AUTHOR:" text)? ("SOURCE:" text)? DEDENT
 code_element      ::= "CODE" (language filename?)? INDENT code_content DEDENT
 table_element     ::= "TABLE" INDENT table_data DEDENT
 
@@ -128,6 +130,27 @@ diagnosed. See [portable nested list types](../../docs/portable-nested-list-type
 (`CodeElement.filename`, schema 2.19.0, inferred capability
 `code-filename-v1`); a flex fence takes it after the language or as
 `title="…"`. See [code block filenames](../../docs/portable-code-filenames.md).
+
+A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
+start of another element. A blank line does not end the quote when the next
+line with text is indented deeper than the `QUOTE` keyword: it stays inside as
+an empty line, so a quote can have several paragraphs, the way a `CODE` body
+keeps its blank lines (every blank line counts, not only the first):
+
+```
+SLIDE content
+  QUOTE
+    First paragraph.
+
+    Second paragraph.
+    AUTHOR: Someone
+```
+
+reads as the content `First paragraph.\n\nSecond paragraph.` with author
+`Someone`. A body that starts with a blank line, or a blank line followed by
+text that is not indented deeper than `QUOTE`, ends the element as before. A
+quote cannot start or end with an empty line. `slidelang fmt` writes a flex
+quote with an empty `>` line this way.
 
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser

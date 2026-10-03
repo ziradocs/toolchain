@@ -344,9 +344,10 @@ func TestFormatStrict_GridColumnMixingContentAndElementsUnsupported(t *testing.T
 }
 
 // TestFormatStrict_QuoteContentUnsupported cubre la guarda de issue #205:
-// elements.QuoteParser.parseStrict termina la cita en la primera línea
-// vacía, "---", o AUTHOR:/SOURCE:/keyword-de-elemento — un QuoteElement.Content
-// que contenga alguna de esas formas (posible si el elemento vino de un parse
+// elements.QuoteParser.parseStrict termina la cita en una línea vacía que no
+// sigue dentro de ella (una línea vacía entre dos de texto sí se conserva, ver
+// TestFlexToStrict_QuoteWithEmptyLine), "---", o AUTHOR:/SOURCE:/keyword-de-
+// elemento — un QuoteElement.Content que contenga alguna de esas formas (posible si el elemento vino de un parse
 // flex, donde el markdown ">" no tiene esas restricciones) no es
 // representable sin pérdida en modo strict. Este contenido no se puede
 // obtener parseando texto strict real (el propio parser strict nunca
@@ -356,7 +357,8 @@ func TestFormatStrict_QuoteContentUnsupported(t *testing.T) {
 		name    string
 		content string
 	}{
-		{"blank line", "First line.\n\nSecond line."},
+		{"leading blank line", "\nFirst line."},
+		{"trailing blank line", "First line.\n"},
 		{"separator line", "First line.\n---\nSecond line."},
 		{"embedded AUTHOR metadata line", "First line.\nAUTHOR: not really the author."},
 		{"embedded element keyword line", "First line.\nTEXT this looks like a new element."},

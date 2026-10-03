@@ -131,33 +131,21 @@ func TestFormatStrict_FlexToStrict_Corpus(t *testing.T) {
 // only in its own syntax, never inside the raw lines of a block, so there is no
 // strict text for the block that builds the same; see checkNestedBlockElements.
 var acceptedFmtRefusals = map[string]string{
-	"01_title_and_content/01.6_ui_elements_flex.slidelang":     "special_block",
-	"01_title_and_content/01_title_and_content_flex.slidelang": "special_block",
+	"01_title_and_content/01.2_text_formatting_flex.slidelang":        "special_block",
+	"01_title_and_content/01.4_special_blocks_flex.slidelang":         "special_block",
+	"01_title_and_content/01.6_ui_elements_flex.slidelang":            "special_block",
+	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang": "special_block",
+	"01_title_and_content/01_title_and_content_flex.slidelang":        "special_block",
 }
 
 // expectedFmtGaps lists the flex sources whose fmt output is known not to
-// round-trip yet, keyed by path under examples/. Each entry carries the defect
-// it belongs to. The list may only shrink: a source that starts round-tripping
-// while still listed fails the test above, so nobody forgets to delete it.
-// Defects, by the letter each entry carries:
-//
-//	G  a quote containing an empty ">" line cannot be written in strict, so
-//	   fmt refuses (correctly naming the element) instead of transpiling
-//
-// A refusal stops the comparison, so a source listed only as G may be hiding
-// other defects that show up once it gets past the refusal.
-var expectedFmtGaps = map[string]string{
-	"01_title_and_content/01.2_text_formatting_flex.slidelang":               "G",
-	"01_title_and_content/01.3_lists_and_tables_flex.slidelang":              "G",
-	"01_title_and_content/01.4_special_blocks_flex.slidelang":                "G",
-	"01_title_and_content/01.5_layouts_and_images_flex.slidelang":            "G",
-	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang":        "G",
-	"02_diagrams_and_charts/02.2_technical_diagrams_flex.slidelang":          "G",
-	"02_diagrams_and_charts/analytics_dashboard_presentation_flex.slidelang": "G",
-	"gallery/02_flex_mode_essentials.slidelang":                              "G",
-	"gallery/07_special_blocks_and_checklists.slidelang":                     "G",
-	"gallery/10_startup_pitch_deck.slidelang":                                "G",
-}
+// round-trip yet, keyed by path under examples/ with a short reason. It is empty
+// now, and a gap that shows up has to be fixed or recorded here. The list may
+// only shrink: a source that starts round-tripping while still listed fails the
+// test above, so nobody forgets to delete it. A refusal stops the comparison, so
+// a source listed for one may be hiding other defects that show up once it gets
+// past the refusal.
+var expectedFmtGaps = map[string]string{}
 
 func flexCorpusFiles(t *testing.T) []string {
 	t.Helper()

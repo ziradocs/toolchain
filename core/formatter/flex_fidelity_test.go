@@ -507,3 +507,64 @@ func TestFlexToStrict_NestedBlockErrorNamesTheColumn(t *testing.T) {
 		t.Errorf("the reason should name the column that loses its heading, got: %s", uerr.Reason)
 	}
 }
+
+func quoteContents(doc *ast.AST) []string {
+	var out []string
+	for _, el := range allElements(doc) {
+		if q, ok := el.(*ast.QuoteElement); ok {
+			out = append(out, q.Content+"|"+q.Author+"|"+q.Source)
+		}
+	}
+	return out
+}
+
+func allElements(doc *ast.AST) []ast.Element {
+	var out []ast.Element
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if el, ok := n.(ast.Element); ok {
+			out = append(out, el)
+		}
+		return nil
+	})
+	return out
+}
+
+// A flex quote with an empty ">" line has an empty line in its content. Strict
+// writes it as an empty line inside an indented body.
+func TestFlexToStrict_QuoteWithEmptyLine(t *testing.T) {
+	cases := map[string]string{
+		"one empty line":  "---\nmode: flex\n---\n\n## One\n\n> First paragraph.\n>\n> Second paragraph.\n\ntext after\n",
+		"two empty lines": "---\nmode: flex\n---\n\n## One\n\n> a\n>\n>\n> b\n\n---\n\n## Two\n\nbody\n",
+		"with author":     "---\nmode: flex\n---\n\n## One\n\n> a\n>\n> b\n> -- Someone\n\ntext after\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			want := quoteContents(parseSlides(t, src))
+			out, reparsed := transpile(t, src)
+			got := quoteContents(reparsed)
+			if strings.Join(want, "#") != strings.Join(got, "#") || len(want) == 0 {
+				t.Errorf("quotes changed\n before: %q\n after:  %q\n%s", want, got, out)
+			}
+			again, err := FormatStrict(reparsed)
+			if err != nil {
+				t.Fatalf("second FormatStrict: %v", err)
+			}
+			if again != out {
+				t.Errorf("not idempotent:\n--- first ---\n%s\n--- second ---\n%s", out, again)
+			}
+		})
+	}
+}
+
+// An empty line at the edge of the content cannot be told apart from the blank
+// line that ends the element, so it is reported.
+func TestFormatStrict_QuoteWithEmptyEdgeLineIsRefused(t *testing.T) {
+	for _, content := range []string{"\na", "a\n", "a\n\n"} {
+		q := ast.NewQuoteElement(diagnostics.NewPosition(3, 1), content)
+		_, err := FormatStrict(chartDoc(q))
+		var uerr *UnsupportedElementError
+		if !errors.As(err, &uerr) || uerr.NodeType != "quote" {
+			t.Errorf("content %q: want an UnsupportedElementError for quote, got %v", content, err)
+		}
+	}
+}

@@ -55,6 +55,9 @@ func (p *QuoteParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnostics.Position) *ParseResult {
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
+	// La sangría de la propia línea QUOTE: una línea en blanco solo sigue
+	// dentro de la cita si lo que viene después está MÁS sangrado que ella.
+	quoteIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 
 	// Saltar línea QUOTE
 	if strings.HasPrefix(line, "QUOTE") {
@@ -69,8 +72,30 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 	for i := startIndex; i < len(ctx.Lines); i++ {
 		line := strings.TrimSpace(ctx.Lines[i])
 
-		// Parar en línea vacía o separador de slide
-		if line == "" || line == "---" || IsNewElement(line, ctx.Mode) {
+		// Una línea en blanco corta la cita, salvo que ya haya texto y la
+		// siguiente línea con contenido siga más sangrada que QUOTE: entonces
+		// es una línea vacía DENTRO de la cita (un párrafo aparte, como el
+		// `>` vacío de flex) y cada línea en blanco cuenta. Lo que ya se leía
+		// antes —una línea en blanco seguida de algo sin esa sangría— no
+		// cambia.
+		if line == "" {
+			next := i + 1
+			for next < len(ctx.Lines) && strings.TrimSpace(ctx.Lines[next]) == "" {
+				next++
+			}
+			if contentBuilder.Len() > 0 && next < len(ctx.Lines) && p.continuesQuote(ctx, next, quoteIndent) {
+				for k := i; k < next; k++ {
+					contentBuilder.WriteString("\n")
+					consumed++
+				}
+				i = next - 1
+				continue
+			}
+			break
+		}
+
+		// Parar en separador de slide o en el inicio de otro elemento
+		if line == "---" || IsNewElement(line, ctx.Mode) {
 			break
 		}
 
@@ -104,6 +129,17 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 		ConsumedLines: consumed,
 		Error:         nil,
 	}
+}
+
+// continuesQuote dice si la línea con contenido que sigue a una línea en blanco
+// pertenece todavía a la cita: está más sangrada que QUOTE y no abre otro
+// elemento ni es un separador de slide.
+func (p *QuoteParser) continuesQuote(ctx *ParseContext, index, quoteIndent int) bool {
+	if CalculateIndentLevel(ctx.Lines[index]) <= quoteIndent {
+		return false
+	}
+	trimmed := strings.TrimSpace(ctx.Lines[index])
+	return trimmed != "---" && !IsNewElement(trimmed, ctx.Mode)
 }
 
 // parseFlex parsea citas en modo flex (Markdown)

@@ -732,8 +732,17 @@ func formatStrictQuote(e *ast.QuoteElement) (string, error) {
 }
 
 func validateStrictQuoteContent(content string) error {
-	for _, line := range strings.Split(content, "\n") {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
+		// An empty line inside the quote is written as an empty line: the
+		// strict parser keeps it when the next line with text is indented
+		// deeper than QUOTE. Only at the edges is it unreadable, because
+		// there it is indistinguishable from the blank line that ends the
+		// element.
+		if trimmed == "" && line == "" && i > 0 && i < len(lines)-1 {
+			continue
+		}
 		// elements.QuoteParser.parseStrict hace TrimSpace de cada línea al
 		// reparsear (internal/elements/quote.go) — cualquier espacio en
 		// blanco al inicio o final de una línea de contenido (p.ej. código
@@ -743,6 +752,9 @@ func validateStrictQuoteContent(content string) error {
 		// exacta no sobrevive el reparse.
 		if line != trimmed {
 			return newUnsupported("quote", fmt.Sprintf("el contenido de la cita tiene una línea con espacio en blanco al inicio o final (%q) — el parser strict hace TrimSpace de cada línea al reparsear, perdiendo ese espaciado en silencio", line))
+		}
+		if trimmed == "" && line == "" {
+			return newUnsupported("quote", "the quote starts or ends with an empty line, which strict reads as the end of the element")
 		}
 		if trimmed == "" || trimmed == "---" ||
 			strings.HasPrefix(trimmed, "AUTHOR:") || strings.HasPrefix(trimmed, "SOURCE:") {

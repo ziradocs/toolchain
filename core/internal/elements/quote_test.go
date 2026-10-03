@@ -304,3 +304,92 @@ func TestQuoteParser_ParseStrict(t *testing.T) {
 		})
 	}
 }
+
+// A blank line inside a strict QUOTE stays in the quote when the next line with
+// text is indented deeper than QUOTE itself, the way a CODE body keeps its blank
+// lines. In every other case the blank line ends the element, as before.
+func TestQuoteParser_ParseStrict_BlankLines(t *testing.T) {
+	tests := []struct {
+		name             string
+		lines            []string
+		expectedContent  string
+		expectedAuthor   string
+		expectedConsumed int
+	}{
+		{
+			name:             "blank line between paragraphs",
+			lines:            []string{"  QUOTE", "    First paragraph.", "", "    Second paragraph."},
+			expectedContent:  "First paragraph.\n\nSecond paragraph.",
+			expectedConsumed: 4,
+		},
+		{
+			name:             "two blank lines are both kept",
+			lines:            []string{"  QUOTE", "    a", "", "", "    b"},
+			expectedContent:  "a\n\n\nb",
+			expectedConsumed: 5,
+		},
+		{
+			name:             "metadata after the paragraphs",
+			lines:            []string{"  QUOTE", "    a", "", "    b", "    AUTHOR: Someone"},
+			expectedContent:  "a\n\nb",
+			expectedAuthor:   "Someone",
+			expectedConsumed: 5,
+		},
+		{
+			name:             "next element at the same indent ends the quote",
+			lines:            []string{"  QUOTE", "    a", "", "  TEXT", "    b"},
+			expectedContent:  "a",
+			expectedConsumed: 2,
+		},
+		{
+			name:             "next element deeper still ends the quote",
+			lines:            []string{"  QUOTE", "    a", "", "    TEXT", "      b"},
+			expectedContent:  "a",
+			expectedConsumed: 2,
+		},
+		{
+			name:             "text not indented past QUOTE ends the quote",
+			lines:            []string{"  QUOTE", "  a", "", "  b"},
+			expectedContent:  "a",
+			expectedConsumed: 2,
+		},
+		{
+			name:             "slide separator ends the quote",
+			lines:            []string{"  QUOTE", "    a", "", "---"},
+			expectedContent:  "a",
+			expectedConsumed: 2,
+		},
+		{
+			name:             "no text before the blank line",
+			lines:            []string{"  QUOTE", "", "    a"},
+			expectedContent:  "",
+			expectedConsumed: 1,
+		},
+		{
+			name:             "trailing blank lines are not part of the quote",
+			lines:            []string{"  QUOTE", "    a", "", ""},
+			expectedContent:  "a",
+			expectedConsumed: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &ParseContext{Mode: "strict", Lines: tt.lines, Logger: util.NewNoop()}
+			result := (&QuoteParser{}).Parse(ctx, 0)
+			quote, ok := result.Element.(*ast.QuoteElement)
+			if !ok {
+				t.Fatalf("Element is %T, want *ast.QuoteElement", result.Element)
+			}
+			if quote.Content != tt.expectedContent {
+				t.Errorf("Content = %q, want %q", quote.Content, tt.expectedContent)
+			}
+			if quote.Author != tt.expectedAuthor {
+				t.Errorf("Author = %q, want %q", quote.Author, tt.expectedAuthor)
+			}
+			if result.ConsumedLines != tt.expectedConsumed {
+				t.Errorf("ConsumedLines = %d, want %d", result.ConsumedLines, tt.expectedConsumed)
+			}
+		})
+	}
+}
