@@ -43,10 +43,10 @@ document can be either dialect:
   - A 'mode: flex'/'flex-full' (or its deprecated alias flex-ai) document
     is TRANSPILED to strict: parsed (with normalization, same as a regular
     build) and re-emitted as SLIDE-marker text, with 'mode: strict' in the
-    output frontmatter. The output builds to the same AST as the source, or
-    fmt fails with an error naming the element that strict cannot represent
-    (for example a ::: block that holds headings, fenced code, tables or
-    images).
+    output frontmatter. The output is meant to build to the same AST as the
+    source; when the document uses a construct strict mode cannot represent,
+    fmt fails with an error naming the element instead of writing text that
+    builds differently.
 
 Examples:
   # Print the canonical strict form to stdout (works for strict OR flex input)
