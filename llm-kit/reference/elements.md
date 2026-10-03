@@ -462,9 +462,14 @@ path, which works on in-memory source with no base directory — so an
 ## No unsupported closing tags
 
 Legacy/invalid syntax that must never appear in output: `<</chart>>`,
-`<</mermaid>>`, `<</map>>`, `:::poll`, `:::qa_session`, `:::reveal`,
-`:::notes` (as a block type — the `@notes` directive is the real
-presenter-notes mechanism). None of these are implemented by the parser.
+`<</mermaid>>`, `:::poll`, `:::qa_session`, `:::reveal`, `:::notes` (as a block
+type — the `@notes` directive is the real presenter-notes mechanism). None of
+these are implemented by the parser.
+
+A `<<map>>` is the exception for closers: its body ends at `<</map>>` or at the
+first line the map parser does not recognize (a `key: value` line it knows, a
+`marker:` line and so on keep it going), so it needs no closer, and `<</map>>`
+is accepted (it is what `fmt` writes). A `<<end>>` after a map is not read by the map parser.
 
 `<<quiz>>` and `<<poll>>` are implemented — see "Quiz and poll" above. Their
 canonical closer is `<<end>>`; `<</quiz>>`/`<</poll>>` are tolerated.

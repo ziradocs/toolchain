@@ -40,7 +40,7 @@ func FormatStrict(doc *ast.AST) (string, error) {
 	if err := checkNestedBlockElements(doc, reparseFormatted(out, false)); err != nil {
 		return "", err
 	}
-	out, err = placeImageContexts(doc, out)
+	out, err = placeImageContexts(doc, out, false)
 	if err != nil {
 		return "", err
 	}
@@ -1269,7 +1269,11 @@ func formatMap(e *ast.MapElement) (string, error) {
 			fmt.Fprintf(&b, "%s: %s\n", k, formatScalar(v))
 		}
 	}
-	b.WriteString("<<end>>")
+	// MapParser closes on `<</map>>` or at the first line it does not recognize,
+	// and does not consume a `<<end>>`: written here, that line was left over
+	// and the document dialect rejected it as an unexpected line inside a
+	// SECTION (a slide only warned and dropped it).
+	b.WriteString("<</map>>")
 	return b.String(), nil
 }
 
@@ -1458,13 +1462,13 @@ func nestedTypedHeading(elements []ast.Element) bool {
 //
 // If the text does not parse back to the same number of images the pairing is
 // meaningless and the formatted text would build differently, so it is reported.
-func placeImageContexts(doc *ast.AST, source string) (string, error) {
+func placeImageContexts(doc *ast.AST, source string, document bool) (string, error) {
 	want := collectImages(doc)
 	if len(want) == 0 {
 		return source, nil
 	}
 	for round := 0; round <= len(want); round++ {
-		parsed := reparseFormatted(source, false)
+		parsed := reparseFormatted(source, document)
 		if parsed == nil {
 			return "", newUnsupported("image", "the formatted text cannot be read back to check the context of its images")
 		}

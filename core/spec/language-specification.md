@@ -561,7 +561,7 @@ Embedded elements add rich content:
 |---------|--------|-------------|
 | Charts | `<<chart: type>>` or `<<chart` … `<<end>>`, or a fenced ` ```chart ` block (flex only, JSON body) | Data visualizations |
 | Diagrams | `<<mermaid>>` or `<<mermaid title="…">>`, or a fenced ` ```mermaid ` block (flex only) | Mermaid diagrams; `title` is the figure caption |
-| Maps | `<<map>>` or `<<map attr="…">>`, or a fenced ` ```map ` block (flex only, JSON body) | Geographic maps |
+| Maps | `<<map>>` or `<<map attr="…">>`, or a fenced ` ```map ` block (flex only, JSON body) | Geographic maps; the body ends at `<</map>>` or at the first line the map parser does not recognize (a `<<end>>` is not read by the map parser) |
 | Grid | `<<grid>>` / `<<column>>` / `<<end>>` | Column layouts — see "Grid and Column Layouts" above |
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
