@@ -144,6 +144,9 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 						currentItem = &element.Items[len(element.Items)-1]
 					} else if indent > expectedIndent && currentItem != nil {
 						// Es un sub-elemento
+						if currentItem.SubListMarker == "" {
+							currentItem.SubListMarker = p.detectListType(trimmed)
+						}
 						currentItem.SubPoints = append(currentItem.SubPoints, *item)
 					}
 				}
@@ -349,6 +352,9 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 				currentItem = &element.Items[len(element.Items)-1]
 			} else if indent > baseIndent && currentItem != nil {
 				// Es un sub-elemento
+				if currentItem.SubListMarker == "" {
+					currentItem.SubListMarker = p.detectListType(trimmed)
+				}
 				currentItem.SubPoints = append(currentItem.SubPoints, *item)
 			} else if indent < baseIndent {
 				// Indentación menor que la base, terminar parsing

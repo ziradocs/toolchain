@@ -530,6 +530,14 @@ type PointItem struct {
 	// the marker used for this item in its parent's list. It is emitted only
 	// by the nested-list-types-v1 opt-in.
 	SubListType string `json:"subListType,omitempty"`
+	// SubListMarker is the marker kind ("ordered" or "unordered") the author
+	// used for the first item of this item's SubPoints. The parser records it
+	// whether or not nested-list-types-v1 is on, so a renderer can draw a bullet
+	// sublist under a numbered item as bullets. It lives only in memory: it is not
+	// serialized, so the JSON AST and the capability are unchanged, and an AST read
+	// back from JSON (or rewritten by an external filter) has it empty, which
+	// renderers read as "no information" and fall back to the type of the parent.
+	SubListMarker string `json:"-" tstype:"-"`
 }
 
 // NewPointItem crea un nuevo item de punto
