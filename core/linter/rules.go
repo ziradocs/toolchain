@@ -991,23 +991,21 @@ func (r *LastSlideClosingRule) Check(node ast.Node) []diagnostics.Diagnostic {
 		// específico. Un layout declarado por el autor (`SLIDE content` en
 		// strict, `layout:` en flex) nunca se reclasifica: antes un
 		// `SLIDE content` final sin título salía como closing en silencio.
-		if !lastSlide.LayoutDeclared && lastSlide.Title == "" && lastSlide.Heading == "" &&
-			(lastSlide.BlockType == "" || lastSlide.BlockType == "content" || lastSlide.BlockType == "default") {
-
+		// El predicado es ast.ContentBlock.InfersClosingLayout, que el
+		// formatter strict comparte para escribir este mismo layout.
+		if lastSlide.InfersClosingLayout() {
 			// Auto-asignar layout closing al último slide sin título
-			if lastSlide.BlockType == "" || lastSlide.BlockType == "content" || lastSlide.BlockType == "default" {
-				lastSlide.BlockType = "closing"
+			lastSlide.BlockType = "closing"
 
-				// Generar información de que se aplicó auto-detección
-				diag := diagnostics.Diagnostic{
-					Severity: diagnostics.Info,
-					Code:     "LAYOUT_AUTO_CLOSING",
-					Message:  "Last slide automatically detected as 'closing' layout (no title required)",
-					Position: lastSlide.Position,
-					Source:   "linter",
-				}
-				diags = append(diags, diag)
+			// Generar información de que se aplicó auto-detección
+			diag := diagnostics.Diagnostic{
+				Severity: diagnostics.Info,
+				Code:     "LAYOUT_AUTO_CLOSING",
+				Message:  "Last slide automatically detected as 'closing' layout (no title required)",
+				Position: lastSlide.Position,
+				Source:   "linter",
 			}
+			diags = append(diags, diag)
 		}
 	}
 

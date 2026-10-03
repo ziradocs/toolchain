@@ -52,23 +52,44 @@ func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 
 	// Una sola secuencia de anchors para todo el deck, igual que el parser.
 	anchors := &elements.HeadingAnchors{}
+	prevAbsorbs := false
 	for i, block := range doc.ContentBlocks {
-		if i > 0 || fm != "" {
+		// La línea en blanco que separa dos slides la leería como parte del
+		// código un CODE que cierre el slide anterior; ver
+		// absorbsTrailingBlankLines.
+		if (i > 0 || fm != "") && !prevAbsorbs {
 			b.WriteString("\n")
 		}
-		blockText, err := formatStrictContentBlock(&block, anchors)
+		prevAbsorbs = len(block.Elements) > 0 && absorbsTrailingBlankLines(block.Elements[len(block.Elements)-1])
+		blockText, err := formatStrictContentBlock(&block, anchors, i == len(doc.ContentBlocks)-1)
 		if err != nil {
 			return "", err
 		}
 		b.WriteString(blockText)
 	}
 
-	return b.String(), nil
+	out := b.String()
+	if prevAbsorbs {
+		// El final del archivo cuenta como una línea en blanco más para el
+		// CODE con que termina el deck: el salto de línea que cierra la
+		// última línea de texto ya es el "\n" que el contenido declara.
+		out = strings.TrimSuffix(out, "\n")
+	}
+	return out, nil
 }
 
-func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.HeadingAnchors) (string, error) {
+func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.HeadingAnchors, last bool) (string, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "SLIDE %s\n", block.BlockType)
+	blockType := block.BlockType
+	if last && block.InfersClosingLayout() {
+		// Un `SLIDE content` literal declararía el layout y la regla del
+		// linter dejaría de reclasificar el último slide: el texto
+		// formateado se construiría como "content" donde el original se
+		// construía como "closing". Se escribe el layout que el build le
+		// asigna.
+		blockType = "closing"
+	}
+	fmt.Fprintf(&b, "SLIDE %s\n", blockType)
 
 	if block.Heading != "" {
 		if err := checkQuotable("content_block", "heading", block.Heading); err != nil {
@@ -111,10 +132,10 @@ func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.Heading
 	// contrato del formatter; fabricar un archivo que no compila lo rompe más
 	// que perder una opción que ese layout nunca iba a leer.
 	if block.LayoutConfig != nil {
-		if block.LayoutConfig.Align != "" && layouts.Accepts(block.BlockType, "align") {
+		if block.LayoutConfig.Align != "" && layouts.Accepts(blockType, "align") {
 			fmt.Fprintf(&b, "  align: %s\n", block.LayoutConfig.Align)
 		}
-		if block.LayoutConfig.Columns != 0 && layouts.Accepts(block.BlockType, "columns") {
+		if block.LayoutConfig.Columns != 0 && layouts.Accepts(blockType, "columns") {
 			fmt.Fprintf(&b, "  columns: %d\n", block.LayoutConfig.Columns)
 		}
 	}
@@ -263,12 +284,30 @@ func formatStrictElement(el ast.Element) (string, error) {
 	if body == "" {
 		return "", nil
 	}
+	if absorbsTrailingBlankLines(el) {
+		// Los saltos de línea del final del contenido son líneas en blanco
+		// que el parser strict sí cuenta como parte del código, así que no se
+		// recortan.
+		return indent(body, 2) + "\n", nil
+	}
 	// body puede ya terminar en "\n" cuando el contenido del elemento
 	// (TEXT/CODE/MERMAID/PLANTUML) es multi-línea y su Content original
 	// terminaba en newline — indent() preserva ese trailing "\n" tal cual.
 	// TrimRight antes de agregar el separador de línea evita una línea en
 	// blanco fantasma que no existía en el AST original.
 	return strings.TrimRight(indent(body, 2), "\n") + "\n", nil
+}
+
+// absorbsTrailingBlankLines dice si el parser strict lee como parte del
+// elemento las líneas en blanco que le siguen. Es el caso de CODE: su cuerpo
+// sigue hasta la primera línea con menos sangría, las líneas vacías cuentan
+// como contenido, y solo se descarta un salto de línea final. El contenido
+// `x` se escribe entonces SIN línea en blanco detrás, y `x\n` con una.
+// Recortarlas, o agregar la línea en blanco que separa un SLIDE del
+// siguiente, le añade un "\n" al código.
+func absorbsTrailingBlankLines(el ast.Element) bool {
+	c, ok := el.(*ast.CodeElement)
+	return ok && c.Content != ""
 }
 
 // formatStrictText serializa un TextElement como bloque TEXT.
@@ -995,19 +1034,6 @@ func formatPlantUML(e *ast.PlantUMLElement) (string, error) {
 // todos los reales. El harness de round-trip no lo detectó porque SKIPeaba
 // todo fixture que devolviera UnsupportedElementError; ese skip ahora está
 // acotado a un allowlist (ver document_roundtrip_test.go).
-// hasAnyChartSeriesAxis reporta si al menos una serie de un combo chart
-// declaró su propio eje Y — SeriesAxes puede venir con la misma longitud
-// que Series pero todas las entradas vacías (ninguna serie lo declaró), en
-// cuyo caso emitir `yAxisID: ["", "", ""]` sería ruido puro.
-func hasAnyChartSeriesAxis(axes []string) bool {
-	for _, a := range axes {
-		if a != "" {
-			return true
-		}
-	}
-	return false
-}
-
 func formatChart(e *ast.ChartElement) (string, error) {
 	// width/height solo se emiten si el autor los declaró (Width/Height != 0).
 	// Antes salían SIEMPRE, porque ChartParser horneaba su 800x600 en el AST:
@@ -1033,7 +1059,12 @@ func formatChart(e *ast.ChartElement) (string, error) {
 		}
 		fmt.Fprintf(&b, "type: %s\n", types)
 	}
-	if hasAnyChartSeriesAxis(e.SeriesAxes) {
+	// Un SeriesAxes sin ningún eje declarado pero con una entrada por serie
+	// (así lo arma la forma YAML anidada de un combo) se escribe tal cual:
+	// omitirlo reparsearía como nil, y el AST de un build deja de ser el
+	// mismo aunque ningún renderer distinga una cosa de la otra. Un chart
+	// que nunca tuvo la propiedad (nil) no la emite.
+	if len(e.SeriesAxes) > 0 {
 		axes, err := formatInlineArray("chart", "yAxisID", e.SeriesAxes)
 		if err != nil {
 			return "", err

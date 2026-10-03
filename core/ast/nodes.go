@@ -367,6 +367,18 @@ func (c ContentBlock) SectionTitle() (title string, numbered bool) {
 	return c.Heading, false
 }
 
+// InfersClosingLayout dice si, estando al final del deck, este bloque se
+// reclasifica solo como "closing": el autor no declaró un layout, no hay
+// título ni heading, y el tipo es el de un slide de contenido corriente.
+// LastSlideClosingRule (core/linter) lo aplica al último bloque en el build, y
+// el formatter strict lo usa para escribir ese layout de forma explícita: un
+// `SLIDE content` literal marca LayoutDeclared y la regla ya no lo tocaría, así
+// que el texto formateado se construiría distinto al original.
+func (c ContentBlock) InfersClosingLayout() bool {
+	return !c.LayoutDeclared && c.Title == "" && c.Heading == "" &&
+		(c.BlockType == "" || c.BlockType == "content" || c.BlockType == "default")
+}
+
 // NewContentBlock crea un nuevo bloque de contenido
 func NewContentBlock(pos diagnostics.Position, blockType string) *ContentBlock {
 	return &ContentBlock{

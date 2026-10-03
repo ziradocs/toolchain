@@ -151,15 +151,14 @@ var acceptedFmtRefusals = map[string]string{}
 // A refusal stops the comparison, so a source listed only as G may be hiding
 // other defects that show up once it gets past the refusal.
 var expectedFmtGaps = map[string]string{
-	"01_title_and_content/01.1_frontmatter_variables_flex.slidelang":         "D+E",
 	"01_title_and_content/01.2_text_formatting_flex.slidelang":               "G",
 	"01_title_and_content/01.3_lists_and_tables_flex.slidelang":              "G",
 	"01_title_and_content/01.4_special_blocks_flex.slidelang":                "G",
 	"01_title_and_content/01.5_layouts_and_images_flex.slidelang":            "G",
 	"01_title_and_content/01.6_ui_elements_flex.slidelang":                   "A+B",
 	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang":        "G",
-	"01_title_and_content/01_title_and_content_flex.slidelang":               "A+B+D+E",
-	"01_title_and_content/content_platform_launch_flex.slidelang":            "A+B+D+E",
+	"01_title_and_content/01_title_and_content_flex.slidelang":               "A+B",
+	"01_title_and_content/content_platform_launch_flex.slidelang":            "A+H",
 	"02_diagrams_and_charts/02.2_technical_diagrams_flex.slidelang":          "G",
 	"02_diagrams_and_charts/02_diagrams_and_charts_flex.slidelang":           "A",
 	"02_diagrams_and_charts/analytics_dashboard_presentation_flex.slidelang": "G",
@@ -170,18 +169,13 @@ var expectedFmtGaps = map[string]string{
 	"18_specialized_layouts/18.4_dashboard_metrics_flex.slidelang":           "A",
 	"18_specialized_layouts/18.4_headers_footers_advanced_flex.slidelang":    "A",
 	"18_specialized_layouts/18.5_headers_footers_granular_flex.slidelang":    "A",
-	"18_specialized_layouts/auto_closing_demo.slidelang":                     "C",
 	"18_specialized_layouts/closing_demo.slidelang":                          "A",
 	"18_specialized_layouts/product_launch_presentation_flex.slidelang":      "A",
 	"directive_modifiers.slidelang":                                          "A",
 	"gallery/02_flex_mode_essentials.slidelang":                              "G",
 	"gallery/07_special_blocks_and_checklists.slidelang":                     "G",
-	"gallery/08_code_and_code_groups.slidelang":                              "E",
 	"gallery/10_startup_pitch_deck.slidelang":                                "G",
-	"maps_offline_test.slidelang":                                            "E",
 	"openai_fixed.slidelang":                                                 "A",
-	"quotes_demo_flex.slidelang":                                             "E",
-	"use-cases/corporate/digital_transformation_strategy.slidelang":          "F",
 }
 
 func flexCorpusFiles(t *testing.T) []string {
