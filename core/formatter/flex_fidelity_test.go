@@ -869,3 +869,36 @@ func TestFlexToStrict_ImageContextInsideABlockIsKeptOrRefused(t *testing.T) {
 		})
 	}
 }
+
+// A flex fence with highlighted lines keeps the whole info string as the
+// language, and strict reads a CODE header whose second word starts with { or [
+// the same way, so the deck transpiles to the same AST.
+func TestFlexToStrict_FenceWithHighlightedLines(t *testing.T) {
+	for name, src := range map[string]string{
+		"braces":  "---\nmode: flex\n---\n\n## One\n\n```python {1,3-5}\na = 1\nb = 2\nc = 3\n```\n",
+		"bracket": "---\nmode: flex\n---\n\n## One\n\n```ts [label]\nconst a = 1\n```\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			diffs, out := flexCorpusASTDiffs(t, src)
+			if len(diffs) != 0 {
+				t.Fatalf("the AST changed:\n  %s\n%s", strings.Join(diffs, "\n  "), out)
+			}
+			again, err := FormatStrict(parseSlides(t, out))
+			if err != nil || again != out {
+				t.Errorf("not idempotent (%v):\n--- first ---\n%s\n--- second ---\n%s", err, out, again)
+			}
+		})
+	}
+}
+
+// Any other language with more than one word would read back as a file name.
+func TestFormatStrict_LanguageWithSeveralWordsIsRefused(t *testing.T) {
+	for _, lang := range []string{"python extra", "python a.py b.py", "ts\t{1}"} {
+		c := ast.NewCodeElement(diagnostics.NewPosition(3, 1), lang, "x")
+		_, err := FormatStrict(chartDoc(c))
+		var uerr *UnsupportedElementError
+		if !errors.As(err, &uerr) || uerr.NodeType != "code" {
+			t.Errorf("language %q: want an UnsupportedElementError for code, got %v", lang, err)
+		}
+	}
+}
