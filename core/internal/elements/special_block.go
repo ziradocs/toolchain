@@ -368,9 +368,10 @@ func trimIndent(line string, n int) string {
 
 // splitTypedAttribute reconoce `tipo{... typed ...}` al inicio de la línea de
 // apertura de un bloque. Devuelve el tipo SIN la bandera (con sus demás
-// atributos, si los hay), el resto de la línea como título, y true. Solo cuenta
-// `typed` como palabra completa fuera de comillas: `{title="a typed b"}` no es la
-// bandera.
+// atributos separados por un espacio), el resto de la línea como título, y true.
+// Solo cuenta `typed` como palabra completa fuera de comillas, y las palabras se
+// separan por espacios o por comas: `{typed}`, `{ typed }` y `{type="x",typed}`
+// son la bandera; `{title="a typed b"}` no.
 func splitTypedAttribute(s string) (blockType, title string, ok bool) {
 	open := strings.IndexByte(s, '{')
 	if open <= 0 || strings.ContainsAny(s[:open], " \t") {
@@ -389,7 +390,7 @@ func splitTypedAttribute(s string) (blockType, title string, ok bool) {
 			closeAt = i
 			break
 		}
-		if !inQuote && (c == ' ' || c == '\t') {
+		if !inQuote && (c == ' ' || c == '\t' || c == ',') {
 			if cur.Len() > 0 {
 				tokens = append(tokens, cur.String())
 				cur.Reset()

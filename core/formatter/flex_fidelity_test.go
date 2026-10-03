@@ -796,3 +796,56 @@ func TestFormatMap_LineBreakInAValueIsRefused(t *testing.T) {
 		t.Error("a line break in an option title must be refused")
 	}
 }
+
+// A flex block whose type already carries the word typed inside braces would read
+// back as the flag, so writing it would change its type: it is refused naming the
+// block, with or without nested elements, and the same for other attributes next to
+// it (in flex `{type="x" typed}` is the type `card{type="x"` and the title `typed}`).
+func TestFlexToStrict_FlexTypeThatLooksLikeTheFlagIsRefused(t *testing.T) {
+	for name, src := range map[string]string{
+		"plain body":      "---\nmode: flex\n---\n\n## One\n\n:::card{typed}\nplain\n:::\n",
+		"heading body":    "---\nmode: flex\n---\n\n## One\n\n:::card{typed}\n### H\nbody\n:::\n",
+		"other attribute": "---\nmode: flex\n---\n\n## One\n\n:::card{type=\"x\" typed}\nplain\n:::\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := FormatStrict(parseSlides(t, src))
+			var uerr *UnsupportedElementError
+			if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+				t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+			}
+		})
+	}
+	// The word in the title is not in the braces of the type: it round-trips.
+	diffs, _ := flexCorpusASTDiffs(t, "---\nmode: flex\n---\n\n## One\n\n:::card Foo{typed}\nplain\n:::\n")
+	if len(diffs) != 0 {
+		t.Errorf("a title with {typed} must round-trip: %v", diffs)
+	}
+}
+
+// The context of an image is inferred from the text around it, and a markdown
+// image inside a block has no IMAGE line to carry a context: property. When the
+// strict text infers a different one the block is refused rather than written
+// with a context that differs from flex.
+func TestFlexToStrict_ImageContextInsideABlockIsKeptOrRefused(t *testing.T) {
+	for name, src := range map[string]string{
+		"first slide":  "---\nmode: flex\n---\n\n# Deck\n\n:::card\n![A](a.png)\n:::\n",
+		"first in box": "---\nmode: flex\n---\n\n## One\n\n:::card\n![A](a.png)\n### H\n:::\n",
+		"later slide":  "---\nmode: flex\n---\n\n# Deck\n\n---\n\n## Two\n\ntext\n\n:::card\n### H\n![A](a.png)\n:::\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			want, _ := buildASTForComparison(t, src, "x.slidelang")
+			out, err := FormatStrict(parseSlides(t, src))
+			if err != nil {
+				var uerr *UnsupportedElementError
+				if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+					t.Fatalf("a refusal must name special_block, got %v", err)
+				}
+				return
+			}
+			got, _ := buildASTForComparison(t, out, "x.slidelang")
+			if diffs := diffASTs(want, got); len(diffs) != 0 {
+				t.Fatalf("written with a different AST:\n  %s\n%s", strings.Join(diffs, "\n  "), out)
+			}
+		})
+	}
+}

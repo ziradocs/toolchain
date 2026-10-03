@@ -1636,7 +1636,7 @@ func checkNestedBlockElements(doc, parsed *ast.AST) error {
 		for i, block := range want {
 			if block.BlockType != got[i].BlockType || block.Title != got[i].Title || block.Content != got[i].Content {
 				return newUnsupported("special_block", fmt.Sprintf(
-					"the %s block does not read back with the same content in strict, so formatting would change it", blockLabel(block)))
+					"the %s block does not read back with the same type, title and content in strict, so formatting would change it", blockLabel(block)))
 			}
 		}
 	}

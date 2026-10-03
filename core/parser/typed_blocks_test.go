@@ -171,3 +171,55 @@ func TestTypedBlock_FlexKeepsTheAttributeInTheType(t *testing.T) {
 		t.Errorf("unexpected diagnostics %v", rules)
 	}
 }
+
+// The flag is a word inside the braces: spaces around it and a comma in front of it
+// do not hide it, and the attributes that are left stay in the block type.
+func TestTypedBlock_FlagSpellings(t *testing.T) {
+	for _, tc := range []struct {
+		opening  string
+		wantType string
+	}{
+		{":::card{ typed }", "card"},
+		{":::card{typed}", "card"},
+		{`:::card{type="x",typed}`, `card{type="x"}`},
+		{`:::card{typed,type="x"}`, `card{type="x"}`},
+		{`:::card{type="x" typed}`, `card{type="x"}`},
+	} {
+		sb, _ := firstBlock(t, strictHead+"  "+tc.opening+"\n  ### Heading\n  body\n  :::\n")
+		if sb.BlockType != tc.wantType || len(sb.Elements) == 0 {
+			t.Errorf("%s: type %q with %d elements, want %q typed", tc.opening, sb.BlockType, len(sb.Elements), tc.wantType)
+		}
+	}
+}
+
+// Anything that is not the whole word is not the flag.
+func TestTypedBlock_LookalikesAreNotTheFlag(t *testing.T) {
+	for _, opening := range []string{":::card{untyped}", ":::card{typed-x}", ":::card{typed=false}", ":::card{TYPED}", ":::card Title{typed}"} {
+		sb, _ := firstBlock(t, strictHead+"  "+opening+"\n  ### Heading\n  body\n  :::\n")
+		if len(sb.Elements) != 0 {
+			t.Errorf("%s: read as typed (%d elements)", opening, len(sb.Elements))
+		}
+	}
+}
+
+// Only the indentation of the opening line is removed from the body. A body
+// indented deeper keeps the difference inside nested code, which a flex block
+// (flush with its opening) never has; fmt writes the body flush.
+func TestTypedBlock_OnlyTheOpeningIndentationIsRemoved(t *testing.T) {
+	flush, _ := firstBlock(t, strictHead+"  :::card{typed}\n  ```go\n  x := 1\n  ```\n  :::\n")
+	deeper, _ := firstBlock(t, strictHead+"  :::card{typed}\n    ```go\n    x := 1\n    ```\n  :::\n")
+	code := func(sb *ast.SpecialBlockElement) string {
+		for _, el := range sb.Elements {
+			if c, ok := el.(*ast.CodeElement); ok {
+				return c.Content
+			}
+		}
+		return "<none>"
+	}
+	if code(flush) != "x := 1" {
+		t.Errorf("flush body: code %q, want %q", code(flush), "x := 1")
+	}
+	if code(deeper) != "  x := 1" {
+		t.Errorf("deeper body: code %q, want the extra indentation kept", code(deeper))
+	}
+}

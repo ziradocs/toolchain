@@ -480,13 +480,24 @@ own, which do not include headings or fences, so the same lines give an empty
 
 A `typed` attribute on the opening line of a **strict** block (`:::card{typed}`,
 `:::details{typed} Advanced settings`, `:::card{type="success" typed}`) reads the
-body with the flex recognizers, after removing the block's own indentation from the
-lines, so that `content` and `elements` equal what the flex block with that body
-produces. `typed` counts only as a whole word outside quotes in the attribute list,
-and the block type is what is left: `:::card{type="success" typed}` has the block
+body with the flex recognizers, so that `content` and `elements` equal what the
+flex block with that body produces. There is no general attribute reader: the text
+inside the braces stays in the block type, as it always did, and the flag is
+detected as a word inside the braces. Words are separated by spaces or commas
+outside quotes, so `{ typed }`, `{typed}` and `{type="x",typed}` are all the flag;
+`typed` has to be the whole word (`untyped`, `typed-x`, `typed=false` and `TYPED`
+are not) and not inside quotes. The block type is what is left, with the other
+attributes separated by one space: `:::card{type="success" typed}` has the block
 type `card{type="success"}`, the same as the flex block. `slidelang fmt` writes it
 where strict would otherwise lose the nested elements, and only if the text then
 reads back with the same elements.
+
+The typed reading removes from the lines that follow only the indentation of the
+opening line. A body indented deeper than its opening line keeps the extra
+indentation inside nested code, which a flex block (whose body is flush with its
+opening) never has, so `slidelang fmt` writes the body flush with the opening line.
+`fmt` refuses a flex block whose type already contains the word `typed` inside
+braces, since writing it would read back as the flag.
 
 It is an attribute and not a word of the title so that it never meets one: a title
 such as "Dynamically typed" is a title with or without nested elements, and no
