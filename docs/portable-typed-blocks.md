@@ -1,6 +1,6 @@
 # Typed special blocks
 
-Status: proposal, not implemented. Opt-in per block, no change to the JSON
+Status: implemented in #414. Opt-in per block, no change to the JSON
 schema. Without the opt-in, every existing source and AST keeps its current
 meaning byte for byte.
 
@@ -45,7 +45,9 @@ produces.
 
 ## Decision
 
-A block opts in by a trailing word on its opening line, in strict only:
+A block opts in by a trailing word on its opening line, in strict only. The marker
+is the last word of the line, so a titled block works too
+(`:::details Advanced settings typed`):
 
 ```
 :::card typed
@@ -103,11 +105,13 @@ as the ones with a rendering.
 
 ## The one change of meaning
 
-A strict block whose title is exactly the word `typed` (`:::info typed`) is now
-a typed block with no title. Any other title is untouched, and so is every flex
-source, where `typed` stays part of the title. This is the only existing source
-that reads differently, and it is documented in the spec and in the release
-notes.
+A strict block whose title ends in the word `typed` (`:::info Why typed`) is now a
+typed block, and the word leaves the title (`Why`). The first draft said "exactly
+the word", which would have left titled blocks without a marker; reading the last
+word covers them at the price of this wider case. Any other title is untouched, and
+so is every flex source, where `typed` stays part of the title. This is the only
+existing source that reads differently, and it is documented in the spec and in the
+release notes.
 
 The parser warns about it. When a block is read as typed but its body yields no
 nested elements, the marker had no effect, and the likeliest reason is an author
@@ -122,10 +126,11 @@ marker.
 ## Formatter
 
 `formatSpecialBlock` writes ` typed` on the opening line when the block has
-nested elements and strict would not reproduce them. The check already exists
-(`checkNestedBlockElements` reads the text back and compares the nested
-elements); the change is to retry with the marker and keep it only if the
-elements then read back equal. A block whose elements strict already
+nested elements and strict would not reproduce them. It reads the candidate text
+back (inside a one-slide document) and keeps the marker only if the title, the
+content and the nested elements then read back equal. The typed reading removes the
+block's own indentation from the lines first, so a fence inside a block sees the
+same lines it would in flex. A block whose elements strict already
 reproduces, and every prose-only block, formats byte for byte as it does today.
 When even the typed reading does not reproduce them, the refusal naming
 `special_block` stays.
@@ -203,3 +208,13 @@ adding it later changes no source and no AST that exists before it.
 ## Out of scope
 
 A heading recognizer for strict blocks that does not need the marker.
+
+## What stays refused
+
+A block's `content` is trimmed line by line, while a nested fenced code block keeps
+the indentation it had. Strict text only has the trimmed lines, so a typed block
+reads such code back without its indentation, and the formatter keeps refusing the
+block naming `special_block` (two example decks). A fence whose info string has more
+than one word after the language (```` ```python {1,3-5} ````) keeps the whole
+string as the language, and strict reads the second word of a `CODE` line as a file
+name, so the formatter refuses it naming `code`.
