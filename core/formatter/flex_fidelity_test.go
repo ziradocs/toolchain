@@ -189,3 +189,59 @@ func TestFormatChart_AllEmptySeriesAxesAreWritten(t *testing.T) {
 		t.Errorf("SeriesAxes after round-trip = %#v", got)
 	}
 }
+
+func imageContexts(doc *ast.AST) []ast.ImageContext {
+	var out []ast.ImageContext
+	for _, img := range collectImages(doc) {
+		out = append(out, img.Context)
+	}
+	return out
+}
+
+// An image's context is inferred from the text around it, and flex and strict
+// read that text differently. fmt has to carry the value the flex source had.
+func TestFlexToStrict_ImageContextSurvives(t *testing.T) {
+	cases := map[string]string{
+		"cover":      "---\nmode: flex\n---\n\n# Deck\n\n## Sub\n\n![Logo](logo.png)\n\n---\n\n## Two\n\ntext\n",
+		"standalone": "---\nmode: flex\n---\n\n# Deck\n\n---\n\n## Two\n\ntext\n\n- a\n- b\n- c\n\n![Photo](photo.png)\n",
+		"gallery":    "---\nmode: flex\n---\n\n# Deck\n\n---\n\n## Two\n\n![A](a.png)\n![B](b.png)\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			want := imageContexts(parseSlides(t, src))
+			out, reparsed := transpile(t, src)
+			got := imageContexts(reparsed)
+			if len(want) == 0 || len(want) != len(got) {
+				t.Fatalf("images: %v before, %v after\n%s", want, got, out)
+			}
+			for i := range want {
+				if want[i] != got[i] {
+					t.Errorf("image %d: context %q before, %q after\n%s", i, want[i], got[i], out)
+				}
+			}
+			again, err := FormatStrict(reparsed)
+			if err != nil {
+				t.Fatalf("second FormatStrict: %v", err)
+			}
+			if again != out {
+				t.Errorf("not idempotent:\n--- first ---\n%s\n--- second ---\n%s", out, again)
+			}
+		})
+	}
+}
+
+// A strict source whose images already infer the context they had gets no
+// `context:` line: formatting it does not add noise.
+func TestFormatStrict_ImageContextOnlyWhenNeeded(t *testing.T) {
+	src := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"One\"\n  TEXT\n    a\n  TEXT\n    b\n  TEXT\n    c\n  IMAGE \"a.png\" \"alt\"\n\nSLIDE content\n  title: \"Two\"\n  TEXT\n    x\n"
+	out, err := FormatStrict(parseSlides(t, src))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	if strings.Contains(out, "context:") {
+		t.Errorf("an inferable context must not be written:\n%s", out)
+	}
+	if out != src {
+		t.Errorf("canonical strict text changed:\n--- want ---\n%s\n--- got ---\n%s", src, out)
+	}
+}

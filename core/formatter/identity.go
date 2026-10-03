@@ -13,6 +13,22 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
+// reparseFormatted reads back the strict text the formatter just wrote, the
+// way a build would, without normalization. The result may be nil.
+func reparseFormatted(source string, document bool) *ast.AST {
+	p := parser.New(util.NewNoop())
+	p.SetNormalization(false)
+	var parsed *ast.AST
+	if document {
+		parsed, _ = p.ParseDocument(source, "")
+	} else if !strings.HasPrefix(source, "---\n") {
+		parsed, _ = parser.NewStrictParser(source, util.NewNoop()).Parse()
+	} else {
+		parsed, _ = p.Parse(source, "")
+	}
+	return parsed
+}
+
 // formatNodeIDs annotates the canonical source only after verifying that the
 // formatter preserved the AST traversal shape. This is serialization of IDs
 // already present in the AST; author edits are never matched by position,
@@ -41,16 +57,7 @@ func formatNodeIDs(doc *ast.AST, source string, document bool) (string, error) {
 		return "", fmt.Errorf("document root nodeId cannot be represented in source")
 	}
 
-	p := parser.New(util.NewNoop())
-	p.SetNormalization(false)
-	var parsed *ast.AST
-	if document {
-		parsed, _ = p.ParseDocument(source, "")
-	} else if !strings.HasPrefix(source, "---\n") {
-		parsed, _ = parser.NewStrictParser(source, util.NewNoop()).Parse()
-	} else {
-		parsed, _ = p.Parse(source, "")
-	}
+	parsed := reparseFormatted(source, document)
 	if parsed == nil {
 		return "", fmt.Errorf("cannot reparse formatted source to place node IDs")
 	}

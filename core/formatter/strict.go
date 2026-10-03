@@ -34,6 +34,7 @@ func FormatStrict(doc *ast.AST) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	out = placeImageContexts(doc, out)
 	return formatNodeIDs(doc, out, false)
 }
 
@@ -1359,4 +1360,68 @@ func nestedTypedHeading(elements []ast.Element) bool {
 		}
 	}
 	return false
+}
+
+// placeImageContexts declares `context:` on the images whose context the strict
+// parser would not infer from where they now sit.
+//
+// ImageElement.Context is inferred from the text around the image, and the two
+// dialects read that text differently: a cover image under `# Title` in flex is
+// "title", while the same IMAGE inside a SLIDE is "content" (or "hero" or
+// "standalone"). Writing the image alone changes the AST, and the formatter
+// cannot know the inferred value without reading its own output, so it does
+// that: the text is parsed back, each image is paired with the original by
+// document order, and only the ones that differ get the property. A source
+// whose images already infer the same context formats exactly as before.
+//
+// If the text does not parse back to the same number of images the pairing is
+// meaningless and the text is returned untouched; formatNodeIDs and the
+// callers' own round-trip checks report such a mismatch.
+func placeImageContexts(doc *ast.AST, source string) string {
+	want := collectImages(doc)
+	if len(want) == 0 {
+		return source
+	}
+	parsed := reparseFormatted(source, false)
+	if parsed == nil {
+		return source
+	}
+	got := collectImages(parsed)
+	if len(got) != len(want) {
+		return source
+	}
+
+	lines := strings.Split(source, "\n")
+	type insertion struct {
+		after   int // zero-based index of the IMAGE line
+		context ast.ImageContext
+	}
+	var inserts []insertion
+	for i, img := range want {
+		line := got[i].GetPosition().Line
+		if img.Context == "" || img.Context == got[i].Context || line < 1 || line > len(lines) ||
+			!strings.HasPrefix(strings.TrimSpace(lines[line-1]), "IMAGE") {
+			continue
+		}
+		inserts = append(inserts, insertion{after: line - 1, context: img.Context})
+	}
+	for i := len(inserts) - 1; i >= 0; i-- {
+		in := inserts[i]
+		imageLine := lines[in.after]
+		pad := imageLine[:len(imageLine)-len(strings.TrimLeft(imageLine, " \t"))] + "  "
+		prop := pad + "context: " + string(in.context)
+		lines = append(lines[:in.after+1], append([]string{prop}, lines[in.after+1:]...)...)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func collectImages(doc *ast.AST) []*ast.ImageElement {
+	var images []*ast.ImageElement
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if img, ok := n.(*ast.ImageElement); ok {
+			images = append(images, img)
+		}
+		return nil
+	})
+	return images
 }
