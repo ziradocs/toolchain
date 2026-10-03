@@ -420,3 +420,90 @@ func TestFormatNotes(t *testing.T) {
 		}
 	}
 }
+
+// A flex ::: block with a heading, fenced code, a table or an image inside
+// carries those as Elements next to the raw Content. Strict reads the body as
+// raw lines, so the text would come back without them: fmt has to say so.
+func TestFlexToStrict_NestedBlockElementsAreRefused(t *testing.T) {
+	cases := map[string]string{
+		"heading": "---\nmode: flex\n---\n\n## One\n\n:::card\n### Title\nbody\n:::\n",
+		"code":    "---\nmode: flex\n---\n\n## One\n\n:::tabs\n```go\nx := 1\n```\n:::\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := FormatStrict(parseSlides(t, src))
+			var uerr *UnsupportedElementError
+			if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+				t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+			}
+			if !strings.Contains(uerr.Reason, ":::") {
+				t.Errorf("the reason should name the block: %s", uerr.Reason)
+			}
+		})
+	}
+}
+
+// A block with only prose is not affected: Content is all there is to keep.
+func TestFlexToStrict_PlainSpecialBlockStillTranspiles(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n## One\n\n:::info Heads up\nJust prose here.\n:::\n"
+	out, _ := transpile(t, src)
+	if !strings.Contains(out, ":::info Heads up") {
+		t.Errorf("the block was not written:\n%s", out)
+	}
+}
+
+// With nested blocks the innermost one that loses elements is the one named,
+// and a block that holds other blocks does not make the pairing silently pass.
+func TestFlexToStrict_NestedBlockErrorNamesTheInnermostBlock(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n## One\n\n:::tabs Outer\n::: card Inner\n### Heading\nbody\n:::\n:::\n"
+	_, err := FormatStrict(parseSlides(t, src))
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+		t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+	}
+	if !strings.Contains(uerr.Reason, "card Inner") {
+		t.Errorf("the reason should name the innermost block, got: %s", uerr.Reason)
+	}
+}
+
+func TestFlexToStrict_NestedBlocksInDocumentsAreRefused(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n# Doc\n\n:::card T\n### H\nbody\n:::\n"
+	p := parser.New(util.NewNoop())
+	doc, diags := p.ParseDocument(src, "d.doclang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("does not parse: %s", d.String())
+		}
+	}
+	_, err := FormatDocumentStrict(doc)
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+		t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+	}
+}
+
+func TestCheckNestedBlockElements_FailsClosedWhenTheTextDoesNotReadBack(t *testing.T) {
+	doc := parseSlides(t, "---\nmode: flex\n---\n\n## One\n\n:::card\n### H\nbody\n:::\n")
+	err := checkNestedBlockElements(doc, nil)
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want an UnsupportedElementError, got %v", err)
+	}
+	// Different number of blocks: an empty slide read back.
+	empty := parseSlides(t, "---\nmode: strict\n---\n\nSLIDE content\n  title: \"x\"\n")
+	if err := checkNestedBlockElements(doc, empty); err == nil {
+		t.Error("a block that did not come back must be reported")
+	}
+}
+
+func TestFlexToStrict_NestedBlockErrorNamesTheColumn(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n## One\n\n:::: grid\n::: column\n### H\ntext\n:::\n::: column\nother\n:::\n::::\n"
+	_, err := FormatStrict(parseSlides(t, src))
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want an UnsupportedElementError, got %v", err)
+	}
+	if !strings.Contains(uerr.Reason, "column") {
+		t.Errorf("the reason should name the column that loses its heading, got: %s", uerr.Reason)
+	}
+}

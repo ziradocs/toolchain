@@ -6,6 +6,7 @@ package formatter
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -32,6 +33,11 @@ import (
 func FormatStrict(doc *ast.AST) (string, error) {
 	out, err := formatStrictWithoutIDs(doc)
 	if err != nil {
+		return "", err
+	}
+	// Se lee la salida una vez para la verificación que depende de cómo la
+	// interpreta el parser strict.
+	if err := checkNestedBlockElements(doc, reparseFormatted(out, false)); err != nil {
 		return "", err
 	}
 	out, err = placeImageContexts(doc, out)
@@ -1328,7 +1334,7 @@ func formatNotes(content string) (text string, multiline bool, err error) {
 	if !strings.ContainsAny(content, "\r\n") && !strings.HasPrefix(content, `"`) && !strings.HasSuffix(content, `"`) {
 		return "@notes \"" + content + "\"", false, nil
 	}
-	return "", false, newUnsupported("directive", "el cuerpo de @notes tiene líneas que strict no puede leer de vuelta (vacías, con sangría propia o que empiezan con @, --- o #)")
+	return "", false, newUnsupported("directive", "the body of @notes has lines strict cannot read back (empty, padded, or starting with @, --- or #)")
 }
 
 // notesBodySafe dice si cada línea de content sobrevive a la lectura del
@@ -1499,4 +1505,156 @@ func collectImages(doc *ast.AST) []*ast.ImageElement {
 		return nil
 	})
 	return images
+}
+
+// checkNestedBlockElements refuses a `:::` block whose nested elements strict
+// would not read back.
+//
+// A flex block is parsed into Content (the raw lines) and, when the body holds
+// something recognizable, into Elements: headings under `###`, fenced code,
+// Markdown tables and images. The strict parser recognizes those only in its own
+// syntax (CODE, TABLE, IMAGE), never inside the raw lines of a block, and the
+// formatter writes Content, so the text reads back with no Elements at all (see
+// ast.SpecialBlockElement.Elements). There is no strict text for them that also
+// keeps Content, so fmt says so instead of handing back a deck that builds
+// differently. A block whose Elements the strict parser reproduces (an embedded
+// <<chart>>, for instance) passes.
+//
+// parsed is the formatter's own output read back; when it is nil, or has a
+// different number of blocks, the pairing is meaningless and the check is left
+// to the callers' round-trip comparisons.
+func checkNestedBlockElements(doc, parsed *ast.AST) error {
+	if parsed == nil {
+		return newUnsupported("special_block", "the formatted text cannot be read back to check the nested elements of its ::: blocks")
+	}
+	want, got := collectSpecialBlocks(doc), collectSpecialBlocks(parsed)
+	var losing []*ast.SpecialBlockElement
+	for i, block := range want {
+		if len(block.Elements) == 0 {
+			continue
+		}
+		// With the same number of blocks they pair by document order and each
+		// one is compared. With a different number (a block holding other
+		// blocks lost its children) there is nothing to pair, so every block
+		// with nested elements counts as losing them.
+		if len(want) == len(got) && sameElements(block.Elements, got[i].Elements) {
+			continue
+		}
+		losing = append(losing, block)
+	}
+	if len(losing) == 0 {
+		return nil
+	}
+	block := innermostBlock(losing)
+	label := ":::" + block.BlockType
+	if block.Title != "" {
+		label += " " + block.Title
+	}
+	return newUnsupported("special_block", fmt.Sprintf(
+		"the %s block has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them", label))
+}
+
+// innermostBlock picks, among blocks that lose nested elements, the first one
+// (in document order) that holds no other such block: the one the author has to
+// look at, instead of the container around it.
+func innermostBlock(losing []*ast.SpecialBlockElement) *ast.SpecialBlockElement {
+	for _, block := range losing {
+		inner := false
+		for _, other := range losing {
+			if other != block && containsBlock(block, other) {
+				inner = true
+				break
+			}
+		}
+		if !inner {
+			return block
+		}
+	}
+	return losing[0]
+}
+
+func containsBlock(outer, target *ast.SpecialBlockElement) bool {
+	var search func(els []ast.Element) bool
+	search = func(els []ast.Element) bool {
+		for _, el := range els {
+			switch e := el.(type) {
+			case *ast.SpecialBlockElement:
+				if e == target || search(e.Elements) {
+					return true
+				}
+			case *ast.GridElement:
+				for _, col := range e.Columns {
+					if search(col.Elements) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	return search(outer.Elements)
+}
+
+func collectSpecialBlocks(doc *ast.AST) []*ast.SpecialBlockElement {
+	if doc == nil {
+		return nil
+	}
+	var blocks []*ast.SpecialBlockElement
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if b, ok := n.(*ast.SpecialBlockElement); ok {
+			blocks = append(blocks, b)
+		}
+		return nil
+	})
+	return blocks
+}
+
+// sameElements compares two element lists by their serialized form, without
+// positions and without the fields a build derives from the parsed ones.
+func sameElements(a, b []ast.Element) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return reflect.DeepEqual(stripPositions(a), stripPositions(b))
+}
+
+func stripPositions(v interface{}) interface{} {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var tree interface{}
+	if err := json.Unmarshal(raw, &tree); err != nil {
+		return nil
+	}
+	return dropPositionKeys(tree)
+}
+
+// dropPositionKeys removes what is not part of the parsed structure.
+func dropPositionKeys(v interface{}) interface{} {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(x))
+		for k, val := range x {
+			if k == "position" || k == "endPosition" || strings.HasSuffix(k, "Positions") {
+				continue
+			}
+			// Derived by the build, not by the parser: an AST that came back
+			// from a build carries them and the freshly parsed one does not.
+			// nodeId is written by formatNodeIDs after this check, as a comment
+			// next to the node.
+			if (strings.HasSuffix(k, "HTML") && k != "isRawHTML") || k == "langRuns" || k == "discardedLangRuns" || k == "nodeId" {
+				continue
+			}
+			out[k] = dropPositionKeys(val)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(x))
+		for i, val := range x {
+			out[i] = dropPositionKeys(val)
+		}
+		return out
+	}
+	return v
 }

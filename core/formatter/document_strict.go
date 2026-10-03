@@ -28,6 +28,9 @@ func FormatDocumentStrict(doc *ast.AST) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := checkNestedBlockElements(doc, reparseFormatted(out, true)); err != nil {
+		return "", err
+	}
 	return formatNodeIDs(doc, out, true)
 }
 
