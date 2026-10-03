@@ -84,10 +84,18 @@ func checkQuotable(nodeType, field, s string) error {
 }
 
 // checkEdgeQuotable is the guard for a map's quoted fields. The map reader takes
-// the text after the key and only trims double quotes from both ends, so a quote
-// in the middle of the value reads back as written; only a quote at either end
-// would be eaten.
+// the text after the key on one line and only trims double quotes from both ends,
+// so a quote in the middle of the value reads back as written; only a quote at
+// either end would be eaten, and a line break would split the value.
 func checkEdgeQuotable(nodeType, field, s string) error {
+	// The map body is read line by line, so a real line break in a value (a JSON
+	// map with "a\nb") would end the field and start a new line of the body: it
+	// read back as a different map, with no error.
+	if strings.ContainsAny(s, "\r\n") {
+		return newUnsupported(nodeType, fmt.Sprintf(
+			"the %s field contains a line break (%q), and the map body is read line by line, so the value would be split when read back",
+			field, s))
+	}
 	if strings.HasPrefix(s, `"`) || strings.HasSuffix(s, `"`) {
 		return newUnsupported(nodeType, fmt.Sprintf(
 			"the %s field starts or ends with a double quote (%q), which the reader trims along with the quotes that surround the value",

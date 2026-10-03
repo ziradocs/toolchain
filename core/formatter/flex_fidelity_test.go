@@ -702,3 +702,34 @@ func TestFormatMap_InnerQuotesRoundTripEdgeQuotesAreRefused(t *testing.T) {
 		t.Fatalf("an edge quote should be refused naming map, got %v", err)
 	}
 }
+
+// A line break inside a map value would end the field in a body that is read line
+// by line, and the map read back different with no error. It is refused naming map.
+func TestFormatMap_LineBreakInAValueIsRefused(t *testing.T) {
+	for _, field := range []string{"label", "details", "color", "size"} {
+		m := ast.NewMapElement(diagnostics.NewPosition(3, 1), "city")
+		mk := ast.MapMarker{Lat: 1, Lng: 2, Label: "A"}
+		switch field {
+		case "label":
+			mk.Label = "a\nb"
+		case "details":
+			mk.Details = "a\nb"
+		case "color":
+			mk.Color = "a\nb"
+		case "size":
+			mk.Size = "a\r\nb"
+		}
+		m.Markers = append(m.Markers, mk)
+		_, err := FormatStrict(chartDoc(m))
+		var uerr *UnsupportedElementError
+		if !errors.As(err, &uerr) || uerr.NodeType != "map" {
+			t.Errorf("%s: want an UnsupportedElementError for map, got %v", field, err)
+		}
+	}
+
+	m := ast.NewMapElement(diagnostics.NewPosition(3, 1), "city")
+	m.Options = map[string]interface{}{"title": "a\nb"}
+	if _, err := FormatStrict(chartDoc(m)); err == nil {
+		t.Error("a line break in an option title must be refused")
+	}
+}
