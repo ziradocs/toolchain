@@ -77,7 +77,7 @@ func quote(s string) string {
 func checkQuotable(nodeType, field, s string) error {
 	if strings.Contains(s, `"`) {
 		return newUnsupported(nodeType, fmt.Sprintf(
-			"el campo %s contiene una comilla doble literal (%q) — el dialecto strict no tiene mecanismo de escape para campos entrecomillados (ver el comentario de quote() en formatter/util.go); el parser correspondiente truncaría o rompería el valor al reparsear en vez de preservarlo",
+			"the %s field contains a literal double quote (%q), and strict has no escape for quoted fields (see the comment on quote() in formatter/util.go): the parser would truncate or break the value when reading it back",
 			field, s))
 	}
 	return nil

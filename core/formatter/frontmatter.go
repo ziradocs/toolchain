@@ -89,7 +89,7 @@ func formatFrontMatter(fm *ast.FrontMatterNode, overrides, fallbacks map[string]
 	data := map[string]interface{}{}
 	if strings.TrimSpace(fm.Raw) != "" {
 		if err := yaml.Unmarshal([]byte(fm.Raw), &data); err != nil {
-			return "", fmt.Errorf("formatter: no se pudo reparsear el frontmatter original: %w", err)
+			return "", fmt.Errorf("formatter: cannot re-parse the original front matter: %w", err)
 		}
 		if data == nil {
 			data = map[string]interface{}{}

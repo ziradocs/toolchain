@@ -202,10 +202,10 @@ func strictSlideHeading(el ast.Element, anchors *elements.HeadingAnchors) (strin
 		return "", false, nil
 	}
 	if level < 3 || level > 6 {
-		return "", true, newUnsupported("heading", fmt.Sprintf("un encabezado de nivel %d no es representable dentro de un SLIDE (strict acepta 3-6)", level))
+		return "", true, newUnsupported("heading", fmt.Sprintf("a level %d heading cannot be represented inside a SLIDE (strict accepts 3-6)", level))
 	}
 	if strings.TrimSpace(text) == "" {
-		return "", true, newUnsupported("heading", "un encabezado sin texto no es representable como SECTION")
+		return "", true, newUnsupported("heading", "a heading with no text cannot be represented as a SECTION")
 	}
 	if err := checkSectionTitle("heading", text); err != nil {
 		return "", true, err
@@ -217,10 +217,10 @@ func strictSlideHeading(el ast.Element, anchors *elements.HeadingAnchors) (strin
 	fmt.Fprintf(&b, "    level: %d\n", level)
 	if anchor != anchors.Derive(text) {
 		if anchor == "" || elements.DeriveAnchor(anchor) != anchor {
-			return "", true, newUnsupported("heading", fmt.Sprintf("el anchor %q no es representable con `id:`", anchor))
+			return "", true, newUnsupported("heading", fmt.Sprintf("the anchor %q cannot be represented with `id:`", anchor))
 		}
 		if !anchors.Reserve(anchor) {
-			return "", true, newUnsupported("heading", fmt.Sprintf("anchor de encabezado duplicado %q", anchor))
+			return "", true, newUnsupported("heading", fmt.Sprintf("duplicate heading anchor %q", anchor))
 		}
 		fmt.Fprintf(&b, "    id: %s\n", anchor)
 	} else {
@@ -252,7 +252,7 @@ func formatStrictElement(el ast.Element) (string, error) {
 		// corre en flex): un encabezado tipado anidado se volvería prosa al
 		// reparsear. Se rechaza en vez de perderlo en silencio.
 		if nestedTypedHeading(e.Elements) {
-			err = newUnsupported("heading", fmt.Sprintf("un encabezado tipado dentro de un bloque :::%s no es representable en el dialecto strict", e.BlockType))
+			err = newUnsupported("heading", fmt.Sprintf("a typed heading inside a :::%s block cannot be represented in the strict dialect", e.BlockType))
 			break
 		}
 		body = formatSpecialBlock(e)
@@ -289,9 +289,9 @@ func formatStrictElement(el ast.Element) (string, error) {
 		// serializan strictSlideHeading y formatDocumentStrict como SECTION;
 		// llegar acá significa que está anidado (bloque especial, columna),
 		// donde strict no tiene sintaxis de encabezado.
-		err = newUnsupported("heading", "un encabezado tipado solo es representable como hijo directo de un SLIDE o de una sección")
+		err = newUnsupported("heading", "a typed heading can only be represented as a direct child of a SLIDE or a section")
 	default:
-		err = newUnsupported(string(el.GetType()), "tipo de elemento no reconocido por el formatter strict")
+		err = newUnsupported(string(el.GetType()), "element type not recognized by the strict formatter")
 	}
 	if err != nil {
 		return "", err
@@ -419,10 +419,10 @@ func formatStrictCode(e *ast.CodeElement) (string, error) {
 // porque `CODE archivo.ts` se leería como lenguaje.
 func checkCodeFilename(e *ast.CodeElement) error {
 	if e.Language == "" || strings.ContainsAny(e.Language, " \t") {
-		return newUnsupported("code", fmt.Sprintf("el archivo %q necesita un lenguaje de un solo token delante para re-parsear", e.Filename))
+		return newUnsupported("code", fmt.Sprintf("the file %q needs a single-token language before it to be read back", e.Filename))
 	}
 	if strings.ContainsAny(e.Filename, " \t\r\n") || strings.HasPrefix(e.Filename, "[") || strings.HasPrefix(e.Filename, "{") {
-		return newUnsupported("code", fmt.Sprintf("el nombre de archivo %q no es representable como un token", e.Filename))
+		return newUnsupported("code", fmt.Sprintf("the file name %q cannot be represented as a single token", e.Filename))
 	}
 	return nil
 }
@@ -751,21 +751,21 @@ func validateStrictQuoteContent(content string) error {
 		// verificación más básica: da igual qué diga la línea si su forma
 		// exacta no sobrevive el reparse.
 		if line != trimmed {
-			return newUnsupported("quote", fmt.Sprintf("el contenido de la cita tiene una línea con espacio en blanco al inicio o final (%q) — el parser strict hace TrimSpace de cada línea al reparsear, perdiendo ese espaciado en silencio", line))
+			return newUnsupported("quote", fmt.Sprintf("a line of the quote has leading or trailing whitespace (%q): the strict parser trims every line when reading it back, so that spacing would be lost silently", line))
 		}
 		if trimmed == "" && line == "" {
 			return newUnsupported("quote", "the quote starts or ends with an empty line, which strict reads as the end of the element")
 		}
 		if trimmed == "" || trimmed == "---" ||
 			strings.HasPrefix(trimmed, "AUTHOR:") || strings.HasPrefix(trimmed, "SOURCE:") {
-			return newUnsupported("quote", fmt.Sprintf("el contenido de la cita contiene una línea (%q) que el parser strict interpretaría como fin de bloque o metadata, no como texto de la cita — no representable sin pérdida", trimmed))
+			return newUnsupported("quote", fmt.Sprintf("a line of the quote (%q) would be read by the strict parser as the end of the block or as metadata, not as quote text: it cannot be represented without loss", trimmed))
 		}
 		if startsWithStrictSymbolicMarker(trimmed) {
-			return newUnsupported("quote", fmt.Sprintf("el contenido de la cita contiene una línea (%q) que el parser strict interpretaría como el inicio de otro elemento (marcador simbólico @/:::/<</|), no como texto de la cita — no representable sin pérdida", trimmed))
+			return newUnsupported("quote", fmt.Sprintf("a line of the quote (%q) would be read by the strict parser as the start of another element (a @, :::, << or | marker), not as quote text: it cannot be represented without loss", trimmed))
 		}
 		for _, kw := range strictNewElementKeywords {
 			if strings.HasPrefix(trimmed, kw) {
-				return newUnsupported("quote", fmt.Sprintf("el contenido de la cita contiene una línea (%q) que el parser strict interpretaría como el inicio de otro elemento (%q), no como texto de la cita — no representable sin pérdida", trimmed, kw))
+				return newUnsupported("quote", fmt.Sprintf("a line of the quote (%q) would be read by the strict parser as the start of another element (%q), not as quote text: it cannot be represented without loss", trimmed, kw))
 			}
 		}
 	}
@@ -812,13 +812,13 @@ func formatStrictChecklist(e *ast.ChecklistElement) (string, error) {
 func validateStrictChecklistItems(items []ast.ChecklistItem, isSubLevel bool) error {
 	for _, item := range items {
 		if item.Content == "" {
-			return newUnsupported("checklist", "un item sin contenido (Content vacío) no es representable: el parser strict exige contenido no vacío para reconocer un item — al reparsear, el item desaparece en silencio")
+			return newUnsupported("checklist", "an item with no content cannot be represented: the strict parser needs non-empty content to recognize an item, so it would vanish silently when read back")
 		}
 		if strings.Contains(item.Content, "\n") {
-			return newUnsupported("checklist", fmt.Sprintf("el contenido del item %q contiene un salto de línea — el parser strict procesa cada línea de un item por separado, así que la línea siguiente se interpretaría como continuación o como un item nuevo, no como parte del mismo contenido", item.Content))
+			return newUnsupported("checklist", fmt.Sprintf("the content of the item %q contains a line break: the strict parser reads each line of an item separately, so the next line would be read as a continuation or a new item, not as part of the same content", item.Content))
 		}
 		if isSubLevel && len(item.SubItems) > 0 {
-			return newUnsupported("checklist", fmt.Sprintf("el item %q tiene sub-items anidados dentro de otro sub-item — el parser strict solo soporta UN nivel de anidamiento (todo lo indentado más allá del nivel base se adjunta al item principal activo, aplanando cualquier nivel más profundo)", item.Content))
+			return newUnsupported("checklist", fmt.Sprintf("the item %q has sub-items nested inside another sub-item: the strict parser supports only ONE level of nesting (everything indented past the base level attaches to the active main item, flattening any deeper level)", item.Content))
 		}
 		if err := validateStrictChecklistItems(item.SubItems, true); err != nil {
 			return err
@@ -942,28 +942,28 @@ func validateStrictGridContent(e *ast.GridElement) error {
 		for _, line := range strings.Split(content, "\n") {
 			t := strings.TrimSpace(line)
 			if t == "<<grid>>" || t == "<<column>>" || t == "<<column typed>>" || t == "<<end>>" {
-				return newUnsupported("grid", fmt.Sprintf("%s contiene una línea (%q) que el parser strict interpretaría como un marcador de grid, no como texto — no representable sin pérdida", where, t))
+				return newUnsupported("grid", fmt.Sprintf("%s has a line (%q) that the strict parser would read as a grid marker, not as text: it cannot be represented without loss", where, t))
 			}
 		}
 		return nil
 	}
 
-	if err := checkContent("la prosa suelta del grid", e.Content); err != nil {
+	if err := checkContent("the loose prose of the grid", e.Content); err != nil {
 		return err
 	}
 	for i := range e.Columns {
 		if len(e.Columns[i].Elements) > 0 {
 			if e.Columns[i].Content != "" {
-				return newUnsupported("grid", fmt.Sprintf("la columna %d trae Content y Elements a la vez; la forma strict guarda el cuerpo de una columna como texto crudo (<<column>>) o como elementos (<<column typed>>), no las dos cosas", i+1))
+				return newUnsupported("grid", fmt.Sprintf("column %d has both Content and Elements; strict keeps a column body either as raw text (<<column>>) or as elements (<<column typed>>), not both", i+1))
 			}
 			for _, nested := range e.Columns[i].Elements {
 				if _, isGrid := nested.(*ast.GridElement); isGrid {
-					return newUnsupported("grid", fmt.Sprintf("la columna %d anida un grid; el dialecto strict no lo admite dentro de una columna tipada", i+1))
+					return newUnsupported("grid", fmt.Sprintf("column %d nests a grid; the strict dialect does not allow that inside a typed column", i+1))
 				}
 			}
 			continue
 		}
-		if err := checkContent(fmt.Sprintf("la columna %d", i+1), e.Columns[i].Content); err != nil {
+		if err := checkContent(fmt.Sprintf("column %d", i+1), e.Columns[i].Content); err != nil {
 			return err
 		}
 	}
@@ -988,7 +988,7 @@ func diagramTagOpen(tag, title string) (string, error) {
 		return "<<" + tag + ">>", nil
 	}
 	if strings.ContainsAny(title, "\r\n") || strings.Contains(title, ">>") {
-		return "", newUnsupported(tag, fmt.Sprintf("el pie %q no es representable en la apertura <<%s>>", title, tag))
+		return "", newUnsupported(tag, fmt.Sprintf("the title %q cannot be represented in the <<%s>> opening", title, tag))
 	}
 	switch {
 	case !strings.Contains(title, `"`):
@@ -996,7 +996,7 @@ func diagramTagOpen(tag, title string) (string, error) {
 	case !strings.Contains(title, "'"):
 		return fmt.Sprintf(`<<%s title='%s'>>`, tag, title), nil
 	default:
-		return "", newUnsupported(tag, fmt.Sprintf("el pie %q mezcla comillas simples y dobles", title))
+		return "", newUnsupported(tag, fmt.Sprintf("the title %q mixes single and double quotes", title))
 	}
 }
 
@@ -1135,7 +1135,7 @@ func formatChart(e *ast.ChartElement) (string, error) {
 	if len(e.Options) > 0 {
 		opts, err := marshalYAMLIndent2(e.Options)
 		if err != nil {
-			return "", fmt.Errorf("formatter: chart.Options no serializable a YAML: %w", err)
+			return "", fmt.Errorf("formatter: chart.Options cannot be serialized to YAML: %w", err)
 		}
 		b.WriteString("options:\n")
 		b.WriteString(indent(strings.TrimRight(opts, "\n"), 2) + "\n")
@@ -1170,7 +1170,7 @@ func fmtInt(n int) string {
 func canonicalJSON(raw json.RawMessage) (string, error) {
 	var v interface{}
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return "", fmt.Errorf("formatter: RawJSON de chart inválido: %w", err)
+		return "", fmt.Errorf("formatter: invalid chart RawJSON: %w", err)
 	}
 	out, err := json.Marshal(v)
 	if err != nil {
@@ -1304,7 +1304,7 @@ func formatMedia(e *ast.MediaElement) (string, error) {
 			return "", err
 		}
 		if strings.Contains(attr.value, ">>") {
-			return "", newUnsupported("media", fmt.Sprintf("%s %q contiene '>>', que cerraría la apertura", attr.name, attr.value))
+			return "", newUnsupported("media", fmt.Sprintf("%s %q contains '>>', which would close the opening tag", attr.name, attr.value))
 		}
 		fmt.Fprintf(&b, " %s=%s", attr.name, quote(attr.value))
 	}

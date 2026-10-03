@@ -568,3 +568,17 @@ func TestFormatStrict_QuoteWithEmptyEdgeLineIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// fmt reports an element it cannot write in English, like the rest of the CLI.
+func TestUnsupportedElementErrorIsEnglish(t *testing.T) {
+	err := newUnsupported("quote", "reason")
+	if got, want := err.Error(), `formatter: cannot represent a "quote" element: reason`; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+
+	// A message that fmt shows for a real source.
+	_, ferr := FormatStrict(parseSlides(t, "---\nmode: flex\n---\n\n## One\n\n:::card\n### Title\nbody\n:::\n"))
+	if ferr == nil || !strings.HasPrefix(ferr.Error(), "formatter: cannot represent a ") {
+		t.Errorf("unexpected error text: %v", ferr)
+	}
+}
