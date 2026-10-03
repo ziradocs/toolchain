@@ -80,6 +80,19 @@ func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diag
 	if len(parts) > 3 {
 		headerErr = fmt.Errorf("CODE takes at most a language and a filename; unexpected %q", strings.Join(parts[3:], " "))
 	}
+	// Una segunda palabra que empieza con `{` o `[` no es un nombre de archivo:
+	// es lo que una cerca flex guarda como parte del lenguaje (líneas resaltadas,
+	// ```python {1,3-5}, o una etiqueta de code-group), y así la guarda
+	// parseFenceInfo. La cabecera strict la lee igual, para poder reproducir lo
+	// que flex ya guarda; el resaltado no tiene semántica propia en strict. Antes
+	// era un error (el contrato de code-filename rechaza ese nombre de archivo).
+	// Solo con la palabra CODE completa: una línea que empieza con otra palabra
+	// (CODEX python {1}) no pasa a leerse como cabecera de código por esta regla.
+	if parts[0] == "CODE" && len(parts) > 2 && (strings.HasPrefix(parts[2], "[") || strings.HasPrefix(parts[2], "{")) {
+		language = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "CODE"))
+		filename = ""
+		headerErr = nil
+	}
 	var content strings.Builder
 	expectedIndent := -1 // Auto-detect indentation level
 
