@@ -89,7 +89,7 @@ func runFmt(opts *fmtOptions) error {
 	}
 	for _, d := range diags {
 		if d.IsError() {
-			return fmt.Errorf("fmt: el archivo tiene errores de parseo, corrígelos antes de formatear:\n%s", d.String())
+			return fmt.Errorf("fmt: the file has parse errors, fix them before formatting:\n%s", d.String())
 		}
 	}
 
@@ -101,8 +101,8 @@ func runFmt(opts *fmtOptions) error {
 	targetStrict := sourceIsStrict
 	if opts.strictSet {
 		if !opts.strict && sourceIsStrict {
-			return fmt.Errorf("fmt: --strict=false degradaría %q de strict a flex, descartando el dialecto que declara; "+
-				"si es lo que querés, cambiá `mode:` en el frontmatter a mano", opts.inputFile)
+			return fmt.Errorf("fmt: --strict=false would downgrade %q from strict to flex, discarding the dialect it declares; "+
+				"if that is what you want, change `mode:` in the front matter by hand", opts.inputFile)
 		}
 		targetStrict = opts.strict
 	}
@@ -151,13 +151,13 @@ func runFmt(opts *fmtOptions) error {
 // documento simplemente desactualizado de uno que --write TRANSPILARÍA.
 
 func transpileWriteNotice(inputFile string) string {
-	return fmt.Sprintf("fmt: transpilando %q a modo strict — el archivo será reescrito en la sintaxis SECTION (mode: strict)\n", inputFile)
+	return fmt.Sprintf("fmt: transpiling %q to strict mode: the file will be rewritten in SECTION syntax (mode: strict)\n", inputFile)
 }
 
 func checkFailureMessage(inputFile string, isTranspile bool) string {
 	if isTranspile {
-		return fmt.Sprintf("%s no está en forma canónica strict — es un documento flex; --write lo transpilaría "+
-			"(reescritura de dialecto, no un simple reformateo)\n", inputFile)
+		return fmt.Sprintf("%s is not in canonical strict form: it is a flex document, and --write would transpile it "+
+			"(a dialect rewrite, not just a reformat)\n", inputFile)
 	}
-	return fmt.Sprintf("%s no está en forma canónica (correr con --write para reformatear)\n", inputFile)
+	return fmt.Sprintf("%s is not in canonical form (run with --write to reformat)\n", inputFile)
 }
