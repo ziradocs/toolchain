@@ -68,7 +68,14 @@ func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 		b.WriteString(blockText)
 	}
 
-	return b.String(), nil
+	out := b.String()
+	if prevAbsorbs {
+		// El final del archivo cuenta como una línea en blanco más para el
+		// CODE con que termina el deck: el salto de línea que cierra la
+		// última línea de texto ya es el "\n" que el contenido declara.
+		out = strings.TrimSuffix(out, "\n")
+	}
+	return out, nil
 }
 
 func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.HeadingAnchors, last bool) (string, error) {

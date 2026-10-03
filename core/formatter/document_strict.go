@@ -97,7 +97,12 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 		}
 	}
 
-	return b.String(), nil
+	out := b.String()
+	if prevAbsorbs {
+		// Ver el mismo recorte en formatStrictWithoutIDs.
+		out = strings.TrimSuffix(out, "\n")
+	}
+	return out, nil
 }
 
 // checkSectionTitle valida el título de un SECTION, que NO usa la guarda
