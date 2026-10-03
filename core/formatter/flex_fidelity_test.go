@@ -928,3 +928,50 @@ func TestFormatStrict_LanguageWithSeveralWordsIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// Fenced code inside a typed block, in the shapes the indentation restore has to
+// pair by order and by language: two fences with the same language, different
+// languages, fences in the columns of a block and in its tabs, and a source with
+// CRLF line endings. Each builds to the same AST and writes stable text.
+func TestFlexToStrict_TypedBlockFenceShapes(t *testing.T) {
+	cases := map[string]string{
+		"two fences, same language":   "---\nmode: flex\n---\n\n## One\n\n:::card\n```go\n  a := 1\n```\ntext\n```go\n    b := 2\n      c := 3\n```\n:::\n",
+		"two fences, other languages": "---\nmode: flex\n---\n\n## One\n\n:::card\n```go\n  a := 1\n```\n```js\n    b = 2\n```\n:::\n",
+		"fences in columns":           "---\nmode: flex\n---\n\n## One\n\n:::columns\n### Left\n```go\n  a := 1\n```\n### Right\n```go\n    b := 2\n```\n:::\n",
+		"fences in tabs":              "---\nmode: flex\n---\n\n## One\n\n:::tabs\n::tab{title=\"A\"}\n```go\n  a := 1\n```\n::\n::tab{title=\"B\"}\n```go\n    b := 2\n```\n::\n:::\n",
+		"CRLF line endings":           "---\r\nmode: flex\r\n---\r\n\r\n## One\r\n\r\n:::card\r\n```go\r\n  a := 1\r\n```\r\n:::\r\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			diffs, out := flexCorpusASTDiffs(t, src)
+			if len(diffs) != 0 {
+				t.Fatalf("the AST changed:\n  %s\n%s", strings.Join(diffs, "\n  "), out)
+			}
+			again, err := FormatStrict(parseSlides(t, out))
+			if err != nil || again != out {
+				t.Errorf("not idempotent (%v):\n--- first ---\n%s\n--- second ---\n%s", err, out, again)
+			}
+		})
+	}
+}
+
+// What strict cannot give back is refused by name, never written with a changed
+// AST: a fence longer than three backticks, and a code group inside a block
+// (alone or next to a fence of the same language, which must not be paired with
+// the group's fences).
+func TestFlexToStrict_TypedBlockFenceShapesRefusedByName(t *testing.T) {
+	cases := map[string]string{
+		"four backticks around three": "---\nmode: flex\n---\n\n## One\n\n:::card\n````md\n```go\n  x := 1\n```\n````\n:::\n",
+		"code group alone":            "---\nmode: flex\n---\n\n## One\n\n:::card\n:::code-group\n```go [A]\n  a := 1\n```\n```js [B]\n  b = 2\n```\n:::\n:::\n",
+		"code group then fence":       "---\nmode: flex\n---\n\n## One\n\n:::card\n:::code-group\n```go [A]\n  a := 1\n```\n```js [B]\n  b = 2\n```\n:::\n```go\n  c := 3\n```\n:::\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := FormatStrict(parseSlides(t, src))
+			var uerr *UnsupportedElementError
+			if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+				t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+			}
+		})
+	}
+}
