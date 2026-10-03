@@ -45,6 +45,7 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 	b.WriteString(fm)
 
 	needsBlankLine := fm != ""
+	prevAbsorbs := false // el elemento anterior es un CODE: ver absorbsTrailingBlankLines
 	for i := range doc.ContentBlocks {
 		block := &doc.ContentBlocks[i]
 
@@ -58,10 +59,11 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 			return "", err
 		}
 
-		if needsBlankLine {
+		if needsBlankLine && !prevAbsorbs {
 			b.WriteString("\n")
 		}
 		needsBlankLine = true
+		prevAbsorbs = false
 		fmt.Fprintf(&b, "SECTION %s\n", quote(title))
 
 		for _, el := range block.Elements {
@@ -70,7 +72,10 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 				if err := checkSectionTitle("text", heading.text); err != nil {
 					return "", err
 				}
-				b.WriteString("\n")
+				if !prevAbsorbs {
+					b.WriteString("\n")
+				}
+				prevAbsorbs = false
 				fmt.Fprintf(&b, "SECTION %s\n", quote(heading.text))
 				fmt.Fprintf(&b, "  level: %d\n", heading.level)
 				// El `id:` solo se re-emite cuando NO es derivable del
@@ -88,6 +93,7 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 				return "", err
 			}
 			b.WriteString(elText)
+			prevAbsorbs = absorbsTrailingBlankLines(el)
 		}
 	}
 
@@ -121,6 +127,23 @@ func checkSectionTitle(nodeType, title string) error {
 	return nil
 }
 
+// authoredHeadingText devuelve el texto que el autor escribió para un
+// encabezado legado, cuando el elemento todavía lo trae. El parser lo guarda
+// en HeadingSource (en memoria, no se serializa) junto con el HTML que armó a
+// partir de él, y solo es de fiar mientras Content siga siendo ese HTML: la
+// misma condición con la que renderer.HeadingContentHTML decide reconstruir el
+// encabezado desde la fuente. Si Content cambió por otro camino, el HTML
+// manda y la fuente ya no lo describe.
+func authoredHeadingText(t *ast.TextElement) (string, bool) {
+	if t.Level == 0 || t.HeadingSource == "" {
+		return "", false
+	}
+	if t.Content != t.HeadingContent && t.Content != renderer.HeadingHTML(t.Level, t.HeadingSource, t.HeadingAnchor) {
+		return "", false
+	}
+	return t.HeadingSource, true
+}
+
 // documentHeadingRe extrae nivel, id y texto interno de un
 // `<h2 id="...">…</h2>` — la forma exacta que produce
 // parser.buildHeadingElement para cada subsección, en los dos dialectos.
@@ -138,16 +161,16 @@ type documentHeading struct {
 }
 
 // asDocumentHeading reconoce un TextElement RawHTML que es un encabezado de
-// subsección y lo des-renderiza.
+// subsección y recupera su texto.
 //
-// La reconstrucción del texto es best-effort por la misma razón documentada
-// en formatSubsectionHeading: buildHeadingElement corrió el original por
-// ProcessInlineMarkdownSecureLine, que convierte `**bold**` en <strong> —
-// una transformación no invertible (un <strong> tecleado a mano produce el
-// mismo elemento). Para títulos de texto plano, que son el caso normal, el
-// round-trip es exacto; con formato inline se recupera el texto sin el
-// énfasis. Un canonicalizador legítimo, no una pérdida silenciosa: el
-// documento resultante re-parsea a la misma estructura.
+// Mientras el elemento conserve la fuente autoral en memoria (HeadingSource,
+// ver authoredHeadingText) el texto vuelve exacto, con su énfasis. Sin ella
+// —un AST que llegó por JSON o por un filtro externo— la reconstrucción es
+// best-effort por la razón documentada en formatSubsectionHeading:
+// buildHeadingElement corrió el original por ProcessInlineMarkdownSecureLine,
+// que convierte `**bold**` en <strong>, una transformación no invertible (un
+// <strong> tecleado a mano produce el mismo elemento). Entonces se recupera
+// el texto sin el énfasis, que re-parsea a la misma estructura.
 func asDocumentHeading(el ast.Element) (documentHeading, bool) {
 	if h, ok := el.(*ast.HeadingElement); ok {
 		// El tipado trae la fuente autoral: nada que des-renderizar.
@@ -160,6 +183,10 @@ func asDocumentHeading(el ast.Element) (documentHeading, bool) {
 	m := documentHeadingRe.FindStringSubmatch(t.Content)
 	if m == nil {
 		return documentHeading{}, false
+	}
+
+	if source, ok := authoredHeadingText(t); ok {
+		return documentHeading{level: int(m[1][0] - '0'), id: m[2], text: source}, true
 	}
 
 	// LangSpanHTMLToSource antes de stripTags por el mismo motivo que en

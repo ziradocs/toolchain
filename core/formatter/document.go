@@ -236,6 +236,9 @@ func formatSubsectionHeading(e *ast.TextElement) (string, error) {
 	// así que en vez de fallar fuerte se reconstruye la sintaxis fuente
 	// antes de que stripTags corra sobre el resto del heading.
 	level := m[1]
+	if source, ok := authoredHeadingText(e); ok {
+		return strings.Repeat("#", int(level[0]-'0')) + " " + source, nil
+	}
 	inner := stripTags(renderer.LangSpanHTMLToSource(m[2]))
 	return strings.Repeat("#", int(level[0]-'0')) + " " + inner, nil
 }

@@ -204,11 +204,11 @@ Run it.
 	}
 }
 
-// Un título con formato inline pierde el énfasis pero NO se corrompe: el
-// documento resultante re-parsea limpio. Es la misma canonicalización que
-// FormatDocument ya documenta para `## **bold**`, pineada acá para que
-// nadie la descubra como bug en producción.
-func TestFormatDocumentStrict_InlineFormattingInTitlesDegradesCleanly(t *testing.T) {
+// Un título con formato inline conserva su énfasis: el parser guarda el texto
+// que escribió el autor (HeadingSource) y el formatter lo escribe de vuelta en
+// vez de des-renderizar el <strong>. Un AST sin esa fuente (llegado por JSON o
+// por un filtro) sí lo pierde; ver TestAsDocumentHeading_WithoutSource.
+func TestFormatDocumentStrict_InlineFormattingInTitlesIsKept(t *testing.T) {
 	out := parseDoc(t, `---
 mode: strict
 title: "T"
@@ -226,10 +226,10 @@ SECTION "The **important** part"
 	if strings.Contains(out, "<strong>") {
 		t.Errorf("raw HTML leaked into the source form:\n%s", out)
 	}
-	if !strings.Contains(out, `SECTION "The important part"`) {
-		t.Errorf("expected the title to degrade to plain text, got:\n%s", out)
+	if !strings.Contains(out, `SECTION "The **important** part"`) {
+		t.Errorf("expected the title to keep its emphasis, got:\n%s", out)
 	}
 	if twice := parseDoc(t, out); out != twice {
-		t.Errorf("the degraded title is not stable:\n--- first ---\n%s\n--- second ---\n%s", out, twice)
+		t.Errorf("the title is not stable:\n--- first ---\n%s\n--- second ---\n%s", out, twice)
 	}
 }
