@@ -82,11 +82,42 @@ Why a marker and not the alternatives:
 - **Dropping `content` for typed blocks** (the shape of typed columns) cannot
   equal what flex builds today, as above.
 
-The one source that changes meaning is a strict block whose title is exactly
-the word `typed` (`:::info typed`): the word becomes the marker and the block
-loses that title. Any other title is untouched. `fmt` refuses a flex block whose
-title is exactly `typed` and has nested elements, since writing it would read
-back as the marker.
+## Which blocks
+
+The marker is read on the opening line of any strict `:::` block, because they
+all go through one parser (`SpecialBlockParser`). It matters for the blocks whose
+body the flex reading turns into nested elements. Those are:
+
+- `card`, with its variants (`type="success"`, `type="warning"`),
+- `columns` (with `ratio` and `count`),
+- `tabs` (the `::tab{title=...}` lines stay prose inside it, as in flex today),
+- `accordion`,
+- `details` and `reveal`,
+- the callouts the parser knows by name: `info`, `warning`, `danger`, `success`,
+  `tip`, `note`, `example`, `left`, `right` and `highlight`.
+
+That list is what the 71 flex examples and the parser's `KnownSpecialBlockTypes`
+contain. A block of any other type that a deck invents gets the same behaviour,
+since nothing in the reading depends on the type; the spec lists the types above
+as the ones with a rendering.
+
+## The one change of meaning
+
+A strict block whose title is exactly the word `typed` (`:::info typed`) is now
+a typed block with no title. Any other title is untouched, and so is every flex
+source, where `typed` stays part of the title. This is the only existing source
+that reads differently, and it is documented in the spec and in the release
+notes.
+
+The parser warns about it. When a block is read as typed but its body yields no
+nested elements, the marker had no effect, and the likeliest reason is an author
+who meant a title. The parser then reports `SPECIAL002` ("`typed` after the block
+type is read as the typed marker; give the block another title if `typed` was
+meant as one") on that line. A genuine typed block always has nested elements,
+so it never triggers it. The linter cannot do this check, because after parsing
+the word is no longer in the AST. `fmt` refuses a flex block whose title is
+exactly `typed` and has nested elements, since writing it would read back as the
+marker.
 
 ## Formatter
 
@@ -119,25 +150,56 @@ first, then the pin bump in `slidelang/go.mod` and `doclang/go.mod`.
 In "Strict Mode Grammar", under `special_block`:
 
 ```ebnf
-special_block ::= ":::" block_type ("typed")? NEWLINE block_content ":::"
+special_block ::= ":::" block_type ("typed")? title? NEWLINE block_content ":::"
 ```
 
-and a paragraph: a trailing `typed` on the opening line makes the body read
-with the flex nested-content recognizers (headings, fenced code, pipe tables,
-images), so `elements` is filled the way a flex block fills it; without it a
-strict body is raw text plus the elements strict itself recognizes.
+and a section, "Typed special blocks", with this content:
 
-## Open questions
+- A trailing `typed` on the opening line makes the body read with the flex
+  nested-content recognizers (headings, fenced code, pipe tables, images,
+  embedded charts and nested blocks), so `elements` is filled the way a flex
+  block fills it; without it a strict body is raw text plus the elements strict
+  itself recognizes.
+- **Two views, not one.** In a block `:::` both `content` (the trimmed raw lines)
+  and `elements` are filled, and the renderer prefers `elements` when it is not
+  empty. In a typed grid column (`<<column typed>>`) only `elements` is filled and
+  `content` is empty. The difference is deliberate: a flex block has always
+  filled both, so the strict form has to reproduce both to build the same AST,
+  while a flex column never had `elements`, so its typed form is a new shape.
+- The blocks that carry nested elements: `card` (and its `type` variants),
+  `columns`, `tabs`, `accordion`, `details`, `reveal`, `info`, `warning`,
+  `danger`, `success`, `tip`, `note`, `example`, `left`, `right`, `highlight`.
+- A strict block whose title is exactly `typed` is read as a typed block with no
+  title; the parser reports `SPECIAL002` when the marker has no effect. Flex is
+  unchanged.
+- `<!-- node-id -->` inside a typed block binds to the nested node that starts
+  on the next line, identically in both dialects.
+
+Add `SPECIAL002` to the diagnostic IDs listed in `llm-kit/validation-checklist.md`.
 
 - The word. `typed` matches `<<column typed>>`, but here it selects a reading
   rather than a shape, so `flex` or `nested` would describe it better. I would
   keep `typed` for consistency unless you prefer otherwise.
-- Node identities. A `<!-- node-id -->` inside a block body is not bound today
-  (the nested lines are trimmed and re-read), and this does not change it.
-- Scope. The marker applies to every `:::` block, not only the four named,
-  because they share one parser.
+
+## Node identities (after the first version, designed to be additive)
+
+`<!-- node-id: Name -->` already binds inside a block body wherever a nested
+element is recognized: the identity pre-pass removes the comment line before the
+body is read, so `content` never contains it, and binds the name to the node
+that starts on the next line. A prose run starts on its first line, so an
+identity before it binds to that `TextElement`. Typed blocks keep that rule, and
+because the pre-pass runs before either dialect reads the body, a marker inside
+a typed block binds to the same node in flex and in strict. Nothing is added to
+make that true; what the proposal adds is the test.
+
+The first version ships without promising it (the opt-in is about elements), and
+the second adds the AST-equivalence test for identities: the same card written in
+flex and in strict (`:::card typed`) with `node-id` comments before its children
+has the same tree including `nodeId`, and `fmt` places the comments back on the
+nested lines by the same read-back that `formatNodeIDs` uses for blocks today.
+Because binding is by position and the comment lines never reach `content`,
+adding it later changes no source and no AST that exists before it.
 
 ## Out of scope
 
-Giving block children node identities, and a heading recognizer for strict
-blocks that does not need the marker.
+A heading recognizer for strict blocks that does not need the marker.
