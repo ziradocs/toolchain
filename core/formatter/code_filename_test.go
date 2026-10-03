@@ -69,7 +69,7 @@ func TestCodeFilenameRejectsExtraTokens(t *testing.T) {
 	}
 	doc := mustParse(t, "---\nmode: strict\n---\nSLIDE content\n  title: \"S\"\n  CODE ts a.ts\n    x\n", false)
 	firstOfType[*ast.CodeElement](t, doc).Language = ""
-	if _, err := FormatStrict(doc); err == nil || !strings.Contains(err.Error(), "lenguaje") {
+	if _, err := FormatStrict(doc); err == nil || !strings.Contains(err.Error(), "language") {
 		t.Fatalf("filename without language formatted: %v", err)
 	}
 }

@@ -73,7 +73,7 @@ func formatPoll(e *ast.PollElement) (string, error) {
 func formatQuizPollBlock(tag string, body interface{}) (string, error) {
 	yamlText, err := marshalYAMLIndent2(body)
 	if err != nil {
-		return "", fmt.Errorf("formatter: cuerpo de %s no serializable a YAML: %w", tag, err)
+		return "", fmt.Errorf("formatter: the body of %s cannot be serialized to YAML: %w", tag, err)
 	}
 	return fmt.Sprintf("<<%s>>\n%s\n<<end>>", tag, strings.TrimRight(yamlText, "\n")), nil
 }

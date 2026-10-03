@@ -191,7 +191,7 @@ func TestTypedHeadingFormatterRejectsUnrepresentableHeadings(t *testing.T) {
 		return nil
 	})
 	h.Level = 2
-	if _, err := FormatStrict(doc); err == nil || !strings.Contains(err.Error(), "nivel 2") {
+	if _, err := FormatStrict(doc); err == nil || !strings.Contains(err.Error(), "level 2") {
 		t.Fatalf("level 2 inside a slide accepted: %v", err)
 	}
 	h.Level = 3
@@ -210,7 +210,7 @@ func TestNestedTypedHeadingsFailClosedInStrict(t *testing.T) {
 	if len(typedHeadings(t, slides)) != 1 {
 		t.Fatal("fixture has no nested typed heading")
 	}
-	if _, err := FormatStrict(slides); err == nil || !strings.Contains(err.Error(), "bloque :::note") {
+	if _, err := FormatStrict(slides); err == nil || !strings.Contains(err.Error(), ":::note block") {
 		t.Fatalf("slide strict formatter degraded a nested heading: %v", err)
 	}
 	doc := mustParse(t, "---\nast_capabilities: [typed-headings-v1]\n---\n# Doc\n\n::: note\n### Inside\nBody.\n:::\n", true)
@@ -218,7 +218,7 @@ func TestNestedTypedHeadingsFailClosedInStrict(t *testing.T) {
 	if len(want) != 1 {
 		t.Fatalf("doc fixture headings = %+v", want)
 	}
-	if _, err := FormatDocumentStrict(doc); err == nil || !strings.Contains(err.Error(), "bloque :::note") {
+	if _, err := FormatDocumentStrict(doc); err == nil || !strings.Contains(err.Error(), ":::note block") {
 		t.Fatalf("document strict formatter degraded a nested heading: %v", err)
 	}
 	flexOut, err := FormatDocument(doc)

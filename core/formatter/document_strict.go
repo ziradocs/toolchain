@@ -135,7 +135,7 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 func checkSectionTitle(nodeType, title string) error {
 	if strings.ContainsAny(title, "\n\r") {
 		return newUnsupported(nodeType, fmt.Sprintf(
-			"el título de un %s no puede contener saltos de línea (%q): la sintaxis lo declara en una sola línea",
+			"the title of a %s cannot contain line breaks (%q): the syntax declares it on a single line",
 			"SECTION", title))
 	}
 	return nil

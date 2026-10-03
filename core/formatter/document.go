@@ -123,11 +123,11 @@ func formatDocumentElement(el ast.Element) (string, error) {
 		// se rechaza en vez de emitir un `##` que cambiaría el destino de una
 		// referencia. El texto es la fuente autoral exacta.
 		if e.Level < 2 || e.Level > 6 {
-			err = newUnsupported("heading", fmt.Sprintf("un encabezado de nivel %d no es representable en el flex de DocLang (2-6)", e.Level))
+			err = newUnsupported("heading", fmt.Sprintf("a level %d heading cannot be represented in DocLang flex (2-6)", e.Level))
 		} else if e.Anchor != renderer.DeriveAnchor(e.Text) {
-			err = newUnsupported("heading", fmt.Sprintf("el anchor %q no se deriva de %q y el flex de DocLang no puede declararlo; usa el dialecto strict", e.Anchor, e.Text))
+			err = newUnsupported("heading", fmt.Sprintf("the anchor %q is not derived from %q and DocLang flex cannot declare it; use the strict dialect", e.Anchor, e.Text))
 		} else if strings.ContainsAny(e.Text, "\r\n") {
-			err = newUnsupported("heading", "el texto de un encabezado no puede tener saltos de línea")
+			err = newUnsupported("heading", "the text of a heading cannot contain line breaks")
 		} else {
 			body = strings.Repeat("#", e.Level) + " " + e.Text
 		}
@@ -181,9 +181,9 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	case *ast.DirectiveNode:
 		body, err = formatDirective(e)
 	case *ast.GridElement:
-		err = newUnsupported(string(e.GetType()), "DocLang no tiene sintaxis de texto para GRID")
+		err = newUnsupported(string(e.GetType()), "DocLang has no text syntax for GRID")
 	default:
-		err = newUnsupported(string(el.GetType()), "tipo de elemento no reconocido por el formatter de DocLang")
+		err = newUnsupported(string(el.GetType()), "element type not recognized by the DocLang formatter")
 	}
 	if err != nil {
 		return "", err
@@ -223,7 +223,7 @@ func formatSubsectionHeading(e *ast.TextElement) (string, error) {
 		// (contenido HTML explícito del autor). No hay sintaxis flex para
 		// reinyectar HTML crudo de vuelta de forma que el parser lo re-detecte
 		// como tal (el fallback de TEXT en flex no reconoce HTML).
-		return "", newUnsupported("text", "TextElement con IsRawHTML=true que no es un subsection header <hN> no es representable en el dialecto flex de DocLang")
+		return "", newUnsupported("text", "a TextElement with IsRawHTML=true that is not a subsection header <hN> cannot be represented in the DocLang flex dialect")
 	}
 	// issue #63 (code review finding #3): a diferencia de **bold**/*italic*/
 	// `code` (que stripTags colapsa perdiendo solo el ÉNFASIS visual), un
@@ -273,7 +273,7 @@ func formatFlexCode(e *ast.CodeElement) (string, error) {
 // reporta en vez de perderse en silencio.
 func formatFlexImage(e *ast.ImageElement) (string, error) {
 	if e.Caption != "" {
-		return "", newUnsupported("image", "image.Caption no es representable en la sintaxis Markdown de imagen de DocLang")
+		return "", newUnsupported("image", "image.Caption cannot be represented in the DocLang Markdown image syntax")
 	}
 	attrs := ""
 	if e.Fit != "" || e.Focus != "" || e.Bleed {
@@ -298,7 +298,7 @@ func formatFlexImage(e *ast.ImageElement) (string, error) {
 // usa) — se reporta en vez de perderse.
 func formatFlexQuote(e *ast.QuoteElement) (string, error) {
 	if e.Source != "" {
-		return "", newUnsupported("quote", "quote.Source no es representable en el dialecto flex de DocLang (SOURCE: es sintaxis exclusiva de modo strict)")
+		return "", newUnsupported("quote", "quote.Source cannot be represented in the DocLang flex dialect (SOURCE: is strict-only syntax)")
 	}
 	var b strings.Builder
 	for i, line := range strings.Split(e.Content, "\n") {

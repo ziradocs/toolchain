@@ -19,7 +19,7 @@ type UnsupportedElementError struct {
 }
 
 func (e *UnsupportedElementError) Error() string {
-	return fmt.Sprintf("formatter: no se puede representar un elemento %q: %s", e.NodeType, e.Reason)
+	return fmt.Sprintf("formatter: cannot represent a %q element: %s", e.NodeType, e.Reason)
 }
 
 func newUnsupported(nodeType, reason string) error {
