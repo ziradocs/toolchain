@@ -60,7 +60,9 @@ count**. Code group: `:::code-group` with fenced blocks inside, needs
 `<<end>>` in strict** — the flex spelling is invalid there, never use it
 in a strict-mode document. A column that needs real elements (for a
 `node-id`) opens with `<<column typed>>` (strict, body indented two spaces)
-or `::: column typed` (flex). Math (block/display only, never
+or `::: column typed` (flex). A strict `:::` block whose body has headings,
+fenced code, tables or images reads them as elements only with the `typed`
+attribute (`:::info{typed}`, `:::info{typed} Title`); flex needs nothing. Math (block/display only, never
 inline `$x$`): `<<math>>` LaTeX `<<end>>` or `$$ ... $$` starting the line.
 Directives: `@notes` (presenter notes), `@timer`, `@transition`,
 `@highlight`, `@delay`, `@auto-play` — ZiraDocs renders these, DocLang

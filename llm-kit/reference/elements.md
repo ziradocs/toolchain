@@ -233,6 +233,12 @@ instead of inventing a block type. Two exceptions exist as their own tags, not
 as block types: presenter notes are the `@notes` directive, and polls and
 quizzes are `<<poll>>`/`<<quiz>>` (see "Quiz and poll").
 
+In strict, a block whose body has a heading, fenced code, a pipe table or an
+image needs the `typed` attribute on its opening line (`::: info{typed}`,
+`::: info{typed} Title`) for those lines to become nested elements as they do in
+flex; a block with plain prose needs nothing. Write the body flush with the
+opening line. See `slidelang-strict.md`.
+
 ## Code groups
 
 ```

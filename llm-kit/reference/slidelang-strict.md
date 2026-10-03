@@ -124,6 +124,18 @@ Raw right side.
 Raw and typed columns can be mixed. Inside a typed column, `key: value`
 lines, `SECTION` headings and a nested `<<grid>>` are errors.
 
+A `:::` special block is read differently: in flex its body already becomes
+nested elements when it holds a `###` heading, fenced code, a pipe table or an
+image, and strict reads the same lines as raw text. To get the flex reading in
+strict, add the `typed` attribute to the opening line: `:::info{typed}`,
+`:::info{typed} Title`, or `:::card{type="success" typed}`. The body is read the
+way flex reads it, relative to the opening line (write it flush with the opening
+line; extra indentation stays inside nested code). A block without nested
+elements needs no attribute. This is not the same form as `<<column typed>>`: a
+column has no title and only its elements are filled, while a block keeps both its
+raw text and its elements, and carries the flag in its attribute list so it cannot
+meet the title.
+
 **Strict mode explicitly rejects the loose/Markdown spellings of the
 diagram/chart/map elements** — this is a strict-only trap, since these
 spellings are tolerated (and auto-normalized) in flex mode:

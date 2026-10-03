@@ -408,6 +408,12 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 }
 
 func formatStrictCode(e *ast.CodeElement) (string, error) {
+	// A flex fence keeps the whole info string as the language when it carries
+	// highlighted lines (```python {1,3-5}) or a code-group label. Strict reads
+	// the second word of a CODE line as a file name, so it would not read back.
+	if strings.ContainsAny(e.Language, " \t") {
+		return "", newUnsupported("code", fmt.Sprintf("the language %q has more than one word (a fence with highlighted lines or a code-group label), and strict reads the second word of a CODE line as a file name", e.Language))
+	}
 	header := "CODE"
 	if e.Language != "" {
 		header += " " + e.Language
@@ -851,8 +857,40 @@ func formatStrictChecklistItems(items []ast.ChecklistItem, indentLevel int) stri
 }
 
 func formatSpecialBlock(e *ast.SpecialBlockElement) string {
+	plain := specialBlockText(e, false)
+	if len(e.Elements) == 0 || specialBlockReadsBack(e, plain) {
+		return plain
+	}
+	// Strict reads the body of a block as raw text plus the few elements it
+	// recognizes itself, so a block whose nested elements came from flex syntax
+	// (a heading, fenced code, a table, an image) loses them. A `typed` attribute
+	// on the opening line makes strict read the body the way flex does. It is
+	// written only where it is needed and only if the text then reads back with
+	// the same elements; otherwise the plain form is returned and the read-back
+	// check in FormatStrict refuses the block by name.
+	typed := specialBlockText(e, true)
+	if specialBlockReadsBack(e, typed) {
+		return typed
+	}
+	return plain
+}
+
+// typedBlockType adds the typed attribute to a block type: `card` becomes
+// `card{typed}` and `card{type="success"}` becomes `card{type="success" typed}`.
+func typedBlockType(blockType string) string {
+	if strings.HasSuffix(blockType, "}") && strings.Contains(blockType, "{") {
+		return blockType[:len(blockType)-1] + " typed}"
+	}
+	return blockType + "{typed}"
+}
+
+func specialBlockText(e *ast.SpecialBlockElement, typed bool) string {
 	var b strings.Builder
-	b.WriteString(":::" + e.BlockType)
+	if typed {
+		b.WriteString(":::" + typedBlockType(e.BlockType))
+	} else {
+		b.WriteString(":::" + e.BlockType)
+	}
 	if e.Title != "" {
 		b.WriteString(" " + e.Title)
 	}
@@ -860,6 +898,22 @@ func formatSpecialBlock(e *ast.SpecialBlockElement) string {
 	b.WriteString(e.Content)
 	b.WriteString("\n:::")
 	return b.String()
+}
+
+// specialBlockReadsBack reports whether text, written inside a slide, reads
+// back as a block with the same title, content and nested elements as e.
+func specialBlockReadsBack(e *ast.SpecialBlockElement, text string) bool {
+	doc := reparseFormatted("---\nmode: strict\n---\n\nSLIDE content\n"+indent(text, 2)+"\n", false)
+	if doc == nil {
+		return false
+	}
+	blocks := collectSpecialBlocks(doc)
+	if len(blocks) == 0 {
+		return false
+	}
+	got := blocks[0]
+	return got.BlockType == e.BlockType && got.Title == e.Title && got.Content == e.Content &&
+		sameElements(e.Elements, got.Elements)
 }
 
 func formatCodeGroup(e *ast.CodeGroupElement) string {
@@ -1582,7 +1636,7 @@ func checkNestedBlockElements(doc, parsed *ast.AST) error {
 		for i, block := range want {
 			if block.BlockType != got[i].BlockType || block.Title != got[i].Title || block.Content != got[i].Content {
 				return newUnsupported("special_block", fmt.Sprintf(
-					"the %s block does not read back with the same content in strict, so formatting would change it", blockLabel(block)))
+					"the %s block does not read back with the same type, title and content in strict, so formatting would change it", blockLabel(block)))
 			}
 		}
 	}
