@@ -171,8 +171,9 @@ be guessed from prose—use the parser's message and source position.
       ` ```slidelang ` block — no partial/duplicate frontmatter, no
       leftover bracket placeholders (`[CHART: ...]`, `[DIAGRAM: ...]`) in
       the final version
-- [ ] No unsupported closing tags anywhere (`<</chart>>`, `<</mermaid>>`;
-      `<</map>>` is accepted for maps) and no unimplemented interactive tags (`:::poll`,
+- [ ] No unsupported closing tags anywhere (`<</mermaid>>`, and `<</chart>>`
+      after a `key: value` chart body; `<</map>>` is accepted for maps) and no
+      unimplemented interactive tags (`:::poll`,
       `:::qa_session`, `:::reveal`) — see `reference/elements.md`'s "no
       unsupported closing tags" section
 - [ ] Every `<<quiz>>` has a `question`, at least 2 `options` and an `answer`

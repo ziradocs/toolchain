@@ -347,6 +347,12 @@ func TestFlexToStrict_ImageInsideABlockIsReported(t *testing.T) {
 			if !errors.As(err, &uerr) {
 				t.Fatalf("want an UnsupportedElementError, got %v", err)
 			}
+			// The block check runs first and names the block; the image check
+			// is the net under it for an image that strict reads as raw text
+			// outside a block's elements.
+			if uerr.NodeType != "special_block" && uerr.NodeType != "image" {
+				t.Errorf("NodeType = %q, want special_block or image", uerr.NodeType)
+			}
 		})
 	}
 }
@@ -646,5 +652,53 @@ func TestFlexToStrict_DocumentImageContextSurvives(t *testing.T) {
 	got := imageContexts(re)
 	if len(want) != 1 || len(got) != 1 || want[0] != got[0] {
 		t.Errorf("image context %v before, %v after\n%s", want, got, out)
+	}
+}
+
+// A block whose raw content does not read back the same is refused by name,
+// whatever the cause. The four-colon form is flex's fence for a block that holds
+// other blocks; written with a three-colon closer, its own closing line ended up
+// inside the content and the strict reader closed the block early.
+func TestFlexToStrict_BlockThatDoesNotReadBackIsRefused(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n## One\n\n:::: grid\n::: column\n> a\n>\n> b\n:::\n::: column\nother\n:::\n::::\n"
+	_, err := FormatStrict(parseSlides(t, src))
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+		t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+	}
+}
+
+func TestCheckNestedBlockElements_NoBlocksNeedsNoReadBack(t *testing.T) {
+	doc := parseSlides(t, "---\nmode: flex\n---\n\n## One\n\nplain text\n")
+	if err := checkNestedBlockElements(doc, nil); err != nil {
+		t.Fatalf("a document without ::: blocks must not be refused: %v", err)
+	}
+}
+
+// The map reader only trims double quotes at the ends of a value, so a quote in
+// the middle reads back as written and only an edge quote is refused.
+func TestFormatMap_InnerQuotesRoundTripEdgeQuotesAreRefused(t *testing.T) {
+	m := ast.NewMapElement(diagnostics.NewPosition(3, 1), "city")
+	m.Markers = append(m.Markers, ast.MapMarker{Lat: 1, Lng: 2, Label: "A", Details: `says "hi" twice`})
+	out, err := FormatStrict(chartDoc(m))
+	if err != nil {
+		t.Fatalf("an inner quote must be written: %v", err)
+	}
+	var got string
+	_ = ast.Walk(parseSlides(t, out), func(n ast.Node) error {
+		if mm, ok := n.(*ast.MapElement); ok && len(mm.Markers) == 1 {
+			got = mm.Markers[0].Details
+		}
+		return nil
+	})
+	if got != `says "hi" twice` {
+		t.Errorf("details read back as %q\n%s", got, out)
+	}
+
+	m.Markers[0].Details = `"quoted"`
+	_, err = FormatStrict(chartDoc(m))
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) || uerr.NodeType != "map" {
+		t.Fatalf("an edge quote should be refused naming map, got %v", err)
 	}
 }

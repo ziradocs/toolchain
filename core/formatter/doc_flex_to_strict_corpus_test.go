@@ -103,10 +103,8 @@ func TestFormatDocumentStrict_FlexToStrict_Corpus(t *testing.T) {
 //
 // grid: a flex column that holds an embedded element with its own <<end>> keeps
 // that line in its raw Content, and strict reads it as the end of the grid.
-// map: a marker detail with a literal double quote, which strict cannot escape.
 var acceptedDocFmtRefusals = map[string]string{
-	"advanced_elements_test.doclang":       "grid",
-	"maps_special_characters_test.doclang": "map",
+	"advanced_elements_test.doclang": "grid",
 }
 
 // expectedDocFmtGaps lists the flex documents that do not round-trip yet, with a

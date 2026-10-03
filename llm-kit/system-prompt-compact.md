@@ -67,9 +67,10 @@ Directives: `@notes` (presenter notes), `@timer`, `@transition`,
 drops them; `@include path` is expanded at build time by both. Full table:
 `reference/elements.md`.
 
-Prohibited (not implemented, never emit): `<</chart>>`, `<</mermaid>>`,
-`:::poll`, `:::qa_session`, `:::reveal`, `:::notes` (the block form — the
-`@notes` directive is the real one). A `<<map>>` body needs no closer; `<</map>>`
+Prohibited (not implemented, never emit): `<</mermaid>>`, `:::poll`,
+`:::qa_session`, `:::reveal`, `:::notes` (the block form — the `@notes`
+directive is the real one). Do not close a `key: value` chart with `<</chart>>`
+either: that tag is read only after a JSON body, and is dropped otherwise. A `<<map>>` body needs no closer; `<</map>>`
 is the one closing tag the map parser reads, and the one `fmt` writes.
 
 `<<quiz>>` and `<<poll>>` ARE implemented: a YAML body closed by `<<end>>`.

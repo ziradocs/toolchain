@@ -83,6 +83,19 @@ func checkQuotable(nodeType, field, s string) error {
 	return nil
 }
 
+// checkEdgeQuotable is the guard for a map's quoted fields. The map reader takes
+// the text after the key and only trims double quotes from both ends, so a quote
+// in the middle of the value reads back as written; only a quote at either end
+// would be eaten.
+func checkEdgeQuotable(nodeType, field, s string) error {
+	if strings.HasPrefix(s, `"`) || strings.HasSuffix(s, `"`) {
+		return newUnsupported(nodeType, fmt.Sprintf(
+			"the %s field starts or ends with a double quote (%q), which the reader trims along with the quotes that surround the value",
+			field, s))
+	}
+	return nil
+}
+
 // sortedStringKeys ordena las claves de un map[string]interface{} — usado
 // en todo punto donde se serializa un mapa Go, cuyo orden de iteración no
 // es determinista, para garantizar salida byte-idéntica entre corridas.
