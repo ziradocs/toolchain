@@ -129,6 +129,16 @@ diagnosed. See [portable nested list types](../../docs/portable-nested-list-type
 `code-filename-v1`); a flex fence takes it after the language or as
 `title="…"`. See [code block filenames](../../docs/portable-code-filenames.md).
 
+An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
+`content` or `standalone` (`ImageElement.context`). Without it the parser
+infers the value from where the image sits, and the two dialects read that
+position differently: a cover image under `# Title` in flex is `title`, while
+the same `IMAGE` inside a `SLIDE` is not. `slidelang fmt` writes `context:` only
+on the images whose inferred value would otherwise change, so a formatted flex
+deck builds to the same AST. Any other value is the `IMG003` warning and the
+inferred context is used. The field itself remains historical metadata, not a
+way to frame the image (use `fit`, `focus` and `bleed`).
+
 A `heading_element` is a subsection heading inside a slide, the strict form of
 flex `###`–`######`. `level:` defaults to 3; `id:` overrides the anchor, which
 is otherwise `heading-` plus the anchor derived from the title, suffixed when
