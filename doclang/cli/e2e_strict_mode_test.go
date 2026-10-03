@@ -255,7 +255,7 @@ func TestE2E_FmtRefusesToDowngradeStrictToFlex(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected fmt to refuse downgrading a strict document to flex")
 	}
-	if !strings.Contains(err.Error(), "degradaría") {
+	if !strings.Contains(err.Error(), "would downgrade") {
 		t.Errorf("expected the error to explain the downgrade, got: %v", err)
 	}
 	if got := readFileString(t, fixture); got != strictFixture {
