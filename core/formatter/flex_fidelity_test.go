@@ -420,3 +420,34 @@ func TestFormatNotes(t *testing.T) {
 		}
 	}
 }
+
+// A flex ::: block with a heading, fenced code, a table or an image inside
+// carries those as Elements next to the raw Content. Strict reads the body as
+// raw lines, so the text would come back without them: fmt has to say so.
+func TestFlexToStrict_NestedBlockElementsAreRefused(t *testing.T) {
+	cases := map[string]string{
+		"heading": "---\nmode: flex\n---\n\n## One\n\n:::card\n### Title\nbody\n:::\n",
+		"code":    "---\nmode: flex\n---\n\n## One\n\n:::tabs\n```go\nx := 1\n```\n:::\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := FormatStrict(parseSlides(t, src))
+			var uerr *UnsupportedElementError
+			if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+				t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+			}
+			if !strings.Contains(uerr.Reason, ":::") {
+				t.Errorf("the reason should name the block: %s", uerr.Reason)
+			}
+		})
+	}
+}
+
+// A block with only prose is not affected: Content is all there is to keep.
+func TestFlexToStrict_PlainSpecialBlockStillTranspiles(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n## One\n\n:::info Heads up\nJust prose here.\n:::\n"
+	out, _ := transpile(t, src)
+	if !strings.Contains(out, ":::info Heads up") {
+		t.Errorf("the block was not written:\n%s", out)
+	}
+}

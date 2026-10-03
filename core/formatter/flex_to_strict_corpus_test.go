@@ -124,9 +124,16 @@ func TestFormatStrict_FlexToStrict_Corpus(t *testing.T) {
 // acceptedFmtRefusals lists the flex sources fmt is allowed to refuse for good,
 // because strict has no way to say what they contain, keyed by path under
 // examples/ with the node type the error must name. Unlike expectedFmtGaps it
-// is not meant to reach empty. It is empty today: every refusal on the corpus
-// is still a gap.
-var acceptedFmtRefusals = map[string]string{}
+// is not meant to reach empty.
+//
+// special_block: a flex ::: block keeps its nested headings, fenced code,
+// tables and images as Elements next to the raw Content. Strict recognizes those
+// only in its own syntax, never inside the raw lines of a block, so there is no
+// strict text for the block that builds the same; see checkNestedBlockElements.
+var acceptedFmtRefusals = map[string]string{
+	"01_title_and_content/01.6_ui_elements_flex.slidelang":     "special_block",
+	"01_title_and_content/01_title_and_content_flex.slidelang": "special_block",
+}
 
 // expectedFmtGaps lists the flex sources whose fmt output is known not to
 // round-trip yet, keyed by path under examples/. Each entry carries the defect
@@ -134,8 +141,6 @@ var acceptedFmtRefusals = map[string]string{}
 // while still listed fails the test above, so nobody forgets to delete it.
 // Defects, by the letter each entry carries:
 //
-//	B  the nested elements of :::card, :::columns, :::tabs and :::accordion
-//	   are lost
 //	G  a quote containing an empty ">" line cannot be written in strict, so
 //	   fmt refuses (correctly naming the element) instead of transpiling
 //
@@ -146,9 +151,7 @@ var expectedFmtGaps = map[string]string{
 	"01_title_and_content/01.3_lists_and_tables_flex.slidelang":              "G",
 	"01_title_and_content/01.4_special_blocks_flex.slidelang":                "G",
 	"01_title_and_content/01.5_layouts_and_images_flex.slidelang":            "G",
-	"01_title_and_content/01.6_ui_elements_flex.slidelang":                   "B",
 	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang":        "G",
-	"01_title_and_content/01_title_and_content_flex.slidelang":               "B",
 	"02_diagrams_and_charts/02.2_technical_diagrams_flex.slidelang":          "G",
 	"02_diagrams_and_charts/analytics_dashboard_presentation_flex.slidelang": "G",
 	"gallery/02_flex_mode_essentials.slidelang":                              "G",
