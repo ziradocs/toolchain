@@ -431,9 +431,11 @@ func TestFormatNotes(t *testing.T) {
 // carries those as Elements next to the raw Content. Strict reads the body as
 // raw lines, so the text would come back without them: fmt has to say so.
 func TestFlexToStrict_NestedBlockElementsAreRefused(t *testing.T) {
+	// Fenced code keeps its own indentation as the nested element, while the
+	// block's content is trimmed line by line, so strict has no text that gives
+	// both back: not even a typed block reads the indented code the same.
 	cases := map[string]string{
-		"heading": "---\nmode: flex\n---\n\n## One\n\n:::card\n### Title\nbody\n:::\n",
-		"code":    "---\nmode: flex\n---\n\n## One\n\n:::tabs\n```go\nx := 1\n```\n:::\n",
+		"indented code": "---\nmode: flex\n---\n\n## One\n\n:::tabs\n```go\n  x := 1\n```\n:::\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -461,7 +463,7 @@ func TestFlexToStrict_PlainSpecialBlockStillTranspiles(t *testing.T) {
 // With nested blocks the innermost one that loses elements is the one named,
 // and a block that holds other blocks does not make the pairing silently pass.
 func TestFlexToStrict_NestedBlockErrorNamesTheInnermostBlock(t *testing.T) {
-	src := "---\nmode: flex\n---\n\n## One\n\n:::tabs Outer\n::: card Inner\n### Heading\nbody\n:::\n:::\n"
+	src := "---\nmode: flex\n---\n\n## One\n\n:::tabs Outer\n::: card Inner\n```go\n  x := 1\n```\n:::\n:::\n"
 	_, err := FormatStrict(parseSlides(t, src))
 	var uerr *UnsupportedElementError
 	if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
@@ -583,7 +585,7 @@ func TestUnsupportedElementErrorIsEnglish(t *testing.T) {
 	}
 
 	// A message that fmt shows for a real source.
-	_, ferr := FormatStrict(parseSlides(t, "---\nmode: flex\n---\n\n## One\n\n:::card\n### Title\nbody\n:::\n"))
+	_, ferr := FormatStrict(parseSlides(t, "---\nmode: flex\n---\n\n## One\n\n:::card\n```go\n  x := 1\n```\n:::\n"))
 	if ferr == nil || !strings.HasPrefix(ferr.Error(), "formatter: cannot represent a ") {
 		t.Errorf("unexpected error text: %v", ferr)
 	}
@@ -652,6 +654,67 @@ func TestFlexToStrict_DocumentImageContextSurvives(t *testing.T) {
 	got := imageContexts(re)
 	if len(want) != 1 || len(got) != 1 || want[0] != got[0] {
 		t.Errorf("image context %v before, %v after\n%s", want, got, out)
+	}
+}
+
+func flexCorpusASTDiffs(t *testing.T, src string) ([]string, string) {
+	t.Helper()
+	want, _ := buildASTForComparison(t, src, "x.slidelang")
+	out, err := FormatStrict(parseSlides(t, src))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	got, _ := buildASTForComparison(t, out, "x.slidelang")
+	return diffASTs(want, got), out
+}
+
+// A flex block with nested elements transpiles to a strict block with the
+// `typed` attribute, and builds to the same AST.
+func TestFlexToStrict_TypedBlockKeepsNestedElements(t *testing.T) {
+	cases := map[string]string{
+		"card":              "---\nmode: flex\n---\n\n## One\n\n:::card\n### Improved performance\nFaster builds.\n- one\n- two\n:::\n",
+		"titled details":    "---\nmode: flex\n---\n\n## One\n\n:::details Advanced settings\n### Heading\nbody\n:::\n",
+		"title ends typed":  "---\nmode: flex\n---\n\n## One\n\n:::info Dynamically typed\n### Heading\nbody\n:::\n",
+		"attribute variant": "---\nmode: flex\n---\n\n## One\n\n:::card{type=\"success\"}\n### Heading\nbody\n:::\n",
+		"nested blocks":     "---\nmode: flex\n---\n\n## One\n\n:::tabs\n::: card\n### Inner\ntext\n:::\n:::\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			diffs, out := flexCorpusASTDiffs(t, src)
+			if len(diffs) != 0 {
+				t.Fatalf("the AST changed:\n  %s\n%s", strings.Join(diffs, "\n  "), out)
+			}
+			if !strings.Contains(out, "typed}") {
+				t.Errorf("the block should carry the typed attribute:\n%s", out)
+			}
+			again, err := FormatStrict(parseSlides(t, out))
+			if err != nil {
+				t.Fatalf("second FormatStrict: %v", err)
+			}
+			if again != out {
+				t.Errorf("not idempotent:\n--- first ---\n%s\n--- second ---\n%s", out, again)
+			}
+		})
+	}
+}
+
+// The marker is written only where strict would otherwise lose the elements.
+func TestFormatStrict_TypedMarkerOnlyWhenNeeded(t *testing.T) {
+	prose := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  :::info Heads up\n    Just prose.\n  :::\n"
+	out, err := FormatStrict(parseSlides(t, prose))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	if strings.Contains(out, "typed") {
+		t.Errorf("a prose block must not get the marker:\n%s", out)
+	}
+	table := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  :::info\n    | A | B |\n    |---|---|\n    | 1 | 2 |\n  :::\n"
+	out, err = FormatStrict(parseSlides(t, table))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	if strings.Contains(out, "typed") {
+		t.Errorf("a block whose table strict already reads must not get the marker:\n%s", out)
 	}
 }
 

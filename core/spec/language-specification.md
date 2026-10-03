@@ -111,7 +111,7 @@ code_element      ::= "CODE" (language filename?)? INDENT code_content DEDENT
 table_element     ::= "TABLE" INDENT table_data DEDENT
 
 directive_element ::= "@" directive_name ":" directive_value
-special_block     ::= ":::" block_type NEWLINE block_content ":::"
+special_block     ::= ":::" block_type ("{" attributes "}")? title? NEWLINE block_content ":::"
 embedded_element  ::= "<<" element_type (":" element_subtype)? ">>"
                       NEWLINE element_data element_terminator
 element_terminator ::= "<<end>>" | block_boundary | EOF
@@ -468,6 +468,44 @@ Special blocks provide structured content:
 | `right` | `::: right` | Right column |
 | `highlight` | `::: highlight` | Highlighted content |
 | `code-group` | `::: code-group` | Grouped code blocks |
+
+#### Typed special blocks
+
+A flex block fills two views of its body: `content` (the trimmed raw lines) and,
+when a line is recognized as a heading, fenced code, a pipe table, an image, a
+chart or a nested block, `elements` (with the loose prose between them as text
+elements). The recognizers are flex's. A strict block reads its body with strict's
+own, which do not include headings or fences, so the same lines give an empty
+`elements`.
+
+A `typed` attribute on the opening line of a **strict** block (`:::card{typed}`,
+`:::details{typed} Advanced settings`, `:::card{type="success" typed}`) reads the
+body with the flex recognizers, after removing the block's own indentation from the
+lines, so that `content` and `elements` equal what the flex block with that body
+produces. `typed` counts only as a whole word outside quotes in the attribute list,
+and the block type is what is left: `:::card{type="success" typed}` has the block
+type `card{type="success"}`, the same as the flex block. `slidelang fmt` writes it
+where strict would otherwise lose the nested elements, and only if the text then
+reads back with the same elements.
+
+It is an attribute and not a word of the title so that it never meets one: a title
+such as "Dynamically typed" is a title with or without nested elements, and no
+existing source reads differently.
+
+This is deliberately not the same form as a typed grid column (`::: column typed`,
+`<<column typed>>`). A column has no title, so a trailing word is unambiguous there,
+and only `elements` is filled while `content` is empty: a flex column never had
+`elements`, so its typed form is a new shape. A flex block has always filled both
+views, so the strict form has to reproduce both to build the same AST, and it
+carries the marker in the block's attribute list, which is where block options
+already live (`:::card{type="success"}`).
+
+The attribute applies to any strict `:::` block, because they share one parser, and
+matters for the ones whose body holds nested elements: `card` (and its `type`
+variants), `columns`, `tabs`, `accordion`, `details`, `reveal`, and the callouts
+`info`, `warning`, `danger`, `success`, `tip`, `note`, `example`, `left`, `right`
+and `highlight`. Flex needs no marker: there `{typed}` stays part of the block type
+like any other attribute.
 
 Grid and column are **not** special blocks — despite sharing the `:::` sigil
 in flex mode, they parse into their own typed `GridElement`/`ColumnElement`,

@@ -156,6 +156,43 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		return &ParseResult{Element: block, ConsumedLines: 1, Error: nil}
 	}
 
+	// Un atributo `typed` en la línea de apertura de un bloque STRICT
+	// (`:::card{typed}`, `:::details{typed} Título`, `:::card{type="success"
+	// typed}`) pide leer el cuerpo con los mismos reconocedores de contenido
+	// anidado que usa flex, de modo que Content y Elements salgan idénticos a
+	// los del bloque flex con ese cuerpo (docs/portable-typed-blocks.md). Es un
+	// atributo y no una palabra del título para que nunca se cruce con él:
+	// ninguna fuente existente cambia de significado. Flex no lo necesita —ya lo
+	// lee así— y ahí `{typed}` sigue siendo parte del tipo, como cualquier otro
+	// atributo.
+	typed := false
+	if ctx.Mode == "strict" {
+		if bt, rest, ok := splitTypedAttribute(blockContent); ok {
+			typed = true
+			blockType = bt
+			title = rest
+		}
+	}
+	// nestedCtx es el contexto con el que se delega el cuerpo: el del propio
+	// bloque, o el de flex cuando es typed.
+	nestedCtx := ctx
+	if typed {
+		flexCtx := *ctx
+		flexCtx.Mode = "flex"
+		// Un bloque strict vive sangrado dentro de su SLIDE; un bloque flex, al
+		// ras. Los reconocedores de flex que toman las líneas crudas (el
+		// contenido de una cerca de código) tienen que ver las mismas líneas
+		// que verían en flex, así que se les quita la sangría del bloque.
+		indent := CalculateIndentLevel(ctx.Lines[startIndex])
+		lines := make([]string, len(ctx.Lines))
+		copy(lines, ctx.Lines)
+		for k := startIndex + 1; k < len(lines); k++ {
+			lines[k] = trimIndent(lines[k], indent)
+		}
+		flexCtx.Lines = lines
+		nestedCtx = &flexCtx
+	}
+
 	// Collect content until ::: (cierre) — Content acumula CADA línea del
 	// cuerpo tal cual (mismo TrimSpace de siempre, sin cambios: sigue siendo
 	// lo que `fmt` reemite, formatSpecialBlock nunca mira Elements), incluso
@@ -257,7 +294,7 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 			break
 		}
 
-		if elem, n, diags, ok := tryParseNestedContent(ctx, i); ok {
+		if elem, n, diags, ok := tryParseNestedContent(nestedCtx, i); ok {
 			flushProseRun()
 			nested = append(nested, elem)
 			delegatedCount++
@@ -318,4 +355,70 @@ func KnownSpecialBlockTypes() map[string]string {
 		"right":     "",
 		"highlight": "",
 	}
+}
+
+// trimIndent quita hasta n espacios iniciales de line.
+func trimIndent(line string, n int) string {
+	i := 0
+	for i < len(line) && i < n && line[i] == ' ' {
+		i++
+	}
+	return line[i:]
+}
+
+// splitTypedAttribute reconoce `tipo{... typed ...}` al inicio de la línea de
+// apertura de un bloque. Devuelve el tipo SIN la bandera (con sus demás
+// atributos, si los hay), el resto de la línea como título, y true. Solo cuenta
+// `typed` como palabra completa fuera de comillas: `{title="a typed b"}` no es la
+// bandera.
+func splitTypedAttribute(s string) (blockType, title string, ok bool) {
+	open := strings.IndexByte(s, '{')
+	if open <= 0 || strings.ContainsAny(s[:open], " \t") {
+		return "", "", false
+	}
+	var tokens []string
+	var cur strings.Builder
+	inQuote := false
+	closeAt := -1
+	for i := open + 1; i < len(s); i++ {
+		c := s[i]
+		if c == '"' {
+			inQuote = !inQuote
+		}
+		if !inQuote && c == '}' {
+			closeAt = i
+			break
+		}
+		if !inQuote && (c == ' ' || c == '\t') {
+			if cur.Len() > 0 {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+			}
+			continue
+		}
+		cur.WriteByte(c)
+	}
+	if closeAt < 0 {
+		return "", "", false
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	var rest []string
+	found := false
+	for _, t := range tokens {
+		if t == "typed" {
+			found = true
+			continue
+		}
+		rest = append(rest, t)
+	}
+	if !found {
+		return "", "", false
+	}
+	blockType = s[:open]
+	if len(rest) > 0 {
+		blockType += "{" + strings.Join(rest, " ") + "}"
+	}
+	return blockType, strings.TrimSpace(s[closeAt+1:]), true
 }

@@ -65,6 +65,10 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 		Logger:          p.logger,
 		LineOffset:      p.lineOffset,
 		TypedColumnBody: p.parseTypedColumnBody,
+		// Solo lo usa HeadingParser, que un bloque `:::x typed` activa al leer
+		// su cuerpo como flex: sus encabezados comparten la misma secuencia de
+		// anchors que los SECTION del deck.
+		HeadingAnchor: p.headingAnchors.Unique,
 	}
 }
 
