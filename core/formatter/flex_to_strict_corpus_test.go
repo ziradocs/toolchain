@@ -136,15 +136,8 @@ var acceptedFmtRefusals = map[string]string{}
 //
 //	B  the nested elements of :::card, :::columns, :::tabs and :::accordion
 //	   are lost
-//	C  a closing slide that the linter infers (last slide, no layout, no
-//	   title) comes back as an explicit "SLIDE content"
-//	D  a heading in a section loses its <strong>/<em>/<code>
-//	E  the content of a code block gains a trailing newline
-//	F  a combo chart loses seriesAxes
 //	G  a quote containing an empty ">" line cannot be written in strict, so
 //	   fmt refuses (correctly naming the element) instead of transpiling
-//	H  the body of a @notes directive swallows the elements that follow it,
-//	   so the slide ends up with fewer elements
 //
 // A refusal stops the comparison, so a source listed only as G may be hiding
 // other defects that show up once it gets past the refusal.
@@ -156,7 +149,6 @@ var expectedFmtGaps = map[string]string{
 	"01_title_and_content/01.6_ui_elements_flex.slidelang":                   "B",
 	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang":        "G",
 	"01_title_and_content/01_title_and_content_flex.slidelang":               "B",
-	"01_title_and_content/content_platform_launch_flex.slidelang":            "H",
 	"02_diagrams_and_charts/02.2_technical_diagrams_flex.slidelang":          "G",
 	"02_diagrams_and_charts/analytics_dashboard_presentation_flex.slidelang": "G",
 	"gallery/02_flex_mode_essentials.slidelang":                              "G",

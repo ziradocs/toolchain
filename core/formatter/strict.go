@@ -144,7 +144,12 @@ func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.Heading
 		}
 	}
 
+	prevNotes := false
 	for _, el := range block.Elements {
+		if prevNotes {
+			b.WriteString("\n")
+		}
+		prevNotes = endsWithNotesBody(el)
 		if heading, ok, err := strictSlideHeading(el, anchors); ok || err != nil {
 			if err != nil {
 				return "", err
@@ -1301,6 +1306,57 @@ func formatMedia(e *ast.MediaElement) (string, error) {
 	return b.String(), nil
 }
 
+// formatNotes writes the speaker notes and reports whether it used the
+// multi-line form, which needs a blank line after it when anything follows.
+//
+// The multi-line body of `@notes` runs until a blank line, another `@`, a
+// `---` or a `#` line, so a bare `@notes` (empty content) and a body with an
+// element right behind it both swallow what comes next: the slide ended up with
+// fewer elements and the notes with extra lines. Empty content is therefore
+// written as `@notes ""`, and the caller adds the blank line (see
+// endsWithNotesBody). Lines are read back trimmed, so a body that starts a line
+// with one of the terminators, or has an empty or padded line, cannot use the
+// multi-line form; a single line then falls back to the quoted form, and a
+// longer one is reported instead of being written wrong.
+func formatNotes(content string) (text string, multiline bool, err error) {
+	if content == "" {
+		return `@notes ""`, false, nil
+	}
+	if notesBodySafe(content) {
+		return "@notes\n" + indent(content, 2), true, nil
+	}
+	if !strings.ContainsAny(content, "\r\n") && !strings.HasPrefix(content, `"`) && !strings.HasSuffix(content, `"`) {
+		return "@notes \"" + content + "\"", false, nil
+	}
+	return "", false, newUnsupported("directive", "el cuerpo de @notes tiene líneas que strict no puede leer de vuelta (vacías, con sangría propia o que empiezan con @, --- o #)")
+}
+
+// notesBodySafe dice si cada línea de content sobrevive a la lectura del
+// cuerpo multilínea de @notes, que recorta las líneas y se detiene en los
+// terminadores.
+func notesBodySafe(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed != line ||
+			strings.HasPrefix(trimmed, "@") || strings.HasPrefix(trimmed, "---") || strings.HasPrefix(trimmed, "#") {
+			return false
+		}
+	}
+	return true
+}
+
+// endsWithNotesBody dice si el elemento termina en un cuerpo multilínea de
+// @notes, que se come las líneas siguientes hasta una línea en blanco.
+func endsWithNotesBody(el ast.Element) bool {
+	d, ok := el.(*ast.DirectiveNode)
+	if !ok || d.Name != "notes" {
+		return false
+	}
+	content, _ := d.Parameters["content"].(string)
+	_, multiline, err := formatNotes(content)
+	return err == nil && multiline
+}
+
 // formatDirective serializa @nombre. "delay" es el único caso donde
 // DirectiveParser.parseDirectiveNameAndParams asigna parameters["ms"] al
 // paramString CRUDO sin importar si contiene "=" (a diferencia de
@@ -1311,10 +1367,8 @@ func formatMedia(e *ast.MediaElement) (string, error) {
 func formatDirective(e *ast.DirectiveNode) (string, error) {
 	if e.Name == "notes" {
 		content, _ := e.Parameters["content"].(string)
-		if content == "" {
-			return "@notes", nil
-		}
-		return "@notes\n" + indent(content, 2), nil
+		text, _, err := formatNotes(content)
+		return text, err
 	}
 
 	if len(e.Parameters) == 0 {
