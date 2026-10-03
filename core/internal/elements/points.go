@@ -147,6 +147,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 						if currentItem.SubListMarker == "" {
 							currentItem.SubListMarker = p.detectListType(trimmed)
 						}
+						item.Marker = p.detectListType(trimmed)
 						currentItem.SubPoints = append(currentItem.SubPoints, *item)
 					}
 				}
@@ -355,6 +356,7 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 				if currentItem.SubListMarker == "" {
 					currentItem.SubListMarker = p.detectListType(trimmed)
 				}
+				item.Marker = p.detectListType(trimmed)
 				currentItem.SubPoints = append(currentItem.SubPoints, *item)
 			} else if indent < baseIndent {
 				// Indentación menor que la base, terminar parsing

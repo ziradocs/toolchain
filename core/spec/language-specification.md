@@ -126,6 +126,17 @@ list has one marker type, ordered or unordered. The AST records that type on
 its parent as `subListType`; mixed ordered/unordered siblings in one list are
 diagnosed. See [portable nested list types](../../docs/portable-nested-list-types.md).
 
+Without that declaration the parser does not keep the depth of a nested list.
+Every item indented deeper than the first item of the list is a `subPoints`
+entry of the last item at the base level, so a third level ends up next to the
+second one, as a sibling. The kind of list drawn for those `subPoints` (bullets
+or numbers) is the marker of the first of them, even when later ones were
+written with the other marker. None of this is serialized differently: the JSON
+AST has no marker per item. `slidelang fmt` and `doclang fmt` write each
+sub-point with the marker the author used (the parser keeps it in memory only),
+so a mixed sublist keeps its markers, but a third level comes back indented as
+a sibling of the second, which builds to the same AST.
+
 `CODE typescript renewals.ts` records `renewals.ts` as the block's filename
 (`CodeElement.filename`, schema 2.19.0, inferred capability
 `code-filename-v1`); a flex fence takes it after the language or as
