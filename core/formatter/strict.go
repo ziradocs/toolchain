@@ -1591,7 +1591,9 @@ func dropPositionKeys(v interface{}) interface{} {
 			}
 			// Derived by the build, not by the parser: an AST that came back
 			// from a build carries them and the freshly parsed one does not.
-			if (strings.HasSuffix(k, "HTML") && k != "isRawHTML") || k == "langRuns" || k == "discardedLangRuns" {
+			// nodeId is written by formatNodeIDs after this check, as a comment
+			// next to the node.
+			if (strings.HasSuffix(k, "HTML") && k != "isRawHTML") || k == "langRuns" || k == "discardedLangRuns" || k == "nodeId" {
 				continue
 			}
 			out[k] = dropPositionKeys(val)
