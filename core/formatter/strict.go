@@ -378,14 +378,34 @@ func formatStrictPoints(e *ast.PointsElement) string {
 // sublista (SubListType con la capacidad, SubListMarker sin ella) y "-" si el AST
 // no lo dice: el detector de tipo de lista solo mira el nivel base.
 func formatPointItems(items []ast.PointItem, listType string) string {
+	return formatPointList(items, listType, false)
+}
+
+// formatPointList writes one level of a list. At the base level every item
+// takes the list's marker. In a sublist, without the capability, the parser
+// flattens what the author nested: a sublist that mixes markers, or a third
+// level, ends up as one list of siblings, each remembering its own marker
+// (PointItem.Marker). Writing each one with that marker gives back what the
+// author wrote, where one marker for the whole sublist changed the others.
+// Numbers restart after a bullet; they do not matter to the AST, which keeps
+// only the content. An item with no recorded marker (an AST read back from
+// JSON) takes the marker of the list.
+func formatPointList(items []ast.PointItem, listType string, sub bool) string {
 	var b strings.Builder
+	number := 0
 	for i, item := range items {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		if listType == "ordered" {
-			fmt.Fprintf(&b, "%d. %s", i+1, item.Content)
+		kind := listType
+		if sub && item.Marker != "" && item.SubListType == "" {
+			kind = item.Marker
+		}
+		if kind == "ordered" {
+			number++
+			fmt.Fprintf(&b, "%d. %s", number, item.Content)
 		} else {
+			number = 0
 			fmt.Fprintf(&b, "- %s", item.Content)
 		}
 		if len(item.SubPoints) > 0 {
@@ -401,7 +421,7 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 			if childType == "" {
 				childType = "unordered"
 			}
-			b.WriteString(indent(formatPointItems(item.SubPoints, childType), 2))
+			b.WriteString(indent(formatPointList(item.SubPoints, childType, true), 2))
 		}
 	}
 	return b.String()
