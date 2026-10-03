@@ -110,12 +110,19 @@ A first draft put the marker as the last word of the line, which would have chan
 the meaning of a strict title ending in `typed` ("Dynamically typed") whenever its
 body had nested elements, with no warning. Putting it in the attribute list removes
 that: it never meets a title, no existing source reads differently, and no
-diagnostic is needed. The reader stays as it is for every other attribute (the
-attribute text remains in the block type); only a whole word `typed` outside quotes
-in a strict block's braces is the flag, and the block type is what is left, so
+diagnostic is needed. There is no general attribute reader: the text inside the braces stays in the block
+type, as it always did, and only a whole word `typed` in a strict block's braces is
+the flag, with words separated by spaces or commas outside quotes (so `{ typed }`
+and `{type="x",typed}` are the flag, and `untyped`, `typed-x`, `typed=false`,
+`TYPED` and a quoted `typed` are not). The block type is what is left, so
 `:::card{type="success" typed}` has the block type `card{type="success"}`, the
-same as the flex block. `fmt` refuses a flex block whose type is exactly the text
-`...{typed}`, since writing it would read back as the marker.
+same as the flex block. `fmt` refuses a flex block whose type already holds the
+word `typed` inside braces (`:::card{typed}` in flex), since writing it would read
+back as the flag and change its type.
+
+The typed reading removes from the body only the indentation of the opening line.
+A body indented deeper keeps the difference inside nested code, which a flex block
+never has, so `fmt` writes the body flush with the opening line.
 
 ## Formatter
 
@@ -210,3 +217,9 @@ block naming `special_block` (two example decks). A fence whose info string has 
 than one word after the language (```` ```python {1,3-5} ````) keeps the whole
 string as the language, and strict reads the second word of a `CODE` line as a file
 name, so the formatter refuses it naming `code`.
+
+A markdown image inside a block has no `IMAGE` line to carry a `context:` property,
+and its context is inferred from the surrounding text, which differs between the
+flex source and the strict text. When the strict text would infer a different one,
+the formatter refuses the block naming `special_block` instead of writing it with a
+different context.
