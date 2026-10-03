@@ -45,12 +45,13 @@ produces.
 
 ## Decision
 
-A block opts in by a trailing word on its opening line, in strict only. The marker
-is the last word of the line, so a titled block works too
-(`:::details Advanced settings typed`):
+A block opts in by a `typed` attribute on its opening line, in strict only. The
+block syntax already has an attribute list (`:::card{type="success"}`), and the
+marker lives there, so it works with a title too
+(`:::details{typed} Advanced settings`) and never meets one:
 
 ```
-:::card typed
+:::card{typed}
 ### Improved performance
 Faster builds.
 - one
@@ -62,13 +63,13 @@ Faster builds.
 block uses. The body is still the trimmed lines up to the closing `:::`, so
 `content` is exactly what it is today, and `elements` is exactly what flex
 produces for the same lines, because it is the same code path. No new field and
-no new element: the AST of a strict `:::card typed` equals the AST of the flex
+no new element: the AST of a strict `:::card{typed}` equals the AST of the flex
 `:::card` with that body.
 
 | Dialect | Block (unchanged) | Typed block (new) |
 | --- | --- | --- |
-| strict | `:::card` | `:::card typed` |
-| flex | `:::card` | `:::card typed` is not special: `typed` stays part of the title |
+| strict | `:::card` | `:::card{typed}` |
+| flex | `:::card` | `:::card{typed}` is not special: `{typed}` stays part of the block type |
 
 Flex needs no marker because it already reads every block that way. Leaving it
 alone also means no flex source changes meaning.
@@ -103,29 +104,22 @@ contain. A block of any other type that a deck invents gets the same behaviour,
 since nothing in the reading depends on the type; the spec lists the types above
 as the ones with a rendering.
 
-## The one change of meaning
+## No change of meaning
 
-A strict block whose title ends in the word `typed` (`:::info Why typed`) is now a
-typed block, and the word leaves the title (`Why`). The first draft said "exactly
-the word", which would have left titled blocks without a marker; reading the last
-word covers them at the price of this wider case. Any other title is untouched, and
-so is every flex source, where `typed` stays part of the title. This is the only
-existing source that reads differently, and it is documented in the spec and in the
-release notes.
-
-The parser warns about it. When a block is read as typed but its body yields no
-nested elements, the marker had no effect, and the likeliest reason is an author
-who meant a title. The parser then reports `SPECIAL002` ("`typed` after the block
-type is read as the typed marker; give the block another title if `typed` was
-meant as one") on that line. A genuine typed block always has nested elements,
-so it never triggers it. The linter cannot do this check, because after parsing
-the word is no longer in the AST. `fmt` refuses a flex block whose title is
-exactly `typed` and has nested elements, since writing it would read back as the
-marker.
+A first draft put the marker as the last word of the line, which would have changed
+the meaning of a strict title ending in `typed` ("Dynamically typed") whenever its
+body had nested elements, with no warning. Putting it in the attribute list removes
+that: it never meets a title, no existing source reads differently, and no
+diagnostic is needed. The reader stays as it is for every other attribute (the
+attribute text remains in the block type); only a whole word `typed` outside quotes
+in a strict block's braces is the flag, and the block type is what is left, so
+`:::card{type="success" typed}` has the block type `card{type="success"}`, the
+same as the flex block. `fmt` refuses a flex block whose type is exactly the text
+`...{typed}`, since writing it would read back as the marker.
 
 ## Formatter
 
-`formatSpecialBlock` writes ` typed` on the opening line when the block has
+`formatSpecialBlock` writes the `typed` attribute on the opening line when the block has
 nested elements and strict would not reproduce them. It reads the candidate text
 back (inside a one-slide document) and keeps the marker only if the title, the
 content and the nested elements then read back equal. The typed reading removes the
@@ -145,46 +139,44 @@ schema. The version stays as it is.
 
 ## Compatibility
 
-Existing sources read as before, with the one exception above (a strict title
-that is exactly `typed`). The change is in the strict special-block parser, which
+Existing sources read as before: a strict block without `typed` in its attribute
+list is untouched, and so is every flex block. The change is in the strict
+special-block parser, which
 lives in `core`, so the release follows the repository sequence: `core/vX.Y.Z`
 first, then the pin bump in `slidelang/go.mod` and `doclang/go.mod`.
 
-## Spec changes to apply when approved
+## Spec changes
 
 In "Strict Mode Grammar", under `special_block`:
 
 ```ebnf
-special_block ::= ":::" block_type ("typed")? title? NEWLINE block_content ":::"
+special_block ::= ":::" block_type ("{" attributes "}")? title? NEWLINE block_content ":::"
 ```
 
-and a section, "Typed special blocks", with this content:
+and a section, "Typed special blocks" (in the spec, as built):
 
-- A trailing `typed` on the opening line makes the body read with the flex
+- A `typed` attribute on the opening line makes the body read with the flex
   nested-content recognizers (headings, fenced code, pipe tables, images,
-  embedded charts and nested blocks), so `elements` is filled the way a flex
-  block fills it; without it a strict body is raw text plus the elements strict
-  itself recognizes.
+  embedded charts and nested blocks), after removing the block's own indentation,
+  so `elements` is filled the way a flex block fills it; without it a strict body
+  is raw text plus the elements strict itself recognizes.
 - **Two views, not one.** In a block `:::` both `content` (the trimmed raw lines)
   and `elements` are filled, and the renderer prefers `elements` when it is not
-  empty. In a typed grid column (`<<column typed>>`) only `elements` is filled and
-  `content` is empty. The difference is deliberate: a flex block has always
-  filled both, so the strict form has to reproduce both to build the same AST,
-  while a flex column never had `elements`, so its typed form is a new shape.
+  empty. In a typed grid column (`::: column typed`, `<<column typed>>`) only
+  `elements` is filled and `content` is empty. The difference is deliberate: a flex
+  block has always filled both, so the strict form has to reproduce both to build
+  the same AST, while a flex column never had `elements`, so its typed form is a new
+  shape. A column also has no title, so a trailing word is unambiguous there, while
+  a block's marker has to stay clear of the title and lives in the attribute list.
 - The blocks that carry nested elements: `card` (and its `type` variants),
   `columns`, `tabs`, `accordion`, `details`, `reveal`, `info`, `warning`,
   `danger`, `success`, `tip`, `note`, `example`, `left`, `right`, `highlight`.
-- A strict block whose title is exactly `typed` is read as a typed block with no
-  title; the parser reports `SPECIAL002` when the marker has no effect. Flex is
-  unchanged.
+- Flex is unchanged: there `{typed}` stays part of the block type like any other
+  attribute.
 - `<!-- node-id -->` inside a typed block binds to the nested node that starts
-  on the next line, identically in both dialects.
+  on the next line, identically in both dialects (second stage).
 
-Add `SPECIAL002` to the diagnostic IDs listed in `llm-kit/validation-checklist.md`.
-
-- The word. `typed` matches `<<column typed>>`, but here it selects a reading
-  rather than a shape, so `flex` or `nested` would describe it better. I would
-  keep `typed` for consistency unless you prefer otherwise.
+The word `typed` was kept for consistency with `::: column typed`.
 
 ## Node identities (after the first version, designed to be additive)
 
@@ -199,7 +191,7 @@ make that true; what the proposal adds is the test.
 
 The first version ships without promising it (the opt-in is about elements), and
 the second adds the AST-equivalence test for identities: the same card written in
-flex and in strict (`:::card typed`) with `node-id` comments before its children
+flex and in strict (`:::card{typed}`) with `node-id` comments before its children
 has the same tree including `nodeId`, and `fmt` places the comments back on the
 nested lines by the same read-back that `formatNodeIDs` uses for blocks today.
 Because binding is by position and the comment lines never reach `content`,
