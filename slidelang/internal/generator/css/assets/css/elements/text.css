@@ -51,7 +51,11 @@
     line-height: 1.5;
 }
 
-.slidelang-element.slidelang-points ul li:before {
+/* Cada marcador pertenece a la lista que es PADRE DIRECTA de su item (`>`): con
+   el combinador de descendiente, un <ul> anidado dentro de un <ol> heredaba la
+   regla `ol li`, así que sus viñetas se dibujaban como números que seguían la
+   cuenta de afuera (1. uno / 2. a / 3. b / 4. dos). */
+.slidelang-element.slidelang-points ul > li:before {
     content: "▶";
     color: var(--primary-color);
     font-weight: bold;
@@ -64,11 +68,11 @@
     counter-reset: item;
 }
 
-.slidelang-element.slidelang-points ol li {
+.slidelang-element.slidelang-points ol > li {
     counter-increment: item;
 }
 
-.slidelang-element.slidelang-points ol li:before {
+.slidelang-element.slidelang-points ol > li:before {
     content: counter(item) ".";
     color: var(--primary-color);
     font-weight: bold;
@@ -78,27 +82,28 @@
     min-width: 1.5rem;
 }
 
-/* Listas anidadas */
-.slidelang-element.slidelang-points ul ul,
-.slidelang-element.slidelang-points ol ol {
+/* Listas anidadas: cualquier lista dentro de un item, sea del mismo tipo o no */
+.slidelang-element.slidelang-points li > ul,
+.slidelang-element.slidelang-points li > ol {
     margin-top: 0.5rem;
     margin-left: 1.5rem;
 }
 
-.slidelang-element.slidelang-points ul ul li:before {
+.slidelang-element.slidelang-points li > ul > li:before {
     content: "▸";
     color: var(--accent-color);
 }
 
+/* Una lista ordenada dentro de otra ordenada se numera con letras */
 .slidelang-element.slidelang-points ol ol {
     counter-reset: subitem;
 }
 
-.slidelang-element.slidelang-points ol ol li {
+.slidelang-element.slidelang-points ol ol > li {
     counter-increment: subitem;
 }
 
-.slidelang-element.slidelang-points ol ol li:before {
+.slidelang-element.slidelang-points ol ol > li:before {
     content: counter(subitem, lower-alpha) ".";
     color: var(--accent-color);
 }
