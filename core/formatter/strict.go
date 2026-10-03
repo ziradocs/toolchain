@@ -34,7 +34,10 @@ func FormatStrict(doc *ast.AST) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out = placeImageContexts(doc, out)
+	out, err = placeImageContexts(doc, out)
+	if err != nil {
+		return "", err
+	}
 	return formatNodeIDs(doc, out, false)
 }
 
@@ -1374,45 +1377,63 @@ func nestedTypedHeading(elements []ast.Element) bool {
 // document order, and only the ones that differ get the property. A source
 // whose images already infer the same context formats exactly as before.
 //
+// The inference looks at the lines around an image, so a `context:` line added
+// for one image can move another one's value (the window that makes two images a
+// gallery is a count of lines). The pass therefore repeats until the text reads
+// back with every context right. Each round only adds explicit properties, which
+// no longer depend on position, so it settles; a round limit guards the loop and
+// is reported if it is ever hit.
+//
 // If the text does not parse back to the same number of images the pairing is
-// meaningless and the text is returned untouched; formatNodeIDs and the
-// callers' own round-trip checks report such a mismatch.
-func placeImageContexts(doc *ast.AST, source string) string {
+// meaningless and the formatted text would build differently, so it is reported.
+func placeImageContexts(doc *ast.AST, source string) (string, error) {
 	want := collectImages(doc)
 	if len(want) == 0 {
-		return source
+		return source, nil
 	}
-	parsed := reparseFormatted(source, false)
-	if parsed == nil {
-		return source
-	}
-	got := collectImages(parsed)
-	if len(got) != len(want) {
-		return source
-	}
-
-	lines := strings.Split(source, "\n")
-	type insertion struct {
-		after   int // zero-based index of the IMAGE line
-		context ast.ImageContext
-	}
-	var inserts []insertion
-	for i, img := range want {
-		line := got[i].GetPosition().Line
-		if img.Context == "" || img.Context == got[i].Context || line < 1 || line > len(lines) ||
-			!strings.HasPrefix(strings.TrimSpace(lines[line-1]), "IMAGE") {
-			continue
+	for round := 0; round <= len(want); round++ {
+		parsed := reparseFormatted(source, false)
+		if parsed == nil {
+			return "", newUnsupported("image", "the formatted text cannot be read back to check the context of its images")
 		}
-		inserts = append(inserts, insertion{after: line - 1, context: img.Context})
+		got := collectImages(parsed)
+		if len(got) != len(want) {
+			// An image that sits where strict reads raw text (inside a ::: block,
+			// for instance) is not an image when the text is read back, so its
+			// context cannot be checked, and the text would build differently.
+			return "", newUnsupported("image", fmt.Sprintf(
+				"%d images in the document read back as %d: an image inside a construct strict reads as raw text (such as a ::: block) is lost when formatting", len(want), len(got)))
+		}
+
+		lines := strings.Split(source, "\n")
+		type insertion struct {
+			after   int // zero-based index of the IMAGE line
+			context ast.ImageContext
+		}
+		var inserts []insertion
+		for i, img := range want {
+			line := got[i].GetPosition().Line
+			if img.Context == "" || img.Context == got[i].Context {
+				continue
+			}
+			if line < 1 || line > len(lines) || !strings.HasPrefix(strings.TrimSpace(lines[line-1]), "IMAGE") {
+				return "", newUnsupported("image", "its context cannot be located in the formatted text")
+			}
+			inserts = append(inserts, insertion{after: line - 1, context: img.Context})
+		}
+		if len(inserts) == 0 {
+			return source, nil
+		}
+		for i := len(inserts) - 1; i >= 0; i-- {
+			in := inserts[i]
+			imageLine := lines[in.after]
+			pad := imageLine[:len(imageLine)-len(strings.TrimLeft(imageLine, " \t"))] + "  "
+			prop := pad + "context: " + string(in.context)
+			lines = append(lines[:in.after+1], append([]string{prop}, lines[in.after+1:]...)...)
+		}
+		source = strings.Join(lines, "\n")
 	}
-	for i := len(inserts) - 1; i >= 0; i-- {
-		in := inserts[i]
-		imageLine := lines[in.after]
-		pad := imageLine[:len(imageLine)-len(strings.TrimLeft(imageLine, " \t"))] + "  "
-		prop := pad + "context: " + string(in.context)
-		lines = append(lines[:in.after+1], append([]string{prop}, lines[in.after+1:]...)...)
-	}
-	return strings.Join(lines, "\n")
+	return "", newUnsupported("image", "the contexts of its images do not settle: each one added changes the inferred value of another")
 }
 
 func collectImages(doc *ast.AST) []*ast.ImageElement {

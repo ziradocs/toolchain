@@ -4,6 +4,7 @@
 package formatter
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -243,5 +244,109 @@ func TestFormatStrict_ImageContextOnlyWhenNeeded(t *testing.T) {
 	}
 	if out != src {
 		t.Errorf("canonical strict text changed:\n--- want ---\n%s\n--- got ---\n%s", src, out)
+	}
+}
+
+// The window that makes two images a gallery is a count of lines, so the
+// `context:` line written for one image can change what the other infers. The
+// pass has to read its own output back until nothing differs.
+func TestFlexToStrict_ImageContextsSettle(t *testing.T) {
+	cases := map[string]string{
+		// Two images a few lines apart where only the first is a cover.
+		"cover and a nearby image": "---\nmode: flex\n---\n\n# Deck\n\n![Cover](cover.png)\n\ntext\n\n![Other](other.png)\n\n---\n\n## Two\n\nbody\n",
+		// Several images in a row, some of them galleries in flex.
+		"a row of images": "---\nmode: flex\n---\n\n# Deck\n\n---\n\n## Two\n\n![A](a.png)\n![B](b.png)\n![C](c.png)\n\ntext\n\n![D](d.png)\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			want := imageContexts(parseSlides(t, src))
+			out, reparsed := transpile(t, src)
+			got := imageContexts(reparsed)
+			if len(want) != len(got) {
+				t.Fatalf("images: %v before, %v after\n%s", want, got, out)
+			}
+			for i := range want {
+				if want[i] != got[i] {
+					t.Errorf("image %d: context %q before, %q after\n%s", i, want[i], got[i], out)
+				}
+			}
+		})
+	}
+}
+
+// Node identities are written as comments after the contexts are placed. The
+// parser removes those lines before it infers anything, so they must not move a
+// context.
+func TestFormatStrict_NodeIDsDoNotMoveImageContexts(t *testing.T) {
+	src := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  IMAGE \"a.png\" \"a\"\n  TEXT\n    x\n  TEXT\n    y\n  IMAGE \"b.png\" \"b\"\n"
+	doc := parseSlides(t, src)
+	imgs := collectImages(doc)
+	if len(imgs) != 2 || imgs[0].Context != ast.ImageContextGallery {
+		t.Fatalf("fixture should read as a gallery, got %v", imageContexts(doc))
+	}
+	imgs[1].NodeID = "Second"
+	doc.ContentBlocks[0].NodeID = "Slide"
+	out, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	if !strings.Contains(out, "<!-- node-id: Second -->") {
+		t.Fatalf("the node identity was not written:\n%s", out)
+	}
+	got := imageContexts(parseSlides(t, out))
+	if len(got) != 2 || got[0] != imgs[0].Context || got[1] != imgs[1].Context {
+		t.Errorf("contexts %v after, %v before\n%s", got, imageContexts(doc), out)
+	}
+}
+
+// Images at every distance from each other, with and without a cover, so the
+// gallery window and the other heuristics are crossed at their edges.
+func TestFlexToStrict_ImageContextsAtEveryDistance(t *testing.T) {
+	for _, cover := range []bool{false, true} {
+		for gap := 0; gap <= 8; gap++ {
+			var b strings.Builder
+			b.WriteString("---\nmode: flex\n---\n\n# Deck\n\n")
+			if cover {
+				b.WriteString("![Cover](cover.png)\n\n")
+			}
+			b.WriteString("---\n\n## Two\n\n![A](a.png)\n")
+			for i := 0; i < gap; i++ {
+				b.WriteString("\npara " + string(rune('a'+i)) + "\n")
+			}
+			b.WriteString("\n![B](b.png)\n\ntail\n")
+			src := b.String()
+			t.Run(strings.ReplaceAll(strings.TrimSpace(strings.Join([]string{map[bool]string{true: "cover", false: "plain"}[cover], string(rune('0' + gap))}, "-")), " ", "_"), func(t *testing.T) {
+				want := imageContexts(parseSlides(t, src))
+				out, reparsed := transpile(t, src)
+				got := imageContexts(reparsed)
+				if len(want) != len(got) {
+					t.Fatalf("images: %v before, %v after\n%s", want, got, out)
+				}
+				for i := range want {
+					if want[i] != got[i] {
+						t.Errorf("image %d: context %q before, %q after\n%s", i, want[i], got[i], out)
+					}
+				}
+			})
+		}
+	}
+}
+
+// An image inside a ::: block is raw text for strict, so it is not an image when
+// the formatted text is read back and its context cannot be kept. That has to be
+// an error naming the element, not a silent loss of the cover's context.
+func TestFlexToStrict_ImageInsideABlockIsReported(t *testing.T) {
+	cases := map[string]string{
+		"cover and a card image": "---\nmode: flex\n---\n\n# Deck\n\n## Sub\n\n![Logo](logo.png)\n\n---\n\n## Two\n\n:::card\n![In](in.png)\n:::\n\n![Z](z.png)\n",
+		"only a columns image":   "---\nmode: flex\n---\n\n## One\n\n:::columns\n![In](in.png)\n:::\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := FormatStrict(parseSlides(t, src))
+			var uerr *UnsupportedElementError
+			if !errors.As(err, &uerr) {
+				t.Fatalf("want an UnsupportedElementError, got %v", err)
+			}
+		})
 	}
 }
