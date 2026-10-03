@@ -132,3 +132,55 @@ func TestStrictParser_ConsecutiveImages_NotCollapsed(t *testing.T) {
 		})
 	}
 }
+
+// IMAGE accepts an optional `context:`. It overrides the value the parser would
+// infer from the position of the image, so that fmt can keep the context a flex
+// source had. An unknown value is a warning and the inferred one is used.
+func TestStrictParser_ImageContextProperty(t *testing.T) {
+	parse := func(t *testing.T, body string) (*ast.ImageElement, []string) {
+		t.Helper()
+		content := "---\nmode: strict\ntitle: M\n---\nSLIDE content\n" + body
+		astNode, diags := New(util.NewNoop()).Parse(content, "test.slidelang")
+		var ruleIDs []string
+		for _, d := range diags {
+			if d.IsError() {
+				t.Fatalf("unexpected error diagnostic: %s", d.Message)
+			}
+			ruleIDs = append(ruleIDs, d.RuleID)
+		}
+		imgs := collectImages(astNode.ContentBlocks[0])
+		if len(imgs) != 1 {
+			t.Fatalf("got %d images, want 1", len(imgs))
+		}
+		return imgs[0], ruleIDs
+	}
+
+	t.Run("declared", func(t *testing.T) {
+		for _, c := range []ast.ImageContext{ast.ImageContextTitle, ast.ImageContextHero, ast.ImageContextGallery, ast.ImageContextContent, ast.ImageContextStandalone} {
+			img, ids := parse(t, "  TEXT\n    a\n  TEXT\n    b\n  TEXT\n    c\n  IMAGE \"a.png\" \"alt\"\n    context: "+string(c)+"\n")
+			if img.Context != c {
+				t.Errorf("Context = %q, want %q", img.Context, c)
+			}
+			if len(ids) != 0 {
+				t.Errorf("unexpected diagnostics %v", ids)
+			}
+		}
+	})
+
+	t.Run("absent keeps the inferred value", func(t *testing.T) {
+		img, _ := parse(t, "  TEXT\n    a\n  TEXT\n    b\n  TEXT\n    c\n  IMAGE \"a.png\" \"alt\"\n")
+		if img.Context == "" {
+			t.Error("Context should still be inferred")
+		}
+	})
+
+	t.Run("unknown value warns", func(t *testing.T) {
+		img, ids := parse(t, "  TEXT\n    a\n  TEXT\n    b\n  TEXT\n    c\n  IMAGE \"a.png\" \"alt\"\n    context: banner\n")
+		if img.Context == "" || img.Context == "banner" {
+			t.Errorf("Context = %q, want an inferred value", img.Context)
+		}
+		if len(ids) != 1 || ids[0] != "IMG003" {
+			t.Errorf("rule IDs = %v, want [IMG003]", ids)
+		}
+	})
+}

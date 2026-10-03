@@ -48,19 +48,30 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 	consumed := 1
 
-	var source, alt, caption, label, fit, focus string
+	var source, alt, caption, label, fit, focus, declaredContext string
 	var bleed bool
 
 	if ctx.Mode == "strict" {
 		// Parse strict mode IMAGE syntax
-		source, alt, caption, label, fit, focus, bleed, consumed = p.parseStrictImage(ctx.Lines, startIndex)
+		source, alt, caption, label, fit, focus, declaredContext, bleed, consumed = p.parseStrictImage(ctx.Lines, startIndex)
 	} else {
 		// Parse flex mode Markdown syntax
 		source, alt, fit, focus, bleed = p.parseMarkdownImage(line)
 	}
 
-	// Detectar contexto automáticamente
+	// Detectar contexto automáticamente, salvo que la fuente strict lo declare
+	// con `context:` (ver declaredImageContext).
 	context := p.detectImageContext(ctx, startIndex)
+	var diags []diagnostics.Diagnostic
+	if declaredContext != "" {
+		if declared, ok := declaredImageContext(declaredContext); ok {
+			context = declared
+		} else {
+			diags = append(diags, diagnostics.NewWarning(
+				fmt.Sprintf("invalid image context %q; expected title, hero, gallery, content or standalone", declaredContext),
+				pos, "image-parser").WithRuleID("IMG003"))
+		}
+	}
 
 	// Crear elemento con contexto
 	element := ast.NewImageElementWithContext(pos, source, alt, context)
@@ -70,7 +81,6 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	element.Focus = focus
 	element.Bleed = bleed
 
-	var diags []diagnostics.Diagnostic
 	if err := validateImageFrame(fit, focus); err != nil {
 		diags = append(diags, diagnostics.NewWarning(err.Error(), pos, "image-parser").WithRuleID("IMG002"))
 		// Un valor inválido nunca llega a un renderer como estilo.
@@ -83,6 +93,23 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Error:         nil,
 		Diagnostics:   diags,
 	}
+}
+
+// declaredImageContext valida el valor de `context:` en un IMAGE strict.
+//
+// Context se infiere de la posición de la imagen en el texto, y esa inferencia
+// no es la misma en los dos dialectos: una portada flex se lee como "title" y
+// la misma portada escrita en strict, sin los separadores `---` ni el `# `,
+// como "content". Declararlo permite que `fmt` conserve el valor que el AST
+// ya traía en vez de dejar que se vuelva a inferir. No está pensado para que
+// lo escriban los autores: el campo sigue siendo metadata histórica.
+func declaredImageContext(value string) (ast.ImageContext, bool) {
+	switch c := ast.ImageContext(value); c {
+	case ast.ImageContextTitle, ast.ImageContextHero, ast.ImageContextGallery,
+		ast.ImageContextContent, ast.ImageContextStandalone:
+		return c, true
+	}
+	return "", false
 }
 
 // detectImageContext determina el contexto de una imagen basado en su posición y entorno
@@ -291,7 +318,7 @@ func startsNewStrictElement(trimmed string) bool {
 }
 
 // parseStrictImage parsea la sintaxis IMAGE de strict mode
-func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, string, string, string, string, string, bool, int) {
+func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, string, string, string, string, string, string, bool, int) {
 	line := strings.TrimSpace(lines[startIndex])
 	consumed := 1
 
@@ -304,6 +331,7 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 	label := ""
 	fit := ""
 	focus := ""
+	declaredContext := ""
 	bleed := false
 
 	if len(parts) >= 2 {
@@ -364,6 +392,8 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 					fit = value
 				case "focus":
 					focus = value
+				case "context":
+					declaredContext = value
 				case "bleed":
 					parsed, err := strconv.ParseBool(value)
 					if err == nil {
@@ -375,7 +405,7 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 		consumed++
 	}
 
-	return source, alt, caption, label, fit, focus, bleed, consumed
+	return source, alt, caption, label, fit, focus, declaredContext, bleed, consumed
 }
 
 // parseMarkdownImage parsea la sintaxis ![alt](src) de Markdown

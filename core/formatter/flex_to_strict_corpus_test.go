@@ -134,8 +134,6 @@ var acceptedFmtRefusals = map[string]string{}
 // while still listed fails the test above, so nobody forgets to delete it.
 // Defects, by the letter each entry carries:
 //
-//	A  a title-slide image comes back with context "content" (or "standalone"
-//	   becomes "content")
 //	B  the nested elements of :::card, :::columns, :::tabs and :::accordion
 //	   are lost
 //	C  a closing slide that the linter infers (last slide, no layout, no
@@ -155,27 +153,15 @@ var expectedFmtGaps = map[string]string{
 	"01_title_and_content/01.3_lists_and_tables_flex.slidelang":              "G",
 	"01_title_and_content/01.4_special_blocks_flex.slidelang":                "G",
 	"01_title_and_content/01.5_layouts_and_images_flex.slidelang":            "G",
-	"01_title_and_content/01.6_ui_elements_flex.slidelang":                   "A+B",
+	"01_title_and_content/01.6_ui_elements_flex.slidelang":                   "B",
 	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang":        "G",
-	"01_title_and_content/01_title_and_content_flex.slidelang":               "A+B",
-	"01_title_and_content/content_platform_launch_flex.slidelang":            "A+H",
+	"01_title_and_content/01_title_and_content_flex.slidelang":               "B",
+	"01_title_and_content/content_platform_launch_flex.slidelang":            "H",
 	"02_diagrams_and_charts/02.2_technical_diagrams_flex.slidelang":          "G",
-	"02_diagrams_and_charts/02_diagrams_and_charts_flex.slidelang":           "A",
 	"02_diagrams_and_charts/analytics_dashboard_presentation_flex.slidelang": "G",
-	"18_specialized_layouts/18.1_code_examples_flex.slidelang":               "A",
-	"18_specialized_layouts/18.2_comparison_analysis_flex.slidelang":         "A",
-	"18_specialized_layouts/18.3_headers_footers_basic_flex.slidelang":       "A",
-	"18_specialized_layouts/18.3_testimonials_success_flex.slidelang":        "A",
-	"18_specialized_layouts/18.4_dashboard_metrics_flex.slidelang":           "A",
-	"18_specialized_layouts/18.4_headers_footers_advanced_flex.slidelang":    "A",
-	"18_specialized_layouts/18.5_headers_footers_granular_flex.slidelang":    "A",
-	"18_specialized_layouts/closing_demo.slidelang":                          "A",
-	"18_specialized_layouts/product_launch_presentation_flex.slidelang":      "A",
-	"directive_modifiers.slidelang":                                          "A",
 	"gallery/02_flex_mode_essentials.slidelang":                              "G",
 	"gallery/07_special_blocks_and_checklists.slidelang":                     "G",
 	"gallery/10_startup_pitch_deck.slidelang":                                "G",
-	"openai_fixed.slidelang":                                                 "A",
 }
 
 func flexCorpusFiles(t *testing.T) []string {
