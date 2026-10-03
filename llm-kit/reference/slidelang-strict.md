@@ -74,6 +74,18 @@ checklist, and grid all have strict spellings now (`QUOTE`, `CHECKLIST`, and
 the `<<grid>>` block below); the flex `::: grid` / `::: column` form is **not**
 recognized in strict mode.
 
+A **quote** (`QUOTE`) may have several paragraphs: a blank line stays inside the
+quote when the next line with text is indented deeper than `QUOTE`. Without
+that indentation the blank line ends the quote.
+
+```
+  QUOTE
+    First paragraph.
+
+    Second paragraph.
+    AUTHOR: Someone
+```
+
 A **grid** (side-by-side columns) uses a delimited block, same house style as
 `<<map>>`/`<<chart>>`/`<<math>>`:
 
