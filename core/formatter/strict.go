@@ -428,11 +428,17 @@ func formatPointList(items []ast.PointItem, listType string, sub bool) string {
 }
 
 func formatStrictCode(e *ast.CodeElement) (string, error) {
-	// A flex fence keeps the whole info string as the language when it carries
-	// highlighted lines (```python {1,3-5}) or a code-group label. Strict reads
-	// the second word of a CODE line as a file name, so it would not read back.
+	// A flex fence keeps the whole info string as the language when what follows
+	// the first word starts with `{` or `[` (highlighted lines, a code-group
+	// label), and the strict CODE header reads that form back the same way. Any
+	// other language with more than one word would be read as a file name.
 	if strings.ContainsAny(e.Language, " \t") {
-		return "", newUnsupported("code", fmt.Sprintf("the language %q has more than one word (a fence with highlighted lines or a code-group label), and strict reads the second word of a CODE line as a file name", e.Language))
+		_, rest, _ := strings.Cut(e.Language, " ")
+		rest = strings.TrimSpace(rest)
+		if (!strings.HasPrefix(rest, "{") && !strings.HasPrefix(rest, "[")) || e.Filename != "" || strings.ContainsAny(e.Language, "\r\n\t") {
+			return "", newUnsupported("code", fmt.Sprintf("the language %q has more than one word, and strict reads the second word of a CODE line as a file name unless it starts with { or [", e.Language))
+		}
+		return "CODE " + e.Language + "\n" + indent(e.Content, 2), nil
 	}
 	header := "CODE"
 	if e.Language != "" {

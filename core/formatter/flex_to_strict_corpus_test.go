@@ -131,12 +131,10 @@ func TestFormatStrict_FlexToStrict_Corpus(t *testing.T) {
 // every ::: block of the corpus transpiles. The nested-element check still refuses
 // what strict cannot give back, by name; see checkNestedBlockElements.
 //
-// code: a flex fence whose info string has more than one word after the
-// language (```python {1,3-5}) keeps the whole string as the language, and strict
-// reads the second word of a CODE line as a file name.
-var acceptedFmtRefusals = map[string]string{
-	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang": "code",
-}
+// code: none today. A flex fence whose info string has more than one word after
+// the language (```python {1,3-5}) keeps the whole string as the language, and a
+// strict CODE header whose second word starts with { or [ reads back the same way.
+var acceptedFmtRefusals = map[string]string{}
 
 // expectedFmtGaps lists the flex sources whose fmt output is known not to
 // round-trip yet, keyed by path under examples/ with a short reason. It is empty
