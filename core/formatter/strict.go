@@ -895,9 +895,84 @@ func specialBlockText(e *ast.SpecialBlockElement, typed bool) string {
 		b.WriteString(" " + e.Title)
 	}
 	b.WriteString("\n")
-	b.WriteString(e.Content)
+	if typed {
+		b.WriteString(withFenceIndentation(e))
+	} else {
+		b.WriteString(e.Content)
+	}
 	b.WriteString("\n:::")
 	return b.String()
+}
+
+// withFenceIndentation returns the body of a typed block with the interior of
+// each fenced code block written as the nested CodeElement holds it.
+//
+// A block's content is its raw lines trimmed one by one, while the CodeElement
+// built from a fence keeps the lines as they were, indentation included. Read
+// back, a typed block trims the lines again for `content` and gives the fence its
+// raw lines, so writing the fence interior with its own indentation restores both
+// views from one text. The fence interiors in `content` are the same lines, in the
+// same order and number, trimmed; they are paired with the code elements by order
+// and by language, and a fence that does not pair (the tabs of a code group, say)
+// is left as it is. The read-back check in formatSpecialBlock is the net.
+func withFenceIndentation(e *ast.SpecialBlockElement) string {
+	var codes []*ast.CodeElement
+	var collect func(els []ast.Element)
+	collect = func(els []ast.Element) {
+		for _, el := range els {
+			switch n := el.(type) {
+			case *ast.CodeElement:
+				codes = append(codes, n)
+			case *ast.SpecialBlockElement:
+				collect(n.Elements)
+			case *ast.GridElement:
+				for _, col := range n.Columns {
+					collect(col.Elements)
+				}
+			}
+		}
+	}
+	collect(e.Elements)
+	if len(codes) == 0 {
+		return e.Content
+	}
+
+	lines := strings.Split(e.Content, "\n")
+	var out []string
+	next := 0
+	for i := 0; i < len(lines); i++ {
+		out = append(out, lines[i])
+		if next >= len(codes) || !strings.HasPrefix(lines[i], "```") {
+			continue
+		}
+		code := codes[next]
+		fenceLang, _, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(lines[i], "`")), " ")
+		codeLang, _, _ := strings.Cut(strings.TrimSpace(code.Language), " ")
+		if fenceLang != codeLang {
+			continue
+		}
+		closing := -1
+		for j := i + 1; j < len(lines); j++ {
+			if lines[j] == "```" {
+				closing = j
+				break
+			}
+		}
+		if closing < 0 {
+			continue
+		}
+		interior := lines[i+1 : closing]
+		raw := strings.Split(code.Content, "\n")
+		if code.Content != "" && len(raw) == len(interior) {
+			out = append(out, raw...)
+		} else {
+			out = append(out, interior...)
+		}
+		out = append(out, lines[closing])
+		i = closing
+		next++
+	}
+	return strings.Join(out, "\n")
 }
 
 // specialBlockReadsBack reports whether text, written inside a slide, reads
