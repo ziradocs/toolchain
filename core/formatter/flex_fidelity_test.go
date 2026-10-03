@@ -451,3 +451,59 @@ func TestFlexToStrict_PlainSpecialBlockStillTranspiles(t *testing.T) {
 		t.Errorf("the block was not written:\n%s", out)
 	}
 }
+
+// With nested blocks the innermost one that loses elements is the one named,
+// and a block that holds other blocks does not make the pairing silently pass.
+func TestFlexToStrict_NestedBlockErrorNamesTheInnermostBlock(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n## One\n\n:::tabs Outer\n::: card Inner\n### Heading\nbody\n:::\n:::\n"
+	_, err := FormatStrict(parseSlides(t, src))
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+		t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+	}
+	if !strings.Contains(uerr.Reason, "card Inner") {
+		t.Errorf("the reason should name the innermost block, got: %s", uerr.Reason)
+	}
+}
+
+func TestFlexToStrict_NestedBlocksInDocumentsAreRefused(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n# Doc\n\n:::card T\n### H\nbody\n:::\n"
+	p := parser.New(util.NewNoop())
+	doc, diags := p.ParseDocument(src, "d.doclang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("does not parse: %s", d.String())
+		}
+	}
+	_, err := FormatDocumentStrict(doc)
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+		t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
+	}
+}
+
+func TestCheckNestedBlockElements_FailsClosedWhenTheTextDoesNotReadBack(t *testing.T) {
+	doc := parseSlides(t, "---\nmode: flex\n---\n\n## One\n\n:::card\n### H\nbody\n:::\n")
+	err := checkNestedBlockElements(doc, nil)
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want an UnsupportedElementError, got %v", err)
+	}
+	// Different number of blocks: an empty slide read back.
+	empty := parseSlides(t, "---\nmode: strict\n---\n\nSLIDE content\n  title: \"x\"\n")
+	if err := checkNestedBlockElements(doc, empty); err == nil {
+		t.Error("a block that did not come back must be reported")
+	}
+}
+
+func TestFlexToStrict_NestedBlockErrorNamesTheColumn(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n## One\n\n:::: grid\n::: column\n### H\ntext\n:::\n::: column\nother\n:::\n::::\n"
+	_, err := FormatStrict(parseSlides(t, src))
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want an UnsupportedElementError, got %v", err)
+	}
+	if !strings.Contains(uerr.Reason, "column") {
+		t.Errorf("the reason should name the column that loses its heading, got: %s", uerr.Reason)
+	}
+}

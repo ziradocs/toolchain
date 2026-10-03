@@ -1524,25 +1524,75 @@ func collectImages(doc *ast.AST) []*ast.ImageElement {
 // different number of blocks, the pairing is meaningless and the check is left
 // to the callers' round-trip comparisons.
 func checkNestedBlockElements(doc, parsed *ast.AST) error {
-	want, got := collectSpecialBlocks(doc), collectSpecialBlocks(parsed)
-	if parsed == nil || len(want) != len(got) {
-		return nil
+	if parsed == nil {
+		return newUnsupported("special_block", "the formatted text cannot be read back to check the nested elements of its ::: blocks")
 	}
+	want, got := collectSpecialBlocks(doc), collectSpecialBlocks(parsed)
+	var losing []*ast.SpecialBlockElement
 	for i, block := range want {
 		if len(block.Elements) == 0 {
 			continue
 		}
-		if sameElements(block.Elements, got[i].Elements) {
+		// With the same number of blocks they pair by document order and each
+		// one is compared. With a different number (a block holding other
+		// blocks lost its children) there is nothing to pair, so every block
+		// with nested elements counts as losing them.
+		if len(want) == len(got) && sameElements(block.Elements, got[i].Elements) {
 			continue
 		}
-		label := ":::" + block.BlockType
-		if block.Title != "" {
-			label += " " + block.Title
-		}
-		return newUnsupported("special_block", fmt.Sprintf(
-			"the %s block has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them", label))
+		losing = append(losing, block)
 	}
-	return nil
+	if len(losing) == 0 {
+		return nil
+	}
+	block := innermostBlock(losing)
+	label := ":::" + block.BlockType
+	if block.Title != "" {
+		label += " " + block.Title
+	}
+	return newUnsupported("special_block", fmt.Sprintf(
+		"the %s block has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them", label))
+}
+
+// innermostBlock picks, among blocks that lose nested elements, the first one
+// (in document order) that holds no other such block: the one the author has to
+// look at, instead of the container around it.
+func innermostBlock(losing []*ast.SpecialBlockElement) *ast.SpecialBlockElement {
+	for _, block := range losing {
+		inner := false
+		for _, other := range losing {
+			if other != block && containsBlock(block, other) {
+				inner = true
+				break
+			}
+		}
+		if !inner {
+			return block
+		}
+	}
+	return losing[0]
+}
+
+func containsBlock(outer, target *ast.SpecialBlockElement) bool {
+	var search func(els []ast.Element) bool
+	search = func(els []ast.Element) bool {
+		for _, el := range els {
+			switch e := el.(type) {
+			case *ast.SpecialBlockElement:
+				if e == target || search(e.Elements) {
+					return true
+				}
+			case *ast.GridElement:
+				for _, col := range e.Columns {
+					if search(col.Elements) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	return search(outer.Elements)
 }
 
 func collectSpecialBlocks(doc *ast.AST) []*ast.SpecialBlockElement {
