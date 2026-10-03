@@ -188,12 +188,12 @@ SLIDE content
 // invoca runFmt con Check:true en proceso).
 func TestCheckFailureMessage_DistinguishesTranspileFromDrift(t *testing.T) {
 	transpileMsg := checkFailureMessage("deck.slidelang", true)
-	if !strings.Contains(transpileMsg, "transpilaría") || !strings.Contains(transpileMsg, "irreversible") {
+	if !strings.Contains(transpileMsg, "would transpile") || !strings.Contains(transpileMsg, "irreversible") {
 		t.Errorf("transpile-case message should warn about the irreversible dialect rewrite, got: %q", transpileMsg)
 	}
 
 	driftMsg := checkFailureMessage("deck.slidelang", false)
-	if strings.Contains(driftMsg, "transpilaría") {
+	if strings.Contains(driftMsg, "would transpile") {
 		t.Errorf("non-transpile-case message should not mention transpiling, got: %q", driftMsg)
 	}
 	if !strings.Contains(driftMsg, "--write") {

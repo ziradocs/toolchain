@@ -43,9 +43,10 @@ document can be either dialect:
   - A 'mode: flex'/'flex-full' (or its deprecated alias flex-ai) document
     is TRANSPILED to strict: parsed (with normalization, same as a regular
     build) and re-emitted as SLIDE-marker text, with 'mode: strict' in the
-    output frontmatter. This fails with an error naming the element if the
-    document uses a construct strict mode cannot represent yet (e.g. GRID
-    — see issue #214).
+    output frontmatter. The output builds to the same AST as the source, or
+    fmt fails with an error naming the element that strict cannot represent
+    (for example a ::: block that holds headings, fenced code, tables or
+    images).
 
 Examples:
   # Print the canonical strict form to stdout (works for strict OR flex input)
@@ -73,7 +74,7 @@ Examples:
 
 func runFmt(opts *FmtOptions) error {
 	if !opts.Strict {
-		return fmt.Errorf("fmt: --strict=false no está soportado hoy; strict es el único dialecto canónico implementado")
+		return fmt.Errorf("fmt: --strict=false is not supported yet; strict is the only canonical dialect implemented")
 	}
 
 	content, err := os.ReadFile(opts.InputFile)
@@ -92,7 +93,7 @@ func runFmt(opts *FmtOptions) error {
 	}
 	for _, d := range diags {
 		if d.IsError() {
-			return fmt.Errorf("fmt: el archivo tiene errores de parseo, corrígelos antes de formatear:\n%s", d.String())
+			return fmt.Errorf("fmt: the file has parse errors, fix them before formatting:\n%s", d.String())
 		}
 	}
 	// Issue #206: si el documento no es ya 'mode: strict', esto transpila —
@@ -103,9 +104,10 @@ func runFmt(opts *FmtOptions) error {
 	// dialecto de origen, solo serializa lo que recibe, y
 	// frontMatterOverrides fuerza "mode: strict" en el output sin importar
 	// qué mode traía el frontmatter original. Si el doc usa una construcción
-	// que el modo strict no puede representar (GRID hoy, ver issue #214),
-	// FormatStrict devuelve UnsupportedElementError y el error se propaga tal
-	// cual — nombra el elemento problemático, no falla en silencio.
+	// que el modo strict no puede representar (por ejemplo un bloque ::: con
+	// elementos anidados), FormatStrict devuelve UnsupportedElementError y el
+	// error se propaga tal cual — nombra el elemento problemático, no falla en
+	// silencio.
 	isTranspile := astNode.FrontMatter == nil || astNode.FrontMatter.Mode != "strict"
 
 	out, err := formatter.FormatStrict(astNode)
@@ -145,12 +147,12 @@ func runFmt(opts *FmtOptions) error {
 // (reescritura irreversible de dialecto), no solo reformatearía.
 
 func transpileWriteNotice(inputFile string) string {
-	return fmt.Sprintf("fmt: transpilando %q a modo strict — el archivo será reescrito en la sintaxis SLIDE (mode: strict)\n", inputFile)
+	return fmt.Sprintf("fmt: transpiling %q to strict mode: the file will be rewritten in SLIDE syntax (mode: strict)\n", inputFile)
 }
 
 func checkFailureMessage(inputFile string, isTranspile bool) string {
 	if isTranspile {
-		return fmt.Sprintf("%s no está en forma canónica strict — es un documento flex/flex-full; --write lo transpilaría (reescritura irreversible de dialecto, no un simple reformateo)\n", inputFile)
+		return fmt.Sprintf("%s is not in canonical strict form: it is a flex/flex-full document, and --write would transpile it (an irreversible dialect rewrite, not just a reformat)\n", inputFile)
 	}
-	return fmt.Sprintf("%s no está en forma canónica (correr con --write para reformatear)\n", inputFile)
+	return fmt.Sprintf("%s is not in canonical form (run with --write to reformat)\n", inputFile)
 }
