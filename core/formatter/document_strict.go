@@ -66,8 +66,14 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 		prevAbsorbs = false
 		fmt.Fprintf(&b, "SECTION %s\n", quote(title))
 
+		prevNotes := false // el elemento anterior termina en un cuerpo multilínea de @notes
 		for _, el := range block.Elements {
 			heading, isHeading := asDocumentHeading(el)
+			if prevNotes && !isHeading {
+				// Un SECTION ya abre con su propia línea en blanco.
+				b.WriteString("\n")
+			}
+			prevNotes = endsWithNotesBody(el)
 			if isHeading {
 				if err := checkSectionTitle("text", heading.text); err != nil {
 					return "", err

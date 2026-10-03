@@ -350,3 +350,73 @@ func TestFlexToStrict_ImageInsideABlockIsReported(t *testing.T) {
 		})
 	}
 }
+
+func elementShape(doc *ast.AST) []string {
+	var out []string
+	for _, b := range doc.ContentBlocks {
+		out = append(out, "slide")
+		for _, el := range b.Elements {
+			s := string(el.GetType())
+			if d, ok := el.(*ast.DirectiveNode); ok && d.Name == "notes" {
+				s += "=" + d.Parameters["content"].(string)
+			}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// The multi-line body of @notes runs until a blank line, so an element written
+// right behind it was read as more notes: the slide lost elements and the notes
+// grew. The formatter now closes the body with a blank line and writes empty
+// notes as @notes "".
+func TestFlexToStrict_NotesDoNotSwallowTheNextElements(t *testing.T) {
+	cases := map[string]string{
+		"single line then heading and quote": "---\nmode: flex\n---\n\n## One\n\ntext\n\n@notes \"Say this first.\"\n\n### Sub\n\n> a quote\n\n---\n\n## Two\n\nbody\n",
+		"multi-line block then text":         "---\nmode: flex\n---\n\n## One\n\n@notes:\nfirst line\nsecond line\n\nafter the notes\n\n---\n\n## Two\n\nbody\n",
+		"notes last in the slide":            "---\nmode: flex\n---\n\n## One\n\ntext\n\n@notes \"Last.\"\n\n---\n\n## Two\n\nbody\n",
+		"empty notes then text":              "---\nmode: flex\n---\n\n## One\n\n@notes \"\"\n\ntext after\n\n---\n\n## Two\n\nbody\n",
+		"notes that start with a hash":       "---\nmode: flex\n---\n\n## One\n\n@notes \"# not a heading\"\n\ntext after\n\n---\n\n## Two\n\nbody\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			want := elementShape(parseSlides(t, src))
+			out, reparsed := transpile(t, src)
+			got := elementShape(reparsed)
+			if strings.Join(want, "|") != strings.Join(got, "|") {
+				t.Errorf("shape changed\n before: %q\n after:  %q\n%s", want, got, out)
+			}
+			again, err := FormatStrict(reparsed)
+			if err != nil {
+				t.Fatalf("second FormatStrict: %v", err)
+			}
+			if again != out {
+				t.Errorf("not idempotent:\n--- first ---\n%s\n--- second ---\n%s", out, again)
+			}
+		})
+	}
+}
+
+func TestFormatNotes(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		want      string
+		multiline bool
+		wantErr   bool
+	}{
+		{"empty", "", `@notes ""`, false, false},
+		{"one line", "Say this.", "@notes\n  Say this.", true, false},
+		{"two lines", "a\nb", "@notes\n  a\n  b", true, false},
+		{"hash start, one line", "# Heading", `@notes "# Heading"`, false, false},
+		{"hash start, two lines", "a\n# b", "", false, true},
+		{"empty line inside", "a\n\nb", "", false, true},
+		{"padded line", " a", `@notes " a"`, false, false},
+	}
+	for _, tt := range tests {
+		got, multiline, err := formatNotes(tt.content)
+		if (err != nil) != tt.wantErr || got != tt.want || multiline != tt.multiline {
+			t.Errorf("%s: formatNotes(%q) = %q, %v, %v; want %q, %v, wantErr=%v", tt.name, tt.content, got, multiline, err, tt.want, tt.multiline, tt.wantErr)
+		}
+	}
+}
