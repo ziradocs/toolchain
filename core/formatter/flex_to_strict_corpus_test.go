@@ -158,7 +158,7 @@ var expectedFmtGaps = map[string]string{
 	"01_title_and_content/01.6_ui_elements_flex.slidelang":                   "A+B",
 	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang":        "G",
 	"01_title_and_content/01_title_and_content_flex.slidelang":               "A+B",
-	"01_title_and_content/content_platform_launch_flex.slidelang":            "A+B",
+	"01_title_and_content/content_platform_launch_flex.slidelang":            "A+H",
 	"02_diagrams_and_charts/02.2_technical_diagrams_flex.slidelang":          "G",
 	"02_diagrams_and_charts/02_diagrams_and_charts_flex.slidelang":           "A",
 	"02_diagrams_and_charts/analytics_dashboard_presentation_flex.slidelang": "G",
