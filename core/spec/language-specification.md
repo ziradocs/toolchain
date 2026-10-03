@@ -107,7 +107,7 @@ checklist_item     ::= ("-" | "*" | "+")? "[" ("x" | "X" | " ") "]" text_content
 image_element     ::= "IMAGE" INDENT property+ DEDENT
 quote_element     ::= "QUOTE" INDENT quote_line (BLANK* quote_line)*
                       ("AUTHOR:" text)? ("SOURCE:" text)? DEDENT
-code_element      ::= "CODE" (language filename?)? INDENT code_content DEDENT
+code_element      ::= "CODE" (language (filename | info)?)? INDENT code_content DEDENT
 table_element     ::= "TABLE" INDENT table_data DEDENT
 
 directive_element ::= "@" directive_name ":" directive_value
@@ -130,6 +130,18 @@ diagnosed. See [portable nested list types](../../docs/portable-nested-list-type
 (`CodeElement.filename`, schema 2.19.0, inferred capability
 `code-filename-v1`); a flex fence takes it after the language or as
 `title="…"`. See [code block filenames](../../docs/portable-code-filenames.md).
+
+If the second word of a `CODE` line starts with `{` or `[`, it is not a filename:
+the whole text after `CODE` is the language (`CodeElement.language` is
+`python {1,3-5}`), with its spacing exactly as written and no filename. This rule
+exists only to reproduce what a flex fence already stores, because the flex parser
+keeps the whole info string as the language when what follows the first word starts
+with `{` or `[` (highlighted lines, or a code-group label); it lets
+`slidelang fmt` write such a fence as strict. The highlighted-lines text has no
+meaning of its own in strict, and no renderer reads it from there. Before this rule
+such a header was an error, because the code-filename contract rejects a filename
+that starts with `{` or `[`. Code groups are unaffected: in strict they are
+`:::code-group` blocks with fenced code and `[label]`.
 
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next
