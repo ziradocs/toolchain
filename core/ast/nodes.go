@@ -538,6 +538,16 @@ type PointItem struct {
 	// back from JSON (or rewritten by an external filter) has it empty, which
 	// renderers read as "no information" and fall back to the type of the parent.
 	SubListMarker string `json:"-" tstype:"-"`
+	// Marker is the marker kind ("ordered" or "unordered") the author used for
+	// this item itself, recorded only on the items of a SubPoints list and only
+	// by the parser path that flattens nested lists (without
+	// nested-list-types-v1: every item more indented than the base level is a
+	// sub-point of the last base item, whatever its depth or marker). It lets
+	// fmt write a sublist that mixes markers, or a third level that was
+	// flattened into it, with the markers the author wrote. In memory only, like
+	// SubListMarker; empty when the AST was read back from JSON, in which case
+	// fmt falls back to the marker of the sublist.
+	Marker string `json:"-" tstype:"-"`
 }
 
 // NewPointItem crea un nuevo item de punto
