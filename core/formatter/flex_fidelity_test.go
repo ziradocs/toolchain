@@ -869,3 +869,29 @@ func TestFlexToStrict_ImageContextInsideABlockIsKeptOrRefused(t *testing.T) {
 		})
 	}
 }
+
+// A node-id written next to an element nested in a block is part of the AST
+// (nodeId) and has to survive the transpile, on the block and on what it holds.
+func TestFlexToStrict_TypedBlockKeepsNodeIDs(t *testing.T) {
+	cases := map[string]string{
+		"on the block":        "---\nmode: flex\n---\n\n## One\n\n<!-- node-id: Box -->\n:::card\n### Heading\nbody\n:::\n",
+		"on a nested heading": "---\nmode: flex\n---\n\n## One\n\n:::card\n<!-- node-id: Inner -->\n### Heading\nbody\n:::\n",
+		"on nested items":     "---\nmode: flex\n---\n\n## One\n\n<!-- node-id: Box -->\n:::card\n<!-- node-id: Head -->\n### Heading\n<!-- node-id: Code -->\n```go\nx := 1\n```\n<!-- node-id: Body -->\nbody\n:::\n",
+		"in a nested block":   "---\nmode: flex\n---\n\n## One\n\n:::tabs\n<!-- node-id: Inner -->\n::: card\n<!-- node-id: Deep -->\n### Inner\ntext\n:::\n:::\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			diffs, out := flexCorpusASTDiffs(t, src)
+			if len(diffs) != 0 {
+				t.Fatalf("the AST changed:\n  %s\n%s", strings.Join(diffs, "\n  "), out)
+			}
+			if got, want := strings.Count(out, "<!-- node-id: "), strings.Count(src, "<!-- node-id: "); got != want {
+				t.Errorf("%d node-id comments written, want %d:\n%s", got, want, out)
+			}
+			again, err := FormatStrict(parseSlides(t, out))
+			if err != nil || again != out {
+				t.Errorf("not idempotent (%v):\n--- first ---\n%s\n--- second ---\n%s", err, out, again)
+			}
+		})
+	}
+}
