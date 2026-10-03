@@ -582,3 +582,69 @@ func TestUnsupportedElementErrorIsEnglish(t *testing.T) {
 		t.Errorf("unexpected error text: %v", ferr)
 	}
 }
+
+// A map closes with `<</map>>`, the terminator MapParser consumes. Written with
+// `<<end>>`, that line was left over: a slide warned and dropped it, and the
+// document dialect rejected the whole output.
+func TestFormatStrict_MapIsClosedWithItsOwnTerminator(t *testing.T) {
+	m := ast.NewMapElement(diagnostics.NewPosition(3, 1), "city")
+	m.Markers = append(m.Markers, ast.MapMarker{Lat: 37.77, Lng: -122.41, Label: "A"})
+	slide, err := FormatStrict(chartDoc(m))
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	if !strings.Contains(slide, "<</map>>") || strings.Contains(slide, "<<end>>") {
+		t.Fatalf("a slide map should close with <</map>>:\n%s", slide)
+	}
+	_, diags := parser.New(util.NewNoop()).Parse(slide, "t.slidelang")
+	for _, d := range diags {
+		if d.RuleID == "STRICT003" {
+			t.Errorf("the formatted map leaves a line the parser drops: %s", d.String())
+		}
+	}
+
+	src := "---\nmode: flex\n---\n\n# Doc\n\n<<map type=\"city\">>\nmarker: 37.77, -122.41, \"A\", \"d\", \"blue\"\n<</map>>\n\nafter\n"
+	doc, perr := parser.New(util.NewNoop()).ParseDocument(src, "d.doclang")
+	for _, d := range perr {
+		if d.IsError() {
+			t.Fatalf("does not parse: %s", d.String())
+		}
+	}
+	out, err := FormatDocumentStrict(doc)
+	if err != nil {
+		t.Fatalf("FormatDocumentStrict: %v", err)
+	}
+	_, rdiags := parser.New(util.NewNoop()).ParseDocument(out, "d.doclang")
+	for _, d := range rdiags {
+		if d.IsError() {
+			t.Errorf("the strict document does not parse back: %s\n%s", d.String(), out)
+		}
+	}
+}
+
+// The document dialect carries the same inferred image context as a slide.
+func TestFlexToStrict_DocumentImageContextSurvives(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n# Doc\n\n## Sub\n\n![Logo](logo.png)\n\ntext\n"
+	p := parser.New(util.NewNoop())
+	doc, diags := p.ParseDocument(src, "d.doclang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("does not parse: %s", d.String())
+		}
+	}
+	want := imageContexts(doc)
+	out, err := FormatDocumentStrict(doc)
+	if err != nil {
+		t.Fatalf("FormatDocumentStrict: %v", err)
+	}
+	re, rdiags := parser.New(util.NewNoop()).ParseDocument(out, "d.doclang")
+	for _, d := range rdiags {
+		if d.IsError() {
+			t.Fatalf("does not parse back: %s\n%s", d.String(), out)
+		}
+	}
+	got := imageContexts(re)
+	if len(want) != 1 || len(got) != 1 || want[0] != got[0] {
+		t.Errorf("image context %v before, %v after\n%s", want, got, out)
+	}
+}
