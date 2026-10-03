@@ -444,6 +444,38 @@ func TestMarkdownRenderElement_Grid(t *testing.T) {
 	}
 }
 
+// TestMarkdownRenderElement_TypedGridColumn (issue #373,
+// docs/portable-typed-columns.md): una columna tipada deja Content vacío y
+// trae Elements poblado — renderElement tiene que renderizar cada elemento
+// anidado con el mismo dispatcher que un elemento de sección, en orden,
+// mientras que la columna cruda vecina sigue saliendo igual que siempre
+// (issue #56, test de arriba).
+func TestMarkdownRenderElement_TypedGridColumn(t *testing.T) {
+	logger := newTestLogger()
+	gen := NewMarkdownGenerator(logger)
+
+	pos := diagnostics.NewPosition(1, 1)
+	grid := ast.NewGridElement(pos)
+
+	text := ast.NewTextElement(pos, "Texto anidado en columna tipada")
+	points := ast.NewPointsElement(pos)
+	points.Items = append(points.Items, *ast.NewPointItem(pos, "Punto anidado"))
+
+	typedCol := ast.NewColumnElement(pos, "")
+	typedCol.Elements = []ast.Element{text, points}
+	rawCol := ast.NewColumnElement(pos, "Columna cruda sin cambios")
+
+	grid.Columns = append(grid.Columns, *typedCol, *rawCol)
+
+	out := gen.renderElement(grid)
+
+	for _, expected := range []string{"Texto anidado en columna tipada", "Punto anidado", "Columna cruda sin cambios"} {
+		if !strings.Contains(out, expected) {
+			t.Errorf("grid Markdown output missing %q:\n%s", expected, out)
+		}
+	}
+}
+
 // TestMarkdownRenderElement_PlantUML cubre issue #38/#51: un PlantUMLElement
 // no tenía case en markdown.go y caía al default (salida vacía). El Title,
 // si viene, se antepone en negrita antes del fence ```plantuml.

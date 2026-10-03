@@ -1044,7 +1044,25 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{range .Columns}}
                     <div class="slidelang-element slidelang-column"
                          data-element-type="column">
-                        <div class="slidelang-content">{{.Content | markdown}}</div>
+                        {{/* Columna cruda (issue #373, docs/portable-typed-columns.md):
+                             .Elements viene vacío y se dibuja el .Content crudo EXACTO
+                             como antes de este cambio — ni un byte distinto, para no
+                             romper ningún deck existente. Columna tipada: .Elements
+                             viene con cada elemento ya convertido (ColumnData.Elements,
+                             ver convertColumns en data/converter.go) y se dibuja cada uno
+                             con el MISMO template "element" que un elemento de slide, vía
+                             la recursión de html/template sobre esta misma definición —
+                             así un chart/mermaid/map/etc. anidado sale con el mismo
+                             markup (y el mismo id=) que si estuviera a nivel de slide.
+                             Se decide por la PRESENCIA de .Elements, nunca por si
+                             .Content viene vacío (una columna tipada siempre trae
+                             Content == ""): si un día una columna tipada queda sin
+                             ningún elemento (p. ej. todas sus directivas descartadas,
+                             ver convertColumns), cae al mismo <div class="slidelang-content">
+                             vacío que dibuja hoy una columna cruda vacía — mismo
+                             comportamiento visible en los dos casos, no un vacío
+                             distinto por dialecto. */}}
+                        {{if .Elements}}{{range .Elements}}{{template "element" .}}{{end}}{{else}}<div class="slidelang-content">{{.Content | markdown}}</div>{{end}}
                     </div>
                 {{end}}
             </div>

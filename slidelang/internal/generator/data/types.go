@@ -444,9 +444,16 @@ type MapMetadata struct {
 	Zoom    int                    `json:"zoom,omitempty"`
 }
 
-// ColumnData representa una columna en un grid layout
+// ColumnData representa una columna en un grid layout. Una columna cruda
+// (`<<column>>`/`::: column`) solo trae Content; una columna tipada
+// (`<<column typed>>`/`::: column typed`, issue #373) deja Content vacío y
+// trae Elements con cada elemento anidado ya convertido (mismo ElementData
+// que un elemento de slide, ver convertElement/convertColumns en
+// converter.go). `omitempty` en Elements: --format json no debe cambiar la
+// forma de una columna cruda, que nunca tuvo este campo.
 type ColumnData struct {
-	Content string `json:"content"`
+	Content  string        `json:"content"`
+	Elements []ElementData `json:"elements,omitempty"`
 }
 
 // TableCellData representa una celda con estructura real (colspan/rowspan/

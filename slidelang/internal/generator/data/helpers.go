@@ -123,18 +123,6 @@ func ProcessMapOptions(options map[string]interface{}, variables map[string]inte
 	return processedOptions
 }
 
-// ConvertColumnsWithVariables convierte columnas del AST a template data procesando variables
-func ConvertColumnsWithVariables(columns []ast.ColumnElement, variables map[string]interface{}) []ColumnData {
-	var result []ColumnData
-	for _, column := range columns {
-		columnData := ColumnData{
-			Content: ProcessVariables(column.Content, variables),
-		}
-		result = append(result, columnData)
-	}
-	return result
-}
-
 // ConvertTableCellsWithVariables convierte ast.TableCell a TableCellData
 // (issue #20), procesando Content igual que el camino Headers/Rows
 // (ProcessTextWithVariablesAndMarkdown, no solo ProcessVariables) para que

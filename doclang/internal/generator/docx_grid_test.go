@@ -60,6 +60,57 @@ func astWithGrid() *ast.AST {
 	return doc
 }
 
+// astWithTypedGridColumn (issue #373, docs/portable-typed-columns.md): una
+// columna tipada deja Content vacío y trae Elements poblado a mano, como
+// haría el parser nuevo de core (todavía no existe en este árbol, de ahí el
+// AST hecho a mano en vez de parsear fuente real).
+func astWithTypedGridColumn() *ast.AST {
+	doc := newTestAST()
+
+	pos := diagnostics.NewPosition(3, 1)
+	grid := ast.NewGridElement(pos)
+
+	text := ast.NewTextElement(pos, "Texto anidado en columna tipada")
+	points := ast.NewPointsElement(pos)
+	points.Items = append(points.Items, *ast.NewPointItem(pos, "Punto anidado"))
+
+	typedCol := ast.NewColumnElement(pos, "")
+	typedCol.Elements = []ast.Element{text, points}
+
+	rawCol := ast.NewColumnElement(pos, "Columna cruda sin cambios")
+
+	grid.Columns = append(grid.Columns, *typedCol, *rawCol)
+
+	block := doc.ContentBlocks[0]
+	block.Elements = append(block.Elements, grid)
+	doc.ContentBlocks[0] = block
+	return doc
+}
+
+// TestDOCXGenerator_RenderGrid_RendersTypedColumnElements cubre issue #373:
+// una columna tipada no tiene Content que renderGrid pueda partir en líneas
+// — su cuerpo real vive en Elements, y tiene que salir en el DOCX usando el
+// mismo dispatcher (renderElement) que un elemento de sección, en orden. La
+// columna cruda vecina sigue saliendo igual que siempre (issue #56).
+func TestDOCXGenerator_RenderGrid_RendersTypedColumnElements(t *testing.T) {
+	logger := newTestLogger()
+	gen := New(logger)
+	doc := astWithTypedGridColumn()
+
+	output := filepath.Join(t.TempDir(), "typed-grid.docx")
+	if err := gen.Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	xml := docxDocumentXML(t, output)
+
+	for _, expected := range []string{"Texto anidado en columna tipada", "Punto anidado", "Columna cruda sin cambios"} {
+		if !strings.Contains(xml, expected) {
+			t.Errorf("generated DOCX document.xml missing %q", expected)
+		}
+	}
+}
+
 // TestDOCXGenerator_RenderGrid_RendersColumnContent cubre issue #56: antes,
 // renderGrid iteraba column.Elements (siempre vacío, ver
 // core/elements/grid.go parseColumn) y las columnas de un grid

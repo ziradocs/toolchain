@@ -48,6 +48,15 @@ parse error naming the correct strict syntax, not a warning: the build
 fails rather than silently rendering the wrong thing. Both spellings produce
 the same typed `GridElement`.
 
+**Typed columns.** A column body is raw Markdown by default. To make the body
+real elements (so an element inside it can carry `<!-- node-id: Name -->`),
+open the column with `<<column typed>>` in strict or `::: column typed` in
+flex. In strict the body is indented two spaces under the marker and uses the
+same grammar as a `SLIDE` body (`TEXT`, `POINTS`, `IMAGE`, `<<chart>>`, ...);
+in flex it is ordinary flex content. Raw and typed columns can be mixed in one
+grid. A `<<grid>>` cannot be nested inside a typed column, and a heading line
+(`###`) inside one is plain text, not a typed heading.
+
 In flex mode, element detection goes through a priority-ordered parser
 registry (most specific first, plain text last) — you never need to worry
 about ordering when writing content, just use the markers above. Strict and
@@ -378,6 +387,29 @@ Strict:
 <<column>>
 <!-- column content -->
 <<end>>
+```
+
+Typed column (the body becomes elements, indented under the marker in strict):
+
+```
+<<grid>>
+<<column typed>>
+  TEXT
+    Left side.
+<<column>>
+Raw right side.
+<<end>>
+```
+
+```
+::: grid
+::: column typed
+Left side.
+:::
+::: column
+Raw right side.
+:::
+:::
 ```
 
 ## Directives

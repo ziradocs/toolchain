@@ -186,3 +186,28 @@ func TestDetectRequiredModulesWithConfig_BaseNoTraeModulosDeContenido(t *testing
 		}
 	}
 }
+
+// TestDetectRequiredModulesWithConfig_DescendsIntoTypedGridColumn (issue
+// #373): un mermaid dentro de una columna tipada (<<column typed>>/
+// ::: column typed) tiene que pedir el módulo "mermaid" igual que si
+// estuviera a nivel de slide. Una columna cruda nunca tiene Elements, así
+// que no aporta nada — esto solo se ejercita con column.Elements poblado.
+func TestDetectRequiredModulesWithConfig_DescendsIntoTypedGridColumn(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	mermaid := ast.NewMermaidElement(pos, "flowchart", "graph TD; A-->B;")
+
+	col := ast.NewColumnElement(pos, "")
+	col.Elements = []ast.Element{mermaid}
+
+	grid := ast.NewGridElement(pos)
+	grid.Columns = append(grid.Columns, *col)
+
+	block := ast.NewContentBlock(pos, "content")
+	block.Elements = append(block.Elements, grid)
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{*block}}
+
+	got := DetectRequiredModulesWithConfig(doc, DefaultModuleConfig())
+	if !contains(got, "mermaid") {
+		t.Errorf("se esperaba el módulo \"mermaid\" para un mermaid dentro de una columna tipada, obtenidos: %v", got)
+	}
+}

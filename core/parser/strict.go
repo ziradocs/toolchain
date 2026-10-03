@@ -64,7 +64,59 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 		CurrentLine:     p.currentLine,
 		Logger:          p.logger,
 		LineOffset:      p.lineOffset,
+		TypedColumnBody: p.parseTypedColumnBody,
 	}
+}
+
+// parseTypedColumnBody parsea el cuerpo de una columna `<<column typed>>`
+// (issue #373) con la misma gramática que el cuerpo de un SLIDE: lines llega
+// dedentado respecto del marcador, así que sus elementos quedan con la sangría
+// de dos espacios que parseIndentedElements exige. lineOffset es el índice, en
+// el archivo, de la línea que precede a lines[0].
+//
+// A diferencia de un SLIDE o una sección, una columna no tiene propiedades ni
+// encabezados, y es sintaxis nueva: no hay documentos previos que dependan de
+// que una línea ilegible se descarte con un warning, así que todo lo que no
+// llega al AST es un Error. Un `<<grid>>` anidado también lo es: los
+// marcadores de grid se reconocen sobre la línea ya recortada, y flex no
+// tiene cierre sin ambigüedad para anidarlo.
+func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic) {
+	sub := &strictBody{
+		nestedListTypes: p.nestedListTypes,
+		lines:           lines,
+		logger:          p.logger,
+		lineOffset:      lineOffset,
+	}
+	scratch := ast.NewContentBlock(sub.position(0), "content")
+	sub.parseIndentedElements(scratch, func(key, _ string) {
+		sub.addError(fmt.Sprintf(
+			"a typed column has no properties, so %q is not valid here; write text inside a TEXT element",
+			key))
+	}, nil, func(trimmed string) {
+		if startsSectionKeyword(trimmed) {
+			sub.addError("headings are not supported inside a column; write the heading as TEXT")
+			return
+		}
+		if trimmed == "SLIDE" || strings.HasPrefix(trimmed, "SLIDE ") {
+			sub.addError("a SLIDE cannot be opened inside a column; close the grid with <<end>> first")
+			return
+		}
+		sub.addError(fmt.Sprintf(
+			"unexpected content inside a typed column: %q is not an element", trimmed))
+	})
+	if sub.currentLine < len(lines) {
+		// parseIndentedElements corta en la primera línea no vacía con menos de
+		// dos espacios de sangría: perderla en silencio sería descartar
+		// contenido.
+		sub.addError("the body of a typed column must be indented two spaces under its <<column typed>> marker")
+	}
+	for _, el := range scratch.Elements {
+		if grid, ok := el.(*ast.GridElement); ok {
+			sub.diagnostics = append(sub.diagnostics, diagnostics.NewError(
+				"a <<grid>> cannot be nested inside a typed column", grid.GetPosition(), "parser"))
+		}
+	}
+	return scratch.Elements, sub.diagnostics
 }
 
 // StrictParser es un parser simple para modo Strict (versión inicial)

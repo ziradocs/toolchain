@@ -470,7 +470,19 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 			if i > 0 {
 				md.WriteString("\n---\n\n")
 			}
+			// Columna cruda: su Content, sin cambios respecto a antes de
+			// este bloque.
 			md.WriteString(column.Content + "\n")
+			// Columna tipada (issue #373, docs/portable-typed-columns.md):
+			// Content viene vacío y el cuerpo real está en Elements. Se
+			// renderiza cada elemento anidado con el MISMO dispatcher
+			// (m.renderElement) que un elemento de sección, en orden,
+			// después del Content (que no aporta nada para una columna
+			// tipada, pero se deja primero por si algún día un AST
+			// construido a mano mezcla ambos).
+			for _, nested := range column.Elements {
+				md.WriteString(m.renderElement(nested))
+			}
 		}
 		return md.String()
 

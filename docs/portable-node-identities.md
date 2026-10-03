@@ -35,7 +35,9 @@ authored node. Unannotated documents retain their existing behavior.
 Identity is available on blocks,
 elements, and typed nested nodes that the parser exposes. A raw grid column
 body or raw code fragment is not a separate AST node and cannot be identified
-independently. The formatter rejects an identified node if its target dialect
+independently; a typed grid column (`<<column typed>>` / `::: column typed`, see
+`portable-typed-columns.md`) parses its body into elements that carry their own
+identities. The formatter rejects an identified node if its target dialect
 cannot preserve that node's structure.
 
 Transforms may intentionally delete nodes. Surviving nodes retain their IDs
