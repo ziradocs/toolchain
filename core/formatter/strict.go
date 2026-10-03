@@ -374,9 +374,9 @@ func formatStrictPoints(e *ast.PointsElement) string {
 // detectListType decide "ordered" vs "unordered" leyendo el marcador del
 // PRIMER item de nivel base (ver internal/elements/points.go) — así que
 // para round-trip-ear un ListType "ordered" hay que reemitir marcadores
-// numerados, no "- " genérico. Los sub-points siempre van con "-" (el
-// detector de tipo de lista solo mira el nivel base, y el parser strict
-// mismo no distingue tipo de lista por nivel de anidamiento).
+// numerados, no "- " genérico. Los sub-points llevan el marcador de su propia
+// sublista (SubListType con la capacidad, SubListMarker sin ella) y "-" si el AST
+// no lo dice: el detector de tipo de lista solo mira el nivel base.
 func formatPointItems(items []ast.PointItem, listType string) string {
 	var b strings.Builder
 	for i, item := range items {
@@ -390,7 +390,14 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 		}
 		if len(item.SubPoints) > 0 {
 			b.WriteString("\n")
+			// SubListType is the capability's field; without it the parser
+			// still records the marker kind of the sublist in memory
+			// (SubListMarker), and it is what the author wrote. Writing every
+			// sublist as bullets turned a numbered sublist into a bulleted one.
 			childType := item.SubListType
+			if childType == "" {
+				childType = item.SubListMarker
+			}
 			if childType == "" {
 				childType = "unordered"
 			}
