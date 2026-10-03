@@ -126,20 +126,16 @@ func TestFormatStrict_FlexToStrict_Corpus(t *testing.T) {
 // examples/ with the node type the error must name. Unlike expectedFmtGaps it
 // is not meant to reach empty.
 //
-// special_block: a flex ::: block keeps its nested headings, fenced code,
-// tables and images as Elements next to the raw Content. A strict block marked
-// `typed` reads its body the way flex does, which covers most of them, but the
-// block's Content is trimmed line by line, so nested fenced code with its own
-// indentation cannot read back the same and there is no strict text for it; see
-// checkNestedBlockElements.
+// special_block: none today. A strict block marked `typed` reads its body the
+// way flex does, and the typed body restores the indentation of a nested fence, so
+// every ::: block of the corpus transpiles. The nested-element check still refuses
+// what strict cannot give back, by name; see checkNestedBlockElements.
 //
 // code: a flex fence whose info string has more than one word after the
 // language (```python {1,3-5}) keeps the whole string as the language, and strict
 // reads the second word of a CODE line as a file name.
 var acceptedFmtRefusals = map[string]string{
 	"01_title_and_content/01.7_advanced_inline_syntax_flex.slidelang": "code",
-	"01_title_and_content/01.4_special_blocks_flex.slidelang":         "special_block",
-	"01_title_and_content/01.6_ui_elements_flex.slidelang":            "special_block",
 }
 
 // expectedFmtGaps lists the flex sources whose fmt output is known not to

@@ -427,27 +427,33 @@ func TestFormatNotes(t *testing.T) {
 	}
 }
 
-// A flex ::: block with a heading, fenced code, a table or an image inside
-// carries those as Elements next to the raw Content. Strict reads the body as
-// raw lines, so the text would come back without them: fmt has to say so.
+// unreadableBlock builds a block that strict has no text for: the nested code
+// element holds two lines while the block content has one line between the fence
+// markers, which cannot happen to a parsed block (the two views come from the same
+// lines) but can in a tree built or edited by hand. The tabs block wraps the card
+// that holds the code.
+func unreadableBlock() *ast.AST {
+	pos := diagnostics.NewPosition(5, 1)
+	code := ast.NewCodeElement(pos, "go", "a\nb")
+	inner := ast.NewSpecialBlockElement(pos, "card", "```go\nx\n```")
+	inner.Title = "Inner"
+	inner.Elements = []ast.Element{code}
+	outer := ast.NewSpecialBlockElement(pos, "tabs", ":::card Inner\n```go\nx\n```\n:::")
+	outer.Title = "Outer"
+	outer.Elements = []ast.Element{inner}
+	return chartDoc(outer)
+}
+
+// A block whose nested elements strict cannot give back is refused by name,
+// and the error names the innermost block.
 func TestFlexToStrict_NestedBlockElementsAreRefused(t *testing.T) {
-	// Fenced code keeps its own indentation as the nested element, while the
-	// block's content is trimmed line by line, so strict has no text that gives
-	// both back: not even a typed block reads the indented code the same.
-	cases := map[string]string{
-		"indented code": "---\nmode: flex\n---\n\n## One\n\n:::tabs\n```go\n  x := 1\n```\n:::\n",
+	_, err := FormatStrict(unreadableBlock())
+	var uerr *UnsupportedElementError
+	if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
+		t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
 	}
-	for name, src := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := FormatStrict(parseSlides(t, src))
-			var uerr *UnsupportedElementError
-			if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
-				t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
-			}
-			if !strings.Contains(uerr.Reason, ":::") {
-				t.Errorf("the reason should name the block: %s", uerr.Reason)
-			}
-		})
+	if !strings.Contains(uerr.Reason, ":::card Inner") {
+		t.Errorf("the reason should name the innermost block: %s", uerr.Reason)
 	}
 }
 
@@ -457,20 +463,6 @@ func TestFlexToStrict_PlainSpecialBlockStillTranspiles(t *testing.T) {
 	out, _ := transpile(t, src)
 	if !strings.Contains(out, ":::info Heads up") {
 		t.Errorf("the block was not written:\n%s", out)
-	}
-}
-
-// With nested blocks the innermost one that loses elements is the one named,
-// and a block that holds other blocks does not make the pairing silently pass.
-func TestFlexToStrict_NestedBlockErrorNamesTheInnermostBlock(t *testing.T) {
-	src := "---\nmode: flex\n---\n\n## One\n\n:::tabs Outer\n::: card Inner\n```go\n  x := 1\n```\n:::\n:::\n"
-	_, err := FormatStrict(parseSlides(t, src))
-	var uerr *UnsupportedElementError
-	if !errors.As(err, &uerr) || uerr.NodeType != "special_block" {
-		t.Fatalf("want an UnsupportedElementError for special_block, got %v", err)
-	}
-	if !strings.Contains(uerr.Reason, "card Inner") {
-		t.Errorf("the reason should name the innermost block, got: %s", uerr.Reason)
 	}
 }
 
@@ -585,7 +577,7 @@ func TestUnsupportedElementErrorIsEnglish(t *testing.T) {
 	}
 
 	// A message that fmt shows for a real source.
-	_, ferr := FormatStrict(parseSlides(t, "---\nmode: flex\n---\n\n## One\n\n:::card\n```go\n  x := 1\n```\n:::\n"))
+	_, ferr := FormatStrict(unreadableBlock())
 	if ferr == nil || !strings.HasPrefix(ferr.Error(), "formatter: cannot represent a ") {
 		t.Errorf("unexpected error text: %v", ferr)
 	}
@@ -794,6 +786,34 @@ func TestFormatMap_LineBreakInAValueIsRefused(t *testing.T) {
 	m.Options = map[string]interface{}{"title": "a\nb"}
 	if _, err := FormatStrict(chartDoc(m)); err == nil {
 		t.Error("a line break in an option title must be refused")
+	}
+}
+
+// A fence inside a block keeps its own indentation as the nested code element,
+// while the block's content is trimmed line by line. The typed body is written
+// with the fence interior as the element holds it, so both views come back.
+func TestFlexToStrict_IndentedFenceInsideABlock(t *testing.T) {
+	cases := map[string]string{
+		"card":          "---\nmode: flex\n---\n\n## One\n\n:::card\n```go\nfunc main() {\n\tx := 1\n  if x > 0 {\n  }\n}\n```\n:::\n",
+		"after a head":  "---\nmode: flex\n---\n\n## One\n\n:::tabs\n### Title\n```js\nconst a = {\n  b: 1,\n};\n```\ntext\n:::\n",
+		"two fences":    "---\nmode: flex\n---\n\n## One\n\n:::card\n```python\nif x:\n    y = 1\n```\n\n```bash\n  ls -la\n```\n:::\n",
+		"nested blocks": "---\nmode: flex\n---\n\n## One\n\n:::tabs\n::: card\n```go\n  x := 1\n```\n:::\n:::\n",
+		"blank line":    "---\nmode: flex\n---\n\n## One\n\n:::card\n```go\n  a := 1\n\n  b := 2\n```\n:::\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			diffs, out := flexCorpusASTDiffs(t, src)
+			if len(diffs) != 0 {
+				t.Fatalf("the AST changed:\n  %s\n%s", strings.Join(diffs, "\n  "), out)
+			}
+			again, err := FormatStrict(parseSlides(t, out))
+			if err != nil {
+				t.Fatalf("second FormatStrict: %v", err)
+			}
+			if again != out {
+				t.Errorf("not idempotent:\n--- first ---\n%s\n--- second ---\n%s", out, again)
+			}
+		})
 	}
 }
 
