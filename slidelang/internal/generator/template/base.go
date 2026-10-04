@@ -661,11 +661,11 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                         {{range .Items}}
                             <li>{{.Content | markdown}}
                                 {{if .SubPoints}}
-                                    <ol>
+                                    {{if eq .SubListMarker "unordered"}}<ul>{{else}}<ol>{{end}}
                                         {{range .SubPoints}}
                                             <li>{{.Content | markdown}}</li>
                                         {{end}}
-                                    </ol>
+                                    {{if eq .SubListMarker "unordered"}}</ul>{{else}}</ol>{{end}}
                                 {{end}}
                             </li>
                         {{end}}
@@ -675,11 +675,11 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                         {{range .Items}}
                             <li>{{.Content | markdown}}
                                 {{if .SubPoints}}
-                                    <ul>
+                                    {{if eq .SubListMarker "ordered"}}<ol>{{else}}<ul>{{end}}
                                         {{range .SubPoints}}
                                             <li>{{.Content | markdown}}</li>
                                         {{end}}
-                                    </ul>
+                                    {{if eq .SubListMarker "ordered"}}</ol>{{else}}</ul>{{end}}
                                 {{end}}
                             </li>
                         {{end}}
