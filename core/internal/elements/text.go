@@ -281,10 +281,6 @@ func (p *TextParser) isOtherElementType(line string, mode string) bool {
 			if strings.HasPrefix(line, keyword+" ") || line == keyword {
 				return true
 			}
-			// `CODE{verbatim}` abre un bloque de código como `CODE`.
-			if keyword == "CODE" && (line == "CODE"+CodeVerbatimMarker || strings.HasPrefix(line, "CODE"+CodeVerbatimMarker+" ")) {
-				return true
-			}
 		}
 	}
 
