@@ -438,7 +438,13 @@ func formatStrictCode(e *ast.CodeElement) (string, error) {
 		if (!strings.HasPrefix(rest, "{") && !strings.HasPrefix(rest, "[")) || e.Filename != "" || strings.ContainsAny(e.Language, "\r\n\t") {
 			return "", newUnsupported("code", fmt.Sprintf("the language %q has more than one word, and strict reads the second word of a CODE line as a file name unless it starts with { or [", e.Language))
 		}
+		if err := checkCodeIndent(e); err != nil {
+			return "", err
+		}
 		return "CODE " + e.Language + "\n" + indent(e.Content, 2), nil
+	}
+	if err := checkCodeIndent(e); err != nil {
+		return "", err
 	}
 	header := "CODE"
 	if e.Language != "" {
@@ -451,6 +457,36 @@ func formatStrictCode(e *ast.CodeElement) (string, error) {
 		header += " " + e.Filename
 	}
 	return header + "\n" + indent(e.Content, 2), nil
+}
+
+// checkCodeIndent rejects a code body that strict cannot give back unchanged.
+// The strict parser removes the whitespace that every non-blank line of the body
+// has in common, so when all of them start with the same spaces or tabs (a
+// snippet taken from inside a block, or one whose first line is the most
+// indented), that prefix is indistinguishable from the indentation fmt writes
+// and would be stripped on the next read. Failing by name is better than
+// writing a file that builds to a different AST.
+func checkCodeIndent(e *ast.CodeElement) error {
+	common, hasText := "", false
+	for _, line := range strings.Split(e.Content, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lead := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		if !hasText {
+			common, hasText = lead, true
+			continue
+		}
+		n := 0
+		for n < len(common) && n < len(lead) && common[n] == lead[n] {
+			n++
+		}
+		common = common[:n]
+	}
+	if common == "" {
+		return nil
+	}
+	return newUnsupported("code", fmt.Sprintf("every non-blank line of the code body starts with %q, and the strict CODE block removes the whitespace its lines have in common, so that indentation would be lost", common))
 }
 
 // checkCodeFilename valida que el nombre de archivo de un CODE tenga forma

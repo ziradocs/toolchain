@@ -93,57 +93,70 @@ func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diag
 		filename = ""
 		headerErr = nil
 	}
-	var content strings.Builder
-	expectedIndent := -1 // Auto-detect indentation level
-
-	// Collect indented lines as code content
+	// El cuerpo son las líneas con más sangría que la propia cabecera `CODE`
+	// (las vacías van incluidas), igual que el cuerpo de un SLIDE o de una
+	// columna tipada. Antes terminaba en la primera línea con MENOS sangría que
+	// la primera del cuerpo: un cuerpo cuya primera línea estaba más hundida que
+	// las siguientes se cortaba ahí, y el resto desaparecía sin diagnóstico
+	// (issue #400).
+	headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
+	body := make([]string, 0, 8)
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
-		line := ctx.Lines[i]
-		currentIndent := CalculateIndentLevel(line)
-		trimmedLine := strings.TrimSpace(line)
-
-		// Skip empty lines
-		if trimmedLine == "" {
-			content.WriteString("\n")
-			consumedLines++
-			continue
-		}
-
-		// Auto-detect expected indentation from first non-empty line
-		if expectedIndent == -1 && currentIndent > 0 {
-			expectedIndent = currentIndent
-		}
-
-		// If we haven't detected indentation yet and line has no indentation, break
-		if expectedIndent == -1 && currentIndent == 0 {
+		raw := ctx.Lines[i]
+		if strings.TrimSpace(raw) != "" && CalculateIndentLevel(raw) <= headerIndent {
 			break
 		}
-
-		// Check if this line should be part of the code block
-		if expectedIndent > 0 && currentIndent < expectedIndent {
-			break
-		}
-
-		// Remove the expected indentation from the line
-		if expectedIndent > 0 && currentIndent >= expectedIndent {
-			// Remove the base indentation but preserve any extra indentation
-			lineWithoutBaseIndent := line
-			if strings.HasPrefix(line, strings.Repeat(" ", expectedIndent)) {
-				lineWithoutBaseIndent = line[expectedIndent:]
-			} else if strings.HasPrefix(line, "\t") && expectedIndent == 4 {
-				lineWithoutBaseIndent = line[1:]
-			}
-			content.WriteString(lineWithoutBaseIndent)
-		} else {
-			content.WriteString(trimmedLine)
-		}
-		content.WriteString("\n")
-		consumedLines++
+		body = append(body, raw)
 	}
+	consumedLines += len(body)
 
-	codeElement := ast.NewCodeElement(pos, language, strings.TrimSuffix(content.String(), "\n"))
+	// La sangría estructural es el prefijo de espacios/tabs que comparten TODAS
+	// las líneas con texto, comparado como cadena y no por columnas: así un tab
+	// vale un tab y no cuatro espacios, y una línea con espacios y tab ya no
+	// conserva toda su sangría dentro del contenido. Lo que sobra de ese prefijo
+	// en una línea es sangría del propio código y se conserva.
+	base, hasText := commonIndentPrefix(body)
+	lines := make([]string, len(body))
+	for i, raw := range body {
+		switch {
+		case strings.TrimSpace(raw) == "":
+			// Una línea con sólo espacios conserva lo que pase de la base
+			// (fmt la escribe con la base por delante); una más corta es vacía.
+			if rest, ok := strings.CutPrefix(raw, base); ok && hasText {
+				lines[i] = rest
+			}
+		default:
+			lines[i] = raw[len(base):]
+		}
+	}
+	content := strings.Join(lines, "\n")
+
+	codeElement := ast.NewCodeElement(pos, language, content)
 	codeElement.Filename = filename
 	return codeElement, consumedLines, headerErr
+}
+
+// commonIndentPrefix devuelve el prefijo de espacios y tabs que comparten todas
+// las líneas con texto de lines (las vacías o de sólo espacios no cuentan), y si
+// había alguna línea con texto.
+func commonIndentPrefix(lines []string) (string, bool) {
+	prefix, seen := "", false
+	for _, raw := range lines {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		lead := raw[:len(raw)-len(strings.TrimLeft(raw, " \t"))]
+		if !seen {
+			prefix, seen = lead, true
+			continue
+		}
+		n := 0
+		for n < len(prefix) && n < len(lead) && prefix[n] == lead[n] {
+			n++
+		}
+		prefix = prefix[:n]
+	}
+	return prefix, seen
 }
 
 // parseFlexCode handles flex mode code parsing: ```language
