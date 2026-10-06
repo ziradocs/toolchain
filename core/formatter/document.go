@@ -203,19 +203,13 @@ func formatDocumentElement(el ast.Element) (string, error) {
 var subsectionHeadingRe = regexp.MustCompile(`(?s)^<h([1-6])(?: id="[^"]*")?>(.*)</h[1-6]>$`)
 
 // formatSubsectionHeading reconstruye "## texto" desde el TextElement
-// RawHTML que el parser produce para subsection headers. Es best-effort:
-// parseSubsectionHeader ya corrió el texto original por
-// ProcessInlineMarkdownSecureLine (escapa HTML y aplica **bold**/*italic*/
-// `code` a tags reales) antes de guardarlo — esa transformación no es
-// invertible en general (p. ej. "**bold**" y un "<strong>bold</strong>"
-// tecleado a mano por el usuario producen el MISMO TextElement, así que no
-// hay forma de saber cuál escribir de vuelta). Para headers de texto plano
-// (el caso común) esto round-trip-ea exacto; para headers con
-// formato inline Markdown, reconstruye la versión con las tags HTML
-// crudas visibles en el texto en vez del Markdown original — un
-// canonicalizador legítimo (ver "no verbatim" en el comentario de
-// paquete), no un bug, pero documentado aquí porque es la única pérdida
-// real de fidelidad de todo el formatter de DocLang.
+// RawHTML que el parser produce para subsection headers. Mientras el elemento
+// conserve el texto que escribió el autor (HeadingSource, en memoria) lo
+// escribe tal cual, con su formato inline Markdown. Un AST sin esa fuente
+// (llegado por JSON o por un filtro) no tiene forma de distinguir "**bold**" de
+// un "<strong>bold</strong>" tecleado a mano en el HTML guardado, así que ahí
+// es best-effort: stripTags deja el texto y descarta las tags (la única pérdida
+// de fidelidad que queda en el formatter de DocLang, y sólo por esa ruta).
 func formatSubsectionHeading(e *ast.TextElement) (string, error) {
 	m := subsectionHeadingRe.FindStringSubmatch(e.Content)
 	if m == nil {

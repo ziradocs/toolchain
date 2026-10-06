@@ -342,15 +342,11 @@ func absorbsTrailingBlankLines(el ast.Element) bool {
 //     (header_test.slidelang llegaba a juntar los niveles 3, 4, 5 y 6 y su
 //     prosa en una). Ahora cada encabezado es su propio elemento. La salida
 //     cambia; el contenido no.
-//   - El énfasis inline SÍ se pierde: "### **Foo**" vuelve como "### Foo".
-//     buildHeadingElement ya convirtió "**Foo**" en <strong>Foo</strong> y
-//     formatSubsectionHeading corre stripTags. Es la misma pérdida que
-//     DocLang documenta como la única de su formatter (ver
-//     formatSubsectionHeading), y afecta a 21 encabezados en 5 ejemplos.
-//     Es reversible en principio —ProcessInlineMarkdownSecureLine escapa el
-//     HTML ANTES de aplicar Markdown, así que un <strong> en la salida solo
-//     puede venir de "**"— pero escribir esa inversa es trabajo aparte:
-//     issue #260.
+//   - El énfasis inline se conserva: "### **Foo**" vuelve como "### **Foo**".
+//     El parser guarda el texto que escribió el autor (HeadingSource) junto
+//     al HTML que armó, y formatSubsectionHeading lo escribe de vuelta en vez
+//     de des-renderizar el <strong>. Solo un AST sin esa fuente (llegado por
+//     JSON) lo pierde: ver el comentario de authoredHeadingText (issue #260).
 func formatStrictText(e *ast.TextElement) (string, error) {
 	content := e.Content
 	if e.IsRawHTML {
