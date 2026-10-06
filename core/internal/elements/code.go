@@ -61,8 +61,21 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 }
 
+// CodeVerbatimMarker is the attribute that follows the CODE keyword to say that
+// the body keeps all of its indentation past the structural one (the header's
+// plus two spaces), instead of having the whitespace its lines share removed.
+const CodeVerbatimMarker = "{verbatim}"
+
 // parseStrictCode handles strict mode code parsing: CODE language
 func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, error) {
+	// `CODE{verbatim} ...` es la misma cabecera con la base de sangría fija. Se
+	// reconoce sólo con la palabra completa seguida de un espacio o del fin de
+	// la línea; la cabecera se lee después como si dijera `CODE ...`.
+	verbatim := false
+	if rest, ok := strings.CutPrefix(line, "CODE"+CodeVerbatimMarker); ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t') {
+		verbatim = true
+		line = "CODE" + rest
+	}
 	parts := strings.Fields(line)
 	consumedLines := 1 // skip CODE line
 
@@ -110,12 +123,23 @@ func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diag
 	}
 	consumedLines += len(body)
 
-	// La sangría estructural es el prefijo de espacios/tabs que comparten TODAS
-	// las líneas con texto, comparado como cadena y no por columnas: así un tab
-	// vale un tab y no cuatro espacios, y una línea con espacios y tab ya no
-	// conserva toda su sangría dentro del contenido. Lo que sobra de ese prefijo
-	// en una línea es sangría del propio código y se conserva.
-	base, hasText := commonIndentPrefix(body)
+	// La sangría estructural es, por omisión, el prefijo de espacios/tabs que
+	// comparten TODAS las líneas con texto, comparado como cadena y no por
+	// columnas: así un tab vale un tab y no cuatro espacios, y una línea con
+	// espacios y tab ya no conserva toda su sangría dentro del contenido. Lo que
+	// sobra de ese prefijo en una línea es sangría del propio código y se
+	// conserva. Ese prefijo no distingue la sangría que el cuerpo comparte por
+	// ser código de la que pone la estructura, así que `CODE{verbatim}` la fija:
+	// la de la cabecera más dos espacios, que es lo que escribe fmt. Una línea
+	// escrita a mano con menos sangría que esa base pierde sólo la que tiene.
+	var base string
+	hasText := true
+	if verbatim {
+		header := ctx.Lines[startIndex]
+		base = header[:len(header)-len(strings.TrimLeft(header, " \t"))] + "  "
+	} else {
+		base, hasText = commonIndentPrefix(body)
+	}
 	lines := make([]string, len(body))
 	for i, raw := range body {
 		switch {
@@ -126,7 +150,12 @@ func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diag
 				lines[i] = rest
 			}
 		default:
-			lines[i] = raw[len(base):]
+			lead := raw[:len(raw)-len(strings.TrimLeft(raw, " \t"))]
+			n := 0
+			for n < len(lead) && n < len(base) && lead[n] == base[n] {
+				n++
+			}
+			lines[i] = raw[n:]
 		}
 	}
 	content := strings.Join(lines, "\n")

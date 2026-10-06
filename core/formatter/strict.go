@@ -424,6 +424,12 @@ func formatPointList(items []ast.PointItem, listType string, sub bool) string {
 }
 
 func formatStrictCode(e *ast.CodeElement) (string, error) {
+	// `CODE{verbatim}` is written only when the body needs it, so everything
+	// that already round-trips keeps its text.
+	keyword := "CODE"
+	if codeNeedsVerbatim(e.Content) {
+		keyword = "CODE{verbatim}"
+	}
 	// A flex fence keeps the whole info string as the language when what follows
 	// the first word starts with `{` or `[` (highlighted lines, a code-group
 	// label), and the strict CODE header reads that form back the same way. Any
@@ -434,15 +440,9 @@ func formatStrictCode(e *ast.CodeElement) (string, error) {
 		if (!strings.HasPrefix(rest, "{") && !strings.HasPrefix(rest, "[")) || e.Filename != "" || strings.ContainsAny(e.Language, "\r\n\t") {
 			return "", newUnsupported("code", fmt.Sprintf("the language %q has more than one word, and strict reads the second word of a CODE line as a file name unless it starts with { or [", e.Language))
 		}
-		if err := checkCodeIndent(e); err != nil {
-			return "", err
-		}
-		return "CODE " + e.Language + "\n" + indent(e.Content, 2), nil
+		return keyword + " " + e.Language + "\n" + indent(e.Content, 2), nil
 	}
-	if err := checkCodeIndent(e); err != nil {
-		return "", err
-	}
-	header := "CODE"
+	header := keyword
 	if e.Language != "" {
 		header += " " + e.Language
 	}
@@ -455,17 +455,19 @@ func formatStrictCode(e *ast.CodeElement) (string, error) {
 	return header + "\n" + indent(e.Content, 2), nil
 }
 
-// checkCodeIndent rejects a code body that strict cannot give back unchanged.
-// The strict parser removes the whitespace that every non-blank line of the body
-// has in common, so when all of them start with the same spaces or tabs (a
-// snippet taken from inside a block, or one whose first line is the most
-// indented), that prefix is indistinguishable from the indentation fmt writes
-// and would be stripped on the next read. Failing by name is better than
-// writing a file that builds to a different AST.
-func checkCodeIndent(e *ast.CodeElement) error {
-	common, hasText := "", false
-	for _, line := range strings.Split(e.Content, "\n") {
+// codeNeedsVerbatim reports whether a plain CODE block would not read back the
+// same body. The strict parser removes the whitespace that every non-blank line
+// of the body has in common, so when all of them start with the same spaces or
+// tabs (a snippet taken from inside a block, or one whose first line is the most
+// indented), that prefix is indistinguishable from the indentation fmt writes.
+// The same goes for a body made only of whitespace-only lines, which a plain
+// CODE reads as empty lines. `CODE{verbatim}` fixes the structural indentation
+// instead of deducing it from the content.
+func codeNeedsVerbatim(content string) bool {
+	common, hasText, whitespaceOnly := "", false, false
+	for _, line := range strings.Split(content, "\n") {
 		if strings.TrimSpace(line) == "" {
+			whitespaceOnly = whitespaceOnly || line != ""
 			continue
 		}
 		lead := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
@@ -479,10 +481,10 @@ func checkCodeIndent(e *ast.CodeElement) error {
 		}
 		common = common[:n]
 	}
-	if common == "" {
-		return nil
+	if !hasText {
+		return whitespaceOnly
 	}
-	return newUnsupported("code", fmt.Sprintf("every non-blank line of the code body starts with %q, and the strict CODE block removes the whitespace its lines have in common, so that indentation would be lost", common))
+	return common != ""
 }
 
 // checkCodeFilename valida que el nombre de archivo de un CODE tenga forma
