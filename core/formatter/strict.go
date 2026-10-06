@@ -1094,7 +1094,7 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 	for _, col := range e.Columns {
 		if len(col.Elements) > 0 {
 			b.WriteString("\n<<column typed>>")
-			for _, nested := range col.Elements {
+			for i, nested := range col.Elements {
 				text, err := formatStrictElement(nested)
 				if err != nil {
 					return "", err
@@ -1103,7 +1103,19 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 					continue
 				}
 				b.WriteString("\n")
-				b.WriteString(strings.TrimRight(text, "\n"))
+				if absorbsTrailingBlankLines(nested) {
+					// The newlines at the end of a code body are blank lines the
+					// strict parser reads as part of the code, so only the line
+					// terminator that formatStrictElement adds is dropped. At the
+					// end of the column the parser would drop them: the body of a
+					// typed column ends at its last non-blank line.
+					if i == len(col.Elements)-1 && strings.HasSuffix(nested.(*ast.CodeElement).Content, "\n") {
+						return "", newUnsupported("code", "a code body that ends in a newline cannot be the last element of a typed column, because strict drops the blank lines that end the column body")
+					}
+					b.WriteString(strings.TrimSuffix(text, "\n"))
+				} else {
+					b.WriteString(strings.TrimRight(text, "\n"))
+				}
 			}
 			continue
 		}
