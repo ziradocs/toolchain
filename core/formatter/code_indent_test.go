@@ -11,11 +11,11 @@ import (
 
 // codeBodies are bodies a flex fence can hold. The strict CODE block takes the
 // whitespace that all of its non-blank lines have in common as structure, so a
-// body is either written back unchanged or refused by name; fmt never writes a
-// file that builds to different code.
+// body that has some needs `CODE{verbatim}`; every other body is written as a
+// plain CODE, exactly as before. Either way the code comes back unchanged.
 var codeBodies = map[string]struct {
-	body    string
-	refused bool
+	body     string
+	verbatim bool
 }{
 	"plain":                         {"func a() {\n\tb()\n}\n", false},
 	"blank line inside":             {"a\n\nb\n", false},
@@ -28,6 +28,8 @@ var codeBodies = map[string]struct {
 	"every line indented":           {"  a\n  b\n", true},
 	"every line starts with a tab":  {"\tfoo()\n\tbar()\n", true},
 	"first line indented, one more": {"  a\nb\n", false},
+	"common indent, deeper later":   {"  a\n    b\n", true},
+	"only whitespace-only lines":    {"  \n", true},
 }
 
 // A fence inside a typed block does not go through the CODE parser: the block
@@ -42,7 +44,7 @@ func fenceDeck(body string) map[string]string {
 	}
 }
 
-func TestFlexToStrict_CodeBodyIndentIsKeptOrRefused(t *testing.T) {
+func TestFlexToStrict_CodeBodyIndentRoundTrips(t *testing.T) {
 	for name, c := range codeBodies {
 		for where, src := range fenceDeck(c.body) {
 			t.Run(name+"/"+where, func(t *testing.T) {
@@ -51,15 +53,20 @@ func TestFlexToStrict_CodeBodyIndentIsKeptOrRefused(t *testing.T) {
 					t.Fatalf("source has %d code blocks, want 1", len(want))
 				}
 				out, err := FormatStrict(parseSlides(t, src))
-				if c.refused {
+				if name == "only whitespace-only lines" && where == "typed column" {
+					// The body of a typed column ends at its last non-blank line,
+					// so a code whose last line is whitespace cannot end one.
 					var uerr *UnsupportedElementError
 					if !errors.As(err, &uerr) || uerr.NodeType != "code" {
-						t.Fatalf("want an UnsupportedElementError naming code, got %v\n%s", err, out)
+						t.Fatalf("want an UnsupportedElementError naming code, got %v", err)
 					}
 					return
 				}
 				if err != nil {
 					t.Fatalf("FormatStrict: %v", err)
+				}
+				if got := strings.Contains(out, "CODE{verbatim}"); got != c.verbatim {
+					t.Errorf("CODE{verbatim} written = %v, want %v\n%s", got, c.verbatim, strings.ReplaceAll(out, "\t", "<TAB>"))
 				}
 				got := codeContents(parseSlides(t, out))
 				if len(got) != 1 || got[0] != want[0] {

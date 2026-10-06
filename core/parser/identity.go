@@ -10,6 +10,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 )
 
 var nodeIDDirective = regexp.MustCompile(`^<!-- node-id: ([^[:space:]]+) -->$`)
@@ -42,7 +43,7 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 		}
 	}
 	literal := ""
-	codeIndent := -1
+	codeHeaderIndent := -1
 	diagramIndent := -1
 	groupFence := false
 	fenceClose := "```"
@@ -52,16 +53,11 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 		}
 		trimmed := strings.TrimSpace(line)
 		indent := len(line) - len(strings.TrimLeft(line, " \t"))
-		if literal == "code" && trimmed != "" {
-			if codeIndent < 0 {
-				if indent == 0 {
-					literal = ""
-				} else {
-					codeIndent = indent
-				}
-			} else if indent < codeIndent {
-				literal = ""
-			}
+		// El cuerpo de un CODE son las líneas con más sangría que su cabecera
+		// (elements.CodeParser.parseStrictCode): termina en la primera línea con
+		// texto que no pasa de ella.
+		if literal == "code" && trimmed != "" && elements.CalculateIndentLevel(line) <= codeHeaderIndent {
+			literal = ""
 		}
 		// Un diagrama (<<mermaid>>, <<plantuml>>, <<chart:…>>, <<map>>,
 		// <<math>>) no exige <<end>>: el parser también lo cierra cuando una
@@ -130,9 +126,10 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 			groupFence = false
 			continue
 		}
-		if trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") {
+		if trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") ||
+			trimmed == "CODE"+elements.CodeVerbatimMarker || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+" ") {
 			literal = "code"
-			codeIndent = -1
+			codeHeaderIndent = elements.CalculateIndentLevel(line)
 			continue
 		}
 		if !strings.HasPrefix(trimmed, "<!-- node-id:") {
