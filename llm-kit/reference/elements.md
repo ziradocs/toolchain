@@ -23,7 +23,7 @@ theoretical existence.
 |---|---|---|
 | text | `TEXT` | any unmatched line (fallback) |
 | points (list) | `POINTS` | `- item`, `* item`, `+ item`, `1. item` |
-| code | `CODE` | fenced ` ```lang ` |
+| code | `CODE` (`CODE{verbatim}` when fmt needs it) | fenced ` ```lang ` |
 | code-group | `:::code-group` | `:::code-group` or `::::code-group` |
 | image | `IMAGE <src>` | `![alt](src)` |
 | table | `TABLE` | pipe rows: `\| a \| b \|` |

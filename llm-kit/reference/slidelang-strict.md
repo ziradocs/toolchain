@@ -74,6 +74,12 @@ checklist, and grid all have strict spellings now (`QUOTE`, `CHECKLIST`, and
 the `<<grid>>` block below); the flex `::: grid` / `::: column` form is **not**
 recognized in strict mode.
 
+A **code block** (`CODE <lang>`) takes as its body the lines indented deeper than
+the `CODE` line, and removes the indentation they all share. `slidelang fmt` writes
+`CODE{verbatim} <lang>` when a body's own code is indented as a whole (a snippet
+taken from inside a block); you do not need to write that form by hand, and it
+changes nothing in the AST. When generating, prefer a flex fence.
+
 A **quote** (`QUOTE`) may have several paragraphs: a blank line stays inside the
 quote when the next line with text is indented deeper than `QUOTE`. Without
 that indentation the blank line ends the quote.

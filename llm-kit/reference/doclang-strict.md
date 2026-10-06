@@ -85,6 +85,11 @@ as SlideLang strict** — see `slidelang-strict.md` for the full syntax of each:
 `:::code-group`, `<<mermaid>>`, `<<plantuml>>`, `<<chart: type>>`, `<<map>>`,
 `<<grid>>`, `<<math>>`, `@directives`.
 
+`CODE <lang>` takes as its body the lines indented deeper than the `CODE` line and
+removes the indentation they all share; `doclang fmt` writes `CODE{verbatim} <lang>`
+only when a body's own code is indented as a whole. You do not need to write that
+form by hand.
+
 The one thing to unlearn from flex: **there is no `SLIDE`**, and the
 slide-only properties (`title:`, `heading:`, `subtitle:`, `logo:`) are errors
 inside a `SECTION`. A section's title is the quoted string on its opening line.

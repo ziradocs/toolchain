@@ -107,7 +107,7 @@ checklist_item     ::= ("-" | "*" | "+")? "[" ("x" | "X" | " ") "]" text_content
 image_element     ::= "IMAGE" INDENT property+ DEDENT
 quote_element     ::= "QUOTE" INDENT quote_line (BLANK* quote_line)*
                       ("AUTHOR:" text)? ("SOURCE:" text)? DEDENT
-code_element      ::= "CODE" (language (filename | info)?)? INDENT code_content DEDENT
+code_element      ::= "CODE" "{verbatim}"? (language (filename | info)?)? INDENT code_content DEDENT
 table_element     ::= "TABLE" INDENT table_data DEDENT
 
 directive_element ::= "@" directive_name ":" directive_value
@@ -141,6 +141,20 @@ a sibling of the second, which builds to the same AST.
 (`CodeElement.filename`, schema 2.19.0, inferred capability
 `code-filename-v1`); a flex fence takes it after the language or as
 `title="…"`. See [code block filenames](../../docs/portable-code-filenames.md).
+
+The body of a `CODE` block is every line indented deeper than its `CODE` line,
+blank lines included. The indentation that structures the body is the whitespace
+that all of its non-blank lines have in common (compared as a string, so a tab is
+one character), and it is removed; anything a line has beyond it is code. That
+common whitespace cannot be told apart from indentation that belongs to the code,
+so a body whose lines are all indented, or whose first line is the most indented,
+needs `CODE{verbatim}` to be written exactly. With the attribute the structural
+indentation is fixed as that of the `CODE` line plus two spaces, and everything
+beyond it is code; a line with less than that loses only the indentation it has.
+The attribute follows the keyword with no space (`CODE{verbatim} typescript
+renewals.ts`), changes nothing in the AST or the schema, and is written by
+`slidelang fmt` and `doclang fmt` only when a body needs it. See
+[code body indentation](../../docs/portable-code-indentation.md).
 
 If the second word of a `CODE` line starts with `{` or `[`, it is not a filename:
 the whole text after `CODE` is the language (`CodeElement.language` is
