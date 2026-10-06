@@ -455,6 +455,13 @@ func formatStrictCode(e *ast.CodeElement) (string, error) {
 	return header + "\n" + indent(e.Content, 2), nil
 }
 
+// endsInBlankLine reports whether the last line of content is empty or has only
+// whitespace.
+func endsInBlankLine(content string) bool {
+	last := content[strings.LastIndex(content, "\n")+1:]
+	return strings.TrimSpace(last) == ""
+}
+
 // codeNeedsVerbatim reports whether a plain CODE block would not read back the
 // same body. The strict parser removes the whitespace that every non-blank line
 // of the body has in common, so when all of them start with the same spaces or
@@ -1111,8 +1118,8 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 					// terminator that formatStrictElement adds is dropped. At the
 					// end of the column the parser would drop them: the body of a
 					// typed column ends at its last non-blank line.
-					if i == len(col.Elements)-1 && strings.HasSuffix(nested.(*ast.CodeElement).Content, "\n") {
-						return "", newUnsupported("code", "a code body that ends in a newline cannot be the last element of a typed column, because strict drops the blank lines that end the column body")
+					if i == len(col.Elements)-1 && endsInBlankLine(nested.(*ast.CodeElement).Content) {
+						return "", newUnsupported("code", "a code body that ends in a blank line cannot be the last element of a typed column, because strict drops the blank lines that end the column body")
 					}
 					b.WriteString(strings.TrimSuffix(text, "\n"))
 				} else {

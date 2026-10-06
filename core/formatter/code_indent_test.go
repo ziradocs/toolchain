@@ -4,6 +4,7 @@
 package formatter
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -52,6 +53,15 @@ func TestFlexToStrict_CodeBodyIndentRoundTrips(t *testing.T) {
 					t.Fatalf("source has %d code blocks, want 1", len(want))
 				}
 				out, err := FormatStrict(parseSlides(t, src))
+				if name == "only whitespace-only lines" && where == "typed column" {
+					// The body of a typed column ends at its last non-blank line,
+					// so a code whose last line is whitespace cannot end one.
+					var uerr *UnsupportedElementError
+					if !errors.As(err, &uerr) || uerr.NodeType != "code" {
+						t.Fatalf("want an UnsupportedElementError naming code, got %v", err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatalf("FormatStrict: %v", err)
 				}
