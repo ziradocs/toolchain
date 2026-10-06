@@ -413,6 +413,12 @@ func (p *GridParser) parseStrictGrid(ctx *ParseContext, startIndex int) *ParseRe
 			i = end - 1
 		default:
 			if !inColumn && afterTyped {
+				if trimmedLine == "" {
+					// The body of a typed column ends at its last non-blank
+					// line; the blank lines after it are separation.
+					consumed++
+					continue
+				}
 				diags = append(diags, diagnostics.NewError(
 					"the body of a typed column must be indented under its <<column typed>> marker",
 					ctx.Position(i), "parser"))
