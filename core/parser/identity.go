@@ -27,6 +27,10 @@ type pendingNodeID struct {
 // parser positions back to the authored source.
 func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []diagnostics.Diagnostic) {
 	lines := strings.Split(source, "\n")
+	// Only an explicit strict source uses the strict parser's permissive
+	// CODE dispatch. Keep the existing literal rules for flex/auto prose.
+	fm, _, _ := (&FrontMatterParser{}).Parse(source)
+	strict := fm != nil && fm.Mode == "strict"
 	var pending []pendingNodeID
 	var diags []diagnostics.Diagnostic
 	removed := make(map[int]bool)
@@ -126,8 +130,14 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 			groupFence = false
 			continue
 		}
-		if trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") ||
-			trimmed == "CODE"+elements.CodeVerbatimMarker || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+" ") {
+		codeHeader := trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") ||
+			trimmed == "CODE"+elements.CodeVerbatimMarker || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+" ")
+		if strict {
+			// Match dispatch, including strings.Fields whitespace and legacy
+			// prefixes, without broadening the verbatim attribute's grammar.
+			codeHeader = (&elements.CodeParser{}).CanParse(trimmed, "strict")
+		}
+		if codeHeader {
 			literal = "code"
 			codeHeaderIndent = elements.CalculateIndentLevel(line)
 			continue
