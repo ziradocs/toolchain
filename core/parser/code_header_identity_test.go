@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -56,6 +57,20 @@ func TestCodeHeaderWhitespaceKeepsLiteralNodeID(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestStrictCodeIdentityRecognitionDoesNotChangeFlexProse(t *testing.T) {
+	for _, mode := range []string{"flex", "flex-full", "auto"} {
+		for _, header := range []string{"CODEX html", "CODE\u00a0html", "CODE{unknown} html"} {
+			t.Run(mode+"/"+header, func(t *testing.T) {
+				src := "---\nmode: " + mode + "\n---\n\n## T\n" + header + "\n  <!-- node-id: Named -->\nafter"
+				stripped, pending, _, diags := stripNodeIDDirectives(src)
+				if len(diags) != 0 || len(pending) != 1 || pending[0].id != "Named" || strings.Contains(stripped, "<!-- node-id:") {
+					t.Fatalf("prose annotation behavior changed: source %q pending %#v diagnostics %v", stripped, pending, diags)
+				}
+			})
 		}
 	}
 }
