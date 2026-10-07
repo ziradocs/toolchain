@@ -126,8 +126,8 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 			groupFence = false
 			continue
 		}
-		if trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") ||
-			trimmed == "CODE"+elements.CodeVerbatimMarker || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+" ") {
+		if trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") || strings.HasPrefix(trimmed, "CODE\t") ||
+			trimmed == "CODE"+elements.CodeVerbatimMarker || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+" ") || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+"\t") {
 			literal = "code"
 			codeHeaderIndent = elements.CalculateIndentLevel(line)
 			continue
