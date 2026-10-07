@@ -16,7 +16,7 @@ import (
 // recognize the same header as the code parser, or a literal node-id comment
 // at the end of the body is removed and assigned to the following element.
 func TestCodeHeaderWhitespaceKeepsLiteralNodeID(t *testing.T) {
-	for _, keyword := range []string{"CODE", "CODE{verbatim}", "CODEX", "CODE{verbatim}suffix"} {
+	for _, keyword := range []string{"CODE", "CODE{verbatim}", "CODEX", "CODE{verbatim}suffix", "CODE{unknown}"} {
 		for _, separator := range []string{" ", "\t", "\u00a0", "\v", "\f"} {
 			for _, document := range []bool{false, true} {
 				t.Run(keyword+separator+"/"+map[bool]string{false: "slide", true: "document"}[document], func(t *testing.T) {
