@@ -126,8 +126,9 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 			groupFence = false
 			continue
 		}
-		if trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") || strings.HasPrefix(trimmed, "CODE\t") ||
-			trimmed == "CODE"+elements.CodeVerbatimMarker || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+" ") || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+"\t") {
+		// Match the code parser's existing permissive header recognition,
+		// including whitespace accepted by strings.Fields and legacy prefixes.
+		if (&elements.CodeParser{}).CanParse(trimmed, "strict") {
 			literal = "code"
 			codeHeaderIndent = elements.CalculateIndentLevel(line)
 			continue
