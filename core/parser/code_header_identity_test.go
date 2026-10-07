@@ -62,16 +62,46 @@ func TestCodeHeaderWhitespaceKeepsLiteralNodeID(t *testing.T) {
 }
 
 func TestStrictCodeIdentityRecognitionDoesNotChangeFlexProse(t *testing.T) {
-	for _, mode := range []string{"flex", "flex-full", "auto"} {
+	for _, frontmatter := range []string{"", "---\ntitle: T\n---\n", "---\nmode: flex\n---\n", "---\nmode: flex-full\n---\n", "---\nmode: auto\n---\n"} {
 		for _, header := range []string{"CODEX html", "CODE\u00a0html", "CODE{unknown} html"} {
-			t.Run(mode+"/"+header, func(t *testing.T) {
-				src := "---\nmode: " + mode + "\n---\n\n## T\n" + header + "\n  <!-- node-id: Named -->\nafter"
+			t.Run(frontmatter+"/"+header, func(t *testing.T) {
+				src := frontmatter + "\n## T\n" + header + "\n  <!-- node-id: Named -->\nafter"
 				stripped, pending, _, diags := stripNodeIDDirectives(src)
 				if len(diags) != 0 || len(pending) != 1 || pending[0].id != "Named" || strings.Contains(stripped, "<!-- node-id:") {
 					t.Fatalf("prose annotation behavior changed: source %q pending %#v diagnostics %v", stripped, pending, diags)
 				}
 			})
 		}
+	}
+}
+
+func TestCodeIdentityRecognitionUsesCanonicalFrontmatterMode(t *testing.T) {
+	for _, mode := range []string{"strict", "\"strict\"", "'strict'"} {
+		t.Run(mode, func(t *testing.T) {
+			src := "---\nmode: " + mode + "\n---\n\nSLIDE content\n  title: \"T\"\n  CODE\u00a0html\n    <!-- node-id: Literal -->\n  TEXT\n    after"
+			for _, document := range []bool{false, true} {
+				p := New(util.NewNoop())
+				doc, diags := p.Parse(src, "t.slidelang")
+				if document {
+					input := strings.Replace(src, "SLIDE content\n  title: \"T\"", "SECTION \"T\"\n  level: 1", 1)
+					doc, diags = p.ParseDocument(input, "t.doclang")
+				}
+				// The source kind is explicit; both public entry points share
+				// the same frontmatter parser as the identity pre-pass.
+				for _, diagnostic := range diags {
+					if diagnostic.IsError() {
+						t.Fatalf("parse: %s", diagnostic.String())
+					}
+				}
+				if doc == nil || len(doc.ContentBlocks) == 0 {
+					t.Fatal("missing AST")
+				}
+				code := codeOf(t, doc.ContentBlocks[0].Elements)
+				if code.Content != "<!-- node-id: Literal -->" {
+					t.Errorf("literal changed: %q", code.Content)
+				}
+			}
+		})
 	}
 }
 
