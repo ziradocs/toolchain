@@ -4,6 +4,7 @@
 package formatter
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -67,6 +68,19 @@ func TestFormatStrict_QuoteTrailingBlankLinesBeforeMetadata(t *testing.T) {
 					t.Fatalf("quote changed: %q -> %q\n%s", quoteContents(doc), quoteContents(got), out)
 				}
 			})
+		}
+	}
+}
+
+func TestFormatStrict_QuoteLeadingBlankLinesWithMetadataStillRefused(t *testing.T) {
+	for _, content := range []string{"\nExample.", "\n", "\n\n"} {
+		q := ast.NewQuoteElement(diagnostics.NewPosition(3, 1), content)
+		q.Author = "Example author"
+		q.Source = "https://example.org/reference"
+		_, err := FormatStrict(chartDoc(q))
+		var unsupported *UnsupportedElementError
+		if !errors.As(err, &unsupported) || unsupported.NodeType != "quote" {
+			t.Errorf("content %q: want unsupported quote, got %v", content, err)
 		}
 	}
 }
