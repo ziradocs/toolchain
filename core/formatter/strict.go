@@ -785,7 +785,7 @@ func startsWithStrictSymbolicMarker(trimmed string) bool {
 }
 
 // formatStrictQuote serializa QuoteElement. elements.QuoteParser.parseStrict
-// termina la cita en la primera línea vacía, "---", o que empiece con uno de
+// termina la cita ante una línea vacía sin continuación sangrada, "---", o que empiece con uno de
 // los keywords de elemento strict — y trata cualquier línea "AUTHOR:"/
 // "SOURCE:" como metadata, no contenido. Un Content que contenga alguna de
 // esas formas (posible si el QuoteElement vino de un parse flex, donde el
@@ -793,7 +793,7 @@ func startsWithStrictSymbolicMarker(trimmed string) bool {
 // en modo strict — se reporta en vez de emitir texto que reparsearía distinto
 // (mismo principio que chart.Options en formatChart).
 func formatStrictQuote(e *ast.QuoteElement) (string, error) {
-	if err := validateStrictQuoteContent(e.Content); err != nil {
+	if err := validateStrictQuoteContent(e.Content, e.Author != "" || e.Source != ""); err != nil {
 		return "", err
 	}
 
@@ -811,16 +811,16 @@ func formatStrictQuote(e *ast.QuoteElement) (string, error) {
 	return b.String(), nil
 }
 
-func validateStrictQuoteContent(content string) error {
+func validateStrictQuoteContent(content string, hasMetadata bool) error {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		// An empty line inside the quote is written as an empty line: the
 		// strict parser keeps it when the next line with text is indented
-		// deeper than QUOTE. Only at the edges is it unreadable, because
-		// there it is indistinguishable from the blank line that ends the
-		// element.
-		if trimmed == "" && line == "" && i > 0 && i < len(lines)-1 {
+		// deeper than QUOTE. AUTHOR/SOURCE metadata provides that same
+		// continuation for trailing empty lines, preserving an attribution's
+		// separating blank line without trimming the quote's content.
+		if trimmed == "" && line == "" && i > 0 && (i < len(lines)-1 || hasMetadata) {
 			continue
 		}
 		// elements.QuoteParser.parseStrict hace TrimSpace de cada línea al

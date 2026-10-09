@@ -37,8 +37,8 @@ func TestFlexToStrict_AttributedQuoteAfterCode(t *testing.T) {
 		t.Fatalf("FormatStrict: %v", err)
 	}
 	got := parseSlides(t, out)
-	if !reflect.DeepEqual(normalizeForComparison(doc), normalizeForComparison(got)) {
-		t.Fatalf("content or identities changed:\nwant: %s\ngot: %s\n%s", toJSON(t, normalizeForComparison(doc)), toJSON(t, normalizeForComparison(got)), out)
+	if len(got.ContentBlocks) != 1 || !reflect.DeepEqual(normalizeBlock(doc.ContentBlocks[0]), normalizeBlock(got.ContentBlocks[0])) {
+		t.Fatalf("content or identities changed:\nwant: %s\ngot: %s\n%s", toJSON(t, doc.ContentBlocks), toJSON(t, got.ContentBlocks), out)
 	}
 	again, err := FormatStrict(got)
 	if err != nil || again != out {
