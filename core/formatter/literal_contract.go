@@ -9,7 +9,7 @@ import (
 )
 
 func validateLiteralRepresentation(doc *ast.AST) error {
-	if ast.DeclaresExtendedContract(doc) {
+	if doc != nil && (doc.SchemaVersion == ast.ListStartSchemaVersion || doc.SchemaVersion == ast.MathSourceSchemaVersion || ast.UsesListStart(doc) || ast.UsesMathSource(doc)) {
 		if err := ast.ValidateTableContract(doc); err != nil {
 			return err
 		}
