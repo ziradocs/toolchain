@@ -1068,7 +1068,9 @@ func formatCodeGroup(e *ast.CodeGroupElement) (string, error) {
 	var b strings.Builder
 	b.WriteString(":::code-group\n")
 	for _, cb := range e.CodeBlocks {
-		if strings.ContainsAny(cb.Language, " \t\r\n") || cb.Language == "" && cb.Label != "" { return "", newUnsupported("code_group", "tab language must be a token; a labeled tab requires a language") }
+		if strings.ContainsAny(cb.Language, " \t\r\n") || cb.Language == "" && cb.Label != "" {
+			return "", newUnsupported("code_group", "tab language must be a token; a labeled tab requires a language")
+		}
 		if strings.TrimSpace(cb.Label) != cb.Label || strings.ContainsAny(cb.Label, "\r\n") {
 			return "", newUnsupported("code_group", "tab label cannot preserve edge whitespace or line breaks")
 		}
@@ -1254,14 +1256,18 @@ func formatMath(e *ast.MathElement, strict bool) (string, error) {
 	}
 	body := "<<math>>\n" + content
 	if e.Caption != "" {
-		if strings.ContainsAny(e.Caption, "\r\n") { return "", newUnsupported("math", "caption must be a single line") }
+		if strings.ContainsAny(e.Caption, "\r\n") {
+			return "", newUnsupported("math", "caption must be a single line")
+		}
 		if err := checkQuotable("math", "caption", e.Caption); err != nil {
 			return "", err
 		}
 		body += "\n" + indent("caption: "+quote(e.Caption), metaIndent)
 	}
 	if e.Label != "" {
-		if strings.ContainsAny(e.Label, "\r\n") { return "", newUnsupported("math", "label must be a single line") }
+		if strings.ContainsAny(e.Label, "\r\n") {
+			return "", newUnsupported("math", "label must be a single line")
+		}
 		if err := checkQuotable("math", "label", e.Label); err != nil {
 			return "", err
 		}

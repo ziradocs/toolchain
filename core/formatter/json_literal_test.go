@@ -207,59 +207,134 @@ func TestImageFollowedByHeadingPreservesSiblingIdentity(t *testing.T) {
 }
 
 func TestMathSourceStrictDedentAndDollarLiteral(t *testing.T) {
- for _,tc:=range []struct{body,want string}{
-  {"  <<math>>\n    x\n      y  \n    \n      z\n  <<end>>","x\n  y  \n\n  z"},
-  {"  <<math>>\n\n      x\n \n  <<end>>","\n  x\n "},
- } {
-  d:=literalParse(t,"---\nmode: strict\nast_capabilities: [math-source-v1]\n---\nSLIDE content\n"+tc.body+"\n",false)
-  if got:=d.ContentBlocks[0].Elements[0].(*ast.MathElement).Content;got!=tc.want{t.Fatalf("dedent %q want %q",got,tc.want)}
- }
- for _,tc:=range []struct{body,want string}{
-  {"$$  x  $$","  x  "},
-  {"$$\n\n  x  \n\n$$","\n  x  \n"},
- } {
-  d:=literalParse(t,"---\nmode: flex\nast_capabilities: [math-source-v1]\n---\n# Math\n\n"+tc.body+"\n",false)
-  if got:=d.ContentBlocks[0].Elements[0].(*ast.MathElement).Content;got!=tc.want{t.Fatalf("dollar %q want %q",got,tc.want)}
- }
- for _,body:=range []string{"  <<math>>\n   x\n  <<end>>", "  <<math>>\n    x"} {
-  p:=parser.New(util.NewNoop());p.SetNormalization(false);_,issues:=p.Parse("---\nmode: strict\nast_capabilities: [math-source-v1]\n---\nSLIDE content\n"+body+"\n","bad.slidelang");found:=false;for _,i:=range issues{found=found||i.IsError()};if !found{t.Fatalf("invalid literal math accepted: %q",body)}
- }
+	for _, tc := range []struct{ body, want string }{
+		{"  <<math>>\n    x\n      y  \n    \n      z\n  <<end>>", "x\n  y  \n\n  z"},
+		{"  <<math>>\n\n      x\n \n  <<end>>", "\n  x\n "},
+	} {
+		d := literalParse(t, "---\nmode: strict\nast_capabilities: [math-source-v1]\n---\nSLIDE content\n"+tc.body+"\n", false)
+		if got := d.ContentBlocks[0].Elements[0].(*ast.MathElement).Content; got != tc.want {
+			t.Fatalf("dedent %q want %q", got, tc.want)
+		}
+	}
+	for _, tc := range []struct{ body, want string }{
+		{"$$  x  $$", "  x  "},
+		{"$$\n\n  x  \n\n$$", "\n  x  \n"},
+	} {
+		d := literalParse(t, "---\nmode: flex\nast_capabilities: [math-source-v1]\n---\n# Math\n\n"+tc.body+"\n", false)
+		if got := d.ContentBlocks[0].Elements[0].(*ast.MathElement).Content; got != tc.want {
+			t.Fatalf("dollar %q want %q", got, tc.want)
+		}
+	}
+	for _, body := range []string{"  <<math>>\n   x\n  <<end>>", "  <<math>>\n    x"} {
+		p := parser.New(util.NewNoop())
+		p.SetNormalization(false)
+		_, issues := p.Parse("---\nmode: strict\nast_capabilities: [math-source-v1]\n---\nSLIDE content\n"+body+"\n", "bad.slidelang")
+		found := false
+		for _, i := range issues {
+			found = found || i.IsError()
+		}
+		if !found {
+			t.Fatalf("invalid literal math accepted: %q", body)
+		}
+	}
 }
 
 func TestListStartKeepsLegacyLongMarkerDispatch(t *testing.T) {
- source:="---\nmode: flex\n---\n# List\n\n100. Hundred\n101. Next\n"
- legacy:=literalParse(t,source,false)
- if ast.UsesListStart(legacy) {t.Fatal("legacy gained list-start")}
- if _,ok:=legacy.ContentBlocks[0].Elements[0].(*ast.TextElement);!ok{t.Fatal("legacy long marker dispatch changed")}
- opted:=literalParse(t,strings.Replace(source,"mode: flex","mode: flex\nast_capabilities: [list-start-v1]",1),false)
- if got:=opted.ContentBlocks[0].Elements[0].(*ast.PointsElement).Start;got==nil||*got!=100{t.Fatal("opt-in long ordinal lost")}
+	source := "---\nmode: flex\n---\n# List\n\n100. Hundred\n101. Next\n"
+	legacy := literalParse(t, source, false)
+	if ast.UsesListStart(legacy) {
+		t.Fatal("legacy gained list-start")
+	}
+	if _, ok := legacy.ContentBlocks[0].Elements[0].(*ast.TextElement); !ok {
+		t.Fatal("legacy long marker dispatch changed")
+	}
+	opted := literalParse(t, strings.Replace(source, "mode: flex", "mode: flex\nast_capabilities: [list-start-v1]", 1), false)
+	if got := opted.ContentBlocks[0].Elements[0].(*ast.PointsElement).Start; got == nil || *got != 100 {
+		t.Fatal("opt-in long ordinal lost")
+	}
 }
 
 func TestJSONMetadataRepresentabilityRejectsLoss(t *testing.T) {
- groupDoc:=literalParse(t,"---\nmode: flex\n---\n# Group\n\n:::code-group\n```go [Tab]\nx\n```\n:::\n",false)
- group:=groupDoc.ContentBlocks[0].Elements[0].(*ast.CodeGroupElement)
- for _,language:=range []string{"", "go other", "go\nother", "go\tother"} {
-  group.CodeBlocks[0].Language=language;raw,_:=json.Marshal(groupDoc);decoded,err:=ast.DecodeAST(raw);if err!=nil{t.Fatal(err)}
-  if _,err:=FormatStrict(decoded);err==nil{t.Fatalf("ambiguous language accepted %q",language)}
- }
- doc:=literalParse(t,"---\nmode: strict\n---\nSLIDE content\n  <<math>>\n    x=1\n  <<end>>\n",false)
- m:=doc.ContentBlocks[0].Elements[0].(*ast.MathElement)
- for _,field:=range []string{"caption","label"} {for _,value:=range []string{"first\nsecond","first\rsecond"}{
-  m.Caption="";m.Label="";if field=="caption"{m.Caption=value}else{m.Label=value}
-  raw,_:=json.Marshal(doc);decoded,err:=ast.DecodeAST(raw);if err!=nil{t.Fatal(err)}
-  if _,err:=FormatStrict(decoded);err==nil{t.Fatalf("Math %s line break accepted",field)}
- }}
+	groupDoc := literalParse(t, "---\nmode: flex\n---\n# Group\n\n:::code-group\n```go [Tab]\nx\n```\n:::\n", false)
+	group := groupDoc.ContentBlocks[0].Elements[0].(*ast.CodeGroupElement)
+	for _, language := range []string{"", "go other", "go\nother", "go\tother"} {
+		group.CodeBlocks[0].Language = language
+		raw, _ := json.Marshal(groupDoc)
+		decoded, err := ast.DecodeAST(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := FormatStrict(decoded); err == nil {
+			t.Fatalf("ambiguous language accepted %q", language)
+		}
+	}
+	doc := literalParse(t, "---\nmode: strict\n---\nSLIDE content\n  <<math>>\n    x=1\n  <<end>>\n", false)
+	m := doc.ContentBlocks[0].Elements[0].(*ast.MathElement)
+	for _, field := range []string{"caption", "label"} {
+		for _, value := range []string{"first\nsecond", "first\rsecond"} {
+			m.Caption = ""
+			m.Label = ""
+			if field == "caption" {
+				m.Caption = value
+			} else {
+				m.Label = value
+			}
+			raw, _ := json.Marshal(doc)
+			decoded, err := ast.DecodeAST(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := FormatStrict(decoded); err == nil {
+				t.Fatalf("Math %s line break accepted", field)
+			}
+		}
+	}
 }
 
 func TestListStartInvalidOrdinalMakesProgressAndKeepsFollowingBody(t *testing.T) {
- for _,document:=range []bool{false,true} {for _,mode:=range []string{"strict","flex"}{
-  source:="---\nmode: "+mode+"\nast_capabilities: [list-start-v1]\n---\n"
-  if mode=="strict"{if document{source+="SECTION \"List\"\n"}else{source+="SLIDE content\n"};source+="  POINTS\n    -1. Invalid\n  TEXT\n    Following body\n"}else{source+="# List\n\n-1. Invalid\n\nFollowing body\n"}
-  p:=parser.New(util.NewNoop());p.SetNormalization(false)
-  var doc *ast.AST;var rejected bool
-  if document{d,issues:=p.ParseDocument(source,"invalid.doclang");doc=d;for _,i:=range issues{rejected=rejected||i.IsError()}}else{d,issues:=p.Parse(source,"invalid.slidelang");doc=d;for _,i:=range issues{rejected=rejected||i.IsError()}}
-  if !rejected{t.Fatal("invalid ordinal succeeded")};kept:=false
-  _ = ast.Walk(doc,func(n ast.Node)error{if e,ok:=n.(*ast.TextElement);ok&&strings.Contains(e.Content,"Following body"){kept=true};return nil})
-  if !kept{t.Fatalf("invalid ordinal swallowed following body document=%v mode=%s",document,mode)}
- }}
+	for _, document := range []bool{false, true} {
+		for _, mode := range []string{"strict", "flex"} {
+			source := "---\nmode: " + mode + "\nast_capabilities: [list-start-v1]\n---\n"
+			if mode == "strict" {
+				if document {
+					source += "SECTION \"List\"\n"
+				} else {
+					source += "SLIDE content\n"
+				}
+				source += "  POINTS\n    -1. Invalid\n  TEXT\n    Following body\n"
+			} else {
+				source += "# List\n\n-1. Invalid\n\nFollowing body\n"
+			}
+			p := parser.New(util.NewNoop())
+			p.SetNormalization(false)
+			var doc *ast.AST
+			var rejected bool
+			if document {
+				d, issues := p.ParseDocument(source, "invalid.doclang")
+				doc = d
+				for _, i := range issues {
+					rejected = rejected || i.IsError()
+				}
+			} else {
+				d, issues := p.Parse(source, "invalid.slidelang")
+				doc = d
+				for _, i := range issues {
+					rejected = rejected || i.IsError()
+				}
+			}
+			if !rejected {
+				t.Fatal("invalid ordinal succeeded")
+			}
+			kept := false
+			_ = ast.Walk(doc, func(n ast.Node) error {
+				if e, ok := n.(*ast.TextElement); ok && strings.Contains(e.Content, "Following body") {
+					kept = true
+				}
+				return nil
+			})
+			if !kept {
+				t.Fatalf("invalid ordinal swallowed following body document=%v mode=%s", document, mode)
+			}
+		}
+	}
 }
