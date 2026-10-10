@@ -112,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -222,6 +222,22 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+
+	var ListStartPresent jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"anyOf":[{"required":["start"]},{"required":["subListStart"]}]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}}]}`), &ListStartPresent); err != nil { panic(err) }
+	root.Definitions["ListStartPresent"] = &ListStartPresent
+	var MathPresent jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type"],"properties":{"type":{"const":"math"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/MathPresent"}}}}]}`), &MathPresent); err != nil { panic(err) }
+	root.Definitions["MathPresent"] = &MathPresent
+	var ListStartTree jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"type":"object","allOf":[{"if":{"required":["start"]},"then":{"required":["type","listType"],"properties":{"type":{"const":"points"},"listType":{"const":"ordered"}}}},{"if":{"required":["subListStart"]},"then":{"required":["type","subListType","subPoints"],"properties":{"type":{"const":"point_item"},"subListType":{"const":"ordered"},"subPoints":{"type":"array","minItems":1}}}}],"properties":{"contentBlocks":{"items":{"$ref":"#/$defs/ListStartTree"}},"elements":{"items":{"$ref":"#/$defs/ListStartTree"}},"columns":{"items":{"$ref":"#/$defs/ListStartTree"}},"items":{"items":{"$ref":"#/$defs/ListStartTree"}},"subPoints":{"items":{"$ref":"#/$defs/ListStartTree"}}}}`), &ListStartTree); err != nil { panic(err) }
+	root.Definitions["ListStartTree"] = &ListStartTree
+
+ for def, prop := range map[string]string{"PointsElement":"start", "PointItem":"subListStart"} {
+  var bound jsonschema.Schema
+  if err := json.Unmarshal([]byte(`{"type":"integer","minimum":1,"maximum":9007199254740991}`), &bound); err != nil { panic(err) }
+  if err := overrideProperty(root.Definitions, def, prop, &bound); err != nil { panic(err) }
+ }
 	gateJSON, err := contractGateJSON()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -375,6 +391,8 @@ func contractGateJSON() ([]byte, error) {
 		{ast.MediaFigureCapability, ast.MediaFigureSchemaVersion, "MediaFigurePresent"},
 		{ast.CodeFilenameCapability, ast.CodeFilenameSchemaVersion, "CodeFilenamePresent"},
 		{ast.QuizPollResultsCapability, ast.QuizPollResultsSchemaVersion, "QuizPollResultsPresent"},
+		{ast.ListStartCapability, ast.ListStartSchemaVersion, "ListStartPresent"},
+		{ast.MathSourceCapability, ast.MathSourceSchemaVersion, "MathPresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {
@@ -385,9 +403,14 @@ func contractGateJSON() ([]byte, error) {
 	}
 	var all []any
 	for _, e := range exts {
-		all = append(all, map[string]any{"if": declares(e.capability), "then": ref(e.present), "else": map[string]any{"not": ref(e.present)}})
+		if e.capability == ast.MathSourceCapability {
+			all = append(all, map[string]any{"if": declares(e.capability), "then": ref(e.present)})
+		} else {
+			all = append(all, map[string]any{"if": declares(e.capability), "then": ref(e.present), "else": map[string]any{"not": ref(e.present)}})
+		}
 	}
 	all = append(all, map[string]any{"if": declares(ast.NestedListTypesCapability), "then": ref("TypedPointTree")})
+	all = append(all, ref("ListStartTree"))
 	var allowed []any
 	for _, e := range exts {
 		allowed = append(allowed, e.capability)

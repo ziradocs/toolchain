@@ -5,6 +5,8 @@ package elements
 
 import (
 	"strings"
+	"fmt"
+	"strconv"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -37,7 +39,7 @@ func (p *PointsParser) CanParse(line string, mode string) bool {
 	}
 
 	// Numbered lists
-	if len(trimmed) > 2 && (trimmed[1] == '.' || trimmed[2] == '.') {
+	if len(trimmed) > 2 {
 		for i, char := range trimmed {
 			if char == '.' {
 				if i > 0 && i+1 < len(trimmed) && trimmed[i+1] == ' ' {
@@ -68,7 +70,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 	pos := ctx.Position(startIndex)
 	element := ast.NewPointsElement(pos)
-	if ctx.NestedListTypes {
+	if ctx.NestedListTypes || ctx.ListStart {
 		return p.parseTypedList(ctx, startIndex, element)
 	}
 	consumed := 0
@@ -231,6 +233,11 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 					break
 				}
 			}
+			if ctx.ListStart && kind == "ordered" {
+				if err := captureListOrdinal(trimmed, &element.Start, len(element.Items)); err != nil {
+					diags = append(diags, diagnostics.NewError(err.Error(), ctx.Position(i), "points-parser"))
+				}
+			}
 			if len(element.Items) == 0 {
 				element.ListType = kind
 			}
@@ -243,6 +250,16 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 			}
 		} else {
 			parent := stack[len(stack)-1].item
+			if ctx.ListStart && !ctx.NestedListTypes {
+				diags = append(diags, diagnostics.NewError("nested list starts require nested-list-types-v1", ctx.Position(i), "points-parser"))
+				consumed++
+				continue
+			}
+			if ctx.ListStart && kind == "ordered" {
+				if err := captureListOrdinal(trimmed, &parent.SubListStart, len(parent.SubPoints)); err != nil {
+					diags = append(diags, diagnostics.NewError(err.Error(), ctx.Position(i), "points-parser"))
+				}
+			}
 			if parent.SubListType != "" && parent.SubListType != kind {
 				diags = append(diags, diagnostics.NewError("mixed markers in one nested list level", ctx.Position(i), "points-parser"))
 			} else if parent.SubListType == "" {
@@ -262,6 +279,15 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 		diags = append(diags, diagnostics.NewError("empty POINTS list", ctx.Position(startIndex), "points-parser"))
 	}
 	return &ParseResult{Element: element, ConsumedLines: consumed, Diagnostics: diags}
+}
+
+func captureListOrdinal(line string, start **int64, count int) error {
+	marker, _, _ := strings.Cut(line, ". ")
+	n, err := strconv.ParseInt(marker, 10, 64)
+	if err != nil || n < 1 || n > ast.MaxListStart { return fmt.Errorf("invalid ordered list ordinal %q: expected 1..%d", marker, ast.MaxListStart) }
+	if count == 0 { *start = &n; return nil }
+	if *start == nil || int64(count) > ast.MaxListStart - **start || n != **start + int64(count) { return fmt.Errorf("discontinuous ordered list ordinal %q", marker) }
+	return nil
 }
 
 func malformedPointMarker(line string) bool {

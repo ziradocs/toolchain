@@ -31,6 +31,7 @@ import (
 // un grid, devuelve UnsupportedElementError en vez de emitir texto que no
 // re-parsearía.
 func FormatStrict(doc *ast.AST) (string, error) {
+	if err := validateLiteralRepresentation(doc); err != nil { return "", err }
 	out, err := formatStrictWithoutIDs(doc)
 	if err != nil {
 		return "", err
@@ -257,7 +258,7 @@ func formatStrictElement(el ast.Element) (string, error) {
 		}
 		body = formatSpecialBlock(e)
 	case *ast.CodeGroupElement:
-		body = formatCodeGroup(e)
+		body, err = formatCodeGroup(e)
 	case *ast.MermaidElement:
 		body, err = formatMermaid(e)
 	case *ast.PlantUMLElement:
@@ -362,7 +363,7 @@ func formatStrictText(e *ast.TextElement) (string, error) {
 func formatStrictPoints(e *ast.PointsElement) string {
 	var b strings.Builder
 	b.WriteString("POINTS\n")
-	b.WriteString(indent(formatPointItems(e.Items, e.ListType), 2))
+	b.WriteString(indent(formatPointList(e.Items, e.ListType, false, e.Start), 2))
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -374,7 +375,7 @@ func formatStrictPoints(e *ast.PointsElement) string {
 // sublista (SubListType con la capacidad, SubListMarker sin ella) y "-" si el AST
 // no lo dice: el detector de tipo de lista solo mira el nivel base.
 func formatPointItems(items []ast.PointItem, listType string) string {
-	return formatPointList(items, listType, false)
+	return formatPointList(items, listType, false, nil)
 }
 
 // formatPointList writes one level of a list. At the base level every item
@@ -386,9 +387,10 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 // Numbers restart after a bullet; they do not matter to the AST, which keeps
 // only the content. An item with no recorded marker (an AST read back from
 // JSON) takes the marker of the list.
-func formatPointList(items []ast.PointItem, listType string, sub bool) string {
+func formatPointList(items []ast.PointItem, listType string, sub bool, start *int64) string {
 	var b strings.Builder
-	number := 0
+	number := int64(0)
+	if start != nil { number = *start - 1 }
 	for i, item := range items {
 		if i > 0 {
 			b.WriteString("\n")
@@ -417,7 +419,7 @@ func formatPointList(items []ast.PointItem, listType string, sub bool) string {
 			if childType == "" {
 				childType = "unordered"
 			}
-			b.WriteString(indent(formatPointList(item.SubPoints, childType, true), 2))
+			b.WriteString(indent(formatPointList(item.SubPoints, childType, true, item.SubListStart), 2))
 		}
 	}
 	return b.String()
@@ -1058,10 +1060,12 @@ func specialBlockReadsBack(e *ast.SpecialBlockElement, text string) bool {
 		sameElements(e.Elements, got.Elements)
 }
 
-func formatCodeGroup(e *ast.CodeGroupElement) string {
+func formatCodeGroup(e *ast.CodeGroupElement) (string, error) {
 	var b strings.Builder
 	b.WriteString(":::code-group\n")
 	for _, cb := range e.CodeBlocks {
+		if strings.TrimSpace(cb.Label) != cb.Label || strings.ContainsAny(cb.Label, "\r\n") { return "", newUnsupported("code_group", "tab label cannot preserve edge whitespace or line breaks") }
+		for _, line := range strings.Split(cb.Content, "\n") { if strings.TrimSpace(line) == "```" { return "", newUnsupported("code_group", "payload contains a closing code fence") } }
 		fmt.Fprintf(&b, "```%s", cb.Language)
 		if cb.Label != "" {
 			fmt.Fprintf(&b, " [%s]", cb.Label)
@@ -1071,7 +1075,7 @@ func formatCodeGroup(e *ast.CodeGroupElement) string {
 		b.WriteString("\n```\n")
 	}
 	b.WriteString(":::")
-	return b.String()
+	return b.String(), nil
 }
 
 // formatStrictGrid serializa GridElement a la forma delimitada
@@ -1226,19 +1230,25 @@ func diagramTagOpen(tag, title string) (string, error) {
 // que sin <<end>> el re-parse no tiene forma de distinguir "fin del bloque
 // math" de "más contenido del bloque math" por dedent solo — encontrado y
 // corregido vía TestFormatStrict_RoundTrip_Corpus (formatter/strict_roundtrip_test.go).
-func formatStrictMath(e *ast.MathElement) (string, error) {
-	body := "<<math>>\n" + indent(e.Content, 2)
+func formatStrictMath(e *ast.MathElement) (string, error) { return formatMath(e, true) }
+
+func formatMath(e *ast.MathElement, strict bool) (string, error) {
+	content := e.Content
+	if strict { content = indent(content, 2) }
+	metaIndent := 0
+	if strict { metaIndent = 2 }
+	body := "<<math>>\n" + content
 	if e.Caption != "" {
 		if err := checkQuotable("math", "caption", e.Caption); err != nil {
 			return "", err
 		}
-		body += "\n" + indent("caption: "+quote(e.Caption), 2)
+		body += "\n" + indent("caption: "+quote(e.Caption), metaIndent)
 	}
 	if e.Label != "" {
 		if err := checkQuotable("math", "label", e.Label); err != nil {
 			return "", err
 		}
-		body += "\n" + indent("label: "+quote(e.Label), 2)
+		body += "\n" + indent("label: "+quote(e.Label), metaIndent)
 	}
 	body += "\n<<end>>"
 	return body, nil

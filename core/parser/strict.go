@@ -27,6 +27,8 @@ import (
 // paralela las perdería en cuanto una de las dos derivara.
 type strictBody struct {
 	nestedListTypes bool
+	listStart bool
+	mathSource bool
 	// slideHeadings habilita `SECTION "Texto"` como encabezado de subsección
 	// dentro de un SLIDE (issue #259). Solo el dialecto de presentaciones lo
 	// activa: en DocLang strict un SECTION es un bloque de nivel superior y
@@ -60,6 +62,8 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
 		Mode:            "strict",
 		NestedListTypes: p.nestedListTypes,
+		ListStart: p.listStart,
+		MathSource: p.mathSource,
 		Lines:           p.lines,
 		CurrentLine:     p.currentLine,
 		Logger:          p.logger,
@@ -87,6 +91,8 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic) {
 	sub := &strictBody{
 		nestedListTypes: p.nestedListTypes,
+		listStart: p.listStart,
+		mathSource: p.mathSource,
 		lines:           lines,
 		logger:          p.logger,
 		lineOffset:      lineOffset,

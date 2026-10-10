@@ -195,6 +195,7 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 	consumedLines := 1 // skip opening ``` line
 
 	var content strings.Builder
+	lineCount := 0
 
 	// Collect content until closing ```
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
@@ -205,10 +206,11 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 			break
 		}
 
-		if content.Len() > 0 {
+		if lineCount > 0 {
 			content.WriteString("\n")
 		}
 		content.WriteString(line)
+		lineCount++
 		consumedLines++
 	}
 

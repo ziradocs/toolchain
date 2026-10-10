@@ -68,6 +68,8 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 	for i, t := range builtins {
 		hadNestedLists := ast.UsesNestedListTypes(doc)
 		hadHeadings := ast.UsesTypedHeadings(doc)
+		hadStarts := ast.UsesListStart(doc)
+		hadMathSource := ast.UsesMathSource(doc)
 		var err error
 		doc, err = t(doc)
 		if err != nil {
@@ -79,6 +81,8 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 		if hadNestedLists && !ast.UsesNestedListTypes(doc) {
 			return nil, fmt.Errorf("built-in transform #%d removed nested list types", i)
 		}
+		if hadStarts && !ast.UsesListStart(doc) { return nil, fmt.Errorf("built-in transform #%d removed list starts", i) }
+		if hadMathSource && !ast.UsesMathSource(doc) { return nil, fmt.Errorf("built-in transform #%d removed math-source-v1", i) }
 		if hadHeadings && !ast.UsesTypedHeadings(doc) {
 			return nil, fmt.Errorf("built-in transform #%d removed typed headings", i)
 		}
@@ -105,6 +109,7 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 	for _, path := range filterPaths {
 		var nestedFingerprints map[string]ast.NestedListFingerprint
 		var headingFingerprints map[string]int
+		var startFingerprints map[string]ast.NestedListFingerprint
 		if ast.UsesExtensions(doc) {
 			if err := ast.ValidateTableContract(doc); err != nil {
 				return nil, fmt.Errorf("filter %q input: %w", path, err)
@@ -120,6 +125,11 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 				if err != nil {
 					return nil, fmt.Errorf("filter %q: %w", path, err)
 				}
+			}
+			if ast.UsesListStart(doc) {
+				var err error
+				startFingerprints, err = ast.ListStartFingerprints(doc)
+				if err != nil { return nil, fmt.Errorf("filter %q: %w", path, err) }
 			}
 			if ast.UsesTypedHeadings(doc) {
 				headingFingerprints = ast.TypedHeadingFingerprints(doc)
@@ -150,6 +160,11 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 			if !reflect.DeepEqual(nestedFingerprints, afterFingerprints) {
 				return nil, fmt.Errorf("filter %q: nested list nodeId ownership or list types changed", path)
 			}
+		}
+		if ast.UsesMathSource(before) && !ast.UsesMathSource(doc) { return nil, fmt.Errorf("filter %q: math-source-v1 was removed", path) }
+		if ast.UsesListStart(before) {
+			after, err := ast.ListStartFingerprints(doc)
+			if err != nil || !ast.UsesListStart(doc) || !reflect.DeepEqual(startFingerprints, after) { return nil, fmt.Errorf("filter %q: list starts or nodeId ownership changed", path) }
 		}
 		if ast.UsesTypedHeadings(before) {
 			if !ast.UsesTypedHeadings(doc) {

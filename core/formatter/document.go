@@ -32,6 +32,7 @@ import (
 // formatMermaid, formatPlantUML, formatChart, formatMap, formatDirective)
 // en vez de duplicarlos.
 func FormatDocument(doc *ast.AST) (string, error) {
+	if err := validateLiteralRepresentation(doc); err != nil { return "", err }
 	out, err := formatDocumentWithoutIDs(doc)
 	if err != nil {
 		return "", err
@@ -132,7 +133,7 @@ func formatDocumentElement(el ast.Element) (string, error) {
 			body = strings.Repeat("#", e.Level) + " " + e.Text
 		}
 	case *ast.PointsElement:
-		body = formatPointItems(e.Items, e.ListType)
+		body = formatPointList(e.Items, e.ListType, false, e.Start)
 	case *ast.CodeElement:
 		body, err = formatFlexCode(e)
 	case *ast.ImageElement:
@@ -160,7 +161,7 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	case *ast.SpecialBlockElement:
 		body = formatSpecialBlock(e)
 	case *ast.CodeGroupElement:
-		body = formatCodeGroup(e)
+		body, err = formatCodeGroup(e)
 	case *ast.MermaidElement:
 		body, err = formatMermaid(e)
 	case *ast.PlantUMLElement:
@@ -171,7 +172,7 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	// misma serialización re-parsea en los dos dialectos. Un documento que
 	// escribió $$…$$ sale canonicalizado a <<math>>, que es lo que hace fmt.
 	case *ast.MathElement:
-		body, err = formatStrictMath(e)
+		body, err = formatMath(e, false)
 	case *ast.ChartElement:
 		body, err = formatChart(e)
 	case *ast.MapElement:

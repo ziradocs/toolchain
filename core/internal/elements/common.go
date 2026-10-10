@@ -31,6 +31,8 @@ const (
 // ParseContext proporciona contexto para el parsing de elementos
 type ParseContext struct {
 	Mode            string // "strict" or "flex"
+	ListStart bool
+	MathSource bool
 	NestedListTypes bool   // explicit ast_capabilities source opt-in
 	CurrentLine     int
 	Logger          util.Logger // Logger interface for structured logging
