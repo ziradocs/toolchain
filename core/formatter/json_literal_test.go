@@ -250,3 +250,16 @@ func TestJSONMetadataRepresentabilityRejectsLoss(t *testing.T) {
   if _,err:=FormatStrict(decoded);err==nil{t.Fatalf("Math %s line break accepted",field)}
  }}
 }
+
+func TestListStartInvalidOrdinalMakesProgressAndKeepsFollowingBody(t *testing.T) {
+ for _,document:=range []bool{false,true} {for _,mode:=range []string{"strict","flex"}{
+  source:="---\nmode: "+mode+"\nast_capabilities: [list-start-v1]\n---\n"
+  if mode=="strict"{if document{source+="SECTION \"List\"\n"}else{source+="SLIDE content\n"};source+="  POINTS\n    -1. Invalid\n  TEXT\n    Following body\n"}else{source+="# List\n\n-1. Invalid\n\nFollowing body\n"}
+  p:=parser.New(util.NewNoop());p.SetNormalization(false)
+  var doc *ast.AST;var rejected bool
+  if document{d,issues:=p.ParseDocument(source,"invalid.doclang");doc=d;for _,i:=range issues{rejected=rejected||i.IsError()}}else{d,issues:=p.Parse(source,"invalid.slidelang");doc=d;for _,i:=range issues{rejected=rejected||i.IsError()}}
+  if !rejected{t.Fatal("invalid ordinal succeeded")};kept:=false
+  _ = ast.Walk(doc,func(n ast.Node)error{if e,ok:=n.(*ast.TextElement);ok&&strings.Contains(e.Content,"Following body"){kept=true};return nil})
+  if !kept{t.Fatalf("invalid ordinal swallowed following body document=%v mode=%s",document,mode)}
+ }}
+}
