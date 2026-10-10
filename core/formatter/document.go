@@ -32,6 +32,9 @@ import (
 // formatMermaid, formatPlantUML, formatChart, formatMap, formatDirective)
 // en vez de duplicarlos.
 func FormatDocument(doc *ast.AST) (string, error) {
+	if err := validateLiteralRepresentation(doc); err != nil {
+		return "", err
+	}
 	out, err := formatDocumentWithoutIDs(doc)
 	if err != nil {
 		return "", err
@@ -57,7 +60,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 		if i > 0 || fm != "" {
 			b.WriteString("\n")
 		}
-		blockText, err := formatDocumentSection(&block, &hasTitleBlock)
+		blockText, err := formatDocumentSection(&block, &hasTitleBlock, ast.UsesMathSource(doc))
 		if err != nil {
 			return "", err
 		}
@@ -73,7 +76,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 // formatter no puede leer BlockType para decidir esto de forma confiable
 // (el AST puede haberse construido de otras formas), así que sigue la
 // MISMA regla posicional que el parser: primer bloque → Heading.
-func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool) (string, error) {
+func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, literalMath bool) (string, error) {
 	var b strings.Builder
 
 	title := block.Title
@@ -92,7 +95,7 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool) (string
 	// corpus real de DocLang siempre separa elementos con línea en blanco
 	// (ver el mismo archivo); replicar esa convención evita el gap.
 	for _, el := range block.Elements {
-		elText, err := formatDocumentElement(el)
+		elText, err := formatDocumentElement(el, literalMath)
 		if err != nil {
 			return "", err
 		}
@@ -106,7 +109,7 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool) (string
 	return b.String(), nil
 }
 
-func formatDocumentElement(el ast.Element) (string, error) {
+func formatDocumentElement(el ast.Element, literalMath bool) (string, error) {
 	var body string
 	var err error
 
@@ -132,7 +135,7 @@ func formatDocumentElement(el ast.Element) (string, error) {
 			body = strings.Repeat("#", e.Level) + " " + e.Text
 		}
 	case *ast.PointsElement:
-		body = formatPointItems(e.Items, e.ListType)
+		body = formatPointList(e.Items, e.ListType, false, e.Start)
 	case *ast.CodeElement:
 		body, err = formatFlexCode(e)
 	case *ast.ImageElement:
@@ -160,7 +163,7 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	case *ast.SpecialBlockElement:
 		body = formatSpecialBlock(e)
 	case *ast.CodeGroupElement:
-		body = formatCodeGroup(e)
+		body, err = formatCodeGroup(e)
 	case *ast.MermaidElement:
 		body, err = formatMermaid(e)
 	case *ast.PlantUMLElement:
@@ -171,7 +174,7 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	// misma serialización re-parsea en los dos dialectos. Un documento que
 	// escribió $$…$$ sale canonicalizado a <<math>>, que es lo que hace fmt.
 	case *ast.MathElement:
-		body, err = formatStrictMath(e)
+		body, err = formatMath(e, !literalMath)
 	case *ast.ChartElement:
 		body, err = formatChart(e)
 	case *ast.MapElement:
