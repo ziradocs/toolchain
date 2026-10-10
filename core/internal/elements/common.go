@@ -139,7 +139,9 @@ func (r *Registry) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// Intentar con cada parser registrado
 	for _, parser := range r.parsers {
 		points, isPoints := parser.(*PointsParser)
-		if ctx.ListStart && isPoints && (points.isListItem(strings.TrimSpace(line)) || malformedPointMarker(strings.TrimSpace(line))) { return parser.Parse(ctx, startIndex) }
+		if ctx.ListStart && isPoints && (points.isListItem(strings.TrimSpace(line)) || malformedPointMarker(strings.TrimSpace(line))) {
+			return parser.Parse(ctx, startIndex)
+		}
 		if parser.CanParse(line, ctx.Mode) {
 			return parser.Parse(ctx, startIndex)
 		}

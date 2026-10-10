@@ -298,6 +298,7 @@ func captureListOrdinal(line string, start **int64, count int) error {
 }
 
 func malformedPointMarker(line string) bool {
+	if len(line) > 1 && (line[0] == '-' || line[0] == '+') && line[1] >= '0' && line[1] <= '9' { return malformedPointMarker(line[1:]) }
 	if line == "-" || line == "*" || line == "+" {
 		return true
 	}

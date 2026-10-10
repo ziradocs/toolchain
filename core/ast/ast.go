@@ -116,6 +116,8 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.20.0: QuizElement/PollElement .results (percent 0-100 per option) and
 // .responses (quiz-poll-results-v1), inferred from the new `results:` and
 // `responses:` keys.
+// 2.21.0: optional safe ordered-list start ordinals (list-start-v1).
+// 2.22.0: document-wide literal LaTeX policy (math-source-v1).
 const SchemaVersion = "2.22.0"
 
 const PreviousSchemaVersion = "2.13.0"

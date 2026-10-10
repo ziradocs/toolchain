@@ -134,7 +134,7 @@ func TestListStartSourceAndJSONRoundTrips(t *testing.T) {
 }
 
 func TestListStartRejectsInvalidSource(t *testing.T) {
-	for _, body := range []string{"3. First\n5. Gap", "0. Zero", "9007199254740992. Unsafe", "a. Alpha", "1. First\n0. Zero", "1. First\n  2. Child"} {
+	for _, body := range []string{"3. First\n5. Gap", "0. Zero", "-1. Negative", "9007199254740992. Unsafe", "a. Alpha", "1. First\n0. Zero", "1. First\n  2. Child"} {
 		for _, mode := range []string{"strict", "flex"} {
 			source := "---\nmode: " + mode + "\nast_capabilities: [list-start-v1]\n---\n"
 			if mode == "strict" {
@@ -204,4 +204,24 @@ func TestImageFollowedByHeadingPreservesSiblingIdentity(t *testing.T) {
 	if len(literalParse(t, out, false).ContentBlocks[0].Elements) != 2 {
 		t.Fatal("roundtrip swallowed heading")
 	}
+}
+
+func TestMathSourceStrictDedentAndDollarLiteral(t *testing.T) {
+ for _,tc:=range []struct{body,want string}{
+  {"  <<math>>\n    x\n      y  \n    \n      z\n  <<end>>","x\n  y  \n\n  z"},
+  {"  <<math>>\n\n      x\n \n  <<end>>","\n  x\n "},
+ } {
+  d:=literalParse(t,"---\nmode: strict\nast_capabilities: [math-source-v1]\n---\nSLIDE content\n"+tc.body+"\n",false)
+  if got:=d.ContentBlocks[0].Elements[0].(*ast.MathElement).Content;got!=tc.want{t.Fatalf("dedent %q want %q",got,tc.want)}
+ }
+ for _,tc:=range []struct{body,want string}{
+  {"$$  x  $$","  x  "},
+  {"$$\n\n  x  \n\n$$","\n  x  \n"},
+ } {
+  d:=literalParse(t,"---\nmode: flex\nast_capabilities: [math-source-v1]\n---\n# Math\n\n"+tc.body+"\n",false)
+  if got:=d.ContentBlocks[0].Elements[0].(*ast.MathElement).Content;got!=tc.want{t.Fatalf("dollar %q want %q",got,tc.want)}
+ }
+ for _,body:=range []string{"  <<math>>\n   x\n  <<end>>", "  <<math>>\n    x"} {
+  p:=parser.New(util.NewNoop());p.SetNormalization(false);_,issues:=p.Parse("---\nmode: strict\nast_capabilities: [math-source-v1]\n---\nSLIDE content\n"+body+"\n","bad.slidelang");found:=false;for _,i:=range issues{found=found||i.IsError()};if !found{t.Fatalf("invalid literal math accepted: %q",body)}
+ }
 }

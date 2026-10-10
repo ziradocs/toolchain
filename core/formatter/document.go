@@ -60,7 +60,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 		if i > 0 || fm != "" {
 			b.WriteString("\n")
 		}
-		blockText, err := formatDocumentSection(&block, &hasTitleBlock)
+		blockText, err := formatDocumentSection(&block, &hasTitleBlock, ast.UsesMathSource(doc))
 		if err != nil {
 			return "", err
 		}
@@ -76,7 +76,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 // formatter no puede leer BlockType para decidir esto de forma confiable
 // (el AST puede haberse construido de otras formas), así que sigue la
 // MISMA regla posicional que el parser: primer bloque → Heading.
-func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool) (string, error) {
+func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, literalMath bool) (string, error) {
 	var b strings.Builder
 
 	title := block.Title
@@ -95,7 +95,7 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool) (string
 	// corpus real de DocLang siempre separa elementos con línea en blanco
 	// (ver el mismo archivo); replicar esa convención evita el gap.
 	for _, el := range block.Elements {
-		elText, err := formatDocumentElement(el)
+		elText, err := formatDocumentElement(el, literalMath)
 		if err != nil {
 			return "", err
 		}
@@ -109,7 +109,7 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool) (string
 	return b.String(), nil
 }
 
-func formatDocumentElement(el ast.Element) (string, error) {
+func formatDocumentElement(el ast.Element, literalMath bool) (string, error) {
 	var body string
 	var err error
 
@@ -174,7 +174,7 @@ func formatDocumentElement(el ast.Element) (string, error) {
 	// misma serialización re-parsea en los dos dialectos. Un documento que
 	// escribió $$…$$ sale canonicalizado a <<math>>, que es lo que hace fmt.
 	case *ast.MathElement:
-		body, err = formatMath(e, false)
+		body, err = formatMath(e, !literalMath)
 	case *ast.ChartElement:
 		body, err = formatChart(e)
 	case *ast.MapElement:
