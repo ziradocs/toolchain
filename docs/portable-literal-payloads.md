@@ -11,7 +11,10 @@ integer (1 through 9007199254740991); unordered lists omit it. A nested ordered
 list stores `subListStart` on the owning item, requires nonempty `subPoints`
 and `subListType: ordered`, and requires `nested-list-types-v1`. Source ordinals
 must be decimal and contiguous. Invalid, alphabetic or discontinuous ordinals
-produce errors. Without the opt-in, existing source list behavior is unchanged.
+produce errors. The runtime also rejects a list whose last implied ordinal
+(start + item count - 1) exceeds the safe range; the schema constrains the stored
+start value and cannot express this arithmetic invariant. Without the opt-in,
+existing source list behavior is unchanged.
 
 `ast_capabilities: [math-source-v1]` opts into AST 2.22. The capability is a
 whole-document policy: all MathElement content is literal LaTeX. It introduces

@@ -93,3 +93,14 @@ func TestMathSourceSchemaDecoderParity(t *testing.T) {
 		t.Fatal("schema accepted unused math policy")
 	}
 }
+
+// The generated schema bounds stored ordinals. Arithmetic involving item
+// counts is deliberately a runtime invariant, not claimed as schema parity.
+func TestListStartRejectsImpliedUnsafeOrdinal(t *testing.T) {
+ for _,nested:=range []bool{false,true} {
+  pos:=diagnostics.NewPosition(1,1);doc:=NewAST(pos);b:=NewContentBlock(pos,"content");p:=NewPointsElement(pos);p.ListType="ordered";max:=MaxListStart;p.Start=&max;p.Items=[]PointItem{*NewPointItem(pos,"One"),*NewPointItem(pos,"Two")}
+  if nested {one:=int64(1);p.Start=&one;p.Items=p.Items[:1];p.Items[0].SubListType="ordered";p.Items[0].SubListStart=&max;p.Items[0].SubPoints=[]PointItem{*NewPointItem(pos,"Child one"),*NewPointItem(pos,"Child two")}}
+  b.Elements=[]Element{p};doc.ContentBlocks=[]ContentBlock{*b};SetTableContract(doc);raw,_:=json.Marshal(doc)
+  if _,err:=DecodeAST(raw);err==nil{t.Fatalf("unsafe implied ordinal accepted nested=%v",nested)}
+ }
+}
