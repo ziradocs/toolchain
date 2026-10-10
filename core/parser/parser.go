@@ -326,8 +326,8 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	case "strict":
 		strictParser := newStrictBodyParser(bodyContent, bodyOffset, p.logger)
 		strictParser.nestedListTypes = sourceNestedListTypes(frontMatter)
-	strictParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
-	strictParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
+		strictParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
+		strictParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
 		astNode, bodyDiagnostics = strictParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -345,8 +345,8 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		}
 		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
 		flexParser.nestedListTypes = sourceNestedListTypes(frontMatter)
-	flexParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
-	flexParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
+		flexParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
+		flexParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -367,8 +367,8 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		}
 		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
 		flexParser.nestedListTypes = sourceNestedListTypes(frontMatter)
-	flexParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
-	flexParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
+		flexParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
+		flexParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -377,8 +377,8 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		// Si ya hubo pre-procesamiento, usamos ese resultado
 		autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
 		autoParser.nestedListTypes = sourceNestedListTypes(frontMatter)
-	autoParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
-	autoParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
+		autoParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
+		autoParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
 		if strings.Join(autoParser.lines, "\n") != bodyContent {
 			normalizationModified = true
 		}
@@ -397,8 +397,8 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			allDiagnostics = append(allDiagnostics, aiDiag)
 			autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
 			autoParser.nestedListTypes = sourceNestedListTypes(frontMatter)
-	autoParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
-	autoParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
+			autoParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
+			autoParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
 			if strings.Join(autoParser.lines, "\n") != bodyContent {
 				normalizationModified = true
 			}

@@ -224,20 +224,30 @@ func main() {
 	}
 
 	var ListStartPresent jsonschema.Schema
-	if err := json.Unmarshal([]byte(`{"anyOf":[{"anyOf":[{"required":["start"]},{"required":["subListStart"]}]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}}]}`), &ListStartPresent); err != nil { panic(err) }
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"anyOf":[{"required":["start"]},{"required":["subListStart"]}]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/ListStartPresent"}}}}]}`), &ListStartPresent); err != nil {
+		panic(err)
+	}
 	root.Definitions["ListStartPresent"] = &ListStartPresent
 	var MathPresent jsonschema.Schema
-	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type"],"properties":{"type":{"const":"math"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/MathPresent"}}}}]}`), &MathPresent); err != nil { panic(err) }
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type"],"properties":{"type":{"const":"math"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/MathPresent"}}}}]}`), &MathPresent); err != nil {
+		panic(err)
+	}
 	root.Definitions["MathPresent"] = &MathPresent
 	var ListStartTree jsonschema.Schema
-	if err := json.Unmarshal([]byte(`{"type":"object","allOf":[{"if":{"required":["start"]},"then":{"required":["type","listType"],"properties":{"type":{"const":"points"},"listType":{"const":"ordered"}}}},{"if":{"required":["subListStart"]},"then":{"required":["type","subListType","subPoints"],"properties":{"type":{"const":"point_item"},"subListType":{"const":"ordered"},"subPoints":{"type":"array","minItems":1}}}}],"properties":{"contentBlocks":{"items":{"$ref":"#/$defs/ListStartTree"}},"elements":{"items":{"$ref":"#/$defs/ListStartTree"}},"columns":{"items":{"$ref":"#/$defs/ListStartTree"}},"items":{"items":{"$ref":"#/$defs/ListStartTree"}},"subPoints":{"items":{"$ref":"#/$defs/ListStartTree"}}}}`), &ListStartTree); err != nil { panic(err) }
+	if err := json.Unmarshal([]byte(`{"type":"object","allOf":[{"if":{"required":["start"]},"then":{"required":["type","listType"],"properties":{"type":{"const":"points"},"listType":{"const":"ordered"}}}},{"if":{"required":["subListStart"]},"then":{"required":["type","subListType","subPoints"],"properties":{"type":{"const":"point_item"},"subListType":{"const":"ordered"},"subPoints":{"type":"array","minItems":1}}}}],"properties":{"contentBlocks":{"items":{"$ref":"#/$defs/ListStartTree"}},"elements":{"items":{"$ref":"#/$defs/ListStartTree"}},"columns":{"items":{"$ref":"#/$defs/ListStartTree"}},"items":{"items":{"$ref":"#/$defs/ListStartTree"}},"subPoints":{"items":{"$ref":"#/$defs/ListStartTree"}}}}`), &ListStartTree); err != nil {
+		panic(err)
+	}
 	root.Definitions["ListStartTree"] = &ListStartTree
 
- for def, prop := range map[string]string{"PointsElement":"start", "PointItem":"subListStart"} {
-  var bound jsonschema.Schema
-  if err := json.Unmarshal([]byte(`{"type":"integer","minimum":1,"maximum":9007199254740991}`), &bound); err != nil { panic(err) }
-  if err := overrideProperty(root.Definitions, def, prop, &bound); err != nil { panic(err) }
- }
+	for def, prop := range map[string]string{"PointsElement": "start", "PointItem": "subListStart"} {
+		var bound jsonschema.Schema
+		if err := json.Unmarshal([]byte(`{"type":"integer","minimum":1,"maximum":9007199254740991}`), &bound); err != nil {
+			panic(err)
+		}
+		if err := overrideProperty(root.Definitions, def, prop, &bound); err != nil {
+			panic(err)
+		}
+	}
 	gateJSON, err := contractGateJSON()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

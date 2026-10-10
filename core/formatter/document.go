@@ -32,7 +32,9 @@ import (
 // formatMermaid, formatPlantUML, formatChart, formatMap, formatDirective)
 // en vez de duplicarlos.
 func FormatDocument(doc *ast.AST) (string, error) {
-	if err := validateLiteralRepresentation(doc); err != nil { return "", err }
+	if err := validateLiteralRepresentation(doc); err != nil {
+		return "", err
+	}
 	out, err := formatDocumentWithoutIDs(doc)
 	if err != nil {
 		return "", err

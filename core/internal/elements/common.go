@@ -31,9 +31,9 @@ const (
 // ParseContext proporciona contexto para el parsing de elementos
 type ParseContext struct {
 	Mode            string // "strict" or "flex"
-	ListStart bool
-	MathSource bool
-	NestedListTypes bool   // explicit ast_capabilities source opt-in
+	ListStart       bool
+	MathSource      bool
+	NestedListTypes bool // explicit ast_capabilities source opt-in
 	CurrentLine     int
 	Logger          util.Logger // Logger interface for structured logging
 	Lines           []string
@@ -138,6 +138,8 @@ func (r *Registry) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	// Intentar con cada parser registrado
 	for _, parser := range r.parsers {
+		points, isPoints := parser.(*PointsParser)
+		if ctx.ListStart && isPoints && (points.isListItem(strings.TrimSpace(line)) || malformedPointMarker(strings.TrimSpace(line))) { return parser.Parse(ctx, startIndex) }
 		if parser.CanParse(line, ctx.Mode) {
 			return parser.Parse(ctx, startIndex)
 		}

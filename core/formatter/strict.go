@@ -31,7 +31,9 @@ import (
 // un grid, devuelve UnsupportedElementError en vez de emitir texto que no
 // re-parsearía.
 func FormatStrict(doc *ast.AST) (string, error) {
-	if err := validateLiteralRepresentation(doc); err != nil { return "", err }
+	if err := validateLiteralRepresentation(doc); err != nil {
+		return "", err
+	}
 	out, err := formatStrictWithoutIDs(doc)
 	if err != nil {
 		return "", err
@@ -390,7 +392,9 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 func formatPointList(items []ast.PointItem, listType string, sub bool, start *int64) string {
 	var b strings.Builder
 	number := int64(0)
-	if start != nil { number = *start - 1 }
+	if start != nil {
+		number = *start - 1
+	}
 	for i, item := range items {
 		if i > 0 {
 			b.WriteString("\n")
@@ -1064,8 +1068,14 @@ func formatCodeGroup(e *ast.CodeGroupElement) (string, error) {
 	var b strings.Builder
 	b.WriteString(":::code-group\n")
 	for _, cb := range e.CodeBlocks {
-		if strings.TrimSpace(cb.Label) != cb.Label || strings.ContainsAny(cb.Label, "\r\n") { return "", newUnsupported("code_group", "tab label cannot preserve edge whitespace or line breaks") }
-		for _, line := range strings.Split(cb.Content, "\n") { if strings.TrimSpace(line) == "```" { return "", newUnsupported("code_group", "payload contains a closing code fence") } }
+		if strings.TrimSpace(cb.Label) != cb.Label || strings.ContainsAny(cb.Label, "\r\n") {
+			return "", newUnsupported("code_group", "tab label cannot preserve edge whitespace or line breaks")
+		}
+		for _, line := range strings.Split(cb.Content, "\n") {
+			if strings.TrimSpace(line) == "```" {
+				return "", newUnsupported("code_group", "payload contains a closing code fence")
+			}
+		}
 		fmt.Fprintf(&b, "```%s", cb.Language)
 		if cb.Label != "" {
 			fmt.Fprintf(&b, " [%s]", cb.Label)
@@ -1234,9 +1244,13 @@ func formatStrictMath(e *ast.MathElement) (string, error) { return formatMath(e,
 
 func formatMath(e *ast.MathElement, strict bool) (string, error) {
 	content := e.Content
-	if strict { content = indent(content, 2) }
+	if strict {
+		content = indent(content, 2)
+	}
 	metaIndent := 0
-	if strict { metaIndent = 2 }
+	if strict {
+		metaIndent = 2
+	}
 	body := "<<math>>\n" + content
 	if e.Caption != "" {
 		if err := checkQuotable("math", "caption", e.Caption); err != nil {

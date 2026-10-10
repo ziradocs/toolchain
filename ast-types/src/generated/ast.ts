@@ -105,7 +105,7 @@ import type { Position } from "./diagnostics";
  * .responses (quiz-poll-results-v1), inferred from the new `results:` and
  * `responses:` keys.
  */
-export const SchemaVersion = "2.20.0";
+export const SchemaVersion = "2.22.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
@@ -120,6 +120,11 @@ export const TypedHeadingsCapability = "typed-headings-v1";
 export const MediaFigureCapability = "media-figure-v1";
 export const CodeFilenameCapability = "code-filename-v1";
 export const QuizPollResultsCapability = "quiz-poll-results-v1";
+export const ListStartSchemaVersion = "2.21.0";
+export const MathSourceSchemaVersion = "2.22.0";
+export const ListStartCapability = "list-start-v1";
+export const MathSourceCapability = "math-source-v1";
+export const MaxListStart: number /* int64 */ = 9007199254740991;
 /**
  * Node representa un nodo base en el AST
  */
@@ -609,6 +614,7 @@ export interface HeadingElement extends BaseNode {
  */
 export interface PointsElement extends BaseNode {
   items: PointItem[];
+  start?: number /* int64 */; // list-start-v1: positive JSON safe ordinal, ordered lists only
   listType: "ordered" | "unordered"; // "ordered" para numeradas, "unordered" para bullets
 }
 /**
@@ -626,6 +632,7 @@ export interface PointItem extends BaseNode {
    * by the nested-list-types-v1 opt-in.
    */
   subListType?: "ordered" | "unordered";
+  subListStart?: number /* int64 */; // list-start-v1: ordinal owned by this child list
 }
 /**
  * CodeElement representa un bloque de código
@@ -1192,6 +1199,7 @@ export const MaxCellSpan = 1000;
  * Text and sibling order are intentionally absent so filters may edit them.
  */
 export interface NestedListFingerprint {
+  Start?: number /* int64 */;
   OwnerID: string;
   ListType: string;
   SubListType: string;

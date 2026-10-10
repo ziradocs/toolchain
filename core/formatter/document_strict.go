@@ -24,7 +24,9 @@ import (
 // legítima y deseada (es como se promueve un borrador a artefacto
 // auditable), pero el caller tiene que saber que lo es.
 func FormatDocumentStrict(doc *ast.AST) (string, error) {
-	if err := validateLiteralRepresentation(doc); err != nil { return "", err }
+	if err := validateLiteralRepresentation(doc); err != nil {
+		return "", err
+	}
 	out, err := formatDocumentStrictWithoutIDs(doc)
 	if err != nil {
 		return "", err

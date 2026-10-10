@@ -21,8 +21,8 @@ import (
 // sino que se convierten en elementos <h2> y <h3> dentro del slide actual
 type DocumentFlexParser struct {
 	nestedListTypes bool
-	listStart bool
-	mathSource bool
+	listStart       bool
+	mathSource      bool
 	input           string
 	originalInput   string // Input original antes de normalización
 	lines           []string
@@ -57,8 +57,8 @@ func (p *DocumentFlexParser) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
 		Mode:            "flex",
 		NestedListTypes: p.nestedListTypes,
-		ListStart: p.listStart,
-		MathSource: p.mathSource,
+		ListStart:       p.listStart,
+		MathSource:      p.mathSource,
 		CurrentLine:     p.currentLine,
 		Logger:          p.logger,
 		Lines:           p.lines,
@@ -163,8 +163,8 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 	if p.currentLine < len(p.lines) && strings.TrimSpace(p.lines[p.currentLine]) == "---" {
 		p.parseFrontMatter(astNode)
 		p.nestedListTypes = sourceNestedListTypes(astNode.FrontMatter)
-	p.listStart = ast.SourceDeclaresCapability(astNode.FrontMatter, ast.ListStartCapability)
-	p.mathSource = ast.SourceDeclaresCapability(astNode.FrontMatter, ast.MathSourceCapability)
+		p.listStart = ast.SourceDeclaresCapability(astNode.FrontMatter, ast.ListStartCapability)
+		p.mathSource = ast.SourceDeclaresCapability(astNode.FrontMatter, ast.MathSourceCapability)
 	}
 
 	// Parse document sections (content blocks in AST terms)

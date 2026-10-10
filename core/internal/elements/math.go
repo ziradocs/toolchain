@@ -4,8 +4,8 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
- "fmt"
 
 	"go.ziradocs.com/core/v2/ast"
 )
@@ -192,41 +192,68 @@ func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string,
 // header whitespace prefix plus two spaces; Flex removes no whitespace.
 // Blank lines shorter than that prefix are retained, rather than dropped.
 func (p *MathParser) parseLiteral(ctx *ParseContext, start int, dollar bool) *ParseResult {
- rawOpen := ctx.Lines[start]
- base := ""
- if ctx.Mode == "strict" { base = rawOpen[:len(rawOpen)-len(strings.TrimLeft(rawOpen," \t"))] + "  " }
- var body []string
- var caption,label string
- consumed := 1
- closed := false
- if dollar {
-  opening := strings.TrimLeft(rawOpen," \t")
-  rest := strings.TrimPrefix(opening,"$$")
-  if strings.HasSuffix(rest,"$$") && len(rest) >= 2 {
-   return &ParseResult{Element:ast.NewMathElement(ctx.Position(start),strings.TrimSuffix(rest,"$$")),ConsumedLines:1}
-  }
-  if rest != "" { body = append(body,rest) }
- }
- var parseErr error
- for i := start+1; i < len(ctx.Lines); i++ {
-  raw := ctx.Lines[i]
-  trimmed := strings.TrimSpace(raw)
-  if !dollar && trimmed == "<<end>>" || dollar && trimmed == "$$" { consumed++; closed = true; break }
-  if trimmed == "---" || ctx.Mode == "strict" && IsStrictBlockBoundary(raw) { break }
-  line := raw
-  if base != "" {
-   if rest,ok := strings.CutPrefix(raw,base); ok { line = rest } else if trimmed != "" { parseErr = fmt.Errorf("literal math line requires structural indentation %q",base) }
-  }
-  if !dollar && (strings.HasPrefix(line,"caption:") || strings.HasPrefix(line,"label:")) {
-   key,value,_ := strings.Cut(line,":")
-   value = strings.Trim(strings.TrimSpace(value),"\"")
-   if key == "caption" { caption = value } else { label = value }
-  } else if dollar && strings.HasSuffix(line,"$$") {
-   body = append(body, strings.TrimSuffix(line,"$$")); consumed++; closed = true; break
-  } else { body = append(body,line) }
-  consumed++
- }
- if !closed { parseErr = fmt.Errorf("literal math requires a closing delimiter") }
- m := ast.NewMathElement(ctx.Position(start),strings.Join(body,"\n")); m.Caption=caption; m.Label=label
- return &ParseResult{Element:m,ConsumedLines:consumed,Error:parseErr}
+	rawOpen := ctx.Lines[start]
+	base := ""
+	if ctx.Mode == "strict" {
+		base = rawOpen[:len(rawOpen)-len(strings.TrimLeft(rawOpen, " \t"))] + "  "
+	}
+	var body []string
+	var caption, label string
+	consumed := 1
+	closed := false
+	if dollar {
+		opening := strings.TrimLeft(rawOpen, " \t")
+		rest := strings.TrimPrefix(opening, "$$")
+		if strings.HasSuffix(rest, "$$") && len(rest) >= 2 {
+			return &ParseResult{Element: ast.NewMathElement(ctx.Position(start), strings.TrimSuffix(rest, "$$")), ConsumedLines: 1}
+		}
+		if rest != "" {
+			body = append(body, rest)
+		}
+	}
+	var parseErr error
+	for i := start + 1; i < len(ctx.Lines); i++ {
+		raw := ctx.Lines[i]
+		trimmed := strings.TrimSpace(raw)
+		if !dollar && trimmed == "<<end>>" || dollar && trimmed == "$$" {
+			consumed++
+			closed = true
+			break
+		}
+		if trimmed == "---" || ctx.Mode == "strict" && IsStrictBlockBoundary(raw) {
+			break
+		}
+		line := raw
+		if base != "" {
+			if rest, ok := strings.CutPrefix(raw, base); ok {
+				line = rest
+			} else if trimmed != "" {
+				parseErr = fmt.Errorf("literal math line requires structural indentation %q", base)
+			}
+		}
+		if !dollar && (strings.HasPrefix(line, "caption:") || strings.HasPrefix(line, "label:")) {
+			key, value, _ := strings.Cut(line, ":")
+			value = strings.Trim(strings.TrimSpace(value), "\"")
+			if key == "caption" {
+				caption = value
+			} else {
+				label = value
+			}
+		} else if dollar && strings.HasSuffix(line, "$$") {
+			body = append(body, strings.TrimSuffix(line, "$$"))
+			consumed++
+			closed = true
+			break
+		} else {
+			body = append(body, line)
+		}
+		consumed++
+	}
+	if !closed {
+		parseErr = fmt.Errorf("literal math requires a closing delimiter")
+	}
+	m := ast.NewMathElement(ctx.Position(start), strings.Join(body, "\n"))
+	m.Caption = caption
+	m.Label = label
+	return &ParseResult{Element: m, ConsumedLines: consumed, Error: parseErr}
 }

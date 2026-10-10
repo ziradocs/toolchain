@@ -215,8 +215,8 @@ func describeUsed(caps []string) string {
 		MediaFigureCapability:     "media poster/caption",
 		CodeFilenameCapability:    "code filenames",
 		QuizPollResultsCapability: "quiz/poll results",
-		ListStartCapability: "list starts",
-		MathSourceCapability: "literal math source",
+		ListStartCapability:       "list starts",
+		MathSourceCapability:      "literal math source",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {

@@ -48,7 +48,7 @@ func UsesNestedListTypes(doc *AST) bool {
 // NestedListFingerprint captures ownership and list types by authored ID.
 // Text and sibling order are intentionally absent so filters may edit them.
 type NestedListFingerprint struct {
-	Start *int64
+	Start       *int64
 	OwnerID     string
 	ListType    string
 	SubListType string
@@ -126,10 +126,19 @@ func ValidateTableContract(doc *AST) error {
 	_ = Walk(doc, func(n Node) error {
 		switch e := n.(type) {
 		case *PointsElement:
-			if err := validateListStart(e.Start, e.ListType, len(e.Items)); err != nil { failure = err; return err }
+			if err := validateListStart(e.Start, e.ListType, len(e.Items)); err != nil {
+				failure = err
+				return err
+			}
 		case *PointItem:
-			if e.SubListStart != nil && (e.SubListType != "ordered" || len(e.SubPoints) == 0 || !lists) { failure = fmt.Errorf("subListStart requires nonempty ordered subPoints and nested-list-types-v1"); return failure }
-			if err := validateListStart(e.SubListStart, e.SubListType, len(e.SubPoints)); err != nil { failure = err; return err }
+			if e.SubListStart != nil && (e.SubListType != "ordered" || len(e.SubPoints) == 0 || !lists) {
+				failure = fmt.Errorf("subListStart requires nonempty ordered subPoints and nested-list-types-v1")
+				return failure
+			}
+			if err := validateListStart(e.SubListStart, e.SubListType, len(e.SubPoints)); err != nil {
+				failure = err
+				return err
+			}
 		case *QuizElement:
 			if err := validateQuizPollResults(e.Results, e.Responses); err != nil {
 				failure = err
@@ -221,16 +230,24 @@ func ValidateRawTableContract(data []byte) error {
 				}
 			}
 		case map[string]any:
-			if v["type"] == string(NodeTypeMath) { mathCount++ }
+			if v["type"] == string(NodeTypeMath) {
+				mathCount++
+			}
 			for _, key := range []string{"start", "subListStart"} {
 				if raw, has := v[key]; has {
 					startCount++
 					n, ok := raw.(float64)
-					if !declared[ListStartCapability] || !ok || n < 1 || n > float64(MaxListStart) || n != float64(int64(n)) { return fmt.Errorf("%s requires list-start-v1 and a positive JSON safe integer", key) }
-					if key == "start" && (v["type"] != string(NodeTypePoints) || v["listType"] != "ordered") { return fmt.Errorf("start requires ordered PointsElement") }
+					if !declared[ListStartCapability] || !ok || n < 1 || n > float64(MaxListStart) || n != float64(int64(n)) {
+						return fmt.Errorf("%s requires list-start-v1 and a positive JSON safe integer", key)
+					}
+					if key == "start" && (v["type"] != string(NodeTypePoints) || v["listType"] != "ordered") {
+						return fmt.Errorf("start requires ordered PointsElement")
+					}
 					if key == "subListStart" {
 						children, ok := v["subPoints"].([]any)
-						if v["type"] != string(NodeTypePointItem) || v["subListType"] != "ordered" || !ok || len(children) == 0 || !declared[NestedListTypesCapability] { return fmt.Errorf("subListStart requires nonempty ordered subPoints and nested-list-types-v1") }
+						if v["type"] != string(NodeTypePointItem) || v["subListType"] != "ordered" || !ok || len(children) == 0 || !declared[NestedListTypesCapability] {
+							return fmt.Errorf("subListStart requires nonempty ordered subPoints and nested-list-types-v1")
+						}
 					}
 				}
 			}
@@ -331,8 +348,12 @@ func ValidateRawTableContract(data []byte) error {
 	if err := inspectElement(whole); err != nil {
 		return err
 	}
-	if (startCount > 0) != declared[ListStartCapability] { return fmt.Errorf("list starts presence does not match schemaVersion/capabilities") }
-	if declared[MathSourceCapability] && mathCount == 0 { return fmt.Errorf("math-source-v1 requires a MathElement") }
+	if (startCount > 0) != declared[ListStartCapability] {
+		return fmt.Errorf("list starts presence does not match schemaVersion/capabilities")
+	}
+	if declared[MathSourceCapability] && mathCount == 0 {
+		return fmt.Errorf("math-source-v1 requires a MathElement")
+	}
 	if (tableCount > 0) != declared[TableRowsCapability] {
 		return fmt.Errorf("tableRows presence does not match schemaVersion/capabilities")
 	}

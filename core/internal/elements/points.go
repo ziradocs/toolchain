@@ -4,9 +4,9 @@
 package elements
 
 import (
-	"strings"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -39,7 +39,7 @@ func (p *PointsParser) CanParse(line string, mode string) bool {
 	}
 
 	// Numbered lists
-	if len(trimmed) > 2 {
+	if len(trimmed) > 2 && (trimmed[1] == '.' || trimmed[2] == '.') {
 		for i, char := range trimmed {
 			if char == '.' {
 				if i > 0 && i+1 < len(trimmed) && trimmed[i+1] == ' ' {
@@ -284,9 +284,16 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 func captureListOrdinal(line string, start **int64, count int) error {
 	marker, _, _ := strings.Cut(line, ". ")
 	n, err := strconv.ParseInt(marker, 10, 64)
-	if err != nil || n < 1 || n > ast.MaxListStart { return fmt.Errorf("invalid ordered list ordinal %q: expected 1..%d", marker, ast.MaxListStart) }
-	if count == 0 { *start = &n; return nil }
-	if *start == nil || int64(count) > ast.MaxListStart - **start || n != **start + int64(count) { return fmt.Errorf("discontinuous ordered list ordinal %q", marker) }
+	if err != nil || n < 1 || n > ast.MaxListStart {
+		return fmt.Errorf("invalid ordered list ordinal %q: expected 1..%d", marker, ast.MaxListStart)
+	}
+	if count == 0 {
+		*start = &n
+		return nil
+	}
+	if *start == nil || int64(count) > ast.MaxListStart-**start || n != **start+int64(count) {
+		return fmt.Errorf("discontinuous ordered list ordinal %q", marker)
+	}
 	return nil
 }
 

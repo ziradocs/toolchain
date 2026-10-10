@@ -17,8 +17,8 @@ import (
 // FlexParser parsea archivos SlideLang en modo flexible
 type FlexParser struct {
 	nestedListTypes bool
-	listStart bool
-	mathSource bool
+	listStart       bool
+	mathSource      bool
 	input           string
 	lines           []string
 	currentLine     int
@@ -69,8 +69,8 @@ func (p *FlexParser) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
 		Mode:            "flex",
 		NestedListTypes: p.nestedListTypes,
-		ListStart: p.listStart,
-		MathSource: p.mathSource,
+		ListStart:       p.listStart,
+		MathSource:      p.mathSource,
 		CurrentLine:     p.currentLine,
 		Logger:          p.logger,
 		Lines:           p.lines,

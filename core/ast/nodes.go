@@ -504,8 +504,8 @@ func NewRawHTMLTextElement(pos diagnostics.Position, htmlContent string) *TextEl
 type PointsElement struct {
 	BaseNode `tstype:",extends,required"`
 	Items    []PointItem `json:"items"`
-	Start *int64 `json:"start,omitempty"` // list-start-v1: positive JSON safe ordinal, ordered lists only
-	ListType string      `json:"listType"` // "ordered" para numeradas, "unordered" para bullets
+	Start    *int64      `json:"start,omitempty"` // list-start-v1: positive JSON safe ordinal, ordered lists only
+	ListType string      `json:"listType"`        // "ordered" para numeradas, "unordered" para bullets
 }
 
 func (p PointsElement) element() {}
@@ -530,7 +530,7 @@ type PointItem struct {
 	// SubListType describes the list owned by this item's SubPoints, not
 	// the marker used for this item in its parent's list. It is emitted only
 	// by the nested-list-types-v1 opt-in.
-	SubListType string `json:"subListType,omitempty"`
+	SubListType  string `json:"subListType,omitempty"`
 	SubListStart *int64 `json:"subListStart,omitempty"` // list-start-v1: ordinal owned by this child list
 	// SubListMarker is the marker kind ("ordered" or "unordered") the author
 	// used for the first item of this item's SubPoints. The parser records it

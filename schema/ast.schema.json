@@ -144,6 +144,45 @@
                 "properties": {
                   "capabilities": {
                     "contains": {
+                      "const": "list-start-v1"
+                    }
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/ListStartPresent"
+              },
+              "else": {
+                "not": {
+                  "$ref": "#/$defs/ListStartPresent"
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
+                      "const": "math-source-v1"
+                    }
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/MathPresent"
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
                       "const": "nested-list-types-v1"
                     }
                   }
@@ -155,6 +194,9 @@
               "then": {
                 "$ref": "#/$defs/TypedPointTree"
               }
+            },
+            {
+              "$ref": "#/$defs/ListStartTree"
             },
             {
               "if": {
@@ -361,6 +403,81 @@
               "if": {
                 "properties": {
                   "schemaVersion": {
+                    "const": "2.21.0"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "enum": [
+                        "table-rows-v1",
+                        "nested-list-types-v1",
+                        "typed-headings-v1",
+                        "media-figure-v1",
+                        "code-filename-v1",
+                        "quiz-poll-results-v1",
+                        "list-start-v1"
+                      ]
+                    },
+                    "contains": {
+                      "const": "list-start-v1"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
+                    "const": "2.22.0"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "enum": [
+                        "table-rows-v1",
+                        "nested-list-types-v1",
+                        "typed-headings-v1",
+                        "media-figure-v1",
+                        "code-filename-v1",
+                        "quiz-poll-results-v1",
+                        "list-start-v1",
+                        "math-source-v1"
+                      ]
+                    },
+                    "contains": {
+                      "const": "math-source-v1"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
                     "enum": [
                       "2.13.0",
                       "2.14.0"
@@ -413,7 +530,9 @@
             "2.17.0",
             "2.18.0",
             "2.19.0",
-            "2.20.0"
+            "2.20.0",
+            "2.21.0",
+            "2.22.0"
           ]
         },
         "capabilities": {
@@ -1511,6 +1630,163 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "ListStartPresent": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "start"
+              ]
+            },
+            {
+              "required": [
+                "subListStart"
+              ]
+            }
+          ]
+        },
+        {
+          "properties": {
+            "contentBlocks": {
+              "contains": {
+                "$ref": "#/$defs/ListStartPresent"
+              }
+            }
+          },
+          "required": [
+            "contentBlocks"
+          ]
+        },
+        {
+          "properties": {
+            "elements": {
+              "contains": {
+                "$ref": "#/$defs/ListStartPresent"
+              }
+            }
+          },
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "properties": {
+            "columns": {
+              "contains": {
+                "$ref": "#/$defs/ListStartPresent"
+              }
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        },
+        {
+          "properties": {
+            "items": {
+              "contains": {
+                "$ref": "#/$defs/ListStartPresent"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ]
+        },
+        {
+          "properties": {
+            "subPoints": {
+              "contains": {
+                "$ref": "#/$defs/ListStartPresent"
+              }
+            }
+          },
+          "required": [
+            "subPoints"
+          ]
+        }
+      ]
+    },
+    "ListStartTree": {
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "start"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "points"
+              },
+              "listType": {
+                "const": "ordered"
+              }
+            },
+            "required": [
+              "type",
+              "listType"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "subListStart"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "point_item"
+              },
+              "subListType": {
+                "const": "ordered"
+              },
+              "subPoints": {
+                "type": "array",
+                "minItems": 1
+              }
+            },
+            "required": [
+              "type",
+              "subListType",
+              "subPoints"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "contentBlocks": {
+          "items": {
+            "$ref": "#/$defs/ListStartTree"
+          }
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/ListStartTree"
+          }
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ListStartTree"
+          }
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ListStartTree"
+          }
+        },
+        "subPoints": {
+          "items": {
+            "$ref": "#/$defs/ListStartTree"
+          }
+        }
+      },
+      "type": "object"
+    },
     "LogoConfig": {
       "properties": {
         "source": {
@@ -1687,6 +1963,80 @@
         "position",
         "endPosition",
         "content"
+      ]
+    },
+    "MathPresent": {
+      "anyOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "math"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "properties": {
+            "contentBlocks": {
+              "contains": {
+                "$ref": "#/$defs/MathPresent"
+              }
+            }
+          },
+          "required": [
+            "contentBlocks"
+          ]
+        },
+        {
+          "properties": {
+            "elements": {
+              "contains": {
+                "$ref": "#/$defs/MathPresent"
+              }
+            }
+          },
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "properties": {
+            "columns": {
+              "contains": {
+                "$ref": "#/$defs/MathPresent"
+              }
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        },
+        {
+          "properties": {
+            "items": {
+              "contains": {
+                "$ref": "#/$defs/MathPresent"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ]
+        },
+        {
+          "properties": {
+            "subPoints": {
+              "contains": {
+                "$ref": "#/$defs/MathPresent"
+              }
+            }
+          },
+          "required": [
+            "subPoints"
+          ]
+        }
       ]
     },
     "MediaElement": {
@@ -2142,6 +2492,11 @@
             "ordered",
             "unordered"
           ]
+        },
+        "subListStart": {
+          "type": "integer",
+          "maximum": 9007199254740991,
+          "minimum": 1
         }
       },
       "additionalProperties": false,
@@ -2180,6 +2535,11 @@
             "$ref": "#/$defs/PointItem"
           },
           "type": "array"
+        },
+        "start": {
+          "type": "integer",
+          "maximum": 9007199254740991,
+          "minimum": 1
         },
         "listType": {
           "type": "string",
