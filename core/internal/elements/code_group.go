@@ -99,6 +99,7 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 			i++
 
 			var content strings.Builder
+			lineCount := 0
 
 			// Collect code content until ```
 			for i < len(ctx.Lines) {
@@ -109,10 +110,11 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 					break
 				}
 
-				if content.Len() > 0 {
+				if lineCount > 0 {
 					content.WriteString("\n")
 				}
 				content.WriteString(stripBaseIndent(line, baseIndent))
+				lineCount++
 				consumed++
 				i++
 			}

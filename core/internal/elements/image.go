@@ -301,6 +301,9 @@ func startsNewStrictElement(trimmed string) bool {
 	if trimmed == "" {
 		return false
 	}
+	if trimmed == "SECTION" || strings.HasPrefix(trimmed, "SECTION ") {
+		return true
+	}
 	switch trimmed[0] {
 	case '@', '|':
 		return true

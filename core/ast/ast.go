@@ -116,7 +116,9 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // 2.20.0: QuizElement/PollElement .results (percent 0-100 per option) and
 // .responses (quiz-poll-results-v1), inferred from the new `results:` and
 // `responses:` keys.
-const SchemaVersion = "2.20.0"
+// 2.21.0: optional safe ordered-list start ordinals (list-start-v1).
+// 2.22.0: document-wide literal LaTeX policy (math-source-v1).
+const SchemaVersion = "2.22.0"
 
 const PreviousSchemaVersion = "2.13.0"
 const LegacySchemaVersion = "2.14.0"
@@ -132,6 +134,11 @@ const TypedHeadingsCapability = "typed-headings-v1"
 const MediaFigureCapability = "media-figure-v1"
 const CodeFilenameCapability = "code-filename-v1"
 const QuizPollResultsCapability = "quiz-poll-results-v1"
+const ListStartSchemaVersion = "2.21.0"
+const MathSourceSchemaVersion = "2.22.0"
+const ListStartCapability = "list-start-v1"
+const MathSourceCapability = "math-source-v1"
+const MaxListStart int64 = 9007199254740991
 
 // Node representa un nodo base en el AST
 type Node interface {

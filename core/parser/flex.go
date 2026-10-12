@@ -17,6 +17,8 @@ import (
 // FlexParser parsea archivos SlideLang en modo flexible
 type FlexParser struct {
 	nestedListTypes bool
+	listStart       bool
+	mathSource      bool
 	input           string
 	lines           []string
 	currentLine     int
@@ -67,6 +69,8 @@ func (p *FlexParser) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
 		Mode:            "flex",
 		NestedListTypes: p.nestedListTypes,
+		ListStart:       p.listStart,
+		MathSource:      p.mathSource,
 		CurrentLine:     p.currentLine,
 		Logger:          p.logger,
 		Lines:           p.lines,
@@ -178,6 +182,8 @@ func (p *FlexParser) parseFrontMatter(astNode *ast.AST) {
 	astNode.FrontMatter = frontMatter
 	parsed, _, _ := (&FrontMatterParser{}).Parse("---\n" + frontMatter.Raw + "\n---\n")
 	p.nestedListTypes = sourceNestedListTypes(parsed)
+	p.listStart = ast.SourceDeclaresCapability(parsed, ast.ListStartCapability)
+	p.mathSource = ast.SourceDeclaresCapability(parsed, ast.MathSourceCapability)
 }
 
 // parseContentBlock parsea un bloque de contenido (slide en presentaciones, sección en documentos)

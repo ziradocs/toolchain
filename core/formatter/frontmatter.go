@@ -28,6 +28,12 @@ func extensionFrontMatter(doc *ast.AST, mode string) *ast.FrontMatterNode {
 	if ast.UsesTypedHeadings(doc) {
 		caps = append(caps, ast.TypedHeadingsCapability)
 	}
+	if ast.UsesListStart(doc) {
+		caps = append(caps, ast.ListStartCapability)
+	}
+	if ast.UsesMathSource(doc) {
+		caps = append(caps, ast.MathSourceCapability)
+	}
 	if len(caps) == 0 {
 		return fm
 	}

@@ -33,6 +33,8 @@ var extensions = []extension{
 	{MediaFigureCapability, MediaFigureSchemaVersion, UsesMediaFigure},
 	{CodeFilenameCapability, CodeFilenameSchemaVersion, UsesCodeFilename},
 	{QuizPollResultsCapability, QuizPollResultsSchemaVersion, UsesQuizPollResults},
+	{ListStartCapability, ListStartSchemaVersion, UsesListStart},
+	{MathSourceCapability, MathSourceSchemaVersion, UsesMathSource},
 }
 
 // UsesQuizPollResults reporta si algún quiz o poll declara results o
@@ -213,6 +215,8 @@ func describeUsed(caps []string) string {
 		MediaFigureCapability:     "media poster/caption",
 		CodeFilenameCapability:    "code filenames",
 		QuizPollResultsCapability: "quiz/poll results",
+		ListStartCapability:       "list starts",
+		MathSourceCapability:      "literal math source",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {
