@@ -409,7 +409,7 @@ func contractGateJSON() ([]byte, error) {
 		{ast.ListStartCapability, ast.ListStartSchemaVersion, "ListStartPresent"},
 		{ast.MathSourceCapability, ast.MathSourceSchemaVersion, "MathPresent"},
 		{ast.ChartContentCapability, ast.ChartContentSchemaVersion, "ChartContentPresent"},
-		{ast.ContentMarkdownCapability, ast.ContentMarkdownSchemaVersion, "HeadingPresent"},
+		{ast.ContentMarkdownCapability, ast.ContentMarkdownSchemaVersion, "TypedHeadingPresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {
