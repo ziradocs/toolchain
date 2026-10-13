@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -921,13 +920,6 @@ func (p *ChartParser) parseNumber(str string) interface{} {
 
 	// Try float
 	if val, err := strconv.ParseFloat(str, 64); err == nil {
-		if json.Valid([]byte(str)) {
-			source, sourceOK := new(big.Rat).SetString(str)
-			emitted, emittedOK := new(big.Rat).SetString(strconv.FormatFloat(val, 'g', -1, 64))
-			if sourceOK && emittedOK && source.Cmp(emitted) != 0 {
-				return json.Number(str)
-			}
-		}
 		return val
 	}
 

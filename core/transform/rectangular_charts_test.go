@@ -83,6 +83,8 @@ func TestRectangularChartsPortableSourceAndReceipt(t *testing.T) {
 }
 func TestRectangularChartsRejectWithoutMutation(t *testing.T) {
 	cases := []string{
+		`{"data":[["A",1e-400],["B",2]],"series":["s"]}`,
+		`{"data":[["A",9007199254740993],["B",2]],"series":["s"]}`,
 		`{"data":[["A",1],["B",2]],"series":[null]}`,
 		`{"data":[["A",1],["B",2]],"series":["s"],"options":{}}`,
 		`{"data":[["A",1],["B",2]],"series":["s"],"series":["x"]}`,
@@ -198,4 +200,25 @@ func TestRectangularChartsLiteralPortableRoundtrip(t *testing.T) {
 	if string(aJSON) != string(bJSON) || a.Series[0] != b.Series[0] || b.Unit == nil || *a.Unit != *b.Unit || b.ShowDataLabels == nil || *b.ShowDataLabels {
 		t.Fatalf("literal loss\n%s\n%s\n%s", aJSON, bJSON, out)
 	}
+}
+
+func TestRectangularChartsAcceptConsumerStableDecimals(t *testing.T) {
+	doc := chartDocument(t, `{"data":[["A",0.1],["B",1e2]],"series":[""]}`)
+	effective, r, err := NormalizeRectangularCharts(doc)
+	if err != nil || !r.Accepted {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if chartIn(effective).Series[0] != "" {
+		t.Fatal("lost literal empty series")
+	}
+}
+func TestLiteralChartUnitRejectsNullInSource(t *testing.T) {
+	source := "---\nmode: strict\n---\nSLIDE content\n  <<chart: bar>>\n    data: [[\"A\", 1], [\"B\", 2]]\n    unit: null\n  <<end>>\n"
+	_, diags := parser.New(nil).Parse(source, "invalid.slidelang")
+	for _, d := range diags {
+		if d.RuleID == "CHART006" && d.IsError() {
+			return
+		}
+	}
+	t.Fatal("unit null accepted as empty string")
 }

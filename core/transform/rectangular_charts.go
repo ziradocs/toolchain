@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -174,6 +175,18 @@ func decodeRectangularChart(c *ast.ChartElement) ([][]interface{}, []string, *st
 		if e != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 			return reject("value must be a finite JSON number")
 		}
+		// Consumer ingress uses float64. Reject values whose decimal content
+		// would change there, rather than claim preservation in the receipt.
+		canonical, e := json.Marshal(f)
+		if e != nil {
+			return reject("value cannot survive consumer JSON encoding")
+		}
+		originalValue, originalOK := new(big.Rat).SetString(number.String())
+		consumerValue, consumerOK := new(big.Rat).SetString(string(canonical))
+		if !originalOK || !consumerOK || originalValue.Cmp(consumerValue) != 0 {
+			return reject("value changes under consumer float64 JSON conversion")
+		}
+
 		for j := range row {
 			pointer := fmt.Sprintf("/data/%d/%d", i, j)
 			mapping = append(mapping, ChartCellMapping{Source: pointer, Target: pointer})
@@ -233,7 +246,7 @@ func WriteChartNormalizationReceipt(path string, source []byte, receipt ChartNor
 	if err = f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, path)
+	return os.Link(name, path)
 }
 
 // PublishNormalizedChartSource produces the portable source and its sidecar as
