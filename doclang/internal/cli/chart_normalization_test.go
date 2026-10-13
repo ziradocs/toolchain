@@ -49,3 +49,11 @@ func TestFmtRectangularChartsProducesStrictDoclang(t *testing.T) {
 		t.Fatalf("lost empty/false: %+v", chart)
 	}
 }
+
+func TestFmtRectangularChartsRejectsStrictFalse(t *testing.T) {
+	cmd := NewFmtCommand()
+	cmd.SetArgs([]string{"unused.doclang", "--normalize-rectangular-charts", "--strict=false", "--chart-normalization-receipt", "unused.json", "--output", "unused-effective.doclang"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "strict target dialect") {
+		t.Fatalf("strict=false accepted or wrong guard: %v", err)
+	}
+}

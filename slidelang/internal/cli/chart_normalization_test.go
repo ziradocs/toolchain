@@ -131,3 +131,13 @@ func TestFmtRectangularChartsRequiresExplicitFreshOutputs(t *testing.T) {
 		t.Fatal("original overwritten")
 	}
 }
+
+func TestFmtOutputRejectsWriteAndCheck(t *testing.T) {
+	for _, flag := range []string{"--write", "--check"} {
+		cmd := NewFmtCommand()
+		cmd.SetArgs([]string{"unused.slidelang", "--output", "unused-output.slidelang", flag})
+		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+			t.Fatalf("ambiguous output accepted: %v", err)
+		}
+	}
+}
