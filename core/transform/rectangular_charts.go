@@ -154,6 +154,9 @@ func decodeRectangularChart(c *ast.ChartElement) ([][]interface{}, []string, *st
 	if !validSeries {
 		return reject("requires exactly one string series")
 	}
+	if !portableChartText(seriesName) {
+		return reject("series text cannot round-trip through the native chart grammar")
+	}
 	series := []string{seriesName}
 	var rows [][]interface{}
 	rd := json.NewDecoder(bytes.NewReader(fields["data"]))
@@ -166,8 +169,12 @@ func decodeRectangularChart(c *ast.ChartElement) ([][]interface{}, []string, *st
 		if len(row) != 2 {
 			return reject("requires category/value rows")
 		}
-		if _, ok := row[0].(string); !ok {
+		category, ok := row[0].(string)
+		if !ok {
 			return reject("category must be a string")
+		}
+		if !portableChartText(category) {
+			return reject("category text cannot round-trip through the native chart grammar")
 		}
 		number, ok := row[1].(json.Number)
 		if !ok {
@@ -251,9 +258,9 @@ func WriteChartNormalizationReceipt(path string, source []byte, receipt ChartNor
 		return err
 	}
 	name := f.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
 	if _, err = f.Write(b); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err = f.Close(); err != nil {
@@ -296,9 +303,9 @@ func PublishNormalizedChartSource(output, receiptPath string, original, effectiv
 		return err
 	}
 	name := f.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
 	if _, err = f.Write(effective); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err = f.Close(); err != nil {
@@ -312,15 +319,15 @@ func PublishNormalizedChartSource(output, receiptPath string, original, effectiv
 		return err
 	}
 	sideName := side.Name()
-	defer os.Remove(sideName)
+	defer func() { _ = os.Remove(sideName) }()
 	b, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
-		side.Close()
+		_ = side.Close()
 		return err
 	}
 	b = append(b, '\n')
 	if _, err = side.Write(b); err != nil {
-		side.Close()
+		_ = side.Close()
 		return err
 	}
 	if err = side.Close(); err != nil {
@@ -385,4 +392,15 @@ func cloneChartValue(v reflect.Value) reflect.Value {
 	default:
 		return v
 	}
+}
+
+// Native historical chart strings do not use JSON escapes. The opt-in profile
+// must reject unrepresentable content rather than change that grammar.
+func portableChartText(text string) bool {
+	for _, r := range text {
+		if r == '"' || r == '\\' || r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }

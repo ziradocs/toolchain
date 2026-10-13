@@ -83,6 +83,10 @@ func TestRectangularChartsPortableSourceAndReceipt(t *testing.T) {
 }
 func TestRectangularChartsRejectWithoutMutation(t *testing.T) {
 	cases := []string{
+		`{"data":[["A\" , B",1],["C",2]],"series":["s"]}`,
+		`{"data":[["A\\B",1],["C",2]],"series":["s"]}`,
+		`{"data":[["A\nB",1],["C",2]],"series":["s"]}`,
+		`{"data":[["A",1],["C",2]],"series":["S\", literal"]}`,
 		`{"data":[["A",1e-100000000],["B",2]],"series":["s"]}`,
 		`{"data":[["A",1e-400],["B",2]],"series":["s"]}`,
 		`{"data":[["A",9007199254740993],["B",2]],"series":["s"]}`,
@@ -154,7 +158,9 @@ func TestPublishNormalizedChartSourceNoPartialOrOverwrite(t *testing.T) {
 		t.Fatal(string(b))
 	}
 	os.Remove(side)
-	os.WriteFile(out, []byte("keep"), 0600)
+	if err := os.WriteFile(out, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	r.Accepted = true
 	if err = PublishNormalizedChartSource(out, side, nil, []byte("changed"), r); err == nil {
 		t.Fatal("overwrite accepted")
@@ -175,31 +181,6 @@ func TestChartContentContractIgnoresOpaqueNestedUnit(t *testing.T) {
 	}
 	if _, err = ast.DecodeAST(b); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestRectangularChartsLiteralPortableRoundtrip(t *testing.T) {
-	raw := `{"data":[["A\" , B",1],["C\n\\literal",2]],"series":["S\", literal"],"unit":"quoted \" unit\n", "showDataLabels":false}`
-	doc := chartDocument(t, raw)
-	effective, r, err := NormalizeRectangularCharts(doc)
-	if err != nil || !r.Accepted {
-		t.Fatalf("%+v %v", r, err)
-	}
-	out, err := formatter.FormatStrict(effective)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reparsed, diags := parser.New(nil).Parse(out, "effective.slidelang")
-	for _, d := range diags {
-		if d.IsError() {
-			t.Fatal(d.String())
-		}
-	}
-	a, b := chartIn(effective), chartIn(reparsed)
-	aJSON, _ := json.Marshal(a.Data)
-	bJSON, _ := json.Marshal(b.Data)
-	if string(aJSON) != string(bJSON) || a.Series[0] != b.Series[0] || b.Unit == nil || *a.Unit != *b.Unit || b.ShowDataLabels == nil || *b.ShowDataLabels {
-		t.Fatalf("literal loss\n%s\n%s\n%s", aJSON, bJSON, out)
 	}
 }
 
@@ -248,5 +229,34 @@ func TestPublishNormalizedChartSourceBindsOriginalAndEffective(t *testing.T) {
 	produced, _ := os.ReadFile(out)
 	if !receipt.Accepted || !receipt.OutputProduced || receipt.OriginalSource != "original bytes" || receipt.SourceSHA256 != chartHash([]byte("original bytes")) || receipt.EffectiveSourceSHA256 != chartHash(produced) {
 		t.Fatalf("inconsistent receipt %+v", receipt)
+	}
+}
+
+func TestLiteralChartUnitKeepsJSONEscapesAndLegacyStrings(t *testing.T) {
+	raw := `{"data":[["North",1],["South",2]],"series":["Unidades"],"unit":"quoted \" unit\n\\literal", "showDataLabels":false}`
+	doc := chartDocument(t, raw)
+	effective, r, err := NormalizeRectangularCharts(doc)
+	if err != nil || !r.Accepted {
+		t.Fatalf("%+v %v", r, err)
+	}
+	out, err := formatter.FormatStrict(effective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, _ := parser.New(nil).Parse(out, "effective.slidelang")
+	a, b := chartIn(effective), chartIn(reparsed)
+	if b.Unit == nil || *a.Unit != *b.Unit || b.ShowDataLabels == nil || *b.ShowDataLabels {
+		t.Fatalf("unit lost\n%s", out)
+	}
+	legacy := "---\nmode: strict\n---\nSLIDE content\n  <<chart: bar>>\n    data: [[\"\\n\", 1], [\"B\", 2]]\n    series: [\"\\n\"]\n  <<end>>\n"
+	native, diags := parser.New(nil).Parse(legacy, "legacy.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatal(d.String())
+		}
+	}
+	c := chartIn(native)
+	if c.Series[0] != `\n` || c.Data[0][0] != `\n` {
+		t.Fatalf("legacy semantics changed: %+v", c)
 	}
 }

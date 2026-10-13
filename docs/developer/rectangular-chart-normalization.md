@@ -23,7 +23,10 @@ exactly `[string category, finite JSON number]`. Only `data`, `series`, `unit`
 and `showDataLabels` keys are accepted. Optional unit must be a string, optional
 label intent must be a boolean; null, duplicate keys, unknown keys, and conflicting
 canonical fields are rejected. An empty category/series/unit remains a literal
-string. Arbitrary Chart.js configuration is not interpreted.
+string. Categories and series containing quotes, backslashes or control characters
+are rejected because the historical native chart grammar cannot guarantee their
+roundtrip. Unit is a new field with JSON-string encoding and preserves all literal
+text independently. Arbitrary Chart.js configuration is not interpreted.
 
 Numbers must retain their decimal value through the consumers' float64-to-JSON
 conversion. Thus `0.1`, `120`, and `1e2` are accepted, while `1e-400` and

@@ -795,36 +795,6 @@ func (p *ChartParser) parseMultiLineStringArray(lines []string, startIndex int) 
 
 // parseArrayRow parsea una fila de array como ["Q1", 45, 32, 28]
 func (p *ChartParser) parseArrayRow(line string) []interface{} {
-	// Canonical portable rows are JSON arrays. Decode each scalar before the
-	// legacy splitter so escaped quotes/commas remain literal category content.
-	var rawItems []json.RawMessage
-	canonical := strings.TrimSuffix(strings.TrimSpace(line), ",")
-	if json.Unmarshal([]byte(canonical), &rawItems) == nil {
-		decoded := make([]interface{}, 0, len(rawItems))
-		supported := true
-		for _, item := range rawItems {
-			value := strings.TrimSpace(string(item))
-			if value == "null" {
-				decoded = append(decoded, nil)
-				continue
-			}
-			var text string
-			if json.Unmarshal(item, &text) == nil && strings.HasPrefix(value, "\"") {
-				decoded = append(decoded, text)
-				continue
-			}
-			if number := p.parseNumber(value); number != nil {
-				decoded = append(decoded, number)
-				continue
-			}
-			supported = false
-			break
-		}
-		if supported {
-			return decoded
-		}
-	}
-
 	var row []interface{}
 
 	// Remove brackets properly - handle cases like ["January", 40], and ["June", 150]
@@ -864,10 +834,7 @@ func (p *ChartParser) parseArrayRow(line string) []interface{} {
 		// Try to parse as number
 		if strings.Contains(part, "\"") {
 			// String value
-			var str string
-			if err := json.Unmarshal([]byte(part), &str); err != nil {
-				str = strings.Trim(part, "\"")
-			}
+			str := strings.Trim(part, "\"")
 			row = append(row, str)
 		} else {
 			// Try to parse as number
@@ -882,10 +849,6 @@ func (p *ChartParser) parseArrayRow(line string) []interface{} {
 
 // parseQuotedStrings extrae todas las cadenas entre comillas de una línea
 func (p *ChartParser) parseQuotedStrings(line string) []string {
-	var decoded []string
-	if json.Unmarshal([]byte(line), &decoded) == nil {
-		return decoded
-	}
 	var result []string
 	inQuotes := false
 	var current strings.Builder

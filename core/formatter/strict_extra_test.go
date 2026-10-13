@@ -559,6 +559,16 @@ func TestFormatStrict_UnescapableQuoteRejected(t *testing.T) {
 			}(),
 		},
 		{
+			name: "chart labels",
+			doc: func() *ast.AST {
+				chart := ast.NewChartElement(pos, "bar")
+				chart.Labels = []string{q}
+				block := ast.NewContentBlock(pos, "content")
+				block.Elements = append(block.Elements, chart)
+				return newDocWithBlock(block)
+			}(),
+		},
+		{
 			name: "map marker label",
 			doc: func() *ast.AST {
 				m := ast.NewMapElement(pos, "leaflet")
