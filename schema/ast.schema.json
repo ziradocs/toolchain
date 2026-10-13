@@ -214,7 +214,7 @@
                 ]
               },
               "then": {
-                "$ref": "#/$defs/HeadingPresent"
+                "$ref": "#/$defs/TypedHeadingPresent"
               }
             },
             {
