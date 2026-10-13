@@ -878,20 +878,22 @@ func NewPlantUMLElement(pos diagnostics.Position, diagramType, content string) *
 
 // ChartElement representa gráficos y charts
 type ChartElement struct {
-	BaseNode    `tstype:",extends,required"`
-	ChartType   string                 `json:"chartType"`             // "bar", "line", "pie", "combo", etc.
-	SeriesTypes []string               `json:"seriesTypes,omitempty"` // Para combo charts: ["bar", "bar", "line"]
-	SeriesAxes  []string               `json:"seriesAxes,omitempty"`  // Para combo charts: id de escala Y por serie ("y", "y1", ...), paralelo a Series/SeriesTypes; "" = sin declarar
-	Data        [][]interface{}        `json:"data"`
-	Series      []string               `json:"series,omitempty"`
-	Labels      []string               `json:"labels,omitempty"` // Labels para los ejes
-	Options     map[string]interface{} `json:"options,omitempty"`
-	Title       string                 `json:"title,omitempty"`
-	TitleHTML   string                 `json:"titleHTML,omitempty"`  // ver MermaidElement.TitleHTML; Data/Series/Labels/rawJSON son config de Chart.js, no llevan *HTML
-	RawJSON     json.RawMessage        `json:"rawJSON,omitempty"`    // Para JSON directo; se serializa como objeto JSON anidado, no como string
-	IsJSONMode  bool                   `json:"isJSONMode,omitempty"` // Indica si usa JSON directo
-	Width       int                    `json:"width,omitempty"`      // Ancho personalizado (px), default 800
-	Height      int                    `json:"height,omitempty"`     // Alto personalizado (px), default 600
+	BaseNode       `tstype:",extends,required"`
+	ChartType      string                 `json:"chartType"`             // "bar", "line", "pie", "combo", etc.
+	SeriesTypes    []string               `json:"seriesTypes,omitempty"` // Para combo charts: ["bar", "bar", "line"]
+	SeriesAxes     []string               `json:"seriesAxes,omitempty"`  // Para combo charts: id de escala Y por serie ("y", "y1", ...), paralelo a Series/SeriesTypes; "" = sin declarar
+	Data           [][]interface{}        `json:"data"`
+	Series         []string               `json:"series,omitempty"`
+	Labels         []string               `json:"labels,omitempty"`         // Labels para los ejes
+	Unit           *string                `json:"unit,omitempty"`           // Unidad literal de contenido; no se interpreta como Intl.unit.
+	ShowDataLabels *bool                  `json:"showDataLabels,omitempty"` // Intención explícita; nil conserva ausencia, false no se omite.
+	Options        map[string]interface{} `json:"options,omitempty"`
+	Title          string                 `json:"title,omitempty"`
+	TitleHTML      string                 `json:"titleHTML,omitempty"`  // ver MermaidElement.TitleHTML; Data/Series/Labels/rawJSON son config de Chart.js, no llevan *HTML
+	RawJSON        json.RawMessage        `json:"rawJSON,omitempty"`    // Para JSON directo; se serializa como objeto JSON anidado, no como string
+	IsJSONMode     bool                   `json:"isJSONMode,omitempty"` // Indica si usa JSON directo
+	Width          int                    `json:"width,omitempty"`      // Ancho personalizado (px), default 800
+	Height         int                    `json:"height,omitempty"`     // Alto personalizado (px), default 600
 }
 
 func (c ChartElement) element() {}

@@ -219,7 +219,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
-	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount, startCount, mathCount := 0, 0, 0, 0, 0, 0, 0, 0
+	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount, startCount, mathCount, chartCount := 0, 0, 0, 0, 0, 0, 0, 0, 0
 	var inspectElement func(any) error
 	inspectElement = func(value any) error {
 		switch v := value.(type) {
@@ -230,6 +230,24 @@ func ValidateRawTableContract(data []byte) error {
 				}
 			}
 		case map[string]any:
+			_, hasUnit := v["unit"]
+			_, hasShow := v["showDataLabels"]
+			if v["type"] == string(NodeTypeChart) && (hasUnit || hasShow) {
+				if !declared[ChartContentCapability] {
+					return fmt.Errorf("chart content requires chart-content-v1 on chart elements")
+				}
+				chartCount++
+				if hasUnit {
+					if _, ok := v["unit"].(string); !ok {
+						return fmt.Errorf("unit must be a literal string")
+					}
+				}
+				if hasShow {
+					if _, ok := v["showDataLabels"].(bool); !ok {
+						return fmt.Errorf("showDataLabels must be a boolean")
+					}
+				}
+			}
 			if v["type"] == string(NodeTypeMath) {
 				mathCount++
 			}
@@ -350,6 +368,9 @@ func ValidateRawTableContract(data []byte) error {
 	}
 	if (startCount > 0) != declared[ListStartCapability] {
 		return fmt.Errorf("list starts presence does not match schemaVersion/capabilities")
+	}
+	if (chartCount > 0) != declared[ChartContentCapability] {
+		return fmt.Errorf("chart content presence does not match schemaVersion/capabilities")
 	}
 	if declared[MathSourceCapability] && mathCount == 0 {
 		return fmt.Errorf("math-source-v1 requires a MathElement")

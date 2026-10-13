@@ -107,7 +107,7 @@ import type { Position } from "./diagnostics";
  * 2.21.0: optional safe ordered-list start ordinals (list-start-v1).
  * 2.22.0: document-wide literal LaTeX policy (math-source-v1).
  */
-export const SchemaVersion = "2.22.0";
+export const SchemaVersion = "2.23.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
@@ -126,6 +126,8 @@ export const ListStartSchemaVersion = "2.21.0";
 export const MathSourceSchemaVersion = "2.22.0";
 export const ListStartCapability = "list-start-v1";
 export const MathSourceCapability = "math-source-v1";
+export const ChartContentSchemaVersion = "2.23.0";
+export const ChartContentCapability = "chart-content-v1";
 export const MaxListStart: number /* int64 */ = 9007199254740991;
 /**
  * Node representa un nodo base en el AST
@@ -903,6 +905,8 @@ export interface ChartElement extends BaseNode {
   data: any[][];
   series?: string[];
   labels?: string[]; // Labels para los ejes
+  unit?: string; // Unidad literal de contenido; no se interpreta como Intl.unit.
+  showDataLabels?: boolean; // Intención explícita; nil conserva ausencia, false no se omite.
   options?: { [key: string]: any};
   title?: string;
   titleHTML?: string; // ver MermaidElement.TitleHTML; Data/Series/Labels/rawJSON son config de Chart.js, no llevan *HTML

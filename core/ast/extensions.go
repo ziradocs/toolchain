@@ -35,6 +35,7 @@ var extensions = []extension{
 	{QuizPollResultsCapability, QuizPollResultsSchemaVersion, UsesQuizPollResults},
 	{ListStartCapability, ListStartSchemaVersion, UsesListStart},
 	{MathSourceCapability, MathSourceSchemaVersion, UsesMathSource},
+	{ChartContentCapability, ChartContentSchemaVersion, UsesChartContent},
 }
 
 // UsesQuizPollResults reporta si algún quiz o poll declara results o
@@ -217,10 +218,23 @@ func describeUsed(caps []string) string {
 		QuizPollResultsCapability: "quiz/poll results",
 		ListStartCapability:       "list starts",
 		MathSourceCapability:      "literal math source",
+		ChartContentCapability:    "literal chart content",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {
 		parts[i] = names[c]
 	}
 	return strings.Join(parts, " and ")
+}
+
+// UsesChartContent detects authored literal units or explicit label intent.
+func UsesChartContent(doc *AST) bool {
+	used := false
+	_ = Walk(doc, func(n Node) error {
+		if c, ok := n.(*ChartElement); ok {
+			used = used || c.Unit != nil || c.ShowDataLabels != nil
+		}
+		return nil
+	})
+	return used
 }

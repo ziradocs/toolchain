@@ -112,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion, ast.ChartContentSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -228,6 +228,11 @@ func main() {
 		panic(err)
 	}
 	root.Definitions["ListStartPresent"] = &ListStartPresent
+	var ChartContentPresent jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type"],"properties":{"type":{"const":"chart"}},"anyOf":[{"required":["unit"]},{"required":["showDataLabels"]}]},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/ChartContentPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/ChartContentPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/ChartContentPresent"}}}}]}`), &ChartContentPresent); err != nil {
+		panic(err)
+	}
+	root.Definitions["ChartContentPresent"] = &ChartContentPresent
 	var MathPresent jsonschema.Schema
 	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type"],"properties":{"type":{"const":"math"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/MathPresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/MathPresent"}}}}]}`), &MathPresent); err != nil {
 		panic(err)
@@ -403,6 +408,7 @@ func contractGateJSON() ([]byte, error) {
 		{ast.QuizPollResultsCapability, ast.QuizPollResultsSchemaVersion, "QuizPollResultsPresent"},
 		{ast.ListStartCapability, ast.ListStartSchemaVersion, "ListStartPresent"},
 		{ast.MathSourceCapability, ast.MathSourceSchemaVersion, "MathPresent"},
+		{ast.ChartContentCapability, ast.ChartContentSchemaVersion, "ChartContentPresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {
