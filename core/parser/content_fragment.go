@@ -38,8 +38,12 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 		return nil, []diagnostics.Diagnostic{diagnostics.NewError("CR line endings are not losslessly representable in this fragment profile", diagnostics.NewPosition(1, 1), "content-markdown")}
 	}
 	lines := strings.Split(markdown, "\n")
-	registry := elements.GetDefaultRegistry()
-	ctx := &elements.ParseContext{Mode: "flex", ContentMarkdown: true, NestedListTypes: true, ListStart: true, Lines: lines, Logger: util.NewNoop()}
+	body := newFlexBodyParser(markdown, 0, util.NewNoop())
+	registry := body.registry
+	ctx := body.parseContext()
+	ctx.ContentMarkdown = true
+	ctx.NestedListTypes = true
+	ctx.ListStart = true
 	var nodes []ast.Element
 	var diags []diagnostics.Diagnostic
 	anchors := map[string]bool{}

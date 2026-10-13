@@ -19,8 +19,9 @@ slidelang fmt original.md --content-fragment --fragment-namespace document/slot/
 ```
 
 Output is the indented element body, without frontmatter or SLIDE. Assemble
-slides using the caller's outline boundaries and declare the exact capabilities
-from each receipt before an ordinary build. Preserve fragment trailing bytes
+slides using the caller's outline boundaries and declare `receipt.sourceCapabilities`
+before an ordinary build. `receipt.capabilities` lists the derived AST extensions;
+these are distinct from source opt-in declarations. Preserve fragment trailing bytes
 and use native CODE-aware structural boundaries. Do not rebuild from composed
 pages. A candidate binary is not a published product release.
 
@@ -46,7 +47,7 @@ The sole extra admonition profile is an explicit `> [!WARNING]` marker followed
 by one nonempty quoted body line. It produces native warning with the literal
 body retained. Multi-line/empty warnings reject; warnings are never inferred
 from prose or inside CODE. Document metadata, authored node-id directives,
-slide/section markers, indented ATX (potential literal code), CR line endings and unclosed CODE fences are rejected.
+standalone slide/section marker lines in structural positions, indented ATX (potential literal code), CR line endings and unclosed CODE fences are rejected.
 The API does not promise full CommonMark coverage (for example setext headings,
 raw HTML semantics and thematic breaks).
 
