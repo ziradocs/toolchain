@@ -15,6 +15,7 @@
 package formatter
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -151,6 +152,14 @@ func formatScalar(v interface{}) string {
 func formatInlineArray(nodeType, field string, items []string) (string, error) {
 	quoted := make([]string, len(items))
 	for i, it := range items {
+		if nodeType == "chart" {
+			b, err := json.Marshal(it)
+			if err != nil {
+				return "", err
+			}
+			quoted[i] = string(b)
+			continue
+		}
 		if err := checkQuotable(nodeType, field, it); err != nil {
 			return "", err
 		}
@@ -166,6 +175,14 @@ func formatInlineRow(nodeType, field string, row []interface{}) (string, error) 
 	parts := make([]string, len(row))
 	for i, v := range row {
 		if s, ok := v.(string); ok {
+			if nodeType == "chart" {
+				b, err := json.Marshal(s)
+				if err != nil {
+					return "", err
+				}
+				parts[i] = string(b)
+				continue
+			}
 			if err := checkQuotable(nodeType, field, s); err != nil {
 				return "", err
 			}

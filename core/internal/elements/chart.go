@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -509,6 +510,20 @@ chartLoop:
 			}
 			i += linesConsumed
 			consumedLines += linesConsumed
+		case "unit":
+			var unit string
+			if err := json.Unmarshal([]byte(value), &unit); err != nil {
+				diags = append(diags, diagnostics.NewError("chart unit must be a quoted literal string", ctx.Position(i), "chart-parser").WithRuleID("CHART006"))
+			} else {
+				chart.Unit = &unit
+			}
+		case "showDataLabels":
+			if value != "true" && value != "false" {
+				diags = append(diags, diagnostics.NewError("chart showDataLabels must be true or false", ctx.Position(i), "chart-parser").WithRuleID("CHART006"))
+			} else {
+				show := value == "true"
+				chart.ShowDataLabels = &show
+			}
 		case "title":
 			chart.Title = strings.Trim(value, "\"")
 		case "type":
@@ -820,7 +835,10 @@ func (p *ChartParser) parseArrayRow(line string) []interface{} {
 		// Try to parse as number
 		if strings.Contains(part, "\"") {
 			// String value
-			str := strings.Trim(part, "\"")
+			var str string
+			if err := json.Unmarshal([]byte(part), &str); err != nil {
+				str = strings.Trim(part, "\"")
+			}
 			row = append(row, str)
 		} else {
 			// Try to parse as number
@@ -835,6 +853,10 @@ func (p *ChartParser) parseArrayRow(line string) []interface{} {
 
 // parseQuotedStrings extrae todas las cadenas entre comillas de una línea
 func (p *ChartParser) parseQuotedStrings(line string) []string {
+	var decoded []string
+	if json.Unmarshal([]byte(line), &decoded) == nil {
+		return decoded
+	}
 	var result []string
 	inQuotes := false
 	var current strings.Builder
@@ -869,6 +891,13 @@ func (p *ChartParser) parseNumber(str string) interface{} {
 
 	// Try float
 	if val, err := strconv.ParseFloat(str, 64); err == nil {
+		if json.Valid([]byte(str)) {
+			source, sourceOK := new(big.Rat).SetString(str)
+			emitted, emittedOK := new(big.Rat).SetString(strconv.FormatFloat(val, 'g', -1, 64))
+			if sourceOK && emittedOK && source.Cmp(emitted) != 0 {
+				return json.Number(str)
+			}
+		}
 		return val
 	}
 
@@ -1153,7 +1182,7 @@ func isArrayValuedKey(key string) bool {
 var chartPropertyKeys = map[string]bool{
 	// las que el switch sí maneja
 	"data": true, "series": true, "labels": true,
-	"options": true, "title": true, "type": true,
+	"options": true, "title": true, "type": true, "unit": true, "showDataLabels": true,
 	// reconocidas por el normalizador, aún no consumidas por el switch
 	"datasets": true, "backgroundColor": true, "borderColor": true,
 	"borderWidth": true, "label": true, "fill": true, "tension": true,

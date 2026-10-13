@@ -1377,6 +1377,16 @@ func formatChart(e *ast.ChartElement) (string, error) {
 		}
 		fmt.Fprintf(&b, "title: %s\n", quote(e.Title))
 	}
+	if e.Unit != nil {
+		unit, err := json.Marshal(*e.Unit)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "unit: %s\n", unit)
+	}
+	if e.ShowDataLabels != nil {
+		fmt.Fprintf(&b, "showDataLabels: %t\n", *e.ShowDataLabels)
+	}
 	// options: va al final por legibilidad, no por necesidad: el parser corta
 	// el bloque anidado en el primer dedent (ChartParser.parseNestedOptions),
 	// así que una propiedad plana después tampoco lo rompería.
