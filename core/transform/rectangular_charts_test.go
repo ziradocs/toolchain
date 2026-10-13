@@ -83,6 +83,7 @@ func TestRectangularChartsPortableSourceAndReceipt(t *testing.T) {
 }
 func TestRectangularChartsRejectWithoutMutation(t *testing.T) {
 	cases := []string{
+		`{"data":[["A",1e-100000000],["B",2]],"series":["s"]}`,
 		`{"data":[["A",1e-400],["B",2]],"series":["s"]}`,
 		`{"data":[["A",9007199254740993],["B",2]],"series":["s"]}`,
 		`{"data":[["A",1],["B",2]],"series":[null]}`,
@@ -221,4 +222,31 @@ func TestLiteralChartUnitRejectsNullInSource(t *testing.T) {
 		}
 	}
 	t.Fatal("unit null accepted as empty string")
+}
+
+func TestPublishNormalizedChartSourceBindsOriginalAndEffective(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "effective.slidelang")
+	side := filepath.Join(dir, "receipt.json")
+	doc := chartDocument(t, `{"data":[["A",1],["B",2]],"series":["s"],"unit":"","showDataLabels":false}`)
+	effective, r, err := NormalizeRectangularCharts(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := formatter.FormatStrict(effective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = PublishNormalizedChartSource(out, side, []byte("original bytes"), []byte(source), r); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(side)
+	var receipt ChartNormalizationReceipt
+	if err = json.Unmarshal(b, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	produced, _ := os.ReadFile(out)
+	if !receipt.Accepted || !receipt.OutputProduced || receipt.OriginalSource != "original bytes" || receipt.SourceSHA256 != chartHash([]byte("original bytes")) || receipt.EffectiveSourceSHA256 != chartHash(produced) {
+		t.Fatalf("inconsistent receipt %+v", receipt)
+	}
 }

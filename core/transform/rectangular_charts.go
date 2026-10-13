@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -171,6 +173,17 @@ func decodeRectangularChart(c *ast.ChartElement) ([][]interface{}, []string, *st
 		if !ok {
 			return reject("value must be a finite JSON number")
 		}
+		literal := number.String()
+		if len(literal) > 128 {
+			return reject("numeric literal exceeds the supported 128-byte profile")
+		}
+		if e := strings.LastIndexAny(literal, "eE"); e >= 0 {
+			exponent, err := strconv.Atoi(literal[e+1:])
+			if err != nil || exponent < -400 || exponent > 400 {
+				return reject("numeric exponent exceeds the supported -400..400 profile")
+			}
+		}
+
 		f, e := number.Float64()
 		if e != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 			return reject("value must be a finite JSON number")
