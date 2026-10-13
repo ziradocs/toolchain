@@ -5,6 +5,7 @@ package parser
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -132,5 +133,46 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 			return nil, diags
 		}
 	}
+	// A generated anchor is deliberately namespaced. Local links may retain
+	// only targets whose explicit/generated authority is actually resolvable;
+	// never silently keep a broken pre-namespace auto-anchor destination.
+	var references []string
+	bytes, _ := json.Marshal(nodes)
+	var tree any
+	_ = json.Unmarshal(bytes, &tree)
+	var inspect func(any)
+	inspect = func(value any) {
+		switch v := value.(type) {
+		case []any:
+			for _, x := range v {
+				inspect(x)
+			}
+		case map[string]any:
+			if v["type"] == "code" {
+				return
+			}
+			for key, x := range v {
+				if key != "codeBlocks" {
+					inspect(x)
+				}
+			}
+		case string:
+			for _, match := range localContentLink.FindAllStringSubmatch(v, -1) {
+				references = append(references, match[1])
+			}
+			for _, match := range localContentReference.FindAllStringSubmatch(v, -1) {
+				references = append(references, match[1])
+			}
+		}
+	}
+	inspect(tree)
+	for _, target := range references {
+		if !anchors[target] {
+			return nil, append(diags, diagnostics.NewError("unresolved local fragment anchor "+target+"; declare its authoral anchor explicitly", diagnostics.NewPosition(1, 1), "content-markdown"))
+		}
+	}
 	return nodes, diags
 }
+
+var localContentLink = regexp.MustCompile(`\]\(\s*<?#([^)>\s]+)>?\s*\)`)
+var localContentReference = regexp.MustCompile(`\[[^\]]+\]:[ \t]*<?#([^>\s]+)>?`)

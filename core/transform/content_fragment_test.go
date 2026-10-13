@@ -98,3 +98,16 @@ func TestContentFragmentWarningAndRejects(t *testing.T) {
 		}
 	}
 }
+
+func TestContentFragmentLocalLinks(t *testing.T) {
+	for _, source := range []string{"## Title {#author-anchor}\n[Go](#author-anchor)", "```bash\n[Go](#not-a-navigation-link)\n```"} {
+		r := NormalizeMarkdownContent(source, parser.ContentOptions{AnchorNamespace: "links"})
+		if !r.Receipt.Accepted {
+			t.Fatalf("%+v", r.Receipt)
+		}
+	}
+	r := NormalizeMarkdownContent("## Title\n[Go](#heading-title)", parser.ContentOptions{AnchorNamespace: "links"})
+	if r.Receipt.Accepted {
+		t.Fatal("accepted broken auto-anchor link")
+	}
+}

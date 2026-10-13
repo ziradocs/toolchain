@@ -28,7 +28,10 @@ ATX headings 1–6 preserve their authored level and inline Markdown. Generated
 anchors include a stable namespace digest and heading ordinal. An explicit
 `{#author-anchor}` suffix is preserved verbatim (safe `[a-z0-9_-]` only);
 duplicate or invalid anchors reject rather than being renamed. Ordinary strict
-assembly rejects duplicate explicit anchors across fragments. Raw HTML never
+assembly rejects duplicate explicit anchors across fragments. Local links must
+resolve to preserved explicit anchors in the same fragment; unresolved links
+to old auto-derived anchors are diagnosed, not silently broken. This profile
+does not infer navigation between fragments. Raw HTML never
 establishes heading authority.
 
 The existing native registry and strict formatter own paragraphs, lists, tables,
