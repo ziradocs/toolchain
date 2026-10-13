@@ -232,8 +232,8 @@ func ValidateRawTableContract(data []byte) error {
 		case map[string]any:
 			_, hasUnit := v["unit"]
 			_, hasShow := v["showDataLabels"]
-			if hasUnit || hasShow {
-				if v["type"] != string(NodeTypeChart) || !declared[ChartContentCapability] {
+			if v["type"] == string(NodeTypeChart) && (hasUnit || hasShow) {
+				if !declared[ChartContentCapability] {
 					return fmt.Errorf("chart content requires chart-content-v1 on chart elements")
 				}
 				chartCount++

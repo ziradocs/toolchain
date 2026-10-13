@@ -160,3 +160,16 @@ func TestPublishNormalizedChartSourceNoPartialOrOverwrite(t *testing.T) {
 		t.Fatal("truncated existing output")
 	}
 }
+
+func TestChartContentContractIgnoresOpaqueNestedUnit(t *testing.T) {
+	doc := chartDocument(t, `{"data":[["A",1],["B",2]],"series":["s"],"unit":"unidades"}`)
+	c := chartIn(doc)
+	c.Options = map[string]interface{}{"scales": map[string]interface{}{"y": map[string]interface{}{"ticks": map[string]interface{}{"format": map[string]interface{}{"style": "unit", "unit": "percent"}}}}}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = ast.DecodeAST(b); err != nil {
+		t.Fatal(err)
+	}
+}
