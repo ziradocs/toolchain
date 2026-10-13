@@ -143,10 +143,15 @@ func decodeRectangularChart(c *ast.ChartElement) ([][]interface{}, []string, *st
 	if d.Decode(&trailing) != io.EOF {
 		return reject("trailing JSON content")
 	}
-	var series []string
-	if err = json.Unmarshal(fields["series"], &series); err != nil || len(series) != 1 {
+	var rawSeries []interface{}
+	if err = json.Unmarshal(fields["series"], &rawSeries); err != nil || len(rawSeries) != 1 {
 		return reject("requires exactly one string series")
 	}
+	seriesName, validSeries := rawSeries[0].(string)
+	if !validSeries {
+		return reject("requires exactly one string series")
+	}
+	series := []string{seriesName}
 	var rows [][]interface{}
 	rd := json.NewDecoder(bytes.NewReader(fields["data"]))
 	rd.UseNumber()

@@ -83,6 +83,7 @@ func TestRectangularChartsPortableSourceAndReceipt(t *testing.T) {
 }
 func TestRectangularChartsRejectWithoutMutation(t *testing.T) {
 	cases := []string{
+		`{"data":[["A",1],["B",2]],"series":[null]}`,
 		`{"data":[["A",1],["B",2]],"series":["s"],"options":{}}`,
 		`{"data":[["A",1],["B",2]],"series":["s"],"series":["x"]}`,
 		`{"data":[["A",1],["B"]],"series":["s"]}`,
