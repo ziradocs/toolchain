@@ -12,6 +12,7 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/formatter"
 	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/transform"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -23,7 +24,10 @@ type fmtOptions struct {
 	// strictSet distingue "no pasó --strict" de "pasó --strict=false", que
 	// significan cosas distintas: preservar el dialecto del documento vs.
 	// pedir explícitamente flex.
-	strictSet bool
+	strictSet                  bool
+	normalizeRectangularCharts bool
+	chartNormalizationReceipt  string
+	output                     string
 }
 
 // NewFmtCommand crea el comando 'fmt' de doclang.
@@ -48,6 +52,10 @@ es la forma de promover un borrador a artefacto auditable. A diferencia de
 legítimos, y transpilar sin pedirlo reescribiría cada documento flex
 existente.
 
+Explicit rectangular chart normalization preserves originals and writes new source:
+  doclang fmt original.doclang --normalize-rectangular-charts --chart-normalization-receipt receipt.json --output effective.doclang
+Only the bounded one-series bar profile is converted; unsupported JSON fails closed.
+
 Examples:
   # Print the canonical form to stdout, in the document's own dialect
   doclang fmt document.doclang
@@ -70,10 +78,26 @@ Examples:
 	cmd.Flags().BoolVar(&opts.strict, "strict", false, "Emit the strict dialect; on a flex document this transpiles it (default: keep the document's own dialect)")
 	cmd.Flags().BoolVarP(&opts.write, "write", "w", false, "Write result to the input file instead of stdout")
 	cmd.Flags().BoolVar(&opts.check, "check", false, "Exit with status 1 if the file is not already in canonical form; don't write output")
+	cmd.Flags().BoolVar(&opts.normalizeRectangularCharts, "normalize-rectangular-charts", false, "Explicitly convert the supported rectangular bar JSON profile to portable source")
+	cmd.Flags().StringVar(&opts.chartNormalizationReceipt, "chart-normalization-receipt", "", "External normalization audit receipt (required with --normalize-rectangular-charts)")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "", "Write portable source to a new file (required with --normalize-rectangular-charts)")
 	return cmd
 }
 
 func runFmt(opts *fmtOptions) error {
+	if opts.output != "" && (opts.write || opts.check) {
+		return fmt.Errorf("--output cannot be combined with --write or --check")
+	}
+	if opts.normalizeRectangularCharts {
+		if opts.strictSet && !opts.strict {
+			return fmt.Errorf("normalization requires the strict target dialect")
+		}
+		if opts.output == "" || opts.chartNormalizationReceipt == "" || opts.write || opts.check {
+			return fmt.Errorf("normalization requires --output and --chart-normalization-receipt, without --write/--check")
+		}
+	} else if opts.chartNormalizationReceipt != "" {
+		return fmt.Errorf("--chart-normalization-receipt requires --normalize-rectangular-charts")
+	}
 	content, err := os.ReadFile(opts.inputFile)
 	if err != nil {
 		return fmt.Errorf("failed to read input file: %w", err)
@@ -88,8 +112,22 @@ func runFmt(opts *fmtOptions) error {
 		return err
 	}
 	for _, d := range diags {
-		if d.IsError() {
+		if d.IsError() || (opts.normalizeRectangularCharts && d.RuleID == "CHART002") {
 			return fmt.Errorf("fmt: the file has parse errors, fix them before formatting:\n%s", d.String())
+		}
+	}
+
+	var receipt transform.ChartNormalizationReceipt
+	if opts.normalizeRectangularCharts {
+		doc, receipt, err = transform.NormalizeRectangularCharts(doc)
+		if err != nil {
+			return err
+		}
+		if !receipt.Accepted {
+			if err = transform.PublishNormalizedChartSource(opts.output, opts.chartNormalizationReceipt, content, nil, receipt); err != nil {
+				return err
+			}
+			return fmt.Errorf("rectangular chart normalization rejected; no source output produced")
 		}
 	}
 
@@ -98,7 +136,7 @@ func runFmt(opts *fmtOptions) error {
 	// Sin --strict se preserva el dialecto del documento. Con --strict=false
 	// explícito sobre un documento strict se estaría pidiendo degradarlo a
 	// flex, que descarta la declaración del autor sin forma de recuperarla.
-	targetStrict := sourceIsStrict
+	targetStrict := sourceIsStrict || opts.normalizeRectangularCharts
 	if opts.strictSet {
 		if !opts.strict && sourceIsStrict {
 			return fmt.Errorf("fmt: --strict=false would downgrade %q from strict to flex, discarding the dialect it declares; "+
@@ -120,6 +158,13 @@ func runFmt(opts *fmtOptions) error {
 	// Transpilar (flex → strict) reescribe el documento a otro dialecto, no
 	// lo reformatea. Se avisa antes de tocar el archivo.
 	isTranspile := targetStrict && !sourceIsStrict
+
+	if opts.normalizeRectangularCharts {
+		return transform.PublishNormalizedChartSource(opts.output, opts.chartNormalizationReceipt, content, []byte(out), receipt)
+	}
+	if opts.output != "" {
+		return os.WriteFile(opts.output, []byte(out), 0644)
+	}
 
 	if opts.check {
 		if out != string(content) {
