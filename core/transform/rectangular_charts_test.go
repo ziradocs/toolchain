@@ -52,7 +52,7 @@ func TestRectangularChartsPortableSourceAndReceipt(t *testing.T) {
 	if c.IsJSONMode || c.RawJSON != nil || c.Unit == nil || *c.Unit != "unidades" || c.ShowDataLabels == nil || !*c.ShowDataLabels {
 		t.Fatalf("chart=%+v", c)
 	}
-	if r.Outcomes[0].NodeID != "chart-a3" || r.Outcomes[0].OriginalRawJSON != raw || len(r.Outcomes[0].Mapping) != 9 {
+	if r.Outcomes[0].NodeID != "chart-a3" || r.Outcomes[0].OriginalRawJSON != string(chartIn(original).RawJSON) || len(r.Outcomes[0].Mapping) != 9 {
 		t.Fatalf("lineage=%+v", r.Outcomes[0])
 	}
 	now, _ := json.Marshal(original)
