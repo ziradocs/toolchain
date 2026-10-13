@@ -512,7 +512,7 @@ chartLoop:
 			consumedLines += linesConsumed
 		case "unit":
 			var unit string
-			if err := json.Unmarshal([]byte(value), &unit); err != nil {
+			if err := json.Unmarshal([]byte(value), &unit); err != nil || value == "null" {
 				diags = append(diags, diagnostics.NewError("chart unit must be a quoted literal string", ctx.Position(i), "chart-parser").WithRuleID("CHART006"))
 			} else {
 				chart.Unit = &unit
