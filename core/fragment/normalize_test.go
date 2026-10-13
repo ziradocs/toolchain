@@ -183,3 +183,21 @@ func TestContentFragmentPublicationFreshAndRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestContentFragmentNestedChecklistReceipt(t *testing.T) {
+	r := NormalizeMarkdownContent("- [ ] Parent\n  - [x] Child", parser.ContentOptions{AnchorNamespace: "nested-checklist"})
+	if !r.Receipt.Accepted {
+		t.Fatalf("%+v", r.Receipt)
+	}
+	if len(r.Receipt.Nodes) != 3 {
+		t.Fatalf("missing descendant inventory: %+v", r.Receipt.Nodes)
+	}
+	child := r.Receipt.Nodes[2]
+	if child.Path != "/elements/0/items/0/subItems/0" || child.NodeID == "" {
+		t.Fatalf("child identity/mapping missing: %+v", child)
+	}
+	lines := strings.Split(r.Source, "\n")
+	if child.EffectivePosition.Line < 1 || child.EffectivePosition.Line > len(lines) || !strings.Contains(lines[child.EffectivePosition.Line-1], "[x]") {
+		t.Fatalf("child coordinate invalid: %+v", child)
+	}
+}

@@ -189,7 +189,7 @@ func fragmentNodes(nodes []ast.Element) []FragmentNode {
 				anchor, _ := v["anchor"].(string)
 				out = append(out, FragmentNode{Path: path, Type: kind, NodeID: id, Position: pos, Anchor: anchor, PayloadSHA256: fragmentHash(b)})
 			}
-			for _, k := range []string{"elements", "items", "subPoints", "columns", "codeBlocks"} {
+			for _, k := range []string{"elements", "items", "subPoints", "subItems", "columns", "codeBlocks"} {
 				if x, ok := v[k]; ok {
 					walk(x, path+"/"+k)
 				}
