@@ -147,7 +147,16 @@ func runFmt(opts *fmtOptions) error {
 
 	var out string
 	if targetStrict {
-		out, err = formatter.FormatDocumentStrict(doc)
+		formatDoc := doc
+		if opts.normalizeRectangularCharts && doc.FrontMatter == nil {
+			// A headerless flex document needs an explicit dispatch declaration
+			// in its portable strict source. Keep the receipt's API AST intact.
+			copyDoc := *doc
+			copyDoc.FrontMatter = ast.NewFrontMatterNode(diagnostics.NewPosition(1, 1))
+			copyDoc.FrontMatter.Mode = "strict"
+			formatDoc = &copyDoc
+		}
+		out, err = formatter.FormatDocumentStrict(formatDoc)
 	} else {
 		out, err = formatter.FormatDocument(doc)
 	}

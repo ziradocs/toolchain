@@ -38,6 +38,9 @@ func TestFmtRectangularChartsProducesStrictDoclang(t *testing.T) {
 			t.Fatal(d.String())
 		}
 	}
+	if doc.FrontMatter == nil || doc.FrontMatter.Mode != "strict" {
+		t.Fatal("effective source did not dispatch to the strict parser")
+	}
 	var chart *ast.ChartElement
 	_ = ast.Walk(doc, func(n ast.Node) error {
 		if c, ok := n.(*ast.ChartElement); ok {
