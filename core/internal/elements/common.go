@@ -30,6 +30,7 @@ const (
 
 // ParseContext proporciona contexto para el parsing de elementos
 type ParseContext struct {
+	ContentMarkdown bool   // explicit fragment context; never a document boundary policy
 	Mode            string // "strict" or "flex"
 	ListStart       bool
 	MathSource      bool

@@ -74,7 +74,7 @@ func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 			b.WriteString("\n")
 		}
 		prevAbsorbs = len(block.Elements) > 0 && absorbsTrailingBlankLines(block.Elements[len(block.Elements)-1])
-		blockText, err := formatStrictContentBlock(&block, anchors, i == len(doc.ContentBlocks)-1)
+		blockText, err := formatStrictContentBlock(&block, anchors, i == len(doc.ContentBlocks)-1, ast.UsesContentMarkdown(doc))
 		if err != nil {
 			return "", err
 		}
@@ -91,7 +91,7 @@ func formatStrictWithoutIDs(doc *ast.AST) (string, error) {
 	return out, nil
 }
 
-func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.HeadingAnchors, last bool) (string, error) {
+func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.HeadingAnchors, last bool, contentMarkdown bool) (string, error) {
 	var b strings.Builder
 	blockType := block.BlockType
 	if last && block.InfersClosingLayout() {
@@ -159,7 +159,7 @@ func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.Heading
 			b.WriteString("\n")
 		}
 		prevNotes = endsWithNotesBody(el)
-		if heading, ok, err := strictSlideHeading(el, anchors); ok || err != nil {
+		if heading, ok, err := strictSlideHeading(el, anchors, contentMarkdown); ok || err != nil {
 			if err != nil {
 				return "", err
 			}
@@ -189,7 +189,7 @@ func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.Heading
 // fuente autoral exacta; el del legado se des-renderiza con la misma pérdida
 // de énfasis que documenta formatSubsectionHeading. ok=false significa que el
 // elemento no es un encabezado.
-func strictSlideHeading(el ast.Element, anchors *elements.HeadingAnchors) (string, bool, error) {
+func strictSlideHeading(el ast.Element, anchors *elements.HeadingAnchors, contentMarkdown bool) (string, bool, error) {
 	var level int
 	var text, anchor string
 	switch e := el.(type) {
@@ -204,7 +204,11 @@ func strictSlideHeading(el ast.Element, anchors *elements.HeadingAnchors) (strin
 	default:
 		return "", false, nil
 	}
-	if level < 3 || level > 6 {
+	minimum := 3
+	if contentMarkdown {
+		minimum = 1
+	}
+	if level < minimum || level > 6 {
 		return "", true, newUnsupported("heading", fmt.Sprintf("a level %d heading cannot be represented inside a SLIDE (strict accepts 3-6)", level))
 	}
 	if strings.TrimSpace(text) == "" {

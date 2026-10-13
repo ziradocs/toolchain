@@ -118,7 +118,7 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // `responses:` keys.
 // 2.21.0: optional safe ordered-list start ordinals (list-start-v1).
 // 2.22.0: document-wide literal LaTeX policy (math-source-v1).
-const SchemaVersion = "2.23.0"
+const SchemaVersion = "2.24.0"
 
 const PreviousSchemaVersion = "2.13.0"
 const LegacySchemaVersion = "2.14.0"
@@ -140,6 +140,8 @@ const ListStartCapability = "list-start-v1"
 const MathSourceCapability = "math-source-v1"
 const ChartContentSchemaVersion = "2.23.0"
 const ChartContentCapability = "chart-content-v1"
+const ContentMarkdownSchemaVersion = "2.24.0"
+const ContentMarkdownCapability = "content-markdown-v1"
 const MaxListStart int64 = 9007199254740991
 
 // Node representa un nodo base en el AST

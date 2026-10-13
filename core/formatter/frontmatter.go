@@ -34,6 +34,9 @@ func extensionFrontMatter(doc *ast.AST, mode string) *ast.FrontMatterNode {
 	if ast.UsesMathSource(doc) {
 		caps = append(caps, ast.MathSourceCapability)
 	}
+	if ast.UsesContentMarkdown(doc) {
+		caps = append(caps, ast.ContentMarkdownCapability)
+	}
 	if len(caps) == 0 {
 		return fm
 	}

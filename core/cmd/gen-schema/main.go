@@ -112,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion, ast.ChartContentSchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion, ast.ChartContentSchemaVersion, ast.ContentMarkdownSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -409,6 +409,7 @@ func contractGateJSON() ([]byte, error) {
 		{ast.ListStartCapability, ast.ListStartSchemaVersion, "ListStartPresent"},
 		{ast.MathSourceCapability, ast.MathSourceSchemaVersion, "MathPresent"},
 		{ast.ChartContentCapability, ast.ChartContentSchemaVersion, "ChartContentPresent"},
+		{ast.ContentMarkdownCapability, ast.ContentMarkdownSchemaVersion, "HeadingPresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {
@@ -419,7 +420,7 @@ func contractGateJSON() ([]byte, error) {
 	}
 	var all []any
 	for _, e := range exts {
-		if e.capability == ast.MathSourceCapability {
+		if e.capability == ast.MathSourceCapability || e.capability == ast.ContentMarkdownCapability {
 			all = append(all, map[string]any{"if": declares(e.capability), "then": ref(e.present)})
 		} else {
 			all = append(all, map[string]any{"if": declares(e.capability), "then": ref(e.present), "else": map[string]any{"not": ref(e.present)}})

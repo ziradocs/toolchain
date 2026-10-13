@@ -36,6 +36,7 @@ var extensions = []extension{
 	{ListStartCapability, ListStartSchemaVersion, UsesListStart},
 	{MathSourceCapability, MathSourceSchemaVersion, UsesMathSource},
 	{ChartContentCapability, ChartContentSchemaVersion, UsesChartContent},
+	{ContentMarkdownCapability, ContentMarkdownSchemaVersion, UsesContentMarkdown},
 }
 
 // UsesQuizPollResults reporta si algún quiz o poll declara results o
@@ -219,6 +220,7 @@ func describeUsed(caps []string) string {
 		ListStartCapability:       "list starts",
 		MathSourceCapability:      "literal math source",
 		ChartContentCapability:    "literal chart content",
+		ContentMarkdownCapability: "explicit Markdown content",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {
@@ -237,4 +239,21 @@ func UsesChartContent(doc *AST) bool {
 		return nil
 	})
 	return used
+}
+
+// UsesContentMarkdown is an explicit content-context contract, never inferred
+// from raw HTML or a legacy heading. JSON ingress retains the declared policy.
+func UsesContentMarkdown(doc *AST) bool {
+	if doc == nil || !UsesTypedHeadings(doc) {
+		return false
+	}
+	if SourceDeclaresCapability(doc.FrontMatter, ContentMarkdownCapability) {
+		return true
+	}
+	for _, c := range doc.Capabilities {
+		if c == ContentMarkdownCapability {
+			return true
+		}
+	}
+	return false
 }
