@@ -8,6 +8,8 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -147,5 +149,37 @@ func TestContentFragmentReceiptCoordinates(t *testing.T) {
 		if expected != "" && !strings.Contains(lines[line-1], expected) {
 			t.Fatalf("coordinate does not resolve node: %+v %q", n, lines[line-1])
 		}
+	}
+}
+
+func TestContentFragmentPublicationFreshAndRejected(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "fragment.strict")
+	receipt := filepath.Join(dir, "receipt.json")
+	r := NormalizeMarkdownContent("## Original", parser.ContentOptions{AnchorNamespace: "publication"})
+	if !r.Receipt.Accepted {
+		t.Fatalf("%+v", r.Receipt)
+	}
+	if err := PublishContentFragment(out, receipt, r); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(out)
+	if err != nil || string(source) != r.Source {
+		t.Fatalf("source %q %v", source, err)
+	}
+	if err := PublishContentFragment(out, receipt, r); err == nil {
+		t.Fatal("overwrote existing destinations")
+	}
+	rejected := NormalizeMarkdownContent("```bash\nUnclosed", parser.ContentOptions{AnchorNamespace: "publication"})
+	noSource := filepath.Join(dir, "rejected.strict")
+	side := filepath.Join(dir, "rejected.json")
+	if err := PublishContentFragment(noSource, side, rejected); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(noSource); !os.IsNotExist(err) {
+		t.Fatal("rejected source published")
+	}
+	if _, err := os.Lstat(side); err != nil {
+		t.Fatal(err)
 	}
 }

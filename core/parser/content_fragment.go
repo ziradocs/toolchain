@@ -105,7 +105,9 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 				diags = append(diags, diagnostics.NewError("WARNING fragment profile requires one nonempty literal quoted body line", ctx.Position(start), "content-markdown"))
 				return nil, diags
 			}
-			nodes = append(nodes, ast.NewSpecialBlockElement(ctx.Position(start), "warning", body[0]))
+			warning := ast.NewSpecialBlockElement(ctx.Position(start), "warning", body[0])
+			warning.Icon = elements.KnownSpecialBlockTypes()["warning"]
+			nodes = append(nodes, warning)
 			continue
 		}
 		result := registry.Parse(ctx, i)
