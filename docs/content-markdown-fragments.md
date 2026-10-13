@@ -8,7 +8,7 @@ strict SLIDE only when both capabilities were explicitly declared.
 
 Use `parser.ParseMarkdownContent(markdown, parser.ContentOptions{AnchorNamespace:
 "document/slot/block"})`, then `formatter.FormatContentFragment`, or the common
-checked transform `transform.NormalizeMarkdownContent`. The original is never
+checked transform `fragment.NormalizeMarkdownContent`. The original is never
 rewritten. The transform reparses ordinary strict source and requires identical
 ordered payloads and identities before accepting output.
 
@@ -46,7 +46,7 @@ The sole extra admonition profile is an explicit `> [!WARNING]` marker followed
 by one nonempty quoted body line. It produces native warning with the literal
 body retained. Multi-line/empty warnings reject; warnings are never inferred
 from prose or inside CODE. Document metadata, authored node-id directives,
-slide/section markers, CR line endings and unclosed CODE fences are rejected.
+slide/section markers, indented ATX (potential literal code), CR line endings and unclosed CODE fences are rejected.
 The API does not promise full CommonMark coverage (for example setext headings,
 raw HTML semantics and thematic breaks).
 

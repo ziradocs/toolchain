@@ -1,7 +1,7 @@
 // Copyright 2026 Misael Monterroca
 // SPDX-License-Identifier: Apache-2.0
 
-package transform
+package fragment
 
 import (
 	"crypto/sha256"

@@ -31,6 +31,7 @@ func FormatContentFragment(nodes []ast.Element) (string, error) {
 func contentFragmentAST(nodes []ast.Element) *ast.AST {
 	doc := ast.NewAST(diagnostics.NewPosition(1, 1))
 	block := ast.NewContentBlock(diagnostics.NewPosition(1, 1), "content")
+	block.LayoutDeclared = true
 	block.Elements = nodes
 	doc.ContentBlocks = []ast.ContentBlock{*block}
 	doc.FrontMatter = &ast.FrontMatterNode{Mode: "strict", ASTCapabilities: []string{ast.TypedHeadingsCapability, ast.ContentMarkdownCapability}}

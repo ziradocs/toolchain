@@ -150,6 +150,10 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				break
 			}
 
+			if ctx.ContentMarkdown && i > startIndex && (strings.HasPrefix(trimmed, "SLIDE ") || strings.HasPrefix(trimmed, "SECTION ") || strings.HasPrefix(trimmed, "<!-- node-id:")) {
+				break
+			}
+
 			// Stop if another element type is detected.
 			//
 			// issue #174 — historial de este bloque: la primera versión de

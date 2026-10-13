@@ -1,7 +1,7 @@
 // Copyright 2026 Misael Monterroca
 // SPDX-License-Identifier: Apache-2.0
 
-package transform
+package fragment
 
 import (
 	"fmt"
@@ -100,7 +100,7 @@ func TestContentFragmentWarningAndRejects(t *testing.T) {
 }
 
 func TestContentFragmentLocalLinks(t *testing.T) {
-	for _, source := range []string{"## Title {#author-anchor}\n[Go](#author-anchor)", "```bash\n[Go](#not-a-navigation-link)\n```"} {
+	for _, source := range []string{"## Title {#author-anchor}\n[Go](#author-anchor)", "Inline `[Go](#not-a-link)`", "```bash\n[Go](#not-a-navigation-link)\n```"} {
 		r := NormalizeMarkdownContent(source, parser.ContentOptions{AnchorNamespace: "links"})
 		if !r.Receipt.Accepted {
 			t.Fatalf("%+v", r.Receipt)
@@ -109,5 +109,14 @@ func TestContentFragmentLocalLinks(t *testing.T) {
 	r := NormalizeMarkdownContent("## Title\n[Go](#heading-title)", parser.ContentOptions{AnchorNamespace: "links"})
 	if r.Receipt.Accepted {
 		t.Fatal("accepted broken auto-anchor link")
+	}
+}
+
+func TestContentFragmentRejectsHiddenDocumentMarkers(t *testing.T) {
+	for _, source := range []string{"Before\nSLIDE content", "Before\n<!-- node-id: X -->", "Before\nSECTION \"X\"", "    ## Literal or indented code"} {
+		r := NormalizeMarkdownContent(source, parser.ContentOptions{AnchorNamespace: "boundaries"})
+		if r.Receipt.Accepted {
+			t.Fatalf("accepted %q", source)
+		}
 	}
 }

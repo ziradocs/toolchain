@@ -7,12 +7,15 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/net/html"
+	"io"
 	"regexp"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -53,6 +56,9 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 			n++
 		}
 		if n >= 1 && n <= 6 && n < len(line) && (line[n] == ' ' || line[n] == '\t') {
+			if len(lines[i])-len(strings.TrimLeft(lines[i], " ")) >= 4 || strings.HasPrefix(lines[i], "\t") {
+				return nil, append(diags, diagnostics.NewError("indented ATX may be literal code; use an explicit CODE fence", ctx.Position(i), "content-markdown"))
+			}
 			text := strings.TrimSpace(line[n:])
 			anchor := ""
 			if match := explicitContentAnchor.FindStringSubmatchIndex(text); match != nil {
@@ -157,11 +163,34 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 				}
 			}
 		case string:
-			for _, match := range localContentLink.FindAllStringSubmatch(v, -1) {
-				references = append(references, match[1])
-			}
-			for _, match := range localContentReference.FindAllStringSubmatch(v, -1) {
-				references = append(references, match[1])
+			// Derive actual href tokens through the existing safe Markdown renderer.
+			// Raw HTML is escaped by that renderer; it never establishes authority.
+			tokenizer := html.NewTokenizer(strings.NewReader(renderer.ProcessInlineMarkdownSecureLine(v)))
+			codeDepth := 0
+			for {
+				kind := tokenizer.Next()
+				if kind == html.ErrorToken {
+					if tokenizer.Err() != io.EOF {
+						references = append(references, "invalid-link-tokenization")
+					}
+					break
+				}
+				token := tokenizer.Token()
+				if kind == html.StartTagToken && (token.Data == "code" || token.Data == "pre") {
+					codeDepth++
+				}
+				if kind == html.EndTagToken && (token.Data == "code" || token.Data == "pre") {
+					if codeDepth > 0 {
+						codeDepth--
+					}
+				}
+				if codeDepth == 0 && (kind == html.StartTagToken || kind == html.SelfClosingTagToken) && token.Data == "a" {
+					for _, attr := range token.Attr {
+						if attr.Key == "href" && strings.HasPrefix(attr.Val, "#") {
+							references = append(references, strings.TrimPrefix(attr.Val, "#"))
+						}
+					}
+				}
 			}
 		}
 	}
@@ -173,6 +202,3 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 	}
 	return nodes, diags
 }
-
-var localContentLink = regexp.MustCompile(`\]\(\s*<?#([^)>\s]+)>?\s*\)`)
-var localContentReference = regexp.MustCompile(`\[[^\]]+\]:[ \t]*<?#([^>\s]+)>?`)
