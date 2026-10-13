@@ -51,6 +51,13 @@ standalone slide/section marker lines in structural positions, indented ATX (pot
 The API does not promise full CommonMark coverage (for example setext headings,
 raw HTML semantics and thematic breaks).
 
+In content context only, one empty blockquote line immediately before a final
+`— author` or `-- author` line is an attribution separator rather than a body
+LF. Internal paragraph separators and quotes without attribution retain their
+body lines; direct attribution needs no separator. Multiple empty lines before
+attribution are ambiguous and reject without output. Historical flex document
+parsing retains its existing behavior. No generic body trimming is performed.
+
 The external `content-markdown-normalization-v1` receipt contains original
 Markdown, input/output SHA256, namespace, exact used schema/capabilities and sourceCapabilities declarations,
 diagnostics and ordered node/descendant mappings with identities, input and

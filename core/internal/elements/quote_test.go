@@ -393,3 +393,30 @@ func TestQuoteParser_ParseStrict_BlankLines(t *testing.T) {
 		})
 	}
 }
+
+func TestQuoteParser_ContentAttributionSeparator(t *testing.T) {
+	for _, c := range []struct {
+		source, body, author string
+		reject               bool
+	}{
+		{"> First\n>\n> — Author", "First", "Author", false},
+		{"> First\n>\n> Second\n>\n> — Author", "First\n\nSecond", "Author", false},
+		{"> First\n>\n>\n> — Author", "", "", true},
+		{"> First\n>\n>", "First\n\n", "", false},
+		{"> — Author", "", "Author", false},
+		{"> First\n> -- Author", "First", "Author", false},
+	} {
+		ctx := &ParseContext{Mode: "flex", ContentMarkdown: true, Lines: strings.Split(c.source, "\n"), Logger: util.NewNoop()}
+		result := (&QuoteParser{}).Parse(ctx, 0)
+		if (result.Error != nil) != c.reject {
+			t.Fatalf("%q: %v", c.source, result.Error)
+		}
+		if c.reject {
+			continue
+		}
+		q := result.Element.(*ast.QuoteElement)
+		if q.Content != c.body || q.Author != c.author || result.ConsumedLines != len(ctx.Lines) {
+			t.Fatalf("%q: %#v", c.source, q)
+		}
+	}
+}
