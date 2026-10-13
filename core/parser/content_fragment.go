@@ -142,10 +142,81 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 	// A generated anchor is deliberately namespaced. Local links may retain
 	// only targets whose explicit/generated authority is actually resolvable;
 	// never silently keep a broken pre-namespace auto-anchor destination.
-	var references []string
-	bytes, _ := json.Marshal(nodes)
+	references, err := contentReferences(nodes)
+	if err != nil {
+		return nil, append(diags, diagnostics.NewError(err.Error(), diagnostics.NewPosition(1, 1), "content-markdown"))
+	}
+	for _, target := range references {
+		if !anchors[target] {
+			return nil, append(diags, diagnostics.NewError("unresolved local fragment anchor "+target+"; declare its authoral anchor explicitly", diagnostics.NewPosition(1, 1), "content-markdown"))
+		}
+	}
+	return nodes, diags
+}
+
+// Navigation authority comes only from the existing renderer's actual HTML
+// fields. Literal chart/MATH/metric values are never parsed as Markdown here.
+func contentReferences(nodes []ast.Element) ([]string, error) {
+	doc := ast.NewAST(diagnostics.NewPosition(1, 1))
+	block := ast.NewContentBlock(diagnostics.NewPosition(1, 1), "content")
+	block.Elements = nodes
+	doc.ContentBlocks = []ast.ContentBlock{*block}
+	doc.FrontMatter = &ast.FrontMatterNode{Mode: "strict", ASTCapabilities: []string{ast.TypedHeadingsCapability, ast.ContentMarkdownCapability}}
+	ast.SetTableContract(doc)
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+	copy, err := ast.DecodeAST(encoded)
+	if err != nil {
+		return nil, err
+	}
+	renderer.PopulateInlineHTML(copy, nil)
+	encoded, err = json.Marshal(copy.ContentBlocks[0].Elements)
+	if err != nil {
+		return nil, err
+	}
 	var tree any
-	_ = json.Unmarshal(bytes, &tree)
+	_ = json.Unmarshal(encoded, &tree)
+	var references []string
+	tokenize := func(value string) {
+		tokenizer := html.NewTokenizer(strings.NewReader(value))
+		codeDepth := 0
+		for {
+			kind := tokenizer.Next()
+			if kind == html.ErrorToken {
+				if tokenizer.Err() != io.EOF {
+					references = append(references, "invalid-link-tokenization")
+				}
+				break
+			}
+			token := tokenizer.Token()
+			if kind == html.StartTagToken && (token.Data == "code" || token.Data == "pre") {
+				codeDepth++
+			}
+			if kind == html.EndTagToken && (token.Data == "code" || token.Data == "pre") && codeDepth > 0 {
+				codeDepth--
+			}
+			if codeDepth == 0 && (kind == html.StartTagToken || kind == html.SelfClosingTagToken) && token.Data == "a" {
+				for _, attr := range token.Attr {
+					if attr.Key == "href" && strings.HasPrefix(attr.Val, "#") {
+						references = append(references, strings.TrimPrefix(attr.Val, "#"))
+					}
+				}
+			}
+		}
+	}
+	var inspectHTML func(any)
+	inspectHTML = func(value any) {
+		switch v := value.(type) {
+		case string:
+			tokenize(v)
+		case []any:
+			for _, x := range v {
+				inspectHTML(x)
+			}
+		}
+	}
 	var inspect func(any)
 	inspect = func(value any) {
 		switch v := value.(type) {
@@ -154,51 +225,19 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 				inspect(x)
 			}
 		case map[string]any:
-			if v["type"] == "code" {
-				return
+			// Fixed field order and array order make diagnostics reproducible.
+			for _, key := range []string{"textHTML", "titleHTML", "contentHTML", "headersHTML", "rowsHTML", "captionHTML", "authorHTML", "sourceHTML", "labelHTML", "valueHTML", "questionHTML", "optionsHTML", "explanationHTML"} {
+				if x, ok := v[key]; ok {
+					inspectHTML(x)
+				}
 			}
-			for key, x := range v {
-				if key != "codeBlocks" {
+			for _, key := range []string{"elements", "items", "subPoints", "subItems", "columns", "codeBlocks"} {
+				if x, ok := v[key]; ok {
 					inspect(x)
-				}
-			}
-		case string:
-			// Derive actual href tokens through the existing safe Markdown renderer.
-			// Raw HTML is escaped by that renderer; it never establishes authority.
-			tokenizer := html.NewTokenizer(strings.NewReader(renderer.ProcessInlineMarkdownSecureLine(v)))
-			codeDepth := 0
-			for {
-				kind := tokenizer.Next()
-				if kind == html.ErrorToken {
-					if tokenizer.Err() != io.EOF {
-						references = append(references, "invalid-link-tokenization")
-					}
-					break
-				}
-				token := tokenizer.Token()
-				if kind == html.StartTagToken && (token.Data == "code" || token.Data == "pre") {
-					codeDepth++
-				}
-				if kind == html.EndTagToken && (token.Data == "code" || token.Data == "pre") {
-					if codeDepth > 0 {
-						codeDepth--
-					}
-				}
-				if codeDepth == 0 && (kind == html.StartTagToken || kind == html.SelfClosingTagToken) && token.Data == "a" {
-					for _, attr := range token.Attr {
-						if attr.Key == "href" && strings.HasPrefix(attr.Val, "#") {
-							references = append(references, strings.TrimPrefix(attr.Val, "#"))
-						}
-					}
 				}
 			}
 		}
 	}
 	inspect(tree)
-	for _, target := range references {
-		if !anchors[target] {
-			return nil, append(diags, diagnostics.NewError("unresolved local fragment anchor "+target+"; declare its authoral anchor explicitly", diagnostics.NewPosition(1, 1), "content-markdown"))
-		}
-	}
-	return nodes, diags
+	return references, nil
 }

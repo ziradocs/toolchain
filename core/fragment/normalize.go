@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -36,6 +37,7 @@ type ContentFragmentReceipt struct {
 	SourceSHA256          string                   `json:"sourceSHA256"`
 	EffectiveSourceSHA256 string                   `json:"effectiveSourceSHA256,omitempty"`
 	SchemaVersion         string                   `json:"schemaVersion"`
+	SourceCapabilities    []string                 `json:"sourceCapabilities"`
 	Capabilities          []string                 `json:"capabilities"`
 	Nodes                 []FragmentNode           `json:"nodes"`
 	Diagnostics           []diagnostics.Diagnostic `json:"diagnostics"`
@@ -88,11 +90,21 @@ func NormalizeMarkdownContent(original string, options parser.ContentOptions) Co
 	if err != nil {
 		return reject(err.Error())
 	}
-	wrapper := "---\nmode: strict\nast_capabilities:\n"
+	r.Receipt.SourceCapabilities = []string{}
 	for _, c := range r.Receipt.Capabilities {
-		wrapper += "  - " + c + "\n"
+		if c == ast.TypedHeadingsCapability || c == ast.ContentMarkdownCapability || c == ast.NestedListTypesCapability || c == ast.ListStartCapability || c == ast.MathSourceCapability {
+			r.Receipt.SourceCapabilities = append(r.Receipt.SourceCapabilities, c)
+		}
 	}
-	wrapper += "---\nSLIDE content\n" + source
+	wrapper := "---\nmode: strict\n"
+	if len(r.Receipt.SourceCapabilities) > 0 {
+		wrapper += "ast_capabilities:\n"
+		for _, c := range r.Receipt.SourceCapabilities {
+			wrapper += "  - " + c + "\n"
+		}
+	}
+	prefix := wrapper + "---\nSLIDE content\n"
+	wrapper = prefix + source
 	p := parser.New(util.NewNoop())
 	effective, diags := p.Parse(wrapper, "")
 	for _, d := range diags {
@@ -109,6 +121,7 @@ func NormalizeMarkdownContent(original string, options parser.ContentOptions) Co
 		for _, after := range afterNodes {
 			if after.NodeID == r.Receipt.Nodes[i].NodeID {
 				r.Receipt.Nodes[i].EffectivePosition = after.Position
+				r.Receipt.Nodes[i].EffectivePosition.Line -= strings.Count(prefix, "\n")
 			}
 		}
 	}

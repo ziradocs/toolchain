@@ -120,3 +120,32 @@ func TestContentFragmentRejectsHiddenDocumentMarkers(t *testing.T) {
 		}
 	}
 }
+
+func TestContentFragmentNavigationAndLiteralFields(t *testing.T) {
+	literal := "<<chart: bar>>\n  data: [[\"N\", 2], [\"S\", 3]]\n  series: [\"Registro\"]\n  unit: \"[lectura](#sin-enlace)\"\n<<end>>"
+	r := NormalizeMarkdownContent(literal, parser.ContentOptions{AnchorNamespace: "literalchart"})
+	if !r.Receipt.Accepted {
+		t.Fatalf("%+v", r.Receipt)
+	}
+	r = NormalizeMarkdownContent("## Seccion\n[ir](#heading-seccion \"título\")", parser.ContentOptions{AnchorNamespace: "refs"})
+	if r.Receipt.Accepted {
+		t.Fatal("title-bearing local navigation lost its target without a diagnostic")
+	}
+}
+func TestContentFragmentReceiptCoordinates(t *testing.T) {
+	r := NormalizeMarkdownContent("## Heading\nText\n\n```bash\ncommand\n```", parser.ContentOptions{AnchorNamespace: "coordinates"})
+	if !r.Receipt.Accepted {
+		t.Fatalf("%+v", r.Receipt)
+	}
+	lines := strings.Split(r.Source, "\n")
+	for _, n := range r.Receipt.Nodes {
+		line := n.EffectivePosition.Line
+		if line < 1 || line > len(lines) {
+			t.Fatalf("position outside hash-bound artifact: %+v", n)
+		}
+		expected := map[string]string{"heading": "SECTION", "text": "TEXT", "code": "CODE"}[n.Type]
+		if expected != "" && !strings.Contains(lines[line-1], expected) {
+			t.Fatalf("coordinate does not resolve node: %+v %q", n, lines[line-1])
+		}
+	}
+}

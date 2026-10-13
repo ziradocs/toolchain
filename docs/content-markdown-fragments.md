@@ -51,7 +51,7 @@ The API does not promise full CommonMark coverage (for example setext headings,
 raw HTML semantics and thematic breaks).
 
 The external `content-markdown-normalization-v1` receipt contains original
-Markdown, input/output SHA256, namespace, exact used schema/capabilities,
+Markdown, input/output SHA256, namespace, exact used schema/capabilities and sourceCapabilities declarations,
 diagnostics and ordered node/descendant mappings with identities, input and
 output positions, anchors and payload hashes. `accepted` is distinct from
 `outputProduced`; validation alone does not claim publication. CLI publication
