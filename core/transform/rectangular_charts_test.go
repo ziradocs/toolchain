@@ -173,3 +173,28 @@ func TestChartContentContractIgnoresOpaqueNestedUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRectangularChartsLiteralPortableRoundtrip(t *testing.T) {
+	raw := `{"data":[["A\" , B",1],["C\n\\literal",2]],"series":["S\", literal"],"unit":"quoted \" unit\n", "showDataLabels":false}`
+	doc := chartDocument(t, raw)
+	effective, r, err := NormalizeRectangularCharts(doc)
+	if err != nil || !r.Accepted {
+		t.Fatalf("%+v %v", r, err)
+	}
+	out, err := formatter.FormatStrict(effective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, diags := parser.New(nil).Parse(out, "effective.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatal(d.String())
+		}
+	}
+	a, b := chartIn(effective), chartIn(reparsed)
+	aJSON, _ := json.Marshal(a.Data)
+	bJSON, _ := json.Marshal(b.Data)
+	if string(aJSON) != string(bJSON) || a.Series[0] != b.Series[0] || b.Unit == nil || *a.Unit != *b.Unit || b.ShowDataLabels == nil || *b.ShowDataLabels {
+		t.Fatalf("literal loss\n%s\n%s\n%s", aJSON, bJSON, out)
+	}
+}
