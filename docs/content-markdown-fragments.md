@@ -56,7 +56,9 @@ In content context only, one empty blockquote line immediately before a final
 LF. Internal paragraph separators and quotes without attribution retain their
 body lines; direct attribution needs no separator. Multiple empty lines before
 attribution are ambiguous and reject without output. Historical flex document
-parsing retains its existing behavior. No generic body trimming is performed.
+parsing retains its existing behavior. No generic body trimming is performed. Ten unchanged Writer/source witnesses from
+e32 (A081/A091/A096) are recorded in `core/fragment/testdata/quote-attribution-e32.json`
+and checked through fragment normalization and ordinary strict reparsing.
 
 The external `content-markdown-normalization-v1` receipt contains original
 Markdown, input/output SHA256, namespace, exact used schema/capabilities and sourceCapabilities declarations,
