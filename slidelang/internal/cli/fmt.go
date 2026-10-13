@@ -12,14 +12,18 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/formatter"
 	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/transform"
 	"go.ziradocs.com/core/v2/util"
 )
 
 type FmtOptions struct {
-	InputFile string
-	Strict    bool
-	Write     bool
-	Check     bool
+	InputFile                  string
+	Strict                     bool
+	Write                      bool
+	Check                      bool
+	NormalizeRectangularCharts bool
+	ChartNormalizationReceipt  string
+	Output                     string
 }
 
 func NewFmtCommand() *cobra.Command {
@@ -48,6 +52,10 @@ document can be either dialect:
     fmt fails with an error naming the element instead of writing text that
     builds differently.
 
+Explicit rectangular chart normalization preserves originals and writes new source:
+  slidelang fmt original.slidelang --normalize-rectangular-charts --chart-normalization-receipt receipt.json --output effective.slidelang
+Only the bounded one-series bar profile is converted; unsupported JSON fails closed.
+
 Examples:
   # Print the canonical strict form to stdout (works for strict OR flex input)
   slidelang fmt deck.slidelang
@@ -69,10 +77,23 @@ Examples:
 	cmd.Flags().BoolVar(&opts.Strict, "strict", true, "Target dialect (only 'strict' is supported today)")
 	cmd.Flags().BoolVarP(&opts.Write, "write", "w", false, "Write result to the input file instead of stdout")
 	cmd.Flags().BoolVar(&opts.Check, "check", false, "Exit with status 1 if the file is not already in canonical form; don't write output")
+	cmd.Flags().BoolVar(&opts.NormalizeRectangularCharts, "normalize-rectangular-charts", false, "Explicitly convert the supported rectangular bar JSON profile to portable source")
+	cmd.Flags().StringVar(&opts.ChartNormalizationReceipt, "chart-normalization-receipt", "", "External normalization audit receipt (required with --normalize-rectangular-charts)")
+	cmd.Flags().StringVarP(&opts.Output, "output", "o", "", "Write portable source to a new file (required with --normalize-rectangular-charts)")
 	return cmd
 }
 
 func runFmt(opts *FmtOptions) error {
+	if opts.Output != "" && (opts.Write || opts.Check) {
+		return fmt.Errorf("--output cannot be combined with --write or --check")
+	}
+	if opts.NormalizeRectangularCharts {
+		if opts.Output == "" || opts.ChartNormalizationReceipt == "" || opts.Write || opts.Check {
+			return fmt.Errorf("normalization requires --output and --chart-normalization-receipt, without --write/--check")
+		}
+	} else if opts.ChartNormalizationReceipt != "" {
+		return fmt.Errorf("--chart-normalization-receipt requires --normalize-rectangular-charts")
+	}
 	if !opts.Strict {
 		return fmt.Errorf("fmt: --strict=false is not supported yet; strict is the only canonical dialect implemented")
 	}
@@ -92,10 +113,24 @@ func runFmt(opts *FmtOptions) error {
 		return err
 	}
 	for _, d := range diags {
-		if d.IsError() {
+		if d.IsError() || (opts.NormalizeRectangularCharts && d.RuleID == "CHART002") {
 			return fmt.Errorf("fmt: the file has parse errors, fix them before formatting:\n%s", d.String())
 		}
 	}
+	var receipt transform.ChartNormalizationReceipt
+	if opts.NormalizeRectangularCharts {
+		astNode, receipt, err = transform.NormalizeRectangularCharts(astNode)
+		if err != nil {
+			return err
+		}
+		if !receipt.Accepted {
+			if err = transform.PublishNormalizedChartSource(opts.Output, opts.ChartNormalizationReceipt, content, nil, receipt); err != nil {
+				return err
+			}
+			return fmt.Errorf("rectangular chart normalization rejected; no source output produced")
+		}
+	}
+
 	// Issue #206: si el documento no es ya 'mode: strict', esto transpila —
 	// parser.New(...).Parse() ya corrió la normalización completa para
 	// flex/flex-full (misma que un build regular), así que el AST resultante
@@ -113,6 +148,13 @@ func runFmt(opts *FmtOptions) error {
 	out, err := formatter.FormatStrict(astNode)
 	if err != nil {
 		return fmt.Errorf("fmt: %w", err)
+	}
+
+	if opts.NormalizeRectangularCharts {
+		return transform.PublishNormalizedChartSource(opts.Output, opts.ChartNormalizationReceipt, content, []byte(out), receipt)
+	}
+	if opts.Output != "" {
+		return os.WriteFile(opts.Output, []byte(out), 0644)
 	}
 
 	if opts.Check {
