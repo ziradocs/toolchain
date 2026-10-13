@@ -157,7 +157,9 @@ func TestPublishNormalizedChartSourceNoPartialOrOverwrite(t *testing.T) {
 	if !strings.Contains(string(b), `"outputProduced": false`) {
 		t.Fatal(string(b))
 	}
-	os.Remove(side)
+	if err := os.Remove(side); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(out, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}

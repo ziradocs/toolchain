@@ -337,7 +337,9 @@ func PublishNormalizedChartSource(output, receiptPath string, original, effectiv
 		return err
 	}
 	if err = os.Link(name, output); err != nil {
-		os.Remove(receiptPath)
+		if cleanupErr := os.Remove(receiptPath); cleanupErr != nil {
+			return fmt.Errorf("source publication failed (%w); receipt rollback failed: %v", err, cleanupErr)
+		}
 		return err
 	}
 	return nil
