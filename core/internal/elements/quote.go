@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -176,9 +177,24 @@ func (p *QuoteParser) parseFlex(ctx *ParseContext, startIndex int, pos diagnosti
 		lastLine := strings.TrimSpace(lines[len(lines)-1])
 		if strings.HasPrefix(lastLine, "--") || strings.HasPrefix(lastLine, "—") {
 			author = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(lastLine, "--"), "—"))
-			// Remover la línea del autor del contenido
-			if len(lines) > 1 {
-				content = strings.Join(lines[:len(lines)-1], "\n")
+			// Content context distinguishes one attribution separator from authored
+			// body lines. Multiple terminal separators are ambiguous; never trim.
+			bodyEnd := len(lines) - 1
+			if ctx.ContentMarkdown && author != "" {
+				blankCount := 0
+				for k := bodyEnd - 1; k >= 0 && lines[k] == ""; k-- {
+					blankCount++
+				}
+				if blankCount > 1 {
+					return &ParseResult{ConsumedLines: consumed, Error: fmt.Errorf("ambiguous multiple blank quote lines before attribution in content Markdown")}
+				}
+				if blankCount == 1 {
+					bodyEnd--
+				}
+			}
+			// Remove the author line and only its explicit content separator.
+			if bodyEnd > 0 {
+				content = strings.Join(lines[:bodyEnd], "\n")
 			} else {
 				content = ""
 			}

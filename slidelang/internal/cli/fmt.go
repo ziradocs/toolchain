@@ -11,12 +11,16 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/formatter"
+	"go.ziradocs.com/core/v2/fragment"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/transform"
 	"go.ziradocs.com/core/v2/util"
 )
 
 type FmtOptions struct {
+	ContentFragment            bool
+	FragmentNamespace          string
+	FragmentReceipt            string
 	InputFile                  string
 	Strict                     bool
 	Write                      bool
@@ -56,6 +60,11 @@ Explicit rectangular chart normalization preserves originals and writes new sour
   slidelang fmt original.slidelang --normalize-rectangular-charts --chart-normalization-receipt receipt.json --output effective.slidelang
 Only the bounded one-series bar profile is converted; unsupported JSON fails closed.
 
+Explicit Markdown content context (no document/slide boundaries):
+  slidelang fmt original.md --content-fragment --fragment-namespace document/slot/block --fragment-receipt receipt.json --output fragment.strict
+The output contains only strict elements. Declare receipt.sourceCapabilities
+when assembling the body, then use ordinary build/compose/pack readers.
+
 Examples:
   # Print the canonical strict form to stdout (works for strict OR flex input)
   slidelang fmt deck.slidelang
@@ -80,10 +89,34 @@ Examples:
 	cmd.Flags().BoolVar(&opts.NormalizeRectangularCharts, "normalize-rectangular-charts", false, "Explicitly convert the supported rectangular bar JSON profile to portable source")
 	cmd.Flags().StringVar(&opts.ChartNormalizationReceipt, "chart-normalization-receipt", "", "External normalization audit receipt (required with --normalize-rectangular-charts)")
 	cmd.Flags().StringVarP(&opts.Output, "output", "o", "", "Write portable source to a new file (required with --normalize-rectangular-charts)")
+	cmd.Flags().BoolVar(&opts.ContentFragment, "content-fragment", false, "Parse an explicit Markdown content fragment without document boundaries")
+	cmd.Flags().StringVar(&opts.FragmentNamespace, "fragment-namespace", "", "Stable authoral namespace for generated fragment anchors and identities")
+	cmd.Flags().StringVar(&opts.FragmentReceipt, "fragment-receipt", "", "External content-fragment receipt (required with --content-fragment)")
 	return cmd
 }
 
 func runFmt(opts *FmtOptions) error {
+	if opts.ContentFragment {
+		if !opts.Strict || opts.Output == "" || opts.FragmentNamespace == "" || opts.FragmentReceipt == "" || opts.Write || opts.Check || opts.NormalizeRectangularCharts || opts.ChartNormalizationReceipt != "" {
+			return fmt.Errorf("content fragment requires --strict, --output, --fragment-namespace and --fragment-receipt; cannot combine with document normalization/write/check")
+		}
+		content, err := os.ReadFile(opts.InputFile)
+		if err != nil {
+			return err
+		}
+		result := fragment.NormalizeMarkdownContent(string(content), parser.ContentOptions{AnchorNamespace: opts.FragmentNamespace})
+		if err := fragment.PublishContentFragment(opts.Output, opts.FragmentReceipt, result); err != nil {
+			return err
+		}
+		if !result.Receipt.Accepted {
+			return fmt.Errorf("content fragment rejected; no source output produced")
+		}
+		return nil
+	}
+	if opts.FragmentNamespace != "" || opts.FragmentReceipt != "" {
+		return fmt.Errorf("fragment namespace/receipt require --content-fragment")
+	}
+
 	if opts.Output != "" && (opts.Write || opts.Check) {
 		return fmt.Errorf("--output cannot be combined with --write or --check")
 	}

@@ -381,6 +381,9 @@ func ValidateRawTableContract(data []byte) error {
 	if (listCount > 0) != declared[NestedListTypesCapability] {
 		return fmt.Errorf("subListType presence does not match schemaVersion/capabilities")
 	}
+	if declared[ContentMarkdownCapability] && (headingCount == 0 || !declared[TypedHeadingsCapability]) {
+		return fmt.Errorf("content-markdown-v1 requires typed headings")
+	}
 	if (headingCount > 0) != declared[TypedHeadingsCapability] {
 		return fmt.Errorf("heading presence does not match schemaVersion/capabilities")
 	}

@@ -33,12 +33,13 @@ type strictBody struct {
 	// dentro de un SLIDE (issue #259). Solo el dialecto de presentaciones lo
 	// activa: en DocLang strict un SECTION es un bloque de nivel superior y
 	// uno indentado sigue siendo un error.
-	slideHeadings  bool
-	headingAnchors elements.HeadingAnchors
-	lines          []string
-	currentLine    int
-	diagnostics    []diagnostics.Diagnostic
-	logger         util.Logger
+	contentMarkdown bool
+	slideHeadings   bool
+	headingAnchors  elements.HeadingAnchors
+	lines           []string
+	currentLine     int
+	diagnostics     []diagnostics.Diagnostic
+	logger          util.Logger
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]: el
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
@@ -1128,7 +1129,11 @@ func (p *strictBody) parseSlideHeading() ast.Element {
 		return nil
 	}
 
-	level := minSlideHeadingLevel
+	minimum := minSlideHeadingLevel
+	if p.contentMarkdown {
+		minimum = 1
+	}
+	level := minimum
 	explicitID := ""
 	for p.currentLine < len(p.lines) {
 		line := p.lines[p.currentLine]
@@ -1144,8 +1149,8 @@ func (p *strictBody) parseSlideHeading() ast.Element {
 		switch {
 		case ok && key == "level":
 			n, convErr := strconv.Atoi(strings.TrimSpace(value))
-			if convErr != nil || n < minSlideHeadingLevel || n > maxSectionLevel {
-				p.addError(fmt.Sprintf("level of a %s inside a SLIDE must be an integer between %d and %d, got %q", sectionKeyword, minSlideHeadingLevel, maxSectionLevel, value))
+			if convErr != nil || n < minimum || n > maxSectionLevel {
+				p.addError(fmt.Sprintf("level of a %s inside a SLIDE must be an integer between %d and %d, got %q", sectionKeyword, minimum, maxSectionLevel, value))
 			} else {
 				level = n
 			}

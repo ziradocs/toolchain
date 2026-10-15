@@ -318,6 +318,10 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		_, bodyContent, _ = p.frontMatterParser.Parse(processedContent)
 	}
 
+	if ast.SourceDeclaresCapability(frontMatter, ast.ContentMarkdownCapability) && !ast.SourceDeclaresCapability(frontMatter, ast.TypedHeadingsCapability) {
+		return nil, append(allDiagnostics, diagnostics.NewError("content-markdown-v1 requires explicit typed-headings-v1", diagnostics.NewPosition(1, 1), "content-markdown"))
+	}
+
 	// FASE 3: Determinar modo y parsear cuerpo
 	var astNode *ast.AST
 	var bodyDiagnostics []diagnostics.Diagnostic
@@ -326,6 +330,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	case "strict":
 		strictParser := newStrictBodyParser(bodyContent, bodyOffset, p.logger)
 		strictParser.nestedListTypes = sourceNestedListTypes(frontMatter)
+		strictParser.contentMarkdown = ast.SourceDeclaresCapability(frontMatter, ast.ContentMarkdownCapability)
 		strictParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
 		strictParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
 		astNode, bodyDiagnostics = strictParser.Parse()

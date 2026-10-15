@@ -1,0 +1,125 @@
+{
+  "sourceSHA256": "fe50d56af755eb00fb30e9f10bf40139710a4c18838f521319e0dc622035c328",
+  "witnesses": [
+    {
+      "caseId": "A096",
+      "packetSHA256": "b441f314102e3318d2c1fafb0451852b4060d6b880a5ba9e1df39a6189e84804",
+      "sourceRef": {
+        "evidenceId": "source-A096",
+        "base": "evidence.data",
+        "pointer": "/parts/0/quote"
+      },
+      "markdown": "> Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 1.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 1.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A096",
+      "packetSHA256": "b441f314102e3318d2c1fafb0451852b4060d6b880a5ba9e1df39a6189e84804",
+      "sourceRef": {
+        "evidenceId": "source-A096",
+        "base": "evidence.data",
+        "pointer": "/parts/1/quote"
+      },
+      "markdown": "> Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 2.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 2.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A096",
+      "packetSHA256": "b441f314102e3318d2c1fafb0451852b4060d6b880a5ba9e1df39a6189e84804",
+      "sourceRef": {
+        "evidenceId": "source-A096",
+        "base": "evidence.data",
+        "pointer": "/parts/3/quote"
+      },
+      "markdown": "> Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 4.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 4.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A096",
+      "packetSHA256": "b441f314102e3318d2c1fafb0451852b4060d6b880a5ba9e1df39a6189e84804",
+      "sourceRef": {
+        "evidenceId": "source-A096",
+        "base": "evidence.data",
+        "pointer": "/parts/5/quote"
+      },
+      "markdown": "> Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 6.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 6.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A096",
+      "packetSHA256": "b441f314102e3318d2c1fafb0451852b4060d6b880a5ba9e1df39a6189e84804",
+      "sourceRef": {
+        "evidenceId": "source-A096",
+        "base": "evidence.data",
+        "pointer": "/parts/7/quote"
+      },
+      "markdown": "> Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 8.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de sesión de prototipo antes de cerrar la situación 8.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A091",
+      "packetSHA256": "cbd952922e0b12360311da91b9e354f93fde12d1c3d454c7ba67130a2c551152",
+      "sourceRef": {
+        "evidenceId": "source-A091",
+        "base": "evidence.data",
+        "pointer": "/parts/0/quote"
+      },
+      "markdown": "> Revisamos cada tarea de ruta de reparto antes de cerrar la situación 1.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de ruta de reparto antes de cerrar la situación 1.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A091",
+      "packetSHA256": "cbd952922e0b12360311da91b9e354f93fde12d1c3d454c7ba67130a2c551152",
+      "sourceRef": {
+        "evidenceId": "source-A091",
+        "base": "evidence.data",
+        "pointer": "/parts/1/quote"
+      },
+      "markdown": "> Revisamos cada tarea de ruta de reparto antes de cerrar la situación 2.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de ruta de reparto antes de cerrar la situación 2.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A091",
+      "packetSHA256": "cbd952922e0b12360311da91b9e354f93fde12d1c3d454c7ba67130a2c551152",
+      "sourceRef": {
+        "evidenceId": "source-A091",
+        "base": "evidence.data",
+        "pointer": "/parts/3/quote"
+      },
+      "markdown": "> Revisamos cada tarea de ruta de reparto antes de cerrar la situación 4.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de ruta de reparto antes de cerrar la situación 4.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A081",
+      "packetSHA256": "a6002c05c7c362441aa69f105c51a05b966b6fd53311261819654bb3de45fc48",
+      "sourceRef": {
+        "evidenceId": "source-A081",
+        "base": "evidence.data",
+        "pointer": "/parts/0/quote"
+      },
+      "markdown": "> Revisamos cada tarea de informe de préstamo antes de cerrar la situación 1.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de informe de préstamo antes de cerrar la situación 1.",
+      "author": "Coordinación del ejercicio"
+    },
+    {
+      "caseId": "A081",
+      "packetSHA256": "a6002c05c7c362441aa69f105c51a05b966b6fd53311261819654bb3de45fc48",
+      "sourceRef": {
+        "evidenceId": "source-A081",
+        "base": "evidence.data",
+        "pointer": "/parts/1/quote"
+      },
+      "markdown": "> Revisamos cada tarea de informe de préstamo antes de cerrar la situación 2.\n>\n> — Coordinación del ejercicio",
+      "body": "Revisamos cada tarea de informe de préstamo antes de cerrar la situación 2.",
+      "author": "Coordinación del ejercicio"
+    }
+  ]
+}
