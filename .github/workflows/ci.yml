@@ -122,6 +122,18 @@ jobs:
             echo "::endgroup::"
           done
 
+      # El build WASM (slidelang/cmd/wasm, el del playground) se compila con
+      # GOOS=js, así que ve otro conjunto de archivos que el build nativo:
+      # todo lo que tiene //go:build !js desaparece. Ningún job lo compilaba,
+      # y desde #250 (core/v2.30.0) no compilaba: ChartThemeColors vivía solo
+      # en renderer/native_chart.go (!js) y context.go/html.go lo usan en todo
+      # target. Va acá, contra el core del árbol, y no en build-test: así un
+      # PR de core que rompe el WASM falla ANTES de cortar el tag core/vX.Y.Z,
+      # que después ya no se puede corregir.
+      - name: Build WASM (GOOS=js) contra el core del árbol
+        working-directory: slidelang
+        run: GOOS=js GOARCH=wasm go build -o "$RUNNER_TEMP/slidelang.wasm" ./cmd/wasm
+
   # motor-temas-v2.md §2.2 (chart-grid/-axis/-label/-tooltip-bg, withAlpha,
   # detección de dimensión de escala) es lógica que vive por completo en
   # template/assets/js/modules/charts.js — JS de navegador que
