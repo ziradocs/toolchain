@@ -8,6 +8,8 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -44,7 +46,10 @@ func writeImage(t *testing.T, data []byte) string {
 }
 
 func sizeIn(g *DOCXGenerator, path string, caption bool) (float64, float64) {
-	s := g.fittedImageSize(path, caption)
+	s, err := g.fittedImageSize(path, caption)
+	if err != nil {
+		panic(err)
+	}
 	return float64(s.WidthEMU) / 914400, float64(s.HeightEMU) / 914400
 }
 
@@ -101,12 +106,16 @@ func TestImageDPI(t *testing.T) {
 		{"jfif dpcm", jfif(2, 118, 118), 118 * 2.54, 118 * 2.54},
 		{"jfif aspect only", jfif(0, 1, 1), 96, 96},
 		{"jfif 1 dpi", jfif(1, 1, 1), 96, 96},
-		{"jfif 2400 dpi", jfif(1, 2400, 2400), 96, 96},
 		{"jfif 600 dpi", jfif(1, 600, 600), 600, 600},
+		{"jfif 1200 dpi", jfif(1, 1200, 1200), 1200, 1200},
+		{"jfif 2400 dpi", jfif(1, 2400, 2400), 2400, 2400},
+		{"jfif 6000 dpi", jfif(1, 6000, 6000), 96, 96},
+		{"jfif 40 dpi", jfif(1, 40, 40), 96, 96},
 		{"png sin pHYs", pngOfSize(t, 2, 2), 96, 96},
 		{"png 72 dpi", withPHYs(t, pngOfSize(t, 2, 2), 2835), 2835 / 39.3701, 2835 / 39.3701},
 		{"png 0xffffffff", withPHYs(t, pngOfSize(t, 2, 2), 0xffffffff), 96, 96},
-		{"png 2400 dpi", withPHYs(t, pngOfSize(t, 2, 2), 94488), 96, 96},
+		{"png 1200 dpi", withPHYs(t, pngOfSize(t, 2, 2), 47244), 47244 / 39.3701, 47244 / 39.3701},
+		{"png 2400 dpi", withPHYs(t, pngOfSize(t, 2, 2), 94488), 94488 / 39.3701, 94488 / 39.3701},
 		{"basura", []byte("no es una imagen"), 96, 96},
 	}
 	for _, c := range cases {
@@ -128,8 +137,12 @@ func TestFittedImageSize_ExtremeImages(t *testing.T) {
 		wantW float64
 		wantH float64
 	}{
-		// 2400 dpi está fuera del rango: se toma 96, 16 px = 0.167".
-		{"icono 16x16 a 2400 dpi", withPHYs(t, pngOfSize(t, 16, 16), 94488), 16.0 / 96, 16.0 / 96},
+		// 16 px a 2400 dpi = 0.007": sube al mínimo.
+		{"icono 16x16 a 2400 dpi", withPHYs(t, pngOfSize(t, 16, 16), 94488), 0.1, 0.1},
+		// Escaneo a 1200 dpi: 2400x1200 px = 2"x1", no 25"x12.5" a 96.
+		{"escaneo 2400x1200 a 1200 dpi", withPHYs(t, pngOfSize(t, 2400, 1200), 47244), 2, 1},
+		// Firma a 600 dpi: 900x300 px = 1.5"x0.5".
+		{"firma 900x300 a 600 dpi", withPHYs(t, pngOfSize(t, 900, 300), 23622), 1.5, 0.5},
 		// 1 px a 144 dpi = 0.007": sube al mínimo, cuadrado.
 		{"1x1 a 144 dpi", withPHYs(t, pngOfSize(t, 1, 1), 5669), 0.1, 0.1},
 		// Franja: al ancho de la caja y el alto sube al mínimo; la proporción
@@ -143,7 +156,11 @@ func TestFittedImageSize_ExtremeImages(t *testing.T) {
 		{"30x6 a 96 dpi", pngOfSize(t, 30, 6), 0.5, 0.1},
 	}
 	for _, c := range cases {
-		s := g.fittedImageSize(writeImage(t, c.data), false)
+		s, err := g.fittedImageSize(writeImage(t, c.data), false)
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
 		if s.WidthEMU <= 0 || s.HeightEMU <= 0 || s.WidthPx <= 0 || s.HeightPx <= 0 {
 			t.Errorf("%s: tamaño con un lado en 0: %+v", c.name, s)
 			continue
@@ -167,6 +184,11 @@ func TestDOCX_ExtremeImagesAreInserted(t *testing.T) {
 		"strip.png":  pngOfSize(t, 3000, 1),
 		"huge.png":   withPHYs(t, pngOfSize(t, 8, 8), 0xffffffff),
 		"broken.png": []byte("esto no es un PNG"),
+		// GIF cuyo encabezado declara 0x0: antes docxgo derivaba el alto de
+		// esas dimensiones y escribía cy="-9223372036854775808".
+		"zero.gif": []byte("GIF89a\x00\x00\x00\x00\x00\x00\x00;"),
+		// PNG con firma válida y el resto truncado.
+		"corrupt.png": pngOfSize(t, 8, 8)[:20],
 	}
 	pos := diagnostics.NewPosition(1, 1)
 	doc := ast.NewAST(pos)
@@ -174,7 +196,7 @@ func TestDOCX_ExtremeImagesAreInserted(t *testing.T) {
 	doc.FrontMatter.Title = "Imágenes"
 	block := ast.NewContentBlock(diagnostics.NewPosition(2, 1), "content")
 	block.Title = "S"
-	for i, name := range []string{"icon.png", "dot.png", "strip.png", "huge.png", "broken.png"} {
+	for i, name := range []string{"icon.png", "dot.png", "strip.png", "huge.png", "broken.png", "zero.gif", "corrupt.png"} {
 		if err := os.WriteFile(filepath.Join(root, name), files[name], 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -191,22 +213,29 @@ func TestDOCX_ExtremeImagesAreInserted(t *testing.T) {
 	if strings.Contains(xml, "not found") {
 		t.Errorf("una imagen existente salió como not found")
 	}
-	if !strings.Contains(xml, "[Image could not be inserted: broken.png]") {
-		t.Errorf("falta el marcador de broken.png")
+	for _, name := range []string{"broken.png", "zero.gif", "corrupt.png"} {
+		if !strings.Contains(xml, "[Image could not be inserted: "+name+"]") {
+			t.Errorf("falta el marcador de %s", name)
+		}
 	}
-	if strings.Contains(xml, `cx="0"`) || strings.Contains(xml, `cy="0"`) {
-		t.Errorf("document.xml tiene un extent en 0")
+	for _, m := range regexp.MustCompile(`c[xy]="(-?\d+)"`).FindAllStringSubmatch(xml, -1) {
+		if n, _ := strconv.Atoi(m[1]); n <= 0 {
+			t.Errorf("document.xml tiene un extent no positivo: %s", m[0])
+		}
 	}
 	if n := len(docxMediaFiles(t, out)); n != 4 {
 		t.Errorf("word/media/ tiene %d imágenes, want 4", n)
 	}
 	warned := false
-	for _, w := range logger.warns {
-		if strings.Contains(w, "broken.png") && strings.Contains(w, "could not be inserted") {
-			warned = true
+	for _, name := range []string{"broken.png", "zero.gif", "corrupt.png"} {
+		warned = false
+		for _, w := range logger.warns {
+			if strings.Contains(w, name) && strings.Contains(w, "could not be inserted") && strings.Contains(w, "line ") {
+				warned = true
+			}
 		}
-	}
-	if !warned {
-		t.Errorf("falta el warning de broken.png: %q", logger.warns)
+		if !warned {
+			t.Errorf("falta el warning con línea de %s: %q", name, logger.warns)
+		}
 	}
 }

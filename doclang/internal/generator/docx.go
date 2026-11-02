@@ -2697,8 +2697,23 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		imagePath = confined
 	}
 
+	// El marcador va DENTRO del documento, así que cita la fuente tal como
+	// la escribió el autor (elem.Source) y no imagePath: tras
+	// ResolveConfinedPath ese es la ruta absoluta de la máquina que compiló,
+	// que no tiene nada que hacer en un .docx que se comparte. "not found"
+	// es solo para un archivo que no existe; uno que existe pero no se puede
+	// medir o insertar (dañado, 0x0, formato no soportado) es otro error.
+	if _, statErr := os.Stat(imagePath); statErr != nil {
+		g.logger.Warn("DOCX: line %d: image %q not found", elem.Position.Line, elem.Source)
+		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
+	}
+
 	// Tamaño natural, reducido si no cabe en la caja de texto.
-	imageSize := g.fittedImageSize(imagePath, elem.Caption != "")
+	imageSize, err := g.fittedImageSize(imagePath, elem.Caption != "")
+	if err != nil {
+		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
+		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
+	}
 
 	// La leyenda va en la misma página que su imagen.
 	if elem.Caption != "" {
@@ -2710,18 +2725,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	// Agregar imagen
 	img, err := p.AddImageWithSize(imagePath, imageSize)
 	if err != nil {
-		// El marcador va DENTRO del documento, así que cita la fuente tal
-		// como la escribió el autor (elem.Source) y no imagePath: tras
-		// ResolveConfinedPath ese es la ruta absoluta de la máquina que
-		// compiló, que no tiene nada que hacer en un .docx que se comparte.
-		// El log sí la conserva, porque es donde sirve para depurar. Solo se
-		// dice "not found" si de verdad no existe: un archivo que está pero
-		// no se pudo insertar (formato no soportado, dañado) es otro error.
-		if _, statErr := os.Stat(imagePath); statErr != nil {
-			g.logger.Warn("DOCX: image %q at line %d not found: %v", elem.Source, elem.Position.Line, statErr)
-			return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
-		}
-		g.logger.Warn("DOCX: image %q at line %d could not be inserted: %v", elem.Source, elem.Position.Line, err)
+		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
 		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
 	}
 
@@ -2763,11 +2767,6 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	return nil
 }
 
-// docxImageFallbackWidthIn es el ancho con que se inserta una imagen cuyo
-// formato no se puede leer (docxgo calcula el alto). Con un formato legible
-// manda su tamaño natural, ver fittedImageSize.
-const docxImageFallbackWidthIn = 6.0
-
 // docxImageMinSideIn es el lado mínimo con que se muestra una imagen: un
 // ícono de pocos píxeles o una franja de 1 px de alto quedan visibles en vez
 // de reducirse a nada.
@@ -2775,24 +2774,53 @@ const docxImageMinSideIn = 0.1
 
 // fittedImageSize da el tamaño de inserción de una imagen local: su tamaño
 // natural (píxeles entre los DPI que declara el archivo, o 96 si no declara
-// o declara algo fuera de 72-600), sin agrandarla nunca, y reducida como una
+// o declara algo fuera de 50-4800), sin agrandarla nunca, y reducida como una
 // figura de mermaid para caber en la caja de texto (ver fitFigure). Antes se
 // insertaba siempre a 6" de ancho, así que un ícono de 32 px ocupaba media
 // página. El AST de imagen no trae ancho ni alto explícitos, así que no hay
 // otra fuente de tamaño. Ver imageSizeFromInches para el lado mínimo.
-func (g *DOCXGenerator) fittedImageSize(path string, hasCaption bool) domain.ImageSize {
+//
+// Devuelve error si no puede leer las dimensiones o alguna es 0. No hay
+// tamaño de respaldo: docxgo decodifica con los mismos decoders, así que no
+// podría insertarla de todos modos, y un ancho fijo con alto 0 le pide a
+// docxgo derivar el alto de las dimensiones de la imagen, que con 0x0 da un
+// cy negativo.
+func (g *DOCXGenerator) fittedImageSize(path string, hasCaption bool) (domain.ImageSize, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return domain.NewImageSizeInches(docxImageFallbackWidthIn, 0)
+		return domain.ImageSize{}, err
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
-		return domain.NewImageSizeInches(docxImageFallbackWidthIn, 0)
+	if err != nil {
+		return domain.ImageSize{}, fmt.Errorf("cannot read image dimensions: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return domain.ImageSize{}, fmt.Errorf("image has no pixels (%dx%d)", cfg.Width, cfg.Height)
 	}
 	dpiX, dpiY := imageDPI(data)
 	w, h := g.fitFigure(float64(cfg.Width)/dpiX, float64(cfg.Height)/dpiY, hasCaption)
 	w, h = g.enforceMinSide(w, h, hasCaption)
-	return imageSizeFromInches(w, h)
+	return imageSizeFromInches(w, h), nil
+}
+
+// widthOnlyImageSize es el tamaño de una figura generada (ecuación, mapa)
+// que se inserta a un ancho fijo: el alto sale de la proporción de sus
+// píxeles acá, no en docxgo, para que un PNG de 0x0 sea un error y no un
+// extent negativo.
+func widthOnlyImageSize(path string, widthIn float64) (domain.ImageSize, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return domain.ImageSize{}, err
+	}
+	defer func() { _ = f.Close() }()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return domain.ImageSize{}, fmt.Errorf("cannot read image dimensions: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return domain.ImageSize{}, fmt.Errorf("image has no pixels (%dx%d)", cfg.Width, cfg.Height)
+	}
+	return imageSizeFromInches(widthIn, widthIn*float64(cfg.Height)/float64(cfg.Width)), nil
 }
 
 // enforceMinSide lleva el lado corto a docxImageMinSideIn conservando la
@@ -2876,7 +2904,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 		}
 	}
 
-	if _, err := p.AddImageWithSize(pngPath, domain.NewImageSizeInches(widthIn, heightIn)); err != nil {
+	if _, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn)); err != nil {
 		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s", elem.DiagramType))
 	}
@@ -3046,7 +3074,11 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := domain.NewImageSizeInches(4.0, 0)
+	imageSize, err := widthOnlyImageSize(pngPath, 4.0)
+	if err != nil {
+		g.logger.Warn("DOCX: line %d: equation image could not be inserted: %v", elem.Position.Line, err)
+		return g.renderPlaceholder(doc, "[Equation could not be rendered]")
+	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert equation image: %v", err)
@@ -3152,7 +3184,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := domain.NewImageSizeInches(6.5, 4.1) // 6.5" ancho x 4.1" alto (ratio 1.6:1)
+	imageSize := imageSizeFromInches(6.5, 4.1) // 6.5" ancho x 4.1" alto (ratio 1.6:1)
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
@@ -3210,7 +3242,11 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := domain.NewImageSizeInches(6.0, 0)
+	imageSize, err := widthOnlyImageSize(pngPath, 6.0)
+	if err != nil {
+		g.logger.Warn("DOCX: line %d: map image could not be inserted: %v", elem.Position.Line, err)
+		return g.renderPlaceholder(doc, "[Map could not be rendered]")
+	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert map image: %v", err)
@@ -3642,8 +3678,10 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 		}
 	}
 
-	imageSize := g.fittedImageSize(pngPath, elem.Title != "")
-	_, err = p.AddImageWithSize(pngPath, imageSize)
+	imageSize, err := g.fittedImageSize(pngPath, elem.Title != "")
+	if err == nil {
+		_, err = p.AddImageWithSize(pngPath, imageSize)
+	}
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
 		return g.renderPlaceholder(doc, "PlantUML image insertion failed")

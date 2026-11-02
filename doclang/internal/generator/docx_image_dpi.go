@@ -75,12 +75,13 @@ func jfifDPI(data []byte) (float64, float64, bool) {
 }
 
 // minImageDPI y maxImageDPI acotan la resolución declarada que se toma en
-// serio. Fuera de ese rango la metadata casi siempre es basura (un pHYs en 0
-// o en 0xffffffff, el 1 dpi que escriben algunos editores) y llevaría una
-// imagen a metros o a una fracción de píxel; se ignora y vale 96.
+// serio: de 50 dpi a 4800, que cubre capturas, escaneos de 1200 y firmas de
+// 600. Fuera de ese rango la metadata es basura (un pHYs en 0 o en
+// 0xffffffff, el 1 dpi que escriben algunos editores) y llevaría una imagen
+// a metros o a una fracción de píxel; se ignora y vale 96.
 const (
-	minImageDPI = 72.0
-	maxImageDPI = 600.0
+	minImageDPI = 50.0
+	maxImageDPI = 4800.0
 )
 
 func validDPI(x, y float64) (float64, float64, bool) {
