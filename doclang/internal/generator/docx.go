@@ -278,7 +278,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 			// El encabezado ya salió arriba, en el lugar del título.
 			title = ""
 		}
-		if err := g.renderSection(doc, block, title, num); err != nil {
+		if err := g.renderSection(doc, block, title, num, i == len(astDoc.ContentBlocks)-1); err != nil {
 			return fmt.Errorf("error rendering section: %w", err)
 		}
 		if numbered {
@@ -1230,7 +1230,7 @@ func (g *DOCXGenerator) renderSectionHeading(doc domain.Document, text string) e
 // igual que ya hacían los generadores HTML y Markdown; num == 0 significa
 // "sin numerar" (numbering deshabilitado, o esta sección no numera — el
 // preámbulo).
-func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int) error {
+func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int, last bool) error {
 	// Título de la sección (H1)
 	if title != "" {
 		if err := g.renderSectionHeading(doc, sectionHeadingText(title, num)); err != nil {
@@ -1245,7 +1245,12 @@ func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentB
 		}
 	}
 
-	// Espacio entre secciones
+	// Espacio entre secciones. Después de la última no hace falta, y un
+	// párrafo vacío al final, cuando la página ya va llena (una figura que
+	// ocupa todo el alto), abría una página en blanco al final del documento.
+	if last {
+		return nil
+	}
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
