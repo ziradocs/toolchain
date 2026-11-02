@@ -62,41 +62,84 @@ const MaxDepth = 32
 // por el texto literal de la ruta, que podría variar entre niveles— y aborta
 // con error en vez de recursión infinita.
 func Expand(content, baseDir string, read ReadFunc) (string, error) {
-	return expand(content, baseDir, read, map[string]bool{}, 0)
+	expanded, _, err := ExpandWithOrigins(content, baseDir, read)
+	return expanded, err
 }
 
-func expand(content, baseDir string, read ReadFunc, visited map[string]bool, depth int) (string, error) {
+// LineOrigins dice de qué archivo viene cada línea del contenido que
+// devuelve ExpandWithOrigins: el elemento i es la línea i+1. Una línea del
+// contenido raíz (el que recibió Expand, que no tiene ruta propia) vale "";
+// una que vino de un @include, la ruta absoluta del archivo incluido que la
+// contiene directamente (el más profundo, si hay anidamiento).
+type LineOrigins []string
+
+// File devuelve el archivo de origen de la línea line (1-based), o "" si es
+// del contenido raíz o está fuera de rango.
+func (o LineOrigins) File(line int) string {
+	if line < 1 || line > len(o) {
+		return ""
+	}
+	return o[line-1]
+}
+
+// ExpandWithOrigins es Expand más el origen de cada línea expandida.
+//
+// La expansión es textual y corre antes del parser, así que el AST no sabe
+// de qué archivo vino cada elemento; quien necesite resolver algo relativo
+// al archivo que lo escribió (p. ej. una imagen dentro de un archivo
+// incluido) cruza la línea de la posición del elemento con estos orígenes.
+// Las líneas cuentan sobre el contenido ya expandido, con el frontmatter del
+// contenido raíz incluido (el de cada archivo incluido se descarta antes de
+// contar), que es lo mismo que cuentan las posiciones del parser.
+//
+// El texto expandido y los errores son exactamente los de Expand.
+func ExpandWithOrigins(content, baseDir string, read ReadFunc) (string, LineOrigins, error) {
+	lines, origins, err := expand(content, "", baseDir, read, map[string]bool{}, 0)
+	if err != nil {
+		return "", nil, err
+	}
+	return strings.Join(lines, "\n"), origins, nil
+}
+
+// expand devuelve las líneas expandidas de content y, en paralelo, el
+// archivo de origen de cada una; file es el de content ("" para la raíz).
+// Unir las líneas con "\n" da lo mismo que unir cada hijo ya expandido como
+// un solo bloque, que es lo que hacía esta función antes de devolver
+// orígenes.
+func expand(content, file, baseDir string, read ReadFunc, visited map[string]bool, depth int) ([]string, LineOrigins, error) {
 	if depth > MaxDepth {
-		return "", fmt.Errorf("include: profundidad máxima (%d) excedida — revisar si hay un ciclo no detectado", MaxDepth)
+		return nil, nil, fmt.Errorf("include: profundidad máxima (%d) excedida — revisar si hay un ciclo no detectado", MaxDepth)
 	}
 
 	lines := strings.Split(content, "\n")
 	out := make([]string, 0, len(lines))
+	origins := make(LineOrigins, 0, len(lines))
 	for _, line := range lines {
 		incPath, ok := parseIncludeLine(line)
 		if !ok {
 			out = append(out, line)
+			origins = append(origins, file)
 			continue
 		}
 		if incPath == "" {
-			return "", fmt.Errorf("include: %q — falta la ruta", strings.TrimSpace(line))
+			return nil, nil, fmt.Errorf("include: %q — falta la ruta", strings.TrimSpace(line))
 		}
 
 		resolved, err := util.ResolveConfinedPath(baseDir, incPath)
 		if err != nil {
-			return "", fmt.Errorf("include %q: %w", incPath, err)
+			return nil, nil, fmt.Errorf("include %q: %w", incPath, err)
 		}
 		absResolved, err := filepath.Abs(resolved)
 		if err != nil {
-			return "", fmt.Errorf("include %q: %w", incPath, err)
+			return nil, nil, fmt.Errorf("include %q: %w", incPath, err)
 		}
 		if visited[absResolved] {
-			return "", fmt.Errorf("include %q: ciclo detectado (ya incluido en esta misma cadena)", incPath)
+			return nil, nil, fmt.Errorf("include %q: ciclo detectado (ya incluido en esta misma cadena)", incPath)
 		}
 
 		data, err := read(resolved)
 		if err != nil {
-			return "", fmt.Errorf("include %q: %w", incPath, err)
+			return nil, nil, fmt.Errorf("include %q: %w", incPath, err)
 		}
 
 		nextVisited := make(map[string]bool, len(visited)+1)
@@ -105,13 +148,14 @@ func expand(content, baseDir string, read ReadFunc, visited map[string]bool, dep
 		}
 		nextVisited[absResolved] = true
 
-		expandedChild, err := expand(stripFrontMatter(string(data)), baseDir, read, nextVisited, depth+1)
+		childLines, childOrigins, err := expand(stripFrontMatter(string(data)), absResolved, baseDir, read, nextVisited, depth+1)
 		if err != nil {
-			return "", err
+			return nil, nil, err
 		}
-		out = append(out, expandedChild)
+		out = append(out, childLines...)
+		origins = append(origins, childOrigins...)
 	}
-	return strings.Join(out, "\n"), nil
+	return out, origins, nil
 }
 
 // parseIncludeLine reconoce una línea `@include ruta`, tolerando indentación
