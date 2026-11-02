@@ -57,6 +57,7 @@ Examples:
 	rootCmd.AddCommand(internalcli.NewThemesCommand())
 	rootCmd.AddCommand(internalcli.NewMCPCommand())
 	rootCmd.AddCommand(internalcli.NewFmtCommand())
+	rootCmd.AddCommand(internalcli.NewLicensesCommand())
 
 	return rootCmd
 }

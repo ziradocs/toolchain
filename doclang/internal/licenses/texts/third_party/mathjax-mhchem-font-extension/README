@@ -1,0 +1,28 @@
+mhchem font extension for MathJax (@mathjax/mathjax-mhchem-font-extension 4.1.3)
+==================================================================================
+
+File: svg.js, copied unmodified from
+https://cdn.jsdelivr.net/npm/@mathjax/mathjax-mhchem-font-extension@4.1.3/svg.js
+(checked against the sha256 that jsDelivr publishes). The mhchem TeX
+extension (\ce) loads it for its arrows and other chemistry glyphs.
+
+Two licenses apply, as for the MathJax-Newcm font (../mathjax-newcm-font):
+
+- The JavaScript packaging is by MathJax, Inc.; the package declares the
+  Apache License 2.0 (LICENSE in this directory; the package ships no
+  license file of its own).
+
+- The glyph outline data is derived from the New Computer Modern fonts,
+  (C) 2019-2021 Antonis Tsolomitis, released under the GUST Font License,
+  i.e. the LaTeX Project Public License 1.3c or later. The package's own
+  .woff2 file states this in its name table. The license texts are
+  ../mathjax-newcm-font/GUST-FONT-LICENSE.txt and
+  ../mathjax-newcm-font/LPPL-1.3c.txt.
+
+  This is a modified version of New Computer Modern: MathJax converted the
+  glyphs to SVG path data. It is redistributed here as MathJax published it,
+  without further changes. The unmodified original fonts are available on
+  CTAN as the package `newcomputermodern`
+  (https://ctan.org/pkg/newcomputermodern). Redistributing it here implies
+  no support from the original author; questions about this copy go to the
+  ZiraDocs toolchain repository.
