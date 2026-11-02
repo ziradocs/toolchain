@@ -231,11 +231,19 @@ func (p *DocumentFlexParser) parseSection() *ast.ContentBlock {
 	line := strings.TrimSpace(p.lines[p.currentLine])
 	pos := p.position(p.currentLine)
 
-	// SOLO `#` crea una nueva sección (content block en el AST)
+	// SOLO `#` crea una nueva sección (content block en el AST). Lo que
+	// aparece ANTES del primer `#` —o el archivo entero, si no tiene
+	// ninguno— no se descarta: forma una sección inicial SIN encabezado.
+	// Antes ese contenido se saltaba línea por línea en silencio (un
+	// Markdown común con solo `##`, o con un aviso antes del H1, perdía
+	// texto). Esto solo puede pasar al inicio: una vez abierta una sección,
+	// parseSectionContent consume todo hasta el siguiente `#`.
 	if !strings.HasPrefix(line, "# ") {
-		// Si no hay `#`, esta línea no inicia una sección válida
-		// Avanzar para evitar loops infinitos
-		p.currentLine++
+		block := ast.NewContentBlock(pos, "content")
+		p.parseLeadingContent(block)
+		if len(block.Elements) > 0 {
+			return block
+		}
 		return nil
 	}
 
@@ -272,9 +280,26 @@ func (p *DocumentFlexParser) parseSection() *ast.ContentBlock {
 	return nil
 }
 
+// parseLeadingContent parsea la sección inicial sin encabezado (ver
+// parseSection): el mismo cuerpo que parseSectionContent, pero cortando en
+// el PRIMER `#` aunque todavía no haya ningún elemento — si el preámbulo
+// solo trae líneas que no producen elementos (p. ej. `---`), el `#` que
+// sigue tiene que abrir su propia sección, no caer dentro de esta.
+func (p *DocumentFlexParser) parseLeadingContent(block *ast.ContentBlock) {
+	p.parseSectionBody(block, true)
+}
+
 // parseSectionContent parsea el contenido de una sección
 // Aquí `##` y `###` se convierten en TextElements con HTML
 func (p *DocumentFlexParser) parseSectionContent(block *ast.ContentBlock) {
+	p.parseSectionBody(block, false)
+}
+
+// parseSectionBody es el cuerpo compartido de parseSectionContent y
+// parseLeadingContent. stopAtFirstH1 corta en cualquier `#`, incluso sin
+// elementos todavía; sin él, un `#` pegado al encabezado de la sección (sin
+// elementos en medio) se sigue tratando como hasta ahora.
+func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFirstH1 bool) {
 	ctx := p.parseContext()
 
 	for p.currentLine < len(p.lines) {
@@ -287,7 +312,8 @@ func (p *DocumentFlexParser) parseSectionContent(block *ast.ContentBlock) {
 
 		// Stop at next section (only `#`, not `##` or `###`)
 		// Check: starts with "# " but NOT with "## " (to exclude ##, ###, etc.)
-		if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") && len(block.Elements) > 0 {
+		if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") &&
+			(len(block.Elements) > 0 || stopAtFirstH1) {
 			break
 		}
 
