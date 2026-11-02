@@ -158,6 +158,7 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		Ctx:                opts.runContext(),
 		Logger:             h.logger,
 	})
+	allowRemoteImages(ctx, opts.AllowRemoteImages)
 	if nativeChartFetcher != nil {
 		// chromiumRenderer es nil acá (needsChromium se apagó arriba), así
 		// que NewRenderContext dejó ctx.ChartFetcher sin asignar — el

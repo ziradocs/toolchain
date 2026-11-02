@@ -187,6 +187,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		Ctx:                opts.runContext(),
 		Logger:             p.logger,
 	})
+	allowRemoteImages(ctx, opts.AllowRemoteImages)
 
 	htmlContent := renderer.GenerateDocumentHTML(doc, renderOpts, ctx)
 

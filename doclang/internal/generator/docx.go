@@ -2836,6 +2836,12 @@ func (g *DOCXGenerator) prepareLocalImage(source string, line int, hasCaption bo
 	if line > 0 {
 		where = fmt.Sprintf("line %d: image", line)
 	}
+	// Una imagen remota nunca se descarga: el DOCX se arma en la máquina que
+	// compila y un documento no confiable le haría pedir cualquier URL.
+	if u, err := url.Parse(strings.TrimSpace(source)); err == nil && (u.Scheme != "" && u.Scheme != "file" || u.Host != "") {
+		g.logger.Warn("DOCX: %s %q was not downloaded: DOCX output never fetches remote images", where, source)
+		return "", domain.ImageSize{}, false
+	}
 	// elem.Source es contenido del documento (no confiable): docxgo lee el
 	// path directo con os.ReadFile sin ninguna sanitización propia, a
 	// diferencia del path HTML (que sí aplica SanitizeURL) — sin confinar

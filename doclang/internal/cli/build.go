@@ -28,30 +28,31 @@ func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, ext
 	policyResolver func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error),
 	postLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error) *cobra.Command {
 	var (
-		format          string
-		output          string
-		toc             bool
-		numbering       bool
-		pageBreaks      bool
-		logLevel        string
-		renderMode      string   // Global: "browser", "offline-assets", "offline-inline" (applies to all: PlantUML, Mermaid, Charts, Maps)
-		imageFormat     string   // "png" or "webp" (for offline modes)
-		webpQuality     int      // WebP quality: 1-100 (default 85)
-		plantumlServer  string   // Custom PlantUML server URL
-		plantumlFormat  string   // "svg" or "png"
-		diagramBackend  string   // "chromium" (default) or "kroki" (no Chromium needed for mermaid/plantuml)
-		krokiServer     string   // Custom Kroki server URL (default: public https://kroki.io)
-		chromiumPath    string   // Custom Chromium/Chrome path
-		installChromium bool     // Auto-install Chromium if not found
-		maxSizeMB       int      // Maximum input file size in MB (0 = use default/env)
-		assetRoot       string   // Confinement root for local image sources (default: --base-dir, else the input file's directory)
-		baseDir         string   // Directory relative image sources and @include paths resolve from (default: input file's directory)
-		lintOnly        bool     // Only run the linter, don't generate output
-		lintConfig      string   // Path to a YAML linter policy file (flag > frontmatter lint_policy: > default, ver linter.ResolvePolicyConfig)
-		reportFormat    string   // Formato de reporte de linter (json, sarif)
-		reportOut       string   // Archivo de salida para el reporte
-		filters         []string // Rutas a binarios de filtro externo (issue #240, decisión C) — ver core/transform
-		includeRoot     string   // Confinement root for @include (issue #238, decisión 3) — default: --base-dir, else the input file's directory
+		format            string
+		output            string
+		toc               bool
+		numbering         bool
+		pageBreaks        bool
+		logLevel          string
+		renderMode        string   // Global: "browser", "offline-assets", "offline-inline" (applies to all: PlantUML, Mermaid, Charts, Maps)
+		imageFormat       string   // "png" or "webp" (for offline modes)
+		webpQuality       int      // WebP quality: 1-100 (default 85)
+		plantumlServer    string   // Custom PlantUML server URL
+		plantumlFormat    string   // "svg" or "png"
+		diagramBackend    string   // "chromium" (default) or "kroki" (no Chromium needed for mermaid/plantuml)
+		krokiServer       string   // Custom Kroki server URL (default: public https://kroki.io)
+		chromiumPath      string   // Custom Chromium/Chrome path
+		installChromium   bool     // Auto-install Chromium if not found
+		maxSizeMB         int      // Maximum input file size in MB (0 = use default/env)
+		assetRoot         string   // Confinement root for local image sources (default: --base-dir, else the input file's directory)
+		baseDir           string   // Directory relative image sources and @include paths resolve from (default: input file's directory)
+		allowRemoteImages bool     // Let build-time outputs fetch http(s) images from the document (default off)
+		lintOnly          bool     // Only run the linter, don't generate output
+		lintConfig        string   // Path to a YAML linter policy file (flag > frontmatter lint_policy: > default, ver linter.ResolvePolicyConfig)
+		reportFormat      string   // Formato de reporte de linter (json, sarif)
+		reportOut         string   // Archivo de salida para el reporte
+		filters           []string // Rutas a binarios de filtro externo (issue #240, decisión C) — ver core/transform
+		includeRoot       string   // Confinement root for @include (issue #238, decisión 3) — default: --base-dir, else the input file's directory
 	)
 
 	cmd := &cobra.Command{
@@ -186,22 +187,23 @@ Examples:
 			}
 
 			if err := pipeline.Generate(log, prepared, inputFile, pipeline.GenerateOptions{
-				Format:          format,
-				OutputFile:      outputFile,
-				TOC:             tocOpt,
-				Numbering:       numberingOpt,
-				PageBreaks:      pageBreaks,
-				RenderMode:      renderMode,
-				ImageFormat:     imageFormat,
-				WebPQuality:     webpQuality,
-				PlantUMLServer:  plantumlServer,
-				PlantUMLFormat:  plantumlFormat,
-				DiagramBackend:  diagramBackend,
-				KrokiServer:     krokiServer,
-				ChromiumPath:    chromiumPath,
-				InstallChromium: installChromium,
-				AssetRoot:       roots.AssetRoot,
-				SourceDir:       roots.SourceDir,
+				Format:            format,
+				OutputFile:        outputFile,
+				TOC:               tocOpt,
+				Numbering:         numberingOpt,
+				PageBreaks:        pageBreaks,
+				RenderMode:        renderMode,
+				ImageFormat:       imageFormat,
+				WebPQuality:       webpQuality,
+				PlantUMLServer:    plantumlServer,
+				PlantUMLFormat:    plantumlFormat,
+				DiagramBackend:    diagramBackend,
+				KrokiServer:       krokiServer,
+				ChromiumPath:      chromiumPath,
+				InstallChromium:   installChromium,
+				AssetRoot:         roots.AssetRoot,
+				SourceDir:         roots.SourceDir,
+				AllowRemoteImages: allowRemoteImages,
 			}); err != nil {
 				return err
 			}
@@ -244,6 +246,7 @@ Examples:
 	cmd.Flags().StringVar(&chromiumPath, "chromium-path", "", "Custom path to Chromium/Chrome/Edge executable")
 	cmd.Flags().BoolVar(&installChromium, "install-chromium", false, "Auto-install Chromium if not found")
 	cmd.Flags().IntVar(&maxSizeMB, "max-size", 0, "Maximum input file size in MB (default: 10MB, override via DOCLANG_MAX_SIZE env var)")
+	cmd.Flags().BoolVar(&allowRemoteImages, "allow-remote-images", false, "Let pdf and --render-mode offline-* HTML show http(s) images from the document. Off by default: those outputs are rendered on this machine, so a remote image would make it fetch that URL; without the flag such images are left as a marker with a warning. Browser-mode HTML is unaffected, and docx never downloads images")
 	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: --base-dir, else the input file's directory); relative sources resolve from --base-dir, and absolute paths or '..' outside the root are rejected")
 	cmd.Flags().StringVar(&baseDir, "base-dir", "", "Directory relative image sources and @include paths resolve from (default: the input file's directory; a relative path resolves from the current directory). For building a temporary copy of a file: it also becomes the default --asset-root and --include-root, and must be inside --asset-root. An explicit --include-root need not contain it (includes then resolve from the include root). Images are only read at build time for docx, pdf and --render-mode offline-*; browser-mode HTML keeps each relative src as written")
 	cmd.Flags().BoolVar(&lintOnly, "lint-only", false, "Only run the linter, don't generate output")

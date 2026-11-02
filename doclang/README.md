@@ -98,6 +98,7 @@ doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`
 | `--base-dir` | *(input file's dir)* | Directory relative image sources and `@include` paths resolve from. For building a temporary copy of a file (an editor buffer with unsaved changes, a generated file that `@include`s real ones): the input file is then only a carrier, so `--base-dir` also becomes the default of `--asset-root` and `--include-root`. It must exist, be a directory and sit inside `--asset-root`. A relative path resolves from the current directory, like `--asset-root` and `--include-root`. An explicit `--include-root` doesn't have to contain it: `@include` paths then resolve from the include root. Images are only read at build time for DOCX, PDF and `--render-mode offline-*` HTML; in the default `browser` mode HTML keeps each relative `src` as written, so `--base-dir` doesn't change it. |
 | `--include-root` | *(`--base-dir`, else input file's dir)* | Directory `@include` paths resolve from and are confined to, at every nesting level (a nested `@include` resolves from this root, not from the file that contains it). Absolute paths and `..` escapes are rejected. |
 | `--asset-root` | *(`--base-dir`, else input file's dir)* | Same confinement for local image sources. Relative sources resolve from `--base-dir` (by default, the input file's directory); the root only bounds what can be read (e.g. `--asset-root ..` allows `../shared/b.png`). |
+| `--allow-remote-images` | off | Lets PDF and `--render-mode offline-*` HTML show `http(s)` images from the document. Off by default: those outputs are rendered on the machine that builds them, so a remote image in an untrusted document would make it fetch that URL. Without the flag such images are left as a marker with a warning, and the page's CSP only allows `data:` and same-origin images. Browser-mode HTML is unaffected (the reader's browser loads the image), and DOCX never downloads images. |
 | `--max-size` | 10 MB | Input size cap. Also settable via `DOCLANG_MAX_SIZE`. |
 
 ### Interactive elements
@@ -165,6 +166,7 @@ The fifth, `export`, writes DOCX, PDF or HTML for a file on disk with the same p
 | `toc` | optional; without it the front matter decides, as in `build` |
 | `baseDir` | optional, like `build --base-dir`: the directory relative images and `@include` paths resolve from, inside the root. Defaults to the input file's directory. HTML export uses `browser` mode, which keeps each relative `src` as written, so for HTML `baseDir` only affects `@include` |
 | `includeRoot` | optional, like `build --include-root`. Defaults to `baseDir` |
+| `allowRemoteImages` | optional, like `build --allow-remote-images`; default `false`, so a PDF export leaves the document's `http(s)` images as a marker with a warning instead of fetching them |
 
 The result is `{outputPath, format, bytes, diagnostics}`, with `outputPath` relative to the
 root. Lint errors come back as an error result carrying the diagnostics, as in `lint`.

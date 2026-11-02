@@ -94,6 +94,8 @@ type exportInput struct {
 	IncludeRoot string `json:"includeRoot,omitempty" jsonschema:"directory @include paths resolve against and are confined to, relative to the server root or absolute inside it (like doclang build --include-root). Defaults to baseDir, or the input file's directory"`
 	// BaseDir es el --base-dir de `doclang build`.
 	BaseDir string `json:"baseDir,omitempty" jsonschema:"directory relative image sources and @include paths resolve from, relative to the server root or absolute inside it (like doclang build --base-dir); for exporting a temporary copy of a file. Defaults to the input file's directory. HTML export keeps relative image src as written (browser mode), so for html it only affects @include"`
+	// AllowRemoteImages es el --allow-remote-images de `doclang build`.
+	AllowRemoteImages bool `json:"allowRemoteImages,omitempty" jsonschema:"let a pdf export show the document's http(s) images (like doclang build --allow-remote-images). Default false: the PDF is rendered on this machine, so remote images are left as a marker with a warning instead of being fetched. HTML export (browser mode) is unaffected and docx never downloads images"`
 }
 
 type exportOutput struct {
@@ -332,19 +334,20 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 	// servidor MCP es un no-op y el cliente no vería nada.
 	genLog := newDiagnosticLogger(logger, cfg.redactGenerator)
 	if err := pipeline.Generate(genLog, prepared, inputName, pipeline.GenerateOptions{
-		Ctx:             ctx,
-		Format:          format,
-		OutputFile:      tmpPath,
-		TOC:             in.TOC,
-		RenderMode:      exportRenderMode,
-		ImageFormat:     "png",
-		WebPQuality:     85,
-		PlantUMLFormat:  "svg",
-		DiagramBackend:  "chromium",
-		ChromiumPath:    cfg.chromiumPath,
-		InstallChromium: false, // nunca se descarga nada desde el MCP
-		AssetRoot:       cfg.root.dir,
-		SourceDir:       baseDir, // junto al archivo o en baseDir, confinado a --root
+		Ctx:               ctx,
+		Format:            format,
+		OutputFile:        tmpPath,
+		TOC:               in.TOC,
+		RenderMode:        exportRenderMode,
+		ImageFormat:       "png",
+		WebPQuality:       85,
+		PlantUMLFormat:    "svg",
+		DiagramBackend:    "chromium",
+		ChromiumPath:      cfg.chromiumPath,
+		InstallChromium:   false, // nunca se descarga nada desde el MCP
+		AssetRoot:         cfg.root.dir,
+		SourceDir:         baseDir, // junto al archivo o en baseDir, confinado a --root
+		AllowRemoteImages: in.AllowRemoteImages,
 	}); err != nil {
 		return nil, &exportError{Error: err.Error(), Diagnostics: append(prepared.Diagnostics(), genLog.diagnostics()...)}
 	}
