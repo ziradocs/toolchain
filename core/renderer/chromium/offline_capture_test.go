@@ -91,33 +91,79 @@ func TestRenderChartToPNG_EmbeddedChartJS(t *testing.T) {
 	}
 }
 
+// mathCase es una fórmula y los nodos MathML que su SVG tiene que traer: no
+// basta con que no haya error, porque un macro que no cargó se dibuja como su
+// nombre en rojo (un mtext) y eso también "sale".
+type mathCase struct {
+	latex string
+	nodes []string
+}
+
+func assertMathRenders(t *testing.T, r *ChromiumRenderer, c mathCase) {
+	t.Helper()
+	svg, err := r.RenderMathToSVGWithTheme(context.Background(), c.latex, renderer.DiagramThemeColors{})
+	if err != nil {
+		t.Errorf("%s: %v", c.latex, err)
+		return
+	}
+	if !strings.HasPrefix(svg, "<svg") || strings.Contains(svg, "data-mjx-error") {
+		t.Errorf("%s: unexpected SVG: %.200s", c.latex, svg)
+	}
+	if bare := regexp.MustCompile(`data-mml-node="mtext"[^>]*data-latex="\\[A-Za-z]+"`).FindString(svg); bare != "" {
+		t.Errorf("%s: an undefined macro was drawn as text: %s", c.latex, bare)
+	}
+	for _, n := range c.nodes {
+		if !strings.Contains(svg, `data-mml-node="`+n+`"`) {
+			t.Errorf("%s: SVG has no %s node", c.latex, n)
+		}
+	}
+}
+
 // TestRenderMath_OfflineFontsAndExtensions: fórmulas que piden glifos o
-// extensiones que tex-svg.js no trae (y que sin red no salían en absoluto)
-// salen con la precarga embebida.
+// extensiones que tex-svg.js no trae (y que sin red no salían en absoluto,
+// o salían con el macro en rojo y sin aviso) salen con lo embebido.
 func TestRenderMath_OfflineFontsAndExtensions(t *testing.T) {
 	r := newTestChromiumRenderer(t)
-	for _, latex := range []string{
-		`\int_0^1 x^2\,dx = \frac{1}{3}`,
-		`\mathbb{R}^n \to \mathfrak{g}`,      // fuentes dinámicas
-		`\text{acción}`,                      // latín acentuado
-		`\boldsymbol{\alpha} + \color{red}x`, // extensiones
-		`\ce{H2O}`,
-		// Los de la revisión de #455: negrita y cursiva acentuadas, cirílico
-		// y una fórmula que pide muchos archivos a la vez (antes se agregaba
-		// uno por intento y se agotaban los intentos).
-		`\textbf{información} \mathbf{é}`,
-		`\textbf{\textit{café}}`,
-		`\text{Привет}`,
-		`\mathbb{R} \mathfrak{g} \mathscr{F} \mathsf{A} \mathtt{B} \text{ñ} \textbf{é} \textit{ç} \text{Ж} \boldsymbol{\alpha} \color{red}{x} \cancel{y} \ce{H2O} \braket{a|b} \SI{3}{m} \xrightarrow{f} \mathcal{O} \bbox[yellow]{z} \upalpha`,
+	for _, c := range []mathCase{
+		{`\int_0^1 x^2\,dx = \frac{1}{3}`, []string{"msubsup", "mfrac"}},
+		{`\mathbb{R}^n \to \mathfrak{g}`, []string{"msup"}}, // fuentes dinámicas
+		{`\text{acción}`, []string{"mtext"}},                // latín acentuado
+		// Los de las revisiones de #455.
+		{`\textbf{información} \mathbf{é}`, []string{"mtext", "mi"}},
+		{`\textbf{\textit{café}}`, []string{"mtext"}},
+		{`\text{Привет}`, []string{"mtext"}},
+		{`\cancel{y}`, []string{"menclose"}}, // autoload; cancel depende de enclose
+		{`\bcancel{y}`, []string{"menclose"}},
+		{`\require{cancel}\cancel{z}`, []string{"menclose"}},
+		{`\require{colortbl}\begin{array}{c}\rowcolor{yellow} a \\ b\end{array}`, []string{"mtable"}},        // depende de color
+		{`\require{cases}\begin{numcases}{f(x)=} 1 & x>0 \\ 0 & x \le 0 \end{numcases}`, []string{"mtable"}}, // depende de empheq
+		{`\boldsymbol{\alpha} + \color{red}x`, []string{"mstyle"}},
+		{`\ce{H2O}`, []string{"msub"}}, // mhchem y su fuente
+		{`\mathbb{R} \mathfrak{g} \mathscr{F} \mathsf{A} \mathtt{B} \text{ñ} \textbf{é} \textit{ç} \text{Ж} \boldsymbol{\alpha} \color{red}{x} \cancel{y} \ce{H2O} \braket{a|b} \xrightarrow{f} \mathcal{O} \bbox[yellow]{z}`, []string{"menclose", "mtext"}},
+		// Una muestra de cada extensión embebida, pedida con \require.
+		{`\require{action}\toggle{a}{b}\endtoggle`, []string{"maction"}},
+		{`\require{amscd}\begin{CD} A @>>> B \end{CD}`, []string{"mtable", "mover"}},
+		{`\require{bbox}\bbox[yellow]{x}`, []string{"mstyle"}},
+		{`\require{begingroup}\begingroup x \endgroup`, []string{"mi"}},
+		{`\require{braket}\braket{a|b}`, []string{"mrow"}},
+		{`\require{bussproofs}\begin{prooftree}\AxiomC{A}\UnaryInfC{B}\end{prooftree}`, []string{"mtable"}},
+		{`\require{centernot}x \centernot\implies y`, []string{"mphantom"}},
+		{`\require{colorv2}\color{red}{x}`, []string{"mstyle"}},
+		{`\require{empheq}\begin{empheq}[left=\empheqlbrace]{align} a&=b \end{empheq}`, []string{"mtable"}},
+		{`\require{enclose}\enclose{circle}{x}`, []string{"menclose"}},
+		{`\require{extpfeil}\xmapsto{f}`, []string{"mover"}},
+		{`\require{fontsizev3}{\large x}`, []string{"mstyle"}},
+		{`\require{gensymb}\degree`, []string{"mi"}},
+		{`\require{mathtools}a \coloneqq b`, []string{"mpadded"}},
+		{`\require{noerrors}x`, []string{"mi"}},
+		{`\require{physics}\dv{f}{x}`, []string{"mfrac"}},
+		{`\require{textcomp}\text{\textdegree}`, []string{"mtext"}},
+		{`\require{unicode}\unicode{x263A}`, []string{"mtext"}},
+		{`\require{units}\nicefrac{1}{2}`, []string{"mfrac"}},
+		{`\require{upgreek}\upalpha`, []string{"mi"}},
+		{`\require{verb}\verb|x|`, []string{"mtext"}},
 	} {
-		svg, err := r.RenderMathToSVGWithTheme(context.Background(), latex, renderer.DiagramThemeColors{})
-		if err != nil {
-			t.Errorf("%s: %v", latex, err)
-			continue
-		}
-		if !strings.HasPrefix(svg, "<svg") || strings.Contains(svg, "data-mjx-error") {
-			t.Errorf("%s: unexpected SVG: %.200s", latex, svg)
-		}
+		assertMathRenders(t, r, c)
 	}
 }
 

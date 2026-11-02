@@ -6,149 +6,138 @@
 package chromium
 
 import (
+	"context"
 	"embed"
+	"encoding/base64"
 	"path"
-	"regexp"
 	"strings"
-	"sync"
+
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/fetch"
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/chromedp"
 )
 
 // embeddedMathJaxJS es el mismo bundle que carga el HTML en modo browser
 // (renderer.MathCDNScriptTag: mathjax@4.1.3/tex-svg.js), copiado tal cual de
 // jsDelivr; TestEmbeddedMathJax_MatchesCDNIntegrity fija que su sha384 sea el
 // hash SRI de ese tag. Licencia Apache-2.0: third_party/mathjax/LICENSE y
-// NOTICE.
-//
-// tex-svg.js solo no basta sin red. MathJax 4 carga a demanda, desde
-// jsDelivr, dos cosas que el bundle no trae:
-//
-//   - los glifos menos comunes de la fuente (\mathbb, \mathfrak, \mathscr,
-//     \mathsf, \mathtt, letras acentuadas dentro de \text{}, algunas flechas
-//     y símbolos): sin ellos el typeset entero se rechaza con "dynamic file
-//     'double-struck' failed to load" y no sale nada;
-//   - las extensiones de TeX que no vienen precargadas (\boldsymbol, \color,
-//     \ce, \bra/\ket, ...): sin ellas la fórmula sale con el error en rojo
-//     "Extension "color" failed to load".
-//
-// Los dos se embeben acá (mathJaxAssets). El primer render va con el bundle
-// solo, que alcanza para la mayoría de las fórmulas; si la página reporta que
-// le faltó un archivo embebido, se repite una sola vez con TODOS los archivos
-// precargados (ver renderMathWithPreload). Antes se agregaba un archivo por
-// intento y una fórmula que pedía muchos agotaba los intentos.
-//
-// Además de lo que pide la fórmula, siempre va ui/safe (mathjax@4.1.3
-// ui/safe.js, 6 KB): filtra los atributos que el autor puede poner con
-// \bbox, \color y compañía (URLs externas en estilos, clases, ids), para que
-// el SVG que termina en el HTML offline o en el PDF no pida nada a la red.
+// NOTICE (los glifos de la fuente que trae adentro: FONT-LICENSE).
 //
 //go:embed third_party/mathjax/tex-svg.js
 var embeddedMathJaxJS string
 
 var embeddedMathJaxScriptTag = inlineScriptTag(embeddedMathJaxJS)
 
-//go:embed third_party/mathjax/ui/safe.js
-var embeddedMathJaxSafeJS string
-
-var embeddedMathJaxSafeScriptTag = inlineScriptTag(embeddedMathJaxSafeJS) +
-	`<script>MathJax.loader.preLoaded("ui/safe")</script>`
-
-// mathJaxAssets son las extensiones de TeX de mathjax@4.1.3 que tex-svg.js no
-// precarga (menos html y texhtml, que meten HTML/enlaces del autor en la
-// salida) y los 40 archivos dinámicos de la fuente
-// @mathjax/mathjax-newcm-font 4.1.3, la versión de la que depende
-// mathjax@4.1.3 (su package.json pide ^4.1.3) y la que el modo browser carga
-// del CDN. Una fórmula que necesite algo que no está acá (una extensión
-// excluida) falla con un aviso, no en silencio.
+// mathJaxAssets es lo que MathJax 4 carga a demanda y tex-svg.js no trae:
+//
+//   - las extensiones de TeX de mathjax@4.1.3 que no vienen precargadas
+//     (\cancel, \boldsymbol, \color, \ce, numcases, ...), menos html y
+//     texhtml, que meten HTML/enlaces del autor en la salida;
+//   - ui/safe de mathjax@4.1.3, que filtra los estilos, clases, ids y URLs
+//     que el autor pone con \bbox y compañía, para que el SVG que termina en
+//     el HTML offline o en el PDF no pida nada a la red;
+//   - los 40 archivos dinámicos de la fuente @mathjax/mathjax-newcm-font
+//     4.1.3 (la versión de la que depende mathjax@4.1.3, su package.json pide
+//     ^4.1.3): glifos de \mathbb, \mathfrak, \mathscr, \mathsf, acentos y
+//     alfabetos no latinos;
+//   - svg.js de @mathjax/mathjax-mhchem-font-extension 4.1.3 (14 KB), los
+//     glifos que pide la extensión mhchem (\ce). Las otras extensiones con
+//     fuente propia (bbm, bboldx, dsfont) no se embeben: la licencia de sus
+//     glifos no está identificada, así que \require{bbm} y compañía siguen
+//     necesitando red y sin ella fallan con un aviso.
+//
+// No se inyectan en la página: MathJax los pide como siempre, por URL, a
+// mathJaxAssetOrigin, y serveMathAssets contesta cada pedido desde acá
+// interceptándolo en Chromium (Fetch domain). Así el loader de MathJax
+// resuelve solo las dependencias entre extensiones (cancel necesita
+// enclose, cases necesita empheq) y cada fórmula carga únicamente lo que
+// usa, como en el modo browser. Lo que no está acá se rechaza sin salir a la
+// red y la fórmula falla con un aviso.
 //
 //go:embed third_party/mathjax/input/tex/extensions/*.js
+//go:embed third_party/mathjax/ui/safe.js
 //go:embed third_party/mathjax-newcm-font/svg/dynamic/*.js
+//go:embed third_party/mathjax-mhchem-font-extension/svg.js
 var mathJaxAssets embed.FS
 
-const (
-	mathJaxExtensionDir = "third_party/mathjax/input/tex/extensions"
-	mathJaxFontDir      = "third_party/mathjax-newcm-font/svg/dynamic"
-)
+// mathJaxAssetOrigin es el origen ficticio desde el que MathJax pide sus
+// archivos. .invalid es un TLD reservado (RFC 2606) que nunca resuelve: si la
+// intercepción fallara, el pedido tampoco saldría a ningún servidor.
+const mathJaxAssetOrigin = "https://mathjax.offline.invalid"
 
-// mathPreload dice qué se precarga en una página de math además de
-// tex-svg.js y ui/safe: nada (el primer intento) o todos los archivos
-// embebidos.
-type mathPreload struct {
-	all bool
-}
-
-// scripts devuelve los <script> inline de la precarga.
-func (p mathPreload) scripts() string {
-	if !p.all {
-		return ""
+// mathJaxAssetPath traduce la URL que pide MathJax a la ruta en
+// mathJaxAssets, y false si no es un archivo embebido.
+func mathJaxAssetPath(url string) (string, bool) {
+	rest, ok := strings.CutPrefix(url, mathJaxAssetOrigin+"/")
+	if !ok {
+		return "", false
 	}
-	allMathPreloadOnce.Do(func() { allMathPreloadScripts = buildAllMathPreloadScripts() })
-	return allMathPreloadScripts
+	if i := strings.IndexAny(rest, "?#"); i >= 0 {
+		rest = rest[:i]
+	}
+	var p string
+	switch {
+	case strings.HasPrefix(rest, "mathjax/"):
+		p = "third_party/" + rest
+	case strings.HasPrefix(rest, "fonts/mathjax-newcm-font/"),
+		strings.HasPrefix(rest, "fonts/mathjax-mhchem-font-extension/"):
+		p = "third_party/" + strings.TrimPrefix(rest, "fonts/")
+	default:
+		return "", false
+	}
+	if path.Clean(p) != p || !strings.HasSuffix(p, ".js") {
+		return "", false
+	}
+	if _, err := mathJaxAssets.Open(p); err != nil {
+		return "", false
+	}
+	return p, true
 }
 
-var (
-	allMathPreloadOnce    sync.Once
-	allMathPreloadScripts string
-)
-
-// buildAllMathPreloadScripts arma cada archivo embebido seguido de
-// MathJax.loader.preLoaded con el mismo nombre que el loader pediría, así el
-// pedido se resuelve sin red.
-func buildAllMathPreloadScripts() string {
-	var b strings.Builder
-	add := func(dir, loaderPrefix string) {
-		entries, err := mathJaxAssets.ReadDir(dir)
-		if err != nil {
-			return
+// serveMathAssets activa la intercepción de pedidos del tab: un pedido a un
+// archivo embebido se contesta con ese archivo y cualquier otro se rechaza.
+// La página no tiene ningún otro origen permitido en su CSP, así que esto
+// cubre todo lo que podría pedir.
+func serveMathAssets() chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		c := chromedp.FromContext(ctx)
+		if c == nil || c.Target == nil {
+			return fetch.Enable().Do(ctx)
 		}
-		for _, e := range entries {
-			data, err := mathJaxAssets.ReadFile(path.Join(dir, e.Name()))
-			if err != nil {
-				continue
+		executor := cdp.WithExecutor(ctx, c.Target)
+		chromedp.ListenTarget(ctx, func(ev interface{}) {
+			e, ok := ev.(*fetch.EventRequestPaused)
+			if !ok {
+				return
 			}
-			b.WriteString(inlineScriptTag(string(data)))
-			b.WriteString(`<script>MathJax.loader.preLoaded("` + loaderPrefix + strings.TrimSuffix(e.Name(), ".js") + `")</script>`)
-		}
-	}
-	add(mathJaxExtensionDir, "[tex]/")
-	add(mathJaxFontDir, "[mathjax-newcm]/svg/dynamic/")
-	return b.String()
-}
-
-var (
-	mathMissingFontRe      = regexp.MustCompile(`dynamic file '([A-Za-z0-9-]+)' failed to load`)
-	mathMissingExtensionRe = regexp.MustCompile(`Extension "([A-Za-z0-9-]+)" failed to load`)
-)
-
-// needsFullPreload dice si msg (el error que reportó la página) nombra un
-// archivo embebido: ahí vale la pena repetir con todo precargado. Si nombra
-// uno que no está embebido, o es otro error (LaTeX inválido), repetir no
-// cambiaría nada.
-func needsFullPreload(msg string) bool {
-	if m := mathMissingFontRe.FindStringSubmatch(msg); m != nil {
-		return mathAssetEmbedded(mathJaxFontDir, m[1])
-	}
-	if m := mathMissingExtensionRe.FindStringSubmatch(msg); m != nil {
-		return mathAssetEmbedded(mathJaxExtensionDir, m[1])
-	}
-	return false
-}
-
-func mathAssetEmbedded(dir, name string) bool {
-	_, err := mathJaxAssets.Open(path.Join(dir, name+".js"))
-	return err == nil
+			// No se puede contestar dentro del listener (bloquearía la
+			// lectura de eventos de chromedp).
+			go func() {
+				if p, ok := mathJaxAssetPath(e.Request.URL); ok {
+					if data, err := mathJaxAssets.ReadFile(p); err == nil {
+						_ = fetch.FulfillRequest(e.RequestID, 200).
+							WithResponseHeaders([]*fetch.HeaderEntry{{Name: "Content-Type", Value: "text/javascript; charset=utf-8"}}).
+							WithBody(base64.StdEncoding.EncodeToString(data)).
+							Do(executor)
+						return
+					}
+				}
+				_ = fetch.FailRequest(e.RequestID, network.ErrorReasonBlockedByClient).Do(executor)
+			}()
+		})
+		return fetch.Enable().WithPatterns([]*fetch.RequestPattern{{URLPattern: "*"}}).Do(ctx)
+	})
 }
 
 // mathJaxConfigScript configura MathJax antes de que cargue:
 //
-//   - loader.paths.mathjax es la URL del CDN de la que el bundle se habría
-//     cargado. Inline, MathJax no tiene de dónde sacar su raíz y la página
-//     es about:blank, así que `new URL(raíz, location)` lanzaba "Invalid URL"
-//     y MathJax no arrancaba. Nada se pide a esa URL: lo que hace falta va
-//     precargado y la CSP no deja salir a la red.
-//   - startup.ready espera a mathAssetsLoadedScript, el último <script> del
-//     <head>: el bundle puede llegar a su ready entre un <script> inline y el
-//     siguiente, y ui/safe tiene que registrarse antes de que MathJax arme el
-//     documento (si no, no filtra nada).
+//   - loader.paths apunta mathjax y fonts a mathJaxAssetOrigin (ver
+//     serveMathAssets). Además, inline MathJax no tiene de dónde sacar su
+//     raíz y la página es about:blank: sin una raíz absoluta,
+//     `new URL(raíz, location)` lanzaba "Invalid URL" y MathJax no arrancaba.
+//   - loader.load incluye ui/safe, así startup espera a que cargue antes de
+//     armar el documento (si se registrara después, no filtraría nada).
 //   - si el typeset se rechaza (un archivo de fuente que no cargó), o termina
 //     sin ninguna ecuación (un "{" sin cerrar se come el \] de cierre y
 //     MathJax no ve nada que tipografiar), el motivo queda en
@@ -156,9 +145,7 @@ func mathAssetEmbedded(dir, name string) bool {
 //     éxito no se señala desde acá: la promesa de MathJax puede quedar
 //     pendiente del worker de accesibilidad (que la CSP bloquea), así que
 //     mathStateJS mira el DOM.
-const mathJaxConfigScript = `<script>window.MathJax = { loader: { paths: { mathjax: 'https://cdn.jsdelivr.net/npm/mathjax@4.1.3' } }, startup: { ready: function () {
-  if (window.__mathAssetsLoaded) { MathJax.startup.defaultReady(); } else { window.__mathReady = function () { MathJax.startup.defaultReady(); }; }
-}, pageReady: function () {
+const mathJaxConfigScript = `<script>window.MathJax = { loader: { load: ['ui/safe'], paths: { mathjax: '` + mathJaxAssetOrigin + `/mathjax', fonts: '` + mathJaxAssetOrigin + `/fonts' } }, startup: { pageReady: function () {
   return MathJax.startup.defaultPageReady().then(function () {
     if (!document.querySelector('mjx-container')) {
       window.__renderError = 'MathJax found no equation to typeset (unbalanced braces?)';
@@ -170,33 +157,42 @@ const mathJaxConfigScript = `<script>window.MathJax = { loader: { paths: { mathj
 
 // mathStateJS es renderStateJS para math: listo cuando hay un
 // mjx-container con su <svg>; error si la página lo reportó o si MathJax
-// dibujó un error dentro de la fórmula (data-mjx-error: LaTeX inválido o una
-// extensión que no cargó). Antes ese error en rojo terminaba en el
-// documento sin ningún aviso.
+// dibujó un error dentro de la fórmula. Antes esos errores en rojo terminaban
+// en el documento sin ningún aviso. Son dos formas:
+//
+//   - data-mjx-error: LaTeX inválido, un entorno desconocido, una extensión
+//     que no cargó;
+//   - un macro no definido: la extensión noundefined lo dibuja como su nombre
+//     en rojo (un mtext rojo cuyo data-latex es el macro pelado, "\foo"), sin
+//     data-mjx-error.
 const mathStateJS = `(() => {
   if (window.__renderError) { return {error: String(window.__renderError)}; }
   const c = document.querySelector('mjx-container');
   if (!c) { return null; }
   const e = c.querySelector('[data-mjx-error]');
   if (e) { return {error: 'MathJax: ' + e.getAttribute('data-mjx-error')}; }
+  for (const t of c.querySelectorAll('[data-mml-node="mtext"]')) {
+    const latex = t.getAttribute('data-latex') || '';
+    if (/^\\[A-Za-z]+$/.test(latex) && (t.getAttribute('fill') === 'red' || t.getAttribute('color') === 'red')) {
+      return {error: 'MathJax: undefined control sequence ' + latex};
+    }
+  }
   if (c.querySelector('svg')) { return {ready: true}; }
   return null;
 })()`
 
-// mathRenderCSP es la CSP de las páginas de math: sin ningún origen de red,
-// porque MathJax y lo que precarga van inline.
-const mathRenderCSP = mermaidRenderCSP
-
-// mathAssetsLoadedScript libera el startup.ready de mathJaxConfigScript
-// cuando ya corrieron ui/safe y la precarga.
-const mathAssetsLoadedScript = `<script>window.__mathAssetsLoaded = true; if (window.__mathReady) { window.__mathReady(); }</script>`
+// mathRenderCSP es la CSP de las páginas de math: el bundle va inline y lo
+// demás solo puede venir de mathJaxAssetOrigin, que nunca sale a la red
+// (serveMathAssets).
+const mathRenderCSP = "default-src 'none'; script-src 'unsafe-inline' " + mathJaxAssetOrigin + "; " +
+	"style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none';"
 
 // mathPageHead son las etiquetas del <head> de una página de math: CSP,
-// configuración, el bundle, ui/safe, la precarga y la señal de que ya está
-// todo, en ese orden (ui/safe y la precarga usan MathJax.loader, que existe
-// recién después del bundle).
-func mathPageHead(p mathPreload) string {
+// configuración y el bundle, en ese orden.
+func mathPageHead() string {
 	return `<meta http-equiv="Content-Security-Policy" content="` + mathRenderCSP + `">
     ` + mathJaxConfigScript + `
-    ` + embeddedMathJaxScriptTag + embeddedMathJaxSafeScriptTag + p.scripts() + mathAssetsLoadedScript
+    ` + embeddedMathJaxScriptTag
 }
+
+const mathJaxFontDir = "third_party/mathjax-newcm-font/svg/dynamic"

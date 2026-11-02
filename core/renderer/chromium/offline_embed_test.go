@@ -48,7 +48,6 @@ func TestEmbeddedBundles_HaveNoScriptClose(t *testing.T) {
 		"chart.js":              embeddedChartJS,
 		"chartjs-chart-treemap": embeddedChartJSTreemap,
 		"mathjax":               embeddedMathJaxJS,
-		"mathjax ui/safe":       embeddedMathJaxSafeJS,
 	}
 	err := fs.WalkDir(mathJaxAssets, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -72,12 +71,17 @@ func TestEmbeddedBundles_HaveNoScriptClose(t *testing.T) {
 }
 
 // TestCaptureCSPs_AllowNoNetwork: ninguna página de captura de chart o math
-// puede pedir nada a la red.
+// puede pedir nada a la red. La de math solo admite mathJaxAssetOrigin, un
+// dominio .invalid que serveMathAssets contesta desde el binario.
 func TestCaptureCSPs_AllowNoNetwork(t *testing.T) {
-	for name, csp := range map[string]string{"chart": chartRenderCSP, "math": mathRenderCSP} {
+	math := strings.ReplaceAll(mathRenderCSP, mathJaxAssetOrigin, "")
+	for name, csp := range map[string]string{"chart": chartRenderCSP, "math": math} {
 		if strings.Contains(csp, "https:") || strings.Contains(csp, "http:") {
 			t.Errorf("%s CSP allows a network origin: %s", name, csp)
 		}
+	}
+	if !strings.HasSuffix(mathJaxAssetOrigin, ".invalid") {
+		t.Errorf("mathJaxAssetOrigin %q must be under the reserved .invalid TLD", mathJaxAssetOrigin)
 	}
 }
 
@@ -129,46 +133,25 @@ func TestLeafletPage_ReportsScriptErrors(t *testing.T) {
 	}
 }
 
-// TestNeedsFullPreload fija la regla de reintento: solo se repite por un
-// archivo que está embebido.
-func TestNeedsFullPreload(t *testing.T) {
-	for msg, want := range map[string]bool{
-		"MathJax: Error: dynamic file 'double-struck' failed to load": true,
-		"MathJax: Error: dynamic file 'cyrillic' failed to load":      true,
-		"MathJax: Error: dynamic file 'no-such-file' failed to load":  false,
-		`MathJax: Extension "color" failed to load`:                   true,
-		`MathJax: Extension "html" failed to load`:                    false, // excluido a propósito
-		`MathJax: Extension "texhtml" failed to load`:                 false, // excluido a propósito
-		"MathJax: Missing close brace":                                false, // error del autor
+// TestMathJaxAssetPath fija qué URL sirve serveMathAssets: solo archivos
+// embebidos bajo mathJaxAssetOrigin, sin escapar del árbol.
+func TestMathJaxAssetPath(t *testing.T) {
+	o := mathJaxAssetOrigin
+	for url, want := range map[string]string{
+		o + "/mathjax/input/tex/extensions/cancel.js":            "third_party/mathjax/input/tex/extensions/cancel.js",
+		o + "/mathjax/ui/safe.js":                                "third_party/mathjax/ui/safe.js",
+		o + "/fonts/mathjax-newcm-font/svg/dynamic/latin.js":     "third_party/mathjax-newcm-font/svg/dynamic/latin.js",
+		o + "/fonts/mathjax-newcm-font/svg/dynamic/latin.js?v=1": "third_party/mathjax-newcm-font/svg/dynamic/latin.js",
+		o + "/mathjax/input/tex/extensions/html.js":              "", // excluida a propósito
+		o + "/mathjax/tex-svg.js":                                "", // va inline, no se sirve
+		o + "/mathjax/../mathjax/ui/safe.js":                     "",
+		o + "/mathjax/LICENSE":                                   "",
+		"https://cdn.jsdelivr.net/npm/mathjax@4.1.3/ui/safe.js":  "",
 	} {
-		if got := needsFullPreload(msg); got != want {
-			t.Errorf("needsFullPreload(%q) = %v, want %v", msg, got, want)
+		got, ok := mathJaxAssetPath(url)
+		if ok != (want != "") || got != want {
+			t.Errorf("mathJaxAssetPath(%q) = %q, %v; want %q", url, got, ok, want)
 		}
-	}
-}
-
-// TestMathPreload_Scripts: la precarga completa inyecta cada archivo
-// embebido y lo marca como cargado con el nombre que pediría el loader de
-// MathJax; la vacía no agrega nada.
-func TestMathPreload_Scripts(t *testing.T) {
-	got := mathPreload{all: true}.scripts()
-	for _, dir := range []struct{ dir, prefix string }{
-		{mathJaxExtensionDir, "[tex]/"},
-		{mathJaxFontDir, "[mathjax-newcm]/svg/dynamic/"},
-	} {
-		entries, err := mathJaxAssets.ReadDir(dir.dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, e := range entries {
-			name := dir.prefix + strings.TrimSuffix(e.Name(), ".js")
-			if !strings.Contains(got, `MathJax.loader.preLoaded("`+name+`")`) {
-				t.Errorf("full preload misses %s", name)
-			}
-		}
-	}
-	if (mathPreload{}).scripts() != "" {
-		t.Error("an empty preload must add nothing to the page")
 	}
 }
 
@@ -191,14 +174,16 @@ func TestEmbeddedMathFonts_AreTheWholeDynamicSet(t *testing.T) {
 	}
 }
 
-// TestMathPages_LoadSafe: toda página de math carga ui/safe.
+// TestMathPages_LoadSafe: toda página de math pide ui/safe por loader.load,
+// así startup lo espera antes de armar el documento.
 func TestMathPages_LoadSafe(t *testing.T) {
 	for _, html := range []string{buildMathSVGHTML(`x`), buildMathPNGHTML(`x`, 100, 100)} {
-		if !strings.Contains(html, embeddedMathJaxSafeScriptTag) {
+		if !strings.Contains(html, "load: ['ui/safe']") {
 			t.Error("math page does not load ui/safe")
 		}
 	}
-	if !strings.Contains(embeddedMathJaxSafeJS, `checkVersion("ui/safe","4.1.3"`) {
-		t.Error("ui/safe.js is not the 4.1.3 component")
+	data, err := mathJaxAssets.ReadFile("third_party/mathjax/ui/safe.js")
+	if err != nil || !strings.Contains(string(data), `checkVersion("ui/safe","4.1.3"`) {
+		t.Errorf("ui/safe.js is not the embedded 4.1.3 component (%v)", err)
 	}
 }

@@ -8,7 +8,6 @@ package chromium
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -165,18 +164,18 @@ func buildMathSVGHTML(latex string, themes ...renderer.DiagramThemeColors) strin
 	if len(themes) > 0 {
 		theme = themes[0]
 	}
-	return buildMathSVGPage(latex, theme, mathPreload{})
+	return buildMathSVGPage(latex, theme)
 }
 
-// buildMathSVGPage es buildMathSVGHTML con la precarga de recursos de
-// MathJax (ver mathPreload). MathJax va inline (math_embed.go), así que la
-// página no pide nada a la red.
-func buildMathSVGPage(latex string, theme renderer.DiagramThemeColors, preload mathPreload) string {
+// buildMathSVGPage es buildMathSVGHTML con el tema ya resuelto. MathJax va
+// inline y lo que carga a demanda lo sirve serveMathAssets (math_embed.go),
+// así que la página no pide nada a la red.
+func buildMathSVGPage(latex string, theme renderer.DiagramThemeColors) string {
 	return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    ` + mathPageHead(preload) + `
+    ` + mathPageHead() + `
     <style>
         ` + mathThemeCSS(theme) + `
         body { margin: 0; padding: 20px; background: white; }
@@ -198,15 +197,15 @@ func buildMathPNGHTML(latex string, width, height int, themes ...renderer.Diagra
 	if len(themes) > 0 {
 		theme = themes[0]
 	}
-	return buildMathPNGPage(latex, width, height, theme, mathPreload{})
+	return buildMathPNGPage(latex, width, height, theme)
 }
 
-func buildMathPNGPage(latex string, width, height int, theme renderer.DiagramThemeColors, preload mathPreload) string {
+func buildMathPNGPage(latex string, width, height int, theme renderer.DiagramThemeColors) string {
 	return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    ` + mathPageHead(preload) + `
+    ` + mathPageHead() + `
     <style>
         ` + mathThemeCSS(theme) + `
         body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; }
@@ -784,16 +783,14 @@ func (r *ChromiumRenderer) RenderMathToSVGWithTheme(ctx context.Context, latex s
 	}
 
 	var svgContent string
-	err := r.renderMathWithPreload(ctx, func(preload mathPreload) chromedp.Tasks {
+	err := r.renderMath(ctx, chromedp.Tasks{
 		// Se inyecta el HTML vía about:blank + Page.setDocumentContent en
 		// vez de escribir un archivo temporal y navegar a file://
 		// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
-		return chromedp.Tasks{
-			navigateAndSetContent(buildMathSVGPage(latex, theme, preload)),
-			waitRenderState(mathStateJS),
-			chromedp.Sleep(200 * time.Millisecond), // Esperar tipografiado completo
-			chromedp.OuterHTML("mjx-container svg", &svgContent, chromedp.ByQuery),
-		}
+		navigateAndSetContent(buildMathSVGPage(latex, theme)),
+		waitRenderState(mathStateJS),
+		chromedp.Sleep(200 * time.Millisecond), // Esperar tipografiado completo
+		chromedp.OuterHTML("mjx-container svg", &svgContent, chromedp.ByQuery),
 	})
 	if err != nil {
 		return "", err
@@ -804,28 +801,15 @@ func (r *ChromiumRenderer) RenderMathToSVGWithTheme(ctx context.Context, latex s
 	return svgContent, nil
 }
 
-// renderMathWithPreload corre una captura de math en su propio tab con su
-// propio plazo. Si la página reporta que le faltó un archivo de MathJax que
-// está embebido (una fuente dinámica o una extensión de TeX, ver
-// math_embed.go), la repite una vez con todos los archivos embebidos
-// precargados. Cualquier otro error, o el del segundo intento, se devuelve
-// tal cual.
-func (r *ChromiumRenderer) renderMathWithPreload(ctx context.Context, tasks func(mathPreload) chromedp.Tasks) error {
-	err := r.runMathCapture(ctx, tasks(mathPreload{}))
-	var pageErr *pageRenderError
-	if err != nil && errors.As(err, &pageErr) && needsFullPreload(pageErr.msg) {
-		err = r.runMathCapture(ctx, tasks(mathPreload{all: true}))
-	}
-	if err != nil {
+// renderMath corre una captura de math en su propio tab, con su plazo y con
+// los archivos de MathJax servidos desde el binario (serveMathAssets).
+func (r *ChromiumRenderer) renderMath(ctx context.Context, tasks chromedp.Tasks) error {
+	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
+	defer cancel()
+	if err := chromedp.Run(runCtx, append(chromedp.Tasks{serveMathAssets()}, tasks...)); err != nil {
 		return captureError("math", captureTimeout, ctx, err)
 	}
 	return nil
-}
-
-func (r *ChromiumRenderer) runMathCapture(ctx context.Context, tasks chromedp.Tasks) error {
-	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
-	defer cancel()
-	return chromedp.Run(runCtx, tasks)
 }
 
 // RenderMathToPNG renderiza una ecuación LaTeX a PNG (issue #239-B, uso
@@ -845,14 +829,12 @@ func (r *ChromiumRenderer) RenderMathToPNGWithTheme(ctx context.Context, latex s
 	}
 
 	var pngData []byte
-	err := r.renderMathWithPreload(ctx, func(preload mathPreload) chromedp.Tasks {
-		return chromedp.Tasks{
-			navigateAndSetContent(buildMathPNGPage(latex, width, height, theme, preload)),
-			waitRenderState(mathStateJS),
-			chromedp.Sleep(200 * time.Millisecond),
-			bringTabToFront(),
-			chromedp.Screenshot("#mathContainer", &pngData, chromedp.ByID),
-		}
+	err := r.renderMath(ctx, chromedp.Tasks{
+		navigateAndSetContent(buildMathPNGPage(latex, width, height, theme)),
+		waitRenderState(mathStateJS),
+		chromedp.Sleep(200 * time.Millisecond),
+		bringTabToFront(),
+		chromedp.Screenshot("#mathContainer", &pngData, chromedp.ByID),
 	})
 	if err != nil {
 		return nil, err
@@ -892,35 +874,33 @@ func (r *ChromiumRenderer) RenderMathToFittedPNGWithTheme(ctx context.Context, l
 		Width  float64 `json:"width"`
 		Height float64 `json:"height"`
 	}
-	err := r.renderMathWithPreload(ctx, func(preload mathPreload) chromedp.Tasks {
-		return chromedp.Tasks{
-			emulation.SetDeviceMetricsOverride(1200, 600, MathPNGDeviceScale, false),
-			navigateAndSetContent(buildMathSVGPage(latex, theme, preload)),
-			waitRenderState(mathStateJS),
-			chromedp.Sleep(200 * time.Millisecond),
-			chromedp.Evaluate(fmt.Sprintf(`(() => { const r = document.querySelector('mjx-container svg').getBoundingClientRect(); const p = %d; return {x: r.left + window.scrollX - p, y: r.top + window.scrollY - p, width: r.width + 2*p, height: r.height + 2*p}; })()`, mathPNGPaddingPx), &box),
-			bringTabToFront(),
-			chromedp.ActionFunc(func(ctx context.Context) error {
-				if box.Width <= 2*mathPNGPaddingPx || box.Height <= 2*mathPNGPaddingPx {
-					return fmt.Errorf("MathJax produced an empty equation (%.0fx%.0f)", box.Width, box.Height)
-				}
-				buf, err := page.CaptureScreenshot().
-					WithFormat(page.CaptureScreenshotFormatPng).
-					WithCaptureBeyondViewport(true).
-					WithClip(&page.Viewport{
-						X:      math.Max(0, math.Floor(box.X)),
-						Y:      math.Max(0, math.Floor(box.Y)),
-						Width:  math.Ceil(box.Width),
-						Height: math.Ceil(box.Height),
-						Scale:  1,
-					}).Do(ctx)
-				if err != nil {
-					return err
-				}
-				pngData = buf
-				return nil
-			}),
-		}
+	err := r.renderMath(ctx, chromedp.Tasks{
+		emulation.SetDeviceMetricsOverride(1200, 600, MathPNGDeviceScale, false),
+		navigateAndSetContent(buildMathSVGPage(latex, theme)),
+		waitRenderState(mathStateJS),
+		chromedp.Sleep(200 * time.Millisecond),
+		chromedp.Evaluate(fmt.Sprintf(`(() => { const r = document.querySelector('mjx-container svg').getBoundingClientRect(); const p = %d; return {x: r.left + window.scrollX - p, y: r.top + window.scrollY - p, width: r.width + 2*p, height: r.height + 2*p}; })()`, mathPNGPaddingPx), &box),
+		bringTabToFront(),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			if box.Width <= 2*mathPNGPaddingPx || box.Height <= 2*mathPNGPaddingPx {
+				return fmt.Errorf("MathJax produced an empty equation (%.0fx%.0f)", box.Width, box.Height)
+			}
+			buf, err := page.CaptureScreenshot().
+				WithFormat(page.CaptureScreenshotFormatPng).
+				WithCaptureBeyondViewport(true).
+				WithClip(&page.Viewport{
+					X:      math.Max(0, math.Floor(box.X)),
+					Y:      math.Max(0, math.Floor(box.Y)),
+					Width:  math.Ceil(box.Width),
+					Height: math.Ceil(box.Height),
+					Scale:  1,
+				}).Do(ctx)
+			if err != nil {
+				return err
+			}
+			pngData = buf
+			return nil
+		}),
 	})
 	if err != nil {
 		return nil, err
