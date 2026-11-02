@@ -2603,8 +2603,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		imagePath = confined
 	}
 
-	// Tamaño por defecto: 6 pulgadas de ancho (mantiene aspect ratio),
-	// reducido si así la imagen no cabe en la caja de texto.
+	// Tamaño natural, reducido si no cabe en la caja de texto.
 	imageSize := g.fittedImageSize(imagePath, elem.Caption != "")
 
 	// La leyenda va en la misma página que su imagen.
@@ -2664,31 +2663,28 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	return nil
 }
 
-// docxImageDefaultWidthIn es el ancho con que se inserta una imagen.
-const docxImageDefaultWidthIn = 6.0
+// docxImageFallbackWidthIn es el ancho con que se inserta una imagen cuyo
+// formato no se puede leer (docxgo calcula el alto). Con un formato legible
+// manda su tamaño natural, ver fittedImageSize.
+const docxImageFallbackWidthIn = 6.0
 
-// fittedImageSize da el tamaño de inserción de una imagen local: 6" de
-// ancho como siempre, salvo que a ese ancho no quepa en la caja de texto
-// (una captura vertical, p. ej.); entonces se reduce conservando la
-// proporción. Si el formato no se puede leer, se deja el ancho por defecto
-// y que docxgo calcule el alto, como antes.
+// fittedImageSize da el tamaño de inserción de una imagen local: su tamaño
+// natural (píxeles entre los DPI que declara el archivo, o 96 si no declara),
+// sin agrandarla nunca, y reducida como una figura de mermaid para caber en
+// la caja de texto (ver fitFigure). Antes se insertaba siempre a 6" de
+// ancho, así que un ícono de 32 px ocupaba media página. El AST de imagen no
+// trae ancho ni alto explícitos, así que no hay otra fuente de tamaño.
 func (g *DOCXGenerator) fittedImageSize(path string, hasCaption bool) domain.ImageSize {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return domain.NewImageSizeInches(docxImageDefaultWidthIn, 0)
+		return domain.NewImageSizeInches(docxImageFallbackWidthIn, 0)
 	}
-	defer func() { _ = f.Close() }()
-	cfg, _, err := image.DecodeConfig(f)
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
-		return domain.NewImageSizeInches(docxImageDefaultWidthIn, 0)
+		return domain.NewImageSizeInches(docxImageFallbackWidthIn, 0)
 	}
-	w := docxImageDefaultWidthIn
-	h := w * float64(cfg.Height) / float64(cfg.Width)
-	maxH := g.contentHeightIn - figureSpacingReserveIn
-	if hasCaption {
-		maxH -= figureCaptionReserveIn
-	}
-	w, h = fitInBox(w, h, g.contentWidthIn, maxH)
+	dpiX, dpiY := imageDPI(data)
+	w, h := g.fitFigure(float64(cfg.Width)/dpiX, float64(cfg.Height)/dpiY, hasCaption)
 	return domain.NewImageSizeInches(w, h)
 }
 
@@ -2813,12 +2809,20 @@ func (g *DOCXGenerator) fitMermaidPNG(pngBytes []byte, hasCaption bool) (float64
 	}
 	naturalW := float64(cfg.Width) / mermaidPNGDeviceScale / cssPxPerInch
 	naturalH := float64(cfg.Height) / mermaidPNGDeviceScale / cssPxPerInch
+	w, h := g.fitFigure(naturalW, naturalH, hasCaption)
+	return w, h, nil
+}
+
+// fitFigure reduce (nunca agranda) una figura de tamaño natural w×h, en
+// pulgadas, para que quepa a lo ancho de la caja de texto y a lo alto de la
+// página, menos el espaciado del párrafo y, si la hay, la leyenda. Es la
+// regla de mermaid y de las imágenes.
+func (g *DOCXGenerator) fitFigure(w, h float64, hasCaption bool) (float64, float64) {
 	maxH := g.contentHeightIn - figureSpacingReserveIn
 	if hasCaption {
 		maxH -= figureCaptionReserveIn
 	}
-	w, h := fitInBox(naturalW, naturalH, g.contentWidthIn, maxH)
-	return w, h, nil
+	return fitInBox(w, h, g.contentWidthIn, maxH)
 }
 
 // fitInBox reduce (nunca agranda) w×h para que quepa en maxW×maxH,
