@@ -80,6 +80,19 @@ func (g *DOCXGenerator) renderUnavailable(doc domain.Document, kind docxUnavaila
 	return g.renderPlaceholder(doc, docxUnavailableNote(kind, g.lang))
 }
 
+// renderUnavailableCaptioned deja el marcador y, debajo, el título o la
+// leyenda que el autor le dio al elemento: es texto suyo y antes se perdía
+// junto con el diagrama, la ecuación, el chart o el mapa.
+func (g *DOCXGenerator) renderUnavailableCaptioned(doc domain.Document, kind docxUnavailableKind, caption string) error {
+	if err := g.renderUnavailable(doc, kind); err != nil {
+		return err
+	}
+	if caption == "" {
+		return nil
+	}
+	return g.renderFigureCaption(doc, caption)
+}
+
 // docxMediaText son los marcadores de un video o audio sin fuente, con un
 // esquema bloqueado o que no se pudo enlazar.
 func (g *DOCXGenerator) docxMediaText(label, reason, source string) string {
