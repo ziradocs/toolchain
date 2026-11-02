@@ -14,8 +14,9 @@ const defaultImageDPI = 96.0
 
 // imageDPI lee la resolución que declara una imagen: el chunk pHYs de un PNG
 // (en píxeles por metro) o el segmento JFIF APP0 de un JPEG (en puntos por
-// pulgada o por centímetro). Sin declaración, o con una que no es física
-// (unidad 0, solo proporción), devuelve defaultImageDPI en ambos ejes.
+// pulgada o por centímetro). Sin declaración, con una que no es física
+// (unidad 0, solo proporción) o fuera de minImageDPI-maxImageDPI, devuelve
+// defaultImageDPI en ambos ejes.
 func imageDPI(data []byte) (float64, float64) {
 	if x, y, ok := pngDPI(data); ok {
 		return x, y
@@ -73,10 +74,17 @@ func jfifDPI(data []byte) (float64, float64, bool) {
 	return 0, 0, false
 }
 
-// validDPI descarta resoluciones absurdas (un pHYs en 0, o el 1 dpi que
-// escriben algunos editores) que harían una imagen de metros.
+// minImageDPI y maxImageDPI acotan la resolución declarada que se toma en
+// serio. Fuera de ese rango la metadata casi siempre es basura (un pHYs en 0
+// o en 0xffffffff, el 1 dpi que escriben algunos editores) y llevaría una
+// imagen a metros o a una fracción de píxel; se ignora y vale 96.
+const (
+	minImageDPI = 72.0
+	maxImageDPI = 600.0
+)
+
 func validDPI(x, y float64) (float64, float64, bool) {
-	if x < 20 || y < 20 {
+	if x < minImageDPI || y < minImageDPI || x > maxImageDPI || y > maxImageDPI {
 		return 0, 0, false
 	}
 	return x, y, true

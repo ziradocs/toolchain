@@ -2698,13 +2698,19 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	// Agregar imagen
 	img, err := p.AddImageWithSize(imagePath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX: Failed to insert image %s: %v", imagePath, err)
 		// El marcador va DENTRO del documento, así que cita la fuente tal
 		// como la escribió el autor (elem.Source) y no imagePath: tras
 		// ResolveConfinedPath ese es la ruta absoluta de la máquina que
 		// compiló, que no tiene nada que hacer en un .docx que se comparte.
-		// El log de arriba sí la conserva, porque es donde sirve para depurar.
-		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
+		// El log sí la conserva, porque es donde sirve para depurar. Solo se
+		// dice "not found" si de verdad no existe: un archivo que está pero
+		// no se pudo insertar (formato no soportado, dañado) es otro error.
+		if _, statErr := os.Stat(imagePath); statErr != nil {
+			g.logger.Warn("DOCX: image %q at line %d not found: %v", elem.Source, elem.Position.Line, statErr)
+			return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
+		}
+		g.logger.Warn("DOCX: image %q at line %d could not be inserted: %v", elem.Source, elem.Position.Line, err)
+		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
 	}
 
 	_ = img // Imagen insertada exitosamente
@@ -2750,12 +2756,18 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 // manda su tamaño natural, ver fittedImageSize.
 const docxImageFallbackWidthIn = 6.0
 
+// docxImageMinSideIn es el lado mínimo con que se muestra una imagen: un
+// ícono de pocos píxeles o una franja de 1 px de alto quedan visibles en vez
+// de reducirse a nada.
+const docxImageMinSideIn = 0.1
+
 // fittedImageSize da el tamaño de inserción de una imagen local: su tamaño
-// natural (píxeles entre los DPI que declara el archivo, o 96 si no declara),
-// sin agrandarla nunca, y reducida como una figura de mermaid para caber en
-// la caja de texto (ver fitFigure). Antes se insertaba siempre a 6" de
-// ancho, así que un ícono de 32 px ocupaba media página. El AST de imagen no
-// trae ancho ni alto explícitos, así que no hay otra fuente de tamaño.
+// natural (píxeles entre los DPI que declara el archivo, o 96 si no declara
+// o declara algo fuera de 72-600), sin agrandarla nunca, y reducida como una
+// figura de mermaid para caber en la caja de texto (ver fitFigure). Antes se
+// insertaba siempre a 6" de ancho, así que un ícono de 32 px ocupaba media
+// página. El AST de imagen no trae ancho ni alto explícitos, así que no hay
+// otra fuente de tamaño. Ver imageSizeFromInches para el lado mínimo.
 func (g *DOCXGenerator) fittedImageSize(path string, hasCaption bool) domain.ImageSize {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -2767,7 +2779,41 @@ func (g *DOCXGenerator) fittedImageSize(path string, hasCaption bool) domain.Ima
 	}
 	dpiX, dpiY := imageDPI(data)
 	w, h := g.fitFigure(float64(cfg.Width)/dpiX, float64(cfg.Height)/dpiY, hasCaption)
-	return domain.NewImageSizeInches(w, h)
+	w, h = g.enforceMinSide(w, h, hasCaption)
+	return imageSizeFromInches(w, h)
+}
+
+// enforceMinSide lleva el lado corto a docxImageMinSideIn conservando la
+// proporción si así el lado largo todavía cabe en la caja; si no cabe (una
+// franja de 3000x1 px), el lado largo se queda en la caja y el corto sube al
+// mínimo por su cuenta, perdiendo la proporción antes que desaparecer.
+func (g *DOCXGenerator) enforceMinSide(w, h float64, hasCaption bool) (float64, float64) {
+	short := min(w, h)
+	if short >= docxImageMinSideIn || short <= 0 {
+		return max(w, docxImageMinSideIn), max(h, docxImageMinSideIn)
+	}
+	scale := docxImageMinSideIn / short
+	if fw, fh := g.fitFigure(w*scale, h*scale, hasCaption); near2(fw, w*scale) && near2(fh, h*scale) {
+		return fw, fh
+	}
+	return max(w, docxImageMinSideIn), max(h, docxImageMinSideIn)
+}
+
+func near2(a, b float64) bool { return a-b < 1e-9 && b-a < 1e-9 }
+
+// imageSizeFromInches arma el domain.ImageSize sin pasar por
+// domain.NewImageSizeInches, que trunca a píxeles enteros: un lado de menos
+// de 1 px quedaba en 0, y con los dos en 0 docxgo fallaba (y doclang lo
+// reportaba como "Image not found"), o con uno solo en 0 salía cy="0". Los
+// EMU se redondean desde las pulgadas y los píxeles nunca bajan de 1.
+func imageSizeFromInches(w, h float64) domain.ImageSize {
+	const emuPerInch, pxPerInch = 914400.0, 96.0
+	return domain.ImageSize{
+		WidthPx:   max(1, int(w*pxPerInch+0.5)),
+		HeightPx:  max(1, int(h*pxPerInch+0.5)),
+		WidthEMU:  max(1, int(w*emuPerInch+0.5)),
+		HeightEMU: max(1, int(h*emuPerInch+0.5)),
+	}
 }
 
 func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElement) error {
