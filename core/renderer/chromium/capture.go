@@ -100,8 +100,10 @@ func (e *pageRenderError) Error() string { return e.msg }
 // renderErrorHookJS se inyecta antes de los scripts de la página: cualquier
 // excepción no atrapada (p. ej. "Chart is not defined" si el bundle no cargó)
 // queda en window.__renderError, y waitRenderState la devuelve de inmediato
-// en vez de esperar al plazo.
-const renderErrorHookJS = `<script>window.addEventListener('error', function (e) { if (!window.__renderError) { window.__renderError = (e && e.message) ? e.message : 'script error'; } });</script>`
+// en vez de esperar al plazo. Los avisos "ResizeObserver loop ..." no
+// cuentan: Chrome los despacha como error de window, Chart.js usa
+// ResizeObserver, y no impiden dibujar.
+const renderErrorHookJS = `<script>window.addEventListener('error', function (e) { var m = (e && e.message) ? e.message : 'script error'; if (m.indexOf('ResizeObserver loop') !== -1) { return; } if (!window.__renderError) { window.__renderError = m; } });</script>`
 
 // mapStateJS es renderStateJS para la página de Leaflet, que publica
 // window.mapReady en vez de window.__renderReady.

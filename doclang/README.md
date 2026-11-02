@@ -119,8 +119,8 @@ PDF, DOCX and the offline modes don't need network access for Mermaid, charts or
 the binary carries its own copies of mermaid 10.9.6, Chart.js 4.5.1 (plus the treemap
 plugin) and MathJax 4.1.3, the same builds browser mode loads from the CDN. Math also
 accepts a fenced ` ```math ` block, besides `<<math>>` and `$$`. Every Chromium capture
-has a deadline (30 s per chart, diagram or equation, 5 min to print the PDF), so a
-resource that can't load ends in a warning instead of a hung build.
+has a deadline (30 s per capture of a chart, diagram or equation, 5 min to print the
+PDF), so a resource that can't load ends in a warning instead of a hung build.
 
 Maps still need the tile servers (and Leaflet from unpkg.com), and PlantUML its server.
 Without network a map is left out with a warning: in under a second when connections are

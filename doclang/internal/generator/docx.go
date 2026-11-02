@@ -3044,7 +3044,7 @@ func (g *DOCXGenerator) rasterizeMath(elem *ast.MathElement) ([]byte, float64, f
 		if err != nil {
 			return nil, 0, 0, err
 		}
-		w, h = g.fitFigure(w, h, false)
+		w, h = g.fitFigure(w, h, elem.Caption != "")
 		return pngBytes, w, h, nil
 	}
 	pngBytes, err := g.chromiumRenderer.RenderMathToPNGWithTheme(g.runCtx(), elem.Content, 1600, 400, g.diagramTheme)
