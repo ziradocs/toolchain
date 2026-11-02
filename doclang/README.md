@@ -30,10 +30,13 @@ Same element vocabulary, different document model — worth knowing before you w
   inside their parent rather than starting a new top-level block.
 - **No mode switching.** doclang always parses with `DocumentFlexParser`. A `mode:` key in
   the frontmatter is ignored — there is no strict mode here.
-- **Write a frontmatter block.** The parser itself tolerates a file without one, but the
-  linter's `FRONT003` rule reports a missing frontmatter as an *error*, so `doclang build`
-  exits non-zero on a bare file. Until that is reconciled, treat frontmatter as required —
-  or disable `FRONT003` via `--lint-config`.
+- **Frontmatter is optional.** A plain Markdown file with no `---` block builds as is:
+  `FRONT003` and the slide layout rules don't run on documents. The output title comes
+  from the first `#` heading, or from the file name when there is none. Without
+  frontmatter, TOC and numbering stay off unless you pass `--toc`/`--numbering`.
+- **Nothing before the first `#` is dropped.** Text before the first `#` (or the whole file,
+  if it only uses `##`/`###`) becomes a leading section with no heading, and `##`/`###`
+  keep their level. An empty document is still an error (`CORE001`).
 
 ## Commands
 

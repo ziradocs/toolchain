@@ -68,9 +68,8 @@ Intro paragraph.
 Bullet content…
 ```
 
-**DocLang** — the parser tolerates a file with no frontmatter, but the
-linter `doclang build` runs rejects one (`FRONT003`), so always emit at
-least a minimal block:
+**DocLang** — frontmatter is optional (a plain Markdown file builds), but
+emit at least a minimal block so the document declares its own title:
 
 ```
 ---
