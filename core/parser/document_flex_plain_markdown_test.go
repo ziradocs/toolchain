@@ -79,8 +79,11 @@ func TestParseDocument_PlainMarkdown_OnlyH2(t *testing.T) {
 	if len(doc.ContentBlocks) != 1 {
 		t.Fatalf("want 1 sección inicial sin encabezado, got %d", len(doc.ContentBlocks))
 	}
+	// Sin ningún `#` la sección sin encabezado es la única y hace de bloque
+	// "title" con Heading vacío: la misma forma que un `SECTION ""` solo en
+	// strict (ver TestParseDocument_StrictEmptyFirstSection).
 	b := doc.ContentBlocks[0]
-	if b.BlockType != "content" || b.Title != "" || b.Heading != "" {
+	if b.BlockType != "title" || b.Title != "" || b.Heading != "" {
 		t.Errorf("la sección inicial no lleva encabezado, got type=%q title=%q heading=%q", b.BlockType, b.Title, b.Heading)
 	}
 	if got := headingLevels(b); len(got) != 2 || got[0] != 2 || got[1] != 3 {
@@ -171,5 +174,108 @@ func TestParseDocument_PlainMarkdown_StrictUnchanged(t *testing.T) {
 	}
 	if !hasErr {
 		t.Errorf("strict debe seguir rechazando prosa fuera de un SECTION, diags=%+v", diags)
+	}
+}
+
+// Un encabezado ATX interrumpe un párrafo (CommonMark): pegado a la línea
+// anterior, sin línea en blanco, igual abre sección (`#`) o subsección
+// (`##`) en vez de quedar como texto.
+func TestParseDocument_ATXHeadingInterruptsParagraph(t *testing.T) {
+	t.Run("preámbulo + h1", func(t *testing.T) {
+		doc := parsePlainMarkdown(t, "---\ntitle: t\n---\nline1\n# B\n\nx")
+		if len(doc.ContentBlocks) != 2 {
+			t.Fatalf("want preámbulo + sección, got %d", len(doc.ContentBlocks))
+		}
+		if b := doc.ContentBlocks[1]; b.BlockType != "title" || b.Heading != "B" || b.Position.Line != 5 {
+			t.Errorf("got type=%q heading=%q line=%d", b.BlockType, b.Heading, b.Position.Line)
+		}
+		if astContains(t, doc, "# B") {
+			t.Error("el `# B` quedó como texto")
+		}
+	})
+	t.Run("comentario + separador + h1", func(t *testing.T) {
+		doc := parsePlainMarkdown(t, "<!-- comment -->\n---\n# T\n\nx")
+		last := doc.ContentBlocks[len(doc.ContentBlocks)-1]
+		if last.BlockType != "title" || last.Heading != "T" {
+			t.Errorf("got type=%q heading=%q", last.BlockType, last.Heading)
+		}
+		if astContains(t, doc, "---") {
+			t.Error("el `---` se coló como texto")
+		}
+	})
+	t.Run("párrafo + h1 en el cuerpo", func(t *testing.T) {
+		doc := parsePlainMarkdown(t, "# A\n\nline1\n# B\n\ny")
+		if len(doc.ContentBlocks) != 2 || doc.ContentBlocks[1].Title != "B" {
+			t.Fatalf("want 2 secciones con la segunda B, got %+v", blockSummaries(doc))
+		}
+	})
+	t.Run("párrafo + h2 en el cuerpo", func(t *testing.T) {
+		doc := parsePlainMarkdown(t, "# A\n\nline1\n## B\ny")
+		if len(doc.ContentBlocks) != 1 {
+			t.Fatalf("want 1 sección, got %d", len(doc.ContentBlocks))
+		}
+		if got := headingLevels(doc.ContentBlocks[0]); len(got) != 1 || got[0] != 2 {
+			t.Errorf("want un h2, got %v", got)
+		}
+		if astContains(t, doc, "## B") {
+			t.Error("el `## B` quedó como texto")
+		}
+	})
+	t.Run("# dentro de código cercado", func(t *testing.T) {
+		doc := parsePlainMarkdown(t, "# A\n\ntexto\n```\n# no es encabezado\n## tampoco\n```\n")
+		if len(doc.ContentBlocks) != 1 || len(headingLevels(doc.ContentBlocks[0])) != 0 {
+			t.Fatalf("el código cercado no abre secciones, got %+v", blockSummaries(doc))
+		}
+		if !astContains(t, doc, "# no es encabezado") || !astContains(t, doc, "## tampoco") {
+			t.Error("se perdió el contenido del bloque de código")
+		}
+	})
+}
+
+func blockSummaries(doc *ast.AST) []string {
+	var out []string
+	for _, b := range doc.ContentBlocks {
+		out = append(out, b.BlockType+":"+b.Heading+b.Title)
+	}
+	return out
+}
+
+// El frontmatter se reconoce tras un BOM o líneas en blanco iniciales; antes
+// su YAML acababa como párrafo del cuerpo. Las posiciones del cuerpo no se
+// corren.
+func TestParseDocument_FrontMatterAfterBOMOrBlankLines(t *testing.T) {
+	cases := map[string]struct {
+		src  string
+		line int
+	}{
+		"bom":     {"\uFEFF---\ntitle: Secreto\nauthor: X\n---\n\n# T\n\nx", 6},
+		"blancos": {"\n\n---\ntitle: Secreto\n---\n# T\n\nx", 6},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			doc := parsePlainMarkdown(t, tc.src)
+			if doc.FrontMatter == nil || doc.FrontMatter.Title != "Secreto" {
+				t.Fatalf("frontmatter no reconocido, got %+v", doc.FrontMatter)
+			}
+			if astContains(t, doc, "title: Secreto") {
+				t.Error("el YAML del frontmatter se coló en el cuerpo")
+			}
+			if len(doc.ContentBlocks) != 1 || doc.ContentBlocks[0].Heading != "T" || doc.ContentBlocks[0].Position.Line != tc.line {
+				t.Errorf("got %+v line=%d", blockSummaries(doc), doc.ContentBlocks[0].Position.Line)
+			}
+		})
+	}
+}
+
+// Un `SECTION ""` solo sigue siendo el bloque "title" (comportamiento de
+// siempre); seguido de otra sección es la sección inicial sin encabezado.
+func TestParseDocument_StrictEmptyFirstSection(t *testing.T) {
+	alone := parsePlainMarkdown(t, "---\nmode: strict\n---\n\nSECTION \"\"\n\n  TEXT\n    a\n")
+	if got := blockSummaries(alone); len(got) != 1 || got[0] != "title:" {
+		t.Errorf("SECTION \"\" solo: got %v", got)
+	}
+	followed := parsePlainMarkdown(t, "---\nmode: strict\n---\n\nSECTION \"\"\n\n  TEXT\n    a\n\nSECTION \"Uno\"\n\n  TEXT\n    b\n\nSECTION \"Dos\"\n\n  TEXT\n    c\n")
+	if got := blockSummaries(followed); len(got) != 3 || got[0] != "content:" || got[1] != "title:Uno" || got[2] != "content:Dos" {
+		t.Errorf("SECTION \"\" + secciones: got %v", got)
 	}
 }

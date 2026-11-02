@@ -63,6 +63,10 @@ func (p *DocumentFlexParser) parseContext() *elements.ParseContext {
 		Logger:          p.logger,
 		Lines:           p.lines,
 		LineOffset:      p.lineOffset,
+		// Un `#`/`##` pegado a un párrafo abre sección/subsección en vez de
+		// quedar como texto (CommonMark: un encabezado ATX interrumpe un
+		// párrafo).
+		DocumentHeadings: true,
 	}
 }
 
@@ -110,6 +114,7 @@ func NewDocumentFlexParserWithNormalization(input string, log util.Logger) *Docu
 	// filtra toda regla "frontmatter" (ver factory.go), así que el largo del
 	// frontmatter es el mismo en los dos lados y evita reparsearlo dos veces
 	// (#245).
+	input = normalizeDocumentStart(input) // ver Parser.ParseDocument
 	_, bodyOffset := peekDocument(input)
 
 	// Detectar si el contenido parece ser generado por IA
@@ -173,6 +178,16 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		if block != nil {
 			astNode.ContentBlocks = append(astNode.ContentBlocks, *block)
 		}
+	}
+
+	// Sin ningún `#`, la sección inicial sin encabezado es la única y hace
+	// de bloque "title" (con Heading vacío). Es la misma regla que el parser
+	// strict aplica a un `SECTION ""` (ver appendTopLevelSection): el primer
+	// bloque es el "title" salvo que sea una sección sin encabezado seguida
+	// de una con título. Así un archivo con solo `##` sobrevive flex→strict→
+	// flex sin cambiar de forma.
+	if !p.hasTitleBlock && len(astNode.ContentBlocks) == 1 {
+		astNode.ContentBlocks[0].BlockType = "title"
 	}
 
 	return astNode, p.diagnostics

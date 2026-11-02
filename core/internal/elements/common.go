@@ -73,6 +73,14 @@ type ParseContext struct {
 	// que no lo proveen (el grid reporta entonces un error en vez de perder
 	// el cuerpo).
 	TypedColumnBody func(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic)
+
+	// DocumentHeadings lo fija DocumentFlexParser: en un documento, un
+	// encabezado ATX de CUALQUIER nivel (`#`..`######`) interrumpe un
+	// párrafo, como en CommonMark. `#` abre una sección y `##` una
+	// subsección, así que TextParser tiene que cortar antes de ellos en vez
+	// de tragárselos como texto. En slidelang `#`/`##` a media prosa siguen
+	// siendo texto (solo `###`+ corta, issue #194): por eso es opt-in.
+	DocumentHeadings bool
 }
 
 // Position traduce un índice 0-based dentro de ctx.Lines a una posición
