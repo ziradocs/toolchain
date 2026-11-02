@@ -10,6 +10,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // TestDocxUnavailableNote: misma regla de idioma que los marcadores de
@@ -77,6 +78,56 @@ func TestDOCX_PlaceholdersFollowDocumentLang(t *testing.T) {
 		}
 		if len(logger.warns) < 3 {
 			t.Errorf("lang %s: the details must stay in the warnings, got %v", lang, logger.warns)
+		}
+	}
+}
+
+// Un chart que no se puede dibujar sin Chromium deja su marcador; antes se
+// omitía sin nada en su lugar.
+func TestDOCX_ChartWithoutChromiumLeavesPlaceholder(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	chart := ast.NewChartElement(pos, "radar")
+	if _, ok, err := renderer.RenderChartNativePNG(chart, 800, 500); ok && err == nil {
+		t.Skip("this chart type renders natively; the test needs one that does not")
+	}
+	doc := astWithElements(chart)
+	logger := newTestLogger()
+	gen := NewDOCXGenerator(logger, t.TempDir())
+	out := filepath.Join(t.TempDir(), "out.docx")
+	if err := gen.Generate(doc, out, GeneratorOptions{Format: "docx", ChromiumPath: filepath.Join(t.TempDir(), "no-chromium")}); err != nil {
+		t.Fatal(err)
+	}
+	if gen.chromiumRenderer != nil {
+		t.Skip("a Chromium was found anyway; this test needs it missing")
+	}
+	if text := docxVisibleText(docxDocumentXML(t, out)); !strings.Contains(text, docxUnavailableNote(docxUnavailableChart, "")) {
+		t.Errorf("chart placeholder missing: %q", text)
+	}
+}
+
+// El título o la leyenda de un diagrama, una ecuación o un chart sale debajo
+// de su marcador cuando no se pudo dibujar; antes se perdía con el elemento.
+func TestDOCX_PlaceholdersKeepCaptions(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	mermaid := ast.NewMermaidElement(pos, "flowchart", "graph TD; A-->B")
+	mermaid.Title = "S-mermaid-title"
+	math := ast.NewMathElement(pos, "E = mc^2")
+	math.Caption = "S-math-caption"
+	chart := ast.NewChartElement(pos, "radar")
+	chart.Title = "S-chart-title"
+	doc := astWithElements(mermaid, math, chart)
+	gen := NewDOCXGenerator(newTestLogger(), t.TempDir())
+	out := filepath.Join(t.TempDir(), "out.docx")
+	if err := gen.Generate(doc, out, GeneratorOptions{Format: "docx", ChromiumPath: filepath.Join(t.TempDir(), "no-chromium")}); err != nil {
+		t.Fatal(err)
+	}
+	if gen.chromiumRenderer != nil {
+		t.Skip("a Chromium was found anyway; this test needs it missing")
+	}
+	text := docxVisibleText(docxDocumentXML(t, out))
+	for _, want := range []string{"S-mermaid-title", "S-math-caption", "S-chart-title"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("%s missing next to its placeholder: %q", want, text)
 		}
 	}
 }

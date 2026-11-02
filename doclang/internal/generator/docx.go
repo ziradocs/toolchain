@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"  // image.DecodeConfig de imágenes GIF
@@ -28,6 +29,7 @@ import (
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/renderer/chromium"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/core/v2/xref"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
@@ -62,6 +64,12 @@ type DOCXGenerator struct {
 	// los márgenes. Sin esto una imagen inline grande en una celda se
 	// ajustaba a la caja de texto de la página y desbordaba la columna.
 	inlineImageMaxWidthIn float64
+	// numbering junta las listas escritas para el numbering.xml (ver
+	// docx_lists.go).
+	numbering *docxNumbering
+	// variables son las del front matter de la generación en curso; las
+	// leyendas de tabla e imagen las sustituyen como el HTML de core.
+	variables map[string]interface{}
 }
 
 // runCtx es el contexto de la generación en curso, o Background fuera de
@@ -175,9 +183,9 @@ func sanitizeBookmarkID(s string) string {
 func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts GeneratorOptions) error {
 	g.ctx = opts.runContext()
 	g.logger.Info("DOCX", "Building DOCX document...")
-	if ast.UsesNestedListTypes(astDoc) {
-		return fmt.Errorf("DOCX does not yet support nested-list-types-v1 as native Word lists")
-	}
+	// Listas nativas (docx_lists.go): un numbering.xml por documento.
+	g.numbering = &docxNumbering{}
+	g.variables = astDoc.FrontMatter.BuildVariables()
 
 	// Crear directorio temporal para imágenes renderizadas
 	tempDir, err := os.MkdirTemp("", "doclang-docx-*")
@@ -325,6 +333,10 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 				return fmt.Errorf("error adding page break: %w", err)
 			}
 		}
+	}
+
+	if err := g.attachNumbering(doc); err != nil {
+		return err
 	}
 
 	// Guardar documento
@@ -2325,51 +2337,6 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 	return nil
 }
 
-// Stubs para elementos restantes (implementar después)
-
-func (g *DOCXGenerator) renderPoints(doc domain.Document, elem *ast.PointsElement) error {
-	for i, item := range elem.Items {
-		p, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-
-		// Indentación para listas
-		indent := g.parseTwips(g.style.ListIndent)
-		if err := p.SetIndent(domain.Indentation{Left: indent}); err != nil {
-			return fmt.Errorf("invalid indent: %w", err)
-		}
-		if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter) / 2); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
-		}
-
-		// Bullet o número
-		r, err := p.AddRun()
-		if err != nil {
-			return err
-		}
-
-		bullet := "• "
-		if elem.ListType == "ordered" {
-			bullet = fmt.Sprintf("%d. ", i+1)
-		}
-
-		_ = r.SetText(bullet)
-		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = r.SetColor(g.parseColor(g.style.TextColor))
-		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-
-		// Contenido del item con markdown inline
-		if err := g.renderInlineMarkdown(p, item.Content); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) error {
 	// Nombre de archivo (code-filename-v1) en negrita sobre el bloque.
 	if elem.Filename != "" {
@@ -2481,13 +2448,23 @@ func (g *DOCXGenerator) renderCodeLines(doc domain.Document, content string) err
 }
 
 func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement) error {
-	// Crear tabla: headers + rows
-	totalRows := 1 + len(elem.Rows) // headers + data rows
-	if len(elem.Headers) == 0 {
-		return nil
-	}
-
+	// Crear tabla: headers + rows. Una tabla sin encabezados (un AST externo,
+	// o cells: cuya primera fila no es toda de encabezado) antes se descartaba
+	// entera; ahora sale sin fila de encabezado. Las columnas son las de la
+	// fila más ancha: una celda de más tampoco se descarta (el HTML de core la
+	// escribe igual).
 	numCols := len(elem.Headers)
+	for _, row := range elem.Rows {
+		numCols = max(numCols, len(row))
+	}
+	if numCols == 0 {
+		return g.renderTableCaption(doc, elem)
+	}
+	headerRows := 0
+	if len(elem.Headers) > 0 {
+		headerRows = 1
+	}
+	totalRows := headerRows + len(elem.Rows)
 	table, err := doc.AddTable(totalRows, numCols)
 	if err != nil {
 		return err
@@ -2514,12 +2491,15 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 	}
 
 	// Header row
-	headerRow, err := table.Row(0)
-	if err != nil {
-		return err
+	var headerRow domain.TableRow
+	if headerRows > 0 {
+		headerRow, err = table.Row(0)
+		if err != nil {
+			return err
+		}
+		_ = headerRow.SetRepeatAsHeader(true)
+		_ = headerRow.SetCantSplit(true)
 	}
-	_ = headerRow.SetRepeatAsHeader(true)
-	_ = headerRow.SetCantSplit(true)
 
 	for j, header := range elem.Headers {
 		cell, err := headerRow.Cell(j)
@@ -2549,7 +2529,7 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 
 	// Data rows
 	for i, row := range elem.Rows {
-		dataRow, err := table.Row(i + 1)
+		dataRow, err := table.Row(i + headerRows)
 		if err != nil {
 			continue
 		}
@@ -2583,6 +2563,10 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 		}
 	}
 
+	if elem.Caption != "" {
+		return g.renderTableCaption(doc, elem)
+	}
+
 	// Espacio después
 	spacer, err := doc.AddParagraph()
 	if err != nil {
@@ -2593,6 +2577,21 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 	}
 
 	return nil
+}
+
+// renderTableCaption escribe el pie de una tabla, que antes no salía en el
+// DOCX. Mismo texto que el <p class="table-caption"> del HTML de core: con
+// \label numerado, "Tabla N: " (o "Table N: " según lang) delante, y con las
+// {{variables}} del front matter sustituidas.
+func (g *DOCXGenerator) renderTableCaption(doc domain.Document, elem *ast.TableElement) error {
+	if elem.Caption == "" {
+		return nil
+	}
+	text := renderer.ProcessVariables(elem.Caption, g.variables)
+	if elem.Label != "" && elem.Number > 0 {
+		text = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindTable], elem.Number, text)
+	}
+	return g.renderFigureCaption(doc, text)
 }
 
 // addTableCellParagraph abre el párrafo de una celda con la alineación que
@@ -2786,9 +2785,18 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
+	// La leyenda es texto del autor: sale también debajo del marcador de
+	// imagen no disponible (antes se perdía con la imagen).
+	unavailable := func() error {
+		if err := g.renderImagePlaceholder(p, g.docxImageUnavailableText(elem.Alt, elem.Source)); err != nil {
+			return err
+		}
+		return g.renderImageCaption(doc, elem)
+	}
+
 	insertPath, imageSize, ok := g.prepareLocalImage(elem.Source, elem.Position.Line, elem.Caption != "")
 	if !ok {
-		return g.renderImagePlaceholder(p, g.docxImageUnavailableText(elem.Alt, elem.Source))
+		return unavailable()
 	}
 
 	// La leyenda va en la misma página que su imagen.
@@ -2802,45 +2810,29 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	img, err := p.AddImageWithSize(insertPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
-		return g.renderImagePlaceholder(p, g.docxImageUnavailableText(elem.Alt, elem.Source))
+		return unavailable()
 	}
 
 	_ = img // Imagen insertada exitosamente
 	g.logger.Info("DOCX", "✅ Image inserted: %s", insertPath)
 
-	// Caption si existe
-	if elem.Caption != "" {
-		captionPara, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-		if err := captionPara.SetAlignment(domain.AlignmentCenter); err != nil {
-			return fmt.Errorf("invalid alignment: %w", err)
-		}
-		if err := captionPara.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
-		}
+	return g.renderImageCaption(doc, elem)
+}
 
-		r, err := captionPara.AddRun()
-		if err != nil {
-			return err
-		}
-		// issue #239: Number lo asigna xref.Transform (built-in de #240)
-		// antes de renderizar; sin Label nunca corrió y Number es 0.
-		captionText := elem.Caption
-		if elem.Label != "" && elem.Number > 0 {
-			captionText = fmt.Sprintf("Figura %d: %s", elem.Number, elem.Caption)
-		}
-		_ = r.SetText(captionText)
-		if err := r.SetSize(g.parseSize(g.style.FontSizeBase) - 2); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = r.SetColor(g.parseColor(g.style.TextLightColor))
-		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-		_ = r.SetItalic(true)
+// renderImageCaption escribe la leyenda de una imagen, si tiene.
+func (g *DOCXGenerator) renderImageCaption(doc domain.Document, elem *ast.ImageElement) error {
+	if elem.Caption == "" {
+		return nil
 	}
-
-	return nil
+	// issue #239: Number lo asigna xref.Transform (built-in de #240)
+	// antes de renderizar; sin Label nunca corrió y Number es 0.
+	// Mismo texto que el HTML de core: {{variables}} sustituidas y el prefijo
+	// en el idioma del documento ("Figure" con lang en*), no siempre "Figura".
+	captionText := renderer.ProcessVariables(elem.Caption, g.variables)
+	if elem.Label != "" && elem.Number > 0 {
+		captionText = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindFigure], elem.Number, captionText)
+	}
+	return g.renderFigureCaption(doc, captionText)
 }
 
 // prepareLocalImage resuelve una fuente de imagen local para insertarla en el
@@ -3008,7 +3000,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 		// log genérico. Ahora queda un marcador en su lugar y un aviso que
 		// dice cuál diagrama faltó y cómo arreglarlo.
 		g.logger.Warn("DOCX: mermaid diagram (%s) at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.DiagramType, elem.Position.Line)
-		return g.renderUnavailable(doc, docxUnavailableDiagram)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
 
 	g.logger.Info("DOCX", "Rendering Mermaid diagram (%s)...", elem.DiagramType)
@@ -3020,7 +3012,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(g.runCtx(), content, g.mermaidLayoutWidthPx(), 1600, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableDiagram)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
 
 	// Nombre por contenido: antes era mermaid_<tipo>.png, así que dos
@@ -3033,7 +3025,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	widthIn, heightIn, err := g.fitMermaidPNG(pngBytes, elem.Title != "")
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to read mermaid PNG size: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableDiagram)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
 
 	p, err := doc.AddParagraph()
@@ -3052,7 +3044,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 
 	if _, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn)); err != nil {
 		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableDiagram)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
 
 	if elem.Title != "" {
@@ -3252,7 +3244,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 		// Antes la ecuación desaparecía sin dejar marca y el aviso no decía
 		// cuál era. Como mermaid: un marcador en su lugar y la línea.
 		g.logger.Warn("DOCX: equation at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.Position.Line)
-		return g.renderUnavailable(doc, docxUnavailableEquation)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
 	}
 
 	g.logger.Info("DOCX", "Rendering equation...")
@@ -3260,7 +3252,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 	pngBytes, widthIn, heightIn, err := g.rasterizeMath(elem)
 	if err != nil {
 		g.logger.Warn("DOCX: line %d: failed to render equation: %v", elem.Position.Line, err)
-		return g.renderUnavailable(doc, docxUnavailableEquation)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
 	}
 
 	pngPath := fmt.Sprintf("%s/math_%s.png", g.tempDir, chromium.GenerateContentHash(elem.Content)[:12])
@@ -3279,7 +3271,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 	img, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn))
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert equation image: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableEquation)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
 	}
 	if img == nil {
 		g.logger.Warn("DOCX: ⚠️  Equation image object is nil after insertion")
@@ -3347,8 +3339,10 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		pngBytes = data
 	} else {
 		if g.chromiumRenderer == nil {
-			g.logger.Warn("DOCX: Chromium not available, skipping chart")
-			return nil
+			// Antes el chart se omitía sin dejar nada en su lugar; ahora
+			// queda el mismo marcador que un mermaid o un mapa sin Chromium.
+			g.logger.Warn("DOCX: chart (%s) at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.ChartType, elem.Position.Line)
+			return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 		}
 
 		g.logger.Info("DOCX", "Rendering Chart.js chart (%s)...", elem.ChartType)
@@ -3361,7 +3355,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		chromiumBytes, chromiumErr := g.chromiumRenderer.RenderChartToPNG(g.runCtx(), chartConfig, 2400, 1500)
 		if chromiumErr != nil {
 			g.logger.Warn("DOCX: Failed to render chart: %v", chromiumErr)
-			return g.renderUnavailable(doc, docxUnavailableChart)
+			return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 		}
 		pngBytes = chromiumBytes
 	}
@@ -3388,12 +3382,12 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 	imageSize, err := widthOnlyImageSize(pngPath, 6.5)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to read chart image size: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableChart)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableChart)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 	}
 
 	if img == nil {
@@ -3422,13 +3416,13 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 		// que un DOCX con mapas se genere.
 		if g.chromiumRenderer == nil {
 			g.logger.Warn("DOCX: Native map render failed and Chromium is unavailable: %v", err)
-			return g.renderUnavailable(doc, docxUnavailableMap)
+			return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
 		}
 		g.logger.Warn("DOCX: Native map render failed; falling back to Chromium: %v", err)
 		pngBytes, err = g.chromiumRenderer.RenderMapToPNG(g.runCtx(), mapConfig, 1200, 800)
 		if err != nil {
 			g.logger.Warn("DOCX: Failed to render map: %v", err)
-			return g.renderUnavailable(doc, docxUnavailableMap)
+			return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
 		}
 	}
 
@@ -3447,15 +3441,22 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
+	if elem.Title != "" {
+		// La leyenda va en la misma página que su mapa.
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
+	}
+
 	imageSize, err := widthOnlyImageSize(pngPath, 6.0)
 	if err != nil {
 		g.logger.Warn("DOCX: line %d: map image could not be inserted: %v", elem.Position.Line, err)
-		return g.renderUnavailable(doc, docxUnavailableMap)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
 	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert map image: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableMap)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
 	}
 
 	if img == nil {
@@ -3465,6 +3466,11 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 	sizeKB := float64(len(pngBytes)) / 1024
 	g.logger.Info("DOCX", "✅ Map inserted (%.1f KB)", sizeKB)
 
+	// El título no va dentro de la imagen (MapConfig no lo lleva) y antes no
+	// se escribía; el HTML de core sí lo muestra.
+	if elem.Title != "" {
+		return g.renderFigureCaption(doc, elem.Title)
+	}
 	return nil
 }
 
@@ -3483,7 +3489,56 @@ func (g *DOCXGenerator) renderQuote(doc domain.Document, elem *ast.QuoteElement)
 	}
 
 	// Contenido con markdown inline
-	return g.renderInlineMarkdown(p, elem.Content)
+	if err := g.renderInlineMarkdown(p, elem.Content); err != nil {
+		return err
+	}
+
+	// Autor y fuente (AUTHOR:/SOURCE: en strict, "— Autor" en flex): antes
+	// no se escribían. Mismo formato que el <footer> del HTML de core.
+	if elem.Author == "" && elem.Source == "" {
+		return nil
+	}
+	ap, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := ap.SetIndent(domain.Indentation{Left: 720}); err != nil {
+		return fmt.Errorf("invalid indent: %w", err)
+	}
+	if err := ap.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+	// Texto literal, sin markdown inline: el HTML tampoco lo interpreta en
+	// autor y fuente (ProcessVariablesSecure).
+	addRun := func(text string, italic bool) error {
+		r, err := ap.AddRun()
+		if err != nil {
+			return err
+		}
+		_ = r.SetText(text)
+		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+			return fmt.Errorf("invalid font size: %w", err)
+		}
+		_ = r.SetColor(g.parseColor(g.style.TextColor))
+		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+		return r.SetItalic(italic)
+	}
+	if elem.Author != "" {
+		if err := addRun("— "+elem.Author, false); err != nil {
+			return err
+		}
+	}
+	if elem.Source != "" {
+		if elem.Author != "" {
+			if err := addRun(", ", false); err != nil {
+				return err
+			}
+		}
+		if err := addRun(elem.Source, true); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (g *DOCXGenerator) renderMetric(doc domain.Document, elem *ast.MetricElement) error {
@@ -3651,47 +3706,6 @@ func (g *DOCXGenerator) renderQuizPollContent(p domain.Paragraph, text string, b
 	return g.walkDocxInlinePatterns(p, text, g.docxInlinePatterns(), base)
 }
 
-func (g *DOCXGenerator) renderChecklist(doc domain.Document, elem *ast.ChecklistElement) error {
-	for _, item := range elem.Items {
-		p, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-
-		if err := p.SetIndent(domain.Indentation{Left: 360}); err != nil {
-			return fmt.Errorf("invalid indent: %w", err)
-		}
-		if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter) / 2); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
-		}
-
-		// Checkbox symbol
-		r, err := p.AddRun()
-		if err != nil {
-			return err
-		}
-
-		checkbox := "☐ "
-		if item.Checked {
-			checkbox = "☑ "
-		}
-
-		_ = r.SetText(checkbox)
-		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = r.SetColor(g.parseColor(g.style.TextColor))
-		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-
-		// Contenido
-		if err := g.renderInlineMarkdown(p, item.Content); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // renderSpecialBlock renderiza bloques especiales (info, warning, danger, success, tip)
 func (g *DOCXGenerator) renderSpecialBlock(doc domain.Document, elem *ast.SpecialBlockElement) error {
 	// Configuración de colores y emojis por tipo de bloque
@@ -3758,9 +3772,44 @@ func (g *DOCXGenerator) renderSpecialBlock(doc domain.Document, elem *ast.Specia
 	_ = titleRun.SetFont(domain.Font{Name: g.style.FontFamily})
 	_ = titleRun.SetBold(true)
 
-	// Contenido del bloque
-	contentLines := strings.Split(elem.Content, "\n")
-	for _, line := range contentLines {
+	// Contenido del bloque. Con Elements (contenido anidado ya parseado: una
+	// lista, una tabla, otro ":::"), Elements es la fuente estructural, como
+	// en el HTML de core: la prosa suelta llega ahí como TextElement y lo
+	// demás se escribe con el mismo dispatcher que una sección. Antes se
+	// escribía Content línea por línea y una sublista perdía su nivel (o una
+	// tabla salía como texto con barras).
+	if len(elem.Elements) > 0 {
+		for _, nested := range elem.Elements {
+			if text, ok := nested.(*ast.TextElement); ok && text.Level == 0 {
+				if err := g.renderSpecialBlockLines(doc, text.Content); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := g.renderElement(doc, nested); err != nil {
+				return err
+			}
+		}
+	} else if err := g.renderSpecialBlockLines(doc, elem.Content); err != nil {
+		return err
+	}
+
+	// Espacio después del bloque
+	spacer, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := spacer.SetSpacingAfter(120); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+
+	return nil
+}
+
+// renderSpecialBlockLines escribe la prosa de un bloque especial, un párrafo
+// sangrado por línea.
+func (g *DOCXGenerator) renderSpecialBlockLines(doc domain.Document, content string) error {
+	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -3782,16 +3831,6 @@ func (g *DOCXGenerator) renderSpecialBlock(doc domain.Document, elem *ast.Specia
 			return err
 		}
 	}
-
-	// Espacio después del bloque
-	spacer, err := doc.AddParagraph()
-	if err != nil {
-		return err
-	}
-	if err := spacer.SetSpacingAfter(120); err != nil {
-		return fmt.Errorf("invalid spacing after: %w", err)
-	}
-
 	return nil
 }
 
@@ -3862,7 +3901,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	assetPath, err := fetcher.FetchDiagramToAssets(g.runCtx(), content)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to fetch PlantUML diagram: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableDiagram)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
 
 	// Construir path completo
@@ -3889,7 +3928,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	}
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
-		return g.renderUnavailable(doc, docxUnavailableDiagram)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
 
 	// Obtener tamaño del archivo
@@ -4145,6 +4184,26 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 	return nil
 }
 
+// WalkElements recorre con ast.Walk todos los elementos del documento,
+// también los de una columna tipada o de un bloque especial con Elements,
+// hasta que visit devuelva false. Antes el DOCX solo miraba block.Elements,
+// así que un mermaid o una ecuación dentro de un ":::" (o de una columna) no
+// inicializaba Chromium y el elemento salía como marcador de no disponible.
+// pipeline.ChromiumRequirements usa el mismo recorrido para que su chequeo
+// previo y el generador no difieran.
+func WalkElements(astDoc *ast.AST, visit func(ast.Element) bool) {
+	if astDoc == nil {
+		return
+	}
+	stop := errors.New("stop")
+	_ = ast.Walk(astDoc, func(n ast.Node) error {
+		if elem, ok := n.(ast.Element); ok && !visit(elem) {
+			return stop
+		}
+		return nil
+	})
+}
+
 // needsChromiumRendering verifica si necesitamos Chromium
 func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 	// Un SVG local, en cualquier lugar del documento, se rasteriza con
@@ -4152,30 +4211,30 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 	if HasSVGImages(astDoc) {
 		return true
 	}
-	for _, block := range astDoc.ContentBlocks {
-		for _, elem := range block.Elements {
-			switch e := elem.(type) {
-			// MathElement faltaba acá: renderMath ya usa chromiumRenderer
-			// (RenderMathToPNG) pero, sin este case, un documento cuyo
-			// único elemento rico es una ecuación nunca inicializa
-			// chromiumRenderer, así que renderMath cae en su guarda de nil
-			// y la ecuación desaparece del DOCX en silencio — math estaba
-			// soportado solo nominalmente.
-			// MapElement no está aquí: renderMap intenta primero el renderer
-			// nativo y solo usa Chromium como respaldo si ya fue necesario por
-			// algún otro elemento. Así un DOCX con solo mapas no arranca un
-			// navegador de forma implícita.
-			case *ast.ChartElement, *ast.MermaidElement, *ast.MathElement:
-				return true
-			case *ast.ImageElement:
-				// Un SVG local se rasteriza con Chromium (rasterizeSVGImage).
-				if isSVGImageSource(e.Source) {
-					return true
-				}
+	needs := false
+	WalkElements(astDoc, func(elem ast.Element) bool {
+		switch e := elem.(type) {
+		// MathElement faltaba acá: renderMath ya usa chromiumRenderer
+		// (RenderMathToPNG) pero, sin este case, un documento cuyo
+		// único elemento rico es una ecuación nunca inicializa
+		// chromiumRenderer, así que renderMath cae en su guarda de nil
+		// y la ecuación desaparece del DOCX en silencio — math estaba
+		// soportado solo nominalmente.
+		// MapElement no está aquí: renderMap intenta primero el renderer
+		// nativo y solo usa Chromium como respaldo si ya fue necesario por
+		// algún otro elemento. Así un DOCX con solo mapas no arranca un
+		// navegador de forma implícita.
+		case *ast.ChartElement, *ast.MermaidElement, *ast.MathElement:
+			needs = true
+		case *ast.ImageElement:
+			// Un SVG local se rasteriza con Chromium (rasterizeSVGImage).
+			if isSVGImageSource(e.Source) {
+				needs = true
 			}
 		}
-	}
-	return false
+		return !needs
+	})
+	return needs
 }
 
 // canRenderWithoutChromium recognizes the subset the DOCX writer can render
@@ -4188,26 +4247,26 @@ func (g *DOCXGenerator) canRenderWithoutChromium(astDoc *ast.AST) bool {
 	if HasSVGImages(astDoc) {
 		return false
 	}
-	for _, block := range astDoc.ContentBlocks {
-		for _, elem := range block.Elements {
-			switch e := elem.(type) {
-			case *ast.ChartElement:
-				// Elegibilidad no basta: un chart de tipo soportado con datos
-				// malformados fallará al rasterizar. Si no comprobamos el render
-				// real acá, renderChart se quedaría sin Chromium y lo omitiría.
-				width, height := renderer.ChartDimensions(e)
-				_, ok, err := renderer.RenderChartNativePNG(e, width, height)
-				if !ok || err != nil {
-					return false
-				}
-			case *ast.MermaidElement, *ast.MathElement:
-				return false
-			case *ast.ImageElement:
-				if isSVGImageSource(e.Source) {
-					return false
-				}
+	native := true
+	WalkElements(astDoc, func(elem ast.Element) bool {
+		switch e := elem.(type) {
+		case *ast.ChartElement:
+			// Elegibilidad no basta: un chart de tipo soportado con datos
+			// malformados fallará al rasterizar. Si no comprobamos el render
+			// real acá, renderChart se quedaría sin Chromium y lo omitiría.
+			width, height := renderer.ChartDimensions(e)
+			_, ok, err := renderer.RenderChartNativePNG(e, width, height)
+			if !ok || err != nil {
+				native = false
+			}
+		case *ast.MermaidElement, *ast.MathElement:
+			native = false
+		case *ast.ImageElement:
+			if isSVGImageSource(e.Source) {
+				native = false
 			}
 		}
-	}
-	return true
+		return native
+	})
+	return native
 }

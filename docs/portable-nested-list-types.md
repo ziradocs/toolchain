@@ -74,29 +74,34 @@ Every parent with `subPoints` in 2.16 must declare `subListType`, and a leaf
 cannot declare it. JSON lacking the matching version/capability fails before
 unknown fields can be discarded. There is no legacy downgrade for 2.16.
 
-Core HTML, SlideLang HTML, DocLang Markdown, and PPTX render the opt-in
-hierarchy and types. DOCX rejects a typed nested list before writing output:
-the current Word renderer uses visible marker text rather than native Word
-list numbering, so it cannot preserve this capability. PPTX has nine
-paragraph levels; deeper typed lists fail before output.
+Core HTML, SlideLang HTML, DocLang Markdown, PPTX and DOCX render the opt-in
+hierarchy and types. DOCX writes native Word lists: each item is a numbered
+paragraph at its level (`w:ilvl`), and every list, including each child list,
+has its own numbering definition, so an ordered child list starts at its own
+first ordinal. PPTX and DOCX have nine levels; deeper typed lists fail before
+output.
 
 ## Without the opt-in
 
-A legacy list nests by indentation to any depth, as in Markdown, in both
-dialects; checklists do too. The JSON shape is the one the schema always
-allowed: recursive `subPoints`/`subItems`, no `subListType`, no `start`, schema
-2.14.0, no capability. Earlier parsers flattened every level past the second
-into the second, so a reader that only walks two levels now misses the rest;
-the readers in this repository (core HTML, SlideLang HTML and PPTX) walk the
-whole tree.
+A legacy list nests by indentation to any depth, following CommonMark: an
+item is the child of the item above it only when its marker starts at or past
+that item's content column (the column after the marker and its space); a
+shallower indentation makes it a sibling or returns to an outer level.
+Checklists do the same. The JSON shape is the one the schema always allowed:
+recursive `subPoints`/`subItems`, no `subListType`, no `start`, schema 2.14.0,
+no capability. Earlier parsers flattened every level past the second into the
+second, so a reader that only walks two levels now misses the rest; the
+readers in this repository (core HTML, SlideLang HTML and PPTX, DocLang DOCX
+and Markdown) walk the whole tree. PPTX and DOCX draw an untyped list deeper
+than nine levels at their last level instead of failing.
 
 The type of each sublist, the marker of each item and the number written before
 an ordered item live in memory only (`SubListMarker`, `Marker`, `Ordinal`). Core
 HTML draws each sublist with its own type, starts a new list when the marker
-changes between siblings, and writes `<ol start>` from the first number. After a
-JSON round-trip that information is gone: a sublist takes the type of its parent
-and numbering starts at 1. To serialize types and starts, declare
-`nested-list-types-v1` and `list-start-v1`.
+changes between siblings, and writes `<ol start>` from the first number; DOCX
+starts its Word numbering there too. After a JSON round-trip that information
+is gone: a sublist takes the type of its parent and numbering starts at 1. To
+serialize types and starts, declare `nested-list-types-v1` and `list-start-v1`.
 
 Previously published readers cannot be changed retroactively. A reader that
 ignores unknown JSON fields must not receive a 2.16 document without an

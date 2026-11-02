@@ -811,3 +811,20 @@ func TestExport_SVGOnlyInCodeIsNotAnImage(t *testing.T) {
 	exportOK(t, s, ctx, map[string]any{"path": "tut.md", "format": "docx"})
 	exportFail(t, s, ctx, map[string]any{"path": "real.md", "format": "docx"}, "SVG images in DOCX")
 }
+
+// Un mermaid dentro de un bloque especial o una ecuación dentro de una
+// columna tipada también exige
+// Chromium: el chequeo previo miraba solo el primer nivel de la sección y el
+// DOCX salía con un marcador de no disponible, sin error.
+func TestExport_ChromiumMissingNestedRichElements(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "callout-mermaid.md", "# Doc\n\n:::info Nota\nTexto.\n\n```mermaid\ngraph TD\n  A-->B\n```\n:::\n")
+	f.write(t, "column-math.md", "# Doc\n\n::: grid\n::: column typed\n$$\nE = mc^2\n$$\n:::\n::: column\nx\n:::\n:::\n")
+	s, ctx := newExportSession(t, Options{Root: f.root, ChromiumPath: filepath.Join(f.root, "no-such-chromium")})
+
+	exportFail(t, s, ctx, map[string]any{"path": "callout-mermaid.md", "format": "docx"}, "mermaid diagrams in DOCX")
+	exportFail(t, s, ctx, map[string]any{"path": "column-math.md", "format": "docx"}, "math equations in DOCX")
+	if _, err := os.Stat(filepath.Join(f.root, "callout-mermaid.docx")); !os.IsNotExist(err) {
+		t.Error("a DOCX was written without Chromium")
+	}
+}
