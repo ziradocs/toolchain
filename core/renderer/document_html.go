@@ -455,6 +455,16 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             border-radius: 4px;
         }
 
+        /* Una imagen inline (dentro de un párrafo, un ítem, una celda, una
+           cita o una definición) va en la línea, no como bloque centrado:
+           conserva su tamaño natural, acotado al ancho disponible. */
+        p img, li img, td img, th img, blockquote img, dd img, dt img {
+            display: inline;
+            vertical-align: middle;
+            margin: 0;
+            border-radius: 0;
+        }
+
         figure {
             margin: 1.5em 0;
             text-align: center;
@@ -2091,7 +2101,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 
 	// Start first page
 	body.WriteString(openDocumentPageDiv(header, footer, variables))
-	body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables))
+	body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables, ctx))
 	body.WriteString(`    <div class="page-content">
 `)
 
@@ -2143,7 +2153,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 			currentBlockType = doc.ContentBlocks[i+1].BlockType
 			header, footer = resolveHeaderFooterConfig(opts.HeaderFooter, currentBlockType)
 			body.WriteString(openDocumentPageDiv(header, footer, variables))
-			body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables))
+			body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables, ctx))
 			body.WriteString(`    <div class="page-content">
 `)
 		}
@@ -2302,11 +2312,29 @@ func renderHeaderFooterBorder(classPrefix string, border *ast.BorderConfig, edge
 
 // renderHeaderLogo emite el <img> de logo de un header. Solo aplica a
 // headers — ast.FooterConfig no tiene campo Logo.
-func renderHeaderLogo(logo *ast.LogoConfig, variables map[string]interface{}) string {
+//
+// En una salida de build (el PDF, el HTML offline) el logo sigue la regla de
+// las imágenes del documento: uno remoto no se pide sin
+// RenderContext.AllowRemoteImages (se omite con un aviso), y uno local se
+// inlinea en offline-inline, porque el PDF se imprime desde about:blank y un
+// src relativo no resuelve; si falta o queda fuera de la raíz, se omite.
+func renderHeaderLogo(logo *ast.LogoConfig, variables map[string]interface{}, ctx *RenderContext) string {
 	if logo == nil {
 		return ""
 	}
-	src := SanitizeURL(ProcessVariables(logo.Source, variables))
+	raw := ProcessVariables(logo.Source, variables)
+	if remoteImageBlocked(raw, ctx) {
+		return ""
+	}
+	var src string
+	switch inlined, status := inlineLocalAsset(raw, ctx, 0, "IMAGE", "header logo"); status {
+	case localAssetInlined:
+		src = inlined
+	case localAssetUnavailable:
+		return ""
+	default:
+		src = SanitizeURL(raw)
+	}
 	if src == "" {
 		return ""
 	}
@@ -2418,7 +2446,7 @@ func renderFooterPageNumbers(config *ast.PageNumbersConfig, displayPage, totalPa
 // este blockType) cae al fallback legado gateado por showHeadersLegacy —
 // el output previo a issue #117. Con un header resuelto, su propio Enabled
 // gobierna, sin importar showHeadersLegacy (decisión 1 del plan).
-func generatePageHeaderHTML(header *ast.HeaderConfig, showHeadersLegacy bool, docTitleEscaped string, pageNum int, variables map[string]interface{}) string {
+func generatePageHeaderHTML(header *ast.HeaderConfig, showHeadersLegacy bool, docTitleEscaped string, pageNum int, variables map[string]interface{}, ctx *RenderContext) string {
 	if header == nil {
 		if !showHeadersLegacy {
 			return ""
@@ -2441,7 +2469,7 @@ func generatePageHeaderHTML(header *ast.HeaderConfig, showHeadersLegacy bool, do
 	}
 	b.WriteString(">\n")
 	b.WriteString(renderHeaderFooterBorder("page-header", header.Border, "top", variables))
-	b.WriteString(renderHeaderLogo(header.Logo, variables))
+	b.WriteString(renderHeaderLogo(header.Logo, variables, ctx))
 	b.WriteString(renderHeaderFooterZoneSpans("page-header", header.Text, variables))
 	b.WriteString(renderHeaderFooterBorder("page-header", header.Border, "bottom", variables))
 	b.WriteString("    </div>\n")

@@ -17,6 +17,7 @@ const (
 	unavailableChart
 	unavailableDiagram
 	unavailableEquation
+	unavailableMedia
 )
 
 // unavailableNote es el texto que reemplaza en el documento a un contenido
@@ -46,6 +47,11 @@ func unavailableNote(kind unavailableKind, lang string) string {
 			return "Diagram not available"
 		}
 		return "Diagrama no disponible"
+	case unavailableMedia:
+		if en {
+			return "Media not available"
+		}
+		return "Contenido multimedia no disponible"
 	case unavailableEquation:
 		if en {
 			return "Equation not available"

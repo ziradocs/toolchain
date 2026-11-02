@@ -16,7 +16,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -522,14 +521,17 @@ func remoteImageBlocked(src string, ctx *RenderContext) bool {
 }
 
 // localImageEscapesRoot dice si una fuente de imagen local relativa escapa de
-// AssetRoot (con ".." o por un symlink), fuera de offline-inline: ahí el src
-// se deja relativo para que lo resuelva el visor, pero una ruta que el
-// confinamiento rechaza no la va a mostrar ninguna salida de build (el PDF y
-// el DOCX la bloquean), así que la vista previa tampoco. Una ruta absoluta
-// no cuenta: en un HTML servido puede ser una URL relativa a la raíz del
-// sitio. Sin AssetRoot no hay confinamiento que consultar.
+// AssetRoot (con ".." o por un symlink) en HTML offline-assets, la única
+// salida de build que deja el src relativo: ahí una ruta que el
+// confinamiento rechaza no se debe mostrar, igual que en el PDF y el DOCX.
+// En modo browser (o sin ImageMode) no se consulta nunca: el src relativo lo
+// resuelve el visor, como dicen --base-dir y el esquema del MCP, y la vista
+// previa de VS Code compila una copia temporal con --asset-root en el
+// directorio del archivo, así que una imagen en ../images/ es legítima. En
+// offline-inline lo resuelve inlineLocalAsset. Una ruta absoluta no cuenta:
+// puede ser una URL relativa a la raíz del sitio.
 func localImageEscapesRoot(source string, ctx *RenderContext) bool {
-	if ctx == nil || ctx.ImageMode == "offline-inline" || ctx.AssetRoot == "" || source == "" {
+	if ctx == nil || ctx.ImageMode != "offline-assets" || ctx.AssetRoot == "" || source == "" {
 		return false
 	}
 	parsed, err := url.Parse(source)
@@ -626,6 +628,12 @@ func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}
 	if source == "" {
 		return `<div class="media-error">Media source blocked for security reasons</div>`
 	}
+	// Un video o audio remoto en una salida de build (el PDF, el HTML
+	// offline) lo pediría la máquina que compila, igual que una imagen
+	// remota (ver RenderContext.AllowRemoteImages).
+	if remoteImageBlocked(UnescapeHTML(source), ctx) {
+		return unavailableDiv("media-error", unavailableMedia, ctx)
+	}
 
 	var attrs strings.Builder
 	if elem.Controls {
@@ -650,7 +658,7 @@ func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}
 		} else {
 			poster = SanitizeURL(poster)
 		}
-		if poster != "" {
+		if poster != "" && !remoteImageBlocked(UnescapeHTML(poster), ctx) {
 			fmt.Fprintf(&attrs, ` poster="%s"`, poster) // SanitizeURL ya escapa para atributo
 		}
 	}
@@ -749,25 +757,34 @@ func tableColumnAlignAttr(columnAlign []string, col int) string {
 	return ""
 }
 
-// tableTokenMaxRunes es el largo máximo de un "token corto" de celda (ver
-// tableTokenCellClass): cubre códigos como "NFR-SEG-12" o "2026-11-02" y deja
-// fuera una palabra compuesta larga, que sí conviene que pueda partirse.
-const tableTokenMaxRunes = 20
+// tableIDTokenMaxRunes y tableIDTokenPattern definen la forma de un ID de
+// requisito u objetivo ("OB-1", "RF-12", "NFR-SEG-3"): mayúsculas y dígitos
+// en dos a cuatro grupos separados por guion, empezando con letra, de hasta
+// 12 caracteres. Una versión anterior aceptaba cualquier token corto con
+// guion o barra y fijaba también fechas ("2026-11-02/2026-12"), "co-op" o
+// URLs cortas: una tabla de ocho columnas de fechas se salía de la página
+// del PDF. Las marcas de énfasis o código alrededor ("**RF-12**") no cuentan.
+const tableIDTokenMaxRunes = 12
 
-// tableTokenCellClass devuelve ` class="cell-token"` para una celda cuyo
-// contenido es un solo token corto con un guion o una barra: un ID como
-// "OB-1", "RF-12" o "NFR-SEG-3". El guion es una oportunidad de corte de
-// línea (UAX #14) que hyphens/word-break/overflow-wrap no quitan, así que en
-// una columna angosta junto a columnas de texto largo Chromium partía el ID
-// en "RF-" / "12". La clase lleva white-space: nowrap (document_html.go) y la
-// tabla automática le da a la columna el ancho del token. Las celdas de
-// texto normal no llevan clase y siguen partiéndose como siempre.
+var tableIDTokenPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+){1,3}$`)
+
+// tableIDToken dice si el contenido de una celda es un ID corto (ver
+// tableIDTokenPattern). El DOCX de doclang usa el mismo criterio al repartir
+// el ancho de las columnas (docxIsShortToken).
+func tableIDToken(raw string) bool {
+	t := strings.Trim(strings.TrimSpace(raw), "*_`")
+	return utf8.RuneCountInString(t) <= tableIDTokenMaxRunes && tableIDTokenPattern.MatchString(t)
+}
+
+// tableTokenCellClass devuelve ` class="cell-token"` para una celda que es un
+// ID corto (tableIDToken). El guion es una oportunidad de corte de línea
+// (UAX #14) que hyphens/word-break/overflow-wrap no quitan, así que en una
+// columna angosta junto a columnas de texto largo Chromium partía el ID en
+// "RF-" / "12". La clase lleva white-space: nowrap (document_html.go) y la
+// tabla automática le da a la columna el ancho del ID. Cualquier otra celda
+// no lleva clase y se sigue partiendo como siempre.
 func tableTokenCellClass(raw string) string {
-	t := strings.TrimSpace(raw)
-	if t == "" || utf8.RuneCountInString(t) > tableTokenMaxRunes || strings.ContainsFunc(t, unicode.IsSpace) {
-		return ""
-	}
-	if !strings.ContainsAny(t, "-/‐–") {
+	if !tableIDToken(raw) {
 		return ""
 	}
 	return ` class="cell-token"`

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -181,5 +182,37 @@ func TestPDF_InlineImagesEmbedded(t *testing.T) {
 		if strings.Contains(w, "[IMAGE]") {
 			t.Errorf("unexpected image warning: %s", w)
 		}
+	}
+}
+
+// TestDOCX_InlineImageInCellFitsColumn: una imagen inline grande en una
+// celda se reduce al ancho de su columna (menos los márgenes de la celda),
+// no al de la caja de texto de la página. Antes un PNG de 4000x3000 salía
+// a 6.27" en una columna de 3.22".
+func TestDOCX_InlineImageInCellFitsColumn(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "huge.png"), pngOfSize(t, 4000, 3000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "---\ntitle: T\nmode: flex\n---\n\n# T\n\n| Pic | Text |\n|---|---|\n| ![big](huge.png) | some words here |\n"
+	out := filepath.Join(t.TempDir(), "out.docx")
+	if err := New(newTestLogger()).Generate(parseInline(t, src), out, GeneratorOptions{Format: "docx", AssetRoot: dir, SourceDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	xml := docxDocumentXML(t, out)
+	grid := regexp.MustCompile(`<w:gridCol w:w="(\d+)"`).FindStringSubmatch(xml)
+	ext := regexp.MustCompile(`<wp:extent cx="(\d+)" cy="(\d+)"`).FindStringSubmatch(xml)
+	if grid == nil || ext == nil {
+		t.Fatalf("no grid or no image:\n%s", xml)
+	}
+	col, _ := strconv.Atoi(grid[1])
+	cx, _ := strconv.Atoi(ext[1])
+	cy, _ := strconv.Atoi(ext[2])
+	maxIn := float64(col-docxCellPaddingTwips) / 1440
+	if w := float64(cx) / 914400; w > maxIn+0.01 {
+		t.Errorf("image is %.2f\" wide in a column of %.2f\" (text width %.2f\")", w, maxIn, float64(col)/1440)
+	}
+	if r := float64(cx) / float64(cy); r < 1.32 || r > 1.35 {
+		t.Errorf("aspect ratio %.3f, want 4:3", r)
 	}
 }

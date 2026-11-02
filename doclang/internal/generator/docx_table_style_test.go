@@ -161,9 +161,55 @@ func TestDOCXTableColumnWidths_ShortIDColumn(t *testing.T) {
 	if sum != available {
 		t.Errorf("widths %v suman %d, want %d", widths, sum, available)
 	}
-	for cell, want := range map[string]bool{"OB-1": true, "**RF-12**": true, "Alta": false, "RF-12 y RF-13": false, "": false} {
+}
+
+// TestDocxIsShortToken: mismos casos que TestTableTokenCellClass de
+// core/renderer, porque docxIsShortToken espeja esa regla.
+func TestDocxIsShortToken(t *testing.T) {
+	for cell, want := range map[string]bool{
+		"OB-1":               true,
+		" RF-12 ":            true,
+		"NFR-SEG-3":          true,
+		"NFR-SEG-12":         true,
+		"**RF-12**":          true,
+		"`US-A01`":           true,
+		"A-B-C-D-E":          false,
+		"ABCDEFGH-123":       true,
+		"ABCDEFGHI-123":      false,
+		"2026-11-02":         false,
+		"2026-11-02/2026-12": false,
+		"co-op":              false,
+		"well-known":         false,
+		"I/O":                false,
+		"https://x.com/a-b":  false,
+		"Rf-12":              false,
+		"Alta":               false,
+		"12":                 false,
+		"":                   false,
+		"RF-12 y RF-13":      false,
+	} {
 		if got := docxIsShortToken(cell); got != want {
 			t.Errorf("docxIsShortToken(%q) = %v, want %v", cell, got, want)
 		}
+	}
+}
+
+// TestDOCXTableColumnWidths_DatesDoNotGetMinWidth: una tabla de ocho
+// columnas de fechas no fija mínimos por token y reparte el ancho entero.
+func TestDOCXTableColumnWidths_DatesDoNotGetMinWidth(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"A", "B", "C", "D", "E", "F", "G", "H"}
+	row := make([]string, 8)
+	for i := range row {
+		row[i] = "2026-11-02/2026-12"
+	}
+	table.Rows = [][]string{row}
+	widths := docxTableColumnWidths(table, 8, 9026, 22)
+	sum := 0
+	for _, w := range widths {
+		sum += w
+	}
+	if sum != 9026 {
+		t.Errorf("widths %v suman %d, want 9026", widths, sum)
 	}
 }

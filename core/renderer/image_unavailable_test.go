@@ -46,10 +46,11 @@ func TestRenderImageElement_UnavailableKeepsFigure(t *testing.T) {
 }
 
 // TestRenderImageElement_BrowserModeKeepsRelativeSrc: en la vista previa del
-// navegador el src relativo se conserva aunque el archivo no exista (lo
-// resuelve el visor), pero una ruta que escapa de AssetRoot ya se sabe
-// bloqueada y sale como marcador. Una ruta absoluta puede ser una URL
-// relativa a la raíz del sitio: se conserva.
+// navegador el src relativo se conserva siempre (lo resuelve el visor),
+// aunque el archivo no exista o la ruta salga de AssetRoot: una imagen en
+// ../images/ es legítima con los flags por defecto y en la copia temporal de
+// la vista previa de VS Code (--asset-root en el directorio del archivo).
+// Solo HTML offline-assets, que es salida de build, marca la que escapa.
 func TestRenderImageElement_BrowserModeKeepsRelativeSrc(t *testing.T) {
 	ctx := NewDefaultRenderContext()
 	ctx.AssetRoot = t.TempDir()
@@ -61,8 +62,16 @@ func TestRenderImageElement_BrowserModeKeepsRelativeSrc(t *testing.T) {
 	if got := renderImageElement(ast.NewImageElement(pos, "/static/logo.png", "Logo"), nil, ctx); got != `<img src="/static/logo.png" alt="Logo">` {
 		t.Errorf("root-relative URL in browser mode: %s", got)
 	}
-	if got := renderImageElement(ast.NewImageElement(pos, "../../etc/x.png", "Logo"), nil, ctx); !strings.Contains(got, `class="image-unavailable"`) {
-		t.Errorf("an escaping path in browser mode should be the marker: %s", got)
+	for _, src := range []string{"../images/logo.png", "../../etc/x.png"} {
+		if got := renderImageElement(ast.NewImageElement(pos, src, "Logo"), nil, ctx); got != `<img src="`+src+`" alt="Logo">` {
+			t.Errorf("browser mode must keep %s: %s", src, got)
+		}
+	}
+	assets := NewDefaultRenderContext()
+	assets.ImageMode = "offline-assets"
+	assets.AssetRoot = ctx.AssetRoot
+	if got := renderImageElement(ast.NewImageElement(pos, "../../etc/x.png", "Logo"), nil, assets); !strings.Contains(got, `class="image-unavailable"`) {
+		t.Errorf("an escaping path in offline-assets HTML should be the marker: %s", got)
 	}
 	ctx.AssetRoot = ""
 	if got := renderImageElement(ast.NewImageElement(pos, "../x.png", "Logo"), nil, ctx); got != `<img src="../x.png" alt="Logo">` {

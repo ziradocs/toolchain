@@ -57,6 +57,11 @@ type DOCXGenerator struct {
 	// lang es el lang: del front matter; decide el idioma de los marcadores
 	// de contenido no disponible (docx_unavailable.go).
 	lang string
+	// inlineImageMaxWidthIn, si es > 0, es el ancho máximo de una imagen
+	// inline mientras se escribe una celda de tabla: el de su columna menos
+	// los márgenes. Sin esto una imagen inline grande en una celda se
+	// ajustaba a la caja de texto de la página y desbordaba la columna.
+	inlineImageMaxWidthIn float64
 }
 
 // runCtx es el contexto de la generación en curso, o Background fuera de
@@ -1969,6 +1974,7 @@ func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
 			text := alt
 			if src, local := docxLocalImageSource(dest); local {
 				if path, size, ok := g.prepareLocalImage(src, 0, false); ok {
+					size = capImageWidth(size, g.inlineImageMaxWidthIn)
 					_, err := p.AddImageWithSize(path, size)
 					if err == nil {
 						return nil
@@ -2001,6 +2007,18 @@ func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
 			return nil
 		},
 	}
+}
+
+// capImageWidth reduce size, conservando la proporción, para que no pase de
+// maxWidthIn pulgadas; maxWidthIn <= 0 no acota nada.
+func capImageWidth(size domain.ImageSize, maxWidthIn float64) domain.ImageSize {
+	const emuPerInch = 914400.0
+	w := float64(size.WidthEMU) / emuPerInch
+	if maxWidthIn <= 0 || w <= maxWidthIn {
+		return size
+	}
+	h := float64(size.HeightEMU) / emuPerInch
+	return imageSizeFromInches(maxWidthIn, h*maxWidthIn/w)
 }
 
 // docxLocalImageSource devuelve la ruta de un destino de imagen inline si es
@@ -2556,7 +2574,10 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 				continue
 			}
 
-			if err := g.renderInlineMarkdown(p, row[j]); err != nil {
+			g.inlineImageMaxWidthIn = float64(colWidths[j]-docxCellPaddingTwips) / 1440
+			err = g.renderInlineMarkdown(p, row[j])
+			g.inlineImageMaxWidthIn = 0
+			if err != nil {
 				return err
 			}
 		}
@@ -2697,17 +2718,15 @@ func docxTableColumnWidths(elem *ast.TableElement, numCols, available, headerHal
 	return widths
 }
 
-// docxShortTokenMaxRunes y docxIsShortToken espejan tableTokenCellClass de
-// core/renderer (no exportada): un solo token de hasta 20 caracteres con un
-// guion o una barra, que es donde Word y Chromium cortarían.
-const docxShortTokenMaxRunes = 20
+// docxIDTokenPattern y docxIsShortToken espejan tableIDToken de
+// core/renderer (no exportada): un ID de dos a cuatro grupos en mayúsculas y
+// dígitos separados por guion ("RF-12", "NFR-SEG-3"), de hasta 12
+// caracteres. Los tests de los dos lados usan los mismos casos.
+var docxIDTokenPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+){1,3}$`)
 
 func docxIsShortToken(cell string) bool {
-	t := strings.TrimSpace(docxStripHeadingMarkup(cell))
-	if t == "" || utf8.RuneCountInString(t) > docxShortTokenMaxRunes || strings.ContainsFunc(t, unicode.IsSpace) {
-		return false
-	}
-	return strings.ContainsAny(t, "-/\u2010\u2013")
+	t := strings.Trim(strings.TrimSpace(docxStripHeadingMarkup(cell)), "*_`")
+	return utf8.RuneCountInString(t) <= 12 && docxIDTokenPattern.MatchString(t)
 }
 
 // Estimación del ancho de texto de un encabezado, sin métricas de fuente:
@@ -4128,6 +4147,11 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 
 // needsChromiumRendering verifica si necesitamos Chromium
 func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
+	// Un SVG local, en cualquier lugar del documento, se rasteriza con
+	// Chromium (rasterizeSVGImage).
+	if HasSVGImages(astDoc) {
+		return true
+	}
 	for _, block := range astDoc.ContentBlocks {
 		for _, elem := range block.Elements {
 			switch e := elem.(type) {
@@ -4159,6 +4183,11 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 // capability gate; Mermaid and Math deliberately return false because their
 // DOCX paths rasterize through Chromium.
 func (g *DOCXGenerator) canRenderWithoutChromium(astDoc *ast.AST) bool {
+	// Un SVG local, en cualquier lugar del documento, se rasteriza con
+	// Chromium (rasterizeSVGImage).
+	if HasSVGImages(astDoc) {
+		return false
+	}
 	for _, block := range astDoc.ContentBlocks {
 		for _, elem := range block.Elements {
 			switch e := elem.(type) {

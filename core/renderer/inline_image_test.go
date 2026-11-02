@@ -78,16 +78,16 @@ func TestInlineImages_MissingOrBlocked(t *testing.T) {
 }
 
 // TestInlineImages_BrowserMode: en la vista previa se conserva el src
-// relativo (lo resuelve el visor) salvo que escape de la raíz; sin AssetRoot
-// no se toca nada, y una imagen remota nunca.
+// relativo (lo resuelve el visor), también fuera de la raíz; sin AssetRoot
+// no se toca nada, y una imagen remota permitida tampoco.
 func TestInlineImages_BrowserMode(t *testing.T) {
 	ctx := NewDefaultRenderContext()
 	ctx.AssetRoot = t.TempDir()
 	if html := RenderElementToHTML(inlineImageCases("falta.png")["párrafo"], nil, ctx); !strings.Contains(html, `<img src="falta.png" alt="logo">`) {
 		t.Errorf("missing file in browser mode must keep src: %s", html)
 	}
-	if html := RenderElementToHTML(inlineImageCases("../../x.png")["lista"], nil, ctx); !strings.Contains(html, "image-unavailable-inline") {
-		t.Errorf("escaping path in browser mode must be the marker: %s", html)
+	if html := RenderElementToHTML(inlineImageCases("../images/logo.png")["lista"], nil, ctx); !strings.Contains(html, `<img src="../images/logo.png" alt="logo">`) {
+		t.Errorf("a path outside AssetRoot in browser mode must keep its src: %s", html)
 	}
 	offline, _ := offlineInlineCtx(t)
 	offline.SetAllowRemoteImages(true)
@@ -144,5 +144,65 @@ func TestRemoteImages_BlockedInBuildOutputs(t *testing.T) {
 	}
 	if html := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, NewDefaultRenderContext()); !strings.Contains(html, "img-src 'self' * data:;") {
 		t.Error("browser mode keeps the default CSP")
+	}
+}
+
+// TestRemoteLogoAndMedia_BlockedInBuildOutputs: el logo del header y el
+// src/poster de un <<video>> siguen la misma regla que las imágenes: en una
+// salida de build, uno remoto no se pide sin AllowRemoteImages.
+func TestRemoteLogoAndMedia_BlockedInBuildOutputs(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	ctx, root := offlineInlineCtx(t)
+	spy := &spyLogger{}
+	ctx.Logger = spy
+
+	if got := renderHeaderLogo(&ast.LogoConfig{Source: "http://198.51.100.7/logo.png", Alt: "L"}, nil, ctx); got != "" {
+		t.Errorf("remote logo in a build output: %s", got)
+	}
+	if err := os.WriteFile(filepath.Join(root, "logo.png"), []byte("PNG"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := renderHeaderLogo(&ast.LogoConfig{Source: "logo.png", Alt: "L"}, nil, ctx); !strings.Contains(got, `src="data:image/png;base64,`) {
+		t.Errorf("local logo should be inlined for the PDF: %s", got)
+	}
+	if got := renderHeaderLogo(&ast.LogoConfig{Source: "falta.png"}, nil, ctx); got != "" {
+		t.Errorf("missing logo: %s", got)
+	}
+
+	video := ast.NewMediaElement(pos, "video", "http://198.51.100.7/v.mp4")
+	if got := renderMediaElement(video, nil, ctx); strings.Contains(got, "198.51.100.7") || !strings.Contains(got, `class="media-error"`) {
+		t.Errorf("remote video in a build output: %s", got)
+	}
+	if err := os.WriteFile(filepath.Join(root, "v.mp4"), []byte("MP4"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	local := ast.NewMediaElement(pos, "video", "v.mp4")
+	local.Poster = "https://198.51.100.7/poster.png"
+	if got := renderMediaElement(local, nil, ctx); strings.Contains(got, "poster=") || !strings.Contains(got, "<video") {
+		t.Errorf("remote poster in a build output must be dropped: %s", got)
+	}
+	if len(spy.warnings) < 3 {
+		t.Errorf("want warnings for each blocked URL, got %v", spy.warnings)
+	}
+
+	ctx.SetAllowRemoteImages(true)
+	if got := renderHeaderLogo(&ast.LogoConfig{Source: "http://198.51.100.7/logo.png"}, nil, ctx); !strings.Contains(got, "198.51.100.7") {
+		t.Errorf("allowed remote logo: %s", got)
+	}
+	browser := NewDefaultRenderContext()
+	if got := renderMediaElement(video, nil, browser); !strings.Contains(got, `src="http://198.51.100.7/v.mp4"`) {
+		t.Errorf("browser mode keeps remote media: %s", got)
+	}
+}
+
+// TestInlineImageCSS: las imágenes dentro de un párrafo, ítem o celda van en
+// la línea; las de bloque siguen centradas.
+func TestInlineImageCSS(t *testing.T) {
+	css := generateDocumentStyles(DocumentHTMLOptions{}, nil)
+	if !strings.Contains(css, "p img, li img, td img, th img, blockquote img, dd img, dt img {\n            display: inline;") {
+		t.Error("no inline rule for images inside text")
+	}
+	if !strings.Contains(css, "img {\n            max-width: 100%;\n            height: auto;\n            display: block;") {
+		t.Error("block images lost their rule")
 	}
 }

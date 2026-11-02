@@ -11,22 +11,33 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
-// TestTableTokenCellClass: solo una celda que es un token corto con guion o
-// barra lleva la clase nowrap; el texto con espacios y las palabras largas
-// siguen partiéndose.
+// TestTableTokenCellClass: solo una celda que es un ID corto (mayúsculas y
+// dígitos con guion, hasta 12 caracteres) lleva la clase nowrap. Fechas,
+// palabras con guion y URLs siguen partiéndose: con la regla anterior una
+// tabla de ocho columnas de fechas se salía de la página. Los mismos casos
+// están en doclang (TestDocxIsShortToken), que espeja esta regla.
 func TestTableTokenCellClass(t *testing.T) {
 	for cell, want := range map[string]bool{
-		"OB-1":                            true,
-		" RF-12 ":                         true,
-		"NFR-SEG-3":                       true,
-		"2026-11-02":                      true,
-		"`a-b`":                           true,
-		"I/O":                             true,
-		"Alta":                            false,
-		"12":                              false,
-		"":                                false,
-		"RF-12 y RF-13":                   false,
-		"una-palabra-compuesta-muy-larga": false,
+		"OB-1":               true,
+		" RF-12 ":            true,
+		"NFR-SEG-3":          true,
+		"NFR-SEG-12":         true,
+		"**RF-12**":          true,
+		"`US-A01`":           true,
+		"A-B-C-D-E":          false,
+		"ABCDEFGH-123":       true,
+		"ABCDEFGHI-123":      false,
+		"2026-11-02":         false,
+		"2026-11-02/2026-12": false,
+		"co-op":              false,
+		"well-known":         false,
+		"I/O":                false,
+		"https://x.com/a-b":  false,
+		"Rf-12":              false,
+		"Alta":               false,
+		"12":                 false,
+		"":                   false,
+		"RF-12 y RF-13":      false,
 	} {
 		if got := tableTokenCellClass(cell) != ""; got != want {
 			t.Errorf("tableTokenCellClass(%q) = %v, want %v", cell, got, want)
