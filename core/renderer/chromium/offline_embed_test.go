@@ -9,6 +9,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"io/fs"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
@@ -47,6 +48,7 @@ func TestEmbeddedBundles_HaveNoScriptClose(t *testing.T) {
 		"chart.js":              embeddedChartJS,
 		"chartjs-chart-treemap": embeddedChartJSTreemap,
 		"mathjax":               embeddedMathJaxJS,
+		"mathjax ui/safe":       embeddedMathJaxSafeJS,
 	}
 	err := fs.WalkDir(mathJaxAssets, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -127,51 +129,76 @@ func TestLeafletPage_ReportsScriptErrors(t *testing.T) {
 	}
 }
 
-// TestMathPreload_WithMissing fija la regla de reintento: solo se reintenta
-// por un archivo embebido que no estaba ya precargado.
-func TestMathPreload_WithMissing(t *testing.T) {
-	var p mathPreload
-	next, ok := p.withMissing("MathJax: Error: dynamic file 'double-struck' failed to load")
-	if !ok || len(next.fonts) != 1 || next.fonts[0] != "double-struck" {
-		t.Fatalf("missing font: got %+v, %v", next, ok)
-	}
-	if _, ok := next.withMissing("MathJax: Error: dynamic file 'double-struck' failed to load"); ok {
-		t.Error("a font already preloaded must not trigger another attempt")
-	}
-	next, ok = next.withMissing(`MathJax: Extension "color" failed to load`)
-	if !ok || len(next.extensions) != 1 || next.extensions[0] != "color" || len(next.fonts) != 1 {
-		t.Fatalf("missing extension: got %+v, %v", next, ok)
-	}
-	for _, msg := range []string{
-		"MathJax: Error: dynamic file 'cyrillic' failed to load", // no embebido
-		`MathJax: Extension "html" failed to load`,               // excluido a propósito
-		`MathJax: Extension "texhtml" failed to load`,            // excluido a propósito
-		"MathJax: Missing close brace",                           // error del autor
+// TestNeedsFullPreload fija la regla de reintento: solo se repite por un
+// archivo que está embebido.
+func TestNeedsFullPreload(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"MathJax: Error: dynamic file 'double-struck' failed to load": true,
+		"MathJax: Error: dynamic file 'cyrillic' failed to load":      true,
+		"MathJax: Error: dynamic file 'no-such-file' failed to load":  false,
+		`MathJax: Extension "color" failed to load`:                   true,
+		`MathJax: Extension "html" failed to load`:                    false, // excluido a propósito
+		`MathJax: Extension "texhtml" failed to load`:                 false, // excluido a propósito
+		"MathJax: Missing close brace":                                false, // error del autor
 	} {
-		if _, ok := p.withMissing(msg); ok {
-			t.Errorf("%q must not trigger a retry", msg)
+		if got := needsFullPreload(msg); got != want {
+			t.Errorf("needsFullPreload(%q) = %v, want %v", msg, got, want)
 		}
-	}
-	if len(p.fonts) != 0 || len(p.extensions) != 0 {
-		t.Error("withMissing must not mutate the receiver")
 	}
 }
 
-// TestMathPreload_Scripts: la precarga inyecta cada archivo y lo marca como
-// cargado con el nombre que pediría el loader de MathJax.
+// TestMathPreload_Scripts: la precarga completa inyecta cada archivo
+// embebido y lo marca como cargado con el nombre que pediría el loader de
+// MathJax; la vacía no agrega nada.
 func TestMathPreload_Scripts(t *testing.T) {
-	got := mathPreload{extensions: []string{"color"}, fonts: []string{"double-struck"}}.scripts()
-	for _, want := range []string{
-		`MathJax.loader.preLoaded("[tex]/color")`,
-		`MathJax.loader.preLoaded("[mathjax-newcm]/svg/dynamic/double-struck")`,
-		`MathJax.loader.checkVersion("[tex]/color"`,
-		`MathJax.loader.checkVersion("[mathjax-newcm]/svg/dynamic/double-struck"`,
+	got := mathPreload{all: true}.scripts()
+	for _, dir := range []struct{ dir, prefix string }{
+		{mathJaxExtensionDir, "[tex]/"},
+		{mathJaxFontDir, "[mathjax-newcm]/svg/dynamic/"},
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("preload scripts missing %s", want)
+		entries, err := mathJaxAssets.ReadDir(dir.dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			name := dir.prefix + strings.TrimSuffix(e.Name(), ".js")
+			if !strings.Contains(got, `MathJax.loader.preLoaded("`+name+`")`) {
+				t.Errorf("full preload misses %s", name)
+			}
 		}
 	}
 	if (mathPreload{}).scripts() != "" {
 		t.Error("an empty preload must add nothing to the page")
+	}
+}
+
+// TestEmbeddedMathFonts_AreTheWholeDynamicSet: los 40 archivos dinámicos de
+// la fuente, para que ningún alfabeto que el modo browser sí carga falle sin
+// red (antes eran 11 y \text{Привет} fallaba).
+func TestEmbeddedMathFonts_AreTheWholeDynamicSet(t *testing.T) {
+	entries, err := mathJaxAssets.ReadDir(mathJaxFontDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 40 {
+		t.Errorf("embedded %d dynamic font files, want the 40 of @mathjax/mathjax-newcm-font 4.1.3", len(entries))
+	}
+	for _, e := range entries {
+		data, _ := mathJaxAssets.ReadFile(path.Join(mathJaxFontDir, e.Name()))
+		if !strings.Contains(string(data), `,"4.1.3","dynamic-font")`) {
+			t.Errorf("%s is not from the 4.1.3 font package", e.Name())
+		}
+	}
+}
+
+// TestMathPages_LoadSafe: toda página de math carga ui/safe.
+func TestMathPages_LoadSafe(t *testing.T) {
+	for _, html := range []string{buildMathSVGHTML(`x`), buildMathPNGHTML(`x`, 100, 100)} {
+		if !strings.Contains(html, embeddedMathJaxSafeScriptTag) {
+			t.Error("math page does not load ui/safe")
+		}
+	}
+	if !strings.Contains(embeddedMathJaxSafeJS, `checkVersion("ui/safe","4.1.3"`) {
+		t.Error("ui/safe.js is not the 4.1.3 component")
 	}
 }

@@ -804,30 +804,28 @@ func (r *ChromiumRenderer) RenderMathToSVGWithTheme(ctx context.Context, latex s
 	return svgContent, nil
 }
 
-// renderMathWithPreload corre una captura de math, cada intento en su
-// propio tab con su propio plazo. Si la página reporta que le faltó un
-// archivo de MathJax que está embebido (una fuente dinámica o una extensión
-// de TeX, ver math_embed.go), repite la captura con ese archivo precargado.
-// Cualquier otro error, o uno que ya no cambia con un reintento, se
-// devuelve tal cual.
+// renderMathWithPreload corre una captura de math en su propio tab con su
+// propio plazo. Si la página reporta que le faltó un archivo de MathJax que
+// está embebido (una fuente dinámica o una extensión de TeX, ver
+// math_embed.go), la repite una vez con todos los archivos embebidos
+// precargados. Cualquier otro error, o el del segundo intento, se devuelve
+// tal cual.
 func (r *ChromiumRenderer) renderMathWithPreload(ctx context.Context, tasks func(mathPreload) chromedp.Tasks) error {
-	var preload mathPreload
-	for attempt := 1; ; attempt++ {
-		runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
-		err := chromedp.Run(runCtx, tasks(preload))
-		cancel()
-		if err == nil {
-			return nil
-		}
-		var pageErr *pageRenderError
-		if errors.As(err, &pageErr) && attempt < mathMaxAttempts {
-			if next, ok := preload.withMissing(pageErr.msg); ok {
-				preload = next
-				continue
-			}
-		}
+	err := r.runMathCapture(ctx, tasks(mathPreload{}))
+	var pageErr *pageRenderError
+	if err != nil && errors.As(err, &pageErr) && needsFullPreload(pageErr.msg) {
+		err = r.runMathCapture(ctx, tasks(mathPreload{all: true}))
+	}
+	if err != nil {
 		return captureError("math", captureTimeout, ctx, err)
 	}
+	return nil
+}
+
+func (r *ChromiumRenderer) runMathCapture(ctx context.Context, tasks chromedp.Tasks) error {
+	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
+	defer cancel()
+	return chromedp.Run(runCtx, tasks)
 }
 
 // RenderMathToPNG renderiza una ecuación LaTeX a PNG (issue #239-B, uso

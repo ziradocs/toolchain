@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"image/png"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,13 @@ func TestRenderMath_OfflineFontsAndExtensions(t *testing.T) {
 		`\text{acción}`,                      // latín acentuado
 		`\boldsymbol{\alpha} + \color{red}x`, // extensiones
 		`\ce{H2O}`,
+		// Los de la revisión de #455: negrita y cursiva acentuadas, cirílico
+		// y una fórmula que pide muchos archivos a la vez (antes se agregaba
+		// uno por intento y se agotaban los intentos).
+		`\textbf{información} \mathbf{é}`,
+		`\textbf{\textit{café}}`,
+		`\text{Привет}`,
+		`\mathbb{R} \mathfrak{g} \mathscr{F} \mathsf{A} \mathtt{B} \text{ñ} \textbf{é} \textit{ç} \text{Ж} \boldsymbol{\alpha} \color{red}{x} \cancel{y} \ce{H2O} \braket{a|b} \SI{3}{m} \xrightarrow{f} \mathcal{O} \bbox[yellow]{z} \upalpha`,
 	} {
 		svg, err := r.RenderMathToSVGWithTheme(context.Background(), latex, renderer.DiagramThemeColors{})
 		if err != nil {
@@ -150,5 +158,28 @@ func TestRenderMathToFittedPNG(t *testing.T) {
 	// bastante menos que la página y bastante más que nada.
 	if cfg.Width < 100 || cfg.Width > 600 || cfg.Height < 30 || cfg.Height > 200 {
 		t.Errorf("fitted PNG is %dx%d, want roughly the equation's box at 2x", cfg.Width, cfg.Height)
+	}
+}
+
+// TestRenderMath_SafeFiltersExternalURLs: ui/safe va cargado, así que un
+// estilo del autor con una URL externa (\bbox[background:url(...)]) no
+// llega al SVG que termina en el HTML offline o en el PDF.
+func TestRenderMath_SafeFiltersExternalURLs(t *testing.T) {
+	r := newTestChromiumRenderer(t)
+	for _, latex := range []string{
+		`\bbox[background:url(http://example.com/x.png)]{x}`,
+		`\bbox[border:1px solid red; background-image:url(https://example.com/y)]{y}`,
+	} {
+		svg, err := r.RenderMathToSVGWithTheme(context.Background(), latex, renderer.DiagramThemeColors{})
+		if err != nil {
+			t.Fatalf("%s: %v", latex, err)
+		}
+		// El LaTeX fuente queda como texto en data-latex y en los
+		// data-semantic-*; eso no se pide a ningún lado. Lo que no puede
+		// quedar es la URL en un atributo que el navegador sí resuelve.
+		rendered := regexp.MustCompile(`data-[a-z-]+="[^"]*"`).ReplaceAllString(svg, "")
+		if strings.Contains(rendered, "example.com") {
+			t.Errorf("%s: external URL reached a rendered attribute: %s", latex, rendered)
+		}
 	}
 }
