@@ -33,7 +33,7 @@ theoretical existence.
 | plantuml | `<<plantuml>>` | same |
 | chart | `<<chart:type>>` | `<<chart:type>>` or fenced ` ```chart ` (JSON body only) |
 | map | `<<map>>` | `<<map>>` or fenced ` ```map ` (JSON body only) |
-| math | `<<math>>` … `<<end>>` | `<<math>>` … `<<end>>` or `$$ … $$` |
+| math | `<<math>>` … `<<end>>` | `<<math>>` … `<<end>>`, `$$ … $$` or fenced ` ```math ` |
 | grid | `<<grid>>` / `<<column>>` / `<<end>>` | `::: grid` / `::: column` |
 | special-block | `::: info\|warning\|danger\|success\|tip\|details` | same |
 | directive | `@name` | `@name` |
@@ -61,7 +61,7 @@ In flex mode, element detection goes through a priority-ordered parser
 registry (most specific first, plain text last) — you never need to worry
 about ordering when writing content, just use the markers above. Strict and
 flex support the same 17 element types; what flex has more of is
-*spellings* for some of them (`$$ … $$` for math, fenced ` ```mermaid `,
+*spellings* for some of them (`$$ … $$` and fenced ` ```math ` for math, fenced ` ```mermaid `,
 `::: grid`/`::: column` for grid, `![alt](src)`, `- [ ]`, `> quote`) — not
 types strict lacks.
 
@@ -193,13 +193,20 @@ e^{i\pi} + 1 = 0
 <<end>>
 ```
 
-The `$$` form is flex-only (ZiraDocs flex and DocLang):
+The `$$` form and the fenced ` ```math ` form (the one GitHub and GitLab
+render) are flex-only (ZiraDocs flex and DocLang):
 
 ```
 $$
 E = mc^2
 $$
 ```
+
+````
+```math
+E = mc^2
+```
+````
 
 - **Block/display math only.** There is no inline math — `$x$` in the
   middle of a sentence is not parsed as math, it stays literal text. `$$`
@@ -208,9 +215,10 @@ $$
   ends it, but write `<<end>>`).
 - The optional `label:` line is recognized **only inside the `<<math>>`
   form** — it numbers the equation and makes it addressable by `\ref{...}`.
-  The `$$` form carries no metadata.
+  The `$$` and ` ```math ` forms carry no metadata.
 - Rendered with MathJax (SVG output), loaded from CDN in the default
-  browser render mode.
+  browser render mode. PDF, DOCX and the offline render modes use a copy
+  of MathJax built into the binary and need no network.
 
 ## Special blocks (info/callouts)
 

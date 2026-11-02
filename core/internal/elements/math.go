@@ -12,7 +12,9 @@ import (
 
 // MathParser maneja el parsing de ecuaciones/fórmulas LaTeX en bloque (issue
 // #239-B, decisión B del plan OSS). Sintaxis: strict `<<math>> ... <<end>>`
-// (espeja mermaid.go), flex `$$ ... $$` (una sola línea o multi-línea).
+// (espeja mermaid.go), flex `$$ ... $$` (una sola línea o multi-línea) y,
+// también en flex, el fence de Markdown ```math ... ``` (el que usan GitHub
+// y GitLab), igual que ```mermaid y ```chart.
 // Alcance deliberado: solo bloque/display — math INLINE ($...$ a mitad de
 // una línea de prosa) queda fuera, toca el pipeline inline
 // (renderer/sanitizer.go) y es más invasivo; ver issue de seguimiento.
@@ -27,6 +29,9 @@ func (p *MathParser) CanParse(line string, mode string) bool {
 		return trimmed == "<<math>>"
 	case "flex":
 		if trimmed == "<<math>>" {
+			return true
+		}
+		if mathFenceOpening(trimmed) != "" {
 			return true
 		}
 		// $$ debe ser el inicio de la línea (no "el valor es $$x$$ acá") —
@@ -45,6 +50,10 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	pos := ctx.Position(startIndex)
 	openingLine := strings.TrimSpace(ctx.Lines[startIndex])
+
+	if fence := mathFenceOpening(openingLine); fence != "" && ctx.Mode == "flex" {
+		return p.parseFenceForm(ctx, startIndex, fence)
+	}
 
 	isDollarFormat := strings.HasPrefix(openingLine, "$$") && !strings.HasPrefix(openingLine, "<<math>>")
 
@@ -69,6 +78,63 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       math,
 		ConsumedLines: consumedLines,
 		Error:         nil,
+	}
+}
+
+// mathFenceOpening devuelve el fence (``` o ````) si trimmed abre un bloque
+// ```math, y "" si no. El info string tiene que ser exactamente "math":
+// ```mathematica o ```math-notes siguen siendo bloques de código.
+func mathFenceOpening(trimmed string) string {
+	for _, fence := range []string{"````", "```"} {
+		if rest, ok := strings.CutPrefix(trimmed, fence); ok {
+			if strings.TrimSpace(rest) == "math" {
+				return fence
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// parseFenceForm recoge un bloque ```math ... ``` (flex). Antes ese fence
+// caía en CodeParser y la ecuación salía como código, con el LaTeX crudo, en
+// HTML, PDF y DOCX. Como $$, no lleva caption ni label. Con math-source-v1
+// el cuerpo se conserva tal cual; sin él, cada línea se recorta como en
+// parseDollarForm. Termina en el fence de cierre (el mismo número de
+// backticks) o al final del archivo; con math-source-v1 un fence sin cerrar
+// es un error, igual que $$ sin cerrar.
+func (p *MathParser) parseFenceForm(ctx *ParseContext, startIndex int, fence string) *ParseResult {
+	consumed := 1
+	closed := false
+	var body []string
+	for i := startIndex + 1; i < len(ctx.Lines); i++ {
+		consumed++
+		if strings.TrimSpace(ctx.Lines[i]) == fence {
+			closed = true
+			break
+		}
+		if ctx.MathSource {
+			body = append(body, ctx.Lines[i])
+		} else {
+			body = append(body, strings.TrimSpace(ctx.Lines[i]))
+		}
+	}
+	if !ctx.MathSource {
+		for len(body) > 0 && body[0] == "" {
+			body = body[1:]
+		}
+		for len(body) > 0 && body[len(body)-1] == "" {
+			body = body[:len(body)-1]
+		}
+	}
+	var err error
+	if !closed && ctx.MathSource {
+		err = fmt.Errorf("literal math requires a closing delimiter")
+	}
+	return &ParseResult{
+		Element:       ast.NewMathElement(ctx.Position(startIndex), strings.Join(body, "\n")),
+		ConsumedLines: consumed,
+		Error:         err,
 	}
 }
 

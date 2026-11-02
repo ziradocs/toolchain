@@ -63,7 +63,7 @@ in a strict-mode document. A column that needs real elements (for a
 or `::: column typed` (flex). A strict `:::` block whose body has headings,
 fenced code, tables or images reads them as elements only with the `typed`
 attribute (`:::info{typed}`, `:::info{typed} Title`); flex needs nothing. Math (block/display only, never
-inline `$x$`): `<<math>>` LaTeX `<<end>>` or `$$ ... $$` starting the line.
+inline `$x$`): `<<math>>` LaTeX `<<end>>`, `$$ ... $$` starting the line, or a ` ```math ` fence (flex).
 Directives: `@notes` (presenter notes), `@timer`, `@transition`,
 `@highlight`, `@delay`, `@auto-play` — ZiraDocs renders these, DocLang
 drops them; `@include path` is expanded at build time by both. Full table:
