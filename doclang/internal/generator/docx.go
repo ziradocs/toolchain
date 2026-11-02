@@ -148,12 +148,8 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	defer func() { _ = os.RemoveAll(tempDir) }()
 	g.tempDir = tempDir
 
-	// Inicializar tema del documento desde frontmatter
-	themeName := "professional" // default
-	if astDoc.FrontMatter != nil && astDoc.FrontMatter.Theme != "" {
-		themeName = astDoc.FrontMatter.Theme
-		g.logger.Info("DOCX", "Using theme from frontmatter: %s", themeName)
-	}
+	themeName := resolveDOCXThemeName(astDoc, opts)
+	g.logger.Info("DOCX", "Using theme: %s", themeName)
 	g.style = GetStyleForTheme(themeName, g.logger)
 	g.diagramTheme = resolveDiagramThemeColors(opts.ThemeVariables)
 
@@ -221,8 +217,11 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		}
 	}
 
+	// Título duplicado: ver planDOCXTitle.
+	titlePlan := planDOCXTitle(astDoc, opts.Numbering)
+
 	// Renderizar frontmatter (título del documento)
-	if err := g.renderFrontMatter(doc, astDoc.FrontMatter); err != nil {
+	if err := g.renderFrontMatter(doc, astDoc.FrontMatter, titlePlan); err != nil {
 		return fmt.Errorf("error rendering frontmatter: %w", err)
 	}
 
@@ -262,6 +261,10 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		if opts.Numbering && numbered {
 			num = sectionNum
 		}
+		if i == titlePlan.hoistedBlock {
+			// El encabezado ya salió arriba, en el lugar del título.
+			title = ""
+		}
 		if err := g.renderSection(doc, block, title, num); err != nil {
 			return fmt.Errorf("error rendering section: %w", err)
 		}
@@ -287,14 +290,105 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	return nil
 }
 
+// docxTitlePlan dice cómo sale el título del front matter cuando el primer
+// encabezado de sección dice lo mismo (un .md con "# Proyecto" y title:
+// Proyecto, o el título que se sintetiza del primer H1 cuando no hay front
+// matter). Antes salían los dos: el título centrado y, debajo, el mismo
+// texto como Heading1.
+//
+// Se conserva el Heading1 y se descarta el párrafo centrado, porque el
+// Heading1 es lo único que ven el panel de navegación de Word y el campo
+// TOC (el título centrado es texto con formato directo, sin nivel de
+// esquema), y porque es lo que emiten HTML y Markdown: ahí el título del
+// front matter no se pinta en el cuerpo. La numeración tampoco cambia: si
+// la sección se numera en HTML, aquí también, y el TOC estático
+// (collectHeadings) sigue coincidiendo con lo que se renderiza.
+//
+//   - hoistedBlock >= 0: no hay contenido antes de ese encabezado, así que
+//     se pinta en el lugar del título (arriba de autor, fecha y TOC) y la
+//     sección se renderiza sin él.
+//   - omitTitle: hay contenido antes, así que el encabezado se queda en su
+//     lugar y solo se omite el título centrado.
+type docxTitlePlan struct {
+	hoistedBlock int
+	headingText  string
+	omitTitle    bool
+}
+
+func planDOCXTitle(astDoc *ast.AST, numbering bool) docxTitlePlan {
+	plan := docxTitlePlan{hoistedBlock: -1}
+	if astDoc.FrontMatter == nil || astDoc.FrontMatter.Title == "" {
+		return plan
+	}
+	want := normalizeDOCXTitle(astDoc.FrontMatter.Title)
+	sectionNum := 1
+	contentBefore := false
+	for i := range astDoc.ContentBlocks {
+		block := &astDoc.ContentBlocks[i]
+		title, numbered := block.SectionTitle()
+		if title == "" {
+			if len(block.Elements) > 0 {
+				contentBefore = true
+			}
+			continue
+		}
+		// Solo cuenta el primer encabezado de sección: un título que se
+		// repite más abajo es otra cosa.
+		if normalizeDOCXTitle(title) != want {
+			return plan
+		}
+		if contentBefore {
+			plan.omitTitle = true
+			return plan
+		}
+		num := 0
+		if numbering && numbered {
+			num = sectionNum
+		}
+		plan.hoistedBlock = i
+		plan.headingText = sectionHeadingText(title, num)
+		return plan
+	}
+	return plan
+}
+
+// normalizeDOCXTitle compara títulos sin distinguir mayúsculas, espacios
+// repetidos ni marcas de énfasis Markdown (**, _, `).
+func normalizeDOCXTitle(s string) string {
+	s = strings.NewReplacer("*", "", "_", "", "`", "").Replace(s)
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+// resolveDOCXThemeName aplica la misma precedencia que HTML y PDF: el theme
+// que ya resolvió el CLI (opts.Theme: --theme > front matter > default, ver
+// getThemeName en cli/build.go), luego el del front matter para un llamador
+// de librería que no lo resolvió, y por último "professional". Antes DOCX
+// leía solo FrontMatter.Theme, así que `--theme academic` no cambiaba nada.
+func resolveDOCXThemeName(astDoc *ast.AST, opts GeneratorOptions) string {
+	if opts.Theme != "" {
+		return opts.Theme
+	}
+	if astDoc.FrontMatter != nil && astDoc.FrontMatter.Theme != "" {
+		return astDoc.FrontMatter.Theme
+	}
+	return "professional"
+}
+
 // renderFrontMatter renderiza el título, autor y fecha del documento
-func (g *DOCXGenerator) renderFrontMatter(doc domain.Document, fm *ast.FrontMatterNode) error {
+func (g *DOCXGenerator) renderFrontMatter(doc domain.Document, fm *ast.FrontMatterNode, plan docxTitlePlan) error {
 	if fm == nil {
 		return nil
 	}
 
 	// Título principal
-	if fm.Title != "" {
+	switch {
+	case plan.hoistedBlock >= 0:
+		if err := g.renderSectionHeading(doc, plan.headingText); err != nil {
+			return err
+		}
+	case plan.omitTitle:
+		// El mismo texto sale más abajo como Heading1 de su sección.
+	case fm.Title != "":
 		p, err := doc.AddParagraph()
 		if err != nil {
 			return err
@@ -1057,6 +1151,46 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 	return nil
 }
 
+// sectionHeadingText antepone el número de sección cuando num > 0.
+func sectionHeadingText(title string, num int) string {
+	if num > 0 {
+		return fmt.Sprintf("%d. %s", num, title)
+	}
+	return title
+}
+
+// renderSectionHeading escribe el encabezado de una sección como Heading1
+// nativo de Word: es lo que lee el panel de navegación y el campo TOC.
+func (g *DOCXGenerator) renderSectionHeading(doc domain.Document, text string) error {
+	p, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+
+	_ = p.SetStyle(domain.StyleIDHeading1)
+	if err := p.SetSpacingBefore(g.parseTwips(g.style.H1SpaceBefore)); err != nil {
+		return fmt.Errorf("invalid spacing before: %w", err)
+	}
+	if err := p.SetSpacingAfter(g.parseTwips(g.style.H1SpaceAfter)); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+
+	r, err := p.AddRun()
+	if err != nil {
+		return err
+	}
+	_ = r.SetText(text)
+	if err := r.SetSize(g.parseSize(g.style.H1Size)); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = r.SetColor(g.parseColor(g.style.H1Color))
+	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+	_ = r.SetBold(g.style.H1Bold)
+
+	// TODO: Agregar bookmark para TOC
+	return nil
+}
+
 // renderSection renderiza una sección del documento (H1 + elementos). title
 // y num vienen ya resueltos por el caller (ast.ContentBlock.SectionTitle +
 // el contador de sectionNum de Generate) en vez de leer section.Title
@@ -1068,38 +1202,9 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int) error {
 	// Título de la sección (H1)
 	if title != "" {
-		p, err := doc.AddParagraph()
-		if err != nil {
+		if err := g.renderSectionHeading(doc, sectionHeadingText(title, num)); err != nil {
 			return err
 		}
-
-		// Estilo nativo Heading1
-		_ = p.SetStyle(domain.StyleIDHeading1)
-		if err := p.SetSpacingBefore(g.parseTwips(g.style.H1SpaceBefore)); err != nil {
-			return fmt.Errorf("invalid spacing before: %w", err)
-		}
-		if err := p.SetSpacingAfter(g.parseTwips(g.style.H1SpaceAfter)); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
-		}
-
-		text := title
-		if num > 0 {
-			text = fmt.Sprintf("%d. %s", num, title)
-		}
-
-		r, err := p.AddRun()
-		if err != nil {
-			return err
-		}
-		_ = r.SetText(text)
-		if err := r.SetSize(g.parseSize(g.style.H1Size)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = r.SetColor(g.parseColor(g.style.H1Color))
-		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-		_ = r.SetBold(g.style.H1Bold)
-
-		// TODO: Agregar bookmark para TOC
 	}
 
 	// Renderizar elementos de la sección
