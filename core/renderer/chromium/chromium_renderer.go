@@ -355,6 +355,16 @@ func navigateAndSetContent(htmlContent string) chromedp.Tasks {
 	}
 }
 
+// bringTabToFront activa el tab antes de capturarlo. Cada render abre su
+// propio tab (chromedp.NewContext) y, en headless, Page.captureScreenshot
+// sobre un tab que no es el activo espera un frame del compositor que a
+// veces nunca llega: el build se quedaba colgado para siempre en el segundo
+// o tercer diagrama de un documento (reproducido con Edge, también en
+// origin/main). Con el tab al frente la captura vuelve siempre.
+func bringTabToFront() chromedp.Action {
+	return page.BringToFront()
+}
+
 // ChromiumRenderer usa Chromium para rendering avanzado
 type ChromiumRenderer struct {
 	manager *ChromiumManager
@@ -832,6 +842,7 @@ func (r *ChromiumRenderer) RenderMathToPNGWithTheme(ctx context.Context, latex s
 		chromedp.WaitVisible("mjx-container svg", chromedp.ByQuery),
 		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
 		chromedp.Sleep(200*time.Millisecond),
+		bringTabToFront(),
 		chromedp.Screenshot("#mathContainer", &pngData, chromedp.ByID),
 	)
 
@@ -881,38 +892,47 @@ func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, merm
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
-	viewportW := int64(width + 16)
 	viewportH := int64(height)
 	if viewportH < 600 {
 		viewportH = 600
 	}
 	var box struct {
+		X      float64 `json:"x"`
+		Y      float64 `json:"y"`
 		Width  float64 `json:"width"`
 		Height float64 `json:"height"`
 	}
 	err := chromedp.Run(runCtx,
-		emulation.SetDeviceMetricsOverride(viewportW, viewportH, mermaidPNGDeviceScale, false),
+		emulation.SetDeviceMetricsOverride(int64(width+16), viewportH, mermaidPNGDeviceScale, false),
 		navigateAndSetContent(html),
 		chromedp.WaitVisible(".mermaid svg", chromedp.ByQuery),
 		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
-		chromedp.Evaluate(`(() => { const r = document.querySelector('.mermaid svg').getBoundingClientRect(); return {width: r.right, height: r.bottom}; })()`, &box),
-		// La ventana tiene que contener el diagrama entero: un elemento más
-		// alto que la ventana sale recortado en la captura.
+		chromedp.Evaluate(`(() => { const r = document.querySelector('.mermaid svg').getBoundingClientRect(); return {x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height}; })()`, &box),
+		bringTabToFront(),
+		// Captura de la caja del <svg> en coordenadas de página, con
+		// captureBeyondViewport: un diagrama más alto que la ventana sale
+		// entero, sin redimensionar la ventana.
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			w, h := viewportW, viewportH
-			if need := int64(math.Ceil(box.Width)) + 8; need > w {
-				w = need
+			if box.Width <= 0 || box.Height <= 0 {
+				return fmt.Errorf("mermaid produced an empty diagram (%.0fx%.0f)", box.Width, box.Height)
 			}
-			if need := int64(math.Ceil(box.Height)) + 8; need > h {
-				h = need
+			buf, err := page.CaptureScreenshot().
+				WithFormat(page.CaptureScreenshotFormatPng).
+				WithCaptureBeyondViewport(true).
+				WithClip(&page.Viewport{
+					X:      math.Floor(box.X),
+					Y:      math.Floor(box.Y),
+					Width:  math.Ceil(box.Width),
+					Height: math.Ceil(box.Height),
+					Scale:  1,
+				}).Do(ctx)
+			if err != nil {
+				return err
 			}
-			if w == viewportW && h == viewportH {
-				return nil
-			}
-			return emulation.SetDeviceMetricsOverride(w, h, mermaidPNGDeviceScale, false).Do(ctx)
+			pngData = buf
+			return nil
 		}),
-		chromedp.Screenshot(".mermaid svg", &pngData, chromedp.ByQuery),
 	)
 
 	if err != nil {
@@ -968,6 +988,7 @@ func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, char
 		chromedp.WaitVisible("#myChart", chromedp.ByID),
 		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
+		bringTabToFront(),
 		chromedp.Screenshot("#chartContainer", &pngData, chromedp.ByID),
 	)
 
@@ -1026,6 +1047,7 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 		// Esperar a que window.mapReady sea true (establecido por el JavaScript)
 		chromedp.Poll(`window.mapReady === true`, nil, chromedp.WithPollingInterval(200*time.Millisecond)),
 		chromedp.Sleep(200*time.Millisecond), // Pequeño buffer para asegurar rendering completo
+		bringTabToFront(),
 		chromedp.Screenshot("#mapContainer", &pngData, chromedp.ByID),
 	)
 
