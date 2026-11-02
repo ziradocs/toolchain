@@ -122,7 +122,9 @@ plugin) and MathJax 4.1.3, the same builds browser mode loads from the CDN. Math
 accepts a fenced ` ```math ` (or `~~~math`) block, besides `<<math>>` and `$$`;
 `doclang fmt` rewrites it as `<<math>>`. The TeX extensions that
 need a font of their own besides mhchem (`\require{bbm}`, `bboldx`, `dsfont`) are not
-embedded and still need network; without it they fail with a warning. `doclang licenses`
+embedded and still need network; without it they fail with a warning. As with the CDN,
+`numcases` needs `\require{cases}` and `\rowcolor` needs `\require{colortbl}` in the
+formula; the rest load on their own. `doclang licenses`
 prints the license and third-party notices of everything the binary embeds. Every Chromium capture
 has a deadline (30 s per capture of a chart, diagram or equation, 5 min to print the
 PDF), so a resource that can't load ends in a warning instead of a hung build.

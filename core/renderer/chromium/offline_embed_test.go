@@ -6,6 +6,7 @@
 package chromium
 
 import (
+	"context"
 	"crypto/sha512"
 	"encoding/base64"
 	"io/fs"
@@ -185,5 +186,14 @@ func TestMathPages_LoadSafe(t *testing.T) {
 	data, err := mathJaxAssets.ReadFile("third_party/mathjax/ui/safe.js")
 	if err != nil || !strings.Contains(string(data), `checkVersion("ui/safe","4.1.3"`) {
 		t.Errorf("ui/safe.js is not the embedded 4.1.3 component (%v)", err)
+	}
+}
+
+// TestServeMathAssets_NoTargetIsError: sin un target de chromedp no hay quién
+// conteste los pedidos pausados, así que activar Fetch los dejaría colgados
+// hasta el plazo. Tiene que ser un error.
+func TestServeMathAssets_NoTargetIsError(t *testing.T) {
+	if err := serveMathAssets().Do(context.Background()); err == nil {
+		t.Fatal("serveMathAssets without a target must fail")
 	}
 }
