@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -37,19 +38,30 @@ func TestParseDocument_MathFence(t *testing.T) {
 
 }
 
-// TestParseDocument_UnclosedMathFence: un ```math sin cerrar no se come las
-// secciones que siguen.
+// TestParseDocument_UnclosedMathFence: un ```math sin cerrar no es una
+// ecuación. Vuelve a ser lo que era antes de que el fence fuera math: un
+// bloque de código, que (como cualquier ``` sin cerrar) llega hasta el final
+// del archivo, con el encabezado y el texto que siguen adentro.
 func TestParseDocument_UnclosedMathFence(t *testing.T) {
 	doc := parsePlainMarkdown(t, "# Uno\n\n```math\nx^2\n\n# Dos\n\nTexto final.\n")
+	var codes []*ast.CodeElement
 	for _, block := range doc.ContentBlocks {
 		for _, el := range block.Elements {
-			if _, ok := el.(*ast.MathElement); ok {
-				t.Fatalf("unclosed fence became an equation: %+v", el)
+			switch e := el.(type) {
+			case *ast.MathElement:
+				t.Fatalf("unclosed fence became an equation: %+v", e)
+			case *ast.CodeElement:
+				codes = append(codes, e)
 			}
 		}
 	}
-	if !astContains(t, doc, "x^2") {
-		t.Error("the fence body was lost")
+	if len(codes) != 1 || codes[0].Language != "math" {
+		t.Fatalf("want one code block with language math, got %+v", codes)
+	}
+	for _, want := range []string{"x^2", "# Dos", "Texto final."} {
+		if !strings.Contains(codes[0].Content, want) {
+			t.Errorf("code block content %q is missing %q", codes[0].Content, want)
+		}
 	}
 }
 
