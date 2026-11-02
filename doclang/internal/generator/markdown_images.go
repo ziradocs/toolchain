@@ -15,12 +15,11 @@ var markdownImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
 
 // MarkdownImageDestinations envuelve en <...> la ruta de cada ![alt](dest)
 // de md que lleva espacios sin estar ya entre <...>, fuera de los code
-// spans. Con un core anterior a los destinos CommonMark, el renderer HTML y
-// el DOCX aceptan `![](a b.png)`, pero CommonMark no: en la salida Markdown,
-// que leen otras herramientas, esa imagen dejaría de ser imagen. Con el core
-// actual ese destino ya no es imagen en ninguna salida (ScanLinkDestination
-// lo rechaza) y esta función no lo toca; las rutas con espacios que escribe
-// doclang ya van entre <...>.
+// spans. El renderer HTML y el DOCX aceptan `![](a b.png)` (con el core
+// actual, con un aviso LINK001), pero CommonMark no: en la salida Markdown,
+// que leen otras herramientas, esa imagen dejaría de ser imagen. Aparece
+// sobre todo cuando una imagen de un archivo incluido se reescribe relativa
+// al archivo raíz y la carpeta del incluido tiene espacios.
 func MarkdownImageDestinations(md string) string {
 	if !strings.Contains(md, "![") {
 		return md
@@ -135,12 +134,12 @@ func markdownBlockImageDestination(elem *ast.ImageElement) string {
 }
 
 // markdownDestination escribe path (y title, si hay) como destino Markdown
-// que el escáner de core vuelve a leer igual: suelto si se lee entero, si no
-// entre <...> (espacios, un ")" desbalanceado). Un path con < o > no tiene
+// que el escáner de core vuelve a leer igual: suelto si se lee entero y no
+// lleva espacios, si no entre <...> (espacios, un ")" desbalanceado). Un path con < o > no tiene
 // forma entre <...> y se escribe suelto.
 func markdownDestination(path, title string) string {
 	dest := path
-	if raw, n, ok := renderer.ScanLinkDestination(path + ")"); (!ok || n != len(path)+1 || raw != path) && !strings.ContainsAny(path, "<>\r\n") {
+	if raw, n, ok := renderer.ScanLinkDestination(path + ")"); (!ok || n != len(path)+1 || raw != path || strings.ContainsAny(path, " \t")) && !strings.ContainsAny(path, "<>\r\n") {
 		dest = "<" + path + ">"
 	}
 	if title != "" {

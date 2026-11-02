@@ -14,12 +14,11 @@ import (
 )
 
 // coreReadsCommonMarkDestinations dice si el core enlazado lee los destinos
-// de imagen como CommonMark (título aparte, <...>, una ruta suelta con
-// espacios no es imagen). Con el core publicado anterior (GOWORK=off) los
-// casos que dependen de eso se saltan.
+// de imagen como CommonMark (título aparte, <...>). Con el core publicado
+// anterior (GOWORK=off) los casos que dependen de eso se saltan.
 func coreReadsCommonMarkDestinations() bool {
-	_, _, ok := renderer.ScanLinkDestination("a b)")
-	return !ok
+	_, n, ok := renderer.ScanLinkDestination("<a)b>)")
+	return ok && n == 6
 }
 
 // imageDestinationsTree arma un documento con una imagen distinta (por color)
@@ -115,7 +114,7 @@ func TestBuild_ImageDestinationsAllOutputs(t *testing.T) {
 			`<img src="mi%20dir/pct.png" alt="pct">`,
 			`<img src="img/uno.png" alt="uno"> <img src="img/dos.png" alt="dos">`,
 			`<img src="img/inl.png" alt="inl" title="ti">`,
-			`![suelta](img/dq.png otra)`,
+			`<img src="img/dq.png%20otra" alt="suelta">`,
 			`<img src="cap%20uno/img/t.png" alt="t" title="Título">`,
 			`<img src="cap%20uno/mi%20dir/b.png" alt="b">`,
 			`<img src="cap%20uno/img/h.png" alt="h" title="th">`,
@@ -136,7 +135,7 @@ func TestBuild_ImageDestinationsAllOutputs(t *testing.T) {
 			`![ang](<mi dir/ang.png>)`,
 			`![pct](mi%20dir/pct.png)`,
 			`![uno](img/uno.png){width=30%} ![dos](img/dos.png)`,
-			`![suelta](img/dq.png otra)`,
+			`![suelta](<img/dq.png otra>)`,
 			`![t](<cap uno/img/t.png> "Título")`,
 			`![b](<cap uno/mi dir/b.png>)`,
 			`## Cap ![h](cap%20uno/img/h.png "th")`,

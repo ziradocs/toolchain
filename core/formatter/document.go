@@ -335,8 +335,8 @@ func bareDestinationRoundTrips(source string) bool {
 	if source == "" || strings.HasPrefix(source, "<") {
 		return false
 	}
-	dest, title, n, ok := renderer.ParseLinkDestination(source + ")")
-	return ok && title == "" && dest == source && n == len(source)+1
+	d, ok := renderer.ParseLinkDestination(source + ")")
+	return ok && !d.Spaced && d.Title == "" && d.Dest == source && d.Consumed == len(source)+1
 }
 
 // formatFlexQuote serializa "> línea" por línea, con "-- Autor" final si

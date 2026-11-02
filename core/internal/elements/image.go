@@ -54,20 +54,28 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	consumed := 1
 
 	var source, alt, title, caption, label, fit, focus, declaredContext string
-	var bleed bool
+	var bleed, spacedDiag bool
 
 	if ctx.Mode == "strict" {
 		// Parse strict mode IMAGE syntax
-		source, alt, caption, label, fit, focus, declaredContext, bleed, consumed = p.parseStrictImage(ctx.Lines, startIndex)
+		source, alt, title, caption, label, fit, focus, declaredContext, bleed, consumed = p.parseStrictImage(ctx.Lines, startIndex)
 	} else {
 		// Parse flex mode Markdown syntax
 		source, alt, title, fit, focus, bleed, _ = p.parseMarkdownImage(line)
+		if spacedMarkdownImage(line) {
+			spacedDiag = true
+		}
 	}
 
 	// Detectar contexto automáticamente, salvo que la fuente strict lo declare
 	// con `context:` (ver declaredImageContext).
 	context := p.detectImageContext(ctx, startIndex)
 	var diags []diagnostics.Diagnostic
+	if spacedDiag {
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("image destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as an image: write <%s> or use %%20", source, source),
+			pos, "image-parser").WithRuleID("LINK001"))
+	}
 	if declaredContext != "" {
 		if declared, ok := declaredImageContext(declaredContext); ok {
 			context = declared
@@ -327,7 +335,7 @@ func startsNewStrictElement(trimmed string) bool {
 }
 
 // parseStrictImage parsea la sintaxis IMAGE de strict mode
-func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, string, string, string, string, string, string, bool, int) {
+func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, string, string, string, string, string, string, string, bool, int) {
 	line := strings.TrimSpace(lines[startIndex])
 	consumed := 1
 
@@ -337,6 +345,7 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 	source := ""
 	alt := ""
 	caption := ""
+	title := ""
 	label := ""
 	fit := ""
 	focus := ""
@@ -394,6 +403,10 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 				switch key {
 				case "caption":
 					caption = value
+				case "title":
+					// El título del destino Markdown (image-title-v1), para
+					// que fmt strict conserve el de una imagen flex.
+					title = value
 				case "label":
 					// issue #239: identificador de referencia cruzada (p. ej. "fig:arquitectura").
 					label = value
@@ -414,7 +427,19 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 		consumed++
 	}
 
-	return source, alt, caption, label, fit, focus, declaredContext, bleed, consumed
+	return source, alt, title, caption, label, fit, focus, declaredContext, bleed, consumed
+}
+
+// spacedMarkdownImage dice si el destino de la imagen de bloque line se leyó
+// con la regla de compatibilidad (ruta suelta con espacios, ver
+// renderer.ScanLinkDestination).
+func spacedMarkdownImage(line string) bool {
+	altEnd := strings.Index(line, "](")
+	if !strings.HasPrefix(line, "![") || altEnd < 0 {
+		return false
+	}
+	d, ok := renderer.ParseLinkDestination(line[altEnd+2:])
+	return ok && d.Spaced
 }
 
 // IsMarkdownImageLine dice si line (sin espacios alrededor) es exactamente
@@ -447,10 +472,11 @@ func (p *ImageParser) parseMarkdownImage(line string) (source, alt, title, fit, 
 	// (CommonMark): paréntesis balanceados, <...> para rutas con espacios y
 	// un título opcional, que no es parte de la ruta.
 	srcStart := altEnd + 2
-	source, title, consumed, valid := renderer.ParseLinkDestination(line[srcStart:])
+	d, valid := renderer.ParseLinkDestination(line[srcStart:])
 	if !valid {
 		return "", alt, "", "", "", false, false
 	}
+	source, title, consumed := d.Dest, d.Title, d.Consumed
 
 	rest := strings.TrimSpace(line[srcStart+consumed:])
 	if rest == "" {

@@ -489,13 +489,20 @@ not part of it. An optional title follows after a space, in `"…"`, `'…'` or
 keeps it as `ImageElement.title`, capability `image-title-v1`). Backslash
 escapes (`\)`, `\"`) keep a character from closing the destination or title;
 in a title they are resolved, in a destination the backslash is kept as
-written. The destination must close on the same line, and `()` is not a link;
-otherwise, including a bare word after a space (`![a](photo.png other)`), the
-text is not a link and is kept literally.
+written. The destination must close on the same line with balanced
+parentheses, and `()` is not a link; otherwise the text is not a link and is
+kept literally.
+
+Compatibility: a bare destination with spaces that do not start a valid title
+(`![a](my photo.png)`, `[a](page one.html)`) is not a link in CommonMark, but
+earlier versions read everything up to the balancing `)` as the path. It is
+still read that way, with a `LINK001` warning suggesting `<…>` or `%20`.
 
 A block image is a line that is exactly one image, optionally followed by its
 `{fit=… focus=… bleed=…}` attributes. A line with two images, or an image and
-more text, is a paragraph with inline images.
+more text, is a paragraph with inline images. A `{…}` block attached to an
+inline image has no inline meaning and is ignored, with an `IMG004` warning.
+In the strict dialect the title is the `title:` property of `IMAGE`.
 
 A destination is a URL: a local image path is read from disk percent-decoded
 (`my%20dir/a.png` is the file `my dir/a.png`; a `%` that does not start a

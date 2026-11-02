@@ -12,10 +12,20 @@ import (
 )
 
 // Dos imágenes en una línea son un párrafo con dos imágenes inline; antes se
-// leían como una imagen de bloque y la segunda se perdía.
+// leían como una imagen de bloque y la segunda se perdía. Una ruta suelta con
+// espacios sigue siendo imagen, con un aviso LINK001.
 func TestParseDocument_ImageDestinations(t *testing.T) {
 	src := "# T\n\n![a](a.png) ![b](b.png)\n\n![c](<mi dir/c.png> \"Título\")\n\n![d](d.png otra)\n"
-	doc, _ := New(util.NewNoop()).ParseDocument(src, "t.doclang")
+	doc, diags := New(util.NewNoop()).ParseDocument(src, "t.doclang")
+	spacedWarned := false
+	for _, d := range diags {
+		if d.RuleID == "LINK001" && strings.Contains(d.Message, "d.png otra") {
+			spacedWarned = true
+		}
+	}
+	if !spacedWarned {
+		t.Errorf("sin aviso LINK001 para la ruta con espacios: %v", diags)
+	}
 	var images []*ast.ImageElement
 	var texts []string
 	_ = ast.Walk(doc, func(n ast.Node) error {
@@ -27,11 +37,11 @@ func TestParseDocument_ImageDestinations(t *testing.T) {
 		}
 		return nil
 	})
-	if len(images) != 1 || images[0].Source != "mi dir/c.png" || images[0].Title != "Título" || images[0].Alt != "c" {
+	if len(images) != 2 || images[0].Source != "mi dir/c.png" || images[0].Title != "Título" || images[0].Alt != "c" || images[1].Source != "d.png otra" {
 		t.Fatalf("imágenes de bloque = %#v", images)
 	}
 	joined := strings.Join(texts, "\n")
-	for _, want := range []string{"![a](a.png) ![b](b.png)", "![d](d.png otra)"} {
+	for _, want := range []string{"![a](a.png) ![b](b.png)"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("falta el párrafo %q en %q", want, joined)
 		}

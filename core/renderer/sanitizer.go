@@ -707,7 +707,8 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// ![alt](img) dentro de un enlace [![alt](img)](url) resuelva bien, y
 	// para que una imagen en una celda de tabla o un caption ya no
 	// degrade a corchetes/paréntesis literales (F8 del audit 2026-09-11).
-	text = replaceInlineLinks(text, inlineImagePattern, func(match, alt, src, title string) string {
+	text = replaceInlineLinks(text, inlineImagePattern, func(m inlineLinkMatch) string {
+		match, alt, src, title := m.match, m.label, m.dest, m.title
 		// alt, a diferencia de linkText, se interpola dentro de un
 		// atributo ("alt=\"...\""), no como contenido. El texto del autor
 		// YA está escapado (pasó por EscapeHTML antes de que esta función
@@ -733,7 +734,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 		if record != nil {
 			// Lo mismo que va a los atributos: el destino con el código
 			// restaurado y el alt como texto plano, sin centinelas internos.
-			record(InlineLink{Image: true, Text: altText, Destination: unescapeLinkDestination(src), Dropped: sanitizedSrc == ""})
+			record(InlineLink{Image: true, Text: altText, Destination: unescapeLinkDestination(src), Dropped: sanitizedSrc == "", Spaced: m.spaced, DroppedAttributes: m.attrs})
 		}
 		if sanitizedSrc == "" {
 			// src peligroso: degradar al alt como texto plano, sin <img> —
@@ -749,14 +750,17 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// imagen de bloque, frecuente en una línea con varias imágenes) no
 	// tienen representación inline: se descartan, como los desconocidos de
 	// una imagen de bloque, en vez de salir como texto.
-	text = inlineImageAttrsPattern.ReplaceAllString(text, "$1")
+	if strings.Contains(text, "/>{") {
+		text = inlineImageAttrsPattern.ReplaceAllString(text, "$1")
+	}
 
 	// Procesar enlaces [texto](url) -> <a href="url">texto</a>
 	// IMPORTANTE: Sanitizar URLs para prevenir javascript: y data: URIs.
 	// El destino lo delimita replaceInlineLinks con paréntesis balanceados
 	// (ver ScanLinkDestination). Con esquema no permitido se emite solo el
 	// texto del enlace, y el linter lo reporta como LINK001.
-	text = replaceInlineLinks(text, inlineLinkPattern, func(match, linkText, linkURL, title string) string {
+	text = replaceInlineLinks(text, inlineLinkPattern, func(m inlineLinkMatch) string {
+		match, linkText, linkURL, title := m.match, m.label, m.dest, m.title
 		// issue #63 code review finding #8: mismo chequeo que las pasadas de
 		// span — ver bracketContentTagsBalanced. linkText, no linkURL: la URL
 		// no lleva tags HTML, es el texto visible el que puede cruzar un tag
@@ -776,7 +780,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 		// decodificar las referencias de carácter del autor antes del filtro.
 		sanitizedURL := SanitizeURL(EscapeURLSpaces(decodeLinkDestination(linkURL)))
 		if record != nil {
-			record(InlineLink{Text: restoreRawCodeSentinels(emitted.expand(linkText), codeSpans), Destination: unescapeLinkDestination(linkURL), Dropped: sanitizedURL == ""})
+			record(InlineLink{Text: restoreRawCodeSentinels(emitted.expand(linkText), codeSpans), Destination: unescapeLinkDestination(linkURL), Dropped: sanitizedURL == "", Spaced: m.spaced})
 		}
 		if sanitizedURL == "" {
 			// URL peligrosa, mostrar solo el texto sin enlace
@@ -900,7 +904,12 @@ var zdcRawSentinelPattern = regexp.MustCompile(`<zdc(\d+)/>`)
 // inlineImageAttrsPattern es el centinela de una imagen inline recién
 // emitida seguido, sin espacio, de un bloque de atributos {clave=valor ...}
 // (texto ya escapado: las comillas llegan como &quot;).
-var inlineImageAttrsPattern = regexp.MustCompile(`(<zde\d+/>)\{(?:\s*[A-Za-z][\w-]*=(?:&quot;[^&}]*&quot;|[^\s}]+))+\s*\}`)
+var inlineImageAttrsPattern = regexp.MustCompile(`(<zde\d+/>)` + inlineAttrsBody)
+
+// inlineAttrsPrefix es el mismo bloque al inicio de un texto.
+var inlineAttrsPrefix = regexp.MustCompile(`^` + inlineAttrsBody)
+
+const inlineAttrsBody = `\{(?:\s*[A-Za-z][\w-]*=(?:&quot;[^&}]*&quot;|[^\s}]+))+\s*\}`
 
 // inlineEmitted guarda el HTML que emiten las pasadas de imagen y enlace de
 // processInlineFormats, las únicas que meten texto del autor dentro de un

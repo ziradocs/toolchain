@@ -377,20 +377,21 @@ func (f *field) inline(text string) string {
 var inlineImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
 
 // commonMarkDestinations dice si el core enlazado lee los destinos como
-// CommonMark (core > v2.49.0): una ruta suelta con espacios no es imagen,
-// <...> delimita una ruta con espacios y las rutas locales son URLs que se
-// decodifican (%20) al leer el archivo. Con un core anterior, una ruta con
-// espacios se acepta suelta, <...> queda literal y nada se decodifica. Se
+// CommonMark (core > v2.49.0): <...> delimita una ruta con espacios (y puede
+// llevar ")"), las rutas locales son URLs que se decodifican (%20) al leer el
+// archivo, y una ruta suelta con espacios se sigue leyendo pero con un aviso
+// LINK001. Con un core anterior, <...> queda literal y nada se decodifica. Se
 // pregunta al propio escáner de core para que doclang siga compilando y
 // comportándose bien contra los dos.
 var commonMarkDestinations = func() bool {
-	_, _, ok := renderer.ScanLinkDestination("a b)")
-	return !ok
+	_, n, ok := renderer.ScanLinkDestination("<a)b>)")
+	return ok && n == 6
 }()
 
 // rebaseDestination reescribe la ruta de un destino inline. Con destinos
 // CommonMark, una ruta nueva con espacios (la carpeta del incluido los tiene)
-// se escribe entre <...>, la única forma en que sigue siendo imagen. Con un
+// se escribe entre <...>, la forma que leen todas las herramientas y que no
+// dispara el aviso de ruta suelta con espacios. Con un
 // core anterior se escribe tal cual, sin <...>, que es lo que resuelven su
 // renderer HTML y el DOCX; la salida Markdown la envuelve en <...> al
 // escribirla (ver generator.MarkdownImageDestinations).
@@ -446,8 +447,11 @@ func (r *assetRebaser) headingHTML(text string, line int) string {
 		dir := f.locate("(" + src)
 		if dir == "" && commonMarkDestinations && strings.Contains(src, "%20") {
 			// El src emitido lleva los espacios codificados; en la fuente
-			// la ruta va entre <...> con los espacios literales.
-			dir = f.locate("(<" + strings.ReplaceAll(src, "%20", " ") + ">")
+			// la ruta va entre <...> o suelta, con los espacios literales.
+			spaced := strings.ReplaceAll(src, "%20", " ")
+			if dir = f.locate("(<" + spaced + ">"); dir == "" {
+				dir = f.locate("(" + spaced)
+			}
 		}
 		if dir == "" {
 			return tag

@@ -2097,9 +2097,8 @@ func capImageWidth(size domain.ImageSize, maxWidthIn float64) domain.ImageSize {
 // un archivo local (sin esquema): sin los <> opcionales, sin título y con las
 // referencias de carácter decodificadas. Remoto, data: o vacío no cuenta.
 // Un espacio que no abre un título ("...", '...' o (...)) es parte de la
-// ruta: con un core anterior a los destinos CommonMark `![](cap uno/a.png)`
-// es la imagen "cap uno/a.png", como en su renderer HTML. Con el core
-// actual ese destino ya no es imagen y no llega acá.
+// ruta, como en el renderer HTML: `![](cap uno/a.png)` es la imagen
+// "cap uno/a.png", no "cap" (el core actual la acepta con un aviso LINK001).
 func docxLocalImageSource(dest string) (string, bool) {
 	d := strings.TrimSpace(renderer.DecodeLinkDestination(dest))
 	if strings.HasPrefix(d, "<") {

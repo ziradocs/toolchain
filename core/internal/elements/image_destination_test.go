@@ -40,7 +40,7 @@ func TestParseMarkdownImage_TitleAndBrackets(t *testing.T) {
 		{`![a](<mi dir/a.png>)`, "mi dir/a.png", "", "", true},
 		{`![a](<mi dir/a.png> "t"){fit=cover}`, "mi dir/a.png", "t", "cover", true},
 		{`![a](mi%20dir/a.png)`, "mi%20dir/a.png", "", "", true},
-		{`![a](t.png bare)`, "", "", "", false},
+		{`![a](t.png bare)`, "t.png bare", "", "", true},
 		{`![a](a.png) ![b](b.png)`, "", "", "", false},
 		{`![a](a.png) y texto`, "", "", "", false},
 	} {

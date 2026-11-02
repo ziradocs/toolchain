@@ -38,8 +38,8 @@ func TestAssetRebaserInline(t *testing.T) {
 		{"Enlace [t](x.png) sin imagen", "Enlace [t](x.png) sin imagen"},
 	}
 	if commonMarkDestinations {
-		// Una ruta suelta con espacios no es imagen: no se toca.
-		cases = append(cases, struct{ in, want string }{"![a](mi foto.png)", "![a](mi foto.png)"})
+		// Una ruta suelta con espacios se reescribe entre <...>.
+		cases = append(cases, struct{ in, want string }{"![a](mi foto.png)", "![a](<../a/mi foto.png>)"})
 	} else {
 		cases = append(cases, struct{ in, want string }{"![a](mi foto.png)", "![a](../a/mi foto.png)"})
 	}

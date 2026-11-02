@@ -19,53 +19,128 @@ import (
 // completos. Lo puede seguir, separado por espacios, un título entre
 // comillas dobles, simples o paréntesis; después solo cabe el ")" de cierre.
 //
+// Compatibilidad: un destino sin <...> con espacios que no abren un título
+// válido (`![a](mi foto.png)`, `[a](t.png otra)`) no es enlace en
+// CommonMark, pero antes de esta gramática sí lo era: todo el texto hasta el
+// ")" que balancea los paréntesis era la ruta. Se sigue leyendo así, para
+// no perder en silencio imágenes y enlaces que ya funcionaban, y
+// ParseLinkDestination lo marca (Spaced) para que el linter avise (LINK001)
+// y sugiera <...> o %20.
+//
 // Devuelve el texto crudo entre los paréntesis externos (destino, <...> y
 // título incluidos, como lo escribió el autor) y cuántos bytes de s consumió,
 // incluido el ")" de cierre. ParseLinkDestination separa el destino del
 // título. ok es false cuando la sintaxis no es un enlace y el texto se deja
-// literal, como en CommonMark: sin ")" de cierre en la misma línea,
-// paréntesis desbalanceados o una palabra suelta después de un espacio
-// (`![a](foto.png otra)`). Un "()" vacío tampoco es enlace (regla propia,
-// anterior a esta gramática); "( )" sí, con destino vacío.
+// literal: sin ")" de cierre en la misma línea o con paréntesis
+// desbalanceados. Un "()" vacío tampoco es enlace (regla anterior a esta
+// gramática); "( )" sí, con destino vacío.
 //
 // Exportado para que los generadores que leen el Markdown inline por su
 // cuenta (el DOCX de doclang) reconozcan los mismos destinos que el
 // renderer HTML en vez de mantener su propia copia del patrón.
 func ScanLinkDestination(s string) (dest string, consumed int, ok bool) {
-	parts, ok := scanLinkParts(s)
+	parts, ok := scanLinkParts(s, nil)
 	if !ok {
 		return "", 0, false
 	}
 	return s[:parts.consumed-1], parts.consumed, true
 }
 
+// LinkDestination es un destino de enlace o imagen ya separado en sus
+// partes; ver ParseLinkDestination.
+type LinkDestination struct {
+	// Dest es el destino sin los <...> ni el título, tal como lo escribió
+	// el autor (sin decodificar escapes ni referencias de carácter: es una
+	// URL, y las rutas locales se decodifican al leer el archivo, ver
+	// LocalPathFromURL).
+	Dest string
+	// Title es el título con sus escapes de barra invertida resueltos, o ""
+	// si no lleva.
+	Title string
+	// Consumed son los bytes leídos, incluido el ")" de cierre.
+	Consumed int
+	// Spaced dice que el destino es una ruta suelta con espacios, leída con
+	// la regla anterior a CommonMark (ver ScanLinkDestination): funciona,
+	// pero otras herramientas no la leen como enlace. Se escribe <...> o %20.
+	Spaced bool
+}
+
 // ParseLinkDestination es ScanLinkDestination con el destino y el título por
-// separado. dest es el destino sin los <...> ni el título, tal como lo
-// escribió el autor (sin decodificar escapes ni referencias de carácter: es
-// una URL, y las rutas locales se decodifican al leer el archivo, ver
-// LocalPathFromURL). title es el título con sus escapes de barra invertida
-// resueltos, o "" si no lleva.
-func ParseLinkDestination(s string) (dest, title string, consumed int, ok bool) {
-	parts, ok := scanLinkParts(s)
+// separado.
+func ParseLinkDestination(s string) (LinkDestination, bool) {
+	parts, ok := scanLinkParts(s, nil)
 	if !ok {
-		return "", "", 0, false
+		return LinkDestination{}, false
 	}
+	d := LinkDestination{Dest: s[parts.destStart:parts.destEnd], Consumed: parts.consumed, Spaced: parts.spaced}
 	if parts.titleStart >= 0 {
-		title = unescapeBackslashes(s[parts.titleStart:parts.titleEnd])
+		d.Title = unescapeBackslashes(s[parts.titleStart:parts.titleEnd])
 	}
-	return s[parts.destStart:parts.destEnd], title, parts.consumed, true
+	return d, true
 }
 
 // linkParts son los índices, dentro del texto que sigue al "(", del destino
-// y del título de un enlace; titleStart es -1 cuando no hay título.
+// y del título de un enlace; titleStart es -1 cuando no hay título. spaced
+// marca la lectura de compatibilidad (ver ScanLinkDestination).
 type linkParts struct {
 	destStart, destEnd   int
 	titleStart, titleEnd int
 	consumed             int
+	spaced               bool
 }
 
 // scanLinkParts implementa la gramática de ScanLinkDestination sobre s.
-func scanLinkParts(s string) (linkParts, bool) {
+// closeAt, si no es nil, devuelve el índice del ")" que balancea los
+// paréntesis desde el inicio de s (o -1): lo precalcula linkFinder para que
+// la lectura de compatibilidad no recorra la línea entera en cada intento.
+func scanLinkParts(s string, closeAt func() int) (linkParts, bool) {
+	p, ok := scanCommonMarkLinkParts(s)
+	if ok {
+		return p, true
+	}
+	// Lectura de compatibilidad: solo para un destino sin <...>.
+	i := skipSpaceTab(s, 0)
+	if i < len(s) && s[i] == '<' {
+		return p, false
+	}
+	end := -1
+	if closeAt != nil {
+		end = closeAt()
+	} else {
+		end = balancedClose(s)
+	}
+	if end <= 0 {
+		return p, false
+	}
+	start, stop := i, end
+	for stop > start && (s[stop-1] == ' ' || s[stop-1] == '\t') {
+		stop--
+	}
+	return linkParts{destStart: start, destEnd: stop, titleStart: -1, titleEnd: -1, consumed: end + 1, spaced: true}, true
+}
+
+// balancedClose devuelve el índice del primer ")" de s que no cierra un "("
+// abierto dentro de s, o -1 si antes hay un salto de línea o se acaba s.
+func balancedClose(s string) int {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\n', '\r':
+			return -1
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				return i
+			}
+			depth--
+		}
+	}
+	return -1
+}
+
+// scanCommonMarkLinkParts es la gramática estricta de CommonMark.
+func scanCommonMarkLinkParts(s string) (linkParts, bool) {
 	p := linkParts{titleStart: -1, titleEnd: -1}
 	i := skipSpaceTab(s, 0)
 	if i < len(s) && s[i] == '<' {
@@ -203,6 +278,7 @@ func unescapeBackslashes(s string) string {
 // k de la vista; offsets[len(view)] es len(text).
 func escapedLinkView(text string) (view string, offsets []int) {
 	var b strings.Builder
+	b.Grow(len(text))
 	offsets = make([]int, 0, len(text)+1)
 	for i := 0; i < len(text); {
 		c := text[i]
@@ -235,56 +311,128 @@ func escapedLinkView(text string) (view string, offsets []int) {
 	return b.String(), offsets
 }
 
-// findInlineLink busca en text el primer enlace (o imagen, según open) con
-// destino válido y devuelve sus índices con la misma forma que
+// linkFinder busca enlaces (o imágenes, según open) en un texto completo.
+// La vista desescapada y sus offsets se arman una sola vez por texto, y los
+// cierres de paréntesis de la lectura de compatibilidad se precalculan (en
+// O(n)) la primera vez que hacen falta: así recorrer todos los enlaces de
+// una línea es lineal, no cuadrático.
+type linkFinder struct {
+	text    string
+	open    *regexp.Regexp
+	escaped bool
+	view    string
+	offsets []int // vista -> texto (solo escaped)
+	toView  []int // texto -> vista, -1 dentro de una entidad (solo escaped)
+	closes  []int // por índice de la vista: el ")" que balancea desde ahí, o -1
+}
+
+func newLinkFinder(text string, open *regexp.Regexp, escaped bool) *linkFinder {
+	f := &linkFinder{text: text, open: open, escaped: escaped, view: text}
+	if escaped {
+		f.view, f.offsets = escapedLinkView(text)
+		f.toView = make([]int, len(text)+1)
+		for i := range f.toView {
+			f.toView[i] = -1
+		}
+		for k, o := range f.offsets {
+			f.toView[o] = k
+		}
+	}
+	return f
+}
+
+// closeFrom devuelve, relativo a v, el ")" que balancea los paréntesis desde
+// el índice v de la vista, o -1.
+func (f *linkFinder) closeFrom(v int) int {
+	if f.closes == nil {
+		f.closes = balancedCloses(f.view)
+	}
+	if v >= len(f.closes) || f.closes[v] < 0 {
+		return -1
+	}
+	return f.closes[v] - v
+}
+
+// balancedCloses calcula balancedClose para cada posición de s a la vez:
+// con P la suma de prefijos ("(" +1, ")" -1), el cierre desde q es el primer
+// j > q de su línea con P[j] < P[q], menos uno. Una pila monótona lo da para
+// todos los q en un solo recorrido por línea.
+func balancedCloses(s string) []int {
+	res := make([]int, len(s))
+	for i := range res {
+		res[i] = -1
+	}
+	var prefix, stack []int
+	for a := 0; a <= len(s); {
+		b := a
+		for b < len(s) && s[b] != '\n' && s[b] != '\r' {
+			b++
+		}
+		prefix = append(prefix[:0], 0)
+		for i := a; i < b; i++ {
+			d := 0
+			switch s[i] {
+			case '(':
+				d = 1
+			case ')':
+				d = -1
+			}
+			prefix = append(prefix, prefix[len(prefix)-1]+d)
+		}
+		stack = stack[:0]
+		for q := b - a; q >= 0; q-- {
+			for len(stack) > 0 && prefix[stack[len(stack)-1]] >= prefix[q] {
+				stack = stack[:len(stack)-1]
+			}
+			if q < b-a && len(stack) > 0 {
+				res[a+q] = a + stack[len(stack)-1] - 1
+			}
+			stack = append(stack, q)
+		}
+		a = b + 1
+	}
+	return res
+}
+
+// find busca, desde el byte from de text, el primer enlace con destino
+// válido y devuelve sus índices absolutos con la forma de
 // regexp.FindStringSubmatchIndex: [inicio, fin, inicio etiqueta, fin
 // etiqueta, inicio destino, fin destino, inicio título, fin título]. El
-// destino va sin <...> ni título; sin título, sus índices son -1. Una
-// apertura sin destino válido se salta y la búsqueda sigue desde el byte
-// siguiente, así que un enlace bien formado más adelante en la misma línea se
-// sigue reconociendo. escaped dice si text ya pasó por EscapeHTML (el
-// pipeline inline) o es Markdown crudo (los generadores de doclang).
-func findInlineLink(text string, open *regexp.Regexp, escaped bool) []int {
-	search := 0
-	for search < len(text) {
-		loc := open.FindStringSubmatchIndex(text[search:])
-		if loc == nil {
-			return nil
+// destino va sin <...> ni título; sin título, sus índices son -1. spaced
+// marca la lectura de compatibilidad. Una apertura sin destino válido se
+// salta y la búsqueda sigue desde el byte siguiente.
+func (f *linkFinder) find(from int) (loc []int, spaced bool) {
+	search := from
+	for search < len(f.text) {
+		m := f.open.FindStringSubmatchIndex(f.text[search:])
+		if m == nil {
+			return nil, false
 		}
-		start := search + loc[0]
-		openEnd := search + loc[1]
-		if parts, ok := scanInlineLinkParts(text[openEnd:], escaped); ok {
-			out := []int{start, openEnd + parts.consumed, search + loc[2], search + loc[3], openEnd + parts.destStart, openEnd + parts.destEnd, -1, -1}
-			if parts.titleStart >= 0 {
-				out[6], out[7] = openEnd+parts.titleStart, openEnd+parts.titleEnd
+		start := search + m[0]
+		openEnd := search + m[1]
+		v := openEnd
+		if f.escaped {
+			v = f.toView[openEnd]
+		}
+		if v >= 0 {
+			parts, ok := scanLinkParts(f.view[v:], func() int { return f.closeFrom(v) })
+			if ok {
+				abs := func(i int) int {
+					if f.escaped {
+						return f.offsets[v+i]
+					}
+					return v + i
+				}
+				out := []int{start, abs(parts.consumed), search + m[2], search + m[3], abs(parts.destStart), abs(parts.destEnd), -1, -1}
+				if parts.titleStart >= 0 {
+					out[6], out[7] = abs(parts.titleStart), abs(parts.titleEnd)
+				}
+				return out, parts.spaced
 			}
-			return out
 		}
 		search = start + 1
 	}
-	return nil
-}
-
-// scanInlineLinkParts es scanLinkParts sobre s, que en modo escaped se lee a
-// través de escapedLinkView; los índices vuelven en bytes de s.
-func scanInlineLinkParts(s string, escaped bool) (linkParts, bool) {
-	if !escaped {
-		return scanLinkParts(s)
-	}
-	if nl := strings.IndexAny(s, "\n\r"); nl >= 0 {
-		s = s[:nl+1]
-	}
-	view, offsets := escapedLinkView(s)
-	p, ok := scanLinkParts(view)
-	if !ok {
-		return p, false
-	}
-	p.destStart, p.destEnd = offsets[p.destStart], offsets[p.destEnd]
-	if p.titleStart >= 0 {
-		p.titleStart, p.titleEnd = offsets[p.titleStart], offsets[p.titleEnd]
-	}
-	p.consumed = offsets[p.consumed]
-	return p, true
+	return nil, false
 }
 
 // FindInlineLinkIndex devuelve los índices del primer enlace [texto](destino)
@@ -295,28 +443,43 @@ func scanInlineLinkParts(s string, escaped bool) (linkParts, bool) {
 // DOCX de doclang), de modo que reconozcan los mismos enlaces que el
 // renderer HTML sin mantener una copia del regex.
 func FindInlineLinkIndex(s string) []int {
-	return findInlineLink(s, inlineLinkPattern, false)
+	loc, _ := newLinkFinder(s, inlineLinkPattern, false).find(0)
+	return loc
+}
+
+// inlineLinkMatch es un enlace o imagen que encontró replaceInlineLinks, con
+// el destino y el título en la forma escapada del texto (título "" sin
+// título).
+type inlineLinkMatch struct {
+	match, label, dest, title string
+	spaced                    bool
+	// attrs: un bloque {clave=valor} pegado al ")" que la pasada de
+	// imágenes descarta (ver inlineImageAttrsPattern).
+	attrs bool
 }
 
 // replaceInlineLinks reemplaza cada ocurrencia de open + destino válido en
-// text (ya pasado por EscapeHTML) por lo que devuelva replace(match,
-// etiqueta, destino, título). destino y título van en la forma escapada de
-// text; título es "" sin título.
-func replaceInlineLinks(text string, open *regexp.Regexp, replace func(match, label, dest, title string) string) string {
+// text (ya pasado por EscapeHTML) por lo que devuelva replace.
+func replaceInlineLinks(text string, open *regexp.Regexp, replace func(m inlineLinkMatch) string) string {
+	if !strings.Contains(text, "](") || (open == inlineImagePattern && !strings.Contains(text, "![")) {
+		return text
+	}
+	f := newLinkFinder(text, open, true)
 	var b strings.Builder
 	copied := 0
 	for copied < len(text) {
-		loc := findInlineLink(text[copied:], open, true)
+		loc, spaced := f.find(copied)
 		if loc == nil {
 			break
 		}
-		title := ""
+		m := inlineLinkMatch{match: text[loc[0]:loc[1]], label: text[loc[2]:loc[3]], dest: text[loc[4]:loc[5]], spaced: spaced}
+		m.attrs = open == inlineImagePattern && inlineAttrsPrefix.MatchString(text[loc[1]:])
 		if loc[6] >= 0 {
-			title = text[copied+loc[6] : copied+loc[7]]
+			m.title = text[loc[6]:loc[7]]
 		}
-		b.WriteString(text[copied : copied+loc[0]])
-		b.WriteString(replace(text[copied+loc[0]:copied+loc[1]], text[copied+loc[2]:copied+loc[3]], text[copied+loc[4]:copied+loc[5]], title))
-		copied += loc[1]
+		b.WriteString(text[copied:loc[0]])
+		b.WriteString(replace(m))
+		copied = loc[1]
 	}
 	if copied == 0 {
 		return text
@@ -426,6 +589,14 @@ type InlineLink struct {
 	// Dropped es true cuando el renderer descartó el destino (esquema no
 	// permitido o URL inválida) y emitió solo el texto o el alt.
 	Dropped bool
+	// DroppedAttributes es true cuando una imagen inline lleva pegado un
+	// bloque {clave=valor} (p. ej. {width=30%}), que no tiene representación
+	// inline y el renderer descarta.
+	DroppedAttributes bool
+	// Spaced es true cuando el destino es una ruta suelta con espacios, leída
+	// con la regla de compatibilidad (ver ScanLinkDestination): funciona,
+	// pero conviene escribirla entre <...> o con %20.
+	Spaced bool
 }
 
 // FindInlineLinks devuelve los enlaces e imágenes inline que el renderer

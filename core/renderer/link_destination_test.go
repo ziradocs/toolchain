@@ -14,42 +14,49 @@ import (
 )
 
 // El destino de un enlace o imagen sigue la gramática de CommonMark: el
-// título no es parte de la ruta, <...> admite espacios y una palabra suelta
-// después de un espacio deja de ser enlace.
+// título no es parte de la ruta y <...> admite espacios. Una ruta suelta con
+// espacios que no abren un título se sigue leyendo como antes (hasta el ")"
+// que balancea), marcada Spaced para el aviso del linter.
 func TestParseLinkDestination(t *testing.T) {
 	for _, tc := range []struct {
 		in, dest, title string
 		consumed        int
-		ok              bool
+		spaced, ok      bool
 	}{
-		{`img/a.png)`, "img/a.png", "", 10, true},
-		{`img/a.png "t")`, "img/a.png", "t", 14, true},
-		{`img/a.png 't')`, "img/a.png", "t", 14, true},
-		{`img/a.png (t))`, "img/a.png", "t", 14, true},
-		{`img/a.png   "t"  ) y`, "img/a.png", "t", 18, true},
-		{`<mi dir/a.png>)`, "mi dir/a.png", "", 15, true},
-		{`<mi dir/a.png> "t")`, "mi dir/a.png", "t", 19, true},
-		{`<a)b.png>)`, "a)b.png", "", 10, true},
-		{`mi%20dir/a.png)`, "mi%20dir/a.png", "", 15, true},
-		{`foto_(1).png)`, "foto_(1).png", "", 13, true},
-		{`a.png "di \"hola\"")`, "a.png", `di "hola"`, 20, true},
-		{` a.png )`, "a.png", "", 8, true},
-		{` )`, "", "", 2, true},
-		{`)`, "", "", 0, false},
-		{`t.png bare)`, "", "", 0, false},
-		{`mi dir/a.png)`, "", "", 0, false},
-		{`a.png "t" x)`, "", "", 0, false},
-		{`a.png"t")`, `a.png"t"`, "", 9, true},
-		{`<a.png>"t")`, "", "", 0, false},
-		{`a.png (t(u)))`, "", "", 0, false},
-		{`<a b`, "", "", 0, false},
-		{`<a<b>)`, "", "", 0, false},
-		{`foto_(1.png`, "", "", 0, false},
-		{"a.png \"t\nu\")", "", "", 0, false},
+		{`img/a.png)`, "img/a.png", "", 10, false, true},
+		{`img/a.png "t")`, "img/a.png", "t", 14, false, true},
+		{`img/a.png 't')`, "img/a.png", "t", 14, false, true},
+		{`img/a.png (t))`, "img/a.png", "t", 14, false, true},
+		{`img/a.png   "t"  ) y`, "img/a.png", "t", 18, false, true},
+		{`<mi dir/a.png>)`, "mi dir/a.png", "", 15, false, true},
+		{`<mi dir/a.png> "t")`, "mi dir/a.png", "t", 19, false, true},
+		{`<a)b.png>)`, "a)b.png", "", 10, false, true},
+		{`mi%20dir/a.png)`, "mi%20dir/a.png", "", 15, false, true},
+		{`foto_(1).png)`, "foto_(1).png", "", 13, false, true},
+		{`a.png "di \"hola\"")`, "a.png", `di "hola"`, 20, false, true},
+		{` a.png )`, "a.png", "", 8, false, true},
+		{` )`, "", "", 2, false, true},
+		{`a.png"t")`, `a.png"t"`, "", 9, false, true},
+		// Compatibilidad: ruta suelta con espacios.
+		{`t.png bare)`, "t.png bare", "", 11, true, true},
+		{`mi dir/a.png)`, "mi dir/a.png", "", 13, true, true},
+		{`a.png "t" x)`, `a.png "t" x`, "", 12, true, true},
+		{`a (b c))`, "a", "b c", 8, false, true},
+		{`a(b c))`, "a(b c)", "", 7, true, true},
+		{`a.png (t(u)))`, "a.png (t(u))", "", 13, true, true},
+		// No es enlace.
+		{`)`, "", "", 0, false, false},
+		{`<a.png>"t")`, "", "", 0, false, false},
+		{`<a b`, "", "", 0, false, false},
+		{`<a<b>)`, "", "", 0, false, false},
+		{`<a b) c`, "", "", 0, false, false},
+		{`foto_(1.png`, "", "", 0, false, false},
+		{`b (c`, "", "", 0, false, false},
+		{"a.png \"t\nu\")", "", "", 0, false, false},
 	} {
-		dest, title, n, ok := ParseLinkDestination(tc.in)
-		if ok != tc.ok || dest != tc.dest || title != tc.title || n != tc.consumed {
-			t.Errorf("ParseLinkDestination(%q) = %q %q %d %v; want %q %q %d %v", tc.in, dest, title, n, ok, tc.dest, tc.title, tc.consumed, tc.ok)
+		d, ok := ParseLinkDestination(tc.in)
+		if ok != tc.ok || d.Dest != tc.dest || d.Title != tc.title || d.Consumed != tc.consumed || d.Spaced != tc.spaced {
+			t.Errorf("ParseLinkDestination(%q) = %+v %v; want %q %q %d spaced=%v %v", tc.in, d, ok, tc.dest, tc.title, tc.consumed, tc.spaced, tc.ok)
 		}
 		raw, rn, rok := ScanLinkDestination(tc.in)
 		if rok != tc.ok || rn != tc.consumed || (rok && raw != tc.in[:rn-1]) {
@@ -65,7 +72,8 @@ func TestInlineImageDestinations(t *testing.T) {
 		{`![a](img/a.png (t))`, `<img src="img/a.png" alt="a" title="t">`},
 		{`![a](<mi dir/a.png>)`, `<img src="mi%20dir/a.png" alt="a">`},
 		{`![a](mi%20dir/a.png)`, `<img src="mi%20dir/a.png" alt="a">`},
-		{`![a](t.png bare)`, `![a](t.png bare)`},
+		{`![a](t.png bare)`, `<img src="t.png%20bare" alt="a">`},
+		{`[l](mi página.html)`, `<a href="mi%20página.html">l</a>`},
 		{`![a](a.png) ![b](b.png)`, `<img src="a.png" alt="a"> <img src="b.png" alt="b">`},
 		{`![a](a.png){width=30%} ![b](b.png){fit=cover focus="50% 50%"} x{y=1}`, `<img src="a.png" alt="a"> <img src="b.png" alt="b"> x{y=1}`},
 		{`[![a](x.png "t")](https://y "u")`, `<a href="https://y" title="u"><img src="x.png" alt="a" title="t"></a>`},

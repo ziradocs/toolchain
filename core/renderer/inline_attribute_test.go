@@ -200,9 +200,11 @@ var inlineAttributeCases = []struct {
 		`<img src="u" alt="a" title="t &quot;q&quot; &lt;b&gt;">`,
 	},
 	{
-		"palabra suelta después del destino no es enlace",
+		// Compatibilidad: ruta suelta con espacios, como antes; el espacio
+		// va codificado en el atributo.
+		"ruta suelta con espacios",
 		`![a](t.png bare) [b](u v)`,
-		`![a](t.png bare) [b](u v)`,
+		`<img src="t.png%20bare" alt="a"> <a href="u%20v">b</a>`,
 	},
 }
 
@@ -288,7 +290,7 @@ func assertFindInlineLinksMatchesHTML(t *testing.T, input string) {
 	}
 	recorded := func(image bool, dest, alt string) bool {
 		for _, l := range links {
-			if l.Image != image || l.Dropped || htmlInputStream(NormalizeAttributeWhitespace(strings.TrimSpace(DecodeLinkDestination(l.Destination)))) != dest {
+			if l.Image != image || l.Dropped || htmlInputStream(NormalizeAttributeWhitespace(EscapeURLSpaces(DecodeLinkDestination(l.Destination)))) != dest {
 				continue
 			}
 			if !image || htmlInputStream(html.UnescapeString(l.Text)) == alt {

@@ -10,26 +10,18 @@ import (
 )
 
 // coreReadsCommonMarkDestinations dice si el core enlazado lee los destinos
-// como CommonMark (una ruta suelta con espacios no es imagen). Los tests que
+// como CommonMark (<...> delimita la ruta, título aparte). Los tests que
 // dependen de esa regla corren con los dos cores: el del árbol (go.work) y el
 // publicado (GOWORK=off).
 func coreReadsCommonMarkDestinations() bool {
-	_, _, ok := renderer.ScanLinkDestination("a b)")
-	return !ok
+	_, n, ok := renderer.ScanLinkDestination("<a)b>)")
+	return ok && n == 6
 }
 
 func TestMarkdownImageDestinations(t *testing.T) {
 	spaced := []struct{ in, want string }{
 		{"![a](cap uno/x.png)", "![a](<cap uno/x.png>)"},
 		{"![a](cap uno/x.png \"T\")", "![a](<cap uno/x.png> \"T\")"},
-	}
-	if coreReadsCommonMarkDestinations() {
-		// Con destinos CommonMark una ruta suelta con espacios ya no es
-		// imagen: queda como texto, sin <...>.
-		spaced = []struct{ in, want string }{
-			{"![a](cap uno/x.png)", "![a](cap uno/x.png)"},
-			{"![a](cap uno/x.png \"T\")", "![a](cap uno/x.png \"T\")"},
-		}
 	}
 	cases := []struct{ in, want string }{
 		{"![a](<cap uno/x.png>)", "![a](<cap uno/x.png>)"},
