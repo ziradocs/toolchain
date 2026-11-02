@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	docx "github.com/mmonterroca/docxgo/v2"
 	"github.com/mmonterroca/docxgo/v2/domain"
@@ -2369,19 +2370,43 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 		return err
 	}
 
+	// Antes la tabla salía sin bordes ni fondo de encabezado (se veía rota
+	// en Word) y con el ancho que Word decidiera. Ahora lleva bordes finos
+	// del tema, el ancho de la caja de texto repartido según el contenido
+	// de cada columna, y un encabezado con fondo que se repite en cada
+	// página.
+	colWidths := docxTableColumnWidths(elem, numCols, int(g.contentWidthIn*1440))
+	total := 0
+	for _, w := range colWidths {
+		total += w
+	}
+	if err := table.SetWidth(domain.TableWidth{Type: domain.WidthDXA, Value: total}); err != nil {
+		return fmt.Errorf("invalid table width: %w", err)
+	}
+	border := domain.BorderStyle{Style: domain.BorderSingle, Width: 4, Color: g.parseColor(g.style.TableBorderColor)}
+	if err := table.SetBorders(domain.TableLevelBorders{
+		Top: border, Left: border, Bottom: border, Right: border, InsideH: border, InsideV: border,
+	}); err != nil {
+		return fmt.Errorf("invalid table borders: %w", err)
+	}
+
 	// Header row
 	headerRow, err := table.Row(0)
 	if err != nil {
 		return err
 	}
+	_ = headerRow.SetRepeatAsHeader(true)
+	_ = headerRow.SetCantSplit(true)
 
 	for j, header := range elem.Headers {
 		cell, err := headerRow.Cell(j)
 		if err != nil {
 			continue
 		}
+		_ = cell.SetWidth(colWidths[j])
+		_ = cell.SetShading(g.parseColor(g.style.TableHeaderBg))
 
-		p, err := cell.AddParagraph()
+		p, err := g.addTableCellParagraph(cell, elem.ColumnAlign, j)
 		if err != nil {
 			continue
 		}
@@ -2405,23 +2430,28 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 		if err != nil {
 			continue
 		}
+		_ = dataRow.SetCantSplit(true)
+		striped := g.style.TableStripeEnabled && g.style.TableStripeBg != "" && i%2 == 1
 
-		for j, cellContent := range row {
-			if j >= numCols {
-				break
-			}
-
+		for j := 0; j < numCols; j++ {
 			cell, err := dataRow.Cell(j)
 			if err != nil {
 				continue
 			}
+			_ = cell.SetWidth(colWidths[j])
+			if striped {
+				_ = cell.SetShading(g.parseColor(g.style.TableStripeBg))
+			}
+			if j >= len(row) {
+				continue
+			}
 
-			p, err := cell.AddParagraph()
+			p, err := g.addTableCellParagraph(cell, elem.ColumnAlign, j)
 			if err != nil {
 				continue
 			}
 
-			if err := g.renderInlineMarkdown(p, cellContent); err != nil {
+			if err := g.renderInlineMarkdown(p, row[j]); err != nil {
 				return err
 			}
 		}
@@ -2437,6 +2467,64 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 	}
 
 	return nil
+}
+
+// addTableCellParagraph abre el párrafo de una celda con la alineación que
+// declara la columna en la tabla Markdown (ColumnAlign) y un poco de aire
+// arriba y abajo.
+func (g *DOCXGenerator) addTableCellParagraph(cell domain.TableCell, columnAlign []string, col int) (domain.Paragraph, error) {
+	p, err := cell.AddParagraph()
+	if err != nil {
+		return nil, err
+	}
+	_ = p.SetSpacingBefore(40)
+	_ = p.SetSpacingAfter(40)
+	if col < len(columnAlign) {
+		switch columnAlign[col] {
+		case "center":
+			_ = p.SetAlignment(domain.AlignmentCenter)
+		case "right":
+			_ = p.SetAlignment(domain.AlignmentRight)
+		}
+	}
+	return p, nil
+}
+
+// docxTableColumnWidths reparte el ancho de la caja de texto (twips) entre
+// las columnas según el texto más largo de cada una, acotado para que una
+// columna de una celda larguísima no deje a las demás sin espacio ni una
+// columna corta quede ilegible. La suma es siempre el ancho disponible, así
+// que la tabla nunca se sale de la página.
+func docxTableColumnWidths(elem *ast.TableElement, numCols, available int) []int {
+	const minWeight, maxWeight = 4, 40
+	weights := make([]int, numCols)
+	measure := func(col int, text string) {
+		n := utf8.RuneCountInString(docxStripHeadingMarkup(text))
+		if n > weights[col] {
+			weights[col] = n
+		}
+	}
+	for j, h := range elem.Headers {
+		measure(j, h)
+	}
+	for _, row := range elem.Rows {
+		for j := 0; j < numCols && j < len(row); j++ {
+			measure(j, row[j])
+		}
+	}
+	sum := 0
+	for j := range weights {
+		weights[j] = max(minWeight, min(maxWeight, weights[j]))
+		sum += weights[j]
+	}
+	widths := make([]int, numCols)
+	used := 0
+	for j := range widths {
+		widths[j] = available * weights[j] / sum
+		used += widths[j]
+	}
+	widths[numCols-1] += available - used
+	return widths
 }
 
 // renderImagePlaceholder inserta el texto itálico placeholder que reemplaza
