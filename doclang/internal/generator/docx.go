@@ -2370,18 +2370,20 @@ func (g *DOCXGenerator) renderCodeLines(doc domain.Document, content string) err
 			}
 		}
 
-		r, err := p.AddRun()
-		if err != nil {
-			return err
-		}
+		for _, segment := range codeLineSegments(line) {
+			r, err := p.AddRun()
+			if err != nil {
+				return err
+			}
 
-		// Monospace font
-		_ = r.SetText(line)
-		if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
+			// Monospace font
+			_ = r.SetText(segment)
+			if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
+				return fmt.Errorf("invalid font size: %w", err)
+			}
+			_ = r.SetColor(g.parseColor(g.style.CodeBlockColor))
+			_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
 		}
-		_ = r.SetColor(g.parseColor(g.style.CodeBlockColor))
-		_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
 	}
 
 	return nil
