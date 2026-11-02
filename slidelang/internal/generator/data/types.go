@@ -366,6 +366,9 @@ type ElementData struct {
 	Context    string `json:"context,omitempty"` // hero, gallery, content, standalone
 	ImageFit   string `json:"image_fit,omitempty"`
 	ImageFocus string `json:"image_focus,omitempty"`
+	// ImageTitle es el título del destino Markdown de una imagen
+	// (image-title-v1), para el atributo title del <img>.
+	ImageTitle string `json:"image_title,omitempty"`
 	ImageBleed bool   `json:"image_bleed,omitempty"`
 	// Directive data
 	DirectiveName   string                 `json:"directive_name,omitempty"`

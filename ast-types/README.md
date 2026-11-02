@@ -57,6 +57,15 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.26.0
+
+- **Opt-in**: `ImageElement.title`, the title of a Markdown image destination
+  (`![alt](src "title")`, also `'title'` and `(title)`). `image-title-v1` is
+  inferred only when an image has a title and emits 2.26.0 alone or with the
+  other capabilities; an image without a title keeps its lower version.
+  `source` no longer includes the title or the `<...>` of an angle-bracket
+  destination. `fmt` writes the title back.
+
 ### 2.25.0
 
 - **Opt-in**: `TableElement.columnAlign`, one entry per column (`""`,

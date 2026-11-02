@@ -110,8 +110,11 @@ import type { Position } from "./diagnostics";
  * delimiter row that declares at least one alignment (":---", ":---:",
  * "---:"). A table delimited with plain "---" emits no columnAlign and keeps
  * the lower version.
+ * 2.26.0: ImageElement.title (image-title-v1), the title of a Markdown image
+ * destination (`![alt](src "title")`). An image without a title emits no
+ * title and keeps the lower version.
  */
-export const SchemaVersion = "2.25.0";
+export const SchemaVersion = "2.26.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
@@ -136,6 +139,8 @@ export const ContentMarkdownSchemaVersion = "2.24.0";
 export const ContentMarkdownCapability = "content-markdown-v1";
 export const TableAlignSchemaVersion = "2.25.0";
 export const TableAlignCapability = "table-align-v1";
+export const ImageTitleSchemaVersion = "2.26.0";
+export const ImageTitleCapability = "image-title-v1";
 export const MaxListStart: number /* int64 */ = 9007199254740991;
 /**
  * Node representa un nodo base en el AST
@@ -678,6 +683,12 @@ export interface ImageElement extends BaseNode {
   altHTML?: string; // Alt con {{variables}} sustituidas y escapadas (sin markdown)
   caption?: string;
   captionHTML?: string; // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+  /**
+   * Title es el título del destino Markdown (`![alt](src "título")`): el
+   * atributo title del <img>, no un pie de figura. Source no lo incluye.
+   * Opt-in image-title-v1 (schema 2.26.0): ver UsesImageTitle.
+   */
+  title?: string;
   /**
    * Context es metadata histórica inferida desde la posición del elemento.
    * Deprecated: ningún renderer la usa; los autores deben declarar Fit,

@@ -467,6 +467,7 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
 				{{range $slide.BleedImages}}
 				{{if .Source}}<img src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"
 					 alt="{{.Alt}}"
+					 {{if .ImageTitle}}title="{{.ImageTitle}}"{{end}}
 					 {{if .ImageFit}}data-fit="{{.ImageFit}}"{{end}}
 					 {{if .ImageFocus}}style="object-position: {{.ImageFocus}};"{{end}}>
 				{{end}}
@@ -709,6 +710,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                 {{if .Source}}
                 <img src="{{if .InlinedSource}}{{.InlinedSource}}{{else}}{{.Source}}{{end}}"
                      alt="{{.Alt}}"
+                     {{if .ImageTitle}}title="{{.ImageTitle}}"{{end}}
                      {{if not .SkipLazyLoad}}loading="lazy"{{end}}
                      {{if .ImageFocus}}style="object-position: {{.ImageFocus}};"{{end}}>
                 {{else}}

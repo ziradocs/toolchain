@@ -27,7 +27,6 @@ func TestAssetRebaserInline(t *testing.T) {
 		{"Ver ![a](x.png) aquí.", "Ver ![a](../a/x.png) aquí."},
 		{"![a](img/x.png \"Título\")", "![a](../a/img/x.png \"Título\")"},
 		{"![a](<mi foto.png>)", "![a](<../a/mi foto.png>)"},
-		{"![a](mi foto.png)", "![a](../a/mi foto.png)"},
 		{"Dos ![a](x.png) y ![b](./y.png).", "Dos ![a](../a/x.png) y ![b](../a/y.png)."},
 		{"Código `![a](x.png)` y ![b](x.png)", "Código `![a](x.png)` y ![b](../a/x.png)"},
 		{"Doble ``![a](x.png) ` `` fin", "Doble ``![a](x.png) ` `` fin"},
@@ -37,6 +36,12 @@ func TestAssetRebaserInline(t *testing.T) {
 		{`![r](x\_y.png)`, `![r](x\_y.png)`},
 		{"![r](x.png", "![r](x.png"},
 		{"Enlace [t](x.png) sin imagen", "Enlace [t](x.png) sin imagen"},
+	}
+	if commonMarkDestinations {
+		// Una ruta suelta con espacios se reescribe entre <...>.
+		cases = append(cases, struct{ in, want string }{"![a](mi foto.png)", "![a](<../a/mi foto.png>)"})
+	} else {
+		cases = append(cases, struct{ in, want string }{"![a](mi foto.png)", "![a](../a/mi foto.png)"})
 	}
 	for _, tc := range cases {
 		r := testRebaser([]string{"raíz", tc.in}, include.LineOrigins{"", "/p/a/doc.md"})
@@ -86,7 +91,12 @@ func TestAssetRebaserHeadingHTML(t *testing.T) {
 	lines := []string{"### Head ![h](h.png)"}
 	r := testRebaser(lines, include.LineOrigins{"/p/cap uno/doc.md"})
 	got := r.headingHTML(`<h3 id="head-hhpng">Head <img src="h.png" alt="h"></h3>`, 1)
-	if want := `<h3 id="head-hhpng">Head <img src="../cap uno/h.png" alt="h"></h3>`; got != want {
+	want := `<h3 id="head-hhpng">Head <img src="../cap uno/h.png" alt="h"></h3>`
+	if commonMarkDestinations {
+		// El src es una URL: el espacio va codificado.
+		want = `<h3 id="head-hhpng">Head <img src="../cap%20uno/h.png" alt="h"></h3>`
+	}
+	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}
 }

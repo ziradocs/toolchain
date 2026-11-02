@@ -568,6 +568,16 @@ func formatStrictImage(e *ast.ImageElement) (string, error) {
 		b.WriteString("\n")
 		fmt.Fprintf(&b, "  caption: %s", quote(e.Caption))
 	}
+	if e.Title != "" {
+		// image-title-v1: el título del destino Markdown, como propiedad.
+		// El valor se lee hasta el final de la línea y solo pierde comillas
+		// en los extremos, como el de un mapa (checkEdgeQuotable).
+		if err := checkEdgeQuotable("image", "title", e.Title); err != nil {
+			return "", err
+		}
+		b.WriteString("\n")
+		fmt.Fprintf(&b, "  title: %s", quote(e.Title))
+	}
 	if e.Label != "" {
 		// issue #239: identificador de referencia cruzada — mismo patrón que
 		// caption arriba, para que sobreviva un round-trip fmt→build.

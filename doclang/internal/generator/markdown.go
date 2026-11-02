@@ -352,7 +352,7 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 				// intacto) a texto plano — misma pérdida de fidelidad ya
 				// documentada y aceptada en core/formatter/document.go's
 				// stripTags para bold/italic.
-				text = docxStripHeadingMarkup(renderer.LangSpanHTMLToSource(text))
+				text = docxStripHeadingMarkup(headingImagesToMarkdown(renderer.LangSpanHTMLToSource(text)))
 				// Preservar el id="..." del <hN> ya renderizado como un
 				// anchor explícito (sintaxis {#id}, soportada por
 				// Pandoc/kramdown): sin esto, un link en el mismo
@@ -397,10 +397,11 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		return fmt.Sprintf("```%s\n%s\n```\n", elem.Language, elem.Content)
 
 	case *ast.ImageElement:
+		dest := markdownBlockImageDestination(elem)
 		if elem.Caption != "" {
-			return fmt.Sprintf("![%s](%s)\n*%s*\n", elem.Alt, elem.Source, elem.Caption)
+			return fmt.Sprintf("![%s](%s)\n*%s*\n", elem.Alt, dest, elem.Caption)
 		}
-		return fmt.Sprintf("![%s](%s)\n", elem.Alt, elem.Source)
+		return fmt.Sprintf("![%s](%s)\n", elem.Alt, dest)
 
 	case *ast.MediaElement:
 		return renderMediaElementMarkdown(elem)

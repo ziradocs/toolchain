@@ -637,6 +637,10 @@ type ImageElement struct {
 	AltHTML     string `json:"altHTML,omitempty"` // Alt con {{variables}} sustituidas y escapadas (sin markdown)
 	Caption     string `json:"caption,omitempty"`
 	CaptionHTML string `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+	// Title es el título del destino Markdown (`![alt](src "título")`): el
+	// atributo title del <img>, no un pie de figura. Source no lo incluye.
+	// Opt-in image-title-v1 (schema 2.26.0): ver UsesImageTitle.
+	Title string `json:"title,omitempty"`
 	// Context es metadata histórica inferida desde la posición del elemento.
 	// Deprecated: ningún renderer la usa; los autores deben declarar Fit,
 	// Focus y Bleed para expresar el encuadre deseado (issue #347).
@@ -655,6 +659,16 @@ type ImageElement struct {
 }
 
 func (i ImageElement) element() {}
+
+// ImageTitle devuelve Title. Es un método y no solo el campo para que un
+// consumidor pueda consultarlo con una aserción de interfaz y seguir
+// compilando contra un core anterior.
+func (i *ImageElement) ImageTitle() string {
+	if i == nil {
+		return ""
+	}
+	return i.Title
+}
 
 // NewImageElement crea un nuevo elemento de imagen
 func NewImageElement(pos diagnostics.Position, source, alt string) *ImageElement {

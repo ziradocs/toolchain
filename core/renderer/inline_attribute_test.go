@@ -18,8 +18,8 @@ import (
 // pueden emitir. Cualquier otra etiqueta o atributo en la salida significa
 // que texto del autor terminó interpretado como markup.
 var inlineAllowedAttrs = map[string]map[string]bool{
-	"a":      {"href": true},
-	"img":    {"src": true, "alt": true},
+	"a":      {"href": true, "title": true},
+	"img":    {"src": true, "alt": true, "title": true},
 	"strong": {},
 	"em":     {},
 	"mark":   {"class": true},
@@ -189,11 +189,22 @@ var inlineAttributeCases = []struct {
 		`<img src="&lt;code&gt;u&lt;/code&gt;" alt="a">`,
 	},
 	{
-		// No hay sintaxis de título: lo que sigue al destino es parte del
-		// destino, escapado dentro del mismo href.
-		"destino con algo que parece un título",
+		// Título CommonMark: va al atributo title, no al href.
+		"destino con título",
 		`[x](u "t")`,
-		`<a href="u &quot;t&quot;">x</a>`,
+		`<a href="u" title="t">x</a>`,
+	},
+	{
+		"título con comillas y escape",
+		`![a](u "t \"q\" <b>")`,
+		`<img src="u" alt="a" title="t &quot;q&quot; &lt;b&gt;">`,
+	},
+	{
+		// Compatibilidad: ruta suelta con espacios, como antes; el espacio
+		// va codificado en el atributo.
+		"ruta suelta con espacios",
+		`![a](t.png bare) [b](u v)`,
+		`<img src="t.png%20bare" alt="a"> <a href="u%20v">b</a>`,
 	},
 }
 
@@ -279,7 +290,7 @@ func assertFindInlineLinksMatchesHTML(t *testing.T, input string) {
 	}
 	recorded := func(image bool, dest, alt string) bool {
 		for _, l := range links {
-			if l.Image != image || l.Dropped || htmlInputStream(NormalizeAttributeWhitespace(strings.TrimSpace(DecodeLinkDestination(l.Destination)))) != dest {
+			if l.Image != image || l.Dropped || htmlInputStream(NormalizeAttributeWhitespace(EscapeURLSpaces(DecodeLinkDestination(l.Destination)))) != dest {
 				continue
 			}
 			if !image || htmlInputStream(html.UnescapeString(l.Text)) == alt {

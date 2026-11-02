@@ -478,12 +478,38 @@ links and images:
 ```
 [link text](destination)
 ![alt text](destination)
+![alt text](destination "title")
+![alt text](<path with spaces.png>)
 ```
 
-The destination runs to the `)` that balances the parentheses opened inside
-it, as in CommonMark, so `[Foo](https://es.wikipedia.org/wiki/Foo_(bar))` keeps
-its full URL. It must close on the same line and cannot be empty; otherwise the
-text is not a link and is kept literally. Complete character references in
+Destinations follow CommonMark. A bare destination has no spaces and runs to
+the `)` that balances the parentheses opened inside it, so
+`[Foo](https://es.wikipedia.org/wiki/Foo_(bar))` keeps its full URL. A
+destination between `<` and `>` may contain spaces (and `)`); the brackets are
+not part of it. An optional title follows after a space, in `"…"`, `'…'` or
+`(…)`; it becomes the `title` attribute, never part of the path (a block image
+keeps it as `ImageElement.title`, capability `image-title-v1`). Backslash
+escapes (`\)`, `\"`) keep a character from closing the destination or title;
+in a title they are resolved, in a destination the backslash is kept as
+written. The destination must close on the same line with balanced
+parentheses, and `()` is not a link; otherwise the text is not a link and is
+kept literally.
+
+Compatibility: a bare destination with spaces that do not start a valid title
+(`![a](my photo.png)`, `[a](page one.html)`) is not a link in CommonMark, but
+earlier versions read everything up to the balancing `)` as the path. It is
+still read that way, with a `LINK001` warning suggesting `<…>` or `%20`.
+
+A block image is a line that is exactly one image, optionally followed by its
+`{fit=… focus=… bleed=…}` attributes. A line with two images, or an image and
+more text, is a paragraph with inline images. A `{…}` block attached to an
+inline image has no inline meaning and is ignored, with an `IMG004` warning.
+In the strict dialect the title is the `title:` property of `IMAGE`.
+
+A destination is a URL: a local image path is read from disk percent-decoded
+(`my%20dir/a.png` is the file `my dir/a.png`; a `%` that does not start a
+valid escape is kept), and an emitted `src`/`href` has its spaces encoded as
+`%20`. Complete character references in
 the destination, ending in `;` (`&#106;`, `&colon;`, `&amp;`), are decoded
 before it is checked; a bare `&name` without `;`, as in a query string
 (`?a=1&section=2`), is left as written.

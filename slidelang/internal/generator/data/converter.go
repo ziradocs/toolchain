@@ -528,6 +528,11 @@ func convertElement(element ast.Element, slideIndex int, elementID string, varia
 		elementData.SkipLazyLoad = ctx != nil && ctx.ImageMode == "offline-inline"
 		// Alt/Caption: sin pre-escapar, por la misma razón que Source.
 		elementData.Alt = ProcessVariables(elem.Alt, variables)
+		// El título (image-title-v1) se lee con una aserción de interfaz
+		// para seguir compilando contra un core que no lo tiene.
+		if t, ok := any(elem).(interface{ ImageTitle() string }); ok {
+			elementData.ImageTitle = ProcessVariables(t.ImageTitle(), variables)
+		}
 		elementData.Caption = ProcessVariables(elem.Caption, variables)
 		elementData.Context = string(elem.Context)
 		elementData.ImageFit = elem.Fit

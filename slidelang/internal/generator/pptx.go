@@ -15,6 +15,7 @@ import (
 	_ "image/gif"  // registra el decoder GIF para image.DecodeConfig
 	_ "image/jpeg" // registra el decoder JPEG para image.DecodeConfig
 	"image/png"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -449,6 +450,56 @@ var pptxTagRe = regexp.MustCompile(`<[^>]*>`)
 // core/formatter tiene su propia versión de esto (formatSubsectionHeading),
 // que hoy borra el énfasis en vez de invertirlo. Las dos convergen en el
 // issue #260.
+// pptxImageOpen es la apertura de una imagen inline ![alt](.
+var pptxImageOpen = regexp.MustCompile(`^!\[([^\]]*)\]\(`)
+
+// pptxImageAttrs es un bloque de atributos {clave=valor ...} pegado a una
+// imagen ({width=30%}); el PPTX no lo usa.
+var pptxImageAttrs = regexp.MustCompile(`^\{(?:\s*[A-Za-z][\w-]*=(?:"[^"}]*"|[^\s}]+))+\s*\}`)
+
+// pptxImageOnlyParagraph devuelve las imágenes de un párrafo que no tiene
+// nada más que imágenes inline separadas por espacios (`![a](a.png)
+// ![b](b.png)`), o nil. El PPTX no dibuja imágenes dentro de un texto, así
+// que ese párrafo sale como una imagen debajo de otra en vez de como su
+// Markdown literal. El destino (sin <...> ni título) lo da
+// renderer.FindInlineLinks, el mismo que usa el HTML.
+func pptxImageOnlyParagraph(e *ast.TextElement) []*ast.ImageElement {
+	if e.IsRawHTML {
+		return nil
+	}
+	text := strings.TrimSpace(e.Content)
+	if !strings.HasPrefix(text, "![") {
+		return nil
+	}
+	count := 0
+	for rest := text; rest != ""; rest = strings.TrimLeft(rest, " \t\n") {
+		m := pptxImageOpen.FindStringIndex(rest)
+		if m == nil {
+			return nil
+		}
+		_, n, ok := renderer.ScanLinkDestination(rest[m[1]:])
+		if !ok {
+			return nil
+		}
+		rest = rest[m[1]+n:]
+		if a := pptxImageAttrs.FindStringIndex(rest); a != nil {
+			rest = rest[a[1]:]
+		}
+		count++
+	}
+	var images []*ast.ImageElement
+	for _, link := range renderer.FindInlineLinks(text) {
+		if !link.Image || link.Dropped {
+			continue
+		}
+		images = append(images, ast.NewImageElement(e.Position, link.Destination, link.Text))
+	}
+	if len(images) != count {
+		return nil
+	}
+	return images
+}
+
 func pptxTextContent(e *ast.TextElement) string {
 	if !e.IsRawHTML {
 		return e.Content
@@ -487,6 +538,12 @@ func (g *Generator) pptxAddElement(s *pptx.Slide, elem ast.Element, cursorY int,
 		// caller que llegue con el AST sin bajar.
 		return g.pptxAddText(s, pptxTextContent(renderer.LegacyHeadingElement(e)), cursorY)
 	case *ast.TextElement:
+		if images := pptxImageOnlyParagraph(e); images != nil {
+			for _, img := range images {
+				cursorY = g.pptxAddImage(s, img, cursorY, opts)
+			}
+			return cursorY
+		}
 		return g.pptxAddText(s, pptxTextContent(e), cursorY)
 	case *ast.PointsElement:
 		return g.pptxAddPoints(s, e, cursorY)
@@ -1975,7 +2032,12 @@ func (g *Generator) pptxAddImage(s *pptx.Slide, e *ast.ImageElement, cursorY int
 		return g.pptxAddText(s, fmt.Sprintf("[Image not embedded: %s]", e.Source), cursorY)
 	}
 
+	// e.Source es una URL: "mi%20carpeta/a.png" es el archivo
+	// "mi carpeta/a.png".
 	imagePath := e.Source
+	if decoded, err := url.PathUnescape(imagePath); err == nil {
+		imagePath = decoded
+	}
 	if opts.AssetRoot != "" {
 		confined, err := util.ResolveConfinedPath(opts.AssetRoot, imagePath)
 		if err != nil {

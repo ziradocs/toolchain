@@ -1,8 +1,4 @@
 {
-  "examples/01_title_and_content/01.2_text_formatting_flex.slidelang::image": {
-    "source": 7,
-    "html": 4
-  },
   "examples/01_title_and_content/01.4_special_blocks_flex.slidelang::code_pre": {
     "source": 5,
     "html": 3
@@ -10,10 +6,6 @@
   "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::code_pre": {
     "source": 2,
     "html": 0
-  },
-  "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::image": {
-    "source": 10,
-    "html": 6
   },
   "examples/01_title_and_content/01.6_ui_elements_flex.slidelang::table": {
     "source": 2,

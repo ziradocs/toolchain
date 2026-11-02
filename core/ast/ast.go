@@ -122,7 +122,10 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // delimiter row that declares at least one alignment (":---", ":---:",
 // "---:"). A table delimited with plain "---" emits no columnAlign and keeps
 // the lower version.
-const SchemaVersion = "2.25.0"
+// 2.26.0: ImageElement.title (image-title-v1), the title of a Markdown image
+// destination (`![alt](src "title")`). An image without a title emits no
+// title and keeps the lower version.
+const SchemaVersion = "2.26.0"
 
 const PreviousSchemaVersion = "2.13.0"
 const LegacySchemaVersion = "2.14.0"
@@ -148,6 +151,8 @@ const ContentMarkdownSchemaVersion = "2.24.0"
 const ContentMarkdownCapability = "content-markdown-v1"
 const TableAlignSchemaVersion = "2.25.0"
 const TableAlignCapability = "table-align-v1"
+const ImageTitleSchemaVersion = "2.26.0"
+const ImageTitleCapability = "image-title-v1"
 const MaxListStart int64 = 9007199254740991
 
 // Node representa un nodo base en el AST

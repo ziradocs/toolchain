@@ -301,7 +301,42 @@ func formatFlexImage(e *ast.ImageElement) (string, error) {
 		}
 		attrs = "{" + strings.Join(parts, " ") + "}"
 	}
-	return fmt.Sprintf("![%s](%s)%s", e.Alt, e.Source, attrs), nil
+	dest, err := markdownImageDestination(e.Source, e.Title)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("![%s](%s)%s", e.Alt, dest, attrs), nil
+}
+
+// markdownImageDestination escribe el destino de una imagen Markdown para
+// que el parser lo vuelva a leer igual: entre <...> cuando la ruta lleva
+// espacios o no se puede escribir suelta (paréntesis desbalanceados), y el
+// título entre comillas, con \ y " escapados.
+func markdownImageDestination(source, title string) (string, error) {
+	dest := source
+	if !bareDestinationRoundTrips(source) {
+		if strings.ContainsAny(source, "<>\r\n") || strings.HasSuffix(source, "\\") {
+			return "", newUnsupported("image", fmt.Sprintf("image source %q cannot be represented in the Markdown image syntax", source))
+		}
+		dest = "<" + source + ">"
+	}
+	if title != "" {
+		if strings.ContainsAny(title, "\r\n") {
+			return "", newUnsupported("image", "a multi-line image.Title cannot be represented in the Markdown image syntax")
+		}
+		dest += ` "` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(title) + `"`
+	}
+	return dest, nil
+}
+
+// bareDestinationRoundTrips dice si source, escrito sin <...>, se vuelve a
+// leer como el mismo destino.
+func bareDestinationRoundTrips(source string) bool {
+	if source == "" || strings.HasPrefix(source, "<") {
+		return false
+	}
+	d, ok := renderer.ParseLinkDestination(source + ")")
+	return ok && !d.Spaced && d.Title == "" && d.Dest == source && d.Consumed == len(source)+1
 }
 
 // formatFlexQuote serializa "> línea" por línea, con "-- Autor" final si

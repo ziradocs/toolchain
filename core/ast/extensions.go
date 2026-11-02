@@ -38,6 +38,19 @@ var extensions = []extension{
 	{ChartContentCapability, ChartContentSchemaVersion, UsesChartContent},
 	{ContentMarkdownCapability, ContentMarkdownSchemaVersion, UsesContentMarkdown},
 	{TableAlignCapability, TableAlignSchemaVersion, UsesTableAlign},
+	{ImageTitleCapability, ImageTitleSchemaVersion, UsesImageTitle},
+}
+
+// UsesImageTitle reporta si alguna imagen lleva título.
+func UsesImageTitle(doc *AST) bool {
+	used := false
+	_ = Walk(doc, func(n Node) error {
+		if img, ok := n.(*ImageElement); ok && img.Title != "" {
+			used = true
+		}
+		return nil
+	})
+	return used
 }
 
 // UsesTableAlign reporta si alguna tabla declara alineación de columnas.
@@ -261,6 +274,7 @@ func describeUsed(caps []string) string {
 		ChartContentCapability:    "literal chart content",
 		ContentMarkdownCapability: "explicit Markdown content",
 		TableAlignCapability:      "table column alignment",
+		ImageTitleCapability:      "image titles",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {

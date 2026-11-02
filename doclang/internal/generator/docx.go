@@ -1576,7 +1576,50 @@ func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level in
 // (parser.parseSubsectionHeader runs the full inline pipeline at parse
 // time), so renderInlineMarkdown (which expects unrendered markdown SOURCE)
 // cannot be reused here.
-var docxHeadingTagPattern = regexp.MustCompile(`<(/?)(strong|em|code|mark|del|a|span|u|sub|sup|kbd|small)([^>]*)>`)
+var docxHeadingTagPattern = regexp.MustCompile(`<(/?)(strong|em|code|mark|del|a|span|u|sub|sup|kbd|small|img)([^>]*)>`)
+
+// docxHeadingImgAttr lee src y alt del <img> que el pipeline inline deja en
+// el HTML de un encabezado (`## Título ![a](a.png)`).
+var docxHeadingImgAttr = regexp.MustCompile(`\b(src|alt)="([^"]*)"`)
+
+// renderHeadingImage inserta en p la imagen de un <img> de encabezado (attrs
+// es el resto de la etiqueta), con el mismo confinamiento y la misma medida
+// que una imagen inline de un párrafo. Una remota, faltante o fuera de la raíz
+// deja su alt (o el marcador de imagen no disponible).
+func (g *DOCXGenerator) renderHeadingImage(p domain.Paragraph, attrs, size, color string) error {
+	var src, alt string
+	for _, m := range docxHeadingImgAttr.FindAllStringSubmatch(attrs, -1) {
+		if m[1] == "src" {
+			src = renderer.UnescapeHTML(m[2])
+		} else {
+			alt = renderer.UnescapeHTML(m[2])
+		}
+	}
+	text := alt
+	if path, local := docxLocalImageSource(src); local {
+		if insert, imgSize, ok := g.prepareLocalImage(path, 0, false); ok {
+			imgSize = capImageWidth(imgSize, g.inlineImageMaxWidthIn)
+			if _, err := p.AddImageWithSize(insert, imgSize); err == nil {
+				return nil
+			}
+		}
+		text = g.docxImageUnavailableText(alt, path)
+	}
+	if text == "" {
+		return nil
+	}
+	r, err := p.AddRun()
+	if err != nil {
+		return err
+	}
+	_ = r.SetText(text)
+	if err := r.SetSize(g.parseSize(size)); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = r.SetColor(g.parseColor(color))
+	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+	return nil
+}
 
 // docxHeadingSpanLangAttr extracts lang="xx" from a <span ...> open tag's
 // attribute string.
@@ -1662,7 +1705,13 @@ func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, siz
 		tagName := html[pos+loc[4] : pos+loc[5]]
 		attrs := html[pos+loc[6] : pos+loc[7]]
 
-		if closing {
+		if tagName == "img" {
+			// Una imagen del encabezado (también dentro de un enlace) se
+			// inserta como en un párrafo; antes salía el <img> literal.
+			if err := g.renderHeadingImage(p, attrs, size, color); err != nil {
+				return err
+			}
+		} else if closing {
 			if len(stack) > 1 {
 				stack = stack[:len(stack)-1]
 			}
@@ -1951,6 +2000,10 @@ func docxFindInlineLink(s string) []int {
 // paréntesis balanceados es la de core.
 var docxInlineImageOpen = regexp.MustCompile(`!\[([^\]]*)\]\(`)
 
+// docxInlineImageAttrs es un bloque de atributos {clave=valor ...} pegado al
+// ")" de una imagen inline.
+var docxInlineImageAttrs = regexp.MustCompile(`^\{(?:\s*[A-Za-z][\w-]*=(?:"[^"}]*"|[^\s}]+))+\s*\}`)
+
 // docxFindInlineImage devuelve los índices de la primera imagen ![alt](src)
 // de s con destino balanceado, con la forma de regexp.FindStringSubmatchIndex
 // (grupo 1 el alt, grupo 2 el destino), o nil si no hay ninguna. Una apertura
@@ -1964,7 +2017,14 @@ func docxFindInlineImage(s string) []int {
 		start := search + loc[0]
 		openEnd := search + loc[1]
 		if dest, n, ok := renderer.ScanLinkDestination(s[openEnd:]); ok {
-			return []int{start, openEnd + n, search + loc[2], search + loc[3], openEnd, openEnd + len(dest)}
+			end := openEnd + n
+			// Atributos {width=30%} pegados a la imagen: no se representan
+			// en el DOCX y se consumen, igual que en el HTML, para que no
+			// salgan como texto.
+			if m := docxInlineImageAttrs.FindStringIndex(s[end:]); m != nil {
+				end += m[1]
+			}
+			return []int{start, end, search + loc[2], search + loc[3], openEnd, openEnd + len(dest)}
 		}
 		search = start + 1
 	}
@@ -2038,7 +2098,7 @@ func capImageWidth(size domain.ImageSize, maxWidthIn float64) domain.ImageSize {
 // referencias de carácter decodificadas. Remoto, data: o vacío no cuenta.
 // Un espacio que no abre un título ("...", '...' o (...)) es parte de la
 // ruta, como en el renderer HTML: `![](cap uno/a.png)` es la imagen
-// "cap uno/a.png", no "cap".
+// "cap uno/a.png", no "cap" (el core actual la acepta con un aviso LINK001).
 func docxLocalImageSource(dest string) (string, bool) {
 	d := strings.TrimSpace(renderer.DecodeLinkDestination(dest))
 	if strings.HasPrefix(d, "<") {
@@ -2059,6 +2119,21 @@ func docxLocalImageSource(dest string) (string, bool) {
 		return unescaped, unescaped != ""
 	}
 	return u.Path, u.Path != ""
+}
+
+// docxBlockImagePath devuelve la ruta de archivo de la fuente de una imagen
+// de bloque. La fuente es una URL, como en el HTML: "mi%20carpeta/a.png" es
+// el archivo "mi carpeta/a.png". Una remota o con un "%" que no se puede
+// decodificar se devuelve tal cual (prepareLocalImage decide qué hacer).
+func docxBlockImagePath(source string) string {
+	u, err := url.Parse(strings.TrimSpace(source))
+	if err != nil || u.Scheme != "" || u.Host != "" || !strings.Contains(source, "%") {
+		return source
+	}
+	if unescaped, err := url.PathUnescape(source); err == nil {
+		return unescaped
+	}
+	return source
 }
 
 // docxApplyLink escribe la etiqueta de un link. DOCX no emite hipervínculo
@@ -2797,7 +2872,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		return g.renderImageCaption(doc, elem)
 	}
 
-	insertPath, imageSize, ok := g.prepareLocalImage(elem.Source, elem.Position.Line, elem.Caption != "")
+	insertPath, imageSize, ok := g.prepareLocalImage(docxBlockImagePath(elem.Source), elem.Position.Line, elem.Caption != "")
 	if !ok {
 		return unavailable()
 	}

@@ -5,6 +5,7 @@ package linter
 
 import (
 	"fmt"
+	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -51,7 +52,15 @@ func checkLinkDestinations(block *ast.ContentBlock, variables map[string]interfa
 	inline := func(pos diagnostics.Position, texts ...string) {
 		for _, text := range texts {
 			for _, link := range renderer.FindInlineLinks(renderer.ProcessVariables(text, variables)) {
+				if link.DroppedAttributes {
+					diags = append(diags, diagnostics.NewWarning(
+						fmt.Sprintf("Inline image %q has a {…} attribute block, which inline images do not support; it is ignored (put the image on its own line to use fit/focus/bleed)", link.Destination),
+						pos, "linter").WithRuleID("IMG004"))
+				}
 				if !link.Dropped {
+					if link.Spaced {
+						diags = append(diags, spacedDestinationDiagnostic(link.Destination, link.Image, pos))
+					}
 					continue
 				}
 				dest := renderer.DecodeLinkDestination(link.Destination)
@@ -167,6 +176,19 @@ func linkDestinationDiagnostic(written, dest string, image, block bool, pos diag
 	} else {
 		msg = fmt.Sprintf("%s destination %q is not a valid URL; %s", kind, written, effect)
 	}
+	return diagnostics.NewWarning(msg, pos, "linter").WithRuleID("LINK001")
+}
+
+// spacedDestinationDiagnostic arma el LINK001 de una ruta suelta con espacios
+// (`![a](mi foto.png)`): se sigue leyendo como antes, pero CommonMark y otras
+// herramientas no la leen como enlace ni imagen.
+func spacedDestinationDiagnostic(written string, image bool, pos diagnostics.Position) diagnostics.Diagnostic {
+	kind := "Link"
+	if image {
+		kind = "Image"
+	}
+	msg := fmt.Sprintf("%s destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as a %s: write <%s> or use %%20",
+		kind, written, strings.ToLower(kind), written)
 	return diagnostics.NewWarning(msg, pos, "linter").WithRuleID("LINK001")
 }
 
