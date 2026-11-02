@@ -562,12 +562,22 @@ func formatStrictImage(e *ast.ImageElement) (string, error) {
 	return b.String(), nil
 }
 
-func formatPipeTable(headers []string, rows [][]string) string {
+func formatPipeTable(headers []string, rows [][]string, columnAlign []string) string {
 	var b strings.Builder
 	b.WriteString("| " + strings.Join(escapeTableCells(headers), " | ") + " |\n")
 	seps := make([]string, len(headers))
 	for i := range seps {
 		seps[i] = "---"
+		if i < len(columnAlign) {
+			switch columnAlign[i] {
+			case "left":
+				seps[i] = ":---"
+			case "center":
+				seps[i] = ":---:"
+			case "right":
+				seps[i] = "---:"
+			}
+		}
 	}
 	b.WriteString("|" + strings.Join(seps, "|") + "|\n")
 	for i, row := range rows {

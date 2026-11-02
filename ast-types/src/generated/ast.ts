@@ -106,8 +106,12 @@ import type { Position } from "./diagnostics";
  * `responses:` keys.
  * 2.21.0: optional safe ordered-list start ordinals (list-start-v1).
  * 2.22.0: document-wide literal LaTeX policy (math-source-v1).
+ * 2.25.0: TableElement.columnAlign (table-align-v1), inferred from a Markdown
+ * delimiter row that declares at least one alignment (":---", ":---:",
+ * "---:"). A table delimited with plain "---" emits no columnAlign and keeps
+ * the lower version.
  */
-export const SchemaVersion = "2.24.0";
+export const SchemaVersion = "2.25.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
@@ -130,6 +134,8 @@ export const ChartContentSchemaVersion = "2.23.0";
 export const ChartContentCapability = "chart-content-v1";
 export const ContentMarkdownSchemaVersion = "2.24.0";
 export const ContentMarkdownCapability = "content-markdown-v1";
+export const TableAlignSchemaVersion = "2.25.0";
+export const TableAlignCapability = "table-align-v1";
 export const MaxListStart: number /* int64 */ = 9007199254740991;
 /**
  * Node representa un nodo base en el AST
@@ -793,6 +799,15 @@ export interface TableElement extends BaseNode {
   headersHTML?: string[]; // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
   rows: string[][];
   rowsHTML?: string[][]; // Rows ya renderizadas a HTML inline (ver TextElement.ContentHTML)
+  /**
+   * ColumnAlign es la alineación por columna que declara la fila
+   * delimitadora de una tabla Markdown (":---" left, ":---:" center,
+   * "---:" right, "---" sin declarar = ""), en el mismo orden que Headers.
+   * nil cuando ninguna columna declara alineación (o la tabla no viene
+   * de Markdown), para que el JSON de una tabla sin alineación no cambie.
+   * Opt-in table-align-v1 (schema 2.25.0): ver UsesTableAlign.
+   */
+  columnAlign?: string[];
   /**
    * RowPositions da la posición fuente de cada entrada de Rows (mismo
    * índice), para que un diagnóstico sobre una fila en particular (p. ej.

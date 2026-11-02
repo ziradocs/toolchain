@@ -37,6 +37,45 @@ var extensions = []extension{
 	{MathSourceCapability, MathSourceSchemaVersion, UsesMathSource},
 	{ChartContentCapability, ChartContentSchemaVersion, UsesChartContent},
 	{ContentMarkdownCapability, ContentMarkdownSchemaVersion, UsesContentMarkdown},
+	{TableAlignCapability, TableAlignSchemaVersion, UsesTableAlign},
+}
+
+// UsesTableAlign reporta si alguna tabla declara alineación de columnas.
+func UsesTableAlign(doc *AST) bool {
+	used := false
+	_ = Walk(doc, func(n Node) error {
+		if t, ok := n.(*TableElement); ok && len(t.ColumnAlign) > 0 {
+			used = true
+		}
+		return nil
+	})
+	return used
+}
+
+// ValidateColumnAlign exige una entrada por columna de Headers, cada una
+// "", "left", "center" o "right", y al menos una declarada: una tabla sin
+// alineación no lleva columnAlign.
+func ValidateColumnAlign(t *TableElement) error {
+	if len(t.ColumnAlign) == 0 {
+		return nil
+	}
+	if len(t.ColumnAlign) != len(t.Headers) {
+		return fmt.Errorf("columnAlign has %d entries for %d columns", len(t.ColumnAlign), len(t.Headers))
+	}
+	declared := false
+	for _, a := range t.ColumnAlign {
+		switch a {
+		case "":
+		case "left", "center", "right":
+			declared = true
+		default:
+			return fmt.Errorf("columnAlign value %q must be \"\", left, center or right", a)
+		}
+	}
+	if !declared {
+		return fmt.Errorf("columnAlign must declare at least one alignment; omit it otherwise")
+	}
+	return nil
 }
 
 // UsesQuizPollResults reporta si algún quiz o poll declara results o
@@ -221,6 +260,7 @@ func describeUsed(caps []string) string {
 		MathSourceCapability:      "literal math source",
 		ChartContentCapability:    "literal chart content",
 		ContentMarkdownCapability: "explicit Markdown content",
+		TableAlignCapability:      "table column alignment",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {

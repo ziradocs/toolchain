@@ -150,6 +150,12 @@ func ValidateTableContract(doc *AST) error {
 				return err
 			}
 		}
+		if t, ok := n.(*TableElement); ok {
+			if err := ValidateColumnAlign(t); err != nil {
+				failure = err
+				return err
+			}
+		}
 		if c, ok := n.(*CodeElement); ok && c.Filename != "" {
 			if strings.ContainsAny(c.Filename, " \t\r\n") || strings.HasPrefix(c.Filename, "[") || strings.HasPrefix(c.Filename, "{") {
 				failure = fmt.Errorf("code filename %q must be a single token not starting with '[' or '{'", c.Filename)
@@ -219,7 +225,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
-	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount, startCount, mathCount, chartCount := 0, 0, 0, 0, 0, 0, 0, 0, 0
+	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount, startCount, mathCount, chartCount, alignCount := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	var inspectElement func(any) error
 	inspectElement = func(value any) error {
 		switch v := value.(type) {
@@ -230,6 +236,32 @@ func ValidateRawTableContract(data []byte) error {
 				}
 			}
 		case map[string]any:
+			if raw, has := v["columnAlign"]; has {
+				if v["type"] != string(NodeTypeTable) {
+					return fmt.Errorf("columnAlign on a non-table element")
+				}
+				if !declared[TableAlignCapability] {
+					return fmt.Errorf("columnAlign requires schemaVersion %s and capability %s", TableAlignSchemaVersion, TableAlignCapability)
+				}
+				alignCount++
+				values, ok := raw.([]any)
+				if !ok || len(values) == 0 {
+					return fmt.Errorf("columnAlign must be a nonempty array")
+				}
+				anyDeclared := false
+				for _, value := range values {
+					switch value {
+					case "":
+					case "left", "center", "right":
+						anyDeclared = true
+					default:
+						return fmt.Errorf("columnAlign value %v must be \"\", left, center or right", value)
+					}
+				}
+				if !anyDeclared {
+					return fmt.Errorf("columnAlign must declare at least one alignment")
+				}
+			}
 			_, hasUnit := v["unit"]
 			_, hasShow := v["showDataLabels"]
 			if v["type"] == string(NodeTypeChart) && (hasUnit || hasShow) {
@@ -368,6 +400,9 @@ func ValidateRawTableContract(data []byte) error {
 	}
 	if (startCount > 0) != declared[ListStartCapability] {
 		return fmt.Errorf("list starts presence does not match schemaVersion/capabilities")
+	}
+	if (alignCount > 0) != declared[TableAlignCapability] {
+		return fmt.Errorf("columnAlign presence does not match schemaVersion/capabilities")
 	}
 	if (chartCount > 0) != declared[ChartContentCapability] {
 		return fmt.Errorf("chart content presence does not match schemaVersion/capabilities")

@@ -14,3 +14,10 @@ as-is without modification to their license terms:
   used by doclang for DOCX generation.
 - pptxgo (https://github.com/mmonterroca/pptxgo), MIT License,
   used by slidelang for PPTX generation.
+- mermaid 10.9.6 (https://github.com/mermaid-js/mermaid), MIT License,
+  Copyright (c) 2014 - 2022 Knut Sveidqvist. The unmodified build
+  dist/mermaid.min.js is embedded in core/renderer/chromium so diagrams
+  render to DOCX/PDF without network access; its license text is in
+  core/renderer/chromium/third_party/mermaid/LICENSE. That bundle includes
+  its own dependencies, whose license notices are kept inside it (among
+  them DOMPurify, Apache-2.0 or MPL-2.0, and js-yaml, MIT).

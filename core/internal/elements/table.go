@@ -124,7 +124,8 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	} else {
 		// Parse Markdown-style table
-		headers, rows, rowPositions, markdownConsumed := p.parseMarkdownTable(ctx, startIndex)
+		headers, rows, rowPositions, columnAlign, markdownConsumed := p.parseMarkdownTable(ctx, startIndex)
+		table.ColumnAlign = columnAlign
 		table.Headers = headers
 		table.Rows = rows
 		table.RowPositions = rowPositions
@@ -782,6 +783,37 @@ func TrimMarkdownRowEdges(line string, cells []string) []string {
 	return cells
 }
 
+// MarkdownColumnAlign lee la alineación de cada columna de una fila
+// delimitadora Markdown: ":---" left, ":---:" center, "---:" right y "---"
+// sin declarar (""). Devuelve nil si la fila no es delimitadora, si no
+// tiene una celda por columna, o si ninguna columna declara alineación.
+func MarkdownColumnAlign(cells []string, numCols int) []string {
+	if len(cells) != numCols || !isMarkdownSeparatorRow(cells) {
+		return nil
+	}
+	align := make([]string, numCols)
+	declared := false
+	for i, c := range cells {
+		c = strings.TrimSpace(c)
+		left, right := strings.HasPrefix(c, ":"), strings.HasSuffix(c, ":")
+		switch {
+		case left && right:
+			align[i] = "center"
+		case right:
+			align[i] = "right"
+		case left:
+			align[i] = "left"
+		}
+		if align[i] != "" {
+			declared = true
+		}
+	}
+	if !declared {
+		return nil
+	}
+	return align
+}
+
 // isMarkdownSeparatorRow reporta si una fila ya partida es la fila
 // delimitadora de una tabla markdown: al menos una celda y todas del estilo
 // "---", ":--", "--:" o ":-:" (guiones con dos puntos opcionales en los
@@ -803,11 +835,12 @@ func isMarkdownSeparatorRow(cells []string) bool {
 }
 
 // parseMarkdownTable parsea una tabla en formato Markdown
-func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, int) {
+func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int) {
 	// Inicializados como slices vacíos (no nil), ver comentario en parseYAMLTable.
 	headers := []string{}
 	rows := [][]string{}
 	var rowPositions []diagnostics.Position
+	var columnAlign []string
 	consumed := 0
 	lines := ctx.Lines
 
@@ -829,6 +862,10 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 
 		// Skip separator lines (e.g., |---|---|)
 		if strings.Contains(line, "---") || strings.Contains(line, ":-:") || strings.Contains(line, ":--") || strings.Contains(line, "--:") {
+			// La alineación solo sale de la delimitadora que sigue al header.
+			if len(headers) > 0 && len(rows) == 0 && columnAlign == nil {
+				columnAlign = MarkdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(headers))
+			}
 			consumed++
 			continue
 		}
@@ -853,5 +890,5 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 		consumed++
 	}
 
-	return headers, rows, rowPositions, consumed
+	return headers, rows, rowPositions, columnAlign, consumed
 }

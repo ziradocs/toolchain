@@ -187,7 +187,7 @@ func TestBuildMermaidSVGHTML_PercentInContentDoesNotBreakFormatting(t *testing.T
 
 func TestBuildMermaidPNGHTML_EscapesContent(t *testing.T) {
 	payload := `</div><img src=x onerror=alert(document.domain)>`
-	html := buildMermaidPNGHTML(payload, 400, 300)
+	html := buildMermaidPNGHTML(payload, 400)
 
 	if strings.Contains(html, "<img src=x onerror") {
 		t.Errorf("mermaid content was not escaped, breakout survived:\n%s", html)

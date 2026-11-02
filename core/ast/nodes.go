@@ -730,6 +730,13 @@ type TableElement struct {
 	HeadersHTML []string   `json:"headersHTML,omitempty"` // Headers ya renderizados a HTML inline (ver TextElement.ContentHTML)
 	Rows        [][]string `json:"rows"`
 	RowsHTML    [][]string `json:"rowsHTML,omitempty"` // Rows ya renderizadas a HTML inline (ver TextElement.ContentHTML)
+	// ColumnAlign es la alineación por columna que declara la fila
+	// delimitadora de una tabla Markdown (":---" left, ":---:" center,
+	// "---:" right, "---" sin declarar = ""), en el mismo orden que Headers.
+	// nil cuando ninguna columna declara alineación (o la tabla no viene
+	// de Markdown), para que el JSON de una tabla sin alineación no cambie.
+	// Opt-in table-align-v1 (schema 2.25.0): ver UsesTableAlign.
+	ColumnAlign []string `json:"columnAlign,omitempty"`
 	// RowPositions da la posición fuente de cada entrada de Rows (mismo
 	// índice), para que un diagnóstico sobre una fila en particular (p. ej.
 	// TABLE003, "número incorrecto de columnas") pueda apuntar a la fila real

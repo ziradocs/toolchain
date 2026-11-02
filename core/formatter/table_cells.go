@@ -33,7 +33,14 @@ func formatTableElement(e *ast.TableElement) (string, error) {
 		}
 		return formatTableRowsBlock(e)
 	}
-	if !tableNeedsCellsBlock(e) && e.Caption == "" && e.Label == "" {
+	pipeForm := !tableNeedsCellsBlock(e) && e.Caption == "" && e.Label == ""
+	if len(e.ColumnAlign) > 0 && (!pipeForm || e.HasTableRows()) {
+		// La alineación (table-align-v1) solo se escribe en la fila
+		// delimitadora de una tabla con pipes; las formas TABLE/cells no
+		// tienen dónde ponerla, y perderla en silencio cambiaría el AST.
+		return "", fmt.Errorf("table: columnAlign is only representable in a plain pipe table (no caption, label, merged cells or tableRows)")
+	}
+	if pipeForm {
 		// formatPipeTable delimits with "|", not quotes — it doesn't go
 		// through quote()/checkQuotable, so it doesn't inherit that
 		// limitation (a literal quote in a header/cell is representable in
@@ -41,7 +48,7 @@ func formatTableElement(e *ast.TableElement) (string, error) {
 		// "\|" by formatPipeTable (see escapeTableCellPipe) — needed since
 		// F10 (audit 2026-09-11) made a bare "|" inside a cell reachable at
 		// all (code spans, and "\|" decoded on parse).
-		return formatPipeTable(e.Headers, e.Rows), nil
+		return formatPipeTable(e.Headers, e.Rows, e.ColumnAlign), nil
 	}
 	return formatTableCellsBlock(e)
 }
