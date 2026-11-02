@@ -34,9 +34,9 @@ Content.
 # Slide 2 Title
 - point
 ```
-Frontmatter `---` is **mandatory** for ZiraDocs. DocLang's parser
-tolerates a file without it, but its linter rejects one (`FRONT003`) — so
-always write one there too.
+Frontmatter `---` is **mandatory** for ZiraDocs. It is optional for
+DocLang (a plain Markdown file builds), but writing one is still good
+practice.
 
 ## DocLang minimal file
 ```

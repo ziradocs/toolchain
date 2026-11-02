@@ -60,7 +60,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 		if i > 0 || fm != "" {
 			b.WriteString("\n")
 		}
-		blockText, err := formatDocumentSection(&block, &hasTitleBlock, ast.UsesMathSource(doc))
+		blockText, err := formatDocumentSection(&block, &hasTitleBlock, i == 0, ast.UsesMathSource(doc))
 		if err != nil {
 			return "", err
 		}
@@ -76,15 +76,25 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 // formatter no puede leer BlockType para decidir esto de forma confiable
 // (el AST puede haberse construido de otras formas), así que sigue la
 // MISMA regla posicional que el parser: primer bloque → Heading.
-func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, literalMath bool) (string, error) {
+//
+// Excepción: un PRIMER bloque sin Title ni Heading es la sección inicial sin
+// encabezado que el parser arma con el contenido previo al primer `#` (ver
+// parseSection). Se escribe sin línea `# ` —una `# ` vacía no vuelve a
+// parsearse como encabezado y dejaría un `#` suelto en el contenido— y no
+// consume la regla posicional: el parser sigue marcando "title" al primer
+// `#` real, venga o no después de ese preámbulo.
+func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, literalMath bool) (string, error) {
 	var b strings.Builder
 
-	title := block.Title
-	if !*hasTitleBlock {
-		title = block.Heading
-		*hasTitleBlock = true
+	headless := first && block.Title == "" && block.Heading == ""
+	if !headless {
+		title := block.Title
+		if !*hasTitleBlock {
+			title = block.Heading
+			*hasTitleBlock = true
+		}
+		fmt.Fprintf(&b, "# %s\n", title)
 	}
-	fmt.Fprintf(&b, "# %s\n", title)
 
 	// Separador en blanco entre cada elemento: DocumentFlexParser corre por
 	// defecto con normalización AI habilitada (NewDocumentFlexParserWithNormalization),
@@ -102,7 +112,12 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, literal
 		if elText == "" {
 			continue
 		}
-		b.WriteString("\n")
+		// La sección sin encabezado no tiene línea `# ` que separar del
+		// primer elemento: sin esto el documento abriría con una línea en
+		// blanco.
+		if !headless || b.Len() > 0 {
+			b.WriteString("\n")
+		}
 		b.WriteString(elText)
 	}
 

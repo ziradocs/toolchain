@@ -63,6 +63,10 @@ func (p *DocumentFlexParser) parseContext() *elements.ParseContext {
 		Logger:          p.logger,
 		Lines:           p.lines,
 		LineOffset:      p.lineOffset,
+		// Un `#`/`##` pegado a un párrafo abre sección/subsección en vez de
+		// quedar como texto (CommonMark: un encabezado ATX interrumpe un
+		// párrafo).
+		DocumentHeadings: true,
 	}
 }
 
@@ -110,6 +114,7 @@ func NewDocumentFlexParserWithNormalization(input string, log util.Logger) *Docu
 	// filtra toda regla "frontmatter" (ver factory.go), así que el largo del
 	// frontmatter es el mismo en los dos lados y evita reparsearlo dos veces
 	// (#245).
+	input = normalizeDocumentStart(input) // ver Parser.ParseDocument
 	_, bodyOffset := peekDocument(input)
 
 	// Detectar si el contenido parece ser generado por IA
@@ -175,6 +180,16 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		}
 	}
 
+	// Sin ningún `#`, la sección inicial sin encabezado es la única y hace
+	// de bloque "title" (con Heading vacío). Es la misma regla que el parser
+	// strict aplica a un `SECTION ""` (ver appendTopLevelSection): el primer
+	// bloque es el "title" salvo que sea una sección sin encabezado seguida
+	// de una con título. Así un archivo con solo `##` sobrevive flex→strict→
+	// flex sin cambiar de forma.
+	if !p.hasTitleBlock && len(astNode.ContentBlocks) == 1 {
+		astNode.ContentBlocks[0].BlockType = "title"
+	}
+
 	return astNode, p.diagnostics
 }
 
@@ -231,11 +246,19 @@ func (p *DocumentFlexParser) parseSection() *ast.ContentBlock {
 	line := strings.TrimSpace(p.lines[p.currentLine])
 	pos := p.position(p.currentLine)
 
-	// SOLO `#` crea una nueva sección (content block en el AST)
+	// SOLO `#` crea una nueva sección (content block en el AST). Lo que
+	// aparece ANTES del primer `#` —o el archivo entero, si no tiene
+	// ninguno— no se descarta: forma una sección inicial SIN encabezado.
+	// Antes ese contenido se saltaba línea por línea en silencio (un
+	// Markdown común con solo `##`, o con un aviso antes del H1, perdía
+	// texto). Esto solo puede pasar al inicio: una vez abierta una sección,
+	// parseSectionContent consume todo hasta el siguiente `#`.
 	if !strings.HasPrefix(line, "# ") {
-		// Si no hay `#`, esta línea no inicia una sección válida
-		// Avanzar para evitar loops infinitos
-		p.currentLine++
+		block := ast.NewContentBlock(pos, "content")
+		p.parseLeadingContent(block)
+		if len(block.Elements) > 0 {
+			return block
+		}
 		return nil
 	}
 
@@ -272,9 +295,26 @@ func (p *DocumentFlexParser) parseSection() *ast.ContentBlock {
 	return nil
 }
 
+// parseLeadingContent parsea la sección inicial sin encabezado (ver
+// parseSection): el mismo cuerpo que parseSectionContent, pero cortando en
+// el PRIMER `#` aunque todavía no haya ningún elemento — si el preámbulo
+// solo trae líneas que no producen elementos (p. ej. `---`), el `#` que
+// sigue tiene que abrir su propia sección, no caer dentro de esta.
+func (p *DocumentFlexParser) parseLeadingContent(block *ast.ContentBlock) {
+	p.parseSectionBody(block, true)
+}
+
 // parseSectionContent parsea el contenido de una sección
 // Aquí `##` y `###` se convierten en TextElements con HTML
 func (p *DocumentFlexParser) parseSectionContent(block *ast.ContentBlock) {
+	p.parseSectionBody(block, false)
+}
+
+// parseSectionBody es el cuerpo compartido de parseSectionContent y
+// parseLeadingContent. stopAtFirstH1 corta en cualquier `#`, incluso sin
+// elementos todavía; sin él, un `#` pegado al encabezado de la sección (sin
+// elementos en medio) se sigue tratando como hasta ahora.
+func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFirstH1 bool) {
 	ctx := p.parseContext()
 
 	for p.currentLine < len(p.lines) {
@@ -287,7 +327,8 @@ func (p *DocumentFlexParser) parseSectionContent(block *ast.ContentBlock) {
 
 		// Stop at next section (only `#`, not `##` or `###`)
 		// Check: starts with "# " but NOT with "## " (to exclude ##, ###, etc.)
-		if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") && len(block.Elements) > 0 {
+		if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") &&
+			(len(block.Elements) > 0 || stopAtFirstH1) {
 			break
 		}
 

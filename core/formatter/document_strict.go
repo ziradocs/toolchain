@@ -44,13 +44,18 @@ func FormatDocumentStrict(doc *ast.AST) (string, error) {
 func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 	var b strings.Builder
 
-	var fm string
-	if fmNode := extensionFrontMatter(doc, "strict"); fmNode != nil {
-		var err error
-		fm, err = formatFrontMatter(fmNode, frontMatterOverrides(fmNode, "strict"), frontMatterFallbacks(fmNode))
-		if err != nil {
-			return "", err
-		}
+	// Un documento sin frontmatter también necesita uno: sin `mode: strict`
+	// la salida se reparsea como flex, donde `SECTION` no significa nada y
+	// todo el documento cae en la sección inicial sin encabezado como prosa.
+	// Markdown común sin frontmatter es justo el caso de `doclang fmt
+	// --strict` sobre un .md de proyecto.
+	fmNode := extensionFrontMatter(doc, "strict")
+	if fmNode == nil {
+		fmNode = &ast.FrontMatterNode{Mode: "strict"}
+	}
+	fm, err := formatFrontMatter(fmNode, frontMatterOverrides(fmNode, "strict"), frontMatterFallbacks(fmNode))
+	if err != nil {
+		return "", err
 	}
 	b.WriteString(fm)
 
