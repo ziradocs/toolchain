@@ -91,7 +91,9 @@ type exportInput struct {
 	Overwrite bool   `json:"overwrite,omitempty" jsonschema:"replace the output file if it already exists (default false: refuse)"`
 	TOC       *bool  `json:"toc,omitempty" jsonschema:"force the table of contents on or off; defaults to the document's front matter, or on when it has front matter"`
 	// IncludeRoot es el --include-root de `doclang build`.
-	IncludeRoot string `json:"includeRoot,omitempty" jsonschema:"directory @include paths resolve against and are confined to, relative to the server root or absolute inside it (like doclang build --include-root). Defaults to the input file's directory"`
+	IncludeRoot string `json:"includeRoot,omitempty" jsonschema:"directory @include paths resolve against and are confined to, relative to the server root or absolute inside it (like doclang build --include-root). Defaults to baseDir, or the input file's directory"`
+	// BaseDir es el --base-dir de `doclang build`.
+	BaseDir string `json:"baseDir,omitempty" jsonschema:"directory relative image sources and @include paths resolve from, relative to the server root or absolute inside it (like doclang build --base-dir); for exporting a temporary copy of a file. Defaults to the input file's directory"`
 }
 
 type exportOutput struct {
@@ -169,9 +171,19 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 	if err != nil {
 		return fail("%v", err)
 	}
-	// Igual que --include-root de build: por defecto el directorio del
-	// archivo; si se pide otro, tiene que existir dentro de --root.
-	includeRoot := filepath.Dir(inputAbs)
+	// Igual que --base-dir de build: por defecto el directorio del
+	// archivo; si se pide otro, tiene que existir dentro de --root, que es
+	// la raíz de imágenes del MCP (así que no hace falta otro chequeo).
+	baseDir := filepath.Dir(inputAbs)
+	if in.BaseDir != "" {
+		baseDir, err = cfg.root.resolveDir(in.BaseDir)
+		if err != nil {
+			return fail("invalid baseDir: %v", err)
+		}
+	}
+	// Igual que --include-root de build: por defecto baseDir; si se pide
+	// otro, tiene que existir dentro de --root.
+	includeRoot := baseDir
 	if in.IncludeRoot != "" {
 		includeRoot, err = cfg.root.resolveDir(in.IncludeRoot)
 		if err != nil {
@@ -236,7 +248,7 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 		defer func() { <-exportSemaphore }()
 		var r result
 		if err := util.RecoverGuard(func() error {
-			r.out, r.errOut = generateExport(ctx, logger, cfg, in, format, inputAbs, includeRoot, content, maxBytes, tmpPath)
+			r.out, r.errOut = generateExport(ctx, logger, cfg, in, format, inputAbs, baseDir, includeRoot, content, maxBytes, tmpPath)
 			return nil
 		}); err != nil {
 			r = result{errOut: &exportError{Error: err.Error()}}
@@ -279,14 +291,15 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 }
 
 // generateExport corre el pipeline de `doclang build` y escribe en tmpPath.
-func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs, includeRoot string, content []byte, maxBytes int, tmpPath string) (*exportOutput, *exportError) {
+func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs, baseDir, includeRoot string, content []byte, maxBytes int, tmpPath string) (*exportOutput, *exportError) {
 	inputName := cfg.root.display(inputAbs)
 	prepared, err := pipeline.Prepare(logger, content, pipeline.PrepareOptions{
 		InputFile:     inputName,
 		MaxInputBytes: maxBytes,
-		// @include se resuelve como en `doclang build`: contra el
-		// directorio del archivo o el includeRoot pedido. Los dos están
-		// dentro de --root, así que la raíz sigue siendo el límite.
+		// @include se resuelve como en `doclang build`: contra baseDir
+		// (por defecto el directorio del archivo) o el includeRoot pedido.
+		// Los dos están dentro de --root, así que la raíz sigue siendo el
+		// límite.
 		IncludeRoot:  includeRoot,
 		ThemeName:    in.Theme,
 		ThemeTrusted: false, // input de un cliente MCP, aunque ya validado
@@ -331,7 +344,7 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 		ChromiumPath:    cfg.chromiumPath,
 		InstallChromium: false, // nunca se descarga nada desde el MCP
 		AssetRoot:       cfg.root.dir,
-		SourceDir:       filepath.Dir(inputAbs), // se resuelve junto al archivo, confinado a --root
+		SourceDir:       baseDir, // junto al archivo o en baseDir, confinado a --root
 	}); err != nil {
 		return nil, &exportError{Error: err.Error(), Diagnostics: append(prepared.Diagnostics(), genLog.diagnostics()...)}
 	}

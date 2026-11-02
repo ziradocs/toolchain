@@ -671,3 +671,43 @@ func TestRedactGenerator(t *testing.T) {
 		}
 	}
 }
+
+// TestExport_BaseDirArgument: una copia temporal de docs/guide.md, guardada
+// en otro directorio de la raíz, exporta con las imágenes de docs/ y con
+// sus @include resueltos desde ahí. baseDir fuera de la raíz, inexistente
+// o que no es un directorio se rechaza.
+func TestExport_BaseDirArgument(t *testing.T) {
+	f := newExportFixture(t)
+	logo := pngBytes(t, color.RGBA{R: 255, A: 255})
+	if err := os.MkdirAll(filepath.Join(f.root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.root, "docs", "logo.png"), logo, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "docs/part.md", "Texto de la PARTE.\n")
+	f.write(t, ".tmp/guide.md", "# Guía\n\n![l](logo.png)\n\n@include part.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	// Sin baseDir el @include se busca en .tmp/ y no existe.
+	exportFail(t, s, ctx, map[string]any{"path": ".tmp/guide.md", "format": "docx"}, "include")
+
+	out := exportOK(t, s, ctx, map[string]any{"path": ".tmp/guide.md", "format": "docx", "baseDir": "docs"})
+	files := zipContents(t, filepath.Join(f.root, out.OutputPath))
+	found := false
+	for _, data := range files {
+		if bytes.Equal(data, logo) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("logo.png no se resolvió desde baseDir")
+	}
+	if !bytes.Contains(files["word/document.xml"], []byte("PARTE")) {
+		t.Error("el @include no se resolvió desde baseDir")
+	}
+
+	for _, bad := range []string{"..", f.outside, "noexiste", "docs/logo.png"} {
+		exportFail(t, s, ctx, map[string]any{"path": ".tmp/guide.md", "format": "docx", "baseDir": bad, "overwrite": true}, "invalid baseDir")
+	}
+}

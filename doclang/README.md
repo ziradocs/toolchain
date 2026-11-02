@@ -95,8 +95,9 @@ doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`
 | `--lint-only` | `false` | Run the linter and stop; generate nothing. |
 | `--lint-config` | — | YAML lint policy (enable/disable rules, override severity by ID). Falls back to a `lint_policy:` block in the document's own frontmatter. |
 | `--filter` | — | External binary that transforms the AST between parse and lint. Repeatable; communicates over JSON on stdin/stdout — see the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/). |
-| `--include-root` | *(input file's dir)* | Directory `@include` paths are confined to. Absolute paths and `..` escapes are rejected. |
-| `--asset-root` | *(input file's dir)* | Same confinement for local image sources. Relative sources still resolve from the input file; the root only bounds what can be read (e.g. `--asset-root ..` allows `../shared/b.png`). |
+| `--base-dir` | *(input file's dir)* | Directory relative image sources and `@include` paths resolve from. For building a temporary copy of a file (an editor buffer with unsaved changes, a generated file that `@include`s real ones): the input file is then only a carrier, so `--base-dir` also becomes the default of `--asset-root` and `--include-root`. It must exist, be a directory and sit inside `--asset-root`. |
+| `--include-root` | *(`--base-dir`, else input file's dir)* | Directory `@include` paths resolve from and are confined to, at every nesting level (a nested `@include` resolves from this root, not from the file that contains it). Absolute paths and `..` escapes are rejected. |
+| `--asset-root` | *(`--base-dir`, else input file's dir)* | Same confinement for local image sources. Relative sources resolve from `--base-dir` (by default, the input file's directory); the root only bounds what can be read (e.g. `--asset-root ..` allows `../shared/b.png`). |
 | `--max-size` | 10 MB | Input size cap. Also settable via `DOCLANG_MAX_SIZE`. |
 
 ### Interactive elements
@@ -136,6 +137,8 @@ The fifth, `export`, writes DOCX, PDF or HTML for a file on disk with the same p
 | `output` | optional; defaults to the input path with the format's extension. Its directory must exist and its extension must match `format` |
 | `overwrite` | optional, default `false`: an existing file is never replaced unless it is `true` |
 | `toc` | optional; without it the front matter decides, as in `build` |
+| `baseDir` | optional, like `build --base-dir`: the directory relative images and `@include` paths resolve from, inside the root. Defaults to the input file's directory |
+| `includeRoot` | optional, like `build --include-root`. Defaults to `baseDir` |
 
 The result is `{outputPath, format, bytes, diagnostics}`, with `outputPath` relative to the
 root. Lint errors come back as an error result carrying the diagnostics, as in `lint`.
