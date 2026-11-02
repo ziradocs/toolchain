@@ -828,3 +828,31 @@ func TestExport_ChromiumMissingNestedRichElements(t *testing.T) {
 		t.Error("a DOCX was written without Chromium")
 	}
 }
+
+// TestExport_IncludedImagesResolveFromTheirFile: una imagen escrita en un
+// archivo incluido de otra carpeta se resuelve desde esa carpeta, igual que
+// en `doclang build`.
+func TestExport_IncludedImagesResolveFromTheirFile(t *testing.T) {
+	f := newExportFixture(t)
+	img := pngBytes(t, color.RGBA{G: 255, A: 255})
+	if err := os.MkdirAll(filepath.Join(f.root, "docs", "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.root, "docs", "a", "u.png"), img, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "docs/a/uno.md", "## Uno\n\n![U](u.png)\n")
+	f.write(t, ".tmp/sel.md", "# Selección\n\n@include a/uno.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	out := exportOK(t, s, ctx, map[string]any{"path": ".tmp/sel.md", "format": "docx", "baseDir": "docs"})
+	found := false
+	for _, data := range zipContents(t, filepath.Join(f.root, out.OutputPath)) {
+		if bytes.Equal(data, img) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("la imagen del archivo incluido no se resolvió desde su carpeta")
+	}
+}

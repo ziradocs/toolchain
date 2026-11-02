@@ -133,6 +133,7 @@ Examples:
 				InputFile:         inputFile,
 				MaxInputBytes:     maxInputBytes,
 				IncludeRoot:       roots.IncludeRoot,
+				SourceDir:         roots.SourceDir,
 				Filters:           filters,
 				ThemeName:         themeFlag,
 				ThemeTrusted:      true, // --theme es el operador en su propia terminal
@@ -248,7 +249,7 @@ Examples:
 	cmd.Flags().IntVar(&maxSizeMB, "max-size", 0, "Maximum input file size in MB (default: 10MB, override via DOCLANG_MAX_SIZE env var)")
 	cmd.Flags().BoolVar(&allowRemoteImages, "allow-remote-images", false, "Let pdf and --render-mode offline-* HTML show http(s) images from the document. Off by default: those outputs are rendered on this machine, so a remote image would make it fetch that URL; without the flag such images are left as a marker with a warning. Browser-mode HTML is unaffected, and docx never downloads images")
 	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: --base-dir, else the input file's directory); relative sources resolve from --base-dir, and absolute paths or '..' outside the root are rejected")
-	cmd.Flags().StringVar(&baseDir, "base-dir", "", "Directory relative image sources and @include paths resolve from (default: the input file's directory; a relative path resolves from the current directory). For building a temporary copy of a file: it also becomes the default --asset-root and --include-root, and must be inside --asset-root. An explicit --include-root need not contain it (includes then resolve from the include root). Images are only read at build time for docx, pdf and --render-mode offline-*; browser-mode HTML keeps each relative src as written")
+	cmd.Flags().StringVar(&baseDir, "base-dir", "", "Directory relative image sources and @include paths resolve from (default: the input file's directory; a relative path resolves from the current directory). For building a temporary copy of a file: it also becomes the default --asset-root and --include-root, and must be inside --asset-root. An explicit --include-root need not contain it (includes then resolve from the include root). Images are only read at build time for docx, pdf and --render-mode offline-*; browser-mode HTML keeps each relative src as written, except images inside an @include'd file, which are rewritten relative to --base-dir")
 	cmd.Flags().BoolVar(&lintOnly, "lint-only", false, "Only run the linter, don't generate output")
 	cmd.Flags().StringVar(&lintConfig, "lint-config", "", "Path to a YAML linter policy file. If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
 	cmd.Flags().StringVar(&reportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")

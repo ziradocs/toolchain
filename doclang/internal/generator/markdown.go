@@ -301,7 +301,7 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 
 		// Generate content for each element
 		for _, element := range block.Elements {
-			md.WriteString(m.renderElement(element))
+			md.WriteString(markdownElementImages(element, m.renderElement(element)))
 			md.WriteString("\n")
 		}
 
@@ -947,4 +947,15 @@ func markdownDelimiterCell(align []string, i int) string {
 	default:
 		return "---"
 	}
+}
+
+// markdownElementImages aplica MarkdownImageDestinations a la salida de un
+// elemento que lleva prosa; un bloque de código, diagrama o ecuación se
+// escribe tal cual.
+func markdownElementImages(element ast.Element, out string) string {
+	switch element.(type) {
+	case *ast.CodeElement, *ast.CodeGroupElement, *ast.MermaidElement, *ast.PlantUMLElement, *ast.MathElement:
+		return out
+	}
+	return MarkdownImageDestinations(out)
 }

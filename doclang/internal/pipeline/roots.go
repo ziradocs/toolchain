@@ -83,6 +83,16 @@ func ResolveRoots(inputFile, baseDir, assetRoot, includeRoot string) (Roots, err
 		}
 		roots.AssetRoot = realRoot
 	}
+	// Un --include-root explícito se lleva a la misma forma que el ancla
+	// (symlinks resueltos), para que las rutas de los archivos incluidos y
+	// SourceDir se comparen igual: con L un symlink, `--base-dir L/docs
+	// --include-root L/docs` es un solo directorio. Si no existe se deja como
+	// está y el @include falla con su propio error.
+	if includeRoot != "" {
+		if realInclude, err := filepath.EvalSymlinks(roots.IncludeRoot); err == nil {
+			roots.IncludeRoot = realInclude
+		}
+	}
 	return roots, nil
 }
 

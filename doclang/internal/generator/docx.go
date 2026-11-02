@@ -2036,13 +2036,16 @@ func capImageWidth(size domain.ImageSize, maxWidthIn float64) domain.ImageSize {
 // docxLocalImageSource devuelve la ruta de un destino de imagen inline si es
 // un archivo local (sin esquema): sin los <> opcionales, sin título y con las
 // referencias de carácter decodificadas. Remoto, data: o vacío no cuenta.
+// Un espacio que no abre un título ("...", '...' o (...)) es parte de la
+// ruta, como en el renderer HTML: `![](cap uno/a.png)` es la imagen
+// "cap uno/a.png", no "cap".
 func docxLocalImageSource(dest string) (string, bool) {
 	d := strings.TrimSpace(renderer.DecodeLinkDestination(dest))
 	if strings.HasPrefix(d, "<") {
 		if end := strings.Index(d, ">"); end > 0 {
 			d = d[1:end]
 		}
-	} else if i := strings.IndexAny(d, " \t"); i >= 0 {
+	} else if i := MarkdownTitleStart(d); i >= 0 {
 		d = d[:i]
 	}
 	if d == "" {
