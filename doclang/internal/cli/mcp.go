@@ -25,8 +25,9 @@ import (
 //	{ "command": "doclang", "args": ["mcp", "--root", "/path/to/docs"] }
 func NewMCPCommand() *cobra.Command {
 	var (
-		root         string
-		chromiumPath string
+		root              string
+		chromiumPath      string
+		allowRemoteImages bool
 	)
 	cmd := &cobra.Command{
 		Use:   "mcp",
@@ -46,8 +47,9 @@ Example client config:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			server, err := mcp.NewServerWithOptions(util.NewNoop(), mcp.Options{
-				Root:         root,
-				ChromiumPath: chromiumPath,
+				Root:              root,
+				ChromiumPath:      chromiumPath,
+				AllowRemoteImages: allowRemoteImages,
 			})
 			if err != nil {
 				return err
@@ -83,6 +85,7 @@ Example client config:
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "", "Directory the export tool is confined to: it reads and writes only inside it (default: the current directory)")
+	cmd.Flags().BoolVar(&allowRemoteImages, "allow-remote-images", false, "Honour the export option allowRemoteImages, which lets a PDF export fetch the document's http(s) images on this machine. Off by default: the option is set by the client, so without this flag it is ignored with a warning")
 	cmd.Flags().StringVar(&chromiumPath, "chromium-path", "", "Custom path to the Chromium/Chrome/Edge executable used by export (default: auto-detect)")
 	return cmd
 }

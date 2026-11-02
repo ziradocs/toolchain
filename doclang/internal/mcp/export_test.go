@@ -778,3 +778,24 @@ func TestExportRoot_ResolveDirPinsRealPath(t *testing.T) {
 		t.Error("el @include no se resolvió desde el destino real de baseDir")
 	}
 }
+
+// TestExport_AllowRemoteImagesNeedsServerFlag: allowRemoteImages lo pone el
+// cliente, así que solo vale si el operador arrancó el servidor con
+// --allow-remote-images; si no, se ignora con un aviso en los diagnósticos.
+func TestExport_AllowRemoteImagesNeedsServerFlag(t *testing.T) {
+	for _, serverAllows := range []bool{false, true} {
+		f := newExportFixture(t)
+		f.write(t, "a.md", "# A\n\nTexto.\n")
+		s, ctx := newExportSession(t, Options{Root: f.root, AllowRemoteImages: serverAllows})
+		out := exportOK(t, s, ctx, map[string]any{"path": "a.md", "format": "docx", "allowRemoteImages": true})
+		warned := false
+		for _, d := range out.Diagnostics {
+			if strings.Contains(d.Message, "allowRemoteImages ignored") {
+				warned = true
+			}
+		}
+		if warned == serverAllows {
+			t.Errorf("server flag %v: warning = %v, want %v", serverAllows, warned, !serverAllows)
+		}
+	}
+}

@@ -95,7 +95,7 @@ type exportInput struct {
 	// BaseDir es el --base-dir de `doclang build`.
 	BaseDir string `json:"baseDir,omitempty" jsonschema:"directory relative image sources and @include paths resolve from, relative to the server root or absolute inside it (like doclang build --base-dir); for exporting a temporary copy of a file. Defaults to the input file's directory. HTML export keeps relative image src as written (browser mode), so for html it only affects @include"`
 	// AllowRemoteImages es el --allow-remote-images de `doclang build`.
-	AllowRemoteImages bool `json:"allowRemoteImages,omitempty" jsonschema:"let a pdf export show the document's http(s) images (like doclang build --allow-remote-images). Default false: the PDF is rendered on this machine, so remote images are left as a marker with a warning instead of being fetched. HTML export (browser mode) is unaffected and docx never downloads images"`
+	AllowRemoteImages bool `json:"allowRemoteImages,omitempty" jsonschema:"let a pdf export show the document's http(s) images (like doclang build --allow-remote-images). Only honoured when the server was started with doclang mcp --allow-remote-images; otherwise it is ignored with a warning. Default false: the PDF is rendered on this machine, so remote images are left as a marker with a warning instead of being fetched. HTML export (browser mode) is unaffected and docx never downloads images"`
 }
 
 type exportOutput struct {
@@ -119,6 +119,9 @@ type exportConfig struct {
 	root         exportRoot
 	chromiumPath string
 	timeout      time.Duration
+	// allowRemoteImages es Options.AllowRemoteImages: sin él, la opción
+	// allowRemoteImages del cliente se ignora.
+	allowRemoteImages bool
 }
 
 // registerExportTool registra el tool "export": escribe DOCX, PDF o HTML de
@@ -333,6 +336,10 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 	// insertar, un diagrama sin Chromium) van al resultado: el logger del
 	// servidor MCP es un no-op y el cliente no vería nada.
 	genLog := newDiagnosticLogger(logger, cfg.redactGenerator)
+	allowRemote := in.AllowRemoteImages && cfg.allowRemoteImages
+	if in.AllowRemoteImages && !cfg.allowRemoteImages {
+		genLog.Warn("allowRemoteImages ignored: the server was not started with --allow-remote-images, so remote images stay blocked")
+	}
 	if err := pipeline.Generate(genLog, prepared, inputName, pipeline.GenerateOptions{
 		Ctx:               ctx,
 		Format:            format,
@@ -347,7 +354,7 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 		InstallChromium:   false, // nunca se descarga nada desde el MCP
 		AssetRoot:         cfg.root.dir,
 		SourceDir:         baseDir, // junto al archivo o en baseDir, confinado a --root
-		AllowRemoteImages: in.AllowRemoteImages,
+		AllowRemoteImages: allowRemote,
 	}); err != nil {
 		return nil, &exportError{Error: err.Error(), Diagnostics: append(prepared.Diagnostics(), genLog.diagnostics()...)}
 	}

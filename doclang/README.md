@@ -166,7 +166,7 @@ The fifth, `export`, writes DOCX, PDF or HTML for a file on disk with the same p
 | `toc` | optional; without it the front matter decides, as in `build` |
 | `baseDir` | optional, like `build --base-dir`: the directory relative images and `@include` paths resolve from, inside the root. Defaults to the input file's directory. HTML export uses `browser` mode, which keeps each relative `src` as written, so for HTML `baseDir` only affects `@include` |
 | `includeRoot` | optional, like `build --include-root`. Defaults to `baseDir` |
-| `allowRemoteImages` | optional, like `build --allow-remote-images`; default `false`, so a PDF export leaves the document's `http(s)` images as a marker with a warning instead of fetching them |
+| `allowRemoteImages` | optional, like `build --allow-remote-images`; default `false`, so a PDF export leaves the document's `http(s)` images as a marker with a warning instead of fetching them. The client sets it, so it only takes effect when the server was started with `doclang mcp --allow-remote-images`; otherwise it is ignored with a warning in the diagnostics |
 
 The result is `{outputPath, format, bytes, diagnostics}`, with `outputPath` relative to the
 root. Lint errors come back as an error result carrying the diagnostics, as in `lint`.
