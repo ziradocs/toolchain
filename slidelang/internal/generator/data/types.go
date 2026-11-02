@@ -411,6 +411,12 @@ type PointItemData struct {
 	SubListType string
 	// SubListMarker carries ast.PointItem.SubListMarker to the template.
 	SubListMarker string
+	// SubListKind is the list type the template draws for SubPoints when the
+	// list is not typed (nested-list-types-v1): SubListMarker, or the type of
+	// this item's own list when the marker is unknown (an AST read from JSON).
+	// It is what the template needs from the third level down, where the
+	// parent's type is no longer in scope.
+	SubListKind string
 }
 
 // ChecklistItemData representa un item de checklist

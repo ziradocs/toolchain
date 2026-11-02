@@ -28,6 +28,19 @@ func ConvertPointItemsWithVariables(items []ast.PointItem, variables map[string]
 	return result
 }
 
+// fillSubListKind sets SubListKind on every item, at any depth, from the
+// type of the list that holds it (listType at the top level).
+func fillSubListKind(items []PointItemData, listType string) {
+	for i := range items {
+		kind := items[i].SubListMarker
+		if kind == "" {
+			kind = listType
+		}
+		items[i].SubListKind = kind
+		fillSubListKind(items[i].SubPoints, kind)
+	}
+}
+
 func convertedTypedPoints(items []PointItemData) bool {
 	for _, item := range items {
 		if item.SubListType != "" || convertedTypedPoints(item.SubPoints) {

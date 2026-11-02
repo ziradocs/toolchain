@@ -535,6 +535,7 @@ func convertElement(element ast.Element, slideIndex int, elementID string, varia
 		elementData.ImageBleed = elem.Bleed
 	case *ast.PointsElement:
 		elementData.Items = ConvertPointItemsWithVariables(elem.Items, variables)
+		fillSubListKind(elementData.Items, elem.ListType)
 		elementData.ListType = elem.ListType
 		elementData.TypedList = convertedTypedPoints(elementData.Items)
 	case *ast.TableElement:

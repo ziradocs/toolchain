@@ -1018,24 +1018,31 @@ func pptxQuoteAttribution(e *ast.QuoteElement) string {
 // editar en PowerPoint y no se pierde si el usuario reescribe el contenido.
 func (g *Generator) pptxAddChecklist(s *pptx.Slide, e *ast.ChecklistElement, cursorY int) int {
 	totalLines := 0
-	for _, item := range e.Items {
-		totalLines += pptxEstimateLines(item.Content)
-		for _, sub := range item.SubItems {
-			totalLines += pptxEstimateLines(sub.Content)
+	var count func([]ast.ChecklistItem)
+	count = func(items []ast.ChecklistItem) {
+		for _, item := range items {
+			totalLines += pptxEstimateLines(item.Content)
+			count(item.SubItems)
 		}
 	}
+	count(e.Items)
 	if totalLines < 1 {
 		totalLines = 1
 	}
 	height := totalLines * pptxLineHeightEMU
 
+	// Las sub-tareas van a cualquier profundidad (el parser ya no aplana el
+	// tercer nivel); pasado el último nivel de párrafo de PowerPoint quedan
+	// en ese último nivel.
 	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
-	for _, item := range e.Items {
-		pptxAddChecklistParagraph(tb, item, 0)
-		for _, sub := range item.SubItems {
-			pptxAddChecklistParagraph(tb, sub, 1)
+	var add func([]ast.ChecklistItem, int)
+	add = func(items []ast.ChecklistItem, level int) {
+		for _, item := range items {
+			pptxAddChecklistParagraph(tb, item, pptxClampLevel(level))
+			add(item.SubItems, level+1)
 		}
 	}
+	add(e.Items, 0)
 
 	return cursorY + height + pptxParaGapEMU
 }
@@ -1594,26 +1601,43 @@ func (g *Generator) pptxAddPoints(s *pptx.Slide, e *ast.PointsElement, cursorY i
 		return g.pptxAddTypedPoints(s, e, cursorY)
 	}
 	totalLines := 0
-	for _, item := range e.Items {
-		totalLines += pptxEstimateLines(item.Content)
-		for _, sub := range item.SubPoints {
-			totalLines += pptxEstimateLines(sub.Content)
+	var count func([]ast.PointItem)
+	count = func(items []ast.PointItem) {
+		for _, item := range items {
+			totalLines += pptxEstimateLines(item.Content)
+			count(item.SubPoints)
 		}
 	}
+	count(e.Items)
 	if totalLines < 1 {
 		totalLines = 1
 	}
 	height := totalLines * pptxLineHeightEMU
 
+	// Sin nested-list-types-v1 el parser conserva la profundidad que escribió
+	// el autor (ya no aplana el tercer nivel en el segundo). Cada nivel lleva
+	// el tipo de la lista, como siempre; pasado el último nivel de párrafo de
+	// PowerPoint, los items quedan en ese último nivel.
 	tb := s.AddTextBox(pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
-	for _, item := range e.Items {
-		g.pptxAddPointParagraph(tb, item, e.ListType, 0)
-		for _, sub := range item.SubPoints {
-			g.pptxAddPointParagraph(tb, sub, e.ListType, 1)
+	var add func([]ast.PointItem, int)
+	add = func(items []ast.PointItem, level int) {
+		for _, item := range items {
+			g.pptxAddPointParagraph(tb, item, e.ListType, pptxClampLevel(level))
+			add(item.SubPoints, level+1)
 		}
 	}
+	add(e.Items, 0)
 
 	return cursorY + height + pptxParaGapEMU
+}
+
+// pptxClampLevel acota un nivel de anidación a los nueve niveles de párrafo
+// de PowerPoint (0 a 8).
+func pptxClampLevel(level int) int {
+	if level > 8 {
+		return 8
+	}
+	return level
 }
 
 func pptxTypedPoints(items []ast.PointItem) bool {
