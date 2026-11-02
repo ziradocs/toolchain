@@ -604,6 +604,9 @@ func TestExport_GeneratorWarningsReachDiagnostics(t *testing.T) {
 			if strings.Contains(d.Message, f.root) {
 				t.Errorf("el diagnóstico expone la raíz absoluta: %q", d.Message)
 			}
+			if d.Position.Line != 3 {
+				t.Errorf("el diagnóstico no trae la línea de la imagen: %+v", d.Position)
+			}
 		}
 	}
 	if !found {
@@ -611,37 +614,60 @@ func TestExport_GeneratorWarningsReachDiagnostics(t *testing.T) {
 	}
 }
 
-// TestExportRoot_FilesystemRoot: con --root / toda ruta queda dentro.
-// Antes util.ResolveConfinedPath armaba el prefijo "//" y rechazaba todo, y
-// redact reemplazaba cada "/" del mensaje.
-func TestExportRoot_FilesystemRoot(t *testing.T) {
+// TestExportRoot_RejectsFilesystemRoot: --root / no confina nada, así que
+// el servidor no arranca con ella y pide un directorio de proyecto.
+func TestExportRoot_RejectsFilesystemRoot(t *testing.T) {
+	root := string(filepath.Separator)
 	if runtime.GOOS == "windows" {
-		t.Skip("raíz POSIX")
+		root = filepath.VolumeName(os.TempDir()) + `\`
 	}
-	r, err := newExportRoot("/")
+	_, err := newExportRoot(root)
+	if err == nil || !strings.Contains(err.Error(), "choose a project directory") {
+		t.Fatalf("newExportRoot(%q) = %v, want a filesystem-root error", root, err)
+	}
+	if _, err := NewServerWithOptions(util.NewNoop(), Options{Root: root}); err == nil {
+		t.Error("NewServerWithOptions aceptó la raíz del sistema de archivos")
+	}
+}
+
+// TestExport_IncludeRootArgument: includeRoot es el --include-root de build.
+// Con "." un @include relativo a la raíz (shared/x.md desde chap/main.md)
+// funciona; fuera de --root se rechaza.
+func TestExport_IncludeRootArgument(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "shared/x.md", "Texto COMPARTIDO.\n")
+	f.write(t, "chap/main.md", "# Capítulo\n\n@include shared/x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	// Sin includeRoot se resuelve contra chap/ y no existe.
+	exportFail(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "html"}, "include")
+
+	out := exportOK(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "html", "includeRoot": "."})
+	data, err := os.ReadFile(filepath.Join(f.root, out.OutputPath))
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if !bytes.Contains(data, []byte("COMPARTIDO")) {
+		t.Error("includeRoot no se usó para resolver el @include")
+	}
+
+	for _, bad := range []string{"..", f.outside, "noexiste", "chap/main.md"} {
+		exportFail(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "html", "includeRoot": bad, "overwrite": true}, "invalid includeRoot")
+	}
+}
+
+func TestRedactGenerator(t *testing.T) {
+	f := newExportFixture(t)
+	root, err := newExportRoot(f.root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := filepath.Join(dir, "a.md")
-	if err := os.WriteFile(in, []byte("# A\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, content, err := r.resolveInput(in, 1<<20)
-	if err != nil || got != in || string(content) != "# A\n" {
-		t.Fatalf("resolveInput(%q) = %q, %q, %v", in, got, content, err)
-	}
-	rel := strings.TrimPrefix(in, "/")
-	if got, _, err := r.resolveInput(rel, 1<<20); err != nil || got != in {
-		t.Errorf("resolveInput(%q) = %q, %v", rel, got, err)
-	}
-	if out, err := r.resolveOutput(filepath.Join(dir, "a.docx"), "docx"); err != nil || out != filepath.Join(dir, "a.docx") {
-		t.Errorf("resolveOutput = %q, %v", out, err)
-	}
-	if msg := r.redact("cannot open /tmp/x/a.md"); msg != "cannot open /tmp/x/a.md" {
-		t.Errorf("redact cambió el mensaje: %q", msg)
+	cfg := exportConfig{root: root, chromiumPath: "/opt/secret/chrome"}
+	tmp := filepath.Join(os.TempDir(), "doclang-docx-123", "math_ab.png")
+	msg := cfg.redactGenerator("failed " + tmp + " with /opt/secret/chrome in " + filepath.Join(f.root, "a.md"))
+	for _, leak := range []string{os.TempDir(), "/opt/secret", f.root} {
+		if strings.Contains(msg, leak) {
+			t.Errorf("%q sigue en %q", leak, msg)
+		}
 	}
 }

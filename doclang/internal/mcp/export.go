@@ -90,6 +90,8 @@ type exportInput struct {
 	Output    string `json:"output,omitempty" jsonschema:"output file, relative to the server root or absolute inside it; its directory must exist and its extension must match format. Defaults to the input path with the format's extension"`
 	Overwrite bool   `json:"overwrite,omitempty" jsonschema:"replace the output file if it already exists (default false: refuse)"`
 	TOC       *bool  `json:"toc,omitempty" jsonschema:"force the table of contents on or off; defaults to the document's front matter, or on when it has front matter"`
+	// IncludeRoot es el --include-root de `doclang build`.
+	IncludeRoot string `json:"includeRoot,omitempty" jsonschema:"directory @include paths resolve against and are confined to, relative to the server root or absolute inside it (like doclang build --include-root). Defaults to the input file's directory"`
 }
 
 type exportOutput struct {
@@ -167,6 +169,15 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 	if err != nil {
 		return fail("%v", err)
 	}
+	// Igual que --include-root de build: por defecto el directorio del
+	// archivo; si se pide otro, tiene que existir dentro de --root.
+	includeRoot := filepath.Dir(inputAbs)
+	if in.IncludeRoot != "" {
+		includeRoot, err = cfg.root.resolveDir(in.IncludeRoot)
+		if err != nil {
+			return fail("invalid includeRoot: %v", err)
+		}
+	}
 	outReq := in.Output
 	if outReq == "" {
 		outReq = cfg.root.defaultOutput(inputAbs, format)
@@ -221,7 +232,7 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 		defer func() { <-exportSemaphore }()
 		var r result
 		if err := util.RecoverGuard(func() error {
-			r.out, r.errOut = generateExport(ctx, logger, cfg, in, format, inputAbs, content, maxBytes, tmpPath)
+			r.out, r.errOut = generateExport(ctx, logger, cfg, in, format, inputAbs, includeRoot, content, maxBytes, tmpPath)
 			return nil
 		}); err != nil {
 			r = result{errOut: &exportError{Error: err.Error()}}
@@ -264,15 +275,15 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 }
 
 // generateExport corre el pipeline de `doclang build` y escribe en tmpPath.
-func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs string, content []byte, maxBytes int, tmpPath string) (*exportOutput, *exportError) {
+func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs, includeRoot string, content []byte, maxBytes int, tmpPath string) (*exportOutput, *exportError) {
 	inputName := cfg.root.display(inputAbs)
 	prepared, err := pipeline.Prepare(logger, content, pipeline.PrepareOptions{
 		InputFile:     inputName,
 		MaxInputBytes: maxBytes,
-		// @include se resuelve contra el directorio del archivo, como en
-		// `doclang build`. Ese directorio está dentro de --root (el input
-		// ya se confinó), así que la raíz sigue siendo el límite.
-		IncludeRoot:  filepath.Dir(inputAbs),
+		// @include se resuelve como en `doclang build`: contra el
+		// directorio del archivo o el includeRoot pedido. Los dos están
+		// dentro de --root, así que la raíz sigue siendo el límite.
+		IncludeRoot:  includeRoot,
 		ThemeName:    in.Theme,
 		ThemeTrusted: false, // input de un cliente MCP, aunque ya validado
 	})
@@ -302,7 +313,7 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 	// Los warnings del generador (una imagen bloqueada o que no se pudo
 	// insertar, un diagrama sin Chromium) van al resultado: el logger del
 	// servidor MCP es un no-op y el cliente no vería nada.
-	genLog := newDiagnosticLogger(logger, cfg.root.redact)
+	genLog := newDiagnosticLogger(logger, cfg.redactGenerator)
 	if err := pipeline.Generate(genLog, prepared, inputName, pipeline.GenerateOptions{
 		Ctx:             ctx,
 		Format:          format,
@@ -376,4 +387,26 @@ func copyExclusive(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// redactGenerator quita de un mensaje del generador las rutas de la máquina:
+// la raíz (como redact), el directorio temporal del sistema, donde viven los
+// PNG intermedios, el ejecutable de Chromium pedido con --chromium-path y el
+// home del usuario, donde suele estar un Chromium autodetectado.
+func (cfg exportConfig) redactGenerator(msg string) string {
+	msg = cfg.root.redact(msg)
+	if cfg.chromiumPath != "" {
+		msg = strings.ReplaceAll(msg, cfg.chromiumPath, "<chromium>")
+	}
+	for _, p := range []struct{ dir, label string }{{os.TempDir(), "<tmp>"}, {userHome(), "~"}} {
+		if d := filepath.Clean(p.dir); len(d) > 1 {
+			msg = strings.ReplaceAll(msg, d, p.label)
+		}
+	}
+	return msg
+}
+
+func userHome() string {
+	h, _ := os.UserHomeDir()
+	return h
 }

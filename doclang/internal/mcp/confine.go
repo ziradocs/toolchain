@@ -56,6 +56,12 @@ func newExportRoot(dir string) (exportRoot, error) {
 	if !info.IsDir() {
 		return exportRoot{}, fmt.Errorf("invalid root %q: not a directory", dir)
 	}
+	// La raíz del sistema de archivos ("/", o "C:\" en Windows) no confina
+	// nada, así que no se acepta. Además util.ResolveConfinedPath arma con
+	// ella el prefijo "//" y rechazaría toda ruta, imágenes incluidas.
+	if filepath.Dir(resolved) == resolved {
+		return exportRoot{}, fmt.Errorf("invalid root %q: it is the filesystem root, which confines nothing; choose a project directory", dir)
+	}
 	return exportRoot{dir: resolved, alias: filepath.Clean(abs)}, nil
 }
 
@@ -80,33 +86,9 @@ func (r exportRoot) relative(p string) (string, error) {
 	return "", fmt.Errorf("%w: absolute path %q is outside the root", util.ErrPathEscapesBase, p)
 }
 
-// isFilesystemRoot reporta si la raíz es la del sistema de archivos ("/" o
-// un "C:\"). Con ella util.ResolveConfinedPath arma el prefijo "//" y
-// rechaza toda ruta, y reemplazar r.dir en un mensaje borraría cada "/".
-func (r exportRoot) isFilesystemRoot() bool {
-	return filepath.Dir(r.dir) == r.dir
-}
-
-// confine es util.ResolveConfinedPath(r.dir, rel), salvo con la raíz del
-// sistema de archivos, donde toda ruta queda dentro por definición: ".."
-// no sube más allá de "/" y un symlink no puede apuntar fuera.
-func (r exportRoot) confine(rel string) (string, error) {
-	if !r.isFilesystemRoot() {
-		return util.ResolveConfinedPath(r.dir, rel)
-	}
-	if rel == "" || filepath.IsAbs(rel) {
-		return "", fmt.Errorf("%w: invalid path %q", util.ErrPathEscapesBase, rel)
-	}
-	return filepath.Join(r.dir, rel), nil
-}
-
 // redact reemplaza la ruta absoluta de la raíz por "<root>" en un mensaje
-// para el cliente. Con la raíz del sistema de archivos no hay nada que
-// ocultar: una ruta absoluta ya es la ruta relativa a ella.
+// para el cliente.
 func (r exportRoot) redact(msg string) string {
-	if r.isFilesystemRoot() {
-		return msg
-	}
 	msg = strings.ReplaceAll(msg, r.dir, "<root>")
 	if r.alias != r.dir {
 		msg = strings.ReplaceAll(msg, r.alias, "<root>")
@@ -137,7 +119,7 @@ func (r exportRoot) resolveInput(p string, maxBytes int) (abs string, content []
 	if !allowedInputExts[ext] {
 		return "", nil, fmt.Errorf("unsupported input extension %q (allowed: .md, .markdown, .doclang)", filepath.Ext(rel))
 	}
-	joined, err := r.confine(rel)
+	joined, err := util.ResolveConfinedPath(r.dir, rel)
 	if err != nil {
 		return "", nil, err
 	}
@@ -145,7 +127,7 @@ func (r exportRoot) resolveInput(p string, maxBytes int) (abs string, content []
 	// Un FIFO o un dispositivo con nombre .md bloquearía os.Open antes de
 	// que empiece el timeout del export. Se exige archivo regular antes de
 	// abrir (Stat y no Lstat: un symlink a un archivo dentro de la raíz es
-	// válido y ya lo confinó r.confine) y se abre sin bloquear donde el
+	// válido y ya lo confinó util.ResolveConfinedPath) y se abre sin bloquear donde el
 	// sistema lo permite, por si el archivo cambia entre el Stat y el Open.
 	if info, err := os.Stat(joined); err == nil && !info.Mode().IsRegular() {
 		return "", nil, fmt.Errorf("input is not a regular file: %s", filepath.ToSlash(rel))
@@ -196,7 +178,7 @@ func (r exportRoot) resolveOutput(p, format string) (string, error) {
 		return "", fmt.Errorf("output %q must have the %s extension for format %s", filepath.ToSlash(rel), want, format)
 	}
 
-	dir, err := r.confine(filepath.Dir(rel))
+	dir, err := util.ResolveConfinedPath(r.dir, filepath.Dir(rel))
 	if err != nil {
 		return "", err
 	}
@@ -236,4 +218,28 @@ func (r exportRoot) defaultOutput(inputAbs, format string) string {
 		rel = filepath.Base(inputAbs)
 	}
 	return strings.TrimSuffix(rel, filepath.Ext(rel)) + "." + format
+}
+
+// resolveDir confina un directorio pedido por el cliente (includeRoot):
+// dentro de la raíz, también tras resolver symlinks, y existente.
+func (r exportRoot) resolveDir(p string) (string, error) {
+	rel, err := r.relative(p)
+	if err != nil {
+		return "", err
+	}
+	dir, err := util.ResolveConfinedPath(r.dir, filepath.Clean(rel))
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("directory does not exist: %s", filepath.ToSlash(rel))
+		}
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("not a directory: %s", filepath.ToSlash(rel))
+	}
+	return dir, nil
 }

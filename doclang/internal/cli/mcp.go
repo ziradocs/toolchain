@@ -4,8 +4,10 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -52,15 +54,30 @@ Example client config:
 			}
 			// Un export en vuelo cuando el cliente cierra stdin, o cuando
 			// llega SIGINT/SIGTERM, deja su temporal; se borra antes de
-			// salir. La señal cancela el contexto del servidor, Run
-			// vuelve y corre el defer. Un kill -9 no pasa por acá.
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
-			defer mcp.CleanupPendingExports()
+			// salir. La señal cancela el contexto del servidor y Run
+			// vuelve. Un kill -9 no pasa por acá.
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+			defer signal.Stop(sigCh)
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+			var received atomic.Value
+			go func() {
+				select {
+				case sig := <-sigCh:
+					received.Store(sig)
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+
 			err = server.Run(ctx, &sdkmcp.StdioTransport{})
-			if ctx.Err() != nil && cmd.Context().Err() == nil {
-				// Detenido por la señal: es una salida normal.
-				return nil
+			mcp.CleanupPendingExports()
+			if sig, ok := received.Load().(os.Signal); ok {
+				// Salida por señal con el código convencional 128+n
+				// (130 para SIGINT, 143 para SIGTERM), como un proceso
+				// que no la atrapa. La limpieza ya corrió arriba.
+				os.Exit(signalExitCode(sig))
 			}
 			return err
 		},
@@ -68,4 +85,13 @@ Example client config:
 	cmd.Flags().StringVar(&root, "root", "", "Directory the export tool is confined to: it reads and writes only inside it (default: the current directory)")
 	cmd.Flags().StringVar(&chromiumPath, "chromium-path", "", "Custom path to the Chromium/Chrome/Edge executable used by export (default: auto-detect)")
 	return cmd
+}
+
+// signalExitCode es 128 más el número de la señal, o 1 si no es una
+// syscall.Signal.
+func signalExitCode(sig os.Signal) int {
+	if s, ok := sig.(syscall.Signal); ok {
+		return 128 + int(s)
+	}
+	return 1
 }
