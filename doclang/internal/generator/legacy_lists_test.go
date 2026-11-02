@@ -59,7 +59,7 @@ func TestDOCXUntypedListDeeperThanNineClamps(t *testing.T) {
 // con sus niveles, y sin los espacios de la sangría delante.
 func TestDOCXQuoteAndCalloutListsAreNativeLists(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
-	quote := ast.NewQuoteElement(pos, "Cita\n- qa\n  - qb\n    3. qc\nDespués")
+	quote := ast.NewQuoteElement(pos, "Cita\n- qa\n  - qb\n\n    3. qc\nDespués")
 	block := ast.NewSpecialBlockElement(pos, "info", "Texto\n- ca\n  1. cb")
 	block.Title = "Nota"
 	doc := newTestAST()
@@ -90,7 +90,7 @@ func TestDOCXLegacyListStartsAtTheWrittenNumber(t *testing.T) {
 	if _, ok := any(&ast.PointItem{}).(interface{ WrittenOrdinal() (int64, bool) }); !ok {
 		t.Skip("this core does not record written ordinals")
 	}
-	path := buildDOCXFile(t, parseInline(t, "# L\n\n3. tres\n4. cuatro\n   7. siete\n\n0. cero\n"))
+	path := buildDOCXFile(t, parseInline(t, "# L\n\n3. tres\n4. cuatro\n\n   7. siete\n\nOtra lista:\n\n0. cero\n"))
 	checkListItems(t, path, []wantListItem{
 		{"tres", 0, "decimal", 3},
 		{"cuatro", 0, "decimal", 0},
@@ -152,13 +152,46 @@ func TestMarkdownLegacyListKeepsStartAndDelimiter(t *testing.T) {
 	if _, ok := any(&ast.PointItem{}).(interface{ WrittenDelimiter() string }); !ok {
 		t.Skip("this core does not record delimiters")
 	}
-	doc := parseInline(t, "# L\n\n3) tres\n4) cuatro\n   7. siete\n")
+	doc := parseInline(t, "# L\n\n3) tres\n4) cuatro\n\n   7. siete\n")
 	m := NewMarkdownGenerator(newTestLogger())
 	var md strings.Builder
 	for _, el := range doc.ContentBlocks[0].Elements {
 		md.WriteString(m.renderElement(el))
 	}
-	if !strings.Contains(md.String(), "3) tres\n4) cuatro\n   7. siete\n") {
+	if !strings.Contains(md.String(), "3) tres\n4) cuatro\n\n   7. siete\n") {
 		t.Fatalf("markdown:\n%s", md.String())
+	}
+}
+
+// Un "1)" del autor se numera "%1)" en Word, no "%1.".
+func TestDOCXParenDelimiter(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	doc := newTestAST()
+	doc.ContentBlocks[0].Elements = append(doc.ContentBlocks[0].Elements, ast.NewQuoteElement(pos, "Cita\n1) uno\n2) dos"))
+	path := buildDOCXFile(t, doc)
+	got := checkListItemsAny(t, path, "uno")
+	if f := docxListFormatOf(t, docxZipPart(t, path, "word/numbering.xml"), got.numID, got.ilvl); f.lvlText != "%1)" {
+		t.Fatalf("lvlText %q", f.lvlText)
+	}
+}
+
+func checkListItemsAny(t *testing.T, path, text string) docxListPara {
+	t.Helper()
+	for _, p := range docxParagraphs(docxZipPart(t, path, "word/document.xml")) {
+		if strings.HasSuffix(p.text, text) && p.numID != 0 {
+			return p
+		}
+	}
+	t.Fatalf("%q is not a list paragraph", text)
+	return docxListPara{}
+}
+
+// La prosa que sigue a una lista dentro de una cita va separada por una línea
+// ">" en blanco: sin ella CommonMark la une al último item.
+func TestMarkdownQuoteProseAfterList(t *testing.T) {
+	m := NewMarkdownGenerator(newTestLogger())
+	got := m.renderElement(ast.NewQuoteElement(diagnostics.NewPosition(1, 1), "Cita\n- a\nDespués"))
+	if got != "> Cita\n> - a\n>\n> Después\n" {
+		t.Fatalf("quote:\n%s", got)
 	}
 }

@@ -75,6 +75,11 @@ func renderLegacyMarkdownPoints(items []ast.PointItem, listType string, start *i
 			delim = markdownDelimiter(item)
 			if kind != prevKind || delim != prevDelim {
 				number = markdownListStart(start, i, item)
+				// Una lista numerada que no empieza en 1 no interrumpe el
+				// texto de arriba en CommonMark: va con una línea en blanco.
+				if number != 1 && (indent > 0 || i > 0) {
+					b.WriteString("\n")
+				}
 			} else {
 				number++
 			}
@@ -137,14 +142,55 @@ func renderMarkdownChecklist(items []ast.ChecklistItem, indent int) string {
 // llevaba y el resto de la cita salía como un párrafo fuera de ella. Una
 // línea vacía queda como ">" para no cortar la cita. La sangría que traen los
 // items anidados es relativa a su item, así que no abre un bloque de código.
+//
+// La prosa que sigue a una lista lleva una línea ">" en blanco delante: sin
+// ella un lector CommonMark la toma como continuación perezosa del último
+// item, mientras que core la dibuja como un párrafo aparte. La misma partición
+// en prosa y listas que el DOCX (splitBody) decide dónde termina cada lista.
 func markdownQuoteLines(content string) string {
 	var b strings.Builder
-	for _, line := range strings.Split(content, "\n") {
-		if strings.TrimSpace(line) == "" {
-			b.WriteString(">\n")
-			continue
+	afterList := false
+	for _, part := range splitBody(content) {
+		if part.items != nil {
+			afterList = true
+		} else if afterList {
+			if len(part.lines) > 0 && strings.TrimSpace(part.lines[0]) != "" {
+				b.WriteString(">\n")
+			}
+			afterList = false
 		}
-		b.WriteString("> " + line + "\n")
+		for _, line := range part.lines {
+			if strings.TrimSpace(line) == "" {
+				b.WriteString(">\n")
+				continue
+			}
+			b.WriteString("> " + line + "\n")
+		}
+		if part.items != nil {
+			b.WriteString(markdownBodyItems(part.items, 0))
+		}
+	}
+	return b.String()
+}
+
+// markdownBodyItems escribe una lista de la prosa de una cita o un bloque,
+// dentro de la cita, con cada sublista en la columna de contenido de su item.
+func markdownBodyItems(items []*bodyItem, indent int) string {
+	var b strings.Builder
+	for r, run := range bodyRuns(items) {
+		number := run[0].ordinal
+		if run[0].ordered && number != 1 && (indent > 0 || r > 0) {
+			b.WriteString(">\n")
+		}
+		for _, item := range run {
+			marker := "-"
+			if item.ordered {
+				marker = fmt.Sprintf("%d%c", number, item.delim)
+				number++
+			}
+			fmt.Fprintf(&b, "> %s%s %s\n", strings.Repeat(" ", indent), marker, item.text)
+			b.WriteString(markdownBodyItems(item.children, indent+len(marker)+1))
+		}
 	}
 	return b.String()
 }

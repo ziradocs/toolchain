@@ -38,14 +38,7 @@ type bodyPart struct {
 
 func parseBodyItem(line string) (*bodyItem, bool) {
 	trimmed := strings.TrimLeft(line, " \t")
-	indent := 0
-	for _, c := range line[:len(line)-len(trimmed)] {
-		if c == '\t' {
-			indent += 4
-		} else {
-			indent++
-		}
-	}
+	indent := bodyIndent(line)
 	trimmed = strings.TrimRight(trimmed, " \t")
 	if isBodyRule(trimmed) {
 		return nil, false
@@ -112,6 +105,7 @@ func splitBody(content string) []bodyPart {
 		flush()
 		var roots, stack []*bodyItem
 		var last *bodyItem
+		blank := false
 		for i < len(lines) {
 			item, ok := parseBodyItem(lines[i])
 			if !ok {
@@ -124,29 +118,43 @@ func splitBody(content string) []bodyPart {
 					if next < len(lines) {
 						if _, ok := parseBodyItem(lines[next]); ok {
 							i = next
+							blank = true
 							continue
 						}
 					}
 					break
 				}
-				if last != nil && len(lines[i])-len(strings.TrimLeft(lines[i], " \t")) > last.indent {
+				if last != nil && bodyIndent(lines[i]) > last.indent && !startsBodyBlock(trimmed) {
 					last.text += " " + trimmed
 					i++
 					continue
 				}
 				break
 			}
-			for len(stack) > 0 && item.indent < stack[len(stack)-1].content {
-				stack = stack[:len(stack)-1]
+			depth := len(stack)
+			for depth > 0 && item.indent < stack[depth-1].content {
+				depth--
 			}
-			if len(stack) == 0 {
+			siblings := roots
+			if depth > 0 {
+				siblings = stack[depth-1].children
+			}
+			newList := len(siblings) == 0 || siblings[len(siblings)-1].ordered != item.ordered || siblings[len(siblings)-1].delim != item.delim
+			if last != nil && !blank && depth == len(stack) && newList && item.ordered && item.ordinal != 1 {
+				last.text += " " + strings.TrimSpace(lines[i])
+				i++
+				continue
+			}
+			stack = stack[:depth]
+			if depth == 0 {
 				roots = append(roots, item)
 			} else {
-				parent := stack[len(stack)-1]
+				parent := stack[depth-1]
 				parent.children = append(parent.children, item)
 			}
 			stack = append(stack, item)
 			last = item
+			blank = false
 			i++
 		}
 		parts = append(parts, bodyPart{items: roots})
@@ -168,4 +176,35 @@ func bodyRuns(items []*bodyItem) [][]*bodyItem {
 		i = j
 	}
 	return runs
+}
+
+// bodyIndent es la sangría en columnas, con tabuladores a paradas de 4 como
+// CommonMark.
+func bodyIndent(line string) int {
+	col := 0
+	for _, c := range line {
+		switch c {
+		case ' ':
+			col++
+		case '\t':
+			col += 4 - col%4
+		default:
+			return col
+		}
+	}
+	return col
+}
+
+// startsBodyBlock: una línea que abre otro bloque (una cerca, "$$", "---",
+// un encabezado...) no es texto de un item.
+func startsBodyBlock(trimmed string) bool {
+	if isBodyRule(trimmed) || strings.Trim(trimmed, "-") == "" {
+		return true
+	}
+	for _, prefix := range []string{"<<", "$$", "@", ":::", ">", "|", "#", "```", "~~~", "<", "![", `\[`} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
 }

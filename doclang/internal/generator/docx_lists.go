@@ -51,6 +51,9 @@ type docxListDef struct {
 	kind  docxListKind
 	level int
 	start int64
+	// paren escribe el número como "1)" en vez de "1.", cuando el autor usó
+	// ese delimitador.
+	paren bool
 }
 
 // docxNumbering junta las listas de un documento para escribir su
@@ -60,11 +63,11 @@ type docxNumbering struct {
 }
 
 // add registra una lista que se escribe en el nivel level y devuelve su numId.
-func (n *docxNumbering) add(kind docxListKind, level int, start int64) int {
+func (n *docxNumbering) add(kind docxListKind, level int, start int64, paren bool) int {
 	if start < 0 {
 		start = 1
 	}
-	n.lists = append(n.lists, docxListDef{kind: kind, level: level, start: start})
+	n.lists = append(n.lists, docxListDef{kind: kind, level: level, start: start, paren: paren})
 	return len(n.lists)
 }
 
@@ -99,7 +102,11 @@ func (n *docxNumbering) xml(fontFamily string, step int) []byte {
 			case docxListOrdered:
 				// %N es el contador del nivel N (1-based): un "%1." en el
 				// nivel 2 mostraría el número del padre.
-				fmt.Fprintf(&b, `<w:numFmt w:val="decimal"/><w:lvlText w:val="%%%d."/><w:lvlJc w:val="left"/>`, lvl+1)
+				delim := "."
+				if list.paren {
+					delim = ")"
+				}
+				fmt.Fprintf(&b, `<w:numFmt w:val="decimal"/><w:lvlText w:val="%%%d%s"/><w:lvlJc w:val="left"/>`, lvl+1, delim)
 				fmt.Fprintf(&b, `<w:pPr><w:ind w:left="%d" w:hanging="%d"/></w:pPr>%s`, left, hanging, rPr)
 			case docxListBullet:
 				glyph := docxBulletGlyphs[lvl%len(docxBulletGlyphs)]
@@ -150,10 +157,25 @@ func (g *DOCXGenerator) listStep() int {
 }
 
 func (g *DOCXGenerator) addList(kind docxListKind, level int, start int64) int {
+	return g.addListDelim(kind, level, start, false)
+}
+
+func (g *DOCXGenerator) addListDelim(kind docxListKind, level int, start int64, paren bool) int {
 	if g.numbering == nil {
 		g.numbering = &docxNumbering{}
 	}
-	return g.numbering.add(kind, level, start)
+	return g.numbering.add(kind, level, start, paren)
+}
+
+// docxParenDelimiter dice si el autor numeró la lista con "1)". El
+// delimitador vive solo en memoria en core (PointItem.WrittenDelimiter) y se
+// consulta con una aserción de interfaz, como WrittenOrdinal.
+func docxParenDelimiter(items []ast.PointItem) bool {
+	if len(items) == 0 {
+		return false
+	}
+	w, ok := any(&items[0]).(interface{ WrittenDelimiter() string })
+	return ok && w.WrittenDelimiter() == ")"
 }
 
 func docxListKindOf(listType string) docxListKind {
@@ -252,7 +274,7 @@ func (g *DOCXGenerator) renderPointItems(doc domain.Document, items []ast.PointI
 		}
 		level = docxMaxListLevels - 1
 	}
-	numID := g.addList(docxListKindOf(listType), level, start)
+	numID := g.addListDelim(docxListKindOf(listType), level, start, listType == "ordered" && docxParenDelimiter(items))
 	for i := range items {
 		item := &items[i]
 		p, err := g.addListParagraph(doc, numID, level)
@@ -327,7 +349,7 @@ func (g *DOCXGenerator) renderBodyListItems(doc domain.Document, items []*bodyIt
 		if run[0].ordered {
 			kind, start = docxListOrdered, run[0].ordinal
 		}
-		numID := g.addList(kind, level, start)
+		numID := g.addListDelim(kind, level, start, run[0].delim == ')')
 		for _, item := range run {
 			p, err := g.addListParagraph(doc, numID, level)
 			if err != nil {
