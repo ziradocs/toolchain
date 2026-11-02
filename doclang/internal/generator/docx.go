@@ -2222,6 +2222,9 @@ func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) e
 		if err := p.SetSpacingAfter(0); err != nil {
 			return fmt.Errorf("invalid spacing after: %w", err)
 		}
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
 		r, err := p.AddRun()
 		if err != nil {
 			return err
@@ -2234,24 +2237,71 @@ func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) e
 		_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
 	}
 
-	// Párrafo para código con fondo y monospace
-	lines := strings.Split(elem.Content, "\n")
+	if err := g.renderCodeLines(doc, elem.Content); err != nil {
+		return err
+	}
 
-	for _, line := range lines {
+	// Espacio después del bloque
+	spacer, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := spacer.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+
+	return nil
+}
+
+// codeBlockKeepTogetherMaxLines: un bloque de hasta este número de líneas se
+// mantiene en una sola página (keepNext en cada línea menos la última). Uno
+// más largo se deja partir, porque forzarlo dejaría media página en blanco.
+const codeBlockKeepTogetherMaxLines = 20
+
+// codeBlockPaddingTwips es el aire arriba y abajo del bloque, dentro del
+// fondo: el sombreado de párrafo cubre también su espaciado.
+const codeBlockPaddingTwips = 80
+
+// renderCodeLines escribe un bloque de código como un párrafo por línea,
+// todos con el fondo CodeBlockBg del tema y sin espacio entre ellos, para
+// que se lean como una sola banda. Sin el fondo, el texto claro del tema
+// professional (D4D4D4, pensado para un fondo 1E1E1E) quedaba gris sobre
+// blanco.
+func (g *DOCXGenerator) renderCodeLines(doc domain.Document, content string) error {
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	bg := g.parseColor(g.style.CodeBlockBg)
+	keepTogether := len(lines) <= codeBlockKeepTogetherMaxLines
+
+	for i, line := range lines {
 		p, err := doc.AddParagraph()
 		if err != nil {
 			return err
 		}
 
-		// Indentación ligera
 		if err := p.SetIndent(domain.Indentation{Left: 360}); err != nil {
 			return fmt.Errorf("invalid indent: %w", err)
 		}
-		if err := p.SetSpacingAfter(0); err != nil {
+		before, after := 0, 0
+		if i == 0 {
+			before = codeBlockPaddingTwips
+		}
+		if i == len(lines)-1 {
+			after = codeBlockPaddingTwips
+		}
+		if err := p.SetSpacingBefore(before); err != nil {
+			return fmt.Errorf("invalid spacing before: %w", err)
+		}
+		if err := p.SetSpacingAfter(after); err != nil {
 			return fmt.Errorf("invalid spacing after: %w", err)
 		}
-
-		// TODO: Agregar fondo (shading) cuando docxgo lo soporte
+		if err := p.SetShading(bg); err != nil {
+			return fmt.Errorf("invalid code block shading: %w", err)
+		}
+		if keepTogether && i < len(lines)-1 {
+			if err := p.SetKeepNext(true); err != nil {
+				return fmt.Errorf("invalid keepNext: %w", err)
+			}
+		}
 
 		r, err := p.AddRun()
 		if err != nil {
@@ -2265,15 +2315,6 @@ func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) e
 		}
 		_ = r.SetColor(g.parseColor(g.style.CodeBlockColor))
 		_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
-	}
-
-	// Espacio después del bloque
-	spacer, err := doc.AddParagraph()
-	if err != nil {
-		return err
-	}
-	if err := spacer.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
-		return fmt.Errorf("invalid spacing after: %w", err)
 	}
 
 	return nil
@@ -3083,28 +3124,15 @@ func (g *DOCXGenerator) renderCodeGroup(doc domain.Document, elem *ast.CodeGroup
 		_ = labelRun.SetFont(domain.Font{Name: g.style.FontFamily})
 		_ = labelRun.SetBold(true)
 
-		// Bloque de código
-		codePara, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-		if err := codePara.SetIndent(domain.Indentation{Left: 360}); err != nil {
-			return fmt.Errorf("invalid indent: %w", err)
-		}
-		if err := codePara.SetSpacingAfter(120); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
+		// La etiqueta va con su bloque.
+		if err := labelPara.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
 		}
 
-		codeRun, err := codePara.AddRun()
-		if err != nil {
+		// Bloque de código, con el mismo fondo que un bloque suelto.
+		if err := g.renderCodeLines(doc, block.Content); err != nil {
 			return err
 		}
-		_ = codeRun.SetText(block.Content)
-		if err := codeRun.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = codeRun.SetColor(g.parseColor(g.style.CodeBlockColor))
-		_ = codeRun.SetFont(domain.Font{Name: g.style.CodeFontFamily})
 	}
 
 	return nil
