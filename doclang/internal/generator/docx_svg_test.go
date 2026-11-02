@@ -178,3 +178,51 @@ func TestDOCXGenerator_SVGImage_RasterizedAtNaturalSize(t *testing.T) {
 		t.Errorf("media = %v, want one PNG", media)
 	}
 }
+
+// TestHasSVGImages_InlineAndNested: un SVG inline (párrafo, ítem, celda) o
+// anidado en un callout también pide Chromium; antes solo contaban las
+// imágenes de bloque del nivel de sección.
+func TestHasSVGImages_InlineAndNested(t *testing.T) {
+	for name, body := range map[string]string{
+		"párrafo": "Texto ![e](evil.svg) aquí.\n",
+		"ítem":    "- uno ![e](img/a.SVG?x=1)\n",
+		"celda":   "| A |\n|---|\n| ![e](<d s.svg>) |\n",
+		"callout": "::: info\n![e](nested.svg)\n:::\n",
+	} {
+		doc := parseInline(t, "---\ntitle: S\nmode: flex\n---\n\n# S\n\n"+body)
+		if !HasSVGImages(doc) {
+			t.Errorf("%s: SVG not detected", name)
+		}
+		if gen := NewDOCXGenerator(newTestLogger(), ""); !gen.needsChromiumRendering(doc) || gen.canRenderWithoutChromium(doc) {
+			t.Errorf("%s: must ask for Chromium", name)
+		}
+	}
+	for name, body := range map[string]string{
+		"png inline": "Texto ![e](a.png) y [svg](link.svg).\n",
+		"svg remoto": "![e](https://x.test/a.svg)\n",
+	} {
+		if HasSVGImages(parseInline(t, "---\ntitle: S\nmode: flex\n---\n\n# S\n\n"+body)) {
+			t.Errorf("%s: false positive", name)
+		}
+	}
+}
+
+// TestSVGNaturalSizePx_NonFinite: NaN, Inf o un número que desborda no llegan
+// a la captura ni a los EMU: cuentan como ausentes.
+func TestSVGNaturalSizePx_NonFinite(t *testing.T) {
+	for _, svg := range []string{
+		`<svg width="NaN" height="Inf"/>`,
+		`<svg width="1e999" height="10" viewBox="0 0 NaN 5"/>`,
+		`<svg viewBox="0 0 Inf 100"/>`,
+		`<svg width="1e308in" height="1e308in"/>`,
+		`<svg width="1e300" viewBox="0 0 1e-300 1"/>`,
+	} {
+		w, h, err := svgNaturalSizePx([]byte(svg))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !svgFinitePositive(w) || !svgFinitePositive(h) {
+			t.Errorf("%s: got %vx%v", svg, w, h)
+		}
+	}
+}

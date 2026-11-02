@@ -8,14 +8,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -54,21 +57,46 @@ func isSVGImageSource(source string) bool {
 	return strings.EqualFold(path.Ext(u.Path), ".svg")
 }
 
-// HasSVGImages dice si doc tiene alguna imagen local SVG en el nivel de
-// sección, el mismo alcance que needsChromiumRendering.
+// HasSVGImages dice si doc tiene alguna imagen local SVG en cualquier lugar:
+// de bloque en una sección, anidada en un grid o un callout, o inline en un
+// párrafo, un ítem o una celda. Una versión anterior miraba solo las imágenes
+// de bloque del nivel de sección, así que un documento cuyo único SVG estaba
+// anidado o inline no arrancaba Chromium y el SVG quedaba como marcador. El
+// AST se recorre serializado: así no depende de conocer cada tipo que anida
+// elementos ni cada campo con markdown inline.
 func HasSVGImages(doc *ast.AST) bool {
 	if doc == nil {
 		return false
 	}
-	for _, block := range doc.ContentBlocks {
-		for _, el := range block.Elements {
-			if img, ok := el.(*ast.ImageElement); ok && isSVGImageSource(img.Source) {
-				return true
-			}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // "<a b.svg>" tiene que llegar tal cual
+	if err := enc.Encode(doc); err != nil {
+		return false
+	}
+	text := buf.String()
+	for _, m := range svgSourceFieldPattern.FindAllStringSubmatch(text, -1) {
+		var src string
+		if json.Unmarshal([]byte(`"`+m[1]+`"`), &src) == nil && isSVGImageSource(src) {
+			return true
+		}
+	}
+	for _, m := range svgInlineImagePattern.FindAllStringSubmatch(text, -1) {
+		if src, ok := docxLocalImageSource(m[1]); ok && isSVGImageSource(src) {
+			return true
 		}
 	}
 	return false
 }
+
+var (
+	// svgSourceFieldPattern es el campo "source" de un ImageElement en el
+	// AST serializado.
+	svgSourceFieldPattern = regexp.MustCompile(`"source":"((?:[^"\\]|\\.)*)"`)
+	// svgInlineImagePattern es el destino de un ![alt](src) inline dentro de
+	// cualquier texto del AST serializado (hasta el primer ")" o comilla).
+	svgInlineImagePattern = regexp.MustCompile(`!\[[^\]]*\]\(\s*([^)"]+)\)`)
+)
 
 // looksLikeSVG reconoce un SVG por su contenido: el primer elemento XML es
 // <svg>. Cubre un .svg con otra extensión y deja fuera un .svg que en
@@ -131,6 +159,9 @@ func svgNaturalSizePx(data []byte) (float64, float64, error) {
 	default:
 		w, h = svgDefaultWidthPx, svgDefaultHeightPx
 	}
+	if !svgFinitePositive(w) || !svgFinitePositive(h) {
+		w, h = svgDefaultWidthPx, svgDefaultHeightPx
+	}
 	return w, h, nil
 }
 
@@ -153,7 +184,7 @@ func svgLengthPx(v string) float64 {
 		}
 	}
 	n, err := strconv.ParseFloat(v, 64)
-	if err != nil || n <= 0 {
+	if err != nil || !svgFinitePositive(n) || !svgFinitePositive(n*factor) {
 		return 0
 	}
 	return n * factor
@@ -168,10 +199,17 @@ func svgViewBoxSize(v string) (float64, float64) {
 	}
 	w, err1 := strconv.ParseFloat(f[2], 64)
 	h, err2 := strconv.ParseFloat(f[3], 64)
-	if err1 != nil || err2 != nil || w <= 0 || h <= 0 {
+	if err1 != nil || err2 != nil || !svgFinitePositive(w) || !svgFinitePositive(h) {
 		return 0, 0
 	}
 	return w, h
+}
+
+// svgFinitePositive descarta 0, negativos, NaN e infinitos: ParseFloat
+// acepta "NaN", "Inf" y "1e999", y un tamaño así llegaba a la captura de
+// Chromium y a los EMU del DOCX.
+func svgFinitePositive(f float64) bool {
+	return f > 0 && !math.IsInf(f, 0) && !math.IsNaN(f)
 }
 
 // rasterizeSVGImage convierte una imagen SVG local en un PNG del tamaño al

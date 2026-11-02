@@ -38,7 +38,7 @@ const svgImageCSP = "default-src 'none'; img-src data:; script-src 'unsafe-inlin
 // así que el SVG entra como PNG. El SVG se carga como <img> desde un data:
 // URI, no como <svg> en el DOM, por la razón de svgImageCSP.
 func (r *ChromiumRenderer) RenderSVGImageToPNG(ctx context.Context, svg []byte, widthPx, heightPx float64) ([]byte, error) {
-	if widthPx <= 0 || heightPx <= 0 {
+	if !(widthPx > 0) || !(heightPx > 0) || math.IsInf(widthPx, 0) || math.IsInf(heightPx, 0) {
 		return nil, fmt.Errorf("svg image rendering failed: invalid size %.1fx%.1f", widthPx, heightPx)
 	}
 	if s := math.Max(widthPx, heightPx); s > svgImageMaxSidePx {
