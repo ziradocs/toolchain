@@ -256,7 +256,11 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	// ningún efecto en DOCX).
 	if opts.TOC {
 		tocEntries := g.collectHeadings(astDoc, opts.Numbering)
-		if err := g.renderTOC(doc, tocEntries); err != nil {
+		lang := ""
+		if astDoc.FrontMatter != nil {
+			lang = astDoc.FrontMatter.Lang
+		}
+		if err := g.renderTOC(doc, tocEntries, lang); err != nil {
 			return fmt.Errorf("error rendering TOC: %w", err)
 		}
 	}
@@ -320,6 +324,32 @@ func docxMetadataTitle(astDoc *ast.AST) string {
 		}
 	}
 	return ""
+}
+
+// docxTOCTitles: título de la tabla de contenidos por idioma (subetiqueta
+// primaria de `lang:`). Sin idioma, o con uno que no está acá, sale el de
+// siempre, que es también el que pinta el HTML ("Tabla de Contenidos" en
+// core/renderer/document_html.go).
+var docxTOCTitles = map[string]string{
+	"es": "Tabla de Contenidos",
+	"en": "Table of Contents",
+	"pt": "Sumário",
+	"fr": "Table des matières",
+	"de": "Inhaltsverzeichnis",
+	"it": "Indice",
+	"ca": "Índex",
+	"nl": "Inhoudsopgave",
+}
+
+func docxTOCTitle(lang string) string {
+	primary := strings.ToLower(strings.TrimSpace(lang))
+	if i := strings.IndexAny(primary, "-_"); i >= 0 {
+		primary = primary[:i]
+	}
+	if title, ok := docxTOCTitles[primary]; ok {
+		return title
+	}
+	return docxTOCTitles["es"]
 }
 
 // docxTitlePlan dice cómo sale el título del front matter cuando el primer
@@ -1074,12 +1104,14 @@ func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST, numbering bool) []TOCEn
 }
 
 // renderTOC renderiza la tabla de contenidos (placeholder por ahora, TOC real después)
-func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error {
+func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry, lang string) error {
 	if len(entries) == 0 {
 		return nil
 	}
 
-	// Título "Tabla de Contenidos"
+	// Un solo título, en el idioma del documento (ver docxTOCTitle). Antes
+	// salía "Tabla de Contenidos" y, debajo, el resultado provisional del
+	// campo de docxgo, "Table of Contents": dos títulos, uno en inglés.
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
@@ -1095,7 +1127,7 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 	if err != nil {
 		return err
 	}
-	_ = r.SetText("Tabla de Contenidos")
+	_ = r.SetText(docxTOCTitle(lang))
 	if err := r.SetSize(g.parseSize(g.style.H2Size)); err != nil {
 		return fmt.Errorf("invalid font size: %w", err)
 	}
@@ -1139,37 +1171,31 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 	}
 	tocField := docx.NewTOCField(tocSwitches)
 
-	// Agregar el field al run
-	err = tocRun.AddField(tocField)
-	if err != nil {
+	// Resultado provisional del campo: las entradas, una por línea y con
+	// sangría por nivel, hasta que Word reconstruya el campo (sigue sucio,
+	// así que Word ofrece actualizarlo al abrir; F9 también). Antes las
+	// entradas iban en párrafos sueltos DESPUÉS del campo, así que al
+	// actualizarlo en Word quedaban duplicadas debajo del TOC real.
+	lines := make([]string, len(entries))
+	for i, entry := range entries {
+		lines[i] = strings.Repeat("    ", max(entry.Level-1, 0)) + entry.Title
+	}
+	if f, ok := tocField.(interface{ SetResult(string) }); ok {
+		f.SetResult(strings.Join(lines, "\n"))
+	}
+	if f, ok := tocField.(interface{ MarkDirty() }); ok {
+		f.MarkDirty()
+	}
+	if err := tocRun.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = tocRun.SetFont(domain.Font{Name: g.style.FontFamily})
+	_ = tocRun.SetColor(g.parseColor(g.style.TextColor))
+
+	if err := tocRun.AddField(tocField); err != nil {
 		return err
 	}
-
-	// Generar contenido placeholder para cuando Word aún no ha actualizado
-	// (Word reemplazará esto al abrir el documento o presionar F9)
-	g.logger.Info("DOCX", "📑 TOC field added - press F9 in Word to update")
-	for _, entry := range entries {
-		entryPara, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-
-		indent := (entry.Level - 1) * 360 // 360 twips = 0.25" por nivel
-		if err := entryPara.SetIndent(domain.Indentation{Left: indent}); err != nil {
-			return fmt.Errorf("invalid indent: %w", err)
-		}
-
-		entryRun, err := entryPara.AddRun()
-		if err != nil {
-			return err
-		}
-		_ = entryRun.SetText(entry.Title)
-		if err := entryRun.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = entryRun.SetFont(domain.Font{Name: g.style.FontFamily})
-		_ = entryRun.SetColor(domain.Color{R: 128, G: 128, B: 128}) // Gris para placeholder
-	}
+	g.logger.Info("DOCX", "📑 TOC field added - Word rebuilds it on open (or press F9)")
 
 	// Espacio después del TOC
 	spacer, err := doc.AddParagraph()
