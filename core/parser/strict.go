@@ -1020,10 +1020,13 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 		headerParsed = true
 	}
 
-	// Skip separator row (|---------|--------|)
+	// Skip separator row (|---------|--------|), keeping the column
+	// alignment it declares (table-align-v1), same as the flex parser.
 	if p.currentLine < len(p.lines) {
 		separatorLine := strings.TrimSpace(p.lines[p.currentLine])
 		if strings.Contains(separatorLine, "---") {
+			table.ColumnAlign = elements.MarkdownColumnAlign(
+				elements.TrimMarkdownRowEdges(separatorLine, elements.SplitMarkdownTableRow(separatorLine)), len(headers))
 			p.currentLine++
 		}
 	}

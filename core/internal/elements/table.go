@@ -783,11 +783,11 @@ func TrimMarkdownRowEdges(line string, cells []string) []string {
 	return cells
 }
 
-// markdownColumnAlign lee la alineación de cada columna de una fila
+// MarkdownColumnAlign lee la alineación de cada columna de una fila
 // delimitadora Markdown: ":---" left, ":---:" center, "---:" right y "---"
 // sin declarar (""). Devuelve nil si la fila no es delimitadora, si no
 // tiene una celda por columna, o si ninguna columna declara alineación.
-func markdownColumnAlign(cells []string, numCols int) []string {
+func MarkdownColumnAlign(cells []string, numCols int) []string {
 	if len(cells) != numCols || !isMarkdownSeparatorRow(cells) {
 		return nil
 	}
@@ -864,7 +864,7 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 		if strings.Contains(line, "---") || strings.Contains(line, ":-:") || strings.Contains(line, ":--") || strings.Contains(line, "--:") {
 			// La alineación solo sale de la delimitadora que sigue al header.
 			if len(headers) > 0 && len(rows) == 0 && columnAlign == nil {
-				columnAlign = markdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(headers))
+				columnAlign = MarkdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(headers))
 			}
 			consumed++
 			continue

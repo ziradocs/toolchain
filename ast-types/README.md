@@ -57,6 +57,15 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.25.0
+
+- **Opt-in**: `TableElement.columnAlign`, one entry per column (`""`,
+  `"left"`, `"center"` or `"right"`). `table-align-v1` is inferred from a
+  Markdown delimiter row that declares at least one alignment (`:---`,
+  `:---:`, `---:`) and emits 2.25.0 alone or with the other capabilities. A
+  table delimited with plain `---` has no `columnAlign` and keeps its lower
+  version. `fmt` writes the alignment back in the delimiter row.
+
 ### 2.20.0
 
 - **Opt-in**: `QuizElement`/`PollElement` `.results` (percent 0-100 per
