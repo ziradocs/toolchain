@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -97,7 +98,7 @@ func buildMermaidSVGHTML(mermaidCode string, themes ...renderer.DiagramThemeColo
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="%s">
-    `+renderer.MermaidCDNScriptTag+`
+    %s
     <style>
         body { margin: 0; padding: 20px; background: white; }
         .mermaid { display: inline-block; width: %dpx; }
@@ -109,7 +110,7 @@ func buildMermaidSVGHTML(mermaidCode string, themes ...renderer.DiagramThemeColo
         mermaid.initialize(`+renderer.MermaidInitConfigJSWithTheme(true, theme)+`);
     </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode))
+</html>`, mermaidRenderCSP, embeddedMermaidScriptTag, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode))
 }
 
 // buildMathSVGHTML arma la página temporal usada para rasterizar una
@@ -221,10 +222,21 @@ func buildMathPNGHTML(latex string, width, height int, themes ...renderer.Diagra
 </html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMathDiv(latex))
 }
 
+// mermaidPNGDeviceScale es el deviceScaleFactor con el que se captura un
+// diagrama Mermaid a PNG: 2 px por px CSS, para que el PNG siga nítido
+// impreso al tamaño natural del diagrama (96 px CSS por pulgada → 192 dpi).
+// doclang (docx.go) divide entre este mismo factor para recuperar el tamaño
+// natural; TestMermaidPNGDeviceScale lo fija.
+const mermaidPNGDeviceScale = 2
+
 // buildMermaidPNGHTML arma la página temporal usada para rasterizar un
 // diagrama Mermaid a PNG (ver buildMermaidSVGHTML para el razonamiento de
-// seguridad, idéntico aquí).
-func buildMermaidPNGHTML(mermaidCode string, width, height int, themes ...renderer.DiagramThemeColors) string {
+// seguridad, idéntico aquí). width es el ancho de layout que ve mermaid
+// antes de dibujar (como mermaidSVGContainerWidthPx en el path SVG): un
+// diagrama más ancho se encoge a ese ancho, uno más angosto queda a su
+// tamaño natural. No hay alto fijo: el PNG es la caja del <svg>, sin el
+// margen blanco de un contenedor de tamaño fijo.
+func buildMermaidPNGHTML(mermaidCode string, width int, themes ...renderer.DiagramThemeColors) string {
 	theme := renderer.DiagramThemeColors{}
 	if len(themes) > 0 {
 		theme = themes[0]
@@ -234,17 +246,15 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int, themes ...render
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="%s">
-    `+renderer.MermaidCDNScriptTag+`
+    %s
     <style>
-        body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; }
-        #mermaidContainer { width: %dpx; height: %dpx; display: flex; justify-content: center; align-items: center; }
-        .mermaid { display: inline-block; }
+        body { margin: 0; padding: 8px; background: white; }
+        .mermaid { display: block; width: %dpx; }
+        .mermaid svg { display: block; }
     </style>
 </head>
 <body>
-    <div id="mermaidContainer">
-        %s
-    </div>
+    %s
     <div id="renderComplete" style="display:none;">ready</div>
     <script>
         mermaid.initialize(%s);
@@ -254,7 +264,7 @@ func buildMermaidPNGHTML(mermaidCode string, width, height int, themes ...render
         }, 1500);
     </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJSWithTheme(true, theme))
+</html>`, mermaidRenderCSP, embeddedMermaidScriptTag, width, renderer.BuildMermaidDiv(mermaidCode), renderer.MermaidInitConfigJSWithTheme(true, theme))
 }
 
 // buildChartHTML arma la página temporal usada para rasterizar un chart de
@@ -841,10 +851,18 @@ func (r *ChromiumRenderer) RenderMermaidToPNG(ctx context.Context, mermaidCode s
 
 // RenderMermaidToPNGWithTheme is the PNG counterpart of
 // RenderMermaidToSVGWithTheme.
+//
+// width es el ancho de layout (px CSS) que ve mermaid antes de dibujar; height
+// solo es el alto inicial de la ventana. El PNG es la caja real del <svg>
+// (sin el margen de un contenedor fijo) a mermaidPNGDeviceScale px por px
+// CSS, así que su tamaño natural es ancho/alto del PNG entre ese factor.
+// Antes se capturaba un #mermaidContainer fijo de width×height: un diagrama
+// chico quedaba como una isla en un PNG mayormente blanco, y uno más alto
+// que el contenedor se recortaba.
 func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, mermaidCode string, width, height int, theme renderer.DiagramThemeColors) ([]byte, error) {
 	r.logger.Info("MERMAID", "Rendering diagram to PNG...")
 
-	html := buildMermaidPNGHTML(mermaidCode, width, height, theme)
+	html := buildMermaidPNGHTML(mermaidCode, width, theme)
 
 	var pngData []byte
 
@@ -863,12 +881,38 @@ func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, merm
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
+	viewportW := int64(width + 16)
+	viewportH := int64(height)
+	if viewportH < 600 {
+		viewportH = 600
+	}
+	var box struct {
+		Width  float64 `json:"width"`
+		Height float64 `json:"height"`
+	}
 	err := chromedp.Run(runCtx,
+		emulation.SetDeviceMetricsOverride(viewportW, viewportH, mermaidPNGDeviceScale, false),
 		navigateAndSetContent(html),
 		chromedp.WaitVisible(".mermaid svg", chromedp.ByQuery),
 		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
-		chromedp.Screenshot("#mermaidContainer", &pngData, chromedp.ByID),
+		chromedp.Evaluate(`(() => { const r = document.querySelector('.mermaid svg').getBoundingClientRect(); return {width: r.right, height: r.bottom}; })()`, &box),
+		// La ventana tiene que contener el diagrama entero: un elemento más
+		// alto que la ventana sale recortado en la captura.
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			w, h := viewportW, viewportH
+			if need := int64(math.Ceil(box.Width)) + 8; need > w {
+				w = need
+			}
+			if need := int64(math.Ceil(box.Height)) + 8; need > h {
+				h = need
+			}
+			if w == viewportW && h == viewportH {
+				return nil
+			}
+			return emulation.SetDeviceMetricsOverride(w, h, mermaidPNGDeviceScale, false).Do(ctx)
+		}),
+		chromedp.Screenshot(".mermaid svg", &pngData, chromedp.ByQuery),
 	)
 
 	if err != nil {
