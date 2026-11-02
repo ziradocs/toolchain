@@ -46,6 +46,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 	rootCmd.AddCommand(internalcli.NewFmtCommand())
 	rootCmd.AddCommand(internalcli.NewInitCommand())
 	rootCmd.AddCommand(internalcli.NewMCPCommand())
+	rootCmd.AddCommand(internalcli.NewLicensesCommand())
 
 	return rootCmd
 }

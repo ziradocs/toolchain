@@ -29,11 +29,18 @@ var embeddedMermaidJS string
 // El bundle no contiene "</script" (lo verifica un test); el reemplazo es
 // solo una defensa por si un bump futuro lo trajera, y es inocuo dentro de
 // JS ("<\/" y "</" son el mismo texto en strings y regex).
-var embeddedMermaidScriptTag = "<script>" + strings.ReplaceAll(embeddedMermaidJS, "</script", `<\/script`) + "</script>"
+var embeddedMermaidScriptTag = inlineScriptTag(embeddedMermaidJS)
 
-// mermaidRenderCSP es la CSP de las páginas de mermaid: igual que
-// mermaidAndChartRenderCSP pero sin cdn.jsdelivr.net, porque el script ya
-// va inline. Sin ningún origen de red permitido, una página de mermaid no
-// puede pedir nada afuera aunque quisiera.
+// inlineScriptTag envuelve un bundle embebido en un <script> inline. Los
+// bundles no contienen "</script" (lo verifican los tests de cada embed); el
+// reemplazo es solo una defensa por si un bump futuro lo trajera.
+func inlineScriptTag(js string) string {
+	return "<script>" + strings.ReplaceAll(js, "</script", `<\/script`) + "</script>"
+}
+
+// mermaidRenderCSP es la CSP de las páginas de mermaid (y, con otro nombre,
+// de chart y math): sin cdn.jsdelivr.net, porque el script ya va inline. Sin
+// ningún origen de red permitido, la página no puede pedir nada afuera
+// aunque quisiera.
 const mermaidRenderCSP = "default-src 'none'; script-src 'unsafe-inline'; " +
 	"style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none';"

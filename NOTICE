@@ -21,3 +21,44 @@ as-is without modification to their license terms:
   core/renderer/chromium/third_party/mermaid/LICENSE. That bundle includes
   its own dependencies, whose license notices are kept inside it (among
   them DOMPurify, Apache-2.0 or MPL-2.0, and js-yaml, MIT).
+- Chart.js 4.5.1 (https://github.com/chartjs/Chart.js), MIT License,
+  Copyright (c) 2014-2024 Chart.js Contributors, and chartjs-chart-treemap
+  4.2.0 (https://github.com/kurkle/chartjs-chart-treemap), MIT License,
+  Copyright (c) 2019-2021 Jukka Kurkela. The unmodified builds
+  dist/chart.umd.js and dist/chartjs-chart-treemap.min.js are embedded in
+  core/renderer/chromium so charts render to DOCX/PDF without network
+  access; their license texts are in
+  core/renderer/chromium/third_party/chartjs/LICENSE.md and
+  core/renderer/chromium/third_party/chartjs-chart-treemap/LICENSE.
+- MathJax 4.1.3 (https://github.com/mathjax/MathJax), Apache License 2.0,
+  by The MathJax Consortium. The unmodified files tex-svg.js, ui/safe.js
+  and 32 of the input/tex/extensions/*.js files are embedded in
+  core/renderer/chromium
+  so equations render to DOCX/PDF without network access; the license text
+  is in core/renderer/chromium/third_party/mathjax/LICENSE. tex-svg.js
+  also contains the base glyphs of the MathJax-Newcm font (next entry).
+- MathJax-Newcm font for MathJax, @mathjax/mathjax-newcm-font 4.1.3: all
+  40 of its svg/dynamic/*.js files, unmodified, embedded in
+  core/renderer/chromium. Its JavaScript packaging is by MathJax, Inc.,
+  declared Apache License 2.0 by the package (which ships no license file;
+  the text is in third_party/mathjax-newcm-font/LICENSE). Its glyph outline
+  data, in those files and in tex-svg.js, is derived from the New Computer
+  Modern fonts, (C) 2019-2021 Antonis Tsolomitis, under the GUST Font
+  License, i.e. the LaTeX Project Public License 1.3c or later; the texts
+  are in core/renderer/chromium/third_party/mathjax-newcm-font/
+  GUST-FONT-LICENSE.txt and LPPL-1.3c.txt. This is a modified version:
+  MathJax converted the glyphs to SVG path data and renamed the font. The
+  unmodified original is available on CTAN as `newcomputermodern`
+  (https://ctan.org/pkg/newcomputermodern). Redistribution here implies no
+  support from the original author. Details in
+  core/renderer/chromium/third_party/mathjax-newcm-font/README.
+- mhchem font extension for MathJax,
+  @mathjax/mathjax-mhchem-font-extension 4.1.3: its svg.js, unmodified,
+  embedded in core/renderer/chromium for the mhchem extension (\ce). Same
+  terms as the MathJax-Newcm font above: JavaScript packaging by MathJax,
+  Inc., declared Apache License 2.0 (text in
+  third_party/mathjax-mhchem-font-extension/LICENSE); glyph outline data
+  converted by MathJax from New Computer Modern, (C) 2019-2021 Antonis
+  Tsolomitis, under the GUST Font License / LPPL 1.3c or later, original on
+  CTAN as `newcomputermodern`, no support implied from the original author.
+  Details in core/renderer/chromium/third_party/mathjax-mhchem-font-extension/README.

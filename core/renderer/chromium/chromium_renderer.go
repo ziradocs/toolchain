@@ -30,10 +30,6 @@ import (
 // exfiltración ciega en el exploit de referencia.
 // Ver docs/SECURITY_AUDIT_2026-07.md, CR-6 / issue #24.
 const (
-	// mermaidAndChartRenderCSP cubre tanto mermaid como chart: ambos cargan
-	// su script únicamente desde jsdelivr y no necesitan imágenes externas.
-	mermaidAndChartRenderCSP = "default-src 'none'; script-src https://cdn.jsdelivr.net 'unsafe-inline'; " +
-		"style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none';"
 	mapRenderCSP = "default-src 'none'; script-src https://unpkg.com 'unsafe-inline'; " +
 		"style-src https://unpkg.com 'unsafe-inline'; " +
 		"img-src https://*.tile.openstreetmap.org https://server.arcgisonline.com " +
@@ -113,13 +109,7 @@ func buildMermaidSVGHTML(mermaidCode string, themes ...renderer.DiagramThemeColo
 </html>`, mermaidRenderCSP, embeddedMermaidScriptTag, mermaidSVGContainerWidthPx, renderer.BuildMermaidDiv(mermaidCode))
 }
 
-// buildMathSVGHTML arma la página temporal usada para rasterizar una
-// ecuación LaTeX a SVG (issue #239-B). Reutiliza mermaidAndChartRenderCSP
-// tal cual: MathJax también carga únicamente desde jsdelivr y no necesita
-// imágenes externas, mismo perfil que mermaid/chart. El contenido es dato
-// del usuario: BuildMathDiv (math_html.go) ya lo HTML-escapa antes de
-// insertarlo (MathJax lee el textContent del nodo, igual razonamiento de
-// seguridad que buildMermaidSVGHTML/CR-6/AL-6, issue #24).
+// mathThemeCSS aplica los colores del tema de diagramas a la página de math.
 func mathThemeCSS(theme renderer.DiagramThemeColors) string {
 	var declarations []string
 	if color := theme.MermaidThemeVariables()["primaryTextColor"]; color != "" {
@@ -163,17 +153,29 @@ func embedMathThemeInSVG(svg string, theme renderer.DiagramThemeColors) string {
 	return svg[:end] + attrs.String() + svg[end:end+1] + content + svg[end+1:]
 }
 
+// buildMathSVGHTML arma la página temporal usada para rasterizar una
+// ecuación LaTeX a SVG (issue #239-B), con MathJax inline y la CSP sin red
+// de mathRenderCSP. El contenido es dato del usuario: BuildMathDiv
+// (math_html.go) ya lo HTML-escapa antes de insertarlo (MathJax lee el
+// textContent del nodo, igual razonamiento de seguridad que
+// buildMermaidSVGHTML/CR-6/AL-6, issue #24).
 func buildMathSVGHTML(latex string, themes ...renderer.DiagramThemeColors) string {
 	theme := renderer.DiagramThemeColors{}
 	if len(themes) > 0 {
 		theme = themes[0]
 	}
+	return buildMathSVGPage(latex, theme)
+}
+
+// buildMathSVGPage es buildMathSVGHTML con el tema ya resuelto. MathJax va
+// inline y lo que carga a demanda lo sirve serveMathAssets (math_embed.go),
+// así que la página no pide nada a la red.
+func buildMathSVGPage(latex string, theme renderer.DiagramThemeColors) string {
 	return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="` + mermaidAndChartRenderCSP + `">
-    ` + renderer.MathCDNScriptTag + `
+    ` + mathPageHead() + `
     <style>
         ` + mathThemeCSS(theme) + `
         body { margin: 0; padding: 20px; background: white; }
@@ -187,39 +189,36 @@ func buildMathSVGHTML(latex string, themes ...renderer.DiagramThemeColors) strin
 
 // buildMathPNGHTML arma la página temporal usada para rasterizar una
 // ecuación LaTeX a PNG (issue #239-B, DOCX) — mismo patrón que
-// buildMermaidPNGHTML: contenedor de tamaño fijo + señal "renderComplete"
-// vía setTimeout heurístico (MathJax no expone un callback tan simple como
-// mermaid.initialize() para "ya tipografié"; se usa el mismo heurístico de
-// tiempo fijo que ya usa el path PNG de Mermaid, no un rigor menor).
+// buildMermaidPNGHTML: contenedor de tamaño fijo. La captura espera a que
+// MathJax deje el <svg> en el DOM (mathStateJS); renderComplete se conserva
+// como marca de compatibilidad.
 func buildMathPNGHTML(latex string, width, height int, themes ...renderer.DiagramThemeColors) string {
 	theme := renderer.DiagramThemeColors{}
 	if len(themes) > 0 {
 		theme = themes[0]
 	}
-	return fmt.Sprintf(`<!DOCTYPE html>
+	return buildMathPNGPage(latex, width, height, theme)
+}
+
+func buildMathPNGPage(latex string, width, height int, theme renderer.DiagramThemeColors) string {
+	return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="%s">
-    `+renderer.MathCDNScriptTag+`
+    ` + mathPageHead() + `
     <style>
-        `+mathThemeCSS(theme)+`
+        ` + mathThemeCSS(theme) + `
         body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; }
-        #mathContainer { width: %dpx; height: %dpx; display: flex; justify-content: center; align-items: center; }
+        #mathContainer { width: ` + fmt.Sprint(width) + `px; height: ` + fmt.Sprint(height) + `px; display: flex; justify-content: center; align-items: center; }
     </style>
 </head>
 <body>
     <div id="mathContainer">
-        %s
+        ` + renderer.BuildMathDiv(latex) + `
     </div>
     <div id="renderComplete" style="display:none;">ready</div>
-    <script>
-        setTimeout(() => {
-            document.getElementById('renderComplete').setAttribute('data-ready', 'true');
-        }, 1500);
-    </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, width, height, renderer.BuildMathDiv(latex))
+</html>`
 }
 
 // mermaidPNGDeviceScale es el deviceScaleFactor con el que se captura un
@@ -296,8 +295,8 @@ func buildChartHTML(chartConfig string, width, height int, surface string) strin
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="%s">
-    `+renderer.ChartJSCDNScriptTag+`
-    `+renderer.ChartJSTreemapCDNScriptTag+`
+    %s
+    %s
     <style>
         body { margin: 0; padding: 0; background: %s; }
         #chartContainer { width: %dpx; height: %dpx; }
@@ -309,17 +308,22 @@ func buildChartHTML(chartConfig string, width, height int, surface string) strin
     </div>
     <div id="renderComplete" style="display:none;">ready</div>
     <script>
-        const ctx = document.getElementById('myChart').getContext('2d');
-        const config = %s;
-        const chart = new Chart(ctx, config);
+        try {
+            const ctx = document.getElementById('myChart').getContext('2d');
+            const config = %s;
+            const chart = new Chart(ctx, config);
 
-        // Esperar a que la animación termine completamente
-        setTimeout(() => {
-            document.getElementById('renderComplete').setAttribute('data-ready', 'true');
-        }, 1500);
+            // Esperar a que la animación termine completamente
+            setTimeout(() => {
+                document.getElementById('renderComplete').setAttribute('data-ready', 'true');
+                window.__renderReady = true;
+            }, 1500);
+        } catch (e) {
+            window.__renderError = 'Chart.js: ' + ((e && e.message) ? e.message : e);
+        }
     </script>
 </body>
-</html>`, mermaidAndChartRenderCSP, chartSurfaceCSS(surface), width, height, chartConfig)
+</html>`, chartRenderCSP, renderErrorHookJS, embeddedChartScriptTags, chartSurfaceCSS(surface), width, height, chartConfig)
 }
 
 // setDocumentContentAction navega a about:blank e inyecta htmlContent
@@ -541,10 +545,9 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 		return fmt.Errorf("chromium rendering failed: %w", err)
 	}
 
-	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
-	defer tabCancel()
-
-	runCtx, cancel := withCallerCancel(tabCtx, ctx)
+	// Plazo propio (pdfPrintTimeout): las esperas de abajo ya estaban
+	// acotadas una por una (fuentes 3 s), pero el conjunto no.
+	runCtx, cancel := r.newCaptureContext(ctx, pdfPrintTimeout)
 	defer cancel()
 
 	// Ejecutar chromedp. htmlContent es el documento completo del usuario
@@ -578,7 +581,7 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 	)
 
 	if err != nil {
-		return fmt.Errorf("chromium rendering failed: %w", err)
+		return captureError("PDF", pdfPrintTimeout, ctx, err)
 	}
 
 	// Guardar PDF
@@ -737,10 +740,7 @@ func (r *ChromiumRenderer) RenderMermaidToSVGWithTheme(ctx context.Context, merm
 		return "", fmt.Errorf("mermaid rendering failed: %w", err)
 	}
 
-	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
-	defer tabCancel()
-
-	runCtx, cancel := withCallerCancel(tabCtx, ctx)
+	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
 	defer cancel()
 
 	// Renderizar con Chromium. Se inyecta el HTML vía about:blank +
@@ -754,7 +754,7 @@ func (r *ChromiumRenderer) RenderMermaidToSVGWithTheme(ctx context.Context, merm
 	)
 
 	if err != nil {
-		return "", fmt.Errorf("mermaid rendering failed: %w", err)
+		return "", captureError("mermaid", captureTimeout, ctx, err)
 	}
 
 	r.logger.Info("MERMAID", "✅ SVG rendered (%.2f KB)", float64(len(svgContent))/1024)
@@ -778,37 +778,38 @@ func (r *ChromiumRenderer) RenderMathToSVG(ctx context.Context, latex string) (s
 func (r *ChromiumRenderer) RenderMathToSVGWithTheme(ctx context.Context, latex string, theme renderer.DiagramThemeColors) (string, error) {
 	r.logger.Info("MATH", "Rendering equation to SVG...")
 
-	html := buildMathSVGHTML(latex, theme)
-
-	var svgContent string
-
 	if err := r.ensureBrowser(ctx); err != nil {
 		return "", fmt.Errorf("math rendering failed: %w", err)
 	}
 
-	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
-	defer tabCancel()
-
-	runCtx, cancel := withCallerCancel(tabCtx, ctx)
-	defer cancel()
-
-	// Renderizar con Chromium. Se inyecta el HTML vía about:blank +
-	// Page.setDocumentContent en vez de escribir un archivo temporal y
-	// navegar a file:// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
-	err := chromedp.Run(runCtx,
-		navigateAndSetContent(html),
-		chromedp.WaitVisible("mjx-container svg", chromedp.ByQuery),
-		chromedp.Sleep(200*time.Millisecond), // Esperar tipografiado completo
+	var svgContent string
+	err := r.renderMath(ctx, chromedp.Tasks{
+		// Se inyecta el HTML vía about:blank + Page.setDocumentContent en
+		// vez de escribir un archivo temporal y navegar a file://
+		// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
+		navigateAndSetContent(buildMathSVGPage(latex, theme)),
+		waitRenderState(mathStateJS),
+		chromedp.Sleep(200 * time.Millisecond), // Esperar tipografiado completo
 		chromedp.OuterHTML("mjx-container svg", &svgContent, chromedp.ByQuery),
-	)
-
+	})
 	if err != nil {
-		return "", fmt.Errorf("math rendering failed: %w", err)
+		return "", err
 	}
 	svgContent = embedMathThemeInSVG(svgContent, theme)
 
 	r.logger.Info("MATH", "✅ SVG rendered (%.2f KB)", float64(len(svgContent))/1024)
 	return svgContent, nil
+}
+
+// renderMath corre una captura de math en su propio tab, con su plazo y con
+// los archivos de MathJax servidos desde el binario (serveMathAssets).
+func (r *ChromiumRenderer) renderMath(ctx context.Context, tasks chromedp.Tasks) error {
+	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
+	defer cancel()
+	if err := chromedp.Run(runCtx, append(chromedp.Tasks{serveMathAssets()}, tasks...)); err != nil {
+		return captureError("math", captureTimeout, ctx, err)
+	}
+	return nil
 }
 
 // RenderMathToPNG renderiza una ecuación LaTeX a PNG (issue #239-B, uso
@@ -823,31 +824,86 @@ func (r *ChromiumRenderer) RenderMathToPNG(ctx context.Context, latex string, wi
 func (r *ChromiumRenderer) RenderMathToPNGWithTheme(ctx context.Context, latex string, width, height int, theme renderer.DiagramThemeColors) ([]byte, error) {
 	r.logger.Info("MATH", "Rendering equation to PNG...")
 
-	html := buildMathPNGHTML(latex, width, height, theme)
+	if err := r.ensureBrowser(ctx); err != nil {
+		return nil, fmt.Errorf("math rendering failed: %w", err)
+	}
 
 	var pngData []byte
+	err := r.renderMath(ctx, chromedp.Tasks{
+		navigateAndSetContent(buildMathPNGPage(latex, width, height, theme)),
+		waitRenderState(mathStateJS),
+		chromedp.Sleep(200 * time.Millisecond),
+		bringTabToFront(),
+		chromedp.Screenshot("#mathContainer", &pngData, chromedp.ByID),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	r.logger.Info("MATH", "✅ PNG rendered (%.2f KB)", float64(len(pngData))/1024)
+	return pngData, nil
+}
+
+// MathPNGDeviceScale es el deviceScaleFactor de RenderMathToFittedPNGWithTheme:
+// 2 px por px CSS, como mermaidPNGDeviceScale. El tamaño natural de la
+// ecuación es el del PNG entre este factor (a 96 px CSS por pulgada).
+const MathPNGDeviceScale = 2
+
+// mathPNGPaddingPx es el margen (px CSS) que se deja alrededor de la caja
+// del <svg> al recortar, para que los trazos que sobresalen un poco de la
+// caja (subíndices, el gancho de una integral) no queden cortados.
+const mathPNGPaddingPx = 4
+
+// RenderMathToFittedPNGWithTheme rasteriza una ecuación a PNG recortado a la
+// caja de la ecuación, a MathPNGDeviceScale px por px CSS, con el mismo
+// tamaño de letra que la salida HTML. RenderMathToPNGWithTheme, en cambio,
+// captura un contenedor fijo de width×height con la ecuación chica en el
+// medio; se conserva tal cual porque slidelang (PPTX) la escala al ancho de
+// la lámina.
+func (r *ChromiumRenderer) RenderMathToFittedPNGWithTheme(ctx context.Context, latex string, theme renderer.DiagramThemeColors) ([]byte, error) {
+	r.logger.Info("MATH", "Rendering equation to PNG...")
 
 	if err := r.ensureBrowser(ctx); err != nil {
 		return nil, fmt.Errorf("math rendering failed: %w", err)
 	}
 
-	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
-	defer tabCancel()
-
-	runCtx, cancel := withCallerCancel(tabCtx, ctx)
-	defer cancel()
-
-	err := chromedp.Run(runCtx,
-		navigateAndSetContent(html),
-		chromedp.WaitVisible("mjx-container svg", chromedp.ByQuery),
-		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
-		chromedp.Sleep(200*time.Millisecond),
+	var pngData []byte
+	var box struct {
+		X      float64 `json:"x"`
+		Y      float64 `json:"y"`
+		Width  float64 `json:"width"`
+		Height float64 `json:"height"`
+	}
+	err := r.renderMath(ctx, chromedp.Tasks{
+		emulation.SetDeviceMetricsOverride(1200, 600, MathPNGDeviceScale, false),
+		navigateAndSetContent(buildMathSVGPage(latex, theme)),
+		waitRenderState(mathStateJS),
+		chromedp.Sleep(200 * time.Millisecond),
+		chromedp.Evaluate(fmt.Sprintf(`(() => { const r = document.querySelector('mjx-container svg').getBoundingClientRect(); const p = %d; return {x: r.left + window.scrollX - p, y: r.top + window.scrollY - p, width: r.width + 2*p, height: r.height + 2*p}; })()`, mathPNGPaddingPx), &box),
 		bringTabToFront(),
-		chromedp.Screenshot("#mathContainer", &pngData, chromedp.ByID),
-	)
-
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			if box.Width <= 2*mathPNGPaddingPx || box.Height <= 2*mathPNGPaddingPx {
+				return fmt.Errorf("MathJax produced an empty equation (%.0fx%.0f)", box.Width, box.Height)
+			}
+			buf, err := page.CaptureScreenshot().
+				WithFormat(page.CaptureScreenshotFormatPng).
+				WithCaptureBeyondViewport(true).
+				WithClip(&page.Viewport{
+					X:      math.Max(0, math.Floor(box.X)),
+					Y:      math.Max(0, math.Floor(box.Y)),
+					Width:  math.Ceil(box.Width),
+					Height: math.Ceil(box.Height),
+					Scale:  1,
+				}).Do(ctx)
+			if err != nil {
+				return err
+			}
+			pngData = buf
+			return nil
+		}),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("math rendering failed: %w", err)
+		return nil, err
 	}
 
 	r.logger.Info("MATH", "✅ PNG rendered (%.2f KB)", float64(len(pngData))/1024)
@@ -881,11 +937,7 @@ func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, merm
 		return nil, fmt.Errorf("mermaid rendering failed: %w", err)
 	}
 
-	// Crear un nuevo tab context para esta renderización
-	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
-	defer tabCancel()
-
-	runCtx, cancel := withCallerCancel(tabCtx, ctx)
+	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
 	defer cancel()
 
 	// Renderizar con Chromium - esperar a que el renderizado esté completo.
@@ -936,7 +988,7 @@ func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, merm
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("mermaid rendering failed: %w", err)
+		return nil, captureError("mermaid", captureTimeout, ctx, err)
 	}
 
 	r.logger.Info("MERMAID", "✅ PNG rendered (%.2f KB)", float64(len(pngData))/1024)
@@ -972,11 +1024,9 @@ func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, char
 		return nil, fmt.Errorf("chart rendering failed: %w", err)
 	}
 
-	// IMPORTANTE: Crear un nuevo tab context para esta renderización
-	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
-	defer tabCancel()
-
-	runCtx, cancel := withCallerCancel(tabCtx, ctx)
+	// Tab propio con plazo (newCaptureContext): una página que no avisa
+	// "listo" ni "error" termina en timeout, nunca en una espera sin fin.
+	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
 	defer cancel()
 
 	// Renderizar con Chromium - esperar a que el renderizado esté completo.
@@ -985,15 +1035,14 @@ func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, char
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
 	err := chromedp.Run(runCtx,
 		navigateAndSetContent(html),
-		chromedp.WaitVisible("#myChart", chromedp.ByID),
-		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
+		waitRenderState(renderStateJS),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
 		bringTabToFront(),
 		chromedp.Screenshot("#chartContainer", &pngData, chromedp.ByID),
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("chart rendering failed: %w", err)
+		return nil, captureError("chart", captureTimeout, ctx, err)
 	}
 
 	r.logger.Info("CHART", "✅ PNG rendered (%.2f KB)", float64(len(pngData))/1024)
@@ -1043,16 +1092,18 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
 	err := chromedp.Run(runCtx,
 		navigateAndSetContent(html),
-		chromedp.WaitVisible("#map", chromedp.ByID),
-		// Esperar a que window.mapReady sea true (establecido por el JavaScript)
-		chromedp.Poll(`window.mapReady === true`, nil, chromedp.WithPollingInterval(200*time.Millisecond)),
+		// Esperar a que window.mapReady sea true (establecido por el
+		// JavaScript), o a que la página reporte un error: sin red, Leaflet
+		// no carga, `L.map` lanza y eso corta la espera de inmediato en vez
+		// de agotar el plazo por zoom.
+		waitRenderState(mapStateJS),
 		chromedp.Sleep(200*time.Millisecond), // Pequeño buffer para asegurar rendering completo
 		bringTabToFront(),
 		chromedp.Screenshot("#mapContainer", &pngData, chromedp.ByID),
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("map rendering failed: %w", err)
+		return nil, captureError("map", timeout, ctx, err)
 	}
 
 	r.logger.Info("MAP", "✅ PNG rendered (%.2f KB)", float64(len(pngData))/1024)
@@ -1079,22 +1130,20 @@ func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, cha
 		return nil, fmt.Errorf("chart rendering to WebP failed: %w", err)
 	}
 
-	// IMPORTANTE: Crear un nuevo tab context para esta renderización
-	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
-	defer tabCancel()
-
-	runCtx, cancel := withCallerCancel(tabCtx, ctx)
+	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
 	defer cancel()
 
 	// Renderizar con Chromium usando CDP para captura WebP - esperar renderizado completo.
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
-	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
+	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78). bringTabToFront: mismo
+	// cuelgue de Page.captureScreenshot en un tab inactivo que #450 arregló
+	// en el camino PNG.
 	err := chromedp.Run(runCtx,
 		navigateAndSetContent(html),
-		chromedp.WaitVisible("#myChart", chromedp.ByID),
-		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
+		waitRenderState(renderStateJS),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
+		bringTabToFront(),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			// Usar page.CaptureScreenshot con formato WebP
 			buf, err := page.CaptureScreenshot().
@@ -1117,7 +1166,7 @@ func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, cha
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("chart rendering to WebP failed: %w", err)
+		return nil, captureError("chart (WebP)", captureTimeout, ctx, err)
 	}
 
 	r.logger.Info("CHART", "✅ WebP rendered (%.2f KB)", float64(len(webpData))/1024)
@@ -1144,7 +1193,8 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	defer tabCancel()
 
 	// Crear contexto con timeout para evitar espera infinita
-	timeoutCtx, timeoutCancel := context.WithTimeout(tabCtx, 30*time.Second)
+	const timeout = 30 * time.Second
+	timeoutCtx, timeoutCancel := context.WithTimeout(tabCtx, timeout)
 	defer timeoutCancel()
 
 	runCtx, cancel := withCallerCancel(timeoutCtx, ctx)
@@ -1156,10 +1206,12 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
 	err := chromedp.Run(runCtx,
 		navigateAndSetContent(html),
-		chromedp.WaitVisible("#map", chromedp.ByID),
-		// Esperar a que el atributo data-ready='true' exista (el elemento tiene display:none)
-		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
+		// generateLeafletHTML publica window.mapReady, no un
+		// #renderComplete (que este camino esperaba y la página nunca
+		// creó: todo mapa WebP agotaba los 30 s).
+		waitRenderState(mapStateJS),
 		chromedp.Sleep(300*time.Millisecond), // Buffer adicional
+		bringTabToFront(),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			// Usar page.CaptureScreenshot con formato WebP
 			buf, err := page.CaptureScreenshot().
@@ -1182,7 +1234,7 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("map rendering to WebP failed: %w", err)
+		return nil, captureError("map (WebP)", timeout, ctx, err)
 	}
 
 	r.logger.Info("MAP", "✅ WebP rendered (%.2f KB)", float64(len(webpData))/1024)
@@ -1239,6 +1291,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="%s">
+    `+renderErrorHookJS+`
     `+renderer.LeafletCDNCSSTag+`
     `+renderer.LeafletCDNScriptTag+`
     <style>
@@ -1251,6 +1304,11 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
     <div id="mapContainer">
         <div id="map"></div>
     </div>
+    <script>
+        if (typeof L === 'undefined') {
+            window.__renderError = 'Leaflet did not load from unpkg.com (no network access?)';
+        }
+    </script>
     <script>
         const map = L.map('map').setView([%f, %f], %d);
         const tileLayer = L.tileLayer('%s', {

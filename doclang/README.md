@@ -116,6 +116,22 @@ Note that a single binary is enough for HTML and Markdown, but PDF, DOCX and the
 modes reach for headless Chromium — `--install-chromium` fetches a pinned build if you
 don't have one.
 
+PDF, DOCX and the offline modes don't need network access for Mermaid, charts or math:
+the binary carries its own copies of mermaid 10.9.6, Chart.js 4.5.1 (plus the treemap
+plugin) and MathJax 4.1.3, the same builds browser mode loads from the CDN. Math also
+accepts a fenced ` ```math ` (or `~~~math`) block, besides `<<math>>` and `$$`;
+`doclang fmt` rewrites it as `<<math>>`. The TeX extensions that
+need a font of their own besides mhchem (`\require{bbm}`, `bboldx`, `dsfont`) are not
+embedded and still need network; without it they fail with a warning. `doclang licenses`
+prints the license and third-party notices of everything the binary embeds. Every Chromium capture
+has a deadline (30 s per capture of a chart, diagram or equation, 5 min to print the
+PDF), so a resource that can't load ends in a warning instead of a hung build.
+
+Maps still need the tile servers (and Leaflet from unpkg.com), and PlantUML its server.
+Without network a map is left out with a warning: in under a second when connections are
+refused, and at most after a 5 s probe plus the map's deadline (15 s, 20 s from zoom 7,
+60 s from zoom 11) when they hang.
+
 ## MCP server
 
 `doclang mcp` speaks MCP over stdio and exposes five tools. Four work in memory and never
@@ -152,9 +168,10 @@ root. Lint errors come back as an error result carrying the diagnostics, as in `
   Edge, or run `doclang build --install-chromium` once from a terminal. `--chromium-path`
   points the server at a specific binary.
 - **Network.** HTML uses `build`'s default `browser` mode, so diagrams, charts and math
-  load their scripts from a CDN when the page is opened. While exporting, the same hosts
-  as `build` are contacted: PlantUML diagrams go to the public `plantuml.com` server, and
-  map tiles come from OpenStreetMap or ArcGIS.
+  load their scripts from a CDN when the page is opened. DOCX and PDF render Mermaid,
+  charts and math without network. While exporting, the same hosts as `build` are
+  contacted: PlantUML diagrams go to the public `plantuml.com` server, and map tiles come
+  from OpenStreetMap or ArcGIS.
 - **Limits.** Two exports at a time; a third concurrent call gets a "server busy" error
   instead of waiting. Three minutes per export, and the input size cap of `build`
   (10 MB, or `DOCLANG_MAX_SIZE`). The document is written to a temporary file and moved

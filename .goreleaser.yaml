@@ -40,6 +40,18 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    # LICENSE, NOTICE y los textos de licencia de lo que el binario embebe
+    # (mermaid, Chart.js, MathJax y los glifos de New Computer Modern bajo la
+    # GUST Font License / LPPL 1.3c, cuyo README lleva los avisos de la
+    # cláusula 6). El binario los trae también: `<cli> licenses`.
+    files:
+      - LICENSE
+      - NOTICE
+      - core/renderer/chromium/third_party/**/LICENSE*
+      - core/renderer/chromium/third_party/**/FONT-LICENSE
+      - core/renderer/chromium/third_party/**/GUST-FONT-LICENSE.txt
+      - core/renderer/chromium/third_party/**/LPPL-1.3c.txt
+      - core/renderer/chromium/third_party/**/README
 
   - id: doclang
     ids: [doclang]
@@ -49,6 +61,18 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    # LICENSE, NOTICE y los textos de licencia de lo que el binario embebe
+    # (mermaid, Chart.js, MathJax y los glifos de New Computer Modern bajo la
+    # GUST Font License / LPPL 1.3c, cuyo README lleva los avisos de la
+    # cláusula 6). El binario los trae también: `<cli> licenses`.
+    files:
+      - LICENSE
+      - NOTICE
+      - core/renderer/chromium/third_party/**/LICENSE*
+      - core/renderer/chromium/third_party/**/FONT-LICENSE
+      - core/renderer/chromium/third_party/**/GUST-FONT-LICENSE.txt
+      - core/renderer/chromium/third_party/**/LPPL-1.3c.txt
+      - core/renderer/chromium/third_party/**/README
 
 checksum:
   name_template: "checksums.txt"

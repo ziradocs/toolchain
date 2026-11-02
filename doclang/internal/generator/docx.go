@@ -212,7 +212,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	g.contentWidthIn, g.contentHeightIn = docxContentBoxInches(doc)
 
 	// Configurar metadata
-	if metaTitle := docxMetadataTitle(astDoc); metaTitle != "" || astDoc.FrontMatter != nil {
+	if metaTitle := docxMetadataTitle(astDoc, opts.Title); metaTitle != "" || astDoc.FrontMatter != nil {
 		meta := &domain.Metadata{Title: metaTitle}
 		if astDoc.FrontMatter != nil && astDoc.FrontMatter.Author != "" {
 			meta.Creator = astDoc.FrontMatter.Author
@@ -324,20 +324,31 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	return nil
 }
 
-// docxMetadataTitle es el título de las propiedades del .docx: el `title:`
-// del front matter y, sin él, el primer encabezado de sección que vino de
-// un `#` (Title, no el Heading de un preámbulo). Un .md sin front matter ya
-// no queda con el título vacío. Es el mismo orden que DocumentTitle de la
-// rama de Markdown sin front matter (menos el nombre de archivo, que el
-// generador no conoce); al integrarlas, esto puede tomar opts.Title.
-func docxMetadataTitle(astDoc *ast.AST) string {
+// docxMetadataTitle es el título de las propiedades del .docx (dc:title): el
+// `title:` del front matter y, sin él, el texto del primer `#`. Sin front
+// matter, el orden es el de DocumentTitle (que también usan el <title> del
+// HTML y el del PDF) y después fallback (opts.Title: el que resolvió el
+// caller, p. ej. el nombre del archivo).
+//
+// El primer `#` de un Markdown simple no llega como block.Title sino como
+// block.Heading de un bloque "title" (ver DocumentTitle). Antes solo se leía
+// block.Title, así que un .md sin front matter salía sin título, y uno con
+// dos `#` tomaba el segundo.
+func docxMetadataTitle(astDoc *ast.AST, fallback string) string {
 	if astDoc.FrontMatter != nil && astDoc.FrontMatter.Title != "" {
 		return astDoc.FrontMatter.Title
 	}
 	for i := range astDoc.ContentBlocks {
-		if t := astDoc.ContentBlocks[i].Title; t != "" {
-			return t
+		block := &astDoc.ContentBlocks[i]
+		if block.BlockType == "title" && block.Heading != "" {
+			return block.Heading
 		}
+		if block.Title != "" {
+			return block.Title
+		}
+	}
+	if astDoc.FrontMatter == nil {
+		return fallback
 	}
 	return ""
 }
@@ -3006,6 +3017,60 @@ func fitInBox(w, h, maxW, maxH float64) (float64, float64) {
 	return w * scale, h * scale
 }
 
+// fittedMathRenderer es RenderMathToFittedPNGWithTheme de core (PNG
+// recortado a la ecuación, a 2 px por px CSS). Se pide por interfaz y no por
+// nombre porque este módulo compila también contra el core publicado, que
+// puede no tenerlo todavía; con ese core se cae al PNG de contenedor fijo.
+type fittedMathRenderer interface {
+	RenderMathToFittedPNGWithTheme(ctx context.Context, latex string, theme renderer.DiagramThemeColors) ([]byte, error)
+}
+
+// mathPNGDeviceScale es chromium.MathPNGDeviceScale (ver fittedMathRenderer
+// sobre por qué no se nombra).
+const mathPNGDeviceScale = 2.0
+
+// rasterizeMath devuelve el PNG de la ecuación y el tamaño al que va en la
+// página: el natural (el mismo cuerpo de letra que el HTML), reducido solo si
+// no cabe. Antes era siempre un contenedor de 1600x400 px insertado a 4" de
+// ancho, con la ecuación chica en medio de mucho blanco; ese camino queda
+// solo para un core que todavía no tenga la captura recortada.
+func (g *DOCXGenerator) rasterizeMath(elem *ast.MathElement) ([]byte, float64, float64, error) {
+	if fr, ok := any(g.chromiumRenderer).(fittedMathRenderer); ok {
+		pngBytes, err := fr.RenderMathToFittedPNGWithTheme(g.runCtx(), elem.Content, g.diagramTheme)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		w, h, err := pngNaturalInches(pngBytes, mathPNGDeviceScale)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		w, h = g.fitFigure(w, h, elem.Caption != "")
+		return pngBytes, w, h, nil
+	}
+	pngBytes, err := g.chromiumRenderer.RenderMathToPNGWithTheme(g.runCtx(), elem.Content, 1600, 400, g.diagramTheme)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	w, h, err := pngNaturalInches(pngBytes, 1)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return pngBytes, 4.0, 4.0 * h / w, nil
+}
+
+// pngNaturalInches es el tamaño en pulgadas de un PNG capturado a scale px
+// por px CSS (96 px CSS por pulgada).
+func pngNaturalInches(pngBytes []byte, scale float64) (float64, float64, error) {
+	cfg, err := png.DecodeConfig(bytes.NewReader(pngBytes))
+	if err != nil {
+		return 0, 0, fmt.Errorf("cannot read image dimensions: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, fmt.Errorf("image has no pixels (%dx%d)", cfg.Width, cfg.Height)
+	}
+	return float64(cfg.Width) / scale / cssPxPerInch, float64(cfg.Height) / scale / cssPxPerInch, nil
+}
+
 // diagramFileHash identifica un diagrama rasterizado por lo que lo
 // determina: tipo, fuente y tema. Dos diagramas iguales comparten archivo
 // (es el mismo PNG); dos distintos nunca.
@@ -3049,15 +3114,17 @@ func (g *DOCXGenerator) renderFigureCaption(doc domain.Document, text string) er
 // clase que las ya conocidas de docx.go: bookmarks/hyperlinks reales).
 func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) error {
 	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX: Chromium not available, skipping equation")
-		return nil
+		// Antes la ecuación desaparecía sin dejar marca y el aviso no decía
+		// cuál era. Como mermaid: un marcador en su lugar y la línea.
+		g.logger.Warn("DOCX: equation at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.Position.Line)
+		return g.renderPlaceholder(doc, "Equation (not rendered: Chromium not available)")
 	}
 
 	g.logger.Info("DOCX", "Rendering equation...")
 
-	pngBytes, err := g.chromiumRenderer.RenderMathToPNGWithTheme(g.runCtx(), elem.Content, 1600, 400, g.diagramTheme)
+	pngBytes, widthIn, heightIn, err := g.rasterizeMath(elem)
 	if err != nil {
-		g.logger.Warn("DOCX: Failed to render equation: %v", err)
+		g.logger.Warn("DOCX: line %d: failed to render equation: %v", elem.Position.Line, err)
 		return g.renderPlaceholder(doc, "Equation (render failed)")
 	}
 
@@ -3074,12 +3141,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize, err := widthOnlyImageSize(pngPath, 4.0)
-	if err != nil {
-		g.logger.Warn("DOCX: line %d: equation image could not be inserted: %v", elem.Position.Line, err)
-		return g.renderPlaceholder(doc, "[Equation could not be rendered]")
-	}
-	img, err := p.AddImageWithSize(pngPath, imageSize)
+	img, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn))
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert equation image: %v", err)
 		return g.renderPlaceholder(doc, "Equation")
