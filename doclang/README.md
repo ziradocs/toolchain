@@ -132,6 +132,14 @@ Without network a map is left out with a warning: in under a second when connect
 refused, and at most after a 5 s probe plus the map's deadline (15 s, 20 s from zoom 7,
 60 s from zoom 11) when they hang.
 
+When a map, chart, diagram or equation can't be rendered, or a local image is missing or
+outside `--asset-root`, HTML and PDF show a box with a short note in the document's
+language ("Mapa no disponible", "Image not available", with the image's alt text) instead
+of a broken-image icon or the internal error; the detail goes to the warning. SVG images
+reach DOCX rasterized to PNG with Chromium, at the size the SVG declares
+(`width`/`height`, else its `viewBox`); without Chromium they are left as a marker with a
+warning.
+
 ## MCP server
 
 `doclang mcp` speaks MCP over stdio and exposes five tools. Four work in memory and never
@@ -162,8 +170,8 @@ root. Lint errors come back as an error result carrying the diagnostics, as in `
 - **Root.** `--root` (default: the current directory) is resolved once at startup. The
   input, the output, `@include` files and local images all have to stay inside it, also
   after resolving symlinks.
-- **Chromium.** PDF always needs Chromium, and so does DOCX with mermaid diagrams, math or
-  charts that can't be drawn natively. If it's needed and missing, `export` fails with an
+- **Chromium.** PDF always needs Chromium, and so does DOCX with mermaid diagrams, math,
+  local SVG images or charts that can't be drawn natively. If it's needed and missing, `export` fails with an
   error that names what needs it. It never downloads anything: install Chrome, Chromium or
   Edge, or run `doclang build --install-chromium` once from a terminal. `--chromium-path`
   points the server at a specific binary.
