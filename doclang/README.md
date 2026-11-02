@@ -28,8 +28,10 @@ Same element vocabulary, different document model — worth knowing before you w
 
 - **Sections, not slides.** `#`/`##`/`###` form a nested section hierarchy; sub-levels nest
   inside their parent rather than starting a new top-level block.
-- **No mode switching.** doclang always parses with `DocumentFlexParser`. A `mode:` key in
-  the frontmatter is ignored — there is no strict mode here.
+- **Two modes, picked by `mode:` in the frontmatter.** `flex` (also `flex-full` and `auto`,
+  which are synonyms for documents, and the default with no frontmatter) is Markdown.
+  `strict` is the declarative dialect: `SECTION "Title"` blocks with indented elements,
+  never rewritten by the normalizer. `doclang fmt --strict` transpiles flex to strict.
 - **Frontmatter is optional.** A plain Markdown file with no `---` block builds as is:
   `FRONT003` and the slide layout rules don't run on documents. The output title comes
   from the first `#` heading, or from the file name when there is none. Without
