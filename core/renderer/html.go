@@ -5,6 +5,7 @@ package renderer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/url"
@@ -240,27 +241,9 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	alt := ProcessVariables(elem.Alt, variables)
 	caption := ProcessVariables(elem.Caption, variables)
 
-	// TryInlineLocalImage produce su propio data: URI ya seguro para
-	// interpolar (el alfabeto base64 no puede romper un atributo entre
-	// comillas) — NO pasa por SanitizeURL, que rechaza el scheme "data"
-	// (sanitizer.go) y descartaría exactamente lo que esta rama acaba de
-	// construir. Solo se intenta cuando corresponde (ctx.ImageMode ==
-	// "offline-inline" y la fuente es local); en cualquier otro caso cae
-	// al SanitizeURL(source) de siempre, comportamiento sin cambios.
-	if inlined, ok := TryInlineLocalImage(source, ctx); ok {
-		source = inlined
-	} else {
-		// Sanitizar URL de la imagen para prevenir javascript: y data: URIs peligrosas
-		source = SanitizeURL(source)
-	}
 	// Escapar atributos para prevenir inyección
 	alt = EscapeHTMLAttribute(alt)
 	caption = EscapeHTML(caption)
-
-	if source == "" {
-		// Si la URL es peligrosa, no renderizar la imagen
-		return `<div class="image-error">Image URL blocked for security reasons</div>`
-	}
 
 	// issue #239: Number lo asigna el pase de numeración (xref.Transform,
 	// built-in de #240) ANTES de renderizar — si Label estaba vacío nunca
@@ -274,11 +257,43 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 		// ctx puede ser nil acá (ver el doc comment de TryInlineLocalImage
 		// más abajo: esta función es alcanzable sin pasar por
 		// resolveRenderContext) — Labels("") cae al default "es".
-		lang := ""
-		if ctx != nil {
-			lang = ctx.Lang
+		captionPrefix = fmt.Sprintf("%s %d: ", xref.Labels(contextLang(ctx))[xref.KindFigure], elem.Number)
+	}
+
+	// inlineLocalAsset produce su propio data: URI ya seguro para
+	// interpolar (el alfabeto base64 no puede romper un atributo entre
+	// comillas) — NO pasa por SanitizeURL, que rechaza el scheme "data"
+	// (sanitizer.go) y descartaría exactamente lo que esta rama acaba de
+	// construir. Solo se intenta cuando corresponde (ctx.ImageMode ==
+	// "offline-inline" y la fuente es local); en cualquier otro caso cae
+	// al SanitizeURL(source) de siempre.
+	//
+	// Una fuente local que en offline-inline no se pudo leer (falta, o
+	// quedó fuera de AssetRoot) ya no deja un <img> con el src relativo:
+	// en un PDF ese src no resuelve nunca (about:blank, ver
+	// TryInlineLocalImage) y Chromium imprimía su ícono de imagen rota,
+	// mientras el DOCX dejaba un marcador. Ahora sale un marcador con el
+	// texto alternativo, y el aviso del log sigue siendo el de siempre. En
+	// los demás modos (la vista previa del navegador) el src relativo se
+	// conserva porque el visor lo resuelve, salvo que el confinamiento ya
+	// sepa que la ruta escapa de AssetRoot.
+	inlined, status := inlineLocalAsset(source, ctx, 0, "IMAGE", "image")
+	switch {
+	case status == localAssetInlined:
+		source = inlined
+	case status == localAssetUnavailable || localImageEscapesRoot(source, ctx):
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
+	default:
+		// Sanitizar URL de la imagen para prevenir javascript: y data: URIs peligrosas
+		source = SanitizeURL(source)
+	}
+
+	if source == "" {
+		// Si la URL es peligrosa, no renderizar la imagen
+		if ctx != nil && ctx.Logger != nil {
+			ctx.Logger.Warn("[IMAGE] image source %q blocked: unsafe URL", elem.Source)
 		}
-		captionPrefix = fmt.Sprintf("%s %d: ", xref.Labels(lang)[xref.KindFigure], elem.Number)
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
 	}
 
 	if caption != "" {
@@ -369,8 +384,27 @@ func TryInlineLocalMedia(source string, ctx *RenderContext) (string, bool) {
 // log — p. ej. tag="IMAGE" kind="image" reproduce exactamente el texto
 // que TryInlineLocalImage ya emitía antes de esta extracción.
 func tryInlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag, kind string) (string, bool) {
+	uri, status := inlineLocalAsset(source, ctx, maxBytes, tag, kind)
+	return uri, status == localAssetInlined
+}
+
+// localAssetStatus distingue, para inlineLocalAsset, una fuente a la que el
+// inlineo no aplica (no es offline-inline, no hay AssetRoot, es remota) de
+// una fuente local que debía inlinearse y no se pudo.
+type localAssetStatus int
+
+const (
+	localAssetNotApplicable localAssetStatus = iota
+	localAssetInlined
+	localAssetUnavailable
+)
+
+// inlineLocalAsset es tryInlineLocalAsset con el motivo del fallo: el
+// <img> de renderImageElement necesita saber si la fuente local quedó sin
+// resolver (para no dejar un src roto) o si simplemente no tocaba inlinear.
+func inlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag, kind string) (string, localAssetStatus) {
 	if ctx == nil || ctx.ImageMode != "offline-inline" || source == "" || ctx.AssetRoot == "" {
-		return "", false
+		return "", localAssetNotApplicable
 	}
 	logger := ctx.Logger
 	if logger == nil {
@@ -379,33 +413,61 @@ func tryInlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag,
 	parsed, err := url.Parse(source)
 	if err != nil || parsed.Scheme != "" {
 		// Remoto (http/https/mailto/...) o ya es un data: URI — nada que inlinear.
-		return "", false
+		return "", localAssetNotApplicable
 	}
 
 	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, source)
 	if err != nil {
 		logger.Warn("[%s] local %s %q rejected: %v", tag, kind, source, err)
-		return "", false
+		return "", localAssetUnavailable
 	}
 
 	if maxBytes > 0 {
 		if info, err := os.Stat(resolved); err == nil && info.Size() > maxBytes {
 			logger.Warn("[%s] local %s %q (%d bytes) exceeds the %d byte inline limit, left unresolved", tag, kind, source, info.Size(), maxBytes)
-			return "", false
+			return "", localAssetUnavailable
 		}
 	}
 
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		logger.Warn("[%s] failed to read local %s %q: %v", tag, kind, source, err)
-		return "", false
+		return "", localAssetUnavailable
 	}
 
 	mimeType := mime.TypeByExtension(filepath.Ext(resolved))
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
-	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64Encode(data)), true
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64Encode(data)), localAssetInlined
+}
+
+// localImageEscapesRoot dice si una fuente de imagen local relativa escapa de
+// AssetRoot (con ".." o por un symlink), fuera de offline-inline: ahí el src
+// se deja relativo para que lo resuelva el visor, pero una ruta que el
+// confinamiento rechaza no la va a mostrar ninguna salida de build (el PDF y
+// el DOCX la bloquean), así que la vista previa tampoco. Una ruta absoluta
+// no cuenta: en un HTML servido puede ser una URL relativa a la raíz del
+// sitio. Sin AssetRoot no hay confinamiento que consultar.
+func localImageEscapesRoot(source string, ctx *RenderContext) bool {
+	if ctx == nil || ctx.ImageMode == "offline-inline" || ctx.AssetRoot == "" || source == "" {
+		return false
+	}
+	parsed, err := url.Parse(source)
+	if err != nil || parsed.Scheme != "" || parsed.Host != "" || strings.HasPrefix(source, "/") || filepath.IsAbs(source) {
+		return false
+	}
+	if _, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, parsed.Path); err != nil {
+		if errors.Is(err, util.ErrPathEscapesBase) {
+			logger := ctx.Logger
+			if logger == nil {
+				logger = util.NewNoop()
+			}
+			logger.Warn("[IMAGE] local image %q rejected: %v", source, err)
+			return true
+		}
+	}
+	return false
 }
 
 // tableUsesCellStructure reports whether elem.Cells declares anything that
@@ -931,14 +993,15 @@ func renderMermaidBrowser(content string) string {
 func renderMermaidOfflineAssets(content string, ctx *RenderContext) string {
 	if ctx.MermaidFetcher == nil {
 		// Fallback si no hay fetcher configurado
-		return `<div class="mermaid-error">Mermaid fetcher not configured. Use --mermaid-mode=browser instead.</div>`
+		ctx.Logger.Warn("[MERMAID] diagram not rendered: no offline mermaid renderer is configured")
+		return unavailableDiv("mermaid-error", unavailableDiagram, ctx)
 	}
 
 	// Renderizar y guardar SVG
 	relativePath, err := ctx.MermaidFetcher.FetchAndSave(ctx.Ctx, content, filepath.Join(ctx.OutputDir, "assets"))
 	if err != nil {
 		ctx.Logger.Warn("[MERMAID] failed to render diagram to assets: %v", err)
-		return fmt.Sprintf(`<div class="mermaid-error">Failed to render Mermaid diagram: %v</div>`, err)
+		return unavailableDiv("mermaid-error", unavailableDiagram, ctx)
 	}
 
 	// Generar HTML con referencia al archivo
@@ -950,14 +1013,15 @@ func renderMermaidOfflineAssets(content string, ctx *RenderContext) string {
 func renderMermaidOfflineInline(content string, ctx *RenderContext) string {
 	if ctx.MermaidFetcher == nil {
 		// Fallback si no hay fetcher configurado
-		return `<div class="mermaid-error">Mermaid fetcher not configured. Use --mermaid-mode=browser instead.</div>`
+		ctx.Logger.Warn("[MERMAID] diagram not rendered: no offline mermaid renderer is configured")
+		return unavailableDiv("mermaid-error", unavailableDiagram, ctx)
 	}
 
 	// Renderizar a SVG inline
 	svgContent, err := ctx.MermaidFetcher.FetchInline(ctx.Ctx, content)
 	if err != nil {
 		ctx.Logger.Warn("[MERMAID] failed to render inline diagram: %v", err)
-		return fmt.Sprintf(`<div class="mermaid-error">Failed to render Mermaid diagram: %v</div>`, err)
+		return unavailableDiv("mermaid-error", unavailableDiagram, ctx)
 	}
 
 	// Insertar SVG directamente en el HTML
@@ -1014,12 +1078,13 @@ func renderMathBrowser(content string) string {
 // SVG como archivo — mismo patrón que renderMermaidOfflineAssets.
 func renderMathOfflineAssets(content string, ctx *RenderContext) string {
 	if ctx.MathFetcher == nil {
-		return `<div class="math-error">Math fetcher not configured. Use --math-mode=browser instead.</div>`
+		ctx.Logger.Warn("[MATH] equation not rendered: no offline math renderer is configured")
+		return unavailableDiv("math-error", unavailableEquation, ctx)
 	}
 	relativePath, err := ctx.MathFetcher.FetchAndSave(ctx.Ctx, content, filepath.Join(ctx.OutputDir, "assets"))
 	if err != nil {
 		ctx.Logger.Warn("[MATH] failed to render equation to assets: %v", err)
-		return fmt.Sprintf(`<div class="math-error">Failed to render equation: %v</div>`, err)
+		return unavailableDiv("math-error", unavailableEquation, ctx)
 	}
 	return fmt.Sprintf(`<img src="assets/%s" alt="Equation" class="math-diagram math-offline" type="image/svg+xml">`,
 		relativePath)
@@ -1029,12 +1094,13 @@ func renderMathOfflineAssets(content string, ctx *RenderContext) string {
 // SVG inline — mismo patrón que renderMermaidOfflineInline.
 func renderMathOfflineInline(content string, ctx *RenderContext) string {
 	if ctx.MathFetcher == nil {
-		return `<div class="math-error">Math fetcher not configured. Use --math-mode=browser instead.</div>`
+		ctx.Logger.Warn("[MATH] equation not rendered: no offline math renderer is configured")
+		return unavailableDiv("math-error", unavailableEquation, ctx)
 	}
 	svgContent, err := ctx.MathFetcher.FetchInline(ctx.Ctx, content)
 	if err != nil {
 		ctx.Logger.Warn("[MATH] failed to render inline equation: %v", err)
-		return fmt.Sprintf(`<div class="math-error">Failed to render equation: %v</div>`, err)
+		return unavailableDiv("math-error", unavailableEquation, ctx)
 	}
 	return fmt.Sprintf(`<div class="math-diagram math-inline">%s</div>`, svgContent)
 }
@@ -1117,7 +1183,7 @@ func renderPlantUMLOfflineAssets(content string, ctx *RenderContext) string {
 	if err != nil {
 		// En caso de error, mostrar mensaje y fallback a browser mode
 		ctx.Logger.Warn("[PLANTUML] failed to fetch diagram to assets: %v", err)
-		return fmt.Sprintf(`<div class="plantuml-error">Error loading diagram: %s</div>`, err.Error())
+		return unavailableDiv("plantuml-error", unavailableDiagram, ctx)
 	}
 
 	// Renderizar <img> simple apuntando al asset local
@@ -1142,7 +1208,7 @@ func renderPlantUMLOfflineInline(content string, ctx *RenderContext) string {
 	if err != nil {
 		// En caso de error, mostrar mensaje y fallback a browser mode
 		ctx.Logger.Warn("[PLANTUML] failed to fetch inline diagram: %v", err)
-		return fmt.Sprintf(`<div class="plantuml-error">Error loading diagram: %s</div>`, err.Error())
+		return unavailableDiv("plantuml-error", unavailableDiagram, ctx)
 	}
 
 	// Insertar SVG directamente (agregar clase para styling)
@@ -1289,14 +1355,15 @@ func renderChartBrowser(chartConfig string, line int) string {
 // renderChartOfflineAssets renderiza (nativo si aplica, si no con Chromium) y guarda PNG como archivo
 func renderChartOfflineAssets(elem *ast.ChartElement, chartConfig string, width, height int, ctx *RenderContext) string {
 	if ctx.ChartFetcher == nil {
-		return `<div class="chart-error">Chart fetcher not configured. Use --chart-mode=browser instead.</div>`
+		ctx.Logger.Warn("[CHART] chart not rendered: no offline chart renderer is configured")
+		return unavailableDiv("chart-error", unavailableChart, ctx)
 	}
 
 	// Renderizar y guardar PNG con dimensiones especificadas
 	relativePath, err := ctx.ChartFetcher.FetchAndSave(ctx.Ctx, elem, chartConfig, filepath.Join(ctx.OutputDir, "assets"), width, height)
 	if err != nil {
 		ctx.Logger.Warn("[CHART] failed to render chart to assets: %v", err)
-		return fmt.Sprintf(`<div class="chart-error">Failed to render chart: %v</div>`, err)
+		return unavailableDiv("chart-error", unavailableChart, ctx)
 	}
 
 	// Generar HTML con referencia al archivo
@@ -1306,14 +1373,15 @@ func renderChartOfflineAssets(elem *ast.ChartElement, chartConfig string, width,
 // renderChartOfflineInline renderiza (nativo si aplica, si no con Chromium) e inserta imagen inline (PNG o WebP)
 func renderChartOfflineInline(elem *ast.ChartElement, chartConfig string, width, height int, ctx *RenderContext) string {
 	if ctx.ChartFetcher == nil {
-		return `<div class="chart-error">Chart fetcher not configured. Use --chart-mode=browser instead.</div>`
+		ctx.Logger.Warn("[CHART] chart not rendered: no offline chart renderer is configured")
+		return unavailableDiv("chart-error", unavailableChart, ctx)
 	}
 
 	// Renderizar imagen inline con dimensiones especificadas
 	imageData, err := ctx.ChartFetcher.FetchInline(ctx.Ctx, elem, chartConfig, width, height)
 	if err != nil {
 		ctx.Logger.Warn("[CHART] failed to render inline chart: %v", err)
-		return fmt.Sprintf(`<div class="chart-error">Failed to render chart: %v</div>`, err)
+		return unavailableDiv("chart-error", unavailableChart, ctx)
 	}
 
 	// Convertir a base64
@@ -2471,14 +2539,15 @@ func renderMapBrowser(elem *ast.MapElement, variables map[string]interface{}) st
 // renderMapOfflineAssets renderiza con Chromium y guarda PNG como archivo
 func renderMapOfflineAssets(mapConfig MapConfig, width, height int, ctx *RenderContext) string {
 	if ctx.MapFetcher == nil {
-		return `<div class="map-error">Map fetcher not configured. Use --map-mode=browser instead.</div>`
+		ctx.Logger.Warn("[MAP] map not rendered: no offline map renderer is configured")
+		return unavailableDiv("map-error", unavailableMap, ctx)
 	}
 
 	// Renderizar y guardar PNG con dimensiones especificadas
 	relativePath, err := ctx.MapFetcher.FetchAndSave(ctx.Ctx, mapConfig, filepath.Join(ctx.OutputDir, "assets"), width, height)
 	if err != nil {
 		ctx.Logger.Warn("[MAP] failed to render map to assets: %v", err)
-		return fmt.Sprintf(`<div class="map-error">Failed to render map: %v</div>`, err)
+		return unavailableDiv("map-error", unavailableMap, ctx)
 	}
 
 	// Generar HTML con referencia al archivo
@@ -2488,14 +2557,15 @@ func renderMapOfflineAssets(mapConfig MapConfig, width, height int, ctx *RenderC
 // renderMapOfflineInline renderiza con Chromium e inserta imagen inline (PNG o WebP)
 func renderMapOfflineInline(mapConfig MapConfig, width, height int, ctx *RenderContext) string {
 	if ctx.MapFetcher == nil {
-		return `<div class="map-error">Map fetcher not configured. Use --map-mode=browser instead.</div>`
+		ctx.Logger.Warn("[MAP] map not rendered: no offline map renderer is configured")
+		return unavailableDiv("map-error", unavailableMap, ctx)
 	}
 
 	// Renderizar imagen inline con dimensiones especificadas
 	imageData, err := ctx.MapFetcher.FetchInline(ctx.Ctx, mapConfig, width, height)
 	if err != nil {
 		ctx.Logger.Warn("[MAP] failed to render inline map: %v", err)
-		return fmt.Sprintf(`<div class="map-error">Failed to render map: %v</div>`, err)
+		return unavailableDiv("map-error", unavailableMap, ctx)
 	}
 
 	// Convertir a base64

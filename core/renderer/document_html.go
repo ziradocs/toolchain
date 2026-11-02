@@ -721,15 +721,41 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             margin: 0 auto;
         }
 
-        /* PlantUML error message */
+        /* Contenido no disponible: una imagen que falta o quedó fuera de la
+           raíz de assets, o un chart/mapa/diagrama/ecuación cuya captura
+           falló. Lleva una nota en el idioma del documento (y el texto
+           alternativo de la imagen); el detalle técnico queda en el aviso
+           del build. Ver renderer/unavailable.go. */
+        .image-unavailable,
+        .map-error,
+        .chart-error,
+        .mermaid-error,
+        .math-error,
         .plantuml-error {
-            padding: 1em;
-            background: #fee;
-            border: 1px solid #fcc;
-            border-radius: 4px;
-            color: #c00;
-            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.25em;
+            min-height: 4em;
+            margin: 1em auto;
+            padding: 1em 1.25em;
+            border: 1px dashed var(--doclang-table-border, #cbd5e0);
+            border-radius: 6px;
+            background: var(--doclang-table-stripe-bg, #f8fafc);
+            color: #718096;
             font-size: 0.9em;
+            text-align: center;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+        .unavailable-note {
+            font-weight: 600;
+        }
+
+        .unavailable-title {
+            font-style: italic;
         }
 
         /* Charts */
