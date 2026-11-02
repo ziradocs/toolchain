@@ -67,6 +67,9 @@ type DOCXGenerator struct {
 	// numbering junta las listas escritas para el numbering.xml (ver
 	// docx_lists.go).
 	numbering *docxNumbering
+	// variables son las del front matter de la generación en curso; las
+	// leyendas de tabla e imagen las sustituyen como el HTML de core.
+	variables map[string]interface{}
 }
 
 // runCtx es el contexto de la generación en curso, o Background fuera de
@@ -182,6 +185,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	g.logger.Info("DOCX", "Building DOCX document...")
 	// Listas nativas (docx_lists.go): un numbering.xml por documento.
 	g.numbering = &docxNumbering{}
+	g.variables = astDoc.FrontMatter.BuildVariables()
 
 	// Crear directorio temporal para imágenes renderizadas
 	tempDir, err := os.MkdirTemp("", "doclang-docx-*")
@@ -2577,14 +2581,15 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 
 // renderTableCaption escribe el pie de una tabla, que antes no salía en el
 // DOCX. Mismo texto que el <p class="table-caption"> del HTML de core: con
-// \label numerado, "Tabla N: " (o "Table N: " según lang) delante.
+// \label numerado, "Tabla N: " (o "Table N: " según lang) delante, y con las
+// {{variables}} del front matter sustituidas.
 func (g *DOCXGenerator) renderTableCaption(doc domain.Document, elem *ast.TableElement) error {
 	if elem.Caption == "" {
 		return nil
 	}
-	text := elem.Caption
+	text := renderer.ProcessVariables(elem.Caption, g.variables)
 	if elem.Label != "" && elem.Number > 0 {
-		text = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindTable], elem.Number, elem.Caption)
+		text = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindTable], elem.Number, text)
 	}
 	return g.renderFigureCaption(doc, text)
 }
@@ -2821,9 +2826,11 @@ func (g *DOCXGenerator) renderImageCaption(doc domain.Document, elem *ast.ImageE
 	}
 	// issue #239: Number lo asigna xref.Transform (built-in de #240)
 	// antes de renderizar; sin Label nunca corrió y Number es 0.
-	captionText := elem.Caption
+	// Mismo texto que el HTML de core: {{variables}} sustituidas y el prefijo
+	// en el idioma del documento ("Figure" con lang en*), no siempre "Figura".
+	captionText := renderer.ProcessVariables(elem.Caption, g.variables)
 	if elem.Label != "" && elem.Number > 0 {
-		captionText = fmt.Sprintf("Figura %d: %s", elem.Number, elem.Caption)
+		captionText = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindFigure], elem.Number, captionText)
 	}
 	return g.renderFigureCaption(doc, captionText)
 }
@@ -4177,12 +4184,17 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 	return nil
 }
 
-// docxRichElements recorre con ast.Walk todos los elementos del documento,
-// también los de una columna tipada o de un bloque especial con Elements:
-// antes solo se miraba block.Elements, así que un mermaid o una ecuación
-// dentro de un ":::" (o de una columna) no inicializaba Chromium y el
-// elemento salía como marcador de no disponible.
-func docxRichElements(astDoc *ast.AST, visit func(ast.Element) bool) {
+// WalkElements recorre con ast.Walk todos los elementos del documento,
+// también los de una columna tipada o de un bloque especial con Elements,
+// hasta que visit devuelva false. Antes el DOCX solo miraba block.Elements,
+// así que un mermaid o una ecuación dentro de un ":::" (o de una columna) no
+// inicializaba Chromium y el elemento salía como marcador de no disponible.
+// pipeline.ChromiumRequirements usa el mismo recorrido para que su chequeo
+// previo y el generador no difieran.
+func WalkElements(astDoc *ast.AST, visit func(ast.Element) bool) {
+	if astDoc == nil {
+		return
+	}
 	stop := errors.New("stop")
 	_ = ast.Walk(astDoc, func(n ast.Node) error {
 		if elem, ok := n.(ast.Element); ok && !visit(elem) {
@@ -4200,7 +4212,7 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 		return true
 	}
 	needs := false
-	docxRichElements(astDoc, func(elem ast.Element) bool {
+	WalkElements(astDoc, func(elem ast.Element) bool {
 		switch e := elem.(type) {
 		// MathElement faltaba acá: renderMath ya usa chromiumRenderer
 		// (RenderMathToPNG) pero, sin este case, un documento cuyo
@@ -4236,7 +4248,7 @@ func (g *DOCXGenerator) canRenderWithoutChromium(astDoc *ast.AST) bool {
 		return false
 	}
 	native := true
-	docxRichElements(astDoc, func(elem ast.Element) bool {
+	WalkElements(astDoc, func(elem ast.Element) bool {
 		switch e := elem.(type) {
 		case *ast.ChartElement:
 			// Elegibilidad no basta: un chart de tipo soportado con datos

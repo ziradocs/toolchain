@@ -24,8 +24,9 @@ import (
 // w:num que comparten abstractNum si ninguno lo reinicia con un
 // startOverride; con una definición por lista no hay contador compartido, así
 // que dos listas numeradas seguidas, o la sublista numerada del segundo ítem,
-// empiezan cada una en su propio inicio. El costo es un abstractNum por lista,
-// unos cientos de bytes.
+// empiezan cada una en su propio inicio. El costo es un abstractNum de 9
+// niveles por lista, unos 2.4 KB sin comprimir (bastante menos dentro del
+// zip, porque los niveles se repiten casi iguales).
 
 // docxListKind es el formato de una lista de Word.
 type docxListKind int

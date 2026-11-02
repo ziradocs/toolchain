@@ -511,3 +511,32 @@ func TestDOCXWritesEveryTextField(t *testing.T) {
 		}
 	}
 }
+
+// Las leyendas de tabla e imagen siguen al HTML de core: {{variables}}
+// sustituidas y el prefijo numerado en el idioma del documento. Antes la de
+// imagen decía siempre "Figura".
+func TestDOCXCaptionsFollowLangAndVariables(t *testing.T) {
+	for lang, want := range map[string][]string{
+		"en": {"Table 2: Ventas de ACME", "Figure 3: Logo de ACME"},
+		"es": {"Tabla 2: Ventas de ACME", "Figura 3: Logo de ACME"},
+	} {
+		pos := diagnostics.NewPosition(1, 1)
+		table := ast.NewTableElement(pos)
+		table.Headers = []string{"A"}
+		table.Rows = [][]string{{"1"}}
+		table.Caption, table.Label, table.Number = "Ventas de {{company}}", "tbl-v", 2
+		img := ast.NewImageElement(pos, "missing.png", "logo")
+		img.Caption, img.Label, img.Number = "Logo de {{company}}", "fig-l", 3
+		doc := newTestAST()
+		doc.FrontMatter = ast.NewFrontMatterNode(pos)
+		doc.FrontMatter.Lang = lang
+		doc.FrontMatter.Variables = map[string]interface{}{"company": "ACME"}
+		doc.ContentBlocks[0].Elements = append(doc.ContentBlocks[0].Elements, table, img)
+		documentXML := docxZipPart(t, buildDOCXFile(t, doc), "word/document.xml")
+		for _, w := range want {
+			if !strings.Contains(documentXML, w) {
+				t.Errorf("lang %s: caption %q missing", lang, w)
+			}
+		}
+	}
+}

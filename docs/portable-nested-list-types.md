@@ -78,7 +78,9 @@ hierarchy and types. DOCX writes native Word lists: each item is a numbered
 paragraph at its level (`w:ilvl`), and every list, including each child list,
 has its own numbering definition, so an ordered child list starts at its own
 first ordinal. PPTX and DOCX have nine levels; deeper typed lists fail before
-output. Existing non-opt-in output is unchanged.
+output. Without the opt-in, HTML, Markdown and PPTX output is unchanged. DOCX
+output without the opt-in changed with the same fix: its lists are native Word
+lists too, and the sub-items it used to drop now appear one level in.
 
 Previously published readers cannot be changed retroactively. A reader that
 ignores unknown JSON fields must not receive a 2.16 document without an
