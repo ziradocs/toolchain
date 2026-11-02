@@ -245,7 +245,12 @@ func (r *assetRebaser) realDir(dir string) string {
 }
 
 // rebasePath reescribe src, escrito en un archivo de dir, relativo a
-// sourceDir. ok es false cuando no hay nada que cambiar.
+// sourceDir. ok es false cuando no hay nada que cambiar. Con destinos
+// CommonMark src es una URL: se decodifica antes de unirla a dir y un "%"
+// literal de la ruta nueva (una carpeta "100%") se vuelve a codificar, para
+// que al leer el archivo se decodifique a la misma ruta. Los espacios quedan
+// literales; quien la escribe decide cómo (<...> en un destino inline, %20 en
+// un src).
 func (r *assetRebaser) rebasePath(src, dir string) (string, bool) {
 	if !isRelativeLocalSource(src) {
 		return src, false
@@ -254,11 +259,21 @@ func (r *assetRebaser) rebasePath(src, dir string) (string, bool) {
 	if realDir == r.realSource {
 		return src, false
 	}
-	rel, err := filepath.Rel(r.realSource, filepath.Join(realDir, filepath.FromSlash(src)))
+	path := src
+	if commonMarkDestinations && strings.Contains(src, "%") {
+		if decoded, err := url.PathUnescape(src); err == nil {
+			path = decoded
+		}
+	}
+	rel, err := filepath.Rel(r.realSource, filepath.Join(realDir, filepath.FromSlash(path)))
 	if err != nil {
 		return src, false
 	}
-	return filepath.ToSlash(rel), true
+	out := filepath.ToSlash(rel)
+	if commonMarkDestinations {
+		out = strings.ReplaceAll(out, "%", "%25")
+	}
+	return out, true
 }
 
 // field recorre, en orden, las líneas de un campo: cada fuente se busca a
@@ -361,11 +376,24 @@ func (f *field) inline(text string) string {
 
 var inlineImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
 
-// rebaseDestination reescribe la ruta de un destino inline. Una ruta nueva
-// con espacios (la carpeta del incluido los tiene) se escribe tal cual, sin
-// <...>: es la forma que resuelven el renderer HTML (también en browser y en
-// el PDF) y el DOCX; la salida Markdown la envuelve en <...> al escribirla
-// (ver generator.MarkdownImageDestinations).
+// commonMarkDestinations dice si el core enlazado lee los destinos como
+// CommonMark (core > v2.49.0): una ruta suelta con espacios no es imagen,
+// <...> delimita una ruta con espacios y las rutas locales son URLs que se
+// decodifican (%20) al leer el archivo. Con un core anterior, una ruta con
+// espacios se acepta suelta, <...> queda literal y nada se decodifica. Se
+// pregunta al propio escáner de core para que doclang siga compilando y
+// comportándose bien contra los dos.
+var commonMarkDestinations = func() bool {
+	_, _, ok := renderer.ScanLinkDestination("a b)")
+	return !ok
+}()
+
+// rebaseDestination reescribe la ruta de un destino inline. Con destinos
+// CommonMark, una ruta nueva con espacios (la carpeta del incluido los tiene)
+// se escribe entre <...>, la única forma en que sigue siendo imagen. Con un
+// core anterior se escribe tal cual, sin <...>, que es lo que resuelven su
+// renderer HTML y el DOCX; la salida Markdown la envuelve en <...> al
+// escribirla (ver generator.MarkdownImageDestinations).
 func (f *field) rebaseDestination(dest string) string {
 	if strings.ContainsAny(dest, `\&`) {
 		return dest
@@ -389,6 +417,9 @@ func (f *field) rebaseDestination(dest string) string {
 		path = rest
 	}
 	newPath, ok := f.r.rebasePath(path, dir)
+	if commonMarkDestinations && open == "" && strings.ContainsAny(newPath, " \t") {
+		open, close = "<", ">"
+	}
 	if !ok || (open == "" && strings.ContainsAny(newPath, "()")) || (open != "" && strings.ContainsAny(newPath, "<>")) {
 		return dest
 	}
@@ -413,12 +444,20 @@ func (r *assetRebaser) headingHTML(text string, line int) string {
 			return tag
 		}
 		dir := f.locate("(" + src)
+		if dir == "" && commonMarkDestinations && strings.Contains(src, "%20") {
+			// El src emitido lleva los espacios codificados; en la fuente
+			// la ruta va entre <...> con los espacios literales.
+			dir = f.locate("(<" + strings.ReplaceAll(src, "%20", " ") + ">")
+		}
 		if dir == "" {
 			return tag
 		}
 		newPath, ok := r.rebasePath(src, dir)
 		if !ok {
 			return tag
+		}
+		if commonMarkDestinations {
+			newPath = strings.NewReplacer(" ", "%20", "\t", "%09").Replace(newPath)
 		}
 		return `<img src="` + renderer.EscapeHTMLAttribute(newPath) + `"`
 	})

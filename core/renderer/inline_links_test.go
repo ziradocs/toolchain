@@ -132,7 +132,7 @@ func TestFindInlineLinks(t *testing.T) {
 func TestFindInlineLinkIndex(t *testing.T) {
 	s := "[a](b (c) y [Wiki](https://x.org/Foo_(bar)) z"
 	loc := FindInlineLinkIndex(s)
-	if len(loc) != 6 {
+	if len(loc) != 8 {
 		t.Fatalf("FindInlineLinkIndex(%q) = %v", s, loc)
 	}
 	if got := s[loc[0]:loc[1]]; got != "[Wiki](https://x.org/Foo_(bar))" {

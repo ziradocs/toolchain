@@ -707,7 +707,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// ![alt](img) dentro de un enlace [![alt](img)](url) resuelva bien, y
 	// para que una imagen en una celda de tabla o un caption ya no
 	// degrade a corchetes/paréntesis literales (F8 del audit 2026-09-11).
-	text = replaceInlineLinks(text, inlineImagePattern, func(match, alt, src string) string {
+	text = replaceInlineLinks(text, inlineImagePattern, func(match, alt, src, title string) string {
 		// alt, a diferencia de linkText, se interpola dentro de un
 		// atributo ("alt=\"...\""), no como contenido. El texto del autor
 		// YA está escapado (pasó por EscapeHTML antes de que esta función
@@ -728,7 +728,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 		// referencias de carácter del autor se decodifican antes del filtro
 		// de esquemas, ver decodeLinkDestination).
 		src = inlineDestinationText(src, codeSpans)
-		sanitizedSrc := SanitizeURL(decodeLinkDestination(src))
+		sanitizedSrc := SanitizeURL(EscapeURLSpaces(decodeLinkDestination(src)))
 		altText := inlineAltText(alt, codeSpans)
 		if record != nil {
 			// Lo mismo que va a los atributos: el destino con el código
@@ -742,15 +742,21 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 			return alt
 		}
 
-		return emitted.hide(fmt.Sprintf(`<img src="%s" alt="%s">`, sanitizedSrc, altText), match)
+		return emitted.hide(fmt.Sprintf(`<img src="%s" alt="%s"%s>`, sanitizedSrc, altText, inlineTitleAttr(title, codeSpans, &emitted)), match)
 	})
+
+	// Los atributos {width=30%} pegados a una imagen inline (sintaxis de
+	// imagen de bloque, frecuente en una línea con varias imágenes) no
+	// tienen representación inline: se descartan, como los desconocidos de
+	// una imagen de bloque, en vez de salir como texto.
+	text = inlineImageAttrsPattern.ReplaceAllString(text, "$1")
 
 	// Procesar enlaces [texto](url) -> <a href="url">texto</a>
 	// IMPORTANTE: Sanitizar URLs para prevenir javascript: y data: URIs.
 	// El destino lo delimita replaceInlineLinks con paréntesis balanceados
 	// (ver ScanLinkDestination). Con esquema no permitido se emite solo el
 	// texto del enlace, y el linter lo reporta como LINK001.
-	text = replaceInlineLinks(text, inlineLinkPattern, func(match, linkText, linkURL string) string {
+	text = replaceInlineLinks(text, inlineLinkPattern, func(match, linkText, linkURL, title string) string {
 		// issue #63 code review finding #8: mismo chequeo que las pasadas de
 		// span — ver bracketContentTagsBalanced. linkText, no linkURL: la URL
 		// no lleva tags HTML, es el texto visible el que puede cruzar un tag
@@ -768,7 +774,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 
 		// Deshacer el EscapeHTML de entrada (URLs de variables incluidas) y
 		// decodificar las referencias de carácter del autor antes del filtro.
-		sanitizedURL := SanitizeURL(decodeLinkDestination(linkURL))
+		sanitizedURL := SanitizeURL(EscapeURLSpaces(decodeLinkDestination(linkURL)))
 		if record != nil {
 			record(InlineLink{Text: restoreRawCodeSentinels(emitted.expand(linkText), codeSpans), Destination: unescapeLinkDestination(linkURL), Dropped: sanitizedURL == ""})
 		}
@@ -777,7 +783,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 			return linkText
 		}
 
-		return emitted.hide(fmt.Sprintf(`<a href="%s">%s</a>`, sanitizedURL, linkText), match)
+		return emitted.hide(fmt.Sprintf(`<a href="%s"%s>%s</a>`, sanitizedURL, inlineTitleAttr(title, codeSpans, &emitted), linkText), match)
 	})
 
 	// Restaurar el HTML de imágenes y enlaces antes que el código: un
@@ -850,6 +856,20 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 // Solo la forma cruda del centinela, por la misma razón que la restauración
 // global de más arriba: "&lt;zdcN/&gt;" puede escribirlo un autor en texto
 // normal y no tiene relación con ningún code span.
+// inlineTitleAttr arma el atributo title de un enlace o imagen inline a
+// partir del título tal como lo ve la pasada (escapado, con centinelas y
+// con el HTML de las pasadas de formato que ya corrieron): su texto plano,
+// como el alt (ver inlineAltText), con los escapes de barra invertida y las
+// referencias de carácter resueltos, escapado de nuevo para el atributo. ""
+// sin título.
+func inlineTitleAttr(title string, codeSpans []string, emitted *inlineEmitted) string {
+	if title == "" {
+		return ""
+	}
+	raw := unescapeLinkDestination(inlineAltText(emitted.sources(title), codeSpans))
+	return ` title="` + EscapeHTMLAttribute(DecodeLinkDestination(unescapeBackslashes(raw))) + `"`
+}
+
 func inlineDestinationText(dest string, codeSpans []string) string {
 	return restoreRawCodeSentinels(dest, codeSpans)
 }
@@ -876,6 +896,11 @@ func restoreRawCodeSentinels(text string, codeSpans []string) string {
 // ProcessInlineMarkdownFormatsSecure. Solo la forma cruda: la escapada
 // ("&lt;zdcN/&gt;") puede originarse en texto del autor.
 var zdcRawSentinelPattern = regexp.MustCompile(`<zdc(\d+)/>`)
+
+// inlineImageAttrsPattern es el centinela de una imagen inline recién
+// emitida seguido, sin espacio, de un bloque de atributos {clave=valor ...}
+// (texto ya escapado: las comillas llegan como &quot;).
+var inlineImageAttrsPattern = regexp.MustCompile(`(<zde\d+/>)\{(?:\s*[A-Za-z][\w-]*=(?:&quot;[^&}]*&quot;|[^\s}]+))+\s*\}`)
 
 // inlineEmitted guarda el HTML que emiten las pasadas de imagen y enlace de
 // processInlineFormats, las únicas que meten texto del autor dentro de un

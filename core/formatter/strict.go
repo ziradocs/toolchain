@@ -550,6 +550,9 @@ func checkCodeFilename(e *ast.CodeElement) error {
 }
 
 func formatStrictImage(e *ast.ImageElement) (string, error) {
+	if e.Title != "" {
+		return "", newUnsupported("image", "image.Title cannot be represented in the strict IMAGE syntax")
+	}
 	if err := checkQuotable("image", "source", e.Source); err != nil {
 		return "", err
 	}

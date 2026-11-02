@@ -26,8 +26,13 @@ func (p *ImageParser) CanParse(line string, mode string) bool {
 		return true
 	}
 
-	// Flex mode: Markdown image syntax
-	if mode == "flex" && strings.HasPrefix(trimmed, "![") && strings.Contains(trimmed, "](") {
+	// Flex mode: Markdown image syntax. Solo cuando la línea entera es UNA
+	// imagen (más sus atributos {...}): una línea con dos imágenes, texto
+	// después o un destino que no es válido en CommonMark
+	// (`![a](foto.png otra)`) es un párrafo, y el renderer inline decide qué
+	// es imagen. Antes se tomaba como imagen de bloque y lo que seguía al
+	// primer ")" se perdía.
+	if mode == "flex" && IsMarkdownImageLine(trimmed) {
 		return true
 	}
 
@@ -48,7 +53,7 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 	consumed := 1
 
-	var source, alt, caption, label, fit, focus, declaredContext string
+	var source, alt, title, caption, label, fit, focus, declaredContext string
 	var bleed bool
 
 	if ctx.Mode == "strict" {
@@ -56,7 +61,7 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		source, alt, caption, label, fit, focus, declaredContext, bleed, consumed = p.parseStrictImage(ctx.Lines, startIndex)
 	} else {
 		// Parse flex mode Markdown syntax
-		source, alt, fit, focus, bleed = p.parseMarkdownImage(line)
+		source, alt, title, fit, focus, bleed, _ = p.parseMarkdownImage(line)
 	}
 
 	// Detectar contexto automáticamente, salvo que la fuente strict lo declare
@@ -76,6 +81,7 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// Crear elemento con contexto
 	element := ast.NewImageElementWithContext(pos, source, alt, context)
 	element.Caption = caption
+	element.Title = title
 	element.Label = label
 	element.Fit = fit
 	element.Focus = focus
@@ -411,50 +417,62 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 	return source, alt, caption, label, fit, focus, declaredContext, bleed, consumed
 }
 
-// parseMarkdownImage parsea la sintaxis ![alt](src) de Markdown
-func (p *ImageParser) parseMarkdownImage(line string) (string, string, string, string, bool) {
-	// ![alt](src) format
+// IsMarkdownImageLine dice si line (sin espacios alrededor) es exactamente
+// una imagen Markdown ![alt](destino), opcionalmente seguida de sus atributos
+// {fit=... focus=... bleed=...}: la forma de una imagen de bloque.
+func IsMarkdownImageLine(line string) bool {
+	if !strings.HasPrefix(line, "![") || !strings.Contains(line, "](") {
+		return false
+	}
+	_, _, _, _, _, _, ok := (&ImageParser{}).parseMarkdownImage(line)
+	return ok
+}
+
+// parseMarkdownImage parsea la sintaxis ![alt](destino "título"){attrs} de
+// Markdown. ok es false cuando la línea no es exactamente una imagen.
+func (p *ImageParser) parseMarkdownImage(line string) (source, alt, title, fit, focus string, bleed, ok bool) {
 	if !strings.HasPrefix(line, "![") {
-		return "", "", "", "", false
+		return
 	}
 
 	// Find the closing ]
 	altEnd := strings.Index(line, "](")
 	if altEnd == -1 {
-		return "", "", "", "", false
+		return
 	}
 
-	alt := line[2:altEnd] // Extract alt text (skip ![)
+	alt = line[2:altEnd] // Extract alt text (skip ![)
 
-	// El destino termina en el ")" que balancea los paréntesis internos,
-	// no en el primero: con strings.Index(")") una fuente como
-	// "foto_(1).png" o "javascript:alert(1)" se truncaba y el ")" restante
-	// se perdía. Mismo escáner que las imágenes y enlaces inline.
+	// El destino lo lee el mismo escáner que las imágenes y enlaces inline
+	// (CommonMark): paréntesis balanceados, <...> para rutas con espacios y
+	// un título opcional, que no es parte de la ruta.
 	srcStart := altEnd + 2
-	source, consumed, ok := renderer.ScanLinkDestination(line[srcStart:])
-	if !ok {
-		return "", alt, "", "", false
+	source, title, consumed, valid := renderer.ParseLinkDestination(line[srcStart:])
+	if !valid {
+		return "", alt, "", "", "", false, false
 	}
 
-	fit, focus := "", ""
-	bleed := false
 	rest := strings.TrimSpace(line[srcStart+consumed:])
-	if strings.HasPrefix(rest, "{") && strings.HasSuffix(rest, "}") {
-		for _, match := range imageAttributePattern.FindAllStringSubmatch(rest[1:len(rest)-1], -1) {
-			key := match[1]
-			value := strings.Trim(match[2], "\"")
-			switch key {
-			case "fit":
-				fit = value
-			case "focus":
-				focus = value
-			case "bleed":
-				bleed, _ = strconv.ParseBool(value)
-			}
+	if rest == "" {
+		return source, alt, title, "", "", false, true
+	}
+	if !strings.HasPrefix(rest, "{") || !strings.HasSuffix(rest, "}") || strings.Count(rest, "{") != 1 {
+		return "", alt, "", "", "", false, false
+	}
+	for _, match := range imageAttributePattern.FindAllStringSubmatch(rest[1:len(rest)-1], -1) {
+		key := match[1]
+		value := strings.Trim(match[2], "\"")
+		switch key {
+		case "fit":
+			fit = value
+		case "focus":
+			focus = value
+		case "bleed":
+			bleed, _ = strconv.ParseBool(value)
 		}
 	}
 
-	return source, alt, fit, focus, bleed
+	return source, alt, title, fit, focus, bleed, true
 }
 
 var imageAttributePattern = regexp.MustCompile(`([a-zA-Z]+)=("[^"]*"|[^\s}]+)`)

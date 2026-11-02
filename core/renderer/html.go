@@ -44,10 +44,11 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 
 // inlineImageTagPattern es exactamente el <img> que ProcessInlineMarkdownSecure
 // emite para un ![alt](src) inline (sanitizer.go): src ya pasado por
-// SanitizeURL y alt como texto plano escapado. El texto del autor llega
+// SanitizeURL, alt como texto plano escapado y el title opcional del destino.
+// El texto del autor llega
 // escapado a esa función, así que un "<img" literal del documento nunca tiene
 // esta forma.
-var inlineImageTagPattern = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)">`)
+var inlineImageTagPattern = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)"((?: title="[^"]*")?)>`)
 
 // resolveInlineImages aplica a las imágenes inline de un párrafo, ítem de
 // lista, celda o cita la misma resolución que renderImageElement le da a una
@@ -71,7 +72,7 @@ func resolveInlineImages(html string, ctx *RenderContext) string {
 		uri, status := inlineLocalAsset(src, ctx, 0, "IMAGE", "image")
 		switch {
 		case status == localAssetInlined:
-			return fmt.Sprintf(`<img src="%s" alt="%s">`, uri, alt)
+			return fmt.Sprintf(`<img src="%s" alt="%s"%s>`, uri, alt, m[3])
 		case status == localAssetUnavailable || localImageEscapesRoot(src, ctx):
 			return inlineImageUnavailableHTML(alt, ctx)
 		}
@@ -311,8 +312,10 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	case status == localAssetUnavailable || localImageEscapesRoot(source, ctx):
 		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
 	default:
-		// Sanitizar URL de la imagen para prevenir javascript: y data: URIs peligrosas
-		source = SanitizeURL(source)
+		// Sanitizar URL de la imagen para prevenir javascript: y data: URIs
+		// peligrosas. Un destino <mi carpeta/a.png> trae el espacio literal:
+		// se codifica para que el src sea una URL válida.
+		source = SanitizeURL(EscapeURLSpaces(source))
 	}
 
 	if source == "" {
@@ -323,14 +326,19 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
 	}
 
+	// El título del destino Markdown (image-title-v1) va al atributo title.
+	titleAttr := ""
+	if elem.Title != "" {
+		titleAttr = ` title="` + EscapeHTMLAttribute(ProcessVariables(elem.Title, variables)) + `"`
+	}
 	if caption != "" {
-		return fmt.Sprintf(`<figure%s><img src="%s" alt="%s"><figcaption>%s%s</figcaption></figure>`,
-			idAttr, source, alt, captionPrefix, caption)
+		return fmt.Sprintf(`<figure%s><img src="%s" alt="%s"%s><figcaption>%s%s</figcaption></figure>`,
+			idAttr, source, alt, titleAttr, captionPrefix, caption)
 	}
 	if idAttr != "" {
-		return fmt.Sprintf(`<figure%s><img src="%s" alt="%s"></figure>`, idAttr, source, alt)
+		return fmt.Sprintf(`<figure%s><img src="%s" alt="%s"%s></figure>`, idAttr, source, alt, titleAttr)
 	}
-	return fmt.Sprintf(`<img src="%s" alt="%s">`, source, alt)
+	return fmt.Sprintf(`<img src="%s" alt="%s"%s>`, source, alt, titleAttr)
 }
 
 // TryInlineLocalImage lee una imagen local del filesystem y la devuelve
@@ -443,7 +451,9 @@ func inlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag, ki
 		return "", localAssetNotApplicable
 	}
 
-	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, source)
+	// La fuente es una URL: "mi%20carpeta/a.png" es el archivo
+	// "mi carpeta/a.png", igual que lo resuelve el navegador en modo browser.
+	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, LocalPathFromURL(source))
 	if err != nil {
 		logger.Warn("[%s] local %s %q rejected: %v", tag, kind, source, err)
 		return "", localAssetUnavailable

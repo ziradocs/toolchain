@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/renderer"
 )
 
@@ -14,11 +15,12 @@ var markdownImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
 
 // MarkdownImageDestinations envuelve en <...> la ruta de cada ![alt](dest)
 // de md que lleva espacios sin estar ya entre <...>, fuera de los code
-// spans. El renderer HTML y el DOCX de doclang aceptan `![](a b.png)`, pero
-// CommonMark no: en la salida Markdown, que leen otras herramientas, esa
-// imagen dejaría de ser imagen. Aparece sobre todo cuando una imagen de un
-// archivo incluido se reescribe relativa al archivo raíz y la carpeta del
-// incluido tiene espacios.
+// spans. Con un core anterior a los destinos CommonMark, el renderer HTML y
+// el DOCX aceptan `![](a b.png)`, pero CommonMark no: en la salida Markdown,
+// que leen otras herramientas, esa imagen dejaría de ser imagen. Con el core
+// actual ese destino ya no es imagen en ninguna salida (ScanLinkDestination
+// lo rechaza) y esta función no lo toca; las rutas con espacios que escribe
+// doclang ya van entre <...>.
 func MarkdownImageDestinations(md string) string {
 	if !strings.Contains(md, "![") {
 		return md
@@ -115,4 +117,55 @@ func MarkdownCodeSpanEnd(text string, i int) int {
 		k = e
 	}
 	return j
+}
+
+// markdownBlockImageDestination escribe el destino de una imagen de bloque
+// para la salida Markdown: la fuente entre <...> cuando lleva espacios (en
+// CommonMark una ruta suelta con espacios no es imagen) y, si el AST trae
+// título (image-title-v1), el título entre comillas. El título se lee con
+// una aserción de interfaz para seguir compilando contra un core anterior;
+// ese core deja el destino crudo en Source (título y <...> incluidos), que
+// se escribe tal cual, como antes.
+func markdownBlockImageDestination(elem *ast.ImageElement) string {
+	t, ok := any(elem).(interface{ ImageTitle() string })
+	if !ok {
+		return elem.Source
+	}
+	return markdownDestination(elem.Source, t.ImageTitle())
+}
+
+// markdownDestination escribe path (y title, si hay) como destino Markdown
+// que el escáner de core vuelve a leer igual: suelto si se lee entero, si no
+// entre <...> (espacios, un ")" desbalanceado). Un path con < o > no tiene
+// forma entre <...> y se escribe suelto.
+func markdownDestination(path, title string) string {
+	dest := path
+	if raw, n, ok := renderer.ScanLinkDestination(path + ")"); (!ok || n != len(path)+1 || raw != path) && !strings.ContainsAny(path, "<>\r\n") {
+		dest = "<" + path + ">"
+	}
+	if title != "" {
+		dest += ` "` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(title) + `"`
+	}
+	return dest
+}
+
+// headingImgTagPattern es el <img> que el pipeline inline deja en el HTML de
+// un encabezado (`## Título ![a](a.png "t")`).
+var headingImgTagPattern = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)"(?: title="([^"]*)")?>`)
+
+// headingImagesToMarkdown vuelve a escribir como ![alt](src "título") cada
+// imagen del HTML de un encabezado, para que la salida Markdown no la pierda
+// al quitar el resto del markup (docxStripHeadingMarkup). Los valores ya
+// vienen escapados para HTML y se desescapan.
+func headingImagesToMarkdown(html string) string {
+	if !strings.Contains(html, "<img ") {
+		return html
+	}
+	return headingImgTagPattern.ReplaceAllStringFunc(html, func(tag string) string {
+		m := headingImgTagPattern.FindStringSubmatch(tag)
+		dest := markdownDestination(renderer.UnescapeHTML(m[1]), renderer.UnescapeHTML(m[3]))
+		// El resultado pasa después por docxStripHeadingMarkup, que
+		// desescapa HTML: se escapan los "&" para que sobrevivan tal cual.
+		return strings.ReplaceAll("!["+renderer.UnescapeHTML(m[2])+"]("+dest+")", "&", "&amp;")
+	})
 }

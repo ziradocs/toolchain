@@ -272,8 +272,10 @@ func (p *TextParser) isOtherElementType(line string, mode string) bool {
 		return true
 	}
 
-	// Images (markdown style)
-	if strings.HasPrefix(line, "![") && strings.Contains(line, "](") {
+	// Images (markdown style): solo una línea que es una imagen de bloque
+	// (ver ImageParser.CanParse); dos imágenes o una imagen con texto
+	// siguen el párrafo.
+	if IsMarkdownImageLine(line) {
 		return true
 	}
 

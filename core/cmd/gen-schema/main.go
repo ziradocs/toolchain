@@ -112,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion, ast.ChartContentSchemaVersion, ast.ContentMarkdownSchemaVersion, ast.TableAlignSchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion, ast.ChartContentSchemaVersion, ast.ContentMarkdownSchemaVersion, ast.TableAlignSchemaVersion, ast.ImageTitleSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -238,6 +238,19 @@ func main() {
 		panic(err)
 	}
 	root.Definitions["TableAlignPresent"] = &TableAlignPresent
+	var ImageTitlePresent jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type","title"],"properties":{"type":{"const":"image"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/ImageTitlePresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/ImageTitlePresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/ImageTitlePresent"}}}}]}`), &ImageTitlePresent); err != nil {
+		panic(err)
+	}
+	root.Definitions["ImageTitlePresent"] = &ImageTitlePresent
+	var imageTitle jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"type":"string","minLength":1,"pattern":"^[^\\r\\n]*$"}`), &imageTitle); err != nil {
+		panic(err)
+	}
+	if err := overrideProperty(root.Definitions, "ImageElement", "title", &imageTitle); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	var columnAlign jsonschema.Schema
 	if err := json.Unmarshal([]byte(`{"type":"array","minItems":1,"items":{"type":"string","enum":["","left","center","right"]},"contains":{"enum":["left","center","right"]}}`), &columnAlign); err != nil {
 		panic(err)
@@ -424,6 +437,7 @@ func contractGateJSON() ([]byte, error) {
 		{ast.ChartContentCapability, ast.ChartContentSchemaVersion, "ChartContentPresent"},
 		{ast.ContentMarkdownCapability, ast.ContentMarkdownSchemaVersion, "TypedHeadingPresent"},
 		{ast.TableAlignCapability, ast.TableAlignSchemaVersion, "TableAlignPresent"},
+		{ast.ImageTitleCapability, ast.ImageTitleSchemaVersion, "ImageTitlePresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {

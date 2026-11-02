@@ -150,6 +150,10 @@ func ValidateTableContract(doc *AST) error {
 				return err
 			}
 		}
+		if img, ok := n.(*ImageElement); ok && strings.ContainsAny(img.Title, "\r\n") {
+			failure = fmt.Errorf("image title must be a single line")
+			return failure
+		}
 		if t, ok := n.(*TableElement); ok {
 			if err := ValidateColumnAlign(t); err != nil {
 				failure = err
@@ -225,7 +229,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
-	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount, startCount, mathCount, chartCount, alignCount := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount, startCount, mathCount, chartCount, alignCount, imageTitleCount := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	var inspectElement func(any) error
 	inspectElement = func(value any) error {
 		switch v := value.(type) {
@@ -236,6 +240,16 @@ func ValidateRawTableContract(data []byte) error {
 				}
 			}
 		case map[string]any:
+			if raw, has := v["title"]; has && v["type"] == string(NodeTypeImage) {
+				if !declared[ImageTitleCapability] {
+					return fmt.Errorf("image title requires schemaVersion %s and capability %s", ImageTitleSchemaVersion, ImageTitleCapability)
+				}
+				title, ok := raw.(string)
+				if !ok || title == "" || strings.ContainsAny(title, "\r\n") {
+					return fmt.Errorf("image title must be a nonempty single-line string")
+				}
+				imageTitleCount++
+			}
 			if raw, has := v["columnAlign"]; has {
 				if v["type"] != string(NodeTypeTable) {
 					return fmt.Errorf("columnAlign on a non-table element")
@@ -400,6 +414,9 @@ func ValidateRawTableContract(data []byte) error {
 	}
 	if (startCount > 0) != declared[ListStartCapability] {
 		return fmt.Errorf("list starts presence does not match schemaVersion/capabilities")
+	}
+	if (imageTitleCount > 0) != declared[ImageTitleCapability] {
+		return fmt.Errorf("image title presence does not match schemaVersion/capabilities")
 	}
 	if (alignCount > 0) != declared[TableAlignCapability] {
 		return fmt.Errorf("columnAlign presence does not match schemaVersion/capabilities")
