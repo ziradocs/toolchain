@@ -60,12 +60,15 @@ var inlineImageTagPattern = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)"
 // el marcador inline con su alt. Fuera de offline-inline se conserva el src
 // salvo que escape de AssetRoot. Es idempotente: un data: URI ya no es local.
 func resolveInlineImages(html string, ctx *RenderContext) string {
-	if ctx == nil || ctx.AssetRoot == "" || !strings.Contains(html, "<img ") {
+	if ctx == nil || (ctx.AssetRoot == "" && !blocksRemoteImages(ctx)) || !strings.Contains(html, "<img ") {
 		return html
 	}
 	return inlineImageTagPattern.ReplaceAllStringFunc(html, func(tag string) string {
 		m := inlineImageTagPattern.FindStringSubmatch(tag)
 		src, alt := UnescapeHTML(m[1]), m[2]
+		if remoteImageBlocked(src, ctx) {
+			return inlineImageUnavailableHTML(alt, ctx)
+		}
 		uri, status := inlineLocalAsset(src, ctx, 0, "IMAGE", "image")
 		switch {
 		case status == localAssetInlined:
@@ -326,6 +329,9 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	// los demás modos (la vista previa del navegador) el src relativo se
 	// conserva porque el visor lo resuelve, salvo que el confinamiento ya
 	// sepa que la ruta escapa de AssetRoot.
+	if remoteImageBlocked(source, ctx) {
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
+	}
 	inlined, status := inlineLocalAsset(source, ctx, 0, "IMAGE", "image")
 	switch {
 	case status == localAssetInlined:
@@ -489,6 +495,29 @@ func inlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag, ki
 		mimeType = "application/octet-stream"
 	}
 	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64Encode(data)), localAssetInlined
+}
+
+// remoteImageBlocked dice si src es una imagen http(s) (o "//host/...") que
+// esta salida de build no debe pedir (ver RenderContext.AllowRemoteImages), y
+// en ese caso deja el aviso.
+func remoteImageBlocked(src string, ctx *RenderContext) bool {
+	if !blocksRemoteImages(ctx) {
+		return false
+	}
+	u, err := url.Parse(strings.TrimSpace(src))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" && !(scheme == "" && u.Host != "") {
+		return false
+	}
+	logger := ctx.Logger
+	if logger == nil {
+		logger = util.NewNoop()
+	}
+	logger.Warn("[IMAGE] remote image %q was not fetched: build-time outputs (PDF, offline HTML) do not download images unless remote images are explicitly allowed (--allow-remote-images)", src)
+	return true
 }
 
 // localImageEscapesRoot dice si una fuente de imagen local relativa escapa de

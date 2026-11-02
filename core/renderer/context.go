@@ -126,6 +126,36 @@ type RenderContext struct {
 	// de red/Chromium en curso. Nunca es nil tras pasar por
 	// resolveRenderContext/NewDefaultRenderContext.
 	Ctx context.Context
+	// AllowRemoteImages deja que una salida de build (ImageMode
+	// "offline-inline" u "offline-assets": el PDF y el HTML offline) muestre
+	// una imagen http(s) del documento. Por defecto no: el PDF se imprime
+	// con Chromium en la máquina que compila, y una imagen remota de un
+	// documento no confiable la hacía pedir cualquier URL pública (o
+	// interna) desde ahí. Sin el opt-in la imagen sale como marcador con un
+	// aviso, y la CSP de la página solo admite imágenes data: y 'self'. En
+	// el HTML de modo browser no cambia nada: ahí la imagen la pide el
+	// navegador del lector. Ver SetAllowRemoteImages.
+	AllowRemoteImages bool
+}
+
+// SetAllowRemoteImages fija AllowRemoteImages. Existe para que un CLI que
+// compila contra un core publicado sin este campo lo pueda pedir por
+// interfaz (interface{ SetAllowRemoteImages(bool) }) sin dejar de compilar.
+func (c *RenderContext) SetAllowRemoteImages(allow bool) {
+	c.AllowRemoteImages = allow
+}
+
+// isBuildTimeImageMode dice si el modo de imagen es el de una salida que se
+// genera en la máquina que compila (PDF, HTML offline), no en el navegador
+// del lector.
+func isBuildTimeImageMode(mode string) bool {
+	return mode == "offline-inline" || mode == "offline-assets"
+}
+
+// blocksRemoteImages dice si en este contexto una imagen remota del
+// documento se reemplaza por el marcador (ver AllowRemoteImages).
+func blocksRemoteImages(ctx *RenderContext) bool {
+	return ctx != nil && isBuildTimeImageMode(ctx.ImageMode) && !ctx.AllowRemoteImages
 }
 
 // NewDefaultRenderContext retorna un RenderContext con todos los modos en

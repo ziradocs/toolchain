@@ -82,16 +82,16 @@ func TestRenderImageElement_OfflineInlineLocalSource(t *testing.T) {
 }
 
 // TestRenderImageElement_OfflineInlineRemoteSourceNotInlined covers that a
-// remote (http/https) image reference is left alone under offline-inline —
-// it already resolves fine against a real origin inside about:blank (no
-// base-URL problem for an absolute URL), so reading+inlining it would only
-// add cost and a needless network dependency at build time.
+// remote (http/https) image reference is never read and inlined at build
+// time. With AllowRemoteImages it is left as is (the opt-in); without it,
+// see TestRemoteImages_BlockedInBuildOutputs.
 func TestRenderImageElement_OfflineInlineRemoteSourceNotInlined(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	img := ast.NewImageElement(pos, "https://example.com/logo.png", "Logo")
 	ctx := NewDefaultRenderContext()
 	ctx.ImageMode = "offline-inline"
 	ctx.AssetRoot = t.TempDir()
+	ctx.SetAllowRemoteImages(true)
 
 	got := renderImageElement(img, nil, ctx)
 	want := `<img src="https://example.com/logo.png" alt="Logo">`

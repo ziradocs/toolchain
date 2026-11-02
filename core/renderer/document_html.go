@@ -128,7 +128,7 @@ func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderCon
 	}
 
 	// Header HTML
-	html.WriteString(generateDocumentHeader(doc, opts, cspNonce, ctx.Logger))
+	html.WriteString(generateDocumentHeader(doc, opts, cspNonce, blocksRemoteImages(ctx), ctx.Logger))
 
 	// Watermark (issue #179): a single position:fixed overlay, emitted once
 	// right after <body> opens, covers every printed physical page —
@@ -187,7 +187,9 @@ func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderCon
 // está vacío, se emite como <meta http-equiv="Content-Security-Policy"> y
 // debe ser el mismo nonce usado para cada <style>/<script> inline del
 // documento (ver GenerateDocumentHTML).
-func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce string, logger util.Logger) string {
+// offlineCSP elige BuildOfflineOutputCSP (salida de build sin imágenes
+// remotas permitidas) en vez de BuildDefaultOutputCSP.
+func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce string, offlineCSP bool, logger util.Logger) string {
 	title := opts.Title
 	if title == "" && doc.FrontMatter != nil && doc.FrontMatter.Title != "" {
 		title = doc.FrontMatter.Title
@@ -232,7 +234,11 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
 
 	cspMeta := ""
 	if cspNonce != "" {
-		cspMeta = fmt.Sprintf("    <meta http-equiv=\"Content-Security-Policy\" content=\"%s\">\n", BuildDefaultOutputCSP(cspNonce))
+		csp := BuildDefaultOutputCSP(cspNonce)
+		if offlineCSP {
+			csp = BuildOfflineOutputCSP(cspNonce)
+		}
+		cspMeta = fmt.Sprintf("    <meta http-equiv=\"Content-Security-Policy\" content=\"%s\">\n", csp)
 	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>

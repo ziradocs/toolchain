@@ -90,10 +90,59 @@ func TestInlineImages_BrowserMode(t *testing.T) {
 		t.Errorf("escaping path in browser mode must be the marker: %s", html)
 	}
 	offline, _ := offlineInlineCtx(t)
+	offline.SetAllowRemoteImages(true)
 	if html := RenderElementToHTML(inlineImageCases("https://x.test/a.png")["celda"], nil, offline); !strings.Contains(html, `<img src="https://x.test/a.png" alt="logo">`) {
-		t.Errorf("remote image must be untouched: %s", html)
+		t.Errorf("an allowed remote image must be untouched: %s", html)
 	}
 	if html := RenderElementToHTML(inlineImageCases("falta.png")["párrafo"], nil, nil); !strings.Contains(html, `<img src="falta.png" alt="logo">`) {
 		t.Errorf("nil ctx must be untouched: %s", html)
+	}
+}
+
+// TestRemoteImages_BlockedInBuildOutputs: en una salida de build (el PDF, el
+// HTML offline) una imagen http(s) del documento, de bloque o inline, no se
+// pide: sale el marcador con un aviso, y la CSP de la página solo admite
+// imágenes 'self' y data:. Con AllowRemoteImages vuelve el comportamiento de
+// siempre, y el HTML de modo browser no cambia.
+func TestRemoteImages_BlockedInBuildOutputs(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	for _, mode := range []string{"offline-inline", "offline-assets"} {
+		spy := &spyLogger{}
+		ctx := NewDefaultRenderContext()
+		ctx.ImageMode = mode
+		ctx.AssetRoot = t.TempDir()
+		ctx.Logger = spy
+		for _, src := range []string{"https://x.test/a.png", "http://198.51.100.7/a.png", "//x.test/a.png"} {
+			if html := RenderElementToHTML(ast.NewImageElement(pos, src, "Logo"), nil, ctx); strings.Contains(html, "<img") || !strings.Contains(html, "image-unavailable") {
+				t.Errorf("%s block %s: %s", mode, src, html)
+			}
+			for name, el := range inlineImageCases(src) {
+				if html := RenderElementToHTML(el, nil, ctx); strings.Contains(html, "<img") || !strings.Contains(html, "image-unavailable-inline") {
+					t.Errorf("%s %s %s: %s", mode, name, src, html)
+				}
+			}
+		}
+		if len(spy.warnings) == 0 || !strings.Contains(spy.warnings[0], "--allow-remote-images") {
+			t.Errorf("%s: want an actionable warning, got %v", mode, spy.warnings)
+		}
+	}
+
+	browser := NewDefaultRenderContext()
+	if html := RenderElementToHTML(ast.NewImageElement(pos, "https://x.test/a.png", "Logo"), nil, browser); html != `<img src="https://x.test/a.png" alt="Logo">` {
+		t.Errorf("browser mode must keep remote images: %s", html)
+	}
+
+	doc := &ast.AST{ContentBlocks: []ast.ContentBlock{{Elements: []ast.Element{ast.NewTextElement(pos, "hola")}}}}
+	ctx := NewDefaultRenderContext()
+	ctx.ImageMode = "offline-inline"
+	if html := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, ctx); !strings.Contains(html, "img-src 'self' data:;") || strings.Contains(html, "img-src 'self' *") {
+		t.Error("build-time output must use the offline CSP")
+	}
+	ctx.SetAllowRemoteImages(true)
+	if html := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, ctx); !strings.Contains(html, "img-src 'self' * data:;") {
+		t.Error("with remote images allowed the default CSP comes back")
+	}
+	if html := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, NewDefaultRenderContext()); !strings.Contains(html, "img-src 'self' * data:;") {
+		t.Error("browser mode keeps the default CSP")
 	}
 }
