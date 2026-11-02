@@ -101,3 +101,17 @@ func imageUnavailableHTML(alt, caption, idAttr, captionPrefix string, ctx *Rende
 	}
 	return b.String()
 }
+
+// inlineImageUnavailableHTML es el marcador de una imagen inline (dentro de un
+// párrafo, ítem o celda) que no se pudo cargar: un <span> del alto de la
+// línea con la nota y el alt, para no partir el párrafo con un bloque.
+func inlineImageUnavailableHTML(alt string, ctx *RenderContext) string {
+	note := unavailableNote(unavailableImage, contextLang(ctx))
+	label := EscapeHTMLAttribute(note)
+	text := EscapeHTML(note)
+	if alt != "" {
+		label = alt
+		text += ": " + alt
+	}
+	return fmt.Sprintf(`<span class="image-unavailable-inline" role="img" aria-label="%s">%s</span>`, label, text)
+}

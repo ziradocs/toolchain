@@ -31,6 +31,53 @@ import (
 // plantuml, chart, map, y cualquier elemento (p. ej. grid) que los anide.
 // Un ctx nil se resuelve a NewDefaultRenderContext() (todo en "browser").
 func RenderElementToHTML(element ast.Element, variables map[string]interface{}, ctx *RenderContext) string {
+	html := renderElementToHTML(element, variables, ctx)
+	switch element.(type) {
+	case *ast.ImageElement, *ast.MermaidElement, *ast.PlantUMLElement, *ast.ChartElement,
+		*ast.MapElement, *ast.MathElement, *ast.MediaElement, *ast.CodeElement, *ast.CodeGroupElement:
+		// Sin markdown inline que pueda traer un ![alt](src): la imagen de
+		// bloque ya se resolvió en renderImageElement, y el resto es SVG,
+		// data: URIs o código escapado.
+		return html
+	}
+	return resolveInlineImages(html, ctx)
+}
+
+// inlineImageTagPattern es exactamente el <img> que ProcessInlineMarkdownSecure
+// emite para un ![alt](src) inline (sanitizer.go): src ya pasado por
+// SanitizeURL y alt como texto plano escapado. El texto del autor llega
+// escapado a esa función, así que un "<img" literal del documento nunca tiene
+// esta forma.
+var inlineImageTagPattern = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)">`)
+
+// resolveInlineImages aplica a las imágenes inline de un párrafo, ítem de
+// lista, celda o cita la misma resolución que renderImageElement le da a una
+// imagen de bloque. Antes no pasaban por ningún lado: en offline-inline (la
+// ruta de PDF) quedaba el src relativo aunque el archivo existiera, y como el
+// PDF se imprime desde about:blank, Chromium mostraba siempre el ícono de
+// imagen rota. Ahora una fuente local se inlinea como data: URI (con el mismo
+// confinamiento a AssetRoot), y una que falta o queda fuera de la raíz deja
+// el marcador inline con su alt. Fuera de offline-inline se conserva el src
+// salvo que escape de AssetRoot. Es idempotente: un data: URI ya no es local.
+func resolveInlineImages(html string, ctx *RenderContext) string {
+	if ctx == nil || ctx.AssetRoot == "" || !strings.Contains(html, "<img ") {
+		return html
+	}
+	return inlineImageTagPattern.ReplaceAllStringFunc(html, func(tag string) string {
+		m := inlineImageTagPattern.FindStringSubmatch(tag)
+		src, alt := UnescapeHTML(m[1]), m[2]
+		uri, status := inlineLocalAsset(src, ctx, 0, "IMAGE", "image")
+		switch {
+		case status == localAssetInlined:
+			return fmt.Sprintf(`<img src="%s" alt="%s">`, uri, alt)
+		case status == localAssetUnavailable || localImageEscapesRoot(src, ctx):
+			return inlineImageUnavailableHTML(alt, ctx)
+		}
+		return tag
+	})
+}
+
+func renderElementToHTML(element ast.Element, variables map[string]interface{}, ctx *RenderContext) string {
 	switch elem := element.(type) {
 	case *ast.TextElement:
 		return renderTextElement(elem, variables)

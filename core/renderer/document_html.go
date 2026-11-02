@@ -761,6 +761,17 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             font-weight: 600;
         }
 
+        .image-unavailable-inline {
+            display: inline-block;
+            padding: 0 0.4em;
+            border: 1px dashed var(--doclang-table-border, #cbd5e0);
+            border-radius: 4px;
+            background: var(--doclang-table-stripe-bg, #f8fafc);
+            color: #718096;
+            font-size: 0.85em;
+            font-style: italic;
+        }
+
         .unavailable-title {
             font-style: italic;
         }
