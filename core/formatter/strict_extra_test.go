@@ -404,14 +404,15 @@ func TestFormatStrict_QuoteContentUnsupported(t *testing.T) {
 // TestFormatStrict_QuoteContentUnsupported, agregada tras un hallazgo de
 // code-review en esta misma PR: antes de este fix, formatStrictChecklist no
 // validaba nada (a diferencia de Quote), así que un ChecklistItem con
-// Content vacío, con un salto de línea embebido, o con SubItems anidados
-// dentro de otro SubItem se serializaba en texto que reparseaba a un AST
-// DISTINTO en silencio (perdía items, fusionaba contenido, o aplanaba un
-// nivel de anidamiento) en vez de fallar — una regresión de postura de
+// Content vacío o con un salto de línea embebido se serializaba en texto que
+// reparseaba a un AST DISTINTO en silencio (perdía items o fusionaba
+// contenido) en vez de fallar — una regresión de postura de
 // error respecto al comportamiento previo (todo ChecklistElement devolvía
 // UnsupportedElementError incondicionalmente). Igual que con Quote, este
 // contenido no se puede obtener parseando texto strict real, así que se
-// construye a mano.
+// construye a mano. Los SubItems anidados dentro de otro SubItem ya no son un
+// caso: el parser strict arma el árbol a cualquier profundidad, ver
+// TestFormatStrict_DeepChecklistRoundTrips.
 func TestFormatStrict_ChecklistUnsupported(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 
@@ -436,22 +437,6 @@ func TestFormatStrict_ChecklistUnsupported(t *testing.T) {
 		{
 			name:  "embedded newline in content",
 			items: []ast.ChecklistItem{{Content: "first line\nsecond line", Checked: true}},
-		},
-		{
-			name: "sub-item nested inside another sub-item",
-			items: []ast.ChecklistItem{
-				{
-					Content: "top",
-					SubItems: []ast.ChecklistItem{
-						{
-							Content: "sub",
-							SubItems: []ast.ChecklistItem{
-								{Content: "sub-sub"},
-							},
-						},
-					},
-				},
-			},
 		},
 	}
 	for _, tc := range cases {

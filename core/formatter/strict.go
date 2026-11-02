@@ -385,20 +385,28 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 }
 
 // formatPointList writes one level of a list. At the base level every item
-// takes the list's marker. In a sublist, without the capability, the parser
-// flattens what the author nested: a sublist that mixes markers, or a third
-// level, ends up as one list of siblings, each remembering its own marker
-// (PointItem.Marker). Writing each one with that marker gives back what the
-// author wrote, where one marker for the whole sublist changed the others.
-// Numbers restart after a bullet; they do not matter to the AST, which keeps
-// only the content. An item with no recorded marker (an AST read back from
-// JSON) takes the marker of the list.
+// takes the list's marker. In a sublist, without the capability, siblings may
+// mix markers (each item remembers its own in PointItem.Marker, in memory
+// only); writing each one with that marker gives back what the author wrote,
+// where one marker for the whole sublist changed the others. Each sublist is
+// indented to its parent's content column (two spaces under "- ", three under
+// "1. "), which is where the parser, following CommonMark, looks for children.
+// Numbers restart after a bullet or a change of delimiter ("." or ")") and
+// start from the number the author wrote first (PointItem.Ordinal) when no
+// serialized start exists. An item with no recorded marker (an AST read back
+// from JSON) takes the marker of the list.
 func formatPointList(items []ast.PointItem, listType string, sub bool, start *int64) string {
 	var b strings.Builder
 	number := int64(0)
 	if start != nil {
 		number = *start - 1
 	}
+	// Sin list-start-v1 el número con que el autor abrió cada lista vive solo
+	// en memoria (PointItem.Ordinal) y el render lo usa como `start`; fmt lo
+	// conserva al abrir cada tramo numerado para no renumerar desde 1 una
+	// lista que empezaba en 3 (o en 0).
+	runStart := start == nil
+	delim := ""
 	for i, item := range items {
 		if i > 0 {
 			b.WriteString("\n")
@@ -407,13 +415,37 @@ func formatPointList(items []ast.PointItem, listType string, sub bool, start *in
 		if sub && item.Marker != "" && item.SubListType == "" {
 			kind = item.Marker
 		}
+		marker := "-"
 		if kind == "ordered" {
+			d := item.Delimiter
+			if d == "" {
+				d = "."
+			}
+			if i > 0 && d != delim {
+				runStart = true
+			}
+			delim = d
+			opens := runStart
+			if runStart && item.Ordinal != nil {
+				number = *item.Ordinal - 1
+			}
+			runStart = false
 			number++
-			fmt.Fprintf(&b, "%d. %s", number, item.Content)
+			// En CommonMark una lista numerada que no empieza en 1 no puede
+			// interrumpir el texto de arriba (el de su item padre o el de un
+			// hermano de viñeta): sin una línea en blanco delante, el parser
+			// flex la leería como texto de ese item. strict ignora la línea en
+			// blanco dentro de POINTS.
+			if opens && number != 1 && (sub || i > 0) {
+				b.WriteString("\n")
+			}
+			marker = fmt.Sprintf("%d%s", number, d)
 		} else {
 			number = 0
-			fmt.Fprintf(&b, "- %s", item.Content)
+			runStart = true
+			delim = ""
 		}
+		fmt.Fprintf(&b, "%s %s", marker, item.Content)
 		if len(item.SubPoints) > 0 {
 			b.WriteString("\n")
 			// SubListType is the capability's field; without it the parser
@@ -427,7 +459,7 @@ func formatPointList(items []ast.PointItem, listType string, sub bool, start *in
 			if childType == "" {
 				childType = "unordered"
 			}
-			b.WriteString(indent(formatPointList(item.SubPoints, childType, true, item.SubListStart), 2))
+			b.WriteString(indent(formatPointList(item.SubPoints, childType, true, item.SubListStart), len(marker)+1))
 		}
 	}
 	return b.String()
@@ -863,6 +895,13 @@ func validateStrictQuoteContent(content string, hasMetadata bool) error {
 		// Chequeado ANTES que las condiciones sobre `trimmed` porque es una
 		// verificación más básica: da igual qué diga la línea si su forma
 		// exacta no sobrevive el reparse.
+		// Un item de lista anidado sí guarda su sangría: el parser strict la
+		// conserva por encima de la de la primera línea de la cita
+		// (internal/elements/list_indent.go), y es la que dice de qué item
+		// cuelga. Solo espacios, nunca en la primera línea, nada al final.
+		if i > 0 && line != trimmed && strings.TrimLeft(line, " ") == trimmed && elements.IsBodyListItem(trimmed) {
+			line = trimmed
+		}
 		if line != trimmed {
 			return newUnsupported("quote", fmt.Sprintf("a line of the quote has leading or trailing whitespace (%q): the strict parser trims every line when reading it back, so that spacing would be lost silently", line))
 		}
@@ -887,15 +926,12 @@ func validateStrictQuoteContent(content string, hasMetadata bool) error {
 
 // formatStrictChecklist serializa ChecklistElement. Espeja
 // elements.ChecklistParser.parseStrictChecklist: un item principal es "  [x]
-// contenido" (2 espacios); sus SubItems van indentados 2 espacios más (4
-// total) — el parser auto-detecta el nivel base del primer item no-vacío y
-// trata cualquier indentación mayor como sub-item del item principal activo,
-// sin importar la profundidad relativa entre sub-items, así que un único
-// nivel extra de indentación es suficiente y es lo único que ambos parsers
-// (strict y flex/markdown) de este codebase producen en la práctica —
-// ninguno anida SubItems dentro de SubItems.
+// contenido" (2 espacios) y cada nivel de SubItems va 2 espacios más adentro.
+// El parser arma el árbol por sangría a cualquier profundidad (un item más
+// sangrado que el anterior es su sub-tarea), así que esa sangría vuelve a dar
+// el mismo árbol.
 func formatStrictChecklist(e *ast.ChecklistElement) (string, error) {
-	if err := validateStrictChecklistItems(e.Items, false); err != nil {
+	if err := validateStrictChecklistItems(e.Items); err != nil {
 		return "", err
 	}
 
@@ -907,7 +943,7 @@ func formatStrictChecklist(e *ast.ChecklistElement) (string, error) {
 
 // validateStrictChecklistItems recorre items validando que sean
 // representables sin pérdida en modo strict — mismo principio que
-// validateStrictQuoteContent, aplicado a las 3 formas en que un
+// validateStrictQuoteContent, aplicado a las 2 formas en que un
 // ChecklistItem puede venir de un origen no-strict (p.ej. un import
 // JSON/AST, o el futuro transpiler flex→strict de issue #206) y romper el
 // round-trip en silencio en vez de fallar:
@@ -918,11 +954,7 @@ func formatStrictChecklist(e *ast.ChecklistElement) (string, error) {
 //     línea; una segunda línea de "contenido" se interpretaría como
 //     continuation del item o como un item nuevo, nunca como texto del
 //     mismo Content.
-//   - SubItems anidados dentro de SubItems (profundidad > 2 total):
-//     parseStrictChecklist solo trackea UN currentItem de nivel base —
-//     cualquier indentación más profunda que eso se aplana directamente
-//     sobre ese item, perdiendo el nivel intermedio.
-func validateStrictChecklistItems(items []ast.ChecklistItem, isSubLevel bool) error {
+func validateStrictChecklistItems(items []ast.ChecklistItem) error {
 	for _, item := range items {
 		if item.Content == "" {
 			return newUnsupported("checklist", "an item with no content cannot be represented: the strict parser needs non-empty content to recognize an item, so it would vanish silently when read back")
@@ -930,10 +962,7 @@ func validateStrictChecklistItems(items []ast.ChecklistItem, isSubLevel bool) er
 		if strings.Contains(item.Content, "\n") {
 			return newUnsupported("checklist", fmt.Sprintf("the content of the item %q contains a line break: the strict parser reads each line of an item separately, so the next line would be read as a continuation or a new item, not as part of the same content", item.Content))
 		}
-		if isSubLevel && len(item.SubItems) > 0 {
-			return newUnsupported("checklist", fmt.Sprintf("the item %q has sub-items nested inside another sub-item: the strict parser supports only ONE level of nesting (everything indented past the base level attaches to the active main item, flattening any deeper level)", item.Content))
-		}
-		if err := validateStrictChecklistItems(item.SubItems, true); err != nil {
+		if err := validateStrictChecklistItems(item.SubItems); err != nil {
 			return err
 		}
 	}

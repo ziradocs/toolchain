@@ -72,7 +72,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 	lines := ctx.Lines
 	consumed := 0
 	expectedIndent := -1
-	var currentItem *ast.ChecklistItem
+	nest := checklistNest{strict: true}
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -106,22 +106,12 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 		if p.isStrictChecklistItem(trimmed) {
 			content, checked := p.parseStrictChecklistContent(trimmed)
 			if content != "" {
-				itemPos := ctx.Position(i)
-				item := ast.NewChecklistItem(itemPos, content, checked)
-
-				if currentIndent == expectedIndent {
-					// Main level item
-					element.Items = append(element.Items, *item)
-					currentItem = &element.Items[len(element.Items)-1]
-				} else if currentIndent > expectedIndent && currentItem != nil {
-					// Sub-item
-					subItem := ast.NewChecklistItem(itemPos, content, checked)
-					currentItem.SubItems = append(currentItem.SubItems, *subItem)
-				}
+				nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), currentIndent, expectedIndent, trimmed)
 			}
-		} else if currentIndent >= expectedIndent && currentItem != nil {
-			// Continuation line for current item
-			currentItem.Content += " " + trimmed
+		} else if last := nest.last(); currentIndent >= expectedIndent && last != nil {
+			// Continuation line: pertenece al último item abierto, el más
+			// profundo, que es el que la línea sigue.
+			last.Content += " " + trimmed
 		}
 
 		consumed++
@@ -135,7 +125,7 @@ func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex i
 	lines := ctx.Lines
 	consumed := 0
 	baseIndent := -1
-	var currentItem *ast.ChecklistItem
+	var nest checklistNest
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -156,8 +146,8 @@ func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex i
 			break
 		}
 
-		// Calculate indentation
-		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		// Sangría en columnas, con tabuladores a paradas de 4 como CommonMark.
+		indent := IndentColumns(line)
 		if baseIndent == -1 {
 			baseIndent = indent
 		}
@@ -165,24 +155,65 @@ func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex i
 		// Extract content and checked status
 		content, checked := p.parseChecklistContent(trimmed)
 		if content != "" {
-			itemPos := ctx.Position(i)
-			item := ast.NewChecklistItem(itemPos, content, checked)
-
-			// Si es un elemento principal (nivel base)
-			if indent == baseIndent {
-				element.Items = append(element.Items, *item)
-				currentItem = &element.Items[len(element.Items)-1]
-			} else if indent > baseIndent && currentItem != nil {
-				// Sub-item
-				subItem := ast.NewChecklistItem(itemPos, content, checked)
-				currentItem.SubItems = append(currentItem.SubItems, *subItem)
-			}
+			nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), indent, baseIndent, trimmed)
 		}
 
 		consumed++
 	}
 
 	return consumed
+}
+
+// checklistNest arma el árbol de una lista de tareas con la misma regla que
+// legacyNest (points.go): una tarea es sub-tarea de la de arriba solo si su
+// marcador empieza en la columna de contenido de esa tarea o más adentro (la
+// que sigue a "- "); en strict, si está más sangrada que ella. Antes solo había
+// dos niveles: todo lo que pasaba del base se colgaba del último item base.
+// SubItems ya era recursivo en el AST y en el esquema, así que el JSON no
+// cambia de forma.
+type checklistNest struct {
+	stack []checklistLevel
+	// strict: cualquier tarea más sangrada que la de arriba es su sub-tarea,
+	// como en legacyNest.
+	strict bool
+}
+
+type checklistLevel struct {
+	content int
+	item    *ast.ChecklistItem
+}
+
+func (n *checklistNest) add(element *ast.ChecklistElement, item *ast.ChecklistItem, indent, baseIndent int, trimmed string) {
+	if indent < baseIndent {
+		return
+	}
+	// "- [x] a": el contenido de la tarea empieza después de "- ". En la
+	// forma strict "[x] a" no hay viñeta, y basta una columna más.
+	width := 1
+	if !n.strict && trimmed != "" && (trimmed[0] == '-' || trimmed[0] == '*' || trimmed[0] == '+') {
+		width = 2
+	}
+	level := checklistLevel{content: indent + width}
+	for len(n.stack) > 0 && indent < n.stack[len(n.stack)-1].content {
+		n.stack = n.stack[:len(n.stack)-1]
+	}
+	if len(n.stack) == 0 {
+		element.Items = append(element.Items, *item)
+		level.item = &element.Items[len(element.Items)-1]
+		n.stack = append(n.stack, level)
+		return
+	}
+	parent := n.stack[len(n.stack)-1].item
+	parent.SubItems = append(parent.SubItems, *item)
+	level.item = &parent.SubItems[len(parent.SubItems)-1]
+	n.stack = append(n.stack, level)
+}
+
+func (n *checklistNest) last() *ast.ChecklistItem {
+	if len(n.stack) == 0 {
+		return nil
+	}
+	return n.stack[len(n.stack)-1].item
 }
 
 // isChecklistItem verifica si una línea es un item de checklist

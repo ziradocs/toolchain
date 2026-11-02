@@ -58,10 +58,10 @@ func TestPointItemKeepsTheSubListMarkerInMemoryOnly(t *testing.T) {
 	}
 }
 
-// Without nested-list-types-v1 the parser flattens what is nested under a base
-// item: a sublist that mixes markers, or a third level, becomes one list of
-// siblings. Each sub-point remembers the marker it was written with, in memory
-// only, and the first one still decides SubListMarker.
+// Without nested-list-types-v1 a sublist that mixes markers stays one list of
+// siblings in the AST. Each sub-point remembers the marker it was written with,
+// in memory only, and the first one still decides SubListMarker. A third level
+// is no longer flattened into the second: see TestLegacyPointsKeepTheDepth.
 func TestSubPointsKeepTheirOwnMarker(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -70,7 +70,6 @@ func TestSubPointsKeepTheirOwnMarker(t *testing.T) {
 		kinds []string
 	}{
 		{"flex mixed", parsePoints(t, "flex", "- uno", "  - a", "  1. b", "  - c"), "unordered", []string{"unordered", "ordered", "unordered"}},
-		{"flex three levels", parsePoints(t, "flex", "- uno", "  - a", "    1. b", "      - c"), "unordered", []string{"unordered", "ordered", "unordered"}},
 		{"strict mixed", parsePoints(t, "strict", "POINTS", "  1. uno", "    1. a", "    - b"), "ordered", []string{"ordered", "unordered"}},
 	}
 	for _, c := range cases {
@@ -79,7 +78,7 @@ func TestSubPointsKeepTheirOwnMarker(t *testing.T) {
 			t.Errorf("%s: SubListMarker %q, want %q", c.name, item.SubListMarker, c.first)
 		}
 		if len(item.SubPoints) != len(c.kinds) {
-			t.Errorf("%s: %d sub-points, want %d (the parser flattens the depth)", c.name, len(item.SubPoints), len(c.kinds))
+			t.Errorf("%s: %d sub-points, want %d", c.name, len(item.SubPoints), len(c.kinds))
 			continue
 		}
 		for i, sub := range item.SubPoints {

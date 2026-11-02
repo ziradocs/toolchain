@@ -444,8 +444,8 @@ func IsNewElement(line string, mode string) bool {
 			return true
 		}
 
-		// Listas numeradas (1. 2. 3. etc.)
-		if len(trimmed) > 2 && trimmed[1] == '.' && trimmed[0] >= '0' && trimmed[0] <= '9' {
+		// Listas numeradas (1. 2. 3. etc., o 1) 2) 3))
+		if len(trimmed) > 2 && (trimmed[1] == '.' || trimmed[1] == ')') && trimmed[0] >= '0' && trimmed[0] <= '9' {
 			return true
 		}
 	}

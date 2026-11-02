@@ -126,16 +126,37 @@ list has one marker type, ordered or unordered. The AST records that type on
 its parent as `subListType`; mixed ordered/unordered siblings in one list are
 diagnosed. See [portable nested list types](../../docs/portable-nested-list-types.md).
 
-Without that declaration the parser does not keep the depth of a nested list.
-Every item indented deeper than the first item of the list is a `subPoints`
-entry of the last item at the base level, so a third level ends up next to the
-second one, as a sibling. The kind of list drawn for those `subPoints` (bullets
-or numbers) is the marker of the first of them, even when later ones were
-written with the other marker. None of this is serialized differently: the JSON
-AST has no marker per item. `slidelang fmt` and `doclang fmt` write each
-sub-point with the marker the author used (the parser keeps it in memory only),
-so a mixed sublist keeps its markers, but a third level comes back indented as
-a sibling of the second, which builds to the same AST.
+Without that declaration a nested list keeps the depth the author wrote, at
+any depth, in `subPoints` (and `CHECKLIST` items in `subItems`). In flex the
+rule is CommonMark's: an item is the child of the item above it only when its
+marker starts at or past that item's content column (the column after the
+marker and its space: 2 under `- `, 3 under `1. `); otherwise it is a sibling
+or returns to an outer level, so a one-space "staircase" is a flat list. Tabs
+advance to the next multiple of 4 columns. A line without a marker continues
+the item when it is indented to that column or, right after the item's text,
+at any indentation (lazy continuation); a line that starts another block (a
+chart, `$$`, a fence, a heading, `---`, a table, a quote...) never does. Inside
+an item's text a nested ordered list starting at a number other than 1 is
+text, as at paragraph level. `1)` is an
+ordered marker like `1.`, and a change of delimiter starts a new list. In
+strict, whose grammar is indentation-based, any item indented deeper than the
+item above it is its child, as it always was. In a flex paragraph, a line
+starting with a number other than 1 (`1998. It grew`) does not start a list. The JSON keeps the legacy shape: `subPoints`/`subItems` were
+already recursive in the schema, no `subListType`, `start` or `subListStart` is
+written, and the document stays at schema 2.14.0 with no capability. The kind of
+each sublist (bullets or numbers), the marker of each item and the number the
+author wrote before an ordered item are kept in memory only. Core HTML uses
+them: each sublist is drawn as `<ol>` or `<ul>` from its own marker, a change of
+marker between siblings starts a new list, and an ordered list starts where the
+author started it (`<ol start="3">`). An AST read back from JSON has none of
+that: a sublist takes the kind of its parent and numbering starts at 1.
+`slidelang fmt` and `doclang fmt` write each item with the marker and starting
+number the author used, so the output builds to the same AST.
+
+Inside a quote (`>` in flex, `QUOTE` in strict) and inside a `:::` block, a list
+item keeps, in `content`, the indentation it has beyond the first line of the
+body, so the nesting survives in the AST; prose lines are trimmed as before.
+Core HTML renders those lists nested, outside any `<p>`.
 
 `CODE typescript renewals.ts` records `renewals.ts` as the block's filename
 (`CodeElement.filename`, schema 2.19.0, inferred capability

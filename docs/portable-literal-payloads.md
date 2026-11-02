@@ -13,8 +13,11 @@ and `subListType: ordered`, and requires `nested-list-types-v1`. Source ordinals
 must be decimal and contiguous. Invalid, alphabetic or discontinuous ordinals
 produce errors. The runtime also rejects a list whose last implied ordinal
 (start + item count - 1) exceeds the safe range; the schema constrains the stored
-start value and cannot express this arithmetic invariant. Without the opt-in,
-existing source list behavior is unchanged.
+start value and cannot express this arithmetic invariant. Core HTML writes
+`<ol start>` from `start`/`subListStart`. Without the opt-in no ordinal is
+serialized and the JSON is unchanged; the parser keeps the written numbers in
+memory only, so core HTML still starts the list where the author did, until the
+AST goes through JSON.
 
 `ast_capabilities: [math-source-v1]` opts into AST 2.22. The capability is a
 whole-document policy: all MathElement content is literal LaTeX. It introduces

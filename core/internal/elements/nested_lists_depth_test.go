@@ -1,0 +1,306 @@
+// Copyright 2026 Misael Monterroca
+// SPDX-License-Identifier: Apache-2.0
+
+package elements
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/util"
+)
+
+// shape describe un árbol de items como "contenido(tipo de la sublista)[hijos]"
+// para comparar en una sola línea.
+func pointShape(items []ast.PointItem) string {
+	var parts []string
+	for _, it := range items {
+		s := it.Content
+		if len(it.SubPoints) > 0 {
+			s += "(" + it.SubListMarker + ")[" + pointShape(it.SubPoints) + "]"
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " ")
+}
+
+// Sin nested-list-types-v1 la lista conserva la profundidad que escribió el
+// autor, de 1 a 5 niveles, en los dos dialectos: un item más sangrado que el
+// anterior es su hijo. Antes, del tercer nivel para abajo todo quedaba como
+// hermano del segundo.
+func TestLegacyPointsKeepTheDepth(t *testing.T) {
+	cases := []struct {
+		name  string
+		mode  string
+		lines []string
+		want  string
+	}{
+		{"flex 1 level", "flex", []string{"- a", "- b"}, "a b"},
+		{"flex 2 levels", "flex", []string{"- a", "  - b"}, "a(unordered)[b]"},
+		{"flex 3 levels", "flex", []string{"- a", "  - b", "    - c"}, "a(unordered)[b(unordered)[c]]"},
+		{"flex 5 levels mixed", "flex", []string{"1. uno", "   - dos", "     1. tres", "        - cuatro", "          1. cinco", "2. otro"},
+			"uno(unordered)[dos(ordered)[tres(unordered)[cuatro(ordered)[cinco]]]] otro"},
+		{"flex back up a level", "flex", []string{"- a", "  - b", "    - c", "  - d", "- e"}, "a(unordered)[b(unordered)[c] d] e"},
+		{"flex bullet with ordered child", "flex", []string{"- a", "- b", "  1. c", "  1. d"}, "a b(ordered)[c d]"},
+		// CommonMark: un hijo tiene que empezar en la columna de contenido del
+		// item de arriba. Una escalera de un espacio son hermanos, y dos
+		// espacios bajo "1." no alcanzan los tres de su contenido.
+		{"flex staircase", "flex", []string{"- a", " - b", "  - c"}, "a b c"},
+		{"flex short indent under a number", "flex", []string{"1. a", "  1. b"}, "a b"},
+		{"flex child at the content column", "flex", []string{"1. a", "   1. b", "10. c", "    - d"}, "a(ordered)[b] c(unordered)[d]"},
+		{"flex back to an outer level", "flex", []string{"- a", "  - b", "    - c", " - d"}, "a(unordered)[b(unordered)[c]] d"},
+		// strict es por sangría: más sangrado que el item de arriba es hijo,
+		// también a dos espacios bajo "1.", que es lo que escribía fmt.
+		{"strict deeper is a child", "strict", []string{"POINTS", "  - a", "   - b", "    1. c", "      - d"}, "a(unordered)[b(ordered)[c(unordered)[d]]]"},
+		{"strict 1 level", "strict", []string{"POINTS", "  - a", "  - b"}, "a b"},
+		{"strict 3 levels", "strict", []string{"POINTS", "  - a", "    1. b", "       - c"}, "a(ordered)[b(unordered)[c]]"},
+		{"strict 5 levels", "strict", []string{"POINTS", "  1. uno", "     - dos", "       1. tres", "          - cuatro", "            1. cinco"},
+			"uno(unordered)[dos(ordered)[tres(unordered)[cuatro(ordered)[cinco]]]]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pts := parsePoints(t, c.mode, c.lines...)
+			if got := pointShape(pts.Items); got != c.want {
+				t.Fatalf("shape %q, want %q", got, c.want)
+			}
+			raw, err := json.Marshal(pts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, field := range []string{"subListType", "subListStart", `"start"`, "ordinal", "Ordinal", "Marker"} {
+				if strings.Contains(string(raw), field) {
+					t.Fatalf("without the opt-in the JSON must keep the legacy shape, found %s: %s", field, raw)
+				}
+			}
+		})
+	}
+}
+
+// Cada item recuerda en memoria el número que escribió el autor, a cualquier
+// profundidad; el render lo usa como inicio de la lista.
+func TestLegacyPointsRecordOrdinals(t *testing.T) {
+	ord := func(it ast.PointItem) int64 {
+		n, ok := it.WrittenOrdinal()
+		if !ok {
+			return -1
+		}
+		return n
+	}
+	pts := parsePoints(t, "flex", "3. tres", "4. cuatro", "", "   7. siete", "   8. ocho", "      - x")
+	if ord(pts.Items[0]) != 3 || ord(pts.Items[1]) != 4 {
+		t.Fatalf("top ordinals %d %d", ord(pts.Items[0]), ord(pts.Items[1]))
+	}
+	sub := pts.Items[1].SubPoints
+	if len(sub) != 2 || ord(sub[0]) != 7 || ord(sub[1]) != 8 {
+		t.Fatalf("sub ordinals %+v", sub)
+	}
+	if ord(sub[1].SubPoints[0]) != -1 {
+		t.Fatalf("a bullet has no ordinal, got %d", ord(sub[1].SubPoints[0]))
+	}
+	strict := parsePoints(t, "strict", "POINTS", "  5. cinco", "     2. dos")
+	if ord(strict.Items[0]) != 5 || ord(strict.Items[0].SubPoints[0]) != 2 {
+		t.Fatalf("strict ordinals %+v", strict.Items)
+	}
+	if zero := parsePoints(t, "flex", "0. cero", "1. uno"); ord(zero.Items[0]) != 0 {
+		t.Fatalf("0. is an ordinal: %d", ord(zero.Items[0]))
+	}
+}
+
+// "1)" es un item numerado como "1.", y cambiar de delimitador entre items de
+// la lista de afuera abre otra lista, como en CommonMark.
+func TestParenDelimiter(t *testing.T) {
+	pts := parsePoints(t, "flex", "1) uno", "2) dos", "   1) a")
+	if pointShape(pts.Items) != "uno dos(ordered)[a]" || pts.ListType != "ordered" {
+		t.Fatalf("shape %q type %q", pointShape(pts.Items), pts.ListType)
+	}
+	if pts.Items[1].Delimiter != ")" || pts.Items[1].SubPoints[0].Delimiter != ")" {
+		t.Fatalf("delimiters %+v", pts.Items)
+	}
+	ctx := &ParseContext{Mode: "flex", Lines: []string{"1. uno", "2. dos", "1) otra", "2) lista"}, Logger: util.NewNoop()}
+	res := (&PointsParser{}).Parse(ctx, 0)
+	if res.ConsumedLines != 2 {
+		t.Fatalf("a change of delimiter must close the list, consumed %d", res.ConsumedLines)
+	}
+	strict := parsePoints(t, "strict", "POINTS", "  1) uno", "  2) dos")
+	if pointShape(strict.Items) != "uno dos" {
+		t.Fatalf("strict shape %q", pointShape(strict.Items))
+	}
+}
+
+func checklistShape(items []ast.ChecklistItem) string {
+	var parts []string
+	for _, it := range items {
+		s := it.Content
+		if it.Checked {
+			s += "*"
+		}
+		if len(it.SubItems) > 0 {
+			s += "[" + checklistShape(it.SubItems) + "]"
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " ")
+}
+
+// Las tareas se anidan a cualquier profundidad; antes había dos niveles y una
+// sub-sub-tarea salía como hermana de su padre.
+func TestChecklistKeepsTheDepth(t *testing.T) {
+	cases := []struct {
+		name  string
+		mode  string
+		lines []string
+		want  string
+	}{
+		{"flex depth 3", "flex", []string{"- [x] t1", "  - [ ] t1.1", "    - [x] t1.1.1", "  - [ ] t1.2", "- [ ] t2"}, "t1*[t1.1[t1.1.1*] t1.2] t2"},
+		{"flex depth 5", "flex", []string{"- [ ] a", "  - [ ] b", "    - [ ] c", "      - [ ] d", "        - [x] e"}, "a[b[c[d[e*]]]]"},
+		{"strict depth 3", "strict", []string{"CHECKLIST", "  [x] t1", "    [ ] t1.1", "      - [x] t1.1.1", "  [ ] t2"}, "t1*[t1.1[t1.1.1*]] t2"},
+		{"flex staircase", "flex", []string{"- [ ] a", " - [ ] b", "  - [ ] c"}, "a b c"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := &ParseContext{Mode: c.mode, Lines: c.lines, Logger: util.NewNoop()}
+			res := (&ChecklistParser{}).Parse(ctx, 0)
+			cl, ok := res.Element.(*ast.ChecklistElement)
+			if !ok {
+				t.Fatalf("element is %T", res.Element)
+			}
+			if got := checklistShape(cl.Items); got != c.want {
+				t.Fatalf("shape %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// Una línea de continuación de una tarea strict se suma a la última tarea
+// abierta, la más profunda, no a la tarea base.
+func TestStrictChecklistContinuationGoesToTheDeepestItem(t *testing.T) {
+	ctx := &ParseContext{Mode: "strict", Lines: []string{"CHECKLIST", "  [ ] t1", "    [ ] t1.1", "      sigue"}, Logger: util.NewNoop()}
+	cl := (&ChecklistParser{}).Parse(ctx, 0).Element.(*ast.ChecklistElement)
+	if cl.Items[0].Content != "t1" || cl.Items[0].SubItems[0].Content != "t1.1 sigue" {
+		t.Fatalf("continuation went to the wrong item: %+v", cl.Items)
+	}
+}
+
+// Una lista dentro de una cita conserva en Content la sangría de sus items
+// anidados; la prosa y una cita sin listas anidadas quedan como antes.
+func TestQuoteKeepsNestedListIndent(t *testing.T) {
+	cases := []struct {
+		name  string
+		mode  string
+		lines []string
+		want  string
+	}{
+		{"flex nested", "flex", []string{"> Antes", "> - a", ">   - b", ">     1. c"}, "Antes\n- a\n  - b\n    1. c"},
+		{"flex prose unchanged", "flex", []string{">   texto con sangría", "> - a", "> - b"}, "texto con sangría\n- a\n- b"},
+		{"flex indented prose first", "flex", []string{">   Antes", "> - a", ">   - b"}, "Antes\n- a\n  - b"},
+		{"strict nested", "strict", []string{"QUOTE", "    Cita", "    - a", "      - b"}, "Cita\n- a\n  - b"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := &ParseContext{Mode: c.mode, Lines: c.lines, Logger: util.NewNoop()}
+			q, ok := (&QuoteParser{}).Parse(ctx, 0).Element.(*ast.QuoteElement)
+			if !ok {
+				t.Fatal("not a quote")
+			}
+			if q.Content != c.want {
+				t.Fatalf("content %q, want %q", q.Content, c.want)
+			}
+		})
+	}
+}
+
+// Lo mismo dentro de un ":::bloque", en flex y en strict (donde el cuerpo vive
+// sangrado bajo el ":::").
+func TestSpecialBlockKeepsNestedListIndent(t *testing.T) {
+	cases := []struct {
+		name  string
+		mode  string
+		lines []string
+		want  string
+	}{
+		{"flex", "flex", []string{":::info Nota", "Texto", "- a", "  - b", "    1. c", ":::"}, "Texto\n- a\n  - b\n    1. c"},
+		{"strict", "strict", []string{"  :::info Nota", "    Texto", "    - a", "      - b", "  :::"}, "Texto\n- a\n  - b"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := &ParseContext{Mode: c.mode, Lines: c.lines, Logger: util.NewNoop()}
+			b, ok := (&SpecialBlockParser{}).Parse(ctx, 0).Element.(*ast.SpecialBlockElement)
+			if !ok {
+				t.Fatal("not a special block")
+			}
+			if b.Content != c.want {
+				t.Fatalf("content %q, want %q", b.Content, c.want)
+			}
+		})
+	}
+}
+
+// Una línea sangrada hasta la columna de contenido de un item lo continúa,
+// como en CommonMark; antes partía la lista en párrafo y otra lista.
+func TestFlexListItemContinuationLine(t *testing.T) {
+	ctx := &ParseContext{Mode: "flex", Lines: []string{"1. Una frase", "   que sigue", "2. Otra", "   - hijo", "     que sigue", "", "fuera"}, Logger: util.NewNoop()}
+	res := (&PointsParser{}).Parse(ctx, 0)
+	pts := res.Element.(*ast.PointsElement)
+	if res.ConsumedLines != 5 || pointShape(pts.Items) != "Una frase que sigue Otra(unordered)[hijo que sigue]" {
+		t.Fatalf("consumed %d shape %q", res.ConsumedLines, pointShape(pts.Items))
+	}
+}
+
+// Una línea que abre otro bloque nunca continúa un item, aunque esté sangrada
+// hasta su columna de contenido: corta la lista, como hacía siempre.
+func TestFlexListStopsAtOtherBlocks(t *testing.T) {
+	for _, line := range []string{"<<chart: bar>>", "$$x^2$$", "@directive: x", "### Título", "---", "```go", ":::info", "> cita", "| a | b |", "![img](a.png)", "***", "<div>"} {
+		for _, indented := range []string{line, "  " + line} {
+			ctx := &ParseContext{Mode: "flex", Lines: []string{"- Ventas", indented, "    data: 1"}, Logger: util.NewNoop()}
+			res := (&PointsParser{}).Parse(ctx, 0)
+			pts := res.Element.(*ast.PointsElement)
+			if res.ConsumedLines != 1 || pointShape(pts.Items) != "Ventas" {
+				t.Errorf("%q: consumed %d, shape %q", indented, res.ConsumedLines, pointShape(pts.Items))
+			}
+		}
+	}
+}
+
+// CommonMark: después del texto de un item, una línea que no abre otro bloque
+// lo continúa con cualquier sangría (continuación perezosa), y una lista
+// numerada que no empieza en 1 no interrumpe ese texto.
+func TestFlexLazyContinuation(t *testing.T) {
+	cases := []struct {
+		lines []string
+		want  string
+	}{
+		{[]string{"1. Primero con una frase", "  que sigue", "2. Segundo", "3. Tercero"}, "Primero con una frase que sigue Segundo Tercero"},
+		{[]string{"1. a", "lazy", "2. b"}, "a lazy b"},
+		{[]string{"- a", "  1998. el año"}, "a 1998. el año"},
+		{[]string{"- a", "2. b"}, "a"}, // "2. b" abre su propia lista, como en goldmark
+		{[]string{"- a", "", "  1998. el año"}, "a(ordered)[el año]"},
+		{[]string{"- a", "  1. uno"}, "a(ordered)[uno]"},
+	}
+	for _, c := range cases {
+		pts := parsePoints(t, "flex", c.lines...)
+		if got := pointShape(pts.Items); got != c.want {
+			t.Errorf("%q: shape %q, want %q", c.lines, got, c.want)
+		}
+	}
+}
+
+// Los tabuladores avanzan a la siguiente parada de 4, como en CommonMark: un
+// hijo sangrado con tabulador sigue siendo hijo.
+func TestFlexListTabsAreTabStops(t *testing.T) {
+	if got := pointShape(parsePoints(t, "flex", "- a", "\t- b").Items); got != "a(unordered)[b]" {
+		t.Errorf("bullet: %q", got)
+	}
+	if got := pointShape(parsePoints(t, "flex", "1. a", "\t- b", "2. c").Items); got != "a(unordered)[b] c" {
+		t.Errorf("ordered: %q", got)
+	}
+	ctx := &ParseContext{Mode: "flex", Lines: []string{"- [ ] a", "\t- [ ] b"}, Logger: util.NewNoop()}
+	cl := (&ChecklistParser{}).Parse(ctx, 0).Element.(*ast.ChecklistElement)
+	if got := checklistShape(cl.Items); got != "a[b]" {
+		t.Errorf("checklist: %q", got)
+	}
+	if IndentColumns(" \t- b") != 4 || IndentColumns("\t\tx") != 8 {
+		t.Error("tab stops")
+	}
+}

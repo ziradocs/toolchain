@@ -632,6 +632,8 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
 // GetElementTemplate returns the element template with namespaced classes
 func (tb *TemplateBuilder) GetElementTemplate() string {
 	template := `{{define "typed-point-item"}}<li>{{.Content | markdown}}{{if .SubPoints}}{{if eq .SubListType "ordered"}}<ol>{{range .SubPoints}}{{template "typed-point-item" .}}{{end}}</ol>{{else}}<ul>{{range .SubPoints}}{{template "typed-point-item" .}}{{end}}</ul>{{end}}{{end}}</li>{{end}}
+{{define "legacy-sub-points"}}{{if .SubPoints}}{{if eq .SubListKind "ordered"}}<ol>{{range .SubPoints}}<li>{{.Content | markdown}}{{template "legacy-sub-points" .}}</li>{{end}}</ol>{{else}}<ul>{{range .SubPoints}}<li>{{.Content | markdown}}{{template "legacy-sub-points" .}}</li>{{end}}</ul>{{end}}{{end}}{{end}}
+{{define "checklist-sub-items"}}{{if .SubItems}}<ul class="slidelang-checklist-subitems">{{range .SubItems}}<li class="slidelang-checklist-item {{if .Checked}}checked{{end}}"><label class="slidelang-checklist-label"><input type="checkbox" class="slidelang-checklist-checkbox" {{if .Checked}}checked{{end}} disabled><span class="slidelang-checklist-checkmark"><svg width="12" height="12" viewBox="0 0 12 12" class="slidelang-checkmark-icon"><path d="M3.5 6L5 7.5L8.5 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></span><span class="slidelang-checklist-content">{{.Content | markdown}}</span></label>{{template "checklist-sub-items" .}}</li>{{end}}</ul>{{end}}{{end}}
 {{define "element"}}
         {{if eq .Type "text"}}
             {{if .HeadingHTML}}
@@ -663,7 +665,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                                 {{if .SubPoints}}
                                     {{if eq .SubListMarker "unordered"}}<ul>{{else}}<ol>{{end}}
                                         {{range .SubPoints}}
-                                            <li>{{.Content | markdown}}</li>
+                                            <li>{{.Content | markdown}}{{template "legacy-sub-points" .}}</li>
                                         {{end}}
                                     {{if eq .SubListMarker "unordered"}}</ul>{{else}}</ol>{{end}}
                                 {{end}}
@@ -677,7 +679,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                                 {{if .SubPoints}}
                                     {{if eq .SubListMarker "ordered"}}<ol>{{else}}<ul>{{end}}
                                         {{range .SubPoints}}
-                                            <li>{{.Content | markdown}}</li>
+                                            <li>{{.Content | markdown}}{{template "legacy-sub-points" .}}</li>
                                         {{end}}
                                     {{if eq .SubListMarker "ordered"}}</ol>{{else}}</ul>{{end}}
                                 {{end}}
@@ -986,7 +988,7 @@ func (tb *TemplateBuilder) GetElementTemplate() string {
                                                     </svg>
                                                 </span>
                                                 <span class="slidelang-checklist-content">{{.Content | markdown}}</span>
-                                            </label>
+                                            </label>{{template "checklist-sub-items" .}}
                                         </li>
                                     {{end}}
                                 </ul>

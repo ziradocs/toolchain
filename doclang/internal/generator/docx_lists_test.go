@@ -312,7 +312,9 @@ func TestDOCXNestedListsFromJSONAndStart(t *testing.T) {
 	})
 }
 
-// Word admite 9 niveles; uno más falla en vez de aplanarse en silencio.
+// Word admite 9 niveles; una lista tipada (nested-list-types-v1) con uno más
+// falla en vez de aplanarse en silencio. Una sin tipar se dibuja en el último
+// nivel: TestDOCXUntypedListDeeperThanNineClamps.
 func TestDOCXNestedListsTooDeep(t *testing.T) {
 	pos := diagnostics.NewPosition(3, 1)
 	var build func(depth int) ast.PointItem
@@ -352,8 +354,9 @@ func TestDOCXNestedListsTooDeep(t *testing.T) {
 // se escribía Content línea por línea y la tabla salía como texto con barras.
 //
 // Una lista dentro del bloque no llega a Elements: core la deja como prosa en
-// Content y ya sin la sangría de sus subniveles, así que acá solo se exige que
-// ningún ítem se pierda.
+// Content, con la sangría de sus subniveles, y el DOCX la escribe como lista
+// (TestDOCXQuoteAndCalloutListsAreNativeLists); acá solo se exige que ningún
+// ítem se pierda.
 func TestDOCXCalloutNestedElements(t *testing.T) {
 	src := "# Doc\n\n:::info Nota\nTexto previo.\n\n| A | B |\n|---|---|\n| celda-1 | celda-2 |\n\n- fuera\n  - dentro\n:::\n"
 	doc := parseInline(t, src)

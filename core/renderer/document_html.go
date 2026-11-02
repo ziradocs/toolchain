@@ -498,8 +498,9 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         }
 
         ul.checklist-sub {
+            list-style: none;
             margin-top: 0.5em;
-            padding-left: 2em;
+            padding-left: 0;
         }
 
         /* Special Blocks */

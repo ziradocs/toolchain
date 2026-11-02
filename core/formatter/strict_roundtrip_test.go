@@ -241,6 +241,11 @@ func normalizePointItems(items []ast.PointItem) []ast.PointItem {
 	for i, it := range items {
 		it.Position, it.EndPosition = zeroPosition, zeroPosition
 		it.ContentHTML = ""
+		// Ordinal es el número que escribió el autor, solo en memoria: fmt
+		// renumera de forma contigua desde el primero ("a." o "1. 1. 1." no
+		// sobreviven literalmente), y lo que el render lee de él, el inicio
+		// de cada lista, se prueba aparte (TestFormatKeepsTheStartOfALegacyList).
+		it.Ordinal = nil
 		it.SubPoints = normalizePointItems(it.SubPoints)
 		out[i] = it
 	}

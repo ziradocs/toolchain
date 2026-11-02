@@ -210,12 +210,18 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 	// que separa "otro ::: anidado" (con tipo) de "mi propio cierre" (sin
 	// tipo): un ":::sub ... :::" anidado consume su PROPIO cierre en la
 	// llamada recursiva antes de que este loop lo vuelva a ver.
+	//
+	// Cada línea sale recortada salvo los items de lista, que guardan la
+	// sangría que tienen por encima de la primera línea del cuerpo
+	// (keepListIndent): sin ella una lista anidada dentro del bloque llegaba
+	// al AST, y al render, como un solo nivel.
+	bodyIndent := firstBodyIndent(ctx.Lines, startIndex+1, func(l string) bool { return strings.TrimSpace(l) == ":::" })
 	var content strings.Builder
 	appendRawLine := func(line string) {
 		if content.Len() > 0 {
 			content.WriteString("\n")
 		}
-		content.WriteString(strings.TrimSpace(line))
+		content.WriteString(keepListIndent(line, bodyIndent))
 	}
 
 	var nested []ast.Element
@@ -261,7 +267,7 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		if proseRun.Len() > 0 {
 			proseRun.WriteString("\n")
 		}
-		proseRun.WriteString(strings.TrimSpace(ctx.Lines[lineIndex]))
+		proseRun.WriteString(keepListIndent(ctx.Lines[lineIndex], bodyIndent))
 	}
 
 	i := startIndex + 1
