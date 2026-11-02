@@ -61,7 +61,7 @@ func TestDOCXTableColumnWidths_SumToAvailableAndAreBounded(t *testing.T) {
 	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
 	table.Headers = []string{"Id", "Descripción"}
 	table.Rows = [][]string{{"1", strings.Repeat("palabra ", 50)}}
-	widths := docxTableColumnWidths(table, 2, 9000)
+	widths := docxTableColumnWidths(table, 2, 9000, 22)
 	if widths[0]+widths[1] != 9000 {
 		t.Errorf("widths %v do not sum to 9000", widths)
 	}
@@ -90,5 +90,48 @@ func TestMarkdownGenerator_TableKeepsColumnAlign(t *testing.T) {
 	got := NewMarkdownGenerator(newTestLogger()).renderElement(astWithTable().ContentBlocks[0].Elements[2])
 	if !strings.Contains(got, "| --- | :---: | ---: |") {
 		t.Errorf("delimiter row lost the alignment:\n%s", got)
+	}
+}
+
+// TestDOCXTableColumnWidths_BackendEndpointsHeader es la tabla de endpoints
+// de docs/architecture/backend.md (slidelang-app), donde "Método" salía
+// partida en "Méto/do": la columna recibía 837 twips por reparto
+// proporcional. Ningún encabezado puede quedar más angosto que su palabra
+// más larga en negrita a 11 pt.
+func TestDOCXTableColumnWidths_BackendEndpointsHeader(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"Endpoint", "Método", "Descripción", "Rate Limited"}
+	table.Rows = [][]string{
+		{"`/health`", "GET", "Health check del backend", "❌"},
+		{"`/api/presentations/health`", "GET", "Health check SlideLang", "✅"},
+		{"`/api/presentations/:id`", "GET", "Obtener presentación desde SlideLang", "✅"},
+	}
+	const available, size = 9026, 22 // A4 con márgenes de 1", 11 pt
+	widths := docxTableColumnWidths(table, 4, available, size)
+
+	sum := 0
+	for j, w := range widths {
+		sum += w
+		if min := docxHeaderMinWidth(table.Headers[j], size); w < min {
+			t.Errorf("columna %q: %d twips, menos que los %d de su encabezado", table.Headers[j], w, min)
+		}
+	}
+	if sum != available {
+		t.Errorf("widths %v suman %d, want %d", widths, sum, available)
+	}
+	// "Método": 6 caracteres a 0.62 em de 11 pt más el margen de la celda.
+	if widths[1] < 1000 {
+		t.Errorf("Método: %d twips, want >= 1000", widths[1])
+	}
+}
+
+func TestDocxHeaderMinWidth_LongestWord(t *testing.T) {
+	// "Rate Limited" se puede partir entre palabras: manda "Limited" (7).
+	if a, b := docxHeaderMinWidth("Rate Limited", 22), docxHeaderMinWidth("Limited", 22); a != b {
+		t.Errorf("Rate Limited = %d, Limited = %d; want equal", a, b)
+	}
+	// La tilde no agrega ancho: "Método" mide lo mismo que "Metodo".
+	if a, b := docxHeaderMinWidth("Método", 22), docxHeaderMinWidth("Metodo", 22); a != b {
+		t.Errorf("Método = %d, Metodo = %d", a, b)
 	}
 }

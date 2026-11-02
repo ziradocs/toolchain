@@ -2407,7 +2407,7 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 	// del tema, el ancho de la caja de texto repartido según el contenido
 	// de cada columna, y un encabezado con fondo que se repite en cada
 	// página.
-	colWidths := docxTableColumnWidths(elem, numCols, int(g.contentWidthIn*1440))
+	colWidths := docxTableColumnWidths(elem, numCols, int(g.contentWidthIn*1440), g.parseSize(g.style.FontSizeBase))
 	total := 0
 	for _, w := range colWidths {
 		total += w
@@ -2527,7 +2527,15 @@ func (g *DOCXGenerator) addTableCellParagraph(cell domain.TableCell, columnAlign
 // columna de una celda larguísima no deje a las demás sin espacio ni una
 // columna corta quede ilegible. La suma es siempre el ancho disponible, así
 // que la tabla nunca se sale de la página.
-func docxTableColumnWidths(elem *ast.TableElement, numCols, available int) []int {
+//
+// Además ninguna columna queda más angosta que la palabra más larga de su
+// encabezado en negrita a headerHalfPoints (ver docxHeaderMinWidth). El
+// reparto proporcional solo no alcanzaba: los pesos se cuentan en
+// caracteres, pero cuando la suma de pesos supera los caracteres que caben
+// en la página cada "carácter" vale menos que uno real. En la tabla de
+// endpoints de backend.md "Método" recibía 837 twips y necesita unos 1000,
+// así que salía "Méto/do".
+func docxTableColumnWidths(elem *ast.TableElement, numCols, available, headerHalfPoints int) []int {
 	const minWeight, maxWeight = 6, 40
 	weights := make([]int, numCols)
 	measure := func(col int, text string) {
@@ -2544,22 +2552,94 @@ func docxTableColumnWidths(elem *ast.TableElement, numCols, available int) []int
 			measure(j, row[j])
 		}
 	}
-	sum := 0
 	for j := range weights {
 		// +3: el margen interno de la celda y la negrita del encabezado
 		// ocupan unos tres caracteres; sin ellos una columna angosta
 		// ("Monto") partía su propio encabezado en dos líneas.
 		weights[j] = max(minWeight, min(maxWeight, weights[j]+3))
-		sum += weights[j]
 	}
+
+	mins := make([]int, numCols)
+	for j := 0; j < numCols && j < len(elem.Headers); j++ {
+		mins[j] = docxHeaderMinWidth(elem.Headers[j], headerHalfPoints)
+	}
+
+	// Reparto proporcional; la columna que queda bajo su mínimo se fija en
+	// él y el resto se vuelve a repartir entre las demás, hasta que ninguna
+	// quede corta. Si los mínimos juntos no caben, se escalan.
 	widths := make([]int, numCols)
+	fixed := make([]bool, numCols)
+	for {
+		free, freeWeight := available, 0
+		for j := range widths {
+			if fixed[j] {
+				free -= widths[j]
+			} else {
+				freeWeight += weights[j]
+			}
+		}
+		if freeWeight == 0 || free <= 0 {
+			break
+		}
+		changed := false
+		for j := range widths {
+			if fixed[j] {
+				continue
+			}
+			widths[j] = free * weights[j] / freeWeight
+			if widths[j] < mins[j] {
+				widths[j], fixed[j], changed = mins[j], true, true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	sum := 0
+	for _, w := range widths {
+		sum += w
+	}
+	if sum > available { // los mínimos no caben: se escalan todos
+		for j := range widths {
+			widths[j] = widths[j] * available / sum
+		}
+	}
 	used := 0
-	for j := range widths {
-		widths[j] = available * weights[j] / sum
-		used += widths[j]
+	for _, w := range widths {
+		used += w
 	}
 	widths[numCols-1] += available - used
 	return widths
+}
+
+// Estimación del ancho de texto de un encabezado, sin métricas de fuente:
+// docxHeaderCharEm es el ancho medio de un carácter en negrita, en em, del
+// lado holgado para las serif y sans de los temas (una minúscula en negrita
+// ronda 0.55 em; una acentuada mide lo mismo que su base, así que el acento
+// no cambia nada). docxCellPaddingTwips son los márgenes izquierdo y derecho
+// por defecto de una celda (108 twips cada uno) más los bordes.
+const (
+	docxHeaderCharEm     = 0.62
+	docxCellPaddingTwips = 240
+)
+
+// docxHeaderMinWidth es el ancho, en twips, que necesita la palabra más
+// larga de un encabezado en negrita a halfPoints para no partirse. Entre
+// palabras sí se puede cortar, así que manda la más larga, no el total.
+func docxHeaderMinWidth(header string, halfPoints int) int {
+	if halfPoints <= 0 {
+		return 0
+	}
+	longest := 0
+	for _, word := range strings.Fields(docxStripHeadingMarkup(header)) {
+		longest = max(longest, utf8.RuneCountInString(word))
+	}
+	if longest == 0 {
+		return 0
+	}
+	// 1 pt = 20 twips; un em mide lo mismo que el cuerpo (halfPoints/2 pt).
+	emTwips := float64(halfPoints) / 2 * 20
+	return int(float64(longest)*docxHeaderCharEm*emTwips+0.5) + docxCellPaddingTwips
 }
 
 // renderImagePlaceholder inserta el texto itálico placeholder que reemplaza
