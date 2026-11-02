@@ -2719,8 +2719,24 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
 	}
 
-	// Tamaño natural, reducido si no cabe en la caja de texto.
-	imageSize, err := g.fittedImageSize(imagePath, elem.Caption != "")
+	// Tamaño natural, reducido si no cabe en la caja de texto. Un SVG entra
+	// como PNG rasterizado con Chromium (ver rasterizeSVGImage).
+	// Un SVG guardado con otra extensión se reconoce por su contenido cuando
+	// los decoders de imagen no lo leen.
+	insertPath := imagePath
+	var imageSize domain.ImageSize
+	isSVG := isSVGImageSource(imagePath)
+	if !isSVG {
+		imageSize, err = g.fittedImageSize(imagePath, elem.Caption != "")
+		if err != nil && fileLooksLikeSVG(imagePath) {
+			isSVG, err = true, nil
+		}
+	}
+	if isSVG {
+		var w, h float64
+		insertPath, w, h, err = g.rasterizeSVGImage(imagePath, elem.Caption != "")
+		imageSize = imageSizeFromInches(w, h)
+	}
 	if err != nil {
 		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
 		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
@@ -2734,7 +2750,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	}
 
 	// Agregar imagen
-	img, err := p.AddImageWithSize(imagePath, imageSize)
+	img, err := p.AddImageWithSize(insertPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
 		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
@@ -4006,7 +4022,7 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 	for _, block := range astDoc.ContentBlocks {
 		for _, elem := range block.Elements {
-			switch elem.(type) {
+			switch e := elem.(type) {
 			// MathElement faltaba acá: renderMath ya usa chromiumRenderer
 			// (RenderMathToPNG) pero, sin este case, un documento cuyo
 			// único elemento rico es una ecuación nunca inicializa
@@ -4019,6 +4035,11 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 			// navegador de forma implícita.
 			case *ast.ChartElement, *ast.MermaidElement, *ast.MathElement:
 				return true
+			case *ast.ImageElement:
+				// Un SVG local se rasteriza con Chromium (rasterizeSVGImage).
+				if isSVGImageSource(e.Source) {
+					return true
+				}
 			}
 		}
 	}
@@ -4044,6 +4065,10 @@ func (g *DOCXGenerator) canRenderWithoutChromium(astDoc *ast.AST) bool {
 				}
 			case *ast.MermaidElement, *ast.MathElement:
 				return false
+			case *ast.ImageElement:
+				if isSVGImageSource(e.Source) {
+					return false
+				}
 			}
 		}
 	}

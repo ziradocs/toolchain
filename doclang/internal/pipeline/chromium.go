@@ -6,6 +6,8 @@ package pipeline
 import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/renderer"
+
+	"go.ziradocs.com/doclang/v2/internal/generator"
 )
 
 // ChromiumRequirements dice qué partes de doc necesitan Chromium para
@@ -17,9 +19,9 @@ import (
 // Replica, con funciones exportadas de core/renderer, los criterios de
 // cada generador:
 //   - pdf: siempre (imprime con Chromium).
-//   - docx: mermaid y math siempre; un chart solo si no rasteriza nativo
-//     (DOCXGenerator.needsChromiumRendering/canRenderWithoutChromium). Los
-//     mapas tienen render nativo.
+//   - docx: mermaid, math e imágenes SVG locales siempre; un chart solo si
+//     no rasteriza nativo (DOCXGenerator.needsChromiumRendering/
+//     canRenderWithoutChromium). Los mapas tienen render nativo.
 //   - html: solo en los modos offline, por tipo de elemento presente, con
 //     el mismo atajo de charts nativos que HTMLGenerator.
 func ChromiumRequirements(doc *ast.AST, format, renderMode, diagramBackend string) []string {
@@ -33,6 +35,9 @@ func ChromiumRequirements(doc *ast.AST, format, renderMode, diagramBackend strin
 		}
 		if renderer.HasMathElements(doc) {
 			reasons = append(reasons, "math equations in DOCX")
+		}
+		if generator.HasSVGImages(doc) {
+			reasons = append(reasons, "SVG images in DOCX")
 		}
 		if renderer.HasChartElements(doc) && !allChartsNative(doc) {
 			reasons = append(reasons, "charts that cannot be rasterized natively in DOCX")
