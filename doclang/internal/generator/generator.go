@@ -4,6 +4,7 @@
 package generator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -93,6 +94,26 @@ type GeneratorOptions struct {
 	// directorio (ver docs/SECURITY_AUDIT_2026-07.md, AL-4); vacío desactiva
 	// la confinación (no usado por los demás formatos).
 	AssetRoot string
+	// SourceDir es el directorio del archivo fuente. Una fuente de imagen
+	// local relativa se resuelve contra él (como en cualquier herramienta de
+	// markdown) y después se confina a AssetRoot. Vacío resuelve contra
+	// AssetRoot, el comportamiento previo a este campo; solo cambia algo
+	// cuando AssetRoot es un ancestro del archivo fuente (--asset-root ..).
+	// Lo consumen el DOCX y, vía renderer.RenderContext.AssetBaseDir, el
+	// inlineo de HTML offline-inline y PDF.
+	SourceDir string
+	// Ctx acota el trabajo con Chromium (arranque, capturas, PDF): al
+	// cancelarse, el navegador se cierra y las llamadas pendientes vuelven
+	// con error. nil equivale a context.Background().
+	Ctx context.Context
+}
+
+// runContext devuelve opts.Ctx, o context.Background() si no se fijó.
+func (opts GeneratorOptions) runContext() context.Context {
+	if opts.Ctx != nil {
+		return opts.Ctx
+	}
+	return context.Background()
 }
 
 // Generator es el generador principal de documentos
@@ -150,6 +171,7 @@ func (g *Generator) generateDOCX(doc *ast.AST, outputFile string, opts Generator
 	g.logger.Info("DOCX", "Generating DOCX document...")
 
 	gen := NewDOCXGenerator(g.logger, opts.AssetRoot)
+	gen.sourceDir = opts.SourceDir
 	return gen.Generate(doc, outputFile, opts)
 }
 
@@ -184,7 +206,7 @@ func (g *Generator) RenderASTJSON(doc *ast.AST) ([]byte, error) {
 //
 // themeName vacío resuelve el theme del propio frontmatter del documento y,
 // a falta de eso, a "professional" — el mismo orden de prioridad que
-// `doclang build` (cli/build.go:getThemeName), MENOS el flag --theme del
+// `doclang build` (pipeline.ThemeName), MENOS el flag --theme del
 // CLI, que no aplica a un caller in-process. Un themeName inválido no falla
 // la llamada: se degrada a "professional" con un warning, igual que hace
 // build.go — el theme resuelto acá siempre pasó ya por

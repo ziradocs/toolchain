@@ -284,8 +284,8 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 				fmt.Fprintf(&md, " %s |", escapeMarkdownInline(header))
 			}
 			md.WriteString("\n|")
-			for range elem.Headers {
-				md.WriteString(" --- |")
+			for i := range elem.Headers {
+				md.WriteString(" " + markdownDelimiterCell(elem.ColumnAlign, i) + " |")
 			}
 			md.WriteString("\n")
 		}
@@ -801,4 +801,23 @@ func renderMapElementMarkdown(elem *ast.MapElement) string {
 		fmt.Fprintf(&md, "| %s | %g | %g | %g |\n", escapeMarkdownInline(marker.Label), marker.Lat, marker.Lng, marker.Value)
 	}
 	return md.String()
+}
+
+// markdownDelimiterCell escribe la celda de la fila delimitadora con la
+// alineación que declaró la tabla de origen (ColumnAlign), para que un
+// round trip Markdown → Markdown no la pierda.
+func markdownDelimiterCell(align []string, i int) string {
+	if i >= len(align) {
+		return "---"
+	}
+	switch align[i] {
+	case "left":
+		return ":---"
+	case "center":
+		return ":---:"
+	case "right":
+		return "---:"
+	default:
+		return "---"
+	}
 }

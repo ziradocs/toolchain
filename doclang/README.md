@@ -47,7 +47,7 @@ Same element vocabulary, different document model — worth knowing before you w
 | `doclang build <file>` | Parse, lint and generate output |
 | `doclang init [name]` | Scaffold a new document |
 | `doclang fmt [file]` | Rewrite a file as canonical source |
-| `doclang mcp` | Run the MCP server over stdio, for editor/agent integration |
+| `doclang mcp` | Run the MCP server over stdio, for editor/agent integration (`--root` confines `export`) |
 
 ## build
 
@@ -96,7 +96,7 @@ doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`
 | `--lint-config` | — | YAML lint policy (enable/disable rules, override severity by ID). Falls back to a `lint_policy:` block in the document's own frontmatter. |
 | `--filter` | — | External binary that transforms the AST between parse and lint. Repeatable; communicates over JSON on stdin/stdout — see the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/). |
 | `--include-root` | *(input file's dir)* | Directory `@include` paths are confined to. Absolute paths and `..` escapes are rejected. |
-| `--asset-root` | *(input file's dir)* | Same confinement for local image sources. |
+| `--asset-root` | *(input file's dir)* | Same confinement for local image sources. Relative sources still resolve from the input file; the root only bounds what can be read (e.g. `--asset-root ..` allows `../shared/b.png`). |
 | `--max-size` | 10 MB | Input size cap. Also settable via `DOCLANG_MAX_SIZE`. |
 
 ### Interactive elements
@@ -117,9 +117,47 @@ don't have one.
 
 ## MCP server
 
-`doclang mcp` speaks MCP over stdio and exposes four tools — `lint`, `get_ast`,
-`list_themes` and `preview`. Its `lint` applies the resolved lint policy, so it reports the
-same diagnostics `--lint-only` would.
+`doclang mcp` speaks MCP over stdio and exposes five tools. Four work in memory and never
+touch the disk: `lint`, `get_ast`, `list_themes` and `preview`. Its `lint` applies the
+resolved lint policy, so it reports the same diagnostics `--lint-only` would.
+
+The fifth, `export`, writes DOCX, PDF or HTML for a file on disk with the same pipeline as
+`doclang build`: `@include` expansion, parsing, the document lint and the generator.
+
+```json
+{ "command": "doclang", "args": ["mcp", "--root", "/path/to/docs"] }
+```
+
+| Input | |
+|---|---|
+| `path` | `.md`, `.markdown` or `.doclang` file, relative to the root or absolute inside it |
+| `format` | `docx`, `pdf` or `html` |
+| `theme` | optional, a name from `list_themes` |
+| `output` | optional; defaults to the input path with the format's extension. Its directory must exist and its extension must match `format` |
+| `overwrite` | optional, default `false`: an existing file is never replaced unless it is `true` |
+| `toc` | optional; without it the front matter decides, as in `build` |
+
+The result is `{outputPath, format, bytes, diagnostics}`, with `outputPath` relative to the
+root. Lint errors come back as an error result carrying the diagnostics, as in `lint`.
+
+- **Root.** `--root` (default: the current directory) is resolved once at startup. The
+  input, the output, `@include` files and local images all have to stay inside it, also
+  after resolving symlinks.
+- **Chromium.** PDF always needs Chromium, and so does DOCX with mermaid diagrams, math or
+  charts that can't be drawn natively. If it's needed and missing, `export` fails with an
+  error that names what needs it. It never downloads anything: install Chrome, Chromium or
+  Edge, or run `doclang build --install-chromium` once from a terminal. `--chromium-path`
+  points the server at a specific binary.
+- **Network.** HTML uses `build`'s default `browser` mode, so diagrams, charts and math
+  load their scripts from a CDN when the page is opened. While exporting, the same hosts
+  as `build` are contacted: PlantUML diagrams go to the public `plantuml.com` server, and
+  map tiles come from OpenStreetMap or ArcGIS.
+- **Limits.** Two exports at a time; a third concurrent call gets a "server busy" error
+  instead of waiting. Three minutes per export, and the input size cap of `build`
+  (10 MB, or `DOCLANG_MAX_SIZE`). The document is written to a temporary file and moved
+  into place at the end, so a failed, cancelled or timed-out export never leaves a
+  partial file at the output path. The temporary file is removed when the export
+  finishes, or when the server shuts down, but not if the process is killed.
 
 ## Development
 

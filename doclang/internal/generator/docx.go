@@ -4,12 +4,21 @@
 package generator
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"image"
+	_ "image/gif"  // image.DecodeConfig de imágenes GIF
+	_ "image/jpeg" // image.DecodeConfig de imágenes JPEG
+	"image/png"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	docx "github.com/mmonterroca/docxgo/v2"
 	"github.com/mmonterroca/docxgo/v2/domain"
@@ -33,6 +42,26 @@ type DOCXGenerator struct {
 	// assetRoot confina las fuentes de imagen locales (elem.Source) a este
 	// directorio. Ver docs/SECURITY_AUDIT_2026-07.md, AL-4.
 	assetRoot string
+	// contentWidthIn/contentHeightIn: caja de texto de la página (tamaño
+	// menos márgenes) en pulgadas, leída de la sección por defecto del
+	// documento. Las figuras rasterizadas se ajustan a ella.
+	contentWidthIn  float64
+	contentHeightIn float64
+	// sourceDir es el directorio del archivo fuente, contra el que se
+	// resuelve una fuente relativa antes de confinarla a assetRoot. Vacío
+	// resuelve contra assetRoot. Ver GeneratorOptions.SourceDir.
+	sourceDir string
+	// ctx es GeneratorOptions.Ctx de la generación en curso; ver runCtx.
+	ctx context.Context
+}
+
+// runCtx es el contexto de la generación en curso, o Background fuera de
+// Generate (tests que llaman a un render suelto).
+func (g *DOCXGenerator) runCtx() context.Context {
+	if g.ctx != nil {
+		return g.ctx
+	}
+	return context.Background()
 }
 
 // TOCEntry representa una entrada en la tabla de contenidos
@@ -135,6 +164,7 @@ func sanitizeBookmarkID(s string) string {
 
 // Generate genera un documento DOCX desde el AST
 func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts GeneratorOptions) error {
+	g.ctx = opts.runContext()
 	g.logger.Info("DOCX", "Building DOCX document...")
 	if ast.UsesNestedListTypes(astDoc) {
 		return fmt.Errorf("DOCX does not yet support nested-list-types-v1 as native Word lists")
@@ -148,12 +178,8 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	defer func() { _ = os.RemoveAll(tempDir) }()
 	g.tempDir = tempDir
 
-	// Inicializar tema del documento desde frontmatter
-	themeName := "professional" // default
-	if astDoc.FrontMatter != nil && astDoc.FrontMatter.Theme != "" {
-		themeName = astDoc.FrontMatter.Theme
-		g.logger.Info("DOCX", "Using theme from frontmatter: %s", themeName)
-	}
+	themeName := resolveDOCXThemeName(astDoc, opts)
+	g.logger.Info("DOCX", "Using theme: %s", themeName)
 	g.style = GetStyleForTheme(themeName, g.logger)
 	g.diagramTheme = resolveDiagramThemeColors(opts.ThemeVariables)
 
@@ -171,7 +197,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		} else {
 			g.logger.Info("DOCX", "Initializing Chromium renderer...")
 			chromiumLogger := &renderer.ChromiumLoggerAdapter{Logger: g.logger}
-			chromiumRenderer, err := chromium.NewChromiumRenderer(context.Background(), opts.ChromiumPath, opts.InstallChromium, chromiumLogger)
+			chromiumRenderer, err := chromium.NewChromiumRenderer(opts.runContext(), opts.ChromiumPath, opts.InstallChromium, chromiumLogger)
 			if err != nil {
 				g.logger.Warn("DOCX: Failed to initialize Chromium: %v", err)
 			} else {
@@ -183,17 +209,17 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 
 	// Crear documento con docxgo v2
 	doc := docx.NewDocument()
+	g.contentWidthIn, g.contentHeightIn = docxContentBoxInches(doc)
 
 	// Configurar metadata
-	if astDoc.FrontMatter != nil {
-		meta := &domain.Metadata{}
-		if astDoc.FrontMatter.Title != "" {
-			meta.Title = astDoc.FrontMatter.Title
-		}
-		if astDoc.FrontMatter.Author != "" {
+	if metaTitle := docxMetadataTitle(astDoc); metaTitle != "" || astDoc.FrontMatter != nil {
+		meta := &domain.Metadata{Title: metaTitle}
+		if astDoc.FrontMatter != nil && astDoc.FrontMatter.Author != "" {
 			meta.Creator = astDoc.FrontMatter.Author
 		}
 		_ = doc.SetMetadata(meta)
+	}
+	if astDoc.FrontMatter != nil {
 
 		// Idioma de revisión del documento (issue #62/#63 prerequisito): sin
 		// esto, un .doclang con `lang: fr` producía un .docx sin idioma
@@ -221,8 +247,11 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		}
 	}
 
+	// Título duplicado: ver planDOCXTitle.
+	titlePlan := planDOCXTitle(astDoc, opts.Numbering)
+
 	// Renderizar frontmatter (título del documento)
-	if err := g.renderFrontMatter(doc, astDoc.FrontMatter); err != nil {
+	if err := g.renderFrontMatter(doc, astDoc.FrontMatter, titlePlan); err != nil {
 		return fmt.Errorf("error rendering frontmatter: %w", err)
 	}
 
@@ -243,7 +272,11 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	// ningún efecto en DOCX).
 	if opts.TOC {
 		tocEntries := g.collectHeadings(astDoc, opts.Numbering)
-		if err := g.renderTOC(doc, tocEntries); err != nil {
+		lang := ""
+		if astDoc.FrontMatter != nil {
+			lang = astDoc.FrontMatter.Lang
+		}
+		if err := g.renderTOC(doc, tocEntries, lang); err != nil {
 			return fmt.Errorf("error rendering TOC: %w", err)
 		}
 	}
@@ -262,7 +295,11 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		if opts.Numbering && numbered {
 			num = sectionNum
 		}
-		if err := g.renderSection(doc, block, title, num); err != nil {
+		if i == titlePlan.hoistedBlock {
+			// El encabezado ya salió arriba, en el lugar del título.
+			title = ""
+		}
+		if err := g.renderSection(doc, block, title, num, i == len(astDoc.ContentBlocks)-1); err != nil {
 			return fmt.Errorf("error rendering section: %w", err)
 		}
 		if numbered {
@@ -287,14 +324,149 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	return nil
 }
 
+// docxMetadataTitle es el título de las propiedades del .docx: el `title:`
+// del front matter y, sin él, el primer encabezado de sección que vino de
+// un `#` (Title, no el Heading de un preámbulo). Un .md sin front matter ya
+// no queda con el título vacío. Es el mismo orden que DocumentTitle de la
+// rama de Markdown sin front matter (menos el nombre de archivo, que el
+// generador no conoce); al integrarlas, esto puede tomar opts.Title.
+func docxMetadataTitle(astDoc *ast.AST) string {
+	if astDoc.FrontMatter != nil && astDoc.FrontMatter.Title != "" {
+		return astDoc.FrontMatter.Title
+	}
+	for i := range astDoc.ContentBlocks {
+		if t := astDoc.ContentBlocks[i].Title; t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// docxTOCTitles: título de la tabla de contenidos por idioma (subetiqueta
+// primaria de `lang:`). Sin idioma, o con uno que no está acá, sale el de
+// siempre, que es también el que pinta el HTML ("Tabla de Contenidos" en
+// core/renderer/document_html.go).
+var docxTOCTitles = map[string]string{
+	"es": "Tabla de Contenidos",
+	"en": "Table of Contents",
+	"pt": "Sumário",
+	"fr": "Table des matières",
+	"de": "Inhaltsverzeichnis",
+	"it": "Indice",
+	"ca": "Índex",
+	"nl": "Inhoudsopgave",
+}
+
+func docxTOCTitle(lang string) string {
+	primary := strings.ToLower(strings.TrimSpace(lang))
+	if i := strings.IndexAny(primary, "-_"); i >= 0 {
+		primary = primary[:i]
+	}
+	if title, ok := docxTOCTitles[primary]; ok {
+		return title
+	}
+	return docxTOCTitles["es"]
+}
+
+// docxTitlePlan dice cómo sale el título del front matter cuando el primer
+// encabezado de sección dice lo mismo (un .md con "# Proyecto" y title:
+// Proyecto, o el título que se sintetiza del primer H1 cuando no hay front
+// matter). Antes salían los dos: el título centrado y, debajo, el mismo
+// texto como Heading1.
+//
+// Se conserva el Heading1 y se descarta el párrafo centrado, porque el
+// Heading1 es lo único que ven el panel de navegación de Word y el campo
+// TOC (el título centrado es texto con formato directo, sin nivel de
+// esquema), y porque es lo que emiten HTML y Markdown: ahí el título del
+// front matter no se pinta en el cuerpo. La numeración tampoco cambia: si
+// la sección se numera en HTML, aquí también, y el TOC estático
+// (collectHeadings) sigue coincidiendo con lo que se renderiza.
+//
+//   - hoistedBlock >= 0: no hay contenido antes de ese encabezado, así que
+//     se pinta en el lugar del título (arriba de autor, fecha y TOC) y la
+//     sección se renderiza sin él.
+//   - omitTitle: hay contenido antes, así que el encabezado se queda en su
+//     lugar y solo se omite el título centrado.
+type docxTitlePlan struct {
+	hoistedBlock int
+	headingText  string
+	omitTitle    bool
+}
+
+func planDOCXTitle(astDoc *ast.AST, numbering bool) docxTitlePlan {
+	plan := docxTitlePlan{hoistedBlock: -1}
+	if astDoc.FrontMatter == nil || astDoc.FrontMatter.Title == "" {
+		return plan
+	}
+	want := normalizeDOCXTitle(astDoc.FrontMatter.Title)
+	sectionNum := 1
+	contentBefore := false
+	for i := range astDoc.ContentBlocks {
+		block := &astDoc.ContentBlocks[i]
+		title, numbered := block.SectionTitle()
+		if title == "" {
+			if len(block.Elements) > 0 {
+				contentBefore = true
+			}
+			continue
+		}
+		// Solo cuenta el primer encabezado de sección: un título que se
+		// repite más abajo es otra cosa.
+		if normalizeDOCXTitle(title) != want {
+			return plan
+		}
+		if contentBefore {
+			plan.omitTitle = true
+			return plan
+		}
+		num := 0
+		if numbering && numbered {
+			num = sectionNum
+		}
+		plan.hoistedBlock = i
+		plan.headingText = sectionHeadingText(title, num)
+		return plan
+	}
+	return plan
+}
+
+// normalizeDOCXTitle compara títulos sin distinguir mayúsculas, espacios
+// repetidos ni marcas de énfasis Markdown (**, _, `).
+func normalizeDOCXTitle(s string) string {
+	s = strings.NewReplacer("*", "", "_", "", "`", "").Replace(s)
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+// resolveDOCXThemeName aplica la misma precedencia que HTML y PDF: el theme
+// que ya resolvió el CLI (opts.Theme: --theme > front matter > default, ver
+// pipeline.ThemeName), luego el del front matter para un llamador
+// de librería que no lo resolvió, y por último "professional". Antes DOCX
+// leía solo FrontMatter.Theme, así que `--theme academic` no cambiaba nada.
+func resolveDOCXThemeName(astDoc *ast.AST, opts GeneratorOptions) string {
+	if opts.Theme != "" {
+		return opts.Theme
+	}
+	if astDoc.FrontMatter != nil && astDoc.FrontMatter.Theme != "" {
+		return astDoc.FrontMatter.Theme
+	}
+	return "professional"
+}
+
 // renderFrontMatter renderiza el título, autor y fecha del documento
-func (g *DOCXGenerator) renderFrontMatter(doc domain.Document, fm *ast.FrontMatterNode) error {
+func (g *DOCXGenerator) renderFrontMatter(doc domain.Document, fm *ast.FrontMatterNode, plan docxTitlePlan) error {
 	if fm == nil {
 		return nil
 	}
 
 	// Título principal
-	if fm.Title != "" {
+	switch {
+	case plan.hoistedBlock >= 0:
+		if err := g.renderSectionHeading(doc, plan.headingText); err != nil {
+			return err
+		}
+	case plan.omitTitle:
+		// El mismo texto sale más abajo como Heading1 de su sección.
+	case fm.Title != "":
 		p, err := doc.AddParagraph()
 		if err != nil {
 			return err
@@ -948,12 +1120,14 @@ func (g *DOCXGenerator) collectHeadings(astDoc *ast.AST, numbering bool) []TOCEn
 }
 
 // renderTOC renderiza la tabla de contenidos (placeholder por ahora, TOC real después)
-func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error {
+func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry, lang string) error {
 	if len(entries) == 0 {
 		return nil
 	}
 
-	// Título "Tabla de Contenidos"
+	// Un solo título, en el idioma del documento (ver docxTOCTitle). Antes
+	// salía "Tabla de Contenidos" y, debajo, el resultado provisional del
+	// campo de docxgo, "Table of Contents": dos títulos, uno en inglés.
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
@@ -969,7 +1143,7 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 	if err != nil {
 		return err
 	}
-	_ = r.SetText("Tabla de Contenidos")
+	_ = r.SetText(docxTOCTitle(lang))
 	if err := r.SetSize(g.parseSize(g.style.H2Size)); err != nil {
 		return fmt.Errorf("invalid font size: %w", err)
 	}
@@ -1013,37 +1187,31 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 	}
 	tocField := docx.NewTOCField(tocSwitches)
 
-	// Agregar el field al run
-	err = tocRun.AddField(tocField)
-	if err != nil {
+	// Resultado provisional del campo: las entradas, una por línea y con
+	// sangría por nivel, hasta que Word reconstruya el campo (sigue sucio,
+	// así que Word ofrece actualizarlo al abrir; F9 también). Antes las
+	// entradas iban en párrafos sueltos DESPUÉS del campo, así que al
+	// actualizarlo en Word quedaban duplicadas debajo del TOC real.
+	lines := make([]string, len(entries))
+	for i, entry := range entries {
+		lines[i] = strings.Repeat("    ", max(entry.Level-1, 0)) + entry.Title
+	}
+	if f, ok := tocField.(interface{ SetResult(string) }); ok {
+		f.SetResult(strings.Join(lines, "\n"))
+	}
+	if f, ok := tocField.(interface{ MarkDirty() }); ok {
+		f.MarkDirty()
+	}
+	if err := tocRun.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = tocRun.SetFont(domain.Font{Name: g.style.FontFamily})
+	_ = tocRun.SetColor(g.parseColor(g.style.TextColor))
+
+	if err := tocRun.AddField(tocField); err != nil {
 		return err
 	}
-
-	// Generar contenido placeholder para cuando Word aún no ha actualizado
-	// (Word reemplazará esto al abrir el documento o presionar F9)
-	g.logger.Info("DOCX", "📑 TOC field added - press F9 in Word to update")
-	for _, entry := range entries {
-		entryPara, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-
-		indent := (entry.Level - 1) * 360 // 360 twips = 0.25" por nivel
-		if err := entryPara.SetIndent(domain.Indentation{Left: indent}); err != nil {
-			return fmt.Errorf("invalid indent: %w", err)
-		}
-
-		entryRun, err := entryPara.AddRun()
-		if err != nil {
-			return err
-		}
-		_ = entryRun.SetText(entry.Title)
-		if err := entryRun.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = entryRun.SetFont(domain.Font{Name: g.style.FontFamily})
-		_ = entryRun.SetColor(domain.Color{R: 128, G: 128, B: 128}) // Gris para placeholder
-	}
+	g.logger.Info("DOCX", "📑 TOC field added - Word rebuilds it on open (or press F9)")
 
 	// Espacio después del TOC
 	spacer, err := doc.AddParagraph()
@@ -1057,6 +1225,46 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 	return nil
 }
 
+// sectionHeadingText antepone el número de sección cuando num > 0.
+func sectionHeadingText(title string, num int) string {
+	if num > 0 {
+		return fmt.Sprintf("%d. %s", num, title)
+	}
+	return title
+}
+
+// renderSectionHeading escribe el encabezado de una sección como Heading1
+// nativo de Word: es lo que lee el panel de navegación y el campo TOC.
+func (g *DOCXGenerator) renderSectionHeading(doc domain.Document, text string) error {
+	p, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+
+	_ = p.SetStyle(domain.StyleIDHeading1)
+	if err := p.SetSpacingBefore(g.parseTwips(g.style.H1SpaceBefore)); err != nil {
+		return fmt.Errorf("invalid spacing before: %w", err)
+	}
+	if err := p.SetSpacingAfter(g.parseTwips(g.style.H1SpaceAfter)); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+
+	r, err := p.AddRun()
+	if err != nil {
+		return err
+	}
+	_ = r.SetText(text)
+	if err := r.SetSize(g.parseSize(g.style.H1Size)); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = r.SetColor(g.parseColor(g.style.H1Color))
+	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+	_ = r.SetBold(g.style.H1Bold)
+
+	// TODO: Agregar bookmark para TOC
+	return nil
+}
+
 // renderSection renderiza una sección del documento (H1 + elementos). title
 // y num vienen ya resueltos por el caller (ast.ContentBlock.SectionTitle +
 // el contador de sectionNum de Generate) en vez de leer section.Title
@@ -1065,41 +1273,12 @@ func (g *DOCXGenerator) renderTOC(doc domain.Document, entries []TOCEntry) error
 // igual que ya hacían los generadores HTML y Markdown; num == 0 significa
 // "sin numerar" (numbering deshabilitado, o esta sección no numera — el
 // preámbulo).
-func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int) error {
+func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int, last bool) error {
 	// Título de la sección (H1)
 	if title != "" {
-		p, err := doc.AddParagraph()
-		if err != nil {
+		if err := g.renderSectionHeading(doc, sectionHeadingText(title, num)); err != nil {
 			return err
 		}
-
-		// Estilo nativo Heading1
-		_ = p.SetStyle(domain.StyleIDHeading1)
-		if err := p.SetSpacingBefore(g.parseTwips(g.style.H1SpaceBefore)); err != nil {
-			return fmt.Errorf("invalid spacing before: %w", err)
-		}
-		if err := p.SetSpacingAfter(g.parseTwips(g.style.H1SpaceAfter)); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
-		}
-
-		text := title
-		if num > 0 {
-			text = fmt.Sprintf("%d. %s", num, title)
-		}
-
-		r, err := p.AddRun()
-		if err != nil {
-			return err
-		}
-		_ = r.SetText(text)
-		if err := r.SetSize(g.parseSize(g.style.H1Size)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = r.SetColor(g.parseColor(g.style.H1Color))
-		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-		_ = r.SetBold(g.style.H1Bold)
-
-		// TODO: Agregar bookmark para TOC
 	}
 
 	// Renderizar elementos de la sección
@@ -1109,7 +1288,12 @@ func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentB
 		}
 	}
 
-	// Espacio entre secciones
+	// Espacio entre secciones. Después de la última no hace falta, y un
+	// párrafo vacío al final, cuando la página ya va llena (una figura que
+	// ocupa todo el alto), abría una página en blanco al final del documento.
+	if last {
+		return nil
+	}
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
@@ -2117,6 +2301,9 @@ func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) e
 		if err := p.SetSpacingAfter(0); err != nil {
 			return fmt.Errorf("invalid spacing after: %w", err)
 		}
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
 		r, err := p.AddRun()
 		if err != nil {
 			return err
@@ -2129,37 +2316,8 @@ func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) e
 		_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
 	}
 
-	// Párrafo para código con fondo y monospace
-	lines := strings.Split(elem.Content, "\n")
-
-	for _, line := range lines {
-		p, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-
-		// Indentación ligera
-		if err := p.SetIndent(domain.Indentation{Left: 360}); err != nil {
-			return fmt.Errorf("invalid indent: %w", err)
-		}
-		if err := p.SetSpacingAfter(0); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
-		}
-
-		// TODO: Agregar fondo (shading) cuando docxgo lo soporte
-
-		r, err := p.AddRun()
-		if err != nil {
-			return err
-		}
-
-		// Monospace font
-		_ = r.SetText(line)
-		if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = r.SetColor(g.parseColor(g.style.CodeBlockColor))
-		_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+	if err := g.renderCodeLines(doc, elem.Content); err != nil {
+		return err
 	}
 
 	// Espacio después del bloque
@@ -2169,6 +2327,75 @@ func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) e
 	}
 	if err := spacer.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
 		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+
+	return nil
+}
+
+// codeBlockKeepTogetherMaxLines: un bloque de hasta este número de líneas se
+// mantiene en una sola página (keepNext en cada línea menos la última). Uno
+// más largo se deja partir, porque forzarlo dejaría media página en blanco.
+const codeBlockKeepTogetherMaxLines = 20
+
+// codeBlockPaddingTwips es el aire arriba y abajo del bloque, dentro del
+// fondo: el sombreado de párrafo cubre también su espaciado.
+const codeBlockPaddingTwips = 80
+
+// renderCodeLines escribe un bloque de código como un párrafo por línea,
+// todos con el fondo CodeBlockBg del tema y sin espacio entre ellos, para
+// que se lean como una sola banda. Sin el fondo, el texto claro del tema
+// professional (D4D4D4, pensado para un fondo 1E1E1E) quedaba gris sobre
+// blanco.
+func (g *DOCXGenerator) renderCodeLines(doc domain.Document, content string) error {
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	bg := g.parseColor(g.style.CodeBlockBg)
+	keepTogether := len(lines) <= codeBlockKeepTogetherMaxLines
+
+	for i, line := range lines {
+		p, err := doc.AddParagraph()
+		if err != nil {
+			return err
+		}
+
+		if err := p.SetIndent(domain.Indentation{Left: 360}); err != nil {
+			return fmt.Errorf("invalid indent: %w", err)
+		}
+		before, after := 0, 0
+		if i == 0 {
+			before = codeBlockPaddingTwips
+		}
+		if i == len(lines)-1 {
+			after = codeBlockPaddingTwips
+		}
+		if err := p.SetSpacingBefore(before); err != nil {
+			return fmt.Errorf("invalid spacing before: %w", err)
+		}
+		if err := p.SetSpacingAfter(after); err != nil {
+			return fmt.Errorf("invalid spacing after: %w", err)
+		}
+		if err := p.SetShading(bg); err != nil {
+			return fmt.Errorf("invalid code block shading: %w", err)
+		}
+		if keepTogether && i < len(lines)-1 {
+			if err := p.SetKeepNext(true); err != nil {
+				return fmt.Errorf("invalid keepNext: %w", err)
+			}
+		}
+
+		for _, segment := range codeLineSegments(line) {
+			r, err := p.AddRun()
+			if err != nil {
+				return err
+			}
+
+			// Monospace font
+			_ = r.SetText(segment)
+			if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
+				return fmt.Errorf("invalid font size: %w", err)
+			}
+			_ = r.SetColor(g.parseColor(g.style.CodeBlockColor))
+			_ = r.SetFont(domain.Font{Name: g.style.CodeFontFamily})
+		}
 	}
 
 	return nil
@@ -2187,19 +2414,43 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 		return err
 	}
 
+	// Antes la tabla salía sin bordes ni fondo de encabezado (se veía rota
+	// en Word) y con el ancho que Word decidiera. Ahora lleva bordes finos
+	// del tema, el ancho de la caja de texto repartido según el contenido
+	// de cada columna, y un encabezado con fondo que se repite en cada
+	// página.
+	colWidths := docxTableColumnWidths(elem, numCols, int(g.contentWidthIn*1440), g.parseSize(g.style.FontSizeBase))
+	total := 0
+	for _, w := range colWidths {
+		total += w
+	}
+	if err := table.SetWidth(domain.TableWidth{Type: domain.WidthDXA, Value: total}); err != nil {
+		return fmt.Errorf("invalid table width: %w", err)
+	}
+	border := domain.BorderStyle{Style: domain.BorderSingle, Width: 4, Color: g.parseColor(g.style.TableBorderColor)}
+	if err := table.SetBorders(domain.TableLevelBorders{
+		Top: border, Left: border, Bottom: border, Right: border, InsideH: border, InsideV: border,
+	}); err != nil {
+		return fmt.Errorf("invalid table borders: %w", err)
+	}
+
 	// Header row
 	headerRow, err := table.Row(0)
 	if err != nil {
 		return err
 	}
+	_ = headerRow.SetRepeatAsHeader(true)
+	_ = headerRow.SetCantSplit(true)
 
 	for j, header := range elem.Headers {
 		cell, err := headerRow.Cell(j)
 		if err != nil {
 			continue
 		}
+		_ = cell.SetWidth(colWidths[j])
+		_ = cell.SetShading(g.parseColor(g.style.TableHeaderBg))
 
-		p, err := cell.AddParagraph()
+		p, err := g.addTableCellParagraph(cell, elem.ColumnAlign, j)
 		if err != nil {
 			continue
 		}
@@ -2223,23 +2474,28 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 		if err != nil {
 			continue
 		}
+		_ = dataRow.SetCantSplit(true)
+		striped := g.style.TableStripeEnabled && g.style.TableStripeBg != "" && i%2 == 1
 
-		for j, cellContent := range row {
-			if j >= numCols {
-				break
-			}
-
+		for j := 0; j < numCols; j++ {
 			cell, err := dataRow.Cell(j)
 			if err != nil {
 				continue
 			}
+			_ = cell.SetWidth(colWidths[j])
+			if striped {
+				_ = cell.SetShading(g.parseColor(g.style.TableStripeBg))
+			}
+			if j >= len(row) {
+				continue
+			}
 
-			p, err := cell.AddParagraph()
+			p, err := g.addTableCellParagraph(cell, elem.ColumnAlign, j)
 			if err != nil {
 				continue
 			}
 
-			if err := g.renderInlineMarkdown(p, cellContent); err != nil {
+			if err := g.renderInlineMarkdown(p, row[j]); err != nil {
 				return err
 			}
 		}
@@ -2255,6 +2511,147 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 	}
 
 	return nil
+}
+
+// addTableCellParagraph abre el párrafo de una celda con la alineación que
+// declara la columna en la tabla Markdown (ColumnAlign) y un poco de aire
+// arriba y abajo.
+func (g *DOCXGenerator) addTableCellParagraph(cell domain.TableCell, columnAlign []string, col int) (domain.Paragraph, error) {
+	p, err := cell.AddParagraph()
+	if err != nil {
+		return nil, err
+	}
+	_ = p.SetSpacingBefore(40)
+	_ = p.SetSpacingAfter(40)
+	if col < len(columnAlign) {
+		switch columnAlign[col] {
+		case "center":
+			_ = p.SetAlignment(domain.AlignmentCenter)
+		case "right":
+			_ = p.SetAlignment(domain.AlignmentRight)
+		}
+	}
+	return p, nil
+}
+
+// docxTableColumnWidths reparte el ancho de la caja de texto (twips) entre
+// las columnas según el texto más largo de cada una, acotado para que una
+// columna de una celda larguísima no deje a las demás sin espacio ni una
+// columna corta quede ilegible. La suma es siempre el ancho disponible, así
+// que la tabla nunca se sale de la página.
+//
+// Además ninguna columna queda más angosta que la palabra más larga de su
+// encabezado en negrita a headerHalfPoints (ver docxHeaderMinWidth). El
+// reparto proporcional solo no alcanzaba: los pesos se cuentan en
+// caracteres, pero cuando la suma de pesos supera los caracteres que caben
+// en la página cada "carácter" vale menos que uno real. En la tabla de
+// endpoints de backend.md "Método" recibía 837 twips y necesita unos 1000,
+// así que salía "Méto/do".
+func docxTableColumnWidths(elem *ast.TableElement, numCols, available, headerHalfPoints int) []int {
+	const minWeight, maxWeight = 6, 40
+	weights := make([]int, numCols)
+	measure := func(col int, text string) {
+		n := utf8.RuneCountInString(docxStripHeadingMarkup(text))
+		if n > weights[col] {
+			weights[col] = n
+		}
+	}
+	for j, h := range elem.Headers {
+		measure(j, h)
+	}
+	for _, row := range elem.Rows {
+		for j := 0; j < numCols && j < len(row); j++ {
+			measure(j, row[j])
+		}
+	}
+	for j := range weights {
+		// +3: el margen interno de la celda y la negrita del encabezado
+		// ocupan unos tres caracteres; sin ellos una columna angosta
+		// ("Monto") partía su propio encabezado en dos líneas.
+		weights[j] = max(minWeight, min(maxWeight, weights[j]+3))
+	}
+
+	mins := make([]int, numCols)
+	for j := 0; j < numCols && j < len(elem.Headers); j++ {
+		mins[j] = docxHeaderMinWidth(elem.Headers[j], headerHalfPoints)
+	}
+
+	// Reparto proporcional; la columna que queda bajo su mínimo se fija en
+	// él y el resto se vuelve a repartir entre las demás, hasta que ninguna
+	// quede corta. Si los mínimos juntos no caben, se escalan.
+	widths := make([]int, numCols)
+	fixed := make([]bool, numCols)
+	for {
+		free, freeWeight := available, 0
+		for j := range widths {
+			if fixed[j] {
+				free -= widths[j]
+			} else {
+				freeWeight += weights[j]
+			}
+		}
+		if freeWeight == 0 || free <= 0 {
+			break
+		}
+		changed := false
+		for j := range widths {
+			if fixed[j] {
+				continue
+			}
+			widths[j] = free * weights[j] / freeWeight
+			if widths[j] < mins[j] {
+				widths[j], fixed[j], changed = mins[j], true, true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	sum := 0
+	for _, w := range widths {
+		sum += w
+	}
+	if sum > available { // los mínimos no caben: se escalan todos
+		for j := range widths {
+			widths[j] = widths[j] * available / sum
+		}
+	}
+	used := 0
+	for _, w := range widths {
+		used += w
+	}
+	widths[numCols-1] += available - used
+	return widths
+}
+
+// Estimación del ancho de texto de un encabezado, sin métricas de fuente:
+// docxHeaderCharEm es el ancho medio de un carácter en negrita, en em, del
+// lado holgado para las serif y sans de los temas (una minúscula en negrita
+// ronda 0.55 em; una acentuada mide lo mismo que su base, así que el acento
+// no cambia nada). docxCellPaddingTwips son los márgenes izquierdo y derecho
+// por defecto de una celda (108 twips cada uno) más los bordes.
+const (
+	docxHeaderCharEm     = 0.62
+	docxCellPaddingTwips = 240
+)
+
+// docxHeaderMinWidth es el ancho, en twips, que necesita la palabra más
+// larga de un encabezado en negrita a halfPoints para no partirse. Entre
+// palabras sí se puede cortar, así que manda la más larga, no el total.
+func docxHeaderMinWidth(header string, halfPoints int) int {
+	if halfPoints <= 0 {
+		return 0
+	}
+	longest := 0
+	for _, word := range strings.Fields(docxStripHeadingMarkup(header)) {
+		longest = max(longest, utf8.RuneCountInString(word))
+	}
+	if longest == 0 {
+		return 0
+	}
+	// 1 pt = 20 twips; un em mide lo mismo que el cuerpo (halfPoints/2 pt).
+	emTwips := float64(halfPoints) / 2 * 20
+	return int(float64(longest)*docxHeaderCharEm*emTwips+0.5) + docxCellPaddingTwips
 }
 
 // renderImagePlaceholder inserta el texto itálico placeholder que reemplaza
@@ -2292,7 +2689,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	// (ver docs/SECURITY_AUDIT_2026-07.md, AL-4).
 	imagePath := elem.Source
 	if g.assetRoot != "" {
-		confined, err := util.ResolveConfinedPath(g.assetRoot, imagePath)
+		confined, err := util.ResolveConfinedPathFrom(g.assetRoot, g.sourceDir, imagePath)
 		if err != nil {
 			g.logger.Warn("DOCX: Image source blocked (outside asset root): %s: %v", imagePath, err)
 			return g.renderImagePlaceholder(p, fmt.Sprintf("[Image blocked: %s]", imagePath))
@@ -2300,19 +2697,36 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		imagePath = confined
 	}
 
-	// Tamaño por defecto: 6 pulgadas de ancho (mantiene aspect ratio)
-	imageSize := domain.NewImageSizeInches(6.0, 0) // 0 = mantener proporción
+	// El marcador va DENTRO del documento, así que cita la fuente tal como
+	// la escribió el autor (elem.Source) y no imagePath: tras
+	// ResolveConfinedPath ese es la ruta absoluta de la máquina que compiló,
+	// que no tiene nada que hacer en un .docx que se comparte. "not found"
+	// es solo para un archivo que no existe; uno que existe pero no se puede
+	// medir o insertar (dañado, 0x0, formato no soportado) es otro error.
+	if _, statErr := os.Stat(imagePath); statErr != nil {
+		g.logger.Warn("DOCX: line %d: image %q not found", elem.Position.Line, elem.Source)
+		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
+	}
+
+	// Tamaño natural, reducido si no cabe en la caja de texto.
+	imageSize, err := g.fittedImageSize(imagePath, elem.Caption != "")
+	if err != nil {
+		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
+		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
+	}
+
+	// La leyenda va en la misma página que su imagen.
+	if elem.Caption != "" {
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
+	}
 
 	// Agregar imagen
 	img, err := p.AddImageWithSize(imagePath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX: Failed to insert image %s: %v", imagePath, err)
-		// El marcador va DENTRO del documento, así que cita la fuente tal
-		// como la escribió el autor (elem.Source) y no imagePath: tras
-		// ResolveConfinedPath ese es la ruta absoluta de la máquina que
-		// compiló, que no tiene nada que hacer en un .docx que se comparte.
-		// El log de arriba sí la conserva, porque es donde sirve para depurar.
-		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
+		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
+		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
 	}
 
 	_ = img // Imagen insertada exitosamente
@@ -2353,29 +2767,129 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	return nil
 }
 
+// docxImageMinSideIn es el lado mínimo con que se muestra una imagen: un
+// ícono de pocos píxeles o una franja de 1 px de alto quedan visibles en vez
+// de reducirse a nada.
+const docxImageMinSideIn = 0.1
+
+// fittedImageSize da el tamaño de inserción de una imagen local: su tamaño
+// natural (píxeles entre los DPI que declara el archivo, o 96 si no declara
+// o declara algo fuera de 50-4800), sin agrandarla nunca, y reducida como una
+// figura de mermaid para caber en la caja de texto (ver fitFigure). Antes se
+// insertaba siempre a 6" de ancho, así que un ícono de 32 px ocupaba media
+// página. El AST de imagen no trae ancho ni alto explícitos, así que no hay
+// otra fuente de tamaño. Ver imageSizeFromInches para el lado mínimo.
+//
+// Devuelve error si no puede leer las dimensiones o alguna es 0. No hay
+// tamaño de respaldo: docxgo decodifica con los mismos decoders, así que no
+// podría insertarla de todos modos, y un ancho fijo con alto 0 le pide a
+// docxgo derivar el alto de las dimensiones de la imagen, que con 0x0 da un
+// cy negativo.
+func (g *DOCXGenerator) fittedImageSize(path string, hasCaption bool) (domain.ImageSize, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return domain.ImageSize{}, err
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return domain.ImageSize{}, fmt.Errorf("cannot read image dimensions: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return domain.ImageSize{}, fmt.Errorf("image has no pixels (%dx%d)", cfg.Width, cfg.Height)
+	}
+	dpiX, dpiY := imageDPI(data)
+	w, h := g.fitFigure(float64(cfg.Width)/dpiX, float64(cfg.Height)/dpiY, hasCaption)
+	w, h = g.enforceMinSide(w, h, hasCaption)
+	return imageSizeFromInches(w, h), nil
+}
+
+// widthOnlyImageSize es el tamaño de una figura generada (ecuación, mapa)
+// que se inserta a un ancho fijo: el alto sale de la proporción de sus
+// píxeles acá, no en docxgo, para que un PNG de 0x0 sea un error y no un
+// extent negativo.
+func widthOnlyImageSize(path string, widthIn float64) (domain.ImageSize, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return domain.ImageSize{}, err
+	}
+	defer func() { _ = f.Close() }()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return domain.ImageSize{}, fmt.Errorf("cannot read image dimensions: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return domain.ImageSize{}, fmt.Errorf("image has no pixels (%dx%d)", cfg.Width, cfg.Height)
+	}
+	return imageSizeFromInches(widthIn, widthIn*float64(cfg.Height)/float64(cfg.Width)), nil
+}
+
+// enforceMinSide lleva el lado corto a docxImageMinSideIn conservando la
+// proporción si así el lado largo todavía cabe en la caja; si no cabe (una
+// franja de 3000x1 px), el lado largo se queda en la caja y el corto sube al
+// mínimo por su cuenta, perdiendo la proporción antes que desaparecer.
+func (g *DOCXGenerator) enforceMinSide(w, h float64, hasCaption bool) (float64, float64) {
+	short := min(w, h)
+	if short >= docxImageMinSideIn || short <= 0 {
+		return max(w, docxImageMinSideIn), max(h, docxImageMinSideIn)
+	}
+	scale := docxImageMinSideIn / short
+	if fw, fh := g.fitFigure(w*scale, h*scale, hasCaption); near2(fw, w*scale) && near2(fh, h*scale) {
+		return fw, fh
+	}
+	return max(w, docxImageMinSideIn), max(h, docxImageMinSideIn)
+}
+
+func near2(a, b float64) bool { return a-b < 1e-9 && b-a < 1e-9 }
+
+// imageSizeFromInches arma el domain.ImageSize sin pasar por
+// domain.NewImageSizeInches, que trunca a píxeles enteros: un lado de menos
+// de 1 px quedaba en 0, y con los dos en 0 docxgo fallaba (y doclang lo
+// reportaba como "Image not found"), o con uno solo en 0 salía cy="0". Los
+// EMU se redondean desde las pulgadas y los píxeles nunca bajan de 1.
+func imageSizeFromInches(w, h float64) domain.ImageSize {
+	const emuPerInch, pxPerInch = 914400.0, 96.0
+	return domain.ImageSize{
+		WidthPx:   max(1, int(w*pxPerInch+0.5)),
+		HeightPx:  max(1, int(h*pxPerInch+0.5)),
+		WidthEMU:  max(1, int(w*emuPerInch+0.5)),
+		HeightEMU: max(1, int(h*emuPerInch+0.5)),
+	}
+}
+
 func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElement) error {
 	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX: Chromium not available, skipping mermaid diagram")
-		return nil
+		// Antes el diagrama desaparecía del documento sin más rastro que un
+		// log genérico. Ahora queda un marcador en su lugar y un aviso que
+		// dice cuál diagrama faltó y cómo arreglarlo.
+		g.logger.Warn("DOCX: mermaid diagram (%s) at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.DiagramType, elem.Position.Line)
+		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (not rendered: Chromium not available)", elem.DiagramType))
 	}
 
 	g.logger.Info("DOCX", "Rendering Mermaid diagram (%s)...", elem.DiagramType)
 
-	// Renderizar a PNG usando ChromiumRenderer con mayor resolución
-	// Usar dimensiones más grandes para que Mermaid tenga más espacio
-	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), renderer.PrepareMermaidContent(elem.Content, elem.DiagramType), 2400, 1600, g.diagramTheme)
+	content := renderer.PrepareMermaidContent(elem.Content, elem.DiagramType)
+	// 1600 es solo el alto inicial de la ventana en el core nuevo (la
+	// captura es la caja del <svg>); con un core anterior es el alto del
+	// contenedor fijo, así que no lo bajamos de lo que ya era.
+	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(g.runCtx(), content, g.mermaidLayoutWidthPx(), 1600, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
 	}
 
-	// Guardar PNG temporalmente
-	pngPath := fmt.Sprintf("%s/mermaid_%s.png", g.tempDir, sanitizeBookmarkID(elem.DiagramType))
-	if err := os.WriteFile(pngPath, pngBytes, 0644); err != nil {
+	// Nombre por contenido: antes era mermaid_<tipo>.png, así que dos
+	// diagramas del mismo tipo escribían el mismo archivo temporal.
+	pngPath := filepath.Join(g.tempDir, "mermaid_"+diagramFileHash(elem.DiagramType, content, g.diagramTheme)+".png")
+	if err := os.WriteFile(pngPath, pngBytes, 0o644); err != nil {
 		return err
 	}
 
-	// Insertar imagen en documento
+	widthIn, heightIn, err := g.fitMermaidPNG(pngBytes, elem.Title != "")
+	if err != nil {
+		g.logger.Warn("DOCX: Failed to read mermaid PNG size: %v", err)
+		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
+	}
+
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
@@ -2383,21 +2897,148 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	if err := p.SetAlignment(domain.AlignmentCenter); err != nil {
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
+	if elem.Title != "" {
+		// La leyenda va en la misma página que su diagrama.
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
+	}
 
-	imageSize := domain.NewImageSizeInches(6.5, 0) // 6.5" ancho, altura proporcional
-	img, err := p.AddImageWithSize(pngPath, imageSize)
-	if err != nil {
+	if _, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn)); err != nil {
 		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s", elem.DiagramType))
 	}
 
-	if img == nil {
-		g.logger.Warn("DOCX: ⚠️  Mermaid image object is nil after insertion")
+	if elem.Title != "" {
+		if err := g.renderFigureCaption(doc, elem.Title); err != nil {
+			return err
+		}
 	}
 
-	sizeKB := float64(len(pngBytes)) / 1024
-	g.logger.Info("DOCX", "✅ Mermaid inserted (%.1f KB)", sizeKB)
+	g.logger.Info("DOCX", "✅ Mermaid inserted (%.1f KB, %.2fx%.2f in)", float64(len(pngBytes))/1024, widthIn, heightIn)
+	return nil
+}
 
+// Reglas de tamaño de las figuras rasterizadas (mermaid).
+const (
+	// cssPxPerInch: un px CSS mide 1/96 de pulgada, así que un diagrama a su
+	// tamaño natural tiene texto del mismo cuerpo que el que mermaid dibuja
+	// (16 px = 12 pt), parejo con el cuerpo del documento.
+	cssPxPerInch = 96.0
+	// mermaidPNGDeviceScale replica chromium.mermaidPNGDeviceScale (core):
+	// el PNG trae 2 px por px CSS.
+	mermaidPNGDeviceScale = 2.0
+	// mermaidLayoutWidthFactor: el ancho de layout que ve mermaid antes de
+	// dibujar es el ancho de la caja de texto por este factor. Un diagrama
+	// que llena ese ancho se encoge un poco al insertarlo, en vez de que
+	// mermaid lo comprima hasta que las etiquetas no quepan.
+	mermaidLayoutWidthFactor = 1.5
+	// figureCaptionReserveIn: alto que se le deja a la leyenda y al espaciado
+	// del párrafo, para que figura y leyenda quepan juntas en una página.
+	figureCaptionReserveIn = 0.6
+	// figureSpacingReserveIn: margen para el espaciado del párrafo de la
+	// figura aunque no tenga leyenda; sin él, una figura de alto exacto de
+	// página empuja el párrafo siguiente y deja una página casi vacía.
+	figureSpacingReserveIn = 0.3
+)
+
+// docxContentBoxInches devuelve el ancho y alto de la caja de texto (página
+// menos márgenes) de la sección por defecto, en pulgadas.
+func docxContentBoxInches(doc domain.Document) (float64, float64) {
+	const twipsPerInch = 1440.0
+	section, err := doc.DefaultSection()
+	if err != nil || section == nil {
+		// A4 con márgenes de 1", el default de docxgo.
+		return 6.27, 9.69
+	}
+	size, margins := section.PageSize(), section.Margins()
+	w := float64(size.Width-margins.Left-margins.Right) / twipsPerInch
+	h := float64(size.Height-margins.Top-margins.Bottom) / twipsPerInch
+	return w, h
+}
+
+func (g *DOCXGenerator) mermaidLayoutWidthPx() int {
+	return int(g.contentWidthIn * cssPxPerInch * mermaidLayoutWidthFactor)
+}
+
+// fitMermaidPNG calcula el tamaño de inserción de un PNG de mermaid: su
+// tamaño natural (px CSS a 96 por pulgada), sin agrandarlo nunca, y
+// reducido para caber a lo ancho de la caja de texto y a lo alto de la
+// página, menos lo que ocupe la leyenda. Antes se insertaba siempre a 6.5"
+// de ancho: un diagrama alto se salía de la página, y el PNG de contenedor
+// fijo dejaba el diagrama chico en medio de mucho blanco.
+func (g *DOCXGenerator) fitMermaidPNG(pngBytes []byte, hasCaption bool) (float64, float64, error) {
+	cfg, err := png.DecodeConfig(bytes.NewReader(pngBytes))
+	if err != nil {
+		return 0, 0, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, fmt.Errorf("empty PNG (%dx%d)", cfg.Width, cfg.Height)
+	}
+	naturalW := float64(cfg.Width) / mermaidPNGDeviceScale / cssPxPerInch
+	naturalH := float64(cfg.Height) / mermaidPNGDeviceScale / cssPxPerInch
+	w, h := g.fitFigure(naturalW, naturalH, hasCaption)
+	return w, h, nil
+}
+
+// fitFigure reduce (nunca agranda) una figura de tamaño natural w×h, en
+// pulgadas, para que quepa a lo ancho de la caja de texto y a lo alto de la
+// página, menos el espaciado del párrafo y, si la hay, la leyenda. Es la
+// regla de mermaid y de las imágenes.
+func (g *DOCXGenerator) fitFigure(w, h float64, hasCaption bool) (float64, float64) {
+	maxH := g.contentHeightIn - figureSpacingReserveIn
+	if hasCaption {
+		maxH -= figureCaptionReserveIn
+	}
+	return fitInBox(w, h, g.contentWidthIn, maxH)
+}
+
+// fitInBox reduce (nunca agranda) w×h para que quepa en maxW×maxH,
+// conservando la proporción.
+func fitInBox(w, h, maxW, maxH float64) (float64, float64) {
+	scale := 1.0
+	if maxW > 0 && w*scale > maxW {
+		scale = maxW / w
+	}
+	if maxH > 0 && h*scale > maxH {
+		scale = maxH / h
+	}
+	return w * scale, h * scale
+}
+
+// diagramFileHash identifica un diagrama rasterizado por lo que lo
+// determina: tipo, fuente y tema. Dos diagramas iguales comparten archivo
+// (es el mismo PNG); dos distintos nunca.
+func diagramFileHash(diagramType, content string, theme renderer.DiagramThemeColors) string {
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "%s\x00%s\x00%+v", diagramType, content, theme)
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// renderFigureCaption escribe la leyenda centrada en cursiva de una figura.
+func (g *DOCXGenerator) renderFigureCaption(doc domain.Document, text string) error {
+	captionPara, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := captionPara.SetAlignment(domain.AlignmentCenter); err != nil {
+		return fmt.Errorf("invalid alignment: %w", err)
+	}
+	if err := captionPara.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+
+	r, err := captionPara.AddRun()
+	if err != nil {
+		return err
+	}
+	_ = r.SetText(text)
+	if err := r.SetSize(g.parseSize(g.style.FontSizeBase) - 2); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = r.SetColor(g.parseColor(g.style.TextLightColor))
+	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+	_ = r.SetItalic(true)
 	return nil
 }
 
@@ -2414,7 +3055,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 
 	g.logger.Info("DOCX", "Rendering equation...")
 
-	pngBytes, err := g.chromiumRenderer.RenderMathToPNGWithTheme(context.Background(), elem.Content, 1600, 400, g.diagramTheme)
+	pngBytes, err := g.chromiumRenderer.RenderMathToPNGWithTheme(g.runCtx(), elem.Content, 1600, 400, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render equation: %v", err)
 		return g.renderPlaceholder(doc, "Equation (render failed)")
@@ -2433,7 +3074,11 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := domain.NewImageSizeInches(4.0, 0)
+	imageSize, err := widthOnlyImageSize(pngPath, 4.0)
+	if err != nil {
+		g.logger.Warn("DOCX: line %d: equation image could not be inserted: %v", elem.Position.Line, err)
+		return g.renderPlaceholder(doc, "[Equation could not be rendered]")
+	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert equation image: %v", err)
@@ -2516,7 +3161,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 
 		// Renderizar a PNG usando ChromiumRenderer con alta resolución para mejor calidad en Word
 		// 2400x1500 pixels = buena calidad para impresión y pantalla
-		chromiumBytes, chromiumErr := g.chromiumRenderer.RenderChartToPNG(context.Background(), chartConfig, 2400, 1500)
+		chromiumBytes, chromiumErr := g.chromiumRenderer.RenderChartToPNG(g.runCtx(), chartConfig, 2400, 1500)
 		if chromiumErr != nil {
 			g.logger.Warn("DOCX: Failed to render chart: %v", chromiumErr)
 			return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s (render failed)", elem.ChartType))
@@ -2539,7 +3184,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := domain.NewImageSizeInches(6.5, 4.1) // 6.5" ancho x 4.1" alto (ratio 1.6:1)
+	imageSize := imageSizeFromInches(6.5, 4.1) // 6.5" ancho x 4.1" alto (ratio 1.6:1)
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
@@ -2565,7 +3210,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 	// áreas y heatmap) sin proceso de navegador. Compartir BuildMapConfig con
 	// HTML/PPTX evita que cada exportador traduzca el AST de forma distinta.
 	mapConfig := renderer.BuildMapConfig(elem, nil)
-	pngBytes, err := renderer.RenderMapNativePNG(context.Background(), mapConfig, 1200, 800)
+	pngBytes, err := renderer.RenderMapNativePNG(g.runCtx(), mapConfig, 1200, 800)
 	if err != nil {
 		// El navegador sigue siendo un respaldo para cualquier variante que el
 		// renderer nativo aún no soporte, pero ya no es una precondición para
@@ -2575,7 +3220,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 			return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
 		}
 		g.logger.Warn("DOCX: Native map render failed; falling back to Chromium: %v", err)
-		pngBytes, err = g.chromiumRenderer.RenderMapToPNG(context.Background(), mapConfig, 1200, 800)
+		pngBytes, err = g.chromiumRenderer.RenderMapToPNG(g.runCtx(), mapConfig, 1200, 800)
 		if err != nil {
 			g.logger.Warn("DOCX: Failed to render map: %v", err)
 			return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
@@ -2597,7 +3242,11 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := domain.NewImageSizeInches(6.0, 0)
+	imageSize, err := widthOnlyImageSize(pngPath, 6.0)
+	if err != nil {
+		g.logger.Warn("DOCX: line %d: map image could not be inserted: %v", elem.Position.Line, err)
+		return g.renderPlaceholder(doc, "[Map could not be rendered]")
+	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert map image: %v", err)
@@ -2978,28 +3627,15 @@ func (g *DOCXGenerator) renderCodeGroup(doc domain.Document, elem *ast.CodeGroup
 		_ = labelRun.SetFont(domain.Font{Name: g.style.FontFamily})
 		_ = labelRun.SetBold(true)
 
-		// Bloque de código
-		codePara, err := doc.AddParagraph()
-		if err != nil {
-			return err
-		}
-		if err := codePara.SetIndent(domain.Indentation{Left: 360}); err != nil {
-			return fmt.Errorf("invalid indent: %w", err)
-		}
-		if err := codePara.SetSpacingAfter(120); err != nil {
-			return fmt.Errorf("invalid spacing after: %w", err)
+		// La etiqueta va con su bloque.
+		if err := labelPara.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
 		}
 
-		codeRun, err := codePara.AddRun()
-		if err != nil {
+		// Bloque de código, con el mismo fondo que un bloque suelto.
+		if err := g.renderCodeLines(doc, block.Content); err != nil {
 			return err
 		}
-		_ = codeRun.SetText(block.Content)
-		if err := codeRun.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
-			return fmt.Errorf("invalid font size: %w", err)
-		}
-		_ = codeRun.SetColor(g.parseColor(g.style.CodeBlockColor))
-		_ = codeRun.SetFont(domain.Font{Name: g.style.CodeFontFamily})
 	}
 
 	return nil
@@ -3018,7 +3654,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 
 	// Descargar diagrama a archivo PNG
 	content := renderer.ApplyPlantUMLTheme(renderer.SanitizePlantUMLContent(elem.Content), g.diagramTheme)
-	assetPath, err := fetcher.FetchDiagramToAssets(context.Background(), content)
+	assetPath, err := fetcher.FetchDiagramToAssets(g.runCtx(), content)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to fetch PlantUML diagram: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("PlantUML diagram failed: %s", elem.DiagramType))
@@ -3036,8 +3672,16 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := domain.NewImageSizeInches(6.0, 0)
-	_, err = p.AddImageWithSize(pngPath, imageSize)
+	if elem.Title != "" {
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
+	}
+
+	imageSize, err := g.fittedImageSize(pngPath, elem.Title != "")
+	if err == nil {
+		_, err = p.AddImageWithSize(pngPath, imageSize)
+	}
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
 		return g.renderPlaceholder(doc, "PlantUML image insertion failed")

@@ -4,7 +4,6 @@
 package generator
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,7 +88,7 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		logAdapter := &renderer.ChromiumLoggerAdapter{Logger: h.logger}
 
 		// Inicializar ChromiumRenderer
-		chromiumR, err := chromium.NewChromiumRenderer(context.Background(), opts.ChromiumPath, opts.InstallChromium, logAdapter)
+		chromiumR, err := chromium.NewChromiumRenderer(opts.runContext(), opts.ChromiumPath, opts.InstallChromium, logAdapter)
 		if err != nil {
 			return fmt.Errorf("failed to initialize Chromium renderer: %w", err)
 		}
@@ -149,12 +148,14 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		MathMode:           opts.MathMode,
 		ImageMode:          opts.ImageMode, // issue #167
 		AssetRoot:          opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
+		AssetBaseDir:       opts.SourceDir, // fuentes relativas contra el archivo fuente
 		OutputDir:          outputDir,
 		ImageFormat:        opts.ImageFormat,
 		WebPQuality:        opts.WebPQuality,
 		DiagramBackend:     opts.DiagramBackend,
 		KrokiServer:        opts.KrokiServer,
 		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
+		Ctx:                opts.runContext(),
 		Logger:             h.logger,
 	})
 	if nativeChartFetcher != nil {

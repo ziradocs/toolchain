@@ -53,6 +53,7 @@ type DOCXStyle struct {
 	TableHeaderBg      string
 	TableBorderColor   string
 	TableStripeEnabled bool
+	TableStripeBg      string // Fondo de las filas pares cuando TableStripeEnabled
 
 	// Special Blocks
 	InfoColor    string
@@ -107,10 +108,13 @@ func GetStyleForTheme(themeName string, logger util.Logger) DOCXStyle {
 			CodeBlockBg:     "1E1E1E",
 
 			// Table - Gradient purple (use single color)
-			TableHeaderColor:   "FFFFFF",
-			TableHeaderBg:      "667EEA", // Purple from gradient
-			TableBorderColor:   "E2E8F0",
+			TableHeaderColor: "FFFFFF",
+			// 5A67D8 en vez del 667EEA del gradiente: con texto blanco en
+			// negrita de 11 pt, 667EEA daba 3.7:1 y no llegaba a WCAG AA.
+			TableHeaderBg:      "5A67D8",
+			TableBorderColor:   "CBD5E0",
 			TableStripeEnabled: true,
+			TableStripeBg:      "F7FAFC",
 
 			// Special Blocks - Modern colors
 			InfoColor:    "2C5282", // Blue
@@ -166,6 +170,7 @@ func GetStyleForTheme(themeName string, logger util.Logger) DOCXStyle {
 			TableHeaderBg:      "333333",
 			TableBorderColor:   "CCCCCC",
 			TableStripeEnabled: true,
+			TableStripeBg:      "F5F5F5",
 
 			// Special Blocks - Subtle colors
 			InfoColor:    "004080",
@@ -221,6 +226,7 @@ func GetStyleForTheme(themeName string, logger util.Logger) DOCXStyle {
 			TableHeaderBg:      "000000",
 			TableBorderColor:   "333333",
 			TableStripeEnabled: true,
+			TableStripeBg:      "F0F0F0",
 
 			// Special Blocks - Simple
 			InfoColor:    "666666",
@@ -273,9 +279,10 @@ func GetStyleForTheme(themeName string, logger util.Logger) DOCXStyle {
 
 			// Table - Office blue
 			TableHeaderColor:   "FFFFFF",
-			TableHeaderBg:      "4472C4", // Office blue
-			TableBorderColor:   "D4D4D4",
+			TableHeaderBg:      "2F5597", // Office blue, un tono más oscuro (4472C4 queda en 4.4:1 con blanco)
+			TableBorderColor:   "8EAADB",
 			TableStripeEnabled: true,
+			TableStripeBg:      "D9E2F3",
 
 			// Special Blocks - Office colors
 			InfoColor:    "31708F",

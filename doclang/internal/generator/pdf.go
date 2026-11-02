@@ -4,7 +4,6 @@
 package generator
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -98,7 +97,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	p.logger.Info("PDF", "Initializing Chromium renderer...")
 	adapter := &loggerAdapter{logger: p.logger}
 	chromiumRenderer, err := chromium.NewChromiumRenderer(
-		context.Background(),
+		opts.runContext(),
 		opts.ChromiumPath,
 		opts.InstallChromium,
 		adapter,
@@ -178,12 +177,14 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		// que no lo hay para mermaid/chart/map/math acá.
 		ImageMode:          offlineMode,
 		AssetRoot:          opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
+		AssetBaseDir:       opts.SourceDir, // fuentes relativas contra el archivo fuente
 		OutputDir:          outputDir,
 		ImageFormat:        opts.ImageFormat,
 		WebPQuality:        opts.WebPQuality,
 		DiagramBackend:     opts.DiagramBackend,
 		KrokiServer:        opts.KrokiServer,
 		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
+		Ctx:                opts.runContext(),
 		Logger:             p.logger,
 	})
 
@@ -238,7 +239,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		}
 	}
 
-	if err := chromiumRenderer.RenderHTMLToPDF(context.Background(), htmlContent, outputFile, pdfOpts); err != nil {
+	if err := chromiumRenderer.RenderHTMLToPDF(opts.runContext(), htmlContent, outputFile, pdfOpts); err != nil {
 		return fmt.Errorf("PDF rendering failed: %w", err)
 	}
 
