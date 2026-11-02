@@ -61,7 +61,7 @@ type docxNumbering struct {
 
 // add registra una lista que se escribe en el nivel level y devuelve su numId.
 func (n *docxNumbering) add(kind docxListKind, level int, start int64) int {
-	if start < 1 {
+	if start < 0 {
 		start = 1
 	}
 	n.lists = append(n.lists, docxListDef{kind: kind, level: level, start: start})
@@ -184,6 +184,34 @@ func docxStart(start *int64) int64 {
 	return *start
 }
 
+// docxListStart es el inicio de una lista: el serializado (list-start-v1) o,
+// si no hay, el número que el autor escribió en su primer item. Ese número
+// vive solo en memoria en core (PointItem.WrittenOrdinal); se consulta con una
+// aserción de interfaz para que doclang siga compilando contra un core que
+// todavía no lo tiene, donde la lista empieza en 1 como antes.
+func docxListStart(start *int64, items []ast.PointItem) int64 {
+	if start != nil || len(items) == 0 {
+		return docxStart(start)
+	}
+	if w, ok := any(&items[0]).(interface{ WrittenOrdinal() (int64, bool) }); ok {
+		if n, has := w.WrittenOrdinal(); has {
+			return n
+		}
+	}
+	return 1
+}
+
+// docxTypedPoints dice si la lista usa nested-list-types-v1 (algún item
+// declara SubListType).
+func docxTypedPoints(items []ast.PointItem) bool {
+	for i := range items {
+		if items[i].SubListType != "" || docxTypedPoints(items[i].SubPoints) {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *DOCXGenerator) addListParagraph(doc domain.Document, numID, level int) (domain.Paragraph, error) {
 	p, err := doc.AddParagraph()
 	if err != nil {
@@ -207,15 +235,22 @@ func (g *DOCXGenerator) renderPoints(doc domain.Document, elem *ast.PointsElemen
 	if listType == "" {
 		listType = "unordered"
 	}
-	return g.renderPointItems(doc, elem.Items, listType, docxStart(elem.Start), 0)
+	return g.renderPointItems(doc, elem.Items, listType, docxListStart(elem.Start, elem.Items), 0, docxTypedPoints(elem.Items))
 }
 
-func (g *DOCXGenerator) renderPointItems(doc domain.Document, items []ast.PointItem, listType string, start int64, level int) error {
+// renderPointItems escribe una lista en level. Una lista tipada
+// (nested-list-types-v1) más profunda que los nueve niveles de Word falla: su
+// contrato pide conservar la jerarquía. Una sin tipar se dibuja en el último
+// nivel, como el PPTX de slidelang, en vez de cortar el documento.
+func (g *DOCXGenerator) renderPointItems(doc domain.Document, items []ast.PointItem, listType string, start int64, level int, typed bool) error {
 	if len(items) == 0 {
 		return nil
 	}
 	if level >= docxMaxListLevels {
-		return docxListTooDeep(items[0].GetPosition().Line)
+		if typed {
+			return docxListTooDeep(items[0].GetPosition().Line)
+		}
+		level = docxMaxListLevels - 1
 	}
 	numID := g.addList(docxListKindOf(listType), level, start)
 	for i := range items {
@@ -229,7 +264,7 @@ func (g *DOCXGenerator) renderPointItems(doc domain.Document, items []ast.PointI
 		}
 		if len(item.SubPoints) > 0 {
 			subType := docxSubListType(item, listType)
-			if err := g.renderPointItems(doc, item.SubPoints, subType, docxStart(item.SubListStart), level+1); err != nil {
+			if err := g.renderPointItems(doc, item.SubPoints, subType, docxListStart(item.SubListStart, item.SubPoints), level+1, typed); err != nil {
 				return err
 			}
 		}
@@ -246,7 +281,9 @@ func (g *DOCXGenerator) renderChecklistItems(doc domain.Document, items []ast.Ch
 		return nil
 	}
 	if level >= docxMaxListLevels {
-		return docxListTooDeep(items[0].GetPosition().Line)
+		// Las tareas no tienen versión tipada: pasado el último nivel de Word
+		// siguen en ese nivel.
+		level = docxMaxListLevels - 1
 	}
 	numID := g.addList(docxListChecklist, level, 1)
 	for i := range items {
@@ -274,6 +311,34 @@ func (g *DOCXGenerator) renderChecklistItems(doc domain.Document, items []ast.Ch
 		}
 		if err := g.renderChecklistItems(doc, item.SubItems, level+1); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// renderBodyListItems escribe una lista de la prosa de una cita o un bloque
+// (body_lists.go) como lista nativa, con la misma numeración que POINTS.
+func (g *DOCXGenerator) renderBodyListItems(doc domain.Document, items []*bodyItem, level int) error {
+	if level >= docxMaxListLevels {
+		level = docxMaxListLevels - 1
+	}
+	for _, run := range bodyRuns(items) {
+		kind, start := docxListBullet, int64(1)
+		if run[0].ordered {
+			kind, start = docxListOrdered, run[0].ordinal
+		}
+		numID := g.addList(kind, level, start)
+		for _, item := range run {
+			p, err := g.addListParagraph(doc, numID, level)
+			if err != nil {
+				return err
+			}
+			if err := g.renderInlineMarkdown(p, item.text); err != nil {
+				return err
+			}
+			if err := g.renderBodyListItems(doc, item.children, level+1); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

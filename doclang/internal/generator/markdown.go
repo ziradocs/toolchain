@@ -52,6 +52,103 @@ func renderTypedMarkdownPoints(items []ast.PointItem, listType string, indent in
 	return b.String()
 }
 
+// renderLegacyMarkdownPoints escribe una lista sin nested-list-types-v1 con
+// todos sus niveles (antes solo salía el primero y las sublistas se perdían).
+// Cada sublista va en la columna de contenido de su item, que es donde
+// CommonMark busca a los hijos. Su tipo es el marcador que escribió el autor
+// (SubListMarker, Marker, en memoria) o el de su padre si el AST vino de JSON;
+// una lista numerada empieza en start (list-start-v1) o en el número que el
+// autor escribió primero.
+func renderLegacyMarkdownPoints(items []ast.PointItem, listType string, start *int64, indent int) string {
+	var b strings.Builder
+	number := int64(0)
+	prevKind, prevDelim := "", ""
+	for i := range items {
+		item := &items[i]
+		kind := listType
+		if item.Marker != "" {
+			kind = item.Marker
+		}
+		marker := "-"
+		delim := ""
+		if kind == "ordered" {
+			delim = markdownDelimiter(item)
+			if kind != prevKind || delim != prevDelim {
+				number = markdownListStart(start, i, item)
+			} else {
+				number++
+			}
+			marker = fmt.Sprintf("%d%s", number, delim)
+		}
+		prevKind, prevDelim = kind, delim
+		fmt.Fprintf(&b, "%s%s %s\n", strings.Repeat(" ", indent), marker, item.Content)
+		if len(item.SubPoints) > 0 {
+			child := item.SubListMarker
+			if child == "" {
+				child = kind
+			}
+			b.WriteString(renderLegacyMarkdownPoints(item.SubPoints, child, nil, indent+len(marker)+1))
+		}
+	}
+	return b.String()
+}
+
+// markdownListStart es el número del primer item de un tramo numerado.
+func markdownListStart(start *int64, i int, item *ast.PointItem) int64 {
+	if i == 0 && start != nil {
+		return *start
+	}
+	// PointItem.WrittenOrdinal es nuevo en core; con un core anterior la
+	// aserción falla y la lista empieza en 1, como antes.
+	if w, ok := any(item).(interface{ WrittenOrdinal() (int64, bool) }); ok {
+		if n, has := w.WrittenOrdinal(); has {
+			return n
+		}
+	}
+	return 1
+}
+
+// markdownDelimiter es el delimitador que escribió el autor ("1)" abre otra
+// lista que "1." en CommonMark), o "." si no se conoce.
+func markdownDelimiter(item *ast.PointItem) string {
+	if w, ok := any(item).(interface{ WrittenDelimiter() string }); ok {
+		if d := w.WrittenDelimiter(); d == ")" {
+			return d
+		}
+	}
+	return "."
+}
+
+// renderMarkdownChecklist escribe las tareas con todos sus niveles.
+func renderMarkdownChecklist(items []ast.ChecklistItem, indent int) string {
+	var b strings.Builder
+	for _, item := range items {
+		checked := " "
+		if item.Checked {
+			checked = "x"
+		}
+		fmt.Fprintf(&b, "%s- [%s] %s\n", strings.Repeat(" ", indent), checked, item.Content)
+		b.WriteString(renderMarkdownChecklist(item.SubItems, indent+2))
+	}
+	return b.String()
+}
+
+// markdownQuoteLines antepone "> " a cada línea: antes solo la primera lo
+// llevaba y el resto de la cita salía como un párrafo fuera de ella. Una
+// línea vacía queda como ">" para no cortar la cita. La sangría que traen los
+// items anidados es relativa a su item, así que no abre un bloque de código.
+func markdownQuoteLines(content string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == "" {
+			b.WriteString(">\n")
+			continue
+		}
+		b.WriteString("> " + line + "\n")
+	}
+	return b.String()
+}
+
 // NewMarkdownGenerator crea un nuevo generador Markdown
 func NewMarkdownGenerator(log util.Logger) *MarkdownGenerator {
 	return &MarkdownGenerator{
@@ -243,15 +340,7 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		if markdownTypedPoints(elem.Items) {
 			return renderTypedMarkdownPoints(elem.Items, elem.ListType, 0)
 		}
-		var md strings.Builder
-		for i, item := range elem.Items {
-			if elem.ListType == "ordered" {
-				fmt.Fprintf(&md, "%d. %s\n", i+1, item.Content)
-			} else {
-				fmt.Fprintf(&md, "- %s\n", item.Content)
-			}
-		}
-		return md.String()
+		return renderLegacyMarkdownPoints(elem.Items, elem.ListType, elem.Start, 0)
 
 	case *ast.CodeElement:
 		if elem.Filename != "" {
@@ -306,18 +395,10 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		return md.String()
 
 	case *ast.QuoteElement:
-		return fmt.Sprintf("> %s\n", elem.Content)
+		return markdownQuoteLines(elem.Content)
 
 	case *ast.ChecklistElement:
-		var md strings.Builder
-		for _, item := range elem.Items {
-			checked := " "
-			if item.Checked {
-				checked = "x"
-			}
-			fmt.Fprintf(&md, "- [%s] %s\n", checked, item.Content)
-		}
-		return md.String()
+		return renderMarkdownChecklist(elem.Items, 0)
 
 	case *ast.QuizElement:
 		// Markdown no tiene interacción, así que el quiz sale RESUELTO: la
@@ -456,7 +537,7 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 	case *ast.SpecialBlockElement:
 		var md strings.Builder
 		fmt.Fprintf(&md, "> **%s: %s**\n", strings.ToUpper(elem.BlockType), elem.Title)
-		fmt.Fprintf(&md, "> %s\n", elem.Content)
+		md.WriteString(markdownQuoteLines(elem.Content))
 		return md.String()
 
 	case *ast.GridElement:

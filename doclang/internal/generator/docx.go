@@ -3475,22 +3475,53 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 }
 
 func (g *DOCXGenerator) renderQuote(doc domain.Document, elem *ast.QuoteElement) error {
-	p, err := doc.AddParagraph()
-	if err != nil {
-		return err
+	quotePara := func() (domain.Paragraph, error) {
+		p, err := doc.AddParagraph()
+		if err != nil {
+			return nil, err
+		}
+		// Indentación para quotes
+		if err := p.SetIndent(domain.Indentation{Left: 720}); err != nil {
+			return nil, fmt.Errorf("invalid indent: %w", err)
+		}
+		if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
+			return nil, fmt.Errorf("invalid spacing after: %w", err)
+		}
+		return p, nil
 	}
 
-	// Indentación para quotes
-	if err := p.SetIndent(domain.Indentation{Left: 720}); err != nil {
-		return fmt.Errorf("invalid indent: %w", err)
-	}
-	if err := p.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
-		return fmt.Errorf("invalid spacing after: %w", err)
-	}
-
-	// Contenido con markdown inline
-	if err := g.renderInlineMarkdown(p, elem.Content); err != nil {
-		return err
+	// Contenido con markdown inline. Una lista dentro de la cita sale como
+	// lista nativa y la prosa de alrededor en párrafos sangrados; sin listas,
+	// el párrafo de siempre.
+	parts := splitBody(elem.Content)
+	if len(parts) == 1 && parts[0].items == nil {
+		p, err := quotePara()
+		if err != nil {
+			return err
+		}
+		if err := g.renderInlineMarkdown(p, elem.Content); err != nil {
+			return err
+		}
+	} else {
+		for _, part := range parts {
+			if part.items != nil {
+				if err := g.renderBodyListItems(doc, part.items, 0); err != nil {
+					return err
+				}
+				continue
+			}
+			text := strings.TrimSpace(strings.Join(part.lines, " "))
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			p, err := quotePara()
+			if err != nil {
+				return err
+			}
+			if err := g.renderInlineMarkdown(p, text); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Autor y fuente (AUTHOR:/SOURCE: en strict, "— Autor" en flex): antes
@@ -3809,6 +3840,28 @@ func (g *DOCXGenerator) renderSpecialBlock(doc domain.Document, elem *ast.Specia
 // renderSpecialBlockLines escribe la prosa de un bloque especial, un párrafo
 // sangrado por línea.
 func (g *DOCXGenerator) renderSpecialBlockLines(doc domain.Document, content string) error {
+	parts := splitBody(content)
+	if len(parts) == 1 && parts[0].items == nil {
+		return g.renderSpecialBlockProse(doc, content)
+	}
+	// Una lista del bloque sale como lista nativa, no como líneas sueltas.
+	for _, part := range parts {
+		var err error
+		if part.items != nil {
+			err = g.renderBodyListItems(doc, part.items, 0)
+		} else {
+			err = g.renderSpecialBlockProse(doc, strings.Join(part.lines, "\n"))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderSpecialBlockProse escribe prosa de un bloque, un párrafo sangrado por
+// línea.
+func (g *DOCXGenerator) renderSpecialBlockProse(doc domain.Document, content string) error {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
