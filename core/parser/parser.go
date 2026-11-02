@@ -94,6 +94,7 @@ func (p *Parser) EnableAIProcessing() {
 // de leerse.
 func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
+	content = normalizeDocumentStart(content)
 	content, nodeIDs, lineMap, identityDiags := stripNodeIDDirectives(content)
 	normalizationModified := false
 

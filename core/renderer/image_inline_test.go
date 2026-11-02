@@ -223,3 +223,48 @@ func TestTryInlineLocalImage_NilLoggerDoesNotPanic(t *testing.T) {
 		t.Errorf("expected ok=false for a path that escapes AssetRoot")
 	}
 }
+
+// TestRenderImageElement_OfflineInlineResolvesFromAssetBaseDir: con
+// AssetRoot en un ancestro del archivo fuente (doclang --asset-root ..), una
+// fuente relativa se resuelve contra AssetBaseDir (el directorio del archivo
+// fuente) y no contra AssetRoot; un ".." que salga de AssetRoot sigue
+// rechazado.
+func TestRenderImageElement_OfflineInlineResolvesFromAssetBaseDir(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "proj")
+	files := map[string][]byte{
+		filepath.Join(src, "logo.png"):         {0x89, 0x50, 0x4E, 0x47, 1},
+		filepath.Join(src, "img", "a.png"):     {0x89, 0x50, 0x4E, 0x47, 2},
+		filepath.Join(root, "shared", "b.png"): {0x89, 0x50, 0x4E, 0x47, 3},
+	}
+	for path, data := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx := NewDefaultRenderContext()
+	ctx.ImageMode = "offline-inline"
+	ctx.AssetRoot = root
+	ctx.AssetBaseDir = src
+
+	for source, path := range map[string]string{
+		"logo.png":        filepath.Join(src, "logo.png"),
+		"./img/a.png":     filepath.Join(src, "img", "a.png"),
+		"../shared/b.png": filepath.Join(root, "shared", "b.png"),
+	} {
+		img := ast.NewImageElement(diagnostics.NewPosition(1, 1), source, "x")
+		got := renderImageElement(img, nil, ctx)
+		if !strings.Contains(got, base64Encode(files[path])) {
+			t.Errorf("%q no se inlineó desde %s: %s", source, path, got)
+		}
+	}
+
+	img := ast.NewImageElement(diagnostics.NewPosition(1, 1), "../../escape.png", "x")
+	if got := renderImageElement(img, nil, ctx); strings.Contains(got, "data:") {
+		t.Errorf("una fuente fuera de AssetRoot no debe inlinearse: %s", got)
+	}
+}

@@ -191,15 +191,12 @@ list is not ZiraDocs-only:
   as they do on `.slidelang`. A mismatched table row is an error in both.
 - **Sections 2, 5 and 6 don't meaningfully apply.** The strict-mode rules
   never fire (DocLang ignores `mode:`), and the per-layout schemas are
-  written for slides. They can still emit cosmetic warnings — a first
-  section carrying body text draws "Title slides typically should not
-  contain content elements". Those are warnings; they don't block a build
-  and there's nothing to fix.
-- **Section 1 partly applies.** `FRONT003` (frontmatter present) and
-  `CORE001` (at least one block) fire on `.doclang` too — despite the
-  DocLang parser tolerating a frontmatter-less file, the linter that
-  `doclang build` runs rejects one with an error, so give every `.doclang`
-  file at least a minimal `---` block. The slide-shaped items in that
+  written for slides: `doclang build` and `doclang mcp` lint with the
+  documents dialect, so the layout schemas (`LAYOUT002` and friends) and
+  the automatic closing layout don't run on a `.doclang`.
+- **Section 1 partly applies.** `FRONT003` does not fire on `.doclang`:
+  frontmatter is optional there. `CORE001` does — an empty document is an
+  error, reported as "Document has no content". The slide-shaped items in that
   section (`SLIDE002`, `SYNTAX001`, `PARSE001/002`) are ZiraDocs
   concerns. **Section 4** (slide `logo:` property) is ZiraDocs-only.
 - **Section 8's output contract** applies with ` ```doclang ` as the fence.

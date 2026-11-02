@@ -146,7 +146,16 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			// el parser de strict, y ahí "### Foo" es texto literal: es lo
 			// que `slidelang fmt` emite al transpilar un encabezado (issue
 			// #259), así que cortarlo rompería ese round-trip.
-			if i > startIndex && ctx.Mode == "flex" && (flexSubsectionHeadingPrefix(trimmed) || ctx.ContentMarkdown && contentHeadingPrefix(trimmed)) {
+			//
+			// En un documento (ctx.DocumentHeadings) corta además en `#` y
+			// `##`: ahí abren sección y subsección (ver DocumentFlexParser).
+			if i > startIndex && ctx.Mode == "flex" && (flexSubsectionHeadingPrefix(trimmed) || (ctx.ContentMarkdown || ctx.DocumentHeadings) && contentHeadingPrefix(trimmed)) {
+				break
+			}
+
+			// En un documento, `---` es el separador que DocumentFlexParser
+			// ignora; pegado a un párrafo se colaba como texto ("línea ---").
+			if i > startIndex && ctx.Mode == "flex" && ctx.DocumentHeadings && trimmed == "---" {
 				break
 			}
 

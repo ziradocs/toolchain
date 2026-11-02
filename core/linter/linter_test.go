@@ -4,6 +4,7 @@
 package linter
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -67,5 +68,57 @@ func TestLinter_WithDialect_AppliesToRulesAddedAfter(t *testing.T) {
 
 	if rule.dialect != DialectDocuments {
 		t.Errorf("AddRule no propagó el dialecto ya fijado, rule.dialect = %v, want %v", rule.dialect, DialectDocuments)
+	}
+}
+
+// TestLinter_WithDialect_EmptyDocumentSaysDocument: CORE001 sigue siendo
+// error para un documento vacío, pero en DialectDocuments no habla de
+// slides; sin dialecto el mensaje de slidelang queda igual.
+func TestLinter_WithDialect_EmptyDocumentSaysDocument(t *testing.T) {
+	astNode := ast.NewAST(diagnostics.NewPosition(1, 1))
+
+	find := func(diags []diagnostics.Diagnostic) *diagnostics.Diagnostic {
+		for i := range diags {
+			if diags[i].RuleID == "CORE001" || diags[i].Code == "CORE001" {
+				return &diags[i]
+			}
+		}
+		return nil
+	}
+
+	base := find(New().Lint(astNode))
+	if base == nil || base.Message != "Presentation must contain at least one slide" || !base.IsError() {
+		t.Fatalf("sin dialecto CORE001 no debe cambiar, got %+v", base)
+	}
+	doc := find(New().WithDialect(DialectDocuments).Lint(astNode))
+	if doc == nil || !doc.IsError() {
+		t.Fatalf("un documento vacío sigue siendo error CORE001, got %+v", doc)
+	}
+	if strings.Contains(strings.ToLower(doc.Message), "slide") || strings.Contains(strings.ToLower(doc.Message), "presentation") {
+		t.Errorf("el mensaje de documentos no debe hablar de slides, got %q", doc.Message)
+	}
+}
+
+// TestLinter_WithDialect_NoClosingRelabelForDocuments: la sección inicial
+// sin encabezado de un Markdown con solo `##` es también la última y no
+// tiene título; en documentos no se reetiqueta "closing".
+func TestLinter_WithDialect_NoClosingRelabelForDocuments(t *testing.T) {
+	build := func() *ast.AST {
+		pos := diagnostics.NewPosition(1, 1)
+		astNode := ast.NewAST(pos)
+		block := ast.NewContentBlock(pos, "content")
+		block.Elements = append(block.Elements, ast.NewTextElement(pos, "texto"))
+		astNode.ContentBlocks = append(astNode.ContentBlocks, *block)
+		return astNode
+	}
+
+	slides := build()
+	if diags := New().Lint(slides); !hasDiagnostic(diags, "LAYOUT_AUTO_CLOSING") || slides.ContentBlocks[0].BlockType != "closing" {
+		t.Fatalf("sin dialecto el último slide sin título sigue siendo closing, got %q %+v", slides.ContentBlocks[0].BlockType, diags)
+	}
+	doc := build()
+	diags := New().WithDialect(DialectDocuments).Lint(doc)
+	if hasDiagnostic(diags, "LAYOUT_AUTO_CLOSING") || doc.ContentBlocks[0].BlockType != "content" {
+		t.Errorf("en documentos no hay closing, got %q %+v", doc.ContentBlocks[0].BlockType, diags)
 	}
 }

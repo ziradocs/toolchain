@@ -25,11 +25,10 @@ title: "Report Title"
 Some opening paragraph.
 ```
 
-Frontmatter is **optional to the parser** for DocLang (unlike ZiraDocs,
-where it's mandatory) — a bare Markdown document parses fine. In practice,
-write one anyway: the linter that `doclang build` runs flags a missing
-frontmatter block as an error (`FRONT003`), so a bare file does not
-currently build.
+Frontmatter is **optional** for DocLang (unlike ZiraDocs, where it's
+mandatory) — a bare Markdown document builds. Without it the title comes
+from the first `#` heading (or the file name), and TOC/numbering stay off
+unless `--toc`/`--numbering` is passed.
 
 ## Structure: heading hierarchy, not slides
 
@@ -42,6 +41,9 @@ currently build.
   SlideLang's flex mode is only `##`: there it starts a new slide, because a
   slide needs a boundary and a document section doesn't. `###` and deeper
   behave the same in both — nested headings inside the current block.
+- Content before the first `#` (or the whole file, if it only uses
+  `##`/`###`) is kept as a leading section with no heading; `##`/`###`
+  keep their level there too.
 - A bare `---` line is treated as an ignorable separator (harmless, but
   unnecessary — you don't need slide-style `---` separators in DocLang).
 

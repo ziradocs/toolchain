@@ -16,15 +16,28 @@ import (
 	"go.ziradocs.com/core/v2/layouts"
 )
 
-// PresentationHasSlidesRule verifica que la presentación tenga al menos un slide
-type PresentationHasSlidesRule struct{}
+// PresentationHasSlidesRule verifica que la presentación tenga al menos un
+// slide. En DialectDocuments la misma regla (mismo CORE001) habla de
+// documento y contenido: un .doclang vacío sigue siendo un error, pero el
+// mensaje de slides no le dice nada a quien escribió un documento.
+type PresentationHasSlidesRule struct {
+	dialect Dialect
+}
+
+// setDialect implementa dialectAware.
+func (r *PresentationHasSlidesRule) setDialect(d Dialect) {
+	r.dialect = d
+}
 
 func (r *PresentationHasSlidesRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	if astNode, ok := node.(*ast.AST); ok {
 		if len(astNode.ContentBlocks) == 0 {
+			msg := "Presentation must contain at least one slide"
+			if r.dialect == DialectDocuments {
+				msg = "Document has no content"
+			}
 			return []diagnostics.Diagnostic{
-				diagnostics.NewError("Presentation must contain at least one slide",
-					astNode.GetPosition(), "linter").WithRuleID("CORE001"),
+				diagnostics.NewError(msg, astNode.GetPosition(), "linter").WithRuleID("CORE001"),
 			}
 		}
 	}
@@ -972,9 +985,25 @@ func hasRequiredProperty(slide *ast.ContentBlock, property string) bool {
 }
 
 // LastSlideClosingRule detecta automáticamente el último slide como closing si no tiene título
-type LastSlideClosingRule struct{}
+type LastSlideClosingRule struct {
+	// dialect, ver setDialect.
+	dialect Dialect
+}
+
+// setDialect implementa dialectAware. "closing" es un layout de slides: en
+// un documento la última sección sin título es, por ejemplo, la sección
+// inicial sin encabezado de un Markdown que solo usa `##` (ver
+// parser.DocumentFlexParser.parseSection), y reetiquetarla "closing" le
+// daría un BlockType que ningún renderer de documentos espera.
+func (r *LastSlideClosingRule) setDialect(d Dialect) {
+	r.dialect = d
+}
 
 func (r *LastSlideClosingRule) Check(node ast.Node) []diagnostics.Diagnostic {
+	if r.dialect == DialectDocuments {
+		return nil
+	}
+
 	var diags []diagnostics.Diagnostic
 
 	// Solo procesar cuando recibimos el AST completo

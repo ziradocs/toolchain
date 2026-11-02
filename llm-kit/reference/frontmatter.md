@@ -11,10 +11,10 @@ fails immediately with a fatal "Missing FrontMatter delimiter" error —
 before anything else is even attempted. A missing closing `---` is
 likewise fatal.
 
-**DocLang's parser is the one exception**: it tolerates a file with no
-frontmatter at all. The linter does not — `doclang build` reports a
-missing frontmatter block as an error (`FRONT003`) and stops, so write one
-regardless. It must be well-formed (opening and closing `---`).
+**DocLang is the one exception**: frontmatter is optional. A file with no
+`---` block builds; the title then comes from the first `#` heading (or
+the file name), and TOC/numbering stay off unless requested by flag. If
+you write one, it must be well-formed (opening and closing `---`).
 
 ## Recognized fields (the only ones that do anything)
 

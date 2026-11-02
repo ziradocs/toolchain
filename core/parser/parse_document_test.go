@@ -36,8 +36,10 @@ SECTION "Introduction"
 }
 
 // La contraprueba del despacho: el MISMO cuerpo SECTION bajo `mode: flex`
-// no es Markdown válido y no produce secciones. Sin esto, un test que solo
-// mira el camino strict pasaría igual aunque el despacho no existiera.
+// no abre ninguna sección `# `. Sin esto, un test que solo mira el camino
+// strict pasaría igual aunque el despacho no existiera. flex no descarta
+// ese texto (ver DocumentFlexParser.parseSection): queda como prosa de la
+// sección inicial sin encabezado, nunca como la sección "Introduction".
 func TestParseDocument_StrictBodyIsNotParsedByFlex(t *testing.T) {
 	doc, _ := New(util.NewNoop()).ParseDocument(`---
 mode: flex
@@ -50,8 +52,10 @@ SECTION "Introduction"
     Hello.
 `, "spec.doclang")
 
-	if len(doc.ContentBlocks) != 0 {
-		t.Errorf("expected the flex parser to find no `# ` sections, got %d blocks", len(doc.ContentBlocks))
+	for _, b := range doc.ContentBlocks {
+		if b.Heading != "" || b.Title != "" {
+			t.Errorf("expected the flex parser to find no `# ` sections, got heading=%q title=%q", b.Heading, b.Title)
+		}
 	}
 }
 
@@ -69,15 +73,29 @@ func TestParseDocument_FlexFamilyAndMissingFrontMatter(t *testing.T) {
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
-			doc, _ := New(util.NewNoop()).ParseDocument(content, "d.doclang")
+			doc, diags := New(util.NewNoop()).ParseDocument(content, "d.doclang")
 			if doc == nil {
 				t.Fatal("expected an AST, got nil")
 			}
-			if len(doc.ContentBlocks) != 1 {
-				t.Fatalf("expected the flex parser to produce 1 section, got %d", len(doc.ContentBlocks))
+			// Un frontmatter ilegible es un error de parseo, y sus líneas ya
+			// no se descartan en silencio: quedan como sección inicial sin
+			// encabezado antes de la del `#`.
+			want := 1
+			if name == "YAML inválid" {
+				want = 2
+				hasErr := false
+				for _, d := range diags {
+					hasErr = hasErr || d.IsError()
+				}
+				if !hasErr {
+					t.Error("expected an error diagnostic for the unreadable frontmatter")
+				}
 			}
-			if doc.ContentBlocks[0].Heading != "Title" {
-				t.Errorf("expected Heading %q, got %q", "Title", doc.ContentBlocks[0].Heading)
+			if len(doc.ContentBlocks) != want {
+				t.Fatalf("expected the flex parser to produce %d section(s), got %d", want, len(doc.ContentBlocks))
+			}
+			if got := doc.ContentBlocks[want-1].Heading; got != "Title" {
+				t.Errorf("expected Heading %q, got %q", "Title", got)
 			}
 		})
 	}

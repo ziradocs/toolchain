@@ -16,13 +16,11 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// validSource lleva frontmatter para ser genuinamente lint-clean: a
-// diferencia de slidelang (donde la ausencia de "---" es un error FATAL de
-// PARSEO, ver CLAUDE.md), DocumentFlexParser de doclang tolera un documento
-// sin frontmatter a nivel de parseo — pero el LINTER compartido (misma
-// regla FRONT003 que corre `slidelang build`) sí exige el bloque, así que
-// omitirlo aquí haría Valid=false por una razón distinta a la que cada test
-// quiere ejercitar.
+// validSource lleva frontmatter, pero doclang no lo exige: a diferencia de
+// slidelang (donde la ausencia de "---" es un error FATAL de PARSEO, ver
+// CLAUDE.md), DocumentFlexParser tolera un documento sin frontmatter y el
+// linter corre con DialectDocuments, que apaga FRONT003 (ver
+// TestLintTool_PlainMarkdown).
 const validSource = `---
 title: "Test"
 ---
