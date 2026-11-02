@@ -9,6 +9,16 @@ import (
 	"go.ziradocs.com/core/v2/include"
 )
 
+func testRebaser(lines []string, origins include.LineOrigins) *assetRebaser {
+	return &assetRebaser{
+		lines:      lines,
+		origins:    origins,
+		sourceDir:  "/p/docs",
+		realSource: "/p/docs",
+		realDirs:   map[string]string{"/p/a": "/p/a", "/p/docs": "/p/docs", "/p/cap uno": "/p/cap uno"},
+	}
+}
+
 // TestAssetRebaserInline: solo cambia la ruta del destino de cada
 // ![alt](dest) local y relativo; respeta títulos, <...>, code spans,
 // remotas, absolutas, {{variables}} y destinos con escapes.
@@ -17,6 +27,7 @@ func TestAssetRebaserInline(t *testing.T) {
 		{"Ver ![a](x.png) aquí.", "Ver ![a](../a/x.png) aquí."},
 		{"![a](img/x.png \"Título\")", "![a](../a/img/x.png \"Título\")"},
 		{"![a](<mi foto.png>)", "![a](<../a/mi foto.png>)"},
+		{"![a](mi foto.png)", "![a](../a/mi foto.png)"},
 		{"Dos ![a](x.png) y ![b](./y.png).", "Dos ![a](../a/x.png) y ![b](../a/y.png)."},
 		{"Código `![a](x.png)` y ![b](x.png)", "Código `![a](x.png)` y ![b](../a/x.png)"},
 		{"Doble ``![a](x.png) ` `` fin", "Doble ``![a](x.png) ` `` fin"},
@@ -28,33 +39,54 @@ func TestAssetRebaserInline(t *testing.T) {
 		{"Enlace [t](x.png) sin imagen", "Enlace [t](x.png) sin imagen"},
 	}
 	for _, tc := range cases {
-		r := assetRebaser{
-			lines:     []string{"raíz", tc.in},
-			origins:   include.LineOrigins{"", "/p/a/doc.md"},
-			sourceDir: "/p/docs",
-		}
-		if got := r.inline(tc.in, 2, "/p/a/doc.md", "/p/a"); got != tc.want {
+		r := testRebaser([]string{"raíz", tc.in}, include.LineOrigins{"", "/p/a/doc.md"})
+		if got := r.inline(tc.in, 2); got != tc.want {
 			t.Errorf("inline(%q)\n got %q\nwant %q", tc.in, got, tc.want)
 		}
 	}
 }
 
-// TestAssetRebaserNeedsSourceInSameFile: si la fuente no aparece en las
-// líneas del mismo archivo a partir de la posición, no se reescribe.
-func TestAssetRebaserNeedsSourceInSameFile(t *testing.T) {
-	r := assetRebaser{
-		lines:     []string{"![a](x.png)", "otra cosa", "![b](y.png)"},
-		origins:   include.LineOrigins{"/p/a/doc.md", "/p/a/doc.md", "/p/b/doc.md"},
-		sourceDir: "/p/docs",
+// TestAssetRebaserPerOccurrence: cada ocurrencia se decide por la línea
+// donde aparece. Un párrafo que empieza en un incluido sin salto de línea
+// final y sigue en el archivo raíz reescribe solo la imagen del incluido,
+// aunque las dos digan (logo.png).
+func TestAssetRebaserPerOccurrence(t *testing.T) {
+	lines := []string{"Texto ![i](logo.png)", "sigue ![r](logo.png)"}
+	r := testRebaser(lines, include.LineOrigins{"/p/a/doc.md", ""})
+	got := r.inline("Texto ![i](logo.png) sigue ![r](logo.png)", 1)
+	if want := "Texto ![i](../a/logo.png) sigue ![r](logo.png)"; got != want {
+		t.Errorf("got %q\nwant %q", got, want)
 	}
-	if got := r.source("x.png", 1, "/p/a/doc.md", "/p/a"); got != "../a/x.png" {
-		t.Errorf("x.png = %q", got)
+	// Al revés: empieza en el raíz y sigue en el incluido.
+	r = testRebaser(lines, include.LineOrigins{"", "/p/a/doc.md"})
+	got = r.inline("Texto ![i](logo.png) sigue ![r](logo.png)", 1)
+	if want := "Texto ![i](logo.png) sigue ![r](../a/logo.png)"; got != want {
+		t.Errorf("got %q\nwant %q", got, want)
 	}
-	// y.png está en otro archivo: desde la línea 1 no se ve.
-	if got := r.source("y.png", 1, "/p/a/doc.md", "/p/a"); got != "y.png" {
-		t.Errorf("y.png se reescribió contra el archivo equivocado: %q", got)
+}
+
+// TestAssetRebaserFieldBounds: una fuente que no aparece en las líneas del
+// campo (hasta la siguiente posición conocida) no se reescribe, aunque
+// aparezca más abajo en otro archivo.
+func TestAssetRebaserFieldBounds(t *testing.T) {
+	lines := []string{"![a](x.png)", "otra cosa", "![b](y.png)"}
+	r := testRebaser(lines, include.LineOrigins{"", "", "/p/a/doc.md"})
+	r.starts = []int{1, 3}
+	if got := r.newField(1).source("y.png"); got != "y.png" {
+		t.Errorf("y.png se reescribió desde un campo que no la contiene: %q", got)
 	}
-	if got := r.inline("![b](y.png)", 1, "/p/a/doc.md", "/p/a"); got != "![b](y.png)" {
-		t.Errorf("inline y.png se reescribió contra el archivo equivocado: %q", got)
+	if got := r.newField(3).source("y.png"); got != "../a/y.png" {
+		t.Errorf("y.png = %q", got)
+	}
+}
+
+// TestAssetRebaserHeadingHTML: el <img> que el parser deja en el HTML de un
+// encabezado se reescribe buscando "(src" en el texto fuente.
+func TestAssetRebaserHeadingHTML(t *testing.T) {
+	lines := []string{"### Head ![h](h.png)"}
+	r := testRebaser(lines, include.LineOrigins{"/p/cap uno/doc.md"})
+	got := r.headingHTML(`<h3 id="head-hhpng">Head <img src="h.png" alt="h"></h3>`, 1)
+	if want := `<h3 id="head-hhpng">Head <img src="../cap uno/h.png" alt="h"></h3>`; got != want {
+		t.Errorf("got %q\nwant %q", got, want)
 	}
 }
