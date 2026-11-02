@@ -13,8 +13,8 @@ import (
 // MathParser maneja el parsing de ecuaciones/fórmulas LaTeX en bloque (issue
 // #239-B, decisión B del plan OSS). Sintaxis: strict `<<math>> ... <<end>>`
 // (espeja mermaid.go), flex `$$ ... $$` (una sola línea o multi-línea) y,
-// también en flex, el fence de Markdown ```math ... ``` (el que usan GitHub
-// y GitLab), igual que ```mermaid y ```chart.
+// también en flex, el fence de Markdown ```math ... ``` o ~~~math (el que
+// usan GitHub y GitLab), igual que ```mermaid y ```chart.
 // Alcance deliberado: solo bloque/display — math INLINE ($...$ a mitad de
 // una línea de prosa) queda fuera, toca el pipeline inline
 // (renderer/sanitizer.go) y es más invasivo; ver issue de seguimiento.
@@ -81,42 +81,63 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 }
 
-// mathFenceOpening devuelve el fence (``` o ````) si trimmed abre un bloque
-// ```math, y "" si no. El info string tiene que ser exactamente "math":
-// ```mathematica o ```math-notes siguen siendo bloques de código.
+// mathFenceOpening devuelve el fence de apertura (tres o más ` o ~) si
+// trimmed abre un bloque ```math o ~~~math, y "" si no. El info string tiene
+// que ser exactamente "math": ```mathematica o ```math-notes siguen siendo
+// bloques de código.
 func mathFenceOpening(trimmed string) string {
-	for _, fence := range []string{"````", "```"} {
-		if rest, ok := strings.CutPrefix(trimmed, fence); ok {
-			if strings.TrimSpace(rest) == "math" {
-				return fence
-			}
-			return ""
-		}
+	if trimmed == "" || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return ""
 	}
-	return ""
+	n := 0
+	for n < len(trimmed) && trimmed[n] == trimmed[0] {
+		n++
+	}
+	if n < 3 || strings.TrimSpace(trimmed[n:]) != "math" {
+		return ""
+	}
+	return trimmed[:n]
 }
 
-// parseFenceForm recoge un bloque ```math ... ``` (flex). Antes ese fence
-// caía en CodeParser y la ecuación salía como código, con el LaTeX crudo, en
-// HTML, PDF y DOCX. Como $$, no lleva caption ni label. Con math-source-v1
-// el cuerpo se conserva tal cual; sin él, cada línea se recorta como en
-// parseDollarForm. Termina en el fence de cierre (el mismo número de
-// backticks) o al final del archivo; con math-source-v1 un fence sin cerrar
-// es un error, igual que $$ sin cerrar.
+// closesMathFence dice si trimmed cierra el fence abierto con open: como en
+// CommonMark, el mismo carácter, al menos tantas veces, y nada más.
+func closesMathFence(trimmed, open string) bool {
+	if len(trimmed) < len(open) {
+		return false
+	}
+	return strings.Trim(trimmed, open[:1]) == ""
+}
+
+// parseFenceForm recoge un bloque ```math ... ``` (o ~~~math) en flex. Antes
+// ese fence caía en CodeParser y la ecuación salía como código, con el LaTeX
+// crudo, en HTML, PDF y DOCX. Como $$, no lleva caption ni label. Con
+// math-source-v1 el cuerpo se conserva tal cual; sin él, cada línea se
+// recorta como en parseDollarForm.
+//
+// Sin fence de cierre no es una ecuación: tragarse el resto del archivo como
+// LaTeX sería peor que el comportamiento de antes, así que un ``` sin cerrar
+// sigue a CodeParser y un ~~~ sin cerrar queda como texto, igual que antes de
+// que el fence fuera math.
 func (p *MathParser) parseFenceForm(ctx *ParseContext, startIndex int, fence string) *ParseResult {
-	consumed := 1
-	closed := false
-	var body []string
+	end := -1
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
-		consumed++
-		if strings.TrimSpace(ctx.Lines[i]) == fence {
-			closed = true
+		if closesMathFence(strings.TrimSpace(ctx.Lines[i]), fence) {
+			end = i
 			break
 		}
+	}
+	if end < 0 {
+		if fence[0] == '`' {
+			return (&CodeParser{}).Parse(ctx, startIndex)
+		}
+		return &ParseResult{}
+	}
+	var body []string
+	for _, line := range ctx.Lines[startIndex+1 : end] {
 		if ctx.MathSource {
-			body = append(body, ctx.Lines[i])
+			body = append(body, line)
 		} else {
-			body = append(body, strings.TrimSpace(ctx.Lines[i]))
+			body = append(body, strings.TrimSpace(line))
 		}
 	}
 	if !ctx.MathSource {
@@ -127,14 +148,9 @@ func (p *MathParser) parseFenceForm(ctx *ParseContext, startIndex int, fence str
 			body = body[:len(body)-1]
 		}
 	}
-	var err error
-	if !closed && ctx.MathSource {
-		err = fmt.Errorf("literal math requires a closing delimiter")
-	}
 	return &ParseResult{
 		Element:       ast.NewMathElement(ctx.Position(startIndex), strings.Join(body, "\n")),
-		ConsumedLines: consumed,
-		Error:         err,
+		ConsumedLines: end - startIndex + 1,
 	}
 }
 

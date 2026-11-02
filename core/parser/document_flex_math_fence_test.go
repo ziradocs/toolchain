@@ -36,3 +36,35 @@ func TestParseDocument_MathFence(t *testing.T) {
 	}
 
 }
+
+// TestParseDocument_UnclosedMathFence: un ```math sin cerrar no se come las
+// secciones que siguen.
+func TestParseDocument_UnclosedMathFence(t *testing.T) {
+	doc := parsePlainMarkdown(t, "# Uno\n\n```math\nx^2\n\n# Dos\n\nTexto final.\n")
+	for _, block := range doc.ContentBlocks {
+		for _, el := range block.Elements {
+			if _, ok := el.(*ast.MathElement); ok {
+				t.Fatalf("unclosed fence became an equation: %+v", el)
+			}
+		}
+	}
+	if !astContains(t, doc, "x^2") {
+		t.Error("the fence body was lost")
+	}
+}
+
+// TestParseDocument_TildeMathFence: ~~~math también es una ecuación.
+func TestParseDocument_TildeMathFence(t *testing.T) {
+	doc := parsePlainMarkdown(t, "# Uno\n\n~~~math\nx^2\n~~~\n\nTexto.\n")
+	found := false
+	for _, block := range doc.ContentBlocks {
+		for _, el := range block.Elements {
+			if m, ok := el.(*ast.MathElement); ok && m.Content == "x^2" {
+				found = true
+			}
+		}
+	}
+	if !found || !astContains(t, doc, "Texto.") {
+		t.Errorf("~~~math was not parsed as an equation followed by the text")
+	}
+}

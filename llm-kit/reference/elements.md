@@ -194,7 +194,8 @@ e^{i\pi} + 1 = 0
 ```
 
 The `$$` form and the fenced ` ```math ` form (the one GitHub and GitLab
-render) are flex-only (ZiraDocs flex and DocLang):
+render; `~~~math` too) are flex-only (ZiraDocs flex and DocLang). An unclosed
+fence is not math, and `fmt` rewrites both forms as `<<math>>`:
 
 ```
 $$

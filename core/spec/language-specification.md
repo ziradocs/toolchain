@@ -722,11 +722,14 @@ label: "eq:einstein"
 `caption:` is not part of the LaTeX content. A labeled equation receives its
 equation number during the cross-reference pass; an unlabeled equation remains
 unnumbered. In the flex dialect, `$$ ... $$` remains supported for backwards
-compatibility, and a fenced ` ```math ` block (the form GitHub and GitLab
-render) is also an equation; neither can carry `caption:` or `label:` metadata.
-The fence's info string must be exactly `math` (` ```mathematica ` is a code
-block), and it closes on a fence with the same number of backticks. Formatters
-canonicalize block equations to the `<<math>>` form so that metadata is retained.
+compatibility, and a fenced ` ```math ` or `~~~math` block (the form GitHub and
+GitLab render) is also an equation, in documents and in flex decks alike; neither
+can carry `caption:` or `label:` metadata. The fence's info string must be exactly
+`math` (` ```mathematica ` is a code block). As in CommonMark, it closes on a line
+of the same fence character at least as long as the opening one. A fence that is
+never closed is not an equation: ` ``` ` stays a code block and `~~~` stays text.
+Formatters canonicalize block equations, the fence included, to the `<<math>>`
+form so that metadata is retained.
 
 This section is about the `<<…>>` family only. The `:::` blocks match their
 name on a loose prefix and have no boundary of their own — `::: gridJUNK` is

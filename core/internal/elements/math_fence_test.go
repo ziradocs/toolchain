@@ -21,6 +21,10 @@ func TestMathParser_CanParseFence(t *testing.T) {
 	}{
 		{"```math", "flex", true},
 		{"````math", "flex", true},
+		{"~~~math", "flex", true},
+		{"~~~~ math ", "flex", true},
+		{"``math", "flex", false},
+		{"~~~mathematica", "flex", false},
 		{"  ```math  ", "flex", true},
 		{"``` math", "flex", true},
 		{"```math", "strict", false},
@@ -42,7 +46,6 @@ func TestMathParser_ParseFence(t *testing.T) {
 		source   bool
 		want     string
 		consumed int
-		wantErr  bool
 	}{
 		{
 			name:     "three backticks",
@@ -63,10 +66,16 @@ func TestMathParser_ParseFence(t *testing.T) {
 			consumed: 6,
 		},
 		{
-			name:     "unclosed runs to EOF",
-			lines:    []string{"```math", "x"},
+			name:     "closing fence may be longer",
+			lines:    []string{"```math", "x", "`````", "after"},
 			want:     "x",
-			consumed: 2,
+			consumed: 3,
+		},
+		{
+			name:     "tildes close only on tildes",
+			lines:    []string{"~~~math", "a", "```", "b", "~~~~"},
+			want:     "a\n```\nb",
+			consumed: 5,
 		},
 		{
 			name:     "math-source keeps the body verbatim",
@@ -75,20 +84,12 @@ func TestMathParser_ParseFence(t *testing.T) {
 			want:     "  a\n\nb  ",
 			consumed: 5,
 		},
-		{
-			name:     "math-source requires the closing fence",
-			lines:    []string{"```math", "x"},
-			source:   true,
-			want:     "x",
-			consumed: 2,
-			wantErr:  true,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := &ParseContext{Mode: "flex", Lines: tc.lines, MathSource: tc.source}
 			res := (&MathParser{}).Parse(ctx, 0)
-			if (res.Error != nil) != tc.wantErr {
-				t.Fatalf("error = %v, wantErr %v", res.Error, tc.wantErr)
+			if res.Error != nil {
+				t.Fatalf("error = %v", res.Error)
 			}
 			m, ok := res.Element.(*ast.MathElement)
 			if !ok {
@@ -101,5 +102,25 @@ func TestMathParser_ParseFence(t *testing.T) {
 				t.Errorf("consumed = %d, want %d", res.ConsumedLines, tc.consumed)
 			}
 		})
+	}
+}
+
+// TestMathParser_UnclosedFenceIsNotMath: sin fence de cierre, ```math no se
+// traga el resto del archivo como una ecuación; sigue siendo el bloque de
+// código de antes (y ~~~math, texto).
+func TestMathParser_UnclosedFenceIsNotMath(t *testing.T) {
+	for _, source := range []bool{false, true} {
+		ctx := &ParseContext{Mode: "flex", MathSource: source, Lines: []string{"```math", "x", "", "# Otra sección", "texto"}}
+		res := (&MathParser{}).Parse(ctx, 0)
+		if _, ok := res.Element.(*ast.MathElement); ok {
+			t.Fatalf("source=%v: unclosed ```math must not be an equation", source)
+		}
+		if _, ok := res.Element.(*ast.CodeElement); !ok {
+			t.Errorf("source=%v: unclosed ```math = %T, want the code block it was before", source, res.Element)
+		}
+		ctx.Lines[0] = "~~~math"
+		if res := (&MathParser{}).Parse(ctx, 0); res.Element != nil || res.ConsumedLines != 0 {
+			t.Errorf("source=%v: unclosed ~~~math must be left to the text parser, got %T/%d", source, res.Element, res.ConsumedLines)
+		}
 	}
 }
