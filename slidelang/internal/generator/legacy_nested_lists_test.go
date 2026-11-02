@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -77,5 +78,39 @@ func TestLegacyNestedListsKeepEveryLevelInSlideHTMLAndPPTX(t *testing.T) {
 		if start < 0 || !strings.Contains(xml[start:at], tc.level) {
 			t.Fatalf("PPTX lost the level of %s", tc.text)
 		}
+	}
+}
+
+// Una lista sin list-start-v1 empieza en PPTX en el número que escribió el
+// autor (PointItem.WrittenOrdinal, solo con un core que lo registra).
+func TestLegacyListStartInPPTX(t *testing.T) {
+	if _, ok := any(&ast.PointItem{}).(interface{ WrittenOrdinal() (int64, bool) }); !ok {
+		t.Skip("this core does not record written ordinals")
+	}
+	doc, _ := parser.New(util.NewNoop()).Parse("---\nmode: flex\n---\n# S\n\n3. tres\n4. cuatro\n", "s.slidelang")
+	var points *ast.PointsElement
+	for _, el := range doc.ContentBlocks[0].Elements {
+		if p, ok := el.(*ast.PointsElement); ok {
+			points = p
+		}
+	}
+	if points == nil {
+		t.Fatal("no list")
+	}
+	xml := buildPPTXWithElements(t, "start-list", points)
+	if strings.Count(xml, `startAt="3"`) != 2 {
+		t.Fatalf("PPTX list does not start at 3")
+	}
+}
+
+// Un item anidado dentro de una cita llega con su sangría en Content; el PPTX
+// no la escribe delante de la línea.
+func TestPPTXQuoteTrimsNestedListIndent(t *testing.T) {
+	xml := buildPPTXWithElements(t, "quote-list", ast.NewQuoteElement(pos(), "Cita\n- a\n  - b"))
+	if strings.Contains(xml, "  - b") {
+		t.Fatalf("quote kept the list indentation")
+	}
+	if !strings.Contains(xml, "- b") {
+		t.Fatalf("quote lost a line")
 	}
 }
