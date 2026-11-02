@@ -2586,6 +2586,18 @@ func docxTableColumnWidths(elem *ast.TableElement, numCols, available, headerHal
 	for j := 0; j < numCols && j < len(elem.Headers); j++ {
 		mins[j] = docxHeaderMinWidth(elem.Headers[j], headerHalfPoints)
 	}
+	// Una celda que es un ID corto ("RF-12", "NFR-SEG-3") tampoco se puede
+	// partir: Word corta en el guion igual que Chromium, y con cinco
+	// columnas de texto largo la columna de ID quedaba en 640 twips y salía
+	// "NFR" / "-SEG" / "-3". Mismo criterio que la clase cell-token del HTML
+	// (core/renderer, tableTokenCellClass).
+	for _, row := range elem.Rows {
+		for j := 0; j < numCols && j < len(row); j++ {
+			if docxIsShortToken(row[j]) {
+				mins[j] = max(mins[j], docxHeaderMinWidth(row[j], headerHalfPoints))
+			}
+		}
+	}
 
 	// Reparto proporcional; la columna que queda bajo su mínimo se fija en
 	// él y el resto se vuelve a repartir entre las demás, hasta que ninguna
@@ -2633,6 +2645,19 @@ func docxTableColumnWidths(elem *ast.TableElement, numCols, available, headerHal
 	}
 	widths[numCols-1] += available - used
 	return widths
+}
+
+// docxShortTokenMaxRunes y docxIsShortToken espejan tableTokenCellClass de
+// core/renderer (no exportada): un solo token de hasta 20 caracteres con un
+// guion o una barra, que es donde Word y Chromium cortarían.
+const docxShortTokenMaxRunes = 20
+
+func docxIsShortToken(cell string) bool {
+	t := strings.TrimSpace(docxStripHeadingMarkup(cell))
+	if t == "" || utf8.RuneCountInString(t) > docxShortTokenMaxRunes || strings.ContainsFunc(t, unicode.IsSpace) {
+		return false
+	}
+	return strings.ContainsAny(t, "-/\u2010\u2013")
 }
 
 // Estimación del ancho de texto de un encabezado, sin métricas de fuente:

@@ -381,6 +381,13 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             text-align: left;
         }
 
+        /* Una celda que es un solo ID corto ("RF-12", "NFR-SEG-3") no se
+           parte en el guion: ver tableTokenCellClass en html.go. */
+        table th.cell-token,
+        table td.cell-token {
+            white-space: nowrap;
+        }
+
         table th {
             background: var(--doclang-table-header-bg, linear-gradient(135deg, #667eea 0%, #764ba2 100%));
             color: var(--doclang-table-header-color, white);

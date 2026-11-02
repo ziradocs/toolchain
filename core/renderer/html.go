@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/util"
@@ -605,7 +607,7 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 			html.WriteString("<thead><tr>")
 			for j, header := range elem.Headers {
 				processedHeader := ProcessTextWithVariablesAndMarkdownSecure(header, variables)
-				fmt.Fprintf(&html, `<th scope="col"%s>%s</th>`, tableColumnAlignAttr(elem.ColumnAlign, j), processedHeader)
+				fmt.Fprintf(&html, `<th scope="col"%s%s>%s</th>`, tableTokenCellClass(header), tableColumnAlignAttr(elem.ColumnAlign, j), processedHeader)
 			}
 			html.WriteString("</tr></thead>")
 		}
@@ -616,7 +618,7 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 			html.WriteString("<tr>")
 			for j, cell := range row {
 				processedCell := ProcessTextWithVariablesAndMarkdownSecure(cell, variables)
-				fmt.Fprintf(&html, "<td%s>%s</td>", tableColumnAlignAttr(elem.ColumnAlign, j), processedCell)
+				fmt.Fprintf(&html, "<td%s%s>%s</td>", tableTokenCellClass(cell), tableColumnAlignAttr(elem.ColumnAlign, j), processedCell)
 			}
 			html.WriteString("</tr>")
 		}
@@ -668,6 +670,30 @@ func tableColumnAlignAttr(columnAlign []string, col int) string {
 		return ` style="text-align: ` + columnAlign[col] + `"`
 	}
 	return ""
+}
+
+// tableTokenMaxRunes es el largo máximo de un "token corto" de celda (ver
+// tableTokenCellClass): cubre códigos como "NFR-SEG-12" o "2026-11-02" y deja
+// fuera una palabra compuesta larga, que sí conviene que pueda partirse.
+const tableTokenMaxRunes = 20
+
+// tableTokenCellClass devuelve ` class="cell-token"` para una celda cuyo
+// contenido es un solo token corto con un guion o una barra: un ID como
+// "OB-1", "RF-12" o "NFR-SEG-3". El guion es una oportunidad de corte de
+// línea (UAX #14) que hyphens/word-break/overflow-wrap no quitan, así que en
+// una columna angosta junto a columnas de texto largo Chromium partía el ID
+// en "RF-" / "12". La clase lleva white-space: nowrap (document_html.go) y la
+// tabla automática le da a la columna el ancho del token. Las celdas de
+// texto normal no llevan clase y siguen partiéndose como siempre.
+func tableTokenCellClass(raw string) string {
+	t := strings.TrimSpace(raw)
+	if t == "" || utf8.RuneCountInString(t) > tableTokenMaxRunes || strings.ContainsFunc(t, unicode.IsSpace) {
+		return ""
+	}
+	if !strings.ContainsAny(t, "-/‐–") {
+		return ""
+	}
+	return ` class="cell-token"`
 }
 
 // renderAuthoredTableRows follows portable section semantics. Validation
@@ -760,6 +786,7 @@ func writeTableCellRow(html *strings.Builder, row []ast.TableCell, variables map
 		if cell.RowSpan > 1 {
 			fmt.Fprintf(&attrs, ` rowspan="%d"`, cell.RowSpan)
 		}
+		attrs.WriteString(tableTokenCellClass(cell.Content))
 		processedContent := ProcessTextWithVariablesAndMarkdownSecure(cell.Content, variables)
 		fmt.Fprintf(html, "<%s%s>%s</%s>", tag, attrs.String(), processedContent, tag)
 	}
