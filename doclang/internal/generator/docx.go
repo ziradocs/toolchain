@@ -2583,7 +2583,10 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	g.logger.Info("DOCX", "Rendering Mermaid diagram (%s)...", elem.DiagramType)
 
 	content := renderer.PrepareMermaidContent(elem.Content, elem.DiagramType)
-	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), content, g.mermaidLayoutWidthPx(), 600, g.diagramTheme)
+	// 1600 es solo el alto inicial de la ventana en el core nuevo (la
+	// captura es la caja del <svg>); con un core anterior es el alto del
+	// contenedor fijo, así que no lo bajamos de lo que ya era.
+	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), content, g.mermaidLayoutWidthPx(), 1600, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
