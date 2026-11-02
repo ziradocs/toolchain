@@ -158,7 +158,9 @@ func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) 
 	if elem.IsRawHTML {
 		content = HeadingContentHTML(elem, variables)
 	} else {
-		content = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
+		// Las listas de la prosa (la de un ":::bloque", por ejemplo) se
+		// anidan por sangría y llevan su tipo: ver renderProseWithLists.
+		content = renderProseWithLists(ProcessVariables(elem.Content, variables), false)
 	}
 
 	// Si el contenido ya contiene un tag HTML block-level (h1-h6), no envolverlo en <p>
@@ -190,50 +192,20 @@ func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) 
 	// vuelva un problema). No envolver es seguro: el contenedor que recibe
 	// este HTML (un <div>, el body del documento) admite texto y bloques
 	// como hijos directos por igual.
-	if strings.Contains(content, "<ul>") {
+	if strings.Contains(content, "<ul") || strings.Contains(content, "<ol") {
 		return content
 	}
 
 	return fmt.Sprintf("<p>%s</p>", content)
 }
 
-// renderPointsElement procesa listas (ordenadas o no ordenadas)
+// renderPointsElement procesa listas (ordenadas o no ordenadas) a cualquier
+// profundidad; ver block_lists.go.
 func renderPointsElement(elem *ast.PointsElement, variables map[string]interface{}) string {
 	if typedPoints(elem.Items) {
-		return renderTypedPoints(elem.Items, elem.ListType, variables)
+		return renderTypedPoints(elem.Items, elem.ListType, elem.Start, variables)
 	}
-	var html strings.Builder
-
-	if elem.ListType == "ordered" {
-		html.WriteString("<ol>")
-	} else {
-		html.WriteString("<ul>")
-	}
-
-	for _, item := range elem.Items {
-		content := ProcessTextWithVariablesAndMarkdownSecure(item.Content, variables)
-		fmt.Fprintf(&html, "<li>%s", content)
-
-		// Procesar sub-items si existen
-		if len(item.SubPoints) > 0 {
-			html.WriteString("<ul>")
-			for _, subItem := range item.SubPoints {
-				subContent := ProcessTextWithVariablesAndMarkdownSecure(subItem.Content, variables)
-				fmt.Fprintf(&html, "<li>%s</li>", subContent)
-			}
-			html.WriteString("</ul>")
-		}
-
-		html.WriteString("</li>")
-	}
-
-	if elem.ListType == "ordered" {
-		html.WriteString("</ol>")
-	} else {
-		html.WriteString("</ul>")
-	}
-
-	return html.String()
+	return renderLegacyPoints(elem.Items, elem.ListType, elem.Start, variables)
 }
 
 func typedPoints(items []ast.PointItem) bool {
@@ -245,22 +217,21 @@ func typedPoints(items []ast.PointItem) bool {
 	return false
 }
 
-func renderTypedPoints(items []ast.PointItem, listType string, variables map[string]interface{}) string {
-	tag := "ul"
-	if listType == "ordered" {
-		tag = "ol"
+func renderTypedPoints(items []ast.PointItem, listType string, start *int64, variables map[string]interface{}) string {
+	var ordinal int64
+	if len(items) > 0 {
+		ordinal = items[0].Ordinal
 	}
 	var html strings.Builder
-	html.WriteString("<" + tag + ">")
+	html.WriteString(openList(listType, start, ordinal, ""))
 	for _, item := range items {
-		content := ProcessTextWithVariablesAndMarkdownSecure(item.Content, variables)
-		fmt.Fprintf(&html, "<li>%s", content)
+		fmt.Fprintf(&html, "<li>%s", pointContentHTML(item.Content, variables))
 		if len(item.SubPoints) > 0 {
-			html.WriteString(renderTypedPoints(item.SubPoints, item.SubListType, variables))
+			html.WriteString(renderTypedPoints(item.SubPoints, item.SubListType, item.SubListStart, variables))
 		}
 		html.WriteString("</li>")
 	}
-	html.WriteString("</" + tag + ">")
+	html.WriteString(closeList(listType))
 	return html.String()
 }
 
@@ -889,13 +860,15 @@ func writeTableCellRow(html *strings.Builder, row []ast.TableCell, variables map
 
 // renderQuoteElement procesa citas con autor y fuente opcionales
 func renderQuoteElement(elem *ast.QuoteElement, variables map[string]interface{}) string {
-	content := ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 	author := ProcessVariablesSecure(elem.Author, variables)
 	source := ProcessVariablesSecure(elem.Source, variables)
 
 	var html strings.Builder
 	html.WriteString("<blockquote>")
-	fmt.Fprintf(&html, "<p>%s</p>", content)
+	// Una lista dentro de la cita sale como lista, fuera de todo <p> (un <ul>
+	// dentro de <p> es HTML inválido) y anidada como la escribió el autor.
+	// Sin listas sale el mismo <p> de siempre.
+	html.WriteString(renderProseWithLists(ProcessVariables(elem.Content, variables), true))
 
 	if author != "" || source != "" {
 		html.WriteString("<footer>")
@@ -915,40 +888,12 @@ func renderQuoteElement(elem *ast.QuoteElement, variables map[string]interface{}
 	return html.String()
 }
 
-// renderChecklistElement procesa listas de tareas con checkboxes
+// renderChecklistElement procesa listas de tareas con checkboxes. Las
+// sub-tareas, a cualquier profundidad, viven DENTRO del <li> de su tarea
+// (issue #173, element-permitted-content/wcag): un <ul> hermano de <li> tras
+// cerrarlo es contenido inválido bajo <ul>.
 func renderChecklistElement(elem *ast.ChecklistElement, variables map[string]interface{}) string {
-	var html strings.Builder
-	html.WriteString(`<ul class="checklist">`)
-
-	for _, item := range elem.Items {
-		content := ProcessTextWithVariablesAndMarkdownSecure(item.Content, variables)
-		checked := ""
-		if item.Checked {
-			checked = "checked"
-		}
-		fmt.Fprintf(&html, `<li><input type="checkbox" %s disabled> %s`, checked, content)
-
-		// Sub-items: el <ul> anidado debe vivir DENTRO del <li> del item
-		// padre (issue #173, element-permitted-content/wcag) — un <ul>
-		// hermano de <li> tras cerrarlo es contenido inválido bajo <ul>.
-		if len(item.SubItems) > 0 {
-			html.WriteString(`<ul class="checklist-sub">`)
-			for _, subItem := range item.SubItems {
-				subContent := ProcessTextWithVariablesAndMarkdownSecure(subItem.Content, variables)
-				subChecked := ""
-				if subItem.Checked {
-					subChecked = "checked"
-				}
-				fmt.Fprintf(&html, `<li><input type="checkbox" %s disabled> %s</li>`, subChecked, subContent)
-			}
-			html.WriteString("</ul>")
-		}
-
-		html.WriteString("</li>")
-	}
-
-	html.WriteString("</ul>")
-	return html.String()
+	return renderChecklistItems(elem.Items, "checklist", variables)
 }
 
 // renderQuizElement y renderPollElement emiten el markup ESTÁTICO de un quiz o
@@ -2734,7 +2679,7 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 		}
 		html.WriteString(`</div>`)
 	} else {
-		content := ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
+		content := renderProseWithLists(ProcessVariables(elem.Content, variables), false)
 		fmt.Fprintf(&html, `<div class="alert-content">%s</div>`, content)
 	}
 	html.WriteString("</div>")

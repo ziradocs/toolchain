@@ -1,8 +1,9 @@
 # Portable nested list types
 
 Status: opt-in AST capability `nested-list-types-v1` (schema version 2.16.0).
-Without the opt-in, SlideLang and DocLang retain their existing list AST and
-rendering behavior. The extension uses existing `nodeId` comments for stable
+Without the opt-in the AST keeps its legacy shape (no `subListType`, schema
+2.14.0), but lists still nest to any depth through the recursive `subPoints`;
+see "Without the opt-in" below. The extension uses existing `nodeId` comments for stable
 item identity; it does not derive identity from text, numbering, or position.
 
 ## Authoring
@@ -77,8 +78,25 @@ Core HTML, SlideLang HTML, DocLang Markdown, and PPTX render the opt-in
 hierarchy and types. DOCX rejects a typed nested list before writing output:
 the current Word renderer uses visible marker text rather than native Word
 list numbering, so it cannot preserve this capability. PPTX has nine
-paragraph levels; deeper typed lists fail before output. Existing non-opt-in
-output is unchanged.
+paragraph levels; deeper typed lists fail before output.
+
+## Without the opt-in
+
+A legacy list nests by indentation to any depth, as in Markdown, in both
+dialects; checklists do too. The JSON shape is the one the schema always
+allowed: recursive `subPoints`/`subItems`, no `subListType`, no `start`, schema
+2.14.0, no capability. Earlier parsers flattened every level past the second
+into the second, so a reader that only walks two levels now misses the rest;
+the readers in this repository (core HTML, SlideLang HTML and PPTX) walk the
+whole tree.
+
+The type of each sublist, the marker of each item and the number written before
+an ordered item live in memory only (`SubListMarker`, `Marker`, `Ordinal`). Core
+HTML draws each sublist with its own type, starts a new list when the marker
+changes between siblings, and writes `<ol start>` from the first number. After a
+JSON round-trip that information is gone: a sublist takes the type of its parent
+and numbering starts at 1. To serialize types and starts, declare
+`nested-list-types-v1` and `list-start-v1`.
 
 Previously published readers cannot be changed retroactively. A reader that
 ignores unknown JSON fields must not receive a 2.16 document without an

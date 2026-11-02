@@ -541,15 +541,24 @@ type PointItem struct {
 	// renderers read as "no information" and fall back to the type of the parent.
 	SubListMarker string `json:"-" tstype:"-"`
 	// Marker is the marker kind ("ordered" or "unordered") the author used for
-	// this item itself, recorded only on the items of a SubPoints list and only
-	// by the parser path that flattens nested lists (without
-	// nested-list-types-v1: every item more indented than the base level is a
-	// sub-point of the last base item, whatever its depth or marker). It lets
-	// fmt write a sublist that mixes markers, or a third level that was
-	// flattened into it, with the markers the author wrote. In memory only, like
-	// SubListMarker; empty when the AST was read back from JSON, in which case
-	// fmt falls back to the marker of the sublist.
+	// this item itself, recorded on the items of every SubPoints list, at any
+	// depth, by the parser path without nested-list-types-v1. That path keeps
+	// the depth the author wrote but cannot serialize a type per level, and a
+	// sublist may mix markers (in Markdown a change of marker starts a new
+	// list). Marker lets the HTML renderer draw each run of siblings with its
+	// own list type and lets fmt write each sub-point with the marker the
+	// author wrote. In memory only, like SubListMarker; empty when the AST was
+	// read back from JSON, in which case both fall back to the marker of the
+	// sublist.
 	Marker string `json:"-" tstype:"-"`
+	// Ordinal is the number the author wrote before this item ("3." is 3), 0
+	// for a bullet or a letter. The parser records it without list-start-v1,
+	// at any depth, so the HTML renderer can start an ordered list where the
+	// author started it (`<ol start="3">`), as Markdown does. In memory only,
+	// like Marker: without list-start-v1 the JSON AST has no ordinals, and an
+	// AST read back from JSON numbers from 1. With list-start-v1, Start and
+	// SubListStart are the serialized source of truth.
+	Ordinal int64 `json:"-" tstype:"-"`
 }
 
 // NewPointItem crea un nuevo item de punto

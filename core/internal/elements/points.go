@@ -83,7 +83,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 		// Detectar tipo de lista basado en el primer elemento
 		firstItemProcessed := false
-		var currentItem *ast.PointItem
+		var nest legacyNest
 		expectedIndent := -1 // Auto-detect indentation level
 
 		// Collect indented lines
@@ -137,21 +137,8 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				content := p.extractListContent(trimmed)
 
 				if content != "" {
-					itemPos := ctx.Position(i)
-					item := ast.NewPointItem(itemPos, content)
-
-					// Si es un elemento principal (nivel base)
-					if indent == expectedIndent {
-						element.Items = append(element.Items, *item)
-						currentItem = &element.Items[len(element.Items)-1]
-					} else if indent > expectedIndent && currentItem != nil {
-						// Es un sub-elemento
-						if currentItem.SubListMarker == "" {
-							currentItem.SubListMarker = p.detectListType(trimmed)
-						}
-						item.Marker = p.detectListType(trimmed)
-						currentItem.SubPoints = append(currentItem.SubPoints, *item)
-					}
+					item := ast.NewPointItem(ctx.Position(i), content)
+					nest.add(element, item, indent, expectedIndent, p.detectListType(trimmed), listOrdinal(trimmed))
 				}
 			}
 
@@ -167,6 +154,64 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		ConsumedLines: consumed,
 		Error:         nil,
 	}
+}
+
+// legacyNest arma el árbol de una lista sin nested-list-types-v1. Un item
+// más sangrado que el anterior es hijo de él, a cualquier profundidad, como en
+// Markdown: antes todo lo que pasaba del nivel base se colgaba del último item
+// base, y un tercer nivel salía como hermano del segundo. El JSON sigue con la
+// forma de siempre (subPoints recursivo, que el esquema ya admitía, y sin
+// subListType): el tipo de cada sublista y el número de cada item quedan solo
+// en memoria (SubListMarker, Marker, Ordinal), así que el documento no cambia
+// de versión ni declara capacidades.
+//
+// Los punteros de la pila siguen válidos porque se saca un nivel antes de
+// agregar un hermano a la lista de ese nivel, igual que en parseTypedList.
+type legacyNest struct {
+	stack []legacyLevel
+}
+
+type legacyLevel struct {
+	indent int
+	item   *ast.PointItem
+}
+
+func (n *legacyNest) add(element *ast.PointsElement, item *ast.PointItem, indent, baseIndent int, kind string, ordinal int64) {
+	item.Ordinal = ordinal
+	if indent == baseIndent {
+		element.Items = append(element.Items, *item)
+		n.stack = append(n.stack[:0], legacyLevel{indent: indent, item: &element.Items[len(element.Items)-1]})
+		return
+	}
+	if indent < baseIndent || len(n.stack) == 0 {
+		// Un sub-item sin item base antes no tiene dónde colgarse: se
+		// descarta, como antes.
+		return
+	}
+	for len(n.stack) > 1 && n.stack[len(n.stack)-1].indent >= indent {
+		n.stack = n.stack[:len(n.stack)-1]
+	}
+	parent := n.stack[len(n.stack)-1].item
+	if parent.SubListMarker == "" {
+		parent.SubListMarker = kind
+	}
+	item.Marker = kind
+	parent.SubPoints = append(parent.SubPoints, *item)
+	n.stack = append(n.stack, legacyLevel{indent: indent, item: &parent.SubPoints[len(parent.SubPoints)-1]})
+}
+
+// listOrdinal devuelve el número decimal que abre un item ordenado ("12. x"
+// es 12), o 0 si el marcador es una viñeta, una letra o no cabe en int64.
+func listOrdinal(line string) int64 {
+	marker, _, ok := strings.Cut(strings.TrimSpace(line), ". ")
+	if !ok {
+		return 0
+	}
+	n, err := strconv.ParseInt(marker, 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 // parseTypedList is the opt-in path. Each level has one list type, owned by
@@ -242,6 +287,7 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 				element.ListType = kind
 			}
 			item := ast.NewPointItem(ctx.Position(i), p.extractListContent(trimmed))
+			item.Ordinal = listOrdinal(trimmed)
 			if item.Content == "" {
 				diags = append(diags, diagnostics.NewError("empty list item", ctx.Position(i), "points-parser"))
 			} else {
@@ -266,6 +312,7 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 				parent.SubListType = kind
 			}
 			item := ast.NewPointItem(ctx.Position(i), p.extractListContent(trimmed))
+			item.Ordinal = listOrdinal(trimmed)
 			if item.Content == "" {
 				diags = append(diags, diagnostics.NewError("empty nested list item", ctx.Position(i), "points-parser"))
 			} else {
@@ -324,7 +371,7 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 	consumed := 0
 	baseIndent := -1
 	firstItemProcessed := false
-	var currentItem *ast.PointItem
+	var nest legacyNest
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -384,24 +431,12 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 		// Extract content
 		content := p.extractListContent(trimmed)
 		if content != "" {
-			itemPos := ctx.Position(i)
-			item := ast.NewPointItem(itemPos, content)
-
-			// Si es un elemento principal (nivel base)
-			if indent == baseIndent {
-				element.Items = append(element.Items, *item)
-				currentItem = &element.Items[len(element.Items)-1]
-			} else if indent > baseIndent && currentItem != nil {
-				// Es un sub-elemento
-				if currentItem.SubListMarker == "" {
-					currentItem.SubListMarker = p.detectListType(trimmed)
-				}
-				item.Marker = p.detectListType(trimmed)
-				currentItem.SubPoints = append(currentItem.SubPoints, *item)
-			} else if indent < baseIndent {
+			if indent < baseIndent {
 				// Indentación menor que la base, terminar parsing
 				break
 			}
+			item := ast.NewPointItem(ctx.Position(i), content)
+			nest.add(element, item, indent, baseIndent, p.detectListType(trimmed), listOrdinal(trimmed))
 		}
 
 		consumed++

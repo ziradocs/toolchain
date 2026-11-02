@@ -52,9 +52,9 @@ func TestFormatStrict_KeepsTheMarkerOfASublist(t *testing.T) {
 	}
 }
 
-// A sublist that mixes markers, and a third level (which the parser flattens
-// into the sublist of the base item), come back with the markers the author
-// wrote, build to the same AST, and the output is stable.
+// A sublist that mixes markers, and a third level (which the parser keeps as a
+// third level), come back with the markers the author wrote, build to the same
+// AST, and the output is stable.
 func TestFormatStrict_KeepsTheMarkersOfAMixedOrDeepSublist(t *testing.T) {
 	for name, src := range map[string]string{
 		"bullet then number": "---\nmode: flex\n---\n\n## One\n\n- uno\n  - a\n  1. b\n- dos\n",

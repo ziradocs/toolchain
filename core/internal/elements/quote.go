@@ -68,6 +68,9 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 
 	var contentBuilder strings.Builder
 	var author, source string
+	// Sangría base del cuerpo: la de su primera línea. Un item de lista más
+	// sangrado que ella guarda la diferencia (keepListIndent).
+	bodyIndent := firstBodyIndent(ctx.Lines, startIndex, nil)
 
 	// Procesar líneas hasta encontrar separador o final
 	for i := startIndex; i < len(ctx.Lines); i++ {
@@ -117,7 +120,7 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 		if contentBuilder.Len() > 0 {
 			contentBuilder.WriteString("\n")
 		}
-		contentBuilder.WriteString(line)
+		contentBuilder.WriteString(keepListIndent(ctx.Lines[i], bodyIndent))
 		consumed++
 	}
 
@@ -148,7 +151,11 @@ func (p *QuoteParser) parseFlex(ctx *ParseContext, startIndex int, pos diagnosti
 	consumed := 0
 	var contentBuilder strings.Builder
 
-	// Procesar líneas que empiecen con >
+	// Procesar líneas que empiecen con >. Se quita el ">" y UN espacio
+	// opcional, como en Markdown; lo que queda de sangría solo se conserva en
+	// los items de lista (keepListIndent), que es lo que dice qué item
+	// cuelga de cuál.
+	var body []string
 	for i := startIndex; i < len(ctx.Lines); i++ {
 		line := strings.TrimSpace(ctx.Lines[i])
 
@@ -157,14 +164,27 @@ func (p *QuoteParser) parseFlex(ctx *ParseContext, startIndex int, pos diagnosti
 			break
 		}
 
-		// Remover el > y espacios iniciales
-		content := strings.TrimSpace(strings.TrimPrefix(line, ">"))
-
+		rest := strings.TrimPrefix(line, ">")
+		rest = strings.TrimPrefix(rest, " ")
+		body = append(body, rest)
+		consumed++
+	}
+	// La base es la menor sangría del cuerpo: una primera línea de prosa más
+	// sangrada que la lista no debe aplanarla.
+	base := -1
+	for _, rest := range body {
+		if strings.TrimSpace(rest) == "" {
+			continue
+		}
+		if n := CalculateIndentLevel(rest); base < 0 || n < base {
+			base = n
+		}
+	}
+	for _, rest := range body {
 		if contentBuilder.Len() > 0 {
 			contentBuilder.WriteString("\n")
 		}
-		contentBuilder.WriteString(content)
-		consumed++
+		contentBuilder.WriteString(keepListIndent(rest, base))
 	}
 
 	// Extraer autor si está en formato "-- Autor" al final

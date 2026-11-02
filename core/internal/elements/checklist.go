@@ -72,7 +72,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 	lines := ctx.Lines
 	consumed := 0
 	expectedIndent := -1
-	var currentItem *ast.ChecklistItem
+	var nest checklistNest
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -106,22 +106,12 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 		if p.isStrictChecklistItem(trimmed) {
 			content, checked := p.parseStrictChecklistContent(trimmed)
 			if content != "" {
-				itemPos := ctx.Position(i)
-				item := ast.NewChecklistItem(itemPos, content, checked)
-
-				if currentIndent == expectedIndent {
-					// Main level item
-					element.Items = append(element.Items, *item)
-					currentItem = &element.Items[len(element.Items)-1]
-				} else if currentIndent > expectedIndent && currentItem != nil {
-					// Sub-item
-					subItem := ast.NewChecklistItem(itemPos, content, checked)
-					currentItem.SubItems = append(currentItem.SubItems, *subItem)
-				}
+				nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), currentIndent, expectedIndent)
 			}
-		} else if currentIndent >= expectedIndent && currentItem != nil {
-			// Continuation line for current item
-			currentItem.Content += " " + trimmed
+		} else if last := nest.last(); currentIndent >= expectedIndent && last != nil {
+			// Continuation line: pertenece al último item abierto, el más
+			// profundo, que es el que la línea sigue.
+			last.Content += " " + trimmed
 		}
 
 		consumed++
@@ -135,7 +125,7 @@ func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex i
 	lines := ctx.Lines
 	consumed := 0
 	baseIndent := -1
-	var currentItem *ast.ChecklistItem
+	var nest checklistNest
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -165,24 +155,52 @@ func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex i
 		// Extract content and checked status
 		content, checked := p.parseChecklistContent(trimmed)
 		if content != "" {
-			itemPos := ctx.Position(i)
-			item := ast.NewChecklistItem(itemPos, content, checked)
-
-			// Si es un elemento principal (nivel base)
-			if indent == baseIndent {
-				element.Items = append(element.Items, *item)
-				currentItem = &element.Items[len(element.Items)-1]
-			} else if indent > baseIndent && currentItem != nil {
-				// Sub-item
-				subItem := ast.NewChecklistItem(itemPos, content, checked)
-				currentItem.SubItems = append(currentItem.SubItems, *subItem)
-			}
+			nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), indent, baseIndent)
 		}
 
 		consumed++
 	}
 
 	return consumed
+}
+
+// checklistNest arma el árbol de una lista de tareas: un item más sangrado que
+// el anterior es su sub-tarea, a cualquier profundidad, como en Markdown. Antes
+// solo había dos niveles: todo lo que pasaba del base se colgaba del último
+// item base. SubItems ya era recursivo en el AST y en el esquema, así que el
+// JSON no cambia de forma. Los punteros de la pila siguen válidos por la misma
+// razón que en legacyNest (points.go).
+type checklistNest struct {
+	stack []checklistLevel
+}
+
+type checklistLevel struct {
+	indent int
+	item   *ast.ChecklistItem
+}
+
+func (n *checklistNest) add(element *ast.ChecklistElement, item *ast.ChecklistItem, indent, baseIndent int) {
+	if indent == baseIndent {
+		element.Items = append(element.Items, *item)
+		n.stack = append(n.stack[:0], checklistLevel{indent: indent, item: &element.Items[len(element.Items)-1]})
+		return
+	}
+	if indent < baseIndent || len(n.stack) == 0 {
+		return
+	}
+	for len(n.stack) > 1 && n.stack[len(n.stack)-1].indent >= indent {
+		n.stack = n.stack[:len(n.stack)-1]
+	}
+	parent := n.stack[len(n.stack)-1].item
+	parent.SubItems = append(parent.SubItems, *item)
+	n.stack = append(n.stack, checklistLevel{indent: indent, item: &parent.SubItems[len(parent.SubItems)-1]})
+}
+
+func (n *checklistNest) last() *ast.ChecklistItem {
+	if len(n.stack) == 0 {
+		return nil
+	}
+	return n.stack[len(n.stack)-1].item
 }
 
 // isChecklistItem verifica si una línea es un item de checklist
