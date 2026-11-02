@@ -4,7 +4,10 @@
 package generator
 
 import (
+	"archive/zip"
+	"io"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -132,4 +135,62 @@ func TestResolveDOCXThemeName(t *testing.T) {
 	if got := resolveDOCXThemeName(doc, GeneratorOptions{Theme: "page-view"}); got != "page-view" {
 		t.Errorf("opts.Theme = %q, want page-view", got)
 	}
+}
+
+// TestDOCXGenerator_NoFrontMatter_LeadingSectionAndTitleOnce cubre la forma
+// que deja el parser flex de la rama de Markdown sin front matter (T1):
+// FrontMatter nil, una sección inicial sin encabezado con el texto previo al
+// primer `#`, y luego el bloque del H1. El texto inicial sale primero y sin
+// encabezado, el H1 sale una sola vez, y las propiedades del .docx toman
+// ese H1 como título.
+func TestDOCXGenerator_NoFrontMatter_LeadingSectionAndTitleOnce(t *testing.T) {
+	doc := astSingleSection("", "Proyecto")
+	doc.FrontMatter = nil
+	lead := ast.NewContentBlock(diagnostics.NewPosition(1, 1), "content")
+	lead.Elements = append(lead.Elements, ast.NewTextElement(diagnostics.NewPosition(1, 1), "Texto antes del título"))
+	doc.ContentBlocks = append([]ast.ContentBlock{*lead}, doc.ContentBlocks...)
+
+	output := filepath.Join(t.TempDir(), "out.docx")
+	if err := New(newTestLogger()).Generate(doc, output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	xml := docxDocumentXML(t, output)
+	if n := strings.Count(xml, "<w:t>Proyecto</w:t>"); n != 1 {
+		t.Fatalf("want the H1 once, got %d:\n%s", n, xml)
+	}
+	if n := strings.Count(xml, `<w:pStyle w:val="Heading1">`); n != 1 {
+		t.Errorf("leading section must not get a heading; Heading1 count = %d", n)
+	}
+	if strings.Index(xml, "Texto antes del título") > strings.Index(xml, "<w:t>Proyecto</w:t>") {
+		t.Error("leading content must come before the H1")
+	}
+	if got := docxCoreTitle(t, output); got != "Proyecto" {
+		t.Errorf("docProps title = %q, want Proyecto", got)
+	}
+}
+
+func docxCoreTitle(t *testing.T, path string) string {
+	t.Helper()
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	for _, f := range r.File {
+		if f.Name != "docProps/core.xml" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rc.Close() }()
+		data, _ := io.ReadAll(rc)
+		m := regexp.MustCompile(`<dc:title>([^<]*)</dc:title>`).FindStringSubmatch(string(data))
+		if m == nil {
+			return ""
+		}
+		return m[1]
+	}
+	return ""
 }

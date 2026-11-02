@@ -195,15 +195,14 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	g.contentWidthIn, g.contentHeightIn = docxContentBoxInches(doc)
 
 	// Configurar metadata
-	if astDoc.FrontMatter != nil {
-		meta := &domain.Metadata{}
-		if astDoc.FrontMatter.Title != "" {
-			meta.Title = astDoc.FrontMatter.Title
-		}
-		if astDoc.FrontMatter.Author != "" {
+	if metaTitle := docxMetadataTitle(astDoc); metaTitle != "" || astDoc.FrontMatter != nil {
+		meta := &domain.Metadata{Title: metaTitle}
+		if astDoc.FrontMatter != nil && astDoc.FrontMatter.Author != "" {
 			meta.Creator = astDoc.FrontMatter.Author
 		}
 		_ = doc.SetMetadata(meta)
+	}
+	if astDoc.FrontMatter != nil {
 
 		// Idioma de revisión del documento (issue #62/#63 prerequisito): sin
 		// esto, un .doclang con `lang: fr` producía un .docx sin idioma
@@ -302,6 +301,24 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 
 	g.logger.Info("DOCX", "✅ DOCX document generated successfully")
 	return nil
+}
+
+// docxMetadataTitle es el título de las propiedades del .docx: el `title:`
+// del front matter y, sin él, el primer encabezado de sección que vino de
+// un `#` (Title, no el Heading de un preámbulo). Un .md sin front matter ya
+// no queda con el título vacío. Es el mismo orden que DocumentTitle de la
+// rama de Markdown sin front matter (menos el nombre de archivo, que el
+// generador no conoce); al integrarlas, esto puede tomar opts.Title.
+func docxMetadataTitle(astDoc *ast.AST) string {
+	if astDoc.FrontMatter != nil && astDoc.FrontMatter.Title != "" {
+		return astDoc.FrontMatter.Title
+	}
+	for i := range astDoc.ContentBlocks {
+		if t := astDoc.ContentBlocks[i].Title; t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // docxTitlePlan dice cómo sale el título del front matter cuando el primer
