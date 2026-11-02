@@ -347,6 +347,10 @@ type GenerateOptions struct {
 	// AssetRoot es el directorio, absoluto, al que se confinan las fuentes
 	// de imagen locales (AL-4).
 	AssetRoot string
+	// SourceDir es el directorio, absoluto, del archivo fuente: una fuente
+	// de imagen relativa se resuelve contra él y después se confina a
+	// AssetRoot. Ver generator.GeneratorOptions.SourceDir.
+	SourceDir string
 }
 
 var validRenderModes = map[string]bool{
@@ -439,6 +443,7 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		ChromiumPath:      opts.ChromiumPath,
 		InstallChromium:   opts.InstallChromium,
 		AssetRoot:         opts.AssetRoot, // Confinamiento de fuentes de imagen (AL-4)
+		SourceDir:         opts.SourceDir, // Base de las fuentes de imagen relativas
 	}
 	log.Info("GENERATOR", "Generating %s document...", format)
 	if err := gen.Generate(doc, opts.OutputFile, genOpts); err != nil {

@@ -96,7 +96,7 @@ doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`
 | `--lint-config` | — | YAML lint policy (enable/disable rules, override severity by ID). Falls back to a `lint_policy:` block in the document's own frontmatter. |
 | `--filter` | — | External binary that transforms the AST between parse and lint. Repeatable; communicates over JSON on stdin/stdout — see the [JSON/AST contract](https://ziradocs.com/docs/architecture/json-ast-contract/). |
 | `--include-root` | *(input file's dir)* | Directory `@include` paths are confined to. Absolute paths and `..` escapes are rejected. |
-| `--asset-root` | *(input file's dir)* | Same confinement for local image sources. |
+| `--asset-root` | *(input file's dir)* | Same confinement for local image sources. Relative sources still resolve from the input file; the root only bounds what can be read (e.g. `--asset-root ..` allows `../shared/b.png`). |
 | `--max-size` | 10 MB | Input size cap. Also settable via `DOCLANG_MAX_SIZE`. |
 
 ### Interactive elements

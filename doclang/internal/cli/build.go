@@ -187,6 +187,12 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("invalid asset root: %w", err)
 			}
+			// Las fuentes relativas se resuelven contra el archivo fuente, no
+			// contra --asset-root: la raíz solo dice hasta dónde se puede leer.
+			absSourceDir, err := filepath.Abs(filepath.Dir(inputFile))
+			if err != nil {
+				return fmt.Errorf("invalid input directory: %w", err)
+			}
 
 			if err := pipeline.Generate(log, prepared, inputFile, pipeline.GenerateOptions{
 				Format:          format,
@@ -204,6 +210,7 @@ Examples:
 				ChromiumPath:    chromiumPath,
 				InstallChromium: installChromium,
 				AssetRoot:       absAssetRoot,
+				SourceDir:       absSourceDir,
 			}); err != nil {
 				return err
 			}
@@ -246,7 +253,7 @@ Examples:
 	cmd.Flags().StringVar(&chromiumPath, "chromium-path", "", "Custom path to Chromium/Chrome/Edge executable")
 	cmd.Flags().BoolVar(&installChromium, "install-chromium", false, "Auto-install Chromium if not found")
 	cmd.Flags().IntVar(&maxSizeMB, "max-size", 0, "Maximum input file size in MB (default: 10MB, override via DOCLANG_MAX_SIZE env var)")
-	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: the input file's directory); absolute paths and '..' outside it are rejected")
+	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: the input file's directory); relative sources resolve from the input file, and absolute paths or '..' outside the root are rejected")
 	cmd.Flags().BoolVar(&lintOnly, "lint-only", false, "Only run the linter, don't generate output")
 	cmd.Flags().StringVar(&lintConfig, "lint-config", "", "Path to a YAML linter policy file. If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
 	cmd.Flags().StringVar(&reportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")

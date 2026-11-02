@@ -307,6 +307,7 @@ func generateExport(logger util.Logger, cfg exportConfig, in exportInput, format
 		ChromiumPath:    cfg.chromiumPath,
 		InstallChromium: false, // nunca se descarga nada desde el MCP
 		AssetRoot:       cfg.root.dir,
+		SourceDir:       filepath.Dir(inputAbs), // se resuelve junto al archivo, confinado a --root
 	}); err != nil {
 		return nil, &exportError{Error: err.Error(), Diagnostics: prepared.Diagnostics()}
 	}

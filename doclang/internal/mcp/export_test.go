@@ -477,3 +477,50 @@ func TestNewServerWithOptions_InvalidRoot(t *testing.T) {
 		t.Fatal("expected an error for a root that does not exist")
 	}
 }
+
+// TestExport_ImagesResolveFromSourceFile: un .md en un subdirectorio de la
+// raíz con imágenes al lado, en un subdirectorio y en un hermano. Se
+// resuelven contra el archivo, como en build, y siguen confinadas a --root:
+// un "../" que sale de la raíz no entra.
+func TestExport_ImagesResolveFromSourceFile(t *testing.T) {
+	f := newExportFixture(t)
+	images := map[string][]byte{
+		"proj/logo.png":  pngBytes(t, color.RGBA{R: 255, A: 255}),
+		"proj/img/a.png": pngBytes(t, color.RGBA{G: 255, A: 255}),
+		"shared/b.png":   pngBytes(t, color.RGBA{B: 255, A: 255}),
+	}
+	for rel, data := range images {
+		p := filepath.Join(f.root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secret := pngBytes(t, color.RGBA{R: 200, G: 200, A: 255})
+	if err := os.WriteFile(filepath.Join(f.outside, "secret.png"), secret, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "proj/README.md", "# Proyecto\n\n![l](logo.png)\n\n![a](./img/a.png)\n\n![b](../shared/b.png)\n\n![s](../../outside/secret.png)\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	out := exportOK(t, s, ctx, map[string]any{"path": "proj/README.md", "format": "docx"})
+	files := zipContents(t, filepath.Join(f.root, out.OutputPath))
+	for rel, want := range images {
+		found := false
+		for _, data := range files {
+			if bytes.Equal(data, want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s no está embebida en el DOCX", rel)
+		}
+	}
+	for name, data := range files {
+		if bytes.Equal(data, secret) {
+			t.Errorf("una imagen fuera de --root se embebió como %s", name)
+		}
+	}
+}

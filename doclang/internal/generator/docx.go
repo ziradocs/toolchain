@@ -47,6 +47,10 @@ type DOCXGenerator struct {
 	// documento. Las figuras rasterizadas se ajustan a ella.
 	contentWidthIn  float64
 	contentHeightIn float64
+	// sourceDir es el directorio del archivo fuente, contra el que se
+	// resuelve una fuente relativa antes de confinarla a assetRoot. Vacío
+	// resuelve contra assetRoot. Ver GeneratorOptions.SourceDir.
+	sourceDir string
 }
 
 // TOCEntry representa una entrada en la tabla de contenidos
@@ -423,7 +427,7 @@ func normalizeDOCXTitle(s string) string {
 
 // resolveDOCXThemeName aplica la misma precedencia que HTML y PDF: el theme
 // que ya resolvió el CLI (opts.Theme: --theme > front matter > default, ver
-// getThemeName en cli/build.go), luego el del front matter para un llamador
+// pipeline.ThemeName), luego el del front matter para un llamador
 // de librería que no lo resolvió, y por último "professional". Antes DOCX
 // leía solo FrontMatter.Theme, así que `--theme academic` no cambiaba nada.
 func resolveDOCXThemeName(astDoc *ast.AST, opts GeneratorOptions) string {
@@ -2591,7 +2595,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	// (ver docs/SECURITY_AUDIT_2026-07.md, AL-4).
 	imagePath := elem.Source
 	if g.assetRoot != "" {
-		confined, err := util.ResolveConfinedPath(g.assetRoot, imagePath)
+		confined, err := util.ResolveConfinedPathFrom(g.assetRoot, g.sourceDir, imagePath)
 		if err != nil {
 			g.logger.Warn("DOCX: Image source blocked (outside asset root): %s: %v", imagePath, err)
 			return g.renderImagePlaceholder(p, fmt.Sprintf("[Image blocked: %s]", imagePath))

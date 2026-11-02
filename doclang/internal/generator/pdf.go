@@ -178,6 +178,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		// que no lo hay para mermaid/chart/map/math acá.
 		ImageMode:          offlineMode,
 		AssetRoot:          opts.AssetRoot, // issue #167 — antes solo llegaba a DOCX
+		AssetBaseDir:       opts.SourceDir, // fuentes relativas contra el archivo fuente
 		OutputDir:          outputDir,
 		ImageFormat:        opts.ImageFormat,
 		WebPQuality:        opts.WebPQuality,
