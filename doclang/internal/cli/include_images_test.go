@@ -162,3 +162,21 @@ func TestBuild_HTMLTableColumnAlign(t *testing.T) {
 		}
 	}
 }
+
+// TestBuild_IncludedImagesWithNormalizer: con el normalizador encendido
+// (flex-full) la posición de cada imagen sigue cuadrando con su archivo.
+// (Una imagen dentro de un grid no llega como ImageElement en ninguna
+// salida, ni en el archivo raíz, así que no aplica acá.)
+func TestBuild_IncludedImagesWithNormalizer(t *testing.T) {
+	_, docs, _, images := includeImagesTree(t)
+	manifest := filepath.Join(t.TempDir(), "sel.md")
+	writeFile(t, manifest, []byte("---\ntitle: Selección\nmode: flex-full\n---\n\n# Selección\n\nTexto inicial.\n\n- uno\n- dos\n\n@include a/uno.md\n\n@include b/dos.md\n"))
+	out := t.TempDir()
+	runBuild(t, manifest, "--format", "docx", "--output", out, "--base-dir", docs)
+	media := docxMedia(t, filepath.Join(out, "sel.docx"))
+	for rel, want := range images {
+		if !containsBytes(media, want) {
+			t.Errorf("%s no está embebida", rel)
+		}
+	}
+}

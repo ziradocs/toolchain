@@ -25,16 +25,25 @@ import (
 // mismo), remotas, absolutas ni con {{variables}} (se sustituyen después,
 // al renderizar, y el valor final no se conoce acá).
 //
+// Solo se reescribe si la línea de la posición, en el contenido expandido
+// (lines), contiene la fuente tal cual: si una posición no cuadrara con el
+// texto (un parser o normalizador que la corra), la fuente se queda como
+// está, que es el comportamiento anterior, en vez de reescribirse contra el
+// archivo equivocado.
+//
 // No amplía nada: la ruta reescrita pasa por el mismo confinamiento a la
 // raíz de imágenes que cualquier otra, así que un ".." que en el incluido
 // salía de la raíz sigue saliendo.
-func rebaseIncludedAssets(doc *ast.AST, origins include.LineOrigins, sourceDir string) {
+func rebaseIncludedAssets(doc *ast.AST, lines []string, origins include.LineOrigins, sourceDir string) {
 	if doc == nil || sourceDir == "" || len(origins) == 0 {
 		return
 	}
 	rebase := func(src string, line int) string {
 		file := origins.File(line)
 		if file == "" || !isRelativeLocalSource(src) {
+			return src
+		}
+		if line < 1 || line > len(lines) || !strings.Contains(lines[line-1], src) {
 			return src
 		}
 		dir := filepath.Dir(file)

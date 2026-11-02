@@ -25,6 +25,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -190,7 +191,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	// Las imágenes de un archivo incluido se resuelven desde el directorio
 	// de ese archivo, no desde el del raíz. Antes de los transforms, para
 	// que filtros, lint y generadores vean ya la ruta efectiva.
-	rebaseIncludedAssets(doc, origins, opts.SourceDir)
+	rebaseIncludedAssets(doc, strings.Split(contentStr, "\n"), origins, opts.SourceDir)
 
 	// Etapa de transform (issue #240, decisión C): built-ins primero
 	// (issue #239: numeración de figuras/tablas + resolución de
