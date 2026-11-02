@@ -73,14 +73,31 @@ func TestNestedListsHTML(t *testing.T) {
 			"<ul><li>a<ul><li>b</li></ul><ol><li>c</li><li>d</li></ol></li></ul>",
 		},
 		{
-			// Una tarea debajo de un item común sale con su casilla.
+			// Una tarea debajo de un item común queda como texto del item,
+			// igual que en DOCX, PPTX y Markdown.
 			"task under a plain bullet",
-			flexDoc("- a\n  - [ ] b\n    - [x] c\n"),
-			`<ul><li>a<ul><li><input type="checkbox" disabled> b<ul><li><input type="checkbox" checked disabled> c</li></ul></li></ul></li></ul>`,
+			flexDoc("- a\n  - [ ] b\n"),
+			"<ul><li>a<ul><li>[ ] b</li></ul></li></ul>",
+		},
+		{
+			"paren delimiter and a change of delimiter",
+			flexDoc("- a\n  1) b\n  2) c\n  1. d\n"),
+			"<ul><li>a<ol><li>b</li><li>c</li></ol><ol><li>d</li></ol></li></ul>",
+		},
+		{
+			"zero start",
+			flexDoc("0. cero\n1. uno\n"),
+			`<ol start="0"><li>cero</li><li>uno</li></ol>`,
+		},
+		{
+			// CommonMark: la escalera de a un espacio son hermanos.
+			"staircase",
+			flexDoc("- a\n - b\n  - c\n"),
+			"<ul><li>a</li><li>b</li><li>c</li></ul>",
 		},
 		{
 			"strict depth",
-			"---\nmode: strict\n---\nSECTION \"S\"\n  level: 1\n  POINTS\n    - a\n      1. b\n        - c\n",
+			"---\nmode: strict\n---\nSECTION \"S\"\n  level: 1\n  POINTS\n    - a\n      1. b\n         - c\n",
 			"<ul><li>a<ol><li>b<ul><li>c</li></ul></li></ol></li></ul>",
 		},
 		{
@@ -145,7 +162,40 @@ func TestQuoteWithNestedListHTML(t *testing.T) {
 
 func TestCalloutWithNestedListHTML(t *testing.T) {
 	got := renderFirst[*ast.SpecialBlockElement](t, flexDoc(":::info Nota\nTexto\n- a\n  - b\n    3. c\n- [x] hecho\n:::\n"))
-	if !strings.Contains(got, `<div class="alert-content">Texto<ul><li>a<ul><li>b<ol start="3"><li>c</li></ol></li></ul></li><li><input type="checkbox" checked disabled> hecho</li></ul></div>`) {
+	if !strings.Contains(got, `<div class="alert-content">Texto<ul><li>a<ul><li>b<ol start="3"><li>c</li></ol></li></ul></li><li>[x] hecho</li></ul></div>`) {
+		t.Fatalf("got %s", got)
+	}
+}
+
+// Una línea partida por el ancho que empieza con un número no es una lista:
+// en CommonMark solo una lista que empieza en 1 interrumpe un párrafo. Vale
+// para un párrafo suelto, una cita y un bloque.
+func TestHardWrappedNumberIsNotAList(t *testing.T) {
+	text := renderFirst[*ast.TextElement](t, flexDoc("La empresa se fundó en\n1998. Creció rápido.\n"))
+	if strings.Contains(text, "<ol") || !strings.Contains(text, "1998. Creció") {
+		t.Fatalf("paragraph: %s", text)
+	}
+	quote := renderFirst[*ast.QuoteElement](t, flexDoc("> Se fundó en\n> 1998. Creció.\n"))
+	if strings.Contains(quote, "<ol") {
+		t.Fatalf("quote: %s", quote)
+	}
+	callout := renderFirst[*ast.SpecialBlockElement](t, flexDoc(":::info N\nSe fundó en\n1998. Creció.\n:::\n"))
+	if strings.Contains(callout, "<ol") {
+		t.Fatalf("callout: %s", callout)
+	}
+	// Una lista que empieza en 1 sí interrumpe el párrafo.
+	starts := renderFirst[*ast.QuoteElement](t, flexDoc("> Pasos:\n> 1. uno\n> 2. dos\n"))
+	if !strings.Contains(starts, "<p>Pasos:</p><ol><li>uno</li><li>dos</li></ol>") {
+		t.Fatalf("list after prose: %s", starts)
+	}
+}
+
+// Un TextElement no arma listas de su prosa: a nivel de sección las separa
+// PointsParser, y una línea con "1)" en medio de un párrafo sigue siendo texto.
+func TestTextElementDoesNotBuildLists(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	got := renderer.RenderElementToHTML(ast.NewTextElement(pos, "uno\n2) dos"), nil, nil)
+	if strings.Contains(got, "<ol") {
 		t.Fatalf("got %s", got)
 	}
 }

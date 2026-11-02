@@ -48,7 +48,7 @@ func depth(items []ast.PointItem) int {
 // tenía (subPoints recursivo, sin subListType), solo que más profunda.
 func TestNestedListsWithoutOptInKeepDepthAndLegacyContract(t *testing.T) {
 	flexDoc := "---\nmode: flex\n---\n# S\n\n1. uno\n   - dos\n     1. tres\n        - cuatro\n          1. cinco\n"
-	strictDoc := "---\nmode: strict\n---\nSECTION \"S\"\n  level: 1\n  POINTS\n    1. uno\n      - dos\n        1. tres\n          - cuatro\n            1. cinco\n"
+	strictDoc := "---\nmode: strict\n---\nSECTION \"S\"\n  level: 1\n  POINTS\n    1. uno\n       - dos\n         1. tres\n            - cuatro\n              1. cinco\n"
 	slideDoc := "---\nmode: flex\n---\n# S\n\n1. uno\n   - dos\n     1. tres\n        - cuatro\n          1. cinco\n"
 	parse := map[string]func() (*ast.AST, bool){
 		"doclang flex": func() (*ast.AST, bool) {

@@ -87,7 +87,8 @@ A legacy list nests by indentation to any depth, following CommonMark: an
 item is the child of the item above it only when its marker starts at or past
 that item's content column (the column after the marker and its space); a
 shallower indentation makes it a sibling or returns to an outer level.
-Checklists do the same. The JSON shape is the one the schema always allowed:
+Checklists do the same. Strict keeps its indentation grammar: any item indented
+deeper than the one above it is its child. The JSON shape is the one the schema always allowed:
 recursive `subPoints`/`subItems`, no `subListType`, no `start`, schema 2.14.0,
 no capability. Earlier parsers flattened every level past the second into the
 second, so a reader that only walks two levels now misses the rest; the

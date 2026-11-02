@@ -388,11 +388,13 @@ func formatPointItems(items []ast.PointItem, listType string) string {
 // takes the list's marker. In a sublist, without the capability, siblings may
 // mix markers (each item remembers its own in PointItem.Marker, in memory
 // only); writing each one with that marker gives back what the author wrote,
-// where one marker for the whole sublist changed the others. Deeper levels
-// recurse with two more spaces. Numbers restart after a bullet and start from
-// the number the author wrote first (PointItem.Ordinal) when no serialized
-// start exists. An item with no recorded marker (an AST read back from JSON)
-// takes the marker of the list.
+// where one marker for the whole sublist changed the others. Each sublist is
+// indented to its parent's content column (two spaces under "- ", three under
+// "1. "), which is where the parser, following CommonMark, looks for children.
+// Numbers restart after a bullet or a change of delimiter ("." or ")") and
+// start from the number the author wrote first (PointItem.Ordinal) when no
+// serialized start exists. An item with no recorded marker (an AST read back
+// from JSON) takes the marker of the list.
 func formatPointList(items []ast.PointItem, listType string, sub bool, start *int64) string {
 	var b strings.Builder
 	number := int64(0)
@@ -402,8 +404,9 @@ func formatPointList(items []ast.PointItem, listType string, sub bool, start *in
 	// Sin list-start-v1 el número con que el autor abrió cada lista vive solo
 	// en memoria (PointItem.Ordinal) y el render lo usa como `start`; fmt lo
 	// conserva al abrir cada tramo numerado para no renumerar desde 1 una
-	// lista que empezaba en 3.
+	// lista que empezaba en 3 (o en 0).
 	runStart := start == nil
+	delim := ""
 	for i, item := range items {
 		if i > 0 {
 			b.WriteString("\n")
@@ -412,18 +415,28 @@ func formatPointList(items []ast.PointItem, listType string, sub bool, start *in
 		if sub && item.Marker != "" && item.SubListType == "" {
 			kind = item.Marker
 		}
+		marker := "-"
 		if kind == "ordered" {
-			if runStart && item.Ordinal > 1 {
-				number = item.Ordinal - 1
+			d := item.Delimiter
+			if d == "" {
+				d = "."
+			}
+			if i > 0 && d != delim {
+				runStart = true
+			}
+			delim = d
+			if runStart && item.Ordinal != nil {
+				number = *item.Ordinal - 1
 			}
 			runStart = false
 			number++
-			fmt.Fprintf(&b, "%d. %s", number, item.Content)
+			marker = fmt.Sprintf("%d%s", number, d)
 		} else {
 			number = 0
 			runStart = true
-			fmt.Fprintf(&b, "- %s", item.Content)
+			delim = ""
 		}
+		fmt.Fprintf(&b, "%s %s", marker, item.Content)
 		if len(item.SubPoints) > 0 {
 			b.WriteString("\n")
 			// SubListType is the capability's field; without it the parser
@@ -437,7 +450,7 @@ func formatPointList(items []ast.PointItem, listType string, sub bool, start *in
 			if childType == "" {
 				childType = "unordered"
 			}
-			b.WriteString(indent(formatPointList(item.SubPoints, childType, true, item.SubListStart), 2))
+			b.WriteString(indent(formatPointList(item.SubPoints, childType, true, item.SubListStart), len(marker)+1))
 		}
 	}
 	return b.String()

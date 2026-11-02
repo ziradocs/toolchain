@@ -72,7 +72,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 	lines := ctx.Lines
 	consumed := 0
 	expectedIndent := -1
-	var nest checklistNest
+	nest := checklistNest{strict: true}
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -106,7 +106,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 		if p.isStrictChecklistItem(trimmed) {
 			content, checked := p.parseStrictChecklistContent(trimmed)
 			if content != "" {
-				nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), currentIndent, expectedIndent)
+				nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), currentIndent, expectedIndent, trimmed)
 			}
 		} else if last := nest.last(); currentIndent >= expectedIndent && last != nil {
 			// Continuation line: pertenece al último item abierto, el más
@@ -155,7 +155,7 @@ func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex i
 		// Extract content and checked status
 		content, checked := p.parseChecklistContent(trimmed)
 		if content != "" {
-			nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), indent, baseIndent)
+			nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), indent, baseIndent, trimmed)
 		}
 
 		consumed++
@@ -164,36 +164,49 @@ func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex i
 	return consumed
 }
 
-// checklistNest arma el árbol de una lista de tareas: un item más sangrado que
-// el anterior es su sub-tarea, a cualquier profundidad, como en Markdown. Antes
-// solo había dos niveles: todo lo que pasaba del base se colgaba del último
-// item base. SubItems ya era recursivo en el AST y en el esquema, así que el
-// JSON no cambia de forma. Los punteros de la pila siguen válidos por la misma
-// razón que en legacyNest (points.go).
+// checklistNest arma el árbol de una lista de tareas con la misma regla que
+// legacyNest (points.go): una tarea es sub-tarea de la de arriba solo si su
+// marcador empieza en la columna de contenido de esa tarea o más adentro (la
+// que sigue a "- "); en strict, si está más sangrada que ella. Antes solo había
+// dos niveles: todo lo que pasaba del base se colgaba del último item base.
+// SubItems ya era recursivo en el AST y en el esquema, así que el JSON no
+// cambia de forma.
 type checklistNest struct {
 	stack []checklistLevel
+	// strict: cualquier tarea más sangrada que la de arriba es su sub-tarea,
+	// como en legacyNest.
+	strict bool
 }
 
 type checklistLevel struct {
-	indent int
-	item   *ast.ChecklistItem
+	content int
+	item    *ast.ChecklistItem
 }
 
-func (n *checklistNest) add(element *ast.ChecklistElement, item *ast.ChecklistItem, indent, baseIndent int) {
-	if indent == baseIndent {
-		element.Items = append(element.Items, *item)
-		n.stack = append(n.stack[:0], checklistLevel{indent: indent, item: &element.Items[len(element.Items)-1]})
+func (n *checklistNest) add(element *ast.ChecklistElement, item *ast.ChecklistItem, indent, baseIndent int, trimmed string) {
+	if indent < baseIndent {
 		return
 	}
-	if indent < baseIndent || len(n.stack) == 0 {
-		return
+	// "- [x] a": el contenido de la tarea empieza después de "- ". En la
+	// forma strict "[x] a" no hay viñeta, y basta una columna más.
+	width := 1
+	if !n.strict && trimmed != "" && (trimmed[0] == '-' || trimmed[0] == '*' || trimmed[0] == '+') {
+		width = 2
 	}
-	for len(n.stack) > 1 && n.stack[len(n.stack)-1].indent >= indent {
+	level := checklistLevel{content: indent + width}
+	for len(n.stack) > 0 && indent < n.stack[len(n.stack)-1].content {
 		n.stack = n.stack[:len(n.stack)-1]
+	}
+	if len(n.stack) == 0 {
+		element.Items = append(element.Items, *item)
+		level.item = &element.Items[len(element.Items)-1]
+		n.stack = append(n.stack, level)
+		return
 	}
 	parent := n.stack[len(n.stack)-1].item
 	parent.SubItems = append(parent.SubItems, *item)
-	n.stack = append(n.stack, checklistLevel{indent: indent, item: &parent.SubItems[len(parent.SubItems)-1]})
+	level.item = &parent.SubItems[len(parent.SubItems)-1]
+	n.stack = append(n.stack, level)
 }
 
 func (n *checklistNest) last() *ast.ChecklistItem {

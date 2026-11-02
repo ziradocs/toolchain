@@ -38,7 +38,11 @@ func (p *PointsParser) CanParse(line string, mode string) bool {
 		return true
 	}
 
-	// Numbered lists
+	// Numbered lists, "1." o "1)" como en CommonMark. Hasta dos dígitos, como
+	// siempre: "100. x" sin list-start-v1 sigue siendo un párrafo.
+	if digits, _, ok := orderedNumber(trimmed); ok && len(digits) <= 2 {
+		return true
+	}
 	if len(trimmed) > 2 && (trimmed[1] == '.' || trimmed[2] == '.') {
 		for i, char := range trimmed {
 			if char == '.' {
@@ -83,7 +87,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 		// Detectar tipo de lista basado en el primer elemento
 		firstItemProcessed := false
-		var nest legacyNest
+		nest := legacyNest{strict: true}
 		expectedIndent := -1 // Auto-detect indentation level
 
 		// Collect indented lines
@@ -136,9 +140,9 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 				content := p.extractListContent(trimmed)
 
-				if content != "" {
+				if content != "" && indent >= expectedIndent {
 					item := ast.NewPointItem(ctx.Position(i), content)
-					nest.add(element, item, indent, expectedIndent, p.detectListType(trimmed), listOrdinal(trimmed))
+					nest.add(element, item, indent, trimmed, p.detectListType(trimmed))
 				}
 			}
 
@@ -156,40 +160,73 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 }
 
-// legacyNest arma el árbol de una lista sin nested-list-types-v1. Un item
-// más sangrado que el anterior es hijo de él, a cualquier profundidad, como en
-// Markdown: antes todo lo que pasaba del nivel base se colgaba del último item
-// base, y un tercer nivel salía como hermano del segundo. El JSON sigue con la
-// forma de siempre (subPoints recursivo, que el esquema ya admitía, y sin
-// subListType): el tipo de cada sublista y el número de cada item quedan solo
-// en memoria (SubListMarker, Marker, Ordinal), así que el documento no cambia
+// legacyNest arma el árbol de una lista sin nested-list-types-v1 con la regla
+// de CommonMark: un item es hijo del item abierto de arriba solo si su
+// marcador empieza en la columna de contenido de ese item o más adentro (la
+// columna que sigue al marcador y su espacio: 2 para "- a", 3 para "1. a").
+// Si no llega, es hermano de ese item o vuelve a un nivel de afuera; una
+// escalera descuidada ("- a" / " - b" / "  - c") son tres hermanos. Antes
+// todo lo que pasaba del nivel base se colgaba del último item base, y un
+// tercer nivel salía como hermano del segundo.
+//
+// El JSON sigue con la forma de siempre (subPoints recursivo, que el esquema
+// ya admitía, y sin subListType): el tipo de cada sublista, el marcador, el
+// número y el delimitador de cada item quedan solo en memoria
+// (SubListMarker, Marker, Ordinal, Delimiter), así que el documento no cambia
 // de versión ni declara capacidades.
 //
 // Los punteros de la pila siguen válidos porque se saca un nivel antes de
 // agregar un hermano a la lista de ese nivel, igual que en parseTypedList.
 type legacyNest struct {
 	stack []legacyLevel
+	// strict usa la regla de su propia gramática, que es por sangría y no
+	// Markdown: cualquier item más sangrado que el de arriba es su hijo. Es lo
+	// que leyó siempre y lo que escribió `fmt` hasta ahora (hijos a dos
+	// espacios también bajo "1."), así que esos archivos siguen leyéndose
+	// igual.
+	strict bool
 }
 
 type legacyLevel struct {
-	indent int
-	item   *ast.PointItem
+	content int // columna de contenido del item
+	item    *ast.PointItem
 }
 
-func (n *legacyNest) add(element *ast.PointsElement, item *ast.PointItem, indent, baseIndent int, kind string, ordinal int64) {
-	item.Ordinal = ordinal
-	if indent == baseIndent {
-		element.Items = append(element.Items, *item)
-		n.stack = append(n.stack[:0], legacyLevel{indent: indent, item: &element.Items[len(element.Items)-1]})
-		return
+// topLevel dice si un item con esta sangría queda en la lista de afuera. La
+// columna de contenido crece con cada nivel, así que basta mirar la del item
+// base abierto.
+func (n *legacyNest) topLevel(indent int) bool {
+	return len(n.stack) == 0 || indent < n.stack[0].content
+}
+
+// last es el último item abierto, el más profundo; nil si no hay ninguno.
+func (n *legacyNest) last() *ast.PointItem {
+	if len(n.stack) == 0 {
+		return nil
 	}
-	if indent < baseIndent || len(n.stack) == 0 {
-		// Un sub-item sin item base antes no tiene dónde colgarse: se
-		// descarta, como antes.
-		return
+	return n.stack[len(n.stack)-1].item
+}
+
+// lastContent es la columna de contenido del último item abierto.
+func (n *legacyNest) lastContent() int {
+	return n.stack[len(n.stack)-1].content
+}
+
+func (n *legacyNest) add(element *ast.PointsElement, item *ast.PointItem, indent int, trimmed, kind string) {
+	item.Ordinal = listOrdinal(trimmed)
+	item.Delimiter = orderedDelimiter(trimmed)
+	level := legacyLevel{content: indent + listMarkerWidth(trimmed) + 1}
+	if n.strict {
+		level.content = indent + 1
 	}
-	for len(n.stack) > 1 && n.stack[len(n.stack)-1].indent >= indent {
+	for len(n.stack) > 0 && indent < n.stack[len(n.stack)-1].content {
 		n.stack = n.stack[:len(n.stack)-1]
+	}
+	if len(n.stack) == 0 {
+		element.Items = append(element.Items, *item)
+		level.item = &element.Items[len(element.Items)-1]
+		n.stack = append(n.stack, level)
+		return
 	}
 	parent := n.stack[len(n.stack)-1].item
 	if parent.SubListMarker == "" {
@@ -197,21 +234,61 @@ func (n *legacyNest) add(element *ast.PointsElement, item *ast.PointItem, indent
 	}
 	item.Marker = kind
 	parent.SubPoints = append(parent.SubPoints, *item)
-	n.stack = append(n.stack, legacyLevel{indent: indent, item: &parent.SubPoints[len(parent.SubPoints)-1]})
+	level.item = &parent.SubPoints[len(parent.SubPoints)-1]
+	n.stack = append(n.stack, level)
+}
+
+// orderedNumber separa el número y el delimitador ("." o ")") de un item
+// ordenado ya recortado: "12) x" da ("12", ")", true).
+func orderedNumber(line string) (string, string, bool) {
+	i := 0
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	if i == 0 || i+1 >= len(line) || (line[i] != '.' && line[i] != ')') || line[i+1] != ' ' {
+		return "", "", false
+	}
+	return line[:i], line[i : i+1], true
 }
 
 // listOrdinal devuelve el número decimal que abre un item ordenado ("12. x"
-// es 12), o 0 si el marcador es una viñeta, una letra o no cabe en int64.
-func listOrdinal(line string) int64 {
-	marker, _, ok := strings.Cut(strings.TrimSpace(line), ". ")
+// o "12) x" es 12, "0. x" es 0), o nil si el marcador es una viñeta, una
+// letra o no cabe en int64.
+func listOrdinal(line string) *int64 {
+	digits, _, ok := orderedNumber(strings.TrimSpace(line))
 	if !ok {
-		return 0
+		return nil
 	}
-	n, err := strconv.ParseInt(marker, 10, 64)
+	n, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil || n < 0 {
-		return 0
+		return nil
 	}
-	return n
+	return &n
+}
+
+// orderedDelimiter es "." o ")" para un item numerado ("." también para una
+// letra, "a."), "" para una viñeta.
+func orderedDelimiter(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if _, delim, ok := orderedNumber(trimmed); ok {
+		return delim
+	}
+	if len(trimmed) >= 3 && trimmed[1] == '.' && trimmed[2] == ' ' {
+		return "."
+	}
+	return ""
+}
+
+// listMarkerWidth es el ancho del marcador de un item ya recortado: 1 para
+// una viñeta, los dígitos más el delimitador para un número, 2 para "a.".
+func listMarkerWidth(line string) int {
+	if digits, _, ok := orderedNumber(line); ok {
+		return len(digits) + 1
+	}
+	if len(line) >= 2 && line[1] == '.' {
+		return 2
+	}
+	return 1
 }
 
 // parseTypedList is the opt-in path. Each level has one list type, owned by
@@ -242,7 +319,9 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 			break
 		}
 		indent := CalculateIndentLevel(line)
-		if !p.isListItem(trimmed) {
+		// nested-list-types-v1 y list-start-v1 aceptan solo "1." como marcador
+		// numerado: "1)" sigue siendo un marcador inválido en su contrato.
+		if !p.isListItem(trimmed) || orderedDelimiter(trimmed) == ")" {
 			if malformedPointMarker(trimmed) && (strict || ctx.ListStart || len(stack) > 0) {
 				if baseIndent < 0 {
 					baseIndent = indent
@@ -288,6 +367,7 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 			}
 			item := ast.NewPointItem(ctx.Position(i), p.extractListContent(trimmed))
 			item.Ordinal = listOrdinal(trimmed)
+			item.Delimiter = orderedDelimiter(trimmed)
 			if item.Content == "" {
 				diags = append(diags, diagnostics.NewError("empty list item", ctx.Position(i), "points-parser"))
 			} else {
@@ -313,6 +393,7 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 			}
 			item := ast.NewPointItem(ctx.Position(i), p.extractListContent(trimmed))
 			item.Ordinal = listOrdinal(trimmed)
+			item.Delimiter = orderedDelimiter(trimmed)
 			if item.Content == "" {
 				diags = append(diags, diagnostics.NewError("empty nested list item", ctx.Position(i), "points-parser"))
 			} else {
@@ -329,7 +410,10 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 }
 
 func captureListOrdinal(line string, start **int64, count int) error {
-	marker, _, _ := strings.Cut(line, ". ")
+	marker, _, ok := orderedNumber(line)
+	if !ok {
+		marker, _, _ = strings.Cut(line, ". ")
+	}
 	n, err := strconv.ParseInt(marker, 10, 64)
 	if err != nil || n < 1 || n > ast.MaxListStart {
 		return fmt.Errorf("invalid ordered list ordinal %q: expected 1..%d", marker, ast.MaxListStart)
@@ -387,19 +471,33 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 			break
 		}
 
-		// Check if this is a list item
-		if !p.isListItem(trimmed) {
-			break
-		}
-
 		// Calculate indentation
 		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+
+		// Check if this is a list item
+		if !p.isListItem(trimmed) {
+			// Una línea sangrada hasta la columna de contenido del último item
+			// lo continúa, como en CommonMark ("1. Una frase larga\n   que
+			// sigue"). Antes cortaba la lista: la continuación salía como
+			// párrafo y el item siguiente como otra lista.
+			if last := nest.last(); last != nil && indent >= nest.lastContent() && !IsNewElement(trimmed, "flex") {
+				last.Content += " " + trimmed
+				consumed++
+				continue
+			}
+			break
+		}
 		if baseIndent == -1 {
 			baseIndent = indent
 		}
 
+		if indent < baseIndent {
+			// Indentación menor que la base, terminar parsing
+			break
+		}
+
 		// Detectar tipo de lista en el primer elemento principal
-		if !firstItemProcessed && indent == baseIndent {
+		if !firstItemProcessed {
 			element.ListType = p.detectListType(trimmed)
 			firstItemProcessed = true
 		}
@@ -416,27 +514,31 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 		// blanca ya se tolera a propósito dentro de una lista (más arriba en
 		// este mismo loop) y el marcador no se volvía a mirar nunca.
 		//
-		// Solo aplica al NIVEL BASE. Un item más indentado es un sub-punto y
-		// lo maneja el bloque de abajo: "- alpha" con "  1. anidado" debajo
-		// sigue siendo una sola lista con un sub-punto, no dos listas.
+		// Solo aplica al NIVEL BASE (un item que no cae dentro de la columna de
+		// contenido del item base anterior, ver legacyNest). Un item más
+		// indentado es un sub-punto y lo maneja el bloque de abajo: "- alpha"
+		// con "  1. anidado" debajo sigue siendo una sola lista con un
+		// sub-punto, no dos listas.
 		//
-		// Un cambio de carácter DENTRO del mismo tipo ("-" a "*") no separa:
+		// Entre items numerados, cambiar el delimitador ("1." a "1)") también
+		// abre otra lista, como en CommonMark.
+		//
+		// Un cambio de carácter DENTRO de las viñetas ("-" a "*") no separa:
 		// detectListType devuelve "unordered" para los dos. CommonMark sí
 		// abriría lista nueva ahí; replicarlo es un cambio aparte, y este
 		// issue es sobre perder el listType, no sobre partir viñetas.
-		if firstItemProcessed && indent == baseIndent && p.detectListType(trimmed) != element.ListType {
-			break
+		if len(element.Items) > 0 && nest.topLevel(indent) {
+			kind := p.detectListType(trimmed)
+			if kind != element.ListType || kind == "ordered" && orderedDelimiter(trimmed) != element.Items[0].Delimiter {
+				break
+			}
 		}
 
 		// Extract content
 		content := p.extractListContent(trimmed)
 		if content != "" {
-			if indent < baseIndent {
-				// Indentación menor que la base, terminar parsing
-				break
-			}
 			item := ast.NewPointItem(ctx.Position(i), content)
-			nest.add(element, item, indent, baseIndent, p.detectListType(trimmed), listOrdinal(trimmed))
+			nest.add(element, item, indent, trimmed, p.detectListType(trimmed))
 		}
 
 		consumed++
@@ -472,7 +574,10 @@ func (p *PointsParser) isListItem(line string) bool {
 		return true
 	}
 
-	// Check for numbered lists (1. 2. etc.)
+	// Check for numbered lists (1. 2. etc., o 1) 2) como en CommonMark)
+	if _, _, ok := orderedNumber(line); ok {
+		return true
+	}
 	if len(line) > 2 {
 		for i, char := range line {
 			if char == '.' && i > 0 {
@@ -513,6 +618,9 @@ func (p *PointsParser) extractListContent(line string) string {
 	}
 
 	// Handle numbered lists
+	if digits, _, ok := orderedNumber(line); ok {
+		return strings.TrimSpace(line[len(digits)+2:])
+	}
 	dotIndex := strings.Index(line, ". ")
 	if dotIndex > 0 {
 		return strings.TrimSpace(line[dotIndex+2:])
@@ -530,7 +638,10 @@ func (p *PointsParser) detectListType(line string) string {
 		return "unordered"
 	}
 
-	// Lista numerada (1. 2. 3. etc.)
+	// Lista numerada (1. 2. 3. etc., o 1) 2) 3))
+	if _, _, ok := orderedNumber(trimmed); ok {
+		return "ordered"
+	}
 	if len(trimmed) > 2 {
 		for i, char := range trimmed {
 			if char == '.' && i > 0 {

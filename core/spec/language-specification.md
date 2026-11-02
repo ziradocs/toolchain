@@ -126,10 +126,17 @@ list has one marker type, ordered or unordered. The AST records that type on
 its parent as `subListType`; mixed ordered/unordered siblings in one list are
 diagnosed. See [portable nested list types](../../docs/portable-nested-list-types.md).
 
-Without that declaration a nested list keeps the depth the author wrote, as in
-Markdown: an item indented deeper than the item above it belongs to that item's
-`subPoints`, at any depth (the same applies to `CHECKLIST` items and their
-`subItems`). The JSON keeps the legacy shape: `subPoints`/`subItems` were
+Without that declaration a nested list keeps the depth the author wrote, at
+any depth, in `subPoints` (and `CHECKLIST` items in `subItems`). In flex the
+rule is CommonMark's: an item is the child of the item above it only when its
+marker starts at or past that item's content column (the column after the
+marker and its space: 2 under `- `, 3 under `1. `); otherwise it is a sibling
+or returns to an outer level, so a one-space "staircase" is a flat list. A
+line indented to that column without a marker continues the item. `1)` is an
+ordered marker like `1.`, and a change of delimiter starts a new list. In
+strict, whose grammar is indentation-based, any item indented deeper than the
+item above it is its child, as it always was. In a flex paragraph, a line
+starting with a number other than 1 (`1998. It grew`) does not start a list. The JSON keeps the legacy shape: `subPoints`/`subItems` were
 already recursive in the schema, no `subListType`, `start` or `subListStart` is
 written, and the document stays at schema 2.14.0 with no capability. The kind of
 each sublist (bullets or numbers), the marker of each item and the number the

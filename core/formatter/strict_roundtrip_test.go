@@ -245,7 +245,7 @@ func normalizePointItems(items []ast.PointItem) []ast.PointItem {
 		// renumera de forma contigua desde el primero ("a." o "1. 1. 1." no
 		// sobreviven literalmente), y lo que el render lee de él, el inicio
 		// de cada lista, se prueba aparte (TestFormatKeepsTheStartOfALegacyList).
-		it.Ordinal = 0
+		it.Ordinal = nil
 		it.SubPoints = normalizePointItems(it.SubPoints)
 		out[i] = it
 	}

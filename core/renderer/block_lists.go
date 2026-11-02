@@ -19,27 +19,25 @@ import (
 
 // renderLegacyPoints dibuja una lista sin nested-list-types-v1. El AST no
 // serializa el tipo de cada sublista; el parser lo deja en memoria
-// (SubListMarker para la sublista, Marker para cada item) y, si falta (un AST
-// leído de JSON), la sublista toma el tipo de su padre, igual que slidelang.
-// Un cambio de marcador entre hermanos abre otra lista, como en Markdown.
+// (SubListMarker para la sublista, Marker y Delimiter para cada item) y, si
+// falta (un AST leído de JSON), la sublista toma el tipo de su padre, igual que
+// slidelang. Como en Markdown, un cambio de marcador entre hermanos, o de
+// delimitador entre numerados ("1." a "1)"), abre otra lista.
 func renderLegacyPoints(items []ast.PointItem, listType string, start *int64, variables map[string]interface{}) string {
 	var html strings.Builder
 	for i := 0; i < len(items); {
-		kind := listType
-		if items[i].Marker != "" {
-			kind = items[i].Marker
-		}
+		kind := pointKind(items[i], listType)
 		j := i + 1
-		for j < len(items) && pointKind(items[j], listType) == kind {
+		for j < len(items) && pointKind(items[j], listType) == kind && items[j].Delimiter == items[i].Delimiter {
 			j++
 		}
-		var runStart *int64
-		if i == 0 {
+		runStart := items[i].Ordinal
+		if i == 0 && start != nil {
 			runStart = start
 		}
-		html.WriteString(openList(kind, runStart, items[i].Ordinal, ""))
+		html.WriteString(openList(kind, runStart))
 		for _, item := range items[i:j] {
-			fmt.Fprintf(&html, "<li>%s", pointContentHTML(item.Content, variables))
+			fmt.Fprintf(&html, "<li>%s", ProcessTextWithVariablesAndMarkdownSecure(item.Content, variables))
 			if len(item.SubPoints) > 0 {
 				child := item.SubListMarker
 				if child == "" {
@@ -55,35 +53,6 @@ func renderLegacyPoints(items []ast.PointItem, listType string, start *int64, va
 	return html.String()
 }
 
-// pointContentHTML es el contenido de un item. Un item de viñeta que empieza
-// con "[ ] " o "[x] " es una tarea, como en GFM: una tarea debajo de un item
-// común (`- a` / `  - [ ] b`) llega al AST como un PointItem con ese texto,
-// porque no hay forma de mezclar items y tareas en una misma lista, y sale con
-// su casilla en vez del texto "[ ] b".
-func pointContentHTML(content string, variables map[string]interface{}) string {
-	task, rest := taskPrefix(content)
-	html := ProcessTextWithVariablesAndMarkdownSecure(rest, variables)
-	switch task {
-	case 1:
-		return `<input type="checkbox" disabled> ` + html
-	case 2:
-		return `<input type="checkbox" checked disabled> ` + html
-	}
-	return html
-}
-
-// taskPrefix separa la marca de tarea de un texto: 0 si no es tarea, 1 sin
-// marcar, 2 marcada.
-func taskPrefix(text string) (int, string) {
-	switch {
-	case strings.HasPrefix(text, "[ ] "):
-		return 1, strings.TrimSpace(text[4:])
-	case strings.HasPrefix(text, "[x] "), strings.HasPrefix(text, "[X] "):
-		return 2, strings.TrimSpace(text[4:])
-	}
-	return 0, text
-}
-
 func pointKind(item ast.PointItem, listType string) string {
 	if item.Marker != "" {
 		return item.Marker
@@ -91,25 +60,18 @@ func pointKind(item ast.PointItem, listType string) string {
 	return listType
 }
 
-// openList abre una lista. start es el inicio serializado (list-start-v1); si
-// no hay, vale el número que el autor escribió en el primer item (ordinal,
-// solo en memoria). Un inicio de 1 no se escribe: es el de HTML.
-func openList(kind string, start *int64, ordinal int64, class string) string {
-	attrs := ""
-	if class != "" {
-		attrs = ` class="` + class + `"`
-	}
+// openList abre una lista. start es el inicio serializado (list-start-v1) o,
+// si no hay, el número que el autor escribió en el primer item (Ordinal, solo
+// en memoria); nil numera desde 1. Un inicio de 1 no se escribe: es el de HTML.
+// "0." empieza en 0, como en CommonMark.
+func openList(kind string, start *int64) string {
 	if kind != "ordered" {
-		return "<ul" + attrs + ">"
+		return "<ul>"
 	}
-	n := ordinal
-	if start != nil {
-		n = *start
+	if start != nil && *start != 1 {
+		return `<ol start="` + strconv.FormatInt(*start, 10) + `">`
 	}
-	if n > 1 {
-		attrs += ` start="` + strconv.FormatInt(n, 10) + `"`
-	}
-	return "<ol" + attrs + ">"
+	return "<ol>"
 }
 
 func closeList(kind string) string {
@@ -144,9 +106,10 @@ func renderChecklistItems(items []ast.ChecklistItem, class string, variables map
 // bloque.
 type bodyListItem struct {
 	indent   int
+	content  int // columna de contenido: la sangría más el marcador y su espacio
 	ordered  bool
+	delim    byte // '.' o ')' en un item numerado
 	ordinal  int64
-	task     int // 0 no es tarea, 1 sin marcar, 2 marcada
 	text     string
 	children []*bodyListItem
 }
@@ -154,6 +117,8 @@ type bodyListItem struct {
 // parseBodyListItem reconoce un item de Markdown: "-", "*" o "+" y espacio, o
 // de uno a nueve dígitos con "." o ")" y espacio. Es el criterio con el que el
 // parser conserva la sangría de esas líneas (internal/elements/list_indent.go).
+// Una tarea ("- [ ] x") es un item de viñeta con ese texto, igual que un item
+// de POINTS: DOCX, PPTX y Markdown la escriben así.
 func parseBodyListItem(line string) (*bodyListItem, bool) {
 	trimmed := strings.TrimLeft(line, " \t")
 	indent := 0
@@ -172,6 +137,7 @@ func parseBodyListItem(line string) (*bodyListItem, bool) {
 	switch {
 	case len(trimmed) >= 2 && (trimmed[0] == '-' || trimmed[0] == '*' || trimmed[0] == '+') && trimmed[1] == ' ':
 		item.text = strings.TrimSpace(trimmed[2:])
+		item.content = indent + 2
 	default:
 		i := 0
 		for i < len(trimmed) && i < 9 && trimmed[i] >= '0' && trimmed[i] <= '9' {
@@ -181,11 +147,10 @@ func parseBodyListItem(line string) (*bodyListItem, bool) {
 			return nil, false
 		}
 		item.ordered = true
+		item.delim = trimmed[i]
 		item.ordinal, _ = strconv.ParseInt(trimmed[:i], 10, 64)
 		item.text = strings.TrimSpace(trimmed[i+2:])
-	}
-	if !item.ordered {
-		item.task, item.text = taskPrefix(item.text)
+		item.content = indent + i + 2
 	}
 	return item, true
 }
@@ -209,20 +174,35 @@ func isBodyThematicBreak(s string) bool {
 	return count >= 3
 }
 
-// renderProseWithLists arma la prosa de un TextElement, una cita o un
-// ":::bloque". Sin ningún item de lista produce exactamente lo de siempre
+// startsBodyList dice si la línea i abre una lista. Como en CommonMark, una
+// lista numerada solo interrumpe un párrafo si empieza en 1: "fundada en\n
+// 1998. Creció" es una oración partida por el ancho de línea.
+func startsBodyList(lines []string, i int, inParagraph bool) bool {
+	item, ok := parseBodyListItem(lines[i])
+	if !ok {
+		return false
+	}
+	return !inParagraph || !item.ordered || item.ordinal == 1
+}
+
+// renderProseWithLists arma la prosa de una cita o un ":::bloque" (su Content
+// o los tramos de prosa entre sus elementos). Un TextElement suelto no pasa
+// por acá: a nivel de sección las listas ya las separa PointsParser. Sin
+// ningún item de lista produce exactamente lo de siempre
 // (ProcessInlineMarkdownSecure). Con listas, cada tramo de prosa pasa por esa
-// misma función y cada lista se arma como árbol por sangría, con su tipo, su
-// inicio y las tareas como casilla. paragraphs envuelve cada tramo de prosa en
-// <p>: una cita lo necesita porque el <p> que envolvía todo el contenido
-// terminaba conteniendo un <ul>, que es HTML inválido.
+// misma función y cada lista se arma como árbol con la regla de CommonMark: un
+// item es hijo del de arriba si su marcador empieza en la columna de contenido
+// de ese item o más adentro. paragraphs envuelve cada tramo de prosa en <p>:
+// una cita lo necesita porque el <p> que envolvía todo el contenido terminaba
+// conteniendo un <ul>, que es HTML inválido.
 //
 // Recibe el texto con las variables ya sustituidas, sin escapar.
 func renderProseWithLists(text string, paragraphs bool) string {
 	lines := strings.Split(text, "\n")
 	hasList := false
-	for _, line := range lines {
-		if _, ok := parseBodyListItem(line); ok {
+	for i := range lines {
+		inParagraph := i > 0 && strings.TrimSpace(lines[i-1]) != "" && !isBodyListLine(lines[i-1])
+		if startsBodyList(lines, i, inParagraph) {
 			hasList = true
 			break
 		}
@@ -253,7 +233,8 @@ func renderProseWithLists(text string, paragraphs bool) string {
 	}
 
 	for i := 0; i < len(lines); {
-		if _, ok := parseBodyListItem(lines[i]); !ok {
+		inParagraph := len(prose) > 0 && strings.TrimSpace(prose[len(prose)-1]) != ""
+		if !startsBodyList(lines, i, inParagraph) {
 			prose = append(prose, lines[i])
 			i++
 			continue
@@ -273,11 +254,9 @@ func renderProseWithLists(text string, paragraphs bool) string {
 					for next < len(lines) && strings.TrimSpace(lines[next]) == "" {
 						next++
 					}
-					if next < len(lines) {
-						if _, ok := parseBodyListItem(lines[next]); ok {
-							i = next
-							continue
-						}
+					if next < len(lines) && isBodyListLine(lines[next]) {
+						i = next
+						continue
 					}
 					break
 				}
@@ -289,7 +268,7 @@ func renderProseWithLists(text string, paragraphs bool) string {
 				}
 				break
 			}
-			for len(stack) > 0 && stack[len(stack)-1].indent >= item.indent {
+			for len(stack) > 0 && item.indent < stack[len(stack)-1].content {
 				stack = stack[:len(stack)-1]
 			}
 			if len(stack) == 0 {
@@ -308,38 +287,30 @@ func renderProseWithLists(text string, paragraphs bool) string {
 	return html.String()
 }
 
+func isBodyListLine(line string) bool {
+	_, ok := parseBodyListItem(line)
+	return ok
+}
+
 // renderBodyList dibuja hermanos agrupados en listas: un cambio entre
-// ordenada y de viñetas abre otra lista, como en Markdown.
+// ordenada y de viñetas, o de delimitador entre numerados, abre otra lista,
+// como en Markdown.
 func renderBodyList(items []*bodyListItem) string {
 	var html strings.Builder
 	for i := 0; i < len(items); {
 		j := i + 1
-		for j < len(items) && items[j].ordered == items[i].ordered {
+		for j < len(items) && items[j].ordered == items[i].ordered && items[j].delim == items[i].delim {
 			j++
 		}
 		kind := "unordered"
+		var start *int64
 		if items[i].ordered {
 			kind = "ordered"
+			start = &items[i].ordinal
 		}
-		class := ""
-		if !items[i].ordered {
-			class = "checklist"
-			for _, it := range items[i:j] {
-				if it.task == 0 {
-					class = ""
-					break
-				}
-			}
-		}
-		html.WriteString(openList(kind, nil, items[i].ordinal, class))
+		html.WriteString(openList(kind, start))
 		for _, it := range items[i:j] {
 			html.WriteString("<li>")
-			switch it.task {
-			case 1:
-				html.WriteString(`<input type="checkbox" disabled> `)
-			case 2:
-				html.WriteString(`<input type="checkbox" checked disabled> `)
-			}
 			html.WriteString(ProcessInlineMarkdownFormatsSecure(EscapeHTML(it.text)))
 			if len(it.children) > 0 {
 				html.WriteString(renderBodyList(it.children))

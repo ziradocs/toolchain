@@ -300,27 +300,13 @@ func (p *TextParser) isOtherElementType(line string, mode string) bool {
 	return false
 }
 
-// isStartOfNumberedList checks if a line starts a numbered list (1. 2. etc.)
+// isStartOfNumberedList dice si una línea, a media prosa, abre una lista
+// numerada. Como en CommonMark, solo una lista que empieza en 1 interrumpe un
+// párrafo: "fundada en\n1998. Creció" es una sola oración partida por el
+// ancho de línea, no un párrafo seguido de una lista que empieza en 1998.
 func (p *TextParser) isStartOfNumberedList(line string) bool {
-	if len(line) < 3 {
-		return false
-	}
-
-	// Check for numbered lists (1. 2. 3. etc.)
-	for i, char := range line {
-		if char == '.' && i > 0 {
-			// Check if followed by space
-			if i+1 < len(line) && line[i+1] == ' ' {
-				return true
-			}
-			break
-		}
-		if char < '0' || char > '9' {
-			break
-		}
-	}
-
-	return false
+	digits, _, ok := orderedNumber(line)
+	return ok && strings.TrimLeft(digits, "0") == "1"
 }
 
 // isThematicBreak reporta si line (ya trimmed) es un thematic break de

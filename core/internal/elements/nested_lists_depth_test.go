@@ -44,9 +44,19 @@ func TestLegacyPointsKeepTheDepth(t *testing.T) {
 			"uno(unordered)[dos(ordered)[tres(unordered)[cuatro(ordered)[cinco]]]] otro"},
 		{"flex back up a level", "flex", []string{"- a", "  - b", "    - c", "  - d", "- e"}, "a(unordered)[b(unordered)[c] d] e"},
 		{"flex bullet with ordered child", "flex", []string{"- a", "- b", "  1. c", "  1. d"}, "a b(ordered)[c d]"},
+		// CommonMark: un hijo tiene que empezar en la columna de contenido del
+		// item de arriba. Una escalera de un espacio son hermanos, y dos
+		// espacios bajo "1." no alcanzan los tres de su contenido.
+		{"flex staircase", "flex", []string{"- a", " - b", "  - c"}, "a b c"},
+		{"flex short indent under a number", "flex", []string{"1. a", "  1. b"}, "a b"},
+		{"flex child at the content column", "flex", []string{"1. a", "   1. b", "10. c", "    - d"}, "a(ordered)[b] c(unordered)[d]"},
+		{"flex back to an outer level", "flex", []string{"- a", "  - b", "    - c", " - d"}, "a(unordered)[b(unordered)[c]] d"},
+		// strict es por sangría: más sangrado que el item de arriba es hijo,
+		// también a dos espacios bajo "1.", que es lo que escribía fmt.
+		{"strict deeper is a child", "strict", []string{"POINTS", "  - a", "   - b", "    1. c", "      - d"}, "a(unordered)[b(ordered)[c(unordered)[d]]]"},
 		{"strict 1 level", "strict", []string{"POINTS", "  - a", "  - b"}, "a b"},
-		{"strict 3 levels", "strict", []string{"POINTS", "  - a", "    1. b", "      - c"}, "a(ordered)[b(unordered)[c]]"},
-		{"strict 5 levels", "strict", []string{"POINTS", "  1. uno", "    - dos", "      1. tres", "        - cuatro", "          1. cinco"},
+		{"strict 3 levels", "strict", []string{"POINTS", "  - a", "    1. b", "       - c"}, "a(ordered)[b(unordered)[c]]"},
+		{"strict 5 levels", "strict", []string{"POINTS", "  1. uno", "     - dos", "       1. tres", "          - cuatro", "            1. cinco"},
 			"uno(unordered)[dos(ordered)[tres(unordered)[cuatro(ordered)[cinco]]]]"},
 	}
 	for _, c := range cases {
@@ -71,20 +81,51 @@ func TestLegacyPointsKeepTheDepth(t *testing.T) {
 // Cada item recuerda en memoria el número que escribió el autor, a cualquier
 // profundidad; el render lo usa como inicio de la lista.
 func TestLegacyPointsRecordOrdinals(t *testing.T) {
+	ord := func(it ast.PointItem) int64 {
+		n, ok := it.WrittenOrdinal()
+		if !ok {
+			return -1
+		}
+		return n
+	}
 	pts := parsePoints(t, "flex", "3. tres", "4. cuatro", "   7. siete", "   8. ocho", "      - x")
-	if pts.Items[0].Ordinal != 3 || pts.Items[1].Ordinal != 4 {
-		t.Fatalf("top ordinals %d %d", pts.Items[0].Ordinal, pts.Items[1].Ordinal)
+	if ord(pts.Items[0]) != 3 || ord(pts.Items[1]) != 4 {
+		t.Fatalf("top ordinals %d %d", ord(pts.Items[0]), ord(pts.Items[1]))
 	}
 	sub := pts.Items[1].SubPoints
-	if len(sub) != 2 || sub[0].Ordinal != 7 || sub[1].Ordinal != 8 {
+	if len(sub) != 2 || ord(sub[0]) != 7 || ord(sub[1]) != 8 {
 		t.Fatalf("sub ordinals %+v", sub)
 	}
-	if sub[1].SubPoints[0].Ordinal != 0 {
-		t.Fatalf("a bullet has no ordinal, got %d", sub[1].SubPoints[0].Ordinal)
+	if ord(sub[1].SubPoints[0]) != -1 {
+		t.Fatalf("a bullet has no ordinal, got %d", ord(sub[1].SubPoints[0]))
 	}
-	strict := parsePoints(t, "strict", "POINTS", "  5. cinco", "    2. dos")
-	if strict.Items[0].Ordinal != 5 || strict.Items[0].SubPoints[0].Ordinal != 2 {
+	strict := parsePoints(t, "strict", "POINTS", "  5. cinco", "     2. dos")
+	if ord(strict.Items[0]) != 5 || ord(strict.Items[0].SubPoints[0]) != 2 {
 		t.Fatalf("strict ordinals %+v", strict.Items)
+	}
+	if zero := parsePoints(t, "flex", "0. cero", "1. uno"); ord(zero.Items[0]) != 0 {
+		t.Fatalf("0. is an ordinal: %d", ord(zero.Items[0]))
+	}
+}
+
+// "1)" es un item numerado como "1.", y cambiar de delimitador entre items de
+// la lista de afuera abre otra lista, como en CommonMark.
+func TestParenDelimiter(t *testing.T) {
+	pts := parsePoints(t, "flex", "1) uno", "2) dos", "   1) a")
+	if pointShape(pts.Items) != "uno dos(ordered)[a]" || pts.ListType != "ordered" {
+		t.Fatalf("shape %q type %q", pointShape(pts.Items), pts.ListType)
+	}
+	if pts.Items[1].Delimiter != ")" || pts.Items[1].SubPoints[0].Delimiter != ")" {
+		t.Fatalf("delimiters %+v", pts.Items)
+	}
+	ctx := &ParseContext{Mode: "flex", Lines: []string{"1. uno", "2. dos", "1) otra", "2) lista"}, Logger: util.NewNoop()}
+	res := (&PointsParser{}).Parse(ctx, 0)
+	if res.ConsumedLines != 2 {
+		t.Fatalf("a change of delimiter must close the list, consumed %d", res.ConsumedLines)
+	}
+	strict := parsePoints(t, "strict", "POINTS", "  1) uno", "  2) dos")
+	if pointShape(strict.Items) != "uno dos" {
+		t.Fatalf("strict shape %q", pointShape(strict.Items))
 	}
 }
 
@@ -115,6 +156,7 @@ func TestChecklistKeepsTheDepth(t *testing.T) {
 		{"flex depth 3", "flex", []string{"- [x] t1", "  - [ ] t1.1", "    - [x] t1.1.1", "  - [ ] t1.2", "- [ ] t2"}, "t1*[t1.1[t1.1.1*] t1.2] t2"},
 		{"flex depth 5", "flex", []string{"- [ ] a", "  - [ ] b", "    - [ ] c", "      - [ ] d", "        - [x] e"}, "a[b[c[d[e*]]]]"},
 		{"strict depth 3", "strict", []string{"CHECKLIST", "  [x] t1", "    [ ] t1.1", "      - [x] t1.1.1", "  [ ] t2"}, "t1*[t1.1[t1.1.1*]] t2"},
+		{"flex staircase", "flex", []string{"- [ ] a", " - [ ] b", "  - [ ] c"}, "a b c"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -192,5 +234,16 @@ func TestSpecialBlockKeepsNestedListIndent(t *testing.T) {
 				t.Fatalf("content %q, want %q", b.Content, c.want)
 			}
 		})
+	}
+}
+
+// Una línea sangrada hasta la columna de contenido de un item lo continúa,
+// como en CommonMark; antes partía la lista en párrafo y otra lista.
+func TestFlexListItemContinuationLine(t *testing.T) {
+	ctx := &ParseContext{Mode: "flex", Lines: []string{"1. Una frase", "   que sigue", "2. Otra", "   - hijo", "     que sigue", "fuera"}, Logger: util.NewNoop()}
+	res := (&PointsParser{}).Parse(ctx, 0)
+	pts := res.Element.(*ast.PointsElement)
+	if res.ConsumedLines != 5 || pointShape(pts.Items) != "Una frase que sigue Otra(unordered)[hijo que sigue]" {
+		t.Fatalf("consumed %d shape %q", res.ConsumedLines, pointShape(pts.Items))
 	}
 }

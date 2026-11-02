@@ -158,9 +158,7 @@ func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) 
 	if elem.IsRawHTML {
 		content = HeadingContentHTML(elem, variables)
 	} else {
-		// Las listas de la prosa (la de un ":::bloque", por ejemplo) se
-		// anidan por sangría y llevan su tipo: ver renderProseWithLists.
-		content = renderProseWithLists(ProcessVariables(elem.Content, variables), false)
+		content = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 	}
 
 	// Si el contenido ya contiene un tag HTML block-level (h1-h6), no envolverlo en <p>
@@ -192,10 +190,15 @@ func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) 
 	// vuelva un problema). No envolver es seguro: el contenedor que recibe
 	// este HTML (un <div>, el body del documento) admite texto y bloques
 	// como hijos directos por igual.
+	return wrapTextHTML(content)
+}
+
+// wrapTextHTML envuelve en <p> el HTML de un párrafo, salvo que traiga una
+// lista (ver el comentario de arriba).
+func wrapTextHTML(content string) string {
 	if strings.Contains(content, "<ul") || strings.Contains(content, "<ol") {
 		return content
 	}
-
 	return fmt.Sprintf("<p>%s</p>", content)
 }
 
@@ -218,14 +221,13 @@ func typedPoints(items []ast.PointItem) bool {
 }
 
 func renderTypedPoints(items []ast.PointItem, listType string, start *int64, variables map[string]interface{}) string {
-	var ordinal int64
-	if len(items) > 0 {
-		ordinal = items[0].Ordinal
+	if start == nil && len(items) > 0 {
+		start = items[0].Ordinal
 	}
 	var html strings.Builder
-	html.WriteString(openList(listType, start, ordinal, ""))
+	html.WriteString(openList(listType, start))
 	for _, item := range items {
-		fmt.Fprintf(&html, "<li>%s", pointContentHTML(item.Content, variables))
+		fmt.Fprintf(&html, "<li>%s", ProcessTextWithVariablesAndMarkdownSecure(item.Content, variables))
 		if len(item.SubPoints) > 0 {
 			html.WriteString(renderTypedPoints(item.SubPoints, item.SubListType, item.SubListStart, variables))
 		}
@@ -2675,6 +2677,12 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 	if len(elem.Elements) > 0 {
 		html.WriteString(`<div class="alert-content">`)
 		for _, nested := range elem.Elements {
+			// La prosa entre los elementos de un bloque arma sus listas como
+			// el Content del bloque (renderProseWithLists).
+			if text, ok := nested.(*ast.TextElement); ok && !text.IsRawHTML {
+				html.WriteString(wrapTextHTML(renderProseWithLists(ProcessVariables(text.Content, variables), false)))
+				continue
+			}
 			html.WriteString(RenderElementToHTML(nested, variables, ctx))
 		}
 		html.WriteString(`</div>`)

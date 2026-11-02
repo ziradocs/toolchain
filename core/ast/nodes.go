@@ -551,14 +551,39 @@ type PointItem struct {
 	// read back from JSON, in which case both fall back to the marker of the
 	// sublist.
 	Marker string `json:"-" tstype:"-"`
-	// Ordinal is the number the author wrote before this item ("3." is 3), 0
-	// for a bullet or a letter. The parser records it without list-start-v1,
-	// at any depth, so the HTML renderer can start an ordered list where the
-	// author started it (`<ol start="3">`), as Markdown does. In memory only,
-	// like Marker: without list-start-v1 the JSON AST has no ordinals, and an
-	// AST read back from JSON numbers from 1. With list-start-v1, Start and
-	// SubListStart are the serialized source of truth.
-	Ordinal int64 `json:"-" tstype:"-"`
+	// Ordinal is the number the author wrote before this item ("3." is 3,
+	// "0." is 0), nil for a bullet or a letter. The parser records it without
+	// list-start-v1, at any depth, so the renderers can start an ordered list
+	// where the author started it (`<ol start="3">`), as Markdown does. In
+	// memory only, like Marker: without list-start-v1 the JSON AST has no
+	// ordinals, and an AST read back from JSON numbers from 1. With
+	// list-start-v1, Start and SubListStart are the serialized source of truth.
+	Ordinal *int64 `json:"-" tstype:"-"`
+	// Delimiter is the character after the number of an ordered item, "." or
+	// ")", empty for a bullet. In Markdown a change of delimiter between
+	// siblings starts a new list, as a change of marker does. In memory only.
+	Delimiter string `json:"-" tstype:"-"`
+}
+
+// WrittenOrdinal devuelve el número que escribió el autor antes del item, y
+// false si el item no lo tiene (una viñeta, una letra, o un AST leído de JSON).
+// Es un método y no solo el campo para que un consumidor pueda consultarlo con
+// una aserción de interfaz y seguir compilando contra un core anterior.
+func (p *PointItem) WrittenOrdinal() (int64, bool) {
+	if p == nil || p.Ordinal == nil {
+		return 0, false
+	}
+	return *p.Ordinal, true
+}
+
+// WrittenDelimiter devuelve el delimitador que escribió el autor después del
+// número ("." o ")"), o "" si no se conoce. Método por la misma razón que
+// WrittenOrdinal.
+func (p *PointItem) WrittenDelimiter() string {
+	if p == nil {
+		return ""
+	}
+	return p.Delimiter
 }
 
 // NewPointItem crea un nuevo item de punto

@@ -18,6 +18,9 @@ func TestFormatStrict_DeepListsRoundTrip(t *testing.T) {
 	cases := map[string]string{
 		"five levels":       "---\nmode: flex\n---\n\n## One\n\n1. uno\n   - dos\n     1. tres\n        - cuatro\n          1. cinco\n2. otro\n",
 		"ordered start":     "---\nmode: flex\n---\n\n## One\n\n3. tres\n4. cuatro\n   7. siete\n",
+		"zero start":        "---\nmode: flex\n---\n\n## One\n\n0. cero\n1. uno\n",
+		"paren delimiter":   "---\nmode: flex\n---\n\n## One\n\n1) uno\n2) dos\n   - a\n   1. b\n   1) c\n",
+		"wide numbers":      "---\nmode: flex\n---\n\n## One\n\n9. nueve\n10. diez\n    - hijo\n",
 		"tasks at depth 3":  "---\nmode: flex\n---\n\n## One\n\n- [x] t1\n  - [ ] t1.1\n    - [x] t1.1.1\n- [ ] t2\n",
 		"list in a quote":   "---\nmode: flex\n---\n\n## One\n\n> Cita\n> - a\n>   - b\n>     1. c\n",
 		"list in a callout": "---\nmode: flex\n---\n\n## One\n\n:::info Nota\nTexto\n- a\n  - b\n    1. c\n:::\n",
@@ -44,7 +47,10 @@ func TestFormatKeepsTheStartOfALegacyList(t *testing.T) {
 		t.Fatalf("starts lost:\n%s", out)
 	}
 	pts := firstPoints(reparsed)
-	if pts.Items[0].Ordinal != 3 || pts.Items[1].SubPoints[0].Ordinal != 7 {
+	if a, _ := pts.Items[0].WrittenOrdinal(); a != 3 {
+		t.Fatalf("ordinals after fmt: %+v", pts.Items)
+	}
+	if b, _ := pts.Items[1].SubPoints[0].WrittenOrdinal(); b != 7 {
 		t.Fatalf("ordinals after fmt: %+v", pts.Items)
 	}
 }
@@ -112,4 +118,21 @@ func listSummary(doc *ast.AST) string {
 		return nil
 	})
 	return b.String()
+}
+
+// fmt escribe cada sublista en la columna de contenido de su item, que es
+// donde el parser flex (CommonMark) busca a los hijos: tres espacios bajo
+// "9. ", cuatro bajo "10. ".
+func TestFormatDocument_SublistAtTheContentColumn(t *testing.T) {
+	doc := parseDocumentOrFail(t, "---\nmode: flex\n---\n\n# S\n\n9. nueve\n   - a\n10. diez\n    1) b\n")
+	out, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "9. nueve\n   - a\n") || !strings.Contains(out, "\n    1) b") {
+		t.Fatalf("children not at the content column:\n%s", out)
+	}
+	if a, b := listSummary(doc), listSummary(parseDocumentOrFail(t, out)); a != b {
+		t.Fatalf("lists changed:\n%s\n---\n%s", a, b)
+	}
 }
