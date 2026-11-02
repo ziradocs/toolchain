@@ -382,8 +382,9 @@ func TestExport_ImageOutsideRootIsBlocked(t *testing.T) {
 	if !foundInside {
 		t.Error("image inside the root was not embedded (control)")
 	}
-	if !bytes.Contains(files["word/document.xml"], []byte("Image blocked")) {
-		t.Error("expected an [Image blocked: …] placeholder in document.xml")
+	// Marcador localizado (sin lang: español), sin la ruta de fuera de la raíz.
+	if !bytes.Contains(files["word/document.xml"], []byte("Imagen no disponible")) {
+		t.Error("expected an [Imagen no disponible: …] placeholder in document.xml")
 	}
 }
 

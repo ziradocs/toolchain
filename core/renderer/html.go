@@ -509,7 +509,8 @@ func remoteImageBlocked(src string, ctx *RenderContext) bool {
 		return false
 	}
 	scheme := strings.ToLower(u.Scheme)
-	if scheme != "http" && scheme != "https" && !(scheme == "" && u.Host != "") {
+	remote := scheme == "http" || scheme == "https" || (scheme == "" && u.Host != "")
+	if !remote {
 		return false
 	}
 	logger := ctx.Logger
