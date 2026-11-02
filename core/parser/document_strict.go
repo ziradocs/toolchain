@@ -263,7 +263,21 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 // nuevo, con la misma regla posicional que el dialecto flex: el primero es
 // el bloque "title" del documento (su texto va a Heading), los demás son
 // "content" (su texto va a Title).
+//
+// Excepción, también espejo de flex: un PRIMER `SECTION ""` es la sección
+// inicial sin encabezado (el contenido previo al primer `#` en flex, ver
+// DocumentFlexParser.parseSection). Queda "content" sin título y no consume
+// la regla posicional, así que el siguiente SECTION sigue siendo el bloque
+// "title". Es lo que escribe FormatDocumentStrict para esa sección; sin
+// esto, transpilar flex→strict corría todos los bloques un lugar.
 func (p *DocumentStrictParser) appendTopLevelSection(astNode *ast.AST, title string, headerLine int, els []ast.Element) {
+	if title == "" && len(astNode.ContentBlocks) == 0 {
+		block := ast.NewContentBlock(p.position(headerLine), "content")
+		block.Elements = els
+		astNode.ContentBlocks = append(astNode.ContentBlocks, *block)
+		return
+	}
+
 	blockType := "content"
 	if !p.hasTitleBlock {
 		blockType = "title"
