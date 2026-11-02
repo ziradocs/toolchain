@@ -541,9 +541,9 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 		// Headers
 		if len(elem.Headers) > 0 {
 			html.WriteString("<thead><tr>")
-			for _, header := range elem.Headers {
+			for j, header := range elem.Headers {
 				processedHeader := ProcessTextWithVariablesAndMarkdownSecure(header, variables)
-				fmt.Fprintf(&html, `<th scope="col">%s</th>`, processedHeader)
+				fmt.Fprintf(&html, `<th scope="col"%s>%s</th>`, tableColumnAlignAttr(elem.ColumnAlign, j), processedHeader)
 			}
 			html.WriteString("</tr></thead>")
 		}
@@ -552,9 +552,9 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 		html.WriteString("<tbody>")
 		for _, row := range elem.Rows {
 			html.WriteString("<tr>")
-			for _, cell := range row {
+			for j, cell := range row {
 				processedCell := ProcessTextWithVariablesAndMarkdownSecure(cell, variables)
-				fmt.Fprintf(&html, "<td>%s</td>", processedCell)
+				fmt.Fprintf(&html, "<td%s>%s</td>", tableColumnAlignAttr(elem.ColumnAlign, j), processedCell)
 			}
 			html.WriteString("</tr>")
 		}
@@ -578,6 +578,34 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 	}
 
 	return html.String()
+}
+
+// tableColumnAlignAttr devuelve el atributo de alineación de la columna col
+// según ColumnAlign (table-align-v1: la fila delimitadora de una tabla
+// Markdown), o "" si la columna no declara ninguna, para que una tabla sin
+// alineación salga byte a byte igual que antes. El valor pasa por una lista
+// cerrada en vez de interpolarse: ColumnAlign puede venir de un AST externo
+// (filtro, JSON) que no pasó por ast.ValidateColumnAlign.
+//
+// Es un style y no una clase para que la alineación viaje con la tabla a
+// cualquier página que reuse este renderer, sin depender de una regla en la
+// hoja de estilos de cada una; la CSP de la salida ya admite estilos inline
+// (style-src 'unsafe-inline', ver csp.go). Gana sobre el text-align: left de
+// "table th, table td" del tema por especificidad.
+//
+// Solo lo usa la forma Headers/Rows: ColumnAlign solo existe en una tabla
+// con pipes, que nunca toma las formas tableRows/cells (ver
+// formatter.formatTableElement), y en ellas un colspan/rowspan rompe la
+// correspondencia entre la posición de la celda y la columna.
+func tableColumnAlignAttr(columnAlign []string, col int) string {
+	if col >= len(columnAlign) {
+		return ""
+	}
+	switch columnAlign[col] {
+	case "left", "center", "right":
+		return ` style="text-align: ` + columnAlign[col] + `"`
+	}
+	return ""
 }
 
 // renderAuthoredTableRows follows portable section semantics. Validation

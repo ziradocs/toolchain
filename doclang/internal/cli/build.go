@@ -44,13 +44,14 @@ func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, ext
 		chromiumPath    string   // Custom Chromium/Chrome path
 		installChromium bool     // Auto-install Chromium if not found
 		maxSizeMB       int      // Maximum input file size in MB (0 = use default/env)
-		assetRoot       string   // Confinement root for local image sources (default: input file's directory)
+		assetRoot       string   // Confinement root for local image sources (default: --base-dir, else the input file's directory)
+		baseDir         string   // Directory relative image sources and @include paths resolve from (default: input file's directory)
 		lintOnly        bool     // Only run the linter, don't generate output
 		lintConfig      string   // Path to a YAML linter policy file (flag > frontmatter lint_policy: > default, ver linter.ResolvePolicyConfig)
 		reportFormat    string   // Formato de reporte de linter (json, sarif)
 		reportOut       string   // Archivo de salida para el reporte
 		filters         []string // Rutas a binarios de filtro externo (issue #240, decisión C) — ver core/transform
-		includeRoot     string   // Confinement root for @include (issue #238, decisión 3) — default: input file's directory
+		includeRoot     string   // Confinement root for @include (issue #238, decisión 3) — default: --base-dir, else the input file's directory
 	)
 
 	cmd := &cobra.Command{
@@ -78,7 +79,10 @@ Examples:
   doclang build spec.doclang --format pdf --theme technical
   
   # Document with TOC and numbering
-  doclang build report.doclang --toc --numbering`,
+  doclang build report.doclang --toc --numbering
+
+  # Temporary copy of docs/guide.md: images and @include resolve from docs/
+  doclang build /tmp/guide-unsaved.md --base-dir docs --format docx`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			inputFile := filepath.ToSlash(filepath.Clean(args[0]))
@@ -110,15 +114,15 @@ Examples:
 				return err
 			}
 
-			// Confinamiento de @include (issue #238, decisión 3): por
-			// defecto, el directorio del propio archivo de entrada.
-			resolvedIncludeRoot := includeRoot
-			if resolvedIncludeRoot == "" {
-				resolvedIncludeRoot = filepath.Dir(inputFile)
-			}
-			absIncludeRoot, err := filepath.Abs(resolvedIncludeRoot)
+			// Directorios de resolución y confinamiento: el ancla es
+			// --base-dir o, sin él, el directorio del archivo de entrada;
+			// las imágenes relativas se resuelven desde ella y
+			// --asset-root/--include-root valen el ancla si no se pasan
+			// (ver pipeline.ResolveRoots). Se valida antes de parsear para
+			// que un --base-dir inválido falle también con --lint-only.
+			roots, err := pipeline.ResolveRoots(inputFile, baseDir, assetRoot, includeRoot)
 			if err != nil {
-				return fmt.Errorf("invalid include root: %w", err)
+				return err
 			}
 
 			// include → parse → transform → tema → lint: el mismo pipeline
@@ -127,7 +131,7 @@ Examples:
 			prepared, err := pipeline.Prepare(log, content, pipeline.PrepareOptions{
 				InputFile:         inputFile,
 				MaxInputBytes:     maxInputBytes,
-				IncludeRoot:       absIncludeRoot,
+				IncludeRoot:       roots.IncludeRoot,
 				Filters:           filters,
 				ThemeName:         themeFlag,
 				ThemeTrusted:      true, // --theme es el operador en su propia terminal
@@ -172,26 +176,13 @@ Examples:
 			}
 
 			// Confinamiento de fuentes de imagen (ver docs/SECURITY_AUDIT_2026-07.md,
-			// AL-4): por defecto, el directorio del propio archivo de entrada;
-			// --asset-root permite ampliarlo explícitamente (p. ej. a un directorio
-			// de assets compartido) sin dejar de rechazar rutas absolutas/"..".
-			// Se valida el modo de render ANTES, como siempre lo hizo build.
+			// AL-4): roots.AssetRoot es el ancla por defecto; --asset-root
+			// permite ampliarlo explícitamente (p. ej. a un directorio de
+			// assets compartido) sin dejar de rechazar rutas absolutas/"..".
+			// Las fuentes relativas se resuelven contra roots.SourceDir, no
+			// contra la raíz: la raíz solo dice hasta dónde se puede leer.
 			if err := pipeline.ValidateRenderOptions(renderMode, diagramBackend); err != nil {
 				return err
-			}
-			resolvedAssetRoot := assetRoot
-			if resolvedAssetRoot == "" {
-				resolvedAssetRoot = filepath.Dir(inputFile)
-			}
-			absAssetRoot, err := filepath.Abs(resolvedAssetRoot)
-			if err != nil {
-				return fmt.Errorf("invalid asset root: %w", err)
-			}
-			// Las fuentes relativas se resuelven contra el archivo fuente, no
-			// contra --asset-root: la raíz solo dice hasta dónde se puede leer.
-			absSourceDir, err := filepath.Abs(filepath.Dir(inputFile))
-			if err != nil {
-				return fmt.Errorf("invalid input directory: %w", err)
 			}
 
 			if err := pipeline.Generate(log, prepared, inputFile, pipeline.GenerateOptions{
@@ -209,8 +200,8 @@ Examples:
 				KrokiServer:     krokiServer,
 				ChromiumPath:    chromiumPath,
 				InstallChromium: installChromium,
-				AssetRoot:       absAssetRoot,
-				SourceDir:       absSourceDir,
+				AssetRoot:       roots.AssetRoot,
+				SourceDir:       roots.SourceDir,
 			}); err != nil {
 				return err
 			}
@@ -253,13 +244,14 @@ Examples:
 	cmd.Flags().StringVar(&chromiumPath, "chromium-path", "", "Custom path to Chromium/Chrome/Edge executable")
 	cmd.Flags().BoolVar(&installChromium, "install-chromium", false, "Auto-install Chromium if not found")
 	cmd.Flags().IntVar(&maxSizeMB, "max-size", 0, "Maximum input file size in MB (default: 10MB, override via DOCLANG_MAX_SIZE env var)")
-	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: the input file's directory); relative sources resolve from the input file, and absolute paths or '..' outside the root are rejected")
+	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: --base-dir, else the input file's directory); relative sources resolve from --base-dir, and absolute paths or '..' outside the root are rejected")
+	cmd.Flags().StringVar(&baseDir, "base-dir", "", "Directory relative image sources and @include paths resolve from (default: the input file's directory; a relative path resolves from the current directory). For building a temporary copy of a file: it also becomes the default --asset-root and --include-root, and must be inside --asset-root. An explicit --include-root need not contain it (includes then resolve from the include root). Images are only read at build time for docx, pdf and --render-mode offline-*; browser-mode HTML keeps each relative src as written")
 	cmd.Flags().BoolVar(&lintOnly, "lint-only", false, "Only run the linter, don't generate output")
 	cmd.Flags().StringVar(&lintConfig, "lint-config", "", "Path to a YAML linter policy file. If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
 	cmd.Flags().StringVar(&reportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")
 	cmd.Flags().StringVar(&reportOut, "report-out", "", "Output path for the report (default: stdout)")
 	cmd.Flags().StringArrayVar(&filters, "filter", nil, "Path to an external filter binary that transforms the AST between parse and lint (repeatable; runs in the order given, each filter's output feeds the next). Communicates via JSON on stdin/stdout — see https://ziradocs.com/docs/architecture/json-ast-contract/")
-	cmd.Flags().StringVar(&includeRoot, "include-root", "", "Directory @include paths are confined to (default: the input file's directory); absolute paths and '..' outside it are rejected")
+	cmd.Flags().StringVar(&includeRoot, "include-root", "", "Directory @include paths resolve from and are confined to (default: --base-dir, else the input file's directory); absolute paths and '..' outside it are rejected")
 
 	return cmd
 }

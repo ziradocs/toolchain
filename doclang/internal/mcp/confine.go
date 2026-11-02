@@ -220,8 +220,13 @@ func (r exportRoot) defaultOutput(inputAbs, format string) string {
 	return strings.TrimSuffix(rel, filepath.Ext(rel)) + "." + format
 }
 
-// resolveDir confina un directorio pedido por el cliente (includeRoot):
-// dentro de la raíz, también tras resolver symlinks, y existente.
+// resolveDir confina un directorio pedido por el cliente (baseDir,
+// includeRoot): dentro de la raíz, también tras resolver symlinks, y
+// existente. Devuelve la ruta con los symlinks ya resueltos y vuelve a
+// comprobar que esa ruta esté dentro de la raíz (r.dir ya viene resuelta).
+// Así el directorio que se usa después es el que se validó: si un symlink
+// de la ruta pedida se cambia tras la validación para apuntar fuera de
+// --root, la raíz de includes o el baseDir no se mueven con él.
 func (r exportRoot) resolveDir(p string) (string, error) {
 	rel, err := r.relative(p)
 	if err != nil {
@@ -241,5 +246,13 @@ func (r exportRoot) resolveDir(p string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("not a directory: %s", filepath.ToSlash(rel))
 	}
-	return dir, nil
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	within, err := filepath.Rel(r.dir, real)
+	if err != nil || within == ".." || strings.HasPrefix(within, ".."+string(filepath.Separator)) || filepath.IsAbs(within) {
+		return "", fmt.Errorf("%w: %s resolves outside the root", util.ErrPathEscapesBase, filepath.ToSlash(rel))
+	}
+	return real, nil
 }
