@@ -45,9 +45,11 @@ func TestPopulateAndRenderElementHTMLCoverAllImplementers(t *testing.T) {
 		t.Fatal("no se encontró ningún implementador de element() en ../ast; ¿cambió la ruta o el nombre del método marcador?")
 	}
 
-	renderCases, err := findSwitchCaseTypes("html.go", "RenderElementToHTML")
+	// El despacho por tipo vive en renderElementToHTML; RenderElementToHTML
+	// lo envuelve para resolver las imágenes inline (resolveInlineImages).
+	renderCases, err := findSwitchCaseTypes("html.go", "renderElementToHTML")
 	if err != nil {
-		t.Fatalf("findSwitchCaseTypes(html.go, RenderElementToHTML): %v", err)
+		t.Fatalf("findSwitchCaseTypes(html.go, renderElementToHTML): %v", err)
 	}
 	populateCases, err := findSwitchCaseTypes("populate_inline_html.go", "populateElementHTML")
 	if err != nil {

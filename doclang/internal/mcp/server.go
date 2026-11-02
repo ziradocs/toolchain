@@ -28,6 +28,11 @@ type Options struct {
 	ChromiumPath string
 	// ExportTimeout acota cada `export`. Cero = DefaultExportTimeout.
 	ExportTimeout time.Duration
+	// AllowRemoteImages (--allow-remote-images de `doclang mcp`) es lo que
+	// habilita la opción allowRemoteImages del export. La opción la pone el
+	// cliente, que puede estar manejando un documento no confiable: sin este
+	// permiso del operador se ignora con un aviso.
+	AllowRemoteImages bool
 }
 
 // NewServer construye el servidor MCP de doclang con todos sus tools
@@ -56,9 +61,10 @@ func NewServerWithOptions(logger util.Logger, opts Options) (*sdkmcp.Server, err
 	}
 	server := newServer(logger)
 	registerExportTool(server, logger, exportConfig{
-		root:         root,
-		chromiumPath: opts.ChromiumPath,
-		timeout:      opts.ExportTimeout,
+		root:              root,
+		chromiumPath:      opts.ChromiumPath,
+		timeout:           opts.ExportTimeout,
+		allowRemoteImages: opts.AllowRemoteImages,
 	})
 	return server, nil
 }

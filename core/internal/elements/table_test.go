@@ -920,39 +920,55 @@ func TestSplitMarkdownTableRow_BackslashParity(t *testing.T) {
 	}
 }
 
-// TestSplitMarkdownTableRow_BackslashInsideCodeSpanIsLiteral cubre un
-// hallazgo de quinta ronda de revisión: la rama de backslashes corría
-// SIEMPRE, sin mirar inSpan, así que una celda como "`a\|b`" (un code
-// span de un solo backtick que ya protege el "|" de adentro como no
-// separador) perdía igual el backslash — la lógica de apareo/escape de
-// pipes lo trataba como si estuviera a nivel de texto. CommonMark §6.1
-// es explícito: "backslash escapes do not work in code spans" — el
-// contenido entre backticks se preserva BYTE A BYTE, sin importar cuántos
-// backslashes consecutivos traiga ni si terminan justo antes de un "|".
-// Esto también cierra el round-trip de fmt: el formatter (ver
-// escapeTableCellPipe/table_pipe_escape_test.go) ya deja intacto un "|"
-// dentro de un span; si el parser desescapaba el backslash del contenido,
-// parse→format→reparse no era la identidad.
-func TestSplitMarkdownTableRow_BackslashInsideCodeSpanIsLiteral(t *testing.T) {
+// TestSplitMarkdownTableRow_BackslashInsideCodeSpan fija la regla de GFM
+// para backslashes dentro de un code span de una celda. CommonMark §6.1
+// dice que los backslashes no escapan nada dentro de un code span, y eso
+// sigue valiendo para cualquier corrida que NO preceda a un "|". Pero la
+// extensión de tablas de GFM procesa el "\|" al partir la fila, antes del
+// parseo inline, también dentro de code spans (ejemplo 200 del spec: la
+// celda "`\|`" es <code>|</code>). Una versión anterior preservaba la
+// corrida intacta delante del "|" y "`a \| b`" se renderizaba con el
+// backslash visible en HTML, PDF y DOCX (D8 de la corrida de aceptación
+// sobre doclang v2.48.1).
+// La corrida que precede a un "|" dentro del span pierde exactamente un
+// backslash; el formatter (escapeTableCellPipe) agrega ese backslash de
+// vuelta cuando el contenido ya trae alguno, y el round-trip es la
+// identidad (ver formatter/table_pipe_escape_test.go).
+func TestSplitMarkdownTableRow_BackslashInsideCodeSpan(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
 		want []string
 	}{
 		{
-			name: "un backslash antes del pipe, DENTRO de un span de 1 backtick: sobrevive",
+			name: "un backslash antes del pipe, dentro de un span: escapa al pipe (GFM ejemplo 200)",
 			line: "`a\\|b`",
+			want: []string{"`a|b`"},
+		},
+		{
+			name: "el caso del corpus: `a \\| b` en una fila con dos celdas",
+			line: "| `a \\| b` | alternativa |",
+			want: []string{"", " `a | b` ", " alternativa ", ""},
+		},
+		{
+			name: "dos backslashes antes del pipe, dentro de un span: queda uno literal",
+			line: "`a\\\\|b`",
 			want: []string{"`a\\|b`"},
 		},
 		{
-			name: "dos backslashes (corrida par) antes del pipe, dentro de un span: sobreviven los dos, no se aparean",
-			line: "`a\\\\|b`",
+			name: "tres backslashes antes del pipe, dentro de un span: quedan dos literales",
+			line: "`a\\\\\\|b`",
 			want: []string{"`a\\\\|b`"},
 		},
 		{
-			name: "tres backslashes (corrida impar) antes del pipe, dentro de un span: sobreviven los tres",
-			line: "`a\\\\\\|b`",
-			want: []string{"`a\\\\\\|b`"},
+			name: "un backslash que no precede a un pipe, dentro de un span: literal",
+			line: "`C:\\dir`",
+			want: []string{"`C:\\dir`"},
+		},
+		{
+			name: "un pipe sin backslash dentro de un span sigue protegido",
+			line: "`a|b`",
+			want: []string{"`a|b`"},
 		},
 		{
 			name: "el mismo contenido FUERA de un span sí aplica el apareo/escape (sanity check, no debe romperse)",

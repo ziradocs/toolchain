@@ -381,6 +381,7 @@ func (g *Generator) tryBuildNativeContext(astNode *ast.AST, outputDir string, op
 		// depender de qué haya en la línea de comandos.
 		ImageMode:              opts.RenderMode,
 		AssetRoot:              opts.AssetRoot,
+		Lang:                   deckLang(astNode),
 		OutputDir:              outputDir,
 		ChartFetcher:           chartFetcher,
 		ChartCategoricalColors: categoricalColors,
@@ -498,6 +499,7 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 		// tryBuildNativeContext arriba en este archivo.
 		ImageMode:              opts.RenderMode,
 		AssetRoot:              opts.AssetRoot,
+		Lang:                   deckLang(astNode),
 		OutputDir:              outputDir,
 		ChartFetcher:           chartFetcher,
 		ChartCategoricalColors: categoricalColors,
@@ -522,4 +524,15 @@ func buildInteractiveRenderContext(chromiumR *chromium.ChromiumRenderer, astNode
 	}
 	wirePlantUMLFetcher(ctx, astNode, opts, outputDir)
 	return ctx
+}
+
+// deckLang es el lang: del frontmatter, o "" (español por defecto en core).
+// Va al RenderContext para que el marcador de un chart, mapa o diagrama que
+// no se pudo generar ("Gráfica no disponible" / "Chart not available") salga
+// en el idioma del deck, igual que en doclang.
+func deckLang(astNode *ast.AST) string {
+	if astNode == nil || astNode.FrontMatter == nil {
+		return ""
+	}
+	return astNode.FrontMatter.Lang
 }

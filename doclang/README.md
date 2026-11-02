@@ -98,6 +98,7 @@ doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`
 | `--base-dir` | *(input file's dir)* | Directory relative image sources and `@include` paths resolve from. For building a temporary copy of a file (an editor buffer with unsaved changes, a generated file that `@include`s real ones): the input file is then only a carrier, so `--base-dir` also becomes the default of `--asset-root` and `--include-root`. It must exist, be a directory and sit inside `--asset-root`. A relative path resolves from the current directory, like `--asset-root` and `--include-root`. An explicit `--include-root` doesn't have to contain it: `@include` paths then resolve from the include root. Images are only read at build time for DOCX, PDF and `--render-mode offline-*` HTML; in the default `browser` mode HTML keeps each relative `src` as written, so `--base-dir` doesn't change it. |
 | `--include-root` | *(`--base-dir`, else input file's dir)* | Directory `@include` paths resolve from and are confined to, at every nesting level (a nested `@include` resolves from this root, not from the file that contains it). Absolute paths and `..` escapes are rejected. |
 | `--asset-root` | *(`--base-dir`, else input file's dir)* | Same confinement for local image sources. Relative sources resolve from `--base-dir` (by default, the input file's directory); the root only bounds what can be read (e.g. `--asset-root ..` allows `../shared/b.png`). |
+| `--allow-remote-images` | off | Lets PDF and `--render-mode offline-*` HTML show `http(s)` images from the document. Off by default: those outputs are rendered on the machine that builds them, so a remote image in an untrusted document would make it fetch that URL. Without the flag such images are left as a marker with a warning, and the page's CSP only allows `data:` and same-origin images. Browser-mode HTML is unaffected (the reader's browser loads the image), and DOCX never downloads images. |
 | `--max-size` | 10 MB | Input size cap. Also settable via `DOCLANG_MAX_SIZE`. |
 
 ### Interactive elements
@@ -122,7 +123,9 @@ plugin) and MathJax 4.1.3, the same builds browser mode loads from the CDN. Math
 accepts a fenced ` ```math ` (or `~~~math`) block, besides `<<math>>` and `$$`;
 `doclang fmt` rewrites it as `<<math>>`. The TeX extensions that
 need a font of their own besides mhchem (`\require{bbm}`, `bboldx`, `dsfont`) are not
-embedded and still need network; without it they fail with a warning. `doclang licenses`
+embedded and still need network; without it they fail with a warning. As with the CDN,
+`numcases` needs `\require{cases}` and `\rowcolor` needs `\require{colortbl}` in the
+formula; the rest load on their own. `doclang licenses`
 prints the license and third-party notices of everything the binary embeds. Every Chromium capture
 has a deadline (30 s per capture of a chart, diagram or equation, 5 min to print the
 PDF), so a resource that can't load ends in a warning instead of a hung build.
@@ -131,6 +134,14 @@ Maps still need the tile servers (and Leaflet from unpkg.com), and PlantUML its 
 Without network a map is left out with a warning: in under a second when connections are
 refused, and at most after a 5 s probe plus the map's deadline (15 s, 20 s from zoom 7,
 60 s from zoom 11) when they hang.
+
+When a map, chart, diagram or equation can't be rendered, or a local image is missing or
+outside `--asset-root`, HTML and PDF show a box with a short note in the document's
+language ("Mapa no disponible", "Image not available", with the image's alt text) instead
+of a broken-image icon or the internal error; the detail goes to the warning. SVG images
+reach DOCX rasterized to PNG with Chromium, at the size the SVG declares
+(`width`/`height`, else its `viewBox`); without Chromium they are left as a marker with a
+warning.
 
 ## MCP server
 
@@ -155,6 +166,7 @@ The fifth, `export`, writes DOCX, PDF or HTML for a file on disk with the same p
 | `toc` | optional; without it the front matter decides, as in `build` |
 | `baseDir` | optional, like `build --base-dir`: the directory relative images and `@include` paths resolve from, inside the root. Defaults to the input file's directory. HTML export uses `browser` mode, which keeps each relative `src` as written, so for HTML `baseDir` only affects `@include` |
 | `includeRoot` | optional, like `build --include-root`. Defaults to `baseDir` |
+| `allowRemoteImages` | optional, like `build --allow-remote-images`; default `false`, so a PDF export leaves the document's `http(s)` images as a marker with a warning instead of fetching them. The client sets it, so it only takes effect when the server was started with `doclang mcp --allow-remote-images`; otherwise it is ignored with a warning in the diagnostics |
 
 The result is `{outputPath, format, bytes, diagnostics}`, with `outputPath` relative to the
 root. Lint errors come back as an error result carrying the diagnostics, as in `lint`.
@@ -162,8 +174,8 @@ root. Lint errors come back as an error result carrying the diagnostics, as in `
 - **Root.** `--root` (default: the current directory) is resolved once at startup. The
   input, the output, `@include` files and local images all have to stay inside it, also
   after resolving symlinks.
-- **Chromium.** PDF always needs Chromium, and so does DOCX with mermaid diagrams, math or
-  charts that can't be drawn natively. If it's needed and missing, `export` fails with an
+- **Chromium.** PDF always needs Chromium, and so does DOCX with mermaid diagrams, math,
+  local SVG images or charts that can't be drawn natively. If it's needed and missing, `export` fails with an
   error that names what needs it. It never downloads anything: install Chrome, Chromium or
   Edge, or run `doclang build --install-chromium` once from a terminal. `--chromium-path`
   points the server at a specific binary.

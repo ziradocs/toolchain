@@ -352,3 +352,23 @@ func TestSetupOfflineRenderContext_WiresAssetContext(t *testing.T) {
 		})
 	}
 }
+
+// TestSetupOfflineRenderContext_CarriesDeckLang: el RenderContext lleva el
+// lang: del deck, para que un marcador de contenido no disponible salga en
+// el idioma del deck y no siempre en español.
+func TestSetupOfflineRenderContext_CarriesDeckLang(t *testing.T) {
+	g := New(util.NewNoop())
+	doc := astWithElements(nativeBarChart())
+	doc.FrontMatter = &ast.FrontMatterNode{Lang: "en-US"}
+	ctx, cleanup, err := g.SetupOfflineRenderContext(doc, t.TempDir(), GeneratorOptions{
+		RenderMode:   "offline-inline",
+		ChromiumPath: "/nonexistent/definitely-not-a-real-chromium-binary",
+	})
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Lang != "en-US" {
+		t.Errorf("ctx.Lang = %q, want en-US", ctx.Lang)
+	}
+}

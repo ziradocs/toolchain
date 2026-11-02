@@ -82,16 +82,16 @@ func TestRenderImageElement_OfflineInlineLocalSource(t *testing.T) {
 }
 
 // TestRenderImageElement_OfflineInlineRemoteSourceNotInlined covers that a
-// remote (http/https) image reference is left alone under offline-inline —
-// it already resolves fine against a real origin inside about:blank (no
-// base-URL problem for an absolute URL), so reading+inlining it would only
-// add cost and a needless network dependency at build time.
+// remote (http/https) image reference is never read and inlined at build
+// time. With AllowRemoteImages it is left as is (the opt-in); without it,
+// see TestRemoteImages_BlockedInBuildOutputs.
 func TestRenderImageElement_OfflineInlineRemoteSourceNotInlined(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	img := ast.NewImageElement(pos, "https://example.com/logo.png", "Logo")
 	ctx := NewDefaultRenderContext()
 	ctx.ImageMode = "offline-inline"
 	ctx.AssetRoot = t.TempDir()
+	ctx.SetAllowRemoteImages(true)
 
 	got := renderImageElement(img, nil, ctx)
 	want := `<img src="https://example.com/logo.png" alt="Logo">`
@@ -103,8 +103,10 @@ func TestRenderImageElement_OfflineInlineRemoteSourceNotInlined(t *testing.T) {
 // TestRenderImageElement_OfflineInlineMissingFileFallsBack covers a local
 // reference that doesn't resolve to a real file (issue #163/#167's own
 // analytics_dashboard_presentation_flex.slidelang example, before it was
-// fixed) — must degrade to the pre-existing broken-but-harmless
-// verbatim-src behavior, not fail the whole element or the build.
+// fixed) — must not fail the whole element or the build. It used to degrade
+// to the verbatim src, which in a PDF (about:blank, no base URL) printed
+// Chromium's broken-image icon while DOCX left a marker; it now degrades to
+// the same kind of marker, with the alt text.
 func TestRenderImageElement_OfflineInlineMissingFileFallsBack(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	img := ast.NewImageElement(pos, "does-not-exist.png", "Logo")
@@ -113,7 +115,7 @@ func TestRenderImageElement_OfflineInlineMissingFileFallsBack(t *testing.T) {
 	ctx.AssetRoot = t.TempDir()
 
 	got := renderImageElement(img, nil, ctx)
-	want := `<img src="does-not-exist.png" alt="Logo">`
+	want := `<div class="image-unavailable" role="img" aria-label="Logo"><span class="unavailable-note">Imagen no disponible</span><span class="unavailable-title">Logo</span></div>`
 	if got != want {
 		t.Errorf("got:  %s\nwant: %s", got, want)
 	}
@@ -155,9 +157,8 @@ func TestRenderImageElement_OfflineInlinePathEscapeRejected(t *testing.T) {
 	if strings.Contains(got, "data:") || strings.Contains(got, base64Encode([]byte("secret"))) {
 		t.Errorf("path escape was not blocked, file content outside AssetRoot was inlined: %s", got)
 	}
-	want := `<img src="../secret.png" alt="Logo">`
-	if got != want {
-		t.Errorf("got:  %s\nwant: %s (rejected escape falls back to verbatim src, same as a missing file)", got, want)
+	if strings.Contains(got, "<img") || !strings.Contains(got, `class="image-unavailable"`) {
+		t.Errorf("got:  %s\nwant the image-unavailable marker (a rejected escape degrades like a missing file)", got)
 	}
 }
 

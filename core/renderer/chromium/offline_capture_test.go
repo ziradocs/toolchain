@@ -229,3 +229,57 @@ func TestRenderMath_SafeFiltersExternalURLs(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderChartToPNG_NoBlankBandUnderChart: un config JSON sin
+// maintainAspectRatio: false dibuja a la proporción por defecto de Chart.js
+// (2:1). La captura del contenedor de 800x600 llevaba 200 px en blanco debajo
+// de la gráfica; la del canvas mide lo que mide la gráfica. Con
+// maintainAspectRatio: false la imagen sigue siendo del alto pedido.
+func TestRenderChartToPNG_NoBlankBandUnderChart(t *testing.T) {
+	r := newTestChromiumRenderer(t)
+	for _, tc := range []struct {
+		name, cfg string
+		wantH     int
+	}{
+		{"default aspect ratio", `{"type":"bar","data":{"labels":["Ene","Feb"],"datasets":[{"label":"Ventas","data":[10,20]}]}}`, 400},
+		{"maintainAspectRatio false", `{"type":"bar","data":{"labels":["Ene","Feb"],"datasets":[{"label":"Ventas","data":[10,20]}]},"options":{"maintainAspectRatio":false}}`, 600},
+	} {
+		data, err := r.RenderChartToPNG(context.Background(), tc.cfg, 800, 600)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		cfg, err := png.DecodeConfig(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("%s: not a PNG: %v", tc.name, err)
+		}
+		if cfg.Width != 800 || cfg.Height != tc.wantH {
+			t.Errorf("%s: PNG is %dx%d, want 800x%d", tc.name, cfg.Width, cfg.Height, tc.wantH)
+		}
+		webp, err := r.RenderChartToWebP(context.Background(), tc.cfg, 800, 600, 80)
+		if err != nil {
+			t.Fatalf("%s webp: %v", tc.name, err)
+		}
+		if h := webpHeight(t, webp); h != tc.wantH {
+			t.Errorf("%s: WebP height %d, want %d", tc.name, h, tc.wantH)
+		}
+	}
+}
+
+// webpHeight lee el alto de un WebP VP8/VP8L/VP8X sin decodificarlo.
+func webpHeight(t *testing.T, b []byte) int {
+	t.Helper()
+	if len(b) < 30 || string(b[0:4]) != "RIFF" || string(b[8:12]) != "WEBP" {
+		t.Fatalf("not a WebP")
+	}
+	switch string(b[12:16]) {
+	case "VP8 ":
+		return int(b[28]) | int(b[29]&0x3f)<<8
+	case "VP8L":
+		bits := uint32(b[21]) | uint32(b[22])<<8 | uint32(b[23])<<16 | uint32(b[24])<<24
+		return int((bits>>14)&0x3fff) + 1
+	case "VP8X":
+		return int(b[27]) | int(b[28])<<8 | int(b[29])<<16 + 1
+	}
+	t.Fatalf("unknown WebP chunk %q", b[12:16])
+	return 0
+}

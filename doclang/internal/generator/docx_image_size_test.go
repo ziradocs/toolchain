@@ -214,7 +214,7 @@ func TestDOCX_ExtremeImagesAreInserted(t *testing.T) {
 		t.Errorf("una imagen existente salió como not found")
 	}
 	for _, name := range []string{"broken.png", "zero.gif", "corrupt.png"} {
-		if !strings.Contains(xml, "[Image could not be inserted: "+name+"]") {
+		if !strings.Contains(xml, "[Imagen no disponible: "+name+"]") {
 			t.Errorf("falta el marcador de %s", name)
 		}
 	}

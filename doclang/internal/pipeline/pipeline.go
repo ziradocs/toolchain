@@ -355,6 +355,8 @@ type GenerateOptions struct {
 	// de imagen relativa se resuelve contra él y después se confina a
 	// AssetRoot. Ver generator.GeneratorOptions.SourceDir.
 	SourceDir string
+	// AllowRemoteImages: ver generator.GeneratorOptions.AllowRemoteImages.
+	AllowRemoteImages bool
 }
 
 var validRenderModes = map[string]bool{
@@ -448,6 +450,7 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		InstallChromium:   opts.InstallChromium,
 		AssetRoot:         opts.AssetRoot, // Confinamiento de fuentes de imagen (AL-4)
 		SourceDir:         opts.SourceDir, // Base de las fuentes de imagen relativas
+		AllowRemoteImages: opts.AllowRemoteImages,
 		Ctx:               opts.Ctx,
 	}
 	log.Info("GENERATOR", "Generating %s document...", format)

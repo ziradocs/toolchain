@@ -13,6 +13,7 @@ import (
 	_ "image/gif"  // image.DecodeConfig de imágenes GIF
 	_ "image/jpeg" // image.DecodeConfig de imágenes JPEG
 	"image/png"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,6 +54,14 @@ type DOCXGenerator struct {
 	sourceDir string
 	// ctx es GeneratorOptions.Ctx de la generación en curso; ver runCtx.
 	ctx context.Context
+	// lang es el lang: del front matter; decide el idioma de los marcadores
+	// de contenido no disponible (docx_unavailable.go).
+	lang string
+	// inlineImageMaxWidthIn, si es > 0, es el ancho máximo de una imagen
+	// inline mientras se escribe una celda de tabla: el de su columna menos
+	// los márgenes. Sin esto una imagen inline grande en una celda se
+	// ajustaba a la caja de texto de la página y desbordaba la columna.
+	inlineImageMaxWidthIn float64
 }
 
 // runCtx es el contexto de la generación en curso, o Background fuera de
@@ -177,6 +186,9 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 	g.tempDir = tempDir
+	if astDoc.FrontMatter != nil {
+		g.lang = astDoc.FrontMatter.Lang
+	}
 
 	themeName := resolveDOCXThemeName(astDoc, opts)
 	g.logger.Info("DOCX", "Using theme: %s", themeName)
@@ -1947,28 +1959,47 @@ func docxFindInlineImage(s string) []int {
 	return nil
 }
 
-// docxImagePattern representa una imagen inline ![alt](src) con su alt como
-// texto. DOCX no incrusta imágenes inline, y el alt es lo mismo que el HTML
-// deja visible cuando descarta la imagen, así que sale el alt sea cual sea el
-// destino, y el destino nunca llega al texto del documento. Sin este pattern
-// el de link se quedaba con "[alt](src)" y salía un "!" literal seguido del
-// alt subrayado como si fuera link. Un alt vacío no deja nada.
+// docxImagePattern inserta una imagen inline ![alt](src) de un párrafo, un
+// ítem de lista o una celda. Antes salía solo el alt como texto, aunque el
+// archivo existiera, mientras el HTML la mostraba. Una fuente local pasa por
+// el mismo confinamiento y la misma medida que una imagen de bloque
+// (prepareLocalImage): tamaño natural, reducido al ancho de la caja de
+// texto. Una que falta o queda fuera de la raíz deja el marcador localizado
+// con su alt, como la de bloque. Una fuente remota sigue saliendo como su
+// alt (el DOCX no descarga nada), y un alt vacío no deja nada.
 func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
 	return docxInlinePattern{
 		find: docxFindInlineImage,
-		apply: func(p domain.Paragraph, alt string, _ string, _ string, postRun func(r domain.Run) error) error {
-			if alt == "" {
+		apply: func(p domain.Paragraph, alt string, dest string, _ string, postRun func(r domain.Run) error) error {
+			text := alt
+			if src, local := docxLocalImageSource(dest); local {
+				if path, size, ok := g.prepareLocalImage(src, 0, false); ok {
+					size = capImageWidth(size, g.inlineImageMaxWidthIn)
+					_, err := p.AddImageWithSize(path, size)
+					if err == nil {
+						return nil
+					}
+					g.logger.Warn("DOCX: inline image %q could not be inserted: %v", src, err)
+				}
+				text = g.docxImageUnavailableText(alt, src)
+			}
+			if text == "" {
 				return nil
 			}
 			r, err := p.AddRun()
 			if err != nil {
 				return err
 			}
-			_ = r.SetText(alt)
+			_ = r.SetText(text)
 			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 				return err
 			}
-			_ = r.SetColor(g.parseColor(g.style.TextColor))
+			if text != alt {
+				_ = r.SetColor(g.parseColor(g.style.TextLightColor))
+				_ = r.SetItalic(true)
+			} else {
+				_ = r.SetColor(g.parseColor(g.style.TextColor))
+			}
 			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
 			if postRun != nil {
 				return postRun(r)
@@ -1976,6 +2007,43 @@ func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
 			return nil
 		},
 	}
+}
+
+// capImageWidth reduce size, conservando la proporción, para que no pase de
+// maxWidthIn pulgadas; maxWidthIn <= 0 no acota nada.
+func capImageWidth(size domain.ImageSize, maxWidthIn float64) domain.ImageSize {
+	const emuPerInch = 914400.0
+	w := float64(size.WidthEMU) / emuPerInch
+	if maxWidthIn <= 0 || w <= maxWidthIn {
+		return size
+	}
+	h := float64(size.HeightEMU) / emuPerInch
+	return imageSizeFromInches(maxWidthIn, h*maxWidthIn/w)
+}
+
+// docxLocalImageSource devuelve la ruta de un destino de imagen inline si es
+// un archivo local (sin esquema): sin los <> opcionales, sin título y con las
+// referencias de carácter decodificadas. Remoto, data: o vacío no cuenta.
+func docxLocalImageSource(dest string) (string, bool) {
+	d := strings.TrimSpace(renderer.DecodeLinkDestination(dest))
+	if strings.HasPrefix(d, "<") {
+		if end := strings.Index(d, ">"); end > 0 {
+			d = d[1:end]
+		}
+	} else if i := strings.IndexAny(d, " \t"); i >= 0 {
+		d = d[:i]
+	}
+	if d == "" {
+		return "", false
+	}
+	u, err := url.Parse(d)
+	if err != nil || u.Scheme != "" || u.Host != "" {
+		return "", false
+	}
+	if unescaped, err := url.PathUnescape(u.Path); err == nil {
+		return unescaped, unescaped != ""
+	}
+	return u.Path, u.Path != ""
 }
 
 // docxApplyLink escribe la etiqueta de un link. DOCX no emite hipervínculo
@@ -2506,7 +2574,10 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 				continue
 			}
 
-			if err := g.renderInlineMarkdown(p, row[j]); err != nil {
+			g.inlineImageMaxWidthIn = float64(colWidths[j]-docxCellPaddingTwips) / 1440
+			err = g.renderInlineMarkdown(p, row[j])
+			g.inlineImageMaxWidthIn = 0
+			if err != nil {
 				return err
 			}
 		}
@@ -2586,6 +2657,18 @@ func docxTableColumnWidths(elem *ast.TableElement, numCols, available, headerHal
 	for j := 0; j < numCols && j < len(elem.Headers); j++ {
 		mins[j] = docxHeaderMinWidth(elem.Headers[j], headerHalfPoints)
 	}
+	// Una celda que es un ID corto ("RF-12", "NFR-SEG-3") tampoco se puede
+	// partir: Word corta en el guion igual que Chromium, y con cinco
+	// columnas de texto largo la columna de ID quedaba en 640 twips y salía
+	// "NFR" / "-SEG" / "-3". Mismo criterio que la clase cell-token del HTML
+	// (core/renderer, tableTokenCellClass).
+	for _, row := range elem.Rows {
+		for j := 0; j < numCols && j < len(row); j++ {
+			if docxIsShortToken(row[j]) {
+				mins[j] = max(mins[j], docxHeaderMinWidth(row[j], headerHalfPoints))
+			}
+		}
+	}
 
 	// Reparto proporcional; la columna que queda bajo su mínimo se fija en
 	// él y el resto se vuelve a repartir entre las demás, hasta que ninguna
@@ -2633,6 +2716,17 @@ func docxTableColumnWidths(elem *ast.TableElement, numCols, available, headerHal
 	}
 	widths[numCols-1] += available - used
 	return widths
+}
+
+// docxIDTokenPattern y docxIsShortToken espejan tableIDToken de
+// core/renderer (no exportada): un ID de dos a cuatro grupos en mayúsculas y
+// dígitos separados por guion ("RF-12", "NFR-SEG-3"), de hasta 12
+// caracteres. Los tests de los dos lados usan los mismos casos.
+var docxIDTokenPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+){1,3}$`)
+
+func docxIsShortToken(cell string) bool {
+	t := strings.Trim(strings.TrimSpace(docxStripHeadingMarkup(cell)), "*_`")
+	return utf8.RuneCountInString(t) <= 12 && docxIDTokenPattern.MatchString(t)
 }
 
 // Estimación del ancho de texto de un encabezado, sin métricas de fuente:
@@ -2692,38 +2786,9 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	// Insertar imagen usando docxgo v2. elem.Source es contenido del
-	// documento (no confiable): docxgo lee el path directo con os.ReadFile
-	// sin ninguna sanitización propia, a diferencia del path HTML (que sí
-	// aplica SanitizeURL) — sin confinar aquí, una ruta absoluta o con ".."
-	// copiaría un archivo local arbitrario a word/media/ del .docx generado
-	// (ver docs/SECURITY_AUDIT_2026-07.md, AL-4).
-	imagePath := elem.Source
-	if g.assetRoot != "" {
-		confined, err := util.ResolveConfinedPathFrom(g.assetRoot, g.sourceDir, imagePath)
-		if err != nil {
-			g.logger.Warn("DOCX: Image source blocked (outside asset root): %s: %v", imagePath, err)
-			return g.renderImagePlaceholder(p, fmt.Sprintf("[Image blocked: %s]", imagePath))
-		}
-		imagePath = confined
-	}
-
-	// El marcador va DENTRO del documento, así que cita la fuente tal como
-	// la escribió el autor (elem.Source) y no imagePath: tras
-	// ResolveConfinedPath ese es la ruta absoluta de la máquina que compiló,
-	// que no tiene nada que hacer en un .docx que se comparte. "not found"
-	// es solo para un archivo que no existe; uno que existe pero no se puede
-	// medir o insertar (dañado, 0x0, formato no soportado) es otro error.
-	if _, statErr := os.Stat(imagePath); statErr != nil {
-		g.logger.Warn("DOCX: line %d: image %q not found", elem.Position.Line, elem.Source)
-		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image not found: %s]", elem.Source))
-	}
-
-	// Tamaño natural, reducido si no cabe en la caja de texto.
-	imageSize, err := g.fittedImageSize(imagePath, elem.Caption != "")
-	if err != nil {
-		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
-		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
+	insertPath, imageSize, ok := g.prepareLocalImage(elem.Source, elem.Position.Line, elem.Caption != "")
+	if !ok {
+		return g.renderImagePlaceholder(p, g.docxImageUnavailableText(elem.Alt, elem.Source))
 	}
 
 	// La leyenda va en la misma página que su imagen.
@@ -2734,14 +2799,14 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	}
 
 	// Agregar imagen
-	img, err := p.AddImageWithSize(imagePath, imageSize)
+	img, err := p.AddImageWithSize(insertPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
-		return g.renderImagePlaceholder(p, fmt.Sprintf("[Image could not be inserted: %s]", elem.Source))
+		return g.renderImagePlaceholder(p, g.docxImageUnavailableText(elem.Alt, elem.Source))
 	}
 
 	_ = img // Imagen insertada exitosamente
-	g.logger.Info("DOCX", "✅ Image inserted: %s", imagePath)
+	g.logger.Info("DOCX", "✅ Image inserted: %s", insertPath)
 
 	// Caption si existe
 	if elem.Caption != "" {
@@ -2776,6 +2841,76 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	}
 
 	return nil
+}
+
+// prepareLocalImage resuelve una fuente de imagen local para insertarla en el
+// DOCX: la confina a assetRoot, comprueba que exista y calcula su tamaño
+// (natural, reducido para caber en la caja de texto; un SVG se rasteriza con
+// Chromium). Devuelve la ruta a insertar y el tamaño, u ok=false después de
+// dejar el aviso en el log. line 0 es una imagen inline, sin línea propia en
+// el AST. La usan la imagen de bloque (renderImage) y la inline de un
+// párrafo, ítem de lista o celda (docxImagePattern).
+func (g *DOCXGenerator) prepareLocalImage(source string, line int, hasCaption bool) (string, domain.ImageSize, bool) {
+	where := "inline image"
+	if line > 0 {
+		where = fmt.Sprintf("line %d: image", line)
+	}
+	// Una imagen remota nunca se descarga: el DOCX se arma en la máquina que
+	// compila y un documento no confiable le haría pedir cualquier URL.
+	if u, err := url.Parse(strings.TrimSpace(source)); err == nil && (u.Scheme != "" && u.Scheme != "file" || u.Host != "") {
+		g.logger.Warn("DOCX: %s %q was not downloaded: DOCX output never fetches remote images", where, source)
+		return "", domain.ImageSize{}, false
+	}
+	// elem.Source es contenido del documento (no confiable): docxgo lee el
+	// path directo con os.ReadFile sin ninguna sanitización propia, a
+	// diferencia del path HTML (que sí aplica SanitizeURL) — sin confinar
+	// aquí, una ruta absoluta o con ".." copiaría un archivo local
+	// arbitrario a word/media/ del .docx generado (ver
+	// docs/SECURITY_AUDIT_2026-07.md, AL-4).
+	imagePath := source
+	if g.assetRoot != "" {
+		confined, err := util.ResolveConfinedPathFrom(g.assetRoot, g.sourceDir, imagePath)
+		if err != nil {
+			g.logger.Warn("DOCX: Image source blocked (outside asset root): %s: %v", imagePath, err)
+			return "", domain.ImageSize{}, false
+		}
+		imagePath = confined
+	}
+
+	// Los avisos citan la fuente tal como la escribió el autor y no
+	// imagePath (tras ResolveConfinedPath es la ruta absoluta de la máquina
+	// que compiló). "not found" es solo para un archivo que no existe; uno
+	// que existe pero no se puede medir o insertar (dañado, 0x0, formato no
+	// soportado) es otro error.
+	if _, statErr := os.Stat(imagePath); statErr != nil {
+		g.logger.Warn("DOCX: %s %q not found", where, source)
+		return "", domain.ImageSize{}, false
+	}
+
+	// Tamaño natural, reducido si no cabe en la caja de texto. Un SVG entra
+	// como PNG rasterizado con Chromium (ver rasterizeSVGImage). Un SVG
+	// guardado con otra extensión se reconoce por su contenido cuando los
+	// decoders de imagen no lo leen.
+	insertPath := imagePath
+	var imageSize domain.ImageSize
+	var err error
+	isSVG := isSVGImageSource(imagePath)
+	if !isSVG {
+		imageSize, err = g.fittedImageSize(imagePath, hasCaption)
+		if err != nil && fileLooksLikeSVG(imagePath) {
+			isSVG, err = true, nil
+		}
+	}
+	if isSVG {
+		var w, h float64
+		insertPath, w, h, err = g.rasterizeSVGImage(imagePath, hasCaption)
+		imageSize = imageSizeFromInches(w, h)
+	}
+	if err != nil {
+		g.logger.Warn("DOCX: %s %q could not be inserted: %v", where, source, err)
+		return "", domain.ImageSize{}, false
+	}
+	return insertPath, imageSize, true
 }
 
 // docxImageMinSideIn es el lado mínimo con que se muestra una imagen: un
@@ -2873,7 +3008,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 		// log genérico. Ahora queda un marcador en su lugar y un aviso que
 		// dice cuál diagrama faltó y cómo arreglarlo.
 		g.logger.Warn("DOCX: mermaid diagram (%s) at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.DiagramType, elem.Position.Line)
-		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (not rendered: Chromium not available)", elem.DiagramType))
+		return g.renderUnavailable(doc, docxUnavailableDiagram)
 	}
 
 	g.logger.Info("DOCX", "Rendering Mermaid diagram (%s)...", elem.DiagramType)
@@ -2885,7 +3020,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(g.runCtx(), content, g.mermaidLayoutWidthPx(), 1600, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
+		return g.renderUnavailable(doc, docxUnavailableDiagram)
 	}
 
 	// Nombre por contenido: antes era mermaid_<tipo>.png, así que dos
@@ -2898,7 +3033,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	widthIn, heightIn, err := g.fitMermaidPNG(pngBytes, elem.Title != "")
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to read mermaid PNG size: %v", err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
+		return g.renderUnavailable(doc, docxUnavailableDiagram)
 	}
 
 	p, err := doc.AddParagraph()
@@ -2917,7 +3052,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 
 	if _, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn)); err != nil {
 		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s", elem.DiagramType))
+		return g.renderUnavailable(doc, docxUnavailableDiagram)
 	}
 
 	if elem.Title != "" {
@@ -3117,7 +3252,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 		// Antes la ecuación desaparecía sin dejar marca y el aviso no decía
 		// cuál era. Como mermaid: un marcador en su lugar y la línea.
 		g.logger.Warn("DOCX: equation at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.Position.Line)
-		return g.renderPlaceholder(doc, "Equation (not rendered: Chromium not available)")
+		return g.renderUnavailable(doc, docxUnavailableEquation)
 	}
 
 	g.logger.Info("DOCX", "Rendering equation...")
@@ -3125,7 +3260,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 	pngBytes, widthIn, heightIn, err := g.rasterizeMath(elem)
 	if err != nil {
 		g.logger.Warn("DOCX: line %d: failed to render equation: %v", elem.Position.Line, err)
-		return g.renderPlaceholder(doc, "Equation (render failed)")
+		return g.renderUnavailable(doc, docxUnavailableEquation)
 	}
 
 	pngPath := fmt.Sprintf("%s/math_%s.png", g.tempDir, chromium.GenerateContentHash(elem.Content)[:12])
@@ -3144,7 +3279,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 	img, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn))
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert equation image: %v", err)
-		return g.renderPlaceholder(doc, "Equation")
+		return g.renderUnavailable(doc, docxUnavailableEquation)
 	}
 	if img == nil {
 		g.logger.Warn("DOCX: ⚠️  Equation image object is nil after insertion")
@@ -3226,7 +3361,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		chromiumBytes, chromiumErr := g.chromiumRenderer.RenderChartToPNG(g.runCtx(), chartConfig, 2400, 1500)
 		if chromiumErr != nil {
 			g.logger.Warn("DOCX: Failed to render chart: %v", chromiumErr)
-			return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s (render failed)", elem.ChartType))
+			return g.renderUnavailable(doc, docxUnavailableChart)
 		}
 		pngBytes = chromiumBytes
 	}
@@ -3246,11 +3381,19 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := imageSizeFromInches(6.5, 4.1) // 6.5" ancho x 4.1" alto (ratio 1.6:1)
+	// 6.5" de ancho y el alto de la proporción del PNG. Antes el alto era
+	// fijo (4.1", la proporción 1.6:1 del contenedor de captura), pero core
+	// recorta la captura al canvas: un chart que Chart.js dibuja a 2:1 sale
+	// de 2400x1200 y a 4.1" quedaba estirado.
+	imageSize, err := widthOnlyImageSize(pngPath, 6.5)
+	if err != nil {
+		g.logger.Warn("DOCX: Failed to read chart image size: %v", err)
+		return g.renderUnavailable(doc, docxUnavailableChart)
+	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s", elem.ChartType))
+		return g.renderUnavailable(doc, docxUnavailableChart)
 	}
 
 	if img == nil {
@@ -3279,13 +3422,13 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 		// que un DOCX con mapas se genere.
 		if g.chromiumRenderer == nil {
 			g.logger.Warn("DOCX: Native map render failed and Chromium is unavailable: %v", err)
-			return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
+			return g.renderUnavailable(doc, docxUnavailableMap)
 		}
 		g.logger.Warn("DOCX: Native map render failed; falling back to Chromium: %v", err)
 		pngBytes, err = g.chromiumRenderer.RenderMapToPNG(g.runCtx(), mapConfig, 1200, 800)
 		if err != nil {
 			g.logger.Warn("DOCX: Failed to render map: %v", err)
-			return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
+			return g.renderUnavailable(doc, docxUnavailableMap)
 		}
 	}
 
@@ -3307,12 +3450,12 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 	imageSize, err := widthOnlyImageSize(pngPath, 6.0)
 	if err != nil {
 		g.logger.Warn("DOCX: line %d: map image could not be inserted: %v", elem.Position.Line, err)
-		return g.renderPlaceholder(doc, "[Map could not be rendered]")
+		return g.renderUnavailable(doc, docxUnavailableMap)
 	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert map image: %v", err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s", elem.MapType))
+		return g.renderUnavailable(doc, docxUnavailableMap)
 	}
 
 	if img == nil {
@@ -3719,7 +3862,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	assetPath, err := fetcher.FetchDiagramToAssets(g.runCtx(), content)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to fetch PlantUML diagram: %v", err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("PlantUML diagram failed: %s", elem.DiagramType))
+		return g.renderUnavailable(doc, docxUnavailableDiagram)
 	}
 
 	// Construir path completo
@@ -3746,7 +3889,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	}
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
-		return g.renderPlaceholder(doc, "PlantUML image insertion failed")
+		return g.renderUnavailable(doc, docxUnavailableDiagram)
 	}
 
 	// Obtener tamaño del archivo
@@ -3953,12 +4096,12 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 
 	source := strings.TrimSpace(elem.Source)
 	if source == "" {
-		return g.renderPlaceholder(doc, fmt.Sprintf("%s sin fuente", label))
+		return g.renderPlaceholder(doc, g.docxMediaText(label, "empty", ""))
 	}
 	safeSource := renderer.ValidateURLScheme(source)
 	if safeSource == "" {
 		g.logger.Warn("DOCX: Media source blocked (dangerous scheme): %s", source)
-		return g.renderPlaceholder(doc, fmt.Sprintf("%s bloqueado por seguridad", label))
+		return g.renderPlaceholder(doc, g.docxMediaText(label, "blocked", ""))
 	}
 
 	p, err := doc.AddParagraph()
@@ -3972,7 +4115,7 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 	displayText := fmt.Sprintf("[%s: %s]", label, safeSource)
 	if _, err := p.AddHyperlink(safeSource, displayText); err != nil {
 		g.logger.Warn("DOCX: Failed to insert media hyperlink %s: %v", safeSource, err)
-		return g.renderPlaceholder(doc, fmt.Sprintf("%s not found: %s", label, safeSource))
+		return g.renderPlaceholder(doc, g.docxMediaText(label, "unavailable", safeSource))
 	}
 
 	// Pie de la figura (media-figure-v1): mismo estilo que el pie de una
@@ -4004,9 +4147,14 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 
 // needsChromiumRendering verifica si necesitamos Chromium
 func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
+	// Un SVG local, en cualquier lugar del documento, se rasteriza con
+	// Chromium (rasterizeSVGImage).
+	if HasSVGImages(astDoc) {
+		return true
+	}
 	for _, block := range astDoc.ContentBlocks {
 		for _, elem := range block.Elements {
-			switch elem.(type) {
+			switch e := elem.(type) {
 			// MathElement faltaba acá: renderMath ya usa chromiumRenderer
 			// (RenderMathToPNG) pero, sin este case, un documento cuyo
 			// único elemento rico es una ecuación nunca inicializa
@@ -4019,6 +4167,11 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 			// navegador de forma implícita.
 			case *ast.ChartElement, *ast.MermaidElement, *ast.MathElement:
 				return true
+			case *ast.ImageElement:
+				// Un SVG local se rasteriza con Chromium (rasterizeSVGImage).
+				if isSVGImageSource(e.Source) {
+					return true
+				}
 			}
 		}
 	}
@@ -4030,6 +4183,11 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 // capability gate; Mermaid and Math deliberately return false because their
 // DOCX paths rasterize through Chromium.
 func (g *DOCXGenerator) canRenderWithoutChromium(astDoc *ast.AST) bool {
+	// Un SVG local, en cualquier lugar del documento, se rasteriza con
+	// Chromium (rasterizeSVGImage).
+	if HasSVGImages(astDoc) {
+		return false
+	}
 	for _, block := range astDoc.ContentBlocks {
 		for _, elem := range block.Elements {
 			switch e := elem.(type) {
@@ -4044,6 +4202,10 @@ func (g *DOCXGenerator) canRenderWithoutChromium(astDoc *ast.AST) bool {
 				}
 			case *ast.MermaidElement, *ast.MathElement:
 				return false
+			case *ast.ImageElement:
+				if isSVGImageSource(e.Source) {
+					return false
+				}
 			}
 		}
 	}

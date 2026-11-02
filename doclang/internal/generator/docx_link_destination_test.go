@@ -141,8 +141,9 @@ func TestDOCXGenerator_BlockedLinkDestinationRendersAsPlainText(t *testing.T) {
 	}
 }
 
-// DOCX no incrusta imágenes inline, así que de ![alt](src) queda el alt como
-// texto, igual que el texto que el HTML deja cuando descarta la imagen. Antes
+// De una imagen inline remota o bloqueada queda el alt como texto, igual que
+// el texto que el HTML deja cuando descarta la imagen; una local que no
+// existe (img.png en estos casos) deja el marcador localizado con el alt. Antes
 // no había pattern de imagen y el de link se quedaba con "[alt](src)": salía
 // un "!" literal y el alt subrayado como link. Con una imagen dentro de un
 // link, el pattern de link tomaba "![alt" como etiqueta y "img.png" como
@@ -160,10 +161,10 @@ func TestDOCXGenerator_InlineImageRendersAltText(t *testing.T) {
 	}{
 		{"imagen permitida", "Ver ![logo](https://x.com/logo.png) fin.", "Ver logo fin.", "logo", false, []string{"!", "https://x.com/logo.png"}},
 		{"imagen con src bloqueado", "Ver ![malo](javascript:alert(1)) fin.", "Ver malo fin.", "malo", false, []string{"!", "javascript:"}},
-		{"imagen dentro de link permitido", "Ver [![alt](img.png)](https://x.com) fin.", "Ver alt fin.", "alt", true, []string{"!", "img.png", "https://x.com"}},
-		{"imagen dentro de link bloqueado", "Ver [![alt](img.png)](javascript:alert(1)) fin.", "Ver alt fin.", "alt", false, []string{"!", "img.png", "javascript:"}},
+		{"imagen dentro de link permitido", "Ver [![alt](img.png)](https://x.com) fin.", "Ver [Imagen no disponible: alt] fin.", "[Imagen no disponible: alt]", true, []string{"!", "img.png", "https://x.com"}},
+		{"imagen dentro de link bloqueado", "Ver [![alt](img.png)](javascript:alert(1)) fin.", "Ver [Imagen no disponible: alt] fin.", "[Imagen no disponible: alt]", false, []string{"!", "img.png", "javascript:"}},
 		{"imagen bloqueada dentro de link permitido", "Ver [![alt](javascript:alert(1))](https://x.com) fin.", "Ver alt fin.", "alt", true, []string{"!", "javascript:", "https://x.com"}},
-		{"texto e imagen en la etiqueta", "Ver [mira ![alt](img.png)](https://x.com) fin.", "Ver mira alt fin.", "alt", true, []string{"!", "img.png", "https://x.com"}},
+		{"texto e imagen en la etiqueta", "Ver [mira ![alt](img.png)](https://x.com) fin.", "Ver mira [Imagen no disponible: alt] fin.", "[Imagen no disponible: alt]", true, []string{"!", "img.png", "https://x.com"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			xml := generateDocxText(t, tc.input)
@@ -189,10 +190,10 @@ func TestDOCXGenerator_InlineImageRendersAltText(t *testing.T) {
 func TestDOCXGenerator_ImageInsideUnclosedLinkLabel(t *testing.T) {
 	xml := generateDocxText(t, "Ver [![alt](img.png) fin.")
 	got := docxVisibleText(xml)
-	if !strings.Contains(got, "Ver [alt fin.") {
-		t.Errorf("texto visible = %q, quería que contuviera %q", got, "Ver [alt fin.")
+	if !strings.Contains(got, "Ver [[Imagen no disponible: alt] fin.") {
+		t.Errorf("texto visible = %q, quería que contuviera %q", got, "Ver [[Imagen no disponible: alt] fin.")
 	}
-	if run := docxRunContaining(t, xml, "alt"); strings.Contains(run, "<w:u ") {
+	if run := docxRunContaining(t, xml, "[Imagen no disponible: alt]"); strings.Contains(run, "<w:u ") {
 		t.Errorf("el alt salió subrayado como link:\n%s", run)
 	}
 }

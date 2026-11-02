@@ -92,7 +92,7 @@ func TestDOCXGenerator_MermaidWithoutChromium_WarnsAndLeavesPlaceholder(t *testi
 	}
 	found := false
 	for _, p := range doc.Paragraphs() {
-		if strings.Contains(p.Text(), "not rendered: Chromium not available") {
+		if strings.Contains(p.Text(), "Diagrama no disponible") {
 			found = true
 		}
 	}

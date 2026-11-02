@@ -128,7 +128,7 @@ func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderCon
 	}
 
 	// Header HTML
-	html.WriteString(generateDocumentHeader(doc, opts, cspNonce, ctx.Logger))
+	html.WriteString(generateDocumentHeader(doc, opts, cspNonce, blocksRemoteImages(ctx), ctx.Logger))
 
 	// Watermark (issue #179): a single position:fixed overlay, emitted once
 	// right after <body> opens, covers every printed physical page —
@@ -187,7 +187,9 @@ func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderCon
 // está vacío, se emite como <meta http-equiv="Content-Security-Policy"> y
 // debe ser el mismo nonce usado para cada <style>/<script> inline del
 // documento (ver GenerateDocumentHTML).
-func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce string, logger util.Logger) string {
+// offlineCSP elige BuildOfflineOutputCSP (salida de build sin imágenes
+// remotas permitidas) en vez de BuildDefaultOutputCSP.
+func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce string, offlineCSP bool, logger util.Logger) string {
 	title := opts.Title
 	if title == "" && doc.FrontMatter != nil && doc.FrontMatter.Title != "" {
 		title = doc.FrontMatter.Title
@@ -232,7 +234,11 @@ func generateDocumentHeader(doc *ast.AST, opts DocumentHTMLOptions, cspNonce str
 
 	cspMeta := ""
 	if cspNonce != "" {
-		cspMeta = fmt.Sprintf("    <meta http-equiv=\"Content-Security-Policy\" content=\"%s\">\n", BuildDefaultOutputCSP(cspNonce))
+		csp := BuildDefaultOutputCSP(cspNonce)
+		if offlineCSP {
+			csp = BuildOfflineOutputCSP(cspNonce)
+		}
+		cspMeta = fmt.Sprintf("    <meta http-equiv=\"Content-Security-Policy\" content=\"%s\">\n", csp)
 	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>
@@ -381,6 +387,13 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             text-align: left;
         }
 
+        /* Una celda que es un solo ID corto ("RF-12", "NFR-SEG-3") no se
+           parte en el guion: ver tableTokenCellClass en html.go. */
+        table th.cell-token,
+        table td.cell-token {
+            white-space: nowrap;
+        }
+
         table th {
             background: var(--doclang-table-header-bg, linear-gradient(135deg, #667eea 0%, #764ba2 100%));
             color: var(--doclang-table-header-color, white);
@@ -440,6 +453,16 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             display: block;
             margin: 1.5em auto;
             border-radius: 4px;
+        }
+
+        /* Una imagen inline (dentro de un párrafo, un ítem, una celda, una
+           cita o una definición) va en la línea, no como bloque centrado:
+           conserva su tamaño natural, acotado al ancho disponible. */
+        p img, li img, td img, th img, blockquote img, dd img, dt img {
+            display: inline;
+            vertical-align: middle;
+            margin: 0;
+            border-radius: 0;
         }
 
         figure {
@@ -721,15 +744,52 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             margin: 0 auto;
         }
 
-        /* PlantUML error message */
+        /* Contenido no disponible: una imagen que falta o quedó fuera de la
+           raíz de assets, o un chart/mapa/diagrama/ecuación cuya captura
+           falló. Lleva una nota en el idioma del documento (y el texto
+           alternativo de la imagen); el detalle técnico queda en el aviso
+           del build. Ver renderer/unavailable.go. */
+        .image-unavailable,
+        .map-error,
+        .chart-error,
+        .mermaid-error,
+        .math-error,
         .plantuml-error {
-            padding: 1em;
-            background: #fee;
-            border: 1px solid #fcc;
-            border-radius: 4px;
-            color: #c00;
-            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.25em;
+            min-height: 4em;
+            margin: 1em auto;
+            padding: 1em 1.25em;
+            border: 1px dashed var(--doclang-table-border, #cbd5e0);
+            border-radius: 6px;
+            background: var(--doclang-table-stripe-bg, #f8fafc);
+            color: #718096;
             font-size: 0.9em;
+            text-align: center;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+        .unavailable-note {
+            font-weight: 600;
+        }
+
+        .image-unavailable-inline {
+            display: inline-block;
+            padding: 0 0.4em;
+            border: 1px dashed var(--doclang-table-border, #cbd5e0);
+            border-radius: 4px;
+            background: var(--doclang-table-stripe-bg, #f8fafc);
+            color: #718096;
+            font-size: 0.85em;
+            font-style: italic;
+        }
+
+        .unavailable-title {
+            font-style: italic;
         }
 
         /* Charts */
@@ -2041,7 +2101,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 
 	// Start first page
 	body.WriteString(openDocumentPageDiv(header, footer, variables))
-	body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables))
+	body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables, ctx))
 	body.WriteString(`    <div class="page-content">
 `)
 
@@ -2093,7 +2153,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 			currentBlockType = doc.ContentBlocks[i+1].BlockType
 			header, footer = resolveHeaderFooterConfig(opts.HeaderFooter, currentBlockType)
 			body.WriteString(openDocumentPageDiv(header, footer, variables))
-			body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables))
+			body.WriteString(generatePageHeaderHTML(header, opts.ShowHeaders, docTitleEscaped, pageNum, variables, ctx))
 			body.WriteString(`    <div class="page-content">
 `)
 		}
@@ -2252,11 +2312,29 @@ func renderHeaderFooterBorder(classPrefix string, border *ast.BorderConfig, edge
 
 // renderHeaderLogo emite el <img> de logo de un header. Solo aplica a
 // headers — ast.FooterConfig no tiene campo Logo.
-func renderHeaderLogo(logo *ast.LogoConfig, variables map[string]interface{}) string {
+//
+// En una salida de build (el PDF, el HTML offline) el logo sigue la regla de
+// las imágenes del documento: uno remoto no se pide sin
+// RenderContext.AllowRemoteImages (se omite con un aviso), y uno local se
+// inlinea en offline-inline, porque el PDF se imprime desde about:blank y un
+// src relativo no resuelve; si falta o queda fuera de la raíz, se omite.
+func renderHeaderLogo(logo *ast.LogoConfig, variables map[string]interface{}, ctx *RenderContext) string {
 	if logo == nil {
 		return ""
 	}
-	src := SanitizeURL(ProcessVariables(logo.Source, variables))
+	raw := ProcessVariables(logo.Source, variables)
+	if remoteImageBlocked(raw, ctx) {
+		return ""
+	}
+	var src string
+	switch inlined, status := inlineLocalAsset(raw, ctx, 0, "IMAGE", "header logo"); status {
+	case localAssetInlined:
+		src = inlined
+	case localAssetUnavailable:
+		return ""
+	default:
+		src = SanitizeURL(raw)
+	}
 	if src == "" {
 		return ""
 	}
@@ -2368,7 +2446,7 @@ func renderFooterPageNumbers(config *ast.PageNumbersConfig, displayPage, totalPa
 // este blockType) cae al fallback legado gateado por showHeadersLegacy —
 // el output previo a issue #117. Con un header resuelto, su propio Enabled
 // gobierna, sin importar showHeadersLegacy (decisión 1 del plan).
-func generatePageHeaderHTML(header *ast.HeaderConfig, showHeadersLegacy bool, docTitleEscaped string, pageNum int, variables map[string]interface{}) string {
+func generatePageHeaderHTML(header *ast.HeaderConfig, showHeadersLegacy bool, docTitleEscaped string, pageNum int, variables map[string]interface{}, ctx *RenderContext) string {
 	if header == nil {
 		if !showHeadersLegacy {
 			return ""
@@ -2391,7 +2469,7 @@ func generatePageHeaderHTML(header *ast.HeaderConfig, showHeadersLegacy bool, do
 	}
 	b.WriteString(">\n")
 	b.WriteString(renderHeaderFooterBorder("page-header", header.Border, "top", variables))
-	b.WriteString(renderHeaderLogo(header.Logo, variables))
+	b.WriteString(renderHeaderLogo(header.Logo, variables, ctx))
 	b.WriteString(renderHeaderFooterZoneSpans("page-header", header.Text, variables))
 	b.WriteString(renderHeaderFooterBorder("page-header", header.Border, "bottom", variables))
 	b.WriteString("    </div>\n")

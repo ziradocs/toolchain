@@ -84,6 +84,13 @@ type GeneratorOptions struct {
 	// diga este campo; para --format html sí sigue lo que declare
 	// --render-mode, igual que ChartMode/MapMode/etc arriba.
 	ImageMode string
+	// AllowRemoteImages deja que el PDF y el HTML offline muestren las
+	// imágenes http(s) del documento (--allow-remote-images, opción
+	// allowRemoteImages del export del MCP). Por defecto no se piden: el PDF
+	// se imprime con Chromium en esta máquina, y un documento no confiable
+	// le hacía pedir cualquier URL. Ver renderer.RenderContext.AllowRemoteImages.
+	// El DOCX nunca descarga imágenes, con o sin esto.
+	AllowRemoteImages bool
 	// Image format options (for charts and maps in offline modes)
 	ImageFormat string // "png" (default) or "webp"
 	WebPQuality int    // WebP quality: 1-100 (default: 85)
@@ -266,4 +273,18 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 	}
 
 	return renderer.GenerateDocumentHTML(doc, renderOpts, renderer.NewDefaultRenderContext())
+}
+
+// remoteImagesSetter es RenderContext.SetAllowRemoteImages de core. Se pide
+// por interfaz porque este módulo compila también contra el core publicado,
+// que puede no tenerlo; ese core no bloquea las imágenes remotas, así que
+// ahí no hay nada que permitir.
+type remoteImagesSetter interface{ SetAllowRemoteImages(bool) }
+
+// allowRemoteImages aplica GeneratorOptions.AllowRemoteImages al contexto de
+// render (ver renderer.RenderContext.AllowRemoteImages).
+func allowRemoteImages(ctx any, allow bool) {
+	if s, ok := ctx.(remoteImagesSetter); ok {
+		s.SetAllowRemoteImages(allow)
+	}
 }

@@ -616,6 +616,9 @@ func escapeTableCells(cells []string) []string {
 // trata como separador mientras esté dentro de backticks), y escaparlo ahí
 // metería un "\" visible dentro del <code> renderizado, que un code span no
 // interpreta como escape (cambiaría el contenido, no solo la sintaxis).
+// La excepción es el "|" dentro del span: el splitter, como GFM, consume un
+// backslash delante de él al partir la fila, así que aquí siempre se agrega
+// uno (ver el caso inSpan del switch).
 //
 // Un "`" suelto (una corrida de backticks sin otra corrida del MISMO largo
 // más adelante en la celda que la cierre) no abre ningún code span real —
@@ -650,6 +653,16 @@ func escapeTableCellPipe(cell string) string {
 	for i, r := range runes {
 		switch {
 		case r == '|' && inSpan[i]:
+			// Dentro de un span, el splitter quita UN backslash de la
+			// corrida que precede a un "|" (el "\|" de GFM vale también
+			// en code spans). Espejo: con k backslashes del contenido ya
+			// escritos delante del pipe, se agrega siempre uno más (k+1
+			// en total). Así un archivo que ya estaba en forma canónica
+			// antes de este cambio ("`a\|b`", "`\|`") no cambia con
+			// doclang fmt, y la salida es la de GFM: un "|" sin
+			// backslash dentro del span ("`e|f`") gana uno, porque en
+			// GitHub partiría la celda.
+			b.WriteRune('\\')
 			b.WriteRune(r)
 		case r == '|':
 			// Hallazgo de cuarta ronda de revisión: escribir siempre

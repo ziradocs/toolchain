@@ -1038,7 +1038,14 @@ func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, char
 		waitRenderState(renderStateJS),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
 		bringTabToFront(),
-		chromedp.Screenshot("#chartContainer", &pngData, chromedp.ByID),
+		// La captura es el <canvas>, no el contenedor: un config JSON sin
+		// maintainAspectRatio: false deja que Chart.js dibuje a su
+		// proporción por defecto (2:1), así que en el contenedor de 800x600
+		// el canvas medía 800x400 y la imagen llevaba 200 px en blanco
+		// debajo de la gráfica. Con maintainAspectRatio: false (los configs
+		// que arma GenerateChartConfig) el canvas llena el contenedor y la
+		// captura es la misma de antes.
+		chromedp.Screenshot("#myChart", &pngData, chromedp.ByID),
 	)
 
 	if err != nil {
@@ -1133,6 +1140,7 @@ func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, cha
 	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
 	defer cancel()
 
+	var canvasHeight float64
 	// Renderizar con Chromium usando CDP para captura WebP - esperar renderizado completo.
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
@@ -1144,7 +1152,14 @@ func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, cha
 		waitRenderState(renderStateJS),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
 		bringTabToFront(),
+		// Alto del <canvas> (ver el camino PNG: Chart.js puede dibujar más
+		// bajo que el contenedor si conserva su proporción).
+		chromedp.Evaluate(`document.getElementById('myChart').getBoundingClientRect().height`, &canvasHeight),
 		chromedp.ActionFunc(func(ctx context.Context) error {
+			clipHeight := float64(height)
+			if canvasHeight > 0 && canvasHeight < clipHeight {
+				clipHeight = math.Ceil(canvasHeight)
+			}
 			// Usar page.CaptureScreenshot con formato WebP
 			buf, err := page.CaptureScreenshot().
 				WithFormat(page.CaptureScreenshotFormatWebp).
@@ -1153,7 +1168,7 @@ func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, cha
 					X:      0,
 					Y:      0,
 					Width:  float64(width),
-					Height: float64(height),
+					Height: clipHeight,
 					Scale:  1,
 				}).
 				Do(ctx)

@@ -9,6 +9,7 @@ import (
 	"context"
 	"embed"
 	"encoding/base64"
+	"fmt"
 	"path"
 	"strings"
 
@@ -32,8 +33,11 @@ var embeddedMathJaxScriptTag = inlineScriptTag(embeddedMathJaxJS)
 // mathJaxAssets es lo que MathJax 4 carga a demanda y tex-svg.js no trae:
 //
 //   - las extensiones de TeX de mathjax@4.1.3 que no vienen precargadas
-//     (\cancel, \boldsymbol, \color, \ce, numcases, ...), menos html y
-//     texhtml, que meten HTML/enlaces del autor en la salida;
+//     (\cancel, \boldsymbol, \color, \ce, ...), menos html y texhtml, que
+//     meten HTML/enlaces del autor en la salida. Las que se cargan por
+//     autoload no necesitan nada; las que no (cases para numcases, colortbl
+//     para \rowcolor) piden \require{cases} o \require{colortbl} en la
+//     fórmula, igual que en el modo browser con el CDN;
 //   - ui/safe de mathjax@4.1.3, que filtra los estilos, clases, ids y URLs
 //     que el autor pone con \bbox y compañía, para que el SVG que termina en
 //     el HTML offline o en el PDF no pida nada a la red;
@@ -103,7 +107,10 @@ func serveMathAssets() chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
 		c := chromedp.FromContext(ctx)
 		if c == nil || c.Target == nil {
-			return fetch.Enable().Do(ctx)
+			// Sin target no hay de dónde escuchar los pedidos pausados:
+			// activar Fetch acá dejaba cada pedido de MathJax colgado hasta el
+			// plazo de la captura, sin nadie que lo contestara.
+			return fmt.Errorf("math asset interception needs a chromedp target")
 		}
 		executor := cdp.WithExecutor(ctx, c.Target)
 		chromedp.ListenTarget(ctx, func(ev interface{}) {

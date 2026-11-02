@@ -705,16 +705,28 @@ func SplitMarkdownTableRow(line string) []string {
 			}
 			runLen := i - start
 			if inSpan[start] {
-				// Backslashes DENTRO de un code span son literales, no
-				// escapes — CommonMark §6.1: "backslash escapes do not
-				// work in code spans" (hallazgo de quinta ronda de
-				// revisión: la lógica de apareo/escape de abajo corría
-				// SIEMPRE, sin mirar inSpan, así que "`a\|b`" perdía el
-				// backslash — el span ya protege el "|" que sigue como no
-				// separador, pero el contenido en sí se reescribía). La
-				// corrida completa se preserva byte a byte, sin aparear
-				// ni interpretar nada.
-				for k := 0; k < runLen; k++ {
+				// Backslashes DENTRO de un code span son literales —
+				// CommonMark §6.1: "backslash escapes do not work in code
+				// spans" —, con UNA excepción que pone la extensión de
+				// tablas de GFM: el "\|" se procesa al partir la fila,
+				// ANTES del parseo inline, así que también vale dentro de
+				// un code span (ejemplo 200 del spec de GFM: la celda
+				// "`\|`" se renderiza <code>|</code>). Una versión
+				// anterior preservaba la corrida byte a byte también
+				// delante del "|", y "`a \| b`" salía con el backslash
+				// visible en HTML/PDF/DOCX. Ahora la corrida que precede a
+				// un "|" pierde exactamente un backslash (el que escapa al
+				// pipe, como hace cmark-gfm al desescapar la celda); el
+				// resto de la corrida, y cualquier corrida que no preceda
+				// a un "|", queda literal. El "|" sin backslash dentro de
+				// un span sigue protegido (caso de abajo), así que el
+				// formatter solo tiene que agregar un backslash cuando el
+				// contenido ya trae alguno delante del pipe.
+				keep := runLen
+				if i < len(runes) && runes[i] == '|' {
+					keep = runLen - 1
+				}
+				for k := 0; k < keep; k++ {
 					current.WriteRune('\\')
 				}
 			} else if i < len(runes) && runes[i] == '|' {

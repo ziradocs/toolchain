@@ -59,7 +59,7 @@ func TestDOCXGenerator_MathWithoutChromium_LeavesPlaceholder(t *testing.T) {
 	if gen.chromiumRenderer != nil {
 		t.Skip("a Chromium was found anyway; this test needs it missing")
 	}
-	if xml := docxDocumentXML(t, output); !strings.Contains(xml, "Equation (not rendered: Chromium not available)") {
+	if xml := docxDocumentXML(t, output); !strings.Contains(xml, "Ecuación no disponible") {
 		t.Errorf("missing placeholder in document.xml:\n%s", xml)
 	}
 	found := false

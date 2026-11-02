@@ -84,3 +84,25 @@ func BuildDefaultOutputCSP(nonce string) string {
 		nonce,
 	)
 }
+
+// BuildOfflineOutputCSP es BuildDefaultOutputCSP para una salida que se
+// genera en la máquina que compila (el PDF y el HTML offline-inline/
+// offline-assets): img-src y object-src se acotan a 'self' y data:. El PDF
+// se imprime con Chromium en esa máquina, y con img-src * una imagen remota
+// de un documento no confiable le hacía pedir cualquier URL desde ahí. Los
+// charts, mapas, diagramas y ecuaciones de esas salidas ya son data: URIs o
+// SVG inline, y una imagen local se inlinea o es un archivo de assets/
+// ('self'). Con RenderContext.AllowRemoteImages se usa la CSP de siempre.
+func BuildOfflineOutputCSP(nonce string) string {
+	return fmt.Sprintf(
+		"default-src 'self'; "+
+			"script-src 'self' 'nonce-%s' https://cdn.jsdelivr.net https://unpkg.com; "+
+			"style-src 'self' 'unsafe-inline' https://unpkg.com; "+
+			"font-src 'self' data:; "+
+			"img-src 'self' data:; "+
+			"object-src 'self' data:; "+
+			"connect-src 'self' *; "+
+			"base-uri 'self';",
+		nonce,
+	)
+}

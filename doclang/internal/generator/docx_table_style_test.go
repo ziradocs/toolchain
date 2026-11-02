@@ -135,3 +135,81 @@ func TestDocxHeaderMinWidth_LongestWord(t *testing.T) {
 		t.Errorf("Método = %d, Metodo = %d", a, b)
 	}
 }
+
+// TestDOCXTableColumnWidths_ShortIDColumn: con cinco columnas de texto largo
+// la columna de ID recibía 640 twips y Word partía "NFR-SEG-3" en
+// "NFR" / "-SEG" / "-3". Una columna con IDs cortos no queda más angosta que
+// su ID más largo; las de texto se siguen repartiendo el resto.
+func TestDOCXTableColumnWidths_ShortIDColumn(t *testing.T) {
+	long := "Reducir el tiempo de atención en ventanilla mediante la automatización del registro"
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"ID", "Objetivo", "Indicador", "Responsable", "Fuente"}
+	table.Rows = [][]string{
+		{"OB-1", long, long, long, long},
+		{"RF-12", long, long, long, long},
+		{"NFR-SEG-3", long, long, long, long},
+	}
+	const available, size = 9026, 22
+	widths := docxTableColumnWidths(table, 5, available, size)
+	if min := docxHeaderMinWidth("NFR-SEG-3", size); widths[0] < min {
+		t.Errorf("ID column: %d twips, want >= %d (the width of NFR-SEG-3)", widths[0], min)
+	}
+	sum := 0
+	for _, w := range widths {
+		sum += w
+	}
+	if sum != available {
+		t.Errorf("widths %v suman %d, want %d", widths, sum, available)
+	}
+}
+
+// TestDocxIsShortToken: mismos casos que TestTableTokenCellClass de
+// core/renderer, porque docxIsShortToken espeja esa regla.
+func TestDocxIsShortToken(t *testing.T) {
+	for cell, want := range map[string]bool{
+		"OB-1":               true,
+		" RF-12 ":            true,
+		"NFR-SEG-3":          true,
+		"NFR-SEG-12":         true,
+		"**RF-12**":          true,
+		"`US-A01`":           true,
+		"A-B-C-D-E":          false,
+		"ABCDEFGH-123":       true,
+		"ABCDEFGHI-123":      false,
+		"2026-11-02":         false,
+		"2026-11-02/2026-12": false,
+		"co-op":              false,
+		"well-known":         false,
+		"I/O":                false,
+		"https://x.com/a-b":  false,
+		"Rf-12":              false,
+		"Alta":               false,
+		"12":                 false,
+		"":                   false,
+		"RF-12 y RF-13":      false,
+	} {
+		if got := docxIsShortToken(cell); got != want {
+			t.Errorf("docxIsShortToken(%q) = %v, want %v", cell, got, want)
+		}
+	}
+}
+
+// TestDOCXTableColumnWidths_DatesDoNotGetMinWidth: una tabla de ocho
+// columnas de fechas no fija mínimos por token y reparte el ancho entero.
+func TestDOCXTableColumnWidths_DatesDoNotGetMinWidth(t *testing.T) {
+	table := ast.NewTableElement(diagnostics.NewPosition(1, 1))
+	table.Headers = []string{"A", "B", "C", "D", "E", "F", "G", "H"}
+	row := make([]string, 8)
+	for i := range row {
+		row[i] = "2026-11-02/2026-12"
+	}
+	table.Rows = [][]string{row}
+	widths := docxTableColumnWidths(table, 8, 9026, 22)
+	sum := 0
+	for _, w := range widths {
+		sum += w
+	}
+	if sum != 9026 {
+		t.Errorf("widths %v suman %d, want 9026", widths, sum)
+	}
+}
