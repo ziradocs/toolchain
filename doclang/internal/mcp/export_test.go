@@ -711,3 +711,69 @@ func TestExport_BaseDirArgument(t *testing.T) {
 		exportFail(t, s, ctx, map[string]any{"path": ".tmp/guide.md", "format": "docx", "baseDir": bad, "overwrite": true}, "invalid baseDir")
 	}
 }
+
+// TestExportRoot_ResolveDirPinsRealPath: baseDir/includeRoot pedidos por un
+// symlink dentro de la raíz se devuelven ya resueltos. Si después de validar
+// el symlink se cambia para apuntar fuera de --root, el directorio que usa
+// el export sigue siendo el validado, dentro de la raíz.
+func TestExportRoot_ResolveDirPinsRealPath(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "docs/part.md", "Texto de DOCS.\n")
+	if err := os.WriteFile(filepath.Join(f.outside, "part.md"), []byte("Texto de AFUERA.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(f.root, "link")
+	if err := os.Symlink(filepath.Join(f.root, "docs"), link); err != nil {
+		t.Skipf("symlinks no disponibles: %v", err)
+	}
+	root, err := newExportRoot(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir, err := root.resolveDir("link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != filepath.Join(root.dir, "docs") {
+		t.Fatalf("resolveDir(link) = %q, quería la ruta real %q", dir, filepath.Join(root.dir, "docs"))
+	}
+
+	// Se cambia el symlink para que apunte fuera de la raíz.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(f.outside, link); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "part.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("DOCS")) {
+		t.Error("el directorio validado siguió al symlink fuera de la raíz")
+	}
+	// Y pedido de nuevo, el symlink que ahora sale de la raíz se rechaza.
+	if _, err := root.resolveDir("link"); err == nil {
+		t.Error("un symlink que apunta fuera de --root debería rechazarse")
+	}
+
+	// De punta a punta: baseDir por el symlink resuelve el @include desde
+	// el destino real.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(f.root, "docs"), link); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, ".tmp/sel.md", "# Sel\n\n@include part.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+	out := exportOK(t, s, ctx, map[string]any{"path": ".tmp/sel.md", "format": "html", "baseDir": "link"})
+	html, err := os.ReadFile(filepath.Join(f.root, out.OutputPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(html, []byte("DOCS")) {
+		t.Error("el @include no se resolvió desde el destino real de baseDir")
+	}
+}

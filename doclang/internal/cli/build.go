@@ -245,7 +245,7 @@ Examples:
 	cmd.Flags().BoolVar(&installChromium, "install-chromium", false, "Auto-install Chromium if not found")
 	cmd.Flags().IntVar(&maxSizeMB, "max-size", 0, "Maximum input file size in MB (default: 10MB, override via DOCLANG_MAX_SIZE env var)")
 	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: --base-dir, else the input file's directory); relative sources resolve from --base-dir, and absolute paths or '..' outside the root are rejected")
-	cmd.Flags().StringVar(&baseDir, "base-dir", "", "Directory relative image sources and @include paths resolve from (default: the input file's directory). For building a temporary copy of a file: it also becomes the default --asset-root and --include-root, and must be inside --asset-root")
+	cmd.Flags().StringVar(&baseDir, "base-dir", "", "Directory relative image sources and @include paths resolve from (default: the input file's directory; a relative path resolves from the current directory). For building a temporary copy of a file: it also becomes the default --asset-root and --include-root, and must be inside --asset-root. An explicit --include-root need not contain it (includes then resolve from the include root). Images are only read at build time for docx, pdf and --render-mode offline-*; browser-mode HTML keeps each relative src as written")
 	cmd.Flags().BoolVar(&lintOnly, "lint-only", false, "Only run the linter, don't generate output")
 	cmd.Flags().StringVar(&lintConfig, "lint-config", "", "Path to a YAML linter policy file. If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
 	cmd.Flags().StringVar(&reportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")

@@ -93,7 +93,7 @@ type exportInput struct {
 	// IncludeRoot es el --include-root de `doclang build`.
 	IncludeRoot string `json:"includeRoot,omitempty" jsonschema:"directory @include paths resolve against and are confined to, relative to the server root or absolute inside it (like doclang build --include-root). Defaults to baseDir, or the input file's directory"`
 	// BaseDir es el --base-dir de `doclang build`.
-	BaseDir string `json:"baseDir,omitempty" jsonschema:"directory relative image sources and @include paths resolve from, relative to the server root or absolute inside it (like doclang build --base-dir); for exporting a temporary copy of a file. Defaults to the input file's directory"`
+	BaseDir string `json:"baseDir,omitempty" jsonschema:"directory relative image sources and @include paths resolve from, relative to the server root or absolute inside it (like doclang build --base-dir); for exporting a temporary copy of a file. Defaults to the input file's directory. HTML export keeps relative image src as written (browser mode), so for html it only affects @include"`
 }
 
 type exportOutput struct {
