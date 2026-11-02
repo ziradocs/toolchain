@@ -232,3 +232,52 @@ Fix what's confirmed exploitable and reachable by default. Small, low-risk chang
 - Independent empirical verification: reproduced the `toJSON` XSS (inspected the output file), the infinite-loop DoS (process hung at 202% CPU), and static confirmation of the sinks for CR-1/CR-2/CR-3, AL-1/AL-2/AL-4, ME-1/ME-2/ME-7.
 
 > **Note:** The existing `SECURITY.md` correctly describes prior XSS work on the text/attribute path, but its scope is partial: it doesn't cover the `text/template` generator, the chromedp path, diagrams/charts/maps, network egress, or the installer's supply chain. This report should replace `SECURITY.md`'s "status" section once Phase 0–1 has been executed.
+
+---
+
+## Addendum (2026-11-01): the `export` tool of `doclang mcp`
+
+*Appended after the audit; the findings above are left as they were.*
+
+`doclang mcp` gained an `export` tool that writes DOCX, PDF or HTML for a file on disk.
+Until then every MCP tool worked in memory. Writing to disk on a request from an MCP
+client puts the tool inside the threat model above. The client may be steered by
+third-party content it is processing, so every tool input is treated as untrusted, like
+document content. This is how `export` handles the findings it touches:
+
+- **ME-2 (theme name).** `theme` goes through `validateThemeName`, so it has to be an exact
+  name the theme loader already knows. It then reaches the pipeline with
+  `ThemeTrusted: false`, the same treatment as a front-matter theme.
+- **AL-4 (local files embedded via image sources).** The asset root is the server root
+  (`--root`, resolved with `filepath.EvalSymlinks` at startup), not the input file's
+  directory. The DOCX generator confines every image source with
+  `util.ResolveConfinedPath`, so an image outside the root, or a symlink pointing out of
+  it, becomes an `[Image blocked: …]` placeholder and its bytes never reach the file. The
+  same root confines `@include` (`include.Expand` → `util.ResolveConfinedPath`), the input
+  path and the output path. The output usually doesn't exist yet, and
+  `ResolveConfinedPath` only checks symlinks on paths that exist, so `export` confines
+  the output's parent directory, which must exist, and builds the final path on the
+  resolved directory. It refuses an output that is itself a symlink, and requires the
+  output extension to match the format, so `overwrite` can never replace the source
+  document or an unrelated file.
+- **BA-13 (output clobbered without confirmation).** `overwrite` defaults to `false`. The
+  document is generated into a temporary file in the destination directory. Without
+  `overwrite`, it is committed with `os.Link`, which fails if the destination appeared in
+  the meantime, so there is no window between the check and the write. With `overwrite`,
+  it is committed with `os.Rename`. A cancelled or timed-out export deletes its temporary
+  file and never writes the destination.
+- **ME-4, CR-6, AL-1 (egress and headless Chrome).** `export` launches no more Chromium
+  than `doclang build` does for the same document: always for PDF, and for DOCX only with
+  mermaid, math or non-native charts. It never sets `InstallChromium`. When Chromium is
+  needed and missing, it returns an error that names the elements needing it and points
+  to `doclang build --install-chromium`. HTML uses `build`'s default `browser` render mode,
+  so it keeps the CDN references that ME-4 describes. `offline-assets` is not offered,
+  because it would write an `assets/` directory beside the output, outside the
+  `overwrite` check. `--filter` binaries, custom rule packs and lint-policy files are
+  not reachable from the tool.
+- **ME-8 (size and time).** The input must be a regular file with an `.md`, `.markdown` or
+  `.doclang` extension. Its size is checked on the open file before reading
+  (`util.DefaultMaxInputBytes`) and again after `@include` expansion. Parsing keeps the
+  `util.RunGuarded` timeout. The whole export has its own three-minute budget and the
+  request's cancellation, and at most two exports run at a time, through the same
+  non-blocking semaphore pattern as the parser.

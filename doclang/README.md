@@ -47,7 +47,7 @@ Same element vocabulary, different document model — worth knowing before you w
 | `doclang build <file>` | Parse, lint and generate output |
 | `doclang init [name]` | Scaffold a new document |
 | `doclang fmt [file]` | Rewrite a file as canonical source |
-| `doclang mcp` | Run the MCP server over stdio, for editor/agent integration |
+| `doclang mcp` | Run the MCP server over stdio, for editor/agent integration (`--root` confines `export`) |
 
 ## build
 
@@ -117,9 +117,42 @@ don't have one.
 
 ## MCP server
 
-`doclang mcp` speaks MCP over stdio and exposes four tools — `lint`, `get_ast`,
-`list_themes` and `preview`. Its `lint` applies the resolved lint policy, so it reports the
-same diagnostics `--lint-only` would.
+`doclang mcp` speaks MCP over stdio and exposes five tools. Four work in memory and never
+touch the disk: `lint`, `get_ast`, `list_themes` and `preview`. Its `lint` applies the
+resolved lint policy, so it reports the same diagnostics `--lint-only` would.
+
+The fifth, `export`, writes DOCX, PDF or HTML for a file on disk with the same pipeline as
+`doclang build`: `@include` expansion, parsing, the document lint and the generator.
+
+```json
+{ "command": "doclang", "args": ["mcp", "--root", "/path/to/docs"] }
+```
+
+| Input | |
+|---|---|
+| `path` | `.md`, `.markdown` or `.doclang` file, relative to the root or absolute inside it |
+| `format` | `docx`, `pdf` or `html` |
+| `theme` | optional, a name from `list_themes` |
+| `output` | optional; defaults to the input path with the format's extension. Its directory must exist and its extension must match `format` |
+| `overwrite` | optional, default `false`: an existing file is never replaced unless it is `true` |
+| `toc` | optional; without it the front matter decides, as in `build` |
+
+The result is `{outputPath, format, bytes, diagnostics}`, with `outputPath` relative to the
+root. Lint errors come back as an error result carrying the diagnostics, as in `lint`.
+
+- **Root.** `--root` (default: the current directory) is resolved once at startup. The
+  input, the output, `@include` files and local images all have to stay inside it, also
+  after resolving symlinks.
+- **Chromium.** PDF always needs Chromium, and so does DOCX with mermaid diagrams, math or
+  charts that can't be drawn natively. If it's needed and missing, `export` fails with an
+  error that names what needs it. It never downloads anything: install Chrome, Chromium or
+  Edge, or run `doclang build --install-chromium` once from a terminal. `--chromium-path`
+  points the server at a specific binary.
+- **Render mode.** HTML uses `build`'s default `browser` mode, so diagrams, charts and math
+  load their scripts from a CDN when the page is opened.
+- **Limits.** Two exports at a time (a third gets a "server busy" error), three minutes
+  each, and the same input size cap as `build`. A cancelled or timed-out export never
+  leaves a partial file at the output path.
 
 ## Development
 
