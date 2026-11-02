@@ -8,21 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
-	"go.ziradocs.com/core/v2/include"
 	"go.ziradocs.com/core/v2/linter"
-	"go.ziradocs.com/core/v2/parser"
-	"go.ziradocs.com/core/v2/renderer"
-	"go.ziradocs.com/core/v2/report"
-	"go.ziradocs.com/core/v2/transform"
 	"go.ziradocs.com/core/v2/util"
-	"go.ziradocs.com/core/v2/xref"
-	"go.ziradocs.com/doclang/v2/internal/generator"
-	"go.ziradocs.com/doclang/v2/themes/document" // 🆕 Theme system
+	"go.ziradocs.com/doclang/v2/internal/pipeline"
 )
 
 // maxInputSizeEnvVar permite ajustar el límite de tamaño de entrada sin
@@ -118,9 +110,8 @@ Examples:
 				return err
 			}
 
-			// Expandir @include (issue #238, decisión 3) — build-time, fuera
-			// del parser (ver core/include, doc del paquete): así
-			// `fmt` preserva @include verbatim en vez de expandirlo.
+			// Confinamiento de @include (issue #238, decisión 3): por
+			// defecto, el directorio del propio archivo de entrada.
 			resolvedIncludeRoot := includeRoot
 			if resolvedIncludeRoot == "" {
 				resolvedIncludeRoot = filepath.Dir(inputFile)
@@ -129,184 +120,28 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("invalid include root: %w", err)
 			}
-			expandedContent, err := include.Expand(string(content), absIncludeRoot, os.ReadFile)
+
+			// include → parse → transform → tema → lint: el mismo pipeline
+			// que usa el tool `export` del servidor MCP (internal/pipeline).
+			themeFlag, _ := cmd.Flags().GetString("theme")
+			prepared, err := pipeline.Prepare(log, content, pipeline.PrepareOptions{
+				InputFile:         inputFile,
+				MaxInputBytes:     maxInputBytes,
+				IncludeRoot:       absIncludeRoot,
+				Filters:           filters,
+				ThemeName:         themeFlag,
+				ThemeTrusted:      true, // --theme es el operador en su propia terminal
+				CustomRules:       customRules,
+				RulePacks:         rulePacks,
+				ExternalRulepacks: externalRulepacks,
+				LintConfig:        lintConfig,
+				PolicyResolver:    policyResolver,
+				PostLint:          postLint,
+				ReportFormat:      reportFormat,
+				ReportOut:         reportOut,
+			})
 			if err != nil {
-				return fmt.Errorf("failed to expand includes: %w", err)
-			}
-			content = []byte(expandedContent)
-			// Re-chequear el tamaño DESPUÉS de expandir — ver el mismo
-			// comentario en slidelang/internal/cli/build.go (amplificación
-			// estilo "billion laughs"; include.MaxDepth no acota esto solo).
-			if err := util.CheckInputSize(len(content), maxInputBytes); err != nil {
-				return fmt.Errorf("expanded content exceeds size limit: %w", err)
-			}
-
-			// Parse document
-			log.Info("PARSER", "Parsing document...")
-
-			contentStr := string(content)
-
-			var doc *ast.AST
-			var diagnostics []diagnostics.Diagnostic
-
-			// ParseDocument despacha por el `mode:` del frontmatter entre los
-			// dos dialectos documentales (ver core/parser):
-			// - flex (y sus sinónimos flex-full/auto, y un archivo sin
-			//   frontmatter): Markdown, con la jerarquía # → ## → ### donde
-			//   ## y ### son subsecciones y NO secciones separadas, más la
-			//   normalización automática.
-			// - strict: bloques SECTION declarados, sin normalizar nunca.
-			// La normalización corre dentro de ParseDocument, así que el guard
-			// de recover/timeout debe cubrirlo entero (ME-8/BA-5).
-			log.Info("PARSER", "Parsing DocLang document")
-			if err := util.RunGuarded(util.DefaultParseTimeout, func() error {
-				doc, diagnostics = parser.New(log).ParseDocument(contentStr, inputFile)
-				return nil
-			}); err != nil {
 				return err
-			}
-
-			// Check for errors in diagnostics; print warnings too (e.g. CHART002
-			// for malformed chart JSON).
-			hasErrors := false
-			for _, diag := range diagnostics {
-				if diag.IsError() {
-					log.Error("PARSER: Error at line %d: %s", diag.Position.Line, diag.Message)
-					hasErrors = true
-				} else if diag.IsWarning() {
-					log.Warn("PARSER: Warning at line %d: %s", diag.Position.Line, diag.Message)
-				}
-			}
-			if hasErrors {
-				return fmt.Errorf("parse errors found")
-			}
-
-			// Etapa de transform (issue #240, decisión C): built-ins primero
-			// (issue #239: numeración de figuras/tablas + resolución de
-			// \ref), filtros de terceros (--filter) después, en orden. Corre
-			// ANTES del lint deliberadamente (ver core/transform,
-			// doc del paquete): el linter valida el AST YA transformado.
-			doc, err = transform.RunBuiltins(doc, []transform.Transform{xref.Transform})
-			if err != nil {
-				return fmt.Errorf("built-in transform stage failed: %w", err)
-			}
-			if len(filters) > 0 {
-				log.Info("TRANSFORM", "Aplicando %d filtro(s) externo(s)...", len(filters))
-				doc, err = transform.RunFilters(doc, filters, transform.DefaultFilterTimeout)
-				if err != nil {
-					return fmt.Errorf("filter stage failed: %w", err)
-				}
-			}
-
-			// Derivar LangRuns (issue #63) ANTES del lint, mismo criterio de
-			// orden que el bloque de arriba: tiene que estar disponible para
-			// el linter y, vía él, para un rulepack externo (recibe el AST
-			// json.Marshal'd tal cual, core/linter/external.go). Corre
-			// DESPUÉS de RunFilters y se re-deriva siempre desde Content,
-			// nunca se confía en lo que un filtro externo haya dejado en
-			// LangRuns — ver renderer.PopulateLangRuns. BuildVariables()
-			// (issue #63 code review, finding #10) para que un span que solo
-			// existe tras sustituir {{variable}} también se derive.
-			renderer.PopulateLangRuns(doc, doc.FrontMatter.BuildVariables())
-
-			// Cargar el tema ANTES del lint (issue #30 — seam de contraste
-			// WCAG): getThemeName solo depende de doc.FrontMatter y del flag
-			// --theme, ambos disponibles desde este punto, así que el tema se
-			// resuelve aquí para poder pasar sus variables CSS ya resueltas
-			// al linter vía WithThemeVariables (ver core/linter.ThemeAware).
-			// Antes este bloque vivía ~80 líneas más abajo, después del lint;
-			// se movió porque el lint necesita el mapa de colores, no al revés.
-			themeName, themeTrusted := getThemeName(doc, cmd)
-			themeLoader := document.NewThemeLoader()
-			theme, err := themeLoader.LoadTheme(themeName, themeTrusted)
-			if err != nil {
-				log.Warn("THEME: Failed to load theme '%s': %v", themeName, err)
-				// Continuar con fallback a professional
-			}
-
-			log.Info("THEME", "Using theme: %s v%s (type: %s)",
-				theme.Name, theme.Version, func() string {
-					if theme.IsExternal {
-						return "external"
-					}
-					return "embedded"
-				}())
-
-			// Determine if theme is page-view
-			isPageView := theme.Name == "page-view"
-
-			// Ejecutar el linter compartido (issue "doclang a la par" — antes
-			// solo slidelang lo corría; el core es el mismo, así que
-			// cablearlo acá es barato). Mismo motor de políticas configurable
-			// que slidelang --lint-config (ver linter.PolicyConfig).
-			log.Info("LINT", "Validating document...")
-			var policy *linter.PolicyConfig
-			if policyResolver != nil {
-				p, err := policyResolver(lintConfig, doc.FrontMatter)
-				if err != nil {
-					return err
-				}
-				policy = p
-			} else {
-				p, err := linter.ResolvePolicyConfig(lintConfig, doc.FrontMatter)
-				if err != nil {
-					return err
-				}
-				policy = p
-			}
-			// WithDialect(DialectDocuments) apaga las reglas que solo tienen
-			// sentido para slides: FRONT003 (el frontmatter es opcional en un
-			// documento), el schema de layout "title" que disparaba LAYOUT002
-			// sobre la primera sección, y el closing automático; y hace que
-			// CORE001 hable de documento. Las fija el mismo seam de core que
-			// slidelang no usa, así que su lint no cambia. Mismo cableado en
-			// internal/mcp/lint.go.
-			linterInstance := linter.New().WithDialect(linter.DialectDocuments).WithPolicy(policy).WithThemeVariables(theme.Variables)
-			for _, rule := range customRules {
-				linterInstance.AddRule(rule)
-			}
-			for _, pack := range rulePacks {
-				for _, rule := range pack.Rules() {
-					linterInstance.AddRule(rule)
-				}
-			}
-			if len(externalRulepacks) > 0 {
-				linterInstance.WithRulepacks(externalRulepacks, 30*time.Second)
-			}
-			allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(doc)
-			activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, doc.FilePath, time.Now())
-
-			if reportFormat != "" {
-				outPath := reportOut
-				descriptors := linter.CollectDescriptors(customRules, rulePacks)
-				descriptors = append(descriptors, extDescriptors...)
-				descriptors = linter.NormalizeDescriptors(descriptors)
-				if err := report.WriteReport(reportFormat, outPath, activeDiags, waivedDiags, descriptors, doc, content, externalRulepacks); err != nil {
-					return fmt.Errorf("failed to write report: %w", err)
-				}
-				if outPath != "" && outPath != "-" {
-					log.Info("LINT", "Reporte de evidencia generado en '%s'", outPath)
-				}
-			}
-
-			if postLint != nil {
-				if err := postLint(doc, activeDiags, waivedDiags); err != nil {
-					return fmt.Errorf("post-lint hook failed: %w", err)
-				}
-			}
-
-			lintDiagnostics := activeDiags
-			lintErrors := false
-			for _, diag := range lintDiagnostics {
-				if diag.IsError() {
-					log.Error("LINT: Error at line %d: %s", diag.Position.Line, diag.Message)
-					lintErrors = true
-				} else if diag.IsWarning() {
-					log.Warn("LINT: Warning at line %d: %s", diag.Position.Line, diag.Message)
-				}
-			}
-			if lintErrors {
-				return fmt.Errorf("lint errors found")
 			}
 			if lintOnly {
 				return nil
@@ -321,91 +156,29 @@ Examples:
 			}
 
 			// Generate output filename
-			baseName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
-			var outputFile string
-			switch format {
-			case "html":
-				outputFile = filepath.Join(output, baseName+".html")
-			case "pdf":
-				outputFile = filepath.Join(output, baseName+".pdf")
-			case "docx":
-				outputFile = filepath.Join(output, baseName+".docx")
-			case "markdown", "md":
-				outputFile = filepath.Join(output, baseName+".md")
-			default:
-				return fmt.Errorf("unsupported format: %s", format)
+			outputFile, err := OutputFileName(output, inputFile, format)
+			if err != nil {
+				return err
 			}
 
-			// Create generator
-			gen := generator.New(log)
-
-			// Extract options from frontmatter if available
-			tocEnabled := toc
-			numberingEnabled := numbering
-			pageBreaksEnabled := pageBreaks
-
-			// Override with frontmatter if not explicitly set via flags
-			if doc.FrontMatter != nil {
-				// Use frontmatter defaults if flags weren't provided
-				if !cmd.Flags().Changed("toc") {
-					// An explicit `toc.enabled` in front matter is the
-					// default; absent that, TOC stays on by default for
-					// documents (issue #115 follow-up, same opt-out gap
-					// #100 closed for `numbering:` — front matter had no
-					// way to say `toc: false` short of passing
-					// `--toc=false` on every build invocation).
-					if doc.FrontMatter.TOC != nil && doc.FrontMatter.TOC.Enabled != nil {
-						tocEnabled = *doc.FrontMatter.TOC.Enabled
-					} else {
-						tocEnabled = true // Enable TOC by default for documents
-					}
-				}
-				if !cmd.Flags().Changed("numbering") {
-					// An explicit `numbering:` in front matter is the
-					// default; absent that, numbering stays on by default
-					// for documents (issue #100 — front matter previously
-					// had no way to opt out short of passing
-					// `--numbering=false` on every build invocation).
-					if doc.FrontMatter.Numbering != nil {
-						numberingEnabled = *doc.FrontMatter.Numbering
-					} else {
-						numberingEnabled = true
-					}
-				}
+			// Un flag no pasado explícitamente deja que mande el
+			// frontmatter (ver pipeline.ResolveTOCAndNumbering).
+			var tocOpt, numberingOpt *bool
+			if cmd.Flags().Changed("toc") {
+				tocOpt = &toc
 			}
-
-			// toc.depth has no CLI flag (--toc only talks about
-			// enabled/disabled), so its resolution stays OUTSIDE the
-			// Changed("toc") guard above — otherwise `doclang build --toc`
-			// would silently revert an explicit `toc.depth` back to the
-			// hardcoded default. Markdown has no notion of depth (its TOC
-			// loop only walks top-level ContentBlocks), so this only
-			// affects HTML/PDF's extractSubsections.
-			tocDepth := 3
-			if doc.FrontMatter != nil && doc.FrontMatter.TOC != nil && doc.FrontMatter.TOC.Depth != nil {
-				tocDepth = *doc.FrontMatter.TOC.Depth
-			}
-
-			// Validate PlantUML mode
-			// Validate render mode
-			validModes := map[string]bool{
-				"browser":        true,
-				"offline-assets": true,
-				"offline-inline": true,
-			}
-			if !validModes[renderMode] {
-				return fmt.Errorf("invalid render-mode: %s (valid: browser, offline-assets, offline-inline)", renderMode)
-			}
-
-			validDiagramBackends := map[string]bool{"chromium": true, "kroki": true}
-			if !validDiagramBackends[diagramBackend] {
-				return fmt.Errorf("invalid diagram-backend: %s (valid: chromium, kroki)", diagramBackend)
+			if cmd.Flags().Changed("numbering") {
+				numberingOpt = &numbering
 			}
 
 			// Confinamiento de fuentes de imagen (ver docs/SECURITY_AUDIT_2026-07.md,
 			// AL-4): por defecto, el directorio del propio archivo de entrada;
 			// --asset-root permite ampliarlo explícitamente (p. ej. a un directorio
 			// de assets compartido) sin dejar de rechazar rutas absolutas/"..".
+			// Se valida el modo de render ANTES, como siempre lo hizo build.
+			if err := pipeline.ValidateRenderOptions(renderMode, diagramBackend); err != nil {
+				return err
+			}
 			resolvedAssetRoot := assetRoot
 			if resolvedAssetRoot == "" {
 				resolvedAssetRoot = filepath.Dir(inputFile)
@@ -415,49 +188,24 @@ Examples:
 				return fmt.Errorf("invalid asset root: %w", err)
 			}
 
-			var pageConfig *ast.PageConfig
-			var headerFooterConfig *ast.HeaderFooterConfig
-			var watermarkConfig *ast.WatermarkConfig
-			if doc.FrontMatter != nil {
-				pageConfig = doc.FrontMatter.Page
-				headerFooterConfig = doc.FrontMatter.HeaderFooter
-				watermarkConfig = doc.FrontMatter.Watermark
-			}
-
-			opts := generator.GeneratorOptions{
-				Format:            format,
-				Theme:             theme.Name,
-				ThemeVariables:    theme.Variables, // 🆕 Pass theme variables
-				ShowHeaders:       isPageView,      // 🆕 Only for page-view
-				ShowFooters:       isPageView,      // 🆕 Only for page-view
-				InteractiveViewer: tocEnabled,      // 🆕 Enable viewer when TOC is enabled
-				TOC:               tocEnabled,
-				TOCDepth:          tocDepth,
-				Numbering:         numberingEnabled,
-				Title:             generator.DocumentTitle(doc, inputFile), // respaldo para Markdown sin frontmatter
-				PageBreaks:        pageBreaksEnabled,
-				Page:              pageConfig,         // 🆕 page: front matter (size/margins), PDF only — see resolvePDFOptions
-				HeaderFooter:      headerFooterConfig, // 🆕 header:/footer:/layout_defaults: front matter (issue #117)
-				Watermark:         watermarkConfig,    // watermark: front matter (issue #179)
-				PlantUMLMode:      renderMode,         // 🆕 Global render mode
-				PlantUMLServer:    plantumlServer,     // 🆕 Custom server URL
-				PlantUMLFormat:    plantumlFormat,     // 🆕 Image format
-				MermaidMode:       renderMode,         // 🆕 Global render mode
-				DiagramBackend:    diagramBackend,     // "chromium" (default) or "kroki"
-				KrokiServer:       krokiServer,        // Custom Kroki server URL
-				ChartMode:         renderMode,         // 🆕 Global render mode
-				MapMode:           renderMode,         // 🆕 Global render mode
-				MathMode:          renderMode,         // issue #239-B: Global render mode
-				ImageMode:         renderMode,         // issue #167: Global render mode
-				ImageFormat:       imageFormat,        // 🆕 Image format (png/webp)
-				WebPQuality:       webpQuality,        // 🆕 WebP quality
-				ChromiumPath:      chromiumPath,       // 🆕 Custom Chromium path
-				InstallChromium:   installChromium,    // 🆕 Auto-install flag
-				AssetRoot:         absAssetRoot,       // 🆕 Confinamiento de fuentes de imagen (AL-4)
-			} // Generate document
-			log.Info("GENERATOR", "Generating %s document...", format)
-			if err := gen.Generate(doc, outputFile, opts); err != nil {
-				return fmt.Errorf("generation failed: %w", err)
+			if err := pipeline.Generate(log, prepared, inputFile, pipeline.GenerateOptions{
+				Format:          format,
+				OutputFile:      outputFile,
+				TOC:             tocOpt,
+				Numbering:       numberingOpt,
+				PageBreaks:      pageBreaks,
+				RenderMode:      renderMode,
+				ImageFormat:     imageFormat,
+				WebPQuality:     webpQuality,
+				PlantUMLServer:  plantumlServer,
+				PlantUMLFormat:  plantumlFormat,
+				DiagramBackend:  diagramBackend,
+				KrokiServer:     krokiServer,
+				ChromiumPath:    chromiumPath,
+				InstallChromium: installChromium,
+				AssetRoot:       absAssetRoot,
+			}); err != nil {
+				return err
 			}
 
 			log.Info("SUCCESS", "Document generated: %s", outputFile)
@@ -514,23 +262,22 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// getThemeName extracts theme name with priority: CLI flag > frontmatter > default.
-// The second return value indicates whether the name is trusted (came from
-// the operator's own --theme flag) — the frontmatter source is not, since
-// it's attacker-controlled document content (see ThemeLoader.LoadTheme).
-func getThemeName(doc *ast.AST, cmd *cobra.Command) (name string, trusted bool) {
-	// 1. CLI flag
-	if themeFlag, _ := cmd.Flags().GetString("theme"); themeFlag != "" {
-		return themeFlag, true
+// OutputFileName arma la ruta de salida de `build`: dir/<nombre del
+// input sin extensión>.<extensión del formato>.
+func OutputFileName(dir, inputFile, format string) (string, error) {
+	baseName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
+	switch format {
+	case "html":
+		return filepath.Join(dir, baseName+".html"), nil
+	case "pdf":
+		return filepath.Join(dir, baseName+".pdf"), nil
+	case "docx":
+		return filepath.Join(dir, baseName+".docx"), nil
+	case "markdown", "md":
+		return filepath.Join(dir, baseName+".md"), nil
+	default:
+		return "", fmt.Errorf("unsupported format: %s", format)
 	}
-
-	// 2. Frontmatter
-	if doc.FrontMatter != nil && doc.FrontMatter.Theme != "" {
-		return doc.FrontMatter.Theme, false
-	}
-
-	// 3. Default
-	return "professional", true
 }
 
 func parseLogLevel(level string) (util.LogLevel, error) {
