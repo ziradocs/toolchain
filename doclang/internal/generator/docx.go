@@ -4,9 +4,17 @@
 package generator
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"image"
+	_ "image/gif"  // image.DecodeConfig de imágenes GIF
+	_ "image/jpeg" // image.DecodeConfig de imágenes JPEG
+	"image/png"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
@@ -33,6 +41,11 @@ type DOCXGenerator struct {
 	// assetRoot confina las fuentes de imagen locales (elem.Source) a este
 	// directorio. Ver docs/SECURITY_AUDIT_2026-07.md, AL-4.
 	assetRoot string
+	// contentWidthIn/contentHeightIn: caja de texto de la página (tamaño
+	// menos márgenes) en pulgadas, leída de la sección por defecto del
+	// documento. Las figuras rasterizadas se ajustan a ella.
+	contentWidthIn  float64
+	contentHeightIn float64
 }
 
 // TOCEntry representa una entrada en la tabla de contenidos
@@ -179,6 +192,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 
 	// Crear documento con docxgo v2
 	doc := docx.NewDocument()
+	g.contentWidthIn, g.contentHeightIn = docxContentBoxInches(doc)
 
 	// Configurar metadata
 	if astDoc.FrontMatter != nil {
@@ -2446,8 +2460,16 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		imagePath = confined
 	}
 
-	// Tamaño por defecto: 6 pulgadas de ancho (mantiene aspect ratio)
-	imageSize := domain.NewImageSizeInches(6.0, 0) // 0 = mantener proporción
+	// Tamaño por defecto: 6 pulgadas de ancho (mantiene aspect ratio),
+	// reducido si así la imagen no cabe en la caja de texto.
+	imageSize := g.fittedImageSize(imagePath, elem.Caption != "")
+
+	// La leyenda va en la misma página que su imagen.
+	if elem.Caption != "" {
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
+	}
 
 	// Agregar imagen
 	img, err := p.AddImageWithSize(imagePath, imageSize)
@@ -2499,29 +2521,65 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	return nil
 }
 
+// docxImageDefaultWidthIn es el ancho con que se inserta una imagen.
+const docxImageDefaultWidthIn = 6.0
+
+// fittedImageSize da el tamaño de inserción de una imagen local: 6" de
+// ancho como siempre, salvo que a ese ancho no quepa en la caja de texto
+// (una captura vertical, p. ej.); entonces se reduce conservando la
+// proporción. Si el formato no se puede leer, se deja el ancho por defecto
+// y que docxgo calcule el alto, como antes.
+func (g *DOCXGenerator) fittedImageSize(path string, hasCaption bool) domain.ImageSize {
+	f, err := os.Open(path)
+	if err != nil {
+		return domain.NewImageSizeInches(docxImageDefaultWidthIn, 0)
+	}
+	defer func() { _ = f.Close() }()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return domain.NewImageSizeInches(docxImageDefaultWidthIn, 0)
+	}
+	w := docxImageDefaultWidthIn
+	h := w * float64(cfg.Height) / float64(cfg.Width)
+	maxH := g.contentHeightIn - figureSpacingReserveIn
+	if hasCaption {
+		maxH -= figureCaptionReserveIn
+	}
+	w, h = fitInBox(w, h, g.contentWidthIn, maxH)
+	return domain.NewImageSizeInches(w, h)
+}
+
 func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElement) error {
 	if g.chromiumRenderer == nil {
-		g.logger.Warn("DOCX: Chromium not available, skipping mermaid diagram")
-		return nil
+		// Antes el diagrama desaparecía del documento sin más rastro que un
+		// log genérico. Ahora queda un marcador en su lugar y un aviso que
+		// dice cuál diagrama faltó y cómo arreglarlo.
+		g.logger.Warn("DOCX: mermaid diagram (%s) at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.DiagramType, elem.Position.Line)
+		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (not rendered: Chromium not available)", elem.DiagramType))
 	}
 
 	g.logger.Info("DOCX", "Rendering Mermaid diagram (%s)...", elem.DiagramType)
 
-	// Renderizar a PNG usando ChromiumRenderer con mayor resolución
-	// Usar dimensiones más grandes para que Mermaid tenga más espacio
-	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), renderer.PrepareMermaidContent(elem.Content, elem.DiagramType), 2400, 1600, g.diagramTheme)
+	content := renderer.PrepareMermaidContent(elem.Content, elem.DiagramType)
+	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), content, g.mermaidLayoutWidthPx(), 600, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
 	}
 
-	// Guardar PNG temporalmente
-	pngPath := fmt.Sprintf("%s/mermaid_%s.png", g.tempDir, sanitizeBookmarkID(elem.DiagramType))
-	if err := os.WriteFile(pngPath, pngBytes, 0644); err != nil {
+	// Nombre por contenido: antes era mermaid_<tipo>.png, así que dos
+	// diagramas del mismo tipo escribían el mismo archivo temporal.
+	pngPath := filepath.Join(g.tempDir, "mermaid_"+diagramFileHash(elem.DiagramType, content, g.diagramTheme)+".png")
+	if err := os.WriteFile(pngPath, pngBytes, 0o644); err != nil {
 		return err
 	}
 
-	// Insertar imagen en documento
+	widthIn, heightIn, err := g.fitMermaidPNG(pngBytes, elem.Title != "")
+	if err != nil {
+		g.logger.Warn("DOCX: Failed to read mermaid PNG size: %v", err)
+		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
+	}
+
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
@@ -2529,21 +2587,140 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	if err := p.SetAlignment(domain.AlignmentCenter); err != nil {
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
+	if elem.Title != "" {
+		// La leyenda va en la misma página que su diagrama.
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
+	}
 
-	imageSize := domain.NewImageSizeInches(6.5, 0) // 6.5" ancho, altura proporcional
-	img, err := p.AddImageWithSize(pngPath, imageSize)
-	if err != nil {
+	if _, err := p.AddImageWithSize(pngPath, domain.NewImageSizeInches(widthIn, heightIn)); err != nil {
 		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s", elem.DiagramType))
 	}
 
-	if img == nil {
-		g.logger.Warn("DOCX: ⚠️  Mermaid image object is nil after insertion")
+	if elem.Title != "" {
+		if err := g.renderFigureCaption(doc, elem.Title); err != nil {
+			return err
+		}
 	}
 
-	sizeKB := float64(len(pngBytes)) / 1024
-	g.logger.Info("DOCX", "✅ Mermaid inserted (%.1f KB)", sizeKB)
+	g.logger.Info("DOCX", "✅ Mermaid inserted (%.1f KB, %.2fx%.2f in)", float64(len(pngBytes))/1024, widthIn, heightIn)
+	return nil
+}
 
+// Reglas de tamaño de las figuras rasterizadas (mermaid).
+const (
+	// cssPxPerInch: un px CSS mide 1/96 de pulgada, así que un diagrama a su
+	// tamaño natural tiene texto del mismo cuerpo que el que mermaid dibuja
+	// (16 px = 12 pt), parejo con el cuerpo del documento.
+	cssPxPerInch = 96.0
+	// mermaidPNGDeviceScale replica chromium.mermaidPNGDeviceScale (core):
+	// el PNG trae 2 px por px CSS.
+	mermaidPNGDeviceScale = 2.0
+	// mermaidLayoutWidthFactor: el ancho de layout que ve mermaid antes de
+	// dibujar es el ancho de la caja de texto por este factor. Un diagrama
+	// que llena ese ancho se encoge un poco al insertarlo, en vez de que
+	// mermaid lo comprima hasta que las etiquetas no quepan.
+	mermaidLayoutWidthFactor = 1.5
+	// figureCaptionReserveIn: alto que se le deja a la leyenda y al espaciado
+	// del párrafo, para que figura y leyenda quepan juntas en una página.
+	figureCaptionReserveIn = 0.6
+	// figureSpacingReserveIn: margen para el espaciado del párrafo de la
+	// figura aunque no tenga leyenda; sin él, una figura de alto exacto de
+	// página empuja el párrafo siguiente y deja una página casi vacía.
+	figureSpacingReserveIn = 0.3
+)
+
+// docxContentBoxInches devuelve el ancho y alto de la caja de texto (página
+// menos márgenes) de la sección por defecto, en pulgadas.
+func docxContentBoxInches(doc domain.Document) (float64, float64) {
+	const twipsPerInch = 1440.0
+	section, err := doc.DefaultSection()
+	if err != nil || section == nil {
+		// A4 con márgenes de 1", el default de docxgo.
+		return 6.27, 9.69
+	}
+	size, margins := section.PageSize(), section.Margins()
+	w := float64(size.Width-margins.Left-margins.Right) / twipsPerInch
+	h := float64(size.Height-margins.Top-margins.Bottom) / twipsPerInch
+	return w, h
+}
+
+func (g *DOCXGenerator) mermaidLayoutWidthPx() int {
+	return int(g.contentWidthIn * cssPxPerInch * mermaidLayoutWidthFactor)
+}
+
+// fitMermaidPNG calcula el tamaño de inserción de un PNG de mermaid: su
+// tamaño natural (px CSS a 96 por pulgada), sin agrandarlo nunca, y
+// reducido para caber a lo ancho de la caja de texto y a lo alto de la
+// página, menos lo que ocupe la leyenda. Antes se insertaba siempre a 6.5"
+// de ancho: un diagrama alto se salía de la página, y el PNG de contenedor
+// fijo dejaba el diagrama chico en medio de mucho blanco.
+func (g *DOCXGenerator) fitMermaidPNG(pngBytes []byte, hasCaption bool) (float64, float64, error) {
+	cfg, err := png.DecodeConfig(bytes.NewReader(pngBytes))
+	if err != nil {
+		return 0, 0, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, fmt.Errorf("empty PNG (%dx%d)", cfg.Width, cfg.Height)
+	}
+	naturalW := float64(cfg.Width) / mermaidPNGDeviceScale / cssPxPerInch
+	naturalH := float64(cfg.Height) / mermaidPNGDeviceScale / cssPxPerInch
+	maxH := g.contentHeightIn - figureSpacingReserveIn
+	if hasCaption {
+		maxH -= figureCaptionReserveIn
+	}
+	w, h := fitInBox(naturalW, naturalH, g.contentWidthIn, maxH)
+	return w, h, nil
+}
+
+// fitInBox reduce (nunca agranda) w×h para que quepa en maxW×maxH,
+// conservando la proporción.
+func fitInBox(w, h, maxW, maxH float64) (float64, float64) {
+	scale := 1.0
+	if maxW > 0 && w*scale > maxW {
+		scale = maxW / w
+	}
+	if maxH > 0 && h*scale > maxH {
+		scale = maxH / h
+	}
+	return w * scale, h * scale
+}
+
+// diagramFileHash identifica un diagrama rasterizado por lo que lo
+// determina: tipo, fuente y tema. Dos diagramas iguales comparten archivo
+// (es el mismo PNG); dos distintos nunca.
+func diagramFileHash(diagramType, content string, theme renderer.DiagramThemeColors) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00%+v", diagramType, content, theme)
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// renderFigureCaption escribe la leyenda centrada en cursiva de una figura.
+func (g *DOCXGenerator) renderFigureCaption(doc domain.Document, text string) error {
+	captionPara, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := captionPara.SetAlignment(domain.AlignmentCenter); err != nil {
+		return fmt.Errorf("invalid alignment: %w", err)
+	}
+	if err := captionPara.SetSpacingAfter(g.parseTwips(g.style.TextSpaceAfter)); err != nil {
+		return fmt.Errorf("invalid spacing after: %w", err)
+	}
+
+	r, err := captionPara.AddRun()
+	if err != nil {
+		return err
+	}
+	_ = r.SetText(text)
+	if err := r.SetSize(g.parseSize(g.style.FontSizeBase) - 2); err != nil {
+		return fmt.Errorf("invalid font size: %w", err)
+	}
+	_ = r.SetColor(g.parseColor(g.style.TextLightColor))
+	_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+	_ = r.SetItalic(true)
 	return nil
 }
 
@@ -3169,7 +3346,13 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := domain.NewImageSizeInches(6.0, 0)
+	if elem.Title != "" {
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
+	}
+
+	imageSize := g.fittedImageSize(pngPath, elem.Title != "")
 	_, err = p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
