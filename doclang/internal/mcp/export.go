@@ -51,7 +51,7 @@ func releaseTemp(p string, remove bool) {
 	delete(pendingTemps.paths, p)
 	pendingTemps.Unlock()
 	if remove {
-		os.Remove(p)
+		_ = os.Remove(p)
 	}
 }
 
@@ -62,7 +62,7 @@ func CleanupPendingExports() {
 	pendingTemps.Lock()
 	defer pendingTemps.Unlock()
 	for p := range pendingTemps.paths {
-		os.Remove(p)
+		_ = os.Remove(p)
 		delete(pendingTemps.paths, p)
 	}
 }
@@ -209,7 +209,11 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 		return fail("cannot create temporary output: %v", err)
 	}
 	tmpPath := tmp.Name()
-	tmp.Close()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		<-exportSemaphore
+		return fail("cannot create temporary output: %v", err)
+	}
 	trackTemp(tmpPath)
 
 	timeout := cfg.timeout
@@ -367,7 +371,7 @@ func commitExport(tmpPath, outputAbs string, overwrite bool) (int64, error) {
 			return 0, err
 		}
 	}
-	os.Remove(tmpPath)
+	_ = os.Remove(tmpPath)
 	return info.Size(), nil
 }
 
@@ -376,14 +380,14 @@ func copyExclusive(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(dst)
+		_ = out.Close()
+		_ = os.Remove(dst)
 		return err
 	}
 	return out.Close()

@@ -27,7 +27,7 @@ func TestDOCXGenerator_TOC_SingleLocalizedTitle(t *testing.T) {
 		sep := strings.Index(xml, `w:fldCharType="separate"`)
 		end := strings.Index(xml, `w:fldCharType="end"`)
 		entry := strings.Index(xml, "<w:t>Introduction</w:t>")
-		if !(sep < entry && entry < end) {
+		if (sep >= entry || entry >= end) {
 			t.Errorf("lang %q: TOC entries are not the field result (sep %d, entry %d, end %d)", lang, sep, entry, end)
 		}
 		if !strings.Contains(xml, `w:dirty="true"`) {

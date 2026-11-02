@@ -139,7 +139,7 @@ func (r exportRoot) resolveInput(p string, maxBytes int) (abs string, content []
 		}
 		return "", nil, fmt.Errorf("cannot open input: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil {
 		return "", nil, fmt.Errorf("cannot stat input: %w", err)

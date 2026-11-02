@@ -3011,7 +3011,7 @@ func fitInBox(w, h, maxW, maxH float64) (float64, float64) {
 // (es el mismo PNG); dos distintos nunca.
 func diagramFileHash(diagramType, content string, theme renderer.DiagramThemeColors) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%+v", diagramType, content, theme)
+	_, _ = fmt.Fprintf(h, "%s\x00%s\x00%+v", diagramType, content, theme)
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 

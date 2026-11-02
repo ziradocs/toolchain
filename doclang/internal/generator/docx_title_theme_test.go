@@ -62,7 +62,7 @@ func TestDOCXGenerator_TitleMatchingFirstHeading_RendersOnce(t *testing.T) {
 	heading := strings.Index(xml, `<w:pStyle w:val="Heading1">`)
 	author := strings.Index(xml, "Por: Ana")
 	toc := strings.Index(xml, "TOC ")
-	if heading < 0 || author < 0 || toc < 0 || !(heading < author && author < toc) {
+	if heading < 0 || author < 0 || toc < 0 || (heading >= author || author >= toc) {
 		t.Errorf("want Heading1 < author < TOC, got %d, %d, %d", heading, author, toc)
 	}
 }

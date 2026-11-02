@@ -126,7 +126,7 @@ func zipContents(t *testing.T, path string) map[string][]byte {
 	if err != nil {
 		t.Fatalf("open docx: %v", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	files := map[string][]byte{}
 	for _, f := range zr.File {
 		rc, err := f.Open()
@@ -134,7 +134,7 @@ func zipContents(t *testing.T, path string) map[string][]byte {
 			t.Fatal(err)
 		}
 		data, _ := io.ReadAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		files[f.Name] = data
 	}
 	return files

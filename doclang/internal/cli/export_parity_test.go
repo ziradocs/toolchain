@@ -66,7 +66,7 @@ func TestBuildAndMCPExportProduceTheSameOutput(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer session.Close()
+				defer func() { _ = session.Close() }()
 				res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "export", Arguments: map[string]any{"path": name, "format": format}})
 				if err != nil {
 					t.Fatal(err)
@@ -101,14 +101,14 @@ func readOutput(t *testing.T, path, format string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	for _, f := range zr.File {
 		if f.Name == "word/document.xml" {
 			rc, err := f.Open()
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 			data, _ := io.ReadAll(rc)
 			return data
 		}
