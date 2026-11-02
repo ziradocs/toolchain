@@ -82,6 +82,12 @@ type PrepareOptions struct {
 	// IncludeRoot es el directorio, absoluto, al que se confinan los
 	// @include (util.ResolveConfinedPath dentro de include.Expand).
 	IncludeRoot string
+	// SourceDir es el directorio, absoluto, desde el que se resuelven las
+	// fuentes de imagen relativas (el mismo que GenerateOptions.SourceDir).
+	// Con él, una imagen escrita dentro de un archivo incluido se reescribe
+	// para resolverse desde el directorio de ese archivo (ver
+	// rebaseIncludedAssets). Vacío deja las fuentes como están.
+	SourceDir string
 	// Filters son binarios de filtro externo (--filter); el MCP no pasa
 	// ninguno.
 	Filters []string
@@ -129,7 +135,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	// Expandir @include (issue #238, decisión 3) — build-time, fuera
 	// del parser (ver core/include, doc del paquete): así
 	// `fmt` preserva @include verbatim en vez de expandirlo.
-	expandedContent, err := include.Expand(string(content), opts.IncludeRoot, os.ReadFile)
+	expandedContent, origins, err := include.ExpandWithOrigins(string(content), opts.IncludeRoot, os.ReadFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand includes: %w", err)
 	}
@@ -180,6 +186,11 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	if hasErrors {
 		return nil, &DiagnosticsError{Stage: StageParse, Diagnostics: parseDiags}
 	}
+
+	// Las imágenes de un archivo incluido se resuelven desde el directorio
+	// de ese archivo, no desde el del raíz. Antes de los transforms, para
+	// que filtros, lint y generadores vean ya la ruta efectiva.
+	rebaseIncludedAssets(doc, origins, opts.SourceDir)
 
 	// Etapa de transform (issue #240, decisión C): built-ins primero
 	// (issue #239: numeración de figuras/tablas + resolución de
