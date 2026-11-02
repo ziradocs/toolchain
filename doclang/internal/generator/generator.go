@@ -25,6 +25,12 @@ type GeneratorOptions struct {
 	TOCDepth          int               // TOC depth (1-6)
 	Numbering         bool              // Section numbering
 	PageBreaks        bool              // Page breaks between sections
+	// Title es el título de respaldo para los metadatos (<title> del HTML,
+	// título del PDF) de un documento SIN frontmatter — lo resuelve
+	// DocumentTitle (primer `#`, o nombre del archivo). Con frontmatter
+	// DocumentTitle devuelve su `title:`, así que este campo nunca le gana.
+	// Vacío = sin respaldo.
+	Title string
 	// Page is the parsed `page:` front matter namespace (size/margins,
 	// author-facing strings verbatim — see core/util/length.go). nil means
 	// the document has no opinion. Consumed only by the PDF generator today
@@ -197,11 +203,12 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 		g.logger.Warn("THEME: failed to load theme %q, falling back to professional: %v", themeName, err)
 	}
 
-	title := ""
+	// Sin ruta de archivo: una vista previa en memoria solo puede tomar el
+	// título del frontmatter o del primer `#` (ver DocumentTitle).
+	title := DocumentTitle(doc, "")
 	var headerFooterConfig *ast.HeaderFooterConfig
 	var watermarkConfig *ast.WatermarkConfig
 	if doc.FrontMatter != nil {
-		title = doc.FrontMatter.Title
 		headerFooterConfig = doc.FrontMatter.HeaderFooter
 		watermarkConfig = doc.FrontMatter.Watermark
 	}

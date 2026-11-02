@@ -35,6 +35,10 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 	title := ""
 	if doc.FrontMatter != nil && doc.FrontMatter.Title != "" {
 		title = doc.FrontMatter.Title
+	} else if opts.Title != "" {
+		// Documento sin frontmatter: el respaldo que resolvió el caller
+		// (DocumentTitle — primer `#` o nombre del archivo).
+		title = opts.Title
 	}
 
 	// Determinar outputDir (directorio donde se guarda el HTML)

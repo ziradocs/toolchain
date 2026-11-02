@@ -58,6 +58,10 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	title := ""
 	if doc.FrontMatter != nil && doc.FrontMatter.Title != "" {
 		title = doc.FrontMatter.Title
+	} else if opts.Title != "" {
+		// Documento sin frontmatter: el respaldo que resolvió el caller
+		// (DocumentTitle — primer `#` o nombre del archivo).
+		title = opts.Title
 	}
 
 	// variables alimenta la sustitución {{var}} de las zonas de texto del

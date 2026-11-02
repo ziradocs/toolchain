@@ -56,7 +56,8 @@ func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 				res, resErr := errorResult(out)
 				return res, out, resErr
 			}
-			lintDiags := linter.New().WithPolicy(policy).Lint(astNode)
+			// Mismo dialecto que `doclang build` (internal/cli/build.go).
+			lintDiags := linter.New().WithDialect(linter.DialectDocuments).WithPolicy(policy).Lint(astNode)
 			allDiags = append(allDiags, lintDiags...)
 			sectionCount = len(astNode.ContentBlocks)
 		}

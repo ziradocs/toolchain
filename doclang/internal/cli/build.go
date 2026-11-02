@@ -254,7 +254,14 @@ Examples:
 				}
 				policy = p
 			}
-			linterInstance := linter.New().WithPolicy(policy).WithThemeVariables(theme.Variables)
+			// WithDialect(DialectDocuments) apaga las reglas que solo tienen
+			// sentido para slides: FRONT003 (el frontmatter es opcional en un
+			// documento), el schema de layout "title" que disparaba LAYOUT002
+			// sobre la primera sección, y el closing automático; y hace que
+			// CORE001 hable de documento. Las fija el mismo seam de core que
+			// slidelang no usa, así que su lint no cambia. Mismo cableado en
+			// internal/mcp/lint.go.
+			linterInstance := linter.New().WithDialect(linter.DialectDocuments).WithPolicy(policy).WithThemeVariables(theme.Variables)
 			for _, rule := range customRules {
 				linterInstance.AddRule(rule)
 			}
@@ -427,6 +434,7 @@ Examples:
 				TOC:               tocEnabled,
 				TOCDepth:          tocDepth,
 				Numbering:         numberingEnabled,
+				Title:             generator.DocumentTitle(doc, inputFile), // respaldo para Markdown sin frontmatter
 				PageBreaks:        pageBreaksEnabled,
 				Page:              pageConfig,         // 🆕 page: front matter (size/margins), PDF only — see resolvePDFOptions
 				HeaderFooter:      headerFooterConfig, // 🆕 header:/footer:/layout_defaults: front matter (issue #117)
