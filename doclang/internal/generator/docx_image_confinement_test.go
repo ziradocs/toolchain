@@ -204,8 +204,10 @@ func TestDOCX_MissingImagePlaceholderUsesAuthorSource(t *testing.T) {
 	}
 
 	xml := docxDocumentXML(t, output)
-	if !strings.Contains(xml, "[Image not found: img/missing.png]") {
-		t.Errorf("placeholder with the author's source not found in document.xml")
+	// El marcador lleva el alt, como el de HTML/PDF, en el idioma del
+	// documento (sin lang: español).
+	if !strings.Contains(xml, "[Imagen no disponible: alt text]") {
+		t.Errorf("localized placeholder with the alt text not found in document.xml")
 	}
 	if strings.Contains(xml, assetRoot) {
 		t.Errorf("document.xml contains the build machine's asset root %q", assetRoot)

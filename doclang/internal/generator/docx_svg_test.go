@@ -114,7 +114,7 @@ func TestDOCXGenerator_SVGWithoutChromium_WarnsAndLeavesPlaceholder(t *testing.T
 	if gen.chromiumRenderer != nil {
 		t.Skip("a Chromium was found anyway; this test needs it missing")
 	}
-	if xml := docxDocumentXML(t, output); !strings.Contains(xml, "[Image could not be inserted: diagrama.svg]") {
+	if xml := docxDocumentXML(t, output); !strings.Contains(xml, "[Imagen no disponible: Diagrama]") {
 		t.Errorf("missing placeholder in document.xml:\n%s", xml)
 	}
 	found := false
