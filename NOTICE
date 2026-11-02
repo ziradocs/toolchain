@@ -21,3 +21,22 @@ as-is without modification to their license terms:
   core/renderer/chromium/third_party/mermaid/LICENSE. That bundle includes
   its own dependencies, whose license notices are kept inside it (among
   them DOMPurify, Apache-2.0 or MPL-2.0, and js-yaml, MIT).
+- Chart.js 4.5.1 (https://github.com/chartjs/Chart.js), MIT License,
+  Copyright (c) 2014-2024 Chart.js Contributors, and chartjs-chart-treemap
+  4.2.0 (https://github.com/kurkle/chartjs-chart-treemap), MIT License,
+  Copyright (c) 2019-2021 Jukka Kurkela. The unmodified builds
+  dist/chart.umd.js and dist/chartjs-chart-treemap.min.js are embedded in
+  core/renderer/chromium so charts render to DOCX/PDF without network
+  access; their license texts are in
+  core/renderer/chromium/third_party/chartjs/LICENSE.md and
+  core/renderer/chromium/third_party/chartjs-chart-treemap/LICENSE.
+- MathJax 4.1.3 (https://github.com/mathjax/MathJax), Apache License 2.0,
+  by The MathJax Consortium, and the MathJax-Newcm
+  font for MathJax, @mathjax/mathjax-newcm-font 4.1.2, which its package
+  declares Apache License 2.0. The unmodified files tex-svg.js, 32 of
+  the input/tex/extensions/*.js files and 11 of the font's svg/dynamic/*.js
+  files are embedded in core/renderer/chromium so equations render to
+  DOCX/PDF without network access; the license text is in
+  core/renderer/chromium/third_party/mathjax/LICENSE and, for the font
+  package (which ships no license file of its own),
+  core/renderer/chromium/third_party/mathjax-newcm-font/LICENSE.
