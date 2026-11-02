@@ -54,9 +54,9 @@ const (
 // (TestChromiumRenderer_MermaidThenPDF_Issue114 y vecinos, que ejercitan
 // mermaid SVG + PDF sobre el mismo ChromiumRenderer) pasa igual apuntando a
 // headless-shell, más rápido que contra el Chrome completo. `Detect()` (ver
-// chromium_manager.go) no cambia: si el usuario ya tiene Chrome/Chromium/
-// Edge instalado, ese sigue ganando — este cambio solo afecta qué se
-// DESCARGA cuando no hay nada.
+// chromium_manager.go) busca esta instalación justo después de
+// --chromium-path y antes que el Chrome/Chromium/Edge del sistema: quien
+// corrió --install-chromium pidió la versión fijada acá.
 
 // chromiumDownloadTimeout y chromiumMaxDownloadBytes son `var` (no `const`)
 // únicamente para poder acotarlos en tests sin esperar minutos/cientos de MB
@@ -154,7 +154,7 @@ func (ci *ChromiumInstaller) InstallChromium(ctx context.Context) (string, error
 
 	// 4. Descomprimir
 	ci.logger.Info("CHROMIUM", "Extracting Chromium...")
-	extractDir := filepath.Join(installDir, "chromium")
+	extractDir := installExtractDir(installDir)
 
 	if err := ci.extractZip(zipPath, extractDir); err != nil {
 		return "", fmt.Errorf("failed to extract Chromium: %w", err)
@@ -178,9 +178,59 @@ func (ci *ChromiumInstaller) InstallChromium(ctx context.Context) (string, error
 		}
 	}
 
+	// 8. Marcar la instalación como completa. Va al final, después del
+	// chmod: si el proceso muere antes (SIGKILL, disco lleno), el defer de
+	// extractZip no corre y el árbol puede quedar a medias con el binario ya
+	// en su lugar; sin marca, IsChromiumInstalled no lo da por bueno.
+	if err := writeInstallMarker(extractDir); err != nil {
+		return "", fmt.Errorf("failed to mark Chromium installation as complete: %w", err)
+	}
+
 	ci.logger.Info("CHROMIUM", "✅ Chromium installed successfully at: %s", execPath)
 
 	return execPath, nil
+}
+
+// installMarkerName es el archivo que InstallChromium escribe en el
+// directorio de extracción como último paso. Su contenido es
+// installMarkerContent(): versión, plataforma y SHA-256 verificado del zip.
+const installMarkerName = ".install-complete"
+
+// installMarkerContent es lo que la marca debe decir para la versión fijada
+// en este binario. Una instalación hecha por otra versión de doclang (otro
+// chromiumVersion u otro hash) no coincide y no se usa.
+func installMarkerContent() string {
+	return fmt.Sprintf("version=%s\nplatform=%s\nsha256=%s\n",
+		chromiumVersion, chromiumPlatformKey(), chromiumSHA256[chromiumPlatformKey()])
+}
+
+// writeInstallMarker escribe la marca de forma atómica (temporal + rename),
+// para que nunca exista una marca a medio escribir.
+func writeInstallMarker(extractDir string) error {
+	tmp, err := os.CreateTemp(extractDir, installMarkerName+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }() // no-op tras el rename exitoso
+	if _, err := tmp.WriteString(installMarkerContent()); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, filepath.Join(extractDir, installMarkerName))
+}
+
+// hasValidInstallMarker reporta si extractDir tiene la marca de una
+// instalación completa de la versión fijada para esta plataforma.
+func hasValidInstallMarker(extractDir string) bool {
+	if _, ok := chromiumSHA256[chromiumPlatformKey()]; !ok {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(extractDir, installMarkerName))
+	return err == nil && string(data) == installMarkerContent()
 }
 
 // chromiumPlatformKey identifica la plataforma actual para buscar su hash
@@ -222,8 +272,28 @@ func (ci *ChromiumInstaller) getDownloadURL() (string, error) {
 	}
 }
 
-// getInstallDir retorna el directorio donde se instalará Chromium
+// getInstallDir retorna el directorio donde se instalará Chromium,
+// creándolo si no existe. Solo lo usa InstallChromium; la detección usa
+// installDirPath, que no toca el disco.
 func (ci *ChromiumInstaller) getInstallDir() (string, error) {
+	cacheDir, err := ci.installDirPath()
+	if err != nil {
+		return "", err
+	}
+
+	// Crear directorio si no existe
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", err
+	}
+
+	return cacheDir, nil
+}
+
+// installDirPath es la única fuente de la ruta de instalación: la usan
+// InstallChromium (vía getInstallDir) y IsChromiumInstalled, que es lo que
+// consulta ChromiumManager.Detect. No respeta XDG_CACHE_HOME: en Linux es
+// siempre $HOME/.cache/<brand>.
+func (ci *ChromiumInstaller) installDirPath() (string, error) {
 	// Usar directorio de cache del sistema
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -240,11 +310,6 @@ func (ci *ChromiumInstaller) getInstallDir() (string, error) {
 		cacheDir = filepath.Join(homeDir, "AppData", "Local", ci.brand.Name, "Cache")
 	default:
 		cacheDir = filepath.Join(homeDir, "."+ci.brand.Name, "cache")
-	}
-
-	// Crear directorio si no existe
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return "", err
 	}
 
 	return cacheDir, nil
@@ -559,27 +624,12 @@ func (ci *ChromiumInstaller) extractFile(file *zip.File, destPath string, maxByt
 // chrome-headless-shell[.exe] (verificado inspeccionando el zip real, no
 // solo por la convención de nombres de Chrome for Testing).
 func (ci *ChromiumInstaller) findExecutable(extractDir string) (string, error) {
-	var execName string
-
-	switch runtime.GOOS {
-	case "darwin":
-		if runtime.GOARCH == "arm64" {
-			execName = "chrome-headless-shell-mac-arm64/chrome-headless-shell"
-		} else {
-			execName = "chrome-headless-shell-mac-x64/chrome-headless-shell"
-		}
-
-	case "linux":
-		execName = "chrome-headless-shell-linux64/chrome-headless-shell"
-
-	case "windows":
-		execName = "chrome-headless-shell-win64/chrome-headless-shell.exe"
-
-	default:
-		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	execName, err := headlessShellRelPath()
+	if err != nil {
+		return "", err
 	}
 
-	execPath := filepath.Join(extractDir, execName)
+	execPath := filepath.Join(extractDir, filepath.FromSlash(execName))
 
 	// Verificar que el archivo existe
 	if _, err := os.Stat(execPath); err != nil {
@@ -589,14 +639,42 @@ func (ci *ChromiumInstaller) findExecutable(extractDir string) (string, error) {
 	return execPath, nil
 }
 
-// IsChromiumInstalled verifica si Chromium ya está instalado
+// headlessShellRelPath es la ruta del ejecutable dentro del directorio de
+// extracción, con "/" como separador.
+func headlessShellRelPath() (string, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		if runtime.GOARCH == "arm64" {
+			return "chrome-headless-shell-mac-arm64/chrome-headless-shell", nil
+		}
+		return "chrome-headless-shell-mac-x64/chrome-headless-shell", nil
+	case "linux":
+		return "chrome-headless-shell-linux64/chrome-headless-shell", nil
+	case "windows":
+		return "chrome-headless-shell-win64/chrome-headless-shell.exe", nil
+	default:
+		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+}
+
+// installExtractDir es el directorio donde InstallChromium extrae el zip.
+func installExtractDir(installDir string) string {
+	return filepath.Join(installDir, "chromium")
+}
+
+// IsChromiumInstalled verifica si Chromium ya está instalado: el ejecutable
+// existe, es ejecutable y la marca de instalación completa corresponde a la
+// versión y el hash fijados en este binario. No crea directorios.
 func (ci *ChromiumInstaller) IsChromiumInstalled() (bool, string) {
-	installDir, err := ci.getInstallDir()
+	installDir, err := ci.installDirPath()
 	if err != nil {
 		return false, ""
 	}
 
-	extractDir := filepath.Join(installDir, "chromium")
+	extractDir := installExtractDir(installDir)
+	if !hasValidInstallMarker(extractDir) {
+		return false, ""
+	}
 	execPath, err := ci.findExecutable(extractDir)
 	if err != nil {
 		return false, ""
