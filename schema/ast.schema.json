@@ -3284,6 +3284,12 @@
           },
           "type": "array"
         },
+        "columnAlign": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "rowPositions": {
           "items": {
             "$ref": "#/$defs/Position"
