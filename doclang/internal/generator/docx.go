@@ -2522,7 +2522,7 @@ func (g *DOCXGenerator) addTableCellParagraph(cell domain.TableCell, columnAlign
 // columna corta quede ilegible. La suma es siempre el ancho disponible, así
 // que la tabla nunca se sale de la página.
 func docxTableColumnWidths(elem *ast.TableElement, numCols, available int) []int {
-	const minWeight, maxWeight = 4, 40
+	const minWeight, maxWeight = 6, 40
 	weights := make([]int, numCols)
 	measure := func(col int, text string) {
 		n := utf8.RuneCountInString(docxStripHeadingMarkup(text))
@@ -2540,7 +2540,10 @@ func docxTableColumnWidths(elem *ast.TableElement, numCols, available int) []int
 	}
 	sum := 0
 	for j := range weights {
-		weights[j] = max(minWeight, min(maxWeight, weights[j]))
+		// +3: el margen interno de la celda y la negrita del encabezado
+		// ocupan unos tres caracteres; sin ellos una columna angosta
+		// ("Monto") partía su propio encabezado en dos líneas.
+		weights[j] = max(minWeight, min(maxWeight, weights[j]+3))
 		sum += weights[j]
 	}
 	widths := make([]int, numCols)

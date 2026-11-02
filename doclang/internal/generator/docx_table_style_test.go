@@ -65,7 +65,7 @@ func TestDOCXTableColumnWidths_SumToAvailableAndAreBounded(t *testing.T) {
 	if widths[0]+widths[1] != 9000 {
 		t.Errorf("widths %v do not sum to 9000", widths)
 	}
-	if widths[0] < 9000*4/44 {
+	if widths[0] < 9000*6/46 {
 		t.Errorf("short column squeezed below its minimum: %v", widths)
 	}
 }
