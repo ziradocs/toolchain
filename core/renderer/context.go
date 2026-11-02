@@ -49,6 +49,13 @@ type RenderContext struct {
 	// cual (mismo comportamiento roto de siempre) en vez de leer del
 	// filesystem sin límite alguno.
 	AssetRoot string
+	// AssetBaseDir es el directorio contra el que se resuelve una fuente
+	// local relativa antes de confinarla a AssetRoot: el del archivo fuente,
+	// como en cualquier herramienta de markdown. Vacío resuelve contra
+	// AssetRoot, el comportamiento previo a este campo; da lo mismo mientras
+	// AssetRoot sea el directorio del archivo fuente (el default de doclang)
+	// y solo cambia algo cuando AssetRoot es un ancestro (--asset-root ..).
+	AssetBaseDir string
 	// ChartCategoricalColors overrides the built-in categorical palette used
 	// to color chart series/segments in the offline/PDF render path —
 	// nil/empty (every caller today) reproduces the existing hardcoded
@@ -141,6 +148,7 @@ func NewDefaultRenderContext() *RenderContext {
 		ImageMode:              "browser",
 		Lang:                   "",
 		AssetRoot:              "",
+		AssetBaseDir:           "",
 		ChartCategoricalColors: nil,
 		ChartThemeColors:       ChartThemeColors{},
 		DiagramThemeColors:     DiagramThemeColors{},

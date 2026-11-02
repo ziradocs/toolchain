@@ -382,7 +382,7 @@ func tryInlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag,
 		return "", false
 	}
 
-	resolved, err := util.ResolveConfinedPath(ctx.AssetRoot, source)
+	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, source)
 	if err != nil {
 		logger.Warn("[%s] local %s %q rejected: %v", tag, kind, source, err)
 		return "", false

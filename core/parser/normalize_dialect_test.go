@@ -234,3 +234,82 @@ func TestNormalization_MarkdownSlideStructureStillAppliesToSlides(t *testing.T) 
 			len(doc.ContentBlocks))
 	}
 }
+
+// plainMarkdownImagesDoc es un .md de proyecto común: sin frontmatter,
+// arrancando en "# ". Eso solo ya puntúa 0.6 en el Detector
+// (detectMissingFrontmatter) y enciende el set entero de reglas, ImagesRule
+// incluida, que reescribía toda ruta que no empezara con "assets/" a
+// "assets/images/<nombre>": la imagen que el autor puso al lado de su .md
+// dejaba de encontrarse en `doclang build`.
+const plainMarkdownImagesDoc = `# Proyecto
+
+Texto.
+
+![Logo](logo.png)
+
+![Diagrama](./img/a.png)
+
+![Compartida](../shared/b.png)
+`
+
+var plainMarkdownImageSources = []string{"logo.png", "./img/a.png", "../shared/b.png"}
+
+// TestParseDocument_ImagePathsSurviveNormalization: en un documento, una ruta
+// relativa de imagen es del autor y se resuelve contra el archivo fuente,
+// como en cualquier herramienta de markdown. ImagesRule es una convención de
+// slidelang y su AppliesTo debe devolver false para base.DialectDocuments.
+func TestParseDocument_ImagePathsSurviveNormalization(t *testing.T) {
+	doc, _ := New(util.NewNoop()).ParseDocument(plainMarkdownImagesDoc, "README.md")
+	if doc == nil {
+		t.Fatal("ParseDocument devolvió nil")
+	}
+	got := imageSources(doc)
+	if strings.Join(got, "|") != strings.Join(plainMarkdownImageSources, "|") {
+		t.Errorf("las rutas de imagen cambiaron al parsear un documento: got %q, want %q.\n"+
+			"Es ImagesRule (internal/normalize/normalizer/rules/enhancement/images.go) corriendo sobre un "+
+			"documento: su AppliesTo debe devolver false para base.DialectDocuments.", got, plainMarkdownImageSources)
+	}
+}
+
+// slidesImagesDoc lleva las mismas tres imágenes en un deck de slidelang. El
+// Detector se enciende por "Action Items" (0.5), una de sus frases de IA.
+const slidesImagesDoc = `---
+title: Deck
+mode: flex
+---
+
+# Action Items
+
+![Logo](logo.png)
+
+![Diagrama](./img/a.png)
+
+![Compartida](../shared/b.png)
+`
+
+// TestNormalization_ImagesRuleStillAppliesToSlides es la otra mitad: en
+// slidelang se conserva la convención histórica "assets/images/<nombre>"
+// cuando el Detector enciende el normalizador. Sin este test, un dialecto mal
+// cableado pasaría el de arriba en verde apagando la regla también acá.
+func TestNormalization_ImagesRuleStillAppliesToSlides(t *testing.T) {
+	doc, _ := New(util.NewNoop()).Parse(slidesImagesDoc, "deck.slidelang")
+	if doc == nil {
+		t.Fatal("Parse devolvió nil")
+	}
+	want := []string{"assets/images/logo.png", "assets/images/a.png", "assets/images/b.png"}
+	if got := imageSources(doc); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("ImagesRule dejó de aplicarse a slidelang: got %q, want %q", got, want)
+	}
+}
+
+func imageSources(doc *ast.AST) []string {
+	var out []string
+	for _, block := range doc.ContentBlocks {
+		for _, el := range block.Elements {
+			if img, ok := el.(*ast.ImageElement); ok {
+				out = append(out, img.Source)
+			}
+		}
+	}
+	return out
+}

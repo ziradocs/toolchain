@@ -75,6 +75,38 @@ func ResolveConfinedPath(base, userPath string) (string, error) {
 	return joined, nil
 }
 
+// ResolveConfinedPathFrom resuelve userPath relativo a baseDir (el
+// directorio del archivo fuente, como hace cualquier herramienta de
+// markdown con `![](logo.png)`) y lo confina a root con las mismas reglas
+// que ResolveConfinedPath: rutas absolutas rechazadas, ".." que escape root
+// rechazado, symlinks re-verificados contra la raíz real.
+//
+// Separa los dos papeles que ResolveConfinedPath le da a un solo directorio:
+// root dice hasta dónde se puede leer, baseDir dice desde dónde se resuelve.
+// Con baseDir vacío, o igual a root, el resultado es el de
+// ResolveConfinedPath(root, userPath).
+func ResolveConfinedPathFrom(root, baseDir, userPath string) (string, error) {
+	if baseDir == "" || userPath == "" || filepath.IsAbs(userPath) {
+		return ResolveConfinedPath(root, userPath)
+	}
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve base directory %q: %w", root, err)
+	}
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve source directory %q: %w", baseDir, err)
+	}
+	rel, err := filepath.Rel(cleanRoot, filepath.Join(absBase, userPath))
+	if err != nil {
+		return "", fmt.Errorf("%w: %q escapes %q", ErrPathEscapesBase, userPath, root)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: %q escapes %q", ErrPathEscapesBase, userPath, root)
+	}
+	return ResolveConfinedPath(cleanRoot, rel)
+}
+
 func isWithin(path, base string) bool {
 	return path == base || strings.HasPrefix(path, base+string(filepath.Separator))
 }

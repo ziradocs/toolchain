@@ -64,7 +64,16 @@ func (m *ChromiumManager) Detect() (string, error) {
 		return "", fmt.Errorf("invalid chromium path: %s", m.chromiumPath)
 	}
 
-	// 2. Intentar detectar automáticamente
+	// 2. La instalación propia de --install-chromium, con la misma ruta que
+	// usa el instalador (installDirPath) y solo si su marca de instalación
+	// completa corresponde a la versión fijada. Va antes que el navegador
+	// del sistema: quien la instaló pidió esa versión.
+	if installed, path := newChromiumInstaller(m.logger, m.brand).IsChromiumInstalled(); installed {
+		m.logger.Info("CHROMIUM", "✅ Found Chromium installed by --install-chromium: %s", path)
+		return path, nil
+	}
+
+	// 3. Intentar detectar automáticamente
 	m.logger.Info("CHROMIUM", "Auto-detecting Chromium installation...")
 
 	paths := m.getCommonChromiumPaths()
@@ -75,7 +84,7 @@ func (m *ChromiumManager) Detect() (string, error) {
 		}
 	}
 
-	// 3. Revisar en PATH del sistema
+	// 4. Revisar en PATH del sistema
 	if path, err := exec.LookPath("chromium"); err == nil {
 		m.logger.Info("CHROMIUM", "✅ Found Chromium in PATH: %s", path)
 		return path, nil
@@ -95,13 +104,6 @@ func (m *ChromiumManager) Detect() (string, error) {
 	if path, err := exec.LookPath("msedge"); err == nil {
 		m.logger.Info("CHROMIUM", "✅ Found Edge in PATH: %s", path)
 		return path, nil
-	}
-
-	// 4. Revisar instalación local de doclang
-	localPath := m.getLocalChromiumPath()
-	if m.isValidChromium(localPath) {
-		m.logger.Info("CHROMIUM", "✅ Found local Chromium: %s", localPath)
-		return localPath, nil
 	}
 
 	// 5. No encontrado - retornar error con hint
@@ -194,23 +196,6 @@ func (m *ChromiumManager) getCommonChromiumPaths() []string {
 		}
 	default:
 		return []string{}
-	}
-}
-
-// getLocalChromiumPath retorna la ruta donde instalar Chromium localmente
-func (m *ChromiumManager) getLocalChromiumPath() string {
-	home, _ := os.UserHomeDir()
-	baseDir := filepath.Join(home, "."+m.brand.Name, "chromium")
-
-	switch runtime.GOOS {
-	case "darwin":
-		return filepath.Join(baseDir, "Chromium.app", "Contents", "MacOS", "Chromium")
-	case "linux":
-		return filepath.Join(baseDir, "chrome")
-	case "windows":
-		return filepath.Join(baseDir, "chrome.exe")
-	default:
-		return filepath.Join(baseDir, "chrome")
 	}
 }
 

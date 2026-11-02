@@ -25,11 +25,13 @@ type RenderContextOptions struct {
 	// ImageMode/AssetRoot: ver el comentario de renderer.RenderContext —
 	// mismos campos, mismo significado, solo pasados por el caller en vez
 	// de resueltos acá (issue #167).
-	ImageMode   string
-	AssetRoot   string
-	OutputDir   string
-	ImageFormat string
-	WebPQuality int
+	ImageMode string
+	AssetRoot string
+	// AssetBaseDir ver renderer.RenderContext.AssetBaseDir.
+	AssetBaseDir string
+	OutputDir    string
+	ImageFormat  string
+	WebPQuality  int
 	// ChartCategoricalColors ver renderer.RenderContext.ChartCategoricalColors
 	// — se reenvía tal cual tanto al RenderContext devuelto (camino
 	// chartConfig/Chart.js) como al ChartFetcher construido acá (camino
@@ -193,6 +195,7 @@ func NewRenderContext(cr *ChromiumRenderer, opts RenderContextOptions) *renderer
 		MathMode:               mathMode,
 		ImageMode:              imageMode,
 		AssetRoot:              opts.AssetRoot,
+		AssetBaseDir:           opts.AssetBaseDir,
 		OutputDir:              opts.OutputDir,
 		Fetcher:                fetcher,
 		MermaidFetcher:         mermaidFetcher,

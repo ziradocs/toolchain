@@ -143,3 +143,68 @@ func TestIsOpaquePathToken(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveConfinedPathFrom: la ruta se resuelve contra el directorio del
+// archivo fuente y se confina a la raíz, que puede ser un ancestro de ese
+// directorio (doclang build --asset-root ..).
+func TestResolveConfinedPathFrom(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "proj")
+	for _, dir := range []string{filepath.Join(src, "img"), filepath.Join(root, "shared")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ok := []struct{ userPath, want string }{
+		{"logo.png", filepath.Join(src, "logo.png")},
+		{"./img/a.png", filepath.Join(src, "img", "a.png")},
+		{"../shared/b.png", filepath.Join(root, "shared", "b.png")},
+	}
+	for _, tc := range ok {
+		got, err := ResolveConfinedPathFrom(root, src, tc.userPath)
+		if err != nil {
+			t.Errorf("%q: error inesperado: %v", tc.userPath, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%q: got %q, want %q", tc.userPath, got, tc.want)
+		}
+	}
+
+	for _, userPath := range []string{"../../outside.png", "/etc/passwd", "../shared/../../x.png", ""} {
+		if _, err := ResolveConfinedPathFrom(root, src, userPath); !errors.Is(err, ErrPathEscapesBase) {
+			t.Errorf("%q: se esperaba ErrPathEscapesBase, got %v", userPath, err)
+		}
+	}
+
+	// baseDir fuera de la raíz: aunque la ruta no tenga "..", escapa.
+	if _, err := ResolveConfinedPathFrom(src, root, "shared/b.png"); !errors.Is(err, ErrPathEscapesBase) {
+		t.Errorf("baseDir fuera de root: se esperaba ErrPathEscapesBase, got %v", err)
+	}
+
+	// baseDir vacío conserva el comportamiento de ResolveConfinedPath.
+	got, err := ResolveConfinedPathFrom(root, "", "proj/logo.png")
+	if err != nil || got != filepath.Join(root, "proj", "logo.png") {
+		t.Errorf("baseDir vacío: got %q, %v", got, err)
+	}
+}
+
+func TestResolveConfinedPathFrom_RejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.png")
+	if err := os.WriteFile(secret, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(root, "proj")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(src, "logo.png")); err != nil {
+		t.Skipf("symlinks no disponibles: %v", err)
+	}
+	if _, err := ResolveConfinedPathFrom(root, src, "logo.png"); !errors.Is(err, ErrPathEscapesBase) {
+		t.Errorf("symlink fuera de root: se esperaba ErrPathEscapesBase, got %v", err)
+	}
+}
