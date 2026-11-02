@@ -75,9 +75,10 @@ func (d Dialect) String() string {
 // todas.
 //
 // La implementan HeadersRule, TitleSubtitleRule (rules/content/
-// title_subtitle.go) y MarkdownSlideStructureRule (rules/structure/
-// markdown_slides.go) — las tres traían su propio isDocLangDocument, tres
-// implementaciones ad-hoc que en el fondo chequeaban `lines[0] == "---"` bajo
+// title_subtitle.go), MarkdownSlideStructureRule (rules/structure/
+// markdown_slides.go) e ImagesRule (rules/enhancement/images.go, sin guard
+// heurístico propio: solo se apaga para documentos). Las tres primeras traían
+// su propio isDocLangDocument, tres implementaciones ad-hoc que en el fondo chequeaban `lines[0] == "---"` bajo
 // un nombre de dialecto, y que un documento con exactamente 2 "##" bajo un
 // "#" (en vez de 3+) podía engañar (issue del audit 2026-09-11: un .doclang
 // legítimo se clasificaba como slidelang y se partía en "slides"). Migrarlas

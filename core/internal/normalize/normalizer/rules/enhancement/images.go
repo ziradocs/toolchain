@@ -106,3 +106,18 @@ func (r *ImagesRule) Priority() int {
 func (r *ImagesRule) Category() base.RuleCategory {
 	return base.CategoryEnhancement
 }
+
+// AppliesTo implementa base.DialectScopedRule: la estructura assets/images/
+// es una convención de slidelang para contenido generado por IA (las rutas
+// placeholder que inventa un modelo). En un documento, una ruta relativa de
+// imagen es la que escribió el autor y se resuelve contra el archivo fuente,
+// como en cualquier herramienta de markdown; reescribirla perdía la imagen.
+// Pegaba de lleno en un .md de proyecto común: sin frontmatter y arrancando
+// en "# ", el Detector ya puntúa 0.6 y enciende el set entero de reglas.
+//
+// El normalizador no recibe la ruta del archivo fuente, así que "no
+// reescribir si la imagen existe" no es decidible acá; por eso se apaga por
+// dialecto y no por existencia.
+func (r *ImagesRule) AppliesTo(d base.Dialect) bool {
+	return d != base.DialectDocuments
+}
