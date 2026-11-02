@@ -3287,7 +3287,15 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
 
-	imageSize := imageSizeFromInches(6.5, 4.1) // 6.5" ancho x 4.1" alto (ratio 1.6:1)
+	// 6.5" de ancho y el alto de la proporción del PNG. Antes el alto era
+	// fijo (4.1", la proporción 1.6:1 del contenedor de captura), pero core
+	// recorta la captura al canvas: un chart que Chart.js dibuja a 2:1 sale
+	// de 2400x1200 y a 4.1" quedaba estirado.
+	imageSize, err := widthOnlyImageSize(pngPath, 6.5)
+	if err != nil {
+		g.logger.Warn("DOCX: Failed to read chart image size: %v", err)
+		return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s", elem.ChartType))
+	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
