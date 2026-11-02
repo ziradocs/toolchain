@@ -363,6 +363,13 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 		// Try to parse element using registry
 		// This handles code blocks, text, tables, etc.
 		result := p.registry.Parse(ctx, p.currentLine)
+		if result.Element != nil && result.ConsumedLines <= 0 {
+			// Mismo guard que en FlexParser: un elemento sin líneas
+			// consumidas no avanza el bucle y la CLI se cuelga.
+			p.addError(zeroConsumptionMessage(result.Element, trimmed))
+			p.currentLine++
+			continue
+		}
 		if result.Element != nil {
 			block.Elements = append(block.Elements, result.Element)
 			p.currentLine += result.ConsumedLines
