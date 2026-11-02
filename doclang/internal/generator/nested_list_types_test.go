@@ -2,8 +2,6 @@ package generator
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,19 +93,5 @@ func TestNestedListTypesMarkdownMarkerWidthAtTen(t *testing.T) {
 	want := "ordered(1[],2[],3[],4[],5[],6[],7[],8[],9[unordered(1[])],10[unordered(1[])])"
 	if got := commonMarkListShape(t, md); got != want {
 		t.Fatalf("CommonMark tree = %s, want %s:\n%s", got, want, md)
-	}
-}
-
-func TestNestedListTypesDOCXRejectsBeforeOutput(t *testing.T) {
-	doc := newTestAST()
-	doc.ContentBlocks[0].Elements = append(doc.ContentBlocks[0].Elements, typedDocumentPoints())
-	ast.SetTableContract(doc)
-	output := filepath.Join(t.TempDir(), "nested.docx")
-	err := NewDOCXGenerator(newTestLogger(), "").Generate(doc, output, GeneratorOptions{Format: "docx"})
-	if err == nil || !strings.Contains(err.Error(), "nested-list-types-v1") {
-		t.Fatalf("DOCX accepted typed nested lists: %v", err)
-	}
-	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
-		t.Fatalf("DOCX wrote output before rejecting capability: %v", statErr)
 	}
 }

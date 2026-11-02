@@ -30,16 +30,19 @@ func ChromiumRequirements(doc *ast.AST, format, renderMode, diagramBackend strin
 		return []string{"PDF output"}
 	case "docx":
 		var reasons []string
-		if renderer.HasMermaidElements(doc) {
+		// El generador DOCX recorre el documento entero (bloques especiales
+		// y columnas incluidos, generator.WalkElements); los renderer.Has*
+		// de core solo miran el primer nivel de cada sección.
+		if docxHas(doc, func(e ast.Element) bool { _, ok := e.(*ast.MermaidElement); return ok }) {
 			reasons = append(reasons, "mermaid diagrams in DOCX")
 		}
-		if renderer.HasMathElements(doc) {
+		if docxHas(doc, func(e ast.Element) bool { _, ok := e.(*ast.MathElement); return ok }) {
 			reasons = append(reasons, "math equations in DOCX")
 		}
 		if generator.HasSVGImages(doc) {
 			reasons = append(reasons, "SVG images in DOCX")
 		}
-		if renderer.HasChartElements(doc) && !allChartsNative(doc) {
+		if !allChartsNative(doc) {
 			reasons = append(reasons, "charts that cannot be rasterized natively in DOCX")
 		}
 		return reasons
@@ -74,18 +77,28 @@ func ChromiumRequirements(doc *ast.AST, format, renderMode, diagramBackend strin
 	return nil
 }
 
+// docxHas dice si algún elemento del documento, a cualquier profundidad,
+// cumple match.
+func docxHas(doc *ast.AST, match func(ast.Element) bool) bool {
+	found := false
+	generator.WalkElements(doc, func(e ast.Element) bool {
+		found = match(e)
+		return !found
+	})
+	return found
+}
+
 // allChartsNative replica DOCXGenerator.canRenderWithoutChromium para
-// charts: elegibilidad no basta, se prueba el render real.
+// charts, a cualquier profundidad: elegibilidad no basta, se prueba el
+// render real. Sin charts es true.
 func allChartsNative(doc *ast.AST) bool {
-	for _, block := range doc.ContentBlocks {
-		for _, elem := range block.Elements {
-			if e, ok := elem.(*ast.ChartElement); ok {
-				width, height := renderer.ChartDimensions(e)
-				if _, ok, err := renderer.RenderChartNativePNG(e, width, height); !ok || err != nil {
-					return false
-				}
-			}
+	return !docxHas(doc, func(elem ast.Element) bool {
+		e, ok := elem.(*ast.ChartElement)
+		if !ok {
+			return false
 		}
-	}
-	return true
+		width, height := renderer.ChartDimensions(e)
+		_, ok, err := renderer.RenderChartNativePNG(e, width, height)
+		return !ok || err != nil
+	})
 }
