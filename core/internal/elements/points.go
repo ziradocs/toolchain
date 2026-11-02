@@ -457,6 +457,10 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 	firstItemProcessed := false
 	var nest legacyNest
 
+	// paragraph: la línea anterior fue texto de un item (su marcador o una
+	// continuación), no una línea en blanco. Es lo que en CommonMark decide la
+	// continuación perezosa y si una lista numerada puede interrumpir.
+	paragraph := false
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
@@ -465,23 +469,29 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 		if trimmed == "" {
 			// Allow one empty line within list
 			if i+1 < len(lines) && p.isListItem(strings.TrimSpace(lines[i+1])) {
+				paragraph = false
 				consumed++
 				continue
 			}
 			break
 		}
 
-		// Calculate indentation
-		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		// Sangría en columnas, con tabuladores a paradas de 4 como CommonMark.
+		indent := IndentColumns(line)
 
-		// Check if this is a list item
+		// Una línea que no es item continúa el último item, como en
+		// CommonMark: sangrada hasta su columna de contenido ("1. Una frase
+		// larga\n   que sigue") o, justo después de su texto, con cualquier
+		// sangría (continuación perezosa: "1. a\nque sigue\n2. b"). Antes
+		// cortaba la lista: la continuación salía como párrafo y el item
+		// siguiente como otra lista. Una línea que abre otro bloque (un
+		// chart, una ecuación, un encabezado, una cerca, una tabla, "---")
+		// nunca es continuación: corta la lista, como siempre.
 		if !p.isListItem(trimmed) {
-			// Una línea sangrada hasta la columna de contenido del último item
-			// lo continúa, como en CommonMark ("1. Una frase larga\n   que
-			// sigue"). Antes cortaba la lista: la continuación salía como
-			// párrafo y el item siguiente como otra lista.
-			if last := nest.last(); last != nil && indent >= nest.lastContent() && !IsNewElement(trimmed, "flex") {
+			last := nest.last()
+			if last != nil && !StartsOtherBlock(trimmed) && (paragraph || indent >= nest.lastContent()) {
 				last.Content += " " + trimmed
+				paragraph = true
 				consumed++
 				continue
 			}
@@ -496,9 +506,27 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 			break
 		}
 
+		kind := p.detectListType(trimmed)
+		delim := orderedDelimiter(trimmed)
+
+		// En CommonMark una lista numerada solo interrumpe un párrafo si
+		// empieza en 1: un item que abriría una sublista dentro del último
+		// item, justo después de su texto ("- a\n  1998. el año"), es texto
+		// de ese item. Más afuera de su columna de contenido el item cierra
+		// el de arriba y abre su lista sin esa condición ("- a\n2. b").
+		if last := nest.last(); last != nil && paragraph && kind == "ordered" && indent >= nest.lastContent() {
+			// Una lista de letras ("a. x") no es de CommonMark: es del dialecto
+			// y sigue siendo lista.
+			if n := listOrdinal(trimmed); n != nil && *n != 1 {
+				last.Content += " " + trimmed
+				consumed++
+				continue
+			}
+		}
+
 		// Detectar tipo de lista en el primer elemento principal
 		if !firstItemProcessed {
-			element.ListType = p.detectListType(trimmed)
+			element.ListType = kind
 			firstItemProcessed = true
 		}
 
@@ -528,8 +556,7 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 		// abriría lista nueva ahí; replicarlo es un cambio aparte, y este
 		// issue es sobre perder el listType, no sobre partir viñetas.
 		if len(element.Items) > 0 && nest.topLevel(indent) {
-			kind := p.detectListType(trimmed)
-			if kind != element.ListType || kind == "ordered" && orderedDelimiter(trimmed) != element.Items[0].Delimiter {
+			if kind != element.ListType || kind == "ordered" && delim != element.Items[0].Delimiter {
 				break
 			}
 		}
@@ -538,8 +565,9 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 		content := p.extractListContent(trimmed)
 		if content != "" {
 			item := ast.NewPointItem(ctx.Position(i), content)
-			nest.add(element, item, indent, trimmed, p.detectListType(trimmed))
+			nest.add(element, item, indent, trimmed, kind)
 		}
+		paragraph = true
 
 		consumed++
 	}

@@ -131,8 +131,13 @@ any depth, in `subPoints` (and `CHECKLIST` items in `subItems`). In flex the
 rule is CommonMark's: an item is the child of the item above it only when its
 marker starts at or past that item's content column (the column after the
 marker and its space: 2 under `- `, 3 under `1. `); otherwise it is a sibling
-or returns to an outer level, so a one-space "staircase" is a flat list. A
-line indented to that column without a marker continues the item. `1)` is an
+or returns to an outer level, so a one-space "staircase" is a flat list. Tabs
+advance to the next multiple of 4 columns. A line without a marker continues
+the item when it is indented to that column or, right after the item's text,
+at any indentation (lazy continuation); a line that starts another block (a
+chart, `$$`, a fence, a heading, `---`, a table, a quote...) never does. Inside
+an item's text a nested ordered list starting at a number other than 1 is
+text, as at paragraph level. `1)` is an
 ordered marker like `1.`, and a change of delimiter starts a new list. In
 strict, whose grammar is indentation-based, any item indented deeper than the
 item above it is its child, as it always was. In a flex paragraph, a line

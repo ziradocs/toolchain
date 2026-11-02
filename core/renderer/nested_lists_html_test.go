@@ -62,7 +62,7 @@ func TestNestedListsHTML(t *testing.T) {
 		},
 		{
 			"ordered starts",
-			flexDoc("3. tres\n4. cuatro\n   7. siete\n   8. ocho\n"),
+			flexDoc("3. tres\n4. cuatro\n\n   7. siete\n   8. ocho\n"),
 			`<ol start="3"><li>tres</li><li>cuatro<ol start="7"><li>siete</li><li>ocho</li></ol></li></ol>`,
 		},
 		{
@@ -161,7 +161,7 @@ func TestQuoteWithNestedListHTML(t *testing.T) {
 }
 
 func TestCalloutWithNestedListHTML(t *testing.T) {
-	got := renderFirst[*ast.SpecialBlockElement](t, flexDoc(":::info Nota\nTexto\n- a\n  - b\n    3. c\n- [x] hecho\n:::\n"))
+	got := renderFirst[*ast.SpecialBlockElement](t, flexDoc(":::info Nota\nTexto\n- a\n  - b\n\n    3. c\n- [x] hecho\n:::\n"))
 	if !strings.Contains(got, `<div class="alert-content">Texto<ul><li>a<ul><li>b<ol start="3"><li>c</li></ol></li></ul></li><li>[x] hecho</li></ul></div>`) {
 		t.Fatalf("got %s", got)
 	}

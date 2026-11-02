@@ -121,14 +121,7 @@ type bodyListItem struct {
 // de POINTS: DOCX, PPTX y Markdown la escriben así.
 func parseBodyListItem(line string) (*bodyListItem, bool) {
 	trimmed := strings.TrimLeft(line, " \t")
-	indent := 0
-	for _, c := range line[:len(line)-len(trimmed)] {
-		if c == '\t' {
-			indent += 4
-		} else {
-			indent++
-		}
-	}
+	indent := indentColumns(line)
 	trimmed = strings.TrimRight(trimmed, " \t")
 	if isBodyThematicBreak(trimmed) {
 		return nil, false
@@ -243,6 +236,7 @@ func renderProseWithLists(text string, paragraphs bool) string {
 		var roots []*bodyListItem
 		var stack []*bodyListItem
 		var last *bodyListItem
+		blank := false
 		for i < len(lines) {
 			item, ok := parseBodyListItem(lines[i])
 			if !ok {
@@ -256,29 +250,48 @@ func renderProseWithLists(text string, paragraphs bool) string {
 					}
 					if next < len(lines) && isBodyListLine(lines[next]) {
 						i = next
+						blank = true
 						continue
 					}
 					break
 				}
-				// Una línea sangrada más que su item lo continúa.
-				if last != nil && len(lines[i])-len(strings.TrimLeft(lines[i], " \t")) > last.indent {
+				// Una línea sangrada más que su item lo continúa, salvo que
+				// abra otro bloque (una cerca, "$$", "---"...): esa sigue como
+				// prosa, como antes.
+				if last != nil && indentColumns(lines[i]) > last.indent && !startsOtherBodyBlock(trimmed) {
 					last.text += " " + trimmed
 					i++
 					continue
 				}
 				break
 			}
-			for len(stack) > 0 && item.indent < stack[len(stack)-1].content {
-				stack = stack[:len(stack)-1]
+			depth := len(stack)
+			for depth > 0 && item.indent < stack[depth-1].content {
+				depth--
 			}
-			if len(stack) == 0 {
+			siblings := roots
+			if depth > 0 {
+				siblings = stack[depth-1].children
+			}
+			// Como en CommonMark, una lista numerada nueva dentro del último
+			// item solo interrumpe su texto si empieza en 1: "- a\n  1998.
+			// el año" es texto de "a". Más afuera abre su lista igual.
+			newList := len(siblings) == 0 || siblings[len(siblings)-1].ordered != item.ordered || siblings[len(siblings)-1].delim != item.delim
+			if last != nil && !blank && depth == len(stack) && newList && item.ordered && item.ordinal != 1 {
+				last.text += " " + strings.TrimSpace(lines[i])
+				i++
+				continue
+			}
+			stack = stack[:depth]
+			if depth == 0 {
 				roots = append(roots, item)
 			} else {
-				parent := stack[len(stack)-1]
+				parent := stack[depth-1]
 				parent.children = append(parent.children, item)
 			}
 			stack = append(stack, item)
 			last = item
+			blank = false
 			i++
 		}
 		html.WriteString(renderBodyList(roots))
@@ -321,4 +334,37 @@ func renderBodyList(items []*bodyListItem) string {
 		i = j
 	}
 	return html.String()
+}
+
+// indentColumns es la sangría en columnas, con tabuladores a paradas de 4
+// como CommonMark (el mismo cálculo que elements.IndentColumns, que el
+// renderer no puede importar).
+func indentColumns(line string) int {
+	col := 0
+	for _, c := range line {
+		switch c {
+		case ' ':
+			col++
+		case '\t':
+			col += 4 - col%4
+		default:
+			return col
+		}
+	}
+	return col
+}
+
+// startsOtherBodyBlock dice si una línea de la prosa de una cita o un bloque
+// abre otro bloque y no puede ser texto de un item: el mismo criterio que
+// elements.StartsOtherBlock, por prefijo.
+func startsOtherBodyBlock(trimmed string) bool {
+	if isBodyThematicBreak(trimmed) || strings.Trim(trimmed, "-") == "" {
+		return true
+	}
+	for _, prefix := range []string{"<<", "$$", "@", ":::", ">", "|", "#", "```", "~~~", "<", "![", `\[`} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
 }

@@ -150,3 +150,44 @@ func hasErrors(diags []diagnostics.Diagnostic) bool {
 	}
 	return false
 }
+
+// Un bloque escrito debajo de un item (sangrado o no) sigue siendo su propio
+// elemento, como en main: la continuación de items no se lo traga.
+func TestBlocksAfterAListItemStayElements(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		ok   func(ast.Node) bool
+	}{
+		"chart": {"- Ventas\n  <<chart: bar>>\n  data: [[\"Q1\", 1], [\"Q2\", 2]]\n<<end>>\n", func(n ast.Node) bool { _, ok := n.(*ast.ChartElement); return ok }},
+		"math":  {"- a\n  $$x^2$$\n", func(n ast.Node) bool { _, ok := n.(*ast.MathElement); return ok }},
+		"heading": {"- a\n### Título\n", func(n ast.Node) bool {
+			e, ok := n.(*ast.TextElement)
+			return ok && e.IsRawHTML && strings.Contains(e.Content, "Título")
+		}},
+		"fence":     {"- a\n  ```go\n  x := 1\n  ```\n", func(n ast.Node) bool { _, ok := n.(*ast.CodeElement); return ok }},
+		"quote":     {"- a\n> cita\n", func(n ast.Node) bool { _, ok := n.(*ast.QuoteElement); return ok }},
+		"callout":   {"- a\n:::info N\nx\n:::\n", func(n ast.Node) bool { _, ok := n.(*ast.SpecialBlockElement); return ok }},
+		"separator": {"- a\n---\nDespués\n", func(n ast.Node) bool { e, ok := n.(*ast.TextElement); return ok && e.Content == "Después" }},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			doc, diags := New(util.NewNoop()).ParseDocument("---\nmode: flex\n---\n# S\n\n"+c.body, "")
+			if hasErrors(diags) {
+				t.Fatalf("diagnostics %+v", diags)
+			}
+			pts := firstOf[*ast.PointsElement](t, doc)
+			if len(pts.Items) != 1 || pts.Items[0].Content != "a" && pts.Items[0].Content != "Ventas" || len(pts.Items[0].SubPoints) != 0 {
+				t.Fatalf("the block went into the item: %+v", pts.Items)
+			}
+			found := false
+			_ = ast.Walk(doc, func(n ast.Node) error {
+				found = found || c.ok(n)
+				return nil
+			})
+			if !found {
+				raw, _ := json.Marshal(doc)
+				t.Fatalf("block missing: %s", raw)
+			}
+		})
+	}
+}

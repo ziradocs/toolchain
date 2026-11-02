@@ -17,7 +17,7 @@ import (
 func TestFormatStrict_DeepListsRoundTrip(t *testing.T) {
 	cases := map[string]string{
 		"five levels":       "---\nmode: flex\n---\n\n## One\n\n1. uno\n   - dos\n     1. tres\n        - cuatro\n          1. cinco\n2. otro\n",
-		"ordered start":     "---\nmode: flex\n---\n\n## One\n\n3. tres\n4. cuatro\n   7. siete\n",
+		"ordered start":     "---\nmode: flex\n---\n\n## One\n\n3. tres\n4. cuatro\n\n   7. siete\n",
 		"zero start":        "---\nmode: flex\n---\n\n## One\n\n0. cero\n1. uno\n",
 		"paren delimiter":   "---\nmode: flex\n---\n\n## One\n\n1) uno\n2) dos\n   - a\n   1. b\n   1) c\n",
 		"wide numbers":      "---\nmode: flex\n---\n\n## One\n\n9. nueve\n10. diez\n    - hijo\n",
@@ -42,7 +42,7 @@ func TestFormatStrict_DeepListsRoundTrip(t *testing.T) {
 // Sin list-start-v1 el número con que empieza una lista vive solo en memoria;
 // fmt lo vuelve a escribir para que el render siga empezando ahí.
 func TestFormatKeepsTheStartOfALegacyList(t *testing.T) {
-	out, reparsed := transpile(t, "---\nmode: flex\n---\n\n## One\n\n3. tres\n4. cuatro\n   7. siete\n   8. ocho\n   - x\n   1. uno\n")
+	out, reparsed := transpile(t, "---\nmode: flex\n---\n\n## One\n\n3. tres\n4. cuatro\n\n   7. siete\n   8. ocho\n   - x\n   1. uno\n")
 	if !strings.Contains(out, "3. tres") || !strings.Contains(out, "7. siete") || !strings.Contains(out, "1. uno") {
 		t.Fatalf("starts lost:\n%s", out)
 	}
@@ -134,5 +134,25 @@ func TestFormatDocument_SublistAtTheContentColumn(t *testing.T) {
 	}
 	if a, b := listSummary(doc), listSummary(parseDocumentOrFail(t, out)); a != b {
 		t.Fatalf("lists changed:\n%s\n---\n%s", a, b)
+	}
+}
+
+// Una sublista numerada que no empieza en 1 sale con una línea en blanco
+// delante: sin ella el parser flex (CommonMark) la leería como texto del item.
+func TestFormatDocument_NonOneSublistGetsABlankLine(t *testing.T) {
+	doc := parseDocumentOrFail(t, "---\nmode: flex\n---\n\n# S\n\n3. tres\n4. cuatro\n\n   7. siete\n   - x\n\n   2. dos\n")
+	out, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "4. cuatro\n\n   7. siete") || !strings.Contains(out, "- x\n\n   2. dos") {
+		t.Fatalf("missing blank lines:\n%s", out)
+	}
+	if a, b := listSummary(doc), listSummary(parseDocumentOrFail(t, out)); a != b {
+		t.Fatalf("lists changed:\n%s\n---\n%s", a, b)
+	}
+	again, err := FormatDocument(parseDocumentOrFail(t, out))
+	if err != nil || again != out {
+		t.Fatalf("not idempotent (%v):\n%s\n---\n%s", err, out, again)
 	}
 }

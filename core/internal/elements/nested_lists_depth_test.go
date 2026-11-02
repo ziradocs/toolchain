@@ -88,7 +88,7 @@ func TestLegacyPointsRecordOrdinals(t *testing.T) {
 		}
 		return n
 	}
-	pts := parsePoints(t, "flex", "3. tres", "4. cuatro", "   7. siete", "   8. ocho", "      - x")
+	pts := parsePoints(t, "flex", "3. tres", "4. cuatro", "", "   7. siete", "   8. ocho", "      - x")
 	if ord(pts.Items[0]) != 3 || ord(pts.Items[1]) != 4 {
 		t.Fatalf("top ordinals %d %d", ord(pts.Items[0]), ord(pts.Items[1]))
 	}
@@ -240,10 +240,67 @@ func TestSpecialBlockKeepsNestedListIndent(t *testing.T) {
 // Una línea sangrada hasta la columna de contenido de un item lo continúa,
 // como en CommonMark; antes partía la lista en párrafo y otra lista.
 func TestFlexListItemContinuationLine(t *testing.T) {
-	ctx := &ParseContext{Mode: "flex", Lines: []string{"1. Una frase", "   que sigue", "2. Otra", "   - hijo", "     que sigue", "fuera"}, Logger: util.NewNoop()}
+	ctx := &ParseContext{Mode: "flex", Lines: []string{"1. Una frase", "   que sigue", "2. Otra", "   - hijo", "     que sigue", "", "fuera"}, Logger: util.NewNoop()}
 	res := (&PointsParser{}).Parse(ctx, 0)
 	pts := res.Element.(*ast.PointsElement)
 	if res.ConsumedLines != 5 || pointShape(pts.Items) != "Una frase que sigue Otra(unordered)[hijo que sigue]" {
 		t.Fatalf("consumed %d shape %q", res.ConsumedLines, pointShape(pts.Items))
+	}
+}
+
+// Una línea que abre otro bloque nunca continúa un item, aunque esté sangrada
+// hasta su columna de contenido: corta la lista, como hacía siempre.
+func TestFlexListStopsAtOtherBlocks(t *testing.T) {
+	for _, line := range []string{"<<chart: bar>>", "$$x^2$$", "@directive: x", "### Título", "---", "```go", ":::info", "> cita", "| a | b |", "![img](a.png)", "***", "<div>"} {
+		for _, indented := range []string{line, "  " + line} {
+			ctx := &ParseContext{Mode: "flex", Lines: []string{"- Ventas", indented, "    data: 1"}, Logger: util.NewNoop()}
+			res := (&PointsParser{}).Parse(ctx, 0)
+			pts := res.Element.(*ast.PointsElement)
+			if res.ConsumedLines != 1 || pointShape(pts.Items) != "Ventas" {
+				t.Errorf("%q: consumed %d, shape %q", indented, res.ConsumedLines, pointShape(pts.Items))
+			}
+		}
+	}
+}
+
+// CommonMark: después del texto de un item, una línea que no abre otro bloque
+// lo continúa con cualquier sangría (continuación perezosa), y una lista
+// numerada que no empieza en 1 no interrumpe ese texto.
+func TestFlexLazyContinuation(t *testing.T) {
+	cases := []struct {
+		lines []string
+		want  string
+	}{
+		{[]string{"1. Primero con una frase", "  que sigue", "2. Segundo", "3. Tercero"}, "Primero con una frase que sigue Segundo Tercero"},
+		{[]string{"1. a", "lazy", "2. b"}, "a lazy b"},
+		{[]string{"- a", "  1998. el año"}, "a 1998. el año"},
+		{[]string{"- a", "2. b"}, "a"}, // "2. b" abre su propia lista, como en goldmark
+		{[]string{"- a", "", "  1998. el año"}, "a(ordered)[el año]"},
+		{[]string{"- a", "  1. uno"}, "a(ordered)[uno]"},
+	}
+	for _, c := range cases {
+		pts := parsePoints(t, "flex", c.lines...)
+		if got := pointShape(pts.Items); got != c.want {
+			t.Errorf("%q: shape %q, want %q", c.lines, got, c.want)
+		}
+	}
+}
+
+// Los tabuladores avanzan a la siguiente parada de 4, como en CommonMark: un
+// hijo sangrado con tabulador sigue siendo hijo.
+func TestFlexListTabsAreTabStops(t *testing.T) {
+	if got := pointShape(parsePoints(t, "flex", "- a", "\t- b").Items); got != "a(unordered)[b]" {
+		t.Errorf("bullet: %q", got)
+	}
+	if got := pointShape(parsePoints(t, "flex", "1. a", "\t- b", "2. c").Items); got != "a(unordered)[b] c" {
+		t.Errorf("ordered: %q", got)
+	}
+	ctx := &ParseContext{Mode: "flex", Lines: []string{"- [ ] a", "\t- [ ] b"}, Logger: util.NewNoop()}
+	cl := (&ChecklistParser{}).Parse(ctx, 0).Element.(*ast.ChecklistElement)
+	if got := checklistShape(cl.Items); got != "a[b]" {
+		t.Errorf("checklist: %q", got)
+	}
+	if IndentColumns(" \t- b") != 4 || IndentColumns("\t\tx") != 8 {
+		t.Error("tab stops")
 	}
 }

@@ -17,7 +17,7 @@ import "strings"
 // sin listas anidadas guarda exactamente lo mismo que antes.
 func keepListIndent(line string, base int) string {
 	trimmed := strings.TrimSpace(line)
-	indent := CalculateIndentLevel(line)
+	indent := IndentColumns(line)
 	if indent <= base || !IsBodyListItem(trimmed) {
 		return trimmed
 	}
@@ -54,4 +54,60 @@ func firstBodyIndent(lines []string, from int, stop func(string) bool) int {
 		}
 	}
 	return 0
+}
+
+// IndentColumns es la sangría de una línea en columnas, con cada tabulador
+// avanzando hasta la siguiente parada de 4, como en CommonMark: "\t- b" está en
+// la columna 4 y " \t- b" también. Es la medida con la que se comparan las
+// columnas de contenido de una lista.
+func IndentColumns(line string) int {
+	col := 0
+	for _, c := range line {
+		switch c {
+		case ' ':
+			col++
+		case '\t':
+			col += 4 - col%4
+		default:
+			return col
+		}
+	}
+	return col
+}
+
+// otherBlockParsers son los parsers del registry que abren un bloque propio:
+// todos menos las listas y el párrafo.
+var otherBlockParsers = func() []ElementParser {
+	var out []ElementParser
+	for _, p := range GetDefaultRegistry().parsers {
+		switch p.(type) {
+		case *PointsParser, *ChecklistParser, *TextParser:
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}()
+
+// StartsOtherBlock dice si una línea ya recortada abre un bloque que no es
+// texto de un item de lista: lo que reclama otro parser del registry (chart,
+// ecuación, código, tabla, cita, bloque, directiva, imagen...), un encabezado,
+// una regla o separador ("---", "***"), una cerca, HTML o un "$$". Corta la
+// continuación de un item, que es lo que hacía siempre la lista con cualquier
+// línea que no fuera un item.
+func StartsOtherBlock(trimmed string) bool {
+	if trimmed == "" || isThematicBreak(trimmed) || strings.Trim(trimmed, "-") == "" {
+		return true
+	}
+	for _, prefix := range []string{"<<", "$$", "@", ":::", ">", "|", "#", "```", "~~~", "<", "![", `\[`} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	for _, p := range otherBlockParsers {
+		if p.CanParse(trimmed, "flex") {
+			return true
+		}
+	}
+	return false
 }

@@ -146,8 +146,8 @@ func (p *ChecklistParser) parseMarkdownChecklist(ctx *ParseContext, startIndex i
 			break
 		}
 
-		// Calculate indentation
-		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		// Sangría en columnas, con tabuladores a paradas de 4 como CommonMark.
+		indent := IndentColumns(line)
 		if baseIndent == -1 {
 			baseIndent = indent
 		}

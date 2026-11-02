@@ -425,11 +425,20 @@ func formatPointList(items []ast.PointItem, listType string, sub bool, start *in
 				runStart = true
 			}
 			delim = d
+			opens := runStart
 			if runStart && item.Ordinal != nil {
 				number = *item.Ordinal - 1
 			}
 			runStart = false
 			number++
+			// En CommonMark una lista numerada que no empieza en 1 no puede
+			// interrumpir el texto de arriba (el de su item padre o el de un
+			// hermano de viñeta): sin una línea en blanco delante, el parser
+			// flex la leería como texto de ese item. strict ignora la línea en
+			// blanco dentro de POINTS.
+			if opens && number != 1 && (sub || i > 0) {
+				b.WriteString("\n")
+			}
 			marker = fmt.Sprintf("%d%s", number, d)
 		} else {
 			number = 0
