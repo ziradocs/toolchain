@@ -60,10 +60,11 @@ func TestFormatPipeTable_EscapesLiteralPipe_RoundTrips(t *testing.T) {
 	}
 }
 
-// TestFormatPipeTable_CodeSpanPipe_NotDoubleEscaped confirma que un "|"
-// DENTRO de un code span no se reescapa (los backticks ya lo protegen en el
-// reparse) — escaparlo ahí metería un "\" visible dentro del <code>
-// renderizado, que un code span no interpreta como escape.
+// TestFormatPipeTable_CodeSpanPipe_NotDoubleEscaped: un "|" DENTRO de un code
+// span sale como "\|", la forma de GFM (en GitHub un "|" sin escapar parte
+// la celda aunque esté entre backticks). El splitter quita ese backslash al
+// reparsear, así que el <code> renderizado no lo muestra y el round-trip es
+// la identidad.
 func TestFormatPipeTable_CodeSpanPipe_NotDoubleEscaped(t *testing.T) {
 	table := ast.NewTableElement(diagnostics.NewPosition(3, 1))
 	table.Headers = []string{"Method", "Return"}
@@ -73,11 +74,8 @@ func TestFormatPipeTable_CodeSpanPipe_NotDoubleEscaped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FormatStrict: %v", err)
 	}
-	if strings.Contains(out, `\|`) {
-		t.Fatalf("un \"|\" dentro de un code span no debería reescaparse:\n%s", out)
-	}
-	if !strings.Contains(out, "`User | null`") {
-		t.Fatalf("el code span debería salir intacto:\n%s", out)
+	if !strings.Contains(out, "`User \\| null`") {
+		t.Fatalf("el \"|\" del code span debería salir como \\|:\n%s", out)
 	}
 
 	reparsed, diags := parser.New(util.NewNoop()).Parse(out, "test.slidelang")
@@ -165,11 +163,8 @@ func TestFormatPipeTable_DoubleBacktickSpanPipe_NotEscaped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FormatStrict: %v", err)
 	}
-	if strings.Contains(out, `\|`) {
-		t.Fatalf("un \"|\" dentro de un span de 2 backticks no debería reescaparse:\n%s", out)
-	}
-	if !strings.Contains(out, "``a|b``") {
-		t.Fatalf("el code span debería salir intacto:\n%s", out)
+	if !strings.Contains(out, "``a\\|b``") {
+		t.Fatalf("el \"|\" de un span de 2 backticks debería salir como \\|:\n%s", out)
 	}
 
 	reparsed, diags := parser.New(util.NewNoop()).Parse(out, "test.slidelang")
@@ -334,7 +329,34 @@ func TestFormatPipeTable_EscapedPipeInCodeSpan_GFM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FormatStrict: %v", err)
 	}
-	if !strings.Contains(out, "`a | b`") {
-		t.Fatalf("el span sin backslash debería salir tal cual:\n%s", out)
+	if !strings.Contains(out, "`a \\| b`") {
+		t.Fatalf("el span debería volver a salir como `a \\| b`:\n%s", out)
+	}
+}
+
+// TestFormatDocument_CodeSpanPipes_BaseCanonicalUnchanged: un archivo que ya
+// estaba en forma canónica con el formatter anterior ("`a\|b`", "`c\\|d`",
+// "`\|`") sale igual, así que doclang fmt --check no falla después de
+// actualizar y --write no reescribe nada. Solo un "|" sin escapar dentro de
+// un span ("`e|f`") gana su backslash.
+func TestFormatDocument_CodeSpanPipes_BaseCanonicalUnchanged(t *testing.T) {
+	canonical := "---\ntitle: F\n---\n\n# F\n\n| A | B |\n|---|---|\n| `a\\|b` | `c\\\\|d` |\n| x \\| y | `\\|` |\n| `g\\\\h` | z |\n"
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(canonical, "f.doclang")
+	out, err := FormatDocument(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != canonical {
+		t.Fatalf("a base-canonical file changed:\n--- want\n%s\n--- got\n%s", canonical, out)
+	}
+	again, _ := parser.New(util.NewNoop()).ParseDocument(out, "f.doclang")
+	if out2, _ := FormatDocument(again); out2 != out {
+		t.Fatalf("not idempotent:\n%s", out2)
+	}
+
+	bare := strings.Replace(canonical, "`g\\\\h` | z", "`e|f` | z", 1)
+	doc, _ = parser.New(util.NewNoop()).ParseDocument(bare, "f.doclang")
+	if out, _ := FormatDocument(doc); !strings.Contains(out, "`e\\|f`") {
+		t.Fatalf("`e|f` should gain a backslash:\n%s", out)
 	}
 }
