@@ -319,9 +319,11 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 			break
 		}
 		indent := CalculateIndentLevel(line)
-		// nested-list-types-v1 y list-start-v1 aceptan solo "1." como marcador
-		// numerado: "1)" sigue siendo un marcador inválido en su contrato.
-		if !p.isListItem(trimmed) || orderedDelimiter(trimmed) == ")" {
+		// "1)" es un marcador numerado también con nested-list-types-v1 y
+		// list-start-v1, como en CommonMark y como sin la capacidad. Desde que
+		// CanParse lo reclama (#458), rechazarlo aquí dejaba la primera línea
+		// sin consumir y el bucle flex no avanzaba: la CLI se colgaba.
+		if !p.isListItem(trimmed) {
 			if malformedPointMarker(trimmed) && (strict || ctx.ListStart || len(stack) > 0) {
 				if baseIndent < 0 {
 					baseIndent = indent
@@ -349,6 +351,12 @@ func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element
 				diags = append(diags, diagnostics.NewError("orphan nested list item", ctx.Position(i), "points-parser"))
 				consumed++
 				continue
+			}
+			// Entre items numerados del nivel base, cambiar de delimitador
+			// ("1." a "1)") abre otra lista, como en CommonMark y en
+			// parseMarkdownList. strict no parte el bloque POINTS.
+			if !strict && len(element.Items) > 0 && kind == "ordered" && kind == element.ListType && orderedDelimiter(trimmed) != element.Items[0].Delimiter {
+				break
 			}
 			if len(element.Items) > 0 && kind != element.ListType {
 				if strict {

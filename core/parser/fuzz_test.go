@@ -4,8 +4,10 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -90,6 +92,61 @@ SECTION "Detalle"
     - dos
 `
 
+// Listas con nested-list-types-v1 y list-start-v1: la capacidad cambia de
+// parser de listas, y el fuzzer casi nunca escribe ese frontmatter por su
+// cuenta. "1)" con la capacidad colgaba la CLI en v2.49.0.
+const fuzzSeedTypedLists = `---
+mode: flex
+ast_capabilities: ["nested-list-types-v1"]
+---
+# T
+
+1) uno
+2) dos
+1. tres
+   - a) cuatro
+     1) cinco
+`
+
+const fuzzSeedListStart = `---
+mode: flex
+ast_capabilities: ["nested-list-types-v1", "list-start-v1"]
+---
+# T
+
+3) uno
+4) dos
+- x
+  2. y
+`
+
+const fuzzSeedTypedStrict = `---
+mode: strict
+ast_capabilities: [nested-list-types-v1]
+---
+SLIDE content
+  POINTS
+    1) uno
+      - dos
+    2. tres
+`
+
+// fuzzTypedPrefix se antepone a la entrada en los embudos para que el
+// fuzzer recorra también el parser de listas tipado.
+const fuzzTypedPrefix = "---\nmode: flex\nast_capabilities: [\"nested-list-types-v1\", \"list-start-v1\"]\n---\n"
+
+// failOnZeroConsumption falla si un bucle flex tuvo que saltarse una línea
+// porque un parser devolvió un elemento sin consumir nada: el guard evita el
+// cuelgue, pero sigue siendo un bug de parser que el fuzzing debe encontrar.
+func failOnZeroConsumption(t *testing.T, diags []diagnostics.Diagnostic) {
+	t.Helper()
+	for _, d := range diags {
+		if strings.Contains(d.Message, "consumed no lines") {
+			t.Fatalf("parser did not advance: %s", d.Message)
+		}
+	}
+}
+
 func fuzzSeeds() []string {
 	return []string{
 		"",
@@ -101,6 +158,9 @@ func fuzzSeeds() []string {
 		fuzzSeedNoFrontMatter,
 		fuzzSeedMalformedYAML,
 		fuzzSeedUnicodeAndSpecials,
+		fuzzSeedTypedLists,
+		fuzzSeedListStart,
+		fuzzSeedTypedStrict,
 	}
 }
 
@@ -111,8 +171,10 @@ func FuzzParse(f *testing.F) {
 	}
 	logger := util.NewNoop()
 	f.Fuzz(func(t *testing.T, content string) {
-		p := New(logger)
-		p.Parse(content, "fuzz.slidelang")
+		_, diags := New(logger).Parse(content, "fuzz.slidelang")
+		failOnZeroConsumption(t, diags)
+		_, diags = New(logger).Parse(fuzzTypedPrefix+content, "fuzz.slidelang")
+		failOnZeroConsumption(t, diags)
 	})
 }
 
@@ -134,7 +196,8 @@ func FuzzStrictParse(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, content string) {
 		p := NewStrictParser(content, util.NewNoop())
-		p.Parse()
+		_, diags := p.Parse()
+		failOnZeroConsumption(t, diags)
 	})
 }
 
@@ -145,7 +208,8 @@ func FuzzFlexParse(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, content string) {
 		p := NewFlexParser(content, util.NewNoop())
-		p.Parse()
+		_, diags := p.Parse()
+		failOnZeroConsumption(t, diags)
 	})
 }
 
@@ -158,10 +222,12 @@ func FuzzDocumentFlexParse(f *testing.F) {
 	logger := util.NewNoop()
 	f.Fuzz(func(t *testing.T, content string) {
 		p := NewDocumentFlexParser(content, logger)
-		p.Parse()
+		_, diags := p.Parse()
+		failOnZeroConsumption(t, diags)
 
 		pAI := NewDocumentFlexParserWithNormalization(content, logger)
-		pAI.Parse()
+		_, diags = pAI.Parse()
+		failOnZeroConsumption(t, diags)
 	})
 }
 
@@ -177,7 +243,8 @@ func FuzzDocumentStrictParse(f *testing.F) {
 	logger := util.NewNoop()
 	f.Fuzz(func(t *testing.T, content string) {
 		p := NewDocumentStrictParser(content, logger)
-		p.Parse()
+		_, diags := p.Parse()
+		failOnZeroConsumption(t, diags)
 	})
 }
 
@@ -189,7 +256,9 @@ func FuzzParseDocument(f *testing.F) {
 	}
 	logger := util.NewNoop()
 	f.Fuzz(func(t *testing.T, content string) {
-		p := New(logger)
-		p.ParseDocument(content, "fuzz.doclang")
+		_, diags := New(logger).ParseDocument(content, "fuzz.doclang")
+		failOnZeroConsumption(t, diags)
+		_, diags = New(logger).ParseDocument(fuzzTypedPrefix+content, "fuzz.doclang")
+		failOnZeroConsumption(t, diags)
 	})
 }

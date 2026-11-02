@@ -124,7 +124,9 @@ With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
 may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on
 its parent as `subListType`; mixed ordered/unordered siblings in one list are
-diagnosed. See [portable nested list types](../../docs/portable-nested-list-types.md).
+diagnosed. `1)` is an ordered marker like `1.` here too (and with
+`list-start-v1`); in flex a change of delimiter between outer items starts a
+new list. See [portable nested list types](../../docs/portable-nested-list-types.md).
 
 Without that declaration a nested list keeps the depth the author wrote, at
 any depth, in `subPoints` (and `CHECKLIST` items in `subItems`). In flex the

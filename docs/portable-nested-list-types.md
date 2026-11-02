@@ -42,6 +42,9 @@ the item itself. The first marker at a given level defines its list type.
 Mixing ordered and unordered markers among siblings in one nested list is an
 error; separate subtrees may use different types. In flex mode, changing the
 outer marker starts a new `PointsElement`, as it did before this extension.
+`1)` is an ordered marker like `1.`, as in CommonMark; in flex, changing the
+delimiter between outer ordered items (`1.` to `1)`) also starts a new
+`PointsElement`. The delimiter is not serialized.
 Empty items and malformed markers inside an opt-in `POINTS` block are errors.
 Numbering is presentation order and is never used as an ID.
 

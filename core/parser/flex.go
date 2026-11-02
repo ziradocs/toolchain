@@ -388,7 +388,15 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 
 		// Try to parse element using registry
 		result := p.registry.Parse(ctx, p.currentLine)
-		if result.Element != nil {
+		if result.Element != nil && result.ConsumedLines <= 0 {
+			// Un parser que devuelve un elemento sin consumir líneas dejaría
+			// este bucle en la misma línea para siempre (el cuelgue de "1)"
+			// con nested-list-types-v1). Se descarta el elemento, se reporta
+			// y se avanza una línea, para que un bug de parser futuro dé un
+			// error y no un cuelgue.
+			p.addError(zeroConsumptionMessage(result.Element, nextLine))
+			p.currentLine++
+		} else if result.Element != nil {
 			block.Elements = append(block.Elements, result.Element)
 			p.currentLine += result.ConsumedLines
 		} else if result.ConsumedLines > 0 {
@@ -441,6 +449,12 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 	}
 
 	return nil
+}
+
+// zeroConsumptionMessage es el error que emiten los bucles flex cuando un
+// parser de elemento devuelve un elemento sin consumir ninguna línea.
+func zeroConsumptionMessage(element ast.Element, line string) string {
+	return fmt.Sprintf("internal error: the %T parser consumed no lines at %q; the line was skipped. This is a parser bug, please report it with a minimal repro", element, line)
 }
 
 // addError añade un error diagnóstico

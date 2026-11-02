@@ -157,7 +157,7 @@ func TestNestedListTypesRejectMixedSiblingMarkers(t *testing.T) {
 func TestNestedListTypesRejectEmptyOrOrphanedItems(t *testing.T) {
 	for _, tc := range []struct{ name, source, expected string }{
 		{"empty parent and orphan child", strings.Replace(typedStrictSource, "1. ParentA", "1. ", 1), "orphan nested list item"},
-		{"invalid child marker", strings.Replace(typedStrictSource, "- ChildA", "1) ChildA", 1), "invalid list marker"},
+		{"invalid child marker", strings.Replace(typedStrictSource, "- ChildA", "-1. ChildA", 1), "invalid list marker"},
 		{"empty block", "---\nmode: strict\nast_capabilities: [nested-list-types-v1]\n---\nSLIDE content\n  POINTS\n", "empty POINTS list"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -171,6 +171,24 @@ func TestNestedListTypesRejectEmptyOrOrphanedItems(t *testing.T) {
 			}
 			t.Fatalf("missing %s diagnostic: %v", tc.expected, issues)
 		})
+	}
+}
+
+// "1)" es un marcador numerado válido con la capacidad, como en CommonMark: una
+// sublista "1)" bajo un item queda ordenada y sin diagnósticos.
+func TestNestedListTypesAcceptParenChildMarker(t *testing.T) {
+	source := strings.NewReplacer("- ChildA", "1) ChildA", "- ChildB", "2) ChildB").Replace(typedStrictSource)
+	p := parser.New(util.NewNoop())
+	p.SetNormalization(false)
+	doc, issues := p.Parse(source, "fixture.slidelang")
+	for _, issue := range issues {
+		if issue.IsError() {
+			t.Fatalf("unexpected error: %v", issue)
+		}
+	}
+	points := doc.ContentBlocks[0].Elements[0].(*ast.PointsElement)
+	if parent := points.Items[0]; parent.SubListType != "ordered" || len(parent.SubPoints) != 2 || parent.SubPoints[0].Delimiter != ")" {
+		t.Fatalf("paren sublist not parsed: %+v", parent)
 	}
 }
 
