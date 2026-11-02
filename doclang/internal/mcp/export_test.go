@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -522,5 +523,125 @@ func TestExport_ImagesResolveFromSourceFile(t *testing.T) {
 		if bytes.Equal(data, secret) {
 			t.Errorf("una imagen fuera de --root se embebió como %s", name)
 		}
+	}
+}
+
+// TestExport_HungChromiumReleasesSlot: un Chromium que nunca responde no se
+// queda con el slot del semáforo. Antes los generadores corrían con
+// context.Background(): dos exports colgados dejaban `export` respondiendo
+// "server busy" hasta reiniciar. Con el contexto del export propagado, al
+// vencer el timeout el navegador se mata y el slot se libera.
+func TestExport_HungChromiumReleasesSlot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("usa un script de shell como Chromium falso")
+	}
+	f := newExportFixture(t)
+	f.write(t, "a.md", plainMarkdown)
+	fake := filepath.Join(t.TempDir(), "hung-chrome")
+	// Contesta --version (core.ChromiumManager.GetVersion lo llama sin
+	// contexto) y se cuelga en todo lo demás, como un navegador que nunca
+	// abre su puerto de DevTools.
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'Fake Chrome 1.0'; exit 0; fi\nexec sleep 600\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s, ctx := newExportSession(t, Options{Root: f.root, ChromiumPath: fake, ExportTimeout: 500 * time.Millisecond})
+
+	exportFail(t, s, ctx, map[string]any{"path": "a.md", "format": "pdf"}, "timed out")
+
+	deadline := time.Now().Add(15 * time.Second)
+	for len(exportSemaphore) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("el slot del export colgado no se liberó tras el timeout")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	left, _ := filepath.Glob(filepath.Join(f.root, ".doclang-export-*"))
+	if len(left) != 0 {
+		t.Errorf("temporales sin borrar: %v", left)
+	}
+}
+
+// TestExport_IncludeResolvesLikeBuild: `chap/main.md` con `@include part.md`
+// toma el part.md hermano, como `doclang build`, y no el de la raíz. Antes
+// export resolvía los @include contra --root.
+func TestExport_IncludeResolvesLikeBuild(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "part.md", "Texto de la RAIZ.\n")
+	f.write(t, "chap/part.md", "Texto del CAPITULO.\n")
+	f.write(t, "chap/main.md", "# Capítulo\n\n@include part.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	out := exportOK(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "html"})
+	data, err := os.ReadFile(filepath.Join(f.root, out.OutputPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("CAPITULO")) || bytes.Contains(data, []byte("RAIZ")) {
+		t.Errorf("export no tomó el part.md hermano")
+	}
+
+	// Un @include que sale del directorio del archivo se rechaza, como en
+	// build sin --include-root.
+	f.write(t, "chap/escape.md", "# E\n\n@include ../part.md\n")
+	exportFail(t, s, ctx, map[string]any{"path": "chap/escape.md", "format": "html"}, "include")
+}
+
+// TestExport_GeneratorWarningsReachDiagnostics: una imagen que existe pero
+// no se puede insertar sale como diagnóstico del resultado. Antes el logger
+// del servidor era un no-op y el resultado decía OK con diagnostics: [].
+func TestExport_GeneratorWarningsReachDiagnostics(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "broken.png", "esto no es un PNG")
+	f.write(t, "a.md", "# Imagen\n\n![rota](broken.png)\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	out := exportOK(t, s, ctx, map[string]any{"path": "a.md", "format": "docx"})
+	found := false
+	for _, d := range out.Diagnostics {
+		if d.Source == "generator" && strings.Contains(d.Message, "broken.png") && strings.Contains(d.Message, "could not be inserted") {
+			found = true
+			if strings.Contains(d.Message, f.root) {
+				t.Errorf("el diagnóstico expone la raíz absoluta: %q", d.Message)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("falta el diagnóstico de broken.png: %+v", out.Diagnostics)
+	}
+}
+
+// TestExportRoot_FilesystemRoot: con --root / toda ruta queda dentro.
+// Antes util.ResolveConfinedPath armaba el prefijo "//" y rechazaba todo, y
+// redact reemplazaba cada "/" del mensaje.
+func TestExportRoot_FilesystemRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("raíz POSIX")
+	}
+	r, err := newExportRoot("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := filepath.Join(dir, "a.md")
+	if err := os.WriteFile(in, []byte("# A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, content, err := r.resolveInput(in, 1<<20)
+	if err != nil || got != in || string(content) != "# A\n" {
+		t.Fatalf("resolveInput(%q) = %q, %q, %v", in, got, content, err)
+	}
+	rel := strings.TrimPrefix(in, "/")
+	if got, _, err := r.resolveInput(rel, 1<<20); err != nil || got != in {
+		t.Errorf("resolveInput(%q) = %q, %v", rel, got, err)
+	}
+	if out, err := r.resolveOutput(filepath.Join(dir, "a.docx"), "docx"); err != nil || out != filepath.Join(dir, "a.docx") {
+		t.Errorf("resolveOutput = %q, %v", out, err)
+	}
+	if msg := r.redact("cannot open /tmp/x/a.md"); msg != "cannot open /tmp/x/a.md" {
+		t.Errorf("redact cambió el mensaje: %q", msg)
 	}
 }

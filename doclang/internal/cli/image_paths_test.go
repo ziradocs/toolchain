@@ -212,3 +212,32 @@ func TestBuild_HTMLKeepsAuthoredImagePaths(t *testing.T) {
 		}
 	}
 }
+
+// TestBuild_IncludeResolvesFromInputDir es la contraparte de
+// mcp.TestExport_IncludeResolvesLikeBuild: con part.md en la raíz y junto al
+// archivo, build toma el hermano. export tiene que elegir el mismo.
+func TestBuild_IncludeResolvesFromInputDir(t *testing.T) {
+	root := t.TempDir()
+	for rel, content := range map[string]string{
+		"part.md":      "Texto de la RAIZ.\n",
+		"chap/part.md": "Texto del CAPITULO.\n",
+		"chap/main.md": "# Capítulo\n\n@include part.md\n",
+	} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := t.TempDir()
+	runBuild(t, filepath.Join(root, "chap", "main.md"), "--format", "html", "--output", out)
+	data, err := os.ReadFile(filepath.Join(out, "main.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("CAPITULO")) || bytes.Contains(data, []byte("RAIZ")) {
+		t.Error("build no tomó el part.md hermano")
+	}
+}

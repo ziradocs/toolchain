@@ -4,6 +4,10 @@
 package cli
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"go.ziradocs.com/core/v2/util"
@@ -46,10 +50,19 @@ Example client config:
 			if err != nil {
 				return err
 			}
-			// Un export en vuelo cuando el cliente cierra stdin deja su
-			// temporal; se borra antes de salir.
+			// Un export en vuelo cuando el cliente cierra stdin, o cuando
+			// llega SIGINT/SIGTERM, deja su temporal; se borra antes de
+			// salir. La señal cancela el contexto del servidor, Run
+			// vuelve y corre el defer. Un kill -9 no pasa por acá.
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
 			defer mcp.CleanupPendingExports()
-			return server.Run(cmd.Context(), &sdkmcp.StdioTransport{})
+			err = server.Run(ctx, &sdkmcp.StdioTransport{})
+			if ctx.Err() != nil && cmd.Context().Err() == nil {
+				// Detenido por la señal: es una salida normal.
+				return nil
+			}
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "", "Directory the export tool is confined to: it reads and writes only inside it (default: the current directory)")

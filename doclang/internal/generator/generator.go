@@ -4,6 +4,7 @@
 package generator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -101,6 +102,18 @@ type GeneratorOptions struct {
 	// Lo consumen el DOCX y, vía renderer.RenderContext.AssetBaseDir, el
 	// inlineo de HTML offline-inline y PDF.
 	SourceDir string
+	// Ctx acota el trabajo con Chromium (arranque, capturas, PDF): al
+	// cancelarse, el navegador se cierra y las llamadas pendientes vuelven
+	// con error. nil equivale a context.Background().
+	Ctx context.Context
+}
+
+// runContext devuelve opts.Ctx, o context.Background() si no se fijó.
+func (opts GeneratorOptions) runContext() context.Context {
+	if opts.Ctx != nil {
+		return opts.Ctx
+	}
+	return context.Background()
 }
 
 // Generator es el generador principal de documentos

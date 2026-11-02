@@ -22,6 +22,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -328,6 +329,9 @@ func ThemeName(doc *ast.AST, requested string, requestedTrusted bool) (name stri
 // significan "no se pidió explícitamente" (el equivalente de
 // !cmd.Flags().Changed): manda el frontmatter o el default de documentos.
 type GenerateOptions struct {
+	// Ctx acota la generación: al cancelarse, Chromium se cierra y la
+	// generación termina. nil equivale a context.Background().
+	Ctx        context.Context
 	Format     string
 	OutputFile string
 	TOC        *bool
@@ -444,6 +448,7 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		InstallChromium:   opts.InstallChromium,
 		AssetRoot:         opts.AssetRoot, // Confinamiento de fuentes de imagen (AL-4)
 		SourceDir:         opts.SourceDir, // Base de las fuentes de imagen relativas
+		Ctx:               opts.Ctx,
 	}
 	log.Info("GENERATOR", "Generating %s document...", format)
 	if err := gen.Generate(doc, opts.OutputFile, genOpts); err != nil {

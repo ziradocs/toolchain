@@ -215,12 +215,13 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 	done := make(chan result, 1)
 	go func() {
 		// El slot se libera cuando el trabajo termina de verdad, no cuando
-		// el handler deja de esperarlo (mismo criterio que parse.go): el
-		// generador no recibe contexto y sigue corriendo tras un timeout.
+		// el handler deja de esperarlo (mismo criterio que parse.go). El
+		// generador recibe ctx, así que al vencer el timeout Chromium se
+		// cierra y el trabajo termina en vez de quedarse con el slot.
 		defer func() { <-exportSemaphore }()
 		var r result
 		if err := util.RecoverGuard(func() error {
-			r.out, r.errOut = generateExport(logger, cfg, in, format, inputAbs, content, maxBytes, tmpPath)
+			r.out, r.errOut = generateExport(ctx, logger, cfg, in, format, inputAbs, content, maxBytes, tmpPath)
 			return nil
 		}); err != nil {
 			r = result{errOut: &exportError{Error: err.Error()}}
@@ -263,14 +264,17 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 }
 
 // generateExport corre el pipeline de `doclang build` y escribe en tmpPath.
-func generateExport(logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs string, content []byte, maxBytes int, tmpPath string) (*exportOutput, *exportError) {
+func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs string, content []byte, maxBytes int, tmpPath string) (*exportOutput, *exportError) {
 	inputName := cfg.root.display(inputAbs)
 	prepared, err := pipeline.Prepare(logger, content, pipeline.PrepareOptions{
 		InputFile:     inputName,
 		MaxInputBytes: maxBytes,
-		IncludeRoot:   cfg.root.dir, // @include confinado a la raíz
-		ThemeName:     in.Theme,
-		ThemeTrusted:  false, // input de un cliente MCP, aunque ya validado
+		// @include se resuelve contra el directorio del archivo, como en
+		// `doclang build`. Ese directorio está dentro de --root (el input
+		// ya se confinó), así que la raíz sigue siendo el límite.
+		IncludeRoot:  filepath.Dir(inputAbs),
+		ThemeName:    in.Theme,
+		ThemeTrusted: false, // input de un cliente MCP, aunque ya validado
 	})
 	if err != nil {
 		var diagErr *pipeline.DiagnosticsError
@@ -295,7 +299,12 @@ func generateExport(logger util.Logger, cfg exportConfig, in exportInput, format
 		}
 	}
 
-	if err := pipeline.Generate(logger, prepared, inputName, pipeline.GenerateOptions{
+	// Los warnings del generador (una imagen bloqueada o que no se pudo
+	// insertar, un diagrama sin Chromium) van al resultado: el logger del
+	// servidor MCP es un no-op y el cliente no vería nada.
+	genLog := newDiagnosticLogger(logger, cfg.root.redact)
+	if err := pipeline.Generate(genLog, prepared, inputName, pipeline.GenerateOptions{
+		Ctx:             ctx,
 		Format:          format,
 		OutputFile:      tmpPath,
 		TOC:             in.TOC,
@@ -309,10 +318,10 @@ func generateExport(logger util.Logger, cfg exportConfig, in exportInput, format
 		AssetRoot:       cfg.root.dir,
 		SourceDir:       filepath.Dir(inputAbs), // se resuelve junto al archivo, confinado a --root
 	}); err != nil {
-		return nil, &exportError{Error: err.Error(), Diagnostics: prepared.Diagnostics()}
+		return nil, &exportError{Error: err.Error(), Diagnostics: append(prepared.Diagnostics(), genLog.diagnostics()...)}
 	}
 
-	diags := prepared.Diagnostics()
+	diags := append(prepared.Diagnostics(), genLog.diagnostics()...)
 	if diags == nil {
 		diags = []diagnostics.Diagnostic{}
 	}

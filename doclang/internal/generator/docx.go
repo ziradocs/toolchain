@@ -51,6 +51,17 @@ type DOCXGenerator struct {
 	// resuelve una fuente relativa antes de confinarla a assetRoot. Vacío
 	// resuelve contra assetRoot. Ver GeneratorOptions.SourceDir.
 	sourceDir string
+	// ctx es GeneratorOptions.Ctx de la generación en curso; ver runCtx.
+	ctx context.Context
+}
+
+// runCtx es el contexto de la generación en curso, o Background fuera de
+// Generate (tests que llaman a un render suelto).
+func (g *DOCXGenerator) runCtx() context.Context {
+	if g.ctx != nil {
+		return g.ctx
+	}
+	return context.Background()
 }
 
 // TOCEntry representa una entrada en la tabla de contenidos
@@ -153,6 +164,7 @@ func sanitizeBookmarkID(s string) string {
 
 // Generate genera un documento DOCX desde el AST
 func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts GeneratorOptions) error {
+	g.ctx = opts.runContext()
 	g.logger.Info("DOCX", "Building DOCX document...")
 	if ast.UsesNestedListTypes(astDoc) {
 		return fmt.Errorf("DOCX does not yet support nested-list-types-v1 as native Word lists")
@@ -185,7 +197,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		} else {
 			g.logger.Info("DOCX", "Initializing Chromium renderer...")
 			chromiumLogger := &renderer.ChromiumLoggerAdapter{Logger: g.logger}
-			chromiumRenderer, err := chromium.NewChromiumRenderer(context.Background(), opts.ChromiumPath, opts.InstallChromium, chromiumLogger)
+			chromiumRenderer, err := chromium.NewChromiumRenderer(opts.runContext(), opts.ChromiumPath, opts.InstallChromium, chromiumLogger)
 			if err != nil {
 				g.logger.Warn("DOCX: Failed to initialize Chromium: %v", err)
 			} else {
@@ -2831,7 +2843,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 	// 1600 es solo el alto inicial de la ventana en el core nuevo (la
 	// captura es la caja del <svg>); con un core anterior es el alto del
 	// contenedor fijo, así que no lo bajamos de lo que ya era.
-	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(context.Background(), content, g.mermaidLayoutWidthPx(), 1600, g.diagramTheme)
+	pngBytes, err := g.chromiumRenderer.RenderMermaidToPNGWithTheme(g.runCtx(), content, g.mermaidLayoutWidthPx(), 1600, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render mermaid: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("Mermaid Diagram: %s (render failed)", elem.DiagramType))
@@ -3015,7 +3027,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 
 	g.logger.Info("DOCX", "Rendering equation...")
 
-	pngBytes, err := g.chromiumRenderer.RenderMathToPNGWithTheme(context.Background(), elem.Content, 1600, 400, g.diagramTheme)
+	pngBytes, err := g.chromiumRenderer.RenderMathToPNGWithTheme(g.runCtx(), elem.Content, 1600, 400, g.diagramTheme)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to render equation: %v", err)
 		return g.renderPlaceholder(doc, "Equation (render failed)")
@@ -3117,7 +3129,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 
 		// Renderizar a PNG usando ChromiumRenderer con alta resolución para mejor calidad en Word
 		// 2400x1500 pixels = buena calidad para impresión y pantalla
-		chromiumBytes, chromiumErr := g.chromiumRenderer.RenderChartToPNG(context.Background(), chartConfig, 2400, 1500)
+		chromiumBytes, chromiumErr := g.chromiumRenderer.RenderChartToPNG(g.runCtx(), chartConfig, 2400, 1500)
 		if chromiumErr != nil {
 			g.logger.Warn("DOCX: Failed to render chart: %v", chromiumErr)
 			return g.renderPlaceholder(doc, fmt.Sprintf("Chart: %s (render failed)", elem.ChartType))
@@ -3166,7 +3178,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 	// áreas y heatmap) sin proceso de navegador. Compartir BuildMapConfig con
 	// HTML/PPTX evita que cada exportador traduzca el AST de forma distinta.
 	mapConfig := renderer.BuildMapConfig(elem, nil)
-	pngBytes, err := renderer.RenderMapNativePNG(context.Background(), mapConfig, 1200, 800)
+	pngBytes, err := renderer.RenderMapNativePNG(g.runCtx(), mapConfig, 1200, 800)
 	if err != nil {
 		// El navegador sigue siendo un respaldo para cualquier variante que el
 		// renderer nativo aún no soporte, pero ya no es una precondición para
@@ -3176,7 +3188,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 			return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
 		}
 		g.logger.Warn("DOCX: Native map render failed; falling back to Chromium: %v", err)
-		pngBytes, err = g.chromiumRenderer.RenderMapToPNG(context.Background(), mapConfig, 1200, 800)
+		pngBytes, err = g.chromiumRenderer.RenderMapToPNG(g.runCtx(), mapConfig, 1200, 800)
 		if err != nil {
 			g.logger.Warn("DOCX: Failed to render map: %v", err)
 			return g.renderPlaceholder(doc, fmt.Sprintf("Map: %s (render failed)", elem.MapType))
@@ -3606,7 +3618,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 
 	// Descargar diagrama a archivo PNG
 	content := renderer.ApplyPlantUMLTheme(renderer.SanitizePlantUMLContent(elem.Content), g.diagramTheme)
-	assetPath, err := fetcher.FetchDiagramToAssets(context.Background(), content)
+	assetPath, err := fetcher.FetchDiagramToAssets(g.runCtx(), content)
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to fetch PlantUML diagram: %v", err)
 		return g.renderPlaceholder(doc, fmt.Sprintf("PlantUML diagram failed: %s", elem.DiagramType))
