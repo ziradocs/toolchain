@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -18,11 +17,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // svgImageRasterizer es RenderSVGImageToPNG de core (PNG a 2 px por px CSS).
@@ -58,45 +57,178 @@ func isSVGImageSource(source string) bool {
 }
 
 // HasSVGImages dice si doc tiene alguna imagen local SVG en cualquier lugar:
-// de bloque en una sección, anidada en un grid o un callout, o inline en un
-// párrafo, un ítem o una celda. Una versión anterior miraba solo las imágenes
-// de bloque del nivel de sección, así que un documento cuyo único SVG estaba
-// anidado o inline no arrancaba Chromium y el SVG quedaba como marcador. El
-// AST se recorre serializado: así no depende de conocer cada tipo que anida
-// elementos ni cada campo con markdown inline.
+// de bloque en una sección, anidada en un grid, un callout o una columna, o
+// inline en un párrafo, un ítem, una celda, una cita o un quiz. Una versión
+// anterior miraba solo las imágenes de bloque del nivel de sección; otra
+// buscaba ".svg" con regex en el AST serializado, y contaba también un
+// ejemplo en un bloque de código, un code span, una imagen escapada, el
+// \text{} de una ecuación o un <<video src="a.svg">>: el export DOCX del MCP
+// fallaba pidiendo Chromium para un tutorial sin ningún SVG de verdad.
+//
+// Ahora recorre el AST con tipos, como la regla LINK001 del linter: la
+// fuente de cada ImageElement, y las imágenes inline de los campos de texto
+// según renderer.FindInlineLinks, que corre las mismas pasadas del renderer
+// (salta code spans y escapes). Código, math, mermaid, plantuml, media,
+// charts y mapas no se miran. Una imagen remota no cuenta.
 func HasSVGImages(doc *ast.AST) bool {
 	if doc == nil {
 		return false
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false) // "<a b.svg>" tiene que llegar tal cual
-	if err := enc.Encode(doc); err != nil {
+	var variables map[string]interface{}
+	if doc.FrontMatter != nil {
+		variables = doc.FrontMatter.BuildVariables()
+	}
+	// FindInlineLinks trabaja por línea; solo se le pasan las líneas que
+	// pueden tener una imagen SVG ("![" y ".svg" en cualquier caja), así un
+	// documento grande sin SVG se revisa casi sin costo.
+	inline := func(texts ...string) bool {
+		for _, text := range texts {
+			if !strings.Contains(text, "![") {
+				continue
+			}
+			// Una {{variable}} puede ser la que trae el ".svg".
+			if strings.Contains(text, "{{") {
+				text = renderer.ProcessVariables(text, variables)
+			}
+			if !containsFoldSVG(text) {
+				continue
+			}
+			for _, line := range strings.Split(text, "\n") {
+				if !strings.Contains(line, "![") || !containsFoldSVG(line) {
+					continue
+				}
+				for _, link := range renderer.FindInlineLinks(line) {
+					if !link.Image || link.Dropped {
+						continue
+					}
+					if src, ok := docxLocalImageSource(link.Destination); ok && isSVGImageSource(src) {
+						return true
+					}
+				}
+			}
+		}
 		return false
 	}
-	text := buf.String()
-	for _, m := range svgSourceFieldPattern.FindAllStringSubmatch(text, -1) {
-		var src string
-		if json.Unmarshal([]byte(`"`+m[1]+`"`), &src) == nil && isSVGImageSource(src) {
+	var points func([]ast.PointItem) bool
+	points = func(items []ast.PointItem) bool {
+		for _, it := range items {
+			if inline(it.Content) || points(it.SubPoints) {
+				return true
+			}
+		}
+		return false
+	}
+	var checklist func([]ast.ChecklistItem) bool
+	checklist = func(items []ast.ChecklistItem) bool {
+		for _, it := range items {
+			if inline(it.Content) || checklist(it.SubItems) {
+				return true
+			}
+		}
+		return false
+	}
+	var visit func(ast.Element) bool
+	visit = func(el ast.Element) bool {
+		switch e := el.(type) {
+		case *ast.ImageElement:
+			src := e.Source
+			if strings.Contains(src, "{{") {
+				src = renderer.ProcessVariables(src, variables)
+			}
+			return isSVGImageSource(src) || inline(e.Caption)
+		case *ast.TextElement:
+			if e.IsRawHTML {
+				return inline(e.HeadingSource)
+			}
+			return inline(e.Content)
+		case *ast.HeadingElement:
+			return inline(e.Text)
+		case *ast.PointsElement:
+			return points(e.Items)
+		case *ast.ChecklistElement:
+			return checklist(e.Items)
+		case *ast.QuoteElement:
+			return inline(e.Content)
+		case *ast.TableElement:
+			if inline(e.Headers...) {
+				return true
+			}
+			for _, row := range e.Rows {
+				if inline(row...) {
+					return true
+				}
+			}
+			for _, row := range e.TableRows {
+				for _, cell := range row.Cells {
+					if inline(cell.Content) {
+						return true
+					}
+				}
+			}
+			return false
+		case *ast.SpecialBlockElement:
+			if inline(e.Title, e.Content) {
+				return true
+			}
+			for _, nested := range e.Elements {
+				if visit(nested) {
+					return true
+				}
+			}
+			return false
+		case *ast.GridElement:
+			if inline(e.Content) {
+				return true
+			}
+			for _, col := range e.Columns {
+				if inline(col.Content) {
+					return true
+				}
+				for _, nested := range col.Elements {
+					if visit(nested) {
+						return true
+					}
+				}
+			}
+			return false
+		case *ast.MetricElement:
+			return inline(e.Label, e.Value, e.Delta, e.Caption)
+		case *ast.QuizElement:
+			return inline(e.Question, e.Explanation) || inline(e.Options...)
+		case *ast.PollElement:
+			return inline(e.Question) || inline(e.Options...)
+		}
+		// Code, CodeGroup, Math, Mermaid, PlantUML, Media, Chart, Map: su
+		// contenido no tiene imágenes del documento.
+		return false
+	}
+	for _, block := range doc.ContentBlocks {
+		if inline(block.Title, block.Heading, block.Subtitle) {
 			return true
 		}
-	}
-	for _, m := range svgInlineImagePattern.FindAllStringSubmatch(text, -1) {
-		if src, ok := docxLocalImageSource(m[1]); ok && isSVGImageSource(src) {
-			return true
+		for _, el := range block.Elements {
+			if visit(el) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-var (
-	// svgSourceFieldPattern es el campo "source" de un ImageElement en el
-	// AST serializado.
-	svgSourceFieldPattern = regexp.MustCompile(`"source":"((?:[^"\\]|\\.)*)"`)
-	// svgInlineImagePattern es el destino de un ![alt](src) inline dentro de
-	// cualquier texto del AST serializado (hasta el primer ")" o comilla).
-	svgInlineImagePattern = regexp.MustCompile(`!\[[^\]]*\]\(\s*([^)"]+)\)`)
-)
+// containsFoldSVG dice si s contiene ".svg" sin distinguir mayúsculas.
+func containsFoldSVG(s string) bool {
+	for i := strings.IndexByte(s, '.'); i >= 0 && i+4 <= len(s); {
+		if strings.EqualFold(s[i:i+4], ".svg") {
+			return true
+		}
+		j := strings.IndexByte(s[i+1:], '.')
+		if j < 0 {
+			return false
+		}
+		i += 1 + j
+	}
+	return false
+}
 
 // looksLikeSVG reconoce un SVG por su contenido: el primer elemento XML es
 // <svg>. Cubre un .svg con otra extensión y deja fuera un .svg que en

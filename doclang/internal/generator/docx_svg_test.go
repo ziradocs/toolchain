@@ -5,12 +5,14 @@ package generator
 
 import (
 	"archive/zip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -179,17 +181,22 @@ func TestDOCXGenerator_SVGImage_RasterizedAtNaturalSize(t *testing.T) {
 	}
 }
 
-// TestHasSVGImages_InlineAndNested: un SVG inline (párrafo, ítem, celda) o
-// anidado en un callout también pide Chromium; antes solo contaban las
-// imágenes de bloque del nivel de sección.
+// TestHasSVGImages_InlineAndNested: un SVG de bloque, inline (párrafo, ítem,
+// celda) o anidado en un callout pide Chromium; una mención de ".svg" que no
+// es una imagen del documento, no. Una versión anterior buscaba ".svg" con
+// regex en el AST serializado, y el export DOCX del MCP fallaba pidiendo
+// Chromium para un tutorial cuyo único SVG estaba en un bloque de código.
 func TestHasSVGImages_InlineAndNested(t *testing.T) {
+	const head = "---\ntitle: S\nmode: flex\n---\n\n# S\n\n"
 	for name, body := range map[string]string{
+		"bloque":  "![e](diagrama.svg)\n",
 		"párrafo": "Texto ![e](evil.svg) aquí.\n",
 		"ítem":    "- uno ![e](img/a.SVG?x=1)\n",
 		"celda":   "| A |\n|---|\n| ![e](<d s.svg>) |\n",
 		"callout": "::: info\n![e](nested.svg)\n:::\n",
+		"cita":    "> mira ![e](q.svg)\n",
 	} {
-		doc := parseInline(t, "---\ntitle: S\nmode: flex\n---\n\n# S\n\n"+body)
+		doc := parseInline(t, head+body)
 		if !HasSVGImages(doc) {
 			t.Errorf("%s: SVG not detected", name)
 		}
@@ -198,13 +205,50 @@ func TestHasSVGImages_InlineAndNested(t *testing.T) {
 		}
 	}
 	for name, body := range map[string]string{
-		"png inline": "Texto ![e](a.png) y [svg](link.svg).\n",
-		"svg remoto": "![e](https://x.test/a.svg)\n",
+		"png inline":       "Texto ![e](a.png) y [svg](link.svg).\n",
+		"svg remoto":       "![e](https://x.test/a.svg)\n\nTexto ![r](//x.test/b.svg).\n",
+		"bloque de código": "```markdown\n![Diagrama](diagrama.svg)\n```\n",
+		"code span":        "Escribe `![x](a.svg)` así.\n",
+		"math":             "$$\n\\text{a.svg}\n$$\n",
+		"mermaid":          "```mermaid\ngraph TD\n  A[a.svg] --> B[\"![x](b.svg)\"]\n```\n",
+		"video":            "<<video src=\"a.svg\" caption=\"c\">>\n",
+		"enlace a un svg":  "[descarga](plano.svg)\n",
 	} {
-		if HasSVGImages(parseInline(t, "---\ntitle: S\nmode: flex\n---\n\n# S\n\n"+body)) {
+		doc := parseInline(t, head+body)
+		if HasSVGImages(doc) {
 			t.Errorf("%s: false positive", name)
 		}
 	}
+
+	// "\![x](a.svg)": el renderer no trata "\!" como escape y emite
+	// "\<img src="a.svg">", y el DOCX inserta la imagen. La detección sigue
+	// al renderer (FindInlineLinks), así que cuenta: si no, el DOCX se
+	// quedaría sin Chromium para una imagen que sí intenta insertar.
+	if !HasSVGImages(parseInline(t, head+"Texto \\![x](a.svg) literal.\n")) {
+		t.Error("an image the renderer emits must count")
+	}
+}
+
+// TestHasSVGImages_Fast: el recorrido no serializa nada; un documento grande
+// sin SVG se revisa en poco tiempo.
+func TestHasSVGImages_Fast(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("---\ntitle: G\nmode: flex\n---\n\n# G\n\n")
+	for i := 0; b.Len() < 2_500_000; i++ {
+		fmt.Fprintf(&b, "Párrafo %d con [un enlace](https://x.test/%d) y ![foto](f%d.png).\n\n- ítem ![i](i.png)\n\n", i, i, i)
+		if i%50 == 0 {
+			b.WriteString("Ejemplo: `![c](c.svg)`.\n\n```markdown\n![d](d.svg)\n```\n\n")
+		}
+	}
+	doc := parseInline(t, b.String())
+	start := time.Now()
+	if HasSVGImages(doc) {
+		t.Fatal("false positive")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("HasSVGImages took %s on a 2.5 MB document", d)
+	}
+	t.Logf("HasSVGImages on %d bytes: %s", b.Len(), time.Since(start))
 }
 
 // TestSVGNaturalSizePx_NonFinite: NaN, Inf o un número que desborda no llegan

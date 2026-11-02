@@ -799,3 +799,15 @@ func TestExport_AllowRemoteImagesNeedsServerFlag(t *testing.T) {
 		}
 	}
 }
+
+// TestExport_SVGOnlyInCodeIsNotAnImage: un tutorial cuya única mención de un
+// SVG está en un bloque de código o un code span no pide Chromium para el
+// DOCX; uno con una imagen SVG de verdad sí.
+func TestExport_SVGOnlyInCodeIsNotAnImage(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "tut.md", "# Tutorial\n\nEscribe una imagen así: `![x](a.svg)`.\n\n```markdown\n![Diagrama](diagrama.svg)\n```\n")
+	f.write(t, "real.md", "# Real\n\n![Diagrama](diagrama.svg)\n")
+	s, ctx := newExportSession(t, Options{Root: f.root, ChromiumPath: filepath.Join(f.root, "no-such-chromium")})
+	exportOK(t, s, ctx, map[string]any{"path": "tut.md", "format": "docx"})
+	exportFail(t, s, ctx, map[string]any{"path": "real.md", "format": "docx"}, "SVG images in DOCX")
+}
