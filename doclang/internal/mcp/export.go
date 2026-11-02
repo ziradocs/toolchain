@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -28,6 +29,43 @@ import (
 const maxConcurrentExports = 2
 
 var exportSemaphore = make(chan struct{}, maxConcurrentExports)
+
+// pendingTemps son los temporales de los exports en vuelo. Un export
+// abandonado (timeout, cancelación) borra su temporal cuando el generador
+// termina, pero si el servidor se cierra antes, el proceso sale con el
+// generador a medias; CleanupPendingExports los borra en ese momento.
+var pendingTemps = struct {
+	sync.Mutex
+	paths map[string]struct{}
+}{paths: map[string]struct{}{}}
+
+func trackTemp(p string) {
+	pendingTemps.Lock()
+	pendingTemps.paths[p] = struct{}{}
+	pendingTemps.Unlock()
+}
+
+// releaseTemp deja de seguir p y, si remove, lo borra.
+func releaseTemp(p string, remove bool) {
+	pendingTemps.Lock()
+	delete(pendingTemps.paths, p)
+	pendingTemps.Unlock()
+	if remove {
+		os.Remove(p)
+	}
+}
+
+// CleanupPendingExports borra los temporales de los exports que siguen en
+// vuelo. `doclang mcp` lo llama cuando el servidor se detiene (fin de
+// stdin, señal), antes de salir. Un kill -9 no pasa por acá.
+func CleanupPendingExports() {
+	pendingTemps.Lock()
+	defer pendingTemps.Unlock()
+	for p := range pendingTemps.paths {
+		os.Remove(p)
+		delete(pendingTemps.paths, p)
+	}
+}
 
 // DefaultExportTimeout es el presupuesto de un `export` completo (parseo,
 // lint, Chromium y escritura).
@@ -124,7 +162,7 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 		return fail("%v", err)
 	}
 
-	maxBytes := util.DefaultMaxInputBytes
+	maxBytes := util.ResolveMaxInputBytes(0, pipeline.MaxInputSizeEnvVar)
 	inputAbs, content, err := cfg.root.resolveInput(in.Path, maxBytes)
 	if err != nil {
 		return fail("%v", err)
@@ -161,6 +199,7 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 	}
 	tmpPath := tmp.Name()
 	tmp.Close()
+	trackTemp(tmpPath)
 
 	timeout := cfg.timeout
 	if timeout <= 0 {
@@ -181,7 +220,7 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 		defer func() { <-exportSemaphore }()
 		var r result
 		if err := util.RecoverGuard(func() error {
-			r.out, r.errOut = generateExport(logger, cfg, in, format, inputAbs, content, tmpPath)
+			r.out, r.errOut = generateExport(logger, cfg, in, format, inputAbs, content, maxBytes, tmpPath)
 			return nil
 		}); err != nil {
 			r = result{errOut: &exportError{Error: err.Error()}}
@@ -195,7 +234,7 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 	case <-ctx.Done():
 		go func() {
 			<-done
-			os.Remove(tmpPath)
+			releaseTemp(tmpPath, true)
 		}()
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return fail("export timed out after %s", timeout)
@@ -203,13 +242,16 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 		return fail("export cancelled: %v", ctx.Err())
 	}
 	if r.errOut != nil {
-		os.Remove(tmpPath)
+		releaseTemp(tmpPath, true)
 		return nil, r.errOut
 	}
 
 	size, err := commitExport(tmpPath, outputAbs, in.Overwrite)
+	// Tras un commit con éxito el temporal ya no existe (Rename) o es un
+	// segundo enlace al destino que hay que quitar (Link); en ambos casos
+	// borrarlo es correcto y nunca toca el destino.
+	releaseTemp(tmpPath, true)
 	if err != nil {
-		os.Remove(tmpPath)
 		if errors.Is(err, fs.ErrExist) {
 			return fail("output already exists: %s (pass overwrite: true to replace it)", cfg.root.display(outputAbs))
 		}
@@ -221,11 +263,11 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 }
 
 // generateExport corre el pipeline de `doclang build` y escribe en tmpPath.
-func generateExport(logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs string, content []byte, tmpPath string) (*exportOutput, *exportError) {
+func generateExport(logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs string, content []byte, maxBytes int, tmpPath string) (*exportOutput, *exportError) {
 	inputName := cfg.root.display(inputAbs)
 	prepared, err := pipeline.Prepare(logger, content, pipeline.PrepareOptions{
 		InputFile:     inputName,
-		MaxInputBytes: util.DefaultMaxInputBytes,
+		MaxInputBytes: maxBytes,
 		IncludeRoot:   cfg.root.dir, // @include confinado a la raíz
 		ThemeName:     in.Theme,
 		ThemeTrusted:  false, // input de un cliente MCP, aunque ya validado

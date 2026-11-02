@@ -455,6 +455,23 @@ func TestExport_ConcurrencyLimit(t *testing.T) {
 	exportFail(t, s, ctx, map[string]any{"path": "a.md", "format": "html"}, "server busy")
 }
 
+func TestCleanupPendingExports(t *testing.T) {
+	p := filepath.Join(t.TempDir(), ".doclang-export-test.docx")
+	if err := os.WriteFile(p, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trackTemp(p)
+	CleanupPendingExports()
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("pending temporary file not removed: %v", err)
+	}
+	pendingTemps.Lock()
+	defer pendingTemps.Unlock()
+	if len(pendingTemps.paths) != 0 {
+		t.Fatalf("pending set not emptied: %v", pendingTemps.paths)
+	}
+}
+
 func TestNewServerWithOptions_InvalidRoot(t *testing.T) {
 	if _, err := NewServerWithOptions(util.NewNoop(), Options{Root: filepath.Join(t.TempDir(), "missing")}); err == nil {
 		t.Fatal("expected an error for a root that does not exist")

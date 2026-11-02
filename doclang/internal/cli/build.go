@@ -22,7 +22,7 @@ import (
 // Nombre distinto del de slidelang (SLIDELANG_MAX_SIZE): son binarios
 // independientes y compartir el mismo nombre de env var confundiría a un
 // operador que solo usa uno de los dos CLIs.
-const maxInputSizeEnvVar = "DOCLANG_MAX_SIZE"
+const maxInputSizeEnvVar = pipeline.MaxInputSizeEnvVar
 
 func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, externalRulepacks []string,
 	policyResolver func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error),

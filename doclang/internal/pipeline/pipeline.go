@@ -40,6 +40,13 @@ import (
 	"go.ziradocs.com/doclang/v2/themes/document"
 )
 
+// MaxInputSizeEnvVar ajusta el tope de tamaño de entrada sin recompilar
+// (prioridad en `build`: --max-size > esta variable >
+// util.DefaultMaxInputBytes; el MCP no tiene flag, así que usa esta
+// variable o el default). Nombre distinto del de slidelang
+// (SLIDELANG_MAX_SIZE): son binarios independientes.
+const MaxInputSizeEnvVar = "DOCLANG_MAX_SIZE"
+
 // Stage identifica en qué etapa falló el documento por su contenido.
 type Stage string
 

@@ -46,6 +46,9 @@ Example client config:
 			if err != nil {
 				return err
 			}
+			// Un export en vuelo cuando el cliente cierra stdin deja su
+			// temporal; se borra antes de salir.
+			defer mcp.CleanupPendingExports()
 			return server.Run(cmd.Context(), &sdkmcp.StdioTransport{})
 		},
 	}

@@ -264,20 +264,24 @@ document content. This is how `export` handles the findings it touches:
   document is generated into a temporary file in the destination directory. Without
   `overwrite`, it is committed with `os.Link`, which fails if the destination appeared in
   the meantime, so there is no window between the check and the write. With `overwrite`,
-  it is committed with `os.Rename`. A cancelled or timed-out export deletes its temporary
-  file and never writes the destination.
+  it is committed with `os.Rename`. A failed, cancelled or timed-out export never writes
+  the destination. Its temporary file is deleted when the generator finishes, or when the
+  server shuts down if it is still running then. A killed process can leave it behind.
 - **ME-4, CR-6, AL-1 (egress and headless Chrome).** `export` launches no more Chromium
   than `doclang build` does for the same document: always for PDF, and for DOCX only with
   mermaid, math or non-native charts. It never sets `InstallChromium`. When Chromium is
   needed and missing, it returns an error that names the elements needing it and points
-  to `doclang build --install-chromium`. HTML uses `build`'s default `browser` render mode,
-  so it keeps the CDN references that ME-4 describes. `offline-assets` is not offered,
+  to `doclang build --install-chromium`. Egress is the same as `build` with default
+  flags. HTML uses the `browser` render mode, so the output keeps the CDN references that
+  ME-4 describes. During the export, PlantUML diagrams are sent to the public
+  `plantuml.com` server, and maps fetch tiles from OpenStreetMap or ArcGIS. PDF also
+  renders inside Chromium. `offline-assets` is not offered,
   because it would write an `assets/` directory beside the output, outside the
   `overwrite` check. `--filter` binaries, custom rule packs and lint-policy files are
   not reachable from the tool.
 - **ME-8 (size and time).** The input must be a regular file with an `.md`, `.markdown` or
-  `.doclang` extension. Its size is checked on the open file before reading
-  (`util.DefaultMaxInputBytes`) and again after `@include` expansion. Parsing keeps the
+  `.doclang` extension. Its size is checked on the open file before reading (the same
+  cap as `build`: 10 MB, or `DOCLANG_MAX_SIZE`) and again after `@include` expansion. Parsing keeps the
   `util.RunGuarded` timeout. The whole export has its own three-minute budget and the
   request's cancellation, and at most two exports run at a time, through the same
   non-blocking semaphore pattern as the parser.

@@ -148,11 +148,16 @@ root. Lint errors come back as an error result carrying the diagnostics, as in `
   error that names what needs it. It never downloads anything: install Chrome, Chromium or
   Edge, or run `doclang build --install-chromium` once from a terminal. `--chromium-path`
   points the server at a specific binary.
-- **Render mode.** HTML uses `build`'s default `browser` mode, so diagrams, charts and math
-  load their scripts from a CDN when the page is opened.
-- **Limits.** Two exports at a time (a third gets a "server busy" error), three minutes
-  each, and the same input size cap as `build`. A cancelled or timed-out export never
-  leaves a partial file at the output path.
+- **Network.** HTML uses `build`'s default `browser` mode, so diagrams, charts and math
+  load their scripts from a CDN when the page is opened. While exporting, the same hosts
+  as `build` are contacted: PlantUML diagrams go to the public `plantuml.com` server, and
+  map tiles come from OpenStreetMap or ArcGIS.
+- **Limits.** Two exports at a time; a third concurrent call gets a "server busy" error
+  instead of waiting. Three minutes per export, and the input size cap of `build`
+  (10 MB, or `DOCLANG_MAX_SIZE`). The document is written to a temporary file and moved
+  into place at the end, so a failed, cancelled or timed-out export never leaves a
+  partial file at the output path. The temporary file is removed when the export
+  finishes, or when the server shuts down, but not if the process is killed.
 
 ## Development
 
