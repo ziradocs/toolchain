@@ -7,7 +7,7 @@ require (
 	github.com/chromedp/chromedp v0.15.1
 	github.com/flopp/go-staticmaps v0.0.0-20260318105611-d3eb636a6468
 	github.com/fogleman/gg v1.3.0
-	github.com/go-analyze/charts v0.6.0
+	github.com/go-analyze/charts v0.6.4
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/golang/geo v0.0.0-20260302211937-87f5a40ea07a
 	github.com/invopop/jsonschema v0.14.0
@@ -26,7 +26,7 @@ require (
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/flopp/go-coordsparser v0.0.0-20250311184423-61a7ff62d17c // indirect
-	github.com/go-analyze/bulk v0.1.4 // indirect
+	github.com/go-analyze/bulk v0.1.6 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
