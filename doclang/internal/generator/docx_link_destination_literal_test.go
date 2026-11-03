@@ -4,7 +4,6 @@
 package generator
 
 import (
-	"time"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,33 +49,16 @@ func TestDOCXGenerator_EmphasisDoesNotCloseInsideDestination(t *testing.T) {
 	}
 }
 
-// docxMaskLinkDestinations recorre el texto una vez: con muchos enlaces e imágenes en un
-// párrafo, el doble de texto tarda el doble, no el cuádruple.
-func TestDocxMaskLinkDestinationsScalesLinearly(t *testing.T) {
-	if testing.Short() {
-		t.Skip("mide tiempos")
+// Un code span se resuelve antes que los enlaces, como en el HTML: el
+// "[0](" de adentro no abre un enlace que se trague la cursiva de después.
+func TestDOCXGenerator_CodeSpanDoesNotOpenLink(t *testing.T) {
+	text := ast.NewTextElement(diagnostics.NewPosition(1, 1), "L4 `f[0](` y *importante* texto) fin")
+	output := filepath.Join(t.TempDir(), "code.docx")
+	if err := New(newTestLogger()).Generate(astWithElements(text), output, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
 	}
-	gen := map[string]func(n int) string{
-		"enlaces e imágenes": func(n int) string { return strings.Repeat(`*a* ![i](x*y.png "t") [b](u*v) `, n) },
-		"con espacios":       func(n int) string { return strings.Repeat("[a](mi página.html) ![b](mi foto.png) ", n) },
-		"sin cierre":         func(n int) string { return strings.Repeat("[a](b (c ![d](e ", n) },
-	}
-	best := func(s string) time.Duration {
-		b := time.Duration(1 << 62)
-		for i := 0; i < 5; i++ {
-			start := time.Now()
-			docxMaskLinkDestinations(s)
-			if d := time.Since(start); d < b {
-				b = d
-			}
-		}
-		return b
-	}
-	const n = 4000
-	for name, g := range gen {
-		t1, t2 := best(g(n)), best(g(2*n))
-		if t1 > 2*time.Millisecond && t2 > 7*t1/2 {
-			t.Errorf("%s: %v con n=%d y %v con 2n (más que lineal)", name, t1, n, t2)
-		}
+	xml := docxDocumentXML(t, output)
+	if run := docxRunContaining(t, xml, "importante"); !strings.Contains(run, "<w:i") {
+		t.Errorf("perdió la cursiva:\n%s", run)
 	}
 }

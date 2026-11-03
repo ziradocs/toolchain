@@ -1917,7 +1917,7 @@ func (g *DOCXGenerator) docxEmphasisRunApply(style func(r domain.Run) error) fun
 func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
 	return docxInlinePattern{
 		// `code` - código inline
-		regex: regexp.MustCompile("`([^`]+)`"),
+		regex: docxCodeSpanRe,
 		apply: docxSimpleRunApply(func(r domain.Run) error {
 			if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
 				return err
@@ -1929,77 +1929,17 @@ func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
 	}
 }
 
-// docxMaskLinkDestinations devuelve s con lo que va entre el "(" y el ")" de
-// cada imagen y enlace inline (destino y título) cambiado por relleno del
-// mismo largo, para buscar la negrita y la cursiva. En el HTML el destino y
-// el título son literales, como en CommonMark, y el walker se queda con el
-// match que empieza primero: sin esto, en `*x ![a](a*b.png) y*` ganaba la
-// cursiva `*x ![a](a*` y la imagen salía como Markdown partido. Los índices
-// sirven tal cual sobre s.
-//
-// Las imágenes se buscan primero y se tapan enteras para buscar los enlaces,
-// como en docxFindInlineLink. Cada destino lo lee renderer.ScanLinkDestination
-// desde su apertura, así que el recorrido avanza sin volver a leer lo ya visto.
+// docxMaskLinkDestinations es maskLinkDestinations con el code span del DOCX
+// (docxCodeSpanRe): lo que la negrita y la cursiva no pueden ver. En el HTML
+// el destino y el título son literales, como en CommonMark, y el walker se
+// queda con el match que empieza primero: sin esto, en `*x ![a](a*b.png) y*`
+// ganaba la cursiva `*x ![a](a*` y la imagen salía como Markdown partido.
 func docxMaskLinkDestinations(s string) string {
-	if !strings.Contains(s, "](") {
-		return s
-	}
-	masked := []byte(s)
-	links := []byte(s)
-	fill := func(b []byte, from, to int) {
-		for i := from; i < to; i++ {
-			b[i] = 'x'
-		}
-	}
-	// closeAhead[i] dice si después de i, en la misma línea, hay un ")".
-	// Sin él una apertura no puede ser enlace, y se salta sin leerla: una
-	// línea llena de aperturas sin cierre no se vuelve a recorrer entera
-	// por cada una.
-	closeAhead := make([]bool, len(s)+1)
-	for i := len(s) - 1; i >= 0; i-- {
-		switch s[i] {
-		case ')':
-			closeAhead[i] = true
-		case '\n', '\r':
-		default:
-			closeAhead[i] = closeAhead[i+1]
-		}
-	}
-	scan := func(text string, open *regexp.Regexp, found func(start, openEnd, dest, end int)) {
-		for search := 0; search < len(text); {
-			loc := open.FindStringIndex(text[search:])
-			if loc == nil {
-				return
-			}
-			start, openEnd := search+loc[0], search+loc[1]
-			if !closeAhead[openEnd] {
-				search = start + 1
-				continue
-			}
-			dest, n, ok := renderer.ScanLinkDestination(text[openEnd:])
-			if !ok {
-				search = start + 1
-				continue
-			}
-			found(start, openEnd, openEnd+len(dest), openEnd+n)
-			search = openEnd + n
-		}
-	}
-	if strings.Contains(s, "![") {
-		scan(s, docxInlineImageOpen, func(start, openEnd, dest, end int) {
-			fill(masked, openEnd, dest)
-			fill(links, start, end)
-		})
-	}
-	scan(string(links), docxInlineLinkOpen, func(_, openEnd, dest, _ int) {
-		fill(masked, openEnd, dest)
-	})
-	return string(masked)
+	return maskLinkDestinations(s, docxCodeSpanRe)
 }
 
-// docxInlineLinkOpen es la apertura de un enlace inline, la misma que
-// inlineLinkPattern en core/renderer/sanitizer.go (no exportado).
-var docxInlineLinkOpen = regexp.MustCompile(`\[([^\]]+)\]\(`)
+// docxCodeSpanRe es el code span inline del DOCX.
+var docxCodeSpanRe = regexp.MustCompile("`([^`]+)`")
 
 func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 	return docxInlinePattern{
