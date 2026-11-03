@@ -1795,16 +1795,25 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 // los índices con la misma forma que regexp.FindStringSubmatchIndex. Existe
 // para los patterns que un regex no puede describir: el de links necesita
 // leer el destino hasta el ")" que balancea los paréntesis abiertos adentro.
+//
+// emphasis marca la negrita y la cursiva: su regex se busca sobre el texto
+// con los destinos y títulos de imágenes y enlaces tapados (ver
+// docxMaskLinkDestinations), que el walker arma una vez por texto.
 type docxInlinePattern struct {
-	regex *regexp.Regexp
-	find  func(s string) []int
-	apply func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error
+	regex    *regexp.Regexp
+	find     func(s string) []int
+	emphasis bool
+	apply    func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error
 }
 
-// index ubica el próximo match del pattern en s.
-func (pt *docxInlinePattern) index(s string) []int {
+// index ubica el próximo match del pattern en s. masked es s con los
+// destinos tapados, del mismo largo.
+func (pt *docxInlinePattern) index(s, masked string) []int {
 	if pt.find != nil {
 		return pt.find(s)
+	}
+	if pt.emphasis {
+		return pt.regex.FindStringSubmatchIndex(masked)
 	}
 	return pt.regex.FindStringSubmatchIndex(s)
 }
@@ -1920,21 +1929,6 @@ func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
 	}
 }
 
-// docxBoldRe y docxItalicRe son los delimitadores de negrita y cursiva. Se
-// buscan sobre docxMaskLinkDestinations, no sobre el texto tal cual.
-var (
-	docxBoldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	docxItalicRe = regexp.MustCompile(`\*([^*]+)\*`)
-)
-
-// docxFindEmphasis busca re en s sin mirar adentro del destino ni del título
-// de una imagen o un enlace (ver docxMaskLinkDestinations).
-func docxFindEmphasis(re *regexp.Regexp) func(s string) []int {
-	return func(s string) []int {
-		return re.FindStringSubmatchIndex(docxMaskLinkDestinations(s))
-	}
-}
-
 // docxMaskLinkDestinations devuelve s con lo que va entre el "(" y el ")" de
 // cada imagen y enlace inline (destino y título) cambiado por relleno del
 // mismo largo, para buscar la negrita y la cursiva. En el HTML el destino y
@@ -1942,40 +1936,76 @@ func docxFindEmphasis(re *regexp.Regexp) func(s string) []int {
 // match que empieza primero: sin esto, en `*x ![a](a*b.png) y*` ganaba la
 // cursiva `*x ![a](a*` y la imagen salía como Markdown partido. Los índices
 // sirven tal cual sobre s.
+//
+// Las imágenes se buscan primero y se tapan enteras para buscar los enlaces,
+// como en docxFindInlineLink. Cada destino lo lee renderer.ScanLinkDestination
+// desde su apertura, así que el recorrido avanza sin volver a leer lo ya visto.
 func docxMaskLinkDestinations(s string) string {
 	if !strings.Contains(s, "](") {
 		return s
 	}
 	masked := []byte(s)
-	fill := func(from, to int) {
+	links := []byte(s)
+	fill := func(b []byte, from, to int) {
 		for i := from; i < to; i++ {
-			masked[i] = 'x'
+			b[i] = 'x'
 		}
 	}
-	for pos := 0; pos < len(s); {
-		loc := docxFindInlineImage(s[pos:])
-		if loc == nil {
-			break
+	// closeAhead[i] dice si después de i, en la misma línea, hay un ")".
+	// Sin él una apertura no puede ser enlace, y se salta sin leerla: una
+	// línea llena de aperturas sin cierre no se vuelve a recorrer entera
+	// por cada una.
+	closeAhead := make([]bool, len(s)+1)
+	for i := len(s) - 1; i >= 0; i-- {
+		switch s[i] {
+		case ')':
+			closeAhead[i] = true
+		case '\n', '\r':
+		default:
+			closeAhead[i] = closeAhead[i+1]
 		}
-		fill(pos+loc[4], pos+loc[5])
-		pos += loc[1]
 	}
-	for pos := 0; pos < len(s); {
-		loc := docxFindInlineLink(s[pos:])
-		if loc == nil {
-			break
+	scan := func(text string, open *regexp.Regexp, found func(start, openEnd, dest, end int)) {
+		for search := 0; search < len(text); {
+			loc := open.FindStringIndex(text[search:])
+			if loc == nil {
+				return
+			}
+			start, openEnd := search+loc[0], search+loc[1]
+			if !closeAhead[openEnd] {
+				search = start + 1
+				continue
+			}
+			dest, n, ok := renderer.ScanLinkDestination(text[openEnd:])
+			if !ok {
+				search = start + 1
+				continue
+			}
+			found(start, openEnd, openEnd+len(dest), openEnd+n)
+			search = openEnd + n
 		}
-		// loc[3] es el fin de la etiqueta; ahí van "](".
-		fill(pos+loc[3]+2, pos+loc[1]-1)
-		pos += loc[1]
 	}
+	if strings.Contains(s, "![") {
+		scan(s, docxInlineImageOpen, func(start, openEnd, dest, end int) {
+			fill(masked, openEnd, dest)
+			fill(links, start, end)
+		})
+	}
+	scan(string(links), docxInlineLinkOpen, func(_, openEnd, dest, _ int) {
+		fill(masked, openEnd, dest)
+	})
 	return string(masked)
 }
+
+// docxInlineLinkOpen es la apertura de un enlace inline, la misma que
+// inlineLinkPattern en core/renderer/sanitizer.go (no exportado).
+var docxInlineLinkOpen = regexp.MustCompile(`\[([^\]]+)\]\(`)
 
 func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// **bold** - negrita
-		find: docxFindEmphasis(docxBoldRe),
+		regex:    regexp.MustCompile(`\*\*([^*]+)\*\*`),
+		emphasis: true,
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
 		// le pisaría la Consolas a un `[x]{.kbd}` anidado. Es la misma trampa
@@ -1991,7 +2021,8 @@ func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// *italic* - cursiva
-		find: docxFindEmphasis(docxItalicRe),
+		regex:    regexp.MustCompile(`\*([^*]+)\*`),
+		emphasis: true,
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
 		// le pisaría la Consolas a un `[x]{.kbd}` anidado. Es la misma trampa
@@ -2384,6 +2415,7 @@ func (g *DOCXGenerator) docxApplyLangSpan(p domain.Paragraph, text string, lang 
 // y decide propagarlo, no porque este walk los toque directamente.
 func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content string, patterns []docxInlinePattern, postRun func(r domain.Run) error) error {
 	remaining := content
+	masked := docxMaskLinkDestinations(content)
 	pos := 0
 
 	for pos < len(remaining) {
@@ -2396,7 +2428,7 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 
 		for i := range patterns {
 			pattern := &patterns[i]
-			loc := pattern.index(remaining[pos:])
+			loc := pattern.index(remaining[pos:], masked[pos:])
 			if loc != nil && loc[0] < minPos {
 				minPos = loc[0]
 				matchedPattern = pattern

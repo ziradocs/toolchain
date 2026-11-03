@@ -828,9 +828,14 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 	return segments
 }
 
-// pptxInlineImageOpen es la apertura de una imagen inline en cualquier lugar
-// del texto (pptxImageOpen exige que sea el inicio).
-var pptxInlineImageOpen = regexp.MustCompile(`!\[([^\]]*)\]\(`)
+// pptxInlineImageOpen y pptxInlineLinkOpen son las aperturas de una imagen y
+// un enlace inline en cualquier lugar del texto (pptxImageOpen exige que sea
+// el inicio), las mismas que inlineImagePattern e inlineLinkPattern en
+// core/renderer/sanitizer.go (no exportados).
+var (
+	pptxInlineImageOpen = regexp.MustCompile(`!\[([^\]]*)\]\(`)
+	pptxInlineLinkOpen  = regexp.MustCompile(`\[([^\]]+)\]\(`)
+)
 
 // pptxMaskLinkDestinations devuelve content con lo que va entre el "(" y el
 // ")" de cada imagen y enlace inline (destino y título) cambiado por relleno
@@ -838,45 +843,65 @@ var pptxInlineImageOpen = regexp.MustCompile(`!\[([^\]]*)\]\(`)
 // HTML el destino y el título son literales, como en CommonMark, y aunque el
 // PPTX muestra los enlaces con su Markdown, `![a](img/a*b*.png)` salía con la
 // "b" en cursiva y sin los asteriscos. Los índices sirven tal cual sobre
-// content. Los destinos los lee el escáner de core, como el HTML.
+// content. Cada destino lo lee renderer.ScanLinkDestination, el escáner del
+// HTML, desde su apertura.
 func pptxMaskLinkDestinations(content string) string {
 	if !strings.Contains(content, "](") {
 		return content
 	}
 	masked := []byte(content)
+	// Para buscar enlaces cada imagen se tapa entera, como hace el HTML al
+	// resolver las imágenes primero: en [![a](i.png)](url) el destino del
+	// enlace es url.
+	links := []byte(content)
 	fill := func(b []byte, from, to int) {
 		for i := from; i < to; i++ {
 			b[i] = 'x'
 		}
 	}
-	// Para buscar enlaces cada imagen se tapa entera, como hace el HTML al
-	// resolver las imágenes primero: en [![a](i.png)](url) el destino del
-	// enlace es url.
-	links := []byte(content)
-	for search := 0; search < len(content); {
-		loc := pptxInlineImageOpen.FindStringIndex(content[search:])
-		if loc == nil {
-			break
+	// closeAhead[i] dice si después de i, en la misma línea, hay un ")".
+	// Sin él una apertura no puede ser enlace, y se salta sin leerla: una
+	// línea llena de aperturas sin cierre no se vuelve a recorrer entera
+	// por cada una.
+	closeAhead := make([]bool, len(content)+1)
+	for i := len(content) - 1; i >= 0; i-- {
+		switch content[i] {
+		case ')':
+			closeAhead[i] = true
+		case '\n', '\r':
+		default:
+			closeAhead[i] = closeAhead[i+1]
 		}
-		start, openEnd := search+loc[0], search+loc[1]
-		dest, n, ok := renderer.ScanLinkDestination(content[openEnd:])
-		if !ok {
-			search = start + 1
-			continue
-		}
-		fill(masked, openEnd, openEnd+len(dest))
-		fill(links, start, openEnd+n)
-		search = openEnd + n
 	}
-	for pos := 0; pos < len(links); {
-		loc := renderer.FindInlineLinkIndex(string(links[pos:]))
-		if loc == nil {
-			break
+	scan := func(text string, open *regexp.Regexp, found func(start, openEnd, dest, end int)) {
+		for search := 0; search < len(text); {
+			loc := open.FindStringIndex(text[search:])
+			if loc == nil {
+				return
+			}
+			start, openEnd := search+loc[0], search+loc[1]
+			if !closeAhead[openEnd] {
+				search = start + 1
+				continue
+			}
+			dest, n, ok := renderer.ScanLinkDestination(text[openEnd:])
+			if !ok {
+				search = start + 1
+				continue
+			}
+			found(start, openEnd, openEnd+len(dest), openEnd+n)
+			search = openEnd + n
 		}
-		// loc[3] es el fin de la etiqueta; ahí van "](".
-		fill(masked, pos+loc[3]+2, pos+loc[1]-1)
-		pos += loc[1]
 	}
+	if strings.Contains(content, "![") {
+		scan(content, pptxInlineImageOpen, func(start, openEnd, dest, end int) {
+			fill(masked, openEnd, dest)
+			fill(links, start, end)
+		})
+	}
+	scan(string(links), pptxInlineLinkOpen, func(_, openEnd, dest, _ int) {
+		fill(masked, openEnd, dest)
+	})
 	return string(masked)
 }
 
