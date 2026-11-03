@@ -14,7 +14,7 @@ require (
 	github.com/mazznoer/csscolorparser v0.1.8
 	github.com/pb33f/ordered-map/v2 v2.3.1
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.62.0
 	golang.org/x/text v0.43.0
