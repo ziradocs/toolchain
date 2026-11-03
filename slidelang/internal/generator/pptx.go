@@ -828,13 +828,26 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 	return segments
 }
 
+// pptxMaskLinkDestinations es maskLinkDestinations con el code span del
+// PPTX (pptxCodeRe). pptxSplitInline busca la negrita y la cursiva ahí: en el
+// HTML el destino y el título son literales, como en CommonMark, y aunque el
+// PPTX muestra los enlaces con su Markdown, `![a](img/a*b*.png)` salía con la
+// "b" en cursiva y sin los asteriscos.
+func pptxMaskLinkDestinations(content string) string {
+	return maskLinkDestinations(content, pptxCodeRe)
+}
+
 // pptxSplitInline segmenta content en texto plano + code/bold/italic/lang.
 // Los links [text](url) quedan fuera del alcance v0 (issue de seguimiento):
 // un link se muestra como texto plano con su sintaxis markdown literal en
-// vez de resolverse.
+// vez de resolverse. Su destino y su título no llevan formato (ver
+// pptxMaskLinkDestinations).
 func pptxSplitInline(content string) []pptxInlineSegment {
 	var segments []pptxInlineSegment
 	remaining := content
+	// emphasis es remaining con los destinos tapados: ahí se buscan la
+	// negrita y la cursiva; el código se busca en el texto tal cual.
+	emphasis := pptxMaskLinkDestinations(content)
 	pos := 0
 
 	for pos < len(remaining) {
@@ -852,7 +865,11 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		bestRelPos := len(remaining) - pos
 
 		for _, re := range pptxBasicPatterns {
-			loc := re.re.FindStringSubmatchIndex(remaining[pos:])
+			haystack := emphasis
+			if re.code {
+				haystack = remaining
+			}
+			loc := re.re.FindStringSubmatchIndex(haystack[pos:])
 			if loc == nil || loc[0] >= bestRelPos {
 				continue
 			}

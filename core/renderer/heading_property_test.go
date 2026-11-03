@@ -119,21 +119,18 @@ func unbalancedTags(out string) []string {
 	}
 }
 
-// inlineUnbalancedKnown son entradas que hoy dejan una etiqueta sin cerrar.
-// Es la clase de ziradocs/toolchain#394: el destino de un enlace cruza el
-// cierre de un formato anterior, que termina dentro del href. Cuando se
-// arregle ese issue, la prueba de abajo falla aquí para que se quite la
-// excepción (y el chequeo de balance pase al fuzz).
-var inlineUnbalancedKnown = map[string]string{
-	"**[a](b**)": "#394",
-	"==[a](b==)": "#394",
-	"~~[a](b~~)": "#394",
-	"*[a](b*)":   "#394",
-}
+// inlineUnbalancedKnown son entradas que hoy dejan una etiqueta sin cerrar,
+// con el issue que las sigue. Cuando se arregla, la prueba de abajo falla
+// aquí para que se quite la excepción. Las de ziradocs/toolchain#394 (el
+// destino de un enlace cruzaba el cierre de un formato anterior, que
+// terminaba dentro del href) ya salen balanceadas: el destino es literal y
+// los formatos no corren adentro (ver hideLinkDestinations).
+var inlineUnbalancedKnown = map[string]string{}
 
 // El HTML inline cierra cada etiqueta que abre, en orden, sobre un corpus fijo
 // (las tablas de casos de este paquete, con y sin envoltorio de encabezado y
-// con variables). No corre en el fuzz mientras exista la excepción de #394.
+// con variables). No corre en el fuzz: el énfasis solo, sin enlaces, todavía
+// puede cruzarse (`***a**b*` da <strong><em>a</strong>b</em>).
 func TestInlineHTML_TagsBalanced(t *testing.T) {
 	type entry struct {
 		input string
@@ -153,6 +150,9 @@ func TestInlineHTML_TagsBalanced(t *testing.T) {
 		corpus = append(corpus, entry{input, nil})
 	}
 	for _, s := range []string{
+		// La clase de #394: el destino ya no cierra el formato de afuera.
+		"**[a](b**)", "==[a](b==)", "~~[a](b~~)", "*[a](b*)",
+		"*a ![i](x*y.png \"*t*\") b*", "**t [x](u**v)",
 		"**a** *b* ***c*** **d *e*** ==f== ~~g~~ `h`",
 		"[See [important]{.danger}](url)",
 		"**[a](b)** y [**c**](d)",

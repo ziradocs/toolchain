@@ -172,6 +172,10 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	}); err != nil {
 		return nil, err
 	}
+	// Los avisos del parser que son de una regla del linter (LINK001 de una
+	// imagen de bloque) van con los del linter: política, reporte y log de
+	// LINT. Ver SplitParserFindings.
+	parseDiags, parserFindings := SplitParserFindings(parseDiags)
 
 	// Check for errors in diagnostics; print warnings too (e.g. CHART002
 	// for malformed chart JSON).
@@ -185,7 +189,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 		}
 	}
 	if hasErrors {
-		return nil, &DiagnosticsError{Stage: StageParse, Diagnostics: parseDiags}
+		return nil, &DiagnosticsError{Stage: StageParse, Diagnostics: append(parseDiags, parserFindings...)}
 	}
 
 	// Las imágenes de un archivo incluido se resuelven desde el directorio
@@ -281,6 +285,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 		linterInstance.WithRulepacks(opts.ExternalRulepacks, 30*time.Second)
 	}
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(doc)
+	allDiagnostics = MergeParserFindings(doc, parserFindings, allDiagnostics)
 	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, doc.FilePath, time.Now())
 
 	if opts.ReportFormat != "" {

@@ -1795,16 +1795,25 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 // los índices con la misma forma que regexp.FindStringSubmatchIndex. Existe
 // para los patterns que un regex no puede describir: el de links necesita
 // leer el destino hasta el ")" que balancea los paréntesis abiertos adentro.
+//
+// emphasis marca la negrita y la cursiva: su regex se busca sobre el texto
+// con los destinos y títulos de imágenes y enlaces tapados (ver
+// docxMaskLinkDestinations), que el walker arma una vez por texto.
 type docxInlinePattern struct {
-	regex *regexp.Regexp
-	find  func(s string) []int
-	apply func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error
+	regex    *regexp.Regexp
+	find     func(s string) []int
+	emphasis bool
+	apply    func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error
 }
 
-// index ubica el próximo match del pattern en s.
-func (pt *docxInlinePattern) index(s string) []int {
+// index ubica el próximo match del pattern en s. masked es s con los
+// destinos tapados, del mismo largo.
+func (pt *docxInlinePattern) index(s, masked string) []int {
 	if pt.find != nil {
 		return pt.find(s)
+	}
+	if pt.emphasis {
+		return pt.regex.FindStringSubmatchIndex(masked)
 	}
 	return pt.regex.FindStringSubmatchIndex(s)
 }
@@ -1908,7 +1917,7 @@ func (g *DOCXGenerator) docxEmphasisRunApply(style func(r domain.Run) error) fun
 func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
 	return docxInlinePattern{
 		// `code` - código inline
-		regex: regexp.MustCompile("`([^`]+)`"),
+		regex: docxCodeSpanRe,
 		apply: docxSimpleRunApply(func(r domain.Run) error {
 			if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
 				return err
@@ -1920,10 +1929,23 @@ func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
 	}
 }
 
+// docxMaskLinkDestinations es maskLinkDestinations con el code span del DOCX
+// (docxCodeSpanRe): lo que la negrita y la cursiva no pueden ver. En el HTML
+// el destino y el título son literales, como en CommonMark, y el walker se
+// queda con el match que empieza primero: sin esto, en `*x ![a](a*b.png) y*`
+// ganaba la cursiva `*x ![a](a*` y la imagen salía como Markdown partido.
+func docxMaskLinkDestinations(s string) string {
+	return maskLinkDestinations(s, docxCodeSpanRe)
+}
+
+// docxCodeSpanRe es el code span inline del DOCX.
+var docxCodeSpanRe = regexp.MustCompile("`([^`]+)`")
+
 func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// **bold** - negrita
-		regex: regexp.MustCompile(`\*\*([^*]+)\*\*`),
+		regex:    regexp.MustCompile(`\*\*([^*]+)\*\*`),
+		emphasis: true,
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
 		// le pisaría la Consolas a un `[x]{.kbd}` anidado. Es la misma trampa
@@ -1939,7 +1961,8 @@ func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// *italic* - cursiva
-		regex: regexp.MustCompile(`\*([^*]+)\*`),
+		regex:    regexp.MustCompile(`\*([^*]+)\*`),
+		emphasis: true,
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
 		// le pisaría la Consolas a un `[x]{.kbd}` anidado. Es la misma trampa
@@ -2096,18 +2119,20 @@ func capImageWidth(size domain.ImageSize, maxWidthIn float64) domain.ImageSize {
 // docxLocalImageSource devuelve la ruta de un destino de imagen inline si es
 // un archivo local (sin esquema): sin los <> opcionales, sin título y con las
 // referencias de carácter decodificadas. Remoto, data: o vacío no cuenta.
-// Un espacio que no abre un título ("...", '...' o (...)) es parte de la
-// ruta, como en el renderer HTML: `![](cap uno/a.png)` es la imagen
-// "cap uno/a.png", no "cap" (el core actual la acepta con un aviso LINK001).
+// La ruta y el título se separan como los lee el renderer HTML
+// (SplitMarkdownDestination): `![](cap uno/a.png)` es la imagen
+// "cap uno/a.png", no "cap" (core la acepta con un aviso LINK001), y
+// `![](fotos/a (1).png)` es "fotos/a (1).png", no "fotos/a".
+//
+// Algunos llamadores pasan una ruta ya limpia (el Destination de
+// renderer.FindInlineLinks, el src de un <img> de encabezado): una que core
+// no lee como destino, como "a)b.png" (escrita <a)b.png>), se usa tal cual.
 func docxLocalImageSource(dest string) (string, bool) {
-	d := strings.TrimSpace(renderer.DecodeLinkDestination(dest))
-	if strings.HasPrefix(d, "<") {
-		if end := strings.Index(d, ">"); end > 0 {
-			d = d[1:end]
-		}
-	} else if i := MarkdownTitleStart(d); i >= 0 {
-		d = d[:i]
+	path := dest
+	if parts, ok := SplitMarkdownDestination(dest); ok {
+		path = parts.Path
 	}
+	d := strings.TrimSpace(renderer.DecodeLinkDestination(path))
 	if d == "" {
 		return "", false
 	}
@@ -2330,6 +2355,7 @@ func (g *DOCXGenerator) docxApplyLangSpan(p domain.Paragraph, text string, lang 
 // y decide propagarlo, no porque este walk los toque directamente.
 func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content string, patterns []docxInlinePattern, postRun func(r domain.Run) error) error {
 	remaining := content
+	masked := docxMaskLinkDestinations(content)
 	pos := 0
 
 	for pos < len(remaining) {
@@ -2342,7 +2368,7 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 
 		for i := range patterns {
 			pattern := &patterns[i]
-			loc := pattern.index(remaining[pos:])
+			loc := pattern.index(remaining[pos:], masked[pos:])
 			if loc != nil && loc[0] < minPos {
 				minPos = loc[0]
 				matchedPattern = pattern

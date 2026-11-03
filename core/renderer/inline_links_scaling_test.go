@@ -19,6 +19,7 @@ var scalingInputs = map[string]func(n int) string{
 	"sin cierre":   func(n int) string { return strings.Repeat("[a](b&c ", n) },
 	"con espacios": func(n int) string { return strings.Repeat("[a](mi página.html) ", n) },
 	"parentesis":   func(n int) string { return strings.Repeat("[a](b (c ", n) },
+	"énfasis":      func(n int) string { return strings.Repeat(`*a ![i](x*y.png "*t*") [b](u*v) `, n) },
 }
 
 func bestOf(f func()) time.Duration {

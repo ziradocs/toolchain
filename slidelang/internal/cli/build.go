@@ -22,6 +22,7 @@ import (
 	"go.ziradocs.com/core/v2/transform"
 	"go.ziradocs.com/core/v2/util"
 	"go.ziradocs.com/core/v2/xref"
+	"go.ziradocs.com/slidelang/v2/internal/findings"
 	"go.ziradocs.com/slidelang/v2/internal/generator"
 	genconfig "go.ziradocs.com/slidelang/v2/internal/generator/config"
 	"go.ziradocs.com/slidelang/v2/internal/generator/css/themes"
@@ -426,6 +427,10 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	}); err != nil {
 		return err
 	}
+	// Los avisos del parser que son de una regla del linter (LINK001 de una
+	// imagen de bloque) van con los del linter: política, reporte y conteo
+	// de LINT. Ver findings.SplitParserFindings.
+	diagnostics, parserFindings := findings.SplitParserFindings(diagnostics)
 	// 5. Mostrar diagnósticos de parsing
 	if len(diagnostics) > 0 {
 		for _, diag := range diagnostics {
@@ -447,6 +452,11 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	}
 
 	if hasErrors {
+		// El lint no va a correr: los avisos apartados para él se muestran
+		// acá, como antes.
+		for _, diag := range parserFindings {
+			fmt.Fprintf(os.Stderr, "ℹ️  %s\n", diag.String())
+		}
 		return fmt.Errorf("parsing failed with errors")
 	}
 
@@ -542,6 +552,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	}
 
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(astNode)
+	allDiagnostics = findings.MergeParserFindings(astNode, parserFindings, allDiagnostics)
 
 	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, astNode.FilePath, time.Now())
 
