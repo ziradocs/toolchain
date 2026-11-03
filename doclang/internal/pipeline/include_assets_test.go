@@ -122,11 +122,6 @@ func TestAssetRebaserReadsDestinationLikeCore(t *testing.T) {
 		// Lo que parece un título y no cierra: la ruta va hasta el primer ")"
 		// que balancea, y "f')" queda como texto.
 		{"titulo-que-no-cierra", "c d.png 'e)f') fin"},
-		// Ruta suelta con espacios y algo con forma de título al final: con
-		// un espacio antes, lo que sigue al primer espacio no es un título,
-		// así que core lee todo como ruta (y avisa LINK001). Partido a mano,
-		// la reescritura tenía título y la misma línea en el raíz no.
-		{"ruta-con-espacios-y-titulo", `cap uno/x.png "T") fin`},
 		// Títulos con escapes y referencias de carácter: la ruta no los
 		// lleva, así que se reescribe, y el título queda tal cual.
 		{"titulo-con-escape", `a.png "t\"x") fin`},
@@ -179,6 +174,24 @@ func TestAssetRebaserKeepsTitleVerbatim(t *testing.T) {
 	}
 	for _, tc := range cases {
 		r := testRebaser([]string{"raíz", tc.in}, include.LineOrigins{"", "/p/a/doc.md"})
+		if got := r.inline(tc.in, 2); got != tc.want {
+			t.Errorf("inline(%q)\n got %q\nwant %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestAssetRebaserSpacedPathWithTitle: una ruta suelta con espacios seguida
+// de un título bien formado. Core lee todo como ruta (con LINK001), pero el
+// autor escribió una ruta y un título: se reescribe la ruta entre <...> y el
+// título queda afuera, tal cual, como hasta v2.49.1.
+func TestAssetRebaserSpacedPathWithTitle(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`![f](sub dir/a.png 'T')`, `![f](<../cap uno/sub dir/a.png> 'T')`},
+		{`![f](sub dir/a.png "t\"x")`, `![f](<../cap uno/sub dir/a.png> "t\"x")`},
+		{`![f](sub dir/a.png (T))`, `![f](<../cap uno/sub dir/a.png> (T))`},
+	}
+	for _, tc := range cases {
+		r := testRebaser([]string{"raíz", tc.in}, include.LineOrigins{"", "/p/cap uno/doc.md"})
 		if got := r.inline(tc.in, 2); got != tc.want {
 			t.Errorf("inline(%q)\n got %q\nwant %q", tc.in, got, tc.want)
 		}

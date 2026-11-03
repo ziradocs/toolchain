@@ -112,3 +112,51 @@ func TestBuild_IncludedImages_TitleWithEscapes(t *testing.T) {
 		}
 	}
 }
+
+// Una ruta suelta con espacios seguida de un título bien formado:
+// `![f](sub dir/a.png 'T')`. Core lee todo como ruta (con LINK001), pero el
+// autor escribió una ruta y un título, y así lo leían el DOCX, el Markdown y
+// el rebase de un @include hasta v2.49.1. Dentro de "cap uno/" la ruta se
+// reescribe entre <...> con el título afuera, y la imagen se ve en HTML y
+// DOCX.
+func TestBuild_IncludedImages_SpacedPathWithTitle(t *testing.T) {
+	docs := filepath.Join(t.TempDir(), "docs")
+	want := map[string][]byte{"cap uno/sub dir/a.png": solidPNG(t, color.RGBA{10, 120, 200, 255})}
+	for rel, data := range want {
+		writeFile(t, filepath.Join(docs, filepath.FromSlash(rel)), data)
+	}
+	writeFile(t, filepath.Join(docs, "cap uno", "part.md"), []byte("## P\n\nInline ![f](sub dir/a.png 'T') fin.\n"))
+	manifest := filepath.Join(t.TempDir(), "sel.md")
+	writeFile(t, manifest, []byte("---\ntitle: S\n---\n\n# S\n\n@include cap uno/part.md\n"))
+
+	assertEmbeds(t, manifest, docs, want, nil)
+
+	out := t.TempDir()
+	runBuild(t, manifest, "--format", "markdown", "--output", out, "--base-dir", docs)
+	if md := readFile(t, filepath.Join(out, "sel.md")); !strings.Contains(md, "![f](<cap uno/sub dir/a.png> 'T')") {
+		t.Errorf("markdown: falta ![f](<cap uno/sub dir/a.png> 'T') en\n%s", md)
+	}
+	runBuild(t, manifest, "--format", "html", "--output", out, "--base-dir", docs)
+	if html := readFile(t, filepath.Join(out, "sel.html")); !strings.Contains(html, `src="cap%20uno/sub%20dir/a.png" alt="f" title="T"`) {
+		t.Errorf("html: falta la imagen con su título en\n%s", grepImgs(html))
+	}
+}
+
+// Sin @include, el DOCX y la salida Markdown leen `![a](mi dir/x.png "T")`
+// como ruta y título, como hasta v2.49.1.
+func TestBuild_SpacedPathWithTitleDOCXAndMarkdown(t *testing.T) {
+	docs := t.TempDir()
+	img := solidPNG(t, color.RGBA{200, 120, 10, 255})
+	writeFile(t, filepath.Join(docs, "mi dir", "x.png"), img)
+	doc := filepath.Join(docs, "d.md")
+	writeFile(t, doc, []byte("---\ntitle: D\n---\n\n# D\n\nInline ![a](mi dir/x.png \"T\") fin.\n"))
+	out := t.TempDir()
+	runBuild(t, doc, "--format", "docx", "--output", out, "--base-dir", docs)
+	if !containsBytes(docxMedia(t, filepath.Join(out, "d.docx")), img) {
+		t.Error("docx: mi dir/x.png no está embebida")
+	}
+	runBuild(t, doc, "--format", "markdown", "--output", out, "--base-dir", docs)
+	if md := readFile(t, filepath.Join(out, "d.md")); !strings.Contains(md, `![a](<mi dir/x.png> "T")`) {
+		t.Errorf("markdown: falta ![a](<mi dir/x.png> \"T\") en\n%s", md)
+	}
+}

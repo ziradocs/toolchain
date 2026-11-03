@@ -253,6 +253,74 @@ func isASCIIPunct(c byte) bool {
 	return c >= '!' && c <= '/' || c >= ':' && c <= '@' || c >= '[' && c <= '`' || c >= '{' && c <= '~'
 }
 
+// SpacedDestinationSuggestion es la forma que el aviso LINK001 sugiere para
+// una ruta suelta con espacios (LinkDestination.Spaced): la ruta entre <...>
+// y, si dest termina en un título bien formado de CommonMark ("…", '…' o
+// (…), con sus escapes, separado por espacios), el título afuera:
+// `mi dir/x.png "T"` sugiere `<mi dir/x.png> "T"`, no `<mi dir/x.png "T">`,
+// que haría del título parte de la ruta. `a (1).png` no lleva título (después
+// del ")" sigue texto) y sugiere `<a (1).png>`.
+func SpacedDestinationSuggestion(dest string) string {
+	if path, rest, ok := splitSpacedTitle(dest); ok {
+		return "<" + path + ">" + rest
+	}
+	return "<" + dest + ">"
+}
+
+// splitSpacedTitle separa de p un título bien formado al final, precedido de
+// espacios; ver SpacedDestinationSuggestion. Devuelve la ruta y el resto (los
+// espacios y el título, tal cual).
+func splitSpacedTitle(p string) (path, rest string, ok bool) {
+	n := len(p)
+	if n < 2 {
+		return "", "", false
+	}
+	escaped := make([]bool, n)
+	for i := 0; i < n; i++ {
+		if p[i] == '\\' && i+1 < n && isASCIIPunct(p[i+1]) {
+			escaped[i+1] = true
+			i++
+		}
+	}
+	if escaped[n-1] {
+		return "", "", false
+	}
+	var open byte
+	switch p[n-1] {
+	case '"', '\'':
+		open = p[n-1]
+	case ')':
+		open = '('
+	default:
+		return "", "", false
+	}
+	k := -1
+	for i := n - 2; i >= 0; i-- {
+		if escaped[i] {
+			continue
+		}
+		if p[i] == '\n' || p[i] == '\r' {
+			return "", "", false
+		}
+		if p[i] == open {
+			k = i
+			break
+		}
+		// Un título entre paréntesis no lleva "(" ni ")" sin escapar.
+		if open == '(' && p[i] == ')' {
+			return "", "", false
+		}
+	}
+	if k <= 0 || (p[k-1] != ' ' && p[k-1] != '\t') {
+		return "", "", false
+	}
+	path = strings.TrimRight(p[:k], " \t")
+	if path == "" {
+		return "", "", false
+	}
+	return path, p[len(path):], true
+}
+
 // unescapeBackslashes quita la barra invertida de cada escape de puntuación
 // ASCII (\" -> "), como CommonMark hace en los títulos.
 func unescapeBackslashes(s string) string {

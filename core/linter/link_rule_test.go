@@ -202,7 +202,7 @@ func TestLinkDestinationRuleResolvesVariables(t *testing.T) {
 // (lo da el parser) y la inline (lo da el linter), con el artículo correcto:
 // los CLIs los juntan en el reporte y los deduplican por la ruta citada.
 func TestLinkDestinationRuleSpacedMessage(t *testing.T) {
-	src := "---\ntitle: T\nmode: flex\n---\n# T\n\n![a](mi dir/a.png)\n\nVer ![b](mi dir/b.png) y [c](mi dir/c.html).\n"
+	src := "---\ntitle: T\nmode: flex\n---\n# T\n\n![a](mi dir/a.png)\n\nVer ![b](mi dir/b.png) y [c](mi dir/c.html).\n\n![d](mi dir/d.png 'T')\n\nVer ![e](mi dir/e.png \"T\") y ![f](fotos/f (1).png).\n"
 	got := map[string]string{}
 	for _, d := range link001(lintSource(t, src)) {
 		got[d.Source+":"+strings.SplitN(d.Message, " has", 2)[0]] = d.Message
@@ -211,6 +211,10 @@ func TestLinkDestinationRuleSpacedMessage(t *testing.T) {
 		"image-parser:Image destination \"mi dir/a.png\"": "read it as an image: write <mi dir/a.png>",
 		"linter:Image destination \"mi dir/b.png\"":       "read it as an image: write <mi dir/b.png>",
 		"linter:Link destination \"mi dir/c.html\"":       "read it as a link: write <mi dir/c.html>",
+		// Con un título bien formado al final, el título va fuera de <...>.
+		"image-parser:Image destination \"mi dir/d.png 'T'\"": "write <mi dir/d.png> 'T' or",
+		"linter:Image destination \"mi dir/e.png \\\"T\\\"\"": `write <mi dir/e.png> "T" or`,
+		"linter:Image destination \"fotos/f (1).png\"":        "write <fotos/f (1).png> or",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("LINK001 = %v", got)

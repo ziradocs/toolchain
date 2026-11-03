@@ -186,8 +186,8 @@ func spacedDestinationDiagnostic(written string, image bool, pos diagnostics.Pos
 	if image {
 		kind, noun = "Image", "an image"
 	}
-	msg := fmt.Sprintf("%s destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as %s: write <%s> or use %%20",
-		kind, written, noun, written)
+	msg := fmt.Sprintf("%s destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as %s: write %s or use %%20",
+		kind, written, noun, renderer.SpacedDestinationSuggestion(written))
 	return diagnostics.NewWarning(msg, pos, "linter").WithRuleID("LINK001")
 }
 

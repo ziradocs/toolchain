@@ -88,10 +88,12 @@ type MarkdownDestinationParts struct {
 
 // SplitMarkdownDestination parte dest con renderer.ParseLinkDestination, el
 // escáner del renderer HTML, en vez de adivinar dónde empieza el título. Un
-// paréntesis después de un espacio es título solo si core lo lee así: en
-// `fotos/a (1).png` no lo es (después del ")" no viene el cierre) y la ruta
-// es todo; en `c d.png 'e` tampoco (no hay título que cierre). ok es false si
-// dest no es un destino que core lea entero.
+// paréntesis después de un espacio es título solo si es un título bien
+// formado al final del destino: en `fotos/a (1).png` no lo es (después del
+// ")" sigue texto) y la ruta es todo; en `c d.png 'e` tampoco (no cierra).
+// En `mi dir/x.png "T"` sí: core lee la ruta entera con la regla de
+// compatibilidad, y acá se separa la ruta del título (splitSpacedTitle). ok
+// es false si dest no es un destino que core lea entero.
 func SplitMarkdownDestination(dest string) (MarkdownDestinationParts, bool) {
 	ld, ok := renderer.ParseLinkDestination(dest + ")")
 	if !ok || ld.Consumed != len(dest)+1 {
@@ -109,6 +111,15 @@ func SplitMarkdownDestination(dest string) (MarkdownDestinationParts, bool) {
 		return MarkdownDestinationParts{}, false
 	}
 	p.Tail = dest[end+len(p.Close):]
+	// Una ruta suelta con espacios seguida de un título bien formado
+	// (`mi dir/x.png "T"`): core la lee entera con la regla de
+	// compatibilidad, pero el autor escribió una ruta y un título, y así la
+	// leían el DOCX y la salida Markdown. Se separan (ver splitSpacedTitle).
+	if p.Spaced {
+		if path, rest, ok := splitSpacedTitle(p.Path); ok {
+			p.Path, p.Tail = path, rest+p.Tail
+		}
+	}
 	return p, true
 }
 
@@ -188,4 +199,66 @@ func headingImagesToMarkdown(html string) string {
 		// desescapa HTML: se escapan los "&" para que sobrevivan tal cual.
 		return strings.ReplaceAll("!["+renderer.UnescapeHTML(m[2])+"]("+dest+")", "&", "&amp;")
 	})
+}
+
+// splitSpacedTitle parte una ruta suelta con espacios que core leyó con la
+// regla de compatibilidad (renderer.LinkDestination.Spaced) cuando termina
+// en un título bien formado de CommonMark: "…", '…' o (…), con sus escapes,
+// separado de la ruta por espacios. `mi dir/x.png "T"` es la ruta
+// `mi dir/x.png` con el título "T", como lo escribió el autor y como lo
+// leían el DOCX y la salida Markdown hasta v2.49.1. `a (1).png` no lo parte:
+// después del ")" sigue texto, así que "(1).png" no es un título. `c d.png 'e`
+// tampoco: el título no cierra.
+//
+// Devuelve la ruta y el resto (los espacios y el título, tal cual).
+func splitSpacedTitle(p string) (path, rest string, ok bool) {
+	n := len(p)
+	if n < 2 {
+		return "", "", false
+	}
+	escaped := make([]bool, n)
+	for i := 0; i < n; i++ {
+		if p[i] == '\\' && i+1 < n && isASCIIPunct(p[i+1]) {
+			escaped[i+1] = true
+			i++
+		}
+	}
+	last := p[n-1]
+	if escaped[n-1] {
+		return "", "", false
+	}
+	var open byte
+	switch last {
+	case '"', '\'':
+		open = last
+	case ')':
+		open = '('
+	default:
+		return "", "", false
+	}
+	k := -1
+	for i := n - 2; i >= 0; i-- {
+		if escaped[i] {
+			continue
+		}
+		if p[i] == '\n' || p[i] == '\r' {
+			return "", "", false
+		}
+		if p[i] == open {
+			k = i
+			break
+		}
+		// Un título entre paréntesis no lleva "(" ni ")" sin escapar.
+		if open == '(' && p[i] == ')' {
+			return "", "", false
+		}
+	}
+	if k <= 0 || (p[k-1] != ' ' && p[k-1] != '\t') {
+		return "", "", false
+	}
+	path = strings.TrimRight(p[:k], " \t")
+	if path == "" {
+		return "", "", false
+	}
+	return path, p[len(path):], true
 }

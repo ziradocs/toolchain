@@ -139,3 +139,21 @@ func TestLocalPathFromURL(t *testing.T) {
 		}
 	}
 }
+
+func TestSpacedDestinationSuggestion(t *testing.T) {
+	for in, want := range map[string]string{
+		"mi dir/x.png":        "<mi dir/x.png>",
+		`mi dir/x.png "T"`:    `<mi dir/x.png> "T"`,
+		`mi dir/x.png 'T'`:    `<mi dir/x.png> 'T'`,
+		`mi dir/x.png (T)`:    `<mi dir/x.png> (T)`,
+		`mi dir/x.png "t\"x"`: `<mi dir/x.png> "t\"x"`,
+		"fotos/a (1).png":     "<fotos/a (1).png>",
+		"c d.png 'e":          "<c d.png 'e>",
+		`mi dir/x.png (a(b))`: `<mi dir/x.png (a(b))>`,
+		`mi dir/x.png "T\"`:   `<mi dir/x.png "T\">`,
+	} {
+		if got := SpacedDestinationSuggestion(in); got != want {
+			t.Errorf("SpacedDestinationSuggestion(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

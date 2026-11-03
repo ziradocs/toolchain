@@ -19,12 +19,13 @@ func coreReadsCommonMarkDestinations() bool {
 }
 
 func TestMarkdownImageDestinations(t *testing.T) {
-	// La ruta es la que lee core: con una ruta suelta con espacios, lo que
-	// sigue al primer espacio no es un título aunque lo parezca, así que
-	// `"T"` y `(1).png` son parte de la ruta y van dentro de <...>.
+	// La ruta es la que lee core, salvo un título bien formado al final de
+	// una ruta suelta con espacios, que queda fuera de <...> (ver
+	// splitSpacedTitle). `(1).png` y `'e` no son títulos: van dentro.
 	spaced := []struct{ in, want string }{
 		{"![a](cap uno/x.png)", "![a](<cap uno/x.png>)"},
-		{"![a](cap uno/x.png \"T\")", "![a](<cap uno/x.png \"T\">)"},
+		{"![a](cap uno/x.png \"T\")", "![a](<cap uno/x.png> \"T\")"},
+		{"![a](cap uno/x.png 'T')", "![a](<cap uno/x.png> 'T')"},
 		{"![a](fotos/a (1).png)", "![a](<fotos/a (1).png>)"},
 		{"![c](c d.png 'e)f')", "![c](<c d.png 'e>)f')"},
 	}
@@ -46,11 +47,12 @@ func TestMarkdownImageDestinations(t *testing.T) {
 
 func TestDocxLocalImageSource_Spaces(t *testing.T) {
 	// La ruta es la que lee el renderer HTML (ver
-	// SplitMarkdownDestination): `"T"` después de una ruta suelta con
-	// espacios es parte de la ruta, como `(1).png`.
+	// SplitMarkdownDestination), salvo un título bien formado al final de una
+	// ruta suelta con espacios; `(1).png` sí es parte de la ruta.
 	cases := map[string]string{
 		"cap uno/x.png":         "cap uno/x.png",
-		"cap uno/x.png \"T\"":   "cap uno/x.png \"T\"",
+		"cap uno/x.png \"T\"":   "cap uno/x.png",
+		"cap uno/x.png 'e":      "cap uno/x.png 'e",
 		"<cap uno/x.png> \"T\"": "cap uno/x.png",
 		"<cap uno/x.png>":       "cap uno/x.png",
 		"x.png 'T'":             "x.png",
@@ -85,6 +87,27 @@ func TestMarkdownDestination(t *testing.T) {
 	for _, tc := range cases {
 		if got := markdownDestination(tc.path, tc.title); got != tc.want {
 			t.Errorf("markdownDestination(%q, %q) = %q, want %q", tc.path, tc.title, got, tc.want)
+		}
+	}
+}
+
+func TestSplitSpacedTitle(t *testing.T) {
+	for _, tc := range []struct{ in, path, rest string }{
+		{`mi dir/x.png "T"`, "mi dir/x.png", ` "T"`},
+		{`mi dir/x.png  'T'`, "mi dir/x.png", `  'T'`},
+		{`mi dir/x.png (T)`, "mi dir/x.png", ` (T)`},
+		{`mi dir/x.png "t\"x"`, "mi dir/x.png", ` "t\"x"`},
+		{`a b "x" "y"`, `a b "x"`, ` "y"`},
+		{"fotos/a (1).png", "", ""},
+		{"c d.png 'e", "", ""},
+		{`mi dir/x.png"T"`, "", ""},
+		{`mi dir/x.png "T\"`, "", ""},
+		{`mi dir/x.png (a(b))`, "", ""},
+		{` "T"`, "", ""},
+	} {
+		path, rest, ok := splitSpacedTitle(tc.in)
+		if ok != (tc.path != "") || path != tc.path || rest != tc.rest {
+			t.Errorf("splitSpacedTitle(%q) = %q %q %v; want %q %q", tc.in, path, rest, ok, tc.path, tc.rest)
 		}
 	}
 }
