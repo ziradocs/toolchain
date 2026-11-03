@@ -132,3 +132,37 @@ func TestE2E_BlockImageLink001KeepsSameDestinationElsewhere(t *testing.T) {
 		t.Fatalf("LINK001 lines = %v, want [3 5]", got)
 	}
 }
+
+// Una imagen dentro de un :::note que está dentro de un :::warning: el
+// linter avisa desde el texto de cada contenedor (líneas 7 y 8) y el parser
+// en la línea de la imagen (9). Queda solo el del parser. Y los hallazgos
+// del reporte van en orden de línea, con el del parser en su lugar.
+func TestE2E_BlockImageLink001NestedContainersAndOrder(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "d.doclang")
+	src := "---\ntitle: T\nmode: flex\n---\n# T\n\n:::warning\n:::note\n![nn](sub dir/nn.png)\n:::\n:::\n\nVer ![z](sub dir/z.png) fin.\n"
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "report.json")
+	if err := runCLI(t, Options{}, []string{"build", in, "--lint-only", "--report", "json", "--report-out", out}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep report.ReportJSON
+	if err := json.Unmarshal(data, &rep); err != nil {
+		t.Fatal(err)
+	}
+	var lines []int
+	for _, f := range rep.Findings {
+		if f.RuleID == "LINK001" {
+			lines = append(lines, f.Position.Line)
+		}
+	}
+	if len(lines) != 2 || lines[0] != 9 || lines[1] != 13 {
+		t.Fatalf("LINK001 lines (en el orden del reporte) = %v, want [9 13]", lines)
+	}
+}

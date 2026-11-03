@@ -9,6 +9,7 @@ package findings
 
 import (
 	"regexp"
+	"sort"
 	"strconv"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -46,7 +47,8 @@ func SplitParserFindings(parseDiags []diagnostics.Diagnostic) (rest, findings []
 // :::bloque o de una columna de grid está también en el texto (Content) de su
 // contenedor, y el linter, que lee ese texto como Markdown inline, ya avisa
 // de ella, pero en la línea del contenedor. En ese caso se queda el aviso del
-// parser, que lleva la línea de la imagen, y se quita el del linter.
+// parser, que lleva la línea de la imagen, y se quitan los del linter. El
+// resultado va ordenado por línea.
 func MergeParserFindings(doc *ast.AST, findings, lintDiags []diagnostics.Diagnostic) []diagnostics.Diagnostic {
 	if len(findings) == 0 {
 		return lintDiags
@@ -63,9 +65,10 @@ func MergeParserFindings(doc *ast.AST, findings, lintDiags []diagnostics.Diagnos
 			if dropped[i] || d.RuleID != f.RuleID || !lines[d.Position.Line] {
 				continue
 			}
+			// Cada contenedor de la imagen (un :::note dentro de un
+			// :::warning) avisa por su cuenta: se quitan todos.
 			if other, ok := spacedDestination(d.Message); ok && other == dest {
 				dropped[i] = true
-				break
 			}
 		}
 	}
@@ -75,7 +78,10 @@ func MergeParserFindings(doc *ast.AST, findings, lintDiags []diagnostics.Diagnos
 			out = append(out, d)
 		}
 	}
-	return append(out, findings...)
+	out = append(out, findings...)
+	// En orden de documento: el aviso del parser no queda al final.
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Position.Line < out[j].Position.Line })
+	return out
 }
 
 // spacedDestinationPattern saca la ruta del aviso LINK001 de ruta suelta con
