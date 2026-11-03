@@ -828,13 +828,69 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 	return segments
 }
 
+// pptxInlineImageOpen es la apertura de una imagen inline en cualquier lugar
+// del texto (pptxImageOpen exige que sea el inicio).
+var pptxInlineImageOpen = regexp.MustCompile(`!\[([^\]]*)\]\(`)
+
+// pptxMaskLinkDestinations devuelve content con lo que va entre el "(" y el
+// ")" de cada imagen y enlace inline (destino y título) cambiado por relleno
+// del mismo largo. pptxSplitInline busca la negrita y la cursiva ahí: en el
+// HTML el destino y el título son literales, como en CommonMark, y aunque el
+// PPTX muestra los enlaces con su Markdown, `![a](img/a*b*.png)` salía con la
+// "b" en cursiva y sin los asteriscos. Los índices sirven tal cual sobre
+// content. Los destinos los lee el escáner de core, como el HTML.
+func pptxMaskLinkDestinations(content string) string {
+	if !strings.Contains(content, "](") {
+		return content
+	}
+	masked := []byte(content)
+	fill := func(b []byte, from, to int) {
+		for i := from; i < to; i++ {
+			b[i] = 'x'
+		}
+	}
+	// Para buscar enlaces cada imagen se tapa entera, como hace el HTML al
+	// resolver las imágenes primero: en [![a](i.png)](url) el destino del
+	// enlace es url.
+	links := []byte(content)
+	for search := 0; search < len(content); {
+		loc := pptxInlineImageOpen.FindStringIndex(content[search:])
+		if loc == nil {
+			break
+		}
+		start, openEnd := search+loc[0], search+loc[1]
+		dest, n, ok := renderer.ScanLinkDestination(content[openEnd:])
+		if !ok {
+			search = start + 1
+			continue
+		}
+		fill(masked, openEnd, openEnd+len(dest))
+		fill(links, start, openEnd+n)
+		search = openEnd + n
+	}
+	for pos := 0; pos < len(links); {
+		loc := renderer.FindInlineLinkIndex(string(links[pos:]))
+		if loc == nil {
+			break
+		}
+		// loc[3] es el fin de la etiqueta; ahí van "](".
+		fill(masked, pos+loc[3]+2, pos+loc[1]-1)
+		pos += loc[1]
+	}
+	return string(masked)
+}
+
 // pptxSplitInline segmenta content en texto plano + code/bold/italic/lang.
 // Los links [text](url) quedan fuera del alcance v0 (issue de seguimiento):
 // un link se muestra como texto plano con su sintaxis markdown literal en
-// vez de resolverse.
+// vez de resolverse. Su destino y su título no llevan formato (ver
+// pptxMaskLinkDestinations).
 func pptxSplitInline(content string) []pptxInlineSegment {
 	var segments []pptxInlineSegment
 	remaining := content
+	// emphasis es remaining con los destinos tapados: ahí se buscan la
+	// negrita y la cursiva; el código se busca en el texto tal cual.
+	emphasis := pptxMaskLinkDestinations(content)
 	pos := 0
 
 	for pos < len(remaining) {
@@ -852,7 +908,11 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		bestRelPos := len(remaining) - pos
 
 		for _, re := range pptxBasicPatterns {
-			loc := re.re.FindStringSubmatchIndex(remaining[pos:])
+			haystack := emphasis
+			if re.code {
+				haystack = remaining
+			}
+			loc := re.re.FindStringSubmatchIndex(haystack[pos:])
 			if loc == nil || loc[0] >= bestRelPos {
 				continue
 			}

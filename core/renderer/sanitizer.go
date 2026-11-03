@@ -6,6 +6,7 @@ package renderer
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -597,6 +598,14 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 		text = b.String()
 	}
 
+	// El destino y el título de cada imagen y enlace son literales (como en
+	// CommonMark): se esconden detrás de un centinela mientras corren las
+	// pasadas de formato y vuelven antes de las de imagen y enlace. Sin
+	// esto `img/a*b*.png` llegaba al src como `img/a<em>b</em>.png` y un
+	// título "un *gran* gato" salía "un gran gato". Ver hideLinkDestinations.
+	var destinations []string
+	text, destinations = hideLinkDestinations(text)
+
 	// Procesar resaltado ==texto== -> <mark>texto</mark>
 	text = inlineHighlightPattern.ReplaceAllString(text, `<mark>$1</mark>`)
 
@@ -701,6 +710,8 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 		}
 		return `<span lang="` + EscapeHTMLAttribute(tag) + `">` + content + `</span>`
 	})
+
+	text = restoreLinkDestinations(text, destinations)
 
 	// Procesar imágenes ![alt](src) -> <img src="src" alt="alt"> — ANTES del
 	// enlace (ver el comentario de inlineImagePattern, arriba) para que
@@ -895,6 +906,87 @@ func restoreRawCodeSentinels(text string, codeSpans []string) string {
 		return "<code>" + codeSpans[idx] + "</code>"
 	})
 }
+
+// hideLinkDestinations cambia lo que va entre el "(" y el ")" de cada imagen
+// y enlace inline de text (destino, espacios y título) por un centinela crudo
+// <zdlN/> y devuelve los tramos originales para restoreLinkDestinations. Las
+// pasadas de formato (resaltado, tachado, negrita, cursiva, spans) corren
+// antes que las de imagen y enlace, y sin esto también corrían dentro del
+// destino y del título, que en CommonMark son literales. Un "*" del destino
+// tampoco cierra un énfasis abierto antes del enlace (`*a [x](u*v)`).
+//
+// Los tramos son los que las pasadas de imagen y enlace van a encontrar: las
+// imágenes primero y los enlaces con las imágenes enmascaradas, como hace
+// replaceInlineLinks con el centinela de cada imagen ya emitida. Un tramo
+// anidado en otro (una imagen dentro del destino de un enlace) queda dentro
+// del de afuera. El texto llega escapado (ver ProcessInlineMarkdownFormatsSecure),
+// así que un "<" crudo solo puede venir de un centinela, igual que <zdcN/>.
+func hideLinkDestinations(text string) (string, []string) {
+	if !strings.Contains(text, "](") {
+		return text, nil
+	}
+	var ranges [][2]int
+	collect := func(s string, open *regexp.Regexp, mask []byte) {
+		f := newLinkFinder(s, open, true)
+		for from := 0; from < len(s); {
+			loc, _ := f.find(from)
+			if loc == nil {
+				return
+			}
+			// loc[3] es el fin de la etiqueta: ahí van "](".
+			ranges = append(ranges, [2]int{loc[3] + 2, loc[1] - 1})
+			if mask != nil {
+				for i := loc[0]; i < loc[1]; i++ {
+					mask[i] = 'x'
+				}
+			}
+			from = loc[1]
+		}
+	}
+	links := text
+	if strings.Contains(text, "![") {
+		mask := []byte(text)
+		collect(text, inlineImagePattern, mask)
+		links = string(mask)
+	}
+	collect(links, inlineLinkPattern, nil)
+	if len(ranges) == 0 {
+		return text, nil
+	}
+	sort.Slice(ranges, func(i, j int) bool { return ranges[i][0] < ranges[j][0] })
+	var b strings.Builder
+	var hidden []string
+	last := 0
+	for _, r := range ranges {
+		if r[0] < last || r[0] >= r[1] {
+			// Anidado en el anterior, o vacío: nada que esconder.
+			continue
+		}
+		b.WriteString(text[last:r[0]])
+		hidden = append(hidden, text[r[0]:r[1]])
+		b.WriteString("<zdl" + strconv.Itoa(len(hidden)-1) + "/>")
+		last = r[1]
+	}
+	b.WriteString(text[last:])
+	return b.String(), hidden
+}
+
+// restoreLinkDestinations deshace hideLinkDestinations.
+func restoreLinkDestinations(text string, hidden []string) string {
+	if len(hidden) == 0 {
+		return text
+	}
+	return zdlRawSentinelPattern.ReplaceAllStringFunc(text, func(match string) string {
+		idx, err := strconv.Atoi(zdlRawSentinelPattern.FindStringSubmatch(match)[1])
+		if err != nil || idx < 0 || idx >= len(hidden) {
+			return match
+		}
+		return hidden[idx]
+	})
+}
+
+// zdlRawSentinelPattern reconoce el centinela crudo de hideLinkDestinations.
+var zdlRawSentinelPattern = regexp.MustCompile(`<zdl(\d+)/>`)
 
 // zdcRawSentinelPattern reconoce el centinela crudo de un code span — ver
 // ProcessInlineMarkdownFormatsSecure. Solo la forma cruda: la escapada

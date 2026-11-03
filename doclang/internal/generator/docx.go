@@ -1920,10 +1920,62 @@ func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
 	}
 }
 
+// docxBoldRe y docxItalicRe son los delimitadores de negrita y cursiva. Se
+// buscan sobre docxMaskLinkDestinations, no sobre el texto tal cual.
+var (
+	docxBoldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	docxItalicRe = regexp.MustCompile(`\*([^*]+)\*`)
+)
+
+// docxFindEmphasis busca re en s sin mirar adentro del destino ni del título
+// de una imagen o un enlace (ver docxMaskLinkDestinations).
+func docxFindEmphasis(re *regexp.Regexp) func(s string) []int {
+	return func(s string) []int {
+		return re.FindStringSubmatchIndex(docxMaskLinkDestinations(s))
+	}
+}
+
+// docxMaskLinkDestinations devuelve s con lo que va entre el "(" y el ")" de
+// cada imagen y enlace inline (destino y título) cambiado por relleno del
+// mismo largo, para buscar la negrita y la cursiva. En el HTML el destino y
+// el título son literales, como en CommonMark, y el walker se queda con el
+// match que empieza primero: sin esto, en `*x ![a](a*b.png) y*` ganaba la
+// cursiva `*x ![a](a*` y la imagen salía como Markdown partido. Los índices
+// sirven tal cual sobre s.
+func docxMaskLinkDestinations(s string) string {
+	if !strings.Contains(s, "](") {
+		return s
+	}
+	masked := []byte(s)
+	fill := func(from, to int) {
+		for i := from; i < to; i++ {
+			masked[i] = 'x'
+		}
+	}
+	for pos := 0; pos < len(s); {
+		loc := docxFindInlineImage(s[pos:])
+		if loc == nil {
+			break
+		}
+		fill(pos+loc[4], pos+loc[5])
+		pos += loc[1]
+	}
+	for pos := 0; pos < len(s); {
+		loc := docxFindInlineLink(s[pos:])
+		if loc == nil {
+			break
+		}
+		// loc[3] es el fin de la etiqueta; ahí van "](".
+		fill(pos+loc[3]+2, pos+loc[1]-1)
+		pos += loc[1]
+	}
+	return string(masked)
+}
+
 func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// **bold** - negrita
-		regex: regexp.MustCompile(`\*\*([^*]+)\*\*`),
+		find: docxFindEmphasis(docxBoldRe),
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
 		// le pisaría la Consolas a un `[x]{.kbd}` anidado. Es la misma trampa
@@ -1939,7 +1991,7 @@ func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// *italic* - cursiva
-		regex: regexp.MustCompile(`\*([^*]+)\*`),
+		find: docxFindEmphasis(docxItalicRe),
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
 		// le pisaría la Consolas a un `[x]{.kbd}` anidado. Es la misma trampa

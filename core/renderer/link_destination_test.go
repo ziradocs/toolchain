@@ -79,7 +79,9 @@ func TestInlineImageDestinations(t *testing.T) {
 		{`[![a](x.png "t")](https://y "u")`, `<a href="https://y" title="u"><img src="x.png" alt="a" title="t"></a>`},
 		{`[l](<https://e.com/a b>)`, `<a href="https://e.com/a%20b">l</a>`},
 		{`![a](x.png "&amp; &lt;")`, `<img src="x.png" alt="a" title="&amp; &lt;">`},
-		{"![a](x.png \"a *b* `c`\")", `<img src="x.png" alt="a" title="a b c">`},
+		// El énfasis no corre dentro del título; el code span sí se resuelve
+		// antes (corre primero en todo el texto) y queda su texto plano.
+		{"![a](x.png \"a *b* `c`\")", `<img src="x.png" alt="a" title="a *b* c">`},
 	} {
 		if got := ProcessInlineMarkdownSecure(tc.in); got != tc.want {
 			t.Errorf("ProcessInlineMarkdownSecure(%q)\n got %q\nwant %q", tc.in, got, tc.want)
