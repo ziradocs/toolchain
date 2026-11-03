@@ -197,3 +197,27 @@ func TestLinkDestinationRuleResolvesVariables(t *testing.T) {
 		t.Errorf("LINK001 for an allowed or undefined destination:\n%s", joined)
 	}
 }
+
+// El aviso de ruta suelta con espacios es el mismo para la imagen de bloque
+// (lo da el parser) y la inline (lo da el linter), con el artículo correcto:
+// los CLIs los juntan en el reporte y los deduplican por la ruta citada.
+func TestLinkDestinationRuleSpacedMessage(t *testing.T) {
+	src := "---\ntitle: T\nmode: flex\n---\n# T\n\n![a](mi dir/a.png)\n\nVer ![b](mi dir/b.png) y [c](mi dir/c.html).\n"
+	got := map[string]string{}
+	for _, d := range link001(lintSource(t, src)) {
+		got[d.Source+":"+strings.SplitN(d.Message, " has", 2)[0]] = d.Message
+	}
+	want := map[string]string{
+		"image-parser:Image destination \"mi dir/a.png\"": "read it as an image: write <mi dir/a.png>",
+		"linter:Image destination \"mi dir/b.png\"":       "read it as an image: write <mi dir/b.png>",
+		"linter:Link destination \"mi dir/c.html\"":       "read it as a link: write <mi dir/c.html>",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("LINK001 = %v", got)
+	}
+	for k, frag := range want {
+		if !strings.Contains(got[k], frag) {
+			t.Errorf("%s: message %q does not contain %q", k, got[k], frag)
+		}
+	}
+}

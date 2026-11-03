@@ -73,7 +73,7 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	var diags []diagnostics.Diagnostic
 	if spacedDiag {
 		diags = append(diags, diagnostics.NewWarning(
-			fmt.Sprintf("image destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as an image: write <%s> or use %%20", source, source),
+			fmt.Sprintf("Image destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as an image: write <%s> or use %%20", source, source),
 			pos, "image-parser").WithRuleID("LINK001"))
 	}
 	if declaredContext != "" {

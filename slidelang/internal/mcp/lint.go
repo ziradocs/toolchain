@@ -10,6 +10,7 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/linter"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/findings"
 )
 
 type lintInput struct {
@@ -46,12 +47,18 @@ func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 			return res, out, resErr
 		}
 
+		// Los avisos del parser de una regla del linter (LINK001 de una
+		// imagen de bloque) van con los del linter, sin duplicarse, igual que
+		// en `slidelang build` (ver findings.SplitParserFindings).
+		parseDiags, parserFindings := findings.SplitParserFindings(parseDiags)
 		allDiags := parseDiags
 		slideCount := 0
 		if astNode != nil {
 			lintDiags := linter.New().Lint(astNode)
-			allDiags = append(allDiags, lintDiags...)
+			allDiags = append(allDiags, findings.MergeParserFindings(astNode, parserFindings, lintDiags)...)
 			slideCount = len(astNode.ContentBlocks)
+		} else {
+			allDiags = append(allDiags, parserFindings...)
 		}
 
 		out := lintOutput{

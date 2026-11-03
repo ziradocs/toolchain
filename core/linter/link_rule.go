@@ -5,7 +5,6 @@ package linter
 
 import (
 	"fmt"
-	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -183,12 +182,12 @@ func linkDestinationDiagnostic(written, dest string, image, block bool, pos diag
 // (`![a](mi foto.png)`): se sigue leyendo como antes, pero CommonMark y otras
 // herramientas no la leen como enlace ni imagen.
 func spacedDestinationDiagnostic(written string, image bool, pos diagnostics.Position) diagnostics.Diagnostic {
-	kind := "Link"
+	kind, noun := "Link", "a link"
 	if image {
-		kind = "Image"
+		kind, noun = "Image", "an image"
 	}
-	msg := fmt.Sprintf("%s destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as a %s: write <%s> or use %%20",
-		kind, written, strings.ToLower(kind), written)
+	msg := fmt.Sprintf("%s destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as %s: write <%s> or use %%20",
+		kind, written, noun, written)
 	return diagnostics.NewWarning(msg, pos, "linter").WithRuleID("LINK001")
 }
 

@@ -5,11 +5,13 @@ package mcp
 
 import (
 	"context"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/linter"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/doclang/v2/internal/pipeline"
 )
 
 type lintInput struct {
@@ -47,18 +49,27 @@ func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 			return res, out, resErr
 		}
 
+		// Los avisos del parser de una regla del linter (LINK001 de una
+		// imagen de bloque) pasan por la política con los del linter y sin
+		// duplicarse, igual que en `doclang build` (ver
+		// pipeline.SplitParserFindings).
+		parseDiags, parserFindings := pipeline.SplitParserFindings(parseDiags)
 		allDiags := parseDiags
 		sectionCount := 0
-		if astNode != nil && !hasErrorDiagnostic(parseDiags) {
+		if astNode == nil || hasErrorDiagnostic(parseDiags) {
+			allDiags = append(allDiags, parserFindings...)
+		} else {
 			policy, err := linter.ResolvePolicyConfig("", astNode.FrontMatter)
 			if err != nil {
-				out := lintOutput{Diagnostics: allDiags, Valid: false, Error: err.Error()}
+				out := lintOutput{Diagnostics: append(allDiags, parserFindings...), Valid: false, Error: err.Error()}
 				res, resErr := errorResult(out)
 				return res, out, resErr
 			}
 			// Mismo dialecto que `doclang build` (internal/cli/build.go).
-			lintDiags := linter.New().WithDialect(linter.DialectDocuments).WithPolicy(policy).Lint(astNode)
-			allDiags = append(allDiags, lintDiags...)
+			lintDiags := linter.New().WithDialect(linter.DialectDocuments).WithPolicy(policy).LintUnfiltered(astNode)
+			lintDiags = pipeline.MergeParserFindings(astNode, parserFindings, lintDiags)
+			active, _ := policy.Evaluate(lintDiags, astNode.FilePath, time.Now())
+			allDiags = append(allDiags, active...)
 			sectionCount = len(astNode.ContentBlocks)
 		}
 
