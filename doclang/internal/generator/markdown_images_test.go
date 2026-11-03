@@ -19,13 +19,20 @@ func coreReadsCommonMarkDestinations() bool {
 }
 
 func TestMarkdownImageDestinations(t *testing.T) {
+	// La ruta es la que lee core: con una ruta suelta con espacios, lo que
+	// sigue al primer espacio no es un título aunque lo parezca, así que
+	// `"T"` y `(1).png` son parte de la ruta y van dentro de <...>.
 	spaced := []struct{ in, want string }{
 		{"![a](cap uno/x.png)", "![a](<cap uno/x.png>)"},
-		{"![a](cap uno/x.png \"T\")", "![a](<cap uno/x.png> \"T\")"},
+		{"![a](cap uno/x.png \"T\")", "![a](<cap uno/x.png \"T\">)"},
+		{"![a](fotos/a (1).png)", "![a](<fotos/a (1).png>)"},
+		{"![c](c d.png 'e)f')", "![c](<c d.png 'e>)f')"},
 	}
 	cases := []struct{ in, want string }{
 		{"![a](<cap uno/x.png>)", "![a](<cap uno/x.png>)"},
+		{"![a](<cap uno/x.png> \"T\")", "![a](<cap uno/x.png> \"T\")"},
 		{"![a](x.png \"con espacio\")", "![a](x.png \"con espacio\")"},
+		{"![a](a(1).png 't')", "![a](a(1).png 't')"},
 		{"`![a](cap uno/x.png)`", "`![a](cap uno/x.png)`"},
 		{"[l](a b.html)", "[l](a b.html)"},
 	}
@@ -38,12 +45,23 @@ func TestMarkdownImageDestinations(t *testing.T) {
 }
 
 func TestDocxLocalImageSource_Spaces(t *testing.T) {
+	// La ruta es la que lee el renderer HTML (ver
+	// SplitMarkdownDestination): `"T"` después de una ruta suelta con
+	// espacios es parte de la ruta, como `(1).png`.
 	cases := map[string]string{
-		"cap uno/x.png":       "cap uno/x.png",
-		"cap uno/x.png \"T\"": "cap uno/x.png",
-		"<cap uno/x.png>":     "cap uno/x.png",
-		"x.png 'T'":           "x.png",
-		"cap%20uno/x.png":     "cap uno/x.png",
+		"cap uno/x.png":         "cap uno/x.png",
+		"cap uno/x.png \"T\"":   "cap uno/x.png \"T\"",
+		"<cap uno/x.png> \"T\"": "cap uno/x.png",
+		"<cap uno/x.png>":       "cap uno/x.png",
+		"x.png 'T'":             "x.png",
+		"cap%20uno/x.png":       "cap uno/x.png",
+		"fotos/a (1).png":       "fotos/a (1).png",
+		"fotos/a(1).png (t)":    "fotos/a(1).png",
+		"x.png \"t\\\"x\"":      "x.png",
+		"<a)b.png>":             "a)b.png",
+		// Una ruta ya limpia que core no lee como destino (el src de un
+		// encabezado, el Destination de FindInlineLinks) se usa tal cual.
+		"a)b.png": "a)b.png",
 	}
 	for in, want := range cases {
 		if got, ok := docxLocalImageSource(in); !ok || got != want {

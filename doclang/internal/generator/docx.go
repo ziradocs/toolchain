@@ -2096,18 +2096,20 @@ func capImageWidth(size domain.ImageSize, maxWidthIn float64) domain.ImageSize {
 // docxLocalImageSource devuelve la ruta de un destino de imagen inline si es
 // un archivo local (sin esquema): sin los <> opcionales, sin título y con las
 // referencias de carácter decodificadas. Remoto, data: o vacío no cuenta.
-// Un espacio que no abre un título ("...", '...' o (...)) es parte de la
-// ruta, como en el renderer HTML: `![](cap uno/a.png)` es la imagen
-// "cap uno/a.png", no "cap" (el core actual la acepta con un aviso LINK001).
+// La ruta y el título se separan como los lee el renderer HTML
+// (SplitMarkdownDestination): `![](cap uno/a.png)` es la imagen
+// "cap uno/a.png", no "cap" (core la acepta con un aviso LINK001), y
+// `![](fotos/a (1).png)` es "fotos/a (1).png", no "fotos/a".
+//
+// Algunos llamadores pasan una ruta ya limpia (el Destination de
+// renderer.FindInlineLinks, el src de un <img> de encabezado): una que core
+// no lee como destino, como "a)b.png" (escrita <a)b.png>), se usa tal cual.
 func docxLocalImageSource(dest string) (string, bool) {
-	d := strings.TrimSpace(renderer.DecodeLinkDestination(dest))
-	if strings.HasPrefix(d, "<") {
-		if end := strings.Index(d, ">"); end > 0 {
-			d = d[1:end]
-		}
-	} else if i := MarkdownTitleStart(d); i >= 0 {
-		d = d[:i]
+	path := dest
+	if parts, ok := SplitMarkdownDestination(dest); ok {
+		path = parts.Path
 	}
+	d := strings.TrimSpace(renderer.DecodeLinkDestination(path))
 	if d == "" {
 		return "", false
 	}

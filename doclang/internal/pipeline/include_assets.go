@@ -333,9 +333,8 @@ func (r *assetRebaser) inline(text string, line int) string {
 // inline reescribe el destino de cada ![alt](dest) de un texto Markdown
 // inline, fuera de los code spans. dest es el destino crudo que reconoce el
 // renderer (renderer.ScanLinkDestination): una ruta, opcionalmente entre
-// <...> y seguida de un título; solo se cambia la ruta. Un destino con
-// escapes (\) o referencias de caracteres (&) se deja como está, porque su
-// ruta efectiva no es el texto literal.
+// <...> y seguida de un título; solo se cambia la ruta (ver
+// rebaseDestination).
 func (f *field) inline(text string) string {
 	if !strings.Contains(text, "![") {
 		return text
@@ -388,43 +387,41 @@ var commonMarkDestinations = func() bool {
 	return ok && n == 6
 }()
 
-// rebaseDestination reescribe la ruta de un destino inline. Con destinos
-// CommonMark, una ruta nueva con espacios (la carpeta del incluido los tiene)
-// se escribe entre <...>, la forma que leen todas las herramientas y que no
-// dispara el aviso de ruta suelta con espacios. Con un
-// core anterior se escribe tal cual, sin <...>, que es lo que resuelven su
-// renderer HTML y el DOCX; la salida Markdown la envuelve en <...> al
-// escribirla (ver generator.MarkdownImageDestinations).
+// rebaseDestination reescribe la ruta de un destino inline. La ruta y el
+// título se separan como los lee core (generator.SplitMarkdownDestination):
+// en `fotos/a (1).png` el "(1).png" es parte de la ruta, no un título. El
+// título y todo lo que sigue a la ruta se copia tal cual. Una ruta con
+// escapes (\) o referencias de caracteres (&) se deja como está, porque su
+// ruta efectiva no es el texto literal; en el título no importan.
+//
+// Con destinos CommonMark, una ruta nueva con espacios o paréntesis (la
+// carpeta del incluido los tiene) se escribe entre <...>, la forma que leen
+// todas las herramientas y que no dispara el aviso de ruta suelta con
+// espacios. Con un core anterior se escribe tal cual, sin <...>, que es lo
+// que resuelven su renderer HTML y el DOCX; la salida Markdown la envuelve en
+// <...> al escribirla (ver generator.MarkdownImageDestinations).
 func (f *field) rebaseDestination(dest string) string {
-	if strings.ContainsAny(dest, `\&`) {
-		return dest
-	}
 	dir := f.locate("(" + dest + ")")
 	if dir == "" {
 		return dest
 	}
-	lead := len(dest) - len(strings.TrimLeft(dest, " \t"))
-	rest := dest[lead:]
-	var path, tail, open, close string
-	if strings.HasPrefix(rest, "<") {
-		end := strings.Index(rest, ">")
-		if end < 0 {
-			return dest
-		}
-		open, path, close, tail = "<", rest[1:end], ">", rest[end+1:]
-	} else if k := generator.MarkdownTitleStart(rest); k >= 0 {
-		path, tail = rest[:k], rest[k:]
-	} else {
-		path = rest
-	}
-	newPath, ok := f.r.rebasePath(path, dir)
-	if commonMarkDestinations && open == "" && strings.ContainsAny(newPath, " \t") {
-		open, close = "<", ">"
-	}
-	if !ok || (open == "" && strings.ContainsAny(newPath, "()")) || (open != "" && strings.ContainsAny(newPath, "<>")) {
+	d, ok := generator.SplitMarkdownDestination(dest)
+	if !ok || strings.ContainsAny(d.Path, `\&`) {
 		return dest
 	}
-	return dest[:lead] + open + newPath + close + tail
+	newPath, ok := f.r.rebasePath(d.Path, dir)
+	if !ok {
+		return dest
+	}
+	open, close := d.Open, d.Close
+	bare := !strings.ContainsAny(newPath, " \t()")
+	if commonMarkDestinations && open == "" && !bare {
+		open, close = "<", ">"
+	}
+	if (open == "" && !bare) || (open != "" && strings.ContainsAny(newPath, "<>")) {
+		return dest
+	}
+	return d.Lead + open + newPath + close + d.Tail
 }
 
 // headingImgPattern es el <img> que el parser deja en el HTML de un

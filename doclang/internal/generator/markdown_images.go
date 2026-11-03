@@ -59,36 +59,57 @@ func MarkdownImageDestinations(md string) string {
 }
 
 func angleDestination(dest string) string {
-	lead := len(dest) - len(strings.TrimLeft(dest, " \t"))
-	rest := dest[lead:]
-	if strings.HasPrefix(rest, "<") {
+	d, ok := SplitMarkdownDestination(dest)
+	// Spaced: core lee la ruta con la regla anterior a CommonMark (una ruta
+	// suelta con espacios, o con algo que parece un título y no lo es, como
+	// `a (1).png`). Entre <...> la lee igual cualquier herramienta.
+	if !ok || !d.Spaced || strings.ContainsAny(d.Path, "<>") {
 		return dest
 	}
-	path, tail := rest, ""
-	if k := MarkdownTitleStart(rest); k >= 0 {
-		path, tail = rest[:k], rest[k:]
-	}
-	if !strings.ContainsAny(path, " \t") || strings.ContainsAny(path, "<>") {
-		return dest
-	}
-	return dest[:lead] + "<" + path + ">" + tail
+	return d.Lead + "<" + d.Path + ">" + d.Tail
 }
 
-// MarkdownTitleStart devuelve dónde empieza el título de un destino de
-// enlace sin <...> (el espacio antes de una comilla o un paréntesis), o -1
-// si no tiene. Un espacio que no va seguido de un título es parte de la
-// ruta, igual que lo lee el renderer HTML.
-func MarkdownTitleStart(dest string) int {
-	for k := 0; k < len(dest); k++ {
-		if dest[k] != ' ' && dest[k] != '\t' {
-			continue
-		}
-		rest := strings.TrimLeft(dest[k:], " \t")
-		if rest != "" && strings.ContainsRune(`"'(`, rune(rest[0])) {
-			return k
-		}
+// MarkdownDestinationParts es el destino crudo de un enlace o imagen inline
+// (lo que devuelve renderer.ScanLinkDestination) partido como lo lee core.
+// Lead + Open + Path + Close + Tail es el destino original, byte a byte.
+type MarkdownDestinationParts struct {
+	// Lead son los espacios antes del destino.
+	Lead string
+	// Open y Close son "<" y ">" en un destino entre <...>, o vacíos.
+	Open, Close string
+	// Path es la ruta tal como está escrita (sin decodificar).
+	Path string
+	// Tail es lo que sigue a la ruta: espacios y el título, tal cual.
+	Tail string
+	// Spaced dice que core leyó la ruta con la regla de compatibilidad
+	// (ver renderer.LinkDestination.Spaced).
+	Spaced bool
+}
+
+// SplitMarkdownDestination parte dest con renderer.ParseLinkDestination, el
+// escáner del renderer HTML, en vez de adivinar dónde empieza el título. Un
+// paréntesis después de un espacio es título solo si core lo lee así: en
+// `fotos/a (1).png` no lo es (después del ")" no viene el cierre) y la ruta
+// es todo; en `c d.png 'e` tampoco (no hay título que cierre). ok es false si
+// dest no es un destino que core lea entero.
+func SplitMarkdownDestination(dest string) (MarkdownDestinationParts, bool) {
+	ld, ok := renderer.ParseLinkDestination(dest + ")")
+	if !ok || ld.Consumed != len(dest)+1 {
+		return MarkdownDestinationParts{}, false
 	}
-	return -1
+	lead := len(dest) - len(strings.TrimLeft(dest, " \t"))
+	p := MarkdownDestinationParts{Lead: dest[:lead], Path: ld.Dest, Spaced: ld.Spaced}
+	start := lead
+	if strings.HasPrefix(dest[lead:], "<") && !ld.Spaced {
+		p.Open, p.Close = "<", ">"
+		start++
+	}
+	end := start + len(ld.Dest)
+	if end > len(dest) || dest[start:end] != ld.Dest || !strings.HasPrefix(dest[end:], p.Close) {
+		return MarkdownDestinationParts{}, false
+	}
+	p.Tail = dest[end+len(p.Close):]
+	return p, true
 }
 
 // MarkdownCodeSpanEnd devuelve dónde termina el code span que abre en
