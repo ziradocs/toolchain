@@ -245,7 +245,7 @@ func TestMaskLinkDestinationsScalesLinearly(t *testing.T) {
 		t.Skip("mide tiempos")
 	}
 	for name, gen := range scaleInputs {
-		assertLinear(t, name, func(s string) { maskLinkDestinations(s, docxCodeSpanRe) }, gen)
+		assertLinear(t, name, func(s string) { docxMaskLinkDestinations(s) }, gen)
 	}
 }
 

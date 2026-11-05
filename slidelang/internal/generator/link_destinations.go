@@ -3,10 +3,7 @@
 
 package generator
 
-import (
-	"regexp"
-	"strings"
-)
+import "strings"
 
 // Este archivo tiene su gemelo en doclang/internal/generator: los dos CLIs
 // solo comparten core, y esto tiene que compilar contra el core publicado.
@@ -19,14 +16,14 @@ import (
 // y el título son literales, como en CommonMark. Los índices sirven tal cual
 // sobre s.
 //
-// Como en el HTML, un code span (los que code reconoce, el mismo patrón que
-// usa el generador) se resuelve antes: no abre enlaces ni imágenes, así que
+// Como en el HTML, un code span (los que devuelve codeSpans, los mismos que
+// reconoce el generador) se resuelve antes: no abre enlaces ni imágenes, así que
 // en "`f[0](` y *x* texto)" la cursiva sigue siendo cursiva. Las imágenes se
 // buscan primero y se tapan enteras para buscar los enlaces: en
 // [![a](i.png)](url) el destino del enlace es url.
 //
 // Lineal: cada pasada usa un solo linkScanner.
-func maskLinkDestinations(s string, code *regexp.Regexp) string {
+func maskLinkDestinations(s string, codeSpans func(string) [][]int) string {
 	if !strings.Contains(s, "](") {
 		return s
 	}
@@ -37,8 +34,8 @@ func maskLinkDestinations(s string, code *regexp.Regexp) string {
 			b[i] = 'x'
 		}
 	}
-	if code != nil && strings.Contains(s, "`") {
-		for _, loc := range code.FindAllStringIndex(s, -1) {
+	if codeSpans != nil && strings.Contains(s, "`") {
+		for _, loc := range codeSpans(s) {
 			fill(scan, loc[0], loc[1])
 		}
 	}

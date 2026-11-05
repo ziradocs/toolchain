@@ -878,7 +878,7 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 // PPTX muestra los enlaces con su Markdown, `![a](img/a*b*.png)` salía con la
 // "b" en cursiva y sin los asteriscos.
 func pptxMaskLinkDestinations(content string) string {
-	return maskLinkDestinations(content, pptxCodeRe)
+	return maskLinkDestinations(content, func(s string) [][]int { return pptxCodeRe.FindAllStringIndex(s, -1) })
 }
 
 // pptxSplitInline segmenta content en texto plano + code/bold/italic/lang.

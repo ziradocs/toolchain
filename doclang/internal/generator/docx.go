@@ -1929,8 +1929,9 @@ func (g *DOCXGenerator) docxEmphasisRunApply(style func(r domain.Run) error) fun
 
 func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
 	return docxInlinePattern{
-		// `code` - código inline
-		regex: docxCodeSpanRe,
+		// `code` - código inline, emparejado como en el HTML
+		// (markdownCodeSpans).
+		scan: docxScanCodeSpans,
 		apply: docxSimpleRunApply(func(r domain.Run) error {
 			if err := r.SetSize(g.parseSize(g.style.FontSizeCode)); err != nil {
 				return err
@@ -1942,17 +1943,35 @@ func (g *DOCXGenerator) docxCodePattern() docxInlinePattern {
 	}
 }
 
-// docxMaskLinkDestinations es maskLinkDestinations con el code span del DOCX
-// (docxCodeSpanRe): lo que la negrita y la cursiva no pueden ver. En el HTML
+// docxMaskLinkDestinations es maskLinkDestinations con los code spans del
+// DOCX (markdownCodeSpans): lo que la negrita y la cursiva no pueden ver. En el HTML
 // el destino y el título son literales, como en CommonMark, y el walker se
 // queda con el match que empieza primero: sin esto, en `*x ![a](a*b.png) y*`
 // ganaba la cursiva `*x ![a](a*` y la imagen salía como Markdown partido.
 func docxMaskLinkDestinations(s string) string {
-	return maskLinkDestinations(s, docxCodeSpanRe)
+	return maskLinkDestinations(s, markdownCodeSpans)
 }
 
-// docxCodeSpanRe es el code span inline del DOCX.
-var docxCodeSpanRe = regexp.MustCompile("`([^`]+)`")
+// docxScanCodeSpans es el scan del patrón de código: el primer code span de
+// content (markdownCodeSpans) que empieza en from o después, con el grupo 1
+// en su contenido.
+func docxScanCodeSpans(content string) func(from int) []int {
+	spans := markdownCodeSpans(content)
+	k := 0
+	return func(from int) []int {
+		if k > 0 && spans[k-1][0] >= from {
+			k = 0
+		}
+		for k < len(spans) && spans[k][0] < from {
+			k++
+		}
+		if k == len(spans) {
+			return nil
+		}
+		a, b := codeSpanContentBounds(content, spans[k][0], spans[k][1])
+		return []int{spans[k][0], spans[k][1], a, b}
+	}
+}
 
 func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 	return docxInlinePattern{
@@ -2016,8 +2035,9 @@ func (g *DOCXGenerator) docxLinkPattern() docxInlinePattern {
 // Las imágenes se enmascaran una vez, desde el principio de content, como en
 // el HTML. Antes se enmascaraban en cada paso del walker desde la posición
 // actual, recorriendo todo lo que quedaba (cuadrático con muchos tramos en un
-// párrafo). Las imágenes se buscan con los code spans tapados (docxCodeSpanRe,
-// el patrón de código del walker), como en maskLinkDestinations y en el HTML:
+// párrafo). Las imágenes se buscan con los code spans tapados
+// (markdownCodeSpans, el mismo emparejamiento que el HTML y que el patrón de
+// código del walker), como en maskLinkDestinations y en el HTML:
 // en "`![` abre una imagen; ver [la guía](u)" el "![" es código y no abre una
 // imagen que se trague el link. El walker viejo llegaba a lo mismo porque
 // volvía a enmascarar después de saltar el código. La única diferencia con
@@ -2045,7 +2065,7 @@ func docxScanInlineLinks(content string) func(from int) []int {
 		}
 		var spans [][]int
 		if strings.Contains(content, "`") {
-			spans = docxCodeSpanRe.FindAllStringIndex(content, -1)
+			spans = markdownCodeSpans(content)
 		}
 		if len(spans) == 0 {
 			mask(content, func(int, int) bool { return true })

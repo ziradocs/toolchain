@@ -15,7 +15,9 @@ import (
 
 // Oráculo: el walker del DOCX tal como estaba en v2.49.2, que en cada paso
 // volvía a buscar todos los patterns sobre lo que quedaba del texto, con sus
-// búsquedas de imagen y de link.
+// búsquedas de imagen y de link. El código sí usa el emparejamiento nuevo
+// (markdownCodeSpans, como el HTML): ese cambio es a propósito y no es lo que
+// compara esta prueba.
 
 var oracleDocxImageOpen = regexp.MustCompile(`!\[([^\]]*)\]\(`)
 var oracleDocxImageAttrs = regexp.MustCompile(`^\{(?:\s*[A-Za-z][\w-]*=(?:"[^"}]*"|[^\s}]+))+\s*\}`)
@@ -65,7 +67,12 @@ func oracleDocxFindInlineLink(s string) []int {
 // lo que quedaba de la imagen o del código, y el nuevo no, a propósito (ver
 // docxScanInlineLinks). emphasis[i] marca los patterns de
 // énfasis.
+// oracleContent es el texto completo que recorre oracleDocxSegments, para el
+// patrón de código, que se empareja sobre todo el texto.
+var oracleContent string
+
 func oracleDocxSegments(content string, index []func(s, masked string) []int, emphasis []bool) (segs []docxInlineSegment, emphasisCut bool) {
+	oracleContent = content
 	var images [][2]int
 	for pos := 0; pos < len(content); {
 		loc := oracleDocxFindInlineImage(content[pos:])
@@ -75,7 +82,7 @@ func oracleDocxSegments(content string, index []func(s, masked string) []int, em
 		images = append(images, [2]int{pos + loc[0], pos + loc[1]})
 		pos += loc[1]
 	}
-	codeSpans := docxCodeSpanRe.FindAllStringIndex(content, -1)
+	codeSpans := markdownCodeSpans(content)
 	masked := docxMaskLinkDestinations(content)
 	pos := 0
 	for pos < len(content) {
@@ -148,6 +155,18 @@ func docxPatternSets() map[string]struct {
 				index = append(index, func(_, masked string) []int { return pt.regex.FindStringSubmatchIndex(masked) })
 			case pt.regex != nil:
 				index = append(index, func(s, _ string) []int { return pt.regex.FindStringSubmatchIndex(s) })
+			case pt.scan("`a`")(0) != nil:
+				// Código: el emparejamiento de CommonMark (markdownCodeSpans)
+				// sobre todo el texto, como el HTML; s es lo que queda desde
+				// la posición del walker.
+				index = append(index, func(s, _ string) []int {
+					from := len(oracleContent) - len(s)
+					loc := docxScanCodeSpans(oracleContent)(from)
+					for i := range loc {
+						loc[i] -= from
+					}
+					return loc
+				})
 			default:
 				// Imagen o link: el link devuelve 8 índices sobre el
 				// enmascarado; se distingue probando.
@@ -212,17 +231,27 @@ func TestDocxInlineSegmentsCodeSpanCutsImage(t *testing.T) {
 	for _, s := range []string{
 		"El prefijo `![` abre una imagen; ver [la guía](https://e.com/g).",
 		"a``b![c``d[l](u)",
+		// Del segundo review: un backtick escapado o un code span doble antes
+		// corría el emparejamiento del regex viejo y la imagen se tragaba el
+		// link.
+		"Con ``a`b`` se muestra un backtick y con `![` empieza una imagen como ![logo](img.png); ver la `sintaxis` en [la guía](https://d.example).",
+		"Usa \\` y `![` así: ![logo](img.png) `code` [la guía](https://g7.example).",
+		"Escapa con \\`. Usa `![` ![captura](img.png) y luego [la `guía`](https://g4.example).",
+		"Un \\` suelto no abre código; `![` tampoco abre imagen si está en código: ![ok](img.png) [link](https://g9.example) y [otro `x`](https://g10.example).",
 		"![`x`}é\\\\\"[l](u)",
 	} {
-		var link *docxInlineSegment
 		segs := docxInlineSegments(s, g.docxInlinePatterns())
-		for i := range segs {
-			if segs[i].pattern == 4 {
-				link = &segs[i]
+		// El último link del texto ([…](u) o […](https://…)) tiene que
+		// salir como link.
+		if k := strings.LastIndex(s, "]("); k >= 0 && !strings.HasPrefix(s, "![") {
+			dest := s[k+2 : k+2+strings.IndexByte(s[k+2:], ')')]
+			found := false
+			for _, seg := range segs {
+				found = found || seg.pattern == 4 && seg.extra == dest
 			}
-		}
-		if link == nil && !strings.HasPrefix(s, "![") {
-			t.Errorf("%q: sin el link: %+v", s, segs)
+			if !found {
+				t.Errorf("%q: sin el link a %s: %+v", s, dest, segs)
+			}
 		}
 		want, _ := oracleDocxSegments(s, docxPatternSets()["cuerpo"].index, docxPatternSets()["cuerpo"].emphasis)
 		if !reflect.DeepEqual(segs, want) {
