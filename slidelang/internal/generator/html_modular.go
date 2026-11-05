@@ -710,9 +710,13 @@ func (g *Generator) renderHTML(presentationConfig *PresentationConfig, htmlConte
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 
+	// Las imágenes inline de los textos, en offline-inline (el PDF), se
+	// incrustan como las de bloque (ver inlineLocalInlineImages).
+	html := inlineLocalInlineImages(htmlBuffer.String(), presentationConfig.RenderContext)
+
 	// Apply HTML formatting
 	htmlFormatter := formatter.NewHTMLFormatter()
-	return htmlFormatter.FormatHTML(htmlBuffer.String()), nil
+	return htmlFormatter.FormatHTML(html), nil
 }
 
 // generateHTMLFile renderiza (renderHTML) y escribe el HTML final al disco.
