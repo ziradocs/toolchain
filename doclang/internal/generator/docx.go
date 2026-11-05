@@ -2016,23 +2016,54 @@ func (g *DOCXGenerator) docxLinkPattern() docxInlinePattern {
 // Las imágenes se enmascaran una vez, desde el principio de content, como en
 // el HTML. Antes se enmascaraban en cada paso del walker desde la posición
 // actual, recorriendo todo lo que quedaba (cuadrático con muchos tramos en un
-// párrafo). La única diferencia es cuando otro tramo (negrita, código) corta
-// una imagen por la mitad, como en "**x ![a**](b)": antes se volvían a buscar
-// links en lo que quedaba de esa imagen y ahora no.
+// párrafo). Las imágenes se buscan con los code spans tapados (docxCodeSpanRe,
+// el patrón de código del walker), como en maskLinkDestinations y en el HTML:
+// en "`![` abre una imagen; ver [la guía](u)" el "![" es código y no abre una
+// imagen que se trague el link. El walker viejo llegaba a lo mismo porque
+// volvía a enmascarar después de saltar el código. La única diferencia con
+// antes es cuando una negrita o una cursiva corta una imagen por la mitad,
+// como en "**x ![a**](b)": antes se volvían a buscar links en lo que quedaba
+// de esa imagen y ahora no.
 func docxScanInlineLinks(content string) func(from int) []int {
 	masked := content
 	if strings.Contains(content, "![") {
 		b := []byte(content)
-		next := docxScanInlineImages(content)
-		for pos := 0; pos < len(content); {
-			loc := next(pos)
-			if loc == nil {
-				break
+		mask := func(text string, keep func(start, end int) bool) {
+			next := docxScanInlineImages(text)
+			for pos := 0; pos < len(text); {
+				loc := next(pos)
+				if loc == nil {
+					break
+				}
+				if keep(loc[0], loc[1]) {
+					for i := loc[0]; i < loc[1]; i++ {
+						b[i] = 'x'
+					}
+				}
+				pos = loc[1]
 			}
-			for i := loc[0]; i < loc[1]; i++ {
-				b[i] = 'x'
+		}
+		var spans [][]int
+		if strings.Contains(content, "`") {
+			spans = docxCodeSpanRe.FindAllStringIndex(content, -1)
+		}
+		if len(spans) == 0 {
+			mask(content, func(int, int) bool { return true })
+		} else {
+			c := []byte(content)
+			for _, sp := range spans {
+				for i := sp[0]; i < sp[1]; i++ {
+					c[i] = 'x'
+				}
 			}
-			pos = loc[1]
+			mask(string(c), func(int, int) bool { return true })
+			k := 0
+			mask(content, func(start, end int) bool {
+				for k < len(spans) && spans[k][1] <= start {
+					k++
+				}
+				return k < len(spans) && spans[k][0] < start && end <= spans[k][1]
+			})
 		}
 		masked = string(b)
 	}
