@@ -399,8 +399,9 @@ func escapedLinkView(text string) (view string, offsets []int) {
 //
 // Todo se calcula a medida que hace falta, no al crear el buscador: un
 // buscador que encuentra un enlace cerca del principio no paga el resto del
-// texto. Eso importa a FindInlineLinkIndex, que los generadores llaman una
-// vez por enlace sobre lo que queda de la línea.
+// texto. Las memorias viven en el buscador, así que solo sirven a quien
+// recorre un texto con el mismo buscador; FindInlineLinkIndex crea uno por
+// llamada (ver su comentario).
 //
 // Las memorias suponen que las búsquedas avanzan, que es como lo usan
 // replaceInlineLinks y hideLinkDestinations (cada find empieza donde terminó
@@ -1009,9 +1010,16 @@ func (a *attrsScanner) fill(start, end int) {
 // de s, Markdown crudo, en la forma de regexp.FindStringSubmatchIndex: grupo
 // 1 la etiqueta, grupo 2 el destino (sin <...> ni título) y grupo 3 el
 // título (-1, -1 si no lleva), o nil si no hay ninguno. Exportado para los
-// generadores que recorren el Markdown inline con sus propios patrones (el
-// DOCX de doclang), de modo que reconozcan los mismos enlaces que el
-// renderer HTML sin mantener una copia del regex.
+// generadores que recorren el Markdown inline con sus propios patrones, de
+// modo que reconozcan los mismos enlaces que el renderer HTML sin mantener
+// una copia del regex.
+//
+// Cada llamada empieza de cero: una apertura sin cierre se lee hasta el final
+// del texto. Llamarla en un bucle sobre lo que queda de una línea (un enlace
+// por vuelta) es cuadrático en el peor caso; quien recorre todos los enlaces
+// de un texto tiene que usar un solo buscador para todo el recorrido, como
+// replaceInlineLinks (o, en doclang y slidelang, el linkScanner de
+// link_destinations.go).
 func FindInlineLinkIndex(s string) []int {
 	loc, _ := newLinkFinder(s, false, false).find(0)
 	return loc

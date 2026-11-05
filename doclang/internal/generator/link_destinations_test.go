@@ -4,7 +4,13 @@
 package generator
 
 import (
+	"bytes"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -275,4 +281,34 @@ func assertLinear(t *testing.T, name string, f func(string), gen func(int) strin
 		}
 	}
 	t.Errorf("%s: %v con n=%d y %v con 4n (más que lineal)", name, t1, n, t4)
+}
+
+// link_destinations.go tiene una copia en slidelang/internal/generator: las dos
+// tienen que ser el mismo código, salvo los comentarios. Fuera del monorepo
+// (el módulo descargado solo) la copia no está y la prueba se salta.
+//
+// Las dos copias existen porque los CLIs compilan contra el core publicado,
+// que no exporta su buscador. Cuando los dos se suban a core v2.49.3 (que ya
+// es lineal), maskLinkDestinations y los recorridos de imágenes pueden volver
+// a la API de core y las copias se borran.
+func TestLinkDestinationsTwinIsIdentical(t *testing.T) {
+	twin := filepath.Join("..", "..", "..", "slidelang", "internal", "generator", "link_destinations.go")
+	if _, err := os.Stat(twin); err != nil {
+		t.Skipf("sin la copia gemela: %v", err)
+	}
+	code := func(path string) string {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b bytes.Buffer
+		if err := printer.Fprint(&b, fset, f); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	if code("link_destinations.go") != code(twin) {
+		t.Fatalf("link_destinations.go difiere de %s fuera de los comentarios", twin)
+	}
 }
