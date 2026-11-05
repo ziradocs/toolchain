@@ -143,6 +143,11 @@ var (
 	// texto de `[x](javascript:alert(1))` y truncaba el href de
 	// https://es.wikipedia.org/wiki/Foo_(bar). El destino lo recorre
 	// ScanLinkDestination (inline_links.go) desde replaceInlineLinks.
+	//
+	// Los dos quedan como la definición de la apertura: linkFinder.nextOpen
+	// la busca sin regex (ejecutado desde cada candidato, el regex volvía a
+	// recorrer la etiqueta y "[[[…](b" era cuadrático), y las pruebas
+	// comparan su resultado con el de estos patrones.
 	inlineLinkPattern = regexp.MustCompile(`\[([^\]]+)\]\(`)
 	// inlineImagePattern reconoce ![alt](src) — mismo par corchete+paréntesis
 	// que el enlace, con el "!" como único distintivo. Corre ANTES del
@@ -718,7 +723,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// ![alt](img) dentro de un enlace [![alt](img)](url) resuelva bien, y
 	// para que una imagen en una celda de tabla o un caption ya no
 	// degrade a corchetes/paréntesis literales (F8 del audit 2026-09-11).
-	text = replaceInlineLinks(text, inlineImagePattern, func(m inlineLinkMatch) string {
+	text = replaceInlineLinks(text, true, func(m inlineLinkMatch) string {
 		match, alt, src, title := m.match, m.label, m.dest, m.title
 		// alt, a diferencia de linkText, se interpola dentro de un
 		// atributo ("alt=\"...\""), no como contenido. El texto del autor
@@ -770,7 +775,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// El destino lo delimita replaceInlineLinks con paréntesis balanceados
 	// (ver ScanLinkDestination). Con esquema no permitido se emite solo el
 	// texto del enlace, y el linter lo reporta como LINK001.
-	text = replaceInlineLinks(text, inlineLinkPattern, func(m inlineLinkMatch) string {
+	text = replaceInlineLinks(text, false, func(m inlineLinkMatch) string {
 		match, linkText, linkURL, title := m.match, m.label, m.dest, m.title
 		// issue #63 code review finding #8: mismo chequeo que las pasadas de
 		// span — ver bracketContentTagsBalanced. linkText, no linkURL: la URL
@@ -926,8 +931,8 @@ func hideLinkDestinations(text string) (string, []string) {
 		return text, nil
 	}
 	var ranges [][2]int
-	collect := func(s string, open *regexp.Regexp, mask []byte) {
-		f := newLinkFinder(s, open, true)
+	collect := func(s string, image bool, mask []byte) {
+		f := newLinkFinder(s, image, true)
 		for from := 0; from < len(s); {
 			loc, _ := f.find(from)
 			if loc == nil {
@@ -946,10 +951,10 @@ func hideLinkDestinations(text string) (string, []string) {
 	links := text
 	if strings.Contains(text, "![") {
 		mask := []byte(text)
-		collect(text, inlineImagePattern, mask)
+		collect(text, true, mask)
 		links = string(mask)
 	}
-	collect(links, inlineLinkPattern, nil)
+	collect(links, false, nil)
 	if len(ranges) == 0 {
 		return text, nil
 	}
@@ -997,9 +1002,6 @@ var zdcRawSentinelPattern = regexp.MustCompile(`<zdc(\d+)/>`)
 // emitida seguido, sin espacio, de un bloque de atributos {clave=valor ...}
 // (texto ya escapado: las comillas llegan como &quot;).
 var inlineImageAttrsPattern = regexp.MustCompile(`(<zde\d+/>)` + inlineAttrsBody)
-
-// inlineAttrsPrefix es el mismo bloque al inicio de un texto.
-var inlineAttrsPrefix = regexp.MustCompile(`^` + inlineAttrsBody)
 
 const inlineAttrsBody = `\{(?:\s*[A-Za-z][\w-]*=(?:&quot;[^&}]*&quot;|[^\s}]+))+\s*\}`
 
