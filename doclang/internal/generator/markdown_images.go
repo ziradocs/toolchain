@@ -11,8 +11,6 @@ import (
 	"go.ziradocs.com/core/v2/renderer"
 )
 
-var markdownImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
-
 // MarkdownImageDestinations envuelve en <...> la ruta de cada ![alt](dest)
 // de md que lleva espacios sin estar ya entre <...>, fuera de los code
 // spans. El renderer HTML y el DOCX aceptan `![](a b.png)` (con el core
@@ -21,9 +19,27 @@ var markdownImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
 // sobre todo cuando una imagen de un archivo incluido se reescribe relativa
 // al archivo raíz y la carpeta del incluido tiene espacios.
 func MarkdownImageDestinations(md string) string {
+	return RewriteInlineImageDestinations(md, angleDestination)
+}
+
+// RewriteInlineImageDestinations cambia el destino de cada ![alt](dest) de
+// un texto Markdown inline, fuera de los code spans, por lo que devuelva
+// rewrite. dest es el destino crudo que reconoce el renderer
+// (renderer.ScanLinkDestination): una ruta, opcionalmente entre <...> y
+// seguida de un título. Lo usan la salida Markdown (MarkdownImageDestinations)
+// y el rebase de @include.
+//
+// Una apertura "![alt](" cuyo destino no cierra se copia tal cual y la
+// lectura sigue después de su "(". La apertura y el destino los lee un solo
+// linkScanner (la misma gramática que core), así que el recorrido es lineal:
+// con renderer.ScanLinkDestination desde cada apertura, "![a](b" repetido
+// era cuadrático, y con el regex de apertura anclado en cada "![" también lo
+// era "![![![…".
+func RewriteInlineImageDestinations(md string, rewrite func(dest string) string) string {
 	if !strings.Contains(md, "![") {
 		return md
 	}
+	images := newLinkScanner(md, true)
 	var b strings.Builder
 	i := 0
 	for i < len(md) {
@@ -33,22 +49,21 @@ func MarkdownImageDestinations(md string) string {
 			b.WriteString(md[i:end])
 			i = end
 		case strings.HasPrefix(md[i:], "!["):
-			m := markdownImageOpen.FindStringIndex(md[i:])
-			if m == nil {
+			openEnd, ok := images.openAt(i)
+			if !ok {
 				b.WriteString("![")
 				i += 2
 				continue
 			}
-			openEnd := i + m[1]
-			dest, n, ok := renderer.ScanLinkDestination(md[openEnd:])
+			n, ok := images.destEnd(openEnd)
 			if !ok {
 				b.WriteString(md[i:openEnd])
 				i = openEnd
 				continue
 			}
 			b.WriteString(md[i:openEnd])
-			b.WriteString(angleDestination(dest))
-			b.WriteString(md[openEnd+len(dest) : openEnd+n])
+			b.WriteString(rewrite(md[openEnd : openEnd+n-1]))
+			b.WriteString(md[openEnd+n-1 : openEnd+n])
 			i = openEnd + n
 		default:
 			b.WriteByte(md[i])

@@ -336,44 +336,8 @@ func (r *assetRebaser) inline(text string, line int) string {
 // <...> y seguida de un título; solo se cambia la ruta (ver
 // rebaseDestination).
 func (f *field) inline(text string) string {
-	if !strings.Contains(text, "![") {
-		return text
-	}
-	var b strings.Builder
-	i := 0
-	for i < len(text) {
-		switch {
-		case text[i] == '`':
-			end := generator.MarkdownCodeSpanEnd(text, i)
-			b.WriteString(text[i:end])
-			i = end
-		case strings.HasPrefix(text[i:], "!["):
-			m := inlineImageOpen.FindStringIndex(text[i:])
-			if m == nil {
-				b.WriteString("![")
-				i += 2
-				continue
-			}
-			openEnd := i + m[1]
-			dest, n, ok := renderer.ScanLinkDestination(text[openEnd:])
-			if !ok {
-				b.WriteString(text[i:openEnd])
-				i = openEnd
-				continue
-			}
-			b.WriteString(text[i:openEnd])
-			b.WriteString(f.rebaseDestination(dest))
-			b.WriteString(text[openEnd+len(dest) : openEnd+n])
-			i = openEnd + n
-		default:
-			b.WriteByte(text[i])
-			i++
-		}
-	}
-	return b.String()
+	return generator.RewriteInlineImageDestinations(text, f.rebaseDestination)
 }
-
-var inlineImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
 
 // commonMarkDestinations dice si el core enlazado lee los destinos como
 // CommonMark (core > v2.49.0): <...> delimita una ruta con espacios (y puede

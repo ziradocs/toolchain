@@ -1791,31 +1791,44 @@ func (g *DOCXGenerator) renderInlineMarkdown(p domain.Paragraph, content string)
 // corre sobre cada run creado — el patrón de idioma lo usa para propagar
 // SetLanguage a cada run que produzca su recursión sobre el texto interno.
 //
-// find, cuando no es nil, reemplaza a regex para ubicar el match y devuelve
-// los índices con la misma forma que regexp.FindStringSubmatchIndex. Existe
+// scan, cuando no es nil, reemplaza a regex para ubicar el match: recibe el
+// texto completo que recorre el walker y devuelve una función que da el
+// primer match que empieza en from o después, en índices absolutos con la
+// misma forma que regexp.FindStringSubmatchIndex (nil si no hay). Existe
 // para los patterns que un regex no puede describir: el de links necesita
 // leer el destino hasta el ")" que balancea los paréntesis abiertos adentro.
+// La función se llama con from creciente, y puede (debe) aprovecharlo para
+// no recorrer el texto más de una vez.
 //
 // emphasis marca la negrita y la cursiva: su regex se busca sobre el texto
 // con los destinos y títulos de imágenes y enlaces tapados (ver
 // docxMaskLinkDestinations), que el walker arma una vez por texto.
 type docxInlinePattern struct {
 	regex    *regexp.Regexp
-	find     func(s string) []int
+	scan     func(content string) func(from int) []int
 	emphasis bool
 	apply    func(p domain.Paragraph, text string, extra string, matchedText string, postRun func(r domain.Run) error) error
 }
 
-// index ubica el próximo match del pattern en s. masked es s con los
-// destinos tapados, del mismo largo.
-func (pt *docxInlinePattern) index(s, masked string) []int {
-	if pt.find != nil {
-		return pt.find(s)
+// matcher devuelve la búsqueda del pattern sobre content (ver scan); masked
+// es content con los destinos tapados, del mismo largo.
+func (pt *docxInlinePattern) matcher(content, masked string) func(from int) []int {
+	if pt.scan != nil {
+		return pt.scan(content)
 	}
+	hay := content
 	if pt.emphasis {
-		return pt.regex.FindStringSubmatchIndex(masked)
+		hay = masked
 	}
-	return pt.regex.FindStringSubmatchIndex(s)
+	return func(from int) []int {
+		loc := pt.regex.FindStringSubmatchIndex(hay[from:])
+		for i := range loc {
+			if loc[i] >= 0 {
+				loc[i] += from
+			}
+		}
+		return loc
+	}
 }
 
 // docxSimpleRunApply factoriza el patrón de los patterns "de un solo run"
@@ -1985,73 +1998,75 @@ func (g *DOCXGenerator) docxLinkPattern() docxInlinePattern {
 		// [x](javascript:alert(1)) dejaban un ")" suelto en el .docx que el
 		// HTML del mismo documento no tiene. Un destino sin cierre
 		// balanceado no es un link y queda literal, igual que en HTML.
-		find:  docxFindInlineLink,
+		scan:  docxScanInlineLinks,
 		apply: g.docxApplyLink,
 	}
 }
 
-// docxFindInlineLink es renderer.FindInlineLinkIndex sobre s con las imágenes
-// inline enmascaradas. El HTML resuelve las imágenes en una pasada ANTES que
-// los links, así que una imagen es atómica para el link: en
-// [![alt](img.png)](url) la etiqueta es la imagen entera y el destino es url.
-// Sin esa pasada, el patrón de link tomaba "![alt" como etiqueta e "img.png"
-// como destino, y el destino de afuera quedaba como texto en el .docx. Cada
-// imagen se reemplaza por relleno del mismo largo, sin corchetes ni
-// paréntesis, de modo que los índices sirven tal cual sobre s y la sintaxis
-// del link la sigue decidiendo core.
-func docxFindInlineLink(s string) []int {
-	if !strings.Contains(s, "![") {
-		return renderer.FindInlineLinkIndex(s)
-	}
-	masked := []byte(s)
-	for pos := 0; pos < len(s); {
-		loc := docxFindInlineImage(s[pos:])
-		if loc == nil {
-			break
+// docxScanInlineLinks busca los links de content con las imágenes inline
+// enmascaradas: es renderer.FindInlineLinkIndex (con el linkScanner local,
+// que lee lo mismo) sobre el texto con cada imagen reemplazada por relleno
+// del mismo largo, sin corchetes ni paréntesis. El HTML resuelve las imágenes
+// en una pasada ANTES que los links, así que una imagen es atómica para el
+// link: en [![alt](img.png)](url) la etiqueta es la imagen entera y el
+// destino es url. Sin esa pasada, el patrón de link tomaba "![alt" como
+// etiqueta e "img.png" como destino, y el destino de afuera quedaba como
+// texto en el .docx.
+//
+// Las imágenes se enmascaran una vez, desde el principio de content, como en
+// el HTML. Antes se enmascaraban en cada paso del walker desde la posición
+// actual, recorriendo todo lo que quedaba (cuadrático con muchos tramos en un
+// párrafo). La única diferencia es cuando otro tramo (negrita, código) corta
+// una imagen por la mitad, como en "**x ![a**](b)": antes se volvían a buscar
+// links en lo que quedaba de esa imagen y ahora no.
+func docxScanInlineLinks(content string) func(from int) []int {
+	masked := content
+	if strings.Contains(content, "![") {
+		b := []byte(content)
+		next := docxScanInlineImages(content)
+		for pos := 0; pos < len(content); {
+			loc := next(pos)
+			if loc == nil {
+				break
+			}
+			for i := loc[0]; i < loc[1]; i++ {
+				b[i] = 'x'
+			}
+			pos = loc[1]
 		}
-		for i := pos + loc[0]; i < pos+loc[1]; i++ {
-			masked[i] = 'x'
-		}
-		pos += loc[1]
+		masked = string(b)
 	}
-	return renderer.FindInlineLinkIndex(string(masked))
+	links := newLinkScanner(masked, false)
+	return func(from int) []int {
+		loc, _ := links.find(from)
+		return loc
+	}
 }
 
-// docxInlineImageOpen es la apertura de una imagen inline, la misma que
-// inlineImagePattern en core/renderer/sanitizer.go (no exportado). El destino
-// se lee con renderer.ScanLinkDestination, que sí lo está, así que la regla de
-// paréntesis balanceados es la de core.
-var docxInlineImageOpen = regexp.MustCompile(`!\[([^\]]*)\]\(`)
-
-// docxInlineImageAttrs es un bloque de atributos {clave=valor ...} pegado al
-// ")" de una imagen inline.
-var docxInlineImageAttrs = regexp.MustCompile(`^\{(?:\s*[A-Za-z][\w-]*=(?:"[^"}]*"|[^\s}]+))+\s*\}`)
-
-// docxFindInlineImage devuelve los índices de la primera imagen ![alt](src)
-// de s con destino balanceado, con la forma de regexp.FindStringSubmatchIndex
-// (grupo 1 el alt, grupo 2 el destino), o nil si no hay ninguna. Una apertura
-// sin destino válido se salta, igual que en el renderer HTML.
-func docxFindInlineImage(s string) []int {
-	for search := 0; search < len(s); {
-		loc := docxInlineImageOpen.FindStringSubmatchIndex(s[search:])
+// docxScanInlineImages busca las imágenes ![alt](src) de content con destino
+// balanceado y devuelve, para la primera desde from, los índices con la forma
+// de regexp.FindStringSubmatchIndex (grupo 1 el alt, grupo 2 el destino
+// crudo, el de renderer.ScanLinkDestination). Una apertura sin destino válido
+// se salta, igual que en el renderer HTML. La apertura y el destino los lee
+// el linkScanner local, que lee lo mismo que core.
+func docxScanInlineImages(content string) func(from int) []int {
+	images := newLinkScanner(content, true)
+	attrs := attrsScanner{text: content, quote: `"`}
+	return func(from int) []int {
+		loc, _ := images.find(from)
 		if loc == nil {
 			return nil
 		}
-		start := search + loc[0]
-		openEnd := search + loc[1]
-		if dest, n, ok := renderer.ScanLinkDestination(s[openEnd:]); ok {
-			end := openEnd + n
-			// Atributos {width=30%} pegados a la imagen: no se representan
-			// en el DOCX y se consumen, igual que en el HTML, para que no
-			// salgan como texto.
-			if m := docxInlineImageAttrs.FindStringIndex(s[end:]); m != nil {
-				end += m[1]
-			}
-			return []int{start, end, search + loc[2], search + loc[3], openEnd, openEnd + len(dest)}
+		end := loc[1]
+		// Atributos {width=30%} pegados a la imagen: no se representan en
+		// el DOCX y se consumen, igual que en el HTML, para que no salgan
+		// como texto.
+		if e, ok := attrs.blockEnd(end); ok {
+			end = e
 		}
-		search = start + 1
+		openEnd := loc[3] + 2
+		return []int{loc[0], end, loc[2], loc[3], openEnd, loc[1] - 1}
 	}
-	return nil
 }
 
 // docxImagePattern inserta una imagen inline ![alt](src) de un párrafo, un
@@ -2064,7 +2079,7 @@ func docxFindInlineImage(s string) []int {
 // alt (el DOCX no descarga nada), y un alt vacío no deja nada.
 func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
 	return docxInlinePattern{
-		find: docxFindInlineImage,
+		scan: docxScanInlineImages,
 		apply: func(p domain.Paragraph, alt string, dest string, _ string, postRun func(r domain.Run) error) error {
 			text := alt
 			if src, local := docxLocalImageSource(dest); local {
@@ -2284,7 +2299,7 @@ func (g *DOCXGenerator) docxLangPattern() docxInlinePattern {
 // primero para evitar procesar ** dentro de `). Imagen y link no dependen
 // del orden: el walker se queda con el match que empieza primero, un link
 // que contiene una imagen empieza en su "[" (antes que la imagen), y
-// docxFindInlineLink enmascara las imágenes, así que nunca devuelve un link
+// docxScanInlineLinks enmascara las imágenes, así que nunca devuelve un link
 // que empiece adentro de una.
 func (g *DOCXGenerator) docxInlinePatterns() []docxInlinePattern {
 	return []docxInlinePattern{
@@ -2354,91 +2369,95 @@ func (g *DOCXGenerator) docxApplyLangSpan(p domain.Paragraph, text string, lang 
 // un span de idioma) lo reciben porque cada apply lo recibe como argumento
 // y decide propagarlo, no porque este walk los toque directamente.
 func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content string, patterns []docxInlinePattern, postRun func(r domain.Run) error) error {
-	remaining := content
-	masked := docxMaskLinkDestinations(content)
-	pos := 0
-
-	for pos < len(remaining) {
-		// Buscar el próximo match de cualquier pattern
-		minPos := len(remaining)
-		var matchedPattern *docxInlinePattern
-		var matchedText string
-		var matchedInner string
-		var matchedExtra string
-
-		for i := range patterns {
-			pattern := &patterns[i]
-			loc := pattern.index(remaining[pos:], masked[pos:])
-			if loc != nil && loc[0] < minPos {
-				minPos = loc[0]
-				matchedPattern = pattern
-				matchedText = remaining[pos+loc[0] : pos+loc[1]]
-				matchedInner = ""
-				matchedExtra = ""
-				if len(loc) >= 4 {
-					matchedInner = remaining[pos+loc[2] : pos+loc[3]]
-				}
-				if len(loc) >= 6 {
-					matchedExtra = remaining[pos+loc[4] : pos+loc[5]]
-				}
+	for _, seg := range docxInlineSegments(content, patterns) {
+		if seg.pattern >= 0 {
+			if err := patterns[seg.pattern].apply(p, seg.inner, seg.extra, content[seg.start:seg.end], postRun); err != nil {
+				return err
 			}
+			continue
 		}
-
-		// Agregar texto antes del match
-		if minPos > 0 {
-			// Validar límites antes de slicing
-			endPos := pos + minPos
-			if endPos > len(remaining) {
-				endPos = len(remaining)
-			}
-			r, err := p.AddRun()
-			if err != nil {
-				return err
-			}
-			_ = r.SetText(remaining[pos:endPos])
-			if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-				return err
-			}
-			_ = r.SetColor(g.parseColor(g.style.TextColor))
-			_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-			if postRun != nil {
-				if err := postRun(r); err != nil {
-					return err
-				}
-			}
-			pos += minPos
+		r, err := p.AddRun()
+		if err != nil {
+			return err
 		}
-
-		// Agregar texto con formato
-		if matchedPattern != nil {
-			if err := matchedPattern.apply(p, matchedInner, matchedExtra, matchedText, postRun); err != nil {
+		_ = r.SetText(content[seg.start:seg.end])
+		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
+			return err
+		}
+		_ = r.SetColor(g.parseColor(g.style.TextColor))
+		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
+		if postRun != nil {
+			if err := postRun(r); err != nil {
 				return err
 			}
-			pos += len(matchedText)
-		} else {
-			// No más matches, agregar el resto
-			if pos < len(remaining) {
-				r, err := p.AddRun()
-				if err != nil {
-					return err
-				}
-				_ = r.SetText(remaining[pos:])
-				if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
-					return err
-				}
-				_ = r.SetColor(g.parseColor(g.style.TextColor))
-				_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
-				if postRun != nil {
-					if err := postRun(r); err != nil {
-						return err
-					}
-				}
-			}
-			break
 		}
 	}
-
 	return nil
+}
+
+// docxInlineSegment es un tramo de content: texto de relleno (pattern -1) o
+// el match de patterns[pattern], con su texto interno (grupo 1) y el segundo
+// grupo (extra), si el pattern lo tiene.
+type docxInlineSegment struct {
+	pattern    int
+	start, end int
+	inner      string
+	extra      string
+}
+
+// docxInlineSegments parte content en tramos: en cada posición gana el
+// pattern cuyo próximo match empieza primero (a igualdad, el que va antes en
+// patterns), lo de antes es relleno y se sigue después del match.
+//
+// El próximo match de cada pattern se guarda y solo se vuelve a buscar
+// cuando la posición lo pasa: antes cada paso volvía a buscar todos los
+// patterns sobre todo lo que quedaba, y un párrafo con muchos tramos (o un
+// pattern sin ningún match) era cuadrático. Es el mismo resultado, porque
+// ningún pattern mira lo que hay antes de donde empieza su match: el primer
+// match desde una posición anterior que empieza en esta o después es también
+// el primero desde esta, y si desde antes no había ninguno, tampoco ahora.
+func docxInlineSegments(content string, patterns []docxInlinePattern) []docxInlineSegment {
+	masked := docxMaskLinkDestinations(content)
+	type cursor struct {
+		next   func(from int) []int
+		loc    []int
+		search bool
+	}
+	cursors := make([]cursor, len(patterns))
+	for i := range patterns {
+		cursors[i].next = patterns[i].matcher(content, masked)
+		cursors[i].search = true
+	}
+	var segs []docxInlineSegment
+	for pos := 0; pos < len(content); {
+		best, bestLoc := -1, []int(nil)
+		for i := range cursors {
+			c := &cursors[i]
+			if c.search || c.loc != nil && c.loc[0] < pos {
+				c.loc, c.search = c.next(pos), false
+			}
+			if c.loc != nil && (bestLoc == nil || c.loc[0] < bestLoc[0]) {
+				best, bestLoc = i, c.loc
+			}
+		}
+		if bestLoc == nil {
+			segs = append(segs, docxInlineSegment{pattern: -1, start: pos, end: len(content)})
+			break
+		}
+		if bestLoc[0] > pos {
+			segs = append(segs, docxInlineSegment{pattern: -1, start: pos, end: bestLoc[0]})
+		}
+		seg := docxInlineSegment{pattern: best, start: bestLoc[0], end: bestLoc[1]}
+		if len(bestLoc) >= 4 {
+			seg.inner = content[bestLoc[2]:bestLoc[3]]
+		}
+		if len(bestLoc) >= 6 {
+			seg.extra = content[bestLoc[4]:bestLoc[5]]
+		}
+		segs = append(segs, seg)
+		pos = bestLoc[1]
+	}
+	return segs
 }
 
 func (g *DOCXGenerator) renderCode(doc domain.Document, elem *ast.CodeElement) error {
