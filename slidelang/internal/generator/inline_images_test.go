@@ -5,10 +5,14 @@ package generator
 
 import (
 	"encoding/base64"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -79,4 +83,81 @@ func TestInlineLocalInlineImages_Confined(t *testing.T) {
 	if got := inlineLocalInlineImages(tag, ctx); got != tag {
 		t.Errorf("una ruta fuera de la raíz se incrustó: %s", got)
 	}
+}
+
+// slideInlineImageTagOracle es el regex con el que se resolvía antes.
+var slideInlineImageTagOracle = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)"((?: title="[^"]*")?)>`)
+
+// El recorrido sin regex reconoce los mismos tags que el regex anterior.
+func TestInlineLocalInlineImages_MatchesRegex(t *testing.T) {
+	dir := t.TempDir()
+	png, _ := base64.StdEncoding.DecodeString(onePixelPNG)
+	if err := os.WriteFile(filepath.Join(dir, "a.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := renderer.NewDefaultRenderContext()
+	ctx.ImageMode, ctx.AssetRoot = "offline-inline", dir
+	oracle := func(html string) string {
+		return slideInlineImageTagOracle.ReplaceAllStringFunc(html, func(tag string) string {
+			m := slideInlineImageTagOracle.FindStringSubmatch(tag)
+			uri, ok := renderer.TryInlineLocalImage(renderer.UnescapeHTML(m[1]), ctx)
+			if !ok {
+				return tag
+			}
+			return `<img src="` + uri + `" alt="` + m[2] + `"` + m[3] + `>`
+		})
+	}
+	parts := []string{`<img src="`, `a.png`, `no.png`, `data:image/png;base64,AA`, `"`, ` alt="`, `x`, ` title="`, `>`, ` `, `<img `, `<p>`}
+	r := rand.New(rand.NewSource(10))
+	for i := 0; i < 20000; i++ {
+		var b strings.Builder
+		for n := 1 + r.Intn(16); n > 0; n-- {
+			b.WriteString(parts[r.Intn(len(parts))])
+		}
+		s := b.String()
+		if got, want := inlineLocalInlineImages(s, ctx), oracle(s); got != want {
+			t.Fatalf("%q:\n %q\n regex %q", s, got, want)
+		}
+	}
+}
+
+// Las imágenes de bloque ya incrustadas (data: URI grandes) no se recorren
+// con el regex, y una misma imagen inline repetida se lee una vez: el tiempo
+// crece con el HTML, no con imágenes por tamaño.
+func TestInlineLocalInlineImages_ScalesLinearly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("mide tiempos")
+	}
+	dir := t.TempDir()
+	png, _ := base64.StdEncoding.DecodeString(onePixelPNG)
+	if err := os.WriteFile(filepath.Join(dir, "a.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := renderer.NewDefaultRenderContext()
+	ctx.ImageMode, ctx.AssetRoot = "offline-inline", dir
+	big := `<img src="data:image/png;base64,` + strings.Repeat("A", 1<<18) + `" alt="b">`
+	best := func(s string) time.Duration {
+		d := time.Duration(1 << 62)
+		for i := 0; i < 3; i++ {
+			runtime.GC()
+			st := time.Now()
+			inlineLocalInlineImages(s, ctx)
+			if e := time.Since(st); e < d {
+				d = e
+			}
+		}
+		return d
+	}
+	gen := func(n int) string {
+		return strings.Repeat(big+`<p>Texto <img src="a.png" alt="x"> fin</p>`, n)
+	}
+	small, large := gen(16), gen(64)
+	var t1, t4 time.Duration
+	for a := 0; a < 3; a++ {
+		t1, t4 = best(small), best(large)
+		if t4 < 10*t1 {
+			return
+		}
+	}
+	t.Errorf("%v con 16 y %v con 64", t1, t4)
 }

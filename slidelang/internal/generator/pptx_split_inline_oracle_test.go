@@ -222,7 +222,9 @@ func TestPptxSplitInlineScalesLinearly(t *testing.T) {
 		t.Skip("mide tiempos")
 	}
 	for name, gen := range map[string]func(n int) string{
-		"tramos":       func(n int) string { return strings.Repeat("Texto [a](https://e.com/p?a=1&b=2) y ![i](img/a.png \"t\") *é* ", n) },
+		"tramos": func(n int) string {
+			return strings.Repeat("Texto [a](https://e.com/p?a=1&b=2) y ![i](img/a.png \"t\") *é* ", n)
+		},
 		"[a](b":        func(n int) string { return strings.Repeat("[a](b", n) },
 		"énfasis":      func(n int) string { return strings.Repeat("*a* **b** ", n) },
 		"idioma largo": func(n int) string { return "[" + strings.Repeat("*a* ", n) + "]{lang=fr}" },
