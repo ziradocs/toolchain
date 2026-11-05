@@ -1,7 +1,7 @@
 {
   "name": "doclang-vscode",
-  "displayName": "DocLang Preview",
-  "description": "Real-time preview for DocLang markdown documents",
+  "displayName": "DocLang Preview (deprecated)",
+  "description": "Deprecated: replaced by the official Ziraflow extension for VS Code. Real-time preview for DocLang markdown documents",
   "version": "0.1.0",
   "publisher": "ziradocs",
   "license": "Apache-2.0",

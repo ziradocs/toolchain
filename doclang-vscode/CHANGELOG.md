@@ -2,6 +2,12 @@
 
 All notable changes to the "doclang-vscode" extension will be documented in this file.
 
+## [Unreleased]
+
+### Deprecated
+- The extension is no longer maintained. The official Ziraflow extension for
+  VS Code replaces it.
+
 ## [0.1.0] - 2025-10-10
 
 ### Added
