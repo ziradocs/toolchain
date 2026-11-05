@@ -12,6 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/codespan"
 	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/layouts"
 )
@@ -755,43 +756,11 @@ func precedingBackslashRunLength(runes []rune, i int) int {
 // espejo en elements.codeSpanRanges — ver el comentario de esa función
 // para el precedente del spec de CommonMark).
 func codeSpanRunRanges(runes []rune) []bool {
-	n := len(runes)
-	inSpan := make([]bool, n)
+	inSpan := make([]bool, len(runes))
 	escaped := backslashEscapedRunes(runes)
-	i := 0
-	for i < n {
-		if runes[i] != '`' || escaped[i] {
-			i++
-			continue
-		}
-		start := i
-		for i < n && runes[i] == '`' {
-			i++
-		}
-		openLen := i - start
-
-		j := i
-		matched := false
-		for j < n {
-			if runes[j] != '`' {
-				j++
-				continue
-			}
-			closeStart := j
-			for j < n && runes[j] == '`' {
-				j++
-			}
-			if j-closeStart == openLen {
-				for k := start; k < j; k++ {
-					inSpan[k] = true
-				}
-				i = j
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
+	for _, sp := range codespan.Find(runes, func(i int) bool { return escaped[i] }) {
+		for k := sp.OpenStart; k < sp.CloseEnd; k++ {
+			inSpan[k] = true
 		}
 	}
 	return inSpan

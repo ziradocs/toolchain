@@ -142,20 +142,50 @@ func rewriteInlineHTML(line string) string {
 		masked = rw.re.ReplaceAllString(masked, rw.repl)
 	}
 
-	for i, original := range protected {
+	if len(protected) == 0 {
+		return masked
+	}
+	// Los centinelas vuelven en una sola pasada. Antes era un strings.Replace
+	// por tramo, que recorría la línea entera cada vez: "`c` " repetido
+	// 80 000 veces tardaba 30 s. Cada centinela se cambia una sola vez, en
+	// su primera aparición, como hacía ese Replace(…, 1).
+	used := make([]bool, len(protected))
+	var b strings.Builder
+	b.Grow(len(masked))
+	for {
+		k := strings.Index(masked, sentinelPrefix)
+		if k < 0 {
+			b.WriteString(masked)
+			return b.String()
+		}
+		b.WriteString(masked[:k])
+		rest := masked[k+len(sentinelPrefix):]
+		d := 0
+		for d < len(rest) && rest[d] >= '0' && rest[d] <= '9' {
+			d++
+		}
+		i, err := strconv.Atoi(rest[:d])
+		if d == 0 || d >= len(rest) || rest[d] != '\x00' || err != nil || i >= len(protected) || used[i] {
+			b.WriteString(sentinelPrefix)
+			masked = rest
+			continue
+		}
+		used[i] = true
 		// Un `<code>` de interior limpio se pasa a backticks (la forma
 		// canónica); uno con tags adentro vuelve tal cual, porque convertirlo
 		// arrastraría su contenido a una reinterpretación. Un tramo que ya
 		// venía entre backticks siempre vuelve igual.
-		replacement := original
+		original := protected[i]
 		if m := cleanCodeContent.FindStringSubmatch(original); m != nil {
-			replacement = "`" + m[1] + "`"
+			original = "`" + m[1] + "`"
 		}
-		masked = strings.Replace(masked, codeSentinel(i), replacement, 1)
+		b.WriteString(original)
+		masked = rest[d+1:]
 	}
-
-	return masked
 }
+
+// sentinelPrefix es el comienzo de codeSentinel.
+const sentinelPrefix = "\x00zdcode"
 
 // codeSentinel produce un marcador que no puede aparecer en prosa real ni ser
 // tocado por las reescrituras de arriba (no tiene `<`, `[` ni backticks).

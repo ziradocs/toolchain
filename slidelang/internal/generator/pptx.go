@@ -778,6 +778,46 @@ func applySpanTokens(text string, base pptxInlineSegment) []pptxInlineSegment {
 	return out
 }
 
+// pptxCursor guarda el próximo match de re en hay y solo lo vuelve a buscar
+// cuando la posición del recorrido lo pasa. pptxSplitInline y pptxSplitBasic
+// buscaban todos sus patrones sobre lo que quedaba del texto en cada paso, y
+// un párrafo con muchos tramos (o un patrón sin ningún match, que recorre
+// todo lo que queda cada vez) era cuadrático. El resultado es el mismo
+// porque ninguno de estos regex mira lo que hay antes de donde empieza su
+// match: el primer match desde una posición anterior que empieza en esta o
+// después es también el primero desde esta, y si desde antes no había
+// ninguno, tampoco ahora.
+type pptxCursor struct {
+	re       *regexp.Regexp
+	hay      string
+	loc      []int // absoluto
+	searched bool
+}
+
+// at es re.FindStringSubmatchIndex(hay[pos:]), con índices relativos a pos.
+// pos no puede retroceder entre llamadas.
+func (c *pptxCursor) at(pos int) []int {
+	if !c.searched || c.loc != nil && c.loc[0] < pos {
+		c.loc, c.searched = c.re.FindStringSubmatchIndex(c.hay[pos:]), true
+		for i := range c.loc {
+			if c.loc[i] >= 0 {
+				c.loc[i] += pos
+			}
+		}
+	}
+	if c.loc == nil {
+		return nil
+	}
+	rel := make([]int, len(c.loc))
+	for i, v := range c.loc {
+		rel[i] = v
+		if v >= 0 {
+			rel[i] = v - pos
+		}
+	}
+	return rel
+}
+
 // pptxSplitBasic segmenta content en texto plano + code/bold/italic
 // solamente (sin lang) — mismo orden de prioridad que docx.go (code antes
 // que bold, para no interpretar "**" dentro de un `código`). Reusada por
@@ -787,6 +827,10 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 	var segments []pptxInlineSegment
 	remaining := content
 	pos := 0
+	cursors := make([]pptxCursor, len(pptxBasicPatterns))
+	for i, re := range pptxBasicPatterns {
+		cursors[i] = pptxCursor{re: re.re, hay: content}
+	}
 
 	for pos < len(remaining) {
 		var best *struct {
@@ -796,8 +840,8 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 		}
 		bestRelPos := len(remaining) - pos
 
-		for _, re := range pptxBasicPatterns {
-			loc := re.re.FindStringSubmatchIndex(remaining[pos:])
+		for i, re := range pptxBasicPatterns {
+			loc := cursors[i].at(pos)
 			if loc == nil || loc[0] >= bestRelPos {
 				continue
 			}
@@ -834,7 +878,7 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 // PPTX muestra los enlaces con su Markdown, `![a](img/a*b*.png)` salía con la
 // "b" en cursiva y sin los asteriscos.
 func pptxMaskLinkDestinations(content string) string {
-	return maskLinkDestinations(content, pptxCodeRe)
+	return maskLinkDestinations(content, func(s string) [][]int { return pptxCodeRe.FindAllStringIndex(s, -1) })
 }
 
 // pptxSplitInline segmenta content en texto plano + code/bold/italic/lang.
@@ -849,6 +893,17 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 	// negrita y la cursiva; el código se busca en el texto tal cual.
 	emphasis := pptxMaskLinkDestinations(content)
 	pos := 0
+	// Cada patrón guarda su próximo match y solo lo vuelve a buscar cuando
+	// pos lo pasa (ver pptxCursor).
+	basic := make([]pptxCursor, len(pptxBasicPatterns))
+	for i, re := range pptxBasicPatterns {
+		basic[i] = pptxCursor{re: re.re, hay: emphasis}
+		if re.code {
+			basic[i].hay = remaining
+		}
+	}
+	langCursor := pptxCursor{re: renderer.InlineLangSpanPattern, hay: remaining}
+	tokenCursor := pptxCursor{re: pptxSpanTokenRe, hay: remaining}
 
 	for pos < len(remaining) {
 		type basicMatch struct {
@@ -864,12 +919,8 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		// agregar un patrón más.
 		bestRelPos := len(remaining) - pos
 
-		for _, re := range pptxBasicPatterns {
-			haystack := emphasis
-			if re.code {
-				haystack = remaining
-			}
-			loc := re.re.FindStringSubmatchIndex(haystack[pos:])
+		for i, re := range pptxBasicPatterns {
+			loc := basic[i].at(pos)
 			if loc == nil || loc[0] >= bestRelPos {
 				continue
 			}
@@ -882,7 +933,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		}
 
 		var langLoc []int
-		if loc := renderer.InlineLangSpanPattern.FindStringSubmatchIndex(remaining[pos:]); loc != nil && loc[0] < bestRelPos {
+		if loc := langCursor.at(pos); loc != nil && loc[0] < bestRelPos {
 			langLoc = loc
 			bestRelPos = loc[0]
 			best = nil // el span de idioma gana sobre code/bold/italic en esta posición
@@ -892,7 +943,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 		// idioma y contra el mismo bestRelPos, así que el que empiece antes
 		// gana; los dos comparten delimitador y no pueden anidarse (el
 		// content-class de ambos excluye "[").
-		if loc := pptxSpanTokenRe.FindStringSubmatchIndex(remaining[pos:]); loc != nil && loc[0] < bestRelPos {
+		if loc := tokenCursor.at(pos); loc != nil && loc[0] < bestRelPos {
 			matchStart, matchEnd := pos+loc[0], pos+loc[1]
 			inner := remaining[pos+loc[2] : pos+loc[3]]
 			class := remaining[pos+loc[4] : pos+loc[5]]

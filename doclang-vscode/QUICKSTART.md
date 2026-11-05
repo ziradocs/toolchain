@@ -1,5 +1,8 @@
 # DocLang VS Code Extension - Quick Start Guide
 
+> **Obsoleta.** Esta extensión ya no se mantiene: la reemplaza la extensión
+> oficial de Ziraflow para VS Code. Ver el [README](README.md).
+
 ## 🚀 Inicio Rápido
 
 ### 1. Instalación

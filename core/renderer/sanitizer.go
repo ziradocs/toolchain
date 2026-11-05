@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/a11y"
+	"go.ziradocs.com/core/v2/internal/codespan"
 )
 
 // EscapeHTML escapes special HTML characters to prevent XSS attacks
@@ -143,6 +144,11 @@ var (
 	// texto de `[x](javascript:alert(1))` y truncaba el href de
 	// https://es.wikipedia.org/wiki/Foo_(bar). El destino lo recorre
 	// ScanLinkDestination (inline_links.go) desde replaceInlineLinks.
+	//
+	// Los dos quedan como la definición de la apertura: linkFinder.nextOpen
+	// la busca sin regex (ejecutado desde cada candidato, el regex volvía a
+	// recorrer la etiqueta y "[[[…](b" era cuadrático), y las pruebas
+	// comparan su resultado con el de estos patrones.
 	inlineLinkPattern = regexp.MustCompile(`\[([^\]]+)\]\(`)
 	// inlineImagePattern reconoce ![alt](src) — mismo par corchete+paréntesis
 	// que el enlace, con el "!" como único distintivo. Corre ANTES del
@@ -462,50 +468,17 @@ type codeSpanMatch struct {
 // offsets resultantes siguen siendo válidos para indexar el string
 // original — que es exactamente lo que ambos call sites necesitan (uno
 // para slicear text[...], el otro para sumar un offset en bytes).
+//
+// El emparejamiento lo hace codespan.Find, sin recorrer el resto del texto
+// por cada apertura que no cierra (antes, una barra invertida seguida de dos
+// backticks, repetido, era cuadrático).
 func findCodeSpans(text string) []codeSpanMatch {
+	if strings.Count(text, "`") < 2 {
+		return nil
+	}
 	var spans []codeSpanMatch
-	n := len(text)
-	i := 0
-	for i < n {
-		if text[i] != '`' || backslashRunIsOddBefore(text, i) {
-			i++
-			continue
-		}
-		start := i
-		for i < n && text[i] == '`' {
-			i++
-		}
-		openLen := i - start
-		contentStart := i
-
-		j := i
-		matched := false
-		for j < n {
-			if text[j] != '`' {
-				j++
-				continue
-			}
-			closeStart := j
-			for j < n && text[j] == '`' {
-				j++
-			}
-			if j-closeStart == openLen {
-				spans = append(spans, codeSpanMatch{
-					fullStart:    start,
-					fullEnd:      j,
-					contentStart: contentStart,
-					contentEnd:   closeStart,
-				})
-				i = j
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			// Sin cierre de su mismo largo: backticks literales, no
-			// delimitador. i ya quedó al final de la corrida de apertura.
-			continue
-		}
+	for _, sp := range codespan.Find([]byte(text), func(i int) bool { return backslashRunIsOddBefore(text, i) }) {
+		spans = append(spans, codeSpanMatch{fullStart: sp.OpenStart, fullEnd: sp.CloseEnd, contentStart: sp.OpenEnd, contentEnd: sp.CloseStart})
 	}
 	return spans
 }
@@ -718,7 +691,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// ![alt](img) dentro de un enlace [![alt](img)](url) resuelva bien, y
 	// para que una imagen en una celda de tabla o un caption ya no
 	// degrade a corchetes/paréntesis literales (F8 del audit 2026-09-11).
-	text = replaceInlineLinks(text, inlineImagePattern, func(m inlineLinkMatch) string {
+	text = replaceInlineLinks(text, true, func(m inlineLinkMatch) string {
 		match, alt, src, title := m.match, m.label, m.dest, m.title
 		// alt, a diferencia de linkText, se interpola dentro de un
 		// atributo ("alt=\"...\""), no como contenido. El texto del autor
@@ -770,7 +743,7 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// El destino lo delimita replaceInlineLinks con paréntesis balanceados
 	// (ver ScanLinkDestination). Con esquema no permitido se emite solo el
 	// texto del enlace, y el linter lo reporta como LINK001.
-	text = replaceInlineLinks(text, inlineLinkPattern, func(m inlineLinkMatch) string {
+	text = replaceInlineLinks(text, false, func(m inlineLinkMatch) string {
 		match, linkText, linkURL, title := m.match, m.label, m.dest, m.title
 		// issue #63 code review finding #8: mismo chequeo que las pasadas de
 		// span — ver bracketContentTagsBalanced. linkText, no linkURL: la URL
@@ -926,8 +899,8 @@ func hideLinkDestinations(text string) (string, []string) {
 		return text, nil
 	}
 	var ranges [][2]int
-	collect := func(s string, open *regexp.Regexp, mask []byte) {
-		f := newLinkFinder(s, open, true)
+	collect := func(s string, image bool, mask []byte) {
+		f := newLinkFinder(s, image, true)
 		for from := 0; from < len(s); {
 			loc, _ := f.find(from)
 			if loc == nil {
@@ -946,10 +919,10 @@ func hideLinkDestinations(text string) (string, []string) {
 	links := text
 	if strings.Contains(text, "![") {
 		mask := []byte(text)
-		collect(text, inlineImagePattern, mask)
+		collect(text, true, mask)
 		links = string(mask)
 	}
-	collect(links, inlineLinkPattern, nil)
+	collect(links, false, nil)
 	if len(ranges) == 0 {
 		return text, nil
 	}
@@ -997,9 +970,6 @@ var zdcRawSentinelPattern = regexp.MustCompile(`<zdc(\d+)/>`)
 // emitida seguido, sin espacio, de un bloque de atributos {clave=valor ...}
 // (texto ya escapado: las comillas llegan como &quot;).
 var inlineImageAttrsPattern = regexp.MustCompile(`(<zde\d+/>)` + inlineAttrsBody)
-
-// inlineAttrsPrefix es el mismo bloque al inicio de un texto.
-var inlineAttrsPrefix = regexp.MustCompile(`^` + inlineAttrsBody)
 
 const inlineAttrsBody = `\{(?:\s*[A-Za-z][\w-]*=(?:&quot;[^&}]*&quot;|[^\s}]+))+\s*\}`
 

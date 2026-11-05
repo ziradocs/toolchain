@@ -1,5 +1,9 @@
 # DocLang Preview - VS Code Extension
 
+> **Deprecated.** This extension is no longer maintained and receives no new
+> features or fixes. The official Ziraflow extension for VS Code replaces it.
+> The source stays here for reference.
+
 Real-time preview extension for DocLang markdown documents.
 
 ## Features

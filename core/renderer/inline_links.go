@@ -379,23 +379,57 @@ func escapedLinkView(text string) (view string, offsets []int) {
 	return b.String(), offsets
 }
 
-// linkFinder busca enlaces (o imágenes, según open) en un texto completo.
-// La vista desescapada y sus offsets se arman una sola vez por texto, y los
-// cierres de paréntesis de la lectura de compatibilidad se precalculan (en
-// O(n)) la primera vez que hacen falta: así recorrer todos los enlaces de
-// una línea es lineal, no cuadrático.
+// linkFinder busca enlaces (o imágenes, con image) en un texto completo, en
+// tiempo lineal en el largo del texto, también cuando las aperturas no
+// cierran ("[a](b" mil veces en una línea). Es la misma búsqueda que hacía
+// el regex de apertura (inlineLinkPattern o inlineImagePattern) desde cada
+// candidato seguido de scanLinkParts sobre el resto de la vista, con el
+// mismo resultado; lo que cambia es que nada se recorre dos veces:
+//
+//   - La vista desescapada y sus offsets se arman una sola vez por texto.
+//   - La apertura se busca a mano y el "]" que cierra la etiqueta se
+//     recuerda: con el regex, "[[[…](b" recorría la etiqueta entera desde
+//     cada "[".
+//   - Un destino suelto que no cierra deja guardada la región que recorrió
+//     (bareRegion), con la profundidad de paréntesis de cada byte y el ")"
+//     que balancea desde cada uno. Las aperturas siguientes que caen adentro
+//     se resuelven con esa tabla en vez de recorrer la región otra vez.
+//   - La lectura de compatibilidad (ruta suelta con espacios) guarda igual
+//     su región (looseRegion).
+//
+// Todo se calcula a medida que hace falta, no al crear el buscador: un
+// buscador que encuentra un enlace cerca del principio no paga el resto del
+// texto. Las memorias viven en el buscador, así que solo sirven a quien
+// recorre un texto con el mismo buscador; FindInlineLinkIndex crea uno por
+// llamada (ver su comentario).
+//
+// Las memorias suponen que las búsquedas avanzan, que es como lo usan
+// replaceInlineLinks y hideLinkDestinations (cada find empieza donde terminó
+// el enlace anterior). Una búsqueda hacia atrás da el mismo resultado, solo
+// que sin aprovecharlas.
 type linkFinder struct {
 	text    string
-	open    *regexp.Regexp
+	image   bool
 	escaped bool
 	view    string
 	offsets []int // vista -> texto (solo escaped)
 	toView  []int // texto -> vista, -1 dentro de una entidad (solo escaped)
-	closes  []int // por índice de la vista: el ")" que balancea desde ahí, o -1
+
+	// rbAt es el primer "]" de text desde rbFrom (len(text) si no hay).
+	rbFrom, rbAt int
+	rbOK         bool
+
+	bare  bareRegion
+	loose looseRegion
+	attrs attrsScanner
+
+	// steps cuenta los bytes que recorren los escaneos. Solo lo leen las
+	// pruebas de escala, que así comparan trabajo y no tiempo.
+	steps int
 }
 
-func newLinkFinder(text string, open *regexp.Regexp, escaped bool) *linkFinder {
-	f := &linkFinder{text: text, open: open, escaped: escaped, view: text}
+func newLinkFinder(text string, image, escaped bool) *linkFinder {
+	f := &linkFinder{text: text, image: image, escaped: escaped, view: text}
 	if escaped {
 		f.view, f.offsets = escapedLinkView(text)
 		f.toView = make([]int, len(text)+1)
@@ -406,19 +440,352 @@ func newLinkFinder(text string, open *regexp.Regexp, escaped bool) *linkFinder {
 			f.toView[o] = k
 		}
 	}
+	f.attrs.text, f.attrs.quote = text, "&quot;"
 	return f
 }
 
-// closeFrom devuelve, relativo a v, el ")" que balancea los paréntesis desde
-// el índice v de la vista, o -1.
-func (f *linkFinder) closeFrom(v int) int {
-	if f.closes == nil {
-		f.closes = balancedCloses(f.view)
+// nextOpen busca desde search la primera apertura "[etiqueta](" (o
+// "![alt](" con image): lo mismo que FindStringSubmatchIndex de
+// inlineLinkPattern o inlineImagePattern sobre text[search:], en índices
+// absolutos. La etiqueta de un enlace no puede ser vacía; la de una imagen
+// sí. Ninguna de las dos lleva "]".
+func (f *linkFinder) nextOpen(search int) (start, labelStart, labelEnd, openEnd int, ok bool) {
+	t := f.text
+	for b := search; b < len(t); {
+		k := strings.IndexByte(t[b:], '[')
+		f.steps += k + 1
+		if k < 0 {
+			break
+		}
+		b += k
+		start, labelStart = b, b+1
+		b++
+		if f.image {
+			if start == search || t[start-1] != '!' {
+				continue
+			}
+			start--
+		}
+		e := f.nextRB(labelStart)
+		if e >= len(t) {
+			// Sin "]" de aquí en adelante, ninguna apertura posterior cierra.
+			break
+		}
+		if !f.image && e == labelStart {
+			continue
+		}
+		if e+1 < len(t) && t[e+1] == '(' {
+			return start, labelStart, e, e + 2, true
+		}
 	}
-	if v >= len(f.closes) || f.closes[v] < 0 {
-		return -1
+	return 0, 0, 0, 0, false
+}
+
+// nextRB devuelve el índice del primer "]" de text desde x, o len(text).
+func (f *linkFinder) nextRB(x int) int {
+	if !f.rbOK || x < f.rbFrom || x > f.rbAt {
+		k := strings.IndexByte(f.text[x:], ']')
+		if k < 0 {
+			f.rbAt = len(f.text)
+			f.steps += len(f.text) - x
+		} else {
+			f.rbAt = x + k
+			f.steps += k + 1
+		}
+		f.rbFrom, f.rbOK = x, true
 	}
-	return f.closes[v] - v
+	return f.rbAt
+}
+
+// scanParts es scanLinkParts(f.view[v:], …) con las memorias del buscador.
+// Los índices de linkParts son relativos a v, como los de scanLinkParts.
+func (f *linkFinder) scanParts(v int) (linkParts, bool) {
+	p, ok := f.strictParts(v)
+	if ok {
+		return p, true
+	}
+	// Lectura de compatibilidad: solo para un destino sin <...>.
+	s := f.view
+	i := skipSpaceTab(s, v)
+	if i < len(s) && s[i] == '<' {
+		return p, false
+	}
+	end := f.looseClose(v)
+	if end <= 0 {
+		return p, false
+	}
+	start, stop := i-v, end
+	rel := s[v:]
+	for stop > start && (rel[stop-1] == ' ' || rel[stop-1] == '\t') {
+		stop--
+	}
+	return linkParts{destStart: start, destEnd: stop, titleStart: -1, titleEnd: -1, consumed: end + 1, spaced: true}, true
+}
+
+// strictParts es scanCommonMarkLinkParts(f.view[v:]). El destino suelto lo
+// lee bareEnd; los demás tramos (<...>, el título, los espacios) no hace
+// falta guardarlos: cada uno termina, a lo sumo, donde empieza el mismo tramo
+// de la apertura siguiente que llega hasta ahí, así que entre todas las
+// aperturas de una línea se recorren una vez.
+func (f *linkFinder) strictParts(v int) (linkParts, bool) {
+	s := f.view
+	p := linkParts{titleStart: -1, titleEnd: -1}
+	i := skipSpaceTab(s, v)
+	f.steps += i - v
+	var destStart, destEnd int
+	if i < len(s) && s[i] == '<' {
+		j := i + 1
+		for ; ; j++ {
+			if j >= len(s) {
+				f.steps += j - i
+				return p, false
+			}
+			c := s[j]
+			if c == '\\' && j+1 < len(s) && isASCIIPunct(s[j+1]) {
+				j++
+				continue
+			}
+			if c == '\n' || c == '\r' || c == '<' {
+				f.steps += j - i
+				return p, false
+			}
+			if c == '>' {
+				break
+			}
+		}
+		f.steps += j - i
+		destStart, destEnd = i+1, j
+		i = j + 1
+	} else {
+		j, ok := f.bareEnd(i)
+		if !ok {
+			return p, false
+		}
+		destStart, destEnd = i, j
+		i = j
+	}
+	p.destStart, p.destEnd = destStart-v, destEnd-v
+	if destStart == destEnd {
+		// "()" no es enlace, como antes; "( )" sí, con destino vacío.
+		if i == v || i >= len(s) || s[i] != ')' {
+			return p, false
+		}
+		p.consumed = i + 1 - v
+		return p, true
+	}
+	k := skipSpaceTab(s, i)
+	f.steps += k - i
+	if k < len(s) && s[k] == ')' {
+		p.consumed = k + 1 - v
+		return p, true
+	}
+	if k == i || k >= len(s) {
+		return p, false
+	}
+	closer := s[k]
+	switch closer {
+	case '"', '\'':
+	case '(':
+		closer = ')'
+	default:
+		return p, false
+	}
+	t := k + 1
+	for ; ; t++ {
+		if t >= len(s) {
+			f.steps += t - k
+			return p, false
+		}
+		c := s[t]
+		if c == '\\' && t+1 < len(s) && isASCIIPunct(s[t+1]) {
+			t++
+			continue
+		}
+		if c == '\n' || c == '\r' || (s[k] == '(' && c == '(') {
+			f.steps += t - k
+			return p, false
+		}
+		if c == closer {
+			break
+		}
+	}
+	f.steps += t - k
+	p.titleStart, p.titleEnd = k+1-v, t-v
+	m := skipSpaceTab(s, t+1)
+	f.steps += m - t
+	if m >= len(s) || s[m] != ')' {
+		return p, false
+	}
+	p.consumed = m + 1 - v
+	return p, true
+}
+
+// bareRegion es un tramo [start, stop) de la vista que recorrió un destino
+// suelto sin cerrar: termina en stop, que es un espacio o tab (ws), un
+// carácter de control o el final del texto, sin ningún espacio ni control
+// antes. depth[k] es la profundidad de paréntesis (sin contar los escapados)
+// antes del byte start+k, y closeAt[k] el ")" que balancea desde start+k
+// dentro del tramo, o -1.
+//
+// Una apertura posterior cuyo destino empieza adentro del tramo se detiene
+// en el mismo stop o antes, en su closeAt. Los escapes de barra invertida se
+// emparejan igual desde las dos: un destino empieza después de "(" o de un
+// espacio, que no pueden ser el segundo byte de un escape, así que la
+// lectura desde cualquiera de las dos empareja las mismas barras.
+type bareRegion struct {
+	start, stop int
+	ws          bool
+	depth       []int
+	closeAt     []int
+}
+
+// bareEnd lee un destino suelto desde i (el bucle de scanCommonMarkLinkParts)
+// y devuelve dónde termina: en un espacio o tab con los paréntesis
+// balanceados, o en el ")" que no cierra un "(" abierto adentro.
+func (f *linkFinder) bareEnd(i int) (int, bool) {
+	r := &f.bare
+	if r.depth != nil && i >= r.start && i < r.stop {
+		k := i - r.start
+		if c := r.closeAt[k]; c >= 0 {
+			return c, true
+		}
+		if r.ws && r.depth[r.stop-r.start] == r.depth[k] {
+			return r.stop, true
+		}
+		return 0, false
+	}
+	s := f.view
+	depth := 0
+	j := i
+	ws := false
+loop:
+	for ; j < len(s); j++ {
+		c := s[j]
+		switch {
+		case c == '\\' && j+1 < len(s) && isASCIIPunct(s[j+1]):
+			j++
+		case c == ' ' || c == '\t':
+			ws = true
+			break loop
+		case c < 0x20 || c == 0x7f:
+			break loop
+		case c == '(':
+			depth++
+		case c == ')':
+			if depth == 0 {
+				f.steps += j - i + 1
+				return j, true
+			}
+			depth--
+		}
+	}
+	if j > len(s) {
+		j = len(s)
+	}
+	f.steps += j - i
+	if ws && depth == 0 {
+		return j, true
+	}
+	f.recordBare(i, j, ws)
+	return 0, false
+}
+
+// recordBare arma la bareRegion [i, stop).
+func (f *linkFinder) recordBare(i, stop int, ws bool) {
+	s := f.view
+	r := &f.bare
+	n := stop - i
+	r.start, r.stop, r.ws = i, stop, ws
+	r.depth = resized(r.depth, n+1)
+	r.closeAt = resized(r.closeAt, n+1)
+	d := 0
+	for k := 0; k < n; k++ {
+		r.depth[k] = d
+		c := s[i+k]
+		if c == '\\' && i+k+1 < len(s) && isASCIIPunct(s[i+k+1]) {
+			// El byte escapado no cuenta, y no empieza ningún destino.
+			r.depth[k+1] = d
+			k++
+			continue
+		}
+		switch c {
+		case '(':
+			d++
+		case ')':
+			d--
+		}
+	}
+	r.depth[n] = d
+	// closeAt[k]: el primer m > k con depth[m] < depth[k], menos uno, es
+	// el ")" que balancea desde k. Pila monótona, como balancedCloses.
+	stack := make([]int, 0, 16)
+	for k := n; k >= 0; k-- {
+		for len(stack) > 0 && r.depth[stack[len(stack)-1]] >= r.depth[k] {
+			stack = stack[:len(stack)-1]
+		}
+		r.closeAt[k] = -1
+		if len(stack) > 0 {
+			r.closeAt[k] = i + stack[len(stack)-1] - 1
+		}
+		stack = append(stack, k)
+	}
+	f.steps += 2 * n
+}
+
+// looseRegion es un tramo [start, stop) de la vista que recorrió la lectura
+// de compatibilidad sin encontrar el ")" que balancea antes de un salto de
+// línea o del final: closes es balancedCloses del tramo (relativo a start).
+type looseRegion struct {
+	start, stop int
+	closes      []int
+}
+
+// looseClose es balancedClose(f.view[v:]): el ")" que balancea desde v,
+// relativo a v, o -1.
+func (f *linkFinder) looseClose(v int) int {
+	r := &f.loose
+	if r.closes != nil && v >= r.start && v < r.stop {
+		k := v - r.start
+		if r.closes[k] < 0 {
+			return -1
+		}
+		return r.closes[k] - k
+	}
+	s := f.view
+	depth := 0
+	j := v
+loop:
+	for ; j < len(s); j++ {
+		switch s[j] {
+		case '\n', '\r':
+			break loop
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				f.steps += j - v + 1
+				return j - v
+			}
+			depth--
+		}
+	}
+	f.steps += 2 * (j - v)
+	r.start, r.stop = v, j
+	r.closes = balancedCloses(s[v:j])
+	if r.closes == nil {
+		r.closes = []int{}
+	}
+	return -1
+}
+
+// resized devuelve s con largo n y en cero, reusando su memoria si alcanza.
+func resized[T any](s []T, n int) []T {
+	if cap(s) < n {
+		return make([]T, n)
+	}
+	s = s[:n]
+	clear(s)
+	return s
 }
 
 // balancedCloses calcula balancedClose para cada posición de s a la vez:
@@ -472,18 +839,16 @@ func balancedCloses(s string) []int {
 func (f *linkFinder) find(from int) (loc []int, spaced bool) {
 	search := from
 	for search < len(f.text) {
-		m := f.open.FindStringSubmatchIndex(f.text[search:])
-		if m == nil {
+		start, labelStart, labelEnd, openEnd, ok := f.nextOpen(search)
+		if !ok {
 			return nil, false
 		}
-		start := search + m[0]
-		openEnd := search + m[1]
 		v := openEnd
 		if f.escaped {
 			v = f.toView[openEnd]
 		}
 		if v >= 0 {
-			parts, ok := scanLinkParts(f.view[v:], func() int { return f.closeFrom(v) })
+			parts, ok := f.scanParts(v)
 			if ok {
 				abs := func(i int) int {
 					if f.escaped {
@@ -491,7 +856,7 @@ func (f *linkFinder) find(from int) (loc []int, spaced bool) {
 					}
 					return v + i
 				}
-				out := []int{start, abs(parts.consumed), search + m[2], search + m[3], abs(parts.destStart), abs(parts.destEnd), -1, -1}
+				out := []int{start, abs(parts.consumed), labelStart, labelEnd, abs(parts.destStart), abs(parts.destEnd), -1, -1}
 				if parts.titleStart >= 0 {
 					out[6], out[7] = abs(parts.titleStart), abs(parts.titleEnd)
 				}
@@ -503,15 +868,160 @@ func (f *linkFinder) find(from int) (loc []int, spaced bool) {
 	return nil, false
 }
 
+// attrsScanner dice si en un byte de text empieza un bloque de atributos
+// {clave=valor ...} completo, el de inlineAttrsBody: lo mismo que
+// regexp.MustCompile(`^` + inlineAttrsBody).MatchString(text[p:]) (con
+// quote "&quot;", texto escapado) o su variante con comillas crudas (quote
+// `"`), en tiempo lineal sobre todas las consultas de un texto.
+//
+// Con el regex, cada imagen seguida de "{" recorría lo que quedaba de la
+// línea (el valor sin comillas, [^\s}]+, se come todo lo que no sea espacio)
+// y "![a](b){a=" repetido era cuadrático. Ningún tramo del bloque lleva "}"
+// salvo el cierre, así que un bloque que empieza en p termina en el primer
+// "}" después de p. Para todas las consultas que comparten ese "}" se
+// resuelve una sola vez, de derecha a izquierda, qué sufijos del tramo son
+// una lista de atributos válida (ver fill).
+type attrsScanner struct {
+	text  string
+	quote string
+
+	braceFrom, braceAt int
+	braceOK            bool
+
+	// Tramo resuelto: [regStart, regEnd), con regEnd el "}". ok[k]: el
+	// sufijo text[regStart+k:regEnd] es (\s*clave=valor)*\s*. nonSpace[k]:
+	// el primer byte que no es espacio desde regStart+k (relativo).
+	regStart, regEnd int
+	ok               []bool
+	nonSpace         []int
+	scratch          []int
+	steps            int
+}
+
+// blockEnd devuelve dónde termina (después del "}") el bloque de atributos
+// que empieza en p, si lo hay.
+func (a *attrsScanner) blockEnd(p int) (int, bool) {
+	t := a.text
+	if p >= len(t) || t[p] != '{' {
+		return 0, false
+	}
+	x := p + 1
+	if !a.braceOK || x < a.braceFrom || x > a.braceAt {
+		k := strings.IndexByte(t[x:], '}')
+		if k < 0 {
+			a.braceAt = len(t)
+			a.steps += len(t) - x
+		} else {
+			a.braceAt = x + k
+			a.steps += k + 1
+		}
+		a.braceFrom, a.braceOK = x, true
+	}
+	q := a.braceAt
+	if q >= len(t) {
+		return 0, false
+	}
+	if a.ok == nil || a.regEnd != q || x < a.regStart {
+		a.fill(x, q)
+	}
+	k := x - a.regStart
+	if !a.ok[k] || a.regStart+a.nonSpace[k] >= q {
+		// Sin ningún atributo ("{ }") tampoco es un bloque: el regex pide
+		// al menos uno.
+		return 0, false
+	}
+	return q + 1, true
+}
+
+// fill resuelve el tramo [start, end) de derecha a izquierda. Un sufijo que
+// empieza en un espacio vale lo que vale el sufijo siguiente; uno que empieza
+// en una letra tiene que empezar con un atributo clave=valor seguido de un
+// sufijo válido. La clave ([A-Za-z][\w-]*) termina en el primer byte que no
+// es [\w-], que tiene que ser "="; el valor es el tramo entre comillas (quote,
+// sin el primer byte de quote adentro) o cualquier corrida no vacía de bytes
+// que no son espacio, así que basta saber si alguno de los sufijos que
+// empiezan dentro de esa corrida, o justo al final, es válido (nextOK).
+func (a *attrsScanner) fill(start, end int) {
+	t := a.text
+	n := end - start
+	a.regStart, a.regEnd = start, end
+	a.ok = resized(a.ok, n+1)
+	a.nonSpace = resized(a.nonSpace, n+1)
+	// scratch guarda, por tramos de n+1: nextOK, nextSpace, keyEnd,
+	// nextQuote.
+	a.scratch = resized(a.scratch, 4*(n+1))
+	nextOK := a.scratch[0 : n+1]
+	nextSpace := a.scratch[n+1 : 2*(n+1)]
+	keyEnd := a.scratch[2*(n+1) : 3*(n+1)]
+	nextQuote := a.scratch[3*(n+1):]
+	q0 := a.quote[0]
+	a.ok[n] = true
+	nextOK[n], nextSpace[n], keyEnd[n], nextQuote[n], a.nonSpace[n] = n, n, n, n, n
+	for k := n - 1; k >= 0; k-- {
+		c := t[start+k]
+		space := c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+		if space {
+			nextSpace[k] = k
+			a.nonSpace[k] = a.nonSpace[k+1]
+		} else {
+			nextSpace[k] = nextSpace[k+1]
+			a.nonSpace[k] = k
+		}
+		if c >= '0' && c <= '9' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c == '_' || c == '-' {
+			keyEnd[k] = keyEnd[k+1]
+		} else {
+			keyEnd[k] = k
+		}
+		if c == q0 {
+			nextQuote[k] = k
+		} else {
+			nextQuote[k] = nextQuote[k+1]
+		}
+		switch {
+		case space:
+			a.ok[k] = a.ok[k+1]
+		case c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z':
+			ke := keyEnd[k+1]
+			if ke >= n || t[start+ke] != '=' {
+				break
+			}
+			v := ke + 1
+			if v+len(a.quote) <= n && t[start+v:start+v+len(a.quote)] == a.quote {
+				x := nextQuote[v+len(a.quote)]
+				if x+len(a.quote) <= n && t[start+x:start+x+len(a.quote)] == a.quote && a.ok[x+len(a.quote)] {
+					a.ok[k] = true
+					break
+				}
+			}
+			if v < n && nextSpace[v] != v && nextOK[v+1] <= nextSpace[v] {
+				a.ok[k] = true
+			}
+		}
+		if a.ok[k] {
+			nextOK[k] = k
+		} else {
+			nextOK[k] = nextOK[k+1]
+		}
+	}
+	a.steps += 2 * n
+}
+
 // FindInlineLinkIndex devuelve los índices del primer enlace [texto](destino)
 // de s, Markdown crudo, en la forma de regexp.FindStringSubmatchIndex: grupo
 // 1 la etiqueta, grupo 2 el destino (sin <...> ni título) y grupo 3 el
 // título (-1, -1 si no lleva), o nil si no hay ninguno. Exportado para los
-// generadores que recorren el Markdown inline con sus propios patrones (el
-// DOCX de doclang), de modo que reconozcan los mismos enlaces que el
-// renderer HTML sin mantener una copia del regex.
+// generadores que recorren el Markdown inline con sus propios patrones, de
+// modo que reconozcan los mismos enlaces que el renderer HTML sin mantener
+// una copia del regex.
+//
+// Cada llamada empieza de cero: una apertura sin cierre se lee hasta el final
+// del texto. Llamarla en un bucle sobre lo que queda de una línea (un enlace
+// por vuelta) es cuadrático en el peor caso; quien recorre todos los enlaces
+// de un texto tiene que usar un solo buscador para todo el recorrido, como
+// replaceInlineLinks (o, en doclang y slidelang, el linkScanner de
+// link_destinations.go).
 func FindInlineLinkIndex(s string) []int {
-	loc, _ := newLinkFinder(s, inlineLinkPattern, false).find(0)
+	loc, _ := newLinkFinder(s, false, false).find(0)
 	return loc
 }
 
@@ -528,11 +1038,11 @@ type inlineLinkMatch struct {
 
 // replaceInlineLinks reemplaza cada ocurrencia de open + destino válido en
 // text (ya pasado por EscapeHTML) por lo que devuelva replace.
-func replaceInlineLinks(text string, open *regexp.Regexp, replace func(m inlineLinkMatch) string) string {
-	if !strings.Contains(text, "](") || (open == inlineImagePattern && !strings.Contains(text, "![")) {
+func replaceInlineLinks(text string, image bool, replace func(m inlineLinkMatch) string) string {
+	if !strings.Contains(text, "](") || (image && !strings.Contains(text, "![")) {
 		return text
 	}
-	f := newLinkFinder(text, open, true)
+	f := newLinkFinder(text, image, true)
 	var b strings.Builder
 	copied := 0
 	for copied < len(text) {
@@ -541,7 +1051,9 @@ func replaceInlineLinks(text string, open *regexp.Regexp, replace func(m inlineL
 			break
 		}
 		m := inlineLinkMatch{match: text[loc[0]:loc[1]], label: text[loc[2]:loc[3]], dest: text[loc[4]:loc[5]], spaced: spaced}
-		m.attrs = open == inlineImagePattern && inlineAttrsPrefix.MatchString(text[loc[1]:])
+		if image {
+			_, m.attrs = f.attrs.blockEnd(loc[1])
+		}
 		if loc[6] >= 0 {
 			m.title = text[loc[6]:loc[7]]
 		}

@@ -11,8 +11,6 @@ import (
 	"go.ziradocs.com/core/v2/renderer"
 )
 
-var markdownImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
-
 // MarkdownImageDestinations envuelve en <...> la ruta de cada ![alt](dest)
 // de md que lleva espacios sin estar ya entre <...>, fuera de los code
 // spans. El renderer HTML y el DOCX aceptan `![](a b.png)` (con el core
@@ -21,34 +19,52 @@ var markdownImageOpen = regexp.MustCompile(`^!\[[^\]]*\]\(`)
 // sobre todo cuando una imagen de un archivo incluido se reescribe relativa
 // al archivo raíz y la carpeta del incluido tiene espacios.
 func MarkdownImageDestinations(md string) string {
+	return RewriteInlineImageDestinations(md, angleDestination)
+}
+
+// RewriteInlineImageDestinations cambia el destino de cada ![alt](dest) de
+// un texto Markdown inline, fuera de los code spans, por lo que devuelva
+// rewrite. dest es el destino crudo que reconoce el renderer
+// (renderer.ScanLinkDestination): una ruta, opcionalmente entre <...> y
+// seguida de un título. Lo usan la salida Markdown (MarkdownImageDestinations)
+// y el rebase de @include.
+//
+// Una apertura "![alt](" cuyo destino no cierra se copia tal cual y la
+// lectura sigue después de su "(". La apertura y el destino los lee un solo
+// linkScanner (la misma gramática que core), así que el recorrido es lineal:
+// con renderer.ScanLinkDestination desde cada apertura, "![a](b" repetido
+// era cuadrático, y con el regex de apertura anclado en cada "![" también lo
+// era "![![![…".
+func RewriteInlineImageDestinations(md string, rewrite func(dest string) string) string {
 	if !strings.Contains(md, "![") {
 		return md
 	}
+	images := newLinkScanner(md, true)
+	runs := newBacktickRuns(md)
 	var b strings.Builder
 	i := 0
 	for i < len(md) {
 		switch {
 		case md[i] == '`':
-			end := MarkdownCodeSpanEnd(md, i)
+			end := runs.spanEnd(i)
 			b.WriteString(md[i:end])
 			i = end
 		case strings.HasPrefix(md[i:], "!["):
-			m := markdownImageOpen.FindStringIndex(md[i:])
-			if m == nil {
+			openEnd, ok := images.openAt(i)
+			if !ok {
 				b.WriteString("![")
 				i += 2
 				continue
 			}
-			openEnd := i + m[1]
-			dest, n, ok := renderer.ScanLinkDestination(md[openEnd:])
+			n, ok := images.destEnd(openEnd)
 			if !ok {
 				b.WriteString(md[i:openEnd])
 				i = openEnd
 				continue
 			}
 			b.WriteString(md[i:openEnd])
-			b.WriteString(angleDestination(dest))
-			b.WriteString(md[openEnd+len(dest) : openEnd+n])
+			b.WriteString(rewrite(md[openEnd : openEnd+n-1]))
+			b.WriteString(md[openEnd+n-1 : openEnd+n])
 			i = openEnd + n
 		default:
 			b.WriteByte(md[i])
@@ -127,6 +143,9 @@ func SplitMarkdownDestination(dest string) (MarkdownDestinationParts, bool) {
 // text[i] (una corrida de backticks cerrada por otra del mismo largo), o el
 // final de la corrida si no se cierra: entonces los backticks son literales
 // y lo que sigue es texto normal.
+//
+// Recorre el resto del texto, así que llamarla en un bucle sobre las
+// aperturas de una línea es cuadrático; para eso está backtickRuns.
 func MarkdownCodeSpanEnd(text string, i int) int {
 	j := i
 	for j < len(text) && text[j] == '`' {
@@ -261,4 +280,58 @@ func splitSpacedTitle(p string) (path, rest string, ok bool) {
 		return "", "", false
 	}
 	return path, p[len(path):], true
+}
+
+// backtickRuns indexa las corridas de backticks de un texto por largo para
+// responder MarkdownCodeSpanEnd sin recorrer el resto del texto: el cierre es
+// la primera corrida posterior del mismo largo, y se busca con una búsqueda
+// binaria. Las consultas avanzan.
+type backtickRuns struct {
+	starts, ends []int
+	byLen        map[int][]int
+	k            int
+}
+
+func newBacktickRuns(s string) *backtickRuns {
+	r := &backtickRuns{byLen: map[int][]int{}}
+	for i := 0; i < len(s); {
+		if s[i] != '`' {
+			i++
+			continue
+		}
+		j := i
+		for j < len(s) && s[j] == '`' {
+			j++
+		}
+		r.byLen[j-i] = append(r.byLen[j-i], len(r.starts))
+		r.starts, r.ends = append(r.starts, i), append(r.ends, j)
+		i = j
+	}
+	return r
+}
+
+// spanEnd es MarkdownCodeSpanEnd(s, i) para un i con s[i] == '`'.
+func (r *backtickRuns) spanEnd(i int) int {
+	if r.k >= len(r.starts) || r.starts[r.k] > i {
+		r.k = 0
+	}
+	for r.k < len(r.starts) && r.ends[r.k] <= i {
+		r.k++
+	}
+	k := r.k
+	end := r.ends[k]
+	idx := r.byLen[end-i]
+	lo, hi := 0, len(idx)
+	for lo < hi {
+		m := (lo + hi) / 2
+		if idx[m] <= k {
+			lo = m + 1
+		} else {
+			hi = m
+		}
+	}
+	if lo == len(idx) {
+		return end
+	}
+	return r.ends[idx[lo]]
 }
