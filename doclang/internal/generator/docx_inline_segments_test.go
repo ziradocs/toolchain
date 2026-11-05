@@ -268,3 +268,31 @@ func TestDocxInlineSegmentsScaleLinearly(t *testing.T) {
 		assertLinear(t, name, func(s string) { docxInlineSegments(s, patterns) }, gen)
 	}
 }
+
+// Con code spans que abren imágenes, el walker viejo daba links que dependían
+// de por dónde pasaba; el nuevo, en estos casos, da los mismos links que el
+// HTML (renderer.FindInlineLinks), que es la referencia. Que el DOCX resuelva
+// los links con la misma lógica que el HTML en todos los casos va aparte.
+func TestDocxInlineLinksMatchHTMLWithCodeSpans(t *testing.T) {
+	g := &DOCXGenerator{}
+	for _, s := range []string{
+		"\"`b[t]{lang=fr}![a](b c)`![`>*{\\]<`>[l](u) [l](u){a**![k]{.kbd}![a](i.png){width=3}=",
+		"[a](b{width=3}`![`)[l](u)[l](u)",
+		"![a](b c)*a{`{([g](https://e.com/g){width=3}[g](https://e.com/g)\\=\\[k]{.kbd}`![`\"<)x**x){width=3}[l](u))\"",
+	} {
+		var got, want []string
+		for _, seg := range docxInlineSegments(s, g.docxInlinePatterns()) {
+			if seg.pattern == 4 {
+				got = append(got, strings.NewReplacer("`", "").Replace(seg.extra))
+			}
+		}
+		for _, l := range renderer.FindInlineLinks(s) {
+			if !l.Image && !l.Dropped {
+				want = append(want, strings.NewReplacer("<code>", "", "</code>", "").Replace(l.Destination))
+			}
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%q: links del DOCX %q, del HTML %q", s, got, want)
+		}
+	}
+}
