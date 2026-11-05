@@ -31,8 +31,9 @@ const inlineImageTagPrefix = `<img src="`
 //
 // Recorre el HTML una vez buscando el prefijo y salta los data: URI sin
 // leerlos (un regex con capturas sobre el HTML entero recorría cada imagen
-// de bloque ya incrustada). Cada fuente se lee del disco una sola vez aunque
-// aparezca muchas veces.
+// de bloque ya incrustada). La caché va por src, el texto del atributo y no
+// la ruta resuelta: cada src se lee del disco una sola vez aunque aparezca
+// muchas veces.
 func inlineLocalInlineImages(html string, ctx *renderer.RenderContext) string {
 	if ctx == nil || ctx.ImageMode != "offline-inline" || ctx.AssetRoot == "" || !strings.Contains(html, inlineImageTagPrefix) {
 		return html

@@ -121,9 +121,9 @@ func TestInlineLocalInlineImages_MatchesRegex(t *testing.T) {
 }
 
 // Las imágenes de bloque ya incrustadas (data: URI) no se resuelven, y una
-// misma imagen inline repetida se lee del disco una sola vez. Se cuentan las
-// lecturas en vez de medir tiempo: con data: URI de megas, el tiempo depende
-// sobre todo de la caché de memoria de la máquina.
+// imagen inline repetida con el mismo src se lee del disco una sola vez. Se
+// cuentan las lecturas en vez de medir tiempo: con data: URI de megas, el
+// tiempo depende sobre todo de la caché de memoria de la máquina.
 func TestInlineLocalInlineImages_ReadsEachSourceOnce(t *testing.T) {
 	dir := t.TempDir()
 	png, _ := base64.StdEncoding.DecodeString(onePixelPNG)
