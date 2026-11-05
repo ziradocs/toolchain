@@ -74,7 +74,42 @@ func TestRewriteInlineImageDestinationsScalesLinearly(t *testing.T) {
 	if testing.Short() {
 		t.Skip("mide tiempos")
 	}
+	inputs := map[string]func(n int) string{
+		"barra y dos backticks": func(n int) string { return strings.Repeat("![a](b) \\``a", n) },
+		"largos crecientes": func(n int) string {
+			var b strings.Builder
+			for i := 1; b.Len() < 6*n; i++ {
+				b.WriteString("![a](b)" + strings.Repeat("`", i%300+1))
+			}
+			return b.String()
+		},
+	}
 	for name, gen := range scaleInputs {
+		inputs[name] = gen
+	}
+	for name, gen := range inputs {
 		assertLinear(t, name, func(s string) { MarkdownImageDestinations(s) }, gen)
+	}
+}
+
+// backtickRuns.spanEnd es MarkdownCodeSpanEnd en cada backtick.
+func TestBacktickRunsMatchesCodeSpanEnd(t *testing.T) {
+	r := rand.New(rand.NewSource(9))
+	alphabet := []byte("```a \\")
+	for i := 0; i < 20000; i++ {
+		b := make([]byte, 1+r.Intn(30))
+		for j := range b {
+			b[j] = alphabet[r.Intn(len(alphabet))]
+		}
+		s := string(b)
+		runs := newBacktickRuns(s)
+		for p := 0; p < len(s); p++ {
+			if s[p] != '`' {
+				continue
+			}
+			if got, want := runs.spanEnd(p), MarkdownCodeSpanEnd(s, p); got != want {
+				t.Fatalf("spanEnd(%d) en %q: %d, MarkdownCodeSpanEnd %d", p, s, got, want)
+			}
+		}
 	}
 }

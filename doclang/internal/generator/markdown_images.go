@@ -40,12 +40,13 @@ func RewriteInlineImageDestinations(md string, rewrite func(dest string) string)
 		return md
 	}
 	images := newLinkScanner(md, true)
+	runs := newBacktickRuns(md)
 	var b strings.Builder
 	i := 0
 	for i < len(md) {
 		switch {
 		case md[i] == '`':
-			end := MarkdownCodeSpanEnd(md, i)
+			end := runs.spanEnd(i)
 			b.WriteString(md[i:end])
 			i = end
 		case strings.HasPrefix(md[i:], "!["):
@@ -142,6 +143,9 @@ func SplitMarkdownDestination(dest string) (MarkdownDestinationParts, bool) {
 // text[i] (una corrida de backticks cerrada por otra del mismo largo), o el
 // final de la corrida si no se cierra: entonces los backticks son literales
 // y lo que sigue es texto normal.
+//
+// Recorre el resto del texto, así que llamarla en un bucle sobre las
+// aperturas de una línea es cuadrático; para eso está backtickRuns.
 func MarkdownCodeSpanEnd(text string, i int) int {
 	j := i
 	for j < len(text) && text[j] == '`' {
@@ -276,4 +280,58 @@ func splitSpacedTitle(p string) (path, rest string, ok bool) {
 		return "", "", false
 	}
 	return path, p[len(path):], true
+}
+
+// backtickRuns indexa las corridas de backticks de un texto por largo para
+// responder MarkdownCodeSpanEnd sin recorrer el resto del texto: el cierre es
+// la primera corrida posterior del mismo largo, y se busca con una búsqueda
+// binaria. Las consultas avanzan.
+type backtickRuns struct {
+	starts, ends []int
+	byLen        map[int][]int
+	k            int
+}
+
+func newBacktickRuns(s string) *backtickRuns {
+	r := &backtickRuns{byLen: map[int][]int{}}
+	for i := 0; i < len(s); {
+		if s[i] != '`' {
+			i++
+			continue
+		}
+		j := i
+		for j < len(s) && s[j] == '`' {
+			j++
+		}
+		r.byLen[j-i] = append(r.byLen[j-i], len(r.starts))
+		r.starts, r.ends = append(r.starts, i), append(r.ends, j)
+		i = j
+	}
+	return r
+}
+
+// spanEnd es MarkdownCodeSpanEnd(s, i) para un i con s[i] == '`'.
+func (r *backtickRuns) spanEnd(i int) int {
+	if r.k >= len(r.starts) || r.starts[r.k] > i {
+		r.k = 0
+	}
+	for r.k < len(r.starts) && r.ends[r.k] <= i {
+		r.k++
+	}
+	k := r.k
+	end := r.ends[k]
+	idx := r.byLen[end-i]
+	lo, hi := 0, len(idx)
+	for lo < hi {
+		m := (lo + hi) / 2
+		if idx[m] <= k {
+			lo = m + 1
+		} else {
+			hi = m
+		}
+	}
+	if lo == len(idx) {
+		return end
+	}
+	return r.ends[idx[lo]]
 }

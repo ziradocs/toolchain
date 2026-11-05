@@ -9,6 +9,7 @@ import (
 	"go.yaml.in/yaml/v3"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/codespan"
 )
 
 // TableParser maneja elementos de tabla (YAML y Markdown)
@@ -606,50 +607,11 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 // (abajo) da esa paridad; un backtick escapado se salta sin abrir ni
 // cerrar nada, como si fuera texto común.
 func codeSpanRanges(runes []rune) []bool {
-	n := len(runes)
-	inSpan := make([]bool, n)
+	inSpan := make([]bool, len(runes))
 	escaped := backslashEscaped(runes)
-	i := 0
-	for i < n {
-		if runes[i] != '`' || escaped[i] {
-			i++
-			continue
-		}
-		start := i
-		for i < n && runes[i] == '`' {
-			i++
-		}
-		openLen := i - start
-
-		j := i
-		matched := false
-		for j < n {
-			if runes[j] != '`' {
-				j++
-				continue
-			}
-			closeStart := j
-			for j < n && runes[j] == '`' {
-				j++
-			}
-			if j-closeStart == openLen {
-				for k := start; k < j; k++ {
-					inSpan[k] = true
-				}
-				i = j
-				matched = true
-				break
-			}
-			// Corrida de otro largo: no cierra este delimitador: se
-			// reintenta desde donde terminó (puede ser la que sí matchea
-			// más adelante, o abrir su propio span en la próxima vuelta del
-			// for de arriba si esta tampoco encuentra cierre).
-		}
-		if !matched {
-			// Sin cierre de su mismo largo en el resto de la línea:
-			// backticks literales, no delimitador. i ya quedó al final de
-			// la corrida (por el conteo de arriba) — seguir desde ahí.
-			continue
+	for _, sp := range codespan.Find(runes, func(i int) bool { return escaped[i] }) {
+		for k := sp.OpenStart; k < sp.CloseEnd; k++ {
+			inSpan[k] = true
 		}
 	}
 	return inSpan

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/a11y"
+	"go.ziradocs.com/core/v2/internal/codespan"
 )
 
 // EscapeHTML escapes special HTML characters to prevent XSS attacks
@@ -467,50 +468,17 @@ type codeSpanMatch struct {
 // offsets resultantes siguen siendo válidos para indexar el string
 // original — que es exactamente lo que ambos call sites necesitan (uno
 // para slicear text[...], el otro para sumar un offset en bytes).
+//
+// El emparejamiento lo hace codespan.Find, sin recorrer el resto del texto
+// por cada apertura que no cierra (antes, una barra invertida seguida de dos
+// backticks, repetido, era cuadrático).
 func findCodeSpans(text string) []codeSpanMatch {
+	if strings.Count(text, "`") < 2 {
+		return nil
+	}
 	var spans []codeSpanMatch
-	n := len(text)
-	i := 0
-	for i < n {
-		if text[i] != '`' || backslashRunIsOddBefore(text, i) {
-			i++
-			continue
-		}
-		start := i
-		for i < n && text[i] == '`' {
-			i++
-		}
-		openLen := i - start
-		contentStart := i
-
-		j := i
-		matched := false
-		for j < n {
-			if text[j] != '`' {
-				j++
-				continue
-			}
-			closeStart := j
-			for j < n && text[j] == '`' {
-				j++
-			}
-			if j-closeStart == openLen {
-				spans = append(spans, codeSpanMatch{
-					fullStart:    start,
-					fullEnd:      j,
-					contentStart: contentStart,
-					contentEnd:   closeStart,
-				})
-				i = j
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			// Sin cierre de su mismo largo: backticks literales, no
-			// delimitador. i ya quedó al final de la corrida de apertura.
-			continue
-		}
+	for _, sp := range codespan.Find([]byte(text), func(i int) bool { return backslashRunIsOddBefore(text, i) }) {
+		spans = append(spans, codeSpanMatch{fullStart: sp.OpenStart, fullEnd: sp.CloseEnd, contentStart: sp.OpenEnd, contentEnd: sp.CloseStart})
 	}
 	return spans
 }
