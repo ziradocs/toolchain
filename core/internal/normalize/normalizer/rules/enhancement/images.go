@@ -26,24 +26,29 @@ func (r *ImagesRule) Apply(content string) (string, error) {
 	modified := false
 
 	for i, line := range lines {
-		// Buscar imágenes en la línea
-		matches := r.findImageMatches(line)
-		newLine := line
-
-		for _, match := range matches {
-			originalPath := match[2] // El path completo
+		// La línea se arma en una sola pasada con las posiciones de cada
+		// imagen. Antes cada imagen hacía un strings.Replace sobre la línea
+		// entera, y "![a](b.png)" repetido era cuadrático.
+		var b strings.Builder
+		last := 0
+		for _, m := range r.findImageMatches(line) {
+			originalPath := line[m.pathStart:m.pathEnd]
 			normalizedPath := r.pathNormalizer.NormalizeImagePath(originalPath)
-
-			if originalPath != normalizedPath {
-				// Reemplazar la ruta en la línea
-				oldImageTag := match[0] // Todo el match ![alt](path)
-				newImageTag := strings.Replace(oldImageTag, originalPath, normalizedPath, 1)
-				newLine = strings.Replace(newLine, oldImageTag, newImageTag, 1)
-				modified = true
+			if originalPath == normalizedPath {
+				continue
 			}
+			// Como antes, se cambia la primera aparición de la ruta dentro
+			// de ![alt](ruta), que puede caer en el alt si lo repite.
+			oldImageTag := line[m.start:m.end]
+			b.WriteString(line[last:m.start])
+			b.WriteString(strings.Replace(oldImageTag, originalPath, normalizedPath, 1))
+			last = m.end
 		}
-
-		lines[i] = newLine
+		if last > 0 {
+			b.WriteString(line[last:])
+			lines[i] = b.String()
+			modified = true
+		}
 	}
 
 	if modified {
@@ -52,9 +57,16 @@ func (r *ImagesRule) Apply(content string) (string, error) {
 	return content, nil
 }
 
+// imageMatch es una imagen ![alt](ruta) de una línea: [start, end) el tag
+// completo y [pathStart, pathEnd) la ruta.
+type imageMatch struct {
+	start, end         int
+	pathStart, pathEnd int
+}
+
 // findImageMatches encuentra todas las coincidencias de imágenes en una línea
-func (r *ImagesRule) findImageMatches(line string) [][]string {
-	var matches [][]string
+func (r *ImagesRule) findImageMatches(line string) []imageMatch {
+	var matches []imageMatch
 
 	// Buscar patrones ![...](...) de forma básica
 	start := 0
@@ -79,14 +91,9 @@ func (r *ImagesRule) findImageMatches(line string) [][]string {
 		}
 		pathEnd += altEnd + 2
 
-		// Extraer componentes
-		fullMatch := line[imgStart : pathEnd+1]
-		altText := line[imgStart+2 : altEnd]
-		imagePath := line[altEnd+2 : pathEnd]
-
 		// Verificar que sea una imagen válida
-		if r.pathNormalizer.IsImagePath(imagePath) {
-			matches = append(matches, []string{fullMatch, altText, imagePath, ""})
+		if r.pathNormalizer.IsImagePath(line[altEnd+2 : pathEnd]) {
+			matches = append(matches, imageMatch{start: imgStart, end: pathEnd + 1, pathStart: altEnd + 2, pathEnd: pathEnd})
 		}
 
 		start = pathEnd + 1
