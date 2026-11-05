@@ -256,10 +256,14 @@ func TestDocxInlineSegmentsScaleLinearly(t *testing.T) {
 		"tramos": func(n int) string {
 			return strings.Repeat("Texto [a](https://e.com/p?a=1&b=2) y ![i](img/a.png \"t\") *é* ", n)
 		},
-		"[a](b":           func(n int) string { return strings.Repeat("[a](b", n) },
-		"![a](b){a=":      func(n int) string { return strings.Repeat("![a](b){a=", n) },
-		"énfasis y links": func(n int) string { return strings.Repeat("*a* [b](c) ", n) },
-		"imagen cortada":  func(n int) string { return strings.Repeat("**x ![a**](b) ", n) },
+		"[a](b":                       func(n int) string { return strings.Repeat("[a](b", n) },
+		"![a](b){a=":                  func(n int) string { return strings.Repeat("![a](b){a=", n) },
+		"énfasis y links":             func(n int) string { return strings.Repeat("*a* [b](c) ", n) },
+		"imagen cortada":              func(n int) string { return strings.Repeat("**x ![a**](b) ", n) },
+		"código que corta una imagen": func(n int) string { return strings.Repeat("`![`](u) ", n) },
+		"ejemplo del review": func(n int) string {
+			return strings.Repeat("El prefijo `![` abre una imagen; ver [la guía](https://e.com/g). ", n)
+		},
 	} {
 		assertLinear(t, name, func(s string) { docxInlineSegments(s, patterns) }, gen)
 	}
