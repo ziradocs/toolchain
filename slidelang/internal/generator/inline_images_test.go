@@ -8,11 +8,10 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -121,43 +120,38 @@ func TestInlineLocalInlineImages_MatchesRegex(t *testing.T) {
 	}
 }
 
-// Las imágenes de bloque ya incrustadas (data: URI grandes) no se recorren
-// con el regex, y una misma imagen inline repetida se lee una vez: el tiempo
-// crece con el HTML, no con imágenes por tamaño.
-func TestInlineLocalInlineImages_ScalesLinearly(t *testing.T) {
-	if testing.Short() {
-		t.Skip("mide tiempos")
-	}
+// Las imágenes de bloque ya incrustadas (data: URI) no se resuelven, y una
+// misma imagen inline repetida se lee del disco una sola vez. Se cuentan las
+// lecturas en vez de medir tiempo: con data: URI de megas, el tiempo depende
+// sobre todo de la caché de memoria de la máquina.
+func TestInlineLocalInlineImages_ReadsEachSourceOnce(t *testing.T) {
 	dir := t.TempDir()
 	png, _ := base64.StdEncoding.DecodeString(onePixelPNG)
-	if err := os.WriteFile(filepath.Join(dir, "a.png"), png, 0o644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"a.png", "b.png"} {
+		if err := os.WriteFile(filepath.Join(dir, name), png, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	ctx := renderer.NewDefaultRenderContext()
 	ctx.ImageMode, ctx.AssetRoot = "offline-inline", dir
-	big := `<img src="data:image/png;base64,` + strings.Repeat("A", 1<<18) + `" alt="b">`
-	best := func(s string) time.Duration {
-		d := time.Duration(1 << 62)
-		for i := 0; i < 3; i++ {
-			runtime.GC()
-			st := time.Now()
-			inlineLocalInlineImages(s, ctx)
-			if e := time.Since(st); e < d {
-				d = e
-			}
-		}
-		return d
+	reads := map[string]int{}
+	orig := tryInlineLocalImage
+	tryInlineLocalImage = func(src string, ctx *renderer.RenderContext) (string, bool) {
+		reads[src]++
+		return orig(src, ctx)
 	}
-	gen := func(n int) string {
-		return strings.Repeat(big+`<p>Texto <img src="a.png" alt="x"> fin</p>`, n)
+	defer func() { tryInlineLocalImage = orig }()
+
+	big := `<img src="data:image/png;base64,` + strings.Repeat("A", 1<<16) + `" alt="b">`
+	html := strings.Repeat(big+`<p>Texto <img src="a.png" alt="x"> y <img src="b.png" alt="y" title="t"> fin</p>`, 200)
+	got := inlineLocalInlineImages(html, ctx)
+	if want := map[string]int{"a.png": 1, "b.png": 1}; !reflect.DeepEqual(reads, want) {
+		t.Errorf("lecturas = %v, quiero %v (los data: no se resuelven)", reads, want)
 	}
-	small, large := gen(16), gen(64)
-	var t1, t4 time.Duration
-	for a := 0; a < 3; a++ {
-		t1, t4 = best(small), best(large)
-		if t4 < 10*t1 {
-			return
-		}
+	if strings.Contains(got, `src="a.png"`) || strings.Contains(got, `src="b.png"`) {
+		t.Error("quedó una imagen inline sin incrustar")
 	}
-	t.Errorf("%v con 16 y %v con 64", t1, t4)
+	if n := strings.Count(got, big); n != 200 {
+		t.Errorf("las imágenes de bloque cambiaron: %d de 200 intactas", n)
+	}
 }

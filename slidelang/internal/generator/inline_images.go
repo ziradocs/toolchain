@@ -61,7 +61,7 @@ func inlineLocalInlineImages(html string, ctx *renderer.RenderContext) string {
 		}
 		r, seen := cache[src]
 		if !seen {
-			r.uri, r.ok = renderer.TryInlineLocalImage(renderer.UnescapeHTML(src), ctx)
+			r.uri, r.ok = tryInlineLocalImage(renderer.UnescapeHTML(src), ctx)
 			cache[src] = r
 		}
 		i = end
@@ -81,6 +81,10 @@ func inlineLocalInlineImages(html string, ctx *renderer.RenderContext) string {
 	b.WriteString(html[last:])
 	return b.String()
 }
+
+// tryInlineLocalImage es renderer.TryInlineLocalImage; las pruebas la
+// cambian para contar lecturas.
+var tryInlineLocalImage = renderer.TryInlineLocalImage
 
 // parseInlineImageTag lee, desde srcStart (justo después de `<img src="`),
 // el resto de la forma `<img src="S" alt="A">` o `<img src="S" alt="A"
