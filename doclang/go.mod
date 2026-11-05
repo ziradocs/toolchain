@@ -6,7 +6,7 @@ require (
 	github.com/mmonterroca/docxgo/v2 v2.15.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/spf13/cobra v1.10.2
-	github.com/yuin/goldmark v1.8.6
+	github.com/yuin/goldmark v1.8.7
 	go.yaml.in/yaml/v3 v3.0.5
 	go.ziradocs.com/core/v2 v2.49.3
 	golang.org/x/text v0.43.0
