@@ -97,7 +97,7 @@ func compareWithCore(t *testing.T, s string) {
 				want[i] += from
 			}
 		}
-		if !reflect.DeepEqual(got, want) && !(got == nil && want == nil) {
+		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("enlace desde %d en %q: %v, core %v", from, s, got, want)
 		}
 		if got == nil {
