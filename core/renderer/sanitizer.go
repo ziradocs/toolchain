@@ -314,13 +314,23 @@ var cssCustomPropertyNamePattern = regexp.MustCompile(`^--[a-zA-Z0-9_-]+$`)
 // CSS y el elemento <style> que la envuelve (ver
 // docs/SECURITY_AUDIT_2026-07.md, BA-11). Retorna ok=false si el nombre no
 // matchea cssCustomPropertyNamePattern o el valor contiene un carácter que
-// permitiría escapar la declaración/bloque; el llamador debe omitir esa
+// permitiría escapar la declaración/bloque (o comentarla, o dejar una
+// cadena abierta); el llamador debe omitir esa
 // entrada en vez de escribirla.
 func SanitizeCSSCustomProperty(name, value string) (safeValue string, ok bool) {
 	if !cssCustomPropertyNamePattern.MatchString(name) {
 		return "", false
 	}
 	if strings.ContainsAny(value, "{}<>;\n\r") {
+		return "", false
+	}
+	// Un comentario o una cadena sin cerrar no escapan del <style>, pero sí
+	// de la declaración: "#fff /*" convierte en comentario el resto del
+	// bloque :root (todas las variables que vienen después), y una comilla
+	// sin pareja se traga la declaración siguiente. Ningún valor legítimo de
+	// una variable de tema los necesita.
+	if strings.Contains(value, "/*") || strings.Contains(value, "*/") ||
+		strings.Count(value, `"`)%2 != 0 || strings.Count(value, "'")%2 != 0 {
 		return "", false
 	}
 	return value, true

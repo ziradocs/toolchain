@@ -619,6 +619,11 @@ func TestSanitizeCSSCustomProperty(t *testing.T) {
 		{name: "value with semicolon rejected", propName: "--evil", value: "red; background: url(evil)", expectOK: false},
 		{name: "value with newline rejected", propName: "--evil", value: "red\n}</style>", expectOK: false},
 		{name: "legitimate font stack value", propName: "--font-family", value: "'Helvetica Neue', Arial, sans-serif", expectOK: true, wantValue: "'Helvetica Neue', Arial, sans-serif"},
+		{name: "value opening a comment rejected", propName: "--link", value: "#7dd3fc /*", expectOK: false},
+		{name: "value closing a comment rejected", propName: "--link", value: "#7dd3fc */", expectOK: false},
+		{name: "value with unbalanced double quote rejected", propName: "--font", value: `"Inter, sans-serif`, expectOK: false},
+		{name: "value with unbalanced single quote rejected", propName: "--font", value: "'Inter, sans-serif", expectOK: false},
+		{name: "legitimate double-quoted font stack", propName: "--font", value: `"Segoe UI", "Apple Color Emoji", sans-serif`, expectOK: true, wantValue: `"Segoe UI", "Apple Color Emoji", sans-serif`},
 	}
 
 	for _, tt := range tests {
