@@ -286,6 +286,59 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             background: var(--doclang-page-bg, #fff);
         }
 
+        /* Superficies tematizables. Los elementos de abajo tenían un fondo o
+           un color literal mientras el texto salía del tema: con un tema
+           oscuro (texto claro) una tabla, una columna de grid o una tecla
+           quedaban con texto claro sobre blanco. Cada literal pasa a una
+           variable propia con el literal de antes como fallback, así que
+           sin la variable el render es el mismo.
+
+           Ningún tema embebido ni el modo oscuro del viewer define estas
+           variables, y eso es deliberado: los temas embebidos sí definen
+           --doclang-link-color, --doclang-quote-*, --doclang-alert-* y
+           --doclang-page-bg con valores que este CSS nunca leyó para
+           vínculos, citas, alertas ni el margen del PDF; leerlos aquí
+           cambiaría su render. doclang deriva estas variables de esas
+           otras solo para temas externos (ver
+           doclang/internal/generator/html_theme_bindings.go). Los colores
+           de texto que hoy se heredan caen a inherit. */
+        @page {
+            /* Margen del PDF: Chromium pinta el fondo de @page detrás del
+               área de la página; sin la variable no se pinta nada, igual
+               que antes (el margen queda blanco). */
+            background: var(--doclang-print-margin-bg, transparent);
+        }
+
+        /* Vínculos del cuerpo. :where() deja la especificidad en la del
+           selector de tipo (0,0,1), así que las reglas de clase del TOC y
+           del viewer (.toc > ul > li > a, .toc-link) siguen ganando.
+           LinkText y VisitedText son los colores que el navegador ya usa
+           por defecto para un vínculo sin y con visita. */
+        a:where(:link) {
+            color: var(--doclang-body-link-color, LinkText);
+        }
+
+        a:where(:visited) {
+            color: var(--doclang-body-link-color, VisitedText);
+        }
+
+        /* Una cita o una alerta conserva su fondo claro literal mientras el
+           tema no defina el suyo. Un vínculo ahí dentro no puede tomar el
+           color de vínculo de un tema oscuro (claro sobre claro): lleva su
+           propia variable, que solo se define junto con el fondo. */
+        blockquote a:where(:link) { color: var(--doclang-blockquote-link-color, LinkText); }
+        blockquote a:where(:visited) { color: var(--doclang-blockquote-link-color, VisitedText); }
+        .alert-info a:where(:link) { color: var(--doclang-callout-info-link-color, LinkText); }
+        .alert-info a:where(:visited) { color: var(--doclang-callout-info-link-color, VisitedText); }
+        .alert-warning a:where(:link) { color: var(--doclang-callout-warning-link-color, LinkText); }
+        .alert-warning a:where(:visited) { color: var(--doclang-callout-warning-link-color, VisitedText); }
+        .alert-error a:where(:link), .alert-danger a:where(:link) { color: var(--doclang-callout-danger-link-color, LinkText); }
+        .alert-error a:where(:visited), .alert-danger a:where(:visited) { color: var(--doclang-callout-danger-link-color, VisitedText); }
+        .alert-success a:where(:link) { color: var(--doclang-callout-success-link-color, LinkText); }
+        .alert-success a:where(:visited) { color: var(--doclang-callout-success-link-color, VisitedText); }
+        .alert-tip a:where(:link) { color: var(--doclang-callout-tip-link-color, LinkText); }
+        .alert-tip a:where(:visited) { color: var(--doclang-callout-tip-link-color, VisitedText); }
+
         /* Typography */
         h1 {
             font-size: var(--doclang-h1-size, 2.5em);
@@ -376,7 +429,8 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             width: 100%;
             border-collapse: collapse;
             margin: 1.5em 0;
-            background: white;
+            background: var(--doclang-table-bg, white);
+            color: var(--doclang-table-color, inherit);
             box-shadow: var(--doclang-shadow-sm, 0 1px 3px rgba(0,0,0,0.1));
         }
 
@@ -415,19 +469,19 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         .table-caption {
             text-align: center;
             font-style: italic;
-            color: #718096;
+            color: var(--doclang-caption-color, #718096);
             margin-top: 0.5em;
             font-size: 0.9em;
         }
 
         /* Blockquotes */
         blockquote {
-            border-left: 4px solid #3498db;
+            border-left: 4px solid var(--doclang-blockquote-border, #3498db);
             padding: 1em 1.5em;
             margin: 1.5em 0;
-            background: #f7fafc;
+            background: var(--doclang-blockquote-bg, #f7fafc);
             font-style: italic;
-            color: #4a5568;
+            color: var(--doclang-blockquote-color, #4a5568);
             border-radius: 0 4px 4px 0;
         }
 
@@ -439,7 +493,7 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             margin-top: 0.8em;
             font-style: normal;
             font-size: 0.9em;
-            color: #718096;
+            color: var(--doclang-blockquote-footer-color, #718096);
         }
 
         blockquote cite {
@@ -473,7 +527,7 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         figcaption {
             margin-top: 0.8em;
             font-style: italic;
-            color: #718096;
+            color: var(--doclang-caption-color, #718096);
             font-size: 0.9em;
         }
 
@@ -528,34 +582,37 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             margin-top: 0.5em;
         }
 
+        /* --doclang-callout-*: ver "Superficies tematizables" arriba. Los
+           temas embebidos definen --doclang-alert-* con otros valores que
+           este CSS nunca leyó, por eso el nombre es otro. */
         .alert-info {
-            background: #ebf8ff;
-            border-color: #3182ce;
-            color: #2c5282;
+            background: var(--doclang-callout-info-bg, #ebf8ff);
+            border-color: var(--doclang-callout-info-border, #3182ce);
+            color: var(--doclang-callout-info-color, #2c5282);
         }
 
         .alert-warning {
-            background: #fffaf0;
-            border-color: #ed8936;
-            color: #7c2d12;
+            background: var(--doclang-callout-warning-bg, #fffaf0);
+            border-color: var(--doclang-callout-warning-border, #ed8936);
+            color: var(--doclang-callout-warning-color, #7c2d12);
         }
 
         .alert-error, .alert-danger {
-            background: #fff5f5;
-            border-color: #e53e3e;
-            color: #742a2a;
+            background: var(--doclang-callout-danger-bg, #fff5f5);
+            border-color: var(--doclang-callout-danger-border, #e53e3e);
+            color: var(--doclang-callout-danger-color, #742a2a);
         }
 
         .alert-success {
-            background: #f0fff4;
-            border-color: #38a169;
-            color: #22543d;
+            background: var(--doclang-callout-success-bg, #f0fff4);
+            border-color: var(--doclang-callout-success-border, #38a169);
+            color: var(--doclang-callout-success-color, #22543d);
         }
 
         .alert-tip {
-            background: #faf5ff;
-            border-color: #805ad5;
-            color: #44337a;
+            background: var(--doclang-callout-tip-bg, #faf5ff);
+            border-color: var(--doclang-callout-tip-border, #805ad5);
+            color: var(--doclang-callout-tip-color, #44337a);
         }
 
         /* Inline style spans (issue #81): core/renderer/sanitizer.go's
@@ -587,10 +644,11 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
             font-size: 0.85em;
             padding: 0.15em 0.4em;
-            border: 1px solid #ccc;
+            border: 1px solid var(--doclang-kbd-border, #ccc);
             border-bottom-width: 2px;
             border-radius: 4px;
-            background: #f7f7f7;
+            background: var(--doclang-kbd-bg, #f7f7f7);
+            color: var(--doclang-kbd-color, inherit);
             white-space: nowrap;
         }
 
@@ -664,16 +722,17 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             text-align: center;
             font-weight: 600;
             margin-bottom: 1em;
-            color: #2d3748;
+            color: var(--doclang-element-title-color, #2d3748);
         }
 
         .mermaid {
             text-align: center;
             margin: 1.5em 0;
             padding: 1.5em;
-            background: #f8fafc;
+            background: var(--doclang-panel-bg, #f8fafc);
+            color: var(--doclang-panel-color, inherit);
             border-radius: 8px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--doclang-panel-border, #e2e8f0);
         }
 
         /* PlantUML Diagrams */
@@ -688,16 +747,17 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             text-align: center;
             font-weight: 600;
             margin-bottom: 1em;
-            color: #2d3748;
+            color: var(--doclang-element-title-color, #2d3748);
         }
 
         .plantuml-diagram,
         .plantuml-fallback {
             max-width: 100%;
             height: auto;
-            background: #f8fafc;
+            background: var(--doclang-panel-bg, #f8fafc);
+            color: var(--doclang-panel-color, inherit);
             border-radius: 8px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--doclang-panel-border, #e2e8f0);
             padding: 1.5em;
         }
 
@@ -722,7 +782,7 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         }
 
         .plantuml-loader-text {
-            color: #718096;
+            color: var(--doclang-caption-color, #718096);
             font-size: 0.9em;
             font-weight: 500;
         }
@@ -767,7 +827,7 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             border: 1px dashed var(--doclang-table-border, #cbd5e0);
             border-radius: 6px;
             background: var(--doclang-table-stripe-bg, #f8fafc);
-            color: #718096;
+            color: var(--doclang-caption-color, #718096);
             font-size: 0.9em;
             text-align: center;
             page-break-inside: avoid;
@@ -784,7 +844,7 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             border: 1px dashed var(--doclang-table-border, #cbd5e0);
             border-radius: 4px;
             background: var(--doclang-table-stripe-bg, #f8fafc);
-            color: #718096;
+            color: var(--doclang-caption-color, #718096);
             font-size: 0.85em;
             font-style: italic;
         }
@@ -798,13 +858,13 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             text-align: center;
             font-weight: 600;
             margin-bottom: 1em;
-            color: #2d3748;
+            color: var(--doclang-element-title-color, #2d3748);
         }
 
         .chart-container {
             margin: 1.5em 0;
             padding: 1.5em;
-            background: white;
+            background: var(--doclang-chart-bg, white);
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             position: relative;
@@ -822,7 +882,7 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         .chart {
             margin: 1.5em 0;
             padding: 1.5em;
-            background: white;
+            background: var(--doclang-chart-bg, white);
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             min-height: 300px;
@@ -834,15 +894,16 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
             text-align: center;
             font-weight: 600;
             margin-bottom: 1em;
-            color: #2d3748;
+            color: var(--doclang-element-title-color, #2d3748);
         }
 
         .map {
             margin: 1.5em 0;
             padding: 0;
-            background: #f8fafc;
+            background: var(--doclang-panel-bg, #f8fafc);
+            color: var(--doclang-panel-color, inherit);
             border-radius: 8px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--doclang-panel-border, #e2e8f0);
             height: 500px;
             position: relative;
             overflow: hidden;
@@ -883,9 +944,9 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         }
 
         .code-group-tab.active {
-            background: #1e1e1e;
-            color: #fff;
-            border-bottom: 2px solid #3498db;
+            background: var(--doclang-code-tab-active-bg, #1e1e1e);
+            color: var(--doclang-code-tab-active-color, #fff);
+            border-bottom: 2px solid var(--doclang-code-tab-accent, #3498db);
         }
 
         .code-group-content {
@@ -926,9 +987,10 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
 
         .grid-column {
             padding: 1.2em;
-            background: #f8fafc;
+            background: var(--doclang-panel-bg, #f8fafc);
+            color: var(--doclang-panel-color, inherit);
             border-radius: 6px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--doclang-panel-border, #e2e8f0);
         }
 
         /* Table of Contents */
