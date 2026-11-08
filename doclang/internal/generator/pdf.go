@@ -438,11 +438,12 @@ func pdfMarginForChrome(vars, themeVars map[string]string) (map[string]string, s
 }
 
 // withChromeColor envuelve un template de header/footer para fijar el color
-// de su texto. Sin color lo devuelve tal cual. El color ya pasó
-// safeDerivedValue (sin comillas, ";", "<" ni ">").
+// de su texto. Sin color lo devuelve tal cual. El color viene de una variable
+// del tema que pasó safeDerivedValue (sin ";", "<", ">" ni cadenas abiertas),
+// pero puede traer comillas balanceadas, así que se escapa para el atributo.
 func withChromeColor(template, color string) string {
 	if color == "" {
 		return template
 	}
-	return fmt.Sprintf(`<div style="color:%s; width:100%%;">%s</div>`, color, template)
+	return fmt.Sprintf(`<div style="color:%s; width:100%%;">%s</div>`, renderer.EscapeHTMLAttribute(color), template)
 }

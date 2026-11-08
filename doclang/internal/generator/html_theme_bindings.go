@@ -170,10 +170,9 @@ func safeDerivedValue(name, v string) bool {
 	if _, ok := renderer.SanitizeCSSCustomProperty(name, v); !ok {
 		return false
 	}
-	if strings.Contains(v, "/*") || strings.Contains(v, "*/") || strings.Contains(v, `\`) {
-		return false
-	}
-	return strings.Count(v, `"`)%2 == 0 && strings.Count(v, `'`)%2 == 0
+	// SanitizeCSSCustomProperty ya rechaza comentarios, cadenas abiertas y
+	// paréntesis sin cerrar; además, un color no lleva barra invertida.
+	return !strings.Contains(v, `\`)
 }
 
 // reads dice si fg se lee sobre todos los fondos con el mínimo dado. Un color
@@ -293,13 +292,23 @@ func (d *themeDeriver) derive() {
 	textLight, _ := d.get("text-light")
 
 	// La hoja. En page-view la superficie es --doclang-page-surface-bg (sin
-	// ella, blanca); un tema externo que no la define se pinta con su
-	// --doclang-page-bg, como en el modo normal. El margen del PDF, también.
-	if page, ok := d.get("page-bg"); ok {
-		d.set("page-surface-bg", page)
+	// ella, blanca) y --doclang-page-bg es el lienzo alrededor; en el modo
+	// normal la página es --doclang-page-bg. Un tema externo sin hoja propia
+	// cuyo texto no se lee sobre el blanco (un tema oscuro) pinta la hoja
+	// con su --doclang-page-bg; uno claro con lienzo gris conserva la hoja
+	// blanca. El margen del PDF toma --doclang-page-bg.
+	page, hasPage := d.get("page-bg")
+	if hasPage {
+		d.implicitBg("page-surface-bg", cssFallbacks["page-surface-bg"], text, page)
 		d.set("print-margin-bg", page)
 	}
 	sheet := d.resolved("page-surface-bg", cssFallbacks["page-surface-bg"])
+	// Los textos del cuerpo se pintan sobre la página del modo normal y
+	// sobre la hoja de page-view: se miden contra las dos.
+	pageBgs := []string{sheet}
+	if hasPage && page != sheet {
+		pageBgs = append(pageBgs, page)
+	}
 
 	// Tabla: fondo, fila alterna y hover.
 	d.implicitBg("table-bg", cssFallbacks["table-bg"], text, sheet)
@@ -328,10 +337,10 @@ func (d *themeDeriver) derive() {
 	// Títulos de la página y de los elementos, sobre la hoja.
 	h1, _ := d.get("h1-color")
 	for _, h := range []string{"h2-color", "h3-color", "h4-color"} {
-		d.implicitFg(h, cssFallbacks[h], minLargeContrast, []string{sheet}, h1, text)
+		d.implicitFg(h, cssFallbacks[h], minLargeContrast, pageBgs, h1, text)
 	}
-	d.implicitFg("element-title-color", cssFallbacks["element-title-color"], minTextContrast, []string{sheet}, text)
-	d.implicitFg("caption-color", cssFallbacks["caption-color"], minLargeContrast, []string{sheet}, textLight, text)
+	d.implicitFg("element-title-color", cssFallbacks["element-title-color"], minTextContrast, pageBgs, text)
+	d.implicitFg("caption-color", cssFallbacks["caption-color"], minLargeContrast, pageBgs, textLight, text)
 
 	// Cita.
 	if bg, ok := d.get("quote-bg"); ok {
@@ -429,7 +438,7 @@ func (d *themeDeriver) derive() {
 	// vínculo arregla nada, y medirla obligaría a dejar ilegibles los
 	// vínculos de todas las demás.
 	var linkBgs []string
-	for _, bg := range []string{sheet, tableBg, stripe, panelBg} {
+	for _, bg := range append(append([]string{}, pageBgs...), tableBg, stripe, panelBg) {
 		if text == "" || reads(text, minTextContrast, bg) {
 			linkBgs = append(linkBgs, bg)
 		}

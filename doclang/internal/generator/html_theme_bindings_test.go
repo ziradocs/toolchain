@@ -602,3 +602,26 @@ func TestHTMLThemeVariables_TOCKeepsLiteralWhenThemeColorsWouldFail(t *testing.T
 	}
 	checkPairs(t, "professional con página oscura", vars, false)
 }
+
+// Un tema claro con lienzo gris (como page-view) conserva la hoja blanca: su
+// texto se lee sobre el blanco. Uno oscuro pinta la hoja con su página.
+func TestHTMLThemeVariables_PageSurfaceOnlyWhenTextFails(t *testing.T) {
+	light := map[string]string{"--doclang-page-bg": "#f5f5f5", "--doclang-text-color": "#1a1a1a"}
+	if v, ok := htmlThemeVariables(light, true)["--doclang-page-surface-bg"]; ok {
+		t.Errorf("tema claro: page-surface-bg = %q, debe quedar la hoja blanca", v)
+	}
+	if got := htmlThemeVariables(light, true)["--doclang-print-margin-bg"]; got != "#f5f5f5" {
+		t.Errorf("el margen del PDF sigue siendo --doclang-page-bg, salió %q", got)
+	}
+	if got := htmlThemeVariables(minimalDarkVars(), true)["--doclang-page-surface-bg"]; got != "#0f172a" {
+		t.Errorf("tema oscuro: page-surface-bg = %q, want #0f172a", got)
+	}
+}
+
+// El color del header/footer del PDF va escapado dentro del atributo style.
+func TestWithChromeColor_EscapesAttribute(t *testing.T) {
+	got := withChromeColor("<span>x</span>", `"a" onload="x"`)
+	if strings.Contains(got, `"a"`) || strings.Contains(got, `onload="x"`) {
+		t.Errorf("el color no se escapó para el atributo: %s", got)
+	}
+}

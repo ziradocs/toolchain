@@ -168,12 +168,15 @@ own light background. Their titles still follow `--doclang-element-title-color`.
   link color if it reads at 4.5:1 (a link color under 4.5:1 is ignored, so the links stay the
   browser's blue), and the PDF margin, painted with `--doclang-page-bg`.
 
-Like every theme variable, these values go into the page's CSS after a check that rejects anything
-that could close the declaration (`{`, `}`, `<`, `>`, `;`, line breaks), open or close a comment
-(`/*`, `*/`) or leave a string open (unbalanced quotes): a rejected variable is dropped with a
-warning. doclang also refuses to copy a value with a backslash. The check does not require a color: any
-other CSS value passes as written, although only a value that parses as a color can count as
-readable.
+Every theme variable goes into the page's CSS after a check, and a variable that fails it is dropped
+with a warning. The check rejects a value that contains `{`, `}`, `<`, `>`, `;` or a line break, or
+`/*` or `*/`; that leaves a string open (a quote with no closing quote of the same kind, so
+`"O'Reilly Sans"` is fine); that leaves a parenthesis or bracket unclosed (`url(x`) or closes one
+that was never opened; or that has a backslash before a quote or at the very end. Each of those
+would break out of the declaration or swallow the variables after it. The check does not require a
+color: any other CSS value passes as written, although only a value that parses as a color can
+count as readable. doclang also refuses to copy a value with any backslash into the variables it
+fills in.
 
 #### DOCX
 
