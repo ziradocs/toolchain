@@ -77,7 +77,7 @@ func externalThemeVars() map[string]string {
 		"--doclang-table-border":         "#abcdef",
 		"--doclang-table-stripe-bg":      "#f1e9f7",
 		"--doclang-alert-info-color":     "#123abc",
-		"--doclang-alert-warning-border": "#bada55",
+		"--doclang-alert-warning-border": "#b45309",
 		"--doclang-alert-danger-border":  "#d00d00",
 		"--doclang-alert-success-border": "#0b8b0b",
 		"--doclang-alert-tip-border":     "#6a5acd",
@@ -106,7 +106,7 @@ func TestDOCXExternalTheme_UsesThemeVariables(t *testing.T) {
 		"TableBorderColor": {s.TableBorderColor, "ABCDEF"},
 		"TableStripeBg":    {s.TableStripeBg, "F1E9F7"},
 		"InfoColor":        {s.InfoColor, "123ABC"},
-		"WarningColor":     {s.WarningColor, "BADA55"},
+		"WarningColor":     {s.WarningColor, "B45309"},
 		"DangerColor":      {s.DangerColor, "D00D00"},
 		"SuccessColor":     {s.SuccessColor, "0B8B0B"},
 		"TipColor":         {s.TipColor, "6A5ACD"},
@@ -159,7 +159,7 @@ func TestDOCXExternalTheme_XMLContainsThemeValues(t *testing.T) {
 // el document.xml real; los de un embebido conservan sus colores.
 func TestDOCXExternalTheme_SpecialBlocksUseAlertVariables(t *testing.T) {
 	xml := buildDOCXXML(t, docxThemeSample(), externalOpts(externalThemeVars()))
-	for _, c := range []string{"123ABC", "BADA55", "D00D00", "0B8B0B", "6A5ACD"} {
+	for _, c := range []string{"123ABC", "B45309", "D00D00", "0B8B0B", "6A5ACD"} {
 		if !strings.Contains(xml, `w:val="`+c+`"`) {
 			t.Errorf("special block color %s missing from document.xml", c)
 		}
@@ -172,7 +172,7 @@ func TestDOCXExternalTheme_SpecialBlocksUseAlertVariables(t *testing.T) {
 	}
 	// Un embebido sigue con blockConfig (FF9800 es el warning).
 	emb := buildDOCXXML(t, docxThemeSample(), GeneratorOptions{Theme: "professional"})
-	if !strings.Contains(emb, `w:val="FF9800"`) || strings.Contains(emb, "BADA55") {
+	if !strings.Contains(emb, `w:val="FF9800"`) || strings.Contains(emb, "B45309") {
 		t.Errorf("embedded theme special blocks changed")
 	}
 }
@@ -214,6 +214,62 @@ func TestDOCXExternalTheme_DarkThemeStaysReadable(t *testing.T) {
 		if !strings.Contains(xml, `w:val="`+c+`"`) {
 			t.Errorf("professional color %s missing from document", c)
 		}
+	}
+}
+
+// Los títulos de los bloques especiales se pintan sobre papel blanco: los
+// colores de alerta de un tema oscuro (claros) se descartan.
+func TestDOCXExternalTheme_DarkAlertColorsDropped(t *testing.T) {
+	dark := map[string]string{
+		"--doclang-page-bg":              "#1a202c",
+		"--doclang-text-color":           "#e2e8f0",
+		"--doclang-alert-info-color":     "#90cdf4",
+		"--doclang-alert-warning-border": "#f6e05e",
+		"--doclang-alert-danger-border":  "#fc8181",
+		"--doclang-alert-success-border": "#68d391",
+		"--doclang-alert-tip-border":     "#d6bcfa",
+	}
+	pro := GetStyleForTheme("professional", newTestLogger())
+	s := styleFromThemeVariables(dark, newTestLogger())
+	if s != pro {
+		t.Fatalf("dark theme should fall back to professional.\n got: %+v\nwant: %+v", s, pro)
+	}
+	xml := buildDOCXXML(t, docxThemeSample(), externalOpts(dark))
+	for _, bad := range []string{"90CDF4", "F6E05E", "FC8181", "68D391", "D6BCFA", "E2E8F0"} {
+		if strings.Contains(xml, bad) {
+			t.Errorf("light color %s reached the document", bad)
+		}
+	}
+	for _, c := range []string{pro.InfoColor, pro.WarningColor, pro.DangerColor, pro.SuccessColor, pro.TipColor} {
+		if !strings.Contains(xml, `w:val="`+c+`"`) {
+			t.Errorf("professional block color %s missing", c)
+		}
+	}
+}
+
+// La fila alterna se rechaza si deja ilegible el texto o los enlaces.
+func TestDOCXExternalTheme_StripeContrast(t *testing.T) {
+	pro := GetStyleForTheme("professional", newTestLogger())
+	run := func(text, link, stripe string) string {
+		return styleFromThemeVariables(map[string]string{
+			"--doclang-text-color": text, "--doclang-link-color": link, "--doclang-table-stripe-bg": stripe,
+		}, newTestLogger()).TableStripeBg
+	}
+	// Claro: pasa para texto y enlace.
+	if got := run("#000000", "#0044cc", "#f1e9f7"); got != "F1E9F7" {
+		t.Errorf("light stripe rejected: %s", got)
+	}
+	// Oscuro: el texto no se lee.
+	if got := run("#222222", "#0044cc", "#222222"); got != pro.TableStripeBg {
+		t.Errorf("stripe that hides the text was kept: %s", got)
+	}
+	// Texto legible pero enlace no: el texto negro da >=4.5 y el enlace no.
+	const stripe = "4a6fd8"
+	if contrastRatio(t, "000000", stripe) < 4.5 || contrastRatio(t, "0044CC", stripe) >= 4.5 {
+		t.Fatalf("test colors no longer isolate the link case")
+	}
+	if got := run("#000000", "#0044cc", "#"+stripe); got != pro.TableStripeBg {
+		t.Errorf("stripe that hides links was kept: %s", got)
 	}
 }
 
@@ -422,7 +478,20 @@ func TestSanitizeThemeFont(t *testing.T) {
 			t.Errorf("sanitizeThemeFont(%q) = %q,%v want %q", in, got, valid, want)
 		}
 	}
-	for _, in := range []string{"", "''", "sans-serif", "system-ui, serif", "Café", `Arial"><w:b/>`, "url(x)", "A;B", "a<b", "system-ui, A;B", strings.Repeat("a", 65)} {
+	// Un nombre inválido se salta y se sigue con el siguiente; los emoji y las
+	// ui-* no se usan; el stack por defecto de Tailwind v3 da Segoe UI.
+	for in, want := range map[string]string{
+		"'游ゴシック体', YuGothic, sans-serif": "YuGothic",
+		".AppleSystemUIFont, 'Segoe UI'": "Segoe UI",
+		"Arial<w:b/>, Georgia":           "Georgia",
+		"ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'": "Segoe UI",
+		"ui-serif, ui-monospace, ui-rounded, 'Apple Color Emoji', 'Noto Color Emoji', Emoji, Cambria":                                                                                                                     "Cambria",
+	} {
+		if got, valid := sanitizeThemeFont(in); !valid || got != want {
+			t.Errorf("sanitizeThemeFont(%q) = %q,%v want %q", in, got, valid, want)
+		}
+	}
+	for _, in := range []string{"", "''", "sans-serif", "system-ui, serif", "Café", `Arial"><w:b/>`, "url(x)", "A;B", "a<b", "system-ui, A;B", "'Apple Color Emoji', 'Segoe UI Symbol'", "ui-sans-serif, ui-rounded", strings.Repeat("a", 65)} {
 		if got, valid := sanitizeThemeFont(in); valid {
 			t.Errorf("sanitizeThemeFont(%q) accepted as %q", in, got)
 		}

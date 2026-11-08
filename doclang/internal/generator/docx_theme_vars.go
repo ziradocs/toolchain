@@ -32,6 +32,9 @@ var (
 		"ui-monospace": true, "ui-rounded": true, "emoji": true, "math": true,
 		"fangsong": true, "inherit": true, "initial": true, "unset": true,
 		"revert": true, "-apple-system": true, "blinkmacsystemfont": true,
+		// Familias de emoji y símbolos: no sirven para texto corrido.
+		"apple color emoji": true, "segoe ui emoji": true, "segoe ui symbol": true,
+		"noto color emoji": true,
 	}
 )
 
@@ -51,11 +54,11 @@ func sanitizeThemeColor(value string) (string, bool) {
 }
 
 // sanitizeThemeFont recorre el stack CSS y devuelve la primera familia que no
-// sea genérica: sin comillas, de letras ASCII, dígitos, espacio y guion (1 a
-// 64 caracteres). Las familias genéricas de CSS (sans-serif, system-ui, ...)
-// no son una fuente instalable en Word y se saltan. Si una familia con nombre
-// no cumple el formato (por ejemplo trae símbolos o letras fuera de ASCII), se
-// descarta todo el stack: no se sigue buscando después de un valor sospechoso.
+// sea utilizable: sin comillas, de letras ASCII, dígitos, espacio y guion (1 a
+// 64 caracteres). Se saltan las familias genéricas de CSS (sans-serif,
+// system-ui, ui-*, ...), las de emoji y símbolos, y cualquier nombre que no
+// cumpla el formato (acentos, símbolos, caracteres fuera de ASCII); el valor
+// nunca llega al XML. Si ninguna sirve, devuelve false.
 func sanitizeThemeFont(value string) (string, bool) {
 	for _, family := range splitCSSFamilies(value) {
 		family = strings.TrimSpace(family)
@@ -66,7 +69,7 @@ func sanitizeThemeFont(value string) (string, bool) {
 			continue
 		}
 		if !themeFontNameRe.MatchString(family) {
-			return "", false
+			continue // nombre que no se puede escribir en el XML: se salta
 		}
 		return family, true
 	}
@@ -171,20 +174,23 @@ func styleFromThemeVariables(vars map[string]string, logger util.Logger) DOCXSty
 	pair(&style.CodeBlockBg, &style.CodeBlockColor, "--doclang-code-bg", "--doclang-code-color")
 	pair(&style.TableHeaderBg, &style.TableHeaderColor, "--doclang-table-header-bg", "--doclang-table-header-color")
 
-	// Tablas: borde y filas alternas. La fila alterna debe dejar legible el
-	// texto del cuerpo.
+	// Tablas: borde y filas alternas. La fila alterna debe dejar legibles el
+	// texto del cuerpo y los enlaces (ya resueltos arriba).
 	color(&style.TableBorderColor, "--doclang-table-border")
-	if stripe, ok := sanitizeThemeColor(vars["--doclang-table-stripe-bg"]); ok && contrastAtLeast(style.TextColor, "#"+stripe, docxMinBodyRatio) {
+	if stripe, ok := sanitizeThemeColor(vars["--doclang-table-stripe-bg"]); ok &&
+		contrastAtLeast(style.TextColor, "#"+stripe, docxMinBodyRatio) &&
+		contrastAtLeast(style.LinkColor, "#"+stripe, docxMinBodyRatio) {
 		style.TableStripeBg = stripe
 	}
 
 	// Bloques especiales: info usa el color de texto del bloque, el resto el
-	// color del borde, igual que el DOCX de los temas embebidos.
-	color(&style.InfoColor, "--doclang-alert-info-color")
-	color(&style.WarningColor, "--doclang-alert-warning-border")
-	color(&style.DangerColor, "--doclang-alert-danger-border")
-	color(&style.SuccessColor, "--doclang-alert-success-border")
-	color(&style.TipColor, "--doclang-alert-tip-border")
+	// color del borde, igual que el DOCX de los temas embebidos. Se pintan
+	// como título sobre papel blanco, así que pasan el mismo filtro de contraste.
+	withContrast(&style.InfoColor, docxMinLargeRatio, "--doclang-alert-info-color")
+	withContrast(&style.WarningColor, docxMinLargeRatio, "--doclang-alert-warning-border")
+	withContrast(&style.DangerColor, docxMinLargeRatio, "--doclang-alert-danger-border")
+	withContrast(&style.SuccessColor, docxMinLargeRatio, "--doclang-alert-success-border")
+	withContrast(&style.TipColor, docxMinLargeRatio, "--doclang-alert-tip-border")
 
 	return style
 }
