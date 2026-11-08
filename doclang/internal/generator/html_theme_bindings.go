@@ -216,6 +216,32 @@ func (d *themeDeriver) implicitBg(name, literal, fg string, candidates ...string
 	return false
 }
 
+// fgReq es un color de texto que se pinta sobre una superficie y el contraste
+// mínimo que necesita.
+type fgReq struct {
+	color string
+	min   float64
+}
+
+// implicitBgFor es implicitBg para una superficie donde se pintan varios
+// textos: el fondo se deriva si el primero (el texto principal) no se lee
+// sobre el literal, y solo con un candidato donde se lean todos.
+func (d *themeDeriver) implicitBgFor(name, literal string, fgs []fgReq, candidates ...string) {
+	if d.defined(name) || len(fgs) == 0 || fgs[0].color == "" || reads(fgs[0].color, fgs[0].min, literal) {
+		return
+	}
+	for _, bg := range candidates {
+		ok := bg != ""
+		for _, f := range fgs {
+			ok = ok && reads(f.color, f.min, bg)
+		}
+		if ok {
+			d.set(name, bg)
+			return
+		}
+	}
+}
+
 // implicitFg deriva un color de texto que el tema no nombra, solo si el
 // literal no se lee sobre bgs.
 func (d *themeDeriver) implicitFg(name, literal string, min float64, bgs []string, candidates ...string) {
@@ -361,10 +387,30 @@ func (d *themeDeriver) derive() {
 	}
 
 	// Viewer: sidebar y TOC. El texto del sidebar y del botón de modo oscuro
-	// es --doclang-text-color.
-	d.implicitBg("sidebar-bg", cssFallbacks["sidebar-bg"], text, sheet)
+	// es --doclang-text-color; sobre el fondo del TOC y del sidebar también
+	// se pintan los --doclang-toc-*-color, así que un fondo nuevo solo se
+	// toma si además se leen los que el tema definió (los que no definió se
+	// derivan abajo, del texto del cuerpo).
+	tocTitle, hasTocTitle := d.get("toc-title-color")
+	tocLink, hasTocLink := d.get("toc-link-color")
+	tocSub, hasTocSub := d.get("toc-subsection-color")
+	sidebarFgs := []fgReq{{text, minTextContrast}}
+	if hasTocLink {
+		sidebarFgs = append(sidebarFgs, fgReq{tocLink, minTextContrast})
+	}
+	d.implicitBgFor("sidebar-bg", cssFallbacks["sidebar-bg"], sidebarFgs, sheet)
 	sidebarBg := d.resolved("sidebar-bg", cssFallbacks["sidebar-bg"])
-	d.implicitBg("toc-bg", themeToggleBgLiteral, text, sheet)
+	tocFgs := []fgReq{{text, minTextContrast}}
+	if hasTocTitle {
+		tocFgs = append(tocFgs, fgReq{tocTitle, minLargeContrast})
+	}
+	if hasTocLink {
+		tocFgs = append(tocFgs, fgReq{tocLink, minTextContrast})
+	}
+	if hasTocSub {
+		tocFgs = append(tocFgs, fgReq{tocSub, minTextContrast})
+	}
+	d.implicitBgFor("toc-bg", themeToggleBgLiteral, tocFgs, sheet)
 	tocBg := d.resolved("toc-bg", tocBgLiteral)
 	d.implicitFg("toc-title-color", tocTitleLiteral, minLargeContrast, []string{tocBg}, text)
 	d.implicitFg("toc-subsection-color", tocSubsectionLiteral, minTextContrast, []string{tocBg}, text)
@@ -377,8 +423,18 @@ func (d *themeDeriver) derive() {
 		}
 	}
 
-	// Vínculo del cuerpo: sobre la hoja y las superficies donde aparece.
-	d.link("body-link-color", sheet, tableBg, stripe, panelBg)
+	// Vínculo del cuerpo: sobre la hoja y las superficies donde aparece. Una
+	// superficie donde ni el texto del tema se lee (una fila alterna clara que
+	// el propio tema dejó bajo texto claro) no cuenta: ahí ningún color de
+	// vínculo arregla nada, y medirla obligaría a dejar ilegibles los
+	// vínculos de todas las demás.
+	var linkBgs []string
+	for _, bg := range []string{sheet, tableBg, stripe, panelBg} {
+		if text == "" || reads(text, minTextContrast, bg) {
+			linkBgs = append(linkBgs, bg)
+		}
+	}
+	d.link("body-link-color", linkBgs...)
 }
 
 // quizCorrect arregla la opción correcta del quiz cuando el tema define solo

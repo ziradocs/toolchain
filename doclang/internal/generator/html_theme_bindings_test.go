@@ -258,7 +258,14 @@ func resolve(vars map[string]string, chain []string) string {
 func checkPairs(t *testing.T, name string, theme map[string]string, strict bool) {
 	t.Helper()
 	after := htmlThemeVariables(theme, true)
+	text := []string{"--doclang-text-color", "#2c3e50"}
 	for _, p := range documentPairs {
+		// Un vínculo sobre una superficie donde ni el texto del tema se lee
+		// no se juzga: ningún color de vínculo arregla esa superficie (ver
+		// el comentario del vínculo del cuerpo en htmlThemeVariables).
+		if p.fg[0] == "--doclang-body-link-color" && !reads(resolve(after, text), minTextContrast, resolve(after, p.bg)) {
+			continue
+		}
 		rb, okb := a11y.ContrastRatio(resolve(theme, p.fg), resolve(theme, p.bg))
 		ra, oka := a11y.ContrastRatio(resolve(after, p.fg), resolve(after, p.bg))
 		if !oka {
@@ -539,13 +546,13 @@ func TestStandardVariables_ListSurfaceBindings(t *testing.T) {
 // no hay ninguno, el margen no se pinta.
 func TestPDFMarginForChrome(t *testing.T) {
 	dark := htmlThemeVariables(darkExternalVars(), true)
-	vars, color := pdfMarginForChrome(dark)
+	vars, color := pdfMarginForChrome(dark, darkExternalVars())
 	if color != "#94a3b8" || vars["--doclang-print-margin-bg"] != "#0f172a" {
 		t.Errorf("tema oscuro: color=%q margen=%q, want #94a3b8 sobre #0f172a", color, vars["--doclang-print-margin-bg"])
 	}
 
 	unreadable := map[string]string{"--doclang-print-margin-bg": "#0f172a", "--doclang-text-color": "#111111"}
-	vars, color = pdfMarginForChrome(unreadable)
+	vars, color = pdfMarginForChrome(unreadable, nil)
 	if color != "" {
 		t.Errorf("sin texto legible no debe haber color, salió %q", color)
 	}
@@ -557,8 +564,14 @@ func TestPDFMarginForChrome(t *testing.T) {
 	}
 
 	embedded := document.GetProfessionalTheme().Variables
-	if vars, color := pdfMarginForChrome(embedded); color != "" || !reflect.DeepEqual(vars, map[string]string(embedded)) {
+	if vars, color := pdfMarginForChrome(embedded, embedded); color != "" || !reflect.DeepEqual(vars, map[string]string(embedded)) {
 		t.Error("un tema sin margen pintado no debe cambiar")
+	}
+
+	// Un margen que el tema pintó por su cuenta se respeta aunque no haya
+	// texto legible: es la variable del tema.
+	if vars, _ := pdfMarginForChrome(unreadable, unreadable); vars["--doclang-print-margin-bg"] != "#0f172a" {
+		t.Error("se quitó un --doclang-print-margin-bg definido por el tema")
 	}
 
 	if got := withChromeColor("<span>x</span>", ""); got != "<span>x</span>" {
@@ -567,4 +580,25 @@ func TestPDFMarginForChrome(t *testing.T) {
 	if got := withChromeColor("<span>x</span>", "#94a3b8"); got != `<div style="color:#94a3b8; width:100%;"><span>x</span></div>` {
 		t.Errorf("withChromeColor = %q", got)
 	}
+}
+
+// Un tema claro copiado con la página oscura y sus colores de TOC oscuros: el
+// fondo del TOC no puede pasar a la hoja oscura, porque esos colores
+// quedarían ilegibles. Antes se medía solo el texto del cuerpo.
+func TestHTMLThemeVariables_TOCKeepsLiteralWhenThemeColorsWouldFail(t *testing.T) {
+	vars := map[string]string{}
+	for k, v := range document.GetProfessionalTheme().Variables {
+		vars[k] = v
+	}
+	delete(vars, "--doclang-toc-bg")
+	vars["--doclang-page-bg"] = "#0f172a"
+	vars["--doclang-text-color"] = "#e2e8f0"
+	got := htmlThemeVariables(vars, true)
+	if v, ok := got["--doclang-toc-bg"]; ok {
+		t.Errorf("toc-bg = %q: los --doclang-toc-*-color del tema no se leen ahí", v)
+	}
+	if v, ok := got["--doclang-sidebar-bg"]; ok {
+		t.Errorf("sidebar-bg = %q: --doclang-toc-link-color del tema no se lee ahí", v)
+	}
+	checkPairs(t, "professional con página oscura", vars, false)
 }

@@ -105,17 +105,24 @@ fixed colors. A variable the theme defines itself always wins.
   theme has no `--doclang-page-surface-bg`, the page-view sheet. A background is taken only together
   with a text color that reads on it at 4.5:1: the theme's own color for that block
   (`--doclang-quote-color`, `--doclang-alert-<kind>-color`), the block's usual color, or
-  `--doclang-text-color`, the first that does. If none does, the block keeps its usual colors.
+  `--doclang-text-color`, the first that does. If none does, or the background is not a plain color
+  that can be measured (a gradient, for instance), the block keeps its usual colors.
 - **Everything else changes only when the usual color would not read with the theme's text.**
   Tables, table stripes and hover, panels, keys, quiz and poll, the page-view header and footer, the
   viewer's sidebar and table of contents, chart/diagram/map titles, captions and `h2` to `h4` keep
   their usual colors in a light theme. In a dark theme they take the page color (or the table
   stripe, for panels and keys) and the theme's text color (`--doclang-h1-color` for `h2` to `h4`).
+  A new background is taken only if every text the theme defines for that surface reads on it: the
+  viewer's sidebar and table of contents keep their light background when the theme's own
+  `--doclang-toc-*-color` values are dark.
 - **Links** take `--doclang-link-color` only where it reads at 4.5:1 on every background it sits on
-  (the page, tables, panels; each blockquote and special block separately, and only when that block
-  takes its background from the theme). Otherwise they keep the browser's blue, and if that does
+  (the page, tables, table stripes and panels where the theme's text reads; each blockquote and
+  special block separately, and only when that block takes its background from the theme). Otherwise they keep the browser's blue, and if that does
   not read either (a dark page), a light blue (`#8ab4f8`). A pressed link keeps the browser's red.
 - **Charts** keep their white card: Chart.js and the chart image draw on their own light background.
+- **PDF header and footer.** Chromium prints them in the page margin, in black. When the margin is
+  painted, their text takes `--doclang-text-light` or `--doclang-text-color` if one reads on it; if
+  none does, the margin is left white, unless the theme set `--doclang-print-margin-bg` itself.
 
 | Variable | Fallback |
 |----------|----------|

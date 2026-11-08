@@ -163,7 +163,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	// color del tema que se lea ahí, o el margen no se pinta.
 	chromeColor := ""
 	if showHeader || showFooter {
-		renderOpts.ThemeVariables, chromeColor = pdfMarginForChrome(renderOpts.ThemeVariables)
+		renderOpts.ThemeVariables, chromeColor = pdfMarginForChrome(renderOpts.ThemeVariables, opts.ThemeVariables)
 	}
 
 	// ctx: cr=chromiumRenderer ya vivo (arriba) cablea mermaid/chart/map/
@@ -412,9 +412,10 @@ func pdfDocumentOptions(opts GeneratorOptions, title string) renderer.DocumentHT
 // lleva header/footer de Chromium, que se imprimen en ese margen con texto
 // negro por defecto. Si el tema tiene un color de texto que se lea sobre el
 // margen (--doclang-text-light o --doclang-text-color, a 4.5:1), lo devuelve
-// para el texto del header/footer; si no, quita --doclang-print-margin-bg de
-// una copia de las variables y el margen queda blanco, como antes.
-func pdfMarginForChrome(vars map[string]string) (map[string]string, string) {
+// para el texto del header/footer. Si no, y el margen lo pintó la derivación
+// (no el tema), quita --doclang-print-margin-bg de una copia de las variables
+// y el margen queda blanco, como antes; si lo definió el tema, se respeta.
+func pdfMarginForChrome(vars, themeVars map[string]string) (map[string]string, string) {
 	bg, ok := vars["--doclang-print-margin-bg"]
 	if !ok {
 		return vars, ""
@@ -423,6 +424,9 @@ func pdfMarginForChrome(vars map[string]string) (map[string]string, string) {
 		if c := vars[name]; safeDerivedValue(name, c) && reads(c, minTextContrast, bg) {
 			return vars, c
 		}
+	}
+	if _, own := themeVars["--doclang-print-margin-bg"]; own {
+		return vars, ""
 	}
 	out := make(map[string]string, len(vars))
 	for k, v := range vars {
