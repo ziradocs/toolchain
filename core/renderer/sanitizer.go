@@ -314,8 +314,8 @@ var cssCustomPropertyNamePattern = regexp.MustCompile(`^--[a-zA-Z0-9_-]+$`)
 // CSS y el elemento <style> que la envuelve (ver
 // docs/SECURITY_AUDIT_2026-07.md, BA-11). Retorna ok=false si el nombre no
 // matchea cssCustomPropertyNamePattern o el valor contiene un carácter que
-// permitiría escapar la declaración/bloque (o comentarla, o dejar una
-// cadena abierta); el llamador debe omitir esa
+// permitiría escapar la declaración/bloque o arrastrar las siguientes (ver
+// cssValueBalanced); el llamador debe omitir esa
 // entrada en vez de escribirla.
 func SanitizeCSSCustomProperty(name, value string) (safeValue string, ok bool) {
 	if !cssCustomPropertyNamePattern.MatchString(name) {
@@ -324,13 +324,13 @@ func SanitizeCSSCustomProperty(name, value string) (safeValue string, ok bool) {
 	if strings.ContainsAny(value, "{}<>;\n\r") {
 		return "", false
 	}
-	// Un comentario o una cadena sin cerrar no escapan del <style>, pero sí
-	// de la declaración: "#fff /*" convierte en comentario el resto del
-	// bloque :root (todas las variables que vienen después), y una comilla
-	// sin pareja se traga la declaración siguiente. Ningún valor legítimo de
-	// una variable de tema los necesita.
-	if strings.Contains(value, "/*") || strings.Contains(value, "*/") ||
-		strings.Count(value, `"`)%2 != 0 || strings.Count(value, "'")%2 != 0 {
+	// Lo de abajo no escapa del <style>, pero sí de la declaración y se lleva
+	// las variables que vienen después en el bloque :root: un comentario
+	// ("#fff /*") lo comenta hasta el final, un paréntesis o corchete sin
+	// cerrar ("url(x") se traga el resto, y una cadena sin cerrar se traga la
+	// declaración siguiente. Ningún valor legítimo de una variable de tema
+	// los necesita.
+	if !cssValueBalanced(value) {
 		return "", false
 	}
 	return value, true
@@ -1293,4 +1293,50 @@ func ProcessTextWithVariablesAndMarkdownSecure(text string, variables map[string
 	processed := ProcessVariables(text, variables)
 	// Luego procesar formato Markdown de forma segura
 	return ProcessInlineMarkdownSecure(processed)
+}
+
+// cssValueBalanced recorre un valor CSS como lo tokeniza el navegador, lo
+// justo para saber si termina "cerrado": sin comentarios (/* o */), con cada
+// cadena cerrada por su misma comilla (una comilla de la otra clase adentro es
+// texto: "O'Reilly Sans" vale), con paréntesis y corchetes balanceados fuera
+// de las cadenas, y sin barra invertida seguida de comilla ni al final del
+// valor (un escape que dejaría la cadena, o el valor, abiertos).
+func cssValueBalanced(value string) bool {
+	if strings.Contains(value, "/*") || strings.Contains(value, "*/") {
+		return false
+	}
+	var quote byte // comilla de la cadena abierta, o 0
+	parens, brackets := 0, 0
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c == '\\' {
+			if i+1 >= len(value) || value[i+1] == '"' || value[i+1] == '\'' {
+				return false
+			}
+			i++ // el carácter escapado es texto
+			continue
+		}
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
+		case '(':
+			parens++
+		case ')':
+			parens--
+		case '[':
+			brackets++
+		case ']':
+			brackets--
+		}
+		if parens < 0 || brackets < 0 {
+			return false
+		}
+	}
+	return quote == 0 && parens == 0 && brackets == 0
 }
