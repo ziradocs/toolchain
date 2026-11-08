@@ -113,6 +113,7 @@ var StandardVariables = []string{
 	// (internal/generator/html_theme_bindings.go). El README de doclang
 	// documenta el fallback y el origen de cada una.
 	"--doclang-body-link-color",
+	"--doclang-body-link-active-color",
 	"--doclang-table-bg",
 	"--doclang-table-color",
 	"--doclang-panel-bg",

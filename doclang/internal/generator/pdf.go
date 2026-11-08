@@ -119,7 +119,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	// (comprobado en slidelang antes de este fix). offline-inline resuelve
 	// esto en build-time, determinístico, sin depender de ningún CDN ni de
 	// cuánto tarde en cargar.
-	const offlineMode = "offline-inline"
+	const offlineMode = pdfOfflineMode
 
 	// offlinePlantUMLFormat: forzar offlineMode arriba implica PlantUML SIEMPRE
 	// resuelve por FetchDiagramInline (renderPlantUMLOfflineInline en html.go),
@@ -130,29 +130,40 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	// <div class="plantuml-error"> silencioso dentro del PDF — --plantuml-format
 	// solo tiene efecto real en --format html --render-mode offline-assets (el
 	// único modo que sí acepta PNG, vía FetchDiagramToAssets).
-	const offlinePlantUMLFormat = "svg"
+	const offlinePlantUMLFormat = pdfOfflinePlantUMLFormat
 
-	renderOpts := renderer.DocumentHTMLOptions{
-		Title:              title,
-		TOC:                opts.TOC,
-		TOCDepth:           opts.TOCDepth,
-		Numbering:          opts.Numbering,
-		PageBreaks:         opts.PageBreaks,
-		Theme:              opts.Theme,
-		ThemeVariables:     htmlThemeVariables(opts.ThemeVariables, opts.ThemeExternal),
-		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
-		InteractiveViewer:  false,          // No viewer en PDF
-		Watermark:          opts.Watermark, // watermark: front matter (issue #179)
-		EmbedAssets:        true,
-		PlantUMLMode:       offlineMode,
-		PlantUMLFormat:     offlinePlantUMLFormat,
-		MermaidMode:        offlineMode,
-		ChartMode:          offlineMode,
-		MapMode:            offlineMode,
-		MathMode:           offlineMode,
-		// Image format options (for charts and maps in offline modes)
-		ImageFormat: opts.ImageFormat, // 🆕 "png" o "webp"
-		WebPQuality: opts.WebPQuality, // 🆕 Calidad WebP (1-100)
+	// header/footer resueltos desde el front matter (issue #117): su propio
+	// Enabled gana sobre el gate de tema, igual que en HTML (ver
+	// headerFooterConfigured en core/renderer/document_html.go) — sin
+	// config, cae al fallback legado gateado por ShowHeaders/ShowFooters.
+	// A diferencia de HTML, Chromium's print header/footer es GLOBAL para
+	// todo el PDF (no hay paginación real todavía cuando se arma el
+	// template), así que layout_defaults nunca aplica acá — limitación de
+	// la plataforma, no un recorte de este PR.
+	var headerCfg *ast.HeaderConfig
+	var footerCfg *ast.FooterConfig
+	if opts.HeaderFooter != nil {
+		headerCfg = opts.HeaderFooter.Header
+		footerCfg = opts.HeaderFooter.Footer
+	}
+
+	showHeader := opts.ShowHeaders
+	if headerCfg != nil {
+		showHeader = headerCfg.Enabled
+	}
+	showFooter := opts.ShowFooters
+	if footerCfg != nil {
+		showFooter = footerCfg.Enabled
+	}
+
+	renderOpts := pdfDocumentOptions(opts, title)
+
+	// Con header/footer, Chromium imprime su texto en el margen, que un tema
+	// externo puede pintar (--doclang-print-margin-bg): el texto toma un
+	// color del tema que se lea ahí, o el margen no se pinta.
+	chromeColor := ""
+	if showHeader || showFooter {
+		renderOpts.ThemeVariables, chromeColor = pdfMarginForChrome(renderOpts.ThemeVariables)
 	}
 
 	// ctx: cr=chromiumRenderer ya vivo (arriba) cablea mermaid/chart/map/
@@ -194,30 +205,6 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	// 3. Convertir HTML a PDF
 	pdfOpts := resolvePDFOptions(opts.Page, p.logger)
 
-	// header/footer resueltos desde el front matter (issue #117): su propio
-	// Enabled gana sobre el gate de tema, igual que en HTML (ver
-	// headerFooterConfigured en core/renderer/document_html.go) — sin
-	// config, cae al fallback legado gateado por ShowHeaders/ShowFooters.
-	// A diferencia de HTML, Chromium's print header/footer es GLOBAL para
-	// todo el PDF (no hay paginación real todavía cuando se arma el
-	// template), así que layout_defaults nunca aplica acá — limitación de
-	// la plataforma, no un recorte de este PR.
-	var headerCfg *ast.HeaderConfig
-	var footerCfg *ast.FooterConfig
-	if opts.HeaderFooter != nil {
-		headerCfg = opts.HeaderFooter.Header
-		footerCfg = opts.HeaderFooter.Footer
-	}
-
-	showHeader := opts.ShowHeaders
-	if headerCfg != nil {
-		showHeader = headerCfg.Enabled
-	}
-	showFooter := opts.ShowFooters
-	if footerCfg != nil {
-		showFooter = footerCfg.Enabled
-	}
-
 	pdfOpts.DisplayHeaderFooter = showHeader || showFooter
 	if pdfOpts.DisplayHeaderFooter {
 		// Los dos lados SIEMPRE se asignan de forma explícita, nunca se
@@ -238,6 +225,8 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		if showFooter {
 			pdfOpts.FooterTemplate = buildPDFFooterTemplate(footerCfg, variables)
 		}
+		pdfOpts.HeaderTemplate = withChromeColor(pdfOpts.HeaderTemplate, chromeColor)
+		pdfOpts.FooterTemplate = withChromeColor(pdfOpts.FooterTemplate, chromeColor)
 	}
 
 	if err := chromiumRenderer.RenderHTMLToPDF(opts.runContext(), htmlContent, outputFile, pdfOpts); err != nil {
@@ -380,4 +369,76 @@ func joinNonEmpty(a, b string) string {
 		return a
 	}
 	return a + " " + b
+}
+
+// pdfOfflineMode y pdfOfflinePlantUMLFormat: ver los comentarios de
+// offlineMode y offlinePlantUMLFormat en Generate.
+const (
+	pdfOfflineMode           = "offline-inline"
+	pdfOfflinePlantUMLFormat = "svg"
+)
+
+// pdfDocumentOptions arma las opciones del HTML que se imprime a PDF. Está
+// aparte para poder probar sin Chromium que el PDF recibe las variables del
+// tema con las superficies derivadas (htmlThemeVariables).
+func pdfDocumentOptions(opts GeneratorOptions, title string) renderer.DocumentHTMLOptions {
+	const offlineMode = pdfOfflineMode
+	const offlinePlantUMLFormat = pdfOfflinePlantUMLFormat
+	return renderer.DocumentHTMLOptions{
+		Title:              title,
+		TOC:                opts.TOC,
+		TOCDepth:           opts.TOCDepth,
+		Numbering:          opts.Numbering,
+		PageBreaks:         opts.PageBreaks,
+		Theme:              opts.Theme,
+		ThemeVariables:     htmlThemeVariables(opts.ThemeVariables, opts.ThemeExternal),
+		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
+		InteractiveViewer:  false,          // No viewer en PDF
+		Watermark:          opts.Watermark, // watermark: front matter (issue #179)
+		EmbedAssets:        true,
+		PlantUMLMode:       offlineMode,
+		PlantUMLFormat:     offlinePlantUMLFormat,
+		MermaidMode:        offlineMode,
+		ChartMode:          offlineMode,
+		MapMode:            offlineMode,
+		MathMode:           offlineMode,
+		// Image format options (for charts and maps in offline modes)
+		ImageFormat: opts.ImageFormat, // 🆕 "png" o "webp"
+		WebPQuality: opts.WebPQuality, // 🆕 Calidad WebP (1-100)
+	}
+}
+
+// pdfMarginForChrome decide qué pasa con el margen pintado cuando el PDF
+// lleva header/footer de Chromium, que se imprimen en ese margen con texto
+// negro por defecto. Si el tema tiene un color de texto que se lea sobre el
+// margen (--doclang-text-light o --doclang-text-color, a 4.5:1), lo devuelve
+// para el texto del header/footer; si no, quita --doclang-print-margin-bg de
+// una copia de las variables y el margen queda blanco, como antes.
+func pdfMarginForChrome(vars map[string]string) (map[string]string, string) {
+	bg, ok := vars["--doclang-print-margin-bg"]
+	if !ok {
+		return vars, ""
+	}
+	for _, name := range []string{"--doclang-text-light", "--doclang-text-color"} {
+		if c := vars[name]; safeDerivedValue(name, c) && reads(c, minTextContrast, bg) {
+			return vars, c
+		}
+	}
+	out := make(map[string]string, len(vars))
+	for k, v := range vars {
+		if k != "--doclang-print-margin-bg" {
+			out[k] = v
+		}
+	}
+	return out, ""
+}
+
+// withChromeColor envuelve un template de header/footer para fijar el color
+// de su texto. Sin color lo devuelve tal cual. El color ya pasó
+// safeDerivedValue (sin comillas, ";", "<" ni ">").
+func withChromeColor(template, color string) string {
+	if color == "" {
+		return template
+	}
+	return fmt.Sprintf(`<div style="color:%s; width:100%%;">%s</div>`, color, template)
 }
