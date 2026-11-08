@@ -7,11 +7,13 @@ package chromium
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/chromedp"
 
 	"go.ziradocs.com/core/v2/parser"
@@ -36,6 +38,22 @@ Text with a [link](https://example.com/) and [Ctrl]{.kbd}.
 
 :::info
 Info alert with a [link](https://example.com/info).
+:::
+
+:::warning
+Warning with a [link](https://example.com/warning).
+:::
+
+:::danger
+Danger with a [link](https://example.com/danger).
+:::
+
+:::success
+Success with a [link](https://example.com/success).
+:::
+
+:::tip
+Tip with a [link](https://example.com/tip).
 :::
 
 ::: grid
@@ -71,11 +89,15 @@ const surfaceProbe = `(() => {
     infoBg: cs('.alert-info').backgroundColor,
     infoColor: cs('.alert-info').color,
     infoLink: cs('.alert-info a[href]').color,
+    warningLink: cs('.alert-warning a[href]').color,
+    dangerLink: cs('.alert-danger a[href], .alert-error a[href]').color,
+    successLink: cs('.alert-success a[href]').color,
+    tipLink: cs('.alert-tip a[href]').color,
     quoteLink: cs('blockquote a[href]').color,
   };
 })()`
 
-func renderSurfaces(t *testing.T, ctx context.Context, vars map[string]string) map[string]string {
+func writeSurfacesHTML(t *testing.T, vars map[string]string) string {
 	t.Helper()
 	doc, _ := parser.New(util.NewNoop()).ParseDocument(surfacesDoc, "surfaces.doclang")
 	if doc == nil {
@@ -97,6 +119,12 @@ func renderSurfaces(t *testing.T, ctx context.Context, vars map[string]string) m
 	if err := os.WriteFile(path, []byte(html), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return path
+}
+
+func renderSurfaces(t *testing.T, ctx context.Context, vars map[string]string) map[string]string {
+	t.Helper()
+	path := writeSurfacesHTML(t, vars)
 	var got map[string]string
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate("file://"+path),
@@ -105,6 +133,31 @@ func renderSurfaces(t *testing.T, ctx context.Context, vars map[string]string) m
 		t.Fatalf("chromedp: %v", err)
 	}
 	return got
+}
+
+// pressedLinkColor presiona el botón del mouse sobre el vínculo (sin
+// soltarlo encima, para no navegar) y lee su color mientras está :active.
+func pressedLinkColor(t *testing.T, ctx context.Context, selector string) string {
+	t.Helper()
+	var pt struct{ X, Y float64 }
+	var color string
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(fmt.Sprintf(`(() => { const a = document.querySelector(%q); a.scrollIntoView({block: "center"}); const r = a.getBoundingClientRect(); return {X: r.left + r.width / 2, Y: r.top + r.height / 2}; })()`, selector), &pt),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return input.DispatchMouseEvent(input.MousePressed, pt.X, pt.Y).WithButton(input.Left).WithClickCount(1).Do(ctx)
+		}),
+		chromedp.Evaluate(fmt.Sprintf(`getComputedStyle(document.querySelector(%q)).color`, selector), &color),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			if err := input.DispatchMouseEvent(input.MouseMoved, 1, 1).Do(ctx); err != nil {
+				return err
+			}
+			return input.DispatchMouseEvent(input.MouseReleased, 1, 1).WithButton(input.Left).WithClickCount(1).Do(ctx)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("chromedp: %v", err)
+	}
+	return color
 }
 
 // TestDocumentSurfaces_ComputedStyle comprueba en un Chromium de verdad las
@@ -138,6 +191,10 @@ func TestDocumentSurfaces_ComputedStyle(t *testing.T) {
 			"infoBg":      "rgb(235, 248, 255)",
 			"infoColor":   "rgb(44, 82, 130)",
 			"infoLink":    "rgb(0, 0, 238)",
+			"warningLink": "rgb(0, 0, 238)",
+			"dangerLink":  "rgb(0, 0, 238)",
+			"successLink": "rgb(0, 0, 238)",
+			"tipLink":     "rgb(0, 0, 238)",
 			"quoteLink":   "rgb(0, 0, 238)",
 		}
 		for k, v := range want {
@@ -206,13 +263,38 @@ func TestDocumentSurfaces_ComputedStyle(t *testing.T) {
 			"--doclang-body-link-color": "#7dd3fc",
 		})
 		want := map[string]string{
-			"linkColor": "rgb(125, 211, 252)",
-			"infoLink":  "rgb(0, 0, 238)",
-			"quoteLink": "rgb(0, 0, 238)",
+			"linkColor":   "rgb(125, 211, 252)",
+			"infoLink":    "rgb(0, 0, 238)",
+			"warningLink": "rgb(0, 0, 238)",
+			"dangerLink":  "rgb(0, 0, 238)",
+			"successLink": "rgb(0, 0, 238)",
+			"tipLink":     "rgb(0, 0, 238)",
+			"quoteLink":   "rgb(0, 0, 238)",
 		}
 		for k, v := range want {
 			if got[k] != v {
 				t.Errorf("%s = %q, want %q", k, got[k], v)
+			}
+		}
+	})
+
+	// Un vínculo presionado se pinta con ActiveText (rojo), como lo hacía la
+	// hoja del navegador antes de que existieran las reglas de vínculo, en el
+	// cuerpo y dentro de una cita o una alerta, con o sin color del tema.
+	t.Run("vínculo presionado", func(t *testing.T) {
+		for _, vars := range []map[string]string{nil, {
+			"--doclang-body-link-color":         "#7dd3fc",
+			"--doclang-blockquote-link-color":   "#ccbbaa",
+			"--doclang-callout-info-link-color": "#99aabb",
+		}} {
+			path := writeSurfacesHTML(t, vars)
+			if err := chromedp.Run(ctx, chromedp.Navigate("file://"+path)); err != nil {
+				t.Fatal(err)
+			}
+			for _, sel := range []string{"p a[href]", "blockquote a[href]", ".alert-info a[href]", ".alert-tip a[href]"} {
+				if got := pressedLinkColor(t, ctx, sel); got != "rgb(255, 0, 0)" {
+					t.Errorf("vars=%v %s presionado = %q, want rgb(255, 0, 0)", vars != nil, sel, got)
+				}
 			}
 		}
 	})

@@ -54,10 +54,16 @@ var surfaceBindings = []struct{ name, fallback string }{
 	{"--doclang-blockquote-link-color", "LinkText"},
 	{"--doclang-blockquote-link-color", "VisitedText"},
 	{"--doclang-callout-info-link-color", "LinkText"},
+	{"--doclang-callout-info-link-color", "VisitedText"},
 	{"--doclang-callout-warning-link-color", "LinkText"},
+	{"--doclang-callout-warning-link-color", "VisitedText"},
 	{"--doclang-callout-danger-link-color", "LinkText"},
+	{"--doclang-callout-danger-link-color", "VisitedText"},
 	{"--doclang-callout-success-link-color", "LinkText"},
+	{"--doclang-callout-success-link-color", "VisitedText"},
+	{"--doclang-callout-tip-link-color", "LinkText"},
 	{"--doclang-callout-tip-link-color", "VisitedText"},
+	{"--doclang-body-link-active-color", "ActiveText"},
 }
 
 func TestDocumentStyles_SurfaceBindingsKeepLiteralFallbacks(t *testing.T) {
@@ -123,6 +129,31 @@ func TestViewerDarkMode_DoesNotDefineSurfaceBindings(t *testing.T) {
 	for _, b := range surfaceBindings {
 		if strings.Contains(dark, b.name+":") {
 			t.Errorf("el modo oscuro del viewer define %s", b.name)
+		}
+	}
+}
+
+// Todas las reglas de vínculo del documento tienen especificidad (0,0,1) y la
+// de :active va después de todas: así un vínculo presionado vuelve a pintarse
+// con ActiveText, como lo hacía la hoja del navegador antes de que existieran
+// estas reglas de autor, también dentro de una cita o una alerta.
+func TestDocumentStyles_ActiveLinkRuleComesLast(t *testing.T) {
+	css := generateDocumentStyles(DocumentHTMLOptions{}, util.NewNoop())
+	active := strings.Index(css, "a:where(:any-link:active) {")
+	if active < 0 {
+		t.Fatal("falta la regla a:where(:any-link:active)")
+	}
+	for _, sel := range []string{"a:where(:link)", "a:where(:visited)"} {
+		if last := strings.LastIndex(css, sel); last > active {
+			t.Errorf("hay una regla %s después de la de :active", sel)
+		}
+	}
+	for _, kind := range []string{"blockquote", ".alert-info", ".alert-warning", ".alert-error, .alert-danger", ".alert-success", ".alert-tip"} {
+		for _, pseudo := range []string{":link", ":visited"} {
+			rule := ":where(" + kind + ") a:where(" + pseudo + ")"
+			if !strings.Contains(css, rule) {
+				t.Errorf("falta %s (el contenedor fuera de :where sube la especificidad y le gana a :active)", rule)
+			}
 		}
 	}
 }

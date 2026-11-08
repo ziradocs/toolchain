@@ -325,19 +325,29 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         /* Una cita o una alerta conserva su fondo claro literal mientras el
            tema no defina el suyo. Un vínculo ahí dentro no puede tomar el
            color de vínculo de un tema oscuro (claro sobre claro): lleva su
-           propia variable, que solo se define junto con el fondo. */
-        blockquote a:where(:link) { color: var(--doclang-blockquote-link-color, LinkText); }
-        blockquote a:where(:visited) { color: var(--doclang-blockquote-link-color, VisitedText); }
-        .alert-info a:where(:link) { color: var(--doclang-callout-info-link-color, LinkText); }
-        .alert-info a:where(:visited) { color: var(--doclang-callout-info-link-color, VisitedText); }
-        .alert-warning a:where(:link) { color: var(--doclang-callout-warning-link-color, LinkText); }
-        .alert-warning a:where(:visited) { color: var(--doclang-callout-warning-link-color, VisitedText); }
-        .alert-error a:where(:link), .alert-danger a:where(:link) { color: var(--doclang-callout-danger-link-color, LinkText); }
-        .alert-error a:where(:visited), .alert-danger a:where(:visited) { color: var(--doclang-callout-danger-link-color, VisitedText); }
-        .alert-success a:where(:link) { color: var(--doclang-callout-success-link-color, LinkText); }
-        .alert-success a:where(:visited) { color: var(--doclang-callout-success-link-color, VisitedText); }
-        .alert-tip a:where(:link) { color: var(--doclang-callout-tip-link-color, LinkText); }
-        .alert-tip a:where(:visited) { color: var(--doclang-callout-tip-link-color, VisitedText); }
+           propia variable, que solo se define junto con el fondo. El
+           contenedor va en :where() para que estas reglas tengan la misma
+           especificidad que las de arriba (0,0,1) y ganen solo por orden;
+           así la regla de :active, que va al final, las alcanza a todas. */
+        :where(blockquote) a:where(:link) { color: var(--doclang-blockquote-link-color, LinkText); }
+        :where(blockquote) a:where(:visited) { color: var(--doclang-blockquote-link-color, VisitedText); }
+        :where(.alert-info) a:where(:link) { color: var(--doclang-callout-info-link-color, LinkText); }
+        :where(.alert-info) a:where(:visited) { color: var(--doclang-callout-info-link-color, VisitedText); }
+        :where(.alert-warning) a:where(:link) { color: var(--doclang-callout-warning-link-color, LinkText); }
+        :where(.alert-warning) a:where(:visited) { color: var(--doclang-callout-warning-link-color, VisitedText); }
+        :where(.alert-error, .alert-danger) a:where(:link) { color: var(--doclang-callout-danger-link-color, LinkText); }
+        :where(.alert-error, .alert-danger) a:where(:visited) { color: var(--doclang-callout-danger-link-color, VisitedText); }
+        :where(.alert-success) a:where(:link) { color: var(--doclang-callout-success-link-color, LinkText); }
+        :where(.alert-success) a:where(:visited) { color: var(--doclang-callout-success-link-color, VisitedText); }
+        :where(.alert-tip) a:where(:link) { color: var(--doclang-callout-tip-link-color, LinkText); }
+        :where(.alert-tip) a:where(:visited) { color: var(--doclang-callout-tip-link-color, VisitedText); }
+
+        /* Vínculo presionado: la hoja del navegador lo pinta con ActiveText
+           (rojo), pero las reglas de arriba, de autor, le ganarían. Esta va
+           al final para restituirlo. */
+        a:where(:any-link:active) {
+            color: var(--doclang-body-link-active-color, ActiveText);
+        }
 
         /* Typography */
         h1 {
@@ -3036,6 +3046,9 @@ func generateViewerStyles(opts DocumentHTMLOptions) string {
                 max-width: 100% !important;
             }
 
+            /* Al imprimir el HTML del viewer el fondo se fuerza a blanco
+               aunque el tema sea oscuro, y el texto sigue al tema. No afecta
+               al PDF de doclang, que se genera sin viewer; queda pendiente. */
             body.doclang-viewer {
                 background: white !important;
             }
