@@ -152,6 +152,42 @@ if [[ "$REUSE_CORE_TAG" == true ]]; then
   echo "   ancestro de HEAD, core/ sin cambios desde entonces, y ambos go.mod lo pinean. Se reusa."
 fi
 
+# 4b'. Sin `core/$VERSION` previo, este script lo corta sobre HEAD, pero los
+#      binarios NO usan ese core: goreleaser compila los CLIs contra el core que
+#      pinean sus go.mod, resuelto del proxy. Si `core/` cambió desde ese pin, el
+#      release sale con un core viejo y nada falla: el paso 4 compila contra el
+#      pin y pasa, porque el core publicado sigue existiendo. Pasó con un cambio
+#      de CSS en core/renderer que, sin el bump, no habría llegado al binario.
+#
+#      Así que se exige que el core pineado por cada CLI sea un tag en origin y
+#      que `core/` no haya cambiado entre ese tag y HEAD. Si cambió, el release
+#      lleva un cambio de core y primero va `scripts/bump-core.sh $VERSION`.
+if [[ "$REUSE_CORE_TAG" != true ]]; then
+  for m in slidelang doclang; do
+    pin=$(awk '/=>/ { next }
+               { for (i = 1; i < NF; i++)
+                   if ($i ~ /^go\.ziradocs\.com\/core\/v[0-9]+$/) { print $(i+1); exit } }' "$m/go.mod")
+    if [[ -z "$pin" ]]; then
+      echo "🔥 $m/go.mod no pinea go.ziradocs.com/core: no puedo saber qué core lleva el binario."
+      exit 1
+    fi
+    if ! remote_ref_existe --tags "refs/tags/core/$pin"; then
+      echo "🔥 $m/go.mod pinea core $pin, pero core/$pin no existe en origin."
+      echo "   Un pin sin tag (p. ej. un pseudo-version) no es un core publicado; corré bump-core.sh."
+      exit 1
+    fi
+    git fetch -q --force origin "refs/tags/core/$pin:refs/tags/core/$pin"
+    pin_commit=$(git rev-list -n 1 "core/$pin")
+    if ! git diff --quiet "$pin_commit" HEAD -- core/; then
+      echo "🔥 core/ cambió desde core/$pin, que es el core que pinea $m/go.mod:"
+      git diff --stat "$pin_commit" HEAD -- core/ | sed 's/^/     /'
+      echo "   Los binarios saldrían SIN ese cambio. Corré primero 'scripts/bump-core.sh $VERSION',"
+      echo "   mergeá el PR del bump y volvé a correr este script."
+      exit 1
+    fi
+  done
+fi
+
 # 4c. Los otros tres tags —`$VERSION`, `doclang/` y `slidelang/`— se creaban a
 #     CIEGAS, que es la misma falla que 4b arregla para core/ y por la que este
 #     script existe. Con `set -e`, cualquier segunda corrida moría en
