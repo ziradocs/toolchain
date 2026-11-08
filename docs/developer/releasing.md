@@ -64,11 +64,13 @@ current *branch*).
 **This decision has an executable gate**: `scripts/test-release-core-tag-reuse.sh`, run by
 `.github/workflows/release-script.yml` on any change to `release.sh` itself. It builds throwaway git
 repositories with their own bare `origin`, prepends a stub directory to `PATH` holding a fake `go` (the
-script builds both CLIs) and a fake `gh` (it never talks to GitHub), and runs the real script across ten
+script builds both CLIs) and a fake `gh` (it never talks to GitHub), and runs the real script across thirteen
 scenarios: the real flow reuses, a release with no core change creates, a second run of the script is
 a no-op, and a local-only tag, a tag off another line, a `core/` changed after the tag, a stale
 `go.mod` pin, a *suffixed* pin (the pseudo-version case above), a `vX.Y.Z` already on `origin` off
-HEAD, and an `ls-remote` failure each stop it. Every scenario asserts three things — exit code, a message substring that identifies
+HEAD, an `ls-remote` failure, a `core/` change released without the bump, and a pin with no tag on
+`origin` each stop it, while a `core/` change limited to tests, `testdata`, the spec and Markdown
+does not. Every scenario asserts three things — exit code, a message substring that identifies
 *that* condition, and the tags left in the bare `origin`. Each one runs in its own subshell under
 `set -euo pipefail`, with the parent capturing the exit code: a scenario invoked as
 `escenario_x || true` would have `errexit` suppressed throughout its body, so a failed *setup* step
@@ -76,6 +78,16 @@ could run on to print a green tick — a false green in the gate itself. The mes
 "aborted correctly" from "aborted for the wrong reason", which is exactly how the first version of
 this guard traded one abort for another: run against it, four scenarios still exit 1, and only the
 message shows they abort on the wrong condition. Nothing touches the network or the real repository.
+
+**When `core/vX.Y.Z` does not exist yet, the script checks the pin instead.** In that case it cuts
+`core/vX.Y.Z` on HEAD, but the binaries are not built against it: goreleaser compiles each CLI
+against the `core` its `go.mod` pins. So before tagging anything the script requires that the core
+each CLI pins is a tag on `origin`, and that `core/` did not change between that tag and HEAD. If it
+did, the release carries a `core` change that the binaries would not include, and it stops: run
+`scripts/bump-core.sh vX.Y.Z` first. Only what reaches the binary counts: `*_test.go`, `testdata/`, `core/spec/` and
+`*.md` under `core/` are ignored (no `go:embed` in `core` reads them; they all point at
+`third_party/*.js`), so a release that only touches those does not need a bump. Without this check a `core` change (a CSS fix in
+`core/renderer`, for example) shipped silently in the `core/` tag but not in the CLIs.
 
 Use this when cutting an actual product release — a version users install.
 

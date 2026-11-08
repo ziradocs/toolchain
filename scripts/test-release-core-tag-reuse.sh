@@ -96,6 +96,10 @@ nuevo_repo() { # $1 = nombre → deja $TMP/$1/{origin.git,repo}
   pin_core "$d/repo" "$VERSION_VIEJA"
   git -C "$d/repo" add -A
   git -C "$d/repo" commit -q -m "inicial"
+  # El core que pinean los CLIs es un release anterior, publicado: release.sh
+  # exige que exista en origin y compara core/ contra él (paso 4b').
+  git -C "$d/repo" tag -a -m "core $VERSION_VIEJA" "core/$VERSION_VIEJA"
+  git -C "$d/repo" push -q origin "refs/tags/core/$VERSION_VIEJA"
 }
 
 pin_core() { # $1 = repo, $2 = versión de core que pinean los dos CLIs
@@ -128,7 +132,9 @@ correr_release() { # $1 = repo, $2 = prefijo extra de PATH (opcional)
   return $rc
 }
 
-tags_origin() { git -C "$1/origin.git" tag -l | sort | tr '\n' ' '; }
+# Sin el core/$VERSION_VIEJA que todo fixture trae de base (ver nuevo_repo):
+# los escenarios afirman sobre los tags que el release crea o mueve.
+tags_origin() { git -C "$1/origin.git" tag -l | grep -vxF "core/$VERSION_VIEJA" | sort | tr '\n' ' '; }
 sha_tag_origin() { git -C "$1/origin.git" rev-list -n 1 "$2"; }
 
 # reportar TERMINA el escenario, con código 2. No incrementa el contador: corre
@@ -412,6 +418,63 @@ escenario_version_en_otro_commit() {
   echo "✅ $esc"
 }
 
+# 11. Un release con un cambio de core y sin bump: nadie cortó core/$VERSION y
+#     los CLIs siguen pineando el core anterior. Antes salía sin error, con
+#     binarios compilados contra el core viejo.
+escenario_core_sin_bump() {
+  local esc="core-sin-bump (core/ cambió y los CLIs pinean el core anterior)" d="$TMP/core-sin-bump"
+  nuevo_repo core-sin-bump
+  commit_en "$d/repo" core/parser.go "core cambiado sin bump" "core: cambio"
+  git -C "$d/repo" push -q origin main
+
+  local rc=0; correr_release "$d/repo" || rc=$?
+  verificar "$esc" "$rc" 1 "core/ cambió desde core/$VERSION_VIEJA" || return
+  if [[ -n "$(tags_origin "$d")" ]]; then
+    reportar "$esc" "abortó pero dejó tags en origin: '$(tags_origin "$d")'"; return
+  fi
+  echo "✅ $esc"
+}
+
+# 12. Los CLIs pinean un core que no es un tag en origin (un pseudo-version):
+#     no hay un core publicado contra el cual comparar.
+escenario_pin_sin_tag() {
+  local esc="pin-sin-tag (los CLIs pinean un core sin tag)" d="$TMP/pin-sin-tag"
+  nuevo_repo pin-sin-tag
+  pin_core "$d/repo" "$VERSION_VIEJA-0.20260910120000-abcdef123456"
+  git -C "$d/repo" add -A && git -C "$d/repo" commit -q -m "go get @main"
+  git -C "$d/repo" push -q origin main
+
+  local rc=0; correr_release "$d/repo" || rc=$?
+  verificar "$esc" "$rc" 1 "no existe en origin" || return
+  if [[ -n "$(tags_origin "$d")" ]]; then
+    reportar "$esc" "abortó pero dejó tags en origin: '$(tags_origin "$d")'"; return
+  fi
+  echo "✅ $esc"
+}
+
+# 13. Un release cuyo único cambio en core/ son pruebas, testdata, la spec y
+#     documentación: nada de eso llega al binario, así que no hace falta bump
+#     y el script corta core/$VERSION sobre HEAD como en un release sin
+#     cambios de core.
+escenario_core_solo_pruebas() {
+  local esc="core-solo-pruebas (core/ cambió solo en pruebas, spec y docs)" d="$TMP/core-solo-pruebas"
+  nuevo_repo core-solo-pruebas
+  mkdir -p "$d/repo/core/spec" "$d/repo/core/renderer/testdata"
+  commit_en "$d/repo" core/parser_test.go "package core // prueba nueva" "core: prueba"
+  commit_en "$d/repo" core/renderer/testdata/golden.txt "golden" "core: testdata"
+  commit_en "$d/repo" core/spec/language-specification.md "spec" "core: spec"
+  commit_en "$d/repo" core/README.md "docs" "core: docs"
+  git -C "$d/repo" push -q origin main
+
+  local rc=0; correr_release "$d/repo" || rc=$?
+  verificar "$esc" "$rc" 0 "" || return
+  local esperado="core/$VERSION doclang/$VERSION slidelang/$VERSION $VERSION "
+  if [[ "$(tags_origin "$d")" != "$esperado" ]]; then
+    reportar "$esc" "tags en origin: '$(tags_origin "$d")', se esperaba '$esperado'"; return
+  fi
+  echo "✅ $esc"
+}
+
 correr_escenario escenario_flujo_real
 correr_escenario escenario_sin_tag
 correr_escenario escenario_solo_local
@@ -422,10 +485,13 @@ correr_escenario escenario_ls_remote_falla
 correr_escenario escenario_pin_sufijado
 correr_escenario escenario_re_corrida
 correr_escenario escenario_version_en_otro_commit
+correr_escenario escenario_core_sin_bump
+correr_escenario escenario_pin_sin_tag
+correr_escenario escenario_core_solo_pruebas
 
 echo
 if (( fallos > 0 )); then
   echo "🔥 $fallos escenario(s) fallaron."
   exit 1
 fi
-echo "✅ Los 10 escenarios pasaron."
+echo "✅ Los 13 escenarios pasaron."

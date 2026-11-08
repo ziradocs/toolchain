@@ -619,6 +619,22 @@ func TestSanitizeCSSCustomProperty(t *testing.T) {
 		{name: "value with semicolon rejected", propName: "--evil", value: "red; background: url(evil)", expectOK: false},
 		{name: "value with newline rejected", propName: "--evil", value: "red\n}</style>", expectOK: false},
 		{name: "legitimate font stack value", propName: "--font-family", value: "'Helvetica Neue', Arial, sans-serif", expectOK: true, wantValue: "'Helvetica Neue', Arial, sans-serif"},
+		{name: "value opening a comment rejected", propName: "--link", value: "#7dd3fc /*", expectOK: false},
+		{name: "value closing a comment rejected", propName: "--link", value: "#7dd3fc */", expectOK: false},
+		{name: "value with unbalanced double quote rejected", propName: "--font", value: `"Inter, sans-serif`, expectOK: false},
+		{name: "value with unbalanced single quote rejected", propName: "--font", value: "'Inter, sans-serif", expectOK: false},
+		{name: "legitimate double-quoted font stack", propName: "--font", value: `"Segoe UI", "Apple Color Emoji", sans-serif`, expectOK: true, wantValue: `"Segoe UI", "Apple Color Emoji", sans-serif`},
+		{name: "unclosed parenthesis rejected", propName: "--bg", value: "url(x", expectOK: false},
+		{name: "extra closing parenthesis rejected", propName: "--bg", value: "red)", expectOK: false},
+		{name: "unclosed bracket rejected", propName: "--grid", value: "[a 1fr", expectOK: false},
+		{name: "escaped quote leaves a string open: rejected", propName: "--font", value: `\"x"`, expectOK: false},
+		{name: "backslash before quote inside a string rejected", propName: "--font", value: `"a\"b"`, expectOK: false},
+		{name: "trailing backslash rejected", propName: "--font", value: `Inter\`, expectOK: false},
+		{name: "apostrophe inside a double-quoted name accepted", propName: "--font", value: `"O'Reilly Sans", serif`, expectOK: true, wantValue: `"O'Reilly Sans", serif`},
+		{name: "parenthesis inside a string does not count", propName: "--bg", value: `url("a(b.png")`, expectOK: true, wantValue: `url("a(b.png")`},
+		{name: "nested functions accepted", propName: "--w", value: "calc(100% - (2 * var(--gap, 4px)))", expectOK: true, wantValue: "calc(100% - (2 * var(--gap, 4px)))"},
+		{name: "gradient accepted", propName: "--h", value: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", expectOK: true, wantValue: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"},
+		{name: "css escape of a letter accepted", propName: "--font", value: `\49 nter`, expectOK: true, wantValue: `\49 nter`},
 	}
 
 	for _, tt := range tests {
