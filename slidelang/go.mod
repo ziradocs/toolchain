@@ -7,7 +7,7 @@ require (
 	github.com/mmonterroca/pptxgo v0.0.0-20260802145618-9e8c8b31d00c
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
-	go.ziradocs.com/core/v2 v2.51.0
+	go.ziradocs.com/core/v2 v2.51.1
 )
 
 require (
@@ -18,8 +18,8 @@ require (
 	github.com/flopp/go-coordsparser v0.0.0-20250311184423-61a7ff62d17c // indirect
 	github.com/flopp/go-staticmaps v0.0.0-20260318105611-d3eb636a6468 // indirect
 	github.com/fogleman/gg v1.3.0 // indirect
-	github.com/go-analyze/bulk v0.1.4 // indirect
-	github.com/go-analyze/charts v0.6.0 // indirect
+	github.com/go-analyze/bulk v0.1.6 // indirect
+	github.com/go-analyze/charts v0.6.4 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
@@ -34,8 +34,8 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tkrajina/gpxgo v1.4.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/image v0.45.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
+	golang.org/x/image v0.47.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
