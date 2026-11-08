@@ -251,9 +251,24 @@ func TestDOCXExternalTheme_DarkAlertColorsDropped(t *testing.T) {
 func TestDOCXExternalTheme_StripeContrast(t *testing.T) {
 	pro := GetStyleForTheme("professional", newTestLogger())
 	run := func(text, link, stripe string) string {
-		return styleFromThemeVariables(map[string]string{
-			"--doclang-text-color": text, "--doclang-link-color": link, "--doclang-table-stripe-bg": stripe,
-		}, newTestLogger()).TableStripeBg
+		vars := map[string]string{"--doclang-text-color": text, "--doclang-table-stripe-bg": stripe}
+		if link != "" {
+			vars["--doclang-link-color"] = link
+		}
+		return styleFromThemeVariables(vars, newTestLogger()).TableStripeBg
+	}
+	// Sin enlace en el tema (queda el de professional) la franja se mide solo
+	// contra el texto.
+	if got := run("#2c3e50", "", "#eef2ff"); got != "EEF2FF" {
+		t.Errorf("stripe without a themed link was rejected: %s", got)
+	}
+	// El texto aislado: el enlace (negro) se lee sobre la franja, el texto
+	// (#767676, el más claro que acepta el filtro contra blanco) no.
+	if contrastRatio(t, "000000", "eeeeee") < 4.5 || contrastRatio(t, "767676", "eeeeee") >= 4.5 {
+		t.Fatalf("test colors no longer isolate the text case")
+	}
+	if got := run("#767676", "#000000", "#eeeeee"); got != pro.TableStripeBg {
+		t.Errorf("stripe that hides the text was kept: %s", got)
 	}
 	// Claro: pasa para texto y enlace.
 	if got := run("#000000", "#0044cc", "#f1e9f7"); got != "F1E9F7" {

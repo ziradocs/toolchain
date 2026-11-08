@@ -146,12 +146,15 @@ func styleFromThemeVariables(vars map[string]string, logger util.Logger) DOCXSty
 	// Texto sobre papel blanco: un color sin contraste suficiente se descarta
 	// y queda el de professional. Un tema oscuro (texto claro, fondo oscuro)
 	// no se puede pintar en un papel que el DOCX no oscurece.
-	withContrast := func(dst *string, min float64, name string) {
+	withContrast := func(dst *string, min float64, name string) bool {
 		prev := *dst
 		color(dst, name)
 		if !contrastAtLeast(*dst, docxPaperColor, min) {
 			*dst = prev
+			return false
 		}
+		_, defined := sanitizeThemeColor(vars[name])
+		return defined
 	}
 	withContrast(&style.H1Color, docxMinLargeRatio, "--doclang-h1-color")
 	withContrast(&style.H2Color, docxMinLargeRatio, "--doclang-h2-color")
@@ -159,7 +162,7 @@ func styleFromThemeVariables(vars map[string]string, logger util.Logger) DOCXSty
 	withContrast(&style.H4Color, docxMinLargeRatio, "--doclang-h4-color")
 	withContrast(&style.TextColor, docxMinBodyRatio, "--doclang-text-color")
 	withContrast(&style.TextLightColor, docxMinLargeRatio, "--doclang-text-light")
-	withContrast(&style.LinkColor, docxMinBodyRatio, "--doclang-link-color")
+	linkFromTheme := withContrast(&style.LinkColor, docxMinBodyRatio, "--doclang-link-color")
 	withContrast(&style.CodeInlineColor, docxMinBodyRatio, "--doclang-code-inline-color")
 
 	// Pares fondo/texto: se toman los dos del tema o los dos de professional.
@@ -175,11 +178,13 @@ func styleFromThemeVariables(vars map[string]string, logger util.Logger) DOCXSty
 	pair(&style.TableHeaderBg, &style.TableHeaderColor, "--doclang-table-header-bg", "--doclang-table-header-color")
 
 	// Tablas: borde y filas alternas. La fila alterna debe dejar legibles el
-	// texto del cuerpo y los enlaces (ya resueltos arriba).
+	// texto del cuerpo y, si el tema definió un enlace que se aceptó, los
+	// enlaces. Con el azul de respaldo de professional no se mide: ninguna
+	// franja pasaría nunca.
 	color(&style.TableBorderColor, "--doclang-table-border")
 	if stripe, ok := sanitizeThemeColor(vars["--doclang-table-stripe-bg"]); ok &&
 		contrastAtLeast(style.TextColor, "#"+stripe, docxMinBodyRatio) &&
-		contrastAtLeast(style.LinkColor, "#"+stripe, docxMinBodyRatio) {
+		(!linkFromTheme || contrastAtLeast(style.LinkColor, "#"+stripe, docxMinBodyRatio)) {
 		style.TableStripeBg = stripe
 	}
 

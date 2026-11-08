@@ -115,7 +115,7 @@ Rules, because these values end up in Word's XML:
   3:1. A dark theme (light text, dark page) therefore comes out with the `professional` colors.
 - **Pairs** resolve together: code block background and text, and table header background and text,
   must both be valid, defined and at least 4.5:1 against each other; otherwise both come from
-  `professional`. A table stripe that leaves the body text or the links (as resolved) under 4.5:1 is ignored too.
+  `professional`. A table stripe that leaves the body text under 4.5:1 is ignored too, and so is one that leaves the links under 4.5:1 when the theme defines an accepted `--doclang-link-color` (the fallback link color is not checked).
 - Special blocks (`:::info`, `warning`, `danger`, `success`, `tip`) take the title color from the
   variables above in external themes (embedded themes keep their own colors). The title is drawn on
   white, so an alert color under 3:1 is ignored; a dark theme's pastel alert colors come out with
