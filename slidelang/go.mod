@@ -7,13 +7,12 @@ require (
 	github.com/mmonterroca/pptxgo v0.0.0-20260802145618-9e8c8b31d00c
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
-	go.ziradocs.com/core/v2 v2.51.1
+	go.ziradocs.com/core/v2 v2.52.0
 )
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc // indirect
-	github.com/chromedp/chromedp v0.15.1 // indirect
-	github.com/chromedp/sysutil v1.1.0 // indirect
+	github.com/chromedp/cdproto v0.157.8 // indirect
+	github.com/chromedp/chromedp v0.21.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/flopp/go-coordsparser v0.0.0-20250311184423-61a7ff62d17c // indirect
 	github.com/flopp/go-staticmaps v0.0.0-20260318105611-d3eb636a6468 // indirect
@@ -21,9 +20,6 @@ require (
 	github.com/go-analyze/bulk v0.1.6 // indirect
 	github.com/go-analyze/charts v0.6.4 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
-	github.com/gobwas/httphead v0.1.0 // indirect
-	github.com/gobwas/pool v0.2.1 // indirect
-	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/golang/geo v0.0.0-20260302211937-87f5a40ea07a // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
