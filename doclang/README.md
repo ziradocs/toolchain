@@ -85,6 +85,26 @@ it skips PlantUML, maps and code groups, and emits charts as a placeholder fence
 `professional` (default), `academic`, `technical`, `page-view`, selected with `--theme` or a
 frontmatter `theme:` key; the flag wins.
 
+External themes are JSON files in `~/.doclang/themes`, `/usr/local/share/doclang/themes` or
+`./themes`. HTML and PDF read their `--doclang-*` CSS variables directly. DOCX reads these:
+
+| DOCX | Variables |
+|------|-----------|
+| Body font | `--doclang-font-main` |
+| Code font | `--doclang-code-font`, else `--doclang-font-code` |
+| Headings h1 to h4 | `--doclang-h1-color` to `--doclang-h4-color` |
+| Text, light text, links | `--doclang-text-color`, `--doclang-text-light`, `--doclang-link-color` |
+| Code block | `--doclang-code-bg`, `--doclang-code-color` |
+| Inline code | `--doclang-code-inline-color` |
+| Table | `--doclang-table-header-bg`, `--doclang-table-header-color`, `--doclang-table-border`, `--doclang-table-stripe-bg` |
+| Special blocks | `--doclang-alert-info-color`, `--doclang-alert-warning-border`, `--doclang-alert-danger-border`, `--doclang-alert-success-border`, `--doclang-alert-tip-border` (optional) |
+
+Colors must be `#rgb` or `#rrggbb`; fonts take the first family of the CSS stack (letters, digits,
+spaces and hyphens, up to 64 characters, no generic families such as `sans-serif`). Anything else,
+or anything the theme does not define, falls back to `professional`, as do sizes, spacing and bold
+(the theme does not control those in DOCX). The page background, gradients, borders on headings
+and the heading font are not applied in DOCX. Embedded themes are unchanged.
+
 ### Parsing and linting
 
 doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`,

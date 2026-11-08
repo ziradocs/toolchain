@@ -200,7 +200,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 
 	themeName := resolveDOCXThemeName(astDoc, opts)
 	g.logger.Info("DOCX", "Using theme: %s", themeName)
-	g.style = GetStyleForTheme(themeName, g.logger)
+	g.style = resolveDOCXStyle(themeName, opts, g.logger)
 	g.diagramTheme = resolveDiagramThemeColors(opts.ThemeVariables)
 
 	// Inicializar Chromium solo si queda algún elemento que no pueda seguir
