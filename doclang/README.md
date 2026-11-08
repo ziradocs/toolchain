@@ -99,11 +99,25 @@ External themes are JSON files in `~/.doclang/themes`, `/usr/local/share/doclang
 | Table | `--doclang-table-header-bg`, `--doclang-table-header-color`, `--doclang-table-border`, `--doclang-table-stripe-bg` |
 | Special blocks | `--doclang-alert-info-color`, `--doclang-alert-warning-border`, `--doclang-alert-danger-border`, `--doclang-alert-success-border`, `--doclang-alert-tip-border` (optional) |
 
-Colors must be `#rgb` or `#rrggbb`; fonts take the first family of the CSS stack (letters, digits,
-spaces and hyphens, up to 64 characters, no generic families such as `sans-serif`). Anything else,
-or anything the theme does not define, falls back to `professional`, as do sizes, spacing and bold
-(the theme does not control those in DOCX). The page background, gradients, borders on headings
-and the heading font are not applied in DOCX. Embedded themes are unchanged.
+Rules, because these values end up in Word's XML:
+
+- **Colors** must be `#rgb` or `#rrggbb`; anything else (`rgb()`, `var()`, names, gradients) is ignored.
+- **Fonts**: the first non-generic family of the CSS stack (`system-ui, 'Inter', sans-serif` gives
+  `Inter`). The name accepts only ASCII letters, digits, spaces and hyphens, 1 to 64 characters; a
+  name with anything else (accents included) is ignored, and so is a stack with only generic families.
+- **DOCX is for white paper.** It does not paint the page background (Word does not print it by
+  default), so text colors that would not read on white are ignored: body text, links and inline
+  code need a WCAG contrast of at least 4.5:1 against `#ffffff`; light text and h1 to h4, at least
+  3:1. A dark theme (light text, dark page) therefore comes out with the `professional` colors.
+- **Pairs** resolve together: code block background and text, and table header background and text,
+  must both be valid, defined and at least 4.5:1 against each other; otherwise both come from
+  `professional`. A table stripe that leaves the body text under 4.5:1 is ignored too.
+- Special blocks (`:::info`, `warning`, `danger`, `success`, `tip`) take the title color from the
+  variables above in external themes; embedded themes keep their own colors.
+
+Anything the theme does not define or that is ignored comes from `professional`, as do sizes,
+spacing and bold (the theme does not control those in DOCX). Page background, gradients, heading
+borders and the heading font are not applied in DOCX. Embedded themes are unchanged.
 
 ### Parsing and linting
 

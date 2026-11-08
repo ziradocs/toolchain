@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -49,26 +50,36 @@ func sanitizeThemeColor(value string) (string, bool) {
 	return hex, true
 }
 
-// sanitizeThemeFont toma la primera familia de un stack CSS, le quita las
-// comillas y la acepta solo si son letras, dígitos, espacio y guion (1 a 64
-// caracteres). Las familias genéricas de CSS (sans-serif, system-ui, ...) no
-// son una fuente instalable en Word, así que tampoco se aceptan.
+// sanitizeThemeFont recorre el stack CSS y devuelve la primera familia que no
+// sea genérica: sin comillas, de letras ASCII, dígitos, espacio y guion (1 a
+// 64 caracteres). Las familias genéricas de CSS (sans-serif, system-ui, ...)
+// no son una fuente instalable en Word y se saltan. Si una familia con nombre
+// no cumple el formato (por ejemplo trae símbolos o letras fuera de ASCII), se
+// descarta todo el stack: no se sigue buscando después de un valor sospechoso.
 func sanitizeThemeFont(value string) (string, bool) {
-	first := firstCSSFamily(value)
-	first = strings.TrimSpace(first)
-	if len(first) >= 2 && (first[0] == '\'' || first[0] == '"') && first[len(first)-1] == first[0] {
-		first = first[1 : len(first)-1]
+	for _, family := range splitCSSFamilies(value) {
+		family = strings.TrimSpace(family)
+		if len(family) >= 2 && (family[0] == '\'' || family[0] == '"') && family[len(family)-1] == family[0] {
+			family = strings.TrimSpace(family[1 : len(family)-1])
+		}
+		if cssGenericFamily[strings.ToLower(family)] {
+			continue
+		}
+		if !themeFontNameRe.MatchString(family) {
+			return "", false
+		}
+		return family, true
 	}
-	first = strings.TrimSpace(first)
-	if !themeFontNameRe.MatchString(first) || cssGenericFamily[strings.ToLower(first)] {
-		return "", false
-	}
-	return first, true
+	return "", false
 }
 
-// firstCSSFamily devuelve el texto hasta la primera coma que no esté entre comillas.
-func firstCSSFamily(stack string) string {
-	var quote rune
+// splitCSSFamilies parte un stack CSS en sus familias, respetando las comillas.
+func splitCSSFamilies(stack string) []string {
+	var (
+		out   []string
+		quote rune
+		start int
+	)
 	for i, r := range stack {
 		switch {
 		case quote != 0:
@@ -78,10 +89,24 @@ func firstCSSFamily(stack string) string {
 		case r == '\'' || r == '"':
 			quote = r
 		case r == ',':
-			return stack[:i]
+			out = append(out, stack[start:i])
+			start = i + 1
 		}
 	}
-	return stack
+	return append(out, stack[start:])
+}
+
+// Contraste mínimo (WCAG) de cada color de texto del DOCX. El papel es blanco:
+// el DOCX no pinta el fondo de página (Word no lo imprime por defecto).
+const (
+	docxPaperColor    = "#FFFFFF"
+	docxMinBodyRatio  = 4.5 // texto, enlaces, código inline, y texto sobre un fondo propio
+	docxMinLargeRatio = 3.0 // texto claro y títulos
+)
+
+func contrastAtLeast(fg, bg string, min float64) bool {
+	ratio, ok := a11y.ContrastRatio("#"+fg, bg)
+	return ok && ratio >= min
 }
 
 // styleFromThemeVariables arma el DOCXStyle de un tema externo: parte de
@@ -115,25 +140,43 @@ func styleFromThemeVariables(vars map[string]string, logger util.Logger) DOCXSty
 	font(&style.FontFamily, "--doclang-font-main")
 	font(&style.CodeFontFamily, "--doclang-code-font", "--doclang-font-code")
 
-	// Encabezados y texto.
-	color(&style.H1Color, "--doclang-h1-color")
-	color(&style.H2Color, "--doclang-h2-color")
-	color(&style.H3Color, "--doclang-h3-color")
-	color(&style.H4Color, "--doclang-h4-color")
-	color(&style.TextColor, "--doclang-text-color")
-	color(&style.TextLightColor, "--doclang-text-light")
-	color(&style.LinkColor, "--doclang-link-color")
+	// Texto sobre papel blanco: un color sin contraste suficiente se descarta
+	// y queda el de professional. Un tema oscuro (texto claro, fondo oscuro)
+	// no se puede pintar en un papel que el DOCX no oscurece.
+	withContrast := func(dst *string, min float64, name string) {
+		prev := *dst
+		color(dst, name)
+		if !contrastAtLeast(*dst, docxPaperColor, min) {
+			*dst = prev
+		}
+	}
+	withContrast(&style.H1Color, docxMinLargeRatio, "--doclang-h1-color")
+	withContrast(&style.H2Color, docxMinLargeRatio, "--doclang-h2-color")
+	withContrast(&style.H3Color, docxMinLargeRatio, "--doclang-h3-color")
+	withContrast(&style.H4Color, docxMinLargeRatio, "--doclang-h4-color")
+	withContrast(&style.TextColor, docxMinBodyRatio, "--doclang-text-color")
+	withContrast(&style.TextLightColor, docxMinLargeRatio, "--doclang-text-light")
+	withContrast(&style.LinkColor, docxMinBodyRatio, "--doclang-link-color")
+	withContrast(&style.CodeInlineColor, docxMinBodyRatio, "--doclang-code-inline-color")
 
-	// Código: bloque (pre) e inline.
-	color(&style.CodeBlockBg, "--doclang-code-bg")
-	color(&style.CodeBlockColor, "--doclang-code-color")
-	color(&style.CodeInlineColor, "--doclang-code-inline-color")
+	// Pares fondo/texto: se toman los dos del tema o los dos de professional.
+	// El texto se mide contra el fondo ya resuelto.
+	pair := func(bgDst, fgDst *string, bgVar, fgVar string) {
+		bg, okBg := sanitizeThemeColor(vars[bgVar])
+		fg, okFg := sanitizeThemeColor(vars[fgVar])
+		if okBg && okFg && contrastAtLeast(fg, "#"+bg, docxMinBodyRatio) {
+			*bgDst, *fgDst = bg, fg
+		}
+	}
+	pair(&style.CodeBlockBg, &style.CodeBlockColor, "--doclang-code-bg", "--doclang-code-color")
+	pair(&style.TableHeaderBg, &style.TableHeaderColor, "--doclang-table-header-bg", "--doclang-table-header-color")
 
-	// Tablas.
-	color(&style.TableHeaderBg, "--doclang-table-header-bg")
-	color(&style.TableHeaderColor, "--doclang-table-header-color")
+	// Tablas: borde y filas alternas. La fila alterna debe dejar legible el
+	// texto del cuerpo.
 	color(&style.TableBorderColor, "--doclang-table-border")
-	color(&style.TableStripeBg, "--doclang-table-stripe-bg")
+	if stripe, ok := sanitizeThemeColor(vars["--doclang-table-stripe-bg"]); ok && contrastAtLeast(style.TextColor, "#"+stripe, docxMinBodyRatio) {
+		style.TableStripeBg = stripe
+	}
 
 	// Bloques especiales: info usa el color de texto del bloque, el resto el
 	// color del borde, igual que el DOCX de los temas embebidos.
@@ -149,8 +192,30 @@ func styleFromThemeVariables(vars map[string]string, logger util.Logger) DOCXSty
 // resolveDOCXStyle elige el estilo: variables del tema para un tema externo,
 // el estilo cableado por nombre para los embebidos.
 func resolveDOCXStyle(themeName string, opts GeneratorOptions, logger util.Logger) DOCXStyle {
-	if opts.ThemeExternal && len(opts.ThemeVariables) > 0 {
+	if usesThemeVariables(opts) {
 		return styleFromThemeVariables(opts.ThemeVariables, logger)
 	}
 	return GetStyleForTheme(themeName, logger)
+}
+
+// usesThemeVariables dice si el DOCX se estiliza desde las variables del tema.
+func usesThemeVariables(opts GeneratorOptions) bool {
+	return opts.ThemeExternal && len(opts.ThemeVariables) > 0
+}
+
+// themeBlockColor es el color del título de un bloque especial: el del estilo
+// para ese tipo (un tipo desconocido se trata como info).
+func (g *DOCXGenerator) themeBlockColor(blockType string) string {
+	switch blockType {
+	case "warning":
+		return g.style.WarningColor
+	case "danger":
+		return g.style.DangerColor
+	case "success":
+		return g.style.SuccessColor
+	case "tip":
+		return g.style.TipColor
+	default:
+		return g.style.InfoColor
+	}
 }
