@@ -8,7 +8,6 @@ package chromium
 import (
 	"context"
 	"embed"
-	"encoding/base64"
 	"fmt"
 	"path"
 	"strings"
@@ -103,37 +102,50 @@ func mathJaxAssetPath(url string) (string, bool) {
 // archivo embebido se contesta con ese archivo y cualquier otro se rechaza.
 // La página no tiene ningún otro origen permitido en su CSP, así que esto
 // cubre todo lo que podría pedir.
-func serveMathAssets() chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
-		c := chromedp.FromContext(ctx)
-		if c == nil || c.Target == nil {
+func serveMathAssets() chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		if t == nil {
 			// Sin target no hay de dónde escuchar los pedidos pausados:
 			// activar Fetch acá dejaba cada pedido de MathJax colgado hasta el
 			// plazo de la captura, sin nadie que lo contestara.
 			return fmt.Errorf("math asset interception needs a chromedp target")
 		}
-		executor := cdp.WithExecutor(ctx, c.Target)
-		chromedp.ListenTarget(ctx, func(ev interface{}) {
-			e, ok := ev.(*fetch.EventRequestPaused)
-			if !ok {
-				return
-			}
-			// No se puede contestar dentro del listener (bloquearía la
-			// lectura de eventos de chromedp).
-			go func() {
-				if p, ok := mathJaxAssetPath(e.Request.URL); ok {
-					if data, err := mathJaxAssets.ReadFile(p); err == nil {
-						_ = fetch.FulfillRequest(e.RequestID, 200).
-							WithResponseHeaders([]*fetch.HeaderEntry{{Name: "Content-Type", Value: "text/javascript; charset=utf-8"}}).
-							WithBody(base64.StdEncoding.EncodeToString(data)).
-							Do(executor)
-						return
+		// La suscripción empieza al volver de cdp.Events, antes de
+		// Fetch.enable, así que no se pierde ningún pedido. El iterador
+		// guarda los eventos sin límite y termina cuando termina ctx (el tab
+		// de la captura); contestar desde el loop no frena la lectura de
+		// eventos de chromedp como lo hacía contestar dentro del viejo
+		// listener de ListenTarget.
+		paused := cdp.Events(ctx, t, fetch.RequestPaused)
+		go func() {
+			for e, err := range paused {
+				if err != nil {
+					return
+				}
+				if e.Request != nil {
+					if p, ok := mathJaxAssetPath(e.Request.URL); ok {
+						if data, err := mathJaxAssets.ReadFile(p); err == nil {
+							_, _ = cdp.Call(ctx, t, fetch.FulfillRequest, fetch.FulfillRequestParams{
+								RequestID:       e.RequestID,
+								ResponseCode:    200,
+								ResponseHeaders: []*fetch.HeaderEntry{{Name: "Content-Type", Value: "text/javascript; charset=utf-8"}},
+								// Body es []byte: cdproto lo codifica en base64.
+								Body: data,
+							})
+							continue
+						}
 					}
 				}
-				_ = fetch.FailRequest(e.RequestID, network.ErrorReasonBlockedByClient).Do(executor)
-			}()
+				_, _ = cdp.Call(ctx, t, fetch.FailRequest, fetch.FailRequestParams{
+					RequestID:   e.RequestID,
+					ErrorReason: network.ErrorReasonBlockedByClient,
+				})
+			}
+		}()
+		_, err := cdp.Call(ctx, t, fetch.Enable, fetch.EnableParams{
+			Patterns: []*fetch.RequestPattern{{URLPattern: "*"}},
 		})
-		return fetch.Enable().WithPatterns([]*fetch.RequestPattern{{URLPattern: "*"}}).Do(ctx)
+		return err
 	})
 }
 

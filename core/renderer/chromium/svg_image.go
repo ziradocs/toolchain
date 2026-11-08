@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/chromedp/cdproto/cdp"
-	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -62,23 +60,16 @@ func (r *ChromiumRenderer) RenderSVGImageToPNG(ctx context.Context, svg []byte, 
 	defer cancel()
 
 	var pngData []byte
-	err := chromedp.Run(runCtx,
-		emulation.SetDeviceMetricsOverride(w, h, SVGPNGDeviceScale, false),
-		emulation.SetDefaultBackgroundColorOverride().WithColor(&cdp.RGBA{R: 0, G: 0, B: 0, A: 0}),
+	err := chromedp.Do(runCtx,
+		setDeviceMetricsOverride(w, h, SVGPNGDeviceScale),
+		transparentBackground(),
 		navigateAndSetContent(html),
 		waitRenderState(renderStateJS),
 		bringTabToFront(),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			buf, err := page.CaptureScreenshot().
-				WithFormat(page.CaptureScreenshotFormatPng).
-				WithClip(&page.Viewport{X: 0, Y: 0, Width: float64(w), Height: float64(h), Scale: 1}).
-				Do(ctx)
-			if err != nil {
-				return err
-			}
-			pngData = buf
-			return nil
-		}),
+		store(&pngData, captureScreenshot(page.CaptureScreenshotParams{
+			Format: page.CaptureScreenshotFormatPng,
+			Clip:   &page.Viewport{X: 0, Y: 0, Width: float64(w), Height: float64(h), Scale: 1},
+		})),
 	)
 	if err != nil {
 		return nil, captureError("svg image", captureTimeout, ctx, err)

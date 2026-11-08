@@ -33,7 +33,7 @@ var (
 )
 
 // newCaptureContext abre un tab nuevo sobre el browser vivo y devuelve un
-// contexto para chromedp.Run acotado por timeout y por el ctx del caller.
+// contexto para chromedp.Do acotado por timeout y por el ctx del caller.
 // El cancel cierra el tab. Mismo armado que ya usaban los mapas
 // (WithTimeout sobre el tab, no sobre r.ctx), así que un plazo vencido nunca
 // envenena el browser para los renders siguientes.
@@ -48,7 +48,7 @@ func (r *ChromiumRenderer) newCaptureContext(callerCtx context.Context, timeout 
 	}
 }
 
-// captureError envuelve el error de un chromedp.Run de captura. Si venció el
+// captureError envuelve el error de un chromedp.Do de captura. Si venció el
 // plazo propio (y no el ctx del caller), lo dice con el plazo y la causa
 // probable, en vez del "context deadline exceeded" pelado.
 func captureError(what string, timeout time.Duration, callerCtx context.Context, err error) error {
@@ -77,15 +77,30 @@ type renderState struct {
 // renderStateJS) y convierte el error de la página en un error de Go. La
 // espera la acota el plazo del contexto (newCaptureContext): una página que
 // no publica nada termina en timeout, nunca en una espera sin fin.
-func waitRenderState(expr string) chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
-		var st renderState
-		if err := chromedp.Poll(expr, &st, chromedp.WithPollingInterval(50*time.Millisecond)).Do(ctx); err != nil {
+func waitRenderState(expr string) chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		st, err := chromedp.Poll[renderState](expr, chromedp.WithPollingInterval(50*time.Millisecond))(ctx, t)
+		if err != nil {
 			return err
 		}
 		if st.Error != "" {
 			return &pageRenderError{msg: st.Error}
 		}
+		return nil
+	})
+}
+
+// store corre la acción a y guarda su valor en dst. Desde chromedp 0.21 una
+// acción devuelve su valor en vez de escribirlo en un puntero, y chromedp.Do
+// solo acepta pasos sin valor (Action[Void]); con store cada captura sigue
+// siendo una sola secuencia de pasos que lee el resultado de uno intermedio.
+func store[T any](dst *T, a chromedp.Action[T]) chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		v, err := a(ctx, t)
+		if err != nil {
+			return err
+		}
+		*dst = v
 		return nil
 	})
 }

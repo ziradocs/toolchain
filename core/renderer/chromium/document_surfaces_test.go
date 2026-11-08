@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/chromedp"
 
@@ -126,9 +127,9 @@ func renderSurfaces(t *testing.T, ctx context.Context, vars map[string]string) m
 	t.Helper()
 	path := writeSurfacesHTML(t, vars)
 	var got map[string]string
-	if err := chromedp.Run(ctx,
+	if err := chromedp.Do(ctx,
 		chromedp.Navigate("file://"+path),
-		chromedp.Evaluate(surfaceProbe, &got),
+		store(&got, chromedp.Evaluate[map[string]string](surfaceProbe)),
 	); err != nil {
 		t.Fatalf("chromedp: %v", err)
 	}
@@ -139,19 +140,24 @@ func renderSurfaces(t *testing.T, ctx context.Context, vars map[string]string) m
 // soltarlo encima, para no navegar) y lee su color mientras está :active.
 func pressedLinkColor(t *testing.T, ctx context.Context, selector string) string {
 	t.Helper()
-	var pt struct{ X, Y float64 }
+	type point struct{ X, Y float64 }
+	var pt point
 	var color string
-	err := chromedp.Run(ctx,
-		chromedp.Evaluate(fmt.Sprintf(`(() => { const a = document.querySelector(%q); a.scrollIntoView({block: "center"}); const r = a.getBoundingClientRect(); return {X: r.left + r.width / 2, Y: r.top + r.height / 2}; })()`, selector), &pt),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return input.DispatchMouseEvent(input.MousePressed, pt.X, pt.Y).WithButton(input.Left).WithClickCount(1).Do(ctx)
+	mouse := func(ctx context.Context, t *chromedp.Target, p input.DispatchMouseEventParams) error {
+		_, err := cdp.Call(ctx, t, input.DispatchMouseEvent, p)
+		return err
+	}
+	err := chromedp.Do(ctx,
+		store(&pt, chromedp.Evaluate[point](fmt.Sprintf(`(() => { const a = document.querySelector(%q); a.scrollIntoView({block: "center"}); const r = a.getBoundingClientRect(); return {X: r.left + r.width / 2, Y: r.top + r.height / 2}; })()`, selector))),
+		chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+			return mouse(ctx, t, input.DispatchMouseEventParams{Type: chromedp.MousePressed, X: pt.X, Y: pt.Y, Button: input.MouseButtonLeft, ClickCount: 1})
 		}),
-		chromedp.Evaluate(fmt.Sprintf(`getComputedStyle(document.querySelector(%q)).color`, selector), &color),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			if err := input.DispatchMouseEvent(input.MouseMoved, 1, 1).Do(ctx); err != nil {
+		store(&color, chromedp.Evaluate[string](fmt.Sprintf(`getComputedStyle(document.querySelector(%q)).color`, selector))),
+		chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+			if err := mouse(ctx, t, input.DispatchMouseEventParams{Type: chromedp.MouseMoved, X: 1, Y: 1}); err != nil {
 				return err
 			}
-			return input.DispatchMouseEvent(input.MouseReleased, 1, 1).WithButton(input.Left).WithClickCount(1).Do(ctx)
+			return mouse(ctx, t, input.DispatchMouseEventParams{Type: chromedp.MouseReleased, X: 1, Y: 1, Button: input.MouseButtonLeft, ClickCount: 1})
 		}),
 	)
 	if err != nil {
@@ -288,7 +294,7 @@ func TestDocumentSurfaces_ComputedStyle(t *testing.T) {
 			"--doclang-callout-info-link-color": "#99aabb",
 		}} {
 			path := writeSurfacesHTML(t, vars)
-			if err := chromedp.Run(ctx, chromedp.Navigate("file://"+path)); err != nil {
+			if err := chromedp.Do(ctx, chromedp.Navigate("file://"+path)); err != nil {
 				t.Fatal(err)
 			}
 			for _, sel := range []string{"p a[href]", "blockquote a[href]", ".alert-info a[href]", ".alert-tip a[href]"} {

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
@@ -333,30 +334,34 @@ func buildChartHTML(chartConfig string, width, height int, surface string) strin
 // (AL-5, docs/SECURITY_AUDIT_2026-07.md, issue #28/#78) documentada para
 // RenderHTMLToPDF (#77), para todos los Render* que arman su propia
 // página HTML desechable.
-func setDocumentContentAction(htmlContent string) chromedp.ActionFunc {
-	return func(ctx context.Context) error {
-		frameTree, err := page.GetFrameTree().Do(ctx)
+func setDocumentContentAction(htmlContent string) chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		res, err := cdp.Call(ctx, t, page.GetFrameTree, cdp.Empty{})
 		if err != nil {
 			return fmt.Errorf("failed to get frame tree: %w", err)
 		}
-		if frameTree == nil || frameTree.Frame == nil {
+		if res.FrameTree == nil || res.FrameTree.Frame == nil {
 			return fmt.Errorf("chromium returned an empty frame tree")
 		}
-		return page.SetDocumentContent(frameTree.Frame.ID, htmlContent).Do(ctx)
-	}
+		_, err = cdp.Call(ctx, t, page.SetDocumentContent, page.SetDocumentContentParams{
+			FrameID: res.FrameTree.Frame.ID,
+			HTML:    htmlContent,
+		})
+		return err
+	})
 }
 
 // navigateAndSetContent es el par chromedp.Navigate("about:blank") +
 // setDocumentContentAction, repetido en cada builder de este archivo — un
 // único punto de reuso evita que un octavo builder futuro copie el patrón
-// viejo de archivo temporal + file:// en su lugar. chromedp.Tasks
-// implementa Action, así que esto es un reemplazo directo de las dos
-// líneas anteriores en cada chromedp.Run(...).
-func navigateAndSetContent(htmlContent string) chromedp.Tasks {
-	return chromedp.Tasks{
+// viejo de archivo temporal + file:// en su lugar. chromedp.Steps devuelve
+// un Action[Void], así que esto es un reemplazo directo de las dos líneas
+// anteriores en cada chromedp.Do(...).
+func navigateAndSetContent(htmlContent string) chromedp.Action[chromedp.Void] {
+	return chromedp.Steps(
 		chromedp.Navigate("about:blank"),
 		setDocumentContentAction(htmlContent),
-	}
+	)
 }
 
 // bringTabToFront activa el tab antes de capturarlo. Cada render abre su
@@ -365,8 +370,101 @@ func navigateAndSetContent(htmlContent string) chromedp.Tasks {
 // veces nunca llega: el build se quedaba colgado para siempre en el segundo
 // o tercer diagrama de un documento (reproducido con Edge, también en
 // origin/main). Con el tab al frente la captura vuelve siempre.
-func bringTabToFront() chromedp.Action {
-	return page.BringToFront()
+func bringTabToFront() chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, page.BringToFront, cdp.Empty{})
+		return err
+	})
+}
+
+// captureScreenshot corre Page.captureScreenshot con params y devuelve la
+// imagen. FromSurface va en true como lo mandaba el constructor
+// page.CaptureScreenshot() de cdproto antes de v0.157 (que es además el
+// default del protocolo); los demás booleanos quedan en su default (false).
+func captureScreenshot(params page.CaptureScreenshotParams) chromedp.Action[[]byte] {
+	return func(ctx context.Context, t *chromedp.Target) ([]byte, error) {
+		params.FromSurface = new(true)
+		res, err := cdp.Call(ctx, t, page.CaptureScreenshot, params)
+		if err != nil {
+			return nil, err
+		}
+		return res.Data, nil
+	}
+}
+
+// webpQuality es el campo quality de Page.captureScreenshot. Desde cdproto
+// v0.157.4 es un puntero y nil es "no mandar": una calidad 0 se sigue
+// omitiendo (Chrome usa su default), como cuando el campo era un int64 con
+// omitempty.
+func webpQuality(quality int) *int64 {
+	if quality == 0 {
+		return nil
+	}
+	return new(int64(quality))
+}
+
+// captureBox es la caja (px CSS, coordenadas de página) que devuelve el
+// getBoundingClientRect de una captura recortada.
+type captureBox struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+// setDeviceMetricsOverride es Emulation.setDeviceMetricsOverride sin emular
+// un móvil, lo que mandaba emulation.SetDeviceMetricsOverride(w, h, scale,
+// false) antes de cdproto v0.157.
+func setDeviceMetricsOverride(width, height int64, deviceScaleFactor float64) chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, emulation.SetDeviceMetricsOverride, emulation.SetDeviceMetricsOverrideParams{
+			Width:             width,
+			Height:            height,
+			DeviceScaleFactor: deviceScaleFactor,
+			Mobile:            false,
+		})
+		return err
+	})
+}
+
+// setEmulatedMedia es Emulation.setEmulatedMedia; "" quita la emulación.
+func setEmulatedMedia(ctx context.Context, t *chromedp.Target, media string) error {
+	_, err := cdp.Call(ctx, t, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{Media: media})
+	return err
+}
+
+// rgbaAlwaysAlpha es cdp.RGBA con el alfa siempre en el JSON. En cdproto
+// v0.157.x cdp.RGBA.A es un float64 con omitempty: A: 0 no se manda y Chrome
+// lo toma como 1 (su default), así que pedir transparencia con cdp.RGBA da un
+// fondo negro opaco. Antes de v0.157 el campo no tenía omitempty.
+type rgbaAlwaysAlpha struct {
+	R int64   `json:"r"`
+	G int64   `json:"g"`
+	B int64   `json:"b"`
+	A float64 `json:"a"`
+}
+
+// backgroundColorOverrideParams es emulation.SetDefaultBackgroundColorOverrideParams
+// con rgbaAlwaysAlpha como color.
+type backgroundColorOverrideParams struct {
+	Color *rgbaAlwaysAlpha `json:"color,omitempty"`
+}
+
+// setDefaultBackgroundColorOverride es el mismo comando del protocolo que
+// emulation.SetDefaultBackgroundColorOverride, con backgroundColorOverrideParams.
+var setDefaultBackgroundColorOverride = cdp.Command[backgroundColorOverrideParams, cdp.Empty]{
+	Method: emulation.CommandSetDefaultBackgroundColorOverride,
+}
+
+// transparentBackground pide a Chrome un fondo por defecto transparente
+// (Emulation.setDefaultBackgroundColorOverride con alfa 0).
+func transparentBackground() chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, setDefaultBackgroundColorOverride, backgroundColorOverrideParams{
+			Color: &rgbaAlwaysAlpha{R: 0, G: 0, B: 0, A: 0},
+		})
+		return err
+	})
 }
 
 // ChromiumRenderer usa Chromium para rendering avanzado
@@ -475,7 +573,7 @@ func withCallerCancel(base context.Context, callerCtx context.Context) (context.
 
 // ensureBrowser aloca el proceso de Chrome contra r.ctx — el contexto de
 // vida larga que ya es dueño de Close() — en vez de dejar que lo aloque
-// implícitamente el primer chromedp.Run(runCtx) de algún Render* (issue
+// implícitamente el primer chromedp.Do(runCtx) de algún Render* (issue
 // #114). chromedp ata exec.CommandContext al ctx de ESE primer Run; si ese
 // ctx es el runCtx puntual de un Render*, el `defer cancel()` de ese método
 // mata el proceso de Chrome al retornar, y vía el watchdog LostConnection de
@@ -490,9 +588,12 @@ func withCallerCancel(base context.Context, callerCtx context.Context) (context.
 // corre en un goroutine de fondo, contra r.ctx, disparada una sola vez
 // (browserStartOnce) sin importar cuántos callers pasen por acá; cada
 // caller espera esa alocación con un select sobre su propio callerCtx, así
-// que uno que cancela mientras Chrome sigue iniciando (chromedp puede
-// tardar hasta wsURLReadTimeout, 20s por defecto) retorna de inmediato en
-// vez de bloquear ese tiempo entero — el contrato documentado de que ctx
+// que uno que cancela mientras Chrome sigue iniciando retorna de inmediato en
+// vez de bloquear ese tiempo entero. Desde chromedp 0.21 el ExecAllocator
+// habla con Chrome por un pipe (--remote-debugging-pipe) y no por websocket:
+// el plazo de 20s de wsURLReadTimeout ya no aplica, y un Chrome que arranca
+// pero nunca contesta deja esta espera abierta hasta que el proceso muere o
+// se cancela r.ctx; solo el callerCtx la acota — el contrato documentado de que ctx
 // acota cada Render* puntual, ya respetado en todo el resto del archivo vía
 // withCallerCancel, ahora también cubre esta primera espera. El arranque en
 // sí no se aborta por eso: sigue en curso contra r.ctx y lo reusa quien
@@ -500,7 +601,7 @@ func withCallerCancel(base context.Context, callerCtx context.Context) (context.
 func (r *ChromiumRenderer) ensureBrowser(callerCtx context.Context) error {
 	r.browserStartOnce.Do(func() {
 		go func() {
-			r.browserErr = chromedp.Run(r.ctx)
+			r.browserErr = chromedp.Do(r.ctx)
 			close(r.browserReady)
 		}()
 	})
@@ -560,22 +661,22 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 	// Chrome las rasteriza en el PDF. Sobre about:blank no hay origen
 	// file:// contra el cual resolver esas rutas, así que el bypass deja de
 	// funcionar sin necesidad de tocar SanitizeURL.
-	err := chromedp.Run(runCtx,
+	err := chromedp.Do(runCtx,
 		navigateAndSetContent(htmlContent),
-		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.WaitReady(chromedp.CSS("body")),
 		r.waitForFontsReady(),
 		r.checkPageOverflow(opts.OverflowSelector),
-		chromedp.ActionFunc(func(ctx context.Context) error {
+		chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 			r.logger.Info("PDF", "Generating PDF...")
 
 			printParams := buildPrintToPDFParams(opts)
 
 			// Generar PDF
-			buf, _, err := printParams.Do(ctx)
+			res, err := cdp.Call(ctx, t, page.PrintToPDF, printParams)
 			if err != nil {
 				return err
 			}
-			pdfBuf = buf
+			pdfBuf = res.Data
 			return nil
 		}),
 	)
@@ -616,16 +717,15 @@ func (r *ChromiumRenderer) RenderHTMLToPDF(ctx context.Context, htmlContent stri
 // generación del PDF por esto, que era justamente el problema con el sleep
 // fijo original: una espera que no puede fallar tampoco puede tener una
 // condición real detrás.
-func (r *ChromiumRenderer) waitForFontsReady() chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
+func (r *ChromiumRenderer) waitForFontsReady() chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 
-		err := chromedp.Poll(
+		_, err := chromedp.Poll[chromedp.Void](
 			`document.fonts.status === "loaded" || document.fonts.size === 0`,
-			nil,
 			chromedp.WithPollingInterval(50*time.Millisecond),
-		).Do(timeoutCtx)
+		)(timeoutCtx, t)
 		if err != nil {
 			r.logger.Info("PDF", "font loading wait ended early (%v), continuing to print anyway", err)
 		}
@@ -667,18 +767,18 @@ func (r *ChromiumRenderer) waitForFontsReady() chromedp.Action {
 // escala. La tolerancia de 2px de abajo ya asume esto — no es un bug de
 // este código, es el techo de fidelidad de medir "por fuera" del pipeline
 // real de impresión en vez de inspeccionar el PDF ya generado.
-func (r *ChromiumRenderer) checkPageOverflow(selector string) chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
+func (r *ChromiumRenderer) checkPageOverflow(selector string) chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 		if selector == "" {
 			return nil
 		}
 
-		if err := emulation.SetEmulatedMedia().WithMedia("print").Do(ctx); err != nil {
+		if err := setEmulatedMedia(ctx, t, "print"); err != nil {
 			r.logger.Info("PDF", "overflow check: no se pudo activar emulación de print (%v), se omite la medición", err)
 			return nil
 		}
 		defer func() {
-			_ = emulation.SetEmulatedMedia().WithMedia("").Do(ctx)
+			_ = setEmulatedMedia(ctx, t, "")
 		}()
 
 		selectorJSON, err := json.Marshal(selector)
@@ -687,7 +787,7 @@ func (r *ChromiumRenderer) checkPageOverflow(selector string) chromedp.Action {
 			return nil
 		}
 
-		var overflowing []struct {
+		type overflowEntry struct {
 			Index int    `json:"index"`
 			Title string `json:"title"`
 		}
@@ -703,7 +803,8 @@ func (r *ChromiumRenderer) checkPageOverflow(selector string) chromedp.Action {
 			return acc;
 		}, [])`, selectorJSON)
 
-		if err := chromedp.Evaluate(js, &overflowing).Do(ctx); err != nil {
+		overflowing, err := chromedp.Evaluate[[]overflowEntry](js)(ctx, t)
+		if err != nil {
 			r.logger.Info("PDF", "overflow check: no se pudo medir (%v), se omite", err)
 			return nil
 		}
@@ -746,11 +847,11 @@ func (r *ChromiumRenderer) RenderMermaidToSVGWithTheme(ctx context.Context, merm
 	// Renderizar con Chromium. Se inyecta el HTML vía about:blank +
 	// Page.setDocumentContent en vez de escribir un archivo temporal y
 	// navegar a file:// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
-	err := chromedp.Run(runCtx,
+	err := chromedp.Do(runCtx,
 		navigateAndSetContent(html),
-		chromedp.WaitVisible(".mermaid svg", chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(".mermaid svg")),
 		chromedp.Sleep(200*time.Millisecond), // Esperar renderizado completo
-		chromedp.OuterHTML(".mermaid svg", &svgContent, chromedp.ByQuery),
+		store(&svgContent, chromedp.OuterHTML(chromedp.CSS(".mermaid svg"))),
 	)
 
 	if err != nil {
@@ -783,15 +884,15 @@ func (r *ChromiumRenderer) RenderMathToSVGWithTheme(ctx context.Context, latex s
 	}
 
 	var svgContent string
-	err := r.renderMath(ctx, chromedp.Tasks{
+	err := r.renderMath(ctx,
 		// Se inyecta el HTML vía about:blank + Page.setDocumentContent en
 		// vez de escribir un archivo temporal y navegar a file://
 		// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
 		navigateAndSetContent(buildMathSVGPage(latex, theme)),
 		waitRenderState(mathStateJS),
-		chromedp.Sleep(200 * time.Millisecond), // Esperar tipografiado completo
-		chromedp.OuterHTML("mjx-container svg", &svgContent, chromedp.ByQuery),
-	})
+		chromedp.Sleep(200*time.Millisecond), // Esperar tipografiado completo
+		store(&svgContent, chromedp.OuterHTML(chromedp.CSS("mjx-container svg"))),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -803,10 +904,10 @@ func (r *ChromiumRenderer) RenderMathToSVGWithTheme(ctx context.Context, latex s
 
 // renderMath corre una captura de math en su propio tab, con su plazo y con
 // los archivos de MathJax servidos desde el binario (serveMathAssets).
-func (r *ChromiumRenderer) renderMath(ctx context.Context, tasks chromedp.Tasks) error {
+func (r *ChromiumRenderer) renderMath(ctx context.Context, steps ...chromedp.Action[chromedp.Void]) error {
 	runCtx, cancel := r.newCaptureContext(ctx, captureTimeout)
 	defer cancel()
-	if err := chromedp.Run(runCtx, append(chromedp.Tasks{serveMathAssets()}, tasks...)); err != nil {
+	if err := chromedp.Do(runCtx, append([]chromedp.Action[chromedp.Void]{serveMathAssets()}, steps...)...); err != nil {
 		return captureError("math", captureTimeout, ctx, err)
 	}
 	return nil
@@ -829,13 +930,13 @@ func (r *ChromiumRenderer) RenderMathToPNGWithTheme(ctx context.Context, latex s
 	}
 
 	var pngData []byte
-	err := r.renderMath(ctx, chromedp.Tasks{
+	err := r.renderMath(ctx,
 		navigateAndSetContent(buildMathPNGPage(latex, width, height, theme)),
 		waitRenderState(mathStateJS),
-		chromedp.Sleep(200 * time.Millisecond),
+		chromedp.Sleep(200*time.Millisecond),
 		bringTabToFront(),
-		chromedp.Screenshot("#mathContainer", &pngData, chromedp.ByID),
-	})
+		store(&pngData, chromedp.Screenshot(chromedp.ID("#mathContainer"))),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -868,40 +969,36 @@ func (r *ChromiumRenderer) RenderMathToFittedPNGWithTheme(ctx context.Context, l
 	}
 
 	var pngData []byte
-	var box struct {
-		X      float64 `json:"x"`
-		Y      float64 `json:"y"`
-		Width  float64 `json:"width"`
-		Height float64 `json:"height"`
-	}
-	err := r.renderMath(ctx, chromedp.Tasks{
-		emulation.SetDeviceMetricsOverride(1200, 600, MathPNGDeviceScale, false),
+	var box captureBox
+	err := r.renderMath(ctx,
+		setDeviceMetricsOverride(1200, 600, MathPNGDeviceScale),
 		navigateAndSetContent(buildMathSVGPage(latex, theme)),
 		waitRenderState(mathStateJS),
-		chromedp.Sleep(200 * time.Millisecond),
-		chromedp.Evaluate(fmt.Sprintf(`(() => { const r = document.querySelector('mjx-container svg').getBoundingClientRect(); const p = %d; return {x: r.left + window.scrollX - p, y: r.top + window.scrollY - p, width: r.width + 2*p, height: r.height + 2*p}; })()`, mathPNGPaddingPx), &box),
+		chromedp.Sleep(200*time.Millisecond),
+		store(&box, chromedp.Evaluate[captureBox](fmt.Sprintf(`(() => { const r = document.querySelector('mjx-container svg').getBoundingClientRect(); const p = %d; return {x: r.left + window.scrollX - p, y: r.top + window.scrollY - p, width: r.width + 2*p, height: r.height + 2*p}; })()`, mathPNGPaddingPx))),
 		bringTabToFront(),
-		chromedp.ActionFunc(func(ctx context.Context) error {
+		chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 			if box.Width <= 2*mathPNGPaddingPx || box.Height <= 2*mathPNGPaddingPx {
 				return fmt.Errorf("MathJax produced an empty equation (%.0fx%.0f)", box.Width, box.Height)
 			}
-			buf, err := page.CaptureScreenshot().
-				WithFormat(page.CaptureScreenshotFormatPng).
-				WithCaptureBeyondViewport(true).
-				WithClip(&page.Viewport{
+			buf, err := captureScreenshot(page.CaptureScreenshotParams{
+				Format:                page.CaptureScreenshotFormatPng,
+				CaptureBeyondViewport: new(true),
+				Clip: &page.Viewport{
 					X:      math.Max(0, math.Floor(box.X)),
 					Y:      math.Max(0, math.Floor(box.Y)),
 					Width:  math.Ceil(box.Width),
 					Height: math.Ceil(box.Height),
 					Scale:  1,
-				}).Do(ctx)
+				},
+			})(ctx, t)
 			if err != nil {
 				return err
 			}
 			pngData = buf
 			return nil
 		}),
-	})
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -948,37 +1045,33 @@ func (r *ChromiumRenderer) RenderMermaidToPNGWithTheme(ctx context.Context, merm
 	if viewportH < 600 {
 		viewportH = 600
 	}
-	var box struct {
-		X      float64 `json:"x"`
-		Y      float64 `json:"y"`
-		Width  float64 `json:"width"`
-		Height float64 `json:"height"`
-	}
-	err := chromedp.Run(runCtx,
-		emulation.SetDeviceMetricsOverride(int64(width+16), viewportH, mermaidPNGDeviceScale, false),
+	var box captureBox
+	err := chromedp.Do(runCtx,
+		setDeviceMetricsOverride(int64(width+16), viewportH, mermaidPNGDeviceScale),
 		navigateAndSetContent(html),
-		chromedp.WaitVisible(".mermaid svg", chromedp.ByQuery),
-		chromedp.WaitReady("#renderComplete[data-ready='true']", chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(".mermaid svg")),
+		chromedp.WaitReady(chromedp.CSS("#renderComplete[data-ready='true']")),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
-		chromedp.Evaluate(`(() => { const r = document.querySelector('.mermaid svg').getBoundingClientRect(); return {x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height}; })()`, &box),
+		store(&box, chromedp.Evaluate[captureBox](`(() => { const r = document.querySelector('.mermaid svg').getBoundingClientRect(); return {x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height}; })()`)),
 		bringTabToFront(),
 		// Captura de la caja del <svg> en coordenadas de página, con
 		// captureBeyondViewport: un diagrama más alto que la ventana sale
 		// entero, sin redimensionar la ventana.
-		chromedp.ActionFunc(func(ctx context.Context) error {
+		chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 			if box.Width <= 0 || box.Height <= 0 {
 				return fmt.Errorf("mermaid produced an empty diagram (%.0fx%.0f)", box.Width, box.Height)
 			}
-			buf, err := page.CaptureScreenshot().
-				WithFormat(page.CaptureScreenshotFormatPng).
-				WithCaptureBeyondViewport(true).
-				WithClip(&page.Viewport{
+			buf, err := captureScreenshot(page.CaptureScreenshotParams{
+				Format:                page.CaptureScreenshotFormatPng,
+				CaptureBeyondViewport: new(true),
+				Clip: &page.Viewport{
 					X:      math.Floor(box.X),
 					Y:      math.Floor(box.Y),
 					Width:  math.Ceil(box.Width),
 					Height: math.Ceil(box.Height),
 					Scale:  1,
-				}).Do(ctx)
+				},
+			})(ctx, t)
 			if err != nil {
 				return err
 			}
@@ -1033,7 +1126,7 @@ func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, char
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
-	err := chromedp.Run(runCtx,
+	err := chromedp.Do(runCtx,
 		navigateAndSetContent(html),
 		waitRenderState(renderStateJS),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
@@ -1045,7 +1138,7 @@ func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, char
 		// debajo de la gráfica. Con maintainAspectRatio: false (los configs
 		// que arma GenerateChartConfig) el canvas llena el contenedor y la
 		// captura es la misma de antes.
-		chromedp.Screenshot("#myChart", &pngData, chromedp.ByID),
+		store(&pngData, chromedp.Screenshot(chromedp.ID("#myChart"))),
 	)
 
 	if err != nil {
@@ -1097,7 +1190,7 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
-	err := chromedp.Run(runCtx,
+	err := chromedp.Do(runCtx,
 		navigateAndSetContent(html),
 		// Esperar a que window.mapReady sea true (establecido por el
 		// JavaScript), o a que la página reporte un error: sin red, Leaflet
@@ -1106,7 +1199,7 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 		waitRenderState(mapStateJS),
 		chromedp.Sleep(200*time.Millisecond), // Pequeño buffer para asegurar rendering completo
 		bringTabToFront(),
-		chromedp.Screenshot("#mapContainer", &pngData, chromedp.ByID),
+		store(&pngData, chromedp.Screenshot(chromedp.ID("#mapContainer"))),
 	)
 
 	if err != nil {
@@ -1147,31 +1240,31 @@ func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, cha
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78). bringTabToFront: mismo
 	// cuelgue de Page.captureScreenshot en un tab inactivo que #450 arregló
 	// en el camino PNG.
-	err := chromedp.Run(runCtx,
+	err := chromedp.Do(runCtx,
 		navigateAndSetContent(html),
 		waitRenderState(renderStateJS),
 		chromedp.Sleep(200*time.Millisecond), // Buffer adicional
 		bringTabToFront(),
 		// Alto del <canvas> (ver el camino PNG: Chart.js puede dibujar más
 		// bajo que el contenedor si conserva su proporción).
-		chromedp.Evaluate(`document.getElementById('myChart').getBoundingClientRect().height`, &canvasHeight),
-		chromedp.ActionFunc(func(ctx context.Context) error {
+		store(&canvasHeight, chromedp.Evaluate[float64](`document.getElementById('myChart').getBoundingClientRect().height`)),
+		chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 			clipHeight := float64(height)
 			if canvasHeight > 0 && canvasHeight < clipHeight {
 				clipHeight = math.Ceil(canvasHeight)
 			}
 			// Usar page.CaptureScreenshot con formato WebP
-			buf, err := page.CaptureScreenshot().
-				WithFormat(page.CaptureScreenshotFormatWebp).
-				WithQuality(int64(quality)).
-				WithClip(&page.Viewport{
+			buf, err := captureScreenshot(page.CaptureScreenshotParams{
+				Format:  page.CaptureScreenshotFormatWebp,
+				Quality: webpQuality(quality),
+				Clip: &page.Viewport{
 					X:      0,
 					Y:      0,
 					Width:  float64(width),
 					Height: clipHeight,
 					Scale:  1,
-				}).
-				Do(ctx)
+				},
+			})(ctx, t)
 			if err != nil {
 				return err
 			}
@@ -1219,7 +1312,7 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
-	err := chromedp.Run(runCtx,
+	err := chromedp.Do(runCtx,
 		navigateAndSetContent(html),
 		// generateLeafletHTML publica window.mapReady, no un
 		// #renderComplete (que este camino esperaba y la página nunca
@@ -1227,25 +1320,18 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 		waitRenderState(mapStateJS),
 		chromedp.Sleep(300*time.Millisecond), // Buffer adicional
 		bringTabToFront(),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			// Usar page.CaptureScreenshot con formato WebP
-			buf, err := page.CaptureScreenshot().
-				WithFormat(page.CaptureScreenshotFormatWebp).
-				WithQuality(int64(quality)).
-				WithClip(&page.Viewport{
-					X:      0,
-					Y:      0,
-					Width:  float64(width),
-					Height: float64(height),
-					Scale:  1,
-				}).
-				Do(ctx)
-			if err != nil {
-				return err
-			}
-			webpData = buf
-			return nil
-		}),
+		// Usar page.CaptureScreenshot con formato WebP
+		store(&webpData, captureScreenshot(page.CaptureScreenshotParams{
+			Format:  page.CaptureScreenshotFormatWebp,
+			Quality: webpQuality(quality),
+			Clip: &page.Viewport{
+				X:      0,
+				Y:      0,
+				Width:  float64(width),
+				Height: float64(height),
+				Scale:  1,
+			},
+		})),
 	)
 
 	if err != nil {
@@ -1437,22 +1523,34 @@ func nonNegativeMargin(v float64) float64 {
 // buildPrintToPDFParams arma los parámetros de Page.printToPDF a partir de
 // PDFOptions. Extraído de RenderHTMLToPDF (issue #62 prerequisito) para que
 // GenerateTaggedPDF y el resto de opciones sean verificables sin un Chromium
-// real: PrintToPDF() inicializa GenerateTaggedPDF en false explícitamente
+// real: PrintToPDF() inicializaba GenerateTaggedPDF en false explícitamente
 // (cdproto page.go), así que sin este override ningún PDF de este toolchain
 // llevaba árbol de tags, ni /Lang, ni orden de lectura verificable por una
 // regla o un lector de pantalla. Activarlo hace ALCANZABLES las cláusulas
 // PDF/UA que el crosswalk cita — no las verifica: un árbol de tags mal
 // formado sigue siendo posible, eso es trabajo de PDF/UA aparte.
-func buildPrintToPDFParams(opts PDFOptions) *page.PrintToPDFParams {
-	printParams := page.PrintToPDF().
-		WithPrintBackground(true).
-		WithPreferCSSPageSize(true).
-		WithGenerateTaggedPDF(true)
+//
+// Desde cdproto v0.157 (chromedp 0.21) los booleanos y los márgenes son
+// punteros con omitempty: nil es "no mandar" y Chrome usa su default. Para
+// que el JSON siga siendo el de antes, todos los booleanos y los cuatro
+// márgenes van siempre con valor: el viejo PrintToPDF() mandaba
+// landscape/displayHeaderFooter/generateDocumentOutline en false y los
+// márgenes sin omitempty. Un margen nil no es lo mismo que 0: Chrome le
+// pondría su default de 1 cm.
+func buildPrintToPDFParams(opts PDFOptions) page.PrintToPDFParams {
+	printParams := page.PrintToPDFParams{
+		Landscape:               new(false),
+		DisplayHeaderFooter:     new(false),
+		PrintBackground:         new(true),
+		PreferCSSPageSize:       new(true),
+		GenerateTaggedPDF:       new(true),
+		GenerateDocumentOutline: new(false),
+	}
 
 	// Margins. Issue #165: este bloque tenía un guard `> 0` que, a
 	// diferencia del de Scale más abajo, resultó ser un no-op para
-	// CUALQUIER valor no-negativo — cdproto declara MarginTop/Bottom/Left/
-	// Right como float64 SIN `omitempty` (page/page.go), y su constructor
+	// CUALQUIER valor no-negativo — cdproto declaraba (antes de v0.157)
+	// MarginTop/Bottom/Left/Right como float64 SIN `omitempty`, y su constructor
 	// PrintToPDF() no les siembra ningún default distinto de cero, así que
 	// el JSON que sale hacia Chromium lleva "marginTop":0 (y equivalentes)
 	// exista o no la llamada a WithMarginTop — llamarlo con 0 y no
@@ -1471,30 +1569,27 @@ func buildPrintToPDFParams(opts PDFOptions) *page.PrintToPDFParams {
 	// a este cambio — un valor negativo se clampea a 0 en vez de
 	// propagarse — sin resucitar el guard `> 0` que también descartaba
 	// valores positivos legítimos vía `omitempty` inexistente.
-	printParams = printParams.
-		WithMarginTop(nonNegativeMargin(opts.MarginTop)).
-		WithMarginBottom(nonNegativeMargin(opts.MarginBottom)).
-		WithMarginLeft(nonNegativeMargin(opts.MarginLeft)).
-		WithMarginRight(nonNegativeMargin(opts.MarginRight))
+	printParams.MarginTop = new(nonNegativeMargin(opts.MarginTop))
+	printParams.MarginBottom = new(nonNegativeMargin(opts.MarginBottom))
+	printParams.MarginLeft = new(nonNegativeMargin(opts.MarginLeft))
+	printParams.MarginRight = new(nonNegativeMargin(opts.MarginRight))
 
 	// Paper size
 	if opts.PaperWidth > 0 && opts.PaperHeight > 0 {
-		printParams = printParams.
-			WithPaperWidth(opts.PaperWidth).
-			WithPaperHeight(opts.PaperHeight)
+		printParams.PaperWidth = opts.PaperWidth
+		printParams.PaperHeight = opts.PaperHeight
 	}
 
 	// Landscape
 	if opts.Landscape {
-		printParams = printParams.WithLandscape(true)
+		printParams.Landscape = new(true)
 	}
 
 	// Header/Footer template
 	if opts.DisplayHeaderFooter {
-		printParams = printParams.
-			WithDisplayHeaderFooter(true).
-			WithHeaderTemplate(opts.HeaderTemplate).
-			WithFooterTemplate(opts.FooterTemplate)
+		printParams.DisplayHeaderFooter = new(true)
+		printParams.HeaderTemplate = opts.HeaderTemplate
+		printParams.FooterTemplate = opts.FooterTemplate
 	}
 
 	// Scale. Hasta este punto PDFOptions.Scale era un campo público INERTE:
@@ -1512,7 +1607,7 @@ func buildPrintToPDFParams(opts PDFOptions) *page.PrintToPDFParams {
 	// descartar Scale: -1 en silencio, que es justo el bug que este bloque
 	// vino a arreglar.
 	if opts.Scale != 0 {
-		printParams = printParams.WithScale(opts.Scale)
+		printParams.Scale = opts.Scale
 	}
 
 	return printParams

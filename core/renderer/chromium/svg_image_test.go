@@ -11,6 +11,8 @@ import (
 	"image/png"
 	"math"
 	"testing"
+
+	"github.com/chromedp/cdproto/cdp/jsonv2"
 )
 
 // TestRenderSVGImageToPNG: el SVG sale a SVGPNGDeviceScale px por px CSS del
@@ -41,6 +43,40 @@ func TestRenderSVGImageToPNG(t *testing.T) {
 	}
 	if _, err := r.RenderSVGImageToPNG(context.Background(), svg, 0, 10); err == nil {
 		t.Error("a zero size must fail")
+	}
+}
+
+// TestRenderSVGImageToPNG_TransparentBackground: lo que el SVG no pinta queda
+// transparente en el PNG. El fondo transparente lo pide
+// Emulation.setDefaultBackgroundColorOverride con alfa 0; con cdproto
+// v0.157.x un cdp.RGBA con A: 0 omite el alfa y Chrome lo toma como 1, así
+// que el fondo salía negro opaco.
+func TestRenderSVGImageToPNG_TransparentBackground(t *testing.T) {
+	r := newTestChromiumRenderer(t)
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect x="10" y="10" width="20" height="20" fill="#ff0000"/></svg>`)
+	data, err := r.RenderSVGImageToPNG(context.Background(), svg, 40, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("not a PNG: %v", err)
+	}
+	if _, _, _, a := img.At(1, 1).RGBA(); a != 0 {
+		t.Errorf("corner pixel alpha = %d, want 0 (transparent background)", a>>8)
+	}
+}
+
+// TestTransparentBackgroundParams_SendAlphaZero es la mitad sin Chromium del
+// test de arriba: el JSON de Emulation.setDefaultBackgroundColorOverride lleva
+// "a":0 (con cdp.RGBA de cdproto v0.157.x el alfa 0 se omitía).
+func TestTransparentBackgroundParams_SendAlphaZero(t *testing.T) {
+	data, err := jsonv2.Marshal(backgroundColorOverrideParams{Color: &rgbaAlwaysAlpha{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), `{"color":{"r":0,"g":0,"b":0,"a":0}}`; got != want {
+		t.Errorf("params JSON = %s, want %s", got, want)
 	}
 }
 

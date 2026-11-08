@@ -19,8 +19,8 @@ import (
 func TestCheckPageOverflow_EmptySelectorIsNoop(t *testing.T) {
 	r := &ChromiumRenderer{logger: noopChromiumLogger{}}
 
-	if err := r.checkPageOverflow("").Do(context.Background()); err != nil {
-		t.Errorf("checkPageOverflow(\"\").Do() = %v, want nil (selector vacío debe ser no-op)", err)
+	if _, err := r.checkPageOverflow("")(context.Background(), nil); err != nil {
+		t.Errorf("checkPageOverflow(\"\")() = %v, want nil (selector vacío debe ser no-op)", err)
 	}
 }
 

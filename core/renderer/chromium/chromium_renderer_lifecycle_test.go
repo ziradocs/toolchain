@@ -142,10 +142,11 @@ func TestChromiumRenderer_CallerCancelDoesNotPoisonBrowser(t *testing.T) {
 }
 
 // writeFakeStuckChromiumBinary crea un ejecutable que simula un Chrome
-// atascado al arrancar: nunca escribe la línea "DevTools listening on
-// ws://..." que chromedp espera leer de stdout, así que la alocación del
-// browser se queda colgada hasta chromedp's wsURLReadTimeout (20s por
-// defecto) o hasta que el ctx del proceso lo mate. No requiere un Chrome de
+// atascado al arrancar: nunca contesta por el pipe de depuración
+// (--remote-debugging-pipe, el transporte por defecto desde chromedp 0.21;
+// antes era la línea "DevTools listening on ws://..." en stdout), así que la
+// alocación del browser se queda colgada hasta que el proceso termina (el
+// `sleep 30`) o hasta que el ctx del proceso lo mate. No requiere un Chrome de
 // verdad — corre en cualquier máquina, determinístico, sin la variabilidad
 // de cuánto tarda un Chrome real en arrancar (que localmente suele ser
 // bajo 1s, demasiado rápido para distinguir "respeta la cancelación" de "no
@@ -179,8 +180,8 @@ func writeFakeStuckChromiumBinary(t *testing.T) string {
 // hallazgo de code review sobre la primera versión de ensureBrowser: al ser
 // la primera llamada de Chromium en todo el renderer, ensureBrowser no solo
 // abre el tab — también dispara la alocación del proceso de Chrome
-// (chromedp.Run(r.ctx) sin acciones), que puede tardar hasta
-// wsURLReadTimeout (20s por defecto en chromedp) si el arranque se atasca.
+// (chromedp.Do(r.ctx) sin acciones), que puede no terminar nunca si el
+// arranque se atasca (antes de chromedp 0.21, hasta wsURLReadTimeout: 20s).
 // La primera versión bloqueaba esa espera SIN mirar el ctx puntual del
 // caller — un ctx ya cancelado (o cancelado durante el arranque) no
 // abortaba la espera, contradiciendo el contrato documentado de que ctx

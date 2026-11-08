@@ -3,17 +3,85 @@
 
 package chromium
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/chromedp/cdproto/cdp/jsonv2"
+	"github.com/chromedp/cdproto/page"
+)
+
+// boolSet dice si un booleano opcional de cdproto (*bool desde v0.157) va
+// con valor y cuál es. nil no es false: es "no mandar" (default de Chrome).
+func boolSet(p *bool) (value, set bool) {
+	if p == nil {
+		return false, false
+	}
+	return *p, true
+}
+
+// isTrue es boolSet para el caso común: mandado y en true.
+func isTrue(p *bool) bool {
+	v, set := boolSet(p)
+	return set && v
+}
+
+// isFalseSent: mandado y en false, como lo mandaba el viejo PrintToPDF().
+func isFalseSent(p *bool) bool {
+	v, set := boolSet(p)
+	return set && !v
+}
+
+// margins devuelve los cuatro márgenes; falla el test si alguno es nil, que
+// dejaría a Chrome poner su default de 1 cm en vez del valor pedido (issue
+// #165: el margen se manda siempre).
+func margins(t *testing.T, params page.PrintToPDFParams) (top, bottom, left, right float64) {
+	t.Helper()
+	for name, p := range map[string]*float64{"top": params.MarginTop, "bottom": params.MarginBottom, "left": params.MarginLeft, "right": params.MarginRight} {
+		if p == nil {
+			t.Fatalf("margin %s is nil: it would be omitted and Chrome would apply its 1cm default", name)
+		}
+	}
+	return *params.MarginTop, *params.MarginBottom, *params.MarginLeft, *params.MarginRight
+}
+
+// TestBuildPrintToPDFParams_WireFormat fija el JSON que sale hacia Chrome
+// para un PDFOptions{}: el mismo que mandaba cdproto antes de v0.157, cuando
+// los booleanos y los márgenes no tenían omitempty. Codifica con
+// cdproto/cdp/jsonv2, el mismo codificador que usa cdp.Call.
+func TestBuildPrintToPDFParams_WireFormat(t *testing.T) {
+	data, err := jsonv2.Marshal(buildPrintToPDFParams(PDFOptions{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"landscape": false, "displayHeaderFooter": false, "printBackground": true,
+		"marginTop": 0.0, "marginBottom": 0.0, "marginLeft": 0.0, "marginRight": 0.0,
+		"preferCSSPageSize": true, "generateTaggedPDF": true, "generateDocumentOutline": false,
+	}
+	if len(got) != len(want) {
+		t.Errorf("print params JSON = %s, want exactly the keys of %v", data, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("print params JSON %q = %v, want %v (full: %s)", k, got[k], v, data)
+		}
+	}
+}
 
 // TestBuildPrintToPDFParams_GenerateTaggedPDF cubre el prerrequisito de
-// issue #62: cdproto's page.PrintToPDF() inicializa GenerateTaggedPDF en
+// issue #62: cdproto's page.PrintToPDF() inicializaba GenerateTaggedPDF en
 // false explícitamente, así que sin un override todo PDF de este toolchain
 // salía sin árbol de tags. No requiere un Chromium real: PrintToPDFParams es
 // un struct de parámetros, no una llamada de red.
 func TestBuildPrintToPDFParams_GenerateTaggedPDF(t *testing.T) {
 	params := buildPrintToPDFParams(DefaultPDFOptions())
 
-	if !params.GenerateTaggedPDF {
+	if !isTrue(params.GenerateTaggedPDF) {
 		t.Error("expected GenerateTaggedPDF = true, got false — PDFs would ship untagged")
 	}
 }
@@ -36,24 +104,24 @@ func TestBuildPrintToPDFParams_PreservesExistingOptions(t *testing.T) {
 	}
 	params := buildPrintToPDFParams(opts)
 
-	if !params.PrintBackground {
+	if !isTrue(params.PrintBackground) {
 		t.Error("expected PrintBackground = true (always on)")
 	}
-	if !params.PreferCSSPageSize {
+	if !isTrue(params.PreferCSSPageSize) {
 		t.Error("expected PreferCSSPageSize = true (always on)")
 	}
 	if params.PaperWidth != opts.PaperWidth || params.PaperHeight != opts.PaperHeight {
 		t.Errorf("paper size = %v x %v, want %v x %v", params.PaperWidth, params.PaperHeight, opts.PaperWidth, opts.PaperHeight)
 	}
-	if !params.Landscape {
+	if !isTrue(params.Landscape) {
 		t.Error("expected Landscape = true")
 	}
-	if params.MarginTop != opts.MarginTop || params.MarginBottom != opts.MarginBottom ||
-		params.MarginLeft != opts.MarginLeft || params.MarginRight != opts.MarginRight {
-		t.Errorf("margins = %+v, want top/bottom/left/right = %v/%v/%v/%v",
-			params, opts.MarginTop, opts.MarginBottom, opts.MarginLeft, opts.MarginRight)
+	if top, bottom, left, right := margins(t, params); top != opts.MarginTop || bottom != opts.MarginBottom ||
+		left != opts.MarginLeft || right != opts.MarginRight {
+		t.Errorf("margins = %v/%v/%v/%v, want top/bottom/left/right = %v/%v/%v/%v",
+			top, bottom, left, right, opts.MarginTop, opts.MarginBottom, opts.MarginLeft, opts.MarginRight)
 	}
-	if !params.DisplayHeaderFooter {
+	if !isTrue(params.DisplayHeaderFooter) {
 		t.Error("expected DisplayHeaderFooter = true")
 	}
 	if params.HeaderTemplate != opts.HeaderTemplate || params.FooterTemplate != opts.FooterTemplate {
@@ -76,17 +144,17 @@ func TestBuildPrintToPDFParams_PreservesExistingOptions(t *testing.T) {
 func TestBuildPrintToPDFParams_ZeroValueDefaults(t *testing.T) {
 	params := buildPrintToPDFParams(PDFOptions{})
 
-	if params.DisplayHeaderFooter {
+	if !isFalseSent(params.DisplayHeaderFooter) {
 		t.Error("expected DisplayHeaderFooter = false by default")
 	}
-	if params.Landscape {
+	if !isFalseSent(params.Landscape) {
 		t.Error("expected Landscape = false by default")
 	}
 	if params.Scale != 0 {
 		t.Errorf("expected Scale left at cdproto's default for a zero-value PDFOptions, got %v — sending an explicit 0 is rejected by CDP", params.Scale)
 	}
-	if params.MarginTop != 0 || params.MarginBottom != 0 || params.MarginLeft != 0 || params.MarginRight != 0 {
-		t.Errorf("margins = %+v, want all four at 0 for a zero-value PDFOptions", params)
+	if top, bottom, left, right := margins(t, params); top != 0 || bottom != 0 || left != 0 || right != 0 {
+		t.Errorf("margins = %v/%v/%v/%v, want all four at 0 for a zero-value PDFOptions", top, bottom, left, right)
 	}
 	if params.PaperWidth != 0 || params.PaperHeight != 0 {
 		t.Errorf("paper size = %v x %v, want 0 x 0 for a zero-value PDFOptions (opts.PaperWidth > 0 && opts.PaperHeight > 0 gate stays untouched by issue #165)", params.PaperWidth, params.PaperHeight)
@@ -111,8 +179,8 @@ func TestBuildPrintToPDFParams_MarginsAlwaysPropagated(t *testing.T) {
 	for _, margin := range []float64{0, 0.4, 1.5} {
 		opts := PDFOptions{MarginTop: margin, MarginBottom: margin, MarginLeft: margin, MarginRight: margin}
 		params := buildPrintToPDFParams(opts)
-		if params.MarginTop != margin || params.MarginBottom != margin || params.MarginLeft != margin || params.MarginRight != margin {
-			t.Errorf("margins for input %v = %+v, want all four = %v", margin, params, margin)
+		if top, bottom, left, right := margins(t, params); top != margin || bottom != margin || left != margin || right != margin {
+			t.Errorf("margins for input %v = %v/%v/%v/%v, want all four = %v", margin, top, bottom, left, right, margin)
 		}
 	}
 }
@@ -129,8 +197,8 @@ func TestBuildPrintToPDFParams_MarginsAlwaysPropagated(t *testing.T) {
 // `omitempty` que nunca existió).
 func TestBuildPrintToPDFParams_NegativeMarginsClamped(t *testing.T) {
 	params := buildPrintToPDFParams(PDFOptions{MarginTop: -1, MarginBottom: -2.5, MarginLeft: -0.1, MarginRight: -100})
-	if params.MarginTop != 0 || params.MarginBottom != 0 || params.MarginLeft != 0 || params.MarginRight != 0 {
-		t.Errorf("negative margins = %+v, want all four clamped to 0", params)
+	if top, bottom, left, right := margins(t, params); top != 0 || bottom != 0 || left != 0 || right != 0 {
+		t.Errorf("negative margins = %v/%v/%v/%v, want all four clamped to 0", top, bottom, left, right)
 	}
 }
 

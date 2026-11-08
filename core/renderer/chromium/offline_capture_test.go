@@ -37,7 +37,7 @@ func TestCapture_PageThatNeverSignalsFailsWithinTheBound(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	err := chromedp.Run(runCtx,
+	err := chromedp.Do(runCtx,
 		navigateAndSetContent(`<!DOCTYPE html><html><body>never ready</body></html>`),
 		waitRenderState(renderStateJS),
 	)
