@@ -193,7 +193,7 @@ func TestMathPages_LoadSafe(t *testing.T) {
 // conteste los pedidos pausados, así que activar Fetch los dejaría colgados
 // hasta el plazo. Tiene que ser un error.
 func TestServeMathAssets_NoTargetIsError(t *testing.T) {
-	if err := serveMathAssets().Do(context.Background()); err == nil {
+	if _, err := serveMathAssets()(context.Background(), nil); err == nil {
 		t.Fatal("serveMathAssets without a target must fail")
 	}
 }
