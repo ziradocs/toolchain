@@ -41,6 +41,7 @@ type DOCXGenerator struct {
 	chromiumRenderer *chromium.ChromiumRenderer
 	tempDir          string
 	style            DOCXStyle
+	themeBlockColors bool // tema externo: los bloques especiales usan los colores del estilo
 	diagramTheme     renderer.DiagramThemeColors
 	// assetRoot confina las fuentes de imagen locales (elem.Source) a este
 	// directorio. Ver docs/SECURITY_AUDIT_2026-07.md, AL-4.
@@ -200,7 +201,8 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 
 	themeName := resolveDOCXThemeName(astDoc, opts)
 	g.logger.Info("DOCX", "Using theme: %s", themeName)
-	g.style = GetStyleForTheme(themeName, g.logger)
+	g.style = resolveDOCXStyle(themeName, opts, g.logger)
+	g.themeBlockColors = usesThemeVariables(opts)
 	g.diagramTheme = resolveDiagramThemeColors(opts.ThemeVariables)
 
 	// Inicializar Chromium solo si queda algún elemento que no pueda seguir
@@ -3930,6 +3932,11 @@ func (g *DOCXGenerator) renderSpecialBlock(doc domain.Document, elem *ast.Specia
 	if !ok {
 		// Tipo desconocido, usar info por defecto
 		config = blockConfig["info"]
+	}
+	// Solo en un tema externo: los embebidos conservan los colores de arriba
+	// (su DOCX no cambia).
+	if g.themeBlockColors {
+		config.color = g.parseColor(g.themeBlockColor(elem.BlockType))
 	}
 
 	// Emoji + Título (si existe)

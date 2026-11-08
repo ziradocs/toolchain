@@ -85,6 +85,46 @@ it skips PlantUML, maps and code groups, and emits charts as a placeholder fence
 `professional` (default), `academic`, `technical`, `page-view`, selected with `--theme` or a
 frontmatter `theme:` key; the flag wins.
 
+External themes are JSON files in `~/.doclang/themes`, `/usr/local/share/doclang/themes` or
+`./themes`. HTML and PDF read their `--doclang-*` CSS variables directly. DOCX reads these:
+
+| DOCX | Variables |
+|------|-----------|
+| Body font | `--doclang-font-main` |
+| Code font | `--doclang-code-font`, else `--doclang-font-code` |
+| Headings h1 to h4 | `--doclang-h1-color` to `--doclang-h4-color` |
+| Text, light text, links | `--doclang-text-color`, `--doclang-text-light`, `--doclang-link-color` |
+| Code block | `--doclang-code-bg`, `--doclang-code-color` |
+| Inline code | `--doclang-code-inline-color` |
+| Table | `--doclang-table-header-bg`, `--doclang-table-header-color`, `--doclang-table-border`, `--doclang-table-stripe-bg` |
+| Special blocks | `--doclang-alert-info-color`, `--doclang-alert-warning-border`, `--doclang-alert-danger-border`, `--doclang-alert-success-border`, `--doclang-alert-tip-border` (optional) |
+
+Rules, because these values end up in Word's XML:
+
+- **Colors** must be `#rgb` or `#rrggbb`; anything else (`rgb()`, `var()`, names, gradients) is ignored.
+- **Fonts**: the first usable family of the CSS stack. Generic families (`sans-serif`, `system-ui`,
+  `ui-sans-serif`, `ui-serif`, `ui-monospace`, `ui-rounded`, `-apple-system`, ...) and emoji or symbol
+  families (`Apple Color Emoji`, `Segoe UI Emoji`, `Segoe UI Symbol`, `Noto Color Emoji`, `Emoji`) are
+  skipped, and so is any name that is not ASCII letters, digits, spaces and hyphens (1 to 64
+  characters, so accented or CJK names are skipped too). `system-ui, 'Inter', sans-serif` gives
+  `Inter`, `'游ゴシック体', YuGothic` gives `YuGothic`, and the default Tailwind stack gives
+  `Segoe UI`. If no family qualifies, the font comes from `professional`.
+- **DOCX is for white paper.** It does not paint the page background (Word does not print it by
+  default), so text colors that would not read on white are ignored: body text, links and inline
+  code need a WCAG contrast of at least 4.5:1 against `#ffffff`; light text and h1 to h4, at least
+  3:1. A dark theme (light text, dark page) therefore comes out with the `professional` colors.
+- **Pairs** resolve together: code block background and text, and table header background and text,
+  must both be valid, defined and at least 4.5:1 against each other; otherwise both come from
+  `professional`. A table stripe that leaves the body text under 4.5:1 is ignored too, and so is one that leaves the links under 4.5:1 when the theme defines an accepted `--doclang-link-color` (the fallback link color is not checked).
+- Special blocks (`:::info`, `warning`, `danger`, `success`, `tip`) take the title color from the
+  variables above in external themes (embedded themes keep their own colors). The title is drawn on
+  white, so an alert color under 3:1 is ignored; a dark theme's pastel alert colors come out with
+  the `professional` ones.
+
+Anything the theme does not define or that is ignored comes from `professional`, as do sizes,
+spacing and bold (the theme does not control those in DOCX). Page background, gradients, heading
+borders and the heading font are not applied in DOCX. Embedded themes are unchanged.
+
 ### Parsing and linting
 
 doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`,

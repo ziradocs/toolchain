@@ -440,6 +440,7 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		Format:            format,
 		Theme:             theme.Name,
 		ThemeVariables:    theme.Variables,
+		ThemeExternal:     theme.IsExternal,
 		ShowHeaders:       isPageView, // Only for page-view
 		ShowFooters:       isPageView, // Only for page-view
 		InteractiveViewer: tocEnabled, // Enable viewer when TOC is enabled

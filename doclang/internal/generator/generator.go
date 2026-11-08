@@ -19,6 +19,7 @@ type GeneratorOptions struct {
 	Format            string            // html, pdf, docx, markdown
 	Theme             string            // Theme name
 	ThemeVariables    map[string]string // 🆕 Variables CSS del tema
+	ThemeExternal     bool              // El tema viene de un JSON externo (DOCX deriva su estilo de ThemeVariables)
 	ShowHeaders       bool              // 🆕 Mostrar headers (page-view)
 	ShowFooters       bool              // 🆕 Mostrar footers (page-view)
 	InteractiveViewer bool              // 🆕 Viewer interactivo con sidebar, dark mode
