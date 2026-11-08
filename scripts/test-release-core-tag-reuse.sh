@@ -452,6 +452,29 @@ escenario_pin_sin_tag() {
   echo "✅ $esc"
 }
 
+# 13. Un release cuyo único cambio en core/ son pruebas, testdata, la spec y
+#     documentación: nada de eso llega al binario, así que no hace falta bump
+#     y el script corta core/$VERSION sobre HEAD como en un release sin
+#     cambios de core.
+escenario_core_solo_pruebas() {
+  local esc="core-solo-pruebas (core/ cambió solo en pruebas, spec y docs)" d="$TMP/core-solo-pruebas"
+  nuevo_repo core-solo-pruebas
+  mkdir -p "$d/repo/core/spec" "$d/repo/core/renderer/testdata"
+  commit_en "$d/repo" core/parser_test.go "package core // prueba nueva" "core: prueba"
+  commit_en "$d/repo" core/renderer/testdata/golden.txt "golden" "core: testdata"
+  commit_en "$d/repo" core/spec/language-specification.md "spec" "core: spec"
+  commit_en "$d/repo" core/README.md "docs" "core: docs"
+  git -C "$d/repo" push -q origin main
+
+  local rc=0; correr_release "$d/repo" || rc=$?
+  verificar "$esc" "$rc" 0 "" || return
+  local esperado="core/$VERSION doclang/$VERSION slidelang/$VERSION $VERSION "
+  if [[ "$(tags_origin "$d")" != "$esperado" ]]; then
+    reportar "$esc" "tags en origin: '$(tags_origin "$d")', se esperaba '$esperado'"; return
+  fi
+  echo "✅ $esc"
+}
+
 correr_escenario escenario_flujo_real
 correr_escenario escenario_sin_tag
 correr_escenario escenario_solo_local
@@ -464,10 +487,11 @@ correr_escenario escenario_re_corrida
 correr_escenario escenario_version_en_otro_commit
 correr_escenario escenario_core_sin_bump
 correr_escenario escenario_pin_sin_tag
+correr_escenario escenario_core_solo_pruebas
 
 echo
 if (( fallos > 0 )); then
   echo "🔥 $fallos escenario(s) fallaron."
   exit 1
 fi
-echo "✅ Los 12 escenarios pasaron."
+echo "✅ Los 13 escenarios pasaron."

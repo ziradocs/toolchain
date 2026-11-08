@@ -162,6 +162,11 @@ fi
 #      Así que se exige que el core pineado por cada CLI sea un tag en origin y
 #      que `core/` no haya cambiado entre ese tag y HEAD. Si cambió, el release
 #      lleva un cambio de core y primero va `scripts/bump-core.sh $VERSION`.
+#      Solo cuenta lo que llega al binario: las pruebas, sus testdata, la
+#      especificación (core/spec/, Markdown) y los .md no se compilan ni los
+#      lee ningún go:embed de core (todos apuntan a third_party/*.js), así que
+#      un release que solo toca eso no necesita bump.
+CORE_BINARIO=(core/ ':(exclude,glob)core/**/*_test.go' ':(exclude,glob)core/**/testdata/**' ':(exclude,glob)core/spec/**' ':(exclude,glob)core/**/*.md')
 if [[ "$REUSE_CORE_TAG" != true ]]; then
   for m in slidelang doclang; do
     pin=$(awk '/=>/ { next }
@@ -178,9 +183,9 @@ if [[ "$REUSE_CORE_TAG" != true ]]; then
     fi
     git fetch -q --force origin "refs/tags/core/$pin:refs/tags/core/$pin"
     pin_commit=$(git rev-list -n 1 "core/$pin")
-    if ! git diff --quiet "$pin_commit" HEAD -- core/; then
+    if ! git diff --quiet "$pin_commit" HEAD -- "${CORE_BINARIO[@]}"; then
       echo "🔥 core/ cambió desde core/$pin, que es el core que pinea $m/go.mod:"
-      git diff --stat "$pin_commit" HEAD -- core/ | sed 's/^/     /'
+      git diff --stat "$pin_commit" HEAD -- "${CORE_BINARIO[@]}" | sed 's/^/     /'
       echo "   Los binarios saldrían SIN ese cambio. Corré primero 'scripts/bump-core.sh $VERSION',"
       echo "   mergeá el PR del bump y volvé a correr este script."
       exit 1
