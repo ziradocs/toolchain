@@ -108,7 +108,7 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		Numbering:          opts.Numbering,
 		PageBreaks:         opts.PageBreaks,
 		Theme:              opts.Theme,
-		ThemeVariables:     opts.ThemeVariables, // 🆕 Pasar variables del tema
+		ThemeVariables:     htmlThemeVariables(opts.ThemeVariables, opts.ThemeExternal), // variables del tema (+ superficies derivadas si es externo)
 		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
 		ShowHeaders:        opts.ShowHeaders,       // 🆕 Para page-view
 		ShowFooters:        opts.ShowFooters,       // 🆕 Para page-view

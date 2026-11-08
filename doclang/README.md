@@ -86,7 +86,69 @@ it skips PlantUML, maps and code groups, and emits charts as a placeholder fence
 frontmatter `theme:` key; the flag wins.
 
 External themes are JSON files in `~/.doclang/themes`, `/usr/local/share/doclang/themes` or
-`./themes`. HTML and PDF read their `--doclang-*` CSS variables directly. DOCX reads these:
+`./themes`. HTML and PDF read their `--doclang-*` CSS variables directly.
+
+#### Surfaces in HTML and PDF
+
+Tables, grid columns, diagram and map panels, keys (`[x]{.kbd}`), blockquotes, special blocks,
+body links and the PDF page margin take their colors from the variables below. Each one falls
+back to the value doclang has always used, so a theme that defines none of them renders as before.
+For an external theme, doclang fills in the ones it does not define from the theme's other
+variables (the "Derived from" column), so a dark theme gets dark tables and readable keys without
+listing them. A variable the theme defines itself always wins. Embedded themes get nothing derived
+and render exactly as before.
+
+| Variable | Fallback | Derived from (external themes) |
+|----------|----------|--------------------------------|
+| `--doclang-body-link-color` | the browser's link colors | `--doclang-link-color` |
+| `--doclang-table-bg` | `white` | the page: `--doclang-page-surface-bg`, else `--doclang-page-bg` |
+| `--doclang-table-color` | inherited | not derived |
+| `--doclang-panel-bg` (grid columns and PlantUML in every output; Mermaid and maps only in browser-mode HTML) | `#f8fafc` | `--doclang-table-stripe-bg`, else the page |
+| `--doclang-panel-border` | `#e2e8f0` | `--doclang-table-border` |
+| `--doclang-panel-color` | inherited | not derived |
+| `--doclang-kbd-bg` | `#f7f7f7` | same as `--doclang-panel-bg` |
+| `--doclang-kbd-border` | `#ccc` | `--doclang-table-border` |
+| `--doclang-kbd-color` | inherited | not derived |
+| `--doclang-chart-bg` (browser-mode HTML only) | `white` | not derived: Chart.js and the chart image use their own light colors |
+| `--doclang-blockquote-bg`, `--doclang-blockquote-color` | `#f7fafc`, `#4a5568` | `--doclang-quote-bg` with `--doclang-quote-color`, else `--doclang-text-color` |
+| `--doclang-blockquote-border` | `#3498db` | `--doclang-quote-border` |
+| `--doclang-blockquote-footer-color` | `#718096` | `--doclang-text-light`, when `--doclang-quote-bg` is defined |
+| `--doclang-callout-<kind>-bg`, `--doclang-callout-<kind>-color` | each block's current colors | `--doclang-alert-<kind>-bg` with `--doclang-alert-<kind>-color`, else `--doclang-text-color` |
+| `--doclang-callout-<kind>-border` | each block's current color | `--doclang-alert-<kind>-border` |
+| `--doclang-element-title-color` (chart, diagram and map titles) | `#2d3748` | `--doclang-text-color` |
+| `--doclang-caption-color` (table and figure captions, unavailable-content notes) | `#718096` | `--doclang-text-light` |
+| `--doclang-code-tab-active-bg`, `--doclang-code-tab-active-color` | `#1e1e1e`, `#fff` | `--doclang-code-bg` with `--doclang-code-color`, only when both are defined |
+| `--doclang-code-tab-accent` | `#3498db` | not derived |
+| `--doclang-print-margin-bg` (PDF page margin) | not painted | `--doclang-page-bg` |
+| `--doclang-blockquote-link-color`, `--doclang-callout-<kind>-link-color` (links inside a blockquote or special block) | the browser's link colors | `--doclang-link-color`, only when that blockquote or block takes its background from the theme |
+
+For an external theme doclang also fills in these contract variables when the theme leaves them
+out, because their defaults are light backgrounds drawn under the theme's text:
+`--doclang-table-stripe-bg` and `--doclang-table-hover-bg` (the page, so a theme without a stripe
+gets no visible striping), `--doclang-header-footer-bg` (the page), `--doclang-quiz-bg` (the stripe
+or the page, unless the theme defines `--doclang-quote-bg`, which quiz and poll already use), and
+`--doclang-quiz-correct-color` (`--doclang-text-color`, when the theme sets
+`--doclang-alert-success-bg` without `--doclang-alert-success-color`).
+
+In PDF and `offline-*` HTML, Mermaid diagrams, maps and charts are inserted as images without a
+panel around them: Mermaid follows the diagram colors of the theme, and charts and maps keep their
+own light background. The panel and chart variables don't reach them there; their titles still
+follow `--doclang-element-title-color`.
+
+`<kind>` is `info`, `warning`, `danger`, `success` or `tip`. A background is taken from the theme
+only together with a text color from the theme, so a dark background never sits under the default
+dark text. These names are separate from `--doclang-link-color`, `--doclang-quote-*`,
+`--doclang-alert-*` and `--doclang-page-bg` on purpose: the embedded themes define those with
+values that were never applied to links, blockquotes, special blocks or the PDF margin, and reading
+them there would change how the embedded themes look.
+
+Like every theme variable, these values go into the page's CSS after a check that rejects anything
+that could close the declaration (`{`, `}`, `<`, `>`, `;`, line breaks). The check does not require
+a color: any other CSS value passes as written.
+
+#### DOCX
+
+DOCX reads these:
 
 | DOCX | Variables |
 |------|-----------|

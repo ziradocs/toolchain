@@ -139,7 +139,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		Numbering:          opts.Numbering,
 		PageBreaks:         opts.PageBreaks,
 		Theme:              opts.Theme,
-		ThemeVariables:     opts.ThemeVariables,
+		ThemeVariables:     htmlThemeVariables(opts.ThemeVariables, opts.ThemeExternal),
 		DiagramThemeColors: resolveDiagramThemeColors(opts.ThemeVariables),
 		InteractiveViewer:  false,          // No viewer en PDF
 		Watermark:          opts.Watermark, // watermark: front matter (issue #179)
