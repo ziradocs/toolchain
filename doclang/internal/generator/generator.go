@@ -246,7 +246,7 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 	renderOpts := renderer.DocumentHTMLOptions{
 		Title:          title,
 		Theme:          theme.Name,
-		ThemeVariables: theme.Variables,
+		ThemeVariables: htmlThemeVariables(theme.Variables, theme.IsExternal),
 		ShowHeaders:    theme.Name == "page-view",
 		ShowFooters:    theme.Name == "page-view",
 		HeaderFooter:   headerFooterConfig, // 🆕 header:/footer:/layout_defaults: (issue #117)
