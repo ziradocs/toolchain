@@ -38,7 +38,10 @@ var bindingNames = []string{
 	"--doclang-blockquote-link-color",
 	"--doclang-callout-info-link-color", "--doclang-callout-warning-link-color", "--doclang-callout-danger-link-color",
 	"--doclang-callout-success-link-color", "--doclang-callout-tip-link-color",
+	"--doclang-table-header-link-color",
 }
+
+func init() { bindingNames = append(bindingNames, document.InkSurfaceVariables()...) }
 
 // El render de los temas embebidos no cambia porque ninguno define una
 // variable de superficie y htmlThemeVariables no les deriva ninguna. Si un
@@ -87,9 +90,17 @@ func TestCSSFallbacksMatchCore(t *testing.T) {
 		"var(--doclang-text-light, "+headerFooterFgLiteral+")",
 		"var(--doclang-body-link-color, LinkText)",
 		"var(--doclang-print-margin-bg, transparent)",
+		"var(--doclang-table-header-link-color, var(--doclang-body-link-color, LinkText))",
 	)
+	compact := strings.Join(strings.Fields(html), " ")
+	for _, ink := range document.Inks {
+		want = append(want, "var(--doclang-ink-"+ink+", var(--doclang-"+ink+"-color, "+inkLiterals[ink]+"))")
+		for _, s := range document.InkSurfaces {
+			want = append(want, "--doclang-ink-"+ink+": var(--doclang-"+s+"-"+ink+"-color);")
+		}
+	}
 	for _, w := range want {
-		if !strings.Contains(html, w) {
+		if !strings.Contains(compact, w) {
 			t.Errorf("el CSS del documento no tiene %s", w)
 		}
 	}
@@ -124,15 +135,18 @@ func TestHTMLThemeVariables_DarkTheme(t *testing.T) {
 	got := htmlThemeVariables(in, true)
 
 	want := map[string]string{
-		"--doclang-page-surface-bg":         "#0f172a",
-		"--doclang-print-margin-bg":         "#0f172a",
-		"--doclang-body-link-color":         "#7dd3fc",
-		"--doclang-table-bg":                "#0f172a",
-		"--doclang-table-hover-bg":          "#1e293b",
-		"--doclang-panel-bg":                "#1e293b",
-		"--doclang-panel-border":            "#334155",
-		"--doclang-kbd-bg":                  "#1e293b",
-		"--doclang-kbd-border":              "#334155",
+		"--doclang-page-surface-bg": "#0f172a",
+		"--doclang-print-margin-bg": "#0f172a",
+		"--doclang-body-link-color": "#7dd3fc",
+		"--doclang-table-bg":        "#0f172a",
+		"--doclang-table-hover-bg":  "#1e293b",
+		"--doclang-panel-bg":        "#1e293b",
+		"--doclang-panel-border":    "#334155",
+		"--doclang-kbd-bg":          "#1e293b",
+		"--doclang-kbd-border":      "#334155",
+		// La tecla oscura dentro de la alerta danger (fondo claro, texto
+		// #742a2a) heredaría ese texto: lleva el del cuerpo.
+		"--doclang-kbd-color":               "#e2e8f0",
 		"--doclang-header-footer-bg":        "#0f172a",
 		"--doclang-h2-color":                "#f1f5f9",
 		"--doclang-h3-color":                "#f1f5f9",
@@ -163,7 +177,7 @@ func TestHTMLThemeVariables_DarkTheme(t *testing.T) {
 		}
 	}
 	for _, k := range []string{
-		"--doclang-chart-bg", "--doclang-table-color", "--doclang-panel-color", "--doclang-kbd-color",
+		"--doclang-chart-bg", "--doclang-table-color", "--doclang-panel-color",
 		"--doclang-code-tab-accent", "--doclang-body-link-active-color",
 		"--doclang-code-tab-active-color",     // el blanco de siempre se lee sobre #1e293b
 		"--doclang-callout-danger-color",      // el literal se lee sobre el fondo claro
@@ -231,16 +245,52 @@ var documentPairs = func() []cssPair {
 		{"título del TOC", []string{"--doclang-toc-title-color", "#1a202c"}, []string{"--doclang-toc-bg", "#f8f9fa"}, 3},
 		{"vínculo del TOC", []string{"--doclang-toc-link-color", "#1a202c"}, []string{"--doclang-toc-bg", "#f8f9fa"}, 4.5},
 	}
+	// Contenido anidado: cada superficie con su fondo y su texto (lo que
+	// hereda una tecla), y lo que puede ir dentro.
+	type surface struct {
+		name   string
+		bg, fg []string
+	}
+	thBg := []string{"--doclang-table-header-bg", "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"}
+	tableFg := []string{"--doclang-table-color", "--doclang-text-color", "#2c3e50"}
+	surfaces := []surface{
+		{"página", page, text},
+		{"table", table, tableFg},
+		{"table-stripe", stripe, tableFg},
+		{"table-header", thBg, []string{"--doclang-table-header-color", "white"}},
+		{"panel", panel, []string{"--doclang-panel-color", "--doclang-text-color", "#2c3e50"}},
+		{"blockquote", []string{"--doclang-blockquote-bg", "#f7fafc"}, []string{"--doclang-blockquote-color", "#4a5568"}},
+		{"quiz", []string{"--doclang-quiz-bg", "--doclang-quote-bg", "#f8fafc"}, []string{"--doclang-quiz-question-color", "--doclang-text-color", "#2c3e50"}},
+		{"sidebar", sidebar, []string{"--doclang-toc-link-color", "#4a5568"}},
+		{"toc", []string{"--doclang-toc-bg", "#f8f9fa"}, []string{"--doclang-toc-link-color", "#1a202c"}},
+	}
 	for _, k := range []struct{ kind, bg, fg string }{
 		{"info", "#ebf8ff", "#2c5282"}, {"warning", "#fffaf0", "#7c2d12"}, {"danger", "#fff5f5", "#742a2a"},
 		{"success", "#f0fff4", "#22543d"}, {"tip", "#faf5ff", "#44337a"},
 	} {
 		bg := []string{"--doclang-callout-" + k.kind + "-bg", k.bg}
+		fg := []string{"--doclang-callout-" + k.kind + "-color", k.fg}
 		pairs = append(pairs,
-			cssPair{"alerta " + k.kind, []string{"--doclang-callout-" + k.kind + "-color", k.fg}, bg, 4.5},
+			cssPair{"alerta " + k.kind, fg, bg, 4.5},
 			cssPair{"vínculo en alerta " + k.kind, []string{"--doclang-callout-" + k.kind + "-link-color", "#0000ee"}, bg, 4.5},
 		)
+		surfaces = append(surfaces, surface{"callout-" + k.kind, bg, fg})
 	}
+	kbdBg := []string{"--doclang-kbd-bg", "#f7f7f7"}
+	for _, s := range surfaces {
+		for _, ink := range document.Inks {
+			chain := []string{"--doclang-" + ink + "-color", inkLiterals[ink]}
+			if s.name != "página" {
+				chain = append([]string{"--doclang-" + s.name + "-" + ink + "-color"}, chain...)
+			}
+			pairs = append(pairs, cssPair{"tinta " + ink + " en " + s.name, chain, s.bg, 4.5})
+		}
+		pairs = append(pairs, cssPair{"tecla en " + s.name, append([]string{"--doclang-kbd-color"}, s.fg...), kbdBg, 4.5})
+	}
+	pairs = append(pairs,
+		cssPair{"vínculo en el encabezado de la tabla", []string{"--doclang-table-header-link-color", "--doclang-body-link-color", "#0000ee"}, thBg, 4.5},
+		cssPair{"código en línea", []string{"--doclang-code-inline-color", "#e83e8c"}, []string{"--doclang-code-inline-bg", "#f6f8fa"}, 4.5},
+	)
 	return pairs
 }()
 

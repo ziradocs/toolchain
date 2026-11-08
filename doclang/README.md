@@ -118,7 +118,37 @@ fixed colors. A variable the theme defines itself always wins.
 - **Links** take `--doclang-link-color` only where it reads at 4.5:1 on every background it sits on
   (the page, tables, table stripes and panels where the theme's text reads; each blockquote and
   special block separately, and only when that block takes its background from the theme). Otherwise they keep the browser's blue, and if that does
-  not read either (a dark page), a light blue (`#8ab4f8`). A pressed link keeps the browser's red.
+  not read either (a dark page), a light blue (`#8ab4f8`); if not even that reads everywhere, the
+  text color of the page or of that block (the link stays underlined). A pressed link keeps the
+  browser's red.
+- **Content inside a surface.** A surface with its own background can hold text that has its own
+  color, and that color is checked against that background, not only against the page:
+  - **Status colors** (`[x]{.danger}`, `.info`, `.success`, `.warning`, `.accent`). Each surface
+    can set its own: `--doclang-<surface>-<color>-color`, for example
+    `--doclang-callout-warning-danger-color`. doclang fills one in only where the document's color
+    does not read at 4.5:1 on that surface: a light theme color inside a special block that keeps its
+    light background, or inside a table header. It takes the usual color, a darker or a lighter
+    shade of the same color, or the surface's text color, the first that reads. The innermost surface
+    wins (a table inside a special block uses the table's). The document's own color
+    (`--doclang-danger-color`, ...) is filled in only if the theme does not define it and the usual
+    one does not read on the page.
+  - **Links in a table header** take `--doclang-table-header-link-color`, filled in only when the
+    body link does not read on the header (a header whose background is the link color, for
+    instance): the theme's link color, the browser's blue, the light blue or the header text.
+  - **Keys** inherit the text of wherever they are, but always sit on `--doclang-kbd-bg`. If any of
+    those texts (the page, a table header, a blockquote, a special block, a panel, the quiz, the
+    table of contents) would not read on it, the key gets `--doclang-kbd-color`: the theme's text
+    color, or black or white. A theme's own `--doclang-kbd-color` is used when deciding whether
+    the key's background has to change.
+  - **Inline code** paints its own background, so only its pair is checked: if
+    `--doclang-code-inline-color` does not read on `--doclang-code-inline-bg`, the half the theme
+    did not set is filled in (with neither, the pink `#e83e8c`, 3.59:1 on its gray, becomes
+    `#c2185b`). The code block, which also paints its own background, follows the same rule
+    with `--doclang-code-bg` and `--doclang-code-color`. A pair the theme set completely is left
+    as is.
+
+  A background that cannot be measured (the default gradient of the table header, when the theme
+  does not set `--doclang-table-header-bg`) is left alone.
 - **Charts** keep their white card: Chart.js and the chart image draw on their own light background.
 - **PDF header and footer.** Chromium prints them in the page margin, in black. When the margin is
   painted, their text takes `--doclang-text-light` or `--doclang-text-color` if one reads on it; if
@@ -138,9 +168,18 @@ fixed colors. A variable the theme defines itself always wins.
 | `--doclang-caption-color` (table and figure captions, unavailable-content notes) | `#718096` |
 | `--doclang-code-tab-active-bg`, `-active-color`, `-accent` | `#1e1e1e`, `#fff`, `#3498db` |
 | `--doclang-print-margin-bg` (PDF page margin) | not painted |
+| `--doclang-table-header-link-color` | the body link color |
+| `--doclang-<surface>-<color>-color` | the document's status color (`--doclang-<color>-color`) |
 
-`<kind>` is `info`, `warning`, `danger`, `success` or `tip`. doclang may also fill in these contract
-variables for an external theme, under the same rules: `--doclang-page-surface-bg`,
+`<kind>` is `info`, `warning`, `danger`, `success` or `tip`; a theme describes each special block with
+`--doclang-alert-<kind>-bg`, `-border` and `-color`, `tip` included. `<surface>` is `table`,
+`table-stripe`, `table-header`, `panel`, `blockquote`, `callout-<kind>`, `quiz`, `toc` or `sidebar`,
+and `<color>` is `danger`, `info`, `success`, `warning` or `accent`. doclang may also fill in these
+contract variables for an external theme, under the same rules: `--doclang-danger-color`,
+`--doclang-info-color`, `--doclang-success-color`, `--doclang-warning-color`,
+`--doclang-accent-color`, `--doclang-kbd-color`, `--doclang-code-inline-bg`,
+`--doclang-code-inline-color`, `--doclang-code-bg`, `--doclang-code-color`,
+`--doclang-page-surface-bg`,
 `--doclang-table-stripe-bg`, `--doclang-table-hover-bg`, `--doclang-header-footer-bg`,
 `--doclang-quiz-bg`, `--doclang-quiz-correct-bg`, `--doclang-quiz-correct-color`,
 `--doclang-h2-color` to `--doclang-h4-color`, `--doclang-sidebar-bg`, `--doclang-toc-bg` and the
@@ -166,7 +205,11 @@ own light background. Their titles still follow `--doclang-element-title-color`.
   sidebar do not change. What changes is what the theme asked for: blockquote and special-block
   backgrounds, text and borders where it defines `--doclang-quote-*` or `--doclang-alert-*`, the
   link color if it reads at 4.5:1 (a link color under 4.5:1 is ignored, so the links stay the
-  browser's blue), and the PDF margin, painted with `--doclang-page-bg`.
+  browser's blue), and the PDF margin, painted with `--doclang-page-bg`. Besides that, a status
+  color that falls under 4.5:1 on the page or inside a surface takes a darker shade of the same
+  color; keys usually take the theme's text color instead of inheriting it (a table header with light
+  text left the key light on light gray); and the inline-code pink becomes `#c2185b` when the theme
+  does not set an inline-code color that reads.
 
 Every theme variable goes into the page's CSS after a check, and a variable that fails it is dropped
 with a warning. The check rejects a value that contains `{`, `}`, `<`, `>`, `;` or a line break, or

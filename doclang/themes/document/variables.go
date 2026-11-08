@@ -18,7 +18,7 @@ type Theme struct {
 
 // StandardVariables lista todas las variables CSS estándar para documentos
 // Estas son las variables que DEBEN estar presentes en un tema válido
-var StandardVariables = []string{
+var StandardVariables = append([]string{
 	// Page & Layout
 	"--doclang-page-bg",
 	"--doclang-page-max-width",
@@ -82,6 +82,19 @@ var StandardVariables = []string{
 	"--doclang-alert-warning-border",
 	"--doclang-alert-danger-bg",
 	"--doclang-alert-danger-border",
+	"--doclang-alert-success-color",
+	"--doclang-alert-warning-color",
+	"--doclang-alert-danger-color",
+	"--doclang-alert-tip-bg",
+	"--doclang-alert-tip-border",
+	"--doclang-alert-tip-color",
+
+	// Tintas de estado ([x]{.danger}, .info, .success, .warning, .accent).
+	"--doclang-danger-color",
+	"--doclang-info-color",
+	"--doclang-success-color",
+	"--doclang-warning-color",
+	"--doclang-accent-color",
 
 	// TOC
 	"--doclang-toc-bg",
@@ -154,6 +167,31 @@ var StandardVariables = []string{
 	"--doclang-callout-danger-link-color",
 	"--doclang-callout-success-link-color",
 	"--doclang-callout-tip-link-color",
+	"--doclang-table-header-link-color",
+}, InkSurfaceVariables()...)
+
+// InkSurfaces son las superficies con fondo propio que pueden fijar sus
+// propias tintas de estado: --doclang-<superficie>-<tinta>-color. El CSS del
+// documento (core/renderer/document_html.go) las lee dentro de cada una.
+var InkSurfaces = []string{
+	"table", "table-stripe", "table-header", "panel", "blockquote",
+	"callout-info", "callout-warning", "callout-danger", "callout-success", "callout-tip",
+	"quiz", "toc", "sidebar",
+}
+
+// Inks son las tintas de estado, en el orden de las clases del CSS.
+var Inks = []string{"danger", "info", "success", "warning", "accent"}
+
+// InkSurfaceVariables lista --doclang-<superficie>-<tinta>-color para cada
+// superficie y tinta.
+func InkSurfaceVariables() []string {
+	out := make([]string, 0, len(InkSurfaces)*len(Inks))
+	for _, s := range InkSurfaces {
+		for _, ink := range Inks {
+			out = append(out, "--doclang-"+s+"-"+ink+"-color")
+		}
+	}
+	return out
 }
 
 // RequiredVariables lista las variables CSS que son OBLIGATORIAS en todo tema
