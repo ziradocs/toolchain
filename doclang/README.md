@@ -169,8 +169,9 @@ own light background. Their titles still follow `--doclang-element-title-color`.
   browser's blue), and the PDF margin, painted with `--doclang-page-bg`.
 
 Like every theme variable, these values go into the page's CSS after a check that rejects anything
-that could close the declaration (`{`, `}`, `<`, `>`, `;`, line breaks); doclang also refuses to copy
-a value with a comment, a backslash or unbalanced quotes. The check does not require a color: any
+that could close the declaration (`{`, `}`, `<`, `>`, `;`, line breaks), open or close a comment
+(`/*`, `*/`) or leave a string open (unbalanced quotes): a rejected variable is dropped with a
+warning. doclang also refuses to copy a value with a backslash. The check does not require a color: any
 other CSS value passes as written, although only a value that parses as a color can count as
 readable.
 
