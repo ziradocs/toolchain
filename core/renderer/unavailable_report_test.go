@@ -188,3 +188,19 @@ func TestLocalAsset_QueryString(t *testing.T) {
 		}
 	}
 }
+
+// TestUnavailableReporter_HeaderLogoOfflineAssets: en HTML offline-assets
+// el logo que falta queda con su src relativo, como una imagen, y se
+// reporta igual.
+func TestUnavailableReporter_HeaderLogoOfflineAssets(t *testing.T) {
+	ctx := NewDefaultRenderContext()
+	ctx.ImageMode = "offline-assets"
+	ctx.AssetRoot = t.TempDir()
+	got := collectUnavailable(ctx)
+	if html := renderHeaderLogo(&ast.LogoConfig{Source: "logo-falta.png"}, nil, ctx); !strings.Contains(html, "logo-falta.png") {
+		t.Fatalf("offline-assets logo changed: %q", html)
+	}
+	if want := []reportedUnavailable{{"image", 0, "logo-falta.png"}}; !reflect.DeepEqual(*got, want) {
+		t.Fatalf("reported %v, want %v", *got, want)
+	}
+}

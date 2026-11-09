@@ -2431,6 +2431,7 @@ func renderHeaderLogo(logo *ast.LogoConfig, variables map[string]interface{}, ct
 		reportUnavailable(ctx, unavailableImage, logo.Source)
 		return ""
 	default:
+		reportMissingKeptAsset(raw, unavailableImage, ctx)
 		src = SanitizeURL(raw)
 	}
 	if src == "" {
