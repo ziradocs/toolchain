@@ -780,6 +780,28 @@ never closed is not an equation: ` ``` ` stays a code block and `~~~` stays text
 Formatters canonicalize block equations, the fence included, to the `<<math>>`
 form so that metadata is retained.
 
+An equation can also carry an already-rendered image in the AST
+(`MathElement.image`, capability `math-image-v1`, schema 2.27.0). It has no
+source syntax: an external filter (`doclang build --filter`) that draws the
+equations itself sets it. The element is still an equation, so its number,
+anchor, caption and every `\ref` to its label are unchanged, and `content`
+keeps the LaTeX, which is the image's alternative text. HTML, PDF and DOCX
+draw the image instead of typesetting the LaTeX, so DOCX needs no Chromium
+for it (unless the image is an SVG). The image resolves like a block image's
+`source`, relative to the source file. Outputs that read the file at build
+time (PDF, `offline-inline` HTML, DOCX) confine it to the asset root and
+inline or embed it; `offline-assets` HTML does not show a path that escapes
+the asset root; browser-mode HTML keeps the `src` as written, like any image.
+A remote image is not fetched by build-time outputs unless remote images are
+allowed, and DOCX never fetches it. An image that cannot be shown leaves the
+"equation not available" marker, with the equation number. The render is
+sized by its physical resolution: a local PNG with a `pHYs` chunk is drawn at
+pixels × 96 / DPI CSS pixels in HTML and PDF (so a 400×80 render at 192 DPI
+is 200 CSS px, 2.08 in), the same size DOCX gives it, and still capped at
+the column width; without `pHYs` it is drawn at its pixel size. This applies
+only to equation images, not to block images. Formatters reject an equation
+with an image, since writing it back to source would lose the render.
+
 This section is about the `<<…>>` family only. The `:::` blocks match their
 name on a loose prefix and have no boundary of their own — `::: gridJUNK` is
 still parsed, and consumes the lines under it exactly as a mistyped `<<…>>` tag
