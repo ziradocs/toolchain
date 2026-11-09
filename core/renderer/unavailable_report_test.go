@@ -160,3 +160,31 @@ func TestUnavailableReporter_Media(t *testing.T) {
 		t.Fatalf("reported %v, want %v", *got, want)
 	}
 }
+
+// TestLocalAsset_QueryString: "pic.png?v=2" es el archivo pic.png, como en el
+// navegador: en offline-inline se inlinea y en offline-assets no se reporta
+// como faltante. Antes se buscaba el archivo "pic.png?v=2".
+func TestLocalAsset_QueryString(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "img"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "img", "pic.png"), []byte("PNGDATA"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"offline-inline", "offline-assets"} {
+		ctx := NewDefaultRenderContext()
+		ctx.ImageMode = mode
+		ctx.AssetRoot = root
+		got := collectUnavailable(ctx)
+		pos := diagnostics.NewPosition(1, 1)
+		html := RenderElementToHTML(ast.NewImageElement(pos, "img/pic.png?v=2", "P"), nil, ctx) +
+			RenderElementToHTML(ast.NewTextElement(pos, "t ![q](img/pic.png?v=2#x)"), nil, ctx)
+		if len(*got) != 0 {
+			t.Errorf("%s: reported %v for an existing file with a query", mode, *got)
+		}
+		if mode == "offline-inline" && strings.Count(html, "data:image/png;base64,") != 2 {
+			t.Errorf("offline-inline did not inline both images: %s", html)
+		}
+	}
+}

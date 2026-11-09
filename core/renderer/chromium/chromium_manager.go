@@ -236,12 +236,12 @@ func chromiumNeedsNoSandbox() (bool, string) {
 	return false, ""
 }
 
-// CreateContext crea un contexto de chromedp con el path detectado
 // extraAllocatorOptions son opciones de arranque de Chrome que solo fijan
 // los tests (p. ej. un --proxy-server que anota cada pedido del navegador,
 // ver TestRenderMapToPNG_NoThirdPartyRequests). Vacío fuera de los tests.
 var extraAllocatorOptions []chromedp.ExecAllocatorOption
 
+// CreateContext crea un contexto de chromedp con el path detectado
 func (m *ChromiumManager) CreateContext(parentCtx context.Context, chromiumPath string) (context.Context, context.CancelFunc, error) {
 	return m.createContext(parentCtx, chromiumPath)
 }

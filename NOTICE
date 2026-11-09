@@ -31,7 +31,7 @@ as-is without modification to their license terms:
   core/renderer/chromium/third_party/chartjs/LICENSE.md and
   core/renderer/chromium/third_party/chartjs-chart-treemap/LICENSE.
 - Leaflet 1.9.4 (https://github.com/Leaflet/Leaflet), BSD 2-Clause License,
-  Copyright (c) 2010-2023 Vladimir Agafonkin, Copyright (c) 2010-2011
+  Copyright (c) 2010-2023 Volodymyr Agafonkin, Copyright (c) 2010-2011
   CloudMade. The unmodified files dist/leaflet.js, dist/leaflet.css and
   dist/images/marker-shadow.png are embedded in core/renderer/chromium so
   the map fallback renders without loading them from a CDN; the license

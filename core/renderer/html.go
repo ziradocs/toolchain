@@ -463,8 +463,10 @@ func inlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag, ki
 	}
 
 	// La fuente es una URL: "mi%20carpeta/a.png" es el archivo
-	// "mi carpeta/a.png", igual que lo resuelve el navegador en modo browser.
-	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, LocalPathFromURL(source))
+	// "mi carpeta/a.png", y "a.png?v=2" es el archivo "a.png", igual que lo
+	// resuelve el navegador en modo browser (parsed.Path ya viene
+	// decodificado y sin query ni fragmento).
+	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, parsed.Path)
 	if err != nil {
 		logger.Warn("[%s] local %s %q rejected: %v", tag, kind, source, err)
 		return "", localAssetUnavailable
@@ -559,7 +561,8 @@ func reportMissingKeptAsset(source string, kind unavailableKind, ctx *RenderCont
 	if err != nil || parsed.Scheme != "" || parsed.Host != "" || strings.HasPrefix(source, "/") || filepath.IsAbs(source) {
 		return
 	}
-	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, LocalPathFromURL(source))
+	// parsed.Path: sin query ni fragmento ("a.png?v=2" es el archivo a.png).
+	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, parsed.Path)
 	if err != nil {
 		return // fuera de la raíz: ya es un marcador (localImageEscapesRoot)
 	}
