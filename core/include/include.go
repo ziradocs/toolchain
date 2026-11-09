@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -94,31 +95,111 @@ func (o LineOrigins) File(line int) string {
 //
 // El texto expandido y los errores son exactamente los de Expand.
 func ExpandWithOrigins(content, baseDir string, read ReadFunc) (string, LineOrigins, error) {
-	lines, origins, err := expand(content, "", baseDir, read, map[string]bool{}, 0)
+	text, sources, err := ExpandWithSourceMap(content, baseDir, read)
 	if err != nil {
 		return "", nil, err
 	}
-	return strings.Join(lines, "\n"), origins, nil
+	return text, sources.Files(), nil
+}
+
+// Origin es de dónde viene una línea del contenido expandido: el archivo
+// ("" para el contenido raíz, que no tiene ruta propia; si no, la ruta
+// absoluta del archivo incluido que la contiene directamente) y su línea
+// (1-based) en ese archivo, contando el frontmatter que el archivo tenía
+// aunque la expansión lo descarte.
+type Origin struct {
+	File string
+	Line int
+}
+
+// SourceMap es el Origin de cada línea del contenido que devuelve
+// ExpandWithSourceMap: el elemento i es la línea i+1.
+type SourceMap []Origin
+
+// At devuelve el origen de la línea line (1-based) del contenido expandido, y
+// false si está fuera de rango.
+func (m SourceMap) At(line int) (Origin, bool) {
+	if line < 1 || line > len(m) {
+		return Origin{}, false
+	}
+	return m[line-1], true
+}
+
+// Files es m reducido al archivo de cada línea (LineOrigins).
+func (m SourceMap) Files() LineOrigins {
+	files := make(LineOrigins, len(m))
+	for i, o := range m {
+		files[i] = o.File
+	}
+	return files
+}
+
+// MapDiagnostics devuelve diags con cada posición llevada a su origen: un
+// diagnóstico en una línea que vino de un @include pasa a decir el archivo
+// incluido (Diagnostic.File) y su línea ahí; uno del contenido raíz queda con
+// File vacío y la línea que la línea tenía en el contenido raíz. El parser y
+// el linter cuentan líneas sobre el contenido expandido; sin esto, un
+// diagnóstico después de un @include apunta a una línea que no existe en el
+// archivo que el autor tiene abierto.
+//
+// Una posición fuera del contenido (línea 0, sin posición) queda como está.
+// La posición final se mapea igual; si cae en otro archivo que la inicial, se
+// descarta, porque un rango no puede cruzar archivos. diags no se modifica.
+func (m SourceMap) MapDiagnostics(diags []diagnostics.Diagnostic) []diagnostics.Diagnostic {
+	if len(diags) == 0 {
+		return diags
+	}
+	out := make([]diagnostics.Diagnostic, len(diags))
+	for i, d := range diags {
+		if o, ok := m.At(d.Position.Line); ok && d.File == "" {
+			d.File = o.File
+			d.Position.Line = o.Line
+			if d.EndPosition != nil {
+				end := *d.EndPosition
+				if eo, ok := m.At(end.Line); ok && eo.File == o.File {
+					end.Line = eo.Line
+					d.EndPosition = &end
+				} else {
+					d.EndPosition = nil
+				}
+			}
+		}
+		out[i] = d
+	}
+	return out
+}
+
+// ExpandWithSourceMap es Expand más el origen (archivo y línea) de cada línea
+// expandida: es la variante para mapear posiciones del parser y del linter al
+// archivo que las escribió (SourceMap.MapDiagnostics). El texto expandido y
+// los errores son exactamente los de Expand.
+func ExpandWithSourceMap(content, baseDir string, read ReadFunc) (string, SourceMap, error) {
+	lines, sources, err := expand(content, "", 1, baseDir, read, map[string]bool{}, 0)
+	if err != nil {
+		return "", nil, err
+	}
+	return strings.Join(lines, "\n"), sources, nil
 }
 
 // expand devuelve las líneas expandidas de content y, en paralelo, el
-// archivo de origen de cada una; file es el de content ("" para la raíz).
-// Unir las líneas con "\n" da lo mismo que unir cada hijo ya expandido como
-// un solo bloque, que es lo que hacía esta función antes de devolver
-// orígenes.
-func expand(content, file, baseDir string, read ReadFunc, visited map[string]bool, depth int) ([]string, LineOrigins, error) {
+// origen de cada una; file es el archivo de content ("" para la raíz) y
+// firstLine la línea de ese archivo en la que empieza content (más de 1 si se
+// le quitó el frontmatter). Unir las líneas con "\n" da lo mismo que unir
+// cada hijo ya expandido como un solo bloque, que es lo que hacía esta
+// función antes de devolver orígenes.
+func expand(content, file string, firstLine int, baseDir string, read ReadFunc, visited map[string]bool, depth int) ([]string, SourceMap, error) {
 	if depth > MaxDepth {
 		return nil, nil, fmt.Errorf("include: profundidad máxima (%d) excedida — revisar si hay un ciclo no detectado", MaxDepth)
 	}
 
 	lines := strings.Split(content, "\n")
 	out := make([]string, 0, len(lines))
-	origins := make(LineOrigins, 0, len(lines))
-	for _, line := range lines {
+	origins := make(SourceMap, 0, len(lines))
+	for n, line := range lines {
 		incPath, ok := parseIncludeLine(line)
 		if !ok {
 			out = append(out, line)
-			origins = append(origins, file)
+			origins = append(origins, Origin{File: file, Line: firstLine + n})
 			continue
 		}
 		if incPath == "" {
@@ -148,7 +229,8 @@ func expand(content, file, baseDir string, read ReadFunc, visited map[string]boo
 		}
 		nextVisited[absResolved] = true
 
-		childLines, childOrigins, err := expand(stripFrontMatter(string(data)), absResolved, baseDir, read, nextVisited, depth+1)
+		body, skipped := stripFrontMatterLines(string(data))
+		childLines, childOrigins, err := expand(body, absResolved, skipped+1, baseDir, read, nextVisited, depth+1)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -176,7 +258,7 @@ func parseIncludeLine(line string) (path string, ok bool) {
 	return strings.TrimSpace(strings.TrimPrefix(trimmed, prefix)), true
 }
 
-// stripFrontMatter descarta el frontmatter de un archivo incluido, si lo
+// stripFrontMatterLines descarta el frontmatter de un archivo incluido, si lo
 // tiene, para no splicear un segundo bloque `---` a mitad del documento
 // fusionado. Mismo algoritmo EXACTO que parser.FrontMatterParser.Parse
 // (delimitador parser.FrontMatterDelimiter en su propia línea, buscado desde
@@ -184,14 +266,17 @@ func parseIncludeLine(line string) (path string, ok bool) {
 // parser completo: Expand corre ANTES de que exista ningún *parser.Parser
 // (ver el docstring del paquete) y solo necesita descartar el bloque, no
 // interpretar su YAML.
-func stripFrontMatter(content string) string {
+//
+// Devuelve también la cantidad de líneas que quitó, para que los orígenes
+// sigan contando las líneas del archivo incluido.
+func stripFrontMatterLines(content string) (string, int) {
 	if !strings.HasPrefix(content, parser.FrontMatterDelimiter) {
-		return content
+		return content, 0
 	}
 	lines := strings.Split(content, "\n")
 	for i := 1; i < len(lines); i++ {
 		if strings.TrimSpace(lines[i]) == parser.FrontMatterDelimiter {
-			return strings.Join(lines[i+1:], "\n")
+			return strings.Join(lines[i+1:], "\n"), i + 1
 		}
 	}
 	// Delimitador de apertura sin cierre: frontmatter malformado en el
@@ -199,5 +284,5 @@ func stripFrontMatter(content string) string {
 	// antes del parser) — se deja el contenido intacto; el `---` huérfano
 	// termina dentro del documento expandido y el parser lo reportará con su
 	// propio diagnóstico al toparse con él fuera de posición.
-	return content
+	return content, 0
 }

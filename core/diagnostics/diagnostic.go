@@ -21,6 +21,11 @@ type Diagnostic struct {
 	RuleID      string    `json:"ruleId,omitempty"`
 	Source      string    `json:"source,omitempty"` // "parser", "linter"
 	Code        string    `json:"code,omitempty"`
+	// File es el archivo al que se refiere Position cuando no es el documento
+	// que se compila: por ejemplo un archivo traído con @include
+	// (include.SourceMap.MapDiagnostics). Vacío, la posición es del
+	// documento, como siempre.
+	File string `json:"file,omitempty"`
 }
 
 func NewError(message string, pos Position, source string) Diagnostic {
@@ -56,10 +61,14 @@ func (d Diagnostic) String() string {
 		severity = fmt.Sprintf("%s[%s]", severity, d.RuleID)
 	}
 
-	if d.EndPosition != nil {
-		return fmt.Sprintf("%s: %s (%s-%s)", severity, d.Message, d.Position, d.EndPosition)
+	where := ""
+	if d.File != "" {
+		where = d.File + ":"
 	}
-	return fmt.Sprintf("%s: %s (%s)", severity, d.Message, d.Position)
+	if d.EndPosition != nil {
+		return fmt.Sprintf("%s: %s (%s%s-%s)", severity, d.Message, where, d.Position, d.EndPosition)
+	}
+	return fmt.Sprintf("%s: %s (%s%s)", severity, d.Message, where, d.Position)
 }
 
 // IsError verifica si el diagnóstico es un error

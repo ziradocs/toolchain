@@ -136,6 +136,13 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 		}
 	}
 
+	// Un diagnóstico de un archivo incluido lleva su propio archivo
+	// (Diagnostic.File); el resto es del documento.
+	uri := docPath
+	if d.File != "" {
+		uri = d.File
+	}
+
 	res := Result{
 		RuleId: ruleId,
 		Level:  level,
@@ -146,7 +153,7 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 			{
 				PhysicalLocation: PhysicalLocation{
 					ArtifactLocation: ArtifactLocation{
-						Uri: docPath,
+						Uri: uri,
 					},
 					Region: region,
 				},
