@@ -316,15 +316,15 @@ Page [p]{.danger} [Ctrl]{.kbd}.
 
 | Head [h](https://example.com/th) [x]{.danger} | B |
 |---|---|
-| [t]{.danger} | odd |
-| [s]{.danger} | even |
+| [t]{.danger} [td](https://example.com/td) | odd |
+| [s]{.danger} [st](https://example.com/st) | even |
 
 :::warning
-Warning [w]{.danger} and **[b]{.danger}**.
+Warning [w]{.danger} and **[b]{.danger}** [aw](https://example.com/aw).
 
 | In alert |
 |---|
-| [n]{.danger} |
+| [n]{.danger} [na](https://example.com/na) |
 :::
 `
 
@@ -340,6 +340,10 @@ const inkProbe = `(() => {
     alert: c('.alert-warning p > .slidelang-text-danger, .alert-warning .alert-content > .slidelang-text-danger'),
     alertBold: c('.alert-warning strong > .slidelang-text-danger'),
     alertTable: c('.alert-warning table .slidelang-text-danger'),
+    tdLink: c('table td a[href]'),
+    stripeLink: c('table tbody tr:nth-child(2) td a[href]'),
+    alertLink: c('.alert-warning p a[href], .alert-warning .alert-content > a[href]'),
+    alertTableLink: c('.alert-warning table td a[href]'),
   };
 })()`
 
@@ -400,7 +404,8 @@ func TestDocumentInks_ComputedStyle(t *testing.T) {
 		check(t, got, map[string]string{
 			"page": literal, "th": literal, "td": literal, "stripe": literal,
 			"alert": literal, "alertBold": literal, "alertTable": literal,
-			"thLink": "rgb(0, 0, 238)",
+			"thLink": "rgb(0, 0, 238)", "tdLink": "rgb(0, 0, 238)", "stripeLink": "rgb(0, 0, 238)", "alertLink": "rgb(0, 0, 238)",
+			"alertTableLink": "rgb(0, 0, 238)",
 		})
 	})
 
@@ -413,19 +418,26 @@ func TestDocumentInks_ComputedStyle(t *testing.T) {
 		check(t, got, map[string]string{
 			"page": pink, "th": pink, "td": pink, "stripe": pink,
 			"alert": pink, "alertBold": pink, "alertTable": pink,
-			"thLink": "rgb(125, 211, 252)",
+			"thLink": "rgb(125, 211, 252)", "tdLink": "rgb(125, 211, 252)", "stripeLink": "rgb(125, 211, 252)",
+			// La alerta conserva el azul del navegador sin su propia
+			// variable (su fondo claro literal).
+			"alertLink": "rgb(0, 0, 238)",
+			// Una tabla dentro de la alerta usa el vínculo de la tabla.
+			"alertTableLink": "rgb(125, 211, 252)",
 		})
 	})
 
 	t.Run("tinta por superficie", func(t *testing.T) {
 		got := renderInks(t, ctx, map[string]string{
-			"--doclang-danger-color":                 "#fca5a5",
-			"--doclang-table-danger-color":           "#111111",
-			"--doclang-table-stripe-danger-color":    "#222222",
-			"--doclang-table-header-danger-color":    "#333333",
-			"--doclang-callout-warning-danger-color": "#444444",
-			"--doclang-body-link-color":              "#7dd3fc",
-			"--doclang-table-header-link-color":      "#555555",
+			"--doclang-danger-color":               "#fca5a5",
+			"--doclang-table-ink-danger":           "#111111",
+			"--doclang-table-stripe-ink-danger":    "#222222",
+			"--doclang-table-header-ink-danger":    "#333333",
+			"--doclang-callout-warning-ink-danger": "#444444",
+			"--doclang-body-link-color":            "#7dd3fc",
+			"--doclang-table-header-link-color":    "#555555",
+			"--doclang-table-link-color":           "#666666",
+			"--doclang-callout-warning-link-color": "#777777",
 		})
 		check(t, got, map[string]string{
 			"page":       "rgb(252, 165, 165)",
@@ -436,6 +448,22 @@ func TestDocumentInks_ComputedStyle(t *testing.T) {
 			"alertBold":  "rgb(68, 68, 68)", // un <strong> no reinicia la tinta
 			"alertTable": "rgb(17, 17, 17)", // la tabla, más interna, gana
 			"thLink":     "rgb(85, 85, 85)",
+			"tdLink":     "rgb(102, 102, 102)",
+			"stripeLink": "rgb(102, 102, 102)", // sin variable propia, la de la tabla
+			"alertLink":  "rgb(119, 119, 119)",
+			// Anidada: la tabla, más interna, gana a la alerta.
+			"alertTableLink": "rgb(102, 102, 102)",
+		})
+	})
+
+	t.Run("vínculo propio de la fila alterna", func(t *testing.T) {
+		got := renderInks(t, ctx, map[string]string{
+			"--doclang-table-link-color":        "#666666",
+			"--doclang-table-stripe-link-color": "#999999",
+		})
+		check(t, got, map[string]string{
+			"tdLink":     "rgb(102, 102, 102)",
+			"stripeLink": "rgb(153, 153, 153)",
 		})
 	})
 }

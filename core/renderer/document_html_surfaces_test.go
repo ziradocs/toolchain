@@ -131,12 +131,12 @@ func TestViewerDarkMode_DoesNotDefineSurfaceBindings(t *testing.T) {
 			t.Errorf("el modo oscuro del viewer define %s", b.name)
 		}
 	}
-	if strings.Contains(dark, "--doclang-ink-") || strings.Contains(dark, "--doclang-table-header-link-color") {
+	if strings.Contains(dark, "--_doclang-ink-") || strings.Contains(dark, "--doclang-table-header-link-color") || strings.Contains(dark, "--doclang-table-link-color") || strings.Contains(dark, "--doclang-table-stripe-link-color") || strings.Contains(dark, "--_doclang-table-link") {
 		t.Error("el modo oscuro del viewer define una variable de tinta o de vínculo de encabezado")
 	}
 	for _, s := range documentInkSurfaces {
 		for _, ink := range documentInks {
-			if n := "--doclang-" + s.name + "-" + ink + "-color:"; strings.Contains(dark, n) {
+			if n := "--doclang-" + s.name + "-ink-" + ink + ":"; strings.Contains(dark, n) {
 				t.Errorf("el modo oscuro del viewer define %s", n)
 			}
 		}
@@ -168,8 +168,8 @@ func TestDocumentStyles_ActiveLinkRuleComesLast(t *testing.T) {
 	}
 }
 
-// Las tintas de estado leen primero --doclang-ink-<tinta>, que cada
-// superficie con fondo propio copia de su --doclang-<superficie>-<tinta>-color.
+// Las tintas de estado leen primero --_doclang-ink-<tinta> (interna), que
+// cada superficie con fondo propio copia de su --doclang-<superficie>-ink-<tinta>.
 // Sin esas variables la cadena termina en la tinta del documento y su
 // literal de siempre, así que el render de los temas embebidos no cambia.
 func TestDocumentStyles_InkSurfaces(t *testing.T) {
@@ -177,7 +177,7 @@ func TestDocumentStyles_InkSurfaces(t *testing.T) {
 	literals := map[string]string{"danger": "#dc2626", "info": "#2563eb", "success": "#15803d", "warning": "#b45309", "accent": "#7c3aed"}
 	compact := strings.Join(strings.Fields(css), " ")
 	for _, ink := range documentInks {
-		want := ".slidelang-text-" + ink + " { color: var(--doclang-ink-" + ink + ", var(--doclang-" + ink + "-color, " + literals[ink] + ")); }"
+		want := ".slidelang-text-" + ink + " { color: var(--_doclang-ink-" + ink + ", var(--doclang-" + ink + "-color, " + literals[ink] + ")); }"
 		if !strings.Contains(compact, want) {
 			t.Errorf("falta la regla %s", want)
 		}
@@ -187,37 +187,45 @@ func TestDocumentStyles_InkSurfaces(t *testing.T) {
 		names[s.name] = true
 		want := s.selector + " {"
 		for _, ink := range documentInks {
-			want += " --doclang-ink-" + ink + ": var(--doclang-" + s.name + "-" + ink + "-color);"
+			want += " --_doclang-ink-" + ink + ": var(--doclang-" + s.name + "-ink-" + ink + ");"
 		}
 		if !strings.Contains(css, want+" }") {
 			t.Errorf("falta el bloque de tintas de %s: %s }", s.name, want)
 		}
 	}
-	for _, n := range []string{"table", "table-stripe", "table-header", "panel", "blockquote", "callout-info", "callout-warning", "callout-danger", "callout-success", "callout-tip", "quiz", "toc", "sidebar"} {
+	for _, n := range []string{"table", "table-stripe", "table-header", "panel", "blockquote", "callout-info", "callout-warning", "callout-danger", "callout-success", "callout-tip", "quiz"} {
 		if !names[n] {
 			t.Errorf("la superficie %s no fija sus tintas", n)
 		}
 	}
 }
 
-// Un vínculo en el encabezado de una tabla lleva su propia variable y, sin
-// ella, el color de vínculo del cuerpo, como antes. La regla va después de
-// las de cita y alertas (gana en una tabla dentro de una alerta) y antes de
-// la de :active.
-func TestDocumentStyles_TableHeaderLink(t *testing.T) {
+// Un vínculo en una celda o en el encabezado de una tabla lleva su propia
+// variable y, sin ella, el color de vínculo del cuerpo. Entre las reglas de
+// vínculo gana la última, así que las de la tabla van después de las de la
+// cita y las alertas (una tabla dentro de una alerta) y antes de :active.
+func TestDocumentStyles_TableLinksAndRuleOrder(t *testing.T) {
 	css := generateDocumentStyles(DocumentHTMLOptions{}, util.NewNoop())
-	link := ":where(th) a:where(:link) { color: var(--doclang-table-header-link-color, var(--doclang-body-link-color, LinkText)); }"
-	visited := ":where(th) a:where(:visited) { color: var(--doclang-table-header-link-color, var(--doclang-body-link-color, VisitedText)); }"
-	for _, r := range []string{link, visited} {
-		if !strings.Contains(css, r) {
+	rules := []string{
+		":where(blockquote) a:where(:link) { color: var(--doclang-blockquote-link-color, LinkText); }",
+		":where(.alert-tip) a:where(:visited) { color: var(--doclang-callout-tip-link-color, VisitedText); }",
+		":where(td) a:where(:link) { color: var(--_doclang-table-link, var(--doclang-body-link-color, LinkText)); }",
+		":where(td) a:where(:visited) { color: var(--_doclang-table-link, var(--doclang-body-link-color, VisitedText)); }",
+		"table { --_doclang-table-link: var(--doclang-table-link-color); }",
+		"table tr:nth-child(even) { --_doclang-table-link: var(--doclang-table-stripe-link-color, var(--doclang-table-link-color)); }",
+		":where(th) a:where(:link) { color: var(--doclang-table-header-link-color, var(--doclang-body-link-color, LinkText)); }",
+		":where(th) a:where(:visited) { color: var(--doclang-table-header-link-color, var(--doclang-body-link-color, VisitedText)); }",
+		"a:where(:any-link:active) {",
+	}
+	prev := -1
+	for _, r := range rules {
+		i := strings.Index(css, r)
+		if i < 0 {
 			t.Fatalf("falta la regla %s", r)
 		}
-	}
-	th := strings.Index(css, link)
-	if tip := strings.Index(css, ":where(.alert-tip) a:where(:visited)"); tip < 0 || tip > th {
-		t.Error("la regla del vínculo del encabezado debe ir después de las de las alertas")
-	}
-	if active := strings.Index(css, "a:where(:any-link:active) {"); active < th {
-		t.Error("la regla del vínculo del encabezado debe ir antes de la de :active")
+		if i < prev {
+			t.Errorf("la regla %s está fuera de orden", r)
+		}
+		prev = i
 	}
 }

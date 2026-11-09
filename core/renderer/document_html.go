@@ -342,12 +342,22 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
         :where(.alert-tip) a:where(:link) { color: var(--doclang-callout-tip-link-color, LinkText); }
         :where(.alert-tip) a:where(:visited) { color: var(--doclang-callout-tip-link-color, VisitedText); }
 
-        /* El encabezado de una tabla tiene fondo propio (el del tema o el
-           degradado de siempre), así que un vínculo ahí dentro tampoco
-           puede tomar sin más el color de vínculo del cuerpo: lleva su
-           propia variable y, sin ella, cae al vínculo del cuerpo, como
-           hasta ahora. Va después de las alertas para ganarles a una tabla
-           dentro de una alerta. */
+        /* Las celdas y el encabezado de una tabla tienen fondo propio (el
+           del tema, el derivado o el de siempre), así que un vínculo ahí
+           dentro tampoco puede tomar sin más el color de vínculo del
+           cuerpo: lleva su propia variable y, sin ella, cae al vínculo del
+           cuerpo, como hasta ahora fuera de una alerta. Van después de las
+           de la cita y las alertas para ganarles en una tabla dentro de una
+           alerta (entre reglas de igual especificidad gana la última).
+           La celda lee --_doclang-table-link (interna, no es contrato), que
+           la tabla toma de --doclang-table-link-color y la fila alterna de
+           --doclang-table-stripe-link-color o, sin ella, de la de la tabla:
+           la fila alterna puede tener un fondo muy distinto. Sin ninguna,
+           la copia es inválida y queda el vínculo del cuerpo. */
+        :where(td) a:where(:link) { color: var(--_doclang-table-link, var(--doclang-body-link-color, LinkText)); }
+        :where(td) a:where(:visited) { color: var(--_doclang-table-link, var(--doclang-body-link-color, VisitedText)); }
+        table { --_doclang-table-link: var(--doclang-table-link-color); }
+        table tr:nth-child(even) { --_doclang-table-link: var(--doclang-table-stripe-link-color, var(--doclang-table-link-color)); }
         :where(th) a:where(:link) { color: var(--doclang-table-header-link-color, var(--doclang-body-link-color, LinkText)); }
         :where(th) a:where(:visited) { color: var(--doclang-table-header-link-color, var(--doclang-body-link-color, VisitedText)); }
 
@@ -650,11 +660,11 @@ func generateDocumentStyles(opts DocumentHTMLOptions, logger util.Logger) string
            themes is #ffffff/#fafafa/#f5f5f5). No doclang theme defines
            these variables today, so every theme renders via the fallback;
            a theme is free to override them like any other CSS variable. */
-        .slidelang-text-danger  { color: var(--doclang-ink-danger,  var(--doclang-danger-color,  #dc2626)); }
-        .slidelang-text-info    { color: var(--doclang-ink-info,    var(--doclang-info-color,    #2563eb)); }
-        .slidelang-text-success { color: var(--doclang-ink-success, var(--doclang-success-color, #15803d)); }
-        .slidelang-text-warning { color: var(--doclang-ink-warning, var(--doclang-warning-color, #b45309)); }
-        .slidelang-text-accent  { color: var(--doclang-ink-accent,  var(--doclang-accent-color,  #7c3aed)); }
+        .slidelang-text-danger  { color: var(--_doclang-ink-danger,  var(--doclang-danger-color,  #dc2626)); }
+        .slidelang-text-info    { color: var(--_doclang-ink-info,    var(--doclang-info-color,    #2563eb)); }
+        .slidelang-text-success { color: var(--_doclang-ink-success, var(--doclang-success-color, #15803d)); }
+        .slidelang-text-warning { color: var(--_doclang-ink-warning, var(--doclang-warning-color, #b45309)); }
+        .slidelang-text-accent  { color: var(--_doclang-ink-accent,  var(--doclang-accent-color,  #7c3aed)); }
 `)
 	// Tintas por superficie: ver documentInkSurfaceCSS.
 	css.WriteString(documentInkSurfaceCSS())
@@ -3336,8 +3346,8 @@ func transliterateAnchor(s string) string {
 
 // documentInkSurfaces son las superficies con fondo propio (opaco) donde
 // puede ir texto con tinta de estado ([x]{.danger}, .info, .success,
-// .warning, .accent). El nombre de cada una forma la variable
-// --doclang-<nombre>-<tinta>-color.
+// .warning, .accent). El nombre de cada una forma la variable pública
+// --doclang-<nombre>-ink-<tinta>.
 var documentInkSurfaces = []struct{ selector, name string }{
 	{"table", "table"},
 	{"table tr:nth-child(even)", "table-stripe"},
@@ -3350,8 +3360,6 @@ var documentInkSurfaces = []struct{ selector, name string }{
 	{".alert-success", "callout-success"},
 	{".alert-tip", "callout-tip"},
 	{".quiz, .poll", "quiz"},
-	{".toc", "toc"},
-	{".doclang-sidebar", "sidebar"},
 }
 
 // documentInks son las tintas de estado, en el orden de las reglas
@@ -3365,24 +3373,28 @@ var documentInks = []string{"danger", "info", "success", "warning", "accent"}
 // las superficies tienen fondo propio: una alerta conserva su fondo claro
 // literal con un tema oscuro, el encabezado de una tabla tiene el fondo
 // que el tema le dé. Una tinta pensada para la página puede no leerse ahí.
-// Cada superficie copia --doclang-<superficie>-<tinta>-color en
-// --doclang-ink-<tinta>, que .slidelang-text-<tinta> lee antes que la tinta
-// del documento. La copia se hereda, así que gana la superficie más
-// interna (una tabla dentro de una alerta usa las tintas de la tabla).
+// Cada superficie copia su --doclang-<superficie>-ink-<tinta> (la variable
+// pública, que un tema puede definir) en --_doclang-ink-<tinta>, que
+// .slidelang-text-<tinta> lee antes que la tinta del documento.
 //
-// Sin la variable de la superficie, la copia es una referencia a una
-// variable inexistente: inválida, la tinta cae a la del documento, igual
-// que antes. Por eso estas reglas van solo en elementos con fondo propio:
-// en un elemento transparente, ese reinicio taparía la tinta de la
-// superficie de abajo. Ningún tema embebido define estas variables, así
-// que su render no cambia; doclang las deriva para temas externos, solo
-// donde la tinta del documento no se lee sobre el fondo de la superficie.
+// --_doclang-ink-<tinta> es un detalle interno del CSS, no parte del
+// contrato de temas: el guion bajo lo marca así y un tema no debe
+// definirla (en :root taparía la tinta de todas las superficies). La copia
+// se hereda, así que gana la superficie más interna (una tabla dentro de
+// una alerta usa las tintas de la tabla). Sin la variable de la
+// superficie, la copia es una referencia a una variable inexistente:
+// inválida, la tinta cae a la del documento, igual que antes. Por eso estas
+// reglas van solo en elementos con fondo propio: en un elemento
+// transparente, ese reinicio taparía la tinta de la superficie de abajo.
+// Ningún tema embebido define estas variables, así que su render no
+// cambia; doclang las deriva para temas externos, solo donde la tinta del
+// documento no se lee sobre el fondo de la superficie.
 func documentInkSurfaceCSS() string {
 	var b strings.Builder
 	for _, s := range documentInkSurfaces {
 		b.WriteString("        " + s.selector + " {")
 		for _, ink := range documentInks {
-			b.WriteString(" --doclang-ink-" + ink + ": var(--doclang-" + s.name + "-" + ink + "-color);")
+			b.WriteString(" --_doclang-ink-" + ink + ": var(--doclang-" + s.name + "-ink-" + ink + ");")
 		}
 		b.WriteString(" }\n")
 	}
