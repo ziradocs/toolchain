@@ -116,36 +116,54 @@ fixed colors. A variable the theme defines itself always wins.
   viewer's sidebar and table of contents keep their light background when the theme's own
   `--doclang-toc-*-color` values are dark.
 - **Links** take `--doclang-link-color` only where it reads at 4.5:1 on every background it sits on
-  (the page, tables, table stripes and panels where the theme's text reads; each blockquote and
-  special block separately, and only when that block takes its background from the theme). Otherwise they keep the browser's blue, and if that does
-  not read either (a dark page), a light blue (`#8ab4f8`); if not even that reads everywhere, the
-  text color of the page or of that block (the link stays underlined). A pressed link keeps the
+  (the page and panels where the theme's text reads; each blockquote and special block
+  separately, and only when that block takes its background from the theme). Otherwise they keep
+  the browser's blue, and if that does not read either (a dark page), a light blue (`#8ab4f8`). If
+  none of them reads on the page and the panels, the first one that reads on the page is taken, and
+  only if none does, the page's text color (the link stays underlined). Tables do not lower the
+  link of the whole document: a link in a table cell takes `--doclang-table-link-color` when the
+  body link does not read on the table, and `--doclang-table-stripe-link-color` in a stripe row
+  when the table's link does not read on the stripe (the theme's link color, the browser's blue,
+  the light blue, the table's text color, or black or white, the first that reads on that
+  background). A pressed link keeps the
   browser's red.
 - **Content inside a surface.** A surface with its own background can hold text that has its own
   color, and that color is checked against that background, not only against the page:
   - **Status colors** (`[x]{.danger}`, `.info`, `.success`, `.warning`, `.accent`). Each surface
-    can set its own: `--doclang-<surface>-<color>-color`, for example
-    `--doclang-callout-warning-danger-color`. doclang fills one in only where the document's color
+    can set its own: `--doclang-<surface>-ink-<color>`, for example
+    `--doclang-callout-warning-ink-danger`. doclang fills one in only where the document's color
     does not read at 4.5:1 on that surface: a light theme color inside a special block that keeps its
     light background, or inside a table header. It takes the usual color, a darker or a lighter
-    shade of the same color, or the surface's text color, the first that reads. The innermost surface
-    wins (a table inside a special block uses the table's). The document's own color
-    (`--doclang-danger-color`, ...) is filled in only if the theme does not define it and the usual
-    one does not read on the page.
+    shade of the same color, the surface's text color or, as a last resort, black or white
+    (whichever contrasts more). The innermost surface wins (a table inside a special block uses the
+    table's). The document's own color (`--doclang-danger-color`, ...) is filled in only if the
+    theme does not define it and the usual one does not read on the page.
+  - **Text in a table.** When the table or its stripes take their background from the theme
+    (its own or filled in), `--doclang-table-color` is set to the theme's text color instead of
+    inheriting: inherited, a table inside a special block that keeps its light background took the
+    block's dark text on the dark table.
   - **Links in a table header** take `--doclang-table-header-link-color`, filled in only when the
     body link does not read on the header (a header whose background is the link color, for
-    instance): the theme's link color, the browser's blue, the light blue or the header text.
+    instance): the theme's link color, the browser's blue, the light blue, the header text, or black
+    or white, the first that reads.
   - **Keys** inherit the text of wherever they are, but always sit on `--doclang-kbd-bg`. If any of
-    those texts (the page, a table header, a blockquote, a special block, a panel, the quiz, the
-    table of contents) would not read on it, the key gets `--doclang-kbd-color`: the theme's text
-    color, or black or white. A theme's own `--doclang-kbd-color` is used when deciding whether
-    the key's background has to change.
+    those texts (the page, a table, a table header, a blockquote, a special block, a panel, the
+    quiz) would not read on it, the key gets `--doclang-kbd-color`: the theme's text color, or
+    black or white. A surface whose background cannot be measured (the default gradient of the
+    table header) does not count, so a key there keeps the header's white text, as in the embedded
+    themes. A theme's own `--doclang-kbd-color` is used when deciding whether the key's background
+    has to change.
   - **Inline code** paints its own background, so only its pair is checked: if
     `--doclang-code-inline-color` does not read on `--doclang-code-inline-bg`, the half the theme
-    did not set is filled in (with neither, the pink `#e83e8c`, 3.59:1 on its gray, becomes
-    `#c2185b`). The code block, which also paints its own background, follows the same rule
-    with `--doclang-code-bg` and `--doclang-code-color`. A pair the theme set completely is left
-    as is.
+    did not set is filled in. A missing background takes the table stripe, the page, the code
+    block's background, `#1e1e1e` or the theme's text color, the first the color reads on. A missing
+    color takes the first of a darker pink (`#c2185b`), the theme's text color or the code block's
+    color that reads on the background and does not read worse than before in the viewer's dark
+    mode (see the limitation below); the theme's text color goes in as `var(--doclang-text-color)`,
+    so that dark mode repaints it. With neither half in a light theme, the pink `#e83e8c` (3.59:1 on
+    its gray) becomes the theme's text color; in a dark theme it stays. The code block, which also
+    paints its own background, follows the same rule with `--doclang-code-bg` and
+    `--doclang-code-color`. A pair the theme set completely is left as is.
 
   A background that cannot be measured (the default gradient of the table header, when the theme
   does not set `--doclang-table-header-bg`) is left alone.
@@ -168,16 +186,19 @@ fixed colors. A variable the theme defines itself always wins.
 | `--doclang-caption-color` (table and figure captions, unavailable-content notes) | `#718096` |
 | `--doclang-code-tab-active-bg`, `-active-color`, `-accent` | `#1e1e1e`, `#fff`, `#3498db` |
 | `--doclang-print-margin-bg` (PDF page margin) | not painted |
-| `--doclang-table-header-link-color` | the body link color |
-| `--doclang-<surface>-<color>-color` | the document's status color (`--doclang-<color>-color`) |
+| `--doclang-table-link-color`, `--doclang-table-header-link-color` | the body link color |
+| `--doclang-table-stripe-link-color` | the table's link color |
+| `--doclang-<surface>-ink-<color>` | the document's status color (`--doclang-<color>-color`) |
 
 `<kind>` is `info`, `warning`, `danger`, `success` or `tip`; a theme describes each special block with
 `--doclang-alert-<kind>-bg`, `-border` and `-color`, `tip` included. `<surface>` is `table`,
-`table-stripe`, `table-header`, `panel`, `blockquote`, `callout-<kind>`, `quiz`, `toc` or `sidebar`,
-and `<color>` is `danger`, `info`, `success`, `warning` or `accent`. doclang may also fill in these
+`table-stripe`, `table-header`, `panel`, `blockquote`, `callout-<kind>` or `quiz`, and `<color>` is
+`danger`, `info`, `success`, `warning` or `accent`. The CSS copies each of these into an internal
+`--_doclang-ink-<color>` (and the table links into `--_doclang-table-link`), which is not part of
+the theme contract: a theme should not define it. doclang may also fill in these
 contract variables for an external theme, under the same rules: `--doclang-danger-color`,
 `--doclang-info-color`, `--doclang-success-color`, `--doclang-warning-color`,
-`--doclang-accent-color`, `--doclang-kbd-color`, `--doclang-code-inline-bg`,
+`--doclang-accent-color`, `--doclang-kbd-color`, `--doclang-table-color`, `--doclang-code-inline-bg`,
 `--doclang-code-inline-color`, `--doclang-code-bg`, `--doclang-code-color`,
 `--doclang-page-surface-bg`,
 `--doclang-table-stripe-bg`, `--doclang-table-hover-bg`, `--doclang-header-footer-bg`,
@@ -189,7 +210,18 @@ The new names are separate from `--doclang-link-color`, `--doclang-quote-*`, `--
 `--doclang-page-bg` on purpose: the embedded themes define those with values that were never applied
 to links, blockquotes, special blocks or the PDF margin, and reading them there would change how the
 embedded themes look. The filled-in values are copies, not `var()` references, so what is checked
-is exactly what is painted; the viewer's dark-mode toggle does not repaint them.
+is exactly what is painted; the viewer's dark-mode toggle does not repaint them. The one exception is
+the code color, which may be `var(--doclang-text-color)`.
+
+**Limitation: the viewer's dark mode** (the toggle, or `theme_mode: dark`) redefines some contract
+variables on top of the theme's (page, text, headings, `--doclang-link-color`, the code
+backgrounds, the status colors) but not the filled-in ones above, which were measured for the light
+page. With an external theme, a filled-in link color (`--doclang-body-link-color`,
+`--doclang-table-link-color`, `--doclang-table-stripe-link-color`) can fall under 4.5:1 on the
+dark page, as it already could before.
+The code colors are the exception: they are only filled in when they do not read worse than before
+on the dark mode's code background, which is why, with an external theme that sets no
+`--doclang-code-inline-color`, a dark theme keeps the pink inline code.
 
 In PDF and `offline-*` HTML, Mermaid diagrams, maps and charts are inserted as images without a
 panel around them: Mermaid follows the diagram colors of the theme, and charts and maps keep their
@@ -207,9 +239,11 @@ own light background. Their titles still follow `--doclang-element-title-color`.
   link color if it reads at 4.5:1 (a link color under 4.5:1 is ignored, so the links stay the
   browser's blue), and the PDF margin, painted with `--doclang-page-bg`. Besides that, a status
   color that falls under 4.5:1 on the page or inside a surface takes a darker shade of the same
-  color; keys usually take the theme's text color instead of inheriting it (a table header with light
-  text left the key light on light gray); and the inline-code pink becomes `#c2185b` when the theme
-  does not set an inline-code color that reads.
+  color; a key takes the theme's text color when a text it would inherit does not read on it (a
+  table header with light text over a key); a table with its own stripes takes the theme's text
+  color instead of inheriting it; a link in a table whose stripes do not let it read gets its own
+  color; and the inline-code pink becomes the theme's text color when the theme sets no inline-code
+  color.
 
 Every theme variable goes into the page's CSS after a check, and a variable that fails it is dropped
 with a warning. The check rejects a value that contains `{`, `}`, `<`, `>`, `;` or a line break, or

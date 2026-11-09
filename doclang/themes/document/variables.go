@@ -3,6 +3,8 @@
 
 package document
 
+import "go.ziradocs.com/doclang/v2/internal/inks"
+
 // ThemeVariables contiene las variables CSS para temas de documentos
 type ThemeVariables map[string]string
 
@@ -16,8 +18,11 @@ type Theme struct {
 	IsExternal  bool           `json:"-"` // No se serializa en JSON
 }
 
-// StandardVariables lista todas las variables CSS estándar para documentos
-// Estas son las variables que DEBEN estar presentes en un tema válido
+// StandardVariables lista el vocabulario de variables CSS que un tema de
+// documento puede definir. Ninguna es obligatoria por estar aquí: las
+// obligatorias son las de RequiredVariables. Incluye las de superficie que
+// doclang deriva para temas externos, con las tintas por superficie
+// (--doclang-<superficie>-ink-<tinta>).
 var StandardVariables = append([]string{
 	// Page & Layout
 	"--doclang-page-bg",
@@ -168,31 +173,9 @@ var StandardVariables = append([]string{
 	"--doclang-callout-success-link-color",
 	"--doclang-callout-tip-link-color",
 	"--doclang-table-header-link-color",
-}, InkSurfaceVariables()...)
-
-// InkSurfaces son las superficies con fondo propio que pueden fijar sus
-// propias tintas de estado: --doclang-<superficie>-<tinta>-color. El CSS del
-// documento (core/renderer/document_html.go) las lee dentro de cada una.
-var InkSurfaces = []string{
-	"table", "table-stripe", "table-header", "panel", "blockquote",
-	"callout-info", "callout-warning", "callout-danger", "callout-success", "callout-tip",
-	"quiz", "toc", "sidebar",
-}
-
-// Inks son las tintas de estado, en el orden de las clases del CSS.
-var Inks = []string{"danger", "info", "success", "warning", "accent"}
-
-// InkSurfaceVariables lista --doclang-<superficie>-<tinta>-color para cada
-// superficie y tinta.
-func InkSurfaceVariables() []string {
-	out := make([]string, 0, len(InkSurfaces)*len(Inks))
-	for _, s := range InkSurfaces {
-		for _, ink := range Inks {
-			out = append(out, "--doclang-"+s+"-"+ink+"-color")
-		}
-	}
-	return out
-}
+	"--doclang-table-link-color",
+	"--doclang-table-stripe-link-color",
+}, inks.Variables()...)
 
 // RequiredVariables lista las variables CSS que son OBLIGATORIAS en todo tema
 // Si faltan, se usarán los valores del tema Professional como fallback

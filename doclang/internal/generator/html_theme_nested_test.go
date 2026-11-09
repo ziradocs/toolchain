@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.ziradocs.com/doclang/v2/internal/inks"
 	"go.ziradocs.com/doclang/v2/themes/document"
 )
 
@@ -57,8 +58,8 @@ func TestHTMLThemeVariables_InksInsideLightAlertsOfDarkTheme(t *testing.T) {
 	}
 	for _, kind := range []string{"warning", "danger", "success", "tip"} {
 		bg := resolve(got, []string{"--doclang-callout-" + kind + "-bg", cssFallbacks["callout-"+kind+"-bg"]})
-		for _, ink := range document.Inks {
-			name := "--doclang-callout-" + kind + "-" + ink + "-color"
+		for _, ink := range inks.Names {
+			name := inks.Variable("callout-"+kind, ink)
 			c, ok := got[name]
 			if !ok {
 				t.Errorf("%s no se derivó: %s del tema no se lee sobre %s", name, in["--doclang-"+ink+"-color"], bg)
@@ -70,8 +71,8 @@ func TestHTMLThemeVariables_InksInsideLightAlertsOfDarkTheme(t *testing.T) {
 		}
 	}
 	// La alerta info es oscura: las tintas del tema se leen y no se tocan.
-	for _, ink := range document.Inks {
-		if v, ok := got["--doclang-callout-info-"+ink+"-color"]; ok {
+	for _, ink := range inks.Names {
+		if v, ok := got[inks.Variable("callout-info", ink)]; ok {
 			t.Errorf("callout-info-%s-color = %q: la tinta del tema ya se lee sobre #131d33", ink, v)
 		}
 	}
@@ -86,8 +87,8 @@ func TestHTMLThemeVariables_TableHeaderLink(t *testing.T) {
 	if got["--doclang-table-header-link-color"] != "#0b0b10" {
 		t.Errorf("table-header-link-color = %q, want #0b0b10", got["--doclang-table-header-link-color"])
 	}
-	for _, ink := range document.Inks {
-		if c := got["--doclang-table-header-"+ink+"-color"]; !reads(c, minTextContrast, "#8b7fff") {
+	for _, ink := range inks.Names {
+		if c := got[inks.Variable("table-header", ink)]; !reads(c, minTextContrast, "#8b7fff") {
 			t.Errorf("table-header-%s-color = %q no se lee sobre #8b7fff", ink, c)
 		}
 	}
@@ -159,15 +160,32 @@ func TestHTMLThemeVariables_CodeInlinePair(t *testing.T) {
 		t.Error("se pisó el color del tema")
 	}
 
+	// Solo el fondo: el texto del tema, como referencia para que en el modo
+	// oscuro del viewer (que cambia el fondo del código a #2d2d2d) siga al
+	// texto claro de ese modo.
 	onlyBg := minimalDarkVars()
 	onlyBg["--doclang-code-inline-bg"] = "#1e293b"
-	if c := htmlThemeVariables(onlyBg, true)["--doclang-code-inline-color"]; !reads(c, minTextContrast, "#1e293b") {
-		t.Errorf("solo fondo: code-inline-color = %q no se lee sobre #1e293b", c)
+	if c := htmlThemeVariables(onlyBg, true)["--doclang-code-inline-color"]; c != textColorRef {
+		t.Errorf("solo fondo: code-inline-color = %q, want %s", c, textColorRef)
 	}
 
-	// Ninguna mitad: el rosa literal da 3.59:1 sobre el gris literal.
-	if c := htmlThemeVariables(minimalDarkVars(), true)["--doclang-code-inline-color"]; c != codeInlineDeepColor {
-		t.Errorf("sin par: code-inline-color = %q, want %s", c, codeInlineDeepColor)
+	// Ninguna mitad: el rosa literal da 3.59:1 sobre su gris y 3.61:1 sobre
+	// el fondo del modo oscuro. En un tema claro el texto del tema lo mejora
+	// en los dos modos; en uno oscuro ningún candidato se lee sobre el gris
+	// claro sin empeorar el modo oscuro, y se queda el rosa.
+	light := map[string]string{"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#2c3e50"}
+	if c := htmlThemeVariables(light, true)["--doclang-code-inline-color"]; c != textColorRef {
+		t.Errorf("sin par, tema claro: code-inline-color = %q, want %s", c, textColorRef)
+	}
+	if c, ok := htmlThemeVariables(minimalDarkVars(), true)["--doclang-code-inline-color"]; ok {
+		t.Errorf("sin par, tema oscuro: code-inline-color = %q, debe quedar el rosa literal", c)
+	}
+	// El rosa oscuro (#c2185b) se lee sobre el gris, pero en el modo oscuro
+	// daría 2.34:1 contra 3.61:1 del literal: no se usa.
+	for _, v := range []map[string]string{light, minimalDarkVars()} {
+		if c := htmlThemeVariables(v, true)["--doclang-code-inline-color"]; c == codeInlineDeepColor {
+			t.Error("el rosa oscuro empeora el modo oscuro del viewer")
+		}
 	}
 
 	// Un par completo del tema no se toca, aunque no se lea.
@@ -184,8 +202,8 @@ func TestHTMLThemeVariables_CodeInlinePair(t *testing.T) {
 // color dejaba el gris claro literal encima (1.09:1 sobre #f5f5f5).
 func TestHTMLThemeVariables_CodeBlockPair(t *testing.T) {
 	vars := map[string]string{"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#2c3e50", "--doclang-code-bg": "#f5f5f5"}
-	if got := htmlThemeVariables(vars, true)["--doclang-code-color"]; got != "#2c3e50" {
-		t.Errorf("code-color = %q, want el texto del cuerpo", got)
+	if got := htmlThemeVariables(vars, true)["--doclang-code-color"]; got != textColorRef {
+		t.Errorf("code-color = %q, want %s (sigue al modo oscuro del viewer)", got, textColorRef)
 	}
 	// Con el fondo oscuro literal el gris claro se lee: nada que derivar.
 	if v, ok := htmlThemeVariables(minimalDarkVars(), true)["--doclang-code-color"]; ok {
@@ -197,7 +215,7 @@ func TestHTMLThemeVariables_CodeBlockPair(t *testing.T) {
 // y toma los respaldos claros.
 func TestHTMLThemeVariables_DocumentInksOnDarkPage(t *testing.T) {
 	got := htmlThemeVariables(minimalDarkVars(), true)
-	for _, ink := range document.Inks {
+	for _, ink := range inks.Names {
 		if got["--doclang-"+ink+"-color"] != inkLight[ink] {
 			t.Errorf("%s-color = %q, want %s", ink, got["--doclang-"+ink+"-color"], inkLight[ink])
 		}
@@ -221,12 +239,110 @@ func TestHTMLThemeVariables_DerivedInksAreDocumented(t *testing.T) {
 	for _, theme := range []map[string]string{nestedDarkVars(), darkExternalVars(), minimalDarkVars(), document.GetProfessionalTheme().Variables} {
 		for k := range htmlThemeVariables(theme, true) {
 			isInk := strings.HasSuffix(k, "-link-color")
-			for _, ink := range document.Inks {
+			for _, ink := range inks.Names {
 				isInk = isInk || strings.HasSuffix(k, "-"+ink+"-color")
 			}
 			if _, own := theme[k]; isInk && !own && !known[k] {
 				t.Errorf("se derivó %s, que no está en document.StandardVariables", k)
 			}
 		}
+	}
+}
+
+// Una tabla dentro de una alerta que conserva su fondo claro: con fondo del
+// tema, la tabla ya no hereda el texto oscuro de la alerta (1.57:1 sobre la
+// tabla oscura de un tema tipo Nord), y su vínculo se mide sobre la tabla.
+func TestHTMLThemeVariables_TableInsideLightAlert(t *testing.T) {
+	nord := map[string]string{
+		"--doclang-page-bg": "#2e3440", "--doclang-text-color": "#d8dee9", "--doclang-h1-color": "#88c0d0",
+		"--doclang-link-color": "#88c0d0", "--doclang-table-border": "#888888", "--doclang-font-main": "sans-serif",
+		"--doclang-table-header-bg": "#3b4252", "--doclang-table-header-color": "#eceff4",
+		"--doclang-code-bg": "#3b4252", "--doclang-code-color": "#e5e9f0",
+	}
+	got := htmlThemeVariables(nord, true)
+	if got["--doclang-table-color"] != "#d8dee9" {
+		t.Errorf("table-color = %q, want el texto del tema", got["--doclang-table-color"])
+	}
+	tableBg := resolve(got, []string{"--doclang-table-bg", "white"})
+	stripe := resolve(got, []string{"--doclang-table-stripe-bg", "#f8fafc"})
+	link := resolve(got, []string{"--doclang-table-link-color", "--doclang-body-link-color", "#0000ee"})
+	if !reads(link, minTextContrast, tableBg, stripe) {
+		t.Errorf("vínculo de la tabla %s no se lee sobre %s/%s", link, tableBg, stripe)
+	}
+	// Un tema claro sin fondo de tabla propio sigue heredando.
+	if v, ok := htmlThemeVariables(map[string]string{"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#111111"}, true)["--doclang-table-color"]; ok {
+		t.Errorf("table-color = %q sin fondo de tabla del tema", v)
+	}
+	checkPairs(t, "nord", nord, true)
+}
+
+// Un tema claro cuya fila alterna no deja leer su vínculo: la tabla lleva el
+// suyo y el resto del documento conserva el vínculo del tema.
+func TestHTMLThemeVariables_TableLinkInsteadOfLoweringBodyLink(t *testing.T) {
+	midgray := map[string]string{
+		"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#111111", "--doclang-h1-color": "#111111",
+		"--doclang-link-color": "#1d4ed8", "--doclang-table-border": "#888888", "--doclang-font-main": "sans-serif",
+		"--doclang-table-stripe-bg": "#9ca3af", "--doclang-code-bg": "#1e1e1e",
+	}
+	got := htmlThemeVariables(midgray, true)
+	if got["--doclang-body-link-color"] != "#1d4ed8" {
+		t.Errorf("body-link-color = %q, want el del tema #1d4ed8", got["--doclang-body-link-color"])
+	}
+	// La tabla es blanca: ahí se lee el del tema. Solo la fila alterna gris
+	// lleva el suyo.
+	if v, ok := got["--doclang-table-link-color"]; ok {
+		t.Errorf("table-link-color = %q: #1d4ed8 se lee sobre la tabla blanca", v)
+	}
+	if c := got["--doclang-table-stripe-link-color"]; !reads(c, minTextContrast, "#9ca3af") {
+		t.Errorf("table-stripe-link-color = %q no se lee sobre la fila alterna #9ca3af", c)
+	}
+	checkPairs(t, "midgray", midgray, true)
+}
+
+// El encabezado con el degradado literal no se puede medir: no cuenta para
+// decidir el color de la tecla (como no cuenta para las tintas).
+func TestHTMLThemeVariables_KbdIgnoresUnmeasurableHeader(t *testing.T) {
+	light := map[string]string{"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#0f172a"}
+	if v, ok := htmlThemeVariables(light, true)["--doclang-kbd-color"]; ok {
+		t.Errorf("kbd-color = %q: el único texto que no se lee es el del degradado literal", v)
+	}
+}
+
+// Si ni las tintas de respaldo ni el texto de la superficie se leen, la
+// tinta es el negro o el blanco, el que más contraste dé.
+func TestHTMLThemeVariables_InkLastResortBlackOrWhite(t *testing.T) {
+	vars := map[string]string{
+		"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#111111",
+		"--doclang-table-header-bg": "#767676", "--doclang-table-header-color": "#7a7a7a",
+	}
+	got := htmlThemeVariables(vars, true)
+	want := blackOrWhite("#767676")
+	if c := got[inks.Variable("table-header", "danger")]; c != want {
+		t.Errorf("table-header-ink-danger = %q, want %s", c, want)
+	}
+}
+
+// El código en línea con solo un color claro en un tema claro: ningún fondo
+// claro lo deja leer, así que toma un fondo oscuro.
+func TestHTMLThemeVariables_CodeInlineDarkBackgroundCandidate(t *testing.T) {
+	vars := map[string]string{
+		"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#111111",
+		"--doclang-code-bg": "#f5f5f5", "--doclang-code-inline-color": "#f8fafc",
+	}
+	if bg := htmlThemeVariables(vars, true)["--doclang-code-inline-bg"]; !reads("#f8fafc", minTextContrast, bg) {
+		t.Errorf("code-inline-bg = %q no deja leer #f8fafc", bg)
+	}
+}
+
+// Un encabezado donde ni el vínculo del tema, ni los azules, ni el texto del
+// propio encabezado llegan a 4.5:1 (#f8f8f2 sobre #6272a4 da 4.41:1): el
+// vínculo toma el blanco o el negro.
+func TestHTMLThemeVariables_TableHeaderLinkBlackOrWhite(t *testing.T) {
+	vars := map[string]string{
+		"--doclang-page-bg": "#282a36", "--doclang-text-color": "#f8f8f2", "--doclang-link-color": "#8be9fd",
+		"--doclang-table-header-bg": "#6272a4", "--doclang-table-header-color": "#f8f8f2",
+	}
+	if c := htmlThemeVariables(vars, true)["--doclang-table-header-link-color"]; !reads(c, minTextContrast, "#6272a4") {
+		t.Errorf("table-header-link-color = %q no se lee sobre #6272a4", c)
 	}
 }

@@ -4,11 +4,12 @@
 package generator
 
 import (
+	"math"
 	"strings"
 
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/renderer"
-	"go.ziradocs.com/doclang/v2/themes/document"
+	"go.ziradocs.com/doclang/v2/internal/inks"
 )
 
 // Variables de superficie del HTML/PDF para temas externos.
@@ -55,7 +56,11 @@ import (
 // Las variables derivadas son copias de los valores, no var(): así el par que
 // se midió es exactamente el que se pinta. Con var() seguirían al modo oscuro
 // del viewer, pero ese modo solo redefine algunas variables del contrato y
-// una referencia podría terminar en un par que nadie midió.
+// una referencia podría terminar en un par que nadie midió. La excepción es
+// el color del código (codePairs): puede ser var(--doclang-text-color),
+// medido con el texto del tema en el modo claro y con el del modo oscuro
+// sobre su fondo de código, porque ese modo cambia el fondo del código pero
+// no su color.
 //
 // Los valores pasan por renderer.SanitizeCSSCustomProperty, como cualquier
 // variable del tema; además aquí se descartan los que traen comentarios,
@@ -138,9 +143,9 @@ const (
 )
 
 // Tintas de estado ([x]{.danger}, .info, .success, .warning, .accent,
-// document.Inks). El CSS del documento las pinta con --doclang-<tinta>-color
-// y, dentro de una superficie con fondo propio (document.InkSurfaces), con
-// --doclang-<superficie>-<tinta>-color si está (core/renderer/document_html.go,
+// inks.Names). El CSS del documento las pinta con --doclang-<tinta>-color y,
+// dentro de una superficie con fondo propio (inks.Surfaces), con
+// --doclang-<superficie>-ink-<tinta> si está (core/renderer/document_html.go,
 // documentInkSurfaceCSS).
 // inkLiterals son los fallbacks del CSS para cada tinta; inkDeep e inkLight,
 // respaldos de la misma familia de color para un fondo donde el literal no
@@ -478,29 +483,27 @@ func (d *themeDeriver) derive() {
 		}
 	}
 
-	// Vínculo del cuerpo: sobre la hoja y las superficies donde aparece. Una
-	// superficie donde ni el texto del tema se lee (una fila alterna clara que
-	// el propio tema dejó bajo texto claro) no cuenta: ahí ningún color de
-	// vínculo arregla nada, y medirla obligaría a dejar ilegibles los
-	// vínculos de todas las demás.
-	var linkBgs []string
-	for _, bg := range append(append([]string{}, pageBgs...), tableBg, stripe, panelBg) {
-		if text == "" || reads(text, minTextContrast, bg) {
-			linkBgs = append(linkBgs, bg)
-		}
-	}
-	d.link("body-link-color", text, linkBgs...)
-
-	// Contenido anidado: lo que va dentro de las superficies (tintas,
-	// vínculo y tecla en el encabezado de la tabla, código en línea).
+	// Tabla: con fondo del tema (propio o derivado) su texto deja de
+	// heredar. Heredado, dentro de una alerta que conserva su fondo claro
+	// tomaba el texto oscuro de la alerta sobre la tabla oscura.
 	bodyText := text
 	if bodyText == "" {
 		bodyText = bodyTextLiteral
+	}
+	if !d.defined("table-color") && text != "" && (d.themed("table-bg") != "" || d.themed("table-stripe-bg") != "") &&
+		reads(text, minTextContrast, tableBg, stripe) {
+		d.set("table-color", text)
 	}
 	tableFg := bodyText
 	if v := d.themed("table-color"); v != "" {
 		tableFg = v
 	}
+
+	// Vínculos del cuerpo y de la tabla.
+	d.bodyAndTableLinks(text, pageBgs, panelBg, tableBg, stripe, tableFg)
+
+	// Contenido anidado: lo que va dentro de las superficies (tintas,
+	// vínculo y tecla en el encabezado de la tabla, código en línea).
 	panelFg := bodyText
 	if v := d.themed("panel-color"); v != "" {
 		panelFg = v
@@ -523,15 +526,90 @@ func (d *themeDeriver) derive() {
 			d.resolved("callout-"+kind+"-bg", cssFallbacks["callout-"+kind+"-bg"]),
 			d.resolved("callout-"+kind+"-color", cssFallbacks["callout-"+kind+"-color"])})
 	}
-	surfaces = append(surfaces,
-		inkSurface{"quiz", quizBgResolved, quizText},
-		inkSurface{"toc", tocBg, d.resolved("toc-link-color", tocLinkLiteral)},
-		inkSurface{"sidebar", sidebarBg, d.resolved("toc-link-color", sidebarTocLinkLiteral)},
-	)
+	surfaces = append(surfaces, inkSurface{"quiz", quizBgResolved, quizText})
 	d.inks(pageBgs, bodyText, surfaces)
 	d.tableHeaderLink(thBg, thFg)
 	d.kbdColor(bodyText, surfaces)
-	d.codeInline(bodyText, stripe, sheet)
+	d.codePairs(text, stripe, sheet)
+}
+
+// bodyAndTableLinks elige el vínculo del cuerpo y, aparte, el de las celdas
+// de la tabla (--doclang-table-link-color, que el CSS lee en td).
+//
+// El del cuerpo se mide sobre la página, la hoja y los paneles: el del tema
+// si se lee ahí; si no, ninguno (el del navegador) mientras ese se lea; si
+// tampoco, el azul claro de respaldo. Si ninguno se lee en todos, se acepta
+// el primero que se lea sobre la página y la hoja, y solo si tampoco hay
+// uno así, el texto del cuerpo (el vínculo sigue subrayado). Una superficie
+// donde ni el texto del tema se lee (un panel claro bajo texto claro) no
+// cuenta: ahí ningún vínculo arregla nada.
+//
+// La tabla y su fila alterna ya no bajan el vínculo de todo el documento:
+// si el del cuerpo no se lee sobre la tabla, la tabla lleva el suyo
+// (--doclang-table-link-color: el del tema, el del navegador, el azul claro
+// o el texto de la tabla), y si el de la tabla no se lee sobre la fila
+// alterna, la fila alterna el suyo (--doclang-table-stripe-link-color).
+// Cada uno se mide solo contra su fondo, aunque el texto del tema no se lea
+// ahí: un vínculo legible sobre una fila alterna que el tema dejó ilegible
+// es mejor que ninguno.
+func (d *themeDeriver) bodyAndTableLinks(text string, pageBgs []string, panelBg, tableBg, stripe, tableFg string) {
+	themeLink, _ := d.get("link-color")
+	readable := func(fg string, bgs ...string) []string {
+		var out []string
+		for _, bg := range bgs {
+			if fg == "" || reads(fg, minTextContrast, bg) {
+				out = append(out, bg)
+			}
+		}
+		return out
+	}
+	if !d.defined("body-link-color") {
+		all := readable(text, append(append([]string{}, pageBgs...), panelBg)...)
+		page := readable(text, pageBgs...)
+		chosen := false
+		for _, bgs := range [][]string{all, page} {
+			if themeLink != "" && reads(themeLink, minTextContrast, bgs...) {
+				d.set("body-link-color", themeLink)
+				chosen = true
+				break
+			}
+			if reads(browserLinkColor, minTextContrast, bgs...) {
+				chosen = true // queda el del navegador
+				break
+			}
+			if reads(darkThemeLinkColor, minTextContrast, bgs...) {
+				d.set("body-link-color", darkThemeLinkColor)
+				chosen = true
+				break
+			}
+		}
+		if !chosen && text != "" && reads(text, minTextContrast, pageBgs...) {
+			d.set("body-link-color", text)
+		}
+	}
+	// Celdas: la tabla y la fila alterna, cada una con su fondo. La fila
+	// alterna hereda el vínculo de la tabla si no tiene uno propio.
+	body := d.themed("body-link-color")
+	if body == "" {
+		body = browserLinkColor
+	}
+	pickFor := func(bg string, fallbackFg string) (string, bool) {
+		return pickText(minTextContrast, []string{bg}, themeLink, browserLinkColor, darkThemeLinkColor, fallbackFg, blackOrWhite(bg))
+	}
+	tableLink := body
+	if !d.defined("table-link-color") && !reads(body, minTextContrast, tableBg) {
+		if c, ok := pickFor(tableBg, tableFg); ok {
+			d.set("table-link-color", c)
+		}
+	}
+	if v := d.themed("table-link-color"); v != "" {
+		tableLink = v
+	}
+	if !d.defined("table-stripe-link-color") && stripe != tableBg && !reads(tableLink, minTextContrast, stripe) {
+		if c, ok := pickFor(stripe, tableFg); ok && c != tableLink {
+			d.set("table-stripe-link-color", c)
+		}
+	}
 }
 
 // inkSurface es una superficie con fondo propio donde puede ir texto con
@@ -542,12 +620,13 @@ type inkSurface struct {
 
 // inks deriva las tintas de estado. La del documento (--doclang-<tinta>-color)
 // solo si el tema no la define y el literal no se lee sobre la página; la de
-// cada superficie solo donde la del documento no se lee sobre su fondo: el
-// literal, su versión oscura, su versión clara o, si ninguna se lee, el texto
-// de la superficie. Un fondo que no se puede medir (el degradado literal del
-// encabezado de la tabla) se deja como está.
+// cada superficie (--doclang-<superficie>-ink-<tinta>) solo donde la del
+// documento no se lee sobre su fondo: el literal, su versión oscura, su
+// versión clara, el texto de la superficie o, como último recurso, el negro o
+// el blanco, el que más contraste dé. Un fondo que no se puede medir (el
+// degradado literal del encabezado de la tabla) se deja como está.
 func (d *themeDeriver) inks(pageBgs []string, bodyText string, surfaces []inkSurface) {
-	for _, ink := range document.Inks {
+	for _, ink := range inks.Names {
 		name := ink + "-color"
 		if !d.defined(name) && !reads(inkLiterals[ink], minTextContrast, pageBgs...) {
 			if c, ok := pickText(minTextContrast, pageBgs, inkDeep[ink], inkLight[ink], bodyText); ok {
@@ -559,18 +638,34 @@ func (d *themeDeriver) inks(pageBgs []string, bodyText string, surfaces []inkSur
 			if s.bg == "" || reads(doc, minTextContrast, s.bg) {
 				continue
 			}
-			if c, ok := pickText(minTextContrast, []string{s.bg}, inkLiterals[ink], inkDeep[ink], inkLight[ink], s.fg); ok {
-				d.set(s.name+"-"+ink+"-color", c)
+			if _, ok := a11y.ContrastRatio("#000000", s.bg); !ok {
+				continue
 			}
+			c, ok := pickText(minTextContrast, []string{s.bg}, inkLiterals[ink], inkDeep[ink], inkLight[ink], s.fg)
+			if !ok {
+				c = blackOrWhite(s.bg)
+			}
+			d.set(strings.TrimPrefix(inks.Variable(s.name, ink), "--doclang-"), c)
 		}
 	}
 }
 
+// blackOrWhite es el negro o el blanco, el que más contraste dé sobre bg.
+func blackOrWhite(bg string) string {
+	b, _ := a11y.ContrastRatio("#000000", bg)
+	w, _ := a11y.ContrastRatio("#ffffff", bg)
+	if w > b {
+		return "#ffffff"
+	}
+	return "#000000"
+}
+
 // tableHeaderLink: un vínculo en el encabezado de la tabla toma el del cuerpo
 // mientras se lea sobre ese fondo; si no, el del tema, el del navegador, el
-// azul claro de respaldo o el texto del encabezado, el primero que se lea.
+// azul claro de respaldo, el texto del encabezado o el negro o el blanco, el
+// primero que se lea.
 func (d *themeDeriver) tableHeaderLink(thBg, thFg string) {
-	if thBg == "" {
+	if thBg == "" || d.defined("table-header-link-color") {
 		return
 	}
 	cur := d.themed("body-link-color")
@@ -581,7 +676,7 @@ func (d *themeDeriver) tableHeaderLink(thBg, thFg string) {
 		return
 	}
 	themeLink, _ := d.get("link-color")
-	if c, ok := pickText(minTextContrast, []string{thBg}, themeLink, browserLinkColor, darkThemeLinkColor, thFg); ok {
+	if c, ok := pickText(minTextContrast, []string{thBg}, themeLink, browserLinkColor, darkThemeLinkColor, thFg, blackOrWhite(thBg)); ok {
 		d.set("table-header-link-color", c)
 	}
 }
@@ -590,7 +685,9 @@ func (d *themeDeriver) tableHeaderLink(thBg, thFg string) {
 // (la página, una alerta, el encabezado de la tabla...), pero su fondo es
 // siempre --doclang-kbd-bg. Si alguno de esos textos no se lee sobre él, la
 // tecla lleva color propio: el texto del cuerpo o, si tampoco, el negro o el
-// blanco de siempre.
+// blanco de siempre. Una superficie cuyo fondo no se puede medir (el
+// degradado literal del encabezado de la tabla) no cuenta, como no cuenta
+// para las tintas.
 func (d *themeDeriver) kbdColor(bodyText string, surfaces []inkSurface) {
 	if d.defined("kbd-color") {
 		return
@@ -598,7 +695,9 @@ func (d *themeDeriver) kbdColor(bodyText string, surfaces []inkSurface) {
 	bg := d.resolved("kbd-bg", cssFallbacks["kbd-bg"])
 	inherited := []string{bodyText}
 	for _, s := range surfaces {
-		inherited = append(inherited, s.fg)
+		if _, ok := a11y.ContrastRatio("#000000", s.bg); ok {
+			inherited = append(inherited, s.fg)
+		}
 	}
 	for _, fg := range inherited {
 		if !reads(fg, minTextContrast, bg) {
@@ -610,28 +709,49 @@ func (d *themeDeriver) kbdColor(bodyText string, surfaces []inkSurface) {
 	}
 }
 
-// codeInline: el código en línea y el bloque de código pintan su propio
-// fondo, así que solo se mide su par. Se conserva la mitad que puso el tema
-// y se ajusta la otra; si el tema no puso ninguna, el color.
-func (d *themeDeriver) codeInline(bodyText, stripe, sheet string) {
+// Modo oscuro del viewer (html[data-theme="dark"], también con
+// theme_mode: dark): redefine algunas variables del contrato encima de las
+// del tema, entre ellas el fondo del código y del código en línea y el
+// texto del cuerpo, pero no los colores del código. Un color de código
+// derivado aquí sigue pintándose en ese modo sobre el fondo oscuro.
+const (
+	viewerDarkCodeBg = "#2d2d2d" // --doclang-code-bg y --doclang-code-inline-bg
+	viewerDarkText   = "#e0e0e0" // --doclang-text-color
+	textColorRef     = "var(--doclang-text-color)"
+)
+
+// codeCandidate es un color candidato para el código: lo que se emite y lo
+// que se pinta en el modo claro y en el oscuro del viewer.
+type codeCandidate struct{ emit, light, dark string }
+
+// codePairs: el código en línea y el bloque de código pintan su propio
+// fondo, así que solo se mide su par (ver selfPainted).
+func (d *themeDeriver) codePairs(text, stripe, sheet string) {
 	codeBg, _ := d.get("code-bg")
 	codeColor, _ := d.get("code-color")
+	// El texto del cuerpo como referencia y no como copia: en el modo
+	// oscuro del viewer sigue al texto claro de ese modo, que se lee sobre
+	// su fondo de código; una copia quedaría oscura sobre oscuro.
+	textRef := codeCandidate{}
+	if text != "" {
+		textRef = codeCandidate{textColorRef, text, viewerDarkText}
+	}
 	d.selfPainted("code-inline-bg", "code-inline-color",
-		[]string{stripe, sheet, codeBg},
-		[]string{codeInlineDeepColor, bodyText, codeColor})
-	// El bloque: un tema que aclara --doclang-code-bg sin dar
-	// --doclang-code-color dejaba el gris claro literal (#d4d4d4) encima.
+		[]string{stripe, sheet, codeBg, "#1e1e1e", text},
+		[]codeCandidate{{codeInlineDeepColor, codeInlineDeepColor, codeInlineDeepColor}, textRef,
+			{codeColor, codeColor, codeColor}})
 	d.selfPainted("code-bg", "code-color",
-		[]string{stripe, sheet, cssFallbacks["code-bg"]},
-		[]string{bodyText, "#1a202c", cssFallbacks["code-color"]})
+		[]string{stripe, sheet, cssFallbacks["code-bg"], text},
+		[]codeCandidate{textRef, {"#1a202c", "#1a202c", "#1a202c"}})
 }
 
 // selfPainted ajusta un par fondo/texto de un elemento que pinta su propio
-// fondo cuando no se lee: si el tema puso solo el color, el primer fondo de
-// bgCandidates donde se lea; si no puso el color, el primero de
-// fgCandidates que se lea sobre el fondo. Un par completo del tema no se
-// toca.
-func (d *themeDeriver) selfPainted(bgName, fgName string, bgCandidates, fgCandidates []string) {
+// fondo cuando no se lee. Si el tema puso solo el color, toma el primer fondo
+// de bgCandidates donde se lea. Si no puso el color, el primero de
+// fgCandidates que se lea sobre el fondo y que en el modo oscuro del viewer
+// (fondo viewerDarkCodeBg) no quede peor que lo de antes. Un par completo del
+// tema no se toca.
+func (d *themeDeriver) selfPainted(bgName, fgName string, bgCandidates []string, fgCandidates []codeCandidate) {
 	bg := d.resolved(bgName, cssFallbacks[bgName])
 	fg := d.resolved(fgName, cssFallbacks[fgName])
 	if reads(fg, minTextContrast, bg) {
@@ -647,10 +767,17 @@ func (d *themeDeriver) selfPainted(bgName, fgName string, bgCandidates, fgCandid
 		}
 		return
 	}
-	if !fgFromTheme {
-		if c, ok := pickText(minTextContrast, []string{bg}, fgCandidates...); ok {
-			d.set(fgName, c)
+	if fgFromTheme {
+		return
+	}
+	before, _ := a11y.ContrastRatio(fg, viewerDarkCodeBg)
+	darkMin := math.Min(minTextContrast, before)
+	for _, c := range fgCandidates {
+		if c.emit == "" || !reads(c.light, minTextContrast, bg) || !reads(c.dark, darkMin, viewerDarkCodeBg) {
+			continue
 		}
+		d.set(fgName, c.emit)
+		return
 	}
 }
 
