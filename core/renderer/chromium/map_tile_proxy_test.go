@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"go.ziradocs.com/core/v2/renderer"
 )
@@ -125,5 +126,122 @@ func TestRenderMapToPNG_FailsWithoutTiles(t *testing.T) {
 				t.Fatalf("err = %v, want %q (requests %v)", err, c.wantErr, paths)
 			}
 		})
+	}
+}
+
+// TestRenderMapToPNG_WaitsForSlowTiles (Chromium real): un servidor que da
+// un tile al instante y el resto tarde. Antes el plazo de la página
+// (5 s a zoom bajo, menos que el timeout de un tile) daba el mapa por listo,
+// se capturaba con un solo tile y err() era nil porque los demás seguían en
+// vuelo, ni bien ni mal. Ahora se espera a que no quede ninguno en vuelo y
+// el mapa sale completo. El plazo de la página se acorta para que la prueba
+// no tarde; el caso es el mismo.
+func TestRenderMapToPNG_WaitsForSlowTiles(t *testing.T) {
+	r := newTestChromiumRenderer(t)
+	prevFallback := mapPageFallback
+	mapPageFallback = func(int) time.Duration { return 300 * time.Millisecond }
+	t.Cleanup(func() { mapPageFallback = prevFallback })
+
+	srv, seen := tileTestServer(t, func(p string) bool {
+		if p != "/t/4/3/6.png" {
+			time.Sleep(1500 * time.Millisecond)
+		}
+		return true
+	})
+	data, err := r.RenderMapToPNG(context.Background(), tileServerMap(t, srv.URL, ""), 400, 300)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	paths, _ := seen()
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// La esquina inferior derecha la ocupa el crédito de Leaflet.
+	for _, p := range [][2]int{{3, 3}, {396, 3}, {3, 296}, {396, 150}, {200, 150}} {
+		if r, g, b, _ := img.At(p[0], p[1]).RGBA(); r>>8 != 0x20 || g>>8 != 0xa0 || b>>8 != 0x40 {
+			t.Errorf("pixel %v = %d,%d,%d: a slow tile was not in the capture (requests %d)", p, r>>8, g>>8, b>>8, len(paths))
+		}
+	}
+}
+
+// TestMapTileStats_InFlightCountAsFailed: lo que sigue en vuelo al capturar
+// cuenta como fallido, así que un tile listo y cinco en camino no pasan.
+func TestMapTileStats_InFlightCountAsFailed(t *testing.T) {
+	var s mapTileStats
+	s.started.Store(6)
+	s.ok.Store(1)
+	s.snapshot()
+	if err := s.err(); err == nil || !strings.Contains(err.Error(), "only 1 of 6") {
+		t.Fatalf("err = %v, want only 1 of 6", err)
+	}
+	var settled mapTileStats
+	settled.started.Store(6)
+	settled.ok.Store(5)
+	settled.failed.Store(1)
+	if err := settled.err(); err != nil {
+		t.Fatalf("five of six tiles: %v", err)
+	}
+	if mapPageFallback(1) <= mapTileTimeout {
+		t.Errorf("page fallback %v is not longer than a tile timeout %v", mapPageFallback(1), mapTileTimeout)
+	}
+}
+
+// TestFetchMapTile_ContentTypeAndRedirects: un tile como
+// application/octet-stream vale si es PNG o JPEG por su firma (como en el
+// render nativo); una redirección al mismo host se sigue y a otro host no.
+func TestFetchMapTile_ContentTypeAndRedirects(t *testing.T) {
+	pngTile := []byte("\x89PNG\r\n\x1a\nrest")
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngTile)
+	}))
+	t.Cleanup(other.Close)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/octet-png":
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(pngTile)
+		case "/octet-jpeg":
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write([]byte{0xff, 0xd8, 0xff, 0xe0, 1, 2})
+		case "/octet-html":
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write([]byte("<html>"))
+		case "/same-host":
+			http.Redirect(w, r, "/octet-png", http.StatusFound)
+		case "/other-host":
+			http.Redirect(w, r, other.URL+"/x.png", http.StatusFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	client := newMapTileClient()
+	cases := []struct {
+		path, wantType string
+		wantErr        bool
+	}{
+		{"/octet-png", "image/png", false},
+		{"/octet-jpeg", "image/jpeg", false},
+		{"/octet-html", "", true},
+		{"/same-host", "image/png", false},
+		{"/other-host", "", true},
+	}
+	for _, c := range cases {
+		_, ctype, err := fetchMapTile(context.Background(), client, srv.URL+c.path, "ua")
+		if (err != nil) != c.wantErr || ctype != c.wantType {
+			t.Errorf("%s: type %q err %v", c.path, ctype, err)
+		}
+	}
+}
+
+// TestMapTileURL_Normalized y TestCheckMapSize: las coordenadas se vuelven a
+// escribir como enteros y un mapa del respaldo tiene un tope de lado.
+func TestMapTileURL_Normalized(t *testing.T) {
+	got, ok := mapTileURL(mapTileProxyOrigin+"/a/04/+3/0005", "https://t.example.com/{z}/{x}/{y}.png")
+	if !ok || got != "https://t.example.com/4/3/5.png" {
+		t.Fatalf("url = %q (%v)", got, ok)
+	}
+	if checkMapSize(800, 600) != nil || checkMapSize(5000, 600) == nil || checkMapSize(0, 600) == nil {
+		t.Fatal("checkMapSize does not enforce 1..4096")
 	}
 }

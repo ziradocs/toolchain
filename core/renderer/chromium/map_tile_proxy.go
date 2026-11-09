@@ -6,6 +6,7 @@
 package chromium
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -51,21 +52,99 @@ const defaultMapTileUserAgent = "Mozilla/5.0+(compatible; go-staticmaps/0.1; htt
 // mapTileMaxBytes acota cada tile descargado.
 const mapTileMaxBytes = 4 << 20
 
-// mapTileTimeout acota cada tile descargado.
-const mapTileTimeout = 15 * time.Second
+// mapTileTimeout acota cada tile descargado. Es variable para las
+// pruebas.
+var mapTileTimeout = 15 * time.Second
 
-// mapTileStats cuenta los tiles que la página pidió.
-type mapTileStats struct {
-	ok, failed atomic.Int32
+// mapTileConcurrency es cuántos tiles se descargan a la vez.
+const mapTileConcurrency = 8
+
+// mapMaxSidePx acota el ancho y el alto de un mapa del respaldo: un mapa
+// enorme pide miles de tiles.
+const mapMaxSidePx = 4096
+
+// mapPageFallback es el plazo con el que la página da el mapa por listo
+// aunque Leaflet no haya terminado. Tiene que pasar al menos un timeout de
+// tile: antes era de 5 s a zoom bajo, menos que los 15 s de un tile, y un
+// servidor lento hacía que se capturara con la mayoría de los tiles todavía
+// en camino. Es variable para las pruebas.
+var mapPageFallback = func(zoom int) time.Duration {
+	d := 5 * time.Second
+	switch {
+	case zoom >= 11:
+		d = 30 * time.Second
+	case zoom >= 7:
+		d = 10 * time.Second
+	}
+	return max(d, mapTileTimeout+time.Second)
 }
 
+// mapCaptureTimeout es el plazo total de una captura del respaldo: la
+// página, la espera de los tiles en vuelo y la captura.
+func mapCaptureTimeout(zoom int) time.Duration {
+	return mapPageFallback(zoom) + mapTileTimeout + 15*time.Second
+}
+
+// mapTileStats cuenta los tiles que la página pidió: started al empezar la
+// descarga, ok y failed al terminar. Los que siguen en vuelo al capturar
+// (started - ok - failed) cuentan como fallidos.
+type mapTileStats struct {
+	started, ok, failed atomic.Int32
+	final               atomic.Pointer[mapTileResult]
+}
+
+// settled dice si no queda ningún tile en vuelo.
+func (s *mapTileStats) settled() bool {
+	return s.started.Load() == s.ok.Load()+s.failed.Load()
+}
+
+// waitTilesSettled espera, antes de capturar, a que no quede ningún tile en
+// vuelo, con un tope de un timeout de tile y poco más (lo que tarde de más
+// queda fuera del mapa y cuenta como fallido en err). Después deja un
+// momento para que Leaflet pinte los últimos.
+func waitTilesSettled(stats *mapTileStats) chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, _ *chromedp.Target) error {
+		deadline := time.Now().Add(mapTileTimeout + time.Second)
+		for !stats.settled() && time.Now().Before(deadline) {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+		stats.snapshot()
+		return nil
+	})
+}
+
+// snapshot fija el resultado al capturar: lo que llegue después ya no está
+// en el PNG. Lo que sigue en vuelo cuenta como fallido.
+func (s *mapTileStats) snapshot() {
+	started, ok, failed := s.started.Load(), s.ok.Load(), s.failed.Load()
+	s.final.Store(&mapTileResult{ok: int(ok), failed: int(failed) + int(started-ok-failed)})
+}
+
+// mapTileResult es el resultado fijado por snapshot.
+type mapTileResult struct{ ok, failed int }
+
 // err es la regla del respaldo: el mapa no se entrega si no llegó ningún
-// tile o si fallaron más de la mitad. Un mapa con la mayoría del fondo vacío
-// pasa por bueno sin serlo (el lector no ve que falta algo) y es mejor dejar
-// el marcador de no disponible, que --fail-on-unavailable sí detecta. Uno o
-// dos tiles perdidos en los bordes de un mapa grande no lo descartan.
+// tile o si fallaron (o seguían en vuelo al capturar) más de la mitad. Un
+// mapa con la mayoría del fondo vacío pasa por bueno sin serlo (el lector no
+// ve que falta algo) y es mejor dejar el marcador de no disponible, que
+// --fail-on-unavailable sí detecta. Uno o dos tiles perdidos en los bordes
+// de un mapa grande no lo descartan.
 func (s *mapTileStats) err() error {
-	ok, failed := int(s.ok.Load()), int(s.failed.Load())
+	r := s.final.Load()
+	if r == nil {
+		s.snapshot()
+		r = s.final.Load()
+	}
+	ok, failed := r.ok, r.failed
 	switch {
 	case ok == 0:
 		return fmt.Errorf("no map tile could be downloaded (%d failed)", failed)
@@ -106,7 +185,9 @@ func mapTileURL(pageURL, realTemplate string) (string, bool) {
 	if errZ != nil || errX != nil || errY != nil || z < 0 || z > 22 || x < 0 || y < 0 || x >= 1<<z || y >= 1<<z {
 		return "", false
 	}
-	return strings.NewReplacer("{s}", parts[0], "{z}", parts[1], "{x}", parts[2], "{y}", parts[3]).Replace(realTemplate), true
+	// Los números se vuelven a escribir: "04" o "+4" no llegan tal cual al
+	// servidor.
+	return strings.NewReplacer("{s}", parts[0], "{z}", strconv.Itoa(z), "{x}", strconv.Itoa(x), "{y}", strconv.Itoa(y)).Replace(realTemplate), true
 }
 
 // fetchMapTile descarga un tile y devuelve sus bytes y su Content-Type.
@@ -125,7 +206,9 @@ func fetchMapTile(ctx context.Context, client *http.Client, url, userAgent strin
 		return nil, "", fmt.Errorf("tile server answered %s", resp.Status)
 	}
 	ctype := resp.Header.Get("Content-Type")
-	if mt, _, err := mime.ParseMediaType(ctype); err != nil || !strings.HasPrefix(mt, "image/") {
+	mt, _, mtErr := mime.ParseMediaType(ctype)
+	generic := mtErr == nil && mt == "application/octet-stream"
+	if !generic && (mtErr != nil || !strings.HasPrefix(mt, "image/")) {
 		return nil, "", fmt.Errorf("tile server answered %q, not an image", ctype)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, mapTileMaxBytes+1))
@@ -135,7 +218,38 @@ func fetchMapTile(ctx context.Context, client *http.Client, url, userAgent strin
 	if len(data) > mapTileMaxBytes {
 		return nil, "", fmt.Errorf("tile larger than %d bytes", mapTileMaxBytes)
 	}
+	if generic {
+		// Como el render nativo (go-staticmaps decodifica sin mirar el
+		// Content-Type): un tile como application/octet-stream vale si es
+		// PNG o JPEG por su firma.
+		switch {
+		case bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")):
+			ctype = "image/png"
+		case bytes.HasPrefix(data, []byte{0xff, 0xd8, 0xff}):
+			ctype = "image/jpeg"
+		default:
+			return nil, "", fmt.Errorf("tile server answered application/octet-stream that is neither PNG nor JPEG")
+		}
+	}
 	return data, ctype, nil
+}
+
+// newMapTileClient es el cliente de los tiles: con timeout por tile y sin
+// seguir redirecciones a otro host (un servidor de tiles no tiene por qué
+// mandar a otro lado, y el host lo fijó el operador).
+func newMapTileClient() *http.Client {
+	return &http.Client{
+		Timeout: mapTileTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many tile redirects")
+			}
+			if req.URL.Host != via[0].URL.Host || req.URL.Scheme != via[0].URL.Scheme {
+				return fmt.Errorf("tile redirect to another host (%s) refused", req.URL.Host)
+			}
+			return nil
+		},
+	}
 }
 
 // serveMapTiles activa la intercepción de pedidos del tab del mapa: un
@@ -152,7 +266,8 @@ func serveMapTiles(config renderer.MapConfig, stats *mapTileStats) chromedp.Acti
 		if _, ua := config.TileServer(); ua != "" {
 			userAgent = ua
 		}
-		client := &http.Client{Timeout: mapTileTimeout}
+		client := newMapTileClient()
+		slots := make(chan struct{}, mapTileConcurrency)
 		paused := cdp.Events(ctx, t, fetch.RequestPaused)
 		go func() {
 			for e, err := range paused {
@@ -162,7 +277,10 @@ func serveMapTiles(config renderer.MapConfig, stats *mapTileStats) chromedp.Acti
 				go func(e fetch.EventRequestPaused) {
 					if e.Request != nil {
 						if url, ok := mapTileURL(e.Request.URL, realTemplate); ok {
+							stats.started.Add(1)
+							slots <- struct{}{}
 							data, ctype, err := fetchMapTile(ctx, client, url, userAgent)
+							<-slots
 							if err == nil {
 								stats.ok.Add(1)
 								_, _ = cdp.Call(ctx, t, fetch.FulfillRequest, fetch.FulfillRequestParams{
@@ -188,4 +306,12 @@ func serveMapTiles(config renderer.MapConfig, stats *mapTileStats) chromedp.Acti
 		})
 		return err
 	})
+}
+
+// checkMapSize rechaza un mapa del respaldo de más de mapMaxSidePx de lado.
+func checkMapSize(width, height int) error {
+	if width <= 0 || height <= 0 || width > mapMaxSidePx || height > mapMaxSidePx {
+		return fmt.Errorf("map size %dx%d outside 1..%d px per side", width, height, mapMaxSidePx)
+	}
+	return nil
 }

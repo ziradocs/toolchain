@@ -1188,6 +1188,9 @@ func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, char
 // llamada puntual (issue #134/G1d), además del timeout ajustado por zoom.
 func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig renderer.MapConfig, width, height int) ([]byte, error) {
 	r.logger.Info("MAP", "Rendering map to PNG...")
+	if err := checkMapSize(width, height); err != nil {
+		return nil, err
+	}
 
 	// Generar HTML con Leaflet + flag de renderizado completo
 	html := r.generateLeafletHTML(mapConfig, width, height)
@@ -1203,17 +1206,9 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
 	defer tabCancel()
 
-	// Crear contexto con timeout ajustado según zoom
-	// El timeout debe ser MUCHO mayor que el fallback de JavaScript para dar tiempo al rendering
-	// JS fallback: 5s (zoom <7), 10s (zoom 7-10), 30s (zoom 11+)
-	// Go timeout: 15s (zoom <7), 20s (zoom 7-10), 60s (zoom 11+)
-	timeout := 15 * time.Second
-	if mapConfig.Zoom >= 11 {
-		timeout = 60 * time.Second // Zoom muy alto: 60 segundos (JS fallback = 30s + buffer)
-		r.logger.Info("MAP", "High zoom level (%d), using extended timeout (60s)...", mapConfig.Zoom)
-	} else if mapConfig.Zoom >= 7 {
-		timeout = 20 * time.Second // Zoom medio: 20 segundos (JS fallback = 10s + buffer)
-	}
+	// El plazo cubre el de la página (mapPageFallback), la espera de los
+	// tiles en vuelo y la captura (mapCaptureTimeout).
+	timeout := mapCaptureTimeout(mapConfig.Zoom)
 
 	timeoutCtx, timeoutCancel := context.WithTimeout(tabCtx, timeout)
 	defer timeoutCancel()
@@ -1234,7 +1229,8 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 		// no carga, `L.map` lanza y eso corta la espera de inmediato en vez
 		// de agotar el plazo por zoom.
 		waitRenderState(mapStateJS),
-		chromedp.Sleep(200*time.Millisecond), // Pequeño buffer para asegurar rendering completo
+		// Ningún tile en vuelo al capturar (ver waitTilesSettled).
+		waitTilesSettled(&tiles),
 		bringTabToFront(),
 		store(&pngData, chromedp.Screenshot(chromedp.ID("#mapContainer"))),
 	)
@@ -1324,6 +1320,9 @@ func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, cha
 // RenderMapToWebP renderiza un mapa Leaflet directamente a WebP. ctx
 // acota/cancela esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig renderer.MapConfig, width, height int, quality int) ([]byte, error) {
+	if err := checkMapSize(width, height); err != nil {
+		return nil, err
+	}
 	r.logger.Info("MAP", "Rendering map to WebP (quality: %d)...", quality)
 
 	// Generar HTML con Leaflet + flag de renderizado completo
@@ -1340,8 +1339,8 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
 	defer tabCancel()
 
-	// Crear contexto con timeout para evitar espera infinita
-	const timeout = 30 * time.Second
+	// Mismo plazo que RenderMapToPNG (mapCaptureTimeout).
+	timeout := mapCaptureTimeout(mapConfig.Zoom)
 	timeoutCtx, timeoutCancel := context.WithTimeout(tabCtx, timeout)
 	defer timeoutCancel()
 
@@ -1360,7 +1359,7 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 		// #renderComplete (que este camino esperaba y la página nunca
 		// creó: todo mapa WebP agotaba los 30 s).
 		waitRenderState(mapStateJS),
-		chromedp.Sleep(300*time.Millisecond), // Buffer adicional
+		waitTilesSettled(&tiles),
 		bringTabToFront(),
 		// Usar page.CaptureScreenshot con formato WebP
 		store(&webpData, captureScreenshot(page.CaptureScreenshotParams{
@@ -1473,7 +1472,8 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
         }
     </script>
     <script>
-        const map = L.map('map').setView([%f, %f], %d);
+        // Sin animación de entrada: un tile recién llegado se captura entero.
+        const map = L.map('map', {fadeAnimation: false}).setView([%f, %f], %d);
         const tileLayer = L.tileLayer('%s', {
             attribution: '%s',
             maxZoom: 19
@@ -1522,14 +1522,9 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
             }
         }, 200);
         
-        // Fallback dinámico basado en zoom level
-        const zoom = %d;
-        let fallbackTimeout = 5000;
-        if (zoom >= 11) {
-            fallbackTimeout = 30000;  // 30 segundos para zoom muy alto
-        } else if (zoom >= 7) {
-            fallbackTimeout = 10000;  // 10 segundos para zoom medio
-        }
+        // Plazo de la página (mapPageFallback en Go): al menos un timeout
+        // de tile, para no capturar con tiles todavía en camino.
+        const fallbackTimeout = %d;
         
         setTimeout(() => {
             if (!isReady) {
@@ -1546,7 +1541,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
         }, 100);
     </script>
 </body>
-</html>`, mapRenderCSP, leafletAssetTags, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, leafletAttribution(config), markersJS, config.Zoom)
+</html>`, mapRenderCSP, leafletAssetTags, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, leafletAttribution(config), markersJS, mapPageFallback(config.Zoom).Milliseconds())
 }
 
 // Close cierra el renderer y libera recursos
