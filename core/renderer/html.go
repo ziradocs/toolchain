@@ -92,7 +92,7 @@ func renderElementToHTML(element ast.Element, variables map[string]interface{}, 
 		return renderPointsElement(elem, variables)
 
 	case *ast.CodeElement:
-		return renderCodeElement(elem, variables)
+		return renderCodeElement(elem, variables, ctx)
 
 	case *ast.ImageElement:
 		return renderImageElement(elem, variables, ctx)
@@ -131,7 +131,7 @@ func renderElementToHTML(element ast.Element, variables map[string]interface{}, 
 		return renderSpecialBlockElement(elem, variables, ctx)
 
 	case *ast.CodeGroupElement:
-		return renderCodeGroupElement(elem, variables)
+		return renderCodeGroupElement(elem, variables, ctx)
 
 	case *ast.GridElement:
 		return renderGridElement(elem, variables, ctx)
@@ -238,18 +238,13 @@ func renderTypedPoints(items []ast.PointItem, listType string, start *int64, var
 	return html.String()
 }
 
-// renderCodeElement procesa bloques de código con syntax highlighting.
-//
-// El cuerpo es literal: `{{nombre}}` no se sustituye (issue #487). En un
-// documento el código es una muestra (Handlebars, Jinja y las plantillas de
-// Go usan `{{ }}`), y así el HTML/PDF dice lo mismo que el AST, el lint, el
-// DOCX y el Markdown, que ya lo dejaban literal. RenderElementToHTML solo
-// renderiza código para el documento de doclang; slidelang arma el suyo con
-// su plantilla y conserva la sustitución en código. variables queda en la
-// firma por simetría con el resto de render*Element.
-func renderCodeElement(elem *ast.CodeElement, _ map[string]interface{}) string {
+// renderCodeElement procesa bloques de código con syntax highlighting. Con
+// ctx.LiteralCode el cuerpo queda literal (issue #487); si no, sustituye
+// `{{nombre}}` como siempre.
+func renderCodeElement(elem *ast.CodeElement, variables map[string]interface{}, ctx *RenderContext) string {
+	content := codeBody(elem.Content, variables, ctx.literalCode())
 	// Escapar HTML en el contenido del código para prevenir inyección
-	content := EscapeHTML(elem.Content)
+	content = EscapeHTML(content)
 	language := elem.Language
 	if language == "" {
 		language = "plaintext"
@@ -2713,7 +2708,7 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 }
 
 // renderCodeGroupElement procesa grupos de código con tabs
-func renderCodeGroupElement(elem *ast.CodeGroupElement, _ map[string]interface{}) string {
+func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]interface{}, ctx *RenderContext) string {
 	var html strings.Builder
 
 	html.WriteString(`<div class="code-group">`)
@@ -2738,8 +2733,7 @@ func renderCodeGroupElement(elem *ast.CodeGroupElement, _ map[string]interface{}
 		if i == 0 {
 			activeClass = " active"
 		}
-		// Literal, como renderCodeElement (issue #487).
-		content := EscapeHTML(block.Content)
+		content := EscapeHTML(codeBody(block.Content, variables, ctx.literalCode()))
 		language := EscapeHTMLAttribute(block.Language)
 		fmt.Fprintf(&html, `<div class="code-group-block%s" data-index="%d">`, activeClass, i)
 		fmt.Fprintf(&html, `<pre><code class="language-%s">%s</code></pre>`, language, content)

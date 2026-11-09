@@ -25,7 +25,7 @@ func (p *CodeParser) CanParse(line string, mode string) bool {
 
 	// Flex mode: ```language fenced code blocks
 	if mode == "flex" {
-		return strings.HasPrefix(trimmed, "```")
+		return CodeFenceOpen(trimmed) > 0
 	}
 
 	return false
@@ -188,20 +188,48 @@ func commonIndentPrefix(lines []string) (string, bool) {
 	return prefix, seen
 }
 
+// CodeFenceOpen devuelve cuántos backticks abren la cerca de código de trimmed
+// (una línea ya recortada), o 0 si no abre una. Como en CommonMark: tres o más
+// backticks seguidos de un info string sin backticks.
+func CodeFenceOpen(trimmed string) int {
+	n := 0
+	for n < len(trimmed) && trimmed[n] == '`' {
+		n++
+	}
+	if n < 3 || strings.Contains(trimmed[n:], "`") {
+		return 0
+	}
+	return n
+}
+
+// ClosesCodeFence dice si trimmed cierra una cerca de código abierta con
+// ticks backticks: solo backticks, al menos tantos como la apertura.
+func ClosesCodeFence(trimmed string, ticks int) bool {
+	return len(trimmed) >= ticks && strings.Trim(trimmed, "`") == ""
+}
+
 // parseFlexCode handles flex mode code parsing: ```language
 func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, error) {
-	// ```lenguaje [archivo] o ```lenguaje title="archivo"
-	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[3:]))
+	// ```lenguaje [archivo] o ```lenguaje title="archivo". La cerca puede
+	// tener más de tres backticks (````md para mostrar un bloque con ``` adentro).
+	ticks := CodeFenceOpen(line)
+	if ticks == 0 {
+		ticks = 3
+	}
+	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[ticks:]))
 	consumedLines := 1 // skip opening ``` line
 
 	var content strings.Builder
 	lineCount := 0
 
-	// Collect content until closing ```
+	// Collect content until the closing fence: como en CommonMark, una línea
+	// de solo backticks, al menos tantos como la apertura. Antes cerraba en la
+	// primera "```" aunque la cerca hubiera abierto con cuatro, y nunca en
+	// "````": un ````md con un ``` adentro terminaba en ese ``` interno.
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
 
-		if strings.TrimSpace(line) == "```" {
+		if ClosesCodeFence(strings.TrimSpace(line), ticks) {
 			consumedLines++ // count closing ```
 			break
 		}

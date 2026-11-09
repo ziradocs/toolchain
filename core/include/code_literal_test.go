@@ -12,6 +12,12 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
+// expandKeep expande con KeepIncludesInCode, la opción que activa doclang.
+func expandKeep(content, baseDir string, read ReadFunc) (string, error) {
+	res, err := ExpandWithOptions(content, baseDir, read, ExpandOptions{KeepIncludesInCode: true})
+	return res.Text, err
+}
+
 // codeContents parsea src como documento (o presentación) y devuelve el
 // contenido de cada bloque de código, en orden.
 func codeContents(t *testing.T, src string, document bool) []string {
@@ -62,7 +68,7 @@ func TestExpand_CodeBodiesAreLiteral(t *testing.T) {
 		{"slide flex fence", "---\nmode: flex\ntitle: T\n---\n\n# A\n\n```\n@include other.txt\n```\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Expand(tc.src, "/base", memFS(files))
+			got, err := expandKeep(tc.src, "/base", memFS(files))
 			if err != nil {
 				t.Fatalf("Expand: %v", err)
 			}
@@ -94,7 +100,7 @@ func TestExpand_OutsideCodeStillExpands(t *testing.T) {
 		{"inside a diagram", strictDoc + "  <<mermaid>>\n    graph TD\n    @include flow.mmd\n  <<end>>\n", strictDoc + "  <<mermaid>>\n    graph TD\n    A-->B\n\n  <<end>>\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Expand(tc.src, "/base", memFS(files))
+			got, err := expandKeep(tc.src, "/base", memFS(files))
 			if err != nil {
 				t.Fatalf("Expand: %v", err)
 			}
@@ -115,7 +121,7 @@ func TestExpand_CodeRegionsFollowTheExpandedText(t *testing.T) {
 		"/base/frag.doclang":      "  TEXT\n    Incluido.\n",
 	}
 	strictDoc := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n"
-	got, err := Expand(strictDoc+"@include with-code.doclang\n@include frag.doclang\n", "/base", memFS(files))
+	got, err := expandKeep(strictDoc+"@include with-code.doclang\n@include frag.doclang\n", "/base", memFS(files))
 	if err != nil {
 		t.Fatalf("Expand: %v", err)
 	}
@@ -135,9 +141,13 @@ func TestExpandWithOrigins_CodeBodyKeepsLineMap(t *testing.T) {
 		"/base/frag.doclang": "  TEXT\n    Incluido.\n",
 	}
 	src := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  CODE\n    @include frag.doclang\n\n@include frag.doclang\n"
-	expanded, origins, err := ExpandWithOrigins(src, "/base", memFS(files))
+	res, err := ExpandWithOptions(src, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
 	if err != nil {
-		t.Fatalf("ExpandWithOrigins: %v", err)
+		t.Fatalf("ExpandWithOptions: %v", err)
+	}
+	expanded, origins := res.Text, res.Origins
+	if len(res.KeptInCode) != 1 || res.KeptInCode[0] != 8 {
+		t.Errorf("KeptInCode %v, want [8]", res.KeptInCode)
 	}
 	lines := strings.Split(expanded, "\n")
 	if len(origins) != len(lines) {
@@ -154,22 +164,22 @@ func TestExpandWithOrigins_CodeBodyKeepsLineMap(t *testing.T) {
 	}
 }
 
-// Una cerca de cuatro backticks de código cierra donde la cierra el parser: en
-// la primera línea "```" (CodeParser), no en "````". Un @include después de
-// ese "```" ya está fuera del código para el parser, así que se expande. Y una
-// cerca de diagrama (```mermaid) no es código: su @include se expande, como el
-// de un <<mermaid>>.
+// Una cerca de cuatro backticks de código cierra en su línea de cuatro
+// backticks, como la lee el parser: un @include dentro (también después de un
+// ``` interno) es código, y uno después del cierre se expande. Una cerca de
+// diagrama (```mermaid) no es código: su @include se expande, como el de un
+// <<mermaid>>.
 func TestExpand_FencesCloseWhereTheParserClosesThem(t *testing.T) {
 	files := map[string]string{"/base/frag.md": "Incluido."}
 	for _, tc := range []struct {
 		name, src, want string
 	}{
-		{"four-backtick code fence", "# A\n\n````txt\nx\n```\n@include frag.md\n", "# A\n\n````txt\nx\n```\nIncluido.\n"},
+		{"four-backtick code fence", "# A\n\n````md\n```\n@include frag.md\n```\n````\n@include frag.md\n", "# A\n\n````md\n```\n@include frag.md\n```\n````\nIncluido.\n"},
 		{"mermaid fence", "# A\n\n```mermaid\n@include frag.md\n```\n", "# A\n\n```mermaid\nIncluido.\n```\n"},
 		{"four-backtick mermaid closed by four", "# A\n\n````mermaid\ngraph TD\n````\n@include frag.md\n", "# A\n\n````mermaid\ngraph TD\n````\nIncluido.\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Expand(tc.src, "/base", memFS(files))
+			got, err := expandKeep(tc.src, "/base", memFS(files))
 			if err != nil {
 				t.Fatalf("Expand: %v", err)
 			}
@@ -178,9 +188,25 @@ func TestExpand_FencesCloseWhereTheParserClosesThem(t *testing.T) {
 			}
 		})
 	}
-	// Lo que sigue siendo código: el cuerpo antes del "```".
-	src := "# A\n\n````txt\n@include frag.md\n```\n"
-	if got, _ := Expand(src, "/base", memFS(files)); got != src {
-		t.Errorf("the body of a four-backtick code fence must stay literal: %q", got)
+}
+
+// Sin la opción, la expansión es la de siempre: un @include dentro de código
+// también se expande. Es lo que conserva slidelang (y Expand/ExpandWithOrigins
+// para cualquier llamador).
+func TestExpand_DefaultStillExpandsInsideCode(t *testing.T) {
+	files := map[string]string{"/base/other.txt": "    INCLUDED\n"}
+	for _, src := range []string{
+		"---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  CODE\n    @include other.txt\n",
+		"---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  CODE\n    @include other.txt\n",
+		"# A\n\n```\n@include other.txt\n```\n",
+	} {
+		got, err := Expand(src, "/base", memFS(files))
+		if err != nil || !strings.Contains(got, "INCLUDED") || strings.Contains(got, "@include") {
+			t.Errorf("Expand must expand inside code by default: %q, %v", got, err)
+		}
+		res, err := ExpandWithOptions(src, "/base", memFS(files), ExpandOptions{})
+		if err != nil || res.Text != got || len(res.KeptInCode) != 0 {
+			t.Errorf("ExpandWithOptions with no options must match Expand: %q %v %v", res.Text, res.KeptInCode, err)
+		}
 	}
 }

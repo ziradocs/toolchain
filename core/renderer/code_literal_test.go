@@ -11,33 +11,38 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
-// Issue #487: en el HTML del documento el código es literal, `{{nombre}}`
-// incluido, como en el AST, el lint, el DOCX y el Markdown. La etiqueta de
-// una pestaña de code-group no es código y sigue como estaba.
-func TestRenderElementToHTML_CodeIsLiteral(t *testing.T) {
+// Issue #487: con RenderContext.LiteralCode el código es literal, `{{nombre}}`
+// incluido, como en el AST. La etiqueta de una pestaña de code-group no es
+// código y sigue como estaba. Sin la opción (el valor cero, lo que usa
+// slidelang) el código sustituye como siempre.
+func TestRenderElementToHTML_LiteralCodeOption(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
-	vars := map[string]interface{}{"title": "Demo", "name": "<b>x</b>"}
+	vars := map[string]interface{}{"title": "Demo"}
 
-	code := ast.NewCodeElement(pos, "yaml", "a: {{title}}\nb: {{name}}")
-	out := RenderElementToHTML(code, vars, nil)
-	if !strings.Contains(out, "a: {{title}}\nb: {{name}}") || strings.Contains(out, "Demo") {
-		t.Errorf("code body must stay literal:\n%s", out)
-	}
-
+	code := ast.NewCodeElement(pos, "yaml", "a: {{title}}")
 	group := ast.NewCodeGroupElement(pos)
-	group.CodeBlocks = append(group.CodeBlocks, ast.CodeBlock{Language: "go", Label: "main.go", Content: "fmt.Println(\"{{title}}\")"})
-	out = RenderElementToHTML(group, vars, nil)
-	if !strings.Contains(out, "fmt.Println(&#34;{{title}}&#34;)") && !strings.Contains(out, "fmt.Println(&quot;{{title}}&quot;)") {
-		t.Errorf("code-group body must stay literal:\n%s", out)
-	}
-	if strings.Contains(out, "Demo") {
-		t.Errorf("code-group body was substituted:\n%s", out)
+	group.CodeBlocks = append(group.CodeBlocks, ast.CodeBlock{Language: "go", Label: "main.go", Content: "b: {{title}}"})
+
+	for _, tc := range []struct {
+		ctx       *RenderContext
+		code, grp string
+	}{
+		{&RenderContext{LiteralCode: true}, "a: {{title}}", "b: {{title}}"},
+		{nil, "a: Demo", "b: Demo"},
+		{&RenderContext{}, "a: Demo", "b: Demo"},
+	} {
+		if out := RenderElementToHTML(code, vars, tc.ctx); !strings.Contains(out, tc.code) {
+			t.Errorf("ctx %+v: code %q not in:\n%s", tc.ctx, tc.code, out)
+		}
+		if out := RenderElementToHTML(group, vars, tc.ctx); !strings.Contains(out, tc.grp) {
+			t.Errorf("ctx %+v: code-group %q not in:\n%s", tc.ctx, tc.grp, out)
+		}
 	}
 }
 
-// El documento completo: el bloque de código sale literal mientras el texto
-// de alrededor sí sustituye.
-func TestGenerateDocumentHTML_CodeIsLiteralProseIsNot(t *testing.T) {
+// El documento completo con la opción: el bloque de código sale literal y el
+// texto de alrededor sigue sustituyendo.
+func TestGenerateDocumentHTML_LiteralCodeOption(t *testing.T) {
 	doc := ast.NewAST(diagnostics.NewPosition(1, 1))
 	doc.FrontMatter = ast.NewFrontMatterNode(diagnostics.NewPosition(1, 1))
 	doc.FrontMatter.Title = "Demo"
@@ -49,11 +54,31 @@ func TestGenerateDocumentHTML_CodeIsLiteralProseIsNot(t *testing.T) {
 	}
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 
-	out := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, nil)
+	out := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, &RenderContext{LiteralCode: true})
 	if !strings.Contains(out, "a: {{title}}") {
 		t.Errorf("the code block must keep {{title}}")
 	}
 	if !strings.Contains(out, "Título: Demo") {
 		t.Errorf("prose must still substitute {{title}}")
+	}
+	if out := GenerateDocumentHTML(doc, DocumentHTMLOptions{}, nil); !strings.Contains(out, "a: Demo") {
+		t.Errorf("without the option the code block substitutes, as before")
+	}
+}
+
+// PopulateInlineHTMLWithOptions con LiteralCode deja el contentHTML del código
+// literal; PopulateInlineHTML (sin opciones) sustituye, como siempre.
+func TestPopulateInlineHTML_LiteralCodeOption(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"title": "Demo"}
+	for _, tc := range []struct {
+		literal bool
+		want    string
+	}{{true, "a: {{title}}"}, {false, "a: Demo"}} {
+		code := ast.NewCodeElement(pos, "yaml", "a: {{title}}")
+		PopulateInlineHTMLWithOptions(newTestDoc(code), vars, InlineHTMLOptions{LiteralCode: tc.literal})
+		if code.ContentHTML != tc.want {
+			t.Errorf("literal=%v: contentHTML %q, want %q", tc.literal, code.ContentHTML, tc.want)
+		}
 	}
 }

@@ -94,6 +94,43 @@ func (o LineOrigins) File(line int) string {
 //
 // El texto expandido y los errores son exactamente los de Expand.
 func ExpandWithOrigins(content, baseDir string, read ReadFunc) (string, LineOrigins, error) {
+	lines, origins, err := expand(content, "", baseDir, read, map[string]bool{}, 0)
+	if err != nil {
+		return "", nil, err
+	}
+	return strings.Join(lines, "\n"), origins, nil
+}
+
+// ExpandOptions ajusta la expansión. El valor cero es el comportamiento de
+// Expand y ExpandWithOrigins.
+type ExpandOptions struct {
+	// KeepIncludesInCode deja como está una línea `@include` que cae dentro de
+	// un cuerpo de código (CODE strict, cerca de código, :::code-group). El
+	// parser guarda esa línea como texto del código, así que con esta opción el
+	// build emite lo mismo que el AST y el lint describen (issue #487). doclang
+	// la activa; slidelang no, y conserva la expansión en todas partes.
+	KeepIncludesInCode bool
+}
+
+// Expansion es el resultado de ExpandWithOptions.
+type Expansion struct {
+	// Text es el contenido expandido, el mismo que devolvería Expand con las
+	// mismas opciones.
+	Text string
+	// Origins es el archivo de origen de cada línea de Text (ver LineOrigins).
+	Origins LineOrigins
+	// KeptInCode son las líneas de Text (1-based) con un `@include` que se dejó
+	// sin expandir por estar dentro de código (KeepIncludesInCode), para que
+	// el llamador lo pueda avisar.
+	KeptInCode []int
+}
+
+// ExpandWithOptions es ExpandWithOrigins con opciones.
+func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOptions) (Expansion, error) {
+	if !opts.KeepIncludesInCode {
+		text, origins, err := ExpandWithOrigins(content, baseDir, read)
+		return Expansion{Text: text, Origins: origins}, err
+	}
 	lines := strings.Split(content, "\n")
 
 	// El frontmatter del contenido raíz se expande como siempre, línea por
@@ -101,19 +138,22 @@ func ExpandWithOrigins(content, baseDir string, read ReadFunc) (string, LineOrig
 	bodyStart := frontMatterLines(lines)
 	out, origins, err := expand(strings.Join(lines[:bodyStart], "\n"), "", baseDir, read, map[string]bool{}, 0)
 	if err != nil {
-		return "", nil, err
+		return Expansion{}, err
 	}
 	if bodyStart == 0 {
 		out, origins = nil, nil
 	}
 
-	body, bodyOrigins, err := expandBody(lines[bodyStart:], parser.SourceIsStrict(content), baseDir, read)
+	body, bodyOrigins, kept, err := expandBody(lines[bodyStart:], parser.SourceIsStrict(content), baseDir, read)
 	if err != nil {
-		return "", nil, err
+		return Expansion{}, err
+	}
+	for i := range kept {
+		kept[i] += len(out)
 	}
 	out = append(out, body...)
 	origins = append(origins, bodyOrigins...)
-	return strings.Join(out, "\n"), origins, nil
+	return Expansion{Text: strings.Join(out, "\n"), Origins: origins, KeptInCode: kept}, nil
 }
 
 // frontMatterLines cuenta las líneas del frontmatter de lines (delimitadores
@@ -149,16 +189,19 @@ type includeFrame struct {
 // Una línea `@include` que cae dentro de un cuerpo de código (el de un CODE
 // strict, una cerca ```, un :::code-group) es código, no una directiva: el
 // parser la guarda tal cual en el AST, y get_ast y el lint la muestran así.
-// Antes se expandía igual, y el build emitía dentro del bloque de código el
-// contenido de un archivo que el AST no menciona (issue #487). Qué es código lo
+// Sin KeepIncludesInCode se expande igual, y el build emite dentro del bloque
+// de código el contenido de un archivo que el AST no menciona (issue #487).
+// Devuelve también las líneas, 1-based sobre lo que devuelve, de cada
+// `@include` que dejó en el código. Qué es código lo
 // decide parser.CodeLiteralScanner, recorriendo el texto ya expandido: la
 // línea `@include` no está en ese texto (en su lugar van las líneas del
 // archivo incluido), así que solo se la mira con Peek, y el escáner sigue con
 // lo que de verdad la reemplaza.
-func expandBody(lines []string, strict bool, baseDir string, read ReadFunc) ([]string, LineOrigins, error) {
+func expandBody(lines []string, strict bool, baseDir string, read ReadFunc) ([]string, LineOrigins, []int, error) {
 	scanner := parser.NewCodeLiteralScanner(strict)
 	out := make([]string, 0, len(lines))
 	origins := make(LineOrigins, 0, len(lines))
+	var kept []int
 	stack := []*includeFrame{{lines: lines, visited: map[string]bool{}}}
 	for len(stack) > 0 {
 		frame := stack[len(stack)-1]
@@ -169,19 +212,22 @@ func expandBody(lines []string, strict bool, baseDir string, read ReadFunc) ([]s
 		line := frame.lines[frame.next]
 		frame.next++
 
-		if incPath, ok := parseIncludeLine(line); ok && !scanner.Peek(line) {
-			child, err := openInclude(line, incPath, baseDir, read, frame.visited, frame.depth)
-			if err != nil {
-				return nil, nil, err
+		if incPath, ok := parseIncludeLine(line); ok {
+			if !scanner.Peek(line) {
+				child, err := openInclude(line, incPath, baseDir, read, frame.visited, frame.depth)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				stack = append(stack, child)
+				continue
 			}
-			stack = append(stack, child)
-			continue
+			kept = append(kept, len(out)+1)
 		}
 		scanner.Next(line)
 		out = append(out, line)
 		origins = append(origins, frame.file)
 	}
-	return out, origins, nil
+	return out, origins, kept, nil
 }
 
 // openInclude resuelve y lee el archivo de una línea `@include`, con los
@@ -226,8 +272,9 @@ func openInclude(line, incPath, baseDir string, read ReadFunc, visited map[strin
 // archivo de origen de cada una; file es el de content ("" para la raíz).
 // Unir las líneas con "\n" da lo mismo que unir cada hijo ya expandido como
 // un solo bloque, que es lo que hacía esta función antes de devolver
-// orígenes. Solo se usa para el frontmatter del contenido raíz, que no tiene
-// regiones de código; el cuerpo va por expandBody.
+// orígenes. Es la expansión de Expand y ExpandWithOrigins, que no miran
+// regiones de código; con KeepIncludesInCode solo se usa para el frontmatter
+// del contenido raíz y el cuerpo va por expandBody.
 func expand(content, file, baseDir string, read ReadFunc, visited map[string]bool, depth int) ([]string, LineOrigins, error) {
 	if depth > MaxDepth {
 		return nil, nil, fmt.Errorf("include: profundidad máxima (%d) excedida — revisar si hay un ciclo no detectado", MaxDepth)

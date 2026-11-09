@@ -202,29 +202,8 @@ func (g *Generator) generateMarkdown(doc *ast.AST, outputFile string, opts Gener
 func (g *Generator) RenderASTJSON(doc *ast.AST) ([]byte, error) {
 	variables := doc.FrontMatter.BuildVariables()
 	renderer.PopulateInlineHTML(doc, variables)
-	literalCodeHTML(doc)
 	renderer.PopulateLangRuns(doc, variables) // issue #63 — ver slidelang/internal/generator/generator.go:RenderASTJSON
 	return json.Marshal(doc)
-}
-
-// literalCodeHTML deja el contentHTML de cada bloque de código como su
-// contenido escapado, sin sustituir `{{nombre}}` (issue #487). En doclang el
-// código es literal en todas las salidas: HTML/PDF (core renderCodeElement),
-// DOCX y Markdown; get_ast tiene que decir lo mismo. PopulateInlineHTML es
-// compartido con slidelang, que sí sustituye en código a propósito, así que
-// la diferencia se aplica acá.
-func literalCodeHTML(doc *ast.AST) {
-	_ = ast.Walk(doc, func(n ast.Node) error {
-		switch e := n.(type) {
-		case *ast.CodeElement:
-			e.ContentHTML = renderer.EscapeHTML(e.Content)
-		case *ast.CodeGroupElement:
-			for i := range e.CodeBlocks {
-				e.CodeBlocks[i].ContentHTML = renderer.EscapeHTML(e.CodeBlocks[i].Content)
-			}
-		}
-		return nil
-	})
 }
 
 // RenderHTMLPreview renderiza doc a un HTML autocontenido en memoria, sin

@@ -13,21 +13,37 @@ import "go.ziradocs.com/core/v2/ast"
 // produce --format html para el mismo elemento. Es aditivo (no toca los
 // campos crudos) e idempotente.
 func PopulateInlineHTML(doc *ast.AST, variables map[string]interface{}) {
+	PopulateInlineHTMLWithOptions(doc, variables, InlineHTMLOptions{})
+}
+
+// InlineHTMLOptions ajusta PopulateInlineHTMLWithOptions. El valor cero es el
+// comportamiento de PopulateInlineHTML.
+type InlineHTMLOptions struct {
+	// LiteralCode deja el contentHTML de un CODE y de cada bloque de un
+	// code-group como su contenido escapado, sin sustituir `{{nombre}}`
+	// (issue #487). Es el par de RenderContext.LiteralCode: quien renderiza
+	// el HTML con una tiene que poblar el AST con la otra, o el contentHTML
+	// de get_ast no describe el HTML. doclang las activa; slidelang no.
+	LiteralCode bool
+}
+
+// PopulateInlineHTMLWithOptions es PopulateInlineHTML con opciones.
+func PopulateInlineHTMLWithOptions(doc *ast.AST, variables map[string]interface{}, opts InlineHTMLOptions) {
 	if doc == nil {
 		return
 	}
 	for i := range doc.ContentBlocks {
-		populateContentBlockHTML(&doc.ContentBlocks[i], variables)
+		populateContentBlockHTML(&doc.ContentBlocks[i], variables, opts)
 	}
 }
 
-func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]interface{}) {
+func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]interface{}, opts InlineHTMLOptions) {
 	block.TitleHTML = ProcessVariablesSecure(block.Title, variables)
 	block.HeadingHTML = ProcessVariablesSecure(block.Heading, variables)
 	block.SubtitleHTML = ProcessVariablesSecure(block.Subtitle, variables)
 	block.KickerHTML = ProcessVariablesSecure(block.Kicker, variables)
 	for _, elem := range block.Elements {
-		populateElementHTML(elem, variables)
+		populateElementHTML(elem, variables, opts)
 	}
 }
 
@@ -45,7 +61,13 @@ func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]inte
 // "content"/"data"/"series"/"labels"/"rawJSON"/"markers" es fuente de
 // diagrama o config, no texto para el DOM — ver la nota de no-goals en
 // https://ziradocs.com/docs/architecture/json-ast-contract/.
-func populateElementHTML(element ast.Element, variables map[string]interface{}) {
+// populateElementHTML puebla los *HTML de element. optional lleva las
+// opciones (a lo sumo una); sin ellas, las de PopulateInlineHTML.
+func populateElementHTML(element ast.Element, variables map[string]interface{}, optional ...InlineHTMLOptions) {
+	var opts InlineHTMLOptions
+	if len(optional) > 0 {
+		opts = optional[0]
+	}
 	switch elem := element.(type) {
 	case *ast.TextElement:
 		if elem.IsRawHTML {
@@ -66,7 +88,7 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 		}
 
 	case *ast.CodeElement:
-		elem.ContentHTML = EscapeHTML(ProcessVariables(elem.Content, variables))
+		elem.ContentHTML = EscapeHTML(codeBody(elem.Content, variables, opts.LiteralCode))
 
 	case *ast.ImageElement:
 		elem.AltHTML = ProcessVariablesSecure(elem.Alt, variables)
@@ -121,20 +143,20 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 		elem.TitleHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Title, variables)
 		elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 		for _, nested := range elem.Elements {
-			populateElementHTML(nested, variables)
+			populateElementHTML(nested, variables, opts)
 		}
 
 	case *ast.GridElement:
 		elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 		for i := range elem.Columns {
-			populateColumnHTML(&elem.Columns[i], variables)
+			populateColumnHTML(&elem.Columns[i], variables, opts)
 		}
 
 	case *ast.CodeGroupElement:
 		for i := range elem.CodeBlocks {
 			block := &elem.CodeBlocks[i]
 			block.LabelHTML = EscapeHTML(ProcessVariables(block.Label, variables))
-			block.ContentHTML = EscapeHTML(ProcessVariables(block.Content, variables))
+			block.ContentHTML = EscapeHTML(codeBody(block.Content, variables, opts.LiteralCode))
 		}
 
 	case *ast.MermaidElement:
@@ -173,10 +195,10 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}) 
 	}
 }
 
-func populateColumnHTML(col *ast.ColumnElement, variables map[string]interface{}) {
+func populateColumnHTML(col *ast.ColumnElement, variables map[string]interface{}, opts InlineHTMLOptions) {
 	col.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(col.Content, variables)
 	for _, nested := range col.Elements {
-		populateElementHTML(nested, variables)
+		populateElementHTML(nested, variables, opts)
 	}
 }
 

@@ -191,6 +191,12 @@ such a header was an error, because the code-filename contract rejects a filenam
 that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
+A flex code fence opens with three or more backticks and an info string with no
+backticks, and closes, as in CommonMark, at a line of only backticks at least as
+long as the opening: a `` ````md `` block can hold a ```` ``` ```` line as content.
+Earlier versions closed every fence at the first ```` ``` ```` line and never at a
+longer one. `doclang fmt` writes a longer fence when the code holds such a line.
+
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next
 line with text is indented deeper than the `QUOTE` keyword: it stays inside as
@@ -462,13 +468,16 @@ ${expression}
 {{ variable | filter:argument }}
 ```
 
-In DocLang, a code body (a strict `CODE` block, a fenced block, a `:::code-group`) is
-literal: `{{name}}` there is not substituted in any output (HTML, PDF, DOCX, Markdown, or
-the `contentHTML` of the AST), the same text the AST's `content` holds. A code sample is
-shown as written, and template languages (Handlebars, Jinja, Go templates) use `{{ }}`
-themselves. To show a variable's value next to a command, write it outside the code block.
-SlideLang keeps substituting inside code. Earlier DocLang versions substituted in HTML and
-PDF only.
+Substitution inside code depends on the renderer's literal-code option
+(`RenderContext.LiteralCode` for HTML/PDF, `InlineHTMLOptions.LiteralCode` for
+the `contentHTML` fields of the AST). Off, the default and what SlideLang uses,
+`{{name}}` in the body of a `CODE` block or a code-group tab is substituted like
+in prose. On, those bodies are literal, the same text the AST's `content` holds:
+a code sample is shown as written, and template languages (Handlebars, Jinja, Go
+templates) use `{{ }}` themselves. DocLang is meant to turn it on for every
+output; to show a variable's value next to a command there, write it outside the
+code block. The option covers code elements; code spans and fences written
+inside prose are not covered yet.
 
 **Supported Filters:**
 - `currency:code` - Format as currency
@@ -549,12 +558,15 @@ Directives control slide and element behavior:
 
 `@include path` on a line of its own is replaced by the content of that file
 before the source is parsed (`slidelang build`, `doclang build`; `fmt` and the
-MCP `get_ast`/`lint` tools keep the line as written). Inside a code body (a
-strict `CODE` block, a fenced block, a `:::code-group`) the line is code, as the
-parser reads it, and is never expanded; what counts as a code body is decided
-on the text as it is being expanded, so it holds for code written inside an
-included file too. Diagram, chart, map and math bodies are not code: an
-`@include` line there is expanded.
+MCP `get_ast`/`lint` tools keep the line as written). By default the line is
+expanded wherever it is, inside code too. With `include.ExpandOptions`'s
+`KeepIncludesInCode`, a line inside a code body (a strict `CODE` block, a fenced
+code block, a `:::code-group`) is code, as the parser reads it, and is left as
+written; what counts as a code body is decided on the text as it is being
+expanded, so it holds for code written inside an included file too, and the
+lines kept that way are reported to the caller. Diagram, chart, map and math
+bodies are not code: an `@include` line there is always expanded. DocLang is
+meant to use this option; SlideLang keeps expanding everywhere.
 
 ### Special Blocks
 

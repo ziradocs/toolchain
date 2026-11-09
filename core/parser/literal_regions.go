@@ -107,7 +107,7 @@ func (s *literalScanner) step(line string) string {
 			return current
 		}
 	}
-	if strings.HasPrefix(trimmed, "```") {
+	if elements.CodeFenceOpen(trimmed) > 0 {
 		s.literal = literalFence
 		if isDiagramFenceInfo(fenceInfo(trimmed)) {
 			s.literal = literalDiagramFence
@@ -156,18 +156,16 @@ func (s *literalScanner) step(line string) string {
 }
 
 // closesFence dice si trimmed cierra la cerca abierta en s.fenceOpen, con la
-// regla del parser que la va a leer. Antes una cerca de cuatro backticks solo
-// cerraba en "````", pero un bloque de código flex (CodeParser) cierra en la
-// primera línea "```", también si abrió con cuatro, y no en "````": las dos
-// lecturas no coincidían, y un @include detrás de un "```" interno quedaba sin
-// expandir aunque el parser ya lo leía fuera del código.
+// regla del parser que la va a leer.
 //
 //   - ```mermaid, ```plantuml, ```chart, ```map (con tres o cuatro backticks):
 //     cierran en "```" o "````" (MermaidParser, PlantUMLParser,
 //     collectFencedBody).
 //   - ```math: el mismo carácter, al menos tantas veces como la apertura, y
 //     nada más (closesMathFence).
-//   - cualquier otra, código: solo "```" (CodeParser.parseFlexCode).
+//   - cualquier otra, código: una línea de solo backticks, al menos tantos
+//     como la apertura (CodeParser.parseFlexCode, regla de CommonMark): un
+//     ````md con un ``` adentro cierra en su ````.
 func (s *literalScanner) closesFence(trimmed string) bool {
 	open := s.fenceOpen
 	ticks := len(open) - len(strings.TrimLeft(open, "`"))
@@ -178,7 +176,7 @@ func (s *literalScanner) closesFence(trimmed string) bool {
 	case isDiagramFenceInfo(info):
 		return trimmed == "```" || trimmed == "````"
 	default:
-		return trimmed == "```"
+		return elements.ClosesCodeFence(trimmed, ticks)
 	}
 }
 
