@@ -149,7 +149,7 @@ func RenderChartNativePNGWithTheme(elem *ast.ChartElement, width, height int, ca
 			opt.Legend.SeriesNames = names
 			applyLegendOverrides(&opt.Legend, ov)
 			if len(opt.ValueAxis) > 0 {
-				applyYAxisOverrides(&opt.ValueAxis[0], ov)
+				applyYAxisOverrides(&opt.ValueAxis[0], ov, values, true)
 			}
 			err = p.BarChart(opt)
 		} else {
@@ -160,7 +160,7 @@ func RenderChartNativePNGWithTheme(elem *ast.ChartElement, width, height int, ca
 			opt.Legend.SeriesNames = names
 			applyLegendOverrides(&opt.Legend, ov)
 			if len(opt.YAxis) > 0 {
-				applyYAxisOverrides(&opt.YAxis[0], ov)
+				applyYAxisOverrides(&opt.YAxis[0], ov, values, false)
 			}
 			err = p.LineChart(opt)
 		}

@@ -73,9 +73,17 @@ func (f *MapFetcher) FetchInline(ctx context.Context, config renderer.MapConfig,
 // review que cacheKeyInput en chart_fetcher.go, PR #163 — acá era
 // pre-existente incluso antes de agregar el render nativo, porque el
 // screenshot de chromedp ya dependía de width/height).
+//
+// El servidor de tiles propio (MapConfig.WithTileServer) no es un campo
+// exportado, así que json.Marshal no lo ve: se suma aparte, y solo cuando
+// está, para que el hash de un mapa sin servidor propio no cambie.
 func generateMapHash(config renderer.MapConfig, width, height int) string {
 	jsonData, _ := json.Marshal(config)
-	return GenerateContentHash(fmt.Sprintf("%s|%dx%d", jsonData, width, height))
+	key := fmt.Sprintf("%s|%dx%d", jsonData, width, height)
+	if tmpl, ua := config.TileServer(); tmpl != "" {
+		key += "|tiles=" + tmpl + "|ua=" + ua
+	}
+	return GenerateContentHash(key)
 }
 
 // ClearCache limpia el cache interno

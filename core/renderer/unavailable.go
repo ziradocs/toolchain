@@ -20,6 +20,25 @@ const (
 	unavailableMedia
 )
 
+// String es el nombre estable del tipo que recibe el reporter de
+// RenderContext.SetUnavailableReporter.
+func (k unavailableKind) String() string {
+	switch k {
+	case unavailableMap:
+		return "map"
+	case unavailableChart:
+		return "chart"
+	case unavailableDiagram:
+		return "diagram"
+	case unavailableEquation:
+		return "equation"
+	case unavailableMedia:
+		return "media"
+	default:
+		return "image"
+	}
+}
+
 // unavailableNote es el texto que reemplaza en el documento a un contenido
 // que no se pudo generar (una imagen que falta, un mapa sin red, un diagrama
 // cuya captura falló). Antes el cuerpo del PDF mostraba el error interno en
@@ -78,6 +97,7 @@ func contextLang(ctx *RenderContext) string {
 // "chart-error", ...), que se conserva exacta: slidelang la reescribe por
 // OfflineElementClasses y los temas la pueden estilar.
 func unavailableDiv(class string, kind unavailableKind, ctx *RenderContext) string {
+	reportUnavailable(ctx, kind, "")
 	note := unavailableNote(kind, contextLang(ctx))
 	return fmt.Sprintf(`<div class="%s" role="img" aria-label="%s"><span class="unavailable-note">%s</span></div>`,
 		class, EscapeHTMLAttribute(note), EscapeHTML(note))
@@ -87,7 +107,10 @@ func unavailableDiv(class string, kind unavailableKind, ctx *RenderContext) stri
 // (falta, quedó fuera de la raíz de assets o su URL es peligrosa): la nota y
 // el texto alternativo, con la leyenda y el ancla de la figura si los tiene.
 // alt, caption y captionPrefix llegan ya escapados; idAttr ya armado.
-func imageUnavailableHTML(alt, caption, idAttr, captionPrefix string, ctx *RenderContext) string {
+// source es la fuente tal como la escribió el autor, solo para el reporter
+// de SetUnavailableReporter.
+func imageUnavailableHTML(alt, caption, idAttr, captionPrefix, source string, ctx *RenderContext) string {
+	reportUnavailable(ctx, unavailableImage, source)
 	note := unavailableNote(unavailableImage, contextLang(ctx))
 	label := EscapeHTMLAttribute(note)
 	var b strings.Builder
@@ -111,7 +134,9 @@ func imageUnavailableHTML(alt, caption, idAttr, captionPrefix string, ctx *Rende
 // inlineImageUnavailableHTML es el marcador de una imagen inline (dentro de un
 // párrafo, ítem o celda) que no se pudo cargar: un <span> del alto de la
 // línea con la nota y el alt, para no partir el párrafo con un bloque.
-func inlineImageUnavailableHTML(alt string, ctx *RenderContext) string {
+// source va al reporter, como en imageUnavailableHTML.
+func inlineImageUnavailableHTML(alt, source string, ctx *RenderContext) string {
+	reportUnavailable(ctx, unavailableImage, source)
 	note := unavailableNote(unavailableImage, contextLang(ctx))
 	label := EscapeHTMLAttribute(note)
 	text := EscapeHTML(note)

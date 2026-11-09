@@ -12,6 +12,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strings"
 	"time"
 
 	sm "github.com/flopp/go-staticmaps"
@@ -102,11 +103,14 @@ func nativeMapRenderTimeout(zoom int) time.Duration {
 // reimplementar su lógica de armado de URL. sm.NewTileProviderNone()
 // (usado en los tests) no tiene URL configurada, así que se salta el
 // chequeo en vez de intentar un GET a una URL vacía.
-func probeTileProvider(ctx context.Context, provider *sm.TileProvider) error {
+func probeTileProvider(ctx context.Context, provider *sm.TileProvider, userAgent string) error {
 	if provider.IsNone() {
 		return nil
 	}
 	fetcher := sm.NewTileFetcher(provider, nil, true)
+	if userAgent != "" {
+		fetcher.SetUserAgent(userAgent)
+	}
 	return runWithTimeout(ctx, nativeMapProbeTimeout, func() error {
 		return fetcher.Fetch(&sm.Tile{Zoom: 0, X: 0, Y: 0})
 	})
@@ -153,7 +157,26 @@ func runWithTimeout(ctx context.Context, timeout time.Duration, fn func() error)
 // existente en vez de agregar contenido visible que el otro backend no
 // produce.
 func RenderMapNativePNG(ctx context.Context, config MapConfig, width, height int) ([]byte, error) {
-	return renderMapNativePNG(ctx, config, width, height, nativeMapTileProvider(config.MapType))
+	return renderMapNativePNG(ctx, config, width, height, nativeMapTileProviderFor(config))
+}
+
+// nativeMapTileProviderFor es el proveedor de config: el servidor propio de
+// MapConfig.WithTileServer si lo tiene (para cualquier MapType, también el
+// satelital), o el de nativeMapTileProvider.
+func nativeMapTileProviderFor(config MapConfig) *sm.TileProvider {
+	if config.tiles.urlTemplate == "" {
+		return nativeMapTileProvider(config.MapType)
+	}
+	provider := &sm.TileProvider{
+		Name:        "custom",
+		Attribution: "",
+		TileSize:    256,
+		URLPattern:  goStaticMapsPattern(config.tiles.urlTemplate),
+	}
+	if strings.Contains(config.tiles.urlTemplate, "{s}") {
+		provider.Shards = mapTileShards
+	}
+	return provider
 }
 
 // renderMapNativePNG hace el trabajo real, con el TileProvider inyectado:
@@ -163,7 +186,7 @@ func RenderMapNativePNG(ctx context.Context, config MapConfig, width, height int
 // red y las políticas de uso de esos servidores desaconsejan bombardearlos
 // desde una suite de CI).
 func renderMapNativePNG(ctx context.Context, config MapConfig, width, height int, provider *sm.TileProvider) ([]byte, error) {
-	if err := probeTileProvider(ctx, provider); err != nil {
+	if err := probeTileProvider(ctx, provider, config.tiles.userAgent); err != nil {
 		return nil, fmt.Errorf("map tile provider unreachable: %w", err)
 	}
 
@@ -175,6 +198,9 @@ func renderMapNativePNG(ctx context.Context, config MapConfig, width, height int
 	// (BaseFetcher, dentro de outputDir/assets). Se desactiva acá.
 	smCtx.SetCache(nil)
 	smCtx.SetTileProvider(provider)
+	if config.tiles.userAgent != "" {
+		smCtx.SetUserAgent(config.tiles.userAgent)
+	}
 	smCtx.SetCenter(s2.LatLngFromDegrees(config.CenterLat, config.CenterLng))
 	smCtx.SetZoom(config.Zoom)
 

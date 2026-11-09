@@ -30,6 +30,14 @@ import (
 // plantuml, chart, map, y cualquier elemento (p. ej. grid) que los anide.
 // Un ctx nil se resuelve a NewDefaultRenderContext() (todo en "browser").
 func RenderElementToHTML(element ast.Element, variables map[string]interface{}, ctx *RenderContext) string {
+	// La línea del elemento acompaña a lo que reporte como no disponible
+	// (SetUnavailableReporter); un grid o un bloque especial vuelve a pasar
+	// por acá con cada hijo, así que gana el elemento más interno.
+	if ctx != nil {
+		prev := ctx.renderLine
+		ctx.renderLine = element.GetPosition().Line
+		defer func() { ctx.renderLine = prev }()
+	}
 	html := renderElementToHTML(element, variables, ctx)
 	switch element.(type) {
 	case *ast.ImageElement, *ast.MermaidElement, *ast.PlantUMLElement, *ast.ChartElement,
@@ -67,14 +75,14 @@ func resolveInlineImages(html string, ctx *RenderContext) string {
 		m := inlineImageTagPattern.FindStringSubmatch(tag)
 		src, alt := UnescapeHTML(m[1]), m[2]
 		if remoteImageBlocked(src, ctx) {
-			return inlineImageUnavailableHTML(alt, ctx)
+			return inlineImageUnavailableHTML(alt, src, ctx)
 		}
 		uri, status := inlineLocalAsset(src, ctx, 0, "IMAGE", "image")
 		switch {
 		case status == localAssetInlined:
 			return fmt.Sprintf(`<img src="%s" alt="%s"%s>`, uri, alt, m[3])
 		case status == localAssetUnavailable || localImageEscapesRoot(src, ctx):
-			return inlineImageUnavailableHTML(alt, ctx)
+			return inlineImageUnavailableHTML(alt, src, ctx)
 		}
 		return tag
 	})
@@ -303,14 +311,14 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	// conserva porque el visor lo resuelve, salvo que el confinamiento ya
 	// sepa que la ruta escapa de AssetRoot.
 	if remoteImageBlocked(source, ctx) {
-		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, elem.Source, ctx)
 	}
 	inlined, status := inlineLocalAsset(source, ctx, 0, "IMAGE", "image")
 	switch {
 	case status == localAssetInlined:
 		source = inlined
 	case status == localAssetUnavailable || localImageEscapesRoot(source, ctx):
-		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, elem.Source, ctx)
 	default:
 		// Sanitizar URL de la imagen para prevenir javascript: y data: URIs
 		// peligrosas. Un destino <mi carpeta/a.png> trae el espacio literal:
@@ -323,7 +331,7 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 		if ctx != nil && ctx.Logger != nil {
 			ctx.Logger.Warn("[IMAGE] image source %q blocked: unsafe URL", elem.Source)
 		}
-		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, elem.Source, ctx)
 	}
 
 	// El título del destino Markdown (image-title-v1) va al atributo title.
@@ -2479,6 +2487,7 @@ func renderMapElement(elem *ast.MapElement, variables map[string]interface{}, ct
 
 	// Construir MapConfig desde el elemento
 	mapConfig := buildMapConfig(elem, variables)
+	mapConfig.tiles = ctx.mapTiles
 
 	// Obtener dimensiones (usar defaults si no están especificadas)
 	width := 800

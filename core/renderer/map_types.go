@@ -13,6 +13,9 @@ type MapConfig struct {
 	MapType   string // "default", "satellite", etc.
 	Markers   []MapMarker
 	Heatmap   bool
+	// tiles es el servidor de tiles propio de WithTileServer (cero: los
+	// proveedores de siempre).
+	tiles mapTileServer
 }
 
 // MapMarker representa un marcador en el mapa

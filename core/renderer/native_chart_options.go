@@ -147,7 +147,10 @@ type nativeChartOverrides struct {
 	titleHide    bool // options.plugins.title.display == false
 	legendHide   bool // options.plugins.legend.display == false
 	legendBottom bool // options.plugins.legend.position == "bottom" ("top" es el default nativo, no requiere override)
-	yBeginAtZero bool // options.scales.y.beginAtZero == true
+	// yBeginAtZero es options.scales.y.beginAtZero tal como vino; nil si
+	// el autor no lo escribió (cada tipo aplica entonces el default de
+	// Chart.js, ver applyYAxisOverrides).
+	yBeginAtZero *bool
 }
 
 // extractNativeChartOverrides lee las claves mapeables de options
@@ -180,8 +183,8 @@ func extractNativeChartOverrides(options map[string]interface{}) nativeChartOver
 
 	if scales, ok := options["scales"].(map[string]interface{}); ok {
 		if y, ok := scales["y"].(map[string]interface{}); ok {
-			if begin, ok := y["beginAtZero"].(bool); ok && begin {
-				out.yBeginAtZero = true
+			if begin, ok := y["beginAtZero"].(bool); ok {
+				out.yBeginAtZero = &begin
 			}
 		}
 	}
@@ -228,15 +231,62 @@ func applyLegendOverrides(l *charts.LegendOption, ov nativeChartOverrides) {
 // quién aplicárselo — exactamente lo que Chart.js también hace (scales no
 // significa nada para un pie chart).
 //
+// defaultBeginAtZero es el default de Chart.js para el tipo cuando el autor
+// no escribió beginAtZero: true para bar (BarController.overrides fija
+// beginAtZero en la escala de valores) y false para line. Antes el camino
+// nativo solo lo aplicaba con un true explícito, así que una gráfica de
+// barras con todos los valores positivos arrancaba el eje en un mínimo
+// "redondo" cercano a los datos (80, 85, 90 dibujaba barras de alturas muy
+// distintas) mientras Chart.js, en el HTML del navegador, la dibujaba desde
+// cero.
+//
+// Con beginAtZero, el cero entra al rango como en Chart.js: mínimo 0 si
+// ningún valor es negativo, máximo 0 si ninguno es positivo, y nada que
+// hacer si los datos ya cruzan el cero. go-analyze/charts solo respeta un
+// Min/Max configurado cuando EXPANDE el rango (range.go,
+// prepareValueAxisRange), y estos siempre lo expanden.
+//
 // scales.y.min/max NO se traducen acá (removidos de optionLeafRules en
 // review de PR #159, ver su comentario): go-analyze/charts solo respeta un
 // Min/Max configurado cuando EXPANDE el rango de los datos reales, no
 // cuando lo recorta, así que un min/max que sí llegara hasta acá podría
 // dibujar un rango distinto al que Chart.js habría producido. El
 // clasificador ya los descalifica antes de que extractNativeChartOverrides
-// los vea.
-func applyYAxisOverrides(axis *charts.ValueAxisOption, ov nativeChartOverrides) {
-	if ov.yBeginAtZero {
-		axis.Min = charts.Ptr(0.0)
+// los vea: un mínimo explícito del autor lleva el chart a Chart.js.
+func applyYAxisOverrides(axis *charts.ValueAxisOption, ov nativeChartOverrides, values [][]float64, defaultBeginAtZero bool) {
+	begin := defaultBeginAtZero
+	if ov.yBeginAtZero != nil {
+		begin = *ov.yBeginAtZero
 	}
+	if !begin {
+		return
+	}
+	lo, hi, ok := nativeSeriesRange(values)
+	switch {
+	case !ok:
+	case lo >= 0:
+		axis.Min = charts.Ptr(0.0)
+	case hi <= 0:
+		axis.Max = charts.Ptr(0.0)
+	}
+}
+
+// nativeSeriesRange es el mínimo y el máximo de los valores de todas las
+// series, sin los puntos ausentes (charts.GetNullValue). ok es false si no
+// hay ningún valor.
+func nativeSeriesRange(values [][]float64) (lo, hi float64, ok bool) {
+	null := charts.GetNullValue()
+	for _, series := range values {
+		for _, v := range series {
+			if v == null {
+				continue
+			}
+			if !ok {
+				lo, hi, ok = v, v, true
+				continue
+			}
+			lo, hi = min(lo, v), max(hi, v)
+		}
+	}
+	return lo, hi, ok
 }
