@@ -2624,6 +2624,10 @@ func generateDocumentFooter() string {
 // había llamado util.InitDefault — cierto para slidelang, nunca cierto
 // para doclang, que arma su propio *util.Logger sin cablear el global,
 // así que estos warnings de seguridad se perdían en silencio ahí.
+// internalCSSVariablePrefix marca las variables internas del CSS del
+// documento, que un tema no puede definir.
+const internalCSSVariablePrefix = "--_doclang-"
+
 func generateThemeVariables(vars map[string]string, logger util.Logger) string {
 	names := make([]string, 0, len(vars))
 	for variable := range vars {
@@ -2634,6 +2638,14 @@ func generateThemeVariables(vars map[string]string, logger util.Logger) string {
 	var css strings.Builder
 	css.WriteString(":root {\n")
 	for _, variable := range names {
+		// --_doclang-* son copias internas del CSS del documento
+		// (--_doclang-ink-<tinta>, --_doclang-table-link: ver
+		// documentInkSurfaceCSS). No son contrato de temas: definidas en
+		// :root taparían la tinta o el vínculo de todas las superficies.
+		if strings.HasPrefix(variable, internalCSSVariablePrefix) {
+			logger.Warn("theme variable %q is internal to the document CSS (%s*) and will not be applied", variable, internalCSSVariablePrefix)
+			continue
+		}
 		safeValue, ok := SanitizeCSSCustomProperty(variable, vars[variable])
 		if !ok {
 			logger.Warn("theme variable %q rejected by SanitizeCSSCustomProperty (invalid name or value contains {}/<>/;/CR/LF) and will not be applied", variable)

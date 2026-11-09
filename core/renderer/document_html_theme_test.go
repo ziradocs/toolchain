@@ -75,3 +75,29 @@ func TestGenerateDocumentHTML_UsesCtxLoggerNotGlobal(t *testing.T) {
 		t.Fatalf("expected GenerateDocumentHTML to report the rejected theme variable to ctx.Logger, got %d warnings: %v", len(spy.warnings), spy.warnings)
 	}
 }
+
+// Las copias internas del CSS (--_doclang-*) no se aceptan de un tema: en
+// :root, --_doclang-ink-danger pisaría la tinta danger de todas las
+// superficies (1.0:1 con el color de su fondo).
+func TestGenerateThemeVariables_DropsInternalVariables(t *testing.T) {
+	spy := &spyLogger{}
+	css := generateThemeVariables(map[string]string{
+		"--doclang-danger-color":   "#dc2626",
+		"--_doclang-ink-danger":    "#fff5f5",
+		"--_doclang-table-link":    "#ffffff",
+		"--doclang-table-ink-info": "#1e40af",
+	}, spy)
+	for _, gone := range []string{"--_doclang-ink-danger", "--_doclang-table-link"} {
+		if strings.Contains(css, gone) {
+			t.Errorf("%s llegó al CSS: %s", gone, css)
+		}
+	}
+	for _, kept := range []string{"--doclang-danger-color: #dc2626;", "--doclang-table-ink-info: #1e40af;"} {
+		if !strings.Contains(css, kept) {
+			t.Errorf("falta %s en %s", kept, css)
+		}
+	}
+	if len(spy.warnings) != 2 {
+		t.Errorf("se esperaban 2 avisos, hubo %d: %v", len(spy.warnings), spy.warnings)
+	}
+}
