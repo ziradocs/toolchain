@@ -25,6 +25,10 @@ import (
 // (issue #472).
 var leafletThirdPartyHosts = []string{"unpkg.com", "raw.githubusercontent.com", "cdnjs.cloudflare.com"}
 
+// leafletProbeHost es el host de la sonda de control (RFC 2606, nunca
+// resuelve).
+const leafletProbeHost = "detector-control.invalid"
+
 func TestEmbeddedLeaflet_MatchesCDNIntegrity(t *testing.T) {
 	assertMatchesSRI(t, "leaflet.js", renderer.LeafletCDNScriptTag, embeddedLeafletJS)
 	assertMatchesSRI(t, "leaflet.css", renderer.LeafletCDNCSSTag, embeddedLeafletCSS)
@@ -74,8 +78,8 @@ func TestGenerateLeafletHTML_NoThirdPartyAssets(t *testing.T) {
 // Leaflet, con todo el tráfico de Chromium por un proxy (--proxy-server)
 // que anota cada pedido, no le pide nada a unpkg.com, raw.githubusercontent.com ni
 // cdnjs.cloudflare.com, y Leaflet carga (el render no falla con "Leaflet
-// did not load"). Que el proxy vea los pedidos de tiles prueba que Chromium
-// sí pasaba por él. Con Leaflet desde unpkg (antes de embeberlo) el proxy
+// did not load"). Que Chromium pasaba por el proxy lo prueba una navegación
+// de control. Con Leaflet desde unpkg (antes de embeberlo) el proxy
 // anotaba CONNECT unpkg.com:443 y el render fallaba.
 func TestRenderMapToPNG_NoThirdPartyRequests(t *testing.T) {
 	path := requireTestChromiumPath(t)
@@ -120,17 +124,29 @@ func TestRenderMapToPNG_NoThirdPartyRequests(t *testing.T) {
 	}
 	defer r.Close()
 
-	config := renderer.MapConfig{CenterLat: 19.43, CenterLng: -99.13, Zoom: 5,
-		Markers: []renderer.MapMarker{{Lat: 19.43, Lng: -99.13, Label: "CDMX", Color: "red"}}}
+	// Los tiles los descarga Go de un servidor local, fuera del proxy.
+	srv, _ := tileTestServer(t, func(string) bool { return true })
+	config := tileServerMap(t, srv.URL, "")
+	config.Markers = []renderer.MapMarker{{Lat: 19.43, Lng: -99.13, Label: "CDMX", Color: "red"}}
 	_, renderErr := r.RenderMapToPNG(context.Background(), config, 400, 300)
+
+	// Sonda de control: un pedido de Chromium que tiene que pasar por el
+	// proxy, para probar que el detector veía el tráfico del navegador.
+	if err := r.ensureBrowser(context.Background()); err == nil {
+		tab, cancel := chromedp.NewContext(r.ctx)
+		probeCtx, cancelProbe := context.WithTimeout(tab, 10*time.Second)
+		_ = chromedp.Do(probeCtx, chromedp.Navigate("http://"+leafletProbeHost+"/"))
+		cancelProbe()
+		cancel()
+	}
 
 	time.Sleep(200 * time.Millisecond)
 	mu.Lock()
 	defer mu.Unlock()
-	tiles := false
+	armed := false
 	for _, l := range lines {
-		if strings.Contains(l, "tile.openstreetmap.org") {
-			tiles = true
+		if strings.Contains(l, leafletProbeHost) {
+			armed = true
 		}
 		for _, host := range leafletThirdPartyHosts {
 			if strings.Contains(l, host) {
@@ -141,7 +157,7 @@ func TestRenderMapToPNG_NoThirdPartyRequests(t *testing.T) {
 	if renderErr != nil {
 		t.Errorf("Leaflet fallback failed: %v", renderErr)
 	}
-	if !tiles {
-		t.Errorf("proxy saw no tile request (seen %q): the detector did not observe Chromium's traffic", lines)
+	if !armed {
+		t.Errorf("the control request never reached the proxy (seen %q): the detector did not observe Chromium's traffic", lines)
 	}
 }

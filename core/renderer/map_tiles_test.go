@@ -189,3 +189,18 @@ func TestRenderContext_SetMapTileServer(t *testing.T) {
 		t.Errorf("default context carried tile server %q", got)
 	}
 }
+
+// TestRenderMapNativePNG_TileServerErrors: si el servidor de tiles contesta
+// 404, el render nativo falla (y el mapa cae al respaldo o al marcador) en
+// vez de devolver un PNG sin tiles.
+func TestRenderMapNativePNG_TileServerErrors(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	config, err := MapConfig{Zoom: 4}.WithTileServer(srv.URL+"/{z}/{x}/{y}.png", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RenderMapNativePNG(context.Background(), config, 200, 150); err == nil {
+		t.Fatal("native render succeeded against a tile server that answers 404")
+	}
+}

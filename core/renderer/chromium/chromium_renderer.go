@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -33,51 +32,14 @@ import (
 // Ver docs/SECURITY_AUDIT_2026-07.md, CR-6 / issue #24.
 const (
 	// Leaflet, su hoja de estilos y los íconos van embebidos
-	// (leaflet_embed.go): la página solo puede pedir tiles.
+	// (leaflet_embed.go) y los tiles los entrega Go desde
+	// mapTileProxyOrigin (map_tile_proxy.go): la página no puede pedir nada
+	// más.
 	mapRenderCSP = "default-src 'none'; script-src 'unsafe-inline'; " +
 		"style-src 'unsafe-inline'; " +
-		"img-src " + mapRenderTileSources + " data:; " +
+		"img-src " + mapTileProxyOrigin + " data:; " +
 		"connect-src 'none'; object-src 'none'; base-uri 'none';"
-	// mapRenderTileSources son los proveedores de tiles de siempre; con un
-	// servidor propio (MapConfig.WithTileServer) mapCSPFor los reemplaza por
-	// su origen.
-	mapRenderTileSources = "https://*.tile.openstreetmap.org https://server.arcgisonline.com"
 )
-
-// mapCSPFor es mapRenderCSP con, en img-src, solo el origen del servidor de
-// tiles propio de config en lugar de OpenStreetMap y ArcGIS.
-func mapCSPFor(config renderer.MapConfig) string {
-	tmpl, _ := config.TileServer()
-	if tmpl == "" {
-		return mapRenderCSP
-	}
-	return strings.Replace(mapRenderCSP, mapRenderTileSources, mapTileOrigin(tmpl), 1)
-}
-
-// mapTileOrigin es el origen (esquema://host[:puerto]) de un template de
-// tiles ya validado, con {s} como comodín de subdominio
-// ("https://*.tiles.example.com"), para img-src.
-func mapTileOrigin(urlTemplate string) string {
-	const shard = "tile-shard-placeholder"
-	u, err := url.Parse(strings.NewReplacer("{s}", shard, "{z}", "0", "{x}", "0", "{y}", "0").Replace(urlTemplate))
-	if err != nil || u.Host == "" {
-		return "'none'"
-	}
-	return u.Scheme + "://" + strings.ReplaceAll(u.Host, shard, "*")
-}
-
-// mapUserAgentAction reemplaza el User-Agent del tab (los pedidos de tiles
-// de Leaflet) cuando config trae uno propio; si no, no hace nada.
-func mapUserAgentAction(config renderer.MapConfig) chromedp.Action[chromedp.Void] {
-	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
-		_, ua := config.TileServer()
-		if ua == "" {
-			return nil
-		}
-		_, err := cdp.Call(ctx, t, emulation.SetUserAgentOverride, emulation.SetUserAgentOverrideParams{UserAgent: ua})
-		return err
-	})
-}
 
 // mermaidSVGContainerWidthPx es el ancho que se le da a .mermaid en
 // buildMermaidSVGHTML antes de que mermaid.js dibuje (issue #204, misma
@@ -1231,8 +1193,9 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
+	var tiles mapTileStats
 	err := chromedp.Do(runCtx,
-		mapUserAgentAction(mapConfig),
+		serveMapTiles(mapConfig, &tiles),
 		navigateAndSetContent(html),
 		// Esperar a que window.mapReady sea true (establecido por el
 		// JavaScript), o a que la página reporte un error: sin red, Leaflet
@@ -1246,6 +1209,9 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 
 	if err != nil {
 		return nil, captureError("map", timeout, ctx, err)
+	}
+	if err := tiles.err(); err != nil {
+		return nil, fmt.Errorf("map rendering failed: %w", err)
 	}
 
 	r.logger.Info("MAP", "✅ PNG rendered (%.2f KB)", float64(len(pngData))/1024)
@@ -1354,8 +1320,9 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
+	var tiles mapTileStats
 	err := chromedp.Do(runCtx,
-		mapUserAgentAction(mapConfig),
+		serveMapTiles(mapConfig, &tiles),
 		navigateAndSetContent(html),
 		// generateLeafletHTML publica window.mapReady, no un
 		// #renderComplete (que este camino esperaba y la página nunca
@@ -1379,6 +1346,9 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 
 	if err != nil {
 		return nil, captureError("map (WebP)", timeout, ctx, err)
+	}
+	if err := tiles.err(); err != nil {
+		return nil, fmt.Errorf("map rendering to WebP failed: %w", err)
 	}
 
 	r.logger.Info("MAP", "✅ WebP rendered (%.2f KB)", float64(len(webpData))/1024)
@@ -1425,15 +1395,9 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
 		}
 	}
 
-	tileLayer := `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`
-	if config.MapType == "satellite" {
-		tileLayer = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`
-	}
-	// Un servidor propio va dentro de un string JS entre comillas simples:
-	// WithTileServer ya rechazó comillas, barras invertidas, < y >.
-	if tmpl, _ := config.TileServer(); tmpl != "" {
-		tileLayer = tmpl
-	}
+	// Los tiles los entrega Go (serveMapTiles) desde el servidor real de
+	// config: el de siempre o el de MapConfig.WithTileServer.
+	tileLayer := mapTileProxyTemplate
 
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -1531,7 +1495,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
         }, 100);
     </script>
 </body>
-</html>`, mapCSPFor(config), leafletAssetTags, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, markersJS, config.Zoom)
+</html>`, mapRenderCSP, leafletAssetTags, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, markersJS, config.Zoom)
 }
 
 // Close cierra el renderer y libera recursos

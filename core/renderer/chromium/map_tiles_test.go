@@ -12,30 +12,52 @@ import (
 	"go.ziradocs.com/core/v2/renderer"
 )
 
-// TestGenerateLeafletHTML_TileServer: con un servidor de tiles propio, la
-// página de Leaflet le pide los tiles a él y su CSP solo admite ese origen
-// en lugar de OpenStreetMap y ArcGIS; sin él, la página es la de siempre.
+// TestGenerateLeafletHTML_TileServer: la página de Leaflet pide los tiles
+// solo a mapTileProxyOrigin, con o sin servidor propio, y serveMapTiles los
+// traduce al servidor real: el propio si hay uno, si no OpenStreetMap o
+// ArcGIS según el tipo de mapa.
 func TestGenerateLeafletHTML_TileServer(t *testing.T) {
 	r := &ChromiumRenderer{}
 	base := renderer.MapConfig{Zoom: 5, MapType: "satellite"}
-	if html := r.generateLeafletHTML(base, 800, 600); !strings.Contains(html, mapRenderCSP) || !strings.Contains(html, "server.arcgisonline.com/ArcGIS") {
-		t.Fatal("default map page changed")
-	}
-
 	config, err := base.WithTileServer("https://{s}.tiles.example.com:8443/{z}/{x}/{y}.png", "ua/1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	html := r.generateLeafletHTML(config, 800, 600)
-	if !strings.Contains(html, "L.tileLayer('https://{s}.tiles.example.com:8443/{z}/{x}/{y}.png'") {
-		t.Error("tile layer does not use the tile server")
+	for _, c := range []renderer.MapConfig{base, config} {
+		html := r.generateLeafletHTML(c, 800, 600)
+		if !strings.Contains(html, "L.tileLayer('"+mapTileProxyTemplate+"'") || !strings.Contains(html, mapRenderCSP) {
+			t.Error("map page does not request tiles from the proxy origin")
+		}
+		for _, host := range []string{"tile.openstreetmap.org", "arcgisonline.com", "tiles.example.com"} {
+			if strings.Contains(html, host) {
+				t.Errorf("page references %s directly", host)
+			}
+		}
 	}
-	if !strings.Contains(html, "img-src https://*.tiles.example.com:8443 data:;") {
-		t.Errorf("CSP img-src not limited to the tile server origin: %s", mapCSPFor(config))
+	cases := []struct {
+		config renderer.MapConfig
+		want   string
+	}{
+		{renderer.MapConfig{}, "https://b.tile.openstreetmap.org/3/4/5.png"},
+		{base, "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/3/5/4"},
+		{config, "https://b.tiles.example.com:8443/3/4/5.png"},
 	}
-	for _, host := range []string{"tile.openstreetmap.org", "server.arcgisonline.com"} {
-		if strings.Contains(html, host) {
-			t.Errorf("page still references %s", host)
+	for _, c := range cases {
+		got, ok := mapTileURL(mapTileProxyOrigin+"/b/3/4/5", realMapTileTemplate(c.config))
+		if !ok || got != c.want {
+			t.Errorf("tile url = %q (%v), want %q", got, ok, c.want)
+		}
+	}
+	for _, bad := range []string{
+		"https://map-tiles.offline.invalid/d/3/4/5",   // subdominio fuera de a-c
+		"https://map-tiles.offline.invalid/a/3/8/5",   // x fuera del zoom
+		"https://map-tiles.offline.invalid/a/-1/0/0",  // zoom negativo
+		"https://map-tiles.offline.invalid/a/3/4/5/6", // segmento de más
+		"https://map-tiles.offline.invalid/a/3/4/x",
+		"https://example.com/a/3/4/5",
+	} {
+		if got, ok := mapTileURL(bad, realMapTileTemplate(config)); ok {
+			t.Errorf("%q accepted as %q", bad, got)
 		}
 	}
 }
