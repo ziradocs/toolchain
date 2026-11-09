@@ -780,6 +780,21 @@ never closed is not an equation: ` ``` ` stays a code block and `~~~` stays text
 Formatters canonicalize block equations, the fence included, to the `<<math>>`
 form so that metadata is retained.
 
+An equation can also carry an already-rendered image in the AST
+(`MathElement.image`, capability `math-image-v1`, schema 2.27.0). It has no
+source syntax: an external filter (`doclang build --filter`) that draws the
+equations itself sets it. The element is still an equation, so its number,
+anchor, caption and every `\ref` to its label are unchanged, and `content`
+keeps the LaTeX, which is the image's alternative text. HTML, PDF and DOCX
+draw the image instead of typesetting the LaTeX, so DOCX needs no Chromium
+for it (unless the image is an SVG). The image resolves like a block image's
+`source`: a local path relative to the source file, confined to the asset
+root and inlined in PDF and `offline-inline` HTML; a remote one is not
+fetched by build-time outputs unless remote images are allowed, and DOCX
+never fetches it. An image that cannot be shown leaves the "equation not
+available" marker. Formatters reject an equation with an image, since writing
+it back to source would lose the render.
+
 This section is about the `<<…>>` family only. The `:::` blocks match their
 name on a loose prefix and have no boundary of their own — `::: gridJUNK` is
 still parsed, and consumes the lines under it exactly as a mistyped `<<…>>` tag

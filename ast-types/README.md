@@ -57,6 +57,20 @@ CI (`.github/workflows/schema-drift.yml`) runs this regeneration on every PR tha
 
 The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails if they drift — see `schema-drift.yml`). `PATCH` is free to diverge for packaging-only releases (e.g. fixing `package.json` metadata) that don't touch the generated types.
 
+### 2.27.0
+
+- **Opt-in**: `MathElement.image`, an already-rendered image of the equation
+  (local path or URL, resolved like `ImageElement.source`). `math-image-v1` is
+  inferred only when an equation has an image and emits 2.27.0 alone or with
+  the other capabilities. The element stays `math`: `label`, `number`,
+  `caption` and `\ref` are unchanged and `content` keeps the LaTeX. It has no
+  source syntax; an external filter that pre-renders equations sets it, and
+  `fmt` rejects it as unrepresentable.
+- External filters: a capability left declared without its content is
+  removed from the filter's output, and `schemaVersion` is lowered to match,
+  before the output is validated. A `math-source-v1` filter may replace every
+  equation.
+
 ### 2.26.0
 
 - **Opt-in**: `ImageElement.title`, the title of a Markdown image destination
