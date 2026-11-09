@@ -555,6 +555,16 @@ Special blocks provide structured content:
 | `highlight` | `::: highlight` | Highlighted content |
 | `code-group` | `::: code-group` | Grouped code blocks |
 
+A block ends at its own `:::` line. A block that is never closed takes
+everything up to the next `---`, the next `SLIDE`/`SECTION` at column 0, or the
+end of the file as its content, exactly as before; that is the `SPECIAL002`
+diagnostic on the line that opened it. It is an error in a strict document and a
+warning in a slide (strict or flex) and in a flex document. In strict, the message
+names the first element keyword written at the block's own indentation inside
+the swallowed content, which is usually where the closing `:::` was meant to go.
+A closed block may still contain such a keyword: `CODE` between `:::info` and its
+`:::` is a nested code element, not a hint.
+
 #### Typed special blocks
 
 A flex block fills two views of its body: `content` (the trimmed raw lines) and,

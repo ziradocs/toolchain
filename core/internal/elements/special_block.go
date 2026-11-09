@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -271,11 +272,13 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 	}
 
 	i := startIndex + 1
+	closed := false
 	for i < len(ctx.Lines) {
 		trimmedLine := strings.TrimSpace(ctx.Lines[i])
 
 		if trimmedLine == ":::" {
 			// Found closing :::
+			closed = true
 			i++
 			break
 		}
@@ -323,6 +326,15 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		nested = nil
 	}
 
+	// Sin su ":::" el bloque se queda con todo lo que sigue hasta el fin de la
+	// sección, del slide o del documento (issue #490): otros callouts, CODE,
+	// POINTS… pasan a ser su contenido. Eso no se puede distinguir de un
+	// bloque que de verdad los contiene, así que el cuerpo se lee igual que
+	// antes y se reporta en la línea que lo abrió.
+	if !closed {
+		nestedDiagnostics = append(nestedDiagnostics, unclosedSpecialBlockDiagnostic(ctx, startIndex, i, line))
+	}
+
 	block := ast.NewSpecialBlockElement(pos, blockType, content.String())
 	block.Title = title
 	block.Elements = nested
@@ -334,6 +346,43 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		Error:         nil,
 		Diagnostics:   nestedDiagnostics,
 	}
+}
+
+// UnclosedSpecialBlockRuleID es el diagnóstico de un bloque ":::" sin su
+// ":::" de cierre. El parser de elementos lo emite como warning en todos los
+// dialectos; el dialecto strict de documentos lo sube a error (ver
+// DocumentStrictParser), igual que hace con una línea no reconocida.
+const UnclosedSpecialBlockRuleID = "SPECIAL002"
+
+// unclosedSpecialBlockDiagnostic arma el SPECIAL002 de un bloque abierto en
+// ctx.Lines[start] cuyo cuerpo terminó en end sin ":::". En strict, si el
+// cuerpo tragado tiene una palabra clave de elemento a la misma sangría que la
+// apertura (un CODE, un POINTS, otro elemento de la sección), la nombra: es lo
+// más probable que el autor quisiera escribir después del cierre.
+func unclosedSpecialBlockDiagnostic(ctx *ParseContext, start, end int, opener string) diagnostics.Diagnostic {
+	where := "the end of what contains it (the section, slide, column or document)"
+	if end < len(ctx.Lines) {
+		if strings.TrimSpace(ctx.Lines[end]) == "---" {
+			where = "the next ---"
+		} else {
+			where = "the next block (" + strings.TrimSpace(ctx.Lines[end]) + ")"
+		}
+	}
+	msg := fmt.Sprintf("%q is never closed with \":::\": it takes everything up to %s as its content", opener, where)
+	if ctx.Mode == "strict" {
+		indent := CalculateIndentLevel(ctx.Lines[start])
+		for k := start + 1; k < end; k++ {
+			trimmed := strings.TrimSpace(ctx.Lines[k])
+			if trimmed == "" || strings.HasPrefix(trimmed, ":::") || CalculateIndentLevel(ctx.Lines[k]) != indent {
+				continue
+			}
+			if IsNewElement(trimmed, "strict") {
+				msg += fmt.Sprintf("; line %d (%s) is at the block's own indentation, so the block probably ends before it", ctx.Position(k).Line, trimmed)
+				break
+			}
+		}
+	}
+	return diagnostics.NewWarning(msg+". Add a line with \":::\" where the block ends.", ctx.Position(start), "special-block-parser").WithRuleID(UnclosedSpecialBlockRuleID)
 }
 
 // KnownSpecialBlockTypes es la lista única de tipos de special block con
