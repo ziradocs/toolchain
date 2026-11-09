@@ -29,6 +29,7 @@ func TestWithTileServer_Validation(t *testing.T) {
 		"https://{s}.tiles.example.com/{z}/{x}/{y}.png?key=abc",
 		"http://127.0.0.1:65535/{z}/{x}/{y}.png",
 		"https://tiles.{s}.example.com/{z}/{y}/{x}",
+		"https://stamen-tiles-{s}.example.com/{z}/{x}/{y}.png", // {s} dentro de una etiqueta
 	}
 	for _, tmpl := range ok {
 		if _, err := (MapConfig{}).WithTileServer(tmpl, "ua/1"); err != nil {
@@ -54,7 +55,6 @@ func TestWithTileServer_Validation(t *testing.T) {
 		"https://tiles.example.com:70000/{z}/{x}/{y}.png",          // puerto fuera de rango
 		"https://tiles.example.com:/{z}/{x}/{y}.png",               // puerto vacío
 		"https://tiles.example.com:abc/{z}/{x}/{y}.png",            // puerto no numérico
-		"https://t{s}.example.com/{z}/{x}/{y}.png",                 // {s} dentro de una etiqueta
 		"https://tiles.example.com/{s}/{z}/{x}/{y}.png",            // {s} en la ruta
 	}
 	for _, tmpl := range bad {

@@ -67,24 +67,13 @@ func validateMapTileTemplate(urlTemplate string) error {
 	} else if strings.HasSuffix(u.Host, ":") {
 		return fmt.Errorf("tile server template %q has an empty port", urlTemplate)
 	}
-	// {s} es un subdominio (a, b o c): solo vale como una etiqueta completa
-	// del host, como en https://{s}.tile.openstreetmap.org/….
+	// {s} es un subdominio (a, b o c): solo vale en el host, como etiqueta
+	// entera (https://{s}.tile.openstreetmap.org/…) o dentro de una
+	// (https://stamen-tiles-{s}.example.com/…). En la ruta no tiene sentido.
 	if strings.Contains(urlTemplate, "{s}") {
 		host := urlTemplate[len(u.Scheme)+len("://"):]
-		if i := strings.IndexAny(host, "/?#"); i >= 0 {
-			if strings.Contains(host[i:], "{s}") {
-				return fmt.Errorf("tile server template %q uses {s} outside the host; it stands for a subdomain", urlTemplate)
-			}
-			host = host[:i]
-		}
-		hostname := host
-		if i := strings.LastIndex(hostname, ":"); i >= 0 {
-			hostname = hostname[:i]
-		}
-		for _, label := range strings.Split(hostname, ".") {
-			if strings.Contains(label, "{s}") && label != "{s}" {
-				return fmt.Errorf("tile server template %q uses {s} inside a host label; it must be a whole label, as in https://{s}.tiles.example.com/…", urlTemplate)
-			}
+		if i := strings.IndexAny(host, "/?#"); i >= 0 && strings.Contains(host[i:], "{s}") {
+			return fmt.Errorf("tile server template %q uses {s} outside the host; it stands for a subdomain", urlTemplate)
 		}
 	}
 	return nil
