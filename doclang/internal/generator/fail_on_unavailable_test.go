@@ -197,3 +197,30 @@ func TestPDF_FailOnUnavailable(t *testing.T) {
 		t.Errorf("failed build left an output file (stat err %v)", err)
 	}
 }
+
+// TestDOCX_FailOnUnavailable_WithoutChromium: sin Chromium (una
+// --chromium-path que no existe), un diagrama mermaid, una ecuación y una
+// gráfica que no se dibuja de forma nativa quedan como marcador, y
+// FailOnUnavailable los lista con su línea y su tipo.
+func TestDOCX_FailOnUnavailable_WithoutChromium(t *testing.T) {
+	doc := parseInline(t, "---\ntitle: S\nlang: es\nmode: flex\n---\n\n# S\n\nTexto.\n")
+	radar := ast.NewChartElement(diagnostics.NewPosition(30, 1), "radar") // radar no tiene render nativo
+	radar.Data = [][]interface{}{{"A", 1}, {"B", 2}, {"C", 3}}
+	block := &doc.ContentBlocks[len(doc.ContentBlocks)-1]
+	block.Elements = append(block.Elements,
+		ast.NewMermaidElement(diagnostics.NewPosition(20, 1), "flowchart", "flowchart LR\n A --> B"),
+		ast.NewMathElement(diagnostics.NewPosition(25, 1), "E = mc^2"),
+		radar,
+	)
+	out := filepath.Join(t.TempDir(), "out.docx")
+	opts := GeneratorOptions{Format: "docx", ChromiumPath: filepath.Join(t.TempDir(), "no-chromium"), FailOnUnavailable: true}
+	err := New(newTestLogger()).Generate(doc, out, opts)
+	var ue *UnavailableError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want *UnavailableError, got %v", err)
+	}
+	want := []UnavailableContent{{"diagram", 20, ""}, {"equation", 25, ""}, {"chart", 30, ""}}
+	if !reflect.DeepEqual(ue.Items, want) {
+		t.Errorf("items = %+v, want %+v", ue.Items, want)
+	}
+}

@@ -103,7 +103,8 @@ Diagrams (Mermaid, PlantUML), charts (Chart.js) and maps (Leaflet) are controlle
 - `offline-inline` — same, but embedded in the HTML. Single file, heavier.
 
 Related flags: `--install-chromium`, `--chromium-path`, `--image-format png|webp`,
-`--webp-quality`, `--plantuml-server`, `--plantuml-format`.
+`--webp-quality`, `--plantuml-server`, `--plantuml-format`. doclang also has
+`--tile-server`, `--no-network` and `--fail-on-unavailable` (see `doclang/README.md`).
 
 ## Evidence Pipeline & Linting (v2.0+)
 

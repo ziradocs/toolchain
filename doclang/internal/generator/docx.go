@@ -4457,6 +4457,7 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 	displayText := fmt.Sprintf("[%s: %s]", label, safeSource)
 	if _, err := p.AddHyperlink(safeSource, displayText); err != nil {
 		g.logger.Warn("DOCX: Failed to insert media hyperlink %s: %v", safeSource, err)
+		g.unavailable.add("media", g.renderLine, source)
 		return g.renderPlaceholder(doc, g.docxMediaText(label, "unavailable", safeSource))
 	}
 

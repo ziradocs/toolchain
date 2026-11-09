@@ -23,6 +23,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -500,6 +501,15 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 	}
 	log.Info("GENERATOR", "Generating %s document...", format)
 	if err := gen.Generate(doc, opts.OutputFile, genOpts); err != nil {
+		// Con --fail-on-unavailable la salida no se escribe; tampoco debe
+		// quedar la de un build anterior con el mismo nombre, que alguien
+		// tomaría por la de este.
+		var ue *generator.UnavailableError
+		if errors.As(err, &ue) {
+			if rmErr := os.Remove(opts.OutputFile); rmErr != nil && !os.IsNotExist(rmErr) {
+				log.Warn("could not remove the previous %s: %v", opts.OutputFile, rmErr)
+			}
+		}
 		return fmt.Errorf("generation failed: %w", err)
 	}
 	return nil
