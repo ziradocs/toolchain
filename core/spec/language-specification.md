@@ -579,6 +579,16 @@ Special blocks provide structured content:
 | `highlight` | `::: highlight` | Highlighted content |
 | `code-group` | `::: code-group` | Grouped code blocks |
 
+A block ends at its own `:::` line. A block that is never closed takes
+everything up to the next `---`, the next `SLIDE`/`SECTION` at column 0, or the
+end of the file as its content, exactly as before; that is the `SPECIAL002`
+diagnostic on the line that opened it. It is an error in a strict document and a
+warning in a slide (strict or flex) and in a flex document. In strict, the message
+names the first element keyword written at the block's own indentation inside
+the swallowed content, which is usually where the closing `:::` was meant to go.
+A closed block may still contain such a keyword: `CODE` between `:::info` and its
+`:::` is a nested code element, not a hint.
+
 #### Typed special blocks
 
 A flex block fills two views of its body: `content` (the trimmed raw lines) and,
@@ -803,6 +813,28 @@ of the same fence character at least as long as the opening one. A fence that is
 never closed is not an equation: ` ``` ` stays a code block and `~~~` stays text.
 Formatters canonicalize block equations, the fence included, to the `<<math>>`
 form so that metadata is retained.
+
+An equation can also carry an already-rendered image in the AST
+(`MathElement.image`, capability `math-image-v1`, schema 2.27.0). It has no
+source syntax: an external filter (`doclang build --filter`) that draws the
+equations itself sets it. The element is still an equation, so its number,
+anchor, caption and every `\ref` to its label are unchanged, and `content`
+keeps the LaTeX, which is the image's alternative text. HTML, PDF and DOCX
+draw the image instead of typesetting the LaTeX, so DOCX needs no Chromium
+for it (unless the image is an SVG). The image resolves like a block image's
+`source`, relative to the source file. Outputs that read the file at build
+time (PDF, `offline-inline` HTML, DOCX) confine it to the asset root and
+inline or embed it; `offline-assets` HTML does not show a path that escapes
+the asset root; browser-mode HTML keeps the `src` as written, like any image.
+A remote image is not fetched by build-time outputs unless remote images are
+allowed, and DOCX never fetches it. An image that cannot be shown leaves the
+"equation not available" marker, with the equation number. The render is
+sized by its physical resolution: a local PNG with a `pHYs` chunk is drawn at
+pixels × 96 / DPI CSS pixels in HTML and PDF (so a 400×80 render at 192 DPI
+is 200 CSS px, 2.08 in), the same size DOCX gives it, and still capped at
+the column width; without `pHYs` it is drawn at its pixel size. This applies
+only to equation images, not to block images. Formatters reject an equation
+with an image, since writing it back to source would lose the render.
 
 This section is about the `<<…>>` family only. The `:::` blocks match their
 name on a loose prefix and have no boundary of their own — `::: gridJUNK` is

@@ -266,6 +266,28 @@
                 "properties": {
                   "capabilities": {
                     "contains": {
+                      "const": "math-image-v1"
+                    }
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/MathImagePresent"
+              },
+              "else": {
+                "not": {
+                  "$ref": "#/$defs/MathImagePresent"
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "capabilities": {
+                    "contains": {
                       "const": "nested-list-types-v1"
                     }
                   }
@@ -723,6 +745,49 @@
               "if": {
                 "properties": {
                   "schemaVersion": {
+                    "const": "2.27.0"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "enum": [
+                        "table-rows-v1",
+                        "nested-list-types-v1",
+                        "typed-headings-v1",
+                        "media-figure-v1",
+                        "code-filename-v1",
+                        "quiz-poll-results-v1",
+                        "list-start-v1",
+                        "math-source-v1",
+                        "chart-content-v1",
+                        "content-markdown-v1",
+                        "table-align-v1",
+                        "image-title-v1",
+                        "math-image-v1"
+                      ]
+                    },
+                    "contains": {
+                      "const": "math-image-v1"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "capabilities"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schemaVersion": {
                     "enum": [
                       "2.13.0",
                       "2.14.0"
@@ -781,7 +846,8 @@
             "2.23.0",
             "2.24.0",
             "2.25.0",
-            "2.26.0"
+            "2.26.0",
+            "2.27.0"
           ]
         },
         "capabilities": {
@@ -2327,6 +2393,11 @@
         },
         "captionHTML": {
           "type": "string"
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]*$"
         }
       },
       "additionalProperties": false,
@@ -2336,6 +2407,81 @@
         "position",
         "endPosition",
         "content"
+      ]
+    },
+    "MathImagePresent": {
+      "anyOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "math"
+            }
+          },
+          "required": [
+            "type",
+            "image"
+          ]
+        },
+        {
+          "properties": {
+            "contentBlocks": {
+              "contains": {
+                "$ref": "#/$defs/MathImagePresent"
+              }
+            }
+          },
+          "required": [
+            "contentBlocks"
+          ]
+        },
+        {
+          "properties": {
+            "elements": {
+              "contains": {
+                "$ref": "#/$defs/MathImagePresent"
+              }
+            }
+          },
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "properties": {
+            "columns": {
+              "contains": {
+                "$ref": "#/$defs/MathImagePresent"
+              }
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        },
+        {
+          "properties": {
+            "items": {
+              "contains": {
+                "$ref": "#/$defs/MathImagePresent"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ]
+        },
+        {
+          "properties": {
+            "subPoints": {
+              "contains": {
+                "$ref": "#/$defs/MathImagePresent"
+              }
+            }
+          },
+          "required": [
+            "subPoints"
+          ]
+        }
       ]
     },
     "MathPresent": {

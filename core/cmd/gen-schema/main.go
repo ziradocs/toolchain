@@ -112,7 +112,7 @@ func main() {
 			prop.Pattern = `^[A-Za-z][A-Za-z0-9._-]{0,127}$`
 		}
 	}
-	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion, ast.ChartContentSchemaVersion, ast.ContentMarkdownSchemaVersion, ast.TableAlignSchemaVersion, ast.ImageTitleSchemaVersion}}); err != nil {
+	if err := overrideProperty(root.Definitions, "AST", "schemaVersion", &jsonschema.Schema{Type: "string", Enum: []any{ast.PreviousSchemaVersion, ast.LegacySchemaVersion, ast.TableSchemaVersion, ast.NestedListSchemaVersion, ast.TypedHeadingsSchemaVersion, ast.MediaFigureSchemaVersion, ast.CodeFilenameSchemaVersion, ast.QuizPollResultsSchemaVersion, ast.ListStartSchemaVersion, ast.MathSourceSchemaVersion, ast.ChartContentSchemaVersion, ast.ContentMarkdownSchemaVersion, ast.TableAlignSchemaVersion, ast.ImageTitleSchemaVersion, ast.MathImageSchemaVersion}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -248,6 +248,19 @@ func main() {
 		panic(err)
 	}
 	if err := overrideProperty(root.Definitions, "ImageElement", "title", &imageTitle); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	var MathImagePresent jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type","image"],"properties":{"type":{"const":"math"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}}]}`), &MathImagePresent); err != nil {
+		panic(err)
+	}
+	root.Definitions["MathImagePresent"] = &MathImagePresent
+	var mathImage jsonschema.Schema
+	if err := json.Unmarshal([]byte(`{"type":"string","minLength":1,"pattern":"^[^\\r\\n]*$"}`), &mathImage); err != nil {
+		panic(err)
+	}
+	if err := overrideProperty(root.Definitions, "MathElement", "image", &mathImage); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -438,6 +451,7 @@ func contractGateJSON() ([]byte, error) {
 		{ast.ContentMarkdownCapability, ast.ContentMarkdownSchemaVersion, "TypedHeadingPresent"},
 		{ast.TableAlignCapability, ast.TableAlignSchemaVersion, "TableAlignPresent"},
 		{ast.ImageTitleCapability, ast.ImageTitleSchemaVersion, "ImageTitlePresent"},
+		{ast.MathImageCapability, ast.MathImageSchemaVersion, "MathImagePresent"},
 	}
 	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
 	declares := func(capability string) map[string]any {

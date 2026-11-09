@@ -136,7 +136,22 @@ func (p *DocumentStrictParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		p.parseSection(astNode)
 	}
 
+	promoteUnclosedSpecialBlocks(p.diagnostics)
 	return astNode, p.diagnostics
+}
+
+// promoteUnclosedSpecialBlocks sube a error el SPECIAL002 de un ":::" sin
+// cierre (issue #490). El parser de elementos lo emite como warning porque lo
+// comparten los dos dialectos y el de presentaciones no puede romper decks
+// existentes (el mismo criterio que STRICT003); en un documento strict, un
+// bloque que se traga el resto de la sección es contenido mal ubicado sin
+// aviso, justo lo que el dialecto promete no hacer.
+func promoteUnclosedSpecialBlocks(diags []diagnostics.Diagnostic) {
+	for i := range diags {
+		if diags[i].RuleID == elements.UnclosedSpecialBlockRuleID && diags[i].IsWarning() {
+			diags[i].Severity = diagnostics.Error
+		}
+	}
 }
 
 // startsSectionKeyword reporta si trimmed abre una sección. Exige frontera

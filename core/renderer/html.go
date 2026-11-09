@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"mime"
 	"net/url"
 	"os"
@@ -1127,10 +1128,14 @@ func renderMathElement(elem *ast.MathElement, variables map[string]interface{}, 
 	var html strings.Builder
 	fmt.Fprintf(&html, `<div class="math-block"%s>`, idAttr)
 
-	switch ctx.MathMode {
-	case "offline-assets":
+	switch {
+	case elem.Image != "":
+		// math-image-v1: el render ya viene hecho; el número, el ancla y
+		// la leyenda son los de siempre.
+		html.WriteString(renderMathImage(elem.Image, content, variables, ctx))
+	case ctx.MathMode == "offline-assets":
 		html.WriteString(renderMathOfflineAssets(content, ctx))
-	case "offline-inline":
+	case ctx.MathMode == "offline-inline":
 		html.WriteString(renderMathOfflineInline(content, ctx))
 	default: // "browser" o vacío
 		html.WriteString(renderMathBrowser(content))
@@ -1143,6 +1148,44 @@ func renderMathElement(elem *ast.MathElement, variables map[string]interface{}, 
 
 	html.WriteString(`</div>`)
 	return html.String()
+}
+
+// renderMathImage dibuja el render previo de una ecuación (MathElement.Image,
+// math-image-v1). La fuente se resuelve con las mismas reglas que la de una
+// imagen de bloque (renderImageElement): una remota no se pide en las salidas
+// de build salvo --allow-remote-images, una local se inlinea como data: URI
+// en offline-inline (la ruta del PDF, que se imprime desde about:blank)
+// después de confinarla a AssetRoot, una que escapa de AssetRoot en
+// offline-assets no se muestra, y lo demás pasa por SanitizeURL (en browser
+// el src relativo queda como está, igual que el de una imagen). El texto
+// alternativo es el LaTeX. Un PNG local con pHYs va a su tamaño físico
+// (mathImageCSSWidth), el mismo que le da el DOCX. Una fuente que no se
+// puede mostrar deja el marcador de ecuación no disponible, sin caer a
+// componer el LaTeX: el filtro pidió ese render, y en offline eso pediría
+// Chromium.
+func renderMathImage(image, latex string, variables map[string]interface{}, ctx *RenderContext) string {
+	source := ProcessVariables(image, variables)
+	style := ""
+	if width, ok := mathImageCSSWidth(source, ctx); ok {
+		style = ` style="width:` + strconv.FormatFloat(math.Round(width*100)/100, 'f', -1, 64) + `px;max-width:100%"`
+	}
+	if remoteImageBlocked(source, ctx) {
+		return unavailableDiv("math-error", unavailableEquation, ctx)
+	}
+	inlined, status := inlineLocalAsset(source, ctx, 0, "MATH", "equation image")
+	switch {
+	case status == localAssetInlined:
+		source = inlined
+	case status == localAssetUnavailable || localImageEscapesRoot(source, ctx):
+		return unavailableDiv("math-error", unavailableEquation, ctx)
+	default:
+		source = SanitizeURL(EscapeURLSpaces(source))
+	}
+	if source == "" {
+		ctx.Logger.Warn("[MATH] equation image %q blocked: unsafe URL", image)
+		return unavailableDiv("math-error", unavailableEquation, ctx)
+	}
+	return fmt.Sprintf(`<img src="%s" alt="%s" class="math-diagram math-image"%s>`, source, EscapeHTMLAttribute(latex), style)
 }
 
 // renderMathBrowser genera HTML para renderizado browser (CDN, client-side).
