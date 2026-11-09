@@ -232,6 +232,13 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				}
 				if err != "" {
 					diags = append(diags, inlineRowsDiagnostic(ctx.Mode, err, rowPos))
+					// Las filas de abajo ya están nombradas en este diagnóstico:
+					// se consumen para que el bucle de afuera no las reporte otra
+					// vez una por una.
+					for next := nextNonBlank(lines, i+1); next >= 0 && isRowLine(lines[next], expectedIndent); next = nextNonBlank(lines, i+1) {
+						consumed += next - i
+						i = next
+					}
 				} else {
 					for _, row := range inline {
 						rows = append(rows, splitInlineArray(trimInlineArrayBrackets(row)))
@@ -288,16 +295,20 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 					i++
 					continue
 				}
-				// Lo que el bucle de afuera sabe leer después de las filas: otra
-				// propiedad o una fila de tabla con "|".
-				if isTableProperty(rowTrimmed) || strings.Contains(rowTrimmed, "|") {
-					i--
-					break
+				// Una fila escrita como item de lista YAML (`- ["a", "b"]`) no se
+				// lee como fila: se dice en vez de cerrar la lista con ella.
+				if strings.HasPrefix(rowTrimmed, "- [") {
+					diags = append(diags, rowsDiagnostic(ctx.Mode, fmt.Sprintf(
+						"TABLE rows: %q is not a row: write each row as [\"a\", \"b\"] on its own line, without a list marker. The table gets no row from this line", rowTrimmed), ctx.Position(i)))
+					consumed++
+					i++
+					continue
 				}
-				diags = append(diags, rowsDiagnostic(ctx.Mode, fmt.Sprintf(
-					"TABLE rows: %q is not a row; write each row as [\"a\", \"b\"] on its own line. The table gets no row from this line", rowTrimmed), ctx.Position(i)))
-				consumed++
-				i++
+				// Cualquier otra línea cierra la lista y la lee el bucle de afuera,
+				// con el mismo trato que antes de `rows:`: una propiedad, una fila
+				// con "|", o lo que ese bucle ignora.
+				i--
+				break
 			}
 			continue
 		} else if strings.HasPrefix(trimmedLine, "cells:") {
@@ -396,6 +407,12 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			// issue #239: identificador de referencia cruzada (p. ej. "tbl:ventas").
 			labelStr := strings.TrimPrefix(trimmedLine, "label:")
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
+		} else if strings.HasPrefix(trimmedLine, "[") {
+			// Una fila fuera de la lista de `rows:` (la lista ya terminó en
+			// otra línea, o no hay `rows:`): antes este bucle la ignoraba sin
+			// aviso, como a cualquier línea que no reconoce.
+			diags = append(diags, rowsDiagnostic(ctx.Mode, fmt.Sprintf(
+				"TABLE: %q looks like a row but is not in the rows: list (the list ends at the first line that is not a row); the table gets no row from it", trimmedLine), ctx.Position(i)))
 		} else if strings.Contains(trimmedLine, "|") {
 			legacyDeclared = true
 			// Fallback: Parse table row (separated by |) for compatibility
@@ -498,14 +515,26 @@ func splitInlineRows(value string) ([]string, string) {
 		return nil, "the value must be an array of rows, e.g. rows: [[\"a\", \"b\"], [\"c\", \"d\"]]"
 	}
 	if !strings.HasSuffix(value, "]") {
+		if strings.HasSuffix(strings.TrimSpace(strings.TrimSuffix(value, ",")), "]") {
+			return nil, "a trailing comma after the closing ]"
+		}
 		return nil, "the array does not close on the same line; write it whole on this line, or one row per line under `rows: [`"
 	}
 	inner := value[1 : len(value)-1]
+	// Con un número impar de comillas, splitInlineArray cae al corte por comas
+	// sin comillas (la política de este bloque: el backslash no es escape), y
+	// así lee `["c\"d", "e"]` como las celdas `c\"d` y `e`. Para que la forma
+	// en línea lea las mismas celdas, las filas se separan entonces sin mirar
+	// comillas, y cada una pasa por el mismo splitInlineArray.
+	quoteAware := strings.Count(inner, "\"")%2 == 0
 	var rows []string
 	depth, start := 0, -1
 	inQuotes, expectComma := false, false
 	for i := 0; i < len(inner); i++ {
 		c := inner[i]
+		if !quoteAware && c == '"' {
+			continue
+		}
 		if inQuotes {
 			if c == '"' {
 				inQuotes = false
@@ -562,15 +591,17 @@ func inlineRowsDiagnostic(mode, detail string, pos diagnostics.Position) diagnos
 	return rowsDiagnostic(mode, fmt.Sprintf("TABLE rows: could not read the inline value (%s); the table gets no rows from it", detail), pos)
 }
 
-// rowsDiagnostic es el TABLE007: algo escrito como filas de `rows:` que no se
-// pudo leer. Esas filas no llegan al AST, así que en strict es un error (el
-// dialecto no pierde contenido en silencio); en flex, un warning, como el
-// TABLE004 de un `cells:` inválido.
-func rowsDiagnostic(mode, msg string, pos diagnostics.Position) diagnostics.Diagnostic {
-	if mode == "strict" {
-		return diagnostics.NewError(msg, pos, "table-parser").WithRuleID("TABLE007")
-	}
-	return diagnostics.NewWarning(msg, pos, "table-parser").WithRuleID("TABLE007")
+// TableRowsRuleID es el diagnóstico de algo escrito como filas de `rows:` que
+// no se pudo leer.
+const TableRowsRuleID = "TABLE007"
+
+// rowsDiagnostic es el TABLE007. Esas filas no llegan al AST. El parser de
+// elementos, compartido por los dos CLIs, lo emite como warning (un slide o un
+// documento flex que compilaba no se rompe); DocumentStrictParser lo sube a
+// error, como SPECIAL002, porque el dialecto strict de documentos no pierde
+// contenido en silencio.
+func rowsDiagnostic(_ string, msg string, pos diagnostics.Position) diagnostics.Diagnostic {
+	return diagnostics.NewWarning(msg, pos, "table-parser").WithRuleID(TableRowsRuleID)
 }
 
 // trimInlineArrayBrackets quita UN "[" inicial y UN "]" final del valor de

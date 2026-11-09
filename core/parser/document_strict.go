@@ -173,6 +173,7 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 	level := 0 // 0 = no declarado; el default (1) se aplica al final
 	explicitID := ""
 	idLine := 0
+	firstDiag := len(p.diagnostics)
 
 	p.parseIndentedElements(scratch, func(key, value string) {
 		switch key {
@@ -223,6 +224,15 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 			"unexpected content inside %s: %q is not an element, a property, or a new %s",
 			sectionKeyword, trimmed, sectionKeyword))
 	})
+
+	// TABLE007 (filas de `rows:` que no se pudieron leer) sale del parser de
+	// TABLE como warning, porque lo comparten los slides; en un documento
+	// strict esas filas perdidas son un error.
+	for i := firstDiag; i < len(p.diagnostics); i++ {
+		if p.diagnostics[i].RuleID == elements.TableRowsRuleID && p.diagnostics[i].IsWarning() {
+			p.diagnostics[i].Severity = diagnostics.Error
+		}
+	}
 
 	if level == 0 {
 		level = 1

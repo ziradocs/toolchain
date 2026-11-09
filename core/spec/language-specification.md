@@ -216,21 +216,25 @@ In a `TABLE` block, `rows:` takes the rows either one per line after
 `rows: [` (closed by `]`) or as the whole array on the `rows:` line itself:
 `rows: [["a", "b"], ["c", "d"]]`. Both forms give the same cells, read with the
 same rules as `headers:` (a comma or bracket inside a double-quoted cell is
-content; a backslash is not an escape). An inline value that is not an array
-of bracketed rows closed on the same line, or one followed by more rows on the
-next lines, is the `TABLE007` diagnostic on the `rows:` line, an error in strict
-and a warning in flex, and gives the table no rows. `rows: []` is a table with
-no rows (`TABLE002`). Earlier versions read only the one-per-line form and gave
-the inline one zero rows with only `TABLE002`.
+content; a backslash is not an escape, and a row with an odd number of quotes
+falls back to splitting on every comma in both forms). `rows: []` is a table
+with no rows (`TABLE002`).
 
 In the one-per-line form, a row is any line that starts with `[` and is indented
 at least as deep as the `TABLE`'s properties; blank lines between rows do not end
-the list, and a line `]` closes it. A line among the rows that is not a complete
-row (`["a", "b"` with no closing bracket, `"a", "b"` with none at all) is
-`TABLE007` on that line, with the same severities, and the other rows are kept.
-The list ends at the next property (`caption:`, `label:`…) or `|` row. Earlier
-versions only read rows indented exactly six spaces and dropped any other row,
-and any row after a blank line, without a diagnostic.
+the list, and a line `]` closes it. Any other line ends the list and is read as
+it would be before `rows:` (a property, a `|` row, or ignored), so an unknown
+property such as `align:` after the rows keeps a deck building.
+
+`TABLE007` names rows that cannot be read: an inline value that is not an array
+of bracketed rows closed on the same line (or has a trailing comma), rows on the
+lines below an inline value, a line among the rows that starts with `[` but is
+not a complete row, a row written as a list item (`- ["a", "b"]`), and a line
+that starts with `[` after the list has ended. Those rows do not reach the AST.
+It is an error in a strict document and a warning in a slide (strict or flex)
+and in a flex document, the same split as `SPECIAL002`. Earlier versions read
+only rows indented exactly six spaces, gave the inline form zero rows with only
+`TABLE002`, and dropped the rest without a diagnostic.
 
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser

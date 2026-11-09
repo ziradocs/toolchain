@@ -86,14 +86,14 @@ func TestTableInlineRows_EmptyArrayIsNoRows(t *testing.T) {
 // y el código TABLE007, en vez de una tabla vacía con solo el TABLE002.
 func TestTableInlineRows_MalformedIsAnErrorInStrict(t *testing.T) {
 	for name, body := range map[string]string{
-		"unclosed":           `    rows: [["a","b"],["c","d"]` + "\n",
-		"open row":           `    rows: [["a","b"],["c"` + "\n",
-		"not an array":       "    rows: a, b\n",
-		"bare cells":         `    rows: ["a","b"]` + "\n",
-		"missing comma":      `    rows: [["a","b"] ["c","d"]]` + "\n",
-		"trailing comma":     `    rows: [["a","b"],]` + "\n",
-		"unclosed quote":     `    rows: [["a,"b"]]` + "\n",
-		"inline plus a line": `    rows: [["a","b"]]` + "\n" + `      ["c","d"]` + "\n",
+		"unclosed":                       `    rows: [["a","b"],["c","d"]` + "\n",
+		"open row":                       `    rows: [["a","b"],["c"` + "\n",
+		"not an array":                   "    rows: a, b\n",
+		"bare cells":                     `    rows: ["a","b"]` + "\n",
+		"missing comma":                  `    rows: [["a","b"] ["c","d"]]` + "\n",
+		"trailing comma":                 `    rows: [["a","b"],]` + "\n",
+		"trailing comma after the array": `    rows: [["a","b"]],` + "\n",
+		"inline plus a line":             `    rows: [["a","b"]]` + "\n" + `      ["c","d"]` + "\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			table, diags := strictDocTable(t, body)
@@ -202,8 +202,9 @@ func TestTableRows_UnreadableLineIsTABLE007(t *testing.T) {
 		body string
 		line int
 	}{
-		"row not closed":       {"    rows: [\n      [\"a\",\"b\"],\n      [\"c\",\"d\"\n    ]\n", 11},
-		"row without brackets": {"    rows: [\n      [\"a\",\"b\"],\n      \"c\",\"d\"\n    ]\n", 11},
+		"row not closed":      {"    rows: [\n      [\"a\",\"b\"],\n      [\"c\",\"d\"\n    ]\n", 11},
+		"list marker":         {"    rows:\n      [\"a\",\"b\"]\n      - [\"c\",\"d\"]\n", 11},
+		"row after a comment": {"    rows:\n      [\"a\",\"b\"]\n      // comentario\n      [\"c\",\"d\"]\n", 12},
 	} {
 		t.Run(name, func(t *testing.T) {
 			table, diags := strictDocTable(t, tc.body)
@@ -232,5 +233,87 @@ func TestTableInlineRows_RowAfterABlankLine(t *testing.T) {
 	}
 	if len(table.Rows) != 0 {
 		t.Errorf("want no partial rows, got %q", table.Rows)
+	}
+}
+
+// Las dos formas leen igual las mismas celdas también cuando las comillas no
+// cierran: el backslash no es escape, y `"c\"d"` es la celda `c\"d` (el corte
+// por comas de siempre).
+func TestTableInlineRows_OddQuotesReadLikeMultiLine(t *testing.T) {
+	inline, diags := strictDocTable(t, `    rows: [["c\"d", "e"]]`+"\n")
+	if len(diags) != 0 {
+		t.Fatalf("inline: want no diagnostics, got %v", diags)
+	}
+	multi, diags := strictDocTable(t, "    rows:\n      [\"c\\\"d\", \"e\"]\n")
+	if len(diags) != 0 {
+		t.Fatalf("multi-line: want no diagnostics, got %v", diags)
+	}
+	if want := [][]string{{`c\"d`, "e"}}; !reflect.DeepEqual(inline.Rows, want) || !reflect.DeepEqual(multi.Rows, want) {
+		t.Errorf("inline %q, multi-line %q, want %q", inline.Rows, multi.Rows, want)
+	}
+}
+
+func TestTableInlineRows_TrailingCommaMessage(t *testing.T) {
+	_, diags := strictDocTable(t, `    rows: [["a"]],`+"\n")
+	if len(diags) != 1 || !strings.Contains(diags[0].Message, "a trailing comma after the closing ]") {
+		t.Errorf("want the trailing-comma message, got %v", diags)
+	}
+}
+
+// Una línea que no es fila (una propiedad que TABLE no conoce, un texto sin
+// corchetes) cierra la lista, como antes de `rows:`, sin TABLE007: un deck
+// que compilaba no se rompe.
+func TestTableRows_OtherLinesCloseTheList(t *testing.T) {
+	for name, body := range map[string]string{
+		"unknown property": "    rows:\n      [\"a\", \"b\"]\n    align: center\n    caption: \"C\"\n",
+		"no brackets":      "    rows:\n      [\"a\", \"b\"]\n      \"c\",\"d\"\n    caption: \"C\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			table, diags := strictDocTable(t, body)
+			if len(diags) != 0 {
+				t.Fatalf("want no diagnostics, got %v", diags)
+			}
+			if !reflect.DeepEqual(table.Rows, [][]string{{"a", "b"}}) || table.Caption != "C" {
+				t.Errorf("rows %q caption %q", table.Rows, table.Caption)
+			}
+		})
+	}
+}
+
+// En un slide (strict o flex) TABLE007 es warning: el deck sigue compilando.
+// Solo el documento strict lo sube a error.
+func TestTableRows_TABLE007IsAWarningInSlides(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src  string
+		line int
+	}{
+		"strict inline":    {"---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TABLE\n    headers: [\"x\", \"y\"]\n    rows: [[\"a\",\"b\"]\n", 9},
+		"strict multiline": {"---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TABLE\n    headers: [\"x\", \"y\"]\n    rows:\n      [\"a\",\"b\"\n", 10},
+		"flex":             {"---\nmode: flex\ntitle: T\n---\n\n# A\n\nTABLE\n  headers: [\"x\", \"y\"]\n  rows: [[\"a\",\"b\"]\n", 10},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, diags := New(util.NewNoop()).Parse(tc.src, "t.slidelang")
+			var got []diagnostics.Diagnostic
+			for _, d := range diags {
+				if d.RuleID == "TABLE007" {
+					got = append(got, d)
+				}
+			}
+			if len(got) != 1 || got[0].IsError() || got[0].Position.Line != tc.line {
+				t.Errorf("want one TABLE007 warning at line %d, got %v", tc.line, diags)
+			}
+		})
+	}
+
+	// st2/t5: una propiedad desconocida después de las filas no da TABLE007.
+	src := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TABLE\n    headers: [\"x\", \"y\"]\n    rows:\n      [\"a\", \"b\"]\n    align: center\n"
+	doc, diags := New(util.NewNoop()).Parse(src, "t.slidelang")
+	for _, d := range diags {
+		if d.RuleID == "TABLE007" || d.IsError() {
+			t.Errorf("unexpected diagnostic: %v", d)
+		}
+	}
+	if table := doc.ContentBlocks[0].Elements[0].(*ast.TableElement); !reflect.DeepEqual(table.Rows, [][]string{{"a", "b"}}) {
+		t.Errorf("rows %q", table.Rows)
 	}
 }
