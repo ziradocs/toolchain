@@ -154,6 +154,10 @@ func ValidateTableContract(doc *AST) error {
 			failure = fmt.Errorf("image title must be a single line")
 			return failure
 		}
+		if m, ok := n.(*MathElement); ok && strings.ContainsAny(m.Image, "\r\n") {
+			failure = fmt.Errorf("math image must be a single line")
+			return failure
+		}
 		if t, ok := n.(*TableElement); ok {
 			if err := ValidateColumnAlign(t); err != nil {
 				failure = err
@@ -229,7 +233,7 @@ func ValidateRawTableContract(data []byte) error {
 	if err := json.Unmarshal(data, &whole); err != nil {
 		return err
 	}
-	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount, startCount, mathCount, chartCount, alignCount, imageTitleCount := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	tableCount, listCount, headingCount, mediaCount, codeFileCount, resultsCount, startCount, mathCount, chartCount, alignCount, imageTitleCount, mathImageCount := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	var inspectElement func(any) error
 	inspectElement = func(value any) error {
 		switch v := value.(type) {
@@ -294,8 +298,21 @@ func ValidateRawTableContract(data []byte) error {
 					}
 				}
 			}
+			if _, has := v["image"]; has && v["type"] != string(NodeTypeMath) {
+				return fmt.Errorf("image on a non-math element")
+			}
 			if v["type"] == string(NodeTypeMath) {
 				mathCount++
+				if raw, has := v["image"]; has {
+					if !declared[MathImageCapability] {
+						return fmt.Errorf("math image requires schemaVersion %s and capability %s", MathImageSchemaVersion, MathImageCapability)
+					}
+					image, ok := raw.(string)
+					if !ok || image == "" || strings.ContainsAny(image, "\r\n") {
+						return fmt.Errorf("math image must be a nonempty single-line string")
+					}
+					mathImageCount++
+				}
 			}
 			for _, key := range []string{"start", "subListStart"} {
 				if raw, has := v[key]; has {
@@ -423,6 +440,9 @@ func ValidateRawTableContract(data []byte) error {
 	}
 	if (chartCount > 0) != declared[ChartContentCapability] {
 		return fmt.Errorf("chart content presence does not match schemaVersion/capabilities")
+	}
+	if (mathImageCount > 0) != declared[MathImageCapability] {
+		return fmt.Errorf("math image presence does not match schemaVersion/capabilities")
 	}
 	if declared[MathSourceCapability] && mathCount == 0 {
 		return fmt.Errorf("math-source-v1 requires a MathElement")

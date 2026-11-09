@@ -113,8 +113,16 @@ import type { Position } from "./diagnostics";
  * 2.26.0: ImageElement.title (image-title-v1), the title of a Markdown image
  * destination (`![alt](src "title")`). An image without a title emits no
  * title and keeps the lower version.
+ * 2.27.0: MathElement.image (math-image-v1), an already-rendered image of the
+ * equation (local path or URL, resolved like ImageElement.source). The
+ * element stays a MathElement: label, number, anchor, caption and \ref work
+ * unchanged, Content keeps the LaTeX (the image's alt text and the fallback
+ * for a reader that ignores the field), and a renderer that honors it
+ * draws the image instead of typesetting the LaTeX. It has no source syntax:
+ * it is set by an external filter that pre-renders equations. An equation
+ * without image emits no image and keeps the lower version.
  */
-export const SchemaVersion = "2.26.0";
+export const SchemaVersion = "2.27.0";
 export const PreviousSchemaVersion = "2.13.0";
 export const LegacySchemaVersion = "2.14.0";
 export const TableSchemaVersion = "2.15.0";
@@ -141,6 +149,8 @@ export const TableAlignSchemaVersion = "2.25.0";
 export const TableAlignCapability = "table-align-v1";
 export const ImageTitleSchemaVersion = "2.26.0";
 export const ImageTitleCapability = "image-title-v1";
+export const MathImageSchemaVersion = "2.27.0";
+export const MathImageCapability = "math-image-v1";
 export const MaxListStart: number /* int64 */ = 9007199254740991;
 /**
  * Node representa un nodo base en el AST
@@ -1208,6 +1218,17 @@ export interface MathElement extends BaseNode {
   number?: number /* int */;
   caption?: string;
   captionHTML?: string; // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+  /**
+   * Image es un render ya hecho de la ecuación (math-image-v1, AST 2.27.0):
+   * ruta local o URL, resuelta igual que ImageElement.Source. Lo pone un
+   * filtro externo que dibuja las fórmulas por su cuenta; no tiene
+   * sintaxis fuente. Con él, HTML/PDF/DOCX dibujan la imagen en vez de
+   * componer el LaTeX (sin Chromium en DOCX), y el elemento conserva su
+   * número, ancla y leyenda. Content sigue siendo el LaTeX: texto
+   * alternativo de la imagen y lo que muestra un lector que no conoce el
+   * campo.
+   */
+  image?: string;
 }
 
 //////////

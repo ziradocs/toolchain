@@ -39,6 +39,19 @@ var extensions = []extension{
 	{ContentMarkdownCapability, ContentMarkdownSchemaVersion, UsesContentMarkdown},
 	{TableAlignCapability, TableAlignSchemaVersion, UsesTableAlign},
 	{ImageTitleCapability, ImageTitleSchemaVersion, UsesImageTitle},
+	{MathImageCapability, MathImageSchemaVersion, UsesMathImage},
+}
+
+// UsesMathImage reporta si alguna fórmula lleva un render ya hecho.
+func UsesMathImage(doc *AST) bool {
+	used := false
+	_ = Walk(doc, func(n Node) error {
+		if m, ok := n.(*MathElement); ok && m.Image != "" {
+			used = true
+		}
+		return nil
+	})
+	return used
 }
 
 // UsesImageTitle reporta si alguna imagen lleva título.
@@ -275,6 +288,7 @@ func describeUsed(caps []string) string {
 		ContentMarkdownCapability: "explicit Markdown content",
 		TableAlignCapability:      "table column alignment",
 		ImageTitleCapability:      "image titles",
+		MathImageCapability:       "pre-rendered equations",
 	}
 	parts := make([]string, len(caps))
 	for i, c := range caps {
