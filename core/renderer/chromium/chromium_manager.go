@@ -243,7 +243,7 @@ var extraAllocatorOptions []chromedp.ExecAllocatorOption
 
 // CreateContext crea un contexto de chromedp con el path detectado
 func (m *ChromiumManager) CreateContext(parentCtx context.Context, chromiumPath string) (context.Context, context.CancelFunc, error) {
-	return m.createContext(parentCtx, chromiumPath)
+	return m.createContext(parentCtx, chromiumPath, true)
 }
 
 // noNetworkAllocatorOptions dejan a Chrome sin salida a la red
@@ -253,9 +253,14 @@ func (m *ChromiumManager) CreateContext(parentCtx context.Context, chromiumPath 
 //   - todo lo que no es loopback va a un proxy que no resuelve, así que
 //     tampoco sale una conexión a una IP literal (el loopback no pasa por
 //     proxy y queda disponible);
+//   - WebRTC no manda UDP fuera del proxy (STUN/TURN y los candidatos
+//     mDNS salían igual, porque UDP no pasa por el proxy ni por las reglas
+//     de resolución);
 //   - y se apagan los servicios que hablan solos: actualización de
 //     componentes, pings de auditoría, reportes de fiabilidad de dominio.
 var noNetworkAllocatorOptions = []chromedp.ExecAllocatorOption{
+	chromedp.Flag("webrtc-ip-handling-policy", "disable_non_proxied_udp"),
+	chromedp.Flag("force-webrtc-ip-handling-policy", true),
 	chromedp.Flag("host-resolver-rules", "MAP * ~NOTFOUND"),
 	chromedp.ProxyServer("http://no-network.invalid:9"),
 	chromedp.Flag("disable-component-update", true),
@@ -265,7 +270,10 @@ var noNetworkAllocatorOptions = []chromedp.ExecAllocatorOption{
 	chromedp.Flag("disable-background-networking", true),
 }
 
-func (m *ChromiumManager) createContext(parentCtx context.Context, chromiumPath string, extra ...chromedp.ExecAllocatorOption) (context.Context, context.CancelFunc, error) {
+// createContext es CreateContext con opciones extra. logSandbox decide si se
+// repite el aviso de sandbox deshabilitado (RestrictNetwork rearma el
+// contexto y no lo vuelve a escribir).
+func (m *ChromiumManager) createContext(parentCtx context.Context, chromiumPath string, logSandbox bool, extra ...chromedp.ExecAllocatorOption) (context.Context, context.CancelFunc, error) {
 	// Check environment variable for debug mode
 	debugMode := os.Getenv("CHROMIUM_DEBUG") == "1"
 
@@ -297,10 +305,12 @@ func (m *ChromiumManager) createContext(parentCtx context.Context, chromiumPath 
 	//      restringido sin user namespaces).
 	if needsNoSandbox, reason := chromiumNeedsNoSandbox(); needsNoSandbox {
 		opts = append(opts, chromedp.Flag("no-sandbox", true))
-		m.logger.Warn("CHROMIUM", "⚠️  Sandbox de Chrome deshabilitado (%s) — ver docs/SECURITY_AUDIT_2026-07.md, AL-1", reason)
+		if logSandbox {
+			m.logger.Warn("CHROMIUM", "⚠️  Sandbox de Chrome deshabilitado (%s) — ver docs/SECURITY_AUDIT_2026-07.md, AL-1", reason)
+		}
 	}
 
-	if debugMode {
+	if debugMode && logSandbox {
 		m.logger.Info("CHROMIUM", "🔍 DEBUG MODE: Browser window will be visible")
 	}
 

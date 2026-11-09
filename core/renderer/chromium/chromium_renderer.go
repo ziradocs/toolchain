@@ -13,7 +13,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
@@ -490,7 +489,10 @@ type ChromiumRenderer struct {
 	// antes de arrancarlo (RestrictNetwork); started dice si ya arrancó.
 	parentCtx    context.Context
 	chromiumPath string
-	started      atomic.Bool
+	// startMu ordena el arranque (ensureBrowser) contra RestrictNetwork:
+	// started y el cambio de r.ctx no se cruzan.
+	startMu sync.Mutex
+	started bool
 }
 
 // RestrictNetwork deja al navegador sin salida a la red: ningún nombre
@@ -501,10 +503,12 @@ type ChromiumRenderer struct {
 // doclang. Tiene que llamarse antes del primer render: el proceso de Chrome
 // arranca con él y sus banderas no se cambian después.
 func (r *ChromiumRenderer) RestrictNetwork() error {
-	if r.started.Load() {
+	r.startMu.Lock()
+	defer r.startMu.Unlock()
+	if r.started {
 		return fmt.Errorf("RestrictNetwork must be called before the browser starts")
 	}
-	ctx, cancel, err := r.manager.createContext(r.parentCtx, r.chromiumPath, noNetworkAllocatorOptions...)
+	ctx, cancel, err := r.manager.createContext(r.parentCtx, r.chromiumPath, false, noNetworkAllocatorOptions...)
 	if err != nil {
 		return err
 	}
@@ -634,9 +638,12 @@ func withCallerCancel(base context.Context, callerCtx context.Context) (context.
 // llame después.
 func (r *ChromiumRenderer) ensureBrowser(callerCtx context.Context) error {
 	r.browserStartOnce.Do(func() {
-		r.started.Store(true)
+		r.startMu.Lock()
+		r.started = true
+		browserCtx := r.ctx
+		r.startMu.Unlock()
 		go func() {
-			r.browserErr = chromedp.Do(r.ctx)
+			r.browserErr = chromedp.Do(browserCtx)
 			close(r.browserReady)
 		}()
 	})

@@ -7,6 +7,7 @@ package chromium
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -56,8 +57,32 @@ func TestRestrictNetwork(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 	target := "http://" + ln.Addr().String() + "/"
 
+	// UDP: WebRTC manda un STUN binding al servidor ICE de la página; UDP no
+	// pasa por el proxy ni por las reglas de resolución.
+	udp, err := net.ListenPacket("udp4", ip+":0")
+	if err != nil {
+		t.Skipf("cannot listen on udp %s: %v", ip, err)
+	}
+	t.Cleanup(func() { _ = udp.Close() })
+	var udpHits atomic.Int32
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			if _, _, err := udp.ReadFrom(buf); err != nil {
+				return
+			}
+			udpHits.Add(1)
+		}
+	}()
+	stunPage := fmt.Sprintf(`<html><body><script>
+const pc = new RTCPeerConnection({iceServers: [{urls: 'stun:%s'}]});
+pc.createDataChannel('x');
+pc.createOffer().then(o => pc.setLocalDescription(o));
+</script></body></html>`, udp.LocalAddr().String())
+
 	for _, restrict := range []bool{false, true} {
 		hits.Store(0)
+		udpHits.Store(0)
 		r, err := NewChromiumRenderer(context.Background(), path, false, noopChromiumLogger{})
 		if err != nil {
 			t.Fatal(err)
@@ -76,9 +101,17 @@ func TestRestrictNetwork(t *testing.T) {
 		_ = chromedp.Do(navCtx, chromedp.Navigate(target))
 		cancelNav()
 		cancel()
+		tab, cancel = chromedp.NewContext(r.ctx)
+		rtcCtx, cancelRTC := context.WithTimeout(tab, 10*time.Second)
+		_ = chromedp.Do(rtcCtx, navigateAndSetContent(stunPage), chromedp.Sleep(3*time.Second))
+		cancelRTC()
+		cancel()
 		if restrict {
 			if hits.Load() != 0 {
 				t.Errorf("with RestrictNetwork Chrome reached %s (%d requests)", target, hits.Load())
+			}
+			if udpHits.Load() != 0 {
+				t.Errorf("with RestrictNetwork WebRTC sent %d UDP packets to %s", udpHits.Load(), udp.LocalAddr())
 			}
 			if _, err := r.RenderMermaidToPNGWithTheme(context.Background(), "flowchart LR\n A --> B", 400, 300, renderer.DiagramThemeColors{}); err != nil {
 				t.Errorf("render with RestrictNetwork failed: %v", err)
@@ -86,8 +119,13 @@ func TestRestrictNetwork(t *testing.T) {
 			if err := r.RestrictNetwork(); err == nil || !strings.Contains(err.Error(), "before the browser starts") {
 				t.Errorf("RestrictNetwork after start: err = %v", err)
 			}
-		} else if hits.Load() == 0 {
-			t.Errorf("control: Chrome without RestrictNetwork did not reach %s", target)
+		} else {
+			if hits.Load() == 0 {
+				t.Errorf("control: Chrome without RestrictNetwork did not reach %s", target)
+			}
+			if udpHits.Load() == 0 {
+				t.Errorf("control: WebRTC without RestrictNetwork sent no UDP packet to %s", udp.LocalAddr())
+			}
 		}
 		r.Close()
 	}
