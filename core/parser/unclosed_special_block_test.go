@@ -123,3 +123,26 @@ func TestUnclosedSpecialBlock_DocumentStrictTypedColumn(t *testing.T) {
 		t.Errorf("want one SPECIAL002 error at line 9, got %v", diags)
 	}
 }
+
+// Con dos bloques anidados sin cerrar, los SPECIAL002 salen en orden de línea:
+// primero el de afuera.
+func TestUnclosedSpecialBlock_NestedDiagnosticsInLineOrder(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  :::info\n  afuera\n  :::warning\n  adentro\n"
+	_, diags := New(util.NewNoop()).ParseDocument(src, "c.doclang")
+	got := special002(diags)
+	if len(got) != 2 || got[0].Position.Line != 7 || got[1].Position.Line != 9 {
+		t.Fatalf("want SPECIAL002 at lines 7 then 9, got %v", got)
+	}
+}
+
+// Un cierre `::::` al estilo Pandoc no cierra un bloque abierto con `::::`:
+// el bloque queda sin cerrar y en un documento strict es error. La línea
+// `::::` misma abre otro bloque (de tipo ":"), que tampoco se cierra.
+func TestUnclosedSpecialBlock_PandocFourColonCloseIsUnclosed(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  ::::warning\n  Externo\n  :::info\n  Interno\n  :::\n  ::::\n"
+	_, diags := New(util.NewNoop()).ParseDocument(src, "c.doclang")
+	got := special002(diags)
+	if len(got) != 2 || !got[0].IsError() || got[0].Position.Line != 7 || got[1].Position.Line != 12 {
+		t.Fatalf("want SPECIAL002 errors at lines 7 and 12, got %v", diags)
+	}
+}

@@ -332,7 +332,10 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 	// bloque que de verdad los contiene, así que el cuerpo se lee igual que
 	// antes y se reporta en la línea que lo abrió.
 	if !closed {
-		nestedDiagnostics = append(nestedDiagnostics, unclosedSpecialBlockDiagnostic(ctx, startIndex, i, line))
+		// Va antes de los diagnósticos del contenido anidado: la apertura es
+		// la línea más temprana del bloque, y así los diagnósticos salen en
+		// orden de línea (el de un `::: raro` interno sin cerrar, después).
+		nestedDiagnostics = append([]diagnostics.Diagnostic{unclosedSpecialBlockDiagnostic(ctx, startIndex, i, line)}, nestedDiagnostics...)
 	}
 
 	block := ast.NewSpecialBlockElement(pos, blockType, content.String())
