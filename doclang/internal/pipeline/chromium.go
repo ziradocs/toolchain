@@ -19,9 +19,10 @@ import (
 // Replica, con funciones exportadas de core/renderer, los criterios de
 // cada generador:
 //   - pdf: siempre (imprime con Chromium).
-//   - docx: mermaid, math e imágenes SVG locales siempre; un chart solo si
-//     no rasteriza nativo (DOCXGenerator.needsChromiumRendering/
-//     canRenderWithoutChromium). Los mapas tienen render nativo.
+//   - docx: mermaid, math sin render previo (o con uno SVG) e imágenes SVG
+//     locales siempre; un chart solo si no rasteriza nativo
+//     (DOCXGenerator.needsChromiumRendering/canRenderWithoutChromium). Los
+//     mapas tienen render nativo.
 //   - html: solo en los modos offline, por tipo de elemento presente, con
 //     el mismo atajo de charts nativos que HTMLGenerator.
 func ChromiumRequirements(doc *ast.AST, format, renderMode, diagramBackend string) []string {
@@ -36,7 +37,10 @@ func ChromiumRequirements(doc *ast.AST, format, renderMode, diagramBackend strin
 		if docxHas(doc, func(e ast.Element) bool { _, ok := e.(*ast.MermaidElement); return ok }) {
 			reasons = append(reasons, "mermaid diagrams in DOCX")
 		}
-		if docxHas(doc, func(e ast.Element) bool { _, ok := e.(*ast.MathElement); return ok }) {
+		if docxHas(doc, func(e ast.Element) bool {
+			m, ok := e.(*ast.MathElement)
+			return ok && generator.MathNeedsChromiumDOCX(m)
+		}) {
 			reasons = append(reasons, "math equations in DOCX")
 		}
 		if generator.HasSVGImages(doc) {
@@ -54,7 +58,7 @@ func ChromiumRequirements(doc *ast.AST, format, renderMode, diagramBackend strin
 		mermaid := diagramBackend != "kroki" && renderer.HasMermaidElements(doc)
 		chart := renderer.HasChartElements(doc)
 		mapEl := renderer.HasMapElements(doc)
-		math := renderer.HasMathElements(doc)
+		math := generator.HasUnrenderedMath(doc)
 		if chart && !mermaid && !mapEl && !math {
 			if _, ok := renderer.TryAllChartsNative(doc, "png", diagramBackend); ok {
 				chart = false

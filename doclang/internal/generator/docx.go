@@ -3416,6 +3416,9 @@ func (g *DOCXGenerator) renderFigureCaption(doc domain.Document, text string) er
 // LaTeX→OMML nativa queda fuera de alcance (limitación documentada, misma
 // clase que las ya conocidas de docx.go: bookmarks/hyperlinks reales).
 func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) error {
+	if image := MathImage(elem); image != "" {
+		return g.renderMathImage(doc, elem, image)
+	}
 	if g.chromiumRenderer == nil {
 		// Antes la ecuación desaparecía sin dejar marca y el aviso no decía
 		// cuál era. Como mermaid: un marcador en su lugar y la línea.
@@ -3453,6 +3456,47 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 		g.logger.Warn("DOCX: ⚠️  Equation image object is nil after insertion")
 	}
 
+	if err := g.renderMathNumberAndCaption(doc, elem); err != nil {
+		return err
+	}
+
+	sizeKB := float64(len(pngBytes)) / 1024
+	g.logger.Info("DOCX", "✅ Equation inserted (%.1f KB)", sizeKB)
+
+	return nil
+}
+
+// renderMathImage inserta el render previo de una ecuación (math-image-v1)
+// sin Chromium, salvo que sea un SVG. La fuente pasa por prepareLocalImage,
+// igual que una imagen de bloque: confinada a assetRoot, nunca descargada si
+// es remota, a tamaño natural reducido para caber. Número y leyenda son los
+// de cualquier ecuación.
+func (g *DOCXGenerator) renderMathImage(doc domain.Document, elem *ast.MathElement, image string) error {
+	insertPath, imageSize, ok := g.prepareLocalImage(docxBlockImagePath(image), elem.Position.Line, elem.Caption != "")
+	if !ok {
+		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
+	}
+	p, err := doc.AddParagraph()
+	if err != nil {
+		return err
+	}
+	if err := p.SetAlignment(domain.AlignmentCenter); err != nil {
+		return fmt.Errorf("invalid alignment: %w", err)
+	}
+	if _, err := p.AddImageWithSize(insertPath, imageSize); err != nil {
+		g.logger.Warn("DOCX: line %d: equation image %q could not be inserted: %v", elem.Position.Line, image, err)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
+	}
+	if err := g.renderMathNumberAndCaption(doc, elem); err != nil {
+		return err
+	}
+	g.logger.Info("DOCX", "✅ Pre-rendered equation inserted: %s", image)
+	return nil
+}
+
+// renderMathNumberAndCaption escribe, debajo de la ecuación, su "(N)" y su
+// leyenda.
+func (g *DOCXGenerator) renderMathNumberAndCaption(doc domain.Document, elem *ast.MathElement) error {
 	// issue #239: Number lo asigna xref.Transform (built-in de #240) antes
 	// de renderizar; sin Label nunca corrió y Number es 0. "(N)" es su
 	// propia línea, separado del caption — mismo convenio que renderMathElement
@@ -3494,10 +3538,6 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 		_ = r.SetFont(domain.Font{Name: g.style.FontFamily})
 		_ = r.SetItalic(true)
 	}
-
-	sizeKB := float64(len(pngBytes)) / 1024
-	g.logger.Info("DOCX", "✅ Equation inserted (%.1f KB)", sizeKB)
-
 	return nil
 }
 
@@ -4458,8 +4498,12 @@ func (g *DOCXGenerator) needsChromiumRendering(astDoc *ast.AST) bool {
 		// nativo y solo usa Chromium como respaldo si ya fue necesario por
 		// algún otro elemento. Así un DOCX con solo mapas no arranca un
 		// navegador de forma implícita.
-		case *ast.ChartElement, *ast.MermaidElement, *ast.MathElement:
+		case *ast.ChartElement, *ast.MermaidElement:
 			needs = true
+		case *ast.MathElement:
+			// Un render previo (math-image-v1) se inserta sin Chromium,
+			// salvo que sea SVG.
+			needs = MathNeedsChromiumDOCX(e)
 		case *ast.ImageElement:
 			// Un SVG local se rasteriza con Chromium (rasterizeSVGImage).
 			if isSVGImageSource(e.Source) {
@@ -4493,8 +4537,10 @@ func (g *DOCXGenerator) canRenderWithoutChromium(astDoc *ast.AST) bool {
 			if !ok || err != nil {
 				native = false
 			}
-		case *ast.MermaidElement, *ast.MathElement:
+		case *ast.MermaidElement:
 			native = false
+		case *ast.MathElement:
+			native = !MathNeedsChromiumDOCX(e)
 		case *ast.ImageElement:
 			if isSVGImageSource(e.Source) {
 				native = false
