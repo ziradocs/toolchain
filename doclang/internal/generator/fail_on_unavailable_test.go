@@ -14,6 +14,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/core/v2/renderer/chromium"
 )
 
 // unavailableDoc tiene, en líneas conocidas, una imagen que sí existe
@@ -222,5 +223,78 @@ func TestDOCX_FailOnUnavailable_WithoutChromium(t *testing.T) {
 	want := []UnavailableContent{{"diagram", 20, ""}, {"equation", 25, ""}, {"chart", 30, ""}}
 	if !reflect.DeepEqual(ue.Items, want) {
 		t.Errorf("items = %+v, want %+v", ue.Items, want)
+	}
+}
+
+// TestFailOnUnavailable_HeaderLogoInEveryFormat: un logo de encabezado que
+// falta se reporta igual en DOCX y en HTML (también de modo browser, que no
+// dibuja el encabezado salvo page-view): línea 0 y su fuente. Antes solo lo
+// veía el HTML page-view.
+func TestFailOnUnavailable_HeaderLogoInEveryFormat(t *testing.T) {
+	dir := t.TempDir()
+	hf := &ast.HeaderFooterConfig{Header: &ast.HeaderConfig{Enabled: true, Logo: &ast.LogoConfig{Source: "logo-falta.png"}}}
+	for _, format := range []string{"docx", "html"} {
+		doc := parseInline(t, "---\ntitle: L\nmode: flex\n---\n\n# L\n\nTexto.\n")
+		out := filepath.Join(t.TempDir(), "out."+format)
+		err := New(newTestLogger()).Generate(doc, out, GeneratorOptions{Format: format, AssetRoot: dir, SourceDir: dir, HeaderFooter: hf, FailOnUnavailable: true})
+		if format == "html" && !coreReportsUnavailable() {
+			continue
+		}
+		var ue *UnavailableError
+		if !errors.As(err, &ue) || !reflect.DeepEqual(ue.Items, []UnavailableContent{{"image", 0, "logo-falta.png"}}) {
+			t.Errorf("%s: want the missing logo reported, got %v", format, err)
+		}
+	}
+}
+
+// TestDOCX_ChartAltFromOptionsTitle: sin title, el texto alternativo de una
+// gráfica es options.plugins.title.text, el título que dibuja Chart.js.
+func TestDOCX_ChartAltFromOptionsTitle(t *testing.T) {
+	doc := parseInline(t, "---\ntitle: C\nlang: es\nmode: flex\n---\n\n# C\n\nTexto.\n")
+	c := barChart(9, "")
+	c.Options = map[string]interface{}{"plugins": map[string]interface{}{"title": map[string]interface{}{"text": "Ventas desde options"}}}
+	block := &doc.ContentBlocks[len(doc.ContentBlocks)-1]
+	block.Elements = append(block.Elements, c)
+	out := filepath.Join(t.TempDir(), "out.docx")
+	if err := New(newTestLogger()).Generate(doc, out, GeneratorOptions{Format: "docx"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := docxDescrs(t, out, "word/document.xml"); len(got) != 1 || got[0] != "Ventas desde options" {
+		t.Errorf("descr = %q", got)
+	}
+}
+
+// TestNoNetwork_ChromiumIsRestricted (Chromium real): con NoNetwork el DOCX
+// sigue dibujando un mermaid (los scripts van embebidos) con el navegador
+// arrancado sin red; contra un core sin RestrictNetwork, NoNetwork con
+// Chromium es un error explícito.
+func TestNoNetwork_ChromiumIsRestricted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("needs Chromium")
+	}
+	doc := parseInline(t, "---\ntitle: N\nlang: es\nmode: flex\n---\n\n# N\n\nTexto.\n")
+	m := ast.NewMermaidElement(diagnostics.NewPosition(9, 1), "flowchart", "flowchart LR\n A --> B")
+	m.Title = "Flujo"
+	block := &doc.ContentBlocks[len(doc.ContentBlocks)-1]
+	block.Elements = append(block.Elements, m)
+	out := filepath.Join(t.TempDir(), "out.docx")
+	logger := newTestLogger()
+	err := New(logger).Generate(doc, out, GeneratorOptions{Format: "docx", NoNetwork: true, FailOnUnavailable: true})
+	for _, w := range logger.warns {
+		if strings.Contains(w, "Failed to initialize Chromium") {
+			t.Skipf("no Chromium: %s", w)
+		}
+	}
+	if _, ok := any(&chromium.ChromiumRenderer{}).(networkRestricter); !ok {
+		if !errors.Is(err, errNoNetworkNeedsCore) {
+			t.Fatalf("old core: want errNoNetworkNeedsCore, got %v", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("NoNetwork build with mermaid failed: %v", err)
+	}
+	if got := docxDescrs(t, out, "word/document.xml"); len(got) != 1 || got[0] != "Flujo" {
+		t.Errorf("descr = %q, want the mermaid image", got)
 	}
 }

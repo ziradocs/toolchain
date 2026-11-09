@@ -40,3 +40,49 @@ func TestE2E_FailOnUnavailable(t *testing.T) {
 		t.Errorf("the previous doc.docx survived the failed build (stat err %v)", err)
 	}
 }
+
+// TestE2E_FailOnUnavailable_KeepsNonRegularOutput: si en la ruta de salida
+// hay un enlace simbólico (o algo que no es un archivo regular), el build
+// fallido no lo borra.
+func TestE2E_FailOnUnavailable_KeepsNonRegularOutput(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "doc.doclang")
+	if err := os.WriteFile(src, []byte("---\ntitle: F\nmode: flex\n---\n\n# F\n\n![falta](no-existe.png)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "importante.txt")
+	if err := os.WriteFile(target, []byte("no borrar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(out, "doc.docx")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if err := runCLI(t, Options{}, []string{"build", src, "--format", "docx", "--output", out, "--fail-on-unavailable"}); err == nil {
+		t.Fatal("build with --fail-on-unavailable succeeded")
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("the symlink at the output path was removed: %v", err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "no borrar" {
+		t.Errorf("the symlink target changed: %q, %v", data, err)
+	}
+}
+
+// TestE2E_FailOnUnavailable_RejectsMarkdown: con --format markdown la
+// bandera es un error, no se ignora.
+func TestE2E_FailOnUnavailable_RejectsMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "doc.doclang")
+	if err := os.WriteFile(src, []byte("---\ntitle: F\nmode: flex\n---\n\n# F\n\nTexto.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runCLI(t, Options{}, []string{"build", src, "--format", "markdown", "--output", filepath.Join(dir, "out"), "--fail-on-unavailable"})
+	if err == nil || !strings.Contains(err.Error(), "markdown") {
+		t.Fatalf("err = %v, want a markdown rejection", err)
+	}
+}

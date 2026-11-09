@@ -123,6 +123,41 @@ type mapTileServerConfig interface {
 	WithTileServer(urlTemplate, userAgent string) (renderer.MapConfig, error)
 }
 
+// mapTileAttributionSetter y mapTileAttributionConfig son
+// RenderContext.SetMapTileAttribution y MapConfig.WithTileAttribution.
+type mapTileAttributionSetter interface {
+	SetMapTileAttribution(text string) error
+}
+
+type mapTileAttributionConfig interface {
+	WithTileAttribution(text string) (renderer.MapConfig, error)
+}
+
+// errTileAttributionNeedsCore: el core no sabe dibujar el crédito.
+var errTileAttributionNeedsCore = errors.New("--tile-attribution needs a core with MapConfig.WithTileAttribution (this build has an older one)")
+
+// networkRestricter es ChromiumRenderer.RestrictNetwork de core.
+type networkRestricter interface{ RestrictNetwork() error }
+
+// errNoNetworkNeedsCore: el core no sabe arrancar Chromium sin red, así que
+// --no-network no podría prometer que el navegador no sale a la red.
+var errNoNetworkNeedsCore = errors.New("--no-network with Chromium (pdf, mermaid, equations, svg images, offline html) needs a core with ChromiumRenderer.RestrictNetwork (this build has an older one)")
+
+// restrictNetwork aplica GeneratorOptions.NoNetwork a un ChromiumRenderer
+// recién creado, antes de su primer render: Chrome y Edge hablan solos con
+// sus servidores (actualizaciones, telemetría) aunque la página no pida
+// nada.
+func restrictNetwork(r any, opts GeneratorOptions) error {
+	if !opts.NoNetwork {
+		return nil
+	}
+	s, ok := r.(networkRestricter)
+	if !ok {
+		return errNoNetworkNeedsCore
+	}
+	return s.RestrictNetwork()
+}
+
 // errTileServerNeedsCore: el core con el que se compiló no sabe pedirle los
 // tiles a otro servidor.
 var errTileServerNeedsCore = errors.New("--tile-server needs a core with MapConfig.WithTileServer (this build has an older one)")
@@ -130,37 +165,53 @@ var errTileServerNeedsCore = errors.New("--tile-server needs a core with MapConf
 // ValidateTileServer revisa --tile-server y --tile-user-agent antes de
 // generar: el template (con {z}, {x}, {y} y opcionalmente {s}) y que este
 // build sepa usarlo.
-func ValidateTileServer(urlTemplate, userAgent string) error {
-	if urlTemplate == "" && userAgent == "" {
-		return nil
+func ValidateTileServer(urlTemplate, userAgent, attribution string) error {
+	if urlTemplate == "" && (userAgent != "" || attribution != "") {
+		return errors.New("--tile-user-agent and --tile-attribution need --tile-server")
 	}
-	_, err := withTileServer(renderer.MapConfig{}, urlTemplate, userAgent)
+	_, err := withTileServer(renderer.MapConfig{}, urlTemplate, userAgent, attribution)
 	return err
 }
 
-// withTileServer aplica el servidor de tiles a un MapConfig del DOCX.
-func withTileServer(cfg renderer.MapConfig, urlTemplate, userAgent string) (renderer.MapConfig, error) {
-	if urlTemplate == "" && userAgent == "" {
+// withTileServer aplica el servidor de tiles (y su crédito) a un MapConfig
+// del DOCX.
+func withTileServer(cfg renderer.MapConfig, urlTemplate, userAgent, attribution string) (renderer.MapConfig, error) {
+	if urlTemplate == "" && userAgent == "" && attribution == "" {
 		return cfg, nil
 	}
 	c, ok := any(cfg).(mapTileServerConfig)
 	if !ok {
 		return cfg, errTileServerNeedsCore
 	}
-	return c.WithTileServer(urlTemplate, userAgent)
+	cfg, err := c.WithTileServer(urlTemplate, userAgent)
+	if err != nil || attribution == "" {
+		return cfg, err
+	}
+	a, ok := any(cfg).(mapTileAttributionConfig)
+	if !ok {
+		return cfg, errTileAttributionNeedsCore
+	}
+	return a.WithTileAttribution(attribution)
 }
 
 // setTileServer aplica el servidor de tiles al contexto de render del
 // HTML/PDF.
 func setTileServer(ctx any, opts GeneratorOptions) error {
-	if opts.TileServer == "" && opts.TileUserAgent == "" {
+	if opts.TileServer == "" && opts.TileUserAgent == "" && opts.TileAttribution == "" {
 		return nil
 	}
 	s, ok := ctx.(mapTileServerSetter)
 	if !ok {
 		return errTileServerNeedsCore
 	}
-	return s.SetMapTileServer(opts.TileServer, opts.TileUserAgent)
+	if err := s.SetMapTileServer(opts.TileServer, opts.TileUserAgent); err != nil || opts.TileAttribution == "" {
+		return err
+	}
+	a, ok := ctx.(mapTileAttributionSetter)
+	if !ok {
+		return errTileAttributionNeedsCore
+	}
+	return a.SetMapTileAttribution(opts.TileAttribution)
 }
 
 // errNoNetwork es el error de los fetchers de GeneratorOptions.NoNetwork:

@@ -51,6 +51,7 @@ func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, ext
 		noNetwork         bool     // No network requests during the build (PlantUML/Kroki, map tiles)
 		tileServer        string   // Map tile URL template for build-time maps
 		tileUserAgent     string   // User-Agent for map tile requests
+		tileAttribution   string   // Credit drawn on maps from --tile-server
 		lintOnly          bool     // Only run the linter, don't generate output
 		lintConfig        string   // Path to a YAML linter policy file (flag > frontmatter lint_policy: > default, ver linter.ResolvePolicyConfig)
 		reportFormat      string   // Formato de reporte de linter (json, sarif)
@@ -190,7 +191,10 @@ Examples:
 			if err := pipeline.ValidateRenderOptions(renderMode, diagramBackend); err != nil {
 				return err
 			}
-			if err := pipeline.ValidateNetworkOptions(noNetwork, allowRemoteImages, installChromium, tileServer, tileUserAgent); err != nil {
+			if err := pipeline.ValidateNetworkOptions(noNetwork, allowRemoteImages, installChromium, tileServer, tileUserAgent, tileAttribution); err != nil {
+				return err
+			}
+			if err := pipeline.ValidateFailOnUnavailable(failOnUnavailable, format); err != nil {
 				return err
 			}
 
@@ -216,6 +220,7 @@ Examples:
 				NoNetwork:         noNetwork,
 				TileServer:        tileServer,
 				TileUserAgent:     tileUserAgent,
+				TileAttribution:   tileAttribution,
 			}); err != nil {
 				return err
 			}
@@ -261,10 +266,11 @@ Examples:
 	cmd.Flags().BoolVar(&allowRemoteImages, "allow-remote-images", false, "Let pdf and --render-mode offline-* HTML show http(s) images from the document. Off by default: those outputs are rendered on this machine, so a remote image would make it fetch that URL; without the flag such images are left as a marker with a warning. Browser-mode HTML is unaffected, and docx never downloads images")
 	cmd.Flags().StringVar(&assetRoot, "asset-root", "", "Directory local image sources are confined to (default: --base-dir, else the input file's directory); relative sources resolve from --base-dir, and absolute paths or '..' outside the root are rejected")
 	cmd.Flags().StringVar(&baseDir, "base-dir", "", "Directory relative image sources and @include paths resolve from (default: the input file's directory; a relative path resolves from the current directory). For building a temporary copy of a file: it also becomes the default --asset-root and --include-root, and must be inside --asset-root. An explicit --include-root need not contain it (includes then resolve from the include root). Images are only read at build time for docx, pdf and --render-mode offline-*; browser-mode HTML keeps each relative src as written, except images inside an @include'd file, which are rewritten relative to --base-dir")
-	cmd.Flags().BoolVar(&failOnUnavailable, "fail-on-unavailable", false, "Exit with an error, and write no output, if anything would be left as a \"not available\" marker: an image that is missing, outside --asset-root or remote and not fetched, or a diagram, chart, map, equation or media item that could not be drawn. The message lists each one with its line and type. Applies to docx, pdf and html (browser-mode HTML resolves almost nothing at build time, so almost nothing can be missing there). Off by default: the markers are left and the build succeeds")
-	cmd.Flags().BoolVar(&noNetwork, "no-network", false, "Don't contact diagram or map tile servers while building: PlantUML diagrams (PlantUML or Kroki server), mermaid through Kroki and maps are left as a \"not available\" marker instead of being fetched. Charts, equations and mermaid through Chromium are drawn on this machine and are unaffected. Does not change what browser-mode HTML loads when a reader opens it, nor what an external --filter does. Cannot be combined with --allow-remote-images or --install-chromium")
+	cmd.Flags().BoolVar(&failOnUnavailable, "fail-on-unavailable", false, "Exit with an error, and write no output, if anything would be left as a \"not available\" marker: an image that is missing, outside --asset-root or remote and not fetched, or a diagram, chart, map, equation or media item that could not be drawn. The message lists each one with its line and type. Applies to docx, pdf and html (browser-mode HTML resolves almost nothing at build time, so almost nothing can be missing there). Off by default: the markers are left and the build succeeds. Not valid with --format markdown")
+	cmd.Flags().BoolVar(&noNetwork, "no-network", false, "Don't contact diagram or map tile servers while building: PlantUML diagrams (PlantUML or Kroki server), mermaid through Kroki and maps are left as a \"not available\" marker instead of being fetched. Charts, equations and mermaid through Chromium are drawn on this machine and are unaffected. Does not change what browser-mode HTML loads when a reader opens it, nor what an external --filter does. Chromium, when needed, starts with no network access. Cannot be combined with --allow-remote-images, --install-chromium or --tile-server")
 	cmd.Flags().StringVar(&tileServer, "tile-server", "", "Map tile URL template for maps drawn at build time (docx, pdf and --render-mode offline-*), e.g. https://tiles.example.com/{z}/{x}/{y}.png; {s} expands to the a, b and c subdomains. Replaces OpenStreetMap and the satellite imagery provider. Browser-mode HTML maps are unaffected")
 	cmd.Flags().StringVar(&tileUserAgent, "tile-user-agent", "", "User-Agent sent with map tile requests to --tile-server")
+	cmd.Flags().StringVar(&tileAttribution, "tile-attribution", "", "Credit drawn in the corner of maps whose tiles come from --tile-server (plain text, up to 200 bytes). Without it such maps carry no credit; the default providers keep their own")
 	cmd.Flags().BoolVar(&lintOnly, "lint-only", false, "Only run the linter, don't generate output")
 	cmd.Flags().StringVar(&lintConfig, "lint-config", "", "Path to a YAML linter policy file. If unset, a 'lint_policy:' block embedded in the document's own frontmatter is used instead, if present")
 	cmd.Flags().StringVar(&reportFormat, "report", "", "Generate a machine-readable linting report (json, sarif)")

@@ -193,6 +193,9 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	g.ctx = opts.runContext()
 	g.opts = opts
 	g.unavailable = unavailableCollector{}
+	if opts.FailOnUnavailable {
+		checkHeaderLogos(opts.HeaderFooter, astDoc.FrontMatter.BuildVariables(), opts, g.unavailable.add)
+	}
 	g.logger.Info("DOCX", "Building DOCX document...")
 	// Listas nativas (docx_lists.go): un numbering.xml por documento.
 	g.numbering = &docxNumbering{}
@@ -233,8 +236,11 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 			if err != nil {
 				g.logger.Warn("DOCX: Failed to initialize Chromium: %v", err)
 			} else {
-				g.chromiumRenderer = chromiumRenderer
 				defer chromiumRenderer.Close()
+				if err := restrictNetwork(chromiumRenderer, opts); err != nil {
+					return err
+				}
+				g.chromiumRenderer = chromiumRenderer
 			}
 		}
 	}
@@ -3612,7 +3618,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 	}
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableChart, elem.ChartType)))
+	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), chartOptionsTitle(elem), g.docxFigureAlt(docxUnavailableChart, elem.ChartType)))
 
 	if img == nil {
 		g.logger.Warn("DOCX: ⚠️  Image object is nil after insertion")
@@ -3639,7 +3645,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 		g.logger.Warn("DOCX: line %d: map not rendered: --no-network forbids downloading map tiles", elem.Position.Line)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
 	}
-	mapConfig, err := withTileServer(renderer.BuildMapConfig(elem, nil), g.opts.TileServer, g.opts.TileUserAgent)
+	mapConfig, err := withTileServer(renderer.BuildMapConfig(elem, nil), g.opts.TileServer, g.opts.TileUserAgent, g.opts.TileAttribution)
 	if err != nil {
 		return err
 	}

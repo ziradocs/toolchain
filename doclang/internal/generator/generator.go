@@ -125,9 +125,10 @@ type GeneratorOptions struct {
 	FailOnUnavailable bool
 	// NoNetwork (--no-network): ningún pedido de red durante la generación.
 	// PlantUML (servidor de PlantUML o Kroki), mermaid por Kroki y los mapas
-	// quedan como marcador de no disponible en vez de pedirse. No cambia lo
-	// que carga el HTML de modo browser al abrirse en el navegador del
-	// lector.
+	// quedan como marcador de no disponible en vez de pedirse, y Chromium,
+	// si hace falta, arranca sin salida a la red (RestrictNetwork de core).
+	// No cambia lo que carga el HTML de modo browser al abrirse en el
+	// navegador del lector.
 	NoNetwork bool
 	// TileServer y TileUserAgent (--tile-server, --tile-user-agent): un
 	// servidor de tiles propio para los mapas que se dibujan al compilar
@@ -135,6 +136,9 @@ type GeneratorOptions struct {
 	// renderer.MapConfig.WithTileServer.
 	TileServer    string
 	TileUserAgent string
+	// TileAttribution (--tile-attribution) es el crédito que se dibuja en
+	// el mapa cuando los tiles salen de TileServer.
+	TileAttribution string
 }
 
 // runContext devuelve opts.Ctx, o context.Background() si no se fijó.

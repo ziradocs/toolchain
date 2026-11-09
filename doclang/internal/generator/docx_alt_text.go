@@ -85,3 +85,12 @@ func (g *DOCXGenerator) docxMapAlt(elem *ast.MapElement) string {
 func (g *DOCXGenerator) docxMathAlt(elem *ast.MathElement) string {
 	return firstNonBlank(renderer.ProcessVariables(elem.Caption, g.variables), elem.Content)
 }
+
+// chartOptionsTitle es options.plugins.title.text de una gráfica, el título
+// que Chart.js dibuja cuando el autor no usó el campo title; "" si no hay.
+func chartOptionsTitle(elem *ast.ChartElement) string {
+	plugins, _ := elem.Options["plugins"].(map[string]interface{})
+	title, _ := plugins["title"].(map[string]interface{})
+	text, _ := title["text"].(string)
+	return text
+}

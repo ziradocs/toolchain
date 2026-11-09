@@ -14,10 +14,10 @@ import (
 // la red, y --tile-server tiene que ser un template válido que este build
 // sepa usar.
 func TestValidateNetworkOptions(t *testing.T) {
-	if err := ValidateNetworkOptions(false, false, false, "", ""); err != nil {
+	if err := ValidateNetworkOptions(false, false, false, "", "", ""); err != nil {
 		t.Fatalf("defaults rejected: %v", err)
 	}
-	if err := ValidateNetworkOptions(true, false, false, "", ""); err != nil {
+	if err := ValidateNetworkOptions(true, false, false, "", "", ""); err != nil {
 		t.Fatalf("--no-network alone rejected: %v", err)
 	}
 	for _, c := range []struct {
@@ -28,7 +28,7 @@ func TestValidateNetworkOptions(t *testing.T) {
 		{"remote images", true, true, false, "--allow-remote-images"},
 		{"install chromium", true, false, true, "--install-chromium"},
 	} {
-		err := ValidateNetworkOptions(c.noNet, c.remote, c.install, "", "")
+		err := ValidateNetworkOptions(c.noNet, c.remote, c.install, "", "", "")
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want mention of %s", c.name, err, c.want)
 		}
@@ -37,14 +37,42 @@ func TestValidateNetworkOptions(t *testing.T) {
 	_, supported := any(renderer.MapConfig{}).(interface {
 		WithTileServer(string, string) (renderer.MapConfig, error)
 	})
-	err := ValidateNetworkOptions(false, false, false, "https://tiles.example.com/{z}/{x}/{y}.png", "ua")
+	err := ValidateNetworkOptions(false, false, false, "https://tiles.example.com/{z}/{x}/{y}.png", "ua", "")
 	if supported && err != nil {
 		t.Errorf("valid tile server rejected: %v", err)
 	}
 	if !supported && (err == nil || !strings.Contains(err.Error(), "--tile-server needs a core")) {
 		t.Errorf("old core: err = %v, want the needs-core error", err)
 	}
-	if err := ValidateNetworkOptions(false, false, false, "ftp://tiles.example.com/{z}/{x}/{y}", ""); err == nil {
+	if err := ValidateNetworkOptions(false, false, false, "ftp://tiles.example.com/{z}/{x}/{y}", "", ""); err == nil {
 		t.Error("ftp tile server accepted")
+	}
+	// --no-network con --tile-server se contradicen; el user agent y el
+	// crédito necesitan un servidor.
+	if err := ValidateNetworkOptions(true, false, false, "https://tiles.example.com/{z}/{x}/{y}.png", "", ""); err == nil || !strings.Contains(err.Error(), "--tile-server") {
+		t.Errorf("--no-network with --tile-server: err = %v", err)
+	}
+	for _, c := range [][2]string{{"ua", ""}, {"", "© Acme"}} {
+		if err := ValidateNetworkOptions(false, false, false, "", c[0], c[1]); err == nil || !strings.Contains(err.Error(), "need --tile-server") {
+			t.Errorf("ua %q attribution %q without a tile server: err = %v", c[0], c[1], err)
+		}
+	}
+}
+
+// TestValidateFailOnUnavailable: con markdown la bandera es un error claro,
+// no se ignora en silencio.
+func TestValidateFailOnUnavailable(t *testing.T) {
+	for _, f := range []string{"markdown", "md"} {
+		if err := ValidateFailOnUnavailable(true, f); err == nil || !strings.Contains(err.Error(), "markdown") {
+			t.Errorf("format %s: err = %v", f, err)
+		}
+	}
+	for _, f := range []string{"docx", "pdf", "html"} {
+		if err := ValidateFailOnUnavailable(true, f); err != nil {
+			t.Errorf("format %s rejected: %v", f, err)
+		}
+	}
+	if err := ValidateFailOnUnavailable(false, "markdown"); err != nil {
+		t.Errorf("markdown without the flag rejected: %v", err)
 	}
 }
