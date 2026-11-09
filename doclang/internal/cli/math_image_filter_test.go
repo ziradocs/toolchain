@@ -235,7 +235,7 @@ func docxParts(t *testing.T, data []byte) (document string, media [][]byte) {
 			t.Fatal(err)
 		}
 		content, err := io.ReadAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		if err != nil {
 			t.Fatal(err)
 		}

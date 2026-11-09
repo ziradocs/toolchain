@@ -2457,6 +2457,30 @@
           "required": [
             "columns"
           ]
+        },
+        {
+          "properties": {
+            "items": {
+              "contains": {
+                "$ref": "#/$defs/MathImagePresent"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ]
+        },
+        {
+          "properties": {
+            "subPoints": {
+              "contains": {
+                "$ref": "#/$defs/MathImagePresent"
+              }
+            }
+          },
+          "required": [
+            "subPoints"
+          ]
         }
       ]
     },

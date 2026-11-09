@@ -252,7 +252,7 @@ func main() {
 		os.Exit(1)
 	}
 	var MathImagePresent jsonschema.Schema
-	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type","image"],"properties":{"type":{"const":"math"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}}]}`), &MathImagePresent); err != nil {
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"required":["type","image"],"properties":{"type":{"const":"math"}}},{"required":["contentBlocks"],"properties":{"contentBlocks":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["elements"],"properties":{"elements":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["columns"],"properties":{"columns":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["items"],"properties":{"items":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}},{"required":["subPoints"],"properties":{"subPoints":{"contains":{"$ref":"#/$defs/MathImagePresent"}}}}]}`), &MathImagePresent); err != nil {
 		panic(err)
 	}
 	root.Definitions["MathImagePresent"] = &MathImagePresent
