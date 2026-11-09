@@ -237,6 +237,11 @@ func chromiumNeedsNoSandbox() (bool, string) {
 }
 
 // CreateContext crea un contexto de chromedp con el path detectado
+// extraAllocatorOptions son opciones de arranque de Chrome que solo fijan
+// los tests (p. ej. un --proxy-server que anota cada pedido del navegador,
+// ver TestRenderMapToPNG_NoThirdPartyRequests). Vacío fuera de los tests.
+var extraAllocatorOptions []chromedp.ExecAllocatorOption
+
 func (m *ChromiumManager) CreateContext(parentCtx context.Context, chromiumPath string) (context.Context, context.CancelFunc, error) {
 	// Check environment variable for debug mode
 	debugMode := os.Getenv("CHROMIUM_DEBUG") == "1"
@@ -276,6 +281,7 @@ func (m *ChromiumManager) CreateContext(parentCtx context.Context, chromiumPath 
 		m.logger.Info("CHROMIUM", "🔍 DEBUG MODE: Browser window will be visible")
 	}
 
+	opts = append(opts, extraAllocatorOptions...)
 	allocCtx, allocCancel := chromedp.NewExecAllocator(parentCtx, opts...)
 
 	// Crear contexto del browser

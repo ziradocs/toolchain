@@ -30,7 +30,7 @@ func TestGenerateLeafletHTML_TileServer(t *testing.T) {
 	if !strings.Contains(html, "L.tileLayer('https://{s}.tiles.example.com:8443/{z}/{x}/{y}.png'") {
 		t.Error("tile layer does not use the tile server")
 	}
-	if !strings.Contains(html, "img-src https://*.tiles.example.com:8443 https://raw.githubusercontent.com") {
+	if !strings.Contains(html, "img-src https://*.tiles.example.com:8443 data:;") {
 		t.Errorf("CSP img-src not limited to the tile server origin: %s", mapCSPFor(config))
 	}
 	for _, host := range []string{"tile.openstreetmap.org", "server.arcgisonline.com"} {

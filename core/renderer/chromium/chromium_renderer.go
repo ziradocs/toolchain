@@ -32,10 +32,11 @@ import (
 // exfiltración ciega en el exploit de referencia.
 // Ver docs/SECURITY_AUDIT_2026-07.md, CR-6 / issue #24.
 const (
-	mapRenderCSP = "default-src 'none'; script-src https://unpkg.com 'unsafe-inline'; " +
-		"style-src https://unpkg.com 'unsafe-inline'; " +
-		"img-src " + mapRenderTileSources + " " +
-		"https://raw.githubusercontent.com https://cdnjs.cloudflare.com data:; " +
+	// Leaflet, su hoja de estilos y los íconos van embebidos
+	// (leaflet_embed.go): la página solo puede pedir tiles.
+	mapRenderCSP = "default-src 'none'; script-src 'unsafe-inline'; " +
+		"style-src 'unsafe-inline'; " +
+		"img-src " + mapRenderTileSources + " data:; " +
 		"connect-src 'none'; object-src 'none'; base-uri 'none';"
 	// mapRenderTileSources son los proveedores de tiles de siempre; con un
 	// servidor propio (MapConfig.WithTileServer) mapCSPFor los reemplaza por
@@ -1409,15 +1410,15 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
 		markersJS += fmt.Sprintf(`
         L.marker([%f, %f], {
             icon: L.icon({
-                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-%s.png',
-                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+                iconUrl: '%s',
+                shadowUrl: '%s',
                 iconSize: [25, 41],
                 iconAnchor: [12, 41],
                 popupAnchor: [1, -34],
                 shadowSize: [41, 41]
             })
         }).addTo(map).bindPopup('%s');
-        `, marker.Lat, marker.Lng, color, label)
+        `, marker.Lat, marker.Lng, leafletMarkerDataURI(color), leafletShadowDataURI, label)
 
 		if i < len(config.Markers)-1 {
 			markersJS += "\n"
@@ -1440,8 +1441,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="%s">
     `+renderErrorHookJS+`
-    `+renderer.LeafletCDNCSSTag+`
-    `+renderer.LeafletCDNScriptTag+`
+    %s
     <style>
         body { margin: 0; padding: 0; }
         #mapContainer { width: %dpx; height: %dpx; }
@@ -1454,7 +1454,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
     </div>
     <script>
         if (typeof L === 'undefined') {
-            window.__renderError = 'Leaflet did not load from unpkg.com (no network access?)';
+            window.__renderError = 'Leaflet did not load';
         }
     </script>
     <script>
@@ -1531,7 +1531,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
         }, 100);
     </script>
 </body>
-</html>`, mapCSPFor(config), width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, markersJS, config.Zoom)
+</html>`, mapCSPFor(config), leafletAssetTags, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, markersJS, config.Zoom)
 }
 
 // Close cierra el renderer y libera recursos
