@@ -39,6 +39,12 @@ Same element vocabulary, different document model — worth knowing before you w
 - **Nothing before the first `#` is dropped.** Text before the first `#` (or the whole file,
   if it only uses `##`/`###`) becomes a leading section with no heading, and `##`/`###`
   keep their level. An empty document is still an error (`CORE001`).
+- **Code is literal.** `{{name}}` from `variables:` is replaced in prose, headings, tables
+  and the other text fields, but never inside a code block (`CODE`, a ``` fence, a
+  `:::code-group`): HTML, PDF, DOCX, Markdown and `get_ast` all show it as written, which is
+  what a Handlebars, Jinja or Go template sample needs. `slidelang` does substitute inside
+  code. To put a variable's value in a command, write it outside the code block, in the
+  text around it.
 
 ## Commands
 

@@ -153,3 +153,34 @@ func TestExpandWithOrigins_CodeBodyKeepsLineMap(t *testing.T) {
 		}
 	}
 }
+
+// Una cerca de cuatro backticks de código cierra donde la cierra el parser: en
+// la primera línea "```" (CodeParser), no en "````". Un @include después de
+// ese "```" ya está fuera del código para el parser, así que se expande. Y una
+// cerca de diagrama (```mermaid) no es código: su @include se expande, como el
+// de un <<mermaid>>.
+func TestExpand_FencesCloseWhereTheParserClosesThem(t *testing.T) {
+	files := map[string]string{"/base/frag.md": "Incluido."}
+	for _, tc := range []struct {
+		name, src, want string
+	}{
+		{"four-backtick code fence", "# A\n\n````txt\nx\n```\n@include frag.md\n", "# A\n\n````txt\nx\n```\nIncluido.\n"},
+		{"mermaid fence", "# A\n\n```mermaid\n@include frag.md\n```\n", "# A\n\n```mermaid\nIncluido.\n```\n"},
+		{"four-backtick mermaid closed by four", "# A\n\n````mermaid\ngraph TD\n````\n@include frag.md\n", "# A\n\n````mermaid\ngraph TD\n````\nIncluido.\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Expand(tc.src, "/base", memFS(files))
+			if err != nil {
+				t.Fatalf("Expand: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got:\n%q\nwant:\n%q", got, tc.want)
+			}
+		})
+	}
+	// Lo que sigue siendo código: el cuerpo antes del "```".
+	src := "# A\n\n````txt\n@include frag.md\n```\n"
+	if got, _ := Expand(src, "/base", memFS(files)); got != src {
+		t.Errorf("the body of a four-backtick code fence must stay literal: %q", got)
+	}
+}

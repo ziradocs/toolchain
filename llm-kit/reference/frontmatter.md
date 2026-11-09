@@ -29,7 +29,7 @@ theme_mode: dark        # light | dark — force the theme scheme instead of the
 numbering: true        # true | false (DocLang only, see below) — opt out of section auto-numbering
 toc: true              # true | false | {enabled: bool, depth: int} (DocLang only, see below)
 page:                  # {size: "A4", margins: "2cm"} (DocLang only, PDF format only, see below)
-variables:             # arbitrary key/value map, used for {{variable}} substitution
+variables:             # arbitrary key/value map, used for {{variable}} substitution (DocLang: never inside code blocks)
   company: "Acme Inc"
 header:                # optional rich header config (see below)
 footer:                # optional rich footer config (see below)

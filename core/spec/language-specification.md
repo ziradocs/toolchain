@@ -462,6 +462,14 @@ ${expression}
 {{ variable | filter:argument }}
 ```
 
+In DocLang, a code body (a strict `CODE` block, a fenced block, a `:::code-group`) is
+literal: `{{name}}` there is not substituted in any output (HTML, PDF, DOCX, Markdown, or
+the `contentHTML` of the AST), the same text the AST's `content` holds. A code sample is
+shown as written, and template languages (Handlebars, Jinja, Go templates) use `{{ }}`
+themselves. To show a variable's value next to a command, write it outside the code block.
+SlideLang keeps substituting inside code. Earlier DocLang versions substituted in HTML and
+PDF only.
+
 **Supported Filters:**
 - `currency:code` - Format as currency
 - `date:format` - Date formatting

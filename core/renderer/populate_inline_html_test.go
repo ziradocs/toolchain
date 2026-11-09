@@ -47,13 +47,10 @@ func TestPopulateInlineHTML_MatchesRenderElementToHTML(t *testing.T) {
 				return []string{e.(*ast.TextElement).ContentHTML}
 			},
 		},
-		{
-			name: "code",
-			elem: ast.NewCodeElement(pos, "go", "fmt.Println({{name}})"),
-			get: func(e ast.Element) []string {
-				return []string{e.(*ast.CodeElement).ContentHTML}
-			},
-		},
+		// "code" y "code_group" no están acá: PopulateInlineHTML sustituye
+		// {{variables}} en el código porque es lo que hace slidelang, y
+		// RenderElementToHTML, que solo renderiza código para doclang, lo deja
+		// literal (issue #487). Ver TestRenderElementToHTML_CodeIsLiteral.
 		{
 			name: "quote",
 			elem: func() ast.Element {
@@ -97,22 +94,6 @@ func TestPopulateInlineHTML_MatchesRenderElementToHTML(t *testing.T) {
 			get: func(e ast.Element) []string {
 				sb := e.(*ast.SpecialBlockElement)
 				return []string{sb.ContentHTML}
-			},
-		},
-		{
-			name: "code_group",
-			elem: func() ast.Element {
-				cg := ast.NewCodeGroupElement(pos)
-				cg.CodeBlocks = append(cg.CodeBlocks, ast.CodeBlock{Language: "go", Label: "main.go", Content: "fmt.Println({{name}})"})
-				return cg
-			}(),
-			get: func(e ast.Element) []string {
-				// LabelHTML se excluye: RenderElementToHTML (renderCodeGroupElement,
-				// usado solo por doclang) NO sustituye {{variables}} en Label,
-				// a diferencia del pipeline real de slidelang (converter.go
-				// ConvertCodeBlocksWithVariables), que sí lo hace — ver
-				// TestPopulateInlineHTML_CodeGroupLabelSubstitutesVariables.
-				return []string{e.(*ast.CodeGroupElement).CodeBlocks[0].ContentHTML}
 			},
 		},
 		{

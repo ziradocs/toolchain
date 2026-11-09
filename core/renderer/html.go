@@ -238,11 +238,18 @@ func renderTypedPoints(items []ast.PointItem, listType string, start *int64, var
 	return html.String()
 }
 
-// renderCodeElement procesa bloques de código con syntax highlighting
-func renderCodeElement(elem *ast.CodeElement, variables map[string]interface{}) string {
-	content := ProcessVariables(elem.Content, variables)
+// renderCodeElement procesa bloques de código con syntax highlighting.
+//
+// El cuerpo es literal: `{{nombre}}` no se sustituye (issue #487). En un
+// documento el código es una muestra (Handlebars, Jinja y las plantillas de
+// Go usan `{{ }}`), y así el HTML/PDF dice lo mismo que el AST, el lint, el
+// DOCX y el Markdown, que ya lo dejaban literal. RenderElementToHTML solo
+// renderiza código para el documento de doclang; slidelang arma el suyo con
+// su plantilla y conserva la sustitución en código. variables queda en la
+// firma por simetría con el resto de render*Element.
+func renderCodeElement(elem *ast.CodeElement, _ map[string]interface{}) string {
 	// Escapar HTML en el contenido del código para prevenir inyección
-	content = EscapeHTML(content)
+	content := EscapeHTML(elem.Content)
 	language := elem.Language
 	if language == "" {
 		language = "plaintext"
@@ -2706,7 +2713,7 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 }
 
 // renderCodeGroupElement procesa grupos de código con tabs
-func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]interface{}) string {
+func renderCodeGroupElement(elem *ast.CodeGroupElement, _ map[string]interface{}) string {
 	var html strings.Builder
 
 	html.WriteString(`<div class="code-group">`)
@@ -2731,8 +2738,8 @@ func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]int
 		if i == 0 {
 			activeClass = " active"
 		}
-		content := ProcessVariables(block.Content, variables)
-		content = EscapeHTML(content)
+		// Literal, como renderCodeElement (issue #487).
+		content := EscapeHTML(block.Content)
 		language := EscapeHTMLAttribute(block.Language)
 		fmt.Fprintf(&html, `<div class="code-group-block%s" data-index="%d">`, activeClass, i)
 		fmt.Fprintf(&html, `<pre><code class="language-%s">%s</code></pre>`, language, content)

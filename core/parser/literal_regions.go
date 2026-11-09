@@ -13,12 +13,15 @@ import (
 // strict, una cerca ``` (o ````), un :::code-group, un diagrama <<…>>, un
 // bloque $$ y un @startuml.
 const (
-	literalCode     = "code"
-	literalFence    = "fence"
-	literalGroup    = "group"
-	literalDiagram  = "diagram"
-	literalMath     = "math"
-	literalPlantUML = "plantuml"
+	literalCode  = "code"
+	literalFence = "fence"
+	// literalDiagramFence es una cerca ```mermaid/plantuml/chart/map/math: un
+	// diagrama escrito como cerca, no código.
+	literalDiagramFence = "diagram-fence"
+	literalGroup        = "group"
+	literalDiagram      = "diagram"
+	literalMath         = "math"
+	literalPlantUML     = "plantuml"
 )
 
 // literalScanner recorre una fuente línea por línea y dice en qué región
@@ -27,9 +30,10 @@ const (
 // dentro de ella nunca es una anotación ni una directiva. La línea que abre o
 // cierra una región cuenta como parte de ella.
 //
-// Es el recorrido que antes vivía dentro de stripNodeIDDirectives, sin
-// cambios, sacado a un tipo para que el pre-pase de node-id y la expansión de
-// @include (CodeLiteralScanner) vean las mismas regiones.
+// Es el recorrido que antes vivía dentro de stripNodeIDDirectives, sacado a un
+// tipo para que el pre-pase de node-id y la expansión de @include
+// (CodeLiteralScanner) vean las mismas regiones. Lo único que cambió es dónde
+// cierra una cerca (closesFence), para coincidir con el parser.
 type literalScanner struct {
 	// strict: la cabecera CODE se reconoce con el mismo CanParse que usa el
 	// despacho strict. flexCodeHeaders mantiene, fuera de strict, la regla
@@ -42,6 +46,8 @@ type literalScanner struct {
 	diagramIndent    int
 	groupFence       bool
 	fenceClose       string
+	// fenceOpen es la línea de apertura de la cerca en curso; ver closesFence.
+	fenceOpen string
 }
 
 func newLiteralScanner(strict, flexCodeHeaders bool) literalScanner {
@@ -72,9 +78,10 @@ func (s *literalScanner) step(line string) string {
 	if s.literal != "" {
 		current := s.literal
 		switch s.literal {
-		case literalFence:
-			if trimmed == s.fenceClose {
+		case literalFence, literalDiagramFence:
+			if s.closesFence(trimmed) {
 				s.literal = ""
+				return current
 			}
 		case literalDiagram:
 			if trimmed == "<<end>>" {
@@ -102,6 +109,10 @@ func (s *literalScanner) step(line string) string {
 	}
 	if strings.HasPrefix(trimmed, "```") {
 		s.literal = literalFence
+		if isDiagramFenceInfo(fenceInfo(trimmed)) {
+			s.literal = literalDiagramFence
+		}
+		s.fenceOpen = trimmed
 		if strings.HasPrefix(trimmed, "````") {
 			s.fenceClose = "````"
 		} else {
@@ -144,6 +155,45 @@ func (s *literalScanner) step(line string) string {
 	return ""
 }
 
+// closesFence dice si trimmed cierra la cerca abierta en s.fenceOpen, con la
+// regla del parser que la va a leer. Antes una cerca de cuatro backticks solo
+// cerraba en "````", pero un bloque de código flex (CodeParser) cierra en la
+// primera línea "```", también si abrió con cuatro, y no en "````": las dos
+// lecturas no coincidían, y un @include detrás de un "```" interno quedaba sin
+// expandir aunque el parser ya lo leía fuera del código.
+//
+//   - ```mermaid, ```plantuml, ```chart, ```map (con tres o cuatro backticks):
+//     cierran en "```" o "````" (MermaidParser, PlantUMLParser,
+//     collectFencedBody).
+//   - ```math: el mismo carácter, al menos tantas veces como la apertura, y
+//     nada más (closesMathFence).
+//   - cualquier otra, código: solo "```" (CodeParser.parseFlexCode).
+func (s *literalScanner) closesFence(trimmed string) bool {
+	open := s.fenceOpen
+	ticks := len(open) - len(strings.TrimLeft(open, "`"))
+	info := fenceInfo(open)
+	switch {
+	case info == "math":
+		return len(trimmed) >= ticks && strings.Trim(trimmed, "`") == ""
+	case isDiagramFenceInfo(info):
+		return trimmed == "```" || trimmed == "````"
+	default:
+		return trimmed == "```"
+	}
+}
+
+// fenceInfo es lo que sigue a los backticks de apertura de una cerca.
+func fenceInfo(open string) string {
+	return strings.TrimSpace(strings.TrimLeft(open, "`"))
+}
+
+// isDiagramFenceInfo reconoce la cerca de un diagrama, un chart, un mapa o una
+// ecuación, con el mismo criterio que el CanParse de cada uno.
+func isDiagramFenceInfo(info string) bool {
+	return strings.HasPrefix(info, "mermaid") || strings.HasPrefix(info, "plantuml") ||
+		info == "chart" || info == "map" || info == "math"
+}
+
 // literalLineKinds aplica literalScanner a lines desde from: el elemento i es
 // la región de la línea i ("" antes de from).
 func literalLineKinds(lines []string, from int, strict, flexCodeHeaders bool) []string {
@@ -162,8 +212,9 @@ func literalLineKinds(lines []string, from int, strict, flexCodeHeaders bool) []
 // ahí no es una directiva: core/include no lo expande (issue #487), y el build
 // emite lo mismo que el AST y el lint describen.
 //
-// Los diagramas (<<mermaid>>, <<chart:…>>…), los bloques $$ y @startuml no
-// cuentan como código; su cuerpo sigue pudiendo venir de un @include.
+// Los diagramas (<<mermaid>>, <<chart:…>>…, y también escritos como cerca:
+// ```mermaid, ```chart…), los bloques $$, ```math y @startuml no cuentan como
+// código; su cuerpo sigue pudiendo venir de un @include.
 //
 // Se alimenta con las líneas del cuerpo (lo que sigue al frontmatter), en el
 // orden en que las va a ver el parser. Reconoce las mismas regiones que el
