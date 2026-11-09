@@ -3469,12 +3469,20 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 // renderMathImage inserta el render previo de una ecuación (math-image-v1)
 // sin Chromium, salvo que sea un SVG. La fuente pasa por prepareLocalImage,
 // igual que una imagen de bloque: confinada a assetRoot, nunca descargada si
-// es remota, a tamaño natural reducido para caber. Número y leyenda son los
-// de cualquier ecuación.
+// es remota, a tamaño natural (su pHYs, si lo trae) reducido para caber.
+// Número y leyenda son los de cualquier ecuación, y se conservan también
+// debajo del marcador de no disponible, como en el HTML: un \ref del texto
+// dice "Ecuación N" y el número tiene que verse.
 func (g *DOCXGenerator) renderMathImage(doc domain.Document, elem *ast.MathElement, image string) error {
+	unavailable := func() error {
+		if err := g.renderUnavailable(doc, docxUnavailableEquation); err != nil {
+			return err
+		}
+		return g.renderMathNumberAndCaption(doc, elem)
+	}
 	insertPath, imageSize, ok := g.prepareLocalImage(docxBlockImagePath(image), elem.Position.Line, elem.Caption != "")
 	if !ok {
-		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
+		return unavailable()
 	}
 	p, err := doc.AddParagraph()
 	if err != nil {
@@ -3483,9 +3491,15 @@ func (g *DOCXGenerator) renderMathImage(doc domain.Document, elem *ast.MathEleme
 	if err := p.SetAlignment(domain.AlignmentCenter); err != nil {
 		return fmt.Errorf("invalid alignment: %w", err)
 	}
+	// La ecuación va en la misma página que su número y su leyenda.
+	if (elem.Label != "" && elem.Number > 0) || elem.Caption != "" {
+		if err := p.SetKeepNext(true); err != nil {
+			return fmt.Errorf("invalid keepNext: %w", err)
+		}
+	}
 	if _, err := p.AddImageWithSize(insertPath, imageSize); err != nil {
 		g.logger.Warn("DOCX: line %d: equation image %q could not be inserted: %v", elem.Position.Line, image, err)
-		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
+		return unavailable()
 	}
 	if err := g.renderMathNumberAndCaption(doc, elem); err != nil {
 		return err

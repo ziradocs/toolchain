@@ -65,7 +65,7 @@ func TestDOCX_MathImage(t *testing.T) {
 	}
 	doc := astWithElements(
 		mathWithImage(t, "E = mc^2", "eq:a", 2, "eq.png"),
-		mathWithImage(t, "a = b", "", 0, "falta.png"),
+		mathWithImage(t, "a = b", "eq:b", 5, "falta.png"),
 		mathWithImage(t, "c = d", "", 0, "https://example.com/eq.png"),
 	)
 	logger := newTestLogger()
@@ -81,6 +81,14 @@ func TestDOCX_MathImage(t *testing.T) {
 	text := docxVisibleText(xml)
 	if !strings.Contains(text, "(2)") {
 		t.Errorf("falta el número de la ecuación: %q", text)
+	}
+	// La que falta conserva su número debajo del marcador, como en HTML.
+	if !strings.Contains(text, "[Ecuación no disponible](5)") {
+		t.Errorf("el marcador perdió el número: %q", text)
+	}
+	// La imagen va pegada a su número: el único párrafo con keepNext.
+	if n := strings.Count(xml, "<w:keepNext"); n != 1 {
+		t.Errorf("keepNext = %d, want 1", n)
 	}
 	if n := strings.Count(text, "[Ecuación no disponible]"); n != 2 {
 		t.Errorf("marcadores = %d, want 2 (falta y remota): %q", n, text)

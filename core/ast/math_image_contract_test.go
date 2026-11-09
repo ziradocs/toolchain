@@ -5,6 +5,7 @@ package ast
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -76,5 +77,23 @@ func TestMathImageContract(t *testing.T) {
 	SetTableContract(doc)
 	if doc.SchemaVersion != MathImageSchemaVersion || len(doc.Capabilities) != 2 || doc.Capabilities[0] != MathSourceCapability || doc.Capabilities[1] != MathImageCapability {
 		t.Fatalf("con math-source: contract = %s %v", doc.SchemaVersion, doc.Capabilities)
+	}
+}
+
+// La regla "image en un elemento que no es math" se sostiene sola: sin
+// math-image-v1 declarada, la de presencia no tiene nada que rechazar.
+func TestMathImageOnNonMathElementRejected(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	doc := NewAST(pos)
+	doc.ContentBlocks = []ContentBlock{*NewContentBlock(pos, "content")}
+	doc.ContentBlocks[0].Elements = []Element{NewImageElement(pos, "a.png", "A")}
+	data, _ := json.Marshal(doc)
+	var root map[string]any
+	_ = json.Unmarshal(data, &root)
+	root["contentBlocks"].([]any)[0].(map[string]any)["elements"].([]any)[0].(map[string]any)["image"] = "b.png"
+	candidate, _ := json.Marshal(root)
+	_, err := DecodeAST(candidate)
+	if err == nil || !strings.Contains(err.Error(), "image on a non-math element") {
+		t.Fatalf("err = %v", err)
 	}
 }
