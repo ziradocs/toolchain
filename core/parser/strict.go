@@ -35,11 +35,15 @@ type strictBody struct {
 	// uno indentado sigue siendo un error.
 	contentMarkdown bool
 	slideHeadings   bool
-	headingAnchors  elements.HeadingAnchors
-	lines           []string
-	currentLine     int
-	diagnostics     []diagnostics.Diagnostic
-	logger          util.Logger
+	// discardIsError: lo que el cuerpo descarta es un error (documento strict,
+	// columna tipada) y no el warning STRICT003 de un slide. Lo usa
+	// reportDiscarded.
+	discardIsError bool
+	headingAnchors elements.HeadingAnchors
+	lines          []string
+	currentLine    int
+	diagnostics    []diagnostics.Diagnostic
+	logger         util.Logger
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]: el
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
@@ -91,6 +95,7 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 // tiene cierre sin ambigüedad para anidarlo.
 func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic) {
 	sub := &strictBody{
+		discardIsError:  true,
 		nestedListTypes: p.nestedListTypes,
 		listStart:       p.listStart,
 		mathSource:      p.mathSource,
@@ -113,7 +118,7 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 			return
 		}
 		sub.addError(fmt.Sprintf(
-			"unexpected content inside a typed column: %q is not an element", trimmed))
+			"unexpected content inside a typed column: %q is not an element.%s", trimmed, unrecognizedHint(trimmed)))
 	})
 	if sub.currentLine < len(lines) {
 		// parseIndentedElements corta en la primera línea no vacía con menos de
@@ -381,7 +386,7 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 		// silencioso (ver TestStrictParser_SlideDialectStillToleratesUnrecognizedLines),
 		// mientras que un Warning es visible sin ser un cambio incompatible.
 		p.addWarningWithRuleID(
-			fmt.Sprintf("Unrecognized line, content was discarded: %q. Check DSL Strict syntax documentation.", trimmed),
+			fmt.Sprintf("Unrecognized line, content was discarded: %q.%s Check DSL Strict syntax documentation.", trimmed, unrecognizedHint(trimmed)),
 			"STRICT003")
 	})
 
@@ -488,11 +493,13 @@ func (p *strictBody) parseIndentedElements(
 			continue
 		} // Parsear elementos
 		if elements.HasStrictKeyword(trimmedLine, "TEXT") {
+			p.checkBareKeywordLine(trimmedLine, "TEXT")
 			element := p.parseTextElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
 		} else if elements.HasStrictKeyword(trimmedLine, "POINTS") {
+			p.checkBareKeywordLine(trimmedLine, "POINTS")
 			element := p.parsePointsElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
@@ -508,16 +515,19 @@ func (p *strictBody) parseIndentedElements(
 				block.Elements = append(block.Elements, element)
 			}
 		} else if elements.HasStrictKeyword(trimmedLine, "TABLE") {
+			p.checkBareKeywordLine(trimmedLine, "TABLE")
 			element := p.parseTableElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
 		} else if elements.HasStrictKeyword(trimmedLine, "QUOTE") {
+			p.checkBareKeywordLine(trimmedLine, "QUOTE")
 			element := p.parseQuoteElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
 		} else if elements.HasStrictKeyword(trimmedLine, "CHECKLIST") {
+			p.checkBareKeywordLine(trimmedLine, "CHECKLIST")
 			element := p.parseChecklistElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
@@ -744,6 +754,42 @@ func (p *strictBody) parseImageElement() ast.Element {
 
 	result := imageParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "IMAGE")
+}
+
+// reportDiscarded reporta contenido que el cuerpo leyó pero no llega al AST,
+// con el mismo nivel que una línea no reconocida en ese dialecto: error en un
+// documento strict y en una columna tipada, el warning STRICT003 en un slide.
+func (p *strictBody) reportDiscarded(msg string) {
+	if p.discardIsError {
+		p.addError(msg)
+		return
+	}
+	p.addWarningWithRuleID(msg, "STRICT003")
+}
+
+// checkBareKeywordLine reporta el texto escrito en la misma línea que una
+// palabra clave que no lleva argumentos (TEXT, POINTS, CHECKLIST, QUOTE,
+// TABLE): su parser salta la línea entera, así que `TEXT hola mundo` perdía
+// "hola mundo" sin aviso. fmt escribe esas palabras clave solas, así que nunca
+// produce esta forma.
+func (p *strictBody) checkBareKeywordLine(trimmed, kw string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(trimmed[len(kw):]), ":"))
+	if rest == "" {
+		return
+	}
+	p.reportDiscarded(fmt.Sprintf(
+		"%s takes nothing on its own line: %q was discarded. Write the content on the indented lines below it.", kw, rest))
+}
+
+// unrecognizedHint completa el mensaje de una línea no reconocida que empieza
+// con las letras de una palabra clave pegadas a otra cosa ("TEXTO",
+// "TEXT-heavy"), con la palabra clave que probablemente se quiso escribir.
+func unrecognizedHint(trimmed string) string {
+	kw, word, ok := elements.GluedStrictKeyword(trimmed)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf(" %q is not an element keyword; did you mean %s?", word, kw)
 }
 
 func (p *strictBody) addError(msg string) {

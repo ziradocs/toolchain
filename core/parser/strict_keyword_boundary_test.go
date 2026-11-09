@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 // una palabra clave ("TEXTO citado", "MAPA norte") es texto de la cita, no el
 // inicio de otro elemento.
 func TestStrictKeywordBoundary_QuoteBodyKeepsWordsThatStartWithAKeyword(t *testing.T) {
-	for _, line := range []string{"TEXTO citado", "TEXTOS", "MAPA norte", "CODEX", "TABLEAU de bord", "POINTSET", "QUOTES", "CHECKLISTS", "IMAGEN", "MATHS", "CHARTER", "MERMAIDS", "PLANTUMLS", "TEXT_X", "TEXT9", "TEXTÓ"} {
+	for _, line := range []string{"TEXT-heavy slides aburren", "CODE.", "MAP/territorio", "TEXT(o)", "TEXTO citado", "TEXTOS", "MAPA norte", "CODEX", "TABLEAU de bord", "POINTSET", "QUOTES", "CHECKLISTS", "IMAGEN", "MATHS", "CHARTER", "MERMAIDS", "PLANTUMLS", "TEXT_X", "TEXT9", "TEXTÓ"} {
 		for _, document := range []bool{true, false} {
 			name := line + map[bool]string{true: "/document", false: "/slide"}[document]
 			t.Run(name, func(t *testing.T) {
@@ -73,7 +74,7 @@ func TestStrictKeywordBoundary_ElementLevelWordIsNotTheKeyword(t *testing.T) {
 // Lo que la palabra clave aceptaba después y no forma otra palabra sigue
 // valiendo: espacio, tab, un espacio Unicode, un atributo `{…}`, `:`.
 func TestStrictKeywordBoundary_SeparatorsStillOpenTheElement(t *testing.T) {
-	for _, header := range []string{"TEXT", "TEXT ", "TEXT\t", "TEXT ", "TEXT{x}", "TEXT:"} {
+	for _, header := range []string{"TEXT", "TEXT ", "TEXT\t", "TEXT ", "TEXT\u3000", "TEXT:"} {
 		t.Run(header, func(t *testing.T) {
 			src := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  " + header + "\n    hola\n"
 			doc, diags := parseStrictSource(t, src, true)
@@ -98,4 +99,57 @@ func parseStrictSource(t *testing.T, src string, document bool) (*ast.AST, []dia
 		return p.ParseDocument(src, "q.doclang")
 	}
 	return p.Parse(src, "q.slidelang")
+}
+
+// Una línea a nivel de elemento que empieza con una palabra clave pegada a
+// otra cosa da el diagnóstico de línea no reconocida de cada dialecto (error
+// en documento, STRICT003 en slide) y sugiere la palabra clave.
+func TestStrictKeywordBoundary_DidYouMean(t *testing.T) {
+	for _, tc := range []struct{ line, word, kw string }{
+		{"TEXTO citado", "TEXTO", "TEXT"},
+		{"TEXT-heavy", "TEXT-heavy", "TEXT"},
+		{"MAPA norte", "MAPA", "MAP"},
+	} {
+		want := fmt.Sprintf("%q is not an element keyword; did you mean %s?", tc.word, tc.kw)
+		doc := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  " + tc.line + "\n    contenido\n"
+		_, diags := parseStrictSource(t, doc, true)
+		if len(diags) == 0 || !diags[0].IsError() || !strings.Contains(diags[0].Message, want) {
+			t.Errorf("document %q: want an error with %q, got %v", tc.line, want, diags)
+		}
+		slide := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  " + tc.line + "\n    contenido\n"
+		_, diags = parseStrictSource(t, slide, false)
+		if len(diags) == 0 || diags[0].IsError() || diags[0].RuleID != "STRICT003" || !strings.Contains(diags[0].Message, want) {
+			t.Errorf("slide %q: want STRICT003 with %q, got %v", tc.line, want, diags)
+		}
+	}
+}
+
+// Lo que se escribe en la misma línea que TEXT, POINTS, CHECKLIST, QUOTE o
+// TABLE se perdía sin aviso. Ahora es el diagnóstico de contenido descartado
+// de cada dialecto, y el elemento se sigue leyendo.
+func TestStrictKeyword_TextOnTheKeywordLine(t *testing.T) {
+	for _, tc := range []struct{ header, body, dropped string }{
+		{"TEXT hola mundo", "    cuerpo\n", "hola mundo"},
+		{"TEXT: hola", "    cuerpo\n", "hola"},
+		{"TEXT{x}", "    cuerpo\n", "{x}"},
+		{"POINTS lista", "    - uno\n", "lista"},
+		{"CHECKLIST tareas", "    - [ ] a\n", "tareas"},
+		{"QUOTE cita", "    texto\n", "cita"},
+		{"TABLE 3.1: Resultados", "    headers: [\"a\"]\n    rows: [[\"1\"]]\n", "3.1: Resultados"},
+	} {
+		want := fmt.Sprintf("%q was discarded", tc.dropped)
+		doc := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  " + tc.header + "\n" + tc.body
+		d, diags := parseStrictSource(t, doc, true)
+		if len(diags) != 1 || !diags[0].IsError() || !strings.Contains(diags[0].Message, want) || diags[0].Position.Line != 7 {
+			t.Errorf("document %q: want one error at line 7 with %q, got %v", tc.header, want, diags)
+		}
+		if len(d.ContentBlocks[0].Elements) != 1 {
+			t.Errorf("document %q: the element must still be read, got %d elements", tc.header, len(d.ContentBlocks[0].Elements))
+		}
+		slide := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  " + tc.header + "\n" + tc.body
+		_, diags = parseStrictSource(t, slide, false)
+		if len(diags) != 1 || diags[0].IsError() || diags[0].RuleID != "STRICT003" || !strings.Contains(diags[0].Message, want) {
+			t.Errorf("slide %q: want STRICT003 with %q, got %v", tc.header, want, diags)
+		}
+	}
 }
