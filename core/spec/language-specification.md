@@ -539,6 +539,15 @@ Directives control slide and element behavior:
 | `@transition` | `@transition: type` | Slide transition |
 | `@timer` | `@timer: seconds` | Slide timing |
 
+`@include path` on a line of its own is replaced by the content of that file
+before the source is parsed (`slidelang build`, `doclang build`; `fmt` and the
+MCP `get_ast`/`lint` tools keep the line as written). Inside a code body (a
+strict `CODE` block, a fenced block, a `:::code-group`) the line is code, as the
+parser reads it, and is never expanded; what counts as a code body is decided
+on the text as it is being expanded, so it holds for code written inside an
+included file too. Diagram, chart, map and math bodies are not code: an
+`@include` line there is expanded.
+
 ### Special Blocks
 
 Special blocks provide structured content:

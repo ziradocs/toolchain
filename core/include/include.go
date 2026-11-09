@@ -94,18 +94,140 @@ func (o LineOrigins) File(line int) string {
 //
 // El texto expandido y los errores son exactamente los de Expand.
 func ExpandWithOrigins(content, baseDir string, read ReadFunc) (string, LineOrigins, error) {
-	lines, origins, err := expand(content, "", baseDir, read, map[string]bool{}, 0)
+	lines := strings.Split(content, "\n")
+
+	// El frontmatter del contenido raíz se expande como siempre, línea por
+	// línea y sin mirar regiones de código: no es cuerpo del documento.
+	bodyStart := frontMatterLines(lines)
+	out, origins, err := expand(strings.Join(lines[:bodyStart], "\n"), "", baseDir, read, map[string]bool{}, 0)
 	if err != nil {
 		return "", nil, err
 	}
-	return strings.Join(lines, "\n"), origins, nil
+	if bodyStart == 0 {
+		out, origins = nil, nil
+	}
+
+	body, bodyOrigins, err := expandBody(lines[bodyStart:], parser.SourceIsStrict(content), baseDir, read)
+	if err != nil {
+		return "", nil, err
+	}
+	out = append(out, body...)
+	origins = append(origins, bodyOrigins...)
+	return strings.Join(out, "\n"), origins, nil
+}
+
+// frontMatterLines cuenta las líneas del frontmatter de lines (delimitadores
+// incluidos), con el mismo criterio que el pre-pase de node-id del parser: la
+// primera línea es `---` y el bloque termina en el siguiente `---`, o en el
+// fin del archivo si no lo hay. 0 si no hay frontmatter.
+func frontMatterLines(lines []string) int {
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != parser.FrontMatterDelimiter {
+		return 0
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == parser.FrontMatterDelimiter {
+			return i + 1
+		}
+	}
+	return len(lines)
+}
+
+// includeFrame es un archivo en curso de expansión: sus líneas, la próxima a
+// leer y la cadena de archivos que lo incluyó (para detectar ciclos).
+type includeFrame struct {
+	lines   []string
+	next    int
+	file    string
+	visited map[string]bool
+	depth   int
+}
+
+// expandBody expande el cuerpo del documento (lo que sigue al frontmatter
+// raíz) como un solo flujo de líneas: en el orden en que las va a ver el
+// parser, con cada archivo incluido en el lugar de su `@include`.
+//
+// Una línea `@include` que cae dentro de un cuerpo de código (el de un CODE
+// strict, una cerca ```, un :::code-group) es código, no una directiva: el
+// parser la guarda tal cual en el AST, y get_ast y el lint la muestran así.
+// Antes se expandía igual, y el build emitía dentro del bloque de código el
+// contenido de un archivo que el AST no menciona (issue #487). Qué es código lo
+// decide parser.CodeLiteralScanner, recorriendo el texto ya expandido: la
+// línea `@include` no está en ese texto (en su lugar van las líneas del
+// archivo incluido), así que solo se la mira con Peek, y el escáner sigue con
+// lo que de verdad la reemplaza.
+func expandBody(lines []string, strict bool, baseDir string, read ReadFunc) ([]string, LineOrigins, error) {
+	scanner := parser.NewCodeLiteralScanner(strict)
+	out := make([]string, 0, len(lines))
+	origins := make(LineOrigins, 0, len(lines))
+	stack := []*includeFrame{{lines: lines, visited: map[string]bool{}}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		if frame.next >= len(frame.lines) {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		line := frame.lines[frame.next]
+		frame.next++
+
+		if incPath, ok := parseIncludeLine(line); ok && !scanner.Peek(line) {
+			child, err := openInclude(line, incPath, baseDir, read, frame.visited, frame.depth)
+			if err != nil {
+				return nil, nil, err
+			}
+			stack = append(stack, child)
+			continue
+		}
+		scanner.Next(line)
+		out = append(out, line)
+		origins = append(origins, frame.file)
+	}
+	return out, origins, nil
+}
+
+// openInclude resuelve y lee el archivo de una línea `@include`, con los
+// mismos chequeos y errores que expand, en el mismo orden: ruta faltante,
+// confinamiento, ciclo, lectura y profundidad.
+func openInclude(line, incPath, baseDir string, read ReadFunc, visited map[string]bool, depth int) (*includeFrame, error) {
+	if incPath == "" {
+		return nil, fmt.Errorf("include: %q — falta la ruta", strings.TrimSpace(line))
+	}
+	resolved, err := util.ResolveConfinedPath(baseDir, incPath)
+	if err != nil {
+		return nil, fmt.Errorf("include %q: %w", incPath, err)
+	}
+	absResolved, err := filepath.Abs(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("include %q: %w", incPath, err)
+	}
+	if visited[absResolved] {
+		return nil, fmt.Errorf("include %q: ciclo detectado (ya incluido en esta misma cadena)", incPath)
+	}
+	data, err := read(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("include %q: %w", incPath, err)
+	}
+	if depth+1 > MaxDepth {
+		return nil, fmt.Errorf("include: profundidad máxima (%d) excedida — revisar si hay un ciclo no detectado", MaxDepth)
+	}
+	nextVisited := make(map[string]bool, len(visited)+1)
+	for k := range visited {
+		nextVisited[k] = true
+	}
+	nextVisited[absResolved] = true
+	return &includeFrame{
+		lines:   strings.Split(stripFrontMatter(string(data)), "\n"),
+		file:    absResolved,
+		visited: nextVisited,
+		depth:   depth + 1,
+	}, nil
 }
 
 // expand devuelve las líneas expandidas de content y, en paralelo, el
 // archivo de origen de cada una; file es el de content ("" para la raíz).
 // Unir las líneas con "\n" da lo mismo que unir cada hijo ya expandido como
 // un solo bloque, que es lo que hacía esta función antes de devolver
-// orígenes.
+// orígenes. Solo se usa para el frontmatter del contenido raíz, que no tiene
+// regiones de código; el cuerpo va por expandBody.
 func expand(content, file, baseDir string, read ReadFunc, visited map[string]bool, depth int) ([]string, LineOrigins, error) {
 	if depth > MaxDepth {
 		return nil, nil, fmt.Errorf("include: profundidad máxima (%d) excedida — revisar si hay un ciclo no detectado", MaxDepth)
@@ -121,34 +243,11 @@ func expand(content, file, baseDir string, read ReadFunc, visited map[string]boo
 			origins = append(origins, file)
 			continue
 		}
-		if incPath == "" {
-			return nil, nil, fmt.Errorf("include: %q — falta la ruta", strings.TrimSpace(line))
-		}
-
-		resolved, err := util.ResolveConfinedPath(baseDir, incPath)
+		child, err := openInclude(line, incPath, baseDir, read, visited, depth)
 		if err != nil {
-			return nil, nil, fmt.Errorf("include %q: %w", incPath, err)
+			return nil, nil, err
 		}
-		absResolved, err := filepath.Abs(resolved)
-		if err != nil {
-			return nil, nil, fmt.Errorf("include %q: %w", incPath, err)
-		}
-		if visited[absResolved] {
-			return nil, nil, fmt.Errorf("include %q: ciclo detectado (ya incluido en esta misma cadena)", incPath)
-		}
-
-		data, err := read(resolved)
-		if err != nil {
-			return nil, nil, fmt.Errorf("include %q: %w", incPath, err)
-		}
-
-		nextVisited := make(map[string]bool, len(visited)+1)
-		for k := range visited {
-			nextVisited[k] = true
-		}
-		nextVisited[absResolved] = true
-
-		childLines, childOrigins, err := expand(stripFrontMatter(string(data)), absResolved, baseDir, read, nextVisited, depth+1)
+		childLines, childOrigins, err := expand(strings.Join(child.lines, "\n"), child.file, baseDir, read, child.visited, child.depth)
 		if err != nil {
 			return nil, nil, err
 		}

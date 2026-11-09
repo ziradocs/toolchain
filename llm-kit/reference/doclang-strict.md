@@ -134,6 +134,8 @@ not the directive's**:
 - A fragment of complete sections is written at column 0.
 - A fragment meant for a section body is written already indented.
 - Indenting the `@include` line itself does **not** indent the fragment.
+- Inside a code body (a `CODE` block, a ``` fence, a `:::code-group`) an
+  `@include` line is code: it is shown as written and never expanded.
 
 ## Formatting
 
