@@ -305,3 +305,165 @@ func TestDocumentSurfaces_ComputedStyle(t *testing.T) {
 		}
 	})
 }
+
+const inkDoc = `---
+title: "Inks"
+---
+
+# Inks
+
+Page [p]{.danger} [Ctrl]{.kbd}.
+
+| Head [h](https://example.com/th) [x]{.danger} | B |
+|---|---|
+| [t]{.danger} [td](https://example.com/td) | odd |
+| [s]{.danger} [st](https://example.com/st) | even |
+
+:::warning
+Warning [w]{.danger} and **[b]{.danger}** [aw](https://example.com/aw).
+
+| In alert |
+|---|
+| [n]{.danger} [na](https://example.com/na) |
+:::
+`
+
+// inkProbe lee el color calculado de cada tinta según la superficie donde va.
+const inkProbe = `(() => {
+  const c = (sel) => getComputedStyle(document.querySelector(sel)).color;
+  return {
+    page: c('p > .slidelang-text-danger'),
+    th: c('thead th .slidelang-text-danger'),
+    thLink: c('thead th a[href]'),
+    td: c('table tbody tr:nth-child(1) .slidelang-text-danger'),
+    stripe: c('table tbody tr:nth-child(2) .slidelang-text-danger'),
+    alert: c('.alert-warning p > .slidelang-text-danger, .alert-warning .alert-content > .slidelang-text-danger'),
+    alertBold: c('.alert-warning strong > .slidelang-text-danger'),
+    alertTable: c('.alert-warning table .slidelang-text-danger'),
+    tdLink: c('table td a[href]'),
+    stripeLink: c('table tbody tr:nth-child(2) td a[href]'),
+    alertLink: c('.alert-warning p a[href], .alert-warning .alert-content > a[href]'),
+    alertTableLink: c('.alert-warning table td a[href]'),
+  };
+})()`
+
+func renderInks(t *testing.T, ctx context.Context, vars map[string]string) map[string]string {
+	t.Helper()
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(inkDoc, "inks.doclang")
+	if doc == nil {
+		t.Fatal("ParseDocument devolvió nil")
+	}
+	html := renderer.GenerateDocumentHTML(doc, renderer.DocumentHTMLOptions{
+		Title: "Inks", ThemeVariables: vars,
+		PlantUMLMode: "offline-inline", MermaidMode: "offline-inline", ChartMode: "offline-inline",
+		MapMode: "offline-inline", MathMode: "offline-inline",
+	}, renderer.NewDefaultRenderContext())
+	path := filepath.Join(t.TempDir(), "inks.html")
+	if err := os.WriteFile(path, []byte(html), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := chromedp.Do(ctx,
+		chromedp.Navigate("file://"+path),
+		store(&got, chromedp.Evaluate[map[string]string](inkProbe)),
+	); err != nil {
+		t.Fatalf("chromedp: %v", err)
+	}
+	return got
+}
+
+// TestDocumentInks_ComputedStyle: sin variables cada tinta es la del
+// documento en todas las superficies (el render de siempre); con la variable
+// de una superficie, la tinta toma ese valor ahí y en lo que va dentro, y la
+// superficie más interna gana (una tabla dentro de una alerta usa la de la
+// tabla). El vínculo del encabezado de la tabla sigue al del cuerpo hasta
+// que el tema le da el suyo.
+func TestDocumentInks_ComputedStyle(t *testing.T) {
+	path := requireTestChromiumPath(t)
+	mgr := newChromiumManager(path, false, noopChromiumLogger{}, DefaultChromiumBrand)
+	ctx, cancel, err := mgr.CreateContext(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	ctx, cancelTimeout := context.WithTimeout(ctx, 60*time.Second)
+	defer cancelTimeout()
+
+	check := func(t *testing.T, got, want map[string]string) {
+		t.Helper()
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s = %q, want %q", k, got[k], v)
+			}
+		}
+	}
+	const literal = "rgb(220, 38, 38)" // #dc2626
+
+	t.Run("sin variables, la tinta de siempre", func(t *testing.T) {
+		got := renderInks(t, ctx, nil)
+		check(t, got, map[string]string{
+			"page": literal, "th": literal, "td": literal, "stripe": literal,
+			"alert": literal, "alertBold": literal, "alertTable": literal,
+			"thLink": "rgb(0, 0, 238)", "tdLink": "rgb(0, 0, 238)", "stripeLink": "rgb(0, 0, 238)", "alertLink": "rgb(0, 0, 238)",
+			"alertTableLink": "rgb(0, 0, 238)",
+		})
+	})
+
+	t.Run("tinta del documento y vínculo del cuerpo", func(t *testing.T) {
+		got := renderInks(t, ctx, map[string]string{
+			"--doclang-danger-color":    "#fca5a5",
+			"--doclang-body-link-color": "#7dd3fc",
+		})
+		pink := "rgb(252, 165, 165)"
+		check(t, got, map[string]string{
+			"page": pink, "th": pink, "td": pink, "stripe": pink,
+			"alert": pink, "alertBold": pink, "alertTable": pink,
+			"thLink": "rgb(125, 211, 252)", "tdLink": "rgb(125, 211, 252)", "stripeLink": "rgb(125, 211, 252)",
+			// La alerta conserva el azul del navegador sin su propia
+			// variable (su fondo claro literal).
+			"alertLink": "rgb(0, 0, 238)",
+			// Una tabla dentro de la alerta usa el vínculo de la tabla.
+			"alertTableLink": "rgb(125, 211, 252)",
+		})
+	})
+
+	t.Run("tinta por superficie", func(t *testing.T) {
+		got := renderInks(t, ctx, map[string]string{
+			"--doclang-danger-color":               "#fca5a5",
+			"--doclang-table-ink-danger":           "#111111",
+			"--doclang-table-stripe-ink-danger":    "#222222",
+			"--doclang-table-header-ink-danger":    "#333333",
+			"--doclang-callout-warning-ink-danger": "#444444",
+			"--doclang-body-link-color":            "#7dd3fc",
+			"--doclang-table-header-link-color":    "#555555",
+			"--doclang-table-link-color":           "#666666",
+			"--doclang-callout-warning-link-color": "#777777",
+		})
+		check(t, got, map[string]string{
+			"page":       "rgb(252, 165, 165)",
+			"td":         "rgb(17, 17, 17)",
+			"stripe":     "rgb(34, 34, 34)",
+			"th":         "rgb(51, 51, 51)",
+			"alert":      "rgb(68, 68, 68)",
+			"alertBold":  "rgb(68, 68, 68)", // un <strong> no reinicia la tinta
+			"alertTable": "rgb(17, 17, 17)", // la tabla, más interna, gana
+			"thLink":     "rgb(85, 85, 85)",
+			"tdLink":     "rgb(102, 102, 102)",
+			"stripeLink": "rgb(102, 102, 102)", // sin variable propia, la de la tabla
+			"alertLink":  "rgb(119, 119, 119)",
+			// Anidada: la tabla, más interna, gana a la alerta.
+			"alertTableLink": "rgb(102, 102, 102)",
+		})
+	})
+
+	t.Run("vínculo propio de la fila alterna", func(t *testing.T) {
+		got := renderInks(t, ctx, map[string]string{
+			"--doclang-table-link-color":        "#666666",
+			"--doclang-table-stripe-link-color": "#999999",
+		})
+		check(t, got, map[string]string{
+			"tdLink":     "rgb(102, 102, 102)",
+			"stripeLink": "rgb(153, 153, 153)",
+		})
+	})
+}
