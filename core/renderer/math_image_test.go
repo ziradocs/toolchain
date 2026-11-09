@@ -60,3 +60,18 @@ func TestRenderMathElement_Image(t *testing.T) {
 		}
 	}
 }
+
+// Una fórmula dentro de un bloque especial también cuenta: el renderer la
+// compone con el mismo MathFetcher.
+func TestHasMathElements_Nested(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	doc := ast.NewAST(pos)
+	block := ast.NewContentBlock(pos, "content")
+	note := ast.NewSpecialBlockElement(pos, "note", "")
+	note.Elements = []ast.Element{ast.NewMathElement(pos, "x")}
+	block.Elements = []ast.Element{note}
+	doc.ContentBlocks = []ast.ContentBlock{*block}
+	if !HasMathElements(doc) {
+		t.Fatal("la fórmula anidada no se detectó")
+	}
+}

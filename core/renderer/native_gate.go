@@ -107,11 +107,23 @@ func HasMapElements(astNode *ast.AST) bool {
 	})
 }
 
+// HasMathElements mira a cualquier profundidad (bloques especiales,
+// columnas), a diferencia de las otras tres: el renderer compone una
+// fórmula anidada con el mismo MathFetcher, y con la búsqueda de primer
+// nivel un documento cuya única fórmula estaba en un bloque especial no
+// arrancaba Chromium en HTML offline y la dejaba como no disponible.
 func HasMathElements(astNode *ast.AST) bool {
-	return hasElementType(astNode, func(el ast.Element) bool {
-		_, ok := el.(*ast.MathElement)
-		return ok
+	if astNode == nil {
+		return false
+	}
+	found := false
+	_ = ast.Walk(astNode, func(n ast.Node) error {
+		if _, ok := n.(*ast.MathElement); ok {
+			found = true
+		}
+		return nil
 	})
+	return found
 }
 
 func hasElementType(astNode *ast.AST, match func(ast.Element) bool) bool {

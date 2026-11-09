@@ -24,20 +24,19 @@ func MathNeedsChromiumDOCX(m *ast.MathElement) bool {
 	return image == "" || isSVGImageSource(docxBlockImagePath(image))
 }
 
-// HasUnrenderedMath es renderer.HasMathElements contando solo las fórmulas
-// sin render previo, que son las que el HTML offline compone con Chromium.
-// Mira el mismo alcance que esa función (el primer nivel de cada sección),
-// así que para un documento sin math-image-v1 da lo mismo.
+// HasUnrenderedMath dice si doc tiene alguna fórmula sin render previo, a
+// cualquier profundidad (bloques especiales y columnas incluidos): son las
+// que el HTML offline compone con Chromium. Antes esta compuerta usaba
+// renderer.HasMathElements, que solo mira el primer nivel de cada sección,
+// así que una fórmula dentro de un bloque especial no arrancaba Chromium y
+// salía como "Ecuación no disponible".
 func HasUnrenderedMath(doc *ast.AST) bool {
-	if doc == nil {
-		return false
-	}
-	for _, block := range doc.ContentBlocks {
-		for _, el := range block.Elements {
-			if m, ok := el.(*ast.MathElement); ok && MathImage(m) == "" {
-				return true
-			}
+	found := false
+	WalkElements(doc, func(el ast.Element) bool {
+		if m, ok := el.(*ast.MathElement); ok && MathImage(m) == "" {
+			found = true
 		}
-	}
-	return false
+		return !found
+	})
+	return found
 }
