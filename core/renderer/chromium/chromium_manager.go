@@ -243,6 +243,29 @@ func chromiumNeedsNoSandbox() (bool, string) {
 var extraAllocatorOptions []chromedp.ExecAllocatorOption
 
 func (m *ChromiumManager) CreateContext(parentCtx context.Context, chromiumPath string) (context.Context, context.CancelFunc, error) {
+	return m.createContext(parentCtx, chromiumPath)
+}
+
+// noNetworkAllocatorOptions dejan a Chrome sin salida a la red
+// (ChromiumRenderer.RestrictNetwork):
+//   - host-resolver-rules hace fallar toda resolución de nombres, también la
+//     del proxy de abajo;
+//   - todo lo que no es loopback va a un proxy que no resuelve, así que
+//     tampoco sale una conexión a una IP literal (el loopback no pasa por
+//     proxy y queda disponible);
+//   - y se apagan los servicios que hablan solos: actualización de
+//     componentes, pings de auditoría, reportes de fiabilidad de dominio.
+var noNetworkAllocatorOptions = []chromedp.ExecAllocatorOption{
+	chromedp.Flag("host-resolver-rules", "MAP * ~NOTFOUND"),
+	chromedp.ProxyServer("http://no-network.invalid:9"),
+	chromedp.Flag("disable-component-update", true),
+	chromedp.Flag("no-pings", true),
+	chromedp.Flag("disable-domain-reliability", true),
+	chromedp.Flag("disable-sync", true),
+	chromedp.Flag("disable-background-networking", true),
+}
+
+func (m *ChromiumManager) createContext(parentCtx context.Context, chromiumPath string, extra ...chromedp.ExecAllocatorOption) (context.Context, context.CancelFunc, error) {
 	// Check environment variable for debug mode
 	debugMode := os.Getenv("CHROMIUM_DEBUG") == "1"
 
@@ -281,6 +304,7 @@ func (m *ChromiumManager) CreateContext(parentCtx context.Context, chromiumPath 
 		m.logger.Info("CHROMIUM", "🔍 DEBUG MODE: Browser window will be visible")
 	}
 
+	opts = append(opts, extra...)
 	opts = append(opts, extraAllocatorOptions...)
 	allocCtx, allocCancel := chromedp.NewExecAllocator(parentCtx, opts...)
 

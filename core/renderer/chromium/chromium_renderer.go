@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
@@ -484,6 +485,34 @@ type ChromiumRenderer struct {
 	browserStartOnce sync.Once
 	browserReady     chan struct{}
 	browserErr       error
+
+	// parentCtx y chromiumPath permiten rearmar el contexto del navegador
+	// antes de arrancarlo (RestrictNetwork); started dice si ya arrancó.
+	parentCtx    context.Context
+	chromiumPath string
+	started      atomic.Bool
+}
+
+// RestrictNetwork deja al navegador sin salida a la red: ningún nombre
+// resuelve, toda conexión que no sea a loopback va a un proxy que no existe
+// y los servicios de fondo (actualización de componentes, pings) quedan
+// apagados. Las páginas de render no lo necesitan: los scripts van
+// embebidos y los tiles de mapas los entrega Go. Lo usa --no-network de
+// doclang. Tiene que llamarse antes del primer render: el proceso de Chrome
+// arranca con él y sus banderas no se cambian después.
+func (r *ChromiumRenderer) RestrictNetwork() error {
+	if r.started.Load() {
+		return fmt.Errorf("RestrictNetwork must be called before the browser starts")
+	}
+	ctx, cancel, err := r.manager.createContext(r.parentCtx, r.chromiumPath, noNetworkAllocatorOptions...)
+	if err != nil {
+		return err
+	}
+	if r.cancel != nil {
+		r.cancel()
+	}
+	r.ctx, r.cancel = ctx, cancel
+	return nil
 }
 
 // NewChromiumRenderer crea un nuevo renderer con Chromium, con el branding
@@ -535,6 +564,8 @@ func NewChromiumRendererWithBrand(ctx context.Context, customPath string, autoIn
 		cancel:       cancel,
 		logger:       logger,
 		browserReady: make(chan struct{}),
+		parentCtx:    ctx,
+		chromiumPath: chromiumPath,
 	}, nil
 }
 
@@ -603,6 +634,7 @@ func withCallerCancel(base context.Context, callerCtx context.Context) (context.
 // llame después.
 func (r *ChromiumRenderer) ensureBrowser(callerCtx context.Context) error {
 	r.browserStartOnce.Do(func() {
+		r.started.Store(true)
 		go func() {
 			r.browserErr = chromedp.Do(r.ctx)
 			close(r.browserReady)
