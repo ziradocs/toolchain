@@ -169,7 +169,7 @@ func nativeMapTileProviderFor(config MapConfig) *sm.TileProvider {
 	}
 	provider := &sm.TileProvider{
 		Name:        "custom",
-		Attribution: "",
+		Attribution: config.tiles.attribution,
 		TileSize:    256,
 		URLPattern:  goStaticMapsPattern(config.tiles.urlTemplate),
 	}

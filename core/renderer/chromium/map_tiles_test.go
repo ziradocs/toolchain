@@ -77,3 +77,28 @@ func TestGenerateMapHash_TileServer(t *testing.T) {
 		t.Fatalf("hash without tile server changed: %s != %s", got, want)
 	}
 }
+
+// TestLeafletAttribution: el crédito de la página es el de OpenStreetMap
+// con los proveedores de siempre y, con servidor propio, el configurado
+// (vacío, ninguno), escapado como HTML y como string JS.
+func TestLeafletAttribution(t *testing.T) {
+	r := &ChromiumRenderer{}
+	if html := r.generateLeafletHTML(renderer.MapConfig{Zoom: 3}, 400, 300); !strings.Contains(html, "attribution: '© OpenStreetMap contributors'") {
+		t.Error("default attribution changed")
+	}
+	custom, err := renderer.MapConfig{Zoom: 3}.WithTileServer("https://t.example.com/{z}/{x}/{y}.png", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if html := r.generateLeafletHTML(custom, 400, 300); !strings.Contains(html, "attribution: ''") {
+		t.Error("custom tile server without attribution still credits OpenStreetMap")
+	}
+	credited, err := custom.WithTileAttribution(`Acme <img src=x onerror=alert(1)> 'q' </script>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := r.generateLeafletHTML(credited, 400, 300)
+	if !strings.Contains(html, "attribution: 'Acme &lt;img") || strings.Contains(html, "<img src=x") || strings.Contains(html, "</script> ") {
+		t.Errorf("attribution not escaped: %s", html[strings.Index(html, "attribution:"):strings.Index(html, "attribution:")+120])
+	}
+}

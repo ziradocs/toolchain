@@ -6,6 +6,7 @@ package renderer
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +22,9 @@ type mapTileServer struct {
 	// userAgent, si no está vacío, reemplaza el User-Agent de los pedidos
 	// de tiles.
 	userAgent string
+	// attribution es el crédito del servidor propio que se dibuja en el
+	// mapa (WithTileAttribution); vacío, ninguno.
+	attribution string
 }
 
 // validateMapTileTemplate exige una URL http(s) absoluta con host y los tres
@@ -39,15 +43,49 @@ func validateMapTileTemplate(urlTemplate string) error {
 	for _, p := range []string{"{s}", "{z}", "{x}", "{y}"} {
 		rest = strings.ReplaceAll(rest, p, "0")
 	}
-	if strings.ContainsAny(rest, "{}'\"\\<> ") {
-		return fmt.Errorf("tile server template %q has characters or placeholders other than {s}, {z}, {x} and {y}", urlTemplate)
+	// Ni espacios ni caracteres de control, ni lo que pueda cortar un
+	// string de JS, una cabecera o una directiva de CSP (; y ,).
+	for _, r := range rest {
+		if r <= 0x20 || r == 0x7f || strings.ContainsRune("{}'\"\\<>;,`", r) {
+			return fmt.Errorf("tile server template %q has a space, control character, %q or a placeholder other than {s}, {z}, {x} and {y}", urlTemplate, r)
+		}
 	}
 	u, err := url.Parse(rest)
 	if err != nil {
 		return fmt.Errorf("tile server template %q is not a valid URL: %w", urlTemplate, err)
 	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Hostname() == "" {
 		return fmt.Errorf("tile server template %q must be an absolute http(s) URL", urlTemplate)
+	}
+	if u.User != nil {
+		return fmt.Errorf("tile server template %q must not carry user information", urlTemplate)
+	}
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("tile server template %q has an invalid port %q", urlTemplate, p)
+		}
+	} else if strings.HasSuffix(u.Host, ":") {
+		return fmt.Errorf("tile server template %q has an empty port", urlTemplate)
+	}
+	// {s} es un subdominio (a, b o c): solo vale como una etiqueta completa
+	// del host, como en https://{s}.tile.openstreetmap.org/….
+	if strings.Contains(urlTemplate, "{s}") {
+		host := urlTemplate[len(u.Scheme)+len("://"):]
+		if i := strings.IndexAny(host, "/?#"); i >= 0 {
+			if strings.Contains(host[i:], "{s}") {
+				return fmt.Errorf("tile server template %q uses {s} outside the host; it stands for a subdomain", urlTemplate)
+			}
+			host = host[:i]
+		}
+		hostname := host
+		if i := strings.LastIndex(hostname, ":"); i >= 0 {
+			hostname = hostname[:i]
+		}
+		for _, label := range strings.Split(hostname, ".") {
+			if strings.Contains(label, "{s}") && label != "{s}" {
+				return fmt.Errorf("tile server template %q uses {s} inside a host label; it must be a whole label, as in https://{s}.tiles.example.com/…", urlTemplate)
+			}
+		}
 	}
 	return nil
 }
@@ -96,6 +134,7 @@ func (c MapConfig) WithTileServer(urlTemplate, userAgent string) (MapConfig, err
 	if err != nil {
 		return c, err
 	}
+	tiles.attribution = c.tiles.attribution
 	c.tiles = tiles
 	return c, nil
 }
@@ -104,6 +143,54 @@ func (c MapConfig) WithTileServer(urlTemplate, userAgent string) (MapConfig, err
 // WithTileServer (vacíos si no hay servidor propio).
 func (c MapConfig) TileServer() (urlTemplate, userAgent string) {
 	return c.tiles.urlTemplate, c.tiles.userAgent
+}
+
+// maxMapTileAttribution acota el texto de atribución.
+const maxMapTileAttribution = 200
+
+// validateMapTileAttribution rechaza caracteres de control y textos largos.
+func validateMapTileAttribution(text string) error {
+	if len(text) > maxMapTileAttribution {
+		return fmt.Errorf("tile attribution is longer than %d bytes", maxMapTileAttribution)
+	}
+	for _, r := range text {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("tile attribution has a control character")
+		}
+	}
+	return nil
+}
+
+// WithTileAttribution devuelve config con el crédito que se dibuja en la
+// esquina del mapa cuando los tiles salen de un servidor propio
+// (WithTileServer): el render nativo y el respaldo de Leaflet lo ponen igual.
+// Sin servidor propio no tiene efecto (OpenStreetMap y ArcGIS llevan el
+// suyo). Es texto plano: no se interpreta como HTML.
+func (c MapConfig) WithTileAttribution(text string) (MapConfig, error) {
+	if err := validateMapTileAttribution(text); err != nil {
+		return c, err
+	}
+	c.tiles.attribution = text
+	return c, nil
+}
+
+// TileAttribution devuelve el crédito de WithTileAttribution, si hay
+// servidor propio.
+func (c MapConfig) TileAttribution() string {
+	if c.tiles.urlTemplate == "" {
+		return ""
+	}
+	return c.tiles.attribution
+}
+
+// SetMapTileAttribution es WithTileAttribution para los mapas que este
+// contexto dibuja al compilar.
+func (c *RenderContext) SetMapTileAttribution(text string) error {
+	if err := validateMapTileAttribution(text); err != nil {
+		return err
+	}
+	c.mapTiles.attribution = text
+	return nil
 }
 
 // SetMapTileServer hace que los mapas que este contexto dibuja al compilar
@@ -116,6 +203,7 @@ func (c *RenderContext) SetMapTileServer(urlTemplate, userAgent string) error {
 	if err != nil {
 		return err
 	}
+	tiles.attribution = c.mapTiles.attribution
 	c.mapTiles = tiles
 	return nil
 }

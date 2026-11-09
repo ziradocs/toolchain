@@ -1355,6 +1355,25 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	return webpData, nil
 }
 
+// leafletAttribution es el crédito del mapa como literal de string JS
+// entre comillas simples: el de OpenStreetMap, o con un servidor propio el
+// de MapConfig.WithTileAttribution (vacío, ninguno), escapado como HTML
+// (Leaflet lo inserta como HTML) y como JS.
+func leafletAttribution(config renderer.MapConfig) string {
+	text := "© OpenStreetMap contributors"
+	if tmpl, _ := config.TileServer(); tmpl != "" {
+		text = config.TileAttribution()
+	}
+	return jsSingleQuoted(renderer.EscapeHTML(text))
+}
+
+// jsSingleQuoted escapa s para un string JS entre comillas simples dentro
+// de un <script>: barra invertida, comilla, saltos y "/" (para que nunca
+// aparezca "</script").
+func jsSingleQuoted(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\n", `\n`, "\r", `\r`, "\t", `\t`, "/", `\/`, "\u2028", `\u2028`, "\u2029", `\u2029`).Replace(s)
+}
+
 // generateLeafletHTML genera HTML con mapa Leaflet
 func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width, height int) string {
 	markersJS := ""
@@ -1424,7 +1443,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
     <script>
         const map = L.map('map').setView([%f, %f], %d);
         const tileLayer = L.tileLayer('%s', {
-            attribution: '© OpenStreetMap contributors',
+            attribution: '%s',
             maxZoom: 19
         }).addTo(map);
         %s
@@ -1495,7 +1514,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
         }, 100);
     </script>
 </body>
-</html>`, mapRenderCSP, leafletAssetTags, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, markersJS, config.Zoom)
+</html>`, mapRenderCSP, leafletAssetTags, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, leafletAttribution(config), markersJS, config.Zoom)
 }
 
 // Close cierra el renderer y libera recursos

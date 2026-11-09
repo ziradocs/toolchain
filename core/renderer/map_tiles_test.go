@@ -27,6 +27,8 @@ func TestWithTileServer_Validation(t *testing.T) {
 		"https://tiles.example.com/{z}/{x}/{y}.png",
 		"http://localhost:8080/osm/{z}/{x}/{y}.png",
 		"https://{s}.tiles.example.com/{z}/{x}/{y}.png?key=abc",
+		"http://127.0.0.1:65535/{z}/{x}/{y}.png",
+		"https://tiles.{s}.example.com/{z}/{y}/{x}",
 	}
 	for _, tmpl := range ok {
 		if _, err := (MapConfig{}).WithTileServer(tmpl, "ua/1"); err != nil {
@@ -42,6 +44,18 @@ func TestWithTileServer_Validation(t *testing.T) {
 		"https://tiles.example.com/{z}/{x}/{y}.png'+x+'", // rompería el string JS
 		" https://tiles.example.com/{z}/{x}/{y}.png",
 		"https:///{z}/{x}/{y}.png", // sin host
+		// Endurecimiento (revisión de #492):
+		"https://tiles.example.com/{z}/{x}/{y}.png;script-src *",   // ; cortaría una CSP
+		"https://tiles.example.com/{z}/{x}/{y}.png,https://x.test", // , también
+		"https://tiles.example.com/a b/{z}/{x}/{y}.png",            // espacio
+		"https://tiles.example.com/{z}/{x}/{y}.png\t",              // control
+		"https://user:pass@tiles.example.com/{z}/{x}/{y}.png",      // userinfo
+		"https://tiles.example.com:0/{z}/{x}/{y}.png",              // puerto 0
+		"https://tiles.example.com:70000/{z}/{x}/{y}.png",          // puerto fuera de rango
+		"https://tiles.example.com:/{z}/{x}/{y}.png",               // puerto vacío
+		"https://tiles.example.com:abc/{z}/{x}/{y}.png",            // puerto no numérico
+		"https://t{s}.example.com/{z}/{x}/{y}.png",                 // {s} dentro de una etiqueta
+		"https://tiles.example.com/{s}/{z}/{x}/{y}.png",            // {s} en la ruta
 	}
 	for _, tmpl := range bad {
 		if _, err := (MapConfig{}).WithTileServer(tmpl, ""); err == nil {
@@ -202,5 +216,67 @@ func TestRenderMapNativePNG_TileServerErrors(t *testing.T) {
 	}
 	if _, err := RenderMapNativePNG(context.Background(), config, 200, 150); err == nil {
 		t.Fatal("native render succeeded against a tile server that answers 404")
+	}
+}
+
+// TestTileAttribution: el crédito de un servidor propio se valida, llega al
+// MapConfig que recibe el fetcher y el render nativo lo dibuja (la esquina
+// inferior del PNG cambia); sin servidor propio no tiene efecto.
+func TestTileAttribution(t *testing.T) {
+	if _, err := (MapConfig{}).WithTileAttribution("a\nb"); err == nil {
+		t.Error("attribution with a newline accepted")
+	}
+	if _, err := (MapConfig{}).WithTileAttribution(strings.Repeat("x", 201)); err == nil {
+		t.Error("overlong attribution accepted")
+	}
+	if c, _ := (MapConfig{}).WithTileAttribution("Acme"); c.TileAttribution() != "" {
+		t.Error("attribution without a tile server")
+	}
+
+	ctx := NewDefaultRenderContext()
+	ctx.MapMode = "offline-inline"
+	fetcher := &fakeMapFetcher{}
+	ctx.MapFetcher = fetcher
+	if err := ctx.SetMapTileAttribution("© Acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.SetMapTileServer("https://tiles.example.com/{z}/{x}/{y}.png", ""); err != nil {
+		t.Fatal(err)
+	}
+	RenderElementToHTML(ast.NewMapElement(diagnostics.NewPosition(1, 1), "default"), nil, ctx)
+	if got := fetcher.got[0].TileAttribution(); got != "© Acme" {
+		t.Errorf("fetcher got attribution %q", got)
+	}
+
+	srv, _ := tileServer(t)
+	base, err := MapConfig{Zoom: 3}.WithTileServer(srv.URL+"/{z}/{x}/{y}.png", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	credited, err := base.WithTileAttribution("Tiles (c) Acme Mapping Co.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := RenderMapNativePNG(context.Background(), base, 400, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withCredit, err := RenderMapNativePNG(context.Background(), credited, 400, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := png.Decode(bytes.NewReader(plain))
+	b, _ := png.Decode(bytes.NewReader(withCredit))
+	differs := false
+	for y := 280; y < 300 && !differs; y++ {
+		for x := 0; x < 400; x++ {
+			if a.At(x, y) != b.At(x, y) {
+				differs = true
+				break
+			}
+		}
+	}
+	if !differs {
+		t.Error("the native render did not draw the attribution")
 	}
 }
