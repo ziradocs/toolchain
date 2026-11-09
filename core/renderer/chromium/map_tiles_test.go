@@ -62,19 +62,31 @@ func TestGenerateLeafletHTML_TileServer(t *testing.T) {
 	}
 }
 
-// TestGenerateMapHash_TileServer: el mismo mapa con otro servidor de tiles
-// no comparte archivo de caché, y sin servidor propio el hash no cambia.
+// TestGenerateMapHash_TileServer: el mismo mapa con otro servidor de tiles,
+// otro User-Agent u otro crédito no comparte archivo de caché, y la clave
+// lleva la versión de render (un PNG de antes del último cambio de dibujo
+// no se reutiliza).
 func TestGenerateMapHash_TileServer(t *testing.T) {
 	base := renderer.MapConfig{Zoom: 5}
 	withTiles, err := base.WithTileServer("https://t.example.com/{z}/{x}/{y}.png", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if generateMapHash(base, 800, 600) == generateMapHash(withTiles, 800, 600) {
-		t.Fatal("tile server does not change the cache hash")
+	withUA, _ := base.WithTileServer("https://t.example.com/{z}/{x}/{y}.png", "ua/1")
+	credited, _ := withTiles.WithTileAttribution("© Acme")
+	hashes := map[string]string{}
+	for name, c := range map[string]renderer.MapConfig{"base": base, "tiles": withTiles, "ua": withUA, "attribution": credited} {
+		h := generateMapHash(c, 800, 600)
+		for other, oh := range hashes {
+			if oh == h {
+				t.Errorf("%s and %s share a cache hash", name, other)
+			}
+		}
+		hashes[name] = h
 	}
-	if got, want := generateMapHash(base, 800, 600), GenerateContentHash(`{"CenterLat":0,"CenterLng":0,"Zoom":5,"MapType":"","Markers":null,"Heatmap":false}|800x600`); got != want {
-		t.Fatalf("hash without tile server changed: %s != %s", got, want)
+	beforeVersion := GenerateContentHash(`{"CenterLat":0,"CenterLng":0,"Zoom":5,"MapType":"","Markers":null,"Heatmap":false}|800x600`)
+	if generateMapHash(base, 800, 600) == beforeVersion {
+		t.Fatal("the map cache key ignores the render version: PNGs drawn before would be served")
 	}
 }
 

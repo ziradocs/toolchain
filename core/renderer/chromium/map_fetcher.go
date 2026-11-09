@@ -74,15 +74,16 @@ func (f *MapFetcher) FetchInline(ctx context.Context, config renderer.MapConfig,
 // pre-existente incluso antes de agregar el render nativo, porque el
 // screenshot de chromedp ya dependía de width/height).
 //
-// El servidor de tiles propio (MapConfig.WithTileServer) no es un campo
-// exportado, así que json.Marshal no lo ve: se suma aparte, y solo cuando
-// está, para que el hash de un mapa sin servidor propio no cambie.
+// El servidor de tiles propio, su User-Agent y su crédito
+// (MapConfig.WithTileServer/WithTileAttribution) no son campos exportados,
+// así que json.Marshal no los ve: se suman aparte. La clave lleva además
+// renderer.NativeMapRenderVersion, para que un cambio de dibujo no sirva un
+// PNG viejo de assets/ (como los mapas grises del respaldo de antes).
 func generateMapHash(config renderer.MapConfig, width, height int) string {
 	jsonData, _ := json.Marshal(config)
-	key := fmt.Sprintf("%s|%dx%d", jsonData, width, height)
-	if tmpl, ua := config.TileServer(); tmpl != "" {
-		key += "|tiles=" + tmpl + "|ua=" + ua
-	}
+	tmpl, ua := config.TileServer()
+	key := fmt.Sprintf("%s|%dx%d|render=%s|tiles=%q|ua=%q|attribution=%q",
+		jsonData, width, height, renderer.NativeMapRenderVersion, tmpl, ua, config.TileAttribution())
 	return GenerateContentHash(key)
 }
 

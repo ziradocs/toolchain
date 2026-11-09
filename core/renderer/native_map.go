@@ -30,6 +30,13 @@ import (
 // features": el render nativo siempre se intenta, y el único fallback en
 // map_fetcher.go es un error real de red/render.
 
+// NativeMapRenderVersion entra a la clave de caché en disco de los mapas
+// (chromium.MapFetcher): FetchAndSave sirve el PNG ya escrito en assets/ sin
+// volver a dibujarlo. Se sube con cada cambio que altere los píxeles de un
+// mapa (2: tiles del respaldo descargados desde Go, que antes podían salir
+// grises).
+const NativeMapRenderVersion = "2"
+
 // nativeMapTileProvider elige el mismo proveedor de tiles que
 // generateLeafletHTML: OpenStreetMap por defecto, ArcGIS World Imagery para
 // MapType=="satellite" — únicas dos opciones fijas, nunca una URL controlada
