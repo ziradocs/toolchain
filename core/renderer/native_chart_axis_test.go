@@ -7,9 +7,9 @@ package renderer
 
 import (
 	"bytes"
-	"math"
 	"image"
 	"image/png"
+	"math"
 	"testing"
 
 	"github.com/go-analyze/charts"
