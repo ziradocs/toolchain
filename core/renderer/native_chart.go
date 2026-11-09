@@ -50,6 +50,14 @@ var nativeChartSupportedTypes = map[string]bool{
 // SupportsNativeChartRenderingWithOptions para la clasificación hoja-por-
 // hoja del issue #148 — slidelang migra a ese símbolo en el PR consumidor,
 // después de bump-core.
+// NativeChartRenderVersion entra a la clave de caché en disco de toda
+// gráfica rasterizada (NativeChartFetcher.chartHash y la de
+// chromium.ChartFetcher): FetchAndSave sirve el PNG ya escrito en assets/
+// sin volver a dibujarlo, así que un cambio de cómo se dibuja (el eje de
+// barras desde cero, p. ej.) no llegaba a un outputDir con builds
+// anteriores. Se sube con cada cambio que altere los píxeles de una gráfica.
+const NativeChartRenderVersion = "2"
+
 func SupportsNativeChartRendering(elem *ast.ChartElement) bool {
 	if elem.IsJSONMode || !nativeChartSupportedTypes[elem.ChartType] {
 		return false

@@ -6,6 +6,7 @@
 package chromium
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -72,13 +73,23 @@ func TestCacheKeyInput_FieldsAreNotInterchangeable(t *testing.T) {
 }
 
 // TestCacheKeyInput_ZeroValueKeepsTheHistoricKey fija el otro lado del
-// contrato: un caller sin tema (todos los de hoy, y doclang siempre) tiene
-// que producir EXACTAMENTE el key de antes, para no invalidar los assets ya
-// cacheados en disco de builds anteriores.
+// contrato: un caller sin tema (todos los de hoy, y doclang siempre) no suma
+// ningún sufijo de colores. La clave sí lleva la versión de render
+// (renderer.NativeChartRenderVersion), que invalida a propósito los PNG de
+// antes del último cambio de dibujo.
 func TestCacheKeyInput_ZeroValueKeepsTheHistoricKey(t *testing.T) {
 	got := cacheKeyInput(cacheKeyTestElem(), cacheKeyTestConfig, 800, 600, renderer.ChartThemeColors{})
-	want := cacheKeyTestConfig + "|T|800x600"
+	want := cacheKeyTestConfig + "|T|800x600|render=" + renderer.NativeChartRenderVersion
 	if got != want {
 		t.Errorf("cache key sin tema = %q, want %q — el zero value cambió el hash histórico", got, want)
+	}
+}
+
+// TestCacheKeyInput_RenderVersion: la clave del ChartFetcher de Chromium
+// también lleva renderer.NativeChartRenderVersion (el camino nativo corre
+// adentro de él y escribe en la misma caché de assets/).
+func TestCacheKeyInput_RenderVersion(t *testing.T) {
+	if got := cacheKeyInput(cacheKeyTestElem(), cacheKeyTestConfig, 800, 600, renderer.ChartThemeColors{}); !strings.Contains(got, "|render="+renderer.NativeChartRenderVersion) {
+		t.Fatalf("cache key %q lacks the render version", got)
 	}
 }
