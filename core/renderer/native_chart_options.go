@@ -5,7 +5,11 @@
 
 package renderer
 
-import "github.com/go-analyze/charts"
+import (
+	"math"
+
+	"github.com/go-analyze/charts"
+)
 
 // native_chart_options.go clasifica el árbol elem.Options de un chart para
 // decidir si el camino nativo (go-analyze/charts) puede dibujarlo sin
@@ -267,8 +271,47 @@ func applyYAxisOverrides(axis *charts.ValueAxisOption, ov nativeChartOverrides, 
 	case lo >= 0:
 		axis.Min = charts.Ptr(0.0)
 	case hi <= 0:
+		// Con Max fijo go-analyze/charts no redondea el extremo libre y las
+		// etiquetas salían como -11.11, -22.22…; se arma la escala como
+		// Chart.js (ver niceNegativeAxis).
 		axis.Max = charts.Ptr(0.0)
+		if lo < 0 {
+			axisMin, labels := niceNegativeAxis(lo)
+			axis.Min = charts.Ptr(axisMin)
+			axis.LabelCount = labels
+		}
 	}
+}
+
+// niceNegativeAxis es la escala de Chart.js (generateTicks con
+// maxTicksLimit 11) para datos que van de lo (< 0) a 0: un intervalo
+// "redondo" (1, 2, 5 o 10 por una potencia de diez) y el mínimo en el primer
+// múltiplo de ese intervalo que cubre lo. Devuelve el mínimo y cuántas
+// etiquetas hay de él a 0.
+func niceNegativeAxis(lo float64) (axisMin float64, labels int) {
+	step := niceNum(niceNum(-lo, false)/10, true)
+	n := math.Ceil(-lo/step - 1e-9)
+	return -n * step, int(n) + 1
+}
+
+// niceNum es el "nice number" de Heckbert que usa Chart.js: el número 1, 2,
+// 5 o 10 por una potencia de diez más cercano a v (round) o el primero que
+// no es menor (sin round).
+func niceNum(v float64, round bool) float64 {
+	exp := math.Floor(math.Log10(v))
+	f := v / math.Pow(10, exp)
+	var nf float64
+	switch {
+	case round && f < 1.5, !round && f <= 1:
+		nf = 1
+	case round && f < 3, !round && f <= 2:
+		nf = 2
+	case round && f < 7, !round && f <= 5:
+		nf = 5
+	default:
+		nf = 10
+	}
+	return nf * math.Pow(10, exp)
 }
 
 // nativeSeriesRange es el mínimo y el máximo de los valores de todas las

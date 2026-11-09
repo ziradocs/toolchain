@@ -7,6 +7,7 @@ package renderer
 
 import (
 	"bytes"
+	"math"
 	"image"
 	"image/png"
 	"testing"
@@ -32,14 +33,14 @@ func TestApplyYAxisOverrides_ZeroBaseline(t *testing.T) {
 	}{
 		{"bar positivos", nil, true, [][]float64{{80, 85, 90}}, charts.Ptr(0.0), nil},
 		{"bar con cero", nil, true, [][]float64{{0, 5}}, charts.Ptr(0.0), nil},
-		{"bar negativos", nil, true, [][]float64{{-80, -85}, {-90, -1}}, nil, charts.Ptr(0.0)},
+		{"bar negativos", nil, true, [][]float64{{-80, -85}, {-90, -1}}, charts.Ptr(-90.0), charts.Ptr(0.0)},
 		{"bar cruzan el cero", nil, true, [][]float64{{-5, 10}}, nil, nil},
 		{"bar beginAtZero false", charts.Ptr(false), true, [][]float64{{80, 90}}, nil, nil},
 		{"bar con nulos", nil, true, [][]float64{{null, 80, 90}}, charts.Ptr(0.0), nil},
 		{"bar sin valores", nil, true, [][]float64{{null}}, nil, nil},
 		{"line default", nil, false, [][]float64{{80, 90}}, nil, nil},
 		{"line beginAtZero true", charts.Ptr(true), false, [][]float64{{80, 90}}, charts.Ptr(0.0), nil},
-		{"line beginAtZero true negativos", charts.Ptr(true), false, [][]float64{{-80, -90}}, nil, charts.Ptr(0.0)},
+		{"line beginAtZero true negativos", charts.Ptr(true), false, [][]float64{{-80, -90}}, charts.Ptr(-90.0), charts.Ptr(0.0)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -49,6 +50,37 @@ func TestApplyYAxisOverrides_ZeroBaseline(t *testing.T) {
 				t.Errorf("Min=%v Max=%v, want Min=%v Max=%v", deref(axis.Min), deref(axis.Max), deref(c.wantMin), deref(c.wantMax))
 			}
 		})
+	}
+}
+
+// TestNiceNegativeAxis: con todos los valores negativos el eje va de 0 a un
+// mínimo redondo con un intervalo 1, 2 o 5 por una potencia de diez, como
+// Chart.js. Antes salían etiquetas como -11.11 o -1.44.
+func TestNiceNegativeAxis(t *testing.T) {
+	cases := []struct {
+		lo      float64
+		wantMin float64
+		labels  int
+	}{
+		{-90, -90, 10},
+		{-12.5, -14, 8},
+		{-0.37, -0.4, 9},
+		{-1234, -1400, 8},
+	}
+	for _, c := range cases {
+		gotMin, labels := niceNegativeAxis(c.lo)
+		if math.Abs(gotMin-c.wantMin) > 1e-9 || labels != c.labels {
+			t.Errorf("niceNegativeAxis(%v) = %v, %d; want %v, %d", c.lo, gotMin, labels, c.wantMin, c.labels)
+		}
+		step := -gotMin / float64(labels-1)
+		if mant := step / math.Pow(10, math.Floor(math.Log10(step))); math.Abs(mant-1) > 1e-9 && math.Abs(mant-2) > 1e-9 && math.Abs(mant-5) > 1e-9 {
+			t.Errorf("niceNegativeAxis(%v): step %v is not 1, 2 or 5 times a power of ten", c.lo, step)
+		}
+	}
+	var axis charts.ValueAxisOption
+	applyYAxisOverrides(&axis, nativeChartOverrides{}, [][]float64{{-3, -7, -12.5}}, true)
+	if axis.LabelCount != 8 {
+		t.Errorf("LabelCount = %d, want 8 (0 to -14 by 2)", axis.LabelCount)
 	}
 }
 
@@ -110,14 +142,19 @@ func barHeights(t *testing.T, data []byte) []int {
 		t.Fatal(err)
 	}
 	b := img.Bounds()
+	// La altura de una columna es su tramo vertical continuo de rojo más
+	// largo: el cuadro rojo de la leyenda queda en otro tramo y no se suma.
 	column := func(x int) int {
-		n := 0
+		best, run := 0, 0
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			if isRed(img, x, y) {
-				n++
+				run++
+				best = max(best, run)
+			} else {
+				run = 0
 			}
 		}
-		return n
+		return best
 	}
 	var heights []int
 	inBar, best := false, 0
