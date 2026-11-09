@@ -3550,10 +3550,12 @@ func (g *DOCXGenerator) renderMathImage(doc domain.Document, elem *ast.MathEleme
 			return fmt.Errorf("invalid keepNext: %w", err)
 		}
 	}
-	if _, err := p.AddImageWithSize(insertPath, imageSize); err != nil {
+	img, err := p.AddImageWithSize(insertPath, imageSize)
+	if err != nil {
 		g.logger.Warn("DOCX: line %d: equation image %q could not be inserted: %v", elem.Position.Line, image, err)
 		return unavailable()
 	}
+	setDOCXImageDescription(img, g.docxMathAlt(elem))
 	if err := g.renderMathNumberAndCaption(doc, elem); err != nil {
 		return err
 	}
