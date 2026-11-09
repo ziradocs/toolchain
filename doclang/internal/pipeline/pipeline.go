@@ -374,6 +374,12 @@ type GenerateOptions struct {
 	SourceDir string
 	// AllowRemoteImages: ver generator.GeneratorOptions.AllowRemoteImages.
 	AllowRemoteImages bool
+	// FailOnUnavailable, NoNetwork, TileServer y TileUserAgent: ver los
+	// campos del mismo nombre de generator.GeneratorOptions.
+	FailOnUnavailable bool
+	NoNetwork         bool
+	TileServer        string
+	TileUserAgent     string
 }
 
 var validRenderModes = map[string]bool{
@@ -394,6 +400,20 @@ func ValidateRenderOptions(renderMode, diagramBackend string) error {
 		return fmt.Errorf("invalid diagram-backend: %s (valid: chromium, kroki)", diagramBackend)
 	}
 	return nil
+}
+
+// ValidateNetworkOptions revisa --no-network, --tile-server y
+// --tile-user-agent: --no-network no se combina con lo que pediría algo a la
+// red (--allow-remote-images, --install-chromium), y el servidor de tiles
+// tiene que ser un template válido que este build sepa usar.
+func ValidateNetworkOptions(noNetwork, allowRemoteImages, installChromium bool, tileServer, tileUserAgent string) error {
+	if noNetwork && allowRemoteImages {
+		return fmt.Errorf("--no-network and --allow-remote-images contradict each other")
+	}
+	if noNetwork && installChromium {
+		return fmt.Errorf("--no-network and --install-chromium contradict each other (installing Chromium downloads it)")
+	}
+	return generator.ValidateTileServer(tileServer, tileUserAgent)
 }
 
 // Generate genera p.Doc en opts.OutputFile. inputFile solo se usa para el
@@ -423,6 +443,9 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 	}
 
 	if err := ValidateRenderOptions(opts.RenderMode, opts.DiagramBackend); err != nil {
+		return err
+	}
+	if err := ValidateNetworkOptions(opts.NoNetwork, opts.AllowRemoteImages, opts.InstallChromium, opts.TileServer, opts.TileUserAgent); err != nil {
 		return err
 	}
 
@@ -469,6 +492,10 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		AssetRoot:         opts.AssetRoot, // Confinamiento de fuentes de imagen (AL-4)
 		SourceDir:         opts.SourceDir, // Base de las fuentes de imagen relativas
 		AllowRemoteImages: opts.AllowRemoteImages,
+		FailOnUnavailable: opts.FailOnUnavailable,
+		NoNetwork:         opts.NoNetwork,
+		TileServer:        opts.TileServer,
+		TileUserAgent:     opts.TileUserAgent,
 		Ctx:               opts.Ctx,
 	}
 	log.Info("GENERATOR", "Generating %s document...", format)
