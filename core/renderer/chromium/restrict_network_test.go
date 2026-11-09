@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -130,3 +131,39 @@ pc.createOffer().then(o => pc.setLocalDescription(o));
 		r.Close()
 	}
 }
+
+// TestRestrictNetwork_FallsBackToFlags (Chromium real): si el navegador no
+// arranca dentro del espacio de nombres de red (en los runners de GitHub
+// Chrome cae al sandbox SUID y aborta), RestrictNetwork vuelve a las
+// banderas solas, con un aviso, y el navegador funciona.
+func TestRestrictNetwork_FallsBackToFlags(t *testing.T) {
+	path := requireTestChromiumPath(t)
+	prev := networkIsolationFn
+	networkIsolationFn = func(string) (chromedp.ExecAllocatorOption, error) {
+		return chromedp.ExecPath(filepath.Join(t.TempDir(), "no-such-browser")), nil
+	}
+	t.Cleanup(func() { networkIsolationFn = prev })
+	logger := &recordingChromiumLogger{}
+	r, err := NewChromiumRenderer(context.Background(), path, false, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.RestrictNetwork(); err != nil {
+		t.Fatalf("RestrictNetwork: %v", err)
+	}
+	if _, err := r.RenderMermaidToPNGWithTheme(context.Background(), "flowchart LR\n A --> B", 400, 300, renderer.DiagramThemeColors{}); err != nil {
+		t.Fatalf("render after the fallback failed: %v", err)
+	}
+	if !strings.Contains(strings.Join(logger.warns, "\n"), "did not start in an isolated network namespace") {
+		t.Errorf("no fallback warning: %q", logger.warns)
+	}
+}
+
+type recordingChromiumLogger struct{ warns []string }
+
+func (l *recordingChromiumLogger) Info(string, string, ...interface{}) {}
+func (l *recordingChromiumLogger) Warn(_ string, format string, args ...interface{}) {
+	l.warns = append(l.warns, fmt.Sprintf(format, args...))
+}
+func (l *recordingChromiumLogger) Error(string, string, ...interface{}) {}
