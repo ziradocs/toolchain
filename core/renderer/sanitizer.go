@@ -1289,8 +1289,9 @@ func htmlTagEnd(text string, start int) int {
 
 // ProcessTextWithVariablesAndMarkdownSecure procesa variables y formato Markdown de forma segura
 func ProcessTextWithVariablesAndMarkdownSecure(text string, variables map[string]interface{}) string {
-	// Primero reemplazar variables
-	processed := ProcessVariables(text, variables)
+	// Primero reemplazar variables (fuera del código con la opción de código
+	// literal, ver proseVariables)
+	processed := proseVariables(text, variables)
 	// Luego procesar formato Markdown de forma segura
 	return ProcessInlineMarkdownSecure(processed)
 }

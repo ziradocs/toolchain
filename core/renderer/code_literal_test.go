@@ -82,3 +82,128 @@ func TestPopulateInlineHTML_LiteralCodeOption(t *testing.T) {
 		}
 	}
 }
+
+// substituteOutsideCode deja intactos los code spans y las cercas de código de
+// la prosa, y sustituye el resto.
+func TestSubstituteOutsideCode(t *testing.T) {
+	vars := map[string]interface{}{"x": "X"}
+	for _, tc := range []struct{ in, want string }{
+		{"a {{x}} `b {{x}}` c {{x}}", "a X `b {{x}}` c X"},
+		{"``uno ` {{x}}`` {{x}}", "``uno ` {{x}}`` X"},
+		{"sin cierre ` {{x}}", "sin cierre ` X"},
+		{"texto {{x}}\n```yaml\na: {{x}}\n```\nluego {{x}}", "texto X\n```yaml\na: {{x}}\n```\nluego X"},
+		{"````md\n```\n{{x}}\n```\n````\n{{x}}", "````md\n```\n{{x}}\n```\n````\nX"},
+		{"```\n{{x}} sin cerrar", "```\n{{x}} sin cerrar"},
+		{"no ```es{{x}}` cerca", "no ```esX` cerca"},
+	} {
+		if got := proseVariables(tc.in, withLiteralCode(vars)); got != tc.want {
+			t.Errorf("literal %q:\n got %q\nwant %q", tc.in, got, tc.want)
+		}
+		if got, want := proseVariables(tc.in, vars), ProcessVariables(tc.in, vars); got != want {
+			t.Errorf("without the option %q: got %q, want ProcessVariables %q", tc.in, got, want)
+		}
+	}
+}
+
+// La marca no se pone desde afuera: un frontmatter no puede producir la clave
+// (no es UTF-8 válido) y el valor tiene que ser del tipo no exportado.
+func TestLiteralCodeMarkerCannotBeForged(t *testing.T) {
+	vars := map[string]interface{}{literalCodeKey: true, "x": "X"}
+	if isLiteralCode(vars) {
+		t.Fatal("a plain value under the key must not turn the option on")
+	}
+	if got := proseVariables("`{{x}}`", vars); got != "`X`" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// Paridad del HTML con el contentHTML del AST para prosa con código, en los dos
+// modos: lo que sale en el HTML es lo que get_ast dice.
+func TestLiteralCode_ProseParity(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"x": "X"}
+	build := func() []ast.Element {
+		quote := ast.NewQuoteElement(pos, "cita {{x}} `{{x}}`")
+		table := ast.NewTableElement(pos)
+		table.Headers = []string{"`{{x}}` {{x}}"}
+		table.Rows = [][]string{{"`{{x}}`"}}
+		table.Cells = ast.DeriveCellsFromFlat(table.Headers, table.Rows)
+		special := ast.NewSpecialBlockElement(pos, "info", "aviso {{x}}\n```sh\necho {{x}}\n```")
+		nestedSpecial := ast.NewSpecialBlockElement(pos, "info", "uno {{x}}\n```sh\necho {{x}}\n```")
+		nestedSpecial.Elements = []ast.Element{
+			ast.NewTextElement(pos, "uno {{x}}"),
+			ast.NewCodeElement(pos, "sh", "echo {{x}}"),
+		}
+		return []ast.Element{
+			ast.NewTextElement(pos, "Usa `{{x}}` con {{x}}"),
+			ast.NewTextElement(pos, "antes {{x}}\n```yaml\na: {{x}}\n```"),
+			quote, table, special, nestedSpecial,
+		}
+	}
+	html := func(e ast.Element) []string {
+		switch v := e.(type) {
+		case *ast.TextElement:
+			return []string{v.ContentHTML}
+		case *ast.QuoteElement:
+			return []string{v.ContentHTML}
+		case *ast.TableElement:
+			return append(append([]string{}, v.HeadersHTML...), v.RowsHTML[0]...)
+		case *ast.SpecialBlockElement:
+			return []string{v.ContentHTML}
+		}
+		return nil
+	}
+	for _, literal := range []bool{false, true} {
+		for i, el := range build() {
+			PopulateInlineHTMLWithOptions(newTestDoc(el), vars, InlineHTMLOptions{LiteralCode: literal})
+			full := RenderElementToHTML(el, vars, &RenderContext{LiteralCode: literal})
+			for _, fragment := range html(el) {
+				if literal && !strings.Contains(fragment, "{{x}}") {
+					t.Errorf("element %d literal: the code kept no {{x}}: %q", i, fragment)
+				}
+				if !literal && strings.Contains(fragment, "{{x}}") {
+					t.Errorf("element %d default: {{x}} must be substituted: %q", i, fragment)
+				}
+				if !strings.Contains(fragment, "X") && !strings.HasPrefix(fragment, "<code>") {
+					t.Errorf("element %d literal=%v: prose outside code must substitute: %q", i, literal, fragment)
+				}
+				if _, isSpecial := el.(*ast.SpecialBlockElement); isSpecial {
+					continue // el HTML de un ::: con Elements renderiza los Elements, no Content
+				}
+				if !strings.Contains(full, fragment) {
+					t.Errorf("element %d literal=%v: contentHTML %q not in HTML:\n%s", i, literal, fragment, full)
+				}
+			}
+			if literal {
+				if strings.Contains(full, "echo X") || strings.Contains(full, "a: X") || strings.Contains(full, "<code>X</code>") {
+					t.Errorf("element %d: code was substituted in the HTML:\n%s", i, full)
+				}
+			}
+		}
+	}
+}
+
+// Encabezados con un code span: con la opción, el código queda literal en
+// todos los caminos (nodo tipado, forma legada, RenderElementToHTML).
+func TestLiteralCode_Headings(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"n": "N"}
+	input := "Usa `{{n}}` y {{n}}"
+	want := "Usa <code>{{n}}</code> y N"
+
+	typed := ast.NewHeadingElement(pos, 2, input, "h")
+	PopulateInlineHTMLWithOptions(newTestDoc(typed), vars, InlineHTMLOptions{LiteralCode: true})
+	if !strings.Contains(typed.TextHTML, want) {
+		t.Errorf("typed TextHTML %q, want %q", typed.TextHTML, want)
+	}
+	if got := RenderElementToHTML(ast.NewHeadingElement(pos, 2, input, "h"), vars, &RenderContext{LiteralCode: true}); !strings.Contains(got, want) {
+		t.Errorf("RenderElementToHTML %q, want %q", got, want)
+	}
+	legacy := LegacyHeadingElement(ast.NewHeadingElement(pos, 2, input, "h"))
+	if got := RenderElementToHTML(legacy, vars, &RenderContext{LiteralCode: true}); !strings.Contains(got, want) {
+		t.Errorf("legacy heading %q, want %q", got, want)
+	}
+	if got := RenderElementToHTML(ast.NewHeadingElement(pos, 2, input, "h"), vars, nil); !strings.Contains(got, "<code>N</code>") {
+		t.Errorf("without the option the code span substitutes, as before: %q", got)
+	}
+}

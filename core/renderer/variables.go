@@ -33,16 +33,6 @@ func ProcessVariables(text string, variables map[string]interface{}) string {
 	return result
 }
 
-// codeBody es el cuerpo de un bloque de código listo para escapar: literal si
-// literal es true (RenderContext.LiteralCode, InlineHTMLOptions.LiteralCode),
-// con `{{nombre}}` sustituido si no.
-func codeBody(content string, variables map[string]interface{}, literal bool) string {
-	if literal {
-		return content
-	}
-	return ProcessVariables(content, variables)
-}
-
 // ProcessStringArray procesa un array de strings aplicando reemplazo de variables
 func ProcessStringArray(arr []string, variables map[string]interface{}) []string {
 	if arr == nil {

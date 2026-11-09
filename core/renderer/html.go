@@ -31,6 +31,9 @@ import (
 // plantuml, chart, map, y cualquier elemento (p. ej. grid) que los anide.
 // Un ctx nil se resuelve a NewDefaultRenderContext() (todo en "browser").
 func RenderElementToHTML(element ast.Element, variables map[string]interface{}, ctx *RenderContext) string {
+	if ctx.literalCode() {
+		variables = withLiteralCode(variables)
+	}
 	html := renderElementToHTML(element, variables, ctx)
 	switch element.(type) {
 	case *ast.ImageElement, *ast.MermaidElement, *ast.PlantUMLElement, *ast.ChartElement,
@@ -93,7 +96,7 @@ func renderElementToHTML(element ast.Element, variables map[string]interface{}, 
 		return renderPointsElement(elem, variables)
 
 	case *ast.CodeElement:
-		return renderCodeElement(elem, variables, ctx)
+		return renderCodeElement(elem, variables)
 
 	case *ast.ImageElement:
 		return renderImageElement(elem, variables, ctx)
@@ -132,7 +135,7 @@ func renderElementToHTML(element ast.Element, variables map[string]interface{}, 
 		return renderSpecialBlockElement(elem, variables, ctx)
 
 	case *ast.CodeGroupElement:
-		return renderCodeGroupElement(elem, variables, ctx)
+		return renderCodeGroupElement(elem, variables)
 
 	case *ast.GridElement:
 		return renderGridElement(elem, variables, ctx)
@@ -239,11 +242,12 @@ func renderTypedPoints(items []ast.PointItem, listType string, start *int64, var
 	return html.String()
 }
 
-// renderCodeElement procesa bloques de código con syntax highlighting. Con
-// ctx.LiteralCode el cuerpo queda literal (issue #487); si no, sustituye
-// `{{nombre}}` como siempre.
-func renderCodeElement(elem *ast.CodeElement, variables map[string]interface{}, ctx *RenderContext) string {
-	content := codeBody(elem.Content, variables, ctx.literalCode())
+// renderCodeElement procesa bloques de código con syntax highlighting. Con la
+// opción de código literal (RenderContext.LiteralCode, que RenderElementToHTML
+// pasa en variables, ver withLiteralCode) el cuerpo queda literal (issue #487);
+// si no, sustituye `{{nombre}}` como siempre.
+func renderCodeElement(elem *ast.CodeElement, variables map[string]interface{}) string {
+	content := codeBody(elem.Content, variables)
 	// Escapar HTML en el contenido del código para prevenir inyección
 	content = EscapeHTML(content)
 	language := elem.Language
@@ -883,7 +887,7 @@ func renderQuoteElement(elem *ast.QuoteElement, variables map[string]interface{}
 	// Una lista dentro de la cita sale como lista, fuera de todo <p> (un <ul>
 	// dentro de <p> es HTML inválido) y anidada como la escribió el autor.
 	// Sin listas sale el mismo <p> de siempre.
-	html.WriteString(renderProseWithLists(ProcessVariables(elem.Content, variables), true))
+	html.WriteString(renderProseWithLists(proseVariables(elem.Content, variables), true))
 
 	if author != "" || source != "" {
 		html.WriteString("<footer>")
@@ -2735,14 +2739,14 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 			// La prosa entre los elementos de un bloque arma sus listas como
 			// el Content del bloque (renderProseWithLists).
 			if text, ok := nested.(*ast.TextElement); ok && !text.IsRawHTML {
-				html.WriteString(wrapTextHTML(renderProseWithLists(ProcessVariables(text.Content, variables), false)))
+				html.WriteString(wrapTextHTML(renderProseWithLists(proseVariables(text.Content, variables), false)))
 				continue
 			}
 			html.WriteString(RenderElementToHTML(nested, variables, ctx))
 		}
 		html.WriteString(`</div>`)
 	} else {
-		content := renderProseWithLists(ProcessVariables(elem.Content, variables), false)
+		content := renderProseWithLists(proseVariables(elem.Content, variables), false)
 		fmt.Fprintf(&html, `<div class="alert-content">%s</div>`, content)
 	}
 	html.WriteString("</div>")
@@ -2751,7 +2755,7 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 }
 
 // renderCodeGroupElement procesa grupos de código con tabs
-func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]interface{}, ctx *RenderContext) string {
+func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]interface{}) string {
 	var html strings.Builder
 
 	html.WriteString(`<div class="code-group">`)
@@ -2776,7 +2780,7 @@ func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]int
 		if i == 0 {
 			activeClass = " active"
 		}
-		content := EscapeHTML(codeBody(block.Content, variables, ctx.literalCode()))
+		content := EscapeHTML(codeBody(block.Content, variables))
 		language := EscapeHTMLAttribute(block.Language)
 		fmt.Fprintf(&html, `<div class="code-group-block%s" data-index="%d">`, activeClass, i)
 		fmt.Fprintf(&html, `<pre><code class="language-%s">%s</code></pre>`, language, content)

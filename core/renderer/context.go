@@ -136,12 +136,15 @@ type RenderContext struct {
 	// el HTML de modo browser no cambia nada: ahí la imagen la pide el
 	// navegador del lector. Ver SetAllowRemoteImages.
 	AllowRemoteImages bool
-	// LiteralCode deja sin sustituir `{{nombre}}` en el cuerpo de un CODE y
-	// de cada bloque de un code-group (issue #487): el código se muestra tal
-	// como está escrito, igual que en el AST. Apagado (el valor cero) el
-	// código sustituye variables como siempre, que es lo que espera
-	// slidelang. Su par para el contentHTML del AST es
-	// InlineHTMLOptions.LiteralCode.
+	// LiteralCode deja sin sustituir `{{nombre}}` en el código (issue #487):
+	// el cuerpo de un CODE y de cada bloque de un code-group, y, dentro de la
+	// prosa que pasa por Markdown (TEXT, citas, celdas, items, encabezados,
+	// el contenido de un ::: sin tipar), los code spans y las cercas de
+	// código. El código se muestra tal como está escrito, igual que en el
+	// AST. Apagado (el valor cero) se sustituye como siempre, que es lo que
+	// espera slidelang. Su par para el contentHTML del AST es
+	// InlineHTMLOptions.LiteralCode: quien renderiza con una tiene que poblar
+	// el AST con la otra.
 	LiteralCode bool
 }
 

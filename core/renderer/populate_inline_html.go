@@ -19,11 +19,13 @@ func PopulateInlineHTML(doc *ast.AST, variables map[string]interface{}) {
 // InlineHTMLOptions ajusta PopulateInlineHTMLWithOptions. El valor cero es el
 // comportamiento de PopulateInlineHTML.
 type InlineHTMLOptions struct {
-	// LiteralCode deja el contentHTML de un CODE y de cada bloque de un
-	// code-group como su contenido escapado, sin sustituir `{{nombre}}`
-	// (issue #487). Es el par de RenderContext.LiteralCode: quien renderiza
-	// el HTML con una tiene que poblar el AST con la otra, o el contentHTML
-	// de get_ast no describe el HTML. doclang las activa; slidelang no.
+	// LiteralCode no sustituye `{{nombre}}` en el código (issue #487): el
+	// contentHTML de un CODE y de cada bloque de un code-group queda como su
+	// contenido escapado, y en los *HTML de prosa no se tocan los code spans
+	// ni las cercas de código. Es el par de RenderContext.LiteralCode: quien
+	// renderiza el HTML con una tiene que poblar el AST con la otra, o el
+	// contentHTML de get_ast no describe el HTML. doclang las activa;
+	// slidelang no.
 	LiteralCode bool
 }
 
@@ -31,6 +33,9 @@ type InlineHTMLOptions struct {
 func PopulateInlineHTMLWithOptions(doc *ast.AST, variables map[string]interface{}, opts InlineHTMLOptions) {
 	if doc == nil {
 		return
+	}
+	if opts.LiteralCode {
+		variables = withLiteralCode(variables)
 	}
 	for i := range doc.ContentBlocks {
 		populateContentBlockHTML(&doc.ContentBlocks[i], variables, opts)
@@ -80,7 +85,7 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		// Mismo orden que un párrafo y que el legado (HeadingContentHTML):
 		// {{variables}} primero y después el Markdown inline de una línea,
 		// para que el filtro de esquemas vea el destino ya sustituido.
-		elem.TextHTML = ProcessInlineMarkdownSecureLine(ProcessVariables(elem.Text, variables))
+		elem.TextHTML = ProcessInlineMarkdownSecureLine(proseVariables(elem.Text, variables))
 
 	case *ast.PointsElement:
 		for i := range elem.Items {
@@ -88,7 +93,7 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		}
 
 	case *ast.CodeElement:
-		elem.ContentHTML = EscapeHTML(codeBody(elem.Content, variables, opts.LiteralCode))
+		elem.ContentHTML = EscapeHTML(codeBody(elem.Content, variables))
 
 	case *ast.ImageElement:
 		elem.AltHTML = ProcessVariablesSecure(elem.Alt, variables)
@@ -156,7 +161,7 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		for i := range elem.CodeBlocks {
 			block := &elem.CodeBlocks[i]
 			block.LabelHTML = EscapeHTML(ProcessVariables(block.Label, variables))
-			block.ContentHTML = EscapeHTML(codeBody(block.Content, variables, opts.LiteralCode))
+			block.ContentHTML = EscapeHTML(codeBody(block.Content, variables))
 		}
 
 	case *ast.MermaidElement:

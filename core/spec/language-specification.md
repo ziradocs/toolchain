@@ -471,13 +471,14 @@ ${expression}
 Substitution inside code depends on the renderer's literal-code option
 (`RenderContext.LiteralCode` for HTML/PDF, `InlineHTMLOptions.LiteralCode` for
 the `contentHTML` fields of the AST). Off, the default and what SlideLang uses,
-`{{name}}` in the body of a `CODE` block or a code-group tab is substituted like
-in prose. On, those bodies are literal, the same text the AST's `content` holds:
-a code sample is shown as written, and template languages (Handlebars, Jinja, Go
-templates) use `{{ }}` themselves. DocLang is meant to turn it on for every
-output; to show a variable's value next to a command there, write it outside the
-code block. The option covers code elements; code spans and fences written
-inside prose are not covered yet.
+`{{name}}` in code is substituted like in prose. On, code is literal, the same
+text the AST's `content` holds: the body of a `CODE` block or a code-group tab,
+and, in prose that goes through Markdown (text, quotes, list items, table
+cells, headings, the content of an untyped `:::` block), code spans and code
+fences written inside it. A code sample is shown as written, and template
+languages (Handlebars, Jinja, Go templates) use `{{ }}` themselves. DocLang is
+meant to turn it on for every output; to show a variable's value next to a
+command there, write it outside the code.
 
 **Supported Filters:**
 - `currency:code` - Format as currency

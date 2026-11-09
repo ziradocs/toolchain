@@ -126,6 +126,9 @@ func GenerateDocumentHTML(doc *ast.AST, opts DocumentHTMLOptions, ctx *RenderCon
 	if variables == nil {
 		variables = make(map[string]interface{})
 	}
+	if ctx.literalCode() {
+		variables = withLiteralCode(variables)
+	}
 
 	// Header HTML
 	html.WriteString(generateDocumentHeader(doc, opts, cspNonce, blocksRemoteImages(ctx), ctx.Logger))
