@@ -226,24 +226,48 @@ func TestDOCX_FailOnUnavailable_WithoutChromium(t *testing.T) {
 	}
 }
 
-// TestFailOnUnavailable_HeaderLogoInEveryFormat: un logo de encabezado que
-// falta se reporta igual en DOCX y en HTML (también de modo browser, que no
-// dibuja el encabezado salvo page-view): línea 0 y su fuente. Antes solo lo
-// veía el HTML page-view.
-func TestFailOnUnavailable_HeaderLogoInEveryFormat(t *testing.T) {
+// TestFailOnUnavailable_HeaderLogoOnlyWhereDrawn: un logo de encabezado que
+// falta solo cuenta donde la salida lo dibuja, el HTML page-view con el
+// encabezado activo, en un modo que resuelve imágenes al compilar (lo
+// reporta core). DOCX, PDF y el HTML normal no dibujan
+// el logo, un encabezado con enabled: false tampoco, ni un layout_defaults
+// que ningún bloque usa: ahí la bandera no falla por el logo.
+func TestFailOnUnavailable_HeaderLogoOnlyWhereDrawn(t *testing.T) {
 	dir := t.TempDir()
-	hf := &ast.HeaderFooterConfig{Header: &ast.HeaderConfig{Enabled: true, Logo: &ast.LogoConfig{Source: "logo-falta.png"}}}
-	for _, format := range []string{"docx", "html"} {
+	logo := &ast.LogoConfig{Source: "logo-falta.png"}
+	enabled := &ast.HeaderFooterConfig{Header: &ast.HeaderConfig{Enabled: true, Logo: logo}}
+	disabled := &ast.HeaderFooterConfig{Header: &ast.HeaderConfig{Enabled: false, Logo: logo}}
+	unusedLayout := &ast.HeaderFooterConfig{LayoutDefaults: map[string]*ast.LayoutHeaderFooterConfig{
+		"title_slide": {Header: &ast.HeaderConfig{Enabled: true, Logo: logo}},
+	}}
+	build := func(format string, hf *ast.HeaderFooterConfig, pageView bool) error {
 		doc := parseInline(t, "---\ntitle: L\nmode: flex\n---\n\n# L\n\nTexto.\n")
-		out := filepath.Join(t.TempDir(), "out."+format)
-		err := New(newTestLogger()).Generate(doc, out, GeneratorOptions{Format: format, AssetRoot: dir, SourceDir: dir, HeaderFooter: hf, FailOnUnavailable: true})
-		if format == "html" && !coreReportsUnavailable() {
-			continue
+		opts := GeneratorOptions{Format: format, AssetRoot: dir, SourceDir: dir, HeaderFooter: hf, FailOnUnavailable: true}
+		if pageView {
+			// offline-inline: en modo browser el logo lo resuelve el
+			// navegador del lector y no se comprueba al compilar.
+			opts.Theme, opts.ShowHeaders, opts.ShowFooters, opts.ImageMode = "page-view", true, true, "offline-inline"
 		}
-		var ue *UnavailableError
-		if !errors.As(err, &ue) || !reflect.DeepEqual(ue.Items, []UnavailableContent{{"image", 0, "logo-falta.png"}}) {
-			t.Errorf("%s: want the missing logo reported, got %v", format, err)
+		return New(newTestLogger()).Generate(doc, filepath.Join(t.TempDir(), "out."+format), opts)
+	}
+	if err := build("docx", enabled, false); err != nil {
+		t.Errorf("docx failed for a logo it never draws: %v", err)
+	}
+	if !coreReportsUnavailable() {
+		return
+	}
+	if err := build("html", enabled, false); err != nil {
+		t.Errorf("html without page-view failed for a logo it never draws: %v", err)
+	}
+	for name, hf := range map[string]*ast.HeaderFooterConfig{"enabled: false": disabled, "unused layout": unusedLayout} {
+		if err := build("html", hf, true); err != nil {
+			t.Errorf("page-view with %s failed: %v", name, err)
 		}
+	}
+	err := build("html", enabled, true)
+	var ue *UnavailableError
+	if !errors.As(err, &ue) || !reflect.DeepEqual(ue.Items, []UnavailableContent{{"image", 0, "logo-falta.png"}}) {
+		t.Errorf("page-view with the header enabled: want the missing logo, got %v", err)
 	}
 }
 
@@ -296,5 +320,59 @@ func TestNoNetwork_ChromiumIsRestricted(t *testing.T) {
 	}
 	if got := docxDescrs(t, out, "word/document.xml"); len(got) != 1 || got[0] != "Flujo" {
 		t.Errorf("descr = %q, want the mermaid image", got)
+	}
+}
+
+// TestNoNetwork_EveryChromiumPathRestricts (Chromium real): cada generador
+// que arranca Chromium con NoNetwork llama a RestrictNetwork antes de usarlo
+// (DOCX con un mermaid, HTML offline-inline con un mermaid y PDF). Si un
+// camino deja de llamarlo, esta prueba falla.
+func TestNoNetwork_EveryChromiumPathRestricts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("needs Chromium")
+	}
+	if _, ok := any(&chromium.ChromiumRenderer{}).(networkRestricter); !ok {
+		t.Skip("this core has no ChromiumRenderer.RestrictNetwork")
+	}
+	var calls []string
+	prev := restrictNetworkFn
+	t.Cleanup(func() { restrictNetworkFn = prev })
+	current := ""
+	restrictNetworkFn = func(r any, opts GeneratorOptions) error {
+		if opts.NoNetwork {
+			calls = append(calls, current)
+		}
+		return prev(r, opts)
+	}
+	for _, c := range []struct {
+		format string
+		opts   GeneratorOptions
+	}{
+		{"docx", GeneratorOptions{Format: "docx"}},
+		{"html", GeneratorOptions{Format: "html", MermaidMode: "offline-inline"}},
+		{"pdf", GeneratorOptions{Format: "pdf"}},
+	} {
+		current = c.format
+		doc := parseInline(t, "---\ntitle: N\nlang: es\nmode: flex\n---\n\n# N\n\nTexto.\n")
+		block := &doc.ContentBlocks[len(doc.ContentBlocks)-1]
+		block.Elements = append(block.Elements, ast.NewMermaidElement(diagnostics.NewPosition(9, 1), "flowchart", "flowchart LR\n A --> B"))
+		opts := c.opts
+		opts.NoNetwork = true
+		logger := newTestLogger()
+		err := New(logger).Generate(doc, filepath.Join(t.TempDir(), "out."+c.format), opts)
+		if err != nil && strings.Contains(strings.ToLower(err.Error()), "chromium") {
+			t.Skipf("no Chromium: %v", err)
+		}
+		for _, w := range logger.warns {
+			if strings.Contains(w, "Failed to initialize Chromium") {
+				t.Skipf("no Chromium: %s", w)
+			}
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", c.format, err)
+		}
+	}
+	if want := []string{"docx", "html", "pdf"}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("RestrictNetwork called for %v, want %v", calls, want)
 	}
 }

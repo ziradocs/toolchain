@@ -106,7 +106,7 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		return fmt.Errorf("failed to initialize chromium: %w", err)
 	}
 	defer chromiumRenderer.Close()
-	if err := restrictNetwork(chromiumRenderer, opts); err != nil {
+	if err := restrictNetworkFn(chromiumRenderer, opts); err != nil {
 		return err
 	}
 
@@ -209,9 +209,6 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 	unavailable, err := watchUnavailable(ctx, opts)
 	if err != nil {
 		return err
-	}
-	if unavailable != nil {
-		checkHeaderLogos(opts.HeaderFooter, variables, opts, unavailable.add)
 	}
 
 	htmlContent := renderer.GenerateDocumentHTML(doc, renderOpts, ctx)

@@ -143,6 +143,11 @@ type networkRestricter interface{ RestrictNetwork() error }
 // --no-network no podría prometer que el navegador no sale a la red.
 var errNoNetworkNeedsCore = errors.New("--no-network with Chromium (pdf, mermaid, equations, svg images, offline html) needs a core with ChromiumRenderer.RestrictNetwork (this build has an older one)")
 
+// restrictNetworkFn es la función que los generadores llaman después de
+// crear un ChromiumRenderer; una variable para que las pruebas comprueben
+// que cada camino la llama.
+var restrictNetworkFn = restrictNetwork
+
 // restrictNetwork aplica GeneratorOptions.NoNetwork a un ChromiumRenderer
 // recién creado, antes de su primer render: Chrome y Edge hablan solos con
 // sus servidores (actualizaciones, telemetría) aunque la página no pida

@@ -193,9 +193,6 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	g.ctx = opts.runContext()
 	g.opts = opts
 	g.unavailable = unavailableCollector{}
-	if opts.FailOnUnavailable {
-		checkHeaderLogos(opts.HeaderFooter, astDoc.FrontMatter.BuildVariables(), opts, g.unavailable.add)
-	}
 	g.logger.Info("DOCX", "Building DOCX document...")
 	// Listas nativas (docx_lists.go): un numbering.xml por documento.
 	g.numbering = &docxNumbering{}
@@ -237,7 +234,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 				g.logger.Warn("DOCX: Failed to initialize Chromium: %v", err)
 			} else {
 				defer chromiumRenderer.Close()
-				if err := restrictNetwork(chromiumRenderer, opts); err != nil {
+				if err := restrictNetworkFn(chromiumRenderer, opts); err != nil {
 					return err
 				}
 				g.chromiumRenderer = chromiumRenderer

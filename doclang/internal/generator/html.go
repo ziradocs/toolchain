@@ -95,7 +95,7 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 			return fmt.Errorf("failed to initialize Chromium renderer: %w", err)
 		}
 		defer chromiumR.Close()
-		if err := restrictNetwork(chromiumR, opts); err != nil {
+		if err := restrictNetworkFn(chromiumR, opts); err != nil {
 			return err
 		}
 
@@ -171,9 +171,6 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 	unavailable, err := watchUnavailable(ctx, opts)
 	if err != nil {
 		return err
-	}
-	if unavailable != nil {
-		checkHeaderLogos(opts.HeaderFooter, doc.FrontMatter.BuildVariables(), opts, unavailable.add)
 	}
 	if nativeChartFetcher != nil {
 		// chromiumRenderer es nil acá (needsChromium se apagó arriba), así
