@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -212,6 +213,30 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
 			legacyDeclared = true
+			// `rows: [["a","b"],["c","d"]]`: el arreglo completo en la misma
+			// línea (issue #488). Antes solo se leían filas en las líneas
+			// siguientes, así que esta forma daba una tabla sin filas y el
+			// único aviso era TABLE002 ("debería tener al menos una fila"),
+			// que no menciona las filas que el autor escribió. `rows: [` (el
+			// corchete que abre la forma de varias líneas) y `rows:` solo
+			// siguen yendo por el bucle de abajo.
+			if value := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:")); value != "" && value != "[" {
+				rowPos := ctx.Position(i)
+				inline, err := splitInlineRows(value)
+				if err == "" && i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "[") {
+					err = "the rows continue on the next line; write all of them inline or one row per line under `rows: [`"
+				}
+				if err != "" {
+					diags = append(diags, inlineRowsDiagnostic(ctx.Mode, err, rowPos))
+				} else {
+					for _, row := range inline {
+						rows = append(rows, splitInlineArray(trimInlineArrayBrackets(row)))
+						rowPositions = append(rowPositions, rowPos)
+					}
+				}
+				consumed++
+				continue
+			}
 			// Process rows array
 			consumed++
 			i++
@@ -383,6 +408,91 @@ type yamlTableRowCellEntry struct {
 	Scope   string `yaml:"scope"`
 	Colspan int    `yaml:"colspan"`
 	Rowspan int    `yaml:"rowspan"`
+}
+
+// splitInlineRows parte el valor de `rows:` escrito en una sola línea
+// (`[["a","b"],["c","d"]]`) en el texto de cada fila (`["a","b"]`), que el
+// llamador lee con trimInlineArrayBrackets/splitInlineArray igual que una fila
+// de la forma de varias líneas: las celdas salen idénticas en las dos formas.
+//
+// Las comillas dobles se tratan como en splitInlineArray —sin escapes: toda
+// comilla abre o cierra—, así que un corchete o una coma dentro de una celda
+// entrecomillada es contenido. Fuera de comillas, cada fila es un "[…]" con
+// sus corchetes balanceados, separado de la siguiente por una coma. Devuelve
+// un mensaje (sin el prefijo `rows:`) si el valor no tiene esa forma.
+func splitInlineRows(value string) ([]string, string) {
+	if !strings.HasPrefix(value, "[") {
+		return nil, "the value must be an array of rows, e.g. rows: [[\"a\", \"b\"], [\"c\", \"d\"]]"
+	}
+	if !strings.HasSuffix(value, "]") {
+		return nil, "the array does not close on the same line; write it whole on this line, or one row per line under `rows: [`"
+	}
+	inner := value[1 : len(value)-1]
+	var rows []string
+	depth, start := 0, -1
+	inQuotes, expectComma := false, false
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		if inQuotes {
+			if c == '"' {
+				inQuotes = false
+			}
+			continue
+		}
+		switch {
+		case c == '"':
+			if depth == 0 {
+				return nil, "each row must be an array in brackets, e.g. [\"a\", \"b\"]"
+			}
+			inQuotes = true
+		case c == '[':
+			if depth == 0 {
+				if expectComma {
+					return nil, "rows must be separated by commas"
+				}
+				start = i
+			}
+			depth++
+		case c == ']':
+			depth--
+			if depth < 0 {
+				return nil, "the brackets are not balanced"
+			}
+			if depth == 0 {
+				rows = append(rows, inner[start:i+1])
+				expectComma = true
+			}
+		case depth == 0 && c == ',':
+			if !expectComma {
+				return nil, "a row is missing between two commas"
+			}
+			expectComma = false
+		case depth == 0 && c != ' ' && c != '\t':
+			return nil, "each row must be an array in brackets, e.g. [\"a\", \"b\"]"
+		}
+	}
+	if inQuotes {
+		return nil, "a quote is not closed"
+	}
+	if depth != 0 {
+		return nil, "the brackets are not balanced; an inline value must close on the same line"
+	}
+	if len(rows) > 0 && !expectComma {
+		return nil, "a trailing comma after the last row"
+	}
+	return rows, ""
+}
+
+// inlineRowsDiagnostic es el diagnóstico TABLE007 de un `rows:` en línea que
+// no se puede leer. Las filas no llegan al AST, así que en strict es un error
+// (el dialecto no pierde contenido en silencio); en flex, un warning, como el
+// TABLE004 de un `cells:` inválido.
+func inlineRowsDiagnostic(mode, detail string, pos diagnostics.Position) diagnostics.Diagnostic {
+	msg := fmt.Sprintf("TABLE rows: could not read the inline value (%s); the table gets no rows from it", detail)
+	if mode == "strict" {
+		return diagnostics.NewError(msg, pos, "table-parser").WithRuleID("TABLE007")
+	}
+	return diagnostics.NewWarning(msg, pos, "table-parser").WithRuleID("TABLE007")
 }
 
 // trimInlineArrayBrackets quita UN "[" inicial y UN "]" final del valor de

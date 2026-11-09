@@ -212,6 +212,17 @@ text that is not indented deeper than `QUOTE`, ends the element as before. A
 quote cannot start or end with an empty line. `slidelang fmt` writes a flex
 quote with an empty `>` line this way.
 
+In a `TABLE` block, `rows:` takes the rows either one per line after
+`rows: [` (closed by `]`) or as the whole array on the `rows:` line itself:
+`rows: [["a", "b"], ["c", "d"]]`. Both forms give the same cells, read with the
+same rules as `headers:` (a comma or bracket inside a double-quoted cell is
+content; a backslash is not an escape). An inline value that is not an array
+of bracketed rows closed on the same line, or one followed by more rows on the
+next lines, is the `TABLE007` diagnostic on the `rows:` line, an error in strict
+and a warning in flex, and gives the table no rows. `rows: []` is a table with
+no rows (`TABLE002`). Earlier versions read only the one-per-line form and gave
+the inline one zero rows with only `TABLE002`.
+
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser
 infers the value from where the image sits, and the two dialects read that
