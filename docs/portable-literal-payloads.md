@@ -39,4 +39,21 @@ code-group tab labels with leading/trailing whitespace or line breaks and tab
 payloads containing a closing fence. A successful formatter result must not hide
 payload loss. JSON version/capability gates and the generated TypeScript/schema
 agree. Filters negotiate these capabilities before receiving JSON and cannot
-remove literal Math policy or change list starts/numbered-list identity ownership.
+remove literal Math policy while any MathElement remains, or change list
+starts/numbered-list identity ownership. A filter that replaces every
+equation (for example with pre-rendered images) may drop the policy: with no
+MathElement left it applies to nothing. If the filter leaves
+`math-source-v1` declared, the CLI removes it after the filter runs, together
+with any other capability whose content is gone, and lowers `schemaVersion`
+to match (see [External filters](#external-filters-and-unused-capabilities)).
+
+## External filters and unused capabilities
+
+After each external filter, the CLI recomputes the root declaration of the
+returned AST before the strict decode: a capability that is still declared
+but whose content is no longer present (a chart with `unit` replaced by an
+image, the last equation of a `math-source-v1` document) is removed, and
+`schemaVersion` becomes that of the newest remaining extension, or 2.14.0 if
+none remains. It only removes. An opt-in field present without its capability
+is still an error, and identity guarantees (table rows, nested list types,
+list starts, typed headings) still reject a filter that removes them.

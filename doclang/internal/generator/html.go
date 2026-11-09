@@ -61,8 +61,10 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		renderer.HasChartElements(doc)
 	mapNeedsBrowser := (opts.MapMode == "offline-assets" || opts.MapMode == "offline-inline") &&
 		renderer.HasMapElements(doc)
+	// Una fórmula con render previo (math-image-v1) no se compone: solo
+	// cuentan las que no lo traen.
 	mathNeedsBrowser := (opts.MathMode == "offline-assets" || opts.MathMode == "offline-inline") &&
-		renderer.HasMathElements(doc)
+		HasUnrenderedMath(doc)
 
 	needsChromium := mermaidNeedsBrowser || chartNeedsBrowser || mapNeedsBrowser || mathNeedsBrowser
 

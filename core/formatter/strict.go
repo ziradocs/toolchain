@@ -1281,6 +1281,11 @@ func diagramTagOpen(tag, title string) (string, error) {
 func formatStrictMath(e *ast.MathElement) (string, error) { return formatMath(e, true) }
 
 func formatMath(e *ast.MathElement, strict bool) (string, error) {
+	// math-image-v1 no tiene sintaxis fuente: lo pone un filtro externo.
+	// Formatear la fórmula sin él perdería el render en silencio.
+	if e.Image != "" {
+		return "", newUnsupported("math", "a pre-rendered equation image (math-image-v1) has no source syntax")
+	}
 	content := e.Content
 	if strict {
 		content = indent(content, 2)

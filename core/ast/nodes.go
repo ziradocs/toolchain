@@ -1303,9 +1303,23 @@ type MathElement struct {
 	Number      int    `json:"number,omitempty"`
 	Caption     string `json:"caption,omitempty"`
 	CaptionHTML string `json:"captionHTML,omitempty"` // Caption con {{variables}} sustituidas y escapadas (sin markdown)
+	// Image es un render ya hecho de la ecuación (math-image-v1, AST 2.27.0):
+	// ruta local o URL, resuelta igual que ImageElement.Source. Lo pone un
+	// filtro externo que dibuja las fórmulas por su cuenta; no tiene
+	// sintaxis fuente. Con él, HTML/PDF/DOCX dibujan la imagen en vez de
+	// componer el LaTeX (sin Chromium en DOCX), y el elemento conserva su
+	// número, ancla y leyenda. Content sigue siendo el LaTeX: texto
+	// alternativo de la imagen y lo que muestra un lector que no conoce el
+	// campo.
+	Image string `json:"image,omitempty"`
 }
 
 func (m MathElement) element() {}
+
+// MathImage devuelve Image. Existe para que un consumidor que compila
+// también contra un core anterior a math-image-v1 lo lea con una aserción de
+// interfaz en vez de nombrar el campo.
+func (m *MathElement) MathImage() string { return m.Image }
 
 // NewMathElement crea un nuevo elemento de ecuación
 func NewMathElement(pos diagnostics.Position, content string) *MathElement {
