@@ -16,6 +16,7 @@ import (
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/doclang/v2/internal/inks"
 	"go.ziradocs.com/doclang/v2/themes/document"
 )
 
@@ -38,7 +39,10 @@ var bindingNames = []string{
 	"--doclang-blockquote-link-color",
 	"--doclang-callout-info-link-color", "--doclang-callout-warning-link-color", "--doclang-callout-danger-link-color",
 	"--doclang-callout-success-link-color", "--doclang-callout-tip-link-color",
+	"--doclang-table-header-link-color", "--doclang-table-link-color", "--doclang-table-stripe-link-color",
 }
+
+func init() { bindingNames = append(bindingNames, inks.Variables()...) }
 
 // El render de los temas embebidos no cambia porque ninguno define una
 // variable de superficie y htmlThemeVariables no les deriva ninguna. Si un
@@ -87,9 +91,20 @@ func TestCSSFallbacksMatchCore(t *testing.T) {
 		"var(--doclang-text-light, "+headerFooterFgLiteral+")",
 		"var(--doclang-body-link-color, LinkText)",
 		"var(--doclang-print-margin-bg, transparent)",
+		"var(--doclang-table-header-link-color, var(--doclang-body-link-color, LinkText))",
+		"var(--_doclang-table-link, var(--doclang-body-link-color, LinkText))",
+		"--_doclang-table-link: var(--doclang-table-link-color);",
+		"--_doclang-table-link: var(--doclang-table-stripe-link-color, var(--doclang-table-link-color));",
 	)
+	compact := strings.Join(strings.Fields(html), " ")
+	for _, ink := range inks.Names {
+		want = append(want, "var(--_doclang-ink-"+ink+", var(--doclang-"+ink+"-color, "+inkLiterals[ink]+"))")
+		for _, s := range inks.Surfaces {
+			want = append(want, "--_doclang-ink-"+ink+": var("+inks.Variable(s, ink)+");")
+		}
+	}
 	for _, w := range want {
-		if !strings.Contains(html, w) {
+		if !strings.Contains(compact, w) {
 			t.Errorf("el CSS del documento no tiene %s", w)
 		}
 	}
@@ -124,15 +139,21 @@ func TestHTMLThemeVariables_DarkTheme(t *testing.T) {
 	got := htmlThemeVariables(in, true)
 
 	want := map[string]string{
-		"--doclang-page-surface-bg":         "#0f172a",
-		"--doclang-print-margin-bg":         "#0f172a",
-		"--doclang-body-link-color":         "#7dd3fc",
-		"--doclang-table-bg":                "#0f172a",
-		"--doclang-table-hover-bg":          "#1e293b",
-		"--doclang-panel-bg":                "#1e293b",
-		"--doclang-panel-border":            "#334155",
-		"--doclang-kbd-bg":                  "#1e293b",
-		"--doclang-kbd-border":              "#334155",
+		"--doclang-page-surface-bg": "#0f172a",
+		"--doclang-print-margin-bg": "#0f172a",
+		"--doclang-body-link-color": "#7dd3fc",
+		"--doclang-table-bg":        "#0f172a",
+		"--doclang-table-hover-bg":  "#1e293b",
+		"--doclang-panel-bg":        "#1e293b",
+		"--doclang-panel-border":    "#334155",
+		"--doclang-kbd-bg":          "#1e293b",
+		"--doclang-kbd-border":      "#334155",
+		// La tecla oscura dentro de la alerta danger (fondo claro, texto
+		// #742a2a) heredaría ese texto: lleva el del cuerpo.
+		"--doclang-kbd-color": "#e2e8f0",
+		// La tabla toma fondo del tema: deja de heredar el texto (dentro de
+		// una alerta clara heredaría su texto oscuro).
+		"--doclang-table-color":             "#e2e8f0",
 		"--doclang-header-footer-bg":        "#0f172a",
 		"--doclang-h2-color":                "#f1f5f9",
 		"--doclang-h3-color":                "#f1f5f9",
@@ -163,7 +184,7 @@ func TestHTMLThemeVariables_DarkTheme(t *testing.T) {
 		}
 	}
 	for _, k := range []string{
-		"--doclang-chart-bg", "--doclang-table-color", "--doclang-panel-color", "--doclang-kbd-color",
+		"--doclang-chart-bg", "--doclang-panel-color",
 		"--doclang-code-tab-accent", "--doclang-body-link-active-color",
 		"--doclang-code-tab-active-color",     // el blanco de siempre se lee sobre #1e293b
 		"--doclang-callout-danger-color",      // el literal se lee sobre el fondo claro
@@ -211,8 +232,6 @@ var documentPairs = func() []cssPair {
 		{"panel", text, panel, 4.5},
 		{"tecla", text, []string{"--doclang-kbd-bg", "#f7f7f7"}, 4.5},
 		{"vínculo sobre la hoja", link, page, 4.5},
-		{"vínculo en la tabla", link, table, 4.5},
-		{"vínculo en la fila alterna", link, stripe, 4.5},
 		{"vínculo en un panel", link, panel, 4.5},
 		{"h2", []string{"--doclang-h2-color", "#2d3748"}, page, 3},
 		{"h3", []string{"--doclang-h3-color", "#4a5568"}, page, 3},
@@ -231,22 +250,66 @@ var documentPairs = func() []cssPair {
 		{"título del TOC", []string{"--doclang-toc-title-color", "#1a202c"}, []string{"--doclang-toc-bg", "#f8f9fa"}, 3},
 		{"vínculo del TOC", []string{"--doclang-toc-link-color", "#1a202c"}, []string{"--doclang-toc-bg", "#f8f9fa"}, 4.5},
 	}
+	// Contenido anidado: cada superficie con su fondo y su texto (lo que
+	// hereda una tecla), y lo que puede ir dentro.
+	type surface struct {
+		name   string
+		bg, fg []string
+	}
+	thBg := []string{"--doclang-table-header-bg", "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"}
+	tableFg := []string{"--doclang-table-color", "--doclang-text-color", "#2c3e50"}
+	surfaces := []surface{
+		{"página", page, text},
+		{"table", table, tableFg},
+		{"table-stripe", stripe, tableFg},
+		{"table-header", thBg, []string{"--doclang-table-header-color", "white"}},
+		{"panel", panel, []string{"--doclang-panel-color", "--doclang-text-color", "#2c3e50"}},
+		{"blockquote", []string{"--doclang-blockquote-bg", "#f7fafc"}, []string{"--doclang-blockquote-color", "#4a5568"}},
+		{"quiz", []string{"--doclang-quiz-bg", "--doclang-quote-bg", "#f8fafc"}, []string{"--doclang-quiz-question-color", "--doclang-text-color", "#2c3e50"}},
+	}
 	for _, k := range []struct{ kind, bg, fg string }{
 		{"info", "#ebf8ff", "#2c5282"}, {"warning", "#fffaf0", "#7c2d12"}, {"danger", "#fff5f5", "#742a2a"},
 		{"success", "#f0fff4", "#22543d"}, {"tip", "#faf5ff", "#44337a"},
 	} {
 		bg := []string{"--doclang-callout-" + k.kind + "-bg", k.bg}
+		fg := []string{"--doclang-callout-" + k.kind + "-color", k.fg}
 		pairs = append(pairs,
-			cssPair{"alerta " + k.kind, []string{"--doclang-callout-" + k.kind + "-color", k.fg}, bg, 4.5},
+			cssPair{"alerta " + k.kind, fg, bg, 4.5},
 			cssPair{"vínculo en alerta " + k.kind, []string{"--doclang-callout-" + k.kind + "-link-color", "#0000ee"}, bg, 4.5},
 		)
+		surfaces = append(surfaces, surface{"callout-" + k.kind, bg, fg})
 	}
+	kbdBg := []string{"--doclang-kbd-bg", "#f7f7f7"}
+	for _, s := range surfaces {
+		for _, ink := range inks.Names {
+			chain := []string{"--doclang-" + ink + "-color", inkLiterals[ink]}
+			if s.name != "página" {
+				chain = append([]string{inks.Variable(s.name, ink)}, chain...)
+			}
+			pairs = append(pairs, cssPair{"tinta " + ink + " en " + s.name, chain, s.bg, 4.5})
+		}
+		pairs = append(pairs, cssPair{"tecla en " + s.name, append([]string{"--doclang-kbd-color"}, s.fg...), kbdBg, 4.5})
+	}
+	pairs = append(pairs,
+		cssPair{"vínculo en el encabezado de la tabla", []string{"--doclang-table-header-link-color", "--doclang-body-link-color", "#0000ee"}, thBg, 4.5},
+		cssPair{"vínculo en la celda", []string{"--doclang-table-link-color", "--doclang-body-link-color", "#0000ee"}, table, 4.5},
+		cssPair{"vínculo en la fila alterna", []string{"--doclang-table-stripe-link-color", "--doclang-table-link-color", "--doclang-body-link-color", "#0000ee"}, stripe, 4.5},
+		cssPair{"texto de la tabla", tableFg, table, 4.5},
+		cssPair{"texto de la fila alterna", tableFg, stripe, 4.5},
+		cssPair{"bloque de código", []string{"--doclang-code-color", "#d4d4d4"}, []string{"--doclang-code-bg", "#1e1e1e"}, 4.5},
+		cssPair{"código en línea", []string{"--doclang-code-inline-color", "#e83e8c"}, []string{"--doclang-code-inline-bg", "#f6f8fa"}, 4.5},
+	)
 	return pairs
 }()
 
 func resolve(vars map[string]string, chain []string) string {
 	for _, c := range chain[:len(chain)-1] {
 		if v, ok := vars[c]; ok {
+			// Una referencia derivada (var(--doclang-text-color)) se mide
+			// con el valor al que apunta.
+			if strings.HasPrefix(v, "var(--doclang-") && strings.HasSuffix(v, ")") {
+				return resolve(vars, []string{strings.TrimSuffix(strings.TrimPrefix(v, "var("), ")"), ""})
+			}
 			return v
 		}
 	}
@@ -259,11 +322,15 @@ func checkPairs(t *testing.T, name string, theme map[string]string, strict bool)
 	t.Helper()
 	after := htmlThemeVariables(theme, true)
 	text := []string{"--doclang-text-color", "#2c3e50"}
+	tableText := []string{"--doclang-table-color", "--doclang-text-color", "#2c3e50"}
 	for _, p := range documentPairs {
 		// Un vínculo sobre una superficie donde ni el texto del tema se lee
 		// no se juzga: ningún color de vínculo arregla esa superficie (ver
-		// el comentario del vínculo del cuerpo en htmlThemeVariables).
+		// bodyAndTableLinks).
 		if p.fg[0] == "--doclang-body-link-color" && !reads(resolve(after, text), minTextContrast, resolve(after, p.bg)) {
+			continue
+		}
+		if (p.fg[0] == "--doclang-table-link-color" || p.fg[0] == "--doclang-table-stripe-link-color") && !reads(resolve(after, tableText), minTextContrast, resolve(after, p.bg)) {
 			continue
 		}
 		rb, okb := a11y.ContrastRatio(resolve(theme, p.fg), resolve(theme, p.bg))
