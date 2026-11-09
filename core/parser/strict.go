@@ -265,7 +265,7 @@ func startsStrictElement(trimmedLine string) bool {
 		return strings.HasPrefix(trimmedLine, "<<")
 	}
 	for _, kw := range strictElementKeywords {
-		if strings.HasPrefix(trimmedLine, kw) {
+		if elements.HasStrictKeyword(trimmedLine, kw) {
 			return true
 		}
 	}
@@ -487,37 +487,37 @@ func (p *strictBody) parseIndentedElements(
 			p.currentLine++
 			continue
 		} // Parsear elementos
-		if strings.HasPrefix(trimmedLine, "TEXT") {
+		if elements.HasStrictKeyword(trimmedLine, "TEXT") {
 			element := p.parseTextElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "POINTS") {
+		} else if elements.HasStrictKeyword(trimmedLine, "POINTS") {
 			element := p.parsePointsElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "CODE") {
+		} else if elements.HasStrictKeyword(trimmedLine, "CODE") {
 			element := p.parseCodeElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "IMAGE") {
+		} else if elements.HasStrictKeyword(trimmedLine, "IMAGE") {
 			element := p.parseImageElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "TABLE") {
+		} else if elements.HasStrictKeyword(trimmedLine, "TABLE") {
 			element := p.parseTableElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "QUOTE") {
+		} else if elements.HasStrictKeyword(trimmedLine, "QUOTE") {
 			element := p.parseQuoteElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "CHECKLIST") {
+		} else if elements.HasStrictKeyword(trimmedLine, "CHECKLIST") {
 			element := p.parseChecklistElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
@@ -595,19 +595,19 @@ func (p *strictBody) parseIndentedElements(
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if strings.HasPrefix(trimmedLine, "MERMAID") {
+		} else if elements.HasStrictKeyword(trimmedLine, "MERMAID") {
 			p.addError("Invalid syntax for Mermaid diagram. In strict mode, use: <<mermaid>>")
 			p.currentLine++
-		} else if strings.HasPrefix(trimmedLine, "PLANTUML") {
+		} else if elements.HasStrictKeyword(trimmedLine, "PLANTUML") {
 			p.addError("Invalid syntax for PlantUML diagram. In strict mode, use: <<plantuml>>")
 			p.currentLine++
-		} else if strings.HasPrefix(trimmedLine, "CHART") {
+		} else if elements.HasStrictKeyword(trimmedLine, "CHART") {
 			p.addError("Invalid syntax for Chart element. In strict mode, use: <<chart:type>>")
 			p.currentLine++
-		} else if strings.HasPrefix(trimmedLine, "MAP") {
+		} else if elements.HasStrictKeyword(trimmedLine, "MAP") {
 			p.addError("Invalid syntax for Map element. In strict mode, use: <<map>>")
 			p.currentLine++
-		} else if strings.HasPrefix(trimmedLine, "MATH") {
+		} else if elements.HasStrictKeyword(trimmedLine, "MATH") {
 			p.addError("Invalid syntax for Math element. In strict mode, use: <<math>>")
 			p.currentLine++
 		} else if strings.HasPrefix(trimmedLine, "@") {

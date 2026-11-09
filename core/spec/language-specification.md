@@ -120,6 +120,16 @@ identifier ::= LETTER (LETTER | DIGIT | "_")*
 value      ::= STRING | NUMBER | BOOLEAN
 ```
 
+An element keyword (`TEXT`, `POINTS`, `CODE`, `IMAGE`, `TABLE`, `QUOTE`,
+`CHECKLIST`, `MERMAID`, `PLANTUML`, `CHART`, `MAP`, `MATH`) is recognized only
+as a whole word: it is followed by the end of the line or by a character that is
+not a letter, a digit or `_` (a space, a tab, `{` of an attribute, `:`). A line
+that merely starts with those letters is not that element: `TEXTO citado` or
+`MAPA norte` inside a `QUOTE` body is quote text, and at element level it is an
+unrecognized line (an error in a document, the `STRICT003` warning in a slide).
+Earlier versions matched the bare prefix, so `TEXTO citado` opened a `TEXT`
+element and `CODEX html` a `CODE` block.
+
 With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
 may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on

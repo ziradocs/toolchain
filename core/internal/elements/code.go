@@ -20,7 +20,7 @@ func (p *CodeParser) CanParse(line string, mode string) bool {
 
 	// Strict mode: CODE keyword
 	if mode == "strict" {
-		return strings.HasPrefix(trimmed, "CODE")
+		return HasStrictKeyword(trimmed, "CODE")
 	}
 
 	// Flex mode: ```language fenced code blocks

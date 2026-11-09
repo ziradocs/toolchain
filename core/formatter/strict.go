@@ -895,7 +895,9 @@ func validateStrictQuoteContent(content string, hasMetadata bool) error {
 			return newUnsupported("quote", fmt.Sprintf("a line of the quote (%q) would be read by the strict parser as the start of another element (a @, :::, << or | marker), not as quote text: it cannot be represented without loss", trimmed))
 		}
 		for _, kw := range strictNewElementKeywords {
-			if strings.HasPrefix(trimmed, kw) {
+			// Misma frontera de palabra que el parser (issue #489): una línea
+			// "TEXTO citado" es texto de la cita y el parser la lee como tal.
+			if strings.HasSuffix(kw, " ") && strings.HasPrefix(trimmed, kw) || !strings.HasSuffix(kw, " ") && elements.HasStrictKeyword(trimmed, kw) {
 				return newUnsupported("quote", fmt.Sprintf("a line of the quote (%q) would be read by the strict parser as the start of another element (%q), not as quote text: it cannot be represented without loss", trimmed, kw))
 			}
 		}

@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -113,13 +114,23 @@ func TestStrictCodeHeader_DocumentsReadItToo(t *testing.T) {
 }
 
 // The rule needs the whole word CODE: a line that only starts with those letters
-// keeps being read as it was before (as an error here), and is not given a language.
+// is not a CODE header at all (issue #489), so it never gets a language. In a
+// slide it is the STRICT003 warning for a discarded line, and nothing becomes code.
 func TestStrictCodeHeader_NeedsTheWholeWordCODE(t *testing.T) {
-	c, errs := strictCode(t, "CODEX python {1}")
-	if len(errs) == 0 {
-		t.Errorf("CODEX python {1}: expected the error it always gave, got language %q", c.Language)
+	src := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  CODEX python {1}\n    a = 1\n"
+	doc, diags := New(util.NewNoop()).Parse(src, "t.slidelang")
+	for _, el := range doc.ContentBlocks[0].Elements {
+		if c, ok := el.(*ast.CodeElement); ok {
+			t.Errorf("CODEX must not be read as CODE, got language %q", c.Language)
+		}
 	}
-	if c != nil && c.Language == "X python {1}" {
-		t.Errorf("CODEX must not be read as CODE with the language %q", c.Language)
+	found := false
+	for _, d := range diags {
+		if d.RuleID == "STRICT003" && strings.Contains(d.Message, "CODEX python {1}") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("CODEX python {1}: want the STRICT003 warning for the discarded line, got %v", diags)
 	}
 }

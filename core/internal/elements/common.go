@@ -5,6 +5,8 @@ package elements
 
 import (
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -228,6 +230,34 @@ func IsJustASeparator(lines []string, i int, subBlockPrefix, closingMarker strin
 	return false
 }
 
+// HasStrictKeyword reporta si trimmed (una línea ya sin espacios al inicio)
+// empieza con la palabra clave kw de un elemento strict (TEXT, CODE, QUOTE…)
+// como palabra completa: después de kw tiene que venir el fin de la línea o
+// algo que no sea letra, dígito ni '_'. Así "TEXTO citado" o "MAPA norte" ya
+// no se leen como TEXT o MAP seguidos de "O citado"/"A norte" (issue #489),
+// mientras que todo lo que la palabra clave aceptaba después y no es parte de
+// otra palabra sigue igual: espacio, tab, un espacio Unicode (CODE\u00a0html),
+// `{` de un atributo (CODE{verbatim}), `:`.
+//
+// El rune se decodifica completo a propósito: con un chequeo por byte,
+// "TEXTÓ" pasaría por frontera porque el primer byte de "Ó" no es una letra
+// ASCII.
+//
+// Es la única definición de "empieza con la palabra clave" del dialecto
+// strict: el despacho de parser/strict.go, IsNewElement y el CanParse de cada
+// elemento la consultan para no volver a divergir.
+func HasStrictKeyword(trimmed, kw string) bool {
+	rest, ok := strings.CutPrefix(trimmed, kw)
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+}
+
 // strictTopLevelKeywords son las palabras clave que abren un bloque strict de
 // nivel superior: "SLIDE" en slidelang, "SECTION" en doclang. Ver
 // IsStrictBlockBoundary.
@@ -402,7 +432,15 @@ func IsNewElement(line string, mode string) bool {
 			"SECTION ",
 		}
 		for _, keyword := range keywords {
-			if strings.HasPrefix(trimmed, keyword) {
+			// "SECTION " ya trae su separador; el resto se compara como
+			// palabra completa (issue #489: "TEXTO citado" no abre un TEXT).
+			if strings.HasSuffix(keyword, " ") {
+				if strings.HasPrefix(trimmed, keyword) {
+					return true
+				}
+				continue
+			}
+			if HasStrictKeyword(trimmed, keyword) {
 				return true
 			}
 		}

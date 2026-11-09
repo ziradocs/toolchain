@@ -11,12 +11,13 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// The code parser accepts whitespace separators and legacy CODE prefixes.
-// The identity pre-pass must
-// recognize the same header as the code parser, or a literal node-id comment
-// at the end of the body is removed and assigned to the following element.
+// The code parser accepts whitespace separators and the CODE keyword followed by
+// anything that is not part of a longer word (issue #489: CODEX is another word,
+// not CODE). The identity pre-pass must recognize the same header as the code
+// parser, or a literal node-id comment at the end of the body is removed and
+// assigned to the following element.
 func TestCodeHeaderWhitespaceKeepsLiteralNodeID(t *testing.T) {
-	for _, keyword := range []string{"CODE", "CODE{verbatim}", "CODEX", "CODE{verbatim}suffix", "CODE{unknown}"} {
+	for _, keyword := range []string{"CODE", "CODE{verbatim}", "CODE{verbatim}suffix", "CODE{unknown}"} {
 		for _, separator := range []string{" ", "\t", "\u00a0", "\v", "\f"} {
 			for _, document := range []bool{false, true} {
 				t.Run(keyword+separator+"/"+map[bool]string{false: "slide", true: "document"}[document], func(t *testing.T) {
@@ -120,7 +121,6 @@ func TestCodeIdentityRecognitionDoesNotBroadenVerbatim(t *testing.T) {
 		{"CODE{verbatim}\vhtml", "x"},
 		{"CODE{verbatim}\fhtml", "x"},
 		{"CODE{verbatim}suffix html", "x"},
-		{"CODEX html", "x"},
 	} {
 		t.Run(tc.header, func(t *testing.T) {
 			code := codeOf(t, strictSlideBody(t, "  "+tc.header+"\n      x"))

@@ -19,7 +19,7 @@ func (p *QuoteParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
 	// En modo strict, buscar palabra clave QUOTE
-	if mode == "strict" && strings.HasPrefix(trimmed, "QUOTE") {
+	if mode == "strict" && HasStrictKeyword(trimmed, "QUOTE") {
 		return true
 	}
 
@@ -61,7 +61,7 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 	quoteIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 
 	// Saltar línea QUOTE
-	if strings.HasPrefix(line, "QUOTE") {
+	if HasStrictKeyword(line, "QUOTE") {
 		consumed++
 		startIndex++
 	}

@@ -72,7 +72,7 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	// The YAML "TABLE" block is recognized the same way in strict and flex
 	// (see CanParse); mode no longer gates this branch, only the line's syntax.
-	if strings.HasPrefix(line, "TABLE") {
+	if HasStrictKeyword(line, "TABLE") {
 		consumed++
 		startIndex++
 

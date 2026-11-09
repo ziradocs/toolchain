@@ -327,7 +327,7 @@ func startsNewStrictElement(trimmed string) bool {
 		return strings.HasPrefix(trimmed, "<<")
 	}
 	for _, kw := range strictElementKeywords {
-		if strings.HasPrefix(trimmed, kw) {
+		if HasStrictKeyword(trimmed, kw) {
 			return true
 		}
 	}

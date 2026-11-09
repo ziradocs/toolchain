@@ -18,7 +18,7 @@ func (p *ChecklistParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
 	// Strict mode: CHECKLIST keyword
-	if mode == "strict" && strings.HasPrefix(trimmed, "CHECKLIST") {
+	if mode == "strict" && HasStrictKeyword(trimmed, "CHECKLIST") {
 		return true
 	}
 
@@ -41,7 +41,7 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
-	if ctx.Mode == "strict" && strings.HasPrefix(line, "CHECKLIST") {
+	if ctx.Mode == "strict" && HasStrictKeyword(line, "CHECKLIST") {
 		// Skip CHECKLIST line
 		consumed++
 		startIndex++

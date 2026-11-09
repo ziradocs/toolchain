@@ -20,7 +20,7 @@ func (p *PointsParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
 	// Strict mode: POINTS keyword
-	if mode == "strict" && strings.HasPrefix(trimmed, "POINTS") {
+	if mode == "strict" && HasStrictKeyword(trimmed, "POINTS") {
 		return true
 	}
 
@@ -80,7 +80,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
-	if ctx.Mode == "strict" && strings.HasPrefix(line, "POINTS") {
+	if ctx.Mode == "strict" && HasStrictKeyword(line, "POINTS") {
 		// Skip POINTS line
 		consumed++
 		startIndex++
