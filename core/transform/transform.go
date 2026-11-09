@@ -84,7 +84,7 @@ func RunBuiltins(doc *ast.AST, builtins []Transform) (*ast.AST, error) {
 		if hadStarts && !ast.UsesListStart(doc) {
 			return nil, fmt.Errorf("built-in transform #%d removed list starts", i)
 		}
-		if hadMathSource && !ast.UsesMathSource(doc) {
+		if hadMathSource && !ast.UsesMathSource(doc) && hasMathElement(doc) {
 			return nil, fmt.Errorf("built-in transform #%d removed math-source-v1", i)
 		}
 		if hadHeadings && !ast.UsesTypedHeadings(doc) {
@@ -167,8 +167,8 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 				return nil, fmt.Errorf("filter %q: nested list nodeId ownership or list types changed", path)
 			}
 		}
-		if ast.UsesMathSource(before) && !ast.UsesMathSource(doc) {
-			return nil, fmt.Errorf("filter %q: math-source-v1 was removed", path)
+		if mathSourceLost(before, doc) {
+			return nil, fmt.Errorf("filter %q: math-source-v1 was removed while equations remain", path)
 		}
 		if ast.UsesListStart(before) {
 			after, err := ast.ListStartFingerprints(doc)
@@ -189,6 +189,32 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 		}
 	}
 	return doc, nil
+}
+
+// mathSourceLost reporta si after perdió la política math-source-v1 que
+// before tenía mientras todavía le quedan fórmulas. La política dice que el
+// contenido de TODA fórmula es LaTeX literal (espacios, líneas en blanco y
+// sangría incluidos); quitarla con fórmulas presentes haría que el resto del
+// pipeline las leyera con la semántica legada, que recorta, y eso cambia el
+// contenido sin avisar. Es lo que protege la regla desde b1dc843. Sin
+// ninguna fórmula la política no se aplica a nada: un filtro que las
+// reemplazó todas (por imágenes, por ejemplo) puede dejarla de declarar, y
+// PruneUnusedCapabilities la quita si la dejó declarada.
+func mathSourceLost(before, after *ast.AST) bool {
+	return ast.UsesMathSource(before) && !ast.UsesMathSource(after) && hasMathElement(after)
+}
+
+// hasMathElement reporta si doc tiene alguna fórmula, a cualquier
+// profundidad.
+func hasMathElement(doc *ast.AST) bool {
+	found := false
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if _, ok := n.(*ast.MathElement); ok {
+			found = true
+		}
+		return nil
+	})
+	return found
 }
 
 // negotiateASTCapabilities sends no AST bytes. Decoded output and identity
@@ -308,7 +334,13 @@ func runExternalFilter(doc *ast.AST, binaryPath string, timeout time.Duration) (
 		return nil, fmt.Errorf("exited with error: %w (stderr: %s)", err, stderr.String())
 	}
 
-	decoded, err := ast.DecodeAST(stdout.Bytes())
+	// Las capabilities que el filtro dejó declaradas sin su contenido (una
+	// gráfica con `unit` que cambió por una imagen, la última fórmula de un
+	// documento math-source-v1) se quitan antes del decode estricto, y la
+	// versión baja con ellas: el AST que sigue el pipeline declara lo que
+	// de verdad trae. Lo que se usa sin declararse sigue siendo un error.
+	output, _ := ast.PruneUnusedCapabilities(stdout.Bytes())
+	decoded, err := ast.DecodeAST(output)
 	if err != nil {
 		return nil, fmt.Errorf("decoding filter output: %w", err)
 	}
