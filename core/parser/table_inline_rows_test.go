@@ -144,3 +144,93 @@ func TestTableInlineRows_OtherDialects(t *testing.T) {
 		t.Errorf("flex: want one TABLE007 warning at line 5, got %v", diags)
 	}
 }
+
+// Las filas de la forma de varias líneas se leen con cualquier sangría que no
+// sea menor que la de las propiedades del TABLE, y una línea en blanco entre
+// filas no corta la lista. Antes solo contaba una línea con seis espacios y
+// "[" exactos, y el resto se descartaba sin aviso.
+func TestTableRows_MultiLineAnyIndentAndBlankLines(t *testing.T) {
+	want := [][]string{{"a", "b"}, {"c", "d"}}
+	for name, body := range map[string]string{
+		"deeper rows":            "    rows: [\n        [\"a\",\"b\"],\n        [\"c\",\"d\"]\n    ]\n",
+		"rows at property depth": "    rows: [\n    [\"a\",\"b\"],\n    [\"c\",\"d\"]\n    ]\n",
+		"blank line between":     "    rows: [\n      [\"a\",\"b\"],\n\n      [\"c\",\"d\"]\n    ]\n",
+		"bare rows:":             "    rows:\n      [\"a\",\"b\"]\n      [\"c\",\"d\"]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			table, diags := strictDocTable(t, body+"    caption: \"Cap\"\n")
+			if len(diags) != 0 {
+				t.Fatalf("want no diagnostics, got %v", diags)
+			}
+			if !reflect.DeepEqual(table.Rows, want) {
+				t.Errorf("rows %q, want %q", table.Rows, want)
+			}
+			if table.Caption != "Cap" {
+				t.Errorf("the property after the rows was lost: caption %q", table.Caption)
+			}
+		})
+	}
+}
+
+// Un TABLE dentro de una columna tipada lleva sus filas más sangradas que
+// seis espacios: también se leen.
+func TestTableRows_InsideATypedColumn(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  <<grid>>\n  <<column typed>>\n    TABLE\n      headers: [\"x\", \"y\"]\n      rows: [\n        [\"a\",\"b\"]\n      ]\n  <<end>>\n"
+	doc, diags := New(util.NewNoop()).ParseDocument(src, "t.doclang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("unexpected error: %v", d)
+		}
+	}
+	var table *ast.TableElement
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if tb, ok := n.(*ast.TableElement); ok {
+			table = tb
+		}
+		return nil
+	})
+	if table == nil || !reflect.DeepEqual(table.Rows, [][]string{{"a", "b"}}) {
+		t.Fatalf("want the row inside the column, got %#v", table)
+	}
+}
+
+// Lo que está entre las filas y no se puede leer como fila es TABLE007 en su
+// línea (error en strict, warning en flex), no un descarte callado. Las filas
+// buenas de alrededor se conservan.
+func TestTableRows_UnreadableLineIsTABLE007(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		line int
+	}{
+		"row not closed":       {"    rows: [\n      [\"a\",\"b\"],\n      [\"c\",\"d\"\n    ]\n", 11},
+		"row without brackets": {"    rows: [\n      [\"a\",\"b\"],\n      \"c\",\"d\"\n    ]\n", 11},
+	} {
+		t.Run(name, func(t *testing.T) {
+			table, diags := strictDocTable(t, tc.body)
+			if len(diags) != 1 || !diags[0].IsError() || diags[0].RuleID != "TABLE007" || diags[0].Position.Line != tc.line {
+				t.Fatalf("want one TABLE007 error at line %d, got %v", tc.line, diags)
+			}
+			if !reflect.DeepEqual(table.Rows, [][]string{{"a", "b"}}) {
+				t.Errorf("the readable row must stay, got %q", table.Rows)
+			}
+		})
+	}
+
+	src := "# A\n\nTABLE\n  headers: [\"x\", \"y\"]\n  rows: [\n    [\"a\",\"b\"\n  ]\n"
+	_, diags := New(util.NewNoop()).ParseDocument(src, "t.doclang")
+	if len(diags) != 1 || diags[0].IsError() || diags[0].RuleID != "TABLE007" || diags[0].Position.Line != 6 {
+		t.Errorf("flex: want one TABLE007 warning at line 6, got %v", diags)
+	}
+}
+
+// Una fila debajo de un `rows:` en línea, también con una línea en blanco de
+// por medio, es TABLE007.
+func TestTableInlineRows_RowAfterABlankLine(t *testing.T) {
+	table, diags := strictDocTable(t, "    rows: [[\"a\",\"b\"]]\n\n      [\"c\",\"d\"]\n")
+	if len(diags) != 1 || !diags[0].IsError() || diags[0].RuleID != "TABLE007" || !strings.Contains(diags[0].Message, "line 11") {
+		t.Fatalf("want one TABLE007 error naming line 11, got %v", diags)
+	}
+	if len(table.Rows) != 0 {
+		t.Errorf("want no partial rows, got %q", table.Rows)
+	}
+}

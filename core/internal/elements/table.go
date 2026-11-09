@@ -220,11 +220,15 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			// que no menciona las filas que el autor escribió. `rows: [` (el
 			// corchete que abre la forma de varias líneas) y `rows:` solo
 			// siguen yendo por el bucle de abajo.
-			if value := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:")); value != "" && value != "[" {
+			value := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:"))
+			if value != "" && value != "[" {
 				rowPos := ctx.Position(i)
 				inline, err := splitInlineRows(value)
-				if err == "" && i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "[") {
-					err = "the rows continue on the next line; write all of them inline or one row per line under `rows: [`"
+				// Una fila en las líneas de abajo (con o sin líneas en blanco de
+				// por medio) no se puede sumar a un valor en línea ni dejar caer
+				// en silencio: es el mismo TABLE007.
+				if next := nextNonBlank(lines, i+1); err == "" && next >= 0 && isRowLine(lines[next], expectedIndent) {
+					err = fmt.Sprintf("the rows continue on line %d; write all of them inline or one row per line under `rows: [`", ctx.Position(next).Line)
 				}
 				if err != "" {
 					diags = append(diags, inlineRowsDiagnostic(ctx.Mode, err, rowPos))
@@ -237,25 +241,61 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				consumed++
 				continue
 			}
-			// Process rows array
+			// Una fila por línea, después de `rows: [` (o de `rows:` solo). Antes
+			// solo contaba una línea que empezara exactamente con seis espacios y
+			// "[": una fila con otra sangría (una TABLE dentro de una columna,
+			// sangría de tab) o después de una línea en blanco salía del bucle y
+			// el de afuera la descartaba sin aviso. Ahora es fila toda línea que
+			// empieza con "[" y no tiene menos sangría que el cuerpo de la TABLE;
+			// las líneas en blanco entre filas no cortan la lista. Lo que no se
+			// puede leer como fila es TABLE007, nunca un descarte callado.
 			consumed++
 			i++
 			for i < len(lines) {
 				rowLine := lines[i]
-				if !strings.HasPrefix(rowLine, "      [") {
+				rowTrimmed := strings.TrimSpace(rowLine)
+				if rowTrimmed == "" {
+					if next := nextNonBlank(lines, i); next >= 0 && isRowLine(lines[next], expectedIndent) {
+						consumed += next - i
+						i = next
+						continue
+					}
 					i-- // Back up one line
 					break
 				}
-
-				rowTrimmed := strings.TrimSpace(rowLine)
-				if strings.HasPrefix(rowTrimmed, "[") && strings.HasSuffix(rowTrimmed, "],") {
-					rowTrimmed = strings.TrimSuffix(rowTrimmed, ",")
+				if expectedIndent > 0 && CalculateIndentLevel(rowLine) < expectedIndent {
+					i--
+					break
 				}
-				if strings.HasPrefix(rowTrimmed, "[") && strings.HasSuffix(rowTrimmed, "]") {
-					rowStr := trimInlineArrayBrackets(rowTrimmed)
-					rows = append(rows, splitInlineArray(rowStr))
-					rowPositions = append(rowPositions, ctx.Position(i))
+				// El "]" que cierra `rows: [`.
+				if rowTrimmed == "]" || rowTrimmed == "]," {
+					consumed++
+					break
 				}
+				if strings.HasPrefix(rowTrimmed, "[") {
+					if strings.HasSuffix(rowTrimmed, "],") {
+						rowTrimmed = strings.TrimSuffix(rowTrimmed, ",")
+					}
+					if strings.HasSuffix(rowTrimmed, "]") {
+						rowStr := trimInlineArrayBrackets(rowTrimmed)
+						rows = append(rows, splitInlineArray(rowStr))
+						rowPositions = append(rowPositions, ctx.Position(i))
+					} else {
+						diags = append(diags, rowsDiagnostic(ctx.Mode, fmt.Sprintf(
+							"TABLE rows: %q is not a complete row; write each row as [\"a\", \"b\"] on its own line. The table gets no row from this line", rowTrimmed), ctx.Position(i)))
+					}
+					consumed++
+					i++
+					continue
+				}
+				// Lo que el bucle de afuera sabe leer después de las filas: otra
+				// propiedad o una fila de tabla con "|".
+				if isTableProperty(rowTrimmed) || strings.Contains(rowTrimmed, "|") {
+					i--
+					break
+				}
+				diags = append(diags, rowsDiagnostic(ctx.Mode, fmt.Sprintf(
+					"TABLE rows: %q is not a row; write each row as [\"a\", \"b\"] on its own line. The table gets no row from this line", rowTrimmed), ctx.Position(i)))
 				consumed++
 				i++
 			}
@@ -410,6 +450,39 @@ type yamlTableRowCellEntry struct {
 	Rowspan int    `yaml:"rowspan"`
 }
 
+// nextNonBlank devuelve el índice de la primera línea con texto desde from, o
+// -1 si no hay.
+func nextNonBlank(lines []string, from int) int {
+	for k := from; k < len(lines); k++ {
+		if strings.TrimSpace(lines[k]) != "" {
+			return k
+		}
+	}
+	return -1
+}
+
+// isRowLine dice si line es una fila de `rows:` de este TABLE: empieza con "["
+// y no tiene menos sangría que el cuerpo (bodyIndent, la de sus propiedades).
+func isRowLine(line string, bodyIndent int) bool {
+	if !strings.HasPrefix(strings.TrimSpace(line), "[") {
+		return false
+	}
+	return bodyIndent <= 0 || CalculateIndentLevel(line) >= bodyIndent
+}
+
+// tableProperties son las claves que parseYAMLTable reconoce en el cuerpo de
+// un TABLE.
+var tableProperties = []string{"headers:", "rows:", "cells:", "tableRows:", "caption:", "label:"}
+
+func isTableProperty(trimmed string) bool {
+	for _, p := range tableProperties {
+		if strings.HasPrefix(trimmed, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // splitInlineRows parte el valor de `rows:` escrito en una sola línea
 // (`[["a","b"],["c","d"]]`) en el texto de cada fila (`["a","b"]`), que el
 // llamador lee con trimInlineArrayBrackets/splitInlineArray igual que una fila
@@ -484,11 +557,16 @@ func splitInlineRows(value string) ([]string, string) {
 }
 
 // inlineRowsDiagnostic es el diagnóstico TABLE007 de un `rows:` en línea que
-// no se puede leer. Las filas no llegan al AST, así que en strict es un error
-// (el dialecto no pierde contenido en silencio); en flex, un warning, como el
-// TABLE004 de un `cells:` inválido.
+// no se puede leer.
 func inlineRowsDiagnostic(mode, detail string, pos diagnostics.Position) diagnostics.Diagnostic {
-	msg := fmt.Sprintf("TABLE rows: could not read the inline value (%s); the table gets no rows from it", detail)
+	return rowsDiagnostic(mode, fmt.Sprintf("TABLE rows: could not read the inline value (%s); the table gets no rows from it", detail), pos)
+}
+
+// rowsDiagnostic es el TABLE007: algo escrito como filas de `rows:` que no se
+// pudo leer. Esas filas no llegan al AST, así que en strict es un error (el
+// dialecto no pierde contenido en silencio); en flex, un warning, como el
+// TABLE004 de un `cells:` inválido.
+func rowsDiagnostic(mode, msg string, pos diagnostics.Position) diagnostics.Diagnostic {
 	if mode == "strict" {
 		return diagnostics.NewError(msg, pos, "table-parser").WithRuleID("TABLE007")
 	}

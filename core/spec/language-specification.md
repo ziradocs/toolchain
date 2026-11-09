@@ -223,6 +223,15 @@ and a warning in flex, and gives the table no rows. `rows: []` is a table with
 no rows (`TABLE002`). Earlier versions read only the one-per-line form and gave
 the inline one zero rows with only `TABLE002`.
 
+In the one-per-line form, a row is any line that starts with `[` and is indented
+at least as deep as the `TABLE`'s properties; blank lines between rows do not end
+the list, and a line `]` closes it. A line among the rows that is not a complete
+row (`["a", "b"` with no closing bracket, `"a", "b"` with none at all) is
+`TABLE007` on that line, with the same severities, and the other rows are kept.
+The list ends at the next property (`caption:`, `label:`…) or `|` row. Earlier
+versions only read rows indented exactly six spaces and dropped any other row,
+and any row after a blank line, without a diagnostic.
+
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser
 infers the value from where the image sits, and the two dialects read that
