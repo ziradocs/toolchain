@@ -685,9 +685,10 @@ func (d *themeDeriver) tableHeaderLink(thBg, thFg string) {
 // (la página, una alerta, el encabezado de la tabla...), pero su fondo es
 // siempre --doclang-kbd-bg. Si alguno de esos textos no se lee sobre él, la
 // tecla lleva color propio: el texto del cuerpo o, si tampoco, el negro o el
-// blanco de siempre. Una superficie cuyo fondo no se puede medir (el
-// degradado literal del encabezado de la tabla) no cuenta, como no cuenta
-// para las tintas.
+// blanco de siempre. A diferencia de las tintas, aquí cuenta también una
+// superficie cuyo fondo no se puede medir (el degradado literal del
+// encabezado de la tabla): la tecla pinta su propio fondo, que sí se mide, y
+// el texto que hereda de esa superficie se conoce.
 func (d *themeDeriver) kbdColor(bodyText string, surfaces []inkSurface) {
 	if d.defined("kbd-color") {
 		return
@@ -695,9 +696,7 @@ func (d *themeDeriver) kbdColor(bodyText string, surfaces []inkSurface) {
 	bg := d.resolved("kbd-bg", cssFallbacks["kbd-bg"])
 	inherited := []string{bodyText}
 	for _, s := range surfaces {
-		if _, ok := a11y.ContrastRatio("#000000", s.bg); ok {
-			inherited = append(inherited, s.fg)
-		}
+		inherited = append(inherited, s.fg)
 	}
 	for _, fg := range inherited {
 		if !reads(fg, minTextContrast, bg) {
@@ -736,10 +735,29 @@ func (d *themeDeriver) codePairs(text, stripe, sheet string) {
 	if text != "" {
 		textRef = codeCandidate{textColorRef, text, viewerDarkText}
 	}
-	d.selfPainted("code-inline-bg", "code-inline-color",
-		[]string{stripe, sheet, codeBg, "#1e1e1e", text},
-		[]codeCandidate{{codeInlineDeepColor, codeInlineDeepColor, codeInlineDeepColor}, textRef,
-			{codeColor, codeColor, codeColor}})
+	// Sin ninguna mitad del par, el rosa literal no se lee sobre el gris
+	// literal (3.59:1) ni sobre el fondo del modo oscuro (3.61:1). El texto
+	// del tema (como referencia) se lee en el modo oscuro; en el claro, sobre
+	// el gris literal si el tema es claro, y si no, sobre la hoja o el fondo
+	// del bloque de código del tema, que pasa a ser el del código en línea.
+	fullPair := false
+	if !d.defined("code-inline-bg") && !d.defined("code-inline-color") && text != "" &&
+		!reads(text, minTextContrast, cssFallbacks["code-inline-bg"]) {
+		for _, bg := range []string{sheet, codeBg} {
+			if bg != "" && reads(text, minTextContrast, bg) {
+				d.set("code-inline-bg", bg)
+				d.set("code-inline-color", textColorRef)
+				fullPair = true
+				break
+			}
+		}
+	}
+	if !fullPair {
+		d.selfPainted("code-inline-bg", "code-inline-color",
+			[]string{stripe, sheet, codeBg, "#1e1e1e", text},
+			[]codeCandidate{{codeInlineDeepColor, codeInlineDeepColor, codeInlineDeepColor}, textRef,
+				{codeColor, codeColor, codeColor}})
+	}
 	d.selfPainted("code-bg", "code-color",
 		[]string{stripe, sheet, cssFallbacks["code-bg"], text},
 		[]codeCandidate{textRef, {"#1a202c", "#1a202c", "#1a202c"}})

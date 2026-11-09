@@ -149,10 +149,10 @@ fixed colors. A variable the theme defines itself always wins.
   - **Keys** inherit the text of wherever they are, but always sit on `--doclang-kbd-bg`. If any of
     those texts (the page, a table, a table header, a blockquote, a special block, a panel, the
     quiz) would not read on it, the key gets `--doclang-kbd-color`: the theme's text color, or
-    black or white. A surface whose background cannot be measured (the default gradient of the
-    table header) does not count, so a key there keeps the header's white text, as in the embedded
-    themes. A theme's own `--doclang-kbd-color` is used when deciding whether the key's background
-    has to change.
+    black or white. This includes a table header with the default gradient: the gradient cannot
+    be measured, but the key paints its own background and would inherit the header's white text.
+    A theme's own `--doclang-kbd-color` is used when deciding whether the key's background has to
+    change.
   - **Inline code** paints its own background, so only its pair is checked: if
     `--doclang-code-inline-color` does not read on `--doclang-code-inline-bg`, the half the theme
     did not set is filled in. A missing background takes the table stripe, the page, the code
@@ -160,9 +160,10 @@ fixed colors. A variable the theme defines itself always wins.
     color takes the first of a darker pink (`#c2185b`), the theme's text color or the code block's
     color that reads on the background and does not read worse than before in the viewer's dark
     mode (see the limitation below); the theme's text color goes in as `var(--doclang-text-color)`,
-    so that dark mode repaints it. With neither half in a light theme, the pink `#e83e8c` (3.59:1 on
-    its gray) becomes the theme's text color; in a dark theme it stays. The code block, which also
-    paints its own background, follows the same rule with `--doclang-code-bg` and
+    so that dark mode repaints it. With neither half, the pink `#e83e8c` (3.59:1 on its gray, 3.61:1
+    in dark mode) becomes the theme's text color; in a dark theme, whose text does not read on the
+    gray, the background becomes the page (or the code block's background) too. The code block,
+    which also paints its own background, follows the same rule with `--doclang-code-bg` and
     `--doclang-code-color`. A pair the theme set completely is left as is.
 
   A background that cannot be measured (the default gradient of the table header, when the theme
@@ -195,7 +196,8 @@ fixed colors. A variable the theme defines itself always wins.
 `table-stripe`, `table-header`, `panel`, `blockquote`, `callout-<kind>` or `quiz`, and `<color>` is
 `danger`, `info`, `success`, `warning` or `accent`. The CSS copies each of these into an internal
 `--_doclang-ink-<color>` (and the table links into `--_doclang-table-link`), which is not part of
-the theme contract: a theme should not define it. doclang may also fill in these
+the theme contract: a theme variable whose name starts with `--_doclang-` is dropped with a
+warning. doclang may also fill in these
 contract variables for an external theme, under the same rules: `--doclang-danger-color`,
 `--doclang-info-color`, `--doclang-success-color`, `--doclang-warning-color`,
 `--doclang-accent-color`, `--doclang-kbd-color`, `--doclang-table-color`, `--doclang-code-inline-bg`,
@@ -220,8 +222,8 @@ page. With an external theme, a filled-in link color (`--doclang-body-link-color
 `--doclang-table-link-color`, `--doclang-table-stripe-link-color`) can fall under 4.5:1 on the
 dark page, as it already could before.
 The code colors are the exception: they are only filled in when they do not read worse than before
-on the dark mode's code background, which is why, with an external theme that sets no
-`--doclang-code-inline-color`, a dark theme keeps the pink inline code.
+on the dark mode's code background (dark mode also replaces the code backgrounds, so a filled-in
+code background does not matter there).
 
 In PDF and `offline-*` HTML, Mermaid diagrams, maps and charts are inserted as images without a
 panel around them: Mermaid follows the diagram colors of the theme, and charts and maps keep their

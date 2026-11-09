@@ -170,18 +170,28 @@ func TestHTMLThemeVariables_CodeInlinePair(t *testing.T) {
 	}
 
 	// Ninguna mitad: el rosa literal da 3.59:1 sobre su gris y 3.61:1 sobre
-	// el fondo del modo oscuro. En un tema claro el texto del tema lo mejora
-	// en los dos modos; en uno oscuro ningún candidato se lee sobre el gris
-	// claro sin empeorar el modo oscuro, y se queda el rosa.
+	// el fondo del modo oscuro. Un tema claro toma el texto del tema (como
+	// referencia) sobre el gris; uno oscuro, el par completo: la hoja de
+	// fondo y el texto del tema.
 	light := map[string]string{"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#2c3e50"}
-	if c := htmlThemeVariables(light, true)["--doclang-code-inline-color"]; c != textColorRef {
-		t.Errorf("sin par, tema claro: code-inline-color = %q, want %s", c, textColorRef)
+	got = htmlThemeVariables(light, true)
+	if got["--doclang-code-inline-color"] != textColorRef {
+		t.Errorf("sin par, tema claro: code-inline-color = %q, want %s", got["--doclang-code-inline-color"], textColorRef)
 	}
-	if c, ok := htmlThemeVariables(minimalDarkVars(), true)["--doclang-code-inline-color"]; ok {
-		t.Errorf("sin par, tema oscuro: code-inline-color = %q, debe quedar el rosa literal", c)
+	if v, ok := got["--doclang-code-inline-bg"]; ok {
+		t.Errorf("sin par, tema claro: code-inline-bg = %q, debe quedar el gris literal", v)
 	}
-	// El rosa oscuro (#c2185b) se lee sobre el gris, pero en el modo oscuro
-	// daría 2.34:1 contra 3.61:1 del literal: no se usa.
+	got = htmlThemeVariables(minimalDarkVars(), true)
+	if got["--doclang-code-inline-bg"] != "#0f172a" || got["--doclang-code-inline-color"] != textColorRef {
+		t.Errorf("sin par, tema oscuro: bg=%q color=%q, want #0f172a y %s",
+			got["--doclang-code-inline-bg"], got["--doclang-code-inline-color"], textColorRef)
+	}
+	// En el modo oscuro del viewer el fondo pasa a #2d2d2d y el texto a
+	// #e0e0e0: se lee.
+	if !reads(viewerDarkText, minTextContrast, viewerDarkCodeBg) {
+		t.Error("el texto del modo oscuro no se lee sobre su fondo de código")
+	}
+	// El rosa oscuro (#c2185b) daría 2.34:1 en el modo oscuro: no se usa.
 	for _, v := range []map[string]string{light, minimalDarkVars()} {
 		if c := htmlThemeVariables(v, true)["--doclang-code-inline-color"]; c == codeInlineDeepColor {
 			t.Error("el rosa oscuro empeora el modo oscuro del viewer")
@@ -299,12 +309,13 @@ func TestHTMLThemeVariables_TableLinkInsteadOfLoweringBodyLink(t *testing.T) {
 	checkPairs(t, "midgray", midgray, true)
 }
 
-// El encabezado con el degradado literal no se puede medir: no cuenta para
-// decidir el color de la tecla (como no cuenta para las tintas).
-func TestHTMLThemeVariables_KbdIgnoresUnmeasurableHeader(t *testing.T) {
+// La tecla pinta su propio fondo (medible) aunque el encabezado tenga el
+// degradado literal, y hereda su texto blanco: blanco sobre #f7f7f7 (1.07:1)
+// cuenta para decidir el color de la tecla.
+func TestHTMLThemeVariables_KbdInsideUnmeasurableHeader(t *testing.T) {
 	light := map[string]string{"--doclang-page-bg": "#ffffff", "--doclang-text-color": "#0f172a"}
-	if v, ok := htmlThemeVariables(light, true)["--doclang-kbd-color"]; ok {
-		t.Errorf("kbd-color = %q: el único texto que no se lee es el del degradado literal", v)
+	if c := htmlThemeVariables(light, true)["--doclang-kbd-color"]; c != "#0f172a" {
+		t.Errorf("kbd-color = %q, want el texto del cuerpo #0f172a", c)
 	}
 }
 

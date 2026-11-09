@@ -333,19 +333,6 @@ func checkPairs(t *testing.T, name string, theme map[string]string, strict bool)
 		if (p.fg[0] == "--doclang-table-link-color" || p.fg[0] == "--doclang-table-stripe-link-color") && !reads(resolve(after, tableText), minTextContrast, resolve(after, p.bg)) {
 			continue
 		}
-		// El código en línea sin ninguna mitad en el tema conserva el rosa
-		// literal (3.59:1) cuando ningún color lo mejora sin empeorarlo en
-		// el modo oscuro del viewer (ver codePairs).
-		_, hasBg := theme["--doclang-code-inline-bg"]
-		_, hasFg := theme["--doclang-code-inline-color"]
-		exempt := p.what == "código en línea" && !hasBg && !hasFg
-		// La tecla dentro de un encabezado con el degradado literal (sin
-		// --doclang-table-header-bg) no cuenta al decidir su color, como el
-		// resto de lo que va sobre un fondo que no se puede medir: conserva
-		// el texto blanco del encabezado, como en los temas embebidos.
-		if _, ok := a11y.ContrastRatio("#000000", resolve(after, []string{"--doclang-table-header-bg", "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"})); !ok && p.what == "tecla en table-header" {
-			exempt = true
-		}
 		rb, okb := a11y.ContrastRatio(resolve(theme, p.fg), resolve(theme, p.bg))
 		ra, oka := a11y.ContrastRatio(resolve(after, p.fg), resolve(after, p.bg))
 		if !oka {
@@ -354,7 +341,7 @@ func checkPairs(t *testing.T, name string, theme map[string]string, strict bool)
 		if okb && ra < rb-0.01 && ra < p.min {
 			t.Errorf("%s: %s empeora de %.2f a %.2f (%s sobre %s)", name, p.what, rb, ra, resolve(after, p.fg), resolve(after, p.bg))
 		}
-		if strict && ra < p.min && !exempt {
+		if strict && ra < p.min {
 			t.Errorf("%s: %s queda en %.2f, menos de %.1f (%s sobre %s)", name, p.what, ra, p.min, resolve(after, p.fg), resolve(after, p.bg))
 		}
 	}
