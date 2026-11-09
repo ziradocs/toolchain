@@ -6,7 +6,9 @@ package cli
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -15,7 +17,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -163,7 +167,9 @@ func buildFigureFilter(t *testing.T, mode string) string {
 	return script
 }
 
-func writeTestPNG(t *testing.T, path string, w, h int) []byte {
+// writeTestPNG escribe un PNG de w×h; con dpi > 0 le agrega un chunk pHYs
+// después del IHDR, como el de un render a devicePixelRatio 2 (192 DPI).
+func writeTestPNG(t *testing.T, path string, w, h int, dpi float64) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for x := 0; x < w; x++ {
@@ -173,10 +179,23 @@ func writeTestPNG(t *testing.T, path string, w, h int) []byte {
 	if err := png.Encode(&buf, img); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+	data := buf.Bytes()
+	if dpi > 0 {
+		ppm := uint32(dpi/0.0254 + 0.5)
+		body := binary.BigEndian.AppendUint32(nil, ppm)
+		body = binary.BigEndian.AppendUint32(body, ppm)
+		body = append(body, 1)
+		chunk := binary.BigEndian.AppendUint32(nil, uint32(len(body)))
+		chunk = append(chunk, "pHYs"...)
+		chunk = append(chunk, body...)
+		chunk = binary.BigEndian.AppendUint32(chunk, crc32.ChecksumIEEE(chunk[4:]))
+		ihdrEnd := 8 + 8 + 13 + 4
+		data = append(append(append([]byte{}, data[:ihdrEnd]...), chunk...), data[ihdrEnd:]...)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return buf.Bytes()
+	return data
 }
 
 type figureBuild struct {
@@ -192,8 +211,9 @@ func newFigureBuild(t *testing.T, mode string) *figureBuild {
 	if err := os.WriteFile(filepath.Join(b.dir, "doc.doclang"), []byte(figureFilterFixture), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	b.eqPNG = writeTestPNG(t, filepath.Join(b.dir, "eq.png"), 120, 30)
-	writeTestPNG(t, filepath.Join(b.dir, "fig.png"), 200, 100)
+	// 400x80 a 192 DPI: 200x40 px CSS, 2.08 in.
+	b.eqPNG = writeTestPNG(t, filepath.Join(b.dir, "eq.png"), 400, 80, 192)
+	writeTestPNG(t, filepath.Join(b.dir, "fig.png"), 300, 150, 0) // 3.125 in, distinto de la ecuación
 	return b
 }
 
@@ -306,7 +326,7 @@ func TestBuild_FilterPrerendersEquationsAndReplacesFigures(t *testing.T) {
 
 	// HTML: número, ancla, leyenda, render y el \ref que apunta al ancla.
 	for _, want := range []string{
-		`<div class="math-block" id="eq-a"><img src="eq.png" alt="E = mc^2" class="math-diagram math-image"><span class="math-number">(1)</span><div class="math-caption">Energía</div></div>`,
+		`<div class="math-block" id="eq-a"><img src="eq.png" alt="E = mc^2" class="math-diagram math-image" style="width:200px;max-width:100%"><span class="math-number">(1)</span><div class="math-caption">Energía</div></div>`,
 		`href="#eq-a"`,
 		`Ecuación 1`,
 	} {
@@ -319,7 +339,7 @@ func TestBuild_FilterPrerendersEquationsAndReplacesFigures(t *testing.T) {
 	// no hace falta Chromium (--chromium-path apunta a un archivo que no
 	// existe; si se pidiera, el build fallaría).
 	inline := string(b.run(t, "html", "--render-mode", "offline-inline"))
-	if !strings.Contains(inline, `id="eq-a"><img src="data:image/png;base64,`) || !strings.Contains(inline, `(1)</span>`) {
+	if !strings.Contains(inline, `id="eq-a"><img src="data:image/png;base64,`) || !strings.Contains(inline, `style="width:200px;max-width:100%"><span class="math-number">(1)</span>`) {
 		t.Error("HTML offline-inline sin el render inlineado o sin número")
 	}
 
@@ -333,6 +353,16 @@ func TestBuild_FilterPrerendersEquationsAndReplacesFigures(t *testing.T) {
 	}
 	if strings.Contains(document, "no disponible") {
 		t.Error("DOCX dejó un marcador de no disponible")
+	}
+	// El mismo tamaño que en HTML/PDF: 200 px CSS = 2.083 in ≈ 1905000 EMU
+	// (192 DPI en pHYs es 7559 px/m, de ahí la diferencia de redondeo).
+	sized := false
+	for _, m := range regexp.MustCompile(`<wp:extent cx="(\d+)"`).FindAllStringSubmatch(document, -1) {
+		cx, _ := strconv.Atoi(m[1])
+		sized = sized || (cx > 1904000 && cx < 1906000)
+	}
+	if !sized {
+		t.Error("DOCX no puso la ecuación a 2.08 in")
 	}
 	found := false
 	for _, m := range media {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"mime"
 	"net/url"
 	"os"
@@ -1153,13 +1154,21 @@ func renderMathElement(elem *ast.MathElement, variables map[string]interface{}, 
 // math-image-v1). La fuente se resuelve con las mismas reglas que la de una
 // imagen de bloque (renderImageElement): una remota no se pide en las salidas
 // de build salvo --allow-remote-images, una local se inlinea como data: URI
-// en offline-inline (la ruta del PDF, que se imprime desde about:blank) y
-// queda confinada a AssetRoot, y lo demás pasa por SanitizeURL. El texto
-// alternativo es el LaTeX. Una fuente que no se puede mostrar deja el
-// marcador de ecuación no disponible, sin caer a componer el LaTeX: el
-// filtro pidió ese render, y en offline eso pediría Chromium.
+// en offline-inline (la ruta del PDF, que se imprime desde about:blank)
+// después de confinarla a AssetRoot, una que escapa de AssetRoot en
+// offline-assets no se muestra, y lo demás pasa por SanitizeURL (en browser
+// el src relativo queda como está, igual que el de una imagen). El texto
+// alternativo es el LaTeX. Un PNG local con pHYs va a su tamaño físico
+// (mathImageCSSWidth), el mismo que le da el DOCX. Una fuente que no se
+// puede mostrar deja el marcador de ecuación no disponible, sin caer a
+// componer el LaTeX: el filtro pidió ese render, y en offline eso pediría
+// Chromium.
 func renderMathImage(image, latex string, variables map[string]interface{}, ctx *RenderContext) string {
 	source := ProcessVariables(image, variables)
+	style := ""
+	if width, ok := mathImageCSSWidth(source, ctx); ok {
+		style = ` style="width:` + strconv.FormatFloat(math.Round(width*100)/100, 'f', -1, 64) + `px;max-width:100%"`
+	}
 	if remoteImageBlocked(source, ctx) {
 		return unavailableDiv("math-error", unavailableEquation, ctx)
 	}
@@ -1176,7 +1185,7 @@ func renderMathImage(image, latex string, variables map[string]interface{}, ctx 
 		ctx.Logger.Warn("[MATH] equation image %q blocked: unsafe URL", image)
 		return unavailableDiv("math-error", unavailableEquation, ctx)
 	}
-	return fmt.Sprintf(`<img src="%s" alt="%s" class="math-diagram math-image">`, source, EscapeHTMLAttribute(latex))
+	return fmt.Sprintf(`<img src="%s" alt="%s" class="math-diagram math-image"%s>`, source, EscapeHTMLAttribute(latex), style)
 }
 
 // renderMathBrowser genera HTML para renderizado browser (CDN, client-side).

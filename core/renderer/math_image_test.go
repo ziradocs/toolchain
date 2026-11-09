@@ -4,6 +4,11 @@
 package renderer
 
 import (
+	"bytes"
+	"encoding/binary"
+	"hash/crc32"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,10 +52,11 @@ func TestRenderMathElement_Image(t *testing.T) {
 	// Una fuente que no se puede mostrar deja el marcador de ecuación, con
 	// el número y el ancla.
 	for name, tc := range map[string]struct{ mode, image string }{
-		"falta el archivo":      {"offline-inline", "no-existe.png"},
-		"fuera de la raíz":      {"offline-inline", "../fuera.png"},
-		"protocolo peligroso":   {"browser", "javascript:alert(1)"},
-		"remota en PDF/offline": {"offline-inline", "https://example.com/eq.png"},
+		"falta el archivo":                   {"offline-inline", "no-existe.png"},
+		"fuera de la raíz":                   {"offline-inline", "../fuera.png"},
+		"fuera de la raíz en offline-assets": {"offline-assets", "../fuera.png"},
+		"protocolo peligroso":                {"browser", "javascript:alert(1)"},
+		"remota en PDF/offline":              {"offline-inline", "https://example.com/eq.png"},
 	} {
 		ctx := NewDefaultRenderContext()
 		ctx.MathMode, ctx.ImageMode, ctx.AssetRoot = tc.mode, tc.mode, dir
@@ -73,5 +79,72 @@ func TestHasMathElements_Nested(t *testing.T) {
 	doc.ContentBlocks = []ast.ContentBlock{*block}
 	if !HasMathElements(doc) {
 		t.Fatal("la fórmula anidada no se detectó")
+	}
+}
+
+// pngWithPHYs codifica un PNG de w×h y, con dpi > 0, le agrega un chunk pHYs
+// (píxeles por metro) después del IHDR.
+func pngWithPHYs(t *testing.T, w, h int, dpi float64) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, w, h))); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
+	if dpi <= 0 {
+		return data
+	}
+	ppm := uint32(dpi/0.0254 + 0.5)
+	body := binary.BigEndian.AppendUint32(nil, ppm)
+	body = binary.BigEndian.AppendUint32(body, ppm)
+	body = append(body, 1)
+	chunk := binary.BigEndian.AppendUint32(nil, uint32(len(body)))
+	chunk = append(chunk, "pHYs"...)
+	chunk = append(chunk, body...)
+	chunk = binary.BigEndian.AppendUint32(chunk, crc32.ChecksumIEEE(chunk[4:]))
+	ihdrEnd := 8 + 8 + 13 + 4
+	out := append([]byte{}, data[:ihdrEnd]...)
+	out = append(out, chunk...)
+	return append(out, data[ihdrEnd:]...)
+}
+
+// Un render previo PNG con pHYs va a su tamaño físico en HTML/PDF (Chromium
+// ignora pHYs), el mismo que le da el DOCX; sin pHYs queda como antes. Las
+// imágenes de bloque normales no cambian.
+func TestRenderMathElement_ImageSizedByPHYs(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string][]byte{
+		"narrow-192.png": pngWithPHYs(t, 400, 80, 192),
+		"wide-192.png":   pngWithPHYs(t, 1280, 200, 192),
+		"narrow.png":     pngWithPHYs(t, 400, 80, 0),
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, mode := range []string{"browser", "offline-assets", "offline-inline"} {
+		for image, want := range map[string]string{
+			"narrow-192.png":             ` style="width:200px;max-width:100%">`,
+			"wide-192.png":               ` style="width:640px;max-width:100%">`, // topa con la columna por max-width
+			"narrow.png":                 `class="math-diagram math-image">`,
+			"https://example.com/eq.png": `class="math-diagram math-image">`,
+		} {
+			if mode != "browser" && strings.HasPrefix(image, "https:") {
+				continue // remota bloqueada en salidas de build
+			}
+			ctx := NewDefaultRenderContext()
+			ctx.MathMode, ctx.ImageMode, ctx.AssetRoot = mode, mode, dir
+			out := renderMathElement(labeledMath(image), nil, ctx)
+			if !strings.Contains(out, want) {
+				t.Errorf("%s %s: falta %q en %s", mode, image, want, out)
+			}
+		}
+		ctx := NewDefaultRenderContext()
+		ctx.ImageMode, ctx.AssetRoot = mode, dir
+		img := ast.NewImageElement(diagnostics.NewPosition(1, 1), "narrow-192.png", "foto")
+		if out := renderImageElement(img, nil, ctx); strings.Contains(out, "style=") {
+			t.Errorf("%s: una imagen de bloque cambió de tamaño: %s", mode, out)
+		}
 	}
 }

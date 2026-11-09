@@ -65,7 +65,8 @@ The package's `MAJOR.MINOR` tracks `schemaVersion`'s `MAJOR.MINOR` 1:1 (CI fails
   the other capabilities. The element stays `math`: `label`, `number`,
   `caption` and `\ref` are unchanged and `content` keeps the LaTeX. It has no
   source syntax; an external filter that pre-renders equations sets it, and
-  `fmt` rejects it as unrepresentable.
+  `fmt` rejects it as unrepresentable. A local PNG render with `pHYs` is sized
+  by it (pixels × 96 / DPI CSS px) in HTML, PDF and DOCX.
 - External filters: a capability left declared without its content is
   removed from the filter's output, and `schemaVersion` is lowered to match,
   before the output is validated. A `math-source-v1` filter may replace every
