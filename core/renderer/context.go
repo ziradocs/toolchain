@@ -146,6 +146,9 @@ type RenderContext struct {
 	renderLine int
 	// mapTiles es el servidor de tiles propio de SetMapTileServer.
 	mapTiles mapTileServer
+	// reportedKeptAssets son las fuentes que reportMissingKeptAsset ya
+	// reportó.
+	reportedKeptAssets map[string]bool
 }
 
 // SetUnavailableReporter registra fn para que reciba, mientras se genera la

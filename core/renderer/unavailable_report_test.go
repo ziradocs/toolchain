@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -103,5 +104,59 @@ func TestUnavailableReporter_DefaultIsSilent(t *testing.T) {
 	}
 	if got := RenderElementToHTML(ast.NewImageElement(diagnostics.NewPosition(1, 1), "falta.png", "A"), nil, nil); got == "" {
 		t.Fatal("empty render with nil ctx")
+	}
+}
+
+// TestUnavailableReporter_OfflineAssetsKeepsMissing: HTML offline-assets
+// deja el src relativo de una imagen local aunque el archivo no exista; el
+// HTML no cambia, pero se reporta, una vez por fuente (un grid vuelve a
+// resolver las imágenes de sus hijos).
+func TestUnavailableReporter_OfflineAssetsKeepsMissing(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ok.png"), []byte("PNG"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := NewDefaultRenderContext()
+	ctx.ImageMode = "offline-assets"
+	ctx.AssetRoot = root
+	got := collectUnavailable(ctx)
+	at := func(line int) diagnostics.Position { return diagnostics.NewPosition(line, 1) }
+	grid := ast.NewGridElement(at(20))
+	grid.Columns = []ast.ColumnElement{{Elements: []ast.Element{ast.NewTextElement(at(21), "x ![g](falta-grid.png)")}}}
+	html := ""
+	for _, el := range []ast.Element{
+		ast.NewImageElement(at(3), "falta.png", "A"),
+		ast.NewImageElement(at(4), "ok.png", "B"),
+		ast.NewTextElement(at(5), "t ![i](falta-inline.png) ![j](ok.png)"),
+		grid,
+	} {
+		html += RenderElementToHTML(el, nil, ctx)
+	}
+	if !strings.Contains(html, `src="falta.png"`) {
+		t.Errorf("the offline-assets HTML changed: %s", html)
+	}
+	want := []reportedUnavailable{{"image", 3, "falta.png"}, {"image", 5, "falta-inline.png"}, {"image", 21, "falta-grid.png"}}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("reported %v, want %v", *got, want)
+	}
+}
+
+// TestUnavailableReporter_Media: un video sin fuente, con una fuente
+// bloqueada o local que no se pudo inlinear en offline-inline (el PDF) se
+// reporta como medio no disponible.
+func TestUnavailableReporter_Media(t *testing.T) {
+	ctx, _ := offlineInlineCtx(t)
+	got := collectUnavailable(ctx)
+	at := func(line int) diagnostics.Position { return diagnostics.NewPosition(line, 1) }
+	video := func(line int, src string) *ast.MediaElement {
+		m := ast.NewMediaElement(at(line), "video", src)
+		return m
+	}
+	for _, el := range []ast.Element{video(3, ""), video(4, "javascript:alert(1)"), video(5, "no-existe.mp4")} {
+		RenderElementToHTML(el, nil, ctx)
+	}
+	want := []reportedUnavailable{{"media", 3, ""}, {"media", 4, "javascript:alert(1)"}, {"media", 5, "no-existe.mp4"}}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("reported %v, want %v", *got, want)
 	}
 }
