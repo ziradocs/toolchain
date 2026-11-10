@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // TextParser maneja elementos de texto (fallback parser)
@@ -267,8 +268,9 @@ func (p *TextParser) isOtherElementType(line string, mode string) bool {
 		return true
 	}
 
-	// Code blocks (markdown style)
-	if strings.HasPrefix(line, "```") {
+	// Code blocks (markdown style): una cerca que de verdad abre
+	// (internal/fence); ```js` … es prosa.
+	if fence.Open(line) > 0 {
 		return true
 	}
 

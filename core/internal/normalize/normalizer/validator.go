@@ -6,6 +6,8 @@ package normalizer
 import (
 	"fmt"
 	"strings"
+
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // ValidationResult contiene el resultado de la validación
@@ -255,10 +257,11 @@ func (v *Validator) validateChartBlock(lines []string, startIndex int, result *V
 	hasType := false
 	hasTitle := false
 
+	open := fence.Open(strings.TrimSpace(lines[startIndex]))
 	for i := startIndex + 1; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
 
-		if line == "```" {
+		if fence.Closes(line, open) {
 			endFound = true
 			break
 		}

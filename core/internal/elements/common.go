@@ -8,6 +8,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -457,7 +458,7 @@ func IsNewElement(line string, mode string) bool {
 			strings.HasPrefix(trimmed, "- ") || // Lists
 			strings.HasPrefix(trimmed, "* ") || // Lists
 			strings.HasPrefix(trimmed, "+ ") || // Lists
-			strings.HasPrefix(trimmed, "```") || // Code blocks
+			fence.Open(trimmed) > 0 || // Code blocks
 			strings.HasPrefix(trimmed, "![") || // Images
 			strings.HasPrefix(trimmed, "|") || // Tables
 			strings.HasPrefix(trimmed, "> ") || // Quotes
@@ -564,10 +565,11 @@ func closesInlineTagOnce(rest string) bool {
 // líneas ocupadas por el bloque completo (apertura + cuerpo + cierre).
 func collectFencedBody(lines []string, startIndex int) (body string, consumed int) {
 	consumed = 1 // la línea de apertura
+	ticks := fence.Open(strings.TrimSpace(lines[startIndex]))
 	var bodyLines []string
 	for i := startIndex + 1; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
-		if trimmed == "```" || trimmed == "````" {
+		if fence.Closes(trimmed, ticks) {
 			consumed++
 			return strings.Join(bodyLines, "\n"), consumed
 		}
@@ -582,5 +584,5 @@ func collectFencedBody(lines []string, startIndex int) (body string, consumed in
 // real y MermaidParser no toleran sufijos). Compartido por Chart/Map para no
 // duplicar la condición en cada CanParse.
 func isFencedBlockOpener(trimmedLine, lang string) bool {
-	return trimmedLine == "```"+lang || trimmedLine == "````"+lang
+	return fence.Open(trimmedLine) > 0 && fence.Info(trimmedLine) == lang
 }

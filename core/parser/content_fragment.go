@@ -15,6 +15,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -127,7 +128,7 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 			// The native flex parser owns the payload; an unclosed fence has no
 			// authority to consume the rest of an arbitrary fragment silently.
 			end := i + result.ConsumedLines - 1
-			if end >= len(lines) || strings.TrimSpace(lines[end]) != "```" {
+			if end >= len(lines) || end == i || !fence.Closes(strings.TrimSpace(lines[end]), fence.Open(strings.TrimSpace(lines[i]))) {
 				diags = append(diags, diagnostics.NewError("unclosed CODE fence", ctx.Position(i), "content-markdown"))
 				return nil, diags
 			}

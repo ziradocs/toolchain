@@ -11,6 +11,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/renderer"
 )
 
@@ -282,7 +283,7 @@ func (p *ImageParser) hasTextAfter(ctx *ParseContext, startIndex int) bool {
 		}
 
 		// Si encuentra otra imagen o elemento especial, no es texto descriptivo
-		if strings.HasPrefix(line, "![") || strings.HasPrefix(line, "```") ||
+		if strings.HasPrefix(line, "![") || fence.Open(line) > 0 ||
 			strings.HasPrefix(line, ":::") || strings.HasPrefix(line, "---") {
 			return false
 		}

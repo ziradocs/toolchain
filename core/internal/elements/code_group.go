@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // CodeGroupParser maneja grupos de código (::::code-group o :::code-group)
@@ -83,11 +84,13 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		}
 
 		// Look for start of code block ```language [label]
-		if strings.HasPrefix(line, "```") {
+		if ticks := fence.Open(line); ticks > 0 {
 			// ```lenguaje [etiqueta]: la etiqueta es todo lo que va entre los
 			// corchetes, espacios incluidos. Antes se partía por espacios y
-			// una etiqueta como [With Visualization] se perdía sin aviso.
-			language, rest, _ := strings.Cut(strings.TrimSpace(line[3:]), " ")
+			// una etiqueta como [With Visualization] se perdía sin aviso. La
+			// cerca sigue la regla de internal/fence, como un bloque de
+			// código suelto.
+			language, rest, _ := strings.Cut(strings.TrimSpace(line[ticks:]), " ")
 			rest = strings.TrimSpace(rest)
 			label := ""
 			if rest != "" {
@@ -108,7 +111,7 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 			// Collect code content until ```
 			for i < len(ctx.Lines) {
 				line := ctx.Lines[i]
-				if strings.TrimSpace(line) == "```" {
+				if fence.Closes(strings.TrimSpace(line), ticks) {
 					// Found code block end
 					consumed++ // Skip closing ```
 					break

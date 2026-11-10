@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // Tipos de región literal que reconoce literalScanner: el cuerpo de un CODE
@@ -41,12 +42,14 @@ type literalScanner struct {
 	literal          string
 	codeHeaderIndent int
 	diagramIndent    int
-	groupFence       bool
-	fenceClose       string
+	// fenceTicks son los backticks de la cerca abierta, groupTicks los de la
+	// cerca de una pestaña de :::code-group (internal/fence).
+	fenceTicks int
+	groupTicks int
 }
 
 func newLiteralScanner(strict, flexCodeHeaders bool) literalScanner {
-	return literalScanner{strict: strict, flexCodeHeaders: flexCodeHeaders, codeHeaderIndent: -1, diagramIndent: -1, fenceClose: "```"}
+	return literalScanner{strict: strict, flexCodeHeaders: flexCodeHeaders, codeHeaderIndent: -1, diagramIndent: -1}
 }
 
 // step consume line y devuelve la región literal en la que está ("" si en
@@ -74,8 +77,9 @@ func (s *literalScanner) step(line string) string {
 		current := s.literal
 		switch s.literal {
 		case literalFence:
-			if trimmed == s.fenceClose {
+			if fence.Closes(trimmed, s.fenceTicks) {
 				s.literal = ""
+				return current
 			}
 		case literalDiagram:
 			if trimmed == "<<end>>" {
@@ -90,24 +94,26 @@ func (s *literalScanner) step(line string) string {
 				s.literal = ""
 			}
 		case literalGroup:
-			if strings.HasPrefix(trimmed, "```") {
-				s.groupFence = !s.groupFence
-			}
-			if trimmed == ":::" && !s.groupFence {
+			// Las cercas de cada pestaña siguen la misma regla que el
+			// code-group (internal/fence): un ":::" dentro de una cerca es
+			// código, no el cierre del grupo.
+			if s.groupTicks > 0 {
+				if fence.Closes(trimmed, s.groupTicks) {
+					s.groupTicks = 0
+				}
+			} else if n := fence.Open(trimmed); n > 0 {
+				s.groupTicks = n
+			} else if trimmed == ":::" {
 				s.literal = ""
 			}
 		}
-		if s.literal != "" || trimmed == s.fenceClose || trimmed == "<<end>>" || trimmed == ":::" || trimmed == "$$" || trimmed == "@enduml" {
+		if s.literal != "" || trimmed == "<<end>>" || trimmed == ":::" || trimmed == "$$" || trimmed == "@enduml" {
 			return current
 		}
 	}
-	if strings.HasPrefix(trimmed, "```") {
+	if n := fence.Open(trimmed); n > 0 {
 		s.literal = literalFence
-		if strings.HasPrefix(trimmed, "````") {
-			s.fenceClose = "````"
-		} else {
-			s.fenceClose = "```"
-		}
+		s.fenceTicks = n
 		return s.literal
 	}
 	if trimmed == "$$" {
@@ -125,7 +131,7 @@ func (s *literalScanner) step(line string) string {
 	}
 	if strings.HasPrefix(trimmed, ":::code-group") {
 		s.literal = literalGroup
-		s.groupFence = false
+		s.groupTicks = 0
 		return s.literal
 	}
 	codeHeader := false

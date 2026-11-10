@@ -4,15 +4,11 @@
 package enhancement
 
 import (
-	"regexp"
 	"strings"
 
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
-
-// mermaidCodeBlockPattern se compila una sola vez a nivel de paquete en vez
-// de en cada llamada a Apply (ver docs/SECURITY_AUDIT_2026-07.md, BA-9).
-var mermaidCodeBlockPattern = regexp.MustCompile(`(?s)` + "`" + `{3}mermaid\s*\n(.*?)\n` + "`" + `{3}`)
 
 // MermaidRule convierte bloques de código Mermaid de formato markdown (```mermaid) al formato SlideLang (<<mermaid>>)
 type MermaidRule struct{}
@@ -23,37 +19,46 @@ func NewMermaidRule() *MermaidRule {
 }
 
 func (r *MermaidRule) Apply(content string) (string, error) {
-	// Buscar todas las coincidencias de bloques mermaid de markdown
-	// (```mermaid\n[contenido]\n```)
-	matches := mermaidCodeBlockPattern.FindAllStringSubmatch(content, -1)
-	if len(matches) == 0 {
+	// Buscar los bloques ```mermaid … ``` línea por línea, con la regla de
+	// cercas del parser (internal/fence): abre una cerca cuyo info string es
+	// "mermaid" y cierra una línea de solo backticks, al menos tantos como la
+	// apertura. Antes un regexp (```mermaid … ```) también tomaba un
+	// ````mermaid y cerraba en cualquier línea que empezara con ```.
+	lines := strings.Split(content, "\n")
+	var out []string
+	changed := false
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		ticks := fence.Open(trimmed)
+		if ticks == 0 || fence.Info(trimmed) != "mermaid" {
+			out = append(out, lines[i])
+			continue
+		}
+		end := -1
+		for j := i + 1; j < len(lines); j++ {
+			if fence.Closes(strings.TrimSpace(lines[j]), ticks) {
+				end = j
+				break
+			}
+		}
+		if end < 0 {
+			// Sin cierre no hay bloque: queda como está, igual que antes.
+			out = append(out, lines[i:]...)
+			break
+		}
+		indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
+		block := indent + "<<mermaid>>"
+		if clean := r.cleanMermaidContent(strings.Join(lines[i+1:end], "\n")); strings.TrimSpace(clean) != "" {
+			block += "\n" + clean
+		}
+		out = append(out, block)
+		changed = true
+		i = end
+	}
+	if !changed {
 		return content, nil
 	}
-
-	result := content
-
-	// Procesar cada bloque mermaid encontrado (en orden inverso para mantener índices)
-	for i := len(matches) - 1; i >= 0; i-- {
-		match := matches[i]
-		if len(match) >= 2 {
-			fullMatch := match[0]      // Todo el bloque ```mermaid...```
-			mermaidContent := match[1] // Solo el contenido interno
-
-			// Limpiar y formatear el contenido mermaid
-			cleanContent := r.cleanMermaidContent(mermaidContent)
-
-			// Crear el bloque en formato SlideLang
-			slideLangBlock := "<<mermaid>>"
-			if strings.TrimSpace(cleanContent) != "" {
-				slideLangBlock += "\n" + cleanContent
-			}
-
-			// Reemplazar en el contenido
-			result = strings.Replace(result, fullMatch, slideLangBlock, 1)
-		}
-	}
-
-	return result, nil
+	return strings.Join(out, "\n"), nil
 }
 
 // cleanMermaidContent limpia y formatea correctamente el contenido mermaid

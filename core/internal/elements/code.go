@@ -54,12 +54,13 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			Error:         err,
 		}
 	} else {
-		element, consumed, err := p.parseFlexCode(ctx, startIndex, pos, line)
+		element, consumed, diags, err := p.parseFlexCode(ctx, startIndex, pos, line)
 		ctx.recordCode(startIndex, consumed)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,
 			Error:         err,
+			Diagnostics:   diags,
 		}
 	}
 }
@@ -191,12 +192,32 @@ func commonIndentPrefix(lines []string) (string, bool) {
 	return prefix, seen
 }
 
+// LongerClosingFenceRuleID es el aviso de una cerca de código que cierra con
+// una línea de más backticks que la apertura.
+const LongerClosingFenceRuleID = "CODE002"
+
+// longerClosingFenceWarning es el CODE002: la cerca abierta con ticks
+// backticks cerró en la línea i, que tiene más. Con la regla de CommonMark es
+// el cierre; antes solo cerraba una línea "```" exacta y esa línea quedaba
+// como contenido del bloque, así que el documento cambió de significado.
+func longerClosingFenceWarning(ctx *ParseContext, i, ticks int, closing string) diagnostics.Diagnostic {
+	return diagnostics.NewWarning(fmt.Sprintf(
+		"the code block opened with %d backticks closes at %q, a line of %d backticks; earlier versions kept that line as code. To keep it as code, open the block with more backticks than it has",
+		ticks, closing, len(closing)), ctx.Position(i), "code-parser").WithRuleID(LongerClosingFenceRuleID)
+}
+
 // parseFlexCode handles flex mode code parsing: ```language
-func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, error) {
-	// ```lenguaje [archivo] o ```lenguaje title="archivo"
-	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[3:]))
-	open := fence.Open(line)
+func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, []diagnostics.Diagnostic, error) {
+	// ```lenguaje [archivo] o ```lenguaje title="archivo". La cerca puede
+	// tener más de tres backticks (````md para mostrar un bloque con ```
+	// adentro) y cierra con al menos tantos (internal/fence).
+	ticks := fence.Open(line)
+	if ticks == 0 {
+		ticks = 3
+	}
+	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[ticks:]))
 	consumedLines := 1 // skip opening ``` line
+	var diags []diagnostics.Diagnostic
 
 	var content strings.Builder
 	lineCount := 0
@@ -205,8 +226,13 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
 
-		if fence.Closes(strings.TrimSpace(line), open) {
+		if trimmed := strings.TrimSpace(line); fence.Closes(trimmed, ticks) {
 			consumedLines++ // count closing ```
+			// Solo una cerca de tres backticks cambió de cierre: antes la
+			// cerraba únicamente una línea "```" exacta.
+			if ticks == 3 && len(trimmed) > ticks {
+				diags = append(diags, longerClosingFenceWarning(ctx, i, ticks, trimmed))
+			}
 			break
 		}
 
@@ -220,7 +246,7 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 
 	codeElement := ast.NewCodeElement(pos, language, content.String())
 	codeElement.Filename = filename
-	return codeElement, consumedLines, headerErr
+	return codeElement, consumedLines, diags, headerErr
 }
 
 // parseFenceInfo separa la línea de info de una fence (```ts renewals.ts o

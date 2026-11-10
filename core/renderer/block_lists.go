@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // Listas de un PointsElement, de un ChecklistElement y de la prosa de una
@@ -480,7 +481,10 @@ func startsOtherBodyBlock(trimmed string) bool {
 	if isBodyThematicBreak(trimmed) || strings.Trim(trimmed, "-") == "" {
 		return true
 	}
-	for _, prefix := range []string{"<<", "$$", "@", ":::", ">", "|", "#", "```", "~~~", "<", "![", `\[`} {
+	if fence.Open(trimmed) > 0 {
+		return true
+	}
+	for _, prefix := range []string{"<<", "$$", "@", ":::", ">", "|", "#", "~~~", "<", "![", `\[`} {
 		if strings.HasPrefix(trimmed, prefix) {
 			return true
 		}

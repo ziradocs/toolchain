@@ -4,6 +4,7 @@
 package formatter
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -955,15 +956,31 @@ func TestFlexToStrict_TypedBlockFenceShapes(t *testing.T) {
 	}
 }
 
+// A fence longer than three backticks around a ``` line now round-trips: the
+// parser reads it with the CommonMark rule (internal/fence), and strict writes
+// it as it was. Earlier the inner ``` closed the block and the shape was
+// refused.
+func TestFlexToStrict_TypedBlockFourBacktickFenceRoundTrips(t *testing.T) {
+	src := "---\nmode: flex\n---\n\n## One\n\n:::card\n````md\n```go\n  x := 1\n```\n````\n:::\n"
+	doc := parseSlides(t, src)
+	out, err := FormatStrict(doc)
+	if err != nil {
+		t.Fatalf("FormatStrict: %v", err)
+	}
+	a, _ := json.Marshal(doc.ContentBlocks[0].Elements)
+	b, _ := json.Marshal(parseSlides(t, out).ContentBlocks[0].Elements)
+	if string(a) != string(b) {
+		t.Errorf("the AST changed across flex -> strict:\n%s\n%s", a, b)
+	}
+}
+
 // What strict cannot give back is refused by name, never written with a changed
-// AST: a fence longer than three backticks, and a code group inside a block
-// (alone or next to a fence of the same language, which must not be paired with
-// the group's fences).
+// AST: a code group inside a block (alone or next to a fence of the same
+// language, which must not be paired with the group's fences).
 func TestFlexToStrict_TypedBlockFenceShapesRefusedByName(t *testing.T) {
 	cases := map[string]string{
-		"four backticks around three": "---\nmode: flex\n---\n\n## One\n\n:::card\n````md\n```go\n  x := 1\n```\n````\n:::\n",
-		"code group alone":            "---\nmode: flex\n---\n\n## One\n\n:::card\n:::code-group\n```go [A]\n  a := 1\n```\n```js [B]\n  b = 2\n```\n:::\n:::\n",
-		"code group then fence":       "---\nmode: flex\n---\n\n## One\n\n:::card\n:::code-group\n```go [A]\n  a := 1\n```\n```js [B]\n  b = 2\n```\n:::\n```go\n  c := 3\n```\n:::\n",
+		"code group alone":      "---\nmode: flex\n---\n\n## One\n\n:::card\n:::code-group\n```go [A]\n  a := 1\n```\n```js [B]\n  b = 2\n```\n:::\n:::\n",
+		"code group then fence": "---\nmode: flex\n---\n\n## One\n\n:::card\n:::code-group\n```go [A]\n  a := 1\n```\n```js [B]\n  b = 2\n```\n:::\n```go\n  c := 3\n```\n:::\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {

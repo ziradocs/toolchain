@@ -3,7 +3,11 @@
 
 package elements
 
-import "strings"
+import (
+	"strings"
+
+	"go.ziradocs.com/core/v2/internal/fence"
+)
 
 // keepListIndent devuelve una línea del cuerpo de una cita o de un ":::bloque"
 // tal como la guarda Content. Una línea de prosa sale sin sangría, como
@@ -99,7 +103,12 @@ func StartsOtherBlock(trimmed string) bool {
 	if trimmed == "" || isThematicBreak(trimmed) || strings.Trim(trimmed, "-") == "" {
 		return true
 	}
-	for _, prefix := range []string{"<<", "$$", "@", ":::", ">", "|", "#", "```", "~~~", "<", "![", `\[`} {
+	// Una cerca abre otro bloque; una línea que empieza con ``` pero no la
+	// abre (internal/fence) es texto del item.
+	if fence.Open(trimmed) > 0 {
+		return true
+	}
+	for _, prefix := range []string{"<<", "$$", "@", ":::", ">", "|", "#", "~~~", "<", "![", `\[`} {
 		if strings.HasPrefix(trimmed, prefix) {
 			return true
 		}

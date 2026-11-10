@@ -191,6 +191,19 @@ such a header was an error, because the code-filename contract rejects a filenam
 that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
+A code fence (flex, and inside a typed or code-group block) follows CommonMark
+with backticks: it opens with three or more backticks followed by an info string
+with no backticks, and closes at a line of only backticks at least as long as the
+opening. A `` ````md `` block can therefore hold a ```` ``` ```` line as content, and a
+line that starts with ```` ``` ```` but has a backtick in its info string is prose.
+Fenced diagrams and data (`mermaid`, `plantuml`, `chart`, `map`) use the same rule.
+Earlier versions closed a code fence only at an exact ```` ``` ```` line, whatever the
+opening, and diagram fences at ```` ``` ```` or `` ```` ``. One consequence changes
+existing documents: a line of four or more backticks inside a ```` ``` ```` fence now
+closes it, where it used to be code; that closing line gets the `CODE002`
+warning. `doclang fmt` writes a longer fence when the code holds a line of
+backticks.
+
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next
 line with text is indented deeper than the `QUOTE` keyword: it stays inside as

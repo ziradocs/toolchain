@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // MermaidParser maneja el parsing de diagramas Mermaid
@@ -25,7 +26,7 @@ func (p *MermaidParser) CanParse(line string, mode string) bool {
 	switch mode {
 	case "flex":
 		// Detectar code blocks de Markdown con lenguaje "mermaid"
-		if strings.HasPrefix(trimmed, "```mermaid") || strings.HasPrefix(trimmed, "````mermaid") {
+		if fence.Open(trimmed) > 0 && strings.HasPrefix(fence.Info(trimmed), "mermaid") {
 			return true
 		}
 	}
@@ -43,7 +44,8 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	openingLine := strings.TrimSpace(ctx.Lines[startIndex])
 
 	// Detectar formato: <<mermaid>> o ```mermaid
-	isMarkdownFormat := strings.HasPrefix(openingLine, "```mermaid") || strings.HasPrefix(openingLine, "````mermaid")
+	ticks := fence.Open(openingLine)
+	isMarkdownFormat := ticks > 0 && strings.HasPrefix(fence.Info(openingLine), "mermaid")
 
 	consumedLines := 1 // skip opening line (<<mermaid>> or ```mermaid)
 	var contentLines []string
@@ -55,8 +57,9 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			line := ctx.Lines[i]
 			trimmed := strings.TrimSpace(line)
 
-			// Terminar al encontrar closing backticks
-			if trimmed == "```" || trimmed == "````" {
+			// Terminar en la cerca de cierre (internal/fence: solo backticks,
+			// al menos tantos como la apertura)
+			if fence.Closes(trimmed, ticks) {
 				consumedLines++
 				break
 			}

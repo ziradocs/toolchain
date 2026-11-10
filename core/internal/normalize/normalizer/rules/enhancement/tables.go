@@ -6,6 +6,7 @@ package enhancement
 import (
 	"strings"
 
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
@@ -84,20 +85,18 @@ func (r *TablesRule) Apply(content string) (string, error) {
 // texto) como el cierre, reabriendo la puerta al mismo bug que esta regla
 // existe para arreglar — encontrado en code-review, no en el corpus.
 func (r *TablesRule) isInCodeFence(lines []string, index int) bool {
-	inFence := false
+	open := 0 // backticks de la cerca abierta: la regla de internal/fence, la del parser
 	for i := 0; i < index && i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
-		if inFence {
-			if line == "```" {
-				inFence = false
+		if open > 0 {
+			if fence.Closes(line, open) {
+				open = 0
 			}
 			continue
 		}
-		if strings.HasPrefix(line, "```") {
-			inFence = true
-		}
+		open = fence.Open(line)
 	}
-	return inFence
+	return open > 0
 }
 
 // isInSpecialBlock detecta si la línea actual está dentro de un bloque especial

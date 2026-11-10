@@ -374,3 +374,18 @@ func TestExpand_FenceInsideAQuoteIsNotCode(t *testing.T) {
 		t.Errorf("the @include between quoted fence lines is not code in the AST and must expand:\n%s", got)
 	}
 }
+
+// Una pestaña de :::code-group con cerca de cuatro backticks guarda un ``` y
+// un ":::" como código, así que el @include que sigue también lo es.
+func TestExpand_CodeGroupTabWithALongerFence(t *testing.T) {
+	files := map[string]string{"/base/frag.md": "Incluido."}
+	src := "# A\n\n:::code-group\n````md [doc]\n```\n:::\n@include frag.md\n````\n:::\n@include frag.md\n"
+	got, err := expandKeep(src, "/base", memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# A\n\n:::code-group\n````md [doc]\n```\n:::\n@include frag.md\n````\n:::\nIncluido.\n"
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}

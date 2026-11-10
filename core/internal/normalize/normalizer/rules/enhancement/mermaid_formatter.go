@@ -6,6 +6,7 @@ package enhancement
 import (
 	"strings"
 
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
@@ -31,13 +32,12 @@ func (r *MermaidFormatterRule) Apply(content string) (string, error) {
 		line := lines[i]
 
 		// Detectar inicio/fin de bloques de código markdown
-		if strings.HasPrefix(strings.TrimSpace(line), "```") || strings.HasPrefix(strings.TrimSpace(line), "````") {
+		// Cercas con la regla de internal/fence, la del parser.
+		if t := strings.TrimSpace(line); (!inCodeBlock && fence.Open(t) > 0) || (inCodeBlock && fence.Closes(t, fence.Open(codeBlockDelimiter))) {
 			if !inCodeBlock {
 				inCodeBlock = true
-				codeBlockDelimiter = strings.TrimSpace(line)
-			} else if strings.TrimSpace(line) == strings.Split(codeBlockDelimiter, ":")[0] ||
-				strings.TrimSpace(line) == "```" ||
-				strings.TrimSpace(line) == "````" {
+				codeBlockDelimiter = t
+			} else {
 				inCodeBlock = false
 				codeBlockDelimiter = ""
 			}
@@ -153,7 +153,7 @@ func (r *MermaidFormatterRule) isEndOfMermaidBlock(line string, lines []string, 
 		}
 
 		// Bloques de código - definitivamente fin del bloque
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "````") {
+		if fence.Open(trimmed) > 0 {
 			return true
 		}
 

@@ -10,10 +10,10 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
-
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/internal/codespan"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/layouts"
 )
 
@@ -1050,7 +1050,8 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 	next := 0
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		if next >= len(codes) || !strings.HasPrefix(lines[i], "```") {
+		ticks := fence.Open(lines[i])
+		if next >= len(codes) || ticks == 0 {
 			continue
 		}
 		code := codes[next]
@@ -1061,7 +1062,7 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 		}
 		closing := -1
 		for j := i + 1; j < len(lines); j++ {
-			if lines[j] == "```" {
+			if fence.Closes(lines[j], ticks) {
 				closing = j
 				break
 			}
@@ -1109,18 +1110,17 @@ func formatCodeGroup(e *ast.CodeGroupElement) (string, error) {
 		if strings.TrimSpace(cb.Label) != cb.Label || strings.ContainsAny(cb.Label, "\r\n") {
 			return "", newUnsupported("code_group", "tab label cannot preserve edge whitespace or line breaks")
 		}
-		for _, line := range strings.Split(cb.Content, "\n") {
-			if strings.TrimSpace(line) == "```" {
-				return "", newUnsupported("code_group", "payload contains a closing code fence")
-			}
-		}
-		fmt.Fprintf(&b, "```%s", cb.Language)
+		// La cerca de la pestaña es más larga que cualquier línea de backticks
+		// del contenido (internal/fence), así que un ``` adentro ya no la
+		// cierra al releer.
+		f := fence.For(cb.Content)
+		fmt.Fprintf(&b, "%s%s", f, cb.Language)
 		if cb.Label != "" {
 			fmt.Fprintf(&b, " [%s]", cb.Label)
 		}
 		b.WriteString("\n")
 		b.WriteString(cb.Content)
-		b.WriteString("\n```\n")
+		b.WriteString("\n" + f + "\n")
 	}
 	b.WriteString(":::")
 	return b.String(), nil

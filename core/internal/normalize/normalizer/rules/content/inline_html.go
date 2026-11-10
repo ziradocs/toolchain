@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
@@ -74,17 +75,28 @@ func NewInlineHTMLTagsRule() *InlineHTMLTagsRule {
 func (r *InlineHTMLTagsRule) Apply(content string) (string, error) {
 	lines := strings.Split(content, "\n")
 	modified := false
-	inFence := false
+	fenceTicks := 0 // backticks de la cerca abierta (internal/fence)
+	inTildeFence := false
 	inEmbeddedBlock := false
 
 	for i := r.analyzer.SkipFrontmatter(lines); i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
 
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			inFence = !inFence
+		if fenceTicks > 0 {
+			if fence.Closes(trimmed, fenceTicks) {
+				fenceTicks = 0
+			}
 			continue
 		}
-		if inFence {
+		if n := fence.Open(trimmed); n > 0 {
+			fenceTicks = n
+			continue
+		}
+		if strings.HasPrefix(trimmed, "~~~") {
+			inTildeFence = !inTildeFence
+			continue
+		}
+		if inTildeFence {
 			continue
 		}
 

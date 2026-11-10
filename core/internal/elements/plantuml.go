@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // PlantUMLParser maneja el parsing de diagramas PlantUML
@@ -29,7 +30,7 @@ func (p *PlantUMLParser) CanParse(line string, mode string) bool {
 			return true
 		}
 		// Detectar code blocks de Markdown con lenguaje "plantuml"
-		if strings.HasPrefix(trimmed, "```plantuml") || strings.HasPrefix(trimmed, "````plantuml") {
+		if fence.Open(trimmed) > 0 && strings.HasPrefix(fence.Info(trimmed), "plantuml") {
 			return true
 		}
 	}
@@ -47,7 +48,8 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	openingLine := strings.TrimSpace(ctx.Lines[startIndex])
 
 	// Detectar formato: <<plantuml>>, @startuml, o ```plantuml
-	isMarkdownFormat := strings.HasPrefix(openingLine, "```plantuml") || strings.HasPrefix(openingLine, "````plantuml")
+	ticks := fence.Open(openingLine)
+	isMarkdownFormat := ticks > 0 && strings.HasPrefix(fence.Info(openingLine), "plantuml")
 	isNativeFormat := strings.HasPrefix(openingLine, "@startuml")
 
 	consumedLines := 1 // Cuenta la línea de apertura (<<plantuml>>, @startuml, o ```plantuml)
@@ -62,7 +64,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			trimmed := strings.TrimSpace(line)
 
 			// Terminar al encontrar closing backticks
-			if trimmed == "```" || trimmed == "````" {
+			if fence.Closes(trimmed, ticks) {
 				consumedLines++
 				break
 			}

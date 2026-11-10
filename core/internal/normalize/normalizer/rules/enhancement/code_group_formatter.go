@@ -6,6 +6,8 @@ package enhancement
 import (
 	"regexp"
 	"strings"
+
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // Patrones compilados una sola vez a nivel de paquete (en vez de en cada
@@ -68,6 +70,7 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 	inCodeItem := false
 	inCodeBlock := false
 	inBareFence := false
+	bareFenceTicks, codeBlockTicks := 0, 0 // backticks de cada cerca (internal/fence)
 	currentLanguage := ""
 	currentTitle := ""
 	var codeBlockContent []string
@@ -100,12 +103,13 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 		// :::code-item{} (ver más abajo), dejando el camino canónico sin
 		// protección — el mismo bug de "code-group pierde tabs" que esta
 		// regla existe para arreglar, en un disparador distinto.
-		if inCodeGroup && !inCodeItem && !inBareFence && strings.HasPrefix(trimmed, "```") {
+		if inCodeGroup && !inCodeItem && !inBareFence && fence.Open(trimmed) > 0 {
 			inBareFence = true
+			bareFenceTicks = fence.Open(trimmed)
 			processedLines = append(processedLines, line)
 			continue
 		}
-		if inBareFence && trimmed == "```" {
+		if inBareFence && fence.Closes(trimmed, bareFenceTicks) {
 			inBareFence = false
 			processedLines = append(processedLines, line)
 			continue
@@ -142,9 +146,10 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 		}
 
 		// Detectar inicio de bloque de código dentro de code-item
-		if inCodeItem && !inCodeBlock && strings.HasPrefix(trimmed, "```") {
+		if inCodeItem && !inCodeBlock && fence.Open(trimmed) > 0 {
 			// Extraer lenguaje del bloque
-			currentLanguage = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+			codeBlockTicks = fence.Open(trimmed)
+			currentLanguage = fence.Info(trimmed)
 			if currentLanguage == "" {
 				currentLanguage = "plaintext"
 			}
@@ -154,15 +159,16 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 		}
 
 		// Detectar fin de bloque de código
-		if inCodeBlock && trimmed == "```" {
+		if inCodeBlock && fence.Closes(trimmed, codeBlockTicks) {
 			// Generar el bloque formateado con título y lenguaje
 			label := ""
 			if currentTitle != "" {
 				label = " [" + currentTitle + "]"
 			}
-			processedLines = append(processedLines, "```"+currentLanguage+label)
+			fenceMark := fence.For(strings.Join(codeBlockContent, "\n"))
+			processedLines = append(processedLines, fenceMark+currentLanguage+label)
 			processedLines = append(processedLines, codeBlockContent...)
-			processedLines = append(processedLines, "```")
+			processedLines = append(processedLines, fenceMark)
 
 			// Reset state
 			inCodeBlock = false

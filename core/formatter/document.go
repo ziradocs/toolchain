@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/renderer"
 )
 
@@ -274,7 +275,17 @@ func formatFlexCode(e *ast.CodeElement) (string, error) {
 		}
 		info += " " + e.Filename
 	}
-	return "```" + info + "\n" + e.Content + "\n```", nil
+	f := CodeFenceFor(e.Content)
+	return f + info + "\n" + e.Content + "\n" + f, nil
+}
+
+// CodeFenceFor devuelve la cerca con la que escribir en Markdown un bloque de
+// código cuyo contenido es content: tres backticks, o uno más que la línea de
+// solo backticks más larga del contenido, que de otro modo cerraría el bloque
+// al releerlo (la regla de cercas de CommonMark que sigue el parser). La usa
+// fmt y la puede usar cualquier exportación a Markdown.
+func CodeFenceFor(content string) string {
+	return fence.For(content)
 }
 
 // formatFlexImage serializa "![alt](source)". No hay forma de portar
