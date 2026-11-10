@@ -5,6 +5,8 @@ package elements
 
 import (
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -350,6 +352,99 @@ func (a *AutoDetectIndentation) ShouldProcessLine(line string, verbose bool, lin
 	return true
 }
 
+// HasStrictKeyword reporta si trimmed (una línea ya sin espacios al inicio)
+// empieza con la palabra clave kw como palabra completa: después de kw solo
+// puede venir el fin de la línea, un espacio (tab y espacios Unicode
+// incluidos), `{` de un atributo (CODE{verbatim}) o `:`. "TEXTO citado",
+// "MAPA norte" o "TEXT-heavy" no empiezan con TEXT ni con MAP (issue #489).
+func HasStrictKeyword(trimmed, kw string) bool {
+	rest, ok := strings.CutPrefix(trimmed, kw)
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return unicode.IsSpace(r) || r == '{' || r == ':'
+}
+
+// startsStrictElementLine es la rama strict de IsNewElement: trimmed abre un
+// elemento por marcador simbólico o por palabra clave. Con wholeWord, la
+// palabra clave tiene que ser palabra completa (HasStrictKeyword); sin él,
+// alcanza el prefijo, como siempre.
+//
+// Los marcadores simbólicos son @ directiva, ::: special block/grid/
+// code-group, << diagrama/chart/map/math y | tabla Markdown. Antes solo se
+// reconocían los keywords en mayúsculas — un CHECKLIST o QUOTE inmediatamente
+// seguido (sin línea en blanco) por, p. ej., un `<<math>>` o `::: info` se
+// tragaba ese elemento hermano como si fuera contenido/continuación propio,
+// en vez de cortar el loop (misma clase de bug que el fix de IMAGE: "strict
+// IMAGE deja de tragarse elementos hermanos").
+//
+// Hay otras listas de palabras clave que siguen por prefijo a propósito:
+// startsStrictElement en parser/strict.go (detección de propiedad en
+// posición de elemento) y startsNewStrictElement en image.go (fin del
+// caption de una IMAGE). Las dos deciden qué hay en posición de elemento,
+// donde el despacho no cambió con el issue #489. strictNewElementKeywords
+// en formatter/strict.go espeja esta lista para el texto de una cita, con el
+// mismo límite de palabra que EndsStrictBody.
+func startsStrictElementLine(trimmed string, wholeWord bool) bool {
+	if len(trimmed) > 0 {
+		switch trimmed[0] {
+		case '@', '|':
+			return true
+		case ':':
+			if strings.HasPrefix(trimmed, ":::") {
+				return true
+			}
+		case '<':
+			if strings.HasPrefix(trimmed, "<<") {
+				return true
+			}
+		}
+	}
+
+	// Keywords que inician elementos en modo estricto
+	keywords := []string{
+		"TEXT", "POINTS", "CODE", "IMAGE", "TABLE",
+		"QUOTE", "CHECKLIST", "MERMAID", "CHART", "MAP",
+		"DIRECTIVE", "SPECIAL_BLOCK", "CODE_GROUP", "MATH",
+		// Encabezado de subsección dentro de un SLIDE (v2.38). Sin él, un
+		// QUOTE o CHECKLIST seguido de un SECTION se tragaba el encabezado
+		// como texto y su node-id quedaba huérfano.
+		"SECTION ",
+	}
+	for _, keyword := range keywords {
+		// "SECTION " ya trae su separador.
+		if !wholeWord || strings.HasSuffix(keyword, " ") {
+			if strings.HasPrefix(trimmed, keyword) {
+				return true
+			}
+			continue
+		}
+		if HasStrictKeyword(trimmed, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// EndsStrictBody dice si line (la línea completa, con su sangría) termina el
+// cuerpo de un QUOTE o un CHECKLIST strict cuya cabecera tiene sangría
+// headerIndent. Una línea más sangrada que la cabecera es del cuerpo salvo que
+// abra otro elemento con la palabra clave completa: "TEXTO citado",
+// "TEXT-heavy" o "MAPA norte" son texto del cuerpo (issue #489). Una línea a
+// la sangría de la cabecera, o menos, está en posición de elemento y corta
+// como siempre, por prefijo: "TEXTO" ahí sigue abriendo un TEXT.
+func EndsStrictBody(line string, headerIndent int) bool {
+	trimmed := strings.TrimSpace(line)
+	if CalculateIndentLevel(line) <= headerIndent {
+		return startsStrictElementLine(trimmed, false)
+	}
+	return startsStrictElementLine(trimmed, true)
+}
+
 // IsNewElement verifica si una línea inicia un nuevo elemento
 // Esta función centraliza la lógica de detección de elementos para evitar duplicación
 // entre diferentes parsers.
@@ -364,48 +459,8 @@ func (a *AutoDetectIndentation) ShouldProcessLine(line string, verbose bool, lin
 func IsNewElement(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
-	if mode == "strict" {
-		// Marcadores simbólicos que inician elementos en modo estricto: @
-		// directiva, ::: special block/grid/code-group, << diagrama/chart/
-		// map/math, | tabla Markdown. Antes solo se reconocían los keywords
-		// en mayúsculas de abajo — un CHECKLIST o QUOTE inmediatamente
-		// seguido (sin línea en blanco) por, p. ej., un `<<math>>` o
-		// `::: info` se tragaba ese elemento hermano como si fuera
-		// contenido/continuación propio, en vez de cortar el loop (misma
-		// clase de bug que el fix de IMAGE: "strict IMAGE deja de tragarse
-		// elementos hermanos"). Espeja startsStrictElement en
-		// parser/strict.go y strictNewElementKeywords en
-		// formatter/strict.go — mantenerlos en sync si esta lista cambia.
-		if len(trimmed) > 0 {
-			switch trimmed[0] {
-			case '@', '|':
-				return true
-			case ':':
-				if strings.HasPrefix(trimmed, ":::") {
-					return true
-				}
-			case '<':
-				if strings.HasPrefix(trimmed, "<<") {
-					return true
-				}
-			}
-		}
-
-		// Keywords que inician elementos en modo estricto
-		keywords := []string{
-			"TEXT", "POINTS", "CODE", "IMAGE", "TABLE",
-			"QUOTE", "CHECKLIST", "MERMAID", "CHART", "MAP",
-			"DIRECTIVE", "SPECIAL_BLOCK", "CODE_GROUP", "MATH",
-			// Encabezado de subsección dentro de un SLIDE (v2.38). Sin él, un
-			// QUOTE o CHECKLIST seguido de un SECTION se tragaba el encabezado
-			// como texto y su node-id quedaba huérfano.
-			"SECTION ",
-		}
-		for _, keyword := range keywords {
-			if strings.HasPrefix(trimmed, keyword) {
-				return true
-			}
-		}
+	if mode == "strict" && startsStrictElementLine(trimmed, false) {
+		return true
 	}
 
 	if mode == "flex" {

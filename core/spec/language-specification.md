@@ -212,6 +212,18 @@ text that is not indented deeper than `QUOTE`, ends the element as before. A
 quote cannot start or end with an empty line. `slidelang fmt` writes a flex
 quote with an empty `>` line this way.
 
+In the body of a `QUOTE` or a `CHECKLIST`, a line indented deeper than the
+`QUOTE` or `CHECKLIST` line starts another element only when the keyword is a
+whole word: followed by the end of the line, a space or tab, `:` or `{`.
+`TEXTO citado`, `TEXT-heavy slides` or `MAPA norte` there are body text, not a
+`TEXT` or `MAP` that ends the body. A line at the indentation of the `QUOTE`
+or `CHECKLIST` line, or less, is in element position: it ends the body and is
+dispatched as before, so `TEXTO` with a body there is still a `TEXT`. Before
+the first item of a `CHECKLIST` there is no item body to protect, so a line
+that starts with the letters of a keyword ends the checklist as before, at
+any indentation. Any other line of a `CHECKLIST` body before its first item
+is discarded with the `CHECKLIST001` warning.
+
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser
 infers the value from where the image sits, and the two dialects read that
