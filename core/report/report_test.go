@@ -66,8 +66,8 @@ func TestWriteReport_JSON(t *testing.T) {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	if res.ReportVersion != "1.1.0" {
-		t.Errorf("Expected reportVersion 1.1.0, got %q", res.ReportVersion)
+	if res.ReportVersion != "1.2.0" {
+		t.Errorf("Expected reportVersion 1.2.0, got %q", res.ReportVersion)
 	}
 
 	if len(res.Rules) != 1 || res.Rules[0].ID != "IMG001" || res.Rules[0].HelpURI != "https://example.com/rules/IMG001" {

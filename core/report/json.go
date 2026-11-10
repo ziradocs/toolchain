@@ -31,7 +31,7 @@ type FindingJSON struct {
 
 func generateJSON(active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic, docPath string, astVersion string, checksum string, rulepacks []string, descriptors []linter.RuleDescriptor) ([]byte, error) {
 	report := ReportJSON{
-		ReportVersion: "1.1.0",
+		ReportVersion: "1.2.0",
 		SchemaVersion: astVersion,
 		Rulepacks:     rulepacks,
 		Rules:         descriptors,

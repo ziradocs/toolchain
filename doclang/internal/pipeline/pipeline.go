@@ -288,16 +288,23 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(doc)
 	allDiagnostics = MergeParserFindings(doc, parserFindings, allDiagnostics)
 	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, doc.FilePath, time.Now())
+	// Los avisos del parser (SPECIAL002, TABLE007…) también pasan por la
+	// política para el reporte: un warning se puede apagar, y si la política
+	// le sube la severidad cuenta como un error de lint.
+	parserActive, parserWaived := policy.Evaluate(ReportableParserDiagnostics(parseDiags), doc.FilePath, time.Now())
 
 	if opts.ReportFormat != "" {
 		outPath := opts.ReportOut
 		descriptors := linter.CollectDescriptors(opts.CustomRules, opts.RulePacks)
 		descriptors = append(descriptors, extDescriptors...)
 		descriptors = linter.NormalizeDescriptors(descriptors)
-		// El reporte lleva también los avisos del parser (SPECIAL002,
-		// TABLE007…), como la tool `lint` del MCP; antes solo salían por log.
-		reported := append(append([]diagnostics.Diagnostic{}, parseDiags...), activeDiags...)
-		if err := report.WriteReport(opts.ReportFormat, outPath, reported, waivedDiags, descriptors, doc, content, opts.ExternalRulepacks); err != nil {
+		// El reporte lleva también los avisos del parser, como la tool `lint`
+		// del MCP; antes solo salían por log. Ordenados por línea.
+		reported := append(append([]diagnostics.Diagnostic{}, parserActive...), activeDiags...)
+		SortByPosition(reported)
+		reportedWaived := append(append([]linter.WaivedDiagnostic{}, parserWaived...), waivedDiags...)
+		SortWaivedByPosition(reportedWaived)
+		if err := report.WriteReport(opts.ReportFormat, outPath, reported, reportedWaived, descriptors, doc, content, opts.ExternalRulepacks); err != nil {
 			return nil, fmt.Errorf("failed to write report: %w", err)
 		}
 		if outPath != "" && outPath != "-" {
@@ -312,6 +319,12 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	}
 
 	lintErrors := false
+	for _, diag := range parserActive {
+		if diag.IsError() {
+			log.Error("LINT: Error at line %d: %s", diag.Position.Line, diag.Message)
+			lintErrors = true
+		}
+	}
 	for _, diag := range activeDiags {
 		if diag.IsError() {
 			log.Error("LINT: Error at line %d: %s", diag.Position.Line, diag.Message)
@@ -321,7 +334,10 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 		}
 	}
 	if lintErrors {
-		return nil, &DiagnosticsError{Stage: StageLint, Diagnostics: append(append([]diagnostics.Diagnostic{}, parseDiags...), activeDiags...)}
+		// Los del parser con la política aplicada: si la política subió un
+		// aviso a error, quien recibe el error (el export del MCP) lo ve como
+		// error.
+		return nil, &DiagnosticsError{Stage: StageLint, Diagnostics: append(append([]diagnostics.Diagnostic{}, parserActive...), activeDiags...)}
 	}
 
 	return &Prepared{

@@ -240,9 +240,9 @@ func TestParse_FrontMatterDiagnosticsStayFileAbsolute(t *testing.T) {
 			"content\n"
 
 		_, diags := New(util.NewNoop()).Parse(content, "deck.slidelang")
-		d := findDiag(diags, "FRONT001")
+		d := findDiag(diags, "FRONT009")
 		if d == nil {
-			t.Fatalf("expected a FRONT001 diagnostic, got: %+v", diags)
+			t.Fatalf("expected a FRONT009 diagnostic, got: %+v", diags)
 		}
 		if got := d.Position.Line; got != 2 {
 			t.Errorf("position.Line = %d, want 2", got)
@@ -277,9 +277,9 @@ func TestParse_FrontMatterDiagnosticsStayFileAbsolute(t *testing.T) {
 			"content\n"
 
 		_, diags := New(util.NewNoop()).ParseDocument(content, "doc.doclang")
-		d := findDiag(diags, "FRONT001")
+		d := findDiag(diags, "FRONT009")
 		if d == nil {
-			t.Fatalf("expected a FRONT001 diagnostic, got: %+v", diags)
+			t.Fatalf("expected a FRONT009 diagnostic, got: %+v", diags)
 		}
 		if got := d.Position.Line; got != 2 {
 			t.Errorf("position.Line = %d, want 2", got)
@@ -356,8 +356,8 @@ func TestParse_FrontMatterWithoutMode_OffsetIsOriginalLength(t *testing.T) {
 	p := New(util.NewNoop())
 	p.SetNormalization(false)
 	astNode, diags := p.Parse(content, "deck.slidelang")
-	if d := findDiag(diags, "FRONT001"); d == nil {
-		t.Fatalf("expected FRONT001 (no mode declared), got: %+v", diags)
+	if d := findDiag(diags, "FRONT009"); d == nil {
+		t.Fatalf("expected FRONT009 (no mode declared), got: %+v", diags)
 	}
 	if len(astNode.ContentBlocks) != 1 {
 		t.Fatalf("ContentBlocks = %d, want 1", len(astNode.ContentBlocks))

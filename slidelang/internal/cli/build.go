@@ -555,17 +555,26 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	allDiagnostics = findings.MergeParserFindings(astNode, parserFindings, allDiagnostics)
 
 	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, astNode.FilePath, time.Now())
+	// Los avisos del parser (SPECIAL002, TABLE007, STRICT003…) también pasan
+	// por la política: un warning se puede apagar, y si la política le sube la
+	// severidad cuenta como un error de lint. Los errores del parser ya
+	// cortaron el build más arriba. Van al reporte y al resumen, no a la lista
+	// de LINT de la consola, porque ya se imprimieron.
+	parserActive, parserWaived := policy.Evaluate(findings.ReportableParserDiagnostics(diagnostics), astNode.FilePath, time.Now())
 
 	if opts.ReportFormat != "" {
 		outPath := opts.ReportOut
 		descriptors := linter.CollectDescriptors(customRules, rulePacks)
 		descriptors = append(descriptors, extDescriptors...)
 		descriptors = linter.NormalizeDescriptors(descriptors)
-		// El reporte lleva también los avisos del parser (SPECIAL002,
-		// TABLE007, STRICT003…): antes solo salían por consola y el reporte
-		// no coincidía con lo que devuelve la tool `lint` del MCP.
-		reported := append(append(activeDiags[:0:0], diagnostics...), activeDiags...)
-		if err := report.WriteReport(opts.ReportFormat, outPath, reported, waivedDiags, descriptors, astNode, content, externalRulepacks); err != nil {
+		// El reporte lleva también los avisos del parser: antes solo salían
+		// por consola y el reporte no coincidía con lo que devuelve la tool
+		// `lint` del MCP. Ordenados por línea.
+		reported := append(append(activeDiags[:0:0], parserActive...), activeDiags...)
+		findings.SortByPosition(reported)
+		reportedWaived := append(append(waivedDiags[:0:0], parserWaived...), waivedDiags...)
+		findings.SortWaivedByPosition(reportedWaived)
+		if err := report.WriteReport(opts.ReportFormat, outPath, reported, reportedWaived, descriptors, astNode, content, externalRulepacks); err != nil {
 			return fmt.Errorf("failed to write report: %w", err)
 		}
 		if outPath != "" && outPath != "-" {
@@ -591,9 +600,14 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 			warningCount++
 		}
 	}
-	// El resumen ("warnings:") cuenta también los avisos del parser, que ya se
-	// imprimieron arriba; si llegó acá, ninguno es error.
-	parserWarnings := len(diagnostics)
+	// El resumen ("warnings:") cuenta también los avisos del parser que la
+	// política deja activos; uno al que la política subió a error cuenta como
+	// error de lint.
+	parserWarnings, parserErrors := countParserSummary(parserActive)
+	errorCount += parserErrors
+	if parserErrors > 0 {
+		hasErrors = true
+	}
 
 	if len(lintDiagnostics) > 0 {
 		util.Info("LINT", "Encontrados %d warnings, %d errores", warningCount, errorCount)
@@ -769,4 +783,19 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	})
 
 	return nil
+}
+
+// countParserSummary cuenta, entre los avisos del parser que quedaron activos
+// después de la política, los warnings y los que la política subió a error.
+// La telemetría (info) no cuenta.
+func countParserSummary(active []diagnostics.Diagnostic) (warnings, errors int) {
+	for _, d := range active {
+		switch {
+		case d.IsError():
+			errors++
+		case d.IsWarning():
+			warnings++
+		}
+	}
+	return warnings, errors
 }

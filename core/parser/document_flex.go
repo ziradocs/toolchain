@@ -216,7 +216,7 @@ func (p *DocumentFlexParser) parseFrontMatter(astNode *ast.AST) {
 // diagnósticos, y cuántas líneas del archivo ocupaba el frontmatter
 // recortado (bodyLineOffset(frontMatter), 0 si no había frontmatter válido).
 // Compartida por los dos dialectos documentales para que ambos traten el
-// frontmatter idéntico: mismas validaciones (FRONT001/002) y, sobre todo,
+// frontmatter idéntico: mismas validaciones (FRONT009, FRONT002…) y, sobre todo,
 // mismo re-encuadre de las líneas — el tercer valor es lo que cada parser
 // suma al construir cada Position, para que las posiciones del CUERPO
 // cuenten desde el ARCHIVO y no desde este recorte (#245).
