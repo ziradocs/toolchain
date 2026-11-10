@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -20,9 +21,11 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.ziradocs.com/core/v2/include"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/renderer/chromium"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/doclang/v2/internal/pipeline"
 )
 
 // plainMarkdown no tiene frontmatter: es el caso que T1 dejó funcionando y
@@ -657,6 +660,44 @@ func TestExport_IncludeRootArgument(t *testing.T) {
 	}
 }
 
+// Los diagnósticos de un archivo incluido llevan su archivo, relativo al
+// documento y sin la raíz absoluta, y su línea en ese archivo: los del
+// linter y también los warnings del generador, con el mensaje diciendo lo
+// mismo que la posición.
+func TestExport_IncludedDiagnosticsPointAtSource(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "broken.png", "esto no es un PNG")
+	f.write(t, "shared/x.md", "## X\n\n```\n```\n\n![rota](broken.png)\n")
+	f.write(t, "chap/main.md", "# Capítulo\n\nUno.\n\nDos.\n\n@include shared/x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	out := exportOK(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "docx", "includeRoot": "."})
+	var code001, image bool
+	for _, d := range out.Diagnostics {
+		if strings.Contains(d.File, f.root) {
+			t.Errorf("File exposes the absolute root: %q", d.File)
+		}
+		if d.RuleID == "CODE001" {
+			code001 = true
+			if d.File != "../shared/x.md" || d.Position.Line != 3 {
+				t.Errorf("CODE001 at %s:%d, want ../shared/x.md:3", d.File, d.Position.Line)
+			}
+		}
+		if d.Source == "generator" && strings.Contains(d.Message, "broken.png") {
+			image = true
+			if d.File != "../shared/x.md" || d.Position.Line != 6 {
+				t.Errorf("image warning at %s:%d, want ../shared/x.md:6", d.File, d.Position.Line)
+			}
+			if !strings.Contains(d.Message, "../shared/x.md:6") || strings.Contains(d.Message, "line ") {
+				t.Errorf("message does not say where the image is: %q", d.Message)
+			}
+		}
+	}
+	if !code001 || !image {
+		t.Errorf("missing CODE001 (%v) or the image warning (%v): %+v", code001, image, out.Diagnostics)
+	}
+}
+
 func TestRedactGenerator(t *testing.T) {
 	f := newExportFixture(t)
 	root, err := newExportRoot(f.root)
@@ -854,5 +895,160 @@ func TestExport_IncludedImagesResolveFromTheirFile(t *testing.T) {
 	}
 	if !found {
 		t.Error("la imagen del archivo incluido no se resolvió desde su carpeta")
+	}
+}
+
+// Un archivo incluido dos veces deja una sola vez cada diagnóstico suyo en
+// el export: el del linter y el warning del generador.
+func TestExport_IncludedTwiceReportsEachDiagnosticOnce(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "broken.png", "esto no es un PNG")
+	f.write(t, "shared/x.md", "## X\n\n```\n```\n\n![rota](broken.png)\n")
+	f.write(t, "chap/main.md", "# Capítulo\n\n@include shared/x.md\n\n# Otro\n\n@include shared/x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	out := exportOK(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "docx", "includeRoot": "."})
+	var code001, image int
+	for _, d := range out.Diagnostics {
+		if d.RuleID == "CODE001" {
+			code001++
+		}
+		if d.Source == "generator" && strings.Contains(d.Message, "broken.png") {
+			image++
+		}
+	}
+	if code001 != 1 || image != 1 {
+		t.Errorf("CODE001 %d times and the image warning %d times, want once each: %+v", code001, image, out.Diagnostics)
+	}
+}
+
+// El "line N" de un warning del generador es solo el que pone el generador
+// ("DOCX: line N: …", "… at line N was not rendered"). Uno que venga dentro
+// de una ruta o de un error ajeno no es una posición y no se reescribe: una
+// imagen "line 3.png" en un archivo incluido no se vuelve
+// "../shared/x.md:1.png".
+func TestExport_GeneratorLineIsOnlyTheGeneratorPrefix(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "shared/line 3.png", "esto no es un PNG")
+	f.write(t, "shared/x.md", "## X\n\nTexto ![a](<line 3.png>) aquí.\n")
+	f.write(t, "chap/main.md", "# C\n\n@include shared/x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+	out := exportOK(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "docx", "includeRoot": "."})
+	found := false
+	for _, d := range out.Diagnostics {
+		if d.Source != "generator" || !strings.Contains(d.Message, "inline image") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, `line 3.png"`) || d.File != "" || d.Position.Line != 0 {
+			t.Errorf("the image name was taken as a position: %q at %s:%d", d.Message, d.File, d.Position.Line)
+		}
+	}
+	if !found {
+		t.Fatalf("no inline image warning in %+v", out.Diagnostics)
+	}
+}
+
+func TestGeneratorLine(t *testing.T) {
+	for _, c := range []struct {
+		msg  string
+		line int
+		span string
+	}{
+		{"DOCX: line 12: image \"a.png\" not found", 12, "line 12"},
+		{"DOCX: line 4: failed to render equation: Parse error on line 9", 4, "line 4"},
+		{"DOCX: mermaid diagram (flowchart) at line 7 was not rendered: Chromium is not available.", 7, "line 7"},
+		{"DOCX: equation at line 8 was not rendered: Chromium is not available.", 8, "line 8"},
+		{"DOCX: chart (bar) at line 9 was not rendered: Chromium is not available.", 9, "line 9"},
+		{"DOCX: Failed to render mermaid: Parse error on line 3:", 0, ""},
+		{"DOCX: inline image \"line 3.png\" could not be inserted: bad", 0, ""},
+		{"THEME: failed to load theme \"line 2\"", 0, ""},
+	} {
+		line, start, end := generatorLine(c.msg)
+		if line != c.line || (line > 0 && c.msg[start:end] != c.span) {
+			t.Errorf("%q: line %d span [%d:%d], want %d %q", c.msg, line, start, end, c.line, c.span)
+		}
+	}
+}
+
+// Un archivo incluido, una o dos veces, deja en el export los mismos
+// diagnósticos que su texto escrito en el documento, con la misma cantidad
+// por línea: dos enlaces javascript: en una línea son dos hallazgos, y dos
+// imágenes que faltan en una línea son dos warnings del generador.
+func TestExport_IncludedKeepsSameLineDiagnostics(t *testing.T) {
+	body := "See [a](javascript:x) and [b](javascript:x) here.\n\n" +
+		"| c | d |\n|---|---|\n| [e](javascript:z) | [f](javascript:z) |\n\n" +
+		"- uno [g](javascript:y)\n- dos [h](javascript:y)\n\n" +
+		"Img ![](a b.png) and ![](a b.png).\n\nFaltan ![](falta.png) y ![](falta.png).\n"
+	head := "# A\n\n"
+	f := newExportFixture(t)
+	f.write(t, "x.md", body)
+	f.write(t, "root.md", head+body)
+	f.write(t, "once.md", head+"@include x.md\n")
+	f.write(t, "twice.md", head+"@include x.md\n\n# B\n\n@include x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+	// summary cuenta los hallazgos del linter por "regla línea:columna
+	// mensaje", con la línea contada desde el comienzo del cuerpo, y los
+	// warnings del generador de las imágenes que faltan.
+	summary := func(path, file string, offset int) (lint map[string]int, missing int) {
+		t.Helper()
+		out := exportOK(t, s, ctx, map[string]any{"path": path, "format": "docx", "overwrite": true})
+		lint = map[string]int{}
+		for _, d := range out.Diagnostics {
+			if d.Source == "generator" {
+				if strings.Contains(d.Message, "falta.png") {
+					missing++
+				}
+				continue
+			}
+			if d.File != file {
+				t.Errorf("%s: diagnostic in %q, want %q: %+v", path, d.File, file, d)
+				continue
+			}
+			lint[fmt.Sprintf("%s %d:%d %s", d.RuleID, d.Position.Line-offset, d.Position.Column, d.Message)]++
+		}
+		return lint, missing
+	}
+	wantLint, wantMissing := summary("root.md", "", strings.Count(head, "\n"))
+	n := 0
+	for _, c := range wantLint {
+		n += c
+	}
+	if n != 8 || wantMissing != 2 {
+		t.Fatalf("the body gives %d lint findings and %d missing-image warnings in the document, want 8 and 2: %v", n, wantMissing, wantLint)
+	}
+	// Los warnings de imagen inline no traen línea, así que no se llevan al
+	// archivo incluido ni se desduplican: dos expansiones dan cuatro.
+	for path, perCopy := range map[string]int{"once.md": 1, "twice.md": 2} {
+		lint, missing := summary(path, "x.md", 0)
+		if fmt.Sprint(lint) != fmt.Sprint(wantLint) || missing != perCopy*wantMissing {
+			t.Errorf("%s: lint %v and %d missing-image warnings, want %v and %d", path, lint, missing, wantLint, perCopy*wantMissing)
+		}
+	}
+}
+
+// generatorDiagnostics conserva dos warnings idénticos con línea de una
+// misma expansión de un archivo incluido, y quita los de otra expansión.
+func TestGeneratorDiagnosticsKeepsSameExpansionCopies(t *testing.T) {
+	dir := t.TempDir()
+	inc := filepath.Join(dir, "x.md")
+	// Contenido expandido: 1-2 del documento, 3-4 de x.md, 5 del documento,
+	// 6-7 de x.md otra vez.
+	sources := include.SourceMap{Lines: []include.Origin{
+		{File: "", Line: 1}, {File: "", Line: 2}, {File: inc, Line: 1}, {File: inc, Line: 2},
+		{File: "", Line: 4}, {File: inc, Line: 1}, {File: inc, Line: 2},
+	}, RootLines: 5}
+	genLog := newDiagnosticLogger(util.NewNoop(), nil)
+	for _, line := range []int{4, 4, 7, 7} {
+		genLog.Warn("DOCX: line %d: image %q not found", line, "falta.png")
+	}
+	got := generatorDiagnostics(genLog, &pipeline.Prepared{Sources: sources, DocDir: dir})
+	if len(got) != 2 {
+		t.Fatalf("want the two warnings of one expansion, got %d: %+v", len(got), got)
+	}
+	for _, d := range got {
+		if d.File != "x.md" || d.Position.Line != 2 || d.Message != `DOCX: x.md:2: image "falta.png" not found` {
+			t.Errorf("warning %q at %s:%d, want x.md:2", d.Message, d.File, d.Position.Line)
+		}
 	}
 }

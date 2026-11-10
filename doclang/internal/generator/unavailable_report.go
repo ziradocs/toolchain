@@ -22,6 +22,11 @@ type UnavailableContent struct {
 	// Line es la línea fuente del elemento; 0 si no viene de uno (el logo
 	// del encabezado).
 	Line int
+	// File es el archivo incluido que escribió el elemento, relativo al
+	// documento, como Diagnostic.File; vacío si es del documento. Lo pone
+	// quien lleva Line del contenido expandido a su origen
+	// (pipeline.Generate).
+	File string
 	// Detail es la fuente de una imagen tal como la escribió el autor;
 	// vacío para lo demás.
 	Detail string
@@ -44,7 +49,9 @@ func (e *UnavailableError) Error() string {
 	}
 	for _, it := range e.Items {
 		b.WriteString("\n  ")
-		if it.Line > 0 {
+		if it.Line > 0 && it.File != "" {
+			fmt.Fprintf(&b, "%s:%d: ", it.File, it.Line)
+		} else if it.Line > 0 {
 			fmt.Fprintf(&b, "line %d: ", it.Line)
 		} else {
 			b.WriteString("front matter: ")

@@ -212,6 +212,46 @@ func TestGetASTTool_BuildFaithfulNumbering(t *testing.T) {
 	}
 }
 
+// Issue #487: en get_ast el código es literal, como en el build. Una
+// {{variable}} en un code span o en una cerca dentro de una cita queda como
+// está en contentHTML; fuera del código se sustituye.
+func TestGetASTTool_CodeIsLiteral(t *testing.T) {
+	session, ctx := newTestSession(t)
+	src := "---\ntitle: D\n---\n\n# A\n\nFin `{{title}}` y {{title}}.\n\n> ```\n> cita {{title}}\n> ```\n"
+	res := callTool(t, session, ctx, "get_ast", map[string]any{"source": src})
+	if res.IsError {
+		t.Fatalf("expected success, got error result: %s", resultText(t, res))
+	}
+	var doc any
+	if err := json.Unmarshal([]byte(resultText(t, res)), &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var html []string
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, e := range x {
+				if s, ok := e.(string); ok && k == "contentHTML" {
+					html = append(html, s)
+				}
+				walk(e)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	walk(doc)
+	all := strings.Join(html, "\n")
+	for _, want := range []string{"Fin <code>{{title}}</code> y D.", "cita {{title}}"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("contentHTML is missing %q: %q", want, all)
+		}
+	}
+}
+
 func TestGetASTTool_TransformError(t *testing.T) {
 	session, ctx := newTestSession(t)
 

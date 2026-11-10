@@ -69,7 +69,7 @@ func (g *DOCXGenerator) docxFigureAlt(kind docxUnavailableKind, subtype string) 
 // "Mapa" y las etiquetas de sus marcadores.
 func (g *DOCXGenerator) docxMapAlt(elem *ast.MapElement) string {
 	if elem.Title != "" {
-		return renderer.ProcessVariables(elem.Title, g.variables)
+		return fieldVariables(elem.Title, g.variables)
 	}
 	var labels []string
 	for _, m := range elem.Markers {
@@ -83,7 +83,7 @@ func (g *DOCXGenerator) docxMapAlt(elem *ast.MapElement) string {
 // docxMathAlt es el texto alternativo de una ecuación: su leyenda o, sin
 // ella, la fuente LaTeX, que un lector de pantalla puede leer.
 func (g *DOCXGenerator) docxMathAlt(elem *ast.MathElement) string {
-	return firstNonBlank(renderer.ProcessVariables(elem.Caption, g.variables), elem.Content)
+	return firstNonBlank(fieldVariables(elem.Caption, g.variables), elem.Content)
 }
 
 // chartOptionsTitle es options.plugins.title.text de una gráfica, el título

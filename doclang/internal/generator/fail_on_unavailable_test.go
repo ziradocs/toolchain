@@ -91,11 +91,11 @@ func TestDOCX_FailOnUnavailable(t *testing.T) {
 		t.Fatalf("want *UnavailableError, got %v", err)
 	}
 	want := []UnavailableContent{
-		{"image", imgLine, "falta.png"},
-		{"image", tableLine, "celda.png"},
-		{"image", textLine, "https://example.com/r.png"},
-		{"diagram", 25, ""},
-		{"map", 30, ""},
+		{Kind: "image", Line: imgLine, Detail: "falta.png"},
+		{Kind: "image", Line: tableLine, Detail: "celda.png"},
+		{Kind: "image", Line: textLine, Detail: "https://example.com/r.png"},
+		{Kind: "diagram", Line: 25, Detail: ""},
+		{Kind: "map", Line: 30, Detail: ""},
 	}
 	if !reflect.DeepEqual(ue.Items, want) {
 		t.Errorf("items = %+v\nwant %+v", ue.Items, want)
@@ -155,7 +155,7 @@ func TestHTML_FailOnUnavailable(t *testing.T) {
 	if !errors.As(err, &ue) {
 		t.Fatalf("want *UnavailableError, got %v", err)
 	}
-	want := []UnavailableContent{{"image", imgLine, "falta.png"}, {"image", textLine, "otra.png"}}
+	want := []UnavailableContent{{Kind: "image", Line: imgLine, Detail: "falta.png"}, {Kind: "image", Line: textLine, Detail: "otra.png"}}
 	if !reflect.DeepEqual(ue.Items, want) {
 		t.Errorf("items = %+v, want %+v", ue.Items, want)
 	}
@@ -220,7 +220,7 @@ func TestDOCX_FailOnUnavailable_WithoutChromium(t *testing.T) {
 	if !errors.As(err, &ue) {
 		t.Fatalf("want *UnavailableError, got %v", err)
 	}
-	want := []UnavailableContent{{"diagram", 20, ""}, {"equation", 25, ""}, {"chart", 30, ""}}
+	want := []UnavailableContent{{Kind: "diagram", Line: 20, Detail: ""}, {Kind: "equation", Line: 25, Detail: ""}, {Kind: "chart", Line: 30, Detail: ""}}
 	if !reflect.DeepEqual(ue.Items, want) {
 		t.Errorf("items = %+v, want %+v", ue.Items, want)
 	}
@@ -266,7 +266,7 @@ func TestFailOnUnavailable_HeaderLogoOnlyWhereDrawn(t *testing.T) {
 	}
 	err := build("html", enabled, true)
 	var ue *UnavailableError
-	if !errors.As(err, &ue) || !reflect.DeepEqual(ue.Items, []UnavailableContent{{"image", 0, "logo-falta.png"}}) {
+	if !errors.As(err, &ue) || !reflect.DeepEqual(ue.Items, []UnavailableContent{{Kind: "image", Line: 0, Detail: "logo-falta.png"}}) {
 		t.Errorf("page-view with the header enabled: want the missing logo, got %v", err)
 	}
 }

@@ -2810,7 +2810,7 @@ func (g *DOCXGenerator) renderTableCaption(doc domain.Document, elem *ast.TableE
 	if elem.Caption == "" {
 		return nil
 	}
-	text := renderer.ProcessVariables(elem.Caption, g.variables)
+	text := fieldVariables(elem.Caption, g.variables)
 	if elem.Label != "" && elem.Number > 0 {
 		text = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindTable], elem.Number, text)
 	}
@@ -3036,7 +3036,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		return unavailable()
 	}
 
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Alt, g.variables), renderer.ProcessVariables(elem.Title, g.variables)))
+	setDOCXImageDescription(img, firstNonBlank(fieldVariables(elem.Alt, g.variables), fieldVariables(elem.Title, g.variables)))
 	g.logger.Info("DOCX", "✅ Image inserted: %s", insertPath)
 
 	return g.renderImageCaption(doc, elem)
@@ -3051,7 +3051,7 @@ func (g *DOCXGenerator) renderImageCaption(doc domain.Document, elem *ast.ImageE
 	// antes de renderizar; sin Label nunca corrió y Number es 0.
 	// Mismo texto que el HTML de core: {{variables}} sustituidas y el prefijo
 	// en el idioma del documento ("Figure" con lang en*), no siempre "Figura".
-	captionText := renderer.ProcessVariables(elem.Caption, g.variables)
+	captionText := fieldVariables(elem.Caption, g.variables)
 	if elem.Label != "" && elem.Number > 0 {
 		captionText = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindFigure], elem.Number, captionText)
 	}
@@ -3278,7 +3278,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, elem.DiagramType)))
+	setDOCXImageDescription(img, firstNonBlank(fieldVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, elem.DiagramType)))
 
 	if elem.Title != "" {
 		if err := g.renderFigureCaption(doc, elem.Title); err != nil {
@@ -3679,7 +3679,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 	}
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), chartOptionsTitle(elem), g.docxFigureAlt(docxUnavailableChart, elem.ChartType)))
+	setDOCXImageDescription(img, firstNonBlank(fieldVariables(elem.Title, g.variables), chartOptionsTitle(elem), g.docxFigureAlt(docxUnavailableChart, elem.ChartType)))
 
 	if img == nil {
 		g.logger.Warn("DOCX: ⚠️  Image object is nil after insertion")
@@ -4299,7 +4299,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, "PlantUML "+elem.DiagramType)))
+	setDOCXImageDescription(img, firstNonBlank(fieldVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, "PlantUML "+elem.DiagramType)))
 
 	// Obtener tamaño del archivo
 	fileInfo, _ := os.Stat(pngPath)

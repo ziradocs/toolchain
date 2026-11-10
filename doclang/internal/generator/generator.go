@@ -226,8 +226,11 @@ func (g *Generator) generateMarkdown(doc *ast.AST, outputFile string, opts Gener
 // de los dos hasta ahora.
 func (g *Generator) RenderASTJSON(doc *ast.AST) ([]byte, error) {
 	variables := doc.FrontMatter.BuildVariables()
-	renderer.PopulateInlineHTML(doc, variables)
-	renderer.PopulateLangRuns(doc, variables) // issue #63 — ver slidelang/internal/generator/generator.go:RenderASTJSON
+	// El código es literal (issue #487): el contentHTML de un bloque de código
+	// es su content escapado, igual que el HTML del build.
+	literal := renderer.InlineHTMLOptions{LiteralCode: true}
+	renderer.PopulateInlineHTMLWithOptions(doc, variables, literal)
+	renderer.PopulateLangRunsWithOptions(doc, variables, literal) // issue #63 — ver slidelang/internal/generator/generator.go:RenderASTJSON
 	return json.Marshal(doc)
 }
 
@@ -298,7 +301,9 @@ func (g *Generator) RenderHTMLPreview(doc *ast.AST, themeName string) string {
 		}
 	}
 
-	return renderer.GenerateDocumentHTML(doc, renderOpts, renderer.NewDefaultRenderContext())
+	ctx := renderer.NewDefaultRenderContext()
+	ctx.LiteralCode = true // issue #487, como en el build
+	return renderer.GenerateDocumentHTML(doc, renderOpts, ctx)
 }
 
 // remoteImagesSetter es RenderContext.SetAllowRemoteImages de core. Se pide
