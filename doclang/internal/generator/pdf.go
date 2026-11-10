@@ -106,6 +106,9 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		return fmt.Errorf("failed to initialize chromium: %w", err)
 	}
 	defer chromiumRenderer.Close()
+	if err := restrictNetworkFn(chromiumRenderer, opts); err != nil {
+		return err
+	}
 
 	// offlineMode: PDF SIEMPRE pre-rasteriza mermaid/chart/map/math y
 	// resuelve plantuml offline-inline antes de imprimir — sin importar
@@ -199,8 +202,19 @@ func (p *PDFGenerator) Generate(doc *ast.AST, outputFile string, opts GeneratorO
 		Logger:             p.logger,
 	})
 	allowRemoteImages(ctx, opts.AllowRemoteImages)
+	if err := setTileServer(ctx, opts); err != nil {
+		return err
+	}
+	cutNetwork(ctx, opts)
+	unavailable, err := watchUnavailable(ctx, opts)
+	if err != nil {
+		return err
+	}
 
 	htmlContent := renderer.GenerateDocumentHTML(doc, renderOpts, ctx)
+	if err := unavailable.err(); err != nil {
+		return err
+	}
 
 	// 3. Convertir HTML a PDF
 	pdfOpts := resolvePDFOptions(opts.Page, p.logger)
