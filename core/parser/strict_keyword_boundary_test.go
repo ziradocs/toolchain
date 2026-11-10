@@ -153,3 +153,51 @@ func TestStrictKeyword_TextOnTheKeywordLine(t *testing.T) {
 		}
 	}
 }
+
+// Dentro de una columna tipada de un slide, el texto en la línea de TEXT es
+// el warning STRICT003, como fuera de la columna: un deck que compilaba no se
+// rompe. En un documento es error.
+func TestStrictKeyword_TextOnTheKeywordLineInsideATypedColumn(t *testing.T) {
+	column := "  <<grid>>\n  <<column typed>>\n    TEXT hola\n      cuerpo\n  <<end>>\n"
+	_, diags := parseStrictSource(t, "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n"+column, false)
+	if len(diags) != 1 || diags[0].IsError() || diags[0].RuleID != "STRICT003" || !strings.Contains(diags[0].Message, `"hola" was discarded`) {
+		t.Errorf("slide: want one STRICT003 warning, got %v", diags)
+	}
+	_, diags = parseStrictSource(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"+column, true)
+	if len(diags) != 1 || !diags[0].IsError() || !strings.Contains(diags[0].Message, `"hola" was discarded`) {
+		t.Errorf("document: want one error, got %v", diags)
+	}
+}
+
+// Una palabra clave pegada seguida de ':' no es una propiedad desconocida:
+// es la línea no reconocida de cada dialecto, con la sugerencia.
+func TestStrictKeywordBoundary_GluedKeywordWithColon(t *testing.T) {
+	for _, tc := range []struct{ line, word string }{
+		{"TEXTO: algo", "TEXTO:"},
+		{"TEXT-heavy: no", "TEXT-heavy:"},
+	} {
+		want := fmt.Sprintf("%q is not an element keyword; did you mean TEXT?", tc.word)
+		_, diags := parseStrictSource(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  "+tc.line+"\n", true)
+		if len(diags) != 1 || !diags[0].IsError() || !strings.Contains(diags[0].Message, want) || strings.Contains(diags[0].Message, "property:") {
+			t.Errorf("document %q: want one error with %q, got %v", tc.line, want, diags)
+		}
+		_, diags = parseStrictSource(t, "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  "+tc.line+"\n", false)
+		if len(diags) != 1 || diags[0].IsError() || diags[0].RuleID != "STRICT003" || !strings.Contains(diags[0].Message, want) {
+			t.Errorf("slide %q: want STRICT003 with %q, got %v", tc.line, want, diags)
+		}
+	}
+}
+
+// Sin sugerencia, los mensajes de línea no reconocida quedan exactamente como
+// eran (sin un punto de más al final).
+func TestStrictKeywordBoundary_MessagesWithoutHintUnchanged(t *testing.T) {
+	_, diags := parseStrictSource(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  foo bar\n", true)
+	if len(diags) != 1 || diags[0].Message != `unexpected content inside SECTION: "foo bar" is not an element, a property, or a new SECTION` {
+		t.Errorf("document message changed: %v", diags)
+	}
+	column := "  <<grid>>\n  <<column typed>>\n    foo\n  <<end>>\n"
+	_, diags = parseStrictSource(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"+column, true)
+	if len(diags) != 1 || diags[0].Message != `unexpected content inside a typed column: "foo" is not an element` {
+		t.Errorf("typed column message changed: %v", diags)
+	}
+}

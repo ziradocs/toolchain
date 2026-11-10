@@ -295,7 +295,7 @@ func listMarkerWidth(line string) int {
 // the item immediately above it. Pointers to ancestors remain valid because
 // we pop a level before appending a sibling to that level's slice.
 func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element *ast.PointsElement) *ParseResult {
-	strict := ctx.Mode == "strict" && strings.HasPrefix(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS")
+	strict := ctx.Mode == "strict" && HasStrictKeyword(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS")
 	start := startIndex
 	if strict {
 		start++

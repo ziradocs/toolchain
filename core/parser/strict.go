@@ -35,15 +35,16 @@ type strictBody struct {
 	// uno indentado sigue siendo un error.
 	contentMarkdown bool
 	slideHeadings   bool
-	// discardIsError: lo que el cuerpo descarta es un error (documento strict,
-	// columna tipada) y no el warning STRICT003 de un slide. Lo usa
+	// documentDialect: el cuerpo es de un documento strict, donde lo que se
+	// descarta es un error, y no de un slide, donde es el warning STRICT003.
+	// Una columna tipada lo hereda de su slide o sección. Lo usa
 	// reportDiscarded.
-	discardIsError bool
-	headingAnchors elements.HeadingAnchors
-	lines          []string
-	currentLine    int
-	diagnostics    []diagnostics.Diagnostic
-	logger         util.Logger
+	documentDialect bool
+	headingAnchors  elements.HeadingAnchors
+	lines           []string
+	currentLine     int
+	diagnostics     []diagnostics.Diagnostic
+	logger          util.Logger
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]: el
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
@@ -95,7 +96,7 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 // tiene cierre sin ambigüedad para anidarlo.
 func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic) {
 	sub := &strictBody{
-		discardIsError:  true,
+		documentDialect: p.documentDialect,
 		nestedListTypes: p.nestedListTypes,
 		listStart:       p.listStart,
 		mathSource:      p.mathSource,
@@ -117,8 +118,8 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 			sub.addError("a SLIDE cannot be opened inside a column; close the grid with <<end>> first")
 			return
 		}
-		sub.addError(fmt.Sprintf(
-			"unexpected content inside a typed column: %q is not an element.%s", trimmed, unrecognizedHint(trimmed)))
+		sub.addError(withHint(fmt.Sprintf(
+			"unexpected content inside a typed column: %q is not an element", trimmed), trimmed))
 	})
 	if sub.currentLine < len(lines) {
 		// parseIndentedElements corta en la primera línea no vacía con menos de
@@ -487,6 +488,16 @@ func (p *strictBody) parseIndentedElements(
 			}
 			continue
 		} // Parsear propiedades del bloque
+		// Una palabra clave pegada a otra cosa y seguida de ':' ("TEXTO:",
+		// "TEXT-heavy: no") no es una propiedad que el autor quiso escribir:
+		// es un elemento mal escrito. Va al diagnóstico de línea no
+		// reconocida, con la sugerencia y el nivel de cada dialecto, en vez
+		// de "Unknown … property" (que en un slide es error).
+		if _, _, glued := elements.GluedStrictKeyword(trimmedLine); glued && onUnrecognized != nil && strings.Contains(trimmedLine, ":") {
+			onUnrecognized(trimmedLine)
+			p.currentLine++
+			continue
+		}
 		if key, value, ok := parseBlockPropertyLine(trimmedLine); ok {
 			handleProperty(key, value)
 			p.currentLine++
@@ -756,11 +767,12 @@ func (p *strictBody) parseImageElement() ast.Element {
 	return p.applyElementResult(result, "IMAGE")
 }
 
-// reportDiscarded reporta contenido que el cuerpo leyó pero no llega al AST,
-// con el mismo nivel que una línea no reconocida en ese dialecto: error en un
-// documento strict y en una columna tipada, el warning STRICT003 en un slide.
+// reportDiscarded reporta contenido que el cuerpo leyó pero no llega al AST:
+// error en un documento strict y el warning STRICT003 en un slide, también
+// dentro de una columna tipada (un deck que compilaba no se rompe por un
+// aviso nuevo).
 func (p *strictBody) reportDiscarded(msg string) {
-	if p.discardIsError {
+	if p.documentDialect {
 		p.addError(msg)
 		return
 	}
@@ -779,6 +791,15 @@ func (p *strictBody) checkBareKeywordLine(trimmed, kw string) {
 	}
 	p.reportDiscarded(fmt.Sprintf(
 		"%s takes nothing on its own line: %q was discarded. Write the content on the indented lines below it.", kw, rest))
+}
+
+// withHint agrega a msg, cuando la hay, la sugerencia de unrecognizedHint:
+// sin sugerencia el mensaje queda como siempre fue.
+func withHint(msg, trimmed string) string {
+	if hint := unrecognizedHint(trimmed); hint != "" {
+		return msg + "." + hint
+	}
+	return msg
 }
 
 // unrecognizedHint completa el mensaje de una línea no reconocida que empieza

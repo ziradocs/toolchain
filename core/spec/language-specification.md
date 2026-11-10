@@ -128,14 +128,16 @@ letter, a digit, `-`, `.`, `/`, `(`) makes it another word: `TEXTO citado`,
 `TEXT-heavy slides` or `MAPA norte` inside a `QUOTE` body is quote text. At
 element level such a line is an unrecognized line (an error in a document, the
 `STRICT003` warning in a slide), and the message suggests the keyword ("`TEXTO`
-is not an element keyword; did you mean TEXT?"). Earlier versions matched the
+is not an element keyword; did you mean TEXT?"); followed by `:` (`TEXTO:`)
+it is that same unrecognized line, not an unknown property. Earlier versions matched the
 bare prefix, so `TEXTO citado` opened a `TEXT` element and `CODEX html` a
 `CODE` block.
 
 `TEXT`, `POINTS`, `CHECKLIST`, `QUOTE` and `TABLE` take nothing on their own
 line. Text written there (`TEXT hola mundo`) is not part of the element; it is
-reported with the same severity as an unrecognized line, and the element is
-read from its indented body as usual. Earlier versions dropped it silently.
+reported as an error in a document and as the `STRICT003` warning in a slide,
+inside a typed column too, and the element is read from its indented body as
+usual. Earlier versions dropped it silently.
 
 With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
 may own an indented list of child `point_item`s at any depth. Each child
