@@ -67,16 +67,21 @@ func isWebP(data []byte) bool {
 
 // convertWebP convierte la imagen WebP en webpPath a un formato que Word
 // inserta y la escribe en el directorio temporal del DOCX: Word no inserta
-// WebP, y docxgo tampoco lo lee. Un WebP con pérdida y sin alfa entra como
-// JPEG; uno sin pérdida o con alfa, como PNG, que conserva la transparencia.
-// Uno más grande que la caja de texto a docxWebPPixelsPerInch se reduce a
-// ella: se ve igual y el DOCX no carga píxeles que no se muestran. El perfil
-// de color (ICCP) pasa al archivo nuevo. Devuelve su ruta.
+// WebP, y docxgo tampoco lo lee. Un WebP con pérdida y opaco entra como JPEG;
+// uno sin pérdida o con algún píxel translúcido, como PNG, que conserva la
+// transparencia. Uno más grande que la caja de texto a docxWebPPixelsPerInch
+// se reduce a ella: se ve igual y el DOCX no carga píxeles que no se
+// muestran. El perfil de color (ICCP) pasa al archivo nuevo. Devuelve su
+// ruta.
 //
-// Primero lee solo el encabezado: pasado docxWebPMaxPixels no decodifica. Un
-// archivo ya convertido (mismo contenido) no se vuelve a convertir. Un WebP
-// animado o dañado da error. En todos los casos de error la imagen queda como
-// no disponible, como cualquier otra que no se puede leer.
+// De un WebP animado entra el primer cuadro, como lo imprime un navegador
+// (ver webpFirstFrame).
+//
+// Primero lee solo el encabezado: pasado docxWebPMaxPixels no decodifica (en
+// uno animado cuenta el lienzo). Un archivo ya convertido (mismo contenido)
+// no se vuelve a convertir. Un WebP dañado o truncado da error. En todos los
+// casos de error la imagen queda como no disponible, como cualquier otra que
+// no se puede leer.
 func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	data, err := os.ReadFile(webpPath)
 	if err != nil {
@@ -91,31 +96,59 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	}
 	// Con pérdida es un chunk "VP8 " (con espacio); el alfa de uno con
 	// pérdida va en un chunk ALPH. webp.DecodeConfig no sirve para esto: con
-	// un encabezado VP8X da YCbCr también para uno sin pérdida.
-	_, lossy := webpChunk(data, "VP8 ")
-	_, alpha := webpChunk(data, "ALPH")
-	lossyOpaque := lossy && !alpha
-	ext := ".png"
-	if lossyOpaque {
-		ext = ".jpg"
+	// un encabezado VP8X da YCbCr también para uno sin pérdida. En uno
+	// animado esos chunks van dentro de los cuadros: la clase la da el
+	// primero, y si no cubre el lienzo el resto queda transparente (PNG).
+	var frame *webpFrame
+	var lossy, alphaChunk bool
+	if webpIsAnimated(data) {
+		if frame, err = webpFirstFrame(data, cfg.Width, cfg.Height); err != nil {
+			return "", fmt.Errorf("cannot decode animated WebP image: %w", err)
+		}
+		lossy = !frame.lossless && frame.covers()
+		alphaChunk = frame.alph != nil
+	} else {
+		_, lossy = webpChunk(data, "VP8 ")
+		_, alphaChunk = webpChunk(data, "ALPH")
 	}
+	// La ruta va por contenido y la extensión depende de los píxeles cuando
+	// hay ALPH, así que un archivo ya convertido se busca con las dos.
 	maxW, maxH := g.webpMaxPixelSize()
 	sum := sha256.Sum256(append(data, fmt.Sprintf("|%dx%d", maxW, maxH)...))
-	outPath := filepath.Join(g.tempDir, "webp_"+hex.EncodeToString(sum[:8])+ext)
-	if _, err := os.Stat(outPath); err == nil {
-		return outPath, nil
+	base := filepath.Join(g.tempDir, "webp_"+hex.EncodeToString(sum[:8]))
+	for _, ext := range []string{".jpg", ".png"} {
+		if _, err := os.Stat(base + ext); err == nil {
+			return base + ext, nil
+		}
 	}
 	if err := g.runCtx().Err(); err != nil {
 		return "", err
 	}
-	img, err := webp.Decode(bytes.NewReader(data))
+	var img image.Image
+	if frame != nil {
+		img, err = frame.decode(maxW, maxH)
+	} else {
+		img, err = webp.Decode(bytes.NewReader(data))
+	}
 	if err != nil {
 		return "", fmt.Errorf("cannot decode WebP image: %w", err)
 	}
-	img = downscaleToFit(img, maxW, maxH, !lossyOpaque)
+	// Uno con pérdida que trae ALPH pero es opaco entero entra como JPEG: un
+	// PNG de una foto pesa varias veces más. Uno sin pérdida sigue en PNG
+	// aunque sea opaco (suelen ser capturas o gráficos, que el JPEG ensucia).
+	asJPEG := lossy && (!alphaChunk || isOpaqueImage(img))
+	if m, ok := img.(*image.NYCbCrA); ok && asJPEG {
+		img = &m.YCbCr
+	}
+	img = downscaleToFit(img, maxW, maxH, !asJPEG)
 	icc, _ := webpChunk(data, "ICCP")
+	if frame != nil {
+		icc = frame.icc
+	}
 	var out []byte
-	if lossyOpaque {
+	outPath := base + ".png"
+	if asJPEG {
+		outPath = base + ".jpg"
 		out, err = encodeJPEGWithICC(img, icc)
 	} else {
 		out, err = encodePNGWithICC(img, icc)
@@ -127,6 +160,15 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 		return "", err
 	}
 	return outPath, nil
+}
+
+// isOpaqueImage dice si todos los píxeles de img tienen alfa 255. Los tipos
+// de image (entre ellos el *image.NYCbCrA de un WebP con pérdida y ALPH y el
+// *image.NRGBA de uno sin pérdida) lo resuelven recorriendo su plano alfa;
+// con otro tipo se responde que no, y queda en PNG.
+func isOpaqueImage(img image.Image) bool {
+	o, ok := img.(interface{ Opaque() bool })
+	return ok && o.Opaque()
 }
 
 // webpMaxPixelSize es el tamaño en píxeles de la caja de texto a
@@ -141,12 +183,10 @@ func (g *DOCXGenerator) webpMaxPixelSize() (int, int) {
 // si hay que conservar la transparencia.
 func downscaleToFit(img image.Image, maxW, maxH int, alpha bool) image.Image {
 	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	if maxW <= 0 || maxH <= 0 || w <= maxW && h <= maxH {
+	nw, nh, scaled := fitSize(b.Dx(), b.Dy(), maxW, maxH)
+	if !scaled {
 		return img
 	}
-	scale := min(float64(maxW)/float64(w), float64(maxH)/float64(h))
-	nw, nh := max(1, int(float64(w)*scale+0.5)), max(1, int(float64(h)*scale+0.5))
 	r := image.Rect(0, 0, nw, nh)
 	var dst draw.Image = image.NewRGBA(r)
 	if alpha {
@@ -156,10 +196,27 @@ func downscaleToFit(img image.Image, maxW, maxH int, alpha bool) image.Image {
 	return dst
 }
 
+// fitSize es el tamaño al que se reduce una imagen de w×h, conservando la
+// proporción, para que quepa en maxW×maxH, y si hay que reducirla: nunca se
+// agranda, y con un lado del máximo en 0 queda igual.
+func fitSize(w, h, maxW, maxH int) (int, int, bool) {
+	if maxW <= 0 || maxH <= 0 || w <= maxW && h <= maxH {
+		return w, h, false
+	}
+	scale := min(float64(maxW)/float64(w), float64(maxH)/float64(h))
+	return max(1, int(float64(w)*scale+0.5)), max(1, int(float64(h)*scale+0.5)), true
+}
+
 // webpChunk es el contenido del primer chunk fourcc del contenedor RIFF de
 // un WebP, y si está.
 func webpChunk(data []byte, fourcc string) ([]byte, bool) {
-	for off := 12; off+8 <= len(data); {
+	return riffChunk(data, 12, fourcc)
+}
+
+// riffChunk es el contenido del primer chunk fourcc de los que empiezan en
+// data[off:], y si está.
+func riffChunk(data []byte, off int, fourcc string) ([]byte, bool) {
+	for off+8 <= len(data) {
 		size := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
 		start := off + 8
 		if size < 0 || size > len(data)-start {
