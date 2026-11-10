@@ -154,7 +154,13 @@ func TestCodeFence_CodeGroupTabWithALongerFence(t *testing.T) {
 		}
 		return nil
 	})
-	if group == nil || len(group.CodeBlocks) != 2 || group.CodeBlocks[0].Content != "```go\nx\n```\n:::" || group.CodeBlocks[1].Content != "echo" {
+	// El grupo termina en su primer ":::" en el que todo lo abierto cierra
+	// (fence.ContainerEnd): la pestaña ````md no tiene cierre de cuatro antes
+	// de ese ":::" y cierra en el ``` (CODE003), como en las versiones
+	// anteriores. Es el costo de acotar las pestañas a su code-group: una
+	// pestaña de cuatro no puede guardar a la vez una ``` exacta y un ":::"
+	// posterior.
+	if group == nil || len(group.CodeBlocks) != 1 || group.CodeBlocks[0].Content != "```go\nx" {
 		t.Fatalf("code group: %#v", group)
 	}
 }

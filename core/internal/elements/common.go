@@ -47,6 +47,12 @@ type ParseContext struct {
 	// recorrido aparte, qué líneas de una fuente son código.
 	RecordCode func(line, n int)
 
+	// Limit es el final (exclusivo, índice en Lines) del contenedor que se
+	// está parseando: el ":::" que cierra el bloque o el code-group cuyo
+	// cuerpo son estas líneas (fence.ContainerEnd). Una cerca de adentro busca
+	// su cierre solo antes de Limit. 0 es todo Lines.
+	Limit int
+
 	// LineOffset son las líneas del archivo que preceden a Lines[0]: el
 	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines
 	// es el archivo entero (#245).
@@ -99,6 +105,21 @@ type ParseContext struct {
 // position_offset_guard_test.go en core/parser).
 func (ctx *ParseContext) Position(lineIndex int) diagnostics.Position {
 	return diagnostics.NewPosition(ctx.LineOffset+lineIndex+1, 1)
+}
+
+// limit es Limit, o len(Lines) si no hay.
+func (ctx *ParseContext) limit() int {
+	if ctx.Limit <= 0 || ctx.Limit > len(ctx.Lines) {
+		return len(ctx.Lines)
+	}
+	return ctx.Limit
+}
+
+// within es una copia de ctx acotada a limit (ver Limit).
+func (ctx *ParseContext) within(limit int) *ParseContext {
+	c := *ctx
+	c.Limit = limit
+	return &c
 }
 
 // recordCode avisa a RecordCode, si hay, que las n líneas de Lines desde
@@ -575,12 +596,12 @@ func closesInlineTagOnce(rest string) bool {
 //
 // Devuelve el cuerpo SIN el fence de apertura/cierre y consumed = total de
 // líneas ocupadas por el bloque completo (apertura + cuerpo + cierre).
-func collectFencedBody(lines []string, startIndex int) (body string, consumed int, block fence.Block) {
-	block, ok := fence.At(lines, startIndex)
+func collectFencedBody(ctx *ParseContext, startIndex int) (body string, consumed int, block fence.Block) {
+	block, ok := fenceAt(ctx, startIndex)
 	if !ok {
-		block = fence.Block{Start: startIndex, Ticks: 3, End: -1, MainEnd: -1}
+		block = fence.Block{Start: startIndex, Ticks: 3, End: -1, Limit: ctx.limit(), MainEnd: -1}
 	}
-	return strings.Join(fenceBody(lines, block), "\n"), block.Consumed(lines), block
+	return strings.Join(fenceBody(ctx.Lines, block), "\n"), block.Consumed(), block
 }
 
 // isFencedBlockOpener reporta si trimmedLine abre un fence de markdown para

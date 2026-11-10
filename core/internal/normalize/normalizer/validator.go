@@ -257,7 +257,7 @@ func (v *Validator) validateChartBlock(lines []string, startIndex int, result *V
 	hasType := false
 	hasTitle := false
 
-	end := fence.End(lines, startIndex)
+	end := fence.Ends(lines, 0)[startIndex]
 	for i := startIndex + 1; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
 

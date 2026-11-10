@@ -210,8 +210,15 @@ well-formed but ends somewhere else than before, the document changes and the
 parser says so: a line of four or more backticks inside a ```` ``` ```` fence now closes
 it, where it used to be code, and gets `CODE002`; any other fence that ends on a
 different line than before, and a line that used to open a fence and is now
-prose, get `CODE004`. `doclang fmt` writes a longer fence when the code holds a
-line of backticks.
+prose, get `CODE004`. A fence inside a container only looks for its closing
+line inside that container: a `:::code-group` tab inside its group, a fence
+inside a `:::` block inside that block. A container ends at the first bare
+`:::` such that everything opened inside it closes before it. So a ```` ````js ````
+tab closed by ```` ``` ```` does not reach a ```` ```` ```` in a later code group; it
+closes at the ```` ``` ```` with `CODE003`. The cost: a four-backtick fence that holds
+an exact ```` ``` ```` line and, after it, a bare `:::` ends its container at that
+`:::`, as earlier versions read it, also with `CODE003`. `doclang fmt` writes a
+longer fence when the code holds a line of backticks.
 
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next
@@ -603,7 +610,11 @@ opened. This "code" is not the same as the literal-code option's: a fence
 written inside a quote is code for `LiteralCode`, but the AST has no code block
 there, and an `@include` line between two `> ```` lines ends the quote and is
 expanded. The option uses the document grammar, so it is for DocLang: a
-`.slidelang` source is not classified correctly. Diagram, chart, map and math
+`.slidelang` source is not classified correctly. An `@include` that was
+expanded because it was outside code, but whose content ended up inside a code
+block that starts before it (an included line closes the fence later than it
+closed without it, or extends a strict `CODE` body), is also reported, so the
+caller can warn (`CODE005` in DocLang). Diagram, chart, map and math
 bodies are not code: an `@include` line there is always expanded. DocLang is
 meant to use this option; SlideLang keeps expanding everywhere.
 

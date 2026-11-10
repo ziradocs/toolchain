@@ -314,6 +314,24 @@ type Expansion struct {
 	// el llamador lo pueda avisar. Con la opción, toda línea `@include` de Text
 	// está en esta lista.
 	KeptInCode []int
+	// CapturedInCode son los `@include` que se expandieron por estar fuera de
+	// código, pero cuyo contenido terminó dentro de un bloque de código que
+	// empieza antes que él (KeepIncludesInCode): una línea incluida cambió
+	// dónde cierra esa cerca (````js … ``` y un archivo que trae un ````) o
+	// alargó el cuerpo de un CODE strict. El llamador lo avisa (CODE005 en
+	// doclang); el AST de la fuente sin expandir no muestra ese código.
+	CapturedInCode []CapturedInclude
+}
+
+// CapturedInclude es un `@include` de Expansion.CapturedInCode.
+type CapturedInclude struct {
+	// Line es la línea de Text (1-based) donde empieza el contenido incluido.
+	Line int
+	// Directive es la línea `@include` tal como estaba escrita.
+	Directive string
+	// Origin es dónde estaba escrita la directiva (su archivo y su línea),
+	// para anclar ahí el aviso.
+	Origin Origin
 }
 
 // ExpandWithOptions es ExpandWithOrigins con opciones.
@@ -349,8 +367,11 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 		frames[i] = root
 		origins[i] = Origin{Line: i + 1}
 	}
-	// kept marca las líneas @include que ya se decidió dejar en código.
+	// kept marca las líneas @include que ya se decidió dejar en código, y steps
+	// la expansión que trajo cada línea (0 el contenido raíz, k la k-ésima).
 	kept := make([]bool, len(lines))
+	steps := make([]int, len(lines))
+	var expansions []CapturedInclude
 	for {
 		var pending []int
 		for i, line := range lines {
@@ -385,7 +406,7 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 			}
 		}
 		var err error
-		if lines, frames, origins, kept, err = expandLines(lines, frames, origins, kept, expand, baseDir, read); err != nil {
+		if lines, frames, origins, kept, steps, expansions, err = expandLines(lines, frames, origins, kept, steps, expansions, expand, baseDir, read); err != nil {
 			return Expansion{}, err
 		}
 	}
@@ -397,33 +418,38 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 		}
 	}
 	sources := SourceMap{Lines: origins, RootLines: strings.Count(content, "\n") + 1}
-	return Expansion{Text: strings.Join(lines, "\n"), Origins: sources.Files(), Sources: sources, KeptInCode: keptLines}, nil
+	return Expansion{Text: strings.Join(lines, "\n"), Origins: sources.Files(), Sources: sources, KeptInCode: keptLines,
+		CapturedInCode: capturedInCode(lines, steps, expansions)}, nil
 }
 
 // expandLines reemplaza, en orden, cada línea @include marcada en expand por
 // el contenido de su archivo, con los chequeos y errores de openInclude.
-func expandLines(lines []string, frames []*includeFrame, origins []Origin, kept []bool, expand map[int]bool, baseDir string, read ReadFunc) ([]string, []*includeFrame, []Origin, []bool, error) {
+func expandLines(lines []string, frames []*includeFrame, origins []Origin, kept []bool, steps []int, expansions []CapturedInclude, expand map[int]bool, baseDir string, read ReadFunc) ([]string, []*includeFrame, []Origin, []bool, []int, []CapturedInclude, error) {
 	outLines := make([]string, 0, len(lines))
 	outFrames := make([]*includeFrame, 0, len(lines))
 	outOrigins := make([]Origin, 0, len(lines))
 	outKept := make([]bool, 0, len(lines))
+	outSteps := make([]int, 0, len(lines))
 	for i, line := range lines {
 		if !expand[i] {
 			outLines = append(outLines, line)
 			outFrames = append(outFrames, frames[i])
 			outOrigins = append(outOrigins, origins[i])
 			outKept = append(outKept, kept[i])
+			outSteps = append(outSteps, steps[i])
 			continue
 		}
 		incPath, _ := parseIncludeLine(line)
 		child, err := openInclude(line, incPath, baseDir, read, frames[i].visited, frames[i].depth)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, err
 		}
+		expansions = append(expansions, CapturedInclude{Directive: line, Origin: origins[i]})
 		for k, l := range child.lines {
 			outLines = append(outLines, l)
 			outFrames = append(outFrames, child)
 			outKept = append(outKept, false)
+			outSteps = append(outSteps, len(expansions))
 			// La línea vacía que deja un archivo que es solo frontmatter es
 			// de la directiva, como en ExpandWithSourceMap.
 			if child.frontMatterOnly {
@@ -433,7 +459,92 @@ func expandLines(lines []string, frames []*includeFrame, origins []Origin, kept 
 			}
 		}
 	}
-	return outLines, outFrames, outOrigins, outKept, nil
+	return outLines, outFrames, outOrigins, outKept, outSteps, expansions, nil
+}
+
+// capturedInCode son las expansiones cuyo contenido terminó dentro de un
+// bloque de código del texto final que empieza antes que él. De cada una se
+// marca, en una copia que se parsea (ParseDocument, con la normalización
+// prendida), la primera línea incluida con texto que no empieza con un
+// backtick, una tilde o dos puntos (para no cambiar una cerca ni un ":::"): si
+// esa línea queda en el contenido de un bloque de código y no es su primera
+// línea, el bloque empezó antes del contenido incluido. Un archivo que trae su
+// propio bloque de código, o una pestaña nueva, no cuenta: su primera línea
+// de contenido es la marcada. Es una aproximación para avisar: un bloque que
+// solo tiene el contenido incluido (un CODE strict sin cuerpo propio seguido
+// del @include) no se detecta.
+func capturedInCode(lines []string, steps []int, expansions []CapturedInclude) []CapturedInclude {
+	if len(expansions) == 0 {
+		return nil
+	}
+	first := make([]int, len(expansions)+1)
+	marked := make([]int, len(expansions)+1)
+	for k := range first {
+		first[k], marked[k] = -1, -1
+	}
+	for i, k := range steps {
+		if k == 0 {
+			continue
+		}
+		if first[k] < 0 {
+			first[k] = i
+		}
+		if t := strings.TrimSpace(lines[i]); marked[k] < 0 && t != "" && !strings.ContainsAny(t[:1], "`~:") {
+			marked[k] = i
+		}
+	}
+	text := strings.Join(lines, "\n")
+	prefix := "zzcaptured"
+	for strings.Contains(text, prefix) {
+		prefix += "z"
+	}
+	tagged := make([]string, len(lines))
+	copy(tagged, lines)
+	hasTag := false
+	for k := 1; k < len(marked); k++ {
+		if i := marked[k]; i >= 0 {
+			tagged[i] = lines[i] + " " + prefix + strconv.Itoa(k) + "q"
+			hasTag = true
+		}
+	}
+	if !hasTag {
+		return nil
+	}
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(tagged, "\n"), "")
+	tag := regexp.MustCompile(regexp.QuoteMeta(prefix) + `(\d+)q`)
+	captured := map[int]bool{}
+	check := func(content string) {
+		for n, line := range strings.Split(content, "\n") {
+			if n == 0 {
+				continue
+			}
+			for _, m := range tag.FindAllStringSubmatch(line, -1) {
+				if k, err := strconv.Atoi(m[1]); err == nil {
+					captured[k] = true
+				}
+			}
+		}
+	}
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		switch c := n.(type) {
+		case *ast.CodeElement:
+			check(c.Content)
+		case *ast.CodeGroupElement:
+			for _, b := range c.CodeBlocks {
+				check(b.Content)
+			}
+		}
+		return nil
+	})
+	var out []CapturedInclude
+	for k := 1; k < len(first); k++ {
+		if captured[k] {
+			c := expansions[k-1]
+			c.Line = first[k] + 1
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // frontMatterEnd es el índice de la línea `---` que cierra el frontmatter de

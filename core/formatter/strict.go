@@ -1046,14 +1046,15 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 	}
 
 	lines := strings.Split(e.Content, "\n")
+	blocks := fence.Walk(lines, 0)
 	var out []string
 	next := 0
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		block, ok := fence.At(lines, i)
-		if next >= len(codes) || !ok {
+		if next >= len(codes) || blocks[i] == nil {
 			continue
 		}
+		block := *blocks[i]
 		code := codes[next]
 		fenceLang, _, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(lines[i], "`")), " ")
 		codeLang, _, _ := strings.Cut(strings.TrimSpace(code.Language), " ")

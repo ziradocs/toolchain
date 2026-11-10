@@ -133,7 +133,7 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// delimita el cuerpo sin ambigüedad, así que no hace falta el loop de
 	// propiedades key:value de abajo).
 	if ctx.Mode == "flex" && isFencedBlockOpener(line, "map") {
-		body, consumed, block := collectFencedBody(ctx.Lines, startIndex)
+		body, consumed, block := collectFencedBody(ctx, startIndex)
 		fenceDiags := fenceDiagnostics(ctx, block)
 		trimmedBody := strings.TrimSpace(body)
 

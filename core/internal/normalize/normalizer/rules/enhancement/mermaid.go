@@ -27,18 +27,22 @@ func (r *MermaidRule) Apply(content string) (string, error) {
 	// cualquier línea que empezara con ```, y un ```mermaid dentro de otra
 	// cerca o de una pestaña salía como <<mermaid>>.
 	lines := strings.Split(content, "\n")
+	blocks := fence.Walk(lines, 0)
 	var out []string
 	changed := false
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(trimmed, ":::code-group") || strings.HasPrefix(trimmed, "::::code-group") {
-			end := codeGroupEnd(lines, i)
+		if fence.IsCodeGroupOpener(trimmed) {
+			end, _ := fence.ContainerEnd(lines, i, len(lines), nil)
+			if end >= len(lines) {
+				end = len(lines) - 1
+			}
 			out = append(out, lines[i:end+1]...)
 			i = end
 			continue
 		}
-		block, ok := fence.At(lines, i)
-		if !ok {
+		block := blocks[i]
+		if block == nil {
 			out = append(out, lines[i])
 			continue
 		}
@@ -47,8 +51,7 @@ func (r *MermaidRule) Apply(content string) (string, error) {
 			// Otra cerca, o una mermaid sin un cierre de CommonMark: queda
 			// como está, con todo su cuerpo.
 			if end < 0 {
-				out = append(out, lines[i:]...)
-				break
+				end = block.Limit - 1
 			}
 			out = append(out, lines[i:end+1]...)
 			i = end
@@ -67,24 +70,6 @@ func (r *MermaidRule) Apply(content string) (string, error) {
 		return content, nil
 	}
 	return strings.Join(out, "\n"), nil
-}
-
-// codeGroupEnd es la línea del ":::" que cierra el :::code-group que abre en
-// lines[start], saltando las cercas de sus pestañas como las lee el parser
-// (fence.At), o la última línea si no cierra.
-func codeGroupEnd(lines []string, start int) int {
-	for i := start + 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == ":::" {
-			return i
-		}
-		if block, ok := fence.At(lines, i); ok {
-			if block.End < 0 {
-				return len(lines) - 1
-			}
-			i = block.End
-		}
-	}
-	return len(lines) - 1
 }
 
 // cleanMermaidContent limpia y formatea correctamente el contenido mermaid

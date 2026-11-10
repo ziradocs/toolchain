@@ -171,16 +171,47 @@ func TestParseMarkdownContent_CodeClosedByTheEarlierRule(t *testing.T) {
 	}
 }
 
-// La búsqueda de cierre de fence.At no se acota a la pestaña ni al code-group:
-// una pestaña de cuatro backticks cerrada por ``` cierra con CommonMark en un
-// ```` posterior aunque esté en otro code-group, y se traga los ":::" de en
-// medio. No queda sin cerrar, así que no es CODE003 sino CODE004 (el código
-// cambia de extensión con aviso). Fija el comportamiento; ver la descripción
-// de #498.
+// Una pestaña busca su cierre solo dentro de su code-group: una pestaña de
+// cuatro backticks cerrada por ``` no cierra con CommonMark en el ```` de un
+// code-group posterior. El grupo termina en su ":::", la pestaña cierra en la
+// ``` como antes (CODE003) y los dos grupos quedan separados.
 func TestCodeFence_TabClosesAcrossCodeGroups(t *testing.T) {
 	src := "# A\n\n:::code-group\n````js [a]\nx\n```\n:::\n\ntexto\n\n:::code-group\n````md [b]\ny\n````\n:::\n"
-	_, diags := flexDoc(t, src)
-	if got := strings.Join(rulesAt(diags, 4), ","); got != "CODE004" {
-		t.Errorf("want CODE004 at the first tab, got %q (all %v)", got, diags)
+	doc, diags := flexDoc(t, src)
+	if got := strings.Join(rulesAt(diags, 4), ","); got != "CODE003" {
+		t.Errorf("want CODE003 at the first tab, got %q (all %v)", got, diags)
+	}
+	var groups []*ast.CodeGroupElement
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if g, ok := n.(*ast.CodeGroupElement); ok {
+			groups = append(groups, g)
+		}
+		return nil
+	})
+	if len(groups) != 2 || groups[0].CodeBlocks[0].Content != "x" || groups[1].CodeBlocks[0].Content != "y" {
+		t.Errorf("want two groups with their own tabs: %#v", groups)
+	}
+}
+
+// Un bloque ::: acota igual las cercas de adentro: una cerca de cuatro que
+// solo cerraría con CommonMark después del ":::" de la nota cierra en su ```
+// (CODE003), y la nota termina en su ":::".
+func TestCodeFence_BlockBoundsItsFences(t *testing.T) {
+	src := "# A\n\n:::note\n````js\nx\n```\n:::\n\ntexto\n\n````md\ny\n````\n"
+	doc, diags := flexDoc(t, src)
+	if got := strings.Join(rulesAt(diags, 4), ","); got != "CODE003" {
+		t.Errorf("want CODE003 at the fence inside the note, got %q (all %v)", got, diags)
+	}
+	if c := codesOf(doc); len(c) != 2 || c[0].Content != "x" || c[1].Content != "y" {
+		t.Errorf("codes %#v", c)
+	}
+}
+
+// El fragmento de contenido avisa CODE004 en una línea que antes abría una
+// cerca y ahora es texto, igual que el documento.
+func TestParseMarkdownContent_TextFenceDiagnostic(t *testing.T) {
+	_, diags := ParseMarkdownContent("```js` es texto\n\nfin\n", ContentOptions{AnchorNamespace: "t"})
+	if got := strings.Join(rulesAt(diags, 1), ","); got != "CODE004" {
+		t.Errorf("want CODE004 at line 1, got %q (%v)", got, diags)
 	}
 }

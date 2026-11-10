@@ -497,7 +497,7 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 		// nunca es continuación: corta la lista, como siempre.
 		if !p.isListItem(trimmed) {
 			last := nest.last()
-			if last != nil && !StartsOtherBlock(trimmed) && (ctx.Mode != "flex" || !opensFence(lines, i)) && (paragraph || indent >= nest.lastContent()) {
+			if last != nil && !StartsOtherBlock(trimmed) && (ctx.Mode != "flex" || !opensFence(ctx, i)) && (paragraph || indent >= nest.lastContent()) {
 				last.Content += " " + trimmed
 				paragraph = true
 				consumed++

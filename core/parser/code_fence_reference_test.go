@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -16,6 +17,7 @@ import (
 var fenceTokens = []string{
 	"```", "````", "```js", "````md", "```js`", "```ts title=`a.ts`", "`````",
 	"texto", "## H", "", ":::note", ":::", "- item", "```mermaid", ":::code-group", "```js [a]",
+	"::::code-group", "````js [b]", ":::tip",
 }
 
 // mainCodeLines es la regla de las versiones anteriores, escrita aparte:
@@ -92,10 +94,10 @@ func commonMarkUnclosed(lines []string) bool {
 }
 
 // sameCode compara dos lecturas de código ignorando las líneas en blanco y la
-// cabecera de un code-group, que es código para CodeLiteralLines.
+// cabecera de un code-group, que es código para codeLiteralLines.
 func sameCode(lines []string, got, want []bool) bool {
 	for i := range lines {
-		if t := strings.TrimSpace(lines[i]); got[i] != want[i] && t != "" && !strings.HasPrefix(t, ":::code-group") {
+		if t := strings.TrimSpace(lines[i]); got[i] != want[i] && t != "" && !fence.IsCodeGroupOpener(t) {
 			return false
 		}
 	}
@@ -116,7 +118,7 @@ func sameCode(lines []string, got, want []bool) bool {
 //     son las de la regla anterior: el resultado es el de antes, más el aviso.
 //
 // Solo cuenta el código que guarda CodeParser o un code-group (lo que marca
-// CodeLiteralLines); las cercas de diagrama no son código.
+// codeLiteralLines); las cercas de diagrama no son código.
 func FuzzFenceReadingIsReported(f *testing.F) {
 	f.Add([]byte{3, 7, 0, 8})
 	f.Add([]byte{6, 7, 1, 7, 0})
@@ -145,14 +147,19 @@ func FuzzFenceReadingIsReported(f *testing.F) {
 				reported, fallback = true, true
 			}
 		}
-		got := CodeLiteralLines(src)
+		got := codeLiteralLines(src)
 		want, mainUnclosed := mainCodeLines(lines)
-		// Las cercas de diagrama no son código para CodeLiteralLines: la
+		// Las cercas de diagrama no son código para codeLiteralLines: la
 		// regla anterior se compara solo en documentos sin ellas.
 		if strings.Contains(src, "```mermaid") {
 			return
 		}
 		same := sameCode(lines, got, want)
+		// El recorrido sin parser (fence.Lines: normalizador, avisos de
+		// cercas) ve el mismo código que el parser.
+		if walked := fence.Lines(lines, 0); !sameCode(lines, got, walked) {
+			t.Fatalf("fence.Lines and the parser disagree:\n%s\nparser %v\nwalker %v", src, got, walked)
+		}
 		if !same && !reported {
 			t.Fatalf("code lines changed from the earlier rule without a CODE00x warning:\n%s\n got %v\nwant %v", src, got, want)
 		}

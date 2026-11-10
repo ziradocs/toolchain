@@ -4,6 +4,7 @@
 package include
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -375,8 +376,11 @@ func TestExpand_FenceInsideAQuoteIsNotCode(t *testing.T) {
 	}
 }
 
-// Una pestaña de :::code-group con cerca de cuatro backticks guarda un ``` y
-// un ":::" como código, así que el @include que sigue también lo es.
+// Una pestaña de :::code-group se acota a su grupo, que termina en el primer
+// ":::" en el que todo lo abierto cierra (fence.ContainerEnd): una pestaña de
+// cuatro con un ``` y después un ":::" cierra en el ``` (como en las versiones
+// anteriores), el grupo en ese ":::", y el @include que sigue no es código. El
+// segundo @include cae en la cerca de cuatro que abre después y queda.
 func TestExpand_CodeGroupTabWithALongerFence(t *testing.T) {
 	files := map[string]string{"/base/frag.md": "Incluido."}
 	src := "# A\n\n:::code-group\n````md [doc]\n```\n:::\n@include frag.md\n````\n:::\n@include frag.md\n"
@@ -384,8 +388,50 @@ func TestExpand_CodeGroupTabWithALongerFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "# A\n\n:::code-group\n````md [doc]\n```\n:::\n@include frag.md\n````\n:::\nIncluido.\n"
+	want := "# A\n\n:::code-group\n````md [doc]\n```\n:::\nIncluido.\n````\n:::\n@include frag.md\n"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+// Un @include que se expandió por estar fuera de código, pero cuyo contenido
+// terminó dentro de un bloque de código que empieza antes que él, se reporta en
+// CapturedInCode (doclang lo avisa como CODE005).
+func TestExpand_CapturedInCode(t *testing.T) {
+	strictDoc := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n"
+	for _, tc := range []struct {
+		name, src string
+		files     map[string]string
+		want      []CapturedInclude
+	}{
+		// La cerca de cuatro cerraba en ``` (regla anterior); el ```` que trae
+		// el archivo la cierra con CommonMark después, y el contenido incluido
+		// queda dentro.
+		{"included closer changes where the fence closes", "# A\n\n````js\nq\n```\n@include a.md\n",
+			map[string]string{"/base/a.md": "INCLUIDO\n````"}, []CapturedInclude{{Line: 6, Directive: "@include a.md", Origin: Origin{Line: 6}}}},
+		// El contenido incluido, más sangrado que la cabecera, alarga el cuerpo
+		// de un CODE strict.
+		{"included lines extend a strict CODE body", strictDoc + "  CODE\n    x\n@include more.txt\n",
+			map[string]string{"/base/more.txt": "    y"}, []CapturedInclude{{Line: 9, Directive: "@include more.txt", Origin: Origin{Line: 9}}}},
+		// La directiva anidada se ancla en su archivo (Origin, de #501).
+		{"nested directive is anchored in its file", "# A\n\n@include outer.md\n",
+			map[string]string{"/base/outer.md": "````js\nq\n```\n@include a.md", "/base/a.md": "IN\n````"},
+			[]CapturedInclude{{Line: 6, Directive: "@include a.md", Origin: Origin{File: "/base/outer.md", Line: 4}}}},
+		// Un archivo que trae su propio bloque de código no cuenta.
+		{"included file with its own code block", "# A\n\n@include c.md\n",
+			map[string]string{"/base/c.md": "```\ncode\n```"}, nil},
+		// Un archivo que agrega una pestaña a un code-group tampoco.
+		{"included file adds a tab", "# A\n\n:::code-group\n```js [a]\nx\n```\n@include tab.md\n:::\n",
+			map[string]string{"/base/tab.md": "```py [b]\ny\n```"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := ExpandWithOptions(tc.src, "/base", memFS(tc.files), ExpandOptions{KeepIncludesInCode: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(res.CapturedInCode) != fmt.Sprint(tc.want) {
+				t.Errorf("CapturedInCode %v, want %v\n%s", res.CapturedInCode, tc.want, res.Text)
+			}
+		})
 	}
 }

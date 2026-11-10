@@ -26,17 +26,18 @@ func (r *MermaidFormatterRule) Apply(content string) (string, error) {
 
 	i := 0
 	inCodeBlock := false
-	codeBlockEnd := -1 // la línea que cierra el bloque de código abierto (fence.End)
+	codeBlockEnd := -1           // la línea que cierra el bloque de código abierto
+	ends := fence.Ends(lines, 0) // las cercas como las lee el parser (fence.Walk)
 
 	for i < len(lines) {
 		line := lines[i]
 
 		// Detectar inicio/fin de bloques de código markdown
 		// Cercas con la regla de internal/fence, la del parser.
-		if (!inCodeBlock && fence.End(lines, i) >= 0) || (inCodeBlock && i == codeBlockEnd) {
+		if (!inCodeBlock && ends[i] >= 0) || (inCodeBlock && i == codeBlockEnd) {
 			if !inCodeBlock {
 				inCodeBlock = true
-				codeBlockEnd = fence.End(lines, i)
+				codeBlockEnd = ends[i]
 			} else {
 				inCodeBlock = false
 			}

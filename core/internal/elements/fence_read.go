@@ -22,16 +22,18 @@ const FenceFallbackRuleID = "CODE003"
 // versiones anteriores leían como cerca y ahora es texto.
 const FenceExtentChangedRuleID = "CODE004"
 
-// fenceAt es fence.At sobre las líneas del contexto.
+// fenceAt es fence.AtWithin sobre las líneas del contexto, acotada a su
+// contenedor (ctx.Limit).
 func fenceAt(ctx *ParseContext, i int) (fence.Block, bool) {
-	return fence.At(ctx.Lines, i)
+	return fence.AtWithin(ctx.Lines, i, ctx.limit())
 }
 
-// opensFence dice si lines[i] abre una cerca de código, con la misma lectura
-// que el parser de código (fence.At). Lo usan los cortes de prosa y de listas
-// para no tragarse una cerca que el parser sí va a leer.
-func opensFence(lines []string, i int) bool {
-	return fence.Starts(lines, i)
+// opensFence dice si ctx.Lines[i] abre una cerca de código, con la misma
+// lectura que el parser de código (fenceAt). Lo usan los cortes de prosa y de
+// listas para no tragarse una cerca que el parser sí va a leer.
+func opensFence(ctx *ParseContext, i int) bool {
+	_, ok := fenceAt(ctx, i)
+	return ok
 }
 
 // fenceLine es la línea del archivo (1-based) de ctx.Lines[i].
@@ -82,11 +84,14 @@ func fenceDiagnostics(ctx *ParseContext, b fence.Block) []diagnostics.Diagnostic
 }
 
 // TextFenceDiagnostics es el CODE004 de cada línea de ctx.Lines que empieza
-// con ``` pero no abre una cerca (un backtick en el info string, fence.At) y
+// con ``` pero no abre una cerca (un backtick en el info string, fence.Walk) y
 // que no cae dentro de otra cerca: las versiones anteriores la leían como una
-// cerca y ahora es texto. Lo llama cada parser flex al terminar, sobre todas
-// sus líneas, porque una línea así puede terminar en cualquier elemento (un
-// párrafo, un item, el contenido de un :::, una pestaña de code-group).
+// cerca y ahora es texto. Lo llaman los parsers flex de documento y de
+// presentación al terminar, y ParseMarkdownContent, sobre todas sus líneas,
+// porque una línea así puede terminar en cualquier elemento (un párrafo, un
+// item, el contenido de un :::, una pestaña de code-group). No corre sobre
+// el cuerpo de un bloque `{typed}` de un documento strict: haría falta
+// acotarlo a ese cuerpo para no repetir avisos.
 func TextFenceDiagnostics(ctx *ParseContext) []diagnostics.Diagnostic {
 	var out []diagnostics.Diagnostic
 	inFence := fence.Lines(ctx.Lines, 0)
@@ -112,7 +117,7 @@ func TextFenceDiagnostics(ctx *ParseContext) []diagnostics.Diagnostic {
 func fenceBody(lines []string, b fence.Block) []string {
 	end := b.End
 	if end < 0 {
-		end = len(lines)
+		end = b.Limit
 	}
 	return lines[b.Start+1 : end]
 }

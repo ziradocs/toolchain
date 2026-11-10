@@ -59,22 +59,7 @@ func dumpFences(src string) string {
 	for _, block := range doc.ContentBlocks {
 		title, _ := block.SectionTitle()
 		fmt.Fprintf(&b, "section %q\n", title)
-		for _, el := range block.Elements {
-			switch e := el.(type) {
-			case *ast.CodeElement:
-				fmt.Fprintf(&b, "  code %q line %d: %q\n", e.Language, e.Position.Line, e.Content)
-			case *ast.CodeGroupElement:
-				for _, cb := range e.CodeBlocks {
-					fmt.Fprintf(&b, "  code-group tab %q line %d: %q\n", cb.Language, e.Position.Line, cb.Content)
-				}
-			case *ast.MermaidElement:
-				fmt.Fprintf(&b, "  mermaid line %d: %q\n", e.Position.Line, e.Content)
-			case *ast.TextElement:
-				fmt.Fprintf(&b, "  text line %d: %q\n", e.Position.Line, e.Content)
-			default:
-				fmt.Fprintf(&b, "  %T line %d\n", el, el.GetPosition().Line)
-			}
-		}
+		dumpElements(&b, block.Elements, "  ")
 	}
 	var lines []string
 	for _, d := range diags {
@@ -87,4 +72,26 @@ func dumpFences(src string) string {
 		b.WriteString(l + "\n")
 	}
 	return b.String()
+}
+
+func dumpElements(b *strings.Builder, els []ast.Element, indent string) {
+	for _, el := range els {
+		switch e := el.(type) {
+		case *ast.CodeElement:
+			fmt.Fprintf(b, "%scode %q line %d: %q\n", indent, e.Language, e.Position.Line, e.Content)
+		case *ast.CodeGroupElement:
+			for _, cb := range e.CodeBlocks {
+				fmt.Fprintf(b, "%scode-group tab %q line %d: %q\n", indent, cb.Language, e.Position.Line, cb.Content)
+			}
+		case *ast.MermaidElement:
+			fmt.Fprintf(b, "%smermaid line %d: %q\n", indent, e.Position.Line, e.Content)
+		case *ast.TextElement:
+			fmt.Fprintf(b, "%stext line %d: %q\n", indent, e.Position.Line, e.Content)
+		case *ast.SpecialBlockElement:
+			fmt.Fprintf(b, "%sblock %q line %d\n", indent, e.BlockType, e.Position.Line)
+			dumpElements(b, e.Elements, indent+"  ")
+		default:
+			fmt.Fprintf(b, "%s%T line %d\n", indent, el, el.GetPosition().Line)
+		}
+	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // SpecialBlockParser maneja bloques especiales como :::info, :::warning, etc.
@@ -270,9 +271,17 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		proseRun.WriteString(keepListIndent(ctx.Lines[lineIndex], bodyIndent))
 	}
 
+	// El cuerpo termina en el primer ":::" (o en el primer límite de bloque,
+	// abajo) fuera de lo que se abrió adentro (fence.ContainerEnd), y una
+	// cerca de adentro busca su cierre solo antes de él.
+	bodyEnd, _ := fence.ContainerEnd(ctx.Lines, startIndex, ctx.limit(), func(line string) bool {
+		return strings.TrimSpace(line) == "---" || IsStrictBlockBoundary(line)
+	})
+	nestedCtx = nestedCtx.within(bodyEnd)
+
 	i := startIndex + 1
 	closed := false
-	for i < len(ctx.Lines) {
+	for i < ctx.limit() {
 		trimmedLine := strings.TrimSpace(ctx.Lines[i])
 
 		if trimmedLine == ":::" {

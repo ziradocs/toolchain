@@ -57,7 +57,7 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		// (como un bloque de código suelto).
 		block, _ := fenceAt(ctx, startIndex)
 		contentLines = append(contentLines, fenceBody(ctx.Lines, block)...)
-		consumedLines = block.Consumed(ctx.Lines)
+		consumedLines = block.Consumed()
 		fenceDiags = fenceDiagnostics(ctx, block)
 	} else {
 		// Formato <<mermaid>> - usar indentación o tag de cierre <<end>>

@@ -158,7 +158,9 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 			return nil, append(diags, diagnostics.NewError("unresolved local fragment anchor "+target+"; declare its authoral anchor explicitly", diagnostics.NewPosition(1, 1), "content-markdown"))
 		}
 	}
-	return nodes, diags
+	// Una línea que antes abría una cerca y ahora es texto (CODE004), como en
+	// el documento.
+	return nodes, append(diags, elements.TextFenceDiagnostics(ctx)...)
 }
 
 // Navigation authority comes only from the existing renderer's actual HTML

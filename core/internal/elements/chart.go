@@ -97,7 +97,7 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// mecanismos de balanceo/sangría que el resto de este archivo necesita
 	// para un cuerpo sin terminador propio.
 	if ctx.Mode == "flex" && isFencedBlockOpener(line, "chart") {
-		body, consumed, block := collectFencedBody(ctx.Lines, startIndex)
+		body, consumed, block := collectFencedBody(ctx, startIndex)
 		fenceDiags := fenceDiagnostics(ctx, block)
 		trimmedBody := strings.TrimSpace(body)
 		chart := ast.NewChartElement(pos, "bar")

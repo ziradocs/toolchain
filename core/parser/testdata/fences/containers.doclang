@@ -1,0 +1,39 @@
+---
+title: Contenedores
+---
+
+# Pestañas acotadas a su code-group
+
+:::code-group
+````js [uno]
+x
+```
+:::
+
+Entre grupos.
+
+:::code-group
+````md [dos]
+y
+````
+:::
+
+# Cercas acotadas a su bloque
+
+:::note
+````js
+dentro de la nota
+```
+:::
+
+Después de la nota.
+
+:::tip
+````md
+```go
+x := 1
+```
+````
+:::
+
+# Fin

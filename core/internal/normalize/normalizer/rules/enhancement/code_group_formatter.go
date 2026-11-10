@@ -70,7 +70,8 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 	inCodeItem := false
 	inCodeBlock := false
 	inBareFence := false
-	bareFenceEnd, codeBlockEnd := -1, -1 // la línea que cierra cada cerca (fence.End)
+	bareFenceEnd, codeBlockEnd := -1, -1 // la línea que cierra cada cerca
+	ends := fence.Ends(lines, 0)         // las cercas como las lee el parser (fence.Walk)
 	currentLanguage := ""
 	currentTitle := ""
 	var codeBlockContent []string
@@ -103,9 +104,9 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 		// :::code-item{} (ver más abajo), dejando el camino canónico sin
 		// protección — el mismo bug de "code-group pierde tabs" que esta
 		// regla existe para arreglar, en un disparador distinto.
-		if inCodeGroup && !inCodeItem && !inBareFence && fence.End(lines, i) >= 0 {
+		if inCodeGroup && !inCodeItem && !inBareFence && ends[i] >= 0 {
 			inBareFence = true
-			bareFenceEnd = fence.End(lines, i)
+			bareFenceEnd = ends[i]
 			processedLines = append(processedLines, line)
 			continue
 		}
@@ -146,9 +147,9 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 		}
 
 		// Detectar inicio de bloque de código dentro de code-item
-		if inCodeItem && !inCodeBlock && fence.End(lines, i) >= 0 {
+		if inCodeItem && !inCodeBlock && ends[i] >= 0 {
 			// Extraer lenguaje del bloque
-			codeBlockEnd = fence.End(lines, i)
+			codeBlockEnd = ends[i]
 			currentLanguage = fence.Info(trimmed)
 			if currentLanguage == "" {
 				currentLanguage = "plaintext"

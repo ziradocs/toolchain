@@ -218,8 +218,8 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 		// Solo pasa si el llamador no preguntó antes (CanParse sobre la línea
 		// sola): una línea con un backtick en el info string que no abre.
 		// Se lee como en las versiones anteriores.
-		block = fence.Block{Start: startIndex, Ticks: 3, End: -1, Reading: fence.OpenedByMain, MainEnd: -1}
-		for j := startIndex + 1; j < len(ctx.Lines); j++ {
+		block = fence.Block{Start: startIndex, Ticks: 3, End: -1, Limit: ctx.limit(), Reading: fence.OpenedByMain, MainEnd: -1}
+		for j := startIndex + 1; j < ctx.limit(); j++ {
 			if strings.TrimSpace(ctx.Lines[j]) == "```" {
 				block.End, block.MainEnd = j, j
 				break
@@ -234,7 +234,7 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 
 	codeElement := ast.NewCodeElement(pos, language, strings.Join(fenceBody(ctx.Lines, block), "\n"))
 	codeElement.Filename = filename
-	return codeElement, block.Consumed(ctx.Lines), fenceDiagnostics(ctx, block), headerErr
+	return codeElement, block.Consumed(), fenceDiagnostics(ctx, block), headerErr
 }
 
 // CanParseAt es CanParse con el contexto: en flex, una línea abre un bloque de
@@ -242,7 +242,7 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 // info string que se lee como en las versiones anteriores (fence.OpenedByMain).
 func (p *CodeParser) CanParseAt(ctx *ParseContext, i int) bool {
 	if ctx.Mode == "flex" {
-		return opensFence(ctx.Lines, i)
+		return opensFence(ctx, i)
 	}
 	return p.CanParse(ctx.Lines[i], ctx.Mode)
 }

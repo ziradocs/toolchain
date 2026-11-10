@@ -47,6 +47,13 @@ type literalScanner struct {
 	// si no cierran); groupEnd es -1 fuera de una pestaña.
 	fenceEnd int
 	groupEnd int
+	// groupClose es el ":::" que cierra el code-group abierto
+	// (fence.ContainerEnd), y blocks los finales de los bloques ::: con tipo
+	// que se están recorriendo, del más externo al más interno: una cerca
+	// busca su cierre solo antes del final de su contenedor, como en el
+	// parser.
+	groupClose int
+	blocks     []int
 }
 
 func newLiteralScanner(strict, flexCodeHeaders bool) literalScanner {
@@ -59,6 +66,13 @@ func (s *literalScanner) step(lines []string, i int) string {
 	line := lines[i]
 	trimmed := strings.TrimSpace(line)
 	indent := len(line) - len(strings.TrimLeft(line, " \t"))
+	for len(s.blocks) > 0 && i >= s.blocks[len(s.blocks)-1] {
+		s.blocks = s.blocks[:len(s.blocks)-1]
+	}
+	limit := len(lines)
+	if len(s.blocks) > 0 {
+		limit = s.blocks[len(s.blocks)-1]
+	}
 	// El cuerpo de un CODE son las líneas con más sangría que su cabecera
 	// (elements.CodeParser.parseStrictCode): termina en la primera línea con
 	// texto que no pasa de ella.
@@ -103,8 +117,8 @@ func (s *literalScanner) step(lines []string, i int) string {
 				if i == s.groupEnd {
 					s.groupEnd = -1
 				}
-			} else if b, ok := fence.At(lines, i); ok {
-				s.groupEnd = blockEnd(lines, b)
+			} else if b, ok := fence.AtWithin(lines, i, s.groupClose); ok {
+				s.groupEnd = blockEnd(b)
 			} else if trimmed == ":::" {
 				s.literal = ""
 			}
@@ -113,9 +127,9 @@ func (s *literalScanner) step(lines []string, i int) string {
 			return current
 		}
 	}
-	if b, ok := fence.At(lines, i); ok {
+	if b, ok := fence.AtWithin(lines, i, limit); ok {
 		s.literal = literalFence
-		s.fenceEnd = blockEnd(lines, b)
+		s.fenceEnd = blockEnd(b)
 		return s.literal
 	}
 	if trimmed == "$$" {
@@ -131,10 +145,17 @@ func (s *literalScanner) step(lines []string, i int) string {
 		s.diagramIndent = indent
 		return s.literal
 	}
-	if strings.HasPrefix(trimmed, ":::code-group") {
+	if fence.IsCodeGroupOpener(trimmed) {
 		s.literal = literalGroup
 		s.groupEnd = -1
+		s.groupClose, _ = fence.ContainerEnd(lines, i, limit, nil)
 		return s.literal
+	}
+	if fence.IsBlockOpener(trimmed) {
+		end, _ := fence.ContainerEnd(lines, i, limit, func(line string) bool {
+			return strings.TrimSpace(line) == "---" || elements.IsStrictBlockBoundary(line)
+		})
+		s.blocks = append(s.blocks, end)
 	}
 	codeHeader := false
 	if s.strict {
@@ -153,10 +174,11 @@ func (s *literalScanner) step(lines []string, i int) string {
 	return ""
 }
 
-// blockEnd es la línea que cierra b, o len(lines) si no cierra.
-func blockEnd(lines []string, b fence.Block) int {
+// blockEnd es la línea que cierra b, o el final de su contenedor si no
+// cierra.
+func blockEnd(b fence.Block) int {
 	if b.End < 0 {
-		return len(lines)
+		return b.Limit
 	}
 	return b.End
 }

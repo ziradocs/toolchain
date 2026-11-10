@@ -68,7 +68,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			}
 			content.WriteString(strings.TrimSpace(line))
 		}
-		consumedLines = block.Consumed(ctx.Lines)
+		consumedLines = block.Consumed()
 		fenceDiags = fenceDiagnostics(ctx, block)
 	} else if isNativeFormat {
 		// Formato nativo PlantUML: @startuml ... @enduml

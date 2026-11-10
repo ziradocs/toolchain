@@ -192,7 +192,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			// Una línea con un backtick en el info string que fence.At sí
 			// lee como cerca (fence.OpenedByMain) corta el párrafo, como
 			// cualquier cerca (si es texto, lo avisa TextFenceDiagnostics).
-			if ctx.Mode == "flex" && strings.HasPrefix(trimmed, "```") && opensFence(ctx.Lines, i) {
+			if ctx.Mode == "flex" && strings.HasPrefix(trimmed, "```") && opensFence(ctx, i) {
 				break
 			}
 

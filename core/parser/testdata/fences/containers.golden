@@ -1,0 +1,14 @@
+section "Pestañas acotadas a su code-group"
+  code-group tab "js" line 7: "x"
+  text line 13: "Entre grupos."
+  code-group tab "md" line 15: "y"
+section "Cercas acotadas a su bloque"
+  block "note" line 23
+    code "js" line 24: "dentro de la nota"
+  text line 29: "Después de la nota."
+  block "tip" line 31
+    code "md" line 32: "```go\nx := 1\n```"
+CODE003 line 24: the code block opened with 4 backticks is closed by a 3-backtick line (line 26), as in earlier versions; CommonMark would not close it there. Close it with 4 backticks
+CODE003 line 8: the code block opened with 4 backticks is closed by a 3-backtick line (line 10), as in earlier versions; CommonMark would not close it there. Close it with 4 backticks
+CODE004 line 16: the code block opened with 4 backticks closes at line 18; earlier versions closed it at line 26
+CODE004 line 32: the code block opened with 4 backticks closes at line 36; earlier versions closed it at line 35

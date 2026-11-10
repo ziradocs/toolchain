@@ -9,6 +9,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // CodeGroupParser maneja grupos de código (::::code-group o :::code-group)
@@ -74,8 +75,15 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		baseIndent = CalculateIndentLevel(ctx.Lines[startIndex])
 	}
 
+	// El grupo termina en el primer ":::" fuera de sus pestañas
+	// (fence.ContainerEnd), y cada pestaña busca su cierre solo antes de él:
+	// una pestaña que solo cerraría con CommonMark en otro code-group
+	// posterior cierra donde cerraba antes.
+	groupEnd, _ := fence.ContainerEnd(ctx.Lines, startIndex, ctx.limit(), nil)
+	tabs := ctx.within(groupEnd)
+
 	// Collect code blocks until :::
-	for i := startIndex + 1; i < len(ctx.Lines); i++ {
+	for i := startIndex + 1; i < ctx.limit(); i++ {
 		line := strings.TrimSpace(ctx.Lines[i])
 
 		if line == ":::" {
@@ -85,7 +93,7 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		}
 
 		// Look for start of code block ```language [label]
-		if block, ok := fenceAt(ctx, i); ok {
+		if block, ok := fenceAt(tabs, i); ok {
 			ticks := block.Ticks
 			// ```lenguaje [etiqueta]: la etiqueta es todo lo que va entre los
 			// corchetes, espacios incluidos. Antes se partía por espacios y
@@ -111,7 +119,7 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 				lines[k] = stripBaseIndent(line, baseIndent)
 			}
 			content := strings.Join(lines, "\n")
-			tabLines := block.Consumed(ctx.Lines)
+			tabLines := block.Consumed()
 			ctx.recordCode(i, tabLines)
 			groupDiags = append(groupDiags, fenceDiagnostics(ctx, block)...)
 			consumed += tabLines
