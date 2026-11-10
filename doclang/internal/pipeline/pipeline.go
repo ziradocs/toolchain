@@ -23,6 +23,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -374,6 +375,13 @@ type GenerateOptions struct {
 	SourceDir string
 	// AllowRemoteImages: ver generator.GeneratorOptions.AllowRemoteImages.
 	AllowRemoteImages bool
+	// FailOnUnavailable, NoNetwork, TileServer y TileUserAgent: ver los
+	// campos del mismo nombre de generator.GeneratorOptions.
+	FailOnUnavailable bool
+	NoNetwork         bool
+	TileServer        string
+	TileUserAgent     string
+	TileAttribution   string
 }
 
 var validRenderModes = map[string]bool{
@@ -392,6 +400,35 @@ func ValidateRenderOptions(renderMode, diagramBackend string) error {
 	}
 	if !validDiagramBackends[diagramBackend] {
 		return fmt.Errorf("invalid diagram-backend: %s (valid: chromium, kroki)", diagramBackend)
+	}
+	return nil
+}
+
+// ValidateNetworkOptions revisa --no-network, --tile-server,
+// --tile-user-agent y --tile-attribution: --no-network no se combina con lo
+// que pediría algo a la red (--allow-remote-images, --install-chromium,
+// --tile-server), y el servidor de tiles tiene que ser un template válido
+// que este build sepa usar.
+func ValidateNetworkOptions(noNetwork, allowRemoteImages, installChromium bool, tileServer, tileUserAgent, tileAttribution string) error {
+	if noNetwork && tileServer != "" {
+		return fmt.Errorf("--no-network and --tile-server contradict each other (with --no-network no map tile is downloaded)")
+	}
+	if noNetwork && allowRemoteImages {
+		return fmt.Errorf("--no-network and --allow-remote-images contradict each other")
+	}
+	if noNetwork && installChromium {
+		return fmt.Errorf("--no-network and --install-chromium contradict each other (installing Chromium downloads it)")
+	}
+	return generator.ValidateTileServer(tileServer, tileUserAgent, tileAttribution)
+}
+
+// ValidateFailOnUnavailable rechaza --fail-on-unavailable con markdown: esa
+// salida no resuelve imágenes, diagramas ni mapas (los deja como fuente o
+// referencia), así que no hay nada que pueda faltar y la bandera se habría
+// ignorado en silencio.
+func ValidateFailOnUnavailable(failOnUnavailable bool, format string) error {
+	if failOnUnavailable && (format == "markdown" || format == "md") {
+		return fmt.Errorf("--fail-on-unavailable does not apply to --format %s: markdown output keeps images, diagrams and maps as references and resolves none of them", format)
 	}
 	return nil
 }
@@ -423,6 +460,12 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 	}
 
 	if err := ValidateRenderOptions(opts.RenderMode, opts.DiagramBackend); err != nil {
+		return err
+	}
+	if err := ValidateNetworkOptions(opts.NoNetwork, opts.AllowRemoteImages, opts.InstallChromium, opts.TileServer, opts.TileUserAgent, opts.TileAttribution); err != nil {
+		return err
+	}
+	if err := ValidateFailOnUnavailable(opts.FailOnUnavailable, format); err != nil {
 		return err
 	}
 
@@ -469,10 +512,28 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		AssetRoot:         opts.AssetRoot, // Confinamiento de fuentes de imagen (AL-4)
 		SourceDir:         opts.SourceDir, // Base de las fuentes de imagen relativas
 		AllowRemoteImages: opts.AllowRemoteImages,
+		FailOnUnavailable: opts.FailOnUnavailable,
+		NoNetwork:         opts.NoNetwork,
+		TileServer:        opts.TileServer,
+		TileUserAgent:     opts.TileUserAgent,
+		TileAttribution:   opts.TileAttribution,
 		Ctx:               opts.Ctx,
 	}
 	log.Info("GENERATOR", "Generating %s document...", format)
 	if err := gen.Generate(doc, opts.OutputFile, genOpts); err != nil {
+		// Con --fail-on-unavailable la salida no se escribe; tampoco debe
+		// quedar la de un build anterior con el mismo nombre, que alguien
+		// tomaría por la de este.
+		var ue *generator.UnavailableError
+		if errors.As(err, &ue) {
+			// Solo un archivo regular: un enlace simbólico o un directorio con
+			// ese nombre no es una salida de doclang.
+			if info, err := os.Lstat(opts.OutputFile); err == nil && info.Mode().IsRegular() {
+				if rmErr := os.Remove(opts.OutputFile); rmErr != nil {
+					log.Warn("could not remove the previous %s: %v", opts.OutputFile, rmErr)
+				}
+			}
+		}
 		return fmt.Errorf("generation failed: %w", err)
 	}
 	return nil

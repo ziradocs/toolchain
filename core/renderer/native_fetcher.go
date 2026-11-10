@@ -76,7 +76,7 @@ func nativeContentHash(content string) string {
 func (f *NativeChartFetcher) chartHash(elem *ast.ChartElement, width, height int) string {
 	categoricalColors, themeColors := f.colors()
 	data, _ := json.Marshal(elem)
-	key := fmt.Sprintf("%s|%dx%d", data, width, height)
+	key := fmt.Sprintf("%s|%dx%d|render=%s", data, width, height, NativeChartRenderVersion)
 	if len(categoricalColors) > 0 || !themeColors.IsZero() {
 		// Solo se agrega cuando hay tema, para que un fetcher sin colores
 		// (TryAllChartsNative, el gate de doclang) produzca el MISMO hash de

@@ -160,7 +160,7 @@ func cacheKeyInput(elem *ast.ChartElement, chartConfig string, width, height int
 	if elem != nil {
 		title = elem.Title
 	}
-	key := fmt.Sprintf("%s|%s|%dx%d", chartConfig, title, width, height)
+	key := fmt.Sprintf("%s|%s|%dx%d|render=%s", chartConfig, title, width, height, renderer.NativeChartRenderVersion)
 	if !themeColors.IsZero() {
 		// Solo se agrega cuando hay tema, para que un caller sin tema
 		// produzca el MISMO hash de siempre y no invalide los assets ya
