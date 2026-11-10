@@ -195,8 +195,9 @@ A `TEXT` body is the lines that follow it with indentation: usually deeper than
 `TEXT`, or, as always accepted, at its own indentation. In that second case a
 line that another element recognizes (`POINTS`, `CODE`, `@`, `:::`…) ends the
 body, so a `TEXT` with no body does not take the elements after it as text. A
-`TEXT` with no content is the `TEXT001` diagnostic: an error in a strict
-document, a warning in a slide.
+`TEXT` with no content is the `TEXT001` diagnostic, a warning in both
+dialects (a strict document included): nothing is lost, so it does not stop
+the build.
 
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next

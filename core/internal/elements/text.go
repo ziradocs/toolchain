@@ -10,9 +10,10 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
-// EmptyTextRuleID es el aviso de un TEXT strict sin contenido. Sale como
-// warning; el dialecto strict de documentos lo sube a error, como STRICT003
-// frente a la línea no reconocida de un documento.
+// EmptyTextRuleID es el aviso de un TEXT strict sin contenido. Es warning en
+// todos los dialectos, también en documento strict: un TEXT vacío no se
+// traga ni descarta nada, y subirlo a error rompería documentos que ya
+// compilaban.
 const EmptyTextRuleID = "TEXT001"
 
 // TextParser maneja elementos de texto (fallback parser)

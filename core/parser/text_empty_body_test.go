@@ -96,15 +96,16 @@ func TestStrictText_SameIndentBodyStillWorks(t *testing.T) {
 	}
 }
 
-// Un TEXT sin contenido da TEXT001: error en un documento strict, warning en
-// un slide.
+// Un TEXT sin contenido da TEXT001 como warning en los dos dialectos: no
+// pierde nada, y en un documento strict un error rompería documentos que
+// compilaban.
 func TestStrictText_EmptyTextIsReported(t *testing.T) {
 	_, diags := New(util.NewNoop()).ParseDocument("---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  POINTS\n    - uno\n", "d.doclang")
-	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || !diags[0].IsError() || diags[0].Position.Line != 7 {
-		t.Errorf("document: want one TEXT001 error at line 7, got %v", diags)
+	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || !diags[0].IsWarning() || diags[0].Position.Line != 7 {
+		t.Errorf("document: want one TEXT001 warning at line 7, got %v", diags)
 	}
 	_, diags = New(util.NewNoop()).Parse("---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  POINTS\n    - uno\n", "s.slidelang")
-	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || diags[0].IsError() {
+	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || !diags[0].IsWarning() {
 		t.Errorf("slide: want one TEXT001 warning, got %v", diags)
 	}
 }
