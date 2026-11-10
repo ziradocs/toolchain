@@ -258,7 +258,7 @@ func TestSameTileOrigin(t *testing.T) {
 		{"http://t.example.com:8080/a", "https://t.example.com:8080/a", true},
 		{"https://t.example.com/a", "https://t.example.com:443/b", true},
 		{"http://t.example.com/a", "http://t.example.com/b", true},
-		{"https://t.example.com/a", "http://t.example.com/a", false},  // bajada a http
+		{"https://t.example.com/a", "http://t.example.com/a", false}, // bajada a http
 		{"http://t.example.com:8080/a", "https://t.example.com/a", false},
 		{"http://t.example.com/a", "https://other.example.com/a", false},
 		{"http://t.example.com/a", "http://t.example.com:81/a", false},
