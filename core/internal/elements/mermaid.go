@@ -181,7 +181,8 @@ func dedentCommonPrefix(lines []string) string {
 }
 
 // dedentLines quita a cada línea la sangría que comparten todas las líneas
-// con texto y conserva la relativa; una línea de solo espacios queda vacía.
+// con texto y conserva la relativa. Una línea de solo espacios conserva lo que
+// pase de esa sangría; una más corta queda vacía.
 // La sangría común se quita en dos pasos. Primero el prefijo de espacios y
 // tabs que comparten (commonIndentPrefix, el mismo criterio que el cuerpo de
 // un CODE), comparado como cadena: un tab vale un tab. Antes se medía por
@@ -200,18 +201,25 @@ func dedentLines(lines []string) []string {
 	}
 	common := -1
 	for i, line := range lines {
+		rest, ok := strings.CutPrefix(line, base)
+		if !ok {
+			// Solo una línea en blanco puede no tener el prefijo entero.
+			continue
+		}
+		out[i] = rest
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		out[i] = line[len(base):]
-		if indent := CalculateIndentLevel(out[i]); common == -1 || indent < common {
+		if indent := CalculateIndentLevel(rest); common == -1 || indent < common {
 			common = indent
 		}
 	}
 	if common > 0 {
 		for i, line := range out {
-			if line != "" {
+			if CalculateIndentLevel(line) >= common {
 				out[i] = cutIndentColumns(line, common)
+			} else {
+				out[i] = "" // una línea en blanco más corta
 			}
 		}
 	}
@@ -219,7 +227,7 @@ func dedentLines(lines []string) []string {
 }
 
 // cutIndentColumns quita los primeros columns de sangría de line, una línea
-// con texto sangrada al menos esas columnas, con un tab de cuatro columnas
+// sangrada al menos esas columnas, con un tab de cuatro columnas
 // (CalculateIndentLevel). Un tab que pasa del corte deja las columnas que
 // sobran como espacios.
 func cutIndentColumns(line string, columns int) string {
