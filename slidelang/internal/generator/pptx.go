@@ -644,9 +644,15 @@ type pptxInlineSegment struct {
 }
 
 var (
-	pptxCodeRe   = regexp.MustCompile("`([^`]+)`")
-	pptxBoldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	pptxItalicRe = regexp.MustCompile(`\*([^*]+)\*`)
+	pptxCodeRe = regexp.MustCompile("`([^`]+)`")
+	// pptxBoldRe y pptxItalicRe siguen la regla de core
+	// (core/renderer/sanitizer.go, inlineOpenEdgeNoStar): un delimitador abre
+	// solo si lo sigue algo que no es espacio, separador de Unicode ni "*";
+	// al cerrar no se exige nada. Lo verifica
+	// TestPPTXSplitInline_MatchesCoreDelimiterTable contra la tabla
+	// compartida core/renderer/testdata/inline_delimiters.json.
+	pptxBoldRe   = regexp.MustCompile(`\*\*([^*\s\p{Zs}][^*]*)\*\*`)
+	pptxItalicRe = regexp.MustCompile(`\*([^*\s\p{Zs}][^*]*)\*`)
 	// pptxSpanTokenRe reconoce `[texto]{.clase}`.
 	//
 	// Es una copia local del `inlineSpanPattern` de core/renderer, que no está
@@ -852,8 +858,12 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 	remaining := content
 	pos := 0
 	cursors := make([]pptxCursor, len(pptxBasicPatterns))
+	emphasis := pptxMaskEscapes(content)
 	for i, re := range pptxBasicPatterns {
-		cursors[i] = pptxCursor{re: re.re, hay: content}
+		cursors[i] = pptxCursor{re: re.re, hay: emphasis}
+		if re.code {
+			cursors[i].hay = content
+		}
 	}
 
 	for pos < len(remaining) {
@@ -882,18 +892,80 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 		}
 
 		if best == nil {
-			segments = append(segments, pptxInlineSegment{text: remaining[pos:]})
+			segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:])})
 			break
 		}
 		if best.start > pos {
-			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
+			segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:best.start])})
 		}
-		segments = append(segments, applySpanTokens(best.inner,
+		segments = append(segments, applySpanTokens(pptxSegmentText(best.inner, best.code),
 			pptxInlineSegment{bold: best.bold, italic: best.italic, code: best.code})...)
 		pos = best.end
 	}
 
 	return segments
+}
+
+// pptxMaskEscapes devuelve s, del mismo largo, con el carácter de cada
+// escape de delimitador (`\*`, `\=`, `\~`) cambiado por un byte de control
+// que ningún patrón reconoce: ahí se buscan la negrita y la cursiva, y el
+// texto de cada segmento sigue saliendo de s. Es la regla de core
+// (escapeInlineDelimiters en core/renderer/sanitizer.go): `\\` es una barra
+// escrita a mano, se deja con el carácter que la sigue, y `\_` no es un
+// escape porque `_` no es delimitador en este dialecto.
+func pptxMaskEscapes(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	b := []byte(s)
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] != '\\' {
+			continue
+		}
+		switch b[i+1] {
+		case '*', '=', '~':
+			b[i+1] = 0x1a
+			i++
+		case '\\':
+			i++
+		}
+	}
+	return string(b)
+}
+
+// pptxSegmentText es el texto de un segmento de negrita, cursiva o código:
+// en un code span un escape se ve tal cual, como en el HTML; en lo demás se
+// quita la barra.
+func pptxSegmentText(inner string, code bool) string {
+	if code {
+		return inner
+	}
+	return pptxUnescapeDelimiters(inner)
+}
+
+// pptxUnescapeDelimiters quita la barra de cada escape de delimitador, con la
+// misma lectura que pptxMaskEscapes.
+func pptxUnescapeDelimiters(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '*', '=', '~':
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			case '\\':
+				b.WriteString(`\\`)
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // pptxMaskLinkDestinations es maskLinkDestinations con el code span del
@@ -915,7 +987,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 	remaining := content
 	// emphasis es remaining con los destinos tapados: ahí se buscan la
 	// negrita y la cursiva; el código se busca en el texto tal cual.
-	emphasis := pptxMaskLinkDestinations(content)
+	emphasis := pptxMaskEscapes(pptxMaskLinkDestinations(content))
 	pos := 0
 	// Cada patrón guarda su próximo match y solo lo vuelve a buscar cuando
 	// pos lo pasa (ver pptxCursor).
@@ -973,7 +1045,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 			class := remaining[pos+loc[4] : pos+loc[5]]
 
 			if matchStart > pos {
-				segments = append(segments, pptxInlineSegment{text: remaining[pos:matchStart]})
+				segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:matchStart])})
 			}
 			// Un token DESCONOCIDO se emite literal, con corchetes y llaves.
 			// Es lo que hace el HTML (ver el comentario de inlineSpanPattern en
@@ -982,7 +1054,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 			// escondería el typo del autor.
 			style, known := pptxSpanTokenStyle[class]
 			if !known {
-				segments = append(segments, pptxInlineSegment{text: remaining[matchStart:matchEnd]})
+				segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[matchStart:matchEnd])})
 				pos = matchEnd
 				continue
 			}
@@ -1010,7 +1082,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 			lang := remaining[pos+langLoc[4] : pos+langLoc[5]]
 
 			if matchStart > pos {
-				segments = append(segments, pptxInlineSegment{text: remaining[pos:matchStart]})
+				segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:matchStart])})
 			}
 			if a11y.IsValidLangTag(lang) {
 				// Procesar el texto interno recursivamente por
@@ -1026,24 +1098,23 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 				// (con corchetes/llaves — finding #5) en vez de
 				// quedarse silenciosamente solo con el texto interno,
 				// que escondería el error de tipeo del autor.
-				segments = append(segments, pptxInlineSegment{text: remaining[matchStart:matchEnd]})
+				segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[matchStart:matchEnd])})
 			}
 			pos = matchEnd
 			continue
 		}
 
 		if best == nil {
-			segments = append(segments, pptxInlineSegment{text: remaining[pos:]})
+			segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:])})
 			break
 		}
 		if best.start > pos {
-			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
+			segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:best.start])})
 		}
-		segments = append(segments, applySpanTokens(best.inner,
+		segments = append(segments, applySpanTokens(pptxSegmentText(best.inner, best.code),
 			pptxInlineSegment{bold: best.bold, italic: best.italic, code: best.code})...)
 		pos = best.end
 	}
-
 	return segments
 }
 
