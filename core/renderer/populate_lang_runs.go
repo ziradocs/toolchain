@@ -142,7 +142,15 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 		// Se deriva del HTML del encabezado, igual que su forma legada, para
 		// que las dos formas reporten exactamente los mismos runs.
 		text, marks := proseLineMarkdownVariables(elem.Text, variables)
-		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(marks.html(HeadingHTML(elem.Level, text, elem.Anchor)), true, variables)
+		// Las marcas de los valores se deshacen en el Text de cada run, como
+		// texto: el backtick y el salto de línea vuelven como tales.
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(HeadingHTML(elem.Level, text, elem.Anchor), true, variables)
+		for i := range elem.LangRuns {
+			elem.LangRuns[i].Text = marks.text(elem.LangRuns[i].Text)
+		}
+		for i := range elem.DiscardedLangRuns {
+			elem.DiscardedLangRuns[i].Text = marks.text(elem.DiscardedLangRuns[i].Text)
+		}
 
 	case *ast.PointsElement:
 		for i := range elem.Items {
@@ -150,7 +158,7 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 		}
 
 	case *ast.QuoteElement:
-		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, false, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRunsFromMarkdownIn(elem.Content, variables, layoutLists)
 
 	case *ast.ChecklistElement:
 		for i := range elem.Items {
@@ -164,7 +172,7 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Question, false, variables)
 
 	case *ast.SpecialBlockElement:
-		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(elem.Content, false, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRunsFromMarkdownIn(elem.Content, variables, layoutLists)
 		for _, nested := range elem.Elements {
 			populateElementLangRuns(nested, variables)
 		}
@@ -239,13 +247,23 @@ func extractLangRuns(content string, isRawHTML bool, variables map[string]interf
 }
 
 func extractLangRunsFromMarkdown(content string, variables map[string]interface{}) (runs, discarded []ast.LangRun) {
+	return extractLangRunsFromMarkdownIn(content, variables, layoutLines)
+}
+
+// extractLangRunsFromMarkdownIn es extractLangRunsFromMarkdown para un texto que
+// el HTML parte con layout: con la opción de código literal, la sustitución y
+// los code spans que se excluyen se emparejan en las mismas unidades que el
+// HTML (en una cita o un :::, el item de lista con sus continuaciones). Sin la
+// opción es lo de siempre, que empareja los code spans línea por línea.
+func extractLangRunsFromMarkdownIn(content string, variables map[string]interface{}, layout proseLayout) (runs, discarded []ast.LangRun) {
+	literal := isLiteralCode(variables)
 	// ProcessVariables primero, igual que ProcessTextWithVariablesAndMarkdownSecure
 	// — un span que solo existe tras sustituir una {{variable}} debe seguir
 	// siendo encontrado (issue #63 code review, hallazgo #10).
 	// El Text de un LangRun es texto, no HTML: las marcas de los valores
 	// (proseVariables, solo con la opción de código literal) vuelven como
 	// backtick y salto de línea, no como <br>.
-	content, marks := proseVariables(content, variables)
+	content, marks := proseMarkdownVariables(content, variables, layout)
 	// Excluir spans de idioma que caen DENTRO de un `código` (issue #63 code
 	// review, hallazgo #7 — advisor follow-up): desde el fix de #7,
 	// ProcessInlineMarkdownFormatsSecure protege código antes que cualquier
@@ -291,12 +309,16 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 	// rechazando de más un span de idioma legítimo. Los offsets se
 	// recalculan por línea para que sigan siendo válidos contra `content`.
 	var codeRanges [][2]int
-	offset := 0
-	for _, line := range strings.Split(content, "\n") {
-		for _, sp := range findCodeSpans(line) {
-			codeRanges = append(codeRanges, [2]int{sp.fullStart + offset, sp.fullEnd + offset})
+	if literal {
+		codeRanges = codeSpanRangesIn(content, layout)
+	} else {
+		offset := 0
+		for _, line := range strings.Split(content, "\n") {
+			for _, sp := range findCodeSpans(line) {
+				codeRanges = append(codeRanges, [2]int{sp.fullStart + offset, sp.fullEnd + offset})
+			}
+			offset += len(line) + 1 // +1 por el "\n" que Split consumió
 		}
-		offset += len(line) + 1 // +1 por el "\n" que Split consumió
 	}
 	// Dos punteros, no O(matches × codeRanges) (code-review de esta misma
 	// PR, hallazgo confirmado): matches (de FindAllStringSubmatchIndex) y

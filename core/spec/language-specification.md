@@ -599,9 +599,9 @@ written. What counts as a code body is what the document's AST holds as code,
 read as `doclang` reads it (`get_ast`, `lint`, `build`: the document grammar,
 with flex normalization): an `@include` is kept if that AST has it inside a
 code block. Each file decides its own `@include` lines on its own text,
-unexpanded, as `get_ast` of that file would read it: the root document on its
-source, an included file on its content (without its frontmatter) read with
-the root's dialect (in strict, as the body of a section when it does not start
+unexpanded, as `get_ast` would read it with the root's dialect: the root
+document on its source, an included file on its content (without its
+frontmatter) read with the root's dialect (in strict, as the body of a section when it does not start
 with `SECTION`). What a sibling file or the including document opens or closes
 does not change a file's decisions; since expansion is textual, the AST of the
 result can still read a kept `@include` differently (for example inside a

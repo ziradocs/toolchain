@@ -15,17 +15,35 @@ import (
 
 // treeTokens son las líneas con las que FuzzKeepIncludesInCodeTree arma
 // archivos: cercas, code-groups, bloques :::, un CODE strict, prosa y
-// @include de archivos posteriores (para que no haya ciclos).
+// @include (cada uno de un archivo distinto, para que no haya ciclos y cada
+// línea @include sea única).
 var treeTokens = []string{
 	"```", "```js", "````", "texto", "", "- item", ":::note", ":::", ":::code-group",
 	"```js [a]", "  CODE js", "    x", "SECTION \"S\"", "## H", "@include", "  @include",
 }
 
-// oracleInCode es la regla de KeepIncludesInCode escrita aparte: las líneas
-// @include de lines que el AST de su archivo (ParseDocument, normalización
-// prendida) tiene en un bloque de código. Un archivo incluido se lee con el
-// dialecto del raíz y, en strict, como cuerpo de una sección si no empieza con
-// SECTION.
+const treeFiles = 8
+
+// oracleBody es el contenido de un archivo incluido sin su frontmatter: si
+// empieza con "---", lo que sigue a la siguiente línea "---".
+func oracleBody(content string) string {
+	if !strings.HasPrefix(content, "---") {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			return strings.Join(lines[i+1:], "\n")
+		}
+	}
+	return content
+}
+
+// oracleInCode es la regla de KeepIncludesInCode escrita aparte y sin marcas:
+// cada línea @include es única, así que está en código si el AST de su
+// archivo (ParseDocument, normalización prendida) la tiene en el contenido de
+// un bloque de código. Un archivo incluido se lee con el dialecto del raíz y,
+// en strict, como cuerpo de una sección si no empieza con SECTION.
 func oracleInCode(lines []string, strict, root bool) map[int]bool {
 	var head []string
 	if strict && !root {
@@ -39,33 +57,32 @@ func oracleInCode(lines []string, strict, root bool) map[int]bool {
 			}
 		}
 	}
-	marked := append([]string(nil), head...)
-	for i, l := range lines {
-		if _, ok := parseIncludeLine(l); ok {
-			l = fmt.Sprintf("%s ORACLE%dEND", l, i)
-		}
-		marked = append(marked, l)
-	}
-	doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(marked, "\n"), "")
-	in := map[int]bool{}
-	find := func(content string) {
-		for i := range lines {
-			if strings.Contains(content, fmt.Sprintf("ORACLE%dEND", i)) {
-				in[i] = true
-			}
-		}
-	}
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(append(head, lines...), "\n"), "")
+	var code []string
 	_ = ast.Walk(doc, func(n ast.Node) error {
 		switch c := n.(type) {
 		case *ast.CodeElement:
-			find(c.Content)
+			code = append(code, c.Content)
 		case *ast.CodeGroupElement:
 			for _, b := range c.CodeBlocks {
-				find(b.Content)
+				code = append(code, b.Content)
 			}
 		}
 		return nil
 	})
+	in := map[int]bool{}
+	for i, l := range lines {
+		if _, ok := parseIncludeLine(l); !ok {
+			continue
+		}
+		for _, c := range code {
+			for _, cl := range strings.Split(c, "\n") {
+				if strings.TrimSpace(cl) == strings.TrimSpace(l) {
+					in[i] = true
+				}
+			}
+		}
+	}
 	return in
 }
 
@@ -79,42 +96,46 @@ func oracleExpand(lines []string, files map[string]string, strict, root bool) []
 			out = append(out, l)
 			continue
 		}
-		out = append(out, oracleExpand(strings.Split(files["/base/"+path], "\n"), files, strict, false)...)
+		out = append(out, oracleExpand(strings.Split(oracleBody(files["/base/"+path]), "\n"), files, strict, false)...)
 	}
 	return out
 }
 
-// FuzzKeepIncludesInCodeTree arma un documento y tres archivos con @include
-// hermanos y anidados de varias líneas, en strict y en flex, y exige que
-// ExpandWithOptions dé exactamente lo que da la regla escrita aparte
-// (oracleExpand), con cada línea en su origen.
+// FuzzKeepIncludesInCodeTree arma un documento y hasta ocho archivos, algunos
+// con frontmatter, con @include hermanos y anidados de varias líneas, en strict
+// y en flex, y exige que ExpandWithOptions dé exactamente lo que da la regla
+// escrita aparte (oracleExpand), con cada línea en su origen.
 func FuzzKeepIncludesInCodeTree(f *testing.F) {
-	f.Add([]byte{0, 14, 3, 14, 7}, false)
-	f.Add([]byte{1, 3, 0, 14, 14, 3, 7, 0, 3}, false)
-	f.Add([]byte{12, 10, 11, 15, 3, 15, 14}, true)
-	f.Add([]byte{8, 9, 14, 0, 7, 6, 1, 14, 0, 7, 3}, false)
-	f.Fuzz(func(t *testing.T, picks []byte, strict bool) {
-		if len(picks) > 48 {
-			picks = picks[:48]
+	f.Add([]byte{0, 14, 3, 14, 7}, false, uint8(0))
+	f.Add([]byte{1, 3, 0, 14, 14, 3, 7, 0, 3}, false, uint8(5))
+	f.Add([]byte{12, 10, 11, 15, 3, 15, 14}, true, uint8(2))
+	f.Add([]byte{8, 9, 14, 0, 7, 6, 1, 14, 0, 7, 3}, false, uint8(255))
+	f.Fuzz(func(t *testing.T, picks []byte, strict bool, withFrontMatter uint8) {
+		if len(picks) > 64 {
+			picks = picks[:64]
 		}
-		// Cuatro archivos (el raíz y f1..f3) repartidos en orden; un @include
-		// de un archivo apunta a uno posterior.
-		bodies := make([][]string, 4)
+		bodies := make([][]string, treeFiles+1)
+		next := 1
 		for n, p := range picks {
-			file := n * 4 / max(len(picks), 1)
+			file := n * (treeFiles + 1) / max(len(picks), 1)
 			tok := treeTokens[int(p)%len(treeTokens)]
 			if strings.HasSuffix(tok, "@include") {
-				if file == 3 {
+				if next > treeFiles {
 					tok = "texto"
 				} else {
-					tok += fmt.Sprintf(" f%d.md", file+1+int(p)%(3-file))
+					tok += fmt.Sprintf(" f%d.md", next)
+					next++
 				}
 			}
 			bodies[file] = append(bodies[file], tok)
 		}
 		files := map[string]string{}
-		for i := 1; i <= 3; i++ {
-			files[fmt.Sprintf("/base/f%d.md", i)] = strings.Join(bodies[i], "\n")
+		for i := 1; i <= treeFiles; i++ {
+			content := strings.Join(bodies[i], "\n")
+			if withFrontMatter&(1<<(i-1)) != 0 {
+				content = "---\ntitle: f\n---\n" + content
+			}
+			files[fmt.Sprintf("/base/f%d.md", i)] = content
 		}
 		root := strings.Join(bodies[0], "\n")
 		if strict {

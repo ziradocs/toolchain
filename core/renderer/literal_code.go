@@ -160,14 +160,29 @@ func (m valueMarks) text(s string) string {
 
 var proseVariablePattern = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
 
-// pickMarks elige dos caracteres de uso privado (desde U+E000) que no
-// aparecen en used, para marcar sin confundirse con nada que ya traigan el
-// texto o los valores.
+// privateUse son los rangos de caracteres de uso privado de Unicode: el del
+// plano básico y los de los planos 15 y 16.
+var privateUse = [][2]rune{{0xE000, 0xF8FF}, {0xF0000, 0xFFFFD}, {0x100000, 0x10FFFD}}
+
+// pickMarks elige dos caracteres de uso privado que no aparecen en used, para
+// marcar sin confundirse con nada que ya traigan el texto o los valores.
+// Recorre used una sola vez. Que no queden dos libres exigiría que el texto y
+// sus valores trajeran más de 137 000 caracteres de uso privado distintos;
+// entonces no se marca nada y los valores se sustituyen tal cual, como sin la
+// opción.
 func pickMarks(used string) valueMarks {
+	present := map[rune]bool{}
+	for _, r := range used {
+		if r >= 0xE000 && r <= 0xF8FF || r >= 0xF0000 {
+			present[r] = true
+		}
+	}
 	var picked []string
-	for r := rune(0xE000); r <= 0xF8FF && len(picked) < 2; r++ {
-		if c := string(r); !strings.Contains(used, c) {
-			picked = append(picked, c)
+	for _, rg := range privateUse {
+		for r := rg[0]; r <= rg[1] && len(picked) < 2; r++ {
+			if !present[r] {
+				picked = append(picked, string(r))
+			}
 		}
 	}
 	if len(picked) < 2 {
@@ -188,7 +203,7 @@ func proseMarkdownVariables(text string, variables map[string]interface{}, layou
 		if value, ok := variables[m[1]]; ok {
 			v := fmt.Sprintf("%v", value)
 			used.WriteString(v)
-			marked = marked || strings.ContainsAny(v, "`\n")
+			marked = marked || strings.ContainsAny(v, "`\n\r")
 		}
 	}
 	var marks valueMarks
@@ -202,6 +217,8 @@ func proseMarkdownVariables(text string, variables map[string]interface{}, layou
 		return proseVariablePattern.ReplaceAllStringFunc(seg, func(match string) string {
 			if value, ok := variables[match[2:len(match)-2]]; ok {
 				v := strings.ReplaceAll(fmt.Sprintf("%v", value), "`", marks.tick)
+				// Un CRLF o un CR suelto también es un salto de línea.
+				v = strings.ReplaceAll(strings.ReplaceAll(v, "\r\n", "\n"), "\r", "\n")
 				return strings.ReplaceAll(v, "\n", marks.newline)
 			}
 			return match
@@ -275,6 +292,31 @@ func literalCodeRanges(text string, layout proseLayout) [][2]int {
 	for i, line := range lines {
 		if inFence[i] {
 			ranges = append(ranges, [2]int{starts[i], starts[i] + len(line)})
+		}
+	}
+	return mergeRanges(ranges)
+}
+
+// codeSpanRangesIn son los rangos de text que caen en un code span de las
+// unidades de layout, sin las cercas: lo que el HTML pinta como <code>.
+func codeSpanRangesIn(text string, layout proseLayout) [][2]int {
+	if layout == layoutWhole || !strings.Contains(text, "\n") {
+		return spanRanges(text, 0)
+	}
+	lines := strings.Split(text, "\n")
+	starts := make([]int, len(lines))
+	for i, off := 0, 0; i < len(lines); i++ {
+		starts[i] = off
+		off += len(lines[i]) + 1
+	}
+	var ranges [][2]int
+	if layout == layoutLists {
+		for _, unit := range proseUnits(lines) {
+			ranges = append(ranges, unit.spanRanges(lines, starts)...)
+		}
+	} else {
+		for i, line := range lines {
+			ranges = append(ranges, spanRanges(line, starts[i])...)
 		}
 	}
 	return mergeRanges(ranges)

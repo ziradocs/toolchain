@@ -84,3 +84,23 @@ func TestExpandWithOptions_ScalesWithDeepNesting(t *testing.T) {
 	}
 	t.Logf("%d nested levels x 5000 lines: %v", MaxDepth, elapsed)
 }
+
+// La marca de cada @include tiene largo fijo: un texto con 50 000 "z" y 2000
+// @include dentro de una cerca no la hace crecer ni la vuelve cuadrática.
+func TestExpandWithOptions_TagDoesNotGrowWithTheText(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("# A\n\n" + strings.Repeat("z", 50000) + "\n\n```\n")
+	for i := 0; i < 2000; i++ {
+		b.WriteString("@include x.md\n")
+	}
+	b.WriteString("```\n")
+	start := time.Now()
+	res, err := ExpandWithOptions(b.String(), "/base", memFS(nil), ExpandOptions{KeepIncludesInCode: true})
+	elapsed := time.Since(start)
+	if err != nil || len(res.KeptInCode) != 2000 {
+		t.Fatalf("err %v, %d kept", err, len(res.KeptInCode))
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("took %v", elapsed)
+	}
+}

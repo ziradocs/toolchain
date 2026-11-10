@@ -24,12 +24,6 @@ func Open(trimmed string) int {
 	return len(trimmed) - len(strings.TrimLeft(trimmed, "`"))
 }
 
-// Info es el info string de una línea que abre una cerca: lo que sigue a los
-// backticks, recortado.
-func Info(trimmed string) string {
-	return strings.TrimSpace(strings.TrimLeft(trimmed, "`"))
-}
-
 // Closes dice si trimmed cierra una cerca abierta con open backticks (lo que
 // devolvió Open): es exactamente tres backticks. El largo de la apertura no
 // cuenta: una cerca de cuatro también cierra en ```.

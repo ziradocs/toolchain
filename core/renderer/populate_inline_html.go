@@ -38,17 +38,17 @@ func PopulateInlineHTMLWithOptions(doc *ast.AST, variables map[string]interface{
 		variables = withLiteralCode(variables)
 	}
 	for i := range doc.ContentBlocks {
-		populateContentBlockHTML(&doc.ContentBlocks[i], variables, opts)
+		populateContentBlockHTML(&doc.ContentBlocks[i], variables)
 	}
 }
 
-func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]interface{}, opts InlineHTMLOptions) {
+func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]interface{}) {
 	block.TitleHTML = proseLineVariablesSecure(block.Title, variables)
 	block.HeadingHTML = proseLineVariablesSecure(block.Heading, variables)
 	block.SubtitleHTML = proseLineVariablesSecure(block.Subtitle, variables)
 	block.KickerHTML = proseLineVariablesSecure(block.Kicker, variables)
 	for _, elem := range block.Elements {
-		populateElementHTML(elem, variables, opts)
+		populateElementHTML(elem, variables)
 	}
 }
 
@@ -66,13 +66,7 @@ func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]inte
 // "content"/"data"/"series"/"labels"/"rawJSON"/"markers" es fuente de
 // diagrama o config, no texto para el DOM — ver la nota de no-goals en
 // https://ziradocs.com/docs/architecture/json-ast-contract/.
-// populateElementHTML puebla los *HTML de element. optional lleva las
-// opciones (a lo sumo una); sin ellas, las de PopulateInlineHTML.
-func populateElementHTML(element ast.Element, variables map[string]interface{}, optional ...InlineHTMLOptions) {
-	var opts InlineHTMLOptions
-	if len(optional) > 0 {
-		opts = optional[0]
-	}
+func populateElementHTML(element ast.Element, variables map[string]interface{}) {
 	switch elem := element.(type) {
 	case *ast.TextElement:
 		if elem.IsRawHTML {
@@ -149,13 +143,13 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		elem.TitleHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Title, variables)
 		elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 		for _, nested := range elem.Elements {
-			populateElementHTML(nested, variables, opts)
+			populateElementHTML(nested, variables)
 		}
 
 	case *ast.GridElement:
 		elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
 		for i := range elem.Columns {
-			populateColumnHTML(&elem.Columns[i], variables, opts)
+			populateColumnHTML(&elem.Columns[i], variables)
 		}
 
 	case *ast.CodeGroupElement:
@@ -201,10 +195,10 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 	}
 }
 
-func populateColumnHTML(col *ast.ColumnElement, variables map[string]interface{}, opts InlineHTMLOptions) {
+func populateColumnHTML(col *ast.ColumnElement, variables map[string]interface{}) {
 	col.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(col.Content, variables)
 	for _, nested := range col.Elements {
-		populateElementHTML(nested, variables, opts)
+		populateElementHTML(nested, variables)
 	}
 }
 

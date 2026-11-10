@@ -442,3 +442,47 @@ func TestExpand_ErrorOrderLikeExpand(t *testing.T) {
 		t.Errorf("got %v, Expand %v", err, wantErr)
 	}
 }
+
+// Una ReadFunc que devuelve otra cosa en otra lectura no rompe la expansión:
+// cada ruta se lee una sola vez y la decisión se toma sobre esas líneas.
+func TestExpand_ReadFuncThatChanges(t *testing.T) {
+	reads := 0
+	read := func(path string) ([]byte, error) {
+		reads++
+		if reads == 1 {
+			return []byte("```\n@include x.md\n```"), nil
+		}
+		return []byte("otra"), nil
+	}
+	got, err := ExpandWithOptions("# A\n\n@include a.md\n@include a.md\n", "/base", read, ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# A\n\n```\n@include x.md\n```\n```\n@include x.md\n```\n"; got.Text != want || reads != 1 {
+		t.Errorf("got %q after %d reads", got.Text, reads)
+	}
+}
+
+// Los errores del frontmatter salen en el orden de Expand (en profundidad): un
+// @include anidado que falla antes que uno posterior del mismo frontmatter.
+func TestExpand_FrontMatterErrorOrderLikeExpand(t *testing.T) {
+	files := map[string]string{"/base/a.yaml": "@include missing-nested.yaml"}
+	src := "---\n@include a.yaml\n@include missing-second.yaml\n---\n\n# A\n"
+	_, wantErr := Expand(src, "/base", memFS(files))
+	_, err := expandKeep(src, "/base", memFS(files))
+	if wantErr == nil || fmt.Sprint(err) != fmt.Sprint(wantErr) || !strings.Contains(fmt.Sprint(err), "missing-nested") {
+		t.Errorf("got %v, Expand %v", err, wantErr)
+	}
+}
+
+// openInclude rechaza pasar de MaxDepth: el nivel MaxDepth se abre, uno más
+// es un error.
+func TestOpenInclude_DepthLimit(t *testing.T) {
+	read := memFS(map[string]string{"/base/a.md": "x"})
+	if _, err := openInclude("@include a.md", "a.md", "/base", read, map[string]bool{}, MaxDepth-1); err != nil {
+		t.Errorf("depth %d: %v", MaxDepth, err)
+	}
+	if _, err := openInclude("@include a.md", "a.md", "/base", read, map[string]bool{}, MaxDepth); err == nil {
+		t.Errorf("depth %d must be an error", MaxDepth+1)
+	}
+}

@@ -22,9 +22,12 @@
 package include
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -320,7 +323,8 @@ type Expansion struct {
 // ExpandWithOptions es ExpandWithOrigins con opciones.
 //
 // Con KeepIncludesInCode, cada archivo decide sus propios `@include` sobre su
-// propio texto, sin expandir nada: como lo lee get_ast de ese archivo. El
+// propio texto, sin expandir nada: como lo leería get_ast con el dialecto del
+// documento raíz. El
 // documento raíz, sobre la fuente tal como la leen get_ast y el lint; un
 // archivo incluido, sobre su contenido (sin su frontmatter) leído con el
 // dialecto del documento raíz (en strict, como cuerpo de una sección si no
@@ -355,29 +359,39 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 		origins[i] = Origin{Line: i + 1}
 		frames[i] = root
 	}
-	// El frontmatter del raíz primero: no es cuerpo, nunca es código, y de él
-	// sale el dialecto.
-	for {
-		end := frontMatterEnd(lines)
-		expand := map[int]bool{}
-		for i := 0; i < end; i++ {
-			if _, ok := parseIncludeLine(lines[i]); ok {
-				expand[i] = true
-			}
-		}
-		if len(expand) == 0 {
-			break
-		}
-		var err error
-		if lines, frames, origins, err = expandFrontMatter(lines, frames, origins, expand, baseDir, read); err != nil {
+	// El frontmatter del raíz primero, con la expansión de Expand (en
+	// profundidad, con sus errores en el mismo orden): no es cuerpo, nunca es
+	// código, y de él sale el dialecto.
+	if end := frontMatterEnd(lines); end >= 0 {
+		fmLines, fmOrigins, err := expand(strings.Join(lines[:end+1], "\n"), "", 1, baseDir, read, map[string]bool{}, 0)
+		if err != nil {
 			return Expansion{}, err
 		}
+		fmFrames := make([]*includeFrame, len(fmLines))
+		for i := range fmFrames {
+			fmFrames[i] = root
+		}
+		lines = append(fmLines, lines[end+1:]...)
+		origins = append(fmOrigins, origins[end+1:]...)
+		frames = append(fmFrames, frames[end+1:]...)
 	}
 	e := &keepExpander{
 		baseDir: baseDir,
-		read:    read,
 		strict:  frontMatterIsStrict(lines),
-		cache:   map[string][]bool{},
+		files:   map[string][]byte{},
+		cache:   map[string]classifiedFile{},
+	}
+	// Cada ruta se lee una sola vez: si la ReadFunc devolviera otra cosa en
+	// otra lectura, la decisión guardada no correspondería a las líneas.
+	e.read = func(path string) ([]byte, error) {
+		if data, ok := e.files[path]; ok {
+			return data, nil
+		}
+		data, err := read(path)
+		if err == nil {
+			e.files[path] = data
+		}
+		return data, err
 	}
 	e.out = make([]string, 0, len(lines))
 	if err := e.emit(lines, frames, origins, includesInCode(nil, lines)); err != nil {
@@ -392,9 +406,11 @@ type keepExpander struct {
 	baseDir string
 	read    ReadFunc
 	strict  bool
-	// cache son las líneas @include en código de cada archivo incluido, por
-	// su ruta: la decisión depende solo de su texto.
-	cache map[string][]bool
+	// files es lo que leyó read de cada ruta, y cache la decisión de cada
+	// archivo incluido junto con las líneas sobre las que se tomó: depende solo
+	// de su texto.
+	files map[string][]byte
+	cache map[string]classifiedFile
 
 	out     []string
 	origins []Origin
@@ -430,16 +446,24 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 				childOrigins[k] = origins[i]
 			}
 		}
-		childCode, ok := e.cache[child.file]
-		if !ok {
-			childCode = includesInCode(e.fragmentPrefix(child.lines), child.lines)
-			e.cache[child.file] = childCode
+		cached, ok := e.cache[child.file]
+		if !ok || !slices.Equal(cached.lines, child.lines) {
+			cached = classifiedFile{lines: child.lines, code: includesInCode(e.fragmentPrefix(child.lines), child.lines)}
+			e.cache[child.file] = cached
 		}
+		childCode := cached.code
 		if err := e.emit(child.lines, childFrames, childOrigins, childCode); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// classifiedFile son las líneas de un archivo incluido y cuáles de sus
+// @include están en código (includesInCode).
+type classifiedFile struct {
+	lines []string
+	code  []bool
 }
 
 // fragmentPrefix son las líneas que van antes del contenido de un archivo
@@ -464,45 +488,17 @@ func (e *keepExpander) fragmentPrefix(lines []string) []string {
 	return prefix
 }
 
-// expandFrontMatter reemplaza, en orden, cada línea @include del frontmatter
-// marcada en expand por el contenido de su archivo, con los chequeos y
-// errores de openInclude.
-func expandFrontMatter(lines []string, frames []*includeFrame, origins []Origin, expand map[int]bool, baseDir string, read ReadFunc) ([]string, []*includeFrame, []Origin, error) {
-	outLines := make([]string, 0, len(lines))
-	outFrames := make([]*includeFrame, 0, len(lines))
-	outOrigins := make([]Origin, 0, len(lines))
-	for i, line := range lines {
-		if !expand[i] {
-			outLines = append(outLines, line)
-			outFrames = append(outFrames, frames[i])
-			outOrigins = append(outOrigins, origins[i])
-			continue
-		}
-		incPath, _ := parseIncludeLine(line)
-		child, err := openInclude(line, incPath, baseDir, read, frames[i].visited, frames[i].depth)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		for k, l := range child.lines {
-			outLines = append(outLines, l)
-			outFrames = append(outFrames, child)
-			if child.frontMatterOnly {
-				outOrigins = append(outOrigins, origins[i])
-			} else {
-				outOrigins = append(outOrigins, Origin{File: child.file, Line: child.firstLine + k})
-			}
-		}
-	}
-	return outLines, outFrames, outOrigins, nil
-}
-
 // frontMatterEnd es el índice de la línea `---` que cierra el frontmatter de
 // lines, con el mismo criterio que ParseDocument (un BOM y líneas en blanco
 // antes del `---` de apertura se toleran; sin cierre no hay frontmatter), o -1.
 func frontMatterEnd(lines []string) int {
 	open := -1
 	for i, line := range lines {
-		trimmed := strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
+		// Como normalizeDocumentStart: un BOM solo al principio del archivo.
+		if i == 0 {
+			line = strings.TrimPrefix(line, "\ufeff")
+		}
+		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
@@ -532,12 +528,33 @@ func frontMatterIsStrict(lines []string) bool {
 		return false
 	}
 	open := 0
-	for strings.TrimSpace(strings.TrimPrefix(lines[open], "\ufeff")) == "" {
-		open++
+	for ; ; open++ {
+		line := lines[open]
+		if open == 0 {
+			line = strings.TrimPrefix(line, "\ufeff")
+		}
+		if strings.TrimSpace(line) != "" {
+			break
+		}
 	}
 	block := append([]string{parser.FrontMatterDelimiter}, lines[open+1:end+1]...)
 	fm, _, _ := (&parser.FrontMatterParser{}).Parse(strings.Join(block, "\n"))
 	return fm != nil && fm.Mode == "strict"
+}
+
+// includeTag es una marca de largo fijo que no aparece en text: "zzinc" y 16
+// cifras hexadecimales al azar, que se vuelven a sortear si chocan.
+func includeTag(text string) string {
+	var b [8]byte
+	for {
+		if _, err := rand.Read(b[:]); err != nil {
+			panic(err) // crypto/rand no falla en las plataformas soportadas
+		}
+		tag := "zzinc" + hex.EncodeToString(b[:])
+		if !strings.Contains(text, tag) {
+			return tag
+		}
+	}
 }
 
 // includesInCode dice cuáles de las líneas @include de lines quedan dentro de
@@ -559,10 +576,7 @@ func includesInCode(prefix, lines []string) []bool {
 		return inCode
 	}
 	text := strings.Join(prefix, "\n") + "\n" + strings.Join(lines, "\n")
-	tagPrefix := "zzinclude"
-	for strings.Contains(text, tagPrefix) {
-		tagPrefix += "z"
-	}
+	tagPrefix := includeTag(text)
 	tagged := make([]string, 0, len(prefix)+len(lines))
 	tagged = append(tagged, prefix...)
 	tagged = append(tagged, lines...)

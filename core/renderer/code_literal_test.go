@@ -495,3 +495,50 @@ func TestLiteralCode_MoreFields(t *testing.T) {
 		t.Errorf("ValueHTML %q LabelHTML %q", metric.ValueHTML, group.CodeBlocks[0].LabelHTML)
 	}
 }
+
+// Los LangRuns de una cita o un ::: emparejan los code spans igual que su
+// HTML: con la opción, sobre el item ya juntado con su continuación; sin ella,
+// como en main, línea por línea.
+func TestPopulateLangRuns_ListItemsLikeTheHTML(t *testing.T) {
+	src := "- a `x\n  [y]{lang=fr} z` w"
+	for _, literal := range []bool{true, false} {
+		for _, el := range []ast.Element{ast.NewQuoteElement(diagnostics.Position{}, src), &ast.SpecialBlockElement{BlockType: "note", Content: src}} {
+			PopulateLangRunsWithOptions(newTestDoc(el), map[string]interface{}{"q": "Q"}, InlineHTMLOptions{LiteralCode: literal})
+			var runs []ast.LangRun
+			switch e := el.(type) {
+			case *ast.QuoteElement:
+				runs = e.LangRuns
+			case *ast.SpecialBlockElement:
+				runs = e.LangRuns
+			}
+			html := RenderElementToHTML(el, map[string]interface{}{"q": "Q"}, &RenderContext{LiteralCode: literal})
+			if literal && (len(runs) != 0 || strings.Contains(html, `lang="fr"`)) {
+				t.Errorf("%T literal: the lang span is inside a code span: runs %v, html %s", el, runs, html)
+			}
+			if !literal && len(runs) != 1 {
+				t.Errorf("%T off: runs %v, want main's one run", el, runs)
+			}
+		}
+	}
+}
+
+// El LangRun de un encabezado recibe el backtick y el salto de línea del
+// valor como texto, igual que los demás caminos.
+func TestPopulateLangRuns_HeadingValueMarks(t *testing.T) {
+	el := &ast.HeadingElement{Level: 2, Text: "[a {{v}}]{lang=fr}", Anchor: "h"}
+	PopulateLangRunsWithOptions(newTestDoc(el), map[string]interface{}{"v": "b`c\nd"}, InlineHTMLOptions{LiteralCode: true})
+	if len(el.LangRuns) != 1 || el.LangRuns[0].Text != "a b`c\nd" {
+		t.Errorf("LangRuns %#v", el.LangRuns)
+	}
+}
+
+// Con la opción, un CRLF o un CR suelto en un valor es un salto de línea: no
+// queda un \r crudo en el HTML.
+func TestLiteralCode_CRLFValues(t *testing.T) {
+	for _, v := range []string{"a\r\nb", "a\rb"} {
+		out := RenderElementToHTML(ast.NewTextElement(diagnostics.Position{}, "x {{v}} y"), map[string]interface{}{"v": v}, &RenderContext{LiteralCode: true})
+		if strings.Contains(out, "\r") || !strings.Contains(out, "x a<br>b y") {
+			t.Errorf("%q: %q", v, out)
+		}
+	}
+}
