@@ -171,10 +171,26 @@ func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.Heading
 		if err != nil {
 			return "", err
 		}
+		if joinsPreviousPipeTable(b.String(), elText) {
+			b.WriteString("\n")
+		}
 		b.WriteString(elText)
 	}
 
 	return b.String(), nil
+}
+
+// joinsPreviousPipeTable dice si escribir next justo después de written lo
+// pegaría a una tabla Markdown anterior: written termina en una fila "|…" y
+// next empieza con otra. El parser strict lee una tabla Markdown hasta la
+// primera línea que no empieza con "|", así que dos tablas seguidas sin línea
+// en blanco se releían como una sola, con la segunda (cabecera y separador
+// incluidos) como filas de la primera.
+func joinsPreviousPipeTable(written, next string) bool {
+	written = strings.TrimRight(written, "\n")
+	last := written[strings.LastIndex(written, "\n")+1:]
+	first, _, _ := strings.Cut(next, "\n")
+	return strings.HasPrefix(strings.TrimSpace(last), "|") && strings.HasPrefix(strings.TrimSpace(first), "|")
 }
 
 // strictSlideHeading serializa un encabezado de subsección —el tipado

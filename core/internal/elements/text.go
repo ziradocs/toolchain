@@ -47,6 +47,11 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	var content strings.Builder
 
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "TEXT") { // Skip TEXT line
+		// El cuerpo son las líneas con más sangría que la línea TEXT. Antes
+		// bastaba con cualquier sangría: un TEXT sin cuerpo tomaba como
+		// cuerpo a los elementos hermanos escritos a su misma sangría
+		// (`TEXT` / `POINTS` / `- uno` salía como el párrafo "POINTS - uno").
+		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 		consumed++
 		startIndex++
 
@@ -64,12 +69,13 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			}
 
 			// Auto-detect expected indentation from first non-empty line
-			if expectedIndent == -1 && currentIndent > 0 {
+			if expectedIndent == -1 && currentIndent > headerIndent {
 				expectedIndent = currentIndent
 			}
 
-			// If we haven't detected indentation yet and line has no indentation, break
-			if expectedIndent == -1 && currentIndent == 0 {
+			// If we haven't detected indentation yet and the line is not
+			// deeper than TEXT, the body is empty
+			if expectedIndent == -1 {
 				break
 			}
 

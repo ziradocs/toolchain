@@ -113,6 +113,9 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 			if err != nil {
 				return "", err
 			}
+			if joinsPreviousPipeTable(b.String(), elText) {
+				b.WriteString("\n")
+			}
 			b.WriteString(elText)
 			prevAbsorbs = absorbsTrailingBlankLines(el)
 		}
