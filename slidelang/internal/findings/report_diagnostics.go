@@ -26,7 +26,11 @@ func ReportableParserDiagnostics(diags []diagnostics.Diagnostic) []diagnostics.D
 	return out
 }
 
-// SortByPosition ordena diags por línea y columna, estable.
+// SortByPosition ordena diags por línea y columna, estable. Todavía no mira
+// Diagnostic.File, que no existe en el core que esta CLI usa publicado: el
+// PR que active include.SourceMap.MapDiagnostics, después del bump, tiene que
+// ordenar por (File, línea, columna) con el documento primero, como
+// core/report. Hasta entonces ningún diagnóstico trae File.
 func SortByPosition(diags []diagnostics.Diagnostic) {
 	sort.SliceStable(diags, func(i, j int) bool {
 		a, b := diags[i].Position, diags[j].Position
