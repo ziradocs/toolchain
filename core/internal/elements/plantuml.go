@@ -51,7 +51,11 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	isNativeFormat := strings.HasPrefix(openingLine, "@startuml")
 
 	consumedLines := 1 // Cuenta la línea de apertura (<<plantuml>>, @startuml, o ```plantuml)
-	var content strings.Builder
+	// body son las líneas del diagrama tal como están en la fuente: la
+	// sangría común se quita una sola vez al final (dedentCommonPrefix) y la
+	// relativa se conserva, porque hay diagramas que la usan como sintaxis
+	// (@startyaml) y en los demás es la que escribió el autor.
+	var body []string
 	foundStartUml := isNativeFormat // Si empezó con @startuml, ya lo encontramos
 
 	if isMarkdownFormat {
@@ -67,16 +71,13 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				break
 			}
 
-			if content.Len() > 0 {
-				content.WriteString("\n")
-			}
-			content.WriteString(trimmed)
+			body = append(body, line)
 			consumedLines++
 		}
 	} else if isNativeFormat {
 		// Formato nativo PlantUML: @startuml ... @enduml
 		// Incluir @startuml en el contenido
-		content.WriteString("@startuml\n")
+		body = append(body, "@startuml")
 
 		for i := startIndex + 1; i < len(ctx.Lines); i++ {
 			line := ctx.Lines[i]
@@ -84,15 +85,12 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 			// Terminar al encontrar @enduml
 			if strings.HasPrefix(trimmed, "@enduml") {
-				content.WriteString("@enduml")
+				body = append(body, "@enduml")
 				consumedLines++
 				break
 			}
 
-			if content.Len() > len("@startuml\n") {
-				content.WriteString("\n")
-			}
-			content.WriteString(trimmed)
+			body = append(body, line)
 			consumedLines++
 		}
 	} else {
@@ -105,7 +103,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			trimmedLine := strings.TrimSpace(line)
 
 			// Skip empty lines al inicio (antes de @startuml)
-			if trimmedLine == "" && content.Len() == 0 {
+			if trimmedLine == "" && len(body) == 0 {
 				consumedLines++
 				continue
 			}
@@ -126,17 +124,14 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 			// Terminar si encontramos @enduml
 			if strings.HasPrefix(trimmedLine, "@enduml") {
-				if content.Len() > 0 {
-					content.WriteString("\n")
-				}
-				content.WriteString(trimmedLine)
+				body = append(body, line)
 				consumedLines++
 				foundEnduml = true
 				break
 			}
 
 			// En flex mode, detectar si empieza un nuevo elemento (SOLO SI NO HEMOS VISTO @STARTUML)
-			if content.Len() == 0 && ctx.Mode == "flex" && IsNewElement(trimmedLine, ctx.Mode) && !strings.HasPrefix(trimmedLine, "@startuml") {
+			if len(body) == 0 && ctx.Mode == "flex" && IsNewElement(trimmedLine, ctx.Mode) && !strings.HasPrefix(trimmedLine, "@startuml") {
 				break
 			}
 
@@ -146,10 +141,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			}
 
 			// Agregar línea al contenido (incluso si está vacía - líneas vacías dentro del diagrama son válidas)
-			if content.Len() > 0 {
-				content.WriteString("\n")
-			}
-			content.WriteString(trimmedLine)
+			body = append(body, line)
 			consumedLines++
 		}
 
@@ -174,7 +166,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 
 	// Asegurarse de que el contenido tiene @startuml y @enduml
-	contentStr := content.String()
+	contentStr := dedentPlantUMLBody(body)
 	if !strings.Contains(contentStr, "@startuml") {
 		contentStr = "@startuml\n" + contentStr
 	}
@@ -182,8 +174,11 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		contentStr = contentStr + "\n@enduml"
 	}
 
-	// Detectar tipo de diagrama de forma más robusta
-	diagramType := detectPlantUMLType(contentStr)
+	// Detectar tipo de diagrama de forma más robusta. Los patrones están
+	// anclados al principio de la línea y siempre se corrieron sobre líneas
+	// recortadas: se les pasa el contenido recortado para que conservar la
+	// sangría no cambie el tipo detectado.
+	diagramType := detectPlantUMLType(trimLines(contentStr))
 
 	// Crear elemento PlantUML
 	element := ast.NewPlantUMLElement(pos, diagramType, contentStr)
@@ -197,6 +192,42 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		ConsumedLines: consumedLines,
 		Error:         tagErr,
 	}
+}
+
+// dedentPlantUMLBody es el contenido de un diagrama PlantUML: las líneas de
+// body sin la sangría común (dedentCommonPrefix) y con @startuml y @enduml,
+// que son marcadores y no parte del diagrama, sin la suya. Las líneas de los
+// marcadores no cuentan para la sangría común: un cuerpo sangrado bajo un
+// @startuml en la columna 0 pierde esa sangría, igual que antes.
+func dedentPlantUMLBody(body []string) string {
+	var head, tail []string
+	lines := body
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "@startuml") {
+		head, lines = []string{strings.TrimSpace(lines[0])}, lines[1:]
+	}
+	if n := len(lines); n > 0 && strings.HasPrefix(strings.TrimSpace(lines[n-1]), "@enduml") {
+		tail, lines = []string{strings.TrimSpace(lines[n-1])}, lines[:n-1]
+	}
+	parts := append([]string{}, head...)
+	// Sin marcadores, un cuerpo vacío sigue siendo una línea vacía, como
+	// antes: Parse le agrega @startuml y @enduml alrededor.
+	if text := dedentCommonPrefix(lines); text != "" || len(head)+len(tail) == 0 {
+		parts = append(parts, text)
+	}
+	parts = append(parts, tail...)
+	return strings.Join(parts, "\n")
+}
+
+// trimLines es text con cada línea recortada.
+func trimLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimSpace(l)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // plantUMLTypePattern empareja un tipo de diagrama con el patrón que lo

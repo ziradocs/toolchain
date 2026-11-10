@@ -115,6 +115,18 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // línea o descartar blancos internos corrompe el diagrama y hace que fmt
 // persista esa corrupción en el fuente.
 func dedentMermaidContent(lines []string) string {
+	return dedentCommonPrefix(lines)
+}
+
+// dedentCommonPrefix quita a lines las líneas en blanco del principio y del
+// final y el prefijo de espacios y tabs que comparten todas las líneas con
+// texto (commonIndentPrefix, el mismo criterio que el cuerpo de un CODE), y
+// las une con "\n". El prefijo se compara como cadena y no por columnas: con
+// columnas, un tab contaba cuatro pero se cortaba como un carácter, así que un
+// cuerpo sangrado con tabs perdía toda la sangría relativa (un mindmap quedaba
+// plano). Una línea de solo espacios conserva lo que pase del prefijo; una más
+// corta queda vacía.
+func dedentCommonPrefix(lines []string) string {
 	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
 		lines = lines[1:]
 	}
@@ -124,28 +136,17 @@ func dedentMermaidContent(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-
-	common := -1
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		indent := CalculateIndentLevel(line)
-		if common == -1 || indent < common {
-			common = indent
-		}
-	}
-	if common <= 0 {
-		return strings.Join(lines, "\n")
-	}
+	base, _ := commonIndentPrefix(lines)
+	out := make([]string, len(lines))
 	for i, line := range lines {
-		cut := 0
-		for cut < len(line) && cut < common && (line[cut] == ' ' || line[cut] == '\t') {
-			cut++
+		if rest, ok := strings.CutPrefix(line, base); ok {
+			out[i] = rest
+		} else {
+			// Solo una línea en blanco puede no tener el prefijo entero.
+			out[i] = ""
 		}
-		lines[i] = line[cut:]
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(out, "\n")
 }
 
 // detectMermaidType mira solo la primera instrucción real. Un frontmatter

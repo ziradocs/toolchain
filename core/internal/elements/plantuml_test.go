@@ -100,3 +100,47 @@ func TestDetectPlantUMLType_AmbiguousBlockIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// El cuerpo de un PlantUML conserva la sangría relativa (quita solo la que
+// comparten todas sus líneas), en los tres formatos y con espacios o tabs;
+// @startuml y @enduml van sin sangría. Antes cada línea se recortaba.
+func TestPlantUMLParser_PreservesRelativeIndentation(t *testing.T) {
+	want := "@startuml\nclass A {\n  +x\n}\n@enduml"
+	for _, tt := range []struct {
+		name, mode string
+		lines      []string
+		want       string
+	}{
+		{"fence", "flex", []string{"```plantuml", "@startuml", "class A {", "  +x", "}", "@enduml", "```"}, want},
+		{"native indented body", "flex", []string{"@startuml", "    class A {", "      +x", "    }", "@enduml"}, want},
+		{"tag", "strict", []string{"<<plantuml>>", "    @startuml", "    class A {", "      +x", "    }", "    @enduml", "<<end>>"}, want},
+		{"tag with tabs", "flex", []string{"<<plantuml>>", "\t@startuml", "\tclass A {", "\t\t+x", "\t}", "\t@enduml"}, "@startuml\nclass A {\n\t+x\n}\n@enduml"},
+		{"fence without markers", "flex", []string{"```plantuml", "  class A {", "    +x", "  }", "```"}, want},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := (&PlantUMLParser{}).Parse(&ParseContext{Mode: tt.mode, Lines: tt.lines}, 0)
+			elem, ok := got.Element.(*ast.PlantUMLElement)
+			if !ok {
+				t.Fatalf("element = %T, want *ast.PlantUMLElement", got.Element)
+			}
+			if elem.Content != tt.want {
+				t.Errorf("content = %q, want %q", elem.Content, tt.want)
+			}
+			if got.ConsumedLines != len(tt.lines) {
+				t.Errorf("consumed %d lines, want %d", got.ConsumedLines, len(tt.lines))
+			}
+			if elem.DiagramType != "class" {
+				t.Errorf("diagramType = %q, want class", elem.DiagramType)
+			}
+		})
+	}
+}
+
+// Conservar la sangría no cambia el tipo detectado: los patrones se corren
+// sobre las líneas recortadas, como antes.
+func TestPlantUMLParser_IndentedBodyKeepsDetectedType(t *testing.T) {
+	got := (&PlantUMLParser{}).Parse(&ParseContext{Mode: "flex", Lines: []string{"@startuml", "  participant A", "    A -> B: hola", "@enduml"}}, 0)
+	if elem := got.Element.(*ast.PlantUMLElement); elem.DiagramType != "sequence" {
+		t.Errorf("diagramType = %q, want sequence", elem.DiagramType)
+	}
+}

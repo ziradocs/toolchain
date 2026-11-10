@@ -27,6 +27,23 @@ func TestMermaidParser_PreservesOpaqueBodies(t *testing.T) {
 			lines: []string{"```mermaid", "---", "config:", "  theme: forest", "---", "flowchart LR", "  A --> B", "```"},
 			want:  "---\nconfig:\n  theme: forest\n---\nflowchart LR\n  A --> B", typeName: "flowchart",
 		},
+		// Con tabs la sangría común se cortaba por columnas (un tab = 4) pero
+		// carácter a carácter: el mindmap quedaba plano.
+		{
+			name: "flex tab-indented mindmap", mode: "flex",
+			lines: []string{"<<mermaid>>", "\tmindmap", "\t\troot((Proyecto))", "\t\t\tAlcance", "\t\t\tRiesgos", "<<end>>"},
+			want:  "mindmap\n\troot((Proyecto))\n\t\tAlcance\n\t\tRiesgos", typeName: "mindmap",
+		},
+		{
+			name: "fence tab-indented mindmap", mode: "flex",
+			lines: []string{"```mermaid", "\tmindmap", "\t\troot((P))", "\t\t\tA", "```"},
+			want:  "mindmap\n\troot((P))\n\t\tA", typeName: "mindmap",
+		},
+		{
+			name: "mixed tab and spaces keep what is not shared", mode: "strict",
+			lines: []string{"<<mermaid>>", "  mindmap", "  \troot((P))", "  \t    A", "", "  \t    B", "<<end>>"},
+			want:  "mindmap\n\troot((P))\n\t    A\n\n\t    B", typeName: "mindmap",
+		},
 		{
 			name: "quadrant does not become flowchart", mode: "flex",
 			lines: []string{"```mermaid", "quadrantChart", "  x-axis Bajo --> Alto", "```"},
