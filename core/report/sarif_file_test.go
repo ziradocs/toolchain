@@ -10,25 +10,48 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
-// Un diagnóstico con File (un archivo traído con @include) va en SARIF con ese
-// archivo en artifactLocation; el resto, con el documento.
+// Un diagnóstico con File (un archivo traído con @include, relativo al
+// directorio del documento) va en SARIF con ese archivo unido al directorio
+// del documento, para que las dos uris resuelvan contra la misma base; el
+// resto, con el documento.
 func TestSARIF_ArtifactLocationUsesDiagnosticFile(t *testing.T) {
-	inDoc := diagnostics.NewError("en el documento", diagnostics.NewPosition(3, 1), "parser")
-	inPart := diagnostics.NewError("en el incluido", diagnostics.NewPosition(2, 1), "parser")
-	inPart.File = "/docs/part.doclang"
-	data, err := generateSARIF([]diagnostics.Diagnostic{inDoc, inPart}, nil, "main.doclang", nil)
-	if err != nil {
-		t.Fatal(err)
+	at := func(file string, line int) diagnostics.Diagnostic {
+		d := diagnostics.NewError("x", diagnostics.NewPosition(line, 1), "parser")
+		d.File = file
+		return d
 	}
-	var out SARIF
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name, docPath string
+		diags         []diagnostics.Diagnostic
+		want          []string
+	}{
+		{"same directory", "main.doclang", []diagnostics.Diagnostic{at("", 3), at("partes/a.doclang", 2)}, []string{"main.doclang", "partes/a.doclang"}},
+		{"document in a subdirectory", "docs/main.doclang", []diagnostics.Diagnostic{at("partes/a.doclang", 2), at("../comun/pie.doclang", 1)}, []string{"docs/partes/a.doclang", "comun/pie.doclang"}},
+		{"absolute file", "docs/main.doclang", []diagnostics.Diagnostic{at("/srv/comun/pie.doclang", 1)}, []string{"/srv/comun/pie.doclang"}},
+		{"no document path", "", []diagnostics.Diagnostic{at("partes/a.doclang", 1)}, []string{"partes/a.doclang"}},
 	}
-	got := []string{}
-	for _, r := range out.Runs[0].Results {
-		got = append(got, r.Locations[0].PhysicalLocation.ArtifactLocation.Uri)
-	}
-	if len(got) != 2 || got[0] != "main.doclang" || got[1] != "/docs/part.doclang" {
-		t.Errorf("artifactLocation uris %v", got)
+	for _, c := range cases {
+		data, err := generateSARIF(c.diags, nil, c.docPath, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out SARIF
+		if err := json.Unmarshal(data, &out); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, r := range out.Runs[0].Results {
+			got = append(got, r.Locations[0].PhysicalLocation.ArtifactLocation.Uri)
+		}
+		if len(got) != len(c.want) {
+			t.Errorf("%s: uris %v, want %v", c.name, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("%s: uris %v, want %v", c.name, got, c.want)
+				break
+			}
+		}
 	}
 }

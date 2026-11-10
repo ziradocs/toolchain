@@ -2,6 +2,8 @@ package report
 
 import (
 	"encoding/json"
+	"path"
+	"path/filepath"
 
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/linter"
@@ -136,12 +138,7 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 		}
 	}
 
-	// Un diagnóstico de un archivo incluido lleva su propio archivo
-	// (Diagnostic.File); el resto es del documento.
-	uri := docPath
-	if d.File != "" {
-		uri = d.File
-	}
+	uri := artifactURI(docPath, d.File)
 
 	res := Result{
 		RuleId: ruleId,
@@ -173,4 +170,21 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 	}
 
 	return res
+}
+
+// artifactURI es el artifactLocation.uri de un diagnóstico: el documento
+// (docPath), o el archivo incluido de Diagnostic.File. File viene relativo al
+// directorio del documento (include.SourceMap.MapDiagnostics), así que se une
+// a ese directorio: las dos uris quedan relativas a la misma base que docPath
+// y ninguna necesita uriBaseId. Una ruta absoluta (File que no se pudo hacer
+// relativo) va tal cual. File siempre con "/"; docPath queda como llega.
+func artifactURI(docPath, file string) string {
+	if file == "" {
+		return docPath
+	}
+	file = filepath.ToSlash(file)
+	if docPath == "" || path.IsAbs(file) || filepath.IsAbs(filepath.FromSlash(file)) {
+		return file
+	}
+	return path.Join(path.Dir(filepath.ToSlash(docPath)), file)
 }

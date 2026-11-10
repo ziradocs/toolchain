@@ -134,39 +134,90 @@ func (m SourceMap) Files() LineOrigins {
 	return files
 }
 
-// MapDiagnostics devuelve diags con cada posición llevada a su origen: un
-// diagnóstico en una línea que vino de un @include pasa a decir el archivo
-// incluido (Diagnostic.File) y su línea ahí; uno del contenido raíz queda con
-// File vacío y la línea que la línea tenía en el contenido raíz. El parser y
-// el linter cuentan líneas sobre el contenido expandido; sin esto, un
-// diagnóstico después de un @include apunta a una línea que no existe en el
+// MapDiagnostics devuelve diags con cada posición llevada a su origen. El
+// parser y el linter cuentan líneas sobre el contenido expandido; sin esto,
+// un diagnóstico después de un @include apunta a una línea que no existe en el
 // archivo que el autor tiene abierto.
 //
-// Una posición fuera del contenido (línea 0, sin posición) queda como está.
+//   - Un diagnóstico en una línea que vino de un @include pasa a decir el
+//     archivo incluido (Diagnostic.File) y su línea ahí. File es relativo a
+//     docDir, el directorio del documento raíz, con "/" como separador en
+//     cualquier sistema ("partes/intro.doclang", "../comun/pie.doclang"). Si
+//     docDir es "" o la ruta no se puede expresar relativa a él (otra unidad
+//     en Windows), va la ruta absoluta, también con "/".
+//   - Uno del contenido raíz queda con File vacío y la línea que tenía en el
+//     contenido raíz.
+//   - Uno sin posición (línea 0 o menor) queda como está: es del documento
+//     entero.
+//   - Uno después de la última línea expandida (un fin de archivo) se cuenta
+//     desde la última línea: va al archivo de esa línea, tantas líneas
+//     después de ella como estaba después del final. Así nunca queda con la
+//     línea del contenido expandido, que en el archivo raíz es otra.
+//   - Uno que ya trae File no se toca: ya está en su origen.
+//
 // La posición final se mapea igual; si cae en otro archivo que la inicial, se
-// descarta, porque un rango no puede cruzar archivos. diags no se modifica.
-func (m SourceMap) MapDiagnostics(diags []diagnostics.Diagnostic) []diagnostics.Diagnostic {
+// descarta, porque un rango no puede cruzar archivos. diags no se modifica,
+// tampoco la EndPosition a la que apuntan.
+func (m SourceMap) MapDiagnostics(diags []diagnostics.Diagnostic, docDir string) []diagnostics.Diagnostic {
 	if len(diags) == 0 {
 		return diags
 	}
 	out := make([]diagnostics.Diagnostic, len(diags))
 	for i, d := range diags {
-		if o, ok := m.At(d.Position.Line); ok && d.File == "" {
-			d.File = o.File
-			d.Position.Line = o.Line
-			if d.EndPosition != nil {
-				end := *d.EndPosition
-				if eo, ok := m.At(end.Line); ok && eo.File == o.File {
-					end.Line = eo.Line
-					d.EndPosition = &end
-				} else {
-					d.EndPosition = nil
-				}
+		if d.File != "" {
+			out[i] = d
+			continue
+		}
+		o, ok := m.resolve(d.Position.Line)
+		if !ok {
+			out[i] = d
+			continue
+		}
+		d.File = displayPath(docDir, o.File)
+		d.Position.Line = o.Line
+		if d.EndPosition != nil {
+			end := *d.EndPosition
+			if eo, ok := m.resolve(end.Line); ok && eo.File == o.File {
+				end.Line = eo.Line
+				d.EndPosition = &end
+			} else {
+				d.EndPosition = nil
 			}
 		}
 		out[i] = d
 	}
 	return out
+}
+
+// resolve es At extendido más allá del final: una línea después de la última
+// cuenta desde la última (mismo archivo, la diferencia sumada a su línea).
+// Una línea menor que 1, o un mapa vacío, no tiene origen.
+func (m SourceMap) resolve(line int) (Origin, bool) {
+	if o, ok := m.At(line); ok {
+		return o, true
+	}
+	if line < 1 || len(m) == 0 {
+		return Origin{}, false
+	}
+	last := m[len(m)-1]
+	return Origin{File: last.File, Line: last.Line + line - len(m)}, true
+}
+
+// displayPath es cómo se nombra file en un diagnóstico: "" para el contenido
+// raíz; si no, relativo a docDir y con "/", o absoluto con "/" si no se puede
+// relativo.
+func displayPath(docDir, file string) string {
+	if file == "" {
+		return ""
+	}
+	if docDir != "" {
+		if absDir, err := filepath.Abs(docDir); err == nil {
+			if rel, err := filepath.Rel(absDir, file); err == nil {
+				return filepath.ToSlash(rel)
+			}
+		}
+	}
+	return filepath.ToSlash(file)
 }
 
 // ExpandWithSourceMap es Expand más el origen (archivo y línea) de cada línea
@@ -233,6 +284,12 @@ func expand(content, file string, firstLine int, baseDir string, read ReadFunc, 
 		childLines, childOrigins, err := expand(body, absResolved, skipped+1, baseDir, read, nextVisited, depth+1)
 		if err != nil {
 			return nil, nil, err
+		}
+		// Un archivo que es solo frontmatter, sin salto de línea después del
+		// `---` de cierre, deja una línea vacía que no está en él: esa línea
+		// ocupa el lugar del @include, así que se atribuye a la directiva.
+		if skipped > 0 && skipped == strings.Count(string(data), "\n")+1 {
+			childOrigins[0] = Origin{File: file, Line: firstLine + n}
 		}
 		out = append(out, childLines...)
 		origins = append(origins, childOrigins...)
