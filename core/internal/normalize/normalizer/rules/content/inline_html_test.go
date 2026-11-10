@@ -201,3 +201,17 @@ func TestInlineHTMLTagsRule_BoundaryReopensAfterEmbeddedBlock(t *testing.T) {
 		}
 	}
 }
+
+// Una cerca ````md con una línea ``` adentro sigue abierta hasta su ````
+// (fence.Lines): el HTML de adentro es código y no se reescribe; el de
+// después, sí.
+func TestInlineHTMLTagsRule_LongerFenceKeepsInnerFenceAsCode(t *testing.T) {
+	in := "````md\n```\n<u>dentro</u>\n```\n````\n<u>fuera</u>"
+	got, err := NewInlineHTMLTagsRule().Apply(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "````md\n```\n<u>dentro</u>\n```\n````\n[fuera]{.underline}"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

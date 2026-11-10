@@ -170,3 +170,17 @@ func TestParseMarkdownContent_CodeClosedByTheEarlierRule(t *testing.T) {
 		t.Fatalf("want the code block and the text: %#v", els)
 	}
 }
+
+// La búsqueda de cierre de fence.At no se acota a la pestaña ni al code-group:
+// una pestaña de cuatro backticks cerrada por ``` cierra con CommonMark en un
+// ```` posterior aunque esté en otro code-group, y se traga los ":::" de en
+// medio. No queda sin cerrar, así que no es CODE003 sino CODE004 (el código
+// cambia de extensión con aviso). Fija el comportamiento; ver la descripción
+// de #498.
+func TestCodeFence_TabClosesAcrossCodeGroups(t *testing.T) {
+	src := "# A\n\n:::code-group\n````js [a]\nx\n```\n:::\n\ntexto\n\n:::code-group\n````md [b]\ny\n````\n:::\n"
+	_, diags := flexDoc(t, src)
+	if got := strings.Join(rulesAt(diags, 4), ","); got != "CODE004" {
+		t.Errorf("want CODE004 at the first tab, got %q (all %v)", got, diags)
+	}
+}

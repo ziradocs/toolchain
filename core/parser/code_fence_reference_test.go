@@ -49,9 +49,12 @@ func mainCodeLines(lines []string) ([]bool, bool) {
 	return marks, false
 }
 
-// commonMarkUnclosed dice si leyendo lines solo con CommonMark (backticks)
-// alguna cerca queda sin cerrar. Escrita aparte de internal/fence.
-func commonMarkUnclosed(lines []string) bool {
+// commonMarkCodeLines es la lectura de CommonMark con backticks, escrita
+// aparte de internal/fence: abre una línea de tres o más backticks con un info
+// string sin backticks, cierra una de solo backticks, al menos tantos. Devuelve
+// las líneas de código y si alguna cerca quedó sin cerrar.
+func commonMarkCodeLines(lines []string) ([]bool, bool) {
+	marks := make([]bool, len(lines))
 	run := func(s string) int { return len(s) - len(strings.TrimLeft(s, "`")) }
 	for i := 0; i < len(lines); i++ {
 		t := strings.TrimSpace(lines[i])
@@ -68,15 +71,42 @@ func commonMarkUnclosed(lines []string) bool {
 			}
 		}
 		if end < 0 {
-			return true
+			for j := i; j < len(lines); j++ {
+				marks[j] = true
+			}
+			return marks, true
+		}
+		for j := i; j <= end; j++ {
+			marks[j] = true
 		}
 		i = end
 	}
-	return false
+	return marks, false
+}
+
+// commonMarkUnclosed dice si leyendo lines solo con CommonMark alguna cerca
+// queda sin cerrar.
+func commonMarkUnclosed(lines []string) bool {
+	_, unclosed := commonMarkCodeLines(lines)
+	return unclosed
+}
+
+// sameCode compara dos lecturas de código ignorando las líneas en blanco y la
+// cabecera de un code-group, que es código para CodeLiteralLines.
+func sameCode(lines []string, got, want []bool) bool {
+	for i := range lines {
+		if t := strings.TrimSpace(lines[i]); got[i] != want[i] && t != "" && !strings.HasPrefix(t, ":::code-group") {
+			return false
+		}
+	}
+	return true
 }
 
 // FuzzFenceReadingIsReported arma documentos con fenceTokens y exige:
 //
+//   - sin CODE003, las líneas de código son las de CommonMark (con una
+//     implementación de referencia escrita en la prueba), también con cercas
+//     dentro de :::, de code-groups y después de listas;
 //   - si las líneas de código no son las que daba la regla de las versiones
 //     anteriores, hay un aviso CODE002, CODE003 o CODE004: ningún documento
 //     cambia de significado en silencio;
@@ -122,15 +152,14 @@ func FuzzFenceReadingIsReported(f *testing.F) {
 		if strings.Contains(src, "```mermaid") {
 			return
 		}
-		same := true
-		for i := range lines {
-			// La cabecera de un code-group es código para CodeLiteralLines.
-			if t := strings.TrimSpace(lines[i]); got[i] != want[i] && t != "" && !strings.HasPrefix(t, ":::code-group") {
-				same = false
-			}
-		}
+		same := sameCode(lines, got, want)
 		if !same && !reported {
 			t.Fatalf("code lines changed from the earlier rule without a CODE00x warning:\n%s\n got %v\nwant %v", src, got, want)
+		}
+		// Sin CODE003 todo se leyó con CommonMark: las líneas de código son
+		// las de la lectura de CommonMark.
+		if cm, _ := commonMarkCodeLines(lines); !fallback && !sameCode(lines, got, cm) {
+			t.Fatalf("no CODE003, so the code lines must be CommonMark's:\n%s\n got %v\nwant %v", src, got, cm)
 		}
 		if !mainUnclosed && commonMarkUnclosed(lines) {
 			if !fallback {

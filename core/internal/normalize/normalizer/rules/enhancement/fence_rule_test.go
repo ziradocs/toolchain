@@ -71,3 +71,20 @@ func TestCodeGroupFormatter_LongerFenceForContentWithBackticks(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// Los formateadores de mermaid no tocan un <<mermaid>> escrito dentro de una
+// cerca ````md que guarda un ``` (fence.End): es código.
+func TestMermaidFormatters_SkipLongerFences(t *testing.T) {
+	for name, tc := range map[string]struct {
+		apply func(string) (string, error)
+		in    string
+	}{
+		"formatter":    {NewMermaidFormatterRule().Apply, "````md\n```\n<<mermaid>>\ngraph TD\nA-->B\n<<end>>\n```\n````"},
+		"syntax fixer": {NewMermaidSyntaxFixerRule().Apply, "````md\n```\n<<mermaid>>\n  gantt\n  dateFormat  YYYY-MM\n  Task 1 :2024-01, 2024-02\n```\n````"},
+	} {
+		apply, in := tc.apply, tc.in
+		if got, err := apply(in); err != nil || got != in {
+			t.Errorf("%s: Apply(%q) = %q (%v), want it unchanged", name, in, got, err)
+		}
+	}
+}

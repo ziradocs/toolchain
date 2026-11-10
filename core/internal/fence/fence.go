@@ -107,8 +107,9 @@ type Block struct {
 }
 
 // At dice si lines[i] abre una cerca de código y hasta dónde llega, con
-// lookahead sobre el resto de lines (el contenedor: el documento o el cuerpo
-// que se está parseando). La regla de CommonMark (Open, Closes) aplica cuando
+// lookahead sobre el resto de lines. Los parsers pasan sus ParseContext.Lines,
+// que en la práctica son el resto del documento: ni una pestaña de
+// code-group ni el cuerpo de un ::: acotan la búsqueda de cierre. La regla de CommonMark (Open, Closes) aplica cuando
 // da un resultado bien formado. Si una cerca de CommonMark no tiene cierre,
 // cierra donde cerraba en las versiones anteriores (ClosedByMain, Unclosed); y
 // una línea con un backtick en el info string, que para CommonMark es texto,
