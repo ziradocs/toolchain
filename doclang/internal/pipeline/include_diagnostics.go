@@ -144,19 +144,8 @@ func MapToSource(sources include.SourceMap, diags []diagnostics.Diagnostic, docD
 // dio la expansión que más dio. Un hallazgo del documento (File vacío) no se
 // toca.
 func DedupeIncluded(raw, mapped []diagnostics.Diagnostic) []diagnostics.Diagnostic {
-	type key struct {
-		d      diagnostics.Diagnostic
-		end    diagnostics.Position
-		hasEnd bool
-	}
-	keyOf := func(d diagnostics.Diagnostic) key {
-		k := key{d: d}
-		if d.EndPosition != nil {
-			k.end, k.hasEnd = *d.EndPosition, true
-		}
-		k.d.EndPosition = nil
-		return k
-	}
+	type key = diagnosticKey
+	keyOf := keyOfDiagnostic
 	type expansion struct {
 		k    key
 		line int

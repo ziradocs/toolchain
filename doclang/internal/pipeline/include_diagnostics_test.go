@@ -281,3 +281,24 @@ func TestDedupeIncluded(t *testing.T) {
 		t.Errorf("DedupeIncluded = %s, want %s", strings.Join(summary, "|"), want)
 	}
 }
+
+// linkFindingsDelta.apply quita del lint una copia de cada hallazgo que
+// agregó el rebase y le suma los que escondió; sin cambios, devuelve el lint
+// tal cual.
+func TestLinkFindingsDeltaApply(t *testing.T) {
+	w := func(msg string, line int) diagnostics.Diagnostic {
+		return diagnostics.NewWarning(msg, diagnostics.NewPosition(line, 1), "linter").WithRuleID("LINK001")
+	}
+	lint := []diagnostics.Diagnostic{w("a", 1), w("added", 2), w("added", 2), w("b", 3)}
+	got := linkFindingsDelta{hidden: []diagnostics.Diagnostic{w("hidden", 4)}, added: []diagnostics.Diagnostic{w("added", 2)}}.apply(lint)
+	var msgs []string
+	for _, d := range got {
+		msgs = append(msgs, d.Message)
+	}
+	if strings.Join(msgs, ",") != "a,added,b,hidden" {
+		t.Errorf("apply = %v, want a,added,b,hidden", msgs)
+	}
+	if same := (linkFindingsDelta{}).apply(lint); len(same) != len(lint) {
+		t.Errorf("an empty delta changed the lint: %v", same)
+	}
+}

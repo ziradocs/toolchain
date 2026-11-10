@@ -225,8 +225,9 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 
 	// Las imágenes de un archivo incluido se resuelven desde el directorio
 	// de ese archivo, no desde el del raíz. Antes de los transforms, para
-	// que filtros, lint y generadores vean ya la ruta efectiva.
-	rebaseIncludedAssets(doc, strings.Split(contentStr, "\n"), origins, opts.SourceDir)
+	// que filtros, lint y generadores vean ya la ruta efectiva. Lo que eso le
+	// cambia a LINK001 se deshace después del lint (linkDelta).
+	linkDelta := rebaseIncludedAssetsKeepingLinks(doc, strings.Split(contentStr, "\n"), origins, opts.SourceDir)
 
 	// Etapa de transform (issue #240, decisión C): built-ins primero
 	// (issue #239: numeración de figuras/tablas + resolución de
@@ -317,6 +318,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 		linterInstance.WithRulepacks(opts.ExternalRulepacks, 30*time.Second)
 	}
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(doc)
+	allDiagnostics = linkDelta.apply(allDiagnostics)
 	allDiagnostics = MergeParserFindings(doc, parserFindings, allDiagnostics)
 	allDiagnostics = MapToSource(sources, allDiagnostics, opts.DocDir)
 	// Los avisos del parser (SPECIAL002, TABLE007…) pasan por la política

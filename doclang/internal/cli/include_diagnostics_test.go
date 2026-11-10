@@ -432,3 +432,80 @@ func TestBuild_IncludedKeepsSameLineFindings(t *testing.T) {
 		})
 	}
 }
+
+// bodyFindings corre un build --lint-only con --report json y devuelve,
+// ordenados, "regla línea:columna mensaje" de cada hallazgo, con la línea
+// contada desde offset. Todos tienen que estar en file.
+func bodyFindings(t *testing.T, input, file string, offset int, extra ...string) []string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "r.json")
+	runBuild(t, append([]string{input, "--lint-only", "--report", "json", "--report-out", out}, extra...)...)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report struct {
+		Findings []struct {
+			RuleID   string `json:"ruleId"`
+			Message  string `json:"message"`
+			File     string `json:"file"`
+			Position struct {
+				Line   int `json:"line"`
+				Column int `json:"column"`
+			} `json:"position"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range report.Findings {
+		if f.File != file {
+			t.Errorf("finding in %q, want %q: %+v", f.File, file, f)
+			continue
+		}
+		got = append(got, f.RuleID+" "+strconv.Itoa(f.Position.Line-offset)+":"+strconv.Itoa(f.Position.Column)+" "+f.Message)
+	}
+	sort.Strings(got)
+	return got
+}
+
+// spacedImagesBody tiene una imagen inline con la ruta suelta con espacios
+// en un párrafo, una lista y una cita, y una de bloque: cuatro LINK001 "has
+// spaces outside <...>". La ruta ya escrita entre <...> y la ruta sin
+// espacios no avisan.
+const spacedImagesBody = "Para ![](a b.png) fin.\n\n" +
+	"- uno ![](a b.png)\n- dos ![](c.png)\n\n" +
+	"> cita ![](a b.png)\n\n" +
+	"![](a b.png)\n\n" +
+	"Ya envuelta ![](<a b.png>) y sin espacios ![](c.png).\n"
+
+// Un archivo incluido desde otro directorio da los mismos LINK001 que su
+// texto escrito en el documento, en su archivo y su línea, también cuando
+// la carpeta tiene espacios o paréntesis y el rebase de las imágenes tiene
+// que escribir la ruta entre <...>. La ruta sin espacios no gana un aviso
+// por los espacios de la carpeta, y la ya escrita entre <...> no lo
+// duplica.
+func TestBuild_IncludeFromOtherDirKeepsLINK001(t *testing.T) {
+	head := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n"
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root.doclang")
+	writeFile(t, root, []byte(head+spacedImagesBody))
+	want := bodyFindings(t, root, "", strings.Count(head, "\n"))
+	if len(want) != 4 {
+		t.Fatalf("the body gives %d findings in the document, want 4: %v", len(want), want)
+	}
+	for _, sub := range []string{"sub2", "con espacio", "fotos (1)"} {
+		t.Run(sub, func(t *testing.T) {
+			writeFile(t, filepath.Join(dir, sub, "k.doclang"), []byte(spacedImagesBody))
+			input := filepath.Join(dir, "inc.doclang")
+			writeFile(t, input, []byte(head+"@include "+sub+"/k.doclang\n"))
+			for _, extra := range [][]string{nil, {"--base-dir", filepath.Join(dir, sub), "--include-root", dir}} {
+				// Con --base-dir en la carpeta del incluido no hay rebase.
+				if got := bodyFindings(t, input, sub+"/k.doclang", 0, extra...); strings.Join(got, "\n") != strings.Join(want, "\n") {
+					t.Errorf("%v: findings:\n%s\nwant (as in the document):\n%s", extra, strings.Join(got, "\n"), strings.Join(want, "\n"))
+				}
+			}
+		})
+	}
+}
