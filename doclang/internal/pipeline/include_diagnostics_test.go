@@ -4,12 +4,16 @@
 package pipeline
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/linter"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // Active y Waived ordenan como core/report: primero el documento, después
@@ -79,5 +83,107 @@ func TestDocumentDir(t *testing.T) {
 	}
 	if got := DocumentDir("", real); got != "" {
 		t.Errorf("DocumentDir without a file = %q, want empty", got)
+	}
+}
+
+// prepareWithInclude escribe main en un directorio temporal con part en
+// partes/p.doclang y corre Prepare como el build, con la raíz de includes y
+// docDir en ese directorio.
+func prepareWithInclude(t *testing.T, log util.Logger, main, part string) (*Prepared, error) {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "partes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "partes", "p.doclang"), []byte(part), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(dir, "main.doclang")
+	return Prepare(log, []byte(main), PrepareOptions{
+		InputFile:     input,
+		MaxInputBytes: util.DefaultMaxInputBytes,
+		IncludeRoot:   dir,
+		DocDir:        DocumentDir(input, dir),
+	})
+}
+
+// Un error de parseo en un archivo incluido llega en el DiagnosticsError y
+// en el log con el archivo y la línea de ese archivo.
+func TestPrepare_ParseErrorInIncludedFile(t *testing.T) {
+	log := &warnLogger{Logger: util.NewNoop()}
+	_, err := prepareWithInclude(t, log, "---\ntitle: D\nmode: strict\n---\n\nSECTION \"A\"\n  TEXT \"x\"\n\n@include partes/p.doclang\n",
+		"SECTION \"B\"\n  level: 99\n  TEXT \"y\"\n")
+	var diagErr *DiagnosticsError
+	if !errors.As(err, &diagErr) || diagErr.Stage != StageParse {
+		t.Fatalf("want a parse DiagnosticsError, got %v", err)
+	}
+	found := false
+	for _, d := range diagErr.Diagnostics {
+		if d.IsError() {
+			found = true
+			if d.File != "partes/p.doclang" || d.Position.Line != 2 {
+				t.Errorf("parse error at %s:%d, want partes/p.doclang:2", d.File, d.Position.Line)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no error in %v", diagErr.Diagnostics)
+	}
+	if !strings.Contains(strings.Join(log.lines, "\n"), "partes/p.doclang:2") {
+		t.Errorf("the log does not name partes/p.doclang:2: %v", log.lines)
+	}
+}
+
+// Un aviso del parser en un archivo incluido que la política sube a error
+// llega en el DiagnosticsError de lint con su archivo y su línea.
+func TestPrepare_LintErrorInIncludedFile(t *testing.T) {
+	log := &warnLogger{Logger: util.NewNoop()}
+	_, err := prepareWithInclude(t, log, "---\ntitle: D\nmode: flex\nlint_policy:\n  rules:\n    TABLE004:\n      severity: error\n---\n\n# A\n\n@include partes/p.doclang\n",
+		"## T\n\nTABLE\n  cells:\n    - [ : ]\n")
+	var diagErr *DiagnosticsError
+	if !errors.As(err, &diagErr) || diagErr.Stage != StageLint {
+		t.Fatalf("want a lint DiagnosticsError, got %v", err)
+	}
+	found := false
+	for _, d := range diagErr.Diagnostics {
+		if d.RuleID == "TABLE004" {
+			found = true
+			if d.File != "partes/p.doclang" || d.Position.Line != 3 || !d.IsError() {
+				t.Errorf("TABLE004 at %s:%d (error %v), want an error at partes/p.doclang:3", d.File, d.Position.Line, d.IsError())
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no TABLE004 in %v", diagErr.Diagnostics)
+	}
+	if !strings.Contains(strings.Join(log.lines, "\n"), "ERROR LINT: Error at partes/p.doclang:3") {
+		t.Errorf("the log does not name partes/p.doclang:3: %v", log.lines)
+	}
+}
+
+// Los LangRuns que Prepare deriva antes del lint (los ve un rulepack
+// externo en el AST) dejan literal el código, como el HTML (issue #487).
+func TestPrepare_LangRunsKeepCodeLiteral(t *testing.T) {
+	src := "---\ntitle: D\nmode: flex\n---\n\n# A\n\nHola [say `{{title}}` and {{title}}]{lang=en}.\n"
+	prepared, err := Prepare(util.NewNoop(), []byte(src), PrepareOptions{InputFile: "d.doclang", MaxInputBytes: util.DefaultMaxInputBytes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runs []string
+	for _, b := range prepared.Doc.ContentBlocks {
+		for _, e := range b.Elements {
+			if text, ok := e.(*ast.TextElement); ok {
+				for _, r := range text.LangRuns {
+					runs = append(runs, r.Text)
+				}
+			}
+		}
+	}
+	all := strings.Join(runs, "|")
+	if all != "say `{{title}}` and D" {
+		t.Errorf("LangRuns = %q, want the code span literal and the prose substituted", all)
 	}
 }
