@@ -188,7 +188,13 @@ func artifactURI(docPath, file string) string {
 	if doc == "" || isAbsSlashed(f) {
 		return uriReference(f)
 	}
-	return uriReference(path.Join(path.Dir(doc), f))
+	joined := path.Join(path.Dir(doc), f)
+	// path.Join deja una sola "/" al principio: una ruta UNC
+	// ("//servidor/r/…") perdería el host.
+	if strings.HasPrefix(doc, "//") && !strings.HasPrefix(joined, "//") {
+		joined = "/" + joined
+	}
+	return uriReference(joined)
 }
 
 // slashed es p con "/" como separador.

@@ -5,7 +5,10 @@ package report
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
+
+	"github.com/santhosh-tekuri/jsonschema/v5"
 
 	"go.ziradocs.com/core/v2/diagnostics"
 )
@@ -75,6 +78,7 @@ func TestArtifactURI(t *testing.T) {
 		{"/srv/docs/main.doclang", "", "file:///srv/docs/main.doclang"},
 		{"/srv/docs/main.doclang", "partes/a b.doclang", "file:///srv/docs/partes/a%20b.doclang"},
 		{"\\\\servidor\\r\\main.doclang", "", "file://servidor/r/main.doclang"},
+		{"\\\\servidor\\r\\main.doclang", "partes\\a.doclang", "file://servidor/r/partes/a.doclang"},
 		{"", "partes/a.doclang", "partes/a.doclang"},
 		{"a:b.doclang", "", "./a:b.doclang"},
 		{"", "", ""},
@@ -82,6 +86,52 @@ func TestArtifactURI(t *testing.T) {
 	for _, c := range cases {
 		if got := artifactURI(c.docPath, c.file); got != c.want {
 			t.Errorf("artifactURI(%q, %q) = %q, want %q", c.docPath, c.file, got, c.want)
+		}
+	}
+}
+
+// El SARIF con uris de documento y de archivos incluidos (espacios, Unicode,
+// letra de unidad, UNC, absolutas) cumple el esquema 2.1.0 con sus "format"
+// (artifactLocation.uri es uri-reference).
+func TestSARIF_URIsMatchSchemaFormats(t *testing.T) {
+	compiler := jsonschema.NewCompiler()
+	compiler.AssertFormat = true
+	sch, err := compiler.Compile(filepath.Join("testdata", "sarif-schema-2.1.0.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, docPath := range []string{"mis docs/informe ñ.doclang", "D:\\docs\\main.doclang", "\\\\servidor\\r\\main.doclang", "/srv/a b/main.doclang", "a:b.doclang"} {
+		var diags []diagnostics.Diagnostic
+		for _, file := range []string{"", "partes/año 1/sección #2.doclang", "../comun/pie.doclang", "C:/Users/Ana María/pie.doclang", "/srv/x.doclang"} {
+			d := diagnostics.NewError("x", diagnostics.NewPosition(1, 1), "parser")
+			d.File = file
+			diags = append(diags, d)
+		}
+		data, err := generateSARIF(diags, nil, docPath, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v interface{}
+		if err := json.Unmarshal(data, &v); err != nil {
+			t.Fatal(err)
+		}
+		if err := sch.Validate(v); err != nil {
+			t.Errorf("docPath %q: SARIF does not match the schema: %v", docPath, err)
+		}
+		// El format uri-reference del validador acepta espacios y Unicode
+		// sin escapar; RFC 3986 no.
+		var out SARIF
+		if err := json.Unmarshal(data, &out); err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range out.Runs[0].Results {
+			uri := r.Locations[0].PhysicalLocation.ArtifactLocation.Uri
+			for _, c := range []byte(uri) {
+				if c <= ' ' || c > '~' || c == '\\' {
+					t.Errorf("docPath %q: uri %q has an unescaped %q", docPath, uri, c)
+					break
+				}
+			}
 		}
 	}
 }
