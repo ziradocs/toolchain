@@ -138,6 +138,7 @@ Examples:
 				InputFile:         inputFile,
 				MaxInputBytes:     maxInputBytes,
 				IncludeRoot:       roots.IncludeRoot,
+				DocDir:            pipeline.DocumentDir(inputFile, roots.IncludeRoot),
 				SourceDir:         roots.SourceDir,
 				Filters:           filters,
 				ThemeName:         themeFlag,

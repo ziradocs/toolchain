@@ -306,6 +306,7 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 		// Los dos están dentro de --root, así que la raíz sigue siendo el
 		// límite.
 		IncludeRoot:  includeRoot,
+		DocDir:       pipeline.DocumentDir(inputAbs, includeRoot),
 		SourceDir:    baseDir,
 		ThemeName:    in.Theme,
 		ThemeTrusted: false, // input de un cliente MCP, aunque ya validado
