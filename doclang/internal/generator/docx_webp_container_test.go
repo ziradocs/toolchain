@@ -5,11 +5,14 @@ package generator
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"image"
 	"testing"
 	"time"
+
+	"golang.org/x/image/webp"
 )
 
 // testChunk es un chunk RIFF fourcc con data, con su byte de relleno si pad y
@@ -212,4 +215,43 @@ func TestWebPFrameDecodeComposesOnTheReducedCanvas(t *testing.T) {
 	if img, err := f.decode(0, 0); err != nil || img.Bounds().Dx() != 40 {
 		t.Errorf("without a box: %v, %v", img.Bounds(), err)
 	}
+}
+
+// FuzzFirstFrame: con cualquier entrada, webpFirstFrame y decode no entran
+// en panic, y un cuadro decodificado sale del tamaño del lienzo. Las semillas
+// corren como prueba normal; `go test -fuzz FuzzFirstFrame` busca más.
+func FuzzFirstFrame(f *testing.F) {
+	for _, b64 := range []string{webpAnimLossy16x12, webpAnimLossless16x12, webpAnimOffset16x12, webpAnimAlpha16x12, webpAnimCanvasAlpha16x12} {
+		data, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(data)
+		f.Add(data[:len(data)/2])
+	}
+	// Las entradas que rompían las primeras versiones: un largo que con int
+	// de 32 bits sale negativo y un ANMF fuera del RIFF.
+	p := newAnimParts(f)
+	for _, size := range []uint32{0xFFFFFFF8, 0xFFFFFFF0} {
+		f.Add(p.withFirst(p.top[2].data, true, append(binary.LittleEndian.AppendUint32([]byte("XYZW"), size), make([]byte, 8)...)...))
+	}
+	f.Add(append(testRIFF(bytes.Join([][]byte{[]byte("WEBP"), testChunk("VP8X", p.vp8x, true), testChunk("ANIM", p.anim, true)}, nil)), testChunk("ANMF", p.top[2].data, true)...))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		cfg, err := webp.DecodeConfig(bytes.NewReader(data))
+		if err != nil || !webpIsAnimated(data) || cfg.Width*cfg.Height > 1<<20 {
+			return
+		}
+		frame, err := webpFirstFrame(data, cfg.Width, cfg.Height)
+		if err != nil {
+			return
+		}
+		img, err := frame.decode(64, 64)
+		if err != nil {
+			return
+		}
+		nw, nh, _ := fitSize(cfg.Width, cfg.Height, 64, 64)
+		if b := img.Bounds(); frame.covers() && (b.Dx() != cfg.Width || b.Dy() != cfg.Height) || !frame.covers() && (b.Dx() != nw || b.Dy() != nh) {
+			t.Errorf("decoded %v for a %dx%d canvas", img.Bounds(), cfg.Width, cfg.Height)
+		}
+	})
 }
