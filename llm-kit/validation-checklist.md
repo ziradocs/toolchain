@@ -57,7 +57,8 @@ and it applies to any slide typed `title` in either mode.)
       the header row** (`TABLE003` — **error**, the strictest of the three)
 - [ ] **Table rows on the `rows:` line**: `rows: [["a", "b"], ["c", "d"]]`
       is read only when every cell is in double quotes (no other quote
-      inside) or unquoted; single quotes, stray quotes or text after the
+      inside) or unquoted; single quotes, an unquoted cell starting or
+      ending with an apostrophe (`'90s`), stray quotes or text after the
       array give no rows and the parser warning `TABLE007`. When unsure,
       put each row on its own line below `rows:`
 - [ ] **Code groups**: contains at least one code block (`CODEGROUP001` —

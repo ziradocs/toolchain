@@ -184,3 +184,47 @@ func TestTableInlineRows_Flex(t *testing.T) {
 		}
 	}
 }
+
+// Una fila vacía en línea no cuenta: `rows: [[]]` da cero filas y ningún
+// aviso, como en main, y no se cuenta como una fila de 0 celdas (que daría
+// TABLE003 y rompería el build).
+func TestTableInlineRows_EmptyRowGivesNoRows(t *testing.T) {
+	for value, want := range map[string][][]string{
+		`[[]]`:             nil,
+		`[ [ ] ]`:          nil,
+		`[[], ["a", "b"]]`: {{"a", "b"}},
+	} {
+		tbl, diags := parseInlineRowsTable(t, "document", "    headers: [\"x\", \"y\"]\n    rows: "+value+"\n")
+		if len(tbl.Rows) != len(want) || (len(want) > 0 && !reflect.DeepEqual(tbl.Rows, want)) {
+			t.Errorf("%s: rows = %q, want %q", value, tbl.Rows, want)
+		}
+		if n, _ := ruleIDCount(diags, "TABLE007"); n != 0 {
+			t.Errorf("%s: unexpected TABLE007: %v", value, diags)
+		}
+	}
+}
+
+// Una celda sin comillas dobles que empieza o termina con un apóstrofo
+// ('90s, rock') no se lee: no se sabe dónde termina. El aviso habla del
+// apóstrofo, no de comillas simples.
+func TestTableInlineRows_LeadingApostropheIsReportedAsSuch(t *testing.T) {
+	for _, value := range []string{`[['90s, x], [c, d]]`, `[[rock', x], [c, d]]`, `[[', x], [c, d]]`} {
+		tbl, diags := parseInlineRowsTable(t, "document", "    headers: [\"x\", \"y\"]\n    rows: "+value+"\n")
+		if len(tbl.Rows) != 0 {
+			t.Errorf("%s: rows = %q, want none", value, tbl.Rows)
+		}
+		found := false
+		for _, d := range diags {
+			if d.RuleID == "TABLE007" && strings.Contains(d.Message, "apostrophe") && !strings.Contains(d.Message, "single quotes") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: want a TABLE007 about the apostrophe, got %v", value, diags)
+		}
+	}
+	tbl, _ := parseInlineRowsTable(t, "document", "    headers: [\"x\", \"y\"]\n    rows: [[\"'90s\", \"x\"]]\n")
+	if want := [][]string{{"'90s", "x"}}; !reflect.DeepEqual(tbl.Rows, want) {
+		t.Errorf("apostrophe inside double quotes: rows = %q, want %q", tbl.Rows, want)
+	}
+}
