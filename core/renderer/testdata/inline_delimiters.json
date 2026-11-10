@@ -160,6 +160,26 @@
    "src": "snake\\_case y C:\\Users\\_tmp",
    "html": "snake\\_case y C:\\Users\\_tmp",
    "kind": "escape"
+  },
+  {
+   "src": "***X* Y**",
+   "html": "<strong><em>X</em> Y</strong>",
+   "kind": "regression"
+  },
+  {
+   "src": "***Nota:* texto**",
+   "html": "<strong><em>Nota:</em> texto</strong>",
+   "kind": "regression"
+  },
+  {
+   "src": "***X** Y*",
+   "html": "<em><strong>X</strong> Y</em>",
+   "kind": "regression"
+  },
+  {
+   "src": "***X***",
+   "html": "<strong><em>X</em></strong>",
+   "kind": "regression"
   }
  ]
 }

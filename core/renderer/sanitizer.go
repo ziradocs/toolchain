@@ -150,8 +150,13 @@ var (
 	// intermedios y el patrón simplemente no matchea, dejando el
 	// comportamiento previo (ya roto, no empeorado) para ese caso más raro.
 	inlineNestedItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*((?:` + inlineOpenEdgeNoStar + `[^*]*)?)\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*\*\*($|[^*])`)
-	inlineBoldPattern               = regexp.MustCompile(`\*\*(` + inlineOpenEdgeNoStar + `.*?)\*\*`)
-	inlineItalicPattern             = regexp.MustCompile(`\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*`)
+	// inlineLeadingItalicInBoldPattern es inlineNestedItalicInBoldPattern al
+	// revés: ***texto* resto** (una cursiva pegada a la apertura de la
+	// negrita). Igual que ese patrón, cubre una sola cursiva y exige un
+	// carácter de contexto sin "*" a cada lado.
+	inlineLeadingItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*([^*]*)\*\*($|[^*])`)
+	inlineBoldPattern                = regexp.MustCompile(`\*\*(` + inlineOpenEdgeNoStar + `.*?)\*\*`)
+	inlineItalicPattern              = regexp.MustCompile(`\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*`)
 	// inlineLinkPattern e inlineImagePattern reconocen solo la APERTURA
 	// ("[texto](" / "![alt](") y no el destino: RE2 no puede exigir
 	// paréntesis balanceados, y el patrón completo anterior (`\(([^)]+)\)`)
@@ -610,10 +615,10 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	text = escapeInlineDelimiters(text)
 
 	// Procesar resaltado ==texto== -> <mark>texto</mark>
-	text = inlineHighlightPattern.ReplaceAllString(text, `<mark>$1</mark>`)
+	text = replaceFormat(inlineHighlightPattern, text, `<mark>$1</mark>`, 1)
 
 	// Procesar tachado ~~texto~~ -> <del>texto</del>
-	text = inlineStrikethroughPattern.ReplaceAllString(text, `<del>$1</del>`)
+	text = replaceFormat(inlineStrikethroughPattern, text, `<del>$1</del>`, 1)
 
 	// Procesar negrita+cursiva ***texto*** -> <strong><em>texto</em></strong>
 	// Debe correr ANTES de negrita/cursiva por separado: de lo contrario
@@ -629,22 +634,29 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// contexto exigido, una racha de 4+ no matchea aquí y cae exactamente al
 	// mismo comportamiento pre-existente (ya en main antes de este fix) que
 	// ya tenían negrita/cursiva para ese caso límite.
-	text = inlineBoldItalicPattern.ReplaceAllString(text, `$1<strong><em>$2</em></strong>$3`)
+	text = replaceFormat(inlineBoldItalicPattern, text, `$1<strong><em>$2</em></strong>$3`, 2)
 
 	// Procesar negrita-con-cursiva-anidada-al-final **texto *anidado*** ->
 	// <strong>texto <em>anidado</em></strong> (issue #173; ver comentario en
 	// la declaración de inlineNestedItalicInBoldPattern). Debe correr ANTES
 	// que negrita genérica, por la misma razón que el patrón de arriba.
-	text = inlineNestedItalicInBoldPattern.ReplaceAllString(text, `$1<strong>$2<em>$3</em></strong>$4`)
+	text = replaceFormat(inlineNestedItalicInBoldPattern, text, `$1<strong>$2<em>$3</em></strong>$4`, 2, 3)
+
+	// La simétrica: una negrita que abre con una cursiva pegada,
+	// ***texto* resto** -> <strong><em>texto</em> resto</strong>. Desde que
+	// una negrita no abre con otro "*" pegado, la negrita genérica de abajo
+	// abría en el segundo asterisco y la cursiva cerraba cruzándose
+	// (<em><strong>texto</em> resto</strong>).
+	text = replaceFormat(inlineLeadingItalicInBoldPattern, text, `$1<strong><em>$2</em>$3</strong>$4`, 2, 3)
 
 	// Procesar negritas **texto** -> <strong>texto</strong>
-	text = inlineBoldPattern.ReplaceAllString(text, `<strong>$1</strong>`)
+	text = replaceFormat(inlineBoldPattern, text, `<strong>$1</strong>`, 1)
 
 	// Procesar cursivas *texto* -> <em>texto</em>
 	// La captura exige contenido no vacío y sin '*': un "**" residual (p.ej.
 	// una negrita sin cerrar que el regex de arriba no consumió) no debe
 	// producir un <em></em> vacío en el HTML generado (issue #12e1).
-	text = inlineItalicPattern.ReplaceAllString(text, `<em>$1</em>`)
+	text = replaceFormat(inlineItalicPattern, text, `<em>$1</em>`, 1)
 
 	// Procesar spans con clase [contenido]{.token} -> tag fijo de la allowlist.
 	// Corre DESPUÉS de negrita/cursiva/código (para que el contenido interno ya
@@ -976,6 +988,40 @@ func hideLinkDestinations(text string) (string, []string) {
 	}
 	b.WriteString(text[last:])
 	return b.String(), hidden
+}
+
+// replaceFormat es re.ReplaceAllString(text, template) para una pasada de
+// formato, salvo que un match cuyo contenido (los grupos de content) no está
+// bien anidado se deja como está. Envolver un tramo que corta una etiqueta ya
+// emitida por una pasada anterior (como `<strong>a` o `a</strong>`) es lo
+// único que puede cruzar etiquetas, así que con esta guarda el HTML de salida
+// queda siempre bien anidado: el delimitador se ve como texto en vez de
+// producir <em><strong>a</em></strong>.
+func replaceFormat(re *regexp.Regexp, text, template string, content ...int) string {
+	locs := re.FindAllStringSubmatchIndex(text, -1)
+	if locs == nil {
+		return text
+	}
+	var b strings.Builder
+	last := 0
+	for _, loc := range locs {
+		balanced := true
+		for _, g := range content {
+			if loc[2*g] >= 0 && !htmlTagsWellNested(text[loc[2*g]:loc[2*g+1]]) {
+				balanced = false
+				break
+			}
+		}
+		b.WriteString(text[last:loc[0]])
+		if balanced {
+			b.Write(re.ExpandString(nil, template, text, loc))
+		} else {
+			b.WriteString(text[loc[0]:loc[1]])
+		}
+		last = loc[1]
+	}
+	b.WriteString(text[last:])
+	return b.String()
 }
 
 // escapedDelimiters son los caracteres que una barra invertida hace
