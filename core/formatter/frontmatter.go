@@ -187,7 +187,7 @@ func frontMatterOverrides(fm *ast.FrontMatterNode, mode string) map[string]inter
 	// real, jamás pasó por código) también deja Raw == "" y por lo tanto
 	// también se confundía con un AST construido en código. "auto" es la
 	// señal correcta porque es el ÚNICO valor que FrontMatterParser rellena
-	// en silencio (`raw.Mode = "auto"`, FRONT001) cuando el documento NO
+	// en silencio (`raw.Mode = "auto"`, FRONT009) cuando el documento NO
 	// declara `mode:` — así que cualquier documento real sin `mode:`
 	// explícito, tenga Raw vacío o con otras llaves, resuelve a exactamente
 	// ese valor, nunca a otro. Excluirlo cierra los dos huecos a la vez: no

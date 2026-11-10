@@ -120,6 +120,22 @@ identifier ::= LETTER (LETTER | DIGIT | "_")*
 value      ::= STRING | NUMBER | BOOLEAN
 ```
 
+In a `TABLE` block (strict, and the same block in flex), `rows:` takes its
+rows on the lines below it, one `[…]` array per line, or, on its own line, a
+nested array:
+`rows: [["a", "b"], ["c", "d"]]`. In the nested form every cell is in double
+quotes with no other quote inside, or has no quotes, so the cut between rows
+never depends on where a quote closes. A value that does not read that way
+(single quotes, an unquoted cell that starts or ends with an apostrophe
+such as `'90s`, stray quotes, text between rows or after the array other
+than a `#` comment) gives no rows and the `TABLE007` warning. An empty row
+(`rows: [[]]`) counts as no row. If a row of the nested array does not have
+as many cells as the headers (or, without headers, as its first row), the
+array gives no rows and the `TABLE007` warning names that row; the rows
+below `rows:` are read as usual. Any other value on the
+`rows:` line (`[]`, a comment) is ignored, as before, and the rows below are
+read.
+
 With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
 may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on
@@ -211,6 +227,18 @@ reads as the content `First paragraph.\n\nSecond paragraph.` with author
 text that is not indented deeper than `QUOTE`, ends the element as before. A
 quote cannot start or end with an empty line. `slidelang fmt` writes a flex
 quote with an empty `>` line this way.
+
+In the body of a `QUOTE` or a `CHECKLIST`, a line indented deeper than the
+`QUOTE` or `CHECKLIST` line starts another element only when the keyword is a
+whole word: followed by the end of the line, a space or tab, `:` or `{`.
+`TEXTO citado`, `TEXT-heavy slides` or `MAPA norte` there are body text, not a
+`TEXT` or `MAP` that ends the body. A line at the indentation of the `QUOTE`
+or `CHECKLIST` line, or less, is in element position: it ends the body and is
+dispatched as before, so `TEXTO` with a body there is still a `TEXT`. Before
+the first item of a `CHECKLIST` there is no item body to protect, so a line
+that starts with the letters of a keyword ends the checklist as before, at
+any indentation. Any other line of a `CHECKLIST` body before its first item
+is discarded with the `CHECKLIST001` warning.
 
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser
@@ -963,7 +991,7 @@ multiple: false
 
 A key outside that set is reported and ignored rather than dropped silently
 (`QUIZ005` / `POLL004`), and a body that is not valid YAML is reported as
-`QUIZ004` / `POLL003` — the block is still consumed, so nothing after it is
+`QUIZ004` / `POLL006` — the block is still consumed, so nothing after it is
 reprocessed as prose.
 
 **`question`, each `option` and `explanation` are prose**, and carry the same

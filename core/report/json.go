@@ -31,7 +31,7 @@ type FindingJSON struct {
 
 func generateJSON(active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic, docPath string, astVersion string, checksum string, rulepacks []string, descriptors []linter.RuleDescriptor) ([]byte, error) {
 	report := ReportJSON{
-		ReportVersion: "1.1.0",
+		ReportVersion: "1.2.0",
 		SchemaVersion: astVersion,
 		Rulepacks:     rulepacks,
 		Rules:         descriptors,
@@ -43,17 +43,11 @@ func generateJSON(active []diagnostics.Diagnostic, waived []linter.WaivedDiagnos
 		Findings:   make([]FindingJSON, 0, len(active)+len(waived)),
 	}
 
-	for _, d := range active {
+	for _, f := range orderedFindings(active, waived) {
 		report.Findings = append(report.Findings, FindingJSON{
-			Diagnostic: d,
-			Waived:     false,
-		})
-	}
-	for _, w := range waived {
-		report.Findings = append(report.Findings, FindingJSON{
-			Diagnostic: w.Diagnostic,
-			Waived:     true,
-			Waiver:     w.Policy,
+			Diagnostic: f.diag,
+			Waived:     f.waived,
+			Waiver:     f.policy,
 		})
 	}
 

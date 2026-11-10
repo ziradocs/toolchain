@@ -4,10 +4,12 @@
 package elements
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // ChecklistParser maneja elementos de listas de tareas/checklists
@@ -40,14 +42,18 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	element := ast.NewChecklistElement(pos)
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
+	var diags []diagnostics.Diagnostic
 
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "CHECKLIST") {
+		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 		// Skip CHECKLIST line
 		consumed++
 		startIndex++
 
 		// Process indented checklist items
-		consumed += p.parseStrictChecklist(ctx, startIndex, element)
+		n, d := p.parseStrictChecklist(ctx, startIndex, headerIndent, element)
+		consumed += n
+		diags = d
 	} else {
 		// Markdown-style parsing
 		consumed = p.parseMarkdownChecklist(ctx, startIndex, element)
@@ -64,11 +70,19 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		Element:       element,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
 }
 
-// parseStrictChecklist parsea una lista de tareas en modo estricto
-func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int, element *ast.ChecklistElement) int {
+// ChecklistLineBeforeFirstItemRuleID es el aviso de una línea del cuerpo de
+// un CHECKLIST strict que va antes del primer ítem: no es ítem ni
+// continuación de uno, y se descarta.
+const ChecklistLineBeforeFirstItemRuleID = "CHECKLIST001"
+
+// parseStrictChecklist parsea una lista de tareas en modo estricto. La
+// cabecera CHECKLIST tiene sangría headerIndent (ver EndsStrictBody).
+func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, headerIndent int, element *ast.ChecklistElement) (int, []diagnostics.Diagnostic) {
+	var diags []diagnostics.Diagnostic
 	lines := ctx.Lines
 	consumed := 0
 	expectedIndent := -1
@@ -87,6 +101,14 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 			continue
 		}
 
+		// Una primera línea sin sangría, con la cabecera sangrada, no es del
+		// CHECKLIST: es lo que sigue al bloque que lo contiene (el SLIDE o
+		// SECTION siguiente). Antes se consumía y el parser cortaba con un
+		// error interno; `fmt` de un CHECKLIST vacío escribía justo eso.
+		if expectedIndent == -1 && currentIndent == 0 && headerIndent > 0 {
+			break
+		}
+
 		// Auto-detect expected indentation from first non-empty line
 		if expectedIndent == -1 && currentIndent > 0 {
 			expectedIndent = currentIndent
@@ -97,8 +119,16 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 			break
 		}
 
-		// Check if line starts a new element
-		if IsNewElement(line, "strict") {
+		// Check if line starts a new element. Una línea más sangrada que
+		// CHECKLIST solo corta con la palabra clave completa (issue #489),
+		// pero solo cuando ya hay un ítem: antes del primero no hay cuerpo
+		// de ítem que proteger, y una palabra pegada corta por prefijo como
+		// en main ("TEXTO" con su cuerpo sigue siendo un TEXT).
+		if nest.last() == nil {
+			if IsNewElement(line, "strict") {
+				break
+			}
+		} else if EndsStrictBody(line, headerIndent) {
 			break
 		}
 
@@ -112,12 +142,18 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex int
 			// Continuation line: pertenece al último item abierto, el más
 			// profundo, que es el que la línea sigue.
 			last.Content += " " + trimmed
+		} else if last == nil {
+			// Antes del primer ítem no hay a qué pegarla: se descarta,
+			// como siempre, pero con aviso.
+			diags = append(diags, diagnostics.NewWarning(
+				fmt.Sprintf("This line of the CHECKLIST comes before its first item and was discarded: %q. Start it with \"- [ ]\" or move it after an item.", trimmed),
+				ctx.Position(i), "checklist-parser").WithRuleID(ChecklistLineBeforeFirstItemRuleID))
 		}
 
 		consumed++
 	}
 
-	return consumed
+	return consumed, diags
 }
 
 // parseMarkdownChecklist parsea una lista de tareas en formato Markdown

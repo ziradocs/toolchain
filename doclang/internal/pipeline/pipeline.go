@@ -117,7 +117,8 @@ type Prepared struct {
 	Doc   *ast.AST
 	Theme document.Theme
 	// ParseDiagnostics y LintDiagnostics son los avisos que no frenaron el
-	// build (warnings/info); con errores, Prepare devuelve DiagnosticsError.
+	// build (warnings/info), con la política de lint aplicada (EvaluatePolicy);
+	// con errores, Prepare devuelve DiagnosticsError.
 	ParseDiagnostics []diagnostics.Diagnostic
 	LintDiagnostics  []diagnostics.Diagnostic
 }
@@ -287,14 +288,21 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	}
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(doc)
 	allDiagnostics = MergeParserFindings(doc, parserFindings, allDiagnostics)
-	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, doc.FilePath, time.Now())
+	// Los avisos del parser (SPECIAL002, TABLE007…) pasan por la política
+	// como los del linter: un warning se puede apagar, y si la política le
+	// sube la severidad cuenta como un error de lint. El mismo camino que la
+	// tool `lint` del MCP (EvaluatePolicy).
+	evaluated := EvaluatePolicy(policy, parseDiags, allDiagnostics, doc.FilePath, time.Now())
+	parserActive, activeDiags := evaluated.ParserActive, evaluated.LintActive
 
 	if opts.ReportFormat != "" {
 		outPath := opts.ReportOut
 		descriptors := linter.CollectDescriptors(opts.CustomRules, opts.RulePacks)
 		descriptors = append(descriptors, extDescriptors...)
 		descriptors = linter.NormalizeDescriptors(descriptors)
-		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, descriptors, doc, content, opts.ExternalRulepacks); err != nil {
+		// El reporte lleva también los avisos del parser, como la tool `lint`
+		// del MCP; antes solo salían por log. Ordenados por línea.
+		if err := report.WriteReport(opts.ReportFormat, outPath, evaluated.Active(), evaluated.Waived(), descriptors, doc, content, opts.ExternalRulepacks); err != nil {
 			return nil, fmt.Errorf("failed to write report: %w", err)
 		}
 		if outPath != "" && outPath != "-" {
@@ -303,12 +311,25 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	}
 
 	if opts.PostLint != nil {
-		if err := opts.PostLint(doc, activeDiags, waivedDiags); err != nil {
+		// El hook recibe lo mismo que el reporte: parser y linter, con la
+		// política aplicada y por posición.
+		if err := opts.PostLint(doc, evaluated.Active(), evaluated.Waived()); err != nil {
 			return nil, fmt.Errorf("post-lint hook failed: %w", err)
 		}
 	}
 
 	lintErrors := false
+	// Los avisos del parser ya salieron en el log de PARSER; acá van los que
+	// la política cambió: los que subió a error y el POLICY001 de un waiver
+	// vencido.
+	for _, diag := range parserActive {
+		if diag.IsError() {
+			log.Error("LINT: Error at line %d: %s", diag.Position.Line, diag.Message)
+			lintErrors = true
+		} else if isPolicyNotice(diag) {
+			log.Warn("LINT: Warning at line %d: %s", diag.Position.Line, diag.Message)
+		}
+	}
 	for _, diag := range activeDiags {
 		if diag.IsError() {
 			log.Error("LINT: Error at line %d: %s", diag.Position.Line, diag.Message)
@@ -318,13 +339,16 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 		}
 	}
 	if lintErrors {
-		return nil, &DiagnosticsError{Stage: StageLint, Diagnostics: append(append([]diagnostics.Diagnostic{}, parseDiags...), activeDiags...)}
+		// Los del parser con la política aplicada: si la política subió un
+		// aviso a error, quien recibe el error (el export del MCP) lo ve como
+		// error.
+		return nil, &DiagnosticsError{Stage: StageLint, Diagnostics: append(append([]diagnostics.Diagnostic{}, parserActive...), activeDiags...)}
 	}
 
 	return &Prepared{
 		Doc:              doc,
 		Theme:            theme,
-		ParseDiagnostics: parseDiags,
+		ParseDiagnostics: parserActive,
 		LintDiagnostics:  activeDiags,
 	}, nil
 }
@@ -577,4 +601,10 @@ func ResolveTOCAndNumbering(doc *ast.AST, toc, numbering *bool) (tocEnabled, num
 		}
 	}
 	return tocEnabled, numberingEnabled
+}
+
+// isPolicyNotice dice si d es el POLICY001 que la política agrega por un
+// waiver vencido.
+func isPolicyNotice(d diagnostics.Diagnostic) bool {
+	return d.RuleID == "POLICY001" || d.Code == "POLICY001"
 }

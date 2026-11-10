@@ -411,7 +411,7 @@ func TestFormatDocument_PreservesUnmodeledHeaderSubKeys(t *testing.T) {
 // correcta: title/lang/etc. NUNCA valen algo si el autor no los escribió, así
 // que "Raw vacío" ahí siempre significa "AST construido en código". Pero
 // `mode` es distinto — FrontMatterParser completa `raw.Mode = "auto"`
-// (FRONT001) cada vez que un documento real no declara `mode:` — y ESE
+// (FRONT009) cada vez que un documento real no declara `mode:` — y ESE
 // default silencioso resulta indistinguible de un AST de código bajo el
 // criterio de Raw: un frontmatter genuinamente vacío (`---\n---`, documento
 // real, jamás pasó por código) también deja Raw == "", exactamente como un

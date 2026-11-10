@@ -29,7 +29,7 @@ func TestSARIF_ArtifactLocationUsesDiagnosticFile(t *testing.T) {
 		want          []string
 	}{
 		{"same directory", "main.doclang", []diagnostics.Diagnostic{at("", 3), at("partes/a.doclang", 2)}, []string{"main.doclang", "partes/a.doclang"}},
-		{"document in a subdirectory", "docs/main.doclang", []diagnostics.Diagnostic{at("partes/a.doclang", 2), at("../comun/pie.doclang", 1)}, []string{"docs/partes/a.doclang", "comun/pie.doclang"}},
+		{"document in a subdirectory", "docs/main.doclang", []diagnostics.Diagnostic{at("partes/a.doclang", 2), at("../comun/pie.doclang", 1)}, []string{"comun/pie.doclang", "docs/partes/a.doclang"}}, // por archivo: "../comun/…" < "partes/…"
 		{"absolute file", "docs/main.doclang", []diagnostics.Diagnostic{at("/srv/comun/pie.doclang", 1)}, []string{"file:///srv/comun/pie.doclang"}},
 		{"no document path", "", []diagnostics.Diagnostic{at("partes/a.doclang", 1)}, []string{"partes/a.doclang"}},
 	}

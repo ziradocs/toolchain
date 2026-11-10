@@ -340,7 +340,7 @@ func sortedQuizPollKeys(tag string) []string {
 func quizPollRuleID(tag, reason string) string {
 	ids := map[string]map[string]string{
 		"quiz": {"invalidYAML": "QUIZ004", "unknownKey": "QUIZ005", "unclosed": "QUIZ006"},
-		"poll": {"invalidYAML": "POLL003", "unknownKey": "POLL004", "unclosed": "POLL005"},
+		"poll": {"invalidYAML": "POLL006", "unknownKey": "POLL004", "unclosed": "POLL005"},
 	}
 	if id, ok := ids[tag][reason]; ok {
 		return id
