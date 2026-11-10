@@ -1069,6 +1069,49 @@ func escapeInlineDelimiters(text string) string {
 	return b.String()
 }
 
+// unescapeDelimitersOutsideCode quita la barra de `\*`, `\=` y `\~` en un
+// texto fuente (no HTML), salvo dentro de sus code spans, con la misma
+// lectura que escapeInlineDelimiters: `\\` se deja junto con el carácter que
+// la sigue y cualquier otra barra también. Lo usa el Text de un LangRun, que
+// sale de la fuente y no del HTML.
+func unescapeDelimitersOutsideCode(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	last := 0
+	for _, sp := range findCodeSpans(s) {
+		b.WriteString(unescapeDelimiters(s[last:sp.fullStart]))
+		b.WriteString(s[sp.fullStart:sp.fullEnd])
+		last = sp.fullEnd
+	}
+	b.WriteString(unescapeDelimiters(s[last:]))
+	return b.String()
+}
+
+func unescapeDelimiters(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			if _, ok := escapedDelimiters[s[i+1]]; ok {
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			}
+			if s[i+1] == '\\' {
+				b.WriteString(`\\`)
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 // restoreLinkDestinations deshace hideLinkDestinations.
 func restoreLinkDestinations(text string, hidden []string) string {
 	if len(hidden) == 0 {

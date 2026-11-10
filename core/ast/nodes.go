@@ -749,7 +749,8 @@ type TableRow struct {
 // derived by stripping the HTML tags, not by finding some earlier
 // pre-markdown source that no longer exists. Concretely: from Markdown
 // Content, [a *b* c]{lang=fr} yields Text "a *b* c" (markdown syntax intact,
-// unprocessed); from RawHTML Content, the equivalent already-rendered span
+// unprocessed, except that delimiter escapes \* \= \~ outside a code span
+// are resolved, as the HTML resolves them); from RawHTML Content, the equivalent already-rendered span
 // yields Text "a b c" (HTML tags stripped, markdown syntax gone because it
 // was already consumed at parse time). Do not assume Text is a substring of
 // Content in either case.
