@@ -17,7 +17,7 @@ func (p *TextParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
 	// In strict mode, handle TEXT keyword
-	if mode == "strict" && HasStrictKeyword(trimmed, "TEXT") {
+	if mode == "strict" && strings.HasPrefix(trimmed, "TEXT") {
 		return true
 	}
 
@@ -46,7 +46,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	var content strings.Builder
 
-	if ctx.Mode == "strict" && HasStrictKeyword(line, "TEXT") { // Skip TEXT line
+	if ctx.Mode == "strict" && strings.HasPrefix(line, "TEXT") { // Skip TEXT line
 		consumed++
 		startIndex++
 

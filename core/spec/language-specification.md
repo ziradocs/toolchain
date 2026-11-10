@@ -120,27 +120,6 @@ identifier ::= LETTER (LETTER | DIGIT | "_")*
 value      ::= STRING | NUMBER | BOOLEAN
 ```
 
-An element keyword (`TEXT`, `POINTS`, `CODE`, `IMAGE`, `TABLE`, `QUOTE`,
-`CHECKLIST`, `MERMAID`, `PLANTUML`, `CHART`, `MAP`, `MATH`) is recognized only
-as a whole word: it is followed by the end of the line, a space (a tab or a
-Unicode space too), `{` of an attribute or `:`. Anything else glued to it (a
-letter, a digit, `-`, `.`, `/`, `(`) makes it another word: `TEXTO citado`,
-`TEXT-heavy slides` or `MAPA norte` inside a `QUOTE` body is quote text. At
-element level such a line is an unrecognized line (an error in a document, the
-`STRICT003` warning in a slide), and the message suggests the keyword ("`TEXTO`
-is not an element keyword; did you mean TEXT?"); followed by `:` (`TEXTO:`)
-it is that same unrecognized line, not an unknown property. Inside a typed
-column, where any other unrecognized line is an error, such a line follows the
-same rule: the `STRICT003` warning in a slide, an error in a document. Earlier versions matched the
-bare prefix, so `TEXTO citado` opened a `TEXT` element and `CODEX html` a
-`CODE` block.
-
-`TEXT`, `POINTS`, `CHECKLIST`, `QUOTE` and `TABLE` take nothing on their own
-line. Text written there (`TEXT hola mundo`) is not part of the element; it is
-reported as an error in a document and as the `STRICT003` warning in a slide,
-inside a typed column too, and the element is read from its indented body as
-usual. Earlier versions dropped it silently.
-
 With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
 may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on

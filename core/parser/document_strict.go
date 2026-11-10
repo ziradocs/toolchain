@@ -61,9 +61,8 @@ func NewDocumentStrictParser(input string, log util.Logger) *DocumentStrictParse
 	}
 	return &DocumentStrictParser{
 		strictBody: strictBody{
-			lines:           strings.Split(input, "\n"),
-			logger:          log,
-			documentDialect: true,
+			lines:  strings.Split(input, "\n"),
+			logger: log,
 		},
 		input: input,
 	}
@@ -235,9 +234,9 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 		// bloque, y es la elección correcta: cada línea que no llegó al AST
 		// queda nombrada, en vez de que el autor tenga que adivinar cuánto
 		// se perdió.
-		p.addError(withHint(fmt.Sprintf(
+		p.addError(fmt.Sprintf(
 			"unexpected content inside %s: %q is not an element, a property, or a new %s",
-			sectionKeyword, trimmed, sectionKeyword), trimmed))
+			sectionKeyword, trimmed, sectionKeyword))
 	})
 
 	if level == 0 {

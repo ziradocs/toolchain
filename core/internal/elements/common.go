@@ -5,8 +5,6 @@ package elements
 
 import (
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -230,62 +228,6 @@ func IsJustASeparator(lines []string, i int, subBlockPrefix, closingMarker strin
 	return false
 }
 
-// HasStrictKeyword reporta si trimmed (una línea ya sin espacios al inicio)
-// empieza con la palabra clave kw de un elemento strict (TEXT, CODE, QUOTE…)
-// como palabra completa: después de kw solo puede venir el fin de la línea, un
-// espacio (tab y espacios Unicode incluidos, CODE\u00a0html), `{` de un
-// atributo (CODE{verbatim}) o `:`. Así "TEXTO citado", "MAPA norte" o
-// "TEXT-heavy slides" ya no se leen como TEXT o MAP seguidos de lo que sigue
-// (issue #489): un guion, un punto, una barra o un paréntesis pegados a la
-// palabra la vuelven otra palabra, igual que una letra.
-//
-// El rune se decodifica completo a propósito: un espacio Unicode ocupa más de
-// un byte.
-//
-// Es la única definición de "empieza con la palabra clave" del dialecto
-// strict: el despacho de parser/strict.go, IsNewElement y el CanParse de cada
-// elemento la consultan para no volver a divergir.
-func HasStrictKeyword(trimmed, kw string) bool {
-	rest, ok := strings.CutPrefix(trimmed, kw)
-	if !ok {
-		return false
-	}
-	if rest == "" {
-		return true
-	}
-	r, _ := utf8.DecodeRuneInString(rest)
-	return unicode.IsSpace(r) || r == '{' || r == ':'
-}
-
-// strictKeywordList son las palabras clave de elemento strict, en el orden en
-// que el despacho las prueba.
-var strictKeywordList = []string{
-	"TEXT", "POINTS", "CODE", "IMAGE", "TABLE", "QUOTE",
-	"CHECKLIST", "MERMAID", "PLANTUML", "CHART", "MAP", "MATH",
-}
-
-// GluedStrictKeyword reporta si trimmed empieza con las letras de una palabra
-// clave strict pegadas a algo que la vuelve otra palabra ("TEXTO",
-// "TEXT-heavy", "MAPA"): devuelve la palabra clave y la palabra que el autor
-// escribió, para que el diagnóstico de línea no reconocida pueda sugerir la
-// palabra clave.
-func GluedStrictKeyword(trimmed string) (keyword, word string, ok bool) {
-	for _, kw := range strictKeywordList {
-		if strings.HasPrefix(trimmed, kw) && !HasStrictKeyword(trimmed, kw) {
-			word = trimmed
-			if fields := strings.Fields(trimmed); len(fields) > 0 {
-				word = fields[0]
-			}
-			// La palabra sin los dos puntos de "TEXTO:".
-			if w := strings.TrimRight(word, ":"); w != "" {
-				word = w
-			}
-			return kw, word, true
-		}
-	}
-	return "", "", false
-}
-
 // strictTopLevelKeywords son las palabras clave que abren un bloque strict de
 // nivel superior: "SLIDE" en slidelang, "SECTION" en doclang. Ver
 // IsStrictBlockBoundary.
@@ -460,15 +402,7 @@ func IsNewElement(line string, mode string) bool {
 			"SECTION ",
 		}
 		for _, keyword := range keywords {
-			// "SECTION " ya trae su separador; el resto se compara como
-			// palabra completa (issue #489: "TEXTO citado" no abre un TEXT).
-			if strings.HasSuffix(keyword, " ") {
-				if strings.HasPrefix(trimmed, keyword) {
-					return true
-				}
-				continue
-			}
-			if HasStrictKeyword(trimmed, keyword) {
+			if strings.HasPrefix(trimmed, keyword) {
 				return true
 			}
 		}

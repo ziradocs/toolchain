@@ -20,7 +20,7 @@ func (p *PointsParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 
 	// Strict mode: POINTS keyword
-	if mode == "strict" && HasStrictKeyword(trimmed, "POINTS") {
+	if mode == "strict" && strings.HasPrefix(trimmed, "POINTS") {
 		return true
 	}
 
@@ -80,7 +80,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
-	if ctx.Mode == "strict" && HasStrictKeyword(line, "POINTS") {
+	if ctx.Mode == "strict" && strings.HasPrefix(line, "POINTS") {
 		// Skip POINTS line
 		consumed++
 		startIndex++
@@ -295,7 +295,7 @@ func listMarkerWidth(line string) int {
 // the item immediately above it. Pointers to ancestors remain valid because
 // we pop a level before appending a sibling to that level's slice.
 func (p *PointsParser) parseTypedList(ctx *ParseContext, startIndex int, element *ast.PointsElement) *ParseResult {
-	strict := ctx.Mode == "strict" && HasStrictKeyword(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS")
+	strict := ctx.Mode == "strict" && strings.HasPrefix(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS")
 	start := startIndex
 	if strict {
 		start++

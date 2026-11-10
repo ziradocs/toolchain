@@ -35,11 +35,6 @@ type strictBody struct {
 	// uno indentado sigue siendo un error.
 	contentMarkdown bool
 	slideHeadings   bool
-	// documentDialect: el cuerpo es de un documento strict, donde lo que se
-	// descarta es un error, y no de un slide, donde es el warning STRICT003.
-	// Una columna tipada lo hereda de su slide o sección. Lo usa
-	// reportDiscarded.
-	documentDialect bool
 	headingAnchors  elements.HeadingAnchors
 	lines           []string
 	currentLine     int
@@ -91,17 +86,11 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 // A diferencia de un SLIDE o una sección, una columna no tiene propiedades ni
 // encabezados, y es sintaxis nueva: no hay documentos previos que dependan de
 // que una línea ilegible se descarte con un warning, así que todo lo que no
-// llega al AST es un Error. La excepción son las líneas que empiezan con una
-// palabra clave pegada a otra cosa ("TEXTOS largos", "TEXTO: algo") y el texto
-// en la línea de una palabra clave: antes de #489 esas líneas se leían como el
-// elemento, así que en un slide se reportan con el warning STRICT003 (en un
-// documento, con error), igual que fuera de la columna; un deck que compilaba
-// no se rompe. Un `<<grid>>` anidado también lo es: los
+// llega al AST es un Error. Un `<<grid>>` anidado también lo es: los
 // marcadores de grid se reconocen sobre la línea ya recortada, y flex no
 // tiene cierre sin ambigüedad para anidarlo.
 func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic) {
 	sub := &strictBody{
-		documentDialect: p.documentDialect,
 		nestedListTypes: p.nestedListTypes,
 		listStart:       p.listStart,
 		mathSource:      p.mathSource,
@@ -110,10 +99,6 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 		lineOffset:      lineOffset,
 	}
 	scratch := ast.NewContentBlock(sub.position(0), "content")
-	// gluedIndent es la sangría de la última línea con palabra clave pegada:
-	// las líneas más sangradas que siguen son su cuerpo (lo que main leía
-	// como el cuerpo del elemento) y se reportan con el mismo nivel.
-	gluedIndent := -1
 	sub.parseIndentedElements(scratch, func(key, _ string) {
 		sub.addError(fmt.Sprintf(
 			"a typed column has no properties, so %q is not valid here; write text inside a TEXT element",
@@ -127,20 +112,8 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 			sub.addError("a SLIDE cannot be opened inside a column; close the grid with <<end>> first")
 			return
 		}
-		msg := withHint(fmt.Sprintf(
-			"unexpected content inside a typed column: %q is not an element", trimmed), trimmed)
-		indent := elements.CalculateIndentLevel(sub.lines[sub.currentLine])
-		if _, _, glued := elements.GluedStrictKeyword(trimmed); glued {
-			gluedIndent = indent
-			sub.reportDiscarded(msg)
-			return
-		}
-		if gluedIndent >= 0 && indent > gluedIndent {
-			sub.reportDiscarded(msg)
-			return
-		}
-		gluedIndent = -1
-		sub.addError(msg)
+		sub.addError(fmt.Sprintf(
+			"unexpected content inside a typed column: %q is not an element", trimmed))
 	})
 	if sub.currentLine < len(lines) {
 		// parseIndentedElements corta en la primera línea no vacía con menos de
@@ -292,7 +265,7 @@ func startsStrictElement(trimmedLine string) bool {
 		return strings.HasPrefix(trimmedLine, "<<")
 	}
 	for _, kw := range strictElementKeywords {
-		if elements.HasStrictKeyword(trimmedLine, kw) {
+		if strings.HasPrefix(trimmedLine, kw) {
 			return true
 		}
 	}
@@ -408,7 +381,7 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 		// silencioso (ver TestStrictParser_SlideDialectStillToleratesUnrecognizedLines),
 		// mientras que un Warning es visible sin ser un cambio incompatible.
 		p.addWarningWithRuleID(
-			fmt.Sprintf("Unrecognized line, content was discarded: %q.%s Check DSL Strict syntax documentation.", trimmed, unrecognizedHint(trimmed)),
+			fmt.Sprintf("Unrecognized line, content was discarded: %q. Check DSL Strict syntax documentation.", trimmed),
 			"STRICT003")
 	})
 
@@ -509,57 +482,42 @@ func (p *strictBody) parseIndentedElements(
 			}
 			continue
 		} // Parsear propiedades del bloque
-		// Una palabra clave pegada a otra cosa y seguida de ':' ("TEXTO:",
-		// "TEXT-heavy: no") no es una propiedad que el autor quiso escribir:
-		// es un elemento mal escrito. Va al diagnóstico de línea no
-		// reconocida, con la sugerencia y el nivel de cada dialecto, en vez
-		// de "Unknown … property" (que en un slide es error).
-		if _, _, glued := elements.GluedStrictKeyword(trimmedLine); glued && onUnrecognized != nil && strings.Contains(trimmedLine, ":") {
-			onUnrecognized(trimmedLine)
-			p.currentLine++
-			continue
-		}
 		if key, value, ok := parseBlockPropertyLine(trimmedLine); ok {
 			handleProperty(key, value)
 			p.currentLine++
 			continue
 		} // Parsear elementos
-		if elements.HasStrictKeyword(trimmedLine, "TEXT") {
-			p.checkBareKeywordLine(trimmedLine, "TEXT")
+		if strings.HasPrefix(trimmedLine, "TEXT") {
 			element := p.parseTextElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if elements.HasStrictKeyword(trimmedLine, "POINTS") {
-			p.checkBareKeywordLine(trimmedLine, "POINTS")
+		} else if strings.HasPrefix(trimmedLine, "POINTS") {
 			element := p.parsePointsElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if elements.HasStrictKeyword(trimmedLine, "CODE") {
+		} else if strings.HasPrefix(trimmedLine, "CODE") {
 			element := p.parseCodeElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if elements.HasStrictKeyword(trimmedLine, "IMAGE") {
+		} else if strings.HasPrefix(trimmedLine, "IMAGE") {
 			element := p.parseImageElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if elements.HasStrictKeyword(trimmedLine, "TABLE") {
-			p.checkBareKeywordLine(trimmedLine, "TABLE")
+		} else if strings.HasPrefix(trimmedLine, "TABLE") {
 			element := p.parseTableElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if elements.HasStrictKeyword(trimmedLine, "QUOTE") {
-			p.checkBareKeywordLine(trimmedLine, "QUOTE")
+		} else if strings.HasPrefix(trimmedLine, "QUOTE") {
 			element := p.parseQuoteElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if elements.HasStrictKeyword(trimmedLine, "CHECKLIST") {
-			p.checkBareKeywordLine(trimmedLine, "CHECKLIST")
+		} else if strings.HasPrefix(trimmedLine, "CHECKLIST") {
 			element := p.parseChecklistElement()
 			if element != nil {
 				block.Elements = append(block.Elements, element)
@@ -637,19 +595,19 @@ func (p *strictBody) parseIndentedElements(
 			if element != nil {
 				block.Elements = append(block.Elements, element)
 			}
-		} else if elements.HasStrictKeyword(trimmedLine, "MERMAID") {
+		} else if strings.HasPrefix(trimmedLine, "MERMAID") {
 			p.addError("Invalid syntax for Mermaid diagram. In strict mode, use: <<mermaid>>")
 			p.currentLine++
-		} else if elements.HasStrictKeyword(trimmedLine, "PLANTUML") {
+		} else if strings.HasPrefix(trimmedLine, "PLANTUML") {
 			p.addError("Invalid syntax for PlantUML diagram. In strict mode, use: <<plantuml>>")
 			p.currentLine++
-		} else if elements.HasStrictKeyword(trimmedLine, "CHART") {
+		} else if strings.HasPrefix(trimmedLine, "CHART") {
 			p.addError("Invalid syntax for Chart element. In strict mode, use: <<chart:type>>")
 			p.currentLine++
-		} else if elements.HasStrictKeyword(trimmedLine, "MAP") {
+		} else if strings.HasPrefix(trimmedLine, "MAP") {
 			p.addError("Invalid syntax for Map element. In strict mode, use: <<map>>")
 			p.currentLine++
-		} else if elements.HasStrictKeyword(trimmedLine, "MATH") {
+		} else if strings.HasPrefix(trimmedLine, "MATH") {
 			p.addError("Invalid syntax for Math element. In strict mode, use: <<math>>")
 			p.currentLine++
 		} else if strings.HasPrefix(trimmedLine, "@") {
@@ -786,52 +744,6 @@ func (p *strictBody) parseImageElement() ast.Element {
 
 	result := imageParser.Parse(ctx, p.currentLine)
 	return p.applyElementResult(result, "IMAGE")
-}
-
-// reportDiscarded reporta contenido que el cuerpo leyó pero no llega al AST:
-// error en un documento strict y el warning STRICT003 en un slide, también
-// dentro de una columna tipada (un deck que compilaba no se rompe por un
-// aviso nuevo).
-func (p *strictBody) reportDiscarded(msg string) {
-	if p.documentDialect {
-		p.addError(msg)
-		return
-	}
-	p.addWarningWithRuleID(msg, "STRICT003")
-}
-
-// checkBareKeywordLine reporta el texto escrito en la misma línea que una
-// palabra clave que no lleva argumentos (TEXT, POINTS, CHECKLIST, QUOTE,
-// TABLE): su parser salta la línea entera, así que `TEXT hola mundo` perdía
-// "hola mundo" sin aviso. fmt escribe esas palabras clave solas, así que nunca
-// produce esta forma.
-func (p *strictBody) checkBareKeywordLine(trimmed, kw string) {
-	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(trimmed[len(kw):]), ":"))
-	if rest == "" {
-		return
-	}
-	p.reportDiscarded(fmt.Sprintf(
-		"%s takes nothing on its own line: %q was discarded. Write the content on the indented lines below it.", kw, rest))
-}
-
-// withHint agrega a msg, cuando la hay, la sugerencia de unrecognizedHint:
-// sin sugerencia el mensaje queda como siempre fue.
-func withHint(msg, trimmed string) string {
-	if hint := unrecognizedHint(trimmed); hint != "" {
-		return msg + "." + hint
-	}
-	return msg
-}
-
-// unrecognizedHint completa el mensaje de una línea no reconocida que empieza
-// con las letras de una palabra clave pegadas a otra cosa ("TEXTO",
-// "TEXT-heavy"), con la palabra clave que probablemente se quiso escribir.
-func unrecognizedHint(trimmed string) string {
-	kw, word, ok := elements.GluedStrictKeyword(trimmed)
-	if !ok {
-		return ""
-	}
-	return fmt.Sprintf(" %q is not an element keyword; did you mean %s?", word, kw)
 }
 
 func (p *strictBody) addError(msg string) {
