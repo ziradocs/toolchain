@@ -2423,6 +2423,7 @@ func renderHeaderLogo(logo *ast.LogoConfig, variables map[string]interface{}, ct
 	}
 	raw := ProcessVariables(logo.Source, variables)
 	if remoteImageBlocked(raw, ctx) {
+		reportUnavailable(ctx, unavailableImage, logo.Source)
 		return ""
 	}
 	var src string
@@ -2430,8 +2431,10 @@ func renderHeaderLogo(logo *ast.LogoConfig, variables map[string]interface{}, ct
 	case localAssetInlined:
 		src = inlined
 	case localAssetUnavailable:
+		reportUnavailable(ctx, unavailableImage, logo.Source)
 		return ""
 	default:
+		reportMissingKeptAsset(raw, unavailableImage, ctx)
 		src = SanitizeURL(raw)
 	}
 	if src == "" {

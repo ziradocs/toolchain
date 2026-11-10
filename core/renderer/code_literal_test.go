@@ -270,3 +270,15 @@ func TestPopulateLangRuns_LiteralCodeOption(t *testing.T) {
 		}
 	}
 }
+
+// SetLiteralCode es la forma por interfaz de prender la opción, para un CLI
+// que compila contra un core publicado sin el campo.
+func TestRenderContext_SetLiteralCode(t *testing.T) {
+	ctx := &RenderContext{}
+	var setter interface{ SetLiteralCode(bool) } = ctx
+	setter.SetLiteralCode(true)
+	code := ast.NewCodeElement(diagnostics.NewPosition(1, 1), "yaml", "a: {{x}}")
+	if out := RenderElementToHTML(code, map[string]interface{}{"x": "X"}, ctx); !strings.Contains(out, "a: {{x}}") {
+		t.Errorf("SetLiteralCode(true) must keep the code literal: %s", out)
+	}
+}

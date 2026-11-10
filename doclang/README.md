@@ -312,6 +312,7 @@ doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`
 | `--include-root` | *(`--base-dir`, else input file's dir)* | Directory `@include` paths resolve from and are confined to, at every nesting level (a nested `@include` resolves from this root, not from the file that contains it). Absolute paths and `..` escapes are rejected. Relative images *inside* an included file (block and inline `![alt](src)`) do resolve from that file's own directory, still confined to `--asset-root`; where the output keeps a relative `src` (browser and `offline-assets` HTML), it is rewritten relative to `--base-dir`, like an image written in the top-level file. |
 | `--asset-root` | *(`--base-dir`, else input file's dir)* | Same confinement for local image sources. Relative sources resolve from `--base-dir` (by default, the input file's directory); the root only bounds what can be read (e.g. `--asset-root ..` allows `../shared/b.png`). |
 | `--allow-remote-images` | off | Lets PDF and `--render-mode offline-*` HTML show `http(s)` images from the document. Off by default: those outputs are rendered on the machine that builds them, so a remote image in an untrusted document would make it fetch that URL. Without the flag such images are left as a marker with a warning, and the page's CSP only allows `data:` and same-origin images. Browser-mode HTML is unaffected (the reader's browser loads the image), and DOCX never downloads images. |
+| `--fail-on-unavailable` | off | Exit with an error, and write no output, if anything would be left as a "not available" marker: an image that is missing, outside `--asset-root` or remote and not fetched, or a diagram, chart, map, equation or media item that could not be drawn (no Chromium, no network, a server error). The message lists each item with its line and type. A previous output with the same name is removed; with `--render-mode offline-assets` files already written under `assets/` stay. Browser-mode HTML resolves almost nothing at build time, so almost nothing can be missing there; a missing header logo counts only where the logo is drawn (HTML page-view with the header enabled). A map whose tiles mostly failed to download counts as not available. Not valid with `--format markdown`. |
 | `--max-size` | 10 MB | Input size cap. Also settable via `DOCLANG_MAX_SIZE`. |
 
 ### Interactive elements
@@ -325,6 +326,18 @@ Diagrams (Mermaid, PlantUML), charts (Chart.js) and maps (Leaflet) are controlle
 
 Related flags: `--chromium-path`, `--install-chromium`, `--image-format png|webp`,
 `--webp-quality`, `--plantuml-server`, `--plantuml-format svg|png`.
+
+The offline modes render at build time, so the build itself still reaches the diagram
+and map tile servers: PlantUML goes to `--plantuml-server` (default `www.plantuml.com`) or,
+with `--diagram-backend kroki`, to `--kroki-server`, in HTML, PDF and DOCX alike; maps
+download tiles from OpenStreetMap (ArcGIS World Imagery for satellite maps).
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--tile-server` | — | Tile URL template for maps drawn at build time (DOCX, PDF, `offline-*` HTML), e.g. `https://tiles.example.com/{z}/{x}/{y}.png`; `{s}` expands to the `a`, `b`, `c` subdomains. Replaces OpenStreetMap and the satellite provider. Browser-mode HTML maps are unaffected. |
+| `--tile-user-agent` | — | `User-Agent` for the requests to `--tile-server`. |
+| `--tile-attribution` | — | Credit drawn in the corner of maps whose tiles come from `--tile-server` (plain text, up to 200 bytes). Without it those maps carry no credit; the default providers keep their own. |
+| `--no-network` | off | Contact no diagram or tile server while building: PlantUML, Mermaid through Kroki and maps are left as a "not available" marker instead of being fetched. Charts, equations and Mermaid through Chromium are drawn locally, and Chromium, when needed, starts with no network access (no name resolution, no outbound connection, no component updates). Cannot be combined with `--allow-remote-images`, `--install-chromium` or `--tile-server`. |
 
 Note that a single binary is enough for HTML and Markdown, but PDF, DOCX and the offline
 modes reach for headless Chromium — `--install-chromium` fetches a pinned build if you

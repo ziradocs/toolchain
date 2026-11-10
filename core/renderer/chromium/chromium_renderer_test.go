@@ -63,7 +63,7 @@ func TestGenerateLeafletHTML_MarkerColorInjection(t *testing.T) {
 	if strings.Contains(html, "fetch(") || strings.Contains(html, "attacker.tld") {
 		t.Errorf("marker color breakout was not neutralized, got HTML:\n%s", html)
 	}
-	if !strings.Contains(html, "marker-icon-2x-blue.png") {
+	if !strings.Contains(html, "iconUrl: '"+leafletMarkerDataURI("blue")+"'") {
 		t.Error("expected sanitized color to fall back to the 'blue' icon")
 	}
 }

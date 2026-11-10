@@ -34,6 +34,14 @@ func RenderElementToHTML(element ast.Element, variables map[string]interface{}, 
 	if ctx.literalCode() {
 		variables = withLiteralCode(variables)
 	}
+	// La línea del elemento acompaña a lo que reporte como no disponible
+	// (SetUnavailableReporter); un grid o un bloque especial vuelve a pasar
+	// por acá con cada hijo, así que gana el elemento más interno.
+	if ctx != nil {
+		prev := ctx.renderLine
+		ctx.renderLine = element.GetPosition().Line
+		defer func() { ctx.renderLine = prev }()
+	}
 	html := renderElementToHTML(element, variables, ctx)
 	switch element.(type) {
 	case *ast.ImageElement, *ast.MermaidElement, *ast.PlantUMLElement, *ast.ChartElement,
@@ -71,15 +79,16 @@ func resolveInlineImages(html string, ctx *RenderContext) string {
 		m := inlineImageTagPattern.FindStringSubmatch(tag)
 		src, alt := UnescapeHTML(m[1]), m[2]
 		if remoteImageBlocked(src, ctx) {
-			return inlineImageUnavailableHTML(alt, ctx)
+			return inlineImageUnavailableHTML(alt, src, ctx)
 		}
 		uri, status := inlineLocalAsset(src, ctx, 0, "IMAGE", "image")
 		switch {
 		case status == localAssetInlined:
 			return fmt.Sprintf(`<img src="%s" alt="%s"%s>`, uri, alt, m[3])
 		case status == localAssetUnavailable || localImageEscapesRoot(src, ctx):
-			return inlineImageUnavailableHTML(alt, ctx)
+			return inlineImageUnavailableHTML(alt, src, ctx)
 		}
+		reportMissingKeptAsset(src, unavailableImage, ctx)
 		return tag
 	})
 }
@@ -310,15 +319,16 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	// conserva porque el visor lo resuelve, salvo que el confinamiento ya
 	// sepa que la ruta escapa de AssetRoot.
 	if remoteImageBlocked(source, ctx) {
-		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, elem.Source, ctx)
 	}
 	inlined, status := inlineLocalAsset(source, ctx, 0, "IMAGE", "image")
 	switch {
 	case status == localAssetInlined:
 		source = inlined
 	case status == localAssetUnavailable || localImageEscapesRoot(source, ctx):
-		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, elem.Source, ctx)
 	default:
+		reportMissingKeptAsset(source, unavailableImage, ctx)
 		// Sanitizar URL de la imagen para prevenir javascript: y data: URIs
 		// peligrosas. Un destino <mi carpeta/a.png> trae el espacio literal:
 		// se codifica para que el src sea una URL válida.
@@ -330,7 +340,7 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 		if ctx != nil && ctx.Logger != nil {
 			ctx.Logger.Warn("[IMAGE] image source %q blocked: unsafe URL", elem.Source)
 		}
-		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, ctx)
+		return imageUnavailableHTML(alt, caption, idAttr, captionPrefix, elem.Source, ctx)
 	}
 
 	// El título del destino Markdown (image-title-v1) va al atributo title.
@@ -459,8 +469,10 @@ func inlineLocalAsset(source string, ctx *RenderContext, maxBytes int64, tag, ki
 	}
 
 	// La fuente es una URL: "mi%20carpeta/a.png" es el archivo
-	// "mi carpeta/a.png", igual que lo resuelve el navegador en modo browser.
-	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, LocalPathFromURL(source))
+	// "mi carpeta/a.png", y "a.png?v=2" es el archivo "a.png", igual que lo
+	// resuelve el navegador en modo browser (parsed.Path ya viene
+	// decodificado y sin query ni fragmento).
+	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, parsed.Path)
 	if err != nil {
 		logger.Warn("[%s] local %s %q rejected: %v", tag, kind, source, err)
 		return "", localAssetUnavailable
@@ -541,6 +553,38 @@ func localImageEscapesRoot(source string, ctx *RenderContext) bool {
 	return false
 }
 
+// reportMissingKeptAsset reporta (SetUnavailableReporter) una imagen o un
+// medio local que HTML offline-assets deja con su src relativo aunque el
+// archivo no exista: la única salida de build que no lo reemplaza por un
+// marcador, y el lector vería una imagen rota. No cambia el HTML. Una
+// fuente se reporta una sola vez por contexto: un grid vuelve a resolver las
+// imágenes de sus hijos y la línea que queda es la del hijo.
+func reportMissingKeptAsset(source string, kind unavailableKind, ctx *RenderContext) {
+	if ctx == nil || ctx.unavailableReporter == nil || ctx.ImageMode != "offline-assets" || ctx.AssetRoot == "" || source == "" {
+		return
+	}
+	parsed, err := url.Parse(source)
+	if err != nil || parsed.Scheme != "" || parsed.Host != "" || strings.HasPrefix(source, "/") || filepath.IsAbs(source) {
+		return
+	}
+	// parsed.Path: sin query ni fragmento ("a.png?v=2" es el archivo a.png).
+	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, parsed.Path)
+	if err != nil {
+		return // fuera de la raíz: ya es un marcador (localImageEscapesRoot)
+	}
+	if _, err := os.Stat(resolved); err == nil {
+		return
+	}
+	if ctx.reportedKeptAssets == nil {
+		ctx.reportedKeptAssets = map[string]bool{}
+	}
+	if ctx.reportedKeptAssets[source] {
+		return
+	}
+	ctx.reportedKeptAssets[source] = true
+	reportUnavailable(ctx, kind, source)
+}
+
 // tableUsesCellStructure reports whether elem.Cells declares anything that
 // isn't exactly the shape ast.DeriveCellsFromFlat would produce for a
 // simple table (row 0 entirely IsHeader+Scope="col"+no span, every body row
@@ -608,14 +652,25 @@ func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}
 		// data, not a blocked dangerous scheme — reporting it as "blocked
 		// for security" would mislead the author into thinking SanitizeURL
 		// rejected something when nothing was ever provided.
+		reportUnavailable(ctx, unavailableMedia, "")
 		return `<div class="media-error">Media element has no source</div>`
 	}
-	if inlined, ok := TryInlineLocalMedia(source, ctx); ok {
+	// Un medio local que en offline-inline (el PDF) no se pudo inlinear, o
+	// que en offline-assets no existe, sale con su src tal cual, que no
+	// resuelve: se reporta como no disponible.
+	inlined, status := inlineLocalAsset(source, ctx, maxInlineMediaBytes, "MEDIA", "media source")
+	switch status {
+	case localAssetInlined:
 		source = inlined
-	} else {
+	case localAssetUnavailable:
+		reportUnavailable(ctx, unavailableMedia, elem.Source)
+		source = SanitizeURL(source)
+	default:
+		reportMissingKeptAsset(source, unavailableMedia, ctx)
 		source = SanitizeURL(source)
 	}
 	if source == "" {
+		reportUnavailable(ctx, unavailableMedia, elem.Source)
 		return `<div class="media-error">Media source blocked for security reasons</div>`
 	}
 	// Un video o audio remoto en una salida de build (el PDF, el HTML
@@ -2528,6 +2583,7 @@ func renderMapElement(elem *ast.MapElement, variables map[string]interface{}, ct
 
 	// Construir MapConfig desde el elemento
 	mapConfig := buildMapConfig(elem, variables)
+	mapConfig.tiles = ctx.mapTiles
 
 	// Obtener dimensiones (usar defaults si no están especificadas)
 	width := 800

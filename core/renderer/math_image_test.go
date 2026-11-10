@@ -148,3 +148,20 @@ func TestRenderMathElement_ImageSizedByPHYs(t *testing.T) {
 		}
 	}
 }
+
+// TestMathImageCSSWidth_QueryString: "eq.png?v=2" es el archivo eq.png, como
+// en el navegador: el ancho por pHYs sale igual. Antes se buscaba el
+// archivo "eq.png?v=2" y la fórmula quedaba sin ancho.
+func TestMathImageCSSWidth_QueryString(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "eq.png"), pngWithPHYs(t, 400, 80, 192), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := NewDefaultRenderContext()
+	ctx.AssetRoot = dir
+	for _, src := range []string{"eq.png", "eq.png?v=2", "eq.png#frag"} {
+		if w, ok := mathImageCSSWidth(src, ctx); !ok || w < 199.9 || w > 200.1 {
+			t.Errorf("%s: width %v ok %v, want 200", src, w, ok)
+		}
+	}
+}

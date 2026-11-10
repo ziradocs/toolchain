@@ -101,3 +101,26 @@ func TestDOCX_MathImage(t *testing.T) {
 		t.Errorf("avisos = %s", warns)
 	}
 }
+
+// TestDOCX_MathImageAltText: la fórmula con render previo también lleva su
+// texto alternativo (la leyenda o la fuente LaTeX).
+func TestDOCX_MathImageAltText(t *testing.T) {
+	root := t.TempDir()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, 96, 24))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "eq.png"), buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCaption := mathWithImage(t, "E = mc^2", "", 0, "eq.png")
+	withCaption.Caption = "Masa y energía"
+	doc := astWithElements(withCaption, mathWithImage(t, "a^2 + b^2 = c^2", "", 0, "eq.png"))
+	out := filepath.Join(t.TempDir(), "out.docx")
+	if err := NewDOCXGenerator(newTestLogger(), root).Generate(doc, out, GeneratorOptions{Format: "docx", ChromiumPath: filepath.Join(t.TempDir(), "no-chromium")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := docxDescrs(t, out, "word/document.xml"); !reflect.DeepEqual(got, []string{"Masa y energía", "a^2 + b^2 = c^2"}) {
+		t.Errorf("descr = %q", got)
+	}
+}

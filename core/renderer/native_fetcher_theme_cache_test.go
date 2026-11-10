@@ -110,9 +110,10 @@ func TestNativeChartFetcher_ZeroValueKeepsHistoricHash(t *testing.T) {
 	elem := themeCacheChart()
 	plain := NewNativeChartFetcher().chartHash(elem, 400, 300)
 
-	// La forma histórica: elem serializado + dimensiones, sin sufijo alguno.
+	// La forma sin tema: elem serializado + dimensiones + versión de
+	// render, sin sufijo de colores.
 	data, _ := json.Marshal(elem)
-	historic := nativeContentHash(string(data) + "|400x300")
+	historic := nativeContentHash(string(data) + "|400x300|render=" + NativeChartRenderVersion)
 	if plain != historic {
 		t.Errorf("el hash sin tema cambió: got %q, want %q", plain, historic)
 	}
@@ -142,5 +143,17 @@ func TestNativeChartFetcher_SeedMatchesLookupWithTheme(t *testing.T) {
 	}
 	if !bytes.Equal(got, sentinel) {
 		t.Error("FetchInline no encontró la siembra: Seed y el lookup usaron claves distintas")
+	}
+}
+
+// TestNativeChartFetcher_RenderVersionInvalidatesDiskCache: la clave lleva
+// NativeChartRenderVersion, así que un PNG cacheado en disco por un build
+// anterior al último cambio de dibujo (sin versión) no se reutiliza.
+func TestNativeChartFetcher_RenderVersionInvalidatesDiskCache(t *testing.T) {
+	elem := themeCacheChart()
+	data, _ := json.Marshal(elem)
+	beforeAxisFix := nativeContentHash(string(data) + "|400x300")
+	if NewNativeChartFetcher().chartHash(elem, 400, 300) == beforeAxisFix {
+		t.Fatal("the chart cache key ignores the render version: PNGs drawn before the bar-axis fix would be served")
 	}
 }
