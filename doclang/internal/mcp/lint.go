@@ -35,8 +35,8 @@ type lintOutput struct {
 // que `doclang build --lint-only`, pero contra contenido en memoria en vez
 // de un archivo. WithPolicy(ResolvePolicyConfig) reusa exactamente la misma
 // resolución de política que el CLI (flag > lint_policy: de frontmatter >
-// default) — a diferencia de la tool "lint" de slidelang, que hoy no aplica
-// política alguna (linter.New() a secas).
+// default), y la aplica también a los avisos del parser
+// (pipeline.EvaluatePolicy), como el build.
 func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "lint",
@@ -68,8 +68,11 @@ func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 			// Mismo dialecto que `doclang build` (internal/cli/build.go).
 			lintDiags := linter.New().WithDialect(linter.DialectDocuments).WithPolicy(policy).LintUnfiltered(astNode)
 			lintDiags = pipeline.MergeParserFindings(astNode, parserFindings, lintDiags)
-			active, _ := policy.Evaluate(lintDiags, astNode.FilePath, time.Now())
-			allDiags = append(allDiags, active...)
+			// La política se aplica a los avisos del parser y a los del
+			// linter por el mismo camino que `doclang build`: un TABLE004
+			// apagado no sale, y uno subido a error deja valid=false.
+			evaluated := pipeline.EvaluatePolicy(policy, parseDiags, lintDiags, astNode.FilePath, time.Now())
+			allDiags = append(append([]diagnostics.Diagnostic(nil), evaluated.ParserActive...), evaluated.LintActive...)
 			sectionCount = len(astNode.ContentBlocks)
 		}
 

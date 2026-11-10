@@ -99,11 +99,8 @@ func generateSARIF(active []diagnostics.Diagnostic, waived []linter.WaivedDiagno
 		Results: make([]Result, 0, len(active)+len(waived)),
 	}
 
-	for _, d := range active {
-		run.Results = append(run.Results, toSarifResult(d, nil, docPath))
-	}
-	for _, w := range waived {
-		run.Results = append(run.Results, toSarifResult(w.Diagnostic, w.Policy, docPath))
+	for _, f := range orderedFindings(active, waived) {
+		run.Results = append(run.Results, toSarifResult(f.diag, f.policy, docPath))
 	}
 
 	report := SARIF{

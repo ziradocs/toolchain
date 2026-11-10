@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -54,8 +55,20 @@ func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 		allDiags := parseDiags
 		slideCount := 0
 		if astNode != nil {
-			lintDiags := linter.New().Lint(astNode)
-			allDiags = append(allDiags, findings.MergeParserFindings(astNode, parserFindings, lintDiags)...)
+			// Misma política que `slidelang build` (flag > lint_policy: del
+			// frontmatter > default) y por el mismo camino
+			// (findings.EvaluatePolicy): se aplica a los avisos del parser y a
+			// los del linter, y la telemetría del normalizador no sale.
+			policy, err := linter.ResolvePolicyConfig("", astNode.FrontMatter)
+			if err != nil {
+				out := lintOutput{Diagnostics: append(allDiags, parserFindings...), Valid: false, Error: err.Error()}
+				res, resErr := errorResult(out)
+				return res, out, resErr
+			}
+			lintDiags := linter.New().WithPolicy(policy).LintUnfiltered(astNode)
+			lintDiags = findings.MergeParserFindings(astNode, parserFindings, lintDiags)
+			evaluated := findings.EvaluatePolicy(policy, parseDiags, lintDiags, astNode.FilePath, time.Now())
+			allDiags = append(append([]diagnostics.Diagnostic(nil), evaluated.ParserActive...), evaluated.LintActive...)
 			slideCount = len(astNode.ContentBlocks)
 		} else {
 			allDiags = append(allDiags, parserFindings...)

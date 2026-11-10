@@ -554,13 +554,13 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(astNode)
 	allDiagnostics = findings.MergeParserFindings(astNode, parserFindings, allDiagnostics)
 
-	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, astNode.FilePath, time.Now())
-	// Los avisos del parser (SPECIAL002, TABLE007, STRICT003…) también pasan
-	// por la política: un warning se puede apagar, y si la política le sube la
-	// severidad cuenta como un error de lint. Los errores del parser ya
-	// cortaron el build más arriba. Van al reporte y al resumen, no a la lista
-	// de LINT de la consola, porque ya se imprimieron.
-	parserActive, parserWaived := policy.Evaluate(findings.ReportableParserDiagnostics(diagnostics), astNode.FilePath, time.Now())
+	// Los avisos del parser (SPECIAL002, TABLE007, STRICT003…) pasan por la
+	// política como los del linter, por el mismo camino que la tool `lint`
+	// del MCP (findings.EvaluatePolicy): un warning se puede apagar, y si la
+	// política le sube la severidad cuenta como un error de lint. Los errores
+	// del parser ya cortaron el build más arriba.
+	evaluated := findings.EvaluatePolicy(policy, diagnostics, allDiagnostics, astNode.FilePath, time.Now())
+	parserActive, activeDiags := evaluated.ParserActive, evaluated.LintActive
 
 	if opts.ReportFormat != "" {
 		outPath := opts.ReportOut
@@ -570,11 +570,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		// El reporte lleva también los avisos del parser: antes solo salían
 		// por consola y el reporte no coincidía con lo que devuelve la tool
 		// `lint` del MCP. Ordenados por línea.
-		reported := append(append(activeDiags[:0:0], parserActive...), activeDiags...)
-		findings.SortByPosition(reported)
-		reportedWaived := append(append(waivedDiags[:0:0], parserWaived...), waivedDiags...)
-		findings.SortWaivedByPosition(reportedWaived)
-		if err := report.WriteReport(opts.ReportFormat, outPath, reported, reportedWaived, descriptors, astNode, content, externalRulepacks); err != nil {
+		if err := report.WriteReport(opts.ReportFormat, outPath, evaluated.Active(), evaluated.Waived(), descriptors, astNode, content, externalRulepacks); err != nil {
 			return fmt.Errorf("failed to write report: %w", err)
 		}
 		if outPath != "" && outPath != "-" {
@@ -583,7 +579,9 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	}
 
 	if postLint != nil {
-		if err := postLint(astNode, activeDiags, waivedDiags); err != nil {
+		// El hook recibe lo mismo que el reporte: parser y linter, con la
+		// política aplicada y por posición.
+		if err := postLint(astNode, evaluated.Active(), evaluated.Waived()); err != nil {
 			return fmt.Errorf("post-lint hook failed: %w", err)
 		}
 	}
@@ -608,14 +606,20 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	if parserErrors > 0 {
 		hasErrors = true
 	}
+	// "Encontrados N warnings" y el `warnings:` del resumen cuentan lo mismo.
+	warningCount += parserWarnings
 
-	if len(lintDiagnostics) > 0 || parserErrors > 0 {
+	if warningCount+errorCount > 0 {
 		util.Info("LINT", "Encontrados %d warnings, %d errores", warningCount, errorCount)
-		// Un aviso del parser que la política subió a error se lista con los
-		// errores de lint: arriba salió como warning, antes de la política.
+		// Los avisos del parser ya salieron arriba, antes de la política; acá
+		// van los que la política cambió: los que subió a error y el
+		// POLICY001 de un waiver vencido.
 		for _, diag := range parserActive {
-			if diag.IsError() {
+			switch {
+			case diag.IsError():
 				fmt.Fprintf(os.Stderr, "❌ %s\n", diag.String())
+			case diag.RuleID == "POLICY001" || diag.Code == "POLICY001":
+				fmt.Fprintf(os.Stderr, "⚠️  %s\n", diag.String())
 			}
 		}
 		for _, diag := range lintDiagnostics {
@@ -644,7 +648,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	if opts.LintOnly {
 		util.Summary("Linting", map[string]interface{}{
 			"slides":   len(astNode.ContentBlocks),
-			"warnings": warningCount + parserWarnings,
+			"warnings": warningCount,
 			"errores":  errorCount,
 		})
 		return nil
@@ -784,7 +788,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	// Resumen final
 	util.Summary("Build", map[string]interface{}{
 		"slides":     len(astNode.ContentBlocks),
-		"warnings":   warningCount + parserWarnings,
+		"warnings":   warningCount,
 		"formato":    strings.Join(formats, ","),
 		"output_dir": opts.OutputDir,
 	})

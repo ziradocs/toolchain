@@ -43,17 +43,11 @@ func generateJSON(active []diagnostics.Diagnostic, waived []linter.WaivedDiagnos
 		Findings:   make([]FindingJSON, 0, len(active)+len(waived)),
 	}
 
-	for _, d := range active {
+	for _, f := range orderedFindings(active, waived) {
 		report.Findings = append(report.Findings, FindingJSON{
-			Diagnostic: d,
-			Waived:     false,
-		})
-	}
-	for _, w := range waived {
-		report.Findings = append(report.Findings, FindingJSON{
-			Diagnostic: w.Diagnostic,
-			Waived:     true,
-			Waiver:     w.Policy,
+			Diagnostic: f.diag,
+			Waived:     f.waived,
+			Waiver:     f.policy,
 		})
 	}
 

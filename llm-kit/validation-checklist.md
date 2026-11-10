@@ -160,12 +160,14 @@ flag their absence:
 ### Additional diagnostic IDs
 
 The parser can also emit these diagnostics, which are useful when repairing
-LLM-authored source: `CHART002`, `CHART005`, `CONTRAST001`, `CONTRAST002`,
-`DIRECTIVE001`, `FLEX002`, `SPECIAL002`, `FRONT002`, `FRONT004`, `FRONT005`, `FRONT006`,
-`FRONT007`, `FRONT008`, `FRONT009`, `IMG002`, `IMG003`, `MAP002`, `POLL001`, `POLL002`, `POLL006`, `QUIZ002`, `QUIZ003`,
-`TABLE004`, `TABLE005`, `TABLE006`, `METRIC001`, `METRIC002`, `METRIC003`,
-and `METRIC004`. They complement the rule IDs named inline above; none should
-be guessed from prose—use the parser's message and source position.
+LLM-authored source: `CHART002`, `CHART005`, `DIRECTIVE001`, `FLEX002`,
+`SPECIAL002`, `FRONT002`, `FRONT004`, `FRONT005`, `FRONT006`, `FRONT007`,
+`FRONT008`, `FRONT009`, `IMG002`, `IMG003`, `MAP002`, `POLL006`, `TABLE004`,
+`TABLE005`, `TABLE006`, `METRIC001`, `METRIC002`, `METRIC003`, and `METRIC004`.
+The linter adds, among others, `CONTRAST001`, `CONTRAST002`, `POLL001`,
+`POLL002`, `QUIZ002`, and `QUIZ003`. They complement the rule IDs named inline
+above; none should be guessed from prose—use the diagnostic's message and
+source position.
 
 - [ ] Final ZiraDocs output is presented as a single fenced
       ` ```slidelang ` block — no partial/duplicate frontmatter, no

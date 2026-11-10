@@ -5,6 +5,7 @@ package findings
 
 import (
 	"sort"
+	"time"
 
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/linter"
@@ -45,4 +46,59 @@ func SortWaivedByPosition(waived []linter.WaivedDiagnostic) {
 		}
 		return a.Column < b.Column
 	})
+}
+
+// PolicyResult son los diagnósticos de un documento después de la política
+// de lint, separados por origen. Lo usan `slidelang build` y la tool `lint`
+// del MCP, para que los dos digan lo mismo.
+type PolicyResult struct {
+	// ParserActive y ParserWaived son los avisos del parser que van al
+	// reporte (ReportableParserDiagnostics) después de la política.
+	ParserActive []diagnostics.Diagnostic
+	ParserWaived []linter.WaivedDiagnostic
+	// LintActive y LintWaived son los del linter (con los avisos del parser
+	// que son de una regla del linter, ver MergeParserFindings).
+	LintActive []diagnostics.Diagnostic
+	LintWaived []linter.WaivedDiagnostic
+}
+
+// EvaluatePolicy aplica policy a los avisos del parser (parseDiags, ya sin
+// los parserFindings de SplitParserFindings) y a los del linter (lintDiags).
+// Un aviso del parser se apaga o se suprime como uno del linter, y si la
+// política le sube la severidad cuenta como error de lint.
+func EvaluatePolicy(policy *linter.PolicyConfig, parseDiags, lintDiags []diagnostics.Diagnostic, filePath string, now time.Time) PolicyResult {
+	var r PolicyResult
+	r.ParserActive, r.ParserWaived = policy.Evaluate(ReportableParserDiagnostics(parseDiags), filePath, now)
+	r.LintActive, r.LintWaived = policy.Evaluate(lintDiags, filePath, now)
+	return r
+}
+
+// Active son los diagnósticos activos del parser y del linter, ordenados por
+// posición.
+func (r PolicyResult) Active() []diagnostics.Diagnostic {
+	out := append(append([]diagnostics.Diagnostic{}, r.ParserActive...), r.LintActive...)
+	SortByPosition(out)
+	return out
+}
+
+// Waived son los suprimidos del parser y del linter, ordenados por posición.
+func (r PolicyResult) Waived() []linter.WaivedDiagnostic {
+	out := append(append([]linter.WaivedDiagnostic{}, r.ParserWaived...), r.LintWaived...)
+	SortWaivedByPosition(out)
+	return out
+}
+
+// HasErrors dice si queda algún error activo, del parser o del linter.
+func (r PolicyResult) HasErrors() bool {
+	for _, d := range r.ParserActive {
+		if d.IsError() {
+			return true
+		}
+	}
+	for _, d := range r.LintActive {
+		if d.IsError() {
+			return true
+		}
+	}
+	return false
 }
