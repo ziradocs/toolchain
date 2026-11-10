@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -169,6 +170,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	// header has already been skipped. Only that one row is syntax.
 	var delimiterSeen bool
 	var diags []diagnostics.Diagnostic
+	var inlineGroups []inlineRowsGroup
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
 	lines := ctx.Lines
@@ -212,6 +214,34 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
 			legacyDeclared = true
+			// `rows: [[…], […]]` en la misma línea (issue #488): antes el
+			// valor se descartaba sin aviso. Solo un arreglo anidado se lee
+			// acá; cualquier otro valor (`rows: []`, `rows: # …`) sigue el
+			// camino de siempre, y las filas de las líneas de abajo se leen
+			// igual que antes.
+			if inline := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:")); isNestedInlineArray(inline) {
+				parsed, quote, ok := parseInlineRows(inline)
+				switch {
+				case ok:
+					inlineGroups = append(inlineGroups, inlineRowsGroup{start: len(rows), n: len(parsed), pos: ctx.Position(i)})
+					for _, r := range parsed {
+						rows = append(rows, r)
+						rowPositions = append(rowPositions, ctx.Position(i))
+					}
+				case quote == inlineSingleQuotes:
+					diags = append(diags, diagnostics.NewWarning(
+						"The rows: value on this line uses single quotes and was ignored: strict cells are quoted with double quotes, as in [[\"a\", \"b\"], [\"c\", \"d\"]]",
+						ctx.Position(i), "table-parser").WithRuleID(TableRowsRuleID))
+				case quote == inlineApostrophe:
+					diags = append(diags, diagnostics.NewWarning(
+						"The rows: value on this line was ignored: a cell starts or ends with an apostrophe, and without double quotes it is not clear where that cell ends. Write that cell in double quotes, as in [\"'90s\", \"x\"]",
+						ctx.Position(i), "table-parser").WithRuleID(TableRowsRuleID))
+				default:
+					diags = append(diags, diagnostics.NewWarning(
+						"The rows: value on this line could not be read as rows and was ignored: write each row as a [\"…\", \"…\"] array with every cell in double quotes or without quotes, or put each row on its own line below rows:",
+						ctx.Position(i), "table-parser").WithRuleID(TableRowsRuleID))
+				}
+			}
 			// Process rows array
 			consumed++
 			i++
@@ -367,7 +397,52 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	if newDeclared && legacyDeclared {
 		diags = append(diags, diagnostics.NewError("tableRows cannot be combined with authored headers/rows/cells", pos, "table-parser"))
 	}
+	rows, rowPositions, diags = dropMiscountedInlineRows(headers, rows, rowPositions, inlineGroups, diags)
 	return headers, rows, caption, label, explicitCells, tableRows, rowPositions, diags, consumed
+}
+
+// inlineRowsGroup son las filas que un `rows:` en línea agregó a rows:
+// desde rows[start], n filas, leídas en la línea de pos.
+type inlineRowsGroup struct {
+	start, n int
+	pos      diagnostics.Position
+}
+
+// dropMiscountedInlineRows saca las filas de un `rows:` en línea cuando
+// alguna no tiene tantas celdas como los encabezados (o, sin encabezados,
+// como la primera fila del arreglo), y avisa con TABLE007. Main descartaba
+// ese valor sin aviso; leerlo y dejar que el linter diera TABLE003 (error)
+// rompería un build que main dejaba pasar. Las filas de las líneas de abajo
+// no se tocan.
+func dropMiscountedInlineRows(headers []string, rows [][]string, rowPositions []diagnostics.Position, groups []inlineRowsGroup, diags []diagnostics.Diagnostic) ([][]string, []diagnostics.Position, []diagnostics.Diagnostic) {
+	for g := len(groups) - 1; g >= 0; g-- {
+		group := groups[g]
+		if group.n == 0 {
+			continue
+		}
+		want := len(headers)
+		what := "the headers have"
+		if want == 0 {
+			want = len(rows[group.start])
+			what = "the first row has"
+		}
+		bad := -1
+		for k := 0; k < group.n; k++ {
+			if len(rows[group.start+k]) != want {
+				bad = k
+				break
+			}
+		}
+		if bad < 0 {
+			continue
+		}
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("The rows: value on this line was ignored: row %d has %d cells and %s %d. Fix that row, or put each row on its own line below rows:", bad+1, len(rows[group.start+bad]), what, want),
+			group.pos, "table-parser").WithRuleID(TableRowsRuleID))
+		rows = append(rows[:group.start:group.start], rows[group.start+group.n:]...)
+		rowPositions = append(rowPositions[:group.start:group.start], rowPositions[group.start+group.n:]...)
+	}
+	return rows, rowPositions, diags
 }
 
 type yamlTableRowEntry struct {
@@ -865,4 +940,151 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 	}
 
 	return headers, rows, rowPositions, columnAlign, consumed
+}
+
+// TableRowsRuleID es el aviso de un `rows:` en línea que no se pudo leer como
+// filas (issue #488). Es warning en todos los dialectos: las filas se pierden
+// igual que antes, pero ahora con aviso.
+const TableRowsRuleID = "TABLE007"
+
+// isNestedInlineArray dice si v, el valor de `rows:` en su misma línea, es un
+// arreglo de arreglos: empieza con "[" y, después de espacios, otro "[".
+func isNestedInlineArray(v string) bool {
+	rest, ok := strings.CutPrefix(v, "[")
+	return ok && strings.HasPrefix(strings.TrimLeft(rest, " \t"), "[")
+}
+
+// parseInlineRows lee `[[…], […]]`, el valor de `rows:` en su misma línea,
+// con las mismas reglas que una fila en su propia línea (splitInlineArray:
+// la comilla doble abre o cierra, el backslash es contenido). Cada celda
+// tiene que estar entre comillas dobles sin otra comilla adentro, o no tener
+// comillas: así el corte entre filas no depende de adivinar dónde cierra una
+// comilla. Si algo no cuadra (comillas sueltas, texto entre filas o después
+// del arreglo, salvo un comentario `#`), ok es false y no se lee ninguna
+// fila: nunca se devuelven filas de un corte dudoso. Una celda entre comillas
+// simples ('a', el estilo de un repr de Python) tampoco se lee: en strict la
+// comilla simple es contenido, así que los apóstrofos quedarían en la celda.
+// Tampoco una celda sin comillas dobles que empiece o termine con un
+// apóstrofo ('90s, rock'): no se sabe si es contenido o media comilla
+// simple. quote dice cuál de los dos casos fue, para el aviso.
+//
+// Una fila vacía ([]) no cuenta: `rows: [[]]` da cero filas, como en main.
+func parseInlineRows(v string) (rows [][]string, quote inlineQuoteProblem, ok bool) {
+	i := 1 // después del "[" exterior
+	skip := func() {
+		for i < len(v) && (v[i] == ' ' || v[i] == '\t') {
+			i++
+		}
+	}
+	for {
+		skip()
+		if i >= len(v) || v[i] != '[' {
+			return nil, inlineQuotesOK, false
+		}
+		start := i + 1
+		inQuotes := false
+		j := start
+		for ; j < len(v); j++ {
+			if v[j] == '"' {
+				inQuotes = !inQuotes
+			} else if v[j] == ']' && !inQuotes {
+				break
+			}
+		}
+		if j >= len(v) {
+			return nil, inlineQuotesOK, false
+		}
+		content := v[start:j]
+		if q := inlineRowQuoteProblem(content); q != inlineQuotesOK {
+			return nil, q, false
+		}
+		if !wellQuotedInlineRow(content) {
+			return nil, inlineQuotesOK, false
+		}
+		if cells := splitInlineArray(content); len(cells) > 0 {
+			rows = append(rows, cells)
+		}
+		i = j + 1
+		skip()
+		if i < len(v) && v[i] == ',' {
+			i++
+			continue
+		}
+		if i < len(v) && v[i] == ']' {
+			i++
+			break
+		}
+		return nil, inlineQuotesOK, false
+	}
+	if rest := strings.TrimSpace(v[i:]); rest != "" && !strings.HasPrefix(rest, "#") {
+		return nil, inlineQuotesOK, false
+	}
+	return rows, inlineQuotesOK, true
+}
+
+// wellQuotedInlineRow dice si cada celda de content (una fila sin sus
+// corchetes) está entre comillas dobles sin otra comilla adentro, o no tiene
+// comillas.
+func wellQuotedInlineRow(content string) bool {
+	items, ok := splitTopLevelCommas(content)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		n := strings.Count(item, "\"")
+		if n == 0 {
+			continue
+		}
+		if n != 2 || len(item) < 2 || item[0] != '"' || item[len(item)-1] != '"' {
+			return false
+		}
+	}
+	return true
+}
+
+// inlineQuoteProblem dice por qué un `rows:` en línea no se leyó, cuando es
+// por comillas simples o apóstrofos.
+type inlineQuoteProblem int
+
+const (
+	inlineQuotesOK inlineQuoteProblem = iota
+	// inlineSingleQuotes: una celda está entre comillas simples ('a').
+	inlineSingleQuotes
+	// inlineApostrophe: una celda sin comillas dobles empieza o termina
+	// con un apóstrofo ('90s), sin cerrarlo.
+	inlineApostrophe
+)
+
+// inlineRowQuoteProblem revisa las celdas de content (una fila sin sus
+// corchetes): una entre comillas simples ('a', 'a, b') o una sin comillas
+// dobles que empieza o termina con un apóstrofo. Un apóstrofo dentro de una
+// celda (O'Brien) o dentro de comillas dobles ("'90s") no cuenta.
+func inlineRowQuoteProblem(content string) inlineQuoteProblem {
+	items, ok := splitTopLevelCommas(content)
+	if !ok {
+		return inlineQuotesOK
+	}
+	apostrophe := false
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if strings.HasPrefix(item, "\"") {
+			continue
+		}
+		if len(item) >= 2 && item[0] == '\'' && item[len(item)-1] == '\'' {
+			return inlineSingleQuotes
+		}
+		if strings.HasPrefix(item, "'") || strings.HasSuffix(item, "'") {
+			apostrophe = true
+		}
+	}
+	if apostrophe {
+		// 'a, b' se parte en "'a" y "b'": son comillas simples, no dos
+		// apóstrofos sueltos.
+		if strings.HasPrefix(strings.TrimSpace(items[0]), "'") && strings.HasSuffix(strings.TrimSpace(items[len(items)-1]), "'") {
+			return inlineSingleQuotes
+		}
+		return inlineApostrophe
+	}
+	return inlineQuotesOK
 }
