@@ -67,3 +67,34 @@ func TestMermaidParser_PreservesOpaqueBodies(t *testing.T) {
 		})
 	}
 }
+
+// Un <<mermaid>> con el cuerpo sin sangrar y cerrado con <<end>> se lee hasta
+// el <<end>>. Antes la detección de sangría cortaba en la primera línea: el
+// diagrama quedaba vacío y su cuerpo caía como prosa. Sin <<end>> antes de
+// una frontera del documento no se reclama nada, como antes.
+func TestMermaidParser_UnindentedBodyClosedWithEnd(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		lines    []string
+		want     string
+		consumed int
+	}{
+		{"mindmap", []string{"<<mermaid>>", "mindmap", "  root((B))", "    Alcance", "<<end>>", "", "Texto."}, "mindmap\n  root((B))\n    Alcance", 5},
+		{"frontmatter and annotation", []string{"<<mermaid>>", "---", "title: T", "---", "classDiagram", "<<interface>> Shape", "class Shape {", "  <<abstract>>", "}", "<<end>>"},
+			"---\ntitle: T\n---\nclassDiagram\n<<interface>> Shape\nclass Shape {\n  <<abstract>>\n}", 10},
+		{"blank lines inside", []string{"<<mermaid>>", "", "graph LR", "", "  A --> B", "<<end>>"}, "graph LR\n\n  A --> B", 6},
+		{"no end before a chart", []string{"<<mermaid>>", "graph LR", "  A --> B", "", "<<chart: bar>>", "data: []", "<<end>>"}, "", 1},
+		{"no end before a heading", []string{"<<mermaid>>", "graph LR", "# Otra", "<<end>>"}, "", 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := (&MermaidParser{}).Parse(&ParseContext{Mode: "flex", Lines: tt.lines}, 0)
+			elem := got.Element.(*ast.MermaidElement)
+			if elem.Content != tt.want {
+				t.Errorf("content = %q, want %q", elem.Content, tt.want)
+			}
+			if got.ConsumedLines != tt.consumed {
+				t.Errorf("consumed %d lines, want %d", got.ConsumedLines, tt.consumed)
+			}
+		})
+	}
+}

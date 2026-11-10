@@ -64,6 +64,12 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			contentLines = append(contentLines, line)
 			consumedLines++
 		}
+	} else if end, ok := unindentedMermaidBody(ctx.Lines, startIndex+1); ok {
+		// Formato <<mermaid>> con el cuerpo sin sangrar y cerrado con <<end>>:
+		// la detección de sangría de abajo cortaba en la primera línea, así
+		// que el diagrama quedaba vacío y su cuerpo caía como prosa.
+		contentLines = append(contentLines, ctx.Lines[startIndex+1:end]...)
+		consumedLines += end - startIndex
 	} else {
 		// Formato <<mermaid>> - usar indentación o tag de cierre <<end>>
 		indentDetector := NewAutoDetectIndentation()
@@ -108,6 +114,49 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		ConsumedLines: consumedLines,
 		Error:         tagErr,
 	}
+}
+
+// unindentedMermaidBody dice si el cuerpo de un <<mermaid>> que empieza en
+// lines[from] va sin sangría (la primera línea con texto en la columna 0) y
+// está cerrado con <<end>>, y devuelve el índice de ese <<end>>. La búsqueda
+// del cierre se detiene en una frontera del documento (mermaidBodyBoundary):
+// sin <<end>> antes de una frontera, el cuerpo sin sangría no se reclama y el
+// bloque se lee como siempre, por sangría. Así un <<mermaid>> sin cerrar no se
+// traga el <<end>> de un <<chart>> o un <<quiz>> que venga después.
+func unindentedMermaidBody(lines []string, from int) (int, bool) {
+	first := from
+	for first < len(lines) && strings.TrimSpace(lines[first]) == "" {
+		first++
+	}
+	if first >= len(lines) || CalculateIndentLevel(lines[first]) > 0 {
+		return 0, false
+	}
+	for i := first; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "<<end>>" {
+			return i, true
+		}
+		if mermaidBodyBoundary(lines[i], trimmed) {
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// mermaidBodyBoundary dice si una línea de un cuerpo de mermaid sin sangría es
+// una frontera del documento (IsEmbeddedBlockBoundary) y no parte del
+// diagrama. No lo son una línea sangrada (una frontera de verdad va en la
+// columna 0), `---` (el frontmatter de mermaid) ni una anotación de mermaid
+// como `<<interface>> Shape`, que sigue después del `>>`: un tag de DocLang
+// ocupa la línea entera.
+func mermaidBodyBoundary(line, trimmed string) bool {
+	if CalculateIndentLevel(line) > 0 || trimmed == "---" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "<<") && !strings.HasSuffix(trimmed, ">>") {
+		return false
+	}
+	return IsEmbeddedBlockBoundary(line)
 }
 
 // dedentMermaidContent aplica solo el dedent común del bloque. Mermaid usa
