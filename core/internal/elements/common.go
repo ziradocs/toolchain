@@ -5,6 +5,8 @@ package elements
 
 import (
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -350,6 +352,23 @@ func (a *AutoDetectIndentation) ShouldProcessLine(line string, verbose bool, lin
 	return true
 }
 
+// HasStrictKeyword reporta si trimmed (una línea ya sin espacios al inicio)
+// empieza con la palabra clave kw como palabra completa: después de kw solo
+// puede venir el fin de la línea, un espacio (tab y espacios Unicode
+// incluidos), `{` de un atributo (CODE{verbatim}) o `:`. "TEXTO citado",
+// "MAPA norte" o "TEXT-heavy" no empiezan con TEXT ni con MAP (issue #489).
+func HasStrictKeyword(trimmed, kw string) bool {
+	rest, ok := strings.CutPrefix(trimmed, kw)
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return unicode.IsSpace(r) || r == '{' || r == ':'
+}
+
 // IsNewElement verifica si una línea inicia un nuevo elemento
 // Esta función centraliza la lógica de detección de elementos para evitar duplicación
 // entre diferentes parsers.
@@ -402,7 +421,18 @@ func IsNewElement(line string, mode string) bool {
 			"SECTION ",
 		}
 		for _, keyword := range keywords {
-			if strings.HasPrefix(trimmed, keyword) {
+			// "SECTION " ya trae su separador. El resto se compara como
+			// palabra completa (issue #489): en el cuerpo de un QUOTE o un
+			// CHECKLIST, "TEXTO citado" o "TEXT-heavy" son texto, no un TEXT
+			// que corta el cuerpo. Solo cambia dónde termina el cuerpo; en
+			// posición de elemento el despacho sigue igual que siempre.
+			if strings.HasSuffix(keyword, " ") {
+				if strings.HasPrefix(trimmed, keyword) {
+					return true
+				}
+				continue
+			}
+			if HasStrictKeyword(trimmed, keyword) {
 				return true
 			}
 		}
