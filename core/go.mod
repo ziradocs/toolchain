@@ -3,8 +3,8 @@ module go.ziradocs.com/core/v2
 go 1.26.10
 
 require (
-	github.com/chromedp/cdproto v0.157.8
-	github.com/chromedp/chromedp v0.21.0
+	github.com/chromedp/cdproto v0.159.0
+	github.com/chromedp/chromedp v0.23.0
 	github.com/flopp/go-staticmaps v0.0.0-20260318105611-d3eb636a6468
 	github.com/fogleman/gg v1.3.0
 	github.com/go-analyze/charts v0.6.4
