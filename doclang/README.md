@@ -312,6 +312,12 @@ exist. To include a file, write the `@include` outside the code block.
 Findings in an `@include`d file carry that file (`file` in the `--report json`
 findings, relative to the document's directory, and its own path in SARIF)
 and the line in it, not the line of the expanded content.
+`file` is meant to be joined to the directory of `document.path` lexically,
+the way `path.Join` and SARIF URI resolution do. When the document was
+reached through a symlinked directory it can start with `..` that crosses
+that symlink: `document.path` `lnk/main.doclang` with `file`
+`../inc/x.doclang` gives `lnk/../inc/x.doclang`, which a normalizing join
+turns into `inc/x.doclang` but which fails if opened as written.
 
 | Flag | Default | Notes |
 |---|---|---|
