@@ -229,6 +229,13 @@ func (g *Generator) RenderASTJSON(doc *ast.AST) ([]byte, error) {
 	// El código es literal (issue #487): el contentHTML de un bloque de código
 	// es su content escapado, igual que el HTML del build.
 	literal := renderer.InlineHTMLOptions{LiteralCode: true}
+	// El título de una sección se escribe escapado, sin Markdown, en el <h1>,
+	// el TOC y el anchor; su titleHTML tiene que decir lo mismo. Por interfaz
+	// para compilar contra un core publicado sin la opción (que ya lo deja
+	// como texto plano).
+	if plain, ok := any(&literal).(interface{ SetPlainBlockTitles(bool) }); ok {
+		plain.SetPlainBlockTitles(true)
+	}
 	renderer.PopulateInlineHTMLWithOptions(doc, variables, literal)
 	renderer.PopulateLangRunsWithOptions(doc, variables, literal) // issue #63 — ver slidelang/internal/generator/generator.go:RenderASTJSON
 	return json.Marshal(doc)
