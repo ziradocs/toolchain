@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -89,4 +90,79 @@ func boundaryElements(doc *ast.AST) []ast.Element {
 		return nil
 	}
 	return doc.ContentBlocks[0].Elements
+}
+
+// A la sangría de la cabecera del QUOTE o del CHECKLIST la línea está en
+// posición de elemento: una palabra pegada corta el cuerpo y se despacha como
+// en main ("TEXTO" abre un TEXT, "CODEX" un CODE). El límite de palabra es
+// solo para las líneas más sangradas que la cabecera.
+func TestStrictKeywordBoundary_SameIndentAsHeaderKeepsMainCut(t *testing.T) {
+	for _, dialect := range []string{"document", "slides"} {
+		els := boundaryElements(parseBoundary(t, dialect, "  QUOTE\n    Hola\n  TEXTO\n    cuerpo\n"))
+		if len(els) != 2 {
+			t.Fatalf("%s QUOTE+TEXTO: want quote and text, got %d elements", dialect, len(els))
+		}
+		if q, ok := els[0].(*ast.QuoteElement); !ok || q.Content != "Hola" {
+			t.Errorf("%s: want quote \"Hola\", got %+v", dialect, els[0])
+		}
+		if txt, ok := els[1].(*ast.TextElement); !ok || txt.Content != "cuerpo" {
+			t.Errorf("%s: want TEXT \"cuerpo\", got %+v", dialect, els[1])
+		}
+
+		els = boundaryElements(parseBoundary(t, dialect, "  QUOTE\n    Hola\n  CODEX python\n    print(1)\n"))
+		if len(els) != 2 {
+			t.Fatalf("%s QUOTE+CODEX: want quote and code, got %d elements", dialect, len(els))
+		}
+		if q, ok := els[0].(*ast.QuoteElement); !ok || q.Content != "Hola" {
+			t.Errorf("%s: want quote \"Hola\", got %+v", dialect, els[0])
+		}
+		if _, ok := els[1].(*ast.CodeElement); !ok {
+			t.Errorf("%s: want a CODE element after the quote, got %T", dialect, els[1])
+		}
+
+		els = boundaryElements(parseBoundary(t, dialect, "  CHECKLIST\n  TEXTO\n    cuerpo\n"))
+		var text *ast.TextElement
+		for _, el := range els {
+			if txt, ok := el.(*ast.TextElement); ok {
+				text = txt
+			}
+		}
+		if text == nil || text.Content != "cuerpo" {
+			t.Errorf("%s CHECKLIST+TEXTO: want TEXT \"cuerpo\", got %+v", dialect, els)
+		}
+	}
+}
+
+// Una línea del cuerpo de un CHECKLIST antes de su primer ítem se descarta,
+// como en main, pero con el aviso CHECKLIST001. Vale para cualquier línea.
+func TestStrictChecklist_LineBeforeFirstItemIsReported(t *testing.T) {
+	for _, line := range []string{"TEXTO suelto", "texto suelto"} {
+		for _, dialect := range []string{"document", "slides"} {
+			p := New(util.NewNoop())
+			var doc *ast.AST
+			var diags []diagnostics.Diagnostic
+			body := "  CHECKLIST\n    " + line + "\n    - [ ] uno\n"
+			if dialect == "document" {
+				doc, diags = p.ParseDocument("---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"+body, "d.doclang")
+			} else {
+				doc, diags = p.Parse("---\nmode: strict\ntitle: \"D\"\n---\n\nSLIDE content\n  title: \"T\"\n"+body, "d.slidelang")
+			}
+			els := boundaryElements(doc)
+			if len(els) != 1 {
+				t.Fatalf("%s %q: want one checklist, got %+v", dialect, line, els)
+			}
+			if c, ok := els[0].(*ast.ChecklistElement); !ok || len(c.Items) != 1 || c.Items[0].Content != "uno" {
+				t.Errorf("%s %q: want the item \"uno\", got %+v", dialect, line, els[0])
+			}
+			found := false
+			for _, d := range diags {
+				if d.RuleID == "CHECKLIST001" && d.IsWarning() {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s %q: want a CHECKLIST001 warning, got %v", dialect, line, diags)
+			}
+		}
+	}
 }

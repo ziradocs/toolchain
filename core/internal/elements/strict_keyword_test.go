@@ -31,18 +31,33 @@ func TestHasStrictKeyword(t *testing.T) {
 	}
 }
 
-func TestIsNewElement_StrictKeywordBoundary(t *testing.T) {
-	for line, want := range map[string]bool{
-		"TEXTO citado":  false,
-		"MAPA norte":    false,
-		"CODEX":         false,
-		"TEXT hola":     true,
-		"MAP":           true,
-		"SECTION \"B\"": true,
-		"SECTIONS":      false,
+// EndsStrictBody: una línea más sangrada que la cabecera corta el cuerpo
+// solo con la palabra clave completa; a la sangría de la cabecera, o menos,
+// corta por prefijo como siempre (posición de elemento). IsNewElement sigue
+// por prefijo.
+func TestEndsStrictBody(t *testing.T) {
+	for _, tc := range []struct {
+		line string
+		want bool
+	}{
+		{"    TEXTO citado", false},
+		{"    MAPA norte", false},
+		{"    CODEX python", false},
+		{"    TEXT hola", true},
+		{"    MAP", true},
+		{"    SECTION \"B\"", true},
+		{"    SECTIONS", false},
+		{"    @include x", true},
+		{"  TEXTO", true},
+		{"  CODEX python", true},
+		{"TEXTOS", true},
+		{"  texto", false},
 	} {
-		if got := IsNewElement(line, "strict"); got != want {
-			t.Errorf("IsNewElement(%q) = %v, want %v", line, got, want)
+		if got := EndsStrictBody(tc.line, 2); got != tc.want {
+			t.Errorf("EndsStrictBody(%q, 2) = %v, want %v", tc.line, got, tc.want)
 		}
+	}
+	if !IsNewElement("TEXTO citado", "strict") {
+		t.Error("IsNewElement keeps main's prefix rule")
 	}
 }
