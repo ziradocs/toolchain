@@ -56,7 +56,7 @@ import (
 // salía de la raíz sigue saliendo.
 func rebaseIncludedAssets(doc *ast.AST, lines []string, origins include.LineOrigins, sourceDir string) destRewrites {
 	if doc == nil || sourceDir == "" || len(origins) == 0 {
-		return nil
+		return destRewrites{}
 	}
 	r := &assetRebaser{
 		lines:     lines,
@@ -419,18 +419,8 @@ func (f *field) rebaseDestination(dest string) string {
 		return dest
 	}
 	rewritten := d.Lead + open + newPath + close + d.Tail
-	// Se registra lo que puede cambiar lo que dicen LINK001 o IMG004 sobre
-	// este destino (ver linkFindingsUnderRebase): una ruta suelta con
-	// espacios, que avisa en la fuente y no una vez envuelta, y el destino de
-	// una imagen con un bloque {…}, cuyo IMG004 nombra la ruta. Lo demás
-	// (una ruta sin espacios, una ya escrita entre <...>) dice lo mismo antes
-	// y después, y no hace falta volver a correr la regla por eso.
-	if (d.Open == "" && strings.ContainsAny(d.Path, " \t")) || f.attrs {
-		if f.r.rewrites == nil {
-			f.r.rewrites = destRewrites{}
-		}
-		f.r.rewrites[destRewrite{start: f.start, dest: rewritten}] = dest
-	}
+	f.r.rewrites.record(destRewrite{start: f.start, dest: rewritten}, dest,
+		(d.Open == "" && strings.ContainsAny(d.Path, " \t")) || f.attrs)
 	return rewritten
 }
 

@@ -19,8 +19,32 @@ type destRewrite struct {
 	dest  string
 }
 
-// destRewrites lleva cada destino reescrito al que escribió el autor.
-type destRewrites map[destRewrite]string
+// destRewrites son los destinos inline que reescribió rebaseIncludedAssets.
+// Un mismo archivo escrito de dos formas en un campo (`a b.png` y
+// `<a b.png>`, o `a%20b.png`) se reescribe al mismo destino nuevo, así que
+// cada destino nuevo lleva, en orden, el escrito de cada una de sus
+// ocurrencias: el mismo orden en que walkAssetFields las vuelve a recorrer.
+// relevant dice si alguno puede cambiar lo que dicen LINK001 o IMG004 (ver
+// record); si ninguno, linkFindingsUnderRebase no corre nada.
+type destRewrites struct {
+	queues   map[destRewrite][]string
+	relevant bool
+}
+
+// record anota que la ocurrencia escrita written quedó como key. relevant
+// es si puede cambiar lo que dice el lint: una ruta suelta con espacios, que
+// avisa en la fuente y no una vez envuelta, o el destino de una imagen con
+// un bloque {…}, cuyo IMG004 nombra la ruta. Una ruta sin espacios o ya
+// escrita entre <...> dice lo mismo antes y después; se anota igual, para
+// que las ocurrencias de un mismo destino nuevo se deshagan cada una con la
+// suya, pero sola no hace correr la regla.
+func (w *destRewrites) record(key destRewrite, written string, relevant bool) {
+	if w.queues == nil {
+		w.queues = map[destRewrite][]string{}
+	}
+	w.queues[key] = append(w.queues[key], written)
+	w.relevant = w.relevant || relevant
+}
 
 // linkFindingsDelta es lo que la reescritura de destinos de los archivos
 // incluidos le cambia a LINK001 (y a IMG004, que también nombra el destino)
@@ -47,10 +71,10 @@ type linkFindingsDelta struct {
 // deshace en el lugar y se deja como estaba (walkAssetFields recorre los
 // mismos campos en el mismo orden). Sin destinos reescritos no corre nada.
 func linkFindingsUnderRebase(doc *ast.AST, rewrites destRewrites) linkFindingsDelta {
-	if doc == nil || len(rewrites) == 0 {
+	if doc == nil || !rewrites.relevant {
 		return linkFindingsDelta{}
 	}
-	u := &rewriteUndoer{rewrites: rewrites}
+	u := newRewriteUndoer(doc, rewrites)
 	walkAssetFields(doc, u)
 	rule := &linter.LinkDestinationRule{}
 	var written []diagnostics.Diagnostic
@@ -67,26 +91,86 @@ func linkFindingsUnderRebase(doc *ast.AST, rewrites destRewrites) linkFindingsDe
 	return linkFindingsDelta{hidden: subtractDiagnostics(written, rewritten), added: subtractDiagnostics(rewritten, written)}
 }
 
-// rewriteUndoer vuelve cada destino reescrito que sigue tal cual al que
-// escribió el autor, y guarda en orden el valor de cada campo inline que
-// recorre para que fieldRestorer lo ponga de vuelta.
+// rewriteUndoer vuelve cada ocurrencia de un destino reescrito que sigue
+// tal cual a la que escribió el autor, sacándolas de su cola en orden, y
+// guarda en orden el valor de cada campo inline que recorre para que
+// fieldRestorer lo ponga de vuelta.
+//
+// Un destino nuevo cuyas ocurrencias se escribieron de formas distintas solo
+// se deshace si en doc quedan tantas ocurrencias como se reescribieron: si un
+// filtro borró o agregó alguna, ya no se sabe cuál es cuál y se deja como
+// está (dice lo que diga el AST reescrito). Si todas se escribieron igual, da
+// lo mismo cuál se saca, y se deshacen las que alcancen.
 type rewriteUndoer struct {
-	rewrites destRewrites
-	saved    []string
-	changed  bool
+	queues  map[destRewrite][]string
+	trusted map[destRewrite]bool
+	next    map[destRewrite]int
+	saved   []string
+	changed bool
+}
+
+func newRewriteUndoer(doc *ast.AST, rewrites destRewrites) *rewriteUndoer {
+	c := &occurrenceCounter{queues: rewrites.queues, counts: map[destRewrite]int{}}
+	walkAssetFields(doc, c)
+	trusted := map[destRewrite]bool{}
+	for key, q := range rewrites.queues {
+		trusted[key] = c.counts[key] == len(q) || allEqual(q)
+	}
+	return &rewriteUndoer{queues: rewrites.queues, trusted: trusted, next: map[destRewrite]int{}}
 }
 
 func (u *rewriteUndoer) inlineField(start int) func(string) string {
 	return func(text string) string {
 		u.saved = append(u.saved, text)
 		return generator.RewriteInlineImageDestinations(text, func(dest string) string {
-			if written, ok := u.rewrites[destRewrite{start: start, dest: dest}]; ok {
+			key := destRewrite{start: start, dest: dest}
+			q := u.queues[key]
+			if !u.trusted[key] || u.next[key] >= len(q) {
+				return dest
+			}
+			written := q[u.next[key]]
+			u.next[key]++
+			if written != dest {
 				u.changed = true
-				return written
+			}
+			return written
+		})
+	}
+}
+
+// occurrenceCounter cuenta, sin cambiar nada, cuántas ocurrencias de cada
+// destino reescrito quedan en doc.
+type occurrenceCounter struct {
+	queues map[destRewrite][]string
+	counts map[destRewrite]int
+}
+
+func (c *occurrenceCounter) inlineField(start int) func(string) string {
+	return func(text string) string {
+		generator.RewriteInlineImageDestinations(text, func(dest string) string {
+			if key := (destRewrite{start: start, dest: dest}); c.queues[key] != nil {
+				c.counts[key]++
 			}
 			return dest
 		})
+		return text
 	}
+}
+
+func (c *occurrenceCounter) sourceField(int) func(string) string {
+	return func(s string) string { return s }
+}
+
+func (c *occurrenceCounter) headingHTML(html string, _ int) string { return html }
+
+// allEqual dice si todos los elementos de q son iguales.
+func allEqual(q []string) bool {
+	for _, s := range q[1:] {
+		if s != q[0] {
+			return false
+		}
+	}
+	return true
 }
 
 func (u *rewriteUndoer) sourceField(int) func(string) string {

@@ -44,8 +44,12 @@ func rebasedDoc(t *testing.T, main, part string) (*ast.AST, destRewrites) {
 func TestLinkFindingsUnderRebase(t *testing.T) {
 	head := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n"
 	doc, rewrites := rebasedDoc(t, head+"@include sub2/k.doclang\n", "Para ![](a b.png) fin.\n\n- uno ![](a b.png)\n\n> cita ![](a b.png) y ![](<c d.png>)\n")
-	if len(rewrites) != 3 {
-		t.Fatalf("want the 3 spaced destinations recorded (not the one already in <...>), got %v", rewrites)
+	n := 0
+	for _, q := range rewrites.queues {
+		n += len(q)
+	}
+	if n != 4 || !rewrites.relevant {
+		t.Fatalf("want the 4 rewritten occurrences recorded and marked relevant, got %+v", rewrites)
 	}
 	before, err := json.Marshal(doc)
 	if err != nil {
@@ -72,10 +76,44 @@ func TestLinkFindingsUnderRebase(t *testing.T) {
 	}
 
 	same, none := rebasedDoc(t, head+"Para ![](a b.png) fin.\n", "")
-	if len(none) != 0 {
-		t.Fatalf("no include, but rewrites %v", none)
+	if len(none.queues) != 0 || none.relevant {
+		t.Fatalf("no include, but rewrites %+v", none)
 	}
 	if d := linkFindingsUnderRebase(same, none); len(d.hidden)+len(d.added) != 0 {
 		t.Errorf("without rewrites the delta is %+v", d)
+	}
+}
+
+// Rutas sin espacios ni bloque {…} reescritas desde otro directorio se
+// anotan, pero no hacen correr la regla.
+func TestLinkFindingsUnderRebaseGateWithoutSpacedPaths(t *testing.T) {
+	doc, rewrites := rebasedDoc(t, "---\ntitle: D\nmode: flex\n---\n\n# A\n\n@include sub2/k.doclang\n", "Uno ![](a.png) y ![](<b c.png>).\n")
+	if len(rewrites.queues) != 2 || rewrites.relevant {
+		t.Fatalf("want 2 recorded, not relevant: %+v", rewrites)
+	}
+	if d := linkFindingsUnderRebase(doc, rewrites); len(d.hidden)+len(d.added) != 0 {
+		t.Errorf("delta %+v, want none", d)
+	}
+}
+
+// Un destino nuevo con ocurrencias escritas de dos formas no se deshace si
+// en el AST quedan menos ocurrencias que las reescritas (un filtro borró
+// una): no se sabe cuál quedó.
+func TestRewriteUndoerSkipsAmbiguousMissingOccurrence(t *testing.T) {
+	doc, rewrites := rebasedDoc(t, "---\ntitle: D\nmode: flex\n---\n\n# A\n\n@include sub2/k.doclang\n", "Uno ![](a b.png) y ![](<a b.png>) fin.\n")
+	var text *ast.TextElement
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if e, ok := n.(*ast.TextElement); ok && strings.Contains(e.Content, "Uno") {
+			text = e
+		}
+		return nil
+	})
+	if text == nil {
+		t.Fatal("no paragraph")
+	}
+	// Lo que haría un filtro que borra la primera imagen.
+	text.Content = strings.Replace(text.Content, "![](<sub2/a b.png>) y ", "", 1)
+	if d := linkFindingsUnderRebase(doc, rewrites); len(d.hidden)+len(d.added) != 0 {
+		t.Errorf("delta %+v, want none: the remaining occurrence cannot be told apart", d)
 	}
 }

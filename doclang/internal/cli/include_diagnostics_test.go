@@ -656,3 +656,37 @@ func TestBuild_IncludeFromOtherDirIMG004NamesWrittenPath(t *testing.T) {
 		t.Errorf("findings %v, want %v", got, want)
 	}
 }
+
+// Un mismo archivo escrito de dos formas en un campo (suelta con espacios y
+// entre <...>, o con %20) se reescribe al mismo destino nuevo; el aviso de la
+// ruta suelta se recupera solo para la ocurrencia que estaba suelta, así que
+// el include da lo mismo que el documento.
+func TestBuild_IncludeFromOtherDirSameFileTwoSpellings(t *testing.T) {
+	head := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n"
+	for name, body := range map[string]string{
+		"bare then bracketed": "Uno ![](a b.png) y ![](<a b.png>) fin.\n",
+		"bracketed then bare": "Uno ![](<a b.png>) y ![](a b.png) fin.\n",
+		"bare then %20":       "Uno ![](a b.png) y ![](a%20b.png) fin.\n",
+		"table row":           "| c | d |\n|---|---|\n| ![](a b.png) | ![](<a b.png>) |\n",
+		"header and row":      "| ![](a b.png) | ![](<a b.png>) |\n|---|---|\n| ![](<a b.png>) | ![](a b.png) |\n",
+		"three-line quote":    "> uno ![](a b.png)\n> dos ![](<a b.png>)\n> tres ![](a b.png)\n",
+		"with title":          "Uno ![](a b.png \"t\") y ![](<a b.png> \"t\") fin.\n",
+		"two files":           "Uno ![](a b.png) y ![](c d.png) fin.\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			root := filepath.Join(dir, "root.doclang")
+			writeFile(t, root, []byte(head+body))
+			writeFile(t, filepath.Join(dir, "sub2", "k.doclang"), []byte(body))
+			input := filepath.Join(dir, "inc.doclang")
+			writeFile(t, input, []byte(head+"@include sub2/k.doclang\n"))
+			want := bodyFindings(t, root, "", strings.Count(head, "\n"))
+			if len(want) == 0 {
+				t.Fatal("the document gives no findings")
+			}
+			if got := bodyFindings(t, input, "sub2/k.doclang", 0); strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Errorf("findings:\n%s\nwant (as in the document):\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		})
+	}
+}
