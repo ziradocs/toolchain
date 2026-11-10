@@ -257,11 +257,11 @@ func (v *Validator) validateChartBlock(lines []string, startIndex int, result *V
 	hasType := false
 	hasTitle := false
 
-	open := fence.Open(strings.TrimSpace(lines[startIndex]))
+	end := fence.End(lines, startIndex)
 	for i := startIndex + 1; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
 
-		if fence.Closes(line, open) {
+		if i == end {
 			endFound = true
 			break
 		}

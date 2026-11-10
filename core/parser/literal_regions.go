@@ -42,10 +42,11 @@ type literalScanner struct {
 	literal          string
 	codeHeaderIndent int
 	diagramIndent    int
-	// fenceTicks son los backticks de la cerca abierta, groupTicks los de la
-	// cerca de una pestaña de :::code-group (internal/fence).
-	fenceTicks int
-	groupTicks int
+	// fenceEnd es la línea que cierra la cerca abierta y groupEnd la de la
+	// cerca de una pestaña de :::code-group, como las lee fence.At (len(lines)
+	// si no cierran); groupEnd es -1 fuera de una pestaña.
+	fenceEnd int
+	groupEnd int
 }
 
 func newLiteralScanner(strict, flexCodeHeaders bool) literalScanner {
@@ -54,7 +55,8 @@ func newLiteralScanner(strict, flexCodeHeaders bool) literalScanner {
 
 // step consume line y devuelve la región literal en la que está ("" si en
 // ninguna).
-func (s *literalScanner) step(line string) string {
+func (s *literalScanner) step(lines []string, i int) string {
+	line := lines[i]
 	trimmed := strings.TrimSpace(line)
 	indent := len(line) - len(strings.TrimLeft(line, " \t"))
 	// El cuerpo de un CODE son las líneas con más sangría que su cabecera
@@ -77,7 +79,7 @@ func (s *literalScanner) step(line string) string {
 		current := s.literal
 		switch s.literal {
 		case literalFence:
-			if fence.Closes(trimmed, s.fenceTicks) {
+			if i == s.fenceEnd {
 				s.literal = ""
 				return current
 			}
@@ -97,12 +99,12 @@ func (s *literalScanner) step(line string) string {
 			// Las cercas de cada pestaña siguen la misma regla que el
 			// code-group (internal/fence): un ":::" dentro de una cerca es
 			// código, no el cierre del grupo.
-			if s.groupTicks > 0 {
-				if fence.Closes(trimmed, s.groupTicks) {
-					s.groupTicks = 0
+			if s.groupEnd >= 0 {
+				if i == s.groupEnd {
+					s.groupEnd = -1
 				}
-			} else if n := fence.Open(trimmed); n > 0 {
-				s.groupTicks = n
+			} else if b, ok := fence.At(lines, i); ok {
+				s.groupEnd = blockEnd(lines, b)
 			} else if trimmed == ":::" {
 				s.literal = ""
 			}
@@ -111,9 +113,9 @@ func (s *literalScanner) step(line string) string {
 			return current
 		}
 	}
-	if n := fence.Open(trimmed); n > 0 {
+	if b, ok := fence.At(lines, i); ok {
 		s.literal = literalFence
-		s.fenceTicks = n
+		s.fenceEnd = blockEnd(lines, b)
 		return s.literal
 	}
 	if trimmed == "$$" {
@@ -131,7 +133,7 @@ func (s *literalScanner) step(line string) string {
 	}
 	if strings.HasPrefix(trimmed, ":::code-group") {
 		s.literal = literalGroup
-		s.groupTicks = 0
+		s.groupEnd = -1
 		return s.literal
 	}
 	codeHeader := false
@@ -151,13 +153,21 @@ func (s *literalScanner) step(line string) string {
 	return ""
 }
 
+// blockEnd es la línea que cierra b, o len(lines) si no cierra.
+func blockEnd(lines []string, b fence.Block) int {
+	if b.End < 0 {
+		return len(lines)
+	}
+	return b.End
+}
+
 // literalLineKinds aplica literalScanner a lines desde from: el elemento i es
 // la región de la línea i ("" antes de from).
 func literalLineKinds(lines []string, from int, strict, flexCodeHeaders bool) []string {
 	kinds := make([]string, len(lines))
 	s := newLiteralScanner(strict, flexCodeHeaders)
 	for i := from; i < len(lines); i++ {
-		kinds[i] = s.step(lines[i])
+		kinds[i] = s.step(lines, i)
 	}
 	return kinds
 }

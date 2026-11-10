@@ -19,39 +19,47 @@ func NewMermaidRule() *MermaidRule {
 }
 
 func (r *MermaidRule) Apply(content string) (string, error) {
-	// Buscar los bloques ```mermaid … ``` línea por línea, con la regla de
-	// cercas del parser (internal/fence): abre una cerca cuyo info string es
-	// "mermaid" y cierra una línea de solo backticks, al menos tantos como la
-	// apertura. Antes un regexp (```mermaid … ```) también tomaba un
-	// ````mermaid y cerraba en cualquier línea que empezara con ```.
+	// Buscar los bloques ```mermaid … ``` línea por línea, con la lectura de
+	// cercas del parser (fence.At). Solo se reescribe una cerca mermaid que
+	// está suelta: el cuerpo de cualquier otra cerca (un ````md que muestra
+	// un ```mermaid) y un :::code-group entero son código y se copian tal
+	// cual. Antes un regexp tomaba también un ````mermaid y cerraba en
+	// cualquier línea que empezara con ```, y un ```mermaid dentro de otra
+	// cerca o de una pestaña salía como <<mermaid>>.
 	lines := strings.Split(content, "\n")
 	var out []string
 	changed := false
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
-		ticks := fence.Open(trimmed)
-		if ticks == 0 || fence.Info(trimmed) != "mermaid" {
+		if strings.HasPrefix(trimmed, ":::code-group") || strings.HasPrefix(trimmed, "::::code-group") {
+			end := codeGroupEnd(lines, i)
+			out = append(out, lines[i:end+1]...)
+			i = end
+			continue
+		}
+		block, ok := fence.At(lines, i)
+		if !ok {
 			out = append(out, lines[i])
 			continue
 		}
-		end := -1
-		for j := i + 1; j < len(lines); j++ {
-			if fence.Closes(strings.TrimSpace(lines[j]), ticks) {
-				end = j
+		end := block.End
+		if block.Reading != fence.CommonMark || fence.Info(trimmed) != "mermaid" {
+			// Otra cerca, o una mermaid sin un cierre de CommonMark: queda
+			// como está, con todo su cuerpo.
+			if end < 0 {
+				out = append(out, lines[i:]...)
 				break
 			}
-		}
-		if end < 0 {
-			// Sin cierre no hay bloque: queda como está, igual que antes.
-			out = append(out, lines[i:]...)
-			break
+			out = append(out, lines[i:end+1]...)
+			i = end
+			continue
 		}
 		indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
-		block := indent + "<<mermaid>>"
+		mermaid := indent + "<<mermaid>>"
 		if clean := r.cleanMermaidContent(strings.Join(lines[i+1:end], "\n")); strings.TrimSpace(clean) != "" {
-			block += "\n" + clean
+			mermaid += "\n" + clean
 		}
-		out = append(out, block)
+		out = append(out, mermaid)
 		changed = true
 		i = end
 	}
@@ -59,6 +67,24 @@ func (r *MermaidRule) Apply(content string) (string, error) {
 		return content, nil
 	}
 	return strings.Join(out, "\n"), nil
+}
+
+// codeGroupEnd es la línea del ":::" que cierra el :::code-group que abre en
+// lines[start], saltando las cercas de sus pestañas como las lee el parser
+// (fence.At), o la última línea si no cierra.
+func codeGroupEnd(lines []string, start int) int {
+	for i := start + 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == ":::" {
+			return i
+		}
+		if block, ok := fence.At(lines, i); ok {
+			if block.End < 0 {
+				return len(lines) - 1
+			}
+			i = block.End
+		}
+	}
+	return len(lines) - 1
 }
 
 // cleanMermaidContent limpia y formatea correctamente el contenido mermaid

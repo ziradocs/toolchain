@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
-	"go.ziradocs.com/core/v2/internal/fence"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // CodeGroupParser maneja grupos de código (::::code-group o :::code-group)
@@ -55,6 +55,7 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	ctx.recordCode(startIndex, 1)
 	consumed := 1 // Skip :::code-group line
 	var groupErr error
+	var groupDiags []diagnostics.Diagnostic
 
 	// En modo strict, el formatter (formatter/strict.go: formatCodeGroup +
 	// formatStrictElement con indent(body, 2)) emite el bloque completo
@@ -84,7 +85,8 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		}
 
 		// Look for start of code block ```language [label]
-		if ticks := fence.Open(line); ticks > 0 {
+		if block, ok := fenceAt(ctx, i); ok {
+			ticks := block.Ticks
 			// ```lenguaje [etiqueta]: la etiqueta es todo lo que va entre los
 			// corchetes, espacios incluidos. Antes se partía por espacios y
 			// una etiqueta como [With Visualization] se perdía sin aviso. La
@@ -101,37 +103,24 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 				}
 			}
 
-			consumed++ // Skip ``` line
-			tabStart := i
-			i++
-
-			var content strings.Builder
-			lineCount := 0
-
-			// Collect code content until ```
-			for i < len(ctx.Lines) {
-				line := ctx.Lines[i]
-				if fence.Closes(strings.TrimSpace(line), ticks) {
-					// Found code block end
-					consumed++ // Skip closing ```
-					break
-				}
-
-				if lineCount > 0 {
-					content.WriteString("\n")
-				}
-				content.WriteString(stripBaseIndent(line, baseIndent))
-				lineCount++
-				consumed++
-				i++
+			// La pestaña llega hasta donde la lee fence.At, como un bloque
+			// de código suelto.
+			body := fenceBody(ctx.Lines, block)
+			lines := make([]string, len(body))
+			for k, line := range body {
+				lines[k] = stripBaseIndent(line, baseIndent)
 			}
-
-			ctx.recordCode(tabStart, i-tabStart+1)
+			content := strings.Join(lines, "\n")
+			tabLines := block.Consumed(ctx.Lines)
+			ctx.recordCode(i, tabLines)
+			groupDiags = append(groupDiags, fenceDiagnostics(ctx, block)...)
+			consumed += tabLines
+			i += tabLines - 1
 
 			codeBlock := ast.CodeBlock{
 				Language: language,
 				Label:    label,
-				Content:  content.String(),
+				Content:  content,
 			}
 			codeGroup.CodeBlocks = append(codeGroup.CodeBlocks, codeBlock)
 		} else {
@@ -149,5 +138,6 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		Element:       codeGroup,
 		ConsumedLines: consumed,
 		Error:         groupErr,
+		Diagnostics:   groupDiags,
 	}
 }

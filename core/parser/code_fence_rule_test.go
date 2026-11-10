@@ -103,7 +103,7 @@ func TestCodeFence_BacktickInInfoIsProse(t *testing.T) {
 func TestCodeFence_TrackingDoesNotDriftAfterConsumedElements(t *testing.T) {
 	for name, body := range map[string]string{
 		"callout with a backtick-info line": ":::info\n```js` uno\n:::\n",
-		"prose with backtick info":   "```js` uno\n```js` dos\n```js` tres\n",
+		"prose with backtick info":          "```js` uno\n```js` dos\n```js` tres\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			doc, _ := flexDoc(t, "# A\n\n"+body+"\n## B\n\nfin\n")

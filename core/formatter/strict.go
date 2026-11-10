@@ -1050,8 +1050,8 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 	next := 0
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		ticks := fence.Open(lines[i])
-		if next >= len(codes) || ticks == 0 {
+		block, ok := fence.At(lines, i)
+		if next >= len(codes) || !ok {
 			continue
 		}
 		code := codes[next]
@@ -1060,13 +1060,7 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 		if fenceLang != codeLang {
 			continue
 		}
-		closing := -1
-		for j := i + 1; j < len(lines); j++ {
-			if fence.Closes(lines[j], ticks) {
-				closing = j
-				break
-			}
-		}
+		closing := block.End
 		if closing < 0 {
 			continue
 		}

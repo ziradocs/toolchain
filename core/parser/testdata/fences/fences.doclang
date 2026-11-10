@@ -1,0 +1,53 @@
+---
+title: Cercas
+---
+
+# Cercas de CommonMark
+
+````md
+```go
+x := 1
+```
+````
+
+```
+uno
+````
+
+## Cierre con más backticks
+
+Texto.
+
+# Lectura de las versiones anteriores
+
+````js
+sin cierre de cuatro
+```
+
+## Sigue siendo encabezado
+
+```ts title=`a.ts`
+const a = 1
+```
+
+## También este
+
+````mermaid
+graph TD
+  A-->B
+```
+
+:::code-group
+````js [uno]
+x
+```
+```py [dos]
+y
+```
+:::
+
+# Backtick en el info string que es texto
+
+```js` es un code span suelto
+
+Fin.

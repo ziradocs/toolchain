@@ -31,20 +31,19 @@ func (r *MermaidSyntaxFixerRule) Apply(content string) (string, error) {
 
 	i := 0
 	inCodeBlock := false
-	codeBlockDelimiter := ""
+	codeBlockEnd := -1 // la línea que cierra el bloque de código abierto (fence.End)
 
 	for i < len(lines) {
 		line := lines[i]
 
 		// Detectar inicio/fin de bloques de código markdown
 		// Cercas con la regla de internal/fence, la del parser.
-		if t := strings.TrimSpace(line); (!inCodeBlock && fence.Open(t) > 0) || (inCodeBlock && fence.Closes(t, fence.Open(codeBlockDelimiter))) {
+		if (!inCodeBlock && fence.End(lines, i) >= 0) || (inCodeBlock && i == codeBlockEnd) {
 			if !inCodeBlock {
 				inCodeBlock = true
-				codeBlockDelimiter = t
+				codeBlockEnd = fence.End(lines, i)
 			} else {
 				inCodeBlock = false
-				codeBlockDelimiter = ""
 			}
 			result = append(result, line)
 			i++

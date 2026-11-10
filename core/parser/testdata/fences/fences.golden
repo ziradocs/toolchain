@@ -1,0 +1,23 @@
+section "Cercas de CommonMark"
+  code "md" line 7: "```go\nx := 1\n```"
+  code "" line 13: "uno"
+  text line 17: "<h2 id=\"cierre-con-mas-backticks\">Cierre con más backticks</h2>"
+  text line 19: "Texto."
+section "Lectura de las versiones anteriores"
+  code "js" line 23: "sin cierre de cuatro"
+  text line 27: "<h2 id=\"sigue-siendo-encabezado\">Sigue siendo encabezado</h2>"
+  code "ts" line 29: "const a = 1"
+  text line 33: "<h2 id=\"tambien-este\">También este</h2>"
+  mermaid line 35: "graph TD\n  A-->B"
+  code-group tab "js" line 40: "x"
+  code-group tab "py" line 40: "y"
+section "Backtick en el info string que es texto"
+  text line 51: "```js` es un code span suelto"
+  text line 53: "Fin."
+CODE002 line 15: the code block opened with 3 backticks closes at "````", a line of 4 backticks; earlier versions kept that line as code. To keep it as code, open the block with more backticks than it has
+CODE003 line 23: the code block opened with 4 backticks is closed by a 3-backtick line (line 25), as in earlier versions; CommonMark would not close it there. Close it with 4 backticks
+CODE003 line 29: this line has a backtick in its info string, so CommonMark reads it as text; it is read as a code block that closes at line 31, as in earlier versions, because as text the rest would leave a code block unclosed. Remove the backtick from the info string
+CODE003 line 35: the code block opened with 4 backticks is closed by a 3-backtick line (line 38), as in earlier versions; CommonMark would not close it there. Close it with 4 backticks
+CODE003 line 41: the code block opened with 4 backticks is closed by a 3-backtick line (line 43), as in earlier versions; CommonMark would not close it there. Close it with 4 backticks
+CODE004 line 51: this line starts like a code block but has a backtick in its info string, so it is text (CommonMark); earlier versions read it as a code block that was never closed
+CODE004 line 7: the code block opened with 4 backticks closes at line 11; earlier versions closed it at line 10

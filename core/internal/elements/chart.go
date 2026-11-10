@@ -97,23 +97,24 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// mecanismos de balanceo/sangría que el resto de este archivo necesita
 	// para un cuerpo sin terminador propio.
 	if ctx.Mode == "flex" && isFencedBlockOpener(line, "chart") {
-		body, consumed := collectFencedBody(ctx.Lines, startIndex)
+		body, consumed, block := collectFencedBody(ctx.Lines, startIndex)
+		fenceDiags := fenceDiagnostics(ctx, block)
 		trimmedBody := strings.TrimSpace(body)
 		chart := ast.NewChartElement(pos, "bar")
 		if json.Valid([]byte(trimmedBody)) {
 			chart.RawJSON = json.RawMessage(trimmedBody)
 			chart.IsJSONMode = true
-			return &ParseResult{Element: chart, ConsumedLines: consumed, Error: nil}
+			return &ParseResult{Element: chart, ConsumedLines: consumed, Error: nil, Diagnostics: fenceDiags}
 		}
 		return &ParseResult{
 			Element:       chart,
 			ConsumedLines: consumed,
 			Error:         nil,
-			Diagnostics: []diagnostics.Diagnostic{
+			Diagnostics: append(fenceDiags,
 				diagnostics.NewWarning(
 					"El JSON del chart es inválido y fue ignorado; el chart quedará sin datos",
 					pos, "chart-parser").WithRuleID("CHART002"),
-			},
+			),
 		}
 	}
 

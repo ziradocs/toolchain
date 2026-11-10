@@ -63,9 +63,8 @@ var nestedContentParsers = []ElementParser{
 // cuenta como delegación: cae al llamador, que la trata como prosa suelta,
 // igual que ANTES de que esta función existiera.
 func tryParseNestedContent(ctx *ParseContext, i int) (ast.Element, int, []diagnostics.Diagnostic, bool) {
-	line := ctx.Lines[i]
 	for _, parser := range nestedContentParsers {
-		if !parser.CanParse(line, ctx.Mode) {
+		if !canParseAt(parser, ctx, i) {
 			continue
 		}
 		result := parser.Parse(ctx, i)

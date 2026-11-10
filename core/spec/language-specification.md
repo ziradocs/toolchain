@@ -197,12 +197,21 @@ with no backticks, and closes at a line of only backticks at least as long as th
 opening. A `` ````md `` block can therefore hold a ```` ``` ```` line as content, and a
 line that starts with ```` ``` ```` but has a backtick in its info string is prose.
 Fenced diagrams and data (`mermaid`, `plantuml`, `chart`, `map`) use the same rule.
-Earlier versions closed a code fence only at an exact ```` ``` ```` line, whatever the
-opening, and diagram fences at ```` ``` ```` or `` ```` ``. One consequence changes
-existing documents: a line of four or more backticks inside a ```` ``` ```` fence now
-closes it, where it used to be code; that closing line gets the `CODE002`
-warning. `doclang fmt` writes a longer fence when the code holds a line of
-backticks.
+Earlier versions opened a code fence at any line that starts with ```` ``` ```` and
+closed it only at an exact ```` ``` ```` line, whatever the opening, and diagram
+fences at ```` ``` ```` or `` ```` ``. The CommonMark rule applies when it gives a
+well-formed result. When a fence would stay open to the end of its content
+under CommonMark, it is read with the earlier rule, closing where it used to
+close, and gets the `CODE003` warning at its opening; that covers a
+`` ````js `` fence closed by ```` ``` ````, and a line with a backtick in its info string
+that, read as prose, would leave the next fence unclosed. A fence that no rule
+closes runs to the end, also with `CODE003`. When the CommonMark reading is
+well-formed but ends somewhere else than before, the document changes and the
+parser says so: a line of four or more backticks inside a ```` ``` ```` fence now closes
+it, where it used to be code, and gets `CODE002`; any other fence that ends on a
+different line than before, and a line that used to open a fence and is now
+prose, get `CODE004`. `doclang fmt` writes a longer fence when the code holds a
+line of backticks.
 
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next

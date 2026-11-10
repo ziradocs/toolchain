@@ -10,7 +10,6 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
-	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/internal/normalize"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
@@ -33,8 +32,6 @@ type DocumentFlexParser struct {
 	registry        *elements.Registry
 	hasTitleBlock   bool
 	normalized      bool // Indica si el contenido fue normalizado
-	inCodeBlock     bool // Track si estamos dentro de un code block
-	fenceTicks      int  // backticks de la cerca abierta (ver trackFence)
 
 	// recordCode es elements.ParseContext.RecordCode (ver codeLiteralLines).
 	recordCode func(line, n int)
@@ -196,6 +193,7 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		astNode.ContentBlocks[0].BlockType = "title"
 	}
 
+	p.diagnostics = append(p.diagnostics, elements.TextFenceDiagnostics(p.parseContext())...)
 	return astNode, p.diagnostics
 }
 
@@ -355,9 +353,13 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 		// Update context
 		ctx.CurrentLine = p.currentLine
 
-		// Check for subsection headers FIRST (before registry)
-		// But skip if we're inside a code block
-		if p.isSubsectionHeader(trimmed) && !p.inCodeBlock {
+		// Check for subsection headers FIRST (before registry). Una cerca de
+		// código la consume entera el registry (CodeParser y los diagramas
+		// en cerca, con fence.At), así que acá nunca se está dentro de una:
+		// el seguimiento de cercas que había (inCodeBlock/trackFence) solo
+		// veía líneas que el registry no consumió, y ninguna de ellas abre
+		// una cerca.
+		if p.isSubsectionHeader(trimmed) {
 			element := p.parseSubsectionHeader(trimmed)
 			if element != nil {
 				block.Elements = append(block.Elements, element)
@@ -379,14 +381,6 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 		if result.Element != nil {
 			block.Elements = append(block.Elements, result.Element)
 			p.currentLine += result.ConsumedLines
-			// Un elemento consumido por el registry se lleva sus propias
-			// cercas (un bloque de código, un ::: con cercas adentro, un TEXT
-			// con una línea ```js`): al terminar no queda ninguna abierta.
-			// Antes se invertía el estado con cada línea consumida que
-			// empezaba con ```, y un elemento con una cantidad impar de esas
-			// líneas dejaba el parser "dentro de código": los encabezados
-			// siguientes no se leían como tales.
-			p.endFence()
 			// Handle errors
 			if result.Error != nil {
 				p.addError(result.Error.Error())
@@ -395,14 +389,6 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 			continue
 		} else if result.ConsumedLines > 0 {
 			p.currentLine += result.ConsumedLines
-			// Un elemento consumido por el registry se lleva sus propias
-			// cercas (un bloque de código, un ::: con cercas adentro, un TEXT
-			// con una línea ```js`): al terminar no queda ninguna abierta.
-			// Antes se invertía el estado con cada línea consumida que
-			// empezaba con ```, y un elemento con una cantidad impar de esas
-			// líneas dejaba el parser "dentro de código": los encabezados
-			// siguientes no se leían como tales.
-			p.endFence()
 			// Handle errors
 			if result.Error != nil {
 				p.addError(result.Error.Error())
@@ -410,9 +396,6 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 			p.diagnostics = append(p.diagnostics, result.Diagnostics...)
 			continue
 		}
-
-		// Track code blocks for current line
-		p.trackFence(trimmed)
 
 		// Failsafe: advance at least one line if nothing was parsed.
 		// issue #192: antes esto avanzaba sin emitir nada — a diferencia de
@@ -483,22 +466,4 @@ func (p *DocumentFlexParser) addWarningWithRuleID(msg, ruleID string) {
 	pos := p.position(p.currentLine)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "document-flex-parser").WithRuleID(ruleID))
-}
-
-// trackFence actualiza inCodeBlock con una línea que el registry no consumió,
-// con la regla de cercas de internal/fence.
-func (p *DocumentFlexParser) trackFence(trimmed string) {
-	if p.fenceTicks == 0 {
-		p.fenceTicks = fence.Open(trimmed)
-	} else if fence.Closes(trimmed, p.fenceTicks) {
-		p.fenceTicks = 0
-	}
-	p.inCodeBlock = p.fenceTicks > 0
-}
-
-// endFence deja el seguimiento de cercas cerrado después de un elemento que
-// el registry consumió entero.
-func (p *DocumentFlexParser) endFence() {
-	p.fenceTicks = 0
-	p.inCodeBlock = false
 }

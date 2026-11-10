@@ -425,3 +425,17 @@ func TestLiteralCode_ValuesDoNotChangeCodeSpans(t *testing.T) {
 		t.Errorf("the value's backtick must come out as a backtick: %s", out)
 	}
 }
+
+// En la prosa de una cita o un :::, una línea ```js` no abre otro bloque:
+// continúa el item (startsOtherBodyBlock usa la regla de CommonMark, como
+// fenceLines y proseFenceOpen). Una cerca de verdad sí corta el item.
+func TestProseLists_BacktickInfoLineContinuesTheItem(t *testing.T) {
+	out := renderProseWithLists("- item\n  ```js` sigue", false)
+	if !strings.Contains(out, "<li>item ```js` sigue</li>") {
+		t.Errorf("the line must continue the item: %s", out)
+	}
+	out = renderProseWithLists("- item\n  ```js\n  x", false)
+	if strings.Contains(out, "<li>item ```js") {
+		t.Errorf("a real fence must not continue the item: %s", out)
+	}
+}

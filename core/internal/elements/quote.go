@@ -99,7 +99,7 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 		}
 
 		// Parar en separador de slide o en el inicio de otro elemento
-		if line == "---" || IsNewElement(line, ctx.Mode) {
+		if line == "---" || IsNewElement(line, ctx.Mode) || (ctx.Mode == "flex" && strings.HasPrefix(line, "```") && opensFence(ctx.Lines, i)) {
 			break
 		}
 
@@ -143,7 +143,7 @@ func (p *QuoteParser) continuesQuote(ctx *ParseContext, index, quoteIndent int) 
 		return false
 	}
 	trimmed := strings.TrimSpace(ctx.Lines[index])
-	return trimmed != "---" && !IsNewElement(trimmed, ctx.Mode)
+	return trimmed != "---" && !IsNewElement(trimmed, ctx.Mode) && (ctx.Mode != "flex" || !opensFence(ctx.Lines, index))
 }
 
 // parseFlex parsea citas en modo flex (Markdown)

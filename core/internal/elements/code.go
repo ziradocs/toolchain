@@ -210,43 +210,41 @@ func longerClosingFenceWarning(ctx *ParseContext, i, ticks int, closing string) 
 func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, []diagnostics.Diagnostic, error) {
 	// ```lenguaje [archivo] o ```lenguaje title="archivo". La cerca puede
 	// tener más de tres backticks (````md para mostrar un bloque con ```
-	// adentro) y cierra con al menos tantos (internal/fence).
-	ticks := fence.Open(line)
-	if ticks == 0 {
-		ticks = 3
+	// adentro); hasta dónde llega lo decide fence.At, con la regla de
+	// CommonMark cuando da un resultado bien formado y la de las versiones
+	// anteriores si no, con un aviso (fenceDiagnostics).
+	block, ok := fenceAt(ctx, startIndex)
+	if !ok {
+		// Solo pasa si el llamador no preguntó antes (CanParse sobre la línea
+		// sola): una línea con un backtick en el info string que no abre.
+		// Se lee como en las versiones anteriores.
+		block = fence.Block{Start: startIndex, Ticks: 3, End: -1, Reading: fence.OpenedByMain, MainEnd: -1}
+		for j := startIndex + 1; j < len(ctx.Lines); j++ {
+			if strings.TrimSpace(ctx.Lines[j]) == "```" {
+				block.End, block.MainEnd = j, j
+				break
+			}
+		}
+	}
+	ticks := block.Ticks
+	if ticks > len(line) {
+		ticks = len(line)
 	}
 	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[ticks:]))
-	consumedLines := 1 // skip opening ``` line
-	var diags []diagnostics.Diagnostic
 
-	var content strings.Builder
-	lineCount := 0
-
-	// Collect content until closing ```
-	for i := startIndex + 1; i < len(ctx.Lines); i++ {
-		line := ctx.Lines[i]
-
-		if trimmed := strings.TrimSpace(line); fence.Closes(trimmed, ticks) {
-			consumedLines++ // count closing ```
-			// Solo una cerca de tres backticks cambió de cierre: antes la
-			// cerraba únicamente una línea "```" exacta.
-			if ticks == 3 && len(trimmed) > ticks {
-				diags = append(diags, longerClosingFenceWarning(ctx, i, ticks, trimmed))
-			}
-			break
-		}
-
-		if lineCount > 0 {
-			content.WriteString("\n")
-		}
-		content.WriteString(line)
-		lineCount++
-		consumedLines++
-	}
-
-	codeElement := ast.NewCodeElement(pos, language, content.String())
+	codeElement := ast.NewCodeElement(pos, language, strings.Join(fenceBody(ctx.Lines, block), "\n"))
 	codeElement.Filename = filename
-	return codeElement, consumedLines, diags, headerErr
+	return codeElement, block.Consumed(ctx.Lines), fenceDiagnostics(ctx, block), headerErr
+}
+
+// CanParseAt es CanParse con el contexto: en flex, una línea abre un bloque de
+// código si fence.At la lee como cerca, también una con un backtick en el
+// info string que se lee como en las versiones anteriores (fence.OpenedByMain).
+func (p *CodeParser) CanParseAt(ctx *ParseContext, i int) bool {
+	if ctx.Mode == "flex" {
+		return opensFence(ctx.Lines, i)
+	}
+	return p.CanParse(ctx.Lines[i], ctx.Mode)
 }
 
 // parseFenceInfo separa la línea de info de una fence (```ts renewals.ts o

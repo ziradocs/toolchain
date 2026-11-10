@@ -59,6 +59,7 @@ jobs:
             ./parser:FuzzStrictParse \
             ./parser:FuzzFlexParse \
             ./parser:FuzzDocumentFlexParse \
+            ./parser:FuzzFenceReadingIsReported \
             ./renderer:FuzzInlineMarkdownAllowlist \
             ./renderer:FuzzHeadingVariablesAllowlist; do
             pkg="${entry%%:*}"

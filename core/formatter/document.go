@@ -276,7 +276,27 @@ func formatFlexCode(e *ast.CodeElement) (string, error) {
 		info += " " + e.Filename
 	}
 	f := CodeFenceFor(e.Content)
+	// Un bloque de código con lenguaje math solo sale de una cerca ```math
+	// sin cierre (MathParser le deja el bloque a CodeParser). Escrito con su
+	// cierre se releería como ecuación; se escribe abierto con un backtick
+	// más que el cierre, que no lo cierra con CommonMark y sí con la regla
+	// de las versiones anteriores (fence.ClosedByMain, con su aviso CODE003):
+	// el AST se conserva. Si el contenido tiene una línea ``` exacta no hay
+	// forma de escribirlo así y queda como antes.
+	if lang, _, _ := strings.Cut(e.Language, " "); lang == "math" && !hasExactFenceLine(e.Content) {
+		return f + "`" + info + "\n" + e.Content + "\n```", nil
+	}
 	return f + info + "\n" + e.Content + "\n" + f, nil
+}
+
+// hasExactFenceLine dice si content tiene una línea que, recortada, es ```.
+func hasExactFenceLine(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == "```" {
+			return true
+		}
+	}
+	return false
 }
 
 // CodeFenceFor devuelve la cerca con la que escribir en Markdown un bloque de

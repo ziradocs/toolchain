@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/fence"
 )
 
@@ -56,25 +57,19 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	var content strings.Builder
 	foundStartUml := isNativeFormat // Si empezó con @startuml, ya lo encontramos
 
+	var fenceDiags []diagnostics.Diagnostic
 	if isMarkdownFormat {
-		// Formato Markdown: ```plantuml ... ```
-		// Recoger contenido hasta encontrar ``` o ````
-		for i := startIndex + 1; i < len(ctx.Lines); i++ {
-			line := ctx.Lines[i]
-			trimmed := strings.TrimSpace(line)
-
-			// Terminar al encontrar closing backticks
-			if fence.Closes(trimmed, ticks) {
-				consumedLines++
-				break
-			}
-
+		// Formato Markdown: ```plantuml ... ```, hasta donde lo lee fence.At
+		// (como un bloque de código suelto).
+		block, _ := fenceAt(ctx, startIndex)
+		for _, line := range fenceBody(ctx.Lines, block) {
 			if content.Len() > 0 {
 				content.WriteString("\n")
 			}
-			content.WriteString(trimmed)
-			consumedLines++
+			content.WriteString(strings.TrimSpace(line))
 		}
+		consumedLines = block.Consumed(ctx.Lines)
+		fenceDiags = fenceDiagnostics(ctx, block)
 	} else if isNativeFormat {
 		// Formato nativo PlantUML: @startuml ... @enduml
 		// Incluir @startuml en el contenido
@@ -198,6 +193,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       element,
 		ConsumedLines: consumedLines,
 		Error:         tagErr,
+		Diagnostics:   fenceDiags,
 	}
 }
 

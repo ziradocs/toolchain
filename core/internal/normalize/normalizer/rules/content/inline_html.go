@@ -75,21 +75,14 @@ func NewInlineHTMLTagsRule() *InlineHTMLTagsRule {
 func (r *InlineHTMLTagsRule) Apply(content string) (string, error) {
 	lines := strings.Split(content, "\n")
 	modified := false
-	fenceTicks := 0 // backticks de la cerca abierta (internal/fence)
+	inFence := fence.Lines(lines, r.analyzer.SkipFrontmatter(lines)) // la lectura del parser (fence.At)
 	inTildeFence := false
 	inEmbeddedBlock := false
 
 	for i := r.analyzer.SkipFrontmatter(lines); i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
 
-		if fenceTicks > 0 {
-			if fence.Closes(trimmed, fenceTicks) {
-				fenceTicks = 0
-			}
-			continue
-		}
-		if n := fence.Open(trimmed); n > 0 {
-			fenceTicks = n
+		if inFence[i] {
 			continue
 		}
 		if strings.HasPrefix(trimmed, "~~~") {

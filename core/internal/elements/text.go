@@ -189,6 +189,12 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			if p.isOtherElementType(trimmed, ctx.Mode) {
 				break
 			}
+			// Una línea con un backtick en el info string que fence.At sí
+			// lee como cerca (fence.OpenedByMain) corta el párrafo, como
+			// cualquier cerca (si es texto, lo avisa TextFenceDiagnostics).
+			if ctx.Mode == "flex" && strings.HasPrefix(trimmed, "```") && opensFence(ctx.Lines, i) {
+				break
+			}
 
 			// In flex mode, stop if we detect a numbered list that should be separate
 			if i > startIndex && p.isStartOfNumberedList(trimmed) {

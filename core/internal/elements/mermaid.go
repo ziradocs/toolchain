@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/fence"
 )
 
@@ -49,24 +50,15 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	consumedLines := 1 // skip opening line (<<mermaid>> or ```mermaid)
 	var contentLines []string
+	var fenceDiags []diagnostics.Diagnostic
 
 	if isMarkdownFormat {
-		// Formato Markdown: ```mermaid ... ```
-		// Recoger contenido hasta encontrar ``` o ````
-		for i := startIndex + 1; i < len(ctx.Lines); i++ {
-			line := ctx.Lines[i]
-			trimmed := strings.TrimSpace(line)
-
-			// Terminar en la cerca de cierre (internal/fence: solo backticks,
-			// al menos tantos como la apertura)
-			if fence.Closes(trimmed, ticks) {
-				consumedLines++
-				break
-			}
-
-			contentLines = append(contentLines, line)
-			consumedLines++
-		}
+		// Formato Markdown: ```mermaid ... ```, hasta donde lo lee fence.At
+		// (como un bloque de código suelto).
+		block, _ := fenceAt(ctx, startIndex)
+		contentLines = append(contentLines, fenceBody(ctx.Lines, block)...)
+		consumedLines = block.Consumed(ctx.Lines)
+		fenceDiags = fenceDiagnostics(ctx, block)
 	} else {
 		// Formato <<mermaid>> - usar indentación o tag de cierre <<end>>
 		indentDetector := NewAutoDetectIndentation()
@@ -110,6 +102,7 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       mermaid,
 		ConsumedLines: consumedLines,
 		Error:         tagErr,
+		Diagnostics:   fenceDiags,
 	}
 }
 

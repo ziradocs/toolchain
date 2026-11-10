@@ -149,6 +149,7 @@ func (p *FlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		}
 	}
 
+	p.diagnostics = append(p.diagnostics, elements.TextFenceDiagnostics(p.parseContext())...)
 	return astNode, p.diagnostics
 }
 

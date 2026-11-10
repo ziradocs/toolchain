@@ -70,7 +70,7 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 	inCodeItem := false
 	inCodeBlock := false
 	inBareFence := false
-	bareFenceTicks, codeBlockTicks := 0, 0 // backticks de cada cerca (internal/fence)
+	bareFenceEnd, codeBlockEnd := -1, -1 // la línea que cierra cada cerca (fence.End)
 	currentLanguage := ""
 	currentTitle := ""
 	var codeBlockContent []string
@@ -103,13 +103,13 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 		// :::code-item{} (ver más abajo), dejando el camino canónico sin
 		// protección — el mismo bug de "code-group pierde tabs" que esta
 		// regla existe para arreglar, en un disparador distinto.
-		if inCodeGroup && !inCodeItem && !inBareFence && fence.Open(trimmed) > 0 {
+		if inCodeGroup && !inCodeItem && !inBareFence && fence.End(lines, i) >= 0 {
 			inBareFence = true
-			bareFenceTicks = fence.Open(trimmed)
+			bareFenceEnd = fence.End(lines, i)
 			processedLines = append(processedLines, line)
 			continue
 		}
-		if inBareFence && fence.Closes(trimmed, bareFenceTicks) {
+		if inBareFence && i == bareFenceEnd {
 			inBareFence = false
 			processedLines = append(processedLines, line)
 			continue
@@ -146,9 +146,9 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 		}
 
 		// Detectar inicio de bloque de código dentro de code-item
-		if inCodeItem && !inCodeBlock && fence.Open(trimmed) > 0 {
+		if inCodeItem && !inCodeBlock && fence.End(lines, i) >= 0 {
 			// Extraer lenguaje del bloque
-			codeBlockTicks = fence.Open(trimmed)
+			codeBlockEnd = fence.End(lines, i)
 			currentLanguage = fence.Info(trimmed)
 			if currentLanguage == "" {
 				currentLanguage = "plaintext"
@@ -159,7 +159,7 @@ func (r *CodeGroupFormatterRule) Apply(content string) (string, error) {
 		}
 
 		// Detectar fin de bloque de código
-		if inCodeBlock && fence.Closes(trimmed, codeBlockTicks) {
+		if inCodeBlock && i == codeBlockEnd {
 			// Generar el bloque formateado con título y lenguaje
 			label := ""
 			if currentTitle != "" {

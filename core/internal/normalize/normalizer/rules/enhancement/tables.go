@@ -85,18 +85,19 @@ func (r *TablesRule) Apply(content string) (string, error) {
 // texto) como el cierre, reabriendo la puerta al mismo bug que esta regla
 // existe para arreglar — encontrado en code-review, no en el corpus.
 func (r *TablesRule) isInCodeFence(lines []string, index int) bool {
-	open := 0 // backticks de la cerca abierta: la regla de internal/fence, la del parser
+	// La lectura de cercas del parser (fence.At). La línea de apertura no
+	// cuenta como adentro, igual que antes.
 	for i := 0; i < index && i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-		if open > 0 {
-			if fence.Closes(line, open) {
-				open = 0
-			}
+		end := fence.End(lines, i)
+		if end < 0 {
 			continue
 		}
-		open = fence.Open(line)
+		if index <= end {
+			return true
+		}
+		i = end
 	}
-	return open > 0
+	return false
 }
 
 // isInSpecialBlock detecta si la línea actual está dentro de un bloque especial
