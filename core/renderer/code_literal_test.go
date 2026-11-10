@@ -14,7 +14,7 @@ import (
 
 // Issue #487: con RenderContext.LiteralCode el código es literal, `{{nombre}}`
 // incluido, como en el AST. La etiqueta de una pestaña de code-group no es
-// código y sigue como estaba. Sin la opción (el valor cero, lo que usa
+// código (TestRenderCodeGroupLabelMatchesLabelHTML). Sin la opción (el valor cero, lo que usa
 // slidelang) el código sustituye como siempre.
 func TestRenderElementToHTML_LiteralCodeOption(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
@@ -539,6 +539,39 @@ func TestLiteralCode_CRLFValues(t *testing.T) {
 		out := RenderElementToHTML(ast.NewTextElement(diagnostics.Position{}, "x {{v}} y"), map[string]interface{}{"v": v}, &RenderContext{LiteralCode: true})
 		if strings.Contains(out, "\r") || !strings.Contains(out, "x a<br>b y") {
 			t.Errorf("%q: %q", v, out)
+		}
+	}
+}
+
+// La etiqueta de una pestaña de code-group (```bash [etiqueta]) no es código:
+// es un campo de una línea, como una leyenda, con las {{variables}}
+// sustituidas fuera de sus code spans y sin Markdown. El botón de la pestaña
+// en el HTML dice lo mismo que su labelHTML, con la opción y sin ella.
+func TestRenderCodeGroupLabelMatchesLabelHTML(t *testing.T) {
+	vars := map[string]interface{}{"v": "VALOR", "x": "<i>"}
+	button := regexp.MustCompile(`<button[^>]*>([^<]*)</button>`)
+	for _, tc := range []struct{ label, literal, off string }{
+		{"tab {{v}}", "tab VALOR", "tab VALOR"},
+		{"otra `{{v}}`", "otra `{{v}}`", "otra `VALOR`"},
+		{"{{x}} **b**", "&lt;i&gt; **b**", "&lt;i&gt; **b**"},
+		{"{{falta}}", "{{falta}}", "{{falta}}"},
+	} {
+		for _, literal := range []bool{true, false} {
+			want := tc.off
+			if literal {
+				want = tc.literal
+			}
+			group := ast.NewCodeGroupElement(diagnostics.Position{})
+			group.CodeBlocks = []ast.CodeBlock{{Language: "bash", Label: tc.label, Content: "echo {{v}}"}}
+			out := RenderElementToHTML(group, vars, &RenderContext{LiteralCode: literal})
+			m := button.FindStringSubmatch(out)
+			if m == nil {
+				t.Fatalf("no tab button in:\n%s", out)
+			}
+			PopulateInlineHTMLWithOptions(newTestDoc(group), vars, InlineHTMLOptions{LiteralCode: literal})
+			if m[1] != want || group.CodeBlocks[0].LabelHTML != want {
+				t.Errorf("%q literal=%v: HTML %q, labelHTML %q, want %q", tc.label, literal, m[1], group.CodeBlocks[0].LabelHTML, want)
+			}
 		}
 	}
 }

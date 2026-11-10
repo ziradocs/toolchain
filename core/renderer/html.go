@@ -2823,7 +2823,11 @@ func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]int
 		if i == 0 {
 			activeClass = " active"
 		}
-		label := EscapeHTML(block.Label)
+		// La etiqueta no es código: es un campo de una línea, como una
+		// leyenda, con las {{variables}} sustituidas fuera de sus code spans
+		// y sin Markdown. Es lo mismo que el LabelHTML del AST
+		// (populateElementHTML).
+		label := EscapeHTML(proseLineVariables(block.Label, variables))
 		fmt.Fprintf(&html, `<button type="button" class="code-group-tab%s" data-index="%d">%s</button>`,
 			activeClass, i, label)
 	}
