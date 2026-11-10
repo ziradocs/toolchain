@@ -469,12 +469,17 @@ the `contentHTML` fields of the AST). Off, the default and what SlideLang uses,
 text the AST's `content` holds: the body of a `CODE` block or a code-group tab,
 and, in prose that goes through Markdown (text, quotes, list items, table
 cells, headings, the content of an untyped `:::` block), code spans and code
-fences written inside it. What is literal is decided by the source syntax, the
-way the parser reads it: a code span is matched within one line, and a fence
-(a line that starts with ```` ``` ````, closed by a line ```` ``` ````) only exists in
-a field that can hold several lines (a text, a quote, an item, a `:::` body); in a
-one-line field (a table cell, a heading) a line that starts with ```` ``` ```` is
-prose. The `langRuns` derived with the option on describe the same text. A code sample is shown as written, and template
+fences written inside it. What is literal is decided by the source syntax. A
+code span is matched within the unit the renderer passes to Markdown: a line,
+or a list item of a quote or a `:::` body joined with its continuation lines. A
+fence follows CommonMark with backticks, which is how a Markdown viewer shows
+it: it opens on a line of three or more backticks whose info string has no
+backtick (```` ```code``` inline ```` is a code span, not a fence), closes on a
+line of only backticks, at least as many, and an unclosed fence runs to the end
+of the field. A fence only exists in a field that can hold several lines (a
+text, a quote, an item, a `:::` body); in a one-line field (a table cell, a
+heading, a section title) a line that starts with ```` ``` ```` is prose.
+The `langRuns` derived with the option on describe the same text. A code sample is shown as written, and template
 languages (Handlebars, Jinja, Go templates) use `{{ }}` themselves. DocLang is
 meant to turn it on for every output; to show a variable's value next to a
 command there, write it outside the code.
@@ -562,9 +567,12 @@ MCP `get_ast`/`lint` tools keep the line as written). By default the line is
 expanded wherever it is, inside code too. With `include.ExpandOptions`'s
 `KeepIncludesInCode`, a line inside a code body (a strict `CODE` block, a fenced
 code block, a `:::code-group`) is code, as the parser reads it, and is left as
-written; what counts as a code body is decided on the text as it is being
-expanded, so it holds for code written inside an included file too, and the
-lines kept that way are reported to the caller. Diagram, chart, map and math
+written. What counts as a code body is what the document parser reads as code
+(`parser.CodeLiteralLines`, the grammar `get_ast` uses, without flex
+normalization): includes are expanded one at a time, in order, and the
+document is read again after each one, so code written inside an included file
+counts too. The lines kept that way are reported to the caller, and a kept
+line's path is never opened. Diagram, chart, map and math
 bodies are not code: an `@include` line there is always expanded. DocLang is
 meant to use this option; SlideLang keeps expanding everywhere.
 

@@ -26,7 +26,7 @@ func (p *CodeParser) CanParse(line string, mode string) bool {
 
 	// Flex mode: ```language fenced code blocks
 	if mode == "flex" {
-		return fence.Opens(trimmed)
+		return fence.Open(trimmed) > 0
 	}
 
 	return false
@@ -47,6 +47,7 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	if ctx.Mode == "strict" {
 		element, consumed, err := p.parseStrictCode(ctx, startIndex, pos, line)
+		ctx.recordCode(startIndex, consumed)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,
@@ -54,6 +55,7 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	} else {
 		element, consumed, err := p.parseFlexCode(ctx, startIndex, pos, line)
+		ctx.recordCode(startIndex, consumed)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,
@@ -193,6 +195,7 @@ func commonIndentPrefix(lines []string) (string, bool) {
 func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, error) {
 	// ```lenguaje [archivo] o ```lenguaje title="archivo"
 	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[3:]))
+	open := fence.Open(line)
 	consumedLines := 1 // skip opening ``` line
 
 	var content strings.Builder
@@ -202,7 +205,7 @@ func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagno
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
 
-		if fence.Closes(strings.TrimSpace(line)) {
+		if fence.Closes(strings.TrimSpace(line), open) {
 			consumedLines++ // count closing ```
 			break
 		}

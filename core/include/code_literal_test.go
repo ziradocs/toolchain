@@ -64,8 +64,6 @@ func TestExpand_CodeBodiesAreLiteral(t *testing.T) {
 		{"strict CODE, ideographic space before the directive", strictDoc + "  CODE\n    　@include other.txt\n", true},
 		{"strict code-group", strictDoc + "  :::code-group\n  ```txt [a]\n  @include other.txt\n  ```\n  :::\n", true},
 		{"flex fence", "# A\n\n```txt\n@include other.txt\n```\n", true},
-		{"slide strict CODE", "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  CODE\n    @include other.txt\n", false},
-		{"slide flex fence", "---\nmode: flex\ntitle: T\n---\n\n# A\n\n```\n@include other.txt\n```\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := expandKeep(tc.src, "/base", memFS(files))
@@ -212,5 +210,141 @@ func TestExpand_DefaultStillExpandsInsideCode(t *testing.T) {
 		if err != nil || res.Text != got || len(res.KeptInCode) != 0 {
 			t.Errorf("ExpandWithOptions with no options must match Expand: %q %v %v", res.Text, res.KeptInCode, err)
 		}
+	}
+}
+
+// Hallazgo 2 del review de #497: qué es código lo decide el parser, con su
+// regla de cercas y su gramática, no un recorrido aparte.
+func TestExpand_CodeIsWhatTheParserReadsAsCode(t *testing.T) {
+	files := map[string]string{"/base/part2.md": "PART2"}
+	strictDoc := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n"
+	for _, tc := range []struct {
+		name, src string
+		kept      bool
+	}{
+		// La cerca de cuatro sigue abierta en ```` (solo ``` la cierra): el
+		// @include es código.
+		{"four-backtick fence, ```` inside", "# A\n\n````js\nq\n````\n@include part2.md\n```\n", true},
+		// La cerca de cuatro cierra en ```: el @include que sigue no es
+		// código y se expande.
+		{"four-backtick fence closed by ```", "# A\n\n````js\nq\n```\n@include part2.md\nfin\n", false},
+		// Una pestaña de code-group solo cierra en ``` exacto: ```js adentro
+		// es contenido.
+		{"code-group tab with ```js inside", ":::code-group\n```js [a]\nx\n```js\n@include part2.md\n```\n:::\n", true},
+		// ::::code-group (cuatro dos puntos) también es un code-group.
+		{"four-colon code-group", "::::code-group\n```js [a]\n@include part2.md\n```\n:::\n", true},
+		// Una línea suelta en un code-group no llega al AST: no es código.
+		{"stray line in a code-group", ":::code-group\n@include part2.md\n```js [a]\nx\n```\n:::\n", false},
+		// En strict, una línea ``` dentro de un TEXT es texto.
+		{"``` inside a strict TEXT", strictDoc + "  TEXT\n    ```\n    @include part2.md\n    ```\n", false},
+		// En strict, una línea CODE dentro del cuerpo de un TEXT es texto.
+		{"CODE inside a strict TEXT body", strictDoc + "  TEXT\n    CODE js\n      @include part2.md\n", false},
+		// Un CODE pegado a un TEXT, sin línea en blanco, no es un elemento
+		// propio en el AST: el include se expande, como lo muestra get_ast.
+		{"CODE right after a TEXT", strictDoc + "  TEXT a\n  CODE js\n    @include part2.md\n", false},
+		// El cuerpo flex de un :::bloque tipado lee la cerca como código.
+		{"fence inside a typed block", strictDoc + "  :::note{typed}\n  ```js\n  @include part2.md\n  ```\n  :::\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := ExpandWithOptions(tc.src, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+			if err != nil {
+				t.Fatalf("ExpandWithOptions: %v", err)
+			}
+			if kept := len(res.KeptInCode) > 0; kept != tc.kept {
+				t.Errorf("kept %v, want %v:\n%s", kept, tc.kept, res.Text)
+			}
+			if kept := strings.Contains(res.Text, "@include part2.md"); kept != tc.kept || kept == strings.Contains(res.Text, "PART2") {
+				t.Errorf("text:\n%s", res.Text)
+			}
+			if got := probeLike(tc.src, "@include part2.md"); got != tc.kept {
+				t.Errorf("fixture: the AST of the source has the directive in code=%v", got)
+			}
+		})
+	}
+}
+
+// probeLike dice si el AST de src (ParseDocument, sin normalización) lleva
+// directive dentro del contenido de un bloque de código: lo que get_ast
+// muestra como código.
+func probeLike(src, directive string) bool {
+	p := parser.New(util.NewNoop())
+	p.SetNormalization(false)
+	doc, _ := p.ParseDocument(src, "")
+	found := false
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		switch c := n.(type) {
+		case *ast.CodeElement:
+			found = found || strings.Contains(c.Content, directive)
+		case *ast.CodeGroupElement:
+			for _, b := range c.CodeBlocks {
+				found = found || strings.Contains(b.Content, directive)
+			}
+		}
+		return nil
+	})
+	return found
+}
+
+// Hallazgo 4 del review de #497: el frontmatter se reconoce como lo reconoce el
+// parser, también con un BOM o líneas en blanco antes del `---`, así que un
+// CODE strict sigue siendo código.
+func TestExpand_StrictFrontMatterAfterBOMOrBlankLines(t *testing.T) {
+	files := map[string]string{"/base/other.txt": "    INCLUDED"}
+	body := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  CODE\n    @include other.txt\n"
+	for _, prefix := range []string{"\ufeff", "\n\n", "\ufeff\n"} {
+		got, err := expandKeep(prefix+body, "/base", memFS(files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(got, "INCLUDED") {
+			t.Errorf("prefix %q: the CODE body must stay literal:\n%s", prefix, got)
+		}
+	}
+}
+
+// Un frontmatter sin cerrar no es frontmatter para ParseDocument: el
+// documento se lee como flex desde la primera línea, así que una cerca que
+// sigue es código y su @include no se expande. Fija lo que hace el parser.
+func TestExpand_UnclosedFrontMatter(t *testing.T) {
+	files := map[string]string{"/base/other.txt": "INCLUDED"}
+	src := "---\nmode: strict\n\n```\n@include other.txt\n```\n"
+	got, err := expandKeep(src, "/base", memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := probeLike(src, "@include other.txt"); want == strings.Contains(got, "INCLUDED") {
+		t.Errorf("the include must follow the AST (in code=%v):\n%s", want, got)
+	}
+	if !probeLike(src, "@include other.txt") {
+		t.Errorf("fixture: ParseDocument reads the fence of an unclosed frontmatter as code")
+	}
+}
+
+// Un @include que queda en código no se abre: una ruta que no existe o que
+// sale de baseDir no es un error.
+func TestExpand_KeptIncludeIsNotOpened(t *testing.T) {
+	for _, path := range []string{"missing.txt", "../outside.txt", "/etc/passwd"} {
+		src := "# A\n\n```\n@include " + path + "\n```\n"
+		res, err := ExpandWithOptions(src, "/base", memFS(nil), ExpandOptions{KeepIncludesInCode: true})
+		if err != nil || res.Text != src || len(res.KeptInCode) != 1 || res.KeptInCode[0] != 4 {
+			t.Errorf("%s: %v %v %q", path, err, res.KeptInCode, res.Text)
+		}
+	}
+}
+
+// Los @include se expanden en orden: un archivo incluido que abre una cerca
+// sin cerrarla deja como código un @include posterior, igual que el parser
+// lo ve en el texto expandido.
+func TestExpand_IncludedFenceCapturesLaterInclude(t *testing.T) {
+	files := map[string]string{
+		"/base/open.md":  "```",
+		"/base/other.md": "INCLUDED",
+	}
+	got, err := expandKeep("# A\n\n@include open.md\n@include other.md\n", "/base", memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# A\n\n```\n@include other.md\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

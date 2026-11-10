@@ -141,7 +141,7 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 	case *ast.HeadingElement:
 		// Se deriva del HTML del encabezado, igual que su forma legada, para
 		// que las dos formas reporten exactamente los mismos runs.
-		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(HeadingHTML(elem.Level, proseVariables(elem.Text, variables), elem.Anchor), true, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(HeadingHTML(elem.Level, proseLineVariables(elem.Text, variables), elem.Anchor), true, variables)
 
 	case *ast.PointsElement:
 		for i := range elem.Items {

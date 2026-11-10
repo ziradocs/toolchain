@@ -4,6 +4,7 @@
 package renderer
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -92,7 +93,13 @@ func TestSubstituteOutsideCode(t *testing.T) {
 		{"``uno ` {{x}}`` {{x}}", "``uno ` {{x}}`` X"},
 		{"sin cierre ` {{x}}", "sin cierre ` X"},
 		{"texto {{x}}\n```yaml\na: {{x}}\n```\nluego {{x}}", "texto X\n```yaml\na: {{x}}\n```\nluego X"},
-		{"````md\n```\n{{x}}\n```\n````\n{{x}}", "````md\n```\nX\n```\n````\n{{x}}"},
+		// Una cerca de cuatro guarda un ``` como contenido y cierra en su
+		// propio ```` (CommonMark, como la pinta un visor de Markdown).
+		{"````md\n```\n{{x}}\n```\n````\n{{x}}", "````md\n```\n{{x}}\n```\n````\nX"},
+		// Un backtick en el info string no abre cerca: es un code span y el
+		// resto es prosa (hallazgo 3 del review de #497).
+		{"```code``` inline {{x}}\nluego {{x}}", "```code``` inline X\nluego X"},
+		{"a\n```js`\n{{x}}", "a\n```js`\nX"},
 		{"x ` y\n`{{x}}`", "x ` y\n`{{x}}`"},
 		{"```no es cerca {{x}}", "```no es cerca X"},
 		{"```\n{{x}} sin cerrar", "```\n{{x}} sin cerrar"},
@@ -280,5 +287,91 @@ func TestRenderContext_SetLiteralCode(t *testing.T) {
 	code := ast.NewCodeElement(diagnostics.NewPosition(1, 1), "yaml", "a: {{x}}")
 	if out := RenderElementToHTML(code, map[string]interface{}{"x": "X"}, ctx); !strings.Contains(out, "a: {{x}}") {
 		t.Errorf("SetLiteralCode(true) must keep the code literal: %s", out)
+	}
+}
+
+// Hallazgo 5 del review de #497: el título de una sección (`# Uno {{x}}
+// `{{x}}“) respeta sus code spans como un encabezado `##`, en el h1, en el TOC
+// (con el mismo anchor que el h1) y en el TitleHTML/HeadingHTML del AST.
+func TestLiteralCode_SectionTitles(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"title": "X"}
+	build := func() *ast.AST {
+		doc := ast.NewAST(pos)
+		doc.FrontMatter = ast.NewFrontMatterNode(pos)
+		doc.FrontMatter.Title = "X"
+		first := ast.NewContentBlock(pos, "title")
+		first.Heading = "Portada {{title}} `{{title}}`"
+		second := ast.NewContentBlock(pos, "content")
+		second.Title = "Uno {{title}} `{{title}}`"
+		second.Elements = []ast.Element{ast.NewTextElement(pos, "texto")}
+		doc.ContentBlocks = []ast.ContentBlock{*first, *second}
+		return doc
+	}
+	for _, literal := range []bool{true, false} {
+		doc := build()
+		out := GenerateDocumentHTML(doc, DocumentHTMLOptions{TOC: true}, &RenderContext{LiteralCode: literal})
+		want := "Uno X `X`"
+		if literal {
+			want = "Uno X `{{title}}`"
+		}
+		h1 := regexp.MustCompile(`<h1 id="([^"]*)">` + regexp.QuoteMeta(EscapeHTML(want)) + `</h1>`).FindStringSubmatch(out)
+		if h1 == nil {
+			t.Fatalf("literal=%v: no <h1> with %q:\n%s", literal, want, out)
+		}
+		if !strings.Contains(out, `<a href="#`+h1[1]+`">`+EscapeHTML(want)+`</a>`) {
+			t.Errorf("literal=%v: the TOC entry must link to the h1 id %q", literal, h1[1])
+		}
+
+		doc = build()
+		PopulateInlineHTMLWithOptions(doc, vars, InlineHTMLOptions{LiteralCode: literal})
+		wantTitle, wantHeading := "Uno X `X`", "Portada X `X`"
+		if literal {
+			wantTitle, wantHeading = "Uno X `{{title}}`", "Portada X `{{title}}`"
+		}
+		if doc.ContentBlocks[1].TitleHTML != wantTitle || doc.ContentBlocks[0].HeadingHTML != wantHeading {
+			t.Errorf("literal=%v: TitleHTML %q HeadingHTML %q", literal, doc.ContentBlocks[1].TitleHTML, doc.ContentBlocks[0].HeadingHTML)
+		}
+	}
+}
+
+// Los LangRuns de un encabezado tipado se derivan con la misma sustitución
+// que su HTML: con la opción, un valor dentro de un code span no abre un span
+// de idioma.
+func TestPopulateLangRuns_LiteralCodeHeading(t *testing.T) {
+	vars := map[string]interface{}{"v": "a` [mal]{lang=de} `b"}
+	for _, tc := range []struct {
+		literal bool
+		langs   []string
+	}{{true, []string{"fr"}}, {false, []string{"de", "fr"}}} {
+		el := &ast.HeadingElement{Level: 2, Text: "`{{v}}` [hola]{lang=fr}", Anchor: "h"}
+		PopulateLangRunsWithOptions(newTestDoc(el), vars, InlineHTMLOptions{LiteralCode: tc.literal})
+		var got []string
+		for _, r := range el.LangRuns {
+			got = append(got, r.Lang)
+		}
+		if strings.Join(got, ",") != strings.Join(tc.langs, ",") {
+			t.Errorf("literal=%v: langs %v, want %v", tc.literal, got, tc.langs)
+		}
+	}
+}
+
+// Hallazgo 1 del review de #497: en una cita o un ::: el renderer junta un
+// item con sus líneas de continuación y empareja los code spans sobre el item
+// entero; la sustitución los empareja igual. Vale también para la prosa de un
+// TEXT anidado en un ::: con elementos.
+func TestLiteralCode_ListItemContinuation(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"x": "X"}
+	src := "- corre `make {{x}}\n  --verbose` ahora {{x}}"
+	for _, el := range []ast.Element{
+		ast.NewQuoteElement(pos, src),
+		&ast.SpecialBlockElement{BlockType: "note", Content: src},
+		&ast.SpecialBlockElement{BlockType: "note", Content: src, Elements: []ast.Element{ast.NewTextElement(pos, src)}},
+	} {
+		out := RenderElementToHTML(el, vars, &RenderContext{LiteralCode: true})
+		if !strings.Contains(out, "<code>make {{x}} --verbose</code> ahora X") {
+			t.Errorf("%T: %s", el, out)
+		}
 	}
 }

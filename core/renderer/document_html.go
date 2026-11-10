@@ -1743,7 +1743,7 @@ func generateDocumentTOC(doc *ast.AST, opts DocumentHTMLOptions, variables map[s
 		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
-			titleProcessed := ProcessVariables(title, variables)
+			titleProcessed := proseLineVariables(title, variables)
 			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
 			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
@@ -2117,7 +2117,7 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
-			titleProcessed := ProcessVariables(title, variables)
+			titleProcessed := proseLineVariables(title, variables)
 			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
 			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
@@ -2209,7 +2209,7 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
-			titleProcessed := ProcessVariables(title, variables)
+			titleProcessed := proseLineVariables(title, variables)
 			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
 			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)
@@ -2688,7 +2688,7 @@ func generateViewerSidebar(doc *ast.AST, opts DocumentHTMLOptions, variables map
 		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
-			titleProcessed := ProcessVariables(title, variables)
+			titleProcessed := proseLineVariables(title, variables)
 			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
 			anchor = SanitizeAnchor(anchor)
 			titleEscaped := EscapeHTML(titleProcessed)

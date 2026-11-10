@@ -121,116 +121,83 @@ type Expansion struct {
 	Origins LineOrigins
 	// KeptInCode son las líneas de Text (1-based) con un `@include` que se dejó
 	// sin expandir por estar dentro de código (KeepIncludesInCode), para que
-	// el llamador lo pueda avisar.
+	// el llamador lo pueda avisar. Con la opción, toda línea `@include` de Text
+	// está en esta lista.
 	KeptInCode []int
 }
 
 // ExpandWithOptions es ExpandWithOrigins con opciones.
+//
+// Con KeepIncludesInCode, qué es código lo decide el parser
+// (parser.CodeLiteralLines) sobre el documento tal como va quedando: se
+// expande un `@include` a la vez, el primero en orden que no cae en código,
+// y se vuelve a preguntar. Así el contenido de un archivo incluido cuenta
+// para lo que sigue (un archivo que abre una cerca deja como código un
+// `@include` posterior dentro de ella), y el dialecto sale del frontmatter
+// ya expandido: un `mode: strict` que trae un @include del frontmatter cuenta
+// igual que uno escrito ahí. Un `@include` que queda en código no se abre, así
+// que su ruta no se resuelve ni se lee.
 func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOptions) (Expansion, error) {
 	if !opts.KeepIncludesInCode {
 		text, origins, err := ExpandWithOrigins(content, baseDir, read)
 		return Expansion{Text: text, Origins: origins}, err
 	}
 	lines := strings.Split(content, "\n")
+	frames := make([]*includeFrame, len(lines))
+	root := &includeFrame{visited: map[string]bool{}}
+	for i := range frames {
+		frames[i] = root
+	}
+	for {
+		next := -1
+		var code []bool
+		for i, line := range lines {
+			if _, ok := parseIncludeLine(line); !ok {
+				continue
+			}
+			if code == nil {
+				code = parser.CodeLiteralLines(strings.Join(lines, "\n"))
+			}
+			if !code[i] {
+				next = i
+				break
+			}
+		}
+		if next < 0 {
+			break
+		}
+		incPath, _ := parseIncludeLine(lines[next])
+		frame := frames[next]
+		child, err := openInclude(lines[next], incPath, baseDir, read, frame.visited, frame.depth)
+		if err != nil {
+			return Expansion{}, err
+		}
+		childFrames := make([]*includeFrame, len(child.lines))
+		for i := range childFrames {
+			childFrames[i] = child
+		}
+		lines = append(lines[:next], append(child.lines, lines[next+1:]...)...)
+		frames = append(frames[:next], append(childFrames, frames[next+1:]...)...)
+	}
 
-	// El frontmatter del contenido raíz se expande como siempre, línea por
-	// línea y sin mirar regiones de código: no es cuerpo del documento.
-	bodyStart := frontMatterLines(lines)
-	out, origins, err := expand(strings.Join(lines[:bodyStart], "\n"), "", baseDir, read, map[string]bool{}, 0)
-	if err != nil {
-		return Expansion{}, err
-	}
-	if bodyStart == 0 {
-		out, origins = nil, nil
-	}
-
-	// El dialecto sale del frontmatter ya expandido: un `mode: strict` que
-	// trae un @include del frontmatter cuenta igual que uno escrito ahí.
-	strict := parser.SourceIsStrict(strings.Join(out, "\n"))
-	body, bodyOrigins, kept, err := expandBody(lines[bodyStart:], strict, baseDir, read)
-	if err != nil {
-		return Expansion{}, err
-	}
-	for i := range kept {
-		kept[i] += len(out)
-	}
-	out = append(out, body...)
-	origins = append(origins, bodyOrigins...)
-	return Expansion{Text: strings.Join(out, "\n"), Origins: origins, KeptInCode: kept}, nil
-}
-
-// frontMatterLines cuenta las líneas del frontmatter de lines (delimitadores
-// incluidos), con el mismo criterio que el pre-pase de node-id del parser: la
-// primera línea es `---` y el bloque termina en el siguiente `---`, o en el
-// fin del archivo si no lo hay. 0 si no hay frontmatter.
-func frontMatterLines(lines []string) int {
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != parser.FrontMatterDelimiter {
-		return 0
-	}
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == parser.FrontMatterDelimiter {
-			return i + 1
+	origins := make(LineOrigins, len(lines))
+	var kept []int
+	for i, line := range lines {
+		origins[i] = frames[i].file
+		if _, ok := parseIncludeLine(line); ok {
+			kept = append(kept, i+1)
 		}
 	}
-	return len(lines)
+	return Expansion{Text: strings.Join(lines, "\n"), Origins: origins, KeptInCode: kept}, nil
 }
 
-// includeFrame es un archivo en curso de expansión: sus líneas, la próxima a
-// leer y la cadena de archivos que lo incluyó (para detectar ciclos).
+// includeFrame es un archivo incluido: sus líneas, su ruta y la cadena de
+// archivos que lo incluyó (para detectar ciclos) con su profundidad.
 type includeFrame struct {
 	lines   []string
-	next    int
 	file    string
 	visited map[string]bool
 	depth   int
-}
-
-// expandBody expande el cuerpo del documento (lo que sigue al frontmatter
-// raíz) como un solo flujo de líneas: en el orden en que las va a ver el
-// parser, con cada archivo incluido en el lugar de su `@include`.
-//
-// Una línea `@include` que cae dentro de un cuerpo de código (el de un CODE
-// strict, una cerca ```, un :::code-group) es código, no una directiva: el
-// parser la guarda tal cual en el AST, y get_ast y el lint la muestran así.
-// Sin KeepIncludesInCode se expande igual, y el build emite dentro del bloque
-// de código el contenido de un archivo que el AST no menciona (issue #487).
-// Devuelve también las líneas, 1-based sobre lo que devuelve, de cada
-// `@include` que dejó en el código. Qué es código lo
-// decide parser.CodeLiteralScanner, recorriendo el texto ya expandido: la
-// línea `@include` no está en ese texto (en su lugar van las líneas del
-// archivo incluido), así que solo se la mira con Peek, y el escáner sigue con
-// lo que de verdad la reemplaza.
-func expandBody(lines []string, strict bool, baseDir string, read ReadFunc) ([]string, LineOrigins, []int, error) {
-	scanner := parser.NewCodeLiteralScanner(strict)
-	out := make([]string, 0, len(lines))
-	origins := make(LineOrigins, 0, len(lines))
-	var kept []int
-	stack := []*includeFrame{{lines: lines, visited: map[string]bool{}}}
-	for len(stack) > 0 {
-		frame := stack[len(stack)-1]
-		if frame.next >= len(frame.lines) {
-			stack = stack[:len(stack)-1]
-			continue
-		}
-		line := frame.lines[frame.next]
-		frame.next++
-
-		if incPath, ok := parseIncludeLine(line); ok {
-			if !scanner.Peek(line) {
-				child, err := openInclude(line, incPath, baseDir, read, frame.visited, frame.depth)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				stack = append(stack, child)
-				continue
-			}
-			kept = append(kept, len(out)+1)
-		}
-		scanner.Next(line)
-		out = append(out, line)
-		origins = append(origins, frame.file)
-	}
-	return out, origins, kept, nil
 }
 
 // openInclude resuelve y lee el archivo de una línea `@include`, con los
@@ -276,8 +243,8 @@ func openInclude(line, incPath, baseDir string, read ReadFunc, visited map[strin
 // Unir las líneas con "\n" da lo mismo que unir cada hijo ya expandido como
 // un solo bloque, que es lo que hacía esta función antes de devolver
 // orígenes. Es la expansión de Expand y ExpandWithOrigins, que no miran
-// regiones de código; con KeepIncludesInCode solo se usa para el frontmatter
-// del contenido raíz y el cuerpo va por expandBody.
+// regiones de código; con KeepIncludesInCode la expansión es la de
+// ExpandWithOptions.
 func expand(content, file, baseDir string, read ReadFunc, visited map[string]bool, depth int) ([]string, LineOrigins, error) {
 	if depth > MaxDepth {
 		return nil, nil, fmt.Errorf("include: profundidad máxima (%d) excedida — revisar si hay un ciclo no detectado", MaxDepth)

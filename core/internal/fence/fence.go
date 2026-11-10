@@ -2,23 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package fence es la regla de las cercas de código flex (```lenguaje …
-// ```): cuándo una línea abre una y cuándo la cierra. La comparten el parser
-// de bloques de código (internal/elements.CodeParser) y la sustitución de
-// variables que respeta el código (renderer.proseVariables), para que lo que
-// el renderer trata como código dentro de la prosa sea lo mismo que el parser
-// lee como código.
+// ```): cuándo una línea abre una y cuándo la cierra. Es la regla de main,
+// en un solo lugar:
+//
+//   - abre una línea que empieza con tres backticks;
+//   - cierra una línea que es exactamente tres backticks, sin importar
+//     cuántos backticks tenía la apertura.
+//
+// La usa el parser de bloques de código (internal/elements.CodeParser).
 package fence
 
 import "strings"
 
-// Opens dice si trimmed (una línea ya recortada) abre una cerca de código:
-// empieza con tres backticks.
-func Opens(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "```")
+// Open devuelve cuántos backticks abren la cerca de trimmed (una línea ya
+// recortada), o 0 si la línea no abre una: abre toda línea que empieza con
+// tres backticks.
+func Open(trimmed string) int {
+	if !strings.HasPrefix(trimmed, "```") {
+		return 0
+	}
+	return len(trimmed) - len(strings.TrimLeft(trimmed, "`"))
 }
 
-// Closes dice si trimmed cierra una cerca de código abierta: es exactamente
-// tres backticks.
-func Closes(trimmed string) bool {
-	return trimmed == "```"
+// Info es el info string de una línea que abre una cerca: lo que sigue a los
+// backticks, recortado.
+func Info(trimmed string) string {
+	return strings.TrimSpace(strings.TrimLeft(trimmed, "`"))
+}
+
+// Closes dice si trimmed cierra una cerca abierta con open backticks (lo que
+// devolvió Open): es exactamente tres backticks. El largo de la apertura no
+// cuenta: una cerca de cuatro también cierra en ```.
+func Closes(trimmed string, open int) bool {
+	return open > 0 && trimmed == "```"
 }

@@ -20,6 +20,11 @@ type Parser struct {
 	enableNormalize     bool
 	lastDetectionResult *normalizer.DetectionResult // Almacena el último resultado de detección
 	logger              util.Logger
+
+	// recordCode, si no es nil, recibe de ParseDocument cada línea del
+	// archivo (1-based, en la fuente tal como la escribió el autor) que el
+	// parser lee como código literal. Ver CodeLiteralLines.
+	recordCode func(line int)
 }
 
 // New crea un Parser. log nunca queda nil: un caller que pase nil recibe un
@@ -144,14 +149,29 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	var astNode *ast.AST
 	var bodyDiagnostics []diagnostics.Diagnostic
 
+	// Las líneas que el cuerpo lee como código cuentan sobre el contenido
+	// sin anotaciones de node-id; lineMap las devuelve a la fuente.
+	var recordCode func(line, n int)
+	if p.recordCode != nil {
+		recordCode = func(line, n int) {
+			for l := line; l < line+n; l++ {
+				if l > 0 && l < len(lineMap) {
+					p.recordCode(lineMap[l])
+				}
+			}
+		}
+	}
+
 	if mode == "strict" {
 		bodyParser := newDocumentStrictParserAt(processedContent, bodyOffset, p.logger)
+		bodyParser.recordCode = recordCode
 		bodyParser.nestedListTypes = nestedListTypes
 		bodyParser.listStart = ast.SourceDeclaresCapability(sourceFM, ast.ListStartCapability)
 		bodyParser.mathSource = ast.SourceDeclaresCapability(sourceFM, ast.MathSourceCapability)
 		astNode, bodyDiagnostics = bodyParser.Parse()
 	} else {
 		bodyParser := newDocumentFlexParserAt(processedContent, bodyOffset, p.logger)
+		bodyParser.recordCode = recordCode
 		bodyParser.nestedListTypes = nestedListTypes
 		bodyParser.listStart = ast.SourceDeclaresCapability(sourceFM, ast.ListStartCapability)
 		bodyParser.mathSource = ast.SourceDeclaresCapability(sourceFM, ast.MathSourceCapability)

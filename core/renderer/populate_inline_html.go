@@ -43,10 +43,10 @@ func PopulateInlineHTMLWithOptions(doc *ast.AST, variables map[string]interface{
 }
 
 func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]interface{}, opts InlineHTMLOptions) {
-	block.TitleHTML = ProcessVariablesSecure(block.Title, variables)
-	block.HeadingHTML = ProcessVariablesSecure(block.Heading, variables)
-	block.SubtitleHTML = ProcessVariablesSecure(block.Subtitle, variables)
-	block.KickerHTML = ProcessVariablesSecure(block.Kicker, variables)
+	block.TitleHTML = proseLineVariablesSecure(block.Title, variables)
+	block.HeadingHTML = proseLineVariablesSecure(block.Heading, variables)
+	block.SubtitleHTML = proseLineVariablesSecure(block.Subtitle, variables)
+	block.KickerHTML = proseLineVariablesSecure(block.Kicker, variables)
 	for _, elem := range block.Elements {
 		populateElementHTML(elem, variables, opts)
 	}
@@ -85,7 +85,7 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		// Mismo orden que un párrafo y que el legado (HeadingContentHTML):
 		// {{variables}} primero y después el Markdown inline de una línea,
 		// para que el filtro de esquemas vea el destino ya sustituido.
-		elem.TextHTML = ProcessInlineMarkdownSecureLine(proseVariables(elem.Text, variables))
+		elem.TextHTML = ProcessInlineMarkdownSecureLine(proseLineVariables(elem.Text, variables))
 
 	case *ast.PointsElement:
 		for i := range elem.Items {

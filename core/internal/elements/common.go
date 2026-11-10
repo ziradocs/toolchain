@@ -39,6 +39,13 @@ type ParseContext struct {
 	Logger          util.Logger // Logger interface for structured logging
 	Lines           []string
 
+	// RecordCode, si no es nil, recibe las líneas que CodeParser y
+	// CodeGroupParser leen como código literal: line es la línea del archivo
+	// (1-based) de la primera y n cuántas son, contiguas. Lo usa
+	// parser.CodeLiteralLines para preguntarle al parser, en vez de a un
+	// recorrido aparte, qué líneas de una fuente son código.
+	RecordCode func(line, n int)
+
 	// LineOffset son las líneas del archivo que preceden a Lines[0]: el
 	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines
 	// es el archivo entero (#245).
@@ -91,6 +98,20 @@ type ParseContext struct {
 // position_offset_guard_test.go en core/parser).
 func (ctx *ParseContext) Position(lineIndex int) diagnostics.Position {
 	return diagnostics.NewPosition(ctx.LineOffset+lineIndex+1, 1)
+}
+
+// recordCode avisa a RecordCode, si hay, que las n líneas de Lines desde
+// start son código literal. n se recorta a las líneas que existen.
+func (ctx *ParseContext) recordCode(start, n int) {
+	if ctx.RecordCode == nil || n <= 0 {
+		return
+	}
+	if start+n > len(ctx.Lines) {
+		n = len(ctx.Lines) - start
+	}
+	if n > 0 {
+		ctx.RecordCode(ctx.LineOffset+start+1, n)
+	}
 }
 
 // ParseResult encapsula el resultado del parsing de un elemento

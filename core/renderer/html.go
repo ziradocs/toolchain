@@ -942,7 +942,7 @@ func renderQuoteElement(elem *ast.QuoteElement, variables map[string]interface{}
 	// Una lista dentro de la cita sale como lista, fuera de todo <p> (un <ul>
 	// dentro de <p> es HTML inválido) y anidada como la escribió el autor.
 	// Sin listas sale el mismo <p> de siempre.
-	html.WriteString(renderProseWithLists(proseVariables(elem.Content, variables), true))
+	html.WriteString(renderProseWithLists(proseListVariables(elem.Content, variables), true))
 
 	if author != "" || source != "" {
 		html.WriteString("<footer>")
@@ -2795,14 +2795,14 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 			// La prosa entre los elementos de un bloque arma sus listas como
 			// el Content del bloque (renderProseWithLists).
 			if text, ok := nested.(*ast.TextElement); ok && !text.IsRawHTML {
-				html.WriteString(wrapTextHTML(renderProseWithLists(proseVariables(text.Content, variables), false)))
+				html.WriteString(wrapTextHTML(renderProseWithLists(proseListVariables(text.Content, variables), false)))
 				continue
 			}
 			html.WriteString(RenderElementToHTML(nested, variables, ctx))
 		}
 		html.WriteString(`</div>`)
 	} else {
-		content := renderProseWithLists(proseVariables(elem.Content, variables), false)
+		content := renderProseWithLists(proseListVariables(elem.Content, variables), false)
 		fmt.Fprintf(&html, `<div class="alert-content">%s</div>`, content)
 	}
 	html.WriteString("</div>")
