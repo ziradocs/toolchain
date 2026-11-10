@@ -3103,14 +3103,22 @@ func (g *DOCXGenerator) prepareLocalImage(source string, line int, hasCaption bo
 	}
 
 	// Tamaño natural, reducido si no cabe en la caja de texto. Un SVG entra
-	// como PNG rasterizado con Chromium (ver rasterizeSVGImage). Un SVG
-	// guardado con otra extensión se reconoce por su contenido cuando los
-	// decoders de imagen no lo leen.
+	// como PNG rasterizado con Chromium (ver rasterizeSVGImage) y un WebP
+	// como PNG convertido (ver convertWebPToPNG). Un SVG guardado con otra
+	// extensión se reconoce por su contenido cuando los decoders de imagen no
+	// lo leen.
 	insertPath := imagePath
 	var imageSize domain.ImageSize
 	var err error
 	isSVG := isSVGImageSource(imagePath)
-	if !isSVG {
+	if !isSVG && fileIsWebP(imagePath) {
+		// Un WebP entra como PNG (Word no inserta WebP), con el tamaño del
+		// PNG, que es el del WebP.
+		insertPath, err = g.convertWebPToPNG(imagePath)
+		if err == nil {
+			imageSize, err = g.fittedImageSize(insertPath, hasCaption)
+		}
+	} else if !isSVG {
 		imageSize, err = g.fittedImageSize(imagePath, hasCaption)
 		if err != nil && fileLooksLikeSVG(imagePath) {
 			isSVG, err = true, nil
