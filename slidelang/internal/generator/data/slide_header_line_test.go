@@ -22,3 +22,18 @@ func TestSlideHeaderLine_PlainTextDecodesOnce(t *testing.T) {
 		}
 	}
 }
+
+// Una imagen inline aporta su texto alternativo, como lo leería un lector de
+// pantalla: un título que es solo una imagen no se queda sin texto plano.
+func TestSlideHeaderLine_PlainTextUsesImageAlt(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{"![solo](ok.png)", "solo"},
+		{`Logo ![Acme & "Co"](a.png "título") y **más**`, `Logo Acme & "Co" y más`},
+		{"![](vacía.png)", ""},
+	}
+	for _, tc := range cases {
+		if got, _ := slideHeaderLine(tc.src, nil); got != tc.want {
+			t.Errorf("%q: plain %q, want %q", tc.src, got, tc.want)
+		}
+	}
+}

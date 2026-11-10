@@ -136,3 +136,22 @@ func TestRenderHTMLPreview_SlideTitlePlainTextKeepsWrittenEntities(t *testing.T)
 		t.Errorf("data-slide-title = %q", got)
 	}
 }
+
+// Un título que es solo una imagen identifica al slide con el alt de la
+// imagen en data-slide-title y en el índice del JSON embebido.
+func TestRenderHTMLPreview_ImageOnlyTitleUsesAlt(t *testing.T) {
+	p := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(p, "content")
+	block.Title = "![solo](ok.png)"
+	block.Elements = []ast.Element{ast.NewTextElement(p, "Cuerpo.")}
+	html, err := New(util.NewNoop()).RenderHTMLPreview(&ast.AST{ContentBlocks: []ast.ContentBlock{*block}}, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	if got := slideDivAttr(t, html, "data-slide-title", 0); got != "solo" {
+		t.Errorf("data-slide-title = %q", got)
+	}
+	if !strings.Contains(html, `"title": "solo"`) {
+		t.Errorf("the embedded JSON does not carry the alt as the slide title")
+	}
+}

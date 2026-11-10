@@ -57,10 +57,25 @@ var inlineTagPattern = regexp.MustCompile(`<[^>]*>`)
 // entidades se deshacen en una sola pasada (html.UnescapeString), como las
 // lee el navegador: renderer.UnescapeHTML reemplaza `&amp;` antes que las
 // demás y convertía en `<br>` un `&lt;br&gt;` que el autor escribió como
-// texto.
+// texto. Una imagen inline aporta su alt, igual que la lee un lector de
+// pantalla, para que un título que es solo una imagen no quede vacío.
 func inlineHTMLText(s string) string {
+	s = inlineImgPattern.ReplaceAllStringFunc(s, func(tag string) string {
+		if m := inlineImgAltPattern.FindStringSubmatch(tag); m != nil {
+			return m[1]
+		}
+		return ""
+	})
 	return html.UnescapeString(inlineTagPattern.ReplaceAllString(s, ""))
 }
+
+// inlineImgPattern empareja un <img> del HTML inline saneado e
+// inlineImgAltPattern su alt, que sale escapado (sin comillas sueltas
+// adentro), así que termina en la siguiente comilla.
+var (
+	inlineImgPattern    = regexp.MustCompile(`<img\b[^>]*>`)
+	inlineImgAltPattern = regexp.MustCompile(`\salt="([^"]*)"`)
+)
 
 // BuildVariables ensambla el mapa de sustitución {{variable}} a partir del
 // FrontMatter de un AST: los built-ins documentados title/author/date/theme,
