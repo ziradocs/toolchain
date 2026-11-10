@@ -2,6 +2,9 @@ package report
 
 import (
 	"encoding/json"
+	"net/url"
+	"path"
+	"strings"
 
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/linter"
@@ -136,6 +139,8 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 		}
 	}
 
+	uri := artifactURI(docPath, d.File)
+
 	res := Result{
 		RuleId: ruleId,
 		Level:  level,
@@ -146,7 +151,7 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 			{
 				PhysicalLocation: PhysicalLocation{
 					ArtifactLocation: ArtifactLocation{
-						Uri: docPath,
+						Uri: uri,
 					},
 					Region: region,
 				},
@@ -166,4 +171,78 @@ func toSarifResult(d diagnostics.Diagnostic, w *linter.RulePolicy, docPath strin
 	}
 
 	return res
+}
+
+// artifactURI es el artifactLocation.uri de un diagnóstico: el documento
+// (docPath), o el archivo incluido de Diagnostic.File. File viene relativo al
+// directorio del documento (include.SourceMap.MapDiagnostics), así que se une
+// a ese directorio: las dos uris quedan relativas a la misma base que docPath
+// y ninguna necesita uriBaseId. No depende del sistema: "\" y "/" valen
+// igual como separador en docPath y en File.
+func artifactURI(docPath, file string) string {
+	doc := slashed(docPath)
+	if file == "" {
+		return uriReference(doc)
+	}
+	f := slashed(file)
+	if doc == "" || isAbsSlashed(f) {
+		return uriReference(f)
+	}
+	joined := path.Join(path.Dir(doc), f)
+	// path.Join deja una sola "/" al principio: una ruta UNC
+	// ("//servidor/r/…") perdería el host.
+	if strings.HasPrefix(doc, "//") && !strings.HasPrefix(joined, "//") {
+		joined = "/" + joined
+	}
+	return uriReference(joined)
+}
+
+// slashed es p con "/" como separador.
+func slashed(p string) string {
+	return strings.ReplaceAll(p, "\\", "/")
+}
+
+// hasDrive dice si p empieza con una letra de unidad de Windows ("D:/…").
+func hasDrive(p string) bool {
+	if len(p) < 2 || p[1] != ':' || (len(p) > 2 && p[2] != '/') {
+		return false
+	}
+	c := p[0]
+	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+}
+
+func isAbsSlashed(p string) bool {
+	return strings.HasPrefix(p, "/") || hasDrive(p)
+}
+
+// uriReference es la ruta p (con "/") como referencia URI (RFC 3986), con
+// cada segmento escapado (espacios, Unicode, "%", "#", "?"). Una ruta
+// absoluta va como URI file: "/srv/a b" es "file:///srv/a%20b",
+// "D:/docs/x" es "file:///D:/docs/x" y "//servidor/r/x" (UNC) es
+// "file://servidor/r/x". Una relativa queda relativa; si su primer segmento
+// tiene ":", va con "./" para que no se lea como esquema.
+func uriReference(p string) string {
+	if p == "" {
+		return ""
+	}
+	switch {
+	case hasDrive(p):
+		return "file:///" + escapeSegments(p)
+	case strings.HasPrefix(p, "//"):
+		return "file:" + escapeSegments(p)
+	case strings.HasPrefix(p, "/"):
+		return "file://" + escapeSegments(p)
+	}
+	if first, _, _ := strings.Cut(p, "/"); strings.Contains(first, ":") {
+		p = "./" + p
+	}
+	return escapeSegments(p)
+}
+
+func escapeSegments(p string) string {
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
 }

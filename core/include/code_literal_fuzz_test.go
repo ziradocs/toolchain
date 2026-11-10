@@ -52,7 +52,8 @@ func FuzzKeepIncludesInCode(f *testing.F) {
 	} {
 		f.Add(seed.body, seed.line, seed.strict)
 	}
-	read := memFS(map[string]string{"/base/probe.txt": "PROBE-MARKER"})
+	files := map[string]string{"/base/probe.txt": "PROBE-MARKER"}
+	read := memFS(files)
 	f.Fuzz(func(t *testing.T, body string, line uint16, strict bool) {
 		for _, l := range strings.Split(body, "\n") {
 			if _, ok := parseIncludeLine(l); ok {
@@ -80,9 +81,8 @@ func FuzzKeepIncludesInCode(f *testing.F) {
 		if kept != strings.Contains(res.Text, probeDirective) || kept == strings.Contains(res.Text, "PROBE-MARKER") {
 			t.Fatalf("KeptInCode=%v disagrees with the text:\n%s", res.KeptInCode, res.Text)
 		}
-		if len(res.Origins) != strings.Count(res.Text, "\n")+1 {
-			t.Fatalf("%d origins for %d lines", len(res.Origins), strings.Count(res.Text, "\n")+1)
-		}
+		// Cada línea es la que su origen dice (el contrato de SourceMap).
+		checkSourceMap(t, "keep", src, files, res.Text, res.Sources)
 
 		off, err := ExpandWithOptions(src, "/base", read, ExpandOptions{})
 		text, origins, err2 := ExpandWithOrigins(src, "/base", read)

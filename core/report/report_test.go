@@ -311,6 +311,9 @@ func TestWriteReport_SARIFSchemaValid(t *testing.T) {
 	}
 
 	compiler := jsonschema.NewCompiler()
+	// Valida también los "format" del esquema (uri-reference de
+	// artifactLocation.uri, uri de helpUri), que sin esto se ignoran.
+	compiler.AssertFormat = true
 	schemaPath := filepath.Join("testdata", "sarif-schema-2.1.0.json")
 	sch, err := compiler.Compile(schemaPath)
 	if err != nil {
