@@ -2799,7 +2799,7 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 		if err != nil {
 			continue
 		}
-		_ = r.SetText(header)
+		_ = r.SetText(docxUnescapeDelimiters(header))
 		_ = r.SetBold(true)
 		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 			continue

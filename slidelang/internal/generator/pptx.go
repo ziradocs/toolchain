@@ -2166,7 +2166,7 @@ func (g *Generator) pptxAddTableCells(s *pptx.Slide, e *ast.TableElement, cursor
 			if toRow > r || toCol > gridCol {
 				tbl.MergeCells(r, gridCol, toRow, toCol)
 			}
-			tblCell := tbl.Cell(r, gridCol).Text(cell.Content)
+			tblCell := tbl.Cell(r, gridCol).Text(pptxUnescapeDelimiters(cell.Content))
 			if cell.IsHeader {
 				tblCell.Bold()
 			}
@@ -2208,14 +2208,14 @@ func (g *Generator) pptxAddTable(s *pptx.Slide, e *ast.TableElement, cursorY int
 
 	tbl := s.AddTable(rows, cols, pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
 	for c, header := range e.Headers {
-		tbl.Cell(0, c).Text(header).Bold()
+		tbl.Cell(0, c).Text(pptxUnescapeDelimiters(header)).Bold()
 	}
 	for r, row := range e.Rows {
 		for c, cell := range row {
 			if c >= cols {
 				break // fila con más columnas que headers: se descartan las de más, mismo criterio defensivo que el resto del pipeline con datos malformados
 			}
-			tbl.Cell(r+1, c).Text(cell)
+			tbl.Cell(r+1, c).Text(pptxUnescapeDelimiters(cell))
 		}
 	}
 
