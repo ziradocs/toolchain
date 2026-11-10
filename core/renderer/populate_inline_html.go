@@ -85,8 +85,8 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		// Mismo orden que un párrafo y que el legado (HeadingContentHTML):
 		// {{variables}} primero y después el Markdown inline de una línea,
 		// para que el filtro de esquemas vea el destino ya sustituido.
-		text, restore := proseLineMarkdownVariables(elem.Text, variables)
-		elem.TextHTML = restore(ProcessInlineMarkdownSecureLine(text))
+		text, marks := proseLineMarkdownVariables(elem.Text, variables)
+		elem.TextHTML = marks.html(ProcessInlineMarkdownSecureLine(text))
 
 	case *ast.PointsElement:
 		for i := range elem.Items {

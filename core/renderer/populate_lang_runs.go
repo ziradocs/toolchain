@@ -141,8 +141,8 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 	case *ast.HeadingElement:
 		// Se deriva del HTML del encabezado, igual que su forma legada, para
 		// que las dos formas reporten exactamente los mismos runs.
-		text, restore := proseLineMarkdownVariables(elem.Text, variables)
-		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(restore(HeadingHTML(elem.Level, text, elem.Anchor)), true, variables)
+		text, marks := proseLineMarkdownVariables(elem.Text, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(marks.html(HeadingHTML(elem.Level, text, elem.Anchor)), true, variables)
 
 	case *ast.PointsElement:
 		for i := range elem.Items {
@@ -242,14 +242,10 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 	// ProcessVariables primero, igual que ProcessTextWithVariablesAndMarkdownSecure
 	// — un span que solo existe tras sustituir una {{variable}} debe seguir
 	// siendo encontrado (issue #63 code review, hallazgo #10).
-	// El Text de un LangRun es texto, no HTML: si la sustitución dejó
-	// caracteres reservados (proseVariables), vuelven como backtick y salto de
-	// línea, no como <br>.
-	source := content
-	content, restore := proseVariables(content, variables)
-	if !strings.ContainsAny(source, tickPlaceholder+newlinePlaceholder) && strings.ContainsAny(content, tickPlaceholder+newlinePlaceholder) {
-		restore = restoreValuesText
-	}
+	// El Text de un LangRun es texto, no HTML: las marcas de los valores
+	// (proseVariables, solo con la opción de código literal) vuelven como
+	// backtick y salto de línea, no como <br>.
+	content, marks := proseVariables(content, variables)
 	// Excluir spans de idioma que caen DENTRO de un `código` (issue #63 code
 	// review, hallazgo #7 — advisor follow-up): desde el fix de #7,
 	// ProcessInlineMarkdownFormatsSecure protege código antes que cualquier
@@ -334,7 +330,7 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 			// validación, no para spans que el pipeline nunca considera válidos.
 			continue
 		}
-		text, tag := restore(content[m[2]:m[3]]), content[m[4]:m[5]]
+		text, tag := marks.text(content[m[2]:m[3]]), content[m[4]:m[5]]
 		if !a11y.IsValidLangTag(tag) {
 			discarded = append(discarded, ast.LangRun{Text: text, Lang: tag})
 			continue

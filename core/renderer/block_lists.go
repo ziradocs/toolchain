@@ -197,8 +197,8 @@ func startsBodyList(lines []string, i int, inParagraph bool) bool {
 // sustituidas (proseListVariables: con la opción de código literal, fuera del
 // código, y sin que un valor cambie los code spans de la fuente).
 func renderLiteralProse(text string, variables map[string]interface{}, paragraphs bool) string {
-	processed, restore := proseListVariables(text, variables)
-	return restore(renderProseWithLists(processed, paragraphs))
+	processed, marks := proseListVariables(text, variables)
+	return marks.html(renderProseWithLists(processed, paragraphs))
 }
 
 // renderProseWithLists arma la prosa de una cita o un ":::bloque" (su Content

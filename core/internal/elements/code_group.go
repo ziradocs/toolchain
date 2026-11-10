@@ -49,9 +49,6 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 
 	pos := ctx.Position(startIndex)
 	codeGroup := ast.NewCodeGroupElement(pos)
-	// La cabecera y cada pestaña (cerca de apertura, cuerpo y cierre) son
-	// código; una línea suelta entre pestañas no llega al AST y no lo es.
-	ctx.recordCode(startIndex, 1)
 	consumed := 1 // Skip :::code-group line
 	var groupErr error
 
@@ -99,7 +96,6 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 			}
 
 			consumed++ // Skip ``` line
-			tabStart := i
 			i++
 
 			var content strings.Builder
@@ -122,8 +118,6 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 				consumed++
 				i++
 			}
-
-			ctx.recordCode(tabStart, i-tabStart+1)
 
 			codeBlock := ast.CodeBlock{
 				Language: language,

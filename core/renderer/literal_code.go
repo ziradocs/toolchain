@@ -75,32 +75,32 @@ const (
 
 // proseVariables prepara un texto de prosa que después pasa por
 // ProcessInlineMarkdownSecure (línea por línea): sustituye `{{nombre}}` y
-// devuelve también restore, que hay que aplicarle al HTML que salga de ese
-// Markdown. Sin la opción de código literal es ProcessVariables y restore no
-// hace nada. Con ella no toca lo que es código en la fuente: los code spans,
-// emparejados en cada línea como los empareja el renderer, y, en un texto de
-// varias líneas, las cercas de código escritas adentro (ver fenceLines). En un
-// texto de una sola línea no hay cerca. Y un valor sustituido no puede cambiar
-// los code spans de la fuente: sus backticks y sus saltos de línea pasan al
-// Markdown como caracteres reservados (tickPlaceholder, newlinePlaceholder)
-// que no emparejan ni parten líneas ni items, y restore los vuelve a poner: el
-// backtick como backtick y el salto de línea como <br>. Sin la opción, un salto
-// de línea en un valor sigue partiendo el texto como siempre.
-func proseVariables(text string, variables map[string]interface{}) (string, func(string) string) {
+// devuelve también las marcas que hay que deshacer en el HTML que salga de ese
+// Markdown (valueMarks.html). Sin la opción de código literal es
+// ProcessVariables y no hay marcas. Con ella no toca lo que es código en la
+// fuente: los code spans, emparejados en cada línea como los empareja el
+// renderer, y, en un texto de varias líneas, las cercas de código escritas
+// adentro (ver fenceLines). En un texto de una sola línea no hay cerca. Y un
+// valor sustituido no puede cambiar los code spans de la fuente: sus backticks
+// y sus saltos de línea pasan al Markdown como dos caracteres de uso privado
+// que ni el texto ni los valores traen, que no emparejan ni parten líneas ni
+// items, y que valueMarks vuelve a poner. Sin la opción, un salto de línea en
+// un valor sigue partiendo el texto como siempre.
+func proseVariables(text string, variables map[string]interface{}) (string, valueMarks) {
 	return proseMarkdownVariables(text, variables, layoutLines)
 }
 
 // proseLineMarkdownVariables es proseVariables para un texto que se pinta
 // entero como una sola unidad de Markdown (ProcessInlineMarkdownSecureLine): un
 // encabezado.
-func proseLineMarkdownVariables(text string, variables map[string]interface{}) (string, func(string) string) {
+func proseLineMarkdownVariables(text string, variables map[string]interface{}) (string, valueMarks) {
 	return proseMarkdownVariables(text, variables, layoutWhole)
 }
 
 // proseListVariables es proseVariables para la prosa que pasa por
 // renderProseWithLists: los code spans de un item de lista se emparejan sobre
 // el item ya juntado con sus líneas de continuación, como lo pinta el renderer.
-func proseListVariables(text string, variables map[string]interface{}) (string, func(string) string) {
+func proseListVariables(text string, variables map[string]interface{}) (string, valueMarks) {
 	return proseMarkdownVariables(text, variables, layoutLists)
 }
 
@@ -117,55 +117,97 @@ func proseLineVariables(text string, variables map[string]interface{}) string {
 	}, func(s string) string { return s })
 }
 
-// tickPlaceholder y newlinePlaceholder reemplazan, en el texto que va al
-// Markdown con la opción de código literal, cada backtick y cada salto de
-// línea de un valor sustituido. Son de uso privado (U+E000, U+E001), así que el
-// Markdown no los lee como nada.
-const (
-	tickPlaceholder    = "\ue000"
-	newlinePlaceholder = "\ue001"
-)
-
-func noRestore(s string) string { return s }
-
-// restoreValues vuelve a poner, en el HTML que salió del Markdown, los
-// backticks y los saltos de línea (como <br>) de los valores sustituidos.
-func restoreValues(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, tickPlaceholder, "`"), newlinePlaceholder, "<br>")
+// valueMarks son los dos caracteres con los que proseMarkdownVariables marcó
+// los backticks (tick) y los saltos de línea (newline) de los valores
+// sustituidos. Vacío si no marcó nada: entonces html y text no cambian nada.
+type valueMarks struct {
+	tick, newline string
 }
 
-// restoreValuesText es restoreValues para texto que no es HTML (el de un
-// LangRun): el salto de línea vuelve como salto de línea.
-func restoreValuesText(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, tickPlaceholder, "`"), newlinePlaceholder, "\n")
+// html deshace las marcas en el HTML que salió del Markdown: el backtick
+// vuelve como backtick y el salto de línea como <br>, salvo dentro de una
+// etiqueta (un href, un title…), donde un <br> no tiene sentido y un salto de
+// línea en una URL lo quitaría el navegador: ahí vuelve como espacio.
+func (m valueMarks) html(s string) string {
+	if m.tick == "" || !strings.Contains(s, m.tick) && !strings.Contains(s, m.newline) {
+		return s
+	}
+	var b strings.Builder
+	restore := func(seg, newline string) {
+		b.WriteString(strings.ReplaceAll(strings.ReplaceAll(seg, m.tick, "`"), m.newline, newline))
+	}
+	for {
+		start := strings.IndexByte(s, '<')
+		if start < 0 {
+			restore(s, "<br>")
+			return b.String()
+		}
+		end := htmlTagEnd(s, start)
+		restore(s[:start], "<br>")
+		restore(s[start:end], " ")
+		s = s[end:]
+	}
+}
+
+// text deshace las marcas en un texto que no es HTML (el de un LangRun): el
+// salto de línea vuelve como salto de línea.
+func (m valueMarks) text(s string) string {
+	if m.tick == "" {
+		return s
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(s, m.tick, "`"), m.newline, "\n")
 }
 
 var proseVariablePattern = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
 
-func proseMarkdownVariables(text string, variables map[string]interface{}, layout proseLayout) (string, func(string) string) {
-	if !isLiteralCode(variables) || !strings.Contains(text, "{{") {
-		return ProcessVariables(text, variables), noRestore
+// pickMarks elige dos caracteres de uso privado (desde U+E000) que no
+// aparecen en used, para marcar sin confundirse con nada que ya traigan el
+// texto o los valores.
+func pickMarks(used string) valueMarks {
+	var picked []string
+	for r := rune(0xE000); r <= 0xF8FF && len(picked) < 2; r++ {
+		if c := string(r); !strings.Contains(used, c) {
+			picked = append(picked, c)
+		}
 	}
-	// Si el texto ya trae el carácter reservado no se puede distinguir del que
-	// se agrega: los valores van tal cual.
-	ticks := !strings.Contains(text, tickPlaceholder) && !strings.Contains(text, newlinePlaceholder)
+	if len(picked) < 2 {
+		return valueMarks{}
+	}
+	return valueMarks{tick: picked[0], newline: picked[1]}
+}
+
+func proseMarkdownVariables(text string, variables map[string]interface{}, layout proseLayout) (string, valueMarks) {
+	if !isLiteralCode(variables) || !strings.Contains(text, "{{") {
+		return ProcessVariables(text, variables), valueMarks{}
+	}
+	// Los valores que se van a sustituir, para elegir marcas que no traigan.
+	var used strings.Builder
+	used.WriteString(text)
+	marked := false
+	for _, m := range proseVariablePattern.FindAllStringSubmatch(text, -1) {
+		if value, ok := variables[m[1]]; ok {
+			v := fmt.Sprintf("%v", value)
+			used.WriteString(v)
+			marked = marked || strings.ContainsAny(v, "`\n")
+		}
+	}
+	var marks valueMarks
+	if marked {
+		marks = pickMarks(used.String())
+	}
 	outside := func(seg string) string {
-		if !ticks {
+		if marks.tick == "" {
 			return ProcessVariables(seg, variables)
 		}
 		return proseVariablePattern.ReplaceAllStringFunc(seg, func(match string) string {
 			if value, ok := variables[match[2:len(match)-2]]; ok {
-				v := strings.ReplaceAll(fmt.Sprintf("%v", value), "`", tickPlaceholder)
-				return strings.ReplaceAll(v, "\n", newlinePlaceholder)
+				v := strings.ReplaceAll(fmt.Sprintf("%v", value), "`", marks.tick)
+				return strings.ReplaceAll(v, "\n", marks.newline)
 			}
 			return match
 		})
 	}
-	out := substituteOutside(text, literalCodeRanges(text, layout), outside, func(s string) string { return s })
-	if ticks && (strings.Contains(out, tickPlaceholder) || strings.Contains(out, newlinePlaceholder)) {
-		return out, restoreValues
-	}
-	return out, noRestore
+	return substituteOutside(text, literalCodeRanges(text, layout), outside, func(s string) string { return s }), marks
 }
 
 // proseLineVariablesSecure es ProcessVariablesSecure (escapa el texto y los

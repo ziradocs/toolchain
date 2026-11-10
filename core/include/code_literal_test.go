@@ -4,6 +4,7 @@
 package include
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -372,5 +373,72 @@ func TestExpand_FenceInsideAQuoteIsNotCode(t *testing.T) {
 	}
 	if !strings.Contains(got, "INCLUIDO") {
 		t.Errorf("the @include between quoted fence lines is not code in the AST and must expand:\n%s", got)
+	}
+}
+
+// Cada archivo decide sus @include sobre su propio texto: lo que un hermano
+// deja abierto no vuelve código un @include que en su archivo es prosa.
+func TestExpand_EachFileDecidesOnItsOwnText(t *testing.T) {
+	files := map[string]string{
+		"/base/a.md": "```",
+		"/base/b.md": "texto\n@include c.md",
+		"/base/c.md": "C",
+	}
+	got, err := expandKeep("# A\n\n@include a.md\n@include b.md\n", "/base", memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# A\n\n```\ntexto\nC\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Los @include del frontmatter se expanden primero, también con un BOM y
+// líneas en blanco antes del ---, y el dialecto sale del frontmatter
+// expandido.
+func TestExpand_FrontMatterIncludesWithBOM(t *testing.T) {
+	files := map[string]string{"/base/mode.yml": "mode: strict", "/base/x.txt": "SECRETO"}
+	src := "\ufeff\n\n---\n@include mode.yml\ntitle: T\n---\n\nSECTION \"A\"\n  CODE\n    @include x.txt\n"
+	got, err := expandKeep(src, "/base", memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "SECRETO") || !strings.Contains(got, "mode: strict") {
+		t.Errorf("got %q", got)
+	}
+}
+
+// El límite de anidamiento es el de Expand: MaxDepth niveles se expanden, uno
+// más es un error, con el mismo mensaje.
+func TestExpand_MaxDepthLikeExpand(t *testing.T) {
+	for _, depth := range []int{MaxDepth, MaxDepth + 1} {
+		files := map[string]string{}
+		for i := 1; i <= depth; i++ {
+			body := fmt.Sprintf("nivel %d", i)
+			if i < depth {
+				body += fmt.Sprintf("\n@include f%d.md", i+1)
+			}
+			files[fmt.Sprintf("/base/f%d.md", i)] = body
+		}
+		want, wantErr := Expand("# A\n\n@include f1.md\n", "/base", memFS(files))
+		got, err := expandKeep("# A\n\n@include f1.md\n", "/base", memFS(files))
+		if fmt.Sprint(err) != fmt.Sprint(wantErr) || got != want {
+			t.Errorf("depth %d: got %v, Expand %v", depth, err, wantErr)
+		}
+		if (depth > MaxDepth) != (err != nil) {
+			t.Errorf("depth %d: error %v", depth, err)
+		}
+	}
+}
+
+// Con varios errores, el que sale es el mismo que en Expand: el primero en el
+// orden del documento, también dentro de un archivo incluido.
+func TestExpand_ErrorOrderLikeExpand(t *testing.T) {
+	files := map[string]string{"/base/a.md": "@include missing-a.md"}
+	src := "# A\n\n@include a.md\n@include missing-b.md\n@include ../outside.md\n"
+	_, wantErr := Expand(src, "/base", memFS(files))
+	_, err := expandKeep(src, "/base", memFS(files))
+	if wantErr == nil || fmt.Sprint(err) != fmt.Sprint(wantErr) {
+		t.Errorf("got %v, Expand %v", err, wantErr)
 	}
 }

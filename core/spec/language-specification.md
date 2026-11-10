@@ -570,12 +570,15 @@ code block, a `:::code-group`) is code, as the parser reads it, and is left as
 written. What counts as a code body is what the document's AST holds as code,
 read as `doclang` reads it (`get_ast`, `lint`, `build`: the document grammar,
 with flex normalization): an `@include` is kept if that AST has it inside a
-code block. Each `@include` is decided on the text it appears in, with the other
-`@include` lines of that text not yet expanded: those of the root document on
-the source itself. Lines brought in by an included file are decided on the
-next pass, so an `@include` written inside code in an included file stays too.
-`@include` lines in the frontmatter are expanded first, and the dialect comes
-from the expanded frontmatter. There is one parse per nesting level. The lines
+code block. Each file decides its own `@include` lines on its own text,
+unexpanded, as `get_ast` of that file would read it: the root document on its
+source, an included file on its content (without its frontmatter) read with
+the root's dialect (in strict, as the body of a section when it does not start
+with `SECTION`). What a sibling file or the including document opens or closes
+does not change a file's decisions; since expansion is textual, the AST of the
+result can still read a kept `@include` differently (for example inside a
+fence a sibling left open). `@include` lines in the root's frontmatter are
+expanded first, and the dialect comes from the expanded frontmatter. There is one parse per distinct file. The lines
 kept that way are reported to the caller, and a kept line's path is never
 opened. This "code" is not the same as the literal-code option's: a fence
 written inside a quote is code for `LiteralCode`, but the AST has no code block

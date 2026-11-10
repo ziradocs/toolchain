@@ -45,10 +45,6 @@ type strictBody struct {
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
 	// entero (#245).
 	lineOffset int
-
-	// recordCode es elements.ParseContext.RecordCode para todo lo que se
-	// parsea desde este cuerpo (ver codeLiteralLines). nil fuera de ahí.
-	recordCode func(line, n int)
 }
 
 // position traduce un índice 0-based dentro de p.lines a una posición
@@ -73,7 +69,6 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 		CurrentLine:     p.currentLine,
 		Logger:          p.logger,
 		LineOffset:      p.lineOffset,
-		RecordCode:      p.recordCode,
 		TypedColumnBody: p.parseTypedColumnBody,
 		// Solo lo usa HeadingParser, que un bloque `:::x typed` activa al leer
 		// su cuerpo como flex: sus encabezados comparten la misma secuencia de
@@ -102,7 +97,6 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 		lines:           lines,
 		logger:          p.logger,
 		lineOffset:      lineOffset,
-		recordCode:      p.recordCode,
 	}
 	scratch := ast.NewContentBlock(sub.position(0), "content")
 	sub.parseIndentedElements(scratch, func(key, _ string) {

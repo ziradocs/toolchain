@@ -283,9 +283,10 @@ type ExpandOptions struct {
 	// build emite lo mismo que el AST y el lint describen (issue #487). doclang
 	// la activa; slidelang no, y conserva la expansión en todas partes.
 	//
-	// Qué es código lo decide el AST de ParseDocument, con la gramática de
-	// documentos y la normalización de flex prendida, como doclang (build,
-	// get_ast, lint): la opción es para documentos. Una fuente .slidelang no se
+	// Qué es código lo decide, para cada archivo y sobre su propio texto, el
+	// AST de ParseDocument, con la gramática de documentos y la normalización
+	// de flex prendida, como doclang (build, get_ast, lint): la opción es para
+	// documentos (ver ExpandWithOptions). Una fuente .slidelang no se
 	// clasifica bien (un SLIDE no es un SECTION).
 	//
 	// "Código" acá es lo que el AST guarda como bloque de código: el cuerpo de
@@ -318,21 +319,26 @@ type Expansion struct {
 
 // ExpandWithOptions es ExpandWithOrigins con opciones.
 //
-// Con KeepIncludesInCode, un `@include` se decide sobre el texto en el que
-// aparece, con los demás `@include` de ese texto todavía sin expandir: los del
-// documento raíz, sobre la fuente tal como la leen get_ast y el lint. Queda
-// como está si el parser de documentos (ParseDocument, con la normalización
-// de flex prendida, como doclang) lo pone dentro de un bloque de código; si
-// no, se expande. Las líneas que trae un archivo incluido se deciden en la
-// vuelta siguiente, sobre el texto ya expandido, así que un `@include` escrito
-// dentro de código en un archivo incluido también queda. Los `@include` del
-// frontmatter se expanden antes que nada, y el dialecto sale del frontmatter
-// ya expandido. Un `@include` que queda en código no se abre: su ruta no se
-// resuelve ni se lee.
+// Con KeepIncludesInCode, cada archivo decide sus propios `@include` sobre su
+// propio texto, sin expandir nada: como lo lee get_ast de ese archivo. El
+// documento raíz, sobre la fuente tal como la leen get_ast y el lint; un
+// archivo incluido, sobre su contenido (sin su frontmatter) leído con el
+// dialecto del documento raíz (en strict, como cuerpo de una sección si no
+// empieza con SECTION). Un `@include` queda como está si el AST de su archivo
+// (ParseDocument, con la normalización de flex prendida, como doclang) lo
+// tiene dentro de un bloque de código; si no, se expande, y el archivo que
+// trae se decide igual. Lo que un archivo hermano o el documento que lo
+// incluye abren o cierran no cambia lo que decide un archivo: la expansión
+// es textual, así que el AST del resultado puede leer distinto un @include que
+// quedó (una cerca que un hermano dejó abierta), pero cada decisión se puede
+// comprobar sobre un solo archivo. Los `@include` del frontmatter del raíz se
+// expanden antes que nada, y el dialecto sale del frontmatter ya expandido.
+// Un `@include` que queda en código no se abre: su ruta no se resuelve ni se
+// lee.
 //
-// Cada vuelta parsea el texto una vez, y hay a lo sumo una vuelta por nivel de
-// anidamiento (MaxDepth), más las del frontmatter: el costo es casi lineal en
-// el tamaño del resultado.
+// Hay un parse por archivo distinto (el de un archivo que se incluye varias
+// veces se reutiliza): el costo es lineal en el tamaño de los archivos. Los
+// errores salen en el mismo orden que en Expand.
 func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOptions) (Expansion, error) {
 	if !opts.KeepIncludesInCode {
 		text, sources, err := ExpandWithSourceMap(content, baseDir, read)
@@ -341,91 +347,145 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 		}
 		return Expansion{Text: text, Origins: sources.Files(), Sources: sources}, nil
 	}
-	lines := strings.Split(content, "\n")
-	frames := make([]*includeFrame, len(lines))
-	origins := make([]Origin, len(lines))
 	root := &includeFrame{visited: map[string]bool{}}
-	for i := range frames {
-		frames[i] = root
+	lines := strings.Split(content, "\n")
+	origins := make([]Origin, len(lines))
+	frames := make([]*includeFrame, len(lines))
+	for i := range lines {
 		origins[i] = Origin{Line: i + 1}
+		frames[i] = root
 	}
-	// kept marca las líneas @include que ya se decidió dejar en código.
-	kept := make([]bool, len(lines))
+	// El frontmatter del raíz primero: no es cuerpo, nunca es código, y de él
+	// sale el dialecto.
 	for {
-		var pending []int
-		for i, line := range lines {
-			if _, ok := parseIncludeLine(line); ok && !kept[i] {
-				pending = append(pending, i)
-			}
-		}
-		if len(pending) == 0 {
-			break
-		}
-		// Primero el frontmatter: no es cuerpo del documento, nunca es
-		// código, y de él sale el dialecto con el que se lee el resto.
+		end := frontMatterEnd(lines)
 		expand := map[int]bool{}
-		if end := frontMatterEnd(lines); end >= 0 {
-			for _, i := range pending {
-				if i < end {
-					expand[i] = true
-				}
+		for i := 0; i < end; i++ {
+			if _, ok := parseIncludeLine(lines[i]); ok {
+				expand[i] = true
 			}
 		}
 		if len(expand) == 0 {
-			inCode := includesInCode(lines, pending)
-			for _, i := range pending {
-				if inCode[i] {
-					kept[i] = true
-				} else {
-					expand[i] = true
-				}
-			}
-			if len(expand) == 0 {
-				break
-			}
+			break
 		}
 		var err error
-		if lines, frames, origins, kept, err = expandLines(lines, frames, origins, kept, expand, baseDir, read); err != nil {
+		if lines, frames, origins, err = expandFrontMatter(lines, frames, origins, expand, baseDir, read); err != nil {
 			return Expansion{}, err
 		}
 	}
-
-	var keptLines []int
-	for i := range lines {
-		if kept[i] {
-			keptLines = append(keptLines, i+1)
-		}
+	e := &keepExpander{
+		baseDir: baseDir,
+		read:    read,
+		strict:  frontMatterIsStrict(lines),
+		cache:   map[string][]bool{},
 	}
-	sources := SourceMap{Lines: origins, RootLines: strings.Count(content, "\n") + 1}
-	return Expansion{Text: strings.Join(lines, "\n"), Origins: sources.Files(), Sources: sources, KeptInCode: keptLines}, nil
+	e.out = make([]string, 0, len(lines))
+	if err := e.emit(lines, frames, origins, includesInCode(nil, lines)); err != nil {
+		return Expansion{}, err
+	}
+	sources := SourceMap{Lines: e.origins, RootLines: strings.Count(content, "\n") + 1}
+	return Expansion{Text: strings.Join(e.out, "\n"), Origins: sources.Files(), Sources: sources, KeptInCode: e.kept}, nil
 }
 
-// expandLines reemplaza, en orden, cada línea @include marcada en expand por
-// el contenido de su archivo, con los chequeos y errores de openInclude.
-func expandLines(lines []string, frames []*includeFrame, origins []Origin, kept []bool, expand map[int]bool, baseDir string, read ReadFunc) ([]string, []*includeFrame, []Origin, []bool, error) {
+// keepExpander arma el resultado de ExpandWithOptions con KeepIncludesInCode.
+type keepExpander struct {
+	baseDir string
+	read    ReadFunc
+	strict  bool
+	// cache son las líneas @include en código de cada archivo incluido, por
+	// su ruta: la decisión depende solo de su texto.
+	cache map[string][]bool
+
+	out     []string
+	origins []Origin
+	kept    []int
+}
+
+// emit agrega lines (de los archivos frames, con sus orígenes) al resultado:
+// cada @include que su archivo tiene en código (code) queda, y cada uno de los
+// otros se reemplaza por su archivo, que se decide sobre su propio texto.
+func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Origin, code []bool) error {
+	for i, line := range lines {
+		incPath, ok := parseIncludeLine(line)
+		if !ok || code[i] {
+			if ok {
+				e.kept = append(e.kept, len(e.out)+1)
+			}
+			e.out = append(e.out, line)
+			e.origins = append(e.origins, origins[i])
+			continue
+		}
+		child, err := openInclude(line, incPath, e.baseDir, e.read, frames[i].visited, frames[i].depth)
+		if err != nil {
+			return err
+		}
+		childFrames := make([]*includeFrame, len(child.lines))
+		childOrigins := make([]Origin, len(child.lines))
+		for k := range child.lines {
+			childFrames[k] = child
+			childOrigins[k] = Origin{File: child.file, Line: child.firstLine + k}
+			// La línea vacía que deja un archivo que es solo frontmatter es
+			// de la directiva, como en ExpandWithSourceMap.
+			if child.frontMatterOnly {
+				childOrigins[k] = origins[i]
+			}
+		}
+		childCode, ok := e.cache[child.file]
+		if !ok {
+			childCode = includesInCode(e.fragmentPrefix(child.lines), child.lines)
+			e.cache[child.file] = childCode
+		}
+		if err := e.emit(child.lines, childFrames, childOrigins, childCode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fragmentPrefix son las líneas que van antes del contenido de un archivo
+// incluido para leerlo solo con el dialecto del raíz: en strict, un
+// frontmatter strict y, si el archivo no empieza con SECTION, la cabecera de
+// una sección que lo contiene.
+func (e *keepExpander) fragmentPrefix(lines []string) []string {
+	if !e.strict {
+		return nil
+	}
+	prefix := []string{parser.FrontMatterDelimiter, "mode: strict", parser.FrontMatterDelimiter}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if trimmed != "SECTION" && !strings.HasPrefix(trimmed, "SECTION ") {
+			prefix = append(prefix, `SECTION "include"`)
+		}
+		break
+	}
+	return prefix
+}
+
+// expandFrontMatter reemplaza, en orden, cada línea @include del frontmatter
+// marcada en expand por el contenido de su archivo, con los chequeos y
+// errores de openInclude.
+func expandFrontMatter(lines []string, frames []*includeFrame, origins []Origin, expand map[int]bool, baseDir string, read ReadFunc) ([]string, []*includeFrame, []Origin, error) {
 	outLines := make([]string, 0, len(lines))
 	outFrames := make([]*includeFrame, 0, len(lines))
 	outOrigins := make([]Origin, 0, len(lines))
-	outKept := make([]bool, 0, len(lines))
 	for i, line := range lines {
 		if !expand[i] {
 			outLines = append(outLines, line)
 			outFrames = append(outFrames, frames[i])
 			outOrigins = append(outOrigins, origins[i])
-			outKept = append(outKept, kept[i])
 			continue
 		}
 		incPath, _ := parseIncludeLine(line)
 		child, err := openInclude(line, incPath, baseDir, read, frames[i].visited, frames[i].depth)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 		for k, l := range child.lines {
 			outLines = append(outLines, l)
 			outFrames = append(outFrames, child)
-			outKept = append(outKept, false)
-			// La línea vacía que deja un archivo que es solo frontmatter es
-			// de la directiva, como en ExpandWithSourceMap.
 			if child.frontMatterOnly {
 				outOrigins = append(outOrigins, origins[i])
 			} else {
@@ -433,7 +493,7 @@ func expandLines(lines []string, frames []*includeFrame, origins []Origin, kept 
 			}
 		}
 	}
-	return outLines, outFrames, outOrigins, outKept, nil
+	return outLines, outFrames, outOrigins, nil
 }
 
 // frontMatterEnd es el índice de la línea `---` que cierra el frontmatter de
@@ -463,29 +523,57 @@ func frontMatterEnd(lines []string) int {
 	return -1
 }
 
-// includesInCode dice cuáles de las líneas @include pending de lines quedan
-// dentro de un bloque de código del AST que da ParseDocument (con la
-// normalización prendida, como doclang): el contenido de un CODE, de una
-// cerca de código o de una pestaña de code-group, que es lo que get_ast
-// muestra como código. Para reconocerlas en el AST, cada una lleva en la copia
-// que se parsea una marca única al final; el texto del documento no cambia.
-func includesInCode(lines []string, pending []int) map[int]bool {
-	text := strings.Join(lines, "\n")
-	prefix := "zzinclude"
-	for strings.Contains(text, prefix) {
-		prefix += "z"
+// frontMatterIsStrict dice si el frontmatter de lines (frontMatterEnd)
+// declara `mode: strict`, el criterio con el que ParseDocument elige el
+// dialecto strict.
+func frontMatterIsStrict(lines []string) bool {
+	end := frontMatterEnd(lines)
+	if end < 0 {
+		return false
 	}
-	tagged := make([]string, len(lines))
-	copy(tagged, lines)
+	open := 0
+	for strings.TrimSpace(strings.TrimPrefix(lines[open], "\ufeff")) == "" {
+		open++
+	}
+	block := append([]string{parser.FrontMatterDelimiter}, lines[open+1:end+1]...)
+	fm, _, _ := (&parser.FrontMatterParser{}).Parse(strings.Join(block, "\n"))
+	return fm != nil && fm.Mode == "strict"
+}
+
+// includesInCode dice cuáles de las líneas @include de lines quedan dentro de
+// un bloque de código del AST que da ParseDocument (con la normalización
+// prendida, como doclang) para prefix seguido de lines: el contenido de un
+// CODE, de una cerca de código o de una pestaña de code-group, que es lo que
+// get_ast muestra como código. El elemento i es la línea i de lines. Para
+// reconocerlas en el AST, cada una lleva en la copia que se parsea una marca
+// única al final; el texto no cambia. Sin ninguna línea @include no se parsea.
+func includesInCode(prefix, lines []string) []bool {
+	inCode := make([]bool, len(lines))
+	var pending []int
+	for i, line := range lines {
+		if _, ok := parseIncludeLine(line); ok {
+			pending = append(pending, i)
+		}
+	}
+	if len(pending) == 0 {
+		return inCode
+	}
+	text := strings.Join(prefix, "\n") + "\n" + strings.Join(lines, "\n")
+	tagPrefix := "zzinclude"
+	for strings.Contains(text, tagPrefix) {
+		tagPrefix += "z"
+	}
+	tagged := make([]string, 0, len(prefix)+len(lines))
+	tagged = append(tagged, prefix...)
+	tagged = append(tagged, lines...)
 	for _, i := range pending {
-		tagged[i] = lines[i] + " " + prefix + strconv.Itoa(i) + "q"
+		tagged[len(prefix)+i] = lines[i] + " " + tagPrefix + strconv.Itoa(i) + "q"
 	}
 	doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(tagged, "\n"), "")
-	tag := regexp.MustCompile(regexp.QuoteMeta(prefix) + `(\d+)q`)
-	inCode := map[int]bool{}
+	tag := regexp.MustCompile(regexp.QuoteMeta(tagPrefix) + `(\d+)q`)
 	mark := func(content string) {
 		for _, m := range tag.FindAllStringSubmatch(content, -1) {
-			if i, err := strconv.Atoi(m[1]); err == nil {
+			if i, err := strconv.Atoi(m[1]); err == nil && i < len(inCode) {
 				inCode[i] = true
 			}
 		}

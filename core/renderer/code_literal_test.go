@@ -425,3 +425,73 @@ func TestLiteralCode_ValuesDoNotChangeCodeSpans(t *testing.T) {
 		t.Errorf("the value's backtick must come out as a backtick: %s", out)
 	}
 }
+
+// P1 del review de 31b68e7: con la opción apagada, un valor que ya trae los
+// caracteres de uso privado U+E000/U+E001 llega al LangRun igual que en main.
+func TestPopulateLangRuns_OffKeepsPrivateUseCharacters(t *testing.T) {
+	vars := map[string]interface{}{"zz": "abc"}
+	el := ast.NewTextElement(diagnostics.Position{}, "[es {{zz}}]{lang=fr}")
+	PopulateLangRuns(newTestDoc(el), vars)
+	if len(el.LangRuns) != 1 || el.LangRuns[0].Text != "es abc" {
+		t.Errorf("LangRuns %#v", el.LangRuns)
+	}
+}
+
+// Con la opción, las marcas de los valores no se confunden con lo que ya
+// traen el texto o los valores, el salto de línea vuelve como <br> en el
+// texto y como espacio dentro de una etiqueta (un href), y el Text de un
+// LangRun recibe el backtick y el salto de línea como texto.
+func TestLiteralCode_ValueMarks(t *testing.T) {
+	ctx := &RenderContext{LiteralCode: true}
+	render := func(src string, vars map[string]interface{}) string {
+		return RenderElementToHTML(ast.NewTextElement(diagnostics.Position{}, src), vars, ctx)
+	}
+	if out := render("x {{v}} y", map[string]interface{}{"v": "a\nb"}); !strings.Contains(out, "x a<br>b y") {
+		t.Errorf("a line break in a value must come back as <br>: %s", out)
+	}
+	if out := render("pre  {{v}} `{{x}}`", map[string]interface{}{"v": "a`b", "x": "X"}); !strings.Contains(out, "pre  a`b <code>{{x}}</code>") {
+		t.Errorf("a private-use character in the source must stay as it is: %q", out)
+	}
+	if out := render("{{v}} `{{x}}`", map[string]interface{}{"v": "p`q", "x": "X"}); !strings.Contains(out, "p`q <code>{{x}}</code>") {
+		t.Errorf("private-use characters in a value must stay as they are: %q", out)
+	}
+	out := render("[link]({{v}})", map[string]interface{}{"v": "https://example.com/a\nb"})
+	if !strings.Contains(out, `<a href="https://example.com/a b">link</a>`) {
+		t.Errorf("inside a tag a line break comes back as a space, not <br>: %s", out)
+	}
+	// Un navegador quita los saltos de línea de una URL: devolverlo como salto
+	// de línea armaría un "javascript:" que el filtro de esquemas no vio.
+	if out := render("[x]({{v}})", map[string]interface{}{"v": "java\nscript:alert(1)"}); strings.Contains(out, "javascript:") || strings.Contains(out, "java\nscript") {
+		t.Errorf("a line break in a URL must not come back as one: %s", out)
+	}
+	el := ast.NewTextElement(diagnostics.Position{}, "[es {{v}}]{lang=fr}")
+	PopulateLangRunsWithOptions(newTestDoc(el), map[string]interface{}{"v": "a`b\nc"}, InlineHTMLOptions{LiteralCode: true})
+	if len(el.LangRuns) != 1 || el.LangRuns[0].Text != "es a`b\nc" {
+		t.Errorf("LangRuns %#v", el.LangRuns)
+	}
+}
+
+// Los campos de texto plano que faltaban en la prueba anterior: el valor de
+// una métrica, la etiqueta de un marcador de mapa y la de una pestaña de
+// code-group respetan sus code spans con la opción.
+func TestLiteralCode_MoreFields(t *testing.T) {
+	vars := map[string]interface{}{"x": "X"}
+	field := "T {{x}} `{{x}}`"
+	metric := ast.NewMetricElement(diagnostics.Position{})
+	metric.Label, metric.Value = "m", field
+	m := ast.NewMapElement(diagnostics.Position{}, "world")
+	m.Markers = []ast.MapMarker{{Lat: 1, Lng: 2, Label: field}}
+	for _, el := range []ast.Element{metric, m} {
+		out := RenderElementToHTML(el, vars, &RenderContext{LiteralCode: true})
+		if !strings.Contains(out, "T X `{{x}}`") {
+			t.Errorf("%T: %s", el, out)
+		}
+	}
+	PopulateInlineHTMLWithOptions(newTestDoc(metric), vars, InlineHTMLOptions{LiteralCode: true})
+	group := ast.NewCodeGroupElement(diagnostics.Position{})
+	group.CodeBlocks = []ast.CodeBlock{{Language: "js", Label: field, Content: "x"}}
+	PopulateInlineHTMLWithOptions(newTestDoc(group), vars, InlineHTMLOptions{LiteralCode: true})
+	if metric.ValueHTML != "T X `{{x}}`" || group.CodeBlocks[0].LabelHTML != "T X `{{x}}`" {
+		t.Errorf("ValueHTML %q LabelHTML %q", metric.ValueHTML, group.CodeBlocks[0].LabelHTML)
+	}
+}

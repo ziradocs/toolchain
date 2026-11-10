@@ -47,7 +47,6 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	if ctx.Mode == "strict" {
 		element, consumed, err := p.parseStrictCode(ctx, startIndex, pos, line)
-		ctx.recordCode(startIndex, consumed)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,
@@ -55,7 +54,6 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	} else {
 		element, consumed, err := p.parseFlexCode(ctx, startIndex, pos, line)
-		ctx.recordCode(startIndex, consumed)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,

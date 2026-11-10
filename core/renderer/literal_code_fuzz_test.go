@@ -133,13 +133,15 @@ func FuzzLiteralCodeProse(f *testing.F) {
 	// cambiar los code spans de la fuente (hallazgo 6 del review de #497).
 	vars := map[string]interface{}{"x": "VAL", "t": "a`b", "n": "p\nq"}
 	// La referencia sustituye los backticks y saltos de línea de los valores
-	// por los caracteres reservados y los vuelve a poner en el HTML
-	// (restoreValues): un valor no empareja con la fuente ni parte sus líneas.
-	refVars := map[string]interface{}{"x": "VAL", "t": "a" + tickPlaceholder + "b", "n": "p" + newlinePlaceholder + "q"}
+	// por las marcas que elige proseMarkdownVariables cuando ni el texto ni
+	// los valores las traen (U+E000, U+E001) y las deshace en el HTML: un valor
+	// no empareja con la fuente ni parte sus líneas.
+	refMarks := valueMarks{tick: "\ue000", newline: "\ue001"}
+	refVars := map[string]interface{}{"x": "VAL", "t": "a" + refMarks.tick + "b", "n": "p" + refMarks.newline + "q"}
 	f.Add("Pre {{t}} mid `{{x}}` post {{x}}")
 	f.Add("- a {{n}} `{{x}}`\n  `{{t}}` {{t}}")
 	f.Fuzz(func(t *testing.T, text string) {
-		if strings.Contains(text, "zzfence") || strings.ContainsAny(text, tickPlaceholder+newlinePlaceholder) {
+		if strings.Contains(text, "zzfence") || strings.ContainsAny(text, refMarks.tick+refMarks.newline) {
 			return
 		}
 		for _, path := range literalProsePaths {
@@ -162,7 +164,7 @@ func FuzzLiteralCodeProse(f *testing.F) {
 				}
 				reference = strings.Join(lines, "\n")
 			}
-			want := restoreValues(outsideCode(path.render(reference, refVars, false)))
+			want := refMarks.html(outsideCode(path.render(reference, refVars, false)))
 			for _, name := range []string{"x", "t", "n"} {
 				want = strings.ReplaceAll(want, "{{zzfence"+name+"}}", "{{"+name+"}}")
 			}
