@@ -317,3 +317,107 @@ func TestTableRows_TABLE007IsAWarningInSlides(t *testing.T) {
 		t.Errorf("rows %q", table.Rows)
 	}
 }
+
+// tablesIn parsea src en el dialecto que diga su frontmatter y devuelve sus
+// tablas y los TABLE007.
+func tablesIn(t *testing.T, src string, document bool) ([]*ast.TableElement, []diagnostics.Diagnostic) {
+	t.Helper()
+	p := New(util.NewNoop())
+	var doc *ast.AST
+	var diags []diagnostics.Diagnostic
+	if document {
+		doc, diags = p.ParseDocument(src, "t.doclang")
+	} else {
+		doc, diags = p.Parse(src, "t.slidelang")
+	}
+	var tables []*ast.TableElement
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if tb, ok := n.(*ast.TableElement); ok {
+			tables = append(tables, tb)
+		}
+		return nil
+	})
+	var t7 []diagnostics.Diagnostic
+	for _, d := range diags {
+		if d.RuleID == "TABLE007" {
+			t7 = append(t7, d)
+		}
+	}
+	return tables, t7
+}
+
+// Una fila con "|" cuya primera celda empieza con "[" (un link, una casilla,
+// una cita) es una fila Markdown, no una fila de corchetes: no da TABLE007 y
+// no se pierde. Igual en los tres dialectos y también después de `rows:`.
+func TestTableRows_PipeRowsStartingWithABracket(t *testing.T) {
+	bodies := map[string]struct {
+		body    string
+		headers []string
+		rows    [][]string
+	}{
+		"link and checkbox": {"Nombre | Valor\n[Docs](https://x.y) | 3\n[x] listo | 4\n[ ] tarea | 5\n", []string{"Nombre", "Valor"}, [][]string{{"[Docs](https://x.y)", "3"}, {"[x] listo", "4"}, {"[ ] tarea", "5"}}},
+		"bracket header":    {"[Nombre] | Valor\na | b\n", []string{"[Nombre]", "Valor"}, [][]string{{"a", "b"}}},
+		"citation":          {"Fuente | Dato\n[1] | 3\n", []string{"Fuente", "Dato"}, [][]string{{"[1]", "3"}}},
+		"after rows:":       {"headers: [\"x\", \"y\"]\nrows:\n  [\"a\", \"b\"]\n[x] | y\n", []string{"x", "y"}, [][]string{{"a", "b"}, {"[x]", "y"}}},
+		"inline then pipe":  {"headers: [\"x\", \"y\"]\nrows: [[\"a\", \"b\"]]\n[x] listo | y\n", []string{"x", "y"}, [][]string{{"a", "b"}, {"[x] listo", "y"}}},
+	}
+	indent := func(body, pad string) string {
+		var b strings.Builder
+		for _, l := range strings.Split(strings.TrimSuffix(body, "\n"), "\n") {
+			b.WriteString(pad + l + "\n")
+		}
+		return b.String()
+	}
+	for name, tc := range bodies {
+		for _, dialect := range []struct {
+			name     string
+			src      string
+			document bool
+		}{
+			{"document strict", "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TABLE\n" + indent(tc.body, "    "), true},
+			{"slide strict", "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TABLE\n" + indent(tc.body, "    "), false},
+			{"document flex", "# A\n\nTABLE\n" + indent(tc.body, "  "), true},
+		} {
+			t.Run(name+"/"+dialect.name, func(t *testing.T) {
+				tables, t7 := tablesIn(t, dialect.src, dialect.document)
+				if len(t7) != 0 {
+					t.Fatalf("no TABLE007 expected, got %v", t7)
+				}
+				if len(tables) != 1 || !reflect.DeepEqual(tables[0].Headers, tc.headers) || !reflect.DeepEqual(tables[0].Rows, tc.rows) {
+					var got any = tables
+					if len(tables) == 1 {
+						got = []any{tables[0].Headers, tables[0].Rows}
+					}
+					t.Errorf("want headers %q rows %q, got %q", tc.headers, tc.rows, got)
+				}
+			})
+		}
+	}
+}
+
+// En línea y en varias líneas, las mismas filas dan las mismas celdas también
+// cuando una fila tiene comillas pares con un corchete adentro y otra impares.
+func TestTableInlineRows_MixedQuotesReadLikeMultiLine(t *testing.T) {
+	inline, diags := strictDocTable(t, `    rows: [["a]", "b"], ["c\"d", "e"]]`+"\n")
+	if len(diags) != 0 {
+		t.Fatalf("inline: want no diagnostics, got %v", diags)
+	}
+	multi, diags := strictDocTable(t, "    rows:\n      [\"a]\", \"b\"]\n      [\"c\\\"d\", \"e\"]\n")
+	if len(diags) != 0 {
+		t.Fatalf("multi-line: want no diagnostics, got %v", diags)
+	}
+	want := [][]string{{"a]", "b"}, {`c\"d`, "e"}}
+	if !reflect.DeepEqual(inline.Rows, want) || !reflect.DeepEqual(multi.Rows, want) {
+		t.Errorf("inline %q, multi-line %q, want %q", inline.Rows, multi.Rows, want)
+	}
+}
+
+// `headers:` sin valor con el arreglo en la línea de abajo dice que el
+// arreglo va en la misma línea.
+func TestTable_HeadersArrayOnTheNextLine(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TABLE\n    headers:\n      [\"a\", \"b\"]\n    rows: [[\"1\", \"2\"]]\n"
+	_, t7 := tablesIn(t, src, true)
+	if len(t7) != 1 || !strings.Contains(t7[0].Message, "headers: takes its array on the same line") || t7[0].Position.Line != 9 {
+		t.Errorf("want the headers message at line 9, got %v", t7)
+	}
+}

@@ -5,6 +5,7 @@ package elements
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -173,6 +174,10 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
 	lines := ctx.Lines
+	// headersEmptyAt es la línea de un `headers:` sin valor, para que una fila
+	// de corchetes justo debajo diga que el arreglo de headers va en la misma
+	// línea en vez de "no está en rows:".
+	headersEmptyAt := -1
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -205,6 +210,9 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			legacyDeclared = true
 			headersStr := strings.TrimPrefix(trimmedLine, "headers:")
 			headersStr = strings.TrimSpace(headersStr)
+			if headersStr == "" {
+				headersEmptyAt = i
+			}
 
 			// Remove brackets and parse array
 			if strings.HasPrefix(headersStr, "[") && strings.HasSuffix(headersStr, "]") {
@@ -279,7 +287,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 					consumed++
 					break
 				}
-				if strings.HasPrefix(rowTrimmed, "[") {
+				if isBracketRow(rowTrimmed) {
 					if strings.HasSuffix(rowTrimmed, "],") {
 						rowTrimmed = strings.TrimSuffix(rowTrimmed, ",")
 					}
@@ -407,12 +415,17 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			// issue #239: identificador de referencia cruzada (p. ej. "tbl:ventas").
 			labelStr := strings.TrimPrefix(trimmedLine, "label:")
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
-		} else if strings.HasPrefix(trimmedLine, "[") {
-			// Una fila fuera de la lista de `rows:` (la lista ya terminó en
-			// otra línea, o no hay `rows:`): antes este bucle la ignoraba sin
-			// aviso, como a cualquier línea que no reconoce.
-			diags = append(diags, rowsDiagnostic(ctx.Mode, fmt.Sprintf(
-				"TABLE: %q looks like a row but is not in the rows: list (the list ends at the first line that is not a row); the table gets no row from it", trimmedLine), ctx.Position(i)))
+		} else if isBracketRow(trimmedLine) && (strings.HasSuffix(trimmedLine, "]") || strings.HasSuffix(trimmedLine, "],")) {
+			// Una fila de corchetes fuera de la lista de `rows:` (la lista ya
+			// terminó en otra línea, o no hay `rows:`): antes este bucle la
+			// ignoraba sin aviso, como a cualquier línea que no reconoce. Una
+			// línea con "|" (una fila Markdown cuya primera celda empieza con
+			// "[", un link o una casilla) no es de corchetes y sigue abajo.
+			msg := fmt.Sprintf("TABLE: %q looks like a row but is not in the rows: list (the list ends at the first line that is not a row); the table gets no row from it", trimmedLine)
+			if headersEmptyAt >= 0 && nextNonBlank(lines, headersEmptyAt+1) == i {
+				msg = fmt.Sprintf("TABLE headers: takes its array on the same line, e.g. headers: %s; %q was not read as the headers", trimmedLine, trimmedLine)
+			}
+			diags = append(diags, rowsDiagnostic(ctx.Mode, msg, ctx.Position(i)))
 		} else if strings.Contains(trimmedLine, "|") {
 			legacyDeclared = true
 			// Fallback: Parse table row (separated by |) for compatibility
@@ -478,23 +491,37 @@ func nextNonBlank(lines []string, from int) int {
 	return -1
 }
 
-// isRowLine dice si line es una fila de `rows:` de este TABLE: empieza con "["
-// y no tiene menos sangría que el cuerpo (bodyIndent, la de sus propiedades).
+// isRowLine dice si line es una fila de `rows:` de este TABLE: una fila de
+// corchetes (isBracketRow) que no tiene menos sangría que el cuerpo
+// (bodyIndent, la de sus propiedades).
 func isRowLine(line string, bodyIndent int) bool {
-	if !strings.HasPrefix(strings.TrimSpace(line), "[") {
+	if !isBracketRow(strings.TrimSpace(line)) {
 		return false
 	}
 	return bodyIndent <= 0 || CalculateIndentLevel(line) >= bodyIndent
 }
 
-// tableProperties son las claves que parseYAMLTable reconoce en el cuerpo de
-// un TABLE.
-var tableProperties = []string{"headers:", "rows:", "cells:", "tableRows:", "caption:", "label:"}
+// isBracketRow dice si trimmed se escribe como fila de corchetes de `rows:`:
+// empieza con "[" y no tiene "|" fuera de comillas. Una línea con "|" es una
+// fila Markdown aunque su primera celda empiece con "[" (un link
+// `[Docs](…) | 3`, una casilla `[x] listo | 4`, una cita `[1] | …`), y la lee
+// la rama de filas con "|".
+func isBracketRow(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "[") && !pipeOutsideQuotes(trimmed)
+}
 
-func isTableProperty(trimmed string) bool {
-	for _, p := range tableProperties {
-		if strings.HasPrefix(trimmed, p) {
-			return true
+// pipeOutsideQuotes dice si s tiene un "|" fuera de comillas dobles (las
+// comillas sin escape, como en splitInlineArray).
+func pipeOutsideQuotes(s string) bool {
+	inQuotes := false
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			inQuotes = !inQuotes
+		case '|':
+			if !inQuotes {
+				return true
+			}
 		}
 	}
 	return false
@@ -521,12 +548,47 @@ func splitInlineRows(value string) ([]string, string) {
 		return nil, "the array does not close on the same line; write it whole on this line, or one row per line under `rows: [`"
 	}
 	inner := value[1 : len(value)-1]
-	// Con un número impar de comillas, splitInlineArray cae al corte por comas
-	// sin comillas (la política de este bloque: el backslash no es escape), y
-	// así lee `["c\"d", "e"]` como las celdas `c\"d` y `e`. Para que la forma
-	// en línea lea las mismas celdas, las filas se separan entonces sin mirar
-	// comillas, y cada una pasa por el mismo splitInlineArray.
-	quoteAware := strings.Count(inner, "\"")%2 == 0
+	rows, err := scanInlineRows(inner)
+	if err == unclosedQuote {
+		// Una fila con un número impar de comillas (`["c\"d", "e"]`: el
+		// backslash no es escape) la lee splitInlineArray cortando por cada
+		// coma, así en la forma de varias líneas. Para que la forma en línea
+		// lea las mismas celdas, las filas se separan entonces por "], [" y
+		// cada una pasa por el mismo splitInlineArray; las filas con comillas
+		// pares, como `["a]", "b"]`, se leen igual que en varias líneas.
+		return splitRowsAtBoundaries(inner)
+	}
+	return rows, err
+}
+
+// unclosedQuote es el error de scanInlineRows cuando las comillas no cierran.
+const unclosedQuote = "a quote is not closed"
+
+// rowBoundary es el límite entre dos filas de un `rows:` en línea.
+var rowBoundary = regexp.MustCompile(`\]\s*,\s*\[`)
+
+// splitRowsAtBoundaries separa las filas de inner por "], [" sin mirar
+// comillas; es el respaldo de splitInlineRows para comillas que no cierran.
+func splitRowsAtBoundaries(inner string) ([]string, string) {
+	trimmed := strings.TrimSpace(inner)
+	if !strings.HasPrefix(trimmed, "[") || !strings.HasSuffix(trimmed, "]") {
+		return nil, unclosedQuote
+	}
+	cuts := rowBoundary.FindAllStringIndex(trimmed, -1)
+	rows := make([]string, 0, len(cuts)+1)
+	start := 0
+	for _, c := range cuts {
+		rows = append(rows, trimmed[start:c[0]+1])
+		start = c[1] - 1
+	}
+	return append(rows, trimmed[start:]), ""
+}
+
+// scanInlineRows separa las filas de inner (el valor sin sus corchetes de
+// afuera) mirando comillas: un corchete o una coma dentro de una celda
+// entrecomillada es contenido.
+func scanInlineRows(inner string) ([]string, string) {
+	quoteAware := true
 	var rows []string
 	depth, start := 0, -1
 	inQuotes, expectComma := false, false
@@ -574,7 +636,7 @@ func splitInlineRows(value string) ([]string, string) {
 		}
 	}
 	if inQuotes {
-		return nil, "a quote is not closed"
+		return nil, unclosedQuote
 	}
 	if depth != 0 {
 		return nil, "the brackets are not balanced; an inline value must close on the same line"

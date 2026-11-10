@@ -217,11 +217,13 @@ In a `TABLE` block, `rows:` takes the rows either one per line after
 `rows: [["a", "b"], ["c", "d"]]`. Both forms give the same cells, read with the
 same rules as `headers:` (a comma or bracket inside a double-quoted cell is
 content; a backslash is not an escape, and a row with an odd number of quotes
-falls back to splitting on every comma in both forms). `rows: []` is a table
+falls back to splitting on every comma, row by row, in both forms). `rows: []` is a table
 with no rows (`TABLE002`).
 
-In the one-per-line form, a row is any line that starts with `[` and is indented
-at least as deep as the `TABLE`'s properties; blank lines between rows do not end
+In the one-per-line form, a row is any line that starts with `[`, has no `|`
+outside double quotes and is indented at least as deep as the `TABLE`'s
+properties (a line with `|` is a pipe row even when its first cell starts with
+`[`: a link, a `[x]` checkbox, a `[1]` citation); blank lines between rows do not end
 the list, and a line `]` closes it. Any other line ends the list and is read as
 it would be before `rows:` (a property, a `|` row, or ignored), so an unknown
 property such as `align:` after the rows keeps a deck building.
