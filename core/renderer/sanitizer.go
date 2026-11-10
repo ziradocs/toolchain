@@ -1216,18 +1216,47 @@ func ProcessVariablesEscapeValues(text string, variables map[string]interface{})
 		})
 	}
 
+	// Con la opción de código literal (withLiteralCode) el texto dentro de un
+	// <code>…</code> no se sustituye: es el encabezado legado que llega sin
+	// HeadingSource (de un --filter), con sus code spans ya como HTML.
+	literal := isLiteralCode(variables)
+	inCode := false
 	var b strings.Builder
 	for {
 		start := strings.IndexByte(text, '<')
 		if start < 0 {
-			b.WriteString(substitute(text))
+			if inCode {
+				b.WriteString(text)
+			} else {
+				b.WriteString(substitute(text))
+			}
 			return b.String()
 		}
 		end := htmlTagEnd(text, start)
-		b.WriteString(substitute(text[:start]))
-		b.WriteString(text[start:end])
+		if inCode {
+			b.WriteString(text[:start])
+		} else {
+			b.WriteString(substitute(text[:start]))
+		}
+		tag := text[start:end]
+		b.WriteString(tag)
+		if literal {
+			switch {
+			case isTag(tag, "code"):
+				inCode = true
+			case isTag(tag, "/code"):
+				inCode = false
+			}
+		}
 		text = text[end:]
 	}
+}
+
+// isTag dice si tag (una etiqueta HTML completa, "<…>") es la etiqueta name
+// ("code", "/code"), con o sin atributos.
+func isTag(tag, name string) bool {
+	rest, ok := strings.CutPrefix(strings.ToLower(tag), "<"+name)
+	return ok && rest != "" && (rest[0] == '>' || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '\n' || rest[0] == '/')
 }
 
 // htmlTagEnd devuelve el índice que sigue al ">" que cierra la etiqueta que
@@ -1289,10 +1318,11 @@ func htmlTagEnd(text string, start int) int {
 
 // ProcessTextWithVariablesAndMarkdownSecure procesa variables y formato Markdown de forma segura
 func ProcessTextWithVariablesAndMarkdownSecure(text string, variables map[string]interface{}) string {
-	// Primero reemplazar variables
-	processed := ProcessVariables(text, variables)
+	// Primero reemplazar variables (fuera del código con la opción de código
+	// literal, ver proseVariables)
+	processed, marks := proseVariables(text, variables)
 	// Luego procesar formato Markdown de forma segura
-	return ProcessInlineMarkdownSecure(processed)
+	return marks.html(ProcessInlineMarkdownSecure(processed))
 }
 
 // cssValueBalanced recorre un valor CSS como lo tokeniza el navegador, lo

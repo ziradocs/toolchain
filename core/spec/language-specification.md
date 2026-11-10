@@ -490,6 +490,28 @@ ${expression}
 {{ variable | filter:argument }}
 ```
 
+Substitution inside code depends on the renderer's literal-code option
+(`RenderContext.LiteralCode` for HTML/PDF, `InlineHTMLOptions.LiteralCode` for
+the `contentHTML` fields of the AST). Off, the default and what SlideLang uses,
+`{{name}}` in code is substituted like in prose. On, code is literal, the same
+text the AST's `content` holds: the body of a `CODE` block or a code-group tab,
+and, in prose that goes through Markdown (text, quotes, list items, table
+cells, headings, the content of an untyped `:::` block), code spans and code
+fences written inside it. What is literal is decided by the source syntax. A
+code span is matched within the unit the renderer passes to Markdown: a line,
+or a list item of a quote or a `:::` body joined with its continuation lines. A
+fence follows CommonMark with backticks, which is how a Markdown viewer shows
+it: it opens on a line of three or more backticks whose info string has no
+backtick (```` ```code``` inline ```` is a code span, not a fence), closes on a
+line of only backticks, at least as many, and an unclosed fence runs to the end
+of the field. A fence only exists in a field that can hold several lines (a
+text, a quote, an item, a `:::` body); in a one-line field (a table cell, a
+heading, a section title) a line that starts with ```` ``` ```` is prose.
+A substituted value cannot change the source's code spans: with the option on, a backtick in a value is shown as a backtick but never pairs with one in the source, and a line break in a value is shown as a line break (`<br>`) without splitting the line or the list item. The `langRuns` derived with the option on describe the same text. A code sample is shown as written, and template
+languages (Handlebars, Jinja, Go templates) use `{{ }}` themselves. DocLang is
+meant to turn it on for every output; to show a variable's value next to a
+command there, write it outside the code.
+
 **Supported Filters:**
 - `currency:code` - Format as currency
 - `date:format` - Date formatting
@@ -566,6 +588,33 @@ Directives control slide and element behavior:
 | `@background` | `@background: color\|image` | Slide background |
 | `@transition` | `@transition: type` | Slide transition |
 | `@timer` | `@timer: seconds` | Slide timing |
+
+`@include path` on a line of its own is replaced by the content of that file
+before the source is parsed (`slidelang build`, `doclang build`; `fmt` and the
+MCP `get_ast`/`lint` tools keep the line as written). By default the line is
+expanded wherever it is, inside code too. With `include.ExpandOptions`'s
+`KeepIncludesInCode`, a line inside a code body (a strict `CODE` block, a fenced
+code block, a `:::code-group`) is code, as the parser reads it, and is left as
+written. What counts as a code body is what the document's AST holds as code,
+read as `doclang` reads it (`get_ast`, `lint`, `build`: the document grammar,
+with flex normalization): an `@include` is kept if that AST has it inside a
+code block. Each file decides its own `@include` lines on its own text,
+unexpanded, as `get_ast` would read it with the root's dialect: the root
+document on its source, an included file on its content (without its
+frontmatter) read with the root's dialect (in strict, as the body of a section when it does not start
+with `SECTION`). What a sibling file or the including document opens or closes
+does not change a file's decisions; since expansion is textual, the AST of the
+result can still read a kept `@include` differently (for example inside a
+fence a sibling left open). `@include` lines in the root's frontmatter are
+expanded first, and the dialect comes from the expanded frontmatter. There is one parse per distinct file. The lines
+kept that way are reported to the caller, and a kept line's path is never
+opened. This "code" is not the same as the literal-code option's: a fence
+written inside a quote is code for `LiteralCode`, but the AST has no code block
+there, and an `@include` line between two `> ```` lines ends the quote and is
+expanded. The option uses the document grammar, so it is for DocLang: a
+`.slidelang` source is not classified correctly. Diagram, chart, map and math
+bodies are not code: an `@include` line there is always expanded. DocLang is
+meant to use this option; SlideLang keeps expanding everywhere.
 
 ### Special Blocks
 

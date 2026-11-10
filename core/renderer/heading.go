@@ -39,7 +39,8 @@ func HeadingHTML(level int, text, anchor string) string {
 func HeadingContentHTML(el *ast.TextElement, variables map[string]interface{}) string {
 	if el.Level > 0 && el.HeadingSource != "" &&
 		(el.Content == el.HeadingContent || el.Content == HeadingHTML(el.Level, el.HeadingSource, el.HeadingAnchor)) {
-		return HeadingHTML(el.Level, ProcessVariables(el.HeadingSource, variables), el.HeadingAnchor)
+		source, marks := proseLineMarkdownVariables(el.HeadingSource, variables)
+		return marks.html(HeadingHTML(el.Level, source, el.HeadingAnchor))
 	}
 	return ProcessVariablesEscapeValues(el.Content, variables)
 }

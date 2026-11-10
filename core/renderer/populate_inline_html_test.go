@@ -4,6 +4,7 @@
 package renderer
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -187,27 +188,33 @@ func TestPopulateInlineHTML_MatchesRenderElementToHTML(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			doc := newTestDoc(tc.elem)
-			PopulateInlineHTML(doc, vars)
+	// Los dos modos de código (issue #487): sustituir {{variables}} en el
+	// código (el valor cero, slidelang) y dejarlo literal (doclang). En cada
+	// modo PopulateInlineHTMLWithOptions y RenderElementToHTML tienen que
+	// coincidir.
+	for _, literal := range []bool{false, true} {
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("%s/literalCode=%v", tc.name, literal), func(t *testing.T) {
+				doc := newTestDoc(tc.elem)
+				PopulateInlineHTMLWithOptions(doc, vars, InlineHTMLOptions{LiteralCode: literal})
 
-			full := RenderElementToHTML(tc.elem, vars, nil)
-			for _, fragment := range tc.get(tc.elem) {
-				if fragment == "" {
-					t.Fatalf("expected non-empty *HTML field")
+				full := RenderElementToHTML(tc.elem, vars, &RenderContext{LiteralCode: literal})
+				for _, fragment := range tc.get(tc.elem) {
+					if fragment == "" {
+						t.Fatalf("expected non-empty *HTML field")
+					}
+					if !strings.Contains(full, fragment) {
+						t.Errorf("populated fragment %q not found in RenderElementToHTML output:\n%s", fragment, full)
+					}
 				}
-				if !strings.Contains(full, fragment) {
-					t.Errorf("populated fragment %q not found in RenderElementToHTML output:\n%s", fragment, full)
+				// El payload XSS nunca debe sobrevivir sin escapar en ningún *HTML.
+				for _, fragment := range tc.get(tc.elem) {
+					if strings.Contains(fragment, xssPayload) {
+						t.Errorf("XSS payload leaked unescaped into *HTML field: %q", fragment)
+					}
 				}
-			}
-			// El payload XSS nunca debe sobrevivir sin escapar en ningún *HTML.
-			for _, fragment := range tc.get(tc.elem) {
-				if strings.Contains(fragment, xssPayload) {
-					t.Errorf("XSS payload leaked unescaped into *HTML field: %q", fragment)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 

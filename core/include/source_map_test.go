@@ -284,3 +284,36 @@ func abs(t *testing.T, p string) string {
 	}
 	return a
 }
+
+// ExpandWithOptions devuelve el mismo contrato en Expansion.Sources, con y sin
+// KeepIncludesInCode: una línea @include que quedó en código es la línea de su
+// archivo que la tiene, y Origins es Sources.Files(). Sin la opción, Sources
+// es el de ExpandWithSourceMap.
+func TestExpandWithOptions_SourcesMatchEveryLine(t *testing.T) {
+	files, roots := sourceMapCorpus(t)
+	for name, root := range roots {
+		for _, keep := range []bool{false, true} {
+			label := name
+			if keep {
+				label += "/KeepIncludesInCode"
+			}
+			res, err := ExpandWithOptions(root, abs(t, "/base"), memFS(files), ExpandOptions{KeepIncludesInCode: keep})
+			if err != nil {
+				t.Fatalf("%s: %v", label, err)
+			}
+			if len(res.Sources.Lines) == 0 {
+				t.Fatalf("%s: Sources is empty", label)
+			}
+			checkSourceMap(t, label, root, files, res.Text, res.Sources)
+			if !reflect.DeepEqual(res.Origins, res.Sources.Files()) {
+				t.Errorf("%s: Origins %v is not Sources.Files() %v", label, res.Origins, res.Sources.Files())
+			}
+			if !keep {
+				text, sm, _ := ExpandWithSourceMap(root, abs(t, "/base"), memFS(files))
+				if text != res.Text || !reflect.DeepEqual(sm, res.Sources) {
+					t.Errorf("%s: without the option Sources must be ExpandWithSourceMap's", label)
+				}
+			}
+		}
+	}
+}
