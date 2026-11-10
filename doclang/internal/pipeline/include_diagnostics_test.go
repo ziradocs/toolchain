@@ -302,3 +302,16 @@ func TestLinkFindingsDeltaApply(t *testing.T) {
 		t.Errorf("an empty delta changed the lint: %v", same)
 	}
 }
+
+// Si raw y mapped no están alineados índice por índice, DedupeIncluded no
+// puede saber de qué expansión es cada hallazgo y devuelve mapped tal cual.
+func TestDedupeIncludedMisalignedReturnsMapped(t *testing.T) {
+	d := diagnostics.NewWarning("x", diagnostics.NewPosition(2, 1), "linter")
+	d.File = "b.md"
+	mapped := []diagnostics.Diagnostic{d, d}
+	for _, raw := range [][]diagnostics.Diagnostic{nil, mapped[:1], {d, d, d}} {
+		if got := DedupeIncluded(raw, mapped); len(got) != len(mapped) {
+			t.Errorf("raw of %d: got %d diagnostics, want mapped as is (%d)", len(raw), len(got), len(mapped))
+		}
+	}
+}
