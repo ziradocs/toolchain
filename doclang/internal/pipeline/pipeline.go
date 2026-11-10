@@ -294,7 +294,10 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 		descriptors := linter.CollectDescriptors(opts.CustomRules, opts.RulePacks)
 		descriptors = append(descriptors, extDescriptors...)
 		descriptors = linter.NormalizeDescriptors(descriptors)
-		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, descriptors, doc, content, opts.ExternalRulepacks); err != nil {
+		// El reporte lleva también los avisos del parser (SPECIAL002,
+		// TABLE007…), como la tool `lint` del MCP; antes solo salían por log.
+		reported := append(append([]diagnostics.Diagnostic{}, parseDiags...), activeDiags...)
+		if err := report.WriteReport(opts.ReportFormat, outPath, reported, waivedDiags, descriptors, doc, content, opts.ExternalRulepacks); err != nil {
 			return nil, fmt.Errorf("failed to write report: %w", err)
 		}
 		if outPath != "" && outPath != "-" {

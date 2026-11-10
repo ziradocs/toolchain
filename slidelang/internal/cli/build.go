@@ -561,7 +561,11 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		descriptors := linter.CollectDescriptors(customRules, rulePacks)
 		descriptors = append(descriptors, extDescriptors...)
 		descriptors = linter.NormalizeDescriptors(descriptors)
-		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, descriptors, astNode, content, externalRulepacks); err != nil {
+		// El reporte lleva también los avisos del parser (SPECIAL002,
+		// TABLE007, STRICT003…): antes solo salían por consola y el reporte
+		// no coincidía con lo que devuelve la tool `lint` del MCP.
+		reported := append(append(activeDiags[:0:0], diagnostics...), activeDiags...)
+		if err := report.WriteReport(opts.ReportFormat, outPath, reported, waivedDiags, descriptors, astNode, content, externalRulepacks); err != nil {
 			return fmt.Errorf("failed to write report: %w", err)
 		}
 		if outPath != "" && outPath != "-" {
@@ -587,6 +591,9 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 			warningCount++
 		}
 	}
+	// El resumen ("warnings:") cuenta también los avisos del parser, que ya se
+	// imprimieron arriba; si llegó acá, ninguno es error.
+	parserWarnings := len(diagnostics)
 
 	if len(lintDiagnostics) > 0 {
 		util.Info("LINT", "Encontrados %d warnings, %d errores", warningCount, errorCount)
@@ -616,7 +623,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	if opts.LintOnly {
 		util.Summary("Linting", map[string]interface{}{
 			"slides":   len(astNode.ContentBlocks),
-			"warnings": warningCount,
+			"warnings": warningCount + parserWarnings,
 			"errores":  errorCount,
 		})
 		return nil
@@ -756,7 +763,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	// Resumen final
 	util.Summary("Build", map[string]interface{}{
 		"slides":     len(astNode.ContentBlocks),
-		"warnings":   warningCount,
+		"warnings":   warningCount + parserWarnings,
 		"formato":    strings.Join(formats, ","),
 		"output_dir": opts.OutputDir,
 	})
