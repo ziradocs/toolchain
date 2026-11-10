@@ -93,6 +93,11 @@ func (o LineOrigins) File(line int) string {
 // contenido raíz incluido (el de cada archivo incluido se descarta antes de
 // contar), que es lo mismo que cuentan las posiciones del parser.
 //
+// Un archivo incluido que es solo frontmatter, sin salto de línea final,
+// deja una línea vacía que no está en él; su origen es el archivo que tiene
+// el @include, no el incluido (ver SourceMap). Antes de ExpandWithSourceMap
+// esa línea decía el archivo incluido.
+//
 // El texto expandido y los errores son exactamente los de Expand.
 func ExpandWithOrigins(content, baseDir string, read ReadFunc) (string, LineOrigins, error) {
 	text, sources, err := ExpandWithSourceMap(content, baseDir, read)
@@ -112,23 +117,45 @@ type Origin struct {
 	Line int
 }
 
-// SourceMap es el Origin de cada línea del contenido que devuelve
-// ExpandWithSourceMap: el elemento i es la línea i+1.
-type SourceMap []Origin
+// SourceMap es el origen de cada línea del contenido que devuelve
+// ExpandWithSourceMap.
+//
+// Contrato, para cualquier camino de expansión que devuelva un SourceMap
+// (también una expansión con opciones, como la que deja sin expandir un
+// @include dentro de código):
+//
+//   - len(Lines) es la cantidad de líneas del texto expandido
+//     (strings.Split(texto, "\n")).
+//   - Lines[i] es el origen de la línea i+1: con File "" es la línea Line del
+//     contenido raíz; si no, la línea Line del archivo File (ruta absoluta),
+//     contando el frontmatter que ese archivo tenía.
+//   - La línea expandida es exactamente esa línea de su origen. La única
+//     excepción es la línea vacía que deja un archivo incluido que es solo
+//     frontmatter, sin salto de línea final: no existe en ese archivo, y su
+//     origen es la línea del @include que la trajo.
+//   - RootLines es la cantidad de líneas del contenido raíz.
+//
+// TestExpandWithSourceMap_EveryLineMatchesItsOrigin y checkSourceMap (en las
+// pruebas del paquete) verifican este contrato y se pueden reusar con otro
+// camino de expansión.
+type SourceMap struct {
+	Lines     []Origin
+	RootLines int
+}
 
 // At devuelve el origen de la línea line (1-based) del contenido expandido, y
 // false si está fuera de rango.
 func (m SourceMap) At(line int) (Origin, bool) {
-	if line < 1 || line > len(m) {
+	if line < 1 || line > len(m.Lines) {
 		return Origin{}, false
 	}
-	return m[line-1], true
+	return m.Lines[line-1], true
 }
 
 // Files es m reducido al archivo de cada línea (LineOrigins).
 func (m SourceMap) Files() LineOrigins {
-	files := make(LineOrigins, len(m))
-	for i, o := range m {
+	files := make(LineOrigins, len(m.Lines))
+	for i, o := range m.Lines {
 		files[i] = o.File
 	}
 	return files
@@ -141,23 +168,36 @@ func (m SourceMap) Files() LineOrigins {
 //
 //   - Un diagnóstico en una línea que vino de un @include pasa a decir el
 //     archivo incluido (Diagnostic.File) y su línea ahí. File es relativo a
-//     docDir, el directorio del documento raíz, con "/" como separador en
-//     cualquier sistema ("partes/intro.doclang", "../comun/pie.doclang"). Si
-//     docDir es "" o la ruta no se puede expresar relativa a él (otra unidad
-//     en Windows), va la ruta absoluta, también con "/".
+//     docDir, con "/" como separador en cualquier sistema
+//     ("partes/intro.doclang", "../comun/pie.doclang"). Si docDir es "" o la
+//     ruta no se puede expresar relativa a él (otra unidad en Windows), va la
+//     ruta absoluta, también con "/".
 //   - Uno del contenido raíz queda con File vacío y la línea que tenía en el
 //     contenido raíz.
 //   - Uno sin posición (línea 0 o menor) queda como está: es del documento
 //     entero.
-//   - Uno después de la última línea expandida (un fin de archivo) se cuenta
-//     desde la última línea: va al archivo de esa línea, tantas líneas
-//     después de ella como estaba después del final. Así nunca queda con la
-//     línea del contenido expandido, que en el archivo raíz es otra.
+//   - Uno después de la última línea expandida (un fin de archivo) es del
+//     fin del contenido raíz, que es donde termina la expansión: File vacío y
+//     RootLines más lo que estaba después del final. Vale también cuando el
+//     raíz termina en un @include.
 //   - Uno que ya trae File no se toca: ya está en su origen.
 //
 // La posición final se mapea igual; si cae en otro archivo que la inicial, se
 // descarta, porque un rango no puede cruzar archivos. diags no se modifica,
 // tampoco la EndPosition a la que apuntan.
+//
+// Contrato de docDir para quien lo llame: es el directorio del documento
+// raíz, el mismo que el del docPath que el reporte pone en document.path y
+// en el artifactLocation de SARIF, para que File se lea relativo a él. Los
+// dos tienen que estar en la misma forma canónica: si uno pasa por
+// filepath.EvalSymlinks (o filepath.Abs), el otro también, y las rutas de
+// Origin.File salen de filepath.Abs sobre la ruta confinada a baseDir, así
+// que baseDir tiene que estar en esa misma forma; si no, filepath.Rel da un
+// "../../…" que da la vuelta por el symlink. Con --base-dir distinto del
+// directorio del documento, File sigue siendo relativo al documento (puede
+// empezar con "../"), no a baseDir. Si el documento no tiene ruta en disco
+// (stdin, un buffer temporal, el MCP con contenido en memoria), docDir es ""
+// y File va absoluto.
 func (m SourceMap) MapDiagnostics(diags []diagnostics.Diagnostic, docDir string) []diagnostics.Diagnostic {
 	if len(diags) == 0 {
 		return diags
@@ -190,17 +230,16 @@ func (m SourceMap) MapDiagnostics(diags []diagnostics.Diagnostic, docDir string)
 }
 
 // resolve es At extendido más allá del final: una línea después de la última
-// cuenta desde la última (mismo archivo, la diferencia sumada a su línea).
-// Una línea menor que 1, o un mapa vacío, no tiene origen.
+// es del fin del contenido raíz. Una línea menor que 1, o un mapa sin
+// líneas, no tiene origen.
 func (m SourceMap) resolve(line int) (Origin, bool) {
 	if o, ok := m.At(line); ok {
 		return o, true
 	}
-	if line < 1 || len(m) == 0 {
+	if line < 1 || len(m.Lines) == 0 {
 		return Origin{}, false
 	}
-	last := m[len(m)-1]
-	return Origin{File: last.File, Line: last.Line + line - len(m)}, true
+	return Origin{Line: m.RootLines + line - len(m.Lines)}, true
 }
 
 // displayPath es cómo se nombra file en un diagnóstico: "" para el contenido
@@ -225,11 +264,11 @@ func displayPath(docDir, file string) string {
 // archivo que las escribió (SourceMap.MapDiagnostics). El texto expandido y
 // los errores son exactamente los de Expand.
 func ExpandWithSourceMap(content, baseDir string, read ReadFunc) (string, SourceMap, error) {
-	lines, sources, err := expand(content, "", 1, baseDir, read, map[string]bool{}, 0)
+	lines, origins, err := expand(content, "", 1, baseDir, read, map[string]bool{}, 0)
 	if err != nil {
-		return "", nil, err
+		return "", SourceMap{}, err
 	}
-	return strings.Join(lines, "\n"), sources, nil
+	return strings.Join(lines, "\n"), SourceMap{Lines: origins, RootLines: strings.Count(content, "\n") + 1}, nil
 }
 
 // expand devuelve las líneas expandidas de content y, en paralelo, el
@@ -238,14 +277,14 @@ func ExpandWithSourceMap(content, baseDir string, read ReadFunc) (string, Source
 // le quitó el frontmatter). Unir las líneas con "\n" da lo mismo que unir
 // cada hijo ya expandido como un solo bloque, que es lo que hacía esta
 // función antes de devolver orígenes.
-func expand(content, file string, firstLine int, baseDir string, read ReadFunc, visited map[string]bool, depth int) ([]string, SourceMap, error) {
+func expand(content, file string, firstLine int, baseDir string, read ReadFunc, visited map[string]bool, depth int) ([]string, []Origin, error) {
 	if depth > MaxDepth {
 		return nil, nil, fmt.Errorf("include: profundidad máxima (%d) excedida — revisar si hay un ciclo no detectado", MaxDepth)
 	}
 
 	lines := strings.Split(content, "\n")
 	out := make([]string, 0, len(lines))
-	origins := make(SourceMap, 0, len(lines))
+	origins := make([]Origin, 0, len(lines))
 	for n, line := range lines {
 		incPath, ok := parseIncludeLine(line)
 		if !ok {
@@ -288,6 +327,8 @@ func expand(content, file string, firstLine int, baseDir string, read ReadFunc, 
 		// Un archivo que es solo frontmatter, sin salto de línea después del
 		// `---` de cierre, deja una línea vacía que no está en él: esa línea
 		// ocupa el lugar del @include, así que se atribuye a la directiva.
+		// Cambia también ExpandWithOrigins para esa línea: antes decía el
+		// archivo incluido, ahora el que tiene el @include.
 		if skipped > 0 && skipped == strings.Count(string(data), "\n")+1 {
 			childOrigins[0] = Origin{File: file, Line: firstLine + n}
 		}

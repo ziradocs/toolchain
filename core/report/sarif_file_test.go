@@ -27,7 +27,7 @@ func TestSARIF_ArtifactLocationUsesDiagnosticFile(t *testing.T) {
 	}{
 		{"same directory", "main.doclang", []diagnostics.Diagnostic{at("", 3), at("partes/a.doclang", 2)}, []string{"main.doclang", "partes/a.doclang"}},
 		{"document in a subdirectory", "docs/main.doclang", []diagnostics.Diagnostic{at("partes/a.doclang", 2), at("../comun/pie.doclang", 1)}, []string{"docs/partes/a.doclang", "comun/pie.doclang"}},
-		{"absolute file", "docs/main.doclang", []diagnostics.Diagnostic{at("/srv/comun/pie.doclang", 1)}, []string{"/srv/comun/pie.doclang"}},
+		{"absolute file", "docs/main.doclang", []diagnostics.Diagnostic{at("/srv/comun/pie.doclang", 1)}, []string{"file:///srv/comun/pie.doclang"}},
 		{"no document path", "", []diagnostics.Diagnostic{at("partes/a.doclang", 1)}, []string{"partes/a.doclang"}},
 	}
 	for _, c := range cases {
@@ -52,6 +52,36 @@ func TestSARIF_ArtifactLocationUsesDiagnosticFile(t *testing.T) {
 				t.Errorf("%s: uris %v, want %v", c.name, got, c.want)
 				break
 			}
+		}
+	}
+}
+
+// artifactURI no depende del sistema: "\\" y "/" valen igual, una ruta con
+// letra de unidad o absoluta va como URI file:, y cada segmento va escapado
+// según RFC 3986.
+func TestArtifactURI(t *testing.T) {
+	cases := []struct{ docPath, file, want string }{
+		{"main.doclang", "", "main.doclang"},
+		{"docs/main.doclang", "partes/a.doclang", "docs/partes/a.doclang"},
+		{"docs\\main.doclang", "partes\\a.doclang", "docs/partes/a.doclang"},
+		{"docs/main.doclang", "../comun/pie.doclang", "comun/pie.doclang"},
+		{"main.doclang", "../comun/pie.doclang", "../comun/pie.doclang"},
+		{"mis docs/informe final.doclang", "", "mis%20docs/informe%20final.doclang"},
+		{"docs/main.doclang", "partes/año 1/sección #2.doclang", "docs/partes/a%C3%B1o%201/secci%C3%B3n%20%232.doclang"},
+		{"D:\\docs\\main.doclang", "", "file:///D:/docs/main.doclang"},
+		{"D:\\docs\\main.doclang", "partes\\a.doclang", "file:///D:/docs/partes/a.doclang"},
+		{"D:\\docs\\main.doclang", "E:/comun/pie.doclang", "file:///E:/comun/pie.doclang"},
+		{"docs/main.doclang", "C:/Users/Ana María/pie.doclang", "file:///C:/Users/Ana%20Mar%C3%ADa/pie.doclang"},
+		{"/srv/docs/main.doclang", "", "file:///srv/docs/main.doclang"},
+		{"/srv/docs/main.doclang", "partes/a b.doclang", "file:///srv/docs/partes/a%20b.doclang"},
+		{"\\\\servidor\\r\\main.doclang", "", "file://servidor/r/main.doclang"},
+		{"", "partes/a.doclang", "partes/a.doclang"},
+		{"a:b.doclang", "", "./a:b.doclang"},
+		{"", "", ""},
+	}
+	for _, c := range cases {
+		if got := artifactURI(c.docPath, c.file); got != c.want {
+			t.Errorf("artifactURI(%q, %q) = %q, want %q", c.docPath, c.file, got, c.want)
 		}
 	}
 }

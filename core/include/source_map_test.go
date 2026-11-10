@@ -17,29 +17,27 @@ import (
 // El SourceMap da archivo y línea de origen de cada línea expandida, contando
 // el frontmatter que el archivo incluido tenía aunque la expansión lo quite.
 func TestExpandWithSourceMap_FileAndLine(t *testing.T) {
+	a, b := abs(t, "/base/a.md"), abs(t, "/base/b.md")
 	files := map[string]string{
-		"/base/a.md": "---\ntitle: A\n---\nA1\n@include b.md\nA2",
-		"/base/b.md": "B1\nB2",
+		a: "---\ntitle: A\n---\nA1\n@include b.md\nA2",
+		b: "B1\nB2",
 	}
-	text, sm, err := ExpandWithSourceMap("R1\n@include a.md\nR2", "/base", memFS(files))
+	text, sm, err := ExpandWithSourceMap("R1\n@include a.md\nR2", abs(t, "/base"), memFS(files))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want, _ := Expand("R1\n@include a.md\nR2", "/base", memFS(files)); text != want {
+	if want, _ := Expand("R1\n@include a.md\nR2", abs(t, "/base"), memFS(files)); text != want {
 		t.Fatalf("text %q differs from Expand %q", text, want)
 	}
-	want := SourceMap{
+	want := SourceMap{Lines: []Origin{
 		{"", 1},
-		{"/base/a.md", 4}, {"/base/b.md", 1}, {"/base/b.md", 2}, {"/base/a.md", 6},
+		{a, 4}, {b, 1}, {b, 2}, {a, 6},
 		{"", 3},
-	}
+	}, RootLines: 3}
 	if !reflect.DeepEqual(sm, want) {
 		t.Errorf("source map\n got %v\nwant %v", sm, want)
 	}
-	if got := strings.Split(text, "\n"); len(got) != len(sm) {
-		t.Errorf("%d lines, %d origins", len(got), len(sm))
-	}
-	_, origins, _ := ExpandWithOrigins("R1\n@include a.md\nR2", "/base", memFS(files))
+	_, origins, _ := ExpandWithOrigins("R1\n@include a.md\nR2", abs(t, "/base"), memFS(files))
 	if !reflect.DeepEqual(origins, sm.Files()) {
 		t.Errorf("ExpandWithOrigins %v, want %v", origins, sm.Files())
 	}
@@ -84,7 +82,7 @@ func TestSourceMap_MapDiagnosticsFromTheParser(t *testing.T) {
 
 func TestSourceMap_MapDiagnosticsEdges(t *testing.T) {
 	b := abs(t, "/b.md")
-	sm := SourceMap{{"", 1}, {b, 1}, {b, 2}, {"", 3}}
+	sm := SourceMap{Lines: []Origin{{"", 1}, {b, 1}, {b, 2}, {"", 3}}, RootLines: 3}
 	end := diagnostics.NewPosition(3, 2)
 	ranged := diagnostics.NewError("rango", diagnostics.NewPosition(2, 1), "t").WithEndPosition(end)
 	already := diagnostics.NewError("ya mapeado", diagnostics.NewPosition(2, 1), "t")
@@ -100,9 +98,10 @@ func TestSourceMap_MapDiagnosticsEdges(t *testing.T) {
 	if out[0].Position.Line != 0 || out[0].File != "" {
 		t.Errorf("a diagnostic without a position must stay: %+v", out[0])
 	}
-	// La línea 9 está 5 después de la última (la 4, línea 3 de la raíz).
+	// La línea 9 está 5 después de la última expandida (la 4); el raíz
+	// tiene 3 líneas, así que es la 8 del raíz.
 	if out[1].Position.Line != 8 || out[1].File != "" {
-		t.Errorf("past the end counts from the last line: want root line 8, got %+v", out[1])
+		t.Errorf("past the end is the end of the root: want root line 8, got %+v", out[1])
 	}
 	if out[2].File != "b.md" || out[2].Position.Line != 1 || out[2].EndPosition == nil || out[2].EndPosition.Line != 2 {
 		t.Errorf("a range inside one file maps both ends: %+v", out[2])
@@ -119,15 +118,31 @@ func TestSourceMap_MapDiagnosticsEdges(t *testing.T) {
 	if in[1].Position.Line != 9 || in[2].Position.Line != 2 || in[2].File != "" {
 		t.Errorf("MapDiagnostics must not modify its input: %+v", in)
 	}
-
-	// Un mapa que termina en un archivo incluido: el fin de archivo cae en
-	// ese archivo.
-	tail := SourceMap{{"", 1}, {b, 4}}
-	if got := tail.MapDiagnostics([]diagnostics.Diagnostic{diagnostics.NewError("eof", diagnostics.NewPosition(3, 1), "t")}, abs(t, "/")); got[0].File != "b.md" || got[0].Position.Line != 5 {
-		t.Errorf("past the end of an included file: want b.md:5, got %+v", got[0])
-	}
 	if got := (SourceMap{}).MapDiagnostics([]diagnostics.Diagnostic{diagnostics.NewError("x", diagnostics.NewPosition(2, 1), "t")}, ""); got[0].File != "" || got[0].Position.Line != 2 {
 		t.Errorf("an empty map leaves positions alone: %+v", got[0])
+	}
+}
+
+// Un raíz que termina en un @include, sin salto de línea final: la última
+// línea expandida es del archivo incluido, pero el fin de archivo es el del
+// raíz, que es donde termina la expansión.
+func TestSourceMap_EndOfFileWhenTheRootEndsInAnInclude(t *testing.T) {
+	b := abs(t, "/base/b.md")
+	for _, child := range []string{"B1\nB2", "B1\nB2\n"} {
+		files := map[string]string{b: child}
+		text, sm, err := ExpandWithSourceMap("R1\n@include b.md", abs(t, "/base"), memFS(files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := len(strings.Split(text, "\n"))
+		if last, _ := sm.At(n); last.File != b {
+			t.Fatalf("%q: last expanded line should come from b.md, got %v", child, last)
+		}
+		eof := diagnostics.NewError("eof", diagnostics.NewPosition(n+1, 1), "t")
+		got := sm.MapDiagnostics([]diagnostics.Diagnostic{eof}, abs(t, "/base"))[0]
+		if got.File != "" || got.Position.Line != 3 {
+			t.Errorf("%q: end of file: want root line 3, got %q:%d", child, got.File, got.Position.Line)
+		}
 	}
 }
 
@@ -137,7 +152,7 @@ func TestSourceMap_MapDiagnosticsFilePaths(t *testing.T) {
 	docDir := abs(t, "/docs")
 	inside := abs(t, "/docs/partes/a.md")
 	outside := abs(t, "/comun/pie.md")
-	sm := SourceMap{{inside, 1}, {outside, 1}}
+	sm := SourceMap{Lines: []Origin{{inside, 1}, {outside, 1}}, RootLines: 1}
 	diags := []diagnostics.Diagnostic{
 		diagnostics.NewError("a", diagnostics.NewPosition(1, 1), "t"),
 		diagnostics.NewError("b", diagnostics.NewPosition(2, 1), "t"),
@@ -154,6 +169,7 @@ func TestSourceMap_MapDiagnosticsFilePaths(t *testing.T) {
 
 // Un archivo incluido que es solo frontmatter, sin salto de línea al final,
 // deja una línea vacía que no está en él: su origen es la directiva @include.
+// ExpandWithOrigins cambia igual para esa línea.
 func TestExpandWithSourceMap_FrontMatterOnlyInclude(t *testing.T) {
 	only := abs(t, "/base/solo.md")
 	files := map[string]string{only: "---\ntitle: x\n---"}
@@ -164,9 +180,11 @@ func TestExpandWithSourceMap_FrontMatterOnlyInclude(t *testing.T) {
 	if text != "R1\n\nR3" {
 		t.Fatalf("text %q", text)
 	}
-	want := SourceMap{{"", 1}, {"", 2}, {"", 3}}
-	if !reflect.DeepEqual(sm, want) {
-		t.Errorf("source map\n got %v\nwant %v", sm, want)
+	if want := []Origin{{"", 1}, {"", 2}, {"", 3}}; !reflect.DeepEqual(sm.Lines, want) {
+		t.Errorf("source map\n got %v\nwant %v", sm.Lines, want)
+	}
+	if _, origins, _ := ExpandWithOrigins("R1\n@include solo.md\nR3", abs(t, "/base"), memFS(files)); origins.File(2) != "" {
+		t.Errorf("ExpandWithOrigins line 2 = %q, want the root", origins.File(2))
 	}
 
 	// Con salto de línea final la línea vacía sí es del archivo (la 4).
@@ -175,15 +193,56 @@ func TestExpandWithSourceMap_FrontMatterOnlyInclude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (SourceMap{{"", 1}, {only, 4}, {"", 3}}); !reflect.DeepEqual(sm, want) {
-		t.Errorf("source map\n got %v\nwant %v", sm, want)
+	if want := []Origin{{"", 1}, {only, 4}, {"", 3}}; !reflect.DeepEqual(sm.Lines, want) {
+		t.Errorf("source map\n got %v\nwant %v", sm.Lines, want)
 	}
 }
 
-// Cada línea expandida es la línea que su origen dice, en el archivo que su
-// origen dice. La única excepción es la línea vacía que deja un include que
-// es solo frontmatter, cuyo origen es la directiva.
-func TestExpandWithSourceMap_EveryLineMatchesItsOrigin(t *testing.T) {
+// checkSourceMap verifica el contrato de SourceMap (ver su documentación)
+// para un texto expandido desde root con los archivos de files (rutas
+// absolutas): una línea por origen, cada línea igual a la de su origen
+// (salvo la línea vacía de un include de solo frontmatter, cuyo origen es la
+// directiva) y RootLines igual a las líneas de root. Sirve para cualquier
+// camino de expansión que devuelva un SourceMap, también uno con opciones
+// (p. ej. KeepIncludesInCode): checkSourceMap(t, name, root, files,
+// exp.Text, exp.Sources).
+func checkSourceMap(t *testing.T, name, root string, files map[string]string, text string, sm SourceMap) {
+	t.Helper()
+	lines := strings.Split(text, "\n")
+	if len(lines) != len(sm.Lines) {
+		t.Fatalf("%s: %d lines, %d origins", name, len(lines), len(sm.Lines))
+	}
+	if want := len(strings.Split(root, "\n")); sm.RootLines != want {
+		t.Errorf("%s: RootLines = %d, want %d", name, sm.RootLines, want)
+	}
+	for i, l := range lines {
+		o := sm.Lines[i]
+		src, ok := root, true
+		if o.File != "" {
+			src, ok = files[o.File]
+		}
+		if !ok {
+			t.Errorf("%s: line %d -> %v, unknown file", name, i+1, o)
+			continue
+		}
+		sl := strings.Split(src, "\n")
+		if o.Line < 1 || o.Line > len(sl) {
+			t.Errorf("%s: line %d %q -> %v, out of range", name, i+1, l, o)
+			continue
+		}
+		if got := sl[o.Line-1]; got != l {
+			if _, isInclude := parseIncludeLine(got); isInclude && l == "" {
+				continue
+			}
+			t.Errorf("%s: line %d %q -> %v, which is %q", name, i+1, l, o, got)
+		}
+	}
+}
+
+// sourceMapCorpus son raíces y archivos para checkSourceMap: frontmatter en
+// el raíz y en los incluidos, @include en el frontmatter, en código y
+// anidado, CRLF, sin frontmatter y un include de solo frontmatter.
+func sourceMapCorpus(t *testing.T) (map[string]string, map[string]string) {
 	a, bf, fm, only := abs(t, "/base/a.doclang"), abs(t, "/base/b.doclang"), abs(t, "/base/fm.yaml"), abs(t, "/base/solo.doclang")
 	files := map[string]string{
 		a:    "---\nt: x\n---\n  TEXT\n    from a\n  CODE text\n    @include b.doclang\n    in code\n  @include b.doclang\n  TEXT\n    after b",
@@ -192,39 +251,26 @@ func TestExpandWithSourceMap_EveryLineMatchesItsOrigin(t *testing.T) {
 		only: "---\ntitle: solo\n---",
 	}
 	roots := map[string]string{
-		"strict": "---\nmode: strict\n@include fm.yaml\n---\n\nSECTION \"A\"\n  CODE text\n    @include b.doclang\n@include a.doclang\n  TEXT\n    tail\n",
-		"flex":   "---\nmode: flex\n---\n# A\n\n```\n@include b.doclang\n```\n\n@include a.doclang\nend",
-		"nofm":   "# A\n@include a.doclang\n```\n@include b.doclang\n```",
-		"crlf":   "---\r\nmode: strict\r\n---\r\nSECTION \"A\"\r\n@include b.doclang\r\n  TEXT\r\n    z\r\n",
-		"solo":   "# A\n@include solo.doclang\n@include a.doclang\n",
+		"strict":       "---\nmode: strict\n@include fm.yaml\n---\n\nSECTION \"A\"\n  CODE text\n    @include b.doclang\n@include a.doclang\n  TEXT\n    tail\n",
+		"flex":         "---\nmode: flex\n---\n# A\n\n```\n@include b.doclang\n```\n\n@include a.doclang\nend",
+		"nofm":         "# A\n@include a.doclang\n```\n@include b.doclang\n```",
+		"crlf":         "---\r\nmode: strict\r\n---\r\nSECTION \"A\"\r\n@include b.doclang\r\n  TEXT\r\n    z\r\n",
+		"solo":         "# A\n@include solo.doclang\n@include a.doclang\n",
+		"ends-include": "# A\n@include b.doclang",
 	}
+	return files, roots
+}
+
+// Cada línea expandida es la que su origen dice, en el archivo que su origen
+// dice (el contrato de SourceMap), sobre la API pública.
+func TestExpandWithSourceMap_EveryLineMatchesItsOrigin(t *testing.T) {
+	files, roots := sourceMapCorpus(t)
 	for name, root := range roots {
 		text, sm, err := ExpandWithSourceMap(root, abs(t, "/base"), memFS(files))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		lines := strings.Split(text, "\n")
-		if len(lines) != len(sm) {
-			t.Fatalf("%s: %d lines, %d origins", name, len(lines), len(sm))
-		}
-		for i, l := range lines {
-			o := sm[i]
-			src := root
-			if o.File != "" {
-				src = files[o.File]
-			}
-			sl := strings.Split(src, "\n")
-			if o.Line < 1 || o.Line > len(sl) {
-				t.Errorf("%s: line %d %q -> %v, out of range", name, i+1, l, o)
-				continue
-			}
-			if got := sl[o.Line-1]; got != l {
-				if _, isInclude := parseIncludeLine(got); isInclude && l == "" {
-					continue
-				}
-				t.Errorf("%s: line %d %q -> %v, which is %q", name, i+1, l, o, got)
-			}
-		}
+		checkSourceMap(t, name, root, files, text, sm)
 	}
 }
 
