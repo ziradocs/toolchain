@@ -91,7 +91,12 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 // A diferencia de un SLIDE o una sección, una columna no tiene propiedades ni
 // encabezados, y es sintaxis nueva: no hay documentos previos que dependan de
 // que una línea ilegible se descarte con un warning, así que todo lo que no
-// llega al AST es un Error. Un `<<grid>>` anidado también lo es: los
+// llega al AST es un Error. La excepción son las líneas que empiezan con una
+// palabra clave pegada a otra cosa ("TEXTOS largos", "TEXTO: algo") y el texto
+// en la línea de una palabra clave: antes de #489 esas líneas se leían como el
+// elemento, así que en un slide se reportan con el warning STRICT003 (en un
+// documento, con error), igual que fuera de la columna; un deck que compilaba
+// no se rompe. Un `<<grid>>` anidado también lo es: los
 // marcadores de grid se reconocen sobre la línea ya recortada, y flex no
 // tiene cierre sin ambigüedad para anidarlo.
 func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic) {
@@ -105,6 +110,10 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 		lineOffset:      lineOffset,
 	}
 	scratch := ast.NewContentBlock(sub.position(0), "content")
+	// gluedIndent es la sangría de la última línea con palabra clave pegada:
+	// las líneas más sangradas que siguen son su cuerpo (lo que main leía
+	// como el cuerpo del elemento) y se reportan con el mismo nivel.
+	gluedIndent := -1
 	sub.parseIndentedElements(scratch, func(key, _ string) {
 		sub.addError(fmt.Sprintf(
 			"a typed column has no properties, so %q is not valid here; write text inside a TEXT element",
@@ -118,8 +127,20 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 			sub.addError("a SLIDE cannot be opened inside a column; close the grid with <<end>> first")
 			return
 		}
-		sub.addError(withHint(fmt.Sprintf(
-			"unexpected content inside a typed column: %q is not an element", trimmed), trimmed))
+		msg := withHint(fmt.Sprintf(
+			"unexpected content inside a typed column: %q is not an element", trimmed), trimmed)
+		indent := elements.CalculateIndentLevel(sub.lines[sub.currentLine])
+		if _, _, glued := elements.GluedStrictKeyword(trimmed); glued {
+			gluedIndent = indent
+			sub.reportDiscarded(msg)
+			return
+		}
+		if gluedIndent >= 0 && indent > gluedIndent {
+			sub.reportDiscarded(msg)
+			return
+		}
+		gluedIndent = -1
+		sub.addError(msg)
 	})
 	if sub.currentLine < len(lines) {
 		// parseIndentedElements corta en la primera línea no vacía con menos de

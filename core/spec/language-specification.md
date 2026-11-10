@@ -129,7 +129,9 @@ letter, a digit, `-`, `.`, `/`, `(`) makes it another word: `TEXTO citado`,
 element level such a line is an unrecognized line (an error in a document, the
 `STRICT003` warning in a slide), and the message suggests the keyword ("`TEXTO`
 is not an element keyword; did you mean TEXT?"); followed by `:` (`TEXTO:`)
-it is that same unrecognized line, not an unknown property. Earlier versions matched the
+it is that same unrecognized line, not an unknown property. Inside a typed
+column, where any other unrecognized line is an error, such a line follows the
+same rule: the `STRICT003` warning in a slide, an error in a document. Earlier versions matched the
 bare prefix, so `TEXTO citado` opened a `TEXT` element and `CODEX html` a
 `CODE` block.
 

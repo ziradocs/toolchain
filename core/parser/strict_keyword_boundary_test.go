@@ -173,8 +173,8 @@ func TestStrictKeyword_TextOnTheKeywordLineInsideATypedColumn(t *testing.T) {
 // es la línea no reconocida de cada dialecto, con la sugerencia.
 func TestStrictKeywordBoundary_GluedKeywordWithColon(t *testing.T) {
 	for _, tc := range []struct{ line, word string }{
-		{"TEXTO: algo", "TEXTO:"},
-		{"TEXT-heavy: no", "TEXT-heavy:"},
+		{"TEXTO: algo", "TEXTO"},
+		{"TEXT-heavy: no", "TEXT-heavy"},
 	} {
 		want := fmt.Sprintf("%q is not an element keyword; did you mean TEXT?", tc.word)
 		_, diags := parseStrictSource(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  "+tc.line+"\n", true)
@@ -199,5 +199,33 @@ func TestStrictKeywordBoundary_MessagesWithoutHintUnchanged(t *testing.T) {
 	_, diags = parseStrictSource(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"+column, true)
 	if len(diags) != 1 || diags[0].Message != `unexpected content inside a typed column: "foo" is not an element` {
 		t.Errorf("typed column message changed: %v", diags)
+	}
+}
+
+// En una columna tipada de un slide, una línea con la palabra clave pegada
+// (que main leía como el elemento) es el warning STRICT003, no un error: el
+// deck sigue compilando. En un documento es error. Cualquier otra línea no
+// reconocida en la columna sigue siendo error, como en main.
+func TestStrictKeywordBoundary_GluedKeywordInsideATypedColumn(t *testing.T) {
+	for _, line := range []string{"TEXTOS largos", "TEXTO: algo", "TEXTOS largos\n      cuerpo"} {
+		column := "  <<grid>>\n  <<column typed>>\n    " + line + "\n  <<end>>\n"
+		_, diags := parseStrictSource(t, "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n"+column, false)
+		if len(diags) == 0 || !strings.Contains(diags[0].Message, "did you mean TEXT?") {
+			t.Errorf("slide %q: want the hint, got %v", line, diags)
+		}
+		for _, d := range diags {
+			if d.IsError() || d.RuleID != "STRICT003" {
+				t.Errorf("slide %q: want only STRICT003 warnings, got %v", line, diags)
+			}
+		}
+		_, diags = parseStrictSource(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"+column, true)
+		if len(diags) == 0 || !diags[0].IsError() {
+			t.Errorf("document %q: want an error, got %v", line, diags)
+		}
+	}
+	column := "  <<grid>>\n  <<column typed>>\n    RARO\n  <<end>>\n"
+	_, diags := parseStrictSource(t, "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n"+column, false)
+	if len(diags) != 1 || !diags[0].IsError() {
+		t.Errorf("slide: another unrecognized line in a column stays an error, got %v", diags)
 	}
 }

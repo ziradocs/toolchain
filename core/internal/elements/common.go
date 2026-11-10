@@ -276,6 +276,10 @@ func GluedStrictKeyword(trimmed string) (keyword, word string, ok bool) {
 			if fields := strings.Fields(trimmed); len(fields) > 0 {
 				word = fields[0]
 			}
+			// La palabra sin los dos puntos de "TEXTO:".
+			if w := strings.TrimRight(word, ":"); w != "" {
+				word = w
+			}
 			return kw, word, true
 		}
 	}
