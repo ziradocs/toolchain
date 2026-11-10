@@ -217,3 +217,24 @@ func TestPrepare_LangRunsKeepCodeLiteral(t *testing.T) {
 		t.Errorf("LangRuns = %q, want the code span literal and the prose substituted", all)
 	}
 }
+
+// Un panic al expandir los @include (con KeepIncludesInCode core parsea el
+// raíz y cada archivo incluido) sale como error de Prepare, como uno del
+// parser, en vez de tumbar el proceso.
+func TestPrepare_PanicWhileExpandingIsAnError(t *testing.T) {
+	old := readIncludedFile
+	readIncludedFile = func(string) ([]byte, error) { panic("boom") }
+	t.Cleanup(func() { readIncludedFile = old })
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("the panic escaped Prepare: %v", r)
+			}
+		}()
+		_, err = prepareWithInclude(t, util.NewNoop(), "---\ntitle: D\nmode: flex\n---\n\n# A\n\n@include partes/p.doclang\n", "## B\n")
+	}()
+	if err == nil || !strings.Contains(err.Error(), "failed to expand includes") || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("want the panic as an include error, got %v", err)
+	}
+}

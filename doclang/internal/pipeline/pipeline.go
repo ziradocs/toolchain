@@ -152,9 +152,15 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	//
 	// Un @include escrito dentro de un bloque de código es código (issue
 	// #487): queda como está, como lo muestran get_ast y el lint, y se avisa
-	// con INCLUDE001.
-	expansion, err := include.ExpandWithOptions(string(content), opts.IncludeRoot, os.ReadFile, include.ExpandOptions{KeepIncludesInCode: true})
-	if err != nil {
+	// con INCLUDE001. Para saber qué es código, core parsea el raíz y cada
+	// archivo incluido (parser.ParseDocument), así que la expansión corre bajo
+	// el mismo guard de recover/timeout que el parseo de abajo (ME-8/BA-5).
+	var expansion include.Expansion
+	if err := util.RunGuarded(util.DefaultParseTimeout, func() error {
+		var err error
+		expansion, err = include.ExpandWithOptions(string(content), opts.IncludeRoot, readIncludedFile, include.ExpandOptions{KeepIncludesInCode: true})
+		return err
+	}); err != nil {
 		return nil, fmt.Errorf("failed to expand includes: %w", err)
 	}
 	origins, sources := expansion.Origins, sourcesFromDocDir(expansion.Sources, opts.DocDir)
@@ -227,7 +233,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	// \ref), filtros de terceros (--filter) después, en orden. Corre
 	// ANTES del lint deliberadamente (ver core/transform,
 	// doc del paquete): el linter valida el AST YA transformado.
-	doc, err = transform.RunBuiltins(doc, []transform.Transform{xref.Transform})
+	doc, err := transform.RunBuiltins(doc, []transform.Transform{xref.Transform})
 	if err != nil {
 		return nil, fmt.Errorf("built-in transform stage failed: %w", err)
 	}
@@ -653,3 +659,7 @@ func ResolveTOCAndNumbering(doc *ast.AST, toc, numbering *bool) (tocEnabled, num
 func isPolicyNotice(d diagnostics.Diagnostic) bool {
 	return d.RuleID == "POLICY001" || d.Code == "POLICY001"
 }
+
+// readIncludedFile lee cada archivo que trae un @include; es una variable
+// para que las pruebas simulen un fallo dentro de la expansión.
+var readIncludedFile = os.ReadFile
