@@ -914,7 +914,7 @@ multiple: false
 
 A key outside that set is reported and ignored rather than dropped silently
 (`QUIZ005` / `POLL004`), and a body that is not valid YAML is reported as
-`QUIZ004` / `POLL003` — the block is still consumed, so nothing after it is
+`QUIZ004` / `POLL006` — the block is still consumed, so nothing after it is
 reprocessed as prose.
 
 **`question`, each `option` and `explanation` are prose**, and carry the same

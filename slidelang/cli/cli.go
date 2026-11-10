@@ -20,7 +20,10 @@ type Options struct {
 	RulePacks         []linter.RulePack
 	ExternalRulepacks []string
 	PolicyResolver    func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error)
-	PostLint          func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error
+	// PostLint recibe, después de la política de lint, los diagnósticos del
+	// parser y del linter, ordenados por posición: lo mismo que lleva el
+	// reporte de --report.
+	PostLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error
 }
 
 // NewRootCommand builds the root CLI command with the given options.

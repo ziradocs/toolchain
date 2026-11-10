@@ -50,7 +50,7 @@ should configure something (because you saw it in an example or an
 - Valid values: `strict`, `flex`, `flex-full`, `auto` (`flex-ai` still works as a
   permanently-supported deprecated alias for `flex-full`).
 - If omitted, the **parser** backfills `mode: auto` and emits a WARNING
-  (`FRONT001`) before the linter ever runs — the linter has its own
+  (`FRONT009`) before the linter ever runs — the linter has its own
   `FRONT001` check for a missing `mode`, but it can never fire, since `mode`
   is never actually empty by the time the linter sees the AST. So a missing
   `mode` is a warning, not a build-blocking error — but always set it
