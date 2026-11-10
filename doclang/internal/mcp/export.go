@@ -381,8 +381,8 @@ func generatorDiagnostics(genLog *diagnosticLogger, prepared *pipeline.Prepared)
 		if mapped[i].File == raw[i].File && mapped[i].Position.Line == raw[i].Position.Line {
 			continue
 		}
-		if loc := generatorLineRe.FindStringIndex(mapped[i].Message); loc != nil {
-			mapped[i].Message = mapped[i].Message[:loc[0]] + pipeline.Where(mapped[i]) + mapped[i].Message[loc[1]:]
+		if n, start, end := generatorLine(mapped[i].Message); n > 0 {
+			mapped[i].Message = mapped[i].Message[:start] + pipeline.Where(mapped[i]) + mapped[i].Message[end:]
 		}
 	}
 	return pipeline.DedupeIncluded(mapped)

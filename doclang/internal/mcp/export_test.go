@@ -918,3 +918,52 @@ func TestExport_IncludedTwiceReportsEachDiagnosticOnce(t *testing.T) {
 		t.Errorf("CODE001 %d times and the image warning %d times, want once each: %+v", code001, image, out.Diagnostics)
 	}
 }
+
+// El "line N" de un warning del generador es solo el que pone el generador
+// ("DOCX: line N: …", "… at line N was not rendered"). Uno que venga dentro
+// de una ruta o de un error ajeno no es una posición y no se reescribe: una
+// imagen "line 3.png" en un archivo incluido no se vuelve
+// "../shared/x.md:1.png".
+func TestExport_GeneratorLineIsOnlyTheGeneratorPrefix(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "shared/line 3.png", "esto no es un PNG")
+	f.write(t, "shared/x.md", "## X\n\nTexto ![a](<line 3.png>) aquí.\n")
+	f.write(t, "chap/main.md", "# C\n\n@include shared/x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+	out := exportOK(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "docx", "includeRoot": "."})
+	found := false
+	for _, d := range out.Diagnostics {
+		if d.Source != "generator" || !strings.Contains(d.Message, "inline image") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, `line 3.png"`) || d.File != "" || d.Position.Line != 0 {
+			t.Errorf("the image name was taken as a position: %q at %s:%d", d.Message, d.File, d.Position.Line)
+		}
+	}
+	if !found {
+		t.Fatalf("no inline image warning in %+v", out.Diagnostics)
+	}
+}
+
+func TestGeneratorLine(t *testing.T) {
+	for _, c := range []struct {
+		msg  string
+		line int
+		span string
+	}{
+		{"DOCX: line 12: image \"a.png\" not found", 12, "line 12"},
+		{"DOCX: line 4: failed to render equation: Parse error on line 9", 4, "line 4"},
+		{"DOCX: mermaid diagram (flowchart) at line 7 was not rendered: Chromium is not available.", 7, "line 7"},
+		{"DOCX: equation at line 8 was not rendered: Chromium is not available.", 8, "line 8"},
+		{"DOCX: chart (bar) at line 9 was not rendered: Chromium is not available.", 9, "line 9"},
+		{"DOCX: Failed to render mermaid: Parse error on line 3:", 0, ""},
+		{"DOCX: inline image \"line 3.png\" could not be inserted: bad", 0, ""},
+		{"THEME: failed to load theme \"line 2\"", 0, ""},
+	} {
+		line, start, end := generatorLine(c.msg)
+		if line != c.line || (line > 0 && c.msg[start:end] != c.span) {
+			t.Errorf("%q: line %d span [%d:%d], want %d %q", c.msg, line, start, end, c.line, c.span)
+		}
+	}
+}

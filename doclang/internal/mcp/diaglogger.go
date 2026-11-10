@@ -27,8 +27,30 @@ type diagnosticLogger struct {
 	diags []diagnostics.Diagnostic
 }
 
-// generatorLineRe saca la línea de un mensaje del generador ("line 12").
-var generatorLineRe = regexp.MustCompile(`\bline (\d+)\b`)
+// generatorLineRe reconoce la línea que el generador pone en sus warnings:
+// "DOCX: line N: …" (imágenes, ecuaciones, mapas, PlantUML) y "DOCX: … at
+// line N was not rendered" (mermaid, ecuaciones y gráficas sin Chromium).
+// Anclada a esos formatos: un "line N" en otra parte del mensaje (una ruta
+// "line 3.png", el error de un renderizador) no es la posición del elemento.
+var generatorLineRe = regexp.MustCompile(`^DOCX: (?:(line (\d+)):|(?:mermaid diagram \([^)]*\)|chart \([^)]*\)|equation) at (line (\d+)) was not rendered)`)
+
+// generatorLine devuelve la línea de un warning del generador (0 si no la
+// trae, ver generatorLineRe) y dónde está "line N" en msg.
+func generatorLine(msg string) (line, start, end int) {
+	m := generatorLineRe.FindStringSubmatchIndex(msg)
+	if m == nil {
+		return 0, 0, 0
+	}
+	span, digits := m[2:4], m[4:6]
+	if span[0] < 0 {
+		span, digits = m[6:8], m[8:10]
+	}
+	n, err := strconv.Atoi(msg[digits[0]:digits[1]])
+	if err != nil || n <= 0 {
+		return 0, 0, 0
+	}
+	return n, span[0], span[1]
+}
 
 func newDiagnosticLogger(next util.Logger, redact func(string) string) *diagnosticLogger {
 	return &diagnosticLogger{Logger: next, redact: redact}
@@ -50,13 +72,11 @@ func (l *diagnosticLogger) record(message string, args ...interface{}) {
 		msg = l.redact(msg)
 	}
 	// El generador no pasa posiciones estructuradas; los mensajes que la
-	// conocen (imágenes, ecuaciones, mapas) dicen "line N". Sin ella queda
-	// 0:0, que significa "sin posición".
+	// conocen (imágenes, ecuaciones, mapas) dicen "line N" (generatorLine).
+	// Sin ella queda 0:0, que significa "sin posición".
 	var pos diagnostics.Position
-	if m := generatorLineRe.FindStringSubmatch(msg); m != nil {
-		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
-			pos = diagnostics.NewPosition(n, 1)
-		}
+	if n, _, _ := generatorLine(msg); n > 0 {
+		pos = diagnostics.NewPosition(n, 1)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
