@@ -101,6 +101,14 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 			continue
 		}
 
+		// Una primera línea sin sangría, con la cabecera sangrada, no es del
+		// CHECKLIST: es lo que sigue al bloque que lo contiene (el SLIDE o
+		// SECTION siguiente). Antes se consumía y el parser cortaba con un
+		// error interno; `fmt` de un CHECKLIST vacío escribía justo eso.
+		if expectedIndent == -1 && currentIndent == 0 && headerIndent > 0 {
+			break
+		}
+
 		// Auto-detect expected indentation from first non-empty line
 		if expectedIndent == -1 && currentIndent > 0 {
 			expectedIndent = currentIndent
@@ -112,8 +120,15 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 		}
 
 		// Check if line starts a new element. Una línea más sangrada que
-		// CHECKLIST solo corta con la palabra clave completa (issue #489).
-		if EndsStrictBody(line, headerIndent) {
+		// CHECKLIST solo corta con la palabra clave completa (issue #489),
+		// pero solo cuando ya hay un ítem: antes del primero no hay cuerpo
+		// de ítem que proteger, y una palabra pegada corta por prefijo como
+		// en main ("TEXTO" con su cuerpo sigue siendo un TEXT).
+		if nest.last() == nil {
+			if IsNewElement(line, "strict") {
+				break
+			}
+		} else if EndsStrictBody(line, headerIndent) {
 			break
 		}
 

@@ -133,10 +133,10 @@ func TestStrictKeywordBoundary_SameIndentAsHeaderKeepsMainCut(t *testing.T) {
 	}
 }
 
-// Una línea del cuerpo de un CHECKLIST antes de su primer ítem se descarta,
-// como en main, pero con el aviso CHECKLIST001. Vale para cualquier línea.
+// Una línea del cuerpo de un CHECKLIST antes de su primer ítem que no abre
+// otro elemento se descarta, como en main, pero con el aviso CHECKLIST001.
 func TestStrictChecklist_LineBeforeFirstItemIsReported(t *testing.T) {
-	for _, line := range []string{"TEXTO suelto", "texto suelto"} {
+	for _, line := range []string{"texto suelto", "Hola, mundo"} {
 		for _, dialect := range []string{"document", "slides"} {
 			p := New(util.NewNoop())
 			var doc *ast.AST
@@ -163,6 +163,46 @@ func TestStrictChecklist_LineBeforeFirstItemIsReported(t *testing.T) {
 			if !found {
 				t.Errorf("%s %q: want a CHECKLIST001 warning, got %v", dialect, line, diags)
 			}
+		}
+	}
+}
+
+// Antes del primer ítem de un CHECKLIST no hay cuerpo de ítem que proteger:
+// una palabra pegada corta por prefijo como en main, también más sangrada
+// que la cabecera. "TEXTO" con su cuerpo sigue siendo un TEXT y "cuerpo" no
+// se pierde.
+func TestStrictChecklist_GluedKeywordBeforeFirstItemCutsLikeMain(t *testing.T) {
+	for _, body := range []string{
+		"  CHECKLIST\n    TEXTO\n      cuerpo\n",
+		"  CHECKLIST\n    TEXTOS largos\n      cuerpo\n",
+	} {
+		for _, dialect := range []string{"document", "slides"} {
+			els := boundaryElements(parseBoundary(t, dialect, body))
+			var text *ast.TextElement
+			for _, el := range els {
+				if txt, ok := el.(*ast.TextElement); ok {
+					text = txt
+				}
+			}
+			if text == nil || text.Content != "cuerpo" {
+				t.Errorf("%s %q: want TEXT \"cuerpo\" after the empty checklist, got %+v", dialect, body, els)
+			}
+		}
+	}
+}
+
+// Un CHECKLIST vacío justo antes del SLIDE siguiente no se come la línea del
+// SLIDE: una primera línea menos sangrada que la cabecera no es del
+// CHECKLIST.
+func TestStrictChecklist_EmptyBeforeNextSlide(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"D\"\n---\n\nSLIDE content\n  title: \"T\"\n  CHECKLIST\n\nSLIDE content\n  title: \"U\"\n  TEXT\n    hola\n"
+	doc, diags := New(util.NewNoop()).Parse(src, "d.slidelang")
+	if doc == nil || len(doc.ContentBlocks) != 2 {
+		t.Fatalf("want two slides, got %v (%v)", doc, diags)
+	}
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error: %v", d)
 		}
 	}
 }
