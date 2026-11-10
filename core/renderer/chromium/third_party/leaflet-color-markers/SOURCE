@@ -1,0 +1,18 @@
+leaflet-color-markers (https://github.com/pointhi/leaflet-color-markers),
+BSD-2-Clause, unmodified. Pinned to commit
+234813b7dffa11eee06f41618e1f5752c6b7bd8d (master on 2026-11-09), downloaded
+from https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@234813b7dffa11eee06f41618e1f5752c6b7bd8d/
+(img/marker-icon-2x-<color>.png and LICENSE). These are the nine colors of
+renderer.SanitizeLeafletMarkerColor's allowlist.
+
+sha256
+2a1a625f1567c05b908bea2a1a87d54c71a9b707548f10b43e8e45c652bc8afc  img/marker-icon-2x-black.png
+454dc479e82b487529b6b93d6a9b29ac69ca7b4f5a9d5fdf8e01871f6d216113  img/marker-icon-2x-blue.png
+93bc701825eacc92b538c378119d6819cb6a1f15e034c2d6c1cd508ba2811471  img/marker-icon-2x-gold.png
+e90cbbfec99b626dd132fd4eaccbfa9677fbd2631d4f21e947b4c9df3de7c69f  img/marker-icon-2x-green.png
+80c4e83c23d084bf28bf63e332923239ab0bd4631a4d87a0d577888f4c7c540d  img/marker-icon-2x-grey.png
+e04c1abba4b3b58a00b632b139700a70474acb00ca44067b187ffdc81c7e4f25  img/marker-icon-2x-orange.png
+97f48c8af2a7b241dbc1053a175363ce53e06649a05c418bcd44b74b1f5fbe0f  img/marker-icon-2x-red.png
+d2d4278dacf3fea3d5e9fc2fffbba8a840bc1310cc1457198426e2c11feb4e44  img/marker-icon-2x-violet.png
+1c2008ad8377f047528fb51e5eb0714c729f51003d9f1c3fca8c94cd9af32aaa  img/marker-icon-2x-yellow.png
+c7f6469de27b38e47e645a36207aa9db22c7be1cc7cb878e5ad714c5f9d9df3d  LICENSE

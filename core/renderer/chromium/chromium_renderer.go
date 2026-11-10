@@ -31,10 +31,13 @@ import (
 // exfiltración ciega en el exploit de referencia.
 // Ver docs/SECURITY_AUDIT_2026-07.md, CR-6 / issue #24.
 const (
-	mapRenderCSP = "default-src 'none'; script-src https://unpkg.com 'unsafe-inline'; " +
-		"style-src https://unpkg.com 'unsafe-inline'; " +
-		"img-src https://*.tile.openstreetmap.org https://server.arcgisonline.com " +
-		"https://raw.githubusercontent.com https://cdnjs.cloudflare.com data:; " +
+	// Leaflet, su hoja de estilos y los íconos van embebidos
+	// (leaflet_embed.go) y los tiles los entrega Go desde
+	// mapTileProxyOrigin (map_tile_proxy.go): la página no puede pedir nada
+	// más.
+	mapRenderCSP = "default-src 'none'; script-src 'unsafe-inline'; " +
+		"style-src 'unsafe-inline'; " +
+		"img-src " + mapTileProxyOrigin + " data:; " +
 		"connect-src 'none'; object-src 'none'; base-uri 'none';"
 )
 
@@ -481,6 +484,42 @@ type ChromiumRenderer struct {
 	browserStartOnce sync.Once
 	browserReady     chan struct{}
 	browserErr       error
+
+	// parentCtx y chromiumPath permiten rearmar el contexto del navegador
+	// antes de arrancarlo (RestrictNetwork); started dice si ya arrancó.
+	parentCtx    context.Context
+	chromiumPath string
+	// startMu ordena el arranque (ensureBrowser) contra RestrictNetwork:
+	// started y el cambio de r.ctx no se cruzan.
+	startMu sync.Mutex
+	started bool
+}
+
+// RestrictNetwork deja al navegador sin salida a la red: ningún nombre
+// resuelve, toda conexión que no sea a loopback va a un proxy que no existe,
+// WebRTC no manda UDP fuera del proxy y los servicios de fondo
+// (actualización de componentes, pings, reportes de fiabilidad) quedan
+// apagados (noNetworkAllocatorOptions). Las páginas de render no necesitan
+// red: los scripts van embebidos y los tiles de mapas los entrega Go. Lo usa
+// --no-network de doclang. Tiene que llamarse antes del primer render: solo
+// rearma la configuración de arranque (no arranca el navegador, que sigue
+// arrancando en el primer render con el plazo de ese render) y las banderas
+// de Chrome no se cambian después.
+func (r *ChromiumRenderer) RestrictNetwork() error {
+	r.startMu.Lock()
+	defer r.startMu.Unlock()
+	if r.started {
+		return fmt.Errorf("RestrictNetwork must be called before the browser starts")
+	}
+	ctx, cancel, err := r.manager.createContext(r.parentCtx, r.chromiumPath, false, noNetworkAllocatorOptions...)
+	if err != nil {
+		return err
+	}
+	if r.cancel != nil {
+		r.cancel()
+	}
+	r.ctx, r.cancel = ctx, cancel
+	return nil
 }
 
 // NewChromiumRenderer crea un nuevo renderer con Chromium, con el branding
@@ -532,6 +571,8 @@ func NewChromiumRendererWithBrand(ctx context.Context, customPath string, autoIn
 		cancel:       cancel,
 		logger:       logger,
 		browserReady: make(chan struct{}),
+		parentCtx:    ctx,
+		chromiumPath: chromiumPath,
 	}, nil
 }
 
@@ -600,8 +641,12 @@ func withCallerCancel(base context.Context, callerCtx context.Context) (context.
 // llame después.
 func (r *ChromiumRenderer) ensureBrowser(callerCtx context.Context) error {
 	r.browserStartOnce.Do(func() {
+		r.startMu.Lock()
+		r.started = true
+		browserCtx := r.ctx
+		r.startMu.Unlock()
 		go func() {
-			r.browserErr = chromedp.Do(r.ctx)
+			r.browserErr = chromedp.Do(browserCtx)
 			close(r.browserReady)
 		}()
 	})
@@ -1153,6 +1198,9 @@ func (r *ChromiumRenderer) RenderChartToPNGWithSurface(ctx context.Context, char
 // llamada puntual (issue #134/G1d), además del timeout ajustado por zoom.
 func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig renderer.MapConfig, width, height int) ([]byte, error) {
 	r.logger.Info("MAP", "Rendering map to PNG...")
+	if err := checkMapSize(width, height); err != nil {
+		return nil, err
+	}
 
 	// Generar HTML con Leaflet + flag de renderizado completo
 	html := r.generateLeafletHTML(mapConfig, width, height)
@@ -1168,17 +1216,9 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
 	defer tabCancel()
 
-	// Crear contexto con timeout ajustado según zoom
-	// El timeout debe ser MUCHO mayor que el fallback de JavaScript para dar tiempo al rendering
-	// JS fallback: 5s (zoom <7), 10s (zoom 7-10), 30s (zoom 11+)
-	// Go timeout: 15s (zoom <7), 20s (zoom 7-10), 60s (zoom 11+)
-	timeout := 15 * time.Second
-	if mapConfig.Zoom >= 11 {
-		timeout = 60 * time.Second // Zoom muy alto: 60 segundos (JS fallback = 30s + buffer)
-		r.logger.Info("MAP", "High zoom level (%d), using extended timeout (60s)...", mapConfig.Zoom)
-	} else if mapConfig.Zoom >= 7 {
-		timeout = 20 * time.Second // Zoom medio: 20 segundos (JS fallback = 10s + buffer)
-	}
+	// El plazo cubre el de la página (mapPageFallback), la espera de los
+	// tiles en vuelo y la captura (mapCaptureTimeout).
+	timeout := mapCaptureTimeout(mapConfig.Zoom)
 
 	timeoutCtx, timeoutCancel := context.WithTimeout(tabCtx, timeout)
 	defer timeoutCancel()
@@ -1190,20 +1230,26 @@ func (r *ChromiumRenderer) RenderMapToPNG(ctx context.Context, mapConfig rendere
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
+	var tiles mapTileStats
 	err := chromedp.Do(runCtx,
+		serveMapTiles(mapConfig, &tiles),
 		navigateAndSetContent(html),
 		// Esperar a que window.mapReady sea true (establecido por el
 		// JavaScript), o a que la página reporte un error: sin red, Leaflet
 		// no carga, `L.map` lanza y eso corta la espera de inmediato en vez
 		// de agotar el plazo por zoom.
 		waitRenderState(mapStateJS),
-		chromedp.Sleep(200*time.Millisecond), // Pequeño buffer para asegurar rendering completo
+		// Ningún tile en vuelo al capturar (ver waitTilesSettled).
+		waitTilesSettled(&tiles),
 		bringTabToFront(),
 		store(&pngData, chromedp.Screenshot(chromedp.ID("#mapContainer"))),
 	)
 
 	if err != nil {
 		return nil, captureError("map", timeout, ctx, err)
+	}
+	if err := tiles.err(); err != nil {
+		return nil, fmt.Errorf("map rendering failed: %w", err)
 	}
 
 	r.logger.Info("MAP", "✅ PNG rendered (%.2f KB)", float64(len(pngData))/1024)
@@ -1284,6 +1330,9 @@ func (r *ChromiumRenderer) RenderChartToWebPWithSurface(ctx context.Context, cha
 // RenderMapToWebP renderiza un mapa Leaflet directamente a WebP. ctx
 // acota/cancela esta llamada puntual (issue #134/G1d).
 func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig renderer.MapConfig, width, height int, quality int) ([]byte, error) {
+	if err := checkMapSize(width, height); err != nil {
+		return nil, err
+	}
 	r.logger.Info("MAP", "Rendering map to WebP (quality: %d)...", quality)
 
 	// Generar HTML con Leaflet + flag de renderizado completo
@@ -1300,8 +1349,8 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	tabCtx, tabCancel := chromedp.NewContext(r.ctx)
 	defer tabCancel()
 
-	// Crear contexto con timeout para evitar espera infinita
-	const timeout = 30 * time.Second
+	// Mismo plazo que RenderMapToPNG (mapCaptureTimeout).
+	timeout := mapCaptureTimeout(mapConfig.Zoom)
 	timeoutCtx, timeoutCancel := context.WithTimeout(tabCtx, timeout)
 	defer timeoutCancel()
 
@@ -1312,13 +1361,15 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	// Se inyecta el HTML vía about:blank + Page.setDocumentContent en vez
 	// de escribir un archivo temporal y navegar a file://
 	// (docs/SECURITY_AUDIT_2026-07.md, AL-5/#78).
+	var tiles mapTileStats
 	err := chromedp.Do(runCtx,
+		serveMapTiles(mapConfig, &tiles),
 		navigateAndSetContent(html),
 		// generateLeafletHTML publica window.mapReady, no un
 		// #renderComplete (que este camino esperaba y la página nunca
 		// creó: todo mapa WebP agotaba los 30 s).
 		waitRenderState(mapStateJS),
-		chromedp.Sleep(300*time.Millisecond), // Buffer adicional
+		waitTilesSettled(&tiles),
 		bringTabToFront(),
 		// Usar page.CaptureScreenshot con formato WebP
 		store(&webpData, captureScreenshot(page.CaptureScreenshotParams{
@@ -1337,9 +1388,31 @@ func (r *ChromiumRenderer) RenderMapToWebP(ctx context.Context, mapConfig render
 	if err != nil {
 		return nil, captureError("map (WebP)", timeout, ctx, err)
 	}
+	if err := tiles.err(); err != nil {
+		return nil, fmt.Errorf("map rendering to WebP failed: %w", err)
+	}
 
 	r.logger.Info("MAP", "✅ WebP rendered (%.2f KB)", float64(len(webpData))/1024)
 	return webpData, nil
+}
+
+// leafletAttribution es el crédito del mapa como literal de string JS
+// entre comillas simples: el de OpenStreetMap, o con un servidor propio el
+// de MapConfig.WithTileAttribution (vacío, ninguno), escapado como HTML
+// (Leaflet lo inserta como HTML) y como JS.
+func leafletAttribution(config renderer.MapConfig) string {
+	text := "© OpenStreetMap contributors"
+	if tmpl, _ := config.TileServer(); tmpl != "" {
+		text = config.TileAttribution()
+	}
+	return jsSingleQuoted(renderer.EscapeHTML(text))
+}
+
+// jsSingleQuoted escapa s para un string JS entre comillas simples dentro
+// de un <script>: barra invertida, comilla, saltos y "/" (para que nunca
+// aparezca "</script").
+func jsSingleQuoted(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\n", `\n`, "\r", `\r`, "\t", `\t`, "/", `\/`, "\u2028", `\u2028`, "\u2029", `\u2029`).Replace(s)
 }
 
 // generateLeafletHTML genera HTML con mapa Leaflet
@@ -1367,25 +1440,24 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
 		markersJS += fmt.Sprintf(`
         L.marker([%f, %f], {
             icon: L.icon({
-                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-%s.png',
-                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+                iconUrl: '%s',
+                shadowUrl: '%s',
                 iconSize: [25, 41],
                 iconAnchor: [12, 41],
                 popupAnchor: [1, -34],
                 shadowSize: [41, 41]
             })
         }).addTo(map).bindPopup('%s');
-        `, marker.Lat, marker.Lng, color, label)
+        `, marker.Lat, marker.Lng, leafletMarkerDataURI(color), leafletShadowDataURI, label)
 
 		if i < len(config.Markers)-1 {
 			markersJS += "\n"
 		}
 	}
 
-	tileLayer := `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`
-	if config.MapType == "satellite" {
-		tileLayer = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`
-	}
+	// Los tiles los entrega Go (serveMapTiles) desde el servidor real de
+	// config: el de siempre o el de MapConfig.WithTileServer.
+	tileLayer := mapTileProxyTemplate
 
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -1393,8 +1465,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="%s">
     `+renderErrorHookJS+`
-    `+renderer.LeafletCDNCSSTag+`
-    `+renderer.LeafletCDNScriptTag+`
+    %s
     <style>
         body { margin: 0; padding: 0; }
         #mapContainer { width: %dpx; height: %dpx; }
@@ -1407,13 +1478,14 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
     </div>
     <script>
         if (typeof L === 'undefined') {
-            window.__renderError = 'Leaflet did not load from unpkg.com (no network access?)';
+            window.__renderError = 'Leaflet did not load';
         }
     </script>
     <script>
-        const map = L.map('map').setView([%f, %f], %d);
+        // Sin animación de entrada: un tile recién llegado se captura entero.
+        const map = L.map('map', {fadeAnimation: false}).setView([%f, %f], %d);
         const tileLayer = L.tileLayer('%s', {
-            attribution: '© OpenStreetMap contributors',
+            attribution: '%s',
             maxZoom: 19
         }).addTo(map);
         %s
@@ -1460,14 +1532,9 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
             }
         }, 200);
         
-        // Fallback dinámico basado en zoom level
-        const zoom = %d;
-        let fallbackTimeout = 5000;
-        if (zoom >= 11) {
-            fallbackTimeout = 30000;  // 30 segundos para zoom muy alto
-        } else if (zoom >= 7) {
-            fallbackTimeout = 10000;  // 10 segundos para zoom medio
-        }
+        // Plazo de la página (mapPageFallback en Go): al menos un timeout
+        // de tile, para no capturar con tiles todavía en camino.
+        const fallbackTimeout = %d;
         
         setTimeout(() => {
             if (!isReady) {
@@ -1484,7 +1551,7 @@ func (r *ChromiumRenderer) generateLeafletHTML(config renderer.MapConfig, width,
         }, 100);
     </script>
 </body>
-</html>`, mapRenderCSP, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, markersJS, config.Zoom)
+</html>`, mapRenderCSP, leafletAssetTags, width, height, config.CenterLat, config.CenterLng, config.Zoom, tileLayer, leafletAttribution(config), markersJS, mapPageFallback(config.Zoom).Milliseconds())
 }
 
 // Close cierra el renderer y libera recursos

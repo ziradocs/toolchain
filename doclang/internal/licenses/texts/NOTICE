@@ -30,6 +30,18 @@ as-is without modification to their license terms:
   access; their license texts are in
   core/renderer/chromium/third_party/chartjs/LICENSE.md and
   core/renderer/chromium/third_party/chartjs-chart-treemap/LICENSE.
+- Leaflet 1.9.4 (https://github.com/Leaflet/Leaflet), BSD 2-Clause License,
+  Copyright (c) 2010-2023 Volodymyr Agafonkin, Copyright (c) 2010-2011
+  CloudMade. The unmodified files dist/leaflet.js, dist/leaflet.css and
+  dist/images/marker-shadow.png are embedded in core/renderer/chromium so
+  the map fallback renders without loading them from a CDN; the license
+  text is in core/renderer/chromium/third_party/leaflet/LICENSE.
+- leaflet-color-markers (https://github.com/pointhi/leaflet-color-markers,
+  commit 234813b7dffa11eee06f41618e1f5752c6b7bd8d), BSD 2-Clause License,
+  Copyright (c) 2013-2020 Thomas Pointhuber (and the Leaflet copyright
+  holders above). Its nine unmodified img/marker-icon-2x-<color>.png icons
+  are embedded in core/renderer/chromium; the license text is in
+  core/renderer/chromium/third_party/leaflet-color-markers/LICENSE.
 - MathJax 4.1.3 (https://github.com/mathjax/MathJax), Apache License 2.0,
   by The MathJax Consortium. The unmodified files tex-svg.js, ui/safe.js
   and 32 of the input/tex/extensions/*.js files are embedded in
