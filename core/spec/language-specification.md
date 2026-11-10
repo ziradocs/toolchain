@@ -129,9 +129,10 @@ never depends on where a quote closes. A value that does not read that way
 (single quotes, an unquoted cell that starts or ends with an apostrophe
 such as `'90s`, stray quotes, text between rows or after the array other
 than a `#` comment) gives no rows and the `TABLE007` warning. An empty row
-(`rows: [[]]`) counts as no row. Rows read
-this way are checked like the multi-line form: a row whose cell count does
-not match the headers is the `TABLE003` lint error. Any other value on the
+(`rows: [[]]`) counts as no row. If a row of the nested array does not have
+as many cells as the headers (or, without headers, as its first row), the
+array gives no rows and the `TABLE007` warning names that row; the rows
+below `rows:` are read as usual. Any other value on the
 `rows:` line (`[]`, a comment) is ignored, as before, and the rows below are
 read.
 

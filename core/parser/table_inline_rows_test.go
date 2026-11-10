@@ -228,3 +228,36 @@ func TestTableInlineRows_LeadingApostropheIsReportedAsSuch(t *testing.T) {
 		t.Errorf("apostrophe inside double quotes: rows = %q, want %q", tbl.Rows, want)
 	}
 }
+
+// Una fila en línea que no cuadra con los encabezados (o, sin encabezados,
+// con la primera fila del arreglo) no se lee: TABLE007 dice qué fila no
+// cuadra, el arreglo da cero filas y las filas de abajo siguen como en main.
+// Así un `rows:` en línea mal contado no rompe con TABLE003 un build que
+// main dejaba pasar.
+func TestTableInlineRows_MiscountedRowIsReportedNotRead(t *testing.T) {
+	cases := []struct {
+		body, msg string
+		want      [][]string
+	}{
+		{"    headers: [\"x\", \"y\"]\n    rows: [[\"a\"], [\"c\", \"d\"]]\n", "row 1 has 1 cells and the headers have 2", nil},
+		{"    headers: [\"x\", \"y\"]\n    rows: [[\"a\", \"b\"], [\"c\", \"d\", \"e\"]]\n      [\"f\", \"g\"]\n", "row 2 has 3 cells and the headers have 2", [][]string{{"f", "g"}}},
+		{"    rows: [[\"a\", \"b\"], [\"c\"]]\n", "row 2 has 1 cells and the first row has 2", nil},
+	}
+	for _, c := range cases {
+		for _, dialect := range []string{"document", "slides"} {
+			tbl, diags := parseInlineRowsTable(t, dialect, c.body)
+			if len(tbl.Rows) != len(c.want) || (len(c.want) > 0 && !reflect.DeepEqual(tbl.Rows, c.want)) {
+				t.Errorf("%s %q: rows = %q, want %q", dialect, c.body, tbl.Rows, c.want)
+			}
+			found := false
+			for _, d := range diags {
+				if d.RuleID == "TABLE007" && d.IsWarning() && strings.Contains(d.Message, c.msg) {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s %q: want TABLE007 %q, got %v", dialect, c.body, c.msg, diags)
+			}
+		}
+	}
+}

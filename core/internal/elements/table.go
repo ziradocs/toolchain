@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -169,6 +170,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	// header has already been skipped. Only that one row is syntax.
 	var delimiterSeen bool
 	var diags []diagnostics.Diagnostic
+	var inlineGroups []inlineRowsGroup
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
 	lines := ctx.Lines
@@ -221,6 +223,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				parsed, quote, ok := parseInlineRows(inline)
 				switch {
 				case ok:
+					inlineGroups = append(inlineGroups, inlineRowsGroup{start: len(rows), n: len(parsed), pos: ctx.Position(i)})
 					for _, r := range parsed {
 						rows = append(rows, r)
 						rowPositions = append(rowPositions, ctx.Position(i))
@@ -394,7 +397,52 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	if newDeclared && legacyDeclared {
 		diags = append(diags, diagnostics.NewError("tableRows cannot be combined with authored headers/rows/cells", pos, "table-parser"))
 	}
+	rows, rowPositions, diags = dropMiscountedInlineRows(headers, rows, rowPositions, inlineGroups, diags)
 	return headers, rows, caption, label, explicitCells, tableRows, rowPositions, diags, consumed
+}
+
+// inlineRowsGroup son las filas que un `rows:` en línea agregó a rows:
+// desde rows[start], n filas, leídas en la línea de pos.
+type inlineRowsGroup struct {
+	start, n int
+	pos      diagnostics.Position
+}
+
+// dropMiscountedInlineRows saca las filas de un `rows:` en línea cuando
+// alguna no tiene tantas celdas como los encabezados (o, sin encabezados,
+// como la primera fila del arreglo), y avisa con TABLE007. Main descartaba
+// ese valor sin aviso; leerlo y dejar que el linter diera TABLE003 (error)
+// rompería un build que main dejaba pasar. Las filas de las líneas de abajo
+// no se tocan.
+func dropMiscountedInlineRows(headers []string, rows [][]string, rowPositions []diagnostics.Position, groups []inlineRowsGroup, diags []diagnostics.Diagnostic) ([][]string, []diagnostics.Position, []diagnostics.Diagnostic) {
+	for g := len(groups) - 1; g >= 0; g-- {
+		group := groups[g]
+		if group.n == 0 {
+			continue
+		}
+		want := len(headers)
+		what := "the headers have"
+		if want == 0 {
+			want = len(rows[group.start])
+			what = "the first row has"
+		}
+		bad := -1
+		for k := 0; k < group.n; k++ {
+			if len(rows[group.start+k]) != want {
+				bad = k
+				break
+			}
+		}
+		if bad < 0 {
+			continue
+		}
+		diags = append(diags, diagnostics.NewWarning(
+			fmt.Sprintf("The rows: value on this line was ignored: row %d has %d cells and %s %d. Fix that row, or put each row on its own line below rows:", bad+1, len(rows[group.start+bad]), what, want),
+			group.pos, "table-parser").WithRuleID(TableRowsRuleID))
+		rows = append(rows[:group.start:group.start], rows[group.start+group.n:]...)
+		rowPositions = append(rowPositions[:group.start:group.start], rowPositions[group.start+group.n:]...)
+	}
+	return rows, rowPositions, diags
 }
 
 type yamlTableRowEntry struct {
