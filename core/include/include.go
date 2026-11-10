@@ -109,6 +109,13 @@ type ExpandOptions struct {
 	// parser guarda esa línea como texto del código, así que con esta opción el
 	// build emite lo mismo que el AST y el lint describen (issue #487). doclang
 	// la activa; slidelang no, y conserva la expansión en todas partes.
+	//
+	// Qué es código lo decide parser.CodeLiteralLines, que lee la fuente con la
+	// gramática de documentos (ParseDocument) y sin la normalización de flex:
+	// la opción es para documentos. Una fuente .slidelang no se clasifica bien
+	// (un SLIDE no es un SECTION), y en un documento flex que el normalizador
+	// reescribe el AST final puede tener código donde la fuente no lo tenía, o
+	// al revés.
 	KeepIncludesInCode bool
 }
 
