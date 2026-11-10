@@ -13,6 +13,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -243,5 +244,30 @@ func TestMapTileURL_Normalized(t *testing.T) {
 	}
 	if checkMapSize(800, 600) != nil || checkMapSize(5000, 600) == nil || checkMapSize(0, 600) == nil {
 		t.Fatal("checkMapSize does not enforce 1..4096")
+	}
+}
+
+// TestSameTileOrigin: una redirección de tiles solo se sigue al mismo
+// servidor, incluida la subida de http a https del mismo host.
+func TestSameTileOrigin(t *testing.T) {
+	cases := []struct {
+		from, to string
+		want     bool
+	}{
+		{"http://t.example.com/a", "https://t.example.com/a", true},
+		{"http://t.example.com:8080/a", "https://t.example.com:8080/a", true},
+		{"https://t.example.com/a", "https://t.example.com:443/b", true},
+		{"http://t.example.com/a", "http://t.example.com/b", true},
+		{"https://t.example.com/a", "http://t.example.com/a", false},  // bajada a http
+		{"http://t.example.com:8080/a", "https://t.example.com/a", false},
+		{"http://t.example.com/a", "https://other.example.com/a", false},
+		{"http://t.example.com/a", "http://t.example.com:81/a", false},
+	}
+	for _, c := range cases {
+		from, _ := url.Parse(c.from)
+		to, _ := url.Parse(c.to)
+		if got := sameTileOrigin(from, to); got != c.want {
+			t.Errorf("%s -> %s: %v, want %v", c.from, c.to, got, c.want)
+		}
 	}
 }

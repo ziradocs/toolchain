@@ -495,61 +495,31 @@ type ChromiumRenderer struct {
 	started bool
 }
 
-// RestrictNetwork deja al navegador sin salida a la red. En Linux lo arranca
-// en un espacio de nombres de red propio (networkIsolation), donde ninguna
-// conexión sale de la máquina; además, en todo sistema, ningún nombre
+// RestrictNetwork deja al navegador sin salida a la red: ningún nombre
 // resuelve, toda conexión que no sea a loopback va a un proxy que no existe,
-// WebRTC no manda UDP y los servicios de fondo (actualización de
-// componentes, pings) quedan apagados. Las páginas de render no lo necesitan: los scripts van
-// embebidos y los tiles de mapas los entrega Go. Lo usa --no-network de
-// doclang. Tiene que llamarse antes del primer render: el proceso de Chrome
-// arranca con él y sus banderas no se cambian después.
+// WebRTC no manda UDP fuera del proxy y los servicios de fondo
+// (actualización de componentes, pings, reportes de fiabilidad) quedan
+// apagados (noNetworkAllocatorOptions). Las páginas de render no necesitan
+// red: los scripts van embebidos y los tiles de mapas los entrega Go. Lo usa
+// --no-network de doclang. Tiene que llamarse antes del primer render: solo
+// rearma la configuración de arranque (no arranca el navegador, que sigue
+// arrancando en el primer render con el plazo de ese render) y las banderas
+// de Chrome no se cambian después.
 func (r *ChromiumRenderer) RestrictNetwork() error {
 	r.startMu.Lock()
 	defer r.startMu.Unlock()
 	if r.started {
 		return fmt.Errorf("RestrictNetwork must be called before the browser starts")
 	}
-	// Primero con el espacio de nombres de red propio. El navegador se
-	// arranca acá mismo para saber si funciona: donde Chrome no puede armar
-	// su sandbox dentro del espacio de nombres (p. ej. cae al sandbox SUID,
-	// como en los runners de GitHub), no arranca, y se vuelve a las
-	// banderas solas.
-	base := append([]chromedp.ExecAllocatorOption{}, noNetworkAllocatorOptions...)
-	if iso, err := networkIsolationFn(r.chromiumPath); err != nil {
-		r.logger.Warn("CHROMIUM", "--no-network: could not isolate the browser's network (%v); relying on launch flags only", err)
-	} else {
-		ctx, cancel, err := r.manager.createContext(r.parentCtx, r.chromiumPath, false, append(append([]chromedp.ExecAllocatorOption{}, base...), iso)...)
-		if err == nil {
-			if err = chromedp.Do(ctx); err == nil {
-				r.replaceContext(ctx, cancel)
-				return nil
-			}
-			cancel()
-		}
-		r.logger.Warn("CHROMIUM", "--no-network: the browser did not start in an isolated network namespace (%v); relying on launch flags only", err)
-	}
-	// Sin aislamiento quedan las banderas: cortan los pedidos de las
-	// páginas, WebRTC y los servicios de fondo, pero no la conexión
-	// directa del navegador a su servidor de DNS sobre HTTPS.
-	ctx, cancel, err := r.manager.createContext(r.parentCtx, r.chromiumPath, false, base...)
+	ctx, cancel, err := r.manager.createContext(r.parentCtx, r.chromiumPath, false, noNetworkAllocatorOptions...)
 	if err != nil {
 		return err
 	}
-	r.replaceContext(ctx, cancel)
-	return nil
-}
-
-// networkIsolationFn es networkIsolation; una variable para que las
-// pruebas simulen un sistema donde el navegador no arranca aislado.
-var networkIsolationFn = networkIsolation
-
-// replaceContext cambia el contexto del navegador (con startMu tomado).
-func (r *ChromiumRenderer) replaceContext(ctx context.Context, cancel context.CancelFunc) {
 	if r.cancel != nil {
 		r.cancel()
 	}
 	r.ctx, r.cancel = ctx, cancel
+	return nil
 }
 
 // NewChromiumRenderer crea un nuevo renderer con Chromium, con el branding

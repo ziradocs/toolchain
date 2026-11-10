@@ -258,6 +258,12 @@ func (m *ChromiumManager) CreateContext(parentCtx context.Context, chromiumPath 
 //     de resolución);
 //   - y se apagan los servicios que hablan solos: actualización de
 //     componentes, pings de auditoría, reportes de fiabilidad de dominio.
+//
+// Un strace del navegador así arrancado todavía muestra un connect() = 0 a
+// la IP de un servidor de DNS público (2001:4860:4860::8888 en Chromium):
+// es un socket UDP que el resolvedor conecta para averiguar la ruta y cierra
+// sin enviar nada (un connect UDP no manda paquetes). No sale ningún
+// datagrama ni conexión TCP fuera de loopback.
 var noNetworkAllocatorOptions = []chromedp.ExecAllocatorOption{
 	chromedp.Flag("webrtc-ip-handling-policy", "disable_non_proxied_udp"),
 	chromedp.Flag("force-webrtc-ip-handling-policy", true),

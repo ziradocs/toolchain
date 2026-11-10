@@ -12,6 +12,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -236,7 +237,8 @@ func fetchMapTile(ctx context.Context, client *http.Client, url, userAgent strin
 
 // newMapTileClient es el cliente de los tiles: con timeout por tile y sin
 // seguir redirecciones a otro host (un servidor de tiles no tiene por qué
-// mandar a otro lado, y el host lo fijó el operador).
+// mandar a otro lado, y el host lo fijó el operador). Sí sigue la del mismo
+// host de http a https, como el render nativo.
 func newMapTileClient() *http.Client {
 	return &http.Client{
 		Timeout: mapTileTimeout,
@@ -244,12 +246,39 @@ func newMapTileClient() *http.Client {
 			if len(via) >= 5 {
 				return fmt.Errorf("too many tile redirects")
 			}
-			if req.URL.Host != via[0].URL.Host || req.URL.Scheme != via[0].URL.Scheme {
+			if !sameTileOrigin(via[0].URL, req.URL) {
 				return fmt.Errorf("tile redirect to another host (%s) refused", req.URL.Host)
 			}
 			return nil
 		},
 	}
+}
+
+// sameTileOrigin dice si to es el mismo servidor que from: mismo esquema,
+// host y puerto, o la subida de http a https del mismo host con los puertos
+// por omisión (o el mismo puerto explícito).
+func sameTileOrigin(from, to *url.URL) bool {
+	if !strings.EqualFold(from.Hostname(), to.Hostname()) {
+		return false
+	}
+	port := func(u *url.URL) string {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		if u.Scheme == "https" {
+			return "443"
+		}
+		return "80"
+	}
+	switch {
+	case from.Scheme == to.Scheme:
+		return port(from) == port(to)
+	case from.Scheme == "http" && to.Scheme == "https":
+		// http://host → https://host (80 → 443), o el mismo puerto explícito
+		// en los dos (http://host:8080 → https://host:8080).
+		return (port(from) == "80" && port(to) == "443") || (from.Port() != "" && from.Port() == to.Port())
+	}
+	return false
 }
 
 // serveMapTiles activa la intercepción de pedidos del tab del mapa: un
@@ -282,13 +311,19 @@ func serveMapTiles(config renderer.MapConfig, stats *mapTileStats) chromedp.Acti
 							data, ctype, err := fetchMapTile(ctx, client, url, userAgent)
 							<-slots
 							if err == nil {
-								stats.ok.Add(1)
-								_, _ = cdp.Call(ctx, t, fetch.FulfillRequest, fetch.FulfillRequestParams{
+								// Cuenta como llegado solo si la página lo
+								// recibió.
+								_, err = cdp.Call(ctx, t, fetch.FulfillRequest, fetch.FulfillRequestParams{
 									RequestID:       e.RequestID,
 									ResponseCode:    200,
 									ResponseHeaders: []*fetch.HeaderEntry{{Name: "Content-Type", Value: ctype}},
 									Body:            data,
 								})
+								if err == nil {
+									stats.ok.Add(1)
+								} else {
+									stats.failed.Add(1)
+								}
 								return
 							}
 							stats.failed.Add(1)
