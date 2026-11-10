@@ -117,3 +117,22 @@ func pptxStyledRun(xml, attr, text string) bool {
 	re := regexp.MustCompile(`<a:rPr[^>]*\b` + attr + `="1"[^>]*>(?:</a:rPr>)?\s*<a:t[^>]*>` + regexp.QuoteMeta(text) + `</a:t>`)
 	return re.MatchString(xml)
 }
+
+// data-slide-title lleva lo que el <h1> muestra: una entidad escrita como
+// texto sigue siendo texto, no se decodifica dos veces.
+func TestRenderHTMLPreview_SlideTitlePlainTextKeepsWrittenEntities(t *testing.T) {
+	p := diagnostics.NewPosition(1, 1)
+	block := ast.NewContentBlock(p, "content")
+	block.Title = "Usa &lt;br&gt; aquí"
+	block.Elements = []ast.Element{ast.NewTextElement(p, "Cuerpo.")}
+	html, err := New(util.NewNoop()).RenderHTMLPreview(&ast.AST{ContentBlocks: []ast.ContentBlock{*block}}, GeneratorOptions{}, renderer.NewDefaultRenderContext())
+	if err != nil {
+		t.Fatalf("RenderHTMLPreview: %v", err)
+	}
+	if !strings.Contains(html, "<h1>Usa &amp;lt;br&amp;gt; aquí</h1>") {
+		t.Errorf("h1 changed")
+	}
+	if got := slideDivAttr(t, html, "data-slide-title", 0); got != "Usa &amp;lt;br&amp;gt; aquí" {
+		t.Errorf("data-slide-title = %q", got)
+	}
+}

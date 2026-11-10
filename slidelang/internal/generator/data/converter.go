@@ -5,6 +5,7 @@ package data
 
 import (
 	"fmt"
+	"html"
 	htmltemplate "html/template"
 	"net/url"
 	"path/filepath"
@@ -43,8 +44,8 @@ func slideHeaderLine(text string, variables map[string]interface{}) (string, htm
 	if text == "" {
 		return "", ""
 	}
-	html := renderer.ProcessInlineMarkdownSecureLine(ProcessVariables(text, variables))
-	return inlineHTMLText(html), htmltemplate.HTML(html)
+	inline := renderer.ProcessInlineMarkdownSecureLine(ProcessVariables(text, variables))
+	return inlineHTMLText(inline), htmltemplate.HTML(inline)
 }
 
 // inlineTagPattern empareja una etiqueta del HTML inline saneado. Ahí un ">"
@@ -52,9 +53,13 @@ func slideHeaderLine(text string, variables map[string]interface{}) (string, htm
 // una etiqueta termina en el primer ">".
 var inlineTagPattern = regexp.MustCompile(`<[^>]*>`)
 
-// inlineHTMLText convierte HTML inline saneado a su texto visible.
-func inlineHTMLText(html string) string {
-	return renderer.UnescapeHTML(inlineTagPattern.ReplaceAllString(html, ""))
+// inlineHTMLText convierte HTML inline saneado a su texto visible. Las
+// entidades se deshacen en una sola pasada (html.UnescapeString), como las
+// lee el navegador: renderer.UnescapeHTML reemplaza `&amp;` antes que las
+// demás y convertía en `<br>` un `&lt;br&gt;` que el autor escribió como
+// texto.
+func inlineHTMLText(s string) string {
+	return html.UnescapeString(inlineTagPattern.ReplaceAllString(s, ""))
 }
 
 // BuildVariables ensambla el mapa de sustitución {{variable}} a partir del
