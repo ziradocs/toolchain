@@ -29,12 +29,6 @@ type webpFrame struct {
 	icc              []byte // el ICCP del contenedor, si lo hay
 }
 
-// riffSub es un chunk RIFF: su fourcc y su contenido.
-type riffSub struct {
-	fourcc string
-	data   []byte
-}
-
 // webpIsAnimated dice si data es un WebP animado: empieza con un chunk VP8X
 // con la marca de animación. x/image/webp no decodifica esos.
 func webpIsAnimated(data []byte) bool {
@@ -66,113 +60,135 @@ func webpFirstFrame(data []byte, canvasW, canvasH int) (*webpFrame, error) {
 	if riffSize < 4 || riffSize > uint64(len(data)-8) {
 		return nil, fmt.Errorf("%w: RIFF of %d bytes in a file of %d", errWebPAnimation, riffSize, len(data))
 	}
-	top, err := riffChunks(data[12:8+int(riffSize)], false)
-	if err != nil {
-		return nil, err
-	}
-	var icc []byte
-	for _, c := range top {
-		switch c.fourcc {
-		case "ALPH", "VP8 ", "VP8L":
-			return nil, fmt.Errorf("%w: %q chunk outside a frame", errWebPAnimation, c.fourcc)
-		case "ICCP":
-			if icc == nil {
-				icc = c.data
-			}
-		}
-	}
-	var first *webpFrame
-	for _, c := range top {
-		if c.fourcc != "ANMF" {
-			continue
-		}
-		f, err := parseANMF(c.data, canvasW, canvasH)
+	// Una sola pasada: se recuerda el primer ICCP y el primer cuadro, y se
+	// sigue hasta el final para revisar todos los chunks.
+	var (
+		icc   []byte
+		first webpFrame
+		found bool
+	)
+	for top := (riffCursor{data: data[12 : 8+int(riffSize)]}); top.more(); {
+		id, body, err := top.next()
 		if err != nil {
 			return nil, err
 		}
-		if first == nil && f != nil {
-			first = f
+		switch string(id[:]) {
+		case "ALPH", "VP8 ", "VP8L":
+			return nil, fmt.Errorf("%w: %q chunk outside a frame", errWebPAnimation, string(id[:]))
+		case "ICCP":
+			if icc == nil {
+				icc = body
+			}
+		case "ANMF":
+			f, ok, err := parseANMF(body, canvasW, canvasH)
+			if err != nil {
+				return nil, err
+			}
+			if ok && !found {
+				first, found = f, true
+			}
 		}
 	}
-	if first == nil {
+	if !found {
 		return nil, fmt.Errorf("%w: no frame", errWebPAnimation)
 	}
 	first.icc = icc
-	return first, nil
+	return &first, nil
 }
 
-// parseANMF lee el cuadro del ANMF anmf. nil, sin error, si el ANMF no trae
-// datos de imagen (libwebp lo salta).
-func parseANMF(anmf []byte, canvasW, canvasH int) (*webpFrame, error) {
+// parseANMF lee el cuadro del ANMF anmf. ok es false, sin error, si el ANMF
+// no trae datos de imagen (libwebp lo salta). El cuadro va por valor: con
+// muchos ANMF, solo se reserva el primero.
+func parseANMF(anmf []byte, canvasW, canvasH int) (f webpFrame, ok bool, err error) {
 	// Encabezado: X/2, Y/2, ancho-1 y alto-1 en 3 bytes cada uno, la duración
 	// en 3 y un byte de marcas (fusión y desecho, que en el primer cuadro
 	// sobre un lienzo transparente no cambian nada).
 	const anmfHeader = 16
 	if len(anmf) < anmfHeader {
-		return nil, fmt.Errorf("%w: frame header of %d bytes", errWebPAnimation, len(anmf))
+		return webpFrame{}, false, fmt.Errorf("%w: frame header of %d bytes", errWebPAnimation, len(anmf))
 	}
-	// El último subchunk puede venir sin relleno: el del ANMF hace de suyo.
-	subs, err := riffChunks(anmf[anmfHeader:], true)
-	if err != nil {
-		return nil, err
-	}
-	isImage := func(c riffSub) bool { return c.fourcc == "ALPH" || c.fourcc == "VP8 " || c.fourcc == "VP8L" }
 	u24 := func(b []byte) int { return int(b[0]) | int(b[1])<<8 | int(b[2])<<16 }
-	f := &webpFrame{
+	f = webpFrame{
 		canvasW: canvasW, canvasH: canvasH,
 		x: 2 * u24(anmf[0:3]), y: 2 * u24(anmf[3:6]),
 		w: u24(anmf[6:9]) + 1, h: u24(anmf[9:12]) + 1,
 	}
-	i := 0
-	if i < len(subs) && subs[i].fourcc == "ALPH" {
-		f.alph = subs[i].data
-		i++
-	}
-	switch {
-	case i < len(subs) && subs[i].fourcc == "VP8 ":
-	case i < len(subs) && subs[i].fourcc == "VP8L" && f.alph == nil:
-		f.lossless = true
-	default:
-		for _, c := range subs {
-			if isImage(c) {
-				return nil, fmt.Errorf("%w: frame chunks out of order", errWebPAnimation)
+	// Lo leído hasta ahora: nada, el ALPH, el bitstream, o un chunk
+	// desconocido antes de cualquier dato de imagen.
+	const (
+		start = iota
+		afterALPH
+		afterBitstream
+		noImage
+	)
+	state := start
+	// El último subchunk puede venir sin relleno: el del ANMF hace de suyo.
+	for c := (riffCursor{data: anmf[anmfHeader:], unpaddedLast: true}); c.more(); {
+		id, body, err := c.next()
+		if err != nil {
+			return webpFrame{}, false, err
+		}
+		fourcc := string(id[:])
+		isImage := fourcc == "ALPH" || fourcc == "VP8 " || fourcc == "VP8L"
+		switch {
+		case state == afterBitstream:
+			if isImage {
+				return webpFrame{}, false, fmt.Errorf("%w: %q chunk after the frame bitstream", errWebPAnimation, string(id[:]))
 			}
+		case state == start && fourcc == "ALPH":
+			f.alph, state = body, afterALPH
+		case (state == start || state == afterALPH) && fourcc == "VP8 ":
+			f.bitstream, state = body, afterBitstream
+		case state == start && fourcc == "VP8L": // un VP8L no lleva ALPH
+			f.bitstream, f.lossless, state = body, true, afterBitstream
+		case isImage || state == afterALPH:
+			return webpFrame{}, false, fmt.Errorf("%w: frame chunks out of order", errWebPAnimation)
+		default:
+			state = noImage
 		}
-		return nil, nil
 	}
-	f.bitstream = subs[i].data
-	for _, c := range subs[i+1:] {
-		if isImage(c) {
-			return nil, fmt.Errorf("%w: %q chunk after the frame bitstream", errWebPAnimation, c.fourcc)
-		}
+	switch state {
+	case afterALPH:
+		return webpFrame{}, false, fmt.Errorf("%w: frame chunks out of order", errWebPAnimation)
+	case start, noImage:
+		return webpFrame{}, false, nil
 	}
 	if f.x+f.w > canvasW || f.y+f.h > canvasH {
-		return nil, fmt.Errorf("%w: frame %d×%d at (%d,%d) outside the %d×%d canvas", errWebPAnimation, f.w, f.h, f.x, f.y, canvasW, canvasH)
+		return webpFrame{}, false, fmt.Errorf("%w: frame %d×%d at (%d,%d) outside the %d×%d canvas", errWebPAnimation, f.w, f.h, f.x, f.y, canvasW, canvasH)
 	}
-	return f, nil
+	return f, true, nil
 }
 
-// riffChunks parte data en chunks RIFF. Cada uno, con su byte de relleno si
-// su largo es impar, tiene que caber en data; con unpaddedLast el último
-// puede venir sin él. Unos bytes sobrantes que no alcanzan para un
-// encabezado de chunk son un error. Los largos se comparan en uint64: con
-// int de 32 bits, uno como 0xFFFFFFF8 saldría negativo.
-func riffChunks(data []byte, unpaddedLast bool) ([]riffSub, error) {
-	var out []riffSub
-	for off := 0; off < len(data); {
-		if len(data)-off < 8 {
-			return nil, fmt.Errorf("%w: %d stray bytes at the end of a chunk list", errWebPAnimation, len(data)-off)
-		}
-		size := uint64(binary.LittleEndian.Uint32(data[off+4 : off+8]))
-		rest := uint64(len(data) - off - 8)
-		padded := size + size%2
-		if padded > rest && (!unpaddedLast || size != rest) {
-			return nil, fmt.Errorf("%w: %q chunk of %d bytes past the end", errWebPAnimation, data[off:off+4], size)
-		}
-		out = append(out, riffSub{fourcc: string(data[off : off+4]), data: data[off+8 : off+8+int(size)]})
-		off += 8 + int(min(padded, rest))
+// riffCursor recorre una lista de chunks RIFF sin armarla: con millones de
+// chunks vacíos, una lista pesaría varias veces el archivo. Cada chunk, con
+// su byte de relleno si su largo es impar, tiene que caber en data; con
+// unpaddedLast el último puede venir sin él. Unos bytes sobrantes que no
+// alcanzan para un encabezado de chunk son un error. Los largos se comparan
+// en uint64: con int de 32 bits, uno como 0xFFFFFFF8 saldría negativo.
+type riffCursor struct {
+	data         []byte
+	off          int
+	unpaddedLast bool
+}
+
+// more dice si quedan bytes por recorrer.
+func (c *riffCursor) more() bool { return c.off < len(c.data) }
+
+// next es el siguiente chunk: su fourcc y su contenido, que apunta a data.
+func (c *riffCursor) next() (id [4]byte, body []byte, err error) {
+	data, off := c.data, c.off
+	if len(data)-off < 8 {
+		return id, nil, fmt.Errorf("%w: %d stray bytes at the end of a chunk list", errWebPAnimation, len(data)-off)
 	}
-	return out, nil
+	size := uint64(binary.LittleEndian.Uint32(data[off+4 : off+8]))
+	rest := uint64(len(data) - off - 8)
+	padded := size + size%2
+	if padded > rest && (!c.unpaddedLast || size != rest) {
+		return id, nil, fmt.Errorf("%w: %q chunk of %d bytes past the end", errWebPAnimation, data[off:off+4], size)
+	}
+	copy(id[:], data[off:off+4])
+	c.off = off + 8 + int(min(padded, rest))
+	return id, data[off+8 : off+8+int(size)], nil
 }
 
 // covers dice si el cuadro cubre todo el lienzo. Uno más chico deja el resto
@@ -231,10 +247,22 @@ func (f *webpFrame) decode(maxW, maxH int) (image.Image, error) {
 	}
 	sx, sy := float64(nw)/float64(f.canvasW), float64(nh)/float64(f.canvasH)
 	at := func(v int, s float64) int { return int(float64(v)*s + 0.5) }
-	r := image.Rect(at(f.x, sx), at(f.y, sy), at(f.x+f.w, sx), at(f.y+f.h, sy))
-	if !r.Empty() {
-		draw.CatmullRom.Scale(canvas, r, img, img.Bounds(), draw.Src, nil)
+	// Un cuadro muy chico puede quedar de 0 px al reducirse: se le deja 1,
+	// dentro del lienzo (en el borde derecho o inferior, el último).
+	span := func(v, n int, s float64, size int) (int, int) {
+		lo, hi := at(v, s), at(v+n, s)
+		if lo == hi {
+			if hi < size {
+				hi++
+			} else {
+				lo--
+			}
+		}
+		return lo, hi
 	}
+	x0, x1 := span(f.x, f.w, sx, nw)
+	y0, y1 := span(f.y, f.h, sy, nh)
+	draw.CatmullRom.Scale(canvas, image.Rect(x0, y0, x1, y1), img, img.Bounds(), draw.Src, nil)
 	return canvas, nil
 }
 

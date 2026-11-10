@@ -31,6 +31,12 @@ func testRIFF(body []byte) []byte {
 	return append(binary.LittleEndian.AppendUint32([]byte("RIFF"), uint32(len(body))), body...)
 }
 
+// riffSub es un chunk RIFF: su fourcc y su contenido.
+type riffSub struct {
+	fourcc string
+	data   []byte
+}
+
 // testTopChunks son los chunks de primer nivel de un WebP válido.
 func testTopChunks(t testing.TB, data []byte) []riffSub {
 	t.Helper()
@@ -183,6 +189,40 @@ func TestWebPFirstFrameHugeChunkSize(t *testing.T) {
 	}
 }
 
+// webpFirstFrame recorre los chunks sin juntarlos en una lista: sus
+// asignaciones no crecen con el número de chunks, estén en primer nivel o
+// dentro del primer ANMF, ni con muchos ANMF sin datos de imagen. Antes, una
+// animada de 64 MB con 8 millones de chunks JUNK vacíos usaba más de 1 GB.
+func TestWebPFirstFrameAllocsDoNotGrowWithChunks(t *testing.T) {
+	p := newAnimParts(t)
+	junk := testChunk("JUNK", nil, true)
+	for _, tc := range []struct {
+		name  string
+		build func(n int) []byte
+	}{
+		{"top level", func(n int) []byte { return p.withFirst(p.top[2].data, true, bytes.Repeat(junk, n)...) }},
+		{"in the first ANMF", func(n int) []byte {
+			return p.withFirst(append(append([]byte{}, p.top[2].data...), bytes.Repeat(junk, n)...), true)
+		}},
+		{"empty ANMF", func(n int) []byte {
+			return p.withFirst(p.top[2].data, true, bytes.Repeat(testChunk("ANMF", p.hdr, true), n)...)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			allocs := func(n int) float64 {
+				data := tc.build(n)
+				if f, err := webpFirstFrame(data, 16, 12); err != nil || f.w != 16 {
+					t.Fatalf("%d chunks: %v", n, err)
+				}
+				return testing.AllocsPerRun(10, func() { _, _ = webpFirstFrame(data, 16, 12) })
+			}
+			if few, many := allocs(10), allocs(10_000); many > few {
+				t.Errorf("%v allocations with 10 chunks, %v with 10000", few, many)
+			}
+		})
+	}
+}
+
 // Un cuadro desplazado sobre un lienzo más grande que la caja se pone
 // directo sobre el lienzo reducido, sin reservar uno del tamaño completo: el
 // cuadro de 16×12 en (10,8) de un lienzo de 40×30 queda, a la mitad, de 8×6
@@ -214,6 +254,45 @@ func TestWebPFrameDecodeComposesOnTheReducedCanvas(t *testing.T) {
 	// Sin caja (0×0) el lienzo queda de su tamaño.
 	if img, err := f.decode(0, 0); err != nil || img.Bounds().Dx() != 40 {
 		t.Errorf("without a box: %v, %v", img.Bounds(), err)
+	}
+}
+
+// Un cuadro que al reducirse quedaría de 0 px queda de 1, dentro del lienzo:
+// el de 16×12 en un lienzo de 1600×1200 con caja de 20×15 mide 0.2×0.15 px.
+// En el borde derecho e inferior el píxel es el último del lienzo.
+func TestWebPFrameDecodeKeepsATinyFrame(t *testing.T) {
+	for _, tc := range []struct {
+		fx, fy int
+		at     image.Point
+	}{
+		{0, 0, image.Pt(0, 0)},
+		{800, 600, image.Pt(10, 8)},
+		{1584, 1188, image.Pt(19, 14)},
+	} {
+		f, err := webpFirstFrame(animatedWebP(t, 1600, 1200, tc.fx, tc.fy, 16, 12), 1600, 1200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		img, err := f.decode(20, 15)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b := img.Bounds(); b.Dx() != 20 || b.Dy() != 15 {
+			t.Fatalf("composed %dx%d, want 20x15", b.Dx(), b.Dy())
+		}
+		opaque := 0
+		for y := range 15 {
+			for x := range 20 {
+				if _, _, _, a := rgba8(img, x, y); a != 0 {
+					opaque++
+				}
+			}
+		}
+		if !isRed(img, tc.at.X, tc.at.Y, 250, 255) || opaque != 1 {
+			r, g, b, a := rgba8(img, tc.at.X, tc.at.Y)
+			t.Errorf("frame at (%d,%d): %v is %d,%d,%d,%d and %d pixels are not transparent, want only that one, red",
+				tc.fx, tc.fy, tc.at, r, g, b, a, opaque)
+		}
 	}
 }
 
