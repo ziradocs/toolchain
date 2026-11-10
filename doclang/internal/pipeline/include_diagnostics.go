@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/include"
@@ -27,9 +28,13 @@ func keptIncludeDiagnostics(lines []string, kept []int) []diagnostics.Diagnostic
 		if n >= 1 && n <= len(lines) {
 			directive = strings.TrimSpace(lines[n-1])
 		}
+		// La columna del `@`: core reconoce la directiva con
+		// strings.TrimSpace, así que delante puede haber cualquier espacio
+		// Unicode (U+00A0, U+3000), no solo espacios y tabs. En bytes, como
+		// las demás posiciones de core.
 		column := 1
 		if n >= 1 && n <= len(lines) {
-			column = len(lines[n-1]) - len(strings.TrimLeft(lines[n-1], " \t")) + 1
+			column = len(lines[n-1]) - len(strings.TrimLeftFunc(lines[n-1], unicode.IsSpace)) + 1
 		}
 		out = append(out, diagnostics.NewWarning(
 			fmt.Sprintf("%q is inside a code block, so it is code: it is kept as written and not expanded. To include the file, write the @include outside the code block", directive),

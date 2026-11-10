@@ -238,3 +238,20 @@ func TestPrepare_PanicWhileExpandingIsAnError(t *testing.T) {
 		t.Errorf("want the panic as an include error, got %v", err)
 	}
 }
+
+// La columna de INCLUDE001 es la del `@`, también con espacios Unicode
+// delante (los que core recorta al reconocer la directiva). Cuenta en bytes,
+// como las demás posiciones de core.
+func TestKeptIncludeDiagnosticsColumn(t *testing.T) {
+	lines := []string{"    @include a", "     @include a", "    　@include a", "\t@include a"}
+	diags := keptIncludeDiagnostics(lines, []int{1, 2, 3, 4})
+	for i, d := range diags {
+		want := strings.Index(lines[i], "@") + 1
+		if d.Position.Line != i+1 || d.Position.Column != want {
+			t.Errorf("%q: position %v, want %d:%d", lines[i], d.Position, i+1, want)
+		}
+		if !strings.Contains(d.Message, `"@include a"`) {
+			t.Errorf("%q: message %q", lines[i], d.Message)
+		}
+	}
+}
