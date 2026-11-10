@@ -609,8 +609,15 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 		hasErrors = true
 	}
 
-	if len(lintDiagnostics) > 0 {
+	if len(lintDiagnostics) > 0 || parserErrors > 0 {
 		util.Info("LINT", "Encontrados %d warnings, %d errores", warningCount, errorCount)
+		// Un aviso del parser que la política subió a error se lista con los
+		// errores de lint: arriba salió como warning, antes de la política.
+		for _, diag := range parserActive {
+			if diag.IsError() {
+				fmt.Fprintf(os.Stderr, "❌ %s\n", diag.String())
+			}
+		}
 		for _, diag := range lintDiagnostics {
 			if diag.IsError() {
 				fmt.Fprintf(os.Stderr, "❌ %s\n", diag.String())

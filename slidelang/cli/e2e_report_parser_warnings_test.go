@@ -6,6 +6,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,4 +158,49 @@ func TestE2E_ReportParserWarningsFollowPolicy(t *testing.T) {
 			t.Errorf("want STRICT003 as an active error in the report, got %+v", rep.Findings)
 		}
 	})
+
+	// En la consola, el aviso que la política subió a error sale en la lista
+	// de errores de LINT; antes decía "Validación completada sin problemas"
+	// y el build fallaba sin nombrar el error.
+	t.Run("severity error on the console", func(t *testing.T) {
+		src := "---\nmode: strict\ntitle: \"D\"\nlint_policy:\n  rules:\n    STRICT003:\n      severity: error\n---\n" + body
+		dir := t.TempDir()
+		in := filepath.Join(dir, "d.slidelang")
+		if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stderr := captureStderr(t, func() {
+			if err := runCLI(t, Options{}, []string{"build", in, "--lint-only", "--no-colors"}); err == nil {
+				t.Error("build passed, want a lint failure")
+			}
+		})
+		if !strings.Contains(stderr, "❌ error[STRICT003]") {
+			t.Errorf("want STRICT003 listed as a lint error on stderr, got:\n%s", stderr)
+		}
+		if strings.Contains(stderr, "Validación completada sin problemas") {
+			t.Errorf("the console says there were no problems:\n%s", stderr)
+		}
+	})
+}
+
+// captureStderr devuelve lo que fn escribe en os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	done := make(chan string)
+	go func() {
+		var b strings.Builder
+		_, _ = io.Copy(&b, r)
+		done <- b.String()
+	}()
+	defer func() { os.Stderr = orig }()
+	fn()
+	_ = w.Close()
+	os.Stderr = orig
+	return <-done
 }
