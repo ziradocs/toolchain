@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -370,9 +371,9 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 
 // generatorDiagnostics son los warnings del generador con su línea llevada al
 // archivo que escribió el elemento, como los del parser y el linter: el
-// generador cuenta las líneas sobre el contenido expandido. El "line N" del
-// mensaje se cambia por la misma ubicación (pipeline.Where), para que el
-// texto y la posición digan lo mismo. Las copias que deja otra expansión de
+// generador cuenta las líneas sobre el contenido expandido. El "line N" (o
+// "línea N") del mensaje se cambia por la misma ubicación, para que el texto
+// y la posición digan lo mismo. Las copias que deja otra expansión de
 // un archivo incluido se quitan (pipeline.DedupeIncluded).
 func generatorDiagnostics(genLog *diagnosticLogger, prepared *pipeline.Prepared) []diagnostics.Diagnostic {
 	raw := genLog.diagnostics()
@@ -382,7 +383,14 @@ func generatorDiagnostics(genLog *diagnosticLogger, prepared *pipeline.Prepared)
 			continue
 		}
 		if n, start, end := generatorLine(mapped[i].Message); n > 0 {
-			mapped[i].Message = mapped[i].Message[:start] + pipeline.Where(mapped[i]) + mapped[i].Message[end:]
+			msg := mapped[i].Message
+			// En el documento queda "line N" o "línea N", en el idioma del
+			// mensaje; en un archivo incluido, "archivo:N" (pipeline.Where).
+			where := pipeline.Where(mapped[i])
+			if mapped[i].File == "" {
+				where = strings.TrimRight(msg[start:end], "0123456789") + strconv.Itoa(mapped[i].Position.Line)
+			}
+			mapped[i].Message = msg[:start] + where + msg[end:]
 		}
 	}
 	return pipeline.DedupeIncluded(raw, mapped)
