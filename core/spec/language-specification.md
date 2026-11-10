@@ -212,35 +212,6 @@ text that is not indented deeper than `QUOTE`, ends the element as before. A
 quote cannot start or end with an empty line. `slidelang fmt` writes a flex
 quote with an empty `>` line this way.
 
-In a `TABLE` block, `rows:` takes the rows either one per line after
-`rows: [` (closed by `]`) or as the whole array on the `rows:` line itself:
-`rows: [["a", "b"], ["c", "d"]]`. Both forms give the same cells, read with the
-same rules as `headers:` (a comma or bracket inside a double-quoted cell is
-content; a backslash is not an escape, and a row with an odd number of quotes
-falls back to splitting on every comma, row by row, in both forms). `rows: []` is a table
-with no rows (`TABLE002`).
-
-In the one-per-line form, a line of the list keeps the classification it always
-had: a line indented six spaces that starts with `[` and ends with `]` or `],` is
-a row, whatever it holds (a `|`, an odd number of quotes). The list now also
-takes a line that starts with `[` and has no `|`, indented deeper than the
-`TABLE`'s properties (a `TABLE` inside a column), and blank lines between rows
-do not end it; a line `]` closes it. Any other line ends the list and is read as
-before: a property, a pipe row (a line with `|` is a pipe row even when its
-first cell starts with `[`), or ignored.
-
-`TABLE007` names, on its line, only rows that used to be lost without a
-diagnostic: a line of the list that starts with `[` and does not close with `]`
-or `],`, a complete array row (`["a", "b"]`, `[a, b]`) after the list has ended
-or right after an empty `headers:`, an inline value that cannot be read, and
-rows below an inline value. A bracketed line that is not an array (`[nota al
-pie]`) is still ignored. It is an error in a strict document and a warning in a
-slide (strict or flex) and in a flex document, the same split as `SPECIAL002`.
-In the inline form, rows are split at `], [` one at a time, so a `], [` inside
-a quoted cell does not split a row and a row with an odd number of quotes does
-not swallow the next one; each row is then read like a row of the one-per-line
-form.
-
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser
 infers the value from where the image sits, and the two dialects read that
