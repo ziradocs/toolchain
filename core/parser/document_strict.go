@@ -148,7 +148,7 @@ func (p *DocumentStrictParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 // aviso, justo lo que el dialecto promete no hacer.
 func promoteUnclosedSpecialBlocks(diags []diagnostics.Diagnostic) {
 	for i := range diags {
-		if diags[i].RuleID == elements.UnclosedSpecialBlockRuleID && diags[i].IsWarning() {
+		if (diags[i].RuleID == elements.UnclosedSpecialBlockRuleID || diags[i].RuleID == elements.EmptyTextRuleID) && diags[i].IsWarning() {
 			diags[i].Severity = diagnostics.Error
 		}
 	}

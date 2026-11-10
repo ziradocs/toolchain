@@ -7,7 +7,13 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
+
+// EmptyTextRuleID es el aviso de un TEXT strict sin contenido. Sale como
+// warning; el dialecto strict de documentos lo sube a error, como STRICT003
+// frente a la línea no reconocida de un documento.
+const EmptyTextRuleID = "TEXT001"
 
 // TextParser maneja elementos de texto (fallback parser)
 type TextParser struct{}
@@ -45,13 +51,18 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	consumed := 0
 
 	var content strings.Builder
+	var emptyText []diagnostics.Diagnostic
 
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "TEXT") { // Skip TEXT line
-		// El cuerpo son las líneas con más sangría que la línea TEXT. Antes
-		// bastaba con cualquier sangría: un TEXT sin cuerpo tomaba como
-		// cuerpo a los elementos hermanos escritos a su misma sangría
-		// (`TEXT` / `POINTS` / `- uno` salía como el párrafo "POINTS - uno").
+		// El cuerpo son las líneas que siguen con sangría. Puede estar más
+		// sangrado que TEXT (lo normal) o, como siempre se aceptó, a su misma
+		// sangría; en ese caso una línea que otro elemento reconoce (POINTS,
+		// CODE, un "@", un ":::"…) corta el cuerpo. Antes no lo cortaba: un
+		// TEXT sin cuerpo tomaba a los elementos hermanos escritos a su misma
+		// sangría (`TEXT` / `POINTS` / `- uno` salía como el párrafo "POINTS -
+		// uno"), mientras que la prosa a la misma sangría sí era el cuerpo.
 		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
+		textLine := startIndex
 		consumed++
 		startIndex++
 
@@ -69,18 +80,21 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			}
 
 			// Auto-detect expected indentation from first non-empty line
-			if expectedIndent == -1 && currentIndent > headerIndent {
+			if expectedIndent == -1 {
+				if currentIndent == 0 {
+					break
+				}
+				if currentIndent <= headerIndent && IsNewElement(trimmedLine, "strict") {
+					break
+				}
 				expectedIndent = currentIndent
 			}
 
-			// If we haven't detected indentation yet and the line is not
-			// deeper than TEXT, the body is empty
-			if expectedIndent == -1 {
+			// Check if this line should be part of the text block
+			if currentIndent < expectedIndent {
 				break
 			}
-
-			// Check if this line should be part of the text block
-			if expectedIndent > 0 && currentIndent < expectedIndent {
+			if expectedIndent <= headerIndent && IsNewElement(trimmedLine, "strict") {
 				break
 			}
 
@@ -90,6 +104,11 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				content.WriteString(" ")
 			}
 			consumed++
+		}
+		if content.Len() == 0 {
+			emptyText = append(emptyText, diagnostics.NewWarning(
+				"TEXT has no content: write the paragraph on the indented lines below it, or remove the TEXT",
+				ctx.Position(textLine), "text-parser").WithRuleID(EmptyTextRuleID))
 		}
 	} else {
 		// Flex mode: collect consecutive text lines but be smart about lists
@@ -216,6 +235,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			Element:       nil,
 			ConsumedLines: consumed,
 			Error:         nil,
+			Diagnostics:   emptyText,
 		}
 	}
 

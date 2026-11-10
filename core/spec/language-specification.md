@@ -191,6 +191,13 @@ such a header was an error, because the code-filename contract rejects a filenam
 that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
+A `TEXT` body is the lines that follow it with indentation: usually deeper than
+`TEXT`, or, as always accepted, at its own indentation. In that second case a
+line that another element recognizes (`POINTS`, `CODE`, `@`, `:::`…) ends the
+body, so a `TEXT` with no body does not take the elements after it as text. A
+`TEXT` with no content is the `TEXT001` diagnostic: an error in a strict
+document, a warning in a slide.
+
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next
 line with text is indented deeper than the `QUOTE` keyword: it stays inside as
