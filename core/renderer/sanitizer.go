@@ -97,15 +97,31 @@ func SanitizeURL(rawURL string) string {
 // hexColorPattern valida colores hex de 3, 4, 6 u 8 dígitos (con o sin alfa).
 var hexColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
 
+// inlineOpenEdge es lo que puede seguir a un delimitador de formato para que
+// abra: cualquier carácter que no sea espacio ASCII ni separador de espacio
+// de Unicode. inlineOpenEdgeNoStar además no es "*": una negrita o cursiva
+// no abre con otro asterisco pegado (`*** b ***` y `** * x` quedan como
+// texto, y en `***Q4**` la negrita abre en el segundo asterisco).
+const (
+	inlineOpenEdge       = `[^\s\p{Zs}]`
+	inlineOpenEdgeNoStar = `[^*\s\p{Zs}]`
+)
+
 // Patrones de ProcessInlineMarkdownFormatsSecure, compilados una sola vez a
 // nivel de paquete en vez de en cada llamada — esta función corre por cada
 // línea de párrafo/lista de todo documento (issue #39, BA-9; se hoistearon
 // los demás casos del normalizer pero se pasó por alto este, el más
 // caliente de todos por frecuencia de llamada).
 var (
-	inlineHighlightPattern     = regexp.MustCompile(`==(.*?)==`)
-	inlineStrikethroughPattern = regexp.MustCompile(`~~(.*?)~~`)
-	inlineBoldItalicPattern    = regexp.MustCompile(`(^|[^*])\*\*\*([^*]|[^*].*?[^*])\*\*\*($|[^*])`)
+	// Un delimitador abre solo si lo sigue algo que no es espacio (ni espacio
+	// de Unicode, como el NBSP) ni el fin de la línea: el primer carácter de
+	// cada captura es inlineOpenEdge. Al cerrar no se exige nada, así que
+	// `**Etiqueta: **valor` sigue siendo negrita y `2 * 3 * 4` o
+	// `a == b == c` quedan como texto. RE2 no tiene lookahead, por eso la
+	// regla va en la captura y no en un carácter de contexto.
+	inlineHighlightPattern     = regexp.MustCompile(`==(` + inlineOpenEdge + `.*?)==`)
+	inlineStrikethroughPattern = regexp.MustCompile(`~~(` + inlineOpenEdge + `.*?)~~`)
+	inlineBoldItalicPattern    = regexp.MustCompile(`(^|[^*])\*\*\*(` + inlineOpenEdgeNoStar + `|` + inlineOpenEdgeNoStar + `.*?[^*])\*\*\*($|[^*])`)
 	// inlineNestedItalicInBoldPattern cubre **texto *anidado*** (negrita que
 	// termina con una cursiva pegada a su cierre, fusionando 1+2 asteriscos
 	// en un run de 3) — un caso DISTINTO de ***texto*** (issue #101, arriba):
@@ -134,9 +150,9 @@ var (
 	// prefijo "[^*]*" no puede saltar por encima de los asteriscos
 	// intermedios y el patrón simplemente no matchea, dejando el
 	// comportamiento previo (ya roto, no empeorado) para ese caso más raro.
-	inlineNestedItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*([^*]*)\*([^*\n]+)\*\*\*($|[^*])`)
-	inlineBoldPattern               = regexp.MustCompile(`\*\*(.*?)\*\*`)
-	inlineItalicPattern             = regexp.MustCompile(`\*([^*\n]+)\*`)
+	inlineNestedItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*((?:` + inlineOpenEdgeNoStar + `[^*]*)?)\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*\*\*($|[^*])`)
+	inlineBoldPattern               = regexp.MustCompile(`\*\*(` + inlineOpenEdgeNoStar + `.*?)\*\*`)
+	inlineItalicPattern             = regexp.MustCompile(`\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*`)
 	// inlineLinkPattern e inlineImagePattern reconocen solo la APERTURA
 	// ("[texto](" / "![alt](") y no el destino: RE2 no puede exigir
 	// paréntesis balanceados, y el patrón completo anterior (`\(([^)]+)\)`)
