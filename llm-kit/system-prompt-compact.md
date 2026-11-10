@@ -66,7 +66,8 @@ attribute (`:::info{typed}`, `:::info{typed} Title`); flex needs nothing. Math (
 inline `$x$`): `<<math>>` LaTeX `<<end>>`, `$$ ... $$` starting the line, or a ` ```math ` fence (flex).
 Directives: `@notes` (presenter notes), `@timer`, `@transition`,
 `@highlight`, `@delay`, `@auto-play` — ZiraDocs renders these, DocLang
-drops them; `@include path` is expanded at build time by both. Full table:
+drops them; `@include path` is expanded at build time by both, but inside a
+code block DocLang keeps it as code (`INCLUDE001` warning). Full table:
 `reference/elements.md`.
 
 Prohibited (not implemented, never emit): `<</mermaid>>`, `:::poll`,

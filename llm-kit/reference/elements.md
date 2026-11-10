@@ -466,6 +466,15 @@ by the referenced file's content (its frontmatter, if any, is stripped),
 recursively, up to 32 levels; include cycles are detected and abort the
 build.
 
+The two CLIs differ on an `@include` line inside a code block (a fenced
+block, or a strict `CODE` body). `doclang build` and the `doclang mcp`
+`export` tool treat it as code: the line stays as written, is not expanded,
+and the build warns with `INCLUDE001` on that line (in the file that has it,
+also when that file was itself included). So a `.doclang` cannot embed a
+file's source in a code block with `@include`; to include a file, write the
+`@include` outside the code block. `slidelang build` does not make that
+distinction: it replaces every `@include` line, inside a code block or not.
+
 Paths are **confined** to a root directory — by default the input file's
 own directory, overridable with `--include-root`. Absolute paths and any
 attempt to escape the root (including via symlink) are rejected. Two

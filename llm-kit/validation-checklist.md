@@ -87,6 +87,9 @@ and it applies to any slide typed `title` in either mode.)
       text alone and a block image is not drawn. Parentheses inside a
       destination are fine when balanced, e.g. `.../wiki/Foo_(bar)`
 - [ ] **Code**: block is not empty (`CODE001` — warning)
+- [ ] **`@include` in code (DocLang only)**: no `@include` line inside a code
+      block meant to include a file. `doclang build` keeps it as code, does
+      not expand it and warns with `INCLUDE001`; `slidelang build` expands it
 
 ## 4. Slide properties
 

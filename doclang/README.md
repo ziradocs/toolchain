@@ -303,6 +303,16 @@ borders and the heading font are not applied in DOCX. Embedded themes are unchan
 doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`,
 `CODEGROUP001`, `IMG001` and the rest all apply to `.doclang` source.
 
+One warning is doclang's own: `INCLUDE001`, an `@include` line inside a code
+block (a fence or a strict `CODE` body). That line is code: it stays as
+written in every output and is not expanded, also when the path does not
+exist. To include a file, write the `@include` outside the code block.
+(`slidelang build` still expands an `@include` inside a code block.)
+
+Findings in an `@include`d file carry that file (`file` in the `--report json`
+findings, relative to the document's directory, and its own path in SARIF)
+and the line in it, not the line of the expanded content.
+
 | Flag | Default | Notes |
 |---|---|---|
 | `--lint-only` | `false` | Run the linter and stop; generate nothing. |
