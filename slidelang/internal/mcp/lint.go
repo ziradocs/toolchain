@@ -52,16 +52,25 @@ func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 		// imagen de bloque) van con los del linter, sin duplicarse, igual que
 		// en `slidelang build` (ver findings.SplitParserFindings).
 		parseDiags, parserFindings := findings.SplitParserFindings(parseDiags)
-		allDiags := parseDiags
 		slideCount := 0
 		if astNode != nil {
+			slideCount = len(astNode.ContentBlocks)
+		}
+		var allDiags []diagnostics.Diagnostic
+		if astNode == nil || hasErrorDiagnostic(parseDiags) {
+			// Con errores del parser el build se corta antes del linter y de
+			// la política, así que acá tampoco se aplican: una política no
+			// apaga un error del parser. La telemetría del normalizador no
+			// sale en ningún camino.
+			allDiags = append(findings.ReportableParserDiagnostics(parseDiags), parserFindings...)
+		} else {
 			// Misma política que `slidelang build` (flag > lint_policy: del
 			// frontmatter > default) y por el mismo camino
 			// (findings.EvaluatePolicy): se aplica a los avisos del parser y a
-			// los del linter, y la telemetría del normalizador no sale.
+			// los del linter.
 			policy, err := linter.ResolvePolicyConfig("", astNode.FrontMatter)
 			if err != nil {
-				out := lintOutput{Diagnostics: append(allDiags, parserFindings...), Valid: false, Error: err.Error()}
+				out := lintOutput{Diagnostics: append(findings.ReportableParserDiagnostics(parseDiags), parserFindings...), Valid: false, Error: err.Error()}
 				res, resErr := errorResult(out)
 				return res, out, resErr
 			}
@@ -69,9 +78,9 @@ func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 			lintDiags = findings.MergeParserFindings(astNode, parserFindings, lintDiags)
 			evaluated := findings.EvaluatePolicy(policy, parseDiags, lintDiags, astNode.FilePath, time.Now())
 			allDiags = append(append([]diagnostics.Diagnostic(nil), evaluated.ParserActive...), evaluated.LintActive...)
-			slideCount = len(astNode.ContentBlocks)
-		} else {
-			allDiags = append(allDiags, parserFindings...)
+		}
+		if len(allDiags) == 0 {
+			allDiags = nil
 		}
 
 		out := lintOutput{

@@ -588,13 +588,16 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 
 	lintDiagnostics := activeDiags
 
-	// Contar warnings y errores
+	// Contar warnings y errores. La info no cuenta como warning, ni la del
+	// linter ni la del parser (countParserSummary): se lista, pero el
+	// resumen solo suma warnings y errores.
 	warningCount := 0
 	errorCount := 0
 	for _, diag := range lintDiagnostics {
-		if diag.IsError() {
+		switch {
+		case diag.IsError():
 			errorCount++
-		} else {
+		case diag.IsWarning():
 			warningCount++
 		}
 	}
@@ -609,7 +612,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	// "Encontrados N warnings" y el `warnings:` del resumen cuentan lo mismo.
 	warningCount += parserWarnings
 
-	if warningCount+errorCount > 0 {
+	if len(lintDiagnostics) > 0 || warningCount+errorCount > 0 {
 		util.Info("LINT", "Encontrados %d warnings, %d errores", warningCount, errorCount)
 		// Los avisos del parser ya salieron arriba, antes de la política; acá
 		// van los que la política cambió: los que subió a error y el
@@ -623,10 +626,13 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 			}
 		}
 		for _, diag := range lintDiagnostics {
-			if diag.IsError() {
+			switch {
+			case diag.IsError():
 				fmt.Fprintf(os.Stderr, "❌ %s\n", diag.String())
-			} else {
+			case diag.IsWarning():
 				fmt.Fprintf(os.Stderr, "⚠️  %s\n", diag.String())
+			default:
+				fmt.Fprintf(os.Stderr, "ℹ️  %s\n", diag.String())
 			}
 		}
 	} else {

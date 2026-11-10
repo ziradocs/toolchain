@@ -210,3 +210,50 @@ func TestE2E_PostLintReceivesParserDiagnostics(t *testing.T) {
 		})
 	}
 }
+
+// Una política no apaga un error del parser: con CHART006 (unit: null)
+// apagado o bajado a warning, el build falla y `lint` del MCP da
+// valid=false, sin la telemetría del normalizador.
+func TestE2E_MCPLintPolicyDoesNotSilenceParserErrors(t *testing.T) {
+	for _, policy := range []string{"enabled: false", "severity: warning"} {
+		src := "---\nmode: strict\ntitle: \"D\"\nlint_policy:\n  rules:\n    CHART006:\n      " + policy + "\n---\n\nSLIDE content\n  title: \"T\"\n  <<chart: bar>>\n    data: [[\"A\", 1], [\"B\", 2]]\n    unit: null\n  <<end>>\n"
+		in := filepath.Join(t.TempDir(), "d.slidelang")
+		if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := runCLI(t, Options{}, []string{"build", in, "--lint-only"}); err == nil {
+			t.Fatalf("%s: build passed, want the CHART006 parse error", policy)
+		}
+		diags, valid := mcpLint(t, src)
+		if valid {
+			t.Errorf("%s: MCP lint valid=true, want false like the build: %v", policy, diags)
+		}
+		for _, d := range diags {
+			if d.Source == "normalizer" || d.Source == "detector" {
+				t.Errorf("%s: telemetry in MCP lint: %+v", policy, d)
+			}
+		}
+	}
+}
+
+// La info no cuenta como warning, ni la del linter ni la del parser: con
+// LAYOUT003 (linter) y STRICT003 (parser) bajados a info por la política,
+// el resumen y "Encontrados" dicen 0 warnings.
+func TestE2E_LintSummaryDoesNotCountInfo(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"D\"\nlint_policy:\n  rules:\n    LAYOUT003:\n      severity: info\n    STRICT003:\n      severity: info\n---\n\nSLIDE content\n  TEXT\n    hola\n\nSLIDE content\n  title: \"T2\"\n  RARO línea\n  TEXT\n    hola\n"
+	in := filepath.Join(t.TempDir(), "d.slidelang")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr := captureStderr(t, func() {
+		if err := runCLI(t, Options{}, []string{"build", in, "--lint-only", "--no-colors"}); err != nil {
+			t.Errorf("build: %v", err)
+		}
+	})
+	if !strings.Contains(stderr, "warnings: 0\n") || !strings.Contains(stderr, "Encontrados 0 warnings, 0 errores") {
+		t.Errorf("want info left out of both counts:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "ℹ️  info[LAYOUT003]") && !strings.Contains(stderr, "ℹ️  info:") {
+		t.Errorf("want the linter info listed with ℹ️:\n%s", stderr)
+	}
+}

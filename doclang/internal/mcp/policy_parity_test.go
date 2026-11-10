@@ -118,3 +118,79 @@ func TestPolicyOnParserIDs_BuildLintAndExportAgree(t *testing.T) {
 		})
 	}
 }
+
+// Una política no apaga un error del parser: con CHART006 (unit: null) y
+// CHART006 apagado, `lint` sigue dando valid=false, como el build, que se
+// corta antes del linter.
+func TestLintTool_PolicyDoesNotSilenceParserErrors(t *testing.T) {
+	for _, policy := range []string{"enabled: false", "severity: warning"} {
+		src := "---\ntitle: D\nmode: strict\nlint_policy:\n  rules:\n    CHART006:\n      " + policy + "\n---\n\nSECTION \"A\"\n  <<chart: bar>>\n    data: [[\"A\", 1], [\"B\", 2]]\n    unit: null\n  <<end>>\n"
+		_, buildErr := pipeline.Prepare(util.NewNoop(), []byte(src), pipeline.PrepareOptions{InputFile: "d.doclang", MaxInputBytes: util.DefaultMaxInputBytes})
+		if buildErr == nil {
+			t.Fatalf("%s: build passed, want the CHART006 parse error", policy)
+		}
+		session, ctx := newTestSession(t)
+		var lint lintOutput
+		if err := json.Unmarshal([]byte(resultText(t, callTool(t, session, ctx, "lint", map[string]any{"source": src}))), &lint); err != nil {
+			t.Fatal(err)
+		}
+		if lint.Valid {
+			t.Errorf("%s: lint valid=true, want false like the build: %+v", policy, lint.Diagnostics)
+		}
+	}
+}
+
+// Una regla con scope: aplica en `lint` igual que en el build y el export
+// cuando se le pasa la ruta del documento; sin ruta no aplica, como en un
+// build sin ruta.
+func TestLintTool_PolicyScopeUsesThePath(t *testing.T) {
+	src := "---\ntitle: D\nmode: flex\nlint_policy:\n  rules:\n    TABLE004:\n      enabled: false\n      scope:\n        - \"docs/*.md\"\n---\n\n# A\n\nTABLE\n  cells:\n    - [ : ]\n"
+	has := func(diags []diagnostics.Diagnostic) bool {
+		for _, d := range diags {
+			if d.RuleID == "TABLE004" {
+				return true
+			}
+		}
+		return false
+	}
+	reportPath := filepath.Join(t.TempDir(), "r.json")
+	if _, err := pipeline.Prepare(util.NewNoop(), []byte(src), pipeline.PrepareOptions{InputFile: "docs/d.md", MaxInputBytes: util.DefaultMaxInputBytes, ReportFormat: "json", ReportOut: reportPath}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(reportPath)
+	var rep report.ReportJSON
+	if err := json.Unmarshal(data, &rep); err != nil {
+		t.Fatal(err)
+	}
+	var built []diagnostics.Diagnostic
+	for _, f := range rep.Findings {
+		if !f.Waived {
+			built = append(built, f.Diagnostic)
+		}
+	}
+	if has(built) {
+		t.Fatalf("build: TABLE004 should be waived by the scoped rule: %v", built)
+	}
+
+	session, ctx := newTestSession(t)
+	for path, want := range map[string]bool{"docs/d.md": false, "otros/d.md": true, "": true} {
+		var lint lintOutput
+		args := map[string]any{"source": src}
+		if path != "" {
+			args["path"] = path
+		}
+		if err := json.Unmarshal([]byte(resultText(t, callTool(t, session, ctx, "lint", args))), &lint); err != nil {
+			t.Fatal(err)
+		}
+		if has(lint.Diagnostics) != want {
+			t.Errorf("lint with path %q: TABLE004 present = %v, want %v", path, has(lint.Diagnostics), want)
+		}
+	}
+
+	f := newExportFixture(t)
+	f.write(t, "docs/d.md", src)
+	es, ectx := newExportSession(t, Options{Root: f.root})
+	if out := exportOK(t, es, ectx, map[string]any{"path": "docs/d.md", "format": "html"}); has(out.Diagnostics) {
+		t.Errorf("export: TABLE004 should be waived by the scoped rule: %v", out.Diagnostics)
+	}
+}

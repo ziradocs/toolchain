@@ -16,6 +16,11 @@ import (
 
 type lintInput struct {
 	Source string `json:"source" jsonschema:"the .doclang source content to validate"`
+	// Path es la ruta del documento como la escribiría `doclang build`
+	// (relativa al proyecto). Solo sirve para que una regla de lint_policy
+	// con scope: aplique igual que en el build; sin ella, una regla con
+	// scope no aplica, como en el build de un documento sin ruta.
+	Path string `json:"path,omitempty" jsonschema:"optional path of the document as passed to doclang build; used only to match lint_policy scope globs"`
 }
 
 type lintOutput struct {
@@ -71,7 +76,7 @@ func registerLintTool(server *sdkmcp.Server, logger util.Logger) {
 			// La política se aplica a los avisos del parser y a los del
 			// linter por el mismo camino que `doclang build`: un TABLE004
 			// apagado no sale, y uno subido a error deja valid=false.
-			evaluated := pipeline.EvaluatePolicy(policy, parseDiags, lintDiags, astNode.FilePath, time.Now())
+			evaluated := pipeline.EvaluatePolicy(policy, parseDiags, lintDiags, in.Path, time.Now())
 			allDiags = append(append([]diagnostics.Diagnostic(nil), evaluated.ParserActive...), evaluated.LintActive...)
 			sectionCount = len(astNode.ContentBlocks)
 		}
