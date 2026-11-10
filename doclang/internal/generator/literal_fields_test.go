@@ -86,8 +86,8 @@ const issue487Source = "---\ntitle: D\nvariables:\n  company: ACME\n---\n\n# A\n
 	"```go\nv := \"{{company}}\"\n```\n\n" +
 	"> ```\n> cita {{company}}\n> ```\n"
 
-// Issue #487: el código es literal en el HTML, el DOCX y el Markdown; la
-// prosa fuera del código sigue sustituyendo en el HTML.
+// Issue #487: el código es literal en el HTML, la vista previa, el DOCX y el
+// Markdown; la prosa fuera del código sigue sustituyendo en el HTML.
 func TestIssue487CodeIsLiteralInEveryFormat(t *testing.T) {
 	doc := parseDocLang(t, issue487Source)
 	dir := t.TempDir()
@@ -105,6 +105,12 @@ func TestIssue487CodeIsLiteralInEveryFormat(t *testing.T) {
 			t.Fatal(err)
 		}
 		return html.UnescapeString(string(data))
+	}
+	preview := html.UnescapeString(New(newTestLogger()).RenderHTMLPreview(doc, ""))
+	for _, w := range []string{"Prosa de ACME", "<code>{{company}}</code>", `v := "{{company}}"`, "cita {{company}}"} {
+		if !strings.Contains(preview, w) {
+			t.Errorf("preview: missing %q", w)
+		}
 	}
 	for _, c := range []struct {
 		format, name string

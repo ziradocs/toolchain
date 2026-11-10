@@ -657,6 +657,44 @@ func TestExport_IncludeRootArgument(t *testing.T) {
 	}
 }
 
+// Los diagnósticos de un archivo incluido llevan su archivo, relativo al
+// documento y sin la raíz absoluta, y su línea en ese archivo: los del
+// linter y también los warnings del generador, con el mensaje diciendo lo
+// mismo que la posición.
+func TestExport_IncludedDiagnosticsPointAtSource(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "broken.png", "esto no es un PNG")
+	f.write(t, "shared/x.md", "## X\n\n```\n```\n\n![rota](broken.png)\n")
+	f.write(t, "chap/main.md", "# Capítulo\n\nUno.\n\nDos.\n\n@include shared/x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	out := exportOK(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "docx", "includeRoot": "."})
+	var code001, image bool
+	for _, d := range out.Diagnostics {
+		if strings.Contains(d.File, f.root) {
+			t.Errorf("File exposes the absolute root: %q", d.File)
+		}
+		if d.RuleID == "CODE001" {
+			code001 = true
+			if d.File != "../shared/x.md" || d.Position.Line != 3 {
+				t.Errorf("CODE001 at %s:%d, want ../shared/x.md:3", d.File, d.Position.Line)
+			}
+		}
+		if d.Source == "generator" && strings.Contains(d.Message, "broken.png") {
+			image = true
+			if d.File != "../shared/x.md" || d.Position.Line != 6 {
+				t.Errorf("image warning at %s:%d, want ../shared/x.md:6", d.File, d.Position.Line)
+			}
+			if !strings.Contains(d.Message, "../shared/x.md:6") || strings.Contains(d.Message, "line ") {
+				t.Errorf("message does not say where the image is: %q", d.Message)
+			}
+		}
+	}
+	if !code001 || !image {
+		t.Errorf("missing CODE001 (%v) or the image warning (%v): %+v", code001, image, out.Diagnostics)
+	}
+}
+
 func TestRedactGenerator(t *testing.T) {
 	f := newExportFixture(t)
 	root, err := newExportRoot(f.root)

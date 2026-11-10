@@ -358,14 +358,33 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 		SourceDir:         baseDir, // junto al archivo o en baseDir, confinado a --root
 		AllowRemoteImages: allowRemote,
 	}); err != nil {
-		return nil, &exportError{Error: err.Error(), Diagnostics: append(prepared.Diagnostics(), genLog.diagnostics()...)}
+		return nil, &exportError{Error: err.Error(), Diagnostics: append(prepared.Diagnostics(), generatorDiagnostics(genLog, prepared)...)}
 	}
 
-	diags := append(prepared.Diagnostics(), genLog.diagnostics()...)
+	diags := append(prepared.Diagnostics(), generatorDiagnostics(genLog, prepared)...)
 	if diags == nil {
 		diags = []diagnostics.Diagnostic{}
 	}
 	return &exportOutput{Format: format, Diagnostics: diags}, nil
+}
+
+// generatorDiagnostics son los warnings del generador con su línea llevada al
+// archivo que escribió el elemento, como los del parser y el linter: el
+// generador cuenta las líneas sobre el contenido expandido. El "line N" del
+// mensaje se cambia por la misma ubicación (pipeline.Where), para que el
+// texto y la posición digan lo mismo.
+func generatorDiagnostics(genLog *diagnosticLogger, prepared *pipeline.Prepared) []diagnostics.Diagnostic {
+	raw := genLog.diagnostics()
+	mapped := prepared.Sources.MapDiagnostics(raw, prepared.DocDir)
+	for i := range mapped {
+		if mapped[i].File == raw[i].File && mapped[i].Position.Line == raw[i].Position.Line {
+			continue
+		}
+		if loc := generatorLineRe.FindStringIndex(mapped[i].Message); loc != nil {
+			mapped[i].Message = mapped[i].Message[:loc[0]] + pipeline.Where(mapped[i]) + mapped[i].Message[loc[1]:]
+		}
+	}
+	return mapped
 }
 
 // commitExport mueve tmpPath al destino. Sin overwrite usa os.Link, que

@@ -5,6 +5,7 @@ package cli
 
 import (
 	"encoding/json"
+	"html"
 	"net/url"
 	"os"
 	"path"
@@ -19,7 +20,8 @@ import (
 // (CODE001, del linter) en la línea 5, un @include dentro de un bloque de
 // código con una ruta que no existe (INCLUDE001) en la 9, una tabla con YAML
 // inválido (TABLE004, del parser) en la 12 y una imagen que falta en la 16;
-// y incluye a y, que trae otro bloque vacío en la 3.
+// y incluye a y, que trae otro bloque vacío en la 7. El reporte ordena por
+// archivo y después por línea, así que y:7 va antes que x:5.
 func includeDiagTree(t *testing.T) (root, docs string) {
 	t.Helper()
 	root = t.TempDir()
@@ -27,7 +29,7 @@ func includeDiagTree(t *testing.T) (root, docs string) {
 	writeFile(t, filepath.Join(docs, "main.doclang"), []byte("---\ntitle: D\nmode: flex\n---\n\n# A\n\nTexto.\n\n@include partes/x.doclang\n"))
 	writeFile(t, filepath.Join(docs, "partes", "x.doclang"), []byte("## X\n\nUno.\n\n```\n```\n\n```go\n@include no/existe.doclang\n```\n\n"+
 		"TABLE\n  cells:\n    - [ : ]\n\n![falta](falta.png)\n\n@include partes/sub/y.doclang\n"))
-	writeFile(t, filepath.Join(docs, "partes", "sub", "y.doclang"), []byte("### Y\n\n```\n```\n"))
+	writeFile(t, filepath.Join(docs, "partes", "sub", "y.doclang"), []byte("### Y\n\nA.\n\nB.\n\n```\n```\n"))
 	return root, docs
 }
 
@@ -113,7 +115,7 @@ func TestBuild_IncludeDiagnosticsPointAtSource(t *testing.T) {
 		t.Skipf("symlinks not available: %v", err)
 	}
 	want := []string{
-		"CODE001 partes/sub/y.doclang:3",
+		"CODE001 partes/sub/y.doclang:7",
 		"CODE001 partes/x.doclang:5",
 		"INCLUDE001 partes/x.doclang:9",
 		"TABLE004 partes/x.doclang:12",
@@ -202,5 +204,56 @@ func TestBuild_IncludeInCodeIsKeptAsWritten(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "@include no/existe.doclang") {
 		t.Error("the @include inside the code block is not in the HTML as written")
+	}
+}
+
+// Los tres casos del issue #487, con la sintaxis estricta: un @include en un
+// CODE (también con U+00A0 o U+3000 delante) queda como código y deja un
+// INCLUDE001 en su línea, y una {{variable}} en un CODE queda literal, en el
+// HTML y en el DOCX.
+func TestBuild_Issue487Repros(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "other.txt"), []byte("    INCLUDED-LINE-1\n    INCLUDED-LINE-2\n"))
+	head := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n"
+	for name, c := range map[string]struct {
+		body, want string
+		include    bool
+	}{
+		"include":           {"  CODE\n    @include other.txt\n", "@include other.txt", true},
+		"include NBSP":      {"  CODE\n     @include other.txt\n", "@include other.txt", true},
+		"include ideograph": {"  CODE\n    　@include other.txt\n", "@include other.txt", true},
+		"variable":          {"  CODE yaml\n    a: {{title}}\n", "a: {{title}}", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".doclang")
+			writeFile(t, input, []byte(head+c.body))
+			out := t.TempDir()
+			runBuild(t, input, "--format", "html", "--render-mode", "offline-inline", "--asset-root", dir, "--output", out)
+			runBuild(t, input, "--format", "docx", "--asset-root", dir, "--output", out)
+			base := strings.TrimSuffix(filepath.Base(input), ".doclang")
+			htmlData, err := os.ReadFile(filepath.Join(out, base+".html"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for format, text := range map[string]string{
+				"html": html.UnescapeString(string(htmlData)),
+				"docx": html.UnescapeString(docxDocumentXML(t, filepath.Join(out, base+".docx"))),
+			} {
+				if strings.Contains(text, "INCLUDED-LINE") || strings.Contains(text, "a: Demo") {
+					t.Errorf("%s: code was expanded or substituted", format)
+				}
+				if !strings.Contains(text, c.want) {
+					t.Errorf("%s: missing %q", format, c.want)
+				}
+			}
+			got := lintReport(t, input)
+			hasInclude := false
+			for _, g := range got {
+				hasInclude = hasInclude || g == "INCLUDE001 :8"
+			}
+			if hasInclude != c.include {
+				t.Errorf("INCLUDE001 at line 8 = %v, want %v (findings %v)", hasInclude, c.include, got)
+			}
+		})
 	}
 }
