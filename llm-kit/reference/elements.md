@@ -349,6 +349,15 @@ the URL are fine when they balance (`.../wiki/Foo_(bar)`). Only `http:`,
 any other scheme, `javascript:` included, is dropped (the link keeps only its
 text) and the linter warns with `LINK001`.
 
+## Emphasis and literal asterisks
+
+`*`, `**`, `***`, `==` and `~~` open a format only when the next character is
+not a space: `2 * 3 * 4` and `a == b == c` stay as written, `**Label: **value`
+is still bold. To show a delimiter that would otherwise open, escape it:
+`\*not italic\*`, `\=\=`, `\~\~`. Do not escape `_` (it is never a
+delimiter here, so `\_` keeps its backslash). PPTX and DOCX follow the same
+rule for bold and italic.
+
 ## Inline spans
 
 Markdown has no spelling for underline, subscript, superscript or keyboard

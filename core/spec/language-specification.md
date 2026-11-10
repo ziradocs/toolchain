@@ -519,6 +519,17 @@ command there, write it outside the code.
 - `lower` - Lowercase
 - `title` - Title case
 
+### Emphasis delimiters
+
+`*italic*`, `**bold**`, `***both***`, `==highlight==` and `~~strikethrough~~`
+open only when the delimiter is followed by something other than a space (a
+Unicode space such as NBSP counts) or the end of the line, so `2 * 3 * 4` and
+`a == b == c` stay as text. Closing has no such condition: `**Label: **value`
+is bold. A backslash makes a delimiter character literal: `\*`, `\=` and `\~`
+show the character without the backslash, except inside a code span or a link
+destination. `\_` is not an escape (`_` is not a delimiter in this dialect),
+`\\` is kept as written, and `` \` `` is not an escape either.
+
 ### Links and images
 
 Prose fields (paragraphs, list and checklist items, table cells, quotes,
