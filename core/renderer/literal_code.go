@@ -3,7 +3,11 @@
 
 package renderer
 
-import "strings"
+import (
+	"strings"
+
+	"go.ziradocs.com/core/v2/internal/fence"
+)
 
 // literalCodeMarker es el valor que marca un mapa de variables con la opción de
 // código literal (RenderContext.LiteralCode, InlineHTMLOptions.LiteralCode).
@@ -51,78 +55,62 @@ func codeBody(content string, variables map[string]interface{}) string {
 
 // proseVariables sustituye `{{nombre}}` en un texto de prosa que después pasa
 // por Markdown. Con la opción de código literal no toca lo que ese Markdown
-// lee como código: los code spans (`…`) y las cercas de código escritas dentro
-// de la prosa (``` … ```, en un TEXT o en un ::: sin tipar). Sin la opción es
+// lee como código: los code spans (`…`, emparejados línea por línea, como los
+// empareja el renderer) y, en un texto de varias líneas (un TEXT, una cita, el
+// contenido de un ::: sin tipar), las cercas de código escritas adentro, con la
+// regla de cercas del parser (internal/fence). En un texto de una sola línea
+// (una celda, un encabezado) no hay cerca: una línea que empieza con ``` es
+// prosa. Lo literal se decide por la sintaxis de la fuente. Sin la opción es
 // ProcessVariables.
 func proseVariables(text string, variables map[string]interface{}) string {
 	if !isLiteralCode(variables) || !strings.Contains(text, "{{") {
 		return ProcessVariables(text, variables)
 	}
+	if !strings.Contains(text, "\n") {
+		return substituteOutsideSpans(text, variables)
+	}
 	return substituteOutsideCode(text, variables)
 }
 
 // substituteOutsideCode es la sustitución de proseVariables con la opción
-// prendida: recorre text por líneas, deja intactas las cercas de código (una
-// línea de tres o más backticks sin backticks en el info string abre; una de
-// solo backticks, al menos tantos, cierra, como en el parser) y, en el resto,
-// sustituye fuera de los code spans.
+// prendida en un texto de varias líneas: deja intactas las cercas de código y,
+// en el resto, sustituye fuera de los code spans de cada línea.
 func substituteOutsideCode(text string, variables map[string]interface{}) string {
-	lines := strings.SplitAfter(text, "\n")
-	var out, prose strings.Builder
-	flush := func() {
-		out.WriteString(substituteOutsideSpans(prose.String(), variables))
-		prose.Reset()
-	}
-	fence := 0
-	for _, line := range lines {
+	var out strings.Builder
+	inFence := false
+	for _, line := range strings.SplitAfter(text, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if fence > 0 {
+		switch {
+		case inFence:
 			out.WriteString(line)
-			if len(trimmed) >= fence && strings.Trim(trimmed, "`") == "" {
-				fence = 0
+			if fence.Closes(trimmed) {
+				inFence = false
 			}
-			continue
-		}
-		if n := proseFenceOpen(trimmed); n > 0 {
-			flush()
-			fence = n
+		case fence.Opens(trimmed):
+			inFence = true
 			out.WriteString(line)
-			continue
+		default:
+			out.WriteString(substituteOutsideSpans(line, variables))
 		}
-		prose.WriteString(line)
 	}
-	flush()
 	return out.String()
 }
 
-// proseFenceOpen es elements.CodeFenceOpen, repetida acá para no importar el
-// paquete de parsers desde el renderer.
-func proseFenceOpen(trimmed string) int {
-	n := 0
-	for n < len(trimmed) && trimmed[n] == '`' {
-		n++
-	}
-	if n < 3 || strings.Contains(trimmed[n:], "`") {
-		return 0
-	}
-	return n
-}
-
-// substituteOutsideSpans sustituye en text salvo dentro de sus code spans, que
-// empareja findCodeSpans con la misma regla con la que el Markdown los
-// renderiza.
-func substituteOutsideSpans(text string, variables map[string]interface{}) string {
-	spans := findCodeSpans(text)
+// substituteOutsideSpans sustituye en una línea salvo dentro de sus code
+// spans, que empareja findCodeSpans con la misma regla con la que el Markdown
+// los renderiza.
+func substituteOutsideSpans(line string, variables map[string]interface{}) string {
+	spans := findCodeSpans(line)
 	if len(spans) == 0 {
-		return ProcessVariables(text, variables)
+		return ProcessVariables(line, variables)
 	}
 	var b strings.Builder
 	last := 0
 	for _, sp := range spans {
-		b.WriteString(ProcessVariables(text[last:sp.fullStart], variables))
-		b.WriteString(text[sp.fullStart:sp.fullEnd])
+		b.WriteString(ProcessVariables(line[last:sp.fullStart], variables))
+		b.WriteString(line[sp.fullStart:sp.fullEnd])
 		last = sp.fullEnd
 	}
-	b.WriteString(ProcessVariables(text[last:], variables))
+	b.WriteString(ProcessVariables(line[last:], variables))
 	return b.String()
 }

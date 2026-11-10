@@ -164,29 +164,33 @@ func TestExpandWithOrigins_CodeBodyKeepsLineMap(t *testing.T) {
 	}
 }
 
-// Una cerca de cuatro backticks de código cierra en su línea de cuatro
-// backticks, como la lee el parser: un @include dentro (también después de un
-// ``` interno) es código, y uno después del cierre se expande. Una cerca de
-// diagrama (```mermaid) no es código: su @include se expande, como el de un
-// <<mermaid>>.
-func TestExpand_FencesCloseWhereTheParserClosesThem(t *testing.T) {
+// Una cerca de diagrama (```mermaid) no es código: su @include se expande,
+// como el de un <<mermaid>>.
+func TestExpand_DiagramFencesAreNotCode(t *testing.T) {
 	files := map[string]string{"/base/frag.md": "Incluido."}
-	for _, tc := range []struct {
-		name, src, want string
-	}{
-		{"four-backtick code fence", "# A\n\n````md\n```\n@include frag.md\n```\n````\n@include frag.md\n", "# A\n\n````md\n```\n@include frag.md\n```\n````\nIncluido.\n"},
-		{"mermaid fence", "# A\n\n```mermaid\n@include frag.md\n```\n", "# A\n\n```mermaid\nIncluido.\n```\n"},
-		{"four-backtick mermaid closed by four", "# A\n\n````mermaid\ngraph TD\n````\n@include frag.md\n", "# A\n\n````mermaid\ngraph TD\n````\nIncluido.\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := expandKeep(tc.src, "/base", memFS(files))
-			if err != nil {
-				t.Fatalf("Expand: %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("got:\n%q\nwant:\n%q", got, tc.want)
-			}
-		})
+	got, err := expandKeep("# A\n\n```mermaid\n@include frag.md\n```\n", "/base", memFS(files))
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	if want := "# A\n\n```mermaid\nIncluido.\n```\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// El dialecto sale del frontmatter ya expandido: un `mode: strict` que trae un
+// @include del frontmatter hace que un CODE strict cuente como código.
+func TestExpand_StrictModeFromAnIncludedFrontMatter(t *testing.T) {
+	files := map[string]string{
+		"/base/mode.yml":  "mode: strict",
+		"/base/other.txt": "    INCLUDED",
+	}
+	src := "---\n@include mode.yml\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  CODE\n    @include other.txt\n"
+	got, err := expandKeep(src, "/base", memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "INCLUDED") || !strings.Contains(got, "    @include other.txt") {
+		t.Errorf("the CODE body must stay literal:\n%s", got)
 	}
 }
 

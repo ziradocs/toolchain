@@ -127,7 +127,7 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 			// The native flex parser owns the payload; an unclosed fence has no
 			// authority to consume the rest of an arbitrary fragment silently.
 			end := i + result.ConsumedLines - 1
-			if end >= len(lines) || end == i || !elements.ClosesCodeFence(strings.TrimSpace(lines[end]), elements.CodeFenceOpen(strings.TrimSpace(lines[i]))) {
+			if end >= len(lines) || strings.TrimSpace(lines[end]) != "```" {
 				diags = append(diags, diagnostics.NewError("unclosed CODE fence", ctx.Position(i), "content-markdown"))
 				return nil, diags
 			}

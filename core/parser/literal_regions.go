@@ -32,8 +32,7 @@ const (
 //
 // Es el recorrido que antes vivía dentro de stripNodeIDDirectives, sacado a un
 // tipo para que el pre-pase de node-id y la expansión de @include
-// (CodeLiteralScanner) vean las mismas regiones. Lo único que cambió es dónde
-// cierra una cerca (closesFence), para coincidir con el parser.
+// (CodeLiteralScanner) vean las mismas regiones.
 type literalScanner struct {
 	// strict: la cabecera CODE se reconoce con el mismo CanParse que usa el
 	// despacho strict. flexCodeHeaders mantiene, fuera de strict, la regla
@@ -46,8 +45,6 @@ type literalScanner struct {
 	diagramIndent    int
 	groupFence       bool
 	fenceClose       string
-	// fenceOpen es la línea de apertura de la cerca en curso; ver closesFence.
-	fenceOpen string
 }
 
 func newLiteralScanner(strict, flexCodeHeaders bool) literalScanner {
@@ -79,9 +76,8 @@ func (s *literalScanner) step(line string) string {
 		current := s.literal
 		switch s.literal {
 		case literalFence, literalDiagramFence:
-			if s.closesFence(trimmed) {
+			if trimmed == s.fenceClose {
 				s.literal = ""
-				return current
 			}
 		case literalDiagram:
 			if trimmed == "<<end>>" {
@@ -107,12 +103,11 @@ func (s *literalScanner) step(line string) string {
 			return current
 		}
 	}
-	if elements.CodeFenceOpen(trimmed) > 0 {
+	if strings.HasPrefix(trimmed, "```") {
 		s.literal = literalFence
 		if isDiagramFenceInfo(fenceInfo(trimmed)) {
 			s.literal = literalDiagramFence
 		}
-		s.fenceOpen = trimmed
 		if strings.HasPrefix(trimmed, "````") {
 			s.fenceClose = "````"
 		} else {
@@ -153,31 +148,6 @@ func (s *literalScanner) step(line string) string {
 		return s.literal
 	}
 	return ""
-}
-
-// closesFence dice si trimmed cierra la cerca abierta en s.fenceOpen, con la
-// regla del parser que la va a leer.
-//
-//   - ```mermaid, ```plantuml, ```chart, ```map (con tres o cuatro backticks):
-//     cierran en "```" o "````" (MermaidParser, PlantUMLParser,
-//     collectFencedBody).
-//   - ```math: el mismo carácter, al menos tantas veces como la apertura, y
-//     nada más (closesMathFence).
-//   - cualquier otra, código: una línea de solo backticks, al menos tantos
-//     como la apertura (CodeParser.parseFlexCode, regla de CommonMark): un
-//     ````md con un ``` adentro cierra en su ````.
-func (s *literalScanner) closesFence(trimmed string) bool {
-	open := s.fenceOpen
-	ticks := len(open) - len(strings.TrimLeft(open, "`"))
-	info := fenceInfo(open)
-	switch {
-	case info == "math":
-		return len(trimmed) >= ticks && strings.Trim(trimmed, "`") == ""
-	case isDiagramFenceInfo(info):
-		return trimmed == "```" || trimmed == "````"
-	default:
-		return elements.ClosesCodeFence(trimmed, ticks)
-	}
 }
 
 // fenceInfo es lo que sigue a los backticks de apertura de una cerca.

@@ -191,12 +191,6 @@ such a header was an error, because the code-filename contract rejects a filenam
 that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
-A flex code fence opens with three or more backticks and an info string with no
-backticks, and closes, as in CommonMark, at a line of only backticks at least as
-long as the opening: a `` ````md `` block can hold a ```` ``` ```` line as content.
-Earlier versions closed every fence at the first ```` ``` ```` line and never at a
-longer one. `doclang fmt` writes a longer fence when the code holds such a line.
-
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next
 line with text is indented deeper than the `QUOTE` keyword: it stays inside as
@@ -475,7 +469,12 @@ the `contentHTML` fields of the AST). Off, the default and what SlideLang uses,
 text the AST's `content` holds: the body of a `CODE` block or a code-group tab,
 and, in prose that goes through Markdown (text, quotes, list items, table
 cells, headings, the content of an untyped `:::` block), code spans and code
-fences written inside it. A code sample is shown as written, and template
+fences written inside it. What is literal is decided by the source syntax, the
+way the parser reads it: a code span is matched within one line, and a fence
+(a line that starts with ```` ``` ````, closed by a line ```` ``` ````) only exists in
+a field that can hold several lines (a text, a quote, an item, a `:::` body); in a
+one-line field (a table cell, a heading) a line that starts with ```` ``` ```` is
+prose. The `langRuns` derived with the option on describe the same text. A code sample is shown as written, and template
 languages (Handlebars, Jinja, Go templates) use `{{ }}` themselves. DocLang is
 meant to turn it on for every output; to show a variable's value next to a
 command there, write it outside the code.

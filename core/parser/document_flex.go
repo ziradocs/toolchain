@@ -33,7 +33,6 @@ type DocumentFlexParser struct {
 	hasTitleBlock   bool
 	normalized      bool // Indica si el contenido fue normalizado
 	inCodeBlock     bool // Track si estamos dentro de un code block
-	fenceTicks      int  // backticks de la cerca abierta (ver trackFence)
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]. Ver
 	// strictBody.lineOffset (strict.go) para la explicación completa (#245).
@@ -378,7 +377,10 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 			// Check each consumed line for ```
 			for i := 0; i < result.ConsumedLines; i++ {
 				if p.currentLine-result.ConsumedLines+i < len(p.lines) {
-					p.trackFence(strings.TrimSpace(p.lines[p.currentLine-result.ConsumedLines+i]))
+					line := strings.TrimSpace(p.lines[p.currentLine-result.ConsumedLines+i])
+					if strings.HasPrefix(line, "```") {
+						p.inCodeBlock = !p.inCodeBlock
+					}
 				}
 			}
 			// Handle errors
@@ -392,7 +394,10 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 			// Track code blocks for consumed lines
 			for i := 0; i < result.ConsumedLines; i++ {
 				if p.currentLine-result.ConsumedLines+i < len(p.lines) {
-					p.trackFence(strings.TrimSpace(p.lines[p.currentLine-result.ConsumedLines+i]))
+					line := strings.TrimSpace(p.lines[p.currentLine-result.ConsumedLines+i])
+					if strings.HasPrefix(line, "```") {
+						p.inCodeBlock = !p.inCodeBlock
+					}
 				}
 			}
 			// Handle errors
@@ -404,7 +409,9 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 		}
 
 		// Track code blocks for current line
-		p.trackFence(trimmed)
+		if strings.HasPrefix(trimmed, "```") {
+			p.inCodeBlock = !p.inCodeBlock
+		}
 
 		// Failsafe: advance at least one line if nothing was parsed.
 		// issue #192: antes esto avanzaba sin emitir nada — a diferencia de
@@ -475,21 +482,4 @@ func (p *DocumentFlexParser) addWarningWithRuleID(msg, ruleID string) {
 	pos := p.position(p.currentLine)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "document-flex-parser").WithRuleID(ruleID))
-}
-
-// trackFence actualiza inCodeBlock con una línea (recortada) que el parser
-// consumió. Antes cada línea que empezaba con ``` invertía el estado, así que
-// una cerca ````md con un ``` adentro dejaba el parser "dentro de código"
-// después de cerrarla, y un ## siguiente no se leía como encabezado. Ahora
-// sigue la regla de CodeParser: una cerca abre con tres o más backticks y
-// cierra con una línea de solo backticks, al menos tantos.
-func (p *DocumentFlexParser) trackFence(trimmed string) {
-	if p.fenceTicks == 0 {
-		if n := elements.CodeFenceOpen(trimmed); n > 0 {
-			p.fenceTicks = n
-		}
-	} else if elements.ClosesCodeFence(trimmed, p.fenceTicks) {
-		p.fenceTicks = 0
-	}
-	p.inCodeBlock = p.fenceTicks > 0
 }

@@ -274,23 +274,7 @@ func formatFlexCode(e *ast.CodeElement) (string, error) {
 		}
 		info += " " + e.Filename
 	}
-	fence := codeFenceFor(e.Content)
-	return fence + info + "\n" + e.Content + "\n" + fence, nil
-}
-
-// codeFenceFor devuelve la cerca para un bloque de código flex con content:
-// tres backticks, o uno más que la línea de solo backticks más larga del
-// contenido, que de otro modo cerraría el bloque al releerlo (el parser cierra
-// con una línea de solo backticks, al menos tantos como la apertura).
-func codeFenceFor(content string) string {
-	n := 3
-	for _, line := range strings.Split(content, "\n") {
-		t := strings.TrimSpace(line)
-		if t != "" && strings.Trim(t, "`") == "" && len(t) >= n {
-			n = len(t) + 1
-		}
-	}
-	return strings.Repeat("`", n)
+	return "```" + info + "\n" + e.Content + "\n```", nil
 }
 
 // formatFlexImage serializa "![alt](source)". No hay forma de portar

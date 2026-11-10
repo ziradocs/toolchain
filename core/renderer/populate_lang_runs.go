@@ -81,8 +81,19 @@ func LangSpanHTMLToSource(html string) string {
 // substitution at all, a pre-existing behavior unrelated to this function),
 // so there is no later point where variables could still apply.
 func PopulateLangRuns(doc *ast.AST, variables map[string]interface{}) {
+	PopulateLangRunsWithOptions(doc, variables, InlineHTMLOptions{})
+}
+
+// PopulateLangRunsWithOptions es PopulateLangRuns con las opciones de
+// PopulateInlineHTMLWithOptions: con LiteralCode, las {{variables}} dentro del
+// código no se sustituyen al derivar los LangRuns, igual que en el
+// contentHTML, así que los LangRuns describen el mismo texto.
+func PopulateLangRunsWithOptions(doc *ast.AST, variables map[string]interface{}, opts InlineHTMLOptions) {
 	if doc == nil {
 		return
+	}
+	if opts.LiteralCode {
+		variables = withLiteralCode(variables)
 	}
 	for i := range doc.ContentBlocks {
 		populateContentBlockLangRuns(&doc.ContentBlocks[i], variables)
@@ -130,7 +141,7 @@ func populateElementLangRuns(element ast.Element, variables map[string]interface
 	case *ast.HeadingElement:
 		// Se deriva del HTML del encabezado, igual que su forma legada, para
 		// que las dos formas reporten exactamente los mismos runs.
-		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(HeadingHTML(elem.Level, ProcessVariables(elem.Text, variables), elem.Anchor), true, variables)
+		elem.LangRuns, elem.DiscardedLangRuns = extractLangRuns(HeadingHTML(elem.Level, proseVariables(elem.Text, variables), elem.Anchor), true, variables)
 
 	case *ast.PointsElement:
 		for i := range elem.Items {
@@ -230,7 +241,7 @@ func extractLangRunsFromMarkdown(content string, variables map[string]interface{
 	// ProcessVariables primero, igual que ProcessTextWithVariablesAndMarkdownSecure
 	// — un span que solo existe tras sustituir una {{variable}} debe seguir
 	// siendo encontrado (issue #63 code review, hallazgo #10).
-	content = ProcessVariables(content, variables)
+	content = proseVariables(content, variables)
 	// Excluir spans de idioma que caen DENTRO de un `código` (issue #63 code
 	// review, hallazgo #7 — advisor follow-up): desde el fix de #7,
 	// ProcessInlineMarkdownFormatsSecure protege código antes que cualquier

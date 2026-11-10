@@ -92,7 +92,9 @@ func TestSubstituteOutsideCode(t *testing.T) {
 		{"``uno ` {{x}}`` {{x}}", "``uno ` {{x}}`` X"},
 		{"sin cierre ` {{x}}", "sin cierre ` X"},
 		{"texto {{x}}\n```yaml\na: {{x}}\n```\nluego {{x}}", "texto X\n```yaml\na: {{x}}\n```\nluego X"},
-		{"````md\n```\n{{x}}\n```\n````\n{{x}}", "````md\n```\n{{x}}\n```\n````\nX"},
+		{"````md\n```\n{{x}}\n```\n````\n{{x}}", "````md\n```\nX\n```\n````\n{{x}}"},
+		{"x ` y\n`{{x}}`", "x ` y\n`{{x}}`"},
+		{"```no es cerca {{x}}", "```no es cerca X"},
 		{"```\n{{x}} sin cerrar", "```\n{{x}} sin cerrar"},
 		{"no ```es{{x}}` cerca", "no ```esX` cerca"},
 	} {
@@ -205,5 +207,66 @@ func TestLiteralCode_Headings(t *testing.T) {
 	}
 	if got := RenderElementToHTML(ast.NewHeadingElement(pos, 2, input, "h"), vars, nil); !strings.Contains(got, "<code>N</code>") {
 		t.Errorf("without the option the code span substitutes, as before: %q", got)
+	}
+}
+
+// Un encabezado legado sin HeadingSource (llega así por un --filter) se
+// sustituye sobre su HTML: con la opción, el <code> queda literal.
+func TestLiteralCode_LegacyHeadingWithoutSource(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"n": "N"}
+	el := ast.NewTextElement(pos, `<h2 id="h">Usa <code>{{n}}</code> y {{n}}</h2>`)
+	el.IsRawHTML = true
+	el.Level = 2
+	if got := RenderElementToHTML(el, vars, &RenderContext{LiteralCode: true}); !strings.Contains(got, "<code>{{n}}</code> y N") {
+		t.Errorf("literal: %q", got)
+	}
+	if got := RenderElementToHTML(el, vars, nil); !strings.Contains(got, "<code>N</code> y N") {
+		t.Errorf("default: %q", got)
+	}
+}
+
+// El TOC del documento arma sus títulos con HeadingContentHTML desde las
+// variables de GenerateDocumentHTML, no desde RenderElementToHTML: falla si
+// GenerateDocumentHTML deja de marcar las variables con la opción.
+func TestGenerateDocumentHTML_LiteralCodeReachesTheTOC(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	doc := ast.NewAST(pos)
+	doc.FrontMatter = ast.NewFrontMatterNode(pos)
+	doc.FrontMatter.Title = "Demo"
+	block := ast.NewContentBlock(pos, "title")
+	block.Heading = "A"
+	heading := ast.NewHeadingElement(pos, 2, "Usa `{{title}}`", "usa")
+	block.Elements = []ast.Element{LegacyHeadingElement(heading), ast.NewTextElement(pos, "texto")}
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+
+	out := GenerateDocumentHTML(doc, DocumentHTMLOptions{TOC: true, TOCDepth: 3}, &RenderContext{LiteralCode: true})
+	if strings.Contains(out, "<code>Demo</code>") {
+		t.Errorf("a code span was substituted (TOC or heading):\n%s", out)
+	}
+	if strings.Count(out, "<code>{{title}}</code>") < 2 {
+		t.Errorf("want the literal code span in the heading and in the TOC:\n%s", out)
+	}
+}
+
+// PopulateLangRunsWithOptions con LiteralCode deriva los LangRuns del mismo
+// texto que el contentHTML: un valor sustituido dentro de código ya no puede
+// abrir un span de idioma.
+func TestPopulateLangRuns_LiteralCodeOption(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"v": "a` [mal]{lang=de} `b"}
+	for _, tc := range []struct {
+		literal bool
+		langs   []string
+	}{{true, []string{"fr"}}, {false, []string{"de", "fr"}}} {
+		el := ast.NewTextElement(pos, "`{{v}}` [hola]{lang=fr}")
+		PopulateLangRunsWithOptions(newTestDoc(el), vars, InlineHTMLOptions{LiteralCode: tc.literal})
+		var got []string
+		for _, r := range el.LangRuns {
+			got = append(got, r.Lang)
+		}
+		if strings.Join(got, ",") != strings.Join(tc.langs, ",") {
+			t.Errorf("literal=%v: langs %v, want %v", tc.literal, got, tc.langs)
+		}
 	}
 }

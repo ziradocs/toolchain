@@ -144,7 +144,10 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 		out, origins = nil, nil
 	}
 
-	body, bodyOrigins, kept, err := expandBody(lines[bodyStart:], parser.SourceIsStrict(content), baseDir, read)
+	// El dialecto sale del frontmatter ya expandido: un `mode: strict` que
+	// trae un @include del frontmatter cuenta igual que uno escrito ahí.
+	strict := parser.SourceIsStrict(strings.Join(out, "\n"))
+	body, bodyOrigins, kept, err := expandBody(lines[bodyStart:], strict, baseDir, read)
 	if err != nil {
 		return Expansion{}, err
 	}
