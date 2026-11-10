@@ -45,10 +45,12 @@ Intro paragraph.
   elements will warn or, in `content`-type slides, fail the title check the
   linter runs.
 - A slide title takes the same inline formatting as body text (`**bold**`,
-  `*italic*`, `` `code` ``, links): `## Sales grew **18%**` puts the figure
-  in bold in the AST (`titleHTML`), the HTML/PDF and the PPTX. Strict mode's
-  `title:`/`heading:`/`subtitle:` behave the same. PPTX has no
-  strikethrough, so `~~text~~` stays literal there, as in the body.
+  `*italic*`, `` `code` ``, links, inline images): `## Sales grew **18%**`
+  puts the figure in bold in the AST (`titleHTML`) and in the HTML/PDF.
+  Strict mode's `title:`/`heading:`/`subtitle:`/`kicker:` behave the same.
+  In PPTX only bold, italic and code carry over; strikethrough, links and
+  inline images stay as literal Markdown in the title, as they do in a body
+  paragraph. Keep titles that also ship as PPTX to bold, italic and code.
 - Without a `layout:` block, a slide is typed `title` (the deck's first
   `# ` heading only) or `content` (everything else).
 - `###` through `######` are **subsection headings inside the current
