@@ -54,9 +54,9 @@ import (
 // No amplía nada: la ruta reescrita pasa por el mismo confinamiento a la
 // raíz de imágenes que cualquier otra, así que un ".." que en el incluido
 // salía de la raíz sigue saliendo.
-func rebaseIncludedAssets(doc *ast.AST, lines []string, origins include.LineOrigins, sourceDir string) {
+func rebaseIncludedAssets(doc *ast.AST, lines []string, origins include.LineOrigins, sourceDir string) destRewrites {
 	if doc == nil || sourceDir == "" || len(origins) == 0 {
-		return
+		return nil
 	}
 	r := &assetRebaser{
 		lines:     lines,
@@ -66,55 +66,129 @@ func rebaseIncludedAssets(doc *ast.AST, lines []string, origins include.LineOrig
 	}
 	r.realSource = r.realDir(sourceDir)
 	r.collectStarts(doc)
+	walkAssetFields(doc, r)
+	return r.rewrites
+}
+
+// assetFields es lo que walkAssetFields le hace a cada campo con fuentes de
+// imagen: inlineField y sourceField devuelven cómo reescribir los campos
+// (Markdown inline, o una fuente suelta) que empiezan en la línea start, en
+// el orden en que aparecen; headingHTML reescribe el HTML ya armado de un
+// encabezado.
+type assetFields interface {
+	inlineField(start int) func(string) string
+	sourceField(start int) func(string) string
+	headingHTML(html string, line int) string
+}
+
+// walkAssetFields recorre, siempre en el mismo orden, cada campo del AST que
+// puede llevar una fuente de imagen local, y lo reemplaza por lo que diga w.
+func walkAssetFields(doc *ast.AST, w assetFields) {
+	inline := func(text string, line int) string { return w.inlineField(line)(text) }
+	var points func([]ast.PointItem)
+	points = func(items []ast.PointItem) {
+		for i := range items {
+			items[i].Content = inline(items[i].Content, items[i].Position.Line)
+			points(items[i].SubPoints)
+		}
+	}
+	var checks func([]ast.ChecklistItem)
+	checks = func(items []ast.ChecklistItem) {
+		for i := range items {
+			items[i].Content = inline(items[i].Content, items[i].Position.Line)
+			checks(items[i].SubItems)
+		}
+	}
 	_ = ast.Walk(doc, func(n ast.Node) error {
 		el, ok := n.(ast.Element)
 		if !ok {
 			return nil
 		}
 		line := el.GetPosition().Line
-		txt := func(v string) string { return r.inline(v, line) }
 		switch e := n.(type) {
 		case *ast.ImageElement:
-			e.Source = r.newField(line).source(e.Source)
+			e.Source = w.sourceField(line)(e.Source)
 		case *ast.MediaElement:
-			f := r.newField(line)
-			e.Source = f.source(e.Source)
-			e.Poster = f.source(e.Poster)
+			f := w.sourceField(line)
+			e.Source = f(e.Source)
+			e.Poster = f(e.Poster)
 		case *ast.TextElement:
-			e.Content = r.headingHTML(txt(e.Content), line)
+			e.Content = w.headingHTML(inline(e.Content, line), line)
 		case *ast.HeadingElement:
-			e.Text = r.headingHTML(txt(e.Text), line)
+			e.Text = w.headingHTML(inline(e.Text, line), line)
 		case *ast.PointsElement:
-			r.pointItems(e.Items)
+			points(e.Items)
 		case *ast.ChecklistElement:
-			r.checklistItems(e.Items)
+			checks(e.Items)
 		case *ast.QuoteElement:
-			e.Content = txt(e.Content)
+			e.Content = inline(e.Content, line)
 		case *ast.SpecialBlockElement:
-			e.Content = txt(e.Content)
+			e.Content = inline(e.Content, line)
 		case *ast.GridElement:
-			e.Content = txt(e.Content)
+			e.Content = inline(e.Content, line)
 			for i := range e.Columns {
-				e.Columns[i].Content = r.inline(e.Columns[i].Content, e.Columns[i].Position.Line)
+				e.Columns[i].Content = inline(e.Columns[i].Content, e.Columns[i].Position.Line)
 			}
 		case *ast.TableElement:
-			r.table(e, line)
+			walkTableFields(e, line, w)
 		case *ast.QuizElement:
-			f := r.newField(line)
-			e.Question = f.inline(e.Question)
+			f := w.inlineField(line)
+			e.Question = f(e.Question)
 			for i := range e.Options {
-				e.Options[i] = f.inline(e.Options[i])
+				e.Options[i] = f(e.Options[i])
 			}
-			e.Explanation = f.inline(e.Explanation)
+			e.Explanation = f(e.Explanation)
 		case *ast.PollElement:
-			f := r.newField(line)
-			e.Question = f.inline(e.Question)
+			f := w.inlineField(line)
+			e.Question = f(e.Question)
 			for i := range e.Options {
-				e.Options[i] = f.inline(e.Options[i])
+				e.Options[i] = f(e.Options[i])
 			}
 		}
 		return nil
 	})
+}
+
+// walkTableFields usa la posición de cada fila (RowPositions) cuando la
+// hay; los encabezados empiezan en la línea de la tabla. Cells, cuando es la
+// forma derivada de Headers/Rows (una fila más que Rows), sigue la misma
+// correspondencia; si no, todas sus filas parten de la línea de la tabla.
+func walkTableFields(e *ast.TableElement, line int, w assetFields) {
+	rowLine := func(i int) int {
+		if i < len(e.RowPositions) && e.RowPositions[i].Line > 0 {
+			return e.RowPositions[i].Line
+		}
+		return line
+	}
+	f := w.inlineField(line)
+	for i := range e.Headers {
+		e.Headers[i] = f(e.Headers[i])
+	}
+	for i, row := range e.Rows {
+		f := w.inlineField(rowLine(i))
+		for j := range row {
+			row[j] = f(row[j])
+		}
+	}
+	derived := len(e.Cells) == len(e.Rows)+1
+	for i, row := range e.Cells {
+		l := line
+		if derived && i > 0 {
+			l = rowLine(i - 1)
+		}
+		f := w.inlineField(l)
+		for j := range row {
+			row[j].Content = f(row[j].Content)
+		}
+	}
+}
+
+func (r *assetRebaser) inlineField(start int) func(string) string {
+	return r.newField(start).inline
+}
+
+func (r *assetRebaser) sourceField(start int) func(string) string {
+	return r.newField(start).source
 }
 
 type assetRebaser struct {
@@ -123,6 +197,8 @@ type assetRebaser struct {
 	sourceDir  string
 	realSource string
 	realDirs   map[string]string
+	// rewrites son los destinos inline que reescribió (ver destRewrites).
+	rewrites destRewrites
 	// starts son las líneas, ordenadas, donde empieza algo con posición
 	// propia (elemento, ítem, fila): el campo que empieza en una termina
 	// antes de la siguiente.
@@ -184,54 +260,6 @@ func (r *assetRebaser) end(start int) int {
 	return len(r.lines)
 }
 
-func (r *assetRebaser) pointItems(items []ast.PointItem) {
-	for i := range items {
-		items[i].Content = r.inline(items[i].Content, items[i].Position.Line)
-		r.pointItems(items[i].SubPoints)
-	}
-}
-
-func (r *assetRebaser) checklistItems(items []ast.ChecklistItem) {
-	for i := range items {
-		items[i].Content = r.inline(items[i].Content, items[i].Position.Line)
-		r.checklistItems(items[i].SubItems)
-	}
-}
-
-// table usa la posición de cada fila (RowPositions) cuando la hay; los
-// encabezados empiezan en la línea de la tabla. Cells, cuando es la forma
-// derivada de Headers/Rows (una fila más que Rows), sigue la misma
-// correspondencia; si no, todas sus filas parten de la línea de la tabla.
-func (r *assetRebaser) table(e *ast.TableElement, line int) {
-	rowLine := func(i int) int {
-		if i < len(e.RowPositions) && e.RowPositions[i].Line > 0 {
-			return e.RowPositions[i].Line
-		}
-		return line
-	}
-	f := r.newField(line)
-	for i := range e.Headers {
-		e.Headers[i] = f.inline(e.Headers[i])
-	}
-	for i, row := range e.Rows {
-		f := r.newField(rowLine(i))
-		for j := range row {
-			row[j] = f.inline(row[j])
-		}
-	}
-	derived := len(e.Cells) == len(e.Rows)+1
-	for i, row := range e.Cells {
-		l := line
-		if derived && i > 0 {
-			l = rowLine(i - 1)
-		}
-		f := r.newField(l)
-		for j := range row {
-			row[j].Content = f.inline(row[j].Content)
-		}
-	}
-}
-
 func (r *assetRebaser) realDir(dir string) string {
 	if real, ok := r.realDirs[dir]; ok {
 		return real
@@ -280,12 +308,16 @@ func (r *assetRebaser) rebasePath(src, dir string) (string, bool) {
 // partir de donde se encontró la anterior.
 type field struct {
 	r         *assetRebaser
+	start     int
 	line, col int
 	end       int
+	// attrs dice si el texto inline que se está reescribiendo puede tener
+	// una imagen con un bloque {…} (IMG004 nombra su destino).
+	attrs bool
 }
 
 func (r *assetRebaser) newField(start int) *field {
-	return &field{r: r, line: start, end: r.end(start)}
+	return &field{r: r, start: start, line: start, end: r.end(start)}
 }
 
 // locate busca needle desde la posición actual y devuelve el directorio del
@@ -336,6 +368,7 @@ func (r *assetRebaser) inline(text string, line int) string {
 // <...> y seguida de un título; solo se cambia la ruta (ver
 // rebaseDestination).
 func (f *field) inline(text string) string {
+	f.attrs = strings.Contains(text, "){")
 	return generator.RewriteInlineImageDestinations(text, f.rebaseDestination)
 }
 
@@ -385,7 +418,20 @@ func (f *field) rebaseDestination(dest string) string {
 	if (open == "" && !bare) || (open != "" && strings.ContainsAny(newPath, "<>")) {
 		return dest
 	}
-	return d.Lead + open + newPath + close + d.Tail
+	rewritten := d.Lead + open + newPath + close + d.Tail
+	// Se registra lo que puede cambiar lo que dicen LINK001 o IMG004 sobre
+	// este destino (ver linkFindingsUnderRebase): una ruta suelta con
+	// espacios, que avisa en la fuente y no una vez envuelta, y el destino de
+	// una imagen con un bloque {…}, cuyo IMG004 nombra la ruta. Lo demás
+	// (una ruta sin espacios, una ya escrita entre <...>) dice lo mismo antes
+	// y después, y no hace falta volver a correr la regla por eso.
+	if (d.Open == "" && strings.ContainsAny(d.Path, " \t")) || f.attrs {
+		if f.r.rewrites == nil {
+			f.r.rewrites = destRewrites{}
+		}
+		f.r.rewrites[destRewrite{start: f.start, dest: rewritten}] = dest
+	}
+	return rewritten
 }
 
 // headingImgPattern es el <img> que el parser deja en el HTML de un
