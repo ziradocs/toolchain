@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"image"
 	"testing"
 	"time"
 )
@@ -176,5 +177,39 @@ func TestWebPFirstFrameHugeChunkSize(t *testing.T) {
 				t.Fatalf("%s, size %#x: webpFirstFrame hangs", name, size)
 			}
 		}
+	}
+}
+
+// Un cuadro desplazado sobre un lienzo más grande que la caja se pone
+// directo sobre el lienzo reducido, sin reservar uno del tamaño completo: el
+// cuadro de 16×12 en (10,8) de un lienzo de 40×30 queda, a la mitad, de 8×6
+// en (5,4).
+func TestWebPFrameDecodeComposesOnTheReducedCanvas(t *testing.T) {
+	data := animatedWebP(t, 40, 30, 10, 8, 16, 12)
+	f, err := webpFirstFrame(data, 40, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := f.decode(20, 15)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() != 20 || b.Dy() != 15 {
+		t.Fatalf("composed %dx%d, want the 20x15 reduced canvas", b.Dx(), b.Dy())
+	}
+	for _, pt := range []image.Point{{5, 4}, {12, 9}, {8, 6}} {
+		if !isRed(img, pt.X, pt.Y, 250, 255) {
+			r, g, b, a := rgba8(img, pt.X, pt.Y)
+			t.Errorf("(%d,%d) inside the frame is %d,%d,%d,%d", pt.X, pt.Y, r, g, b, a)
+		}
+	}
+	for _, pt := range []image.Point{{4, 4}, {5, 3}, {13, 9}, {12, 10}, {0, 0}, {19, 14}} {
+		if _, _, _, a := rgba8(img, pt.X, pt.Y); a != 0 {
+			t.Errorf("(%d,%d) outside the frame has alpha %d", pt.X, pt.Y, a)
+		}
+	}
+	// Sin caja (0×0) el lienzo queda de su tamaño.
+	if img, err := f.decode(0, 0); err != nil || img.Bounds().Dx() != 40 {
+		t.Errorf("without a box: %v, %v", img.Bounds(), err)
 	}
 }

@@ -126,7 +126,7 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	}
 	var img image.Image
 	if frame != nil {
-		img, err = frame.decode()
+		img, err = frame.decode(maxW, maxH)
 	} else {
 		img, err = webp.Decode(bytes.NewReader(data))
 	}
@@ -183,12 +183,10 @@ func (g *DOCXGenerator) webpMaxPixelSize() (int, int) {
 // si hay que conservar la transparencia.
 func downscaleToFit(img image.Image, maxW, maxH int, alpha bool) image.Image {
 	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	if maxW <= 0 || maxH <= 0 || w <= maxW && h <= maxH {
+	nw, nh, scaled := fitSize(b.Dx(), b.Dy(), maxW, maxH)
+	if !scaled {
 		return img
 	}
-	scale := min(float64(maxW)/float64(w), float64(maxH)/float64(h))
-	nw, nh := max(1, int(float64(w)*scale+0.5)), max(1, int(float64(h)*scale+0.5))
 	r := image.Rect(0, 0, nw, nh)
 	var dst draw.Image = image.NewRGBA(r)
 	if alpha {
@@ -196,6 +194,17 @@ func downscaleToFit(img image.Image, maxW, maxH int, alpha bool) image.Image {
 	}
 	draw.CatmullRom.Scale(dst, r, img, b, draw.Src, nil)
 	return dst
+}
+
+// fitSize es el tamaño al que se reduce una imagen de w×h, conservando la
+// proporción, para que quepa en maxW×maxH, y si hay que reducirla: nunca se
+// agranda, y con un lado del máximo en 0 queda igual.
+func fitSize(w, h, maxW, maxH int) (int, int, bool) {
+	if maxW <= 0 || maxH <= 0 || w <= maxW && h <= maxH {
+		return w, h, false
+	}
+	scale := min(float64(maxW)/float64(w), float64(maxH)/float64(h))
+	return max(1, int(float64(w)*scale+0.5)), max(1, int(float64(h)*scale+0.5)), true
 }
 
 // webpChunk es el contenido del primer chunk fourcc del contenedor RIFF de

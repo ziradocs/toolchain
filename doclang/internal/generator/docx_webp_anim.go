@@ -183,7 +183,11 @@ func (f *webpFrame) covers() bool {
 
 // decode decodifica el cuadro y, si no cubre el lienzo, lo pone en su lugar
 // sobre un lienzo transparente (el color de fondo del chunk ANIM es solo una
-// sugerencia, y los navegadores dejan el fondo transparente).
+// sugerencia, y los navegadores dejan el fondo transparente). Si el lienzo no
+// cabe en maxW×maxH, el lienzo transparente ya es el reducido (ver
+// fitSize) y el cuadro se reduce sobre él: no se reserva uno del tamaño
+// completo. Un cuadro que cubre el lienzo sale tal cual y lo reduce
+// downscaleToFit.
 //
 // x/image/webp no lee animaciones, así que el cuadro se arma como un WebP
 // fijo: un VP8X con el tamaño del cuadro (y la marca de alfa solo si trae
@@ -191,7 +195,7 @@ func (f *webpFrame) covers() bool {
 // ALPH si lo hay y el VP8 o el VP8L. Con el VP8X, x/image reserva el alfa
 // (w×h bytes) con el tamaño del cuadro, que cabe en el lienzo, y comprueba
 // que el tamaño del VP8 o del VP8L sea el del cuadro antes de decodificarlo.
-func (f *webpFrame) decode() (image.Image, error) {
+func (f *webpFrame) decode(maxW, maxH int) (image.Image, error) {
 	const alphaBit = 1 << 4
 	vp8x := make([]byte, 10)
 	if f.alph != nil {
@@ -219,8 +223,18 @@ func (f *webpFrame) decode() (image.Image, error) {
 	if f.covers() {
 		return img, nil
 	}
-	canvas := image.NewNRGBA(image.Rect(0, 0, f.canvasW, f.canvasH))
-	draw.Draw(canvas, image.Rect(f.x, f.y, f.x+f.w, f.y+f.h), img, img.Bounds().Min, draw.Src)
+	nw, nh, scaled := fitSize(f.canvasW, f.canvasH, maxW, maxH)
+	canvas := image.NewNRGBA(image.Rect(0, 0, nw, nh))
+	if !scaled {
+		draw.Draw(canvas, image.Rect(f.x, f.y, f.x+f.w, f.y+f.h), img, img.Bounds().Min, draw.Src)
+		return canvas, nil
+	}
+	sx, sy := float64(nw)/float64(f.canvasW), float64(nh)/float64(f.canvasH)
+	at := func(v int, s float64) int { return int(float64(v)*s + 0.5) }
+	r := image.Rect(at(f.x, sx), at(f.y, sy), at(f.x+f.w, sx), at(f.y+f.h, sy))
+	if !r.Empty() {
+		draw.CatmullRom.Scale(canvas, r, img, img.Bounds(), draw.Src, nil)
+	}
 	return canvas, nil
 }
 
