@@ -8,12 +8,15 @@ import (
 	"html"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"go.ziradocs.com/core/v2/ast"
 )
 
 // includeDiagTree arma docs/main.doclang, que incluye partes/x.doclang, que
@@ -427,6 +430,261 @@ func TestBuild_IncludedKeepsSameLineFindings(t *testing.T) {
 			writeFile(t, input, []byte(body))
 			got := multiset(input, "x.doclang", 0)
 			if strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Errorf("findings:\n%s\nwant (as in the document):\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		})
+	}
+}
+
+// bodyFindings corre un build --lint-only con --report json y devuelve,
+// ordenados, "regla línea:columna mensaje" de cada hallazgo, con la línea
+// contada desde offset. Todos tienen que estar en file.
+func bodyFindings(t *testing.T, input, file string, offset int, extra ...string) []string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "r.json")
+	runBuild(t, append([]string{input, "--lint-only", "--report", "json", "--report-out", out}, extra...)...)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report struct {
+		Findings []struct {
+			RuleID   string `json:"ruleId"`
+			Message  string `json:"message"`
+			File     string `json:"file"`
+			Position struct {
+				Line   int `json:"line"`
+				Column int `json:"column"`
+			} `json:"position"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range report.Findings {
+		if f.File != file {
+			t.Errorf("finding in %q, want %q: %+v", f.File, file, f)
+			continue
+		}
+		got = append(got, f.RuleID+" "+strconv.Itoa(f.Position.Line-offset)+":"+strconv.Itoa(f.Position.Column)+" "+f.Message)
+	}
+	sort.Strings(got)
+	return got
+}
+
+// spacedImagesBody tiene una imagen inline con la ruta suelta con espacios
+// en un párrafo, una lista y una cita, y una de bloque: cuatro LINK001 "has
+// spaces outside <...>". La ruta ya escrita entre <...> y la ruta sin
+// espacios no avisan.
+const spacedImagesBody = "Para ![](a b.png) fin.\n\n" +
+	"- uno ![](a b.png)\n- dos ![](c.png)\n\n" +
+	"> cita ![](a b.png)\n\n" +
+	"![](a b.png)\n\n" +
+	"Ya envuelta ![](<a b.png>) y sin espacios ![](c.png).\n"
+
+// Un archivo incluido desde otro directorio da los mismos LINK001 que su
+// texto escrito en el documento, en su archivo y su línea, también cuando
+// la carpeta tiene espacios o paréntesis y el rebase de las imágenes tiene
+// que escribir la ruta entre <...>. La ruta sin espacios no gana un aviso
+// por los espacios de la carpeta, y la ya escrita entre <...> no lo
+// duplica.
+func TestBuild_IncludeFromOtherDirKeepsLINK001(t *testing.T) {
+	head := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n"
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root.doclang")
+	writeFile(t, root, []byte(head+spacedImagesBody))
+	want := bodyFindings(t, root, "", strings.Count(head, "\n"))
+	if len(want) != 4 {
+		t.Fatalf("the body gives %d findings in the document, want 4: %v", len(want), want)
+	}
+	for _, sub := range []string{"sub2", "con espacio", "fotos (1)"} {
+		t.Run(sub, func(t *testing.T) {
+			writeFile(t, filepath.Join(dir, sub, "k.doclang"), []byte(spacedImagesBody))
+			input := filepath.Join(dir, "inc.doclang")
+			writeFile(t, input, []byte(head+"@include "+sub+"/k.doclang\n"))
+			for _, extra := range [][]string{nil, {"--base-dir", filepath.Join(dir, sub), "--include-root", dir}} {
+				// Con --base-dir en la carpeta del incluido no hay rebase.
+				if got := bodyFindings(t, input, sub+"/k.doclang", 0, extra...); strings.Join(got, "\n") != strings.Join(want, "\n") {
+					t.Errorf("%v: findings:\n%s\nwant (as in the document):\n%s", extra, strings.Join(got, "\n"), strings.Join(want, "\n"))
+				}
+			}
+		})
+	}
+}
+
+// pathFilterSource es un filtro de AST de prueba: con MODE=fix corrige la
+// ruta "a b.png" a "ab.png" en todo el texto; con MODE=drop borra los
+// párrafos que empiezan con "Para".
+const pathFilterSource = `package main
+
+import (
+	"encoding/json"
+	"io"
+	"os"
+	"strings"
+)
+
+func walk(v any) any {
+	switch x := v.(type) {
+	case string:
+		if os.Getenv("MODE") == "fix" {
+			return strings.ReplaceAll(x, "a b.png", "ab.png")
+		}
+		return x
+	case []any:
+		out := x[:0]
+		for _, child := range x {
+			if m, ok := child.(map[string]any); ok && os.Getenv("MODE") == "drop" && m["type"] == "text" {
+				if c, _ := m["content"].(string); strings.HasPrefix(c, "Para") {
+					continue
+				}
+			}
+			out = append(out, walk(child))
+		}
+		return out
+	case map[string]any:
+		for k, child := range x {
+			x[k] = walk(child)
+		}
+		return x
+	}
+	return v
+}
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--ziradocs-capabilities" {
+		os.Stdout.WriteString(os.Getenv("HANDSHAKE"))
+		return
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		panic(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		panic(err)
+	}
+	out, err := json.Marshal(walk(doc))
+	if err != nil {
+		panic(err)
+	}
+	os.Stdout.Write(out)
+}
+`
+
+// buildPathFilter compila pathFilterSource y devuelve un script que lo corre
+// en mode.
+func buildPathFilter(t *testing.T, mode string) string {
+	t.Helper()
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain no disponible en PATH")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	writeFile(t, src, []byte(pathFilterSource))
+	bin := filepath.Join(dir, "path-filter")
+	cmd := exec.Command("go", "build", "-o", bin, src)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("compilando el filtro de prueba: %v\n%s", err, out)
+	}
+	var versions []string
+	for minor := 13; ; minor++ {
+		v := "2." + strconv.Itoa(minor) + ".0"
+		versions = append(versions, v)
+		if v == ast.SchemaVersion {
+			break
+		}
+	}
+	handshake, err := json.Marshal(map[string][]string{"astSchemaVersions": versions, "features": ast.KnownCapabilities()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(dir, "filter.sh")
+	writeFile(t, script, []byte("#!/bin/sh\nMODE="+mode+" HANDSHAKE='"+string(handshake)+"' exec "+bin+" \"$@\"\n"))
+	if err := os.Chmod(script, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return script
+}
+
+// Con un --filter que corrige la ruta o que borra el párrafo, el archivo
+// incluido desde otro directorio da los mismos LINK001 que el documento con
+// el mismo filtro: lo que se recupera del rebase se calcula sobre el AST que
+// llega al lint, no sobre el de antes de los filtros.
+func TestBuild_IncludeFromOtherDirLINK001AfterFilters(t *testing.T) {
+	head := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n"
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root.doclang")
+	writeFile(t, root, []byte(head+spacedImagesBody))
+	writeFile(t, filepath.Join(dir, "sub2", "k.doclang"), []byte(spacedImagesBody))
+	input := filepath.Join(dir, "inc.doclang")
+	writeFile(t, input, []byte(head+"@include sub2/k.doclang\n"))
+	for mode, n := range map[string]int{"fix": 1, "drop": 3} {
+		t.Run(mode, func(t *testing.T) {
+			filter := buildPathFilter(t, mode)
+			want := bodyFindings(t, root, "", strings.Count(head, "\n"), "--filter", filter)
+			if len(want) != n {
+				t.Fatalf("with the filter the document gives %d findings, want %d: %v", len(want), n, want)
+			}
+			if got := bodyFindings(t, input, "sub2/k.doclang", 0, "--filter", filter); strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Errorf("findings:\n%s\nwant (as in the document):\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		})
+	}
+}
+
+// IMG004 de una imagen inline con un bloque {…} en un archivo incluido de
+// otro directorio nombra la ruta como la escribió el autor, como en el
+// documento, no la reescrita por el rebase ("sub2/at.png").
+func TestBuild_IncludeFromOtherDirIMG004NamesWrittenPath(t *testing.T) {
+	head := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n"
+	body := "Texto ![a](at.png){width=50%} fin.\n"
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root.doclang")
+	writeFile(t, root, []byte(head+body))
+	writeFile(t, filepath.Join(dir, "sub2", "k.doclang"), []byte(body))
+	input := filepath.Join(dir, "inc.doclang")
+	writeFile(t, input, []byte(head+"@include sub2/k.doclang\n"))
+	want := bodyFindings(t, root, "", strings.Count(head, "\n"))
+	if len(want) != 1 || !strings.HasPrefix(want[0], "IMG004 ") || !strings.Contains(want[0], `"at.png"`) {
+		t.Fatalf("the document gives %v, want one IMG004 naming \"at.png\"", want)
+	}
+	if got := bodyFindings(t, input, "sub2/k.doclang", 0); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("findings %v, want %v", got, want)
+	}
+}
+
+// Un mismo archivo escrito de dos formas en un campo (suelta con espacios y
+// entre <...>, o con %20) se reescribe al mismo destino nuevo; el aviso de la
+// ruta suelta se recupera solo para la ocurrencia que estaba suelta, así que
+// el include da lo mismo que el documento.
+func TestBuild_IncludeFromOtherDirSameFileTwoSpellings(t *testing.T) {
+	head := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n"
+	for name, body := range map[string]string{
+		"bare then bracketed": "Uno ![](a b.png) y ![](<a b.png>) fin.\n",
+		"bracketed then bare": "Uno ![](<a b.png>) y ![](a b.png) fin.\n",
+		"bare then %20":       "Uno ![](a b.png) y ![](a%20b.png) fin.\n",
+		"table row":           "| c | d |\n|---|---|\n| ![](a b.png) | ![](<a b.png>) |\n",
+		"header and row":      "| ![](a b.png) | ![](<a b.png>) |\n|---|---|\n| ![](<a b.png>) | ![](a b.png) |\n",
+		"three-line quote":    "> uno ![](a b.png)\n> dos ![](<a b.png>)\n> tres ![](a b.png)\n",
+		"with title":          "Uno ![](a b.png \"t\") y ![](<a b.png> \"t\") fin.\n",
+		"two files":           "Uno ![](a b.png) y ![](c d.png) fin.\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			root := filepath.Join(dir, "root.doclang")
+			writeFile(t, root, []byte(head+body))
+			writeFile(t, filepath.Join(dir, "sub2", "k.doclang"), []byte(body))
+			input := filepath.Join(dir, "inc.doclang")
+			writeFile(t, input, []byte(head+"@include sub2/k.doclang\n"))
+			want := bodyFindings(t, root, "", strings.Count(head, "\n"))
+			if len(want) == 0 {
+				t.Fatal("the document gives no findings")
+			}
+			if got := bodyFindings(t, input, "sub2/k.doclang", 0); strings.Join(got, "\n") != strings.Join(want, "\n") {
 				t.Errorf("findings:\n%s\nwant (as in the document):\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 			}
 		})

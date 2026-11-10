@@ -963,6 +963,9 @@ func TestGeneratorLine(t *testing.T) {
 		{"DOCX: Failed to render mermaid: Parse error on line 3:", 0, ""},
 		{"DOCX: inline image \"line 3.png\" could not be inserted: bad", 0, ""},
 		{"THEME: failed to load theme \"line 2\"", 0, ""},
+		{"DOCX: la directiva @timer (línea 5) no tiene efecto en un documento y se omite", 5, "línea 5"},
+		{"MARKDOWN: la directiva @notes (línea 6) no tiene efecto en un documento y se omite", 6, "línea 6"},
+		{"DOCX: la lista de la línea 4 anida más de 9 niveles", 0, ""},
 	} {
 		line, start, end := generatorLine(c.msg)
 		if line != c.line || (line > 0 && c.msg[start:end] != c.span) {
@@ -1050,5 +1053,38 @@ func TestGeneratorDiagnosticsKeepsSameExpansionCopies(t *testing.T) {
 		if d.File != "x.md" || d.Position.Line != 2 || d.Message != `DOCX: x.md:2: image "falta.png" not found` {
 			t.Errorf("warning %q at %s:%d, want x.md:2", d.Message, d.File, d.Position.Line)
 		}
+	}
+}
+
+// El aviso de una directiva (`@timer`) en un archivo incluido, en español
+// con "(línea N)", también se lleva al archivo y la línea de origen, y el
+// mensaje dice lo mismo que la posición. En el documento conserva su
+// "(línea N)".
+func TestExport_DirectiveWarningPointsAtSource(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "x.md", "## X\n\nUno.\n\n@timer 5m\n")
+	f.write(t, "main.md", "# A\n\nUno.\n\nDos.\n\n@include x.md\n\n@timer 3m\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+	out := exportOK(t, s, ctx, map[string]any{"path": "main.md", "format": "docx"})
+	var included, root bool
+	for _, d := range out.Diagnostics {
+		if d.Source != "generator" || !strings.Contains(d.Message, "@timer") {
+			continue
+		}
+		switch d.File {
+		case "x.md":
+			included = true
+			if d.Position.Line != 5 || !strings.Contains(d.Message, "(x.md:5)") {
+				t.Errorf("included directive: %q at %s:%d, want x.md:5 in both", d.Message, d.File, d.Position.Line)
+			}
+		case "":
+			root = true
+			if d.Position.Line != 9 || !strings.Contains(d.Message, "(línea 9)") {
+				t.Errorf("root directive: %q at line %d, want línea 9 in both", d.Message, d.Position.Line)
+			}
+		}
+	}
+	if !included || !root {
+		t.Errorf("missing the included (%v) or the root (%v) directive warning: %+v", included, root, out.Diagnostics)
 	}
 }

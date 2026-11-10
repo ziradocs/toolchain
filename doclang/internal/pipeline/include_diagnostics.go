@@ -144,19 +144,13 @@ func MapToSource(sources include.SourceMap, diags []diagnostics.Diagnostic, docD
 // dio la expansión que más dio. Un hallazgo del documento (File vacío) no se
 // toca.
 func DedupeIncluded(raw, mapped []diagnostics.Diagnostic) []diagnostics.Diagnostic {
-	type key struct {
-		d      diagnostics.Diagnostic
-		end    diagnostics.Position
-		hasEnd bool
+	// Sin raw alineado con mapped no se sabe de qué expansión es cada
+	// hallazgo: no se quita nada.
+	if len(raw) != len(mapped) {
+		return mapped
 	}
-	keyOf := func(d diagnostics.Diagnostic) key {
-		k := key{d: d}
-		if d.EndPosition != nil {
-			k.end, k.hasEnd = *d.EndPosition, true
-		}
-		k.d.EndPosition = nil
-		return k
-	}
+	type key = diagnosticKey
+	keyOf := keyOfDiagnostic
 	type expansion struct {
 		k    key
 		line int
@@ -167,10 +161,7 @@ func DedupeIncluded(raw, mapped []diagnostics.Diagnostic) []diagnostics.Diagnost
 		if d.File == "" {
 			continue
 		}
-		e := expansion{keyOf(d), i}
-		if i < len(raw) {
-			e.line = raw[i].Position.Line
-		}
+		e := expansion{keyOf(d), raw[i].Position.Line}
 		perExpansion[e]++
 		if perExpansion[e] > allowed[e.k] {
 			allowed[e.k] = perExpansion[e]

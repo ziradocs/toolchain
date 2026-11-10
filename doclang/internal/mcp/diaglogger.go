@@ -28,28 +28,34 @@ type diagnosticLogger struct {
 }
 
 // generatorLineRe reconoce la línea que el generador pone en sus warnings:
-// "DOCX: line N: …" (imágenes, ecuaciones, mapas, PlantUML) y "DOCX: … at
-// line N was not rendered" (mermaid, ecuaciones y gráficas sin Chromium).
-// Anclada a esos formatos: un "line N" en otra parte del mensaje (una ruta
-// "line 3.png", el error de un renderizador) no es la posición del elemento.
-var generatorLineRe = regexp.MustCompile(`^DOCX: (?:(line (\d+)):|(?:mermaid diagram \([^)]*\)|chart \([^)]*\)|equation) at (line (\d+)) was not rendered)`)
+// "DOCX: line N: …" (imágenes, ecuaciones, mapas, PlantUML), "DOCX: … at
+// line N was not rendered" (mermaid, ecuaciones y gráficas sin Chromium) y
+// "DOCX: la directiva @x (línea N) …" (y su igual de MARKDOWN), el único que
+// está en español. Anclada a esos formatos: un "line N" en otra parte del
+// mensaje (una ruta "line 3.png", el error de un renderizador) no es la
+// posición del elemento. Cada alternativa tiene dos grupos: "line N" (o
+// "línea N") y N.
+var generatorLineRe = regexp.MustCompile(`^(?:DOCX: (?:(line (\d+)):|(?:mermaid diagram \([^)]*\)|chart \([^)]*\)|equation) at (line (\d+)) was not rendered)|(?:DOCX|MARKDOWN): la directiva @\S+ \((línea (\d+))\))`)
 
 // generatorLine devuelve la línea de un warning del generador (0 si no la
-// trae, ver generatorLineRe) y dónde está "line N" en msg.
+// trae, ver generatorLineRe) y dónde está "line N" o "línea N" en msg.
 func generatorLine(msg string) (line, start, end int) {
 	m := generatorLineRe.FindStringSubmatchIndex(msg)
 	if m == nil {
 		return 0, 0, 0
 	}
-	span, digits := m[2:4], m[4:6]
-	if span[0] < 0 {
-		span, digits = m[6:8], m[8:10]
+	for g := 2; g+3 < len(m); g += 4 {
+		span, digits := m[g:g+2], m[g+2:g+4]
+		if span[0] < 0 {
+			continue
+		}
+		n, err := strconv.Atoi(msg[digits[0]:digits[1]])
+		if err != nil || n <= 0 {
+			return 0, 0, 0
+		}
+		return n, span[0], span[1]
 	}
-	n, err := strconv.Atoi(msg[digits[0]:digits[1]])
-	if err != nil || n <= 0 {
-		return 0, 0, 0
-	}
-	return n, span[0], span[1]
+	return 0, 0, 0
 }
 
 func newDiagnosticLogger(next util.Logger, redact func(string) string) *diagnosticLogger {
