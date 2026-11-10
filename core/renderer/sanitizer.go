@@ -605,6 +605,11 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	var destinations []string
 	text, destinations = hideLinkDestinations(text)
 
+	// Una barra invertida antes de un delimitador lo hace literal (ver
+	// escapeInlineDelimiters). Corre con el código y los destinos ya
+	// escondidos, así que ahí la barra se queda como está.
+	text = escapeInlineDelimiters(text)
+
 	// Procesar resaltado ==texto== -> <mark>texto</mark>
 	text = inlineHighlightPattern.ReplaceAllString(text, `<mark>$1</mark>`)
 
@@ -806,6 +811,10 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// texto plano y el href pasó por SanitizeURL).
 	text = emitted.expand(text)
 
+	// Los delimitadores escapados vuelven como su carácter, también dentro de
+	// un alt o del texto de un enlace. Ya no corre ninguna pasada de formato.
+	text = escapedDelimiterRestorer.Replace(text)
+
 	// Restaurar los centinelas de código al final, ya con <code>...</code> —
 	// ver el comentario de esta función sobre por qué código se protege
 	// primero. SOLO la forma cruda "<zdcN/>" (advisor follow-up + code-review
@@ -968,6 +977,51 @@ func hideLinkDestinations(text string) (string, []string) {
 	}
 	b.WriteString(text[last:])
 	return b.String(), hidden
+}
+
+// escapedDelimiters son los caracteres que una barra invertida hace
+// literales y la referencia de carácter que los representa mientras corren
+// las pasadas de formato. Ninguna pasada reconoce una referencia de carácter
+// como delimitador, y el texto llega escapado (un "&#42;" del autor ya es
+// "&amp;#42;"), así que al restaurar solo aparecen las que puso
+// escapeInlineDelimiters.
+var escapedDelimiters = map[byte]string{'*': "&#42;", '=': "&#61;", '~': "&#126;"}
+
+var escapedDelimiterRestorer = strings.NewReplacer("&#42;", "*", "&#61;", "=", "&#126;", "~")
+
+// escapeInlineDelimiters cambia `\*`, `\=` y `\~` por la referencia de
+// carácter de ese delimitador, sin la barra: el carácter se ve pero no abre
+// ni cierra formato. Solo los delimitadores de formato de este dialecto: `_`
+// no es cursiva aquí, así que `\_` (y `C:\Users\_tmp`) se deja como está. `\\` es una barra escrita a mano y se deja tal cual,
+// junto con el carácter que la sigue; cualquier otra barra también. El
+// acento grave no está: cambiar qué backticks forman un code span tocaría
+// los espejos que emparejan code spans (findCodeSpans, literalCodeRanges,
+// las tablas y el formatter).
+func escapeInlineDelimiters(text string) string {
+	if !strings.Contains(text, `\`) {
+		return text
+	}
+	var b strings.Builder
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c != '\\' || i+1 >= len(text) {
+			b.WriteByte(c)
+			continue
+		}
+		next := text[i+1]
+		if ref, ok := escapedDelimiters[next]; ok {
+			b.WriteString(ref)
+			i++
+			continue
+		}
+		if next == '\\' {
+			b.WriteString(`\\`)
+			i++
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // restoreLinkDestinations deshace hideLinkDestinations.

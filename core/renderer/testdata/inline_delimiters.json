@@ -1,5 +1,5 @@
 {
- "_comment": "Tabla compartida de la regla de delimitadores inline: un delimitador abre solo si no lo sigue un espacio ni el fin de línea; al cerrar no se exige nada. La leen las pruebas de core (HTML), slidelang (PPTX) y doclang (DOCX), que compilan contra el core publicado y por eso comparan contra esta tabla y no contra la salida de core. html es la salida de ProcessInlineMarkdownSecureLine.",
+ "_comment": "Tabla compartida de la regla de delimitadores inline: un delimitador abre solo si no lo sigue un espacio ni el fin de línea; al cerrar no se exige nada. La leen las pruebas de core (HTML), slidelang (PPTX) y doclang (DOCX), que compilan contra el core publicado y por eso comparan contra esta tabla y no contra la salida de core. html es la salida de ProcessInlineMarkdownSecureLine. Las filas kind=escape cubren los escapes con barra invertida (\\*, \\=, \\~).",
  "cases": [
   {
    "src": "Costo 2 * 3 * 4",
@@ -125,6 +125,41 @@
    "src": "Costo 2 * 3 y **18%** más",
    "html": "Costo 2 * 3 y <strong>18%</strong> más",
    "kind": "regression"
+  },
+  {
+   "src": "\\*escapado\\*",
+   "html": "*escapado*",
+   "kind": "escape"
+  },
+  {
+   "src": "\\*\\*no\\*\\*",
+   "html": "**no**",
+   "kind": "escape"
+  },
+  {
+   "src": "\\=\\=x\\=\\=",
+   "html": "==x==",
+   "kind": "escape"
+  },
+  {
+   "src": "\\~\\~x\\~\\~",
+   "html": "~~x~~",
+   "kind": "escape"
+  },
+  {
+   "src": "\\* nota y **real**",
+   "html": "* nota y <strong>real</strong>",
+   "kind": "escape"
+  },
+  {
+   "src": "\\\\*x*",
+   "html": "\\\\<em>x</em>",
+   "kind": "escape"
+  },
+  {
+   "src": "snake\\_case y C:\\Users\\_tmp",
+   "html": "snake\\_case y C:\\Users\\_tmp",
+   "kind": "escape"
   }
  ]
 }
