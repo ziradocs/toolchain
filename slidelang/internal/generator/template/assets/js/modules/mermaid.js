@@ -447,17 +447,20 @@ const SlideLangMermaid = {
             return content;
         }
 
-        // Clean and normalize the content more thoroughly
-        let processed = content.trim();
+        // Clean and normalize the content more thoroughly. El recorte es solo
+        // para mirar las comillas: la sangría de la primera línea cuenta para
+        // la sangría común de abajo.
+        let processed = content;
+        const quoted = processed.trim();
 
         // Remove any potential double-encoding artifacts
-        if (processed.startsWith('"') && processed.endsWith('"')) {
+        if (quoted.startsWith('"') && quoted.endsWith('"')) {
             try {
                 // Try to parse as JSON string in case of double encoding
-                processed = JSON.parse(processed);
+                processed = JSON.parse(quoted);
             } catch (e) {
                 // If parsing fails, just remove quotes manually
-                processed = processed.slice(1, -1);
+                processed = quoted.slice(1, -1);
             }
         }
 
@@ -471,14 +474,21 @@ const SlideLangMermaid = {
         processed = processed
             .replace(/\r\n/g, '\n')  // Normalize line endings
             .replace(/\r/g, '\n')    // Convert remaining \r to \n
-            .replace(/\t/g, '    ')  // Convert tabs to spaces
-            .trim();
+            .replace(/\t/g, '    ');  // Convert tabs to spaces
 
-        // Remove any leading/trailing whitespace from each line
-        processed = processed.split('\n')
-            .map(line => line.trim())
-            .filter(line => line.length > 0)  // Remove empty lines
-            .join('\n');
+        // Quitar los espacios del final de cada línea y las líneas vacías,
+        // pero NO la sangría: mindmap (y el frontmatter YAML) la usan como
+        // sintaxis, y recortar cada línea dejaba un mindmap plano aunque el
+        // AST la conservara. Solo se quita la sangría que comparten todas las
+        // líneas, para que la primera instrucción empiece en la columna 0.
+        let lines = processed.split('\n')
+            .map(line => line.replace(/\s+$/, ''))
+            .filter(line => line.length > 0);  // Remove empty lines
+        const common = lines.reduce((min, line) => Math.min(min, line.length - line.replace(/^ +/, '').length), Infinity);
+        if (common > 0 && common !== Infinity) {
+            lines = lines.map(line => line.slice(common));
+        }
+        processed = lines.join('\n');
 
         return processed;
     },
