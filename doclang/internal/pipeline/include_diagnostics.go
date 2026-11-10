@@ -5,10 +5,12 @@ package pipeline
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/include"
 )
 
 // KeptIncludeRuleID es el aviso de un `@include` escrito dentro de un bloque
@@ -46,14 +48,12 @@ func Where(d diagnostics.Diagnostic) string {
 	return fmt.Sprintf("%s:%d", d.File, d.Position.Line)
 }
 
-// DocumentDir es el directorio del documento inputFile en la misma forma que
-// includeRoot, para PrepareOptions.DocDir: el contrato de
-// include.SourceMap.MapDiagnostics pide que los dos estén en la misma forma
-// canónica. Los archivos incluidos salen de filepath.Abs sobre includeRoot,
-// así que si includeRoot ya tiene los symlinks resueltos (--base-dir,
-// --include-root), docDir también; si no, los dos son el filepath.Abs de
-// siempre. Vacío si inputFile está vacío (un documento sin ruta en disco).
-func DocumentDir(inputFile, includeRoot string) string {
+// DocumentDir es el directorio del documento inputFile para
+// PrepareOptions.DocDir: filepath.Abs de su directorio, sin resolver
+// symlinks, en la misma forma que la ruta que el reporte pone en
+// document.path (core une las dos con path.Join, léxico). Vacío si inputFile
+// está vacío (un documento sin ruta en disco).
+func DocumentDir(inputFile string) string {
 	if inputFile == "" {
 		return ""
 	}
@@ -61,13 +61,57 @@ func DocumentDir(inputFile, includeRoot string) string {
 	if err != nil {
 		return ""
 	}
-	if includeRoot == "" {
-		return dir
-	}
-	if real, err := filepath.EvalSymlinks(includeRoot); err == nil && real == filepath.Clean(includeRoot) {
-		if realDir, err := filepath.EvalSymlinks(dir); err == nil {
-			return realDir
-		}
-	}
 	return dir
+}
+
+// sourcesFromDocDir devuelve sources con la ruta de cada archivo incluido
+// escrita desde docDir (DocumentDir), para que
+// include.SourceMap.MapDiagnostics la nombre relativa a él y
+// path.Join(dir de document.path, file) sea ese archivo.
+//
+// Las rutas de los archivos incluidos salen de la raíz de includes, que con
+// --base-dir o --include-root tiene los symlinks resueltos, y docDir no: con
+// la entrada por un directorio enlazado, un archivo relativo a la forma
+// resuelta del directorio y unido a la forma con symlink no existe. Si el
+// archivo se alcanza desde docDir con su ruta relativa a la forma resuelta
+// (el caso común, el archivo debajo del documento), se usa esa: es la más
+// corta y la de siempre. Si no, se deja la ruta tal cual, y su relativa a
+// docDir es léxica, que es como core la une.
+func sourcesFromDocDir(sources include.SourceMap, docDir string) include.SourceMap {
+	if docDir == "" {
+		return sources
+	}
+	realDir, err := filepath.EvalSymlinks(docDir)
+	if err != nil || realDir == docDir {
+		return sources
+	}
+	rewritten := map[string]string{}
+	lines := make([]include.Origin, len(sources.Lines))
+	for i, o := range sources.Lines {
+		if o.File != "" {
+			file, ok := rewritten[o.File]
+			if !ok {
+				file = o.File
+				if rel, err := filepath.Rel(realDir, o.File); err == nil {
+					if candidate := filepath.Join(docDir, rel); sameFile(candidate, o.File) {
+						file = candidate
+					}
+				}
+				rewritten[o.File] = file
+			}
+			o.File = file
+		}
+		lines[i] = o
+	}
+	return include.SourceMap{Lines: lines, RootLines: sources.RootLines}
+}
+
+// sameFile dice si a y b son el mismo archivo en disco.
+func sameFile(a, b string) bool {
+	ia, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	ib, err := os.Stat(b)
+	return err == nil && os.SameFile(ia, ib)
 }

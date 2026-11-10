@@ -12,6 +12,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/include"
 	"go.ziradocs.com/core/v2/linter"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -53,9 +54,8 @@ func TestWhere(t *testing.T) {
 	}
 }
 
-// DocumentDir da el directorio del documento en la forma de la raíz de
-// includes: con symlinks resueltos si la raíz los tiene resueltos, y tal
-// cual (filepath.Abs) si no.
+// DocumentDir da el directorio del documento sin resolver symlinks, en la
+// forma de la ruta de entrada.
 func TestDocumentDir(t *testing.T) {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -69,20 +69,50 @@ func TestDocumentDir(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("symlinks not available: %v", err)
 	}
-	input := filepath.Join(link, "main.doclang")
-	for _, c := range []struct {
-		name, includeRoot, want string
-	}{
-		{"root through the symlink", link, link},
-		{"resolved root", real, real},
-		{"no root", "", link},
-	} {
-		if got := DocumentDir(input, c.includeRoot); got != c.want {
-			t.Errorf("%s: DocumentDir = %q, want %q", c.name, got, c.want)
+	if got := DocumentDir(filepath.Join(link, "main.doclang")); got != link {
+		t.Errorf("DocumentDir = %q, want %q", got, link)
+	}
+	if got := DocumentDir(""); got != "" {
+		t.Errorf("DocumentDir without a file = %q, want empty", got)
+	}
+}
+
+// sourcesFromDocDir escribe cada archivo incluido desde el directorio del
+// documento: por el symlink si el archivo está debajo de él, y tal cual si
+// no; y deja el SourceMap igual si el directorio no tiene symlinks.
+func TestSourcesFromDocDir(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(base, "a", "real")
+	under := filepath.Join(real, "partes", "x.doclang")
+	outside := filepath.Join(base, "inc", "y.doclang")
+	for _, f := range []string{under, outside} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if got := DocumentDir("", real); got != "" {
-		t.Errorf("DocumentDir without a file = %q, want empty", got)
+	link := filepath.Join(base, "lnk")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks not available: %v", err)
+	}
+	sources := include.SourceMap{Lines: []include.Origin{{File: "", Line: 1}, {File: under, Line: 1}, {File: outside, Line: 1}, {File: under, Line: 2}}, RootLines: 2}
+	got := sourcesFromDocDir(sources, link)
+	want := []string{"", filepath.Join(link, "partes", "x.doclang"), outside, filepath.Join(link, "partes", "x.doclang")}
+	for i, o := range got.Lines {
+		if o.File != want[i] || o.Line != sources.Lines[i].Line {
+			t.Errorf("line %d: %+v, want %s:%d", i+1, o, want[i], sources.Lines[i].Line)
+		}
+	}
+	if got.RootLines != sources.RootLines || sources.Lines[1].File != under {
+		t.Errorf("RootLines %d, or the input was modified: %+v", got.RootLines, sources)
+	}
+	if same := sourcesFromDocDir(sources, real); same.Lines[1].File != under || same.Lines[2].File != outside {
+		t.Errorf("without a symlink the files change: %+v", same)
 	}
 }
 
@@ -106,7 +136,7 @@ func prepareWithInclude(t *testing.T, log util.Logger, main, part string) (*Prep
 		InputFile:     input,
 		MaxInputBytes: util.DefaultMaxInputBytes,
 		IncludeRoot:   dir,
-		DocDir:        DocumentDir(input, dir),
+		DocDir:        DocumentDir(input),
 	})
 }
 

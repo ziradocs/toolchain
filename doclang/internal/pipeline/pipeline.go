@@ -84,10 +84,11 @@ type PrepareOptions struct {
 	// IncludeRoot es el directorio, absoluto, al que se confinan los
 	// @include (util.ResolveConfinedPath dentro de include.Expand).
 	IncludeRoot string
-	// DocDir es el directorio del documento, en la misma forma que
-	// IncludeRoot (DocumentDir): los diagnósticos de un archivo incluido
-	// nombran su archivo relativo a él (include.SourceMap.MapDiagnostics).
-	// Vacío si el documento no tiene ruta en disco: el archivo va absoluto.
+	// DocDir es el directorio del documento, en la misma forma que la ruta
+	// que el reporte pone en document.path (DocumentDir): los diagnósticos
+	// de un archivo incluido nombran su archivo relativo a él
+	// (include.SourceMap.MapDiagnostics, ver sourcesFromDocDir). Vacío si el
+	// documento no tiene ruta en disco: el archivo va absoluto.
 	DocDir string
 	// SourceDir es el directorio, absoluto, desde el que se resuelven las
 	// fuentes de imagen relativas (el mismo que GenerateOptions.SourceDir).
@@ -156,7 +157,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand includes: %w", err)
 	}
-	origins, sources := expansion.Origins, expansion.Sources
+	origins, sources := expansion.Origins, sourcesFromDocDir(expansion.Sources, opts.DocDir)
 	content = []byte(expansion.Text)
 	// Re-chequear el tamaño DESPUÉS de expandir — ver el mismo
 	// comentario en slidelang/internal/cli/build.go (amplificación

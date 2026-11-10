@@ -257,3 +257,67 @@ func TestBuild_Issue487Repros(t *testing.T) {
 		})
 	}
 }
+
+// Con la entrada por un directorio enlazado y un archivo incluido fuera del
+// directorio del documento, el `file` del reporte y la uri de SARIF unidos
+// al directorio de document.path (path.Join, léxico, como lo une core)
+// nombran el archivo incluido, con --base-dir y con --include-root, y con la
+// entrada absoluta o relativa al directorio de trabajo.
+func TestBuild_IncludeDiagnosticsThroughSymlinkedDirOutsideDocDir(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "a", "b", "real", "main.doclang"), []byte("---\ntitle: D\nmode: flex\n---\n\n# A\n\nTexto.\n\n@include inc/x.doclang\n"))
+	writeFile(t, filepath.Join(root, "inc", "x.doclang"), []byte("## X\n\nUno.\n\n```\n```\n\n```go\n@include no/existe.doclang\n```\n"))
+	if err := os.Symlink(filepath.Join("a", "b", "real"), filepath.Join(root, "lnk")); err != nil {
+		t.Skipf("symlinks not available: %v", err)
+	}
+	wantFile, err := os.Stat(filepath.Join(root, "inc", "x.doclang"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// names dice si p (relativo al directorio de trabajo o absoluto) es el
+	// archivo incluido.
+	names := func(p string) bool {
+		info, err := os.Stat(filepath.FromSlash(p))
+		return err == nil && os.SameFile(info, wantFile)
+	}
+	t.Chdir(root)
+	for _, input := range []string{filepath.Join(root, "lnk", "main.doclang"), filepath.Join("lnk", "main.doclang")} {
+		for _, flag := range []string{"--base-dir", "--include-root"} {
+			t.Run(flag+" "+input, func(t *testing.T) {
+				out := filepath.Join(t.TempDir(), "r.json")
+				runBuild(t, input, flag, root, "--lint-only", "--report", "json", "--report-out", out)
+				data, err := os.ReadFile(out)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var report struct {
+					Document struct {
+						Path string `json:"path"`
+					} `json:"document"`
+					Findings []finding `json:"findings"`
+				}
+				if err := json.Unmarshal(data, &report); err != nil {
+					t.Fatal(err)
+				}
+				rules := map[string]bool{}
+				for _, f := range report.Findings {
+					rules[f.RuleID] = true
+					if p := path.Join(path.Dir(report.Document.Path), f.File); !names(p) {
+						t.Errorf("JSON %s: document.path %q + file %q = %q, which is not inc/x.doclang", f.RuleID, report.Document.Path, f.File, p)
+					}
+				}
+				if !rules["CODE001"] || !rules["INCLUDE001"] {
+					t.Fatalf("want CODE001 and INCLUDE001, got %v", report.Findings)
+				}
+				for rule, uri := range sarifURIs(t, input, flag, root) {
+					if !names(uri) {
+						t.Errorf("SARIF %s uri %q is not inc/x.doclang", rule, uri)
+					}
+				}
+			})
+		}
+	}
+}
