@@ -206,7 +206,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	// el log, para que todos nombren la línea que ve el autor. Los
 	// parserFindings se llevan después de juntarlos con los del linter, que
 	// los compara con las posiciones del AST (MergeParserFindings).
-	parseDiags = sources.MapDiagnostics(parseDiags, opts.DocDir)
+	parseDiags = MapToSource(sources, parseDiags, opts.DocDir)
 
 	// Check for errors in diagnostics; print warnings too (e.g. CHART002
 	// for malformed chart JSON).
@@ -220,7 +220,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 		}
 	}
 	if hasErrors {
-		return nil, &DiagnosticsError{Stage: StageParse, Diagnostics: append(parseDiags, sources.MapDiagnostics(parserFindings, opts.DocDir)...)}
+		return nil, &DiagnosticsError{Stage: StageParse, Diagnostics: append(parseDiags, MapToSource(sources, parserFindings, opts.DocDir)...)}
 	}
 
 	// Las imágenes de un archivo incluido se resuelven desde el directorio
@@ -318,7 +318,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 	}
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(doc)
 	allDiagnostics = MergeParserFindings(doc, parserFindings, allDiagnostics)
-	allDiagnostics = sources.MapDiagnostics(allDiagnostics, opts.DocDir)
+	allDiagnostics = MapToSource(sources, allDiagnostics, opts.DocDir)
 	// Los avisos del parser (SPECIAL002, TABLE007…) pasan por la política
 	// como los del linter: un warning se puede apagar, y si la política le
 	// sube la severidad cuenta como un error de lint. El mismo camino que la

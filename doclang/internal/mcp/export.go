@@ -372,7 +372,8 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 // archivo que escribió el elemento, como los del parser y el linter: el
 // generador cuenta las líneas sobre el contenido expandido. El "line N" del
 // mensaje se cambia por la misma ubicación (pipeline.Where), para que el
-// texto y la posición digan lo mismo.
+// texto y la posición digan lo mismo. Las copias de un archivo incluido dos
+// veces quedan una sola vez (pipeline.DedupeIncluded).
 func generatorDiagnostics(genLog *diagnosticLogger, prepared *pipeline.Prepared) []diagnostics.Diagnostic {
 	raw := genLog.diagnostics()
 	mapped := prepared.Sources.MapDiagnostics(raw, prepared.DocDir)
@@ -384,7 +385,7 @@ func generatorDiagnostics(genLog *diagnosticLogger, prepared *pipeline.Prepared)
 			mapped[i].Message = mapped[i].Message[:loc[0]] + pipeline.Where(mapped[i]) + mapped[i].Message[loc[1]:]
 		}
 	}
-	return mapped
+	return pipeline.DedupeIncluded(mapped)
 }
 
 // commitExport mueve tmpPath al destino. Sin overwrite usa os.Link, que

@@ -321,3 +321,38 @@ func TestBuild_IncludeDiagnosticsThroughSymlinkedDirOutsideDocDir(t *testing.T) 
 		}
 	}
 }
+
+// Un archivo incluido dos veces deja cada hallazgo una sola vez en el
+// reporte y en SARIF: tras llevarlos al archivo de origen, las dos copias
+// son el mismo hallazgo en la misma línea.
+func TestBuild_IncludedTwiceReportsEachFindingOnce(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "main.doclang")
+	writeFile(t, input, []byte("---\ntitle: D\nmode: flex\n---\n\n# A\n\n@include partes/x.doclang\n\n# B\n\n@include partes/x.doclang\n\n```\n```\n"))
+	writeFile(t, filepath.Join(dir, "partes", "x.doclang"), []byte("Uno.\n\n```\n```\n\n```go\n@include no/existe.doclang\n```\n"))
+	want := []string{
+		"CODE001 :14",
+		"CODE001 partes/x.doclang:3",
+		"INCLUDE001 partes/x.doclang:7",
+	}
+	if got := lintReport(t, input); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("findings:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	out := filepath.Join(t.TempDir(), "r.sarif")
+	runBuild(t, input, "--lint-only", "--report", "sarif", "--report-out", out)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sarif struct {
+		Runs []struct {
+			Results []json.RawMessage `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(data, &sarif); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(sarif.Runs[0].Results); n != len(want) {
+		t.Errorf("SARIF has %d results, want %d", n, len(want))
+	}
+}

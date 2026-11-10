@@ -894,3 +894,27 @@ func TestExport_IncludedImagesResolveFromTheirFile(t *testing.T) {
 		t.Error("la imagen del archivo incluido no se resolvió desde su carpeta")
 	}
 }
+
+// Un archivo incluido dos veces deja una sola vez cada diagnóstico suyo en
+// el export: el del linter y el warning del generador.
+func TestExport_IncludedTwiceReportsEachDiagnosticOnce(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "broken.png", "esto no es un PNG")
+	f.write(t, "shared/x.md", "## X\n\n```\n```\n\n![rota](broken.png)\n")
+	f.write(t, "chap/main.md", "# Capítulo\n\n@include shared/x.md\n\n# Otro\n\n@include shared/x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+
+	out := exportOK(t, s, ctx, map[string]any{"path": "chap/main.md", "format": "docx", "includeRoot": "."})
+	var code001, image int
+	for _, d := range out.Diagnostics {
+		if d.RuleID == "CODE001" {
+			code001++
+		}
+		if d.Source == "generator" && strings.Contains(d.Message, "broken.png") {
+			image++
+		}
+	}
+	if code001 != 1 || image != 1 {
+		t.Errorf("CODE001 %d times and the image warning %d times, want once each: %+v", code001, image, out.Diagnostics)
+	}
+}

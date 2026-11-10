@@ -115,3 +115,43 @@ func sameFile(a, b string) bool {
 	ib, err := os.Stat(b)
 	return err == nil && os.SameFile(ia, ib)
 }
+
+// MapToSource lleva diags al archivo y la línea que los escribieron
+// (include.SourceMap.MapDiagnostics) y deja una sola vez cada hallazgo
+// repetido de un archivo incluido (DedupeIncluded).
+func MapToSource(sources include.SourceMap, diags []diagnostics.Diagnostic, docDir string) []diagnostics.Diagnostic {
+	return DedupeIncluded(sources.MapDiagnostics(diags, docDir))
+}
+
+// DedupeIncluded quita de diags, ya llevados a su archivo de origen, las
+// copias idénticas de un hallazgo de un archivo incluido, y conserva la
+// primera en su lugar. Un archivo incluido dos veces se lintea dos veces y
+// sus dos copias caen en el mismo archivo y la misma línea; un hallazgo del
+// documento (File vacío) nunca se toca, porque cada línea del documento
+// aparece una sola vez en el contenido expandido.
+func DedupeIncluded(diags []diagnostics.Diagnostic) []diagnostics.Diagnostic {
+	type key struct {
+		d      diagnostics.Diagnostic
+		end    diagnostics.Position
+		hasEnd bool
+	}
+	seen := map[key]bool{}
+	out := diags[:0:0]
+	for _, d := range diags {
+		if d.File == "" {
+			out = append(out, d)
+			continue
+		}
+		k := key{d: d}
+		if d.EndPosition != nil {
+			k.end, k.hasEnd = *d.EndPosition, true
+		}
+		k.d.EndPosition = nil
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, d)
+	}
+	return out
+}
