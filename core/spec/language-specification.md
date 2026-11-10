@@ -120,6 +120,16 @@ identifier ::= LETTER (LETTER | DIGIT | "_")*
 value      ::= STRING | NUMBER | BOOLEAN
 ```
 
+In a strict `TABLE`, `rows:` takes its rows on the lines below it, one
+`[…]` array per line, or, on its own line, a nested array:
+`rows: [["a", "b"], ["c", "d"]]`. In the nested form every cell is in double
+quotes with no other quote inside, or has no quotes, so the cut between rows
+never depends on where a quote closes. A value that does not read that way
+(stray quotes, text between rows or after the array other than a `#`
+comment) gives no rows and the `TABLE007` warning. Any other value on the
+`rows:` line (`[]`, a comment) is ignored, as before, and the rows below are
+read.
+
 With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
 may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on

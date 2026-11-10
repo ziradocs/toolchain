@@ -212,6 +212,23 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
 			legacyDeclared = true
+			// `rows: [[…], […]]` en la misma línea (issue #488): antes el
+			// valor se descartaba sin aviso. Solo un arreglo anidado se lee
+			// acá; cualquier otro valor (`rows: []`, `rows: # …`) sigue el
+			// camino de siempre, y las filas de las líneas de abajo se leen
+			// igual que antes.
+			if inline := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:")); isNestedInlineArray(inline) {
+				if parsed, ok := parseInlineRows(inline); ok {
+					for _, r := range parsed {
+						rows = append(rows, r)
+						rowPositions = append(rowPositions, ctx.Position(i))
+					}
+				} else {
+					diags = append(diags, diagnostics.NewWarning(
+						"The rows: value on this line could not be read as rows and was ignored: write each row as a [\"…\", \"…\"] array with every cell in double quotes or without quotes, or put each row on its own line below rows:",
+						ctx.Position(i), "table-parser").WithRuleID(TableRowsRuleID))
+				}
+			}
 			// Process rows array
 			consumed++
 			i++
@@ -865,4 +882,93 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 	}
 
 	return headers, rows, rowPositions, columnAlign, consumed
+}
+
+// TableRowsRuleID es el aviso de un `rows:` en línea que no se pudo leer como
+// filas (issue #488). Es warning en todos los dialectos: las filas se pierden
+// igual que antes, pero ahora con aviso.
+const TableRowsRuleID = "TABLE007"
+
+// isNestedInlineArray dice si v, el valor de `rows:` en su misma línea, es un
+// arreglo de arreglos: empieza con "[" y, después de espacios, otro "[".
+func isNestedInlineArray(v string) bool {
+	rest, ok := strings.CutPrefix(v, "[")
+	return ok && strings.HasPrefix(strings.TrimLeft(rest, " \t"), "[")
+}
+
+// parseInlineRows lee `[[…], […]]`, el valor de `rows:` en su misma línea,
+// con las mismas reglas que una fila en su propia línea (splitInlineArray:
+// la comilla doble abre o cierra, el backslash es contenido). Cada celda
+// tiene que estar entre comillas dobles sin otra comilla adentro, o no tener
+// comillas: así el corte entre filas no depende de adivinar dónde cierra una
+// comilla. Si algo no cuadra (comillas sueltas, texto entre filas o después
+// del arreglo, salvo un comentario `#`), ok es false y no se lee ninguna
+// fila: nunca se devuelven filas de un corte dudoso.
+func parseInlineRows(v string) (rows [][]string, ok bool) {
+	i := 1 // después del "[" exterior
+	skip := func() {
+		for i < len(v) && (v[i] == ' ' || v[i] == '\t') {
+			i++
+		}
+	}
+	for {
+		skip()
+		if i >= len(v) || v[i] != '[' {
+			return nil, false
+		}
+		start := i + 1
+		inQuotes := false
+		j := start
+		for ; j < len(v); j++ {
+			if v[j] == '"' {
+				inQuotes = !inQuotes
+			} else if v[j] == ']' && !inQuotes {
+				break
+			}
+		}
+		if j >= len(v) {
+			return nil, false
+		}
+		content := v[start:j]
+		if !wellQuotedInlineRow(content) {
+			return nil, false
+		}
+		rows = append(rows, splitInlineArray(content))
+		i = j + 1
+		skip()
+		if i < len(v) && v[i] == ',' {
+			i++
+			continue
+		}
+		if i < len(v) && v[i] == ']' {
+			i++
+			break
+		}
+		return nil, false
+	}
+	if rest := strings.TrimSpace(v[i:]); rest != "" && !strings.HasPrefix(rest, "#") {
+		return nil, false
+	}
+	return rows, true
+}
+
+// wellQuotedInlineRow dice si cada celda de content (una fila sin sus
+// corchetes) está entre comillas dobles sin otra comilla adentro, o no tiene
+// comillas.
+func wellQuotedInlineRow(content string) bool {
+	items, ok := splitTopLevelCommas(content)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		n := strings.Count(item, "\"")
+		if n == 0 {
+			continue
+		}
+		if n != 2 || len(item) < 2 || item[0] != '"' || item[len(item)-1] != '"' {
+			return false
+		}
+	}
+	return true
 }
