@@ -352,7 +352,11 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 				// intacto) a texto plano — misma pérdida de fidelidad ya
 				// documentada y aceptada en core/formatter/document.go's
 				// stripTags para bold/italic.
-				text = docxStripHeadingMarkup(headingImagesToMarkdown(renderer.LangSpanHTMLToSource(text)))
+				// Los delimitadores que el HTML muestra como texto (`\*` en la
+				// fuente) vuelven escapados: el énfasis se aplana a texto, y un
+				// `*` suelto en el Markdown lo mostraría en cursiva cualquier
+				// visor.
+				text = docxStripHeadingMarkup(headingImagesToMarkdown(renderer.LangSpanHTMLToSource(markdownEscapeLiteralDelimiters(text))))
 				// Preservar el id="..." del <hN> ya renderizado como un
 				// anchor explícito (sintaxis {#id}, soportada por
 				// Pandoc/kramdown): sin esto, un link en el mismo
@@ -959,4 +963,35 @@ func markdownElementImages(element ast.Element, out string) string {
 		return out
 	}
 	return MarkdownImageDestinations(out)
+}
+
+// markdownEscapeLiteralDelimiters escribe con barra los delimitadores que el
+// HTML de un encabezado muestra como texto, para que el Markdown diga lo
+// mismo: un `*` siempre (uno solo puede abrir una cursiva), y un `=` o un `~`
+// solo pegado a otro igual (`==` y `~~` son los delimitadores; uno suelto
+// nunca abre). No toca el interior de una etiqueta. A diferencia del PPTX,
+// también escapa dentro de un <code>: el encabezado de este Markdown aplana
+// el código a texto, sin backticks. Es la regla de escapes de core
+// (escapeInlineDelimiters en core/renderer/sanitizer.go) al revés.
+func markdownEscapeLiteralDelimiters(html string) string {
+	if !strings.ContainsAny(html, "*=~") {
+		return html
+	}
+	var b strings.Builder
+	inTag := false
+	for i := 0; i < len(html); i++ {
+		c := html[i]
+		switch {
+		case inTag:
+			if c == '>' {
+				inTag = false
+			}
+		case c == '<':
+			inTag = true
+		case c == '*' || (c == '=' || c == '~') && (i > 0 && html[i-1] == c || i+1 < len(html) && html[i+1] == c):
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }

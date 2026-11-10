@@ -539,7 +539,7 @@ func pptxTextContent(e *ast.TextElement) string {
 // pptxInlineHTMLToText convierte el HTML inline de un encabezado de vuelta a
 // su fuente Markdown. Ver pptxTextContent para el porqué del orden.
 func pptxInlineHTMLToText(html string) string {
-	out := renderer.LangSpanHTMLToSource(html)
+	out := renderer.LangSpanHTMLToSource(pptxEscapeLiteralDelimiters(html))
 	for _, r := range pptxInlineHTMLToMarkdown {
 		out = r.re.ReplaceAllString(out, r.repl)
 	}
@@ -548,6 +548,43 @@ func pptxInlineHTMLToText(html string) string {
 	// publicado reemplaza "&amp;" antes que las demás y convertía en "<br>"
 	// un "&lt;br&gt;" que el autor escribió como texto.
 	return stdhtml.UnescapeString(out)
+}
+
+// pptxEscapeLiteralDelimiters escribe con barra los delimitadores que el HTML
+// muestra como texto, para que la fuente que arma pptxInlineHTMLToText diga
+// lo mismo que el HTML al volver a pasar por pptxSplitInline: un `*` siempre
+// (`\*`, porque uno solo puede abrir una cursiva), y un `=` o un `~` solo
+// cuando está pegado a otro igual (`==` y `~~` son los delimitadores; uno
+// suelto nunca abre). No toca el interior de una etiqueta ni el de un
+// <code>, que vuelve a la fuente como code span y ahí la barra se vería.
+func pptxEscapeLiteralDelimiters(html string) string {
+	if !strings.ContainsAny(html, "*=~") {
+		return html
+	}
+	var b strings.Builder
+	inTag, code := false, 0
+	for i := 0; i < len(html); i++ {
+		c := html[i]
+		switch {
+		case inTag:
+			if c == '>' {
+				inTag = false
+			}
+		case c == '<':
+			inTag = true
+			rest := html[i:]
+			if strings.HasPrefix(rest, "<code>") {
+				code++
+			} else if strings.HasPrefix(rest, "</code>") && code > 0 {
+				code--
+			}
+		case code == 0 && (c == '*' ||
+			(c == '=' || c == '~') && (i > 0 && html[i-1] == c || i+1 < len(html) && html[i+1] == c)):
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // pptxAddElement despacha por tipo de ast.Element y devuelve el cursorY

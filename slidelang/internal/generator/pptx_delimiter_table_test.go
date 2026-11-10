@@ -10,6 +10,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // delimiterRun es un tramo de texto con su formato, la forma común en la
@@ -131,5 +134,37 @@ func TestPPTXSplitInline_EscapeInsideCodeStays(t *testing.T) {
 	segs := pptxSplitInline("`\\*` y \\*")
 	if len(segs) != 2 || segs[0].text != `\*` || !segs[0].code || segs[1].text != " y *" {
 		t.Errorf("segments %+v", segs)
+	}
+}
+
+// La tabla también por la ruta de un encabezado `###`: el HTML de core se
+// convierte de vuelta en fuente (pptxTextContent) y se vuelve a partir; las
+// runs tienen que ser las mismas que dice el HTML.
+func TestPPTXTextContent_MatchesCoreDelimiterTable(t *testing.T) {
+	for _, tc := range loadDelimiterTable(t) {
+		if tc.Kind == "regression" {
+			continue
+		}
+		want, ok := htmlRuns(tc.HTML)
+		if !ok {
+			continue
+		}
+		want = mergeRuns(append([]delimiterRun{{text: "### "}}, want...))
+		el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h3 id="x">`+tc.HTML+`</h3>`)
+		var got []delimiterRun
+		for _, seg := range pptxSplitInline(pptxTextContent(el)) {
+			got = append(got, delimiterRun{text: seg.text, bold: seg.bold, italic: seg.italic, code: seg.code})
+		}
+		got = mergeRuns(got)
+		if len(got) != len(want) {
+			t.Errorf("%q: runs %+v, want %+v", tc.Src, got, want)
+			continue
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Errorf("%q: runs %+v, want %+v", tc.Src, got, want)
+				break
+			}
+		}
 	}
 }
