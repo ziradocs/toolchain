@@ -218,11 +218,15 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			// camino de siempre, y las filas de las líneas de abajo se leen
 			// igual que antes.
 			if inline := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:")); isNestedInlineArray(inline) {
-				if parsed, ok := parseInlineRows(inline); ok {
+				if parsed, singleQuoted, ok := parseInlineRows(inline); ok {
 					for _, r := range parsed {
 						rows = append(rows, r)
 						rowPositions = append(rowPositions, ctx.Position(i))
 					}
+				} else if singleQuoted {
+					diags = append(diags, diagnostics.NewWarning(
+						"The rows: value on this line uses single quotes and was ignored: strict cells are quoted with double quotes, as in [[\"a\", \"b\"], [\"c\", \"d\"]]",
+						ctx.Position(i), "table-parser").WithRuleID(TableRowsRuleID))
 				} else {
 					diags = append(diags, diagnostics.NewWarning(
 						"The rows: value on this line could not be read as rows and was ignored: write each row as a [\"…\", \"…\"] array with every cell in double quotes or without quotes, or put each row on its own line below rows:",
@@ -903,8 +907,11 @@ func isNestedInlineArray(v string) bool {
 // comillas: así el corte entre filas no depende de adivinar dónde cierra una
 // comilla. Si algo no cuadra (comillas sueltas, texto entre filas o después
 // del arreglo, salvo un comentario `#`), ok es false y no se lee ninguna
-// fila: nunca se devuelven filas de un corte dudoso.
-func parseInlineRows(v string) (rows [][]string, ok bool) {
+// fila: nunca se devuelven filas de un corte dudoso. Una celda entre comillas
+// simples ('a', el estilo de un repr de Python) tampoco se lee: en strict la
+// comilla simple es contenido, así que los apóstrofos quedarían en la celda.
+// singleQuoted lo dice, para que el aviso pida comillas dobles.
+func parseInlineRows(v string) (rows [][]string, singleQuoted, ok bool) {
 	i := 1 // después del "[" exterior
 	skip := func() {
 		for i < len(v) && (v[i] == ' ' || v[i] == '\t') {
@@ -914,7 +921,7 @@ func parseInlineRows(v string) (rows [][]string, ok bool) {
 	for {
 		skip()
 		if i >= len(v) || v[i] != '[' {
-			return nil, false
+			return nil, false, false
 		}
 		start := i + 1
 		inQuotes := false
@@ -927,11 +934,14 @@ func parseInlineRows(v string) (rows [][]string, ok bool) {
 			}
 		}
 		if j >= len(v) {
-			return nil, false
+			return nil, false, false
 		}
 		content := v[start:j]
+		if singleQuotedInlineRow(content) {
+			return nil, true, false
+		}
 		if !wellQuotedInlineRow(content) {
-			return nil, false
+			return nil, false, false
 		}
 		rows = append(rows, splitInlineArray(content))
 		i = j + 1
@@ -944,12 +954,12 @@ func parseInlineRows(v string) (rows [][]string, ok bool) {
 			i++
 			break
 		}
-		return nil, false
+		return nil, false, false
 	}
 	if rest := strings.TrimSpace(v[i:]); rest != "" && !strings.HasPrefix(rest, "#") {
-		return nil, false
+		return nil, false, false
 	}
-	return rows, true
+	return rows, false, true
 }
 
 // wellQuotedInlineRow dice si cada celda de content (una fila sin sus
@@ -971,4 +981,20 @@ func wellQuotedInlineRow(content string) bool {
 		}
 	}
 	return true
+}
+
+// singleQuotedInlineRow dice si alguna celda de content (una fila sin sus
+// corchetes) está entre comillas simples: 'a' o 'a, b'. Un apóstrofo dentro
+// de una celda (O'Brien) no cuenta.
+func singleQuotedInlineRow(content string) bool {
+	items, ok := splitTopLevelCommas(content)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		if strings.HasPrefix(strings.TrimSpace(item), "'") {
+			return true
+		}
+	}
+	return false
 }

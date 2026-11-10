@@ -5,6 +5,7 @@ package parser
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -98,8 +99,8 @@ func TestTableInlineRows_AmbiguousValueIsReportedNotGuessed(t *testing.T) {
 }
 
 // Todo lo que no es un arreglo anidado en la línea de `rows:` sigue el
-// camino de main: `rows: []` y `rows: # …` con filas debajo leen las filas
-// de abajo, y un arreglo en línea más filas debajo lee las dos.
+// camino de main: `rows: []`, `rows: # …`, `rows:` solo y un arreglo plano,
+// con filas debajo, leen las filas de abajo.
 func TestTableInlineRows_OtherValuesKeepMainPath(t *testing.T) {
 	below := "      [\"c\", \"d\"]\n"
 	cases := []struct {
@@ -110,7 +111,6 @@ func TestTableInlineRows_OtherValuesKeepMainPath(t *testing.T) {
 		{"    rows: # filas\n" + below, [][]string{{"c", "d"}}},
 		{"    rows:\n" + below, [][]string{{"c", "d"}}},
 		{"    rows: [\"a\", \"b\"]\n" + below, [][]string{{"c", "d"}}},
-		{"    rows: [[\"a\", \"b\"]]\n" + below, [][]string{{"a", "b"}, {"c", "d"}}},
 	}
 	for _, c := range cases {
 		tbl, diags := parseInlineRowsTable(t, "document", "    headers: [\"x\", \"y\"]\n"+c.rows)
@@ -119,6 +119,68 @@ func TestTableInlineRows_OtherValuesKeepMainPath(t *testing.T) {
 		}
 		if n, _ := ruleIDCount(diags, "TABLE007"); n != 0 {
 			t.Errorf("%q: unexpected TABLE007: %v", c.rows, diags)
+		}
+	}
+}
+
+// Un arreglo anidado en la línea de `rows:` más filas debajo: se leen las
+// dos, primero las de la línea.
+func TestTableInlineRows_InlineAndRowsBelowReadBoth(t *testing.T) {
+	tbl, diags := parseInlineRowsTable(t, "document", "    headers: [\"x\", \"y\"]\n    rows: [[\"a\", \"b\"]]\n      [\"c\", \"d\"]\n")
+	if want := [][]string{{"a", "b"}, {"c", "d"}}; !reflect.DeepEqual(tbl.Rows, want) {
+		t.Errorf("rows = %q, want %q", tbl.Rows, want)
+	}
+	if n, _ := ruleIDCount(diags, "TABLE007"); n != 0 {
+		t.Errorf("unexpected TABLE007: %v", diags)
+	}
+}
+
+// Celdas entre comillas simples (el estilo de un repr de Python) no se leen:
+// en strict la comilla simple es contenido y los apóstrofos quedarían en la
+// celda. Sale TABLE007 pidiendo comillas dobles. Un apóstrofo dentro de una
+// celda sí se lee.
+func TestTableInlineRows_SingleQuotesAskForDoubleQuotes(t *testing.T) {
+	for _, value := range []string{`[['a', 'b'], ['c', 'd']]`, `[["a", 'b']]`, `[['a, b', 'c']]`} {
+		tbl, diags := parseInlineRowsTable(t, "document", "    headers: [\"x\", \"y\"]\n    rows: "+value+"\n")
+		if len(tbl.Rows) != 0 {
+			t.Errorf("%s: rows = %q, want none", value, tbl.Rows)
+		}
+		found := false
+		for _, d := range diags {
+			if d.RuleID == "TABLE007" && d.IsWarning() && strings.Contains(d.Message, "double quotes") && strings.Contains(d.Message, "single quotes") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: want a TABLE007 warning about single quotes, got %v", value, diags)
+		}
+	}
+	for value, want := range map[string][][]string{
+		`[["O'Brien", "x"]]`: {{"O'Brien", "x"}},
+		`[[O'Brien, x]]`:     {{"O'Brien", "x"}},
+	} {
+		tbl, _ := parseInlineRowsTable(t, "document", "    headers: [\"x\", \"y\"]\n    rows: "+value+"\n")
+		if !reflect.DeepEqual(tbl.Rows, want) {
+			t.Errorf("%s: rows = %q, want %q", value, tbl.Rows, want)
+		}
+	}
+}
+
+// En flex, un bloque TABLE con `rows:` en línea se lee igual.
+func TestTableInlineRows_Flex(t *testing.T) {
+	src := "---\nmode: flex\ntitle: \"D\"\n---\n\n# A\n\nTABLE\n  headers: [\"x\", \"y\"]\n  rows: [[\"a\",\"b\"],[\"c\",\"d\"]]\n"
+	for _, parse := range []func(string, string) (*ast.AST, []diagnostics.Diagnostic){New(util.NewNoop()).ParseDocument, New(util.NewNoop()).Parse} {
+		doc, diags := parse(src, "d")
+		var rows [][]string
+		for _, b := range doc.ContentBlocks {
+			for _, el := range b.Elements {
+				if tbl, ok := el.(*ast.TableElement); ok {
+					rows = tbl.Rows
+				}
+			}
+		}
+		if want := [][]string{{"a", "b"}, {"c", "d"}}; !reflect.DeepEqual(rows, want) {
+			t.Errorf("flex: rows = %q, want %q (%v)", rows, want, diags)
 		}
 	}
 }
