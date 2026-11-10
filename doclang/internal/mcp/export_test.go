@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -20,9 +21,11 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.ziradocs.com/core/v2/include"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/renderer/chromium"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/doclang/v2/internal/pipeline"
 )
 
 // plainMarkdown no tiene frontmatter: es el caso que T1 dejó funcionando y
@@ -964,6 +967,88 @@ func TestGeneratorLine(t *testing.T) {
 		line, start, end := generatorLine(c.msg)
 		if line != c.line || (line > 0 && c.msg[start:end] != c.span) {
 			t.Errorf("%q: line %d span [%d:%d], want %d %q", c.msg, line, start, end, c.line, c.span)
+		}
+	}
+}
+
+// Un archivo incluido, una o dos veces, deja en el export los mismos
+// diagnósticos que su texto escrito en el documento, con la misma cantidad
+// por línea: dos enlaces javascript: en una línea son dos hallazgos, y dos
+// imágenes que faltan en una línea son dos warnings del generador.
+func TestExport_IncludedKeepsSameLineDiagnostics(t *testing.T) {
+	body := "See [a](javascript:x) and [b](javascript:x) here.\n\n" +
+		"| c | d |\n|---|---|\n| [e](javascript:z) | [f](javascript:z) |\n\n" +
+		"- uno [g](javascript:y)\n- dos [h](javascript:y)\n\n" +
+		"Img ![](a b.png) and ![](a b.png).\n\nFaltan ![](falta.png) y ![](falta.png).\n"
+	head := "# A\n\n"
+	f := newExportFixture(t)
+	f.write(t, "x.md", body)
+	f.write(t, "root.md", head+body)
+	f.write(t, "once.md", head+"@include x.md\n")
+	f.write(t, "twice.md", head+"@include x.md\n\n# B\n\n@include x.md\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+	// summary cuenta los hallazgos del linter por "regla línea:columna
+	// mensaje", con la línea contada desde el comienzo del cuerpo, y los
+	// warnings del generador de las imágenes que faltan.
+	summary := func(path, file string, offset int) (lint map[string]int, missing int) {
+		t.Helper()
+		out := exportOK(t, s, ctx, map[string]any{"path": path, "format": "docx", "overwrite": true})
+		lint = map[string]int{}
+		for _, d := range out.Diagnostics {
+			if d.Source == "generator" {
+				if strings.Contains(d.Message, "falta.png") {
+					missing++
+				}
+				continue
+			}
+			if d.File != file {
+				t.Errorf("%s: diagnostic in %q, want %q: %+v", path, d.File, file, d)
+				continue
+			}
+			lint[fmt.Sprintf("%s %d:%d %s", d.RuleID, d.Position.Line-offset, d.Position.Column, d.Message)]++
+		}
+		return lint, missing
+	}
+	wantLint, wantMissing := summary("root.md", "", strings.Count(head, "\n"))
+	n := 0
+	for _, c := range wantLint {
+		n += c
+	}
+	if n != 8 || wantMissing != 2 {
+		t.Fatalf("the body gives %d lint findings and %d missing-image warnings in the document, want 8 and 2: %v", n, wantMissing, wantLint)
+	}
+	// Los warnings de imagen inline no traen línea, así que no se llevan al
+	// archivo incluido ni se desduplican: dos expansiones dan cuatro.
+	for path, perCopy := range map[string]int{"once.md": 1, "twice.md": 2} {
+		lint, missing := summary(path, "x.md", 0)
+		if fmt.Sprint(lint) != fmt.Sprint(wantLint) || missing != perCopy*wantMissing {
+			t.Errorf("%s: lint %v and %d missing-image warnings, want %v and %d", path, lint, missing, wantLint, perCopy*wantMissing)
+		}
+	}
+}
+
+// generatorDiagnostics conserva dos warnings idénticos con línea de una
+// misma expansión de un archivo incluido, y quita los de otra expansión.
+func TestGeneratorDiagnosticsKeepsSameExpansionCopies(t *testing.T) {
+	dir := t.TempDir()
+	inc := filepath.Join(dir, "x.md")
+	// Contenido expandido: 1-2 del documento, 3-4 de x.md, 5 del documento,
+	// 6-7 de x.md otra vez.
+	sources := include.SourceMap{Lines: []include.Origin{
+		{File: "", Line: 1}, {File: "", Line: 2}, {File: inc, Line: 1}, {File: inc, Line: 2},
+		{File: "", Line: 4}, {File: inc, Line: 1}, {File: inc, Line: 2},
+	}, RootLines: 5}
+	genLog := newDiagnosticLogger(util.NewNoop(), nil)
+	for _, line := range []int{4, 4, 7, 7} {
+		genLog.Warn("DOCX: line %d: image %q not found", line, "falta.png")
+	}
+	got := generatorDiagnostics(genLog, &pipeline.Prepared{Sources: sources, DocDir: dir})
+	if len(got) != 2 {
+		t.Fatalf("want the two warnings of one expansion, got %d: %+v", len(got), got)
+	}
+	for _, d := range got {
+		if d.File != "x.md" || d.Position.Line != 2 || d.Message != `DOCX: x.md:2: image "falta.png" not found` {
+			t.Errorf("warning %q at %s:%d, want x.md:2", d.Message, d.File, d.Position.Line)
 		}
 	}
 }

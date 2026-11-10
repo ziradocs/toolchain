@@ -122,40 +122,70 @@ func sameFile(a, b string) bool {
 }
 
 // MapToSource lleva diags al archivo y la línea que los escribieron
-// (include.SourceMap.MapDiagnostics) y deja una sola vez cada hallazgo
-// repetido de un archivo incluido (DedupeIncluded).
+// (include.SourceMap.MapDiagnostics) y quita las copias que dejó otra
+// expansión del mismo archivo incluido (DedupeIncluded).
 func MapToSource(sources include.SourceMap, diags []diagnostics.Diagnostic, docDir string) []diagnostics.Diagnostic {
-	return DedupeIncluded(sources.MapDiagnostics(diags, docDir))
+	return DedupeIncluded(diags, sources.MapDiagnostics(diags, docDir))
 }
 
-// DedupeIncluded quita de diags, ya llevados a su archivo de origen, las
-// copias idénticas de un hallazgo de un archivo incluido, y conserva la
-// primera en su lugar. Un archivo incluido dos veces se lintea dos veces y
-// sus dos copias caen en el mismo archivo y la misma línea; un hallazgo del
-// documento (File vacío) nunca se toca, porque cada línea del documento
-// aparece una sola vez en el contenido expandido.
-func DedupeIncluded(diags []diagnostics.Diagnostic) []diagnostics.Diagnostic {
+// DedupeIncluded quita de mapped (raw llevado a su archivo de origen, índice
+// por índice, como lo devuelve include.SourceMap.MapDiagnostics) las copias
+// de un hallazgo de un archivo incluido que vienen de otra expansión de ese
+// archivo, y conserva las demás en su orden.
+//
+// Un archivo incluido dos veces se lintea dos veces, y las dos expansiones
+// dan el mismo hallazgo en el mismo archivo y la misma línea. Pero una sola
+// expansión también puede dar varios hallazgos idénticos (dos enlaces
+// javascript: en una línea se reportan con la misma posición y el mismo
+// mensaje), y esos se quedan todos, como en el documento. La expansión se
+// distingue por la línea del contenido expandido (la de raw): una línea de
+// un archivo incluido cae en una línea expandida distinta en cada expansión,
+// también con includes anidados. De cada hallazgo quedan tantas copias como
+// dio la expansión que más dio. Un hallazgo del documento (File vacío) no se
+// toca.
+func DedupeIncluded(raw, mapped []diagnostics.Diagnostic) []diagnostics.Diagnostic {
 	type key struct {
 		d      diagnostics.Diagnostic
 		end    diagnostics.Position
 		hasEnd bool
 	}
-	seen := map[key]bool{}
-	out := diags[:0:0]
-	for _, d := range diags {
-		if d.File == "" {
-			out = append(out, d)
-			continue
-		}
+	keyOf := func(d diagnostics.Diagnostic) key {
 		k := key{d: d}
 		if d.EndPosition != nil {
 			k.end, k.hasEnd = *d.EndPosition, true
 		}
 		k.d.EndPosition = nil
-		if seen[k] {
+		return k
+	}
+	type expansion struct {
+		k    key
+		line int
+	}
+	perExpansion := map[expansion]int{}
+	allowed := map[key]int{}
+	for i, d := range mapped {
+		if d.File == "" {
 			continue
 		}
-		seen[k] = true
+		e := expansion{keyOf(d), i}
+		if i < len(raw) {
+			e.line = raw[i].Position.Line
+		}
+		perExpansion[e]++
+		if perExpansion[e] > allowed[e.k] {
+			allowed[e.k] = perExpansion[e]
+		}
+	}
+	kept := map[key]int{}
+	out := make([]diagnostics.Diagnostic, 0, len(mapped))
+	for _, d := range mapped {
+		if d.File != "" {
+			k := keyOf(d)
+			if kept[k] >= allowed[k] {
+				continue
+			}
+			kept[k]++
+		}
 		out = append(out, d)
 	}
 	return out

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -253,5 +254,30 @@ func TestKeptIncludeDiagnosticsColumn(t *testing.T) {
 		if !strings.Contains(d.Message, `"@include a"`) {
 			t.Errorf("%q: message %q", lines[i], d.Message)
 		}
+	}
+}
+
+// DedupeIncluded deja de cada hallazgo de un archivo incluido tantas copias
+// como dio la expansión que más dio (la expansión es la línea expandida),
+// y no toca los del documento.
+func TestDedupeIncluded(t *testing.T) {
+	at := func(file string, line int, msg string) diagnostics.Diagnostic {
+		d := diagnostics.NewWarning(msg, diagnostics.NewPosition(line, 1), "linter")
+		d.File = file
+		return d
+	}
+	// raw: la línea en el contenido expandido; mapped: la del archivo. b.md
+	// está anidado en a.md, que se incluyó dos veces (expansiones en las
+	// líneas 5 y 12 de b.md:2).
+	raw := []diagnostics.Diagnostic{at("", 5, "x"), at("", 5, "x"), at("", 3, "doc"), at("", 3, "doc"), at("", 12, "x"), at("", 12, "x"), at("", 12, "x"), at("", 9, "y")}
+	mapped := []diagnostics.Diagnostic{at("b.md", 2, "x"), at("b.md", 2, "x"), at("", 3, "doc"), at("", 3, "doc"), at("b.md", 2, "x"), at("b.md", 2, "x"), at("b.md", 2, "x"), at("a.md", 4, "y")}
+	got := DedupeIncluded(raw, mapped)
+	var summary []string
+	for _, d := range got {
+		summary = append(summary, d.File+":"+strconv.Itoa(d.Position.Line)+" "+d.Message)
+	}
+	want := "b.md:2 x|b.md:2 x|:3 doc|:3 doc|b.md:2 x|a.md:4 y"
+	if strings.Join(summary, "|") != want {
+		t.Errorf("DedupeIncluded = %s, want %s", strings.Join(summary, "|"), want)
 	}
 }

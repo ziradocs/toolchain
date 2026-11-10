@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -354,5 +355,80 @@ func TestBuild_IncludedTwiceReportsEachFindingOnce(t *testing.T) {
 	}
 	if n := len(sarif.Runs[0].Results); n != len(want) {
 		t.Errorf("SARIF has %d results, want %d", n, len(want))
+	}
+}
+
+// sameLineFindingsBody tiene hallazgos que comparten regla, línea, columna y
+// mensaje dentro de una sola copia del texto: dos enlaces javascript: en una
+// línea, en una celda, en una lista, y dos imágenes iguales.
+const sameLineFindingsBody = "See [a](javascript:x) and [b](javascript:x) here.\n\n" +
+	"| c | d |\n|---|---|\n| [e](javascript:z) | [f](javascript:z) |\n\n" +
+	"- uno [g](javascript:y)\n- dos [h](javascript:y)\n\n" +
+	"Img ![](a b.png) and ![](a b.png).\n"
+
+// Un archivo incluido, una o dos veces, deja los mismos hallazgos que su
+// texto escrito en el documento, con la misma cantidad por línea: solo se
+// quitan las copias que vienen de otra expansión del mismo archivo.
+func TestBuild_IncludedKeepsSameLineFindings(t *testing.T) {
+	head := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n"
+	headLines := strings.Count(head, "\n")
+	// multiset es "regla línea:columna mensaje" de cada hallazgo, con la
+	// línea contada desde el comienzo del cuerpo.
+	multiset := func(input string, file string, offset int) []string {
+		t.Helper()
+		out := filepath.Join(t.TempDir(), "r.json")
+		runBuild(t, input, "--lint-only", "--report", "json", "--report-out", out)
+		data, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var report struct {
+			Findings []struct {
+				RuleID   string `json:"ruleId"`
+				Message  string `json:"message"`
+				File     string `json:"file"`
+				Position struct {
+					Line   int `json:"line"`
+					Column int `json:"column"`
+				} `json:"position"`
+			} `json:"findings"`
+		}
+		if err := json.Unmarshal(data, &report); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, f := range report.Findings {
+			if f.File != file {
+				t.Errorf("finding in %q, want %q: %+v", f.File, file, f)
+				continue
+			}
+			got = append(got, f.RuleID+" "+strconv.Itoa(f.Position.Line-offset)+":"+strconv.Itoa(f.Position.Column)+" "+f.Message)
+		}
+		sort.Strings(got)
+		return got
+	}
+	// El archivo incluido va junto al documento: los LINK001 de imagen de un
+	// archivo incluido desde un subdirectorio no salen, ni en main (la fuente
+	// se reescribe al directorio del archivo antes del lint).
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "x.doclang"), []byte(sameLineFindingsBody))
+	root := filepath.Join(dir, "root.doclang")
+	writeFile(t, root, []byte(head+sameLineFindingsBody))
+	want := multiset(root, "", headLines)
+	if len(want) != 8 {
+		t.Fatalf("the body gives %d findings in the document, want 8: %v", len(want), want)
+	}
+	for name, body := range map[string]string{
+		"once":  head + "@include x.doclang\n",
+		"twice": head + "@include x.doclang\n\n# B\n\n@include x.doclang\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := filepath.Join(dir, name+".doclang")
+			writeFile(t, input, []byte(body))
+			got := multiset(input, "x.doclang", 0)
+			if strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Errorf("findings:\n%s\nwant (as in the document):\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		})
 	}
 }
