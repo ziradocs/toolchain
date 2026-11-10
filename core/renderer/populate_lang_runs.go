@@ -351,7 +351,10 @@ func extractLangRunsFromMarkdownIn(content string, variables map[string]interfac
 			// validación, no para spans que el pipeline nunca considera válidos.
 			continue
 		}
-		text, tag := marks.text(content[m[2]:m[3]]), content[m[4]:m[5]]
+		// Los escapes de delimitador (`\*`, `\=`, `\~`) se resuelven como en
+		// el HTML, que muestra `x*y` para `[x\*y]{lang=en}`; dentro de un
+		// code span la barra se queda, también como en el HTML.
+		text, tag := unescapeDelimitersOutsideCode(marks.text(content[m[2]:m[3]])), content[m[4]:m[5]]
 		if !a11y.IsValidLangTag(tag) {
 			discarded = append(discarded, ast.LangRun{Text: text, Lang: tag})
 			continue

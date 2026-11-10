@@ -28,17 +28,16 @@ func EscapeHTML(text string) string {
 // UnescapeHTML is the precise inverse of EscapeHTML: decodes exactly the
 // five entities EscapeHTML produces (&amp; &lt; &gt; &quot; &#39;), nothing
 // more — not a general-purpose HTML entity decoder (numeric refs like &#8217;
-// or named ones like &nbsp; pass through unchanged). None of the five target
-// strings is a substring of another, so the replacement order below cannot
-// cause double-decoding.
+// or named ones like &nbsp; pass through unchanged). It decodes in a single
+// left-to-right pass, so what one replacement produces is never decoded
+// again: "&amp;lt;" (an author's literal "&lt;") comes back as "&lt;", not
+// "<". Replacing "&amp;" first in its own pass, as an earlier version did,
+// decoded that text twice.
 func UnescapeHTML(text string) string {
-	text = strings.ReplaceAll(text, "&amp;", "&")
-	text = strings.ReplaceAll(text, "&lt;", "<")
-	text = strings.ReplaceAll(text, "&gt;", ">")
-	text = strings.ReplaceAll(text, "&quot;", "\"")
-	text = strings.ReplaceAll(text, "&#39;", "'")
-	return text
+	return htmlUnescaper.Replace(text)
 }
+
+var htmlUnescaper = strings.NewReplacer("&amp;", "&", "&lt;", "<", "&gt;", ">", "&quot;", "\"", "&#39;", "'")
 
 // EscapeHTMLAttribute escapes text for use in HTML attributes
 // More restrictive than EscapeHTML to prevent attribute injection
@@ -97,15 +96,31 @@ func SanitizeURL(rawURL string) string {
 // hexColorPattern valida colores hex de 3, 4, 6 u 8 dígitos (con o sin alfa).
 var hexColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
 
+// inlineOpenEdge es lo que puede seguir a un delimitador de formato para que
+// abra: cualquier carácter que no sea espacio ASCII ni separador de espacio
+// de Unicode. inlineOpenEdgeNoStar además no es "*": una negrita o cursiva
+// no abre con otro asterisco pegado (`*** b ***` y `** * x` quedan como
+// texto, y en `***Q4**` la negrita abre en el segundo asterisco).
+const (
+	inlineOpenEdge       = `[^\s\p{Zs}]`
+	inlineOpenEdgeNoStar = `[^*\s\p{Zs}]`
+)
+
 // Patrones de ProcessInlineMarkdownFormatsSecure, compilados una sola vez a
 // nivel de paquete en vez de en cada llamada — esta función corre por cada
 // línea de párrafo/lista de todo documento (issue #39, BA-9; se hoistearon
 // los demás casos del normalizer pero se pasó por alto este, el más
 // caliente de todos por frecuencia de llamada).
 var (
-	inlineHighlightPattern     = regexp.MustCompile(`==(.*?)==`)
-	inlineStrikethroughPattern = regexp.MustCompile(`~~(.*?)~~`)
-	inlineBoldItalicPattern    = regexp.MustCompile(`(^|[^*])\*\*\*([^*]|[^*].*?[^*])\*\*\*($|[^*])`)
+	// Un delimitador abre solo si lo sigue algo que no es espacio (ni espacio
+	// de Unicode, como el NBSP) ni el fin de la línea: el primer carácter de
+	// cada captura es inlineOpenEdge. Al cerrar no se exige nada, así que
+	// `**Etiqueta: **valor` sigue siendo negrita y `2 * 3 * 4` o
+	// `a == b == c` quedan como texto. RE2 no tiene lookahead, por eso la
+	// regla va en la captura y no en un carácter de contexto.
+	inlineHighlightPattern     = regexp.MustCompile(`==(` + inlineOpenEdge + `.*?)==`)
+	inlineStrikethroughPattern = regexp.MustCompile(`~~(` + inlineOpenEdge + `.*?)~~`)
+	inlineBoldItalicPattern    = regexp.MustCompile(`(^|[^*])\*\*\*(` + inlineOpenEdgeNoStar + `|` + inlineOpenEdgeNoStar + `.*?[^*])\*\*\*($|[^*])`)
 	// inlineNestedItalicInBoldPattern cubre **texto *anidado*** (negrita que
 	// termina con una cursiva pegada a su cierre, fusionando 1+2 asteriscos
 	// en un run de 3) — un caso DISTINTO de ***texto*** (issue #101, arriba):
@@ -134,9 +149,14 @@ var (
 	// prefijo "[^*]*" no puede saltar por encima de los asteriscos
 	// intermedios y el patrón simplemente no matchea, dejando el
 	// comportamiento previo (ya roto, no empeorado) para ese caso más raro.
-	inlineNestedItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*([^*]*)\*([^*\n]+)\*\*\*($|[^*])`)
-	inlineBoldPattern               = regexp.MustCompile(`\*\*(.*?)\*\*`)
-	inlineItalicPattern             = regexp.MustCompile(`\*([^*\n]+)\*`)
+	inlineNestedItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*((?:` + inlineOpenEdgeNoStar + `[^*]*)?)\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*\*\*($|[^*])`)
+	// inlineLeadingItalicInBoldPattern es inlineNestedItalicInBoldPattern al
+	// revés: ***texto* resto** (una cursiva pegada a la apertura de la
+	// negrita). Igual que ese patrón, cubre una sola cursiva y exige un
+	// carácter de contexto sin "*" a cada lado.
+	inlineLeadingItalicInBoldPattern = regexp.MustCompile(`(^|[^*])\*\*\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*([^*]*)\*\*($|[^*])`)
+	inlineBoldPattern                = regexp.MustCompile(`\*\*(` + inlineOpenEdgeNoStar + `.*?)\*\*`)
+	inlineItalicPattern              = regexp.MustCompile(`\*(` + inlineOpenEdgeNoStar + `[^*\n]*)\*`)
 	// inlineLinkPattern e inlineImagePattern reconocen solo la APERTURA
 	// ("[texto](" / "![alt](") y no el destino: RE2 no puede exigir
 	// paréntesis balanceados, y el patrón completo anterior (`\(([^)]+)\)`)
@@ -589,11 +609,16 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	var destinations []string
 	text, destinations = hideLinkDestinations(text)
 
+	// Una barra invertida antes de un delimitador lo hace literal (ver
+	// escapeInlineDelimiters). Corre con el código y los destinos ya
+	// escondidos, así que ahí la barra se queda como está.
+	text = escapeInlineDelimiters(text)
+
 	// Procesar resaltado ==texto== -> <mark>texto</mark>
-	text = inlineHighlightPattern.ReplaceAllString(text, `<mark>$1</mark>`)
+	text = replaceFormat(inlineHighlightPattern, text, `<mark>$1</mark>`, 1)
 
 	// Procesar tachado ~~texto~~ -> <del>texto</del>
-	text = inlineStrikethroughPattern.ReplaceAllString(text, `<del>$1</del>`)
+	text = replaceFormat(inlineStrikethroughPattern, text, `<del>$1</del>`, 1)
 
 	// Procesar negrita+cursiva ***texto*** -> <strong><em>texto</em></strong>
 	// Debe correr ANTES de negrita/cursiva por separado: de lo contrario
@@ -609,22 +634,29 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// contexto exigido, una racha de 4+ no matchea aquí y cae exactamente al
 	// mismo comportamiento pre-existente (ya en main antes de este fix) que
 	// ya tenían negrita/cursiva para ese caso límite.
-	text = inlineBoldItalicPattern.ReplaceAllString(text, `$1<strong><em>$2</em></strong>$3`)
+	text = replaceFormat(inlineBoldItalicPattern, text, `$1<strong><em>$2</em></strong>$3`, 2)
 
 	// Procesar negrita-con-cursiva-anidada-al-final **texto *anidado*** ->
 	// <strong>texto <em>anidado</em></strong> (issue #173; ver comentario en
 	// la declaración de inlineNestedItalicInBoldPattern). Debe correr ANTES
 	// que negrita genérica, por la misma razón que el patrón de arriba.
-	text = inlineNestedItalicInBoldPattern.ReplaceAllString(text, `$1<strong>$2<em>$3</em></strong>$4`)
+	text = replaceFormat(inlineNestedItalicInBoldPattern, text, `$1<strong>$2<em>$3</em></strong>$4`, 2, 3)
+
+	// La simétrica: una negrita que abre con una cursiva pegada,
+	// ***texto* resto** -> <strong><em>texto</em> resto</strong>. Desde que
+	// una negrita no abre con otro "*" pegado, la negrita genérica de abajo
+	// abría en el segundo asterisco y la cursiva cerraba cruzándose
+	// (<em><strong>texto</em> resto</strong>).
+	text = replaceFormat(inlineLeadingItalicInBoldPattern, text, `$1<strong><em>$2</em>$3</strong>$4`, 2, 3)
 
 	// Procesar negritas **texto** -> <strong>texto</strong>
-	text = inlineBoldPattern.ReplaceAllString(text, `<strong>$1</strong>`)
+	text = replaceFormat(inlineBoldPattern, text, `<strong>$1</strong>`, 1)
 
 	// Procesar cursivas *texto* -> <em>texto</em>
 	// La captura exige contenido no vacío y sin '*': un "**" residual (p.ej.
 	// una negrita sin cerrar que el regex de arriba no consumió) no debe
 	// producir un <em></em> vacío en el HTML generado (issue #12e1).
-	text = inlineItalicPattern.ReplaceAllString(text, `<em>$1</em>`)
+	text = replaceFormat(inlineItalicPattern, text, `<em>$1</em>`, 1)
 
 	// Procesar spans con clase [contenido]{.token} -> tag fijo de la allowlist.
 	// Corre DESPUÉS de negrita/cursiva/código (para que el contenido interno ya
@@ -790,6 +822,10 @@ func processInlineFormats(text string, record func(InlineLink)) string {
 	// texto plano y el href pasó por SanitizeURL).
 	text = emitted.expand(text)
 
+	// Los delimitadores escapados vuelven como su carácter, también dentro de
+	// un alt o del texto de un enlace. Ya no corre ninguna pasada de formato.
+	text = escapedDelimiterRestorer.Replace(text)
+
 	// Restaurar los centinelas de código al final, ya con <code>...</code> —
 	// ver el comentario de esta función sobre por qué código se protege
 	// primero. SOLO la forma cruda "<zdcN/>" (advisor follow-up + code-review
@@ -952,6 +988,128 @@ func hideLinkDestinations(text string) (string, []string) {
 	}
 	b.WriteString(text[last:])
 	return b.String(), hidden
+}
+
+// replaceFormat es re.ReplaceAllString(text, template) para una pasada de
+// formato, salvo que un match cuyo contenido (los grupos de content) no está
+// bien anidado se deja como está. Envolver un tramo que corta una etiqueta ya
+// emitida por una pasada anterior (como `<strong>a` o `a</strong>`) es lo
+// único que puede cruzar etiquetas, así que con esta guarda el HTML de salida
+// queda siempre bien anidado: el delimitador se ve como texto en vez de
+// producir <em><strong>a</em></strong>.
+func replaceFormat(re *regexp.Regexp, text, template string, content ...int) string {
+	locs := re.FindAllStringSubmatchIndex(text, -1)
+	if locs == nil {
+		return text
+	}
+	var b strings.Builder
+	last := 0
+	for _, loc := range locs {
+		balanced := true
+		for _, g := range content {
+			if loc[2*g] >= 0 && !htmlTagsWellNested(text[loc[2*g]:loc[2*g+1]]) {
+				balanced = false
+				break
+			}
+		}
+		b.WriteString(text[last:loc[0]])
+		if balanced {
+			b.Write(re.ExpandString(nil, template, text, loc))
+		} else {
+			b.WriteString(text[loc[0]:loc[1]])
+		}
+		last = loc[1]
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+// escapedDelimiters son los caracteres que una barra invertida hace
+// literales y la referencia de carácter que los representa mientras corren
+// las pasadas de formato. Ninguna pasada reconoce una referencia de carácter
+// como delimitador, y el texto llega escapado (un "&#42;" del autor ya es
+// "&amp;#42;"), así que al restaurar solo aparecen las que puso
+// escapeInlineDelimiters.
+var escapedDelimiters = map[byte]string{'*': "&#42;", '=': "&#61;", '~': "&#126;"}
+
+var escapedDelimiterRestorer = strings.NewReplacer("&#42;", "*", "&#61;", "=", "&#126;", "~")
+
+// escapeInlineDelimiters cambia `\*`, `\=` y `\~` por la referencia de
+// carácter de ese delimitador, sin la barra: el carácter se ve pero no abre
+// ni cierra formato. Solo los delimitadores de formato de este dialecto: `_`
+// no es cursiva aquí, así que `\_` (y `C:\Users\_tmp`) se deja como está. `\\` es una barra escrita a mano y se deja tal cual,
+// junto con el carácter que la sigue; cualquier otra barra también. El
+// acento grave no está: cambiar qué backticks forman un code span tocaría
+// los espejos que emparejan code spans (findCodeSpans, literalCodeRanges,
+// las tablas y el formatter).
+func escapeInlineDelimiters(text string) string {
+	if !strings.Contains(text, `\`) {
+		return text
+	}
+	var b strings.Builder
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c != '\\' || i+1 >= len(text) {
+			b.WriteByte(c)
+			continue
+		}
+		next := text[i+1]
+		if ref, ok := escapedDelimiters[next]; ok {
+			b.WriteString(ref)
+			i++
+			continue
+		}
+		if next == '\\' {
+			b.WriteString(`\\`)
+			i++
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+// unescapeDelimitersOutsideCode quita la barra de `\*`, `\=` y `\~` en un
+// texto fuente (no HTML), salvo dentro de sus code spans, con la misma
+// lectura que escapeInlineDelimiters: `\\` se deja junto con el carácter que
+// la sigue y cualquier otra barra también. Lo usa el Text de un LangRun, que
+// sale de la fuente y no del HTML.
+func unescapeDelimitersOutsideCode(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	last := 0
+	for _, sp := range findCodeSpans(s) {
+		b.WriteString(unescapeDelimiters(s[last:sp.fullStart]))
+		b.WriteString(s[sp.fullStart:sp.fullEnd])
+		last = sp.fullEnd
+	}
+	b.WriteString(unescapeDelimiters(s[last:]))
+	return b.String()
+}
+
+func unescapeDelimiters(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			if _, ok := escapedDelimiters[s[i+1]]; ok {
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			}
+			if s[i+1] == '\\' {
+				b.WriteString(`\\`)
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // restoreLinkDestinations deshace hideLinkDestinations.

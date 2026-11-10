@@ -90,3 +90,29 @@ func TestPPTXTextContent(t *testing.T) {
 		})
 	}
 }
+
+// Un encabezado `###` cuyo texto trae una entidad escrita a mano
+// (`&lt;br&gt;`, que el HTML guarda como `&amp;lt;br&amp;gt;`) llega al PPTX
+// como ese texto, no como `<br>`: las entidades se deshacen una sola vez.
+func TestPPTXTextContent_DecodesEntitiesOnce(t *testing.T) {
+	el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h3 id="x">usa &amp;lt;br&amp;gt; y &amp;quot;</h3>`)
+	if got, want := pptxTextContent(el), "### usa &lt;br&gt; y &quot;"; got != want {
+		t.Errorf("pptxTextContent = %q, want %q", got, want)
+	}
+}
+
+// Un `*` literal de un encabezado (escrito `\*` en la fuente) vuelve a la
+// fuente escapado: si no, pptxApplyInline lo leería como cursiva y el PPTX
+// diría algo distinto del HTML.
+func TestPPTXTextContent_KeepsLiteralDelimitersLiteral(t *testing.T) {
+	el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h3 id="x">Sub *h* <strong>b</strong> a==b <code>c*d</code></h3>`)
+	got := pptxTextContent(el)
+	if want := "### Sub \\*h\\* **b** a\\=\\=b `c*d`"; got != want {
+		t.Errorf("pptxTextContent = %q, want %q", got, want)
+	}
+	for _, seg := range pptxSplitInline(got) {
+		if seg.italic {
+			t.Errorf("literal asterisks became italic: %+v", pptxSplitInline(got))
+		}
+	}
+}

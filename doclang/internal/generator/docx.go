@@ -2012,7 +2012,11 @@ func docxScanCodeSpans(content string) func(from int) []int {
 func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// **bold** - negrita
-		regex:    regexp.MustCompile(`\*\*([^*]+)\*\*`),
+		// Misma regla que core (inlineOpenEdgeNoStar en
+		// core/renderer/sanitizer.go): abre solo si lo sigue algo que no es
+		// espacio, separador de Unicode ni "*"; al cerrar no se exige nada.
+		// Ver TestDOCXInline_MatchesCoreDelimiterTable.
+		regex:    regexp.MustCompile(`\*\*([^*\s\p{Zs}][^*]*)\*\*`),
 		emphasis: true,
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
@@ -2029,7 +2033,8 @@ func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// *italic* - cursiva
-		regex:    regexp.MustCompile(`\*([^*]+)\*`),
+		// Misma regla de apertura que la negrita, de arriba.
+		regex:    regexp.MustCompile(`\*([^*\s\p{Zs}][^*]*)\*`),
 		emphasis: true,
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
@@ -2480,7 +2485,7 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 		if err != nil {
 			return err
 		}
-		_ = r.SetText(content[seg.start:seg.end])
+		_ = r.SetText(docxUnescapeDelimiters(content[seg.start:seg.end]))
 		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 			return err
 		}
@@ -2493,6 +2498,59 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 		}
 	}
 	return nil
+}
+
+// docxMaskEscapes devuelve s, del mismo largo, con el carácter de cada escape
+// de delimitador (`\*`, `\=`, `\~`) cambiado por un byte de control que
+// ningún patrón reconoce: ahí se buscan la negrita y la cursiva, y el texto
+// de cada run sigue saliendo de s. Es la regla de core
+// (escapeInlineDelimiters en core/renderer/sanitizer.go): `\\` es una barra
+// escrita a mano y se deja con el carácter que la sigue, y `\_` no es un
+// escape porque `_` no es delimitador en este dialecto.
+func docxMaskEscapes(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	b := []byte(s)
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] != '\\' {
+			continue
+		}
+		switch b[i+1] {
+		case '*', '=', '~':
+			b[i+1] = 0x1a
+			i++
+		case '\\':
+			i++
+		}
+	}
+	return string(b)
+}
+
+// docxUnescapeDelimiters quita la barra de cada escape de delimitador en el
+// texto de una run de relleno, con la misma lectura que docxMaskEscapes. Un
+// code span no pasa por acá: ahí la barra se ve, como en el HTML.
+func docxUnescapeDelimiters(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '*', '=', '~':
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			case '\\':
+				b.WriteString(`\\`)
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // docxInlineSegment es un tramo de content: texto de relleno (pattern -1) o
@@ -2517,7 +2575,7 @@ type docxInlineSegment struct {
 // match desde una posición anterior que empieza en esta o después es también
 // el primero desde esta, y si desde antes no había ninguno, tampoco ahora.
 func docxInlineSegments(content string, patterns []docxInlinePattern) []docxInlineSegment {
-	masked := docxMaskLinkDestinations(content)
+	masked := docxMaskEscapes(docxMaskLinkDestinations(content))
 	type cursor struct {
 		next   func(from int) []int
 		loc    []int
@@ -2741,7 +2799,7 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 		if err != nil {
 			continue
 		}
-		_ = r.SetText(header)
+		_ = r.SetText(docxUnescapeDelimiters(header))
 		_ = r.SetBold(true)
 		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 			continue

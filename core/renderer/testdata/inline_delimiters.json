@@ -1,0 +1,185 @@
+{
+ "_comment": "Tabla compartida de la regla de delimitadores inline: un delimitador abre solo si no lo sigue un espacio ni el fin de línea; al cerrar no se exige nada. La leen las pruebas de core (HTML), slidelang (PPTX) y doclang (DOCX), que compilan contra el core publicado y por eso comparan contra esta tabla y no contra la salida de core. html es la salida de ProcessInlineMarkdownSecureLine. Las filas kind=escape cubren los escapes con barra invertida (\\*, \\=, \\~).",
+ "cases": [
+  {
+   "src": "Costo 2 * 3 * 4",
+   "html": "Costo 2 * 3 * 4",
+   "kind": "acceptance"
+  },
+  {
+   "src": "a == b == c ==hl==",
+   "html": "a == b == c <mark>hl</mark>",
+   "kind": "acceptance"
+  },
+  {
+   "src": "**Etiqueta: **valor",
+   "html": "<strong>Etiqueta: </strong>valor",
+   "kind": "acceptance"
+  },
+  {
+   "src": "**negrita **",
+   "html": "<strong>negrita </strong>",
+   "kind": "acceptance"
+  },
+  {
+   "src": "*cursiva *",
+   "html": "<em>cursiva </em>",
+   "kind": "acceptance"
+  },
+  {
+   "src": "** negrita**",
+   "html": "** negrita**",
+   "kind": "acceptance"
+  },
+  {
+   "src": "== resaltado ==",
+   "html": "== resaltado ==",
+   "kind": "acceptance"
+  },
+  {
+   "src": "~~ tachado ~~",
+   "html": "~~ tachado ~~",
+   "kind": "acceptance"
+  },
+  {
+   "src": "x **y** z",
+   "html": "x <strong>y</strong> z",
+   "kind": "acceptance"
+  },
+  {
+   "src": "a*b*c",
+   "html": "a<em>b</em>c",
+   "kind": "acceptance"
+  },
+  {
+   "src": "*dos palabras*",
+   "html": "<em>dos palabras</em>",
+   "kind": "acceptance"
+  },
+  {
+   "src": "***Q4 FCF**",
+   "html": "*<strong>Q4 FCF</strong>",
+   "kind": "edge"
+  },
+  {
+   "src": "a *b * c",
+   "html": "a <em>b </em> c",
+   "kind": "edge"
+  },
+  {
+   "src": "5 *3 * 2",
+   "html": "5 <em>3 </em> 2",
+   "kind": "edge"
+  },
+  {
+   "src": "**a** * **b**",
+   "html": "<strong>a</strong> * <strong>b</strong>",
+   "kind": "edge"
+  },
+  {
+   "src": "nota*",
+   "html": "nota*",
+   "kind": "edge"
+  },
+  {
+   "src": "fin *",
+   "html": "fin *",
+   "kind": "edge"
+  },
+  {
+   "src": "* item suelto",
+   "html": "* item suelto",
+   "kind": "edge"
+  },
+  {
+   "src": "*** b ***",
+   "html": "*** b ***",
+   "kind": "edge"
+  },
+  {
+   "src": "** x**",
+   "html": "** x**",
+   "kind": "edge"
+  },
+  {
+   "src": "***ambos***",
+   "html": "<strong><em>ambos</em></strong>",
+   "kind": "regression"
+  },
+  {
+   "src": "**texto *anidado***",
+   "html": "<strong>texto <em>anidado</em></strong>",
+   "kind": "regression"
+  },
+  {
+   "src": "~~viejo~~",
+   "html": "<del>viejo</del>",
+   "kind": "regression"
+  },
+  {
+   "src": "==dato==",
+   "html": "<mark>dato</mark>",
+   "kind": "regression"
+  },
+  {
+   "src": "Costo 2 * 3 y **18%** más",
+   "html": "Costo 2 * 3 y <strong>18%</strong> más",
+   "kind": "regression"
+  },
+  {
+   "src": "\\*escapado\\*",
+   "html": "*escapado*",
+   "kind": "escape"
+  },
+  {
+   "src": "\\*\\*no\\*\\*",
+   "html": "**no**",
+   "kind": "escape"
+  },
+  {
+   "src": "\\=\\=x\\=\\=",
+   "html": "==x==",
+   "kind": "escape"
+  },
+  {
+   "src": "\\~\\~x\\~\\~",
+   "html": "~~x~~",
+   "kind": "escape"
+  },
+  {
+   "src": "\\* nota y **real**",
+   "html": "* nota y <strong>real</strong>",
+   "kind": "escape"
+  },
+  {
+   "src": "\\\\*x*",
+   "html": "\\\\<em>x</em>",
+   "kind": "escape"
+  },
+  {
+   "src": "snake\\_case y C:\\Users\\_tmp",
+   "html": "snake\\_case y C:\\Users\\_tmp",
+   "kind": "escape"
+  },
+  {
+   "src": "***X* Y**",
+   "html": "<strong><em>X</em> Y</strong>",
+   "kind": "regression"
+  },
+  {
+   "src": "***Nota:* texto**",
+   "html": "<strong><em>Nota:</em> texto</strong>",
+   "kind": "regression"
+  },
+  {
+   "src": "***X** Y*",
+   "html": "<em><strong>X</strong> Y</em>",
+   "kind": "regression"
+  },
+  {
+   "src": "***X***",
+   "html": "<strong><em>X</em></strong>",
+   "kind": "regression"
+  }
+ ]
+}
