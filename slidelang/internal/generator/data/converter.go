@@ -5,6 +5,7 @@ package data
 
 import (
 	"fmt"
+	"html"
 	htmltemplate "html/template"
 	"net/url"
 	"path/filepath"
@@ -23,6 +24,58 @@ import (
 func ProcessVariables(text string, variables map[string]interface{}) string {
 	return renderer.ProcessVariables(text, variables)
 }
+
+// slideHeaderLine devuelve un campo de una línea del encabezado del slide
+// (title, heading, subtitle, kicker) como texto plano y como HTML inline.
+//
+// El HTML es el Markdown inline de una línea con las {{variables}} ya
+// sustituidas y todo saneado: ProcessInlineMarkdownSecureLine sobre
+// ProcessVariables, el mismo orden que un encabezado `##`. Es la misma
+// composición que renderer.BlockTitleHTML usa para el titleHTML del AST sin
+// código literal (lo fija TestBlockTitleHTML_MatchesSlidelangComposition en
+// core); se arma acá con funciones que ya existen en el core fijado para que
+// slidelang compile igual con y sin el workspace.
+//
+// El texto plano es ese HTML sin etiquetas y con las entidades deshechas: lo
+// que va en `data-slide-title` y en el índice del JSON embebido, donde las
+// marcas `**` o una etiqueta no significan nada. html/template lo escapa al
+// escribirlo.
+func slideHeaderLine(text string, variables map[string]interface{}) (string, htmltemplate.HTML) {
+	if text == "" {
+		return "", ""
+	}
+	inline := renderer.ProcessInlineMarkdownSecureLine(ProcessVariables(text, variables))
+	return inlineHTMLText(inline), htmltemplate.HTML(inline)
+}
+
+// inlineTagPattern empareja una etiqueta del HTML inline saneado. Ahí un ">"
+// dentro de un atributo siempre sale escapado (EscapeHTMLAttribute), así que
+// una etiqueta termina en el primer ">".
+var inlineTagPattern = regexp.MustCompile(`<[^>]*>`)
+
+// inlineHTMLText convierte HTML inline saneado a su texto visible. Las
+// entidades se deshacen en una sola pasada (html.UnescapeString), como las
+// lee el navegador: renderer.UnescapeHTML reemplaza `&amp;` antes que las
+// demás y convertía en `<br>` un `&lt;br&gt;` que el autor escribió como
+// texto. Una imagen inline aporta su alt, igual que la lee un lector de
+// pantalla, para que un título que es solo una imagen no quede vacío.
+func inlineHTMLText(s string) string {
+	s = inlineImgPattern.ReplaceAllStringFunc(s, func(tag string) string {
+		if m := inlineImgAltPattern.FindStringSubmatch(tag); m != nil {
+			return m[1]
+		}
+		return ""
+	})
+	return html.UnescapeString(inlineTagPattern.ReplaceAllString(s, ""))
+}
+
+// inlineImgPattern empareja un <img> del HTML inline saneado e
+// inlineImgAltPattern su alt, que sale escapado (sin comillas sueltas
+// adentro), así que termina en la siguiente comilla.
+var (
+	inlineImgPattern    = regexp.MustCompile(`<img\b[^>]*>`)
+	inlineImgAltPattern = regexp.MustCompile(`\salt="([^"]*)"`)
+)
 
 // BuildVariables ensambla el mapa de sustitución {{variable}} a partir del
 // FrontMatter de un AST: los built-ins documentados title/author/date/theme,
@@ -299,13 +352,21 @@ func PrepareTemplateDataWithOptions(astNode *ast.AST, themeName string, opts Tem
 		// Extraer presenter notes de los elementos
 		notes := extractPresenterNotes(slide.Elements, variables)
 
+		title, titleHTML := slideHeaderLine(slide.Title, variables)
+		heading, headingHTML := slideHeaderLine(slide.Heading, variables)
+		subtitle, subtitleHTML := slideHeaderLine(slide.Subtitle, variables)
+		kicker, kickerHTML := slideHeaderLine(slide.Kicker, variables)
 		slideData := SlideData{
-			Type:  slide.BlockType,
-			Title: ProcessVariables(slide.Title, variables),
+			Type:      slide.BlockType,
+			Title:     title,
+			TitleHTML: titleHTML,
 			// Propiedades específicas para slides tipo "title"
-			Heading:           ProcessVariables(slide.Heading, variables),
-			Subtitle:          ProcessVariables(slide.Subtitle, variables),
-			Kicker:            ProcessVariables(slide.Kicker, variables),
+			Heading:           heading,
+			HeadingHTML:       headingHTML,
+			Subtitle:          subtitle,
+			SubtitleHTML:      subtitleHTML,
+			Kicker:            kicker,
+			KickerHTML:        kickerHTML,
 			Logo:              slide.Logo,
 			IsTitle:           config.IsSlideTitle(slide.BlockType),
 			IsContent:         config.IsSlideContent(slide.BlockType),

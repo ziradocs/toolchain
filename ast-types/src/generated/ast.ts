@@ -490,21 +490,21 @@ export interface WatermarkConfig {
 export interface ContentBlock extends BaseNode {
   blockType?: string; // "title", "content", "section", etc.
   title?: string;
-  titleHTML?: string; // Title con {{variables}} sustituidas y escapadas (sin markdown)
+  titleHTML?: string; // Title con {{variables}} sustituidas y Markdown inline de una línea, saneado (renderer.BlockTitleHTML); en doclang, texto plano escapado
   /**
    * Propiedades específicas para bloques tipo "title" (usado en presentaciones)
    */
   heading?: string;
-  headingHTML?: string; // Heading con {{variables}} sustituidas y escapadas (sin markdown)
+  headingHTML?: string; // Heading: mismo tratamiento que TitleHTML
   subtitle?: string;
-  subtitleHTML?: string; // Subtitle con {{variables}} sustituidas y escapadas (sin markdown)
+  subtitleHTML?: string; // Subtitle: mismo tratamiento que TitleHTML
   /**
    * Kicker es el antetítulo breve que contextualiza un slide y se renderiza
    * antes del título. No es un heading adicional: el h1 sigue siendo Title o
    * Heading según el tipo de slide (issue #348).
    */
   kicker?: string;
-  kickerHTML?: string;
+  kickerHTML?: string; // Kicker: mismo tratamiento que TitleHTML
   logo?: string;
   /**
    * Elements está en orden de documento, y ese orden ES el contrato de

@@ -324,14 +324,29 @@ func TestLiteralCode_SectionTitles(t *testing.T) {
 			t.Errorf("literal=%v: the TOC entry must link to the h1 id %q", literal, h1[1])
 		}
 
+		// El <h1> de doclang escribe el título escapado, sin Markdown; doclang
+		// pobla el AST con PlainBlockTitles para que TitleHTML lo describa.
 		doc = build()
-		PopulateInlineHTMLWithOptions(doc, vars, InlineHTMLOptions{LiteralCode: literal})
+		PopulateInlineHTMLWithOptions(doc, vars, InlineHTMLOptions{LiteralCode: literal, PlainBlockTitles: true})
 		wantTitle, wantHeading := "Uno X `X`", "Portada X `X`"
 		if literal {
 			wantTitle, wantHeading = "Uno X `{{title}}`", "Portada X `{{title}}`"
 		}
 		if doc.ContentBlocks[1].TitleHTML != wantTitle || doc.ContentBlocks[0].HeadingHTML != wantHeading {
 			t.Errorf("literal=%v: TitleHTML %q HeadingHTML %q", literal, doc.ContentBlocks[1].TitleHTML, doc.ContentBlocks[0].HeadingHTML)
+		}
+
+		// Sin PlainBlockTitles (slidelang) el título lleva el Markdown de una
+		// línea, y la opción de código literal sigue decidiendo qué se
+		// sustituye dentro del code span.
+		doc = build()
+		PopulateInlineHTMLWithOptions(doc, vars, InlineHTMLOptions{LiteralCode: literal})
+		wantTitle, wantHeading = "Uno X <code>X</code>", "Portada X <code>X</code>"
+		if literal {
+			wantTitle, wantHeading = "Uno X <code>{{title}}</code>", "Portada X <code>{{title}}</code>"
+		}
+		if doc.ContentBlocks[1].TitleHTML != wantTitle || doc.ContentBlocks[0].HeadingHTML != wantHeading {
+			t.Errorf("literal=%v, slide titles: TitleHTML %q HeadingHTML %q", literal, doc.ContentBlocks[1].TitleHTML, doc.ContentBlocks[0].HeadingHTML)
 		}
 	}
 }

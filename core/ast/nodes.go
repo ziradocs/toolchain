@@ -306,17 +306,17 @@ type ContentBlock struct {
 	// un layout (LastSlideClosingRule) no deben pisar uno declarado.
 	LayoutDeclared bool   `json:"-" tstype:"-"`
 	Title          string `json:"title,omitempty"`
-	TitleHTML      string `json:"titleHTML,omitempty"` // Title con {{variables}} sustituidas y escapadas (sin markdown)
+	TitleHTML      string `json:"titleHTML,omitempty"` // Title con {{variables}} sustituidas y Markdown inline de una línea, saneado (renderer.BlockTitleHTML); en doclang, texto plano escapado
 	// Propiedades específicas para bloques tipo "title" (usado en presentaciones)
 	Heading      string `json:"heading,omitempty"`
-	HeadingHTML  string `json:"headingHTML,omitempty"` // Heading con {{variables}} sustituidas y escapadas (sin markdown)
+	HeadingHTML  string `json:"headingHTML,omitempty"` // Heading: mismo tratamiento que TitleHTML
 	Subtitle     string `json:"subtitle,omitempty"`
-	SubtitleHTML string `json:"subtitleHTML,omitempty"` // Subtitle con {{variables}} sustituidas y escapadas (sin markdown)
+	SubtitleHTML string `json:"subtitleHTML,omitempty"` // Subtitle: mismo tratamiento que TitleHTML
 	// Kicker es el antetítulo breve que contextualiza un slide y se renderiza
 	// antes del título. No es un heading adicional: el h1 sigue siendo Title o
 	// Heading según el tipo de slide (issue #348).
 	Kicker     string `json:"kicker,omitempty"`
-	KickerHTML string `json:"kickerHTML,omitempty"`
+	KickerHTML string `json:"kickerHTML,omitempty"` // Kicker: mismo tratamiento que TitleHTML
 	Logo       string `json:"logo,omitempty"`
 	// Elements está en orden de documento, y ese orden ES el contrato de
 	// lectura/presentación (issue #62): todo renderer del repo (HTML, DOCX,

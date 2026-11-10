@@ -6,8 +6,9 @@ package renderer
 import "go.ziradocs.com/core/v2/ast"
 
 // PopulateInlineHTML rellena los campos "*HTML" de un AST completo (issue
-// #64): title/heading/subtitle de cada ContentBlock y el contenido de prosa
-// de cada elemento. Reusa, campo por campo, las mismas funciones de
+// #64): title/heading/subtitle/kicker de cada ContentBlock (con el Markdown
+// inline de una línea, ver BlockTitleHTML) y el contenido de prosa de cada
+// elemento. Reusa, campo por campo, las mismas funciones de
 // sanitización/markdown que RenderElementToHTML — esa es la fuente única de
 // verdad del dialecto inline, así que el HTML resultante es idéntico al que
 // produce --format html para el mismo elemento. Es aditivo (no toca los
@@ -27,6 +28,22 @@ type InlineHTMLOptions struct {
 	// contentHTML de get_ast no describe el HTML. doclang las activa;
 	// slidelang no.
 	LiteralCode bool
+	// PlainBlockTitles deja title/heading/subtitle/kicker de cada
+	// ContentBlock como texto plano: {{variables}} sustituidas y todo
+	// escapado, sin Markdown. Es lo que pinta doclang, que escribe el título
+	// de una sección escapado en el <h1>, el TOC y el anchor; doclang la
+	// activa para que su titleHTML describa ese HTML. Sin la opción esos
+	// campos llevan el Markdown inline de una línea, como un encabezado `##`:
+	// es lo que pinta slidelang en el encabezado de un slide.
+	PlainBlockTitles bool
+}
+
+// SetPlainBlockTitles fija PlainBlockTitles. Existe para que un CLI que
+// compila contra un core publicado sin el campo lo pida por interfaz
+// (interface{ SetPlainBlockTitles(bool) }) sin dejar de compilar, igual que
+// RenderContext.SetLiteralCode.
+func (o *InlineHTMLOptions) SetPlainBlockTitles(plain bool) {
+	o.PlainBlockTitles = plain
 }
 
 // PopulateInlineHTMLWithOptions es PopulateInlineHTML con opciones.
@@ -37,16 +54,37 @@ func PopulateInlineHTMLWithOptions(doc *ast.AST, variables map[string]interface{
 	if opts.LiteralCode {
 		variables = withLiteralCode(variables)
 	}
+	blockLine := BlockTitleHTML
+	if opts.PlainBlockTitles {
+		blockLine = proseLineVariablesSecure
+	}
 	for i := range doc.ContentBlocks {
-		populateContentBlockHTML(&doc.ContentBlocks[i], variables)
+		populateContentBlockHTML(&doc.ContentBlocks[i], variables, blockLine)
 	}
 }
 
-func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]interface{}) {
-	block.TitleHTML = proseLineVariablesSecure(block.Title, variables)
-	block.HeadingHTML = proseLineVariablesSecure(block.Heading, variables)
-	block.SubtitleHTML = proseLineVariablesSecure(block.Subtitle, variables)
-	block.KickerHTML = proseLineVariablesSecure(block.Kicker, variables)
+// BlockTitleHTML es el HTML inline de un campo de una línea del encabezado de
+// un slide (title, heading, subtitle, kicker): las {{variables}} se sustituyen
+// en la fuente y después corre el Markdown inline de una línea
+// (ProcessInlineMarkdownSecureLine), en el mismo orden que un encabezado `##`
+// (HeadingElement.TextHTML). Un "- " o un "1. " al principio no abre una
+// lista y nunca sale HTML de bloque, porque va dentro de un <h1> o un <p>.
+// Sin la opción de código literal es exactamente
+// ProcessInlineMarkdownSecureLine(ProcessVariables(text, variables)), que es
+// lo que slidelang pinta en el encabezado del slide.
+func BlockTitleHTML(text string, variables map[string]interface{}) string {
+	if text == "" {
+		return ""
+	}
+	source, marks := proseLineMarkdownVariables(text, variables)
+	return marks.html(ProcessInlineMarkdownSecureLine(source))
+}
+
+func populateContentBlockHTML(block *ast.ContentBlock, variables map[string]interface{}, blockLine func(string, map[string]interface{}) string) {
+	block.TitleHTML = blockLine(block.Title, variables)
+	block.HeadingHTML = blockLine(block.Heading, variables)
+	block.SubtitleHTML = blockLine(block.Subtitle, variables)
+	block.KickerHTML = blockLine(block.Kicker, variables)
 	for _, elem := range block.Elements {
 		populateElementHTML(elem, variables)
 	}

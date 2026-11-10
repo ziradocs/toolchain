@@ -236,16 +236,24 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 		}
 	}
 	if heading != "" {
-		s.Title(heading)
+		// El título lleva el formato inline como runs, igual que el <h1> del
+		// HTML; s.Title(texto) lo escribiría con los asteriscos a la vista.
+		// Es el mismo placeholder que elige s.Title: ctrTitle en
+		// LayoutTitleSlide, title en el resto.
+		titleType := pptx.PlaceholderTitle
+		if isTitleBlock {
+			titleType = pptx.PlaceholderCtrTitle
+		}
+		pptxApplyInline(s.AddPlaceholder(titleType, 0).AddParagraph(), heading)
 	}
 
 	cursorY := pptxContentTopEMU
 	if isTitleBlock {
 		if block.Kicker != "" {
-			pptxAddHeaderLine(s, block.Kicker, 640080, 16)
+			pptxAddHeaderLineInline(s, block.Kicker, 640080, 16)
 		}
 		if block.Subtitle != "" {
-			s.AddPlaceholder(pptx.PlaceholderSubTitle, 1).AddParagraph().Text(block.Subtitle)
+			pptxApplyInline(s.AddPlaceholder(pptx.PlaceholderSubTitle, 1).AddParagraph(), block.Subtitle)
 		}
 		// LayoutTitleSlide solo declara ctrTitle+subTitle (sin body) — Elements
 		// extra en un bloque "title" (el linter los desaconseja, no los prohíbe)
@@ -254,10 +262,10 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 		cursorY = pptxTitleSlideBodyTop
 	} else {
 		if block.Kicker != "" {
-			pptxAddHeaderLine(s, block.Kicker, 274320, 13)
+			pptxAddHeaderLineInline(s, block.Kicker, 274320, 13)
 		}
 		if block.Subtitle != "" {
-			pptxAddHeaderLine(s, block.Subtitle, 1371600, 16)
+			pptxAddHeaderLineInline(s, block.Subtitle, 1371600, 16)
 			cursorY += pptxLineHeightEMU
 		}
 	}
@@ -341,6 +349,18 @@ func pptxAddHeaderLine(s *pptx.Slide, text string, y int, size float64) {
 	}
 	tb := s.AddTextBox(pptxMarginEMU, y, pptxContentWidthEMU, pptxLineHeightEMU)
 	tb.AddParagraph().Text(text).FontSize(size)
+}
+
+// pptxAddHeaderLineInline es pptxAddHeaderLine para un campo del encabezado
+// del slide (kicker, subtítulo), que lleva formato inline como el título: el
+// Markdown sale como runs y no con sus marcas a la vista. El caption de una
+// imagen bleed sigue en pptxAddHeaderLine porque es texto plano.
+func pptxAddHeaderLineInline(s *pptx.Slide, text string, y int, size float64) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	tb := s.AddTextBox(pptxMarginEMU, y, pptxContentWidthEMU, pptxLineHeightEMU)
+	pptxApplyInlineBase(tb.AddParagraph(), text, false, size)
 }
 
 // pptxAddWatermark dibuja rw como una única marca centrada, rotada,
@@ -1033,7 +1053,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 // pptxSplitInline, y un `*italic*` dentro de un bullet se veía literal en el
 // .pptx generado en vez de en cursiva).
 func pptxApplyInline(para *pptx.Paragraph, content string) {
-	pptxApplyInlineBase(para, content, false)
+	pptxApplyInlineBase(para, content, false, 0)
 }
 
 // pptxApplyInlineBase es pptxApplyInline con un estilo base que se aplica a
@@ -1041,8 +1061,10 @@ func pptxApplyInline(para *pptx.Paragraph, content string) {
 // para QuoteElement: una cita debe verse en cursiva completa, y no basta con
 // llamar para.Italic() después de pptxApplyInline porque Paragraph.Text()
 // reinicia curRuns en cada llamada — el Italic() final solo alcanzaría al
-// último segmento. El estilo tiene que entrar por segmento, acá.
-func pptxApplyInlineBase(para *pptx.Paragraph, content string, baseItalic bool) {
+// último segmento. El estilo tiene que entrar por segmento, acá. baseSize,
+// si no es 0, es el tamaño de cada segmento que no traiga uno propio (el
+// kicker y el subtítulo de un slide de contenido), por la misma razón.
+func pptxApplyInlineBase(para *pptx.Paragraph, content string, baseItalic bool, baseSize float64) {
 	for _, seg := range pptxSplitInline(content) {
 		para.Text(seg.text)
 		if seg.bold {
@@ -1062,6 +1084,8 @@ func pptxApplyInlineBase(para *pptx.Paragraph, content string, baseItalic bool) 
 		}
 		if seg.fontSizePt != 0 {
 			para.FontSize(seg.fontSizePt)
+		} else if baseSize != 0 {
+			para.FontSize(baseSize)
 		}
 		// seg.lang ya viene validado por a11y.IsValidLangTag en
 		// pptxSplitInline (un tag inválido nunca llega a set near text con
@@ -1119,7 +1143,7 @@ func (g *Generator) pptxAddQuote(s *pptx.Slide, e *ast.QuoteElement, cursorY int
 		for i := range lines {
 			lines[i] = strings.TrimSpace(lines[i])
 		}
-		pptxApplyInlineBase(tb.AddParagraph(), strings.Join(lines, "\n"), true)
+		pptxApplyInlineBase(tb.AddParagraph(), strings.Join(lines, "\n"), true, 0)
 	}
 	if attribution != "" {
 		tb.AddParagraph().Text(attribution)

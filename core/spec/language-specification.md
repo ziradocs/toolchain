@@ -523,7 +523,11 @@ command there, write it outside the code.
 
 Prose fields (paragraphs, list and checklist items, table cells, quotes,
 special blocks, columns, metrics, quiz and poll text, headings) accept inline
-links and images:
+links and images. In SlideLang the slide's own header lines (title, heading,
+subtitle and kicker, in flex and strict) are one-line prose too: they accept
+the same inline formatting as a heading, never a list or a block. A DocLang
+section title is plain text: it is written escaped, without Markdown, in the
+HTML, the TOC and its anchor.
 
 ```
 [link text](destination)

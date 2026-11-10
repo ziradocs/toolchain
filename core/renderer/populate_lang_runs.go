@@ -101,13 +101,12 @@ func PopulateLangRunsWithOptions(doc *ast.AST, variables map[string]interface{},
 }
 
 // populateContentBlockLangRuns deliberately does not touch
-// block.Title/Heading/Subtitle: those three go through
-// renderer.ProcessVariablesSecure only (see populate_inline_html.go's
-// TitleHTML/HeadingHTML/SubtitleHTML cases), never through the markdown
-// pipeline — a [texto]{lang=xx} typed into one of them is never converted to
-// a span in the first place, so there is nothing here for PopulateLangRuns
-// to extract. Not an oversight (issue #63 code review raised this as a
-// possible fifth gap; it isn't one).
+// block.Title/Heading/Subtitle/Kicker: ContentBlock has no LangRuns field to
+// hold them. Their *HTML carries the one-line inline Markdown
+// (BlockTitleHTML), so a [texto]{lang=xx} typed into a slide title does reach
+// titleHTML as a <span lang>; exposing it as a LangRun too would need a new,
+// additive field on ContentBlock. In doclang
+// (InlineHTMLOptions.PlainBlockTitles) the span is never built at all.
 func populateContentBlockLangRuns(block *ast.ContentBlock, variables map[string]interface{}) {
 	for _, elem := range block.Elements {
 		populateElementLangRuns(elem, variables)
