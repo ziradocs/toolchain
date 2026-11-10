@@ -195,29 +195,35 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 }
 
 // dedentPlantUMLBody es el contenido de un diagrama PlantUML: las líneas de
-// body sin la sangría común (dedentCommonPrefix) y con @startuml y @enduml,
-// que son marcadores y no parte del diagrama, sin la suya. Las líneas de los
+// body sin la sangría común (dedentLines) y con @startuml y @enduml, que son
+// marcadores y no parte del diagrama, sin la suya. Las líneas de los
 // marcadores no cuentan para la sangría común: un cuerpo sangrado bajo un
-// @startuml en la columna 0 pierde esa sangría, igual que antes.
+// @startuml en la columna 0 pierde esa sangría, igual que antes. Como antes,
+// cada línea va sin espacios ni "\r" al final, las líneas en blanco del
+// principio se descartan y las de adentro, también junto a los marcadores, se
+// conservan. Las que siguen al @enduml se descartan.
 func dedentPlantUMLBody(body []string) string {
-	var head, tail []string
-	lines := body
-	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+	lines := make([]string, len(body))
+	for i, l := range body {
+		lines[i] = strings.TrimRight(l, " \t\r")
+	}
+	for len(lines) > 0 && lines[0] == "" {
 		lines = lines[1:]
 	}
+	var head, tail []string
 	if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "@startuml") {
 		head, lines = []string{strings.TrimSpace(lines[0])}, lines[1:]
 	}
-	if n := len(lines); n > 0 && strings.HasPrefix(strings.TrimSpace(lines[n-1]), "@enduml") {
-		tail, lines = []string{strings.TrimSpace(lines[n-1])}, lines[:n-1]
+	last := len(lines) - 1
+	for last >= 0 && lines[last] == "" {
+		last--
 	}
-	parts := append([]string{}, head...)
-	// Sin marcadores, un cuerpo vacío sigue siendo una línea vacía, como
-	// antes: Parse le agrega @startuml y @enduml alrededor.
-	if text := dedentCommonPrefix(lines); text != "" || len(head)+len(tail) == 0 {
-		parts = append(parts, text)
+	if last >= 0 && strings.HasPrefix(strings.TrimSpace(lines[last]), "@enduml") {
+		tail, lines = []string{strings.TrimSpace(lines[last])}, lines[:last]
 	}
-	parts = append(parts, tail...)
+	// Sin marcadores, un cuerpo vacío queda como "" y Parse le agrega
+	// @startuml y @enduml alrededor, como antes.
+	parts := append(append(append([]string{}, head...), dedentLines(lines)...), tail...)
 	return strings.Join(parts, "\n")
 }
 

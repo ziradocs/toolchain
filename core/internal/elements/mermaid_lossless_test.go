@@ -44,6 +44,26 @@ func TestMermaidParser_PreservesOpaqueBodies(t *testing.T) {
 			lines: []string{"<<mermaid>>", "  mindmap", "  \troot((P))", "  \t    A", "", "  \t    B", "<<end>>"},
 			want:  "mindmap\n\troot((P))\n\t    A\n\n\t    B", typeName: "mindmap",
 		},
+		// Sin prefijo común pero todo sangrado (frontmatter con espacios y
+		// cuerpo con tabs): se corta por columnas, como antes, y el `---`
+		// queda en la columna 0, donde mermaid lee el frontmatter.
+		{
+			name: "divergent indentation keeps frontmatter at column 0", mode: "flex",
+			lines: []string{"<<mermaid>>", "    ---", "    title: T", "    ---", "    flowchart LR", "\tA --> B", "<<end>>"},
+			want:  "---\ntitle: T\n---\nflowchart LR\nA --> B", typeName: "flowchart",
+		},
+		{
+			name: "divergent indentation keeps relative depth", mode: "flex",
+			lines: []string{"<<mermaid>>", "  mindmap", "\troot((P))", "\t  A", "<<end>>"},
+			want:  "mindmap\n  root((P))\n    A", typeName: "mindmap",
+		},
+		// Una línea de solo espacios más corta que la sangría común queda
+		// vacía.
+		{
+			name: "short whitespace-only line", mode: "flex",
+			lines: []string{"<<mermaid>>", "\t\tmindmap", "\t", "\t\t\troot((P))", "<<end>>"},
+			want:  "mindmap\n\n\troot((P))", typeName: "mindmap",
+		},
 		{
 			name: "quadrant does not become flowchart", mode: "flex",
 			lines: []string{"```mermaid", "quadrantChart", "  x-axis Bajo --> Alto", "```"},
