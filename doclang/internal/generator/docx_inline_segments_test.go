@@ -83,7 +83,9 @@ func oracleDocxSegments(content string, index []func(s, masked string) []int, em
 		pos += loc[1]
 	}
 	codeSpans := markdownCodeSpans(content)
-	masked := docxMaskLinkDestinations(content)
+	// Los escapes de delimitador (\*, \=, \~) se tapan igual que en el
+	// walker: esta prueba compara el recorrido, no qué ve cada pattern.
+	masked := docxMaskEscapes(docxMaskLinkDestinations(content))
 	pos := 0
 	for pos < len(content) {
 		if n := len(segs); n > 0 && segs[n-1].pattern >= 0 && emphasis[segs[n-1].pattern] {
