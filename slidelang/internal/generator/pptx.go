@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	stdhtml "html"
 	"image"
 	"image/color"
 	"image/draw"
@@ -543,7 +544,10 @@ func pptxInlineHTMLToText(html string) string {
 		out = r.re.ReplaceAllString(out, r.repl)
 	}
 	out = pptxTagRe.ReplaceAllString(out, "")
-	return renderer.UnescapeHTML(out)
+	// Una sola pasada (html.UnescapeString): renderer.UnescapeHTML del core
+	// publicado reemplaza "&amp;" antes que las demás y convertía en "<br>"
+	// un "&lt;br&gt;" que el autor escribió como texto.
+	return stdhtml.UnescapeString(out)
 }
 
 // pptxAddElement despacha por tipo de ast.Element y devuelve el cursorY

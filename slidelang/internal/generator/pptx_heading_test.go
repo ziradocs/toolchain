@@ -90,3 +90,13 @@ func TestPPTXTextContent(t *testing.T) {
 		})
 	}
 }
+
+// Un encabezado `###` cuyo texto trae una entidad escrita a mano
+// (`&lt;br&gt;`, que el HTML guarda como `&amp;lt;br&amp;gt;`) llega al PPTX
+// como ese texto, no como `<br>`: las entidades se deshacen una sola vez.
+func TestPPTXTextContent_DecodesEntitiesOnce(t *testing.T) {
+	el := ast.NewRawHTMLTextElement(diagnostics.NewPosition(1, 1), `<h3 id="x">usa &amp;lt;br&amp;gt; y &amp;quot;</h3>`)
+	if got, want := pptxTextContent(el), "### usa &lt;br&gt; y &quot;"; got != want {
+		t.Errorf("pptxTextContent = %q, want %q", got, want)
+	}
+}

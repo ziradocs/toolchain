@@ -28,17 +28,16 @@ func EscapeHTML(text string) string {
 // UnescapeHTML is the precise inverse of EscapeHTML: decodes exactly the
 // five entities EscapeHTML produces (&amp; &lt; &gt; &quot; &#39;), nothing
 // more — not a general-purpose HTML entity decoder (numeric refs like &#8217;
-// or named ones like &nbsp; pass through unchanged). None of the five target
-// strings is a substring of another, so the replacement order below cannot
-// cause double-decoding.
+// or named ones like &nbsp; pass through unchanged). It decodes in a single
+// left-to-right pass, so what one replacement produces is never decoded
+// again: "&amp;lt;" (an author's literal "&lt;") comes back as "&lt;", not
+// "<". Replacing "&amp;" first in its own pass, as an earlier version did,
+// decoded that text twice.
 func UnescapeHTML(text string) string {
-	text = strings.ReplaceAll(text, "&amp;", "&")
-	text = strings.ReplaceAll(text, "&lt;", "<")
-	text = strings.ReplaceAll(text, "&gt;", ">")
-	text = strings.ReplaceAll(text, "&quot;", "\"")
-	text = strings.ReplaceAll(text, "&#39;", "'")
-	return text
+	return htmlUnescaper.Replace(text)
 }
+
+var htmlUnescaper = strings.NewReplacer("&amp;", "&", "&lt;", "<", "&gt;", ">", "&quot;", "\"", "&#39;", "'")
 
 // EscapeHTMLAttribute escapes text for use in HTML attributes
 // More restrictive than EscapeHTML to prevent attribute injection
