@@ -220,23 +220,26 @@ content; a backslash is not an escape, and a row with an odd number of quotes
 falls back to splitting on every comma, row by row, in both forms). `rows: []` is a table
 with no rows (`TABLE002`).
 
-In the one-per-line form, a row is any line that starts with `[`, has no `|`
-outside double quotes and is indented at least as deep as the `TABLE`'s
-properties (a line with `|` is a pipe row even when its first cell starts with
-`[`: a link, a `[x]` checkbox, a `[1]` citation); blank lines between rows do not end
-the list, and a line `]` closes it. Any other line ends the list and is read as
-it would be before `rows:` (a property, a `|` row, or ignored), so an unknown
-property such as `align:` after the rows keeps a deck building.
+In the one-per-line form, a line of the list keeps the classification it always
+had: a line indented six spaces that starts with `[` and ends with `]` or `],` is
+a row, whatever it holds (a `|`, an odd number of quotes). The list now also
+takes a line that starts with `[` and has no `|`, indented deeper than the
+`TABLE`'s properties (a `TABLE` inside a column), and blank lines between rows
+do not end it; a line `]` closes it. Any other line ends the list and is read as
+before: a property, a pipe row (a line with `|` is a pipe row even when its
+first cell starts with `[`), or ignored.
 
-`TABLE007` names rows that cannot be read: an inline value that is not an array
-of bracketed rows closed on the same line (or has a trailing comma), rows on the
-lines below an inline value, a line among the rows that starts with `[` but is
-not a complete row, a row written as a list item (`- ["a", "b"]`), and a line
-that starts with `[` after the list has ended. Those rows do not reach the AST.
-It is an error in a strict document and a warning in a slide (strict or flex)
-and in a flex document, the same split as `SPECIAL002`. Earlier versions read
-only rows indented exactly six spaces, gave the inline form zero rows with only
-`TABLE002`, and dropped the rest without a diagnostic.
+`TABLE007` names, on its line, only rows that used to be lost without a
+diagnostic: a line of the list that starts with `[` and does not close with `]`
+or `],`, a complete array row (`["a", "b"]`, `[a, b]`) after the list has ended
+or right after an empty `headers:`, an inline value that cannot be read, and
+rows below an inline value. A bracketed line that is not an array (`[nota al
+pie]`) is still ignored. It is an error in a strict document and a warning in a
+slide (strict or flex) and in a flex document, the same split as `SPECIAL002`.
+In the inline form, rows are split at `], [` one at a time, so a `], [` inside
+a quoted cell does not split a row and a row with an odd number of quotes does
+not swallow the next one; each row is then read like a row of the one-per-line
+form.
 
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser

@@ -152,10 +152,9 @@ func TestTableInlineRows_OtherDialects(t *testing.T) {
 func TestTableRows_MultiLineAnyIndentAndBlankLines(t *testing.T) {
 	want := [][]string{{"a", "b"}, {"c", "d"}}
 	for name, body := range map[string]string{
-		"deeper rows":            "    rows: [\n        [\"a\",\"b\"],\n        [\"c\",\"d\"]\n    ]\n",
-		"rows at property depth": "    rows: [\n    [\"a\",\"b\"],\n    [\"c\",\"d\"]\n    ]\n",
-		"blank line between":     "    rows: [\n      [\"a\",\"b\"],\n\n      [\"c\",\"d\"]\n    ]\n",
-		"bare rows:":             "    rows:\n      [\"a\",\"b\"]\n      [\"c\",\"d\"]\n",
+		"deeper rows":        "    rows: [\n        [\"a\",\"b\"],\n        [\"c\",\"d\"]\n    ]\n",
+		"blank line between": "    rows: [\n      [\"a\",\"b\"],\n\n      [\"c\",\"d\"]\n    ]\n",
+		"bare rows:":         "    rows:\n      [\"a\",\"b\"]\n      [\"c\",\"d\"]\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			table, diags := strictDocTable(t, body+"    caption: \"Cap\"\n")
@@ -202,9 +201,9 @@ func TestTableRows_UnreadableLineIsTABLE007(t *testing.T) {
 		body string
 		line int
 	}{
-		"row not closed":      {"    rows: [\n      [\"a\",\"b\"],\n      [\"c\",\"d\"\n    ]\n", 11},
-		"list marker":         {"    rows:\n      [\"a\",\"b\"]\n      - [\"c\",\"d\"]\n", 11},
-		"row after a comment": {"    rows:\n      [\"a\",\"b\"]\n      // comentario\n      [\"c\",\"d\"]\n", 12},
+		"row not closed":         {"    rows: [\n      [\"a\",\"b\"],\n      [\"c\",\"d\"\n    ]\n", 11},
+		"rows at property depth": {"    rows:\n      [\"a\",\"b\"]\n    [\"c\",\"d\"]\n", 11},
+		"row after a comment":    {"    rows:\n      [\"a\",\"b\"]\n      // comentario\n      [\"c\",\"d\"]\n", 12},
 	} {
 		t.Run(name, func(t *testing.T) {
 			table, diags := strictDocTable(t, tc.body)
@@ -419,5 +418,44 @@ func TestTable_HeadersArrayOnTheNextLine(t *testing.T) {
 	_, t7 := tablesIn(t, src, true)
 	if len(t7) != 1 || !strings.Contains(t7[0].Message, "headers: takes its array on the same line") || t7[0].Position.Line != 9 {
 		t.Errorf("want the headers message at line 9, got %v", t7)
+	}
+}
+
+// Casos de la revisión de #495 (ronda 3): lo que main leía sin diagnóstico se
+// lee igual —dentro de la lista de rows: una línea "[…]" es fila tenga "|" o
+// comillas impares, y fuera de la lista una línea con "|" es fila Markdown—, y
+// la forma en línea lee las mismas filas que la de varias líneas.
+func TestTableRows_ReviewRound3(t *testing.T) {
+	doc := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TABLE\n"
+	for name, tc := range map[string]struct {
+		body    string
+		headers []string
+		rows    [][]string
+		t007    int
+	}{
+		"P0-1 pipe inside a bracket row": {"    headers: [\"Tarea\", \"Estado\"]\n    rows:\n      [Revisar a|b, ok]\n", []string{"Tarea", "Estado"}, [][]string{{"Revisar a|b", "ok"}}, 0},
+		"P0-1 unquoted pipe then a row":  {"    headers: [\"x\", \"y\"]\n    rows:\n      [a | b, c]\n      [d, e]\n", []string{"x", "y"}, [][]string{{"a | b", "c"}, {"d", "e"}}, 0},
+		"P0-2 pipe row with odd quote":   {"    Item | Ref\n    [x] Monitor 27\" | [1]\n    [ ] Teclado | [2]\n", []string{"Item", "Ref"}, [][]string{{"[x] Monitor 27\"", "[1]"}, {"[ ] Teclado", "[2]"}}, 0},
+		"P1-1 odd quote and pipe":        {"    headers: [\"x\", \"y\"]\n    rows:\n      [\"c\\\"d\", \"e | f\"]\n      [\"g\", \"h\"]\n", []string{"x", "y"}, [][]string{{`c\"d`, "e | f"}, {"g", "h"}}, 0},
+		"P1-2 two odd rows inline":       {"    headers: [\"x\", \"y\"]\n    rows: [[\"c\\\"d\", \"e\"], [\"f\\\"g\", \"h\"]]\n", []string{"x", "y"}, [][]string{{`c\"d`, "e"}, {`f\"g`, "h"}}, 0},
+		"P1-2 two odd rows multi-line":   {"    headers: [\"x\", \"y\"]\n    rows:\n      [\"c\\\"d\", \"e\"]\n      [\"f\\\"g\", \"h\"]\n", []string{"x", "y"}, [][]string{{`c\"d`, "e"}, {`f\"g`, "h"}}, 0},
+		"P2 bracket and comma in quotes": {"    headers: [\"x\", \"y\"]\n    rows: [[\"x], [y\", \"z\"], [\"c\\\"d\", \"e\"]]\n", []string{"x", "y"}, [][]string{{"x], [y", "z"}, {`c\"d`, "e"}}, 0},
+		"P3 footnote in the body":        {"    headers: [\"x\", \"y\"]\n    rows:\n      [\"1\", \"2\"]\n    caption: \"c\"\n    [nota al pie]\n", []string{"x", "y"}, [][]string{{"1", "2"}}, 0},
+		"pipe body with links":           {"    Doc | N\n    [Docs](https://x.org) | 3\n    [x] listo | 4\n    [1] | cita\n    [Nombre] | valor\n", []string{"Doc", "N"}, [][]string{{"[Docs](https://x.org)", "3"}, {"[x] listo", "4"}, {"[1]", "cita"}, {"[Nombre]", "valor"}}, 0},
+		"row after the list ended":       {"    headers: [\"x\", \"y\"]\n    rows:\n      [\"1\", \"2\"]\n    caption: \"c\"\n    [\"3\", \"4\"]\n", []string{"x", "y"}, [][]string{{"1", "2"}}, 1},
+		"incomplete line in the list":    {"    headers: [\"x\", \"y\"]\n    rows:\n      [\"1\", \"2\"]\n      [x] hecho | 3\n", []string{"x", "y"}, [][]string{{"1", "2"}}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tables, t7 := tablesIn(t, doc+tc.body, true)
+			if len(tables) != 1 {
+				t.Fatalf("want one table, got %d", len(tables))
+			}
+			if !reflect.DeepEqual(tables[0].Headers, tc.headers) || !reflect.DeepEqual(tables[0].Rows, tc.rows) {
+				t.Errorf("headers %q rows %q, want %q %q", tables[0].Headers, tables[0].Rows, tc.headers, tc.rows)
+			}
+			if len(t7) != tc.t007 {
+				t.Errorf("want %d TABLE007, got %v", tc.t007, t7)
+			}
+		})
 	}
 }

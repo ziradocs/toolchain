@@ -178,6 +178,8 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	// de corchetes justo debajo diga que el arreglo de headers va en la misma
 	// línea en vez de "no está en rows:".
 	headersEmptyAt := -1
+	// rowsSeen: el cuerpo ya tuvo un `rows:`.
+	rowsSeen := false
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -221,29 +223,25 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
 			legacyDeclared = true
+			rowsSeen = true
 			// `rows: [["a","b"],["c","d"]]`: el arreglo completo en la misma
-			// línea (issue #488). Antes solo se leían filas en las líneas
-			// siguientes, así que esta forma daba una tabla sin filas y el
-			// único aviso era TABLE002 ("debería tener al menos una fila"),
-			// que no menciona las filas que el autor escribió. `rows: [` (el
-			// corchete que abre la forma de varias líneas) y `rows:` solo
-			// siguen yendo por el bucle de abajo.
+			// línea (issue #488). Antes ese valor se ignoraba y la tabla quedaba
+			// sin filas, con solo el TABLE002 del linter. `rows: [` (el corchete
+			// que abre la forma de varias líneas) y `rows:` solo siguen yendo
+			// por el bucle de abajo.
 			value := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:"))
 			if value != "" && value != "[" {
 				rowPos := ctx.Position(i)
 				inline, err := splitInlineRows(value)
 				// Una fila en las líneas de abajo (con o sin líneas en blanco de
-				// por medio) no se puede sumar a un valor en línea ni dejar caer
-				// en silencio: es el mismo TABLE007.
-				if next := nextNonBlank(lines, i+1); err == "" && next >= 0 && isRowLine(lines[next], expectedIndent) {
+				// por medio) no se puede sumar a un valor en línea: es el mismo
+				// TABLE007, y esas filas se consumen para no reportarlas otra vez.
+				if next := nextNonBlank(lines, i+1); err == "" && next >= 0 && isListRowLine(lines[next], expectedIndent) {
 					err = fmt.Sprintf("the rows continue on line %d; write all of them inline or one row per line under `rows: [`", ctx.Position(next).Line)
 				}
 				if err != "" {
 					diags = append(diags, inlineRowsDiagnostic(ctx.Mode, err, rowPos))
-					// Las filas de abajo ya están nombradas en este diagnóstico:
-					// se consumen para que el bucle de afuera no las reporte otra
-					// vez una por una.
-					for next := nextNonBlank(lines, i+1); next >= 0 && isRowLine(lines[next], expectedIndent); next = nextNonBlank(lines, i+1) {
+					for next := nextNonBlank(lines, i+1); next >= 0 && isListRowLine(lines[next], expectedIndent); next = nextNonBlank(lines, i+1) {
 						consumed += next - i
 						i = next
 					}
@@ -256,21 +254,25 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				consumed++
 				continue
 			}
-			// Una fila por línea, después de `rows: [` (o de `rows:` solo). Antes
-			// solo contaba una línea que empezara exactamente con seis espacios y
-			// "[": una fila con otra sangría (una TABLE dentro de una columna,
-			// sangría de tab) o después de una línea en blanco salía del bucle y
-			// el de afuera la descartaba sin aviso. Ahora es fila toda línea que
-			// empieza con "[" y no tiene menos sangría que el cuerpo de la TABLE;
-			// las líneas en blanco entre filas no cortan la lista. Lo que no se
-			// puede leer como fila es TABLE007, nunca un descarte callado.
+			// Una fila por línea, con la clasificación de siempre: una línea
+			// que empieza con "[" y termina con "]" o "]," es fila, tenga "|" o
+			// comillas impares o no. Lo único nuevo (#495) es dónde puede estar:
+			// antes solo contaba con exactamente seis espacios delante, y una
+			// fila más sangrada (una TABLE dentro de una columna) o después de
+			// una línea en blanco se perdía sin aviso. Ahora también cuenta una
+			// fila completa con más sangría que las propiedades, y las líneas en
+			// blanco entre filas no cortan la lista. Una línea de la lista que
+			// empieza con "[" y no cierra (antes se consumía sin leerla) es
+			// TABLE007.
 			consumed++
 			i++
 			for i < len(lines) {
 				rowLine := lines[i]
 				rowTrimmed := strings.TrimSpace(rowLine)
 				if rowTrimmed == "" {
-					if next := nextNonBlank(lines, i); next >= 0 && isRowLine(lines[next], expectedIndent) {
+					// Después de una línea en blanco, una línea con "|" es una
+					// fila Markdown, como siempre, y no sigue la lista.
+					if next := nextNonBlank(lines, i); next >= 0 && isListRowLine(lines[next], expectedIndent) && !strings.Contains(lines[next], "|") {
 						consumed += next - i
 						i = next
 						continue
@@ -278,45 +280,23 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 					i-- // Back up one line
 					break
 				}
-				if expectedIndent > 0 && CalculateIndentLevel(rowLine) < expectedIndent {
-					i--
+				if !isListRowLine(rowLine, expectedIndent) {
+					i-- // Back up one line
 					break
 				}
-				// El "]" que cierra `rows: [`.
-				if rowTrimmed == "]" || rowTrimmed == "]," {
-					consumed++
-					break
+				if strings.HasSuffix(rowTrimmed, "],") {
+					rowTrimmed = strings.TrimSuffix(rowTrimmed, ",")
 				}
-				if isBracketRow(rowTrimmed) {
-					if strings.HasSuffix(rowTrimmed, "],") {
-						rowTrimmed = strings.TrimSuffix(rowTrimmed, ",")
-					}
-					if strings.HasSuffix(rowTrimmed, "]") {
-						rowStr := trimInlineArrayBrackets(rowTrimmed)
-						rows = append(rows, splitInlineArray(rowStr))
-						rowPositions = append(rowPositions, ctx.Position(i))
-					} else {
-						diags = append(diags, rowsDiagnostic(ctx.Mode, fmt.Sprintf(
-							"TABLE rows: %q is not a complete row; write each row as [\"a\", \"b\"] on its own line. The table gets no row from this line", rowTrimmed), ctx.Position(i)))
-					}
-					consumed++
-					i++
-					continue
-				}
-				// Una fila escrita como item de lista YAML (`- ["a", "b"]`) no se
-				// lee como fila: se dice en vez de cerrar la lista con ella.
-				if strings.HasPrefix(rowTrimmed, "- [") {
+				if strings.HasSuffix(rowTrimmed, "]") {
+					rowStr := trimInlineArrayBrackets(rowTrimmed)
+					rows = append(rows, splitInlineArray(rowStr))
+					rowPositions = append(rowPositions, ctx.Position(i))
+				} else {
 					diags = append(diags, rowsDiagnostic(ctx.Mode, fmt.Sprintf(
-						"TABLE rows: %q is not a row: write each row as [\"a\", \"b\"] on its own line, without a list marker. The table gets no row from this line", rowTrimmed), ctx.Position(i)))
-					consumed++
-					i++
-					continue
+						"TABLE rows: %q is not a complete row; write each row as [\"a\", \"b\"] on its own line. The table gets no row from this line", rowTrimmed), ctx.Position(i)))
 				}
-				// Cualquier otra línea cierra la lista y la lee el bucle de afuera,
-				// con el mismo trato que antes de `rows:`: una propiedad, una fila
-				// con "|", o lo que ese bucle ignora.
-				i--
-				break
+				consumed++
+				i++
 			}
 			continue
 		} else if strings.HasPrefix(trimmedLine, "cells:") {
@@ -415,14 +395,14 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			// issue #239: identificador de referencia cruzada (p. ej. "tbl:ventas").
 			labelStr := strings.TrimPrefix(trimmedLine, "label:")
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
-		} else if isBracketRow(trimmedLine) && (strings.HasSuffix(trimmedLine, "]") || strings.HasSuffix(trimmedLine, "],")) {
-			// Una fila de corchetes fuera de la lista de `rows:` (la lista ya
-			// terminó en otra línea, o no hay `rows:`): antes este bucle la
-			// ignoraba sin aviso, como a cualquier línea que no reconoce. Una
-			// línea con "|" (una fila Markdown cuya primera celda empieza con
-			// "[", un link o una casilla) no es de corchetes y sigue abajo.
+		} else if !strings.Contains(trimmedLine, "|") && isArrayRow(trimmedLine) && (rowsSeen || (headersEmptyAt >= 0 && nextNonBlank(lines, headersEmptyAt+1) == i)) {
+			// Una fila de corchetes completa fuera de la lista de `rows:` (la
+			// lista ya terminó en otra línea): antes este bucle la ignoraba
+			// sin aviso. Una línea con "|" sigue abajo, como fila Markdown,
+			// igual que antes, y una línea entre corchetes que no parece un
+			// arreglo (una nota al pie suelta) se sigue ignorando.
 			msg := fmt.Sprintf("TABLE: %q looks like a row but is not in the rows: list (the list ends at the first line that is not a row); the table gets no row from it", trimmedLine)
-			if headersEmptyAt >= 0 && nextNonBlank(lines, headersEmptyAt+1) == i {
+			if !rowsSeen {
 				msg = fmt.Sprintf("TABLE headers: takes its array on the same line, e.g. headers: %s; %q was not read as the headers", trimmedLine, trimmedLine)
 			}
 			diags = append(diags, rowsDiagnostic(ctx.Mode, msg, ctx.Position(i)))
@@ -491,40 +471,30 @@ func nextNonBlank(lines []string, from int) int {
 	return -1
 }
 
-// isRowLine dice si line es una fila de `rows:` de este TABLE: una fila de
-// corchetes (isBracketRow) que no tiene menos sangría que el cuerpo
-// (bodyIndent, la de sus propiedades).
-func isRowLine(line string, bodyIndent int) bool {
-	if !isBracketRow(strings.TrimSpace(line)) {
+// isListRowLine dice si line es una línea de la lista de `rows:` de este
+// TABLE. Es la regla de antes —empieza con seis espacios y "["—, con la que
+// una línea así es de la lista tenga "|" o no, más una línea que empieza con
+// "[" con más sangría que las propiedades (bodyIndent) y sin "|", que antes
+// salía de la lista y se perdía sin aviso. Una línea más sangrada con "|"
+// sigue siendo, como antes, una fila Markdown del bucle de afuera.
+func isListRowLine(line string, bodyIndent int) bool {
+	if strings.HasPrefix(line, "      [") {
+		return true
+	}
+	trimmed := strings.TrimSpace(line)
+	return bodyIndent > 0 && CalculateIndentLevel(line) > bodyIndent &&
+		strings.HasPrefix(trimmed, "[") && !strings.Contains(trimmed, "|")
+}
+
+// isArrayRow dice si trimmed se escribe como una fila de arreglo completa:
+// "[…]" o "[…]," con una coma o una comilla adentro (`["a", "b"]`, `[a, b]`).
+// Una línea entre corchetes sin coma ni comilla (`[nota al pie]`) no cuenta.
+func isArrayRow(trimmed string) bool {
+	t := strings.TrimSuffix(trimmed, ",")
+	if !strings.HasPrefix(t, "[") || !strings.HasSuffix(t, "]") {
 		return false
 	}
-	return bodyIndent <= 0 || CalculateIndentLevel(line) >= bodyIndent
-}
-
-// isBracketRow dice si trimmed se escribe como fila de corchetes de `rows:`:
-// empieza con "[" y no tiene "|" fuera de comillas. Una línea con "|" es una
-// fila Markdown aunque su primera celda empiece con "[" (un link
-// `[Docs](…) | 3`, una casilla `[x] listo | 4`, una cita `[1] | …`), y la lee
-// la rama de filas con "|".
-func isBracketRow(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "[") && !pipeOutsideQuotes(trimmed)
-}
-
-// pipeOutsideQuotes dice si s tiene un "|" fuera de comillas dobles (las
-// comillas sin escape, como en splitInlineArray).
-func pipeOutsideQuotes(s string) bool {
-	inQuotes := false
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			inQuotes = !inQuotes
-		case '|':
-			if !inQuotes {
-				return true
-			}
-		}
-	}
-	return false
+	return strings.ContainsAny(t[1:len(t)-1], ",\"")
 }
 
 // splitInlineRows parte el valor de `rows:` escrito en una sola línea
@@ -547,18 +517,35 @@ func splitInlineRows(value string) ([]string, string) {
 		}
 		return nil, "the array does not close on the same line; write it whole on this line, or one row per line under `rows: [`"
 	}
-	inner := value[1 : len(value)-1]
-	rows, err := scanInlineRows(inner)
-	if err == unclosedQuote {
-		// Una fila con un número impar de comillas (`["c\"d", "e"]`: el
-		// backslash no es escape) la lee splitInlineArray cortando por cada
-		// coma, así en la forma de varias líneas. Para que la forma en línea
-		// lea las mismas celdas, las filas se separan entonces por "], [" y
-		// cada una pasa por el mismo splitInlineArray; las filas con comillas
-		// pares, como `["a]", "b"]`, se leen igual que en varias líneas.
-		return splitRowsAtBoundaries(inner)
+	inner := strings.TrimSpace(value[1 : len(value)-1])
+	if inner == "" {
+		return nil, ""
 	}
-	return rows, err
+	if strings.HasSuffix(inner, ",") {
+		return nil, "a trailing comma after the last row"
+	}
+	// Las filas se separan fila por fila (splitRowsAtBoundaries), para que una
+	// fila con comillas impares (`["c\"d", "e"]`: el backslash no es escape) no
+	// arrastre a las siguientes. Cada fila con comillas pares se valida mirando
+	// comillas; una con comillas impares la lee splitInlineArray cortando por
+	// cada coma, como en la forma de varias líneas.
+	rows, err := splitRowsAtBoundaries(inner)
+	if err != "" {
+		return nil, err
+	}
+	for _, row := range rows {
+		if !strings.HasPrefix(row, "[") || !strings.HasSuffix(row, "]") {
+			return nil, "each row must be an array in brackets, e.g. [\"a\", \"b\"]"
+		}
+		if strings.Count(row, "\"")%2 == 0 {
+			if got, err := scanInlineRows(row); err != "" {
+				return nil, err
+			} else if len(got) != 1 {
+				return nil, "rows must be separated by commas"
+			}
+		}
+	}
+	return rows, ""
 }
 
 // unclosedQuote es el error de scanInlineRows cuando las comillas no cierran.
@@ -567,19 +554,46 @@ const unclosedQuote = "a quote is not closed"
 // rowBoundary es el límite entre dos filas de un `rows:` en línea.
 var rowBoundary = regexp.MustCompile(`\]\s*,\s*\[`)
 
-// splitRowsAtBoundaries separa las filas de inner por "], [" sin mirar
-// comillas; es el respaldo de splitInlineRows para comillas que no cierran.
+// splitRowsAtBoundaries separa las filas de un `rows:` en línea por "], [",
+// decidiendo fila por fila.
+// Para cada fila se toma el primer "], [" que la deja con comillas pares (así
+// un "], [" dentro de una celda entrecomillada, `["x], [y", "z"]`, no corta);
+// si ninguno lo hace, la fila tiene comillas impares y se corta en el primero.
+// Cada fila pasa después por splitInlineArray, que con comillas impares corta
+// por cada coma, igual que en la forma de varias líneas.
 func splitRowsAtBoundaries(inner string) ([]string, string) {
 	trimmed := strings.TrimSpace(inner)
 	if !strings.HasPrefix(trimmed, "[") || !strings.HasSuffix(trimmed, "]") {
-		return nil, unclosedQuote
+		return nil, "each row must be an array in brackets, e.g. [\"a\", \"b\"]"
 	}
 	cuts := rowBoundary.FindAllStringIndex(trimmed, -1)
-	rows := make([]string, 0, len(cuts)+1)
+	var rows []string
 	start := 0
-	for _, c := range cuts {
-		rows = append(rows, trimmed[start:c[0]+1])
-		start = c[1] - 1
+	for k := 0; k < len(cuts); {
+		pick := -1
+		for j := k; j < len(cuts); j++ {
+			if cuts[j][0] < start {
+				continue
+			}
+			if strings.Count(trimmed[start:cuts[j][0]+1], "\"")%2 == 0 {
+				pick = j
+				break
+			}
+		}
+		if pick < 0 {
+			for j := k; j < len(cuts); j++ {
+				if cuts[j][0] >= start {
+					pick = j
+					break
+				}
+			}
+		}
+		if pick < 0 {
+			break
+		}
+		rows = append(rows, trimmed[start:cuts[pick][0]+1])
+		start = cuts[pick][1] - 1
+		k = pick + 1
 	}
 	return append(rows, trimmed[start:]), ""
 }
