@@ -15,6 +15,13 @@ export interface Diagnostic {
   ruleId?: string;
   source?: string; // "parser", "linter"
   code?: string;
+  /**
+   * File es el archivo al que se refiere Position cuando no es el documento
+   * que se compila: por ejemplo un archivo traído con @include
+   * (include.SourceMap.MapDiagnostics), relativo al directorio del
+   * documento y con "/". Vacío, la posición es del documento, como siempre.
+   */
+  file?: string;
 }
 
 //////////
