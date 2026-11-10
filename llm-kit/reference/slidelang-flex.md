@@ -44,6 +44,11 @@ Intro paragraph.
   `#`/`##` immediately after each separator. A slide with no heading and no
   elements will warn or, in `content`-type slides, fail the title check the
   linter runs.
+- A slide title takes the same inline formatting as body text (`**bold**`,
+  `*italic*`, `` `code` ``, links): `## Sales grew **18%**` puts the figure
+  in bold in the AST (`titleHTML`), the HTML/PDF and the PPTX. Strict mode's
+  `title:`/`heading:`/`subtitle:` behave the same. PPTX has no
+  strikethrough, so `~~text~~` stays literal there, as in the body.
 - Without a `layout:` block, a slide is typed `title` (the deck's first
   `# ` heading only) or `content` (everything else).
 - `###` through `######` are **subsection headings inside the current
