@@ -63,6 +63,7 @@ func docxUnavailableNote(kind docxUnavailableKind, lang string) string {
 // la nota y el texto alternativo (o, sin alt, la fuente tal como la escribió
 // el autor, nunca la ruta absoluta de la máquina que compiló).
 func (g *DOCXGenerator) docxImageUnavailableText(alt, source string) string {
+	g.recordUnavailable(docxUnavailableImage, source)
 	label := strings.TrimSpace(alt)
 	if label == "" {
 		label = source
@@ -77,7 +78,32 @@ func (g *DOCXGenerator) docxImageUnavailableText(alt, source string) string {
 // renderUnavailable deja el marcador de un chart, mapa, diagrama o ecuación
 // que no se pudo generar.
 func (g *DOCXGenerator) renderUnavailable(doc domain.Document, kind docxUnavailableKind) error {
+	g.recordUnavailable(kind, "")
 	return g.renderPlaceholder(doc, docxUnavailableNote(kind, g.lang))
+}
+
+// String es el nombre del tipo en un UnavailableContent: el mismo que usa
+// core para HTML/PDF.
+func (k docxUnavailableKind) String() string {
+	switch k {
+	case docxUnavailableMap:
+		return "map"
+	case docxUnavailableChart:
+		return "chart"
+	case docxUnavailableDiagram:
+		return "diagram"
+	case docxUnavailableEquation:
+		return "equation"
+	default:
+		return "image"
+	}
+}
+
+// recordUnavailable anota un contenido que quedó como marcador (o, una
+// imagen remota, como su texto alternativo), con la línea del elemento en
+// curso, para GeneratorOptions.FailOnUnavailable.
+func (g *DOCXGenerator) recordUnavailable(kind docxUnavailableKind, detail string) {
+	g.unavailable.add(kind.String(), g.renderLine, detail)
 }
 
 // renderUnavailableCaptioned deja el marcador y, debajo, el título o la

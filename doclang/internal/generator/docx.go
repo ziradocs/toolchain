@@ -71,6 +71,14 @@ type DOCXGenerator struct {
 	// variables son las del front matter de la generación en curso; las
 	// leyendas de tabla e imagen las sustituyen como el HTML de core.
 	variables map[string]interface{}
+	// opts son las opciones de la generación en curso (servidor de
+	// diagramas, NoNetwork, servidor de tiles).
+	opts GeneratorOptions
+	// renderLine es la línea del elemento que renderElement está
+	// escribiendo; acompaña a lo que quede como marcador de no disponible.
+	renderLine int
+	// unavailable junta lo que quedó como marcador (docx_unavailable.go).
+	unavailable unavailableCollector
 }
 
 // runCtx es el contexto de la generación en curso, o Background fuera de
@@ -183,6 +191,8 @@ func sanitizeBookmarkID(s string) string {
 // Generate genera un documento DOCX desde el AST
 func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts GeneratorOptions) error {
 	g.ctx = opts.runContext()
+	g.opts = opts
+	g.unavailable = unavailableCollector{}
 	g.logger.Info("DOCX", "Building DOCX document...")
 	// Listas nativas (docx_lists.go): un numbering.xml por documento.
 	g.numbering = &docxNumbering{}
@@ -223,8 +233,11 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 			if err != nil {
 				g.logger.Warn("DOCX: Failed to initialize Chromium: %v", err)
 			} else {
-				g.chromiumRenderer = chromiumRenderer
 				defer chromiumRenderer.Close()
+				if err := restrictNetworkFn(chromiumRenderer, opts); err != nil {
+					return err
+				}
+				g.chromiumRenderer = chromiumRenderer
 			}
 		}
 	}
@@ -339,6 +352,12 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 
 	if err := g.attachNumbering(doc); err != nil {
 		return err
+	}
+
+	if opts.FailOnUnavailable {
+		if err := g.unavailable.err(); err != nil {
+			return err
+		}
 	}
 
 	// Guardar documento
@@ -727,9 +746,11 @@ func (g *DOCXGenerator) renderWatermark(doc domain.Document, cfg *ast.WatermarkC
 		HAlign:     domain.HAlignCenter,
 		VAlign:     domain.VAlignCenter,
 	}
-	if _, err := para.AddImageFromBytesWithPosition(imageData, domain.ImageFormatPNG, size, position); err != nil {
+	img, err := para.AddImageFromBytesWithPosition(imageData, domain.ImageFormatPNG, size, position)
+	if err != nil {
 		return fmt.Errorf("failed to embed watermark image: %w", err)
 	}
+	setDOCXImageDescription(img, rw.Text)
 	return nil
 }
 
@@ -1342,6 +1363,12 @@ func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentB
 
 // renderElement dispatcher para diferentes tipos de elementos
 func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) error {
+	// La línea del elemento acompaña a lo que quede como marcador de no
+	// disponible; un grid o un bloque especial vuelve a pasar por acá con
+	// cada hijo, así que gana el más interno.
+	prevLine := g.renderLine
+	g.renderLine = elem.GetPosition().Line
+	defer func() { g.renderLine = prevLine }()
 	switch e := elem.(type) {
 	case *ast.HeadingElement:
 		// Ver markdown.go: Generate ya baja los encabezados tipados a su forma
@@ -1580,32 +1607,39 @@ func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level in
 // cannot be reused here.
 var docxHeadingTagPattern = regexp.MustCompile(`<(/?)(strong|em|code|mark|del|a|span|u|sub|sup|kbd|small|img)([^>]*)>`)
 
-// docxHeadingImgAttr lee src y alt del <img> que el pipeline inline deja en
-// el HTML de un encabezado (`## Título ![a](a.png)`).
-var docxHeadingImgAttr = regexp.MustCompile(`\b(src|alt)="([^"]*)"`)
+// docxHeadingImgAttr lee src, alt y title del <img> que el pipeline inline
+// deja en el HTML de un encabezado (`## Título ![a](a.png)`).
+var docxHeadingImgAttr = regexp.MustCompile(`\b(src|alt|title)="([^"]*)"`)
 
 // renderHeadingImage inserta en p la imagen de un <img> de encabezado (attrs
 // es el resto de la etiqueta), con el mismo confinamiento y la misma medida
 // que una imagen inline de un párrafo. Una remota, faltante o fuera de la raíz
 // deja su alt (o el marcador de imagen no disponible).
 func (g *DOCXGenerator) renderHeadingImage(p domain.Paragraph, attrs, size, color string) error {
-	var src, alt string
+	var src, alt, title string
 	for _, m := range docxHeadingImgAttr.FindAllStringSubmatch(attrs, -1) {
-		if m[1] == "src" {
+		switch m[1] {
+		case "src":
 			src = renderer.UnescapeHTML(m[2])
-		} else {
+		case "alt":
 			alt = renderer.UnescapeHTML(m[2])
+		default:
+			title = renderer.UnescapeHTML(m[2])
 		}
 	}
 	text := alt
 	if path, local := docxLocalImageSource(src); local {
 		if insert, imgSize, ok := g.prepareLocalImage(path, 0, false); ok {
 			imgSize = capImageWidth(imgSize, g.inlineImageMaxWidthIn)
-			if _, err := p.AddImageWithSize(insert, imgSize); err == nil {
+			if img, err := p.AddImageWithSize(insert, imgSize); err == nil {
+				setDOCXImageDescription(img, firstNonBlank(alt, title))
 				return nil
 			}
 		}
 		text = g.docxImageUnavailableText(alt, path)
+	} else if strings.TrimSpace(src) != "" {
+		// Una imagen remota no se descarga: queda su alt.
+		g.recordUnavailable(docxUnavailableImage, src)
 	}
 	if text == "" {
 		return nil
@@ -2138,13 +2172,17 @@ func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
 			if src, local := docxLocalImageSource(dest); local {
 				if path, size, ok := g.prepareLocalImage(src, 0, false); ok {
 					size = capImageWidth(size, g.inlineImageMaxWidthIn)
-					_, err := p.AddImageWithSize(path, size)
+					img, err := p.AddImageWithSize(path, size)
 					if err == nil {
+						setDOCXImageDescription(img, firstNonBlank(alt, docxInlineImageTitle(dest)))
 						return nil
 					}
 					g.logger.Warn("DOCX: inline image %q could not be inserted: %v", src, err)
 				}
 				text = g.docxImageUnavailableText(alt, src)
+			} else if remote := docxImageDestPath(dest); remote != "" {
+				// Una imagen remota no se descarga: queda su alt.
+				g.recordUnavailable(docxUnavailableImage, remote)
 			}
 			if text == "" {
 				return nil
@@ -2212,6 +2250,15 @@ func docxLocalImageSource(dest string) (string, bool) {
 		return unescaped, unescaped != ""
 	}
 	return u.Path, u.Path != ""
+}
+
+// docxImageDestPath es la ruta de un destino Markdown inline sin el título,
+// tal como la escribió el autor.
+func docxImageDestPath(dest string) string {
+	if parts, ok := SplitMarkdownDestination(dest); ok {
+		return strings.TrimSpace(parts.Path)
+	}
+	return strings.TrimSpace(dest)
 }
 
 // docxBlockImagePath devuelve la ruta de archivo de la fuente de una imagen
@@ -2989,7 +3036,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		return unavailable()
 	}
 
-	_ = img // Imagen insertada exitosamente
+	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Alt, g.variables), renderer.ProcessVariables(elem.Title, g.variables)))
 	g.logger.Info("DOCX", "✅ Image inserted: %s", insertPath)
 
 	return g.renderImageCaption(doc, elem)
@@ -3218,10 +3265,12 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 		}
 	}
 
-	if _, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn)); err != nil {
+	img, err := p.AddImageWithSize(pngPath, imageSizeFromInches(widthIn, heightIn))
+	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
+	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, elem.DiagramType)))
 
 	if elem.Title != "" {
 		if err := g.renderFigureCaption(doc, elem.Title); err != nil {
@@ -3452,6 +3501,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 		g.logger.Warn("DOCX: Failed to insert equation image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
 	}
+	setDOCXImageDescription(img, g.docxMathAlt(elem))
 	if img == nil {
 		g.logger.Warn("DOCX: ⚠️  Equation image object is nil after insertion")
 	}
@@ -3497,10 +3547,12 @@ func (g *DOCXGenerator) renderMathImage(doc domain.Document, elem *ast.MathEleme
 			return fmt.Errorf("invalid keepNext: %w", err)
 		}
 	}
-	if _, err := p.AddImageWithSize(insertPath, imageSize); err != nil {
+	img, err := p.AddImageWithSize(insertPath, imageSize)
+	if err != nil {
 		g.logger.Warn("DOCX: line %d: equation image %q could not be inserted: %v", elem.Position.Line, image, err)
 		return unavailable()
 	}
+	setDOCXImageDescription(img, g.docxMathAlt(elem))
 	if err := g.renderMathNumberAndCaption(doc, elem); err != nil {
 		return err
 	}
@@ -3619,6 +3671,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 	}
+	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), chartOptionsTitle(elem), g.docxFigureAlt(docxUnavailableChart, elem.ChartType)))
 
 	if img == nil {
 		g.logger.Warn("DOCX: ⚠️  Image object is nil after insertion")
@@ -3638,7 +3691,17 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 	// El mapa nativo cubre los datos vectoriales habituales (markers, rutas,
 	// áreas y heatmap) sin proceso de navegador. Compartir BuildMapConfig con
 	// HTML/PPTX evita que cada exportador traduzca el AST de forma distinta.
-	mapConfig := renderer.BuildMapConfig(elem, nil)
+	// Los tiles salen de la red (OpenStreetMap, ArcGIS o --tile-server):
+	// con --no-network el mapa queda como marcador sin intentarlo (issue
+	// #472).
+	if g.opts.NoNetwork {
+		g.logger.Warn("DOCX: line %d: map not rendered: --no-network forbids downloading map tiles", elem.Position.Line)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
+	}
+	mapConfig, err := withTileServer(renderer.BuildMapConfig(elem, nil), g.opts.TileServer, g.opts.TileUserAgent, g.opts.TileAttribution)
+	if err != nil {
+		return err
+	}
 	pngBytes, err := renderer.RenderMapNativePNG(g.runCtx(), mapConfig, 1200, 800)
 	if err != nil {
 		// El navegador sigue siendo un respaldo para cualquier variante que el
@@ -3688,6 +3751,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 		g.logger.Warn("DOCX: Failed to insert map image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
 	}
+	setDOCXImageDescription(img, g.docxMapAlt(elem))
 
 	if img == nil {
 		g.logger.Warn("DOCX: ⚠️  Map image object is nil after insertion")
@@ -4173,16 +4237,24 @@ func (g *DOCXGenerator) renderCodeGroup(doc domain.Document, elem *ast.CodeGroup
 	return nil
 }
 
-// renderPlantUML renderiza diagramas PlantUML descargando PNG del servidor
+// renderPlantUML renderiza diagramas PlantUML descargando un PNG del mismo
+// servidor que usan el HTML y el PDF: --plantuml-server (por defecto
+// www.plantuml.com) o, con --diagram-backend=kroki, --kroki-server. Antes el
+// DOCX tenía fijo www.plantuml.com y no respetaba ninguna de las dos
+// (issue #472). Con --no-network no se pide nada y queda el marcador.
 func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLElement) error {
 	g.logger.Info("DOCX", "Rendering PlantUML diagram (%s)...", elem.DiagramType)
 
-	// Crear PlantUMLFetcher para descargar la imagen
-	fetcher := chromium.NewPlantUMLFetcher(
-		"https://www.plantuml.com/plantuml",
-		"png",
-		g.tempDir,
-	)
+	if g.opts.NoNetwork {
+		g.logger.Warn("DOCX: line %d: PlantUML diagram not rendered: --no-network forbids contacting the diagram server", elem.Position.Line)
+		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
+	}
+	var fetcher renderer.PlantUMLFetcher
+	if g.opts.DiagramBackend == "kroki" {
+		fetcher = chromium.NewKrokiFetcher(g.opts.KrokiServer, "plantuml", "png", g.tempDir)
+	} else {
+		fetcher = chromium.NewPlantUMLFetcher(g.opts.PlantUMLServer, "png", g.tempDir)
+	}
 
 	// Descargar diagrama a archivo PNG
 	content := renderer.ApplyPlantUMLTheme(renderer.SanitizePlantUMLContent(elem.Content), g.diagramTheme)
@@ -4211,13 +4283,15 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	}
 
 	imageSize, err := g.fittedImageSize(pngPath, elem.Title != "")
+	var img domain.Image
 	if err == nil {
-		_, err = p.AddImageWithSize(pngPath, imageSize)
+		img, err = p.AddImageWithSize(pngPath, imageSize)
 	}
 	if err != nil {
 		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
+	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, "PlantUML "+elem.DiagramType)))
 
 	// Obtener tamaño del archivo
 	fileInfo, _ := os.Stat(pngPath)
@@ -4442,6 +4516,7 @@ func (g *DOCXGenerator) renderMedia(doc domain.Document, elem *ast.MediaElement)
 	displayText := fmt.Sprintf("[%s: %s]", label, safeSource)
 	if _, err := p.AddHyperlink(safeSource, displayText); err != nil {
 		g.logger.Warn("DOCX: Failed to insert media hyperlink %s: %v", safeSource, err)
+		g.unavailable.add("media", g.renderLine, source)
 		return g.renderPlaceholder(doc, g.docxMediaText(label, "unavailable", safeSource))
 	}
 

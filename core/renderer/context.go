@@ -136,6 +136,42 @@ type RenderContext struct {
 	// el HTML de modo browser no cambia nada: ahí la imagen la pide el
 	// navegador del lector. Ver SetAllowRemoteImages.
 	AllowRemoteImages bool
+	// unavailableReporter recibe cada contenido que la salida reemplaza por
+	// el marcador de no disponible (ver SetUnavailableReporter). nil, el
+	// default, no cambia nada.
+	unavailableReporter func(kind string, line int, detail string)
+	// renderLine es la línea fuente del elemento que RenderElementToHTML
+	// está renderizando (0 fuera de un elemento, p. ej. el logo del
+	// encabezado). Solo la lee reportUnavailable.
+	renderLine int
+	// mapTiles es el servidor de tiles propio de SetMapTileServer.
+	mapTiles mapTileServer
+	// reportedKeptAssets son las fuentes que reportMissingKeptAsset ya
+	// reportó.
+	reportedKeptAssets map[string]bool
+}
+
+// SetUnavailableReporter registra fn para que reciba, mientras se genera la
+// salida, cada contenido que quedó como marcador de no disponible: una
+// imagen que falta, queda fuera de la raíz de assets o es remota y no se
+// pidió (kind "image"), y un mapa, chart, diagrama, ecuación o medio que no
+// se pudo dibujar ("map", "chart", "diagram", "equation", "media"). line es
+// la línea fuente del elemento (0 si no viene de uno, como el logo del
+// encabezado) y detail la fuente de la imagen tal como la escribió el autor
+// (vacío para lo demás). Un logo de encabezado que falta también se reporta
+// aunque no deje marcador: se omite. Es un método, y no un campo exportado,
+// para que un CLI que compila contra un core publicado sin él lo pida por
+// interfaz sin dejar de compilar (mismo criterio que SetAllowRemoteImages).
+func (c *RenderContext) SetUnavailableReporter(fn func(kind string, line int, detail string)) {
+	c.unavailableReporter = fn
+}
+
+// reportUnavailable avisa al reporter de SetUnavailableReporter, si hay uno.
+func reportUnavailable(ctx *RenderContext, kind unavailableKind, detail string) {
+	if ctx == nil || ctx.unavailableReporter == nil {
+		return
+	}
+	ctx.unavailableReporter(kind.String(), ctx.renderLine, detail)
 }
 
 // SetAllowRemoteImages fija AllowRemoteImages. Existe para que un CLI que

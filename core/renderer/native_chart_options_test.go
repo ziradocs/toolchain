@@ -262,8 +262,8 @@ func TestExtractNativeChartOverrides_TranslatesEachMappableKey(t *testing.T) {
 	if !ov.legendBottom {
 		t.Error("legendBottom = false, want true (plugins.legend.position: bottom)")
 	}
-	if !ov.yBeginAtZero {
-		t.Error("yBeginAtZero = false, want true")
+	if ov.yBeginAtZero == nil || !*ov.yBeginAtZero {
+		t.Errorf("yBeginAtZero = %v, want true", ov.yBeginAtZero)
 	}
 }
 
@@ -292,10 +292,10 @@ func TestApplyTitleOverrides_ElemTitleWinsOverOptionsRescue(t *testing.T) {
 // removieron de optionLeafRules (review de PR #159, ver su comentario), así
 // que ya no hay una precedencia explícita-min-vs-beginAtZero que probar.
 func TestApplyYAxisOverrides_BeginAtZeroSetsMinToZero(t *testing.T) {
-	ov := nativeChartOverrides{yBeginAtZero: true}
+	ov := nativeChartOverrides{yBeginAtZero: charts.Ptr(true)}
 
 	var axis charts.ValueAxisOption
-	applyYAxisOverrides(&axis, ov)
+	applyYAxisOverrides(&axis, ov, [][]float64{{3, 5}}, false)
 
 	if axis.Min == nil || *axis.Min != 0 {
 		t.Errorf("Min = %v, want 0", axis.Min)

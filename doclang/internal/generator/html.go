@@ -95,6 +95,9 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 			return fmt.Errorf("failed to initialize Chromium renderer: %w", err)
 		}
 		defer chromiumR.Close()
+		if err := restrictNetworkFn(chromiumR, opts); err != nil {
+			return err
+		}
 
 		chromiumRenderer = chromiumR
 
@@ -161,6 +164,14 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		Logger:             h.logger,
 	})
 	allowRemoteImages(ctx, opts.AllowRemoteImages)
+	if err := setTileServer(ctx, opts); err != nil {
+		return err
+	}
+	cutNetwork(ctx, opts)
+	unavailable, err := watchUnavailable(ctx, opts)
+	if err != nil {
+		return err
+	}
 	if nativeChartFetcher != nil {
 		// chromiumRenderer es nil acá (needsChromium se apagó arriba), así
 		// que NewRenderContext dejó ctx.ChartFetcher sin asignar — el
@@ -171,6 +182,9 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 
 	// Generar HTML usando el renderer compartido
 	html := renderer.GenerateDocumentHTML(doc, renderOpts, ctx)
+	if err := unavailable.err(); err != nil {
+		return err
+	}
 
 	// Write to file
 	if err := os.WriteFile(outputFile, []byte(html), 0644); err != nil {

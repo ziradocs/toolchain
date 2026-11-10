@@ -114,6 +114,31 @@ type GeneratorOptions struct {
 	// cancelarse, el navegador se cierra y las llamadas pendientes vuelven
 	// con error. nil equivale a context.Background().
 	Ctx context.Context
+	// FailOnUnavailable (--fail-on-unavailable) hace que la generación
+	// falle con un *UnavailableError, sin escribir la salida, si algo
+	// quedaría como marcador de no disponible: una imagen que falta, queda
+	// fuera de AssetRoot o es remota y no se pidió, o un diagrama, chart,
+	// mapa, ecuación o medio que no se pudo dibujar. Cubre DOCX, PDF y HTML
+	// (en el HTML de modo browser casi nada se resuelve al compilar, así que
+	// casi nada puede faltar). Apagado, el default, el marcador sale como
+	// siempre y la generación termina bien.
+	FailOnUnavailable bool
+	// NoNetwork (--no-network): ningún pedido de red durante la generación.
+	// PlantUML (servidor de PlantUML o Kroki), mermaid por Kroki y los mapas
+	// quedan como marcador de no disponible en vez de pedirse, y Chromium,
+	// si hace falta, arranca sin salida a la red (RestrictNetwork de core).
+	// No cambia lo que carga el HTML de modo browser al abrirse en el
+	// navegador del lector.
+	NoNetwork bool
+	// TileServer y TileUserAgent (--tile-server, --tile-user-agent): un
+	// servidor de tiles propio para los mapas que se dibujan al compilar
+	// (DOCX, PDF y HTML offline), en vez de OpenStreetMap y ArcGIS. Ver
+	// renderer.MapConfig.WithTileServer.
+	TileServer    string
+	TileUserAgent string
+	// TileAttribution (--tile-attribution) es el crédito que se dibuja en
+	// el mapa cuando los tiles salen de TileServer.
+	TileAttribution string
 }
 
 // runContext devuelve opts.Ctx, o context.Background() si no se fijó.

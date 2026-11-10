@@ -33,7 +33,8 @@ func mathImageCSSWidth(source string, ctx *RenderContext) (float64, bool) {
 	if err != nil || u.Scheme != "" || u.Host != "" {
 		return 0, false
 	}
-	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, LocalPathFromURL(source))
+	// u.Path: sin query ni fragmento (eq.png?v=2 es el archivo eq.png).
+	resolved, err := util.ResolveConfinedPathFrom(ctx.AssetRoot, ctx.AssetBaseDir, u.Path)
 	if err != nil {
 		return 0, false
 	}
