@@ -6,6 +6,7 @@ package elements
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	"go.ziradocs.com/core/v2/ast"
 )
@@ -199,13 +200,13 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // marcadores y no parte del diagrama, sin la suya. Las líneas de los
 // marcadores no cuentan para la sangría común: un cuerpo sangrado bajo un
 // @startuml en la columna 0 pierde esa sangría, igual que antes. Como antes,
-// cada línea va sin espacios ni "\r" al final, las líneas en blanco del
+// cada línea va sin espacio al final (plantUMLLine), las líneas en blanco del
 // principio se descartan y las de adentro, también junto a los marcadores, se
 // conservan. Las que siguen al @enduml se descartan.
 func dedentPlantUMLBody(body []string) string {
 	lines := make([]string, len(body))
 	for i, l := range body {
-		lines[i] = strings.TrimRight(l, " \t\r")
+		lines[i] = plantUMLLine(l)
 	}
 	for len(lines) > 0 && lines[0] == "" {
 		lines = lines[1:]
@@ -225,6 +226,25 @@ func dedentPlantUMLBody(body []string) string {
 	// @startuml y @enduml alrededor, como antes.
 	parts := append(append(append([]string{}, head...), dedentLines(lines)...), tail...)
 	return strings.Join(parts, "\n")
+}
+
+// plantUMLLine es una línea del cuerpo sin el espacio del final (también
+// Unicode, como U+00A0, y el "\r") y sin los espacios Unicode de su sangría,
+// que la recortaba toda antes de conservar la sangría relativa; los espacios
+// y tabs de la sangría se quedan para dedentLines.
+func plantUMLLine(l string) string {
+	l = strings.TrimRightFunc(l, unicode.IsSpace)
+	text := strings.TrimLeftFunc(l, unicode.IsSpace)
+	lead := l[:len(l)-len(text)]
+	if strings.Trim(lead, " \t") == "" {
+		return l
+	}
+	return strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\t' {
+			return r
+		}
+		return -1
+	}, lead) + text
 }
 
 // trimLines es text con cada línea recortada.

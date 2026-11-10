@@ -185,3 +185,13 @@ func TestPlantUMLParser_TypeIgnoresKeptIndentation(t *testing.T) {
 		t.Errorf("diagramType = %q, want class", elem.DiagramType)
 	}
 }
+
+// Los espacios Unicode (U+00A0, U+3000) se quitan del final de una línea y de
+// su sangría, como cuando cada línea se recortaba entera; los espacios y tabs
+// de la sangría se conservan.
+func TestPlantUMLParser_UnicodeSpaces(t *testing.T) {
+	got := (&PlantUMLParser{}).Parse(&ParseContext{Mode: "flex", Lines: []string{"<<plantuml>>", "  @startuml", "  A -> B   ", "     B -> C　", "  @enduml"}}, 0)
+	if c := got.Element.(*ast.PlantUMLElement).Content; c != "@startuml\nA -> B\n  B -> C\n@enduml" {
+		t.Errorf("content = %q", c)
+	}
+}

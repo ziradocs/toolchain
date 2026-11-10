@@ -64,6 +64,19 @@ func TestMermaidParser_PreservesOpaqueBodies(t *testing.T) {
 			lines: []string{"<<mermaid>>", "\t\tmindmap", "\t", "\t\t\troot((P))", "<<end>>"},
 			want:  "mindmap\n\n\troot((P))", typeName: "mindmap",
 		},
+		// Una línea de solo espacios conserva lo que pasa de la sangría
+		// común, como antes; con el corte por columnas, una más corta queda
+		// vacía.
+		{
+			name: "whitespace-only line keeps the remainder", mode: "flex",
+			lines: []string{"<<mermaid>>", "  graph LR", "      ", "  A --> B", "<<end>>"},
+			want:  "graph LR\n    \nA --> B", typeName: "flowchart",
+		},
+		{
+			name: "short whitespace-only line with column cut", mode: "flex",
+			lines: []string{"<<mermaid>>", "    graph LR", " ", "\tA --> B", "<<end>>"},
+			want:  "graph LR\n\nA --> B", typeName: "flowchart",
+		},
 		{
 			name: "quadrant does not become flowchart", mode: "flex",
 			lines: []string{"```mermaid", "quadrantChart", "  x-axis Bajo --> Alto", "```"},
