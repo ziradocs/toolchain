@@ -5,17 +5,25 @@ package generator
 
 import (
 	"bytes"
+	"compress/zlib"
+	"context"
 	"encoding/base64"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"image/jpeg"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"golang.org/x/image/webp"
 )
 
 // Imágenes WebP de prueba, hechas con Pillow: una sin pérdida de 40×20 roja,
@@ -104,5 +112,220 @@ func TestDOCX_WebPImagesAreInsertedAsPNG(t *testing.T) {
 	}
 	if !alpha {
 		t.Error("the translucent WebP lost its transparency")
+	}
+}
+
+// writeWebP escribe el WebP en base64 b64 como dir/name.
+func writeWebP(t *testing.T, dir, name, b64 string) string {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// bombWebP es un WebP sin pérdida que declara w×h en su encabezado VP8L y no
+// trae datos: webp.DecodeConfig lo lee y Decode, que pediría w×h×4 bytes,
+// nunca tiene que correr.
+func bombWebP(w, h int) []byte {
+	bits := uint32(w-1) | uint32(h-1)<<14
+	chunk := []byte{0x2f, byte(bits), byte(bits >> 8), byte(bits >> 16), byte(bits >> 24), 0, 0, 0}
+	le := func(n int) []byte { return []byte{byte(n), byte(n >> 8), byte(n >> 16), byte(n >> 24)} }
+	out := append([]byte("RIFF"), le(4+8+len(chunk))...)
+	out = append(out, "WEBP"...)
+	out = append(out, "VP8L"...)
+	out = append(out, le(len(chunk))...)
+	return append(out, chunk...)
+}
+
+// Un WebP con pérdida y sin alfa entra como JPEG; uno sin pérdida o con alfa,
+// como PNG. El perfil de color pasa al archivo nuevo: un iCCP en el PNG, un
+// APP2 ICC_PROFILE en el JPEG. Ningún WebP crudo llega a word/media.
+func TestDOCX_WebPFormatAndColorProfile(t *testing.T) {
+	root := t.TempDir()
+	for name, b64 := range map[string]string{
+		"verde.webp":     webpLossy24x16,
+		"verde-icc.webp": webpLossyICC24x16,
+		"roja-icc.webp":  webpLosslessICC8x8,
+		"alfa.webp":      webpAlpha30x30,
+	} {
+		writeWebP(t, root, name, b64)
+	}
+	pos := diagnostics.NewPosition(1, 1)
+	doc := ast.NewAST(pos)
+	doc.FrontMatter = ast.NewFrontMatterNode(pos)
+	doc.FrontMatter.Title = "WebP"
+	block := ast.NewContentBlock(diagnostics.NewPosition(2, 1), "content")
+	block.Title = "S"
+	for i, name := range []string{"verde.webp", "verde-icc.webp", "roja-icc.webp", "alfa.webp"} {
+		block.Elements = append(block.Elements, ast.NewImageElement(diagnostics.NewPosition(3+i, 1), name, name))
+	}
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	out := filepath.Join(t.TempDir(), "webp.docx")
+	if err := New(newTestLogger()).Generate(doc, out, GeneratorOptions{Format: "docx", AssetRoot: root, SourceDir: root}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(docxDocumentXML(t, out), "no disponible") {
+		t.Fatal("a WebP was left as unavailable")
+	}
+	var jpegs, pngs, jpegICC, pngICC int
+	for name, data := range docxMediaFiles(t, out) {
+		switch {
+		case isWebP(data):
+			t.Errorf("%s is a raw WebP", name)
+		case bytes.HasPrefix(data, []byte{0xFF, 0xD8}):
+			jpegs++
+			if bytes.Contains(data, []byte("ICC_PROFILE\x00\x01\x01")) {
+				jpegICC++
+			}
+			if _, err := jpeg.Decode(bytes.NewReader(data)); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+		case bytes.HasPrefix(data, []byte("\x89PNG")):
+			pngs++
+			if bytes.Contains(data, []byte("iCCPICC Profile")) {
+				pngICC++
+			}
+			if _, err := png.Decode(bytes.NewReader(data)); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+		default:
+			t.Errorf("%s is neither JPEG nor PNG", name)
+		}
+	}
+	if jpegs != 2 || pngs != 2 || jpegICC != 1 || pngICC != 1 {
+		t.Errorf("media: %d JPEG (%d with ICC), %d PNG (%d with ICC); want 2 (1) and 2 (1)", jpegs, jpegICC, pngs, pngICC)
+	}
+}
+
+// El perfil que se escribe es el del WebP, entero.
+func TestEncodeWithICCKeepsTheProfile(t *testing.T) {
+	data, err := base64.StdEncoding.DecodeString(webpLosslessICC8x8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	icc, _ := webpChunk(data, "ICCP")
+	if len(icc) != 588 {
+		t.Fatalf("ICC profile of %d bytes, want 588", len(icc))
+	}
+	img, err := webp.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pngData, err := encodePNGWithICC(img, icc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := bytes.Index(pngData, []byte("iCCPICC Profile\x00\x00"))
+	if i < 0 {
+		t.Fatal("no iCCP chunk")
+	}
+	size := int(binary.BigEndian.Uint32(pngData[i-4 : i]))
+	zr, err := zlib.NewReader(bytes.NewReader(pngData[i+4+len("ICC Profile\x00\x00") : i+4+size]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(zr)
+	if err != nil || !bytes.Equal(got, icc) {
+		t.Errorf("iCCP profile differs (%v)", err)
+	}
+	if _, err := png.Decode(bytes.NewReader(pngData)); err != nil {
+		t.Errorf("PNG with iCCP does not decode: %v", err)
+	}
+	jpegData, err := encodeJPEGWithICC(img, icc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := bytes.Index(jpegData, []byte("ICC_PROFILE\x00\x01\x01"))
+	if j < 0 || !bytes.Equal(jpegData[j+14:j+14+len(icc)], icc) {
+		t.Error("APP2 ICC_PROFILE missing or different")
+	}
+	if _, err := jpeg.Decode(bytes.NewReader(jpegData)); err != nil {
+		t.Errorf("JPEG with APP2 does not decode: %v", err)
+	}
+}
+
+// Un WebP que declara más de docxWebPMaxPixels no se decodifica: queda como
+// no disponible enseguida, con un aviso que dice por qué. Antes uno de 40
+// bytes con 16383×16383 tardaba 11 s y pedía 1.2 GB por referencia.
+func TestDOCX_HugeWebPIsNotDecoded(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "bomba.webp"), bombWebP(16383, 16383), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pos := diagnostics.NewPosition(1, 1)
+	doc := ast.NewAST(pos)
+	doc.FrontMatter = ast.NewFrontMatterNode(pos)
+	doc.FrontMatter.Title = "WebP"
+	block := ast.NewContentBlock(diagnostics.NewPosition(2, 1), "content")
+	block.Title = "S"
+	for i := 0; i < 3; i++ {
+		block.Elements = append(block.Elements, ast.NewImageElement(diagnostics.NewPosition(3+i, 1), "bomba.webp", "Bomba"))
+	}
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	logger := newTestLogger()
+	out := filepath.Join(t.TempDir(), "bomba.docx")
+	start := time.Now()
+	if err := New(logger).Generate(doc, out, GeneratorOptions{Format: "docx", AssetRoot: root, SourceDir: root}); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("generation took %v: the huge WebP was decoded", d)
+	}
+	if n := strings.Count(docxDocumentXML(t, out), "[Imagen no disponible: Bomba]"); n != 3 {
+		t.Errorf("%d unavailable markers, want 3", n)
+	}
+	warned := false
+	for _, w := range logger.warns {
+		warned = warned || strings.Contains(w, "bomba.webp") && strings.Contains(w, "too large") && strings.Contains(w, "16383×16383")
+	}
+	if !warned {
+		t.Errorf("no warning about the size: %q", logger.warns)
+	}
+}
+
+// Un WebP ya convertido (mismo contenido) no se vuelve a convertir, y con el
+// contexto cancelado no se decodifica.
+func TestConvertWebPReusesAndRespectsContext(t *testing.T) {
+	src := writeWebP(t, t.TempDir(), "roja.webp", webpRed40x20)
+	g := &DOCXGenerator{tempDir: t.TempDir()}
+	first, err := g.convertWebP(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first, []byte("ya convertida"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := g.convertWebP(src)
+	if err != nil || second != first {
+		t.Fatalf("second conversion = %q, %v; want %q", second, err, first)
+	}
+	if data, _ := os.ReadFile(second); string(data) != "ya convertida" {
+		t.Error("the WebP was converted again")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	g = &DOCXGenerator{tempDir: t.TempDir(), ctx: ctx}
+	if _, err := g.convertWebP(src); !errors.Is(err, context.Canceled) {
+		t.Errorf("with a cancelled context: %v, want context.Canceled", err)
+	}
+}
+
+// Un chunk de largo impar lleva un byte de relleno: el siguiente empieza
+// después de él.
+func TestWebPChunkSkipsPadding(t *testing.T) {
+	data := []byte("RIFF\x00\x00\x00\x00WEBP" + "EXIF\x03\x00\x00\x00abc\x00" + "ICCP\x02\x00\x00\x00pq")
+	got, ok := webpChunk(data, "ICCP")
+	if !ok || string(got) != "pq" {
+		t.Errorf("webpChunk = %q, %v; want \"pq\"", got, ok)
+	}
+	if _, ok := webpChunk(data[:len(data)-1], "ICCP"); ok {
+		t.Error("a truncated chunk was returned")
 	}
 }
