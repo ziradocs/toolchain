@@ -73,10 +73,14 @@ func isWebP(data []byte) bool {
 // ella: se ve igual y el DOCX no carga píxeles que no se muestran. El perfil
 // de color (ICCP) pasa al archivo nuevo. Devuelve su ruta.
 //
-// Primero lee solo el encabezado: pasado docxWebPMaxPixels no decodifica. Un
-// archivo ya convertido (mismo contenido) no se vuelve a convertir. Un WebP
-// animado o dañado da error. En todos los casos de error la imagen queda como
-// no disponible, como cualquier otra que no se puede leer.
+// De un WebP animado entra el primer cuadro, como lo imprime un navegador
+// (ver webpFirstFrame).
+//
+// Primero lee solo el encabezado: pasado docxWebPMaxPixels no decodifica (en
+// uno animado cuenta el lienzo). Un archivo ya convertido (mismo contenido)
+// no se vuelve a convertir. Un WebP dañado o truncado da error. En todos los
+// casos de error la imagen queda como no disponible, como cualquier otra que
+// no se puede leer.
 func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	data, err := os.ReadFile(webpPath)
 	if err != nil {
@@ -92,9 +96,20 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	// Con pérdida es un chunk "VP8 " (con espacio); el alfa de uno con
 	// pérdida va en un chunk ALPH. webp.DecodeConfig no sirve para esto: con
 	// un encabezado VP8X da YCbCr también para uno sin pérdida.
-	_, lossy := webpChunk(data, "VP8 ")
-	_, alpha := webpChunk(data, "ALPH")
-	lossyOpaque := lossy && !alpha
+	// En uno animado esos chunks van dentro de los cuadros: la clase la da
+	// el primero.
+	var frame *webpFrame
+	var lossyOpaque bool
+	if webpIsAnimated(data) {
+		if frame, err = webpFirstFrame(data, cfg.Width, cfg.Height); err != nil {
+			return "", fmt.Errorf("cannot decode animated WebP image: %w", err)
+		}
+		lossyOpaque = frame.lossyOpaque()
+	} else {
+		_, lossy := webpChunk(data, "VP8 ")
+		_, alpha := webpChunk(data, "ALPH")
+		lossyOpaque = lossy && !alpha
+	}
 	ext := ".png"
 	if lossyOpaque {
 		ext = ".jpg"
@@ -108,7 +123,12 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	if err := g.runCtx().Err(); err != nil {
 		return "", err
 	}
-	img, err := webp.Decode(bytes.NewReader(data))
+	var img image.Image
+	if frame != nil {
+		img, err = frame.decode()
+	} else {
+		img, err = webp.Decode(bytes.NewReader(data))
+	}
 	if err != nil {
 		return "", fmt.Errorf("cannot decode WebP image: %w", err)
 	}
@@ -159,7 +179,13 @@ func downscaleToFit(img image.Image, maxW, maxH int, alpha bool) image.Image {
 // webpChunk es el contenido del primer chunk fourcc del contenedor RIFF de
 // un WebP, y si está.
 func webpChunk(data []byte, fourcc string) ([]byte, bool) {
-	for off := 12; off+8 <= len(data); {
+	return riffChunk(data, 12, fourcc)
+}
+
+// riffChunk es el contenido del primer chunk fourcc de los que empiezan en
+// data[off:], y si está.
+func riffChunk(data []byte, off int, fourcc string) ([]byte, bool) {
+	for off+8 <= len(data) {
 		size := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
 		start := off + 8
 		if size < 0 || size > len(data)-start {
