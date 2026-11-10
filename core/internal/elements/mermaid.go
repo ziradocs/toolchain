@@ -115,37 +115,83 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // línea o descartar blancos internos corrompe el diagrama y hace que fmt
 // persista esa corrupción en el fuente.
 func dedentMermaidContent(lines []string) string {
+	return dedentCommonPrefix(lines)
+}
+
+// dedentCommonPrefix quita a lines las líneas en blanco del principio y del
+// final y la sangría que comparten todas las líneas con texto (dedentLines), y
+// las une con "\n".
+func dedentCommonPrefix(lines []string) string {
 	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
 		lines = lines[1:]
 	}
 	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
-	if len(lines) == 0 {
-		return ""
-	}
+	return strings.Join(dedentLines(lines), "\n")
+}
 
+// dedentLines quita a cada línea la sangría que comparten todas las líneas
+// con texto y conserva la relativa. Una línea de solo espacios conserva lo que
+// pase de esa sangría; una más corta queda vacía.
+// La sangría común se quita en dos pasos. Primero el prefijo de espacios y
+// tabs que comparten (commonIndentPrefix, el mismo criterio que el cuerpo de
+// un CODE), comparado como cadena: un tab vale un tab. Antes se medía por
+// columnas (un tab contaba cuatro) pero se cortaba carácter a carácter, así
+// que un cuerpo sangrado con tabs perdía toda la sangría relativa (un mindmap
+// quedaba plano). Después, si todavía ninguna línea con texto queda en la
+// columna 0 (unas sangradas con espacios y otras con tabs, sin prefijo
+// común), se cortan las columnas que comparten, con un tab de cuatro, como
+// antes: así un `---` de frontmatter escrito con espacios junto a un cuerpo
+// con tabs sigue en la columna 0, donde mermaid lo lee.
+func dedentLines(lines []string) []string {
+	out := make([]string, len(lines))
+	base, hasText := commonIndentPrefix(lines)
+	if !hasText {
+		return out
+	}
 	common := -1
-	for _, line := range lines {
+	for i, line := range lines {
+		rest, ok := strings.CutPrefix(line, base)
+		if !ok {
+			// Solo una línea en blanco puede no tener el prefijo entero.
+			continue
+		}
+		out[i] = rest
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		indent := CalculateIndentLevel(line)
-		if common == -1 || indent < common {
+		if indent := CalculateIndentLevel(rest); common == -1 || indent < common {
 			common = indent
 		}
 	}
-	if common <= 0 {
-		return strings.Join(lines, "\n")
-	}
-	for i, line := range lines {
-		cut := 0
-		for cut < len(line) && cut < common && (line[cut] == ' ' || line[cut] == '\t') {
-			cut++
+	if common > 0 {
+		for i, line := range out {
+			if CalculateIndentLevel(line) >= common {
+				out[i] = cutIndentColumns(line, common)
+			} else {
+				out[i] = "" // una línea en blanco más corta
+			}
 		}
-		lines[i] = line[cut:]
 	}
-	return strings.Join(lines, "\n")
+	return out
+}
+
+// cutIndentColumns quita los primeros columns de sangría de line, una línea
+// sangrada al menos esas columnas, con un tab de cuatro columnas
+// (CalculateIndentLevel). Un tab que pasa del corte deja las columnas que
+// sobran como espacios.
+func cutIndentColumns(line string, columns int) string {
+	width, cut := 0, 0
+	for cut < len(line) && width < columns {
+		if line[cut] == '\t' {
+			width += 4
+		} else {
+			width++
+		}
+		cut++
+	}
+	return strings.Repeat(" ", width-columns) + line[cut:]
 }
 
 // detectMermaidType mira solo la primera instrucción real. Un frontmatter
