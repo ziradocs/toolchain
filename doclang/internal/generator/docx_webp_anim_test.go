@@ -22,7 +22,7 @@ import (
 )
 
 // decodeWebPFixture es el WebP en base64 b64.
-func decodeWebPFixture(t *testing.T, b64 string) []byte {
+func decodeWebPFixture(t testing.TB, b64 string) []byte {
 	t.Helper()
 	data, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {

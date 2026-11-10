@@ -142,6 +142,9 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	}
 	img = downscaleToFit(img, maxW, maxH, !asJPEG)
 	icc, _ := webpChunk(data, "ICCP")
+	if frame != nil {
+		icc = frame.icc
+	}
 	var out []byte
 	outPath := base + ".png"
 	if asJPEG {
