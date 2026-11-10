@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"golang.org/x/image/draw"
 	"golang.org/x/image/webp"
 )
 
@@ -32,6 +33,13 @@ const docxWebPMaxPixels = 40_000_000
 // y sin alfa: ya perdió información al comprimirse, así que un PNG sin
 // pérdida solo agranda el DOCX (un WebP de 8 MB daba un DOCX de 55 MB).
 const docxWebPJPEGQuality = 92
+
+// docxWebPPixelsPerInch es la resolución a la que se reduce un WebP más
+// grande que la caja de texto: la que Word usa por omisión para comprimir las
+// imágenes de un documento (220 ppp). Se muestra al mismo tamaño que sin
+// reducir, porque aun reducida su tamaño natural (a 96 ppp) es mayor que la
+// caja, así que fitFigure la ajusta a la caja igual.
+const docxWebPPixelsPerInch = 220
 
 // errWebPTooLarge es el error de un WebP que pasa de docxWebPMaxPixels.
 var errWebPTooLarge = errors.New("WebP image too large")
@@ -61,7 +69,9 @@ func isWebP(data []byte) bool {
 // inserta y la escribe en el directorio temporal del DOCX: Word no inserta
 // WebP, y docxgo tampoco lo lee. Un WebP con pérdida y sin alfa entra como
 // JPEG; uno sin pérdida o con alfa, como PNG, que conserva la transparencia.
-// El perfil de color (ICCP) pasa al archivo nuevo. Devuelve su ruta.
+// Uno más grande que la caja de texto a docxWebPPixelsPerInch se reduce a
+// ella: se ve igual y el DOCX no carga píxeles que no se muestran. El perfil
+// de color (ICCP) pasa al archivo nuevo. Devuelve su ruta.
 //
 // Primero lee solo el encabezado: pasado docxWebPMaxPixels no decodifica. Un
 // archivo ya convertido (mismo contenido) no se vuelve a convertir. Un WebP
@@ -89,7 +99,8 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	if lossyOpaque {
 		ext = ".jpg"
 	}
-	sum := sha256.Sum256(data)
+	maxW, maxH := g.webpMaxPixelSize()
+	sum := sha256.Sum256(append(data, fmt.Sprintf("|%dx%d", maxW, maxH)...))
 	outPath := filepath.Join(g.tempDir, "webp_"+hex.EncodeToString(sum[:8])+ext)
 	if _, err := os.Stat(outPath); err == nil {
 		return outPath, nil
@@ -101,6 +112,7 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot decode WebP image: %w", err)
 	}
+	img = downscaleToFit(img, maxW, maxH, !lossyOpaque)
 	icc, _ := webpChunk(data, "ICCP")
 	var out []byte
 	if lossyOpaque {
@@ -115,6 +127,33 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 		return "", err
 	}
 	return outPath, nil
+}
+
+// webpMaxPixelSize es el tamaño en píxeles de la caja de texto a
+// docxWebPPixelsPerInch: un WebP más grande se reduce a él. 0 si la caja no
+// se conoce (no se reduce).
+func (g *DOCXGenerator) webpMaxPixelSize() (int, int) {
+	return int(g.contentWidthIn * docxWebPPixelsPerInch), int(g.contentHeightIn * docxWebPPixelsPerInch)
+}
+
+// downscaleToFit reduce img, conservando la proporción, para que quepa en
+// maxW×maxH píxeles; nunca la agranda, y con un lado 0 no la toca. alpha dice
+// si hay que conservar la transparencia.
+func downscaleToFit(img image.Image, maxW, maxH int, alpha bool) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if maxW <= 0 || maxH <= 0 || w <= maxW && h <= maxH {
+		return img
+	}
+	scale := min(float64(maxW)/float64(w), float64(maxH)/float64(h))
+	nw, nh := max(1, int(float64(w)*scale+0.5)), max(1, int(float64(h)*scale+0.5))
+	r := image.Rect(0, 0, nw, nh)
+	var dst draw.Image = image.NewRGBA(r)
+	if alpha {
+		dst = image.NewNRGBA(r)
+	}
+	draw.CatmullRom.Scale(dst, r, img, b, draw.Src, nil)
+	return dst
 }
 
 // webpChunk es el contenido del primer chunk fourcc del contenedor RIFF de

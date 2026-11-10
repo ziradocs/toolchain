@@ -11,9 +11,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"image"
 	"image/jpeg"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -327,5 +329,62 @@ func TestWebPChunkSkipsPadding(t *testing.T) {
 	}
 	if _, ok := webpChunk(data[:len(data)-1], "ICCP"); ok {
 		t.Error("a truncated chunk was returned")
+	}
+}
+
+// Un WebP más grande que la caja de texto a 220 ppp se reduce a ella,
+// conservando la proporción y la transparencia, y se sigue mostrando al ancho
+// de la caja. Uno más chico no se toca.
+func TestDownscaleToFitKeepsDisplaySize(t *testing.T) {
+	g := &DOCXGenerator{contentWidthIn: 6.5, contentHeightIn: 9}
+	maxW, maxH := g.webpMaxPixelSize()
+	if maxW != 1430 || maxH != 1980 {
+		t.Fatalf("max size %dx%d, want 1430x1980", maxW, maxH)
+	}
+	big := image.NewNRGBA(image.Rect(0, 0, 3840, 2160))
+	for i := range big.Pix {
+		big.Pix[i] = 0x80
+	}
+	small := downscaleToFit(big, maxW, maxH, true)
+	if b := small.Bounds(); b.Dx() != 1430 || b.Dy() != 804 {
+		t.Errorf("downscaled to %dx%d, want 1430x804", b.Dx(), b.Dy())
+	}
+	if _, ok := small.(*image.NRGBA); !ok {
+		t.Errorf("downscaled image is %T, want *image.NRGBA to keep the alpha", small)
+	}
+	if _, _, _, a := small.At(10, 10).RGBA(); a == 0xffff {
+		t.Error("the transparency was lost")
+	}
+	if got := downscaleToFit(big, 4000, 4000, true); got != image.Image(big) {
+		t.Error("an image that fits was resampled")
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, small); err != nil {
+		t.Fatal(err)
+	}
+	full, reduced := writeImage(t, pngOfSize(t, 3840, 2160)), writeImage(t, buf.Bytes())
+	wFull, hFull := sizeIn(g, full, false)
+	wSmall, hSmall := sizeIn(g, reduced, false)
+	if math.Abs(wFull-wSmall) > 0.01 || math.Abs(hFull-hSmall) > 0.01 {
+		t.Errorf("display size %.2fx%.2f in, want %.2fx%.2f as without downscaling", wSmall, hSmall, wFull, hFull)
+	}
+}
+
+// convertWebP reduce a la caja de texto: con una caja de 0.1×0.1 pulgadas
+// (22×22 px a 220 ppp) el WebP de 40×20 sale de 22×11.
+func TestConvertWebPDownscalesToTheContentBox(t *testing.T) {
+	src := writeWebP(t, t.TempDir(), "roja.webp", webpRed40x20)
+	g := &DOCXGenerator{tempDir: t.TempDir(), contentWidthIn: 0.1, contentHeightIn: 0.1}
+	out, err := g.convertWebP(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width != 22 || cfg.Height != 11 {
+		t.Errorf("converted %dx%d (%v), want 22x11", cfg.Width, cfg.Height, err)
 	}
 }
