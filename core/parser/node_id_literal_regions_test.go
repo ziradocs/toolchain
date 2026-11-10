@@ -38,7 +38,7 @@ func nodeIDApplied(t *testing.T, src, id string) (applied, keptAsText bool) {
 
 // El pre-pase de `<!-- node-id -->` corre antes de parsear y conserva sus
 // reglas de regiones literales (las de main). Estas pruebas las fijan para que
-// mover la regla de @include al parser (CodeLiteralLines) no las cambie.
+// mover la regla de @include al parser no las cambie.
 func TestNodeIDPrePass_LiteralRegions(t *testing.T) {
 	for _, tc := range []struct {
 		name, src string

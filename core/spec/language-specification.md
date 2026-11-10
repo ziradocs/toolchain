@@ -479,7 +479,7 @@ line of only backticks, at least as many, and an unclosed fence runs to the end
 of the field. A fence only exists in a field that can hold several lines (a
 text, a quote, an item, a `:::` body); in a one-line field (a table cell, a
 heading, a section title) a line that starts with ```` ``` ```` is prose.
-The `langRuns` derived with the option on describe the same text. A code sample is shown as written, and template
+A substituted value cannot change the source's code spans: with the option on, a backtick in a value is shown as a backtick but never pairs with one in the source, and a line break in a value is shown as a line break (`<br>`) without splitting the line or the list item. The `langRuns` derived with the option on describe the same text. A code sample is shown as written, and template
 languages (Handlebars, Jinja, Go templates) use `{{ }}` themselves. DocLang is
 meant to turn it on for every output; to show a variable's value next to a
 command there, write it outside the code.
@@ -567,12 +567,21 @@ MCP `get_ast`/`lint` tools keep the line as written). By default the line is
 expanded wherever it is, inside code too. With `include.ExpandOptions`'s
 `KeepIncludesInCode`, a line inside a code body (a strict `CODE` block, a fenced
 code block, a `:::code-group`) is code, as the parser reads it, and is left as
-written. What counts as a code body is what the document parser reads as code
-(`parser.CodeLiteralLines`, the grammar `get_ast` uses, without flex
-normalization): includes are expanded one at a time, in order, and the
-document is read again after each one, so code written inside an included file
-counts too. The lines kept that way are reported to the caller, and a kept
-line's path is never opened. Diagram, chart, map and math
+written. What counts as a code body is what the document's AST holds as code,
+read as `doclang` reads it (`get_ast`, `lint`, `build`: the document grammar,
+with flex normalization): an `@include` is kept if that AST has it inside a
+code block. Each `@include` is decided on the text it appears in, with the other
+`@include` lines of that text not yet expanded: those of the root document on
+the source itself. Lines brought in by an included file are decided on the
+next pass, so an `@include` written inside code in an included file stays too.
+`@include` lines in the frontmatter are expanded first, and the dialect comes
+from the expanded frontmatter. There is one parse per nesting level. The lines
+kept that way are reported to the caller, and a kept line's path is never
+opened. This "code" is not the same as the literal-code option's: a fence
+written inside a quote is code for `LiteralCode`, but the AST has no code block
+there, and an `@include` line between two `> ```` lines ends the quote and is
+expanded. The option uses the document grammar, so it is for DocLang: a
+`.slidelang` source is not classified correctly. Diagram, chart, map and math
 bodies are not code: an `@include` line there is always expanded. DocLang is
 meant to use this option; SlideLang keeps expanding everywhere.
 

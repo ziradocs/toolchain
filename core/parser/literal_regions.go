@@ -29,8 +29,8 @@ const (
 //
 // Es el recorrido del pre-pase de anotaciones `<!-- node-id -->`
 // (stripNodeIDDirectives), que corre antes de parsear y por eso no le puede
-// preguntar al parser. Qué líneas son código para @include lo decide el parser
-// mismo (CodeLiteralLines).
+// preguntar al parser. Qué @include son código lo decide core/include sobre el
+// AST del parser.
 type literalScanner struct {
 	// strict: la cabecera CODE se reconoce con el mismo CanParse que usa el
 	// despacho strict. flexCodeHeaders mantiene, fuera de strict, la regla

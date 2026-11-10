@@ -23,7 +23,7 @@ type Parser struct {
 
 	// recordCode, si no es nil, recibe de ParseDocument cada línea del
 	// archivo (1-based, en la fuente tal como la escribió el autor) que el
-	// parser lee como código literal. Ver CodeLiteralLines.
+	// parser lee como código literal. Ver codeLiteralLines.
 	recordCode func(line int)
 }
 

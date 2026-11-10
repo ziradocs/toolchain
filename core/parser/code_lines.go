@@ -9,25 +9,19 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// CodeLiteralLines dice qué líneas de source, un documento entero
-// (frontmatter incluido), son código literal: el elemento i es la línea i+1.
-// Código literal es lo que el parser guarda tal cual como texto de un bloque
-// de código: la cabecera y el cuerpo de un CODE strict, una cerca de código
-// con su apertura y su cierre, y la cabecera y cada pestaña de un
-// :::code-group. Los diagramas, charts, mapas y ecuaciones no son código,
-// tampoco escritos como cerca (```mermaid, ```math…), y una línea suelta
-// dentro de un :::code-group, que no llega al AST, tampoco.
+// codeLiteralLines dice qué líneas de source, un documento entero
+// (frontmatter incluido), lee el parser como código literal: el elemento i es
+// la línea i+1. Código literal es lo que CodeParser y CodeGroupParser guardan
+// tal cual (elements.ParseContext.RecordCode): la cabecera y el cuerpo de un
+// CODE strict, una cerca de código con su apertura y su cierre, y la cabecera y
+// cada pestaña de un :::code-group. Corre ParseDocument sin la normalización
+// de flex, porque la normalización reescribe el texto y sus líneas ya no son
+// las de source.
 //
-// No lo decide un recorrido aparte sino el parser de documentos mismo
-// (ParseDocument, con el mismo despacho por `mode:`), así que coincide con
-// lo que get_ast muestra como código en cualquier estructura: el cuerpo de
-// una sección strict, una columna, un ::: flex o tipado. Lo usa core/include
-// para no expandir un `@include` escrito dentro de código (issue #487).
-//
-// El parse corre sin la normalización de flex: lo que decide es la gramática
-// de la fuente. En un documento flex que el normalizador reescribe, el AST
-// final puede tener código donde la fuente no lo tenía, o al revés.
-func CodeLiteralLines(source string) []bool {
+// Es la vista por líneas que usan las pruebas para comparar el parser con
+// otros recorridos. core/include no la usa: decide sobre el AST con la
+// normalización prendida, como doclang (include.ExpandWithOptions).
+func codeLiteralLines(source string) []bool {
 	lines := make([]bool, strings.Count(source, "\n")+1)
 	p := New(util.NewNoop())
 	p.SetNormalization(false)

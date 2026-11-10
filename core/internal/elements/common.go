@@ -42,7 +42,7 @@ type ParseContext struct {
 	// RecordCode, si no es nil, recibe las líneas que CodeParser y
 	// CodeGroupParser leen como código literal: line es la línea del archivo
 	// (1-based) de la primera y n cuántas son, contiguas. Lo usa
-	// parser.CodeLiteralLines para preguntarle al parser, en vez de a un
+	// codeLiteralLines (core/parser) para preguntarle al parser, en vez de a un
 	// recorrido aparte, qué líneas de una fuente son código.
 	RecordCode func(line, n int)
 

@@ -19,8 +19,8 @@ func probeInCode(src string) bool {
 
 // FuzzKeepIncludesInCode es la propiedad del issue #487 dicha directamente:
 // con KeepIncludesInCode, un `@include` queda sin expandir si y solo si el
-// AST del documento sin expandir (lo que ven get_ast y el lint) lo tiene
-// dentro de un bloque de código. Reemplaza una línea cualquiera del documento,
+// AST del documento sin expandir (lo que ven get_ast y el lint: ParseDocument
+// con la normalización prendida) lo tiene dentro de un bloque de código. Reemplaza una línea cualquiera del documento,
 // conservando su sangría, por un `@include` cuyo archivo existe, en strict y
 // en flex. No mira cómo decide ExpandWithOptions qué es código.
 //
@@ -46,6 +46,9 @@ func FuzzKeepIncludesInCode(f *testing.F) {
 		{"- item\n  ```\n  x\n  ```\n", 2, false},
 		{"```mermaid\ngraph TD\n```\n", 1, false},
 		{"CODE js\n  x\n", 1, false},
+		// La normalización de flex reescribe un :::code-item legado: la decisión
+		// tiene que ser la del AST normalizado, como en doclang.
+		{":::code-group\n:::code-item{0}\n```\nx\n", 3, false},
 	} {
 		f.Add(seed.body, seed.line, seed.strict)
 	}

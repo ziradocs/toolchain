@@ -85,7 +85,8 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		// Mismo orden que un párrafo y que el legado (HeadingContentHTML):
 		// {{variables}} primero y después el Markdown inline de una línea,
 		// para que el filtro de esquemas vea el destino ya sustituido.
-		elem.TextHTML = ProcessInlineMarkdownSecureLine(proseLineVariables(elem.Text, variables))
+		text, restore := proseLineMarkdownVariables(elem.Text, variables)
+		elem.TextHTML = restore(ProcessInlineMarkdownSecureLine(text))
 
 	case *ast.PointsElement:
 		for i := range elem.Items {
@@ -96,8 +97,8 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		elem.ContentHTML = EscapeHTML(codeBody(elem.Content, variables))
 
 	case *ast.ImageElement:
-		elem.AltHTML = ProcessVariablesSecure(elem.Alt, variables)
-		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
+		elem.AltHTML = proseLineVariablesSecure(elem.Alt, variables)
+		elem.CaptionHTML = proseLineVariablesSecure(elem.Caption, variables)
 
 	case *ast.TableElement:
 		elem.HeadersHTML = make([]string, len(elem.Headers))
@@ -112,12 +113,12 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 			}
 			elem.RowsHTML[i] = rowHTML
 		}
-		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
+		elem.CaptionHTML = proseLineVariablesSecure(elem.Caption, variables)
 
 	case *ast.QuoteElement:
 		elem.ContentHTML = ProcessTextWithVariablesAndMarkdownSecure(elem.Content, variables)
-		elem.AuthorHTML = ProcessVariablesSecure(elem.Author, variables)
-		elem.SourceHTML = ProcessVariablesSecure(elem.Source, variables)
+		elem.AuthorHTML = proseLineVariablesSecure(elem.Author, variables)
+		elem.SourceHTML = proseLineVariablesSecure(elem.Source, variables)
 
 	case *ast.ChecklistElement:
 		for i := range elem.Items {
@@ -134,10 +135,10 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 		elem.OptionsHTML = processStringSliceHTML(elem.Options, variables)
 
 	case *ast.MetricElement:
-		elem.LabelHTML = ProcessVariablesSecure(elem.Label, variables)
-		elem.ValueHTML = ProcessVariablesSecure(elem.Value, variables)
-		elem.DeltaHTML = ProcessVariablesSecure(elem.Delta, variables)
-		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
+		elem.LabelHTML = proseLineVariablesSecure(elem.Label, variables)
+		elem.ValueHTML = proseLineVariablesSecure(elem.Value, variables)
+		elem.DeltaHTML = proseLineVariablesSecure(elem.Delta, variables)
+		elem.CaptionHTML = proseLineVariablesSecure(elem.Caption, variables)
 
 	case *ast.SpecialBlockElement:
 		// Title SÍ lleva markdown aquí (a diferencia de otros campos "Title"
@@ -160,32 +161,32 @@ func populateElementHTML(element ast.Element, variables map[string]interface{}, 
 	case *ast.CodeGroupElement:
 		for i := range elem.CodeBlocks {
 			block := &elem.CodeBlocks[i]
-			block.LabelHTML = EscapeHTML(ProcessVariables(block.Label, variables))
+			block.LabelHTML = EscapeHTML(proseLineVariables(block.Label, variables))
 			block.ContentHTML = EscapeHTML(codeBody(block.Content, variables))
 		}
 
 	case *ast.MermaidElement:
-		elem.TitleHTML = ProcessVariablesSecure(elem.Title, variables)
+		elem.TitleHTML = proseLineVariablesSecure(elem.Title, variables)
 
 	case *ast.PlantUMLElement:
-		elem.TitleHTML = ProcessVariablesSecure(elem.Title, variables)
+		elem.TitleHTML = proseLineVariablesSecure(elem.Title, variables)
 
 	case *ast.ChartElement:
-		elem.TitleHTML = ProcessVariablesSecure(elem.Title, variables)
+		elem.TitleHTML = proseLineVariablesSecure(elem.Title, variables)
 
 	case *ast.MapElement:
-		elem.TitleHTML = ProcessVariablesSecure(elem.Title, variables)
+		elem.TitleHTML = proseLineVariablesSecure(elem.Title, variables)
 
 	case *ast.MathElement:
 		// Content es LaTeX crudo (fuente de fórmula, no prosa) — mismo no-goal
 		// que Mermaid/PlantUML/Chart/Map documentado arriba en el paquete;
 		// solo Caption (si existe) es prosa vars-only.
-		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
+		elem.CaptionHTML = proseLineVariablesSecure(elem.Caption, variables)
 
 	case *ast.MediaElement:
 		// Source y Poster son URLs, no prosa; Caption (media-figure-v1) es
 		// prosa vars-only, igual que MathElement.Caption.
-		elem.CaptionHTML = ProcessVariablesSecure(elem.Caption, variables)
+		elem.CaptionHTML = proseLineVariablesSecure(elem.Caption, variables)
 
 	default:
 		// Issue #82: silencio explícito, no un olvido. Todo ast.Element que

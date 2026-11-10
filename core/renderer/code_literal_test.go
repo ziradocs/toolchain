@@ -105,10 +105,11 @@ func TestSubstituteOutsideCode(t *testing.T) {
 		{"```\n{{x}} sin cerrar", "```\n{{x}} sin cerrar"},
 		{"no ```es{{x}}` cerca", "no ```esX` cerca"},
 	} {
-		if got := proseVariables(tc.in, withLiteralCode(vars)); got != tc.want {
+		if got, _ := proseVariables(tc.in, withLiteralCode(vars)); got != tc.want {
 			t.Errorf("literal %q:\n got %q\nwant %q", tc.in, got, tc.want)
 		}
-		if got, want := proseVariables(tc.in, vars), ProcessVariables(tc.in, vars); got != want {
+		if got, _ := proseVariables(tc.in, vars); got != ProcessVariables(tc.in, vars) {
+			want := ProcessVariables(tc.in, vars)
 			t.Errorf("without the option %q: got %q, want ProcessVariables %q", tc.in, got, want)
 		}
 	}
@@ -121,7 +122,7 @@ func TestLiteralCodeMarkerCannotBeForged(t *testing.T) {
 	if isLiteralCode(vars) {
 		t.Fatal("a plain value under the key must not turn the option on")
 	}
-	if got := proseVariables("`{{x}}`", vars); got != "`X`" {
+	if got, _ := proseVariables("`{{x}}`", vars); got != "`X`" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -373,5 +374,54 @@ func TestLiteralCode_ListItemContinuation(t *testing.T) {
 		if !strings.Contains(out, "<code>make {{x}} --verbose</code> ahora X") {
 			t.Errorf("%T: %s", el, out)
 		}
+	}
+}
+
+// Con la opción, los campos de texto plano (el título de un :::, el caption y
+// el alt de una imagen, el autor de una cita…) respetan sus code spans igual
+// en el HTML y en su *HTML del AST: los dos caminos sustituyen lo mismo.
+func TestLiteralCode_PlainFieldsMatchTheAST(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"x": "X"}
+	field := "T {{x}} `{{x}}`"
+	block := &ast.SpecialBlockElement{BlockType: "note", Title: field, Content: "c"}
+	image := ast.NewImageElement(pos, "a.png", field)
+	image.Caption = field
+	quote := ast.NewQuoteElement(pos, "q")
+	quote.Author = field
+	for _, el := range []ast.Element{block, image, quote} {
+		out := RenderElementToHTML(el, vars, &RenderContext{LiteralCode: true})
+		if !strings.Contains(out, "T X `{{x}}`") || strings.Contains(out, "`X`") {
+			t.Errorf("%T: the span must stay literal and the rest substituted: %s", el, out)
+		}
+	}
+	PopulateInlineHTMLWithOptions(newTestDoc(block), vars, InlineHTMLOptions{LiteralCode: true})
+	PopulateInlineHTMLWithOptions(newTestDoc(image), vars, InlineHTMLOptions{LiteralCode: true})
+	PopulateInlineHTMLWithOptions(newTestDoc(quote), vars, InlineHTMLOptions{LiteralCode: true})
+	for name, got := range map[string]string{"block title": block.TitleHTML, "alt": image.AltHTML, "caption": image.CaptionHTML, "author": quote.AuthorHTML} {
+		if !strings.Contains(got, "{{x}}") || !strings.Contains(got, "T X") {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+}
+
+// Hallazgo 6 del review de #497: con la opción, un valor sustituido en prosa no
+// cambia los code spans de la fuente. Sus backticks no emparejan con los de la
+// fuente y salen tal cual; un salto de línea en el valor tampoco cambia nada.
+func TestLiteralCode_ValuesDoNotChangeCodeSpans(t *testing.T) {
+	vars := map[string]interface{}{"tick": "`", "x": "X", "nl": "a\nb"}
+	for _, src := range []string{"Pre {{tick}} mid `{{x}}` post {{x}}", "Pre {{nl}} mid `{{x}}` post {{x}}"} {
+		for name, out := range map[string]string{
+			"text":  RenderElementToHTML(ast.NewTextElement(diagnostics.Position{}, src), vars, &RenderContext{LiteralCode: true}),
+			"quote": RenderElementToHTML(ast.NewQuoteElement(diagnostics.Position{}, src), vars, &RenderContext{LiteralCode: true}),
+		} {
+			if !strings.Contains(out, "<code>{{x}}</code> post X") {
+				t.Errorf("%s %q: %s", name, src, out)
+			}
+		}
+	}
+	out := RenderElementToHTML(ast.NewTextElement(diagnostics.Position{}, "Pre {{tick}} mid"), vars, &RenderContext{LiteralCode: true})
+	if !strings.Contains(out, "Pre ` mid") {
+		t.Errorf("the value's backtick must come out as a backtick: %s", out)
 	}
 }

@@ -58,11 +58,6 @@ func oracleFenceLines(text string) []bool {
 	return marks
 }
 
-// fenceVar es una variable sin valor: en el texto de referencia reemplaza a
-// {{x}} en las líneas de cerca, que con la opción de código literal no se
-// sustituyen.
-const fenceVar = "{{zzfence}}"
-
 // literalProsePaths son los caminos públicos que pintan prosa: el render de
 // cada elemento y su *HTML en el AST. multiline dice si el camino admite
 // cercas (un encabezado es una sola línea).
@@ -134,9 +129,17 @@ func FuzzLiteralCodeProse(f *testing.F) {
 	} {
 		f.Add(seed)
 	}
-	vars := map[string]interface{}{"x": "VAL"}
+	// Valores con un backtick y con un salto de línea: con la opción no pueden
+	// cambiar los code spans de la fuente (hallazgo 6 del review de #497).
+	vars := map[string]interface{}{"x": "VAL", "t": "a`b", "n": "p\nq"}
+	// La referencia sustituye los backticks y saltos de línea de los valores
+	// por los caracteres reservados y los vuelve a poner en el HTML
+	// (restoreValues): un valor no empareja con la fuente ni parte sus líneas.
+	refVars := map[string]interface{}{"x": "VAL", "t": "a" + tickPlaceholder + "b", "n": "p" + newlinePlaceholder + "q"}
+	f.Add("Pre {{t}} mid `{{x}}` post {{x}}")
+	f.Add("- a {{n}} `{{x}}`\n  `{{t}}` {{t}}")
 	f.Fuzz(func(t *testing.T, text string) {
-		if strings.Contains(text, "zzfence") {
+		if strings.Contains(text, "zzfence") || strings.ContainsAny(text, tickPlaceholder+newlinePlaceholder) {
 			return
 		}
 		for _, path := range literalProsePaths {
@@ -152,12 +155,17 @@ func FuzzLiteralCodeProse(f *testing.F) {
 				lines := strings.Split(text, "\n")
 				for i, inFence := range oracleFenceLines(text) {
 					if inFence {
-						lines[i] = strings.ReplaceAll(lines[i], "{{x}}", fenceVar)
+						for _, name := range []string{"x", "t", "n"} {
+							lines[i] = strings.ReplaceAll(lines[i], "{{"+name+"}}", "{{zzfence"+name+"}}")
+						}
 					}
 				}
 				reference = strings.Join(lines, "\n")
 			}
-			want := strings.ReplaceAll(outsideCode(path.render(reference, vars, false)), fenceVar, "{{x}}")
+			want := restoreValues(outsideCode(path.render(reference, refVars, false)))
+			for _, name := range []string{"x", "t", "n"} {
+				want = strings.ReplaceAll(want, "{{zzfence"+name+"}}", "{{"+name+"}}")
+			}
 			if got := outsideCode(literal); got != want {
 				t.Fatalf("%s: HTML outside <code> differs for %q:\n literal %q\n    want %q", path.name, text, got, want)
 			}

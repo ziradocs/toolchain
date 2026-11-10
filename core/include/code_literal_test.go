@@ -263,13 +263,12 @@ func TestExpand_CodeIsWhatTheParserReadsAsCode(t *testing.T) {
 	}
 }
 
-// probeLike dice si el AST de src (ParseDocument, sin normalización) lleva
+// probeLike dice si el AST de src (ParseDocument, con la normalización
+// prendida, como doclang) lleva
 // directive dentro del contenido de un bloque de código: lo que get_ast
 // muestra como código.
 func probeLike(src, directive string) bool {
-	p := parser.New(util.NewNoop())
-	p.SetNormalization(false)
-	doc, _ := p.ParseDocument(src, "")
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(src, "")
 	found := false
 	_ = ast.Walk(doc, func(n ast.Node) error {
 		switch c := n.(type) {
@@ -332,19 +331,46 @@ func TestExpand_KeptIncludeIsNotOpened(t *testing.T) {
 	}
 }
 
-// Los @include se expanden en orden: un archivo incluido que abre una cerca
-// sin cerrarla deja como código un @include posterior, igual que el parser
-// lo ve en el texto expandido.
-func TestExpand_IncludedFenceCapturesLaterInclude(t *testing.T) {
+// Cada @include se decide sobre el texto en el que aparece, con los demás
+// @include de ese texto sin expandir: los del documento raíz sobre la fuente,
+// como la leen get_ast y el lint. Un archivo incluido que abre una cerca sin
+// cerrarla no convierte en código un @include que en la fuente no lo era: los
+// dos se expanden. Un @include que trae ese archivo dentro de su cerca sí se
+// decide sobre el texto ya expandido, y queda.
+func TestExpand_IncludesAreDecidedOnTheTextTheyAppearIn(t *testing.T) {
 	files := map[string]string{
-		"/base/open.md":  "```",
-		"/base/other.md": "INCLUDED",
+		"/base/open.md":   "```",
+		"/base/other.md":  "INCLUDED",
+		"/base/nested.md": "```\n@include other.md\n```",
 	}
 	got, err := expandKeep("# A\n\n@include open.md\n@include other.md\n", "/base", memFS(files))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "# A\n\n```\n@include other.md\n"; got != want {
+	if want := "# A\n\n```\nINCLUDED\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+	got, err = expandKeep("# A\n\n@include nested.md\n", "/base", memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# A\n\n```\n@include other.md\n```\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// "Código" para KeepIncludesInCode es lo que el AST guarda como bloque de
+// código. Una cerca escrita dentro de una cita es código para LiteralCode (una
+// {{variable}} en "> {{x}}" entre "> ```" no se sustituye), pero el AST no
+// tiene ahí un bloque de código, y una línea @include corta la cita: entre dos
+// líneas "> ```" se expande.
+func TestExpand_FenceInsideAQuoteIsNotCode(t *testing.T) {
+	files := map[string]string{"/base/x.md": "INCLUIDO"}
+	got, err := expandKeep("# A\n\n> ```\n@include x.md\n> ```\n", "/base", memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "INCLUIDO") {
+		t.Errorf("the @include between quoted fence lines is not code in the AST and must expand:\n%s", got)
 	}
 }

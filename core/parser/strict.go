@@ -47,7 +47,7 @@ type strictBody struct {
 	lineOffset int
 
 	// recordCode es elements.ParseContext.RecordCode para todo lo que se
-	// parsea desde este cuerpo (ver CodeLiteralLines). nil fuera de ahí.
+	// parsea desde este cuerpo (ver codeLiteralLines). nil fuera de ahí.
 	recordCode func(line, n int)
 }
 

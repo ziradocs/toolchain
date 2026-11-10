@@ -1320,9 +1320,9 @@ func htmlTagEnd(text string, start int) int {
 func ProcessTextWithVariablesAndMarkdownSecure(text string, variables map[string]interface{}) string {
 	// Primero reemplazar variables (fuera del código con la opción de código
 	// literal, ver proseVariables)
-	processed := proseVariables(text, variables)
+	processed, restore := proseVariables(text, variables)
 	// Luego procesar formato Markdown de forma segura
-	return ProcessInlineMarkdownSecure(processed)
+	return restore(ProcessInlineMarkdownSecure(processed))
 }
 
 // cssValueBalanced recorre un valor CSS como lo tokeniza el navegador, lo

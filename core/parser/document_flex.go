@@ -34,7 +34,7 @@ type DocumentFlexParser struct {
 	normalized      bool // Indica si el contenido fue normalizado
 	inCodeBlock     bool // Track si estamos dentro de un code block
 
-	// recordCode es elements.ParseContext.RecordCode (ver CodeLiteralLines).
+	// recordCode es elements.ParseContext.RecordCode (ver codeLiteralLines).
 	recordCode func(line, n int)
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]. Ver

@@ -4,6 +4,9 @@
 package renderer
 
 import (
+	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -70,36 +73,99 @@ const (
 	layoutLists
 )
 
-// proseVariables sustituye `{{nombre}}` en un texto de prosa que después pasa
-// por ProcessInlineMarkdownSecure (línea por línea). Sin la opción de código
-// literal es ProcessVariables. Con ella no toca lo que es código en la
-// fuente: los code spans, emparejados en cada línea como los empareja el
-// renderer, y, en un texto de varias líneas, las cercas de código escritas
-// adentro (ver proseFenceOpen). En un texto de una sola línea no hay cerca.
-func proseVariables(text string, variables map[string]interface{}) string {
-	return proseVariablesIn(text, variables, layoutLines)
+// proseVariables prepara un texto de prosa que después pasa por
+// ProcessInlineMarkdownSecure (línea por línea): sustituye `{{nombre}}` y
+// devuelve también restore, que hay que aplicarle al HTML que salga de ese
+// Markdown. Sin la opción de código literal es ProcessVariables y restore no
+// hace nada. Con ella no toca lo que es código en la fuente: los code spans,
+// emparejados en cada línea como los empareja el renderer, y, en un texto de
+// varias líneas, las cercas de código escritas adentro (ver fenceLines). En un
+// texto de una sola línea no hay cerca. Y un valor sustituido no puede cambiar
+// los code spans de la fuente: sus backticks y sus saltos de línea pasan al
+// Markdown como caracteres reservados (tickPlaceholder, newlinePlaceholder)
+// que no emparejan ni parten líneas ni items, y restore los vuelve a poner: el
+// backtick como backtick y el salto de línea como <br>. Sin la opción, un salto
+// de línea en un valor sigue partiendo el texto como siempre.
+func proseVariables(text string, variables map[string]interface{}) (string, func(string) string) {
+	return proseMarkdownVariables(text, variables, layoutLines)
 }
 
-// proseLineVariables es proseVariables para un texto que se pinta entero como
-// una sola unidad (ProcessInlineMarkdownSecureLine): un encabezado, un título.
-func proseLineVariables(text string, variables map[string]interface{}) string {
-	return proseVariablesIn(text, variables, layoutWhole)
+// proseLineMarkdownVariables es proseVariables para un texto que se pinta
+// entero como una sola unidad de Markdown (ProcessInlineMarkdownSecureLine): un
+// encabezado.
+func proseLineMarkdownVariables(text string, variables map[string]interface{}) (string, func(string) string) {
+	return proseMarkdownVariables(text, variables, layoutWhole)
 }
 
 // proseListVariables es proseVariables para la prosa que pasa por
 // renderProseWithLists: los code spans de un item de lista se emparejan sobre
 // el item ya juntado con sus líneas de continuación, como lo pinta el renderer.
-func proseListVariables(text string, variables map[string]interface{}) string {
-	return proseVariablesIn(text, variables, layoutLists)
+func proseListVariables(text string, variables map[string]interface{}) (string, func(string) string) {
+	return proseMarkdownVariables(text, variables, layoutLists)
 }
 
-func proseVariablesIn(text string, variables map[string]interface{}, layout proseLayout) string {
+// proseLineVariables sustituye `{{nombre}}` en un campo de texto plano de una
+// línea (un título de sección, el alt o el caption de una imagen) que se
+// escribe sin Markdown: con la opción de código literal, fuera de sus code
+// spans. Sin la opción es ProcessVariables.
+func proseLineVariables(text string, variables map[string]interface{}) string {
 	if !isLiteralCode(variables) || !strings.Contains(text, "{{") {
 		return ProcessVariables(text, variables)
 	}
-	return substituteOutside(text, literalCodeRanges(text, layout), func(s string) string {
+	return substituteOutside(text, literalCodeRanges(text, layoutWhole), func(s string) string {
 		return ProcessVariables(s, variables)
 	}, func(s string) string { return s })
+}
+
+// tickPlaceholder y newlinePlaceholder reemplazan, en el texto que va al
+// Markdown con la opción de código literal, cada backtick y cada salto de
+// línea de un valor sustituido. Son de uso privado (U+E000, U+E001), así que el
+// Markdown no los lee como nada.
+const (
+	tickPlaceholder    = "\ue000"
+	newlinePlaceholder = "\ue001"
+)
+
+func noRestore(s string) string { return s }
+
+// restoreValues vuelve a poner, en el HTML que salió del Markdown, los
+// backticks y los saltos de línea (como <br>) de los valores sustituidos.
+func restoreValues(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, tickPlaceholder, "`"), newlinePlaceholder, "<br>")
+}
+
+// restoreValuesText es restoreValues para texto que no es HTML (el de un
+// LangRun): el salto de línea vuelve como salto de línea.
+func restoreValuesText(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, tickPlaceholder, "`"), newlinePlaceholder, "\n")
+}
+
+var proseVariablePattern = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
+
+func proseMarkdownVariables(text string, variables map[string]interface{}, layout proseLayout) (string, func(string) string) {
+	if !isLiteralCode(variables) || !strings.Contains(text, "{{") {
+		return ProcessVariables(text, variables), noRestore
+	}
+	// Si el texto ya trae el carácter reservado no se puede distinguir del que
+	// se agrega: los valores van tal cual.
+	ticks := !strings.Contains(text, tickPlaceholder) && !strings.Contains(text, newlinePlaceholder)
+	outside := func(seg string) string {
+		if !ticks {
+			return ProcessVariables(seg, variables)
+		}
+		return proseVariablePattern.ReplaceAllStringFunc(seg, func(match string) string {
+			if value, ok := variables[match[2:len(match)-2]]; ok {
+				v := strings.ReplaceAll(fmt.Sprintf("%v", value), "`", tickPlaceholder)
+				return strings.ReplaceAll(v, "\n", newlinePlaceholder)
+			}
+			return match
+		})
+	}
+	out := substituteOutside(text, literalCodeRanges(text, layout), outside, func(s string) string { return s })
+	if ticks && (strings.Contains(out, tickPlaceholder) || strings.Contains(out, newlinePlaceholder)) {
+		return out, restoreValues
+	}
+	return out, noRestore
 }
 
 // proseLineVariablesSecure es ProcessVariablesSecure (escapa el texto y los
@@ -188,11 +254,7 @@ func mergeRanges(ranges [][2]int) [][2]int {
 		return ranges
 	}
 	sorted := append([][2]int(nil), ranges...)
-	for i := 1; i < len(sorted); i++ {
-		for j := i; j > 0 && sorted[j][0] < sorted[j-1][0]; j-- {
-			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
-		}
-	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i][0] < sorted[j][0] })
 	out := sorted[:1]
 	for _, r := range sorted[1:] {
 		if last := &out[len(out)-1]; r[0] <= last[1] {
