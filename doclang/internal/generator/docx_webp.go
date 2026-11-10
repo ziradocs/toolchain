@@ -67,11 +67,12 @@ func isWebP(data []byte) bool {
 
 // convertWebP convierte la imagen WebP en webpPath a un formato que Word
 // inserta y la escribe en el directorio temporal del DOCX: Word no inserta
-// WebP, y docxgo tampoco lo lee. Un WebP con pérdida y sin alfa entra como
-// JPEG; uno sin pérdida o con alfa, como PNG, que conserva la transparencia.
-// Uno más grande que la caja de texto a docxWebPPixelsPerInch se reduce a
-// ella: se ve igual y el DOCX no carga píxeles que no se muestran. El perfil
-// de color (ICCP) pasa al archivo nuevo. Devuelve su ruta.
+// WebP, y docxgo tampoco lo lee. Un WebP con pérdida y opaco entra como JPEG;
+// uno sin pérdida o con algún píxel translúcido, como PNG, que conserva la
+// transparencia. Uno más grande que la caja de texto a docxWebPPixelsPerInch
+// se reduce a ella: se ve igual y el DOCX no carga píxeles que no se
+// muestran. El perfil de color (ICCP) pasa al archivo nuevo. Devuelve su
+// ruta.
 //
 // De un WebP animado entra el primer cuadro, como lo imprime un navegador
 // (ver webpFirstFrame).
@@ -95,30 +96,30 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	}
 	// Con pérdida es un chunk "VP8 " (con espacio); el alfa de uno con
 	// pérdida va en un chunk ALPH. webp.DecodeConfig no sirve para esto: con
-	// un encabezado VP8X da YCbCr también para uno sin pérdida.
-	// En uno animado esos chunks van dentro de los cuadros: la clase la da
-	// el primero.
+	// un encabezado VP8X da YCbCr también para uno sin pérdida. En uno
+	// animado esos chunks van dentro de los cuadros: la clase la da el
+	// primero, y si no cubre el lienzo el resto queda transparente (PNG).
 	var frame *webpFrame
-	var lossyOpaque bool
+	var lossy, alphaChunk bool
 	if webpIsAnimated(data) {
 		if frame, err = webpFirstFrame(data, cfg.Width, cfg.Height); err != nil {
 			return "", fmt.Errorf("cannot decode animated WebP image: %w", err)
 		}
-		lossyOpaque = frame.lossyOpaque()
+		lossy = !frame.lossless && frame.covers()
+		alphaChunk = frame.alph != nil
 	} else {
-		_, lossy := webpChunk(data, "VP8 ")
-		_, alpha := webpChunk(data, "ALPH")
-		lossyOpaque = lossy && !alpha
+		_, lossy = webpChunk(data, "VP8 ")
+		_, alphaChunk = webpChunk(data, "ALPH")
 	}
-	ext := ".png"
-	if lossyOpaque {
-		ext = ".jpg"
-	}
+	// La ruta va por contenido y la extensión depende de los píxeles cuando
+	// hay ALPH, así que un archivo ya convertido se busca con las dos.
 	maxW, maxH := g.webpMaxPixelSize()
 	sum := sha256.Sum256(append(data, fmt.Sprintf("|%dx%d", maxW, maxH)...))
-	outPath := filepath.Join(g.tempDir, "webp_"+hex.EncodeToString(sum[:8])+ext)
-	if _, err := os.Stat(outPath); err == nil {
-		return outPath, nil
+	base := filepath.Join(g.tempDir, "webp_"+hex.EncodeToString(sum[:8]))
+	for _, ext := range []string{".jpg", ".png"} {
+		if _, err := os.Stat(base + ext); err == nil {
+			return base + ext, nil
+		}
 	}
 	if err := g.runCtx().Err(); err != nil {
 		return "", err
@@ -132,10 +133,19 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot decode WebP image: %w", err)
 	}
-	img = downscaleToFit(img, maxW, maxH, !lossyOpaque)
+	// Uno con pérdida que trae ALPH pero es opaco entero entra como JPEG: un
+	// PNG de una foto pesa varias veces más. Uno sin pérdida sigue en PNG
+	// aunque sea opaco (suelen ser capturas o gráficos, que el JPEG ensucia).
+	asJPEG := lossy && (!alphaChunk || isOpaqueImage(img))
+	if m, ok := img.(*image.NYCbCrA); ok && asJPEG {
+		img = &m.YCbCr
+	}
+	img = downscaleToFit(img, maxW, maxH, !asJPEG)
 	icc, _ := webpChunk(data, "ICCP")
 	var out []byte
-	if lossyOpaque {
+	outPath := base + ".png"
+	if asJPEG {
+		outPath = base + ".jpg"
 		out, err = encodeJPEGWithICC(img, icc)
 	} else {
 		out, err = encodePNGWithICC(img, icc)
@@ -147,6 +157,15 @@ func (g *DOCXGenerator) convertWebP(webpPath string) (string, error) {
 		return "", err
 	}
 	return outPath, nil
+}
+
+// isOpaqueImage dice si todos los píxeles de img tienen alfa 255. Los tipos
+// de image (entre ellos el *image.NYCbCrA de un WebP con pérdida y ALPH y el
+// *image.NRGBA de uno sin pérdida) lo resuelven recorriendo su plano alfa;
+// con otro tipo se responde que no, y queda en PNG.
+func isOpaqueImage(img image.Image) bool {
+	o, ok := img.(interface{ Opaque() bool })
+	return ok && o.Opaque()
 }
 
 // webpMaxPixelSize es el tamaño en píxeles de la caja de texto a

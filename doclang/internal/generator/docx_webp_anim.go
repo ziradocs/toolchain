@@ -104,14 +104,8 @@ func validateRIFF(data []byte) error {
 	return nil
 }
 
-// lossyOpaque dice si el cuadro entra como JPEG: con pérdida, sin alfa y
-// cubriendo todo el lienzo. Uno más chico deja el resto del lienzo
-// transparente, así que entra como PNG.
-func (f *webpFrame) lossyOpaque() bool {
-	return !f.lossless && f.alph == nil && f.covers()
-}
-
-// covers dice si el cuadro cubre todo el lienzo.
+// covers dice si el cuadro cubre todo el lienzo. Uno más chico deja el resto
+// del lienzo transparente, así que entra como PNG.
 func (f *webpFrame) covers() bool {
 	return f.x == 0 && f.y == 0 && f.w == f.canvasW && f.h == f.canvasH
 }
