@@ -734,6 +734,12 @@ Content for second column
 :::
 ```
 
+The markers can also be written without the space, `:::grid` and `:::column`
+(and `:::column typed`), the way `:::info` is the same block as `::: info`;
+they give the same `GridElement`/`ColumnElement`. Without the space the word
+has to be whole: `:::columns`, `:::gridlock` and `:::grid-note` are still
+special blocks.
+
 **Strict** uses the `<<...>>` delimited-block form, consistent with the
 other strict embedded elements (`<<mermaid>>`, `<<chart>>`, `<<map>>`), with
 `<<column>>` introducing each column and `<<end>>` closing the block:

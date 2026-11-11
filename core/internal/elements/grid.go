@@ -18,14 +18,48 @@ type GridParser struct{}
 // El dialecto strict usa la forma delimitada <<grid>> … <<end>> (con
 // separadores <<column>>), consistente con los otros bloques delimitados de
 // strict (<<map>>/<<chart>>/<<math>>); el dialecto flex usa la forma
-// Markdown-extended "::: grid" / "::: column". Ver parseStrictGrid para la
-// elección de sintaxis y su round-trip.
+// Markdown-extended "::: grid" / "::: column" (también sin el espacio, ver
+// isFlexGridOpen). Ver parseStrictGrid para la elección de sintaxis y su
+// round-trip.
 func (p *GridParser) CanParse(line string, mode string) bool {
 	trimmed := strings.TrimSpace(line)
 	if mode == "strict" {
 		return trimmed == "<<grid>>"
 	}
-	return strings.HasPrefix(trimmed, "::: grid")
+	return isFlexGridOpen(trimmed)
+}
+
+// isFlexGridOpen reporta si trimmed abre un grid flex. Es "::: grid" por
+// prefijo, como siempre (que "::: gridJUNK" también abra uno es
+// toolchain#307), o ":::grid" sin el espacio, como ":::info" es "::: info":
+// antes esa forma caía a SpecialBlockParser y salía un special_block de tipo
+// "grid" con el aviso "Unknown special block type", aunque el spec dice que
+// grid y column no son bloques especiales. Sin el espacio "grid" tiene que ser
+// la palabra entera, con la misma lógica con la que SpecialBlockParser saca el
+// tipo y con la que strict reconoce las cuatro grafías para rechazarlas
+// (isFlexGridMarker en parser/strict.go): ":::gridlock" y ":::grid-note"
+// siguen siendo bloques especiales.
+func isFlexGridOpen(trimmed string) bool {
+	return isFlexLayoutMarker(trimmed, "grid")
+}
+
+// isFlexColumnOpen es isFlexGridOpen para una columna: "::: column" por
+// prefijo o ":::column" como palabra entera, así que ":::columns" (un bloque
+// especial que usan los ejemplos) no abre una columna.
+func isFlexColumnOpen(trimmed string) bool {
+	return isFlexLayoutMarker(trimmed, "column")
+}
+
+func isFlexLayoutMarker(trimmed, word string) bool {
+	if strings.HasPrefix(trimmed, "::: "+word) {
+		return true
+	}
+	rest, ok := strings.CutPrefix(trimmed, ":::")
+	if !ok {
+		return false
+	}
+	fields := strings.Fields(rest)
+	return len(fields) > 0 && fields[0] == word
 }
 
 // Parse parsea un bloque grid con columnas anidadas
@@ -47,7 +81,7 @@ func (p *GridParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	consumed := 1
 
 	// Verify it starts with ::: grid
-	if !strings.HasPrefix(line, "::: grid") {
+	if !isFlexGridOpen(line) {
 		return &ParseResult{
 			Element:       nil,
 			ConsumedLines: 0,
@@ -74,7 +108,7 @@ func (p *GridParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		if trimmedLine == ":::" {
 			// Check if this might be the grid closing or just column closing
 			// Look ahead to see if there are more columns
-			nextColumnFound := IsJustASeparator(ctx.Lines, i, "::: column", ":::", "SLIDE ")
+			nextColumnFound := IsJustASeparatorFunc(ctx.Lines, i, isFlexColumnOpen, ":::", "SLIDE ")
 
 			pendingBlankLines = 0
 			if nextColumnFound {
@@ -90,7 +124,7 @@ func (p *GridParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 
 		// Check if this is a column start
-		if strings.HasPrefix(trimmedLine, "::: column") {
+		if isFlexColumnOpen(trimmedLine) {
 			pendingBlankLines = 0
 			// Parse this column
 			var columnResult *ParseResult
@@ -139,12 +173,17 @@ func (p *GridParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 }
 
 // isFlexTypedColumnMarker reporta si trimmedLine abre una columna flex
-// tipada (`::: column typed`, issue #373). Es una coincidencia exacta de tres
-// palabras: `::: column` con cualquier otro sufijo sigue siendo una columna
-// cruda, como siempre (CanParse y el despacho de columnas son de prefijo).
+// tipada (`::: column typed`, issue #373, o `:::column typed`). Es una
+// coincidencia exacta de las dos palabras tras ":::": `::: column` con
+// cualquier otro sufijo sigue siendo una columna cruda, como siempre
+// (CanParse y el despacho de columnas son de prefijo).
 func isFlexTypedColumnMarker(trimmedLine string) bool {
-	fields := strings.Fields(trimmedLine)
-	return len(fields) == 3 && fields[0] == ":::" && fields[1] == "column" && fields[2] == "typed"
+	rest, ok := strings.CutPrefix(trimmedLine, ":::")
+	if !ok {
+		return false
+	}
+	fields := strings.Fields(rest)
+	return len(fields) == 2 && fields[0] == "column" && fields[1] == "typed"
 }
 
 // isStrictTypedColumnMarker es el equivalente strict: la línea completa,
@@ -181,7 +220,7 @@ func (p *GridParser) parseTypedColumnFlex(ctx *ParseContext, startIndex int) *Pa
 		trimmed := strings.TrimSpace(line)
 
 		if trimmed == ":::" ||
-			strings.HasPrefix(trimmed, "::: column") ||
+			isFlexColumnOpen(trimmed) ||
 			IsStrictBlockBoundary(line) {
 			break
 		}
@@ -190,7 +229,7 @@ func (p *GridParser) parseTypedColumnFlex(ctx *ParseContext, startIndex int) *Pa
 			i++
 			continue
 		}
-		if strings.HasPrefix(trimmed, "::: grid") {
+		if isFlexGridOpen(trimmed) {
 			diags = append(diags, diagnostics.NewError(
 				"a ::: grid cannot be nested inside a typed column", ctx.Position(i), "parser"))
 			consumed++
@@ -258,7 +297,7 @@ func (p *GridParser) parseColumn(ctx *ParseContext, startIndex int) *ParseResult
 		trimmedLine := strings.TrimSpace(line)
 
 		if trimmedLine == ":::" ||
-			strings.HasPrefix(trimmedLine, "::: column") ||
+			isFlexColumnOpen(trimmedLine) ||
 			strings.HasPrefix(trimmedLine, "SLIDE ") {
 			// End of this column
 			break

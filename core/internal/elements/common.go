@@ -213,9 +213,19 @@ func GetDefaultRegistry() *Registry {
 // (p. ej. "SLIDE ") — cualquiera de los dos indica que no queda otro
 // sub-bloque antes del fin real del bloque padre.
 func IsJustASeparator(lines []string, i int, subBlockPrefix, closingMarker string, blockTerminators ...string) bool {
+	return IsJustASeparatorFunc(lines, i, func(next string) bool {
+		return strings.HasPrefix(next, subBlockPrefix)
+	}, closingMarker, blockTerminators...)
+}
+
+// IsJustASeparatorFunc es IsJustASeparator con el sub-bloque reconocido por
+// opensSubBlock (que recibe la línea recortada) en vez de por un prefijo: la
+// columna de un grid flex se abre con "::: column" o con ":::column"
+// (isFlexColumnOpen).
+func IsJustASeparatorFunc(lines []string, i int, opensSubBlock func(string) bool, closingMarker string, blockTerminators ...string) bool {
 	for j := i + 1; j < len(lines); j++ {
 		next := strings.TrimSpace(lines[j])
-		if strings.HasPrefix(next, subBlockPrefix) {
+		if opensSubBlock(next) {
 			return true
 		}
 		if next == closingMarker {
