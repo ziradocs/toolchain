@@ -4273,7 +4273,9 @@ func (g *DOCXGenerator) renderCodeGroup(doc domain.Document, elem *ast.CodeGroup
 			return err
 		}
 
-		label := block.Label
+		// La etiqueta no es código: sus {{variables}} se sustituyen fuera
+		// de sus code spans, como en el HTML y el labelHTML de get_ast.
+		label := fieldVariables(block.Label, g.variables)
 		if label == "" {
 			label = block.Language
 		}

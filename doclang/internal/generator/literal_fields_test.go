@@ -131,3 +131,38 @@ func TestIssue487CodeIsLiteralInEveryFormat(t *testing.T) {
 		}
 	}
 }
+
+// La etiqueta de una pestaña de code-group no es código: es un campo de una
+// línea, como una leyenda. El DOCX la escribe con las {{variables}}
+// sustituidas fuera de sus code spans, igual que el labelHTML de get_ast.
+func TestDOCXCodeGroupLabelLikeLabelHTML(t *testing.T) {
+	pos := diagnostics.NewPosition(1, 1)
+	vars := map[string]interface{}{"company": "ACME"}
+	labels := []string{"tab {{company}}", "otra `{{company}}`", "{{falta}}"}
+	group := ast.NewCodeGroupElement(pos)
+	for _, l := range labels {
+		group.CodeBlocks = append(group.CodeBlocks, ast.CodeBlock{Language: "bash", Label: l, Content: "echo {{company}}"})
+	}
+	doc := newTestAST()
+	doc.FrontMatter = ast.NewFrontMatterNode(pos)
+	doc.FrontMatter.Variables = vars
+	doc.ContentBlocks[0].Elements = []ast.Element{group}
+	documentXML := html.UnescapeString(docxZipPart(t, buildDOCXFile(t, doc), "word/document.xml"))
+
+	oracle := ast.NewCodeGroupElement(pos)
+	oracle.CodeBlocks = append(oracle.CodeBlocks, group.CodeBlocks...)
+	astDoc := newTestAST()
+	astDoc.ContentBlocks[0].Elements = []ast.Element{oracle}
+	renderer.PopulateInlineHTMLWithOptions(astDoc, vars, renderer.InlineHTMLOptions{LiteralCode: true})
+	for i, want := range []string{"tab ACME", "otra `{{company}}`", "{{falta}}"} {
+		if got := html.UnescapeString(oracle.CodeBlocks[i].LabelHTML); got != want {
+			t.Fatalf("labelHTML(%q) = %q, want %q", labels[i], got, want)
+		}
+		if !strings.Contains(documentXML, "▸ "+want+"<") {
+			t.Errorf("label %q: the DOCX does not have %q", labels[i], "▸ "+want)
+		}
+	}
+	if !strings.Contains(documentXML, "echo {{company}}") {
+		t.Errorf("the code body must stay literal")
+	}
+}

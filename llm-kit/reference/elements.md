@@ -264,6 +264,9 @@ yarn add package-name
 
 - Must contain at least one fenced code block (`CODEGROUP001` — error if
   empty).
+- The `[label]` is the tab's text, not code: a `{{variable}}` in it is
+  substituted, like in a caption. In DocLang the code body is shown as
+  written, and so is a `{{variable}}` between backticks in the label.
 - Do not leave a `:::code-item{title="..."}` tab outside a recognized
   `:::code-group`/`::::code-group` wrapper — that produces an orphaned tab
   (`CODEGROUP002` — error) instead of a working code group.

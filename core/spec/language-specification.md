@@ -497,7 +497,12 @@ the `contentHTML` fields of the AST). Off, the default and what SlideLang uses,
 text the AST's `content` holds: the body of a `CODE` block or a code-group tab,
 and, in prose that goes through Markdown (text, quotes, list items, table
 cells, headings, the content of an untyped `:::` block), code spans and code
-fences written inside it. What is literal is decided by the source syntax. A
+fences written inside it. The label of a code-group tab (the `[label]` of its
+fence) is not code: it is a one-line field like an image's alt text or a
+caption, substituted outside its code spans and shown as plain text, without
+Markdown, the same in the HTML tab, the DOCX and the AST's `labelHTML`. The
+language and the filename of a code block name the code and are not
+substituted. What is literal is decided by the source syntax. A
 code span is matched within the unit the renderer passes to Markdown: a line,
 or a list item of a quote or a `:::` body joined with its continuation lines. A
 fence follows CommonMark with backticks, which is how a Markdown viewer shows
