@@ -86,11 +86,12 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 
 	// docpreview.Render reads with doclang build's rules (docpreview.Parse)
 	// and renders with them (docpreview.HTML: code is literal, so a
-	// {{variable}} inside a code block or a code span stays as written). An
-	// xref failure (an unresolved \ref, a duplicate label) still returns the
-	// HTML that could be drawn, with the error and valid=false: a live
-	// preview would otherwise go blank each time the author types a \ref to
-	// a label that doesn't exist yet.
+	// {{variable}} inside a code block or a code span stays as written, and
+	// typed headings are lowered first, for the TOC). An xref failure (an
+	// unresolved \ref, a duplicate label) still returns the HTML that could
+	// be drawn, with the error and valid=false: a live preview would
+	// otherwise go blank each time the author types a \ref to a label that
+	// doesn't exist yet.
 	res := docpreview.Render(logger, source, func(astNode *ast.AST) renderer.DocumentHTMLOptions {
 		return doclangOptions(astNode, theme)
 	})
@@ -124,9 +125,15 @@ func doclangOptions(astNode *ast.AST, theme string) renderer.DocumentHTMLOptions
 		}
 	}
 
+	// El TOC sigue la regla de doclang build (docpreview.TOCOptions):
+	// toc.enabled y toc.depth del frontmatter, prendido con profundidad 3 si
+	// no los declara, y apagado sin frontmatter. La numeración sigue siempre
+	// prendida.
+	toc, tocDepth := docpreview.TOCOptions(astNode)
 	return renderer.DocumentHTMLOptions{
 		Title:     title,
-		TOC:       true,
+		TOC:       toc,
+		TOCDepth:  tocDepth,
 		Numbering: true,
 		Theme:     theme,
 		// ShowHeaders/ShowFooters: mismo criterio que doclang's CLI/preview

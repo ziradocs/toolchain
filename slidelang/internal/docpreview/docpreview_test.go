@@ -4,6 +4,10 @@
 package docpreview
 
 import (
+	"fmt"
+	"html"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -206,5 +210,93 @@ func TestValidateLikeBuiltins(t *testing.T) {
 	}
 	if err := validateLikeBuiltins(doc); err == nil || err.Error() != want.Error() {
 		t.Errorf("table contract: error = %v, want %v", err, want)
+	}
+}
+
+func playgroundOptions(doc *ast.AST) renderer.DocumentHTMLOptions {
+	toc, depth := TOCOptions(doc)
+	return renderer.DocumentHTMLOptions{EmbedAssets: true, TOC: toc, TOCDepth: depth, Numbering: true}
+}
+
+// tocEntries lee el TOC estático (<div class="toc">) de page como líneas
+// "nivel href texto", sin el número de sección; el nivel es la anidación de
+// <ul>. Es el formato de testdata/toc_depth_2.toc.txt, que la prueba de
+// doclang/internal/pipeline compara contra el TOC de doclang build.
+func tocEntries(page string) string {
+	toc := regexp.MustCompile(`<div class="toc">[\s\S]*?</div>`).FindString(page)
+	var b strings.Builder
+	depth := 0
+	for _, m := range regexp.MustCompile(`<(/?)ul>|<li><a href="(#[^"]*)">(?:\d+\. )?([^<]*)</a>`).FindAllStringSubmatch(toc, -1) {
+		switch {
+		case m[2] != "":
+			fmt.Fprintf(&b, "%d %s %s\n", depth, m[2], html.UnescapeString(m[3]))
+		case m[1] == "/":
+			depth--
+		default:
+			depth++
+		}
+	}
+	return b.String()
+}
+
+// El TOC de la vista previa tiene las mismas entradas que el de doclang build
+// con toc.depth: 2: las secciones y sus ##, sin el ###. Antes la vista previa
+// pasaba TOCDepth 0 y solo listaba las secciones. La lista esperada está en
+// testdata/toc_depth_2.toc.txt, y TestBuildTOCMatchesPlaygroundGolden
+// (doclang/internal/pipeline) comprueba que doclang build da la misma.
+func TestRenderTOCMatchesBuild(t *testing.T) {
+	src, err := os.ReadFile("testdata/toc_depth_2.doclang")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile("testdata/toc_depth_2.toc.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Render(util.NewNoop(), string(src), playgroundOptions)
+	if res.Err != nil || !res.Valid {
+		t.Fatalf("render: valid=%v err=%v", res.Valid, res.Err)
+	}
+	if got := tocEntries(res.HTML); got != string(want) {
+		t.Errorf("preview TOC:\n%s\nwant (doclang build):\n%s", got, want)
+	}
+}
+
+// Las subsecciones de un documento con typed-headings-v1 salen en el TOC:
+// extractSubsections solo lee la forma legada de los encabezados, y HTML los
+// baja antes con LowerTypedHeadings. Sin esa llamada, el TOC tiene solo "A".
+func TestRenderTOCWithTypedHeadings(t *testing.T) {
+	src := "---\ntitle: T\nmode: flex\nast_capabilities: [typed-headings-v1]\n---\n\n# A\n\n## Sub uno\n\nTexto.\n\n### Más abajo\n\nOtro.\n"
+	doc, diags, err := Parse(util.NewNoop(), src)
+	if err != nil || hasError(diags) || !ast.UsesTypedHeadings(doc) {
+		t.Fatalf("parse: err=%v diags=%v typed=%v", err, diags, doc != nil && ast.UsesTypedHeadings(doc))
+	}
+	res := Render(util.NewNoop(), src, playgroundOptions)
+	want := "1 #a A\n2 #sub-uno Sub uno\n3 #mas-abajo Más abajo\n"
+	if got := tocEntries(res.HTML); got != want {
+		t.Errorf("TOC:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// La vista previa usa la regla de TOC de doclang build sin --toc.
+func TestTOCOptions(t *testing.T) {
+	for _, c := range []struct {
+		src     string
+		enabled bool
+		depth   int
+	}{
+		{"# A\n\nTexto.\n", false, DefaultTOCDepth},
+		{"---\ntitle: T\n---\n\n# A\n", true, DefaultTOCDepth},
+		{"---\ntitle: T\ntoc: false\n---\n\n# A\n", false, DefaultTOCDepth},
+		{"---\ntitle: T\ntoc:\n  enabled: false\n---\n\n# A\n", false, DefaultTOCDepth},
+		{"---\ntitle: T\ntoc:\n  depth: 2\n---\n\n# A\n", true, 2},
+	} {
+		doc, _, err := Parse(util.NewNoop(), c.src)
+		if err != nil || doc == nil {
+			t.Fatalf("parse %q: %v", c.src, err)
+		}
+		if enabled, depth := TOCOptions(doc); enabled != c.enabled || depth != c.depth {
+			t.Errorf("TOCOptions(%q) = %v, %d; want %v, %d", c.src, enabled, depth, c.enabled, c.depth)
+		}
 	}
 }

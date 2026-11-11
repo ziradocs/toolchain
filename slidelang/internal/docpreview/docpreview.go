@@ -121,18 +121,42 @@ func Context() *renderer.RenderContext {
 	return ctx
 }
 
-// HTML dibuja doc como un HTML autocontenido con opts y con Context.
-//
-// No baja los encabezados tipados (renderer.LowerTypedHeadings) como
-// RenderHTMLPreview de doclang, porque en este camino no cambia nada:
-// GenerateDocumentHTML dibuja cada HeadingElement por su forma legada
-// (renderHeadingElement), y lo único que lee solo la forma legada es el TOC
-// de subsecciones (extractSubsections), que corre con opts.TOCDepth > 1. El
-// playground no pasa TOCDepth. Si algún día lo pasa, hay que bajar los
-// encabezados antes, o las subsecciones de un documento con
-// typed-headings-v1 no salen en el TOC.
+// HTML dibuja doc como un HTML autocontenido con opts y con Context, después
+// de bajar los encabezados tipados como lo hace doclang antes de generar
+// (renderer.LowerTypedHeadings). GenerateDocumentHTML dibuja cada
+// HeadingElement por su forma legada, pero el TOC de subsecciones
+// (extractSubsections, con opts.TOCDepth > 1) solo lee esa forma: sin bajar
+// los encabezados, un documento con typed-headings-v1 pierde sus subsecciones
+// en el TOC.
 func HTML(doc *ast.AST, opts renderer.DocumentHTMLOptions) string {
-	return renderer.GenerateDocumentHTML(doc, opts, Context())
+	return renderer.GenerateDocumentHTML(renderer.LowerTypedHeadings(doc), opts, Context())
+}
+
+// DefaultTOCDepth es la profundidad del TOC de doclang build cuando el
+// frontmatter no declara toc.depth (pipeline.Generate).
+const DefaultTOCDepth = 3
+
+// TOCOptions dice si la vista previa lleva TOC y hasta qué nivel, con la regla
+// de doclang build sin --toc (pipeline.ResolveTOCAndNumbering y la
+// profundidad de pipeline.Generate): con frontmatter, el toc.enabled que
+// declare o, sin él, prendido; sin frontmatter, apagado. La profundidad es el
+// toc.depth del frontmatter o DefaultTOCDepth.
+func TOCOptions(doc *ast.AST) (enabled bool, depth int) {
+	depth = DefaultTOCDepth
+	fm := doc.FrontMatter
+	if fm == nil {
+		return false, depth
+	}
+	enabled = true
+	if fm.TOC != nil {
+		if fm.TOC.Enabled != nil {
+			enabled = *fm.TOC.Enabled
+		}
+		if fm.TOC.Depth != nil {
+			depth = *fm.TOC.Depth
+		}
+	}
+	return enabled, depth
 }
 
 func hasError(diags []diagnostics.Diagnostic) bool {

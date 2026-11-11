@@ -66,7 +66,11 @@ for structured results):
   else follows `doclang build`: the dialect comes from `mode:` (strict or
   flex), figure/table numbering and `\ref` are resolved, and code is literal
   (a `{{variable}}` inside a code block or a code span is not substituted).
-  The TOC and numbering are always on in the preview.
+  The TOC follows `doclang build` too: `toc.enabled` and `toc.depth` from
+  the front matter, on with depth 3 when the front matter doesn't set them,
+  and off without front matter. Numbering is always on in the preview.
+  `doclang build` draws that TOC as the interactive sidebar; the preview
+  draws it as the static TOC block, with the same entries.
 - **An xref failure still draws the DocLang preview.** `doclangRenderHTML`
   returns JSON `{html, diagnostics, valid, error}`. With an unresolved
   `\ref` or a duplicate label, `doclang build` fails and writes nothing;
