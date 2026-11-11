@@ -18,13 +18,15 @@ import (
 // treeTokens son las líneas con las que FuzzKeepIncludesInCodeTree arma
 // archivos: cercas de código, de diagrama, de chart y de math, $$,
 // code-groups (también con :::code-item legado), bloques ::: de prosa, una
-// cita, una lista, un CODE strict, prosa y @include (cada uno de un archivo
+// cita, una lista, un CODE strict, ````math (que sin cierre más adelante es
+// una cerca de código), @startuml, prosa y @include (cada uno de un archivo
 // distinto, para que no haya ciclos y cada línea @include sea única). "texto"
 // y "    x" llevan un número único, para seguir cada una hasta el resultado.
 var treeTokens = []string{
 	"```", "```js", "````", "texto", "", "- item", ":::note", ":::", ":::code-group",
 	"```js [a]", "  CODE js", "    x", "SECTION \"S\"", "## H", "@include", "  @include",
 	"$$", "```mermaid", "```chart", "```math", "> cita", ":::code-item{0}", "::: info",
+	"````math", "@startuml",
 }
 
 const treeFiles = 8
@@ -121,6 +123,29 @@ func balancedBlocks(src string) bool {
 		}
 	}
 	return open == 0
+}
+
+// mathAcrossFiles dice si una cerca de math del resultado (```math, ````math,
+// ~~~math) no cierra en su propio archivo pero sí más adelante en el
+// resultado, en otro archivo.
+func mathAcrossFiles(res Expansion, root string, files map[string]string) bool {
+	lines := strings.Split(res.Text, "\n")
+	for i, l := range lines {
+		open := mathOpening(strings.TrimSpace(l))
+		if open == "" || i >= len(res.Sources.Lines) {
+			continue
+		}
+		o := res.Sources.Lines[i]
+		src := root
+		if o.File != "" {
+			src = files[o.File]
+		}
+		own := strings.Split(src, "\n")
+		if o.Line >= 1 && o.Line <= len(own) && !mathFenceCloses(own[o.Line:], open) && mathFenceCloses(lines[i+1:], open) {
+			return true
+		}
+	}
+	return false
 }
 
 // withoutClosers es res.Text sin las líneas de cierre de OpenAtEnd.
@@ -346,10 +371,13 @@ func FuzzKeepIncludesInCodeTree(f *testing.F) {
 		// $$ queda como texto del párrafo), la normalización de flex reescribe
 		// lo que sigue a un :::code-item suelto, o un bloque ::: de prosa que
 		// un archivo deja abierto (no se cierra) lee distinto las cercas de
-		// adentro. Eso no es de lo que se cierra al final de un archivo, así
-		// que la propiedad se exige con isolate (cada @include entre líneas
-		// vacías), sin :::code-item y con los ::: de cada archivo parejos.
-		if !isolate || strings.Contains(res.Text, ":::code-item") || !balancedBlocks(root) {
+		// adentro, o una cerca ```math sin cierre en su archivo encuentra su
+		// cierre en otro archivo de después (el parser la lee entonces como
+		// math). Eso no es de lo que se cierra al final de un archivo, así que
+		// la propiedad se exige con isolate (cada @include entre líneas
+		// vacías), sin :::code-item, con los ::: de cada archivo parejos y sin
+		// una cerca de math que cierre en otro archivo.
+		if !isolate || strings.Contains(res.Text, ":::code-item") || !balancedBlocks(root) || mathAcrossFiles(res, root, files) {
 			return
 		}
 		for _, content := range files {

@@ -344,9 +344,10 @@ type Expansion struct {
 // se puede comprobar sobre un solo archivo.
 //
 // Un archivo incluido es, además, un contenedor: un bloque cuyo cuerpo se lee
-// al pie de la letra (una cerca de código, diagrama, chart o mapa; una de
-// math; un bloque $$; un :::code-group, con su pestaña abierta y sus
-// :::code-item legados) que abre y no cierra se cierra donde termina el
+// al pie de la letra (una cerca de código, diagrama, chart o mapa; un
+// @startuml; un bloque $$; un :::code-group, con su pestaña abierta y sus
+// :::code-item legados; una cerca de math nunca queda abierta, ver gate) que
+// abre y no cierra se cierra donde termina el
 // archivo, con las líneas de cierre que pide lo que está abierto (su origen
 // es la directiva), y queda en Expansion.OpenAtEnd para que el llamador lo
 // avise. Es un cambio de comportamiento: el documento que incluye ya no cierra
@@ -540,7 +541,7 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 			if len(c.closers) > 0 {
 				block.Line = len(e.out) + 1
 			}
-			e.info = append(e.info, openInfo{end: len(e.out), lines: child.lines, glued: glued, pending: c.pending})
+			e.info = append(e.info, openInfo{end: len(e.out), file: child.file, lines: child.lines, glued: glued, pending: c.pending})
 			for _, closer := range c.closers {
 				e.out = append(e.out, closer)
 				e.origins = append(e.origins, origins[i])

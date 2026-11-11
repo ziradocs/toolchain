@@ -513,9 +513,13 @@ func TestExpand_OpenBlockClosesAtTheEndOfItsFile(t *testing.T) {
 		{"```mermaid\ngraph TD\n", []string{"```"}, "```mermaid"},
 		{"```chart\n", []string{"```"}, "```chart"},
 		{"```math\n", []string{"```"}, "```math"},
-		{"````math\nx\n", []string{"````"}, "````math"},
+		// Una cerca de math sin cierre más adelante es de código para el
+		// parser (parseFenceForm), y cierra con ``` exacto.
+		{"````math\nx\n", []string{"```"}, "````math"},
 		{"````js\n", []string{"```"}, "````js"},
 		{"$$\nx\n", []string{"$$"}, "$$"},
+		// PlantUML nativo: hasta la línea que empieza con @enduml.
+		{"@startuml\nA -> B\n", []string{"@enduml"}, "@startuml"},
 		{":::code-group\n", []string{":::"}, ":::code-group"},
 		{":::code-group\n```js [a]\nx\n", []string{"```", ":::"}, ":::code-group"},
 		// La sintaxis legada: la pestaña, el code-item y el grupo.
@@ -583,9 +587,9 @@ func TestExpand_ParentNoLongerClosesTheChildsBlock(t *testing.T) {
 	if !reflect.DeepEqual(res.OpenAtEnd, want) {
 		t.Errorf("OpenAtEnd = %+v, want %+v", res.OpenAtEnd, want)
 	}
-	diags := res.OpenAtEndDiagnostics()
+	diags := res.OpenAtEndDiagnostics("/base")
 	if len(diags) != 1 || diags[0].Position.Line != 4 || !diags[0].IsWarning() ||
-		!strings.Contains(diags[0].Message, "header.md leaves \"```js\" open (line 4 of header.md)") {
+		!strings.Contains(diags[0].Message, "header.md leaves \"```js\" open (header.md:4)") {
 		t.Errorf("diagnostics = %+v", diags)
 	}
 	if mapped := res.Sources.MapDiagnostics(diags, ""); mapped[0].File != "" || mapped[0].Position.Line != 3 {
@@ -686,14 +690,84 @@ func TestExpand_IncludeInsideACalloutIsClosed(t *testing.T) {
 	}
 }
 
+// Un cierre no cambia cómo se leen las líneas del propio archivo. ````math
+// sin cierre más adelante es, para el parser, una cerca de código que cierra
+// la ``` siguiente: el archivo no deja nada abierto, y el párrafo sigue siendo
+// párrafo. Antes gate la veía como math abierta, agregaba ```` y el párrafo
+// pasaba a ser math, con un INCLUDE002 falso.
+func TestExpand_ClosingDoesNotChangeTheFilesOwnLines(t *testing.T) {
+	files := map[string]string{"/base/m.md": "````math\n```\n\nUn párrafo del incluido.\n"}
+	root := "# A\n\n@include m.md\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := Expand(root, "/base", memFS(files))
+	if res.Text != plain || len(res.OpenAtEnd) != 0 {
+		t.Errorf("got %q %+v, want the plain expansion %q and nothing open", res.Text, res.OpenAtEnd, plain)
+	}
+	if got := lineClasses(res.Text + "\ntexto1t"); got["texto1t"] != classProse {
+		t.Errorf("the line after the file is %v, want prose", got["texto1t"])
+	}
+}
+
+// Doce copias del mismo archivo, que se cierra igual en todas: no cuestan una
+// vuelta cada una ni se agotan las vueltas (antes, de la octava en adelante
+// salía "could not be closed" y el bloque se tragaba el resto).
+func TestExpand_SameFileManyTimesClosesInEveryCopy(t *testing.T) {
+	files := map[string]string{"/base/q.md": "::: info\n````math\nx"}
+	var root strings.Builder
+	root.WriteString("# A\n\n")
+	for range 12 {
+		root.WriteString("@include q.md\n:::\n\n")
+	}
+	root.WriteString("Fin.\n")
+	parses := 0
+	onContextParse = func() { parses++ }
+	t.Cleanup(func() { onContextParse = nil })
+	res, err := ExpandWithOptions(root.String(), "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.OpenAtEnd) != 12 {
+		t.Fatalf("%d open blocks, want 12", len(res.OpenAtEnd))
+	}
+	for _, b := range res.OpenAtEnd {
+		if b.Line == 0 || !slices.Equal(b.Closers, []string{"```"}) {
+			t.Errorf("block %+v, want closed with ```", b)
+		}
+	}
+	if got := lineClasses(res.Text); got["Fin."] != classNone && strings.Count(res.Text, "Fin.") != 1 {
+		t.Errorf("unexpected text %q", res.Text)
+	}
+	if parses > 2 {
+		t.Errorf("%d parses of the expanded text, want at most 2", parses)
+	}
+}
+
+// Dentro de un bloque ::: de prosa el parser lee una cerca ```math distinto
+// que en el nivel superior: gate no está seguro y lo decide el parser.
+func TestExpand_MathFenceInsideAProseBlock(t *testing.T) {
+	files := map[string]string{"/base/m.md": "::: info\n```math\nx\n````\n"}
+	root := "# A\n\n@include m.md\n:::\n\n```\n@include k.md\n```\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(res.Text, "\n")
+	if len(res.KeptInCode) != 1 || !includesInCode(nil, lines)[res.KeptInCode[0]-1] {
+		t.Errorf("the root's kept @include is not code in the result: %q %+v", res.Text, res.OpenAtEnd)
+	}
+}
+
 // Si se acaban las vueltas, los cierres sin comprobar se quitan: el bloque
 // queda como uno que no se pudo cerrar, con su aviso, y el texto es el de sin
-// cerrar.
+// cerrar. Con cero vueltas, ninguno se comprueba.
 func TestExpand_ContextRoundsRunOut(t *testing.T) {
 	old := maxContextRounds
-	maxContextRounds = 1
+	maxContextRounds = 0
 	t.Cleanup(func() { maxContextRounds = old })
-	files := map[string]string{"/base/q.md": "::: info\n````math\nx"}
+	files := map[string]string{"/base/q.md": "```js\nx"}
 	root := "# A\n\n@include q.md\n\nFin.\n"
 	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
 	if err != nil {
@@ -724,8 +798,8 @@ func TestExpand_UnclosableBlockIsReported(t *testing.T) {
 	if len(res.OpenAtEnd) != 1 || res.OpenAtEnd[0].Line != 0 || len(res.OpenAtEnd[0].Closers) != 0 || res.OpenAtEnd[0].OpenerLine != 3 {
 		t.Fatalf("OpenAtEnd = %+v, want the block at line 3, not closed", res.OpenAtEnd)
 	}
-	d := res.OpenAtEndDiagnostics()
-	if len(d) != 1 || d[0].Position.Line != 3 || !strings.Contains(d[0].Message, "could not be closed") {
+	d := res.OpenAtEndDiagnostics("/base")
+	if len(d) != 1 || d[0].Position.Line != 3 || !strings.Contains(d[0].Message, "could not be closed") || !strings.Contains(d[0].Message, "at line 3)") {
 		t.Errorf("diagnostics = %+v", d)
 	}
 	if mapped := res.Sources.MapDiagnostics(d, "/base"); mapped[0].File != "open.md" || mapped[0].Position.Line != 1 {

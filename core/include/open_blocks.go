@@ -6,9 +6,9 @@ package include
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -47,22 +47,25 @@ type OpenBlock struct {
 // con Sources.MapDiagnostics como los del parser. Uno cerrado va en su primera
 // línea de cierre, cuyo origen es la línea del @include, y nombra el archivo
 // incluido y la línea que lo abre. Uno que no se pudo cerrar va en la línea
-// que lo abre, en el archivo incluido, y nombra el @include.
-func (x Expansion) OpenAtEndDiagnostics() []diagnostics.Diagnostic {
+// que lo abre, en el archivo incluido, y nombra el @include. Los archivos se
+// nombran como Diagnostic.File: relativos a docDir, con "/" (ver
+// SourceMap.MapDiagnostics).
+func (x Expansion) OpenAtEndDiagnostics(docDir string) []diagnostics.Diagnostic {
 	out := make([]diagnostics.Diagnostic, 0, len(x.OpenAtEnd))
 	for _, b := range x.OpenAtEnd {
 		if b.Line > 0 {
+			file := displayPath(docDir, b.Opener.File)
 			out = append(out, diagnostics.NewWarning(
-				fmt.Sprintf("%s leaves %q open (line %d of %s): an included file is a container, so it is closed where that file ends and the lines after the @include are not inside it. Close it in %s", b.Path, b.Opening, b.Opener.Line, b.Path, b.Path),
+				fmt.Sprintf("%s leaves %q open (%s:%d): an included file is a container, so it is closed where that file ends and the lines after the @include are not inside it. Close it in %s", file, b.Opening, file, b.Opener.Line, file),
 				diagnostics.NewPosition(b.Line, 1), "include"))
 			continue
 		}
-		where := "the document"
+		where := fmt.Sprintf("line %d", b.Directive.Line)
 		if b.Directive.File != "" {
-			where = filepath.Base(b.Directive.File)
+			where = fmt.Sprintf("%s:%d", displayPath(docDir, b.Directive.File), b.Directive.Line)
 		}
 		out = append(out, diagnostics.NewWarning(
-			fmt.Sprintf("%q is left open at the end of this file (included by \"@include %s\", %s line %d), and it could not be closed there: the lines after the @include are read inside it. Close it in this file", b.Opening, b.Path, where, b.Directive.Line),
+			fmt.Sprintf("%q is left open at the end of this file (included by \"@include %s\" at %s), and it could not be closed there: the lines after the @include are read inside it. Close it in this file", b.Opening, b.Path, where),
 			diagnostics.NewPosition(b.OpenerLine, 1), "include"))
 	}
 	return out
@@ -85,6 +88,7 @@ var onContextParse func()
 // cierres los dio gate sin parsear (pending).
 type openInfo struct {
 	end     int
+	file    string
 	lines   []string
 	glued   string
 	pending bool
@@ -139,11 +143,15 @@ func (e *keepExpander) checkClosersInContext() {
 			after[last] = append(after[last], k)
 		}
 		text := make([]string, 0, len(e.out)+4*len(closed))
+		textLine := make([]int, len(e.out)) // índice en out → línea en text
+		markLine := map[int]int{}
 		for j, line := range e.out {
 			for _, k := range before[j] {
 				text = append(text, "", fmt.Sprintf("%s%de", tagPrefix, 2*k))
+				markLine[2*k] = len(text)
 			}
 			text = append(text, line)
+			textLine[j] = len(text)
 			for _, k := range after[j] {
 				text = append(text, "", fmt.Sprintf("%s%de", tagPrefix, 2*k+1))
 			}
@@ -152,12 +160,28 @@ func (e *keepExpander) checkClosersInContext() {
 			onContextParse()
 		}
 		doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(text, "\n"), "")
-		landed := sentinelLandings(doc, tagPrefix)
+		got, starts := sentinelLandings(doc, tagPrefix)
 		at := func(n int) where {
-			if w, ok := landed[n]; ok {
-				return w
+			if l, ok := got[n]; ok {
+				return l.where
 			}
 			return nowhere
+		}
+		// ownBody: la marca de antes de los cierres de k cayó en el cuerpo que
+		// abre la línea de apertura de k, y no en otro (uno que abrió algo
+		// antes del archivo). Si la normalización corrió las líneas, vale que
+		// la línea en la que empieza el cuerpo diga lo mismo que la apertura.
+		ownBody := func(k int) bool {
+			start := got[2*k].start
+			if at(2*k) == nowhere {
+				i := sort.SearchInts(starts, markLine[2*k]) - 1
+				if i < 0 {
+					return false
+				}
+				start = starts[i]
+			}
+			opener := textLine[e.open[k].OpenerLine-1]
+			return start == opener || start >= 1 && start <= len(text) && strings.TrimSpace(text[start-1]) == e.open[k].Opening
 		}
 		// Los cierres de un archivo cambian cómo se lee lo que sigue: en esta
 		// vuelta se decide hasta el primer archivo cuyos cierres hay que
@@ -172,8 +196,14 @@ func (e *keepExpander) checkClosersInContext() {
 			if stop {
 				break
 			}
+			if _, done := change[k]; done {
+				continue
+			}
 			switch {
-			case at(2*k) == inProse:
+			case at(2*k) == inProse || !ownBody(k):
+				// En contexto el archivo no deja abierto lo que abre: o no
+				// se traga nada, o lo de después cae en un cuerpo que abrió
+				// otro.
 				change[k] = nil
 				notOpen = append(notOpen, k)
 				stop = at(2*k+1) != inProse
@@ -181,16 +211,24 @@ func (e *keepExpander) checkClosersInContext() {
 				verified[k] = true
 			case e.info[k].pending:
 				stop = true
-				e.info[k].pending = false
-				st, _ := gate(e.info[k].lines, e.info[k].glued != "")
 				prefix := []string(nil)
 				if e.info[k].glued != "" {
 					prefix = []string{e.info[k].glued}
 				}
-				c := parsedClosureOf(prefix, e.info[k].lines, st)
-				change[k] = c.closers
-				if c.opener < 0 {
-					notOpen = append(notOpen, k)
+				c := parsedClosureOf(prefix, e.info[k].lines)
+				// El mismo archivo, pegado a lo mismo, se cierra igual en
+				// todas sus copias: se corrigen todas en esta vuelta.
+				for k2, info := range e.info {
+					same := k2 == k || info.pending && info.file == e.info[k].file && info.glued == e.info[k].glued &&
+						e.open[k2].Line > 0 && slices.Equal(e.open[k2].Closers, e.open[k].Closers)
+					if !same {
+						continue
+					}
+					e.info[k2].pending = false
+					change[k2] = c.closers
+					if c.opener < 0 {
+						notOpen = append(notOpen, k2)
+					}
 				}
 			default:
 				stop = true
@@ -203,6 +241,11 @@ func (e *keepExpander) checkClosersInContext() {
 		e.setClosers(change)
 		for _, k := range notOpen {
 			e.info[k].gone = true
+		}
+		// Si solo se quitaron cierres que eran texto, lo demás ya se
+		// comprobó en esta vuelta: no hace falta otro parse.
+		if !stop {
+			return
 		}
 	}
 }
@@ -288,31 +331,43 @@ func (e *keepExpander) setClosers(change map[int][]string) {
 	e.out, e.origins = out, origins
 }
 
+// landed es dónde cayó una línea marcada: where y, si cayó en un cuerpo,
+// start, la línea (1-based) en la que empieza ese cuerpo.
+type landed struct {
+	where where
+	start int
+}
+
 // sentinelLandings dice dónde cayó, en doc, cada línea marcada tagPrefix+Ne
-// (por N): en prosa, en un cuerpo literal o, si no está, en ninguna parte.
-func sentinelLandings(doc *ast.AST, tagPrefix string) map[int]where {
+// (por N): en prosa, en un cuerpo literal o, si no está, en ninguna parte; y
+// starts, las líneas en las que empieza cada cuerpo, en orden.
+func sentinelLandings(doc *ast.AST, tagPrefix string) (map[int]landed, []int) {
 	tag := regexp.MustCompile(regexp.QuoteMeta(tagPrefix) + `(\d+)e`)
-	out := map[int]where{}
-	scan := func(content string, w where) {
-		if !strings.Contains(content, tagPrefix) {
-			return
+	out := map[int]landed{}
+	var starts []int
+	forEachText(doc, func(n ast.Element, w where, _ bodyKind, contents ...string) {
+		start := 0
+		if w == inBody {
+			start = n.GetPosition().Line
+			starts = append(starts, start)
 		}
-		for _, m := range tag.FindAllStringSubmatch(content, -1) {
-			if k, err := strconv.Atoi(m[1]); err == nil {
-				// inBody gana: una marca que también aparece en prosa (el
-				// texto crudo de un contenedor) está en el cuerpo.
-				if cur, ok := out[k]; !ok || w == inBody || cur == nowhere {
-					out[k] = w
+		for _, c := range contents {
+			if !strings.Contains(c, tagPrefix) {
+				continue
+			}
+			for _, m := range tag.FindAllStringSubmatch(c, -1) {
+				if k, err := strconv.Atoi(m[1]); err == nil {
+					// inBody gana: una marca que también aparece en prosa (el
+					// texto crudo de un contenedor) está en el cuerpo.
+					if cur, ok := out[k]; !ok || w == inBody && cur.where != inBody || cur.where == nowhere {
+						out[k] = landed{w, start}
+					}
 				}
 			}
 		}
-	}
-	forEachText(doc, func(n ast.Element, w where, _ bodyKind, contents ...string) {
-		for _, c := range contents {
-			scan(c, w)
-		}
 	})
-	return out
+	slices.Sort(starts)
+	return out, starts
 }
 
 // forEachText llama a f con el texto de cada elemento de doc que puede
@@ -395,8 +450,10 @@ const (
 type openState struct {
 	kind bodyKind
 	// diagram: una cerca de diagrama, chart o mapa, que cierra también con
-	// ```` (las de código, solo con ```).
+	// ```` (las de código, solo con ```); uml: un @startuml, que cierra con
+	// @enduml.
 	diagram bool
+	uml     bool
 	opener  int    // índice de la línea que lo abre
 	open    string // secuencia de apertura de una cerca de math, o "$$"
 	tab     int    // backticks de la pestaña abierta de un code-group, o 0
@@ -428,7 +485,7 @@ func gate(lines []string, afterProse bool) (st openState, sure bool) {
 		indented := t != line && (line[0] == ' ' || line[0] == '\t')
 		switch st.kind {
 		case bodyFence:
-			if t == "```" || st.diagram && t == "````" {
+			if st.uml && strings.HasPrefix(t, "@enduml") || !st.uml && (t == "```" || st.diagram && t == "````") {
 				st = openState{kind: bodyNone, opener: -1}
 			}
 			continue
@@ -463,8 +520,12 @@ func gate(lines []string, afterProse bool) (st openState, sure bool) {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(t, "<<") || strings.HasPrefix(t, "@startuml"):
+		case strings.HasPrefix(t, "<<"):
 			sure = false
+		case strings.HasPrefix(t, "@startuml"):
+			// Como el parser de PlantUML: hasta la línea que empieza con
+			// @enduml.
+			st = openState{kind: bodyFence, opener: i, uml: true}
 		case strings.HasPrefix(t, "::::code-group") || strings.HasPrefix(t, ":::code-group"):
 			st = openState{kind: bodyCodeGroup, opener: i}
 		case t == ":::" || t == "::::":
@@ -474,7 +535,23 @@ func gate(lines []string, afterProse bool) (st openState, sure bool) {
 			blocks++
 			continue
 		case mathOpening(t) != "":
-			st = openState{kind: bodyMath, opener: i, open: mathOpening(t)}
+			// Como parseFenceForm: es math solo si cierra más adelante; si no,
+			// una cerca de backticks es de código (cierra con ``` exacto) y
+			// una de ~~~ es texto. Dentro de un bloque ::: de prosa el parser
+			// la lee distinto: gate no está seguro.
+			open := mathOpening(t)
+			if blocks > 0 {
+				sure = false
+			}
+			switch {
+			case mathFenceCloses(lines[i+1:], open):
+				st = openState{kind: bodyMath, opener: i, open: open}
+			case open[0] == '`':
+				st = openState{kind: bodyFence, opener: i}
+			default:
+				prose = true
+				continue
+			}
 		case strings.HasPrefix(t, "$$"):
 			rest := strings.TrimSpace(strings.TrimPrefix(t, "$$"))
 			if !strings.HasSuffix(rest, "$$") || rest == "$$" {
@@ -493,13 +570,19 @@ func gate(lines []string, afterProse bool) (st openState, sure bool) {
 			sure = false
 		}
 	}
-	// Una cerca ~~~math sin cierre el parser no la lee como math sino como
-	// texto (no se traga nada), y lo que sigue a su apertura gate no lo leyó
-	// como lo lee el parser.
-	if st.kind == bodyMath && strings.HasPrefix(st.open, "~") {
-		return openState{kind: bodyNone, opener: -1}, false
-	}
 	return st, sure
+}
+
+// mathFenceCloses dice si alguna de lines cierra una cerca de math abierta con
+// open: el mismo carácter, al menos tantas veces, y nada más.
+func mathFenceCloses(lines []string, open string) bool {
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if len(t) >= len(open) && strings.Trim(t, open[:1]) == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // diagramFence dice si trimmed abre una cerca de diagrama, chart o mapa, con
@@ -530,13 +613,17 @@ func proseLine(line string) bool {
 }
 
 // closers son las líneas que cierran lo que st tiene abierto: ``` una cerca de
-// código, diagrama, chart o mapa; su misma secuencia de apertura una de math
-// (```, ````) y $$ un bloque $$; y un code-group, ``` su pestaña abierta, :::
-// cada :::code-item abierto y ::: el grupo, en ese orden. ~~~ no hace falta
-// nunca: una cerca ~~~math sin cierre no se traga nada (ver gate).
+// código, diagrama, chart o mapa; @enduml un @startuml; $$ un bloque $$; y un
+// code-group, ``` su pestaña abierta, ::: cada :::code-item abierto y ::: el
+// grupo, en ese orden. Una cerca de math nunca queda abierta: sin cierre más
+// adelante, el parser la lee como código (```math, ````math: cierra con ```)
+// o como texto (~~~math), ver gate.
 func (st openState) closers() []string {
 	switch st.kind {
 	case bodyFence:
+		if st.uml {
+			return []string{"@enduml"}
+		}
 		return []string{"```"}
 	case bodyMath:
 		return []string{st.open}
@@ -577,26 +664,19 @@ func closureOf(prefix, lines []string, glued string) closure {
 	if sure {
 		return closure{closers: st.closers(), opener: st.opener, pending: true}
 	}
-	return parsedClosureOf(prefix, lines, st)
+	return parsedClosureOf(prefix, lines)
 }
 
 // parsedClosureOf es closureOf con el parser, para un archivo en el que gate no
-// está seguro (st es lo que encontró) o cuyos cierres no sirvieron en el texto
-// expandido.
-func parsedClosureOf(prefix, lines []string, st openState) closure {
+// está seguro o cuyos cierres no sirvieron en el texto expandido: un parse sin
+// cierres dice qué cuerpo se traga una línea puesta después del archivo y qué
+// línea lo abre, y otro con los cierres comprueba que lo cierran.
+func parsedClosureOf(prefix, lines []string) closure {
 	none := closure{opener: -1}
+	var st openState
 	sentinel := includeTag(strings.Join(lines, "\n")) + "end"
-	if st.kind != bodyNone {
-		c := st.closers()
-		switch open, closed := landing(prefix, lines, c, sentinel); {
-		case open == inProse:
-			// gate vio abierto algo que el parser no deja abierto.
-			return none
-		case closed == inProse:
-			return closure{closers: c, opener: st.opener}
-		}
-	}
-	// gate no supo o se equivocó: lo que diga el parser.
+	// Qué deja abierto, sin cierres: un cierre puede cambiar cómo se lee la
+	// apertura (una cerca de math busca su cierre más adelante).
 	where, kind, opener := findOpen(prefix, lines, sentinel)
 	if where == inProse {
 		return none
@@ -604,11 +684,23 @@ func parsedClosureOf(prefix, lines []string, st openState) closure {
 	if opener < 0 {
 		return closure{opener: lastOpener(lines), failed: true}
 	}
-	st, _ = gate(lines[opener:], false)
-	// Una cerca de math sin cierre el parser puede leerla como código: gate
-	// la ve como math, y se cierra como código.
-	if kind == bodyFence && st.kind == bodyMath {
+	// Los cierres salen de lo que el parser dice que está abierto: una cerca
+	// (de código, diagrama, chart o mapa) cierra con ```, aunque gate la lea
+	// como math (dentro de un bloque ::: el parser no busca el cierre de math);
+	// un @startuml con @enduml; un bloque de math con $$; un code-group con lo
+	// que gate encuentra abierto adentro.
+	opening := strings.TrimSpace(lines[opener])
+	switch {
+	case kind == bodyFence && strings.HasPrefix(opening, "```"):
 		st = openState{kind: bodyFence}
+	case kind == bodyFence && strings.HasPrefix(opening, "@startuml"):
+		st = openState{kind: bodyFence, uml: true}
+	case kind == bodyMath && strings.HasPrefix(opening, "$$"):
+		st = openState{kind: bodyMath, open: "$$"}
+	case kind == bodyCodeGroup:
+		st, _ = gate(lines[opener:], false)
+	default:
+		st = openState{kind: bodyNone}
 	}
 	if st.kind != kind {
 		return closure{opener: opener, failed: true}
@@ -658,10 +750,10 @@ func landing(prefix, lines, closers []string, sentinel string) (open, closed whe
 	text = append(text, closers...)
 	text = append(text, "", sentinel+"1e")
 	doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(text, "\n"), "")
-	landed := sentinelLandings(doc, sentinel)
+	got, _ := sentinelLandings(doc, sentinel)
 	where := func(k int) where {
-		if w, ok := landed[k]; ok {
-			return w
+		if l, ok := got[k]; ok {
+			return l.where
 		}
 		return nowhere
 	}

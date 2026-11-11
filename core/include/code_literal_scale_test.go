@@ -107,8 +107,8 @@ func TestExpandWithOptions_TagDoesNotGrowWithTheText(t *testing.T) {
 
 // Lo que un archivo deja abierto no cuesta un parse por archivo: gate lee cada
 // archivo sin parsearlo, y los cierres se comprueban con un parse del texto
-// expandido para todos. 2000 archivos con un $$ sin cerrar, y 8000 con todo
-// cerrado.
+// expandido para todos. 2000 archivos con un $$ sin cerrar, 8000 con todo
+// cerrado y 2600 con un $$ sin cerrar y sin frontmatter.
 func TestExpandWithOptions_ScalesWithManyOpenBlocks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("scale test")
@@ -117,10 +117,16 @@ func TestExpandWithOptions_ScalesWithManyOpenBlocks(t *testing.T) {
 		n    int
 		tail string
 		open int
-	}{{2000, "$$\nx^2\n", 2000}, {8000, "", 0}} {
+		fm   bool
+	}{{2000, "$$\nx^2\n", 2000, true}, {8000, "", 0, true}, {2600, "$$\nx^2\n", 2600, false}} {
 		files := map[string]string{}
 		var root strings.Builder
-		root.WriteString("---\ntitle: Escala\n---\n\n# Documento\n\n")
+		// Sin frontmatter corre la normalización de flex (modo auto) sobre
+		// todo el texto: tiene que ser lineal también ahí.
+		if c.fm {
+			root.WriteString("---\ntitle: Escala\n---\n\n")
+		}
+		root.WriteString("# Documento\n\n")
 		for i := 0; i < c.n; i++ {
 			name := fmt.Sprintf("p%04d.md", i)
 			files["/base/"+name] = fmt.Sprintf("## Parte %d\n\nPárrafo con `code`.\n\n```js\nconsole.log(1)\n```\n\n", i) + c.tail
