@@ -70,7 +70,10 @@ func pngHorizontalDPI(data []byte) (float64, bool) {
 		n := int(binary.BigEndian.Uint32(data[off:]))
 		typ := string(data[off+4 : off+8])
 		body := off + 8
-		if n < 0 || body+n > len(data) {
+		// n > len(data)-body y no body+n > len(data): con int de 32 bits un
+		// largo cercano a math.MaxInt hace que body+n dé la vuelta a negativo,
+		// pase el chequeo y el siguiente off quede negativo (panic al indexar).
+		if n < 0 || n > len(data)-body {
 			return 0, false
 		}
 		switch typ {
