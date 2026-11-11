@@ -139,8 +139,9 @@ jobs:
       # El vet compila también las pruebas, y corren como 386 en el runner
       # x86_64 las de core/util y las que fijan conversiones a int que dan la
       # vuelta con 32 bits (tamaño de archivo en el MCP de doclang, largo de un
-      # chunk PNG en core/renderer). Contra el core del árbol, por lo mismo que
-      # el WASM: el error sale antes de cortar el tag de core.
+      # chunk PNG en core/renderer y en el DOCX de doclang). Contra el core del
+      # árbol, por lo mismo que el WASM: el error sale antes de cortar el tag
+      # de core.
       - name: Build y vet con GOARCH=386 contra el core del árbol
         env:
           GOARCH: "386"
@@ -152,7 +153,7 @@ jobs:
             echo "::endgroup::"
           done
           (cd core && go test ./util/ && go test -run 'TestPNGHorizontalDPIChunkLengthNearMaxInt32' ./renderer/)
-          (cd doclang && go test -run 'TestResolveInputRejectsFileOver2GiB' ./internal/mcp/)
+          (cd doclang && go test -run 'TestResolveInputRejectsFileOver2GiB' ./internal/mcp/ && go test -run 'TestPNGDPIChunkLengthNearMaxInt32' ./internal/generator/)
 
   # motor-temas-v2.md §2.2 (chart-grid/-axis/-label/-tooltip-bg, withAlpha,
   # detección de dimensión de escala) es lógica que vive por completo en

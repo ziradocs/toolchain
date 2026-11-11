@@ -151,7 +151,15 @@ func (r exportRoot) resolveInput(p string, maxBytes int) (abs string, content []
 	if size := info.Size(); size > int64(maxBytes) {
 		return "", nil, inputTooLarge(size, maxBytes)
 	}
-	content, err = io.ReadAll(io.LimitReader(f, int64(maxBytes)+1))
+	// Se lee hasta un byte más que el tope, para ver si el archivo creció
+	// después del Stat. Con int de 64 bits y el tope en math.MaxInt,
+	// int64(maxBytes)+1 da la vuelta a negativo y LimitReader no lee nada:
+	// el export seguía con el contenido vacío.
+	limit := int64(maxBytes)
+	if limit < math.MaxInt64 {
+		limit++
+	}
+	content, err = io.ReadAll(io.LimitReader(f, limit))
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to read file: %w", err)
 	}
