@@ -134,6 +134,23 @@ jobs:
         working-directory: slidelang
         run: GOOS=js GOARCH=wasm go build -o "$RUNNER_TEMP/slidelang.wasm" ./cmd/wasm
 
+      # Con int de 32 bits, una constante que no cabe en int rompe el build
+      # (core/util/guard.go tenía 1 << 40 como int, y GOARCH=386 no compilaba).
+      # El vet compila también las pruebas, y las de core/util corren como 386
+      # en el runner x86_64. Contra el core del árbol, por lo mismo que el WASM:
+      # el error sale antes de cortar el tag de core. Cuesta unos segundos.
+      - name: Build y vet con GOARCH=386 contra el core del árbol
+        env:
+          GOARCH: "386"
+        run: |
+          set -euo pipefail
+          for module in core slidelang doclang; do
+            echo "::group::$module (386)"
+            (cd "$module" && go build ./... && go vet ./...)
+            echo "::endgroup::"
+          done
+          (cd core && go test ./util/)
+
   # motor-temas-v2.md §2.2 (chart-grid/-axis/-label/-tooltip-bg, withAlpha,
   # detección de dimensión de escala) es lógica que vive por completo en
   # template/assets/js/modules/charts.js — JS de navegador que

@@ -5,6 +5,8 @@ package util
 
 import (
 	"errors"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +40,7 @@ func TestResolveMaxInputBytesClampsOversizedValues(t *testing.T) {
 	// A huge --max-size value must clamp to the ceiling instead of
 	// overflowing int and wrapping to a negative limit (which would reject
 	// every input, including a 1-byte file).
-	got := ResolveMaxInputBytes(1<<40, "SLIDELANG_TEST_MAX_SIZE_UNSET")
+	got := ResolveMaxInputBytes(math.MaxInt, "SLIDELANG_TEST_MAX_SIZE_UNSET")
 	if got <= 0 {
 		t.Fatalf("expected a positive clamped limit, got %d", got)
 	}
@@ -46,10 +48,33 @@ func TestResolveMaxInputBytesClampsOversizedValues(t *testing.T) {
 		t.Errorf("expected clamp to maxAllowedInputBytes (%d), got %d", maxAllowedInputBytes, got)
 	}
 
-	t.Setenv("SLIDELANG_TEST_MAX_SIZE_HUGE", "999999999999")
+	// 999999999 MB cabe en un int de 32 bits y pasa el techo en los dos
+	// tamaños. Un número que no cabe en int (999999999999 con 32 bits) no es
+	// un entero válido para Atoi y cae al default, como cualquier valor
+	// ilegible.
+	t.Setenv("SLIDELANG_TEST_MAX_SIZE_HUGE", "999999999")
 	got = ResolveMaxInputBytes(0, "SLIDELANG_TEST_MAX_SIZE_HUGE")
 	if got <= 0 || got != maxAllowedInputBytes {
 		t.Errorf("expected env var overflow to clamp to %d, got %d", maxAllowedInputBytes, got)
+	}
+}
+
+// El techo depende del tamaño de int: 1 TB con 64 bits, math.MaxInt con 32.
+// Con 1 << 40 a secas, core no compilaba con GOARCH=386 (CI lo compila y corre
+// esta prueba así). Ningún valor en MB da un límite negativo ni mayor que el
+// techo, en ninguno de los dos tamaños.
+func TestMaxAllowedInputBytesFitsInt(t *testing.T) {
+	if strconv.IntSize == 64 && maxAllowedInputBytes != 1<<40 {
+		t.Errorf("64-bit ceiling = %d, want 1 TB", maxAllowedInputBytes)
+	}
+	if strconv.IntSize == 32 && maxAllowedInputBytes != math.MaxInt32 {
+		t.Errorf("32-bit ceiling = %d, want math.MaxInt32", maxAllowedInputBytes)
+	}
+	for _, mb := range []int{1, maxAllowedInputBytes >> 20, maxAllowedInputBytes>>20 + 1, math.MaxInt} {
+		got := mbToBytesClamped(mb)
+		if got <= 0 || got > maxAllowedInputBytes {
+			t.Errorf("mbToBytesClamped(%d) = %d, want a value in (0, %d]", mb, got, maxAllowedInputBytes)
+		}
 	}
 }
 

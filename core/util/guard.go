@@ -5,6 +5,7 @@ package util
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -23,7 +24,11 @@ const DefaultParseTimeout = 30 * time.Second
 // --max-size o de la env var expresado en MB que, al convertirlo a bytes,
 // desbordaría un int (o resultaría en un límite absurdamente alto) se recorta
 // a este techo en vez de envolver a un número negativo y rechazar toda entrada.
-const maxAllowedInputBytes = 1 << 40 // 1 TB
+//
+// Es 1 TB donde int es de 64 bits y math.MaxInt (2 GB menos un byte) donde es
+// de 32: con 1 << 40 a secas, la constante no cabía en un int de 32 bits y
+// core no compilaba con GOARCH=386 ni GOARCH=arm.
+const maxAllowedInputBytes = min(1<<40, math.MaxInt)
 
 // CheckInputSize rechaza contenido más grande que max con un error claro,
 // antes de que llegue al parser.
