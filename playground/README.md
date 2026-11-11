@@ -43,7 +43,7 @@ for structured results):
 | `slidelangLint(source)` | Same parser+linter pipeline as `slidelang build --lint-only` / MCP `lint` |
 | `slidelangGetAST(source)` | Same as `slidelang build --format json` / MCP `get_ast` |
 | `slidelangRenderSlides(source, theme)` | Self-contained slide-deck HTML (CSS/JS inlined) |
-| `doclangRenderHTML(source, theme)` | Self-contained document HTML |
+| `doclangRenderHTML(source, theme)` | Self-contained document HTML, read and rendered with `doclang build`'s rules (`slidelang/internal/docpreview`) |
 | `slidelangListThemes()` | Built-in + marquee named theme names |
 
 ## Known scoping limits (read before filing a bug)
@@ -61,6 +61,12 @@ for structured results):
   module boundary. The DocLang preview renders with plain, functional
   default styling regardless of the `theme` argument; the theme selector
   in the UI is disabled for DocLang for this reason.
+- **DocLang `@include` lines are not expanded.** There are no files to
+  include in a browser, so an `@include` line stays as written. Everything
+  else follows `doclang build`: the dialect comes from `mode:` (strict or
+  flex), figure/table numbering and `\ref` are resolved, and code is literal
+  (a `{{variable}}` inside a code block or a code span is not substituted).
+  The TOC and numbering are always on in the preview.
 - **SlideLang's marquee named themes** (`modern-blue`, `cyberpunk-neon`,
   `elegant-minimal`, `startup-tech`, `aurora-holographic`,
   `neomorphism-glass`) normally live on disk

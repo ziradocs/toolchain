@@ -13,6 +13,7 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/slidelang/v2/internal/docpreview"
 )
 
 const defaultFileName = "playground.slidelang"
@@ -42,15 +43,13 @@ func parseSlidelang(source string) (*ast.AST, []diagnostics.Diagnostic, error) {
 	return astNode, diags, nil
 }
 
-// parseDoclang parses DocLang source the same way doclang build does:
-// always DocumentFlexParser, mode: is ignored, frontmatter is optional.
+// parseDoclang parses DocLang source the same way doclang build does
+// (docpreview.Parse): ParseDocument picks the dialect from the frontmatter's
+// mode: (strict or flex, frontmatter optional), then the xref transform runs.
+// It used to always run DocumentFlexParser, so a `mode: strict` document was
+// read as flex prose, and figure/table numbering and \ref never ran.
 func parseDoclang(source string) (*ast.AST, []diagnostics.Diagnostic, error) {
-	if err := util.CheckInputSize(len(source), util.DefaultMaxInputBytes); err != nil {
-		return nil, nil, err
-	}
-	p := parser.NewDocumentFlexParserWithNormalization(source, logger)
-	astNode, diags := p.Parse()
-	return astNode, diags, nil
+	return docpreview.Parse(logger, source)
 }
 
 func hasErrorDiagnostic(diags []diagnostics.Diagnostic) bool {

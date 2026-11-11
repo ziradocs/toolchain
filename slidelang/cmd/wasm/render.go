@@ -11,6 +11,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/slidelang/v2/internal/docpreview"
 	"go.ziradocs.com/slidelang/v2/internal/generator"
 )
 
@@ -129,7 +130,11 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 		Watermark:    watermarkConfig, // watermark: front matter (issue #179)
 		EmbedAssets:  true,
 	}
-	html := renderer.GenerateDocumentHTML(astNode, opts, renderer.NewDefaultRenderContext())
+	// Same rules as doclang build (docpreview.HTML): code is literal, so a
+	// {{variable}} inside a code block or a code span stays as written, and
+	// typed headings are lowered first. This used to pass
+	// NewDefaultRenderContext(), and the playground substituted them.
+	html := docpreview.HTML(astNode, opts)
 
 	return mustJSON(renderOutput{HTML: html, Diagnostics: parseDiags, Valid: true})
 }
