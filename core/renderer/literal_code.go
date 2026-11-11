@@ -361,23 +361,46 @@ func mergeRanges(ranges [][2]int) [][2]int {
 // final del texto. El HTML de la prosa no pinta la cerca como bloque; que sea
 // literal lo decide la sintaxis de la fuente, como en el AST.
 func fenceLines(lines []string) []bool {
+	return fenceLinesOf(lines, false)
+}
+
+// fenceLinesOf es fenceLines; con tildes reconoce además las cercas de tildes
+// de CommonMark (tres o más "~", con cualquier info string; cierra una línea
+// de solo tildes, al menos tantas como la apertura). Las usa
+// renderProseWithLists para no partir un párrafo dentro de una cerca; el
+// código literal sigue siendo solo el de backticks.
+func fenceLinesOf(lines []string, tildes bool) []bool {
 	marks := make([]bool, len(lines))
 	open := 0
+	fence := "`"
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if open > 0 {
 			marks[i] = true
-			if len(trimmed) >= open && strings.Trim(trimmed, "`") == "" {
+			if len(trimmed) >= open && strings.Trim(trimmed, fence) == "" {
 				open = 0
 			}
 			continue
 		}
 		if n := proseFenceOpen(trimmed); n > 0 {
 			marks[i] = true
-			open = n
+			open, fence = n, "`"
+		} else if n := tildeFenceOpen(trimmed); tildes && n > 0 {
+			marks[i] = true
+			open, fence = n, "~"
 		}
 	}
 	return marks
+}
+
+// tildeFenceOpen devuelve cuántas tildes abren una cerca en la línea
+// recortada trimmed, o 0 si no abre una (ver fenceLinesOf).
+func tildeFenceOpen(trimmed string) int {
+	n := len(trimmed) - len(strings.TrimLeft(trimmed, "~"))
+	if n < 3 {
+		return 0
+	}
+	return n
 }
 
 // proseFenceOpen devuelve cuántos backticks abren una cerca en la línea

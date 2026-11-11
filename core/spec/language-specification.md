@@ -176,6 +176,21 @@ item keeps, in `content`, the indentation it has beyond the first line of the
 body, so the nesting survives in the AST; prose lines are trimmed as before.
 Core HTML renders those lists nested, outside any `<p>`.
 
+In the prose of a `:::` block (its `content`, or the prose between its
+`elements`), a blank line between two lines of text separates paragraphs, as
+in Markdown. Core HTML writes each paragraph in its own `<p>` when there is
+more than one; a body with a single paragraph keeps its prose without `<p>`, as
+before, and a list between two lines of text does not by itself make them two
+paragraphs. A blank line inside a code fence (three or more backticks or
+tildes, which a strict block without `typed` keeps as prose) does not separate
+paragraphs: the fence stays whole in one paragraph. DOCX writes them as separate paragraphs. With
+`InlineHTMLOptions.BlockProse`, which DocLang uses, the `contentHTML` of the
+block and of each text element between its `elements` is that same core HTML:
+numbered and nested lists, and the paragraphs. Off, the default and what
+SlideLang uses, those `contentHTML` fields are the one-paragraph inline
+Markdown that the SlideLang slide template draws: a numbered list stays as
+lines joined with `<br>`, a nested list is flat and paragraphs are joined.
+
 `CODE typescript renewals.ts` records `renewals.ts` as the block's filename
 (`CodeElement.filename`, schema 2.19.0, inferred capability
 `code-filename-v1`); a flex fence takes it after the language or as

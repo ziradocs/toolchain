@@ -36,6 +36,23 @@ type InlineHTMLOptions struct {
 	// campos llevan el Markdown inline de una línea, como un encabezado `##`:
 	// es lo que pinta slidelang en el encabezado de un slide.
 	PlainBlockTitles bool
+	// BlockProse arma la prosa de un ":::bloque" como la dibuja
+	// RenderElementToHTML: el contentHTML de un SpecialBlockElement y el de
+	// cada TextElement suelto entre sus Elements salen de
+	// renderProseWithLists, con las listas numeradas y anidadas y un <p> por
+	// párrafo cuando hay más de uno. Es lo que pinta doclang (HTML y PDF), que
+	// la activa para que get_ast describa ese HTML. Sin la opción esos campos
+	// pasan por ProcessInlineMarkdownSecure, como el contenido de un callout
+	// en la plantilla de slidelang ({{.Content | markdown}}): una lista
+	// numerada queda en líneas con <br>, una anidada sale plana y dos
+	// párrafos salen juntos.
+	BlockProse bool
+}
+
+// SetBlockProse fija BlockProse. Mismo motivo que SetPlainBlockTitles: un CLI
+// que compila contra un core publicado sin el campo lo pide por interfaz.
+func (o *InlineHTMLOptions) SetBlockProse(on bool) {
+	o.BlockProse = on
 }
 
 // SetPlainBlockTitles fija PlainBlockTitles. Existe para que un CLI que
@@ -60,6 +77,35 @@ func PopulateInlineHTMLWithOptions(doc *ast.AST, variables map[string]interface{
 	}
 	for i := range doc.ContentBlocks {
 		populateContentBlockHTML(&doc.ContentBlocks[i], variables, blockLine)
+		if opts.BlockProse {
+			populateBlockProseHTML(doc.ContentBlocks[i].Elements, variables, false)
+		}
+	}
+}
+
+// populateBlockProseHTML reescribe, sobre lo que ya pobló populateElementHTML,
+// el contentHTML de la prosa de cada ":::bloque" (InlineHTMLOptions.BlockProse)
+// con el mismo HTML que renderSpecialBlockElement: Content con
+// renderLiteralProse y, entre sus Elements, cada TextElement que no es HTML
+// crudo también (el renderer lo envuelve después con wrapTextHTML, como a un
+// párrafo suelto, y su contentHTML no lleva ese <p>, igual que el de un
+// TextElement de la sección). inBlock dice si elements son los Elements de un
+// bloque; los de una columna de grid se dibujan como los de una sección.
+func populateBlockProseHTML(elements []ast.Element, variables map[string]interface{}, inBlock bool) {
+	for _, element := range elements {
+		switch elem := element.(type) {
+		case *ast.SpecialBlockElement:
+			elem.ContentHTML = renderLiteralProse(elem.Content, variables, false)
+			populateBlockProseHTML(elem.Elements, variables, true)
+		case *ast.TextElement:
+			if inBlock && !elem.IsRawHTML {
+				elem.ContentHTML = renderLiteralProse(elem.Content, variables, false)
+			}
+		case *ast.GridElement:
+			for i := range elem.Columns {
+				populateBlockProseHTML(elem.Columns[i].Elements, variables, false)
+			}
+		}
 	}
 }
 
