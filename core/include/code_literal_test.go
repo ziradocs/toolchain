@@ -5,6 +5,8 @@ package include
 
 import (
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -490,69 +492,153 @@ func TestOpenInclude_DepthLimit(t *testing.T) {
 }
 
 // Un archivo incluido es un contenedor: la cerca, el code-group o el bloque $$
-// que deja abierto cierra donde termina él, con una línea de cierre cuyo
-// origen es la directiva. Antes la cerca de open.md se tragaba la apertura de
-// la cerca del raíz, el @include del raíz (que quedó sin expandir por estar en
-// código en su archivo) caía fuera de código en el resultado y el build lo
-// dibujaba como "<!-- Unsupported element type: *ast.DirectiveNode -->".
+// que deja abierto cierra donde termina él, con las líneas de cierre que pide
+// lo que está abierto, cuyo origen es la directiva. Antes la cerca de open.md
+// se tragaba la apertura de la cerca del raíz, el @include del raíz (que quedó
+// sin expandir por estar en código en su archivo) caía fuera de código en el
+// resultado y el build lo dibujaba como
+// "<!-- Unsupported element type: *ast.DirectiveNode -->".
 func TestExpand_OpenBlockClosesAtTheEndOfItsFile(t *testing.T) {
 	root := "# A\n\n@include open.md\n\n```\n@include after.md\n```\n\nFin.\n"
-	for _, open := range []string{
+	for _, c := range []struct {
+		open    string
+		closers []string
+		opening string
+	}{
 		// Un ```mermaid vacío no: en un documento sin frontmatter la
 		// normalización lo lee mal también sin @include ("```mermaid", "",
 		// "```", "", "```", "X", "```" deja X como prosa), así que el
 		// @include del raíz sigue cayendo fuera de código.
-		"```text\n", "```mermaid\ngraph TD\n", "```chart\n", "```math\n", "````js\n", "~~~math\n",
-		":::code-group\n", ":::code-group\n```js [a]\nx\n", "$$\n", "::: info\n```\n",
+		{"```text\n", []string{"```"}, "```text"},
+		{"```mermaid\ngraph TD\n", []string{"```"}, "```mermaid"},
+		{"```chart\n", []string{"```"}, "```chart"},
+		{"```math\n", []string{"```"}, "```math"},
+		{"````math\nx\n", []string{"````"}, "````math"},
+		{"````js\n", []string{"```"}, "````js"},
+		{"$$\nx\n", []string{"$$"}, "$$"},
+		{":::code-group\n", []string{":::"}, ":::code-group"},
+		{":::code-group\n```js [a]\nx\n", []string{"```", ":::"}, ":::code-group"},
+		// La sintaxis legada: la pestaña, el code-item y el grupo.
+		{":::code-group\n:::code-item{0}\n```\nx\n", []string{"```", ":::", ":::"}, ":::code-group"},
+		// Dentro de un bloque ::: de prosa se cierra el cuerpo literal y el
+		// bloque de prosa queda abierto.
+		{"::: info\n```\n", []string{"```"}, "```"},
+		{"::: info\n:::code-group\n```js [a]\nx\n", []string{"```", ":::"}, ":::code-group"},
+		{":::note\n:::code-group\n", []string{":::"}, ":::code-group"},
+		// Un $$ después de un párrafo es texto del párrafo; lo que queda
+		// abierto es la cerca que sigue.
+		{"texto\n$$\n````\n$$\n", []string{"```"}, "````"},
 	} {
-		files := map[string]string{"/base/open.md": open, "/base/after.md": "AFTER"}
+		files := map[string]string{"/base/open.md": c.open, "/base/after.md": "AFTER"}
 		res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
 		if err != nil {
-			t.Fatalf("%q: %v", open, err)
+			t.Fatalf("%q: %v", c.open, err)
 		}
 		if len(res.KeptInCode) != 1 || strings.Contains(res.Text, "AFTER") {
-			t.Fatalf("%q: the root's @include is code in the root and must stay: %v\n%s", open, res.KeptInCode, res.Text)
+			t.Fatalf("%q: the root's @include is code in the root and must stay: %v\n%s", c.open, res.KeptInCode, res.Text)
+		}
+		if len(res.OpenAtEnd) != 1 {
+			t.Fatalf("%q: OpenAtEnd = %+v, want one block", c.open, res.OpenAtEnd)
+		}
+		b := res.OpenAtEnd[0]
+		want := strings.Join(append([]string{"# A", "", strings.TrimSuffix(c.open, "\n"), ""}, c.closers...), "\n") + "\n\n```\n@include after.md\n```\n\nFin.\n"
+		if res.Text != want || !slices.Equal(b.Closers, c.closers) || b.Opening != c.opening || b.Path != "open.md" || b.Directive != (Origin{Line: 3}) {
+			t.Errorf("%q: got %q %+v, want %q closed with %q", c.open, res.Text, b, want, c.closers)
 		}
 		lines := strings.Split(res.Text, "\n")
 		if code := includesInCode(nil, lines); !code[res.KeptInCode[0]-1] {
-			t.Errorf("%q: the kept @include is not code in the AST of the result:\n%s", open, res.Text)
+			t.Errorf("%q: the kept @include is not code in the AST of the result:\n%s", c.open, res.Text)
 		}
 		doc, _ := parser.New(util.NewNoop()).ParseDocument(res.Text, "")
 		_ = ast.Walk(doc, func(n ast.Node) error {
 			if d, ok := n.(*ast.DirectiveNode); ok {
-				t.Errorf("%q: directive %q in the AST of the result:\n%s", open, d.Name, res.Text)
+				t.Errorf("%q: directive %q in the AST of the result:\n%s", c.open, d.Name, res.Text)
 			}
 			if p, ok := n.(*ast.TextElement); ok && strings.Contains(p.Content, "@include") {
-				t.Errorf("%q: the kept @include is prose in the AST of the result:\n%s", open, res.Text)
+				t.Errorf("%q: the kept @include is prose in the AST of the result:\n%s", c.open, res.Text)
 			}
 			return nil
 		})
-		checkSourceMap(t, open, root, files, res.Text, res.Sources)
+		checkExpansion(t, c.open, root, files, res)
 	}
+}
 
-	files := map[string]string{"/base/open.md": "```text\n", "/base/after.md": "AFTER"}
+// El cambio de comportamiento: un archivo incluido ya no puede abrir un bloque
+// para que lo cierre el documento que lo incluye. header.md abre una cerca js
+// y el raíz la cerraba; ahora la cerca cierra al final de header.md, la línea
+// de código del raíz queda como prosa y la ``` del raíz abre otra cerca. Queda
+// en OpenAtEnd, para que doclang lo avise en la línea del @include.
+func TestExpand_ParentNoLongerClosesTheChildsBlock(t *testing.T) {
+	files := map[string]string{"/base/header.md": "---\ntitle: h\n---\n```js"}
+	root := "# A\n\n@include header.md\nconsole.log(1)\n```\n\nFin.\n"
 	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "# A\n\n```text\n\n```\n\n```\n@include after.md\n```\n\nFin.\n"; res.Text != want {
+	if want := "# A\n\n```js\n```\nconsole.log(1)\n```\n\nFin.\n"; res.Text != want {
 		t.Errorf("got %q, want %q", res.Text, want)
 	}
-	if o := res.Sources.Lines[4]; o != (Origin{Line: 3}) {
-		t.Errorf("the closing line's origin is %v, want the @include line of the root", o)
+	want := []OpenBlock{{Line: 4, Closers: []string{"```"}, Directive: Origin{Line: 3}, Path: "header.md",
+		Opener: Origin{File: "/base/header.md", Line: 4}, Opening: "```js", OpenerLine: 3}}
+	if !reflect.DeepEqual(res.OpenAtEnd, want) {
+		t.Errorf("OpenAtEnd = %+v, want %+v", res.OpenAtEnd, want)
+	}
+	diags := res.OpenAtEndDiagnostics()
+	if len(diags) != 1 || diags[0].Position.Line != 4 || !diags[0].IsWarning() ||
+		!strings.Contains(diags[0].Message, "header.md leaves \"```js\" open (line 4 of header.md)") {
+		t.Errorf("diagnostics = %+v", diags)
+	}
+	if mapped := res.Sources.MapDiagnostics(diags, ""); mapped[0].File != "" || mapped[0].Position.Line != 3 {
+		t.Errorf("the warning maps to %s:%d, want the @include line (3) of the document", mapped[0].File, mapped[0].Position.Line)
+	}
+	if res, _ := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{}); res.OpenAtEnd != nil {
+		t.Error("without KeepIncludesInCode nothing is closed")
+	}
+}
+
+// Un bloque que ningún cierre cierra queda como estaba, en OpenAtEnd sin
+// líneas de cierre (Line 0), y el aviso va en la línea que lo abre. El caso:
+// una cerca con un :::code-item legado adentro, que la normalización de flex
+// reescribe, así que ni ``` ni ningún cierre de code-group devuelve a prosa
+// la línea que sigue.
+func TestExpand_UnclosableBlockIsReported(t *testing.T) {
+	files := map[string]string{"/base/open.md": "```js\n:::code-group\n:::code-item{0}"}
+	root := "# A\n\n@include open.md\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := Expand(root, "/base", memFS(files))
+	if res.Text != plain {
+		t.Errorf("an unclosable block must not add lines: got %q, want %q", res.Text, plain)
+	}
+	if len(res.OpenAtEnd) != 1 || res.OpenAtEnd[0].Line != 0 || len(res.OpenAtEnd[0].Closers) != 0 || res.OpenAtEnd[0].OpenerLine != 3 {
+		t.Fatalf("OpenAtEnd = %+v, want the block at line 3, not closed", res.OpenAtEnd)
+	}
+	d := res.OpenAtEndDiagnostics()
+	if len(d) != 1 || d[0].Position.Line != 3 || !strings.Contains(d[0].Message, "could not be closed") {
+		t.Errorf("diagnostics = %+v", d)
+	}
+	if mapped := res.Sources.MapDiagnostics(d, "/base"); mapped[0].File != "open.md" || mapped[0].Position.Line != 1 {
+		t.Errorf("the warning maps to %s:%d, want open.md:1", mapped[0].File, mapped[0].Position.Line)
 	}
 }
 
 // Lo que no se cierra: un bloque ::: de prosa (su contenido no es código, así
 // que no cambia qué @include es código), un archivo que cierra todo lo que
-// abre, una cerca dentro de una cita (no es un bloque de código en el AST) y
-// un CODE strict (termina por sangría). Ninguno agrega líneas. Sin
-// KeepIncludesInCode (slidelang) tampoco se cierra nada.
+// abre, una cerca dentro de una cita (no es un bloque de código en el AST), un
+// CODE strict (termina por sangría), una cerca ~~~math sin cierre (el parser
+// flex no tiene cercas de código con ~~~, y una ~~~math sin cierre es texto:
+// no se traga nada) y un $$ que sigue a un párrafo (es texto del párrafo).
+// Ninguno agrega líneas. Sin KeepIncludesInCode (slidelang) tampoco se cierra
+// nada.
 func TestExpand_ClosedOrProseBlocksAreNotClosed(t *testing.T) {
 	for _, c := range []struct{ root, open string }{
 		{"# A\n\n@include open.md\nfin\n", "::: info\ntexto\n"},
 		{"# A\n\n@include open.md\nfin\n", "```\nx\n```\n"},
 		{"# A\n\n@include open.md\nfin\n", "> ```\n> x\n"},
+		{"# A\n\n@include open.md\n\n```\nx\n```\n", "~~~math\nx\n"},
+		{"# A\n\n@include open.md\n\nfin\n", "texto\n$$\nx\n"},
 		{"---\nmode: strict\n---\n\nSECTION \"A\"\n@include open.md\n  TEXT\n    fin\n", "  CODE js\n    x\n"},
 	} {
 		files := map[string]string{"/base/open.md": c.open}

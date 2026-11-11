@@ -82,7 +82,7 @@ func FuzzKeepIncludesInCode(f *testing.F) {
 			t.Fatalf("KeptInCode=%v disagrees with the text:\n%s", res.KeptInCode, res.Text)
 		}
 		// Cada línea es la que su origen dice (el contrato de SourceMap).
-		checkSourceMap(t, "keep", src, files, res.Text, res.Sources)
+		checkExpansion(t, "keep", src, files, res)
 
 		off, err := ExpandWithOptions(src, "/base", read, ExpandOptions{})
 		text, origins, err2 := ExpandWithOrigins(src, "/base", read)

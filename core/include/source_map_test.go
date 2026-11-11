@@ -6,7 +6,6 @@ package include
 import (
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -209,6 +208,28 @@ func TestExpandWithSourceMap_FrontMatterOnlyInclude(t *testing.T) {
 // exp.Text, exp.Sources).
 func checkSourceMap(t *testing.T, name, root string, files map[string]string, text string, sm SourceMap) {
 	t.Helper()
+	checkSourceMapWith(t, name, root, files, text, sm, nil)
+}
+
+// checkExpansion es checkSourceMap para el resultado de ExpandWithOptions:
+// además, las líneas de cierre de cada bloque de OpenAtEnd, y solo esas,
+// pueden no estar en su origen, que tiene que ser la línea del @include de
+// ese bloque.
+func checkExpansion(t *testing.T, name, root string, files map[string]string, res Expansion) {
+	t.Helper()
+	closers := map[int]Origin{}
+	for _, b := range res.OpenAtEnd {
+		for k := range b.Closers {
+			closers[b.Line+k] = b.Directive
+		}
+	}
+	checkSourceMapWith(t, name, root, files, res.Text, res.Sources, closers)
+}
+
+// checkSourceMapWith es checkSourceMap con closers: la línea n (1-based) de
+// text es un cierre agregado y su origen tiene que ser closers[n].
+func checkSourceMapWith(t *testing.T, name, root string, files map[string]string, text string, sm SourceMap, closers map[int]Origin) {
+	t.Helper()
 	lines := strings.Split(text, "\n")
 	if len(lines) != len(sm.Lines) {
 		t.Fatalf("%s: %d lines, %d origins", name, len(lines), len(sm.Lines))
@@ -218,6 +239,12 @@ func checkSourceMap(t *testing.T, name, root string, files map[string]string, te
 	}
 	for i, l := range lines {
 		o := sm.Lines[i]
+		if want, ok := closers[i+1]; ok {
+			if o != want {
+				t.Errorf("%s: closing line %d %q -> %v, want the @include line %v", name, i+1, l, o, want)
+			}
+			continue
+		}
 		src, ok := root, true
 		if o.File != "" {
 			src, ok = files[o.File]
@@ -232,25 +259,14 @@ func checkSourceMap(t *testing.T, name, root string, files map[string]string, te
 			continue
 		}
 		if got := sl[o.Line-1]; got != l {
-			// La línea vacía de un include de solo frontmatter y el cierre de
-			// lo que un archivo incluido deja abierto son de la directiva.
-			if _, isInclude := parseIncludeLine(got); isInclude && (l == "" || isCloserLine(l)) {
+			// La línea vacía de un include de solo frontmatter es de la
+			// directiva.
+			if _, isInclude := parseIncludeLine(got); isInclude && l == "" {
 				continue
 			}
 			t.Errorf("%s: line %d %q -> %v, which is %q", name, i+1, l, o, got)
 		}
 	}
-}
-
-// isCloserLine dice si l es una de las líneas con las que ExpandWithOptions
-// cierra lo que un archivo incluido deja abierto (closerCandidates).
-func isCloserLine(l string) bool {
-	for _, closers := range closerCandidates {
-		if slices.Contains(closers, l) {
-			return true
-		}
-	}
-	return false
 }
 
 // sourceMapCorpus son raíces y archivos para checkSourceMap: frontmatter en
@@ -318,7 +334,7 @@ func TestExpandWithOptions_SourcesMatchEveryLine(t *testing.T) {
 			if len(res.Sources.Lines) == 0 {
 				t.Fatalf("%s: Sources is empty", label)
 			}
-			checkSourceMap(t, label, root, files, res.Text, res.Sources)
+			checkExpansion(t, label, root, files, res)
 			if !reflect.DeepEqual(res.Origins, res.Sources.Files()) {
 				t.Errorf("%s: Origins %v is not Sources.Files() %v", label, res.Origins, res.Sources.Files())
 			}
