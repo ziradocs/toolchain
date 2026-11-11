@@ -322,7 +322,7 @@ func TestDedupeIncludedMisalignedReturnsMapped(t *testing.T) {
 // se saltan.
 func coreClosesOpenBlocks() bool {
 	_, ok := any(include.Expansion{}).(interface {
-		OpenAtEndDiagnostics() []diagnostics.Diagnostic
+		OpenAtEndDiagnostics(string) []diagnostics.Diagnostic
 	})
 	return ok
 }
@@ -350,7 +350,7 @@ func TestPrepare_OpenBlockInIncludedFileWarns(t *testing.T) {
 		t.Fatalf("INCLUDE002 = %+v, want one", found)
 	}
 	d := found[0]
-	if d.File != "" || d.Position.Line != 8 || !d.IsWarning() || !strings.Contains(d.Message, "partes/p.doclang leaves \"```js\" open (line 1 of partes/p.doclang)") {
+	if d.File != "" || d.Position.Line != 8 || !d.IsWarning() || !strings.Contains(d.Message, "partes/p.doclang leaves \"```js\" open (partes/p.doclang:1)") {
 		t.Errorf("INCLUDE002 at %q:%d (%v): %s", d.File, d.Position.Line, d.Severity, d.Message)
 	}
 

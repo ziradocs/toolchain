@@ -29,14 +29,14 @@ const OpenIncludeRuleID = "INCLUDE002"
 // incluido dejó abierto (include.Expansion.OpenAtEnd), en líneas del contenido
 // expandido. Se pide por interfaz para compilar contra un core publicado que
 // todavía no lo tiene; ese core tampoco cierra nada.
-func openIncludeDiagnostics(expansion include.Expansion) []diagnostics.Diagnostic {
+func openIncludeDiagnostics(expansion include.Expansion, docDir string) []diagnostics.Diagnostic {
 	open, ok := any(expansion).(interface {
-		OpenAtEndDiagnostics() []diagnostics.Diagnostic
+		OpenAtEndDiagnostics(string) []diagnostics.Diagnostic
 	})
 	if !ok {
 		return nil
 	}
-	diags := open.OpenAtEndDiagnostics()
+	diags := open.OpenAtEndDiagnostics(docDir)
 	for i := range diags {
 		diags[i] = diags[i].WithRuleID(OpenIncludeRuleID)
 	}

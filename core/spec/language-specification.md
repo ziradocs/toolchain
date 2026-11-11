@@ -626,39 +626,47 @@ with `SECTION`). What a sibling file or the including document opens or closes
 does not change a file's decisions.
 
 With the option, an included file is also a container: a block whose body is
-read literally (a code, diagram, chart or map fence; a math fence,
-```` ```math ```` or ```` ````math ````; a `$$` block; a
-`:::code-group`, with its open tab and its legacy `:::code-item` blocks) that the
-file opens and does not close ends where the file ends, as an unclosed fence
-ends with its container block in CommonMark (§4.5). The expansion adds the
-closing lines that what is open needs (```` ``` ```` for a code, diagram, chart
-or map fence; the math fence's own opening sequence; `$$`; ```` ``` ```` for an
-open tab, `:::` for each open `:::code-item` and `:::` for the group, in that
-order). Their origin is the `@include` line. **This is a behavior change: the
-including document no longer closes a block that an included file opens.** A
-file that opens a fence for the lines after its `@include` to fill and close
-now gets that fence closed at its own end, and those lines are read on their
-own; `doclang build` warns with `INCLUDE002` on the `@include` line, naming the
-file and the line that opens the block. Flex has no `~~~` code fences, and an
-unclosed `~~~math` fence is read as text, so it takes in nothing and is not
-closed; a `$$` line right after a paragraph line is text of that paragraph.
+read literally (a code, diagram, chart or map fence; a native `@startuml`
+PlantUML block; a `$$` block; a `:::code-group`, with its open tab and its
+legacy `:::code-item` blocks) that the file opens and does not close ends where
+the file ends, as an unclosed fence ends with its container block in CommonMark
+(§4.5). The expansion adds the closing lines that what is open needs
+(```` ``` ```` for a code, diagram, chart or map fence; `@enduml`; `$$`;
+```` ``` ```` for an open tab, `:::` for each open `:::code-item` and `:::` for
+the group, in that order). Their origin is the `@include` line. **This is a
+behavior change: the including document no longer closes a block that an
+included file opens.** A file that opens a fence for the lines after its
+`@include` to fill and close now gets that fence closed at its own end, and
+those lines are read on their own; `doclang build` warns with `INCLUDE002` on
+the `@include` line, naming the file and the line that opens the block. A math
+fence is never left open: the parser reads it as math only when a closing
+fence follows, so an unclosed ```` ```math ```` or ```` ````math ```` is a code
+fence (closed by an exact ```` ``` ````) and an unclosed `~~~math` is text,
+which takes in nothing. Flex has no `~~~` code fences. A `$$` line right after
+a paragraph line is text of that paragraph.
 
-What a file leaves open is read on that file alone, with the parser's opening
-and closing rules for these blocks, and checked with the parser in the
-expanded text: with a prose line after the file and another after its closing
-lines, the first has to fall inside the open body and the second in prose.
-What surrounds the file can read its opening line differently: a file right
-after a paragraph line of the including document, with no blank line between,
-is read after that line, since the paragraph takes in a `$$` first line; and
-if the first prose line falls in prose, the file leaves nothing open there and
-gets no closing lines. Where the rules alone cannot tell (a `<<...>>` tag, an indented
-fence, a `$$` after a paragraph line), or the closing lines do not close it,
-the file alone is parsed to find what is open. A block that no closing line
-closes stays as it was, and `INCLUDE002` says so on its opening line. A `:::` prose block (a callout, a
-column) left open is not closed: its content is prose and does not change
-what is code. A file whose `@include` line is inside a diagram, chart, map or
-math body of the including document (the line is expanded there and the file
-becomes part of that body) is not closed either; one inside a `:::` prose
+What a file leaves open is read on that file alone, without the parser, with
+the parser's opening and closing rules for these blocks. When those rules
+find something open, the parser checks it in the expanded text, once for all
+files: a prose line after the file has to fall inside the body that the file's
+opening line opens, and a prose line after the closing lines has to fall in
+prose. If the first does not, the file leaves nothing open there (what
+surrounds it reads it differently) and gets no closing lines; if the second
+does not, the closing lines are looked for with the parser on the file alone.
+A file right after a paragraph line of the including document, with no blank
+line between, is read after that line, since the paragraph takes in a `$$`
+first line. Where the rules cannot tell (a `<<...>>` tag, an indented fence, a
+`$$` after a paragraph line, a math fence inside a `:::` block, where the
+parser does not look for its closing fence), the file alone is parsed: once
+without closing lines to find which body takes in a line after the file and
+which line opens it, and once with them. When the rules find nothing open,
+nothing is checked: if the parser would read something open there, the file
+behaves as without the option. A block that no closing line closes stays as it
+was, and `INCLUDE002` says so on its opening line. A `:::` prose block (a
+callout, a column) left open is not closed: its content is prose and does not
+change what is code. A file whose `@include` line is inside a diagram, chart,
+map or math body of the including document (the line is expanded there and the
+file becomes part of that body) is not closed either; one inside a `:::` prose
 block is closed, as content of that block. In strict nothing is closed: a
 strict `CODE` body ends by indentation. Flex normalization runs on the whole
 expanded text, so where it reads a construct differently in context, the
@@ -668,10 +676,11 @@ no frontmatter misreads the next fence even with no `@include`).
 `@include` lines in the root's frontmatter are expanded first, and the dialect
 comes from the expanded frontmatter. There is one parse per distinct file
 with `@include` lines; one of the expanded text when some file was closed,
-plus one per round that corrects a file whose closing lines change what
-follows (at most eight; closing lines still unchecked then are removed and
-the block is reported as not closed); and one or two of a file alone only when
-the rules cannot tell what it leaves open. The lines kept that way are reported to the caller, and
+plus one per round that corrects closing lines that change what follows (every
+copy of the same file is corrected in the same round; at most eight rounds,
+and closing lines still unchecked then are removed and the block is reported
+as not closed); and two of a file alone only when the rules cannot tell what
+it leaves open. The lines kept that way are reported to the caller, and
 a kept line's path is never opened. This "code" is not the same as the literal-code option's: a fence
 written inside a quote is code for `LiteralCode`, but the AST has no code block
 there, and an `@include` line between two `> ```` lines ends the quote and is

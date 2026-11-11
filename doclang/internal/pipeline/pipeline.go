@@ -197,7 +197,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 		return nil, err
 	}
 	parseDiags = append(parseDiags, keptIncludeDiagnostics(strings.Split(contentStr, "\n"), expansion.KeptInCode)...)
-	parseDiags = append(parseDiags, openIncludeDiagnostics(expansion)...)
+	parseDiags = append(parseDiags, openIncludeDiagnostics(expansion, opts.DocDir)...)
 	// Los avisos del parser que son de una regla del linter (LINK001 de una
 	// imagen de bloque) van con los del linter: política, reporte y log de
 	// LINT. Ver SplitParserFindings.
