@@ -28,6 +28,12 @@ func (r *TablesRule) Apply(content string) (string, error) {
 	modified := false
 
 	startLine := r.documentAnalyzer.SkipFrontmatter(lines)
+	// Qué líneas están dentro de un bloque especial, de una vez: preguntarlo
+	// línea por línea (isInSpecialBlock) recorría el documento desde el
+	// principio en cada una, y la regla era cuadrática en el largo del
+	// documento (30 000 líneas, 6 s solo en esto). Las líneas no cambian
+	// durante el recorrido: al reemplazar una tabla se sale del ciclo.
+	special := specialBlockLines(lines)
 
 	// Buscar patrones de listas que sugieren tablas
 	for i := startLine; i < len(lines); i++ {
@@ -43,10 +49,10 @@ func (r *TablesRule) Apply(content string) (string, error) {
 		}
 
 		// Saltar bloques especiales (mermaid, chart, map)
-		if r.isInSpecialBlock(lines, i) {
+		if special[i] {
 			continue
 		} // Buscar listas estructuradas que sugieren tablas
-		if r.looksLikeTableData(lines, i) {
+		if r.looksLikeTableRows(lines, i) {
 			tableData, consumed := r.extractTableData(lines, i)
 			if len(tableData) >= 3 { // Al menos 3 filas para justificar una tabla
 				markdownTable := r.convertToMarkdownTable(tableData)
@@ -148,13 +154,50 @@ func isContainerFence(line string) bool {
 	return strings.HasPrefix(line, ":::")
 }
 
+// specialBlockLines dice, para cada línea de lines, lo mismo que
+// isInSpecialBlock(lines, i), en una sola pasada: el estado de la cerca
+// antes de cada línea y, para las etiquetas <<...>>, la última línea "---" o
+// <<...>> anterior y si hubo una línea vacía desde ella.
+func specialBlockLines(lines []string) []bool {
+	out := make([]bool, len(lines))
+	inFence := false
+	tag, blank := false, false // la última marca es una etiqueta; hubo una línea vacía después
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		// Lo de antes de la línea i: la cerca abierta o, si no, la etiqueta
+		// sin una línea vacía o "---" entre ella y la línea i inclusive.
+		out[i] = inFence || (tag && !blank && line != "" && line != "---")
+		if inFence {
+			if line == "```" {
+				inFence = false
+			}
+		} else if strings.HasPrefix(line, "```") {
+			inFence = true
+		}
+		switch {
+		case line == "---":
+			tag = false
+		case strings.HasPrefix(line, "<<") && strings.HasSuffix(line, ">>"):
+			tag, blank = true, false
+		case line == "":
+			blank = true
+		}
+	}
+	return out
+}
+
 // looksLikeTableData verifica si una serie de líneas parece datos de tabla
 func (r *TablesRule) looksLikeTableData(lines []string, startIndex int) bool {
 	// Verificar que no estamos dentro de un bloque especial
 	if r.isInSpecialBlock(lines, startIndex) {
 		return false
 	}
+	return r.looksLikeTableRows(lines, startIndex)
+}
 
+// looksLikeTableRows es looksLikeTableData para una línea que ya se sabe que
+// no está dentro de un bloque especial.
+func (r *TablesRule) looksLikeTableRows(lines []string, startIndex int) bool {
 	// Verificar si ya es una tabla Markdown bien formada
 	currentLine := strings.TrimSpace(lines[startIndex])
 	if strings.HasPrefix(currentLine, "|") && strings.HasSuffix(currentLine, "|") {
