@@ -6,6 +6,7 @@ package enhancement
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestTablesRule_Apply_DoesNotRewriteJSONInsideCodeFence cubre issue #204:
@@ -152,5 +153,47 @@ func TestTablesRule_Apply_ContainerFenceClosingIsNotARow(t *testing.T) {
 				t.Errorf("Apply() convirtió el ::: en una fila de la tabla:\n%s", got)
 			}
 		})
+	}
+}
+
+// specialBlockLines da, en una pasada, lo mismo que isInSpecialBlock línea por
+// línea (que era cuadrático): cercas, cierres que no son ``` exacto,
+// etiquetas <<...>>, líneas vacías y separadores "---", al azar.
+func TestSpecialBlockLinesMatchesIsInSpecialBlock(t *testing.T) {
+	r := NewTablesRule()
+	tokens := []string{"```", "```json", "````", "  ```", "texto", "", "---", "<<chart>>", "<<end>>", "a | b", "x: 1", "<<map", ":::"}
+	seed := uint32(1)
+	next := func() int {
+		seed = seed*1664525 + 1013904223
+		return int(seed >> 8)
+	}
+	for n := 0; n < 2000; n++ {
+		lines := make([]string, next()%30)
+		for i := range lines {
+			lines[i] = tokens[next()%len(tokens)]
+		}
+		got := specialBlockLines(lines)
+		for i := range lines {
+			if want := r.isInSpecialBlock(lines, i); got[i] != want {
+				t.Fatalf("line %d of %q: specialBlockLines %v, isInSpecialBlock %v", i, lines, got[i], want)
+			}
+		}
+	}
+}
+
+// La regla es lineal: 40 000 líneas sin frontmatter, con cercas y prosa, se
+// normalizan en un tiempo del orden de un parse. Antes cada línea recorría el
+// documento desde el principio.
+func TestTablesRuleIsLinear(t *testing.T) {
+	var b strings.Builder
+	for b.Len() < 40000*12 {
+		b.WriteString("Un párrafo.\n\n```js\nx\n```\n\n")
+	}
+	start := time.Now()
+	if _, err := NewTablesRule().Apply(b.String()); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("TablesRule.Apply took %v on %d bytes", d, b.Len())
 	}
 }
