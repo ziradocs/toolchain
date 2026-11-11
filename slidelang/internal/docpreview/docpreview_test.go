@@ -161,3 +161,50 @@ func TestHTMLRendersTypedHeadings(t *testing.T) {
 		t.Errorf("missing the typed heading:\n%s", html[strings.Index(html, "<body"):])
 	}
 }
+
+// Parse corre después de xref las mismas validaciones que
+// transform.RunBuiltins en doclang build. Desde la fuente no sale un AST que
+// pase el parser y falle aquí, así que la prueba las fuerza sobre el AST: dos
+// nodos con el mismo nodeId, y un título de imagen (image-title-v1) que el
+// contrato declarado del documento no incluye.
+func TestValidateLikeBuiltins(t *testing.T) {
+	doc, diags, err := Parse(util.NewNoop(), "---\ntitle: V\nmode: flex\n---\n\n# A\n\nUno.\n\nDos.\n")
+	if err != nil || hasError(diags) {
+		t.Fatalf("parse: %v %v", err, diags)
+	}
+	var texts []*ast.TextElement
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if te, ok := n.(*ast.TextElement); ok {
+			texts = append(texts, te)
+		}
+		return nil
+	})
+	if len(texts) < 2 {
+		t.Fatalf("want two paragraphs, got %d", len(texts))
+	}
+	texts[0].NodeID, texts[1].NodeID = "p-1", "p-1"
+	if err := validateLikeBuiltins(doc); err == nil || !strings.Contains(err.Error(), `duplicate nodeId "p-1"`) {
+		t.Errorf("duplicate nodeId: error = %v", err)
+	}
+
+	doc, diags, err = Parse(util.NewNoop(), "---\ntitle: V\nmode: flex\nast_capabilities: [list-start-v1]\n---\n\n# A\n\n3. uno\n4. dos\n\n![Logo](logo.png)\n")
+	if err != nil || hasError(diags) {
+		t.Fatalf("parse: %v %v", err, diags)
+	}
+	if !ast.DeclaresExtendedContract(doc) {
+		t.Fatal("the document does not declare the extended contract")
+	}
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if img, ok := n.(*ast.ImageElement); ok {
+			img.Title = "Título"
+		}
+		return nil
+	})
+	want := ast.ValidateTableContract(doc)
+	if want == nil {
+		t.Fatal("ValidateTableContract accepted the mutated AST")
+	}
+	if err := validateLikeBuiltins(doc); err == nil || err.Error() != want.Error() {
+		t.Errorf("table contract: error = %v, want %v", err, want)
+	}
+}

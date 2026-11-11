@@ -13,6 +13,7 @@
 package docpreview
 
 import (
+	"errors"
 	"fmt"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -25,14 +26,14 @@ import (
 
 // Parse lee source como doclang: un guard de tamaño, ParseDocument (que elige
 // el dialecto por el `mode:` del frontmatter, strict o flex) y, si no hubo
-// errores, el transform de xref (numeración de figuras y tablas, \ref). Con
-// errores de parseo devuelve el AST y los diagnósticos sin transformar, como
-// el MCP de doclang.
+// errores, el transform de xref (numeración de figuras y tablas, \ref) con las
+// validaciones que doclang build corre después de él. Con errores de parseo
+// devuelve el AST y los diagnósticos sin transformar, como el MCP de doclang.
 //
-// Si el transform falla, doclang build no genera nada; aquí se devuelve el
-// error junto con un AST que se puede dibujar, para que la vista previa no
-// quede en blanco mientras se escribe un \ref a un label que todavía no
-// existe. Con un \ref sin resolver es el documento numerado, con
+// Si el transform o esas validaciones fallan, doclang build no genera nada;
+// aquí se devuelve el error junto con un AST que se puede dibujar, para que la
+// vista previa no quede en blanco mientras se escribe un \ref a un label que
+// todavía no existe. Con un \ref sin resolver es el documento numerado, con
 // los \ref que sí resuelven y los demás como texto (ResolveRefs recorre todo
 // el documento antes de fallar). Con un label duplicado, AssignNumbers corta a
 // la mitad y deja numerado solo lo de antes, así que se vuelve a leer la
@@ -53,16 +54,13 @@ func Parse(log util.Logger, source string) (*ast.AST, []diagnostics.Diagnostic, 
 	// de error, para saber cuál falló. Se corren aquí y no por
 	// transform.RunBuiltins como el MCP de doclang porque core/transform no
 	// compila con GOOS=js (process_unix.go usa SysProcAttr.Setpgid, que js no
-	// tiene). RunBuiltins, después de cada built-in, revisa que no haya
+	// tiene). Después de cada built-in, RunBuiltins revisa que no haya
 	// borrado marcas de versión del AST (tipos de sublista, inicio de lista,
 	// math-source, encabezados tipados), corre ast.ValidateNodeIDs y, si el
 	// documento declara el contrato extendido (ast.DeclaresExtendedContract),
-	// ast.ValidateTableContract. Aquí no se corre nada de eso: xref solo
-	// reescribe texto y asigna Number, así que no borra marcas ni cambia IDs,
-	// y el parser ya corrió ValidateNodeIDs y, si el documento usa
-	// extensiones, ValidateTableContract. Queda una diferencia: un documento
-	// que declara el contrato extendido sin usar ninguna extensión no pasa
-	// aquí por ValidateTableContract, y en doclang build sí.
+	// ast.ValidateTableContract. Las dos validaciones se corren igual, en
+	// validateLikeBuiltins. La revisión de marcas no: xref solo reescribe
+	// texto y asigna Number, así que no puede borrarlas.
 	table, err := xref.AssignNumbers(doc)
 	if err != nil {
 		clean, _ := parser.New(log).ParseDocument(source, "")
@@ -71,7 +69,20 @@ func Parse(log util.Logger, source string) (*ast.AST, []diagnostics.Diagnostic, 
 	if err := xref.ResolveRefs(doc, table); err != nil {
 		return doc, diags, fmt.Errorf("xref: %w", err)
 	}
-	return doc, diags, nil
+	return doc, diags, validateLikeBuiltins(doc)
+}
+
+// validateLikeBuiltins corre las validaciones que transform.RunBuiltins hace
+// después de un built-in: las identidades de nodo y, si el documento declara
+// el contrato extendido, el contrato de tablas.
+func validateLikeBuiltins(doc *ast.AST) error {
+	if issues := ast.ValidateNodeIDs(doc); len(issues) != 0 {
+		return errors.New(issues[0].String())
+	}
+	if ast.DeclaresExtendedContract(doc) {
+		return ast.ValidateTableContract(doc)
+	}
+	return nil
 }
 
 // Result es lo que la vista previa muestra de un documento: el HTML que se
@@ -87,7 +98,8 @@ type Result struct {
 // Render lee source con Parse y lo dibuja con HTML, con las opciones que
 // options arma desde el AST leído (título, tema y chrome salen del
 // frontmatter). Con errores de parseo, o si no hay AST, no hay HTML. Si Parse
-// devuelve un error con AST (el transform de xref), se dibuja igual y el error viaja junto con el HTML; Valid queda en false, como
+// devuelve un error con AST (el transform de xref o sus validaciones), se
+// dibuja igual y el error viaja junto con el HTML; Valid queda en false, como
 // en doclang build, que con ese error no genera nada.
 func Render(log util.Logger, source string, options func(*ast.AST) renderer.DocumentHTMLOptions) Result {
 	doc, diags, err := Parse(log, source)
