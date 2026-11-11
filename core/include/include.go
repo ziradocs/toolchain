@@ -355,11 +355,12 @@ type Expansion struct {
 // @include adentro quedaba al revés y el @include salía como directiva sin
 // soporte.
 //
-// Qué deja abierto un archivo se decide sobre ese archivo solo, con el
-// parser (closureOf), y los cierres se comprueban después en el texto
-// expandido, donde lo que rodea al archivo puede leer distinto su apertura
-// (checkClosersInContext): un cierre que ahí abriría otro bloque se quita, y
-// el bloque queda en OpenAtEnd como uno que no se pudo cerrar. No se cierra un
+// Qué deja abierto un archivo se lee sobre ese archivo solo (closureOf) y se
+// comprueba con un parse del texto expandido (checkClosersInContext), donde
+// lo que rodea al archivo puede leer distinto su apertura: si ahí no deja nada
+// abierto, no se cierra; si los cierres no sirven, se buscan con el parser
+// sobre el archivo solo, y si tampoco, el bloque queda en OpenAtEnd como uno
+// que no se pudo cerrar. No se cierra un
 // bloque ::: de prosa, nada en strict, ni un archivo cuyo @include el padre no
 // lee como directiva propia (dentro de un diagrama o de math, donde el archivo
 // es parte de ese cuerpo). La normalización de flex corre sobre todo el texto
@@ -372,10 +373,11 @@ type Expansion struct {
 // lee.
 //
 // Hay un parse por archivo distinto con líneas @include (el de un archivo que
-// se incluye varias veces se reutiliza). Para lo que queda abierto, un archivo
-// que no deja nada abierto no se parsea (gate lo decide sin parser); uno que
-// sí, se parsea una o dos veces, y si algún archivo se cerró se parsea una vez
-// el texto expandido. Los errores salen en el mismo orden que en Expand.
+// se incluye varias veces se reutiliza). Para lo que queda abierto, gate lee
+// cada archivo sin parsearlo; si algún archivo se cerró, hay un parse del
+// texto expandido (otro si hubo que corregir cierres), y uno o dos de un
+// archivo solo cuando gate no puede decidir. Los errores salen en el mismo
+// orden que en Expand.
 func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOptions) (Expansion, error) {
 	if !opts.KeepIncludesInCode {
 		text, sources, err := ExpandWithSourceMap(content, baseDir, read)
@@ -450,8 +452,10 @@ type keepExpander struct {
 	out     []string
 	origins []Origin
 	kept    []int
-	// open son los bloques que los archivos incluidos dejaron abiertos.
+	// open son los bloques que los archivos incluidos dejaron abiertos, e
+	// info lo que checkClosersInContext necesita de cada uno.
 	open []OpenBlock
+	info []openInfo
 }
 
 // emit agrega lines (de los archivos frames, con sus orígenes) al resultado:
@@ -524,6 +528,7 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 			if len(c.closers) > 0 {
 				block.Line = len(e.out) + 1
 			}
+			e.info = append(e.info, openInfo{end: len(e.out), lines: child.lines, pending: c.pending})
 			for _, closer := range c.closers {
 				e.out = append(e.out, closer)
 				e.origins = append(e.origins, origins[i])

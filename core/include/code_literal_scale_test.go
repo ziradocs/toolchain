@@ -105,9 +105,10 @@ func TestExpandWithOptions_TagDoesNotGrowWithTheText(t *testing.T) {
 	}
 }
 
-// Lo que un archivo deja abierto no cuesta un parse por archivo: uno que no
-// deja nada abierto no se parsea, y uno que sí, una vez. 2000 archivos con un
-// $$ sin cerrar, y 8000 con todo cerrado.
+// Lo que un archivo deja abierto no cuesta un parse por archivo: gate lee cada
+// archivo sin parsearlo, y los cierres se comprueban con un parse del texto
+// expandido para todos. 2000 archivos con un $$ sin cerrar, y 8000 con todo
+// cerrado.
 func TestExpandWithOptions_ScalesWithManyOpenBlocks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("scale test")

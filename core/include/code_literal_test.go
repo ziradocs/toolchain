@@ -596,6 +596,32 @@ func TestExpand_ParentNoLongerClosesTheChildsBlock(t *testing.T) {
 	}
 }
 
+// Lo que rodea al archivo cuenta: m.md abre un $$ que, leído solo, queda
+// abierto, pero en el documento sigue a un párrafo, que se traga el $$ como
+// texto. Ahí m.md no deja nada abierto, y no se cierra ni se avisa: un $$ de
+// cierre abriría un bloque de math.
+func TestExpand_ContextDecidesWhatIsOpen(t *testing.T) {
+	files := map[string]string{"/base/m.md": "$$\nx\n"}
+	root := "# A\n\ntexto previo\n@include m.md\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := Expand(root, "/base", memFS(files))
+	if res.Text != plain || len(res.OpenAtEnd) != 0 {
+		t.Errorf("got %q %+v, want the plain expansion %q and nothing open", res.Text, res.OpenAtEnd, plain)
+	}
+	// Con una línea vacía antes, el $$ abre math y se cierra.
+	root = "# A\n\ntexto previo\n\n@include m.md\n\nFin.\n"
+	res, err = ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.OpenAtEnd) != 1 || !slices.Equal(res.OpenAtEnd[0].Closers, []string{"$$"}) {
+		t.Errorf("OpenAtEnd = %+v, want the $$ closed", res.OpenAtEnd)
+	}
+}
+
 // Un bloque que ningún cierre cierra queda como estaba, en OpenAtEnd sin
 // líneas de cierre (Line 0), y el aviso va en la línea que lo abre. El caso:
 // una cerca con un :::code-item legado adentro, que la normalización de flex
