@@ -315,3 +315,54 @@ func TestDedupeIncludedMisalignedReturnsMapped(t *testing.T) {
 		}
 	}
 }
+
+// coreClosesOpenBlocks dice si el core con el que se compila cierra lo que un
+// archivo incluido deja abierto (include.Expansion.OpenAtEndDiagnostics).
+// Contra un core publicado que todavía no lo hace, las pruebas de INCLUDE002
+// se saltan.
+func coreClosesOpenBlocks() bool {
+	_, ok := any(include.Expansion{}).(interface {
+		OpenAtEndDiagnostics(string) []diagnostics.Diagnostic
+	})
+	return ok
+}
+
+// INCLUDE002: un archivo incluido que deja abierta una cerca la cierra donde
+// termina, y el build lo avisa en la línea del @include, con el archivo y la
+// línea que la abre. El documento contaba con cerrarla después del @include:
+// es el cambio de comportamiento que el aviso hace visible.
+func TestPrepare_OpenBlockInIncludedFileWarns(t *testing.T) {
+	if !coreClosesOpenBlocks() {
+		t.Skip("this core does not close open blocks of included files")
+	}
+	main := "---\ntitle: D\nmode: flex\n---\n\n# A\n\n@include partes/p.doclang\nconsole.log(1)\n```\n\nFin.\n"
+	prepared, err := prepareWithInclude(t, util.NewNoop(), main, "```js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []diagnostics.Diagnostic
+	for _, d := range prepared.Diagnostics() {
+		if d.RuleID == OpenIncludeRuleID {
+			found = append(found, d)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("INCLUDE002 = %+v, want one", found)
+	}
+	d := found[0]
+	if d.File != "" || d.Position.Line != 8 || !d.IsWarning() || !strings.Contains(d.Message, "partes/p.doclang leaves \"```js\" open (partes/p.doclang:1)") {
+		t.Errorf("INCLUDE002 at %q:%d (%v): %s", d.File, d.Position.Line, d.Severity, d.Message)
+	}
+
+	// La política lo apaga como cualquier otra regla.
+	off := "---\ntitle: D\nmode: flex\nlint_policy:\n  rules:\n    INCLUDE002:\n      enabled: false\n---\n\n# A\n\n@include partes/p.doclang\nconsole.log(1)\n```\n"
+	prepared, err = prepareWithInclude(t, util.NewNoop(), off, "```js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range prepared.Diagnostics() {
+		if d.RuleID == OpenIncludeRuleID {
+			t.Errorf("INCLUDE002 disabled by the policy but reported: %+v", d)
+		}
+	}
+}

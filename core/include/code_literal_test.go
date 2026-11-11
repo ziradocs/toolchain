@@ -5,6 +5,8 @@ package include
 
 import (
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -336,8 +338,9 @@ func TestExpand_KeptIncludeIsNotOpened(t *testing.T) {
 // @include de ese texto sin expandir: los del documento raíz sobre la fuente,
 // como la leen get_ast y el lint. Un archivo incluido que abre una cerca sin
 // cerrarla no convierte en código un @include que en la fuente no lo era: los
-// dos se expanden. Un @include que trae ese archivo dentro de su cerca sí se
-// decide sobre el texto ya expandido, y queda.
+// dos se expanden, y la cerca cierra donde termina su archivo. Un @include que
+// trae ese archivo dentro de su cerca sí se decide sobre el texto ya
+// expandido, y queda.
 func TestExpand_IncludesAreDecidedOnTheTextTheyAppearIn(t *testing.T) {
 	files := map[string]string{
 		"/base/open.md":   "```",
@@ -348,7 +351,7 @@ func TestExpand_IncludesAreDecidedOnTheTextTheyAppearIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "# A\n\n```\nINCLUDED\n"; got != want {
+	if want := "# A\n\n```\n```\nINCLUDED\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	got, err = expandKeep("# A\n\n@include nested.md\n", "/base", memFS(files))
@@ -377,7 +380,8 @@ func TestExpand_FenceInsideAQuoteIsNotCode(t *testing.T) {
 }
 
 // Cada archivo decide sus @include sobre su propio texto: lo que un hermano
-// deja abierto no vuelve código un @include que en su archivo es prosa.
+// deja abierto no vuelve código un @include que en su archivo es prosa (y la
+// cerca del hermano cierra donde termina él).
 func TestExpand_EachFileDecidesOnItsOwnText(t *testing.T) {
 	files := map[string]string{
 		"/base/a.md": "```",
@@ -388,7 +392,7 @@ func TestExpand_EachFileDecidesOnItsOwnText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "# A\n\n```\ntexto\nC\n"; got != want {
+	if want := "# A\n\n```\n```\ntexto\nC\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
@@ -484,5 +488,357 @@ func TestOpenInclude_DepthLimit(t *testing.T) {
 	}
 	if _, err := openInclude("@include a.md", "a.md", "/base", read, map[string]bool{}, MaxDepth); err == nil {
 		t.Errorf("depth %d must be an error", MaxDepth+1)
+	}
+}
+
+// Un archivo incluido es un contenedor: la cerca, el code-group o el bloque $$
+// que deja abierto cierra donde termina él, con las líneas de cierre que pide
+// lo que está abierto, cuyo origen es la directiva. Antes la cerca de open.md
+// se tragaba la apertura de la cerca del raíz, el @include del raíz (que quedó
+// sin expandir por estar en código en su archivo) caía fuera de código en el
+// resultado y el build lo dibujaba como
+// "<!-- Unsupported element type: *ast.DirectiveNode -->".
+func TestExpand_OpenBlockClosesAtTheEndOfItsFile(t *testing.T) {
+	root := "# A\n\n@include open.md\n\n```\n@include after.md\n```\n\nFin.\n"
+	for _, c := range []struct {
+		open    string
+		closers []string
+		opening string
+	}{
+		// Un ```mermaid vacío no: en un documento sin frontmatter la
+		// normalización lo lee mal también sin @include ("```mermaid", "",
+		// "```", "", "```", "X", "```" deja X como prosa), así que el
+		// @include del raíz sigue cayendo fuera de código.
+		{"```text\n", []string{"```"}, "```text"},
+		{"```mermaid\ngraph TD\n", []string{"```"}, "```mermaid"},
+		{"```chart\n", []string{"```"}, "```chart"},
+		{"```math\n", []string{"```"}, "```math"},
+		// Una cerca de math sin cierre más adelante es de código para el
+		// parser (parseFenceForm), y cierra con ``` exacto.
+		{"````math\nx\n", []string{"```"}, "````math"},
+		{"````js\n", []string{"```"}, "````js"},
+		{"$$\nx\n", []string{"$$"}, "$$"},
+		// PlantUML nativo: hasta la línea que empieza con @enduml.
+		{"@startuml\nA -> B\n", []string{"@enduml"}, "@startuml"},
+		{":::code-group\n", []string{":::"}, ":::code-group"},
+		{":::code-group\n```js [a]\nx\n", []string{"```", ":::"}, ":::code-group"},
+		// La sintaxis legada: la pestaña, el code-item y el grupo.
+		{":::code-group\n:::code-item{0}\n```\nx\n", []string{"```", ":::", ":::"}, ":::code-group"},
+		// Dentro de un bloque ::: de prosa se cierra el cuerpo literal y el
+		// bloque de prosa queda abierto.
+		{"::: info\n```\n", []string{"```"}, "```"},
+		{"::: info\n:::code-group\n```js [a]\nx\n", []string{"```", ":::"}, ":::code-group"},
+		{":::note\n:::code-group\n", []string{":::"}, ":::code-group"},
+		// Un $$ después de un párrafo es texto del párrafo; lo que queda
+		// abierto es la cerca que sigue.
+		{"texto\n$$\n````\n$$\n", []string{"```"}, "````"},
+	} {
+		files := map[string]string{"/base/open.md": c.open, "/base/after.md": "AFTER"}
+		res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+		if err != nil {
+			t.Fatalf("%q: %v", c.open, err)
+		}
+		if len(res.KeptInCode) != 1 || strings.Contains(res.Text, "AFTER") {
+			t.Fatalf("%q: the root's @include is code in the root and must stay: %v\n%s", c.open, res.KeptInCode, res.Text)
+		}
+		if len(res.OpenAtEnd) != 1 {
+			t.Fatalf("%q: OpenAtEnd = %+v, want one block", c.open, res.OpenAtEnd)
+		}
+		b := res.OpenAtEnd[0]
+		want := strings.Join(append([]string{"# A", "", strings.TrimSuffix(c.open, "\n"), ""}, c.closers...), "\n") + "\n\n```\n@include after.md\n```\n\nFin.\n"
+		if res.Text != want || !slices.Equal(b.Closers, c.closers) || b.Opening != c.opening || b.Path != "open.md" || b.Directive != (Origin{Line: 3}) {
+			t.Errorf("%q: got %q %+v, want %q closed with %q", c.open, res.Text, b, want, c.closers)
+		}
+		lines := strings.Split(res.Text, "\n")
+		if code := includesInCode(nil, lines); !code[res.KeptInCode[0]-1] {
+			t.Errorf("%q: the kept @include is not code in the AST of the result:\n%s", c.open, res.Text)
+		}
+		doc, _ := parser.New(util.NewNoop()).ParseDocument(res.Text, "")
+		_ = ast.Walk(doc, func(n ast.Node) error {
+			if d, ok := n.(*ast.DirectiveNode); ok {
+				t.Errorf("%q: directive %q in the AST of the result:\n%s", c.open, d.Name, res.Text)
+			}
+			if p, ok := n.(*ast.TextElement); ok && strings.Contains(p.Content, "@include") {
+				t.Errorf("%q: the kept @include is prose in the AST of the result:\n%s", c.open, res.Text)
+			}
+			return nil
+		})
+		checkExpansion(t, c.open, root, files, res)
+	}
+}
+
+// El cambio de comportamiento: un archivo incluido ya no puede abrir un bloque
+// para que lo cierre el documento que lo incluye. header.md abre una cerca js
+// y el raíz la cerraba; ahora la cerca cierra al final de header.md, la línea
+// de código del raíz queda como prosa y la ``` del raíz abre otra cerca. Queda
+// en OpenAtEnd, para que doclang lo avise en la línea del @include.
+func TestExpand_ParentNoLongerClosesTheChildsBlock(t *testing.T) {
+	files := map[string]string{"/base/header.md": "---\ntitle: h\n---\n```js"}
+	root := "# A\n\n@include header.md\nconsole.log(1)\n```\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# A\n\n```js\n```\nconsole.log(1)\n```\n\nFin.\n"; res.Text != want {
+		t.Errorf("got %q, want %q", res.Text, want)
+	}
+	want := []OpenBlock{{Line: 4, Closers: []string{"```"}, Directive: Origin{Line: 3}, Path: "header.md",
+		Opener: Origin{File: "/base/header.md", Line: 4}, Opening: "```js", OpenerLine: 3}}
+	if !reflect.DeepEqual(res.OpenAtEnd, want) {
+		t.Errorf("OpenAtEnd = %+v, want %+v", res.OpenAtEnd, want)
+	}
+	diags := res.OpenAtEndDiagnostics("/base")
+	if len(diags) != 1 || diags[0].Position.Line != 4 || !diags[0].IsWarning() ||
+		!strings.Contains(diags[0].Message, "header.md leaves \"```js\" open (header.md:4)") {
+		t.Errorf("diagnostics = %+v", diags)
+	}
+	if mapped := res.Sources.MapDiagnostics(diags, ""); mapped[0].File != "" || mapped[0].Position.Line != 3 {
+		t.Errorf("the warning maps to %s:%d, want the @include line (3) of the document", mapped[0].File, mapped[0].Position.Line)
+	}
+	if res, _ := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{}); res.OpenAtEnd != nil {
+		t.Error("without KeepIncludesInCode nothing is closed")
+	}
+}
+
+// Lo que rodea al archivo cuenta: m.md abre un $$ que, leído solo, queda
+// abierto, pero en el documento sigue a un párrafo, que se traga el $$ como
+// texto. Ahí m.md no deja nada abierto, y no se cierra ni se avisa: un $$ de
+// cierre abriría un bloque de math.
+func TestExpand_ContextDecidesWhatIsOpen(t *testing.T) {
+	files := map[string]string{"/base/m.md": "$$\nx\n"}
+	root := "# A\n\ntexto previo\n@include m.md\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := Expand(root, "/base", memFS(files))
+	if res.Text != plain || len(res.OpenAtEnd) != 0 {
+		t.Errorf("got %q %+v, want the plain expansion %q and nothing open", res.Text, res.OpenAtEnd, plain)
+	}
+	// Con una línea vacía antes, el $$ abre math y se cierra.
+	root = "# A\n\ntexto previo\n\n@include m.md\n\nFin.\n"
+	res, err = ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.OpenAtEnd) != 1 || !slices.Equal(res.OpenAtEnd[0].Closers, []string{"$$"}) {
+		t.Errorf("OpenAtEnd = %+v, want the $$ closed", res.OpenAtEnd)
+	}
+}
+
+// Muchos archivos pegados a un párrafo, que en el documento no dejan nada
+// abierto (el párrafo se traga su $$), no cuestan una vuelta cada uno: se
+// leen después de la línea de párrafo a la que van pegados. Los que se
+// corrigen en contexto (un $$ dentro de un ::: info es texto; una ````math sin
+// cierre dentro de un ::: info es código y cierra con ```) se corrigen sin
+// mover lo demás: el cierre del archivo de antes, el @include que quedó en
+// código y las líneas de cada bloque.
+func TestExpand_ContextCorrectionsKeepTheRest(t *testing.T) {
+	files := map[string]string{"/base/m.md": "$$\nx\n", "/base/js.md": "```js", "/base/k.md": "K", "/base/q.md": "::: info\n````math\nx"}
+	var root strings.Builder
+	root.WriteString("# A\n\n")
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&root, "párrafo %d\n@include m.md\n\n", i)
+	}
+	root.WriteString("@include js.md\n\n```\n@include k.md\n```\n\n")
+	root.WriteString("::: info\n@include m.md\n:::\n\n::: info\n@include m.md\n:::\n\n@include q.md\n\n@include js.md\n\nFin.\n")
+	parses := 0
+	onContextParse = func() { parses++ }
+	t.Cleanup(func() { onContextParse = nil })
+	res, err := ExpandWithOptions(root.String(), "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.OpenAtEnd) != 3 || res.OpenAtEnd[0].Path != "js.md" || res.OpenAtEnd[1].Path != "q.md" || res.OpenAtEnd[2].Path != "js.md" {
+		t.Fatalf("OpenAtEnd = %+v, want js.md, q.md and js.md closed", res.OpenAtEnd)
+	}
+	for _, b := range res.OpenAtEnd {
+		if !slices.Equal(b.Closers, []string{"```"}) {
+			t.Errorf("%s closed with %q, want ```", b.Path, b.Closers)
+		}
+	}
+	lines := strings.Split(res.Text, "\n")
+	for _, b := range res.OpenAtEnd {
+		if lines[b.Line-1] != "```" || strings.TrimSpace(lines[b.OpenerLine-1]) != b.Opening {
+			t.Errorf("%s: line %d is %q and opener line %d is %q", b.Path, b.Line, lines[b.Line-1], b.OpenerLine, lines[b.OpenerLine-1])
+		}
+	}
+	if len(res.KeptInCode) != 1 || lines[res.KeptInCode[0]-1] != "@include k.md" || !includesInCode(nil, lines)[res.KeptInCode[0]-1] {
+		t.Errorf("KeptInCode = %v", res.KeptInCode)
+	}
+	checkExpansion(t, "context", root.String(), files, res)
+	// Una vuelta quita los cierres de los dos ::: info (eran texto) y
+	// corrige q.md, y la siguiente comprueba q.md y el js.md de después: las
+	// diez líneas de párrafo no agregan ninguna.
+	if parses > 2 {
+		t.Errorf("%d parses of the expanded text, want at most 2", parses)
+	}
+}
+
+// Un @include dentro de un bloque ::: de prosa del padre: el archivo es
+// contenido del bloque, y la cerca que deja abierta cierra antes del ::: del
+// padre, que así cierra el bloque.
+func TestExpand_IncludeInsideACalloutIsClosed(t *testing.T) {
+	files := map[string]string{"/base/js.md": "```js\ncode"}
+	root := "# A\n\n::: info\n@include js.md\n:::\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# A\n\n::: info\n```js\ncode\n```\n:::\n\nFin.\n"; res.Text != want || len(res.OpenAtEnd) != 1 {
+		t.Errorf("got %q %+v, want %q", res.Text, res.OpenAtEnd, want)
+	}
+}
+
+// Un cierre no cambia cómo se leen las líneas del propio archivo. ````math
+// sin cierre más adelante es, para el parser, una cerca de código que cierra
+// la ``` siguiente: el archivo no deja nada abierto, y el párrafo sigue siendo
+// párrafo. Antes gate la veía como math abierta, agregaba ```` y el párrafo
+// pasaba a ser math, con un INCLUDE002 falso.
+func TestExpand_ClosingDoesNotChangeTheFilesOwnLines(t *testing.T) {
+	files := map[string]string{"/base/m.md": "````math\n```\n\nUn párrafo del incluido.\n"}
+	root := "# A\n\n@include m.md\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := Expand(root, "/base", memFS(files))
+	if res.Text != plain || len(res.OpenAtEnd) != 0 {
+		t.Errorf("got %q %+v, want the plain expansion %q and nothing open", res.Text, res.OpenAtEnd, plain)
+	}
+	if got := lineClasses(res.Text + "\ntexto1t"); got["texto1t"] != classProse {
+		t.Errorf("the line after the file is %v, want prose", got["texto1t"])
+	}
+}
+
+// Doce copias del mismo archivo, que se cierra igual en todas: no cuestan una
+// vuelta cada una ni se agotan las vueltas (antes, de la octava en adelante
+// salía "could not be closed" y el bloque se tragaba el resto).
+func TestExpand_SameFileManyTimesClosesInEveryCopy(t *testing.T) {
+	files := map[string]string{"/base/q.md": "::: info\n````math\nx"}
+	var root strings.Builder
+	root.WriteString("# A\n\n")
+	for range 12 {
+		root.WriteString("@include q.md\n:::\n\n")
+	}
+	root.WriteString("Fin.\n")
+	parses := 0
+	onContextParse = func() { parses++ }
+	t.Cleanup(func() { onContextParse = nil })
+	res, err := ExpandWithOptions(root.String(), "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.OpenAtEnd) != 12 {
+		t.Fatalf("%d open blocks, want 12", len(res.OpenAtEnd))
+	}
+	for _, b := range res.OpenAtEnd {
+		if b.Line == 0 || !slices.Equal(b.Closers, []string{"```"}) {
+			t.Errorf("block %+v, want closed with ```", b)
+		}
+	}
+	if got := lineClasses(res.Text); got["Fin."] != classNone && strings.Count(res.Text, "Fin.") != 1 {
+		t.Errorf("unexpected text %q", res.Text)
+	}
+	if parses > 2 {
+		t.Errorf("%d parses of the expanded text, want at most 2", parses)
+	}
+}
+
+// Dentro de un bloque ::: de prosa el parser lee una cerca ```math distinto
+// que en el nivel superior: gate no está seguro y lo decide el parser.
+func TestExpand_MathFenceInsideAProseBlock(t *testing.T) {
+	files := map[string]string{"/base/m.md": "::: info\n```math\nx\n````\n"}
+	root := "# A\n\n@include m.md\n:::\n\n```\n@include k.md\n```\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(res.Text, "\n")
+	if len(res.KeptInCode) != 1 || !includesInCode(nil, lines)[res.KeptInCode[0]-1] {
+		t.Errorf("the root's kept @include is not code in the result: %q %+v", res.Text, res.OpenAtEnd)
+	}
+}
+
+// Si se acaban las vueltas, los cierres sin comprobar se quitan: el bloque
+// queda como uno que no se pudo cerrar, con su aviso, y el texto es el de sin
+// cerrar. Con cero vueltas, ninguno se comprueba.
+func TestExpand_ContextRoundsRunOut(t *testing.T) {
+	old := maxContextRounds
+	maxContextRounds = 0
+	t.Cleanup(func() { maxContextRounds = old })
+	files := map[string]string{"/base/q.md": "```js\nx"}
+	root := "# A\n\n@include q.md\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := Expand(root, "/base", memFS(files))
+	if res.Text != plain || len(res.OpenAtEnd) != 1 || res.OpenAtEnd[0].Line != 0 {
+		t.Errorf("got %q %+v, want the plain expansion and q.md not closed", res.Text, res.OpenAtEnd)
+	}
+}
+
+// Un bloque que ningún cierre cierra queda como estaba, en OpenAtEnd sin
+// líneas de cierre (Line 0), y el aviso va en la línea que lo abre. El caso:
+// una cerca con un :::code-item legado adentro, que la normalización de flex
+// reescribe, así que ni ``` ni ningún cierre de code-group devuelve a prosa
+// la línea que sigue.
+func TestExpand_UnclosableBlockIsReported(t *testing.T) {
+	files := map[string]string{"/base/open.md": "```js\n:::code-group\n:::code-item{0}"}
+	root := "# A\n\n@include open.md\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := Expand(root, "/base", memFS(files))
+	if res.Text != plain {
+		t.Errorf("an unclosable block must not add lines: got %q, want %q", res.Text, plain)
+	}
+	if len(res.OpenAtEnd) != 1 || res.OpenAtEnd[0].Line != 0 || len(res.OpenAtEnd[0].Closers) != 0 || res.OpenAtEnd[0].OpenerLine != 3 {
+		t.Fatalf("OpenAtEnd = %+v, want the block at line 3, not closed", res.OpenAtEnd)
+	}
+	d := res.OpenAtEndDiagnostics("/base")
+	if len(d) != 1 || d[0].Position.Line != 3 || !strings.Contains(d[0].Message, "could not be closed") || !strings.Contains(d[0].Message, "at line 3)") {
+		t.Errorf("diagnostics = %+v", d)
+	}
+	if mapped := res.Sources.MapDiagnostics(d, "/base"); mapped[0].File != "open.md" || mapped[0].Position.Line != 1 {
+		t.Errorf("the warning maps to %s:%d, want open.md:1", mapped[0].File, mapped[0].Position.Line)
+	}
+}
+
+// Lo que no se cierra: un bloque ::: de prosa (su contenido no es código, así
+// que no cambia qué @include es código), un archivo que cierra todo lo que
+// abre, una cerca dentro de una cita (no es un bloque de código en el AST), un
+// CODE strict (termina por sangría), una cerca ~~~math sin cierre (el parser
+// flex no tiene cercas de código con ~~~, y una ~~~math sin cierre es texto:
+// no se traga nada) y un $$ que sigue a un párrafo (es texto del párrafo).
+// Ninguno agrega líneas. Sin KeepIncludesInCode (slidelang) tampoco se cierra
+// nada.
+func TestExpand_ClosedOrProseBlocksAreNotClosed(t *testing.T) {
+	for _, c := range []struct{ root, open string }{
+		{"# A\n\n@include open.md\nfin\n", "::: info\ntexto\n"},
+		{"# A\n\n@include open.md\nfin\n", "```\nx\n```\n"},
+		{"# A\n\n@include open.md\nfin\n", "> ```\n> x\n"},
+		{"# A\n\n@include open.md\n\n```\nx\n```\n", "~~~math\nx\n"},
+		{"# A\n\n@include open.md\n\nfin\n", "texto\n$$\nx\n"},
+		{"---\nmode: strict\n---\n\nSECTION \"A\"\n@include open.md\n  TEXT\n    fin\n", "  CODE js\n    x\n"},
+	} {
+		files := map[string]string{"/base/open.md": c.open}
+		got, err := expandKeep(c.root, "/base", memFS(files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := Expand(c.root, "/base", memFS(files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("%q: got %q, want the plain expansion %q", c.open, got, want)
+		}
+	}
+	files := map[string]string{"/base/open.md": "```text\n"}
+	if got, _ := Expand("# A\n\n@include open.md\nfin\n", "/base", memFS(files)); got != "# A\n\n```text\n\nfin\n" {
+		t.Errorf("without the option an open fence is not closed: %q", got)
 	}
 }

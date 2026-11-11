@@ -135,10 +135,12 @@ type Origin struct {
 //   - Lines[i] es el origen de la línea i+1: con File "" es la línea Line del
 //     contenido raíz; si no, la línea Line del archivo File (ruta absoluta),
 //     contando el frontmatter que ese archivo tenía.
-//   - La línea expandida es exactamente esa línea de su origen. La única
-//     excepción es la línea vacía que deja un archivo incluido que es solo
-//     frontmatter, sin salto de línea final: no existe en ese archivo, y su
-//     origen es la línea del @include que la trajo.
+//   - La línea expandida es exactamente esa línea de su origen. Hay dos
+//     excepciones, líneas que no existen en ningún archivo y cuyo origen es la
+//     línea del @include que las trajo: la línea vacía que deja un archivo
+//     incluido que es solo frontmatter, sin salto de línea final, y, con
+//     KeepIncludesInCode, las líneas que cierran lo que un archivo incluido
+//     deja abierto (Expansion.OpenAtEnd, ver ExpandWithOptions).
 //   - RootLines es la cantidad de líneas del contenido raíz.
 //
 // TestExpandWithSourceMap_EveryLineMatchesItsOrigin y checkSourceMap (en las
@@ -290,7 +292,9 @@ type ExpandOptions struct {
 	// AST de ParseDocument, con la gramática de documentos y la normalización
 	// de flex prendida, como doclang (build, get_ast, lint): la opción es para
 	// documentos (ver ExpandWithOptions). Una fuente .slidelang no se
-	// clasifica bien (un SLIDE no es un SECTION).
+	// clasifica bien (un SLIDE no es un SECTION). Con la opción, además, lo
+	// que un archivo incluido deja abierto se cierra donde termina el archivo
+	// (Expansion.OpenAtEnd, ver ExpandWithOptions).
 	//
 	// "Código" acá es lo que el AST guarda como bloque de código: el cuerpo de
 	// un CODE strict, una cerca de código, una pestaña de code-group. No es lo
@@ -318,6 +322,10 @@ type Expansion struct {
 	// el llamador lo pueda avisar. Con la opción, toda línea `@include` de Text
 	// está en esta lista.
 	KeptInCode []int
+	// OpenAtEnd son los bloques que un archivo incluido dejó abiertos al
+	// terminar, cerrados ahí o no (ver ExpandWithOptions), para que el
+	// llamador lo avise (OpenAtEndDiagnostics). Solo con KeepIncludesInCode.
+	OpenAtEnd []OpenBlock
 }
 
 // ExpandWithOptions es ExpandWithOrigins con opciones.
@@ -332,17 +340,47 @@ type Expansion struct {
 // (ParseDocument, con la normalización de flex prendida, como doclang) lo
 // tiene dentro de un bloque de código; si no, se expande, y el archivo que
 // trae se decide igual. Lo que un archivo hermano o el documento que lo
-// incluye abren o cierran no cambia lo que decide un archivo: la expansión
-// es textual, así que el AST del resultado puede leer distinto un @include que
-// quedó (una cerca que un hermano dejó abierta), pero cada decisión se puede
-// comprobar sobre un solo archivo. Los `@include` del frontmatter del raíz se
+// incluye abren o cierran no cambia lo que decide un archivo, y cada decisión
+// se puede comprobar sobre un solo archivo.
+//
+// Un archivo incluido es, además, un contenedor: un bloque cuyo cuerpo se lee
+// al pie de la letra (una cerca de código, diagrama, chart o mapa; un
+// @startuml; un bloque $$; un :::code-group, con su pestaña abierta y sus
+// :::code-item legados; una cerca de math nunca queda abierta, ver gate) que
+// abre y no cierra se cierra donde termina el
+// archivo, con las líneas de cierre que pide lo que está abierto (su origen
+// es la directiva), y queda en Expansion.OpenAtEnd para que el llamador lo
+// avise. Es un cambio de comportamiento: el documento que incluye ya no cierra
+// lo que abre el archivo incluido. Antes, una cerca que un archivo dejaba
+// abierta se tragaba las líneas que seguían; una cerca del raíz con un
+// @include adentro quedaba al revés y el @include salía como directiva sin
+// soporte.
+//
+// Qué deja abierto un archivo se lee sobre ese archivo solo (closureOf) y se
+// comprueba con un parse del texto expandido (checkClosersInContext), donde
+// lo que rodea al archivo puede leer distinto su apertura: si ahí no deja nada
+// abierto, no se cierra; si los cierres no sirven, se buscan con el parser
+// sobre el archivo solo, y si tampoco, el bloque queda en OpenAtEnd como uno
+// que no se pudo cerrar. Un archivo pegado a una línea de párrafo del padre se
+// lee después de ella (el párrafo puede tragarse su primera línea). No se
+// cierra un bloque ::: de prosa, nada en strict, ni un archivo cuyo @include
+// está dentro de un diagrama o de math del padre (el archivo es parte de ese
+// cuerpo); uno dentro de un bloque ::: de prosa sí, como contenido del bloque. La normalización de flex corre sobre todo el texto
+// expandido: donde lee distinto algo según lo que lo rodea, el resultado
+// todavía puede diferir (un ```mermaid vacío en un documento sin frontmatter
+// se lee mal también sin ningún @include). Los `@include`
+// del frontmatter del raíz se
 // expanden antes que nada, y el dialecto sale del frontmatter ya expandido.
 // Un `@include` que queda en código no se abre: su ruta no se resuelve ni se
 // lee.
 //
-// Hay un parse por archivo distinto (el de un archivo que se incluye varias
-// veces se reutiliza): el costo es lineal en el tamaño de los archivos. Los
-// errores salen en el mismo orden que en Expand.
+// Hay un parse por archivo distinto con líneas @include (el de un archivo que
+// se incluye varias veces se reutiliza). Para lo que queda abierto, gate lee
+// cada archivo sin parsearlo; si algún archivo se cerró, hay un parse del
+// texto expandido y uno más por cada vuelta que corrige un archivo cuyos
+// cierres cambian lo que sigue (hasta maxContextRounds), y uno o dos de un
+// archivo solo cuando gate no puede decidir. Los errores salen en el mismo
+// orden que en Expand.
 func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOptions) (Expansion, error) {
 	if !opts.KeepIncludesInCode {
 		text, sources, err := ExpandWithSourceMap(content, baseDir, read)
@@ -394,11 +432,13 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 		return data, err
 	}
 	e.out = make([]string, 0, len(lines))
-	if err := e.emit(lines, frames, origins, includesInCode(nil, lines)); err != nil {
+	code, body := classifyIncludes(nil, lines)
+	if err := e.emit(lines, frames, origins, code, body, nil); err != nil {
 		return Expansion{}, err
 	}
+	e.checkClosersInContext()
 	sources := SourceMap{Lines: e.origins, RootLines: strings.Count(content, "\n") + 1}
-	return Expansion{Text: strings.Join(e.out, "\n"), Origins: sources.Files(), Sources: sources, KeptInCode: e.kept}, nil
+	return Expansion{Text: strings.Join(e.out, "\n"), Origins: sources.Files(), Sources: sources, KeptInCode: e.kept, OpenAtEnd: e.open}, nil
 }
 
 // keepExpander arma el resultado de ExpandWithOptions con KeepIncludesInCode.
@@ -415,13 +455,23 @@ type keepExpander struct {
 	out     []string
 	origins []Origin
 	kept    []int
+	// open son los bloques que los archivos incluidos dejaron abiertos, e
+	// info lo que checkClosersInContext necesita de cada uno.
+	open []OpenBlock
+	info []openInfo
 }
 
 // emit agrega lines (de los archivos frames, con sus orígenes) al resultado:
 // cada @include que su archivo tiene en código (code) queda, y cada uno de los
 // otros se reemplaza por su archivo, que se decide sobre su propio texto.
-func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Origin, code []bool) error {
+//
+// Si pos no es nil, pos[i] es el índice en e.out de lines[i] (de la primera
+// línea de su archivo, si es un @include que se expandió).
+func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Origin, code, body []bool, pos []int) error {
 	for i, line := range lines {
+		if pos != nil {
+			pos[i] = len(e.out)
+		}
 		incPath, ok := parseIncludeLine(line)
 		if !ok || code[i] {
 			if ok {
@@ -448,22 +498,70 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 		}
 		cached, ok := e.cache[child.file]
 		if !ok || !slices.Equal(cached.lines, child.lines) {
-			cached = classifiedFile{lines: child.lines, code: includesInCode(e.fragmentPrefix(child.lines), child.lines)}
+			cached = classifiedFile{lines: child.lines, closures: map[string]closure{}}
+			cached.code, cached.body = classifyIncludes(e.fragmentPrefix(child.lines), child.lines)
 			e.cache[child.file] = cached
 		}
-		childCode := cached.code
-		if err := e.emit(child.lines, childFrames, childOrigins, childCode); err != nil {
+		// Lo que el archivo deja abierto (ver ExpandWithOptions), solo en
+		// flex: en strict un CODE termina por sangría, no con una línea. Si en
+		// el documento va pegado a una línea de párrafo, se lee después de
+		// ella (closureOf).
+		glued := ""
+		if n := len(e.out); n > 0 && proseLine(e.out[n-1]) {
+			glued = e.out[n-1]
+		}
+		c, ok := cached.closures[glued]
+		if !ok {
+			c = closure{opener: -1}
+			if !e.strict {
+				c = closureOf(nil, child.lines, glued)
+			}
+			cached.closures[glued] = c
+		}
+		childPos := make([]int, len(child.lines))
+		if err := e.emit(child.lines, childFrames, childOrigins, cached.code, cached.body, childPos); err != nil {
 			return err
+		}
+		// Un archivo cuyo @include el padre no lee como una directiva propia
+		// (está dentro de un diagrama, de math, o metido en otro elemento) es
+		// parte de eso: lo que lee solo no cuenta ahí, y cerrarlo cerraría el
+		// cuerpo del padre.
+		if c.opener >= 0 && !body[i] {
+			// El bloque cierra donde termina el archivo. Las líneas de cierre
+			// no están en él: son de la directiva, como la línea vacía de un
+			// archivo que es solo frontmatter.
+			block := OpenBlock{
+				Closers:    c.closers,
+				Directive:  origins[i],
+				Path:       incPath,
+				Opener:     childOrigins[c.opener],
+				Opening:    strings.TrimSpace(child.lines[c.opener]),
+				OpenerLine: childPos[c.opener] + 1,
+			}
+			if len(c.closers) > 0 {
+				block.Line = len(e.out) + 1
+			}
+			e.info = append(e.info, openInfo{end: len(e.out), file: child.file, lines: child.lines, glued: glued, pending: c.pending})
+			for _, closer := range c.closers {
+				e.out = append(e.out, closer)
+				e.origins = append(e.origins, origins[i])
+			}
+			e.open = append(e.open, block)
 		}
 	}
 	return nil
 }
 
-// classifiedFile son las líneas de un archivo incluido y cuáles de sus
-// @include están en código (includesInCode).
+// classifiedFile son las líneas de un archivo incluido, cuáles de sus
+// @include están en código o en otro cuerpo literal (classifyIncludes) y lo
+// que deja abierto al terminar (closureOf).
 type classifiedFile struct {
 	lines []string
 	code  []bool
+	body  []bool
+	// closures es lo que deja abierto, según la línea de párrafo a la que va
+	// pegado en el documento ("" si no va pegado a ninguna).
+	closures map[string]closure
 }
 
 // fragmentPrefix son las líneas que van antes del contenido de un archivo
@@ -565,7 +663,20 @@ func includeTag(text string) string {
 // reconocerlas en el AST, cada una lleva en la copia que se parsea una marca
 // única al final; el texto no cambia. Sin ninguna línea @include no se parsea.
 func includesInCode(prefix, lines []string) []bool {
-	inCode := make([]bool, len(lines))
+	code, _ := classifyIncludes(prefix, lines)
+	return code
+}
+
+// classifyIncludes es includesInCode y, además, cuáles de las líneas @include
+// que no son código el AST tampoco lee como una directiva propia ni como
+// prosa: quedan dentro de un cuerpo literal que no es código (diagrama, chart,
+// mapa, math; ahí un @include se expande y lo que trae es parte de ese
+// cuerpo), o no aparecen en ninguna parte. Lo que un archivo así deja abierto
+// no se cierra.
+func classifyIncludes(prefix, lines []string) (inCode, inBody []bool) {
+	inCode = make([]bool, len(lines))
+	inBody = make([]bool, len(lines))
+	directive := make([]bool, len(lines))
 	var pending []int
 	for i, line := range lines {
 		if _, ok := parseIncludeLine(line); ok {
@@ -573,7 +684,7 @@ func includesInCode(prefix, lines []string) []bool {
 		}
 	}
 	if len(pending) == 0 {
-		return inCode
+		return inCode, inBody
 	}
 	text := strings.Join(prefix, "\n") + "\n" + strings.Join(lines, "\n")
 	tagPrefix := includeTag(text)
@@ -585,25 +696,46 @@ func includesInCode(prefix, lines []string) []bool {
 	}
 	doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(tagged, "\n"), "")
 	tag := regexp.MustCompile(regexp.QuoteMeta(tagPrefix) + `(\d+)q`)
-	mark := func(content string) {
+	mark := func(into []bool, content string) {
 		for _, m := range tag.FindAllStringSubmatch(content, -1) {
-			if i, err := strconv.Atoi(m[1]); err == nil && i < len(inCode) {
-				inCode[i] = true
+			if i, err := strconv.Atoi(m[1]); err == nil && i < len(into) {
+				into[i] = true
 			}
 		}
 	}
 	_ = ast.Walk(doc, func(n ast.Node) error {
 		switch c := n.(type) {
 		case *ast.CodeElement:
-			mark(c.Content)
+			mark(inCode, c.Content)
 		case *ast.CodeGroupElement:
 			for _, b := range c.CodeBlocks {
-				mark(b.Content)
+				mark(inCode, b.Content)
+			}
+		case *ast.DirectiveNode:
+			if path, ok := c.Parameters["path"].(string); ok {
+				mark(directive, path)
 			}
 		}
 		return nil
 	})
-	return inCode
+	// En prosa (un bloque ::: cuyo contenido es solo texto) el archivo
+	// expandido es contenido de ese bloque, y lo que deja abierto se cierra
+	// igual; en un cuerpo literal que no es código, o si la línea no aparece
+	// en ninguna parte, no.
+	prose := make([]bool, len(lines))
+	forEachText(doc, func(_ ast.Element, w where, _ bodyKind, contents ...string) {
+		for _, c := range contents {
+			if w == inProse {
+				mark(prose, c)
+			} else {
+				mark(inBody, c)
+			}
+		}
+	})
+	for _, i := range pending {
+		inBody[i] = !inCode[i] && !directive[i] && (inBody[i] || !prose[i])
+	}
+	return inCode, inBody
 }
 
 // includeFrame es un archivo incluido: sus líneas sin el frontmatter, su

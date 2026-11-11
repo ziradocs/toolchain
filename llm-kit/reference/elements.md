@@ -487,6 +487,13 @@ file's source in a code block with `@include`; to include a file, write the
 `@include` outside the code block. `slidelang build` does not make that
 distinction: it replaces every `@include` line, inside a code block or not.
 
+In `doclang build` an included file is also self-contained: a fence, a
+`:::code-group` or a `$$` block that it opens and does not close ends where
+the file ends, so it never swallows the lines after the `@include`, and the
+build warns with `INCLUDE002` on the `@include` line. A file cannot open a
+code block for the including document to close: close every block in the file
+that opens it.
+
 Paths are **confined** to a root directory — by default the input file's
 own directory, overridable with `--include-root`. Absolute paths and any
 attempt to escape the root (including via symlink) are rejected. Two
