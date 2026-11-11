@@ -205,14 +205,18 @@ func TestDOCXUnavailableImageAltSubstitutesVariables(t *testing.T) {
 // de párrafo y en una de encabezado. El alt del <img> de un encabezado ya
 // perdió los backticks, y el marcador volvía a sustituir sobre él: con w:
 // VALOR daba "hdr VALOR y VALOR" y el HTML "hdr VALOR y {{w}}". El de párrafo
-// conservaba los backticks que el HTML quita. Una variable vacía como único
-// alt deja la fuente, como un alt vacío.
+// conservaba los backticks y los marcadores de formato que el HTML quita (en
+// un párrafo, un ítem y una celda). Una variable vacía como único alt deja la
+// fuente, como un alt vacío.
 func TestDOCXUnavailableImageAltMatchesHTML(t *testing.T) {
 	src := "---\ntitle: D\nvariables:\n  v: VALOR\n  w: VALOR\n  e: \"\"\n---\n\n# A\n\n" +
 		"![blk {{v}} y `{{w}}`](falta1.png)\n\n" +
 		"Texto ![par {{v}} y `{{w}}`](falta2.png) fin.\n\n" +
 		"## Encabezado ![hdr {{v}} y `{{w}}`](falta3.png)\n\n" +
-		"![{{e}}](falta4.png)\n"
+		"![{{e}}](falta4.png)\n\n" +
+		"Con formato ![**neg** y *cur* & <x> \"q\"](falta5.png) fin.\n\n" +
+		"- Ítem ![**neg** en ítem](falta6.png)\n\n" +
+		"| Col |\n|---|\n| ![*cur* en celda & \"q\"](falta7.png) |\n"
 	dir := t.TempDir()
 	opts := GeneratorOptions{AssetRoot: dir, SourceDir: dir}
 
@@ -235,12 +239,18 @@ func TestDOCXUnavailableImageAltMatchesHTML(t *testing.T) {
 	if err := New(newTestLogger()).Generate(parseDocLang(t, src), docxOut, opts); err != nil {
 		t.Fatal(err)
 	}
-	text := docxVisibleText(docxDocumentXML(t, docxOut))
+	// docxVisibleText deja las entidades del XML (&amp;, &#34;).
+	text := html.UnescapeString(docxVisibleText(docxDocumentXML(t, docxOut)))
 
 	for _, c := range []struct{ src, wantHTML string }{
 		{"falta1.png", "blk VALOR y `{{w}}`"},
 		{"falta2.png", "par VALOR y {{w}}"},
 		{"falta3.png", "hdr VALOR y {{w}}"},
+		// El HTML escribe el alt de una imagen inline en texto plano, sin los
+		// marcadores de formato; el marcador del DOCX también.
+		{"falta5.png", `neg y cur & <x> "q"`},
+		{"falta6.png", "neg en ítem"},
+		{"falta7.png", `cur en celda & "q"`},
 	} {
 		alt, ok := htmlAlt[c.src]
 		if !ok {
