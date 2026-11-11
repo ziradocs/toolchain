@@ -181,7 +181,9 @@ In the prose of a `:::` block (its `content`, or the prose between its
 in Markdown. Core HTML writes each paragraph in its own `<p>` when there is
 more than one; a body with a single paragraph keeps its prose without `<p>`, as
 before, and a list between two lines of text does not by itself make them two
-paragraphs. DOCX writes them as separate paragraphs. With
+paragraphs. A blank line inside a code fence (three or more backticks or
+tildes, which a strict block without `typed` keeps as prose) does not separate
+paragraphs: the fence stays whole in one paragraph. DOCX writes them as separate paragraphs. With
 `InlineHTMLOptions.BlockProse`, which DocLang uses, the `contentHTML` of the
 block and of each text element between its `elements` is that same core HTML:
 numbered and nested lists, and the paragraphs. Off, the default and what

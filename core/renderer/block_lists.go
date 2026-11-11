@@ -216,8 +216,11 @@ func renderLiteralProse(text string, variables map[string]interface{}, paragraph
 // líneas de texto separa párrafos, como en Markdown: entonces cada párrafo va
 // en su <p>. ProcessInlineMarkdownSecure no pone nada entre dos líneas
 // separadas por una en blanco, así que antes "Uno.\n\nDos." salía "Uno.Dos.".
-// La prosa de un solo párrafo sale como siempre, sin <p>. Con paragraphs (la
-// cita) no cambia nada: cada tramo sigue en un solo <p>.
+// La prosa de un solo párrafo sale como siempre, sin <p>. Una línea en blanco
+// dentro de una cerca de código (de backticks o de tildes, que en strict un
+// bloque sin typed deja como prosa) no separa párrafos: la cerca queda entera
+// en su párrafo. Con paragraphs (la cita) no cambia nada: cada tramo sigue en
+// un solo <p>.
 //
 // Recibe el texto con las variables ya sustituidas, sin escapar (con la
 // opción de código literal, por proseListVariables, que parte el texto con
@@ -225,7 +228,8 @@ func renderLiteralProse(text string, variables map[string]interface{}, paragraph
 func renderProseWithLists(text string, paragraphs bool) string {
 	lines := strings.Split(text, "\n")
 	blocks, hasList := layoutProse(lines)
-	split := !paragraphs && hasParagraphBreak(lines, blocks)
+	inFence := fenceLinesOf(lines, true)
+	split := !paragraphs && hasParagraphBreak(lines, inFence, blocks)
 	if !hasList && !split {
 		out := ProcessInlineMarkdownSecure(text)
 		if paragraphs {
@@ -241,7 +245,7 @@ func renderProseWithLists(text string, paragraphs bool) string {
 			continue
 		}
 		if split {
-			for _, para := range splitParagraphs(lines[block.start:block.end]) {
+			for _, para := range splitParagraphs(lines[block.start:block.end], inFence[block.start:block.end]) {
 				if out := ProcessInlineMarkdownSecure(strings.Join(para, "\n")); out != "" {
 					html.WriteString("<p>" + out + "</p>")
 				}
@@ -263,10 +267,11 @@ func renderProseWithLists(text string, paragraphs bool) string {
 // hasParagraphBreak dice si algún tramo de prosa de blocks tiene más de un
 // párrafo: una línea con texto, una o más en blanco y otra con texto. Una
 // lista entre dos tramos no cuenta: "a\n\n- x\n\nb" sigue saliendo
-// "a<ul>…</ul>b", como antes.
-func hasParagraphBreak(lines []string, blocks []proseBlock) bool {
+// "a<ul>…</ul>b", como antes. inFence marca las líneas de una cerca (ver
+// splitParagraphs).
+func hasParagraphBreak(lines []string, inFence []bool, blocks []proseBlock) bool {
 	for _, block := range blocks {
-		if block.roots == nil && len(splitParagraphs(lines[block.start:block.end])) > 1 {
+		if block.roots == nil && len(splitParagraphs(lines[block.start:block.end], inFence[block.start:block.end])) > 1 {
 			return true
 		}
 	}
@@ -274,12 +279,13 @@ func hasParagraphBreak(lines []string, blocks []proseBlock) bool {
 }
 
 // splitParagraphs parte lines en los tramos de líneas con texto que separan
-// las líneas en blanco.
-func splitParagraphs(lines []string) [][]string {
+// las líneas en blanco. Una línea en blanco dentro de una cerca (inFence[i])
+// no separa: es parte del código.
+func splitParagraphs(lines []string, inFence []bool) [][]string {
 	var paras [][]string
 	start := -1
 	for i, line := range lines {
-		if strings.TrimSpace(line) == "" {
+		if strings.TrimSpace(line) == "" && !inFence[i] {
 			if start >= 0 {
 				paras = append(paras, lines[start:i])
 				start = -1

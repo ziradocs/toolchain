@@ -215,3 +215,77 @@ func TestBlockProse_OffKeepsSlideLangContentHTML(t *testing.T) {
 		}
 	}
 }
+
+// En strict, un aviso sin typed deja una cerca de código como prosa. Una
+// línea en blanco dentro de la cerca no separa párrafos: la cerca queda entera
+// en un <p>, con backticks (tres, o cuatro con una línea de tres adentro) y
+// con tildes. Se compara el contentHTML con el HTML del build con el código
+// literal prendido (doclang) y apagado, y se fija el HTML de cada uno.
+func TestBlockProse_BlankLineInsideFenceDoesNotSplit(t *testing.T) {
+	fences := []struct {
+		name, open, inner, close string
+	}{
+		{"tres backticks", "```", "", "```"},
+		{"cuatro backticks", "````md", "```", "````"},
+		{"tildes", "~~~", "", "~~~"},
+	}
+	var src strings.Builder
+	src.WriteString("---\ntitle: Avisos\nmode: strict\nvariables:\n  v: VALOR\n---\n\nSECTION \"Avisos\"\n")
+	for _, f := range fences {
+		src.WriteString("  :::note\n  Antes {{v}}.\n\n  " + f.open + "\n  primero {{v}}\n\n")
+		if f.inner != "" {
+			src.WriteString("  " + f.inner + "\n\n")
+		}
+		src.WriteString("  segundo\n  " + f.close + "\n\n  Después.\n  :::\n\n")
+	}
+	parse := func() *ast.AST {
+		doc, diags := parser.New(util.NewNoop()).ParseDocument(src.String(), "cercas.doclang")
+		for _, d := range diags {
+			if d.IsError() {
+				t.Fatalf("parse error: %s", d.Message)
+			}
+		}
+		return doc
+	}
+
+	for _, literal := range []bool{true, false} {
+		ctx := renderer.NewDefaultRenderContext()
+		ctx.LiteralCode = literal
+		fragments := alertContents(renderer.GenerateDocumentHTML(parse(), renderer.DocumentHTMLOptions{}, ctx))
+
+		doc := parse()
+		opts := renderer.InlineHTMLOptions{LiteralCode: literal}
+		opts.SetBlockProse(true)
+		renderer.PopulateInlineHTMLWithOptions(doc, doc.FrontMatter.BuildVariables(), opts)
+		var blocks []*ast.SpecialBlockElement
+		for _, elem := range doc.ContentBlocks[0].Elements {
+			if sb, ok := elem.(*ast.SpecialBlockElement); ok {
+				blocks = append(blocks, sb)
+			}
+		}
+		if len(blocks) != len(fences) || len(fragments) != len(fences) {
+			t.Fatalf("literal=%v: %d avisos y %d .alert-content, se esperaban %d", literal, len(blocks), len(fragments), len(fences))
+		}
+
+		for i, f := range fences {
+			if len(blocks[i].Elements) != 0 {
+				t.Fatalf("literal=%v %s: el aviso sin typed no debería tener elements", literal, f.name)
+			}
+			// El código literal es solo el de las cercas de backticks (spec,
+			// "Variables and Expressions"); en la de tildes se sustituye.
+			code := "{{v}}"
+			if !literal || f.open == "~~~" {
+				code = "VALOR"
+			}
+			// Dentro del párrafo, ProcessInlineMarkdownSecure no pone nada
+			// entre dos líneas separadas por una en blanco, como siempre.
+			want := "<p>Antes VALOR.</p><p>" + f.open + "<br>primero " + code + f.inner + "segundo<br>" + f.close + "</p><p>Después.</p>"
+			if fragments[i] != want {
+				t.Errorf("literal=%v %s: HTML del build\n got: %s\nwant: %s", literal, f.name, fragments[i], want)
+			}
+			if blocks[i].ContentHTML != fragments[i] {
+				t.Errorf("literal=%v %s: contentHTML y HTML del build difieren:\ncontentHTML: %s\nbuild:       %s", literal, f.name, blocks[i].ContentHTML, fragments[i])
+			}
+		}
+	}
+}
