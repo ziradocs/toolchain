@@ -1487,7 +1487,7 @@ func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) e
 		} else if m := markdownHeadingPattern.FindStringSubmatch(content); m != nil {
 			text = m[1]
 		}
-		return g.renderHeading(doc, text, elem.Level)
+		return g.renderHeadingWithImageAlts(doc, text, elem.Level, g.headingImageAlts(elem, text))
 	}
 
 	// Detectar headings HTML (del FlexParser, para un AST sin Level)
@@ -1518,6 +1518,53 @@ func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) e
 
 // renderHeading renderiza un encabezado H2/H3/H4
 func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level int) error {
+	return g.renderHeadingWithImageAlts(doc, text, level, nil)
+}
+
+// headingImageAlts son los alt de las imágenes del encabezado elem tal como
+// los escribe el HTML, en orden, para el marcador de imagen no disponible.
+// Salen de la fuente del encabezado (HeadingSource) con docxInlineImageAlt,
+// la misma regla que una imagen de párrafo: text es el HTML del encabezado
+// que recorre renderHeadingInline, y ahí un code span del alt ya perdió sus
+// backticks, así que sustituir sobre ese alt cambiaba un `{{w}}` literal por
+// su valor. Sin fuente, con una fuente que ya no es la de Content (un
+// --filter externo) o si no salen las mismas imágenes que en text, devuelve
+// nil y el marcador usa el alt de text tal cual.
+func (g *DOCXGenerator) headingImageAlts(elem *ast.TextElement, text string) []string {
+	source := elem.HeadingSource
+	if source == "" || !strings.Contains(text, "<img") ||
+		(elem.Content != elem.HeadingContent && elem.Content != renderer.HeadingHTML(elem.Level, source, elem.HeadingAnchor)) {
+		return nil
+	}
+	// Un "![" dentro de un code span es código, no una imagen.
+	masked := []byte(source)
+	for _, sp := range markdownCodeSpans(source) {
+		for i := sp[0]; i < sp[1]; i++ {
+			masked[i] = 'x'
+		}
+	}
+	var alts []string
+	next := docxScanInlineImages(string(masked))
+	for pos := 0; pos < len(masked); {
+		loc := next(pos)
+		if loc == nil {
+			break
+		}
+		alts = append(alts, g.docxInlineImageAlt(source[loc[2]:loc[3]]))
+		pos = loc[1]
+	}
+	if len(alts) != len(docxHeadingImgTag.FindAllStringIndex(text, -1)) {
+		return nil
+	}
+	return alts
+}
+
+// docxHeadingImgTag es una etiqueta <img ...> del HTML de un encabezado.
+var docxHeadingImgTag = regexp.MustCompile(`<img\b[^>]*>`)
+
+// renderHeadingWithImageAlts es renderHeading con los alt que el HTML da a
+// las imágenes del encabezado (headingImageAlts), o nil sin ellos.
+func (g *DOCXGenerator) renderHeadingWithImageAlts(doc domain.Document, text string, level int, imageAlts []string) error {
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
@@ -1586,7 +1633,7 @@ func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level in
 		return fmt.Errorf("invalid spacing after: %w", err)
 	}
 
-	if err := g.renderHeadingInline(p, text, size, color, bold); err != nil {
+	if err := g.renderHeadingInline(p, text, imageAlts, size, color, bold); err != nil {
 		return err
 	}
 
@@ -1614,8 +1661,9 @@ var docxHeadingImgAttr = regexp.MustCompile(`\b(src|alt|title)="([^"]*)"`)
 // renderHeadingImage inserta en p la imagen de un <img> de encabezado (attrs
 // es el resto de la etiqueta), con el mismo confinamiento y la misma medida
 // que una imagen inline de un párrafo. Una remota, faltante o fuera de la raíz
-// deja su alt (o el marcador de imagen no disponible).
-func (g *DOCXGenerator) renderHeadingImage(p domain.Paragraph, attrs, size, color string) error {
+// deja su alt (o el marcador de imagen no disponible). htmlAlt, si no es nil,
+// es el alt que el HTML le da (headingImageAlts) y va en el marcador.
+func (g *DOCXGenerator) renderHeadingImage(p domain.Paragraph, attrs string, htmlAlt *string, size, color string) error {
 	var src, alt, title string
 	for _, m := range docxHeadingImgAttr.FindAllStringSubmatch(attrs, -1) {
 		switch m[1] {
@@ -1636,7 +1684,11 @@ func (g *DOCXGenerator) renderHeadingImage(p domain.Paragraph, attrs, size, colo
 				return nil
 			}
 		}
-		text = g.docxImageUnavailableText(alt, path)
+		markerAlt := alt
+		if htmlAlt != nil {
+			markerAlt = *htmlAlt
+		}
+		text = g.docxImageUnavailableText(markerAlt, path)
 	} else if strings.TrimSpace(src) != "" {
 		// Una imagen remota no se descarga: queda su alt.
 		g.recordUnavailable(docxUnavailableImage, src)
@@ -1680,7 +1732,7 @@ var docxHeadingSpanLangAttr = regexp.MustCompile(`\blang="([^"]*)"`)
 // an AST from an external filter) degrades to exactly one run with the
 // literal string — identical to this function's pre-#1-fix behavior, so
 // routing that path through here too is not a regression.
-func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, size, color string, baseBold bool) error {
+func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, imageAlts []string, size, color string, baseBold bool) error {
 	type activeState struct {
 		bold, italic, code, underline bool
 		lang                          string
@@ -1722,7 +1774,7 @@ func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, siz
 		return nil
 	}
 
-	pos := 0
+	pos, image := 0, 0
 	for pos < len(html) {
 		loc := docxHeadingTagPattern.FindStringSubmatchIndex(html[pos:])
 		if loc == nil {
@@ -1744,7 +1796,12 @@ func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, siz
 		if tagName == "img" {
 			// Una imagen del encabezado (también dentro de un enlace) se
 			// inserta como en un párrafo; antes salía el <img> literal.
-			if err := g.renderHeadingImage(p, attrs, size, color); err != nil {
+			var htmlAlt *string
+			if image < len(imageAlts) {
+				htmlAlt = &imageAlts[image]
+			}
+			image++
+			if err := g.renderHeadingImage(p, attrs, htmlAlt, size, color); err != nil {
 				return err
 			}
 		} else if closing {
@@ -2184,7 +2241,7 @@ func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
 					}
 					g.logger.Warn("DOCX: inline image %q could not be inserted: %v", src, err)
 				}
-				text = g.docxImageUnavailableText(alt, src)
+				text = g.docxImageUnavailableText(g.docxInlineImageAlt(alt), src)
 			} else if remote := docxImageDestPath(dest); remote != "" {
 				// Una imagen remota no se descarga: queda su alt.
 				g.recordUnavailable(docxUnavailableImage, remote)
@@ -3069,7 +3126,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	// La leyenda es texto del autor: sale también debajo del marcador de
 	// imagen no disponible (antes se perdía con la imagen).
 	unavailable := func() error {
-		if err := g.renderImagePlaceholder(p, g.docxImageUnavailableText(elem.Alt, elem.Source)); err != nil {
+		if err := g.renderImagePlaceholder(p, g.docxImageUnavailableText(fieldVariables(elem.Alt, g.variables), elem.Source)); err != nil {
 			return err
 		}
 		return g.renderImageCaption(doc, elem)

@@ -7,6 +7,7 @@ import (
 	"html"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -164,5 +165,110 @@ func TestDOCXCodeGroupLabelLikeLabelHTML(t *testing.T) {
 	}
 	if !strings.Contains(documentXML, "echo {{company}}") {
 		t.Errorf("the code body must stay literal")
+	}
+}
+
+// El marcador de una imagen que no se insertó lleva el alt con sus
+// {{variables}} sustituidas fuera de sus code spans, como el alt de una imagen
+// insertada y como el HTML (alt="Logo de ACME y `{{company}}`"). Antes decía
+// "[Imagen no disponible: Logo de {{company}} y `{{company}}`]". Vale para la
+// imagen de bloque, la inline de un párrafo y la de un encabezado, que pasan
+// por el mismo marcador. Sin alt, el marcador muestra la fuente como se
+// escribió.
+func TestDOCXUnavailableImageAltSubstitutesVariables(t *testing.T) {
+	src := "---\ntitle: D\nvariables:\n  company: ACME\n---\n\n# A\n\n" +
+		"![Logo de {{company}} y `{{company}}`](falta.png)\n\n" +
+		"En línea ![icono de {{company}}](falta2.png) fin.\n\n" +
+		"## Sección ![marca de {{company}}](falta3.png)\n\n" +
+		"![]({{company}}.png)\n"
+	doc := parseDocLang(t, src)
+	dir := t.TempDir()
+	out := filepath.Join(t.TempDir(), "d.docx")
+	if err := New(newTestLogger()).Generate(doc, out, GeneratorOptions{Format: "docx", AssetRoot: dir, SourceDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	text := docxVisibleText(docxDocumentXML(t, out))
+	for _, want := range []string{
+		"[Imagen no disponible: Logo de ACME y `{{company}}`]",
+		"[Imagen no disponible: icono de ACME]",
+		"[Imagen no disponible: marca de ACME]",
+		"[Imagen no disponible: {{company}}.png]",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in %q", want, text)
+		}
+	}
+}
+
+// El marcador de una imagen que no se insertó lleva el mismo alt que el HTML,
+// también con un code span en el alt: en una imagen de bloque, en una inline
+// de párrafo y en una de encabezado. El alt del <img> de un encabezado ya
+// perdió los backticks, y el marcador volvía a sustituir sobre él: con w:
+// VALOR daba "hdr VALOR y VALOR" y el HTML "hdr VALOR y {{w}}". El de párrafo
+// conservaba los backticks y los marcadores de formato que el HTML quita (en
+// un párrafo, un ítem y una celda). Una variable vacía como único alt deja la
+// fuente, como un alt vacío.
+func TestDOCXUnavailableImageAltMatchesHTML(t *testing.T) {
+	src := "---\ntitle: D\nvariables:\n  v: VALOR\n  w: VALOR\n  e: \"\"\n---\n\n# A\n\n" +
+		"![blk {{v}} y `{{w}}`](falta1.png)\n\n" +
+		"Texto ![par {{v}} y `{{w}}`](falta2.png) fin.\n\n" +
+		"## Encabezado ![hdr {{v}} y `{{w}}`](falta3.png)\n\n" +
+		"![{{e}}](falta4.png)\n\n" +
+		"Con formato ![**neg** y *cur* & <x> \"q\"](falta5.png) fin.\n\n" +
+		"- Ítem ![**neg** en ítem](falta6.png)\n\n" +
+		"| Col |\n|---|\n| ![*cur* en celda & \"q\"](falta7.png) |\n"
+	dir := t.TempDir()
+	opts := GeneratorOptions{AssetRoot: dir, SourceDir: dir}
+
+	htmlOut := filepath.Join(t.TempDir(), "d.html")
+	opts.Format = "html"
+	if err := New(newTestLogger()).Generate(parseDocLang(t, src), htmlOut, opts); err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(htmlOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	htmlAlt := map[string]string{}
+	for _, m := range regexp.MustCompile(`<img src="(falta\d\.png)" alt="([^"]*)"`).FindAllStringSubmatch(string(page), -1) {
+		htmlAlt[m[1]] = html.UnescapeString(m[2])
+	}
+
+	docxOut := filepath.Join(t.TempDir(), "d.docx")
+	opts.Format = "docx"
+	if err := New(newTestLogger()).Generate(parseDocLang(t, src), docxOut, opts); err != nil {
+		t.Fatal(err)
+	}
+	// docxVisibleText deja las entidades del XML (&amp;, &#34;).
+	text := html.UnescapeString(docxVisibleText(docxDocumentXML(t, docxOut)))
+
+	for _, c := range []struct{ src, wantHTML string }{
+		{"falta1.png", "blk VALOR y `{{w}}`"},
+		{"falta2.png", "par VALOR y {{w}}"},
+		{"falta3.png", "hdr VALOR y {{w}}"},
+		// El HTML escribe el alt de una imagen inline en texto plano, sin los
+		// marcadores de formato; el marcador del DOCX también.
+		{"falta5.png", `neg y cur & <x> "q"`},
+		{"falta6.png", "neg en ítem"},
+		{"falta7.png", `cur en celda & "q"`},
+	} {
+		alt, ok := htmlAlt[c.src]
+		if !ok {
+			t.Fatalf("no <img> for %s in the HTML", c.src)
+		}
+		// Fija lo que dice el HTML, para que la comparación no pase si los
+		// dos cambian juntos.
+		if alt != c.wantHTML {
+			t.Errorf("HTML alt of %s = %q, want %q", c.src, alt, c.wantHTML)
+		}
+		if want := "[Imagen no disponible: " + alt + "]"; !strings.Contains(text, want) {
+			t.Errorf("%s: missing %q (the HTML alt) in %q", c.src, want, text)
+		}
+	}
+	if alt := htmlAlt["falta4.png"]; alt != "" {
+		t.Errorf(`HTML alt of {{e}} with e: "" = %q, want empty`, alt)
+	}
+	if want := "[Imagen no disponible: falta4.png]"; !strings.Contains(text, want) {
+		t.Errorf("missing %q in %q", want, text)
 	}
 }
