@@ -210,7 +210,10 @@ func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) 
 // wrapTextHTML envuelve en <p> el HTML de un párrafo, salvo que traiga una
 // lista (ver el comentario de arriba).
 func wrapTextHTML(content string) string {
-	if strings.Contains(content, "<ul") || strings.Contains(content, "<ol") {
+	// Tampoco la prosa de un ":::bloque" con varios párrafos, que ya trae
+	// cada uno en su <p> (renderProseWithLists): un <p> dentro de otro es
+	// HTML inválido.
+	if strings.Contains(content, "<ul") || strings.Contains(content, "<ol") || strings.Contains(content, "<p>") {
 		return content
 	}
 	return fmt.Sprintf("<p>%s</p>", content)

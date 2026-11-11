@@ -212,13 +212,21 @@ func renderLiteralProse(text string, variables map[string]interface{}, paragraph
 // una cita lo necesita porque el <p> que envolvía todo el contenido terminaba
 // conteniendo un <ul>, que es HTML inválido.
 //
+// Sin paragraphs (la prosa de un ":::bloque"), una línea en blanco entre dos
+// líneas de texto separa párrafos, como en Markdown: entonces cada párrafo va
+// en su <p>. ProcessInlineMarkdownSecure no pone nada entre dos líneas
+// separadas por una en blanco, así que antes "Uno.\n\nDos." salía "Uno.Dos.".
+// La prosa de un solo párrafo sale como siempre, sin <p>. Con paragraphs (la
+// cita) no cambia nada: cada tramo sigue en un solo <p>.
+//
 // Recibe el texto con las variables ya sustituidas, sin escapar (con la
 // opción de código literal, por proseListVariables, que parte el texto con
 // layoutProse igual que acá).
 func renderProseWithLists(text string, paragraphs bool) string {
 	lines := strings.Split(text, "\n")
 	blocks, hasList := layoutProse(lines)
-	if !hasList {
+	split := !paragraphs && hasParagraphBreak(lines, blocks)
+	if !hasList && !split {
 		out := ProcessInlineMarkdownSecure(text)
 		if paragraphs {
 			return "<p>" + out + "</p>"
@@ -232,6 +240,14 @@ func renderProseWithLists(text string, paragraphs bool) string {
 			html.WriteString(renderBodyList(block.roots))
 			continue
 		}
+		if split {
+			for _, para := range splitParagraphs(lines[block.start:block.end]) {
+				if out := ProcessInlineMarkdownSecure(strings.Join(para, "\n")); out != "" {
+					html.WriteString("<p>" + out + "</p>")
+				}
+			}
+			continue
+		}
 		out := ProcessInlineMarkdownSecure(strings.Join(lines[block.start:block.end], "\n"))
 		if out == "" {
 			continue
@@ -242,6 +258,42 @@ func renderProseWithLists(text string, paragraphs bool) string {
 		html.WriteString(out)
 	}
 	return html.String()
+}
+
+// hasParagraphBreak dice si algún tramo de prosa de blocks tiene más de un
+// párrafo: una línea con texto, una o más en blanco y otra con texto. Una
+// lista entre dos tramos no cuenta: "a\n\n- x\n\nb" sigue saliendo
+// "a<ul>…</ul>b", como antes.
+func hasParagraphBreak(lines []string, blocks []proseBlock) bool {
+	for _, block := range blocks {
+		if block.roots == nil && len(splitParagraphs(lines[block.start:block.end])) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// splitParagraphs parte lines en los tramos de líneas con texto que separan
+// las líneas en blanco.
+func splitParagraphs(lines []string) [][]string {
+	var paras [][]string
+	start := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			if start >= 0 {
+				paras = append(paras, lines[start:i])
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		paras = append(paras, lines[start:])
+	}
+	return paras
 }
 
 // proseBlock es un tramo de la prosa de renderProseWithLists: las líneas de
