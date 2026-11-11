@@ -489,8 +489,10 @@ distinction: it replaces every `@include` line, inside a code block or not.
 
 In `doclang build` an included file is also self-contained: a fence, a
 `:::code-group` or a `$$` block that it opens and does not close ends where
-the file ends, so it never swallows the lines after the `@include`. A file
-cannot open a code block for the including document to close.
+the file ends, so it never swallows the lines after the `@include`, and the
+build warns with `INCLUDE002` on the `@include` line. A file cannot open a
+code block for the including document to close: close every block in the file
+that opens it.
 
 Paths are **confined** to a root directory — by default the input file's
 own directory, overridable with `--include-root`. Absolute paths and any

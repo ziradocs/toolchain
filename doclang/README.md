@@ -303,13 +303,17 @@ borders and the heading font are not applied in DOCX. Embedded themes are unchan
 doclang runs the same linter and the same rule set as `slidelang` — `TABLE003`,
 `CODEGROUP001`, `IMG001` and the rest all apply to `.doclang` source.
 
-One warning is doclang's own: `INCLUDE001`, an `@include` line inside a code
+Two warnings are doclang's own. `INCLUDE001` is an `@include` line inside a code
 block (a fence or a strict `CODE` body). That line is code: it stays as
 written in every output and is not expanded, also when the path does not
 exist. To include a file, write the `@include` outside the code block.
-(`slidelang build` still expands an `@include` inside a code block.) A fence, a
-`:::code-group` or a `$$` block that an included file opens and does not close
-ends where that file ends.
+(`slidelang build` still expands an `@include` inside a code block.)
+`INCLUDE002` is an included file that leaves a fence, a `:::code-group` or a
+`$$` block open: an included file is a container, so the block ends where
+that file ends and does not take in the lines after the `@include`. The
+including document can no longer close it. The warning is on the `@include`
+line and names the file and the line that opens the block; like any rule, the
+lint policy can turn it off.
 
 Findings in an `@include`d file carry that file (`file` in the `--report json`
 findings, relative to the document's directory, and its own path in SARIF)

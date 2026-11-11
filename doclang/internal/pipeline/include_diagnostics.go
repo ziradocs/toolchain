@@ -18,6 +18,31 @@ import (
 // de código: es código, queda como está y no se expande (issue #487).
 const KeptIncludeRuleID = "INCLUDE001"
 
+// OpenIncludeRuleID es el aviso de un archivo incluido que deja abierto un
+// bloque (una cerca, un code-group, un $$): un archivo incluido es un
+// contenedor, así que el bloque cierra donde termina el archivo y ya no se
+// traga las líneas que siguen al @include. Antes las tragaba, y un documento
+// que contaba con cerrarlo después del @include cambia de lectura.
+const OpenIncludeRuleID = "INCLUDE002"
+
+// openIncludeDiagnostics es un INCLUDE002 por cada bloque que un archivo
+// incluido dejó abierto (include.Expansion.OpenAtEnd), en líneas del contenido
+// expandido. Se pide por interfaz para compilar contra un core publicado que
+// todavía no lo tiene; ese core tampoco cierra nada.
+func openIncludeDiagnostics(expansion include.Expansion) []diagnostics.Diagnostic {
+	open, ok := any(expansion).(interface {
+		OpenAtEndDiagnostics() []diagnostics.Diagnostic
+	})
+	if !ok {
+		return nil
+	}
+	diags := open.OpenAtEndDiagnostics()
+	for i := range diags {
+		diags[i] = diags[i].WithRuleID(OpenIncludeRuleID)
+	}
+	return diags
+}
+
 // keptIncludeDiagnostics es un INCLUDE001 por cada línea de lines (el
 // contenido expandido) que include.ExpandWithOptions dejó sin expandir por
 // estar en código (Expansion.KeptInCode, 1-based).

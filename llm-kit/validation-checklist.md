@@ -90,6 +90,10 @@ and it applies to any slide typed `title` in either mode.)
 - [ ] **`@include` in code (DocLang only)**: no `@include` line inside a code
       block meant to include a file. `doclang build` keeps it as code, does
       not expand it and warns with `INCLUDE001`; `slidelang build` expands it
+- [ ] **Blocks closed in the file that opens them (DocLang only)**: an
+      included file closes every fence, `:::code-group` and `$$` block it
+      opens. `doclang build` closes one left open where the file ends and
+      warns with `INCLUDE002`; the including document cannot close it
 
 ## 4. Slide properties
 
