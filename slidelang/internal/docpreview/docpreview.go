@@ -13,6 +13,8 @@
 package docpreview
 
 import (
+	"fmt"
+
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/parser"
@@ -27,6 +29,15 @@ import (
 // errores de parseo devuelve el AST y los diagnósticos sin transformar, como
 // el MCP de doclang.
 //
+// Si el transform falla, doclang build no genera nada; aquí se devuelve el
+// error junto con un AST que se puede dibujar, para que la vista previa no
+// quede en blanco mientras se escribe un \ref a un label que todavía no
+// existe. Con un \ref sin resolver es el documento numerado, con
+// los \ref que sí resuelven y los demás como texto (ResolveRefs recorre todo
+// el documento antes de fallar). Con un label duplicado, AssignNumbers corta a
+// la mitad y deja numerado solo lo de antes, así que se vuelve a leer la
+// fuente y se dibuja sin numerar, con cada \ref como texto.
+//
 // Las líneas @include quedan como las escribió el autor: el playground no
 // tiene archivos que incluir, así que no hay expansión ni, por lo tanto, la
 // opción KeepIncludesInCode de doclang build.
@@ -38,15 +49,55 @@ func Parse(log util.Logger, source string) (*ast.AST, []diagnostics.Diagnostic, 
 	if doc == nil || hasError(diags) {
 		return doc, diags, nil
 	}
-	// xref.Transform directo y no por transform.RunBuiltins como el MCP de
-	// doclang: core/transform no compila con GOOS=js (process_unix.go usa
-	// SysProcAttr.Setpgid, que js no tiene), y RunBuiltins solo agrega
-	// chequeos de que un built-in no borre marcas de versión del AST.
-	transformed, err := xref.Transform(doc)
+	// Las dos fases de xref.Transform por separado, con sus mismos mensajes
+	// de error, para saber cuál falló. Se corren aquí y no por
+	// transform.RunBuiltins como el MCP de doclang porque core/transform no
+	// compila con GOOS=js (process_unix.go usa SysProcAttr.Setpgid, que js no
+	// tiene). RunBuiltins, después de cada built-in, revisa que no haya
+	// borrado marcas de versión del AST (tipos de sublista, inicio de lista,
+	// math-source, encabezados tipados), corre ast.ValidateNodeIDs y, si el
+	// documento declara el contrato extendido (ast.DeclaresExtendedContract),
+	// ast.ValidateTableContract. Aquí no se corre nada de eso: xref solo
+	// reescribe texto y asigna Number, así que no borra marcas ni cambia IDs,
+	// y el parser ya corrió ValidateNodeIDs y, si el documento usa
+	// extensiones, ValidateTableContract. Queda una diferencia: un documento
+	// que declara el contrato extendido sin usar ninguna extensión no pasa
+	// aquí por ValidateTableContract, y en doclang build sí.
+	table, err := xref.AssignNumbers(doc)
 	if err != nil {
-		return doc, diags, err
+		clean, _ := parser.New(log).ParseDocument(source, "")
+		return clean, diags, fmt.Errorf("xref: asignando numeración: %w", err)
 	}
-	return transformed, diags, nil
+	if err := xref.ResolveRefs(doc, table); err != nil {
+		return doc, diags, fmt.Errorf("xref: %w", err)
+	}
+	return doc, diags, nil
+}
+
+// Result es lo que la vista previa muestra de un documento: el HTML que se
+// pudo dibujar, los diagnósticos del parseo, si el documento es válido para
+// doclang build y el error, si lo hubo.
+type Result struct {
+	HTML        string
+	Diagnostics []diagnostics.Diagnostic
+	Valid       bool
+	Err         error
+}
+
+// Render lee source con Parse y lo dibuja con HTML, con las opciones que
+// options arma desde el AST leído (título, tema y chrome salen del
+// frontmatter). Con errores de parseo, o si no hay AST, no hay HTML. Si Parse
+// devuelve un error con AST (el transform de xref), se dibuja igual y el error viaja junto con el HTML; Valid queda en false, como
+// en doclang build, que con ese error no genera nada.
+func Render(log util.Logger, source string, options func(*ast.AST) renderer.DocumentHTMLOptions) Result {
+	doc, diags, err := Parse(log, source)
+	out := Result{Diagnostics: diags, Err: err}
+	if doc == nil || hasError(diags) {
+		return out
+	}
+	out.HTML = HTML(doc, options(doc))
+	out.Valid = err == nil
+	return out
 }
 
 // Context es el contexto de render de doclang build para HTML: el código es
@@ -58,11 +109,18 @@ func Context() *renderer.RenderContext {
 	return ctx
 }
 
-// HTML dibuja doc como un HTML autocontenido con opts, después de bajar los
-// encabezados tipados como lo hace doclang antes de generar
-// (renderer.LowerTypedHeadings) y con Context.
+// HTML dibuja doc como un HTML autocontenido con opts y con Context.
+//
+// No baja los encabezados tipados (renderer.LowerTypedHeadings) como
+// RenderHTMLPreview de doclang, porque en este camino no cambia nada:
+// GenerateDocumentHTML dibuja cada HeadingElement por su forma legada
+// (renderHeadingElement), y lo único que lee solo la forma legada es el TOC
+// de subsecciones (extractSubsections), que corre con opts.TOCDepth > 1. El
+// playground no pasa TOCDepth. Si algún día lo pasa, hay que bajar los
+// encabezados antes, o las subsecciones de un documento con
+// typed-headings-v1 no salen en el TOC.
 func HTML(doc *ast.AST, opts renderer.DocumentHTMLOptions) string {
-	return renderer.GenerateDocumentHTML(renderer.LowerTypedHeadings(doc), opts, Context())
+	return renderer.GenerateDocumentHTML(doc, opts, Context())
 }
 
 func hasError(diags []diagnostics.Diagnostic) bool {

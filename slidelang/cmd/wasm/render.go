@@ -84,15 +84,26 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 		theme = args[1].String()
 	}
 
-	astNode, parseDiags, err := parseDoclang(source)
-	if err != nil || astNode == nil || hasErrorDiagnostic(parseDiags) {
-		out := renderOutput{Diagnostics: parseDiags, Valid: false}
-		if err != nil {
-			out.Error = err.Error()
-		}
-		return mustJSON(out)
+	// docpreview.Render reads with doclang build's rules (docpreview.Parse)
+	// and renders with them (docpreview.HTML: code is literal, so a
+	// {{variable}} inside a code block or a code span stays as written). An
+	// xref failure (an unresolved \ref, a duplicate label) still returns the
+	// HTML that could be drawn, with the error and valid=false: a live
+	// preview would otherwise go blank each time the author types a \ref to
+	// a label that doesn't exist yet.
+	res := docpreview.Render(logger, source, func(astNode *ast.AST) renderer.DocumentHTMLOptions {
+		return doclangOptions(astNode, theme)
+	})
+	out := renderOutput{HTML: res.HTML, Diagnostics: res.Diagnostics, Valid: res.Valid}
+	if res.Err != nil {
+		out.Error = res.Err.Error()
 	}
+	return mustJSON(out)
+}
 
+// doclangOptions are the document HTML options doclangRenderHTML renders
+// astNode with; theme is the caller's selector ("" for the document's own).
+func doclangOptions(astNode *ast.AST, theme string) renderer.DocumentHTMLOptions {
 	title := ""
 	var headerFooterConfig *ast.HeaderFooterConfig
 	var watermarkConfig *ast.WatermarkConfig
@@ -113,7 +124,7 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 		}
 	}
 
-	opts := renderer.DocumentHTMLOptions{
+	return renderer.DocumentHTMLOptions{
 		Title:     title,
 		TOC:       true,
 		Numbering: true,
@@ -130,11 +141,4 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 		Watermark:    watermarkConfig, // watermark: front matter (issue #179)
 		EmbedAssets:  true,
 	}
-	// Same rules as doclang build (docpreview.HTML): code is literal, so a
-	// {{variable}} inside a code block or a code span stays as written, and
-	// typed headings are lowered first. This used to pass
-	// NewDefaultRenderContext(), and the playground substituted them.
-	html := docpreview.HTML(astNode, opts)
-
-	return mustJSON(renderOutput{HTML: html, Diagnostics: parseDiags, Valid: true})
 }

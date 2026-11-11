@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/renderer"
 	"go.ziradocs.com/core/v2/util"
+	"go.ziradocs.com/core/v2/xref"
 )
 
 func render(t *testing.T, src string) string {
@@ -66,5 +69,95 @@ func TestParseResolvesReferences(t *testing.T) {
 	}
 	if !strings.Contains(html, `<a href="#tbl-w">Table 1</a>`) {
 		t.Errorf("missing the numbered reference to the table:\n%s", html[strings.Index(html, "<body"):])
+	}
+}
+
+func previewOptions(*ast.AST) renderer.DocumentHTMLOptions {
+	return renderer.DocumentHTMLOptions{EmbedAssets: true, TOC: true, Numbering: true}
+}
+
+// transformError es el error de xref.Transform sobre una lectura limpia de
+// src: Parse corre sus dos fases por separado y tiene que dar el mismo mensaje.
+func transformError(t *testing.T, src string) string {
+	t.Helper()
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(src, "")
+	_, err := xref.Transform(doc)
+	if err == nil {
+		t.Fatal("xref.Transform did not fail")
+	}
+	return err.Error()
+}
+
+// Un \ref a un label que todavía no existe no deja la vista previa en blanco:
+// sale el HTML con el documento numerado, el \ref que sí resuelve como vínculo
+// y el otro como texto, junto con el error de xref y valid=false, como
+// doclang build, que con ese error no genera nada. Antes doclangRenderHTML
+// devolvía el error sin HTML y el playground vaciaba la vista previa.
+func TestRenderUnresolvedRefKeepsHTML(t *testing.T) {
+	src := "---\ntitle: R\nmode: strict\nlang: en\n---\n\nSECTION \"Uno\"\n  TEXT\n    See \\ref{tbl-w} and \\ref{tbl-nope}.\n\n" +
+		"  TABLE\n    headers: [\"A\"]\n    rows: [[\"1\"]]\n    caption: \"Windows\"\n    label: tbl-w\n"
+	res := Render(util.NewNoop(), src, previewOptions)
+	if res.Valid {
+		t.Error("valid = true, want false: doclang build fails on an unresolved \\ref")
+	}
+	if res.Err == nil || res.Err.Error() != transformError(t, src) {
+		t.Errorf("error = %v, want xref.Transform's %q", res.Err, transformError(t, src))
+	}
+	for _, want := range []string{`<a href="#tbl-w">Table 1</a> and \ref{tbl-nope}.`, "Table 1: Windows"} {
+		if !strings.Contains(res.HTML, want) {
+			t.Errorf("missing %q in the preview HTML (%d bytes)", want, len(res.HTML))
+		}
+	}
+}
+
+// Con un label duplicado, AssignNumbers corta a la mitad y deja numerado solo
+// lo de antes. La vista previa se dibuja sin numerar y con cada \ref como
+// texto, no con "Table 1" en la primera tabla y nada en las demás.
+func TestRenderDuplicateLabelKeepsHTMLWithoutNumbering(t *testing.T) {
+	src := "---\ntitle: D\nmode: strict\nlang: en\n---\n\nSECTION \"Uno\"\n  TEXT\n    See \\ref{tbl-b}.\n\n" +
+		"  TABLE\n    headers: [\"A\"]\n    rows: [[\"1\"]]\n    caption: \"Primera\"\n    label: tbl-a\n\n" +
+		"  TABLE\n    headers: [\"A\"]\n    rows: [[\"2\"]]\n    caption: \"Segunda\"\n    label: tbl-a\n\n" +
+		"  TABLE\n    headers: [\"A\"]\n    rows: [[\"3\"]]\n    caption: \"Tercera\"\n    label: tbl-b\n"
+	res := Render(util.NewNoop(), src, previewOptions)
+	if res.Valid {
+		t.Error("valid = true, want false: doclang build fails on a duplicate label")
+	}
+	if res.Err == nil || res.Err.Error() != transformError(t, src) {
+		t.Errorf("error = %v, want xref.Transform's %q", res.Err, transformError(t, src))
+	}
+	for _, want := range []string{`See \ref{tbl-b}.`, `<p class="table-caption">Primera</p>`, `<p class="table-caption">Tercera</p>`} {
+		if !strings.Contains(res.HTML, want) {
+			t.Errorf("missing %q in the preview HTML (%d bytes)", want, len(res.HTML))
+		}
+	}
+	if strings.Contains(res.HTML, "Table 1") {
+		t.Error("the preview numbered the tables before the duplicate label")
+	}
+}
+
+// Con errores de parseo no hay HTML, como antes.
+func TestRenderParseErrorHasNoHTML(t *testing.T) {
+	res := Render(util.NewNoop(), "---\ntitle: P\nast_capabilities: [no-such-capability]\n---\n\n# A\n\nTexto.\n", previewOptions)
+	if res.Valid || res.HTML != "" {
+		t.Errorf("valid = %v, %d bytes of HTML; want invalid with no HTML", res.Valid, len(res.HTML))
+	}
+	if !hasError(res.Diagnostics) {
+		t.Error("expected a parse error diagnostic")
+	}
+}
+
+// Un documento con typed-headings-v1 dibuja sus encabezados sin bajarlos
+// antes: HTML no llama a LowerTypedHeadings (ver su comentario) porque
+// GenerateDocumentHTML dibuja cada HeadingElement por su forma legada.
+func TestHTMLRendersTypedHeadings(t *testing.T) {
+	doc, diags, err := Parse(util.NewNoop(), "---\ntitle: T\nmode: flex\nast_capabilities: [typed-headings-v1]\n---\n\n# A\n\n## Sub uno\n\nTexto.\n")
+	if err != nil || hasError(diags) {
+		t.Fatalf("parse: %v %v", err, diags)
+	}
+	if !ast.UsesTypedHeadings(doc) {
+		t.Fatal("the document has no typed headings")
+	}
+	if html := HTML(doc, renderer.DocumentHTMLOptions{EmbedAssets: true, TOC: true, Numbering: true}); !strings.Contains(html, `<h2 id="sub-uno">Sub uno</h2>`) {
+		t.Errorf("missing the typed heading:\n%s", html[strings.Index(html, "<body"):])
 	}
 }

@@ -67,6 +67,15 @@ for structured results):
   flex), figure/table numbering and `\ref` are resolved, and code is literal
   (a `{{variable}}` inside a code block or a code span is not substituted).
   The TOC and numbering are always on in the preview.
+- **An xref failure still draws the DocLang preview.** `doclangRenderHTML`
+  returns JSON `{html, diagnostics, valid, error}`. With an unresolved
+  `\ref` or a duplicate label, `doclang build` fails and writes nothing;
+  the preview answers `valid: false` with the `error`, like build, but also
+  the `html` that could be drawn, so a live preview doesn't go blank while
+  the author types a `\ref` to a label that doesn't exist yet. With an
+  unresolved `\ref`, that HTML is numbered and resolves every other
+  `\ref`; with a duplicate label it has no numbering and every `\ref`
+  stays as text. Parse errors still return no `html`.
 - **SlideLang's marquee named themes** (`modern-blue`, `cyberpunk-neon`,
   `elegant-minimal`, `startup-tech`, `aurora-holographic`,
   `neomorphism-glass`) normally live on disk

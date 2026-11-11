@@ -152,16 +152,19 @@ function runRender(state) {
 
   renderDiagnostics(diagEl, out.diagnostics);
 
+  // An invalid document can still carry the HTML that could be drawn (a
+  // DocLang \ref to a label that doesn't exist yet, a duplicate label): show
+  // it with the error instead of blanking the preview on every keystroke.
   if (out.error) {
     statusEl.textContent = `Error: ${out.error}`;
     statusEl.className = "status status-error";
-    previewEl.srcdoc = "";
+    previewEl.srcdoc = out.html || "";
     return;
   }
   if (!out.valid) {
     statusEl.textContent = "Parse errors — see diagnostics below.";
     statusEl.className = "status status-error";
-    previewEl.srcdoc = "";
+    previewEl.srcdoc = out.html || "";
     return;
   }
   statusEl.textContent = "OK";
