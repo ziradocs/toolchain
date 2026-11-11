@@ -61,10 +61,13 @@ func docxUnavailableNote(kind docxUnavailableKind, lang string) string {
 
 // docxImageUnavailableText es el marcador de una imagen que no se insertó:
 // la nota y el texto alternativo (o, sin alt, la fuente tal como la escribió
-// el autor, nunca la ruta absoluta de la máquina que compiló).
+// el autor, nunca la ruta absoluta de la máquina que compiló). El alt lleva
+// sus {{variables}} sustituidas fuera de sus code spans (fieldVariables), como
+// el alt de una imagen insertada y como el alt del HTML; antes el marcador
+// mostraba "{{v}}" tal cual. La fuente queda como se escribió.
 func (g *DOCXGenerator) docxImageUnavailableText(alt, source string) string {
 	g.recordUnavailable(docxUnavailableImage, source)
-	label := strings.TrimSpace(alt)
+	label := strings.TrimSpace(fieldVariables(alt, g.variables))
 	if label == "" {
 		label = source
 	}

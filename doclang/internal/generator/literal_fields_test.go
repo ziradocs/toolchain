@@ -166,3 +166,35 @@ func TestDOCXCodeGroupLabelLikeLabelHTML(t *testing.T) {
 		t.Errorf("the code body must stay literal")
 	}
 }
+
+// El marcador de una imagen que no se insertó lleva el alt con sus
+// {{variables}} sustituidas fuera de sus code spans, como el alt de una imagen
+// insertada y como el HTML (alt="Logo de ACME y `{{company}}`"). Antes decía
+// "[Imagen no disponible: Logo de {{company}} y `{{company}}`]". Vale para la
+// imagen de bloque, la inline de un párrafo y la de un encabezado, que pasan
+// por el mismo marcador. Sin alt, el marcador muestra la fuente como se
+// escribió.
+func TestDOCXUnavailableImageAltSubstitutesVariables(t *testing.T) {
+	src := "---\ntitle: D\nvariables:\n  company: ACME\n---\n\n# A\n\n" +
+		"![Logo de {{company}} y `{{company}}`](falta.png)\n\n" +
+		"En línea ![icono de {{company}}](falta2.png) fin.\n\n" +
+		"## Sección ![marca de {{company}}](falta3.png)\n\n" +
+		"![]({{company}}.png)\n"
+	doc := parseDocLang(t, src)
+	dir := t.TempDir()
+	out := filepath.Join(t.TempDir(), "d.docx")
+	if err := New(newTestLogger()).Generate(doc, out, GeneratorOptions{Format: "docx", AssetRoot: dir, SourceDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	text := docxVisibleText(docxDocumentXML(t, out))
+	for _, want := range []string{
+		"[Imagen no disponible: Logo de ACME y `{{company}}`]",
+		"[Imagen no disponible: icono de ACME]",
+		"[Imagen no disponible: marca de ACME]",
+		"[Imagen no disponible: {{company}}.png]",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in %q", want, text)
+		}
+	}
+}
