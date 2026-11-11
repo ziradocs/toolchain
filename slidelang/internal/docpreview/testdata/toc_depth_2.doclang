@@ -1,0 +1,30 @@
+---
+title: TOC con profundidad 2
+lang: es
+toc:
+  depth: 2
+---
+
+# Uno
+
+Texto de uno.
+
+## Uno punto uno
+
+Texto.
+
+### No entra al TOC
+
+Texto.
+
+## Uno punto dos
+
+Texto.
+
+# Dos
+
+Texto de dos.
+
+## Dos punto uno
+
+Texto.

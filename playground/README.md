@@ -43,7 +43,7 @@ for structured results):
 | `slidelangLint(source)` | Same parser+linter pipeline as `slidelang build --lint-only` / MCP `lint` |
 | `slidelangGetAST(source)` | Same as `slidelang build --format json` / MCP `get_ast` |
 | `slidelangRenderSlides(source, theme)` | Self-contained slide-deck HTML (CSS/JS inlined) |
-| `doclangRenderHTML(source, theme)` | Self-contained document HTML |
+| `doclangRenderHTML(source, theme)` | Self-contained document HTML, read and rendered with `doclang build`'s rules (`slidelang/internal/docpreview`) |
 | `slidelangListThemes()` | Built-in + marquee named theme names |
 
 ## Known scoping limits (read before filing a bug)
@@ -61,6 +61,25 @@ for structured results):
   module boundary. The DocLang preview renders with plain, functional
   default styling regardless of the `theme` argument; the theme selector
   in the UI is disabled for DocLang for this reason.
+- **DocLang `@include` lines are not expanded.** There are no files to
+  include in a browser, so an `@include` line stays as written. Everything
+  else follows `doclang build`: the dialect comes from `mode:` (strict or
+  flex), figure/table numbering and `\ref` are resolved, and code is literal
+  (a `{{variable}}` inside a code block or a code span is not substituted).
+  The TOC follows `doclang build` too: `toc.enabled` and `toc.depth` from
+  the front matter, on with depth 3 when the front matter doesn't set them,
+  and off without front matter. Numbering is always on in the preview.
+  `doclang build` draws that TOC as the interactive sidebar; the preview
+  draws it as the static TOC block, with the same entries.
+- **An xref failure still draws the DocLang preview.** `doclangRenderHTML`
+  returns JSON `{html, diagnostics, valid, error}`. With an unresolved
+  `\ref` or a duplicate label, `doclang build` fails and writes nothing;
+  the preview answers `valid: false` with the `error`, like build, but also
+  the `html` that could be drawn, so a live preview doesn't go blank while
+  the author types a `\ref` to a label that doesn't exist yet. With an
+  unresolved `\ref`, that HTML is numbered and resolves every other
+  `\ref`; with a duplicate label it has no numbering and every `\ref`
+  stays as text. Parse errors still return no `html`.
 - **SlideLang's marquee named themes** (`modern-blue`, `cyberpunk-neon`,
   `elegant-minimal`, `startup-tech`, `aurora-holographic`,
   `neomorphism-glass`) normally live on disk
