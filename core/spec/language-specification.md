@@ -623,12 +623,25 @@ unexpanded, as `get_ast` would read it with the root's dialect: the root
 document on its source, an included file on its content (without its
 frontmatter) read with the root's dialect (in strict, as the body of a section when it does not start
 with `SECTION`). What a sibling file or the including document opens or closes
-does not change a file's decisions; since expansion is textual, the AST of the
-result can still read a kept `@include` differently (for example inside a
-fence a sibling left open). `@include` lines in the root's frontmatter are
-expanded first, and the dialect comes from the expanded frontmatter. There is one parse per distinct file. The lines
-kept that way are reported to the caller, and a kept line's path is never
-opened. This "code" is not the same as the literal-code option's: a fence
+does not change a file's decisions. With the option, an included file is a
+container: a fence (code, diagram, chart, map or math), a `:::code-group` or a
+`$$` block that the file opens and does not close ends where the file ends, as
+an unclosed fence ends with its container block in CommonMark (§4.5). The
+expansion adds the closing line (```` ``` ````, `~~~`, `:::` or `$$`; its origin is
+the `@include` line), so it does not swallow the lines that follow the
+`@include`, and the AST of the result reads a kept `@include` as code, as the
+AST of its own file does. Whether a file leaves a block open is decided on that
+file alone; flex normalization runs on the whole expanded text, so where it
+reads a construct differently in context, the result can still differ (an
+empty ```` ```mermaid ```` block in a document with no frontmatter misreads
+the next fence even with no `@include`). A `:::` prose block (a callout, a column) left
+open is not closed: its content is prose and does not change what is code. In
+strict nothing is closed: a strict `CODE` body ends by indentation.
+`@include` lines in the root's frontmatter are expanded first, and the dialect
+comes from the expanded frontmatter. There is one parse per distinct file, plus
+one per included file that may leave a block open and, only when it does, one
+per closing line tried. The lines kept that way are reported to the caller, and
+a kept line's path is never opened. This "code" is not the same as the literal-code option's: a fence
 written inside a quote is code for `LiteralCode`, but the AST has no code block
 there, and an `@include` line between two `> ```` lines ends the quote and is
 expanded. The option uses the document grammar, so it is for DocLang: a

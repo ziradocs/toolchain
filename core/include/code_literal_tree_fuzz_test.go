@@ -4,6 +4,7 @@
 package include
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -86,7 +87,9 @@ func oracleInCode(lines []string, strict, root bool) map[int]bool {
 	return in
 }
 
-// oracleExpand expande lines con oracleInCode, recursivamente y sin caché.
+// oracleExpand expande lines con oracleInCode, recursivamente y sin caché, y
+// cierra al final de cada archivo incluido lo que deja abierto
+// (oracleClosers).
 func oracleExpand(lines []string, files map[string]string, strict, root bool) []string {
 	code := oracleInCode(lines, strict, root)
 	var out []string
@@ -96,9 +99,51 @@ func oracleExpand(lines []string, files map[string]string, strict, root bool) []
 			out = append(out, l)
 			continue
 		}
-		out = append(out, oracleExpand(strings.Split(oracleBody(files["/base/"+path]), "\n"), files, strict, false)...)
+		child := strings.Split(oracleBody(files["/base/"+path]), "\n")
+		out = append(out, oracleExpand(child, files, strict, false)...)
+		out = append(out, oracleClosers(child, strict)...)
 	}
 	return out
+}
+
+// oracleClosers son las líneas que cierran lo que un archivo incluido deja
+// abierto, en flex: el primer cierre con el que una línea de prosa puesta
+// después (tras una línea vacía) no queda en el contenido de un bloque de
+// código, diagrama, chart, mapa o math, ni desaparece del AST. En strict no se
+// cierra nada.
+func oracleClosers(lines []string, strict bool) []string {
+	if strict {
+		return nil
+	}
+	const probe = "ORACLEPROBELINE"
+	swallowed := func(closers []string) bool {
+		src := strings.Join(append(append(append([]string{}, lines...), closers...), "", probe), "\n")
+		doc, _ := parser.New(util.NewNoop()).ParseDocument(src, "")
+		all, _ := json.Marshal(doc)
+		if !strings.Contains(string(all), probe) {
+			return true
+		}
+		in := false
+		_ = ast.Walk(doc, func(n ast.Node) error {
+			switch n.(type) {
+			case *ast.CodeElement, *ast.CodeGroupElement, *ast.MermaidElement, *ast.PlantUMLElement,
+				*ast.ChartElement, *ast.MapElement, *ast.MathElement:
+				b, _ := json.Marshal(n)
+				in = in || strings.Contains(string(b), probe)
+			}
+			return nil
+		})
+		return in
+	}
+	if !swallowed(nil) {
+		return nil
+	}
+	for _, c := range [][]string{{"```"}, {"~~~"}, {":::"}, {"```", ":::"}, {"$$"}} {
+		if !swallowed(c) {
+			return c
+		}
+	}
+	return nil
 }
 
 // FuzzKeepIncludesInCodeTree arma un documento y hasta ocho archivos, algunos
@@ -157,6 +202,19 @@ func FuzzKeepIncludesInCodeTree(f *testing.F) {
 		}
 		if kept != len(res.KeptInCode) {
 			t.Fatalf("%d @include lines in the text, %d in KeptInCode", kept, len(res.KeptInCode))
+		}
+		// En flex, como lo que un archivo deja abierto cierra donde termina,
+		// el AST del resultado tiene en código cada @include que quedó, igual
+		// que el AST de su archivo. Vale para estas líneas; no para toda
+		// construcción que la normalización lee distinto en contexto (ver
+		// TestExpand_OpenBlockClosesAtTheEndOfItsFile).
+		if !strict {
+			code := includesInCode(nil, strings.Split(res.Text, "\n"))
+			for _, line := range res.KeptInCode {
+				if !code[line-1] {
+					t.Fatalf("kept @include on line %d is not code in the AST of the result:\n%s\nfiles: %q", line, res.Text, files)
+				}
+			}
 		}
 	})
 }

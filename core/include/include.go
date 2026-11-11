@@ -24,6 +24,7 @@ package include
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -135,10 +136,12 @@ type Origin struct {
 //   - Lines[i] es el origen de la línea i+1: con File "" es la línea Line del
 //     contenido raíz; si no, la línea Line del archivo File (ruta absoluta),
 //     contando el frontmatter que ese archivo tenía.
-//   - La línea expandida es exactamente esa línea de su origen. La única
-//     excepción es la línea vacía que deja un archivo incluido que es solo
-//     frontmatter, sin salto de línea final: no existe en ese archivo, y su
-//     origen es la línea del @include que la trajo.
+//   - La línea expandida es exactamente esa línea de su origen. Hay dos
+//     excepciones, líneas que no existen en ningún archivo y cuyo origen es la
+//     línea del @include que las trajo: la línea vacía que deja un archivo
+//     incluido que es solo frontmatter, sin salto de línea final, y, con
+//     KeepIncludesInCode, las líneas que cierran lo que un archivo incluido
+//     deja abierto (``` , ~~~, ::: o $$, ver ExpandWithOptions).
 //   - RootLines es la cantidad de líneas del contenido raíz.
 //
 // TestExpandWithSourceMap_EveryLineMatchesItsOrigin y checkSourceMap (en las
@@ -290,7 +293,9 @@ type ExpandOptions struct {
 	// AST de ParseDocument, con la gramática de documentos y la normalización
 	// de flex prendida, como doclang (build, get_ast, lint): la opción es para
 	// documentos (ver ExpandWithOptions). Una fuente .slidelang no se
-	// clasifica bien (un SLIDE no es un SECTION).
+	// clasifica bien (un SLIDE no es un SECTION). Con la opción, además, lo
+	// que un archivo incluido deja abierto se cierra donde termina el archivo
+	// (ver ExpandWithOptions).
 	//
 	// "Código" acá es lo que el AST guarda como bloque de código: el cuerpo de
 	// un CODE strict, una cerca de código, una pestaña de code-group. No es lo
@@ -332,17 +337,32 @@ type Expansion struct {
 // (ParseDocument, con la normalización de flex prendida, como doclang) lo
 // tiene dentro de un bloque de código; si no, se expande, y el archivo que
 // trae se decide igual. Lo que un archivo hermano o el documento que lo
-// incluye abren o cierran no cambia lo que decide un archivo: la expansión
-// es textual, así que el AST del resultado puede leer distinto un @include que
-// quedó (una cerca que un hermano dejó abierta), pero cada decisión se puede
-// comprobar sobre un solo archivo. Los `@include` del frontmatter del raíz se
+// incluye abren o cierran no cambia lo que decide un archivo, y cada decisión
+// se puede comprobar sobre un solo archivo.
+//
+// Un archivo incluido es un contenedor: una cerca (de código, diagrama, chart,
+// mapa o math), un :::code-group o un bloque $$ que abre y no cierra se cierra
+// donde termina el archivo, con una línea de cierre que se agrega al texto
+// (su origen es la directiva). Así el AST del resultado lee como código un
+// @include que quedó en código, igual que el de su archivo: antes, una cerca
+// que un archivo dejaba abierta se tragaba las líneas que seguían, una cerca
+// del raíz con un @include adentro quedaba al revés y el @include salía como
+// directiva sin soporte. Si un archivo deja algo abierto se decide sobre ese
+// archivo solo, y la normalización de flex corre sobre todo el texto
+// expandido: donde lee distinto algo según lo que lo rodea, el resultado
+// todavía puede diferir (un ```mermaid vacío en un documento sin frontmatter
+// se lee mal también sin ningún @include). Un bloque ::: de prosa que queda abierto no se
+// cierra, y en strict no se cierra nada (ver classifyIncluded). Los `@include`
+// del frontmatter del raíz se
 // expanden antes que nada, y el dialecto sale del frontmatter ya expandido.
 // Un `@include` que queda en código no se abre: su ruta no se resuelve ni se
 // lee.
 //
 // Hay un parse por archivo distinto (el de un archivo que se incluye varias
-// veces se reutiliza): el costo es lineal en el tamaño de los archivos. Los
-// errores salen en el mismo orden que en Expand.
+// veces se reutiliza), más uno por archivo incluido que podría dejar algo
+// abierto y, solo si lo deja, uno por cierre que se prueba: el costo es lineal
+// en el tamaño de los archivos. Los errores salen en el mismo orden que en
+// Expand.
 func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOptions) (Expansion, error) {
 	if !opts.KeepIncludesInCode {
 		text, sources, err := ExpandWithSourceMap(content, baseDir, read)
@@ -448,22 +468,136 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 		}
 		cached, ok := e.cache[child.file]
 		if !ok || !slices.Equal(cached.lines, child.lines) {
-			cached = classifiedFile{lines: child.lines, code: includesInCode(e.fragmentPrefix(child.lines), child.lines)}
+			cached = classifyIncluded(e.fragmentPrefix(child.lines), child.lines, !e.strict)
 			e.cache[child.file] = cached
 		}
-		childCode := cached.code
-		if err := e.emit(child.lines, childFrames, childOrigins, childCode); err != nil {
+		if err := e.emit(child.lines, childFrames, childOrigins, cached.code); err != nil {
 			return err
+		}
+		// Lo que el archivo deja abierto (una cerca, un code-group) cierra
+		// donde termina el archivo. Las líneas de cierre no están en él: son
+		// de la directiva, como la línea vacía de un archivo que es solo
+		// frontmatter.
+		for _, closer := range cached.closers {
+			e.out = append(e.out, closer)
+			e.origins = append(e.origins, origins[i])
 		}
 	}
 	return nil
 }
 
-// classifiedFile son las líneas de un archivo incluido y cuáles de sus
-// @include están en código (includesInCode).
+// classifiedFile son las líneas de un archivo incluido, cuáles de sus
+// @include están en código (includesInCode) y las líneas que cierran lo que
+// deja abierto al terminar (closers, ver classifyIncluded).
 type classifiedFile struct {
-	lines []string
-	code  []bool
+	lines   []string
+	code    []bool
+	closers []string
+}
+
+// closerCandidates son los cierres que se prueban, en orden, para un archivo
+// incluido que termina dentro de un cuerpo que se traga las líneas que siguen:
+// una cerca de código, de diagrama, de chart, de mapa o de math (``` o ~~~),
+// un :::code-group, una pestaña abierta dentro de un code-group y un bloque
+// $$ de math. Gana el
+// primero con el que, según el parser, el archivo ya no se traga una línea de
+// prosa puesta después.
+var closerCandidates = [][]string{
+	{"```"},
+	{"~~~"},
+	{":::"},
+	{"```", ":::"},
+	{"$$"},
+}
+
+// classifyIncluded decide, sobre el texto de un archivo incluido leído con el
+// dialecto del raíz (prefix, ver fragmentPrefix), cuáles de sus @include están
+// en código (como includesInCode) y, si closable, con qué líneas se cierra lo
+// que el archivo deja abierto.
+//
+// Un archivo incluido es un contenedor: como un bloque de CommonMark, lo que
+// abre y no cierra termina donde termina él (CommonMark 0.31, §4.5: una cerca
+// sin cierre llega hasta el final del bloque que la contiene). Así, lo que el
+// archivo deja abierto no se traga las líneas del documento que lo incluye, y
+// el AST del resultado lee las líneas que siguen como las lee el AST de su
+// propio archivo, que es sobre lo que se decide cada @include (salvo lo que la
+// normalización lea distinto en contexto, ver ExpandWithOptions). Sin eso, un archivo con una
+// cerca sin cerrar volvía prosa un @include que el raíz tenía dentro de su
+// propia cerca (y que por eso quedó sin expandir), y el build lo dibujaba como
+// un nodo sin soporte.
+//
+// Para saber si el archivo deja algo abierto se agrega al final una línea de
+// prosa marcada (después de una línea vacía): si el AST la tiene dentro de un
+// cuerpo que se lee al pie de la letra, el archivo se la tragó (swallows), y
+// se prueba closerCandidates hasta que caiga en prosa. Un bloque ::: de prosa
+// (un aviso, una columna) que queda abierto no se cierra: su contenido es
+// prosa, así que no cambia qué es código, y la línea marcada cae en él. En strict (closable
+// false) no se cierra nada: un CODE strict termina por sangría, no con una
+// línea de cierre. Hay un parse para el archivo si tiene @include o una línea
+// que podría abrir una cerca o un code-group, y uno más por cada candidato que
+// se prueba, solo si se tragó la línea marcada.
+func classifyIncluded(prefix, lines []string, closable bool) classifiedFile {
+	cf := classifiedFile{lines: lines, code: includesInCode(prefix, lines)}
+	if !closable || !mayLeaveOpen(lines) {
+		return cf
+	}
+	sentinel := includeTag(strings.Join(lines, "\n")) + "end"
+	if !swallows(prefix, lines, nil, sentinel) {
+		return cf
+	}
+	for _, closers := range closerCandidates {
+		if !swallows(prefix, lines, closers, sentinel) {
+			cf.closers = closers
+			break
+		}
+	}
+	return cf
+}
+
+// mayLeaveOpen es una condición necesaria, barata, para que lines deje
+// abierta una cerca, un code-group o un bloque de math: alguna línea tiene
+// ```, ~~~ o $$, o empieza con :::.
+func mayLeaveOpen(lines []string) bool {
+	for _, line := range lines {
+		if strings.Contains(line, "```") || strings.Contains(line, "~~~") || strings.Contains(line, "$$") || strings.HasPrefix(strings.TrimSpace(line), ":::") {
+			return true
+		}
+	}
+	return false
+}
+
+// swallows dice si lo que prefix + lines + closers deja abierto se traga una
+// línea de prosa puesta después (tras una línea vacía): si en el AST esa línea
+// (sentinel) está dentro de un cuerpo que se lee al pie de la letra (código,
+// code-group, diagrama, chart, mapa, math) o no está en ninguna parte (un
+// :::code-group sin pestañas la descarta). Si cae en prosa, también dentro de
+// un bloque :::, no se la tragó.
+func swallows(prefix, lines, closers []string, sentinel string) bool {
+	text := make([]string, 0, len(prefix)+len(lines)+len(closers)+2)
+	text = append(text, prefix...)
+	text = append(text, lines...)
+	text = append(text, closers...)
+	text = append(text, "", sentinel)
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(text, "\n"), "")
+	contains := func(v any) bool {
+		data, err := json.Marshal(v)
+		return err == nil && strings.Contains(string(data), sentinel)
+	}
+	if !contains(doc) {
+		return true
+	}
+	inBody := false
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		switch n.(type) {
+		case *ast.CodeElement, *ast.CodeGroupElement, *ast.MermaidElement, *ast.PlantUMLElement,
+			*ast.ChartElement, *ast.MapElement, *ast.MathElement:
+			if contains(n) {
+				inBody = true
+			}
+		}
+		return nil
+	})
+	return inBody
 }
 
 // fragmentPrefix son las líneas que van antes del contenido de un archivo

@@ -6,6 +6,7 @@ package include
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -231,12 +232,25 @@ func checkSourceMap(t *testing.T, name, root string, files map[string]string, te
 			continue
 		}
 		if got := sl[o.Line-1]; got != l {
-			if _, isInclude := parseIncludeLine(got); isInclude && l == "" {
+			// La línea vacía de un include de solo frontmatter y el cierre de
+			// lo que un archivo incluido deja abierto son de la directiva.
+			if _, isInclude := parseIncludeLine(got); isInclude && (l == "" || isCloserLine(l)) {
 				continue
 			}
 			t.Errorf("%s: line %d %q -> %v, which is %q", name, i+1, l, o, got)
 		}
 	}
+}
+
+// isCloserLine dice si l es una de las líneas con las que ExpandWithOptions
+// cierra lo que un archivo incluido deja abierto (closerCandidates).
+func isCloserLine(l string) bool {
+	for _, closers := range closerCandidates {
+		if slices.Contains(closers, l) {
+			return true
+		}
+	}
+	return false
 }
 
 // sourceMapCorpus son raíces y archivos para checkSourceMap: frontmatter en

@@ -307,7 +307,9 @@ One warning is doclang's own: `INCLUDE001`, an `@include` line inside a code
 block (a fence or a strict `CODE` body). That line is code: it stays as
 written in every output and is not expanded, also when the path does not
 exist. To include a file, write the `@include` outside the code block.
-(`slidelang build` still expands an `@include` inside a code block.)
+(`slidelang build` still expands an `@include` inside a code block.) A fence, a
+`:::code-group` or a `$$` block that an included file opens and does not close
+ends where that file ends.
 
 Findings in an `@include`d file carry that file (`file` in the `--report json`
 findings, relative to the document's directory, and its own path in SARIF)
