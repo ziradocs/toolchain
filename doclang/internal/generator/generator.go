@@ -236,6 +236,13 @@ func (g *Generator) RenderASTJSON(doc *ast.AST) ([]byte, error) {
 	if plain, ok := any(&literal).(interface{ SetPlainBlockTitles(bool) }); ok {
 		plain.SetPlainBlockTitles(true)
 	}
+	// La prosa de un ":::bloque" (su contentHTML y el de la prosa entre sus
+	// elementos) como la dibuja el HTML: listas numeradas y anidadas, y un <p>
+	// por párrafo. Por interfaz, por el mismo motivo; un core sin la opción
+	// deja el contentHTML de antes.
+	if prose, ok := any(&literal).(interface{ SetBlockProse(bool) }); ok {
+		prose.SetBlockProse(true)
+	}
 	renderer.PopulateInlineHTMLWithOptions(doc, variables, literal)
 	renderer.PopulateLangRunsWithOptions(doc, variables, literal) // issue #63 — ver slidelang/internal/generator/generator.go:RenderASTJSON
 	return json.Marshal(doc)
