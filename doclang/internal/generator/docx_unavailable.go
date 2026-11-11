@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mmonterroca/docxgo/v2/domain"
+	"go.ziradocs.com/core/v2/renderer"
 )
 
 // docxUnavailableKind es el tipo de contenido que no se pudo generar en el
@@ -61,13 +62,16 @@ func docxUnavailableNote(kind docxUnavailableKind, lang string) string {
 
 // docxImageUnavailableText es el marcador de una imagen que no se insertó:
 // la nota y el texto alternativo (o, sin alt, la fuente tal como la escribió
-// el autor, nunca la ruta absoluta de la máquina que compiló). El alt lleva
-// sus {{variables}} sustituidas fuera de sus code spans (fieldVariables), como
-// el alt de una imagen insertada y como el alt del HTML; antes el marcador
-// mostraba "{{v}}" tal cual. La fuente queda como se escribió.
+// el autor, nunca la ruta absoluta de la máquina que compiló). alt llega como
+// lo escribe el alt del HTML, con sus {{variables}} ya sustituidas: cada
+// caller sabe de dónde sale (fieldVariables en una imagen de bloque,
+// docxInlineImageAlt en una de párrafo, el alt del HTML del encabezado en una
+// de encabezado). Aquí no se vuelve a sustituir: el alt de un encabezado ya
+// perdió los backticks de sus code spans, y sustituir otra vez cambiaba un
+// `{{w}}` literal por su valor. La fuente queda como se escribió.
 func (g *DOCXGenerator) docxImageUnavailableText(alt, source string) string {
 	g.recordUnavailable(docxUnavailableImage, source)
-	label := strings.TrimSpace(fieldVariables(alt, g.variables))
+	label := strings.TrimSpace(alt)
 	if label == "" {
 		label = source
 	}
@@ -143,4 +147,20 @@ func (g *DOCXGenerator) docxMediaText(label, reason, source string) string {
 		}
 		return fmt.Sprintf("%s no disponible: %s", label, source)
 	}
+}
+
+// docxInlineImageAlt es el alt de una imagen inline ![alt](...) de un párrafo,
+// un ítem o una celda tal como lo escribe el HTML: las {{variables}}
+// sustituidas fuera de los code spans y el resultado en texto plano, el mismo
+// que renderer.FindInlineLinks registra para el atributo (un code span queda
+// sin sus backticks). Si el renderer no lo lee como imagen, queda el alt con
+// las variables sustituidas.
+func (g *DOCXGenerator) docxInlineImageAlt(alt string) string {
+	alt = fieldVariables(alt, g.variables)
+	for _, l := range renderer.FindInlineLinks("![" + alt + "](x)") {
+		if l.Image {
+			return renderer.UnescapeHTML(l.Text)
+		}
+	}
+	return alt
 }

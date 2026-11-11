@@ -7,6 +7,7 @@ import (
 	"html"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -196,5 +197,68 @@ func TestDOCXUnavailableImageAltSubstitutesVariables(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in %q", want, text)
 		}
+	}
+}
+
+// El marcador de una imagen que no se insertó lleva el mismo alt que el HTML,
+// también con un code span en el alt: en una imagen de bloque, en una inline
+// de párrafo y en una de encabezado. El alt del <img> de un encabezado ya
+// perdió los backticks, y el marcador volvía a sustituir sobre él: con w:
+// VALOR daba "hdr VALOR y VALOR" y el HTML "hdr VALOR y {{w}}". El de párrafo
+// conservaba los backticks que el HTML quita. Una variable vacía como único
+// alt deja la fuente, como un alt vacío.
+func TestDOCXUnavailableImageAltMatchesHTML(t *testing.T) {
+	src := "---\ntitle: D\nvariables:\n  v: VALOR\n  w: VALOR\n  e: \"\"\n---\n\n# A\n\n" +
+		"![blk {{v}} y `{{w}}`](falta1.png)\n\n" +
+		"Texto ![par {{v}} y `{{w}}`](falta2.png) fin.\n\n" +
+		"## Encabezado ![hdr {{v}} y `{{w}}`](falta3.png)\n\n" +
+		"![{{e}}](falta4.png)\n"
+	dir := t.TempDir()
+	opts := GeneratorOptions{AssetRoot: dir, SourceDir: dir}
+
+	htmlOut := filepath.Join(t.TempDir(), "d.html")
+	opts.Format = "html"
+	if err := New(newTestLogger()).Generate(parseDocLang(t, src), htmlOut, opts); err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(htmlOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	htmlAlt := map[string]string{}
+	for _, m := range regexp.MustCompile(`<img src="(falta\d\.png)" alt="([^"]*)"`).FindAllStringSubmatch(string(page), -1) {
+		htmlAlt[m[1]] = html.UnescapeString(m[2])
+	}
+
+	docxOut := filepath.Join(t.TempDir(), "d.docx")
+	opts.Format = "docx"
+	if err := New(newTestLogger()).Generate(parseDocLang(t, src), docxOut, opts); err != nil {
+		t.Fatal(err)
+	}
+	text := docxVisibleText(docxDocumentXML(t, docxOut))
+
+	for _, c := range []struct{ src, wantHTML string }{
+		{"falta1.png", "blk VALOR y `{{w}}`"},
+		{"falta2.png", "par VALOR y {{w}}"},
+		{"falta3.png", "hdr VALOR y {{w}}"},
+	} {
+		alt, ok := htmlAlt[c.src]
+		if !ok {
+			t.Fatalf("no <img> for %s in the HTML", c.src)
+		}
+		// Fija lo que dice el HTML, para que la comparación no pase si los
+		// dos cambian juntos.
+		if alt != c.wantHTML {
+			t.Errorf("HTML alt of %s = %q, want %q", c.src, alt, c.wantHTML)
+		}
+		if want := "[Imagen no disponible: " + alt + "]"; !strings.Contains(text, want) {
+			t.Errorf("%s: missing %q (the HTML alt) in %q", c.src, want, text)
+		}
+	}
+	if alt := htmlAlt["falta4.png"]; alt != "" {
+		t.Errorf(`HTML alt of {{e}} with e: "" = %q, want empty`, alt)
+	}
+	if want := "[Imagen no disponible: falta4.png]"; !strings.Contains(text, want) {
+		t.Errorf("missing %q in %q", want, text)
 	}
 }
