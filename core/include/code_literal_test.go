@@ -622,6 +622,89 @@ func TestExpand_ContextDecidesWhatIsOpen(t *testing.T) {
 	}
 }
 
+// Muchos archivos pegados a un párrafo, que en el documento no dejan nada
+// abierto (el párrafo se traga su $$), no cuestan una vuelta cada uno: se
+// leen después de la línea de párrafo a la que van pegados. Los que se
+// corrigen en contexto (un $$ dentro de un ::: info es texto; una ````math sin
+// cierre dentro de un ::: info es código y cierra con ```) se corrigen sin
+// mover lo demás: el cierre del archivo de antes, el @include que quedó en
+// código y las líneas de cada bloque.
+func TestExpand_ContextCorrectionsKeepTheRest(t *testing.T) {
+	files := map[string]string{"/base/m.md": "$$\nx\n", "/base/js.md": "```js", "/base/k.md": "K", "/base/q.md": "::: info\n````math\nx"}
+	var root strings.Builder
+	root.WriteString("# A\n\n")
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&root, "párrafo %d\n@include m.md\n\n", i)
+	}
+	root.WriteString("@include js.md\n\n```\n@include k.md\n```\n\n")
+	root.WriteString("::: info\n@include m.md\n:::\n\n::: info\n@include m.md\n:::\n\n@include q.md\n\n@include js.md\n\nFin.\n")
+	parses := 0
+	onContextParse = func() { parses++ }
+	t.Cleanup(func() { onContextParse = nil })
+	res, err := ExpandWithOptions(root.String(), "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.OpenAtEnd) != 3 || res.OpenAtEnd[0].Path != "js.md" || res.OpenAtEnd[1].Path != "q.md" || res.OpenAtEnd[2].Path != "js.md" {
+		t.Fatalf("OpenAtEnd = %+v, want js.md, q.md and js.md closed", res.OpenAtEnd)
+	}
+	for _, b := range res.OpenAtEnd {
+		if !slices.Equal(b.Closers, []string{"```"}) {
+			t.Errorf("%s closed with %q, want ```", b.Path, b.Closers)
+		}
+	}
+	lines := strings.Split(res.Text, "\n")
+	for _, b := range res.OpenAtEnd {
+		if lines[b.Line-1] != "```" || strings.TrimSpace(lines[b.OpenerLine-1]) != b.Opening {
+			t.Errorf("%s: line %d is %q and opener line %d is %q", b.Path, b.Line, lines[b.Line-1], b.OpenerLine, lines[b.OpenerLine-1])
+		}
+	}
+	if len(res.KeptInCode) != 1 || lines[res.KeptInCode[0]-1] != "@include k.md" || !includesInCode(nil, lines)[res.KeptInCode[0]-1] {
+		t.Errorf("KeptInCode = %v", res.KeptInCode)
+	}
+	checkExpansion(t, "context", root.String(), files, res)
+	// Una vuelta quita los cierres de los dos ::: info (eran texto) y
+	// corrige q.md, y la siguiente comprueba q.md y el js.md de después: las
+	// diez líneas de párrafo no agregan ninguna.
+	if parses > 2 {
+		t.Errorf("%d parses of the expanded text, want at most 2", parses)
+	}
+}
+
+// Un @include dentro de un bloque ::: de prosa del padre: el archivo es
+// contenido del bloque, y la cerca que deja abierta cierra antes del ::: del
+// padre, que así cierra el bloque.
+func TestExpand_IncludeInsideACalloutIsClosed(t *testing.T) {
+	files := map[string]string{"/base/js.md": "```js\ncode"}
+	root := "# A\n\n::: info\n@include js.md\n:::\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# A\n\n::: info\n```js\ncode\n```\n:::\n\nFin.\n"; res.Text != want || len(res.OpenAtEnd) != 1 {
+		t.Errorf("got %q %+v, want %q", res.Text, res.OpenAtEnd, want)
+	}
+}
+
+// Si se acaban las vueltas, los cierres sin comprobar se quitan: el bloque
+// queda como uno que no se pudo cerrar, con su aviso, y el texto es el de sin
+// cerrar.
+func TestExpand_ContextRoundsRunOut(t *testing.T) {
+	old := maxContextRounds
+	maxContextRounds = 1
+	t.Cleanup(func() { maxContextRounds = old })
+	files := map[string]string{"/base/q.md": "::: info\n````math\nx"}
+	root := "# A\n\n@include q.md\n\nFin.\n"
+	res, err := ExpandWithOptions(root, "/base", memFS(files), ExpandOptions{KeepIncludesInCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := Expand(root, "/base", memFS(files))
+	if res.Text != plain || len(res.OpenAtEnd) != 1 || res.OpenAtEnd[0].Line != 0 {
+		t.Errorf("got %q %+v, want the plain expansion and q.md not closed", res.Text, res.OpenAtEnd)
+	}
+}
+
 // Un bloque que ningún cierre cierra queda como estaba, en OpenAtEnd sin
 // líneas de cierre (Line 0), y el aviso va en la línea que lo abre. El caso:
 // una cerca con un :::code-item legado adentro, que la normalización de flex

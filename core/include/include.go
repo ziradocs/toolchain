@@ -360,10 +360,11 @@ type Expansion struct {
 // lo que rodea al archivo puede leer distinto su apertura: si ahí no deja nada
 // abierto, no se cierra; si los cierres no sirven, se buscan con el parser
 // sobre el archivo solo, y si tampoco, el bloque queda en OpenAtEnd como uno
-// que no se pudo cerrar. No se cierra un
-// bloque ::: de prosa, nada en strict, ni un archivo cuyo @include el padre no
-// lee como directiva propia (dentro de un diagrama o de math, donde el archivo
-// es parte de ese cuerpo). La normalización de flex corre sobre todo el texto
+// que no se pudo cerrar. Un archivo pegado a una línea de párrafo del padre se
+// lee después de ella (el párrafo puede tragarse su primera línea). No se
+// cierra un bloque ::: de prosa, nada en strict, ni un archivo cuyo @include
+// está dentro de un diagrama o de math del padre (el archivo es parte de ese
+// cuerpo); uno dentro de un bloque ::: de prosa sí, como contenido del bloque. La normalización de flex corre sobre todo el texto
 // expandido: donde lee distinto algo según lo que lo rodea, el resultado
 // todavía puede diferir (un ```mermaid vacío en un documento sin frontmatter
 // se lee mal también sin ningún @include). Los `@include`
@@ -375,7 +376,8 @@ type Expansion struct {
 // Hay un parse por archivo distinto con líneas @include (el de un archivo que
 // se incluye varias veces se reutiliza). Para lo que queda abierto, gate lee
 // cada archivo sin parsearlo; si algún archivo se cerró, hay un parse del
-// texto expandido (otro si hubo que corregir cierres), y uno o dos de un
+// texto expandido y uno más por cada vuelta que corrige un archivo cuyos
+// cierres cambian lo que sigue (hasta maxContextRounds), y uno o dos de un
 // archivo solo cuando gate no puede decidir. Los errores salen en el mismo
 // orden que en Expand.
 func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOptions) (Expansion, error) {
@@ -495,15 +497,25 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 		}
 		cached, ok := e.cache[child.file]
 		if !ok || !slices.Equal(cached.lines, child.lines) {
-			cached = classifiedFile{lines: child.lines}
+			cached = classifiedFile{lines: child.lines, closures: map[string]closure{}}
 			cached.code, cached.body = classifyIncludes(e.fragmentPrefix(child.lines), child.lines)
-			// Lo que el archivo deja abierto (ver ExpandWithOptions), solo en
-			// flex: en strict un CODE termina por sangría, no con una línea.
-			cached.closure = closure{opener: -1}
-			if !e.strict {
-				cached.closure = closureOf(nil, child.lines)
-			}
 			e.cache[child.file] = cached
+		}
+		// Lo que el archivo deja abierto (ver ExpandWithOptions), solo en
+		// flex: en strict un CODE termina por sangría, no con una línea. Si en
+		// el documento va pegado a una línea de párrafo, se lee después de
+		// ella (closureOf).
+		glued := ""
+		if n := len(e.out); n > 0 && proseLine(e.out[n-1]) {
+			glued = e.out[n-1]
+		}
+		c, ok := cached.closures[glued]
+		if !ok {
+			c = closure{opener: -1}
+			if !e.strict {
+				c = closureOf(nil, child.lines, glued)
+			}
+			cached.closures[glued] = c
 		}
 		childPos := make([]int, len(child.lines))
 		if err := e.emit(child.lines, childFrames, childOrigins, cached.code, cached.body, childPos); err != nil {
@@ -513,7 +525,7 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 		// (está dentro de un diagrama, de math, o metido en otro elemento) es
 		// parte de eso: lo que lee solo no cuenta ahí, y cerrarlo cerraría el
 		// cuerpo del padre.
-		if c := cached.closure; c.opener >= 0 && !body[i] {
+		if c.opener >= 0 && !body[i] {
 			// El bloque cierra donde termina el archivo. Las líneas de cierre
 			// no están en él: son de la directiva, como la línea vacía de un
 			// archivo que es solo frontmatter.
@@ -528,7 +540,7 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 			if len(c.closers) > 0 {
 				block.Line = len(e.out) + 1
 			}
-			e.info = append(e.info, openInfo{end: len(e.out), lines: child.lines, pending: c.pending})
+			e.info = append(e.info, openInfo{end: len(e.out), lines: child.lines, glued: glued, pending: c.pending})
 			for _, closer := range c.closers {
 				e.out = append(e.out, closer)
 				e.origins = append(e.origins, origins[i])
@@ -543,10 +555,12 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 // @include están en código o en otro cuerpo literal (classifyIncludes) y lo
 // que deja abierto al terminar (closureOf).
 type classifiedFile struct {
-	lines   []string
-	code    []bool
-	body    []bool
-	closure closure
+	lines []string
+	code  []bool
+	body  []bool
+	// closures es lo que deja abierto, según la línea de párrafo a la que va
+	// pegado en el documento ("" si no va pegado a ninguna).
+	closures map[string]closure
 }
 
 // fragmentPrefix son las líneas que van antes del contenido de un archivo
@@ -653,10 +667,11 @@ func includesInCode(prefix, lines []string) []bool {
 }
 
 // classifyIncludes es includesInCode y, además, cuáles de las líneas @include
-// que no son código el AST tampoco lee como una directiva propia: quedan dentro
-// de un cuerpo literal que no es código (diagrama, chart, mapa, math; ahí un
-// @include se expande y lo que trae es parte de ese cuerpo) o metidas en otro
-// elemento. Lo que un archivo así deja abierto no se cierra.
+// que no son código el AST tampoco lee como una directiva propia ni como
+// prosa: quedan dentro de un cuerpo literal que no es código (diagrama, chart,
+// mapa, math; ahí un @include se expande y lo que trae es parte de ese
+// cuerpo), o no aparecen en ninguna parte. Lo que un archivo así deja abierto
+// no se cierra.
 func classifyIncludes(prefix, lines []string) (inCode, inBody []bool) {
 	inCode = make([]bool, len(lines))
 	inBody = make([]bool, len(lines))
@@ -702,8 +717,22 @@ func classifyIncludes(prefix, lines []string) (inCode, inBody []bool) {
 		}
 		return nil
 	})
+	// En prosa (un bloque ::: cuyo contenido es solo texto) el archivo
+	// expandido es contenido de ese bloque, y lo que deja abierto se cierra
+	// igual; en un cuerpo literal que no es código, o si la línea no aparece
+	// en ninguna parte, no.
+	prose := make([]bool, len(lines))
+	forEachText(doc, func(_ ast.Element, w where, _ bodyKind, contents ...string) {
+		for _, c := range contents {
+			if w == inProse {
+				mark(prose, c)
+			} else {
+				mark(inBody, c)
+			}
+		}
+	})
 	for _, i := range pending {
-		inBody[i] = !inCode[i] && !directive[i]
+		inBody[i] = !inCode[i] && !directive[i] && (inBody[i] || !prose[i])
 	}
 	return inCode, inBody
 }

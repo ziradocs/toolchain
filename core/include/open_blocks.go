@@ -70,10 +70,14 @@ func (x Expansion) OpenAtEndDiagnostics() []diagnostics.Diagnostic {
 
 // maxContextRounds es cuántas veces, como mucho, se parsea el texto expandido
 // para comprobar en contexto los cierres que se agregaron
-// (checkClosersInContext). Cada vuelta corrige, como mucho, un archivo: lo
-// normal es una sola. Si se acaban, los cierres que quedan sin comprobar se
-// quitan.
-const maxContextRounds = 8
+// (checkClosersInContext). Cada vuelta corrige, como mucho, un archivo cuyos
+// cierres cambian lo que sigue: lo normal es una o dos. Si se acaban, los cierres que quedan sin comprobar se
+// quitan. Es variable para las pruebas.
+var maxContextRounds = 8
+
+// onContextParse, si no es nil, se llama en cada parse del texto expandido de
+// checkClosersInContext: las pruebas cuentan con él cuántas vueltas hubo.
+var onContextParse func()
 
 // openInfo es lo que keepExpander guarda de cada bloque de e.open para
 // comprobarlo en contexto: dónde van sus cierres en e.out (end: la posición
@@ -82,6 +86,7 @@ const maxContextRounds = 8
 type openInfo struct {
 	end     int
 	lines   []string
+	glued   string
 	pending bool
 	// gone: en contexto no deja nada abierto; sale de OpenAtEnd al final.
 	gone bool
@@ -143,6 +148,9 @@ func (e *keepExpander) checkClosersInContext() {
 				text = append(text, "", fmt.Sprintf("%s%de", tagPrefix, 2*k+1))
 			}
 		}
+		if onContextParse != nil {
+			onContextParse()
+		}
 		doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(text, "\n"), "")
 		landed := sentinelLandings(doc, tagPrefix)
 		at := func(n int) where {
@@ -152,29 +160,40 @@ func (e *keepExpander) checkClosersInContext() {
 			return nowhere
 		}
 		// Los cierres de un archivo cambian cómo se lee lo que sigue: en esta
-		// vuelta se decide hasta el primer archivo que hay que cambiar, y los
-		// de después se vuelven a comprobar en la siguiente.
+		// vuelta se decide hasta el primer archivo cuyos cierres hay que
+		// cambiar, y los de después se vuelven a comprobar en la siguiente.
+		// Quitar los cierres de un archivo que no deja nada abierto, cuando
+		// después de ellos se sigue en prosa (eran texto), no cambia lo que
+		// sigue: esa vuelta sigue.
 		change := map[int][]string{}
 		var notOpen []int
+		stop := false
 		for _, k := range closed {
-			if len(change) > 0 {
+			if stop {
 				break
 			}
 			switch {
 			case at(2*k) == inProse:
 				change[k] = nil
 				notOpen = append(notOpen, k)
+				stop = at(2*k+1) != inProse
 			case at(2*k+1) == inProse:
 				verified[k] = true
 			case e.info[k].pending:
+				stop = true
 				e.info[k].pending = false
-				st, _ := gate(e.info[k].lines)
-				c := parsedClosureOf(nil, e.info[k].lines, st)
+				st, _ := gate(e.info[k].lines, e.info[k].glued != "")
+				prefix := []string(nil)
+				if e.info[k].glued != "" {
+					prefix = []string{e.info[k].glued}
+				}
+				c := parsedClosureOf(prefix, e.info[k].lines, st)
 				change[k] = c.closers
 				if c.opener < 0 {
 					notOpen = append(notOpen, k)
 				}
 			default:
+				stop = true
 				change[k] = nil
 			}
 		}
@@ -392,11 +411,12 @@ type openState struct {
 // nada abierto. Cuando no puede seguir al parser (una etiqueta <<...>>, una
 // cerca con sangría, que puede ser texto de un ítem de lista) devuelve
 // sure=false y el archivo se parsea.
-func gate(lines []string) (st openState, sure bool) {
+func gate(lines []string, afterProse bool) (st openState, sure bool) {
 	st, sure = openState{kind: bodyNone, opener: -1}, true
-	// prose: la línea anterior es texto de un párrafo; blocks: bloques :::
-	// de prosa abiertos. Un $$ ahí es texto para el parser, no math.
-	prose, blocks := false, 0
+	// prose: la línea anterior es texto de un párrafo (afterProse: la que va
+	// antes del archivo en el documento); blocks: bloques ::: de prosa
+	// abiertos. Un $$ ahí es texto para el parser, no math.
+	prose, blocks := afterProse, 0
 	for i, line := range lines {
 		t := strings.TrimSpace(line)
 		if t == "" {
@@ -493,6 +513,22 @@ func diagramFence(trimmed string) bool {
 	return strings.HasPrefix(info, "mermaid") || strings.HasPrefix(info, "plantuml") || info == "chart" || info == "map"
 }
 
+// proseLine dice si line es texto de un párrafo para gate: una línea con texto
+// que no es un encabezado ni abre o cierra ninguno de los bloques que gate
+// sigue. Un $$ en la línea de abajo es texto del párrafo.
+func proseLine(line string) bool {
+	t := strings.TrimSpace(line)
+	if t == "" || strings.HasPrefix(t, "#") {
+		return false
+	}
+	for _, p := range []string{"```", "~~~", "$$", ":::", "<<", "@startuml"} {
+		if strings.HasPrefix(t, p) {
+			return false
+		}
+	}
+	return true
+}
+
 // closers son las líneas que cierran lo que st tiene abierto: ``` una cerca de
 // código, diagrama, chart o mapa; su misma secuencia de apertura una de math
 // (```, ````) y $$ un bloque $$; y un code-group, ``` su pestaña abierta, :::
@@ -525,8 +561,15 @@ func (st openState) closers() []string {
 // archivos. Si gate no está seguro, parsedClosureOf lo decide con el parser
 // sobre el archivo solo. ~~~ solo cuenta como apertura de una cerca de math:
 // el parser flex no tiene cercas de código con ~~~.
-func closureOf(prefix, lines []string) closure {
-	st, sure := gate(lines)
+//
+// Si glued, en el documento la línea anterior al archivo es texto de un
+// párrafo (proseLine), sin línea vacía en medio: el archivo se lee después de
+// ella, porque el párrafo puede tragarse su primera línea.
+func closureOf(prefix, lines []string, glued string) closure {
+	if glued != "" {
+		prefix = append(slices.Clip(prefix), glued)
+	}
+	st, sure := gate(lines, glued != "")
 	none := closure{opener: -1}
 	if st.kind == bodyNone && sure {
 		return none
@@ -561,7 +604,7 @@ func parsedClosureOf(prefix, lines []string, st openState) closure {
 	if opener < 0 {
 		return closure{opener: lastOpener(lines), failed: true}
 	}
-	st, _ = gate(lines[opener:])
+	st, _ = gate(lines[opener:], false)
 	// Una cerca de math sin cierre el parser puede leerla como código: gate
 	// la ve como math, y se cierra como código.
 	if kind == bodyFence && st.kind == bodyMath {
