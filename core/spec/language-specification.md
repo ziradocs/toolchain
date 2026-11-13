@@ -341,8 +341,11 @@ the same positional rule the flex dialect uses. Levels 2-6 are **not** blocks: t
 document renderer, the TOC generator and the transform stages (`xref`, numbering) consume
 either dialect without a single per-dialect branch.
 
-Unlike flex — where a `#` with no content is treated as stray Markdown and dropped — a
-declared `SECTION` is always kept, empty or not. The author wrote it on purpose.
+A section is kept whether or not it has elements, in both dialects and in any position: a
+declared `SECTION`, or a flex `#` with heading text, opens a block even when the next line is
+another section or the end of the file. The author wrote it on purpose, and a section added
+before it is filled is still part of the document. A flex `#` with no heading text does not
+open a section.
 
 **Normalization never runs on a strict document**, in either dialect. That is the property
 the mode exists to provide: what you read is what gets parsed.

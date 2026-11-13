@@ -10,10 +10,16 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 )
 
-// Un `#` que sigue a una sección todavía vacía abre su propia sección. Antes
-// el bucle del cuerpo solo cortaba en `#` si la sección ya tenía elementos,
-// así que `# A` + `# B` dejaba "# B" como párrafo dentro de A (y sin línea en
-// blanco en medio, pegado al texto siguiente: "# B Texto.").
+// Un `#` con texto abre una sección que se conserva aunque no tenga
+// elementos, como un SECTION en strict. Antes fallaban dos cosas:
+//
+//   - el bucle del cuerpo solo cortaba en `#` si la sección ya tenía
+//     elementos, así que `# A` + `# B` dejaba "# B" como párrafo dentro de A
+//     (y sin línea en blanco en medio, pegado al texto siguiente:
+//     "# B Texto.");
+//   - parseSection descartaba toda sección de contenido sin elementos: una
+//     sección vacía en medio o al final desaparecía del AST, `fmt` la borraba
+//     de la fuente y su node-id quedaba huérfano.
 
 // sectionTitle devuelve el texto del encabezado de un bloque, esté en
 // Heading (bloque "title") o en Title (bloques "content").
@@ -84,10 +90,24 @@ func TestDocumentFlex_HeadingAfterEmptyTitleSection(t *testing.T) {
 	}
 }
 
-// La misma situación con la sección vacía en medio del documento. Lo que se
-// comprueba es que B abre sección; no se fija si la A vacía se conserva o se
-// descarta (core/spec/language-specification.md describe hoy que flex
-// descarta un `#` sin contenido).
+// assertSections exige exactamente estas secciones, en orden, con este
+// número de elementos cada una.
+func assertSections(t *testing.T, doc *ast.AST, titles []string, counts []int) {
+	t.Helper()
+	if len(doc.ContentBlocks) != len(titles) {
+		t.Fatalf("se esperaban %d secciones %v, hay %d: %+v", len(titles), titles, len(doc.ContentBlocks), doc.ContentBlocks)
+	}
+	for i, b := range doc.ContentBlocks {
+		if got := sectionTitle(b); got != titles[i] {
+			t.Errorf("sección %d: título %q, se esperaba %q", i, got, titles[i])
+		}
+		if len(b.Elements) != counts[i] {
+			t.Errorf("sección %q: %d elementos, se esperaban %d: %+v", titles[i], len(b.Elements), counts[i], b.Elements)
+		}
+	}
+}
+
+// La sección vacía en medio del documento se conserva y B abre la suya.
 func TestDocumentFlex_HeadingAfterEmptyContentSection(t *testing.T) {
 	for name, src := range map[string]string{
 		"LF":   "# T\n\nx\n\n# A\n\n# B\n\nTexto.\n",
@@ -95,10 +115,69 @@ func TestDocumentFlex_HeadingAfterEmptyContentSection(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			doc := parsePlainMarkdown(t, src)
-			assertSectionWithParagraph(t, doc, "T", "x")
+			assertSections(t, doc, []string{"T", "A", "B"}, []int{1, 0, 1})
+			if a := doc.ContentBlocks[1]; a.BlockType != "content" || a.Title != "A" {
+				t.Errorf("A: se esperaba content con Title \"A\", got %+v", a)
+			}
 			assertSectionWithParagraph(t, doc, "B", "Texto.")
 			assertNoHeadingAsText(t, doc, "# B")
 		})
+	}
+}
+
+// Una sección vacía al final del documento se conserva.
+func TestDocumentFlex_TrailingEmptySection(t *testing.T) {
+	for name, src := range map[string]string{
+		"LF":                   "# A\n\nTexto.\n\n# B\n",
+		"CRLF":                 "# A\r\n\r\nTexto.\r\n\r\n# B\r\n",
+		"sin salto final":      "# A\n\nTexto.\n\n# B",
+		"con líneas en blanco": "# A\n\nTexto.\n\n# B\n\n\n",
+		"con separador ---":    "# A\n\nTexto.\n\n# B\n\n---\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc := parsePlainMarkdown(t, src)
+			assertSections(t, doc, []string{"A", "B"}, []int{1, 0})
+			if b := doc.ContentBlocks[1]; b.BlockType != "content" || b.Title != "B" {
+				t.Errorf("B: se esperaba content con Title \"B\", got %+v", b)
+			}
+		})
+	}
+}
+
+// Varias secciones vacías seguidas, sin líneas en blanco.
+func TestDocumentFlex_ConsecutiveEmptySections(t *testing.T) {
+	doc := parsePlainMarkdown(t, "# A\n# B\n# C\nt\n")
+	assertSections(t, doc, []string{"A", "B", "C"}, []int{0, 0, 1})
+	assertSectionWithParagraph(t, doc, "C", "t")
+	assertNoHeadingAsText(t, doc, "# ")
+}
+
+// El node-id de una sección vacía (en medio o al final) se le asigna a ella;
+// antes la sección se descartaba y el parse daba `orphan node-id`.
+func TestDocumentFlex_EmptySectionKeepsNodeID(t *testing.T) {
+	for name, src := range map[string]string{
+		"en medio": "<!-- node-id: SecT -->\n# T\n\nx\n\n<!-- node-id: SecA -->\n# A\n\n<!-- node-id: SecB -->\n# B\n\nTexto.\n",
+		"al final": "<!-- node-id: SecT -->\n# T\n\nx\n\n<!-- node-id: SecA -->\n# A\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc := parsePlainMarkdown(t, src) // falla con cualquier error, orphan incluido
+			if len(doc.ContentBlocks) < 2 {
+				t.Fatalf("se esperaban al menos 2 secciones: %+v", doc.ContentBlocks)
+			}
+			a := doc.ContentBlocks[1]
+			if a.Title != "A" || len(a.Elements) != 0 || a.NodeID != "SecA" {
+				t.Errorf("A: se esperaba vacía con node-id SecA, got title=%q elements=%d nodeId=%q", a.Title, len(a.Elements), a.NodeID)
+			}
+		})
+	}
+}
+
+// Un `#` sin texto no abre sección (no hay título que dar); se lee como
+// estaba.
+func TestDocumentFlex_BareHashDoesNotOpenSection(t *testing.T) {
+	doc := parsePlainMarkdown(t, "# A\n\nTexto.\n\n#\n\nMás.\n")
+	if len(doc.ContentBlocks) != 1 {
+		t.Fatalf("se esperaba 1 sección, hay %d: %+v", len(doc.ContentBlocks), doc.ContentBlocks)
 	}
 }
 

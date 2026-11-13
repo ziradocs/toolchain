@@ -287,12 +287,11 @@ func (p *DocumentFlexParser) parseSection() *ast.ContentBlock {
 	// TODO: `##` y `###` se convierten en elementos dentro del bloque
 	p.parseSectionContent(block)
 
-	// Only return section if it has content or is a title
-	if len(block.Elements) > 0 || blockType == "title" {
-		return block
-	}
-
-	return nil
+	// Un `#` con texto abre una sección que se conserva aunque no tenga
+	// elementos, en cualquier posición: igual que un `SECTION` declarado en
+	// strict. Un `#` sin texto nunca llega acá (tras TrimSpace no empieza
+	// con "# "), así que sigue siendo lo que era: una línea de texto.
+	return block
 }
 
 // parseLeadingContent parsea la sección inicial sin encabezado (ver
