@@ -65,7 +65,9 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		// cuerpo tomaba a los elementos hermanos escritos a su misma sangría
 		// (`TEXT` / `POINTS` / `- uno` salía como el párrafo "POINTS - uno").
 		// Si leerlas como elementos perdiera texto, rompiera el build o las
-		// leyera como propiedades, siguen siendo el cuerpo, como siempre.
+		// leyera como propiedades, o si un <!-- node-id --> anota la línea
+		// TEXT (el id se enlazaba a su párrafo), siguen siendo el cuerpo,
+		// como siempre.
 		// Solo la primera línea puede cortar: una vez que el cuerpo empezó,
 		// las líneas siguientes se leen como siempre, por sangría.
 		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
@@ -92,6 +94,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					break
 				}
 				if currentIndent <= headerIndent && OpensElementAfterEmptyText(ctx, trimmedLine) &&
+					(ctx.HasNodeID == nil || !ctx.HasNodeID(textLine)) &&
 					ctx.EmptyTextCutKeepsText != nil &&
 					ctx.EmptyTextCutKeepsText(i, len(ctx.Lines)) {
 					break

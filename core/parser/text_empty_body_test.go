@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -354,6 +353,13 @@ func TestStrictText_EmptyBodyCutNeverLosesText(t *testing.T) {
 		"  QUOTE\n    Cita.\n  nota: algo\n",
 		"  :::x hola\n  sigue\n",
 		"  ::: grid\n  ::: column\n  a\n  :::\n  :::\n",
+		// Re-revisión de 2b51764: el texto se pierde aunque sus palabras
+		// aparezcan en otra parte del elemento, o tiene tokens de un carácter.
+		"  POINTS\n    - apple pie\n    pie apple\n",
+		"  POINTS\n    - Costo\n    5 € + 3 %\n",
+		"  POINTS\n    - Plan A\n    o B\n",
+		"  POINTS\n    - apple pie\n    apple\n  QUOTE\n    pie\n",
+		"  IMAGE foto.png\n    alt: perro\n    caption: perro\n",
 	} {
 		var want []string
 		for _, l := range strings.Split(body, "\n") {
@@ -377,29 +383,46 @@ func TestStrictText_EmptyBodyCutNeverLosesText(t *testing.T) {
 
 // Propiedad: tras un TEXT vacío, cualquier secuencia de líneas a la sangría
 // del TEXT o más (que main leía entera como el párrafo del TEXT, sin perder
-// nada) conserva todas sus palabras, sin errores ni avisos fuera de TEXT001,
-// se corte o no el cuerpo. En documento, slide y columna tipada.
+// nada) conserva cada palabra y cada signo que trae, con sus repeticiones,
+// sin errores ni avisos fuera de TEXT001, se corte o no el cuerpo. El
+// vocabulario repite palabras y trae tokens de un carácter y signos, para que
+// una palabra perdida no pueda esconderse detrás de otra igual. En
+// documento, slide y columna tipada.
 func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
 	same := []string{
-		"TEXT", "POINTS", "CHECKLIST", "QUOTE", "TABLE", "IMAGE", "IMAGE foto%d.png", "IMAGE de w%d",
-		"CODE js", "CODE{verbatim} go", "CODE w%d w%d w%d", "@center", "@notes w%d", "@usuario w%d",
-		"| w%d | w%d |", "|---|---|", ":::note", ":::", "<<math>>", "<<end>>", "<<foo>> w%d",
-		"w%d w%d", "TEXTO w%d", "QUOTE w%d", "clave%d: w%d", "",
+		"TEXT", "POINTS", "CHECKLIST", "QUOTE", "TABLE", "IMAGE", "IMAGE foto.png", "IMAGE @ @",
+		"CODE js", "CODE{verbatim} go", "CODE @ @ @", "@center", "@notes @", "@usuario @",
+		"| @ | @ |", "|---|---|", ":::note", ":::", "<<math>>", "<<end>>", "<<foo>> @",
+		"@ @", "TEXTO @", "QUOTE @", "clave: @", "",
 	}
 	deeper := []string{
-		"- w%d", "- [ ] w%d", "- [x] w%d", "w%d w%d", "src: foto%d.png", "headers: [w%d]",
-		"rows:", "- [w%d]", "AUTHOR: w%d", "",
+		"- @ @", "- [ ] @", "- [x] @", "@ @", "@", "src: foto.png", "alt: @", "caption: @",
+		"headers: [@]", "rows:", "- [@]", "AUTHOR: @", "1. @", "",
 	}
+	vocab := []string{"apple", "pie", "A", "B", "o", "5", "3", "€", "+", "%", "perro"}
 	rng := rand.New(rand.NewSource(499))
-	n := 0
-	fill := func(f string) string {
-		for strings.Contains(f, "%d") {
-			n++
-			f = strings.Replace(f, "%d", fmt.Sprint(n), 1)
-		}
-		return f
-	}
 	for i := 0; i < 1500; i++ {
+		want := map[string]int{}
+		fill := func(tpl string) string {
+			// "@" al principio de la plantilla es la directiva; los demás
+			// son palabras del vocabulario.
+			parts := strings.Split(tpl, "@")
+			var b strings.Builder
+			for j, part := range parts {
+				b.WriteString(part)
+				if j == len(parts)-1 {
+					break
+				}
+				if j == 0 && part == "" && len(parts) > 1 && strings.HasPrefix(tpl, "@") && tpl != "@" && !strings.HasPrefix(tpl, "@ ") {
+					b.WriteString("@")
+					continue
+				}
+				w := vocab[rng.Intn(len(vocab))]
+				want[w]++
+				b.WriteString(w)
+			}
+			return b.String()
+		}
 		var b strings.Builder
 		if rng.Intn(3) == 0 {
 			b.WriteString("\n")
@@ -427,10 +450,10 @@ func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
 			for _, d := range diags {
 				t.Errorf("%s %q: unexpected diagnostic %v (got %v)", name, body, d, got)
 			}
-			out := astWords(t, c.src, c.document)
-			for _, w := range genWordRE.FindAllString(body, -1) {
-				if !out[w] {
-					t.Errorf("%s %q: lost %q (got %v)", name, body, w, got)
+			have := astTokens(t, c.src, c.document)
+			for w, n := range want {
+				if have[w] < n {
+					t.Errorf("%s %q: %q appears %d times, want %d (got %v)", name, body, w, have[w], n, got)
 					break
 				}
 			}
@@ -438,14 +461,92 @@ func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
 	}
 }
 
-var (
-	wordRE    = regexp.MustCompile(`[\p{L}\p{N}.]+`)
-	genWordRE = regexp.MustCompile(`\b(w|foto)\d+\b`)
-)
+// Una entrada grande, con cientos de miles de TEXT vacíos seguidos o
+// alternados con elementos, se lee sin desbordar la pila y en tiempo lineal:
+// la prueba del corte no es recursiva. Con 2b51764, las dos primeras daban
+// "fatal error: stack overflow".
+func TestStrictText_EmptyBodyCutLargeInput(t *testing.T) {
+	head := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"
+	for name, src := range map[string]string{
+		"empty TEXT lines": head + strings.Repeat("  TEXT\n", 250000),
+		"TEXT then POINTS": head + strings.Repeat("  TEXT\n  POINTS\n    - a\n", 200000),
+		"TEXT then prose":  head + strings.Repeat("  TEXT\n  POINTS\n  prosa\n", 20000),
+		"TEXT then QUOTE":  head + strings.Repeat("  TEXT\n  QUOTE\n    cita\n", 20000),
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc, _ := New(util.NewNoop()).ParseDocument(src, "d.doclang")
+			if doc == nil || len(doc.ContentBlocks) != 1 {
+				t.Fatalf("no document")
+			}
+		})
+	}
+}
 
-// astWords son las palabras de cada cadena del AST de src: todo el texto que
-// el parser conserva, en cualquier campo.
-func astWords(t *testing.T, src string, document bool) map[string]bool {
+// Un <!-- node-id --> justo antes de un TEXT vacío se enlazaba en main al
+// párrafo del TEXT. El TEXT no suelta lo que sigue, así que el id sigue
+// teniendo su nodo y el build no falla.
+func TestStrictText_EmptyBodyWithNodeIDKeepsParagraph(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src      string
+		document bool
+	}{
+		"document": {"---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  <!-- node-id: abc -->\n  TEXT\n  POINTS\n    - a\n", true},
+		"slide":    {"---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  <!-- node-id: abc -->\n  TEXT\n  POINTS\n    - a\n", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := New(util.NewNoop())
+			var doc *ast.AST
+			var diags []diagnostics.Diagnostic
+			if tc.document {
+				doc, diags = p.ParseDocument(tc.src, "d.doclang")
+			} else {
+				doc, diags = p.Parse(tc.src, "s.slidelang")
+			}
+			for _, d := range diags {
+				if d.IsError() {
+					t.Errorf("unexpected error: %v", d)
+				}
+			}
+			var texts []*ast.TextElement
+			_ = ast.Walk(doc, func(n ast.Node) error {
+				if e, ok := n.(*ast.TextElement); ok {
+					texts = append(texts, e)
+				}
+				return nil
+			})
+			if len(texts) != 1 || texts[0].Content != "POINTS - a" || texts[0].GetNodeID() != "abc" {
+				t.Errorf("want the paragraph \"POINTS - a\" with node-id abc, got %+v", texts)
+			}
+		})
+	}
+}
+
+// Los anchors que registra un parse de prueba no quedan en el deck: un
+// encabezado leído a prueba y rechazado (lo sigue prosa) no le cambia el
+// anchor al encabezado real del slide siguiente.
+func TestStrictText_RejectedTrialLeavesNoAnchors(t *testing.T) {
+	src := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"S\"\n  SECTION \"Intro\"\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  SECTION \"Sub\"\n  prosa\n\nSLIDE content\n  title: \"U\"\n  SECTION \"Sub\"\n"
+	doc, diags := New(util.NewNoop()).Parse(src, "s.slidelang")
+	for _, d := range diags {
+		if d.IsError() {
+			t.Errorf("unexpected error: %v", d)
+		}
+	}
+	var html []string
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if e, ok := n.(*ast.TextElement); ok {
+			html = append(html, e.Content)
+		}
+		return nil
+	})
+	if len(html) != 3 || html[1] != `SECTION "Sub" prosa` || !strings.Contains(html[2], `id="heading-sub"`) {
+		t.Errorf("want the paragraph and a heading with anchor heading-sub, got %q", html)
+	}
+}
+
+// astTokens cuenta los tokens (como los cuenta accountsFor) de las cadenas
+// del AST de src que son texto del autor.
+func astTokens(t *testing.T, src string, document bool) map[string]int {
 	t.Helper()
 	p := New(util.NewNoop())
 	var doc *ast.AST
@@ -462,27 +563,29 @@ func astWords(t *testing.T, src string, document bool) map[string]bool {
 	if err := json.Unmarshal(raw, &tree); err != nil {
 		t.Fatal(err)
 	}
-	words := map[string]bool{}
-	var walk func(v interface{})
-	walk = func(v interface{}) {
-		switch x := v.(type) {
-		case string:
-			for _, w := range wordRE.FindAllString(x, -1) {
-				words[w] = true
-				for _, part := range strings.Split(w, ".") {
-					words[part] = true
-				}
+	have := map[string]int{}
+	collectTokens(tree, have)
+	return have
+}
+
+// collectTokens suma a have los tokens de cada cadena de v, un valor JSON
+// decodificado, salvo las de derivedOrEnumField y los campos *HTML.
+func collectTokens(v interface{}, have map[string]int) {
+	switch t := v.(type) {
+	case string:
+		for _, tok := range tokens(t) {
+			have[tok]++
+		}
+	case []interface{}:
+		for _, e := range t {
+			collectTokens(e, have)
+		}
+	case map[string]interface{}:
+		for k, e := range t {
+			if derivedOrEnumField[k] || strings.HasSuffix(k, "HTML") {
+				continue
 			}
-		case []interface{}:
-			for _, e := range x {
-				walk(e)
-			}
-		case map[string]interface{}:
-			for _, e := range x {
-				walk(e)
-			}
+			collectTokens(e, have)
 		}
 	}
-	walk(tree)
-	return words
 }

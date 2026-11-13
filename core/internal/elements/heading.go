@@ -163,6 +163,18 @@ func (p *HeadingParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // contra el que el parser derivaría en esa misma posición.
 type HeadingAnchors struct {
 	used map[string]int
+	// base, si no es nil, es la capa de abajo (ver Overlay): sus anchors
+	// cuentan como usados, pero lo que se registra va solo en esta.
+	base *HeadingAnchors
+}
+
+// count es cuántas veces se registró anchor, en esta capa y las de abajo.
+func (a *HeadingAnchors) count(anchor string) int {
+	n := 0
+	for ; a != nil; a = a.base {
+		n += a.used[anchor]
+	}
+	return n
 }
 
 // Derive devuelve el anchor que Unique asignaría a text, sin registrarlo.
@@ -173,21 +185,17 @@ func (a *HeadingAnchors) Derive(text string) string {
 		prefixed = "heading-" + base
 	}
 	candidate := prefixed
-	for n := 2; a.used[candidate] > 0; n++ {
+	for n := 2; a.count(candidate) > 0; n++ {
 		candidate = prefixed + "-" + strconv.Itoa(n)
 	}
 	return candidate
 }
 
-// Clone devuelve una copia independiente: lo que se registre en ella no
-// cambia a a. La usa el parse de prueba del cuerpo de un TEXT vacío
-// (ParseContext.EmptyTextCutKeepsText).
-func (a *HeadingAnchors) Clone() HeadingAnchors {
-	c := HeadingAnchors{used: make(map[string]int, len(a.used))}
-	for k, v := range a.used {
-		c.used[k] = v
-	}
-	return c
+// Overlay devuelve una capa sobre a: ve los anchors de a, pero lo que se
+// registra en ella no cambia a a y se descarta con la capa. La usa el parse
+// de prueba del cuerpo de un TEXT vacío (ParseContext.EmptyTextCutKeepsText).
+func (a *HeadingAnchors) Overlay() HeadingAnchors {
+	return HeadingAnchors{base: a}
 }
 
 // Unique deriva el anchor de text y lo registra.
@@ -204,5 +212,5 @@ func (a *HeadingAnchors) Reserve(anchor string) bool {
 		a.used = make(map[string]int)
 	}
 	a.used[anchor]++
-	return a.used[anchor] == 1
+	return a.count(anchor) == 1
 }

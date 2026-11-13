@@ -51,6 +51,10 @@ type ParseContext struct {
 	// antes de dejar vacío un TEXT strict cuya primera línea abre un
 	// elemento: si no, esas líneas siguen siendo el cuerpo del TEXT.
 	EmptyTextCutKeepsText func(start, end int) bool
+	// HasNodeID, si no es nil, dice si Lines[i] lleva un <!-- node-id -->.
+	// Un TEXT vacío en esa línea no suelta lo que sigue: el id se enlazaba
+	// a su párrafo.
+	HasNodeID func(i int) bool
 
 	// LineOffset son las líneas del archivo que preceden a Lines[0]: el
 	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines

@@ -236,11 +236,18 @@ nothing changes meaning. The first line with text, at the indentation of
   directive (`@notes`, `@include`, `@center`…) or a `| … |` table row;
 - every line the `TEXT` would have taken as its body (up to the first line
   with less indentation) reads as a sequence of such elements without losing
-  or moving anything: no word is dropped, no line becomes a property or an
-  unrecognized line, no diagnostic other than `TEXT001` appears, no element
-  takes a line at its own indentation that is not its own (a `QUOTE` or a
-  `POINTS` does not take the prose after it), and each element is followed by
-  another one that opens the same way.
+  or moving anything: every word and sign of each line (one-letter words and
+  signs such as `€` or `%` included, counted with their repetitions) is in
+  the text or a property of the element that took the line, apart from the
+  keyword it opens with, list and checkbox markers, property keys and closing
+  lines; no line becomes a property or an unrecognized line; no diagnostic
+  other than `TEXT001` appears; no element takes a line at its own
+  indentation that is not its own (a `QUOTE` or a `POINTS` does not take the
+  prose after it), nor ends before a more indented line it did not take; and
+  each element is followed by another one that opens the same way.
+
+A `TEXT` annotated with a `<!-- node-id -->` never gives up its body this
+way: the id names its paragraph.
 
 Otherwise those lines stay the body of the `TEXT`, as before: a word that only
 starts with a keyword (`TEXTO`, `POINTSX`, `QUOTEado`), a keyword followed by
