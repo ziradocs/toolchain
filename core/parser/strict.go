@@ -62,6 +62,7 @@ func (p *strictBody) position(lineIndex int) diagnostics.Position {
 func (p *strictBody) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
 		Mode:            "strict",
+		SlideHeadings:   p.slideHeadings,
 		NestedListTypes: p.nestedListTypes,
 		ListStart:       p.listStart,
 		MathSource:      p.mathSource,

@@ -224,13 +224,24 @@ that starts with `{` or `[`. Code groups are unaffected: in strict they are
 
 A `TEXT` body is the lines that follow it with indentation: usually deeper than
 `TEXT`, or, as always accepted, at its own indentation. When the first line
-with text is at the indentation of `TEXT` (or less) and another element
-recognizes it (`POINTS`, `CODE`, `@`, `:::`…), the `TEXT` has no body and that
-line is dispatched as an element, so a `TEXT` with no body does not take the
-elements after it as text. Only that first line can end the body this way:
-once the body has started, the lines after it are read by indentation, as
-always. A `TEXT` with no content is the `TEXT001` diagnostic, a warning in
-both dialects (a strict document included), so it does not stop the build.
+with text is at the indentation of `TEXT` (or less) and opens an element, the
+`TEXT` has no body and that line is dispatched as that element, so a `TEXT`
+with no body does not take the elements after it as text. A line opens an
+element only in a form that element accepts: `TEXT`, `POINTS`, `CHECKLIST`,
+`QUOTE` and `TABLE` alone on the line, `IMAGE` alone or with its source,
+`CODE` alone or with `{verbatim}`, language and filename, `SECTION "…"` inside
+a `SLIDE`, a `:::` block, a `<<…>>` tag that an element recognizes, a known
+directive (`@notes`, `@include`, `@center`…) or a `| … |` table row. Anything
+else is body text, as before: a word that only starts with a keyword
+(`TEXTO`, `POINTSX`, `QUOTEado`), a keyword followed by text its element would
+drop (`TEXT hola`, `QUOTE de Ana`), `MERMAID`, `<<foo>>`, `@usuario` or
+`| hola`. Only that first line can end the body this way: once the body has
+started, the lines after it are read by indentation, as always. No text is
+dropped: a line either stays in the body or becomes the element it opens. A
+`:::` block that is never closed, or a `::: grid` marker, is reported as an
+error in that position, as it is anywhere else in strict. A `TEXT` with no
+content is the `TEXT001` diagnostic, a warning in both dialects (a strict
+document included), so it does not stop the build.
 
 In `fmt`, two Markdown pipe tables in a row are written with a blank line
 between them, at the top level of a section or slide and inside a typed grid

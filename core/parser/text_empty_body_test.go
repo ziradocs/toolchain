@@ -136,48 +136,152 @@ func strictTexts(t *testing.T, src string, document bool) []string {
 	return texts
 }
 
-// Tras un TEXT vacío, una palabra clave pegada a la sangría del TEXT
-// ("TEXTO", "POINTSX", "QUOTEado") está en posición de elemento: se despacha
-// igual que sin el TEXT delante, por prefijo, como en main (ver
-// elements.EndsStrictBody). Con la línea pegada al TEXT y con una línea en
-// blanco entre los dos.
-func TestStrictText_EmptyBodyThenGluedKeywordDispatchesAsElement(t *testing.T) {
-	head := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"
-	for _, word := range []string{"TEXTO pegado", "POINTSX pegado", "QUOTEado"} {
-		bare := elementShapes(t, head+"  "+word+"\n")
+// Tras un TEXT vacío, una línea a su misma sangría que solo empieza con una
+// palabra clave ("TEXTO pegado", "POINTSX pegado", "QUOTEado") no abre ningún
+// elemento: es el cuerpo del TEXT, como en main. Lo mismo una palabra clave en
+// una forma que su elemento no acepta ("TEXT hola", "QUOTE de Ana", "CODE:x",
+// "MERMAID", "TABLE OF CONTENTS") y una línea simbólica que no es un elemento
+// ("<<foo>> bar", "@usuario dijo hola", "| hola"): en posición de elemento
+// perderían el texto o darían error. Con la línea pegada al TEXT y con una
+// línea en blanco entre los dos (main los leía igual en los dos casos, como
+// párrafo), en documento, slide y columna tipada.
+func TestStrictText_EmptyBodyThenGluedKeywordIsProse(t *testing.T) {
+	words := []string{
+		"TEXTO pegado", "POINTSX pegado", "QUOTEado", "TEXT hola", "QUOTE de Ana",
+		"POINTS x", "CODE:x", "MERMAID", "TABLE OF CONTENTS", "IMAGEN",
+		"<<foo>> bar", "@usuario dijo hola", "| hola",
+	}
+	for _, word := range words {
 		for _, sep := range []string{"\n", "\n\n"} {
-			got := elementShapes(t, head+"  TEXT"+sep+"  "+word+"\n")
-			if strings.Join(got, "|") != strings.Join(bare, "|") {
-				t.Errorf("%q after an empty TEXT (sep %q): got %v, want %v as without the TEXT", word, sep, got, bare)
+			for name, c := range sameIndentCases(sep + "  " + word + "\n") {
+				t.Run(name+"/"+word, func(t *testing.T) {
+					got, diags := elementShapes(t, c.src, c.document)
+					if want := "text:" + word; strings.Join(got, "|") != want {
+						t.Errorf("sep %q: got %v, want [%s] as in main", sep, got, want)
+					}
+					if len(diags) != 0 {
+						t.Errorf("sep %q: unexpected diagnostics %v", sep, diags)
+					}
+				})
 			}
 		}
 	}
+	// En un documento, SECTION indentado no es un encabezado (es un error en
+	// posición de elemento): tras un TEXT vacío sigue siendo prosa.
+	got, _ := elementShapes(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  SECTION \"Sub\"\n", true)
+	if want := `text:SECTION "Sub"`; strings.Join(got, "|") != want {
+		t.Errorf("document SECTION: got %v, want [%s]", got, want)
+	}
 }
 
-// elementShapes devuelve tipo y contenido de cada elemento de la primera
-// sección, sin posiciones ni node-ids.
-func elementShapes(t *testing.T, src string) []string {
+// Tras un TEXT vacío, una línea a su misma sangría que abre un elemento en la
+// forma que ese elemento acepta se despacha como elemento, igual que sin el
+// TEXT delante. El elemento sin TEXT delante no pierde nada: no da errores ni
+// avisos de contenido descartado o ignorado. En documento, slide y columna
+// tipada, pegado al TEXT y con línea en blanco.
+func TestStrictText_EmptyBodyThenRealElementIsDispatched(t *testing.T) {
+	els := []string{
+		"  POINTS\n    - uno\n",
+		"  QUOTE\n    Cita.\n",
+		"  CHECKLIST\n    - [ ] dos\n",
+		"  CODE js\n    x\n",
+		"  CODE{verbatim} js\n    x\n",
+		"  IMAGE foto.png\n",
+		"  TABLE\n    headers: [a]\n",
+		"  | a |\n  |---|\n  | 1 |\n",
+		"  | a | b |\n",
+		"  ::: note\n  hola\n  :::\n",
+		"  <<math>>\n  x^2\n  <<end>>\n",
+		"  <<mermaid>>\n    graph TD\n    A --> B\n  <<end>>\n",
+		"  @center\n",
+	}
+	for _, el := range els {
+		for name, bare := range sameIndentCases(el) {
+			// sameIndentCases antepone un TEXT; el caso sin TEXT lo quita.
+			bareSrc := withoutTextLine(bare.src)
+			want, diags := elementShapes(t, bareSrc, bare.document)
+			for _, d := range diags {
+				if d.IsError() || d.RuleID == "DIRECTIVE003" || d.RuleID == "STRICT003" {
+					t.Fatalf("%s %q: fixture loses content: %v", name, el, d)
+				}
+			}
+			for _, sep := range []string{"", "\n"} {
+				c := sameIndentCases(sep + el)[name]
+				if got, _ := elementShapes(t, c.src, c.document); strings.Join(got, "|") != strings.Join(want, "|") {
+					t.Errorf("%s %q after an empty TEXT (blank %q): got %v, want %v as without the TEXT", name, el, sep, got, want)
+				}
+			}
+		}
+	}
+	// En un SLIDE, SECTION "…" es un encabezado: corta el TEXT vacío.
+	slide := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n"
+	want, _ := elementShapes(t, slide+"  SECTION \"Sub\"\n", false)
+	if got, _ := elementShapes(t, slide+"  TEXT\n  SECTION \"Sub\"\n", false); strings.Join(got, "|") != strings.Join(want, "|") || len(want) != 1 {
+		t.Errorf("slide SECTION: got %v, want %v", got, want)
+	}
+}
+
+// elementShapes parsea src y devuelve tipo y contenido de cada elemento hoja,
+// sin posiciones ni node-ids (los grids y sus columnas no cuentan), y los
+// diagnósticos que no son TEXT001.
+func elementShapes(t *testing.T, src string, document bool) ([]string, []diagnostics.Diagnostic) {
 	t.Helper()
-	doc, _ := New(util.NewNoop()).ParseDocument(src, "d.doclang")
+	p := New(util.NewNoop())
+	var doc *ast.AST
+	var all []diagnostics.Diagnostic
+	if document {
+		doc, all = p.ParseDocument(src, "d.doclang")
+	} else {
+		doc, all = p.Parse(src, "s.slidelang")
+	}
+	var diags []diagnostics.Diagnostic
+	for _, d := range all {
+		if d.RuleID != "TEXT001" {
+			diags = append(diags, d)
+		}
+	}
 	var out []string
-	for _, el := range doc.ContentBlocks[0].Elements {
-		switch e := el.(type) {
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		switch e := n.(type) {
 		case *ast.TextElement:
 			out = append(out, "text:"+e.Content)
 		case *ast.QuoteElement:
 			out = append(out, "quote:"+e.Content)
 		case *ast.PointsElement:
 			out = append(out, fmt.Sprintf("points:%d", len(e.Items)))
-		default:
-			out = append(out, fmt.Sprintf("%T", el))
+		case *ast.ChecklistElement:
+			out = append(out, fmt.Sprintf("checklist:%d", len(e.Items)))
+		case *ast.CodeElement:
+			out = append(out, "code:"+e.Language+":"+e.Content)
+		case *ast.ImageElement:
+			out = append(out, "image:"+e.Source)
+		case *ast.TableElement:
+			out = append(out, fmt.Sprintf("table:%v:%v", e.Headers, e.Rows))
+		case *ast.SpecialBlockElement:
+			out = append(out, "special:"+e.BlockType+":"+e.Content)
+		case *ast.DirectiveNode:
+			out = append(out, "directive:"+e.Name)
+		case *ast.MathElement, *ast.MermaidElement, *ast.HeadingElement:
+			out = append(out, fmt.Sprintf("%T", e))
 		}
-	}
-	return out
+		return nil
+	})
+	return out, diags
 }
 
-// Un TEXT sin contenido da TEXT001 como warning en los dos dialectos: no
-// pierde nada, y en un documento strict un error rompería documentos que
-// compilaban.
+// withoutTextLine quita de src la primera línea que es solo "TEXT".
+func withoutTextLine(src string) string {
+	lines := strings.SplitAfter(src, "\n")
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "TEXT" {
+			return strings.Join(append(lines[:i:i], lines[i+1:]...), "")
+		}
+	}
+	return src
+}
+
+// Un TEXT sin contenido da TEXT001 como warning en los dos dialectos: en un
+// documento strict un error rompería documentos que compilaban.
 func TestStrictText_EmptyTextIsReported(t *testing.T) {
 	_, diags := New(util.NewNoop()).ParseDocument("---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  POINTS\n    - uno\n", "d.doclang")
 	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || !diags[0].IsWarning() || diags[0].Position.Line != 7 {

@@ -34,6 +34,10 @@ const (
 type ParseContext struct {
 	ContentMarkdown bool   // explicit fragment context; never a document boundary policy
 	Mode            string // "strict" or "flex"
+	// SlideHeadings dice que `SECTION "Texto"` es un encabezado de subsección
+	// en este cuerpo strict (el de un SLIDE). Solo lo consulta TextParser,
+	// para saber si esa línea abre un elemento tras un TEXT vacío.
+	SlideHeadings   bool
 	ListStart       bool
 	MathSource      bool
 	NestedListTypes bool // explicit ast_capabilities source opt-in

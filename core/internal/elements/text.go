@@ -58,13 +58,13 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		// El cuerpo son las líneas que siguen con sangría. Puede estar más
 		// sangrado que TEXT (lo normal) o, como siempre se aceptó, a su misma
 		// sangría. Si la primera línea con texto está a la sangría de TEXT, o
-		// menos, y otro elemento la reconoce (POINTS, CODE, un "@", un
-		// ":::"…), TEXT no tiene cuerpo: esa línea está en posición de
-		// elemento y se despacha como tal. Antes un TEXT sin cuerpo tomaba a
-		// los elementos hermanos escritos a su misma sangría (`TEXT` /
-		// `POINTS` / `- uno` salía como el párrafo "POINTS - uno"). Solo la
-		// primera línea puede cortar: una vez que el cuerpo empezó, las
-		// líneas siguientes se leen como siempre, por sangría.
+		// menos, y abre un elemento de verdad (opensElementAfterEmptyText),
+		// TEXT no tiene cuerpo y esa línea se despacha como elemento. Antes
+		// un TEXT sin cuerpo tomaba a los elementos hermanos escritos a su
+		// misma sangría (`TEXT` / `POINTS` / `- uno` salía como el párrafo
+		// "POINTS - uno"). Solo la primera línea puede cortar: una vez que el
+		// cuerpo empezó, las líneas siguientes se leen como siempre, por
+		// sangría.
 		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 		textLine := startIndex
 		consumed++
@@ -88,7 +88,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				if currentIndent == 0 {
 					break
 				}
-				if currentIndent <= headerIndent && IsNewElement(trimmedLine, "strict") {
+				if currentIndent <= headerIndent && opensElementAfterEmptyText(ctx, trimmedLine) {
 					break
 				}
 				expectedIndent = currentIndent
@@ -402,4 +402,64 @@ func contentHeadingPrefix(line string) bool {
 		n++
 	}
 	return n >= 1 && n <= 6 && n < len(line) && (line[n] == ' ' || line[n] == '\t')
+}
+
+// opensElementAfterEmptyText dice si trimmed, la primera línea con texto
+// después de un TEXT strict y a su misma sangría, abre un elemento que el
+// despacho strict (parser/strict.go) lee sin perder nada de lo que dice. Si
+// no, es el cuerpo del TEXT, como siempre.
+//
+// Una palabra clave cuenta solo en la forma que su elemento acepta. TEXT,
+// POINTS, CHECKLIST, QUOTE y TABLE van solos en su línea, porque esos parsers
+// descartan lo que sigue a la palabra clave; IMAGE puede llevar la fuente
+// ("IMAGE foto.png"); CODE puede llevar "{verbatim}" y después lenguaje y
+// archivo; SECTION lleva su título entre comillas y solo cuenta donde es
+// encabezado (en un SLIDE). Una palabra que solo empieza con una palabra clave
+// ("TEXTO", "POINTSX", "QUOTEado") es prosa, igual que "TEXT hola" o
+// "MERMAID", que en posición de elemento perderían el texto o darían error.
+//
+// De la sintaxis simbólica cuentan ":::", una etiqueta "<<…>>" que un parser
+// strict reconoce, una directiva conocida ("@notes", "@include", "@center"…)
+// y una fila de tabla "| … |". "<<foo>>", "@usuario dijo" o "| hola" son
+// prosa: en posición de elemento se descartarían.
+func opensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	switch trimmed[0] {
+	case ':':
+		return strings.HasPrefix(trimmed, ":::")
+	case '|':
+		return len(trimmed) > 1 && strings.HasSuffix(trimmed, "|")
+	case '@':
+		name, _ := (&DirectiveParser{}).parseDirectiveNameAndParams(strings.TrimSpace(trimmed[1:]))
+		return name == "include" || knownDirective(name)
+	case '<':
+		for _, tag := range []ElementParser{
+			&MermaidParser{}, &PlantUMLParser{}, &ChartParser{}, &MediaParser{}, &MapParser{},
+			&QuizParser{}, &PollParser{}, &MetricParser{}, &GridParser{}, &MathParser{},
+		} {
+			if tag.CanParse(trimmed, "strict") {
+				return true
+			}
+		}
+		return false
+	}
+	switch trimmed {
+	case "TEXT", "POINTS", "CHECKLIST", "QUOTE", "TABLE", "IMAGE", "CODE":
+		return true
+	}
+	followedBySpace := func(rest string) bool {
+		return rest != "" && (rest[0] == ' ' || rest[0] == '\t')
+	}
+	if rest, ok := strings.CutPrefix(trimmed, "IMAGE"); ok {
+		return followedBySpace(rest)
+	}
+	if rest, ok := strings.CutPrefix(trimmed, "CODE"); ok {
+		if rest == CodeVerbatimMarker {
+			return true
+		}
+		return followedBySpace(strings.TrimPrefix(rest, CodeVerbatimMarker))
+	}
+	return ctx.SlideHeadings && strings.HasPrefix(trimmed, `SECTION "`)
 }
