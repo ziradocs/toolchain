@@ -57,11 +57,14 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "TEXT") { // Skip TEXT line
 		// El cuerpo son las líneas que siguen con sangría. Puede estar más
 		// sangrado que TEXT (lo normal) o, como siempre se aceptó, a su misma
-		// sangría; en ese caso una línea que otro elemento reconoce (POINTS,
-		// CODE, un "@", un ":::"…) corta el cuerpo. Antes no lo cortaba: un
-		// TEXT sin cuerpo tomaba a los elementos hermanos escritos a su misma
-		// sangría (`TEXT` / `POINTS` / `- uno` salía como el párrafo "POINTS -
-		// uno"), mientras que la prosa a la misma sangría sí era el cuerpo.
+		// sangría. Si la primera línea con texto está a la sangría de TEXT, o
+		// menos, y otro elemento la reconoce (POINTS, CODE, un "@", un
+		// ":::"…), TEXT no tiene cuerpo: esa línea está en posición de
+		// elemento y se despacha como tal. Antes un TEXT sin cuerpo tomaba a
+		// los elementos hermanos escritos a su misma sangría (`TEXT` /
+		// `POINTS` / `- uno` salía como el párrafo "POINTS - uno"). Solo la
+		// primera línea puede cortar: una vez que el cuerpo empezó, las
+		// líneas siguientes se leen como siempre, por sangría.
 		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 		textLine := startIndex
 		consumed++
@@ -93,9 +96,6 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 			// Check if this line should be part of the text block
 			if currentIndent < expectedIndent {
-				break
-			}
-			if expectedIndent <= headerIndent && IsNewElement(trimmedLine, "strict") {
 				break
 			}
 

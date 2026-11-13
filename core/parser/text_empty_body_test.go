@@ -4,6 +4,8 @@
 package parser
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -52,48 +54,125 @@ func TestStrictText_EmptyBodyDoesNotSwallowSiblings(t *testing.T) {
 }
 
 // La prosa escrita a la misma sangría que TEXT sigue siendo su cuerpo, como
-// siempre; solo una línea que otro elemento reconoce lo corta. En documento,
-// slide y columna tipada.
+// siempre. En documento, slide y columna tipada.
 func TestStrictText_SameIndentBodyStillWorks(t *testing.T) {
-	cases := map[string]struct {
-		src      string
-		document bool
-	}{
-		"document":     {"---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  hola mundo\n  sigue\n  POINTS\n    - uno\n", true},
-		"slide":        {"---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  hola mundo\n  sigue\n  POINTS\n    - uno\n", false},
-		"typed column": {"---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  <<grid>>\n  <<column typed>>\n    TEXT\n    hola mundo\n    sigue\n    POINTS\n      - uno\n  <<end>>\n", true},
-	}
-	for name, tc := range cases {
+	for name, tc := range sameIndentCases("  hola mundo\n  sigue\n") {
 		t.Run(name, func(t *testing.T) {
-			p := New(util.NewNoop())
-			var doc *ast.AST
-			var diags []diagnostics.Diagnostic
-			if tc.document {
-				doc, diags = p.ParseDocument(tc.src, "d.doclang")
-			} else {
-				doc, diags = p.Parse(tc.src, "s.slidelang")
-			}
-			for _, d := range diags {
-				if d.IsError() {
-					t.Fatalf("unexpected error: %v", d)
-				}
-			}
-			var text string
-			points := false
-			_ = ast.Walk(doc, func(n ast.Node) error {
-				switch e := n.(type) {
-				case *ast.TextElement:
-					text = e.Content
-				case *ast.PointsElement:
-					points = true
-				}
-				return nil
-			})
-			if text != "hola mundo sigue" || !points {
-				t.Errorf("text %q points %v", text, points)
+			if got := strictTexts(t, tc.src, tc.document); len(got) != 1 || got[0] != "hola mundo sigue" {
+				t.Errorf("want the TEXT \"hola mundo sigue\", got %q", got)
 			}
 		})
 	}
+}
+
+// Solo la primera línea del cuerpo puede cortarlo por tener forma de
+// elemento. Una vez que el cuerpo a la misma sangría empezó, una línea
+// posterior con forma de elemento (POINTS, CODE, ":::", una palabra clave
+// pegada) se lee como siempre: es parte del párrafo. En documento, slide y
+// columna tipada.
+func TestStrictText_OnlyFirstBodyLineCanEndIt(t *testing.T) {
+	for _, tc := range []struct{ body, want string }{
+		{"  hola mundo\n  POINTS\n    - uno\n", "hola mundo POINTS - uno"},
+		{"  hola mundo\n  CODE js\n    x\n", "hola mundo CODE js x"},
+		{"  hola mundo\n  ::: note\n  hi\n  :::\n", "hola mundo ::: note hi :::"},
+		{"  hola\n  TEXTO pegado\n", "hola TEXTO pegado"},
+		{"  hola\n\n  QUOTE\n    Cita.\n", "hola QUOTE Cita."},
+	} {
+		for name, c := range sameIndentCases(tc.body) {
+			t.Run(name+"/"+tc.want, func(t *testing.T) {
+				if got := strictTexts(t, c.src, c.document); len(got) != 1 || got[0] != tc.want {
+					t.Errorf("want the TEXT %q, got %q", tc.want, got)
+				}
+			})
+		}
+	}
+}
+
+type strictCase struct {
+	src      string
+	document bool
+}
+
+// sameIndentCases arma un TEXT con body (escrito con la sangría de un
+// elemento de sección, dos espacios) en documento, slide y columna tipada.
+func sameIndentCases(body string) map[string]strictCase {
+	column := ""
+	for _, l := range strings.SplitAfter(body, "\n") {
+		if strings.TrimSpace(l) != "" {
+			l = "  " + l
+		}
+		column += l
+	}
+	return map[string]strictCase{
+		"document":     {"---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n" + body, true},
+		"slide":        {"---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n" + body, false},
+		"typed column": {"---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  <<grid>>\n  <<column typed>>\n    TEXT\n" + column + "  <<end>>\n", true},
+	}
+}
+
+// strictTexts parsea src sin errores y devuelve el contenido de cada TEXT.
+func strictTexts(t *testing.T, src string, document bool) []string {
+	t.Helper()
+	p := New(util.NewNoop())
+	var doc *ast.AST
+	var diags []diagnostics.Diagnostic
+	if document {
+		doc, diags = p.ParseDocument(src, "d.doclang")
+	} else {
+		doc, diags = p.Parse(src, "s.slidelang")
+	}
+	for _, d := range diags {
+		if d.IsError() {
+			t.Fatalf("unexpected error: %v", d)
+		}
+	}
+	var texts []string
+	_ = ast.Walk(doc, func(n ast.Node) error {
+		if e, ok := n.(*ast.TextElement); ok {
+			texts = append(texts, e.Content)
+		}
+		return nil
+	})
+	return texts
+}
+
+// Tras un TEXT vacío, una palabra clave pegada a la sangría del TEXT
+// ("TEXTO", "POINTSX", "QUOTEado") está en posición de elemento: se despacha
+// igual que sin el TEXT delante, por prefijo, como en main (ver
+// elements.EndsStrictBody). Con la línea pegada al TEXT y con una línea en
+// blanco entre los dos.
+func TestStrictText_EmptyBodyThenGluedKeywordDispatchesAsElement(t *testing.T) {
+	head := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"
+	for _, word := range []string{"TEXTO pegado", "POINTSX pegado", "QUOTEado"} {
+		bare := elementShapes(t, head+"  "+word+"\n")
+		for _, sep := range []string{"\n", "\n\n"} {
+			got := elementShapes(t, head+"  TEXT"+sep+"  "+word+"\n")
+			if strings.Join(got, "|") != strings.Join(bare, "|") {
+				t.Errorf("%q after an empty TEXT (sep %q): got %v, want %v as without the TEXT", word, sep, got, bare)
+			}
+		}
+	}
+}
+
+// elementShapes devuelve tipo y contenido de cada elemento de la primera
+// sección, sin posiciones ni node-ids.
+func elementShapes(t *testing.T, src string) []string {
+	t.Helper()
+	doc, _ := New(util.NewNoop()).ParseDocument(src, "d.doclang")
+	var out []string
+	for _, el := range doc.ContentBlocks[0].Elements {
+		switch e := el.(type) {
+		case *ast.TextElement:
+			out = append(out, "text:"+e.Content)
+		case *ast.QuoteElement:
+			out = append(out, "quote:"+e.Content)
+		case *ast.PointsElement:
+			out = append(out, fmt.Sprintf("points:%d", len(e.Items)))
+		default:
+			out = append(out, fmt.Sprintf("%T", el))
+		}
+	}
+	return out
 }
 
 // Un TEXT sin contenido da TEXT001 como warning en los dos dialectos: no
