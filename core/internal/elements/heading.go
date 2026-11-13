@@ -179,6 +179,17 @@ func (a *HeadingAnchors) Derive(text string) string {
 	return candidate
 }
 
+// Clone devuelve una copia independiente: lo que se registre en ella no
+// cambia a a. La usa el parse de prueba del cuerpo de un TEXT vacío
+// (ParseContext.EmptyTextCutKeepsText).
+func (a *HeadingAnchors) Clone() HeadingAnchors {
+	c := HeadingAnchors{used: make(map[string]int, len(a.used))}
+	for k, v := range a.used {
+		c.used[k] = v
+	}
+	return c
+}
+
 // Unique deriva el anchor de text y lo registra.
 func (a *HeadingAnchors) Unique(text string) string {
 	candidate := a.Derive(text)

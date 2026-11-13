@@ -4,9 +4,12 @@
 package parser
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
@@ -45,6 +48,18 @@ type strictBody struct {
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
 	// entero (#245).
 	lineOffset int
+
+	// emptyTextTrials guarda el resultado de emptyTextCutKeepsText por rango
+	// de líneas, contado desde el cuerpo que lo creó; trialBase es el índice,
+	// en ese cuerpo, de lines[0] (distinto de 0 en un parse de prueba). Sin
+	// él, cada TEXT vacío dentro de un parse de prueba repetiría el suyo, y
+	// una cadena de TEXT vacíos costaría tiempo exponencial.
+	emptyTextTrials map[[2]int]bool
+	trialBase       int
+	// trialAnchors son los anchors que comparten los parses de prueba: una
+	// copia de headingAnchors hecha en el primero, para que un encabezado
+	// leído a prueba no cambie los anchors del documento.
+	trialAnchors *elements.HeadingAnchors
 }
 
 // position traduce un índice 0-based dentro de p.lines a una posición
@@ -61,20 +76,224 @@ func (p *strictBody) position(lineIndex int) diagnostics.Position {
 // literales `elements.ParseContext{...}` idénticos salvo por esto (#245).
 func (p *strictBody) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
-		Mode:            "strict",
-		SlideHeadings:   p.slideHeadings,
-		NestedListTypes: p.nestedListTypes,
-		ListStart:       p.listStart,
-		MathSource:      p.mathSource,
-		Lines:           p.lines,
-		CurrentLine:     p.currentLine,
-		Logger:          p.logger,
-		LineOffset:      p.lineOffset,
-		TypedColumnBody: p.parseTypedColumnBody,
+		Mode:                  "strict",
+		SlideHeadings:         p.slideHeadings,
+		EmptyTextCutKeepsText: p.emptyTextCutKeepsText,
+		NestedListTypes:       p.nestedListTypes,
+		ListStart:             p.listStart,
+		MathSource:            p.mathSource,
+		Lines:                 p.lines,
+		CurrentLine:           p.currentLine,
+		Logger:                p.logger,
+		LineOffset:            p.lineOffset,
+		TypedColumnBody:       p.parseTypedColumnBody,
 		// Solo lo usa HeadingParser, que un bloque `:::x typed` activa al leer
 		// su cuerpo como flex: sus encabezados comparten la misma secuencia de
 		// anchors que los SECTION del deck.
 		HeadingAnchor: p.headingAnchors.Unique,
+	}
+}
+
+// emptyTextCutKeepsText dice si las líneas que un TEXT vacío tomaría como
+// cuerpo (desde start hasta end o hasta la primera con menos sangría que
+// p.lines[start]) se pueden leer como elementos sin perder ni reinterpretar
+// nada. Las parsea aparte, como cuerpo, un elemento a la vez
+// (tryEmptyTextCut), y exige para cada uno: que no haya propiedades ni
+// líneas sin reconocer, que no haya diagnósticos (salvo TEXT001), que no
+// tome líneas a su misma sangría que no son suyas, que cada palabra de sus
+// líneas esté en su texto y que la línea siguiente abra otro elemento.
+func (p *strictBody) emptyTextCutKeepsText(start, end int) bool {
+	if start < 0 || end > len(p.lines) || start >= end {
+		return false
+	}
+	if p.emptyTextTrials == nil {
+		p.emptyTextTrials = map[[2]int]bool{}
+	}
+	key := [2]int{p.trialBase + start, p.trialBase + end}
+	if keeps, ok := p.emptyTextTrials[key]; ok {
+		return keeps
+	}
+	keeps := p.tryEmptyTextCut(start, end)
+	p.emptyTextTrials[key] = keeps
+	return keeps
+}
+
+// tryEmptyTextCut hace el parse de prueba de emptyTextCutKeepsText, un
+// elemento a la vez: lee el primer elemento de p.lines[start:end] y, si no
+// pierde ni reinterpreta nada, sigue desde la línea siguiente a su misma
+// sangría con emptyTextCutKeepsText (con su caché, así que cada línea se
+// prueba una sola vez y el costo es lineal).
+func (p *strictBody) tryEmptyTextCut(start, end int) bool {
+	if p.trialAnchors == nil {
+		anchors := p.headingAnchors.Clone()
+		p.trialAnchors = &anchors
+	}
+	sub := &strictBody{
+		emptyTextTrials: p.emptyTextTrials,
+		trialBase:       p.trialBase + start,
+		trialAnchors:    p.trialAnchors,
+		nestedListTypes: p.nestedListTypes,
+		listStart:       p.listStart,
+		mathSource:      p.mathSource,
+		contentMarkdown: p.contentMarkdown,
+		slideHeadings:   p.slideHeadings,
+		headingAnchors:  *p.trialAnchors,
+		lines:           p.lines[start:end],
+		logger:          util.NewNoop(),
+	}
+	scratch := ast.NewContentBlock(sub.position(0), "content")
+	reinterpreted := false
+	reached := 0
+	sub.parseIndentedElements(scratch,
+		func(string, string) { reinterpreted = true },
+		// Solo el primer elemento: el loop para en la siguiente línea con
+		// texto que llega a despachar.
+		func(string) bool { reached++; return reached > 1 },
+		func(string) { reinterpreted = true })
+	next := sub.currentLine
+	if reinterpreted || next == 0 {
+		return false
+	}
+	for _, d := range sub.diagnostics {
+		if d.RuleID != elements.EmptyTextRuleID {
+			return false
+		}
+	}
+	first := strings.TrimSpace(sub.lines[0])
+	indent := elements.CalculateIndentLevel(sub.lines[0])
+	var el ast.Element
+	switch len(scratch.Elements) {
+	case 0:
+		// Otro TEXT vacío: no da elemento, solo TEXT001, y no pierde nada.
+		if first != "TEXT" {
+			return false
+		}
+	case 1:
+		el = scratch.Elements[0]
+	default:
+		return false
+	}
+	// Una línea a la misma sangría dentro del elemento es suya solo si el
+	// elemento se escribe así (las filas de una tabla pipe, el cuerpo y el
+	// cierre de un ":::" o de un "<<…>>", la prosa de un TEXT). Una QUOTE o
+	// un POINTS que la tomaran le cambiarían el sentido.
+	for _, line := range sub.lines[1:next] {
+		if strings.TrimSpace(line) != "" && elements.CalculateIndentLevel(line) == indent && !ownsSameIndentLines(el) {
+			return false
+		}
+	}
+	if !keepsEveryWord(sub.lines[:next], scratch.Elements) {
+		return false
+	}
+	if next >= len(sub.lines) {
+		return true
+	}
+	// Lo que sigue tiene que abrir otro elemento a la misma sangría, con las
+	// mismas reglas que la primera línea; si no, en posición de elemento se
+	// perdería o se reinterpretaría.
+	// Una línea con menos sangría termina lo que el TEXT tomaba como cuerpo.
+	line := sub.lines[next]
+	if lineIndent := elements.CalculateIndentLevel(line); lineIndent < indent {
+		return true
+	} else if lineIndent > indent || !elements.OpensElementAfterEmptyText(sub.parseContext(), strings.TrimSpace(line)) {
+		return false
+	}
+	return p.emptyTextCutKeepsText(start+next, end)
+}
+
+// keepsEveryWord dice si cada palabra de lines está en el texto de els. Las
+// palabras clave, las marcas de la sintaxis (POINTS, verbatim, end…) y la
+// clave de una propiedad ("headers:") no cuentan, ni las de una letra.
+func keepsEveryWord(lines []string, els []ast.Element) bool {
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(els); err != nil {
+		return false
+	}
+	var tree interface{}
+	if err := json.Unmarshal([]byte(buf.String()), &tree); err != nil {
+		return false
+	}
+	kept := map[string]bool{}
+	collectWords(tree, kept)
+	for _, line := range lines {
+		for _, w := range textWords(withoutPropertyKey(line)) {
+			if !kept[w] && !strictMarkupWord[w] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// ownsSameIndentLines dice si el elemento strict el se escribe con líneas a
+// la misma sangría de su apertura: un TEXT (su cuerpo a la misma sangría),
+// una tabla pipe, un bloque ":::" o un bloque "<<…>>".
+func ownsSameIndentLines(el ast.Element) bool {
+	switch el.(type) {
+	case *ast.TextElement, *ast.TableElement, *ast.SpecialBlockElement, *ast.CodeGroupElement,
+		*ast.MermaidElement, *ast.PlantUMLElement, *ast.ChartElement, *ast.MapElement,
+		*ast.MathElement, *ast.GridElement, *ast.QuizElement, *ast.PollElement,
+		*ast.MetricElement:
+		return true
+	}
+	return false
+}
+
+// strictMarkupWord son las palabras de la sintaxis strict que no llegan al
+// texto de un elemento: palabras clave, la marca {verbatim} y las de los
+// marcadores <<…>> de grid.
+var strictMarkupWord = map[string]bool{
+	"TEXT": true, "POINTS": true, "CHECKLIST": true, "QUOTE": true, "TABLE": true,
+	"IMAGE": true, "CODE": true, "SECTION": true, "verbatim": true,
+	"end": true, "column": true, "typed": true, "grid": true,
+}
+
+// withoutPropertyKey quita de line la clave de una propiedad ("headers:",
+// "src:", "AUTHOR:"), que es sintaxis del elemento: su valor sí cuenta.
+func withoutPropertyKey(line string) string {
+	t := strings.TrimSpace(line)
+	t = strings.TrimSpace(strings.TrimPrefix(t, "- "))
+	for i, r := range t {
+		if r == ':' && i > 0 {
+			return t[i+1:]
+		}
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-' {
+			break
+		}
+	}
+	return line
+}
+
+// textWords parte s en palabras: tramos de letras y dígitos de dos o más
+// caracteres.
+func textWords(s string) []string {
+	var out []string
+	for _, w := range strings.FieldsFunc(s, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		if utf8.RuneCountInString(w) > 1 {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// collectWords junta en kept las palabras de cada cadena de v, un valor JSON
+// decodificado.
+func collectWords(v interface{}, kept map[string]bool) {
+	switch t := v.(type) {
+	case string:
+		for _, w := range textWords(t) {
+			kept[w] = true
+		}
+	case []interface{}:
+		for _, e := range t {
+			collectWords(e, kept)
+		}
+	case map[string]interface{}:
+		for _, e := range t {
+			collectWords(e, kept)
+		}
 	}
 }
 

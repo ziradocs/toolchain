@@ -4,7 +4,10 @@
 package parser
 
 import (
+	"encoding/json"
 	"fmt"
+	"math/rand"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -318,4 +321,168 @@ func TestStrictText_EmptyBodyThenBlankLineKeepsSiblings(t *testing.T) {
 	if len(quotes) != 1 || quotes[0] != "Cita." {
 		t.Errorf("want the QUOTE \"Cita.\", got %q", quotes)
 	}
+}
+
+// Casos de la revisión de #499: tras un TEXT vacío, una línea con forma de
+// elemento seguida de prosa a su misma sangría (o de algo que el elemento no
+// acepta) no corta el cuerpo. Leerla como elemento perdería la prosa,
+// reinterpretaría el texto o rompería el build (un ":::" sin cerrar, un
+// "::: grid"); main la leía como el párrafo del TEXT, con todas sus líneas, y
+// así sigue. En documento, slide y columna
+// tipada.
+func TestStrictText_EmptyBodyCutNeverLosesText(t *testing.T) {
+	for _, body := range []string{
+		"  POINTS\n  Some prose after\n",
+		"  POINTS\n\n  Some prose after\n",
+		"\n  POINTS\n  Some prose after\n",
+		"  IMAGE foto.png\n  Some prose after\n",
+		"  IMAGE\n  prose\n",
+		"  TABLE\n  Some prose after\n",
+		"  IMAGE of the year\n",
+		"  :::\n",
+		"  CODE red alert now\n  more text\n",
+		"  @center\n  Some prose after\n",
+		"  @notes hi\n  Some prose after\n",
+		"  | a | b |\n  Some prose after\n",
+		"  CODE js\n  Some prose after\n",
+		"  :::note\n  hola\n  :::\n  Some prose after\n",
+		"  <<math>>\n  x^2\n  <<end>>\n  Some prose after\n",
+		"  CHECKLIST\n  Some prose after\n",
+		"  POINTS\n    - uno\n  Some prose after\n",
+		"  POINTS\n    - uno\n\n  Some prose after\n",
+		"  POINTS\n    no es un item\n",
+		"  QUOTE\n    Cita.\n  nota: algo\n",
+		"  :::x hola\n  sigue\n",
+		"  ::: grid\n  ::: column\n  a\n  :::\n  :::\n",
+	} {
+		var want []string
+		for _, l := range strings.Split(body, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				want = append(want, l)
+			}
+		}
+		for name, c := range sameIndentCases(body) {
+			t.Run(name+"/"+body, func(t *testing.T) {
+				got, diags := elementShapes(t, c.src, c.document)
+				if w := "text:" + strings.Join(want, " "); strings.Join(got, "|") != w {
+					t.Errorf("got %v, want [%s] as in main", got, w)
+				}
+				if len(diags) != 0 {
+					t.Errorf("unexpected diagnostics %v", diags)
+				}
+			})
+		}
+	}
+}
+
+// Propiedad: tras un TEXT vacío, cualquier secuencia de líneas a la sangría
+// del TEXT o más (que main leía entera como el párrafo del TEXT, sin perder
+// nada) conserva todas sus palabras, sin errores ni avisos fuera de TEXT001,
+// se corte o no el cuerpo. En documento, slide y columna tipada.
+func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
+	same := []string{
+		"TEXT", "POINTS", "CHECKLIST", "QUOTE", "TABLE", "IMAGE", "IMAGE foto%d.png", "IMAGE de w%d",
+		"CODE js", "CODE{verbatim} go", "CODE w%d w%d w%d", "@center", "@notes w%d", "@usuario w%d",
+		"| w%d | w%d |", "|---|---|", ":::note", ":::", "<<math>>", "<<end>>", "<<foo>> w%d",
+		"w%d w%d", "TEXTO w%d", "QUOTE w%d", "clave%d: w%d", "",
+	}
+	deeper := []string{
+		"- w%d", "- [ ] w%d", "- [x] w%d", "w%d w%d", "src: foto%d.png", "headers: [w%d]",
+		"rows:", "- [w%d]", "AUTHOR: w%d", "",
+	}
+	rng := rand.New(rand.NewSource(499))
+	n := 0
+	fill := func(f string) string {
+		for strings.Contains(f, "%d") {
+			n++
+			f = strings.Replace(f, "%d", fmt.Sprint(n), 1)
+		}
+		return f
+	}
+	for i := 0; i < 1500; i++ {
+		var b strings.Builder
+		if rng.Intn(3) == 0 {
+			b.WriteString("\n")
+		}
+		// La primera línea con texto va a la sangría del TEXT: si fuera más
+		// sangrada, sería el cuerpo del TEXT y las líneas siguientes a su
+		// sangría caerían en posición de elemento también en main.
+		b.WriteString("  " + fill(same[rng.Intn(len(same)-1)]) + "\n")
+		for k := rng.Intn(6); k > 0; k-- {
+			if rng.Intn(2) == 0 {
+				if l := fill(same[rng.Intn(len(same))]); l != "" {
+					b.WriteString("  " + l + "\n")
+				} else {
+					b.WriteString("\n")
+				}
+			} else if l := fill(deeper[rng.Intn(len(deeper))]); l != "" {
+				b.WriteString("    " + l + "\n")
+			} else {
+				b.WriteString("\n")
+			}
+		}
+		body := b.String()
+		for name, c := range sameIndentCases(body) {
+			got, diags := elementShapes(t, c.src, c.document)
+			for _, d := range diags {
+				t.Errorf("%s %q: unexpected diagnostic %v (got %v)", name, body, d, got)
+			}
+			out := astWords(t, c.src, c.document)
+			for _, w := range genWordRE.FindAllString(body, -1) {
+				if !out[w] {
+					t.Errorf("%s %q: lost %q (got %v)", name, body, w, got)
+					break
+				}
+			}
+		}
+	}
+}
+
+var (
+	wordRE    = regexp.MustCompile(`[\p{L}\p{N}.]+`)
+	genWordRE = regexp.MustCompile(`\b(w|foto)\d+\b`)
+)
+
+// astWords son las palabras de cada cadena del AST de src: todo el texto que
+// el parser conserva, en cualquier campo.
+func astWords(t *testing.T, src string, document bool) map[string]bool {
+	t.Helper()
+	p := New(util.NewNoop())
+	var doc *ast.AST
+	if document {
+		doc, _ = p.ParseDocument(src, "d.doclang")
+	} else {
+		doc, _ = p.Parse(src, "s.slidelang")
+	}
+	raw, err := json.Marshal(doc.ContentBlocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tree interface{}
+	if err := json.Unmarshal(raw, &tree); err != nil {
+		t.Fatal(err)
+	}
+	words := map[string]bool{}
+	var walk func(v interface{})
+	walk = func(v interface{}) {
+		switch x := v.(type) {
+		case string:
+			for _, w := range wordRE.FindAllString(x, -1) {
+				words[w] = true
+				for _, part := range strings.Split(w, ".") {
+					words[part] = true
+				}
+			}
+		case []interface{}:
+			for _, e := range x {
+				walk(e)
+			}
+		case map[string]interface{}:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	walk(tree)
+	return words
 }

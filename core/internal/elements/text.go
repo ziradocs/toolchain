@@ -58,13 +58,16 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		// El cuerpo son las líneas que siguen con sangría. Puede estar más
 		// sangrado que TEXT (lo normal) o, como siempre se aceptó, a su misma
 		// sangría. Si la primera línea con texto está a la sangría de TEXT, o
-		// menos, y abre un elemento de verdad (opensElementAfterEmptyText),
-		// TEXT no tiene cuerpo y esa línea se despacha como elemento. Antes
-		// un TEXT sin cuerpo tomaba a los elementos hermanos escritos a su
-		// misma sangría (`TEXT` / `POINTS` / `- uno` salía como el párrafo
-		// "POINTS - uno"). Solo la primera línea puede cortar: una vez que el
-		// cuerpo empezó, las líneas siguientes se leen como siempre, por
-		// sangría.
+		// menos, abre un elemento de verdad (OpensElementAfterEmptyText) y
+		// las líneas que el TEXT tomaría como cuerpo, leídas como elementos,
+		// conservan todo su texto (ctx.EmptyTextCutKeepsText), TEXT no tiene
+		// cuerpo y esa línea se despacha como elemento. Antes un TEXT sin
+		// cuerpo tomaba a los elementos hermanos escritos a su misma sangría
+		// (`TEXT` / `POINTS` / `- uno` salía como el párrafo "POINTS - uno").
+		// Si leerlas como elementos perdiera texto, rompiera el build o las
+		// leyera como propiedades, siguen siendo el cuerpo, como siempre.
+		// Solo la primera línea puede cortar: una vez que el cuerpo empezó,
+		// las líneas siguientes se leen como siempre, por sangría.
 		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 		textLine := startIndex
 		consumed++
@@ -88,7 +91,9 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				if currentIndent == 0 {
 					break
 				}
-				if currentIndent <= headerIndent && opensElementAfterEmptyText(ctx, trimmedLine) {
+				if currentIndent <= headerIndent && OpensElementAfterEmptyText(ctx, trimmedLine) &&
+					ctx.EmptyTextCutKeepsText != nil &&
+					ctx.EmptyTextCutKeepsText(i, len(ctx.Lines)) {
 					break
 				}
 				expectedIndent = currentIndent
@@ -404,7 +409,7 @@ func contentHeadingPrefix(line string) bool {
 	return n >= 1 && n <= 6 && n < len(line) && (line[n] == ' ' || line[n] == '\t')
 }
 
-// opensElementAfterEmptyText dice si trimmed, la primera línea con texto
+// OpensElementAfterEmptyText dice si trimmed, la primera línea con texto
 // después de un TEXT strict y a su misma sangría, abre un elemento que el
 // despacho strict (parser/strict.go) lee sin perder nada de lo que dice. Si
 // no, es el cuerpo del TEXT, como siempre.
@@ -422,7 +427,7 @@ func contentHeadingPrefix(line string) bool {
 // strict reconoce, una directiva conocida ("@notes", "@include", "@center"…)
 // y una fila de tabla "| … |". "<<foo>>", "@usuario dijo" o "| hola" son
 // prosa: en posición de elemento se descartarían.
-func opensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
+func OpensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
 	if trimmed == "" {
 		return false
 	}
@@ -453,13 +458,18 @@ func opensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
 		return rest != "" && (rest[0] == ' ' || rest[0] == '\t')
 	}
 	if rest, ok := strings.CutPrefix(trimmed, "IMAGE"); ok {
-		return followedBySpace(rest)
+		// Una sola palabra, con forma de ruta o URL: "IMAGE foto.png", no
+		// "IMAGE of the year".
+		src := strings.Fields(rest)
+		return followedBySpace(rest) && len(src) == 1 && strings.ContainsAny(src[0], "./")
 	}
 	if rest, ok := strings.CutPrefix(trimmed, "CODE"); ok {
 		if rest == CodeVerbatimMarker {
 			return true
 		}
-		return followedBySpace(strings.TrimPrefix(rest, CodeVerbatimMarker))
+		rest = strings.TrimPrefix(rest, CodeVerbatimMarker)
+		// Lenguaje y, a lo sumo, archivo: CODE rechaza un tercer token.
+		return followedBySpace(rest) && len(strings.Fields(rest)) <= 2
 	}
 	return ctx.SlideHeadings && strings.HasPrefix(trimmed, `SECTION "`)
 }

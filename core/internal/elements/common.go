@@ -34,16 +34,23 @@ const (
 type ParseContext struct {
 	ContentMarkdown bool   // explicit fragment context; never a document boundary policy
 	Mode            string // "strict" or "flex"
-	// SlideHeadings dice que `SECTION "Texto"` es un encabezado de subsección
-	// en este cuerpo strict (el de un SLIDE). Solo lo consulta TextParser,
-	// para saber si esa línea abre un elemento tras un TEXT vacío.
-	SlideHeadings   bool
 	ListStart       bool
 	MathSource      bool
 	NestedListTypes bool // explicit ast_capabilities source opt-in
 	CurrentLine     int
 	Logger          util.Logger // Logger interface for structured logging
 	Lines           []string
+
+	// SlideHeadings dice que `SECTION "Texto"` es un encabezado de subsección
+	// en este cuerpo strict (el de un SLIDE). Solo lo consulta TextParser,
+	// para saber si esa línea abre un elemento tras un TEXT vacío.
+	SlideHeadings bool
+	// EmptyTextCutKeepsText, si no es nil, dice si las líneas desde start
+	// (hasta end o hasta la primera con menos sangría que lines[start])
+	// leídas como elementos conservan todo su texto. TextParser lo consulta
+	// antes de dejar vacío un TEXT strict cuya primera línea abre un
+	// elemento: si no, esas líneas siguen siendo el cuerpo del TEXT.
+	EmptyTextCutKeepsText func(start, end int) bool
 
 	// LineOffset son las líneas del archivo que preceden a Lines[0]: el
 	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines

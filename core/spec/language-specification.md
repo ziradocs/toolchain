@@ -223,25 +223,36 @@ that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
 A `TEXT` body is the lines that follow it with indentation: usually deeper than
-`TEXT`, or, as always accepted, at its own indentation. When the first line
-with text is at the indentation of `TEXT` (or less) and opens an element, the
-`TEXT` has no body and that line is dispatched as that element, so a `TEXT`
-with no body does not take the elements after it as text. A line opens an
-element only in a form that element accepts: `TEXT`, `POINTS`, `CHECKLIST`,
-`QUOTE` and `TABLE` alone on the line, `IMAGE` alone or with its source,
-`CODE` alone or with `{verbatim}`, language and filename, `SECTION "…"` inside
-a `SLIDE`, a `:::` block, a `<<…>>` tag that an element recognizes, a known
-directive (`@notes`, `@include`, `@center`…) or a `| … |` table row. Anything
-else is body text, as before: a word that only starts with a keyword
-(`TEXTO`, `POINTSX`, `QUOTEado`), a keyword followed by text its element would
-drop (`TEXT hola`, `QUOTE de Ana`), `MERMAID`, `<<foo>>`, `@usuario` or
-`| hola`. Only that first line can end the body this way: once the body has
-started, the lines after it are read by indentation, as always. No text is
-dropped: a line either stays in the body or becomes the element it opens. A
-`:::` block that is never closed, or a `::: grid` marker, is reported as an
-error in that position, as it is anywhere else in strict. A `TEXT` with no
-content is the `TEXT001` diagnostic, a warning in both dialects (a strict
-document included), so it does not stop the build.
+`TEXT`, or, as always accepted, at its own indentation. A `TEXT` with no body
+does not take the elements after it as text, but it only gives them up when
+nothing changes meaning. The first line with text, at the indentation of
+`TEXT` (or less), ends the body only when both hold:
+
+- it opens an element in a form that element accepts: `TEXT`, `POINTS`,
+  `CHECKLIST`, `QUOTE` and `TABLE` alone on the line, `IMAGE` alone or with a
+  single source that looks like a path or URL, `CODE` alone or with
+  `{verbatim}`, a language and at most a filename, `SECTION "…"` inside a
+  `SLIDE`, a `:::` block, a `<<…>>` tag that an element recognizes, a known
+  directive (`@notes`, `@include`, `@center`…) or a `| … |` table row;
+- every line the `TEXT` would have taken as its body (up to the first line
+  with less indentation) reads as a sequence of such elements without losing
+  or moving anything: no word is dropped, no line becomes a property or an
+  unrecognized line, no diagnostic other than `TEXT001` appears, no element
+  takes a line at its own indentation that is not its own (a `QUOTE` or a
+  `POINTS` does not take the prose after it), and each element is followed by
+  another one that opens the same way.
+
+Otherwise those lines stay the body of the `TEXT`, as before: a word that only
+starts with a keyword (`TEXTO`, `POINTSX`, `QUOTEado`), a keyword followed by
+text its element would drop (`TEXT hola`, `QUOTE de Ana`), `IMAGE of the year`,
+`CODE red alert now`, `MERMAID`, `<<foo>>`, `@usuario`, `| hola`, a lone `:::`,
+or an element followed by prose at the same indentation (`POINTS` / `Some
+prose after`). Only that first line can end the body this way: once the body
+has started, the lines after it are read by indentation, as always. So a
+`TEXT` never loses text, nor turns text into something else, that it used to
+keep as its paragraph. A `TEXT` with no content is the `TEXT001` diagnostic, a
+warning in both dialects (a strict document included), so it does not stop
+the build.
 
 In `fmt`, two Markdown pipe tables in a row are written with a blank line
 between them, at the top level of a section or slide and inside a typed grid
