@@ -35,10 +35,10 @@ const maxSectionLevel = 6
 // lo que hace que los dos dialectos rindan idéntico sin una sola rama por
 // modo aguas abajo.
 //
-// Diferencia deliberada con flex: flex DESCARTA una sección sin elementos
-// (parseSection retorna nil), porque en Markdown un `#` suelto suele ser
-// ruido. Acá no se descarta nada: el autor escribió el SECTION a propósito,
-// y borrarlo en silencio es justo lo que el dialecto promete no hacer.
+// Una sección sin elementos se conserva, igual que en flex (un `#` con
+// texto abre sección aunque no tenga nada debajo): el autor escribió el
+// SECTION a propósito, y borrarlo en silencio es justo lo que el dialecto
+// promete no hacer.
 type DocumentStrictParser struct {
 	strictBody
 	input         string
