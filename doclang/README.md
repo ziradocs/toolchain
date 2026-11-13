@@ -38,7 +38,8 @@ Same element vocabulary, different document model — worth knowing before you w
   frontmatter, TOC and numbering stay off unless you pass `--toc`/`--numbering`.
 - **Nothing before the first `#` is dropped.** Text before the first `#` (or the whole file,
   if it only uses `##`/`###`) becomes a leading section with no heading, and `##`/`###`
-  keep their level. An empty document is still an error (`CORE001`).
+  keep their level. A `#` heading with nothing under it is kept as an empty section, in
+  any position. An empty document is still an error (`CORE001`).
 
 ## Commands
 
