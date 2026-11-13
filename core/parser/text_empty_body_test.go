@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -360,6 +361,14 @@ func TestStrictText_EmptyBodyCutNeverLosesText(t *testing.T) {
 		"  POINTS\n    - Plan A\n    o B\n",
 		"  POINTS\n    - apple pie\n    apple\n  QUOTE\n    pie\n",
 		"  IMAGE foto.png\n    alt: perro\n    caption: perro\n",
+		// Tercera revisión (83070de): líneas sin tokens o con solo una clave.
+		"  POINTS\n    - uno\n    Importante:\n",
+		"  POINTS\n    - uno\n    Nota: -> **\n",
+		"  IMAGE foto.png\n    Leyenda:\n",
+		"  POINTS\n    - uno\n    ---\n",
+		"  POINTS\n    - uno\n    \"\"\n",
+		"  POINTS\n    - hola\n    -> <> [] {} ## **\n",
+		"  IMAGE foto.png\n    caption: perro\n    caption: perro\n",
 	} {
 		var want []string
 		for _, l := range strings.Split(body, "\n") {
@@ -384,9 +393,10 @@ func TestStrictText_EmptyBodyCutNeverLosesText(t *testing.T) {
 // Propiedad: tras un TEXT vacío, cualquier secuencia de líneas a la sangría
 // del TEXT o más (que main leía entera como el párrafo del TEXT, sin perder
 // nada) conserva cada palabra y cada signo que trae, con sus repeticiones,
-// sin errores ni avisos fuera de TEXT001, se corte o no el cuerpo. El
-// vocabulario repite palabras y trae tokens de un carácter y signos, para que
-// una palabra perdida no pueda esconderse detrás de otra igual. En
+// y cada línea que solo trae una clave o solo signos, sin errores ni avisos
+// fuera de TEXT001, se corte o no el cuerpo. El vocabulario repite palabras y
+// trae tokens de un carácter y signos, para que una palabra perdida no pueda
+// esconderse detrás de otra igual. En
 // documento, slide y columna tipada.
 func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
 	same := []string{
@@ -398,7 +408,11 @@ func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
 	deeper := []string{
 		"- @ @", "- [ ] @", "- [x] @", "@ @", "@", "src: foto.png", "alt: @", "caption: @",
 		"headers: [@]", "rows:", "- [@]", "AUTHOR: @", "1. @", "",
+		"Importante:", "Leyenda:", "Nota: -> **", "---", `""`, "-> <> [] {} ## **",
 	}
+	// Las líneas que solo traen una clave o solo signos no tienen palabras
+	// del vocabulario: se exige que estén tal cual en el AST.
+	literal := map[string]bool{"Importante:": true, "Leyenda:": true, "Nota: -> **": true, "---": true, `""`: true, "-> <> [] {} ## **": true, "TEXTO @": false}
 	vocab := []string{"apple", "pie", "A", "B", "o", "5", "3", "€", "+", "%", "perro"}
 	rng := rand.New(rand.NewSource(499))
 	for i := 0; i < 1500; i++ {
@@ -445,10 +459,22 @@ func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
 			}
 		}
 		body := b.String()
+		wantLines := map[string]int{}
+		for _, l := range strings.Split(body, "\n") {
+			if l = strings.TrimSpace(l); literal[l] {
+				wantLines[l]++
+			}
+		}
 		for name, c := range sameIndentCases(body) {
 			got, diags := elementShapes(t, c.src, c.document)
 			for _, d := range diags {
 				t.Errorf("%s %q: unexpected diagnostic %v (got %v)", name, body, d, got)
+			}
+			strs := astStrings(t, c.src, c.document)
+			for l, n := range wantLines {
+				if strings.Count(strs, l) < n {
+					t.Errorf("%s %q: line %q appears %d times, want %d (got %v)", name, body, l, strings.Count(strs, l), n, got)
+				}
 			}
 			have := astTokens(t, c.src, c.document)
 			for w, n := range want {
@@ -587,5 +613,36 @@ func collectTokens(v interface{}, have map[string]int) {
 			}
 			collectTokens(e, have)
 		}
+	}
+}
+
+// astStrings junta las cadenas del AST de src que son texto del autor, una
+// por línea.
+func astStrings(t *testing.T, src string, document bool) string {
+	t.Helper()
+	p := New(util.NewNoop())
+	var doc *ast.AST
+	if document {
+		doc, _ = p.ParseDocument(src, "d.doclang")
+	} else {
+		doc, _ = p.Parse(src, "s.slidelang")
+	}
+	var texts []string
+	collectElementTokens(reflect.ValueOf(doc.ContentBlocks), map[string]int{}, &texts)
+	return strings.Join(texts, "\n")
+}
+
+// Los pasos de una misma prueba ven los anchors de los anteriores: dos
+// encabezados leídos a prueba con el mismo id son un error en el parse real,
+// así que el TEXT no suelta lo que sigue y queda el párrafo de main, sin
+// "duplicate heading id".
+func TestStrictText_TrialStepsShareAnchors(t *testing.T) {
+	src := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  SECTION \"B\"\n    id: x\n  SECTION \"C\"\n    id: x\n"
+	got, diags := elementShapes(t, src, false)
+	for _, d := range diags {
+		t.Errorf("unexpected diagnostic %v", d)
+	}
+	if want := `text:SECTION "B" id: x SECTION "C" id: x`; strings.Join(got, "|") != want {
+		t.Errorf("got %v, want [%s] as in main", got, want)
 	}
 }

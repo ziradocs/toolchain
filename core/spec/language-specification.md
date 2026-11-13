@@ -236,11 +236,14 @@ nothing changes meaning. The first line with text, at the indentation of
   directive (`@notes`, `@include`, `@center`…) or a `| … |` table row;
 - every line the `TEXT` would have taken as its body (up to the first line
   with less indentation) reads as a sequence of such elements without losing
-  or moving anything: every word and sign of each line (one-letter words and
-  signs such as `€` or `%` included, counted with their repetitions) is in
-  the text or a property of the element that took the line, apart from the
-  keyword it opens with, list and checkbox markers, property keys and closing
-  lines; no line becomes a property or an unrecognized line; no diagnostic
+  or moving anything: each non-blank line the element took is its opening
+  line, a closing line of that container (`<<end>>`, `:::`, a `|---|`
+  separator…), a `Key: value` property the element stored with that value
+  (each field accounts for one line), or a line whose every word and sign
+  (one-letter words and signs such as `€` or `%` included, counted with
+  their repetitions) is in the element's text, a line with no words having
+  to appear there verbatim; no line becomes a property or an unrecognized
+  line; no diagnostic
   other than `TEXT001` appears; no element takes a line at its own
   indentation that is not its own (a `QUOTE` or a `POINTS` does not take the
   prose after it), nor ends before a more indented line it did not take; and

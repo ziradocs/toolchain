@@ -33,6 +33,11 @@ type emptyTextCut struct {
 	results map[int]bool
 	busy    bool
 	missing []int
+	// anchors es la capa de anchors de los pasos de una misma prueba, sobre
+	// los del cuerpo: cada paso ve lo que registraron los anteriores (un
+	// id repetido entre dos encabezados leídos a prueba es un error, como en
+	// el parse real), y la capa se descarta al terminar la prueba.
+	anchors elements.HeadingAnchors
 }
 
 // emptyTextCutKeepsText es ParseContext.EmptyTextCutKeepsText: start es un
@@ -66,6 +71,7 @@ func (c *emptyTextCut) keeps(k int) bool {
 		c.missing = append(c.missing, k)
 		return true
 	}
+	c.anchors = c.root.headingAnchors.Overlay()
 	work := []int{k}
 	for len(work) > 0 {
 		top := work[len(work)-1]
@@ -75,9 +81,12 @@ func (c *emptyTextCut) keeps(k int) bool {
 		}
 		c.busy = true
 		c.missing = c.missing[:0]
+		mark := c.anchors.Mark()
 		ok, next := c.step(top)
 		c.busy = false
 		if len(c.missing) > 0 {
+			// El paso se repite: lo que registró no cuenta.
+			c.anchors.Rollback(mark)
 			for _, m := range c.missing {
 				if _, done := c.results[m]; !done {
 					work = append(work, m)
@@ -119,9 +128,9 @@ func (c *emptyTextCut) step(k int) (bool, int) {
 		mathSource:      root.mathSource,
 		contentMarkdown: root.contentMarkdown,
 		slideHeadings:   root.slideHeadings,
-		// Lo que el elemento de prueba registre queda en la capa y se
-		// descarta con ella.
-		headingAnchors: root.headingAnchors.Overlay(),
+		// Lo que el elemento de prueba registre queda en la capa de la
+		// prueba, que ven los pasos siguientes y se descarta con ella.
+		headingAnchors: c.anchors,
 		lines:          lines,
 		logger:         util.NewNoop(),
 		lineOffset:     root.lineOffset + k,
@@ -205,27 +214,161 @@ func ownsSameIndentLines(el ast.Element) bool {
 	return false
 }
 
-// accountsFor dice si el texto de el da cuenta de cada línea de lines, las
-// que el elemento tomó: cada token de cada línea tiene que estar en los
-// campos de texto del elemento, contando repeticiones. Un token es un tramo
-// de letras y dígitos, de cualquier largo, o un signo que no es sintaxis
-// strict (€, %, +, ., …). No cuentan la palabra clave o etiqueta con que abre
-// la primera línea, las marcas de lista y casilla, la clave de una propiedad
-// ("alt:") ni las líneas de cierre ("<<end>>", ":::"). De los campos del
-// elemento no cuentan los de tipo o enumeración (type, listType, context…)
-// ni los derivados (*HTML, cells, id), que repetirían el texto.
+// accountsFor dice si el elemento el da cuenta de cada línea no vacía de
+// lines, las que tomó. Cada una tiene que ser:
+//
+//   - la de apertura (la primera): sus tokens, salvo la palabra clave o
+//     etiqueta con que abre, están en el elemento;
+//   - una de cierre del contenedor (closesElement): "<<end>>", ":::", el
+//     separador de una tabla pipe…;
+//   - una propiedad que el elemento guardó: "Clave: valor" cuenta como
+//     propiedad solo si el elemento tiene un campo con ese nombre cuyo valor
+//     trae ese valor; cada campo da cuenta de una sola línea, y sus tokens
+//     salen del mismo conteo que los de las demás líneas;
+//   - o una línea cuyo contenido el elemento tomó: cada uno de sus tokens
+//     (también los de un carácter y signos como € o %) está en el texto del
+//     elemento, contando repeticiones, y una línea sin tokens (solo signos de
+//     la sintaxis, como "---" o "**") tiene que estar tal cual en él.
+//
+// Una línea que no es ninguna de esas no está a cuenta, y entonces el corte
+// no va. Un token es un tramo de letras y dígitos, de cualquier largo, o un
+// signo que no es sintaxis strict. De los campos del elemento no cuentan los
+// de tipo o enumeración (type, listType, context…) ni los derivados (*HTML,
+// cells, id), que repetirían el texto.
 func accountsFor(lines []string, el ast.Element) bool {
 	have := map[string]int{}
-	collectElementTokens(reflect.ValueOf(el), have)
-	for i, line := range lines {
-		for _, tok := range lineTokens(line, i == 0) {
+	var texts []string
+	collectElementTokens(reflect.ValueOf(el), have, &texts)
+	consume := func(toks []string) bool {
+		for _, tok := range toks {
 			if have[tok] == 0 {
 				return false
 			}
 			have[tok]--
 		}
+		return true
+	}
+	usedFields := map[string]bool{}
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		switch {
+		case t == "":
+			continue
+		case i == 0:
+			if !consume(openerTokens(t)) {
+				return false
+			}
+			continue
+		case closesElement(t, el):
+			continue
+		}
+		body := withoutListMarker(t)
+		if key, value, ok := splitProperty(body); ok {
+			if field := propertyField(el, key, value); field != "" && !usedFields[field] {
+				usedFields[field] = true
+				// El valor sale del mismo conteo que el resto de las líneas,
+				// para que otra línea no dé cuenta de él. Un campo de
+				// enumeración ("context: hero") no está en ese conteo.
+				if derivedOrEnumField[field] || strings.HasSuffix(field, "HTML") || consume(tokens(value)) {
+					continue
+				}
+				return false
+			}
+		}
+		toks := tokens(body)
+		if len(toks) == 0 {
+			if !consumeVerbatim(texts, body) {
+				return false
+			}
+			continue
+		}
+		if !consume(toks) {
+			return false
+		}
 	}
 	return true
+}
+
+// closesElement dice si t es una línea de la sintaxis del contenedor el que
+// no lleva texto: el cierre "<<end>>" de un bloque "<<…>>", los marcadores de
+// columna de un grid, el cierre ":::" de un bloque, el cierre de una cerca en
+// un code-group o el separador "|---|" de una tabla pipe.
+func closesElement(t string, el ast.Element) bool {
+	switch el.(type) {
+	case *ast.MermaidElement, *ast.PlantUMLElement, *ast.ChartElement, *ast.MapElement,
+		*ast.MathElement, *ast.QuizElement, *ast.PollElement, *ast.MetricElement:
+		return t == "<<end>>"
+	case *ast.GridElement:
+		return t == "<<end>>" || t == "<<column>>" || t == "<<column typed>>"
+	case *ast.SpecialBlockElement:
+		return len(t) >= 3 && strings.Trim(t, ":") == ""
+	case *ast.CodeGroupElement:
+		return len(t) >= 3 && (strings.Trim(t, ":") == "" || strings.Trim(t, "`") == "")
+	case *ast.TableElement:
+		return strings.HasPrefix(t, "|") && strings.Contains(t, "-") && strings.Trim(t, "|-: \t") == ""
+	}
+	return false
+}
+
+// splitProperty parte "Clave: valor" (o "Clave:" sola) en clave y valor.
+func splitProperty(t string) (string, string, bool) {
+	rest := withoutPropertyKey(t)
+	if rest == t {
+		return "", "", false
+	}
+	key := strings.TrimSuffix(strings.TrimSpace(t[:len(t)-len(rest)]), ":")
+	return key, strings.Trim(strings.TrimSpace(rest), `"`), true
+}
+
+// propertyField devuelve el nombre JSON del campo de el que guardó la
+// propiedad key con valor value, o "" si el no la tiene: un campo con ese
+// nombre (sin distinguir mayúsculas), no vacío, cuyos tokens traen los de
+// value. Una clave sin valor ("rows:") vale si el campo no está vacío.
+func propertyField(el ast.Element, key, value string) string {
+	v := reflect.ValueOf(el)
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return ""
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return ""
+	}
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if !f.IsExported() || f.Anonymous || name == "" || name == "-" || !strings.EqualFold(name, key) {
+			continue
+		}
+		field := v.Field(i)
+		if field.IsZero() {
+			return ""
+		}
+		have := map[string]int{}
+		collectValueTokens(field, have)
+		for _, tok := range tokens(value) {
+			if have[tok] == 0 {
+				return ""
+			}
+			have[tok]--
+		}
+		return name
+	}
+	return ""
+}
+
+// consumeVerbatim dice si line está tal cual en alguna cadena de texts, y la
+// tacha ahí para que no dé cuenta de otra línea igual.
+func consumeVerbatim(texts []string, line string) bool {
+	for i, text := range texts {
+		if j := strings.Index(text, line); j >= 0 {
+			texts[i] = text[:j] + "\x00" + text[j+len(line):]
+			return true
+		}
+	}
+	return false
 }
 
 // derivedOrEnumField son los campos del JSON de un elemento que no son texto
@@ -240,19 +383,19 @@ var derivedOrEnumField = map[string]bool{
 // del AST, recorriendo los campos que su JSON publica salvo los de
 // derivedOrEnumField y los *HTML. Es lo mismo que collectTokens sobre su
 // JSON, sin codificarlo.
-func collectElementTokens(v reflect.Value, have map[string]int) {
+func collectElementTokens(v reflect.Value, have map[string]int, texts *[]string) {
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:
 		if !v.IsNil() {
-			collectElementTokens(v.Elem(), have)
+			collectElementTokens(v.Elem(), have, texts)
 		}
 	case reflect.Struct:
 		for _, i := range textFields(v.Type()) {
-			collectElementTokens(v.Field(i), have)
+			collectElementTokens(v.Field(i), have, texts)
 		}
 	case reflect.Slice, reflect.Array:
 		for i := 0; i < v.Len(); i++ {
-			collectElementTokens(v.Index(i), have)
+			collectElementTokens(v.Index(i), have, texts)
 		}
 	case reflect.Map:
 		iter := v.MapRange()
@@ -260,12 +403,37 @@ func collectElementTokens(v reflect.Value, have map[string]int) {
 			if k := iter.Key(); k.Kind() == reflect.String && (derivedOrEnumField[k.String()] || strings.HasSuffix(k.String(), "HTML")) {
 				continue
 			}
-			collectElementTokens(iter.Value(), have)
+			collectElementTokens(iter.Value(), have, texts)
+		}
+	case reflect.String:
+		if texts != nil {
+			*texts = append(*texts, v.String())
+		}
+		for _, tok := range tokens(v.String()) {
+			have[tok]++
+		}
+	}
+}
+
+// collectValueTokens suma a have los tokens de v, el valor de un campo, sin
+// excluir nada: una propiedad puede guardarse en un campo de enumeración
+// ("context: hero").
+func collectValueTokens(v reflect.Value, have map[string]int) {
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if !v.IsNil() {
+			collectValueTokens(v.Elem(), have)
+		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			collectValueTokens(v.Index(i), have)
 		}
 	case reflect.String:
 		for _, tok := range tokens(v.String()) {
 			have[tok]++
 		}
+	default:
+		collectElementTokens(v, have, nil)
 	}
 }
 
@@ -301,33 +469,23 @@ func textFields(t reflect.Type) []int {
 	return out
 }
 
-// lineTokens son los tokens de una línea que el elemento tiene que conservar.
-func lineTokens(line string, opener bool) []string {
-	t := strings.TrimSpace(line)
-	if t == "<<end>>" || strings.Trim(t, ":") == "" {
-		return nil
-	}
-	t = withoutListMarker(t)
-	if !opener {
-		t = withoutPropertyKey(t)
-	}
+// openerTokens son los tokens de la línea de apertura que el elemento tiene
+// que conservar: todos salvo la palabra clave, la etiqueta o el nombre con
+// que abre ("POINTS", "<<math>>", ":::note", "@center", "SECTION") y la marca
+// {verbatim} de CODE.
+func openerTokens(t string) []string {
 	toks := tokens(t)
-	if opener {
-		// La palabra clave, la etiqueta o el nombre con que abre ("POINTS",
-		// "<<math>>", ":::note", "@center", "SECTION"), y la marca
-		// {verbatim} de CODE.
+	for i, tok := range toks {
+		if isWordToken(tok) {
+			toks = append(toks[:i:i], toks[i+1:]...)
+			break
+		}
+	}
+	if strings.HasPrefix(t, "CODE"+elements.CodeVerbatimMarker) {
 		for i, tok := range toks {
-			if isWordToken(tok) {
+			if tok == "verbatim" {
 				toks = append(toks[:i:i], toks[i+1:]...)
 				break
-			}
-		}
-		if strings.HasPrefix(t, "CODE"+elements.CodeVerbatimMarker) {
-			for i, tok := range toks {
-				if tok == "verbatim" {
-					toks = append(toks[:i:i], toks[i+1:]...)
-					break
-				}
 			}
 		}
 	}

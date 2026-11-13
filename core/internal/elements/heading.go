@@ -166,6 +166,10 @@ type HeadingAnchors struct {
 	// base, si no es nil, es la capa de abajo (ver Overlay): sus anchors
 	// cuentan como usados, pero lo que se registra va solo en esta.
 	base *HeadingAnchors
+	// journal, en una capa, anota cada anchor registrado, en orden, para
+	// poder deshacer los últimos (Rollback). Es un puntero para que las
+	// copias de la capa compartan la bitácora, igual que comparten used.
+	journal *[]string
 }
 
 // count es cuántas veces se registró anchor, en esta capa y las de abajo.
@@ -192,10 +196,30 @@ func (a *HeadingAnchors) Derive(text string) string {
 }
 
 // Overlay devuelve una capa sobre a: ve los anchors de a, pero lo que se
-// registra en ella no cambia a a y se descarta con la capa. La usa el parse
-// de prueba del cuerpo de un TEXT vacío (ParseContext.EmptyTextCutKeepsText).
+// registra en ella no cambia a a y se descarta con la capa. Las copias de la
+// capa comparten lo registrado. La usa el parse de prueba del cuerpo de un
+// TEXT vacío (ParseContext.EmptyTextCutKeepsText).
 func (a *HeadingAnchors) Overlay() HeadingAnchors {
-	return HeadingAnchors{base: a}
+	return HeadingAnchors{used: map[string]int{}, base: a, journal: &[]string{}}
+}
+
+// Mark es el punto de la bitácora de una capa al que Rollback vuelve.
+func (a *HeadingAnchors) Mark() int {
+	if a.journal == nil {
+		return 0
+	}
+	return len(*a.journal)
+}
+
+// Rollback deshace lo que la capa registró después de mark.
+func (a *HeadingAnchors) Rollback(mark int) {
+	if a.journal == nil {
+		return
+	}
+	for _, anchor := range (*a.journal)[mark:] {
+		a.used[anchor]--
+	}
+	*a.journal = (*a.journal)[:mark]
 }
 
 // Unique deriva el anchor de text y lo registra.
@@ -212,5 +236,8 @@ func (a *HeadingAnchors) Reserve(anchor string) bool {
 		a.used = make(map[string]int)
 	}
 	a.used[anchor]++
+	if a.journal != nil {
+		*a.journal = append(*a.journal, anchor)
+	}
 	return a.count(anchor) == 1
 }
