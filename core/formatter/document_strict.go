@@ -229,6 +229,6 @@ func asDocumentHeading(el ast.Element) (documentHeading, bool) {
 	return documentHeading{
 		level: int(m[1][0] - '0'),
 		id:    m[2],
-		text:  stripTags(renderer.LangSpanHTMLToSource(m[3])),
+		text:  stripTags(renderer.LangSpanHTMLToSource(escapeLiteralDelimiters(m[3]))),
 	}, true
 }

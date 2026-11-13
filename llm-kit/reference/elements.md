@@ -264,6 +264,9 @@ yarn add package-name
 
 - Must contain at least one fenced code block (`CODEGROUP001` — error if
   empty).
+- The `[label]` is the tab's text, not code: a `{{variable}}` in it is
+  substituted, like in a caption. In DocLang the code body is shown as
+  written, and so is a `{{variable}}` between backticks in the label.
 - Do not leave a `:::code-item{title="..."}` tab outside a recognized
   `:::code-group`/`::::code-group` wrapper — that produces an orphaned tab
   (`CODEGROUP002` — error) instead of a working code group.
@@ -348,6 +351,15 @@ the URL are fine when they balance (`.../wiki/Foo_(bar)`). Only `http:`,
 `https:`, `mailto:`, `tel:`, `ftp:` and relative or `#anchor` URLs are emitted;
 any other scheme, `javascript:` included, is dropped (the link keeps only its
 text) and the linter warns with `LINK001`.
+
+## Emphasis and literal asterisks
+
+`*`, `**`, `***`, `==` and `~~` open a format only when the next character is
+not a space: `2 * 3 * 4` and `a == b == c` stay as written, `**Label: **value`
+is still bold. To show a delimiter that would otherwise open, escape it:
+`\*not italic\*`, `\=\=`, `\~\~`. Do not escape `_` (it is never a
+delimiter here, so `\_` keeps its backslash). PPTX and DOCX follow the same
+rule for bold and italic.
 
 ## Inline spans
 
@@ -465,6 +477,22 @@ runs at **build time, before parsing**, in both CLIs. The line is replaced
 by the referenced file's content (its frontmatter, if any, is stripped),
 recursively, up to 32 levels; include cycles are detected and abort the
 build.
+
+The two CLIs differ on an `@include` line inside a code block (a fenced
+block, or a strict `CODE` body). `doclang build` and the `doclang mcp`
+`export` tool treat it as code: the line stays as written, is not expanded,
+and the build warns with `INCLUDE001` on that line (in the file that has it,
+also when that file was itself included). So a `.doclang` cannot embed a
+file's source in a code block with `@include`; to include a file, write the
+`@include` outside the code block. `slidelang build` does not make that
+distinction: it replaces every `@include` line, inside a code block or not.
+
+In `doclang build` an included file is also self-contained: a fence, a
+`:::code-group` or a `$$` block that it opens and does not close ends where
+the file ends, so it never swallows the lines after the `@include`, and the
+build warns with `INCLUDE002` on the `@include` line. A file cannot open a
+code block for the including document to close: close every block in the file
+that opens it.
 
 Paths are **confined** to a root directory — by default the input file's
 own directory, overridable with `--include-root`. Absolute paths and any

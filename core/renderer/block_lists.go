@@ -112,6 +112,18 @@ type bodyListItem struct {
 	ordinal  int64
 	text     string
 	children []*bodyListItem
+	// pieces son los tramos de la fuente que forman text, unidos con un
+	// espacio: el de la línea del marcador y uno por cada línea de
+	// continuación. proseUnits los usa para ubicar en la fuente los code
+	// spans que el renderer empareja sobre text.
+	pieces []sourcePiece
+	// textStart es el byte de la línea del marcador donde empieza text.
+	textStart int
+}
+
+// sourcePiece es lines[line][start:end].
+type sourcePiece struct {
+	line, start, end int
 }
 
 // parseBodyListItem reconoce un item de Markdown: "-", "*" o "+" y espacio, o
@@ -127,9 +139,11 @@ func parseBodyListItem(line string) (*bodyListItem, bool) {
 		return nil, false
 	}
 	item := &bodyListItem{indent: indent}
+	lead := len(line) - len(strings.TrimLeft(line, " \t"))
 	switch {
 	case len(trimmed) >= 2 && (trimmed[0] == '-' || trimmed[0] == '*' || trimmed[0] == '+') && trimmed[1] == ' ':
 		item.text = strings.TrimSpace(trimmed[2:])
+		item.textStart = lead + 2 + strings.Index(trimmed[2:], item.text)
 		item.content = indent + 2
 	default:
 		i := 0
@@ -143,6 +157,7 @@ func parseBodyListItem(line string) (*bodyListItem, bool) {
 		item.delim = trimmed[i]
 		item.ordinal, _ = strconv.ParseInt(trimmed[:i], 10, 64)
 		item.text = strings.TrimSpace(trimmed[i+2:])
+		item.textStart = lead + i + 2 + strings.Index(trimmed[i+2:], item.text)
 		item.content = indent + i + 2
 	}
 	return item, true
@@ -178,6 +193,14 @@ func startsBodyList(lines []string, i int, inParagraph bool) bool {
 	return !inParagraph || !item.ordered || item.ordinal == 1
 }
 
+// renderLiteralProse es renderProseWithLists sobre text con sus {{variables}}
+// sustituidas (proseListVariables: con la opción de código literal, fuera del
+// código, y sin que un valor cambie los code spans de la fuente).
+func renderLiteralProse(text string, variables map[string]interface{}, paragraphs bool) string {
+	processed, marks := proseListVariables(text, variables)
+	return marks.html(renderProseWithLists(processed, paragraphs))
+}
+
 // renderProseWithLists arma la prosa de una cita o un ":::bloque" (su Content
 // o los tramos de prosa entre sus elementos). Un TextElement suelto no pasa
 // por acá: a nivel de sección las listas ya las separa PointsParser. Sin
@@ -189,18 +212,25 @@ func startsBodyList(lines []string, i int, inParagraph bool) bool {
 // una cita lo necesita porque el <p> que envolvía todo el contenido terminaba
 // conteniendo un <ul>, que es HTML inválido.
 //
-// Recibe el texto con las variables ya sustituidas, sin escapar.
+// Sin paragraphs (la prosa de un ":::bloque"), una línea en blanco entre dos
+// líneas de texto separa párrafos, como en Markdown: entonces cada párrafo va
+// en su <p>. ProcessInlineMarkdownSecure no pone nada entre dos líneas
+// separadas por una en blanco, así que antes "Uno.\n\nDos." salía "Uno.Dos.".
+// La prosa de un solo párrafo sale como siempre, sin <p>. Una línea en blanco
+// dentro de una cerca de código (de backticks o de tildes, que en strict un
+// bloque sin typed deja como prosa) no separa párrafos: la cerca queda entera
+// en su párrafo. Con paragraphs (la cita) no cambia nada: cada tramo sigue en
+// un solo <p>.
+//
+// Recibe el texto con las variables ya sustituidas, sin escapar (con la
+// opción de código literal, por proseListVariables, que parte el texto con
+// layoutProse igual que acá).
 func renderProseWithLists(text string, paragraphs bool) string {
 	lines := strings.Split(text, "\n")
-	hasList := false
-	for i := range lines {
-		inParagraph := i > 0 && strings.TrimSpace(lines[i-1]) != "" && !isBodyListLine(lines[i-1])
-		if startsBodyList(lines, i, inParagraph) {
-			hasList = true
-			break
-		}
-	}
-	if !hasList {
+	blocks, hasList := layoutProse(lines)
+	inFence := fenceLinesOf(lines, true)
+	split := !paragraphs && hasParagraphBreak(lines, inFence, blocks)
+	if !hasList && !split {
 		out := ProcessInlineMarkdownSecure(text)
 		if paragraphs {
 			return "<p>" + out + "</p>"
@@ -209,26 +239,106 @@ func renderProseWithLists(text string, paragraphs bool) string {
 	}
 
 	var html strings.Builder
-	var prose []string
-	flushProse := func() {
-		if len(prose) == 0 {
-			return
+	for _, block := range blocks {
+		if block.roots != nil {
+			html.WriteString(renderBodyList(block.roots))
+			continue
 		}
-		out := ProcessInlineMarkdownSecure(strings.Join(prose, "\n"))
-		prose = prose[:0]
+		if split {
+			for _, para := range splitParagraphs(lines[block.start:block.end], inFence[block.start:block.end]) {
+				if out := ProcessInlineMarkdownSecure(strings.Join(para, "\n")); out != "" {
+					html.WriteString("<p>" + out + "</p>")
+				}
+			}
+			continue
+		}
+		out := ProcessInlineMarkdownSecure(strings.Join(lines[block.start:block.end], "\n"))
 		if out == "" {
-			return
+			continue
 		}
 		if paragraphs {
 			out = "<p>" + out + "</p>"
 		}
 		html.WriteString(out)
 	}
+	return html.String()
+}
+
+// hasParagraphBreak dice si algún tramo de prosa de blocks tiene más de un
+// párrafo: una línea con texto, una o más en blanco y otra con texto. Una
+// lista entre dos tramos no cuenta: "a\n\n- x\n\nb" sigue saliendo
+// "a<ul>…</ul>b", como antes. inFence marca las líneas de una cerca (ver
+// splitParagraphs).
+func hasParagraphBreak(lines []string, inFence []bool, blocks []proseBlock) bool {
+	for _, block := range blocks {
+		if block.roots == nil && len(splitParagraphs(lines[block.start:block.end], inFence[block.start:block.end])) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// splitParagraphs parte lines en los tramos de líneas con texto que separan
+// las líneas en blanco. Una línea en blanco dentro de una cerca (inFence[i])
+// no separa: es parte del código.
+func splitParagraphs(lines []string, inFence []bool) [][]string {
+	var paras [][]string
+	start := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" && !inFence[i] {
+			if start >= 0 {
+				paras = append(paras, lines[start:i])
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		paras = append(paras, lines[start:])
+	}
+	return paras
+}
+
+// proseBlock es un tramo de la prosa de renderProseWithLists: las líneas de
+// prosa lines[start:end], o una lista (roots no nil).
+type proseBlock struct {
+	start, end int
+	roots      []*bodyListItem
+}
+
+// layoutProse parte lines en los tramos que arma renderProseWithLists. hasList
+// es false si no hay ninguna lista: entonces el texto entero es prosa.
+func layoutProse(lines []string) (blocks []proseBlock, hasList bool) {
+	for i := range lines {
+		inParagraph := i > 0 && strings.TrimSpace(lines[i-1]) != "" && !isBodyListLine(lines[i-1])
+		if startsBodyList(lines, i, inParagraph) {
+			hasList = true
+			break
+		}
+	}
+	if !hasList {
+		return []proseBlock{{start: 0, end: len(lines)}}, false
+	}
+
+	// La prosa pendiente es lines[proseStart:proseEnd]: siempre contigua,
+	// porque solo una lista la corta.
+	proseStart, proseEnd := 0, 0
+	flushProse := func() {
+		if proseEnd > proseStart {
+			blocks = append(blocks, proseBlock{start: proseStart, end: proseEnd})
+		}
+	}
 
 	for i := 0; i < len(lines); {
-		inParagraph := len(prose) > 0 && strings.TrimSpace(prose[len(prose)-1]) != ""
+		inParagraph := proseEnd > proseStart && strings.TrimSpace(lines[proseEnd-1]) != ""
 		if !startsBodyList(lines, i, inParagraph) {
-			prose = append(prose, lines[i])
+			if proseEnd == proseStart {
+				proseStart = i
+			}
+			proseEnd = i + 1
 			i++
 			continue
 		}
@@ -259,12 +369,13 @@ func renderProseWithLists(text string, paragraphs bool) string {
 				// abra otro bloque (una cerca, "$$", "---"...): esa sigue como
 				// prosa, como antes.
 				if last != nil && indentColumns(lines[i]) > last.indent && !startsOtherBodyBlock(trimmed) {
-					last.text += " " + trimmed
+					last.continueWith(lines, i)
 					i++
 					continue
 				}
 				break
 			}
+			item.pieces = []sourcePiece{{line: i, start: item.textStart, end: item.textStart + len(item.text)}}
 			depth := len(stack)
 			for depth > 0 && item.indent < stack[depth-1].content {
 				depth--
@@ -278,7 +389,7 @@ func renderProseWithLists(text string, paragraphs bool) string {
 			// el año" es texto de "a". Más afuera abre su lista igual.
 			newList := len(siblings) == 0 || siblings[len(siblings)-1].ordered != item.ordered || siblings[len(siblings)-1].delim != item.delim
 			if last != nil && !blank && depth == len(stack) && newList && item.ordered && item.ordinal != 1 {
-				last.text += " " + strings.TrimSpace(lines[i])
+				last.continueWith(lines, i)
 				i++
 				continue
 			}
@@ -294,10 +405,76 @@ func renderProseWithLists(text string, paragraphs bool) string {
 			blank = false
 			i++
 		}
-		html.WriteString(renderBodyList(roots))
+		blocks = append(blocks, proseBlock{roots: roots})
+		proseStart, proseEnd = i, i
 	}
 	flushProse()
-	return html.String()
+	return blocks, true
+}
+
+// continueWith agrega la línea lines[i], recortada, al texto del item.
+func (it *bodyListItem) continueWith(lines []string, i int) {
+	piece := strings.TrimSpace(lines[i])
+	start := strings.Index(lines[i], piece)
+	it.text += " " + piece
+	it.pieces = append(it.pieces, sourcePiece{line: i, start: start, end: start + len(piece)})
+}
+
+// proseUnit es una unidad que renderProseWithLists le pasa entera al Markdown
+// inline: una línea de prosa (line) o el texto de un item (item).
+type proseUnit struct {
+	line int
+	item *bodyListItem
+}
+
+// proseUnits son las unidades de lines en el orden en que las arma
+// renderProseWithLists.
+func proseUnits(lines []string) []proseUnit {
+	blocks, _ := layoutProse(lines)
+	var units []proseUnit
+	var walk func(items []*bodyListItem)
+	walk = func(items []*bodyListItem) {
+		for _, it := range items {
+			units = append(units, proseUnit{item: it})
+			walk(it.children)
+		}
+	}
+	for _, block := range blocks {
+		if block.roots != nil {
+			walk(block.roots)
+			continue
+		}
+		for i := block.start; i < block.end; i++ {
+			units = append(units, proseUnit{line: i})
+		}
+	}
+	return units
+}
+
+// spanRanges son los rangos de la fuente (starts[i] es el byte donde empieza
+// lines[i]) que caen en un code span de la unidad, emparejado como lo empareja
+// el renderer: sobre la línea, o sobre el texto del item ya juntado.
+func (u proseUnit) spanRanges(lines []string, starts []int) [][2]int {
+	if u.item == nil {
+		return spanRanges(lines[u.line], starts[u.line])
+	}
+	var out [][2]int
+	for _, sp := range findCodeSpans(u.item.text) {
+		// El piece k empieza en el texto juntado después de los anteriores
+		// y de un espacio por cada uno.
+		at := 0
+		for _, piece := range u.item.pieces {
+			lo, hi := at, at+piece.end-piece.start
+			at = hi + 1
+			from, to := max(lo, sp.fullStart), min(hi, sp.fullEnd)
+			if from >= to {
+				continue
+			}
+			base := starts[piece.line] + piece.start - lo
+			out = append(out, [2]int{base + from, base + to})
+		}
+	}
+	return out
 }
 
 func isBodyListLine(line string) bool {

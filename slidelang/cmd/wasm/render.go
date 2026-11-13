@@ -11,6 +11,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/renderer"
+	"go.ziradocs.com/slidelang/v2/internal/docpreview"
 	"go.ziradocs.com/slidelang/v2/internal/generator"
 )
 
@@ -83,15 +84,27 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 		theme = args[1].String()
 	}
 
-	astNode, parseDiags, err := parseDoclang(source)
-	if err != nil || astNode == nil || hasErrorDiagnostic(parseDiags) {
-		out := renderOutput{Diagnostics: parseDiags, Valid: false}
-		if err != nil {
-			out.Error = err.Error()
-		}
-		return mustJSON(out)
+	// docpreview.Render reads with doclang build's rules (docpreview.Parse)
+	// and renders with them (docpreview.HTML: code is literal, so a
+	// {{variable}} inside a code block or a code span stays as written, and
+	// typed headings are lowered first, for the TOC). An xref failure (an
+	// unresolved \ref, a duplicate label) still returns the HTML that could
+	// be drawn, with the error and valid=false: a live preview would
+	// otherwise go blank each time the author types a \ref to a label that
+	// doesn't exist yet.
+	res := docpreview.Render(logger, source, func(astNode *ast.AST) renderer.DocumentHTMLOptions {
+		return doclangOptions(astNode, theme)
+	})
+	out := renderOutput{HTML: res.HTML, Diagnostics: res.Diagnostics, Valid: res.Valid}
+	if res.Err != nil {
+		out.Error = res.Err.Error()
 	}
+	return mustJSON(out)
+}
 
+// doclangOptions are the document HTML options doclangRenderHTML renders
+// astNode with; theme is the caller's selector ("" for the document's own).
+func doclangOptions(astNode *ast.AST, theme string) renderer.DocumentHTMLOptions {
 	title := ""
 	var headerFooterConfig *ast.HeaderFooterConfig
 	var watermarkConfig *ast.WatermarkConfig
@@ -112,9 +125,15 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 		}
 	}
 
-	opts := renderer.DocumentHTMLOptions{
+	// El TOC sigue la regla de doclang build (docpreview.TOCOptions):
+	// toc.enabled y toc.depth del frontmatter, prendido con profundidad 3 si
+	// no los declara, y apagado sin frontmatter. La numeración sigue siempre
+	// prendida.
+	toc, tocDepth := docpreview.TOCOptions(astNode)
+	return renderer.DocumentHTMLOptions{
 		Title:     title,
-		TOC:       true,
+		TOC:       toc,
+		TOCDepth:  tocDepth,
 		Numbering: true,
 		Theme:     theme,
 		// ShowHeaders/ShowFooters: mismo criterio que doclang's CLI/preview
@@ -129,7 +148,4 @@ func doclangRenderHTML(_ js.Value, args []js.Value) any {
 		Watermark:    watermarkConfig, // watermark: front matter (issue #179)
 		EmbedAssets:  true,
 	}
-	html := renderer.GenerateDocumentHTML(astNode, opts, renderer.NewDefaultRenderContext())
-
-	return mustJSON(renderOutput{HTML: html, Diagnostics: parseDiags, Valid: true})
 }

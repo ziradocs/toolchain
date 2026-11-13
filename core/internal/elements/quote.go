@@ -98,8 +98,10 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 			break
 		}
 
-		// Parar en separador de slide o en el inicio de otro elemento
-		if line == "---" || IsNewElement(line, ctx.Mode) {
+		// Parar en separador de slide o en el inicio de otro elemento. Una
+		// línea más sangrada que QUOTE solo corta con la palabra clave
+		// completa (EndsStrictBody, issue #489); en flex, como siempre.
+		if line == "---" || p.endsBody(ctx, i, quoteIndent) {
 			break
 		}
 
@@ -143,7 +145,16 @@ func (p *QuoteParser) continuesQuote(ctx *ParseContext, index, quoteIndent int) 
 		return false
 	}
 	trimmed := strings.TrimSpace(ctx.Lines[index])
-	return trimmed != "---" && !IsNewElement(trimmed, ctx.Mode)
+	return trimmed != "---" && !p.endsBody(ctx, index, quoteIndent)
+}
+
+// endsBody dice si ctx.Lines[index] abre otro elemento y corta el cuerpo de
+// la cita: en strict según EndsStrictBody, en flex según IsNewElement.
+func (p *QuoteParser) endsBody(ctx *ParseContext, index, quoteIndent int) bool {
+	if ctx.Mode == "strict" {
+		return EndsStrictBody(ctx.Lines[index], quoteIndent)
+	}
+	return IsNewElement(strings.TrimSpace(ctx.Lines[index]), ctx.Mode)
 }
 
 // parseFlex parsea citas en modo flex (Markdown)

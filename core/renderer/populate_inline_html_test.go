@@ -4,6 +4,7 @@
 package renderer
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -103,16 +104,15 @@ func TestPopulateInlineHTML_MatchesRenderElementToHTML(t *testing.T) {
 			name: "code_group",
 			elem: func() ast.Element {
 				cg := ast.NewCodeGroupElement(pos)
-				cg.CodeBlocks = append(cg.CodeBlocks, ast.CodeBlock{Language: "go", Label: "main.go", Content: "fmt.Println({{name}})"})
+				cg.CodeBlocks = append(cg.CodeBlocks, ast.CodeBlock{Language: "go", Label: "{{name}}.go", Content: "fmt.Println({{name}})"})
 				return cg
 			}(),
 			get: func(e ast.Element) []string {
-				// LabelHTML se excluye: RenderElementToHTML (renderCodeGroupElement,
-				// usado solo por doclang) NO sustituye {{variables}} en Label,
-				// a diferencia del pipeline real de slidelang (converter.go
-				// ConvertCodeBlocksWithVariables), que sí lo hace — ver
-				// TestPopulateInlineHTML_CodeGroupLabelSubstitutesVariables.
-				return []string{e.(*ast.CodeGroupElement).CodeBlocks[0].ContentHTML}
+				// La etiqueta no es código: RenderElementToHTML la sustituye
+				// igual que LabelHTML (y que el pipeline de slidelang,
+				// ConvertCodeBlocksWithVariables).
+				block := e.(*ast.CodeGroupElement).CodeBlocks[0]
+				return []string{block.LabelHTML, block.ContentHTML}
 			},
 		},
 		{
@@ -187,27 +187,33 @@ func TestPopulateInlineHTML_MatchesRenderElementToHTML(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			doc := newTestDoc(tc.elem)
-			PopulateInlineHTML(doc, vars)
+	// Los dos modos de código (issue #487): sustituir {{variables}} en el
+	// código (el valor cero, slidelang) y dejarlo literal (doclang). En cada
+	// modo PopulateInlineHTMLWithOptions y RenderElementToHTML tienen que
+	// coincidir.
+	for _, literal := range []bool{false, true} {
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("%s/literalCode=%v", tc.name, literal), func(t *testing.T) {
+				doc := newTestDoc(tc.elem)
+				PopulateInlineHTMLWithOptions(doc, vars, InlineHTMLOptions{LiteralCode: literal})
 
-			full := RenderElementToHTML(tc.elem, vars, nil)
-			for _, fragment := range tc.get(tc.elem) {
-				if fragment == "" {
-					t.Fatalf("expected non-empty *HTML field")
+				full := RenderElementToHTML(tc.elem, vars, &RenderContext{LiteralCode: literal})
+				for _, fragment := range tc.get(tc.elem) {
+					if fragment == "" {
+						t.Fatalf("expected non-empty *HTML field")
+					}
+					if !strings.Contains(full, fragment) {
+						t.Errorf("populated fragment %q not found in RenderElementToHTML output:\n%s", fragment, full)
+					}
 				}
-				if !strings.Contains(full, fragment) {
-					t.Errorf("populated fragment %q not found in RenderElementToHTML output:\n%s", fragment, full)
+				// El payload XSS nunca debe sobrevivir sin escapar en ningún *HTML.
+				for _, fragment := range tc.get(tc.elem) {
+					if strings.Contains(fragment, xssPayload) {
+						t.Errorf("XSS payload leaked unescaped into *HTML field: %q", fragment)
+					}
 				}
-			}
-			// El payload XSS nunca debe sobrevivir sin escapar en ningún *HTML.
-			for _, fragment := range tc.get(tc.elem) {
-				if strings.Contains(fragment, xssPayload) {
-					t.Errorf("XSS payload leaked unescaped into *HTML field: %q", fragment)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -397,11 +403,10 @@ func TestPopulateInlineHTML_SpecialBlockTitleAppliesMarkdown(t *testing.T) {
 	}
 }
 
-// TestPopulateInlineHTML_CodeGroupLabelSubstitutesVariables cubre una
-// divergencia deliberada de RenderElementToHTML (renderCodeGroupElement, que
-// NO sustituye {{variables}} en Label): el pipeline real de slidelang
-// (data.ConvertCodeBlocksWithVariables) sí las sustituye antes de que el
-// template renderice el label del tab, así que LabelHTML debe reflejar eso.
+// TestPopulateInlineHTML_CodeGroupLabelSubstitutesVariables: la etiqueta de
+// una pestaña no es código, así que LabelHTML sustituye sus {{variables}},
+// como RenderElementToHTML (renderCodeGroupElement) y el pipeline de
+// slidelang (data.ConvertCodeBlocksWithVariables).
 func TestPopulateInlineHTML_CodeGroupLabelSubstitutesVariables(t *testing.T) {
 	pos := diagnostics.NewPosition(1, 1)
 	elem := ast.NewCodeGroupElement(pos)

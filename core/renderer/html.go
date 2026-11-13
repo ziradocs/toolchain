@@ -31,6 +31,9 @@ import (
 // plantuml, chart, map, y cualquier elemento (p. ej. grid) que los anide.
 // Un ctx nil se resuelve a NewDefaultRenderContext() (todo en "browser").
 func RenderElementToHTML(element ast.Element, variables map[string]interface{}, ctx *RenderContext) string {
+	if ctx.literalCode() {
+		variables = withLiteralCode(variables)
+	}
 	// La línea del elemento acompaña a lo que reporte como no disponible
 	// (SetUnavailableReporter); un grid o un bloque especial vuelve a pasar
 	// por acá con cada hijo, así que gana el elemento más interno.
@@ -207,7 +210,10 @@ func renderTextElement(elem *ast.TextElement, variables map[string]interface{}) 
 // wrapTextHTML envuelve en <p> el HTML de un párrafo, salvo que traiga una
 // lista (ver el comentario de arriba).
 func wrapTextHTML(content string) string {
-	if strings.Contains(content, "<ul") || strings.Contains(content, "<ol") {
+	// Tampoco la prosa de un ":::bloque" con varios párrafos, que ya trae
+	// cada uno en su <p> (renderProseWithLists): un <p> dentro de otro es
+	// HTML inválido.
+	if strings.Contains(content, "<ul") || strings.Contains(content, "<ol") || strings.Contains(content, "<p>") {
 		return content
 	}
 	return fmt.Sprintf("<p>%s</p>", content)
@@ -248,9 +254,12 @@ func renderTypedPoints(items []ast.PointItem, listType string, start *int64, var
 	return html.String()
 }
 
-// renderCodeElement procesa bloques de código con syntax highlighting
+// renderCodeElement procesa bloques de código con syntax highlighting. Con la
+// opción de código literal (RenderContext.LiteralCode, que RenderElementToHTML
+// pasa en variables, ver withLiteralCode) el cuerpo queda literal (issue #487);
+// si no, sustituye `{{nombre}}` como siempre.
 func renderCodeElement(elem *ast.CodeElement, variables map[string]interface{}) string {
-	content := ProcessVariables(elem.Content, variables)
+	content := codeBody(elem.Content, variables)
 	// Escapar HTML en el contenido del código para prevenir inyección
 	content = EscapeHTML(content)
 	language := elem.Language
@@ -273,8 +282,8 @@ func renderCodeElement(elem *ast.CodeElement, variables map[string]interface{}) 
 // #167, ver TryInlineLocalImage).
 func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}, ctx *RenderContext) string {
 	source := ProcessVariables(elem.Source, variables)
-	alt := ProcessVariables(elem.Alt, variables)
-	caption := ProcessVariables(elem.Caption, variables)
+	alt := proseLineVariables(elem.Alt, variables)
+	caption := proseLineVariables(elem.Caption, variables)
 
 	// Escapar atributos para prevenir inyección
 	alt = EscapeHTMLAttribute(alt)
@@ -340,7 +349,7 @@ func renderImageElement(elem *ast.ImageElement, variables map[string]interface{}
 	// El título del destino Markdown (image-title-v1) va al atributo title.
 	titleAttr := ""
 	if elem.Title != "" {
-		titleAttr = ` title="` + EscapeHTMLAttribute(ProcessVariables(elem.Title, variables)) + `"`
+		titleAttr = ` title="` + EscapeHTMLAttribute(proseLineVariables(elem.Title, variables)) + `"`
 	}
 	if caption != "" {
 		return fmt.Sprintf(`<figure%s><img src="%s" alt="%s"%s><figcaption>%s%s</figcaption></figure>`,
@@ -706,7 +715,7 @@ func renderMediaElement(elem *ast.MediaElement, variables map[string]interface{}
 	if elem.Caption == "" {
 		return media
 	}
-	caption := ProcessVariablesSecure(elem.Caption, variables)
+	caption := proseLineVariablesSecure(elem.Caption, variables)
 	return fmt.Sprintf(`<figure class="media-figure">%s<figcaption>%s</figcaption></figure>`, media, caption)
 }
 
@@ -753,7 +762,7 @@ func renderTableElement(elem *ast.TableElement, variables map[string]interface{}
 
 	// Caption opcional
 	if elem.Caption != "" {
-		caption := ProcessVariablesSecure(elem.Caption, variables)
+		caption := proseLineVariablesSecure(elem.Caption, variables)
 		prefix := ""
 		if elem.Label != "" && elem.Number > 0 {
 			lang := ""
@@ -928,15 +937,15 @@ func writeTableCellRow(html *strings.Builder, row []ast.TableCell, variables map
 
 // renderQuoteElement procesa citas con autor y fuente opcionales
 func renderQuoteElement(elem *ast.QuoteElement, variables map[string]interface{}) string {
-	author := ProcessVariablesSecure(elem.Author, variables)
-	source := ProcessVariablesSecure(elem.Source, variables)
+	author := proseLineVariablesSecure(elem.Author, variables)
+	source := proseLineVariablesSecure(elem.Source, variables)
 
 	var html strings.Builder
 	html.WriteString("<blockquote>")
 	// Una lista dentro de la cita sale como lista, fuera de todo <p> (un <ul>
 	// dentro de <p> es HTML inválido) y anidada como la escribió el autor.
 	// Sin listas sale el mismo <p> de siempre.
-	html.WriteString(renderProseWithLists(ProcessVariables(elem.Content, variables), true))
+	html.WriteString(renderLiteralProse(elem.Content, variables, true))
 
 	if author != "" || source != "" {
 		html.WriteString("<footer>")
@@ -1034,14 +1043,14 @@ func renderMetricElement(elem *ast.MetricElement, variables map[string]interface
 	var html strings.Builder
 	fmt.Fprintf(&html, `<section class="metric" data-trend="%s">`, EscapeHTML(elem.Trend))
 	if elem.Label != "" {
-		fmt.Fprintf(&html, `<p class="metric-label">%s</p>`, ProcessVariablesSecure(elem.Label, variables))
+		fmt.Fprintf(&html, `<p class="metric-label">%s</p>`, proseLineVariablesSecure(elem.Label, variables))
 	}
-	fmt.Fprintf(&html, `<p class="metric-value">%s</p>`, ProcessVariablesSecure(elem.Value, variables))
+	fmt.Fprintf(&html, `<p class="metric-value">%s</p>`, proseLineVariablesSecure(elem.Value, variables))
 	if elem.Delta != "" {
-		fmt.Fprintf(&html, `<p class="metric-delta">%s</p>`, ProcessVariablesSecure(elem.Delta, variables))
+		fmt.Fprintf(&html, `<p class="metric-delta">%s</p>`, proseLineVariablesSecure(elem.Delta, variables))
 	}
 	if elem.Caption != "" {
-		fmt.Fprintf(&html, `<p class="metric-caption">%s</p>`, ProcessVariablesSecure(elem.Caption, variables))
+		fmt.Fprintf(&html, `<p class="metric-caption">%s</p>`, proseLineVariablesSecure(elem.Caption, variables))
 	}
 	html.WriteString(`</section>`)
 	return html.String()
@@ -1086,7 +1095,7 @@ var OfflineElementClasses = []string{
 // Soporta 3 modos: browser (CDN), offline-assets (archivos), offline-inline (SVG embebido)
 func renderMermaidElement(elem *ast.MermaidElement, variables map[string]interface{}, ctx *RenderContext) string {
 	content := PrepareMermaidContent(ProcessVariables(elem.Content, variables), elem.DiagramType)
-	title := ProcessVariablesSecure(elem.Title, variables)
+	title := proseLineVariablesSecure(elem.Title, variables)
 
 	ctx = resolveRenderContext(ctx)
 
@@ -1169,7 +1178,7 @@ func renderMermaidOfflineInline(content string, ctx *RenderContext) string {
 // (pre-renderizado vía Chromium a SVG, mismo mecanismo de fetcher).
 func renderMathElement(elem *ast.MathElement, variables map[string]interface{}, ctx *RenderContext) string {
 	content := ProcessVariables(elem.Content, variables)
-	caption := EscapeHTML(ProcessVariables(elem.Caption, variables))
+	caption := EscapeHTML(proseLineVariables(elem.Caption, variables))
 
 	ctx = resolveRenderContext(ctx)
 
@@ -1285,7 +1294,7 @@ func renderMathOfflineInline(content string, ctx *RenderContext) string {
 // Soporta 3 modos: browser (lazy), offline-assets (archivos), offline-inline (SVG embebido)
 func renderPlantUMLElement(elem *ast.PlantUMLElement, variables map[string]interface{}, ctx *RenderContext) string {
 	content := ProcessVariables(elem.Content, variables)
-	title := ProcessVariablesSecure(elem.Title, variables)
+	title := proseLineVariablesSecure(elem.Title, variables)
 
 	// Sanitizar contenido
 	content = SanitizePlantUMLContent(content)
@@ -1440,7 +1449,7 @@ func ResolveChartJSONMode(elem *ast.ChartElement) (config map[string]interface{}
 // renderChartElement procesa gráficos con datos o JSON
 // Soporta 3 modos: browser (CDN), offline-assets (PNG), offline-inline (PNG embebido)
 func renderChartElement(elem *ast.ChartElement, variables map[string]interface{}, ctx *RenderContext) string {
-	title := ProcessVariablesSecure(elem.Title, variables)
+	title := proseLineVariablesSecure(elem.Title, variables)
 
 	ctx = resolveRenderContext(ctx)
 
@@ -2564,7 +2573,7 @@ func applyExportOptimizations(options map[string]interface{}) {
 // renderMapElement procesa mapas con marcadores
 // Soporta 3 modos: browser (CDN), offline-assets (PNG), offline-inline (PNG embebido)
 func renderMapElement(elem *ast.MapElement, variables map[string]interface{}, ctx *RenderContext) string {
-	title := ProcessVariablesSecure(elem.Title, variables)
+	title := proseLineVariablesSecure(elem.Title, variables)
 
 	ctx = resolveRenderContext(ctx)
 
@@ -2627,8 +2636,8 @@ func BuildMapConfig(elem *ast.MapElement, variables map[string]interface{}) MapC
 
 	// Convertir marcadores
 	for _, marker := range elem.Markers {
-		label := ProcessVariablesSecure(marker.Label, variables)
-		details := ProcessVariablesSecure(marker.Details, variables)
+		label := proseLineVariablesSecure(marker.Label, variables)
+		details := proseLineVariablesSecure(marker.Details, variables)
 
 		config.Markers = append(config.Markers, MapMarker{
 			Lat:     marker.Lat,
@@ -2685,8 +2694,8 @@ func renderMapBrowser(elem *ast.MapElement, variables map[string]interface{}) st
 		// ver sanitizer.go) — sin ella, un salto de línea/tab literal en
 		// el label/details de un marcador quedaría intacto dentro del
 		// atributo HTML generado.
-		label := NormalizeAttributeWhitespace(ProcessVariablesSecure(marker.Label, variables))
-		details := NormalizeAttributeWhitespace(ProcessVariablesSecure(marker.Details, variables))
+		label := NormalizeAttributeWhitespace(proseLineVariablesSecure(marker.Label, variables))
+		details := NormalizeAttributeWhitespace(proseLineVariablesSecure(marker.Details, variables))
 
 		fmt.Fprintf(&html, `<div class="map-marker" data-lat="%f" data-lng="%f" data-label="%s"`,
 			marker.Lat, marker.Lng, label)
@@ -2763,7 +2772,7 @@ func renderMapOfflineInline(mapConfig MapConfig, width, height int, ctx *RenderC
 // (un chart/mermaid/plantuml dentro de un ":::bloque" también debe respetar
 // el modo de rendering offline — mismo motivo que renderGridElement).
 func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[string]interface{}, ctx *RenderContext) string {
-	title := ProcessVariablesSecure(elem.Title, variables)
+	title := proseLineVariablesSecure(elem.Title, variables)
 	icon := EscapeHTML(elem.Icon)
 	blockType := EscapeHTMLAttribute(elem.BlockType)
 
@@ -2789,14 +2798,14 @@ func renderSpecialBlockElement(elem *ast.SpecialBlockElement, variables map[stri
 			// La prosa entre los elementos de un bloque arma sus listas como
 			// el Content del bloque (renderProseWithLists).
 			if text, ok := nested.(*ast.TextElement); ok && !text.IsRawHTML {
-				html.WriteString(wrapTextHTML(renderProseWithLists(ProcessVariables(text.Content, variables), false)))
+				html.WriteString(wrapTextHTML(renderLiteralProse(text.Content, variables, false)))
 				continue
 			}
 			html.WriteString(RenderElementToHTML(nested, variables, ctx))
 		}
 		html.WriteString(`</div>`)
 	} else {
-		content := renderProseWithLists(ProcessVariables(elem.Content, variables), false)
+		content := renderLiteralProse(elem.Content, variables, false)
 		fmt.Fprintf(&html, `<div class="alert-content">%s</div>`, content)
 	}
 	html.WriteString("</div>")
@@ -2817,7 +2826,11 @@ func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]int
 		if i == 0 {
 			activeClass = " active"
 		}
-		label := EscapeHTML(block.Label)
+		// La etiqueta no es código: es un campo de una línea, como una
+		// leyenda, con las {{variables}} sustituidas fuera de sus code spans
+		// y sin Markdown. Es lo mismo que el LabelHTML del AST
+		// (populateElementHTML).
+		label := EscapeHTML(proseLineVariables(block.Label, variables))
 		fmt.Fprintf(&html, `<button type="button" class="code-group-tab%s" data-index="%d">%s</button>`,
 			activeClass, i, label)
 	}
@@ -2830,8 +2843,7 @@ func renderCodeGroupElement(elem *ast.CodeGroupElement, variables map[string]int
 		if i == 0 {
 			activeClass = " active"
 		}
-		content := ProcessVariables(block.Content, variables)
-		content = EscapeHTML(content)
+		content := EscapeHTML(codeBody(block.Content, variables))
 		language := EscapeHTMLAttribute(block.Language)
 		fmt.Fprintf(&html, `<div class="code-group-block%s" data-index="%d">`, activeClass, i)
 		fmt.Fprintf(&html, `<pre><code class="language-%s">%s</code></pre>`, language, content)

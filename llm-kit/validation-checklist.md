@@ -20,7 +20,7 @@ the end.
 ## 1. Presentation-level structure
 
 - [ ] `---` frontmatter present at file start (`FRONT003` — error if missing)
-- [ ] `mode:` set explicitly in frontmatter (`FRONT001` — the **parser**
+- [ ] `mode:` set explicitly in frontmatter (`FRONT009` — the **parser**
       emits this as a WARNING and backfills `mode: auto` if missing; the
       linter's own `FRONT001` check can never fire, because by the time it
       runs, `mode` has already been backfilled to `auto` — so a missing
@@ -55,6 +55,13 @@ and it applies to any slide typed `title` in either mode.)
 - [ ] **Tables**: has headers (`TABLE001` — warning), has at least one row
       (`TABLE002` — warning), and **every row has the same column count as
       the header row** (`TABLE003` — **error**, the strictest of the three)
+- [ ] **Table rows on the `rows:` line**: `rows: [["a", "b"], ["c", "d"]]`
+      is read only when every cell is in double quotes (no other quote
+      inside) or unquoted; single quotes, an unquoted cell starting or
+      ending with an apostrophe (`'90s`), stray quotes or text after the
+      array, or a row whose cell count differs from the headers, give no
+      rows and the parser warning `TABLE007`. When unsure,
+      put each row on its own line below `rows:`
 - [ ] **Code groups**: contains at least one code block (`CODEGROUP001` —
       error); no `:::code-item{...}` tab left orphaned outside a real
       `:::code-group`/`::::code-group` wrapper (`CODEGROUP002` — error —
@@ -80,6 +87,13 @@ and it applies to any slide typed `title` in either mode.)
       text alone and a block image is not drawn. Parentheses inside a
       destination are fine when balanced, e.g. `.../wiki/Foo_(bar)`
 - [ ] **Code**: block is not empty (`CODE001` — warning)
+- [ ] **`@include` in code (DocLang only)**: no `@include` line inside a code
+      block meant to include a file. `doclang build` keeps it as code, does
+      not expand it and warns with `INCLUDE001`; `slidelang build` expands it
+- [ ] **Blocks closed in the file that opens them (DocLang only)**: an
+      included file closes every fence, `:::code-group` and `$$` block it
+      opens. `doclang build` closes one left open where the file ends and
+      warns with `INCLUDE002`; the including document cannot close it
 
 ## 4. Slide properties
 
@@ -160,12 +174,15 @@ flag their absence:
 ### Additional diagnostic IDs
 
 The parser can also emit these diagnostics, which are useful when repairing
-LLM-authored source: `CHART002`, `CHART005`, `CONTRAST001`, `CONTRAST002`,
-`DIRECTIVE001`, `FLEX002`, `SPECIAL002`, `FRONT002`, `FRONT004`, `FRONT005`, `FRONT006`,
-`FRONT007`, `FRONT008`, `IMG002`, `IMG003`, `MAP002`, `POLL001`, `POLL002`, `QUIZ002`, `QUIZ003`,
-`TABLE004`, `TABLE005`, `TABLE006`, `TEXT001`, `METRIC001`, `METRIC002`, `METRIC003`,
-and `METRIC004`. They complement the rule IDs named inline above; none should
-be guessed from prose—use the parser's message and source position.
+LLM-authored source: `CHART002`, `CHART005`, `DIRECTIVE001`, `FLEX002`,
+`SPECIAL002`, `FRONT002`, `FRONT004`, `FRONT005`, `FRONT006`, `FRONT007`,
+`FRONT008`, `FRONT009`, `IMG002`, `IMG003`, `MAP002`, `POLL006`, `TABLE004`,
+`TABLE005`, `TABLE006`, `TEXT001`, `METRIC001`, `METRIC002`, `METRIC003`, and
+`METRIC004`.
+The linter adds, among others, `CONTRAST001`, `CONTRAST002`, `POLL001`,
+`POLL002`, `QUIZ002`, and `QUIZ003`. They complement the rule IDs named inline
+above; none should be guessed from prose—use the diagnostic's message and
+source position.
 
 - [ ] Final ZiraDocs output is presented as a single fenced
       ` ```slidelang ` block — no partial/duplicate frontmatter, no

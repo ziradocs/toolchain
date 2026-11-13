@@ -163,6 +163,10 @@ func (h *HTMLGenerator) Generate(doc *ast.AST, outputFile string, opts Generator
 		Ctx:                opts.runContext(),
 		Logger:             h.logger,
 	})
+	// El código es literal (issue #487): {{variables}} no se sustituyen en
+	// un bloque de código ni en el código de la prosa, igual que en get_ast y
+	// en el DOCX.
+	ctx.LiteralCode = true
 	allowRemoteImages(ctx, opts.AllowRemoteImages)
 	if err := setTileServer(ctx, opts); err != nil {
 		return err

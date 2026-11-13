@@ -489,18 +489,18 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
                 <div class="slidelang-title-slide-container">
                     {{/* Sección de título principal */}}
                     <div class="slidelang-title-section">
-                        {{if $slide.Kicker}}
-                            <p class="slidelang-kicker">{{$slide.Kicker}}</p>
+                        {{if $slide.KickerHTML}}
+                            <p class="slidelang-kicker">{{$slide.KickerHTML}}</p>
                         {{end}}
-                        {{if $slide.Heading}}
-                            <h1 class="slidelang-main-title">{{$slide.Heading}}</h1>
-                        {{else if $slide.Title}}
-                            <h1 class="slidelang-main-title">{{$slide.Title}}</h1>
+                        {{if $slide.HeadingHTML}}
+                            <h1 class="slidelang-main-title">{{$slide.HeadingHTML}}</h1>
+                        {{else if $slide.TitleHTML}}
+                            <h1 class="slidelang-main-title">{{$slide.TitleHTML}}</h1>
                         {{else}}
                             {{template "slide-h1-fallback" (dict "index" $index)}}
                         {{end}}
-                        {{if $slide.Subtitle}}
-                            <h2 class="slidelang-subtitle">{{$slide.Subtitle}}</h2>
+                        {{if $slide.SubtitleHTML}}
+                            <h2 class="slidelang-subtitle">{{$slide.SubtitleHTML}}</h2>
                         {{end}}
                     </div>
 
@@ -514,16 +514,16 @@ func (tb *TemplateBuilder) buildHTMLBody() string {
             {{else}}
                 {{/* Layout para slides de contenido */}}
                 <div class="slidelang-content-wrapper">
-                    {{if $slide.Kicker}}
-                        <p class="slidelang-kicker">{{$slide.Kicker}}</p>
+                    {{if $slide.KickerHTML}}
+                        <p class="slidelang-kicker">{{$slide.KickerHTML}}</p>
                     {{end}}
-                    {{if $slide.Title}}
-                        <h1>{{$slide.Title}}</h1>
+                    {{if $slide.TitleHTML}}
+                        <h1>{{$slide.TitleHTML}}</h1>
                     {{else}}
                         {{template "slide-h1-fallback" (dict "index" $index)}}
                     {{end}}
-                    {{if $slide.Subtitle}}
-                        <p class="slidelang-subtitle">{{$slide.Subtitle}}</p>
+                    {{if $slide.SubtitleHTML}}
+                        <p class="slidelang-subtitle">{{$slide.SubtitleHTML}}</p>
                     {{end}}
                     {{if $slide.Elements}}
                     <div class="slidelang-content-elements">

@@ -1487,7 +1487,7 @@ func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) e
 		} else if m := markdownHeadingPattern.FindStringSubmatch(content); m != nil {
 			text = m[1]
 		}
-		return g.renderHeading(doc, text, elem.Level)
+		return g.renderHeadingWithImageAlts(doc, text, elem.Level, g.headingImageAlts(elem, text))
 	}
 
 	// Detectar headings HTML (del FlexParser, para un AST sin Level)
@@ -1518,6 +1518,53 @@ func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) e
 
 // renderHeading renderiza un encabezado H2/H3/H4
 func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level int) error {
+	return g.renderHeadingWithImageAlts(doc, text, level, nil)
+}
+
+// headingImageAlts son los alt de las imágenes del encabezado elem tal como
+// los escribe el HTML, en orden, para el marcador de imagen no disponible.
+// Salen de la fuente del encabezado (HeadingSource) con docxInlineImageAlt,
+// la misma regla que una imagen de párrafo: text es el HTML del encabezado
+// que recorre renderHeadingInline, y ahí un code span del alt ya perdió sus
+// backticks, así que sustituir sobre ese alt cambiaba un `{{w}}` literal por
+// su valor. Sin fuente, con una fuente que ya no es la de Content (un
+// --filter externo) o si no salen las mismas imágenes que en text, devuelve
+// nil y el marcador usa el alt de text tal cual.
+func (g *DOCXGenerator) headingImageAlts(elem *ast.TextElement, text string) []string {
+	source := elem.HeadingSource
+	if source == "" || !strings.Contains(text, "<img") ||
+		(elem.Content != elem.HeadingContent && elem.Content != renderer.HeadingHTML(elem.Level, source, elem.HeadingAnchor)) {
+		return nil
+	}
+	// Un "![" dentro de un code span es código, no una imagen.
+	masked := []byte(source)
+	for _, sp := range markdownCodeSpans(source) {
+		for i := sp[0]; i < sp[1]; i++ {
+			masked[i] = 'x'
+		}
+	}
+	var alts []string
+	next := docxScanInlineImages(string(masked))
+	for pos := 0; pos < len(masked); {
+		loc := next(pos)
+		if loc == nil {
+			break
+		}
+		alts = append(alts, g.docxInlineImageAlt(source[loc[2]:loc[3]]))
+		pos = loc[1]
+	}
+	if len(alts) != len(docxHeadingImgTag.FindAllStringIndex(text, -1)) {
+		return nil
+	}
+	return alts
+}
+
+// docxHeadingImgTag es una etiqueta <img ...> del HTML de un encabezado.
+var docxHeadingImgTag = regexp.MustCompile(`<img\b[^>]*>`)
+
+// renderHeadingWithImageAlts es renderHeading con los alt que el HTML da a
+// las imágenes del encabezado (headingImageAlts), o nil sin ellos.
+func (g *DOCXGenerator) renderHeadingWithImageAlts(doc domain.Document, text string, level int, imageAlts []string) error {
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
@@ -1586,7 +1633,7 @@ func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level in
 		return fmt.Errorf("invalid spacing after: %w", err)
 	}
 
-	if err := g.renderHeadingInline(p, text, size, color, bold); err != nil {
+	if err := g.renderHeadingInline(p, text, imageAlts, size, color, bold); err != nil {
 		return err
 	}
 
@@ -1614,8 +1661,9 @@ var docxHeadingImgAttr = regexp.MustCompile(`\b(src|alt|title)="([^"]*)"`)
 // renderHeadingImage inserta en p la imagen de un <img> de encabezado (attrs
 // es el resto de la etiqueta), con el mismo confinamiento y la misma medida
 // que una imagen inline de un párrafo. Una remota, faltante o fuera de la raíz
-// deja su alt (o el marcador de imagen no disponible).
-func (g *DOCXGenerator) renderHeadingImage(p domain.Paragraph, attrs, size, color string) error {
+// deja su alt (o el marcador de imagen no disponible). htmlAlt, si no es nil,
+// es el alt que el HTML le da (headingImageAlts) y va en el marcador.
+func (g *DOCXGenerator) renderHeadingImage(p domain.Paragraph, attrs string, htmlAlt *string, size, color string) error {
 	var src, alt, title string
 	for _, m := range docxHeadingImgAttr.FindAllStringSubmatch(attrs, -1) {
 		switch m[1] {
@@ -1636,7 +1684,11 @@ func (g *DOCXGenerator) renderHeadingImage(p domain.Paragraph, attrs, size, colo
 				return nil
 			}
 		}
-		text = g.docxImageUnavailableText(alt, path)
+		markerAlt := alt
+		if htmlAlt != nil {
+			markerAlt = *htmlAlt
+		}
+		text = g.docxImageUnavailableText(markerAlt, path)
 	} else if strings.TrimSpace(src) != "" {
 		// Una imagen remota no se descarga: queda su alt.
 		g.recordUnavailable(docxUnavailableImage, src)
@@ -1680,7 +1732,7 @@ var docxHeadingSpanLangAttr = regexp.MustCompile(`\blang="([^"]*)"`)
 // an AST from an external filter) degrades to exactly one run with the
 // literal string — identical to this function's pre-#1-fix behavior, so
 // routing that path through here too is not a regression.
-func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, size, color string, baseBold bool) error {
+func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, imageAlts []string, size, color string, baseBold bool) error {
 	type activeState struct {
 		bold, italic, code, underline bool
 		lang                          string
@@ -1722,7 +1774,7 @@ func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, siz
 		return nil
 	}
 
-	pos := 0
+	pos, image := 0, 0
 	for pos < len(html) {
 		loc := docxHeadingTagPattern.FindStringSubmatchIndex(html[pos:])
 		if loc == nil {
@@ -1744,7 +1796,12 @@ func (g *DOCXGenerator) renderHeadingInline(p domain.Paragraph, html string, siz
 		if tagName == "img" {
 			// Una imagen del encabezado (también dentro de un enlace) se
 			// inserta como en un párrafo; antes salía el <img> literal.
-			if err := g.renderHeadingImage(p, attrs, size, color); err != nil {
+			var htmlAlt *string
+			if image < len(imageAlts) {
+				htmlAlt = &imageAlts[image]
+			}
+			image++
+			if err := g.renderHeadingImage(p, attrs, htmlAlt, size, color); err != nil {
 				return err
 			}
 		} else if closing {
@@ -2012,7 +2069,11 @@ func docxScanCodeSpans(content string) func(from int) []int {
 func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// **bold** - negrita
-		regex:    regexp.MustCompile(`\*\*([^*]+)\*\*`),
+		// Misma regla que core (inlineOpenEdgeNoStar en
+		// core/renderer/sanitizer.go): abre solo si lo sigue algo que no es
+		// espacio, separador de Unicode ni "*"; al cerrar no se exige nada.
+		// Ver TestDOCXInline_MatchesCoreDelimiterTable.
+		regex:    regexp.MustCompile(`\*\*([^*\s\p{Zs}][^*]*)\*\*`),
 		emphasis: true,
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
@@ -2029,7 +2090,8 @@ func (g *DOCXGenerator) docxBoldPattern() docxInlinePattern {
 func (g *DOCXGenerator) docxItalicPattern() docxInlinePattern {
 	return docxInlinePattern{
 		// *italic* - cursiva
-		regex:    regexp.MustCompile(`\*([^*]+)\*`),
+		// Misma regla de apertura que la negrita, de arriba.
+		regex:    regexp.MustCompile(`\*([^*\s\p{Zs}][^*]*)\*`),
 		emphasis: true,
 		// El estilo SOLO agrega: tamaño, color y fuente base ya los pone
 		// walkDocxInlinePatterns en el run de relleno, y volver a ponerlos acá
@@ -2179,7 +2241,7 @@ func (g *DOCXGenerator) docxImagePattern() docxInlinePattern {
 					}
 					g.logger.Warn("DOCX: inline image %q could not be inserted: %v", src, err)
 				}
-				text = g.docxImageUnavailableText(alt, src)
+				text = g.docxImageUnavailableText(g.docxInlineImageAlt(alt), src)
 			} else if remote := docxImageDestPath(dest); remote != "" {
 				// Una imagen remota no se descarga: queda su alt.
 				g.recordUnavailable(docxUnavailableImage, remote)
@@ -2480,7 +2542,7 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 		if err != nil {
 			return err
 		}
-		_ = r.SetText(content[seg.start:seg.end])
+		_ = r.SetText(docxUnescapeDelimiters(content[seg.start:seg.end]))
 		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 			return err
 		}
@@ -2493,6 +2555,59 @@ func (g *DOCXGenerator) walkDocxInlinePatterns(p domain.Paragraph, content strin
 		}
 	}
 	return nil
+}
+
+// docxMaskEscapes devuelve s, del mismo largo, con el carácter de cada escape
+// de delimitador (`\*`, `\=`, `\~`) cambiado por un byte de control que
+// ningún patrón reconoce: ahí se buscan la negrita y la cursiva, y el texto
+// de cada run sigue saliendo de s. Es la regla de core
+// (escapeInlineDelimiters en core/renderer/sanitizer.go): `\\` es una barra
+// escrita a mano y se deja con el carácter que la sigue, y `\_` no es un
+// escape porque `_` no es delimitador en este dialecto.
+func docxMaskEscapes(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	b := []byte(s)
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] != '\\' {
+			continue
+		}
+		switch b[i+1] {
+		case '*', '=', '~':
+			b[i+1] = 0x1a
+			i++
+		case '\\':
+			i++
+		}
+	}
+	return string(b)
+}
+
+// docxUnescapeDelimiters quita la barra de cada escape de delimitador en el
+// texto de una run de relleno, con la misma lectura que docxMaskEscapes. Un
+// code span no pasa por acá: ahí la barra se ve, como en el HTML.
+func docxUnescapeDelimiters(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '*', '=', '~':
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			case '\\':
+				b.WriteString(`\\`)
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // docxInlineSegment es un tramo de content: texto de relleno (pattern -1) o
@@ -2517,7 +2632,7 @@ type docxInlineSegment struct {
 // match desde una posición anterior que empieza en esta o después es también
 // el primero desde esta, y si desde antes no había ninguno, tampoco ahora.
 func docxInlineSegments(content string, patterns []docxInlinePattern) []docxInlineSegment {
-	masked := docxMaskLinkDestinations(content)
+	masked := docxMaskEscapes(docxMaskLinkDestinations(content))
 	type cursor struct {
 		next   func(from int) []int
 		loc    []int
@@ -2741,7 +2856,7 @@ func (g *DOCXGenerator) renderTable(doc domain.Document, elem *ast.TableElement)
 		if err != nil {
 			continue
 		}
-		_ = r.SetText(header)
+		_ = r.SetText(docxUnescapeDelimiters(header))
 		_ = r.SetBold(true)
 		if err := r.SetSize(g.parseSize(g.style.FontSizeBase)); err != nil {
 			continue
@@ -2810,7 +2925,7 @@ func (g *DOCXGenerator) renderTableCaption(doc domain.Document, elem *ast.TableE
 	if elem.Caption == "" {
 		return nil
 	}
-	text := renderer.ProcessVariables(elem.Caption, g.variables)
+	text := fieldVariables(elem.Caption, g.variables)
 	if elem.Label != "" && elem.Number > 0 {
 		text = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindTable], elem.Number, text)
 	}
@@ -3011,7 +3126,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	// La leyenda es texto del autor: sale también debajo del marcador de
 	// imagen no disponible (antes se perdía con la imagen).
 	unavailable := func() error {
-		if err := g.renderImagePlaceholder(p, g.docxImageUnavailableText(elem.Alt, elem.Source)); err != nil {
+		if err := g.renderImagePlaceholder(p, g.docxImageUnavailableText(fieldVariables(elem.Alt, g.variables), elem.Source)); err != nil {
 			return err
 		}
 		return g.renderImageCaption(doc, elem)
@@ -3036,7 +3151,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 		return unavailable()
 	}
 
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Alt, g.variables), renderer.ProcessVariables(elem.Title, g.variables)))
+	setDOCXImageDescription(img, firstNonBlank(fieldVariables(elem.Alt, g.variables), fieldVariables(elem.Title, g.variables)))
 	g.logger.Info("DOCX", "✅ Image inserted: %s", insertPath)
 
 	return g.renderImageCaption(doc, elem)
@@ -3051,7 +3166,7 @@ func (g *DOCXGenerator) renderImageCaption(doc domain.Document, elem *ast.ImageE
 	// antes de renderizar; sin Label nunca corrió y Number es 0.
 	// Mismo texto que el HTML de core: {{variables}} sustituidas y el prefijo
 	// en el idioma del documento ("Figure" con lang en*), no siempre "Figura".
-	captionText := renderer.ProcessVariables(elem.Caption, g.variables)
+	captionText := fieldVariables(elem.Caption, g.variables)
 	if elem.Label != "" && elem.Number > 0 {
 		captionText = fmt.Sprintf("%s %d: %s", xref.Labels(g.lang)[xref.KindFigure], elem.Number, captionText)
 	}
@@ -3103,14 +3218,22 @@ func (g *DOCXGenerator) prepareLocalImage(source string, line int, hasCaption bo
 	}
 
 	// Tamaño natural, reducido si no cabe en la caja de texto. Un SVG entra
-	// como PNG rasterizado con Chromium (ver rasterizeSVGImage). Un SVG
-	// guardado con otra extensión se reconoce por su contenido cuando los
-	// decoders de imagen no lo leen.
+	// como PNG rasterizado con Chromium (ver rasterizeSVGImage) y un WebP
+	// convertido a JPEG o PNG (ver convertWebP). Un SVG guardado con otra
+	// extensión se reconoce por su contenido cuando los decoders de imagen no
+	// lo leen.
 	insertPath := imagePath
 	var imageSize domain.ImageSize
 	var err error
 	isSVG := isSVGImageSource(imagePath)
-	if !isSVG {
+	if !isSVG && fileIsWebP(imagePath) {
+		// Un WebP entra como JPEG o PNG (Word no inserta WebP), con el
+		// tamaño del archivo convertido, que es el del WebP.
+		insertPath, err = g.convertWebP(imagePath)
+		if err == nil {
+			imageSize, err = g.fittedImageSize(insertPath, hasCaption)
+		}
+	} else if !isSVG {
 		imageSize, err = g.fittedImageSize(imagePath, hasCaption)
 		if err != nil && fileLooksLikeSVG(imagePath) {
 			isSVG, err = true, nil
@@ -3270,7 +3393,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 		g.logger.Warn("DOCX: Failed to insert mermaid image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, elem.DiagramType)))
+	setDOCXImageDescription(img, firstNonBlank(fieldVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, elem.DiagramType)))
 
 	if elem.Title != "" {
 		if err := g.renderFigureCaption(doc, elem.Title); err != nil {
@@ -3671,7 +3794,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		g.logger.Warn("DOCX: Failed to insert chart image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 	}
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), chartOptionsTitle(elem), g.docxFigureAlt(docxUnavailableChart, elem.ChartType)))
+	setDOCXImageDescription(img, firstNonBlank(fieldVariables(elem.Title, g.variables), chartOptionsTitle(elem), g.docxFigureAlt(docxUnavailableChart, elem.ChartType)))
 
 	if img == nil {
 		g.logger.Warn("DOCX: ⚠️  Image object is nil after insertion")
@@ -4207,7 +4330,9 @@ func (g *DOCXGenerator) renderCodeGroup(doc domain.Document, elem *ast.CodeGroup
 			return err
 		}
 
-		label := block.Label
+		// La etiqueta no es código: sus {{variables}} se sustituyen fuera
+		// de sus code spans, como en el HTML y el labelHTML de get_ast.
+		label := fieldVariables(block.Label, g.variables)
 		if label == "" {
 			label = block.Language
 		}
@@ -4291,7 +4416,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 		g.logger.Warn("DOCX: Failed to insert PlantUML image: %v", err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
-	setDOCXImageDescription(img, firstNonBlank(renderer.ProcessVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, "PlantUML "+elem.DiagramType)))
+	setDOCXImageDescription(img, firstNonBlank(fieldVariables(elem.Title, g.variables), g.docxFigureAlt(docxUnavailableDiagram, "PlantUML "+elem.DiagramType)))
 
 	// Obtener tamaño del archivo
 	fileInfo, _ := os.Stat(pngPath)

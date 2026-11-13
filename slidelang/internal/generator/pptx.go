@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	stdhtml "html"
 	"image"
 	"image/color"
 	"image/draw"
@@ -236,16 +237,24 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 		}
 	}
 	if heading != "" {
-		s.Title(heading)
+		// El título lleva el formato inline como runs, igual que el <h1> del
+		// HTML; s.Title(texto) lo escribiría con los asteriscos a la vista.
+		// Es el mismo placeholder que elige s.Title: ctrTitle en
+		// LayoutTitleSlide, title en el resto.
+		titleType := pptx.PlaceholderTitle
+		if isTitleBlock {
+			titleType = pptx.PlaceholderCtrTitle
+		}
+		pptxApplyInline(s.AddPlaceholder(titleType, 0).AddParagraph(), heading)
 	}
 
 	cursorY := pptxContentTopEMU
 	if isTitleBlock {
 		if block.Kicker != "" {
-			pptxAddHeaderLine(s, block.Kicker, 640080, 16)
+			pptxAddHeaderLineInline(s, block.Kicker, 640080, 16)
 		}
 		if block.Subtitle != "" {
-			s.AddPlaceholder(pptx.PlaceholderSubTitle, 1).AddParagraph().Text(block.Subtitle)
+			pptxApplyInline(s.AddPlaceholder(pptx.PlaceholderSubTitle, 1).AddParagraph(), block.Subtitle)
 		}
 		// LayoutTitleSlide solo declara ctrTitle+subTitle (sin body) — Elements
 		// extra en un bloque "title" (el linter los desaconseja, no los prohíbe)
@@ -254,10 +263,10 @@ func (g *Generator) pptxAddSlide(p *pptx.Presentation, block *ast.ContentBlock, 
 		cursorY = pptxTitleSlideBodyTop
 	} else {
 		if block.Kicker != "" {
-			pptxAddHeaderLine(s, block.Kicker, 274320, 13)
+			pptxAddHeaderLineInline(s, block.Kicker, 274320, 13)
 		}
 		if block.Subtitle != "" {
-			pptxAddHeaderLine(s, block.Subtitle, 1371600, 16)
+			pptxAddHeaderLineInline(s, block.Subtitle, 1371600, 16)
 			cursorY += pptxLineHeightEMU
 		}
 	}
@@ -341,6 +350,18 @@ func pptxAddHeaderLine(s *pptx.Slide, text string, y int, size float64) {
 	}
 	tb := s.AddTextBox(pptxMarginEMU, y, pptxContentWidthEMU, pptxLineHeightEMU)
 	tb.AddParagraph().Text(text).FontSize(size)
+}
+
+// pptxAddHeaderLineInline es pptxAddHeaderLine para un campo del encabezado
+// del slide (kicker, subtítulo), que lleva formato inline como el título: el
+// Markdown sale como runs y no con sus marcas a la vista. El caption de una
+// imagen bleed sigue en pptxAddHeaderLine porque es texto plano.
+func pptxAddHeaderLineInline(s *pptx.Slide, text string, y int, size float64) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	tb := s.AddTextBox(pptxMarginEMU, y, pptxContentWidthEMU, pptxLineHeightEMU)
+	pptxApplyInlineBase(tb.AddParagraph(), text, false, size)
 }
 
 // pptxAddWatermark dibuja rw como una única marca centrada, rotada,
@@ -518,12 +539,52 @@ func pptxTextContent(e *ast.TextElement) string {
 // pptxInlineHTMLToText convierte el HTML inline de un encabezado de vuelta a
 // su fuente Markdown. Ver pptxTextContent para el porqué del orden.
 func pptxInlineHTMLToText(html string) string {
-	out := renderer.LangSpanHTMLToSource(html)
+	out := renderer.LangSpanHTMLToSource(pptxEscapeLiteralDelimiters(html))
 	for _, r := range pptxInlineHTMLToMarkdown {
 		out = r.re.ReplaceAllString(out, r.repl)
 	}
 	out = pptxTagRe.ReplaceAllString(out, "")
-	return renderer.UnescapeHTML(out)
+	// Una sola pasada (html.UnescapeString): renderer.UnescapeHTML del core
+	// publicado reemplaza "&amp;" antes que las demás y convertía en "<br>"
+	// un "&lt;br&gt;" que el autor escribió como texto.
+	return stdhtml.UnescapeString(out)
+}
+
+// pptxEscapeLiteralDelimiters escribe con barra los delimitadores que el HTML
+// muestra como texto, para que la fuente que arma pptxInlineHTMLToText diga
+// lo mismo que el HTML al volver a pasar por pptxSplitInline: un `*` siempre
+// (`\*`, porque uno solo puede abrir una cursiva), y un `=` o un `~` solo
+// cuando está pegado a otro igual (`==` y `~~` son los delimitadores; uno
+// suelto nunca abre). No toca el interior de una etiqueta ni el de un
+// <code>, que vuelve a la fuente como code span y ahí la barra se vería.
+func pptxEscapeLiteralDelimiters(html string) string {
+	if !strings.ContainsAny(html, "*=~") {
+		return html
+	}
+	var b strings.Builder
+	inTag, code := false, 0
+	for i := 0; i < len(html); i++ {
+		c := html[i]
+		switch {
+		case inTag:
+			if c == '>' {
+				inTag = false
+			}
+		case c == '<':
+			inTag = true
+			rest := html[i:]
+			if strings.HasPrefix(rest, "<code>") {
+				code++
+			} else if strings.HasPrefix(rest, "</code>") && code > 0 {
+				code--
+			}
+		case code == 0 && (c == '*' ||
+			(c == '=' || c == '~') && (i > 0 && html[i-1] == c || i+1 < len(html) && html[i+1] == c)):
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // pptxAddElement despacha por tipo de ast.Element y devuelve el cursorY
@@ -620,9 +681,15 @@ type pptxInlineSegment struct {
 }
 
 var (
-	pptxCodeRe   = regexp.MustCompile("`([^`]+)`")
-	pptxBoldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	pptxItalicRe = regexp.MustCompile(`\*([^*]+)\*`)
+	pptxCodeRe = regexp.MustCompile("`([^`]+)`")
+	// pptxBoldRe y pptxItalicRe siguen la regla de core
+	// (core/renderer/sanitizer.go, inlineOpenEdgeNoStar): un delimitador abre
+	// solo si lo sigue algo que no es espacio, separador de Unicode ni "*";
+	// al cerrar no se exige nada. Lo verifica
+	// TestPPTXSplitInline_MatchesCoreDelimiterTable contra la tabla
+	// compartida core/renderer/testdata/inline_delimiters.json.
+	pptxBoldRe   = regexp.MustCompile(`\*\*([^*\s\p{Zs}][^*]*)\*\*`)
+	pptxItalicRe = regexp.MustCompile(`\*([^*\s\p{Zs}][^*]*)\*`)
 	// pptxSpanTokenRe reconoce `[texto]{.clase}`.
 	//
 	// Es una copia local del `inlineSpanPattern` de core/renderer, que no está
@@ -828,8 +895,12 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 	remaining := content
 	pos := 0
 	cursors := make([]pptxCursor, len(pptxBasicPatterns))
+	emphasis := pptxMaskEscapes(content)
 	for i, re := range pptxBasicPatterns {
-		cursors[i] = pptxCursor{re: re.re, hay: content}
+		cursors[i] = pptxCursor{re: re.re, hay: emphasis}
+		if re.code {
+			cursors[i].hay = content
+		}
 	}
 
 	for pos < len(remaining) {
@@ -858,18 +929,80 @@ func pptxSplitBasic(content string) []pptxInlineSegment {
 		}
 
 		if best == nil {
-			segments = append(segments, pptxInlineSegment{text: remaining[pos:]})
+			segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:])})
 			break
 		}
 		if best.start > pos {
-			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
+			segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:best.start])})
 		}
-		segments = append(segments, applySpanTokens(best.inner,
+		segments = append(segments, applySpanTokens(pptxSegmentText(best.inner, best.code),
 			pptxInlineSegment{bold: best.bold, italic: best.italic, code: best.code})...)
 		pos = best.end
 	}
 
 	return segments
+}
+
+// pptxMaskEscapes devuelve s, del mismo largo, con el carácter de cada
+// escape de delimitador (`\*`, `\=`, `\~`) cambiado por un byte de control
+// que ningún patrón reconoce: ahí se buscan la negrita y la cursiva, y el
+// texto de cada segmento sigue saliendo de s. Es la regla de core
+// (escapeInlineDelimiters en core/renderer/sanitizer.go): `\\` es una barra
+// escrita a mano, se deja con el carácter que la sigue, y `\_` no es un
+// escape porque `_` no es delimitador en este dialecto.
+func pptxMaskEscapes(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	b := []byte(s)
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] != '\\' {
+			continue
+		}
+		switch b[i+1] {
+		case '*', '=', '~':
+			b[i+1] = 0x1a
+			i++
+		case '\\':
+			i++
+		}
+	}
+	return string(b)
+}
+
+// pptxSegmentText es el texto de un segmento de negrita, cursiva o código:
+// en un code span un escape se ve tal cual, como en el HTML; en lo demás se
+// quita la barra.
+func pptxSegmentText(inner string, code bool) string {
+	if code {
+		return inner
+	}
+	return pptxUnescapeDelimiters(inner)
+}
+
+// pptxUnescapeDelimiters quita la barra de cada escape de delimitador, con la
+// misma lectura que pptxMaskEscapes.
+func pptxUnescapeDelimiters(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '*', '=', '~':
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			case '\\':
+				b.WriteString(`\\`)
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // pptxMaskLinkDestinations es maskLinkDestinations con el code span del
@@ -891,7 +1024,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 	remaining := content
 	// emphasis es remaining con los destinos tapados: ahí se buscan la
 	// negrita y la cursiva; el código se busca en el texto tal cual.
-	emphasis := pptxMaskLinkDestinations(content)
+	emphasis := pptxMaskEscapes(pptxMaskLinkDestinations(content))
 	pos := 0
 	// Cada patrón guarda su próximo match y solo lo vuelve a buscar cuando
 	// pos lo pasa (ver pptxCursor).
@@ -949,7 +1082,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 			class := remaining[pos+loc[4] : pos+loc[5]]
 
 			if matchStart > pos {
-				segments = append(segments, pptxInlineSegment{text: remaining[pos:matchStart]})
+				segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:matchStart])})
 			}
 			// Un token DESCONOCIDO se emite literal, con corchetes y llaves.
 			// Es lo que hace el HTML (ver el comentario de inlineSpanPattern en
@@ -958,7 +1091,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 			// escondería el typo del autor.
 			style, known := pptxSpanTokenStyle[class]
 			if !known {
-				segments = append(segments, pptxInlineSegment{text: remaining[matchStart:matchEnd]})
+				segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[matchStart:matchEnd])})
 				pos = matchEnd
 				continue
 			}
@@ -986,7 +1119,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 			lang := remaining[pos+langLoc[4] : pos+langLoc[5]]
 
 			if matchStart > pos {
-				segments = append(segments, pptxInlineSegment{text: remaining[pos:matchStart]})
+				segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:matchStart])})
 			}
 			if a11y.IsValidLangTag(lang) {
 				// Procesar el texto interno recursivamente por
@@ -1002,24 +1135,23 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 				// (con corchetes/llaves — finding #5) en vez de
 				// quedarse silenciosamente solo con el texto interno,
 				// que escondería el error de tipeo del autor.
-				segments = append(segments, pptxInlineSegment{text: remaining[matchStart:matchEnd]})
+				segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[matchStart:matchEnd])})
 			}
 			pos = matchEnd
 			continue
 		}
 
 		if best == nil {
-			segments = append(segments, pptxInlineSegment{text: remaining[pos:]})
+			segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:])})
 			break
 		}
 		if best.start > pos {
-			segments = append(segments, pptxInlineSegment{text: remaining[pos:best.start]})
+			segments = append(segments, pptxInlineSegment{text: pptxUnescapeDelimiters(remaining[pos:best.start])})
 		}
-		segments = append(segments, applySpanTokens(best.inner,
+		segments = append(segments, applySpanTokens(pptxSegmentText(best.inner, best.code),
 			pptxInlineSegment{bold: best.bold, italic: best.italic, code: best.code})...)
 		pos = best.end
 	}
-
 	return segments
 }
 
@@ -1033,7 +1165,7 @@ func pptxSplitInline(content string) []pptxInlineSegment {
 // pptxSplitInline, y un `*italic*` dentro de un bullet se veía literal en el
 // .pptx generado en vez de en cursiva).
 func pptxApplyInline(para *pptx.Paragraph, content string) {
-	pptxApplyInlineBase(para, content, false)
+	pptxApplyInlineBase(para, content, false, 0)
 }
 
 // pptxApplyInlineBase es pptxApplyInline con un estilo base que se aplica a
@@ -1041,8 +1173,10 @@ func pptxApplyInline(para *pptx.Paragraph, content string) {
 // para QuoteElement: una cita debe verse en cursiva completa, y no basta con
 // llamar para.Italic() después de pptxApplyInline porque Paragraph.Text()
 // reinicia curRuns en cada llamada — el Italic() final solo alcanzaría al
-// último segmento. El estilo tiene que entrar por segmento, acá.
-func pptxApplyInlineBase(para *pptx.Paragraph, content string, baseItalic bool) {
+// último segmento. El estilo tiene que entrar por segmento, acá. baseSize,
+// si no es 0, es el tamaño de cada segmento que no traiga uno propio (el
+// kicker y el subtítulo de un slide de contenido), por la misma razón.
+func pptxApplyInlineBase(para *pptx.Paragraph, content string, baseItalic bool, baseSize float64) {
 	for _, seg := range pptxSplitInline(content) {
 		para.Text(seg.text)
 		if seg.bold {
@@ -1062,6 +1196,8 @@ func pptxApplyInlineBase(para *pptx.Paragraph, content string, baseItalic bool) 
 		}
 		if seg.fontSizePt != 0 {
 			para.FontSize(seg.fontSizePt)
+		} else if baseSize != 0 {
+			para.FontSize(baseSize)
 		}
 		// seg.lang ya viene validado por a11y.IsValidLangTag en
 		// pptxSplitInline (un tag inválido nunca llega a set near text con
@@ -1119,7 +1255,7 @@ func (g *Generator) pptxAddQuote(s *pptx.Slide, e *ast.QuoteElement, cursorY int
 		for i := range lines {
 			lines[i] = strings.TrimSpace(lines[i])
 		}
-		pptxApplyInlineBase(tb.AddParagraph(), strings.Join(lines, "\n"), true)
+		pptxApplyInlineBase(tb.AddParagraph(), strings.Join(lines, "\n"), true, 0)
 	}
 	if attribution != "" {
 		tb.AddParagraph().Text(attribution)
@@ -2030,7 +2166,7 @@ func (g *Generator) pptxAddTableCells(s *pptx.Slide, e *ast.TableElement, cursor
 			if toRow > r || toCol > gridCol {
 				tbl.MergeCells(r, gridCol, toRow, toCol)
 			}
-			tblCell := tbl.Cell(r, gridCol).Text(cell.Content)
+			tblCell := tbl.Cell(r, gridCol).Text(pptxUnescapeDelimiters(cell.Content))
 			if cell.IsHeader {
 				tblCell.Bold()
 			}
@@ -2072,14 +2208,14 @@ func (g *Generator) pptxAddTable(s *pptx.Slide, e *ast.TableElement, cursorY int
 
 	tbl := s.AddTable(rows, cols, pptxMarginEMU, cursorY, pptxContentWidthEMU, height)
 	for c, header := range e.Headers {
-		tbl.Cell(0, c).Text(header).Bold()
+		tbl.Cell(0, c).Text(pptxUnescapeDelimiters(header)).Bold()
 	}
 	for r, row := range e.Rows {
 		for c, cell := range row {
 			if c >= cols {
 				break // fila con más columnas que headers: se descartan las de más, mismo criterio defensivo que el resto del pipeline con datos malformados
 			}
-			tbl.Cell(r+1, c).Text(cell)
+			tbl.Cell(r+1, c).Text(pptxUnescapeDelimiters(cell))
 		}
 	}
 

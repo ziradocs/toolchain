@@ -813,13 +813,16 @@ func backslashEscapedRunes(runes []rune) []bool {
 	return escaped
 }
 
-// strictNewElementKeywords espeja la lista de internal/elements/common.go
-// IsNewElement (branch "strict") — duplicada acá en vez de importada porque
-// el formatter es deliberadamente un espejo autocontenido del parser, no un
-// reusador de su código (ver el resto de este archivo: formatChart/formatMap
-// tampoco llaman a internal/elements). Usada solo para detectar contenido de
-// QUOTE que el parser interpretaría como el inicio de OTRO elemento en vez de
-// como texto de la cita (ver validateStrictQuoteContent).
+// strictNewElementKeywords espeja la lista de palabras clave de
+// internal/elements/common.go (startsStrictElementLine). La lista va
+// duplicada acá porque el formatter es un espejo del parser y no reusa su
+// código (formatChart/formatMap tampoco llaman a internal/elements). La
+// comparación sí usa elements.HasStrictKeyword: el texto de una cita se
+// escribe más sangrado que QUOTE, y ahí el parser corta solo con la palabra
+// clave completa (elements.EndsStrictBody, issue #489). Usada solo para
+// detectar contenido de QUOTE que el parser interpretaría como el inicio de
+// OTRO elemento en vez de como texto de la cita (ver
+// validateStrictQuoteContent).
 var strictNewElementKeywords = []string{
 	"TEXT", "POINTS", "CODE", "IMAGE", "TABLE",
 	"QUOTE", "CHECKLIST", "MERMAID", "CHART", "MAP",
@@ -917,7 +920,10 @@ func validateStrictQuoteContent(content string, hasMetadata bool) error {
 			return newUnsupported("quote", fmt.Sprintf("a line of the quote (%q) would be read by the strict parser as the start of another element (a @, :::, << or | marker), not as quote text: it cannot be represented without loss", trimmed))
 		}
 		for _, kw := range strictNewElementKeywords {
-			if strings.HasPrefix(trimmed, kw) {
+			// Mismo límite de palabra que EndsStrictBody para una línea más
+			// sangrada que QUOTE (issue #489): el parser lee "TEXTO citado"
+			// como texto de la cita.
+			if strings.HasSuffix(kw, " ") && strings.HasPrefix(trimmed, kw) || !strings.HasSuffix(kw, " ") && elements.HasStrictKeyword(trimmed, kw) {
 				return newUnsupported("quote", fmt.Sprintf("a line of the quote (%q) would be read by the strict parser as the start of another element (%q), not as quote text: it cannot be represented without loss", trimmed, kw))
 			}
 		}

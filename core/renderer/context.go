@@ -149,6 +149,16 @@ type RenderContext struct {
 	// reportedKeptAssets son las fuentes que reportMissingKeptAsset ya
 	// reportó.
 	reportedKeptAssets map[string]bool
+	// LiteralCode deja sin sustituir `{{nombre}}` en el código (issue #487):
+	// el cuerpo de un CODE y de cada bloque de un code-group, y, dentro de la
+	// prosa que pasa por Markdown (TEXT, citas, celdas, items, encabezados,
+	// el contenido de un ::: sin tipar), los code spans y las cercas de
+	// código. El código se muestra tal como está escrito, igual que en el
+	// AST. Apagado (el valor cero) se sustituye como siempre, que es lo que
+	// espera slidelang. Su par para el contentHTML del AST es
+	// InlineHTMLOptions.LiteralCode: quien renderiza con una tiene que poblar
+	// el AST con la otra.
+	LiteralCode bool
 }
 
 // SetUnavailableReporter registra fn para que reciba, mientras se genera la
@@ -172,6 +182,19 @@ func reportUnavailable(ctx *RenderContext, kind unavailableKind, detail string) 
 		return
 	}
 	ctx.unavailableReporter(kind.String(), ctx.renderLine, detail)
+}
+
+// literalCode dice si ctx pide código literal. ctx puede ser nil.
+func (ctx *RenderContext) literalCode() bool {
+	return ctx != nil && ctx.LiteralCode
+}
+
+// SetLiteralCode fija LiteralCode, con el mismo criterio que
+// SetAllowRemoteImages: un CLI que compila contra un core publicado sin el
+// campo lo pide por interfaz (interface{ SetLiteralCode(bool) }) sin dejar de
+// compilar.
+func (c *RenderContext) SetLiteralCode(literal bool) {
+	c.LiteralCode = literal
 }
 
 // SetAllowRemoteImages fija AllowRemoteImages. Existe para que un CLI que

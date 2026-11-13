@@ -79,7 +79,10 @@ nothing for them — a directive is slidelang presenter-notes metadata, and a
 document has no presenter view to show it in. Unlike a truly unrecognized
 element, this is not silent: both the Markdown and DOCX generators log a
 warning naming the directive and its line. `@include` is the exception to
-the exception: it is expanded before parsing, so it works in both formats.
+the exception: it is expanded before parsing, so it works in both formats,
+outside a code block. Inside one it is code: it stays as written and the
+build warns with `INCLUDE001`. A block an included file leaves open (a fence,
+a `:::code-group`, a `$$`) ends where that file ends, with `INCLUDE002`.
 
 ## Validation: DocLang runs the same linter
 

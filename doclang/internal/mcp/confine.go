@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,10 +148,18 @@ func (r exportRoot) resolveInput(p string, maxBytes int) (abs string, content []
 	if !info.Mode().IsRegular() {
 		return "", nil, fmt.Errorf("input is not a regular file: %s", filepath.ToSlash(rel))
 	}
-	if info.Size() > int64(maxBytes) {
-		return "", nil, util.CheckInputSize(int(min(info.Size(), int64(maxBytes)+1)), maxBytes)
+	if size := info.Size(); size > int64(maxBytes) {
+		return "", nil, inputTooLarge(size, maxBytes)
 	}
-	content, err = io.ReadAll(io.LimitReader(f, int64(maxBytes)+1))
+	// Se lee hasta un byte más que el tope, para ver si el archivo creció
+	// después del Stat. Con int de 64 bits y el tope en math.MaxInt,
+	// int64(maxBytes)+1 da la vuelta a negativo y LimitReader no lee nada:
+	// el export seguía con el contenido vacío.
+	limit := int64(maxBytes)
+	if limit < math.MaxInt64 {
+		limit++
+	}
+	content, err = io.ReadAll(io.LimitReader(f, limit))
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to read file: %w", err)
 	}
@@ -158,6 +167,20 @@ func (r exportRoot) resolveInput(p string, maxBytes int) (abs string, content []
 		return "", nil, err
 	}
 	return joined, content, nil
+}
+
+// inputTooLarge es el error de util.CheckInputSize para un tamaño de archivo
+// que ya se sabe mayor que maxBytes. La comparación va en int64: con int de 32
+// bits y el tope en math.MaxInt, un archivo de más de 2 GiB no cabe en un int,
+// int(...) da la vuelta a negativo, CheckInputSize no ve el exceso y el export
+// seguía con el contenido vacío.
+func inputTooLarge(size int64, maxBytes int) error {
+	if size <= int64(math.MaxInt) {
+		if err := util.CheckInputSize(int(size), maxBytes); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("input file too large: %.1fMB exceeds the %s limit (increase the configured max size if this is expected)", float64(size)/(1<<20), util.SizeString(maxBytes))
 }
 
 // resolveOutput confina la ruta de salida. util.ResolveConfinedPath solo

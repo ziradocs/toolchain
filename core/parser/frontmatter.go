@@ -480,7 +480,7 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 		raw.Mode = "auto"
 		p.diagnostics = append(p.diagnostics,
 			diagnostics.NewWarning("Mode not specified, defaulting to 'auto'",
-				diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT001"))
+				diagnostics.NewPosition(2, 1), "parser").WithRuleID("FRONT009"))
 	}
 	// Validar modos soportados
 	// "flex-ai" se mantiene como alias deprecado de "flex-full" (mismo comportamiento,

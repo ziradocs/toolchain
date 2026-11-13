@@ -251,11 +251,42 @@ func formatSubsectionHeading(e *ast.TextElement) (string, error) {
 	if source, ok := authoredHeadingText(e); ok {
 		return strings.Repeat("#", int(level[0]-'0')) + " " + source, nil
 	}
-	inner := stripTags(renderer.LangSpanHTMLToSource(m[2]))
+	inner := stripTags(renderer.LangSpanHTMLToSource(escapeLiteralDelimiters(m[2])))
 	return strings.Repeat("#", int(level[0]-'0')) + " " + inner, nil
 }
 
 var tagRe = regexp.MustCompile(`<[^>]*>`)
+
+// escapeLiteralDelimiters escribe con barra los delimitadores que el HTML de
+// un encabezado muestra como texto, antes de que stripTags lo aplane a
+// fuente: un `*` siempre (uno solo puede abrir una cursiva), y un `=` o un
+// `~` solo pegado a otro igual (`==` y `~~` son los delimitadores; uno suelto
+// nunca abre). No toca el interior de una etiqueta; sí el de un <code>,
+// porque stripTags también aplana el código a texto. Es el inverso de los
+// escapes de renderer (escapeInlineDelimiters): sin esto, `Sub \*h\*`
+// volvía a la fuente como `Sub *h*` y al reparsear salía en cursiva.
+func escapeLiteralDelimiters(html string) string {
+	if !strings.ContainsAny(html, "*=~") {
+		return html
+	}
+	var b strings.Builder
+	inTag := false
+	for i := 0; i < len(html); i++ {
+		c := html[i]
+		switch {
+		case inTag:
+			if c == '>' {
+				inTag = false
+			}
+		case c == '<':
+			inTag = true
+		case c == '*' || (c == '=' || c == '~') && (i > 0 && html[i-1] == c || i+1 < len(html) && html[i+1] == c):
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
 
 func stripTags(s string) string {
 	s = tagRe.ReplaceAllString(s, "")

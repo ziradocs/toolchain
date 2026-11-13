@@ -66,7 +66,8 @@ attribute (`:::info{typed}`, `:::info{typed} Title`); flex needs nothing. Math (
 inline `$x$`): `<<math>>` LaTeX `<<end>>`, `$$ ... $$` starting the line, or a ` ```math ` fence (flex).
 Directives: `@notes` (presenter notes), `@timer`, `@transition`,
 `@highlight`, `@delay`, `@auto-play` — ZiraDocs renders these, DocLang
-drops them; `@include path` is expanded at build time by both. Full table:
+drops them; `@include path` is expanded at build time by both, but inside a
+code block DocLang keeps it as code (`INCLUDE001` warning). Full table:
 `reference/elements.md`.
 
 Prohibited (not implemented, never emit): `<</mermaid>>`, `:::poll`,
@@ -113,7 +114,7 @@ error), no two consecutive empty slides — no elements and no
 title/heading/subtitle/kicker/logo (`PARSE001`, error), tables same column
 count (`TABLE003`, error), code groups >=1 block (`CODEGROUP001`, error),
 images have source (`IMG001`, error). Set `mode:` explicitly even though a
-missing one is only a warning (`FRONT001`) that silently defaults to `auto`. Empty slides otherwise just
+missing one is only a warning (`FRONT009`) that silently defaults to `auto`. Empty slides otherwise just
 warn (`SLIDE002`). Title slides need `heading` or `title` (`LAYOUT001`,
 error — prefer `heading`). Strict-only: content slides need title or
 elements (`STRICT002`). Link and image destinations must be `http(s):`,

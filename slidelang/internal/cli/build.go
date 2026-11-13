@@ -554,14 +554,23 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(astNode)
 	allDiagnostics = findings.MergeParserFindings(astNode, parserFindings, allDiagnostics)
 
-	activeDiags, waivedDiags := policy.Evaluate(allDiagnostics, astNode.FilePath, time.Now())
+	// Los avisos del parser (SPECIAL002, TABLE007, STRICT003…) pasan por la
+	// política como los del linter, por el mismo camino que la tool `lint`
+	// del MCP (findings.EvaluatePolicy): un warning se puede apagar, y si la
+	// política le sube la severidad cuenta como un error de lint. Los errores
+	// del parser ya cortaron el build más arriba.
+	evaluated := findings.EvaluatePolicy(policy, diagnostics, allDiagnostics, astNode.FilePath, time.Now())
+	parserActive, activeDiags := evaluated.ParserActive, evaluated.LintActive
 
 	if opts.ReportFormat != "" {
 		outPath := opts.ReportOut
 		descriptors := linter.CollectDescriptors(customRules, rulePacks)
 		descriptors = append(descriptors, extDescriptors...)
 		descriptors = linter.NormalizeDescriptors(descriptors)
-		if err := report.WriteReport(opts.ReportFormat, outPath, activeDiags, waivedDiags, descriptors, astNode, content, externalRulepacks); err != nil {
+		// El reporte lleva también los avisos del parser: antes solo salían
+		// por consola y el reporte no coincidía con lo que devuelve la tool
+		// `lint` del MCP. Ordenados por línea.
+		if err := report.WriteReport(opts.ReportFormat, outPath, evaluated.Active(), evaluated.Waived(), descriptors, astNode, content, externalRulepacks); err != nil {
 			return fmt.Errorf("failed to write report: %w", err)
 		}
 		if outPath != "" && outPath != "-" {
@@ -570,31 +579,60 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	}
 
 	if postLint != nil {
-		if err := postLint(astNode, activeDiags, waivedDiags); err != nil {
+		// El hook recibe lo mismo que el reporte: parser y linter, con la
+		// política aplicada y por posición.
+		if err := postLint(astNode, evaluated.Active(), evaluated.Waived()); err != nil {
 			return fmt.Errorf("post-lint hook failed: %w", err)
 		}
 	}
 
 	lintDiagnostics := activeDiags
 
-	// Contar warnings y errores
+	// Contar warnings y errores. La info no cuenta como warning, ni la del
+	// linter ni la del parser (countParserSummary): se lista, pero el
+	// resumen solo suma warnings y errores.
 	warningCount := 0
 	errorCount := 0
 	for _, diag := range lintDiagnostics {
-		if diag.IsError() {
+		switch {
+		case diag.IsError():
 			errorCount++
-		} else {
+		case diag.IsWarning():
 			warningCount++
 		}
 	}
+	// El resumen ("warnings:") cuenta también los avisos del parser que la
+	// política deja activos; uno al que la política subió a error cuenta como
+	// error de lint.
+	parserWarnings, parserErrors := countParserSummary(parserActive)
+	errorCount += parserErrors
+	if parserErrors > 0 {
+		hasErrors = true
+	}
+	// "Encontrados N warnings" y el `warnings:` del resumen cuentan lo mismo.
+	warningCount += parserWarnings
 
-	if len(lintDiagnostics) > 0 {
+	if len(lintDiagnostics) > 0 || warningCount+errorCount > 0 {
 		util.Info("LINT", "Encontrados %d warnings, %d errores", warningCount, errorCount)
-		for _, diag := range lintDiagnostics {
-			if diag.IsError() {
+		// Los avisos del parser ya salieron arriba, antes de la política; acá
+		// van los que la política cambió: los que subió a error y el
+		// POLICY001 de un waiver vencido.
+		for _, diag := range parserActive {
+			switch {
+			case diag.IsError():
 				fmt.Fprintf(os.Stderr, "❌ %s\n", diag.String())
-			} else {
+			case diag.RuleID == "POLICY001" || diag.Code == "POLICY001":
 				fmt.Fprintf(os.Stderr, "⚠️  %s\n", diag.String())
+			}
+		}
+		for _, diag := range lintDiagnostics {
+			switch {
+			case diag.IsError():
+				fmt.Fprintf(os.Stderr, "❌ %s\n", diag.String())
+			case diag.IsWarning():
+				fmt.Fprintf(os.Stderr, "⚠️  %s\n", diag.String())
+			default:
+				fmt.Fprintf(os.Stderr, "ℹ️  %s\n", diag.String())
 			}
 		}
 	} else {
@@ -762,4 +800,19 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	})
 
 	return nil
+}
+
+// countParserSummary cuenta, entre los avisos del parser que quedaron activos
+// después de la política, los warnings y los que la política subió a error.
+// La telemetría (info) no cuenta.
+func countParserSummary(active []diagnostics.Diagnostic) (warnings, errors int) {
+	for _, d := range active {
+		switch {
+		case d.IsError():
+			errors++
+		case d.IsWarning():
+			warnings++
+		}
+	}
+	return warnings, errors
 }

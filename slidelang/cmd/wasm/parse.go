@@ -42,17 +42,6 @@ func parseSlidelang(source string) (*ast.AST, []diagnostics.Diagnostic, error) {
 	return astNode, diags, nil
 }
 
-// parseDoclang parses DocLang source the same way doclang build does:
-// always DocumentFlexParser, mode: is ignored, frontmatter is optional.
-func parseDoclang(source string) (*ast.AST, []diagnostics.Diagnostic, error) {
-	if err := util.CheckInputSize(len(source), util.DefaultMaxInputBytes); err != nil {
-		return nil, nil, err
-	}
-	p := parser.NewDocumentFlexParserWithNormalization(source, logger)
-	astNode, diags := p.Parse()
-	return astNode, diags, nil
-}
-
 func hasErrorDiagnostic(diags []diagnostics.Diagnostic) bool {
 	for _, d := range diags {
 		if d.IsError() {

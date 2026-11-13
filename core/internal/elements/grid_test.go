@@ -18,6 +18,10 @@ func TestGridParser_CanParse(t *testing.T) {
 		expected bool
 	}{
 		{"grid start", "::: grid", true},
+		{"grid start without space", ":::grid", true},
+		{"grid start with two spaces", ":::  grid", true},
+		{"columns block is not a grid", ":::columns", false},
+		{"gridlock block is not a grid", ":::gridlock", false},
 		{"not grid", "::: info", false},
 		{"plain text", "some text", false},
 	}

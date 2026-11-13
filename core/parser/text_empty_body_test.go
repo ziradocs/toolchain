@@ -109,3 +109,30 @@ func TestStrictText_EmptyTextIsReported(t *testing.T) {
 		t.Errorf("slide: want one TEXT001 warning, got %v", diags)
 	}
 }
+
+// Un TEXT sin cuerpo seguido de una línea en blanco no se traga al TEXT ni a
+// la QUOTE que vienen después: los dos siguen siendo elementos propios, con su
+// contenido. El TEXT vacío no da elemento, solo TEXT001.
+func TestStrictText_EmptyBodyThenBlankLineKeepsSiblings(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"T\"\n---\n\nSECTION \"S\"\n  TEXT\n\n  TEXT\n    Segundo.\n\n  QUOTE\n    Cita.\n"
+	doc, diags := New(util.NewNoop()).ParseDocument(src, "d.doclang")
+	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || diags[0].Position.Line != 7 {
+		t.Errorf("want one TEXT001 at line 7, got %v", diags)
+	}
+	var texts []string
+	var quotes []string
+	for _, el := range doc.ContentBlocks[0].Elements {
+		switch e := el.(type) {
+		case *ast.TextElement:
+			texts = append(texts, e.Content)
+		case *ast.QuoteElement:
+			quotes = append(quotes, e.Content)
+		}
+	}
+	if len(texts) != 1 || texts[0] != "Segundo." {
+		t.Errorf("want only the TEXT \"Segundo.\", got %q", texts)
+	}
+	if len(quotes) != 1 || quotes[0] != "Cita." {
+		t.Errorf("want the QUOTE \"Cita.\", got %q", quotes)
+	}
+}

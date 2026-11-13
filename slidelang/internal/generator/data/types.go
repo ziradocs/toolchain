@@ -142,12 +142,20 @@ type LayoutHeaderFooterData struct {
 
 // SlideData representa una slide para el template
 type SlideData struct {
-	Type  string
-	Title string
+	Type string
+	// Title, Heading, Subtitle y Kicker son el texto plano del campo (sin
+	// marcas Markdown ni etiquetas), para condiciones y metadatos; sus pares
+	// *HTML son el Markdown inline de una línea ya saneado, que es lo que la
+	// plantilla escribe en el encabezado del slide. Ver slideHeaderLine.
+	Title     string
+	TitleHTML htmltemplate.HTML
 	// Propiedades específicas para slides tipo "title"
-	Heading  string
-	Subtitle string
-	Kicker   string
+	Heading      string
+	HeadingHTML  htmltemplate.HTML
+	Subtitle     string
+	SubtitleHTML htmltemplate.HTML
+	Kicker       string
+	KickerHTML   htmltemplate.HTML
 	// Background contiene CSS ya validado de @background. El tipo CSS evita
 	// que html/template vuelva a rechazar url(...) después de que el parser
 	// validó y escapó su origen.

@@ -69,7 +69,9 @@ func checkLinkDestinations(block *ast.ContentBlock, variables map[string]interfa
 	}
 
 	pos := block.GetPosition()
-	inline(pos, block.Title, block.Heading, block.Subtitle)
+	// El kicker se pinta con el mismo Markdown inline que el título
+	// (renderer.BlockTitleHTML), así que también lleva enlaces.
+	inline(pos, block.Title, block.Heading, block.Subtitle, block.Kicker)
 
 	var visit func(ast.Element)
 	var visitPoints func([]ast.PointItem, diagnostics.Position)

@@ -120,6 +120,22 @@ identifier ::= LETTER (LETTER | DIGIT | "_")*
 value      ::= STRING | NUMBER | BOOLEAN
 ```
 
+In a `TABLE` block (strict, and the same block in flex), `rows:` takes its
+rows on the lines below it, one `[…]` array per line, or, on its own line, a
+nested array:
+`rows: [["a", "b"], ["c", "d"]]`. In the nested form every cell is in double
+quotes with no other quote inside, or has no quotes, so the cut between rows
+never depends on where a quote closes. A value that does not read that way
+(single quotes, an unquoted cell that starts or ends with an apostrophe
+such as `'90s`, stray quotes, text between rows or after the array other
+than a `#` comment) gives no rows and the `TABLE007` warning. An empty row
+(`rows: [[]]`) counts as no row. If a row of the nested array does not have
+as many cells as the headers (or, without headers, as its first row), the
+array gives no rows and the `TABLE007` warning names that row; the rows
+below `rows:` are read as usual. Any other value on the
+`rows:` line (`[]`, a comment) is ignored, as before, and the rows below are
+read.
+
 With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
 may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on
@@ -159,6 +175,21 @@ Inside a quote (`>` in flex, `QUOTE` in strict) and inside a `:::` block, a list
 item keeps, in `content`, the indentation it has beyond the first line of the
 body, so the nesting survives in the AST; prose lines are trimmed as before.
 Core HTML renders those lists nested, outside any `<p>`.
+
+In the prose of a `:::` block (its `content`, or the prose between its
+`elements`), a blank line between two lines of text separates paragraphs, as
+in Markdown. Core HTML writes each paragraph in its own `<p>` when there is
+more than one; a body with a single paragraph keeps its prose without `<p>`, as
+before, and a list between two lines of text does not by itself make them two
+paragraphs. A blank line inside a code fence (three or more backticks or
+tildes, which a strict block without `typed` keeps as prose) does not separate
+paragraphs: the fence stays whole in one paragraph. DOCX writes them as separate paragraphs. With
+`InlineHTMLOptions.BlockProse`, which DocLang uses, the `contentHTML` of the
+block and of each text element between its `elements` is that same core HTML:
+numbered and nested lists, and the paragraphs. Off, the default and what
+SlideLang uses, those `contentHTML` fields are the one-paragraph inline
+Markdown that the SlideLang slide template draws: a numbered list stays as
+lines joined with `<br>`, a nested list is flat and paragraphs are joined.
 
 `CODE typescript renewals.ts` records `renewals.ts` as the block's filename
 (`CodeElement.filename`, schema 2.19.0, inferred capability
@@ -219,6 +250,18 @@ reads as the content `First paragraph.\n\nSecond paragraph.` with author
 text that is not indented deeper than `QUOTE`, ends the element as before. A
 quote cannot start or end with an empty line. `slidelang fmt` writes a flex
 quote with an empty `>` line this way.
+
+In the body of a `QUOTE` or a `CHECKLIST`, a line indented deeper than the
+`QUOTE` or `CHECKLIST` line starts another element only when the keyword is a
+whole word: followed by the end of the line, a space or tab, `:` or `{`.
+`TEXTO citado`, `TEXT-heavy slides` or `MAPA norte` there are body text, not a
+`TEXT` or `MAP` that ends the body. A line at the indentation of the `QUOTE`
+or `CHECKLIST` line, or less, is in element position: it ends the body and is
+dispatched as before, so `TEXTO` with a body there is still a `TEXT`. Before
+the first item of a `CHECKLIST` there is no item body to protect, so a line
+that starts with the letters of a keyword ends the checklist as before, at
+any indentation. Any other line of a `CHECKLIST` body before its first item
+is discarded with the `CHECKLIST001` warning.
 
 An `IMAGE` may carry `context:` with one of `title`, `hero`, `gallery`,
 `content` or `standalone` (`ImageElement.context`). Without it the parser
@@ -470,6 +513,33 @@ ${expression}
 {{ variable | filter:argument }}
 ```
 
+Substitution inside code depends on the renderer's literal-code option
+(`RenderContext.LiteralCode` for HTML/PDF, `InlineHTMLOptions.LiteralCode` for
+the `contentHTML` fields of the AST). Off, the default and what SlideLang uses,
+`{{name}}` in code is substituted like in prose. On, code is literal, the same
+text the AST's `content` holds: the body of a `CODE` block or a code-group tab,
+and, in prose that goes through Markdown (text, quotes, list items, table
+cells, headings, the content of an untyped `:::` block), code spans and code
+fences written inside it. The label of a code-group tab (the `[label]` of its
+fence) is not code: it is a one-line field like an image's alt text or a
+caption, substituted outside its code spans and shown as plain text, without
+Markdown, the same in the HTML tab, the DOCX and the AST's `labelHTML`. The
+language and the filename of a code block name the code and are not
+substituted. What is literal is decided by the source syntax. A
+code span is matched within the unit the renderer passes to Markdown: a line,
+or a list item of a quote or a `:::` body joined with its continuation lines. A
+fence follows CommonMark with backticks, which is how a Markdown viewer shows
+it: it opens on a line of three or more backticks whose info string has no
+backtick (```` ```code``` inline ```` is a code span, not a fence), closes on a
+line of only backticks, at least as many, and an unclosed fence runs to the end
+of the field. A fence only exists in a field that can hold several lines (a
+text, a quote, an item, a `:::` body); in a one-line field (a table cell, a
+heading, a section title) a line that starts with ```` ``` ```` is prose.
+A substituted value cannot change the source's code spans: with the option on, a backtick in a value is shown as a backtick but never pairs with one in the source, and a line break in a value is shown as a line break (`<br>`) without splitting the line or the list item. The `langRuns` derived with the option on describe the same text. A code sample is shown as written, and template
+languages (Handlebars, Jinja, Go templates) use `{{ }}` themselves. DocLang is
+meant to turn it on for every output; to show a variable's value next to a
+command there, write it outside the code.
+
 **Supported Filters:**
 - `currency:code` - Format as currency
 - `date:format` - Date formatting
@@ -477,11 +547,26 @@ ${expression}
 - `lower` - Lowercase
 - `title` - Title case
 
+### Emphasis delimiters
+
+`*italic*`, `**bold**`, `***both***`, `==highlight==` and `~~strikethrough~~`
+open only when the delimiter is followed by something other than a space (a
+Unicode space such as NBSP counts) or the end of the line, so `2 * 3 * 4` and
+`a == b == c` stay as text. Closing has no such condition: `**Label: **value`
+is bold. A backslash makes a delimiter character literal: `\*`, `\=` and `\~`
+show the character without the backslash, except inside a code span or a link
+destination. `\_` is not an escape (`_` is not a delimiter in this dialect),
+`\\` is kept as written, and `` \` `` is not an escape either.
+
 ### Links and images
 
 Prose fields (paragraphs, list and checklist items, table cells, quotes,
 special blocks, columns, metrics, quiz and poll text, headings) accept inline
-links and images:
+links and images. In SlideLang the slide's own header lines (title, heading,
+subtitle and kicker, in flex and strict) are one-line prose too: they accept
+the same inline formatting as a heading, never a list or a block. A DocLang
+section title is plain text: it is written escaped, without Markdown, in the
+HTML, the TOC and its anchor.
 
 ```
 [link text](destination)
@@ -546,6 +631,86 @@ Directives control slide and element behavior:
 | `@background` | `@background: color\|image` | Slide background |
 | `@transition` | `@transition: type` | Slide transition |
 | `@timer` | `@timer: seconds` | Slide timing |
+
+`@include path` on a line of its own is replaced by the content of that file
+before the source is parsed (`slidelang build`, `doclang build`; `fmt` and the
+MCP `get_ast`/`lint` tools keep the line as written). By default the line is
+expanded wherever it is, inside code too. With `include.ExpandOptions`'s
+`KeepIncludesInCode`, a line inside a code body (a strict `CODE` block, a fenced
+code block, a `:::code-group`) is code, as the parser reads it, and is left as
+written. What counts as a code body is what the document's AST holds as code,
+read as `doclang` reads it (`get_ast`, `lint`, `build`: the document grammar,
+with flex normalization): an `@include` is kept if that AST has it inside a
+code block. Each file decides its own `@include` lines on its own text,
+unexpanded, as `get_ast` would read it with the root's dialect: the root
+document on its source, an included file on its content (without its
+frontmatter) read with the root's dialect (in strict, as the body of a section when it does not start
+with `SECTION`). What a sibling file or the including document opens or closes
+does not change a file's decisions.
+
+With the option, an included file is also a container: a block whose body is
+read literally (a code, diagram, chart or map fence; a native `@startuml`
+PlantUML block; a `$$` block; a `:::code-group`, with its open tab and its
+legacy `:::code-item` blocks) that the file opens and does not close ends where
+the file ends, as an unclosed fence ends with its container block in CommonMark
+(§4.5). The expansion adds the closing lines that what is open needs
+(```` ``` ```` for a code, diagram, chart or map fence; `@enduml`; `$$`;
+```` ``` ```` for an open tab, `:::` for each open `:::code-item` and `:::` for
+the group, in that order). Their origin is the `@include` line. **This is a
+behavior change: the including document no longer closes a block that an
+included file opens.** A file that opens a fence for the lines after its
+`@include` to fill and close now gets that fence closed at its own end, and
+those lines are read on their own; `doclang build` warns with `INCLUDE002` on
+the `@include` line, naming the file and the line that opens the block. A math
+fence is never left open: the parser reads it as math only when a closing
+fence follows, so an unclosed ```` ```math ```` or ```` ````math ```` is a code
+fence (closed by an exact ```` ``` ````) and an unclosed `~~~math` is text,
+which takes in nothing. Flex has no `~~~` code fences. A `$$` line right after
+a paragraph line is text of that paragraph.
+
+What a file leaves open is read on that file alone, without the parser, with
+the parser's opening and closing rules for these blocks. When those rules
+find something open, the parser checks it in the expanded text, once for all
+files: a prose line after the file has to fall inside the body that the file's
+opening line opens, and a prose line after the closing lines has to fall in
+prose. If the first does not, the file leaves nothing open there (what
+surrounds it reads it differently) and gets no closing lines; if the second
+does not, the closing lines are looked for with the parser on the file alone.
+A file right after a paragraph line of the including document, with no blank
+line between, is read after that line, since the paragraph takes in a `$$`
+first line. Where the rules cannot tell (a `<<...>>` tag, an indented fence, a
+`$$` after a paragraph line, a math fence inside a `:::` block, where the
+parser does not look for its closing fence), the file alone is parsed: once
+without closing lines to find which body takes in a line after the file and
+which line opens it, and once with them. When the rules find nothing open,
+nothing is checked: if the parser would read something open there, the file
+behaves as without the option. A block that no closing line closes stays as it
+was, and `INCLUDE002` says so on its opening line. A `:::` prose block (a
+callout, a column) left open is not closed: its content is prose and does not
+change what is code. A file whose `@include` line is inside a diagram, chart,
+map or math body of the including document (the line is expanded there and the
+file becomes part of that body) is not closed either; one inside a `:::` prose
+block is closed, as content of that block. In strict nothing is closed: a
+strict `CODE` body ends by indentation. Flex normalization runs on the whole
+expanded text, so where it reads a construct differently in context, the
+result can still differ (an empty ```` ```mermaid ```` block in a document with
+no frontmatter misreads the next fence even with no `@include`).
+
+`@include` lines in the root's frontmatter are expanded first, and the dialect
+comes from the expanded frontmatter. There is one parse per distinct file
+with `@include` lines; one of the expanded text when some file was closed,
+plus one per round that corrects closing lines that change what follows (every
+copy of the same file is corrected in the same round; at most eight rounds,
+and closing lines still unchecked then are removed and the block is reported
+as not closed); and two of a file alone only when the rules cannot tell what
+it leaves open. The lines kept that way are reported to the caller, and
+a kept line's path is never opened. This "code" is not the same as the literal-code option's: a fence
+written inside a quote is code for `LiteralCode`, but the AST has no code block
+there, and an `@include` line between two `> ```` lines ends the quote and is
+expanded. The option uses the document grammar, so it is for DocLang: a
+`.slidelang` source is not classified correctly. Diagram, chart, map and math
+bodies are not code: an `@include` line there is always expanded. DocLang is
+meant to use this option; SlideLang keeps expanding everywhere.
 
 ### Special Blocks
 
@@ -644,6 +809,12 @@ Content for second column
 :::
 :::
 ```
+
+The markers can also be written without the space, `:::grid` and `:::column`
+(and `:::column typed`), the way `:::info` is the same block as `::: info`;
+they give the same `GridElement`/`ColumnElement`. Without the space the word
+has to be whole: `:::columns`, `:::gridlock` and `:::grid-note` are still
+special blocks.
 
 **Strict** uses the `<<...>>` delimited-block form, consistent with the
 other strict embedded elements (`<<mermaid>>`, `<<chart>>`, `<<map>>`), with
@@ -922,7 +1093,7 @@ multiple: false
 
 A key outside that set is reported and ignored rather than dropped silently
 (`QUIZ005` / `POLL004`), and a body that is not valid YAML is reported as
-`QUIZ004` / `POLL003` — the block is still consumed, so nothing after it is
+`QUIZ004` / `POLL006` — the block is still consumed, so nothing after it is
 reprocessed as prose.
 
 **`question`, each `option` and `explanation` are prose**, and carry the same

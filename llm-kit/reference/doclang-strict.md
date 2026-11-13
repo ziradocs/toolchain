@@ -134,6 +134,8 @@ not the directive's**:
 - A fragment of complete sections is written at column 0.
 - A fragment meant for a section body is written already indented.
 - Indenting the `@include` line itself does **not** indent the fragment.
+- An `@include` line inside a `CODE` body (or a fenced block) is code, not a
+  directive: it stays as written and the build warns with `INCLUDE001`.
 
 ## Formatting
 

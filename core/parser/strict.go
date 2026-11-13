@@ -274,10 +274,11 @@ func startsStrictElement(trimmedLine string) bool {
 
 // isFlexGridMarker reporta si trimmedLine abre un grid/columna con la
 // sintaxis flex ("::: grid", "::: column", y sus variantes sin espacio
-// ":::grid"/":::column" — elements.GridParser.CanParse exige el espacio,
-// pero elements.SpecialBlockParser, el fallback genérico de ":::", no lo
-// exige, así que la variante sin espacio también necesita su propio check
-// acá). En modo strict, ninguna de las dos es válida: ver el caller
+// ":::grid"/":::column", que en flex también abren un grid, ver
+// elements.isFlexGridOpen). En strict elements.GridParser.CanParse solo
+// acepta <<grid>>, y elements.SpecialBlockParser, el fallback genérico de
+// ":::", tomaría cualquiera de las dos como bloque especial, así que hace
+// falta este check. En modo strict, ninguna de las dos es válida: ver el caller
 // (parseIndentedElements) para el error que reemplaza el fallback a
 // SpecialBlockParser (issue #108).
 //
@@ -533,9 +534,9 @@ func (p *strictBody) parseIndentedElements(
 			// cualquier palabra como BlockType — produciendo un special_block
 			// plano en vez de un GridElement, con solo un warning SPECIAL001
 			// (build pasa, deck se renderiza como una pila de callouts en vez
-			// de columnas). Cubre las 4 grafías porque grid.go exige el
-			// espacio ("::: grid") pero SpecialBlockParser no — sin él,
-			// ":::grid" (sin espacio) seguiría colándose incluso con este fix.
+			// de columnas). Cubre las 4 grafías porque SpecialBlockParser
+			// acepta ":::grid" (sin espacio) igual que "::: grid"; sin él,
+			// esa forma seguiría colándose incluso con este fix.
 			p.addError("Invalid syntax for grid layout. In strict mode, use: <<grid>> / <<column>> / <<end>>")
 			p.currentLine++
 		} else if strings.HasPrefix(trimmedLine, ":::") {

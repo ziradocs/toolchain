@@ -10,7 +10,6 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
-	"go.ziradocs.com/core/v2/internal/elements"
 )
 
 var nodeIDDirective = regexp.MustCompile(`^<!-- node-id: ([^[:space:]]+) -->$`)
@@ -46,102 +45,13 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 			frontmatterEnd = len(lines) - 1
 		}
 	}
-	literal := ""
-	codeHeaderIndent := -1
-	diagramIndent := -1
-	groupFence := false
-	fenceClose := "```"
+	kinds := literalLineKinds(lines, frontmatterEnd+1, strict, true)
 	for i, line := range lines {
-		if i <= frontmatterEnd {
+		if i <= frontmatterEnd || kinds[i] != "" {
 			continue
 		}
 		trimmed := strings.TrimSpace(line)
 		indent := len(line) - len(strings.TrimLeft(line, " \t"))
-		// El cuerpo de un CODE son las líneas con más sangría que su cabecera
-		// (elements.CodeParser.parseStrictCode): termina en la primera línea con
-		// texto que no pasa de ella.
-		if literal == "code" && trimmed != "" && elements.CalculateIndentLevel(line) <= codeHeaderIndent {
-			literal = ""
-		}
-		// Un diagrama (<<mermaid>>, <<plantuml>>, <<chart:…>>, <<map>>,
-		// <<math>>) no exige <<end>>: el parser también lo cierra cuando una
-		// línea vuelve a la indentación de la apertura o menos (siguiente
-		// elemento, SLIDE/SECTION, encabezado de flex). El pre-pase tiene que
-		// cerrarlo en el mismo punto; si esperaba solo a <<end>>, se tragaba
-		// el `<!-- node-id -->` del elemento siguiente y el build fallaba con
-		// un node-id huérfano.
-		if literal == "diagram" && trimmed != "" && trimmed != "<<end>>" && indent <= diagramIndent {
-			literal = ""
-		}
-		if literal != "" {
-			switch literal {
-			case "fence":
-				if trimmed == fenceClose {
-					literal = ""
-				}
-			case "diagram":
-				if trimmed == "<<end>>" {
-					literal = ""
-				}
-			case "math":
-				if trimmed == "$$" {
-					literal = ""
-				}
-			case "plantuml":
-				if trimmed == "@enduml" {
-					literal = ""
-				}
-			case "group":
-				if strings.HasPrefix(trimmed, "```") {
-					groupFence = !groupFence
-				}
-				if trimmed == ":::" && !groupFence {
-					literal = ""
-				}
-			}
-			if literal != "" || trimmed == fenceClose || trimmed == "<<end>>" || trimmed == ":::" || trimmed == "$$" || trimmed == "@enduml" {
-				continue
-			}
-		}
-		if strings.HasPrefix(trimmed, "```") {
-			literal = "fence"
-			if strings.HasPrefix(trimmed, "````") {
-				fenceClose = "````"
-			} else {
-				fenceClose = "```"
-			}
-			continue
-		}
-		if trimmed == "$$" {
-			literal = "math"
-			continue
-		}
-		if strings.HasPrefix(trimmed, "@startuml") {
-			literal = "plantuml"
-			continue
-		}
-		if isDiagramOpener(trimmed) {
-			literal = "diagram"
-			diagramIndent = indent
-			continue
-		}
-		if strings.HasPrefix(trimmed, ":::code-group") {
-			literal = "group"
-			groupFence = false
-			continue
-		}
-		codeHeader := trimmed == "CODE" || strings.HasPrefix(trimmed, "CODE ") ||
-			trimmed == "CODE"+elements.CodeVerbatimMarker || strings.HasPrefix(trimmed, "CODE"+elements.CodeVerbatimMarker+" ")
-		if strict {
-			// Match dispatch, including strings.Fields whitespace and legacy
-			// prefixes, without broadening the verbatim attribute's grammar.
-			codeHeader = (&elements.CodeParser{}).CanParse(trimmed, "strict")
-		}
-		if codeHeader {
-			literal = "code"
-			codeHeaderIndent = elements.CalculateIndentLevel(line)
-			continue
-		}
 		if !strings.HasPrefix(trimmed, "<!-- node-id:") {
 			continue
 		}
