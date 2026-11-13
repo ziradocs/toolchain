@@ -296,25 +296,26 @@ func (p *DocumentFlexParser) parseSection() *ast.ContentBlock {
 }
 
 // parseLeadingContent parsea la sección inicial sin encabezado (ver
-// parseSection): el mismo cuerpo que parseSectionContent, pero cortando en
-// el PRIMER `#` aunque todavía no haya ningún elemento — si el preámbulo
+// parseSection): el mismo cuerpo que parseSectionContent. Si el preámbulo
 // solo trae líneas que no producen elementos (p. ej. `---`), el `#` que
-// sigue tiene que abrir su propia sección, no caer dentro de esta.
+// sigue abre su propia sección, no cae dentro de esta.
 func (p *DocumentFlexParser) parseLeadingContent(block *ast.ContentBlock) {
-	p.parseSectionBody(block, true)
+	p.parseSectionBody(block)
 }
 
 // parseSectionContent parsea el contenido de una sección
 // Aquí `##` y `###` se convierten en TextElements con HTML
 func (p *DocumentFlexParser) parseSectionContent(block *ast.ContentBlock) {
-	p.parseSectionBody(block, false)
+	p.parseSectionBody(block)
 }
 
 // parseSectionBody es el cuerpo compartido de parseSectionContent y
-// parseLeadingContent. stopAtFirstH1 corta en cualquier `#`, incluso sin
-// elementos todavía; sin él, un `#` pegado al encabezado de la sección (sin
-// elementos en medio) se sigue tratando como hasta ahora.
-func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFirstH1 bool) {
+// parseLeadingContent: corta en el siguiente `#`, tenga o no elementos la
+// sección. Antes, si la sección seguía vacía, el `#` siguiente no la cerraba
+// y caía al registro como párrafo (`# A` + `# B` dejaba "# B" como texto de
+// A). Qué pasa después con una sección que se queda vacía lo decide
+// parseSection, no este bucle.
+func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 	ctx := p.parseContext()
 
 	for p.currentLine < len(p.lines) {
@@ -327,8 +328,7 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock, stopAtFir
 
 		// Stop at next section (only `#`, not `##` or `###`)
 		// Check: starts with "# " but NOT with "## " (to exclude ##, ###, etc.)
-		if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") &&
-			(len(block.Elements) > 0 || stopAtFirstH1) {
+		if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") {
 			break
 		}
 
