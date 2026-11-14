@@ -283,7 +283,7 @@ func (p *ImageParser) hasTextAfter(ctx *ParseContext, startIndex int) bool {
 		}
 
 		// Si encuentra otra imagen o elemento especial, no es texto descriptivo
-		if strings.HasPrefix(line, "![") || strings.HasPrefix(line, "```") ||
+		if strings.HasPrefix(line, "![") || opensFence(ctx, i) ||
 			strings.HasPrefix(line, ":::") || strings.HasPrefix(line, "---") {
 			return false
 		}

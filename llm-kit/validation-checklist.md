@@ -87,6 +87,15 @@ and it applies to any slide typed `title` in either mode.)
       text alone and a block image is not drawn. Parentheses inside a
       destination are fine when balanced, e.g. `.../wiki/Foo_(bar)`
 - [ ] **Code**: block is not empty (`CODE001` — warning)
+- [ ] **Code fences close as in CommonMark**: a fence closes on a line of only
+      backticks, at least as many as its opening, so a fence that shows a
+      ```` ``` ```` line opens with four (```` ````md ```` … ```` ```` ````); no
+      backtick in the info string. A fence read with the earlier rule warns:
+      `CODE002` (a fence of three closed by four or more), `CODE003` (no closing
+      line of as many backticks, or a backtick in the info string), `CODE004`
+      (it now ends on another line) and `CODE005` (the whole document read with
+      the earlier rule because CommonMark gives it an error). Fix the fence
+      instead of accepting the warning
 - [ ] **`@include` in code (DocLang only)**: no `@include` line inside a code
       block meant to include a file. `doclang build` keeps it as code, does
       not expand it and warns with `INCLUDE001`; `slidelang build` expands it

@@ -457,6 +457,7 @@ type openState struct {
 	opener  int    // índice de la línea que lo abre
 	open    string // secuencia de apertura de una cerca de math, o "$$"
 	tab     int    // backticks de la pestaña abierta de un code-group, o 0
+	ticks   int    // backticks de la apertura de una cerca de código, diagrama, chart o mapa
 	items   int    // :::code-item abiertos dentro de un code-group
 }
 
@@ -479,6 +480,14 @@ func gate(lines []string, afterProse bool) (st openState, sure bool) {
 		if t == "" {
 			prose = false
 			continue
+		}
+		// Una cerca de cuatro o más backticks, un cierre de cuatro o más o
+		// un backtick en el info string: el parser decide la cerca con
+		// lookahead (internal/fence, CommonMark o la regla anterior según
+		// cuál da un resultado bien formado), que gate no sigue. Las cercas
+		// de math tienen su propia regla, que gate sí sigue.
+		if fence.Differs(t) && st.kind != bodyMath && mathOpening(t) == "" {
+			sure = false
 		}
 		afterProse := prose
 		prose = false
@@ -561,7 +570,7 @@ func gate(lines []string, afterProse bool) (st openState, sure bool) {
 				sure = false
 			}
 		case fence.Open(t) > 0:
-			st = openState{kind: bodyFence, opener: i, diagram: diagramFence(t)}
+			st = openState{kind: bodyFence, opener: i, diagram: diagramFence(t), ticks: fence.Open(t)}
 		default:
 			prose = !strings.HasPrefix(t, "#")
 			continue
@@ -619,18 +628,41 @@ func proseLine(line string) bool {
 // adelante, el parser la lee como código (```math, ````math: cierra con ```)
 // o como texto (~~~math), ver gate.
 func (st openState) closers() []string {
+	return st.closersWith(3)
+}
+
+// longClosers son los cierres de st con tantos backticks como su apertura
+// (una cerca o una pestaña de cuatro o más): con la regla de CommonMark
+// (internal/fence), ``` solo la cierra si más adelante no hay ninguna línea
+// de al menos tantos backticks. nil si son los mismos que closers.
+func (st openState) longClosers() []string {
+	if max(st.ticks, st.tab) <= 3 {
+		return nil
+	}
+	return st.closersWith(0)
+}
+
+// closersWith es closers con n backticks para cerrar una cerca o una pestaña,
+// o, con n == 0, tantos como su apertura.
+func (st openState) closersWith(n int) []string {
+	ticks := func(open int) string {
+		if n > 0 {
+			return strings.Repeat("`", n)
+		}
+		return strings.Repeat("`", max(open, 3))
+	}
 	switch st.kind {
 	case bodyFence:
 		if st.uml {
 			return []string{"@enduml"}
 		}
-		return []string{"```"}
+		return []string{ticks(st.ticks)}
 	case bodyMath:
 		return []string{st.open}
 	case bodyCodeGroup:
 		var c []string
 		if st.tab > 0 {
-			c = append(c, "```")
+			c = append(c, ticks(st.tab))
 		}
 		for range st.items {
 			c = append(c, ":::")
@@ -692,7 +724,9 @@ func parsedClosureOf(prefix, lines []string) closure {
 	opening := strings.TrimSpace(lines[opener])
 	switch {
 	case kind == bodyFence && strings.HasPrefix(opening, "```"):
-		st = openState{kind: bodyFence}
+		// Cierra con tantos backticks como la apertura: ```` no cierra una
+		// cerca de cuatro con CommonMark (internal/fence).
+		st = openState{kind: bodyFence, ticks: fence.Open(opening)}
 	case kind == bodyFence && strings.HasPrefix(opening, "@startuml"):
 		st = openState{kind: bodyFence, uml: true}
 	case kind == bodyMath && strings.HasPrefix(opening, "$$"):
@@ -707,7 +741,16 @@ func parsedClosureOf(prefix, lines []string) closure {
 	}
 	c := st.closers()
 	if _, closed := landing(prefix, lines, c, sentinel); closed != inProse {
-		return closure{opener: opener, failed: true}
+		// Una cerca o una pestaña de cuatro o más backticks puede necesitar
+		// un cierre igual de largo (internal/fence).
+		long := st.longClosers()
+		if long == nil {
+			return closure{opener: opener, failed: true}
+		}
+		if _, closed := landing(prefix, lines, long, sentinel); closed != inProse {
+			return closure{opener: opener, failed: true}
+		}
+		c = long
 	}
 	return closure{closers: c, opener: opener}
 }

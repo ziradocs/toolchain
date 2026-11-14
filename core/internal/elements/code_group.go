@@ -71,8 +71,18 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		baseIndent = CalculateIndentLevel(ctx.Lines[startIndex])
 	}
 
+	// El grupo termina en el primer ":::" fuera de sus pestañas
+	// (fence.ContainerEnd), y cada pestaña busca su cierre solo antes de él:
+	// una pestaña que solo cerraría con CommonMark en otro code-group
+	// posterior cierra donde cerraba antes.
+	tabs := ctx
+	if !ctx.EarlierFences {
+		groupEnd, _ := ctx.fenceIndex().ContainerEnd(startIndex, ctx.limitFrom(startIndex), nil)
+		tabs = ctx.within(groupEnd)
+	}
+
 	// Collect code blocks until :::
-	for i := startIndex + 1; i < len(ctx.Lines); i++ {
+	for i := startIndex + 1; i < ctx.limitFrom(startIndex); i++ {
 		line := strings.TrimSpace(ctx.Lines[i])
 
 		if line == ":::" {
@@ -82,11 +92,13 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		}
 
 		// Look for start of code block ```language [label]
-		if strings.HasPrefix(line, "```") {
+		if block, ok := tabAt(tabs, i); ok {
 			// ```lenguaje [etiqueta]: la etiqueta es todo lo que va entre los
 			// corchetes, espacios incluidos. Antes se partía por espacios y
-			// una etiqueta como [With Visualization] se perdía sin aviso.
-			language, rest, _ := strings.Cut(strings.TrimSpace(line[3:]), " ")
+			// una etiqueta como [With Visualization] se perdía sin aviso. La
+			// cerca sigue la regla de internal/fence, como un bloque de
+			// código suelto, y el lenguaje sigue a todos sus backticks.
+			language, rest, _ := strings.Cut(strings.TrimSpace(line[min(block.Ticks, len(line)):]), " ")
 			rest = strings.TrimSpace(rest)
 			label := ""
 			if rest != "" {
@@ -97,34 +109,20 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 				}
 			}
 
-			consumed++ // Skip ``` line
-			i++
-
-			var content strings.Builder
-			lineCount := 0
-
-			// Collect code content until ```
-			for i < len(ctx.Lines) {
-				line := ctx.Lines[i]
-				if strings.TrimSpace(line) == "```" {
-					// Found code block end
-					consumed++ // Skip closing ```
-					break
-				}
-
-				if lineCount > 0 {
-					content.WriteString("\n")
-				}
-				content.WriteString(stripBaseIndent(line, baseIndent))
-				lineCount++
-				consumed++
-				i++
+			body := block.Body(ctx.Lines)
+			lines := make([]string, len(body))
+			for k, raw := range body {
+				lines[k] = stripBaseIndent(raw, baseIndent)
 			}
+			tabLines := block.Consumed()
+			diags = append(diags, fenceDiagnostics(tabs, block, oldCodeClose, true)...)
+			consumed += tabLines
+			i += tabLines - 1
 
 			codeBlock := ast.CodeBlock{
 				Language: language,
 				Label:    label,
-				Content:  content.String(),
+				Content:  strings.Join(lines, "\n"),
 			}
 			codeGroup.CodeBlocks = append(codeGroup.CodeBlocks, codeBlock)
 		} else {

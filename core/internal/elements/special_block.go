@@ -71,9 +71,8 @@ var nestedContentParsers = []ElementParser{
 // línea del elemento; no como error, para que ningún documento que compila
 // deje de compilar. opener es la línea que abre el bloque, para el mensaje.
 func tryParseNestedContent(ctx *ParseContext, i int, opener string) (ast.Element, int, []diagnostics.Diagnostic, bool) {
-	line := ctx.Lines[i]
 	for _, parser := range nestedContentParsers {
-		if !parser.CanParse(line, ctx.Mode) {
+		if !canParseAt(parser, ctx, i) {
 			continue
 		}
 		result := parser.Parse(ctx, i)
@@ -286,9 +285,21 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 		proseRun.WriteString(keepListIndent(ctx.Lines[lineIndex], bodyIndent))
 	}
 
+	// El cuerpo termina en el primer ":::" (o en el primer límite de bloque,
+	// abajo) fuera de lo que se abrió adentro (fence.ContainerEnd), y una
+	// cerca de adentro busca su cierre solo antes de él: una cerca de cuatro
+	// backticks que solo cerraría con CommonMark después del ":::" del bloque
+	// cierra donde cerraba antes.
+	if !ctx.EarlierFences {
+		bodyEnd, _ := ctx.fenceIndex().ContainerEnd(startIndex, ctx.limitFrom(startIndex), func(line string) bool {
+			return strings.TrimSpace(line) == "---" || IsStrictBlockBoundary(line)
+		})
+		nestedCtx = nestedCtx.within(bodyEnd)
+	}
+
 	i := startIndex + 1
 	closed := false
-	for i < len(ctx.Lines) {
+	for i < ctx.limitFrom(startIndex) {
 		trimmedLine := strings.TrimSpace(ctx.Lines[i])
 
 		if trimmedLine == ":::" {

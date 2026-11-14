@@ -133,7 +133,7 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// delimita el cuerpo sin ambigüedad, así que no hace falta el loop de
 	// propiedades key:value de abajo).
 	if ctx.Mode == "flex" && isFencedBlockOpener(line, "map") {
-		body, consumed := collectFencedBody(ctx.Lines, startIndex)
+		body, consumed, fenceDiags := collectFencedBody(ctx, startIndex)
 		trimmedBody := strings.TrimSpace(body)
 
 		var parsed mapJSONBody
@@ -143,11 +143,11 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				Element:       ast.NewMapElement(pos, mapType),
 				ConsumedLines: consumed,
 				Error:         nil,
-				Diagnostics: []diagnostics.Diagnostic{
+				Diagnostics: append(fenceDiags,
 					diagnostics.NewWarning(
 						"El JSON del mapa es inválido y fue ignorado; el mapa quedará sin datos",
 						pos, "map-parser").WithRuleID("MAP002"),
-				},
+				),
 			}
 		}
 
@@ -187,7 +187,7 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			mapElement.Markers = append(mapElement.Markers, marker)
 		}
 
-		return &ParseResult{Element: mapElement, ConsumedLines: consumed, Error: markerErr}
+		return &ParseResult{Element: mapElement, ConsumedLines: consumed, Error: markerErr, Diagnostics: fenceDiags}
 	}
 
 	// Extraer atributos si están presentes: <<map type="city" width="1200" height="800" zoom="10">>

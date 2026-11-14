@@ -1,0 +1,14 @@
+section "Pestañas acotadas a su code-group"
+  code-group tab "js" line 7: "x"
+  text line 13: "Entre grupos."
+  code-group tab "md" line 15: "y"
+section "Cercas acotadas a su bloque"
+  block "note" line 23
+    code "js" line 24: "dentro de la nota"
+  text line 29: "Después de la nota."
+  block "tip" line 31
+    code "md" line 32: "```go\nx := 1\n```"
+section "Fin"
+CODE003 line 24: This fence opens with 4 backticks and no later line of at least 4 backticks closes it, so it closes at the next "```" line, as in earlier versions. Close it with a line of 4 backticks.
+CODE003 line 8: This fence opens with 4 backticks and no later line of at least 4 backticks closes it, so it closes at the next "```" line, as in earlier versions. Close it with a line of 4 backticks.
+CODE004 line 16: This fence opens with 4 backticks and closes at the next line of at least 4 backticks, as in CommonMark; earlier versions closed it at a different line. Check that it ends where intended.

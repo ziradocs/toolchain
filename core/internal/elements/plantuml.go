@@ -9,6 +9,8 @@ import (
 	"unicode"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // PlantUMLParser maneja el parsing de diagramas PlantUML
@@ -30,12 +32,26 @@ func (p *PlantUMLParser) CanParse(line string, mode string) bool {
 			return true
 		}
 		// Detectar code blocks de Markdown con lenguaje "plantuml"
-		if strings.HasPrefix(trimmed, "```plantuml") || strings.HasPrefix(trimmed, "````plantuml") {
+		if isPlantUMLFence(trimmed) && fence.Open(trimmed) > 0 {
 			return true
 		}
 	}
 
 	return false
+}
+
+// isPlantUMLFence reconoce la apertura de una cerca ```plantuml o
+// ````plantuml, con el lenguaje pegado a los backticks.
+func isPlantUMLFence(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "```plantuml") || strings.HasPrefix(trimmed, "````plantuml")
+}
+
+// CanParseAt es CanParse con el contexto, como MermaidParser.CanParseAt.
+func (p *PlantUMLParser) CanParseAt(ctx *ParseContext, i int) bool {
+	if ctx.Mode == "flex" && isPlantUMLFence(strings.TrimSpace(ctx.Lines[i])) {
+		return opensFence(ctx, i)
+	}
+	return p.CanParse(ctx.Lines[i], ctx.Mode)
 }
 
 // Parse parsea un elemento PlantUML
@@ -48,7 +64,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	openingLine := strings.TrimSpace(ctx.Lines[startIndex])
 
 	// Detectar formato: <<plantuml>>, @startuml, o ```plantuml
-	isMarkdownFormat := strings.HasPrefix(openingLine, "```plantuml") || strings.HasPrefix(openingLine, "````plantuml")
+	isMarkdownFormat := isPlantUMLFence(openingLine)
 	isNativeFormat := strings.HasPrefix(openingLine, "@startuml")
 
 	consumedLines := 1 // Cuenta la línea de apertura (<<plantuml>>, @startuml, o ```plantuml)
@@ -58,23 +74,12 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// (@startyaml) y en los demás es la que escribió el autor.
 	var body []string
 	foundStartUml := isNativeFormat // Si empezó con @startuml, ya lo encontramos
+	var fenceDiags []diagnostics.Diagnostic
 
 	if isMarkdownFormat {
-		// Formato Markdown: ```plantuml ... ```
-		// Recoger contenido hasta encontrar ``` o ````
-		for i := startIndex + 1; i < len(ctx.Lines); i++ {
-			line := ctx.Lines[i]
-			trimmed := strings.TrimSpace(line)
-
-			// Terminar al encontrar closing backticks
-			if trimmed == "```" || trimmed == "````" {
-				consumedLines++
-				break
-			}
-
-			body = append(body, line)
-			consumedLines++
-		}
+		// Formato Markdown: ```plantuml ... ```, hasta donde lo lee
+		// fence.AtWithin, como un bloque de código suelto.
+		body, consumedLines, fenceDiags = collectFencedLines(ctx, startIndex)
 	} else if isNativeFormat {
 		// Formato nativo PlantUML: @startuml ... @enduml
 		// Incluir @startuml en el contenido
@@ -132,7 +137,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			}
 
 			// En flex mode, detectar si empieza un nuevo elemento (SOLO SI NO HEMOS VISTO @STARTUML)
-			if len(body) == 0 && ctx.Mode == "flex" && IsNewElement(trimmedLine, ctx.Mode) && !strings.HasPrefix(trimmedLine, "@startuml") {
+			if len(body) == 0 && ctx.Mode == "flex" && (IsNewElement(trimmedLine, ctx.Mode) || startsFence(ctx, i, trimmedLine)) && !strings.HasPrefix(trimmedLine, "@startuml") {
 				break
 			}
 
@@ -192,6 +197,7 @@ func (p *PlantUMLParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       element,
 		ConsumedLines: consumedLines,
 		Error:         tagErr,
+		Diagnostics:   fenceDiags,
 	}
 }
 

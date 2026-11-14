@@ -222,6 +222,44 @@ such a header was an error, because the code-filename contract rejects a filenam
 that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
+#### Code fences
+
+A flex code fence, and a fence of the other parsers that read one (a
+`:::code-group` tab in either dialect, a fenced ```` ```mermaid ````,
+```` ```plantuml ````, ```` ```chart ```` or ```` ```map ````, and a fence inside
+a `{typed}` block), follows CommonMark with backticks: it opens on a line of
+three or more backticks whose info string has no backtick, and closes on a line
+of only backticks, at least as many as the opening. A fence of four backticks
+can so hold a line of three (```` ````md ```` … ```` ``` ```` … ```` ```` ````).
+The language is what follows all the backticks of the opening (```` ````md ````
+is `md`, it used to be `` `md ``). A fence inside a `:::code-group` or a `:::`
+block looks for its closing line only inside it: the container ends at the
+first `:::` where everything opened inside it has closed. ```` ```math ```` fences
+keep their own rule.
+
+Earlier versions opened a fence on every line that starts with
+```` ``` ```` and closed it on the first line that is exactly ```` ``` ````
+(```` ``` ```` or ```` ```` ```` for a diagram, chart or map fence), so a fence
+of four backticks did not close on its own line. A fence that CommonMark would
+leave open inside its container is read that way, so that no document those
+versions read changes meaning without a warning:
+
+| ID | Warning |
+| --- | --- |
+| `CODE002` | On the closing line: a fence of three backticks closes on a line of four or more, which earlier versions kept as content. |
+| `CODE003` | On the opening line: the fence is read with the earlier rule. No line of at least as many backticks closes it, and it closes on the next exact ```` ``` ```` or runs to the end of its container; or the line has a backtick in its info string, which CommonMark reads as text, and it is read as a fence because as text the lines after it would leave a fence unclosed. Inside a `:::code-group` such a line always opens a tab, as before. |
+| `CODE004` | On the opening line: a fence of four or more backticks closes on another line than in earlier versions, when its closing line was content of a fence those versions closed, or when those versions read the rest of the document from it without leaving a fence open. A line with a backtick in its info string that those versions read as a fence that closed, and that is now text, gets it too. A fence that those versions closed on an inner ```` ``` ```` while its own closing line opened another fence to the end (a fence of four that holds a ```` ``` ````) has no warning: the CommonMark reading is the one the author wrote. |
+| `CODE005` | On the line of the first error: a document that has an error when its fences are read with CommonMark, and none when they are read with the earlier rule, is read entirely with the earlier rule (as before: no container bound and the language after three backticks), so that a document that built does not stop building. Fix the fences so that the document has no error when read with CommonMark. Only errors of the parser count; an error that only the linter or a `lint_policy` reports does not. |
+
+All four are warnings. `ParseMarkdownContent` (the content fragment of
+`slidelang fmt --content-fragment`) reads its fences with the same rule but
+does not fall back to the earlier one (`CODE005`). `fmt` writes a code block or
+a code-group tab with a fence one backtick longer than the longest line of only
+backticks in its content, so that it reads back the same; a tab that holds a
+```` ``` ```` line used to be refused. The normalizer, the renderer's Markdown
+prose and the `<!-- node-id -->` pre-pass still read fences with their own
+rules.
+
 A `TEXT` body is the lines that follow it with indentation: usually deeper than
 `TEXT`, or, as always accepted, at its own indentation. The body starts at the
 first line with text and runs up to the first line indented less than that one.
@@ -775,8 +813,9 @@ PlantUML block; a `$$` block; a `:::code-group`, with its open tab and its
 legacy `:::code-item` blocks) that the file opens and does not close ends where
 the file ends, as an unclosed fence ends with its container block in CommonMark
 (§4.5). The expansion adds the closing lines that what is open needs
-(```` ``` ```` for a code, diagram, chart or map fence; `@enduml`; `$$`;
-```` ``` ```` for an open tab, `:::` for each open `:::code-item` and `:::` for
+(```` ``` ```` for a code, diagram, chart or map fence, or as many backticks as
+its opening when ```` ``` ```` does not close a fence of four or more; `@enduml`;
+`$$`; the same for an open tab, `:::` for each open `:::code-item` and `:::` for
 the group, in that order). Their origin is the `@include` line. **This is a
 behavior change: the including document no longer closes a block that an
 included file opens.** A file that opens a fence for the lines after its
@@ -1022,8 +1061,8 @@ inferred capability `media-figure-v1`. In chart `data`, `null` is a missing
 value kept in its column. A map marker without usable coordinates is an error.
 See [figures and media](../../docs/portable-figures-media.md).
 
-The fenced form (`` ```lang `` … `` ``` ``, four backticks also accepted for
-the opener/closer) exists so a markdown-savvy author or an LLM writing loose
+The fenced form (`` ```lang `` … `` ``` ``, or four backticks; the fence closes
+as described in [code fences](#code-fences)) exists so a markdown-savvy author or an LLM writing loose
 markdown can drop in a code fence instead of learning the native tag — it is
 recognized in **flex mode only** (strict is keyword-driven and has no fence
 syntax at all). For charts and maps, the fenced body must be a single JSON

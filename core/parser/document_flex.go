@@ -10,6 +10,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/internal/normalize"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer"
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
@@ -32,7 +33,13 @@ type DocumentFlexParser struct {
 	registry        *elements.Registry
 	hasTitleBlock   bool
 	normalized      bool // Indica si el contenido fue normalizado
-	inCodeBlock     bool // Track si estamos dentro de un code block
+
+	// earlierFences lee las cercas con la regla de las versiones anteriores
+	// (elements.ParseContext.EarlierFences; ver Parser.ParseDocument), y con
+	// ella el seguimiento de cercas que esas versiones tenían (inCodeBlock).
+	earlierFences bool
+	fences        *fence.Index
+	inCodeBlock   bool
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]. Ver
 	// strictBody.lineOffset (strict.go) para la explicación completa (#245).
@@ -45,10 +52,33 @@ type DocumentFlexParser struct {
 	lineOffsetExplicit bool
 }
 
+// trackEarlierFences es el seguimiento de cercas de las versiones
+// anteriores, solo con earlierFences: cada una de las n líneas desde from que
+// empieza con ``` alterna inCodeBlock.
+func (p *DocumentFlexParser) trackEarlierFences(from, n int) {
+	if !p.earlierFences {
+		return
+	}
+	for i := from; i < from+n && i < len(p.lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(p.lines[i]), "```") {
+			p.inCodeBlock = !p.inCodeBlock
+		}
+	}
+}
+
 // position traduce un índice 0-based dentro de p.lines a una posición
 // 1-based relativa al ARCHIVO completo (#245; ver position_offset_guard_test.go).
 func (p *DocumentFlexParser) position(lineIndex int) diagnostics.Position {
 	return diagnostics.NewPosition(p.lineOffset+lineIndex+1, 1)
+}
+
+// fenceIndex es el fence.Index de p.lines, el mismo para todos los contextos
+// del cuerpo mientras p.lines no cambie.
+func (p *DocumentFlexParser) fenceIndex() *fence.Index {
+	if !p.fences.Of(p.lines) {
+		p.fences = fence.NewIndex(p.lines)
+	}
+	return p.fences
 }
 
 // parseContext construye el elements.ParseContext para esta posición del
@@ -63,6 +93,8 @@ func (p *DocumentFlexParser) parseContext() *elements.ParseContext {
 		Logger:          p.logger,
 		Lines:           p.lines,
 		LineOffset:      p.lineOffset,
+		EarlierFences:   p.earlierFences,
+		Fences:          p.fenceIndex(),
 		// Un `#`/`##` pegado a un párrafo abre sección/subsección en vez de
 		// quedar como texto (CommonMark: un encabezado ATX interrumpe un
 		// párrafo).
@@ -190,6 +222,8 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		astNode.ContentBlocks[0].BlockType = "title"
 	}
 
+	// Una línea que antes abría una cerca y ahora es texto (CODE004).
+	p.diagnostics = append(p.diagnostics, elements.TextFenceDiagnostics(p.parseContext())...)
 	return astNode, p.diagnostics
 }
 
@@ -348,8 +382,14 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 		// Update context
 		ctx.CurrentLine = p.currentLine
 
-		// Check for subsection headers FIRST (before registry)
-		// But skip if we're inside a code block
+		// Check for subsection headers FIRST (before registry). Una cerca de
+		// código la consume entera el registry (CodeParser y los diagramas
+		// en cerca, con fence.AtWithin), así que acá nunca se está dentro de
+		// una. El seguimiento de cercas de las versiones anteriores
+		// (inCodeBlock) alternaba con cada línea consumida que empezaba con
+		// ```: una cerca de cuatro backticks que guarda un ``` lo dejaba
+		// "dentro de código" y los encabezados siguientes dejaban de leerse
+		// como tales. Sigue solo con la regla anterior (earlierFences).
 		if p.isSubsectionHeader(trimmed) && !p.inCodeBlock {
 			element := p.parseSubsectionHeader(trimmed)
 			if element != nil {
@@ -375,16 +415,7 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 		if result.Element != nil {
 			block.Elements = append(block.Elements, result.Element)
 			p.currentLine += result.ConsumedLines
-			// Track code blocks AFTER consuming lines from registry
-			// Check each consumed line for ```
-			for i := 0; i < result.ConsumedLines; i++ {
-				if p.currentLine-result.ConsumedLines+i < len(p.lines) {
-					line := strings.TrimSpace(p.lines[p.currentLine-result.ConsumedLines+i])
-					if strings.HasPrefix(line, "```") {
-						p.inCodeBlock = !p.inCodeBlock
-					}
-				}
-			}
+			p.trackEarlierFences(startLine, result.ConsumedLines)
 			// Handle errors
 			if result.Error != nil {
 				p.addErrorAt(startLine, result.Error.Error())
@@ -393,15 +424,7 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 			continue
 		} else if result.ConsumedLines > 0 {
 			p.currentLine += result.ConsumedLines
-			// Track code blocks for consumed lines
-			for i := 0; i < result.ConsumedLines; i++ {
-				if p.currentLine-result.ConsumedLines+i < len(p.lines) {
-					line := strings.TrimSpace(p.lines[p.currentLine-result.ConsumedLines+i])
-					if strings.HasPrefix(line, "```") {
-						p.inCodeBlock = !p.inCodeBlock
-					}
-				}
-			}
+			p.trackEarlierFences(startLine, result.ConsumedLines)
 			// Handle errors
 			if result.Error != nil {
 				p.addErrorAt(startLine, result.Error.Error())
@@ -410,10 +433,7 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 			continue
 		}
 
-		// Track code blocks for current line
-		if strings.HasPrefix(trimmed, "```") {
-			p.inCodeBlock = !p.inCodeBlock
-		}
+		p.trackEarlierFences(p.currentLine, 1)
 
 		// Failsafe: advance at least one line if nothing was parsed.
 		// issue #192: antes esto avanzaba sin emitir nada — a diferencia de

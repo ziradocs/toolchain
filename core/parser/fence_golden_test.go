@@ -1,0 +1,113 @@
+// Copyright 2026 Misael Monterroca
+// SPDX-License-Identifier: Apache-2.0
+
+package parser
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/util"
+)
+
+var updateFenceGolden = flag.Bool("update-fence-golden", false, "rewrite testdata/fences/*.golden")
+
+// TestFenceGolden fija cómo se leen las cercas de testdata/fences: cercas de
+// cuatro o más backticks, cierres con más backticks, cercas que se leen con la
+// regla de las versiones anteriores y backticks en el info string, con sus
+// avisos CODE002/CODE003/CODE004. Para regenerar los .golden:
+// go test ./parser -run TestFenceGolden -update-fence-golden
+func TestFenceGolden(t *testing.T) {
+	checkFenceGolden(t, ".golden")
+}
+
+// TestFenceGoldenEarlier fija la lectura con la regla de las versiones
+// anteriores (la del documento que cae a ella, CODE005): los .earlier.golden
+// son lo que leía la versión anterior a la regla de CommonMark
+// (origin/integration/v2.59.0, 84e227e) sobre las mismas fuentes, y no se
+// regeneran con -update-fence-golden.
+func TestFenceGoldenEarlier(t *testing.T) {
+	forceEarlierFences = true
+	defer func() { forceEarlierFences = false }()
+	checkFenceGolden(t, ".earlier.golden")
+}
+
+func checkFenceGolden(t *testing.T, suffix string) {
+	t.Helper()
+	sources, _ := filepath.Glob("testdata/fences/*.doclang")
+	if len(sources) == 0 {
+		t.Fatal("no sources in testdata/fences")
+	}
+	for _, src := range sources {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := dumpFences(string(data))
+		golden := strings.TrimSuffix(src, ".doclang") + suffix
+		if *updateFenceGolden && suffix == ".golden" {
+			if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		want, err := os.ReadFile(golden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != string(want) {
+			t.Errorf("%s changed:\n--- got\n%s\n--- want\n%s", src, got, want)
+		}
+	}
+}
+
+func dumpFences(src string) string {
+	p := New(util.NewNoop())
+	p.SetNormalization(false)
+	doc, diags := p.ParseDocument(src, "")
+	var b strings.Builder
+	for _, block := range doc.ContentBlocks {
+		title, _ := block.SectionTitle()
+		fmt.Fprintf(&b, "section %q\n", title)
+		dumpElements(&b, block.Elements, "  ")
+	}
+	var lines []string
+	for _, d := range diags {
+		if strings.HasPrefix(d.RuleID, "CODE") {
+			lines = append(lines, fmt.Sprintf("%s line %d: %s", d.RuleID, d.Position.Line, d.Message))
+		}
+	}
+	sort.Strings(lines)
+	for _, l := range lines {
+		b.WriteString(l + "\n")
+	}
+	return b.String()
+}
+
+func dumpElements(b *strings.Builder, els []ast.Element, indent string) {
+	for _, el := range els {
+		switch e := el.(type) {
+		case *ast.CodeElement:
+			fmt.Fprintf(b, "%scode %q line %d: %q\n", indent, e.Language, e.Position.Line, e.Content)
+		case *ast.CodeGroupElement:
+			for _, cb := range e.CodeBlocks {
+				fmt.Fprintf(b, "%scode-group tab %q line %d: %q\n", indent, cb.Language, e.Position.Line, cb.Content)
+			}
+		case *ast.MermaidElement:
+			fmt.Fprintf(b, "%smermaid line %d: %q\n", indent, e.Position.Line, e.Content)
+		case *ast.TextElement:
+			fmt.Fprintf(b, "%stext line %d: %q\n", indent, e.Position.Line, e.Content)
+		case *ast.SpecialBlockElement:
+			fmt.Fprintf(b, "%sblock %q line %d\n", indent, e.BlockType, e.Position.Line)
+			dumpElements(b, e.Elements, indent+"  ")
+		default:
+			fmt.Fprintf(b, "%s%T line %d\n", indent, el, el.GetPosition().Line)
+		}
+	}
+}

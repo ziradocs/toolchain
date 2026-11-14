@@ -4,12 +4,14 @@
 package elements
 
 import (
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -45,6 +47,26 @@ type ParseContext struct {
 	// en este cuerpo strict (el de un SLIDE). Solo lo consulta TextParser,
 	// para el aviso de un TEXT sin cuerpo que absorbe un elemento (TEXT002).
 	SlideHeadings bool
+
+	// EarlierFences lee las cercas de código con la regla de las versiones
+	// anteriores (fence.EarlierAt): abre toda línea que empieza con ```,
+	// cierra la primera ``` exacta (``` o ```` en una cerca de diagrama o de
+	// datos) y no se acota a ningún contenedor. Lo fija el parser cuando un
+	// documento leído con CommonMark tiene un error que con esa regla no tiene
+	// (ver parser.Parser), para que ningún documento que compilaba deje de
+	// compilar.
+	EarlierFences bool
+
+	// Fences es el fence.Index de Lines, que comparten los parsers de un mismo
+	// cuerpo para no recorrer otra vez el resto en cada pregunta (ver
+	// fenceIndex). nil es crearlo al primer uso.
+	Fences *fence.Index
+
+	// Limit es el final (exclusivo, índice en Lines) del contenedor que se
+	// está parseando: el ":::" que cierra el bloque o el code-group cuyo
+	// cuerpo son estas líneas (fence.ContainerEnd). Una cerca de adentro busca
+	// su cierre solo antes de Limit. 0 es todo Lines.
+	Limit int
 
 	// LineOffset son las líneas del archivo que preceden a Lines[0]: el
 	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines
@@ -98,6 +120,34 @@ type ParseContext struct {
 // position_offset_guard_test.go en core/parser).
 func (ctx *ParseContext) Position(lineIndex int) diagnostics.Position {
 	return diagnostics.NewPosition(ctx.LineOffset+lineIndex+1, 1)
+}
+
+// limitFrom es el final del contenedor para un elemento que empieza en la
+// línea start: Limit, o len(Lines) si no hay. Si el elemento empieza en Limit
+// o después (un elemento anidado que no sabe de contenedores, como un
+// <<mermaid>>, consumió el ":::" del bloque), el contenedor ya no lo acota.
+func (ctx *ParseContext) limitFrom(start int) int {
+	if ctx.Limit <= start || ctx.Limit > len(ctx.Lines) {
+		return len(ctx.Lines)
+	}
+	return ctx.Limit
+}
+
+// fenceIndex es el fence.Index de ctx.Lines: ctx.Fences si es el de estas
+// líneas, o uno nuevo que queda en ctx (una copia de ctx con otras líneas,
+// como el cuerpo dedentado de un bloque `{typed}`, tiene el suyo).
+func (ctx *ParseContext) fenceIndex() *fence.Index {
+	if !ctx.Fences.Of(ctx.Lines) {
+		ctx.Fences = fence.NewIndex(ctx.Lines)
+	}
+	return ctx.Fences
+}
+
+// within es una copia de ctx acotada a limit (ver Limit).
+func (ctx *ParseContext) within(limit int) *ParseContext {
+	c := *ctx
+	c.Limit = limit
+	return &c
 }
 
 // ParseResult encapsula el resultado del parsing de un elemento
@@ -158,7 +208,7 @@ func (r *Registry) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		if ctx.ListStart && isPoints && (points.isListItem(strings.TrimSpace(line)) || malformedPointMarker(strings.TrimSpace(line))) {
 			return parser.Parse(ctx, startIndex)
 		}
-		if parser.CanParse(line, ctx.Mode) {
+		if canParseAt(parser, ctx, startIndex) {
 			return parser.Parse(ctx, startIndex)
 		}
 	}
@@ -506,7 +556,7 @@ func IsNewElement(line string, mode string) bool {
 			strings.HasPrefix(trimmed, "- ") || // Lists
 			strings.HasPrefix(trimmed, "* ") || // Lists
 			strings.HasPrefix(trimmed, "+ ") || // Lists
-			strings.HasPrefix(trimmed, "```") || // Code blocks
+			fence.Open(trimmed) > 0 || // Code blocks
 			strings.HasPrefix(trimmed, "![") || // Images
 			strings.HasPrefix(trimmed, "|") || // Tables
 			strings.HasPrefix(trimmed, "> ") || // Quotes
@@ -599,31 +649,32 @@ func closesInlineTagOnce(rest string) bool {
 }
 
 // collectFencedBody recoge las líneas entre un fence de markdown ya abierto
-// en lines[startIndex] (` ```lang ` o ` ````lang `) y su cierre — una línea
-// que, sola, es exactamente ``` ``` “ o ```` ```` ````. A diferencia del
-// cuerpo de un `<<chart>>`/`<<map>>` sin fence (que necesita balancear
-// llaves o rastrear sangría porque no tiene un terminador propio, ver
-// ChartParser.parseJSONBlock), un fence SIEMPRE delimita su cuerpo sin
-// ambigüedad — el mismo motivo por el que MermaidParser.Parse (mermaid.go)
-// no necesita ninguno de esos mecanismos para su propia forma ` ```mermaid `.
-// Si el archivo termina sin cierre, devuelve todo lo que había hasta EOF
-// (consumed = len(lines)-startIndex, igual que quedarse sin `<<end>>`).
+// en ctx.Lines[startIndex] (` ```lang ` o ` ````lang `) y su cierre, con la
+// regla de internal/fence (fence.AtWithin), como un bloque de código suelto. A
+// diferencia del cuerpo de un `<<chart>>`/`<<map>>` sin fence (que necesita
+// balancear llaves o rastrear sangría porque no tiene un terminador propio,
+// ver ChartParser.parseJSONBlock), un fence delimita su cuerpo. Si no cierra,
+// devuelve todo lo que había hasta el final de su contenedor, igual que
+// quedarse sin `<<end>>`.
 //
-// Devuelve el cuerpo SIN el fence de apertura/cierre y consumed = total de
-// líneas ocupadas por el bloque completo (apertura + cuerpo + cierre).
-func collectFencedBody(lines []string, startIndex int) (body string, consumed int) {
-	consumed = 1 // la línea de apertura
-	var bodyLines []string
-	for i := startIndex + 1; i < len(lines); i++ {
-		trimmed := strings.TrimSpace(lines[i])
-		if trimmed == "```" || trimmed == "````" {
-			consumed++
-			return strings.Join(bodyLines, "\n"), consumed
-		}
-		bodyLines = append(bodyLines, lines[i])
-		consumed++
+// Devuelve el cuerpo SIN el fence de apertura/cierre, consumed = total de
+// líneas ocupadas por el bloque completo (apertura + cuerpo + cierre) y los
+// avisos de cómo se leyó la cerca (fenceDiagnostics).
+func collectFencedBody(ctx *ParseContext, startIndex int) (body string, consumed int, diags []diagnostics.Diagnostic) {
+	lines, consumed, diags := collectFencedLines(ctx, startIndex)
+	return strings.Join(lines, "\n"), consumed, diags
+}
+
+// collectFencedLines es collectFencedBody con el cuerpo en líneas.
+func collectFencedLines(ctx *ParseContext, startIndex int) (body []string, consumed int, diags []diagnostics.Diagnostic) {
+	block, ok := fenceFor(ctx, startIndex, oldDiagramClose)
+	if !ok {
+		// Solo si el llamador no preguntó con el contexto (CanParseAt): se
+		// lee como en las versiones anteriores, hasta la primera ``` o ````.
+		block, _ = fence.EarlierAt(ctx.Lines, startIndex, oldDiagramClose)
+		block.Reading = fence.OpenedByMain
 	}
-	return strings.Join(bodyLines, "\n"), consumed
+	return slices.Clone(block.Body(ctx.Lines)), block.Consumed(), fenceDiagnostics(ctx, block, oldDiagramClose, false)
 }
 
 // isFencedBlockOpener reporta si trimmedLine abre un fence de markdown para
