@@ -361,6 +361,9 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 
 		// Try to parse element using registry
 		// This handles code blocks, text, tables, etc.
+		// El error de un elemento se ancla en la línea donde abre, no en la que
+		// queda después de consumirlo.
+		startLine := p.currentLine
 		result := p.registry.Parse(ctx, p.currentLine)
 		if result.Element != nil && result.ConsumedLines <= 0 {
 			// Mismo guard que en FlexParser: un elemento sin líneas
@@ -384,7 +387,7 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 			}
 			// Handle errors
 			if result.Error != nil {
-				p.addError(result.Error.Error())
+				p.addErrorAt(startLine, result.Error.Error())
 			}
 			p.diagnostics = append(p.diagnostics, result.Diagnostics...)
 			continue
@@ -401,7 +404,7 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 			}
 			// Handle errors
 			if result.Error != nil {
-				p.addError(result.Error.Error())
+				p.addErrorAt(startLine, result.Error.Error())
 			}
 			p.diagnostics = append(p.diagnostics, result.Diagnostics...)
 			continue
@@ -469,7 +472,14 @@ func (p *DocumentFlexParser) parseSubsectionHeader(line string) ast.Element {
 
 // addError añade un error diagnóstico
 func (p *DocumentFlexParser) addError(msg string) {
-	pos := p.position(p.currentLine)
+	p.addErrorAt(p.currentLine, msg)
+}
+
+// addErrorAt añade un error diagnóstico anclado a lineIndex (0-based), para
+// los errores que se reportan cuando p.currentLine ya avanzó más allá de la
+// línea donde abre el elemento.
+func (p *DocumentFlexParser) addErrorAt(lineIndex int, msg string) {
+	pos := p.position(lineIndex)
 	diag := diagnostics.NewError(msg, pos, "document-flex-parser")
 	p.diagnostics = append(p.diagnostics, diag)
 }
