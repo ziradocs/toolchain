@@ -77,6 +77,30 @@ func (p *ChartParser) CanParse(line string, mode string) bool {
 	return strings.HasPrefix(rest, ":") && closesInlineTagOnce(rest)
 }
 
+// chartTypeAttr lee el tipo de un `<<chart type="bar">>`, la forma de
+// atributo que ChartParser no reconoce.
+var chartTypeAttr = regexp.MustCompile(`\btype\s*=\s*["']?([A-Za-z]+)`)
+
+// ChartTagHint dice cómo se escribe un chart cuando trimmed es un `<<chart`
+// que ChartParser no reconoce porque le falta el ":" del tipo: `<<chart>>`,
+// `<<chart type="bar">>`, `<<chart bar>>`. Devuelve la frase que reemplaza al
+// "Check DSL Flex syntax documentation." del aviso FLEX001 de esa línea; el
+// aviso no cambia de regla ni de severidad, ni la línea de significado (sigue
+// sin ser un chart). ok es false para cualquier otra línea.
+func ChartTagHint(trimmed string) (hint string, ok bool) {
+	rest, found := strings.CutPrefix(trimmed, "<<chart")
+	if !found || rest == "" {
+		return "", false
+	}
+	if !strings.HasPrefix(rest, ">>") && rest[0] != ' ' && rest[0] != '\t' {
+		return "", false
+	}
+	if m := chartTypeAttr.FindStringSubmatch(rest); m != nil {
+		return fmt.Sprintf("It is not read as a chart: the type goes after a colon, as in <<chart: %s>>.", m[1]), true
+	}
+	return "It is not read as a chart: a chart's type goes after a colon, as in <<chart: bar>>.", true
+}
+
 // Parse parsea un elemento Chart
 func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	if startIndex >= len(ctx.Lines) {

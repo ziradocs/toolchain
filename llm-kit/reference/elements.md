@@ -123,13 +123,16 @@ align: center
 - Types: `bar`, `line`, `pie`, `doughnut`, `radar`, `polarArea`, `scatter`,
   `bubble`, `combo`, `treemap`. No closing tag — do **not** write
   `<</chart>>` after a `key: value` body (it is only read after a JSON body).
+- The type goes after a colon. `<<chart>>` and `<<chart type="bar">>` are
+  **not** charts: in flex the line is dropped with a `FLEX001` warning that
+  says to write `<<chart: bar>>`, and the body lines below it become text.
 - `treemap` uses the same `data` matrix as everything else — first cell is
   the leaf label, second is its value — and takes exactly one numeric column.
   It has no legend and no axes: each rectangle is sized by its value and
   captioned with its own label.
 - Flex mode only, a fenced ` ```chart ` block is also recognized, but with a
   single JSON object as its body only (not the `data:`/`series:` YAML form
-  above) — the same shape as `<<chart>>` followed directly by a `{`-prefixed
+  above) — the same shape as `<<chart` followed directly by a `{`-prefixed
   JSON payload:
   ````
   ```chart
@@ -452,7 +455,7 @@ argument semantics of their own:
 
 | Directive | Forms | Parsed as |
 |---|---|---|
-| `@notes` | `@notes "text"`, or `@notes:` / `@notes` followed by lines of text | Presenter notes. The multi-line form collects following lines until a blank line, another `@`, a `#` heading, or `---` |
+| `@notes` | `@notes "text"`, or `@notes:` / `@notes` followed by lines of text | Presenter notes. The multi-line form collects following lines until a blank line, another `@`, a `#` heading, or `---` (in strict, also a `SLIDE` or `SECTION` at column 0). Indentation does not end it: in strict, indent the notes under `@notes` and leave a blank line before the next element, or that element is read as notes text, with `DIRECTIVE005` |
 | `@timer` | `@timer 300` or `@timer duration=300 warning=60` | Countdown in seconds (bare number → `duration`) |
 | `@transition` | `@transition type="fade" duration="1000ms"` | key=value only |
 | `@highlight` | `@highlight yellow` or `@highlight color="yellow"` | Bare value → `color` |
@@ -561,6 +564,10 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
 - `CHECKLIST002` (an item with no text), `CODEGROUP003` (a line outside the
   fences of a `:::code-group`), `DIRECTIVE004` (directive text that is not
   `key=value`), and `STRICT003` for a lone `:::`.
+- `DIRECTIVE005`: a strict multi-line `@notes` that took in an element written
+  after it at its own indentation (`@notes` / `  nota` / `TEXT` …) as notes
+  text. Indent the notes under `@notes`, and leave a blank line before the
+  element.
 
 The full list is in the spec, "Lines an element does not read".
 

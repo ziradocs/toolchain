@@ -243,10 +243,12 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	currentHasLng := false
 	// markerErr registra el primer marcador sin coordenadas válidas. Antes
 	// esos marcadores salían en 0,0 (o se descartaban) sin diagnóstico.
+	// Lleva la línea del marcador (errorAtLine): el error es de esa línea, no
+	// de la del <<map>>.
 	var markerErr error
-	fail := func(err error) {
+	fail := func(err error, line int) {
 		if markerErr == nil {
-			markerErr = err
+			markerErr = errorAtLine(err, line)
 		}
 	}
 	// Una propiedad repetida del mapa o de un marcador pisa a la anterior,
@@ -261,6 +263,20 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// como está escrito; el mapa queda como siempre.
 	valueWarning := func(i int, format string, args ...any) {
 		diags = append(diags, ignoredLineWarning(ctx, i, MapValueRuleID, "map-parser", format, args...))
+	}
+	// readValueWarning es el MAP004 de un zoom: o un center: que sí se leyó
+	// pero no como está escrito (zoom 2, una coordenada en 0). Se decide al
+	// final: si una línea posterior reemplaza a esa propiedad, MAP003 ya dice
+	// que esta línea se ignoró, y contar qué valor habría tomado el mapa lo
+	// contradiría.
+	type pendingValue struct {
+		key  string
+		line int
+		d    diagnostics.Diagnostic
+	}
+	var pending []pendingValue
+	readValueWarning := func(key string, i int, format string, args ...any) {
+		pending = append(pending, pendingValue{key, i, ignoredLineWarning(ctx, i, MapValueRuleID, "map-parser", format, args...)})
 	}
 	// beforeMarker es el MAP004 de una propiedad de marcador escrita antes
 	// del primer `- lat:`, que no tiene a qué marcador ir.
@@ -284,12 +300,15 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 		props.read(key, i, i)
 	}
+	// markerLine es la línea del "- lat" del marcador abierto: un marcador sin
+	// lng se reporta ahí.
+	markerLine := startIndex
 	finishMarker := func() {
 		if currentMarker == nil {
 			return
 		}
 		if !currentHasLng {
-			fail(fmt.Errorf("map marker at lat %v has no lng", currentMarker.Lat))
+			fail(fmt.Errorf("map marker at lat %v has no lng", currentMarker.Lat), markerLine)
 		} else {
 			mapElement.Markers = append(mapElement.Markers, *currentMarker)
 		}
@@ -318,7 +337,7 @@ parseLoop:
 		if strings.HasPrefix(trimmedLine, "marker:") {
 			marker, err := parseInlineMarker(trimmedLine)
 			if err != nil {
-				fail(err)
+				fail(err, i)
 			} else {
 				mapElement.Markers = append(mapElement.Markers, *marker)
 			}
@@ -345,7 +364,7 @@ parseLoop:
 					valueWarning(i, "This center: line of the <<map>> was ignored: %q. center: takes two coordinates, \"lat, lng\" or \"[lat, lng]\".", trimmedLine)
 				}
 				if len(coords) > 2 {
-					valueWarning(i, "This center: line of the <<map>> has more than two coordinates, and only the first two were read: %q. center: takes \"lat, lng\" or \"[lat, lng]\".", trimmedLine)
+					readValueWarning("center", i, "This center: line of the <<map>> has more than two coordinates, and only the first two were read: %q. center: takes \"lat, lng\" or \"[lat, lng]\".", trimmedLine)
 				}
 				if len(coords) >= 2 {
 					var lat, lng float64
@@ -360,11 +379,11 @@ parseLoop:
 					// siempre; se avisa (MAP004).
 					switch {
 					case latErr != nil && lngErr != nil:
-						valueWarning(i, "Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: %q. Write it as \"center: lat, lng\" or \"center: [lat, lng]\".", trimmedLine)
+						readValueWarning("center", i, "Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: %q. Write it as \"center: lat, lng\" or \"center: [lat, lng]\".", trimmedLine)
 					case latErr != nil:
-						valueWarning(i, "The latitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
+						readValueWarning("center", i, "The latitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
 					case lngErr != nil:
-						valueWarning(i, "The longitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
+						readValueWarning("center", i, "The longitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
 					}
 					mapElement.Center = &ast.MapCoordinate{
 						Lat: lat,
@@ -397,7 +416,7 @@ parseLoop:
 							mapElement.Zoom = zoomValue
 						} else {
 							mapElement.Zoom = 2 // Fallback si no se puede parsear
-							valueWarning(i, "The zoom: value on this line of the <<map>> is not a whole number, so the map uses zoom 2: %q.", trimmedLine)
+							readValueWarning("zoom", i, "The zoom: value on this line of the <<map>> is not a whole number, so the map uses zoom 2: %q.", trimmedLine)
 						}
 						read(key, i)
 					}
@@ -410,9 +429,10 @@ parseLoop:
 					finishMarker()
 					lat, err := parseCoordinate("lat", value)
 					if err != nil {
-						fail(err)
+						fail(err, i)
 					}
 					currentMarker = &ast.MapMarker{Lat: lat}
+					markerLine = i
 					currentHasLng = false
 					diags = append(diags, markerProps.diags...)
 					markerProps = newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>> marker")
@@ -422,7 +442,7 @@ parseLoop:
 					} else {
 						lng, err := parseCoordinate("lng", value)
 						if err != nil {
-							fail(err)
+							fail(err, i)
 						} else {
 							currentMarker.Lng = lng
 							currentHasLng = true
@@ -501,6 +521,12 @@ parseLoop:
 
 	// Agregar último marcador si existe
 	finishMarker()
+	for _, v := range pending {
+		if last, ok := props.last[v.key]; ok && last[0] != v.line {
+			continue
+		}
+		diags = append(diags, v.d)
+	}
 	diags = append(diags, props.diags...)
 	diags = append(diags, markerProps.diags...)
 

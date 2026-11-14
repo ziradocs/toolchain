@@ -177,7 +177,7 @@ The parser can also emit these diagnostics, which are useful when repairing
 LLM-authored source: `CHART002`, `CHART005`, `DIRECTIVE001`, `FLEX002`,
 `SPECIAL002`, `FRONT002`, `FRONT004`, `FRONT005`, `FRONT006`, `FRONT007`,
 `FRONT008`, `FRONT009`, `IMG002`, `IMG003`, `MAP002`, `POLL006`, `TABLE004`,
-`TABLE005`, `TABLE006`, `TEXT001`, `TEXT002`, `METRIC001`, `METRIC002`,
+`TABLE005`, `TABLE006`, `TEXT001`, `TEXT002`, `DIRECTIVE005`, `METRIC001`, `METRIC002`,
 `METRIC003`, and `METRIC004`. `TEXT002` means a `TEXT` with no indented body
 read the element written after it at its own indentation or less (`TEXT` /
 `POINTS`) as plain paragraph text: indent the paragraph under `TEXT`, or
@@ -186,6 +186,9 @@ body. Text after `TEXT` or `QUOTE` on its own line (`TEXT hola`, `QUOTE: una
 cita`) is the first line of its content, except glued letters (`TEXTO`), a
 `\ref`, a node-id or `@include`, and in `QUOTE` an `AUTHOR:`, `SOURCE:`,
 `---` or a line that opens another element: those get `STRICT004`.
+`DIRECTIVE005` means a strict multi-line `@notes` read an element written
+after it at its own indentation as notes text: indent the notes under
+`@notes` and leave a blank line before the element.
 In strict, a line inside an element that the element does not read is a
 warning on that line, never a silent drop: `STRICT003`, `STRICT004`,
 `STRICT005`, `POINTS001`, `CHECKLIST001`, `CHECKLIST002`, `QUOTE001`, `MATH001`, `IMG005`,

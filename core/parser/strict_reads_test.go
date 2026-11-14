@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -373,13 +374,74 @@ func TestStrictReads_MapCenterInBrackets(t *testing.T) {
 	}
 }
 
-// Una llave repetida en el frontmatter sigue siendo un error de YAML, y su
+// Una llave repetida en el frontmatter sigue siendo un error de YAML. Su
 // texto no nombra los números de línea de yaml.v3, que cuentan desde el
-// frontmatter y no desde el archivo.
-func TestStrictReads_FrontMatterYAMLErrorHasNoLineNumbers(t *testing.T) {
-	_, diags := New(util.NewNoop()).Parse("---\nmode: strict\ntitle: \"A\"\ntitle: \"B\"\n---\nSLIDE content\n  title: \"T\"\n", "f.slidelang")
-	if len(diags) != 1 || !diags[0].IsError() || diags[0].Message != `Invalid YAML: mapping key "title" already defined` {
-		t.Fatalf("got %v", diags)
+// frontmatter y no desde el archivo: el error va en la línea de la llave que
+// se repite, a cualquier profundidad, y cita la anterior por su texto.
+func TestStrictReads_FrontMatterYAMLErrorPointsAtTheRepeatedKey(t *testing.T) {
+	lineNumber := regexp.MustCompile(`\bline \d+`)
+	cases := []struct {
+		front string
+		line  int
+		quote string
+	}{
+		{"mode: strict\ntitle: \"A\"\ntitle: \"B\"\n", 4, `Invalid YAML: mapping key "title" already defined. The key on this line was written before: "title: \"A\""`},
+		{"mode: strict\ntitle: \"A\"\nvariables:\n  a: 1\n  b: 2\n  a: 3\n", 7, `mapping key "a" already defined. The key on this line was written before: "a: 1"`},
+		{"mode: strict\ntitle: [\n", 2, `Invalid YAML: `},
+	}
+	for _, tc := range cases {
+		src := "---\n" + tc.front + "---\nSLIDE content\n  title: \"T\"\n"
+		_, slide := New(util.NewNoop()).Parse(src, "f.slidelang")
+		_, document := New(util.NewNoop()).ParseDocument(src, "f.doclang")
+		for _, diags := range [][]diagnostics.Diagnostic{slide, document} {
+			if len(diags) != 1 || !diags[0].IsError() || diags[0].Position.Line != tc.line || !strings.Contains(diags[0].Message, tc.quote) {
+				t.Errorf("%q: want one error on line %d with %q, got %v", tc.front, tc.line, tc.quote, diags)
+				continue
+			}
+			if m := lineNumber.FindString(diags[0].Message); m != "" {
+				t.Errorf("%q: the message names %q", tc.front, m)
+			}
+		}
+	}
+}
+
+// Un zoom: o un center: que no se lee como está escrito y que una línea
+// posterior reemplaza lleva solo MAP003: el mapa usa el posterior, y decir
+// qué valor habría tomado lo contradiría. Sin reemplazo, MAP004 dice el valor
+// que el mapa usa.
+func TestStrictReads_MapValueReplacedLaterGetsOnlyMAP003(t *testing.T) {
+	cases := []struct {
+		name, body string
+		want       map[string][]int
+		check      func(*ast.MapElement) bool
+	}{
+		{"zoom replaced", "    zoom: x\n    zoom: 4\n", map[string][]int{"MAP003": {7}},
+			func(m *ast.MapElement) bool { return m.Zoom == 4 }},
+		{"center replaced", "    center: [a, b]\n    center: 3, 4\n", map[string][]int{"MAP003": {7}},
+			func(m *ast.MapElement) bool { return m.Center != nil && m.Center.Lat == 3 && m.Center.Lng == 4 }},
+		{"center with three coordinates replaced", "    center: 1, 2, 3\n    center: 3, 4\n", map[string][]int{"MAP003": {7}},
+			func(m *ast.MapElement) bool { return m.Center != nil && m.Center.Lat == 3 }},
+		{"zoom not replaced", "    zoom: 4\n    zoom: x\n", map[string][]int{"MAP003": {7}, "MAP004": {8}},
+			func(m *ast.MapElement) bool { return m.Zoom == 2 }},
+		{"center with one coordinate, then a center", "    center: 40\n    center: 3, 4\n", map[string][]int{"MAP004": {7}},
+			func(m *ast.MapElement) bool { return m.Center != nil && m.Center.Lat == 3 }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "---\nmode: strict\ntitle: \"D\"\n---\nSECTION \"A\"\n  <<map>>\n" + tc.body
+			doc, diags := New(util.NewNoop()).ParseDocument(src, "z.doclang")
+			m, ok := doc.ContentBlocks[0].Elements[0].(*ast.MapElement)
+			if !ok || !tc.check(m) {
+				t.Fatalf("map: %#v", doc.ContentBlocks[0].Elements[0])
+			}
+			got := map[string][]int{}
+			for _, d := range diags {
+				got[d.RuleID] = append(got[d.RuleID], d.Position.Line)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Errorf("want %v, got %v: %v", tc.want, got, diags)
+			}
+		})
 	}
 }
 

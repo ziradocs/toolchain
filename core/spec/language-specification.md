@@ -425,7 +425,9 @@ a `<<metric>>`, `<<quiz>>` or `<<poll>>` body a repeated key makes the YAML
 invalid, so no value wins: the whole body is ignored, as before, with
 `METRIC002`, `QUIZ004` or `POLL006`, whose text no longer carries the YAML
 reader's line numbers (they count from the body, not the file), and the
-earlier key is reported on its line.
+earlier key is reported on its line. A key repeated in the frontmatter is an
+error, as before; it is reported on the line of the repeated key, at any depth,
+and quotes the earlier one.
 
 | ID | Line that is not read |
 | --- | --- |
@@ -445,11 +447,12 @@ earlier key is reported on its line.
 | `CHART002` | (existing) a JSON chart body that is not valid JSON; it now covers the whole body |
 | `METRIC006`, `QUIZ007`, `POLL007` | Each top-level key of a `<<metric>>`, `<<quiz>>` or `<<poll>>` body that the block does not read, from the key to the end of its value (the per-block `METRIC003`, `QUIZ005` and `POLL004` stay as they are), and each earlier occurrence of a key the body repeats, quoting the later one (a repeated key makes the whole body invalid YAML). An invalid YAML body keeps `METRIC002`, `QUIZ004` or `POLL006`, which now cover the whole body |
 | `MAP003` | A `<<map>>` property (`type:`, `zoom:`, `center:`, `heatmap:`, `title:`, `showValues:`, `clustering:`, the last three also under `options:`) or a marker property (`lng:`, `label:`, `value:`, `color:`, `size:`, `details:`) that a later one replaces, a `type="…"` or `zoom="…"` attribute of the `<<map>>` line that a body property replaces, and a `type=`, `width=`, `height=` or `zoom=` repeated on the `<<map>>` line, of which one is read (the first in double quotes, or else the first in single quotes) |
-| `MAP004` | A `<<map>>` line whose value is not read as written; the map stays as before: a `zoom:` that is not a whole number (the map uses zoom 2), a marker property (`lng:`, `label:`, `value:`, `color:`, `size:`, `details:`) before the first `- lat:`, which has no marker to go to, a `center:` without two coordinates, which is dropped, a `center:` with more than two, of which the first two are read, and a `center:` coordinate that is not a number, which is 0 |
+| `MAP004` | A `<<map>>` line whose value is not read as written; the map stays as before: a `zoom:` that is not a whole number (the map uses zoom 2), a marker property (`lng:`, `label:`, `value:`, `color:`, `size:`, `details:`) before the first `- lat:`, which has no marker to go to, a `center:` without two coordinates, which is dropped, a `center:` with more than two, of which the first two are read, and a `center:` coordinate that is not a number, which is 0. A `zoom:` or `center:` that a later one replaces gets only `MAP003`: the map uses the later one |
 | `MEDIA002` | A `src=`, `poster=` or `caption=` repeated on a `<<video>>` or `<<audio>>` line, of which one is read (the first in double quotes, or else the first in single quotes) |
 | `CODEGROUP003` | Each line of a `:::code-group` outside a code fence, on its own line (the error on the `:::code-group` line stays) |
 | `SPECIAL003` | An element inside a `:::` block (closed or not) whose parser reports a problem with part of it: a `CODE` with more than a language and a filename, a code fence whose info is more than that, a `<<mermaid>>` or `<<plantuml>>` attribute other than `title`, a `<<map>>` marker without valid coordinates, a `:::code-group` problem. The element is kept without that part, as before; the problem, which in a strict body is an error, was dropped inside the block |
 | `DIRECTIVE004` | A lone `@`, the part of a directive that reads `key=value` parameters that is not one (`@transition fade`, a trailing word), and a parameter that a later one with the same key replaces (`type="fade" … type="slide"`) |
+| `DIRECTIVE005` | A strict multi-line `@notes` that takes in, as notes, a line at its indentation or less that opens an element (`TEXT`, `POINTS`, `:::note`, `<<grid>>`, a `\| … \|` row…). It covers the `@notes` line through the last note and names the element's line by its content. The lines stay in the notes, as before |
 
 Comments are not author text the element drops: a `#` comment in a YAML body
 (`<<metric>>`, `<<quiz>>`, `<<poll>>`, `<<map>>`, `options:`) stays a comment.
@@ -788,6 +791,30 @@ Directives control slide and element behavior:
 | `@transition` | `@transition type="fade"` | Slide transition |
 | `@timer` | `@timer: seconds` | Slide timing |
 
+`@notes:` or `@notes` alone on its line opens multi-line notes: the lines
+that follow it, trimmed, up to a blank line (after the first note), a line
+that starts with `@`, `---` or `#`, or the end of the container. Indentation
+does not end them, so in strict an element written right after the notes, at
+their indentation, is read as notes text. That reading does not change, but it
+is reported with `DIRECTIVE005`, a warning, when the notes take in a line at
+the indentation of `@notes`, or less, that opens an element in the form that
+element accepts, with the same test as `TEXT002`: `TEXT`, `POINTS`,
+`CHECKLIST`, `QUOTE`, `TABLE`, `IMAGE` or `CODE` in that form, a `:::type`
+block, a `<<…>>` tag an element recognizes, a `| … |` table row, or
+`SECTION "…"` inside a `SLIDE`. A line indented deeper than `@notes` (the form
+`fmt` writes), prose, `- item`, `key: value`, `TEXTO` or `TEXT hola` is not
+reported. `DIRECTIVE005` covers the `@notes` line through the last note and
+names the element's line by its content; to fix it, indent the notes under
+`@notes`, or leave a blank line between the notes and the element. When the
+notes start after a blank line (`@notes`, a blank line, the notes), the count
+of their lines skips that blank line, so the last notes are also read again
+after them, as before and as in flex.
+
+**This is a behavior change**: in strict, a `SLIDE` or `SECTION` at column 0
+also ends the notes. Before, the notes took it in and the parser stopped with
+an internal error, so no document that built changes. Flex does not change.
+`fmt` writes a blank line after multi-line notes, also inside a typed column.
+
 `@include path` on a line of its own is replaced by the content of that file
 before the source is parsed (`slidelang build`, `doclang build`; `fmt` and the
 MCP `get_ast`/`lint` tools keep the line as written). By default the line is
@@ -803,6 +830,25 @@ document on its source, an included file on its content (without its
 frontmatter) read with the root's dialect (in strict, as the body of a section when it does not start
 with `SECTION`). What a sibling file or the including document opens or closes
 does not change a file's decisions.
+
+A code body ends where the parser ends it: a strict `CODE` body is the lines
+indented deeper than `CODE`, so an `@include` at column 0, or at the
+indentation of `CODE`, is not code and is expanded; an `@include` line that is
+part of the code is indented under `CODE` like the rest of the body.
+
+With `KeepIncludesInCode` and `Presentation` the source is a presentation:
+code is what the presentation AST (the `slidelang` grammar, `SLIDE` blocks)
+holds as code, and an included file that does not start with `SLIDE` is read
+as the body of a `SLIDE`. An `@include` without the two spaces of a `SLIDE`
+body cuts the `SLIDE` in the unexpanded text, so when one of those is not code,
+the file is read again with them as blank lines to decide what is code below
+them; they are still expanded. Before, the classification read a `.slidelang`
+source with the document grammar, which has no `SLIDE`, so the `@include` of a
+`CODE` body was expanded, and a file without the body's indentation cut the
+`CODE` ("unexpected content"). With `Presentation`, an included file is not a
+container: what it leaves open is not closed, as in the default expansion, and
+every other `@include` expands as before. `slidelang build` does not set these
+options yet, so it still expands an `@include` inside code.
 
 With the option, an included file is also a container: a block whose body is
 read literally (a code, diagram, chart or map fence; a native `@startuml`
@@ -1046,6 +1092,12 @@ Embedded elements add rich content:
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
 
+A chart's type goes after a colon. `<<chart>>` and the attribute form
+`<<chart type="bar">>` are not charts: in flex the line is dropped with the
+`FLEX001` warning, as any line no element reads, and its message says how to
+write it (`<<chart: bar>>`, with the type the attribute named); the lines
+below it are read as what they are on their own.
+
 `<<plantuml>>` accepts the same `title="…"` caption; a chart's caption is its
 existing `title:` property. The only attribute either
 diagram tag accepts is `title`; anything else is an error. `<<video …>>` and
@@ -1054,7 +1106,11 @@ diagram tag accepts is `title`; anything else is an error. `<<video …>>` and
 toolchain never downloads); any other attribute is reported as warning
 `MEDIA001`, and `poster`/`caption` move the document to schema 2.18.0 with the
 inferred capability `media-figure-v1`. In chart `data`, `null` is a missing
-value kept in its column. A map marker without usable coordinates is an error.
+value kept in its column. A map marker without usable coordinates is an error,
+reported on the marker's line (the `- lat:` line of a marker with no `lng:`);
+inside a `:::` block it is the `SPECIAL003` warning, on the same line. Only the
+first such marker of a map is reported. In the fenced JSON form the error stays
+on the opening line.
 See [figures and media](../../docs/portable-figures-media.md).
 
 The fenced form (`` ```lang `` … `` ``` ``, four backticks also accepted for
@@ -1065,7 +1121,7 @@ syntax at all). For charts and maps, the fenced body must be a single JSON
 object — it is the only body shape the fence supports, unlike the native tags,
 which additionally accept a YAML-ish `key: value` property block (charts) or
 `key: value`/`marker:` lines (maps). A chart's fenced JSON becomes its raw
-Chart.js config, same as `<<chart>>` followed directly by a `{`-prefixed JSON
+Chart.js config, same as `<<chart` followed directly by a `{`-prefixed JSON
 block; a map's fenced JSON is a plain data serialization (`center`, `zoom`,
 `markers: [{position: [lat, lng], popup: "…"}, …]`, `type`, `heatmap`, `title`,
 `width`, `height`) translated into the same fields the native `<<map>>`
