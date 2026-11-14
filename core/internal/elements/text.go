@@ -4,11 +4,24 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 )
+
+// EmptyTextRuleID es el aviso de un TEXT strict sin contenido. Es warning en
+// todos los dialectos, también en documento strict: un TEXT vacío no se
+// traga ni descarta nada, y subirlo a error rompería documentos que ya
+// compilaban.
+const EmptyTextRuleID = "TEXT001"
+
+// AbsorbedElementRuleID es el aviso de un TEXT strict sin cuerpo propio que
+// se lleva como párrafo a un elemento escrito a su misma sangría (ver
+// OpensElementAfterEmptyText). Es warning: el TEXT se lee como siempre, y
+// el aviso solo nombra lo que pasó.
+const AbsorbedElementRuleID = "TEXT002"
 
 // TextParser maneja elementos de texto (fallback parser)
 type TextParser struct{}
@@ -54,8 +67,14 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		if d := keywordLineRestWarning(ctx, startIndex, "TEXT", "text-parser"); d != nil {
 			diags = append(diags, *d)
 		}
+		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
+		textLine := startIndex
 		consumed++
 		startIndex++
+
+		// first es la primera línea con texto del cuerpo y last la última;
+		// sirven solo para los avisos, no cambian qué se lee.
+		first, last := -1, -1
 
 		// Collect indented lines as content
 		expectedIndent := -1 // Auto-detect indentation level
@@ -89,8 +108,15 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			if trimmedLine != "" {
 				content.WriteString(trimmedLine)
 				content.WriteString(" ")
+				if first == -1 {
+					first = i
+				}
+				last = i
 			}
 			consumed++
+		}
+		if d := emptyTextDiagnostic(ctx, textLine, headerIndent, first, last); d != nil {
+			diags = append(diags, *d)
 		}
 	} else {
 		// Flex mode: collect consecutive text lines but be smart about lists
@@ -384,4 +410,144 @@ func contentHeadingPrefix(line string) bool {
 		n++
 	}
 	return n >= 1 && n <= 6 && n < len(line) && (line[n] == ' ' || line[n] == '\t')
+}
+
+// emptyTextDiagnostic es el aviso de un TEXT strict cuyo cuerpo no es suyo:
+// TEXT001 si no tomó ninguna línea, TEXT002 si la primera línea que tomó
+// está a su misma sangría, o a menos, y abre un elemento
+// (OpensElementAfterEmptyText).
+// En ese caso el TEXT no tiene ninguna línea más sangrada que él: lo que
+// lleva como párrafo es ese elemento y lo que le sigue a esa sangría. Los
+// dos son excluyentes: un TEXT que absorbió algo no está vacío.
+//
+// El mensaje no nombra números de línea (la posición los trae, y un
+// @include o un node-id los mueven): nombra el elemento por su palabra clave
+// y su línea por el contenido.
+func emptyTextDiagnostic(ctx *ParseContext, textLine, headerIndent, first, last int) *diagnostics.Diagnostic {
+	if first == -1 {
+		d := diagnostics.NewWarning(
+			"TEXT has no content: write the paragraph on the indented lines below it, or remove the TEXT",
+			ctx.Position(textLine), "text-parser").WithRuleID(EmptyTextRuleID)
+		return &d
+	}
+	opener := strings.TrimSpace(ctx.Lines[first])
+	// La primera línea puede estar a la sangría de TEXT o a menos: main la
+	// toma igual como cuerpo (el cuerpo arranca en la primera línea con
+	// sangría), así que el TEXT tampoco tiene ahí ninguna línea propia.
+	if CalculateIndentLevel(ctx.Lines[first]) > headerIndent || !OpensElementAfterEmptyText(ctx, opener) {
+		return nil
+	}
+	d := diagnostics.NewWarning(fmt.Sprintf(
+		"TEXT has no body of its own: %s on the line %q, and what follows it at that indentation, were read as the paragraph of this TEXT. Indent the paragraph under TEXT, or delete the empty TEXT.",
+		absorbedElementLabel(opener), shortLine(opener)),
+		ctx.Position(textLine), "text-parser").WithRuleID(AbsorbedElementRuleID).WithEndPosition(ctx.Position(last))
+	return &d
+}
+
+// absorbedElementLabel nombra el elemento que abre trimmed, para el mensaje
+// de TEXT002: por su palabra clave, o por su marca si es sintaxis simbólica.
+func absorbedElementLabel(trimmed string) string {
+	switch trimmed[0] {
+	case ':':
+		return "the ::: block"
+	case '|':
+		return "the table row"
+	case '@':
+		name, _, _ := (&DirectiveParser{}).parseDirectiveNameAndParams(strings.TrimSpace(trimmed[1:]))
+		return "the @" + name + " directive"
+	case '<':
+		tag := strings.TrimPrefix(trimmed, "<<")
+		if i := strings.IndexAny(tag, " :>"); i >= 0 {
+			tag = tag[:i]
+		}
+		return "the <<" + tag + ">> element"
+	}
+	kw := strings.TrimSuffix(strings.Fields(trimmed)[0], ":")
+	return "the " + strings.TrimSuffix(kw, CodeVerbatimMarker) + " element"
+}
+
+// shortLine recorta una línea larga para citarla en un mensaje.
+func shortLine(line string) string {
+	const limit = 60
+	if r := []rune(line); len(r) > limit {
+		return string(r[:limit]) + "…"
+	}
+	return line
+}
+
+// OpensElementAfterEmptyText dice si trimmed, la primera línea con texto
+// del cuerpo de un TEXT strict y a su misma sangría, abre un elemento escrito
+// en la forma que ese elemento acepta. Solo decide el aviso TEXT002: la línea
+// sigue siendo el párrafo del TEXT, como siempre.
+//
+// Una palabra clave cuenta solo en la forma que su elemento acepta. TEXT,
+// POINTS, CHECKLIST, QUOTE y TABLE van solos en su línea (o con un ":"
+// pelado), porque esos parsers no leen lo que sigue a la palabra clave;
+// IMAGE puede llevar la fuente y el texto alternativo ("IMAGE foto.png",
+// `IMAGE "logo.png" "alt"`); CODE puede llevar "{verbatim}" y después
+// lenguaje y archivo; SECTION lleva su título entre comillas y solo cuenta
+// donde es encabezado (en un SLIDE). Una palabra que solo empieza con una
+// palabra clave ("TEXTO", "POINTSX", "QUOTEado") es prosa, igual que "TEXT
+// hola", "QUOTE de
+// Ana", "IMAGE of the year" o "MERMAID": ahí no hay un elemento bien escrito
+// que nombrar.
+//
+// De la sintaxis simbólica cuentan un bloque ":::tipo", una etiqueta "<<…>>"
+// que un parser strict reconoce, una directiva conocida ("@notes",
+// "@include", "@center"…) y una fila de tabla "| … |". Un ":::" solo es un
+// cierre, "::: grid" es la sintaxis flex que strict rechaza, y "<<foo>>",
+// "@usuario dijo" o "| hola" son prosa.
+func OpensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	switch trimmed[0] {
+	case ':':
+		// "::: grid" y "::: column" son la sintaxis flex, que strict rechaza.
+		return strings.HasPrefix(trimmed, ":::") && strings.TrimSpace(trimmed[3:]) != "" &&
+			!isFlexGridOpen(trimmed) && !isFlexColumnOpen(trimmed)
+	case '|':
+		return len(trimmed) > 1 && strings.HasSuffix(trimmed, "|")
+	case '@':
+		name, _, _ := (&DirectiveParser{}).parseDirectiveNameAndParams(strings.TrimSpace(trimmed[1:]))
+		return name == "include" || knownDirective(name)
+	case '<':
+		for _, tag := range []ElementParser{
+			&MermaidParser{}, &PlantUMLParser{}, &ChartParser{}, &MediaParser{}, &MapParser{},
+			&QuizParser{}, &PollParser{}, &MetricParser{}, &GridParser{}, &MathParser{},
+		} {
+			if tag.CanParse(trimmed, "strict") {
+				return true
+			}
+		}
+		return false
+	}
+	// Un ":" pelado tras la palabra clave (`POINTS:`, `TABLE:`) se lee igual
+	// que la palabra sola (ver keywordLineRest).
+	switch strings.TrimSuffix(trimmed, ":") {
+	case "TEXT", "POINTS", "CHECKLIST", "QUOTE", "TABLE", "IMAGE", "CODE":
+		return true
+	}
+	if strings.HasPrefix(trimmed, "IMAGE") {
+		// La fuente, con forma de ruta o URL, y a lo sumo el texto
+		// alternativo, leídos como los lee ImageParser: `IMAGE foto.png`,
+		// `IMAGE "logo.png" "alt"`, no `IMAGE of the year`.
+		parts := (&ImageParser{}).parseImageArguments(trimmed)
+		return (parts[0] == "IMAGE" || parts[0] == "IMAGE:") && len(parts) >= 2 && len(parts) <= 3 &&
+			strings.ContainsAny(parts[1], "./")
+	}
+	if strings.HasPrefix(trimmed, "CODE") {
+		// Lenguaje y, a lo sumo, archivo, como los lee CodeParser: CODE
+		// rechaza un tercer token, salvo uno que empieza con `{` o `[`.
+		line := trimmed
+		if rest, ok := strings.CutPrefix(line, "CODE"+CodeVerbatimMarker); ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t') {
+			line = "CODE" + rest
+		}
+		parts := strings.Fields(line)
+		if parts[0] != "CODE" && parts[0] != "CODE:" {
+			return false
+		}
+		return len(parts) <= 3 || parts[0] == "CODE" && (strings.HasPrefix(parts[2], "{") || strings.HasPrefix(parts[2], "["))
+	}
+	return ctx.SlideHeadings && strings.HasPrefix(trimmed, `SECTION "`)
 }

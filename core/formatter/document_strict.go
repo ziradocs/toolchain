@@ -82,6 +82,7 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 		fmt.Fprintf(&b, "SECTION %s\n", quote(title))
 
 		prevNotes := false // el elemento anterior termina en un cuerpo multilínea de @notes
+		prevPipeTable := false
 		for _, el := range block.Elements {
 			heading, isHeading := asDocumentHeading(el)
 			if prevNotes && !isHeading {
@@ -106,6 +107,7 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 				if heading.id != "" && heading.id != renderer.DeriveAnchor(heading.text) {
 					fmt.Fprintf(&b, "  id: %s\n", heading.id)
 				}
+				prevPipeTable = false
 				continue
 			}
 
@@ -113,7 +115,11 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 			if err != nil {
 				return "", err
 			}
+			if prevPipeTable && startsPipeTable(elText) {
+				b.WriteString("\n")
+			}
 			b.WriteString(elText)
+			prevPipeTable = isPipeTable(el, elText)
 			prevAbsorbs = absorbsTrailingBlankLines(el)
 		}
 	}

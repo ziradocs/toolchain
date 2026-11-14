@@ -155,6 +155,7 @@ func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.Heading
 	}
 
 	prevNotes := false
+	prevPipeTable := false // el elemento anterior es una tabla escrita como filas "|"
 	for _, el := range block.Elements {
 		if prevNotes {
 			b.WriteString("\n")
@@ -165,16 +166,37 @@ func formatStrictContentBlock(block *ast.ContentBlock, anchors *elements.Heading
 				return "", err
 			}
 			b.WriteString(heading)
+			prevPipeTable = false
 			continue
 		}
 		elText, err := formatStrictElement(el)
 		if err != nil {
 			return "", err
 		}
+		if prevPipeTable && startsPipeTable(elText) {
+			b.WriteString("\n")
+		}
 		b.WriteString(elText)
+		prevPipeTable = isPipeTable(el, elText)
 	}
 
 	return b.String(), nil
+}
+
+// isPipeTable dice si el elemento el, escrito como text, es una tabla en forma
+// de filas "|". El parser strict lee una tabla Markdown hasta la primera
+// línea que no empieza con "|", así que dos tablas así seguidas, sin línea en
+// blanco, se releían como una sola, con la segunda (cabecera y separador
+// incluidos) como filas de la primera.
+func isPipeTable(el ast.Element, text string) bool {
+	_, ok := el.(*ast.TableElement)
+	return ok && startsPipeTable(text)
+}
+
+// startsPipeTable dice si text empieza con una fila "|".
+func startsPipeTable(text string) bool {
+	first, _, _ := strings.Cut(text, "\n")
+	return strings.HasPrefix(strings.TrimSpace(first), "|")
 }
 
 // strictSlideHeading serializa un encabezado de subsección —el tipado
@@ -1161,6 +1183,7 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 	for _, col := range e.Columns {
 		if len(col.Elements) > 0 {
 			b.WriteString("\n<<column typed>>")
+			prevPipeTable := false // como en formatStrictContentBlock
 			for i, nested := range col.Elements {
 				text, err := formatStrictElement(nested)
 				if err != nil {
@@ -1170,6 +1193,10 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 					continue
 				}
 				b.WriteString("\n")
+				if prevPipeTable && startsPipeTable(text) {
+					b.WriteString("\n")
+				}
+				prevPipeTable = isPipeTable(nested, text)
 				if absorbsTrailingBlankLines(nested) {
 					// The newlines at the end of a code body are blank lines the
 					// strict parser reads as part of the code, so only the line
