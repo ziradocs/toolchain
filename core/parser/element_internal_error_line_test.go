@@ -89,6 +89,8 @@ func TestElementInternalErrorLine(t *testing.T) {
 		{"flex callout map marker", slides, "---\nmode: flex\ntitle: T\n---\n\n# S\n\n:::note\n" + slideMap + ":::\n", mapMarkerMsg, diagnostics.Warning, 12, 0},
 		{"strict callout map marker", slides, "---\nmode: strict\ntitle: T\n---\n\nSLIDE \"S\"\n  :::note\n" + strictMap + "  :::\n", mapMarkerMsg, diagnostics.Warning, 10, 0},
 		{"flex typed column map marker", docs, "---\nmode: flex\ntitle: T\n---\n\n# S\n\n::: grid\n::: column typed\n" + slideMap + ":::\n:::\n", mapMarkerMsg, diagnostics.Error, 13, 0},
+		{"strict typed column map marker", slides, "---\nmode: strict\ntitle: T\n---\n\nSLIDE \"S\"\n  <<grid>>\n  <<column typed>>\n    <<map>>\n    center: 10, 20\n    marker: 10, abc, X\n    <</map>>\n  <<end>>\n  <<end>>\n", mapMarkerMsg, diagnostics.Error, 11, 0},
+		{"typed callout map marker", slides, "---\nmode: flex\ntitle: T\n---\n\n# S\n\n:::note{typed}\n" + slideMap + ":::\n", mapMarkerMsg, diagnostics.Warning, 12, 0},
 		{"strict slides math indentation", slides, "---\nmode: strict\ntitle: T\nast_capabilities: [math-source-v1]\n---\n\nSLIDE \"S\"\n" + strictMath, mathIndentMsg, diagnostics.Error, 10, 0},
 		{"strict documents math indentation", docs, "---\nmode: strict\ntitle: T\nast_capabilities: [math-source-v1]\n---\n\nSECTION \"S\"\n  level: 1\n" + strictMath, mathIndentMsg, diagnostics.Error, 11, 0},
 		// Lo que no cierra es el bloque: el error se queda en la línea que lo

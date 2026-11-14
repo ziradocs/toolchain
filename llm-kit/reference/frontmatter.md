@@ -195,8 +195,8 @@ decks/main.slidelang`, `scope: ["decks/parts/*"]` suppresses the findings of
 `decks/parts/x.slidelang`. A `severity:` override follows the document's
 path only, so a `scope` never raises the severity of a finding it did not
 cover before. When a waiver expires, the finding comes back with a
-`POLICY001` warning. An empty `scope` covers everything; a non-empty one
-covers nothing in a document that has no path.
+`POLICY001` warning. An empty `scope` covers everything; in a document that
+has no path, a non-empty one does not cover the document itself.
 
 Both `slidelang build` and `doclang build` honour this, as do the `lint`
 tools of `slidelang mcp` and `doclang mcp`.
