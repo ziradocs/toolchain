@@ -191,8 +191,11 @@ func (m SourceMap) Files() LineOrigins {
 //   - Uno que ya trae File no se toca: ya está en su origen.
 //
 // La posición final se mapea igual; si cae en otro archivo que la inicial, se
-// descarta, porque un rango no puede cruzar archivos. diags no se modifica,
-// tampoco la EndPosition a la que apuntan.
+// descarta, porque un rango no puede cruzar archivos. También se descarta si
+// cae en otra expansión del mismo archivo (un archivo incluido dos veces, con
+// el rango de una copia a la otra): en el archivo el rango quedaría invertido,
+// o abarcaría líneas que no son las del rango. diags no se modifica, tampoco
+// la EndPosition a la que apuntan.
 //
 // Contrato de docDir para quien lo llame: es el directorio del documento
 // raíz, el mismo que el del docPath que el reporte pone en document.path y
@@ -221,20 +224,46 @@ func (m SourceMap) MapDiagnostics(diags []diagnostics.Diagnostic, docDir string)
 			out[i] = d
 			continue
 		}
+		start := d.Position.Line
 		d.File = displayPath(docDir, o.File)
 		d.Position.Line = o.Line
 		if d.EndPosition != nil {
 			end := *d.EndPosition
-			if eo, ok := m.resolve(end.Line); ok && eo.File == o.File {
+			d.EndPosition = nil
+			if eo, ok := m.resolve(end.Line); ok && eo.File == o.File && m.sameExpansion(o.File, start, end.Line) {
 				end.Line = eo.Line
-				d.EndPosition = &end
-			} else {
-				d.EndPosition = nil
+				// Un rango que en el archivo termina antes de empezar no se
+				// devuelve, venga como venga.
+				if end.Line > d.Position.Line || (end.Line == d.Position.Line && end.Column >= d.Position.Column) {
+					d.EndPosition = &end
+				}
 			}
 		}
 		out[i] = d
 	}
 	return out
+}
+
+// sameExpansion dice si las líneas expandidas from y to (from <= to) de file
+// son de la misma expansión de file. Dentro de una expansión, las líneas de
+// file van en orden; una expansión nueva vuelve a empezar, así que una línea
+// de file con un número menor que la anterior de file es de otra.
+func (m SourceMap) sameExpansion(file string, from, to int) bool {
+	if to < from {
+		return false
+	}
+	last := 0
+	for line := from; line <= to && line <= len(m.Lines); line++ {
+		o := m.Lines[line-1]
+		if o.File != file {
+			continue
+		}
+		if o.Line < last {
+			return false
+		}
+		last = o.Line
+	}
+	return true
 }
 
 // resolve es At extendido más allá del final: una línea después de la última

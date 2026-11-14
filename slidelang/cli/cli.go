@@ -21,8 +21,13 @@ type Options struct {
 	ExternalRulepacks []string
 	PolicyResolver    func(flagPath string, fm *ast.FrontMatterNode) (*linter.PolicyConfig, error)
 	// PostLint recibe, después de la política de lint, los diagnósticos del
-	// parser y del linter, ordenados por posición: lo mismo que lleva el
-	// reporte de --report.
+	// parser y del linter: lo mismo que lleva el reporte de --report. Cada
+	// diagnóstico está en su archivo de origen: uno de un archivo traído con
+	// @include lleva Diagnostic.File (relativo al directorio del documento) y
+	// su línea en ese archivo, y van ordenados por archivo y posición, con el
+	// documento primero. doc, en cambio, conserva las posiciones del
+	// contenido expandido: una línea del AST no se compara directamente con
+	// la de un diagnóstico de un archivo incluido.
 	PostLint func(doc *ast.AST, active []diagnostics.Diagnostic, waived []linter.WaivedDiagnostic) error
 }
 

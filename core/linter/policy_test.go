@@ -308,6 +308,29 @@ func TestPolicyConfig_Evaluate_WaiverExpiration(t *testing.T) {
 	}
 }
 
+// El POLICY001 de un waiver vencido apunta al archivo del hallazgo: uno de
+// un archivo traído con @include lleva File, y el aviso también.
+func TestPolicyConfig_Evaluate_ExpiredWaiverKeepsFile(t *testing.T) {
+	finding := diagnostics.NewWarning("w", diagnostics.NewPosition(3, 2), "linter").WithRuleID("IMG001")
+	finding.File = "parts/x.slidelang"
+	cfg := &PolicyConfig{Rules: map[string]RulePolicy{
+		"IMG001": {ExpiresAt: "2026-01-01T00:00:00Z", Reason: "waiting for fix"},
+	}}
+	active, _ := cfg.Evaluate([]diagnostics.Diagnostic{finding}, "root.slidelang", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+	var notice *diagnostics.Diagnostic
+	for i := range active {
+		if active[i].Code == "POLICY001" {
+			notice = &active[i]
+		}
+	}
+	if notice == nil {
+		t.Fatalf("no POLICY001 in %+v", active)
+	}
+	if notice.File != "parts/x.slidelang" || notice.Position != diagnostics.NewPosition(3, 2) {
+		t.Errorf("POLICY001 at %q %v, want parts/x.slidelang 3:2", notice.File, notice.Position)
+	}
+}
+
 func TestPolicyConfig_Evaluate_WaiverValid(t *testing.T) {
 	diags := []diagnostics.Diagnostic{
 		diagnostics.NewError("error", diagnostics.Position{}, "linter").WithRuleID("IMG001"),
