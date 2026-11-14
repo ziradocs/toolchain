@@ -93,18 +93,19 @@ func TestFormat_CalloutIndentedDiagramFence(t *testing.T) {
 }
 
 // Si ni el bloque tal cual ni con la sangría devuelta se relee igual, fmt lo
-// rechaza y dice qué elemento cambia. El caso: un rows: de varias líneas con
-// las filas a cuatro espacios, que el parser no lee (TABLE008); con la
-// sangría devuelta las leería, y la tabla cambiaría.
+// rechaza y dice qué elemento cambia. El caso: una fila bajo rows: a la misma
+// sangría que rows:, que el parser no lee (TABLE008); con la sangría devuelta
+// la leería, y la tabla cambiaría. (Hasta v2.58.0 el caso era un rows: de
+// varias líneas con las filas a cuatro espacios, que ahora se leen.)
 func TestFormat_CalloutThatDoesNotReadBackIsRefused(t *testing.T) {
-	block := ":::note\nTABLE\n  headers: [\"A\", \"B\"]\n  rows: [\n    [\"1\", \"2\"],\n  ]\n:::"
+	block := ":::note\nTABLE\n  headers: [\"A\", \"B\"]\n  rows:\n  [\"1\", \"2\"]\n:::"
 	d := tableDialect{}
 	doc, diags := d.parse(fmt.Sprintf(calloutDoc, block))
 	if e, bad := hasErrorDiag(diags); bad {
 		t.Fatalf("fixture does not parse: %s", e.String())
 	}
 	if tbl := firstTable(doc); tbl == nil || len(tbl.Rows) != 0 {
-		t.Fatalf("fixture: the rows at four spaces must not be read: %s", jsonOf(t, stripPositions(tbl)))
+		t.Fatalf("fixture: a row at the indentation of rows: must not be read: %s", jsonOf(t, stripPositions(tbl)))
 	}
 	_, err := FormatDocument(doc)
 	var unsupported *UnsupportedElementError

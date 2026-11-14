@@ -97,7 +97,12 @@ var noDropRegressions = []noDropRegression{
 	// TABLE: líneas que ninguna rama lee.
 	{name: "table prose", body: []string{"  TABLE", "    | a | b |", "    nota al pie  <"}, rule: "TABLE008", quote: `"nota al pie"`},
 	{name: "table key", body: []string{"  TABLE", "    | a | b |", "    title: Ventas  <"}, rule: "TABLE008", quote: `"title: Ventas"`},
-	{name: "table row indent", body: []string{"  TABLE", "    headers: [a, b]", "    rows:", "        [c, d]  <"}, rule: "TABLE008", quote: `six spaces`},
+	// Una fila bajo rows: se lee a cualquier sangría mayor que la de rows:
+	// (v2.59.0); a la sangría de rows: no es una fila.
+	{name: "table row indent", body: []string{"  TABLE", "    headers: [a, b]", "    rows:", "    [c, d]  <"}, rule: "TABLE008", quote: `indented more than rows:`},
+	{name: "table row indent differs from the first", body: []string{"  TABLE", "    headers: [a, b]", "    rows:", "      [c, d]", "        [e, f]  <"}, rule: "TABLE008", quote: `indented differently from the first row, so it was ignored: "[e, f]"`},
+	{name: "table row at a new indent that does not fit", body: []string{"  TABLE", "    headers: [a, b]", "    rows:", "        [c]  <"}, rule: "TABLE008", quote: `has 1 cells where the headers have 2, so it was ignored: "[c]"`},
+	{name: "table row after a misindented row that does not fit", body: []string{"  TABLE", "    headers: [a, b]", "    rows:", "      [c, d]", "        [e, f]", "      [g]  <"}, rule: "TABLE008", quote: `"[g]"`},
 	{name: "table headers not array", body: []string{"  TABLE", "    headers: a, b  <", "    | c | d |"}, rule: "TABLE008", quote: `"headers: a, b"`},
 	{name: "table row unclosed", body: []string{"  TABLE", "    headers: [a, b]", "    rows:", "      [c, d  <"}, rule: "TABLE008", quote: `"[c, d"`},
 
@@ -110,6 +115,9 @@ var noDropRegressions = []noDropRegression{
 	// table_separator_rule_test.go).
 	{name: "markdown separator lookalike without pipes", body: []string{"  | a | b |", "  x --- y  <", "  | c | d |"}, rule: "TABLE008", quote: `because it contains "---", so its cells were ignored: "x --- y"`},
 	{name: "markdown separator lookalike without closing pipe", body: []string{"  | a | b |", "  | x --- y | z  <", "  | c | d |"}, rule: "TABLE008", quote: `"| x --- y | z"`},
+	// Un ":::" lee su tabla como flex: una fila de solo guiones que no sigue
+	// al encabezado y no cabe se salta con aviso (v2.59.0; antes en silencio).
+	{name: "markdown dash-only row in a callout", body: []string{"  :::note", "  | a | b |", "  | --- | --- |", "  | c | d |", "  | --- |  <", "  :::"}, rule: "TABLE008", quote: `This row of dashes is not the separator row`},
 
 	// <<chart>>: lo anidado bajo una llave que no lo lee, el vocabulario que
 	// no se traduce, un options: que no es YAML y un arreglo que no lo es.
