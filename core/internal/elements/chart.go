@@ -142,6 +142,9 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// `<<chart:bar title="...">>` cuyo título no llegaba nunca al AST ni al
 	// render. `title` va como llave del cuerpo (`title:`), no como atributo.
 	var unknownAttrs []string
+	// Un width= o height= repetido: se lee uno y los demás se avisan
+	// (CHART007).
+	var repeatedAttrs []diagnostics.Diagnostic
 
 	// SplitN y no Split: con Split, un valor que contenga ':' (p. ej.
 	// `title="Ventas: Q4"`) partía la línea en más de dos pedazos y attrStr
@@ -171,6 +174,7 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			}
 
 			unknownAttrs = unknownOpenerAttributes(attrStr, "width", "height")
+			repeatedAttrs = repeatedAttributeWarnings(ctx, startIndex, attrStr, "<<chart>>", ChartLineRuleID, "chart-parser", "width", "height")
 		}
 	}
 	chart := ast.NewChartElement(pos, chartType)
@@ -194,6 +198,7 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				strings.Join(unknownAttrs, ", ")),
 			pos, "chart-parser").WithRuleID("CHART005"))
 	}
+	diags = append(diags, repeatedAttrs...)
 	consumedLines := 1 // skip <<chart:>> line
 
 	// Detectar si el siguiente contenido es JSON
@@ -1957,6 +1962,65 @@ func unknownOpenerAttributes(attrStr string, known ...string) []string {
 // hueco que se está tapando).
 var openerAttrRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*["'][^"']*["']`)
 
+// repeatedAttribute busca, en los atributos str de una etiqueta de una sola
+// línea, las apariciones de attrName="…" (o con comillas simples) que
+// extractAttribute no lee: lee solo una, la primera con comillas dobles o, si
+// no hay, la primera con simples, y las demás se perdían sin aviso. read es
+// el texto de la que se lee e ignored el de cada una de las otras, en orden.
+// Una aparición cuenta si va al principio o tras un espacio (`datasrc=` no
+// es `src=`).
+func repeatedAttribute(str, attrName string) (read string, ignored []string) {
+	win := -1
+	for _, q := range []string{`"`, `'`} {
+		idx := strings.Index(str, attrName+"="+q)
+		if idx == -1 {
+			continue
+		}
+		start := idx + len(attrName) + 2
+		if end := strings.Index(str[start:], q); end != -1 {
+			win = idx
+			read = str[idx : start+end+1]
+			break
+		}
+	}
+	if win == -1 {
+		return "", nil
+	}
+	for i := 0; i < len(str); i++ {
+		if i != 0 && str[i-1] != ' ' && str[i-1] != '\t' || !strings.HasPrefix(str[i:], attrName+"=") {
+			continue
+		}
+		start := i + len(attrName) + 1
+		if start >= len(str) || (str[start] != '"' && str[start] != '\'') {
+			continue
+		}
+		end := strings.IndexByte(str[start+1:], str[start])
+		if end == -1 {
+			continue
+		}
+		if i != win {
+			ignored = append(ignored, str[i:start+end+2])
+		}
+		i = start + end + 1
+	}
+	return read, ignored
+}
+
+// repeatedAttributeWarnings es el aviso, en la línea i, de cada aparición de
+// cada uno de names en los atributos str que la etiqueta tag no lee.
+func repeatedAttributeWarnings(ctx *ParseContext, i int, str, tag, ruleID, source string, names ...string) []diagnostics.Diagnostic {
+	var out []diagnostics.Diagnostic
+	for _, name := range names {
+		read, ignored := repeatedAttribute(str, name)
+		for _, attr := range ignored {
+			out = append(out, ignoredLineWarning(ctx, i, ruleID, source,
+				"The attribute %s on this %s line was ignored: only one %s= is read, and it is %s.",
+				attr, tag, name, read))
+		}
+	}
+	return out
+}
+
 // Ejemplo: `bar width="1200" height="600"` → extractAttribute(..., "width") = "1200"
 func extractAttribute(str, attrName string) string {
 	// Buscar patrón: attrName="value" o attrName='value'
@@ -2056,6 +2120,17 @@ func comboUnknownKeyLines(ctx *ParseContext, yamlText string, first int) []diagn
 // errors:\n  line 4: …\n  line 6: …"): se limpia cada una y se unen con "; ".
 // El de un options: que no es un mapeo (una lista, un escalar) se dice así.
 func yamlErrorText(err error) string {
+	return yamlErrorParts(err, true)
+}
+
+// YAMLErrorText es el error de yaml.v3 sin su prefijo y sin los números de
+// línea, para el aviso de un bloque YAML de otro paquete (el frontmatter).
+// A diferencia de yamlErrorText no traduce el error de tipos de options:.
+func YAMLErrorText(err error) string {
+	return yamlErrorParts(err, false)
+}
+
+func yamlErrorParts(err error, chartOptions bool) string {
 	msg := strings.TrimPrefix(err.Error(), "yaml: ")
 	msg = strings.TrimPrefix(msg, "unmarshal errors:")
 	var parts []string
@@ -2064,7 +2139,7 @@ func yamlErrorText(err error) string {
 		line = strings.TrimSpace(line)
 		line = yamlLinePrefix.ReplaceAllString(line, "")
 		line = yamlAtLine.ReplaceAllString(line, "")
-		if strings.HasPrefix(line, "cannot unmarshal ") && strings.HasSuffix(line, "into map[string]interface {}") {
+		if chartOptions && strings.HasPrefix(line, "cannot unmarshal ") && strings.HasSuffix(line, "into map[string]interface {}") {
 			line = "options: must be a mapping"
 		}
 		if line != "" && !seen[line] {

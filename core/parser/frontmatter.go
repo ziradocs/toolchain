@@ -13,6 +13,7 @@ import (
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -469,7 +470,9 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	var raw rawFrontMatter
 	if err := yaml.Unmarshal([]byte(yamlContent), &raw); err != nil {
 		return nil, content, []diagnostics.Diagnostic{
-			diagnostics.NewError(fmt.Sprintf("Invalid YAML: %v", err),
+			// Sin los números de línea de yaml.v3: cuentan desde la primera
+			// línea del frontmatter, no desde la del archivo.
+			diagnostics.NewError(fmt.Sprintf("Invalid YAML: %s", elements.YAMLErrorText(err)),
 				diagnostics.NewPosition(2, 1), "parser"),
 		}
 	}

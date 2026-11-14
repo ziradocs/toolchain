@@ -94,6 +94,9 @@ func genStrictReadsDocs(seed int64, n int) []struct {
 		"@transition type=\"fade\" type=\"slide\" duration=\"300\"",
 		"@highlight color=\"x\" color=\"y\"",
 		"@timer duration=1 duration=2",
+		"<<map type=\"city\" type=\"world\" zoom=\"3\">>\n  label: \"suelto\"\n  zoom: lejos\n  center: 40\n  center: norte, 2\n  markers:\n  - lat: 1\n    lng: 2",
+		"<<video src=\"a.mp4\" poster=\"p.png\" src=\"b.mp4\" controls>>",
+		"<<chart: bar width=\"300\" width=\"400\">>\n  data: [[\"a\", 1]]",
 		"<<chart: bar>>\n  {\"labels\": [\"a\"],\n  \"labels\": [\"b\"],\n  \"datasets\": [{\"label\": \"s\", \"label\": \"t\", \"data\": [1]}]}",
 	}
 	type ctx struct {

@@ -225,6 +225,24 @@ var noDropRegressions = []noDropRegression{
 	{name: "map marker repeated label", body: []string{"  <<map>>", "    markers:", "    - lat: 1", "      lng: 2", `      label: "a"  <`, `      label: "b"`}, rule: "MAP003", quote: `This label: line of the <<map>> marker was ignored`},
 	{name: "map marker repeated lng", body: []string{"  <<map>>", "    markers:", "    - lat: 1", "      lng: 2  <", "      lng: 3"}, rule: "MAP003", quote: `"lng: 2"`},
 
+	// <<map>>: un valor que no se lee como está escrito (MAP004) y un
+	// atributo repetido de la línea <<map>> (MAP003).
+	{name: "map zoom not a number", body: []string{"  <<map>>", "    type: world", "    zoom: lejos  <"}, rule: "MAP004", quote: `not a whole number, so the map uses zoom 2: "zoom: lejos"`},
+	{name: "map marker key before the first marker", body: []string{"  <<map>>", "    type: world", `    label: "suelto"  <`, "    markers:", "    - lat: 1", "      lng: 2"}, rule: "MAP004", quote: `comes before the first marker, so it was ignored: "label: \"suelto\""`},
+	{name: "map lng before the first marker", body: []string{"  <<map>>", "    lng: 2  <"}, rule: "MAP004", quote: `This lng: line of the <<map>> comes before the first marker`},
+	{name: "map center with one coordinate", body: []string{"  <<map>>", "    center: 40  <"}, rule: "MAP004", quote: `This center: line of the <<map>> was ignored: "center: 40". center: takes two coordinates`},
+	{name: "map center not a number", body: []string{"  <<map>>", "    center: norte, 2  <"}, rule: "MAP004", quote: `The latitude on this center: line`},
+	// La forma de arreglo que usan varios ejemplos: ninguna coordenada se
+	// lee y el centro queda en 0, 0.
+	{name: "map center as an array", body: []string{"  <<map>>", "    center: [39.8, -98.5]  <"}, rule: "MAP004", quote: `Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: "center: [39.8, -98.5]"`},
+	{name: "map repeated attribute", body: []string{`  <<map type="city" type="world">>  <`}, rule: "MAP003", quote: `The attribute type="world" on this <<map>> line was ignored: only one type= is read, and it is type="city".`},
+
+	// Un atributo repetido en la línea de <<video>>/<<audio>> (MEDIA002) o
+	// de <<chart>> (CHART007): se lee uno.
+	{name: "video repeated src", body: []string{`  <<video src="a.mp4" src="b.mp4" controls>>  <`}, rule: "MEDIA002", quote: `The attribute src="b.mp4" on this <<video>> line was ignored: only one src= is read, and it is src="a.mp4".`},
+	{name: "audio repeated caption", body: []string{`  <<audio src="a.mp3" caption='uno' caption="dos">>  <`}, rule: "MEDIA002", quote: `caption='uno'`},
+	{name: "chart repeated width", body: []string{`  <<chart: bar width="10" width="20">>  <`, `    data: [["a", 1]]`}, rule: "CHART007", quote: `The attribute width="20" on this <<chart>> line was ignored`},
+
 	// <<quiz>>, <<poll>>, <<metric>>: yaml.v3 rechaza una llave repetida y
 	// el cuerpo entero se ignora (QUIZ004…, como antes); la primera
 	// aparición se nombra en su línea.

@@ -254,7 +254,20 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// línea <<map>> que una propiedad del cuerpo reemplaza también.
 	props := newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>>")
 	markerProps := newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>> marker")
-	var diags []diagnostics.Diagnostic
+	// Un atributo repetido de la línea <<map>> (`type="a" type="b"`): se lee
+	// uno, como siempre, y los demás se avisan (MAP003).
+	diags := repeatedAttributeWarnings(ctx, startIndex, line, "<<map>>", MapLineRuleID, "map-parser", "type", "width", "height", "zoom")
+	// valueWarning es el MAP004 de una línea del cuerpo cuyo valor no se lee
+	// como está escrito; el mapa queda como siempre.
+	valueWarning := func(i int, format string, args ...any) {
+		diags = append(diags, ignoredLineWarning(ctx, i, MapValueRuleID, "map-parser", format, args...))
+	}
+	// beforeMarker es el MAP004 de una propiedad de marcador escrita antes
+	// del primer `- lat:`, que no tiene a qué marcador ir.
+	beforeMarker := func(i int, key string) {
+		valueWarning(i, "This %s: line of the <<map>> comes before the first marker, so it was ignored: %q. A marker starts with \"- lat:\" and its %s: goes below it.",
+			key, strings.TrimSpace(ctx.Lines[i]), key)
+	}
 	headerAttrs := map[string]string{}
 	if v := extractAttribute(line, "type"); v != "" {
 		headerAttrs["type"] = v
@@ -318,13 +331,27 @@ parseLoop:
 			parts := strings.SplitN(trimmedLine, ":", 2)
 			if len(parts) == 2 {
 				coords := strings.Split(strings.TrimSpace(parts[1]), ",")
+				if len(coords) < 2 {
+					valueWarning(i, "This center: line of the <<map>> was ignored: %q. center: takes two coordinates, \"lat, lng\".", trimmedLine)
+				}
 				if len(coords) >= 2 {
 					var lat, lng float64
-					if val, err := strconv.ParseFloat(strings.TrimSpace(coords[0]), 64); err == nil {
-						lat = val
+					var latErr, lngErr error
+					if lat, latErr = strconv.ParseFloat(strings.TrimSpace(coords[0]), 64); latErr != nil {
+						lat = 0
 					}
-					if val, err := strconv.ParseFloat(strings.TrimSpace(coords[1]), 64); err == nil {
-						lng = val
+					if lng, lngErr = strconv.ParseFloat(strings.TrimSpace(coords[1]), 64); lngErr != nil {
+						lng = 0
+					}
+					// Una coordenada que no es un número queda en 0, como
+					// siempre; se avisa (MAP004).
+					switch {
+					case latErr != nil && lngErr != nil:
+						valueWarning(i, "Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: %q. Write it as \"center: lat, lng\".", trimmedLine)
+					case latErr != nil:
+						valueWarning(i, "The latitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
+					case lngErr != nil:
+						valueWarning(i, "The longitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
 					}
 					mapElement.Center = &ast.MapCoordinate{
 						Lat: lat,
@@ -357,6 +384,7 @@ parseLoop:
 							mapElement.Zoom = zoomValue
 						} else {
 							mapElement.Zoom = 2 // Fallback si no se puede parsear
+							valueWarning(i, "The zoom: value on this line of the <<map>> is not a whole number, so the map uses zoom 2: %q.", trimmedLine)
 						}
 						read(key, i)
 					}
@@ -376,7 +404,9 @@ parseLoop:
 					diags = append(diags, markerProps.diags...)
 					markerProps = newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>> marker")
 				case "lng":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						lng, err := parseCoordinate("lng", value)
 						if err != nil {
 							fail(err)
@@ -387,28 +417,38 @@ parseLoop:
 						}
 					}
 				case "label":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						currentMarker.Label = strings.Trim(value, "\"")
 						markerProps.read(key, i, i)
 					}
 				case "value":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						val := parseValue(value)
 						currentMarker.Value = val
 						markerProps.read(key, i, i)
 					}
 				case "color":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						currentMarker.Color = strings.Trim(value, "\"")
 						markerProps.read(key, i, i)
 					}
 				case "size":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						currentMarker.Size = strings.Trim(value, "\"")
 						markerProps.read(key, i, i)
 					}
 				case "details":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						currentMarker.Details = strings.Trim(value, "\"")
 						markerProps.read(key, i, i)
 					}

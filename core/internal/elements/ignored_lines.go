@@ -66,8 +66,16 @@ const (
 	ContainerPropertyRuleID = "STRICT005"
 	// MapLineRuleID: una propiedad de un <<map>> (type:, zoom:, center:,
 	// title:…) o de un marcador (lng:, label:, value:…) que otra posterior
-	// reemplaza.
+	// reemplaza, y un atributo repetido de la línea <<map>>.
 	MapLineRuleID = "MAP003"
+	// MapValueRuleID: una línea de un <<map>> cuyo valor no se lee como está
+	// escrito: un zoom: que no es un número (el mapa usa 2), una propiedad de
+	// marcador antes del primer `- lat:`, un center: sin dos coordenadas o
+	// con una que no es un número.
+	MapValueRuleID = "MAP004"
+	// MediaAttributeRuleID: un src=, poster= o caption= repetido en la
+	// línea de un <<video>> o <<audio>>, del que solo se lee uno.
+	MediaAttributeRuleID = "MEDIA002"
 )
 
 // ignoredLineWarning arma el aviso de una línea que el elemento consumió sin

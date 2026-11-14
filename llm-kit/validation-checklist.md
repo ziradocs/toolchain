@@ -190,14 +190,16 @@ In strict, a line inside an element that the element does not read is a
 warning on that line, never a silent drop: `STRICT003`, `STRICT004`,
 `STRICT005`, `POINTS001`, `CHECKLIST001`, `CHECKLIST002`, `QUOTE001`, `MATH001`, `IMG005`,
 `TABLE008`, `CHART007`, `METRIC006`, `QUIZ007`, `POLL007`, `MAP003`,
-`CODEGROUP003`, `SPECIAL003` and `DIRECTIVE004` (see the spec, "Lines an
+`MAP004`, `MEDIA002`, `CODEGROUP003`, `SPECIAL003` and `DIRECTIVE004` (see the spec, "Lines an
 element does not read"). The ones of blocks both dialects share (`TABLE008`
 for the `TABLE` block and for Markdown tables inside `:::`, `CHART007`,
-`MATH001`, `METRIC006`, `QUIZ007`, `POLL007`, `MAP003`, `CODEGROUP003`,
+`MATH001`, `METRIC006`, `QUIZ007`, `POLL007`, `MAP003`, `MAP004`,
+`MEDIA002`, `CODEGROUP003`,
 `SPECIAL003`, `DIRECTIVE004`) fire in flex too. A property written twice
 (`caption:`, `label:`, a chart's `data:`, a `SLIDE`'s `title:`, a `SECTION`'s
 `level:` or `id:`, a `<<map>>` key, a directive parameter) keeps the later one
-and reports the earlier; in `<<metric>>`, `<<quiz>>` and `<<poll>>` a repeated
+and reports the earlier; an attribute repeated on a tag line (`<<map>>`,
+`<<video>>`, `<<audio>>`, `<<chart>>`) keeps one and reports the others; in `<<metric>>`, `<<quiz>>` and `<<poll>>` a repeated
 key makes the whole YAML body invalid, so nothing is read and the earlier key
 is reported too. Each one means text that is not in the output: fix the line instead of
 accepting the warning.

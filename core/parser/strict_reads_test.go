@@ -318,6 +318,46 @@ func TestStrictReads_RepeatedKeysKeepTheLaterValue(t *testing.T) {
 	}
 }
 
+// Lo que <<map>> no lee como está escrito y el atributo repetido de una
+// etiqueta se avisan, y el AST queda como siempre: zoom 2, el center y la
+// propiedad suelta descartados, el atributo que extractAttribute elige.
+func TestStrictReads_MapValuesAndAttributesKeepTheirReading(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"D\"\n---\nSECTION \"A\"\n" +
+		"  <<map type=\"city\" type=\"world\">>\n    label: \"suelto\"\n    zoom: lejos\n    center: 40\n    markers:\n    - lat: 1\n      lng: 2\n" +
+		"  <<video src=\"a.mp4\" src=\"b.mp4\">>\n"
+	doc, diags := New(util.NewNoop()).ParseDocument(src, "m.doclang")
+	m, ok := doc.ContentBlocks[0].Elements[0].(*ast.MapElement)
+	if !ok || m.MapType != "city" || m.Zoom != 2 || m.Center != nil || len(m.Markers) != 1 || m.Markers[0].Label != "" {
+		t.Fatalf("map: %#v", doc.ContentBlocks[0].Elements[0])
+	}
+	v, ok := doc.ContentBlocks[0].Elements[1].(*ast.MediaElement)
+	if !ok || v.Source != "a.mp4" {
+		t.Fatalf("video: %#v", doc.ContentBlocks[0].Elements[1])
+	}
+	want := map[string]int{"MAP003": 1, "MAP004": 3, "MEDIA002": 1}
+	for _, d := range diags {
+		want[d.RuleID]--
+		if !d.IsWarning() {
+			t.Errorf("%s is %s", d.RuleID, d.Severity)
+		}
+	}
+	for id, n := range want {
+		if n != 0 {
+			t.Errorf("%s: %d more or fewer than expected in %v", id, n, diags)
+		}
+	}
+}
+
+// Una llave repetida en el frontmatter sigue siendo un error de YAML, y su
+// texto no nombra los números de línea de yaml.v3, que cuentan desde el
+// frontmatter y no desde el archivo.
+func TestStrictReads_FrontMatterYAMLErrorHasNoLineNumbers(t *testing.T) {
+	_, diags := New(util.NewNoop()).Parse("---\nmode: strict\ntitle: \"A\"\ntitle: \"B\"\n---\nSLIDE content\n  title: \"T\"\n", "f.slidelang")
+	if len(diags) != 1 || !diags[0].IsError() || diags[0].Message != `Invalid YAML: mapping key "title" already defined` {
+		t.Fatalf("got %v", diags)
+	}
+}
+
 // El aviso de un cuerpo YAML inválido no nombra números de línea: los de
 // yaml.v3 cuentan desde el cuerpo, no desde el archivo.
 func TestStrictReads_InvalidYAMLMessageHasNoLineNumbers(t *testing.T) {

@@ -547,7 +547,13 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
   chart body), `STRICT005` for a `SLIDE` property (`title:`, `heading:`,
   `subtitle:`, `kicker:`, `logo:`, a layout option) and a `SECTION`'s
   `level:`/`id:`, `MAP003` for a `<<map>>` or marker key, and `DIRECTIVE004`
-  for a directive parameter. In `<<metric>>`, `<<quiz>>` and `<<poll>>` a
+  for a directive parameter. An attribute repeated on a tag line keeps one and
+  reports the others: `MAP003` (`<<map>>`), `MEDIA002` (`<<video>>`,
+  `<<audio>>`), `CHART007` (`<<chart>>`).
+- `MAP004`: a `<<map>>` value that is not read as written: a `zoom:` that is
+  not a whole number (zoom 2), a marker property before the first `- lat:`, a
+  `center:` without two numeric coordinates. Write `center: 39.8, -98.5`, not
+  `center: [39.8, -98.5]`, which is 0, 0. In `<<metric>>`, `<<quiz>>` and `<<poll>>` a
   repeated key makes the YAML invalid and the whole body is ignored
   (`METRIC002`/`QUIZ004`/`POLL006`); the earlier key gets
   `METRIC006`/`QUIZ007`/`POLL007`.

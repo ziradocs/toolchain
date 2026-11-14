@@ -79,6 +79,10 @@ func (p *MediaParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			pos, "media-parser").WithRuleID("MEDIA001"))
 	}
 
+	// Un src=, poster= o caption= repetido: se lee uno y los demás se
+	// avisan (MEDIA002).
+	diags = append(diags, repeatedAttributeWarnings(ctx, startIndex, attrStr, "<<"+mediaType+">>", MediaAttributeRuleID, "media-parser", "src", "poster", "caption")...)
+
 	return &ParseResult{
 		Element:       media,
 		ConsumedLines: 1,
