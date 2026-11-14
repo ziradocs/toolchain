@@ -649,6 +649,13 @@ func formatPipeTable(headers []string, rows [][]string, columnAlign []string) st
 		if i > 0 {
 			b.WriteString("\n")
 		}
+		if len(row) == 0 {
+			// Una fila sin celdas se escribe "|", que los dos dialectos
+			// releen como fila sin celdas; "|  |" se releería con una celda
+			// vacía.
+			b.WriteString("|")
+			continue
+		}
 		b.WriteString("| " + strings.Join(escapeTableCells(row), " | ") + " |")
 	}
 	return b.String()

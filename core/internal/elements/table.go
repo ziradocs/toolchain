@@ -6,6 +6,7 @@ package elements
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 	"go.ziradocs.com/core/v2/ast"
@@ -132,8 +133,7 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	} else {
 		// Parse Markdown-style table
-		headers, rows, rowPositions, columnAlign, markdownConsumed, markdownDiags := p.parseMarkdownTable(ctx, startIndex)
-		diags = append(diags, markdownDiags...)
+		headers, rows, rowPositions, columnAlign, markdownConsumed := p.parseMarkdownTable(ctx, startIndex)
 		table.ColumnAlign = columnAlign
 		table.Headers = headers
 		table.Rows = rows
@@ -942,6 +942,44 @@ func MarkdownColumnAlign(cells []string, numCols int) []string {
 	return align
 }
 
+// IsMarkdownSeparatorLine dice si una línea de una tabla Markdown con pipes
+// es su fila separadora. Es la regla de los dos dialectos: la usan la tabla
+// Markdown de flex y de un bloque ":::" (TableParser.parseMarkdownTable) y la
+// de strict (parser/strict.go), cada una en las líneas que ya revisaba.
+//
+// Una línea es separadora si no tiene nada más que guiones, dos puntos,
+// espacios y "|", y además tiene "---", o empieza con "|" y tiene ":--",
+// "--:" o ":-:": "|---|", "|:--|--:|", "| :-: | --- |", "| --- | ---" sin el
+// "|" final, "--- | ---" sin pipes de borde. Una
+// línea con cualquier otro texto es una fila de datos: "| 2019 | --- |" tiene
+// una celda "---" y "| a --- b | c |" una celda "a --- b". Antes la tabla de
+// flex y de ":::" saltaba toda línea con esas subcadenas, y sus celdas no
+// llegaban al AST; strict las leía como datos salvo justo después del
+// encabezado, y solo reconocía el separador por "---".
+//
+// Lo que no cambia: una fila de guiones cortos ("| - | - |", "|--|--|") no es
+// separadora, porque no tiene ninguna de las cuatro subcadenas, y en flex
+// esta regla se aplica a cualquier fila de la tabla, donde un "-" suele
+// marcar una celda vacía. Una línea que no empieza con "|" (":-- | --:",
+// ":---:") solo es separadora con "---", como en strict hasta ahora; flex no
+// la ve como fila de la tabla. Tampoco cambia qué acepta
+// el bloque TABLE (isMarkdownSeparatorRow) ni en qué filas mira cada parser.
+func IsMarkdownSeparatorLine(line string) bool {
+	line = strings.TrimSpace(line)
+	// Espacios en el sentido de unicode.IsSpace, como el TrimSpace de cada
+	// celda: un "---\u00a0" sigue siendo una celda de guiones.
+	for _, r := range line {
+		if r != '|' && r != '-' && r != ':' && !unicode.IsSpace(r) {
+			return false
+		}
+	}
+	if strings.Contains(line, "---") {
+		return true
+	}
+	return strings.HasPrefix(line, "|") &&
+		(strings.Contains(line, ":-:") || strings.Contains(line, ":--") || strings.Contains(line, "--:"))
+}
+
 // isMarkdownSeparatorRow reporta si una fila ya partida es la fila
 // delimitadora de una tabla markdown: al menos una celda y todas del estilo
 // "---", ":--", "--:" o ":-:" (guiones con dos puntos opcionales en los
@@ -963,13 +1001,12 @@ func isMarkdownSeparatorRow(cells []string) bool {
 }
 
 // parseMarkdownTable parsea una tabla en formato Markdown
-func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int, []diagnostics.Diagnostic) {
+func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int) {
 	// Inicializados como slices vacíos (no nil), ver comentario en parseYAMLTable.
 	headers := []string{}
 	rows := [][]string{}
 	var rowPositions []diagnostics.Position
 	var columnAlign []string
-	var diags []diagnostics.Diagnostic
 	consumed := 0
 	lines := ctx.Lines
 
@@ -989,16 +1026,10 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 			break
 		}
 
-		// Skip separator lines (e.g., |---|---|)
-		if strings.Contains(line, "---") || strings.Contains(line, ":-:") || strings.Contains(line, ":--") || strings.Contains(line, "--:") {
-			// Cualquier fila con "---" (o ":--", "--:", ":-:") se salta como
-			// separador, como siempre. Si tiene algo más que guiones, dos
-			// puntos y "|", sus celdas se pierden: se avisa (TABLE008).
-			if strings.Trim(line, "|-: \t") != "" {
-				diags = append(diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
-					"This table row is read as a separator row because it has dashes in it, so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |. If a dash marks an empty cell, write the cell another way (n/a, —) so the row stays in the table.",
-					line))
-			}
+		// Skip separator lines (e.g., |---|---|). Una fila con texto además
+		// de los guiones ("| 2019 | --- |", "| a --- b | c |") es de datos,
+		// igual que en strict: ver IsMarkdownSeparatorLine.
+		if IsMarkdownSeparatorLine(line) {
 			// La alineación solo sale de la delimitadora que sigue al header.
 			if len(headers) > 0 && len(rows) == 0 && columnAlign == nil {
 				columnAlign = MarkdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(headers))
@@ -1027,7 +1058,7 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 		consumed++
 	}
 
-	return headers, rows, rowPositions, columnAlign, consumed, diags
+	return headers, rows, rowPositions, columnAlign, consumed
 }
 
 // TableRowsRuleID es el aviso de un `rows:` en línea que no se pudo leer como
