@@ -155,7 +155,7 @@ func specialCellShapes() []tableShape {
 	var shapes []tableShape
 	for _, special := range []string{`Café "premium"`, " A ", "---", `a\`} {
 		for _, sh := range generatedTableShapes() {
-			if sh.label != "" || !(sh.headers == nil || len(sh.headers) == 2 && sh.headers[0] == "A") {
+			if sh.label != "" || (sh.headers != nil && (len(sh.headers) != 2 || sh.headers[0] != "A")) {
 				continue
 			}
 			found := false
