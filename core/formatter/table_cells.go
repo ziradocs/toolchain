@@ -27,9 +27,10 @@ import (
 // whenever Caption was empty, silently dropping Label and any non-trivial
 // Cells structure on `fmt --write`.
 //
-// rowsIndent es lo único que depende del dialecto: la sangría de las filas
-// bajo rows: (ver strictTableRowsIndent).
-func formatTableElement(e *ast.TableElement, rowsIndent int) (string, error) {
+// flex es el dialecto de destino, que decide dos cosas: si una fila sin celdas
+// cabe en la forma pipe (ver pipeKeepsFlatView) y la sangría de las filas bajo
+// rows: (ver strictTableRowsIndent).
+func formatTableElement(e *ast.TableElement, flex bool) (string, error) {
 	if e.HasTableRows() {
 		if err := ast.ValidateTableRows(e); err != nil {
 			return "", err
@@ -37,7 +38,7 @@ func formatTableElement(e *ast.TableElement, rowsIndent int) (string, error) {
 		return formatTableRowsBlock(e)
 	}
 	cellsSimple := tableCellsAreSimple(e)
-	pipeForm := cellsSimple && e.Caption == "" && e.Label == "" && pipeKeepsFlatView(e)
+	pipeForm := cellsSimple && e.Caption == "" && e.Label == "" && pipeKeepsFlatView(e, flex)
 	// cells: relee Headers/Rows rellenados hasta un rectángulo
 	// (ast.FlattenCellsToRows): una fila sin celdas, o con otro número de
 	// celdas que el encabezado (TABLE003), cambiaba al releerse. Cuando ni la
@@ -61,6 +62,10 @@ func formatTableElement(e *ast.TableElement, rowsIndent int) (string, error) {
 		return formatPipeTable(e.Headers, e.Rows, e.ColumnAlign), nil
 	}
 	if arraysForm {
+		rowsIndent := strictTableRowsIndent
+		if flex {
+			rowsIndent = flexTableRowsIndent
+		}
 		return formatTableArraysBlock(e, rowsIndent)
 	}
 	return formatTableCellsBlock(e)
@@ -79,12 +84,15 @@ const (
 
 // pipeKeepsFlatView dice si la forma pipe relee los mismos Headers/Rows. La
 // primera fila de una tabla pipe es siempre el encabezado, así que una tabla
-// sin encabezado no tiene forma pipe; y una fila sin celdas se escribía como
-// "|  |", que se relee como una fila con una celda vacía ([""]). Strict
-// descarta la fila "|", así que tampoco sirve.
-func pipeKeepsFlatView(e *ast.TableElement) bool {
+// sin encabezado no tiene forma pipe. Una fila sin celdas se escribe "|": flex
+// la relee como esa fila, strict la descarta. Antes se escribía "|  |", que
+// los dos releen como una fila con una celda vacía ([""]).
+func pipeKeepsFlatView(e *ast.TableElement, flex bool) bool {
 	if len(e.Headers) == 0 {
 		return false
+	}
+	if flex {
+		return true
 	}
 	for _, row := range e.Rows {
 		if len(row) == 0 {
@@ -97,8 +105,13 @@ func pipeKeepsFlatView(e *ast.TableElement) bool {
 // cellsKeepFlatView dice si la forma cells: relee los mismos Headers/Rows:
 // el parser los deriva de Cells con ast.FlattenCellsToRows, que rellena
 // cada fila (y el encabezado) hasta el ancho de la más larga, y deja en nil
-// (null en el JSON) una fila sin celdas de una tabla de ancho cero.
+// (null en el JSON) una fila sin celdas de una tabla de ancho cero. Una tabla
+// vacía tampoco: "cells: []" se relee vacía, pero con el aviso TABLE004 de un
+// bloque cells: inválido.
 func cellsKeepFlatView(e *ast.TableElement) bool {
+	if len(e.Headers) == 0 && len(e.Rows) == 0 {
+		return false
+	}
 	headers, rows := ast.FlattenCellsToRows(ast.DeriveCellsFromFlat(e.Headers, e.Rows))
 	if !sameStrings(headers, e.Headers) || len(rows) != len(e.Rows) {
 		return false

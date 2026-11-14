@@ -275,7 +275,7 @@ func formatStrictElement(el ast.Element) (string, error) {
 	case *ast.ImageElement:
 		body, err = formatStrictImage(e)
 	case *ast.TableElement:
-		body, err = formatTableElement(e, strictTableRowsIndent)
+		body, err = formatTableElement(e, false)
 	case *ast.SpecialBlockElement:
 		// El cuerpo de un bloque especial se re-emite como texto crudo y el
 		// parser strict no reconoce `###` dentro de él (HeadingParser solo
@@ -648,6 +648,12 @@ func formatPipeTable(headers []string, rows [][]string, columnAlign []string) st
 	for i, row := range rows {
 		if i > 0 {
 			b.WriteString("\n")
+		}
+		if len(row) == 0 {
+			// Una fila sin celdas: solo la relee así el flex de documento
+			// (ver pipeKeepsFlatView).
+			b.WriteString("|")
+			continue
 		}
 		b.WriteString("| " + strings.Join(escapeTableCells(row), " | ") + " |")
 	}

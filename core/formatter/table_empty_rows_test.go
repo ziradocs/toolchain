@@ -21,11 +21,12 @@ import (
 // tableDialect es un dialecto de entrada con su fmt: cómo se envuelve una
 // tabla en un documento, cómo se lee y cómo se formatea.
 type tableDialect struct {
-	name   string
-	slides bool
-	strict bool // la entrada es strict (las filas | sin celdas se descartan)
-	grid   bool // la tabla va en una columna tipada de un grid
-	format func(*ast.AST) (string, error)
+	name    string
+	slides  bool
+	strict  bool // la entrada es strict (las filas | sin celdas se descartan)
+	grid    bool // la tabla va en una columna tipada de un grid
+	flexOut bool // fmt escribe flex (el de documento)
+	format  func(*ast.AST) (string, error)
 }
 
 // wrap envuelve la tabla, escrita con TABLE en la columna 0, en un documento
@@ -72,7 +73,7 @@ var tableDialects = []tableDialect{
 	{name: "slidelang flex", slides: true, format: FormatStrict},
 	{name: "doclang strict", strict: true, format: FormatDocumentStrict},
 	{name: "doclang strict grid", strict: true, grid: true, format: FormatDocumentStrict},
-	{name: "doclang flex", format: FormatDocument},
+	{name: "doclang flex", flexOut: true, format: FormatDocument},
 	{name: "doclang flex to strict", format: FormatDocumentStrict},
 }
 
@@ -230,7 +231,14 @@ var tableSourceForms = []tableSourceForm{
 		h, rows := ast.FlattenCellsToRows(cells)
 		return b.String(), h, rows, len(cells) > 0
 	}},
-	{"Markdown", func(s tableShape, d tableDialect) (string, []string, [][]string, bool) {
+	{"Markdown", markdownTableForm(false)},
+	{"Markdown aligned", markdownTableForm(true)},
+}
+
+// markdownTableForm escribe la tabla con pipes, con o sin alineación en la
+// fila delimitadora.
+func markdownTableForm(aligned bool) func(s tableShape, d tableDialect) (string, []string, [][]string, bool) {
+	return func(s tableShape, d tableDialect) (string, []string, [][]string, bool) {
 		if s.headers == nil || s.caption != "" || s.label != "" {
 			return "", nil, nil, false
 		}
@@ -241,7 +249,14 @@ var tableSourceForms = []tableSourceForm{
 			return "| " + strings.Join(cells, " | ") + " |"
 		}
 		var b strings.Builder
-		b.WriteString(pipeRow(s.headers) + "\n|" + strings.Repeat("---|", len(s.headers)))
+		b.WriteString(pipeRow(s.headers) + "\n|")
+		for i := range s.headers {
+			sep := "---"
+			if aligned {
+				sep = []string{":---", ":---:", "---:"}[i%3]
+			}
+			b.WriteString(sep + "|")
+		}
 		rows := [][]string{}
 		for _, r := range s.rows {
 			b.WriteString("\n" + pipeRow(r))
@@ -251,7 +266,7 @@ var tableSourceForms = []tableSourceForm{
 			}
 		}
 		return b.String(), s.headers, rows, true
-	}},
+	}
 }
 
 func firstTable(doc *ast.AST) *ast.TableElement {
@@ -274,6 +289,22 @@ func hasErrorDiag(diags []diagnostics.Diagnostic) (diagnostics.Diagnostic, bool)
 	return diagnostics.Diagnostic{}, false
 }
 
+// newRuleIDs devuelve los RuleID de after que before no tiene.
+func newRuleIDs(before, after []diagnostics.Diagnostic) []string {
+	seen := map[string]bool{}
+	for _, d := range before {
+		seen[d.RuleID] = true
+	}
+	var extra []string
+	for _, d := range after {
+		if !seen[d.RuleID] {
+			extra = append(extra, fmt.Sprintf("%s %s", d.RuleID, d.Message))
+			seen[d.RuleID] = true
+		}
+	}
+	return extra
+}
+
 func jsonOf(t *testing.T, v interface{}) string {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -285,15 +316,18 @@ func jsonOf(t *testing.T, v interface{}) string {
 
 // La propiedad de ida y vuelta de fmt sobre tablas generadas: para cada
 // entrada que fmt acepta, releer lo que fmt escribe da el mismo AST (sin
-// posiciones), y fmt es idempotente. Las tablas combinan encabezados vacíos,
-// sin encabezado, filas sin celdas, filas de celdas vacías, filas de otro
-// largo que el encabezado (TABLE003) y caption/label, escritas en
-// headers:/rows:, cells:, tableRows: y Markdown, en los dos dialectos de los
-// dos lenguajes (y en una columna tipada de un grid en strict).
+// posiciones) sin ningún aviso nuevo del parser, y fmt es idempotente. Las
+// tablas combinan encabezados vacíos, sin encabezado, filas sin celdas, filas
+// de celdas vacías, filas de otro largo que el encabezado (TABLE003) y
+// caption/label, escritas en headers:/rows:, cells:, tableRows: y Markdown
+// (con y sin alineación), en los dos dialectos de los dos lenguajes (y en una
+// columna tipada de un grid en strict). La única tabla que fmt rechaza es la
+// alineada con una fila sin celdas cuando escribe strict.
 //
 // En main falla: una fila sin celdas se relee como [""], una tabla sin
-// encabezado gana un encabezado y una fila [""], y con caption/label una fila
-// de otro largo se rellena hasta el ancho de la más larga.
+// encabezado gana un encabezado y una fila [""], una tabla vacía con caption
+// se relee con TABLE004, y con caption/label una fila de otro largo se
+// rellena hasta el ancho de la más larga.
 func TestFormat_GeneratedTablesRoundTrip(t *testing.T) {
 	shapes := generatedTableShapes()
 	for _, d := range tableDialects {
@@ -340,10 +374,23 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 				failures++
 				continue
 			}
+			// La alineación solo se escribe en una tabla pipe, y strict
+			// descarta la fila "|": una tabla alineada con una fila sin
+			// celdas (solo se lee así en flex) no tiene forma strict.
+			wantRefusal := len(got.ColumnAlign) > 0 && hasEmptyRow(got.Rows) && !d.flexOut
 			once, err := d.format(doc)
+			if wantRefusal {
+				if err == nil || !strings.Contains(err.Error(), "columnAlign") {
+					t.Errorf("%s / %s: want fmt to refuse the alignment, got %v\n%s", form.name, shape, err, src)
+					failures++
+				} else {
+					exercised["an aligned table with a row without cells, refused"] = true
+				}
+				continue
+			}
 			if err != nil {
-				// Ninguna celda generada tiene algo que fmt no pueda escribir
-				// (comillas, saltos de línea, alineación).
+				// Ninguna otra celda generada tiene algo que fmt no pueda
+				// escribir (comillas, saltos de línea).
 				t.Errorf("%s / %s: fmt refused the table: %v\n%s", form.name, shape, err, src)
 				failures++
 				continue
@@ -351,6 +398,14 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			doc2, diags2 := d.parse(once)
 			if e, bad := hasErrorDiag(diags2); bad {
 				t.Errorf("%s / %s: the fmt output does not parse: %s\n--- input ---\n%s\n--- fmt ---\n%s", form.name, shape, e.String(), src, once)
+				failures++
+				continue
+			}
+			// Una fila que el parser deja afuera da un aviso (TABLE008, por
+			// ejemplo) sin cambiar el AST de lo que sí leyó: el aviso tampoco
+			// puede aparecer por primera vez después de fmt.
+			if extra := newRuleIDs(diags, diags2); len(extra) > 0 {
+				t.Errorf("%s / %s: the fmt output gives diagnostics the input did not: %v\n--- input ---\n%s\n--- fmt ---\n%s", form.name, shape, extra, src, once)
 				failures++
 				continue
 			}
@@ -393,7 +448,11 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			t.Errorf("%s: only %d generated tables went through fmt", form.name, n)
 		}
 	}
-	for _, what := range []string{"a row without cells", "no headers", "a miscounted row with caption or label"} {
+	whats := []string{"a row without cells", "no headers", "a miscounted row with caption or label"}
+	if !d.strict && !d.flexOut {
+		whats = append(whats, "an aligned table with a row without cells, refused")
+	}
+	for _, what := range whats {
 		if !exercised[what] {
 			t.Errorf("no generated table had %s", what)
 		}
@@ -440,7 +499,7 @@ func TestFormat_TableEmptyRowsRegressions(t *testing.T) {
 			name:  "empty table",
 			d:     strictSlide,
 			table: "TABLE\n  rows:",
-			want:  "TABLE\n  cells:\n    []",
+			want:  "TABLE\n  rows:",
 		},
 		{
 			name:  "caption and a row with more cells than headers",
@@ -464,7 +523,7 @@ func TestFormat_TableEmptyRowsRegressions(t *testing.T) {
 			name:  "Markdown row without cells in flex",
 			d:     flexDoc,
 			table: "| A |\n|---|\n| 1 |\n|",
-			want:  "TABLE\n  headers: [\"A\"]\n  rows:\n      [\"1\"]\n      []",
+			want:  "| A |\n|---|\n| 1 |\n|",
 		},
 		{
 			name:  "Markdown row of empty cells stays a pipe table",
@@ -518,6 +577,46 @@ func TestFormat_TableArraysFormRefusesUnquotableCells(t *testing.T) {
 			var unsupported *UnsupportedElementError
 			if !errors.As(err, &unsupported) {
 				t.Fatalf("want UnsupportedElementError, got %v", err)
+			}
+		})
+	}
+}
+
+// Una tabla Markdown alineada con una fila "|" (sin celdas), que solo se lee
+// así en flex: el flex de documento la escribe igual, con la alineación y la
+// fila "|". Strict no tiene forma para las dos cosas juntas (la alineación
+// solo va en una tabla pipe y strict descarta la fila "|"), así que fmt la
+// rechaza en vez de perder una de las dos, como main.
+func TestFormat_AlignedTableWithRowWithoutCells(t *testing.T) {
+	const table = "| A | B |\n|:---|---:|\n| 1 | 2 |\n|"
+	for _, d := range tableDialects {
+		if d.strict {
+			continue
+		}
+		t.Run(d.name, func(t *testing.T) {
+			doc, diags := d.parse(d.wrap(table))
+			if e, bad := hasErrorDiag(diags); bad {
+				t.Fatalf("fixture does not parse: %s", e.String())
+			}
+			if tbl := firstTable(doc); len(tbl.ColumnAlign) != 2 || len(tbl.Rows) != 2 || len(tbl.Rows[1]) != 0 {
+				t.Fatalf("fixture: %s", jsonOf(t, stripPositions(tbl)))
+			}
+			out, err := d.format(doc)
+			if !d.flexOut {
+				if err == nil || !strings.Contains(err.Error(), "columnAlign") {
+					t.Fatalf("want fmt to refuse the alignment, got %v\n%s", err, out)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("fmt: %v", err)
+			}
+			if !strings.Contains(out, table+"\n") {
+				t.Errorf("fmt wrote\n%s\nwant the table\n%s", out, table)
+			}
+			doc2, _ := d.parse(out)
+			if !reflect.DeepEqual(stripPositions(firstTable(doc)), stripPositions(firstTable(doc2))) {
+				t.Errorf("the table changed through fmt")
 			}
 		})
 	}
