@@ -380,7 +380,13 @@ func (p *PolicyConfig) Evaluate(diags []diagnostics.Diagnostic, filePath string,
 
 			if !expiredEmitted[ruleID] {
 				msg := fmt.Sprintf("waiver for %s expired on %s", ruleID, policy.ExpiresAt)
+				// El aviso apunta al primer hallazgo de la regla, en su
+				// archivo: uno de un archivo incluido trae File
+				// (include.SourceMap.MapDiagnostics), y sin copiarlo el aviso
+				// caería en esa línea del documento. La posición final no se
+				// copia: el aviso es del waiver, no del tramo del hallazgo.
 				policyDiag := diagnostics.NewWarning(msg, d.Position, "linter").WithCode("POLICY001")
+				policyDiag.File = d.File
 				active = append(active, policyDiag)
 				expiredEmitted[ruleID] = true
 			}
