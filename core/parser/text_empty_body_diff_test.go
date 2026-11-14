@@ -240,9 +240,10 @@ func TestStrictText_EmptyBodyDiffersOnlyByWarning(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		// Un callout tipado lee su cuerpo como flex: ahí no hay TEXT strict,
-		// y sangrar el cuerpo cambiaría la lectura flex.
-		if strings.HasPrefix(c.ctx.name, "typed callout") {
+		// Dentro de un callout no hay TEXT strict: uno tipado lee su cuerpo
+		// como flex, y uno sin {typed} lo guarda como texto del bloque. Sangrar
+		// el cuerpo cambiaría ese texto, así que la comparación no aplica.
+		if strings.Contains(c.ctx.name, "callout") {
 			continue
 		}
 		want, wantDiags := textDiffParse(t, c.ctx, textDiffSource(c.ctx, c.lines, true))

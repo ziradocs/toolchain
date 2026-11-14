@@ -62,7 +62,15 @@ var nestedContentParsers = []ElementParser{
 // cuyo Parse falla o devuelve consumo 0 (bloque vacío, YAML inválido, etc.) NO
 // cuenta como delegación: cae al llamador, que la trata como prosa suelta,
 // igual que ANTES de que esta función existiera.
-func tryParseNestedContent(ctx *ParseContext, i int) (ast.Element, int, []diagnostics.Diagnostic, bool) {
+//
+// El Error de un elemento que sí se delega (un CODE con un argumento de más,
+// una cerca con info que no se lee, un atributo de <<mermaid>> que no es
+// title, un marcador de <<map>> sin coordenadas) se descartaba acá: en el
+// cuerpo strict es un error, y adentro del bloque el elemento salía sin esa
+// parte y sin ningún diagnóstico. Ahora sale como aviso (SPECIAL003) en la
+// línea del elemento; no como error, para que ningún documento que compila
+// deje de compilar. opener es la línea que abre el bloque, para el mensaje.
+func tryParseNestedContent(ctx *ParseContext, i int, opener string) (ast.Element, int, []diagnostics.Diagnostic, bool) {
 	line := ctx.Lines[i]
 	for _, parser := range nestedContentParsers {
 		if !parser.CanParse(line, ctx.Mode) {
@@ -70,7 +78,14 @@ func tryParseNestedContent(ctx *ParseContext, i int) (ast.Element, int, []diagno
 		}
 		result := parser.Parse(ctx, i)
 		if result.Element != nil && result.ConsumedLines > 0 {
-			return result.Element, result.ConsumedLines, result.Diagnostics, true
+			diags := result.Diagnostics
+			if result.Error != nil {
+				d := ignoredLineWarning(ctx, i, NestedElementErrorRuleID, "special-block-parser",
+					"Part of this element inside the %q block was not read: %s. The element is kept without it; fix the line.",
+					shortLine(opener), result.Error.Error())
+				diags = append([]diagnostics.Diagnostic{d}, diags...)
+			}
+			return result.Element, result.ConsumedLines, diags, true
 		}
 		return nil, 0, nil, false
 	}
@@ -303,7 +318,7 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 			break
 		}
 
-		if elem, n, diags, ok := tryParseNestedContent(nestedCtx, i); ok {
+		if elem, n, diags, ok := tryParseNestedContent(nestedCtx, i, line); ok {
 			flushProseRun()
 			nested = append(nested, elem)
 			delegatedCount++
@@ -356,6 +371,11 @@ func (p *SpecialBlockParser) Parse(ctx *ParseContext, startIndex int) *ParseResu
 // dialectos; el dialecto strict de documentos lo sube a error (ver
 // DocumentStrictParser), igual que hace con una línea no reconocida.
 const UnclosedSpecialBlockRuleID = "SPECIAL002"
+
+// NestedElementErrorRuleID es el aviso de un elemento dentro de un bloque ":::"
+// cuyo parser devolvió un error: fuera del bloque ese error se reporta, y
+// adentro se perdía (ver tryParseNestedContent).
+const NestedElementErrorRuleID = "SPECIAL003"
 
 // unclosedSpecialBlockDiagnostic arma el SPECIAL002 de un bloque abierto en
 // ctx.Lines[start] cuyo cuerpo terminó en end sin ":::". En strict, si el

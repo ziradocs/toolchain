@@ -46,6 +46,10 @@ const (
 	// QuoteLineRuleID: un AUTHOR: o SOURCE: repetido en un QUOTE strict, cuyo
 	// valor anterior se pierde.
 	QuoteLineRuleID = "QUOTE001"
+	// MathLineRuleID: un caption: o label: repetido en un <<math>>, cuyo valor
+	// anterior se pierde. Mismo criterio que QUOTE001; en TABLE, IMAGE y
+	// <<chart>> la propiedad repetida es TABLE008, IMG005 y CHART007.
+	MathLineRuleID = "MATH001"
 	// CodeGroupLineRuleID: una línea fuera de las cercas de un :::code-group
 	// después de la primera, que ya es un error.
 	CodeGroupLineRuleID = "CODEGROUP003"
@@ -68,6 +72,56 @@ func withLineRange(ctx *ParseContext, d diagnostics.Diagnostic, end int) diagnos
 		d.EndPosition = &pos
 	}
 	return d
+}
+
+// repeatedKeys lleva, por propiedad, el tramo de líneas (índices en
+// ctx.Lines) de la última vez que un elemento la leyó. Una propiedad repetida
+// pisa a la anterior, como siempre; la anterior se avisa porque su texto ya
+// no llega al AST (el criterio de QUOTE001). Solo se registra lo que de
+// verdad se leyó: un valor que el elemento descarta (con su propio aviso) no
+// reemplaza a nadie.
+type repeatedKeys struct {
+	ctx                     *ParseContext
+	ruleID, source, element string
+	last                    map[string][2]int
+	diags                   []diagnostics.Diagnostic
+}
+
+// newRepeatedKeys arma el registro de un elemento; element es su nombre en el
+// mensaje ("TABLE", "<<math>> block").
+func newRepeatedKeys(ctx *ParseContext, ruleID, source, element string) *repeatedKeys {
+	return &repeatedKeys{ctx: ctx, ruleID: ruleID, source: source, element: element, last: map[string][2]int{}}
+}
+
+// read registra que la propiedad key, escrita de la línea start a la end, se
+// leyó. Si ya se había leído, avisa la anterior.
+func (r *repeatedKeys) read(key string, start, end int) {
+	for end > start && strings.TrimSpace(r.ctx.Lines[end]) == "" {
+		end--
+	}
+	if prev, ok := r.last[key]; ok {
+		earlier := strings.TrimSpace(r.ctx.Lines[prev[0]])
+		later := strings.TrimSpace(r.ctx.Lines[start])
+		d := ignoredLineWarning(r.ctx, prev[0], r.ruleID, r.source,
+			"This %s: line of the %s was ignored: %q. The later %q replaces it; only the last %s: is read.",
+			key, r.element, earlier, later, key)
+		if prev[1] > prev[0] {
+			d = withLineRange(r.ctx, d, prev[1])
+			d.Message = fmt.Sprintf("This %s: line of the %s and the lines of its value below it were ignored: %q. The later %q replaces it; only the last %s: is read.",
+				key, r.element, earlier, later, key)
+		}
+		r.diags = append(r.diags, d)
+	}
+	r.last[key] = [2]int{start, end}
+}
+
+// extend lleva hasta end el tramo de la lectura de key que empezó en la línea
+// start: el valor sigue en las líneas de abajo (un arreglo de varias líneas).
+// Si esa línea no fue la última lectura de key, no hace nada.
+func (r *repeatedKeys) extend(key string, start, end int) {
+	if prev, ok := r.last[key]; ok && prev[0] == start && end > prev[1] {
+		r.last[key] = [2]int{start, end}
+	}
 }
 
 // keywordLineRest es lo que sigue a la palabra clave kw en la cabecera de un

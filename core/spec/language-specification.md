@@ -340,11 +340,17 @@ the value of an unknown key) starts at its first line, or at the element's
 opening line, and carries an `endPosition` at its last one.
 
 The element parsers are shared by both dialects, so the IDs of a block that
-flex reads the same way (the `TABLE` block, `<<chart>>`, `<<metric>>`,
-`<<quiz>>`, `<<poll>>`, `:::code-group` and directives) are reported in flex
-documents too. The ones tied to strict syntax (`STRICT003`, `STRICT004`,
-`POINTS001`, `CHECKLIST001`, `CHECKLIST002`, `QUOTE001`, `IMG005` and the strict
-Markdown table rows of `TABLE008`) are strict only.
+flex reads the same way (the `TABLE` block, `<<chart>>`, `<<math>>`,
+`<<metric>>`, `<<quiz>>`, `<<poll>>`, `:::code-group`, the elements inside a
+`:::` block, the rows of a Markdown table read inside a `:::` block or in flex,
+and directives) are reported in flex documents too. The ones tied to strict
+syntax (`STRICT003`, `STRICT004`, `POINTS001`, `CHECKLIST001`, `CHECKLIST002`,
+`QUOTE001`, `IMG005` and the strict Markdown table rows of `TABLE008`) are
+strict only.
+
+A property an element keeps only one of (`caption:`, `label:`, a chart's
+`data:`…) that appears twice keeps the later one, as before; the earlier line is
+reported, quoting both.
 
 | ID | Line that is not read |
 | --- | --- |
@@ -354,14 +360,16 @@ Markdown table rows of `TABLE008`) are strict only.
 | `CHECKLIST001` | A line of a strict `CHECKLIST` body before its first item |
 | `CHECKLIST002` | A strict `CHECKLIST` item with no text (`[ ]`) |
 | `QUOTE001` | An `AUTHOR:` or `SOURCE:` line of a strict `QUOTE` that a later one replaces |
-| `IMG005` | A line of a strict `IMAGE` body that is not `caption:`, `title:`, `label:`, `fit:`, `focus:`, `context:` or `bleed:` (for example `alt:`, `src:`, `width:`, `height:`), a line with no key, and a `bleed:` that is not `true` or `false` |
-| `TABLE008` | A line of a `TABLE` body that is not a row or a property it reads, a `headers:` value that is not an array, a `rows:` row that does not end in `]` or that does not start exactly six spaces from the beginning of the line, and in a strict Markdown table a first row that does not end in `\|`, a row with no cells, and a line read as the separator row only because it contains `---` |
+| `MATH001` | A `caption:` or `label:` line of a `<<math>>` block that a later one replaces |
+| `IMG005` | A line of a strict `IMAGE` body that is not `caption:`, `title:`, `label:`, `fit:`, `focus:`, `context:` or `bleed:` (for example `alt:`, `src:`, `width:`, `height:`), a line with no key, a `bleed:` that is not `true` or `false`, and one of those properties that a later one replaces |
+| `TABLE008` | A line of a `TABLE` body that is not a row or a property it reads, a `headers:` value that is not an array, a `rows:` row that does not end in `]` or that does not start exactly six spaces from the beginning of the line, a `caption:` or `label:` that a later one replaces; in a strict Markdown table a first row that does not end in `\|`, a row with no cells, a line read as the separator row only because it contains `---`, and a line of dashes with no `\|` (`---`, `:---:`) read as the separator row of a table with more than one column; and in a Markdown table inside a `:::` block or in flex, a row skipped as a separator because it has dashes in it (`\| x --- y \|`) |
 | `TABLE008` (YAML) | The lines of a `cells:` or `tableRows:` block that the YAML reader leaves out without an error because they are indented less than the rows above them (a `---` at the key's indentation is one) |
 | `TABLE004` | (existing) the `cells:` block is not valid YAML; it now covers the whole block, and so does the existing error for an invalid `tableRows:` block |
-| `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), each key of a `<<chart: combo>>` YAML body it does not read, an `options:` block that is not valid YAML or not a mapping, and a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array |
+| `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), each key of a `<<chart: combo>>` YAML body it does not read, an `options:` block that is not valid YAML or not a mapping, a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array, and a `data:`, `series:`, `labels:`, `title:`, `type:`, `yAxisID:`, `options:`, `unit:` or `showDataLabels:` that a later one replaces (from its line to the end of its value) |
 | `CHART002` | (existing) a JSON chart body that is not valid JSON; it now covers the whole body |
 | `METRIC006`, `QUIZ007`, `POLL007` | Each top-level key of a `<<metric>>`, `<<quiz>>` or `<<poll>>` body that the block does not read, from the key to the end of its value (the per-block `METRIC003`, `QUIZ005` and `POLL004` stay as they are). An invalid YAML body keeps `METRIC002`, `QUIZ004` or `POLL006`, which now cover the whole body |
 | `CODEGROUP003` | Each line of a `:::code-group` outside a code fence, on its own line (the error on the `:::code-group` line stays) |
+| `SPECIAL003` | An element inside a `:::` block (closed or not) whose parser reports a problem with part of it: a `CODE` with more than a language and a filename, a code fence whose info is more than that, a `<<mermaid>>` or `<<plantuml>>` attribute other than `title`, a `<<map>>` marker without valid coordinates, a `:::code-group` problem. The element is kept without that part, as before; the problem, which in a strict body is an error, was dropped inside the block |
 | `DIRECTIVE004` | A lone `@`, and the part of a directive that reads `key=value` parameters that is not one (`@transition fade`, a trailing word) |
 
 Comments are not author text the element drops: a `#` comment in a YAML body

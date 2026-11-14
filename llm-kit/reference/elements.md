@@ -521,7 +521,9 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
   quoted string on the `IMAGE` line, not `alt:`; there is no `width:`,
   `height:` or `src:`.
 - `TABLE008`: a `TABLE` line that is not a row or `headers:`, `rows:`,
-  `cells:`, `tableRows:`, `caption:`, `label:`.
+  `cells:`, `tableRows:`, `caption:`, `label:`; a line of dashes with no `|`
+  (`---`) right after a Markdown table header, which is read as its separator;
+  a Markdown row with dashes in a cell, which is skipped as a separator.
 - `CHART007`: a chart line nested under a key that does not read it, an
   unsupported Chart.js key, an invalid `options:` block.
 - `TEXT002`: a `TEXT` with no indented body followed by an element at its own
@@ -529,10 +531,15 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
   that indentation are read as the paragraph of the `TEXT`, as plain text.
   Indent the paragraph under `TEXT`, or delete the empty `TEXT`. `TEXT001` is a
   `TEXT` with no content at all.
-- `QUOTE001` (a repeated `AUTHOR:`/`SOURCE:`), `CHECKLIST002` (an item with no
-  text), `CODEGROUP003` (a line outside the fences of a `:::code-group`),
-  `DIRECTIVE004` (directive text that is not `key=value`), and `STRICT003` for
-  a lone `:::`.
+- `SPECIAL003`: an element inside a `:::` block with a problem that the block
+  used to drop, such as `CODE python main.py extra` (one argument too many).
+- A property written twice keeps the later one and reports the earlier:
+  `QUOTE001` (`AUTHOR:`/`SOURCE:`), `MATH001` (`caption:`/`label:` of
+  `<<math>>`), and `IMG005`, `TABLE008` and `CHART007` for their own
+  properties.
+- `CHECKLIST002` (an item with no text), `CODEGROUP003` (a line outside the
+  fences of a `:::code-group`), `DIRECTIVE004` (directive text that is not
+  `key=value`), and `STRICT003` for a lone `:::`.
 
 The full list is in the spec, "Lines an element does not read".
 

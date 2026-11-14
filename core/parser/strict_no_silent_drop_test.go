@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -55,6 +56,10 @@ type noDropTemplate struct {
 	// agregado a ella (`TEXT hola`, `TEXT: hola`) es contenido que hay que
 	// reportar.
 	headerSuffix bool
+	// extraArgs: la cabecera ya lleva sus argumentos (CODE <lenguaje>), y
+	// uno de más (`CODE python main.py extra`) es texto que hay que
+	// reportar.
+	extraArgs bool
 	// keyword: la palabra clave de la cabecera. El despacho strict la
 	// reconoce por prefijo, así que una letra pegada (`TEXTZ`, `CODEZ
 	// python`) se lee como la palabra clave y se pierde: hay que reportarla.
@@ -78,7 +83,7 @@ var noDropTemplates = []noDropTemplate{
 		{"TEXT", 0, nil, false}, {"alfa3 beta3", 2, tok("alfa3", "beta3"), false}, {"gamma3", 2, tok("gamma3"), false}}},
 	{name: "QUOTE", headerSuffix: true, keyword: "QUOTE", lines: []noDropLine{
 		{"QUOTE", 0, nil, false}, {"alfa4 beta4", 2, tok("alfa4", "beta4"), false}, {"AUTHOR: gamma4", 2, tok("gamma4"), false}}},
-	{name: "CODE", keyword: "CODE", lines: []noDropLine{
+	{name: "CODE", keyword: "CODE", extraArgs: true, lines: []noDropLine{
 		{"CODE python", 0, tok("python"), false}, {"print(alfa5)", 2, tok("print(alfa5)"), false}, {"beta5 = 1", 2, tok("beta5", "=", "1"), false}}},
 	{name: "IMAGE", keyword: "IMAGE", lines: []noDropLine{
 		{`IMAGE "foto6.png" "alfa6"`, 0, tok("foto6.png", "alfa6"), false}, {`caption: "beta6"`, 2, tok("beta6"), false}, {`label: "gamma6"`, 2, tok("gamma6"), false}}},
@@ -88,6 +93,15 @@ var noDropTemplates = []noDropTemplate{
 		{"TABLE", 0, nil, false}, {"headers: [alfa17, beta17]", 2, tok("alfa17", "beta17"), false}, {"rows:", 2, nil, false}, {"[gamma17, delta17]", 4, tok("gamma17", "delta17"), false}}},
 	{name: "MDTABLE", lines: []noDropLine{
 		{"| alfa18 | beta18 |", 0, tok("alfa18", "beta18"), false}, {"| --- | --- |", 0, nil, false}, {"| gamma18 | delta18 |", 0, tok("gamma18", "delta18"), false}}},
+	// Sin fila separadora: la línea suelta que cae justo después del
+	// encabezado es la que el parser puede tomar por separador. Con el
+	// separador de MDTABLE, sus "---" ocupaban el lugar del token "---" de una
+	// línea suelta perdida y la propiedad no lo veía.
+	{name: "MDTABLE_NODELIM", lines: []noDropLine{
+		{"| alfa30 | beta30 |", 0, tok("alfa30", "beta30"), false}, {"| gamma30 | delta30 |", 0, tok("gamma30", "delta30"), false}}},
+	// La tabla Markdown a la sangría de un TABLE cuyo cuerpo ya terminó.
+	{name: "TABLE_THEN_MDTABLE", lines: []noDropLine{
+		{"TABLE", 0, nil, false}, {`caption: "alfa31"`, 2, tok("alfa31"), false}, {"| beta31 | gamma31 |", 0, tok("beta31", "gamma31"), false}}},
 	{name: "CHART", lines: []noDropLine{
 		{"<<chart: bar>>", 0, nil, false}, {`data: [["alfa8", 1], ["beta8", 2]]`, 2, tok("alfa8", "beta8"), false}, {`series: ["gamma8"]`, 2, tok("gamma8"), false}}},
 	{name: "MAP", yaml: true, lines: []noDropLine{
@@ -172,6 +186,23 @@ var noDropLookalikes = []noDropLine{
 	{":::", 0, nil, true},
 }
 
+// noDropRuleStrays son líneas de símbolos que se parecen a una regla
+// horizontal o a un separador de tabla. Las elige un generador aparte (ver
+// noDropExtras) para que las líneas sueltas de siempre sigan saliendo iguales
+// con cada semilla.
+var noDropRuleStrays = []noDropLine{
+	{"---", 0, tok("---"), false},
+	{"-----", 0, tok("-----"), false},
+	{":---:", 0, tok(":---:"), false},
+	{"***", 0, tok("***"), false},
+	{"___", 0, tok("___"), false},
+	{"===", 0, tok("==="), false},
+	{"+++", 0, tok("+++"), false},
+	{"--", 0, tok("--"), false},
+	// Una fila con "---" adentro: sus celdas son las palabras, sin los "|".
+	{"| x --- y |", 0, tok("x", "---", "y"), false},
+}
+
 type noDropContext struct {
 	name  string
 	slide bool
@@ -196,6 +227,10 @@ var noDropContexts = []noDropContext{
 	{name: "typed callout (slide)", slide: true, prefix: noDropDocHeader + "SLIDE content\n  title: \"Tit\"\n  :::info{typed}\n", indent: 2, suffix: "  :::\n"},
 	{name: "document section with typed lists", prefix: noDropTypedLists + "SECTION \"Sec\"\n", indent: 2},
 	{name: "slide with typed lists", slide: true, prefix: noDropTypedLists + "SLIDE content\n  title: \"Tit\"\n", indent: 2},
+	// Un callout sin {typed}: su cuerpo delega a los parsers de elemento
+	// (CODE, TABLE, diagramas…) y guarda el resto como prosa.
+	{name: "callout (document)", prefix: noDropDocHeader + "SECTION \"Sec\"\n  :::note\n", indent: 2, suffix: "  :::\n"},
+	{name: "callout (slide)", slide: true, prefix: noDropDocHeader + "SLIDE content\n  title: \"Tit\"\n  :::note\n", indent: 2, suffix: "  :::\n"},
 }
 
 // noDropCase es un documento generado y, por línea del archivo (1-based), los
@@ -472,12 +507,74 @@ func noDropHeaderFor(rng *rand.Rand, tpl noDropTemplate) noDropHeader {
 			}
 			return noDropHeader{sep: sep, suffix: noDropStrays[rng.Intn(len(noDropStrays))]}
 		}
+		if tpl.extraArgs {
+			return noDropHeader{suffix: "main.py extra33"}
+		}
 	case 5:
 		if tpl.keyword != "" {
 			return noDropHeader{glued: true}
 		}
 	}
 	return noDropHeader{}
+}
+
+// noDropExtras agrega, con un generador propio, lo que la propiedad no
+// generaba en su primera versión: a veces una línea de símbolos de
+// noDropRuleStrays y a veces una propiedad repetida (ver withRepeatedProperty).
+// Usa su propio rng para no alterar las líneas sueltas de cada semilla.
+func noDropExtras(seed int64, tpl noDropTemplate) (noDropTemplate, []noDropStray) {
+	ext := rand.New(rand.NewSource(seed + 1<<20))
+	var strays []noDropStray
+	if ext.Intn(2) == 0 {
+		strays = append(strays, noDropStray{
+			at:     ext.Intn(16),
+			indent: []int{2, 2, 4, 6, 0, -2}[ext.Intn(6)],
+			line:   noDropRuleStrays[ext.Intn(len(noDropRuleStrays))],
+		})
+	}
+	if ext.Intn(3) == 0 {
+		tpl = withRepeatedProperty(ext, tpl)
+	}
+	return tpl, strays
+}
+
+// noDropKeyLine reconoce una línea de propiedad: `caption: …`, `AUTHOR: …`.
+var noDropKeyLine = regexp.MustCompile(`^[A-Za-z]+:`)
+
+// withRepeatedProperty copia una de las líneas de propiedad de tpl que llevan
+// texto (`caption: "beta28"`) y la inserta más abajo en el cuerpo con otro
+// texto (`caption: "BETA28"`): una propiedad repetida pisa a la anterior en
+// muchos bloques, y la que se pierde tiene que llevar su aviso. Devuelve tpl
+// sin cambios si no tiene ninguna.
+func withRepeatedProperty(rng *rand.Rand, tpl noDropTemplate) noDropTemplate {
+	var keyed []int
+	for k := 1; k < len(tpl.lines); k++ {
+		if l := tpl.lines[k]; len(l.payload) > 0 && noDropKeyLine.MatchString(l.text) {
+			keyed = append(keyed, k)
+		}
+	}
+	if len(keyed) == 0 {
+		return tpl
+	}
+	k := keyed[rng.Intn(len(keyed))]
+	dup := tpl.lines[k]
+	dup.payload = nil
+	for _, w := range tpl.lines[k].payload {
+		// En mayúsculas y no con un sufijo: takeToken busca un token largo
+		// también como subcadena, y "beta28" se encontraría dentro de
+		// "beta28r" aunque la primera línea se hubiera perdido.
+		dup.text = strings.ReplaceAll(dup.text, w, strings.ToUpper(w))
+		dup.payload = append(dup.payload, strings.ToUpper(w))
+	}
+	end := len(tpl.lines)
+	if tpl.closer {
+		end--
+	}
+	at := k + 1 + rng.Intn(end-k)
+	lines := append([]noDropLine(nil), tpl.lines[:at]...)
+	lines = append(lines, dup)
+	tpl.lines = append(lines, tpl.lines[at:]...)
+	return tpl
 }
 
 func TestStrictNoSilentDrop_Property(t *testing.T) {
@@ -506,7 +603,9 @@ func TestStrictNoSilentDrop_Property(t *testing.T) {
 						})
 					}
 					header := noDropHeaderFor(rng, tpl)
-					if msg := checkNoDrop(t, ctx, buildNoDropCase(ctx, tpl, strays, header)); msg != "" {
+					caseTpl, extra := noDropExtras(seed, tpl)
+					strays = append(strays, extra...)
+					if msg := checkNoDrop(t, ctx, buildNoDropCase(ctx, caseTpl, strays, header)); msg != "" {
 						if os.Getenv("NODROP_ALL") != "" {
 							t.Errorf("seed %d: %s", seed, strings.SplitN(msg, "\n", 2)[0])
 							continue

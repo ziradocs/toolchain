@@ -132,7 +132,8 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	} else {
 		// Parse Markdown-style table
-		headers, rows, rowPositions, columnAlign, markdownConsumed := p.parseMarkdownTable(ctx, startIndex)
+		headers, rows, rowPositions, columnAlign, markdownConsumed, markdownDiags := p.parseMarkdownTable(ctx, startIndex)
+		diags = append(diags, markdownDiags...)
 		table.ColumnAlign = columnAlign
 		table.Headers = headers
 		table.Rows = rows
@@ -180,6 +181,9 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
 	lines := ctx.Lines
+	// Un caption: o label: repetido pisa al anterior; el anterior se avisa
+	// (TABLE008).
+	repeated := newRepeatedKeys(ctx, TableLineRuleID, "table-parser", "TABLE")
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -378,10 +382,12 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 		} else if strings.HasPrefix(trimmedLine, "caption:") {
 			captionStr := strings.TrimPrefix(trimmedLine, "caption:")
 			caption = strings.Trim(strings.TrimSpace(captionStr), "\"")
+			repeated.read("caption", i, i)
 		} else if strings.HasPrefix(trimmedLine, "label:") {
 			// issue #239: identificador de referencia cruzada (p. ej. "tbl:ventas").
 			labelStr := strings.TrimPrefix(trimmedLine, "label:")
 			label = strings.Trim(strings.TrimSpace(labelStr), "\"")
+			repeated.read("label", i, i)
 		} else if strings.Contains(trimmedLine, "|") {
 			legacyDeclared = true
 			// Fallback: Parse table row (separated by |) for compatibility
@@ -424,6 +430,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	if newDeclared && legacyDeclared {
 		diags = append(diags, diagnostics.NewError("tableRows cannot be combined with authored headers/rows/cells", pos, "table-parser"))
 	}
+	diags = append(diags, repeated.diags...)
 	rows, rowPositions, diags = dropMiscountedInlineRows(headers, rows, rowPositions, inlineGroups, diags)
 	return headers, rows, caption, label, explicitCells, tableRows, rowPositions, diags, consumed
 }
@@ -956,12 +963,13 @@ func isMarkdownSeparatorRow(cells []string) bool {
 }
 
 // parseMarkdownTable parsea una tabla en formato Markdown
-func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int) {
+func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int, []diagnostics.Diagnostic) {
 	// Inicializados como slices vacíos (no nil), ver comentario en parseYAMLTable.
 	headers := []string{}
 	rows := [][]string{}
 	var rowPositions []diagnostics.Position
 	var columnAlign []string
+	var diags []diagnostics.Diagnostic
 	consumed := 0
 	lines := ctx.Lines
 
@@ -983,6 +991,14 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 
 		// Skip separator lines (e.g., |---|---|)
 		if strings.Contains(line, "---") || strings.Contains(line, ":-:") || strings.Contains(line, ":--") || strings.Contains(line, "--:") {
+			// Cualquier fila con "---" (o ":--", "--:", ":-:") se salta como
+			// separador, como siempre. Si tiene algo más que guiones, dos
+			// puntos y "|", sus celdas se pierden: se avisa (TABLE008).
+			if strings.Trim(line, "|-: \t") != "" {
+				diags = append(diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+					"This table row is read as a separator row because it has dashes in it, so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |. If a dash marks an empty cell, write the cell another way (n/a, —) so the row stays in the table.",
+					line))
+			}
 			// La alineación solo sale de la delimitadora que sigue al header.
 			if len(headers) > 0 && len(rows) == 0 && columnAlign == nil {
 				columnAlign = MarkdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(headers))
@@ -1011,7 +1027,7 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 		consumed++
 	}
 
-	return headers, rows, rowPositions, columnAlign, consumed
+	return headers, rows, rowPositions, columnAlign, consumed, diags
 }
 
 // TableRowsRuleID es el aviso de un `rows:` en línea que no se pudo leer como

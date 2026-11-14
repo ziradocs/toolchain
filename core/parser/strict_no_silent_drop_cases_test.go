@@ -35,6 +35,8 @@ type noDropRegression struct {
 	// header, si no está vacío, reemplaza la línea SLIDE (casos del propio
 	// contenedor).
 	header string
+	// front, si no está vacío, reemplaza el frontmatter (noDropDocHeader).
+	front string
 	// covers: el aviso puede empezar antes (en la apertura del elemento) y
 	// cubrir la línea marcada con su endPosition, como los de un cuerpo YAML
 	// o JSON ignorado entero.
@@ -146,14 +148,97 @@ var noDropRegressions = []noDropRegression{
 	{name: "directive highlight example", body: []string{`  @highlight color="x" junk  <`}, rule: "DIRECTIVE004", quote: `@highlight color="yellow"`},
 	{name: "quiz flow mapping", body: []string{"  <<quiz>>", "    {question: Q, options: [a, b], answer: 0, zeta: 1}  <", "  <<end>>"}, rule: "QUIZ007", quote: `that key and its value were ignored; the rest of this line is read`},
 	{name: "metric invalid yaml", covers: true, body: []string{"  <<metric>>", "    label: [roto", "    value: 1  <", "  <<end>>"}, rule: "METRIC002", quote: "inválido"},
+
+	// Una línea de guiones sin "|" justo después del encabezado de una tabla
+	// Markdown strict se toma por separador, aunque no tenga una celda por
+	// columna: lo que el autor escribió como línea suelta no estaba en
+	// ningún lado. Pasa igual con la tabla que sigue a un TABLE cuyo cuerpo
+	// ya terminó, y en una columna tipada.
+	{name: "markdown table bare dashes", body: []string{"  | a | b |", "  ---  <"}, rule: "TABLE008", quote: `has no pipes but is read as the table's separator row: "---"`},
+	{name: "markdown table long dashes", body: []string{"  | a | b |", "  -----  <", "  | c | d |"}, rule: "TABLE008", quote: `"-----"`},
+	{name: "markdown table bare aligned dashes", body: []string{"  | a | b |", "  :---:  <"}, rule: "TABLE008", quote: `":---:"`},
+	{name: "markdown table after a TABLE body", body: []string{"  TABLE", `    caption: "x"`, "  | a | b |", "  ---  <"}, rule: "TABLE008", quote: `has no pipes`},
+	{name: "markdown table in a typed column", body: []string{"  <<grid>>", "  <<column typed>>", "    | a | b |", "    ---  <", "  <<end>>"}, rule: "TABLE008", quote: `has no pipes`},
+
+	// <<math>>: un caption: o label: repetido pisa al primero (QUOTE001 es
+	// el mismo caso con AUTHOR:/SOURCE:).
+	{name: "math repeated caption", body: []string{"  <<math>>", "    x + 1", `    caption: "primera"  <`, `    caption: "segunda"`, "  <<end>>"}, rule: "MATH001", quote: `"caption: \"primera\""`},
+	{name: "math repeated label", body: []string{"  <<math>>", "    x + 1", "    label: eq:a  <", "    label: eq:b", "  <<end>>"}, rule: "MATH001", quote: `The later "label: eq:b" replaces it`},
+	{name: "math source repeated caption", front: noDropMathSource, body: []string{"  <<math>>", "    x + 1", `    caption: "primera"  <`, `    caption: "segunda"`, "  <<end>>"}, rule: "MATH001", quote: `"caption: \"primera\""`},
+	{name: "math unclosed repeated caption", body: []string{"  <<math>>", "    x + 1", `    caption: "primera"  <`, `    caption: "segunda"`}, rule: "MATH001", quote: `"caption: \"primera\""`},
+
+	// El error de un elemento dentro de un ":::" se perdía: el elemento
+	// salía sin esa parte y sin ningún diagnóstico, con el bloque cerrado o
+	// sin cerrar.
+	{name: "code extra argument in unclosed callout", body: []string{"  :::note", "  CODE python main.py extra30  <", "    print(1)"}, rule: "SPECIAL003", quote: `unexpected "extra30"`},
+	{name: "code extra argument in callout", body: []string{"  :::note", "  CODE python main.py extra30  <", "    print(1)", "  :::"}, rule: "SPECIAL003", quote: `inside the ":::note" block`},
+	{name: "code extra argument in nested callout", body: []string{"  :::note", "  :::warning", "  CODE python main.py extra30  <", "    print(1)", "  :::", "  :::"}, rule: "SPECIAL003", quote: `inside the ":::warning" block`},
+	{name: "fence extra argument in typed callout", body: []string{"  :::info{typed}", "  ```python main.py extra30  <", "  print(1)", "  ```", "  :::"}, rule: "SPECIAL003", quote: `"python main.py extra30"`},
+	{name: "mermaid attribute in callout", body: []string{"  :::note", `  <<mermaid theme="dark">>  <`, "    graph TD", "  :::"}, rule: "SPECIAL003", quote: `"theme"`},
+	{name: "plantuml attribute in callout", body: []string{"  :::note", `  <<plantuml theme="x">>  <`, "    @startuml", "    A -> B", "    @enduml", "  :::"}, rule: "SPECIAL003", quote: `unknown <<plantuml>> attribute "theme"`},
+	{name: "map marker in callout", body: []string{"  :::note", "  <<map>>  <", "    type: world", "    markers:", "      - lat: 1", `        label: "x"`, "  :::"}, rule: "SPECIAL003", quote: `has no lng`},
+	{name: "code group in callout", body: []string{"  :::note", "  :::code-group  <", "  ```js [a]", "  x()", "  ```", "  suelta", "  :::", "  :::"}, rule: "SPECIAL003", quote: `outside a code fence: "suelta"`},
+
+	// Lo que encontró la propiedad extendida (propiedades repetidas y filas
+	// con guiones): una propiedad repetida de TABLE, IMAGE o <<chart>> pisa
+	// a la anterior, y una fila con "---" de una tabla Markdown dentro de un
+	// ":::" se salta como separador.
+	{name: "table repeated caption", body: []string{"  TABLE", "    | a | b |", `    caption: "uno"  <`, `    caption: "dos"`}, rule: "TABLE008", quote: `This caption: line of the TABLE was ignored: "caption: \"uno\""`},
+	{name: "table repeated label", body: []string{"  TABLE", "    | a | b |", "    label: tbl:a  <", "    label: tbl:b"}, rule: "TABLE008", quote: `The later "label: tbl:b" replaces it`},
+	{name: "image repeated caption", body: []string{`  IMAGE "foto.png" "perro"`, `    caption: "uno"  <`, `    caption: "dos"`}, rule: "IMG005", quote: `This caption: line of the IMAGE was ignored`},
+	{name: "image repeated label", body: []string{`  IMAGE "foto.png" "perro"`, "    label: fig:a  <", `    caption: "uno"`, "    label: fig:b"}, rule: "IMG005", quote: `"label: fig:a"`},
+	{name: "chart repeated data", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]  <`, `    data: [["b", 2]]`}, rule: "CHART007", quote: `This data: line of the chart was ignored`},
+	{name: "chart repeated series", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    series: ["s"]  <`, `    series: ["t"]`}, rule: "CHART007", quote: `The later "series: [\"t\"]" replaces it`},
+	{name: "chart repeated title", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    title: "uno"  <`, `    title: "dos"`}, rule: "CHART007", quote: `"title: \"uno\""`},
+	{name: "chart repeated multi-line series", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    series: [  <", `      "s"`, "    ]", `    series: ["t"]`}, rule: "CHART007", quote: `and the lines of its value below it were ignored`},
+	{name: "markdown row with dashes in callout", body: []string{"  :::note", "  | a | b |", "  | x --- y | z |  <", "  :::"}, rule: "TABLE008", quote: `has dashes in it, so its cells were ignored: "| x --- y | z |"`},
+	{name: "markdown row with dashes in typed callout", body: []string{"  :::info{typed}", "  | a | b |", "  | --- | --- |", "  | 1 | 2 |", "  | x --- y | z |  <", "  :::"}, rule: "TABLE008", quote: `"| x --- y | z |"`},
+}
+
+// noDropMathSource activa la lectura literal de <<math>> (parseLiteral).
+const noDropMathSource = "---\nmode: strict\ntitle: \"Doc\"\nast_capabilities: [\"math-source-v1\"]\n---\n"
+
+// Los bloques que flex lee igual que strict dan los mismos avisos en un
+// documento flex: <<math>>, el bloque TABLE, <<chart>>, la tabla Markdown y
+// un elemento dentro de un ":::".
+func TestStrictNoSilentDrop_FlexSharedBlocks(t *testing.T) {
+	const front = "---\nmode: flex\ntitle: \"Doc\"\n---\n# Sec\n\n"
+	cases := []struct {
+		name, body, rule, quote string
+		line                    int
+	}{
+		{"math repeated caption", "<<math>>\nx + 1\ncaption: \"a\"\ncaption: \"b\"\n<<end>>\n", "MATH001", `"caption: \"a\""`, 9},
+		{"table repeated caption", "TABLE\n  | a | b |\n  caption: \"a\"\n  caption: \"b\"\n", "TABLE008", `This caption: line of the TABLE was ignored`, 9},
+		{"chart repeated data", "<<chart: bar>>\n  data: [[\"a\", 1]]\n  data: [[\"b\", 2]]\n", "CHART007", `This data: line of the chart was ignored`, 8},
+		{"markdown row with dashes", "| a | b |\n| --- | --- |\n| 1 | 2 |\n| x --- y | z |\n", "TABLE008", `"| x --- y | z |"`, 10},
+		{"fence extra argument in callout", ":::note\n```python main.py extra30\nprint(1)\n```\n:::\n", "SPECIAL003", `"python main.py extra30"`, 8},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, diags := New(util.NewNoop()).ParseDocument(front+c.body, "flex.doclang")
+			for _, d := range diags {
+				if d.RuleID == c.rule && d.Position.Line == c.line && strings.Contains(d.Message, c.quote) {
+					if !d.IsWarning() {
+						t.Errorf("%s is %s", c.rule, d.Severity)
+					}
+					return
+				}
+			}
+			t.Errorf("want %s on line %d, got %v", c.rule, c.line, diags)
+		})
+	}
 }
 
 // buildNoDropRegression arma el documento del caso en el dialecto pedido y
 // devuelve la línea (1-based) que debe llevar el aviso.
 func buildNoDropRegression(c noDropRegression, slide bool) (string, int) {
+	front := noDropDocHeader
+	if c.front != "" {
+		front = c.front
+	}
 	var b strings.Builder
-	b.WriteString(noDropDocHeader)
-	line := strings.Count(noDropDocHeader, "\n")
+	b.WriteString(front)
+	line := strings.Count(front, "\n")
 	want := 0
 	mark := func(s string) string {
 		line++
@@ -287,6 +372,21 @@ func TestStrictNoSilentDrop_ValidBodiesStayQuiet(t *testing.T) {
 		"  :::info Nota",
 		"    texto",
 		"  :::",
+		// Un caption: y un label: por <<math>>, un CODE completo dentro de un
+		// ":::" y el separador sin "|" de una tabla de una sola columna (el de
+		// GFM) no pierden nada.
+		"  <<math>>",
+		"    e^{i\\pi} + 1 = 0",
+		`    caption: "Euler"`,
+		"    label: eq:euler",
+		"  <<end>>",
+		"  :::note",
+		"  CODE python main.py",
+		"    print(3)",
+		"  :::",
+		"  | z |",
+		"  ---",
+		"  | 3 |",
 	}
 	for _, slide := range []bool{false, true} {
 		src, _ := buildNoDropRegression(noDropRegression{body: body}, slide)
@@ -319,9 +419,27 @@ func TestStrictNoSilentDrop_NodeIDKeepsLines(t *testing.T) {
 		"    label: L\n" + // 13
 		"    notas:\n" + // 14
 		"      - x\n" + // 15
-		"  <<end>>\n"
+		"  <<end>>\n" + // 16
+		"  <!-- node-id: Euler -->\n" + // 17
+		"  <<math>>\n" + // 18
+		"    x + 1\n" + // 19
+		"    caption: \"uno\"\n" + // 20
+		"    caption: \"dos\"\n" + // 21
+		"  <<end>>\n" + // 22
+		"  <!-- node-id: Nota -->\n" + // 23
+		"  :::note\n" + // 24
+		"  CODE python main.py extra\n" + // 25
+		"    print(1)\n" + // 26
+		"  :::\n" + // 27
+		"  <!-- node-id: Serie -->\n" + // 28
+		"  <<chart: bar>>\n" + // 29
+		"    data: [[\"a\", 1]]\n" + // 30
+		"    series: [\n" + // 31
+		"      \"s\"\n" + // 32
+		"    ]\n" + // 33
+		"    series: [\"t\"]\n" // 34
 	_, diags := New(util.NewNoop()).ParseDocument(src, "ids.doclang")
-	want := map[string][2]int{"QUOTE001": {9, 9}, "METRIC006": {14, 15}}
+	want := map[string][2]int{"QUOTE001": {9, 9}, "METRIC006": {14, 15}, "MATH001": {20, 20}, "SPECIAL003": {25, 25}, "CHART007": {31, 33}}
 	lineNumber := regexp.MustCompile(`\bline \d+`)
 	for _, d := range diags {
 		w, ok := want[d.RuleID]
