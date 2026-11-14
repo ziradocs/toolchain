@@ -134,6 +134,8 @@ var noDropRegressions = []noDropRegression{
 	// cierre de la fila se encuentra y la fila descartada de abajo se avisa.
 	{name: "cells apostrophe in a word", body: []string{"  TABLE", "    cells:", "        - [{content: Don't}]", "      - [{content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
 	{name: "cells inch mark in a word", body: []string{"  TABLE", "    cells:", `        - [{content: 5" screen}]`, "      - [{content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
+	{name: "cells quote after a space in a word", body: []string{"  TABLE", "    cells:", "        - [{content: rock 'n roll}]", "      - [{content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
+	{name: "cells double quote after a space", body: []string{"  TABLE", "    cells:", `        - [{content: a "b}]`, "      - [{content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
 	{name: "cells item at key indent", body: []string{"  TABLE", "    cells:", "      - [{content: a}, {content: b}]", "    - [{content: c}, {content: d}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
 	{name: "table rows document marker", body: []string{"  TABLE", "    tableRows:", "      - cells: [{content: a}]", "    ---  <"}, rule: "TABLE008", quote: `"---"`},
 	{name: "table rows invalid", covers: true, severity: diagnostics.Error, body: []string{"  TABLE", "    tableRows:", "      - cells: [{content: a, falso: 1}]  <"}, rule: "", quote: "invalid tableRows YAML"},

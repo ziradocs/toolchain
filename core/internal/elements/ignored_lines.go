@@ -336,9 +336,10 @@ func flowCloseLine(lines []string, line, col int) (int, bool) {
 			ch := s[c]
 			switch {
 			case quote == '"':
-				if ch == '\\' {
+				switch ch {
+				case '\\':
 					c++
-				} else if ch == '"' {
+				case '"':
 					quote = 0
 				}
 			case quote == '\'':
@@ -367,15 +368,20 @@ func flowCloseLine(lines []string, line, col int) (int, bool) {
 }
 
 // startsFlowScalar dice si la comilla en s[c] abre un escalar entre comillas
-// dentro de una colección de flujo: solo al principio de la línea o después de
-// un espacio, `[`, `{`, `,` o `:`. Una comilla dentro de una palabra
-// (`Don't`, `5" screen`) es parte de un escalar plano.
+// dentro de una colección de flujo: solo si es el primer carácter del escalar,
+// o sea, si antes de ella (saltando espacios) está el principio de la línea, `[`,
+// `{`, `,` o `:`. Una comilla dentro de un escalar plano (`Don't`, `5" screen`,
+// `rock 'n roll`) es parte de ese escalar.
 func startsFlowScalar(s string, c int) bool {
-	if c == 0 {
+	k := c - 1
+	for k >= 0 && (s[k] == ' ' || s[k] == '\t') {
+		k--
+	}
+	if k < 0 {
 		return true
 	}
-	switch s[c-1] {
-	case ' ', '\t', '[', '{', ',', ':':
+	switch s[k] {
+	case '[', '{', ',', ':':
 		return true
 	}
 	return false
