@@ -147,6 +147,55 @@ func generatedTableShapes() []tableShape {
 	return shapes
 }
 
+// specialCellShapes son las tablas de generatedTableShapes (sin encabezado o
+// con ["A", "B"], sin label) con la celda "x" cambiada por un contenido que
+// alguna forma no lleva: una comilla doble (headers:/rows:), espacios en los
+// bordes y una celda "---" (pipe), y un backslash al final.
+func specialCellShapes() []tableShape {
+	var shapes []tableShape
+	for _, special := range []string{`Café "premium"`, " A ", "---", `a\`} {
+		for _, sh := range generatedTableShapes() {
+			if sh.label != "" || !(sh.headers == nil || len(sh.headers) == 2 && sh.headers[0] == "A") {
+				continue
+			}
+			found := false
+			rows := make([][]string, len(sh.rows))
+			for i, r := range sh.rows {
+				rows[i] = make([]string, len(r))
+				for j, c := range r {
+					if c == "x" {
+						c = special
+						found = true
+					}
+					rows[i][j] = c
+				}
+			}
+			if found {
+				shapes = append(shapes, tableShape{headers: sh.headers, rows: rows, caption: sh.caption})
+			}
+		}
+	}
+	return shapes
+}
+
+func shapeHas(s tableShape, f func(string) bool) bool {
+	for _, c := range s.headers {
+		if f(c) {
+			return true
+		}
+	}
+	for _, r := range s.rows {
+		for _, c := range r {
+			if f(c) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasQuote(c string) bool { return strings.Contains(c, `"`) }
+
 func quotedCells(cells []string) string {
 	q := make([]string, len(cells))
 	for i, c := range cells {
@@ -184,6 +233,10 @@ func yamlCell(content string, header bool) string {
 
 var tableSourceForms = []tableSourceForm{
 	{"TABLE rows:", func(s tableShape, d tableDialect) (string, []string, [][]string, bool) {
+		if shapeHas(s, hasQuote) {
+			// headers:/rows: no tiene cómo escribir una comilla doble.
+			return "", nil, nil, false
+		}
 		var b strings.Builder
 		b.WriteString("TABLE\n" + tableProps(s))
 		if s.headers != nil {
@@ -264,6 +317,11 @@ func markdownTableForm(aligned bool) func(s tableShape, d tableDialect) (string,
 		if s.headers == nil || s.caption != "" || s.label != "" {
 			return "", nil, nil, false
 		}
+		if shapeHas(s, func(c string) bool { return c != strings.TrimSpace(c) || strings.Contains(c, "---") }) {
+			// La forma pipe recorta los bordes de una celda, y flex salta
+			// como separador una fila con "---".
+			return "", nil, nil, false
+		}
 		pipeRow := func(cells []string) string {
 			if len(cells) == 0 {
 				return "|"
@@ -310,6 +368,13 @@ func hasErrorDiag(diags []diagnostics.Diagnostic) (diagnostics.Diagnostic, bool)
 		}
 	}
 	return diagnostics.Diagnostic{}, false
+}
+
+// isAlignmentRefusal dice si err es el rechazo de una tabla alineada con una
+// fila sin celdas cuando fmt escribe strict.
+func isAlignmentRefusal(err error) bool {
+	var unsupported *UnsupportedElementError
+	return errors.As(err, &unsupported) && strings.Contains(err.Error(), "column alignment and a row without cells")
 }
 
 // newRuleIDs devuelve los RuleID de after que before no tiene.
@@ -361,26 +426,42 @@ func TestFormat_GeneratedTablesRoundTrip(t *testing.T) {
 			calloutShapes = append(calloutShapes, sh)
 		}
 	}
+	specials := specialCellShapes()
+	refused, total := 0, 0
 	for _, d := range tableDialects {
 		t.Run(d.name, func(t *testing.T) {
-			roundTripGeneratedTables(t, d, shapes)
+			r, n := roundTripGeneratedTables(t, d, append(append([]tableShape{}, shapes...), specials...))
+			refused += r
+			total += n
 		})
 	}
 	for _, d := range calloutTableDialects {
 		t.Run(d.name, func(t *testing.T) {
-			roundTripGeneratedTables(t, d, calloutShapes)
+			r, n := roundTripGeneratedTables(t, d, calloutShapes)
+			refused += r
+			total += n
 		})
 	}
+	t.Logf("%d generated tables round-tripped, %d refused", total, refused)
 }
 
-func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape) {
+// isArraysQuoteRefusal dice si err es el rechazo de una tabla que solo cabe en
+// headers:/rows: y tiene una celda con una comilla doble.
+func isArraysQuoteRefusal(err error) bool {
+	var unsupported *UnsupportedElementError
+	return errors.As(err, &unsupported) && strings.Contains(err.Error(), "can only be written as TABLE with headers: and rows:") && strings.Contains(err.Error(), "double quote")
+}
+
+// roundTripGeneratedTables devuelve cuántas tablas fmt rechazó con razón y
+// cuántas pasaron.
+func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape) (refused, total int) {
 	accepted := map[string]int{}
 	exercised := map[string]bool{}
 	failures := 0
 	for _, form := range tableSourceForms {
 		for _, shape := range shapes {
 			if failures > 10 {
-				return
+				return refused, total
 			}
 			table, wantHeaders, wantRows, ok := form.write(shape, d)
 			if !ok {
@@ -418,17 +499,29 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			wantRefusal := len(got.ColumnAlign) > 0 && hasEmptyRow(got.Rows) && !d.flexOut && d.callout == ""
 			once, err := d.format(doc)
 			if wantRefusal {
-				if err == nil || !strings.Contains(err.Error(), "columnAlign") {
+				if !isAlignmentRefusal(err) {
 					t.Errorf("%s / %s: want fmt to refuse the alignment, got %v\n%s", form.name, shape, err, src)
 					failures++
 				} else {
 					exercised["an aligned table with a row without cells, refused"] = true
+					refused++
+				}
+				continue
+			}
+			if err != nil && isArraysQuoteRefusal(err) && shapeHas(tableShape{headers: got.Headers, rows: got.Rows}, hasQuote) {
+				// Una tabla que solo cabe en headers:/rows: (sin encabezado y
+				// con una fila de otro largo o sin celdas) y tiene una comilla
+				// doble no tiene forma.
+				refused++
+				if len(got.Headers) > 0 {
+					t.Errorf("%s / %s: a table with a header was refused for its quote: %v\n%s", form.name, shape, err, src)
+					failures++
 				}
 				continue
 			}
 			if err != nil {
 				// Ninguna otra celda generada tiene algo que fmt no pueda
-				// escribir (comillas, saltos de línea).
+				// escribir.
 				t.Errorf("%s / %s: fmt refused the table: %v\n%s", form.name, shape, err, src)
 				failures++
 				continue
@@ -476,9 +569,8 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 		}
 	}
 	if failures > 0 {
-		return
+		return refused, total
 	}
-	total := 0
 	for _, form := range tableSourceForms {
 		n := accepted[form.name]
 		total += n
@@ -495,7 +587,8 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			t.Errorf("no generated table had %s", what)
 		}
 	}
-	t.Logf("%d generated tables round-tripped through fmt", total)
+	t.Logf("%d generated tables round-tripped through fmt, %d refused", total, refused)
+	return refused, total
 }
 
 // Cada caso que main reescribía con otro AST, con la forma que fmt escribe
@@ -513,7 +606,7 @@ func TestFormat_TableEmptyRowsRegressions(t *testing.T) {
 			name:  "row without cells under headers",
 			d:     strictSlide,
 			table: "TABLE\n  headers: [\"A\", \"B\"]\n  rows:\n    [\"1\", \"2\"]\n    []",
-			want:  "TABLE\n  headers: [\"A\", \"B\"]\n  rows:\n    [\"1\", \"2\"]\n    []",
+			want:  "TABLE\n  | A | B |\n  |---|---|\n  | 1 | 2 |\n  |",
 		},
 		{
 			name:  "headerless table",
@@ -543,13 +636,13 @@ func TestFormat_TableEmptyRowsRegressions(t *testing.T) {
 			name:  "caption and a row with more cells than headers",
 			d:     strictSlide,
 			table: "TABLE\n  caption: \"Ventas\"\n  headers: [\"A\", \"B\"]\n  rows:\n    [\"1\", \"2\", \"3\"]\n    [\"4\", \"5\"]",
-			want:  "TABLE\n  caption: \"Ventas\"\n  headers: [\"A\", \"B\"]\n  rows:\n    [\"1\", \"2\", \"3\"]\n    [\"4\", \"5\"]",
+			want:  "TABLE\n  caption: \"Ventas\"\n  | A | B |\n  |---|---|\n  | 1 | 2 | 3 |\n  | 4 | 5 |",
 		},
 		{
 			name:  "label and a row without cells",
 			d:     strictSlide,
 			table: "TABLE\n  label: \"tbl:a\"\n  headers: [\"A\"]\n  rows:\n    [\"1\"]\n    []",
-			want:  "TABLE\n  label: \"tbl:a\"\n  headers: [\"A\"]\n  rows:\n    [\"1\"]\n    []",
+			want:  "TABLE\n  label: \"tbl:a\"\n  | A |\n  |---|\n  | 1 |\n  |",
 		},
 		{
 			name:  "caption and rectangular rows keep cells:",
@@ -595,26 +688,61 @@ func TestFormat_TableEmptyRowsRegressions(t *testing.T) {
 }
 
 // Una celda que headers:/rows: no puede escribir se rechaza en vez de
-// cambiar la tabla: es una tabla que solo cabe en esa forma (tiene una fila
-// sin celdas) con una comilla doble o un salto de línea en una celda.
+// cambiar la tabla, y el mensaje dice qué tabla, qué la obliga a esa forma y
+// cómo arreglarlo. Una tabla sin encabezado con una fila de otro largo solo
+// cabe ahí; con encabezado, TABLE con filas "|" lleva la comilla.
 func TestFormat_TableArraysFormRefusesUnquotableCells(t *testing.T) {
-	d := tableDialects[0]
-	for name, header := range map[string]string{
-		"double quote": `say "hi"`,
-		"line break":   "a\nb",
-	} {
-		t.Run(name, func(t *testing.T) {
-			doc, diags := d.parse(d.wrap("TABLE\n  headers: [\"A\"]\n  rows:\n    [\"1\"]\n    []"))
+	for _, d := range []tableDialect{tableDialects[0], tableDialects[5]} {
+		for name, tc := range map[string]struct {
+			cell string
+			want []string
+		}{
+			"double quote": {`say "hi"`, []string{"without a header whose first row is | say \"hi\" |", "no header row", "the row | 1 | 2 | has 2 cells where the first row has 1", "double quote", "add a header row"}},
+			"line break":   {"a\nb", []string{"no header row", "line break"}},
+		} {
+			t.Run(d.name+"/"+name, func(t *testing.T) {
+				doc, diags := d.parse(d.wrap(fmt.Sprintf("TABLE\n  rows:\n%[1]s[\"x\"]\n%[1]s[\"1\", \"2\"]", strings.Repeat(" ", d.rowsIndent()))))
+				if e, bad := hasErrorDiag(diags); bad {
+					t.Fatalf("fixture does not parse: %s", e.String())
+				}
+				tbl := firstTable(doc)
+				tbl.Rows[0][0] = tc.cell
+				tbl.Cells = ast.DeriveCellsFromFlat(tbl.Headers, tbl.Rows)
+				_, err := d.format(doc)
+				var unsupported *UnsupportedElementError
+				if !errors.As(err, &unsupported) {
+					t.Fatalf("want UnsupportedElementError, got %v", err)
+				}
+				for _, w := range tc.want {
+					if !strings.Contains(err.Error(), w) {
+						t.Errorf("the message does not say %q:\n%v", w, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+// Con encabezado, una fila de otro largo y una comilla doble se escriben en
+// TABLE con filas "|", como las escribió el autor (main rellenaba la fila).
+func TestFormat_CaptionedRaggedTableWithQuote(t *testing.T) {
+	const table = "TABLE\n  caption: \"Ventas\"\n  | Producto | Nota |\n  |---|---|\n  | Café \"premium\" |\n  | Té | ok |"
+	for _, d := range tableDialects {
+		t.Run(d.name, func(t *testing.T) {
+			doc, diags := d.parse(d.wrap(table))
 			if e, bad := hasErrorDiag(diags); bad {
 				t.Fatalf("fixture does not parse: %s", e.String())
 			}
-			tbl := firstTable(doc)
-			tbl.Headers[0] = header
-			tbl.Cells = ast.DeriveCellsFromFlat(tbl.Headers, tbl.Rows)
-			_, err := d.format(doc)
-			var unsupported *UnsupportedElementError
-			if !errors.As(err, &unsupported) {
-				t.Fatalf("want UnsupportedElementError, got %v", err)
+			out, err := d.format(doc)
+			if err != nil {
+				t.Fatalf("fmt: %v", err)
+			}
+			doc2, _ := d.parse(out)
+			if !reflect.DeepEqual(stripPositions(doc.ContentBlocks), stripPositions(doc2.ContentBlocks)) {
+				t.Errorf("the AST changed through fmt\n%s", out)
+			}
+			if !strings.Contains(out, "| Café \"premium\" |\n") {
+				t.Errorf("fmt did not keep the row as written:\n%s", out)
 			}
 		})
 	}
@@ -641,7 +769,7 @@ func TestFormat_AlignedTableWithRowWithoutCells(t *testing.T) {
 			}
 			out, err := d.format(doc)
 			if !d.flexOut {
-				if err == nil || !strings.Contains(err.Error(), "columnAlign") {
+				if !isAlignmentRefusal(err) {
 					t.Fatalf("want fmt to refuse the alignment, got %v\n%s", err, out)
 				}
 				return
