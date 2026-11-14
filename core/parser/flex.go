@@ -387,6 +387,9 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 		ctx.CurrentLine = p.currentLine
 
 		// Try to parse element using registry
+		// El error de un elemento se ancla en la línea donde abre, no en la que
+		// queda después de consumirlo.
+		startLine := p.currentLine
 		result := p.registry.Parse(ctx, p.currentLine)
 		if result.Element != nil && result.ConsumedLines <= 0 {
 			// Un parser que devuelve un elemento sin consumir líneas dejaría
@@ -419,7 +422,7 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 
 		// Handle errors
 		if result.Error != nil {
-			p.addError(result.Error.Error())
+			p.addErrorAt(startLine, result.Error.Error())
 		}
 
 		// Propagar diagnósticos no-fatales del ElementParser (p. ej. CHART002)
@@ -459,7 +462,14 @@ func zeroConsumptionMessage(element ast.Element, line string) string {
 
 // addError añade un error diagnóstico
 func (p *FlexParser) addError(msg string) {
-	pos := p.position(p.currentLine)
+	p.addErrorAt(p.currentLine, msg)
+}
+
+// addErrorAt añade un error diagnóstico anclado a lineIndex (0-based), para
+// los errores que se reportan cuando p.currentLine ya avanzó más allá de la
+// línea donde abre el elemento.
+func (p *FlexParser) addErrorAt(lineIndex int, msg string) {
+	pos := p.position(lineIndex)
 	diag := diagnostics.NewError(msg, pos, "flex-parser")
 	p.diagnostics = append(p.diagnostics, diag)
 }
