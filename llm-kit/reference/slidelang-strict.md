@@ -84,6 +84,12 @@ A **quote** (`QUOTE`) may have several paragraphs: a blank line stays inside the
 quote when the next line with text is indented deeper than `QUOTE`. Without
 that indentation the blank line ends the quote.
 
+Text after `TEXT` or `QUOTE` on the keyword line (`TEXT Hola`, `QUOTE: Una cita`)
+is the first line of the element's content, and the indented body follows it.
+A `\ref`, `AUTHOR:`/`SOURCE:` or another element's keyword on that line is not
+read (`STRICT004`). Prefer the indented body when generating: `fmt` writes it
+that way.
+
 ```
   QUOTE
     First paragraph.

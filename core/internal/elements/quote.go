@@ -61,17 +61,25 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 	quoteIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 
 	var diags []diagnostics.Diagnostic
+	var contentBuilder strings.Builder
 
-	// Saltar línea QUOTE. Su propio texto no se lee (STRICT004).
+	// Saltar línea QUOTE. Su propio texto (`QUOTE una cita`, `QUOTE: una
+	// cita`) es la primera línea de la cita; lo que keywordLineText no lee
+	// (pegado a la palabra clave, un \ref, lo que el cuerpo no leería como
+	// texto de la cita) es STRICT004. Las líneas que la cita toma no cambian.
 	if strings.HasPrefix(line, "QUOTE") {
-		if d := keywordLineRestWarning(ctx, startIndex, "QUOTE", "quote-parser"); d != nil {
-			diags = append(diags, *d)
+		header, fix := keywordLineText(line, "QUOTE")
+		if fix != "" {
+			diags = append(diags, keywordLineTextWarning(ctx, startIndex, "QUOTE", "quote-parser", fix))
 		}
+		contentBuilder.WriteString(header)
 		consumed++
 		startIndex++
 	}
+	// headerLen es lo que la línea QUOTE puso en la cita: una línea en blanco
+	// sigue dentro de la cita solo si el cuerpo ya tiene texto, como antes.
+	headerLen := contentBuilder.Len()
 
-	var contentBuilder strings.Builder
 	var author, source string
 	authorLine, sourceLine := -1, -1
 	// Sangría base del cuerpo: la de su primera línea. Un item de lista más
@@ -93,7 +101,7 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 			for next < len(ctx.Lines) && strings.TrimSpace(ctx.Lines[next]) == "" {
 				next++
 			}
-			if contentBuilder.Len() > 0 && next < len(ctx.Lines) && p.continuesQuote(ctx, next, quoteIndent) {
+			if contentBuilder.Len() > headerLen && next < len(ctx.Lines) && p.continuesQuote(ctx, next, quoteIndent) {
 				for k := i; k < next; k++ {
 					contentBuilder.WriteString("\n")
 					consumed++
@@ -152,6 +160,21 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 		Error:         nil,
 		Diagnostics:   diags,
 	}
+}
+
+// quoteHeaderText dice si rest, el texto que sigue a la palabra clave en la
+// línea de un QUOTE strict, se lee como la primera línea de la cita. Es así
+// cuando el cuerpo de la cita lo leería como texto suyo escrito en su propia
+// línea: no un `---`, ni un AUTHOR: o SOURCE: (metadatos), ni una línea que
+// abre otro elemento con la palabra clave completa o un marcador simbólico
+// (@, |, :::, <<). Es la misma regla con que `fmt` decide si una línea de la
+// cita se puede escribir en strict (validateStrictQuoteContent), así que lo
+// que se lee de la línea QUOTE vuelve igual por el cuerpo.
+func quoteHeaderText(rest string) bool {
+	if rest == "" || rest == "---" || strings.HasPrefix(rest, "AUTHOR:") || strings.HasPrefix(rest, "SOURCE:") {
+		return false
+	}
+	return !startsStrictElementLine(rest, true)
 }
 
 // repeatedQuoteMetadata es el QUOTE001 de un AUTHOR: o SOURCE: (key) en la

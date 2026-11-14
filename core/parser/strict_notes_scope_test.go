@@ -94,6 +94,9 @@ func TestStrictNotesWarnWhenTheyTakeInASibling(t *testing.T) {
 			want: `@notes[uno|IMAGE "foto.png" "alt"]`, quote: `IMAGE \"foto.png\"`, endLine: 2},
 		{name: "slide heading", body: []string{"  @notes", "    uno", `  SECTION "Sub"`},
 			want: `@notes[uno|SECTION "Sub"]`, quote: `SECTION \"Sub\"`, endLine: 2, slideOnly: true},
+		// TEXT y QUOTE leen el texto de su línea: `TEXT hola` es un TEXT.
+		{name: "TEXT with text on its line", body: []string{"  @notes", "    uno", "  TEXT hola"},
+			want: "@notes[uno|TEXT hola]", quote: `"TEXT hola"`, endLine: 2},
 		{name: "blank line before the body", body: []string{"  @notes", "", "    uno", "  TEXT"},
 			want: "@notes[uno|TEXT]", quote: `"TEXT"`, endLine: 3},
 		{name: "typed column", body: []string{"  <<grid>>", "  <<column typed>>", "    @notes", "      uno", "    TEXT", "      En columna", "  <<end>>"},
@@ -161,7 +164,9 @@ func TestStrictNotesStayQuietWithoutASibling(t *testing.T) {
 	}{
 		{"indented notes, blank line, sibling", []string{"  @notes", "    uno", "", "  TEXT", "    Hermano"}, "@notes[uno] text"},
 		{"prose and items at the notes indentation", []string{"  @notes:", "  uno", "  - punto", "  clave: valor"}, "@notes[uno|- punto|clave: valor]"},
-		{"words that only start with a keyword", []string{"  @notes", "    uno", "  TEXTO de apoyo", "  TEXT hola"}, "@notes[uno|TEXTO de apoyo|TEXT hola]"},
+		// `POINTS uno` no es un POINTS bien escrito: POINTS no lee el texto de
+		// su línea. `TEXT hola` sí es un TEXT (ver el caso que avisa).
+		{"words that only start with a keyword", []string{"  @notes", "    uno", "  TEXTO de apoyo", "  POINTS uno"}, "@notes[uno|TEXTO de apoyo|POINTS uno]"},
 		{"element deeper than @notes", []string{"  @notes", "    TEXT", "    POINTS"}, "@notes[TEXT|POINTS]"},
 		{"one-line form", []string{`  @notes "Recordar"`, "  TEXT", "    Hermano"}, "@notes[Recordar] text"},
 		{"another directive ends the body", []string{"  @notes", "    uno", "  @center", "  TEXT", "    Hermano"}, "@notes[uno] @center[] text"},

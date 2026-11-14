@@ -62,10 +62,18 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	var diags []diagnostics.Diagnostic
 
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "TEXT") { // Skip TEXT line
-		// El texto de la propia línea TEXT no se lee (STRICT004): el cuerpo
-		// son las líneas sangradas de abajo.
-		if d := keywordLineRestWarning(ctx, startIndex, "TEXT", "text-parser"); d != nil {
-			diags = append(diags, *d)
+		// El texto de la propia línea TEXT (`TEXT hola`, `TEXT: hola`) es la
+		// primera línea del párrafo: el cuerpo, las líneas sangradas de
+		// abajo, sigue a continuación. Las líneas que el TEXT toma no
+		// cambian. Lo que keywordLineText no lee (`TEXTO citado`, un \ref)
+		// es STRICT004.
+		header, fix := keywordLineText(line, "TEXT")
+		if fix != "" {
+			diags = append(diags, keywordLineTextWarning(ctx, startIndex, "TEXT", "text-parser", fix))
+		}
+		if header != "" {
+			content.WriteString(header)
+			content.WriteString(" ")
 		}
 		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 		textLine := startIndex
@@ -115,7 +123,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			}
 			consumed++
 		}
-		if d := emptyTextDiagnostic(ctx, textLine, headerIndent, first, last); d != nil {
+		if d := emptyTextDiagnostic(ctx, textLine, headerIndent, first, last, header); d != nil {
 			diags = append(diags, *d)
 		}
 	} else {
@@ -423,7 +431,14 @@ func contentHeadingPrefix(line string) bool {
 // El mensaje no nombra números de línea (la posición los trae, y un
 // @include o un node-id los mueven): nombra el elemento por su palabra clave
 // y su línea por el contenido.
-func emptyTextDiagnostic(ctx *ParseContext, textLine, headerIndent, first, last int) *diagnostics.Diagnostic {
+//
+// header es el texto de la propia línea TEXT, que ya es contenido: un TEXT
+// con texto en su línea nunca está vacío (no hay TEXT001), y si además
+// absorbe un elemento el TEXT002 lo dice así.
+func emptyTextDiagnostic(ctx *ParseContext, textLine, headerIndent, first, last int, header string) *diagnostics.Diagnostic {
+	if first == -1 && header != "" {
+		return nil
+	}
 	if first == -1 {
 		d := diagnostics.NewWarning(
 			"TEXT has no content: write the paragraph on the indented lines below it, or remove the TEXT",
@@ -437,9 +452,15 @@ func emptyTextDiagnostic(ctx *ParseContext, textLine, headerIndent, first, last 
 	if CalculateIndentLevel(ctx.Lines[first]) > headerIndent || !OpensElementAfterEmptyText(ctx, opener) {
 		return nil
 	}
-	d := diagnostics.NewWarning(fmt.Sprintf(
+	msg := fmt.Sprintf(
 		"TEXT has no body of its own: %s on the line %q, and what follows it at that indentation, were read as the paragraph of this TEXT. Indent the paragraph under TEXT, or delete the empty TEXT.",
-		absorbedElementLabel(opener), shortLine(opener)),
+		absorbedElementLabel(opener), shortLine(opener))
+	if header != "" {
+		msg = fmt.Sprintf(
+			"TEXT has no indented body: %s on the line %q, and what follows it at that indentation, were read as the rest of the paragraph of this TEXT, after %q: the text on the TEXT line does not end the TEXT. Write the paragraph on indented lines under TEXT.",
+			absorbedElementLabel(opener), shortLine(opener), shortLine(header))
+	}
+	d := diagnostics.NewWarning(msg,
 		ctx.Position(textLine), "text-parser").WithRuleID(AbsorbedElementRuleID).WithEndPosition(ctx.Position(last))
 	return &d
 }
@@ -462,7 +483,12 @@ func absorbedElementLabel(trimmed string) string {
 		}
 		return "the <<" + tag + ">> element"
 	}
-	kw := strings.TrimSuffix(strings.Fields(trimmed)[0], ":")
+	// La palabra clave termina en el primer espacio o ":" (`TEXT: hola`,
+	// `QUOTE:una cita`).
+	kw := strings.Fields(trimmed)[0]
+	if i := strings.Index(kw, ":"); i > 0 {
+		kw = kw[:i]
+	}
 	return "the " + strings.TrimSuffix(kw, CodeVerbatimMarker) + " element"
 }
 
@@ -483,17 +509,17 @@ func shortLine(line string) string {
 // en la forma que ese elemento acepta. Solo decide el aviso TEXT002: la línea
 // sigue siendo el párrafo del TEXT, como siempre.
 //
-// Una palabra clave cuenta solo en la forma que su elemento acepta. TEXT,
-// POINTS, CHECKLIST, QUOTE y TABLE van solos en su línea (o con un ":"
-// pelado), porque esos parsers no leen lo que sigue a la palabra clave;
-// IMAGE puede llevar la fuente y el texto alternativo ("IMAGE foto.png",
-// `IMAGE "logo.png" "alt"`); CODE puede llevar "{verbatim}" y después
-// lenguaje y archivo; SECTION lleva su título entre comillas y solo cuenta
-// donde es encabezado (en un SLIDE). Una palabra que solo empieza con una
-// palabra clave ("TEXTO", "POINTSX", "QUOTEado") es prosa, igual que "TEXT
-// hola", "QUOTE de
-// Ana", "IMAGE of the year" o "MERMAID": ahí no hay un elemento bien escrito
-// que nombrar.
+// Una palabra clave cuenta solo en la forma que su elemento acepta. POINTS,
+// CHECKLIST y TABLE van solos en su línea (o con un ":" pelado), porque esos
+// parsers no leen lo que sigue a la palabra clave; TEXT y QUOTE pueden
+// llevar texto en su línea, que es la primera línea de su contenido ("TEXT
+// hola", "QUOTE de Ana"); IMAGE puede llevar la fuente y el texto
+// alternativo ("IMAGE foto.png", `IMAGE "logo.png" "alt"`); CODE puede
+// llevar "{verbatim}" y después lenguaje y archivo; SECTION lleva su título
+// entre comillas y solo cuenta donde es encabezado (en un SLIDE). Una
+// palabra que solo empieza con una palabra clave ("TEXTO", "POINTSX",
+// "QUOTEado") es prosa, igual que "POINTS uno", "IMAGE of the year" o
+// "MERMAID": ahí no hay un elemento bien escrito que nombrar.
 //
 // De la sintaxis simbólica cuentan un bloque ":::tipo", una etiqueta "<<…>>"
 // que un parser strict reconoce, una directiva conocida ("@notes",
@@ -530,6 +556,14 @@ func OpensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
 	switch strings.TrimSuffix(trimmed, ":") {
 	case "TEXT", "POINTS", "CHECKLIST", "QUOTE", "TABLE", "IMAGE", "CODE":
 		return true
+	}
+	// TEXT y QUOTE leen el texto de su línea (`TEXT hola`, `QUOTE: una
+	// cita`), con la regla de keywordLineText; pegado a la palabra clave
+	// (`TEXTO`) es prosa.
+	for _, kw := range []string{"TEXT", "QUOTE"} {
+		if text, _ := keywordLineText(trimmed, kw); text != "" {
+			return true
+		}
 	}
 	if strings.HasPrefix(trimmed, "IMAGE") {
 		// La fuente, con forma de ruta o URL, y a lo sumo el texto

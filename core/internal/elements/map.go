@@ -251,6 +251,55 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			markerErr = errorAtLine(err, line)
 		}
 	}
+	// Una propiedad repetida del mapa o de un marcador pisa a la anterior,
+	// como siempre; la anterior se avisa (MAP003). Un type= o zoom= de la
+	// línea <<map>> que una propiedad del cuerpo reemplaza también.
+	props := newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>>")
+	markerProps := newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>> marker")
+	// Un atributo repetido de la línea <<map>> (`type="a" type="b"`): se lee
+	// uno, como siempre, y los demás se avisan (MAP003).
+	diags := repeatedAttributeWarnings(ctx, startIndex, line, "<<map>>", MapLineRuleID, "map-parser", "type", "width", "height", "zoom")
+	// valueWarning es el MAP004 de una línea del cuerpo cuyo valor no se lee
+	// como está escrito; el mapa queda como siempre.
+	valueWarning := func(i int, format string, args ...any) {
+		diags = append(diags, ignoredLineWarning(ctx, i, MapValueRuleID, "map-parser", format, args...))
+	}
+	// readValueWarning es el MAP004 de un zoom: o un center: que sí se leyó
+	// pero no como está escrito (zoom 2, una coordenada en 0). Se decide al
+	// final: si una línea posterior reemplaza a esa propiedad, MAP003 ya dice
+	// que esta línea se ignoró, y contar qué valor habría tomado el mapa lo
+	// contradiría.
+	type pendingValue struct {
+		key  string
+		line int
+		d    diagnostics.Diagnostic
+	}
+	var pending []pendingValue
+	readValueWarning := func(key string, i int, format string, args ...any) {
+		pending = append(pending, pendingValue{key, i, ignoredLineWarning(ctx, i, MapValueRuleID, "map-parser", format, args...)})
+	}
+	// beforeMarker es el MAP004 de una propiedad de marcador escrita antes
+	// del primer `- lat:`, que no tiene a qué marcador ir.
+	beforeMarker := func(i int, key string) {
+		valueWarning(i, "This %s: line of the <<map>> comes before the first marker, so it was ignored: %q. A marker starts with \"- lat:\" and its %s: goes below it.",
+			key, strings.TrimSpace(ctx.Lines[i]), key)
+	}
+	headerAttrs := map[string]string{}
+	if v := extractAttribute(line, "type"); v != "" {
+		headerAttrs["type"] = v
+	}
+	if zoom > 0 {
+		headerAttrs["zoom"] = extractAttribute(line, "zoom")
+	}
+	read := func(key string, i int) {
+		if v, ok := headerAttrs[key]; ok {
+			delete(headerAttrs, key)
+			diags = append(diags, ignoredLineWarning(ctx, startIndex, MapLineRuleID, "map-parser",
+				"The %s=%q attribute on this <<map>> line was ignored: the later %q replaces it.",
+				key, v, strings.TrimSpace(ctx.Lines[i])))
+		}
+		props.read(key, i, i)
+	}
 	// markerLine es la línea del "- lat" del marcador abierto: un marcador sin
 	// lng se reporta ahí.
 	markerLine := startIndex
@@ -300,19 +349,47 @@ parseLoop:
 		if strings.HasPrefix(trimmedLine, "center:") {
 			parts := strings.SplitN(trimmedLine, ":", 2)
 			if len(parts) == 2 {
-				coords := strings.Split(strings.TrimSpace(parts[1]), ",")
+				// `center: lat, lng`, o entre corchetes como el "center" del
+				// JSON de la cerca ```map (`center: [39.8, -98.5]`). Antes los
+				// corchetes hacían que ninguna coordenada se leyera y el
+				// centro quedaba en 0, 0.
+				value := strings.TrimSpace(parts[1])
+				if inner, ok := strings.CutPrefix(value, "["); ok {
+					if inner, ok = strings.CutSuffix(inner, "]"); ok {
+						value = inner
+					}
+				}
+				coords := strings.Split(value, ",")
+				if len(coords) < 2 {
+					valueWarning(i, "This center: line of the <<map>> was ignored: %q. center: takes two coordinates, \"lat, lng\" or \"[lat, lng]\".", trimmedLine)
+				}
+				if len(coords) > 2 {
+					readValueWarning("center", i, "This center: line of the <<map>> has more than two coordinates, and only the first two were read: %q. center: takes \"lat, lng\" or \"[lat, lng]\".", trimmedLine)
+				}
 				if len(coords) >= 2 {
 					var lat, lng float64
-					if val, err := strconv.ParseFloat(strings.TrimSpace(coords[0]), 64); err == nil {
-						lat = val
+					var latErr, lngErr error
+					if lat, latErr = strconv.ParseFloat(strings.TrimSpace(coords[0]), 64); latErr != nil {
+						lat = 0
 					}
-					if val, err := strconv.ParseFloat(strings.TrimSpace(coords[1]), 64); err == nil {
-						lng = val
+					if lng, lngErr = strconv.ParseFloat(strings.TrimSpace(coords[1]), 64); lngErr != nil {
+						lng = 0
+					}
+					// Una coordenada que no es un número queda en 0, como
+					// siempre; se avisa (MAP004).
+					switch {
+					case latErr != nil && lngErr != nil:
+						readValueWarning("center", i, "Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: %q. Write it as \"center: lat, lng\" or \"center: [lat, lng]\".", trimmedLine)
+					case latErr != nil:
+						readValueWarning("center", i, "The latitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
+					case lngErr != nil:
+						readValueWarning("center", i, "The longitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
 					}
 					mapElement.Center = &ast.MapCoordinate{
 						Lat: lat,
 						Lng: lng,
 					}
+					read("center", i)
 				}
 			}
 			consumedLines++
@@ -329,15 +406,19 @@ parseLoop:
 				switch key {
 				case "type":
 					mapElement.MapType = value
+					read(key, i)
 				case "heatmap":
 					mapElement.Heatmap = value == "true"
+					read(key, i)
 				case "zoom":
 					if value != "" {
 						if zoomValue, err := strconv.Atoi(value); err == nil {
 							mapElement.Zoom = zoomValue
 						} else {
 							mapElement.Zoom = 2 // Fallback si no se puede parsear
+							readValueWarning("zoom", i, "The zoom: value on this line of the <<map>> is not a whole number, so the map uses zoom 2: %q.", trimmedLine)
 						}
+						read(key, i)
 					}
 				case "markers":
 					// Inicio de la sección de marcadores, siguiente línea debe ser un marcador
@@ -353,36 +434,56 @@ parseLoop:
 					currentMarker = &ast.MapMarker{Lat: lat}
 					markerLine = i
 					currentHasLng = false
+					diags = append(diags, markerProps.diags...)
+					markerProps = newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>> marker")
 				case "lng":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						lng, err := parseCoordinate("lng", value)
 						if err != nil {
 							fail(err, i)
 						} else {
 							currentMarker.Lng = lng
 							currentHasLng = true
+							markerProps.read(key, i, i)
 						}
 					}
 				case "label":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						currentMarker.Label = strings.Trim(value, "\"")
+						markerProps.read(key, i, i)
 					}
 				case "value":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						val := parseValue(value)
 						currentMarker.Value = val
+						markerProps.read(key, i, i)
 					}
 				case "color":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						currentMarker.Color = strings.Trim(value, "\"")
+						markerProps.read(key, i, i)
 					}
 				case "size":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						currentMarker.Size = strings.Trim(value, "\"")
+						markerProps.read(key, i, i)
 					}
 				case "details":
-					if currentMarker != nil {
+					if currentMarker == nil {
+						beforeMarker(i, key)
+					} else {
 						currentMarker.Details = strings.Trim(value, "\"")
+						markerProps.read(key, i, i)
 					}
 				case "title":
 					// Puede ser title dentro de options o title principal
@@ -390,16 +491,19 @@ parseLoop:
 						mapElement.Options = make(map[string]interface{})
 					}
 					mapElement.Options["title"] = strings.Trim(value, "\"")
+					read(key, i)
 				case "showValues":
 					if mapElement.Options == nil {
 						mapElement.Options = make(map[string]interface{})
 					}
 					mapElement.Options["showValues"] = value == "true"
+					read(key, i)
 				case "clustering":
 					if mapElement.Options == nil {
 						mapElement.Options = make(map[string]interface{})
 					}
 					mapElement.Options["clustering"] = value == "true"
+					read(key, i)
 				default:
 					// Línea no reconocida - terminar parsing de este mapa
 					break parseLoop
@@ -417,11 +521,20 @@ parseLoop:
 
 	// Agregar último marcador si existe
 	finishMarker()
+	for _, v := range pending {
+		if last, ok := props.last[v.key]; ok && last[0] != v.line {
+			continue
+		}
+		diags = append(diags, v.d)
+	}
+	diags = append(diags, props.diags...)
+	diags = append(diags, markerProps.diags...)
 
 	return &ParseResult{
 		Element:       mapElement,
 		ConsumedLines: consumedLines,
 		Error:         markerErr,
+		Diagnostics:   diags,
 	}
 }
 
