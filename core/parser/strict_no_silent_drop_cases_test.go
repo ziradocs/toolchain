@@ -181,7 +181,9 @@ var noDropRegressions = []noDropRegression{
 	{name: "fence extra argument in typed callout", body: []string{"  :::info{typed}", "  ```python main.py extra30  <", "  print(1)", "  ```", "  :::"}, rule: "SPECIAL003", quote: `"python main.py extra30"`},
 	{name: "mermaid attribute in callout", body: []string{"  :::note", `  <<mermaid theme="dark">>  <`, "    graph TD", "  :::"}, rule: "SPECIAL003", quote: `"theme"`},
 	{name: "plantuml attribute in callout", body: []string{"  :::note", `  <<plantuml theme="x">>  <`, "    @startuml", "    A -> B", "    @enduml", "  :::"}, rule: "SPECIAL003", quote: `unknown <<plantuml>> attribute "theme"`},
-	{name: "map marker in callout", body: []string{"  :::note", "  <<map>>  <", "    type: world", "    markers:", "      - lat: 1", `        label: "x"`, "  :::"}, rule: "SPECIAL003", quote: `has no lng`},
+	// El aviso va en la línea del marcador, no en la del <<map>>
+	// (elements.LineError).
+	{name: "map marker in callout", body: []string{"  :::note", "  <<map>>", "    type: world", "    markers:", "      - lat: 1  <", `        label: "x"`, "  :::"}, rule: "SPECIAL003", quote: `has no lng`},
 	{name: "code group in callout", body: []string{"  :::note", "  :::code-group  <", "  ```js [a]", "  x()", "  ```", "  suelta", "  :::", "  :::"}, rule: "SPECIAL003", quote: `outside a code fence: "suelta"`},
 
 	// Lo que encontró la propiedad extendida: una propiedad repetida de

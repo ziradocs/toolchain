@@ -324,7 +324,8 @@ func (p *MathParser) parseLiteral(ctx *ParseContext, start int, dollar bool) *Pa
 			if rest, ok := strings.CutPrefix(raw, base); ok {
 				line = rest
 			} else if trimmed != "" {
-				parseErr = fmt.Errorf("literal math line requires structural indentation %q", base)
+				// El error es de esta línea, no de la que abre el bloque.
+				parseErr = errorAtLine(fmt.Errorf("literal math line requires structural indentation %q", base), i)
 			}
 		}
 		if !dollar && (strings.HasPrefix(line, "caption:") || strings.HasPrefix(line, "label:")) {
@@ -347,7 +348,14 @@ func (p *MathParser) parseLiteral(ctx *ParseContext, start int, dollar bool) *Pa
 		consumed++
 	}
 	if !closed {
-		parseErr = fmt.Errorf("literal math requires a closing delimiter")
+		// Lo que no cierra es el bloque: el error va en la línea que lo abre,
+		// como el de un ":::" sin cerrar, y cubre hasta la última línea que
+		// tomó como suya.
+		end := start + consumed - 1
+		for end > start && strings.TrimSpace(ctx.Lines[end]) == "" {
+			end--
+		}
+		parseErr = &LineError{Err: fmt.Errorf("literal math requires a closing delimiter"), Line: start, End: end}
 	}
 	m := ast.NewMathElement(ctx.Position(start), strings.Join(body, "\n"))
 	m.Caption = caption
