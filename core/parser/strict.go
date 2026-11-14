@@ -35,11 +35,14 @@ type strictBody struct {
 	// uno indentado sigue siendo un error.
 	contentMarkdown bool
 	slideHeadings   bool
-	headingAnchors  elements.HeadingAnchors
-	lines           []string
-	currentLine     int
-	diagnostics     []diagnostics.Diagnostic
-	logger          util.Logger
+	// typedColumn: este cuerpo es el de una columna `<<column typed>>`
+	// (parseTypedColumnBody), donde un <<grid>> es un error.
+	typedColumn    bool
+	headingAnchors elements.HeadingAnchors
+	lines          []string
+	currentLine    int
+	diagnostics    []diagnostics.Diagnostic
+	logger         util.Logger
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]: el
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
@@ -75,7 +78,112 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 		// su cuerpo como flex: sus encabezados comparten la misma secuencia de
 		// anchors que los SECTION del deck.
 		HeadingAnchor: p.headingAnchors.Unique,
+		NotesTail:     p.notesTailReadsClean,
 	}
+}
+
+// notesTailReadsClean es el ParseContext.NotesTail de este cuerpo: lee las
+// líneas [from, to) con un cuerpo de prueba que comparte la gramática y el
+// estado de este (los anchors, copiados) y dice si se leen enteras como
+// elementos, sin ninguna propiedad, ninguna línea sin reconocer, ningún
+// diagnóstico (ni aviso ni error) y sin tomar ninguna línea con texto desde
+// to. Lo que lee la prueba se descarta.
+//
+// Las líneas [from, to) no tienen ninguna línea que empiece con `@` (termina
+// el cuerpo de @notes antes), así que la prueba no abre otro @notes.
+func (p *strictBody) notesTailReadsClean(from, to int) bool {
+	// La prueba lee hasta la primera línea con texto desde to, inclusive:
+	// si un elemento la toma, también la tomaría en el texto entero, y la
+	// prueba lo rechaza. Sin este corte, un bloque sin cerrar se leería
+	// hasta el final del contenedor en cada prueba, y muchos @notes
+	// seguidos de uno costarían O(n²).
+	limit := to
+	for limit < len(p.lines) && strings.TrimSpace(p.lines[limit]) == "" {
+		limit++
+	}
+	if limit < len(p.lines) {
+		limit++
+	}
+	sub := &strictBody{
+		nestedListTypes: p.nestedListTypes,
+		listStart:       p.listStart,
+		mathSource:      p.mathSource,
+		contentMarkdown: p.contentMarkdown,
+		slideHeadings:   p.slideHeadings,
+		typedColumn:     p.typedColumn,
+		headingAnchors:  p.headingAnchors.Clone(),
+		lines:           p.lines[:limit],
+		currentLine:     from,
+		logger:          util.NewNoop(),
+		lineOffset:      p.lineOffset,
+	}
+	clean := true
+	scratch := ast.NewContentBlock(sub.position(from), "content")
+	sub.parseIndentedElements(scratch,
+		func(string, string) { clean = false },
+		func(string) bool { return sub.currentLine >= to },
+		func(string) { clean = false })
+	if !clean || sub.currentLine < to || len(sub.diagnostics) > 0 {
+		return false
+	}
+	for i := to; i < sub.currentLine && i < limit; i++ {
+		if strings.TrimSpace(p.lines[i]) != "" {
+			return false
+		}
+	}
+	if p.typedColumn {
+		for _, el := range scratch.Elements {
+			if _, ok := el.(*ast.GridElement); ok {
+				return false
+			}
+		}
+	}
+	return !failsLintErrorRule(scratch)
+}
+
+// failsLintErrorRule dice si algún elemento de block, o anidado en él, cae en
+// una regla del linter que es Error con la política por omisión: un IMAGE sin
+// fuente (IMG001), una fila de tabla con más o menos celdas que el encabezado
+// (TABLE003), un :::code-group sin cercas (CODEGROUP001), una pestaña
+// :::code-item suelta (CODEGROUP002), un quiz cuya respuesta no es una opción
+// (QUIZ001) y los results/responses inválidos de un quiz o un poll
+// (QUIZ003/POLL003). El parser no puede llamar al linter (el linter importa
+// el AST que este paquete arma, y sus pruebas, este paquete), así que la lista
+// se repite acá; TestStrictNotesScopeMatchesTheBase, en core/linter, falla si
+// el linter gana una regla que esta lista no tiene.
+func failsLintErrorRule(block *ast.ContentBlock) bool {
+	failed := false
+	badResults := func(results []float64, responses *int, options int) bool {
+		if len(results) > 0 && len(results) != options || responses != nil && *responses < 0 {
+			return true
+		}
+		for _, r := range results {
+			if r < 0 || r > 100 {
+				return true
+			}
+		}
+		return false
+	}
+	_ = ast.Walk(&ast.AST{ContentBlocks: []ast.ContentBlock{*block}}, func(n ast.Node) error {
+		switch e := n.(type) {
+		case *ast.ImageElement:
+			failed = failed || e.Source == ""
+		case *ast.TableElement:
+			for _, row := range e.Rows {
+				failed = failed || len(e.Headers) > 0 && len(row) != 0 && len(row) != len(e.Headers)
+			}
+		case *ast.CodeGroupElement:
+			failed = failed || len(e.CodeBlocks) == 0
+		case *ast.SpecialBlockElement:
+			failed = failed || strings.HasPrefix(e.BlockType, "code-item")
+		case *ast.QuizElement:
+			failed = failed || e.Answer < 0 || e.Answer >= len(e.Options) || badResults(e.Results, e.Responses, len(e.Options))
+		case *ast.PollElement:
+			failed = failed || badResults(e.Results, e.Responses, len(e.Options))
+		}
+		return nil
+	})
+	return failed
 }
 
 // parseTypedColumnBody parsea el cuerpo de una columna `<<column typed>>`
@@ -98,6 +206,7 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 		lines:           lines,
 		logger:          p.logger,
 		lineOffset:      lineOffset,
+		typedColumn:     true,
 	}
 	scratch := ast.NewContentBlock(sub.position(0), "content")
 	sub.parseIndentedElements(scratch, func(key, _ string) {

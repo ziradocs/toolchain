@@ -450,7 +450,7 @@ argument semantics of their own:
 
 | Directive | Forms | Parsed as |
 |---|---|---|
-| `@notes` | `@notes "text"`, or `@notes:` / `@notes` followed by lines of text | Presenter notes. The multi-line form collects following lines until a blank line, another `@`, a `#` heading, or `---` |
+| `@notes` | `@notes "text"`, or `@notes:` / `@notes` followed by lines of text | Presenter notes. The multi-line form collects following lines until a blank line, another `@`, a `#` heading, or `---`. In strict, indent the notes under `@notes`: a line at the indentation of `@notes` that opens an element (`TEXT`, `POINTS`, `:::note`, `<<grid>>`, a `\| … \|` row…) ends the notes and is read as that element, and a `SLIDE` or `SECTION` at column 0 ends them too. If those lines would not read cleanly as elements, they stay in the notes with `DIRECTIVE005` |
 | `@timer` | `@timer 300` or `@timer duration=300 warning=60` | Countdown in seconds (bare number → `duration`) |
 | `@transition` | `@transition type="fade" duration="1000ms"` | key=value only |
 | `@highlight` | `@highlight yellow` or `@highlight color="yellow"` | Bare value → `color` |
@@ -543,6 +543,11 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
 - `CHECKLIST002` (an item with no text), `CODEGROUP003` (a line outside the
   fences of a `:::code-group`), `DIRECTIVE004` (directive text that is not
   `key=value`), and `STRICT003` for a lone `:::`.
+- `DIRECTIVE005`: a strict multi-line `@notes` that kept an element written
+  after it at its own indentation (`@notes` / `  nota` / `TEXT` …) as notes,
+  because read as an element it would give a diagnostic, or because the notes
+  start after a blank line. Indent the notes under `@notes`, and leave a blank
+  line before the element.
 
 The full list is in the spec, "Lines an element does not read".
 

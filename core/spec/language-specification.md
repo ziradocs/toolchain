@@ -415,6 +415,7 @@ reported, quoting both.
 | `CODEGROUP003` | Each line of a `:::code-group` outside a code fence, on its own line (the error on the `:::code-group` line stays) |
 | `SPECIAL003` | An element inside a `:::` block (closed or not) whose parser reports a problem with part of it: a `CODE` with more than a language and a filename, a code fence whose info is more than that, a `<<mermaid>>` or `<<plantuml>>` attribute other than `title`, a `<<map>>` marker without valid coordinates, a `:::code-group` problem. The element is kept without that part, as before; the problem, which in a strict body is an error, was dropped inside the block |
 | `DIRECTIVE004` | A lone `@`, and the part of a directive that reads `key=value` parameters that is not one (`@transition fade`, a trailing word) |
+| `DIRECTIVE005` | A strict multi-line `@notes` that keeps a sibling element as notes, because read as elements those lines would give a diagnostic or a linter error, or because the notes start after a blank line. It covers the `@notes` line through the last note and names the sibling's line by its content. The lines stay in the notes, as before |
 
 Comments are not author text the element drops: a `#` comment in a YAML body
 (`<<metric>>`, `<<quiz>>`, `<<poll>>`, `<<map>>`, `options:`) stays a comment.
@@ -753,6 +754,34 @@ Directives control slide and element behavior:
 | `@transition` | `@transition type="fade"` | Slide transition |
 | `@timer` | `@timer: seconds` | Slide timing |
 
+`@notes:` or `@notes` alone on its line opens multi-line notes: the lines
+that follow it, trimmed, up to a blank line (after the first note), a line
+that starts with `@`, `---` or `#`, or the end of the container. In strict, a
+`SLIDE` or `SECTION` at column 0 also ends them (before, the notes took it in
+and the parser stopped with an internal error).
+
+In strict, the notes also end before a sibling element. A line indented
+deeper than `@notes` is always a note, whatever it looks like, which is the
+form `fmt` writes. A line at the indentation of `@notes`, or less, opens a
+sibling when it opens an element in the form that element accepts, as for
+`TEXT002`: `TEXT`, `POINTS`, `CHECKLIST`, `QUOTE`, `TABLE`, `IMAGE` or `CODE`
+in that form, a `:::type` block, a `<<…>>` tag an element recognizes, a
+`| … |` table row, or `SECTION "…"` inside a `SLIDE`. Any other line is a note,
+as before: prose, `- item`, `key: value`, `TEXTO`, `TEXT hola`, and a line
+without the two spaces of indentation the container reads. **This is a
+behavior change**: the sibling and what follows it up to where the notes used
+to end are read as elements, where before they were text of the notes.
+
+The notes end there only when those lines read, as elements of the
+container, entirely, with no diagnostic, without taking any line after the
+old end of the notes, and without falling in a linter rule that is an error
+(`IMG001`, `TABLE003`, `CODEGROUP001`, `CODEGROUP002`, `QUIZ001`, `QUIZ003`,
+`POLL003`). Otherwise the notes keep all those lines, as before, with the
+`DIRECTIVE005` warning: a document that built does not stop building. The
+same holds when the notes start after a blank line (`@notes`, a blank line,
+the notes): their body and the count of their lines stay as before, so the
+last notes are also read again after them, as in flex. Flex does not change.
+
 `@include path` on a line of its own is replaced by the content of that file
 before the source is parsed (`slidelang build`, `doclang build`; `fmt` and the
 MCP `get_ast`/`lint` tools keep the line as written). By default the line is
@@ -768,6 +797,22 @@ document on its source, an included file on its content (without its
 frontmatter) read with the root's dialect (in strict, as the body of a section when it does not start
 with `SECTION`). What a sibling file or the including document opens or closes
 does not change a file's decisions.
+
+A code body ends where the parser ends it: a strict `CODE` body is the lines
+indented deeper than `CODE`, so an `@include` at column 0, or at the
+indentation of `CODE`, is not code and is expanded; an `@include` line that is
+part of the code is indented under `CODE` like the rest of the body.
+
+With `KeepIncludesInCode` and `Presentation` the source is a presentation:
+code is what the presentation AST (the `slidelang` grammar, `SLIDE` blocks)
+holds as code, and an included file that does not start with `SLIDE` is read
+as the body of a `SLIDE`. Before, the classification read a `.slidelang`
+source with the document grammar, which has no `SLIDE`, so the `@include` of a
+`CODE` body was expanded, and a file without the body's indentation cut the
+`CODE` ("unexpected content"). With `Presentation`, an included file is not a
+container: what it leaves open is not closed, as in the default expansion, and
+every other `@include` expands as before. `slidelang build` does not set these
+options yet, so it still expands an `@include` inside code.
 
 With the option, an included file is also a container: a block whose body is
 read literally (a code, diagram, chart or map fence; a native `@startuml`
