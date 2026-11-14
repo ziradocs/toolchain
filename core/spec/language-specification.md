@@ -445,7 +445,7 @@ earlier key is reported on its line.
 | `CHART002` | (existing) a JSON chart body that is not valid JSON; it now covers the whole body |
 | `METRIC006`, `QUIZ007`, `POLL007` | Each top-level key of a `<<metric>>`, `<<quiz>>` or `<<poll>>` body that the block does not read, from the key to the end of its value (the per-block `METRIC003`, `QUIZ005` and `POLL004` stay as they are), and each earlier occurrence of a key the body repeats, quoting the later one (a repeated key makes the whole body invalid YAML). An invalid YAML body keeps `METRIC002`, `QUIZ004` or `POLL006`, which now cover the whole body |
 | `MAP003` | A `<<map>>` property (`type:`, `zoom:`, `center:`, `heatmap:`, `title:`, `showValues:`, `clustering:`, the last three also under `options:`) or a marker property (`lng:`, `label:`, `value:`, `color:`, `size:`, `details:`) that a later one replaces, a `type="…"` or `zoom="…"` attribute of the `<<map>>` line that a body property replaces, and a `type=`, `width=`, `height=` or `zoom=` repeated on the `<<map>>` line, of which one is read (the first in double quotes, or else the first in single quotes) |
-| `MAP004` | A `<<map>>` line whose value is not read as written; the map stays as before: a `zoom:` that is not a whole number (the map uses zoom 2), a marker property (`lng:`, `label:`, `value:`, `color:`, `size:`, `details:`) before the first `- lat:`, which has no marker to go to, a `center:` without two coordinates, which is dropped, and a `center:` coordinate that is not a number, which is 0 (`center: [39.8, -98.5]` is 0, 0) |
+| `MAP004` | A `<<map>>` line whose value is not read as written; the map stays as before: a `zoom:` that is not a whole number (the map uses zoom 2), a marker property (`lng:`, `label:`, `value:`, `color:`, `size:`, `details:`) before the first `- lat:`, which has no marker to go to, a `center:` without two coordinates, which is dropped, a `center:` with more than two, of which the first two are read, and a `center:` coordinate that is not a number, which is 0 |
 | `MEDIA002` | A `src=`, `poster=` or `caption=` repeated on a `<<video>>` or `<<audio>>` line, of which one is read (the first in double quotes, or else the first in single quotes) |
 | `CODEGROUP003` | Each line of a `:::code-group` outside a code fence, on its own line (the error on the `:::code-group` line stays) |
 | `SPECIAL003` | An element inside a `:::` block (closed or not) whose parser reports a problem with part of it: a `CODE` with more than a language and a filename, a code fence whose info is more than that, a `<<mermaid>>` or `<<plantuml>>` attribute other than `title`, a `<<map>>` marker without valid coordinates, a `:::code-group` problem. The element is kept without that part, as before; the problem, which in a strict body is an error, was dropped inside the block |
@@ -1069,7 +1069,9 @@ Chart.js config, same as `<<chart>>` followed directly by a `{`-prefixed JSON
 block; a map's fenced JSON is a plain data serialization (`center`, `zoom`,
 `markers: [{position: [lat, lng], popup: "…"}, …]`, `type`, `heatmap`, `title`,
 `width`, `height`) translated into the same fields the native `<<map>>`
-properties populate — a map has no raw-passthrough mode, since it carries no
+properties populate (in the native body, `center:` takes `lat, lng` or, as in
+the JSON, `[lat, lng]`: `center: [39.8283, -98.5795]`; before, the bracketed
+form read neither coordinate and the map was centered at 0, 0) — a map has no raw-passthrough mode, since it carries no
 third-party config to preserve verbatim. Invalid JSON in either fenced form is
 reported (`CHART002`/`MAP002`) and the element renders with no data, same
 severity as its native-tag equivalent.

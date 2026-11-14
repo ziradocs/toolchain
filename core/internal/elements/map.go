@@ -330,9 +330,22 @@ parseLoop:
 		if strings.HasPrefix(trimmedLine, "center:") {
 			parts := strings.SplitN(trimmedLine, ":", 2)
 			if len(parts) == 2 {
-				coords := strings.Split(strings.TrimSpace(parts[1]), ",")
+				// `center: lat, lng`, o entre corchetes como el "center" del
+				// JSON de la cerca ```map (`center: [39.8, -98.5]`). Antes los
+				// corchetes hacían que ninguna coordenada se leyera y el
+				// centro quedaba en 0, 0.
+				value := strings.TrimSpace(parts[1])
+				if inner, ok := strings.CutPrefix(value, "["); ok {
+					if inner, ok = strings.CutSuffix(inner, "]"); ok {
+						value = inner
+					}
+				}
+				coords := strings.Split(value, ",")
 				if len(coords) < 2 {
-					valueWarning(i, "This center: line of the <<map>> was ignored: %q. center: takes two coordinates, \"lat, lng\".", trimmedLine)
+					valueWarning(i, "This center: line of the <<map>> was ignored: %q. center: takes two coordinates, \"lat, lng\" or \"[lat, lng]\".", trimmedLine)
+				}
+				if len(coords) > 2 {
+					valueWarning(i, "This center: line of the <<map>> has more than two coordinates, and only the first two were read: %q. center: takes \"lat, lng\" or \"[lat, lng]\".", trimmedLine)
 				}
 				if len(coords) >= 2 {
 					var lat, lng float64
@@ -347,7 +360,7 @@ parseLoop:
 					// siempre; se avisa (MAP004).
 					switch {
 					case latErr != nil && lngErr != nil:
-						valueWarning(i, "Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: %q. Write it as \"center: lat, lng\".", trimmedLine)
+						valueWarning(i, "Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: %q. Write it as \"center: lat, lng\" or \"center: [lat, lng]\".", trimmedLine)
 					case latErr != nil:
 						valueWarning(i, "The latitude on this center: line of the <<map>> is not a number, so the center uses 0: %q.", trimmedLine)
 					case lngErr != nil:

@@ -86,7 +86,7 @@ func genStrictReadsDocs(seed int64, n int) []struct {
 	sectionProps := []string{"level: 1", "level: 2", "level: 3", "level: 7", "id: uno", "id: dos", "id: ***"}
 	blocks := []string{
 		"<<map type=\"city\" zoom=\"3\">>\n  type: world\n  type: europe\n  zoom: 2\n  zoom: x\n  center: 1, 2\n  center: 3, 4\n  title: \"T1\"\n  options:\n    title: \"T2\"\n  markers:\n  - lat: 1\n    lng: 2\n    lng: 3\n    label: \"a\"\n    label: \"b\"\n  - lat: 5\n    lng: 6\n    label: \"c\"",
-		"<<map>>\n  type: world\n  heatmap: true\n  heatmap: false\n  showValues: true\n  showValues: false\n  clustering: true\n  clustering: false",
+		"<<map>>\n  type: world\n  center: [39.8283, -98.5795]\n  heatmap: true\n  heatmap: false\n  showValues: true\n  showValues: false\n  clustering: true\n  clustering: false",
 		"<<quiz>>\n  question: Q\n  options: [a, b]\n  answer: 0\n  answer: 1\n<<end>>",
 		"<<quiz>>\n  {question: Q, options: [a, b], answer: 0, answer: 1}\n<<end>>",
 		"<<poll>>\n  question: Q\n  question: R\n  options: [a, b]\n<<end>>",

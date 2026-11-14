@@ -232,9 +232,9 @@ var noDropRegressions = []noDropRegression{
 	{name: "map lng before the first marker", body: []string{"  <<map>>", "    lng: 2  <"}, rule: "MAP004", quote: `This lng: line of the <<map>> comes before the first marker`},
 	{name: "map center with one coordinate", body: []string{"  <<map>>", "    center: 40  <"}, rule: "MAP004", quote: `This center: line of the <<map>> was ignored: "center: 40". center: takes two coordinates`},
 	{name: "map center not a number", body: []string{"  <<map>>", "    center: norte, 2  <"}, rule: "MAP004", quote: `The latitude on this center: line`},
-	// La forma de arreglo que usan varios ejemplos: ninguna coordenada se
-	// lee y el centro queda en 0, 0.
-	{name: "map center as an array", body: []string{"  <<map>>", "    center: [39.8, -98.5]  <"}, rule: "MAP004", quote: `Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: "center: [39.8, -98.5]"`},
+	{name: "map center not numbers", body: []string{"  <<map>>", "    center: [norte, sur]  <"}, rule: "MAP004", quote: `Neither coordinate on this center: line of the <<map>> is a number, so the center is 0, 0: "center: [norte, sur]"`},
+	{name: "map center with one coordinate in brackets", body: []string{"  <<map>>", "    center: [40]  <"}, rule: "MAP004", quote: `center: takes two coordinates`},
+	{name: "map center with three coordinates", body: []string{"  <<map>>", "    center: 1, 2, 3  <"}, rule: "MAP004", quote: `has more than two coordinates, and only the first two were read: "center: 1, 2, 3"`},
 	{name: "map repeated attribute", body: []string{`  <<map type="city" type="world">>  <`}, rule: "MAP003", quote: `The attribute type="world" on this <<map>> line was ignored: only one type= is read, and it is type="city".`},
 
 	// Un atributo repetido en la línea de <<video>>/<<audio>> (MEDIA002) o

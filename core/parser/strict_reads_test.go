@@ -348,6 +348,31 @@ func TestStrictReads_MapValuesAndAttributesKeepTheirReading(t *testing.T) {
 	}
 }
 
+// `center: [lat, lng]`, la forma del "center" del JSON de la cerca ```map y
+// de varios ejemplos, da el centro que dice, como `center: lat, lng`; antes
+// quedaba en 0, 0. fmt lo escribe como `center: lat, lng`, que se vuelve a
+// leer igual.
+func TestStrictReads_MapCenterInBrackets(t *testing.T) {
+	cases := map[string][2]float64{
+		"[39.8283, -98.5795]":    {39.8283, -98.5795},
+		"[ 39.8283 , -98.5795 ]": {39.8283, -98.5795},
+		"[40,-3]":                {40, -3},
+		"[-33.9, 151.2]":         {-33.9, 151.2},
+		"39.8283, -98.5795":      {39.8283, -98.5795},
+	}
+	for value, want := range cases {
+		src := "---\nmode: strict\ntitle: \"D\"\n---\nSECTION \"A\"\n  <<map>>\n    type: world\n    center: " + value + "\n"
+		doc, diags := New(util.NewNoop()).ParseDocument(src, "c.doclang")
+		m, ok := doc.ContentBlocks[0].Elements[0].(*ast.MapElement)
+		if !ok || m.Center == nil || m.Center.Lat != want[0] || m.Center.Lng != want[1] {
+			t.Errorf("center: %s: got %#v", value, doc.ContentBlocks[0].Elements[0])
+		}
+		for _, d := range diags {
+			t.Errorf("center: %s: unexpected %s %s", value, d.RuleID, d.Message)
+		}
+	}
+}
+
 // Una llave repetida en el frontmatter sigue siendo un error de YAML, y su
 // texto no nombra los números de línea de yaml.v3, que cuentan desde el
 // frontmatter y no desde el archivo.

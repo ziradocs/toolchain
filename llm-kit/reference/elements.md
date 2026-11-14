@@ -171,10 +171,12 @@ align: center
       value: 45
   heatmap: true
   zoom: 2
+  center: 39.8283, -98.5795
 ```
 
 - Each marker needs `lat`, `lng`; `label` and `value` are optional but
   recommended.
+- `center:` takes `lat, lng` or `[lat, lng]` (`center: [39.8283, -98.5795]`).
 - Renders client-side via Leaflet in browser mode.
 - Flex mode only, a fenced ` ```map ` block is also recognized, with a single
   JSON object as its body: `center`/`zoom`/`type`/`heatmap`/`title`/`width`/
@@ -552,8 +554,7 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
   `<<audio>>`), `CHART007` (`<<chart>>`).
 - `MAP004`: a `<<map>>` value that is not read as written: a `zoom:` that is
   not a whole number (zoom 2), a marker property before the first `- lat:`, a
-  `center:` without two numeric coordinates. Write `center: 39.8, -98.5`, not
-  `center: [39.8, -98.5]`, which is 0, 0. In `<<metric>>`, `<<quiz>>` and `<<poll>>` a
+  `center:` without two numeric coordinates (`lat, lng` or `[lat, lng]`). In `<<metric>>`, `<<quiz>>` and `<<poll>>` a
   repeated key makes the YAML invalid and the whole body is ignored
   (`METRIC002`/`QUIZ004`/`POLL006`); the earlier key gets
   `METRIC006`/`QUIZ007`/`POLL007`.

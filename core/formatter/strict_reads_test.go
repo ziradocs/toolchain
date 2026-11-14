@@ -25,6 +25,9 @@ func TestFormatStrict_KeywordLineTextRoundTrips(t *testing.T) {
 		{"quote", "  QUOTE una cita\n    que sigue\n    AUTHOR: Ana\n", "  QUOTE\n    una cita\n    que sigue\n    AUTHOR: Ana\n"},
 		{"quote alone", "  QUOTE: una cita\n", "  QUOTE\n    una cita\n"},
 		{"quote with a glued keyword", "  QUOTE TEXTO citado\n", "  QUOTE\n    TEXTO citado\n"},
+		// `center: [lat, lng]` se lee como `center: lat, lng`, que es lo
+		// que fmt escribe.
+		{"map center in brackets", "  <<map>>\n    type: world\n    center: [39.8283, -98.5795]\n", "center: 39.8283, -98.5795\n"},
 	}
 	for _, tc := range cases {
 		for _, document := range []bool{false, true} {
