@@ -163,26 +163,47 @@ func (p *HeadingParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // contra el que el parser derivaría en esa misma posición.
 type HeadingAnchors struct {
 	used map[string]int
+	// next es, por prefijo, el sufijo desde el que buscar el próximo libre.
+	// Un anchor usado nunca se libera, así que todo sufijo por debajo del
+	// último asignado sigue ocupado: empezar ahí da el mismo resultado que
+	// empezar en 2, sin volver a probar uno por uno los ya tomados. Sin esto,
+	// k encabezados con el mismo texto costaban O(k²).
+	next map[string]int
 }
 
 // Derive devuelve el anchor que Unique asignaría a text, sin registrarlo.
 func (a *HeadingAnchors) Derive(text string) string {
+	candidate, _, _ := a.derive(text)
+	return candidate
+}
+
+func (a *HeadingAnchors) derive(text string) (candidate, prefixed string, n int) {
 	base := DeriveAnchor(text)
-	prefixed := "heading"
+	prefixed = "heading"
 	if base != "" {
 		prefixed = "heading-" + base
 	}
-	candidate := prefixed
-	for n := 2; a.used[candidate] > 0; n++ {
-		candidate = prefixed + "-" + strconv.Itoa(n)
+	candidate = prefixed
+	n = max(2, a.next[prefixed])
+	if a.used[candidate] == 0 {
+		return candidate, prefixed, 0
 	}
-	return candidate
+	for candidate = prefixed + "-" + strconv.Itoa(n); a.used[candidate] > 0; n++ {
+		candidate = prefixed + "-" + strconv.Itoa(n+1)
+	}
+	return candidate, prefixed, n
 }
 
 // Unique deriva el anchor de text y lo registra.
 func (a *HeadingAnchors) Unique(text string) string {
-	candidate := a.Derive(text)
+	candidate, prefixed, n := a.derive(text)
 	a.Reserve(candidate)
+	if n > 0 {
+		if a.next == nil {
+			a.next = make(map[string]int)
+		}
+		a.next[prefixed] = n
+	}
 	return candidate
 }
 

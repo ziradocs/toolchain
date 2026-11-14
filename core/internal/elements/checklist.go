@@ -95,6 +95,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 	consumed := 0
 	expectedIndent := -1
 	nest := checklistNest{strict: true}
+	var run continuationRun
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -144,6 +145,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 		if p.isStrictChecklistItem(trimmed) {
 			content, checked := p.parseStrictChecklistContent(trimmed)
 			if content != "" {
+				run.flush()
 				nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), currentIndent, expectedIndent, trimmed)
 			} else {
 				// Un ítem sin texto no llega al AST, como siempre; ahora con
@@ -154,8 +156,9 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 			}
 		} else if last := nest.last(); currentIndent >= expectedIndent && last != nil {
 			// Continuation line: pertenece al último item abierto, el más
-			// profundo, que es el que la línea sigue.
-			last.Content += " " + trimmed
+			// profundo, que es el que la línea sigue. Se junta en run y se
+			// escribe de una vez (ver continuationRun).
+			run.add(&last.Content, trimmed)
 		} else if last == nil {
 			// Antes del primer ítem no hay a qué pegarla: se descarta,
 			// como siempre, pero con aviso.
@@ -166,6 +169,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 
 		consumed++
 	}
+	run.flush()
 
 	return consumed, diags
 }
