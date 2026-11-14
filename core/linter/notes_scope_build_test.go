@@ -17,13 +17,13 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// En strict, el cuerpo de un `@notes` de varias líneas termina antes de un
-// elemento hermano a su sangría. Un documento que compilaba con las notas
-// tragándose a ese hermano tiene que seguir compilando: el hermano sale como
-// elemento, y un elemento mal escrito podría dar un error que antes no se veía.
-// Estas pruebas corren el build como el CLI (buildErrors) sobre un generador
-// de @notes seguidos de hermanos de todo tipo, también líneas sueltas que solo
-// abren un elemento (`TEXT`, `TABLE`, `:::note` sin cierre).
+// En strict, el cuerpo de un `@notes` de varias líneas se lee como siempre,
+// salvo que un SLIDE o SECTION en la columna 0 lo termina, y avisa
+// (DIRECTIVE005) cuando toma a un elemento hermano. Ningún documento que
+// compilaba puede dejar de compilar. El diferencial de abajo corre el build
+// como el CLI (buildErrors) sobre un generador de @notes seguidos de hermanos
+// de todo tipo, también líneas sueltas que solo abren un elemento (`TEXT`,
+// `TABLE`, `:::note` sin cierre), para compararlo con la base.
 
 // notesScopeSiblings son los hermanos que pueden seguir a las notas, con la
 // sangría relativa de cada línea. Los que llevan slideOnly existen solo en un
@@ -186,84 +186,6 @@ func genNotesScopeDocs(seed int64, n int) []notesScopeDoc {
 
 const notesScopeSeed, notesScopeCount = 525, 4000
 
-// notesScopeTwin es d con cada línea del cuerpo de siempre de cada @notes
-// que está a la sangría de @notes, o a menos, sangrada dos espacios más que
-// el propio @notes. Una línea más sangrada que @notes siempre es nota, igual
-// que una sin los dos espacios que el contenedor lee, así que el gemelo lee,
-// con esta versión, lo mismo que la base leía en d: todo el cuerpo es nota. ok es false si algún @notes
-// de d tiene líneas en blanco antes de su primera nota (ahí la base cuenta
-// distinto y el cuerpo queda como siempre).
-func notesScopeTwin(src string, document bool) (twin string, ok bool) {
-	// Solo las líneas @notes que el parser lee como notas: otra puede ser
-	// parte de un elemento (el cuerpo de un TEXT, de un callout).
-	p := parser.New(util.NewNoop())
-	var doc *ast.AST
-	if document {
-		doc, _ = p.ParseDocument(src, "t.doclang")
-	} else {
-		doc, _ = p.Parse(src, "t.slidelang")
-	}
-	notes := map[int]bool{}
-	_ = ast.Walk(doc, func(n ast.Node) error {
-		if d, ok := n.(*ast.DirectiveNode); ok && d.Name == "notes" {
-			notes[d.GetPosition().Line-1] = true
-		}
-		return nil
-	})
-	lines := strings.Split(src, "\n")
-	for i := 0; i < len(lines); i++ {
-		trimmed := strings.TrimSpace(lines[i])
-		if !notes[i] || trimmed != "@notes" && trimmed != "@notes:" {
-			continue
-		}
-		indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " "))
-		if i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == "" {
-			return "", false
-		}
-		for j := i + 1; j < len(lines); j++ {
-			t := strings.TrimSpace(lines[j])
-			if t == "" || strings.HasPrefix(t, "@") || strings.HasPrefix(t, "---") || strings.HasPrefix(t, "#") ||
-				strings.HasPrefix(lines[j], "SLIDE") || strings.HasPrefix(lines[j], "SECTION") {
-				break
-			}
-			// Solo las que el contenedor lee (dos espacios de sangría o más)
-			// y no más sangradas que @notes: las demás ya son nota.
-			own := len(lines[j]) - len(strings.TrimLeft(lines[j], " "))
-			if strings.HasPrefix(lines[j], "  ") && own <= indent {
-				lines[j] = strings.Repeat(" ", indent+2) + t
-			}
-			i = j
-		}
-	}
-	return strings.Join(lines, "\n"), true
-}
-
-// Sin la base a mano: un documento compila si compila su gemelo, que lee
-// todo el cuerpo de cada @notes como nota, igual que la base. Cubre lo que el
-// parser no ve, las reglas del linter que son error (failsLintErrorRule en
-// core/parser): si el linter gana una regla que esa lista no tiene, un hermano
-// que la rompe deja de ser nota y esta prueba falla.
-func TestStrictNotesScopeMatchesTheBase(t *testing.T) {
-	checked, skipped := 0, 0
-	for i, d := range genNotesScopeDocs(notesScopeSeed, notesScopeCount) {
-		twin, ok := notesScopeTwin(d.src, d.document)
-		if !ok {
-			skipped++
-			continue
-		}
-		if len(buildErrors(twin, d.document)) > 0 {
-			continue
-		}
-		checked++
-		if errs := buildErrors(d.src, d.document); len(errs) > 0 {
-			t.Errorf("doc %d builds as notes but not with the siblings out: %v\n%s", i, errs, d.src)
-		}
-	}
-	if checked < notesScopeCount/3 {
-		t.Fatalf("only %d documents checked (%d skipped)", checked, skipped)
-	}
-}
-
 // notesScopeSummary resume el AST de d para el diferencial: el hash del JSON,
 // cuántos elementos hay en total y el texto de cada @notes.
 func notesScopeSummary(d notesScopeDoc) string {
@@ -302,11 +224,7 @@ func TestStrictNotesScopeBuildDifferential(t *testing.T) {
 	var b strings.Builder
 	for i, d := range genNotesScopeDocs(notesScopeSeed, notesScopeCount) {
 		errs := buildErrors(d.src, d.document)
-		twinErrs := -1
-		if twin, ok := notesScopeTwin(d.src, d.document); ok {
-			twinErrs = len(buildErrors(twin, d.document))
-		}
-		fmt.Fprintf(&b, "%d\t%d\t%d\t%q\t%s\n", i, len(errs), twinErrs, strings.Join(errs, " | "), notesScopeSummary(d))
+		fmt.Fprintf(&b, "%d\t%d\t%q\t%s\n", i, len(errs), strings.Join(errs, " | "), notesScopeSummary(d))
 	}
 	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)

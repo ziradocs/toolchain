@@ -415,7 +415,7 @@ reported, quoting both.
 | `CODEGROUP003` | Each line of a `:::code-group` outside a code fence, on its own line (the error on the `:::code-group` line stays) |
 | `SPECIAL003` | An element inside a `:::` block (closed or not) whose parser reports a problem with part of it: a `CODE` with more than a language and a filename, a code fence whose info is more than that, a `<<mermaid>>` or `<<plantuml>>` attribute other than `title`, a `<<map>>` marker without valid coordinates, a `:::code-group` problem. The element is kept without that part, as before; the problem, which in a strict body is an error, was dropped inside the block |
 | `DIRECTIVE004` | A lone `@`, and the part of a directive that reads `key=value` parameters that is not one (`@transition fade`, a trailing word) |
-| `DIRECTIVE005` | A strict multi-line `@notes` that keeps a sibling element as notes, because read as elements those lines would give a diagnostic or a linter error, or because the notes start after a blank line. It covers the `@notes` line through the last note and names the sibling's line by its content. The lines stay in the notes, as before |
+| `DIRECTIVE005` | A strict multi-line `@notes` that takes in, as notes, a line at its indentation or less that opens an element (`TEXT`, `POINTS`, `:::note`, `<<grid>>`, a `\| … \|` row…). It covers the `@notes` line through the last note and names the element's line by its content. The lines stay in the notes, as before |
 
 Comments are not author text the element drops: a `#` comment in a YAML body
 (`<<metric>>`, `<<quiz>>`, `<<poll>>`, `<<map>>`, `options:`) stays a comment.
@@ -756,35 +756,27 @@ Directives control slide and element behavior:
 
 `@notes:` or `@notes` alone on its line opens multi-line notes: the lines
 that follow it, trimmed, up to a blank line (after the first note), a line
-that starts with `@`, `---` or `#`, or the end of the container. In strict, a
-`SLIDE` or `SECTION` at column 0 also ends them (before, the notes took it in
-and the parser stopped with an internal error).
+that starts with `@`, `---` or `#`, or the end of the container. Indentation
+does not end them, so in strict an element written right after the notes, at
+their indentation, is read as notes text. That reading does not change, but it
+is reported with `DIRECTIVE005`, a warning, when the notes take in a line at
+the indentation of `@notes`, or less, that opens an element in the form that
+element accepts, with the same test as `TEXT002`: `TEXT`, `POINTS`,
+`CHECKLIST`, `QUOTE`, `TABLE`, `IMAGE` or `CODE` in that form, a `:::type`
+block, a `<<…>>` tag an element recognizes, a `| … |` table row, or
+`SECTION "…"` inside a `SLIDE`. A line indented deeper than `@notes` (the form
+`fmt` writes), prose, `- item`, `key: value`, `TEXTO` or `TEXT hola` is not
+reported. `DIRECTIVE005` covers the `@notes` line through the last note and
+names the element's line by its content; to fix it, indent the notes under
+`@notes`, or leave a blank line between the notes and the element. When the
+notes start after a blank line (`@notes`, a blank line, the notes), the count
+of their lines skips that blank line, so the last notes are also read again
+after them, as before and as in flex.
 
-In strict, the notes also end before a sibling element. A line indented
-deeper than `@notes` is always a note, whatever it looks like, which is the
-form `fmt` writes. A line at the indentation of `@notes`, or less, opens a
-sibling when it opens an element in the form that element accepts, as for
-`TEXT002`: `TEXT`, `POINTS`, `CHECKLIST`, `QUOTE`, `TABLE`, `IMAGE` or `CODE`
-in that form, a `:::type` block, a `<<…>>` tag an element recognizes, a
-`| … |` table row, or `SECTION "…"` inside a `SLIDE`. Any other line is a note,
-as before: prose, `- item`, `key: value`, `TEXTO`, `TEXT hola`, and a line
-without the two spaces of indentation the container reads. **This is a
-behavior change**: the sibling and what follows it up to where the notes used
-to end are read as elements, where before they were text of the notes.
-
-The notes end there only when those lines read, as elements of the
-container, entirely, with no property, no unrecognized line, no diagnostic,
-and without falling in a linter rule that is an error (`IMG001`, `TABLE003`,
-`CODEGROUP001`, `CODEGROUP002`, `QUIZ001`, `QUIZ003`, `POLL003`). An element
-may go on past the old end of the notes (a `CODE`, a callout or a grid with a
-blank line inside) when the old reading, which started at that end, also ends
-an element on the same line, with no property and no directive in between:
-from there on both readings are the same. That check reads at most 40 lines
-past the old end. Otherwise the notes keep all those lines, as before, with
-the `DIRECTIVE005` warning: a document that built does not stop building. The
-same holds when the notes start after a blank line (`@notes`, a blank line,
-the notes): their body and the count of their lines stay as before, so the
-last notes are also read again after them, as in flex. Flex does not change.
+**This is a behavior change**: in strict, a `SLIDE` or `SECTION` at column 0
+also ends the notes. Before, the notes took it in and the parser stopped with
+an internal error, so no document that built changes. Flex does not change.
+`fmt` writes a blank line after multi-line notes, also inside a typed column.
 
 `@include path` on a line of its own is replaced by the content of that file
 before the source is parsed (`slidelang build`, `doclang build`; `fmt` and the

@@ -13,14 +13,15 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// En strict, el cuerpo de un `@notes` de varias líneas termina antes de un
-// elemento hermano escrito a la sangría de `@notes` (o a menos), además de en
-// los terminadores de siempre (línea en blanco, `@`, `---`, `#`). Antes se
-// llevaba los elementos que le seguían como texto de las notas. Una línea más
-// sangrada que `@notes` sigue siendo nota, y la prosa a su sangría también.
+// En strict, el cuerpo de un `@notes` de varias líneas se lee como siempre:
+// hasta una línea en blanco o una que empieza con `@`, `---` o `#`. Si toma
+// una línea a la sangría de `@notes` (o a menos) que abre un elemento bien
+// escrito, avisa con DIRECTIVE005, igual que TEXT002 para un TEXT sin cuerpo.
+// La única lectura nueva es que un SLIDE o SECTION en la columna 0 termina las
+// notas.
 
 // notesScopeShape describe los elementos del primer contenedor: el tipo de
-// cada uno y, para una directiva @notes, su contenido entre corchetes.
+// cada uno y, para una directiva, su contenido entre corchetes.
 func notesScopeShape(elements []ast.Element) string {
 	var parts []string
 	for _, el := range elements {
@@ -50,141 +51,58 @@ func parseNotesScope(t *testing.T, src string, slide bool) (*ast.AST, []diagnost
 	return p.ParseDocument(src, "notes.doclang")
 }
 
-func TestStrictNotesEndBeforeSiblingElements(t *testing.T) {
+func notesDirective005(diags []diagnostics.Diagnostic) []diagnostics.Diagnostic {
+	var out []diagnostics.Diagnostic
+	for _, d := range diags {
+		if d.RuleID == "DIRECTIVE005" {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// Las notas se llevan al hermano como siempre, y DIRECTIVE005 lo dice: cubre
+// desde @notes hasta la última nota, cita la línea del hermano y dice cómo
+// arreglarlo.
+func TestStrictNotesWarnWhenTheyTakeInASibling(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		body []string
+		// want es el comienzo de la forma de los elementos: con una línea en
+		// blanco antes del cuerpo, el conteo de siempre vuelve a leer la
+		// última nota después de @notes.
 		want string
-		// slideOnly: SECTION "…" solo es un elemento dentro de un SLIDE.
+		// quote es la línea citada; endLine, la última línea del aviso
+		// (0-based dentro de body).
+		quote     string
+		endLine   int
 		slideOnly bool
 	}{
-		{
-			name: "body indented under @notes, siblings at its indentation",
-			body: []string{"  @notes", "    uno", "    dos", "  TEXT", "    Hermano", "  POINTS", "    - a"},
-			want: "@notes[uno|dos] text points",
-		},
-		{
-			name: "@notes: with its body at its own indentation",
-			body: []string{"  @notes:", "  uno", "  - punto", "  clave: valor", "  TEXT", "    Hermano"},
-			want: "@notes[uno|- punto|clave: valor] text",
-		},
-		{
-			name: "sibling indented less than @notes",
-			body: []string{"    @notes", "      uno", "  TEXT", "    Hermano"},
-			want: "@notes[uno] text",
-		},
-		{
-			name: "prose at the @notes indentation after an indented body is still a note",
-			body: []string{"  @notes", "    uno", "  dos", "  CHECKLIST", "    - [ ] a"},
-			want: "@notes[uno|dos] checklist",
-		},
-		{
-			name: "a line deeper than @notes is a note even if it looks like an element",
-			body: []string{"  @notes", "    TEXT", "    POINTS", "  TEXT", "    Hermano"},
-			want: "@notes[TEXT|POINTS] text",
-		},
-		{
-			name: "code-group and grid after the notes",
-			body: []string{"  @notes", "    uno", "  :::code-group", "  ```js [a]", "  x()", "  ```", "  :::", "  <<grid>>", "  <<column>>", "    TEXT", "      En columna", "  <<end>>"},
-			want: "@notes[uno] code_group grid()",
-		},
-		{
-			name: "callout, table, image, quote, code, diagram after the notes",
-			body: []string{"  @notes", "    uno", "  :::note", "    Ojo", "  :::", "  @notes", "    dos", "  | A | B |", "  | --- | --- |", "  | 1 | 2 |", "  @notes", "    tres", `  IMAGE "foto.png" "alt"`, "  @notes", "    cuatro", "  QUOTE", "    Cita", "  @notes", "    cinco", "  CODE python", "    x = 1", "  @notes", "    seis", "  <<mermaid>>", "    graph TD", "    A --> B"},
-			want: "@notes[uno] special_block @notes[dos] table @notes[tres] image @notes[cuatro] quote @notes[cinco] code @notes[seis] mermaid",
-		},
-		{
-			name: "slide heading after the notes",
-			body: []string{"  @notes", "    uno", `  SECTION "Sub"`, "  TEXT", "    Hermano"},
-			want: "@notes[uno] text text", slideOnly: true,
-		},
-		{
-			name: "siblings with a blank line inside them",
-			body: []string{"  @notes", "    uno", "  CODE python", "    a = 1", "", "    b = 2", "  @notes", "    dos", "  :::note", "  Uno", "", "  Dos", "  :::", "  @notes", "    tres", "  <<grid>>", "  <<column>>", "    TEXT", "      A", "", "  <<column>>", "    TEXT", "      B", "  <<end>>"},
-			want: "@notes[uno] code @notes[dos] special_block @notes[tres] grid()()",
-		},
-		{
-			name: "a word that only starts with a keyword is a note",
-			body: []string{"  @notes", "    uno", "  TEXTO de apoyo", "  TEXT hola", "  TEXT", "    Hermano"},
-			want: "@notes[uno|TEXTO de apoyo|TEXT hola] text",
-		},
-		{
-			name: "typed column",
-			body: []string{"  <<grid>>", "  <<column typed>>", "    @notes", "      uno", "    TEXT", "      En columna", "  <<end>>"},
-			want: "grid(@notes[uno] text)",
-		},
+		{name: "TEXT and POINTS at the notes indentation", body: []string{"  @notes", "    uno", "    dos", "  TEXT", "    Hermano", "  POINTS", "    - a"},
+			want: "@notes[uno|dos|TEXT|Hermano|POINTS|- a]", quote: `"TEXT"`, endLine: 6},
+		{name: "@notes: with its body at its own indentation", body: []string{"  @notes:", "  uno", "  - punto", "  clave: valor", "  TEXT", "    Hermano"},
+			want: "@notes[uno|- punto|clave: valor|TEXT|Hermano]", quote: `"TEXT"`, endLine: 5},
+		{name: "sibling indented less than @notes", body: []string{"    @notes", "      uno", "  TEXT", "    Hermano"},
+			want: "@notes[uno|TEXT|Hermano]", quote: `"TEXT"`, endLine: 3},
+		{name: "code-group", body: []string{"  @notes", "    uno", "  :::code-group", "  ```js [a]", "  x()", "  ```", "  :::"},
+			want: "@notes[uno|:::code-group|```js [a]|x()|```|:::]", quote: `":::code-group"`, endLine: 6},
+		{name: "grid", body: []string{"  @notes", "    uno", "  <<grid>>", "  <<column>>", "    TEXT", "      Col", "  <<end>>"},
+			want: "@notes[uno|<<grid>>|<<column>>|TEXT|Col|<<end>>]", quote: `"<<grid>>"`, endLine: 6},
+		{name: "table row", body: []string{"  @notes", "    uno", "  | a | b |", "  | 1 | 2 |"},
+			want: "@notes[uno|| a | b ||| 1 | 2 |]", quote: `"| a | b |"`, endLine: 3},
+		{name: "image", body: []string{"  @notes", "    uno", `  IMAGE "foto.png" "alt"`},
+			want: `@notes[uno|IMAGE "foto.png" "alt"]`, quote: `IMAGE \"foto.png\"`, endLine: 2},
+		{name: "slide heading", body: []string{"  @notes", "    uno", `  SECTION "Sub"`},
+			want: `@notes[uno|SECTION "Sub"]`, quote: `SECTION \"Sub\"`, endLine: 2, slideOnly: true},
+		{name: "blank line before the body", body: []string{"  @notes", "", "    uno", "  TEXT"},
+			want: "@notes[uno|TEXT]", quote: `"TEXT"`, endLine: 3},
+		{name: "typed column", body: []string{"  <<grid>>", "  <<column typed>>", "    @notes", "      uno", "    TEXT", "      En columna", "  <<end>>"},
+			want: "grid(@notes[uno|TEXT|En columna])", quote: `"TEXT"`, endLine: 5},
 	} {
 		for _, slide := range []bool{true, false} {
 			if tc.slideOnly && !slide {
 				continue
 			}
-			name := tc.name + "/section"
-			header := "SECTION \"S\"\n"
-			if slide {
-				name = tc.name + "/slide"
-				header = "SLIDE content\n  title: \"S\"\n"
-			}
-			t.Run(name, func(t *testing.T) {
-				src := noDropDocHeader + "\n" + header + strings.Join(tc.body, "\n") + "\n"
-				doc, diags := parseNotesScope(t, src, slide)
-				for _, d := range diags {
-					if d.IsError() {
-						t.Errorf("unexpected error: %s %s", d.RuleID, d.Message)
-					}
-				}
-				if doc == nil || len(doc.ContentBlocks) != 1 {
-					t.Fatalf("want one block, got %+v\n%s", doc, src)
-				}
-				if got := notesScopeShape(doc.ContentBlocks[0].Elements); got != tc.want {
-					t.Errorf("elements:\n got %s\nwant %s\n%s", got, tc.want, src)
-				}
-			})
-		}
-	}
-}
-
-// Cuando lo que dejaría de ser nota no se lee limpio como elementos, o las
-// notas empiezan después de una línea en blanco, el cuerpo queda como siempre
-// y DIRECTIVE005 avisa desde la línea de @notes hasta la última nota, citando
-// la línea del hermano. El aviso no sale cuando el hermano sí sale.
-func TestStrictNotesWarnWhenTheyKeepASibling(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		body []string
-		want string
-		// quote es la línea citada; endLine, la última línea del aviso
-		// (0-based dentro de body).
-		quote   string
-		endLine int
-		reason  string
-	}{
-		{
-			name: "unclosed callout", body: []string{"  @notes", "    uno", "  :::note", "  Ojo"},
-			want: "@notes[uno|:::note|Ojo]", quote: `":::note"`, endLine: 3, reason: "would give a diagnostic",
-		},
-		{
-			name: "prose after the sibling", body: []string{"  @notes", "    uno", "  TEXT", "    Hermano", "  clave: valor"},
-			want: "@notes[uno|TEXT|Hermano|clave: valor]", quote: `"TEXT"`, endLine: 4, reason: "would give a diagnostic",
-		},
-		{
-			name: "ragged table", body: []string{"  @notes", "    uno", "  | a | b |", "  | c |"},
-			want: "@notes[uno|| a | b ||| c |]", quote: `"| a | b |"`, endLine: 3, reason: "would give a diagnostic",
-		},
-		{
-			name: "image without source", body: []string{"  @notes", "    uno", "  IMAGE"},
-			want: "@notes[uno|IMAGE]", quote: `"IMAGE"`, endLine: 2, reason: "would give a diagnostic",
-		},
-		{
-			name: "the old reading after the blank line does not end where the sibling ends",
-			body: []string{"  @notes", "    uno", "  :::note", "  Uno", "", "  TEXT", "  :::", "  POINTS", "    - a"},
-			want: "@notes[uno|:::note|Uno]", quote: `":::note"`, endLine: 3, reason: "would give a diagnostic",
-		},
-		{
-			name: "blank line before the body", body: []string{"  @notes", "", "    uno", "  TEXT"},
-			want: "@notes[uno|TEXT]", quote: `"TEXT"`, endLine: 3, reason: "start after a blank line",
-		},
-	} {
-		for _, slide := range []bool{true, false} {
 			header := "SECTION \"S\"\n"
 			name := tc.name + "/section"
 			if slide {
@@ -193,41 +111,82 @@ func TestStrictNotesWarnWhenTheyKeepASibling(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				prefix := noDropDocHeader + "\n" + header
-				first := strings.Count(prefix, "\n") + 1 // línea de @notes
 				src := prefix + strings.Join(tc.body, "\n") + "\n"
 				doc, diags := parseNotesScope(t, src, slide)
+				for _, d := range diags {
+					if d.IsError() {
+						t.Errorf("unexpected error: %s", d.Message)
+					}
+				}
 				if doc == nil || len(doc.ContentBlocks) != 1 {
 					t.Fatalf("want one block, got %+v", doc)
 				}
-				got := notesScopeShape(doc.ContentBlocks[0].Elements)
-				// Con la línea en blanco, el conteo de siempre vuelve a leer
-				// la última nota después de @notes.
-				if !strings.HasPrefix(got, tc.want) {
+				if got := notesScopeShape(doc.ContentBlocks[0].Elements); !strings.HasPrefix(got, tc.want) {
 					t.Errorf("elements:\n got %s\nwant %s…", got, tc.want)
 				}
-				var warn []diagnostics.Diagnostic
-				for _, d := range diags {
-					if d.RuleID == "DIRECTIVE005" {
-						warn = append(warn, d)
+				first := strings.Count(prefix, "\n") + 1 // primera línea de body
+				notesLine := first
+				for i, l := range tc.body {
+					if strings.Contains(l, "@notes") {
+						notesLine = first + i
+						break
 					}
 				}
+				warn := notesDirective005(diags)
 				if len(warn) != 1 {
 					t.Fatalf("want one DIRECTIVE005, got %+v", diags)
 				}
 				w := warn[0]
-				if w.Severity != diagnostics.Warning || w.Position.Line != first || w.EndPosition == nil ||
-					w.EndPosition.Line != first+tc.endLine || !strings.Contains(w.Message, tc.quote) || !strings.Contains(w.Message, tc.reason) {
-					t.Errorf("DIRECTIVE005: %+v (end %+v), want lines %d-%d quoting %s", w, w.EndPosition, first, first+tc.endLine, tc.quote)
+				end := first + tc.endLine
+				if w.Severity != diagnostics.Warning || w.Position.Line != notesLine || w.EndPosition == nil || w.EndPosition.Line != end ||
+					!strings.Contains(w.Message, tc.quote) || !strings.Contains(w.Message, "indent them under @notes") ||
+					!strings.Contains(w.Message, "leave a blank line") {
+					t.Errorf("DIRECTIVE005: %+v (end %+v), want lines %d-%d quoting %s", w, w.EndPosition, notesLine, end, tc.quote)
 				}
 			})
 		}
 	}
-	// Sin aviso cuando el hermano sale.
-	src := noDropDocHeader + "\nSECTION \"S\"\n  @notes\n    uno\n  TEXT\n    Hermano\n"
-	_, diags := parseNotesScope(t, src, false)
-	for _, d := range diags {
-		if d.RuleID == "DIRECTIVE005" {
-			t.Errorf("unexpected DIRECTIVE005: %s", d.Message)
+}
+
+// Sin aviso cuando el cuerpo no toma ningún elemento a su sangría: las notas
+// sangradas bajo @notes (lo que escribe fmt) con una línea en blanco antes
+// del hermano, prosa, palabras que solo empiezan con una palabra clave, un
+// elemento más sangrado que @notes, y una línea sin la sangría del
+// contenedor.
+func TestStrictNotesStayQuietWithoutASibling(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body []string
+		want string
+	}{
+		{"indented notes, blank line, sibling", []string{"  @notes", "    uno", "", "  TEXT", "    Hermano"}, "@notes[uno] text"},
+		{"prose and items at the notes indentation", []string{"  @notes:", "  uno", "  - punto", "  clave: valor"}, "@notes[uno|- punto|clave: valor]"},
+		{"words that only start with a keyword", []string{"  @notes", "    uno", "  TEXTO de apoyo", "  TEXT hola"}, "@notes[uno|TEXTO de apoyo|TEXT hola]"},
+		{"element deeper than @notes", []string{"  @notes", "    TEXT", "    POINTS"}, "@notes[TEXT|POINTS]"},
+		{"one-line form", []string{`  @notes "Recordar"`, "  TEXT", "    Hermano"}, "@notes[Recordar] text"},
+		{"another directive ends the body", []string{"  @notes", "    uno", "  @center", "  TEXT", "    Hermano"}, "@notes[uno] @center[] text"},
+		{"line without the container's indentation", []string{"  @notes", "    uno", "TEXT"}, "@notes[uno|TEXT]"},
+	} {
+		for _, slide := range []bool{true, false} {
+			header := "SECTION \"S\"\n"
+			name := tc.name + "/section"
+			if slide {
+				header = "SLIDE content\n  title: \"S\"\n"
+				name = tc.name + "/slide"
+			}
+			t.Run(name, func(t *testing.T) {
+				src := noDropDocHeader + "\n" + header + strings.Join(tc.body, "\n") + "\n"
+				doc, diags := parseNotesScope(t, src, slide)
+				if doc == nil || len(doc.ContentBlocks) != 1 {
+					t.Fatalf("want one block, got %+v", doc)
+				}
+				if got := notesScopeShape(doc.ContentBlocks[0].Elements); got != tc.want {
+					t.Errorf("elements:\n got %s\nwant %s", got, tc.want)
+				}
+				if w := notesDirective005(diags); len(w) != 0 {
+					t.Errorf("unexpected DIRECTIVE005: %s", w[0].Message)
+				}
+			})
 		}
 	}
 }
@@ -264,49 +223,11 @@ func TestStrictNotesEndAtTheNextBlock(t *testing.T) {
 	}
 }
 
-// Lo que sigue igual: el cuerpo de un `@notes` termina en la línea en blanco y
-// en los terminadores de siempre, una línea sin la sangría del contenedor sigue
-// siendo nota (sacarla la dejaría sin dueño y, en un SECTION, sería un error),
-// y la forma de una línea no cambia.
-func TestStrictNotesKeepTheirLegacyBody(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		body []string
-		want string
-	}{
-		{"one-line form", []string{`  @notes "Recordar"`, "  TEXT", "    Hermano"}, "@notes[Recordar] text"},
-		{"blank line ends the body", []string{"  @notes", "    uno", "", "  dos"}, "@notes[uno]"},
-		{"another directive ends the body", []string{"  @notes", "    uno", "  @center", "  TEXT", "    Hermano"}, "@notes[uno] @center[] text"},
-		{"a line without the container's indentation is a note", []string{"  @notes", "    uno", "TEXT", "  POINTS", "    - a"}, "@notes[uno|TEXT] points"},
-	} {
-		for _, slide := range []bool{true, false} {
-			header := "SECTION \"S\"\n"
-			name := tc.name + "/section"
-			if slide {
-				header = "SLIDE content\n  title: \"S\"\n"
-				name = tc.name + "/slide"
-			}
-			t.Run(name, func(t *testing.T) {
-				src := noDropDocHeader + "\n" + header + strings.Join(tc.body, "\n") + "\n"
-				doc, _ := parseNotesScope(t, src, slide)
-				if doc == nil || len(doc.ContentBlocks) != 1 {
-					t.Fatalf("want one block, got %+v", doc)
-				}
-				// En "blank line ends the body", "dos" no es de nadie: lo
-				// reporta el contenedor, como antes.
-				if got := notesScopeShape(doc.ContentBlocks[0].Elements); got != tc.want {
-					t.Errorf("elements:\n got %s\nwant %s", got, tc.want)
-				}
-			})
-		}
-	}
-}
-
 // Flex no cambia: el cuerpo de `@notes` sigue terminando solo en los
-// terminadores de siempre.
+// terminadores de siempre, y no avisa.
 func TestFlexNotesBodyUnchanged(t *testing.T) {
 	src := "---\nmode: flex\ntitle: \"T\"\n---\n\n## Slide\n\n@notes:\n- uno\n- dos\n\nTexto\n"
-	doc, _ := New(util.NewNoop()).Parse(src, "notes.slidelang")
+	doc, diags := New(util.NewNoop()).Parse(src, "notes.slidelang")
 	if doc == nil || len(doc.ContentBlocks) == 0 {
 		t.Fatalf("no blocks")
 	}
@@ -322,53 +243,7 @@ func TestFlexNotesBodyUnchanged(t *testing.T) {
 	if !found {
 		t.Errorf("no @notes in %s", notesScopeShape(doc.ContentBlocks[0].Elements))
 	}
-}
-
-// La prueba de lo que deja de ser nota (notesTailReadsClean) lee solo hasta
-// donde terminaba el cuerpo de @notes: muchos @notes seguidos de un bloque sin
-// cerrar no la hacen leer hasta el final del contenedor cada vez.
-func TestStrictNotesScopeScalesLinearly(t *testing.T) {
-	if testing.Short() {
-		t.Skip("mide tiempos")
-	}
-	for name, unit := range map[string]string{
-		"unclosed callout": "  @notes\n    nota\n  :::note\n",
-		"bare TEXT":        "  @notes\n    nota\n  TEXT\n",
-		"unclosed diagram": "  @notes\n    nota\n  <<mermaid>>\n",
-		"sibling TEXT":     "  @notes\n    nota\n  TEXT\n    Hermano\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			assertLinear(t, func(n int) string {
-				return noDropDocHeader + "SLIDE content\n  title: \"T\"\n" + strings.Repeat(unit, n)
-			}, true)
-		})
-	}
-}
-
-// La prueba que decide si el hermano sale lee los encabezados con una copia de
-// los anchors: un SECTION "…" que sale de las notas tiene el mismo anchor que
-// sin las notas, y el siguiente encabezado igual no se corre.
-func TestStrictNotesScopeKeepsHeadingAnchors(t *testing.T) {
-	body := "  SECTION \"Sub\"\n  TEXT\n    Hermano\n  SECTION \"Sub\"\n  SECTION \"Otro\"\n    id: propio\n"
-	with := noDropDocHeader + "\nSLIDE content\n  title: \"S\"\n  @notes\n    uno\n" + body
-	without := noDropDocHeader + "\nSLIDE content\n  title: \"S\"\n" + body
-	headings := func(src string) []string {
-		doc, diags := parseNotesScope(t, src, true)
-		for _, d := range diags {
-			if d.IsError() {
-				t.Errorf("unexpected error: %s", d.Message)
-			}
-		}
-		var out []string
-		for _, el := range doc.ContentBlocks[0].Elements {
-			if te, ok := el.(*ast.TextElement); ok && strings.Contains(te.Content, "<h") {
-				out = append(out, te.Content)
-			}
-		}
-		return out
-	}
-	got, want := headings(with), headings(without)
-	if len(want) != 3 || strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("headings with the notes:\n%v\nwithout:\n%v", got, want)
+	if w := notesDirective005(diags); len(w) != 0 {
+		t.Errorf("unexpected DIRECTIVE005 in flex: %s", w[0].Message)
 	}
 }

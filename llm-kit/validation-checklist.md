@@ -182,7 +182,7 @@ LLM-authored source: `CHART002`, `CHART005`, `DIRECTIVE001`, `FLEX002`,
 read the element written after it at its own indentation or less (`TEXT` /
 `POINTS`) as plain paragraph text: indent the paragraph under `TEXT`, or
 delete the empty `TEXT`.
-`DIRECTIVE005` means a strict multi-line `@notes` kept an element written
+`DIRECTIVE005` means a strict multi-line `@notes` read an element written
 after it at its own indentation as notes text: indent the notes under
 `@notes` and leave a blank line before the element.
 In strict, a line inside an element that the element does not read is a
