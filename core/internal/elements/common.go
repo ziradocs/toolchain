@@ -41,6 +41,11 @@ type ParseContext struct {
 	Logger          util.Logger // Logger interface for structured logging
 	Lines           []string
 
+	// SlideHeadings dice que `SECTION "Texto"` es un encabezado de subsección
+	// en este cuerpo strict (el de un SLIDE). Solo lo consulta TextParser,
+	// para el aviso de un TEXT sin cuerpo que absorbe un elemento (TEXT002).
+	SlideHeadings bool
+
 	// LineOffset son las líneas del archivo que preceden a Lines[0]: el
 	// frontmatter que quien construyó el parser ya separó. 0 cuando Lines
 	// es el archivo entero (#245).

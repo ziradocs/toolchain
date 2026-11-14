@@ -222,6 +222,39 @@ such a header was an error, because the code-filename contract rejects a filenam
 that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
+A `TEXT` body is the lines that follow it with indentation: usually deeper than
+`TEXT`, or, as always accepted, at its own indentation. The body starts at the
+first line with text and runs up to the first line indented less than that one.
+So a `TEXT` with no indented body of its own takes what follows it at its own
+indentation as its paragraph, elements included: `TEXT` / `POINTS` / `- uno`
+is the paragraph "POINTS - uno". That reading does not change, but it is
+reported with `TEXT002`, a warning, when the first line of the body is at the
+indentation of `TEXT` or less (the body starts at the first indented line even
+when it is indented less than `TEXT`) and opens an element in a form that
+element accepts: `TEXT`, `POINTS`, `CHECKLIST`, `QUOTE` and `TABLE` alone on
+the line or with a bare `:` (`TABLE:`), `IMAGE` alone or with a source that
+looks like a path or URL and at most its alt text (`IMAGE "logo.png" "alt"`),
+`CODE` alone or with `{verbatim}`, a language and at most a filename (a bare
+`:` after `IMAGE` or `CODE` counts too), `SECTION "…"` inside a
+`SLIDE`, a `:::type` block (not a lone `:::`, nor `::: grid` or `::: column`), a
+`<<…>>` tag that an element recognizes, a known directive (`@notes`,
+`@include`, `@center`…) or a `| … |` table row. A word that only starts with a
+keyword (`TEXTO`, `POINTSX`), a keyword with text its element does not read
+(`TEXT hola`, `QUOTE de Ana`, `IMAGE of the year`), `MERMAID`, `<<foo>>`,
+`@usuario` or `| hola` is not reported: there is no well-formed element to
+name. `TEXT002` covers the `TEXT` line through the last line of the absorbed
+paragraph and names the element by its keyword and its line by its content; to
+fix it, indent the paragraph under `TEXT`, or delete the empty `TEXT`. A `TEXT`
+with no content at all is `TEXT001`. Both are warnings in both dialects (a
+strict document included), so they do not stop the build, and they never fire
+together: a `TEXT` that absorbed something is not empty. A `<!-- node-id -->`
+on the `TEXT` line does not change any of this.
+
+In `fmt`, two Markdown pipe tables in a row are written with a blank line
+between them, at the top level of a section or slide and inside a typed grid
+column, because the strict parser reads a pipe table up to the first line that
+does not start with `|`.
+
 A `QUOTE` body is the lines that follow it, up to a blank line, a `---`, or the
 start of another element. A blank line does not end the quote when the next
 line with text is indented deeper than the `QUOTE` keyword: it stays inside as
