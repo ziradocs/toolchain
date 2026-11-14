@@ -365,8 +365,23 @@ func TestStrictText_EmptyBodyIsAlwaysTheParagraph(t *testing.T) {
 		{"  QUOTE\n    Cita.\n  nota: algo\n", true},
 		{"  :::x hola\n  sigue\n", true},
 		{"  ::: grid\n  ::: column\n  a\n  :::\n  :::\n", false},
+		// Los casos de las revisiones de la lectura a prueba, que ya no
+		// existe: siguen siendo el párrafo de main.
+		{"  POINTS\n    - apple pie\n    pie apple\n", true},
+		{"  POINTS\n    - Costo\n    5 € + 3 %\n", true},
+		{"  POINTS\n    - Plan A\n    o B\n", true},
+		{"  POINTS\n    - apple pie\n    apple\n  QUOTE\n    pie\n", true},
+		{"  IMAGE foto.png\n    alt: perro\n    caption: perro\n", true},
 		{"  POINTS\n    - uno\n    Importante:\n", true},
+		{"  POINTS\n    - uno\n    Nota: -> **\n", true},
+		{"  IMAGE foto.png\n    Leyenda:\n", true},
+		{"  POINTS\n    - uno\n    ---\n", true},
+		{"  POINTS\n    - uno\n    \"\"\n", true},
+		{"  POINTS\n    - hola\n    -> <> [] {} ## **\n", true},
 		{"  IMAGE foto.png\n    caption: perro\n    caption: perro\n", true},
+		{"  POINTS\n    - uno -> dos\n    ->\n", true},
+		{"  POINTS\n    - **uno**\n    **\n", true},
+		{"  POINTS\n    - a -- b -- c\n    --\n    --\n", true},
 		{"  POINTS\n    - uno\n    listType: unordered\n", true},
 	} {
 		var want []string
