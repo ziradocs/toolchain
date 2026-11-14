@@ -176,7 +176,7 @@ func formatDocumentElement(el ast.Element, literalMath bool) (string, error) {
 	case *ast.MetricElement:
 		body, err = formatMetric(e)
 	case *ast.SpecialBlockElement:
-		body = formatSpecialBlock(e)
+		body, err = formatFlexSpecialBlock(e)
 	case *ast.CodeGroupElement:
 		body, err = formatCodeGroup(e)
 	case *ast.MermaidElement:

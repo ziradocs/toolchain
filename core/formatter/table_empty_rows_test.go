@@ -26,6 +26,9 @@ type tableDialect struct {
 	strict  bool // la entrada es strict (las filas | sin celdas se descartan)
 	grid    bool // la tabla va en una columna tipada de un grid
 	flexOut bool // fmt escribe flex (el de documento)
+	// callout, si no está vacío, es el tipo del bloque ::: en el que va la
+	// tabla, seguida de un párrafo adentro del bloque (`note`, `tip{typed}`).
+	callout string
 	format  func(*ast.AST) (string, error)
 }
 
@@ -33,6 +36,9 @@ type tableDialect struct {
 // del dialecto, seguida de un párrafo: si fmt escribiera una tabla que se
 // traga lo que sigue, el AST cambiaría.
 func (d tableDialect) wrap(table string) string {
+	if d.callout != "" {
+		table = ":::" + d.callout + "\n" + table + "\nDespués.\n:::"
+	}
 	front := "---\nmode: strict\ntitle: A\n---\n"
 	switch {
 	case d.strict && d.grid && d.slides:
@@ -53,9 +59,11 @@ func (d tableDialect) wrap(table string) string {
 // rowsIndent es la sangría, dentro de la tabla, de las filas bajo rows: para
 // que caigan a seis espacios del comienzo de la línea que lee el parser.
 func (d tableDialect) rowsIndent() int {
-	if d.strict {
+	if d.strict && !strings.HasSuffix(d.callout, "{typed}") {
 		return 4
 	}
+	// Flex, o un bloque strict {typed}, que lee su cuerpo como flex: la
+	// tabla está a la sangría del bloque, que el parser le quita.
 	return 6
 }
 
@@ -75,6 +83,20 @@ var tableDialects = []tableDialect{
 	{name: "doclang strict grid", strict: true, grid: true, format: FormatDocumentStrict},
 	{name: "doclang flex", flexOut: true, format: FormatDocument},
 	{name: "doclang flex to strict", format: FormatDocumentStrict},
+}
+
+// calloutTableDialects ponen la tabla dentro de un bloque :::. Main escribía
+// el cuerpo de un TABLE sin sangría (el bloque guarda sus líneas recortadas),
+// y al releerlo la tabla salía vacía, con headers:/rows: como texto.
+var calloutTableDialects = []tableDialect{
+	{name: "slidelang strict :::note{typed}", slides: true, strict: true, callout: "note{typed}", format: FormatStrict},
+	{name: "slidelang strict :::tip", slides: true, strict: true, callout: "tip", format: FormatStrict},
+	{name: "slidelang flex :::note", slides: true, callout: "note", format: FormatStrict},
+	{name: "doclang strict :::tip{typed}", strict: true, callout: "tip{typed}", format: FormatDocumentStrict},
+	{name: "doclang strict :::note", strict: true, callout: "note", format: FormatDocumentStrict},
+	{name: "doclang flex :::note", flexOut: true, callout: "note", format: FormatDocument},
+	{name: "doclang flex :::tip", flexOut: true, callout: "tip", format: FormatDocument},
+	{name: "doclang flex :::note to strict", callout: "note", format: FormatDocumentStrict},
 }
 
 // tableShape es una tabla generada: encabezado (nil = sin encabezado), filas,
@@ -260,8 +282,9 @@ func markdownTableForm(aligned bool) func(s tableShape, d tableDialect) (string,
 		rows := [][]string{}
 		for _, r := range s.rows {
 			b.WriteString("\n" + pipeRow(r))
-			// Strict descarta la fila "|" (sin celdas) al leerla.
-			if len(r) > 0 || !d.strict {
+			// Strict descarta la fila "|" (sin celdas) al leerla. Dentro de un
+			// bloque ::: la tabla la lee el parser de elementos, que la deja.
+			if len(r) > 0 || !d.strict || d.callout != "" {
 				rows = append(rows, r)
 			}
 		}
@@ -330,9 +353,22 @@ func jsonOf(t *testing.T, v interface{}) string {
 // rellena hasta el ancho de la más larga.
 func TestFormat_GeneratedTablesRoundTrip(t *testing.T) {
 	shapes := generatedTableShapes()
+	// Dentro de un bloque ::: basta un subconjunto: lo que se prueba ahí es la
+	// sangría del cuerpo de la tabla, no cada forma de tabla otra vez.
+	var calloutShapes []tableShape
+	for _, sh := range shapes {
+		if sh.label == "" && (sh.headers == nil || len(sh.headers) == 2 && sh.headers[0] == "A") {
+			calloutShapes = append(calloutShapes, sh)
+		}
+	}
 	for _, d := range tableDialects {
 		t.Run(d.name, func(t *testing.T) {
 			roundTripGeneratedTables(t, d, shapes)
+		})
+	}
+	for _, d := range calloutTableDialects {
+		t.Run(d.name, func(t *testing.T) {
+			roundTripGeneratedTables(t, d, calloutShapes)
 		})
 	}
 }
@@ -376,8 +412,10 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			}
 			// La alineación solo se escribe en una tabla pipe, y strict
 			// descarta la fila "|": una tabla alineada con una fila sin
-			// celdas (solo se lee así en flex) no tiene forma strict.
-			wantRefusal := len(got.ColumnAlign) > 0 && hasEmptyRow(got.Rows) && !d.flexOut
+			// celdas (solo se lee así en flex) no tiene forma strict. Dentro
+			// de un bloque ::: la tabla va en el texto del bloque, como la
+			// escribió el autor.
+			wantRefusal := len(got.ColumnAlign) > 0 && hasEmptyRow(got.Rows) && !d.flexOut && d.callout == ""
 			once, err := d.format(doc)
 			if wantRefusal {
 				if err == nil || !strings.Contains(err.Error(), "columnAlign") {
@@ -444,12 +482,12 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 	for _, form := range tableSourceForms {
 		n := accepted[form.name]
 		total += n
-		if n < 40 {
+		if n < 20 {
 			t.Errorf("%s: only %d generated tables went through fmt", form.name, n)
 		}
 	}
 	whats := []string{"a row without cells", "no headers", "a miscounted row with caption or label"}
-	if !d.strict && !d.flexOut {
+	if !d.strict && !d.flexOut && d.callout == "" {
 		whats = append(whats, "an aligned table with a row without cells, refused")
 	}
 	for _, what := range whats {
@@ -674,5 +712,80 @@ func TestFormat_TableWithTABLE003KeepsTheMiscountedRow(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Un bloque ::: guarda sus líneas recortadas (Content), y fmt las escribía
+// así: el cuerpo de un TABLE perdía la sangría y al releerse la tabla salía
+// vacía, con headers:/rows: como texto. En el flex de documento, además, una
+// cerca de código con sangría se escribía con {typed}, que en flex es parte
+// del tipo: el bloque :::note pasaba a ser :::note{typed}.
+func TestFormat_CalloutNestedIndentation(t *testing.T) {
+	flexDoc := "---\ntitle: A\n---\n# A\n\n%s\n"
+	flexSlides := "---\nmode: flex\ntitle: A\n---\n# A\n\n%s\n"
+	for _, tc := range []struct {
+		name   string
+		src    string
+		slides bool
+		format func(*ast.AST) (string, error)
+		want   string
+	}{
+		{
+			name:   "TABLE with prose after it, doclang flex",
+			src:    fmt.Sprintf(flexDoc, ":::note\nTABLE\n  caption: \"Ventas\"\n  headers: [\"A\", \"B\"]\n  rows:\n      [\"1\", \"2\"]\nDespués.\n:::"),
+			format: FormatDocument,
+			want:   ":::note\nTABLE\n  caption: \"Ventas\"\n  headers: [\"A\", \"B\"]\n  rows:\n      [\"1\", \"2\"]\nDespués.\n:::\n",
+		},
+		{
+			name:   "TABLE cells:, doclang flex",
+			src:    fmt.Sprintf(flexDoc, ":::tip\nTABLE\n  cells:\n    - [{content: A, header: true, colspan: 2}]\n    - [{content: \"1\"}, {content: \"2\"}]\n:::"),
+			format: FormatDocument,
+			want:   ":::tip\nTABLE\n  cells:\n    - [{content: A, header: true, colspan: 2}]\n    - [{content: \"1\"}, {content: \"2\"}]\n:::\n",
+		},
+		{
+			name:   "TABLE tableRows:, doclang flex",
+			src:    fmt.Sprintf(flexDoc, ":::note\nTABLE\n  tableRows:\n    - section: header\n      cells: [{content: A, header: true}]\n    - cells: [{content: \"1\"}]\n:::"),
+			format: FormatDocument,
+			want:   ":::note\nTABLE\n  tableRows:\n    - section: header\n      cells: [{content: A, header: true}]\n    - cells: [{content: \"1\"}]\n:::\n",
+		},
+		{
+			name:   "fenced code with indentation, doclang flex",
+			src:    fmt.Sprintf(flexDoc, ":::note\n```python\ndef f():\n    return 1\n```\n:::"),
+			format: FormatDocument,
+			want:   ":::note\n```python\ndef f():\n    return 1\n```\n:::\n",
+		},
+		{
+			name:   "TABLE, doclang flex to strict",
+			src:    fmt.Sprintf(flexDoc, ":::note\nTABLE\n  headers: [\"A\"]\n  rows:\n      [\"1\"]\n:::"),
+			format: FormatDocumentStrict,
+			want:   "  :::note{typed}\n  TABLE\n    headers: [\"A\"]\n    rows:\n        [\"1\"]\n  :::\n",
+		},
+		{
+			name:   "TABLE, slidelang flex",
+			src:    fmt.Sprintf(flexSlides, ":::note\nTABLE\n  headers: [\"A\"]\n  rows:\n      [\"1\"]\n:::"),
+			slides: true,
+			format: FormatStrict,
+			want:   "  :::note{typed}\n  TABLE\n    headers: [\"A\"]\n    rows:\n        [\"1\"]\n  :::\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := tableDialect{slides: tc.slides}
+			doc, diags := d.parse(tc.src)
+			if e, bad := hasErrorDiag(diags); bad {
+				t.Fatalf("fixture does not parse: %s", e.String())
+			}
+			out, err := tc.format(doc)
+			if err != nil {
+				t.Fatalf("fmt: %v", err)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("fmt wrote\n%s\nwant the block\n%s", out, tc.want)
+			}
+			d.slides = tc.slides
+			doc2, _ := d.parse(out)
+			if !reflect.DeepEqual(stripPositions(doc.ContentBlocks), stripPositions(doc2.ContentBlocks)) {
+				t.Errorf("the AST changed through fmt\n before: %s\n after:  %s", jsonOf(t, stripPositions(doc.ContentBlocks)), jsonOf(t, stripPositions(doc2.ContentBlocks)))
+			}
+		})
 	}
 }

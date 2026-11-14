@@ -15,6 +15,8 @@ import (
 	"go.ziradocs.com/core/v2/internal/codespan"
 	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/layouts"
+	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // FormatStrict serializa doc a la forma canónica del dialecto strict de
@@ -1017,6 +1019,48 @@ func formatSpecialBlock(e *ast.SpecialBlockElement) string {
 	return plain
 }
 
+// formatFlexSpecialBlock escribe un bloque ::: para el flex de documento.
+// Flex lee el cuerpo como lo escribió el autor, así que el bloque sale con su
+// Content, como siempre, cuando así se relee igual. Si no (Content guarda las
+// líneas recortadas, y una cerca de código o el cuerpo de un TABLE necesitan
+// su sangría), se le devuelve la sangría a los elementos anidados
+// (withNestedIndentation). Si tampoco así se relee igual, se rechaza en vez de
+// perder lo que tenía. A diferencia de strict no hay {typed}: en flex ese
+// atributo es parte del tipo del bloque.
+func formatFlexSpecialBlock(e *ast.SpecialBlockElement) (string, error) {
+	plain := specialBlockText(e, false)
+	if len(e.Elements) == 0 || flexSpecialBlockReadsBack(e, plain) {
+		return plain, nil
+	}
+	head := ":::" + e.BlockType
+	if e.Title != "" {
+		head += " " + e.Title
+	}
+	indented := head + "\n" + withNestedIndentation(e) + "\n:::"
+	if flexSpecialBlockReadsBack(e, indented) {
+		return indented, nil
+	}
+	return "", newUnsupported("special_block", fmt.Sprintf(
+		"the %s block does not read back with the same content and nested elements in flex, so formatting would change it", blockLabel(e)))
+}
+
+// flexSpecialBlockReadsBack es specialBlockReadsBack para el flex de documento.
+func flexSpecialBlockReadsBack(e *ast.SpecialBlockElement, text string) bool {
+	// Con la normalización, como lee el documento la CLI: un <<mermaid>>
+	// dentro de un bloque, por ejemplo, se lee distinto sin ella.
+	doc, _ := parser.New(util.NewNoop()).ParseDocument("---\ntitle: \"x\"\n---\n\n# x\n\n"+text+"\n", "")
+	if doc == nil {
+		return false
+	}
+	blocks := collectSpecialBlocks(doc)
+	if len(blocks) == 0 {
+		return false
+	}
+	got := blocks[0]
+	return got.BlockType == e.BlockType && got.Title == e.Title && got.Content == e.Content &&
+		sameElements(e.Elements, got.Elements)
+}
+
 // typedBlockType adds the typed attribute to a block type: `card` becomes
 // `card{typed}` and `card{type="success"}` becomes `card{type="success" typed}`.
 func typedBlockType(blockType string) string {
@@ -1038,7 +1082,7 @@ func specialBlockText(e *ast.SpecialBlockElement, typed bool) string {
 	}
 	b.WriteString("\n")
 	if typed {
-		b.WriteString(withFenceIndentation(e))
+		b.WriteString(withNestedIndentation(e))
 	} else {
 		b.WriteString(e.Content)
 	}
@@ -1046,8 +1090,9 @@ func specialBlockText(e *ast.SpecialBlockElement, typed bool) string {
 	return b.String()
 }
 
-// withFenceIndentation returns the body of a typed block with the interior of
-// each fenced code block written as the nested CodeElement holds it.
+// withNestedIndentation returns the body of a block with the indentation its
+// nested elements need to be read back: the interior of each fenced code block
+// as the nested CodeElement holds it, and the body of each TABLE block.
 //
 // A block's content is its raw lines trimmed one by one, while the CodeElement
 // built from a fence keeps the lines as they were, indentation included. Read
@@ -1057,7 +1102,11 @@ func specialBlockText(e *ast.SpecialBlockElement, typed bool) string {
 // same order and number, trimmed; they are paired with the code elements by order
 // and by language, and a fence that does not pair (the tabs of a code group, say)
 // is left as it is. The read-back check in formatSpecialBlock is the net.
-func withFenceIndentation(e *ast.SpecialBlockElement) string {
+//
+// Un TABLE dentro del bloque perdía la sangría de su cuerpo de la misma forma:
+// sin ella, headers:/rows: se releen como texto y la tabla sale vacía. Ver
+// indentTableBody.
+func withNestedIndentation(e *ast.SpecialBlockElement) string {
 	var codes []*ast.CodeElement
 	var collect func(els []ast.Element)
 	collect = func(els []ast.Element) {
@@ -1075,22 +1124,19 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 		}
 	}
 	collect(e.Elements)
-	if len(codes) == 0 {
-		return e.Content
-	}
 
 	lines := strings.Split(e.Content, "\n")
 	var out []string
 	next := 0
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		if next >= len(codes) || !strings.HasPrefix(lines[i], "```") {
+		if lines[i] == "TABLE" {
+			body := indentTableBody(lines[i+1:])
+			out = append(out, body...)
+			i += len(body)
 			continue
 		}
-		code := codes[next]
-		fenceLang, _, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(lines[i], "`")), " ")
-		codeLang, _, _ := strings.Cut(strings.TrimSpace(code.Language), " ")
-		if fenceLang != codeLang {
+		if !strings.HasPrefix(lines[i], "```") {
 			continue
 		}
 		closing := -1
@@ -1103,18 +1149,85 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 		if closing < 0 {
 			continue
 		}
+		// El interior de una cerca es código: un TABLE ahí no es una tabla,
+		// así que se copia tal cual, emparejada o no.
 		interior := lines[i+1 : closing]
-		raw := strings.Split(code.Content, "\n")
-		if code.Content != "" && len(raw) == len(interior) {
-			out = append(out, raw...)
-		} else {
-			out = append(out, interior...)
+		if next < len(codes) {
+			code := codes[next]
+			fenceLang, _, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(lines[i], "`")), " ")
+			codeLang, _, _ := strings.Cut(strings.TrimSpace(code.Language), " ")
+			if fenceLang == codeLang {
+				if raw := strings.Split(code.Content, "\n"); code.Content != "" && len(raw) == len(interior) {
+					interior = raw
+				}
+				next++
+			}
 		}
+		out = append(out, interior...)
 		out = append(out, lines[closing])
 		i = closing
-		next++
 	}
 	return strings.Join(out, "\n")
+}
+
+// indentTableBody devuelve, con la sangría con la que el parser de TABLE las
+// lee, las líneas que siguen a un TABLE dentro de un bloque y son su cuerpo:
+// las propiedades a dos espacios, las filas bajo rows: a seis (el parser las
+// lee solo ahí), los items de cells:/tableRows: a cuatro y las demás claves
+// de un item de tableRows: dos más adentro, y las filas "|" a dos. Content guarda cada
+// línea recortada salvo los items de lista ("- […]"), que conservan su
+// sangría relativa al cuerpo del bloque: esos van tal cual. Termina en la
+// primera línea que no es del cuerpo; las líneas en blanco entre medio van
+// sin sangría y las del final no se cuentan. La lectura de vuelta en
+// formatSpecialBlock/formatFlexSpecialBlock decide si el resultado sirve.
+func indentTableBody(lines []string) []string {
+	var out []string
+	mode := ""
+	itemIndent := 4
+	pending := 0 // líneas en blanco todavía sin asignar a la tabla
+	for _, line := range lines {
+		if line == "" {
+			pending++
+			continue
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		kept := len(line) - len(trimmed)
+		key := ""
+		for _, k := range []string{"caption:", "label:", "headers:", "rows:", "cells:", "tableRows:"} {
+			if strings.HasPrefix(trimmed, k) {
+				key = k
+				break
+			}
+		}
+		yaml := mode == "cells:" || mode == "tableRows:"
+		indent := 0
+		switch {
+		case yaml && strings.HasPrefix(trimmed, "- "):
+			// Un item: con la sangría que Content le guardó, o a cuatro.
+			itemIndent = 4
+			if kept > 0 {
+				itemIndent = kept
+			}
+			indent = itemIndent - kept
+		case mode == "tableRows:" && kept == 0 && (key == "cells:" || strings.HasPrefix(trimmed, "section:") || strings.HasPrefix(trimmed, "nodeId:")):
+			// Las claves de un item de tableRows: después de la primera.
+			indent = itemIndent + 2
+		case key != "" && kept == 0:
+			indent = 2
+			mode = key
+		case mode == "rows:" && strings.HasPrefix(trimmed, "[") && kept == 0:
+			indent = 6
+		case kept == 0 && (strings.HasPrefix(trimmed, "|") || trimmed == "]" || trimmed == "],"):
+			indent = 2
+		default:
+			return out
+		}
+		for ; pending > 0; pending-- {
+			out = append(out, "")
+		}
+		out = append(out, strings.Repeat(" ", indent)+line)
+	}
+	return out
 }
 
 // specialBlockReadsBack reports whether text, written inside a slide, reads
