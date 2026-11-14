@@ -249,7 +249,7 @@ func (g *DOCXGenerator) addListParagraph(doc domain.Document, numID, level int) 
 }
 
 func (g *DOCXGenerator) docxListTooDeep(line int) error {
-	return fmt.Errorf("DOCX: la lista en %s anida más de %d niveles, el máximo de Word", g.opts.where("línea", line), docxMaxListLevels)
+	return fmt.Errorf("DOCX: la lista de %s anida más de %d niveles, el máximo de Word", g.opts.whereError("la línea", line), docxMaxListLevels)
 }
 
 func (g *DOCXGenerator) renderPoints(doc domain.Document, elem *ast.PointsElement) error {

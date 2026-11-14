@@ -218,6 +218,11 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 			hasErrors = true
 		} else if diag.IsWarning() {
 			log.Warn("PARSER: Warning at %s: %s", Where(diag), diag.Message)
+		} else if diag.Severity == diagnostics.Info && diag.Source == "identity" {
+			// El Info que señala el primer uso de un nodeId repetido: sin él
+			// el error no dice dónde está el otro. No cuenta como warning ni
+			// cambia el código de salida.
+			log.Info("PARSER", "Note at %s: %s", Where(diag), diag.Message)
 		}
 	}
 	if hasErrors {
@@ -443,10 +448,11 @@ type GenerateOptions struct {
 	TileServer        string
 	TileUserAgent     string
 	TileAttribution   string
-	// ExpandedLines deja los avisos del generador con la línea del contenido
-	// expandido ("line N"), para quien las lleva a su archivo por su cuenta
-	// (la tool MCP). Sin él, el aviso nombra "archivo:N" o la línea del
-	// documento, como el reporte de --fail-on-unavailable.
+	// ExpandedLines deja los avisos de log del generador con la línea del
+	// contenido expandido ("line N"), para quien los lleva a su archivo por
+	// su cuenta (la tool MCP). Sin él, el aviso nombra "archivo:N" o la línea
+	// del documento, como el reporte de --fail-on-unavailable. Los errores
+	// devueltos se ubican siempre.
 	ExpandedLines bool
 }
 
@@ -585,12 +591,11 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		TileAttribution:   opts.TileAttribution,
 		Ctx:               opts.Ctx,
 	}
-	if !opts.ExpandedLines {
-		genOpts.LocateLine = func(line int) (string, int) {
-			ue := &generator.UnavailableError{Items: []generator.UnavailableContent{{Line: line}}}
-			mapUnavailable(ue, p.Sources, p.DocDir)
-			return ue.Items[0].File, ue.Items[0].Line
-		}
+	genOpts.ExpandedLines = opts.ExpandedLines
+	genOpts.LocateLine = func(line int) (string, int) {
+		ue := &generator.UnavailableError{Items: []generator.UnavailableContent{{Line: line}}}
+		mapUnavailable(ue, p.Sources, p.DocDir)
+		return ue.Items[0].File, ue.Items[0].Line
 	}
 	log.Info("GENERATOR", "Generating %s document...", format)
 	if err := gen.Generate(doc, opts.OutputFile, genOpts); err != nil {
