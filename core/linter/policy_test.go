@@ -407,6 +407,16 @@ func TestPolicyConfig_Evaluate_ScopeMatchesTheFindingsFile(t *testing.T) {
 		{"a scope glob with ./", "./deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"./parts/*"}}, "parts/x.slidelang", true, "", false},
 		{"a scope glob with ./ and a clean document path", "deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"./parts/*"}}, "parts/x.slidelang", true, "", false},
 		{"Windows separators on both sides", "decks\\main.slidelang", RulePolicy{Enabled: &off, Scope: []string{"decks\\parts\\*"}}, "parts\\x.slidelang", true, "", false},
+		// El documento "./main.slidelang" se compara limpio al suprimir: un
+		// scope "main.slidelang" cubre sus hallazgos.
+		{"the document's own path, cleaned", "./main.slidelang", RulePolicy{Enabled: &off, Scope: []string{"main.slidelang"}}, "", true, "", false},
+		// Un glob con ".." se compara como está escrito, como antes:
+		// resolverlo lo ensancharía. Ninguno de estos suprime, ni el
+		// hallazgo del documento ni el del archivo incluido.
+		{"parts/../** on the document", "main.slidelang", RulePolicy{Enabled: &off, Scope: []string{"parts/../**"}}, "", false, diagnostics.Warning, false},
+		{"parts/../** on the included file", "main.slidelang", RulePolicy{Enabled: &off, Scope: []string{"parts/../**"}}, "parts/x.slidelang", false, diagnostics.Warning, false},
+		{"**/../parts/* on the included file", "main.slidelang", RulePolicy{Enabled: &off, Scope: []string{"**/../parts/*"}}, "parts/x.slidelang", false, diagnostics.Warning, false},
+		{"drafts/../main.slidelang on the document", "main.slidelang", RulePolicy{Enabled: &off, Scope: []string{"drafts/../main.slidelang"}}, "", false, diagnostics.Warning, false},
 		{"another file is not covered", "deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"parts/*"}}, "other/x.slidelang", false, diagnostics.Warning, false},
 		// La severidad sigue la ruta del documento: un scope que cubre solo
 		// el archivo incluido no sube su hallazgo a error.

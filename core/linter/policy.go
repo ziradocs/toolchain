@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -350,7 +351,8 @@ func (p *PolicyConfig) Evaluate(diags []diagnostics.Diagnostic, filePath string,
 		// primero, como antes de mirar el archivo del hallazgo.
 		//
 		// Para suprimir, las dos rutas y los globs se comparan en la misma
-		// forma (cleanScopePath: "/" como separador, sin "./" ni "a/.."): un
+		// forma (cleanScopePath: "/" como separador, sin "./" ni "a/..", y un
+		// glob con ".." tal como está escrito, ver cleanScopeGlob): un
 		// scope "./parts/*" cubre el hallazgo de parts/x.slidelang como cubre
 		// un documento "./parts/d.slidelang". docInScope compara como antes,
 		// sin normalizar, para que la severidad no se aplique a nada nuevo.
@@ -462,8 +464,9 @@ func findingScopePath(docPath, file string) string {
 // cleanScopePath es p en la forma con la que se compara un scope al
 // suprimir: "/" como separador (una ruta de Windows llega con "\\") y
 // path.Clean, que quita el "./" del principio y resuelve "a/..". Se aplica
-// igual a la ruta del documento, a la del archivo incluido y a cada glob
-// (path.Clean no toca "*" ni "?"). "" queda "".
+// igual a la ruta del documento y a la del archivo incluido, y a cada glob
+// que no tenga ".." (ver cleanScopeGlob; path.Clean no toca "*" ni "?").
+// "" queda "".
 func cleanScopePath(p string) string {
 	if p == "" {
 		return ""
@@ -481,11 +484,25 @@ func cleanScopeMatches(scope []string, p string) bool {
 		return false
 	}
 	for _, scopeGlob := range scope {
-		if matchScopeGlob(p, cleanScopePath(scopeGlob)) {
+		if matchScopeGlob(p, cleanScopeGlob(scopeGlob)) {
 			return true
 		}
 	}
 	return false
+}
+
+// cleanScopeGlob es un glob en la forma de cleanScopePath, salvo que tenga un
+// segmento "..": ese queda exactamente como está escrito, como antes de
+// normalizar. path.Clean resuelve ".." sin saber de comodines, y eso ensancha
+// el glob: "parts/../**" quedaría "**" (todo), "**/../parts/*" quedaría
+// "parts/*", "drafts/../main.slidelang" quedaría "main.slidelang". Las rutas
+// limpias no tienen ".." (salvo al principio), así que un glob con ".." cubre
+// lo mismo que cubría.
+func cleanScopeGlob(glob string) string {
+	if slices.Contains(strings.Split(strings.ReplaceAll(glob, "\\", "/"), "/"), "..") {
+		return glob
+	}
+	return cleanScopePath(glob)
 }
 
 // hasWindowsDrive dice si p empieza con una letra de unidad ("D:/…").

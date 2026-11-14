@@ -194,7 +194,9 @@ directory, joined to that directory. So with `slidelang build
 decks/main.slidelang`, `scope: ["decks/parts/*"]` suppresses the findings of
 `decks/parts/x.slidelang`. For that comparison both paths and the globs are
 taken in the same form: `/` as the separator, without a leading `./` and with
-`a/..` resolved, so `scope: ["./parts/*"]` works too. Suppressing works the
+`a/..` resolved, so `scope: ["./parts/*"]` works too. A glob that contains a
+`..` segment is compared exactly as written: resolving it would widen it
+(`parts/../**` would become `**`). Suppressing works the
 same for a finding that is an error on its own: `QUIZ001: {enabled: false,
 scope: ["parts/*"]}` lets a build pass whose only error was that finding in
 `parts/x.slidelang`, since that is the author's own policy for that file. A
