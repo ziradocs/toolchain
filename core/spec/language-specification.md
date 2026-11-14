@@ -238,11 +238,13 @@ nothing changes meaning. The first line with text, at the indentation of
   with less indentation) reads as a sequence of such elements without losing
   or moving anything: each non-blank line the element took is its opening
   line, a closing line of that container (`<<end>>`, `:::`, a `|---|`
-  separator…), a `Key: value` property the element stored with that value
-  (each field accounts for one line), or a line whose every word and sign
-  (one-letter words and signs such as `€` or `%` included, counted with
-  their repetitions) is in the element's text, a line with no words having
-  to appear there verbatim; no line becomes a property or an unrecognized
+  separator…), a `Key: value` property that element's parser reads and
+  stored with that value (`caption:`, `title:` of an `IMAGE`, `AUTHOR:` of a
+  `QUOTE`, `headers:` of a `TABLE`…; each field accounts for one line), or a
+  line whose every word and sign (one-letter words and signs such as `€` or
+  `%` included, counted with their repetitions) is in the element's text, a
+  line with no words having to be a whole line of it; no line becomes a
+  property or an unrecognized
   line; no diagnostic
   other than `TEXT001` appears; no element takes a line at its own
   indentation that is not its own (a `QUOTE` or a `POINTS` does not take the
@@ -250,7 +252,9 @@ nothing changes meaning. The first line with text, at the indentation of
   each element is followed by another one that opens the same way.
 
 A `TEXT` annotated with a `<!-- node-id -->` never gives up its body this
-way: the id names its paragraph.
+way: the id names its paragraph. Nor does it once the parser has read 50 000
+lines checking empty `TEXT` bodies in the same document or deck; past that,
+the lines stay the body of the `TEXT`, as before.
 
 Otherwise those lines stay the body of the `TEXT`, as before: a word that only
 starts with a keyword (`TEXTO`, `POINTSX`, `QUOTEado`), a keyword followed by

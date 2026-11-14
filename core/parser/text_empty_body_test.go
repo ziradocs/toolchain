@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -369,6 +370,13 @@ func TestStrictText_EmptyBodyCutNeverLosesText(t *testing.T) {
 		"  POINTS\n    - uno\n    \"\"\n",
 		"  POINTS\n    - hola\n    -> <> [] {} ## **\n",
 		"  IMAGE foto.png\n    caption: perro\n    caption: perro\n",
+		// Cuarta revisión (7dbaf55): una línea de solo signos tiene que ser
+		// una línea entera del elemento, y una clave cuenta como propiedad
+		// solo si el parser del elemento la lee.
+		"  POINTS\n    - uno -> dos\n    ->\n",
+		"  POINTS\n    - **uno**\n    **\n",
+		"  POINTS\n    - a -- b -- c\n    --\n    --\n",
+		"  POINTS\n    - uno\n    listType: unordered\n",
 	} {
 		var want []string
 		for _, l := range strings.Split(body, "\n") {
@@ -644,5 +652,78 @@ func TestStrictText_TrialStepsShareAnchors(t *testing.T) {
 	}
 	if want := `text:SECTION "B" id: x SECTION "C" id: x`; strings.Join(got, "|") != want {
 		t.Errorf("got %v, want [%s] as in main", got, want)
+	}
+}
+
+// Varios encabezados de prueba con ids distintos cortan: un paso que ya se
+// leyó no se vuelve a leer al conocerse el resultado del siguiente, así que
+// sus anchors no se registran dos veces.
+func TestStrictText_TrialStepsWithDistinctIDsCut(t *testing.T) {
+	slide := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n"
+	body := "  SECTION \"B\"\n    id: x\n  SECTION \"C\"\n    id: y\n"
+	want, wantDiags := elementShapes(t, slide+body, false)
+	if len(wantDiags) != 0 || len(want) != 2 {
+		t.Fatalf("fixture: %v %v", want, wantDiags)
+	}
+	got, diags := elementShapes(t, slide+"  TEXT\n"+body, false)
+	if len(diags) != 0 || strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("got %v %v, want %v as without the TEXT", got, diags, want)
+	}
+}
+
+// Con el presupuesto de líneas de prueba agotado, el TEXT vacío no suelta lo
+// que sigue: queda el párrafo de main, sin perder nada.
+func TestStrictText_TrialBudgetFallsBackToParagraph(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  POINTS\n    - uno\n  QUOTE\n    Cita.\n  CHECKLIST\n    - [ ] dos\n"
+	if got, _ := elementShapes(t, src, true); len(got) != 3 {
+		t.Fatalf("with the default budget the TEXT cuts: got %v", got)
+	}
+	defer func(b int) { emptyTextTrialBudget = b }(emptyTextTrialBudget)
+	emptyTextTrialBudget = 3
+	got, diags := elementShapes(t, src, true)
+	if want := "text:POINTS - uno QUOTE Cita. CHECKLIST - [ ] dos"; strings.Join(got, "|") != want || len(diags) != 0 {
+		t.Errorf("got %v %v, want [%s]", got, diags, want)
+	}
+}
+
+// Escala: un CODE o un bloque ":::" con 80 000 líneas sin tokens tras un TEXT
+// vacío se prueban en tiempo y memoria lineales (antes, la comparación tal
+// cual reconstruía la cadena por línea: 25 y 46 GB asignados). Sin
+// presupuesto, para medir la prueba entera; con el de siempre, el TEXT queda
+// como párrafo y tampoco cuesta.
+func TestStrictText_EmptyBodyCutScalesLinearly(t *testing.T) {
+	head := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"
+	inputs := map[string]func(n int) string{
+		"CODE": func(n int) string {
+			return head + "  TEXT\n  CODE js\n" + strings.Repeat("    x\n    }\n", n)
+		},
+		"special block": func(n int) string {
+			return head + "  TEXT\n  :::note\n" + strings.Repeat("  hola\n  --\n", n) + "  :::\n"
+		},
+	}
+	measure := func(src string) uint64 {
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		New(util.NewNoop()).ParseDocument(src, "d.doclang")
+		runtime.ReadMemStats(&after)
+		return after.TotalAlloc - before.TotalAlloc
+	}
+	for name, input := range inputs {
+		t.Run(name, func(t *testing.T) {
+			for _, budget := range []int{1 << 30, emptyTextTrialBudget} {
+				func() {
+					defer func(b int) { emptyTextTrialBudget = b }(emptyTextTrialBudget)
+					emptyTextTrialBudget = budget
+					small, large := input(20000), input(80000)
+					a, b := measure(small), measure(large)
+					// Lineal: 4 veces la entrada, unas 4 veces la memoria. Con
+					// el costo cuadrático de antes eran miles de veces.
+					if b > 8*a || b > 400*uint64(len(large)) {
+						t.Errorf("budget %d: %d bytes for n=20k, %d for n=80k (%d bytes of input)", budget, a, b, len(large))
+					}
+				}()
+			}
+		})
 	}
 }

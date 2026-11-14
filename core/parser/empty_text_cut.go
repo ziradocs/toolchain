@@ -38,7 +38,20 @@ type emptyTextCut struct {
 	// id repetido entre dos encabezados leídos a prueba es un error, como en
 	// el parse real), y la capa se descarta al terminar la prueba.
 	anchors elements.HeadingAnchors
+	// waiting guarda, para un paso que ya se leyó y sigue en next, ese next:
+	// cuando next tiene resultado, el paso toma el mismo sin leerse otra vez
+	// (releerlo registraría sus anchors dos veces).
+	waiting map[int]int
+	// spent son las líneas que leyeron los pasos de prueba de este cuerpo. Al
+	// pasar de emptyTextTrialBudget ya no se prueba más: el TEXT vacío toma
+	// esas líneas como cuerpo, como main. Acota el costo de cualquier camino
+	// caro sin poder perder texto, porque no cortar es leer como main.
+	spent int
 }
+
+// emptyTextTrialBudget es el presupuesto de líneas de prueba por cuerpo
+// (ver emptyTextCut.spent). Una variable para que las pruebas lo cambien.
+var emptyTextTrialBudget = 50000
 
 // emptyTextCutKeepsText es ParseContext.EmptyTextCutKeepsText: start es un
 // índice de p.lines, y el rango llega hasta la primera línea con menos
@@ -72,10 +85,28 @@ func (c *emptyTextCut) keeps(k int) bool {
 		return true
 	}
 	c.anchors = c.root.headingAnchors.Overlay()
+	if c.waiting == nil {
+		c.waiting = map[int]int{}
+	}
 	work := []int{k}
 	for len(work) > 0 {
 		top := work[len(work)-1]
 		if _, ok := c.results[top]; ok {
+			work = work[:len(work)-1]
+			continue
+		}
+		if next, ok := c.waiting[top]; ok {
+			if r, done := c.results[next]; done {
+				c.results[top] = r
+				delete(c.waiting, top)
+				work = work[:len(work)-1]
+			} else {
+				work = append(work, next)
+			}
+			continue
+		}
+		if c.spent > emptyTextTrialBudget {
+			c.results[top] = false
 			work = work[:len(work)-1]
 			continue
 		}
@@ -103,6 +134,7 @@ func (c *emptyTextCut) keeps(k int) bool {
 			if r, done := c.results[next]; done {
 				c.results[top] = r
 			} else {
+				c.waiting[top] = next
 				work = append(work, next)
 				continue
 			}
@@ -145,7 +177,8 @@ func (c *emptyTextCut) step(k int) (bool, int) {
 		func(string) bool { reached++; return reached > 1 },
 		func(string) { reinterpreted = true })
 	next := sub.currentLine
-	if reinterpreted || next == 0 || len(c.missing) > 0 {
+	c.spent += next
+	if reinterpreted || next == 0 || len(c.missing) > 0 || c.spent > emptyTextTrialBudget {
 		return false, 0
 	}
 	for _, d := range sub.diagnostics {
@@ -228,7 +261,7 @@ func ownsSameIndentLines(el ast.Element) bool {
 //   - o una línea cuyo contenido el elemento tomó: cada uno de sus tokens
 //     (también los de un carácter y signos como € o %) está en el texto del
 //     elemento, contando repeticiones, y una línea sin tokens (solo signos de
-//     la sintaxis, como "---" o "**") tiene que estar tal cual en él.
+//     la sintaxis, como "---" o "**") tiene que ser una línea entera de él.
 //
 // Una línea que no es ninguna de esas no está a cuenta, y entonces el corte
 // no va. Un token es un tramo de letras y dígitos, de cualquier largo, o un
@@ -239,6 +272,7 @@ func accountsFor(lines []string, el ast.Element) bool {
 	have := map[string]int{}
 	var texts []string
 	collectElementTokens(reflect.ValueOf(el), have, &texts)
+	var wholeLines map[string]int // las líneas de texts, recortadas; al primer uso
 	consume := func(toks []string) bool {
 		for _, tok := range toks {
 			if have[tok] == 0 {
@@ -277,9 +311,20 @@ func accountsFor(lines []string, el ast.Element) bool {
 		}
 		toks := tokens(body)
 		if len(toks) == 0 {
-			if !consumeVerbatim(texts, body) {
+			// Una línea sin tokens tiene que ser una línea entera del
+			// elemento: "->" no queda a cuenta por estar dentro de "uno -> dos".
+			if wholeLines == nil {
+				wholeLines = map[string]int{}
+				for _, text := range texts {
+					for _, l := range strings.Split(text, "\n") {
+						wholeLines[strings.TrimSpace(l)]++
+					}
+				}
+			}
+			if wholeLines[body] == 0 {
 				return false
 			}
+			wholeLines[body]--
 			continue
 		}
 		if !consume(toks) {
@@ -320,11 +365,31 @@ func splitProperty(t string) (string, string, bool) {
 	return key, strings.Trim(strings.TrimSpace(rest), `"`), true
 }
 
+// elementProperties son, por tipo de elemento, las claves de propiedad que
+// su parser strict lee de verdad y el campo (nombre JSON) donde las guarda.
+// Una línea "Clave: valor" de cualquier otra clave es contenido, no
+// propiedad: "listType: unordered" bajo un POINTS no es nada que POINTS lea.
+var elementProperties = map[reflect.Type]map[string]string{
+	reflect.TypeOf(&ast.ImageElement{}): {
+		"caption": "caption", "title": "title", "label": "label", "fit": "fit",
+		"focus": "focus", "context": "context",
+	},
+	reflect.TypeOf(&ast.QuoteElement{}): {"AUTHOR": "author", "SOURCE": "source"},
+	reflect.TypeOf(&ast.TableElement{}): {
+		"headers": "headers", "rows": "rows", "cells": "cells", "caption": "caption", "label": "label",
+	},
+}
+
 // propertyField devuelve el nombre JSON del campo de el que guardó la
-// propiedad key con valor value, o "" si el no la tiene: un campo con ese
-// nombre (sin distinguir mayúsculas), no vacío, cuyos tokens traen los de
-// value. Una clave sin valor ("rows:") vale si el campo no está vacío.
+// propiedad key con valor value, o "" si no: key tiene que ser una clave que
+// el parser de ese elemento lee (elementProperties), y su campo no estar
+// vacío y traer los tokens de value. Una clave sin valor ("rows:") vale si el
+// campo no está vacío.
 func propertyField(el ast.Element, key, value string) string {
+	fieldName, ok := elementProperties[reflect.TypeOf(el)][key]
+	if !ok {
+		return ""
+	}
 	v := reflect.ValueOf(el)
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
@@ -339,7 +404,7 @@ func propertyField(el ast.Element, key, value string) string {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		if !f.IsExported() || f.Anonymous || name == "" || name == "-" || !strings.EqualFold(name, key) {
+		if !f.IsExported() || f.Anonymous || name != fieldName {
 			continue
 		}
 		field := v.Field(i)
@@ -359,24 +424,12 @@ func propertyField(el ast.Element, key, value string) string {
 	return ""
 }
 
-// consumeVerbatim dice si line está tal cual en alguna cadena de texts, y la
-// tacha ahí para que no dé cuenta de otra línea igual.
-func consumeVerbatim(texts []string, line string) bool {
-	for i, text := range texts {
-		if j := strings.Index(text, line); j >= 0 {
-			texts[i] = text[:j] + "\x00" + text[j+len(line):]
-			return true
-		}
-	}
-	return false
-}
-
 // derivedOrEnumField son los campos del JSON de un elemento que no son texto
 // del autor, o que repiten otro campo.
 var derivedOrEnumField = map[string]bool{
 	"type": true, "listType": true, "context": true, "scope": true, "icon": true,
 	"nodeId": true, "id": true, "cells": true, "position": true, "endPosition": true,
-	"rowPositions": true,
+	"rowPositions": true, "tableRows": true, "langRuns": true, "discardedLangRuns": true,
 }
 
 // collectElementTokens suma a have los tokens de cada cadena de v, un nodo
