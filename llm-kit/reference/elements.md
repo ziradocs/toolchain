@@ -523,8 +523,10 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
 - `TABLE008`: a `TABLE` line that is not a row or `headers:`, `rows:`,
   `cells:`, `tableRows:`, `caption:`, `label:`; a line of dashes with no `|`
   (`---`) right after a Markdown table header, which is read as its separator.
-  A Markdown row with dashes in a cell (`| 2019 | --- |`) is a data row, not
-  a separator: only a row of nothing but dashes, colons and `|` is one.
+  A Markdown row with dashes in a cell (`| 2019 | --- |`) is a data row when
+  it has one cell per column; with another number of cells it is skipped as a
+  separator, with this warning. Only a row of nothing but dashes, colons and
+  `|` is a real separator.
 - `CHART007`: a chart line nested under a key that does not read it, an
   unsupported Chart.js key, an invalid `options:` block.
 - `TEXT002`: a `TEXT` with no indented body followed by an element at its own

@@ -316,3 +316,73 @@ func TestMarkdownTableSeparatorRuleProperty(t *testing.T) {
 		}
 	}
 }
+
+// Una fila con guiones que no cabe en la tabla se sigue saltando como
+// separador, como en origin/main, con un TABLE008 que la nombra: si entrara,
+// el lint (TABLE003, un error) haría fallar un documento que compilaba. Lo
+// mismo con una primera línea con guiones que no va seguida de un separador
+// con su número de celdas, o cuyas filas de abajo no tienen ese número.
+func TestMarkdownTableDashRowThatDoesNotFit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		lines   []string
+		want    wantTable
+		skipped string
+		// sharedOnly: solo la tabla de flex, de ":::" y del callout tipado.
+		// En el cuerpo strict (SECTION, SLIDE, columna tipada) una fila
+		// después del separador siempre fue de datos, y la primera línea
+		// siempre es el encabezado: eso no cambia.
+		sharedOnly bool
+	}{
+		{
+			name:       "fewer cells after the separator",
+			lines:      []string{"| Year | Q1 | Q2 |", "|---|---|---|", "| 2019 | --- |", "| 2020 | 1 | 2 |"},
+			want:       wantTable{headers: []string{"Year", "Q1", "Q2"}, rows: [][]string{{"2020", "1", "2"}}},
+			skipped:    "| 2019 | --- |",
+			sharedOnly: true,
+		},
+		{
+			name:    "fewer cells right after the header",
+			lines:   []string{"| Year | Q1 | Q2 |", "| 2019 | --- |", "| 2020 | 1 | 2 |"},
+			want:    wantTable{headers: []string{"Year", "Q1", "Q2"}, rows: [][]string{{"2020", "1", "2"}}},
+			skipped: "| 2019 | --- |",
+		},
+		{
+			name:       "first line without a separator",
+			lines:      []string{"| x --- y |", "| a | b |", "| c | d |"},
+			want:       wantTable{headers: []string{"a", "b"}, rows: [][]string{{"c", "d"}}},
+			skipped:    "| x --- y |",
+			sharedOnly: true,
+		},
+		{
+			name:       "first line with wider rows below",
+			lines:      []string{"| 2019 | --- |", "|---|---|", "| a | b | c |", "| d | e | f |"},
+			want:       wantTable{headers: []string{"a", "b", "c"}, rows: [][]string{{"d", "e", "f"}}},
+			skipped:    "| 2019 | --- |",
+			sharedOnly: true,
+		},
+	} {
+		for _, c := range sepContexts() {
+			if tc.sharedOnly && (c.pipeless || strings.Contains(c.name, "typed column")) {
+				continue
+			}
+			t.Run(c.name+"/"+tc.name, func(t *testing.T) {
+				src := c.build(tc.lines)
+				tables, diags := c.parseTables(src)
+				if len(tables) != 1 {
+					t.Fatalf("%d tables\n%s", len(tables), src)
+				}
+				got := tables[0]
+				if !reflect.DeepEqual(got.Headers, tc.want.headers) || !reflect.DeepEqual(got.Rows, tc.want.rows) {
+					t.Fatalf("got %q %q, want %q %q\n%s", got.Headers, got.Rows, tc.want.headers, tc.want.rows, src)
+				}
+				for _, d := range diags {
+					if d.RuleID == "TABLE008" && strings.Contains(d.Message, fmt.Sprintf("%q", tc.skipped)) && d.IsWarning() {
+						return
+					}
+				}
+				t.Fatalf("no TABLE008 naming %q: %v\n%s", tc.skipped, diags, src)
+			})
+		}
+	}
+}

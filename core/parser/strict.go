@@ -1057,7 +1057,7 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 		// La misma regla que la tabla de flex y de ":::": una fila con
 		// texto además de los guiones ("| 2019 | --- |") es la primera fila
 		// de datos, no el separador.
-		isSeparator, lost := false, false
+		isSeparator, lost, mismatch := false, false, false
 		switch {
 		case !headerParsed:
 			// Sin encabezado, esta es la misma línea que ya recibió su
@@ -1075,10 +1075,22 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 			// sigue tomando por separador, como siempre, y como no lo es,
 			// su texto se pierde: se avisa (TABLE008).
 			isSeparator, lost = true, true
+		case strings.Contains(separatorLine, "---") &&
+			len(elements.TrimMarkdownRowEdges(separatorLine, elements.SplitMarkdownTableRow(separatorLine))) != len(headers):
+			// Una fila completa con "---" en una celda es de datos solo si
+			// tiene una celda por columna: con otro número de celdas, el
+			// lint (TABLE003, un error) haría fallar un documento que antes
+			// compilaba, cuando esta línea se tomaba por separador. Se sigue
+			// tomando por separador, con aviso (TABLE008).
+			isSeparator, lost, mismatch = true, true, true
 		}
 		if isSeparator {
 			sepCells := elements.TrimMarkdownRowEdges(separatorLine, elements.SplitMarkdownTableRow(separatorLine))
 			switch {
+			case mismatch:
+				p.addWarningWithRuleID(fmt.Sprintf(
+					"This line, right after the table header, has dashes in it and %d cells where the header has %d, so it is read as the separator row and its cells were ignored: %q. A row with dashes in a cell stays in the table when it has one cell per column; a separator row has only dashes and colons, as in | --- | :-: |.", len(sepCells), len(headers), separatorLine),
+					elements.TableLineRuleID)
 			case lost:
 				p.addWarningWithRuleID(fmt.Sprintf(
 					"This line, right after the table header, is read as the separator row because it contains \"---\", so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |; a data row starts and ends with a pipe, as in | a | --- |.", separatorLine),

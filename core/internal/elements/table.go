@@ -133,7 +133,8 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		}
 	} else {
 		// Parse Markdown-style table
-		headers, rows, rowPositions, columnAlign, markdownConsumed := p.parseMarkdownTable(ctx, startIndex)
+		headers, rows, rowPositions, columnAlign, markdownConsumed, markdownDiags := p.parseMarkdownTable(ctx, startIndex)
+		diags = append(diags, markdownDiags...)
 		table.ColumnAlign = columnAlign
 		table.Headers = headers
 		table.Rows = rows
@@ -951,8 +952,9 @@ func MarkdownColumnAlign(cells []string, numCols int) []string {
 // espacios y "|", y además tiene "---", o empieza con "|" y tiene ":--",
 // "--:" o ":-:": "|---|", "|:--|--:|", "| :-: | --- |", "| --- | ---" sin el
 // "|" final, "--- | ---" sin pipes de borde. Una
-// línea con cualquier otro texto es una fila de datos: "| 2019 | --- |" tiene
-// una celda "---" y "| a --- b | c |" una celda "a --- b". Antes la tabla de
+// línea con cualquier otro texto no es separadora: "| 2019 | --- |" tiene
+// una celda "---" y "| a --- b | c |" una celda "a --- b", y son filas de
+// datos donde caben (ver parseMarkdownTable). Antes la tabla de
 // flex y de ":::" saltaba toda línea con esas subcadenas, y sus celdas no
 // llegaban al AST; strict las leía como datos salvo justo después del
 // encabezado, y solo reconocía el separador por "---".
@@ -1000,14 +1002,59 @@ func isMarkdownSeparatorRow(cells []string) bool {
 	return true
 }
 
-// parseMarkdownTable parsea una tabla en formato Markdown
-func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int) {
+// parseMarkdownTable parsea una tabla en formato Markdown.
+//
+// Una fila que antes se saltaba como separador solo por tener "---", ":--",
+// "--:" o ":-:" ("| 2019 | --- |") ahora es de datos, pero solo cuando cabe en
+// la tabla, para que ningún documento que compilaba deje de compilar (el lint
+// TABLE003 es un error): una fila de datos así entra si tiene una celda por
+// columna del encabezado, y como primera línea es el encabezado si la sigue
+// un separador con su mismo número de celdas (la forma de GFM) y todas las
+// filas de abajo tienen ese número (o ninguna celda). Si no cabe, se salta
+// como antes, con un TABLE008 que la nombra y dice por qué.
+func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int, []diagnostics.Diagnostic) {
+	t := p.readMarkdownTable(ctx, startIndex, true)
+	if t.headerRecovered {
+		for _, row := range t.rows {
+			if len(row) != 0 && len(row) != len(t.headers) {
+				t = p.readMarkdownTable(ctx, startIndex, false)
+				break
+			}
+		}
+	}
+	return t.headers, t.rows, t.rowPositions, t.columnAlign, t.consumed, t.diags
+}
+
+type markdownTableRead struct {
+	headers      []string
+	rows         [][]string
+	rowPositions []diagnostics.Position
+	columnAlign  []string
+	consumed     int
+	diags        []diagnostics.Diagnostic
+	// headerRecovered: el encabezado es una primera línea con guiones que
+	// antes se saltaba como separador.
+	headerRecovered bool
+}
+
+// legacyMarkdownSeparator es la regla vieja de la tabla de flex y de ":::":
+// toda línea con "---", ":--", "--:" o ":-:" se saltaba como separador.
+func legacyMarkdownSeparator(line string) bool {
+	return strings.Contains(line, "---") || strings.Contains(line, ":-:") ||
+		strings.Contains(line, ":--") || strings.Contains(line, "--:")
+}
+
+func markdownRowCells(line string) []string {
+	cells := TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line))
+	for j := range cells {
+		cells[j] = strings.TrimSpace(cells[j])
+	}
+	return cells
+}
+
+func (p *TableParser) readMarkdownTable(ctx *ParseContext, startIndex int, recoverHeader bool) markdownTableRead {
 	// Inicializados como slices vacíos (no nil), ver comentario en parseYAMLTable.
-	headers := []string{}
-	rows := [][]string{}
-	var rowPositions []diagnostics.Position
-	var columnAlign []string
-	consumed := 0
+	t := markdownTableRead{headers: []string{}, rows: [][]string{}}
 	lines := ctx.Lines
 
 	for i := startIndex; i < len(lines); i++ {
@@ -1026,39 +1073,58 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 			break
 		}
 
-		// Skip separator lines (e.g., |---|---|). Una fila con texto además
-		// de los guiones ("| 2019 | --- |", "| a --- b | c |") es de datos,
-		// igual que en strict: ver IsMarkdownSeparatorLine.
+		// Skip separator lines (e.g., |---|---|): ver IsMarkdownSeparatorLine.
 		if IsMarkdownSeparatorLine(line) {
 			// La alineación solo sale de la delimitadora que sigue al header.
-			if len(headers) > 0 && len(rows) == 0 && columnAlign == nil {
-				columnAlign = MarkdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(headers))
+			if len(t.headers) > 0 && len(t.rows) == 0 && t.columnAlign == nil {
+				t.columnAlign = MarkdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(t.headers))
 			}
-			consumed++
+			t.consumed++
 			continue
 		}
 
 		// Parse table row
 		// Drop the empty pieces that the leading/trailing "|" leave behind.
-		cells := TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line))
+		cells := markdownRowCells(line)
 
-		// Trim whitespace from each cell
-		for j := range cells {
-			cells[j] = strings.TrimSpace(cells[j])
+		// Una fila con guiones que antes se saltaba como separador solo
+		// entra si cabe (ver parseMarkdownTable).
+		if legacyMarkdownSeparator(line) {
+			var why string
+			switch {
+			case len(t.headers) == 0:
+				next := ""
+				if i+1 < len(lines) {
+					next = strings.TrimSpace(lines[i+1])
+				}
+				if !recoverHeader || !strings.HasPrefix(next, "|") || !IsMarkdownSeparatorLine(next) ||
+					len(TrimMarkdownRowEdges(next, SplitMarkdownTableRow(next))) != len(cells) {
+					why = "This line opens the table and has dashes in it, so it is read as a separator row and its cells were ignored: %q. A first row with dashes in a cell is the header only when a separator row with one cell per column follows it and every row below has that many cells."
+				} else {
+					t.headerRecovered = true
+				}
+			case len(cells) != len(t.headers):
+				why = fmt.Sprintf("This table row has dashes in it and %d cells where the header has %d, so it is read as a separator row and its cells were ignored: %%q. A row with dashes in a cell stays in the table when it has one cell per column; a separator row has only dashes and colons, as in | --- | :-: |.", len(cells), len(t.headers))
+			}
+			if why != "" {
+				t.diags = append(t.diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser", why, line))
+				t.consumed++
+				continue
+			}
 		}
 
 		// First row becomes headers
-		if len(headers) == 0 {
-			headers = cells
+		if len(t.headers) == 0 {
+			t.headers = cells
 		} else {
-			rows = append(rows, cells)
-			rowPositions = append(rowPositions, ctx.Position(i))
+			t.rows = append(t.rows, cells)
+			t.rowPositions = append(t.rowPositions, ctx.Position(i))
 		}
 
-		consumed++
+		t.consumed++
 	}
 
-	return headers, rows, rowPositions, columnAlign, consumed
+	return t
 }
 
 // TableRowsRuleID es el aviso de un `rows:` en línea que no se pudo leer como
