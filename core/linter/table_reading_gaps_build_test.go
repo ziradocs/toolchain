@@ -203,7 +203,7 @@ type genDoc = struct {
 }
 
 // Diferencial de build contra origin/integration/v2.59.0 (84e227e, la base
-// de este cambio): testdata/table_reading_gaps_base_failures.txt tiene los
+// de este cambio; c5399aa, con #533 y #534, da el mismo conjunto): testdata/table_reading_gaps_base_failures.txt tiene los
 // índices de los documentos generados que no compilaban allá (errores del
 // parser o del linter, con la política aplicada). Todo documento que
 // compilaba tiene que seguir compilando; uno que no compilaba puede pasar a

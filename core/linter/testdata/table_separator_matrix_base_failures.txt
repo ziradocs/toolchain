@@ -1,4 +1,4 @@
-# genSeparatorMatrix(): documentos que no compilan en 84e227e
+# genSeparatorMatrix(): documentos que no compilan en 84e227e (el mismo conjunto en c5399aa)
 0
 1
 2

@@ -1,4 +1,4 @@
-# genTableGapDocs(559, 4000): documentos que no compilan en 84e227e
+# genTableGapDocs(559, 4000): documentos que no compilan en 84e227e (el mismo conjunto en c5399aa)
 12
 14
 20
