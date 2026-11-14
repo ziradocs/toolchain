@@ -802,7 +802,10 @@ part of the code is indented under `CODE` like the rest of the body.
 With `KeepIncludesInCode` and `Presentation` the source is a presentation:
 code is what the presentation AST (the `slidelang` grammar, `SLIDE` blocks)
 holds as code, and an included file that does not start with `SLIDE` is read
-as the body of a `SLIDE`. Before, the classification read a `.slidelang`
+as the body of a `SLIDE`. An `@include` without the two spaces of a `SLIDE`
+body cuts the `SLIDE` in the unexpanded text, so when one of those is not code,
+the file is read again with them as blank lines to decide what is code below
+them; they are still expanded. Before, the classification read a `.slidelang`
 source with the document grammar, which has no `SLIDE`, so the `@include` of a
 `CODE` body was expanded, and a file without the body's indentation cut the
 `CODE` ("unexpected content"). With `Presentation`, an included file is not a

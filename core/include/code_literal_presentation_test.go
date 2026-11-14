@@ -133,3 +133,54 @@ func TestExpand_PresentationNeedsKeepIncludesInCode(t *testing.T) {
 		t.Errorf("got %q, want %q", res.Text, want)
 	}
 }
+
+// Un @include en la columna 0 antes del CODE, en el mismo SLIDE, cortaba el
+// SLIDE en el texto sin expandir ("unexpected content"): el parser ya no
+// llegaba al CODE, y su @include literal se expandía. Con Presentation, esas
+// líneas se leen como líneas en blanco para decidir qué es código; ellas se
+// siguen expandiendo.
+func TestExpand_PresentationCodeAfterAColumnZeroInclude(t *testing.T) {
+	files := map[string]string{
+		"/base/part.txt":       "included line\n",
+		"/base/body.slidelang": "  TEXT\n    Incluido.\n",
+	}
+	strictDeck := "---\nmode: strict\ntitle: \"Deck\"\n---\n\nSLIDE content\n  title: \"A\"\n"
+	for _, tc := range []struct {
+		name, src, want string
+	}{
+		{
+			name: "root",
+			src:  strictDeck + "@include body.slidelang\n  CODE text\n    @include part.txt\n",
+			want: strictDeck + "  TEXT\n    Incluido.\n\n  CODE text\n    @include part.txt\n",
+		},
+		{
+			name: "two column-0 includes",
+			src:  strictDeck + "@include body.slidelang\n@include body.slidelang\n  CODE text\n    @include part.txt\n",
+			want: strictDeck + "  TEXT\n    Incluido.\n\n  TEXT\n    Incluido.\n\n  CODE text\n    @include part.txt\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := expandPresentation(tc.src, "/base", memFS(files))
+			if err != nil {
+				t.Fatalf("Expand: %v", err)
+			}
+			if res.Text != tc.want {
+				t.Errorf("got:\n%q\nwant:\n%q", res.Text, tc.want)
+			}
+			if len(res.KeptInCode) != 1 {
+				t.Errorf("KeptInCode = %v, want one line", res.KeptInCode)
+			}
+		})
+	}
+
+	// En un archivo incluido, igual.
+	files["/base/frag.slidelang"] = "@include body.slidelang\n  CODE text\n    @include part.txt\n"
+	src := strictDeck + "@include frag.slidelang\n"
+	res, err := expandPresentation(src, "/base", memFS(files))
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	if want := strictDeck + "  TEXT\n    Incluido.\n\n  CODE text\n    @include part.txt\n\n"; res.Text != want {
+		t.Errorf("included file:\n got %q\nwant %q", res.Text, want)
+	}
+}

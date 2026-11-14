@@ -247,3 +247,77 @@ func TestFlexNotesBodyUnchanged(t *testing.T) {
 		t.Errorf("unexpected DIRECTIVE005 in flex: %s", w[0].Message)
 	}
 }
+
+// Con líneas en blanco antes de la primera nota, el conteo es el de siempre:
+// @notes y una línea por nota, sin esas líneas en blanco. Las últimas notas se
+// vuelven a leer después de @notes, y lo que leen ahí queda en el AST como en
+// la base (84e227e). Contar bien las líneas en blanco cambiaría el AST de esos
+// documentos.
+func TestStrictNotesAfterABlankLineKeepTheBaseCount(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body []string
+		want string
+	}{
+		{"one blank line", []string{"  @notes", "", "    uno", `  IMAGE "a.png" "alt"`}, `@notes[uno|IMAGE "a.png" "alt"] image`},
+		{"two blank lines", []string{"  @notes", "", "", "    uno", "  TEXT", "    Hermano"}, "@notes[uno|TEXT|Hermano] text"},
+		{"two blank lines, two siblings", []string{"  @notes", "", "", "    uno", `  IMAGE "a.png" "alt"`, `  IMAGE "b.png" "alt"`}, `@notes[uno|IMAGE "a.png" "alt"|IMAGE "b.png" "alt"] image image`},
+		{"typed column", []string{"  <<grid>>", "  <<column typed>>", "    @notes", "", "", "      uno", "    TEXT", "      Hermano", "  <<end>>"}, "grid(@notes[uno|TEXT|Hermano] text)"},
+	} {
+		for _, slide := range []bool{true, false} {
+			header := "SECTION \"S\"\n"
+			name := tc.name + "/section"
+			if slide {
+				header = "SLIDE content\n  title: \"S\"\n"
+				name = tc.name + "/slide"
+			}
+			t.Run(name, func(t *testing.T) {
+				src := noDropDocHeader + "\n" + header + strings.Join(tc.body, "\n") + "\n"
+				doc, _ := parseNotesScope(t, src, slide)
+				if doc == nil || len(doc.ContentBlocks) != 1 {
+					t.Fatalf("want one block, got %+v", doc)
+				}
+				if got := notesScopeShape(doc.ContentBlocks[0].Elements); got != tc.want {
+					t.Errorf("elements:\n got %s\nwant %s\n%s", got, tc.want, src)
+				}
+			})
+		}
+	}
+}
+
+// DIRECTIVE005 termina en la última nota también cuando hay líneas en blanco
+// antes de la primera: esas líneas no corren el final del aviso.
+func TestStrictNotesWarningEndsAtTheLastNoteAfterBlankLines(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body []string
+		// last es el índice, en body, de la última nota.
+		last int
+	}{
+		{"two blank lines", []string{"  @notes", "", "", "    uno", "  TEXT", "    Hermano"}, 5},
+		{"three blank lines, sibling first", []string{"  @notes", "", "", "", "  TEXT", "    Hermano", "    sigue"}, 6},
+		{"typed column", []string{"  <<grid>>", "  <<column typed>>", "    @notes", "", "", "      uno", "    TEXT", "  <<end>>"}, 6},
+	} {
+		for _, slide := range []bool{true, false} {
+			header := "SECTION \"S\"\n"
+			name := tc.name + "/section"
+			if slide {
+				header = "SLIDE content\n  title: \"S\"\n"
+				name = tc.name + "/slide"
+			}
+			t.Run(name, func(t *testing.T) {
+				prefix := noDropDocHeader + "\n" + header
+				first := strings.Count(prefix, "\n") + 1
+				src := prefix + strings.Join(tc.body, "\n") + "\n"
+				_, diags := parseNotesScope(t, src, slide)
+				warn := notesDirective005(diags)
+				if len(warn) != 1 || warn[0].EndPosition == nil {
+					t.Fatalf("want one DIRECTIVE005 with an end, got %+v", diags)
+				}
+				if got, want := warn[0].EndPosition.Line, first+tc.last; got != want {
+					t.Errorf("DIRECTIVE005 ends on line %d, want %d (the last note)", got, want)
+				}
+			})
+		}
+	}
+}

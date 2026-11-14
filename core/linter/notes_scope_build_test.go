@@ -4,11 +4,13 @@
 package linter
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -212,21 +214,65 @@ func notesScopeSummary(d notesScopeDoc) string {
 	return fmt.Sprintf("%x\t%d\t%q", sha256.Sum256(raw), elements, strings.Join(notes, "\x00"))
 }
 
-// TestStrictNotesScopeBuildDifferential, con NOTES_SCOPE_DUMP=<archivo>,
-// escribe una línea por documento generado con su número y sus errores de
-// build. Corriendo la misma prueba en la base y en la rama, ningún documento
-// pasa de 0 errores a alguno.
+// Diferencial de build contra la base (84e227e):
+// testdata/notes_scope_base_failures.txt tiene los índices de los documentos
+// generados que no compilaban allá (errores del parser o del linter, con la
+// política aplicada). Todo documento que compilaba tiene que seguir
+// compilando; uno que no compilaba puede pasar a compilar (un SLIDE o SECTION
+// en la columna 0 ya no deja a las notas en un error interno). El archivo se
+// generó una vez con este mismo generador en la base y no se regenera con el
+// código nuevo.
+//
+// Con NOTES_SCOPE_DUMP=<archivo> escribe además, por documento, sus errores
+// de build y un resumen del AST, para comparar dos versiones a mano.
 func TestStrictNotesScopeBuildDifferential(t *testing.T) {
-	path := os.Getenv("NOTES_SCOPE_DUMP")
-	if path == "" {
-		t.Skip("NOTES_SCOPE_DUMP not set")
-	}
-	var b strings.Builder
-	for i, d := range genNotesScopeDocs(notesScopeSeed, notesScopeCount) {
-		errs := buildErrors(d.src, d.document)
-		fmt.Fprintf(&b, "%d\t%d\t%q\t%s\n", i, len(errs), strings.Join(errs, " | "), notesScopeSummary(d))
-	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+	f, err := os.Open("testdata/notes_scope_base_failures.txt")
+	if err != nil {
 		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	failedOnBase := map[int]bool{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		i, err := strconv.Atoi(line)
+		if err != nil {
+			t.Fatal(err)
+		}
+		failedOnBase[i] = true
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
+	dump := os.Getenv("NOTES_SCOPE_DUMP")
+	var b strings.Builder
+	docs := genNotesScopeDocs(notesScopeSeed, notesScopeCount)
+	broke, fixed := 0, 0
+	for i, d := range docs {
+		errs := buildErrors(d.src, d.document)
+		switch {
+		case len(errs) > 0 && !failedOnBase[i]:
+			broke++
+			if broke <= 5 {
+				t.Errorf("document %d built on the base and now fails: %v\n%s", i, errs, d.src)
+			}
+		case len(errs) == 0 && failedOnBase[i]:
+			fixed++
+		}
+		if dump != "" {
+			fmt.Fprintf(&b, "%d\t%d\t%q\t%s\n", i, len(errs), strings.Join(errs, " | "), notesScopeSummary(d))
+		}
+	}
+	if broke > 0 {
+		t.Errorf("%d documents that built on the base fail now", broke)
+	}
+	t.Logf("%d of %d documents failed on the base; %d of them build now", len(failedOnBase), len(docs), fixed)
+	if dump != "" {
+		if err := os.WriteFile(dump, []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
