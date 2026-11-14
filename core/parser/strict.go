@@ -1062,7 +1062,15 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 			// como siempre (con "---"): cambiarlo cambiaría qué filas toma
 			// la tabla.
 			isSeparator = strings.Contains(separatorLine, "---")
-		case elements.IsMarkdownSeparatorLine(separatorLine):
+		case elements.IsMarkdownSeparatorLine(separatorLine) ||
+			strings.HasPrefix(separatorLine, "|") && elements.IsHeaderSeparatorLine(separatorLine, len(headers)):
+			// IsHeaderSeparatorLine suma el separador de guiones cortos de
+			// GFM con una celda por columna ("|--|--|"), que antes era la
+			// primera fila de datos: tomarlo por separador solo saca esa
+			// fila. Sin pipe inicial, strict sigue pidiendo "---"
+			// ("--|--" o ":-- | --:" cortan la tabla, como antes): sin
+			// revisar que las filas de abajo quepan, unirlas podría dar
+			// TABLE003 en un documento que compilaba.
 			isSeparator = true
 		case strings.Contains(separatorLine, "---") &&
 			(!strings.HasPrefix(separatorLine, "|") || !strings.HasSuffix(separatorLine, "|")):

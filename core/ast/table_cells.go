@@ -83,7 +83,10 @@ func FlattenCellsToRows(cells [][]TableCell) ([]string, [][]string) {
 	maxWidth := 0
 
 	for _, srcRow := range cells {
-		var outRow []string
+		// Vacía y no nil: una fila sin celdas de una tabla de ancho cero
+		// ("cells:" con "- []") es [] en el JSON, como la fila "|" de una
+		// tabla pipe o la fila [] bajo rows:. Con nil salía null.
+		outRow := []string{}
 		col := 0
 		srcIdx := 0
 

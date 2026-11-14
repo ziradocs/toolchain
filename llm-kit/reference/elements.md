@@ -286,6 +286,18 @@ Markdown pipe syntax works in both modes:
   (`TABLE002` — warning if empty).
 - **Every row must have the same number of columns as the header row**
   (`TABLE003` — error, not warning, if a row's column count doesn't match).
+  Inside a typed grid column (`<<column typed>>`) the same check is
+  `TABLE009`, a warning; fix it the same way.
+- In a pipe table the separator row goes right after the header:
+  `|---|---|`, `|:--|--:|`, `|--|--|` (two dashes or more per cell) or
+  `--- | ---` without the leading `|`, with one cell per column. Any row of
+  dashes below it (`| --- | --- |`) is a data row. `| - | - |` is a data row
+  too, also right after the header (inside a `TABLE` block, a `|` row of
+  dashes right after the header is its delimiter row).
+- In a `TABLE` block, write each row below `rows:` indented more than `rows:`,
+  every row at the same indentation, with no blank line between rows. A
+  `rows: [` array may span several lines and close with `]` on its own line or
+  at the end of the last row (`["c", "d"]]`).
 
 ## Checklist
 
@@ -521,12 +533,14 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
   quoted string on the `IMAGE` line, not `alt:`; there is no `width:`,
   `height:` or `src:`.
 - `TABLE008`: a `TABLE` line that is not a row or `headers:`, `rows:`,
-  `cells:`, `tableRows:`, `caption:`, `label:`; a line of dashes with no `|`
+  `cells:`, `tableRows:`, `caption:`, `label:`; a `rows:` row indented
+  differently from the first one, or one at a new indentation whose cell
+  count differs from the headers; a line of dashes with no `|`
   (`---`) right after a Markdown table header, which is read as its separator.
-  A Markdown row with dashes in a cell (`| 2019 | --- |`) is a data row when
-  it has one cell per column; with another number of cells it is skipped as a
-  separator, with this warning. Only a row of nothing but dashes, colons and
-  `|` is a real separator.
+  A Markdown row with dashes in a cell (`| 2019 | --- |`), or a row of only
+  dashes below the separator (`| --- |`), is a data row when it has one cell
+  per column; with another number of cells it is skipped, with this warning.
+  Only the line right after the header is the separator.
 - `CHART007`: a chart line nested under a key that does not read it, an
   unsupported Chart.js key, an invalid `options:` block.
 - `TEXT002`: a `TEXT` with no indented body followed by an element at its own

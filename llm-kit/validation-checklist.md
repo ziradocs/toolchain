@@ -54,7 +54,17 @@ and it applies to any slide typed `title` in either mode.)
 
 - [ ] **Tables**: has headers (`TABLE001` — warning), has at least one row
       (`TABLE002` — warning), and **every row has the same column count as
-      the header row** (`TABLE003` — **error**, the strictest of the three)
+      the header row** (`TABLE003` — **error**, the strictest of the three).
+      Inside a typed grid column (`<<column typed>>`) the column count is
+      `TABLE009`, a warning: fix it like `TABLE003`
+- [ ] **Separator row**: only the line right after the header
+      (`|---|---|`, `|--|--|`, `--- | ---`, one cell per column). A row of
+      only dashes below it is data when it has one cell per column, and is
+      skipped with `TABLE008` when it does not
+- [ ] **Rows below `rows:`**: each `[…]` row indented more than `rows:`, all
+      at the indentation of the first row, no blank line between rows. A row
+      at another indentation, or a new-indentation row whose cell count
+      differs from the headers, is skipped with `TABLE008`
 - [ ] **Table rows on the `rows:` line**: `rows: [["a", "b"], ["c", "d"]]`
       is read only when every cell is in double quotes (no other quote
       inside) or unquoted; single quotes, an unquoted cell starting or
