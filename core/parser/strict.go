@@ -35,11 +35,14 @@ type strictBody struct {
 	// uno indentado sigue siendo un error.
 	contentMarkdown bool
 	slideHeadings   bool
-	headingAnchors  elements.HeadingAnchors
-	lines           []string
-	currentLine     int
-	diagnostics     []diagnostics.Diagnostic
-	logger          util.Logger
+	// typedColumn: este cuerpo es el de una columna `<<column typed>>`
+	// (parseTypedColumnBody), donde un <<grid>> es un error.
+	typedColumn    bool
+	headingAnchors elements.HeadingAnchors
+	lines          []string
+	currentLine    int
+	diagnostics    []diagnostics.Diagnostic
+	logger         util.Logger
 
 	// lineOffset son las líneas del archivo que preceden a lines[0]: el
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
@@ -75,7 +78,138 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 		// su cuerpo como flex: sus encabezados comparten la misma secuencia de
 		// anchors que los SECTION del deck.
 		HeadingAnchor: p.headingAnchors.Unique,
+		NotesTail:     p.notesTailReadsClean,
 	}
+}
+
+// notesTailWindow es cuántas líneas más allá del final de antes de las notas
+// puede leer la prueba de notesTailReadsClean. Sin tope, un bloque sin cerrar
+// se leería hasta el final del contenedor en cada prueba, y muchos @notes
+// seguidos de uno costarían O(n²).
+const notesTailWindow = 40
+
+// notesTailReadsClean es el ParseContext.NotesTail de este cuerpo. Las notas
+// terminaban antes en to; leídas desde el hermano (from), las líneas tienen
+// que dar elementos sin ninguna propiedad, ninguna línea sin reconocer,
+// ningún diagnóstico (ni aviso ni error) ni ninguna regla de error del linter
+// (failsLintErrorRule), hasta una frontera X desde la que las dos lecturas
+// siguen iguales:
+//
+//   - X es to (salvo líneas en blanco) si el último elemento termina antes de
+//     to;
+//   - si un elemento cruza to (un CODE, un callout o un grid con una línea en
+//     blanco adentro), X es donde termina, y la lectura de antes, que empezaba
+//     en to, tiene que terminar un elemento exactamente en X, sin propiedades
+//     ni directivas en medio. Lo que la lectura de antes decía de esas líneas
+//     no importa: deja de leerse así.
+//
+// Las dos pruebas usan cuerpos aparte, con una copia de los anchors, y leen
+// a lo sumo notesTailWindow líneas después de to; lo que leen se descarta.
+// Las líneas [from, to) no tienen ninguna línea que empiece con `@` (termina
+// el cuerpo de @notes antes), así que la primera prueba no abre otro @notes.
+func (p *strictBody) notesTailReadsClean(from, to int) bool {
+	limit := min(len(p.lines), to+notesTailWindow)
+	dry := func(start int) *strictBody {
+		return &strictBody{
+			nestedListTypes: p.nestedListTypes,
+			listStart:       p.listStart,
+			mathSource:      p.mathSource,
+			contentMarkdown: p.contentMarkdown,
+			slideHeadings:   p.slideHeadings,
+			typedColumn:     p.typedColumn,
+			headingAnchors:  p.headingAnchors.Clone(),
+			lines:           p.lines[:limit],
+			currentLine:     start,
+			logger:          util.NewNoop(),
+			lineOffset:      p.lineOffset,
+		}
+	}
+	sub := dry(from)
+	clean := true
+	scratch := ast.NewContentBlock(sub.position(from), "content")
+	sub.parseIndentedElements(scratch,
+		func(string, string) { clean = false },
+		func(string) bool { return sub.currentLine >= to },
+		func(string) { clean = false })
+	x := sub.currentLine
+	// x == limit antes del final del texto: el elemento puede seguir más allá
+	// de lo que leyó la prueba.
+	if !clean || x < to || x >= limit && limit < len(p.lines) || len(sub.diagnostics) > 0 {
+		return false
+	}
+	if p.typedColumn {
+		for _, el := range scratch.Elements {
+			if _, ok := el.(*ast.GridElement); ok {
+				return false
+			}
+		}
+	}
+	if failsLintErrorRule(scratch) {
+		return false
+	}
+	crossed := false
+	for i := to; i < x; i++ {
+		t := strings.TrimSpace(p.lines[i])
+		if strings.HasPrefix(t, "@") {
+			return false
+		}
+		crossed = crossed || t != ""
+	}
+	if !crossed {
+		return true
+	}
+	old := dry(to)
+	property := false
+	old.parseIndentedElements(ast.NewContentBlock(old.position(to), "content"),
+		func(string, string) { property = true },
+		func(string) bool { return old.currentLine >= x },
+		func(string) {})
+	return !property && old.currentLine == x
+}
+
+// failsLintErrorRule dice si algún elemento de block, o anidado en él, cae en
+// una regla del linter que es Error con la política por omisión: un IMAGE sin
+// fuente (IMG001), una fila de tabla con más o menos celdas que el encabezado
+// (TABLE003), un :::code-group sin cercas (CODEGROUP001), una pestaña
+// :::code-item suelta (CODEGROUP002), un quiz cuya respuesta no es una opción
+// (QUIZ001) y los results/responses inválidos de un quiz o un poll
+// (QUIZ003/POLL003). El parser no puede llamar al linter (el linter importa
+// el AST que este paquete arma, y sus pruebas, este paquete), así que la lista
+// se repite acá; TestStrictNotesScopeMatchesTheBase, en core/linter, falla si
+// el linter gana una regla que esta lista no tiene.
+func failsLintErrorRule(block *ast.ContentBlock) bool {
+	failed := false
+	badResults := func(results []float64, responses *int, options int) bool {
+		if len(results) > 0 && len(results) != options || responses != nil && *responses < 0 {
+			return true
+		}
+		for _, r := range results {
+			if r < 0 || r > 100 {
+				return true
+			}
+		}
+		return false
+	}
+	_ = ast.Walk(&ast.AST{ContentBlocks: []ast.ContentBlock{*block}}, func(n ast.Node) error {
+		switch e := n.(type) {
+		case *ast.ImageElement:
+			failed = failed || e.Source == ""
+		case *ast.TableElement:
+			for _, row := range e.Rows {
+				failed = failed || len(e.Headers) > 0 && len(row) != 0 && len(row) != len(e.Headers)
+			}
+		case *ast.CodeGroupElement:
+			failed = failed || len(e.CodeBlocks) == 0
+		case *ast.SpecialBlockElement:
+			failed = failed || strings.HasPrefix(e.BlockType, "code-item")
+		case *ast.QuizElement:
+			failed = failed || e.Answer < 0 || e.Answer >= len(e.Options) || badResults(e.Results, e.Responses, len(e.Options))
+		case *ast.PollElement:
+			failed = failed || badResults(e.Results, e.Responses, len(e.Options))
+		}
+		return nil
+	})
+	return failed
 }
 
 // parseTypedColumnBody parsea el cuerpo de una columna `<<column typed>>`
@@ -98,6 +232,7 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 		lines:           lines,
 		logger:          p.logger,
 		lineOffset:      lineOffset,
+		typedColumn:     true,
 	}
 	scratch := ast.NewContentBlock(sub.position(0), "content")
 	sub.parseIndentedElements(scratch, func(key, _ string) {

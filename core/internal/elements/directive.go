@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -296,6 +297,10 @@ func (p *DirectiveParser) parseNotesDirective(ctx *ParseContext, startIndex int,
 		return result
 	}
 
+	if ctx.Mode == "strict" {
+		return p.parseStrictNotesBody(ctx, startIndex, pos)
+	}
+
 	// Collect multi-line content after @notes: or @notes
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		nextLine := strings.TrimSpace(ctx.Lines[i])
@@ -333,6 +338,109 @@ func (p *DirectiveParser) parseNotesDirective(ctx *ParseContext, startIndex int,
 		ConsumedLines: consumedLines,
 		Error:         nil,
 	}
+}
+
+// NotesBodyRuleID es el aviso de un `@notes` strict cuyo cuerpo sigue
+// tomando como nota a un elemento hermano, porque leerlo como elemento daría
+// un diagnóstico o porque las notas empiezan después de una línea en blanco
+// (ver parseStrictNotesBody).
+const NotesBodyRuleID = "DIRECTIVE005"
+
+// parseStrictNotesBody lee el cuerpo de un `@notes` de varias líneas en
+// strict.
+//
+// El cuerpo de siempre son las líneas que siguen a `@notes` hasta una línea
+// en blanco (después de la primera nota), una que empieza con `@`, `---` o
+// `#`, o (nuevo) un `SLIDE` o `SECTION` en la columna 0, que abre el bloque
+// siguiente. En strict ese cuerpo se tragaba a los elementos hermanos que le
+// seguían: ahora termina antes del primer hermano (opensStrictNotesSibling)
+// cuando lo que deja de ser nota, desde ese hermano hasta donde terminaba el
+// cuerpo, se lee entero como elementos del contenedor, sin ningún diagnóstico
+// y sin caer en una regla del linter que sea error (ParseContext.NotesTail).
+// Si no, el cuerpo queda como siempre, para que ningún documento que compilaba
+// deje de compilar, y lleva el aviso DIRECTIVE005, que cubre desde `@notes`
+// hasta su última línea y nombra al hermano por su contenido.
+//
+// Con líneas en blanco entre `@notes` y la primera nota el cuerpo queda como
+// siempre, con el mismo aviso si toma a un hermano: el conteo de siempre (el
+// de flex) no cuenta esas líneas, así que las últimas notas se vuelven a leer
+// después de @notes, y lo que se lee desde ahí no se puede comparar con lo
+// que leería el cuerpo cortado.
+func (p *DirectiveParser) parseStrictNotesBody(ctx *ParseContext, startIndex int, pos diagnostics.Position) *ParseResult {
+	headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
+	var content []string
+	end := startIndex + 1
+	sibling, kept := -1, 0
+	leadingBlank := false
+	for i := startIndex + 1; i < len(ctx.Lines); i++ {
+		raw := ctx.Lines[i]
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			if len(content) > 0 {
+				break
+			}
+			leadingBlank = true
+			continue
+		}
+		if strings.HasPrefix(trimmed, "@") || strings.HasPrefix(trimmed, "---") ||
+			strings.HasPrefix(trimmed, "#") || IsStrictBlockBoundary(raw) {
+			break
+		}
+		if sibling < 0 && opensStrictNotesSibling(ctx, raw, trimmed, headerIndent) {
+			sibling, kept = i, len(content)
+		}
+		content = append(content, trimmed)
+		end = i + 1
+	}
+
+	result := &ParseResult{}
+	last := end - 1 // la última línea del cuerpo de siempre
+	if leadingBlank {
+		// El conteo de siempre: no cuenta las líneas en blanco de antes de
+		// la primera nota. Contarlas cambia cómo se lee lo que sigue, y eso
+		// puede hacer fallar un documento que compilaba.
+		end = startIndex + 1 + len(content)
+	}
+	if sibling >= 0 {
+		if !leadingBlank && ctx.NotesTail != nil && ctx.NotesTail(sibling, end) {
+			end, content = sibling, content[:kept]
+		} else {
+			opener := strings.TrimSpace(ctx.Lines[sibling])
+			reason := "read as elements they would give a diagnostic"
+			if leadingBlank {
+				reason = "the notes start after a blank line"
+			}
+			result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning(fmt.Sprintf(
+				"The @notes body took in %s on the line %q, and the lines after it up to a blank line, as notes (%s). To keep them as notes, indent them under @notes; to make them elements, leave a blank line between the notes and them.",
+				absorbedElementLabel(opener), shortLine(opener), reason),
+				pos, "directive-parser").WithRuleID(NotesBodyRuleID).WithEndPosition(ctx.Position(last))}
+		}
+	}
+
+	directive := ast.NewDirectiveNode(pos, "notes")
+	directive.Parameters = map[string]interface{}{"content": strings.Join(content, "\n")}
+	result.Element = directive
+	result.ConsumedLines = end - startIndex
+	return result
+}
+
+// opensStrictNotesSibling dice si raw, una línea con texto del cuerpo de un
+// `@notes` strict, abre un elemento hermano de las notas.
+//
+// Una línea más sangrada que `@notes` siempre es nota, se parezca o no a un
+// elemento: es la forma que escribe fmt. Una línea a la sangría de `@notes`, o
+// a menos, abre un hermano cuando abre un elemento en la forma que ese
+// elemento acepta, con el criterio de TEXT002 (OpensElementAfterEmptyText):
+// una palabra clave sola o con lo que su elemento lee, un bloque `:::tipo`,
+// una etiqueta `<<…>>`, una fila `| … |` o un `SECTION "…"` dentro de un
+// SLIDE. Cualquier otra línea es nota, como siempre (prosa, `- ítem`, `clave:
+// valor`), y también la que no tiene los dos espacios de sangría que el
+// contenedor exige: el contenedor no la lee.
+func opensStrictNotesSibling(ctx *ParseContext, raw, trimmed string, headerIndent int) bool {
+	if CalculateIndentLevel(raw) > headerIndent || !strings.HasPrefix(raw, "  ") {
+		return false
+	}
+	return OpensElementAfterEmptyText(ctx, trimmed)
 }
 
 // ignoredParamWarning es el DIRECTIVE004 del texto de una directiva que no

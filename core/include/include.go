@@ -320,8 +320,9 @@ type ExpandOptions struct {
 	// Qué es código lo decide, para cada archivo y sobre su propio texto, el
 	// AST de ParseDocument, con la gramática de documentos y la normalización
 	// de flex prendida, como doclang (build, get_ast, lint): la opción es para
-	// documentos (ver ExpandWithOptions). Una fuente .slidelang no se
-	// clasifica bien (un SLIDE no es un SECTION). Con la opción, además, lo
+	// documentos (ver ExpandWithOptions). Una fuente .slidelang se lee con
+	// Presentation: con ParseDocument no se clasifica bien (un SLIDE no es un
+	// SECTION). Con la opción, además, lo
 	// que un archivo incluido deja abierto se cierra donde termina el archivo
 	// (Expansion.OpenAtEnd, ver ExpandWithOptions).
 	//
@@ -333,6 +334,16 @@ type ExpandOptions struct {
 	// pero el AST no tiene un bloque de código ahí, y una línea @include entre
 	// esas dos líneas corta la cita y se expande.
 	KeepIncludesInCode bool
+
+	// Presentation, con KeepIncludesInCode, lee la fuente como una
+	// presentación (.slidelang): qué es código lo decide el AST de Parse, con
+	// la gramática de presentaciones, en vez del de ParseDocument, que no lee
+	// un SLIDE y expandía el `@include` de su CODE. Un archivo incluido se lee
+	// solo como el cuerpo de un SLIDE si en strict no empieza con SLIDE, y no
+	// es un contenedor: lo que deja abierto no se cierra (OpenAtEnd queda
+	// vacío), como en la expansión de siempre. Sin KeepIncludesInCode no hace
+	// nada.
+	Presentation bool
 }
 
 // Expansion es el resultado de ExpandWithOptions.
@@ -443,10 +454,11 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 		frames = append(fmFrames, frames[end+1:]...)
 	}
 	e := &keepExpander{
-		baseDir: baseDir,
-		strict:  frontMatterIsStrict(lines),
-		files:   map[string][]byte{},
-		cache:   map[string]classifiedFile{},
+		baseDir:      baseDir,
+		strict:       frontMatterIsStrict(lines),
+		presentation: opts.Presentation,
+		files:        map[string][]byte{},
+		cache:        map[string]classifiedFile{},
 	}
 	// Cada ruta se lee una sola vez: si la ReadFunc devolviera otra cosa en
 	// otra lectura, la decisión guardada no correspondería a las líneas.
@@ -461,7 +473,7 @@ func ExpandWithOptions(content, baseDir string, read ReadFunc, opts ExpandOption
 		return data, err
 	}
 	e.out = make([]string, 0, len(lines))
-	code, body := classifyIncludes(nil, lines)
+	code, body := classifyIncludes(e.presentation, nil, lines)
 	if err := e.emit(lines, frames, origins, code, body, nil); err != nil {
 		return Expansion{}, err
 	}
@@ -475,6 +487,8 @@ type keepExpander struct {
 	baseDir string
 	read    ReadFunc
 	strict  bool
+	// presentation: la fuente es una presentación (ExpandOptions.Presentation).
+	presentation bool
 	// files es lo que leyó read de cada ruta, y cache la decisión de cada
 	// archivo incluido junto con las líneas sobre las que se tomó: depende solo
 	// de su texto.
@@ -528,11 +542,13 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 		cached, ok := e.cache[child.file]
 		if !ok || !slices.Equal(cached.lines, child.lines) {
 			cached = classifiedFile{lines: child.lines, closures: map[string]closure{}}
-			cached.code, cached.body = classifyIncludes(e.fragmentPrefix(child.lines), child.lines)
+			cached.code, cached.body = classifyIncludes(e.presentation, e.fragmentPrefix(child.lines), child.lines)
 			e.cache[child.file] = cached
 		}
 		// Lo que el archivo deja abierto (ver ExpandWithOptions), solo en
-		// flex: en strict un CODE termina por sangría, no con una línea. Si en
+		// flex y en un documento: en strict un CODE termina por sangría, no
+		// con una línea, y una presentación no cierra lo que un archivo deja
+		// abierto (ExpandOptions.Presentation). Si en
 		// el documento va pegado a una línea de párrafo, se lee después de
 		// ella (closureOf).
 		glued := ""
@@ -542,7 +558,7 @@ func (e *keepExpander) emit(lines []string, frames []*includeFrame, origins []Or
 		c, ok := cached.closures[glued]
 		if !ok {
 			c = closure{opener: -1}
-			if !e.strict {
+			if !e.strict && !e.presentation {
 				c = closureOf(nil, child.lines, glued)
 			}
 			cached.closures[glued] = c
@@ -596,19 +612,23 @@ type classifiedFile struct {
 // fragmentPrefix son las líneas que van antes del contenido de un archivo
 // incluido para leerlo solo con el dialecto del raíz: en strict, un
 // frontmatter strict y, si el archivo no empieza con SECTION, la cabecera de
-// una sección que lo contiene.
+// una sección que lo contiene. En una presentación, la de un SLIDE.
 func (e *keepExpander) fragmentPrefix(lines []string) []string {
 	if !e.strict {
 		return nil
 	}
 	prefix := []string{parser.FrontMatterDelimiter, "mode: strict", parser.FrontMatterDelimiter}
+	keyword, header := "SECTION", `SECTION "include"`
+	if e.presentation {
+		keyword, header = "SLIDE", "SLIDE content"
+	}
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		if trimmed != "SECTION" && !strings.HasPrefix(trimmed, "SECTION ") {
-			prefix = append(prefix, `SECTION "include"`)
+		if trimmed != keyword && !strings.HasPrefix(trimmed, keyword+" ") {
+			prefix = append(prefix, header)
 		}
 		break
 	}
@@ -692,7 +712,7 @@ func includeTag(text string) string {
 // reconocerlas en el AST, cada una lleva en la copia que se parsea una marca
 // única al final; el texto no cambia. Sin ninguna línea @include no se parsea.
 func includesInCode(prefix, lines []string) []bool {
-	code, _ := classifyIncludes(prefix, lines)
+	code, _ := classifyIncludes(false, prefix, lines)
 	return code
 }
 
@@ -702,7 +722,10 @@ func includesInCode(prefix, lines []string) []bool {
 // mapa, math; ahí un @include se expande y lo que trae es parte de ese
 // cuerpo), o no aparecen en ninguna parte. Lo que un archivo así deja abierto
 // no se cierra.
-func classifyIncludes(prefix, lines []string) (inCode, inBody []bool) {
+//
+// Con presentation el AST es el de Parse, con la gramática de presentaciones
+// (ExpandOptions.Presentation).
+func classifyIncludes(presentation bool, prefix, lines []string) (inCode, inBody []bool) {
 	inCode = make([]bool, len(lines))
 	inBody = make([]bool, len(lines))
 	directive := make([]bool, len(lines))
@@ -723,7 +746,12 @@ func classifyIncludes(prefix, lines []string) (inCode, inBody []bool) {
 	for _, i := range pending {
 		tagged[len(prefix)+i] = lines[i] + " " + tagPrefix + strconv.Itoa(i) + "q"
 	}
-	doc, _ := parser.New(util.NewNoop()).ParseDocument(strings.Join(tagged, "\n"), "")
+	var doc *ast.AST
+	if presentation {
+		doc, _ = parser.New(util.NewNoop()).Parse(strings.Join(tagged, "\n"), "")
+	} else {
+		doc, _ = parser.New(util.NewNoop()).ParseDocument(strings.Join(tagged, "\n"), "")
+	}
 	tag := regexp.MustCompile(regexp.QuoteMeta(tagPrefix) + `(\d+)q`)
 	mark := func(into []bool, content string) {
 		for _, m := range tag.FindAllStringSubmatch(content, -1) {

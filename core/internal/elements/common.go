@@ -81,6 +81,14 @@ type ParseContext struct {
 	// el cuerpo).
 	TypedColumnBody func(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic)
 
+	// NotesTail dice si las líneas desde from, donde un `@notes` strict
+	// dejaría de tomar notas, se leen como elementos del cuerpo strict que
+	// se está parseando, sin ningún diagnóstico, hasta una línea desde la que
+	// esa lectura y la de antes, que empezaba en to, siguen iguales (ver
+	// strictBody.notesTailReadsClean). Lo usa parseStrictNotesBody. nil fuera
+	// de un cuerpo strict.
+	NotesTail func(from, to int) bool
+
 	// DocumentHeadings lo fija DocumentFlexParser: en un documento, un
 	// encabezado ATX de CUALQUIER nivel (`#`..`######`) interrumpe un
 	// párrafo, como en CommonMark. `#` abre una sección y `##` una

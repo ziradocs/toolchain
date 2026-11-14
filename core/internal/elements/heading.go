@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"maps"
 	"strconv"
 	"strings"
 
@@ -169,6 +170,12 @@ type HeadingAnchors struct {
 	// empezar en 2, sin volver a probar uno por uno los ya tomados. Sin esto,
 	// k encabezados con el mismo texto costaban O(k²).
 	next map[string]int
+}
+
+// Clone es una copia independiente de a: lo que se registre en ella no
+// cambia a.
+func (a *HeadingAnchors) Clone() HeadingAnchors {
+	return HeadingAnchors{used: maps.Clone(a.used), next: maps.Clone(a.next)}
 }
 
 // Derive devuelve el anchor que Unique asignaría a text, sin registrarlo.
