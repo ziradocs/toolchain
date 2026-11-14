@@ -55,10 +55,11 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	var source, alt, title, caption, label, fit, focus, declaredContext string
 	var bleed, spacedDiag bool
+	var strictDiags []diagnostics.Diagnostic
 
 	if ctx.Mode == "strict" {
 		// Parse strict mode IMAGE syntax
-		source, alt, title, caption, label, fit, focus, declaredContext, bleed, consumed = p.parseStrictImage(ctx.Lines, startIndex)
+		source, alt, title, caption, label, fit, focus, declaredContext, bleed, consumed, strictDiags = p.parseStrictImage(ctx, startIndex)
 	} else {
 		// Parse flex mode Markdown syntax
 		source, alt, title, fit, focus, bleed, _ = p.parseMarkdownImage(line)
@@ -70,7 +71,7 @@ func (p *ImageParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// Detectar contexto automáticamente, salvo que la fuente strict lo declare
 	// con `context:` (ver declaredImageContext).
 	context := p.detectImageContext(ctx, startIndex)
-	var diags []diagnostics.Diagnostic
+	diags := strictDiags
 	if spacedDiag {
 		diags = append(diags, diagnostics.NewWarning(
 			fmt.Sprintf("Image destination %q has spaces outside <...>; it still works, but other Markdown tools do not read it as an image: write %s or use %%20", source, renderer.SpacedDestinationSuggestion(source)),
@@ -334,13 +335,32 @@ func startsNewStrictElement(trimmed string) bool {
 	return false
 }
 
+// strictImageKeys son las propiedades que lee el cuerpo de un IMAGE strict.
+const strictImageKeys = "caption:, title:, label:, fit:, focus:, context: and bleed:"
+
 // parseStrictImage parsea la sintaxis IMAGE de strict mode
-func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, string, string, string, string, string, string, string, bool, int) {
+func (p *ImageParser) parseStrictImage(ctx *ParseContext, startIndex int) (string, string, string, string, string, string, string, string, bool, int, []diagnostics.Diagnostic) {
+	lines := ctx.Lines
 	line := strings.TrimSpace(lines[startIndex])
 	consumed := 1
+	var diags []diagnostics.Diagnostic
 
 	// Parse arguments from IMAGE line: IMAGE "source" "alt"
 	parts := p.parseImageArguments(line)
+
+	// Lo que la cabecera trae de más no se lee (STRICT004): un tercer
+	// argumento, o letras pegadas a la palabra clave ("IMAGEN"), que el
+	// despacho por prefijo lee como IMAGE.
+	if len(parts) > 0 && parts[0] != "IMAGE" {
+		diags = append(diags, keywordRestDiagnostic(ctx, startIndex, "IMAGE", "image-parser",
+			strings.TrimPrefix(parts[0], "IMAGE"), true,
+			`IMAGE takes the source and the alt text as quoted strings, as in IMAGE "photo.png" "A dog"`))
+	}
+	if len(parts) > 3 {
+		diags = append(diags, keywordRestDiagnostic(ctx, startIndex, "IMAGE", "image-parser",
+			strings.Join(parts[3:], " "), false,
+			`IMAGE takes only the source and the alt text on its line; the caption goes below it as caption: "…"`))
+	}
 
 	source := ""
 	alt := ""
@@ -394,7 +414,13 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 		if expectedIndent > 0 && currentIndent < expectedIndent {
 			break
 		}
-		if strings.Contains(trimmed, ":") {
+		if key, _, _ := strings.Cut(trimmed, ":"); !strings.Contains(trimmed, ":") || strings.TrimSpace(key) == "" {
+			// Sin "clave:" la línea no es ninguna propiedad (IMG005).
+			diags = append(diags, ignoredLineWarning(ctx, i, ImageLineRuleID, "image-parser",
+				"This line of the IMAGE is not a property and was ignored: %q. IMAGE reads %s; the alt text is the second quoted string on the IMAGE line.",
+				trimmed, strictImageKeys))
+		}
+		if key, _, _ := strings.Cut(trimmed, ":"); strings.Contains(trimmed, ":") && strings.TrimSpace(key) != "" {
 			propParts := strings.SplitN(trimmed, ":", 2)
 			if len(propParts) == 2 {
 				key := strings.TrimSpace(propParts[0])
@@ -420,14 +446,27 @@ func (p *ImageParser) parseStrictImage(lines []string, startIndex int) (string, 
 					parsed, err := strconv.ParseBool(value)
 					if err == nil {
 						bleed = parsed
+					} else {
+						diags = append(diags, ignoredLineWarning(ctx, i, ImageLineRuleID, "image-parser",
+							"The bleed: value of this IMAGE is not true or false and was ignored: %q.", trimmed))
 					}
+				case "alt", "src", "source":
+					// El texto alternativo y la fuente no son propiedades: van
+					// entrecomillados en la línea IMAGE.
+					diags = append(diags, ignoredLineWarning(ctx, i, ImageLineRuleID, "image-parser",
+						"IMAGE has no %s: property, so this line was ignored: %q. Write the source and the alt text as quoted strings on the IMAGE line, as in IMAGE \"photo.png\" \"A dog\".",
+						key, trimmed))
+				default:
+					diags = append(diags, ignoredLineWarning(ctx, i, ImageLineRuleID, "image-parser",
+						"IMAGE has no %s: property, so this line was ignored: %q. IMAGE reads %s.",
+						key, trimmed, strictImageKeys))
 				}
 			}
 		}
 		consumed++
 	}
 
-	return source, alt, title, caption, label, fit, focus, declaredContext, bleed, consumed
+	return source, alt, title, caption, label, fit, focus, declaredContext, bleed, consumed, diags
 }
 
 // spacedMarkdownImage dice si el destino de la imagen de bloque line se leyó

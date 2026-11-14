@@ -43,10 +43,14 @@ func (p *DirectiveParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	// Extract directive content
 	directivePart := strings.TrimSpace(line[1:]) // Remove @
 	if directivePart == "" {
+		// Una "@" sola no abre ninguna directiva: se consume como siempre,
+		// con aviso (DIRECTIVE004).
 		return &ParseResult{
 			Element:       nil,
 			ConsumedLines: 1,
 			Error:         nil,
+			Diagnostics: []diagnostics.Diagnostic{ignoredLineWarning(ctx, startIndex, DirectiveTextRuleID, "directive-parser",
+				"This line has an @ with no directive name and was ignored: %q. Write the directive name after the @, as in @notes.", line)},
 		}
 	}
 
@@ -56,7 +60,7 @@ func (p *DirectiveParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	}
 
 	// Parse name and parameters for other directives
-	name, parameters := p.parseDirectiveNameAndParams(directivePart)
+	name, parameters, ignored := p.parseDirectiveNameAndParams(directivePart)
 
 	directive := ast.NewDirectiveNode(pos, name)
 	directive.Parameters = parameters
@@ -73,6 +77,9 @@ func (p *DirectiveParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("@layout fue retirada; declarà layout: en el bloque de metadata del slide", pos, "directive-parser").WithRuleID("DIRECTIVE002")}
 	} else if !knownDirective(name) {
 		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning("La directiva @"+name+" no tiene consumidor y fue ignorada", pos, "directive-parser").WithRuleID("DIRECTIVE003")}
+	}
+	if ignored != "" {
+		result.Diagnostics = append(result.Diagnostics, ignoredParamWarning(ctx, startIndex, name, ignored))
 	}
 	return result
 }
@@ -99,7 +106,7 @@ func knownDirective(name string) bool {
 // @transition type="fade" duration="1000ms"
 // @highlight color="yellow"
 // @center
-func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, map[string]interface{}) {
+func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, map[string]interface{}, string) {
 	parameters := make(map[string]interface{})
 
 	// Find first space to separate name from parameters. Both
@@ -113,13 +120,14 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 
 	if len(parts) == 1 {
 		// No parameters
-		return name, parameters
+		return name, parameters, ""
 	}
 
 	paramString := strings.TrimSpace(parts[1])
 	if paramString == "" {
-		return name, parameters
+		return name, parameters, ""
 	}
+	ignored := ""
 
 	// Special cases for specific directives
 	switch name {
@@ -134,18 +142,18 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 		// @timer 300
 		if strings.Contains(paramString, "=") {
 			// @timer duration=300 warning=60
-			p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters)
 		} else {
 			// @timer 300
 			parameters["duration"] = paramString
 		}
 	case "transition":
 		// @transition type="fade" duration="1000ms"
-		p.parseKeyValueParams(paramString, parameters)
+		ignored = p.parseKeyValueParams(paramString, parameters)
 	case "highlight":
 		// @highlight color="yellow"
 		if strings.Contains(paramString, "=") {
-			p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters)
 		} else {
 			// @highlight yellow
 			parameters["color"] = paramString
@@ -164,7 +172,7 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 	case "auto-play":
 		// @auto-play interval=5000
 		if strings.Contains(paramString, "=") {
-			p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters)
 		} else {
 			// @auto-play 5000
 			parameters["interval"] = paramString
@@ -175,25 +183,25 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 		// no debe confundirse con key=value. Las dos formas nombradas siguen
 		// siendo útiles para callers que construyen metadatos explícitos.
 		if strings.HasPrefix(paramString, "color=") || strings.HasPrefix(paramString, "image=") {
-			p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters)
 		} else {
 			parameters["value"] = paramString
 		}
 	default:
 		// Generic key=value parameters
 		if strings.Contains(paramString, "=") {
-			p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters)
 		} else {
 			// Single value parameter
 			parameters["value"] = paramString
 		}
 	}
 
-	return name, parameters
+	return name, parameters, ignored
 }
 
 // parseKeyValueParams parses parameters in key=value format
-func (p *DirectiveParser) parseKeyValueParams(paramString string, parameters map[string]interface{}) {
+func (p *DirectiveParser) parseKeyValueParams(paramString string, parameters map[string]interface{}) (ignored string) {
 	// Simple parser for key=value pairs
 	// Handles: key=value key2="value with spaces" key3='single quotes'
 
@@ -207,20 +215,21 @@ func (p *DirectiveParser) parseKeyValueParams(paramString string, parameters map
 			break
 		}
 
-		// Parse key
+		// Parse key. Un resto sin "=" (o una clave sin valor) no llega a
+		// ningún parámetro: se devuelve para avisarlo (DIRECTIVE004).
 		keyStart := i
 		for i < len(paramString) && paramString[i] != '=' {
 			i++
 		}
 		if i >= len(paramString) {
-			break
+			return strings.TrimSpace(paramString[keyStart:])
 		}
 		key := strings.TrimSpace(paramString[keyStart:i])
 		i++ // skip '='
 
 		// Parse value
 		if i >= len(paramString) {
-			break
+			return strings.TrimSpace(paramString[keyStart:])
 		}
 
 		var value string
@@ -258,6 +267,7 @@ func (p *DirectiveParser) parseKeyValueParams(paramString string, parameters map
 
 		parameters[key] = value
 	}
+	return ""
 }
 
 // parseNotesDirective parses multi-line notes directives
@@ -272,14 +282,18 @@ func (p *DirectiveParser) parseNotesDirective(ctx *ParseContext, startIndex int,
 
 	// If it's @notes with content on the same line like @notes "content"
 	if directivePart != "notes:" && directivePart != "notes" {
-		name, parameters := p.parseDirectiveNameAndParams(directivePart)
+		name, parameters, ignored := p.parseDirectiveNameAndParams(directivePart)
 		directive := ast.NewDirectiveNode(pos, name)
 		directive.Parameters = parameters
-		return &ParseResult{
+		result := &ParseResult{
 			Element:       directive,
 			ConsumedLines: 1,
 			Error:         nil,
 		}
+		if ignored != "" {
+			result.Diagnostics = append(result.Diagnostics, ignoredParamWarning(ctx, startIndex, name, ignored))
+		}
+		return result
 	}
 
 	// Collect multi-line content after @notes: or @notes
@@ -319,4 +333,13 @@ func (p *DirectiveParser) parseNotesDirective(ctx *ParseContext, startIndex int,
 		ConsumedLines: consumedLines,
 		Error:         nil,
 	}
+}
+
+// ignoredParamWarning es el DIRECTIVE004 del texto de una directiva que no
+// llega a ningún parámetro: un resto sin "=" donde la directiva lee pares
+// clave=valor (`@transition fade`), o una clave sin valor.
+func ignoredParamWarning(ctx *ParseContext, i int, name, ignored string) diagnostics.Diagnostic {
+	return ignoredLineWarning(ctx, i, DirectiveTextRuleID, "directive-parser",
+		"Part of this @%s directive is not a key=value parameter and was ignored: %q. Write it as key=value, as in @transition type=\"fade\".",
+		name, ignored)
 }

@@ -74,8 +74,17 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 	pos := ctx.Position(startIndex)
 	element := ast.NewPointsElement(pos)
+	var diags []diagnostics.Diagnostic
+	if ctx.Mode == "strict" && strings.HasPrefix(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS") {
+		// El texto de la propia línea POINTS no se lee (STRICT004).
+		if d := keywordLineRestWarning(ctx, startIndex, "POINTS", "points-parser"); d != nil {
+			diags = append(diags, *d)
+		}
+	}
 	if ctx.NestedListTypes || ctx.ListStart {
-		return p.parseTypedList(ctx, startIndex, element)
+		result := p.parseTypedList(ctx, startIndex, element)
+		result.Diagnostics = append(diags, result.Diagnostics...)
+		return result
 	}
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
@@ -144,6 +153,15 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					item := ast.NewPointItem(ctx.Position(i), content)
 					nest.add(element, item, indent, trimmed, p.detectListType(trimmed))
 				}
+			} else {
+				// Una línea que no es item no tiene dónde ir: el POINTS strict
+				// no tiene continuaciones. Se consume como siempre, pero con
+				// aviso (POINTS001). La línea puede estar a la sangría de los
+				// items o más adentro, y también a la del propio POINTS
+				// cuando los items van a esa misma sangría.
+				diags = append(diags, ignoredLineWarning(ctx, i, PointsLineRuleID, "points-parser",
+					"This line of the POINTS is not a list item and was ignored: %q. Start it with \"- \" to make it an item; if it is meant to come after the list, write it at a shallower indentation than the items.",
+					trimmed))
 			}
 
 			consumed++
@@ -157,6 +175,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       element,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
 }
 

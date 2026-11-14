@@ -74,6 +74,12 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// The YAML "TABLE" block is recognized the same way in strict and flex
 	// (see CanParse); mode no longer gates this branch, only the line's syntax.
 	if strings.HasPrefix(line, "TABLE") {
+		// El texto de la propia línea TABLE no se lee (STRICT004). En flex
+		// CanParse ya exige la palabra sola, así que esto solo dispara en
+		// strict.
+		if d := keywordLineRestWarning(ctx, startIndex, "TABLE", "table-parser"); d != nil {
+			diags = append(diags, *d)
+		}
 		consumed++
 		startIndex++
 
@@ -211,6 +217,10 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			if strings.HasPrefix(headersStr, "[") && strings.HasSuffix(headersStr, "]") {
 				headersStr = trimInlineArrayBrackets(headersStr)
 				headers = append(headers, splitInlineArray(headersStr)...)
+			} else if headersStr != "" {
+				diags = append(diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+					"The headers: value on this line is not a [\"…\", \"…\"] array and was ignored: %q. Write the headers as an array, as in headers: [\"Name\", \"Role\"].",
+					trimmedLine))
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
 			legacyDeclared = true
@@ -260,6 +270,10 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 					rowStr := trimInlineArrayBrackets(rowTrimmed)
 					rows = append(rows, splitInlineArray(rowStr))
 					rowPositions = append(rowPositions, ctx.Position(i))
+				} else {
+					diags = append(diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+						"This row of the TABLE does not end with \"]\" and was ignored: %q. Write each row under rows: as a complete [\"…\", \"…\"] array on one line.",
+						rowTrimmed))
 				}
 				consumed++
 				i++
@@ -285,6 +299,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			cellsIndent := currentIndent
 			consumed++
 			i++
+			cellsStart := i
 			var cellsBlockLines []string
 			for i < len(lines) {
 				rl := lines[i]
@@ -308,9 +323,12 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				explicitCells = parsedCells
 				diags = append(diags, cellDiags...)
 			} else if len(cellsBlockLines) > 0 {
-				diags = append(diags, diagnostics.NewWarning(
+				// El aviso queda en la línea TABLE, como siempre, y cubre hasta
+				// la última línea del bloque: así nombra todas las que se
+				// ignoraron.
+				diags = append(diags, withLineRange(ctx, diagnostics.NewWarning(
 					`The "cells:" block is not valid YAML and was ignored; the table will be empty`,
-					pos, "table-parser").WithRuleID("TABLE004"))
+					pos, "table-parser").WithRuleID("TABLE004"), cellsStart+len(cellsBlockLines)-1))
 			}
 			continue
 		} else if strings.HasPrefix(trimmedLine, "tableRows:") {
@@ -389,6 +407,12 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				rows = append(rows, cells)
 				rowPositions = append(rowPositions, ctx.Position(i))
 			}
+		} else if trimmedLine != "]" && trimmedLine != "]," {
+			// Ninguna rama la leyó: no es fila ni propiedad de la tabla. Se
+			// consume como siempre (cortar acá cambiaría qué líneas toma la
+			// tabla), pero con aviso (TABLE008). El "]" que cierra un
+			// `rows: [` de varias líneas es sintaxis, no texto perdido.
+			diags = append(diags, unreadTableLine(ctx, i, trimmedLine))
 		}
 
 		consumed++
@@ -399,6 +423,21 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	}
 	rows, rowPositions, diags = dropMiscountedInlineRows(headers, rows, rowPositions, inlineGroups, diags)
 	return headers, rows, caption, label, explicitCells, tableRows, rowPositions, diags, consumed
+}
+
+// unreadTableLine es el TABLE008 de una línea del cuerpo de un TABLE que
+// ninguna rama lee. Una fila entre corchetes fuera de su lugar tiene su propio
+// texto: es casi siempre una fila de rows: con otra sangría, porque esas filas
+// se leen solo cuando empiezan en la columna 7 de la línea.
+func unreadTableLine(ctx *ParseContext, i int, trimmed string) diagnostics.Diagnostic {
+	if strings.HasPrefix(trimmed, "[") {
+		return ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+			"This row of the TABLE was ignored: %q. A [\"…\"] row is read only right under rows:, starting exactly six spaces from the beginning of the line; or write it as a \"| a | b |\" row.",
+			trimmed)
+	}
+	return ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+		"This line of the TABLE is not a row or a property it reads, and was ignored: %q. Write rows as \"| a | b |\" lines or under rows:; TABLE reads headers:, rows:, cells:, tableRows:, caption: and label:.",
+		trimmed)
 }
 
 // inlineRowsGroup son las filas que un `rows:` en línea agregó a rows:

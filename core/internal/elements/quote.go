@@ -60,14 +60,20 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 	// dentro de la cita si lo que viene después está MÁS sangrado que ella.
 	quoteIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 
-	// Saltar línea QUOTE
+	var diags []diagnostics.Diagnostic
+
+	// Saltar línea QUOTE. Su propio texto no se lee (STRICT004).
 	if strings.HasPrefix(line, "QUOTE") {
+		if d := keywordLineRestWarning(ctx, startIndex, "QUOTE", "quote-parser"); d != nil {
+			diags = append(diags, *d)
+		}
 		consumed++
 		startIndex++
 	}
 
 	var contentBuilder strings.Builder
 	var author, source string
+	authorLine, sourceLine := -1, -1
 	// Sangría base del cuerpo: la de su primera línea. Un item de lista más
 	// sangrado que ella guarda la diferencia (keepListIndent).
 	bodyIndent := firstBodyIndent(ctx.Lines, startIndex, nil)
@@ -105,15 +111,25 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 			break
 		}
 
-		// Buscar metadatos especiales
+		// Buscar metadatos especiales. Un segundo AUTHOR: o SOURCE: pisa al
+		// primero, como siempre; el primero se avisa (QUOTE001) porque su
+		// texto ya no llega al AST.
 		if strings.HasPrefix(line, "AUTHOR:") {
+			if authorLine >= 0 {
+				diags = append(diags, repeatedQuoteMetadata(ctx, authorLine, i, "AUTHOR:"))
+			}
 			author = strings.TrimSpace(strings.TrimPrefix(line, "AUTHOR:"))
+			authorLine = i
 			consumed++
 			continue
 		}
 
 		if strings.HasPrefix(line, "SOURCE:") {
+			if sourceLine >= 0 {
+				diags = append(diags, repeatedQuoteMetadata(ctx, sourceLine, i, "SOURCE:"))
+			}
 			source = strings.TrimSpace(strings.TrimPrefix(line, "SOURCE:"))
+			sourceLine = i
 			consumed++
 			continue
 		}
@@ -134,7 +150,16 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 		Element:       quote,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
+}
+
+// repeatedQuoteMetadata es el QUOTE001 de un AUTHOR: o SOURCE: (key) en la
+// línea earlier que la línea later reemplaza.
+func repeatedQuoteMetadata(ctx *ParseContext, earlier, later int, key string) diagnostics.Diagnostic {
+	return ignoredLineWarning(ctx, earlier, QuoteLineRuleID, "quote-parser",
+		"This %s line of the QUOTE was ignored: %q. The %s on line %d replaces it; a QUOTE keeps only one.",
+		key, strings.TrimSpace(ctx.Lines[earlier]), key, ctx.Position(later).Line)
 }
 
 // continuesQuote dice si la línea con contenido que sigue a una línea en blanco

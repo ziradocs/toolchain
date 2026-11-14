@@ -303,6 +303,9 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// mecanismo, y sigue intacto.
 	bodyIndent := -1
 	var unknownKeys []string
+	// lastKey es la última llave leída, para nombrarla en el aviso de una
+	// línea anidada bajo ella que nadie lee.
+	lastKey := ""
 chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
@@ -403,6 +406,9 @@ chartLoop:
 		// un `datasets:` inventado robándole el lugar al `data:` real de
 		// nivel superior.
 		if bodyIndent > 0 && currentIndent > bodyIndent {
+			// Se consume como siempre, pero no llega a ningún lado: se avisa
+			// (CHART007), nombrando la llave de arriba.
+			diags = append(diags, nestedChartLine(ctx, i, lastKey, trimmedLine))
 			consumedLines++
 			continue
 		}
@@ -440,6 +446,7 @@ chartLoop:
 		}
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
+		lastKey = key
 
 		switch key {
 		case "data":
@@ -506,6 +513,12 @@ chartLoop:
 			opts, linesConsumed := p.parseNestedOptions(ctx.Lines, i+1)
 			if opts != nil {
 				chart.Options = opts
+			} else if linesConsumed > 0 {
+				// El bloque no es YAML válido y se descarta, como siempre; el
+				// aviso cubre de options: a su última línea.
+				diags = append(diags, withLineRange(ctx, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+					"The options: block of this chart is not valid YAML and was ignored, through line %d: %q. Indent its keys under options: as YAML, as in plugins: / title: / text: \"…\".",
+					ctx.Position(i+linesConsumed).Line, trimmedLine), i+linesConsumed))
 			}
 			i += linesConsumed
 			consumedLines += linesConsumed
@@ -578,9 +591,22 @@ chartLoop:
 			// Espeja el "default: break parseLoop" de map.go.
 			if isChartPropertyKey(key) {
 				unknownKeys = append(unknownKeys, key)
+				// El CHART005 del bloque las junta en la línea de apertura;
+				// este las nombra en su propia línea.
+				diags = append(diags, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+					"The chart does not read %s:, so this line was ignored: %q. Chart.js settings go inside options:.",
+					key, trimmedLine))
 			} else {
 				break chartLoop
 			}
+		}
+
+		// Un data:/series:/labels:/type:/yAxisID: que no es un arreglo no se
+		// lee: cada case de arriba solo entra con un "[". Se avisa (CHART007).
+		if (key == "data" || key == "series" || key == "labels" || key == "type" || key == "yAxisID") && !strings.Contains(value, "[") {
+			diags = append(diags, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+				"The %s: value of this chart is not an array and was ignored: %q. Write it as an array, as in %s: [\"…\", \"…\"].",
+				key, trimmedLine, key))
 		}
 
 		// Contar los corchetes de la línea de la propiedad MÁS los de lo que
@@ -1919,4 +1945,18 @@ func extractAttribute(str, attrName string) string {
 	}
 
 	return ""
+}
+
+// nestedChartLine es el CHART007 de una línea más sangrada que el cuerpo del
+// chart, fuera de un arreglo abierto: cuelga de key, que no lee líneas
+// anidadas (options: y los arreglos multilínea ya las consumieron antes de
+// llegar acá).
+func nestedChartLine(ctx *ParseContext, i int, key, trimmed string) diagnostics.Diagnostic {
+	if key == "" {
+		return ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+			"This line of the chart is indented deeper than its properties and was ignored: %q. Write it at the indentation of data: and series:.", trimmed)
+	}
+	return ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+		"This line of the chart is nested under %s:, which does not read nested lines, so it was ignored: %q. Write it at the indentation of data: and series:, or inside options: if it is a Chart.js setting.",
+		key, trimmed)
 }

@@ -333,6 +333,13 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 	block := ast.NewContentBlock(pos, blockType)
 	// `SLIDE <tipo>` declara el layout: ninguna regla lo puede reclasificar.
 	block.LayoutDeclared = blockType != ""
+	if len(parts) > 2 {
+		// `SLIDE <tipo>` lleva una sola palabra; el resto de la línea nunca
+		// se leyó (STRICT004).
+		p.addWarningWithRuleID(fmt.Sprintf(
+			"The text after SLIDE %s on this line was ignored: %q. SLIDE takes only the layout type on its line; the title goes below it as title: \"…\".",
+			blockType, strings.Join(parts[2:], " ")), elements.KeywordLineRestRuleID)
+	}
 	p.currentLine++
 
 	p.parseIndentedElements(block, func(key, value string) {
@@ -829,6 +836,14 @@ func (p *strictBody) parseSpecialBlockElement() ast.Element {
 	ctx := p.parseContext()
 
 	result := specialBlockParser.Parse(ctx, p.currentLine)
+	if result.Element == nil && result.ConsumedLines > 0 {
+		// Un ":::" que no abre ningún bloque (sin tipo, o "::: :::") se
+		// consume sin producir nada. Antes desaparecía en silencio; ahora
+		// con el aviso de línea descartada del cuerpo strict (STRICT003).
+		p.addWarningWithRuleID(fmt.Sprintf(
+			"This %q closes no block and opens none, so it was ignored. A block opens with a type, as in :::info, and closes with a \":::\" line at the end of its body.",
+			strings.TrimSpace(p.lines[p.currentLine])), "STRICT003")
+	}
 	return p.applyElementResult(result, ":::")
 }
 
@@ -1017,8 +1032,21 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 		for i := 1; i < len(cells)-1; i++ { // Skip first and last empty cells
 			headers = append(headers, strings.TrimSpace(cells[i]))
 		}
+		if len(headers) == 0 {
+			// "|" sola: una fila sin celdas. La tabla sale vacía, como
+			// siempre, pero con aviso (TABLE008).
+			p.addWarningWithRuleID(fmt.Sprintf(
+				"This table row has no cells and was ignored: %q. Write the cells between pipes, as in | a | b |.", line),
+				elements.TableLineRuleID)
+		}
 		p.currentLine++
 		headerParsed = true
+	} else {
+		// La primera fila no cierra con "|": no hay encabezado, la tabla
+		// sale vacía y la línea no llega al AST (TABLE008).
+		p.addWarningWithRuleID(fmt.Sprintf(
+			"This line starts a Markdown table but is not a table row, so it was ignored: %q. A row starts and ends with a pipe, as in | a | b |.", line),
+			elements.TableLineRuleID)
 	}
 
 	// Skip separator row (|---------|--------|), keeping the column
@@ -1026,8 +1054,16 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 	if p.currentLine < len(p.lines) {
 		separatorLine := strings.TrimSpace(p.lines[p.currentLine])
 		if strings.Contains(separatorLine, "---") {
-			table.ColumnAlign = elements.MarkdownColumnAlign(
-				elements.TrimMarkdownRowEdges(separatorLine, elements.SplitMarkdownTableRow(separatorLine)), len(headers))
+			sepCells := elements.TrimMarkdownRowEdges(separatorLine, elements.SplitMarkdownTableRow(separatorLine))
+			if !isStrictSeparatorRow(sepCells) {
+				// Cualquier línea con "---" justo después del encabezado se
+				// toma por separador, como siempre. Si no lo es, sus celdas
+				// se pierden: se avisa (TABLE008).
+				p.addWarningWithRuleID(fmt.Sprintf(
+					"This line, right after the table header, is read as the separator row because it contains \"---\", so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |.", separatorLine),
+					elements.TableLineRuleID)
+			}
+			table.ColumnAlign = elements.MarkdownColumnAlign(sepCells, len(headers))
 			p.currentLine++
 		}
 	}
@@ -1090,6 +1126,22 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 	// other parse path).
 	table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 	return table
+}
+
+// isStrictSeparatorRow dice si las celdas (ya sin los bordes) de la fila que
+// sigue al encabezado son un separador Markdown: solo guiones, dos puntos y
+// espacios en cada celda, con al menos un guion.
+func isStrictSeparatorRow(cells []string) bool {
+	for _, c := range cells {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if strings.Trim(c, "-:") != "" || !strings.Contains(c, "-") {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *strictBody) parseDirectiveElement() ast.Element {
