@@ -45,11 +45,14 @@ func (p *MetricParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		if err := yaml.Unmarshal([]byte(yamlText), &body); err != nil {
 			// El aviso cubre hasta la última línea del cuerpo: todas se
 			// ignoraron.
-			d := diagnostics.NewWarning(fmt.Sprintf("El YAML de metric es inválido y fue ignorado: %v", err), pos, "metric-parser").WithRuleID("METRIC002")
+			// Sin los números de línea de yaml.v3 (cuentan desde el cuerpo);
+			// una llave repetida se nombra en su propia línea (METRIC006).
+			d := diagnostics.NewWarning(fmt.Sprintf("El YAML de metric es inválido y fue ignorado: %s", yamlErrorText(err)), pos, "metric-parser").WithRuleID("METRIC002")
 			if last := lastBodyLine(raw, startIndex+1); last >= 0 {
 				d = withLineRange(ctx, d, last)
 			}
 			diags = append(diags, d)
+			diags = append(diags, duplicateYAMLKeyLines(ctx, yamlText, startIndex+1, "<<metric>>", MetricLineRuleID, "metric-parser")...)
 			body = metricBody{}
 		} else {
 			var keys map[string]interface{}

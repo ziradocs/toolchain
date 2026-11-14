@@ -4,7 +4,9 @@
 package elements
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -54,8 +56,18 @@ const (
 	// después de la primera, que ya es un error.
 	CodeGroupLineRuleID = "CODEGROUP003"
 	// DirectiveTextRuleID: texto de una directiva que no llega a ningún
-	// parámetro (`@transition fade`, `@` sola).
+	// parámetro (`@transition fade`, `@` sola), y un parámetro repetido que
+	// otro posterior reemplaza (`type="a" type="b"`).
 	DirectiveTextRuleID = "DIRECTIVE004"
+	// ContainerPropertyRuleID: una propiedad de un SLIDE (title:, heading:,
+	// subtitle:, kicker:, logo:, una opción del layout) o de un SECTION
+	// (level:, id:), en documento o dentro de un SLIDE, que otra posterior
+	// reemplaza.
+	ContainerPropertyRuleID = "STRICT005"
+	// MapLineRuleID: una propiedad de un <<map>> (type:, zoom:, center:,
+	// title:…) o de un marcador (lng:, label:, value:…) que otra posterior
+	// reemplaza.
+	MapLineRuleID = "MAP003"
 )
 
 // ignoredLineWarning arma el aviso de una línea que el elemento consumió sin
@@ -144,9 +156,57 @@ func keywordLineRest(trimmed, kw string) (rest string, glued bool) {
 	return strings.TrimSpace(after), after[0] != ' ' && after[0] != '\t'
 }
 
+// keywordLineRef es el patrón de un \ref{label}, el mismo que resuelve
+// core/xref (refPattern).
+var keywordLineRef = regexp.MustCompile(`\\ref\{([^}]+)\}`)
+
+// keywordLineText decide qué pasa con el texto de la línea de un TEXT o un
+// QUOTE strict (trimmed es la línea ya sin sangría, kw la palabra clave). Si
+// el elemento lo lee como la primera línea de su contenido, devuelve ese
+// texto y fix vacío. Si no lo lee, devuelve "" y, en fix, la indicación del
+// STRICT004 que lo reporta. Sin texto, devuelve "" y fix vacío.
+//
+// No se lee:
+//   - lo pegado a la palabra clave (`TEXTO citado`): el despacho por prefijo
+//     la toma por TEXT, pero no es un TEXT bien escrito;
+//   - un \ref: el texto de esta línea antes no llegaba al AST, y un \ref
+//     sin resolver hace fallar el build, así que leerlo haría fallar
+//     documentos que compilaban;
+//   - un `<!-- node-id: … -->` o un `@include …`: en su propia línea son
+//     directivas que se quitan antes de parsear, así que fmt no podría
+//     escribirlos en el cuerpo y que se volvieran a leer igual;
+//   - en QUOTE, lo que el cuerpo de la cita no leería como texto suyo
+//     (quoteHeaderText).
+//
+// Es la única regla: la usan TextParser, QuoteParser y
+// OpensElementAfterEmptyText.
+func keywordLineText(trimmed, kw string) (text, fix string) {
+	rest, glued := keywordLineRest(trimmed, kw)
+	switch {
+	case rest == "":
+		return "", ""
+	case glued:
+		return "", fmt.Sprintf("%s reads the text on its line only after a space or a colon (%s hola): write it that way, or on the indented lines below it", kw, kw)
+	case keywordLineRef.MatchString(rest):
+		return "", fmt.Sprintf("A \\ref on the %s line is not read: write the text on the indented lines below it", kw)
+	case strings.HasPrefix(rest, "<!-- node-id:") || rest == "@include" || strings.HasPrefix(rest, "@include "):
+		return "", fmt.Sprintf("On a line of its own this text is a node-id or @include directive, not text, so %s does not read it on its line either", kw)
+	case kw == "QUOTE" && !quoteHeaderText(rest):
+		return "", "The text on the QUOTE line is read as the first line of the quote only when the quote body would read it as quote text, not as AUTHOR:, SOURCE:, the end of the quote or another element: write it on its own indented line below"
+	}
+	return rest, ""
+}
+
+// keywordLineTextWarning es el STRICT004 del texto de la línea de un TEXT o
+// un QUOTE que el elemento no lee (ver keywordLineText).
+func keywordLineTextWarning(ctx *ParseContext, i int, kw, source, fix string) diagnostics.Diagnostic {
+	rest, glued := keywordLineRest(strings.TrimSpace(ctx.Lines[i]), kw)
+	return keywordRestDiagnostic(ctx, i, kw, source, rest, glued, fix)
+}
+
 // keywordLineRestWarning es el STRICT004 de un elemento cuya cabecera no lleva
-// argumentos (TEXT, POINTS, QUOTE, CHECKLIST, TABLE): todo lo que sigue a la
-// palabra clave en esa línea se descarta. Devuelve nil si no hay resto.
+// argumentos (POINTS, CHECKLIST, TABLE): todo lo que sigue a la palabra clave
+// en esa línea se descarta. Devuelve nil si no hay resto.
 func keywordLineRestWarning(ctx *ParseContext, i int, kw, source string) *diagnostics.Diagnostic {
 	rest, glued := keywordLineRest(strings.TrimSpace(ctx.Lines[i]), kw)
 	if rest == "" {
@@ -195,6 +255,119 @@ func unknownYAMLKeyLines(ctx *ParseContext, yamlText string, first int, known ma
 		return nil
 	}
 	return mappingKeyLines(ctx, root, lines, first, len(lines)-1, known, tag, ruleID, source)
+}
+
+// duplicateYAMLKeyLines devuelve un aviso por llave de nivel superior que el
+// cuerpo YAML de un bloque repite, en la línea de cada aparición anterior y
+// citando la siguiente por su texto. yaml.v3 rechaza el cuerpo entero por una
+// llave repetida (el aviso de YAML inválido del bloque cubre todo el cuerpo):
+// ningún valor gana, y este aviso nombra la línea que lo causó. yamlText y
+// first como en unknownYAMLKeyLines.
+func duplicateYAMLKeyLines(ctx *ParseContext, yamlText string, first int, tag, ruleID, source string) []diagnostics.Diagnostic {
+	root, lines := yamlMappingRoot(yamlText)
+	if root == nil {
+		return nil
+	}
+	seen := map[string]*yaml.Node{}
+	var out []diagnostics.Diagnostic
+	for n := 0; n+1 < len(root.Content); n += 2 {
+		key := root.Content[n]
+		prev, ok := seen[key.Value]
+		seen[key.Value] = key
+		if !ok || prev.Line < 1 || prev.Line > len(lines) || key.Line > len(lines) {
+			continue
+		}
+		earlier := strings.TrimSpace(lines[prev.Line-1])
+		if prev.Line == key.Line {
+			out = append(out, ignoredLineWarning(ctx, first+prev.Line-1, ruleID, source,
+				"This line of the %s block has the key %q twice: %q. A key can appear only once, so the whole body of the block was ignored.",
+				tag, key.Value, earlier))
+			continue
+		}
+		out = append(out, ignoredLineWarning(ctx, first+prev.Line-1, ruleID, source,
+			"This %s: line of the %s block is written again below as %q: %q. A key can appear only once, so the whole body of the block was ignored.",
+			key.Value, tag, strings.TrimSpace(lines[key.Line-1]), earlier))
+	}
+	return out
+}
+
+// duplicateJSONKeyLines devuelve un aviso por llave que un objeto del cuerpo
+// JSON de un bloque repite, en la línea de la aparición anterior y citando la
+// siguiente por su texto. El cuerpo va de ctx.Lines[first] a ctx.Lines[last]
+// (el cierre del bloque, si está, no estorba: el lector se detiene al terminar
+// el valor). json.Valid acepta las llaves repetidas y quien lee el JSON se
+// queda con la última, así que la anterior no llega a la salida.
+func duplicateJSONKeyLines(ctx *ParseContext, first, last int, tag, ruleID, source string) []diagnostics.Diagnostic {
+	if last >= len(ctx.Lines) {
+		last = len(ctx.Lines) - 1
+	}
+	if first > last {
+		return nil
+	}
+	text := strings.Join(ctx.Lines[first:last+1], "\n")
+	type frame struct {
+		object, expectKey bool
+		keys              map[string]int
+	}
+	var stack []*frame
+	valueDone := func() {
+		if n := len(stack); n > 0 && stack[n-1].object {
+			stack[n-1].expectKey = true
+		}
+	}
+	var out []diagnostics.Diagnostic
+	dec := json.NewDecoder(strings.NewReader(text))
+	dec.UseNumber()
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case json.Delim:
+			switch t {
+			case '{':
+				stack = append(stack, &frame{object: true, expectKey: true, keys: map[string]int{}})
+			case '[':
+				stack = append(stack, &frame{})
+			default:
+				if len(stack) > 0 {
+					stack = stack[:len(stack)-1]
+				}
+				valueDone()
+				if len(stack) == 0 {
+					return out
+				}
+			}
+			continue
+		case string:
+			if n := len(stack); n > 0 && stack[n-1].object && stack[n-1].expectKey {
+				top := stack[n-1]
+				top.expectKey = false
+				line := first + strings.Count(text[:dec.InputOffset()], "\n")
+				if prev, ok := top.keys[t]; ok {
+					out = append(out, repeatedJSONKey(ctx, prev, line, t, tag, ruleID, source))
+				}
+				top.keys[t] = line
+				continue
+			}
+		}
+		valueDone()
+	}
+	return out
+}
+
+// repeatedJSONKey es el aviso de la llave key del JSON en la línea earlier
+// que la de la línea later reemplaza.
+func repeatedJSONKey(ctx *ParseContext, earlier, later int, key, tag, ruleID, source string) diagnostics.Diagnostic {
+	if earlier == later {
+		return ignoredLineWarning(ctx, earlier, ruleID, source,
+			"An object on this line of the %s's JSON has the key %q twice: %q. Only the last one is read.",
+			tag, key, strings.TrimSpace(ctx.Lines[earlier]))
+	}
+	return ignoredLineWarning(ctx, earlier, ruleID, source,
+		"The %q key on this line of the %s's JSON was ignored: %q. The later %q replaces it; only the last one is read.",
+		key, tag, strings.TrimSpace(ctx.Lines[earlier]), strings.TrimSpace(ctx.Lines[later]))
 }
 
 // yamlMappingRoot decodifica yamlText a un yaml.Node y devuelve su mapeo de

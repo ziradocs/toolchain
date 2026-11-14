@@ -60,7 +60,7 @@ func (p *DirectiveParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	}
 
 	// Parse name and parameters for other directives
-	name, parameters, ignored := p.parseDirectiveNameAndParams(directivePart)
+	name, parameters, ignored, repeated := p.parseDirective(directivePart)
 
 	directive := ast.NewDirectiveNode(pos, name)
 	directive.Parameters = parameters
@@ -80,6 +80,13 @@ func (p *DirectiveParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	}
 	if ignored != "" {
 		result.Diagnostics = append(result.Diagnostics, ignoredParamWarning(ctx, startIndex, name, ignored))
+	}
+	// Un parámetro repetido pisa al anterior, como siempre; el anterior se
+	// avisa (DIRECTIVE004).
+	for _, r := range repeated {
+		result.Diagnostics = append(result.Diagnostics, ignoredLineWarning(ctx, startIndex, DirectiveTextRuleID, "directive-parser",
+			"The parameter %q of this @%s directive was ignored: the later %q replaces it; only the last one is read.",
+			r[0], name, r[1]))
 	}
 	return result
 }
@@ -107,7 +114,16 @@ func knownDirective(name string) bool {
 // @highlight color="yellow"
 // @center
 func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, map[string]interface{}, string) {
+	name, parameters, ignored, _ := p.parseDirective(content)
+	return name, parameters, ignored
+}
+
+// parseDirective es parseDirectiveNameAndParams que además devuelve los
+// parámetros key=value repetidos: por cada uno, el texto del que se pierde y
+// el del que lo reemplaza.
+func (p *DirectiveParser) parseDirective(content string) (string, map[string]interface{}, string, [][2]string) {
 	parameters := make(map[string]interface{})
+	var repeated [][2]string
 
 	// Find first space to separate name from parameters. Both
 	// "@directiva parametros" and "@directiva: parametros" are documented,
@@ -120,12 +136,12 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 
 	if len(parts) == 1 {
 		// No parameters
-		return name, parameters, ""
+		return name, parameters, "", nil
 	}
 
 	paramString := strings.TrimSpace(parts[1])
 	if paramString == "" {
-		return name, parameters, ""
+		return name, parameters, "", nil
 	}
 	ignored := ""
 
@@ -142,18 +158,18 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 		// @timer 300
 		if strings.Contains(paramString, "=") {
 			// @timer duration=300 warning=60
-			ignored = p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters, &repeated)
 		} else {
 			// @timer 300
 			parameters["duration"] = paramString
 		}
 	case "transition":
 		// @transition type="fade" duration="1000ms"
-		ignored = p.parseKeyValueParams(paramString, parameters)
+		ignored = p.parseKeyValueParams(paramString, parameters, &repeated)
 	case "highlight":
 		// @highlight color="yellow"
 		if strings.Contains(paramString, "=") {
-			ignored = p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters, &repeated)
 		} else {
 			// @highlight yellow
 			parameters["color"] = paramString
@@ -172,7 +188,7 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 	case "auto-play":
 		// @auto-play interval=5000
 		if strings.Contains(paramString, "=") {
-			ignored = p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters, &repeated)
 		} else {
 			// @auto-play 5000
 			parameters["interval"] = paramString
@@ -183,25 +199,28 @@ func (p *DirectiveParser) parseDirectiveNameAndParams(content string) (string, m
 		// no debe confundirse con key=value. Las dos formas nombradas siguen
 		// siendo útiles para callers que construyen metadatos explícitos.
 		if strings.HasPrefix(paramString, "color=") || strings.HasPrefix(paramString, "image=") {
-			ignored = p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters, &repeated)
 		} else {
 			parameters["value"] = paramString
 		}
 	default:
 		// Generic key=value parameters
 		if strings.Contains(paramString, "=") {
-			ignored = p.parseKeyValueParams(paramString, parameters)
+			ignored = p.parseKeyValueParams(paramString, parameters, &repeated)
 		} else {
 			// Single value parameter
 			parameters["value"] = paramString
 		}
 	}
 
-	return name, parameters, ignored
+	return name, parameters, ignored, repeated
 }
 
-// parseKeyValueParams parses parameters in key=value format
-func (p *DirectiveParser) parseKeyValueParams(paramString string, parameters map[string]interface{}) (ignored string) {
+// parseKeyValueParams parses parameters in key=value format. Un parámetro
+// repetido pisa al anterior, como siempre; repeated recibe el texto de los
+// dos.
+func (p *DirectiveParser) parseKeyValueParams(paramString string, parameters map[string]interface{}, repeated *[][2]string) (ignored string) {
+	raws := map[string]string{}
 	// Simple parser for key=value pairs
 	// Handles: key=value key2="value with spaces" key3='single quotes'
 
@@ -265,6 +284,11 @@ func (p *DirectiveParser) parseKeyValueParams(paramString string, parameters map
 			value = paramString[valueStart:i]
 		}
 
+		raw := strings.TrimSpace(paramString[keyStart:i])
+		if prev, ok := raws[key]; ok {
+			*repeated = append(*repeated, [2]string{prev, raw})
+		}
+		raws[key] = raw
 		parameters[key] = value
 	}
 	return ""

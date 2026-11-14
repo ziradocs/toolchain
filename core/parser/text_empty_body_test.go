@@ -167,7 +167,7 @@ func strictTexts(t *testing.T, src string, document bool) []string {
 // entre los dos, en documento, slide y columna tipada.
 func TestStrictText_EmptyBodyThenGluedKeywordIsProse(t *testing.T) {
 	words := []string{
-		"TEXTO pegado", "POINTSX pegado", "QUOTEado", "TEXT hola", "QUOTE de Ana",
+		"TEXTO pegado", "POINTSX pegado", "QUOTEado", "TEXT \\ref{fig:a}", "QUOTE AUTHOR: Ana",
 		"POINTS x", "CODE:x", "MERMAID", "TABLE OF CONTENTS", "IMAGEN", "IMAGE of the year",
 		"CODE red alert now", "<<foo>> bar", "@usuario dijo hola", "| hola", ":::", "::: grid",
 	}
@@ -227,6 +227,12 @@ func TestStrictText_EmptyBodyThenRealElementIsParagraphWithTEXT002(t *testing.T)
 		"  IMAGE:\n",
 		"  IMAGE: foto.png\n",
 		"  CODE: python\n    x\n",
+		// TEXT y QUOTE leen el texto de su línea: `TEXT hola` y `QUOTE de
+		// Ana` son elementos bien escritos.
+		"  TEXT hola\n",
+		"  TEXT: hola\n",
+		"  QUOTE de Ana\n",
+		"  QUOTE: de Ana\n",
 	}
 	for _, el := range els {
 		var want []string

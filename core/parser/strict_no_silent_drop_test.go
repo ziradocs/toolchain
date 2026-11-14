@@ -145,6 +145,10 @@ var noDropTemplates = []noDropTemplate{
 		{"@notes", 0, nil, false}, {"alfa29 beta29", 2, tok("alfa29", "beta29"), false}, {"gamma29", 2, tok("gamma29"), false}}},
 	{name: "DIRECTIVE", headerSuffix: true, lines: []noDropLine{
 		{`@transition duration="alfa23"`, 0, tok("alfa23"), false}}},
+	// Las propiedades del propio SLIDE, en cualquier punto del cuerpo: una
+	// repetida (withRepeatedProperty) pisa a la anterior.
+	{name: "SLIDE_PROPS", slideOnly: true, lines: []noDropLine{
+		{`kicker: "alfa40"`, 0, tok("alfa40"), false}, {`subtitle: "beta40"`, 0, tok("beta40"), false}, {`title: "gamma40"`, 0, tok("gamma40"), false}}},
 }
 
 // noDropStrays son las líneas sueltas: ninguna es sintaxis válida en ningún
@@ -428,8 +432,14 @@ func checkNoDrop(t *testing.T, ctx noDropContext, c noDropCase) string {
 	}
 	tokens, corpus := astTokens(t, tree)
 	var lines []int
-	for n := range c.payloads {
+	repeatLine, repeatKey := 0, ""
+	for n, ws := range c.payloads {
 		lines = append(lines, n)
+		for _, w := range ws {
+			if key, ok := strings.CutPrefix(w, noDropRepeat); ok {
+				repeatLine, repeatKey = n, key
+			}
+		}
 	}
 	sort.Ints(lines)
 	for _, n := range lines {
@@ -437,6 +447,12 @@ func checkNoDrop(t *testing.T, ctx noDropContext, c noDropCase) string {
 			continue
 		}
 		for _, w := range c.payloads[n] {
+			if strings.HasPrefix(w, noDropRepeat) {
+				continue
+			}
+			if w == noDropMustWarn && (diagLines[repeatLine] || takeToken(tokens, corpus, repeatKey, true)) {
+				continue
+			}
 			exact := c.exact[n]
 			if rest, ok := strings.CutPrefix(w, exactToken); ok {
 				w, exact = rest, true
@@ -541,17 +557,41 @@ func noDropExtras(seed int64, tpl noDropTemplate) (noDropTemplate, []noDropStray
 // noDropKeyLine reconoce una línea de propiedad: `caption: …`, `AUTHOR: …`.
 var noDropKeyLine = regexp.MustCompile(`^[A-Za-z]+:`)
 
+// noDropValueRepeats son las líneas de propiedad cuyo valor no es texto que
+// buscar en el AST (un número, una palabra de un vocabulario), con el valor
+// con que withRepeatedProperty las repite.
+var noDropValueRepeats = map[string]string{
+	"level: 4": "level: 5", "answer: 0": "answer: 1", "type: world": "type: europe", "lng: 2": "lng: 3",
+}
+
+// noDropMustWarn, como token, exige un diagnóstico en su línea, salvo que la
+// línea que la repite (la que lleva noDropRepeat seguido de su llave) no la
+// haya reemplazado: si una línea suelta cerró el bloque antes, la repetición
+// cae afuera, y o lleva su propio aviso o queda como texto (su llave, `lng:`,
+// está en el AST como palabra). noDropMustWarn no aparece en ningún AST.
+const (
+	noDropMustWarn = exactToken + "\x02repeated"
+	noDropRepeat   = exactToken + "\x03repeat"
+)
+
 // withRepeatedProperty copia una de las líneas de propiedad de tpl que llevan
 // texto (`caption: "beta28"`) y la inserta más abajo en el cuerpo con otro
 // texto (`caption: "BETA28"`): una propiedad repetida pisa a la anterior en
-// muchos bloques, y la que se pierde tiene que llevar su aviso. Devuelve tpl
-// sin cambios si no tiene ninguna.
+// muchos bloques, y la que se pierde tiene que llevar su aviso. Una propiedad
+// de noDropValueRepeats (`level: 4`) se repite con otro valor (`level: 5`) y
+// la anterior tiene que llevar un aviso. Devuelve tpl sin cambios si no tiene
+// ninguna.
 func withRepeatedProperty(rng *rand.Rand, tpl noDropTemplate) noDropTemplate {
 	var keyed []int
 	for k := 1; k < len(tpl.lines); k++ {
-		if l := tpl.lines[k]; len(l.payload) > 0 && noDropKeyLine.MatchString(l.text) {
+		l := tpl.lines[k]
+		if _, ok := noDropValueRepeats[l.text]; ok || len(l.payload) > 0 && noDropKeyLine.MatchString(l.text) {
 			keyed = append(keyed, k)
 		}
+	}
+	// La cabecera de SLIDE_PROPS es una propiedad más.
+	if tpl.name == "SLIDE_PROPS" {
+		keyed = append(keyed, 0)
 	}
 	if len(keyed) == 0 {
 		return tpl
@@ -559,6 +599,12 @@ func withRepeatedProperty(rng *rand.Rand, tpl noDropTemplate) noDropTemplate {
 	k := keyed[rng.Intn(len(keyed))]
 	dup := tpl.lines[k]
 	dup.payload = nil
+	earlier := tpl.lines[k]
+	if value, ok := noDropValueRepeats[dup.text]; ok {
+		dup.text = value
+		earlier.payload = []string{noDropMustWarn}
+		dup.payload = []string{noDropRepeat + strings.Fields(value)[0]}
+	}
 	for _, w := range tpl.lines[k].payload {
 		// En mayúsculas y no con un sufijo: takeToken busca un token largo
 		// también como subcadena, y "beta28" se encontraría dentro de
@@ -572,6 +618,7 @@ func withRepeatedProperty(rng *rand.Rand, tpl noDropTemplate) noDropTemplate {
 	}
 	at := k + 1 + rng.Intn(end-k)
 	lines := append([]noDropLine(nil), tpl.lines[:at]...)
+	lines[k] = earlier
 	lines = append(lines, dup)
 	tpl.lines = append(lines, tpl.lines[at:]...)
 	return tpl

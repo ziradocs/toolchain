@@ -208,6 +208,10 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 				if json.Valid([]byte(jsonContent)) {
 					chart.RawJSON = json.RawMessage(jsonContent)
 					chart.IsJSONMode = true
+					// Una llave repetida en un objeto del JSON llega tal
+					// cual al AST, y quien lo lee se queda con la última:
+					// la anterior se avisa (CHART007).
+					diags = append(diags, duplicateJSONKeyLines(ctx, startIndex+1, startIndex+jsonLines, "chart", ChartLineRuleID, "chart-parser")...)
 				} else {
 					// JSON inválido: no se activa IsJSONMode y el chart queda sin datos
 					// (CHART001 lo reportará como "sin datos" de forma engañosa), pero
