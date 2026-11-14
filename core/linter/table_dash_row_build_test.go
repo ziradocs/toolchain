@@ -226,7 +226,7 @@ func TestTableDashRowBuildDifferential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	failedOnMain := map[int]bool{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
