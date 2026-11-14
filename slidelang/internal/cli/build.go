@@ -338,11 +338,20 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	if err != nil {
 		return fmt.Errorf("invalid include root: %w", err)
 	}
-	expandedContent, err := include.Expand(string(content), absIncludeRoot, os.ReadFile)
+	// ExpandWithSourceMap da el mismo texto y los mismos errores que
+	// include.Expand, más el origen (archivo y línea) de cada línea
+	// expandida: el parser y el linter cuentan sobre el contenido expandido,
+	// y con sources sus diagnósticos se llevan al archivo y la línea que el
+	// autor tiene abiertos (findings.MapToSource). Sin la opción
+	// KeepIncludesInCode, que es de documentos.
+	expandedContent, sources, err := include.ExpandWithSourceMap(string(content), absIncludeRoot, os.ReadFile)
 	if err != nil {
 		return fmt.Errorf("failed to expand includes: %w", err)
 	}
 	content = []byte(expandedContent)
+	// Un diagnóstico de un archivo incluido nombra su archivo relativo al
+	// directorio del documento, el mismo del document.path del reporte.
+	docDir := findings.DocumentDir(opts.InputFile)
 
 	// Confinamiento de fuentes de imagen para --format pptx (ver
 	// docs/SECURITY_AUDIT_2026-07.md AL-4) — mismo patrón que includeRoot
@@ -431,6 +440,12 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	// imagen de bloque) van con los del linter: política, reporte y conteo
 	// de LINT. Ver findings.SplitParserFindings.
 	diagnostics, parserFindings := findings.SplitParserFindings(diagnostics)
+	// Las posiciones cuentan sobre el contenido expandido: se llevan al
+	// archivo y la línea que las escribió antes de la consola, la política y
+	// el reporte, como en doclang. Los parserFindings se llevan después de
+	// juntarlos con los del linter, que los compara con las posiciones del
+	// AST (MergeParserFindings).
+	diagnostics = findings.MapToSource(sources, diagnostics, docDir)
 	// 5. Mostrar diagnósticos de parsing
 	if len(diagnostics) > 0 {
 		for _, diag := range diagnostics {
@@ -454,7 +469,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 	if hasErrors {
 		// El lint no va a correr: los avisos apartados para él se muestran
 		// acá, como antes.
-		for _, diag := range parserFindings {
+		for _, diag := range findings.MapToSource(sources, parserFindings, docDir) {
 			fmt.Fprintf(os.Stderr, "ℹ️  %s\n", diag.String())
 		}
 		return fmt.Errorf("parsing failed with errors")
@@ -553,6 +568,7 @@ func runBuild(opts *BuildOptions, customRules []linter.Rule, rulePacks []linter.
 
 	allDiagnostics, extDescriptors := linterInstance.LintUnfilteredWithDescriptors(astNode)
 	allDiagnostics = findings.MergeParserFindings(astNode, parserFindings, allDiagnostics)
+	allDiagnostics = findings.MapToSource(sources, allDiagnostics, docDir)
 
 	// Los avisos del parser (SPECIAL002, TABLE007, STRICT003…) pasan por la
 	// política como los del linter, por el mismo camino que la tool `lint`

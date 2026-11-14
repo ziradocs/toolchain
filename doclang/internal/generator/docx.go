@@ -1419,8 +1419,8 @@ func (g *DOCXGenerator) renderElement(doc domain.Document, elem ast.Element) err
 		// warning names it instead of falling through to the generic
 		// "Unknown element type", which would misleadingly imply the type
 		// itself is unrecognized.
-		g.logger.Warn("DOCX: la directiva @%s (línea %d) no tiene efecto en un documento y se omite; usá un blockquote si querés que su contenido se vea",
-			e.Name, e.GetPosition().Line)
+		g.logger.Warn("DOCX: la directiva @%s (%s) no tiene efecto en un documento y se omite; usá un blockquote si querés que su contenido se vea",
+			e.Name, g.opts.where("línea", e.GetPosition().Line))
 		return nil
 	default:
 		g.logger.Warn("DOCX: Unknown element type: %T", elem)
@@ -3147,7 +3147,7 @@ func (g *DOCXGenerator) renderImage(doc domain.Document, elem *ast.ImageElement)
 	// Agregar imagen
 	img, err := p.AddImageWithSize(insertPath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX: line %d: image %q could not be inserted: %v", elem.Position.Line, elem.Source, err)
+		g.logger.Warn("DOCX: %s: image %q could not be inserted: %v", g.opts.where("line", elem.Position.Line), elem.Source, err)
 		return unavailable()
 	}
 
@@ -3183,7 +3183,7 @@ func (g *DOCXGenerator) renderImageCaption(doc domain.Document, elem *ast.ImageE
 func (g *DOCXGenerator) prepareLocalImage(source string, line int, hasCaption bool) (string, domain.ImageSize, bool) {
 	where := "inline image"
 	if line > 0 {
-		where = fmt.Sprintf("line %d: image", line)
+		where = g.opts.where("line", line) + ": image"
 	}
 	// Una imagen remota nunca se descarga: el DOCX se arma en la máquina que
 	// compila y un documento no confiable le haría pedir cualquier URL.
@@ -3345,7 +3345,7 @@ func (g *DOCXGenerator) renderMermaid(doc domain.Document, elem *ast.MermaidElem
 		// Antes el diagrama desaparecía del documento sin más rastro que un
 		// log genérico. Ahora queda un marcador en su lugar y un aviso que
 		// dice cuál diagrama faltó y cómo arreglarlo.
-		g.logger.Warn("DOCX: mermaid diagram (%s) at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.DiagramType, elem.Position.Line)
+		g.logger.Warn("DOCX: mermaid diagram (%s) at %s was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.DiagramType, g.opts.where("line", elem.Position.Line))
 		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
 
@@ -3594,7 +3594,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 	if g.chromiumRenderer == nil {
 		// Antes la ecuación desaparecía sin dejar marca y el aviso no decía
 		// cuál era. Como mermaid: un marcador en su lugar y la línea.
-		g.logger.Warn("DOCX: equation at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.Position.Line)
+		g.logger.Warn("DOCX: equation at %s was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", g.opts.where("line", elem.Position.Line))
 		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
 	}
 
@@ -3602,7 +3602,7 @@ func (g *DOCXGenerator) renderMath(doc domain.Document, elem *ast.MathElement) e
 
 	pngBytes, widthIn, heightIn, err := g.rasterizeMath(elem)
 	if err != nil {
-		g.logger.Warn("DOCX: line %d: failed to render equation: %v", elem.Position.Line, err)
+		g.logger.Warn("DOCX: %s: failed to render equation: %v", g.opts.where("line", elem.Position.Line), err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableEquation, elem.Caption)
 	}
 
@@ -3672,7 +3672,7 @@ func (g *DOCXGenerator) renderMathImage(doc domain.Document, elem *ast.MathEleme
 	}
 	img, err := p.AddImageWithSize(insertPath, imageSize)
 	if err != nil {
-		g.logger.Warn("DOCX: line %d: equation image %q could not be inserted: %v", elem.Position.Line, image, err)
+		g.logger.Warn("DOCX: %s: equation image %q could not be inserted: %v", g.opts.where("line", elem.Position.Line), image, err)
 		return unavailable()
 	}
 	setDOCXImageDescription(img, g.docxMathAlt(elem))
@@ -3746,7 +3746,7 @@ func (g *DOCXGenerator) renderChart(doc domain.Document, elem *ast.ChartElement)
 		if g.chromiumRenderer == nil {
 			// Antes el chart se omitía sin dejar nada en su lugar; ahora
 			// queda el mismo marcador que un mermaid o un mapa sin Chromium.
-			g.logger.Warn("DOCX: chart (%s) at line %d was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.ChartType, elem.Position.Line)
+			g.logger.Warn("DOCX: chart (%s) at %s was not rendered: Chromium is not available. Install Chrome/Chromium/Edge, pass --chromium-path, or use --install-chromium", elem.ChartType, g.opts.where("line", elem.Position.Line))
 			return g.renderUnavailableCaptioned(doc, docxUnavailableChart, elem.Title)
 		}
 
@@ -3818,7 +3818,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 	// con --no-network el mapa queda como marcador sin intentarlo (issue
 	// #472).
 	if g.opts.NoNetwork {
-		g.logger.Warn("DOCX: line %d: map not rendered: --no-network forbids downloading map tiles", elem.Position.Line)
+		g.logger.Warn("DOCX: %s: map not rendered: --no-network forbids downloading map tiles", g.opts.where("line", elem.Position.Line))
 		return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
 	}
 	mapConfig, err := withTileServer(renderer.BuildMapConfig(elem, nil), g.opts.TileServer, g.opts.TileUserAgent, g.opts.TileAttribution)
@@ -3866,7 +3866,7 @@ func (g *DOCXGenerator) renderMap(doc domain.Document, elem *ast.MapElement) err
 
 	imageSize, err := widthOnlyImageSize(pngPath, 6.0)
 	if err != nil {
-		g.logger.Warn("DOCX: line %d: map image could not be inserted: %v", elem.Position.Line, err)
+		g.logger.Warn("DOCX: %s: map image could not be inserted: %v", g.opts.where("line", elem.Position.Line), err)
 		return g.renderUnavailableCaptioned(doc, docxUnavailableMap, elem.Title)
 	}
 	img, err := p.AddImageWithSize(pngPath, imageSize)
@@ -4371,7 +4371,7 @@ func (g *DOCXGenerator) renderPlantUML(doc domain.Document, elem *ast.PlantUMLEl
 	g.logger.Info("DOCX", "Rendering PlantUML diagram (%s)...", elem.DiagramType)
 
 	if g.opts.NoNetwork {
-		g.logger.Warn("DOCX: line %d: PlantUML diagram not rendered: --no-network forbids contacting the diagram server", elem.Position.Line)
+		g.logger.Warn("DOCX: %s: PlantUML diagram not rendered: --no-network forbids contacting the diagram server", g.opts.where("line", elem.Position.Line))
 		return g.renderUnavailableCaptioned(doc, docxUnavailableDiagram, elem.Title)
 	}
 	var fetcher renderer.PlantUMLFetcher

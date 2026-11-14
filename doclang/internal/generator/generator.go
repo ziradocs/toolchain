@@ -16,6 +16,16 @@ import (
 
 // GeneratorOptions define las opciones de generación de documentos
 type GeneratorOptions struct {
+	// LocateLine lleva una línea del contenido expandido a su archivo ("" si
+	// es el documento) y su línea de origen, para los avisos del generador
+	// que nombran dónde está un elemento (la misma ubicación que usa el
+	// reporte de --fail-on-unavailable). nil deja la línea como la cuenta el
+	// generador.
+	LocateLine func(line int) (file string, mapped int)
+	// ExpandedLines deja los avisos del log con la línea del contenido
+	// expandido aunque haya LocateLine (los errores devueltos siempre se
+	// ubican).
+	ExpandedLines     bool
 	Format            string            // html, pdf, docx, markdown
 	Theme             string            // Theme name
 	ThemeVariables    map[string]string // 🆕 Variables CSS del tema
@@ -139,6 +149,36 @@ type GeneratorOptions struct {
 	// TileAttribution (--tile-attribution) es el crédito que se dibuja en
 	// el mapa cuando los tiles salen de TileServer.
 	TileAttribution string
+}
+
+// where nombra la línea line (del contenido expandido, que es sobre el que
+// cuenta el generador) para un aviso: "line N" (word "line" o "línea") si no
+// hay LocateLine, y "archivo:N" si la línea viene de un archivo incluido.
+//
+// ExpandedLines la deja en "line N" del contenido expandido, para los avisos
+// que quien llama lee del texto del log (la tool MCP).
+func (opts GeneratorOptions) where(word string, line int) string {
+	if opts.ExpandedLines {
+		return locateLine(nil, word, line)
+	}
+	return locateLine(opts.LocateLine, word, line)
+}
+
+// whereError es where para un error que se devuelve: siempre ubicado, porque
+// nadie lo vuelve a llevar a su archivo.
+func (opts GeneratorOptions) whereError(word string, line int) string {
+	return locateLine(opts.LocateLine, word, line)
+}
+
+func locateLine(locate func(int) (string, int), word string, line int) string {
+	if locate != nil {
+		file, mapped := locate(line)
+		if file != "" {
+			return fmt.Sprintf("%s:%d", file, mapped)
+		}
+		line = mapped
+	}
+	return fmt.Sprintf("%s %d", word, line)
 }
 
 // runContext devuelve opts.Ctx, o context.Background() si no se fijó.

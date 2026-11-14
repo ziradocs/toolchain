@@ -400,7 +400,9 @@ func unclosedSpecialBlockDiagnostic(ctx *ParseContext, start, end int, opener st
 				continue
 			}
 			if IsNewElement(trimmed, "strict") {
-				msg += fmt.Sprintf("; line %d (%s) is at the block's own indentation, so the block probably ends before it", ctx.Position(k).Line, trimmed)
+				// Sin número de línea (un @include o un node-id lo mueven): la
+				// línea se nombra por su contenido.
+				msg += fmt.Sprintf("; the line %q is at the block's own indentation, so the block probably ends before it", shortLine(trimmed))
 				break
 			}
 		}

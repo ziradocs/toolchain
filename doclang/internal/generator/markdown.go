@@ -23,6 +23,8 @@ type MarkdownGenerator struct {
 	// como en la mayoría de los tests de este archivo, que llaman
 	// renderElement directo).
 	headingOffset int
+	// locate nombra la línea de un aviso (GeneratorOptions.LocateLine).
+	locate GeneratorOptions
 }
 
 func markdownTypedPoints(items []ast.PointItem) bool {
@@ -218,6 +220,7 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 	// renderElement: renderElement se llama directo desde ~15 tests que no
 	// esperan ese offset (siempre 0, el default de un MarkdownGenerator
 	// creado a mano fuera de Generate).
+	m.locate = opts
 	m.headingOffset = 0
 	if doc.FrontMatter != nil && doc.FrontMatter.Title != "" {
 		m.headingOffset = 1
@@ -581,8 +584,8 @@ func (m *MarkdownGenerator) renderElement(element ast.Element) string {
 		// decía "Unknown element type" (falso: el tipo se conoce
 		// perfectamente) y no le daba al autor ninguna pista de qué pasó
 		// con su contenido.
-		m.logger.Warn("MARKDOWN: la directiva @%s (línea %d) no tiene efecto en un documento y se omite; usá un blockquote si querés que su contenido se vea",
-			elem.Name, elem.GetPosition().Line)
+		m.logger.Warn("MARKDOWN: la directiva @%s (%s) no tiene efecto en un documento y se omite; usá un blockquote si querés que su contenido se vea",
+			elem.Name, m.locate.where("línea", elem.GetPosition().Line))
 		return ""
 
 	case *ast.SpecialBlockElement:
