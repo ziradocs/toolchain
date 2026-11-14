@@ -127,32 +127,51 @@ func lastBodyLine(raw []string, first int) int {
 // llaves lee el bloque; tag es el nombre del bloque para el mensaje.
 //
 // Una sola pasada de yaml.Node: las líneas de cada llave salen de la línea de
-// la llave siguiente, sin volver a recorrer el cuerpo por cada una.
+// la llave siguiente, sin volver a recorrer el cuerpo por cada una. (Decodificar
+// a un yaml.Node no pasa por la comparación de llaves duplicadas de yaml.v3,
+// que es cuadrática en el número de llaves.)
 func unknownYAMLKeyLines(ctx *ParseContext, yamlText string, first int, known map[string]bool, tag, ruleID, source string) []diagnostics.Diagnostic {
+	root, lines := yamlMappingRoot(yamlText)
+	if root == nil {
+		return nil
+	}
+	return mappingKeyLines(ctx, root, lines, first, len(lines)-1, known, tag, ruleID, source)
+}
+
+// yamlMappingRoot decodifica yamlText a un yaml.Node y devuelve su mapeo de
+// nivel superior (nil si no lo es) y sus líneas.
+func yamlMappingRoot(yamlText string) (*yaml.Node, []string) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(yamlText), &doc); err != nil || len(doc.Content) == 0 {
-		return nil
+		return nil, nil
 	}
 	root := doc.Content[0]
 	if root.Kind != yaml.MappingNode {
-		return nil
+		return nil, nil
 	}
-	lines := strings.Split(yamlText, "\n")
+	return root, strings.Split(yamlText, "\n")
+}
+
+// mappingKeyLines es unknownYAMLKeyLines para un mapeo cualquiera del
+// documento: limit es el índice (en lines) de la última línea que puede
+// pertenecer al valor de su última llave.
+func mappingKeyLines(ctx *ParseContext, m *yaml.Node, lines []string, first, limit int, known map[string]bool, tag, ruleID, source string) []diagnostics.Diagnostic {
 	knownNames := make([]string, 0, len(known))
 	for k := range known {
 		knownNames = append(knownNames, k)
 	}
 	sort.Strings(knownNames)
+	reads := strings.Join(knownNames, ", ")
 	var out []diagnostics.Diagnostic
-	for n := 0; n+1 < len(root.Content); n += 2 {
-		key := root.Content[n]
+	for n := 0; n+1 < len(m.Content); n += 2 {
+		key := m.Content[n]
 		if known[key.Value] {
 			continue
 		}
 		start := key.Line - 1
-		end := len(lines) - 1
-		if n+2 < len(root.Content) {
-			end = root.Content[n+2].Line - 2
+		end := limit
+		if n+2 < len(m.Content) {
+			end = m.Content[n+2].Line - 2
 		}
 		for end > start && strings.TrimSpace(lines[end]) == "" {
 			end--
@@ -162,13 +181,62 @@ func unknownYAMLKeyLines(ctx *ParseContext, yamlText string, first int, known ma
 		}
 		d := ignoredLineWarning(ctx, first+start, ruleID, source,
 			"The %s block has no %q key, so this line was ignored: %q. The block reads %s.",
-			tag, key.Value, strings.TrimSpace(lines[start]), strings.Join(knownNames, ", "))
+			tag, key.Value, strings.TrimSpace(lines[start]), reads)
 		if end > start {
 			d = withLineRange(ctx, d, first+end)
 			d.Message = fmt.Sprintf("The %s block has no %q key, so this line and its value, through line %d, were ignored: %q. The block reads %s.",
-				tag, key.Value, d.EndPosition.Line, strings.TrimSpace(lines[start]), strings.Join(knownNames, ", "))
+				tag, key.Value, d.EndPosition.Line, strings.TrimSpace(lines[start]), reads)
 		}
 		out = append(out, d)
 	}
 	return out
+}
+
+// yamlUnderIndentedTail busca, en un bloque YAML sin dedentar, las líneas que
+// yaml.v3 deja afuera sin error: cuando la colección de nivel superior empieza
+// más sangrada que lo que la sigue ("    -" y debajo "  - [...]", o un "---" a
+// la sangría de la llave), el lector termina el documento antes de esas líneas
+// y las descarta. Devuelve los índices (en lines) de la primera y la última
+// línea no vacía descartadas, o ok=false si no hay ninguna.
+//
+// Solo cuenta las líneas menos sangradas que esa colección: una continuación
+// de un escalar de varias líneas va siempre más adentro que su llave, así que
+// nunca entra acá.
+func yamlUnderIndentedTail(lines []string) (start, end int, ok bool) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &doc); err != nil || len(doc.Content) == 0 {
+		return 0, 0, false
+	}
+	root := doc.Content[0]
+	rootIndent := root.Column - 1
+	last := maxYAMLLine(root) // 1-based
+	start = -1
+	for k := last; k < len(lines); k++ {
+		trimmed := strings.TrimSpace(lines[k])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if start < 0 && CalculateIndentLevel(lines[k]) < rootIndent {
+			start = k
+		}
+		if start >= 0 {
+			end = k
+		}
+	}
+	return start, end, start >= 0
+}
+
+// maxYAMLLine es la última línea (1-based) que ocupa n: la mayor de sus
+// nodos, más las líneas de un escalar literal o plegado.
+func maxYAMLLine(n *yaml.Node) int {
+	last := n.Line
+	if n.Kind == yaml.ScalarNode && n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+		last += strings.Count(strings.TrimRight(n.Value, "\n"), "\n") + 1
+	}
+	for _, c := range n.Content {
+		if l := maxYAMLLine(c); l > last {
+			last = l
+		}
+	}
+	return last
 }

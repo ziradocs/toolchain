@@ -216,9 +216,11 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					// suelto ni reprocesarlo como propiedades data:/series:/etc. Este
 					// diagnóstico Warning no aborta el build (a diferencia de Error) y
 					// es la única señal específica de "el JSON estaba roto".
-					diags = append(diags, diagnostics.NewWarning(
+					// El aviso cubre todo el cuerpo JSON: ninguna de sus líneas
+					// se leyó.
+					diags = append(diags, withLineRange(ctx, diagnostics.NewWarning(
 						"El JSON del chart es inválido y fue ignorado; el chart quedará sin datos",
-						pos, "chart-parser").WithRuleID("CHART002"))
+						pos, "chart-parser").WithRuleID("CHART002"), startIndex+jsonLines))
 				}
 				return &ParseResult{
 					Element:       chart,
@@ -249,6 +251,8 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 						fmt.Sprintf("Llave(s) no reconocida(s) en el bloque chart (%s); se esperaba 'data'/'options' — ignorada(s)",
 							strings.Join(unknownKeys, ", ")),
 						pos, "chart-parser").WithRuleID("CHART005"))
+					// Y cada una en su propia línea (CHART007).
+					diags = append(diags, comboUnknownKeyLines(ctx, yamlContent, startIndex+1)...)
 				}
 				return &ParseResult{
 					Element:       chart,
@@ -1959,4 +1963,53 @@ func nestedChartLine(ctx *ParseContext, i int, key, trimmed string) diagnostics.
 	return ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
 		"This line of the chart is nested under %s:, which does not read nested lines, so it was ignored: %q. Write it at the indentation of data: and series:, or inside options: if it is a Chart.js setting.",
 		key, trimmed)
+}
+
+// comboUnknownKeyLines es el CHART007, línea por línea, de las llaves que un
+// <<chart: combo>> en YAML no lee: las de nivel superior (lee data y
+// options), las de data (lee labels y series) y las de cada serie (lee name,
+// type, values y yAxisID). unknownComboDataKeys las resume para CHART005.
+// yamlText es el cuerpo tal como lo juntó parseYAMLBlock, y su línea 1 es
+// ctx.Lines[first].
+func comboUnknownKeyLines(ctx *ParseContext, yamlText string, first int) []diagnostics.Diagnostic {
+	root, lines := yamlMappingRoot(yamlText)
+	if root == nil {
+		return nil
+	}
+	const tag = "<<chart: combo>>"
+	last := len(lines) - 1
+	out := mappingKeyLines(ctx, root, lines, first, last, map[string]bool{"data": true, "options": true}, tag, ChartLineRuleID, "chart-parser")
+	for n := 0; n+1 < len(root.Content); n += 2 {
+		if root.Content[n].Value != "data" || root.Content[n+1].Kind != yaml.MappingNode {
+			continue
+		}
+		data := root.Content[n+1]
+		dataEnd := last
+		if n+2 < len(root.Content) {
+			dataEnd = root.Content[n+2].Line - 2
+		}
+		out = append(out, mappingKeyLines(ctx, data, lines, first, dataEnd, map[string]bool{"labels": true, "series": true}, tag+" data", ChartLineRuleID, "chart-parser")...)
+		for k := 0; k+1 < len(data.Content); k += 2 {
+			if data.Content[k].Value != "series" || data.Content[k+1].Kind != yaml.SequenceNode {
+				continue
+			}
+			items := data.Content[k+1].Content
+			seriesEnd := dataEnd
+			if k+2 < len(data.Content) {
+				seriesEnd = data.Content[k+2].Line - 2
+			}
+			for j, item := range items {
+				if item.Kind != yaml.MappingNode {
+					continue
+				}
+				itemEnd := seriesEnd
+				if j+1 < len(items) {
+					itemEnd = items[j+1].Line - 2
+				}
+				out = append(out, mappingKeyLines(ctx, item, lines, first, itemEnd,
+					map[string]bool{"name": true, "type": true, "values": true, "yAxisID": true}, tag+" series", ChartLineRuleID, "chart-parser")...)
+			}
+		}
+	}
+	return out
 }

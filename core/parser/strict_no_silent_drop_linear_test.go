@@ -104,8 +104,10 @@ func assertLinear(t *testing.T, gen func(n int) string, slide bool) {
 		}
 		return d
 	}
+	// Una base de 10 ms, no de 3: con todos los paquetes de `go test ./...`
+	// corriendo a la vez, una medición de pocos milisegundos es puro ruido.
 	n := 500
-	for n < 1<<16 && best(gen(n)) < 3*time.Millisecond {
+	for n < 1<<17 && best(gen(n)) < 10*time.Millisecond {
 		n *= 2
 	}
 	small, large := gen(n), gen(4*n)

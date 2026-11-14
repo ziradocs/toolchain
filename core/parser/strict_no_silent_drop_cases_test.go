@@ -31,6 +31,13 @@ type noDropRegression struct {
 	// header, si no está vacío, reemplaza la línea SLIDE (casos del propio
 	// contenedor).
 	header string
+	// covers: el aviso puede empezar antes (en la apertura del elemento) y
+	// cubrir la línea marcada con su endPosition, como los de un cuerpo YAML
+	// o JSON ignorado entero.
+	covers bool
+	// severity, si no está vacío, es la severidad esperada en vez de warning
+	// (un error que ya existía y que ahora también cubre su bloque).
+	severity diagnostics.Severity
 }
 
 var noDropRegressions = []noDropRegression{
@@ -115,6 +122,16 @@ var noDropRegressions = []noDropRegression{
 
 	// Un ":::" que no abre ni cierra nada.
 	{name: "bare block marker", body: []string{"  :::  <", "  TEXT", "    hola"}, rule: "STRICT003", quote: `":::"`},
+
+	// Cuerpos YAML y JSON: lo que el lector deja afuera sin error, y los
+	// avisos de cuerpo ignorado que ahora cubren todo el cuerpo.
+	{name: "cells under-indented rows", body: []string{"  TABLE", "    cells:", "        -", "      - [{content: a}, {content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
+	{name: "table rows document marker", body: []string{"  TABLE", "    tableRows:", "      - cells: [{content: a}]", "    ---  <"}, rule: "TABLE008", quote: `"---"`},
+	{name: "table rows invalid", covers: true, severity: diagnostics.Error, body: []string{"  TABLE", "    tableRows:", "      - cells: [{content: a, falso: 1}]  <"}, rule: "", quote: "invalid tableRows YAML"},
+	{name: "cells invalid", covers: true, body: []string{"  TABLE", "    cells:", "      - [{content: a}", "      - nope: [  <"}, rule: "TABLE004", quote: `not valid YAML`},
+	{name: "chart json invalid", covers: true, body: []string{"  <<chart: bar>>", `    {"labels": ["a"],`, "    nota  <", `    "datasets": []}`}, rule: "CHART002", quote: "inválido"},
+	{name: "chart combo unknown key", body: []string{"  <<chart: combo>>", "    data:", `      labels: ["a"]`, "      series:", `        - name: "s"`, "          values: [1]", "          color: red  <"}, rule: "CHART007", quote: `"color: red"`},
+	{name: "metric invalid yaml", covers: true, body: []string{"  <<metric>>", "    label: [roto", "    value: 1  <", "  <<end>>"}, rule: "METRIC002", quote: "inválido"},
 }
 
 // buildNoDropRegression arma el documento del caso en el dialecto pedido y
@@ -170,11 +187,18 @@ func TestStrictNoSilentDrop_Regressions(t *testing.T) {
 				var got []string
 				for _, d := range diags {
 					got = append(got, fmt.Sprintf("%d:%s:%s %s", d.Position.Line, d.Severity, d.RuleID, d.Message))
-					if d.RuleID != c.rule || d.Position.Line != want {
+					if d.RuleID != c.rule || !strings.Contains(d.Message, c.quote) {
 						continue
 					}
-					if !d.IsWarning() {
-						t.Errorf("%s is %s, want a warning", c.rule, d.Severity)
+					end := d.Position.Line
+					if d.EndPosition != nil {
+						end = d.EndPosition.Line
+					}
+					if d.Position.Line != want && !(c.covers && d.Position.Line < want && want <= end) {
+						continue
+					}
+					if severity := c.severity; severity == "" && !d.IsWarning() || severity != "" && d.Severity != severity {
+						t.Errorf("%s is %s", c.rule, d.Severity)
 					}
 					if !strings.Contains(d.Message, c.quote) {
 						t.Errorf("%s message %q does not contain %q", c.rule, d.Message, c.quote)

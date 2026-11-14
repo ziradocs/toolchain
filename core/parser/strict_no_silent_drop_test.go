@@ -114,6 +114,21 @@ var noDropTemplates = []noDropTemplate{
 		{"<<grid>>", 0, nil, false}, {"<<column>>", 0, nil, false}, {"alfa21 beta21", 2, tok("alfa21", "beta21"), false}, {"<<end>>", 0, nil, false}}},
 	{name: "CODEGROUP", closer: true, lines: []noDropLine{
 		{":::code-group", 0, nil, false}, {"```js [alfa22]", 0, tok("alfa22"), false}, {"beta22()", 0, tok("beta22()"), false}, {"```", 0, nil, false}, {":::", 0, nil, false}}},
+	{name: "CHART_JSON", lines: []noDropLine{
+		{"<<chart: bar>>", 0, nil, false}, {`{"labels": ["alfa24"],`, 2, tok("alfa24"), false}, {`"datasets": [{"label": "beta24", "data": [1]}]}`, 2, tok("beta24"), false}}},
+	{name: "CHART_COMBO", yaml: true, lines: []noDropLine{
+		{"<<chart: combo>>", 0, nil, false}, {"data:", 2, nil, false}, {`labels: ["alfa25"]`, 4, tok("alfa25"), false}, {"series:", 4, nil, false},
+		{`- name: "beta25"`, 6, tok("beta25"), false}, {`type: "bar"`, 8, nil, false}, {"values: [1]", 8, nil, false}}},
+	{name: "TABLE_CELLS", yaml: true, keyword: "TABLE", lines: []noDropLine{
+		{"TABLE", 0, nil, false}, {"cells:", 2, nil, false}, {"- [{content: alfa26, header: true}, {content: beta26, header: true}]", 4, tok("alfa26", "beta26"), false},
+		{"- [{content: gamma26}, {content: delta26}]", 4, tok("gamma26", "delta26"), false}}},
+	{name: "TABLE_ROWS", yaml: true, keyword: "TABLE", lines: []noDropLine{
+		{"TABLE", 0, nil, false}, {"tableRows:", 2, nil, false}, {"- cells: [{content: alfa27, header: true}, {content: beta27, header: true}]", 4, tok("alfa27", "beta27"), false},
+		{"- cells: [{content: gamma27}, {content: delta27}]", 4, tok("gamma27", "delta27"), false}}},
+	{name: "MATH_CAPTION", closer: true, lines: []noDropLine{
+		{"<<math>>", 0, nil, false}, {"alfa28 + 1", 2, tok("alfa28", "+", "1"), false}, {`caption: "beta28"`, 2, tok("beta28"), false}, {"label: eq:gamma28", 2, tok("eq:gamma28"), false}, {"<<end>>", 0, nil, false}}},
+	{name: "NOTES", lines: []noDropLine{
+		{"@notes", 0, nil, false}, {"alfa29 beta29", 2, tok("alfa29", "beta29"), false}, {"gamma29", 2, tok("gamma29"), false}}},
 	{name: "DIRECTIVE", headerSuffix: true, lines: []noDropLine{
 		{`@transition duration="alfa23"`, 0, tok("alfa23"), false}}},
 }
@@ -169,6 +184,9 @@ type noDropContext struct {
 
 const noDropDocHeader = "---\nmode: strict\ntitle: \"Doc\"\n---\n"
 
+// noDropTypedLists activa el otro parser de listas (parseTypedList).
+const noDropTypedLists = "---\nmode: strict\ntitle: \"Doc\"\nast_capabilities: [\"nested-list-types-v1\", \"list-start-v1\"]\n---\n"
+
 var noDropContexts = []noDropContext{
 	{name: "document section", prefix: noDropDocHeader + "SECTION \"Sec\"\n", indent: 2},
 	{name: "slide", slide: true, prefix: noDropDocHeader + "SLIDE content\n  title: \"Tit\"\n", indent: 2},
@@ -176,6 +194,8 @@ var noDropContexts = []noDropContext{
 	{name: "typed column (slide)", slide: true, prefix: noDropDocHeader + "SLIDE content\n  title: \"Tit\"\n  <<grid>>\n  <<column typed>>\n", indent: 4, suffix: "  <<end>>\n"},
 	{name: "typed callout (document)", prefix: noDropDocHeader + "SECTION \"Sec\"\n  :::info{typed}\n", indent: 2, suffix: "  :::\n"},
 	{name: "typed callout (slide)", slide: true, prefix: noDropDocHeader + "SLIDE content\n  title: \"Tit\"\n  :::info{typed}\n", indent: 2, suffix: "  :::\n"},
+	{name: "document section with typed lists", prefix: noDropTypedLists + "SECTION \"Sec\"\n", indent: 2},
+	{name: "slide with typed lists", slide: true, prefix: noDropTypedLists + "SLIDE content\n  title: \"Tit\"\n", indent: 2},
 }
 
 // noDropCase es un documento generado y, por línea del archivo (1-based), los
@@ -225,6 +245,10 @@ func buildNoDropCase(ctx noDropContext, tpl noDropTemplate, strays []noDropStray
 		}
 		l := s.line
 		l.indent = s.indent
+		if tpl.yaml && (l.text == "-" || l.text == "*" || l.text == "#") {
+			// En YAML son sintaxis: un ítem nulo, un alias, un comentario.
+			l.payload = nil
+		}
 		if tpl.yaml {
 			for k, w := range l.payload {
 				if strings.HasPrefix(w, "#") {

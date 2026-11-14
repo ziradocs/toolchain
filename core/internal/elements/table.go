@@ -322,6 +322,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			if parsedCells, cellDiags, ok := parseCellsYAML(cellsBlockLines, pos); ok {
 				explicitCells = parsedCells
 				diags = append(diags, cellDiags...)
+				diags = append(diags, yamlTailWarning(ctx, cellsBlockLines, cellsStart, "cells:")...)
 			} else if len(cellsBlockLines) > 0 {
 				// El aviso queda en la línea TABLE, como siempre, y cubre hasta
 				// la última línea del bloque: así nombra todas las que se
@@ -339,6 +340,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			blockIndent := currentIndent
 			consumed++
 			i++
+			rowsStart := i
 			var blockLines []string
 			for i < len(lines) {
 				rl := lines[i]
@@ -356,8 +358,11 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			decoder := yaml.NewDecoder(strings.NewReader(strings.Join(blockLines, "\n")))
 			decoder.KnownFields(true)
 			if err := decoder.Decode(&parsed); err != nil || len(parsed) == 0 {
-				diags = append(diags, diagnostics.NewError("invalid tableRows YAML: expected nonempty rows with known fields", pos, "table-parser"))
+				// El error se queda en la línea TABLE, como siempre, y cubre el
+				// bloque entero: ninguna de sus líneas se leyó.
+				diags = append(diags, withLineRange(ctx, diagnostics.NewError("invalid tableRows YAML: expected nonempty rows with known fields", pos, "table-parser"), rowsStart+len(blockLines)-1))
 			} else {
+				diags = append(diags, yamlTailWarning(ctx, blockLines, rowsStart, "tableRows:")...)
 				tableRows = make([]ast.TableRow, len(parsed))
 				for n, row := range parsed {
 					var cells []ast.TableRowCell
@@ -423,6 +428,25 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	}
 	rows, rowPositions, diags = dropMiscountedInlineRows(headers, rows, rowPositions, inlineGroups, diags)
 	return headers, rows, caption, label, explicitCells, tableRows, rowPositions, diags, consumed
+}
+
+// yamlTailWarning es el TABLE008 de las líneas de un bloque cells: o
+// tableRows: que el lector de YAML dejó afuera (ver yamlUnderIndentedTail).
+// block son las líneas del bloque y first el índice de block[0] en ctx.Lines.
+func yamlTailWarning(ctx *ParseContext, block []string, first int, key string) []diagnostics.Diagnostic {
+	start, end, ok := yamlUnderIndentedTail(block)
+	if !ok {
+		return nil
+	}
+	d := ignoredLineWarning(ctx, first+start, TableLineRuleID, "table-parser",
+		"This line of the %s block is indented less than the rows above it, so the YAML reader stopped before it and it was ignored: %q. Indent it like the rows above.",
+		key, strings.TrimSpace(block[start]))
+	if end > start {
+		d = withLineRange(ctx, d, first+end)
+		d.Message = fmt.Sprintf("This line of the %s block is indented less than the rows above it, so the YAML reader stopped before it and it was ignored, with the lines after it through line %d: %q. Indent them like the rows above.",
+			key, d.EndPosition.Line, strings.TrimSpace(block[start]))
+	}
+	return []diagnostics.Diagnostic{d}
 }
 
 // unreadTableLine es el TABLE008 de una línea del cuerpo de un TABLE que
