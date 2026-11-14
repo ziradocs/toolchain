@@ -192,9 +192,14 @@ glob is also matched against the file the finding came from when it came
 through an `@include`: the included file's path relative to the document's
 directory, joined to that directory. So with `slidelang build
 decks/main.slidelang`, `scope: ["decks/parts/*"]` suppresses the findings of
-`decks/parts/x.slidelang`. A `severity:` override follows the document's
-path only, so a `scope` never raises the severity of a finding it did not
-cover before. When a waiver expires, the finding comes back with a
+`decks/parts/x.slidelang`. For that comparison both paths and the globs are
+taken in the same form: `/` as the separator, without a leading `./` and with
+`a/..` resolved, so `scope: ["./parts/*"]` works too. Suppressing works the
+same for a finding that is an error on its own: `QUIZ001: {enabled: false,
+scope: ["parts/*"]}` lets a build pass whose only error was that finding in
+`parts/x.slidelang`, since that is the author's own policy for that file. A
+`severity:` override follows the document's path only, compared as written,
+so a `scope` never raises the severity of a finding it did not cover before. When a waiver expires, the finding comes back with a
 `POLICY001` warning. An empty `scope` covers everything; in a document that
 has no path, a non-empty one does not cover the document itself.
 

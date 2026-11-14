@@ -404,6 +404,9 @@ func TestPolicyConfig_Evaluate_ScopeMatchesTheFindingsFile(t *testing.T) {
 		{"waiver with the document in a directory", "decks/main.slidelang", RulePolicy{ExpiresAt: "2026-01-01T00:00:00Z", Reason: "r", Scope: []string{"decks/parts/**"}}, "parts/x.slidelang", true, "", false},
 		{"a document path that is not clean", "./deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"parts/*"}}, "parts/x.slidelang", true, "", false},
 		{"absolute file of a document without a path", "", RulePolicy{Enabled: &off, Scope: []string{"/srv/parts/*"}}, "/srv/parts/x.slidelang", true, "", false},
+		{"a scope glob with ./", "./deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"./parts/*"}}, "parts/x.slidelang", true, "", false},
+		{"a scope glob with ./ and a clean document path", "deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"./parts/*"}}, "parts/x.slidelang", true, "", false},
+		{"Windows separators on both sides", "decks\\main.slidelang", RulePolicy{Enabled: &off, Scope: []string{"decks\\parts\\*"}}, "parts\\x.slidelang", true, "", false},
 		{"another file is not covered", "deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"parts/*"}}, "other/x.slidelang", false, diagnostics.Warning, false},
 		// La severidad sigue la ruta del documento: un scope que cubre solo
 		// el archivo incluido no sube su hallazgo a error.
@@ -430,6 +433,23 @@ func TestPolicyConfig_Evaluate_ScopeMatchesTheFindingsFile(t *testing.T) {
 				t.Errorf("POLICY001 on the included file: want %v, got %v", tc.expired, active)
 			}
 		})
+	}
+
+	// Una regla que es error de origen (QUIZ001) apagada con scope del
+	// archivo incluido deja de cortar el build: es la política del propio
+	// autor sobre ese archivo, y es lo que buscaba el scope.
+	quiz := diagnostics.NewError("q", diagnostics.NewPosition(2, 1), "linter").WithRuleID("QUIZ001")
+	quiz.File = "parts/x.slidelang"
+	quizCfg := &PolicyConfig{Rules: map[string]RulePolicy{"QUIZ001": {Enabled: &off, Scope: []string{"parts/*"}}}}
+	if active, waived := quizCfg.Evaluate([]diagnostics.Diagnostic{quiz}, "deck.slidelang", now); len(active) != 0 || len(waived) != 1 {
+		t.Errorf("a native error from the included file should be waived, got active=%v waived=%v", active, waived)
+	}
+
+	// La severidad sigue comparando sin normalizar, como antes: un scope
+	// "./deck.slidelang" no sube a error lo de "deck.slidelang".
+	sevCfg := &PolicyConfig{Rules: map[string]RulePolicy{"IMG001": {Severity: "error", Scope: []string{"./deck.slidelang"}}}}
+	if active, _ := sevCfg.Evaluate([]diagnostics.Diagnostic{own}, "deck.slidelang", now); len(active) != 1 || active[0].Severity != diagnostics.Warning {
+		t.Errorf("severity should not follow the cleaned paths, got %v", active)
 	}
 
 	// Un hallazgo del documento no se apaga por un scope que nombra otro
