@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // genWarnLogger guarda los avisos del generador.
@@ -68,19 +70,17 @@ func (l *infoLogger) Info(category, msg string, args ...interface{}) {
 }
 
 // El Info que señala el primer uso de un nodeId repetido sale en la consola,
-// con su archivo y línea, para que el error tenga a dónde apuntar.
-func TestPrepare_ShowsTheNoteThatPointsAtTheFirstNodeID(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "part.doclang"), []byte("  <!-- node-id: Dup -->\n  TEXT\n    uno\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	root := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n    antes\n@include part.doclang\n  <!-- node-id: Dup -->\n  TEXT\n    dos\n"
+// con su archivo y línea; otro Info no, y no cuenta como error.
+func TestLogParseDiagnostics_ShowsTheNoteThatPointsAtTheFirstNodeID(t *testing.T) {
+	note := diagnostics.NewInfo(`nodeId "Dup" is first used here; a later node repeats it`, diagnostics.NewPosition(2, 1), "identity")
+	note.File = "part.doclang"
+	other := diagnostics.NewInfo("otra nota", diagnostics.NewPosition(4, 1), "parser")
 	log := &infoLogger{}
-	_, err := Prepare(log, []byte(root), PrepareOptions{MaxInputBytes: 1 << 20, IncludeRoot: dir, DocDir: dir})
-	if err == nil {
-		t.Fatal("a repeated nodeId must fail the build")
+	if logParseDiagnostics(log, []diagnostics.Diagnostic{note, other}) {
+		t.Error("an Info must not count as an error")
 	}
-	if got := strings.Join(log.infos, "\n"); !strings.Contains(got, `part.doclang:2`) || !strings.Contains(got, `nodeId "Dup" is first used here`) {
-		t.Errorf("the note is not shown: %q", got)
+	want := `PARSER: Note at part.doclang:2: nodeId "Dup" is first used here; a later node repeats it`
+	if len(log.infos) != 1 || log.infos[0] != want {
+		t.Errorf("want only %q, got %q", want, log.infos)
 	}
 }
