@@ -864,10 +864,11 @@ their indentation, is read as notes text. That reading does not change, but it
 is reported with `DIRECTIVE005`, a warning, when the notes take in a line at
 the indentation of `@notes`, or less, that opens an element in the form that
 element accepts, with the same test as `TEXT002`: `TEXT`, `POINTS`,
-`CHECKLIST`, `QUOTE`, `TABLE`, `IMAGE` or `CODE` in that form, a `:::type`
+`CHECKLIST`, `QUOTE`, `TABLE`, `IMAGE` or `CODE` in that form (`TEXT hola`
+and `QUOTE de Ana` included, since those read the text on their line), a `:::type`
 block, a `<<…>>` tag an element recognizes, a `| … |` table row, or
 `SECTION "…"` inside a `SLIDE`. A line indented deeper than `@notes` (the form
-`fmt` writes), prose, `- item`, `key: value`, `TEXTO` or `TEXT hola` is not
+`fmt` writes), prose, `- item`, `key: value`, `TEXTO` or `POINTS uno` is not
 reported. `DIRECTIVE005` covers the `@notes` line through the last note and
 names the element's line by its content; to fix it, indent the notes under
 `@notes`, or leave a blank line between the notes and the element. When the

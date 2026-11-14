@@ -401,11 +401,11 @@ func strictReadsBaseLines(t *testing.T, name string) map[string]bool {
 
 // strictReadsWriteBase, con STRICT_READS_WRITE_BASE=<dir>, escribe en dir los
 // dos archivos de testdata de estas pruebas. Se corre una vez en la base
-// (c5399aa, origin/integration/v2.59.0) con este mismo archivo de prueba; en
+// (8d7534e, origin/integration/v2.59.0) con este mismo archivo de prueba; en
 // la rama no se regeneran.
 func strictReadsWriteBase(t *testing.T, dir string) {
 	docs := genStrictReadsDocs(strictReadsSeed, strictReadsDocs)
-	head := fmt.Sprintf("# genStrictReadsDocs(%d, %d) en c5399aa (origin/integration/v2.59.0)\n", strictReadsSeed, strictReadsDocs)
+	head := fmt.Sprintf("# genStrictReadsDocs(%d, %d) en 8d7534e (origin/integration/v2.59.0)\n", strictReadsSeed, strictReadsDocs)
 	var build, fmts strings.Builder
 	build.WriteString(head + "# Índices de los documentos que no compilan\n")
 	fmts.WriteString(head + "# Índice y comprobación de fmt que falla\n")

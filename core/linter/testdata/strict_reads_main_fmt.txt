@@ -1,4 +1,4 @@
-# genStrictReadsDocs(259, 4000) en c5399aa (origin/integration/v2.59.0)
+# genStrictReadsDocs(259, 4000) en 8d7534e (origin/integration/v2.59.0)
 # Índice y comprobación de fmt que falla
 5 fmt:doc-strict
 18 fmt:doc-strict
