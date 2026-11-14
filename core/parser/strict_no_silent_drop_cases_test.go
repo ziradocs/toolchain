@@ -194,7 +194,7 @@ func TestStrictNoSilentDrop_Regressions(t *testing.T) {
 					if d.EndPosition != nil {
 						end = d.EndPosition.Line
 					}
-					if d.Position.Line != want && !(c.covers && d.Position.Line < want && want <= end) {
+					if d.Position.Line != want && (!c.covers || d.Position.Line >= want || want > end) {
 						continue
 					}
 					if severity := c.severity; severity == "" && !d.IsWarning() || severity != "" && d.Severity != severity {
