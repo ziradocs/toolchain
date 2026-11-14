@@ -75,13 +75,21 @@ var noDropRegressions = []noDropRegression{
 	// sangría, la toma el IMAGE.
 	{name: "image swallows section id", docOnly: true, body: []string{`  IMAGE "foto.png" "perro"`, "  id: portada  <"}, rule: "IMG005", quote: `IMAGE has no id: property`},
 
-	// Texto en la línea de la palabra clave.
-	{name: "text same line", body: []string{"  TEXT hola  <", "    mundo"}, rule: "STRICT004", quote: `The text after TEXT on this line was ignored: "hola"`},
-	{name: "text colon", body: []string{"  TEXT: hola  <", "    mundo"}, rule: "STRICT004", quote: `The text after TEXT on this line was ignored: "hola"`},
+	// Texto en la línea de la palabra clave. TEXT y QUOTE lo leen como la
+	// primera línea de su contenido (ver strict_reads_test.go), salvo lo
+	// pegado a la palabra clave, un \ref, una directiva de línea y, en
+	// QUOTE, lo que el cuerpo no leería como texto de la cita.
 	{name: "text glued", body: []string{"  TEXTO citado  <", "    mundo"}, rule: "STRICT004", quote: `"O citado"`},
-	{name: "text only same line", body: []string{"  TEXT hola  <"}, rule: "STRICT004", quote: `"hola"`},
+	{name: "text ref", body: []string{`  TEXT ver \ref{fig:a}  <`, "    mundo"}, rule: "STRICT004", quote: `A \ref on the TEXT line is not read`},
+	{name: "text node-id", body: []string{"  TEXT <!-- node-id: n -->  <", "    mundo"}, rule: "STRICT004", quote: `node-id or @include directive`},
+	{name: "text include", body: []string{"  TEXT: @include otro.doclang  <"}, rule: "STRICT004", quote: `"@include otro.doclang"`},
+	{name: "quote glued", body: []string{"  QUOTEado  <", "    texto"}, rule: "STRICT004", quote: `glued to it, was ignored: "ado"`},
+	{name: "quote author on keyword line", body: []string{"  QUOTE AUTHOR: Ana  <", "    texto"}, rule: "STRICT004", quote: `"AUTHOR: Ana"`},
+	{name: "quote rule on keyword line", body: []string{"  QUOTE: ---  <", "    texto"}, rule: "STRICT004", quote: `not as AUTHOR:, SOURCE:, the end of the quote or another element`},
+	{name: "quote keyword on keyword line", body: []string{"  QUOTE TEXT hola  <", "    texto"}, rule: "STRICT004", quote: `"TEXT hola"`},
+	{name: "quote directive on keyword line", body: []string{"  QUOTE @center  <", "    texto"}, rule: "STRICT004", quote: `"@center"`},
+	{name: "quote ref", body: []string{`  QUOTE \ref{tbl:a}  <`, "    texto"}, rule: "STRICT004", quote: `A \ref on the QUOTE line is not read`},
 	{name: "points same line", body: []string{"  POINTS uno  <", "    - dos"}, rule: "STRICT004", quote: `"uno"`},
-	{name: "quote same line", body: []string{"  QUOTE cita  <", "    texto"}, rule: "STRICT004", quote: `"cita"`},
 	{name: "checklist same line", body: []string{"  CHECKLIST pendientes  <", "    [ ] uno"}, rule: "STRICT004", quote: `"pendientes"`},
 	{name: "table same line", body: []string{"  TABLE ventas  <", "    | a | b |"}, rule: "STRICT004", quote: `"ventas"`},
 	{name: "code glued", body: []string{"  CODEX python  <", "    print(1)"}, rule: "STRICT004", quote: `"X"`},
@@ -196,6 +204,43 @@ var noDropRegressions = []noDropRegression{
 	{name: "chart repeated series", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    series: ["s"]  <`, `    series: ["t"]`}, rule: "CHART007", quote: `The later "series: [\"t\"]" replaces it`},
 	{name: "chart repeated title", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    title: "uno"  <`, `    title: "dos"`}, rule: "CHART007", quote: `"title: \"uno\""`},
 	{name: "chart repeated multi-line series", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    series: [  <", `      "s"`, "    ]", `    series: ["t"]`}, rule: "CHART007", quote: `and the lines of its value below it were ignored`},
+
+	// Propiedades repetidas de un contenedor (STRICT005): SLIDE, una opción
+	// de su layout y el SECTION de un SLIDE. Las de un SECTION de documento
+	// necesitan una sección antes: ver strict_reads_test.go.
+	{name: "slide repeated subtitle", slideOnly: true, body: []string{`  subtitle: "uno"  <`, "  TEXT", "    hola", `  subtitle: "dos"`}, rule: "STRICT005", quote: `This subtitle: line of the SLIDE was ignored: "subtitle: \"uno\"". The later "subtitle: \"dos\"" replaces it`},
+	{name: "slide repeated kicker", slideOnly: true, body: []string{`  kicker: "uno"  <`, `  kicker: "dos"`}, rule: "STRICT005", quote: `"kicker: \"uno\""`},
+	{name: "slide repeated heading", slideOnly: true, body: []string{`  heading: "uno"  <`, `  heading: "dos"`}, rule: "STRICT005", quote: `"heading: \"uno\""`},
+	{name: "slide repeated logo", slideOnly: true, body: []string{`  logo: "a.png"  <`, `  logo: "b.png"`}, rule: "STRICT005", quote: `"logo: \"a.png\""`},
+	{name: "slide repeated layout option", slideOnly: true, header: "SLIDE comparison", body: []string{"  columns: 2  <", "  columns: 3"}, rule: "STRICT005", quote: `This columns: line of the SLIDE was ignored: "columns: 2"`},
+	{name: "slide heading repeated level", slideOnly: true, body: []string{`  SECTION "Sub"`, "    level: 4  <", "    level: 5"}, rule: "STRICT005", quote: `This level: line of the SECTION was ignored: "level: 4". The later "level: 5" replaces it`},
+	{name: "slide heading repeated id", slideOnly: true, body: []string{`  SECTION "Sub"`, "    id: uno  <", "    level: 4", "    id: dos"}, rule: "STRICT005", quote: `"id: uno"`},
+
+	// <<map>>: una propiedad del mapa o de un marcador que otra reemplaza
+	// (MAP003), también la de la línea <<map>>.
+	{name: "map repeated type", body: []string{"  <<map>>", "    type: world  <", "    type: europe"}, rule: "MAP003", quote: `This type: line of the <<map>> was ignored: "type: world". The later "type: europe" replaces it`},
+	{name: "map type attribute replaced", body: []string{`  <<map type="city">>  <`, "    type: world"}, rule: "MAP003", quote: `The type="city" attribute on this <<map>> line was ignored: the later "type: world" replaces it`},
+	{name: "map repeated title under options", body: []string{"  <<map>>", "    type: world", `    title: "uno"  <`, "    options:", `      title: "dos"`}, rule: "MAP003", quote: `"title: \"uno\""`},
+	{name: "map repeated center", body: []string{"  <<map>>", "    center: 1, 2  <", "    center: 3, 4"}, rule: "MAP003", quote: `"center: 1, 2"`},
+	{name: "map marker repeated label", body: []string{"  <<map>>", "    markers:", "    - lat: 1", "      lng: 2", `      label: "a"  <`, `      label: "b"`}, rule: "MAP003", quote: `This label: line of the <<map>> marker was ignored`},
+	{name: "map marker repeated lng", body: []string{"  <<map>>", "    markers:", "    - lat: 1", "      lng: 2  <", "      lng: 3"}, rule: "MAP003", quote: `"lng: 2"`},
+
+	// <<quiz>>, <<poll>>, <<metric>>: yaml.v3 rechaza una llave repetida y
+	// el cuerpo entero se ignora (QUIZ004…, como antes); la primera
+	// aparición se nombra en su línea.
+	{name: "quiz repeated answer", body: []string{"  <<quiz>>", "    question: Q", "    options: [a, b]", "    answer: 0  <", "    answer: 1", "  <<end>>"}, rule: "QUIZ007", quote: `This answer: line of the <<quiz>> block is written again below as "answer: 1": "answer: 0". A key can appear only once, so the whole body of the block was ignored.`},
+	{name: "quiz repeated key in a flow mapping", body: []string{"  <<quiz>>", "    {question: Q, options: [a, b], answer: 0, answer: 1}  <", "  <<end>>"}, rule: "QUIZ007", quote: `has the key "answer" twice`},
+	{name: "poll repeated question", body: []string{"  <<poll>>", "    question: Q  <", "    options: [a, b]", "    question: R", "  <<end>>"}, rule: "POLL007", quote: `"question: R"`},
+	{name: "metric repeated value", body: []string{"  <<metric>>", "    label: L", "    value: 1  <", "    value: 2", "  <<end>>"}, rule: "METRIC006", quote: `This value: line of the <<metric>> block`},
+
+	// Un cuerpo JSON de <<chart>> con una llave repetida es JSON válido y
+	// llega tal cual al AST; quien lo lee se queda con la última (CHART007).
+	{name: "chart json repeated key", body: []string{"  <<chart: bar>>", `    {"labels": ["a"],  <`, `    "labels": ["b"],`, `    "datasets": [{"label": "s", "data": [1]}]}`}, rule: "CHART007", quote: `The "labels" key on this line of the chart's JSON was ignored: "{\"labels\": [\"a\"],". The later "\"labels\": [\"b\"]," replaces it`},
+	{name: "chart json repeated nested key", body: []string{"  <<chart: bar>>", `    {"labels": ["a"],`, `    "datasets": [{"label": "s", "label": "t", "data": [1]}]}  <`}, rule: "CHART007", quote: `has the key "label" twice`},
+
+	// Un parámetro key=value repetido de una directiva (DIRECTIVE004).
+	{name: "directive repeated parameter", body: []string{`  @transition type="fade" duration="300" type="slide"  <`}, rule: "DIRECTIVE004", quote: `The parameter "type=\"fade\"" of this @transition directive was ignored: the later "type=\"slide\"" replaces it`},
+	{name: "directive repeated unquoted parameter", body: []string{"  @timer duration=1 duration=2  <"}, rule: "DIRECTIVE004", quote: `"duration=1"`},
 }
 
 // noDropMathSource activa la lectura literal de <<math>> (parseLiteral).

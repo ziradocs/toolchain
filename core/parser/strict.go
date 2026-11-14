@@ -343,18 +343,26 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 	}
 	p.currentLine++
 
+	// Una propiedad repetida pisa a la anterior, como siempre; la anterior se
+	// avisa (STRICT005).
+	props := p.newRepeatedProperties("SLIDE")
 	p.parseIndentedElements(block, func(key, value string) {
 		switch key {
 		case "title":
 			block.Title = value
+			props.read(key)
 		case "heading":
 			block.Heading = value
+			props.read(key)
 		case "subtitle":
 			block.Subtitle = value
+			props.read(key)
 		case "kicker":
 			block.Kicker = value
+			props.read(key)
 		case "logo":
 			block.Logo = value
+			props.read(key)
 		default:
 			// Antes de rechazar la llave, se prueba como opción del layout
 			// del slide (issue #255): en strict las opciones van como
@@ -369,6 +377,7 @@ func (p *StrictParser) parseContentBlock() *ast.ContentBlock {
 					return
 				}
 				block.LayoutConfig = &ast.LayoutConfig{Columns: config.Columns, Align: config.Align}
+				props.read(key)
 				return
 			}
 			// El mensaje nombra las opciones del layout cuando las tiene: sin
@@ -752,6 +761,35 @@ func (p *strictBody) parseImageElement() ast.Element {
 	return p.applyElementResult(result, "IMAGE")
 }
 
+// repeatedProperties lleva, por propiedad de un contenedor strict (SLIDE,
+// SECTION, el SECTION de un SLIDE), la línea (índice en p.lines) de la
+// última vez que se leyó. Una propiedad repetida pisa a la anterior, como
+// siempre; la anterior se avisa (STRICT005) porque su valor ya no llega al
+// AST. Es el criterio de QUOTE001 y del repeatedKeys de los elementos. Solo
+// se registra lo que de verdad se leyó: un valor que se rechaza con un error
+// no reemplaza a nadie.
+type repeatedProperties struct {
+	p         *strictBody
+	container string
+	last      map[string]int
+}
+
+func (p *strictBody) newRepeatedProperties(container string) *repeatedProperties {
+	return &repeatedProperties{p: p, container: container, last: map[string]int{}}
+}
+
+// read registra que la propiedad key, en la línea actual, se leyó.
+func (r *repeatedProperties) read(key string) {
+	line := r.p.currentLine
+	if prev, ok := r.last[key]; ok {
+		r.p.addWarningAt(prev, fmt.Sprintf(
+			"This %s: line of the %s was ignored: %q. The later %q replaces it; only the last %s: is read.",
+			key, r.container, strings.TrimSpace(r.p.lines[prev]), strings.TrimSpace(r.p.lines[line]), key),
+			elements.ContainerPropertyRuleID)
+	}
+	r.last[key] = line
+}
+
 func (p *strictBody) addError(msg string) {
 	p.addErrorAt(p.currentLine, msg)
 }
@@ -770,6 +808,13 @@ func (p *strictBody) addWarning(msg string) {
 	pos := p.position(p.currentLine)
 	p.diagnostics = append(p.diagnostics,
 		diagnostics.NewWarning(msg, pos, "parser"))
+}
+
+// addWarningAt es addWarningWithRuleID anclado en otra línea (índice
+// 0-based), como addErrorAt.
+func (p *strictBody) addWarningAt(lineIndex int, msg, ruleID string) {
+	p.diagnostics = append(p.diagnostics,
+		diagnostics.NewWarning(msg, p.position(lineIndex), "parser").WithRuleID(ruleID))
 }
 
 // addWarningWithRuleID es addWarning con un RuleID adjunto, para que el
@@ -1215,6 +1260,7 @@ func (p *strictBody) parseSlideHeading() ast.Element {
 	}
 	level := minimum
 	explicitID := ""
+	props := p.newRepeatedProperties(sectionKeyword)
 	for p.currentLine < len(p.lines) {
 		line := p.lines[p.currentLine]
 		trimmed := strings.TrimSpace(line)
@@ -1233,12 +1279,15 @@ func (p *strictBody) parseSlideHeading() ast.Element {
 				p.addError(fmt.Sprintf("level of a %s inside a SLIDE must be an integer between %d and %d, got %q", sectionKeyword, minimum, maxSectionLevel, value))
 			} else {
 				level = n
+				props.read(key)
 			}
 		case ok && key == "id":
 			explicitID = value
 			if elements.DeriveAnchor(value) == "" {
 				p.addError(fmt.Sprintf("id %q has no usable characters for an anchor (only letters, digits, '-' and '_' survive)", value))
 				explicitID = ""
+			} else {
+				props.read(key)
 			}
 		case ok:
 			p.addError(fmt.Sprintf("Unknown %s property inside a SLIDE: %s. It accepts `level:` and `id:`.", sectionKeyword, key))

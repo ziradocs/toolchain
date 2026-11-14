@@ -512,9 +512,13 @@ still passes, but the text is not in the output, so fix the line. The IDs of
 blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
 `<<poll>>`, `:::code-group`, directives) fire in flex too. The common ones:
 
-- `STRICT004`: text on a keyword line (`TEXT hola`, `POINTS: uno`, `TEXTO`,
-  `CODEX`, a third quoted string after `IMAGE`, words after `SLIDE <type>`).
-  Put the text on the indented lines below.
+- `STRICT004`: text on a keyword line that is not read (`POINTS: uno`,
+  `TEXTO`, `CODEX`, a third quoted string after `IMAGE`, words after
+  `SLIDE <type>`). Put the text on the indented lines below. `TEXT` and
+  `QUOTE` do read the text on their line (`TEXT hola`, `QUOTE: una cita`) as
+  their first line of content, except a `\ref`, a node-id, an `@include` and,
+  in `QUOTE`, an `AUTHOR:`, `SOURCE:`, `---` or a line that opens another
+  element.
 - `POINTS001`: a line of a `POINTS` body that is not a `- item`. Strict lists
   have no continuation lines.
 - `IMG005`: an `IMAGE` property it does not read. The alt text is the second
@@ -538,8 +542,15 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
   used to drop, such as `CODE python main.py extra` (one argument too many).
 - A property written twice keeps the later one and reports the earlier:
   `QUOTE001` (`AUTHOR:`/`SOURCE:`), `MATH001` (`caption:`/`label:` of
-  `<<math>>`), and `IMG005`, `TABLE008` and `CHART007` for their own
-  properties.
+  `<<math>>`), `IMG005`, `TABLE008` and `CHART007` for their own
+  properties (`CHART007` also for a key repeated in an object of a JSON
+  chart body), `STRICT005` for a `SLIDE` property (`title:`, `heading:`,
+  `subtitle:`, `kicker:`, `logo:`, a layout option) and a `SECTION`'s
+  `level:`/`id:`, `MAP003` for a `<<map>>` or marker key, and `DIRECTIVE004`
+  for a directive parameter. In `<<metric>>`, `<<quiz>>` and `<<poll>>` a
+  repeated key makes the YAML invalid and the whole body is ignored
+  (`METRIC002`/`QUIZ004`/`POLL006`); the earlier key gets
+  `METRIC006`/`QUIZ007`/`POLL007`.
 - `CHECKLIST002` (an item with no text), `CODEGROUP003` (a line outside the
   fences of a `:::code-group`), `DIRECTIVE004` (directive text that is not
   `key=value`), and `STRICT003` for a lone `:::`.

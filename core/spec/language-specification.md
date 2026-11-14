@@ -96,7 +96,7 @@ element      ::= text_element | points_element | checklist_element |
                  heading_element | directive_element | special_block |
                  embedded_element
 
-text_element      ::= "TEXT" INDENT content_lines DEDENT
+text_element      ::= "TEXT" (":"? line_text)? (INDENT content_lines DEDENT)?
 heading_element   ::= "SECTION" quoted_string NEWLINE
                       (INDENT heading_property+ DEDENT)?
 heading_property  ::= "level" ":" ("3" | "4" | "5" | "6") | "id" ":" identifier
@@ -105,8 +105,8 @@ point_item        ::= ("-" | "*" | "+" | DIGIT+ ".") text_content NEWLINE
 checklist_element ::= "CHECKLIST" INDENT checklist_item+ DEDENT
 checklist_item     ::= ("-" | "*" | "+")? "[" ("x" | "X" | " ") "]" text_content NEWLINE
 image_element     ::= "IMAGE" INDENT property+ DEDENT
-quote_element     ::= "QUOTE" INDENT quote_line (BLANK* quote_line)*
-                      ("AUTHOR:" text)? ("SOURCE:" text)? DEDENT
+quote_element     ::= "QUOTE" (":"? line_text)? (INDENT quote_line (BLANK* quote_line)*
+                      ("AUTHOR:" text)? ("SOURCE:" text)? DEDENT)?
 code_element      ::= "CODE" "{verbatim}"? (language (filename | info)?)? INDENT code_content DEDENT
 table_element     ::= "TABLE" INDENT table_data DEDENT
 
@@ -222,6 +222,27 @@ such a header was an error, because the code-filename contract rejects a filenam
 that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
+Text after `TEXT` or `QUOTE` on its own line, after a space or a colon
+(`TEXT hola`, `TEXT: hola`, `QUOTE una cita`), is the first line of the
+element's content: in `TEXT` it starts the paragraph and the body lines follow
+it, joined by a space as always (`TEXT hola` / `mundo` is "hola mundo"); in
+`QUOTE` it is the first line of the quote and the body lines, `AUTHOR:` and
+`SOURCE:` follow it. The lines the element takes do not change: a `TEXT` with
+text on its line and no indented body still takes what follows it at its own
+indentation (below), and a blank line after `QUOTE una cita` ends the quote
+unless the body already has text, as when the quote had none. `fmt` writes that
+text as the first line of the indented body, so the output reads back the same.
+Some text on the line is not read, and is reported with `STRICT004` as before:
+letters glued to the keyword (`TEXTO citado`, `QUOTEado`), text with a `\ref{…}`
+(before this rule that text never reached the AST, and an unresolved `\ref`
+stops the build, so reading it would stop documents that built), a
+`<!-- node-id: … -->` or an `@include …` (on a line of their own they are
+directives removed before parsing, so `fmt` could not write them in the body),
+and, in `QUOTE`, what the quote body would not read as quote text: `---`,
+`AUTHOR:` or `SOURCE:`, and a line that opens another element (`TEXT hola`,
+`@center`, `| a |`, `<<math>>`, `:::note`). A `TEXT` with text on its line is
+never empty, so it does not get `TEXT001`.
+
 A `TEXT` body is the lines that follow it with indentation: usually deeper than
 `TEXT`, or, as always accepted, at its own indentation. The body starts at the
 first line with text and runs up to the first line indented less than that one.
@@ -232,7 +253,8 @@ reported with `TEXT002`, a warning, when the first line of the body is at the
 indentation of `TEXT` or less (the body starts at the first indented line even
 when it is indented less than `TEXT`) and opens an element in a form that
 element accepts: `TEXT`, `POINTS`, `CHECKLIST`, `QUOTE` and `TABLE` alone on
-the line or with a bare `:` (`TABLE:`), `IMAGE` alone or with a source that
+the line or with a bare `:` (`TABLE:`), `TEXT` and `QUOTE` with text they read on
+their line (`TEXT hola`, `QUOTE de Ana`), `IMAGE` alone or with a source that
 looks like a path or URL and at most its alt text (`IMAGE "logo.png" "alt"`),
 `CODE` alone or with `{verbatim}`, a language and at most a filename (a bare
 `:` after `IMAGE` or `CODE` counts too), `SECTION "…"` inside a
@@ -240,11 +262,14 @@ looks like a path or URL and at most its alt text (`IMAGE "logo.png" "alt"`),
 `<<…>>` tag that an element recognizes, a known directive (`@notes`,
 `@include`, `@center`…) or a `| … |` table row. A word that only starts with a
 keyword (`TEXTO`, `POINTSX`), a keyword with text its element does not read
-(`TEXT hola`, `QUOTE de Ana`, `IMAGE of the year`), `MERMAID`, `<<foo>>`,
+(`POINTS uno`, `QUOTE AUTHOR: Ana`, `IMAGE of the year`), `MERMAID`, `<<foo>>`,
 `@usuario` or `| hola` is not reported: there is no well-formed element to
 name. `TEXT002` covers the `TEXT` line through the last line of the absorbed
 paragraph and names the element by its keyword and its line by its content; to
 fix it, indent the paragraph under `TEXT`, or delete the empty `TEXT`. A `TEXT`
+with text on its line and no indented body (`TEXT hola` / `POINTS`) gets the same
+`TEXT002`, which then quotes that text: the text on the `TEXT` line does not end
+the `TEXT`. A `TEXT`
 with no content at all is `TEXT001`. Both are warnings in both dialects (a
 strict document included), so they do not stop the build, and they never fire
 together: a `TEXT` that absorbed something is not empty. A `<!-- node-id -->`
@@ -385,21 +410,28 @@ opening line, and carries an `endPosition` at its last one.
 
 The element parsers are shared by both dialects, so the IDs of a block that
 flex reads the same way (the `TABLE` block, `<<chart>>`, `<<math>>`,
-`<<metric>>`, `<<quiz>>`, `<<poll>>`, `:::code-group`, the elements inside a
-`:::` block, the rows of a Markdown table read inside a `:::` block or in
-flex, and directives) are reported in flex documents too. The ones tied
-to strict syntax (`STRICT003`, `STRICT004`, `POINTS001`, `CHECKLIST001`,
-`CHECKLIST002`, `QUOTE001`, `IMG005` and the strict Markdown table rows of
-`TABLE008`) are strict only.
+`<<metric>>`, `<<quiz>>`, `<<poll>>`, `<<map>>`, `:::code-group`, the elements
+inside a `:::` block, the rows of a Markdown table read inside a `:::` block or
+in flex, and directives) are reported in flex documents too. The ones tied
+to strict syntax (`STRICT003`, `STRICT004`, `STRICT005`, `POINTS001`,
+`CHECKLIST001`, `CHECKLIST002`, `QUOTE001`, `IMG005` and the strict Markdown
+table rows of `TABLE008`) are strict only.
 
-A property an element keeps only one of (`caption:`, `label:`, a chart's
-`data:`…) that appears twice keeps the later one, as before; the earlier line is
-reported, quoting both.
+A property an element or a container keeps only one of (`caption:`, `label:`, a
+chart's `data:`, a `SLIDE`'s `title:`, a `SECTION`'s `level:`…) that appears
+twice keeps the later one, as before; the earlier line is reported, quoting
+both. A value that is rejected with an error (`level: 9`) replaces nothing. In
+a `<<metric>>`, `<<quiz>>` or `<<poll>>` body a repeated key makes the YAML
+invalid, so no value wins: the whole body is ignored, as before, with
+`METRIC002`, `QUIZ004` or `POLL006`, whose text no longer carries the YAML
+reader's line numbers (they count from the body, not the file), and the
+earlier key is reported on its line.
 
 | ID | Line that is not read |
 | --- | --- |
 | `STRICT003` | A line of a `SLIDE` body that is not an element or a property, and a lone `:::` that opens and closes nothing (also in a `SECTION` body) |
-| `STRICT004` | Text on the keyword line of an element that takes none (`TEXT hola`, `POINTS: uno`, `QUOTE`, `CHECKLIST`, `TABLE`), letters glued to a keyword that the prefix dispatch reads as that keyword (`TEXTO citado`, `CODEX python`, `IMAGEN`), a third argument of `IMAGE`, and words after `SLIDE <type>`. A bare `:` after the keyword (`POINTS:`, `CODE: python`) loses nothing and is not reported |
+| `STRICT004` | Text on the keyword line of an element that takes none (`POINTS: uno`, `CHECKLIST`, `TABLE`), text on the line of a `TEXT` or `QUOTE` that it does not read (a `\ref`, a node-id or `@include`, and in `QUOTE` a line its body would not read as quote text, see `TEXT` above), letters glued to a keyword that the prefix dispatch reads as that keyword (`TEXTO citado`, `CODEX python`, `IMAGEN`), a third argument of `IMAGE`, and words after `SLIDE <type>`. A bare `:` after the keyword (`POINTS:`, `CODE: python`) loses nothing and is not reported |
+| `STRICT005` | A property of a `SLIDE` (`title:`, `heading:`, `subtitle:`, `kicker:`, `logo:`, an option of its layout such as `columns:` or `align:`), of a `SECTION` of a document (`level:`, `id:`) or of a `SECTION` inside a `SLIDE` (`level:`, `id:`) that a later one replaces |
 | `POINTS001` | A line of a strict `POINTS` body that is not a list item. A strict list has no continuation lines |
 | `CHECKLIST001` | A line of a strict `CHECKLIST` body before its first item |
 | `CHECKLIST002` | A strict `CHECKLIST` item with no text (`[ ]`) |
@@ -409,12 +441,13 @@ reported, quoting both.
 | `TABLE008` | A line of a `TABLE` body that is not a row or a property it reads, a `headers:` value that is not an array, a `rows:` row that does not end in `]` or that does not start exactly six spaces from the beginning of the line, a `caption:` or `label:` that a later one replaces; in a strict Markdown table a first row that does not end in `\|`, a row with no cells, a line right after the header read as the separator row only because it contains `---` and does not start and end with `\|` (`x --- y`) or does not have one cell per column, and a line of dashes with no `\|` (`---`, `:---:`) read as the separator row of a table with more than one column. In a Markdown table in flex or a `:::` block, a row with dashes in a cell that does not fit the table (a different number of cells than the header, or a first line that cannot be the header) and is skipped as a separator, as described above |
 | `TABLE008` (YAML) | The lines of a `cells:` or `tableRows:` block that the YAML reader leaves out without an error because they are indented less than the rows above them (a `---` at the key's indentation is one) |
 | `TABLE004` | (existing) the `cells:` block is not valid YAML; it now covers the whole block, and so does the existing error for an invalid `tableRows:` block |
-| `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), each key of a `<<chart: combo>>` YAML body it does not read, an `options:` block that is not valid YAML or not a mapping, a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array, and a `data:`, `series:`, `labels:`, `title:`, `type:`, `yAxisID:`, `options:`, `unit:` or `showDataLabels:` that a later one replaces (from its line to the end of its value) |
+| `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), each key of a `<<chart: combo>>` YAML body it does not read, an `options:` block that is not valid YAML or not a mapping, a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array, and a `data:`, `series:`, `labels:`, `title:`, `type:`, `yAxisID:`, `options:`, `unit:` or `showDataLabels:` that a later one replaces (from its line to the end of its value), and a key of an object of a JSON body that a later one in the same object replaces (the JSON is valid and reaches the AST as written; what reads it keeps the last one) |
 | `CHART002` | (existing) a JSON chart body that is not valid JSON; it now covers the whole body |
-| `METRIC006`, `QUIZ007`, `POLL007` | Each top-level key of a `<<metric>>`, `<<quiz>>` or `<<poll>>` body that the block does not read, from the key to the end of its value (the per-block `METRIC003`, `QUIZ005` and `POLL004` stay as they are). An invalid YAML body keeps `METRIC002`, `QUIZ004` or `POLL006`, which now cover the whole body |
+| `METRIC006`, `QUIZ007`, `POLL007` | Each top-level key of a `<<metric>>`, `<<quiz>>` or `<<poll>>` body that the block does not read, from the key to the end of its value (the per-block `METRIC003`, `QUIZ005` and `POLL004` stay as they are), and each earlier occurrence of a key the body repeats, quoting the later one (a repeated key makes the whole body invalid YAML). An invalid YAML body keeps `METRIC002`, `QUIZ004` or `POLL006`, which now cover the whole body |
+| `MAP003` | A `<<map>>` property (`type:`, `zoom:`, `center:`, `heatmap:`, `title:`, `showValues:`, `clustering:`, the last three also under `options:`) or a marker property (`lng:`, `label:`, `value:`, `color:`, `size:`, `details:`) that a later one replaces, and a `type="…"` or `zoom="…"` attribute of the `<<map>>` line that a body property replaces |
 | `CODEGROUP003` | Each line of a `:::code-group` outside a code fence, on its own line (the error on the `:::code-group` line stays) |
 | `SPECIAL003` | An element inside a `:::` block (closed or not) whose parser reports a problem with part of it: a `CODE` with more than a language and a filename, a code fence whose info is more than that, a `<<mermaid>>` or `<<plantuml>>` attribute other than `title`, a `<<map>>` marker without valid coordinates, a `:::code-group` problem. The element is kept without that part, as before; the problem, which in a strict body is an error, was dropped inside the block |
-| `DIRECTIVE004` | A lone `@`, and the part of a directive that reads `key=value` parameters that is not one (`@transition fade`, a trailing word) |
+| `DIRECTIVE004` | A lone `@`, the part of a directive that reads `key=value` parameters that is not one (`@transition fade`, a trailing word), and a parameter that a later one with the same key replaces (`type="fade" … type="slide"`) |
 
 Comments are not author text the element drops: a `#` comment in a YAML body
 (`<<metric>>`, `<<quiz>>`, `<<poll>>`, `<<map>>`, `options:`) stays a comment.

@@ -140,13 +140,21 @@ func parseQuizPollBlock(ctx *ParseContext, startIndex int, tag string) (quizPoll
 		// sale vacío y el linter lo reporta como pregunta ausente / sin
 		// opciones, así que el autor recibe las dos señales. El aviso cubre
 		// hasta la última línea del cuerpo: todas se ignoraron.
+		// El texto del error va sin los números de línea de yaml.v3, que
+		// cuentan desde el cuerpo y no desde el archivo; una llave repetida
+		// se nombra además en su propia línea (QUIZ007/POLL007).
 		d := diagnostics.NewWarning(
-			fmt.Sprintf("El cuerpo YAML del %s es inválido y fue ignorado: %v", tag, err),
+			fmt.Sprintf("El cuerpo YAML del %s es inválido y fue ignorado: %s", tag, yamlErrorText(err)),
 			pos, source).WithRuleID(quizPollRuleID(tag, "invalidYAML"))
 		if last := lastBodyLine(rawLines, startIndex+1); last >= 0 {
 			d = withLineRange(ctx, d, last)
 		}
 		diags = append(diags, d)
+		lineRule := QuizLineRuleID
+		if tag == "poll" {
+			lineRule = PollLineRuleID
+		}
+		diags = append(diags, duplicateYAMLKeyLines(ctx, yamlText, startIndex+1, "<<"+tag+">>", lineRule, source)...)
 		return quizPollBody{}, consumed, diags
 	}
 

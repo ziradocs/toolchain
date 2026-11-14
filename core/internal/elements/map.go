@@ -249,6 +249,28 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			markerErr = err
 		}
 	}
+	// Una propiedad repetida del mapa o de un marcador pisa a la anterior,
+	// como siempre; la anterior se avisa (MAP003). Un type= o zoom= de la
+	// línea <<map>> que una propiedad del cuerpo reemplaza también.
+	props := newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>>")
+	markerProps := newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>> marker")
+	var diags []diagnostics.Diagnostic
+	headerAttrs := map[string]string{}
+	if v := extractAttribute(line, "type"); v != "" {
+		headerAttrs["type"] = v
+	}
+	if zoom > 0 {
+		headerAttrs["zoom"] = extractAttribute(line, "zoom")
+	}
+	read := func(key string, i int) {
+		if v, ok := headerAttrs[key]; ok {
+			delete(headerAttrs, key)
+			diags = append(diags, ignoredLineWarning(ctx, startIndex, MapLineRuleID, "map-parser",
+				"The %s=%q attribute on this <<map>> line was ignored: the later %q replaces it.",
+				key, v, strings.TrimSpace(ctx.Lines[i])))
+		}
+		props.read(key, i, i)
+	}
 	finishMarker := func() {
 		if currentMarker == nil {
 			return
@@ -308,6 +330,7 @@ parseLoop:
 						Lat: lat,
 						Lng: lng,
 					}
+					read("center", i)
 				}
 			}
 			consumedLines++
@@ -324,8 +347,10 @@ parseLoop:
 				switch key {
 				case "type":
 					mapElement.MapType = value
+					read(key, i)
 				case "heatmap":
 					mapElement.Heatmap = value == "true"
+					read(key, i)
 				case "zoom":
 					if value != "" {
 						if zoomValue, err := strconv.Atoi(value); err == nil {
@@ -333,6 +358,7 @@ parseLoop:
 						} else {
 							mapElement.Zoom = 2 // Fallback si no se puede parsear
 						}
+						read(key, i)
 					}
 				case "markers":
 					// Inicio de la sección de marcadores, siguiente línea debe ser un marcador
@@ -347,6 +373,8 @@ parseLoop:
 					}
 					currentMarker = &ast.MapMarker{Lat: lat}
 					currentHasLng = false
+					diags = append(diags, markerProps.diags...)
+					markerProps = newRepeatedKeys(ctx, MapLineRuleID, "map-parser", "<<map>> marker")
 				case "lng":
 					if currentMarker != nil {
 						lng, err := parseCoordinate("lng", value)
@@ -355,28 +383,34 @@ parseLoop:
 						} else {
 							currentMarker.Lng = lng
 							currentHasLng = true
+							markerProps.read(key, i, i)
 						}
 					}
 				case "label":
 					if currentMarker != nil {
 						currentMarker.Label = strings.Trim(value, "\"")
+						markerProps.read(key, i, i)
 					}
 				case "value":
 					if currentMarker != nil {
 						val := parseValue(value)
 						currentMarker.Value = val
+						markerProps.read(key, i, i)
 					}
 				case "color":
 					if currentMarker != nil {
 						currentMarker.Color = strings.Trim(value, "\"")
+						markerProps.read(key, i, i)
 					}
 				case "size":
 					if currentMarker != nil {
 						currentMarker.Size = strings.Trim(value, "\"")
+						markerProps.read(key, i, i)
 					}
 				case "details":
 					if currentMarker != nil {
 						currentMarker.Details = strings.Trim(value, "\"")
+						markerProps.read(key, i, i)
 					}
 				case "title":
 					// Puede ser title dentro de options o title principal
@@ -384,16 +418,19 @@ parseLoop:
 						mapElement.Options = make(map[string]interface{})
 					}
 					mapElement.Options["title"] = strings.Trim(value, "\"")
+					read(key, i)
 				case "showValues":
 					if mapElement.Options == nil {
 						mapElement.Options = make(map[string]interface{})
 					}
 					mapElement.Options["showValues"] = value == "true"
+					read(key, i)
 				case "clustering":
 					if mapElement.Options == nil {
 						mapElement.Options = make(map[string]interface{})
 					}
 					mapElement.Options["clustering"] = value == "true"
+					read(key, i)
 				default:
 					// Línea no reconocida - terminar parsing de este mapa
 					break parseLoop
@@ -411,11 +448,14 @@ parseLoop:
 
 	// Agregar último marcador si existe
 	finishMarker()
+	diags = append(diags, props.diags...)
+	diags = append(diags, markerProps.diags...)
 
 	return &ParseResult{
 		Element:       mapElement,
 		ConsumedLines: consumedLines,
 		Error:         markerErr,
+		Diagnostics:   diags,
 	}
 }
 
