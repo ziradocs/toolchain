@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -15,6 +16,12 @@ import (
 // traga ni descarta nada, y subirlo a error rompería documentos que ya
 // compilaban.
 const EmptyTextRuleID = "TEXT001"
+
+// AbsorbedElementRuleID es el aviso de un TEXT strict sin cuerpo propio que
+// se lleva como párrafo a un elemento escrito a su misma sangría (ver
+// OpensElementAfterEmptyText). Es warning: el TEXT se lee como siempre, y
+// el aviso solo nombra lo que pasó.
+const AbsorbedElementRuleID = "TEXT002"
 
 // TextParser maneja elementos de texto (fallback parser)
 type TextParser struct{}
@@ -55,30 +62,19 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	var diags []diagnostics.Diagnostic
 
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "TEXT") { // Skip TEXT line
-		// El cuerpo son las líneas que siguen con sangría. Puede estar más
-		// sangrado que TEXT (lo normal) o, como siempre se aceptó, a su misma
-		// sangría. Si la primera línea con texto está a la sangría de TEXT, o
-		// menos, abre un elemento de verdad (OpensElementAfterEmptyText) y
-		// las líneas que el TEXT tomaría como cuerpo, leídas como elementos,
-		// conservan todo su texto (ctx.EmptyTextCutKeepsText), TEXT no tiene
-		// cuerpo y esa línea se despacha como elemento. Antes un TEXT sin
-		// cuerpo tomaba a los elementos hermanos escritos a su misma sangría
-		// (`TEXT` / `POINTS` / `- uno` salía como el párrafo "POINTS - uno").
-		// Si leerlas como elementos perdiera texto, rompiera el build o las
-		// leyera como propiedades, o si un <!-- node-id --> anota la línea
-		// TEXT (el id se enlazaba a su párrafo), siguen siendo el cuerpo,
-		// como siempre.
-		// Solo la primera línea puede cortar: una vez que el cuerpo empezó,
-		// las líneas siguientes se leen como siempre, por sangría.
-		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
-		textLine := startIndex
 		// El texto de la propia línea TEXT no se lee (STRICT004): el cuerpo
 		// son las líneas sangradas de abajo.
 		if d := keywordLineRestWarning(ctx, startIndex, "TEXT", "text-parser"); d != nil {
 			diags = append(diags, *d)
 		}
+		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
+		textLine := startIndex
 		consumed++
 		startIndex++
+
+		// first es la primera línea con texto del cuerpo y last la última;
+		// sirven solo para los avisos, no cambian qué se lee.
+		first, last := -1, -1
 
 		// Collect indented lines as content
 		expectedIndent := -1 // Auto-detect indentation level
@@ -94,21 +90,17 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			}
 
 			// Auto-detect expected indentation from first non-empty line
-			if expectedIndent == -1 {
-				if currentIndent == 0 {
-					break
-				}
-				if currentIndent <= headerIndent && OpensElementAfterEmptyText(ctx, trimmedLine) &&
-					(ctx.HasNodeID == nil || !ctx.HasNodeID(textLine)) &&
-					ctx.EmptyTextCutKeepsText != nil &&
-					ctx.EmptyTextCutKeepsText(i, len(ctx.Lines)) {
-					break
-				}
+			if expectedIndent == -1 && currentIndent > 0 {
 				expectedIndent = currentIndent
 			}
 
+			// If we haven't detected indentation yet and line has no indentation, break
+			if expectedIndent == -1 && currentIndent == 0 {
+				break
+			}
+
 			// Check if this line should be part of the text block
-			if currentIndent < expectedIndent {
+			if expectedIndent > 0 && currentIndent < expectedIndent {
 				break
 			}
 
@@ -116,13 +108,15 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			if trimmedLine != "" {
 				content.WriteString(trimmedLine)
 				content.WriteString(" ")
+				if first == -1 {
+					first = i
+				}
+				last = i
 			}
 			consumed++
 		}
-		if content.Len() == 0 {
-			diags = append(diags, diagnostics.NewWarning(
-				"TEXT has no content: write the paragraph on the indented lines below it, or remove the TEXT",
-				ctx.Position(textLine), "text-parser").WithRuleID(EmptyTextRuleID))
+		if d := emptyTextDiagnostic(ctx, textLine, headerIndent, first, last); d != nil {
+			diags = append(diags, *d)
 		}
 	} else {
 		// Flex mode: collect consecutive text lines but be smart about lists
@@ -418,31 +412,93 @@ func contentHeadingPrefix(line string) bool {
 	return n >= 1 && n <= 6 && n < len(line) && (line[n] == ' ' || line[n] == '\t')
 }
 
+// emptyTextDiagnostic es el aviso de un TEXT strict cuyo cuerpo no es suyo:
+// TEXT001 si no tomó ninguna línea, TEXT002 si la primera línea que tomó
+// está a su misma sangría y abre un elemento (OpensElementAfterEmptyText).
+// En ese caso el TEXT no tiene ninguna línea más sangrada que él: lo que
+// lleva como párrafo es ese elemento y lo que le sigue a esa sangría. Los
+// dos son excluyentes: un TEXT que absorbió algo no está vacío.
+//
+// El mensaje no nombra números de línea (la posición los trae, y un
+// @include o un node-id los mueven): nombra el elemento por su palabra clave
+// y su línea por el contenido.
+func emptyTextDiagnostic(ctx *ParseContext, textLine, headerIndent, first, last int) *diagnostics.Diagnostic {
+	if first == -1 {
+		d := diagnostics.NewWarning(
+			"TEXT has no content: write the paragraph on the indented lines below it, or remove the TEXT",
+			ctx.Position(textLine), "text-parser").WithRuleID(EmptyTextRuleID)
+		return &d
+	}
+	opener := strings.TrimSpace(ctx.Lines[first])
+	if CalculateIndentLevel(ctx.Lines[first]) != headerIndent || !OpensElementAfterEmptyText(ctx, opener) {
+		return nil
+	}
+	d := diagnostics.NewWarning(fmt.Sprintf(
+		"TEXT has no body of its own: %s on the line %q, and what follows it at that indentation, were read as the paragraph of this TEXT. Indent the paragraph under TEXT, or delete the empty TEXT.",
+		absorbedElementLabel(opener), shortLine(opener)),
+		ctx.Position(textLine), "text-parser").WithRuleID(AbsorbedElementRuleID).WithEndPosition(ctx.Position(last))
+	return &d
+}
+
+// absorbedElementLabel nombra el elemento que abre trimmed, para el mensaje
+// de TEXT002: por su palabra clave, o por su marca si es sintaxis simbólica.
+func absorbedElementLabel(trimmed string) string {
+	switch trimmed[0] {
+	case ':':
+		return "the ::: block"
+	case '|':
+		return "the table row"
+	case '@':
+		name, _, _ := (&DirectiveParser{}).parseDirectiveNameAndParams(strings.TrimSpace(trimmed[1:]))
+		return "the @" + name + " directive"
+	case '<':
+		tag := strings.TrimPrefix(trimmed, "<<")
+		if i := strings.IndexAny(tag, " :>"); i >= 0 {
+			tag = tag[:i]
+		}
+		return "the <<" + tag + ">> element"
+	}
+	return "the " + strings.Fields(trimmed)[0] + " element"
+}
+
+// shortLine recorta una línea larga para citarla en un mensaje.
+func shortLine(line string) string {
+	const limit = 60
+	if r := []rune(line); len(r) > limit {
+		return string(r[:limit]) + "…"
+	}
+	return line
+}
+
 // OpensElementAfterEmptyText dice si trimmed, la primera línea con texto
-// después de un TEXT strict y a su misma sangría, abre un elemento que el
-// despacho strict (parser/strict.go) lee sin perder nada de lo que dice. Si
-// no, es el cuerpo del TEXT, como siempre.
+// del cuerpo de un TEXT strict y a su misma sangría, abre un elemento escrito
+// en la forma que ese elemento acepta. Solo decide el aviso TEXT002: la línea
+// sigue siendo el párrafo del TEXT, como siempre.
 //
 // Una palabra clave cuenta solo en la forma que su elemento acepta. TEXT,
 // POINTS, CHECKLIST, QUOTE y TABLE van solos en su línea, porque esos parsers
-// descartan lo que sigue a la palabra clave; IMAGE puede llevar la fuente
+// no leen lo que sigue a la palabra clave; IMAGE puede llevar la fuente
 // ("IMAGE foto.png"); CODE puede llevar "{verbatim}" y después lenguaje y
 // archivo; SECTION lleva su título entre comillas y solo cuenta donde es
 // encabezado (en un SLIDE). Una palabra que solo empieza con una palabra clave
-// ("TEXTO", "POINTSX", "QUOTEado") es prosa, igual que "TEXT hola" o
-// "MERMAID", que en posición de elemento perderían el texto o darían error.
+// ("TEXTO", "POINTSX", "QUOTEado") es prosa, igual que "TEXT hola", "QUOTE de
+// Ana", "IMAGE of the year" o "MERMAID": ahí no hay un elemento bien escrito
+// que nombrar.
 //
-// De la sintaxis simbólica cuentan ":::", una etiqueta "<<…>>" que un parser
-// strict reconoce, una directiva conocida ("@notes", "@include", "@center"…)
-// y una fila de tabla "| … |". "<<foo>>", "@usuario dijo" o "| hola" son
-// prosa: en posición de elemento se descartarían.
+// De la sintaxis simbólica cuentan un bloque ":::tipo", una etiqueta "<<…>>"
+// que un parser strict reconoce, una directiva conocida ("@notes",
+// "@include", "@center"…) y una fila de tabla "| … |". Un ":::" solo es un
+// cierre, "::: grid" es la sintaxis flex que strict rechaza, y "<<foo>>",
+// "@usuario dijo" o "| hola" son prosa.
 func OpensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
 	if trimmed == "" {
 		return false
 	}
 	switch trimmed[0] {
 	case ':':
-		return strings.HasPrefix(trimmed, ":::")
+		// "::: grid" y "::: column" son la sintaxis flex, que strict rechaza.
+		return strings.HasPrefix(trimmed, ":::") && strings.TrimSpace(trimmed[3:]) != "" &&
+			!isFlexGridOpen(trimmed) && !isFlexColumnOpen(trimmed)
 	case '|':
 		return len(trimmed) > 1 && strings.HasSuffix(trimmed, "|")
 	case '@':

@@ -86,21 +86,6 @@ func stripNodeIDDirectives(source string) (string, []pendingNodeID, []int, []dia
 	return strings.Join(kept, "\n"), pending, lineMap, diags
 }
 
-// nodeIDTargetLines son las líneas (sin las anotaciones, como las cuenta el
-// parser) que un <!-- node-id --> anota.
-func nodeIDTargetLines(pending []pendingNodeID) map[int]bool {
-	if len(pending) == 0 {
-		return nil
-	}
-	lines := make(map[int]bool, len(pending))
-	for _, marker := range pending {
-		if marker.target > 0 {
-			lines[marker.target] = true
-		}
-	}
-	return lines
-}
-
 func bindNodeIDs(doc *ast.AST, pending []pendingNodeID, source string) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 	if doc == nil {

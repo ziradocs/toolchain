@@ -4,11 +4,7 @@
 package parser
 
 import (
-	"encoding/json"
 	"fmt"
-	"math/rand"
-	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -17,64 +13,81 @@ import (
 	"go.ziradocs.com/core/v2/util"
 )
 
-// Un TEXT sin cuerpo no se traga a los elementos hermanos escritos a su misma
-// sangría: el cuerpo de TEXT son las líneas con más sangría que él. Antes
-// `TEXT` / `POINTS` / `- uno` salía como el párrafo "POINTS - uno".
-func TestStrictText_EmptyBodyDoesNotSwallowSiblings(t *testing.T) {
+// Un TEXT strict se lee como siempre: su cuerpo son las líneas que le siguen
+// con sangría, que puede ser la suya. Así, un TEXT sin cuerpo propio seguido
+// de un elemento a su misma sangría se lleva ese elemento, y lo que le sigue a
+// esa sangría, como su párrafo (`TEXT` / `POINTS` / `- uno` es el párrafo
+// "POINTS - uno"). Ese caso no cambia de lectura, pero avisa: TEXT002.
+
+// Un TEXT sin cuerpo propio seguido de elementos a su misma sangría los lee
+// como su párrafo, como en main, y da un TEXT002 que va de la línea TEXT a la
+// última línea del párrafo. No da TEXT001: el TEXT no está vacío.
+func TestStrictText_EmptyBodyAbsorbsSiblingsWithTEXT002(t *testing.T) {
 	for name, tc := range map[string]struct {
 		src      string
 		document bool
+		textLine int
 	}{
-		"document": {"---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  POINTS\n    - uno\n  CHECKLIST\n    - [ ] dos\n", true},
-		"slide":    {"---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  POINTS\n    - uno\n  CHECKLIST\n    - [ ] dos\n", false},
+		"document": {"---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  POINTS\n    - uno\n  CHECKLIST\n    - [ ] dos\n", true, 7},
+		"slide":    {"---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  POINTS\n    - uno\n  CHECKLIST\n    - [ ] dos\n", false, 7},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := New(util.NewNoop())
 			var doc *ast.AST
+			var diags []diagnostics.Diagnostic
 			if tc.document {
-				doc, _ = p.ParseDocument(tc.src, "d.doclang")
+				doc, diags = p.ParseDocument(tc.src, "d.doclang")
 			} else {
-				doc, _ = p.Parse(tc.src, "s.slidelang")
+				doc, diags = p.Parse(tc.src, "s.slidelang")
 			}
-			var types []string
+			var texts []string
 			for _, el := range doc.ContentBlocks[0].Elements {
-				switch e := el.(type) {
-				case *ast.TextElement:
-					if e.Content != "" {
-						t.Errorf("the empty TEXT took content: %q", e.Content)
-					}
-					types = append(types, "text")
-				case *ast.PointsElement:
-					types = append(types, "points")
-				case *ast.ChecklistElement:
-					types = append(types, "checklist")
+				if e, ok := el.(*ast.TextElement); ok {
+					texts = append(texts, e.Content)
+				} else {
+					t.Errorf("want only the paragraph, got a %T", el)
 				}
 			}
-			if len(types) < 2 || types[len(types)-2] != "points" || types[len(types)-1] != "checklist" {
-				t.Errorf("want POINTS and CHECKLIST after the TEXT, got %v", types)
+			if want := "POINTS - uno CHECKLIST - [ ] dos"; len(texts) != 1 || texts[0] != want {
+				t.Errorf("want the paragraph %q as in main, got %q", want, texts)
+			}
+			if len(diags) != 1 {
+				t.Fatalf("want one TEXT002, got %v", diags)
+			}
+			d := diags[0]
+			if d.RuleID != "TEXT002" || !d.IsWarning() || d.Position.Line != tc.textLine ||
+				d.EndPosition == nil || d.EndPosition.Line != tc.textLine+4 {
+				t.Errorf("want a TEXT002 warning from line %d to %d, got %v", tc.textLine, tc.textLine+4, d)
+			}
+			// El mensaje nombra el elemento y su línea por el contenido, sin
+			// números de línea (un @include o un node-id los moverían).
+			if !strings.Contains(d.Message, "POINTS element") || !strings.Contains(d.Message, `"POINTS"`) ||
+				strings.ContainsAny(d.Message, "0123456789") {
+				t.Errorf("message should name the POINTS line by its content, with no line numbers: %q", d.Message)
 			}
 		})
 	}
 }
 
 // La prosa escrita a la misma sangría que TEXT sigue siendo su cuerpo, como
-// siempre. En documento, slide y columna tipada.
+// siempre, y no avisa. En documento, slide y columna tipada.
 func TestStrictText_SameIndentBodyStillWorks(t *testing.T) {
 	for name, tc := range sameIndentCases("  hola mundo\n  sigue\n") {
 		t.Run(name, func(t *testing.T) {
 			if got := strictTexts(t, tc.src, tc.document); len(got) != 1 || got[0] != "hola mundo sigue" {
 				t.Errorf("want the TEXT \"hola mundo sigue\", got %q", got)
 			}
+			if _, diags := elementShapes(t, tc.src, tc.document); len(diags) != 0 {
+				t.Errorf("unexpected diagnostics %v", diags)
+			}
 		})
 	}
 }
 
-// Solo la primera línea del cuerpo puede cortarlo por tener forma de
-// elemento. Una vez que el cuerpo a la misma sangría empezó, una línea
-// posterior con forma de elemento (POINTS, CODE, ":::", una palabra clave
-// pegada) se lee como siempre: es parte del párrafo. En documento, slide y
-// columna tipada.
-func TestStrictText_OnlyFirstBodyLineCanEndIt(t *testing.T) {
+// Una línea con forma de elemento después de la primera línea del cuerpo es
+// parte del párrafo, como siempre, y no avisa: el TEXT tiene cuerpo propio.
+// En documento, slide y columna tipada.
+func TestStrictText_LaterElementLineIsParagraph(t *testing.T) {
 	for _, tc := range []struct{ body, want string }{
 		{"  hola mundo\n  POINTS\n    - uno\n", "hola mundo POINTS - uno"},
 		{"  hola mundo\n  CODE js\n    x\n", "hola mundo CODE js x"},
@@ -86,6 +99,9 @@ func TestStrictText_OnlyFirstBodyLineCanEndIt(t *testing.T) {
 			t.Run(name+"/"+tc.want, func(t *testing.T) {
 				if got := strictTexts(t, c.src, c.document); len(got) != 1 || got[0] != tc.want {
 					t.Errorf("want the TEXT %q, got %q", tc.want, got)
+				}
+				if _, diags := elementShapes(t, c.src, c.document); len(diags) != 0 {
+					t.Errorf("unexpected diagnostics %v", diags)
 				}
 			})
 		}
@@ -142,18 +158,18 @@ func strictTexts(t *testing.T, src string, document bool) []string {
 
 // Tras un TEXT vacío, una línea a su misma sangría que solo empieza con una
 // palabra clave ("TEXTO pegado", "POINTSX pegado", "QUOTEado") no abre ningún
-// elemento: es el cuerpo del TEXT, como en main. Lo mismo una palabra clave en
-// una forma que su elemento no acepta ("TEXT hola", "QUOTE de Ana", "CODE:x",
-// "MERMAID", "TABLE OF CONTENTS") y una línea simbólica que no es un elemento
-// ("<<foo>> bar", "@usuario dijo hola", "| hola"): en posición de elemento
-// perderían el texto o darían error. Con la línea pegada al TEXT y con una
-// línea en blanco entre los dos (main los leía igual en los dos casos, como
-// párrafo), en documento, slide y columna tipada.
+// elemento: es el cuerpo del TEXT, como en main, y no avisa. Lo mismo una
+// palabra clave en una forma que su elemento no acepta ("TEXT hola", "QUOTE
+// de Ana", "CODE:x", "MERMAID", "TABLE OF CONTENTS", "IMAGE of the year") y
+// una línea simbólica que no es un elemento ("<<foo>> bar", "@usuario dijo
+// hola", "| hola", un ":::" solo, "::: grid"): ahí no hay un elemento bien
+// escrito que nombrar. Con la línea pegada al TEXT y con una línea en blanco
+// entre los dos, en documento, slide y columna tipada.
 func TestStrictText_EmptyBodyThenGluedKeywordIsProse(t *testing.T) {
 	words := []string{
 		"TEXTO pegado", "POINTSX pegado", "QUOTEado", "TEXT hola", "QUOTE de Ana",
-		"POINTS x", "CODE:x", "MERMAID", "TABLE OF CONTENTS", "IMAGEN",
-		"<<foo>> bar", "@usuario dijo hola", "| hola",
+		"POINTS x", "CODE:x", "MERMAID", "TABLE OF CONTENTS", "IMAGEN", "IMAGE of the year",
+		"CODE red alert now", "<<foo>> bar", "@usuario dijo hola", "| hola", ":::", "::: grid",
 	}
 	for _, word := range words {
 		for _, sep := range []string{"\n", "\n\n"} {
@@ -170,20 +186,19 @@ func TestStrictText_EmptyBodyThenGluedKeywordIsProse(t *testing.T) {
 			}
 		}
 	}
-	// En un documento, SECTION indentado no es un encabezado (es un error en
-	// posición de elemento): tras un TEXT vacío sigue siendo prosa.
-	got, _ := elementShapes(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  SECTION \"Sub\"\n", true)
-	if want := `text:SECTION "Sub"`; strings.Join(got, "|") != want {
-		t.Errorf("document SECTION: got %v, want [%s]", got, want)
+	// En un documento, SECTION indentado no es un encabezado: tras un TEXT
+	// vacío es prosa y no avisa.
+	got, diags := elementShapes(t, "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  SECTION \"Sub\"\n", true)
+	if want := `text:SECTION "Sub"`; strings.Join(got, "|") != want || len(diags) != 0 {
+		t.Errorf("document SECTION: got %v %v, want [%s] and no diagnostics", got, diags, want)
 	}
 }
 
 // Tras un TEXT vacío, una línea a su misma sangría que abre un elemento en la
-// forma que ese elemento acepta se despacha como elemento, igual que sin el
-// TEXT delante. El elemento sin TEXT delante no pierde nada: no da errores ni
-// avisos de contenido descartado o ignorado. En documento, slide y columna
-// tipada, pegado al TEXT y con línea en blanco.
-func TestStrictText_EmptyBodyThenRealElementIsDispatched(t *testing.T) {
+// forma que ese elemento acepta sigue siendo el párrafo del TEXT, como en
+// main, y da un TEXT002. En documento, slide y columna tipada, pegada al TEXT
+// y con línea en blanco.
+func TestStrictText_EmptyBodyThenRealElementIsParagraphWithTEXT002(t *testing.T) {
 	els := []string{
 		"  POINTS\n    - uno\n",
 		"  QUOTE\n    Cita.\n",
@@ -191,6 +206,7 @@ func TestStrictText_EmptyBodyThenRealElementIsDispatched(t *testing.T) {
 		"  CODE js\n    x\n",
 		"  CODE{verbatim} js\n    x\n",
 		"  IMAGE foto.png\n",
+		"  IMAGE\n",
 		"  TABLE\n    headers: [a]\n",
 		"  | a |\n  |---|\n  | 1 |\n",
 		"  | a | b |\n",
@@ -198,30 +214,33 @@ func TestStrictText_EmptyBodyThenRealElementIsDispatched(t *testing.T) {
 		"  <<math>>\n  x^2\n  <<end>>\n",
 		"  <<mermaid>>\n    graph TD\n    A --> B\n  <<end>>\n",
 		"  @center\n",
+		"  TEXT\n    hola\n",
 	}
 	for _, el := range els {
-		for name, bare := range sameIndentCases(el) {
-			// sameIndentCases antepone un TEXT; el caso sin TEXT lo quita.
-			bareSrc := withoutTextLine(bare.src)
-			want, diags := elementShapes(t, bareSrc, bare.document)
-			for _, d := range diags {
-				if d.IsError() || d.RuleID == "DIRECTIVE003" || d.RuleID == "STRICT003" {
-					t.Fatalf("%s %q: fixture loses content: %v", name, el, d)
-				}
+		var want []string
+		for _, l := range strings.Split(el, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				want = append(want, l)
 			}
-			for _, sep := range []string{"", "\n"} {
-				c := sameIndentCases(sep + el)[name]
-				if got, _ := elementShapes(t, c.src, c.document); strings.Join(got, "|") != strings.Join(want, "|") {
-					t.Errorf("%s %q after an empty TEXT (blank %q): got %v, want %v as without the TEXT", name, el, sep, got, want)
-				}
+		}
+		for _, sep := range []string{"", "\n"} {
+			for name, c := range sameIndentCases(sep + el) {
+				t.Run(name+"/"+want[0], func(t *testing.T) {
+					got, diags := elementShapes(t, c.src, c.document)
+					if w := "text:" + strings.Join(want, " "); strings.Join(got, "|") != w {
+						t.Errorf("got %v, want [%s] as in main", got, w)
+					}
+					if len(diags) != 1 || diags[0].RuleID != "TEXT002" || !diags[0].IsWarning() {
+						t.Errorf("want one TEXT002 warning, got %v", diags)
+					}
+				})
 			}
 		}
 	}
-	// En un SLIDE, SECTION "…" es un encabezado: corta el TEXT vacío.
-	slide := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n"
-	want, _ := elementShapes(t, slide+"  SECTION \"Sub\"\n", false)
-	if got, _ := elementShapes(t, slide+"  TEXT\n  SECTION \"Sub\"\n", false); strings.Join(got, "|") != strings.Join(want, "|") || len(want) != 1 {
-		t.Errorf("slide SECTION: got %v, want %v", got, want)
+	// En un SLIDE, SECTION "…" es un encabezado: también avisa.
+	got, diags := elementShapes(t, "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  SECTION \"Sub\"\n", false)
+	if strings.Join(got, "|") != `text:SECTION "Sub"` || len(diags) != 1 || diags[0].RuleID != "TEXT002" {
+		t.Errorf("slide SECTION: got %v %v", got, diags)
 	}
 }
 
@@ -273,260 +292,107 @@ func elementShapes(t *testing.T, src string, document bool) ([]string, []diagnos
 	return out, diags
 }
 
-// withoutTextLine quita de src la primera línea que es solo "TEXT".
-func withoutTextLine(src string) string {
-	lines := strings.SplitAfter(src, "\n")
-	for i, l := range lines {
-		if strings.TrimSpace(l) == "TEXT" {
-			return strings.Join(append(lines[:i:i], lines[i+1:]...), "")
-		}
-	}
-	return src
-}
-
 // Un TEXT sin contenido da TEXT001 como warning en los dos dialectos: en un
-// documento strict un error rompería documentos que compilaban.
+// documento strict un error rompería documentos que compilaban. Uno que
+// absorbió algo no está vacío: da TEXT002 y no TEXT001.
 func TestStrictText_EmptyTextIsReported(t *testing.T) {
-	_, diags := New(util.NewNoop()).ParseDocument("---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  POINTS\n    - uno\n", "d.doclang")
+	_, diags := New(util.NewNoop()).ParseDocument("---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\nSECTION \"B\"\n  TEXT\n    hola\n", "d.doclang")
 	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || !diags[0].IsWarning() || diags[0].Position.Line != 7 {
 		t.Errorf("document: want one TEXT001 warning at line 7, got %v", diags)
 	}
-	_, diags = New(util.NewNoop()).Parse("---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  POINTS\n    - uno\n", "s.slidelang")
+	_, diags = New(util.NewNoop()).Parse("---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n\nSLIDE content\n  title: \"U\"\n", "s.slidelang")
 	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || !diags[0].IsWarning() {
 		t.Errorf("slide: want one TEXT001 warning, got %v", diags)
 	}
+	_, diags = New(util.NewNoop()).ParseDocument("---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  POINTS\n    - uno\n", "d.doclang")
+	if len(diags) != 1 || diags[0].RuleID != "TEXT002" {
+		t.Errorf("absorbing TEXT: want only TEXT002, got %v", diags)
+	}
 }
 
-// Un TEXT sin cuerpo seguido de una línea en blanco no se traga al TEXT ni a
-// la QUOTE que vienen después: los dos siguen siendo elementos propios, con su
-// contenido. El TEXT vacío no da elemento, solo TEXT001.
-func TestStrictText_EmptyBodyThenBlankLineKeepsSiblings(t *testing.T) {
+// Un TEXT sin cuerpo seguido de una línea en blanco lee como su párrafo lo que
+// sigue a su misma sangría, como en main: el TEXT y la QUOTE de después
+// también. Avisa con TEXT002, no con TEXT001.
+func TestStrictText_EmptyBodyThenBlankLineIsParagraph(t *testing.T) {
 	src := "---\nmode: strict\ntitle: \"T\"\n---\n\nSECTION \"S\"\n  TEXT\n\n  TEXT\n    Segundo.\n\n  QUOTE\n    Cita.\n"
 	doc, diags := New(util.NewNoop()).ParseDocument(src, "d.doclang")
-	if len(diags) != 1 || diags[0].RuleID != "TEXT001" || diags[0].Position.Line != 7 {
-		t.Errorf("want one TEXT001 at line 7, got %v", diags)
+	if len(diags) != 1 || diags[0].RuleID != "TEXT002" || diags[0].Position.Line != 7 ||
+		diags[0].EndPosition == nil || diags[0].EndPosition.Line != 13 {
+		t.Errorf("want one TEXT002 from line 7 to 13, got %v", diags)
 	}
 	var texts []string
-	var quotes []string
 	for _, el := range doc.ContentBlocks[0].Elements {
-		switch e := el.(type) {
-		case *ast.TextElement:
+		if e, ok := el.(*ast.TextElement); ok {
 			texts = append(texts, e.Content)
-		case *ast.QuoteElement:
-			quotes = append(quotes, e.Content)
+		} else {
+			t.Errorf("want only the paragraph, got a %T", el)
 		}
 	}
-	if len(texts) != 1 || texts[0] != "Segundo." {
-		t.Errorf("want only the TEXT \"Segundo.\", got %q", texts)
-	}
-	if len(quotes) != 1 || quotes[0] != "Cita." {
-		t.Errorf("want the QUOTE \"Cita.\", got %q", quotes)
+	if want := "TEXT Segundo. QUOTE Cita."; len(texts) != 1 || texts[0] != want {
+		t.Errorf("want the paragraph %q as in main, got %q", want, texts)
 	}
 }
 
-// Casos de la revisión de #499: tras un TEXT vacío, una línea con forma de
-// elemento seguida de prosa a su misma sangría (o de algo que el elemento no
-// acepta) no corta el cuerpo. Leerla como elemento perdería la prosa,
-// reinterpretaría el texto o rompería el build (un ":::" sin cerrar, un
-// "::: grid"); main la leía como el párrafo del TEXT, con todas sus líneas, y
-// así sigue. En documento, slide y columna
-// tipada.
-func TestStrictText_EmptyBodyCutNeverLosesText(t *testing.T) {
-	for _, body := range []string{
-		"  POINTS\n  Some prose after\n",
-		"  POINTS\n\n  Some prose after\n",
-		"\n  POINTS\n  Some prose after\n",
-		"  IMAGE foto.png\n  Some prose after\n",
-		"  IMAGE\n  prose\n",
-		"  TABLE\n  Some prose after\n",
-		"  IMAGE of the year\n",
-		"  :::\n",
-		"  CODE red alert now\n  more text\n",
-		"  @center\n  Some prose after\n",
-		"  @notes hi\n  Some prose after\n",
-		"  | a | b |\n  Some prose after\n",
-		"  CODE js\n  Some prose after\n",
-		"  :::note\n  hola\n  :::\n  Some prose after\n",
-		"  <<math>>\n  x^2\n  <<end>>\n  Some prose after\n",
-		"  CHECKLIST\n  Some prose after\n",
-		"  POINTS\n    - uno\n  Some prose after\n",
-		"  POINTS\n    - uno\n\n  Some prose after\n",
-		"  POINTS\n    no es un item\n",
-		"  QUOTE\n    Cita.\n  nota: algo\n",
-		"  :::x hola\n  sigue\n",
-		"  ::: grid\n  ::: column\n  a\n  :::\n  :::\n",
-		// Re-revisión de 2b51764: el texto se pierde aunque sus palabras
-		// aparezcan en otra parte del elemento, o tiene tokens de un carácter.
-		"  POINTS\n    - apple pie\n    pie apple\n",
-		"  POINTS\n    - Costo\n    5 € + 3 %\n",
-		"  POINTS\n    - Plan A\n    o B\n",
-		"  POINTS\n    - apple pie\n    apple\n  QUOTE\n    pie\n",
-		"  IMAGE foto.png\n    alt: perro\n    caption: perro\n",
-		// Tercera revisión (83070de): líneas sin tokens o con solo una clave.
-		"  POINTS\n    - uno\n    Importante:\n",
-		"  POINTS\n    - uno\n    Nota: -> **\n",
-		"  IMAGE foto.png\n    Leyenda:\n",
-		"  POINTS\n    - uno\n    ---\n",
-		"  POINTS\n    - uno\n    \"\"\n",
-		"  POINTS\n    - hola\n    -> <> [] {} ## **\n",
-		"  IMAGE foto.png\n    caption: perro\n    caption: perro\n",
-		// Cuarta revisión (7dbaf55): una línea de solo signos tiene que ser
-		// una línea entera del elemento, y una clave cuenta como propiedad
-		// solo si el parser del elemento la lee.
-		"  POINTS\n    - uno -> dos\n    ->\n",
-		"  POINTS\n    - **uno**\n    **\n",
-		"  POINTS\n    - a -- b -- c\n    --\n    --\n",
-		"  POINTS\n    - uno\n    listType: unordered\n",
+// Tras un TEXT vacío, una línea con forma de elemento seguida de prosa a su
+// misma sangría, o de algo que el elemento no acepta, es el párrafo del TEXT
+// con todas sus líneas, como en main. Avisa con TEXT002 solo si la primera
+// línea abre un elemento en la forma que acepta. En documento, slide y
+// columna tipada.
+func TestStrictText_EmptyBodyIsAlwaysTheParagraph(t *testing.T) {
+	for _, tc := range []struct {
+		body   string
+		warned bool
+	}{
+		{"  POINTS\n  Some prose after\n", true},
+		{"  POINTS\n\n  Some prose after\n", true},
+		{"\n  POINTS\n  Some prose after\n", true},
+		{"  IMAGE foto.png\n  Some prose after\n", true},
+		{"  IMAGE\n  prose\n", true},
+		{"  TABLE\n  Some prose after\n", true},
+		{"  IMAGE of the year\n", false},
+		{"  :::\n", false},
+		{"  CODE red alert now\n  more text\n", false},
+		{"  @center\n  Some prose after\n", true},
+		{"  @notes hi\n  Some prose after\n", true},
+		{"  | a | b |\n  Some prose after\n", true},
+		{"  CODE js\n  Some prose after\n", true},
+		{"  :::note\n  hola\n  :::\n  Some prose after\n", true},
+		{"  <<math>>\n  x^2\n  <<end>>\n  Some prose after\n", true},
+		{"  CHECKLIST\n  Some prose after\n", true},
+		{"  POINTS\n    - uno\n  Some prose after\n", true},
+		{"  POINTS\n    - uno\n\n  Some prose after\n", true},
+		{"  POINTS\n    no es un item\n", true},
+		{"  QUOTE\n    Cita.\n  nota: algo\n", true},
+		{"  :::x hola\n  sigue\n", true},
+		{"  ::: grid\n  ::: column\n  a\n  :::\n  :::\n", false},
+		{"  POINTS\n    - uno\n    Importante:\n", true},
+		{"  IMAGE foto.png\n    caption: perro\n    caption: perro\n", true},
+		{"  POINTS\n    - uno\n    listType: unordered\n", true},
 	} {
 		var want []string
-		for _, l := range strings.Split(body, "\n") {
+		for _, l := range strings.Split(tc.body, "\n") {
 			if l = strings.TrimSpace(l); l != "" {
 				want = append(want, l)
 			}
 		}
-		for name, c := range sameIndentCases(body) {
-			t.Run(name+"/"+body, func(t *testing.T) {
+		for name, c := range sameIndentCases(tc.body) {
+			t.Run(name+"/"+tc.body, func(t *testing.T) {
 				got, diags := elementShapes(t, c.src, c.document)
 				if w := "text:" + strings.Join(want, " "); strings.Join(got, "|") != w {
 					t.Errorf("got %v, want [%s] as in main", got, w)
 				}
-				if len(diags) != 0 {
-					t.Errorf("unexpected diagnostics %v", diags)
+				warned := len(diags) == 1 && diags[0].RuleID == "TEXT002"
+				if warned != tc.warned || (!tc.warned && len(diags) != 0) {
+					t.Errorf("want TEXT002 %v, got %v", tc.warned, diags)
 				}
 			})
 		}
 	}
 }
 
-// Propiedad: tras un TEXT vacío, cualquier secuencia de líneas a la sangría
-// del TEXT o más (que main leía entera como el párrafo del TEXT, sin perder
-// nada) conserva cada palabra y cada signo que trae, con sus repeticiones,
-// y cada línea que solo trae una clave o solo signos, sin errores ni avisos
-// fuera de TEXT001, se corte o no el cuerpo. El vocabulario repite palabras y
-// trae tokens de un carácter y signos, para que una palabra perdida no pueda
-// esconderse detrás de otra igual. En
-// documento, slide y columna tipada.
-func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
-	same := []string{
-		"TEXT", "POINTS", "CHECKLIST", "QUOTE", "TABLE", "IMAGE", "IMAGE foto.png", "IMAGE @ @",
-		"CODE js", "CODE{verbatim} go", "CODE @ @ @", "@center", "@notes @", "@usuario @",
-		"| @ | @ |", "|---|---|", ":::note", ":::", "<<math>>", "<<end>>", "<<foo>> @",
-		"@ @", "TEXTO @", "QUOTE @", "clave: @", "",
-	}
-	deeper := []string{
-		"- @ @", "- [ ] @", "- [x] @", "@ @", "@", "src: foto.png", "alt: @", "caption: @",
-		"headers: [@]", "rows:", "- [@]", "AUTHOR: @", "1. @", "",
-		"Importante:", "Leyenda:", "Nota: -> **", "---", `""`, "-> <> [] {} ## **",
-	}
-	// Las líneas que solo traen una clave o solo signos no tienen palabras
-	// del vocabulario: se exige que estén tal cual en el AST.
-	literal := map[string]bool{"Importante:": true, "Leyenda:": true, "Nota: -> **": true, "---": true, `""`: true, "-> <> [] {} ## **": true, "TEXTO @": false}
-	vocab := []string{"apple", "pie", "A", "B", "o", "5", "3", "€", "+", "%", "perro"}
-	rng := rand.New(rand.NewSource(499))
-	for i := 0; i < 1500; i++ {
-		want := map[string]int{}
-		fill := func(tpl string) string {
-			// "@" al principio de la plantilla es la directiva; los demás
-			// son palabras del vocabulario.
-			parts := strings.Split(tpl, "@")
-			var b strings.Builder
-			for j, part := range parts {
-				b.WriteString(part)
-				if j == len(parts)-1 {
-					break
-				}
-				if j == 0 && part == "" && len(parts) > 1 && strings.HasPrefix(tpl, "@") && tpl != "@" && !strings.HasPrefix(tpl, "@ ") {
-					b.WriteString("@")
-					continue
-				}
-				w := vocab[rng.Intn(len(vocab))]
-				want[w]++
-				b.WriteString(w)
-			}
-			return b.String()
-		}
-		var b strings.Builder
-		if rng.Intn(3) == 0 {
-			b.WriteString("\n")
-		}
-		// La primera línea con texto va a la sangría del TEXT: si fuera más
-		// sangrada, sería el cuerpo del TEXT y las líneas siguientes a su
-		// sangría caerían en posición de elemento también en main.
-		b.WriteString("  " + fill(same[rng.Intn(len(same)-1)]) + "\n")
-		for k := rng.Intn(6); k > 0; k-- {
-			if rng.Intn(2) == 0 {
-				if l := fill(same[rng.Intn(len(same))]); l != "" {
-					b.WriteString("  " + l + "\n")
-				} else {
-					b.WriteString("\n")
-				}
-			} else if l := fill(deeper[rng.Intn(len(deeper))]); l != "" {
-				b.WriteString("    " + l + "\n")
-			} else {
-				b.WriteString("\n")
-			}
-		}
-		body := b.String()
-		wantLines := map[string]int{}
-		for _, l := range strings.Split(body, "\n") {
-			if l = strings.TrimSpace(l); literal[l] {
-				wantLines[l]++
-			}
-		}
-		for name, c := range sameIndentCases(body) {
-			got, diags := elementShapes(t, c.src, c.document)
-			for _, d := range diags {
-				t.Errorf("%s %q: unexpected diagnostic %v (got %v)", name, body, d, got)
-			}
-			strs := astStrings(t, c.src, c.document)
-			for l, n := range wantLines {
-				if strings.Count(strs, l) < n {
-					t.Errorf("%s %q: line %q appears %d times, want %d (got %v)", name, body, l, strings.Count(strs, l), n, got)
-				}
-			}
-			have := emptyTextASTTokens(t, c.src, c.document)
-			for w, n := range want {
-				if have[w] < n {
-					t.Errorf("%s %q: %q appears %d times, want %d (got %v)", name, body, w, have[w], n, got)
-					break
-				}
-			}
-		}
-	}
-}
-
-// Una entrada grande, con cientos de miles de TEXT vacíos seguidos o
-// alternados con elementos, se lee sin desbordar la pila y en tiempo lineal:
-// la prueba del corte no es recursiva. Con 2b51764, las dos primeras daban
-// "fatal error: stack overflow".
-func TestStrictText_EmptyBodyCutLargeInput(t *testing.T) {
-	head := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"
-	for name, src := range map[string]string{
-		"empty TEXT lines": head + strings.Repeat("  TEXT\n", 250000),
-		"TEXT then POINTS": head + strings.Repeat("  TEXT\n  POINTS\n    - a\n", 200000),
-		"TEXT then prose":  head + strings.Repeat("  TEXT\n  POINTS\n  prosa\n", 20000),
-		"TEXT then QUOTE":  head + strings.Repeat("  TEXT\n  QUOTE\n    cita\n", 20000),
-	} {
-		t.Run(name, func(t *testing.T) {
-			// Con el presupuesto de siempre y sin él: sin él, la prueba recorre
-			// la entrada entera, que es lo que desbordaba la pila.
-			for _, budget := range []int{emptyTextTrialBudget, 1 << 30} {
-				func() {
-					defer func(b int) { emptyTextTrialBudget = b }(emptyTextTrialBudget)
-					emptyTextTrialBudget = budget
-					doc, _ := New(util.NewNoop()).ParseDocument(src, "d.doclang")
-					if doc == nil || len(doc.ContentBlocks) != 1 {
-						t.Fatalf("budget %d: no document", budget)
-					}
-				}()
-			}
-		})
-	}
-}
-
-// Un <!-- node-id --> justo antes de un TEXT vacío se enlazaba en main al
-// párrafo del TEXT. El TEXT no suelta lo que sigue, así que el id sigue
-// teniendo su nodo y el build no falla.
+// Un <!-- node-id --> justo antes de un TEXT vacío se enlaza al párrafo del
+// TEXT, como en main: el TEXT se trata igual que uno sin id, así que también
+// avisa, y el build no falla.
 func TestStrictText_EmptyBodyWithNodeIDKeepsParagraph(t *testing.T) {
 	for name, tc := range map[string]struct {
 		src      string
@@ -544,10 +410,15 @@ func TestStrictText_EmptyBodyWithNodeIDKeepsParagraph(t *testing.T) {
 			} else {
 				doc, diags = p.Parse(tc.src, "s.slidelang")
 			}
+			warned := false
 			for _, d := range diags {
 				if d.IsError() {
 					t.Errorf("unexpected error: %v", d)
 				}
+				warned = warned || d.RuleID == "TEXT002"
+			}
+			if !warned {
+				t.Errorf("want TEXT002, got %v", diags)
 			}
 			var texts []*ast.TextElement
 			_ = ast.Walk(doc, func(n ast.Node) error {
@@ -563,175 +434,27 @@ func TestStrictText_EmptyBodyWithNodeIDKeepsParagraph(t *testing.T) {
 	}
 }
 
-// Los anchors que registra un parse de prueba no quedan en el deck: un
-// encabezado leído a prueba y rechazado (lo sigue prosa) no le cambia el
-// anchor al encabezado real del slide siguiente.
-func TestStrictText_RejectedTrialLeavesNoAnchors(t *testing.T) {
-	src := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"S\"\n  SECTION \"Intro\"\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  SECTION \"Sub\"\n  prosa\n\nSLIDE content\n  title: \"U\"\n  SECTION \"Sub\"\n"
-	doc, diags := New(util.NewNoop()).Parse(src, "s.slidelang")
-	for _, d := range diags {
-		if d.IsError() {
-			t.Errorf("unexpected error: %v", d)
-		}
+// El aviso no agrega costo por TEXT: miles de TEXT vacíos seguidos, o de
+// secciones con un TEXT que absorbe un elemento cada una, se leen en tiempo
+// lineal.
+func TestStrictText_AbsorbedElementWarningScalesLinearly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("mide tiempos")
 	}
-	var html []string
-	_ = ast.Walk(doc, func(n ast.Node) error {
-		if e, ok := n.(*ast.TextElement); ok {
-			html = append(html, e.Content)
-		}
-		return nil
-	})
-	if len(html) != 3 || html[1] != `SECTION "Sub" prosa` || !strings.Contains(html[2], `id="heading-sub"`) {
-		t.Errorf("want the paragraph and a heading with anchor heading-sub, got %q", html)
-	}
-}
-
-// emptyTextASTTokens cuenta los tokens (como los cuenta accountsFor) de las cadenas
-// del AST de src que son texto del autor.
-func emptyTextASTTokens(t *testing.T, src string, document bool) map[string]int {
-	t.Helper()
-	p := New(util.NewNoop())
-	var doc *ast.AST
-	if document {
-		doc, _ = p.ParseDocument(src, "d.doclang")
-	} else {
-		doc, _ = p.Parse(src, "s.slidelang")
-	}
-	raw, err := json.Marshal(doc.ContentBlocks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var tree interface{}
-	if err := json.Unmarshal(raw, &tree); err != nil {
-		t.Fatal(err)
-	}
-	have := map[string]int{}
-	collectTokens(tree, have)
-	return have
-}
-
-// collectTokens suma a have los tokens de cada cadena de v, un valor JSON
-// decodificado, salvo las de derivedOrEnumField y los campos *HTML.
-func collectTokens(v interface{}, have map[string]int) {
-	switch t := v.(type) {
-	case string:
-		for _, tok := range tokens(t) {
-			have[tok]++
-		}
-	case []interface{}:
-		for _, e := range t {
-			collectTokens(e, have)
-		}
-	case map[string]interface{}:
-		for k, e := range t {
-			if derivedOrEnumField[k] || strings.HasSuffix(k, "HTML") {
-				continue
-			}
-			collectTokens(e, have)
-		}
-	}
-}
-
-// astStrings junta las cadenas del AST de src que son texto del autor, una
-// por línea.
-func astStrings(t *testing.T, src string, document bool) string {
-	t.Helper()
-	p := New(util.NewNoop())
-	var doc *ast.AST
-	if document {
-		doc, _ = p.ParseDocument(src, "d.doclang")
-	} else {
-		doc, _ = p.Parse(src, "s.slidelang")
-	}
-	var texts []string
-	collectElementTokens(reflect.ValueOf(doc.ContentBlocks), map[string]int{}, &texts)
-	return strings.Join(texts, "\n")
-}
-
-// Los pasos de una misma prueba ven los anchors de los anteriores: dos
-// encabezados leídos a prueba con el mismo id son un error en el parse real,
-// así que el TEXT no suelta lo que sigue y queda el párrafo de main, sin
-// "duplicate heading id".
-func TestStrictText_TrialStepsShareAnchors(t *testing.T) {
-	src := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  SECTION \"B\"\n    id: x\n  SECTION \"C\"\n    id: x\n"
-	got, diags := elementShapes(t, src, false)
-	for _, d := range diags {
-		t.Errorf("unexpected diagnostic %v", d)
-	}
-	if want := `text:SECTION "B" id: x SECTION "C" id: x`; strings.Join(got, "|") != want {
-		t.Errorf("got %v, want [%s] as in main", got, want)
-	}
-}
-
-// Varios encabezados de prueba con ids distintos cortan: un paso que ya se
-// leyó no se vuelve a leer al conocerse el resultado del siguiente, así que
-// sus anchors no se registran dos veces.
-func TestStrictText_TrialStepsWithDistinctIDsCut(t *testing.T) {
-	slide := "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n"
-	body := "  SECTION \"B\"\n    id: x\n  SECTION \"C\"\n    id: y\n"
-	want, wantDiags := elementShapes(t, slide+body, false)
-	if len(wantDiags) != 0 || len(want) != 2 {
-		t.Fatalf("fixture: %v %v", want, wantDiags)
-	}
-	got, diags := elementShapes(t, slide+"  TEXT\n"+body, false)
-	if len(diags) != 0 || strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Errorf("got %v %v, want %v as without the TEXT", got, diags, want)
-	}
-}
-
-// Con el presupuesto de líneas de prueba agotado, el TEXT vacío no suelta lo
-// que sigue: queda el párrafo de main, sin perder nada.
-func TestStrictText_TrialBudgetFallsBackToParagraph(t *testing.T) {
-	src := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n  POINTS\n    - uno\n  QUOTE\n    Cita.\n  CHECKLIST\n    - [ ] dos\n"
-	if got, _ := elementShapes(t, src, true); len(got) != 3 {
-		t.Fatalf("with the default budget the TEXT cuts: got %v", got)
-	}
-	defer func(b int) { emptyTextTrialBudget = b }(emptyTextTrialBudget)
-	emptyTextTrialBudget = 3
-	got, diags := elementShapes(t, src, true)
-	if want := "text:POINTS - uno QUOTE Cita. CHECKLIST - [ ] dos"; strings.Join(got, "|") != want || len(diags) != 0 {
-		t.Errorf("got %v %v, want [%s]", got, diags, want)
-	}
-}
-
-// Escala: un CODE o un bloque ":::" con 80 000 líneas sin tokens tras un TEXT
-// vacío se prueban en tiempo y memoria lineales (antes, la comparación tal
-// cual reconstruía la cadena por línea: 25 y 46 GB asignados). Sin
-// presupuesto, para medir la prueba entera; con el de siempre, el TEXT queda
-// como párrafo y tampoco cuesta.
-func TestStrictText_EmptyBodyCutScalesLinearly(t *testing.T) {
-	head := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n"
-	inputs := map[string]func(n int) string{
-		"CODE": func(n int) string {
-			return head + "  TEXT\n  CODE js\n" + strings.Repeat("    x\n    }\n", n)
+	for name, gen := range map[string]func(n int) string{
+		"empty TEXT lines": func(n int) string {
+			return noDropDocHeader + "SECTION \"S\"\n" + strings.Repeat("  TEXT\n", n)
 		},
-		"special block": func(n int) string {
-			return head + "  TEXT\n  :::note\n" + strings.Repeat("  hola\n  --\n", n) + "  :::\n"
+		"TEXT then POINTS": func(n int) string {
+			return noDropDocHeader + "SECTION \"S\"\n" + strings.Repeat("  TEXT\n  POINTS\n    - a\n", n)
 		},
-	}
-	measure := func(src string) uint64 {
-		var before, after runtime.MemStats
-		runtime.GC()
-		runtime.ReadMemStats(&before)
-		New(util.NewNoop()).ParseDocument(src, "d.doclang")
-		runtime.ReadMemStats(&after)
-		return after.TotalAlloc - before.TotalAlloc
-	}
-	for name, input := range inputs {
-		t.Run(name, func(t *testing.T) {
-			for _, budget := range []int{1 << 30, emptyTextTrialBudget} {
-				func() {
-					defer func(b int) { emptyTextTrialBudget = b }(emptyTextTrialBudget)
-					emptyTextTrialBudget = budget
-					small, large := input(20000), input(80000)
-					a, b := measure(small), measure(large)
-					// Lineal: 4 veces la entrada, unas 4 veces la memoria. Con
-					// el costo cuadrático de antes eran miles de veces.
-					if b > 8*a || b > 400*uint64(len(large)) {
-						t.Errorf("budget %d: %d bytes for n=20k, %d for n=80k (%d bytes of input)", budget, a, b, len(large))
-					}
-				}()
-			}
-		})
+		"one warning per section": func(n int) string {
+			return noDropDocHeader + strings.Repeat("SECTION \"S\"\n  TEXT\n  POINTS\n    - a\n", n)
+		},
+		"empty TEXT per section": func(n int) string {
+			return noDropDocHeader + strings.Repeat("SECTION \"S\"\n  TEXT\n", n)
+		},
+	} {
+		t.Run(name, func(t *testing.T) { assertLinear(t, gen, false) })
 	}
 }

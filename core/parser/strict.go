@@ -45,18 +45,6 @@ type strictBody struct {
 	// frontmatter que el caller ya separó. 0 cuando lines es el archivo
 	// entero (#245).
 	lineOffset int
-
-	// emptyText es el estado de los parses de prueba del cuerpo de un TEXT
-	// vacío (ver empty_text_cut.go), compartido por el cuerpo que lo creó y
-	// los cuerpos de prueba; emptyTextBase es el índice, en ese cuerpo, de
-	// lines[0].
-	emptyText     *emptyTextCut
-	emptyTextBase int
-
-	// nodeIDLines son las líneas del archivo (como las cuenta position) que
-	// un <!-- node-id --> anotó. Un TEXT vacío en una de ellas no suelta lo
-	// que sigue: el id se enlazaba a su párrafo.
-	nodeIDLines map[int]bool
 }
 
 // position traduce un índice 0-based dentro de p.lines a una posición
@@ -73,18 +61,16 @@ func (p *strictBody) position(lineIndex int) diagnostics.Position {
 // literales `elements.ParseContext{...}` idénticos salvo por esto (#245).
 func (p *strictBody) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
-		Mode:                  "strict",
-		SlideHeadings:         p.slideHeadings,
-		EmptyTextCutKeepsText: p.emptyTextCutKeepsText,
-		HasNodeID:             p.hasNodeID,
-		NestedListTypes:       p.nestedListTypes,
-		ListStart:             p.listStart,
-		MathSource:            p.mathSource,
-		Lines:                 p.lines,
-		CurrentLine:           p.currentLine,
-		Logger:                p.logger,
-		LineOffset:            p.lineOffset,
-		TypedColumnBody:       p.parseTypedColumnBody,
+		Mode:            "strict",
+		SlideHeadings:   p.slideHeadings,
+		NestedListTypes: p.nestedListTypes,
+		ListStart:       p.listStart,
+		MathSource:      p.mathSource,
+		Lines:           p.lines,
+		CurrentLine:     p.currentLine,
+		Logger:          p.logger,
+		LineOffset:      p.lineOffset,
+		TypedColumnBody: p.parseTypedColumnBody,
 		// Solo lo usa HeadingParser, que un bloque `:::x typed` activa al leer
 		// su cuerpo como flex: sus encabezados comparten la misma secuencia de
 		// anchors que los SECTION del deck.
@@ -112,7 +98,6 @@ func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast
 		lines:           lines,
 		logger:          p.logger,
 		lineOffset:      lineOffset,
-		nodeIDLines:     p.nodeIDLines,
 	}
 	scratch := ast.NewContentBlock(sub.position(0), "content")
 	sub.parseIndentedElements(scratch, func(key, _ string) {

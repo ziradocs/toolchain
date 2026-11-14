@@ -242,10 +242,9 @@ func TestExpand_CodeIsWhatTheParserReadsAsCode(t *testing.T) {
 		{"``` inside a strict TEXT", strictDoc + "  TEXT\n    ```\n    @include part2.md\n    ```\n", false},
 		// En strict, una línea CODE dentro del cuerpo de un TEXT es texto.
 		{"CODE inside a strict TEXT body", strictDoc + "  TEXT\n    CODE js\n      @include part2.md\n", false},
-		// Un CODE pegado a un TEXT, sin línea en blanco y a su misma
-		// sangría, es un elemento propio en el AST: corta el cuerpo del TEXT
-		// y su @include es código, como lo muestra get_ast.
-		{"CODE right after a TEXT", strictDoc + "  TEXT a\n  CODE js\n    @include part2.md\n", true},
+		// Un CODE pegado a un TEXT, sin línea en blanco, no es un elemento
+		// propio en el AST: el include se expande, como lo muestra get_ast.
+		{"CODE right after a TEXT", strictDoc + "  TEXT a\n  CODE js\n    @include part2.md\n", false},
 		// El cuerpo flex de un :::bloque tipado lee la cerca como código.
 		{"fence inside a typed block", strictDoc + "  :::note{typed}\n  ```js\n  @include part2.md\n  ```\n  :::\n", true},
 	} {

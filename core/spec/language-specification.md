@@ -223,50 +223,29 @@ that starts with `{` or `[`. Code groups are unaffected: in strict they are
 `:::code-group` blocks with fenced code and `[label]`.
 
 A `TEXT` body is the lines that follow it with indentation: usually deeper than
-`TEXT`, or, as always accepted, at its own indentation. A `TEXT` with no body
-does not take the elements after it as text, but it only gives them up when
-nothing changes meaning. The first line with text, at the indentation of
-`TEXT` (or less), ends the body only when both hold:
-
-- it opens an element in a form that element accepts: `TEXT`, `POINTS`,
-  `CHECKLIST`, `QUOTE` and `TABLE` alone on the line, `IMAGE` alone or with a
-  single source that looks like a path or URL, `CODE` alone or with
-  `{verbatim}`, a language and at most a filename, `SECTION "…"` inside a
-  `SLIDE`, a `:::` block, a `<<…>>` tag that an element recognizes, a known
-  directive (`@notes`, `@include`, `@center`…) or a `| … |` table row;
-- every line the `TEXT` would have taken as its body (up to the first line
-  with less indentation) reads as a sequence of such elements without losing
-  or moving anything: each non-blank line the element took is its opening
-  line, a closing line of that container (`<<end>>`, `:::`, a `|---|`
-  separator…), a `Key: value` property that element's parser reads and
-  stored with that value (`caption:`, `title:` of an `IMAGE`, `AUTHOR:` of a
-  `QUOTE`, `headers:` of a `TABLE`…; each field accounts for one line), or a
-  line whose every word and sign (one-letter words and signs such as `€` or
-  `%` included, counted with their repetitions) is in the element's text, a
-  line with no words having to be a whole line of it; no line becomes a
-  property or an unrecognized
-  line; no diagnostic
-  other than `TEXT001` appears; no element takes a line at its own
-  indentation that is not its own (a `QUOTE` or a `POINTS` does not take the
-  prose after it), nor ends before a more indented line it did not take; and
-  each element is followed by another one that opens the same way.
-
-A `TEXT` annotated with a `<!-- node-id -->` never gives up its body this
-way: the id names its paragraph. Nor does it once the parser has read 50 000
-lines checking empty `TEXT` bodies in the same document or deck; past that,
-the lines stay the body of the `TEXT`, as before.
-
-Otherwise those lines stay the body of the `TEXT`, as before: a word that only
-starts with a keyword (`TEXTO`, `POINTSX`, `QUOTEado`), a keyword followed by
-text its element would drop (`TEXT hola`, `QUOTE de Ana`), `IMAGE of the year`,
-`CODE red alert now`, `MERMAID`, `<<foo>>`, `@usuario`, `| hola`, a lone `:::`,
-or an element followed by prose at the same indentation (`POINTS` / `Some
-prose after`). Only that first line can end the body this way: once the body
-has started, the lines after it are read by indentation, as always. So a
-`TEXT` never loses text, nor turns text into something else, that it used to
-keep as its paragraph. A `TEXT` with no content is the `TEXT001` diagnostic, a
-warning in both dialects (a strict document included), so it does not stop
-the build.
+`TEXT`, or, as always accepted, at its own indentation. The body starts at the
+first line with text and runs up to the first line indented less than that one.
+So a `TEXT` with no indented body of its own takes what follows it at its own
+indentation as its paragraph, elements included: `TEXT` / `POINTS` / `- uno`
+is the paragraph "POINTS - uno". That reading does not change, but it is
+reported with `TEXT002`, a warning, when the first line of the body is at the
+indentation of `TEXT` and opens an element in a form that element accepts:
+`TEXT`, `POINTS`, `CHECKLIST`, `QUOTE` and `TABLE` alone on the line, `IMAGE`
+alone or with a single source that looks like a path or URL, `CODE` alone or
+with `{verbatim}`, a language and at most a filename, `SECTION "…"` inside a
+`SLIDE`, a `:::type` block (not a lone `:::`, nor `::: grid` or `::: column`), a
+`<<…>>` tag that an element recognizes, a known directive (`@notes`,
+`@include`, `@center`…) or a `| … |` table row. A word that only starts with a
+keyword (`TEXTO`, `POINTSX`), a keyword with text its element does not read
+(`TEXT hola`, `QUOTE de Ana`, `IMAGE of the year`), `MERMAID`, `<<foo>>`,
+`@usuario` or `| hola` is not reported: there is no well-formed element to
+name. `TEXT002` covers the `TEXT` line through the last line of the absorbed
+paragraph and names the element by its keyword and its line by its content; to
+fix it, indent the paragraph under `TEXT`, or delete the empty `TEXT`. A `TEXT`
+with no content at all is `TEXT001`. Both are warnings in both dialects (a
+strict document included), so they do not stop the build, and they never fire
+together: a `TEXT` that absorbed something is not empty. A `<!-- node-id -->`
+on the `TEXT` line does not change any of this.
 
 In `fmt`, two Markdown pipe tables in a row are written with a blank line
 between them, at the top level of a section or slide and inside a typed grid

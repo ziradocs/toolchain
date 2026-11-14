@@ -146,7 +146,6 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 
 	if mode == "strict" {
 		bodyParser := newDocumentStrictParserAt(processedContent, bodyOffset, p.logger)
-		bodyParser.nodeIDLines = nodeIDTargetLines(nodeIDs)
 		bodyParser.nestedListTypes = nestedListTypes
 		bodyParser.listStart = ast.SourceDeclaresCapability(sourceFM, ast.ListStartCapability)
 		bodyParser.mathSource = ast.SourceDeclaresCapability(sourceFM, ast.MathSourceCapability)
@@ -331,7 +330,6 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	switch frontMatter.Mode {
 	case "strict":
 		strictParser := newStrictBodyParser(bodyContent, bodyOffset, p.logger)
-		strictParser.nodeIDLines = nodeIDTargetLines(nodeIDs)
 		strictParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		strictParser.contentMarkdown = ast.SourceDeclaresCapability(frontMatter, ast.ContentMarkdownCapability)
 		strictParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)

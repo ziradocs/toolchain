@@ -177,8 +177,11 @@ The parser can also emit these diagnostics, which are useful when repairing
 LLM-authored source: `CHART002`, `CHART005`, `DIRECTIVE001`, `FLEX002`,
 `SPECIAL002`, `FRONT002`, `FRONT004`, `FRONT005`, `FRONT006`, `FRONT007`,
 `FRONT008`, `FRONT009`, `IMG002`, `IMG003`, `MAP002`, `POLL006`, `TABLE004`,
-`TABLE005`, `TABLE006`, `TEXT001`, `METRIC001`, `METRIC002`, `METRIC003`, and
-`METRIC004`.
+`TABLE005`, `TABLE006`, `TEXT001`, `TEXT002`, `METRIC001`, `METRIC002`,
+`METRIC003`, and `METRIC004`. `TEXT002` means a `TEXT` with no indented body
+read the element written after it at its own indentation (`TEXT` / `POINTS`)
+as plain paragraph text: indent the paragraph under `TEXT`, or delete the
+empty `TEXT`.
 In strict, a line inside an element that the element does not read is a
 warning on that line, never a silent drop: `STRICT003`, `STRICT004`,
 `POINTS001`, `CHECKLIST001`, `CHECKLIST002`, `QUOTE001`, `IMG005`, `TABLE008`,
