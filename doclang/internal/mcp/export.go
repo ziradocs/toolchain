@@ -358,6 +358,7 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 		AssetRoot:         cfg.root.dir,
 		SourceDir:         baseDir, // junto al archivo o en baseDir, confinado a --root
 		AllowRemoteImages: allowRemote,
+		ExpandedLines:     true, // generatorDiagnostics las lleva a su archivo
 	}); err != nil {
 		return nil, &exportError{Error: err.Error(), Diagnostics: append(prepared.Diagnostics(), generatorDiagnostics(genLog, prepared)...)}
 	}
