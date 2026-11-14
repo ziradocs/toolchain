@@ -294,7 +294,8 @@ Markdown pipe syntax works in both modes:
 - In a pipe table the separator row goes right after the header:
   `|---|---|`, `|:--|--:|`, `|--|--|` (two dashes or more per cell) or
   `--- | ---` without the leading `|`, with one cell per column. Any row of
-  dashes below it (`| --- | --- |`) is a data row. `| - | - |` is a data row
+  dashes below it (`| --- | --- |`) is a data row, so don't use one as a
+  divider between groups of rows: it renders as a row of `---` cells. `| - | - |` is a data row
   too, also right after the header (inside a `TABLE` block, a `|` row of
   dashes right after the header is its delimiter row).
 - In a `TABLE` block, write each row below `rows:` indented more than `rows:`,

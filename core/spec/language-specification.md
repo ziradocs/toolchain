@@ -298,11 +298,22 @@ it does not fit, flex and a `:::` block skip it as before, now with a
 `TABLE008` warning that quotes it; a strict body keeps it as a data row, as
 before (with its `TABLE003`).
 
+**This changes what a flex document shows.** A row of dashes written in the
+middle of a table as a visual divider between groups (`|---|---|`), or a
+second separator right after the first, is now a data row whose cells are
+`---` or `:--`, as in GFM and as strict already read it. When the first
+separator declared no alignment, the second one used to supply the column
+alignment (`table-align-v1`); it no longer does. A `lint_policy:` that raises
+`TABLE008` to error now fails a document with a dash row that does not fit,
+a row flex used to drop with no diagnostic (the same trade-off as the other
+`TABLE008` cases). `TABLE009` is new and is a warning; a policy changes it
+only by naming it.
+
 A separator without a leading `|` used to cut the table in flex, in a `:::`
 block and in a typed callout: the line stayed a paragraph and the rows below
 it were a second table with their first row as its header. It now joins the
 table only when every row below it has one cell per column of the header, or
-none; otherwise the table reads as before. A line of dashes with no `|`
+none, and no row below is skipped; otherwise the table reads as before. A line of dashes with no `|`
 (`---`) right after the header still does not join a flex table. A strict
 body and a typed grid column already took `--- | ---` as the separator, and
 they do not check the rows below, so there a line without a leading `|` still

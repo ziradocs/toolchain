@@ -22,8 +22,9 @@ import (
 // lectura de tablas de v2.59.0: tablas pipe con separadores sin pipes de
 // borde ("--- | ---"), de guiones cortos ("|--|--|") y de un guion, filas de
 // solo guiones a media tabla; bloques TABLE con rows: a cualquier sangría,
-// rows: [ de varias líneas (con "]" propio, con "]]" en la última fila y con
-// la primera fila en la línea de rows:), cells: con "- []" y tablas en
+// rows: [ de varias líneas (con "]" propio, con "]]" en la última fila, con
+// la primera fila en la línea de rows: y con celdas entre comillas que
+// tienen "]" o "\""), cells: con "- []" y tablas en
 // columnas tipadas de un grid. Van en strict (SECTION, SLIDE, columna
 // tipada, :::note, callout tipado) y en flex (con y sin :::), con prosa y
 // celdas con enlaces entre tablas. La semilla es fija.
@@ -36,7 +37,7 @@ func genTableGapDocs(seed int64, n int) []genDoc {
 	pick := func(xs []string) string { return xs[rng.Intn(len(xs))] }
 	sp := func(k int) string { return strings.Repeat(" ", k) }
 	cell := func() string {
-		return pick([]string{`"a"`, `"b"`, `"1"`, `"--"`, `"[l](javascript:x)"`, `'q'`, `c`})
+		return pick([]string{`"a"`, `"b"`, `"1"`, `"--"`, `"[l](javascript:x)"`, `'q'`, `c`, `"4\"]"`, `"[k]"`, `'a]'`, `'O''Brien'`})
 	}
 	arrayRow := func(cols int) string {
 		cs := make([]string, cols)

@@ -60,7 +60,11 @@ and it applies to any slide typed `title` in either mode.)
 - [ ] **Separator row**: only the line right after the header
       (`|---|---|`, `|--|--|`, `--- | ---`, one cell per column). A row of
       only dashes below it is data when it has one cell per column, and is
-      skipped with `TABLE008` when it does not
+      skipped with `TABLE008` when it does not. Don't use `|---|---|` as a
+      divider between groups of rows: it renders as a row of `---` cells.
+      Under a `lint_policy` that raises `TABLE008` to error, a dash row that
+      does not fit fails the build; `TABLE009` changes only if the policy
+      names it
 - [ ] **Rows below `rows:`**: each `[…]` row indented more than `rows:`, all
       at the indentation of the first row, no blank line between rows. A row
       at another indentation, or a new-indentation row whose cell count

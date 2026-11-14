@@ -274,3 +274,59 @@ func TestTableRowsMultiLineArray(t *testing.T) {
 		}
 	}
 }
+
+// Un rows: [ de varias líneas lee sus filas igual que rows: con las mismas
+// filas: un "]" dentro de una celda entre comillas dobles (con "\"" adentro)
+// o simples no cierra el arreglo. Antes del arreglo a la regla de YAML, la
+// celda "4\"]" cortaba el bloque, y esa fila y las siguientes se perdían con
+// TABLE008.
+func TestTableRowsMultiLineArrayQuotedBrackets(t *testing.T) {
+	rows := []string{`["[k]", "4\"]", "4\"]"]`, `['a]', b, c]`, `['O''Brien', "d]", e]`}
+	plain := []string{"TABLE", "  rows:"}
+	multi := []string{"TABLE", "  rows: ["}
+	for i, r := range rows {
+		plain = append(plain, "      "+r)
+		if i < len(rows)-1 {
+			r += ","
+		}
+		multi = append(multi, "      "+r)
+	}
+	multi = append(multi, "  ]")
+	for _, c := range sepContexts() {
+		t.Run(c.name, func(t *testing.T) {
+			want, _ := c.parseTables(c.build(plain))
+			if len(want) != 1 || len(want[0].Rows) != len(rows) {
+				t.Fatalf("fixture: rows: reads %d tables", len(want))
+			}
+			checkRows(t, c, multi, []string{}, want[0].Rows, "")
+		})
+	}
+}
+
+// Un separador sin pipe inicial tampoco une la tabla si una fila de abajo se
+// saltaría (TABLE008): sin él esas filas eran otra tabla, y aquí
+// "| a --- b |" es su encabezado.
+func TestMarkdownTableBareSeparatorKeepsSkippedRows(t *testing.T) {
+	lines := []string{"| H1 | H2 |", "---|---", "|---|---|", "| a --- b |", "| --- |"}
+	for _, c := range sepContexts() {
+		if c.pipeless || strings.Contains(c.name, "typed column") {
+			continue
+		}
+		t.Run(c.name, func(t *testing.T) {
+			src := c.build(lines)
+			tables, diags := c.parseTables(src)
+			found := false
+			for _, tb := range tables {
+				found = found || reflect.DeepEqual(tb.Headers, []string{"a --- b"})
+			}
+			if !found {
+				t.Fatalf("the row is not the header of its own table\n%s", src)
+			}
+			for _, d := range diags {
+				if d.RuleID == "TABLE008" {
+					t.Fatalf("unexpected diagnostic %v\n%s", d, src)
+				}
+			}
+		})
+	}
+}

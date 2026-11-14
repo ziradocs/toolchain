@@ -311,9 +311,11 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				if multiLine {
 					// La última fila de un "rows: [" de varias líneas puede
 					// cerrar también el arreglo: "[…]]". Ese "]" de más es
-					// sintaxis, no parte de la última celda.
+					// sintaxis, no parte de la última celda. Solo cuenta un
+					// "]]" al final: una fila que termina en '"]' ("4\"]")
+					// se lee como la leía v2.58.0.
 					body := strings.TrimSuffix(rowTrimmed, ",")
-					if inlineArrayDepth(body) == -1 && strings.HasSuffix(body, "]") {
+					if strings.HasSuffix(body, "]]") && inlineArrayDepth(body) == -1 {
 						rowTrimmed = strings.TrimSuffix(body, "]")
 						closes = true
 					}
@@ -614,24 +616,50 @@ func dropMiscountedRows(ctx *ParseContext, headers []string, rows [][]string, ro
 	return keptRows, keptPositions, diags
 }
 
-// inlineArrayDepth cuenta los "[" menos los "]" de v, fuera de comillas
-// dobles: 1 para "[[…]," (un arreglo de filas que sigue en la línea de
-// abajo), -1 para "[…]]" (la última fila que además lo cierra).
+// inlineArrayDepth cuenta los "[" menos los "]" de v fuera de un escalar
+// entre comillas: 1 para "[[…]," (un arreglo de filas que sigue en la línea
+// de abajo), -1 para "[…]]" (la última fila que además lo cierra). Una
+// comilla abre un escalar solo al comienzo de un elemento (después de "[" o
+// ",", y de espacios), como en YAML: el apóstrofo de O'Brien o la marca de
+// pulgadas de 5" no abren nada, y un "]" dentro de 'a]' o de "b]" no
+// cuenta. Entre comillas dobles el "\" es texto, como en las celdas de rows:
+// (splitInlineArray): "a\" es la celda a\, y la comilla que sigue al "\" la
+// cierra. Entre comillas simples dos comillas seguidas son una comilla.
 func inlineArrayDepth(v string) int {
 	depth := 0
-	inQuotes := false
+	itemStart := true
 	for i := 0; i < len(v); i++ {
-		switch v[i] {
-		case '"':
-			inQuotes = !inQuotes
-		case '[':
-			if !inQuotes {
-				depth++
+		c := v[i]
+		switch {
+		case c == ' ' || c == '\t':
+		case itemStart && c == '"':
+			if j := strings.IndexByte(v[i+1:], '"'); j >= 0 {
+				i += j + 1
+			} else {
+				i = len(v)
 			}
-		case ']':
-			if !inQuotes {
-				depth--
+			itemStart = false
+		case itemStart && c == '\'':
+			for i++; i < len(v); i++ {
+				if v[i] == '\'' {
+					if i+1 < len(v) && v[i+1] == '\'' {
+						i++
+						continue
+					}
+					break
+				}
 			}
+			itemStart = false
+		case c == '[':
+			depth++
+			itemStart = true
+		case c == ',':
+			itemStart = true
+		case c == ']':
+			depth--
+			itemStart = false
+		default:
+			itemStart = false
 		}
 	}
 	return depth
@@ -1137,10 +1165,15 @@ func isMarkdownSeparatorRow(cells []string) bool {
 // encabezado ("--- | ---", ver isBareHeaderSeparator): antes cortaba la
 // tabla, la línea quedaba como párrafo y las filas de abajo eran otra tabla
 // con su propio encabezado. Ahora es el separador solo si todas las filas de
-// abajo caben en el encabezado; si no, la tabla se lee como antes.
+// abajo caben en el encabezado y ninguna se salta; si no, la tabla se lee
+// como antes.
 func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int, []diagnostics.Diagnostic) {
 	t := p.readMarkdownTable(ctx, startIndex, true, true)
-	if (t.headerRecovered || t.bareSeparator) && !rowsFitHeader(t.headers, t.rows) {
+	// Con el separador sin pipe inicial, tampoco vale que una fila de abajo se
+	// salte (TABLE008): sin él esa fila era de otra tabla, donde podía ser su
+	// encabezado.
+	if (t.headerRecovered || t.bareSeparator) && !rowsFitHeader(t.headers, t.rows) ||
+		t.bareSeparator && len(t.diags) > 0 {
 		// Las dos recuperaciones no se dan juntas: el encabezado recuperado
 		// necesita un separador que empiece con "|" en la línea siguiente.
 		t = p.readMarkdownTable(ctx, startIndex, !t.headerRecovered, !t.bareSeparator)
