@@ -508,9 +508,17 @@ func TestStrictText_EmptyBodyCutLargeInput(t *testing.T) {
 		"TEXT then QUOTE":  head + strings.Repeat("  TEXT\n  QUOTE\n    cita\n", 20000),
 	} {
 		t.Run(name, func(t *testing.T) {
-			doc, _ := New(util.NewNoop()).ParseDocument(src, "d.doclang")
-			if doc == nil || len(doc.ContentBlocks) != 1 {
-				t.Fatalf("no document")
+			// Con el presupuesto de siempre y sin él: sin él, la prueba recorre
+			// la entrada entera, que es lo que desbordaba la pila.
+			for _, budget := range []int{emptyTextTrialBudget, 1 << 30} {
+				func() {
+					defer func(b int) { emptyTextTrialBudget = b }(emptyTextTrialBudget)
+					emptyTextTrialBudget = budget
+					doc, _ := New(util.NewNoop()).ParseDocument(src, "d.doclang")
+					if doc == nil || len(doc.ContentBlocks) != 1 {
+						t.Fatalf("budget %d: no document", budget)
+					}
+				}()
 			}
 		})
 	}
