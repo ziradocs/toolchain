@@ -521,8 +521,8 @@ chartLoop:
 				// El bloque no es YAML válido y se descarta, como siempre; el
 				// aviso cubre de options: a su última línea.
 				diags = append(diags, withLineRange(ctx, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
-					"The options: block of this chart is not valid YAML, so it and every line under it were ignored: %q. Indent its keys under options: as YAML, as in plugins: / title: / text: \"…\".",
-					trimmedLine), i+linesConsumed))
+					"The options: block of this chart is not valid YAML (%s), so it and every line under it were ignored: %q.",
+					yamlErrorText(optsErr), trimmedLine), i+linesConsumed))
 			}
 			i += linesConsumed
 			consumedLines += linesConsumed
@@ -2021,3 +2021,21 @@ func comboUnknownKeyLines(ctx *ParseContext, yamlText string, first int) []diagn
 	}
 	return out
 }
+
+// yamlErrorText es el error de yaml.v3 sin su prefijo "yaml: " y sin el número
+// de línea, que cuenta desde el inicio del bloque y no del archivo.
+func yamlErrorText(err error) string {
+	msg := strings.TrimPrefix(err.Error(), "yaml: ")
+	if rest, ok := strings.CutPrefix(msg, "unmarshal errors:\n"); ok {
+		msg = strings.TrimSpace(rest)
+	}
+	if strings.HasPrefix(msg, "line ") {
+		if _, after, ok := strings.Cut(msg, ": "); ok {
+			msg = after
+		}
+	}
+	return yamlAtLine.ReplaceAllString(msg, "")
+}
+
+// yamlAtLine es el " at line N" con que yaml.v3 nombra otra línea del bloque.
+var yamlAtLine = regexp.MustCompile(` at line \d+`)

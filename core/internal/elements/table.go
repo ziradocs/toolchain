@@ -319,10 +319,10 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				consumed++
 				i++
 			}
-			if parsedCells, cellDiags, ok := parseCellsYAML(cellsBlockLines, pos); ok {
+			if parsedCells, cellDiags, root, ok := parseCellsYAML(cellsBlockLines, pos); ok {
 				explicitCells = parsedCells
 				diags = append(diags, cellDiags...)
-				diags = append(diags, yamlTailWarning(ctx, cellsBlockLines, cellsStart, "cells:")...)
+				diags = append(diags, yamlTailWarning(ctx, cellsBlockLines, root, cellsStart, "cells:")...)
 			} else if len(cellsBlockLines) > 0 {
 				// El aviso queda en la línea TABLE, como siempre, y cubre hasta
 				// la última línea del bloque: así nombra todas las que se
@@ -354,15 +354,13 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				consumed++
 				i++
 			}
-			var parsed []yamlTableRowEntry
-			decoder := yaml.NewDecoder(strings.NewReader(strings.Join(blockLines, "\n")))
-			decoder.KnownFields(true)
-			if err := decoder.Decode(&parsed); err != nil || len(parsed) == 0 {
+			parsed, root, err := decodeTableRows(blockLines)
+			if err != nil || len(parsed) == 0 {
 				// El error se queda en la línea TABLE, como siempre, y cubre el
 				// bloque entero: ninguna de sus líneas se leyó.
 				diags = append(diags, withLineRange(ctx, diagnostics.NewError("invalid tableRows YAML: expected nonempty rows with known fields", pos, "table-parser"), rowsStart+len(blockLines)-1))
 			} else {
-				diags = append(diags, yamlTailWarning(ctx, blockLines, rowsStart, "tableRows:")...)
+				diags = append(diags, yamlTailWarning(ctx, blockLines, root, rowsStart, "tableRows:")...)
 				tableRows = make([]ast.TableRow, len(parsed))
 				for n, row := range parsed {
 					var cells []ast.TableRowCell
@@ -433,8 +431,8 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 // yamlTailWarning es el TABLE008 de las líneas de un bloque cells: o
 // tableRows: que el lector de YAML dejó afuera (ver yamlUnderIndentedTail).
 // block son las líneas del bloque y first el índice de block[0] en ctx.Lines.
-func yamlTailWarning(ctx *ParseContext, block []string, first int, key string) []diagnostics.Diagnostic {
-	start, end, ok := yamlUnderIndentedTail(block)
+func yamlTailWarning(ctx *ParseContext, block []string, root *yaml.Node, first int, key string) []diagnostics.Diagnostic {
+	start, end, ok := yamlDiscardedTail(block, root)
 	if !ok {
 		return nil
 	}
@@ -641,15 +639,23 @@ type yamlTableCellEntry struct {
 // ast.MaxCellSpan's doc comment for why the cap exists. An invalid scope
 // (anything other than "", "row", "col") is cleared the same way — see the
 // TABLE006 comment below.
-func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.TableCell, []diagnostics.Diagnostic, bool) {
+//
+// Decodifica una sola vez, a un yaml.Node, y de ahí a las celdas: el nodo
+// raíz se devuelve para calcular las líneas que yaml.v3 descartó
+// (yamlDiscardedTail) sin volver a leer el bloque.
+func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.TableCell, []diagnostics.Diagnostic, *yaml.Node, bool) {
 	if len(blockLines) == 0 {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 
 	raw := strings.Join(blockLines, "\n")
+	var doc yaml.Node
 	var parsed [][]yamlTableCellEntry
-	if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil || len(parsed) == 0 {
-		return nil, nil, false
+	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil || len(doc.Content) == 0 {
+		return nil, nil, nil, false
+	}
+	if err := doc.Decode(&parsed); err != nil || len(parsed) == 0 {
+		return nil, nil, nil, false
 	}
 
 	clamped := false
@@ -706,7 +712,7 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 			`A cell declared a scope other than "row"/"col"; it was cleared`,
 			pos, "table-parser").WithRuleID("TABLE006"))
 	}
-	return cells, diags, true
+	return cells, diags, doc.Content[0], true
 }
 
 // SplitMarkdownTableRow parte una fila de tabla markdown por "|", respetando
@@ -1150,4 +1156,69 @@ func inlineRowQuoteProblem(content string) inlineQuoteProblem {
 		return inlineApostrophe
 	}
 	return inlineQuotesOK
+}
+
+// tableRowKeys y tableCellKeys son las llaves de una fila y de una celda de
+// tableRows: (yamlTableRowEntry, yamlTableRowCellEntry).
+var (
+	tableRowKeys  = map[string]bool{"nodeId": true, "section": true, "cells": true}
+	tableCellKeys = map[string]bool{"nodeId": true, "content": true, "header": true, "scope": true, "colspan": true, "rowspan": true}
+)
+
+// decodeTableRows lee un bloque tableRows: una sola vez, a un yaml.Node, y de
+// ahí a las filas. Antes se decodificaba con KnownFields(true); un yaml.Node no
+// tiene esa opción al decodificarse, así que las llaves desconocidas de una
+// fila o de una celda se rechazan acá, con el mismo resultado: error. Devuelve
+// el nodo raíz para yamlDiscardedTail.
+func decodeTableRows(blockLines []string) ([]yamlTableRowEntry, *yaml.Node, error) {
+	var doc yaml.Node
+	decoder := yaml.NewDecoder(strings.NewReader(strings.Join(blockLines, "\n")))
+	if err := decoder.Decode(&doc); err != nil {
+		return nil, nil, err
+	}
+	if len(doc.Content) == 0 {
+		return nil, nil, fmt.Errorf("empty tableRows")
+	}
+	root := doc.Content[0]
+	if err := checkTableRowKeys(root); err != nil {
+		return nil, nil, err
+	}
+	var parsed []yamlTableRowEntry
+	if err := root.Decode(&parsed); err != nil {
+		return nil, nil, err
+	}
+	return parsed, root, nil
+}
+
+// checkTableRowKeys es la parte de KnownFields(true) que aplica a tableRows:
+// toda llave de una fila y de cada una de sus celdas tiene que ser un campo.
+func checkTableRowKeys(root *yaml.Node) error {
+	if root.Kind != yaml.SequenceNode {
+		return nil // root.Decode da el error de tipo
+	}
+	for _, row := range root.Content {
+		if row.Kind != yaml.MappingNode {
+			continue
+		}
+		for k := 0; k+1 < len(row.Content); k += 2 {
+			if !tableRowKeys[row.Content[k].Value] {
+				return fmt.Errorf("line %d: field %s not found", row.Content[k].Line, row.Content[k].Value)
+			}
+			cells := row.Content[k+1]
+			if row.Content[k].Value != "cells" || cells.Kind != yaml.SequenceNode {
+				continue
+			}
+			for _, cell := range cells.Content {
+				if cell.Kind != yaml.MappingNode {
+					continue
+				}
+				for c := 0; c+1 < len(cell.Content); c += 2 {
+					if !tableCellKeys[cell.Content[c].Value] {
+						return fmt.Errorf("line %d: field %s not found", cell.Content[c].Line, cell.Content[c].Value)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

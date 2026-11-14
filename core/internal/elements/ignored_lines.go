@@ -212,41 +212,179 @@ func mappingKeyLines(ctx *ParseContext, m *yaml.Node, lines []string, first, lim
 	return out
 }
 
-// yamlUnderIndentedTail busca, en un bloque YAML sin dedentar, las líneas que
-// yaml.v3 deja afuera sin error: cuando la colección de nivel superior empieza
-// más sangrada que lo que la sigue ("    -" y debajo "  - [...]", o un "---" a
-// la sangría de la llave), el lector termina el documento antes de esas líneas
-// y las descarta. Devuelve los índices (en lines) de la primera y la última
-// línea no vacía descartadas, o ok=false si no hay ninguna.
+// yamlDiscardedTail busca, en un bloque YAML ya decodificado a root, las
+// líneas que yaml.v3 dejó afuera sin error: cuando la colección de nivel
+// superior empieza más sangrada que lo que la sigue ("    -" y debajo
+// "  - [...]", o un "---" a la sangría de la llave), el lector termina el
+// documento antes de esas líneas y las descarta. lines son las líneas del
+// bloque tal como se decodificaron (sin dedentar). Devuelve los índices (en
+// lines) de la primera y la última línea no vacía descartadas, o ok=false si
+// no hay ninguna.
 //
-// Se decide sobre el texto, sin volver a decodificar el bloque: el llamador ya
-// lo decodificó una vez. En una colección de bloque, ninguna línea menos
-// sangrada que su primera línea le pertenece (una continuación de un escalar
-// o el cuerpo de un `|` van siempre más adentro que su llave), así que, si la
-// decodificación no dio error, esas líneas son justo las que el lector
-// descartó. Una colección de flujo (`[...]`, `{...}`) puede partir sus líneas
-// con cualquier sangría, y queda fuera.
-func yamlUnderIndentedTail(lines []string) (start, end int, ok bool) {
-	rootIndent := -1
+// Se decide desde el nodo, no desde la sangría del texto: el fin del documento
+// es la última línea que cubre el último nodo (ver yamlNodeEnd), así que una
+// fila de flujo o un escalar entre comillas partidos en varias líneas, con
+// cualquier sangría, quedan dentro. Además, lo descartado está siempre menos
+// sangrado que la colección de nivel superior (si no, yaml.v3 lo leería o daría
+// error), y se exige también: un fin mal calculado no puede producir un aviso
+// sobre una línea que sí se leyó.
+func yamlDiscardedTail(lines []string, root *yaml.Node) (start, end int, ok bool) {
+	if root == nil || root.Line < 1 {
+		return 0, 0, false
+	}
+	rootIndent := root.Column - 1
+	last := yamlNodeEnd(lines, root)
 	start = -1
-	for k, line := range lines {
-		trimmed := strings.TrimSpace(line)
+	for k := last + 1; k < len(lines); k++ {
+		trimmed := strings.TrimSpace(lines[k])
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if rootIndent < 0 {
-			if trimmed[0] == '[' || trimmed[0] == '{' {
-				return 0, 0, false
+		if start < 0 {
+			if CalculateIndentLevel(lines[k]) >= rootIndent {
+				continue
 			}
-			rootIndent = CalculateIndentLevel(line)
-			continue
-		}
-		if start < 0 && CalculateIndentLevel(line) < rootIndent {
 			start = k
 		}
-		if start >= 0 {
-			end = k
-		}
+		end = k
 	}
 	return start, end, start >= 0
+}
+
+// yamlNodeEnd es el índice (en lines) de la última línea que ocupa root. yaml.v3
+// solo da la posición donde empieza cada nodo, así que el fin se calcula sobre
+// el texto a partir del último nodo hoja:
+//
+//   - si el último nodo cuelga de una colección de flujo, el fin es el cierre
+//     (`]` o `}`) de la colección de flujo más externa;
+//   - un escalar entre comillas termina en su comilla de cierre;
+//   - uno de bloque (`|`, `>`) o uno plano de varias líneas sigue mientras las
+//     líneas estén más sangradas que su llave o su guion.
+//
+// Si el texto no se deja leer así (un cierre que no aparece), devuelve la última
+// línea: no hay cola que avisar.
+func yamlNodeEnd(lines []string, root *yaml.Node) int {
+	lastLine := len(lines) - 1
+	// El camino hasta la última hoja, con el padre de cada nodo.
+	path := []*yaml.Node{root}
+	for n := root; len(n.Content) > 0; {
+		n = n.Content[len(n.Content)-1]
+		path = append(path, n)
+	}
+	for _, n := range path {
+		if (n.Kind == yaml.SequenceNode || n.Kind == yaml.MappingNode) && n.Style&yaml.FlowStyle != 0 {
+			if l, ok := flowCloseLine(lines, n.Line-1, n.Column-1); ok {
+				return l
+			}
+			return lastLine
+		}
+	}
+	leaf := path[len(path)-1]
+	start := leaf.Line - 1
+	if start < 0 || start > lastLine {
+		return lastLine
+	}
+	switch {
+	case leaf.Kind == yaml.ScalarNode && leaf.Style&yaml.DoubleQuotedStyle != 0:
+		if l, ok := quoteCloseLine(lines, start, leaf.Column-1, '"'); ok {
+			return l
+		}
+		return lastLine
+	case leaf.Kind == yaml.ScalarNode && leaf.Style&yaml.SingleQuotedStyle != 0:
+		if l, ok := quoteCloseLine(lines, start, leaf.Column-1, '\''); ok {
+			return l
+		}
+		return lastLine
+	}
+	// Escalar plano, de bloque o un nodo vacío: las líneas que siguen y están
+	// más sangradas que el dueño del valor (la llave o el guion) son suyas.
+	owner := root
+	if len(path) >= 2 {
+		parent := path[len(path)-2]
+		owner = parent
+		if parent.Kind == yaml.MappingNode && len(parent.Content) >= 2 {
+			owner = parent.Content[len(parent.Content)-2] // la llave
+		}
+	}
+	ownerIndent := owner.Column - 1
+	end := start
+	for k := start + 1; k <= lastLine; k++ {
+		trimmed := strings.TrimSpace(lines[k])
+		if trimmed == "" {
+			continue
+		}
+		if CalculateIndentLevel(lines[k]) <= ownerIndent {
+			break
+		}
+		end = k
+	}
+	return end
+}
+
+// flowCloseLine busca, desde lines[line][col] (un `[` o `{`), la línea de su
+// cierre, saltando comillas y comentarios.
+func flowCloseLine(lines []string, line, col int) (int, bool) {
+	depth := 0
+	var quote byte
+	for l := line; l < len(lines); l++ {
+		s := lines[l]
+		c := 0
+		if l == line {
+			c = col
+		}
+		for ; c < len(s); c++ {
+			ch := s[c]
+			switch {
+			case quote == '"':
+				if ch == '\\' {
+					c++
+				} else if ch == '"' {
+					quote = 0
+				}
+			case quote == '\'':
+				if ch == '\'' {
+					if c+1 < len(s) && s[c+1] == '\'' {
+						c++
+					} else {
+						quote = 0
+					}
+				}
+			case ch == '"' || ch == '\'':
+				quote = ch
+			case ch == '#' && (c == 0 || s[c-1] == ' ' || s[c-1] == '\t'):
+				c = len(s)
+			case ch == '[' || ch == '{':
+				depth++
+			case ch == ']' || ch == '}':
+				depth--
+				if depth == 0 {
+					return l, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// quoteCloseLine busca, desde la comilla de apertura en lines[line][col], la
+// línea de la comilla que cierra el escalar.
+func quoteCloseLine(lines []string, line, col int, q byte) (int, bool) {
+	for l := line; l < len(lines); l++ {
+		s := lines[l]
+		c := 0
+		if l == line {
+			c = col + 1
+		}
+		for ; c < len(s); c++ {
+			switch {
+			case q == '"' && s[c] == '\\':
+				c++
+			case s[c] == q && q == '\'' && c+1 < len(s) && s[c+1] == '\'':
+				c++
+			case s[c] == q:
+				return l, true
+			}
+		}
+	}
+	return 0, false
 }

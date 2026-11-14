@@ -4,7 +4,9 @@
 package parser
 
 import (
+	"encoding/json"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strings"
 	"testing"
@@ -107,7 +109,7 @@ var noDropRegressions = []noDropRegression{
 	{name: "chart nested line", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    series: ["s"]`, "      o B  <"}, rule: "CHART007", quote: `nested under series:`},
 	{name: "chart unsupported key", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    backgroundColor: red  <"}, rule: "CHART007", quote: `"backgroundColor: red"`},
 	{name: "chart data not array", body: []string{"  <<chart: bar>>", "    data: muchos  <"}, rule: "CHART007", quote: `"data: muchos"`},
-	{name: "chart options invalid", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    options:  <", "      plugins: true", "      plugins: false"}, rule: "CHART007", quote: `every line under it were ignored`},
+	{name: "chart options invalid", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    options:  <", "      plugins: true", "      plugins: false"}, rule: "CHART007", quote: `not valid YAML (mapping key "plugins" already defined), so`},
 
 	// Bloques YAML: cada llave desconocida, en su línea.
 	{name: "metric unknown key", body: []string{"  <<metric>>", "    label: Ventas", "    Importante:  <", "      alt: perro", "  <<end>>"}, rule: "METRIC006", quote: `"Importante:"`},
@@ -128,6 +130,7 @@ var noDropRegressions = []noDropRegression{
 	// Cuerpos YAML y JSON: lo que el lector deja afuera sin error, y los
 	// avisos de cuerpo ignorado que ahora cubren todo el cuerpo.
 	{name: "cells under-indented rows", body: []string{"  TABLE", "    cells:", "        -", "      - [{content: a}, {content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
+	{name: "cells item at key indent", body: []string{"  TABLE", "    cells:", "      - [{content: a}, {content: b}]", "    - [{content: c}, {content: d}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
 	{name: "table rows document marker", body: []string{"  TABLE", "    tableRows:", "      - cells: [{content: a}]", "    ---  <"}, rule: "TABLE008", quote: `"---"`},
 	{name: "table rows invalid", covers: true, severity: diagnostics.Error, body: []string{"  TABLE", "    tableRows:", "      - cells: [{content: a, falso: 1}]  <"}, rule: "", quote: "invalid tableRows YAML"},
 	{name: "cells invalid", covers: true, body: []string{"  TABLE", "    cells:", "      - [{content: a}", "      - nope: [  <"}, rule: "TABLE004", quote: `not valid YAML`},
@@ -356,5 +359,126 @@ func TestStrictNoSilentDrop_HeaderEdges(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("want one TABLE008 on line 8, got %d: %v", n, diags)
+	}
+}
+
+// Una fila de flujo o un escalar entre comillas partidos en varias líneas son
+// parte de la tabla aunque la continuación vaya menos sangrada que el guion:
+// yaml.v3 los lee, y el aviso de líneas descartadas no puede salir. Son los
+// tres casos que la primera versión, que miraba la sangría del texto, marcaba
+// de más.
+func TestStrictNoSilentDrop_SplitTableRowsStayQuiet(t *testing.T) {
+	cases := map[string][]string{
+		"tableRows flow split, continuation less indented": {
+			"  TABLE", "    tableRows:",
+			`      - cells: [{content: "a1x0", header: true}, {content: "b1x0", header: true}]`,
+			`      - cells: [{content: "a1x1"},`,
+			`     {content: "b1x1"}]`,
+		},
+		"cells flow split, continuation at 6": {
+			"  TABLE", "    cells:",
+			`        - [{content: "Name", header: true},`,
+			`      {content: "Role", header: true}]`,
+			`        - [{content: "Ana"}, {content: "Dev"}]`,
+		},
+		"cells quoted scalar split": {
+			"  TABLE", "    cells:",
+			`        - [{content: "Long`,
+			`      header", header: true}]`,
+			`        - [{content: "x"}]`,
+		},
+	}
+	for name, body := range cases {
+		src, _ := buildNoDropRegression(noDropRegression{body: body}, false)
+		tree, diags := New(util.NewNoop()).ParseDocument(src, "split.doclang")
+		for _, d := range diags {
+			t.Errorf("%s: unexpected %d:%s %s", name, d.Position.Line, d.RuleID, d.Message)
+		}
+		if len(tree.ContentBlocks) == 0 || len(tree.ContentBlocks[0].Elements) == 0 {
+			t.Fatalf("%s: no table", name)
+		}
+		raw, _ := json.Marshal(tree.ContentBlocks[0].Elements[0])
+		for _, w := range []string{"b1x1", "Role", "Long header"} {
+			if strings.Contains(strings.Join(body, "\n"), strings.Fields(w)[0]) && !strings.Contains(string(raw), w) {
+				t.Errorf("%s: %q missing from the table", name, w)
+			}
+		}
+	}
+}
+
+// Propiedad: una tabla cells: o tableRows: que yaml.v3 lee sin error, con sus
+// filas partidas en varias líneas a sangrías al azar (más adentro que la
+// llave, para seguir en el bloque) y algún escalar entre comillas partido,
+// no recibe ningún TABLE008, y todas sus celdas llegan al AST.
+func TestStrictNoSilentDrop_SplitTableRowsProperty(t *testing.T) {
+	valid := 0
+	for seed := int64(1); seed <= 400; seed++ {
+		rng := rand.New(rand.NewSource(seed))
+		key := "cells:"
+		if rng.Intn(2) == 0 {
+			key = "tableRows:"
+		}
+		dash := []int{6, 8}[rng.Intn(2)]
+		var lines []string
+		var want []string
+		for r := 0; r < 1+rng.Intn(4); r++ {
+			var cells []string
+			for c := 0; c < 1+rng.Intn(3); c++ {
+				word := fmt.Sprintf("r%dc%ds%d", r, c, seed)
+				want = append(want, word)
+				if rng.Intn(4) == 0 {
+					// Escalar entre comillas partido: la segunda palabra va en
+					// otra línea.
+					cells = append(cells, fmt.Sprintf("{content: \"%s\n%sz%s\"}", word, strings.Repeat(" ", 5+rng.Intn(8)), word))
+					continue
+				}
+				cells = append(cells, fmt.Sprintf("{content: %s}", word))
+			}
+			// Cada coma puede partir la fila en otra línea.
+			var b strings.Builder
+			for c, cell := range cells {
+				if c > 0 {
+					b.WriteString(",")
+					if rng.Intn(2) == 0 {
+						b.WriteString("\n" + strings.Repeat(" ", 5+rng.Intn(8)))
+					} else {
+						b.WriteString(" ")
+					}
+				}
+				b.WriteString(cell)
+			}
+			prefix := "- ["
+			if key == "tableRows:" {
+				prefix = "- cells: ["
+			}
+			lines = append(lines, strings.Split(strings.Repeat(" ", dash)+prefix+b.String()+"]", "\n")...)
+		}
+		src := noDropDocHeader + "SECTION \"S\"\n  TABLE\n    " + key + "\n" + strings.Join(lines, "\n") + "\n"
+		tree, diags := New(util.NewNoop()).ParseDocument(src, "prop.doclang")
+		bad := false
+		for _, d := range diags {
+			if d.IsError() || d.RuleID == "TABLE004" {
+				bad = true // yaml.v3 no la leyó: no es una tabla válida
+			}
+		}
+		if bad {
+			continue
+		}
+		valid++
+		for _, d := range diags {
+			if d.RuleID == "TABLE008" {
+				t.Errorf("seed %d: unexpected TABLE008 on line %d: %s\n%s", seed, d.Position.Line, d.Message, src)
+			}
+		}
+		raw, _ := json.Marshal(tree)
+		for _, w := range want {
+			if !strings.Contains(string(raw), w) {
+				t.Errorf("seed %d: cell %q missing from the AST\n%s", seed, w, src)
+			}
+		}
+	}
+	t.Logf("%d of 400 generated tables are valid YAML", valid)
+	if valid < 200 {
+		t.Fatalf("only %d of 400 generated tables were valid YAML: the generator drifted", valid)
 	}
 }
