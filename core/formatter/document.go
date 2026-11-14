@@ -60,7 +60,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 		if i > 0 || fm != "" {
 			b.WriteString("\n")
 		}
-		blockText, err := formatDocumentSection(&block, &hasTitleBlock, i == 0, ast.UsesMathSource(doc))
+		blockText, err := formatDocumentSection(&block, &hasTitleBlock, i == 0, ast.UsesMathSource(doc), fm)
 		if err != nil {
 			return "", err
 		}
@@ -83,7 +83,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 // parsearse como encabezado y dejaría un `#` suelto en el contenido— y no
 // consume la regla posicional: el parser sigue marcando "title" al primer
 // `#` real, venga o no después de ese preámbulo.
-func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, literalMath bool) (string, error) {
+func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, literalMath bool, frontMatter string) (string, error) {
 	var b strings.Builder
 
 	headless := first && block.Title == "" && block.Heading == ""
@@ -105,7 +105,7 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, 
 	// corpus real de DocLang siempre separa elementos con línea en blanco
 	// (ver el mismo archivo); replicar esa convención evita el gap.
 	for _, el := range block.Elements {
-		elText, err := formatDocumentElement(el, literalMath)
+		elText, err := formatDocumentElement(el, literalMath, frontMatter)
 		if err != nil {
 			return "", err
 		}
@@ -124,7 +124,7 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, 
 	return b.String(), nil
 }
 
-func formatDocumentElement(el ast.Element, literalMath bool) (string, error) {
+func formatDocumentElement(el ast.Element, literalMath bool, frontMatter string) (string, error) {
 	var body string
 	var err error
 
@@ -164,7 +164,7 @@ func formatDocumentElement(el ast.Element, literalMath bool) (string, error) {
 		// form otherwise, silently dropping Label and any non-trivial Cells
 		// structure (row-scoped headers, colspan, rowspan) on fmt --write —
 		// a real data-loss bug found in code review.
-		body, err = formatTableElement(e)
+		body, err = formatTableElement(e, true)
 	case *ast.QuoteElement:
 		body, err = formatFlexQuote(e)
 	case *ast.ChecklistElement:
@@ -176,7 +176,7 @@ func formatDocumentElement(el ast.Element, literalMath bool) (string, error) {
 	case *ast.MetricElement:
 		body, err = formatMetric(e)
 	case *ast.SpecialBlockElement:
-		body = formatSpecialBlock(e)
+		body, err = formatFlexSpecialBlock(e, frontMatter)
 	case *ast.CodeGroupElement:
 		body, err = formatCodeGroup(e)
 	case *ast.MermaidElement:

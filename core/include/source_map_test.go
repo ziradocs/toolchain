@@ -347,3 +347,54 @@ func TestExpandWithOptions_SourcesMatchEveryLine(t *testing.T) {
 		}
 	}
 }
+
+// Un archivo incluido dos veces seguidas, con un rango de una copia a la
+// otra: el CHART002 del JSON sin cerrar de p/y.slidelang empieza en el
+// <<chart>> de la primera copia y termina en la primera línea de la segunda,
+// que en el archivo es 2:1-1:1. La posición final se descarta; el rango
+// dentro de una sola copia se conserva.
+func TestSourceMap_RangeAcrossTwoExpansionsOfOneFileDropsItsEnd(t *testing.T) {
+	y := abs(t, "/base/p/y.slidelang")
+	files := map[string]string{y: "{\"a\": [1,\n<<chart: bar>>"}
+	root := "---\nmode: flex\ntitle: \"I\"\n---\n# T\n\n@include p/y.slidelang\n@include p/y.slidelang\n"
+	text, sm, err := ExpandWithSourceMap(root, abs(t, "/base"), memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Líneas expandidas: 7 y 8 son la primera copia, 9 y 10 la segunda.
+	_, diags := parser.New(util.NewNoop()).Parse(text, "root.slidelang")
+	var found bool
+	for _, d := range sm.MapDiagnostics(diags, abs(t, "/base")) {
+		if d.RuleID != "CHART002" {
+			continue
+		}
+		found = true
+		if d.File != "p/y.slidelang" || d.Position.Line != 2 {
+			t.Errorf("CHART002 at %s:%d, want p/y.slidelang:2", d.File, d.Position.Line)
+		}
+		if d.EndPosition != nil {
+			t.Errorf("CHART002 keeps an end at %v, before or in another copy than its start %v", *d.EndPosition, d.Position)
+		}
+	}
+	if !found {
+		t.Fatalf("no CHART002 in %+v", diags)
+	}
+
+	ranged := func(from, to int) diagnostics.Diagnostic {
+		return diagnostics.NewWarning("r", diagnostics.NewPosition(from, 1), "t").WithEndPosition(diagnostics.NewPosition(to, 1))
+	}
+	out := sm.MapDiagnostics([]diagnostics.Diagnostic{ranged(7, 8), ranged(9, 10), ranged(7, 10), ranged(8, 9)}, abs(t, "/base"))
+	for i, want := range []int{2, 2, 0, 0} {
+		got := 0
+		if out[i].EndPosition != nil {
+			got = out[i].EndPosition.Line
+		}
+		if got != want {
+			t.Errorf("range %d: end line %d, want %d (0 = dropped): %+v", i, got, want, out[i])
+		}
+	}
+	inverted := diagnostics.NewWarning("r", diagnostics.NewPosition(8, 5), "t").WithEndPosition(diagnostics.NewPosition(8, 2))
+	if got := sm.MapDiagnostics([]diagnostics.Diagnostic{inverted}, "")[0]; got.EndPosition != nil {
+		t.Errorf("a range ending before its start keeps its end: %+v", got)
+	}
+}

@@ -211,15 +211,7 @@ func Prepare(log util.Logger, content []byte, opts PrepareOptions) (*Prepared, e
 
 	// Check for errors in diagnostics; print warnings too (e.g. CHART002
 	// for malformed chart JSON).
-	hasErrors := false
-	for _, diag := range parseDiags {
-		if diag.IsError() {
-			log.Error("PARSER: Error at %s: %s", Where(diag), diag.Message)
-			hasErrors = true
-		} else if diag.IsWarning() {
-			log.Warn("PARSER: Warning at %s: %s", Where(diag), diag.Message)
-		}
-	}
+	hasErrors := logParseDiagnostics(log, parseDiags)
 	if hasErrors {
 		return nil, &DiagnosticsError{Stage: StageParse, Diagnostics: append(parseDiags, MapToSource(sources, parserFindings, opts.DocDir)...)}
 	}
@@ -443,6 +435,12 @@ type GenerateOptions struct {
 	TileServer        string
 	TileUserAgent     string
 	TileAttribution   string
+	// ExpandedLines deja los avisos de log del generador con la línea del
+	// contenido expandido ("line N"), para quien los lleva a su archivo por
+	// su cuenta (la tool MCP). Sin él, el aviso nombra "archivo:N" o la línea
+	// del documento, como el reporte de --fail-on-unavailable. Los errores
+	// devueltos se ubican siempre.
+	ExpandedLines bool
 }
 
 var validRenderModes = map[string]bool{
@@ -580,6 +578,12 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		TileAttribution:   opts.TileAttribution,
 		Ctx:               opts.Ctx,
 	}
+	genOpts.ExpandedLines = opts.ExpandedLines
+	genOpts.LocateLine = func(line int) (string, int) {
+		ue := &generator.UnavailableError{Items: []generator.UnavailableContent{{Line: line}}}
+		mapUnavailable(ue, p.Sources, p.DocDir)
+		return ue.Items[0].File, ue.Items[0].Line
+	}
 	log.Info("GENERATOR", "Generating %s document...", format)
 	if err := gen.Generate(doc, opts.OutputFile, genOpts); err != nil {
 		// Con --fail-on-unavailable la salida no se escribe; tampoco debe
@@ -667,3 +671,21 @@ func isPolicyNotice(d diagnostics.Diagnostic) bool {
 // readIncludedFile lee cada archivo que trae un @include; es una variable
 // para que las pruebas simulen un fallo dentro de la expansión.
 var readIncludedFile = os.ReadFile
+
+// logParseDiagnostics escribe en el log los errores, los warnings y el Info
+// que señala el primer uso de un nodeId repetido, y dice si hubo errores.
+func logParseDiagnostics(log util.Logger, diags []diagnostics.Diagnostic) (hasErrors bool) {
+	for _, diag := range diags {
+		if diag.IsError() {
+			log.Error("PARSER: Error at %s: %s", Where(diag), diag.Message)
+			hasErrors = true
+		} else if diag.IsWarning() {
+			log.Warn("PARSER: Warning at %s: %s", Where(diag), diag.Message)
+		} else if diag.Severity == diagnostics.Info && diag.Source == "identity" {
+			// Sin ese Info el error no dice dónde está el primer uso. No
+			// cuenta como warning ni cambia el código de salida.
+			log.Info("PARSER", "Note at %s: %s", Where(diag), diag.Message)
+		}
+	}
+	return hasErrors
+}

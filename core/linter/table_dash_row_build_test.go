@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -23,26 +25,31 @@ import (
 // por defecto y la política del frontmatter.
 
 // buildErrors devuelve los errores del parser y del linter para src, como
-// `doclang build` (document) o `slidelang build`.
+// `doclang build` (document) o `slidelang build`: un error del parser corta
+// el build; los avisos del parser y los diagnósticos del linter pasan por la
+// política del frontmatter (lint_policy:), que puede subirlos a error, como
+// hace el CLI (EvaluatePolicy en doclang/internal/pipeline y en
+// slidelang/internal/findings).
 func buildErrors(src string, document bool) []string {
 	p := parser.New(util.NewNoop())
 	var doc *ast.AST
-	var errs []string
+	var parseDiags []diagnostics.Diagnostic
 	if document {
-		d, diags := p.ParseDocument(src, "t.doclang")
-		doc = d
-		for _, x := range diags {
-			if x.IsError() {
-				errs = append(errs, x.RuleID+": "+x.Message)
-			}
-		}
+		doc, parseDiags = p.ParseDocument(src, "t.doclang")
 	} else {
-		d, diags := p.Parse(src, "t.slidelang")
-		doc = d
-		for _, x := range diags {
-			if x.IsError() {
-				errs = append(errs, x.RuleID+": "+x.Message)
-			}
+		doc, parseDiags = p.Parse(src, "t.slidelang")
+	}
+	var errs []string
+	var findings []diagnostics.Diagnostic
+	for _, x := range parseDiags {
+		switch {
+		case x.IsError():
+			errs = append(errs, x.RuleID+": "+x.Message)
+		case x.Severity == diagnostics.Info && x.RuleID == "" && x.Code == "":
+			// ReportableParserDiagnostics: un info sin regla no pasa por la
+			// política.
+		default:
+			findings = append(findings, x)
 		}
 	}
 	if len(errs) > 0 || doc == nil {
@@ -52,16 +59,40 @@ func buildErrors(src string, document bool) []string {
 	if err != nil {
 		return []string{err.Error()}
 	}
-	l := New().WithPolicy(policy)
+	l := New()
 	if document {
 		l = l.WithDialect(DialectDocuments)
 	}
-	for _, x := range l.Lint(doc) {
+	now := time.Now()
+	parserActive, _ := policy.Evaluate(findings, doc.FilePath, now)
+	lintActive, _ := policy.Evaluate(l.LintUnfiltered(doc), doc.FilePath, now)
+	for _, x := range append(parserActive, lintActive...) {
 		if x.IsError() {
 			errs = append(errs, x.RuleID+": "+x.Message)
 		}
 	}
 	return errs
+}
+
+// Una lint_policy que sube TABLE008 a error hace fallar el build por una
+// fila con guiones que no cabe en la tabla y se salta como separador: la
+// política se aplica también a los avisos del parser, como en el CLI. Sin
+// la política, el mismo documento compila.
+func TestTableDashRowBuildAppliesPolicyToParserFindings(t *testing.T) {
+	const body = "# Doc\n\n| Year | Q1 | Q2 |\n|---|---|---|\n| 2019 | --- |\n| 2020 | 1 | 2 |\n"
+	plain := "---\nmode: flex\ntitle: \"T\"\n---\n\n" + body
+	if errs := buildErrors(plain, true); len(errs) > 0 {
+		t.Fatalf("without a policy: %v", errs)
+	}
+	strictPolicy := "---\nmode: flex\ntitle: \"T\"\nlint_policy:\n  rules:\n    TABLE008:\n      severity: error\n---\n\n" + body
+	errs := buildErrors(strictPolicy, true)
+	if len(errs) != 1 || !strings.HasPrefix(errs[0], "TABLE008: ") || !strings.Contains(errs[0], `"| 2019 | --- |"`) {
+		t.Fatalf("with TABLE008 raised to error: %v", errs)
+	}
+	off := "---\nmode: flex\ntitle: \"T\"\nlint_policy:\n  rules:\n    TABLE003:\n      enabled: false\n---\n\n# Doc\n\n| A | B |\n|---|---|\n| 1 |\n"
+	if errs := buildErrors(off, true); len(errs) > 0 {
+		t.Fatalf("with TABLE003 turned off: %v", errs)
+	}
 }
 
 // Los casos del reporte de revisión de #531: compilan en origin/main y
@@ -184,10 +215,10 @@ func genDashRowDocs(seed int64, n int) []struct {
 	return out
 }
 
-// Diferencial de build contra origin/main (8ba2a79, antes de este cambio):
-// testdata/table_dash_row_main_failures.txt tiene los índices de los
-// documentos generados que no compilaban allá (errores del parser o del
-// linter). Todo documento que compilaba tiene que seguir compilando. Uno que
+// Diferencial de build contra origin/main (34437c8, la base de este cambio;
+// 8ba2a79 da el mismo conjunto): testdata/table_dash_row_main_failures.txt
+// tiene los índices de los documentos generados que no compilaban allá
+// (errores del parser o del linter, con la política aplicada). Todo documento que compilaba tiene que seguir compilando. Uno que
 // no compilaba puede pasar a compilar. El archivo se generó una vez con este
 // mismo generador en origin/main y no se regenera con el código nuevo.
 func TestTableDashRowBuildDifferential(t *testing.T) {

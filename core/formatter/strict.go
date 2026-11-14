@@ -15,6 +15,8 @@ import (
 	"go.ziradocs.com/core/v2/internal/codespan"
 	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/layouts"
+	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // FormatStrict serializa doc a la forma canónica del dialecto strict de
@@ -275,7 +277,7 @@ func formatStrictElement(el ast.Element) (string, error) {
 	case *ast.ImageElement:
 		body, err = formatStrictImage(e)
 	case *ast.TableElement:
-		body, err = formatTableElement(e)
+		body, err = formatTableElement(e, false)
 	case *ast.SpecialBlockElement:
 		// El cuerpo de un bloque especial se re-emite como texto crudo y el
 		// parser strict no reconoce `###` dentro de él (HeadingParser solo
@@ -651,8 +653,8 @@ func formatPipeTable(headers []string, rows [][]string, columnAlign []string) st
 		}
 		if len(row) == 0 {
 			// Una fila sin celdas se escribe "|", que los dos dialectos
-			// releen como fila sin celdas; "|  |" se releería con una celda
-			// vacía.
+			// releen como fila sin celdas ("|  |" se releería con una celda
+			// vacía). tableReadsBack confirma que la tabla se relee igual.
 			b.WriteString("|")
 			continue
 		}
@@ -1000,7 +1002,7 @@ func formatStrictChecklistItems(items []ast.ChecklistItem, indentLevel int) stri
 }
 
 func formatSpecialBlock(e *ast.SpecialBlockElement) string {
-	plain := specialBlockText(e, false)
+	plain := specialBlockText(e)
 	if len(e.Elements) == 0 || specialBlockReadsBack(e, plain) {
 		return plain
 	}
@@ -1011,11 +1013,123 @@ func formatSpecialBlock(e *ast.SpecialBlockElement) string {
 	// written only where it is needed and only if the text then reads back with
 	// the same elements; otherwise the plain form is returned and the read-back
 	// check in FormatStrict refuses the block by name.
-	typed := specialBlockText(e, true)
-	if specialBlockReadsBack(e, typed) {
-		return typed
+	for _, crossBlank := range []bool{false, true} {
+		typed := typedBlockText(e, crossBlank)
+		if specialBlockReadsBack(e, typed) {
+			return typed
+		}
 	}
 	return plain
+}
+
+// formatFlexSpecialBlock escribe un bloque ::: para el flex de documento.
+// Flex lee el cuerpo como lo escribió el autor, así que el bloque sale con su
+// Content, como siempre, cuando así se relee igual. Si no (Content guarda las
+// líneas recortadas, y una cerca o el cuerpo de un TABLE necesitan su
+// sangría), se le devuelve la sangría a los elementos anidados
+// (withNestedIndentation). Si tampoco así se relee igual, se rechaza en vez de
+// perder lo que tenía. A diferencia de strict no hay {typed}: en flex ese
+// atributo es parte del tipo del bloque.
+func formatFlexSpecialBlock(e *ast.SpecialBlockElement, frontMatter string) (string, error) {
+	plain := specialBlockText(e)
+	if len(e.Elements) == 0 {
+		return plain, nil
+	}
+	got := flexSpecialBlockReadBack(plain, frontMatter)
+	if sameSpecialBlock(e, got) {
+		return plain, nil
+	}
+	head := ":::" + e.BlockType
+	if e.Title != "" {
+		head += " " + e.Title
+	}
+	for _, crossBlank := range []bool{false, true} {
+		indented := head + "\n" + withNestedIndentation(e, crossBlank) + "\n:::"
+		if sameSpecialBlock(e, flexSpecialBlockReadBack(indented, frontMatter)) {
+			return indented, nil
+		}
+	}
+	return "", newUnsupported("special_block", fmt.Sprintf(
+		"the %s block (line %d) does not read back with the same content in flex: %s. Formatting would change it, so fmt leaves the file as it is",
+		blockLabel(e), e.GetPosition().Line, firstChangedElement(e, got)))
+}
+
+// flexSpecialBlockReadBack relee text, un bloque escrito en flex, y devuelve
+// el primer bloque, o nil. frontMatter es la del documento ya escrita: sus
+// ast_capabilities cambian cómo se lee el cuerpo (un ### adentro es un
+// encabezado tipado con typed-headings-v1, por ejemplo).
+func flexSpecialBlockReadBack(text, frontMatter string) *ast.SpecialBlockElement {
+	// Con la normalización, como lee el documento la CLI: un <<mermaid>>
+	// dentro de un bloque, por ejemplo, se lee distinto sin ella.
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(frontMatter+"\n# x\n\n"+text+"\n", "")
+	if doc == nil {
+		return nil
+	}
+	blocks := collectSpecialBlocks(doc)
+	if len(blocks) == 0 {
+		return nil
+	}
+	return blocks[0]
+}
+
+func sameSpecialBlock(e, got *ast.SpecialBlockElement) bool {
+	return got != nil && got.BlockType == e.BlockType && got.Title == e.Title && got.Content == e.Content &&
+		sameElements(e.Elements, got.Elements)
+}
+
+// firstChangedElement dice, para el mensaje, qué elemento anidado de e no se
+// releyó igual en got: por su tipo y su contenido.
+func firstChangedElement(e, got *ast.SpecialBlockElement) string {
+	if got == nil {
+		return "the block itself is not read back"
+	}
+	if got.BlockType != e.BlockType || got.Title != e.Title {
+		return fmt.Sprintf("it is read back as :::%s %s", got.BlockType, got.Title)
+	}
+	for i, el := range e.Elements {
+		if i >= len(got.Elements) || !sameElements([]ast.Element{el}, []ast.Element{got.Elements[i]}) {
+			return describeNestedElement(el) + " does not come back the same"
+		}
+	}
+	if len(got.Elements) > len(e.Elements) {
+		return describeNestedElement(got.Elements[len(e.Elements)]) + " appears in it"
+	}
+	return "its text changes"
+}
+
+// codeFenceLang es el lenguaje de un CodeElement como lo nombra su cerca: sin
+// el nombre de archivo y sin el acento de más que deja una cerca de cuatro
+// (el parser la lee como "```" seguido de "`python").
+func codeFenceLang(language string) string {
+	lang, _, _ := strings.Cut(strings.TrimSpace(language), " ")
+	return strings.TrimLeft(lang, "`")
+}
+
+func describeNestedElement(el ast.Element) string {
+	firstLine := func(s string) string {
+		line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+		if len(line) > 40 {
+			line = line[:40] + "…"
+		}
+		return line
+	}
+	switch n := el.(type) {
+	case *ast.TableElement:
+		return tableName(n)
+	case *ast.CodeElement:
+		return fmt.Sprintf("the %s code block that starts %q", codeFenceLang(n.Language), firstLine(n.Content))
+	case *ast.MermaidElement:
+		return fmt.Sprintf("the mermaid diagram that starts %q", firstLine(n.Content))
+	case *ast.PlantUMLElement:
+		return fmt.Sprintf("the plantuml diagram that starts %q", firstLine(n.Content))
+	case *ast.ImageElement:
+		return fmt.Sprintf("the image %q", n.Source)
+	case *ast.TextElement:
+		return fmt.Sprintf("the text %q", firstLine(n.Content))
+	case *ast.SpecialBlockElement:
+		return "the nested " + blockLabel(n) + " block"
+	}
+	return "the nested " + string(el.GetType()) + " element"
 }
 
 // typedBlockType adds the typed attribute to a block type: `card` becomes
@@ -1027,45 +1141,61 @@ func typedBlockType(blockType string) string {
 	return blockType + "{typed}"
 }
 
-func specialBlockText(e *ast.SpecialBlockElement, typed bool) string {
-	var b strings.Builder
-	if typed {
-		b.WriteString(":::" + typedBlockType(e.BlockType))
-	} else {
-		b.WriteString(":::" + e.BlockType)
+// typedBlockText es la forma {typed} del bloque, con la sangría de lo anidado
+// (ver withNestedIndentation y crossBlank en indentTableBody).
+func typedBlockText(e *ast.SpecialBlockElement, crossBlank bool) string {
+	head := ":::" + typedBlockType(e.BlockType)
+	if e.Title != "" {
+		head += " " + e.Title
 	}
+	return head + "\n" + withNestedIndentation(e, crossBlank) + "\n:::"
+}
+
+func specialBlockText(e *ast.SpecialBlockElement) string {
+	var b strings.Builder
+	b.WriteString(":::" + e.BlockType)
 	if e.Title != "" {
 		b.WriteString(" " + e.Title)
 	}
 	b.WriteString("\n")
-	if typed {
-		b.WriteString(withFenceIndentation(e))
-	} else {
-		b.WriteString(e.Content)
-	}
+	b.WriteString(e.Content)
 	b.WriteString("\n:::")
 	return b.String()
 }
 
-// withFenceIndentation returns the body of a typed block with the interior of
-// each fenced code block written as the nested CodeElement holds it.
+// withNestedIndentation returns the body of a block with the indentation its
+// nested elements need to be read back: the interior of each code or mermaid
+// fence as the nested element holds it, and the body of each TABLE block. A
+// plantuml element drops the indentation of its lines when it reads them, so
+// there is none to give back; its fence only has to close where its parser
+// closes it.
 //
-// A block's content is its raw lines trimmed one by one, while the CodeElement
+// A block's content is its raw lines trimmed one by one, while the element
 // built from a fence keeps the lines as they were, indentation included. Read
-// back, a typed block trims the lines again for `content` and gives the fence its
-// raw lines, so writing the fence interior with its own indentation restores both
-// views from one text. The fence interiors in `content` are the same lines, in the
-// same order and number, trimmed; they are paired with the code elements by order
-// and by language, and a fence that does not pair (the tabs of a code group, say)
-// is left as it is. The read-back check in formatSpecialBlock is the net.
-func withFenceIndentation(e *ast.SpecialBlockElement) string {
-	var codes []*ast.CodeElement
+// back, a block trims the lines again for `content` and gives the fence its
+// raw lines, so writing the fence interior with its own indentation restores
+// both views from one text. The fence interiors in `content` are the same
+// lines, in the same order and number, trimmed; they are paired with the
+// fenced elements by order and by language, and a fence that does not pair
+// (the tabs of a code group, say) is left as it is. Each fence closes the way
+// its parser closes it: a code fence only on "```" (also after "````", as the
+// parser reads it today), a mermaid or plantuml fence on "```" or "````". The
+// read-back check of the caller is the net.
+//
+// Un TABLE dentro del bloque perdía la sangría de su cuerpo de la misma forma:
+// sin ella, headers:/rows: se releen como texto y la tabla sale vacía. Ver
+// indentTableBody, y crossBlank allí.
+func withNestedIndentation(e *ast.SpecialBlockElement, crossBlank bool) string {
+	type fenced struct{ lang, content string }
+	var fences []fenced
 	var collect func(els []ast.Element)
 	collect = func(els []ast.Element) {
 		for _, el := range els {
 			switch n := el.(type) {
 			case *ast.CodeElement:
-				codes = append(codes, n)
+				fences = append(fences, fenced{codeFenceLang(n.Language), n.Content})
+			case *ast.MermaidElement:
+				fences = append(fences, fenced{"mermaid", n.Content})
 			case *ast.SpecialBlockElement:
 				collect(n.Elements)
 			case *ast.GridElement:
@@ -1076,27 +1206,26 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 		}
 	}
 	collect(e.Elements)
-	if len(codes) == 0 {
-		return e.Content
-	}
 
 	lines := strings.Split(e.Content, "\n")
 	var out []string
 	next := 0
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		if next >= len(codes) || !strings.HasPrefix(lines[i], "```") {
+		if lines[i] == "TABLE" {
+			body := indentTableBody(lines[i+1:], crossBlank)
+			out = append(out, body...)
+			i += len(body)
 			continue
 		}
-		code := codes[next]
-		fenceLang, _, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(lines[i], "`")), " ")
-		codeLang, _, _ := strings.Cut(strings.TrimSpace(code.Language), " ")
-		if fenceLang != codeLang {
+		if !strings.HasPrefix(lines[i], "```") {
 			continue
 		}
+		lang, _, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(lines[i], "`")), " ")
+		diagram := lang == "mermaid" || lang == "plantuml"
 		closing := -1
 		for j := i + 1; j < len(lines); j++ {
-			if lines[j] == "```" {
+			if lines[j] == "```" || diagram && lines[j] == "````" {
 				closing = j
 				break
 			}
@@ -1104,18 +1233,90 @@ func withFenceIndentation(e *ast.SpecialBlockElement) string {
 		if closing < 0 {
 			continue
 		}
+		// El interior de una cerca no es un TABLE ni otra cerca: se copia
+		// tal cual, emparejado o no.
 		interior := lines[i+1 : closing]
-		raw := strings.Split(code.Content, "\n")
-		if code.Content != "" && len(raw) == len(interior) {
-			out = append(out, raw...)
-		} else {
-			out = append(out, interior...)
+		if next < len(fences) && fences[next].lang == lang {
+			if raw := strings.Split(fences[next].content, "\n"); fences[next].content != "" && len(raw) == len(interior) {
+				interior = raw
+			}
+			next++
 		}
+		out = append(out, interior...)
 		out = append(out, lines[closing])
 		i = closing
-		next++
 	}
 	return strings.Join(out, "\n")
+}
+
+// indentTableBody devuelve, con la sangría con la que el parser de TABLE las
+// lee, las líneas que siguen a un TABLE dentro de un bloque y son su cuerpo:
+// las propiedades a dos espacios, las filas bajo rows: a seis (el parser las
+// lee solo ahí), los items de cells:/tableRows: a cuatro y las demás claves
+// de un item de tableRows: dos más adentro, y las filas "|" a dos. Content guarda cada
+// línea recortada salvo los items de lista ("- […]"), que conservan su
+// sangría relativa al cuerpo del bloque: esos van tal cual. Termina en la
+// primera línea que no es del cuerpo; las líneas en blanco entre medio van
+// sin sangría y las del final no se cuentan. La lectura de vuelta en
+// formatSpecialBlock/formatFlexSpecialBlock decide si el resultado sirve.
+//
+// Con crossBlank false el cuerpo termina en la primera línea en blanco, que es
+// lo que casi siempre separa la tabla de lo que sigue en el bloque (una
+// lista, una tabla pipe, un párrafo que empieza con "clave:"). El parser sí
+// acepta líneas en blanco entre las propiedades de un TABLE (headers:, una
+// línea en blanco, rows:); para esas tablas el llamador prueba con crossBlank
+// true, que las cruza y termina en la primera línea que no es del cuerpo.
+func indentTableBody(lines []string, crossBlank bool) []string {
+	var out []string
+	mode := ""
+	itemIndent := 4
+	pending := 0 // líneas en blanco todavía sin asignar a la tabla
+	for _, line := range lines {
+		if line == "" {
+			if !crossBlank {
+				return out
+			}
+			pending++
+			continue
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		kept := len(line) - len(trimmed)
+		key := ""
+		for _, k := range []string{"caption:", "label:", "headers:", "rows:", "cells:", "tableRows:"} {
+			if strings.HasPrefix(trimmed, k) {
+				key = k
+				break
+			}
+		}
+		yaml := mode == "cells:" || mode == "tableRows:"
+		indent := 0
+		switch {
+		case yaml && strings.HasPrefix(trimmed, "- "):
+			// Un item: con la sangría que Content le guardó, o a cuatro.
+			itemIndent = 4
+			if kept > 0 {
+				itemIndent = kept
+			}
+			indent = itemIndent - kept
+		case mode == "tableRows:" && kept == 0 && (key == "cells:" || strings.HasPrefix(trimmed, "section:") || strings.HasPrefix(trimmed, "nodeId:")):
+			// Las claves de un item de tableRows: después de la primera.
+			indent = itemIndent + 2
+		case key != "" && kept == 0:
+			indent = 2
+			mode = key
+		case mode == "rows:" && strings.HasPrefix(trimmed, "[") && kept == 0:
+			indent = 6
+		case kept == 0 && (strings.HasPrefix(trimmed, "|") || trimmed == "]" || trimmed == "],"):
+			indent = 2
+		default:
+			return out
+		}
+		for ; pending > 0; pending-- {
+			out = append(out, "")
+		}
+		out = append(out, strings.Repeat(" ", indent)+line)
+	}
+	return out
 }
 
 // specialBlockReadsBack reports whether text, written inside a slide, reads
@@ -1902,8 +2103,17 @@ func checkNestedBlockElements(doc, parsed *ast.AST) error {
 	}
 	if len(losing) > 0 {
 		block := innermostBlock(losing)
+		what := describeNestedElement(block.Elements[0]) + " is lost"
+		if len(want) == len(got) {
+			for i := range want {
+				if want[i] == block {
+					what = firstChangedElement(block, got[i])
+				}
+			}
+		}
 		return newUnsupported("special_block", fmt.Sprintf(
-			"the %s block has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them", blockLabel(block)))
+			"the %s block (line %d) has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them: %s",
+			blockLabel(block), block.GetPosition().Line, what))
 	}
 	if len(want) == len(got) {
 		// Whatever the cause, a block that does not read back with its type,
@@ -1913,7 +2123,7 @@ func checkNestedBlockElements(doc, parsed *ast.AST) error {
 		for i, block := range want {
 			if block.BlockType != got[i].BlockType || block.Title != got[i].Title || block.Content != got[i].Content {
 				return newUnsupported("special_block", fmt.Sprintf(
-					"the %s block does not read back with the same type, title and content in strict, so formatting would change it", blockLabel(block)))
+					"the %s block (line %d) does not read back with the same type, title and content in strict, so formatting would change it", blockLabel(block), block.GetPosition().Line))
 			}
 		}
 	}

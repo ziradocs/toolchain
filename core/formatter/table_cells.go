@@ -4,11 +4,17 @@
 package formatter
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/parser"
+	"go.ziradocs.com/core/v2/util"
 )
 
 // formatTableElement serializes a TableElement for either dialect. The
@@ -26,21 +32,33 @@ import (
 // real bug found in code review: doclang's formatter emitted the pipe form
 // whenever Caption was empty, silently dropping Label and any non-trivial
 // Cells structure on `fmt --write`.
-func formatTableElement(e *ast.TableElement) (string, error) {
+//
+// flex es el dialecto de destino: decide cómo se relee cada forma candidata
+// y la sangría de las filas bajo rows: (ver strictTableRowsIndent).
+//
+// Una tabla sin estructura propia en Cells se escribe en la primera forma que,
+// releída en el dialecto de destino, da la misma tabla: pipe (sin caption ni
+// label), cells:, TABLE con caption/label y filas "|", y headers:/rows:.
+// Cada forma pierde algo distinto: pipe recorta los espacios de los bordes de
+// una celda y no tiene encabezado vacío; cells: rellena las filas hasta un
+// rectángulo; TABLE con filas "|" no lleva alineación ni tabla sin
+// encabezado; headers:/rows: no lleva una comilla doble. Por eso se elige
+// releyendo y no por la forma de la tabla.
+func formatTableElement(e *ast.TableElement, flex bool) (string, error) {
 	if e.HasTableRows() {
 		if err := ast.ValidateTableRows(e); err != nil {
 			return "", err
 		}
 		return formatTableRowsBlock(e)
 	}
-	pipeForm := !tableNeedsCellsBlock(e) && e.Caption == "" && e.Label == ""
-	if len(e.ColumnAlign) > 0 && (!pipeForm || e.HasTableRows()) {
-		// La alineación (table-align-v1) solo se escribe en la fila
-		// delimitadora de una tabla con pipes; las formas TABLE/cells no
-		// tienen dónde ponerla, y perderla en silencio cambiaría el AST.
-		return "", fmt.Errorf("table: columnAlign is only representable in a plain pipe table (no caption, label, merged cells or tableRows)")
+	if !tableCellsAreSimple(e) {
+		if len(e.ColumnAlign) > 0 {
+			return "", newUnsupported("table", "column alignment is only written in the separator row of a pipe table, and this table has merged or row-scoped cells, which a pipe table cannot hold")
+		}
+		return formatTableCellsBlock(e)
 	}
-	if pipeForm {
+	plainPipe := e.Caption == "" && e.Label == "" && len(e.Headers) > 0
+	if plainPipe {
 		// formatPipeTable delimits with "|", not quotes — it doesn't go
 		// through quote()/checkQuotable, so it doesn't inherit that
 		// limitation (a literal quote in a header/cell is representable in
@@ -48,9 +66,319 @@ func formatTableElement(e *ast.TableElement) (string, error) {
 		// "\|" by formatPipeTable (see escapeTableCellPipe) — needed since
 		// F10 (audit 2026-09-11) made a bare "|" inside a cell reachable at
 		// all (code spans, and "\|" decoded on parse).
-		return formatPipeTable(e.Headers, e.Rows, e.ColumnAlign), nil
+		if text := formatPipeTable(e.Headers, e.Rows, e.ColumnAlign); tableReadsBack(e, text, flex) {
+			return text, nil
+		}
 	}
-	return formatTableCellsBlock(e)
+	if len(e.ColumnAlign) > 0 {
+		// La alineación (table-align-v1) solo se escribe en la fila
+		// delimitadora de una tabla pipe; las formas TABLE/cells no tienen
+		// dónde ponerla, y perderla en silencio cambiaría el AST.
+		return "", alignmentError(e, plainPipe)
+	}
+	if cellsKeepFlatView(e) {
+		text, err := formatTableCellsBlock(e)
+		if err == nil && tableReadsBack(e, text, flex) {
+			return text, nil
+		}
+	}
+	if len(e.Headers) > 0 {
+		text, err := formatTablePipeBlock(e)
+		if err == nil && tableReadsBack(e, text, flex) {
+			return text, nil
+		}
+	}
+	rowsIndent := strictTableRowsIndent
+	if flex {
+		rowsIndent = flexTableRowsIndent
+	}
+	text, err := formatTableArraysBlock(e, rowsIndent)
+	if err != nil {
+		return "", err
+	}
+	if !tableReadsBack(e, text, flex) {
+		return "", newUnsupported("table", fmt.Sprintf("%s does not read back unchanged in any table form (pipe, cells:, TABLE with \"|\" rows, headers:/rows:)", tableName(e)))
+	}
+	return text, nil
+}
+
+// tableReadsBack dice si text, una tabla escrita en la columna 0, se relee en
+// el dialecto de destino como e, sin ningún aviso del parser, y sin tragarse
+// lo que la sigue. Relee solo la tabla, con el parser que la lee en ese
+// dialecto: en flex el registry de elementos, que es lo que el parser de
+// documentos llama para cada elemento de una sección; en strict el cuerpo de
+// un SLIDE, donde una tabla pipe la lee el propio parser strict. Releer el
+// documento entero, con la normalización de flex, costaba cerca de un
+// milisegundo por tabla.
+func tableReadsBack(e *ast.TableElement, text string, flex bool) bool {
+	var got *ast.TableElement
+	if flex {
+		// Como la escribe el formatter: sin el salto de línea final que deja
+		// una tabla pipe sin filas.
+		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+		n := len(lines)
+		// Un párrafo después, separado por una línea en blanco, como lo
+		// escribe FormatDocument: la tabla puede consumir la línea en
+		// blanco, pero no el párrafo.
+		lines = append(lines, "", "after")
+		res := elements.GetDefaultRegistry().Parse(&elements.ParseContext{Mode: "flex", Lines: lines, Logger: util.NewNoop(), DocumentHeadings: true}, 0)
+		t, ok := res.Element.(*ast.TableElement)
+		if !ok || res.Error != nil || len(res.Diagnostics) > 0 || res.ConsumedLines < n || res.ConsumedLines > n+1 {
+			return false
+		}
+		got = t
+	} else {
+		doc, diags := parser.NewStrictParser("SLIDE content\n  title: \"x\"\n"+indent(text, 2)+"\n  TEXT\n    after\n", util.NewNoop()).Parse()
+		if doc == nil || len(diags) > 0 || len(doc.ContentBlocks) != 1 {
+			return false
+		}
+		els := doc.ContentBlocks[0].Elements
+		if len(els) != 2 {
+			return false
+		}
+		t, ok := els[0].(*ast.TableElement)
+		if !ok {
+			return false
+		}
+		got = t
+	}
+	want := *e
+	if len(want.Cells) == 0 {
+		// Ver tableCellsAreSimple: un Cells sin poblar es el derivado.
+		want.Cells = ast.DeriveCellsFromFlat(want.Headers, want.Rows)
+	}
+	return bytes.Equal(tableJSON(&want), tableJSON(got))
+}
+
+// tableJSON es el JSON de una tabla sin lo que stripPositions deja afuera
+// (posiciones, nodeId, los campos *HTML que deriva el build), para comparar
+// dos tablas igual que sameElements sin pasar por un árbol genérico.
+func tableJSON(t *ast.TableElement) []byte {
+	c := *t
+	c.NodeID = ""
+	c.Position = diagnostics.Position{}
+	c.EndPosition = diagnostics.Position{}
+	c.RowPositions = nil
+	c.HeadersHTML = nil
+	c.RowsHTML = nil
+	c.CaptionHTML = ""
+	if len(c.TableRows) > 0 {
+		rows := make([]ast.TableRow, len(c.TableRows))
+		for i, r := range c.TableRows {
+			r.NodeID = ""
+			cells := make([]ast.TableRowCell, len(r.Cells))
+			for j, cell := range r.Cells {
+				cell.NodeID = ""
+				cells[j] = cell
+			}
+			if r.Cells == nil {
+				cells = nil
+			}
+			r.Cells = cells
+			rows[i] = r
+		}
+		c.TableRows = rows
+	}
+	out, err := json.Marshal(&c)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// tableName nombra una tabla por su contenido, para un mensaje: su
+// encabezado, o su primera fila si no tiene.
+func tableName(e *ast.TableElement) string {
+	if len(e.Headers) > 0 {
+		return fmt.Sprintf("the table with header %s", pipeRowText(e.Headers))
+	}
+	if len(e.Rows) > 0 {
+		return fmt.Sprintf("the table without a header whose first row is %s", pipeRowText(e.Rows[0]))
+	}
+	return "an empty table"
+}
+
+func pipeRowText(cells []string) string {
+	if len(cells) == 0 {
+		return "|"
+	}
+	return "| " + strings.Join(cells, " | ") + " |"
+}
+
+// alignmentError explica por qué una tabla alineada no tiene forma: la única
+// que lleva la alineación es la tabla pipe.
+func alignmentError(e *ast.TableElement, plainPipe bool) error {
+	if plainPipe {
+		// Una fila "|" ya no es motivo: strict la relee como fila sin
+		// celdas, igual que flex, así que la tabla pipe la lleva junto con
+		// la alineación.
+		return newUnsupported("table", fmt.Sprintf("%s has column alignment, and the pipe table that would carry it does not read back unchanged (a cell with spaces at its edges, for instance). Remove the alignment from the separator row, or fix the cell", tableName(e)))
+	}
+	var has []string
+	if e.Caption != "" {
+		has = append(has, "a caption")
+	}
+	if e.Label != "" {
+		has = append(has, "a label")
+	}
+	if len(e.Headers) == 0 {
+		has = append(has, "no header row")
+	}
+	return newUnsupported("table", fmt.Sprintf("%s has column alignment, which only the separator row of a plain pipe table carries, and it has %s, which a plain pipe table cannot hold. Remove the alignment, or what keeps it from being a plain pipe table", tableName(e), strings.Join(has, " and ")))
+}
+
+// formatTablePipeBlock escribe la forma TABLE con caption/label y las filas
+// "|" dentro del bloque, la que escribe el autor. Dentro del bloque una fila
+// "|" se lee como una fila sin celdas en los dos dialectos, y una fila de
+// otro largo que el encabezado queda tal cual. No lleva alineación (el bloque
+// salta la fila delimitadora sin leerla) ni una tabla sin encabezado (la
+// primera fila "|" es siempre el encabezado).
+func formatTablePipeBlock(e *ast.TableElement) (string, error) {
+	if err := checkQuotable("table", "caption", e.Caption); err != nil {
+		return "", err
+	}
+	if err := checkQuotable("table", "label", e.Label); err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("TABLE\n")
+	if e.Caption != "" {
+		fmt.Fprintf(&b, "  caption: %s\n", quote(e.Caption))
+	}
+	if e.Label != "" {
+		fmt.Fprintf(&b, "  label: %s\n", quote(e.Label))
+	}
+	b.WriteString(indent(formatPipeTable(e.Headers, e.Rows, nil), 2))
+	return b.String(), nil
+}
+
+// Sangría de las filas de rows: respecto del cuerpo que devuelve
+// formatTableElement. El parser lee una fila de rows: solo si empieza
+// exactamente a seis espacios del comienzo de la línea (TABLE008 si no): en
+// strict el cuerpo de un elemento se escribe con dos espacios (y una columna
+// tipada de un grid se lee ya sin su sangría extra), en el flex de documento
+// sin sangría.
+const (
+	strictTableRowsIndent = 4
+	flexTableRowsIndent   = 6
+)
+
+// cellsKeepFlatView dice si la forma cells: relee los mismos Headers/Rows:
+// el parser los deriva de Cells con ast.FlattenCellsToRows, que rellena
+// cada fila (y el encabezado) hasta el ancho de la más larga, y deja en nil
+// (null en el JSON) una fila sin celdas de una tabla de ancho cero. Una tabla
+// vacía tampoco: "cells: []" se relee vacía, pero con el aviso TABLE004 de un
+// bloque cells: inválido.
+func cellsKeepFlatView(e *ast.TableElement) bool {
+	if len(e.Headers) == 0 && len(e.Rows) == 0 {
+		return false
+	}
+	headers, rows := ast.FlattenCellsToRows(ast.DeriveCellsFromFlat(e.Headers, e.Rows))
+	if !sameStrings(headers, e.Headers) || len(rows) != len(e.Rows) {
+		return false
+	}
+	for i := range rows {
+		if !sameStrings(rows[i], e.Rows[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameStrings compara como el JSON del AST: un slice nil (null) no es uno
+// vacío ([]).
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) || (a == nil) != (b == nil) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// formatTableArraysBlock escribe la forma TABLE con headers: (si hay
+// encabezado) y una fila de rows: por línea. Es la única forma que relee cada
+// fila tal cual: una fila sin celdas ([]), una tabla sin encabezado y una fila
+// con otro número de celdas que el encabezado (TABLE003, que así sigue
+// apuntando a la misma fila después de fmt). Cada celda va entre comillas
+// dobles, así que una celda con una comilla doble o un salto de línea no se
+// puede escribir y se rechaza.
+func formatTableArraysBlock(e *ast.TableElement, rowsIndent int) (string, error) {
+	if err := checkQuotable("table", "caption", e.Caption); err != nil {
+		return "", err
+	}
+	if err := checkQuotable("table", "label", e.Label); err != nil {
+		return "", err
+	}
+	array := func(field string, cells []string) (string, error) {
+		for _, c := range cells {
+			if strings.ContainsAny(c, "\"\r\n") {
+				return "", arraysCellError(e, c)
+			}
+		}
+		return formatInlineArray("table", field, cells)
+	}
+	var b strings.Builder
+	b.WriteString("TABLE\n")
+	if e.Caption != "" {
+		fmt.Fprintf(&b, "  caption: %s\n", quote(e.Caption))
+	}
+	if e.Label != "" {
+		fmt.Fprintf(&b, "  label: %s\n", quote(e.Label))
+	}
+	if len(e.Headers) > 0 {
+		headers, err := array("headers", e.Headers)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "  headers: %s\n", headers)
+	}
+	b.WriteString("  rows:")
+	pad := strings.Repeat(" ", rowsIndent)
+	for _, row := range e.Rows {
+		line, err := array("rows", row)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString("\n" + pad + line)
+	}
+	return b.String(), nil
+}
+
+// arraysCellError explica el rechazo de una celda que headers:/rows: no puede
+// escribir: qué fila obligó a esa forma y cómo arreglarlo.
+func arraysCellError(e *ast.TableElement, cell string) error {
+	what := "double quote"
+	if strings.ContainsAny(cell, "\r\n") {
+		what = "line break"
+	}
+	why := "no other table form reads it back unchanged"
+	fix := "remove the " + what + " from the cell"
+	if len(e.Headers) == 0 {
+		why = "it has no header row"
+		fix = "add a header row (with one, the table can be written with \"|\" rows), or " + fix
+	}
+	for _, row := range e.Rows {
+		width := len(e.Headers)
+		if width == 0 && len(e.Rows) > 0 {
+			width = len(e.Rows[0])
+		}
+		if len(row) == 0 {
+			why += ", and it has a row without cells"
+			break
+		}
+		if len(row) != width {
+			why += fmt.Sprintf(", and the row %s has %d cells where the %s has %d", pipeRowText(row), len(row), map[bool]string{true: "header", false: "first row"}[len(e.Headers) > 0], width)
+			fix = "give every row the same number of cells, " + fix
+			break
+		}
+	}
+	return newUnsupported("table", fmt.Sprintf(
+		"%s can only be written as TABLE with headers: and rows:, because %s; each cell there goes on one line in double quotes with no escape, and the cell \"%s\" has a %s. To format it, %s",
+		tableName(e), why, cell, what, fix))
 }
 
 func formatTableRowsBlock(e *ast.TableElement) (string, error) {
@@ -110,15 +438,6 @@ func formatTableRowsBlock(e *ast.TableElement) (string, error) {
 	b.WriteString("  tableRows:\n")
 	b.WriteString(indent(strings.TrimRight(string(encoded), "\n"), 4))
 	return strings.TrimRight(b.String(), "\n"), nil
-}
-
-// tableNeedsCellsBlock reports whether e must round-trip through the
-// explicit TABLE "cells:" form rather than the flat pipe form: true when
-// Label is set (not representable outside the TABLE block) or when
-// e.Cells carries structure beyond what ast.DeriveCellsFromFlat(e.Headers,
-// e.Rows) already encodes (row-scoped headers, colspan, rowspan).
-func tableNeedsCellsBlock(e *ast.TableElement) bool {
-	return e.Label != "" || !tableCellsAreSimple(e)
 }
 
 // tableCellsAreSimple reports whether e.Cells is exactly the shape

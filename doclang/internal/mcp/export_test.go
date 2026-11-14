@@ -965,7 +965,8 @@ func TestGeneratorLine(t *testing.T) {
 		{"THEME: failed to load theme \"line 2\"", 0, ""},
 		{"DOCX: la directiva @timer (línea 5) no tiene efecto en un documento y se omite", 5, "línea 5"},
 		{"MARKDOWN: la directiva @notes (línea 6) no tiene efecto en un documento y se omite", 6, "línea 6"},
-		{"DOCX: la lista de la línea 4 anida más de 9 niveles", 0, ""},
+		{"DOCX: la lista de la línea 4 anida más de 9 niveles, el máximo de Word", 0, ""},
+		{"DOCX: la lista de part.doclang:11 anida más de 9 niveles, el máximo de Word", 0, ""},
 	} {
 		line, start, end := generatorLine(c.msg)
 		if line != c.line || (line > 0 && c.msg[start:end] != c.span) {
@@ -1087,4 +1088,15 @@ func TestExport_DirectiveWarningPointsAtSource(t *testing.T) {
 	if !included || !root {
 		t.Errorf("missing the included (%v) or the root (%v) directive warning: %+v", included, root, out.Diagnostics)
 	}
+}
+
+// Un error devuelto por el generador nombra el archivo y la línea de origen,
+// no la del contenido expandido: nadie lo vuelve a llevar a su archivo. Una
+// lista tipada de once niveles en un archivo incluido es el caso.
+func TestExport_ReturnedGeneratorErrorNamesTheIncludedFile(t *testing.T) {
+	f := newExportFixture(t)
+	f.write(t, "part.doclang", "  POINTS\n    - level0\n      - level1\n        - level2\n          - level3\n            - level4\n              - level5\n                - level6\n                  - level7\n                    - level8\n                      - level9\n                        - level10\n")
+	f.write(t, "root.doclang", "---\nmode: strict\ntitle: \"D\"\nast_capabilities: [\"nested-list-types-v1\"]\n---\n\nSECTION \"A\"\n  TEXT\n    root first\n@include part.doclang\n")
+	s, ctx := newExportSession(t, Options{Root: f.root})
+	exportFail(t, s, ctx, map[string]any{"path": "root.doclang", "format": "docx"}, "la lista de part.doclang:11 anida más de 9 niveles")
 }
