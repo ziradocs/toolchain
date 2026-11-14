@@ -27,7 +27,7 @@ type IdentityNode interface {
 // ValidateNodeIDs checks the final tree, including nested nodes. Call after
 // transforms too: filters may create nodes, remove nodes, or edit identities.
 func ValidateNodeIDs(doc *AST) []diagnostics.Diagnostic {
-	seen := make(map[string]diagnostics.Position)
+	seen := make(map[string]bool)
 	var result []diagnostics.Diagnostic
 	check := func(id string, pos diagnostics.Position) {
 		if id == "" {
@@ -35,10 +35,10 @@ func ValidateNodeIDs(doc *AST) []diagnostics.Diagnostic {
 		}
 		if !ValidNodeID(id) {
 			result = append(result, diagnostics.NewError(fmt.Sprintf("invalid nodeId %q: use 1-128 ASCII letters, digits, '.', '_' or '-', starting with a letter", id), pos, "identity"))
-		} else if first, exists := seen[id]; exists {
-			result = append(result, diagnostics.NewError(fmt.Sprintf("duplicate nodeId %q (first at %d:%d)", id, first.Line, first.Column), pos, "identity"))
+		} else if seen[id] {
+			result = append(result, diagnostics.NewError(fmt.Sprintf("duplicate nodeId %q", id), pos, "identity"))
 		} else {
-			seen[id] = pos
+			seen[id] = true
 		}
 	}
 	_ = Walk(doc, func(node Node) error {

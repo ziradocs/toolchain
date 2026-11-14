@@ -680,15 +680,12 @@ func (p *strictBody) applyElementResult(result *elements.ParseResult, elementNam
 	}
 	for i := p.currentLine + 1; i < end; i++ {
 		if elements.IsStrictBlockBoundary(p.lines[i]) {
-			// El número de línea en el mensaje tiene que ser el del ARCHIVO
-			// (p.position(i).Line), no el índice crudo dentro de p.lines —
-			// exactamente la clase de bug que #245 corrige, solo que acá
-			// vive en el texto de un mensaje en vez de en un
-			// diagnostics.NewPosition(...), así que ni el barrido mecánico
-			// ni el guard test lo detectaban (hallazgo de code review).
+			// El mensaje no lleva número de línea: un @include o un node-id
+			// lo mueven y el texto no se remapea con la posición. La línea
+			// culpable se nombra por su contenido.
 			p.addError(fmt.Sprintf(
-				"internal error: %s element consumed past the next SLIDE/SECTION boundary (line %d) — this is a parser bug, please report it with a minimal repro",
-				elementName, p.position(i).Line,
+				"internal error: %s element consumed past the next SLIDE/SECTION boundary (%q) — this is a parser bug, please report it with a minimal repro",
+				elementName, elements.ShortLine(strings.TrimSpace(p.lines[i])),
 			))
 			consumed = i - p.currentLine
 			break

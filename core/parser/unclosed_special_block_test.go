@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -29,8 +30,8 @@ func TestUnclosedSpecialBlock_DocumentStrictIsAnError(t *testing.T) {
 		name, body string
 		hintLine   string
 	}{
-		{"single", "  :::info\n  Primer aviso, sin cierre.\n\n  CODE\n    x = 1\n\n  POINTS\n    - uno\n", "line 10 (CODE)"},
-		{"nested", "  :::info\n  ::: raro\n  :::\n\n  :::warning\n  Segundo aviso.\n  :::\n\n  CODE\n    x = 1\n\n  POINTS\n    - uno\n\n  CHECKLIST\n    - [ ] tarea\n", "line 15 (CODE)"},
+		{"single", "  :::info\n  Primer aviso, sin cierre.\n\n  CODE\n    x = 1\n\n  POINTS\n    - uno\n", `the line "CODE" is at the block's own indentation`},
+		{"nested", "  :::info\n  ::: raro\n  :::\n\n  :::warning\n  Segundo aviso.\n  :::\n\n  CODE\n    x = 1\n\n  POINTS\n    - uno\n\n  CHECKLIST\n    - [ ] tarea\n", `the line "CODE" is at the block's own indentation`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n" + tc.body
@@ -144,5 +145,28 @@ func TestUnclosedSpecialBlock_PandocFourColonCloseIsUnclosed(t *testing.T) {
 	got := special002(diags)
 	if len(got) != 2 || !got[0].IsError() || got[0].Position.Line != 7 || got[1].Position.Line != 12 {
 		t.Fatalf("want SPECIAL002 errors at lines 7 and 12, got %v", diags)
+	}
+}
+
+// Con node-id en el documento el parser trabaja sobre el texto sin esos
+// marcadores y después lleva las posiciones a la fuente; el texto del mensaje
+// no se lleva, así que no puede nombrar un número de línea. La línea que
+// sugiere como cierre va por su contenido.
+func TestUnclosedSpecialBlock_MessageHasNoLineNumberWithNodeIDs(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"Demo\"\nast_capabilities: [typed-headings-v1]\n---\n\nSECTION \"A\"\n  <!-- node-id: Uno -->\n  TEXT\n    uno\n\n  <!-- node-id: Dos -->\n  TEXT\n    dos\n\n  :::info\n  aviso sin cierre\n\n  CODE\n    x = 1\n"
+	_, diags := New(util.NewNoop()).ParseDocument(src, "c.doclang")
+	got := special002(diags)
+	if len(got) != 1 {
+		t.Fatalf("want one SPECIAL002, got %v (all: %v)", got, diags)
+	}
+	d := got[0]
+	if d.Position.Line != 16 {
+		t.Errorf("want the opening at line 16 of the source, got %d", d.Position.Line)
+	}
+	if regexp.MustCompile(`\bline \d+`).MatchString(d.Message) {
+		t.Errorf("the message names a line number: %s", d.Message)
+	}
+	if !strings.Contains(d.Message, `the line "CODE" is at the block's own indentation`) {
+		t.Errorf("the message does not name the line by its content: %s", d.Message)
 	}
 }

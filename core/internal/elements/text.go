@@ -466,6 +466,9 @@ func absorbedElementLabel(trimmed string) string {
 	return "the " + strings.TrimSuffix(kw, CodeVerbatimMarker) + " element"
 }
 
+// ShortLine es shortLine para los mensajes de otros paquetes.
+func ShortLine(line string) string { return shortLine(line) }
+
 // shortLine recorta una línea larga para citarla en un mensaje.
 func shortLine(line string) string {
 	const limit = 60

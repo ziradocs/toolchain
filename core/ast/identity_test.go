@@ -48,3 +48,21 @@ func TestDecodeASTValidatesNestedNodeIDs(t *testing.T) {
 		t.Fatal("nested ID lost in JSON")
 	}
 }
+
+// El aviso de un nodeId repetido no escribe dónde está el primero: ese
+// número se calcula antes de llevar las posiciones a su archivo (@include) y
+// saldría distinto del real. El ID entre comillas basta para encontrarlo.
+func TestValidateNodeIDsDuplicateMessageHasNoLineNumber(t *testing.T) {
+	doc := NewAST(diagnostics.NewPosition(1, 1))
+	block := NewContentBlock(diagnostics.NewPosition(2, 1), "content")
+	first := NewTextElement(diagnostics.NewPosition(3, 1), "a")
+	first.NodeID = "Same"
+	second := NewTextElement(diagnostics.NewPosition(9, 1), "b")
+	second.NodeID = "Same"
+	block.Elements = append(block.Elements, first, second)
+	doc.ContentBlocks = append(doc.ContentBlocks, *block)
+	issues := ValidateNodeIDs(doc)
+	if len(issues) != 1 || issues[0].Message != `duplicate nodeId "Same"` || issues[0].Position.Line != 9 {
+		t.Fatalf("want one `duplicate nodeId \"Same\"` at line 9, got %v", issues)
+	}
+}
