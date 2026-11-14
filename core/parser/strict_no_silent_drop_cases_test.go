@@ -109,7 +109,7 @@ var noDropRegressions = []noDropRegression{
 	{name: "chart nested line", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    series: ["s"]`, "      o B  <"}, rule: "CHART007", quote: `nested under series:`},
 	{name: "chart unsupported key", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    backgroundColor: red  <"}, rule: "CHART007", quote: `"backgroundColor: red"`},
 	{name: "chart data not array", body: []string{"  <<chart: bar>>", "    data: muchos  <"}, rule: "CHART007", quote: `"data: muchos"`},
-	{name: "chart options invalid", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    options:  <", "      plugins: true", "      plugins: false"}, rule: "CHART007", quote: `not valid YAML (mapping key "plugins" already defined), so`},
+	{name: "chart options invalid", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    options:  <", "      plugins: true", "      plugins: false"}, rule: "CHART007", quote: `could not be read (mapping key "plugins" already defined), so`},
 
 	// Bloques YAML: cada llave desconocida, en su línea.
 	{name: "metric unknown key", body: []string{"  <<metric>>", "    label: Ventas", "    Importante:  <", "      alt: perro", "  <<end>>"}, rule: "METRIC006", quote: `"Importante:"`},
@@ -130,6 +130,10 @@ var noDropRegressions = []noDropRegression{
 	// Cuerpos YAML y JSON: lo que el lector deja afuera sin error, y los
 	// avisos de cuerpo ignorado que ahora cubren todo el cuerpo.
 	{name: "cells under-indented rows", body: []string{"  TABLE", "    cells:", "        -", "      - [{content: a}, {content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
+	// Una comilla dentro de una palabra no abre un escalar entre comillas: el
+	// cierre de la fila se encuentra y la fila descartada de abajo se avisa.
+	{name: "cells apostrophe in a word", body: []string{"  TABLE", "    cells:", "        - [{content: Don't}]", "      - [{content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
+	{name: "cells inch mark in a word", body: []string{"  TABLE", "    cells:", `        - [{content: 5" screen}]`, "      - [{content: b}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
 	{name: "cells item at key indent", body: []string{"  TABLE", "    cells:", "      - [{content: a}, {content: b}]", "    - [{content: c}, {content: d}]  <"}, rule: "TABLE008", quote: `YAML reader stopped`},
 	{name: "table rows document marker", body: []string{"  TABLE", "    tableRows:", "      - cells: [{content: a}]", "    ---  <"}, rule: "TABLE008", quote: `"---"`},
 	{name: "table rows invalid", covers: true, severity: diagnostics.Error, body: []string{"  TABLE", "    tableRows:", "      - cells: [{content: a, falso: 1}]  <"}, rule: "", quote: "invalid tableRows YAML"},
@@ -430,6 +434,11 @@ func TestStrictNoSilentDrop_SplitTableRowsProperty(t *testing.T) {
 					// Escalar entre comillas partido: la segunda palabra va en
 					// otra línea.
 					cells = append(cells, fmt.Sprintf("{content: \"%s\n%sz%s\"}", word, strings.Repeat(" ", 5+rng.Intn(8)), word))
+					continue
+				}
+				if rng.Intn(4) == 0 {
+					// Una comilla dentro de una palabra es texto plano.
+					cells = append(cells, fmt.Sprintf("{content: Don't%s}", word))
 					continue
 				}
 				cells = append(cells, fmt.Sprintf("{content: %s}", word))

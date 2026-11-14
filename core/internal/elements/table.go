@@ -432,6 +432,9 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 // tableRows: que el lector de YAML dejó afuera (ver yamlUnderIndentedTail).
 // block son las líneas del bloque y first el índice de block[0] en ctx.Lines.
 func yamlTailWarning(ctx *ParseContext, block []string, root *yaml.Node, first int, key string) []diagnostics.Diagnostic {
+	if root == nil || !hasUnderIndentedLine(block) {
+		return nil
+	}
 	start, end, ok := yamlDiscardedTail(block, root)
 	if !ok {
 		return nil
@@ -1158,67 +1161,54 @@ func inlineRowQuoteProblem(content string) inlineQuoteProblem {
 	return inlineQuotesOK
 }
 
-// tableRowKeys y tableCellKeys son las llaves de una fila y de una celda de
-// tableRows: (yamlTableRowEntry, yamlTableRowCellEntry).
-var (
-	tableRowKeys  = map[string]bool{"nodeId": true, "section": true, "cells": true}
-	tableCellKeys = map[string]bool{"nodeId": true, "content": true, "header": true, "scope": true, "colspan": true, "rowspan": true}
-)
-
-// decodeTableRows lee un bloque tableRows: una sola vez, a un yaml.Node, y de
-// ahí a las filas. Antes se decodificaba con KnownFields(true); un yaml.Node no
-// tiene esa opción al decodificarse, así que las llaves desconocidas de una
-// fila o de una celda se rechazan acá, con el mismo resultado: error. Devuelve
-// el nodo raíz para yamlDiscardedTail.
+// decodeTableRows lee un bloque tableRows: exactamente como siempre, con
+// KnownFields(true) sobre las mismas estructuras: así las llaves de merge
+// (`<<: *base`), los alias de una fila o de una celda, los tipos y los nulos se
+// aceptan o se rechazan igual que en origin/main (lo fija
+// TestDecodeTableRowsMatchesKnownFields). KnownFields no existe al decodificar
+// desde un yaml.Node, y reimplementar la semántica de merge y alias sobre el
+// nodo para tener una sola lectura no da la misma garantía.
+//
+// El nodo raíz solo hace falta para calcular las líneas que yaml.v3 descartó
+// (yamlDiscardedTail), y esas líneas están siempre menos sangradas que la
+// primera del bloque. Si no hay ninguna así, que es el caso de casi toda tabla,
+// no se lee el bloque una segunda vez y el nodo es nil.
 func decodeTableRows(blockLines []string) ([]yamlTableRowEntry, *yaml.Node, error) {
-	var doc yaml.Node
-	decoder := yaml.NewDecoder(strings.NewReader(strings.Join(blockLines, "\n")))
-	if err := decoder.Decode(&doc); err != nil {
-		return nil, nil, err
-	}
-	if len(doc.Content) == 0 {
-		return nil, nil, fmt.Errorf("empty tableRows")
-	}
-	root := doc.Content[0]
-	if err := checkTableRowKeys(root); err != nil {
-		return nil, nil, err
-	}
+	text := strings.Join(blockLines, "\n")
 	var parsed []yamlTableRowEntry
-	if err := root.Decode(&parsed); err != nil {
+	decoder := yaml.NewDecoder(strings.NewReader(text))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&parsed); err != nil {
 		return nil, nil, err
 	}
-	return parsed, root, nil
+	if !hasUnderIndentedLine(blockLines) {
+		return parsed, nil, nil
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(text), &doc); err != nil || len(doc.Content) == 0 {
+		return parsed, nil, nil
+	}
+	return parsed, doc.Content[0], nil
 }
 
-// checkTableRowKeys es la parte de KnownFields(true) que aplica a tableRows:
-// toda llave de una fila y de cada una de sus celdas tiene que ser un campo.
-func checkTableRowKeys(root *yaml.Node) error {
-	if root.Kind != yaml.SequenceNode {
-		return nil // root.Decode da el error de tipo
-	}
-	for _, row := range root.Content {
-		if row.Kind != yaml.MappingNode {
+// hasUnderIndentedLine dice si alguna línea no vacía ni de comentario está
+// menos sangrada que la primera: la condición necesaria para que yaml.v3 haya
+// descartado algo (ver yamlDiscardedTail).
+func hasUnderIndentedLine(lines []string) bool {
+	first := -1
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		for k := 0; k+1 < len(row.Content); k += 2 {
-			if !tableRowKeys[row.Content[k].Value] {
-				return fmt.Errorf("line %d: field %s not found", row.Content[k].Line, row.Content[k].Value)
-			}
-			cells := row.Content[k+1]
-			if row.Content[k].Value != "cells" || cells.Kind != yaml.SequenceNode {
-				continue
-			}
-			for _, cell := range cells.Content {
-				if cell.Kind != yaml.MappingNode {
-					continue
-				}
-				for c := 0; c+1 < len(cell.Content); c += 2 {
-					if !tableCellKeys[cell.Content[c].Value] {
-						return fmt.Errorf("line %d: field %s not found", cell.Content[c].Line, cell.Content[c].Value)
-					}
-				}
-			}
+		indent := CalculateIndentLevel(line)
+		if first < 0 {
+			first = indent
+			continue
+		}
+		if indent < first {
+			return true
 		}
 	}
-	return nil
+	return false
 }

@@ -521,7 +521,7 @@ chartLoop:
 				// El bloque no es YAML válido y se descarta, como siempre; el
 				// aviso cubre de options: a su última línea.
 				diags = append(diags, withLineRange(ctx, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
-					"The options: block of this chart is not valid YAML (%s), so it and every line under it were ignored: %q.",
+					"The options: block of this chart could not be read (%s), so it and every line under it were ignored: %q.",
 					yamlErrorText(optsErr), trimmedLine), i+linesConsumed))
 			}
 			i += linesConsumed
@@ -2024,18 +2024,33 @@ func comboUnknownKeyLines(ctx *ParseContext, yamlText string, first int) []diagn
 
 // yamlErrorText es el error de yaml.v3 sin su prefijo "yaml: " y sin el número
 // de línea, que cuenta desde el inicio del bloque y no del archivo.
+//
+// Un error de tipos de yaml.v3 trae una línea por problema ("unmarshal
+// errors:\n  line 4: …\n  line 6: …"): se limpia cada una y se unen con "; ".
+// El de un options: que no es un mapeo (una lista, un escalar) se dice así.
 func yamlErrorText(err error) string {
 	msg := strings.TrimPrefix(err.Error(), "yaml: ")
-	if rest, ok := strings.CutPrefix(msg, "unmarshal errors:\n"); ok {
-		msg = strings.TrimSpace(rest)
-	}
-	if strings.HasPrefix(msg, "line ") {
-		if _, after, ok := strings.Cut(msg, ": "); ok {
-			msg = after
+	msg = strings.TrimPrefix(msg, "unmarshal errors:")
+	var parts []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(msg, "\n") {
+		line = strings.TrimSpace(line)
+		line = yamlLinePrefix.ReplaceAllString(line, "")
+		line = yamlAtLine.ReplaceAllString(line, "")
+		if strings.HasPrefix(line, "cannot unmarshal ") && strings.HasSuffix(line, "into map[string]interface {}") {
+			line = "options: must be a mapping"
+		}
+		if line != "" && !seen[line] {
+			seen[line] = true
+			parts = append(parts, line)
 		}
 	}
-	return yamlAtLine.ReplaceAllString(msg, "")
+	return strings.Join(parts, "; ")
 }
 
-// yamlAtLine es el " at line N" con que yaml.v3 nombra otra línea del bloque.
-var yamlAtLine = regexp.MustCompile(` at line \d+`)
+// yamlLinePrefix y yamlAtLine son los "line N: " y " at line N" con que yaml.v3
+// nombra líneas del bloque, que no son las del archivo.
+var (
+	yamlLinePrefix = regexp.MustCompile(`^line \d+: `)
+	yamlAtLine     = regexp.MustCompile(` at line \d+`)
+)
