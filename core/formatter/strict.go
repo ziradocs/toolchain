@@ -652,8 +652,9 @@ func formatPipeTable(headers []string, rows [][]string, columnAlign []string) st
 			b.WriteString("\n")
 		}
 		if len(row) == 0 {
-			// Una fila sin celdas: solo la relee así el flex de documento
-			// (ver pipeKeepsFlatView).
+			// Una fila sin celdas se escribe "|", que los dos dialectos
+			// releen como fila sin celdas ("|  |" se releería con una celda
+			// vacía). tableReadsBack confirma que la tabla se relee igual.
 			b.WriteString("|")
 			continue
 		}

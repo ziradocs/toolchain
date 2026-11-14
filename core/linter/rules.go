@@ -287,7 +287,10 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 				if len(elem.Headers) > 0 {
 					expectedCols := len(elem.Headers)
 					for i, row := range elem.Rows {
-						if len(row) != expectedCols {
+						// Una fila sin celdas ("|" sola) es una fila
+						// separadora visual: no tiene celdas que no
+						// cuadren.
+						if len(row) != 0 && len(row) != expectedCols {
 							// RowPositions es paralelo a Rows por índice, pero
 							// puede venir más corto (la forma "cells:" no lo
 							// puebla, ver TableElement.RowPositions) — cae al

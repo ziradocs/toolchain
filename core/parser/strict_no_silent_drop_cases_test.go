@@ -104,7 +104,12 @@ var noDropRegressions = []noDropRegression{
 	// Tabla Markdown strict: filas que no llegan al AST.
 	{name: "markdown row unclosed header", body: []string{"  | a  <"}, rule: "TABLE008", quote: `"| a"`},
 	{name: "markdown empty row", body: []string{"  |  <"}, rule: "TABLE008", quote: `"|"`},
-	{name: "markdown separator lookalike", body: []string{"  | a | b |", "  | x --- y | z |  <"}, rule: "TABLE008", quote: `"| x --- y | z |"`},
+	// Una línea con "---" justo después del encabezado que no abre y cierra
+	// con "|" no es una fila que strict lea: se sigue tomando por separador.
+	// Una fila completa con "---" en una celda es de datos (ver
+	// table_separator_rule_test.go).
+	{name: "markdown separator lookalike without pipes", body: []string{"  | a | b |", "  x --- y  <", "  | c | d |"}, rule: "TABLE008", quote: `because it contains "---", so its cells were ignored: "x --- y"`},
+	{name: "markdown separator lookalike without closing pipe", body: []string{"  | a | b |", "  | x --- y | z  <", "  | c | d |"}, rule: "TABLE008", quote: `"| x --- y | z"`},
 
 	// <<chart>>: lo anidado bajo una llave que no lo lee, el vocabulario que
 	// no se traduce, un options: que no es YAML y un arreglo que no lo es.
@@ -179,10 +184,10 @@ var noDropRegressions = []noDropRegression{
 	{name: "map marker in callout", body: []string{"  :::note", "  <<map>>  <", "    type: world", "    markers:", "      - lat: 1", `        label: "x"`, "  :::"}, rule: "SPECIAL003", quote: `has no lng`},
 	{name: "code group in callout", body: []string{"  :::note", "  :::code-group  <", "  ```js [a]", "  x()", "  ```", "  suelta", "  :::", "  :::"}, rule: "SPECIAL003", quote: `outside a code fence: "suelta"`},
 
-	// Lo que encontró la propiedad extendida (propiedades repetidas y filas
-	// con guiones): una propiedad repetida de TABLE, IMAGE o <<chart>> pisa
-	// a la anterior, y una fila con "---" de una tabla Markdown dentro de un
-	// ":::" se salta como separador.
+	// Lo que encontró la propiedad extendida: una propiedad repetida de
+	// TABLE, IMAGE o <<chart>> pisa a la anterior. (Una fila con "---" en una
+	// celda ya no es un caso: es una fila de datos, ver
+	// table_separator_rule_test.go.)
 	{name: "table repeated caption", body: []string{"  TABLE", "    | a | b |", `    caption: "uno"  <`, `    caption: "dos"`}, rule: "TABLE008", quote: `This caption: line of the TABLE was ignored: "caption: \"uno\""`},
 	{name: "table repeated label", body: []string{"  TABLE", "    | a | b |", "    label: tbl:a  <", "    label: tbl:b"}, rule: "TABLE008", quote: `The later "label: tbl:b" replaces it`},
 	{name: "image repeated caption", body: []string{`  IMAGE "foto.png" "perro"`, `    caption: "uno"  <`, `    caption: "dos"`}, rule: "IMG005", quote: `This caption: line of the IMAGE was ignored`},
@@ -191,16 +196,14 @@ var noDropRegressions = []noDropRegression{
 	{name: "chart repeated series", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    series: ["s"]  <`, `    series: ["t"]`}, rule: "CHART007", quote: `The later "series: [\"t\"]" replaces it`},
 	{name: "chart repeated title", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    title: "uno"  <`, `    title: "dos"`}, rule: "CHART007", quote: `"title: \"uno\""`},
 	{name: "chart repeated multi-line series", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    series: [  <", `      "s"`, "    ]", `    series: ["t"]`}, rule: "CHART007", quote: `and the lines of its value below it were ignored`},
-	{name: "markdown row with dashes in callout", body: []string{"  :::note", "  | a | b |", "  | x --- y | z |  <", "  :::"}, rule: "TABLE008", quote: `has dashes in it, so its cells were ignored: "| x --- y | z |"`},
-	{name: "markdown row with dashes in typed callout", body: []string{"  :::info{typed}", "  | a | b |", "  | --- | --- |", "  | 1 | 2 |", "  | x --- y | z |  <", "  :::"}, rule: "TABLE008", quote: `"| x --- y | z |"`},
 }
 
 // noDropMathSource activa la lectura literal de <<math>> (parseLiteral).
 const noDropMathSource = "---\nmode: strict\ntitle: \"Doc\"\nast_capabilities: [\"math-source-v1\"]\n---\n"
 
 // Los bloques que flex lee igual que strict dan los mismos avisos en un
-// documento flex: <<math>>, el bloque TABLE, <<chart>>, la tabla Markdown y
-// un elemento dentro de un ":::".
+// documento flex: <<math>>, el bloque TABLE, <<chart>> y un elemento dentro
+// de un ":::".
 func TestStrictNoSilentDrop_FlexSharedBlocks(t *testing.T) {
 	const front = "---\nmode: flex\ntitle: \"Doc\"\n---\n# Sec\n\n"
 	cases := []struct {
@@ -210,7 +213,6 @@ func TestStrictNoSilentDrop_FlexSharedBlocks(t *testing.T) {
 		{"math repeated caption", "<<math>>\nx + 1\ncaption: \"a\"\ncaption: \"b\"\n<<end>>\n", "MATH001", `"caption: \"a\""`, 9},
 		{"table repeated caption", "TABLE\n  | a | b |\n  caption: \"a\"\n  caption: \"b\"\n", "TABLE008", `This caption: line of the TABLE was ignored`, 9},
 		{"chart repeated data", "<<chart: bar>>\n  data: [[\"a\", 1]]\n  data: [[\"b\", 2]]\n", "CHART007", `This data: line of the chart was ignored`, 8},
-		{"markdown row with dashes", "| a | b |\n| --- | --- |\n| 1 | 2 |\n| x --- y | z |\n", "TABLE008", `"| x --- y | z |"`, 10},
 		{"fence extra argument in callout", ":::note\n```python main.py extra30\nprint(1)\n```\n:::\n", "SPECIAL003", `"python main.py extra30"`, 8},
 	}
 	for _, c := range cases {

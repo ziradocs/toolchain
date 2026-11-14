@@ -23,7 +23,7 @@ import (
 type tableDialect struct {
 	name    string
 	slides  bool
-	strict  bool // la entrada es strict (las filas | sin celdas se descartan)
+	strict  bool // la entrada es strict
 	grid    bool // la tabla va en una columna tipada de un grid
 	flexOut bool // fmt escribe flex (el de documento)
 	// callout, si no está vacío, es el tipo del bloque ::: en el que va la
@@ -318,8 +318,9 @@ func markdownTableForm(aligned bool) func(s tableShape, d tableDialect) (string,
 			return "", nil, nil, false
 		}
 		if shapeHas(s, func(c string) bool { return c != strings.TrimSpace(c) || strings.Contains(c, "---") }) {
-			// La forma pipe recorta los bordes de una celda, y flex salta
-			// como separador una fila con "---".
+			// La forma pipe recorta los bordes de una celda, y una fila con
+			// "---" en una celda solo es de datos si cabe en la tabla (si no,
+			// se salta como separador): eso lo prueba core/parser.
 			return "", nil, nil, false
 		}
 		pipeRow := func(cells []string) string {
@@ -340,11 +341,9 @@ func markdownTableForm(aligned bool) func(s tableShape, d tableDialect) (string,
 		rows := [][]string{}
 		for _, r := range s.rows {
 			b.WriteString("\n" + pipeRow(r))
-			// Strict descarta la fila "|" (sin celdas) al leerla. Dentro de un
-			// bloque ::: la tabla la lee el parser de elementos, que la deja.
-			if len(r) > 0 || !d.strict || d.callout != "" {
-				rows = append(rows, r)
-			}
+			// La fila "|" (sin celdas) se lee como fila vacía en todos los
+			// dialectos: strict la descartaba hasta #531.
+			rows = append(rows, r)
 		}
 		return b.String(), s.headers, rows, true
 	}
@@ -368,13 +367,6 @@ func hasErrorDiag(diags []diagnostics.Diagnostic) (diagnostics.Diagnostic, bool)
 		}
 	}
 	return diagnostics.Diagnostic{}, false
-}
-
-// isAlignmentRefusal dice si err es el rechazo de una tabla alineada con una
-// fila sin celdas cuando fmt escribe strict.
-func isAlignmentRefusal(err error) bool {
-	var unsupported *UnsupportedElementError
-	return errors.As(err, &unsupported) && strings.Contains(err.Error(), "column alignment and a row without cells")
 }
 
 // newRuleIDs devuelve los RuleID de after que before no tiene.
@@ -491,23 +483,11 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 				failures++
 				continue
 			}
-			// La alineación solo se escribe en una tabla pipe, y strict
-			// descarta la fila "|": una tabla alineada con una fila sin
-			// celdas (solo se lee así en flex) no tiene forma strict. Dentro
-			// de un bloque ::: la tabla va en el texto del bloque, como la
-			// escribió el autor.
-			wantRefusal := len(got.ColumnAlign) > 0 && hasEmptyRow(got.Rows) && !d.flexOut && d.callout == ""
+			// Una tabla alineada con una fila sin celdas se escribe pipe en
+			// todos los dialectos: la alineación solo va en una tabla pipe, y
+			// strict relee la fila "|" como fila vacía (hasta #531 la
+			// descartaba, y fmt rechazaba la tabla al escribir strict).
 			once, err := d.format(doc)
-			if wantRefusal {
-				if !isAlignmentRefusal(err) {
-					t.Errorf("%s / %s: want fmt to refuse the alignment, got %v\n%s", form.name, shape, err, src)
-					failures++
-				} else {
-					exercised["an aligned table with a row without cells, refused"] = true
-					refused++
-				}
-				continue
-			}
 			if err != nil && isArraysQuoteRefusal(err) && shapeHas(tableShape{headers: got.Headers, rows: got.Rows}, hasQuote) {
 				// Una tabla que solo cabe en headers:/rows: (sin encabezado y
 				// con una fila de otro largo o sin celdas) y tiene una comilla
@@ -555,6 +535,9 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			accepted[form.name]++
 			if hasEmptyRow(got.Rows) {
 				exercised["a row without cells"] = true
+				if len(got.ColumnAlign) > 0 {
+					exercised["an aligned table with a row without cells"] = true
+				}
 			}
 			if len(got.Headers) == 0 {
 				exercised["no headers"] = true
@@ -578,10 +561,7 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			t.Errorf("%s: only %d generated tables went through fmt", form.name, n)
 		}
 	}
-	whats := []string{"a row without cells", "no headers", "a miscounted row with caption or label"}
-	if !d.strict && !d.flexOut && d.callout == "" {
-		whats = append(whats, "an aligned table with a row without cells, refused")
-	}
+	whats := []string{"a row without cells", "no headers", "a miscounted row with caption or label", "an aligned table with a row without cells"}
 	for _, what := range whats {
 		if !exercised[what] {
 			t.Errorf("no generated table had %s", what)
@@ -603,10 +583,12 @@ func TestFormat_TableEmptyRowsRegressions(t *testing.T) {
 		want  string // la tabla que escribe fmt, en la columna 0
 	}{
 		{
+			// Una tabla pipe: strict relee la fila "|" como fila vacía (hasta
+			// #531 la descartaba, y fmt escribía TABLE con filas "|").
 			name:  "row without cells under headers",
 			d:     strictSlide,
 			table: "TABLE\n  headers: [\"A\", \"B\"]\n  rows:\n    [\"1\", \"2\"]\n    []",
-			want:  "TABLE\n  | A | B |\n  |---|---|\n  | 1 | 2 |\n  |",
+			want:  "| A | B |\n|---|---|\n| 1 | 2 |\n|",
 		},
 		{
 			name:  "headerless table",
@@ -748,17 +730,13 @@ func TestFormat_CaptionedRaggedTableWithQuote(t *testing.T) {
 	}
 }
 
-// Una tabla Markdown alineada con una fila "|" (sin celdas), que solo se lee
-// así en flex: el flex de documento la escribe igual, con la alineación y la
-// fila "|". Strict no tiene forma para las dos cosas juntas (la alineación
-// solo va en una tabla pipe y strict descarta la fila "|"), así que fmt la
-// rechaza en vez de perder una de las dos, como main.
+// Una tabla Markdown alineada con una fila "|" (sin celdas): fmt la escribe
+// pipe, con la alineación y la fila "|", en todos los dialectos. Hasta #531
+// strict descartaba la fila "|" al leerla, así que al escribir strict fmt la
+// rechazaba en vez de perder una de las dos cosas.
 func TestFormat_AlignedTableWithRowWithoutCells(t *testing.T) {
 	const table = "| A | B |\n|:---|---:|\n| 1 | 2 |\n|"
 	for _, d := range tableDialects {
-		if d.strict {
-			continue
-		}
 		t.Run(d.name, func(t *testing.T) {
 			doc, diags := d.parse(d.wrap(table))
 			if e, bad := hasErrorDiag(diags); bad {
@@ -768,16 +746,15 @@ func TestFormat_AlignedTableWithRowWithoutCells(t *testing.T) {
 				t.Fatalf("fixture: %s", jsonOf(t, stripPositions(tbl)))
 			}
 			out, err := d.format(doc)
-			if !d.flexOut {
-				if !isAlignmentRefusal(err) {
-					t.Fatalf("want fmt to refuse the alignment, got %v\n%s", err, out)
-				}
-				return
-			}
 			if err != nil {
 				t.Fatalf("fmt: %v", err)
 			}
-			if !strings.Contains(out, table+"\n") {
+			// La tabla pipe, con la sangría del cuerpo en strict.
+			var lines []string
+			for _, l := range strings.Split(out, "\n") {
+				lines = append(lines, strings.TrimSpace(l))
+			}
+			if !strings.Contains(strings.Join(lines, "\n"), table+"\n") {
 				t.Errorf("fmt wrote\n%s\nwant the table\n%s", out, table)
 			}
 			doc2, _ := d.parse(out)
@@ -803,8 +780,9 @@ func table003(doc *ast.AST) int {
 // que fmt no puede hacer es cambiar la fila a la que apunta. Con caption o
 // label, main escribía cells:, que rellena las filas hasta el ancho de la más
 // larga: el TABLE003 desaparecía y la tabla ganaba celdas vacías. Y una fila
-// sin celdas bajo un encabezado de una columna volvía como [""]: un TABLE003
-// que desaparecía en silencio.
+// sin celdas volvía como [""]. Una fila sin celdas no cuenta para TABLE003
+// (#531), así que en ese caso el TABLE003 es el de la fila de otro largo que
+// la sigue, y la fila vacía tiene que seguir siendo vacía.
 func TestFormat_TableWithTABLE003KeepsTheMiscountedRow(t *testing.T) {
 	for _, d := range tableDialects {
 		if d.grid {
@@ -815,7 +793,7 @@ func TestFormat_TableWithTABLE003KeepsTheMiscountedRow(t *testing.T) {
 		for name, table := range map[string]string{
 			"caption":           "TABLE\n  caption: \"Ventas\"\n  headers: [\"A\", \"B\"]\n  rows:\n%[1]s[\"1\", \"2\", \"3\"]\n%[1]s[\"4\", \"5\"]",
 			"label":             "TABLE\n  label: \"tbl:a\"\n  headers: [\"A\", \"B\"]\n  rows:\n%[1]s[\"4\", \"5\"]\n%[1]s[\"6\"]",
-			"row without cells": "TABLE\n  headers: [\"A\"]\n  rows:\n%[1]s[\"1\"]\n%[1]s[]",
+			"row without cells": "TABLE\n  headers: [\"A\"]\n  rows:\n%[1]s[]\n%[1]s[\"1\", \"2\"]",
 		} {
 			t.Run(d.name+"/"+name, func(t *testing.T) {
 				src := d.wrap(fmt.Sprintf(table, strings.Repeat(" ", d.rowsIndent())))

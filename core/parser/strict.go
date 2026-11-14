@@ -1051,19 +1051,46 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 	// alignment it declares (table-align-v1), same as the flex parser.
 	if p.currentLine < len(p.lines) {
 		separatorLine := strings.TrimSpace(p.lines[p.currentLine])
-		if strings.Contains(separatorLine, "---") {
+		// La misma regla que la tabla de flex y de ":::": una fila con
+		// texto además de los guiones ("| 2019 | --- |") es la primera fila
+		// de datos, no el separador.
+		isSeparator, lost, mismatch := false, false, false
+		switch {
+		case !headerParsed:
+			// Sin encabezado, esta es la misma línea que ya recibió su
+			// aviso arriba, no una fila después del encabezado. Se consume
+			// como siempre (con "---"): cambiarlo cambiaría qué filas toma
+			// la tabla.
+			isSeparator = strings.Contains(separatorLine, "---")
+		case elements.IsMarkdownSeparatorLine(separatorLine):
+			isSeparator = true
+		case strings.Contains(separatorLine, "---") &&
+			(!strings.HasPrefix(separatorLine, "|") || !strings.HasSuffix(separatorLine, "|")):
+			// Una línea con "---" que no abre y cierra con "|" ("a --- b",
+			// "| x --- y") no es una fila que strict sepa leer: más abajo
+			// cortaría la tabla o se saltaría como fila malformada. Se
+			// sigue tomando por separador, como siempre, y como no lo es,
+			// su texto se pierde: se avisa (TABLE008).
+			isSeparator, lost = true, true
+		case strings.Contains(separatorLine, "---") &&
+			len(elements.TrimMarkdownRowEdges(separatorLine, elements.SplitMarkdownTableRow(separatorLine))) != len(headers):
+			// Una fila completa con "---" en una celda es de datos solo si
+			// tiene una celda por columna: con otro número de celdas, el
+			// lint (TABLE003, un error) haría fallar un documento que antes
+			// compilaba, cuando esta línea se tomaba por separador. Se sigue
+			// tomando por separador, con aviso (TABLE008).
+			isSeparator, lost, mismatch = true, true, true
+		}
+		if isSeparator {
 			sepCells := elements.TrimMarkdownRowEdges(separatorLine, elements.SplitMarkdownTableRow(separatorLine))
-			// Sin encabezado, esta es la misma línea que ya recibió su aviso
-			// arriba: no hay "fila después del encabezado" que avisar. El
-			// consumo sigue igual que siempre (saltarlo cambiaría qué filas
-			// toma la tabla).
 			switch {
-			case headerParsed && !isStrictSeparatorRow(sepCells):
-				// Cualquier línea con "---" justo después del encabezado se
-				// toma por separador, como siempre. Si no lo es, sus celdas
-				// se pierden: se avisa (TABLE008).
+			case mismatch:
 				p.addWarningWithRuleID(fmt.Sprintf(
-					"This line, right after the table header, is read as the separator row because it contains \"---\", so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |.", separatorLine),
+					"This line, right after the table header, has dashes in it and %d cells where the header has %d, so it is read as the separator row and its cells were ignored: %q. A row with dashes in a cell stays in the table when it has one cell per column; a separator row has only dashes and colons, as in | --- | :-: |.", len(sepCells), len(headers), separatorLine),
+					elements.TableLineRuleID)
+			case lost:
+				p.addWarningWithRuleID(fmt.Sprintf(
+					"This line, right after the table header, is read as the separator row because it contains \"---\", so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |; a data row starts and ends with a pipe, as in | a | --- |.", separatorLine),
 					elements.TableLineRuleID)
 			case headerParsed && !strings.Contains(separatorLine, "|") && len(headers) != 1:
 				// Una línea de guiones sin "|" ("---", "-----", ":---:")
@@ -1117,15 +1144,15 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 		}
 
 		cells := elements.SplitMarkdownTableRow(line)
-		var row []string
+		// Una fila "|" sola es una fila sin celdas: queda en el AST como
+		// fila vacía, igual que en flex y dentro de un ":::". Antes se
+		// descartaba sin aviso. No es separador: no tiene guiones.
+		row := []string{}
 		for i := 1; i < len(cells)-1; i++ { // Skip first and last empty cells
 			row = append(row, strings.TrimSpace(cells[i]))
 		}
-
-		if len(row) > 0 {
-			rows = append(rows, row)
-			rowPositions = append(rowPositions, p.position(p.currentLine))
-		}
+		rows = append(rows, row)
+		rowPositions = append(rowPositions, p.position(p.currentLine))
 
 		p.currentLine++
 	}
@@ -1139,22 +1166,6 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 	// other parse path).
 	table.Cells = ast.DeriveCellsFromFlat(headers, rows)
 	return table
-}
-
-// isStrictSeparatorRow dice si las celdas (ya sin los bordes) de la fila que
-// sigue al encabezado son un separador Markdown: solo guiones, dos puntos y
-// espacios en cada celda, con al menos un guion.
-func isStrictSeparatorRow(cells []string) bool {
-	for _, c := range cells {
-		c = strings.TrimSpace(c)
-		if c == "" {
-			continue
-		}
-		if strings.Trim(c, "-:") != "" || !strings.Contains(c, "-") {
-			return false
-		}
-	}
-	return true
 }
 
 func (p *strictBody) parseDirectiveElement() ast.Element {

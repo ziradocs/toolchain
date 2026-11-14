@@ -197,3 +197,24 @@ func TestTablesRuleIsLinear(t *testing.T) {
 		t.Errorf("TablesRule.Apply took %v on %d bytes", d, b.Len())
 	}
 }
+
+// Una tabla Markdown con guiones en una celda ("| 2019 | --- |") ya es una
+// tabla, tenga o no fila separadora: la regla no la reescribe. Desde que esa
+// fila es de datos en los dos dialectos, reescribirla le cambiaría las celdas.
+func TestTablesRule_Apply_KeepsDashCellRows(t *testing.T) {
+	rule := NewTablesRule()
+	for _, input := range []string{
+		"# S\n\n| Año | Valor |\n| --- | --- |\n| 2019 | --- |\n| a --- b | c |\n",
+		"# S\n\n| Año | Valor |\n| 2019 | --- |\n| 2020 | 5 |\n",
+		"# S\n\n| 2019 | --- |\n| a --- b | c |\n| :-- | x |\n",
+		"# S\n\n:::note\n| Año | Valor |\n| 2019 | --- |\n:::\n",
+	} {
+		got, err := rule.Apply(input)
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		if got != input {
+			t.Errorf("Apply() rewrote a Markdown table:\n%s\n---\n%s", input, got)
+		}
+	}
+}

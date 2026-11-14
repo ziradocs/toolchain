@@ -209,11 +209,9 @@ func pipeRowText(cells []string) string {
 // que lleva la alineación es la tabla pipe.
 func alignmentError(e *ast.TableElement, plainPipe bool) error {
 	if plainPipe {
-		for _, row := range e.Rows {
-			if len(row) == 0 {
-				return newUnsupported("table", fmt.Sprintf("%s has column alignment and a row without cells (a \"|\" line): strict drops a \"|\" row, and only a pipe table carries the alignment, so no strict table keeps both. Give the row its cells (\"%s\"), delete it, or remove the alignment from the separator row", tableName(e), strings.TrimSpace(pipeRowText(make([]string, len(e.Headers))))))
-			}
-		}
+		// Una fila "|" ya no es motivo: strict la relee como fila sin
+		// celdas, igual que flex, así que la tabla pipe la lleva junto con
+		// la alineación.
 		return newUnsupported("table", fmt.Sprintf("%s has column alignment, and the pipe table that would carry it does not read back unchanged (a cell with spaces at its edges, for instance). Remove the alignment from the separator row, or fix the cell", tableName(e)))
 	}
 	var has []string
