@@ -153,7 +153,7 @@ func generatedTableShapes() []tableShape {
 // bordes y una celda "---" (pipe), y un backslash al final.
 func specialCellShapes() []tableShape {
 	var shapes []tableShape
-	for _, special := range []string{`Café "premium"`, " A ", "---", `a\`} {
+	for _, special := range []string{`Café "premium"`, " A ", "---", "--", ":--", `a\`} {
 		for _, sh := range generatedTableShapes() {
 			if sh.label != "" || (sh.headers != nil && (len(sh.headers) != 2 || sh.headers[0] != "A")) {
 				continue
@@ -176,6 +176,62 @@ func specialCellShapes() []tableShape {
 		}
 	}
 	return shapes
+}
+
+// dashRowShapes son tablas con filas de solo guiones ("---", "--", ":--",
+// "-") como primera fila, a media tabla y al final, con una celda por
+// columna o con otro número de celdas. En una tabla pipe, la que sigue al
+// separador que escribe fmt es de datos en los dos dialectos (v2.59.0).
+func dashRowShapes() []tableShape {
+	var shapes []tableShape
+	for _, h := range [][]string{{"A", "B"}, {"A"}} {
+		for _, dash := range []string{"---", "--", ":--", "-"} {
+			full := make([]string, len(h))
+			for i := range full {
+				full[i] = dash
+			}
+			xy := []string{"x", "y"}[:len(h)]
+			for _, rows := range [][][]string{
+				{full},
+				{full, xy},
+				{xy, full, full},
+				{xy, {dash}},
+				{{dash, dash, dash}},
+			} {
+				shapes = append(shapes, tableShape{headers: h, rows: rows})
+			}
+		}
+	}
+	return shapes
+}
+
+// dashCellMisfit dice si alguna fila con guiones que la tabla de flex
+// saltaría como separador ("---", ":--", "--:" o ":-:" en una celda) no tiene
+// una celda por columna: esa fila se salta, con TABLE008 (ver core/parser).
+func dashCellMisfit(s tableShape) bool {
+	for _, r := range s.rows {
+		if len(r) == 0 || len(r) == len(s.headers) {
+			continue
+		}
+		for _, c := range r {
+			if strings.Contains(c, "---") || strings.Contains(c, ":--") || strings.Contains(c, "--:") || strings.Contains(c, ":-:") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rowsFitHeaders dice si cada fila tiene una celda por columna o ninguna, o
+// si la tabla no tiene encabezado: una fila de rows: que antes no se leía
+// solo entra así (ver core/internal/elements).
+func rowsFitHeaders(s tableShape) bool {
+	for _, r := range s.rows {
+		if s.headers != nil && len(r) != 0 && len(r) != len(s.headers) {
+			return false
+		}
+	}
+	return true
 }
 
 func shapeHas(s tableShape, f func(string) bool) bool {
@@ -252,6 +308,52 @@ var tableSourceForms = []tableSourceForm{
 		}
 		return b.String(), h, s.rows, true
 	}},
+	{"TABLE rows: deeper", func(s tableShape, d tableDialect) (string, []string, [][]string, bool) {
+		// Las filas bajo rows: con otra sangría que la que escribe fmt
+		// (v2.59.0): se leen si caben en la tabla.
+		if shapeHas(s, hasQuote) || !rowsFitHeaders(s) {
+			return "", nil, nil, false
+		}
+		var b strings.Builder
+		b.WriteString("TABLE\n" + tableProps(s))
+		if s.headers != nil {
+			b.WriteString("  headers: " + quotedCells(s.headers) + "\n")
+		}
+		b.WriteString("  rows:")
+		for _, r := range s.rows {
+			b.WriteString("\n" + strings.Repeat(" ", d.rowsIndent()+3) + quotedCells(r))
+		}
+		h := s.headers
+		if h == nil {
+			h = []string{}
+		}
+		return b.String(), h, s.rows, true
+	}},
+	{"TABLE rows: [ on several lines", func(s tableShape, d tableDialect) (string, []string, [][]string, bool) {
+		// Un arreglo en línea partido en varias líneas, que la última fila
+		// cierra con "]]" (v2.59.0).
+		if shapeHas(s, hasQuote) || len(s.rows) == 0 {
+			return "", nil, nil, false
+		}
+		var b strings.Builder
+		b.WriteString("TABLE\n" + tableProps(s))
+		if s.headers != nil {
+			b.WriteString("  headers: " + quotedCells(s.headers) + "\n")
+		}
+		b.WriteString("  rows: [")
+		for i, r := range s.rows {
+			end := ","
+			if i == len(s.rows)-1 {
+				end = "]"
+			}
+			b.WriteString("\n" + strings.Repeat(" ", d.rowsIndent()) + quotedCells(r) + end)
+		}
+		h := s.headers
+		if h == nil {
+			h = []string{}
+		}
+		return b.String(), h, s.rows, true
+	}},
 	{"TABLE cells:", func(s tableShape, _ tableDialect) (string, []string, [][]string, bool) {
 		var cells [][]ast.TableCell
 		var b strings.Builder
@@ -317,7 +419,7 @@ func markdownTableForm(aligned bool) func(s tableShape, d tableDialect) (string,
 		if s.headers == nil || s.caption != "" || s.label != "" {
 			return "", nil, nil, false
 		}
-		if shapeHas(s, func(c string) bool { return c != strings.TrimSpace(c) || strings.Contains(c, "---") }) {
+		if shapeHas(s, func(c string) bool { return c != strings.TrimSpace(c) }) || dashCellMisfit(s) {
 			// La forma pipe recorta los bordes de una celda, y una fila con
 			// "---" en una celda solo es de datos si cabe en la tabla (si no,
 			// se salta como separador): eso lo prueba core/parser.
@@ -422,7 +524,7 @@ func TestFormat_GeneratedTablesRoundTrip(t *testing.T) {
 	refused, total := 0, 0
 	for _, d := range tableDialects {
 		t.Run(d.name, func(t *testing.T) {
-			r, n := roundTripGeneratedTables(t, d, append(append([]tableShape{}, shapes...), specials...))
+			r, n := roundTripGeneratedTables(t, d, append(append(append([]tableShape{}, shapes...), specials...), dashRowShapes()...))
 			refused += r
 			total += n
 		})
