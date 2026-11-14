@@ -74,7 +74,10 @@ What is **not** symmetric:
 - `slidelang mcp`'s `lint` tool expands `@include` lines the way
   `slidelang build` does, from the directory of its `fileName` (relative to
   the server's working directory, which an include cannot leave), and a
-  diagnostic from an included file names that file. `doclang mcp`'s `lint`
+  diagnostic from an included file names that file. An `@include` it cannot
+  expand (the file is missing or outside the working directory) is left as
+  is: the document is linted without it, and the line gets the
+  `DIRECTIVE003` warning, which says why. `doclang mcp`'s `lint`
   does not expand them; its `export` tool does, confined to `--root`. Both
   `lint` tools resolve the lint policy like the CLIs (frontmatter
   `lint_policy:` > default).

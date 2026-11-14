@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // lintIn llama al tool lint con args y devuelve su salida.
@@ -77,37 +79,66 @@ func TestLintTool_ExpandsIncludes(t *testing.T) {
 	}
 }
 
-// Los @include no salen del directorio de trabajo del servidor: ni un
-// fileName afuera de él ni un @include que escape del directorio del
-// documento leen nada. Un documento sin @include se lintea igual con
-// cualquier fileName.
-func TestLintTool_IncludesStayInTheWorkingDirectory(t *testing.T) {
+// directive003 devuelve los DIRECTIVE003 de out.
+func directive003(out lintOutput) []diagnostics.Diagnostic {
+	var got []diagnostics.Diagnostic
+	for _, d := range out.Diagnostics {
+		if d.RuleID == "DIRECTIVE003" {
+			got = append(got, d)
+		}
+	}
+	return got
+}
+
+// Un @include que no se puede expandir (el archivo no existe, o queda fuera
+// del directorio de trabajo del servidor) no corta el lint: el documento se
+// lintea como está, con el DIRECTIVE003 de esa línea, el mismo Valid y la
+// misma severidad que antes de que el tool expandiera. Nada del archivo de
+// afuera se lee. El DIRECTIVE003 dice por qué no se expandió.
+func TestLintTool_UnexpandableIncludeKeepsDIRECTIVE003(t *testing.T) {
 	base := t.TempDir()
 	work := filepath.Join(base, "work")
 	writeFile(t, filepath.Join(base, "secret.slidelang"), "## Secreto\n\n<<charts>>\n")
-	writeFile(t, filepath.Join(work, "keep"), "")
+	writeFile(t, filepath.Join(work, "parts/ok.slidelang"), "## Bien\n\ntexto\n")
 	t.Chdir(work)
+	const head = "---\ntitle: T\nmode: flex\n---\n\n# S\n\ntexto\n\n"
 
 	for _, tc := range []struct {
-		name, fileName, source, wantErr string
+		name, fileName, include, why string
 	}{
-		{"fileName outside", "../deck.slidelang", "---\ntitle: T\nmode: flex\n---\n\n# S\n\n@include secret.slidelang\n", "inside the server's working directory"},
-		{"absolute fileName", filepath.Join(base, "deck.slidelang"), "---\ntitle: T\nmode: flex\n---\n\n# S\n\n@include secret.slidelang\n", "inside the server's working directory"},
-		{"include escaping", "deck.slidelang", "---\ntitle: T\nmode: flex\n---\n\n# S\n\n@include ../secret.slidelang\n", "failed to expand includes"},
+		{"not found", "deck.slidelang", "parts/missing.slidelang", `no se expandió "parts/missing.slidelang": el archivo no existe`},
+		{"escapes the document's directory", "deck.slidelang", "../secret.slidelang", `no se expandió "../secret.slidelang": queda fuera del directorio de trabajo del servidor`},
+		{"fileName outside the working directory", "../deck.slidelang", "secret.slidelang", `no se expandió "secret.slidelang": queda fuera del directorio de trabajo del servidor`},
+		{"absolute fileName", filepath.Join(base, "deck.slidelang"), "secret.slidelang", `no se expandió "secret.slidelang": queda fuera del directorio de trabajo del servidor`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, isErr := lintIn(t, map[string]any{"source": tc.source, "fileName": tc.fileName})
-			if !isErr || out.Valid || !strings.Contains(out.Error, tc.wantErr) {
-				t.Fatalf("want an error result with %q, got isError=%v %+v", tc.wantErr, isErr, out)
+			out, isErr := lintIn(t, map[string]any{"source": head + "@include " + tc.include + "\n", "fileName": tc.fileName})
+			// Lo mismo que en la base: resultado válido, un DIRECTIVE003
+			// de aviso en la línea del @include.
+			got := directive003(out)
+			if isErr || out.Error != "" || !out.Valid {
+				t.Fatalf("want a valid lint result, got isError=%v %+v", isErr, out)
 			}
-			if strings.Contains(out.Error, "Secreto") || len(out.Diagnostics) != 0 {
-				t.Errorf("nothing of the file outside should show: %+v", out)
+			if len(got) != 1 || !got[0].IsWarning() || got[0].Position.Line != 10 || got[0].File != "" {
+				t.Fatalf("want one DIRECTIVE003 warning on line 10, got %+v", out.Diagnostics)
+			}
+			for _, d := range out.Diagnostics {
+				if strings.Contains(d.Message, "Secreto") || d.RuleID == "FLEX001" {
+					t.Errorf("nothing of the file outside should be read: %+v", d)
+				}
+			}
+			// Lo nuevo: el aviso dice por qué no se expandió.
+			if !strings.HasSuffix(got[0].Message, tc.why) {
+				t.Errorf("DIRECTIVE003 should say %q: %q", tc.why, got[0].Message)
 			}
 		})
 	}
 
-	out, isErr := lintIn(t, map[string]any{"source": validSource, "fileName": filepath.Join(base, "deck.slidelang")})
-	if isErr || !out.Valid {
-		t.Errorf("a document without @include lints with any fileName: isError=%v %+v", isErr, out)
+	// Un @include que se expande y otro que no, en el mismo documento: el
+	// primero se expande y el segundo queda con su DIRECTIVE003.
+	out, isErr := lintIn(t, map[string]any{"source": head + "@include parts/ok.slidelang\n\n@include parts/missing.slidelang\n", "fileName": "deck.slidelang"})
+	got := directive003(out)
+	if isErr || !out.Valid || len(got) != 1 || got[0].Position.Line != 12 {
+		t.Errorf("want the missing include alone reported on line 12, got isError=%v %+v", isErr, out)
 	}
 }
