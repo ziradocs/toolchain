@@ -182,9 +182,11 @@ In strict, a line inside an element that the element does not read is a
 warning on that line, never a silent drop: `STRICT003`, `STRICT004`,
 `POINTS001`, `CHECKLIST001`, `CHECKLIST002`, `QUOTE001`, `IMG005`, `TABLE008`,
 `CHART007`, `METRIC006`, `QUIZ007`, `POLL007`, `CODEGROUP003` and
-`DIRECTIVE004` (see the spec, "Lines an element does not read"). Each one
-means text that is not in the output: fix the line instead of accepting the
-warning.
+`DIRECTIVE004` (see the spec, "Lines an element does not read"). The ones of
+blocks both dialects share (`TABLE008` for the `TABLE` block, `CHART007`,
+`METRIC006`, `QUIZ007`, `POLL007`, `CODEGROUP003`, `DIRECTIVE004`) fire in flex
+too. Each one means text that is not in the output: fix the line instead of
+accepting the warning.
 The linter adds, among others, `CONTRAST001`, `CONTRAST002`, `POLL001`,
 `POLL002`, `QUIZ002`, and `QUIZ003`. They complement the rule IDs named inline
 above; none should be guessed from prose—use the diagnostic's message and

@@ -508,8 +508,9 @@ path, which works on in-memory source with no base directory — so an
 
 In strict, a line inside an element that the element does not read is never
 dropped silently: it gets a warning on that line that quotes it. The build
-still passes, but the text is not in the output, so fix the line. The common
-ones:
+still passes, but the text is not in the output, so fix the line. The IDs of
+blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
+`<<poll>>`, `:::code-group`, directives) fire in flex too. The common ones:
 
 - `STRICT004`: text on a keyword line (`TEXT hola`, `POINTS: uno`, `TEXTO`,
   `CODEX`, a third quoted string after `IMAGE`, words after `SLIDE <type>`).

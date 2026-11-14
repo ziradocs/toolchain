@@ -296,14 +296,22 @@ the outcome the grammar promises is the same for all four.
 
 #### Lines an element does not read
 
-In both strict dialects, every non-blank line inside a `SLIDE` or `SECTION`
-body, a typed column or a typed block ends up in the element's content, in a
-property the element reads, or in a diagnostic on that line that quotes it and
-says why it was not read. The parser still reads the same lines as before and
-builds the same AST; the diagnostics below are **warnings**, so a document that
-builds keeps building. A diagnostic that covers a run of lines (an ignored YAML
-body, an `options:` block, the value of an unknown key) starts at its first line
-and carries an `endPosition` at its last one.
+In both strict dialects, a non-blank line inside a `SLIDE` or `SECTION` body, a
+typed column or a typed block that an element takes ends up in the element's
+content, in a property the element reads, or in a diagnostic on that line that
+quotes it (or says the block it is in was ignored) and says why. The parser
+still reads the same lines as before and builds the same AST; the diagnostics
+below are **warnings**, so a document that builds keeps building. A diagnostic
+that covers a run of lines (an ignored YAML or JSON body, an `options:` block,
+the value of an unknown key) starts at its first line, or at the element's
+opening line, and carries an `endPosition` at its last one.
+
+The element parsers are shared by both dialects, so the IDs of a block that
+flex reads the same way (the `TABLE` block, `<<chart>>`, `<<metric>>`,
+`<<quiz>>`, `<<poll>>`, `:::code-group` and directives) are reported in flex
+documents too. The ones tied to strict syntax (`STRICT003`, `STRICT004`,
+`POINTS001`, `CHECKLIST001`, `CHECKLIST002`, `QUOTE001`, `IMG005` and the strict
+Markdown table rows of `TABLE008`) are strict only.
 
 | ID | Line that is not read |
 | --- | --- |
@@ -315,8 +323,10 @@ and carries an `endPosition` at its last one.
 | `QUOTE001` | An `AUTHOR:` or `SOURCE:` line of a strict `QUOTE` that a later one replaces |
 | `IMG005` | A line of a strict `IMAGE` body that is not `caption:`, `title:`, `label:`, `fit:`, `focus:`, `context:` or `bleed:` (for example `alt:`, `src:`, `width:`, `height:`), a line with no key, and a `bleed:` that is not `true` or `false` |
 | `TABLE008` | A line of a `TABLE` body that is not a row or a property it reads, a `headers:` value that is not an array, a `rows:` row that does not end in `]` or that does not start exactly six spaces from the beginning of the line, and in a strict Markdown table a first row that does not end in `\|`, a row with no cells, and a line read as the separator row only because it contains `---` |
-| `TABLE004` | (existing) the `cells:` block is not valid YAML; it now covers the whole block |
-| `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), an `options:` block that is not valid YAML, and a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array |
+| `TABLE008` (YAML) | The lines of a `cells:` or `tableRows:` block that the YAML reader leaves out without an error because they are indented less than the rows above them (a `---` at the key's indentation is one) |
+| `TABLE004` | (existing) the `cells:` block is not valid YAML; it now covers the whole block, and so does the existing error for an invalid `tableRows:` block |
+| `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), each key of a `<<chart: combo>>` YAML body it does not read, an `options:` block that is not valid YAML, and a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array |
+| `CHART002` | (existing) a JSON chart body that is not valid JSON; it now covers the whole body |
 | `METRIC006`, `QUIZ007`, `POLL007` | Each top-level key of a `<<metric>>`, `<<quiz>>` or `<<poll>>` body that the block does not read, from the key to the end of its value (the per-block `METRIC003`, `QUIZ005` and `POLL004` stay as they are). An invalid YAML body keeps `METRIC002`, `QUIZ004` or `POLL006`, which now cover the whole body |
 | `CODEGROUP003` | Each line of a `:::code-group` outside a code fence, on its own line (the error on the `:::code-group` line stays) |
 | `DIRECTIVE004` | A lone `@`, and the part of a directive that reads `key=value` parameters that is not one (`@transition fade`, a trailing word) |
