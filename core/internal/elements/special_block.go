@@ -82,7 +82,7 @@ func tryParseNestedContent(ctx *ParseContext, i int, opener string) (ast.Element
 			if result.Error != nil {
 				d := ignoredLineWarning(ctx, i, NestedElementErrorRuleID, "special-block-parser",
 					"Part of this element inside the %q block was not read: %s. The element is kept without it; fix the line.",
-					opener, result.Error.Error())
+					shortLine(opener), result.Error.Error())
 				diags = append([]diagnostics.Diagnostic{d}, diags...)
 			}
 			return result.Element, result.ConsumedLines, diags, true

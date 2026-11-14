@@ -996,7 +996,7 @@ func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]s
 			// puntos y "|", sus celdas se pierden: se avisa (TABLE008).
 			if strings.Trim(line, "|-: \t") != "" {
 				diags = append(diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
-					"This table row is read as a separator row because it has dashes in it, so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |.",
+					"This table row is read as a separator row because it has dashes in it, so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |. If a dash marks an empty cell, write the cell another way (n/a, —) so the row stays in the table.",
 					line))
 			}
 			// La alineación solo sale de la delimitadora que sigue al header.
