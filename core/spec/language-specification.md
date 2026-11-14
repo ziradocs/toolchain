@@ -294,6 +294,37 @@ this guarantee through its own parser (indentation tracking, an explicit
 allowlist, or a direct boundary check), not a single shared mechanism, but
 the outcome the grammar promises is the same for all four.
 
+#### Lines an element does not read
+
+In both strict dialects, every non-blank line inside a `SLIDE` or `SECTION`
+body, a typed column or a typed block ends up in the element's content, in a
+property the element reads, or in a diagnostic on that line that quotes it and
+says why it was not read. The parser still reads the same lines as before and
+builds the same AST; the diagnostics below are **warnings**, so a document that
+builds keeps building. A diagnostic that covers a run of lines (an ignored YAML
+body, an `options:` block, the value of an unknown key) starts at its first line
+and carries an `endPosition` at its last one.
+
+| ID | Line that is not read |
+| --- | --- |
+| `STRICT003` | A line of a `SLIDE` body that is not an element or a property, and a lone `:::` that opens and closes nothing (also in a `SECTION` body) |
+| `STRICT004` | Text on the keyword line of an element that takes none (`TEXT hola`, `POINTS: uno`, `QUOTE`, `CHECKLIST`, `TABLE`), letters glued to a keyword that the prefix dispatch reads as that keyword (`TEXTO citado`, `CODEX python`, `IMAGEN`), a third argument of `IMAGE`, and words after `SLIDE <type>` |
+| `POINTS001` | A line of a strict `POINTS` body that is not a list item. A strict list has no continuation lines |
+| `CHECKLIST001` | A line of a strict `CHECKLIST` body before its first item |
+| `CHECKLIST002` | A strict `CHECKLIST` item with no text (`[ ]`) |
+| `QUOTE001` | An `AUTHOR:` or `SOURCE:` line of a strict `QUOTE` that a later one replaces |
+| `IMG005` | A line of a strict `IMAGE` body that is not `caption:`, `title:`, `label:`, `fit:`, `focus:`, `context:` or `bleed:` (for example `alt:`, `src:`, `width:`, `height:`), a line with no key, and a `bleed:` that is not `true` or `false` |
+| `TABLE008` | A line of a `TABLE` body that is not a row or a property it reads, a `headers:` value that is not an array, a `rows:` row that does not end in `]` or that does not start exactly six spaces from the beginning of the line, and in a strict Markdown table a first row that does not end in `\|`, a row with no cells, and a line read as the separator row only because it contains `---` |
+| `TABLE004` | (existing) the `cells:` block is not valid YAML; it now covers the whole block |
+| `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), an `options:` block that is not valid YAML, and a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array |
+| `METRIC006`, `QUIZ007`, `POLL007` | Each top-level key of a `<<metric>>`, `<<quiz>>` or `<<poll>>` body that the block does not read, from the key to the end of its value (the per-block `METRIC003`, `QUIZ005` and `POLL004` stay as they are). An invalid YAML body keeps `METRIC002`, `QUIZ004` or `POLL006`, which now cover the whole body |
+| `CODEGROUP003` | Each line of a `:::code-group` outside a code fence, on its own line (the error on the `:::code-group` line stays) |
+| `DIRECTIVE004` | A lone `@`, and the part of a directive that reads `key=value` parameters that is not one (`@transition fade`, a trailing word) |
+
+Comments are not author text the element drops: a `#` comment in a YAML body
+(`<<metric>>`, `<<quiz>>`, `<<poll>>`, `<<map>>`, `options:`) stays a comment.
+A `]` line that closes a multi-line `rows: [` is syntax.
+
 ### Document Strict Mode Grammar
 
 The grammar above describes *presentations*, whose unit is the slide. A **document**
