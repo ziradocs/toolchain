@@ -669,7 +669,9 @@ func (p *strictBody) parseIndentedElements(
 // error nombrando al elemento, nunca recorta callado.
 func (p *strictBody) applyElementResult(result *elements.ParseResult, elementName string) ast.Element {
 	if result.Error != nil {
-		p.addError(result.Error.Error())
+		// En la línea interna a la que apunta el error, si trae una
+		// (elements.LineError); si no, en la que abre el elemento.
+		p.diagnostics = append(p.diagnostics, p.parseContext().ErrorDiagnostic(result.Error, p.currentLine, "parser"))
 	}
 	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
 

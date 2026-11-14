@@ -43,3 +43,27 @@ func TestFlexElementErrorLineInsideAnInclude(t *testing.T) {
 		}
 	}
 }
+
+// El error de una línea interna de un elemento (un marcador de <<map>>) de un
+// archivo incluido sale en esa línea del archivo incluido, no en la del
+// <<map>>.
+func TestElementInternalErrorLineInsideAnInclude(t *testing.T) {
+	part := "## Parte\n\n<<map>>\ncenter: 10, 20\nmarker: 10, abc, X\n<</map>>\n"
+	files := map[string]string{abs(t, "/base/part.doclang"): part}
+	root := "---\nmode: flex\ntitle: \"D\"\n---\n\n# Doc\n\n@include part.doclang\n"
+	text, sm, err := ExpandWithSourceMap(root, abs(t, "/base"), memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, diags := parser.New(util.NewNoop()).ParseDocument(text, "d.doclang")
+	var got []string
+	for _, d := range sm.MapDiagnostics(diags, abs(t, "/base")) {
+		if d.IsError() && strings.Contains(d.Message, "map marker") {
+			got = append(got, d.String())
+		}
+	}
+	want := `error: map marker lng " abc" is not a number (part.doclang:5:1)`
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("want %q, got %q", want, got)
+	}
+}
