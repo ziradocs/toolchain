@@ -26,30 +26,30 @@ func ReportableParserDiagnostics(diags []diagnostics.Diagnostic) []diagnostics.D
 	return out
 }
 
-// SortByPosition ordena diags por línea y columna, estable. Todavía no mira
-// Diagnostic.File, que no existe en el core que esta CLI usa publicado: el
-// PR que active include.SourceMap.MapDiagnostics, después del bump, tiene que
-// ordenar por (File, línea, columna) con el documento primero, como
-// core/report. Hasta entonces ningún diagnóstico trae File.
+// SortByPosition ordena diags por archivo, línea y columna, estable, como
+// core/report: primero el documento (Diagnostic.File vacío) y después cada
+// archivo incluido.
 func SortByPosition(diags []diagnostics.Diagnostic) {
 	sort.SliceStable(diags, func(i, j int) bool {
-		a, b := diags[i].Position, diags[j].Position
-		if a.Line != b.Line {
-			return a.Line < b.Line
-		}
-		return a.Column < b.Column
+		return positionLess(diags[i], diags[j])
 	})
 }
 
 // SortWaivedByPosition es SortByPosition para los diagnósticos suprimidos.
 func SortWaivedByPosition(waived []linter.WaivedDiagnostic) {
 	sort.SliceStable(waived, func(i, j int) bool {
-		a, b := waived[i].Diagnostic.Position, waived[j].Diagnostic.Position
-		if a.Line != b.Line {
-			return a.Line < b.Line
-		}
-		return a.Column < b.Column
+		return positionLess(waived[i].Diagnostic, waived[j].Diagnostic)
 	})
+}
+
+func positionLess(a, b diagnostics.Diagnostic) bool {
+	if a.File != b.File {
+		return a.File < b.File
+	}
+	if a.Position.Line != b.Position.Line {
+		return a.Position.Line < b.Position.Line
+	}
+	return a.Position.Column < b.Position.Column
 }
 
 // PolicyResult son los diagnósticos de un documento después de la política
@@ -78,14 +78,15 @@ func EvaluatePolicy(policy *linter.PolicyConfig, parseDiags, lintDiags []diagnos
 }
 
 // Active son los diagnósticos activos del parser y del linter, ordenados por
-// posición.
+// archivo y posición.
 func (r PolicyResult) Active() []diagnostics.Diagnostic {
 	out := append(append([]diagnostics.Diagnostic{}, r.ParserActive...), r.LintActive...)
 	SortByPosition(out)
 	return out
 }
 
-// Waived son los suprimidos del parser y del linter, ordenados por posición.
+// Waived son los suprimidos del parser y del linter, ordenados por archivo y
+// posición.
 func (r PolicyResult) Waived() []linter.WaivedDiagnostic {
 	out := append(append([]linter.WaivedDiagnostic{}, r.ParserWaived...), r.LintWaived...)
 	SortWaivedByPosition(out)
