@@ -351,7 +351,7 @@ func (p *ImageParser) parseStrictImage(ctx *ParseContext, startIndex int) (strin
 	// Lo que la cabecera trae de más no se lee (STRICT004): un tercer
 	// argumento, o letras pegadas a la palabra clave ("IMAGEN"), que el
 	// despacho por prefijo lee como IMAGE.
-	if len(parts) > 0 && parts[0] != "IMAGE" {
+	if len(parts) > 0 && parts[0] != "IMAGE" && parts[0] != "IMAGE:" {
 		diags = append(diags, keywordRestDiagnostic(ctx, startIndex, "IMAGE", "image-parser",
 			strings.TrimPrefix(parts[0], "IMAGE"), true,
 			`IMAGE takes the source and the alt text as quoted strings, as in IMAGE "photo.png" "A dog"`))

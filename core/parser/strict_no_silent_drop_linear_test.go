@@ -63,15 +63,23 @@ func TestStrictNoSilentDrop_IgnoredLinesScaleLinearly(t *testing.T) {
 		// encabezados iguales de un deck probaban los k sufijos anteriores
 		// cada uno.
 		"CHECKLIST continuation": func(n int) string {
-			return "  CHECKLIST\n    [ ] uno\n" + strings.Repeat("    sigue el texto\n", n)
+			return "  CHECKLIST\n    [ ] uno\n" + strings.Repeat("    "+longContinuation+"\n", n)
 		},
 	}
 	// La continuación de un item flex (parseMarkdownList) y los encabezados
 	// de un deck van por su propio dialecto.
+	//
+	// La continuación flex no usa longContinuation: con líneas largas el resto
+	// del pipeline flex también cuesta más por línea y vuelve a tapar la copia.
+	// Con líneas cortas hace falta un n grande para que la copia cuadrática se
+	// note: medido, la
+	// versión lineal da 122 ms con 16 000 líneas y 487 ms con 64 000 (4x), y
+	// con `Content += " " + línea` de vuelta en continuationRun.add, 514 ms y
+	// 7.0 s (13.7x). Por eso arranca en 16 384 y corta en 8x.
 	t.Run("flex list continuation", func(t *testing.T) {
-		assertLinear(t, func(n int) string {
+		assertLinearFrom(t, func(n int) string {
 			return "---\nmode: flex\n---\n# A\n\n- uno\n" + strings.Repeat("  sigue el texto\n", n)
-		}, false)
+		}, false, 1<<14, 8)
 	})
 	t.Run("repeated slide headings", func(t *testing.T) {
 		assertLinear(t, func(n int) string {
@@ -85,8 +93,22 @@ func TestStrictNoSilentDrop_IgnoredLinesScaleLinearly(t *testing.T) {
 	}
 }
 
+// longContinuation es una línea de continuación larga. Con líneas cortas, el
+// costo fijo de parsear cada línea tapa al de recopiar el texto del ítem: un
+// `Content += " " + línea` vuelto a meter en continuationRun pasaba la prueba
+// porque n se quedaba en pocos miles. Con 400 caracteres por línea la copia
+// cuadrática domina desde la base de 10 ms.
+var longContinuation = strings.Repeat("sigue el texto ", 27)
+
 // assertLinear falla si parsear gen(4n) cuesta diez veces o más que gen(n).
 func assertLinear(t *testing.T, gen func(n int) string, slide bool) {
+	t.Helper()
+	assertLinearFrom(t, gen, slide, 500, 10)
+}
+
+// assertLinearFrom es assertLinear con el n inicial y el cociente máximo
+// entre gen(4n) y gen(n) explícitos.
+func assertLinearFrom(t *testing.T, gen func(n int) string, slide bool, start int, maxRatio time.Duration) {
 	t.Helper()
 	best := func(src string) time.Duration {
 		d := time.Duration(1 << 62)
@@ -106,7 +128,7 @@ func assertLinear(t *testing.T, gen func(n int) string, slide bool) {
 	}
 	// Una base de 10 ms, no de 3: con todos los paquetes de `go test ./...`
 	// corriendo a la vez, una medición de pocos milisegundos es puro ruido.
-	n := 500
+	n := start
 	for n < 1<<17 && best(gen(n)) < 10*time.Millisecond {
 		n *= 2
 	}
@@ -114,9 +136,9 @@ func assertLinear(t *testing.T, gen func(n int) string, slide bool) {
 	var t1, t4 time.Duration
 	for a := 0; a < 3; a++ {
 		t1, t4 = best(small), best(large)
-		if t4 < 10*t1 {
+		if t4 < maxRatio*t1 {
 			return
 		}
 	}
-	t.Errorf("%v with n=%d and %v with 4n", t1, n, t4)
+	t.Errorf("%v with n=%d and %v with 4n (limit %dx)", t1, n, t4, maxRatio)
 }

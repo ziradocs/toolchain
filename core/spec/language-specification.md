@@ -316,7 +316,7 @@ Markdown table rows of `TABLE008`) are strict only.
 | ID | Line that is not read |
 | --- | --- |
 | `STRICT003` | A line of a `SLIDE` body that is not an element or a property, and a lone `:::` that opens and closes nothing (also in a `SECTION` body) |
-| `STRICT004` | Text on the keyword line of an element that takes none (`TEXT hola`, `POINTS: uno`, `QUOTE`, `CHECKLIST`, `TABLE`), letters glued to a keyword that the prefix dispatch reads as that keyword (`TEXTO citado`, `CODEX python`, `IMAGEN`), a third argument of `IMAGE`, and words after `SLIDE <type>` |
+| `STRICT004` | Text on the keyword line of an element that takes none (`TEXT hola`, `POINTS: uno`, `QUOTE`, `CHECKLIST`, `TABLE`), letters glued to a keyword that the prefix dispatch reads as that keyword (`TEXTO citado`, `CODEX python`, `IMAGEN`), a third argument of `IMAGE`, and words after `SLIDE <type>`. A bare `:` after the keyword (`POINTS:`, `CODE: python`) loses nothing and is not reported |
 | `POINTS001` | A line of a strict `POINTS` body that is not a list item. A strict list has no continuation lines |
 | `CHECKLIST001` | A line of a strict `CHECKLIST` body before its first item |
 | `CHECKLIST002` | A strict `CHECKLIST` item with no text (`[ ]`) |
@@ -653,9 +653,9 @@ resolved at render time and are not checked by the linter.
 
 ### Comments
 
-```slidelang
-// Single-line comment (both modes)
-```
+There is no line-comment syntax. A line that starts with `//` is text in flex.
+In strict it is not an element: a `SLIDE` body discards it with the
+`STRICT003` warning and a `SECTION` body reports it as an error.
 
 ### Directives
 
@@ -665,7 +665,7 @@ Directives control slide and element behavior:
 |-----------|--------|-------------|
 | `@notes` | `@notes: content` | Presenter notes |
 | `@background` | `@background: color\|image` | Slide background |
-| `@transition` | `@transition: type` | Slide transition |
+| `@transition` | `@transition type="fade"` | Slide transition |
 | `@timer` | `@timer: seconds` | Slide timing |
 
 `@include path` on a line of its own is replaced by the content of that file

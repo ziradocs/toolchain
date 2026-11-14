@@ -1055,7 +1055,11 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 		separatorLine := strings.TrimSpace(p.lines[p.currentLine])
 		if strings.Contains(separatorLine, "---") {
 			sepCells := elements.TrimMarkdownRowEdges(separatorLine, elements.SplitMarkdownTableRow(separatorLine))
-			if !isStrictSeparatorRow(sepCells) {
+			// Sin encabezado, esta es la misma línea que ya recibió su aviso
+			// arriba: no hay "fila después del encabezado" que avisar. El
+			// consumo sigue igual que siempre (saltarlo cambiaría qué filas
+			// toma la tabla).
+			if headerParsed && !isStrictSeparatorRow(sepCells) {
 				// Cualquier línea con "---" justo después del encabezado se
 				// toma por separador, como siempre. Si no lo es, sus celdas
 				// se pierden: se avisa (TABLE008).

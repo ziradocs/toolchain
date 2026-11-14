@@ -5,9 +5,11 @@ package parser
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
+	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -71,7 +73,7 @@ var noDropRegressions = []noDropRegression{
 
 	// Texto en la línea de la palabra clave.
 	{name: "text same line", body: []string{"  TEXT hola  <", "    mundo"}, rule: "STRICT004", quote: `The text after TEXT on this line was ignored: "hola"`},
-	{name: "text colon", body: []string{"  TEXT: hola  <", "    mundo"}, rule: "STRICT004", quote: `": hola"`},
+	{name: "text colon", body: []string{"  TEXT: hola  <", "    mundo"}, rule: "STRICT004", quote: `The text after TEXT on this line was ignored: "hola"`},
 	{name: "text glued", body: []string{"  TEXTO citado  <", "    mundo"}, rule: "STRICT004", quote: `"O citado"`},
 	{name: "text only same line", body: []string{"  TEXT hola  <"}, rule: "STRICT004", quote: `"hola"`},
 	{name: "points same line", body: []string{"  POINTS uno  <", "    - dos"}, rule: "STRICT004", quote: `"uno"`},
@@ -105,7 +107,7 @@ var noDropRegressions = []noDropRegression{
 	{name: "chart nested line", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, `    series: ["s"]`, "      o B  <"}, rule: "CHART007", quote: `nested under series:`},
 	{name: "chart unsupported key", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    backgroundColor: red  <"}, rule: "CHART007", quote: `"backgroundColor: red"`},
 	{name: "chart data not array", body: []string{"  <<chart: bar>>", "    data: muchos  <"}, rule: "CHART007", quote: `"data: muchos"`},
-	{name: "chart options invalid", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    options:  <", "      plugins: true", "      plugins: false"}, rule: "CHART007", quote: `through line`},
+	{name: "chart options invalid", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    options:  <", "      plugins: true", "      plugins: false"}, rule: "CHART007", quote: `every line under it were ignored`},
 
 	// Bloques YAML: cada llave desconocida, en su línea.
 	{name: "metric unknown key", body: []string{"  <<metric>>", "    label: Ventas", "    Importante:  <", "      alt: perro", "  <<end>>"}, rule: "METRIC006", quote: `"Importante:"`},
@@ -131,6 +133,9 @@ var noDropRegressions = []noDropRegression{
 	{name: "cells invalid", covers: true, body: []string{"  TABLE", "    cells:", "      - [{content: a}", "      - nope: [  <"}, rule: "TABLE004", quote: `not valid YAML`},
 	{name: "chart json invalid", covers: true, body: []string{"  <<chart: bar>>", `    {"labels": ["a"],`, "    nota  <", `    "datasets": []}`}, rule: "CHART002", quote: "inválido"},
 	{name: "chart combo unknown key", body: []string{"  <<chart: combo>>", "    data:", `      labels: ["a"]`, "      series:", `        - name: "s"`, "          values: [1]", "          color: red  <"}, rule: "CHART007", quote: `"color: red"`},
+	{name: "chart type in body", body: []string{"  <<chart: bar>>", `    data: [["a", 1]]`, "    type: line  <"}, rule: "CHART007", quote: `<<chart: line>>`},
+	{name: "directive highlight example", body: []string{`  @highlight color="x" junk  <`}, rule: "DIRECTIVE004", quote: `@highlight color="yellow"`},
+	{name: "quiz flow mapping", body: []string{"  <<quiz>>", "    {question: Q, options: [a, b], answer: 0, zeta: 1}  <", "  <<end>>"}, rule: "QUIZ007", quote: `that key and its value were ignored; the rest of this line is read`},
 	{name: "metric invalid yaml", covers: true, body: []string{"  <<metric>>", "    label: [roto", "    value: 1  <", "  <<end>>"}, rule: "METRIC002", quote: "inválido"},
 }
 
@@ -254,10 +259,21 @@ func TestStrictNoSilentDrop_ValidBodiesStayQuiet(t *testing.T) {
 		"      plugins:",
 		"        title:",
 		"          text: Ventas",
+		"    options:",
+		"      # sin opciones todavía",
 		"  <<metric>>",
 		"    label: Ventas",
 		"    value: 10",
 		"  <<end>>",
+		// Un ":" pegado a la palabra clave no pierde texto.
+		"  POINTS:",
+		"    - uno",
+		"  TEXT:",
+		"    hola",
+		"  CHECKLIST:",
+		"    [ ] tarea",
+		"  CODE: python",
+		"    print(2)",
 		`  @transition type="fade" duration="300"`,
 		"  :::info Nota",
 		"    texto",
@@ -275,5 +291,70 @@ func TestStrictNoSilentDrop_ValidBodiesStayQuiet(t *testing.T) {
 		for _, d := range diags {
 			t.Errorf("slide=%v: unexpected %d:%s %s", slide, d.Position.Line, d.RuleID, d.Message)
 		}
+	}
+}
+
+// Un marcador node-id se quita antes de parsear, y las posiciones se vuelven a
+// llevar a la línea del archivo; el texto de un aviso no pasa por ese ajuste,
+// así que no puede nombrar líneas por número. El aviso queda en la línea
+// ignorada del archivo, con su rango.
+func TestStrictNoSilentDrop_NodeIDKeepsLines(t *testing.T) {
+	src := noDropDocHeader + "SECTION \"S\"\n" +
+		"  <!-- node-id: Cita -->\n" + // 6
+		"  QUOTE\n" + // 7
+		"    cita\n" + // 8
+		"    AUTHOR: Ana\n" + // 9
+		"    AUTHOR: Beto\n" + // 10
+		"  <!-- node-id: Kpi -->\n" + // 11
+		"  <<metric>>\n" + // 12
+		"    label: L\n" + // 13
+		"    notas:\n" + // 14
+		"      - x\n" + // 15
+		"  <<end>>\n"
+	_, diags := New(util.NewNoop()).ParseDocument(src, "ids.doclang")
+	want := map[string][2]int{"QUOTE001": {9, 9}, "METRIC006": {14, 15}}
+	lineNumber := regexp.MustCompile(`\bline \d+`)
+	for _, d := range diags {
+		w, ok := want[d.RuleID]
+		if !ok {
+			continue
+		}
+		delete(want, d.RuleID)
+		end := d.Position.Line
+		if d.EndPosition != nil {
+			end = d.EndPosition.Line
+		}
+		if d.Position.Line != w[0] || end != w[1] {
+			t.Errorf("%s: want lines %d-%d, got %d-%d", d.RuleID, w[0], w[1], d.Position.Line, end)
+		}
+		if m := lineNumber.FindString(d.Message); m != "" {
+			t.Errorf("%s names %q in its text: %s", d.RuleID, m, d.Message)
+		}
+	}
+	for id := range want {
+		t.Errorf("missing %s in %v", id, diags)
+	}
+}
+
+// `CODE: python` lee su lenguaje como siempre, y un encabezado Markdown sin
+// cierre que además contiene "---" da un solo aviso, no dos.
+func TestStrictNoSilentDrop_HeaderEdges(t *testing.T) {
+	src := noDropDocHeader + "SECTION \"S\"\n  CODE: python\n    print(1)\n  | a --- b\n"
+	tree, diags := New(util.NewNoop()).ParseDocument(src, "edges.doclang")
+	code, ok := tree.ContentBlocks[0].Elements[0].(*ast.CodeElement)
+	if !ok || code.Language != "python" {
+		t.Fatalf("CODE: python: got %#v", tree.ContentBlocks[0].Elements[0])
+	}
+	n := 0
+	for _, d := range diags {
+		if d.RuleID == "TABLE008" && d.Position.Line == 8 {
+			n++
+		}
+		if d.RuleID == "STRICT004" {
+			t.Errorf("unexpected STRICT004: %s", d.Message)
+		}
+	}
+	if n != 1 {
+		t.Errorf("want one TABLE008 on line 8, got %d: %v", n, diags)
 	}
 }

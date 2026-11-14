@@ -340,6 +340,24 @@ func (p *DirectiveParser) parseNotesDirective(ctx *ParseContext, startIndex int,
 // clave=valor (`@transition fade`), o una clave sin valor.
 func ignoredParamWarning(ctx *ParseContext, i int, name, ignored string) diagnostics.Diagnostic {
 	return ignoredLineWarning(ctx, i, DirectiveTextRuleID, "directive-parser",
-		"Part of this @%s directive is not a key=value parameter and was ignored: %q. Write it as key=value, as in @transition type=\"fade\".",
-		name, ignored)
+		"Part of this @%s directive is not a key=value parameter and was ignored: %q. Write it as key=value, as in @%s %s.",
+		name, ignored, name, directiveParamExample(name))
+}
+
+// directiveParamExample es un parámetro de ejemplo de la directiva name para
+// el mensaje de DIRECTIVE004.
+func directiveParamExample(name string) string {
+	switch name {
+	case "transition":
+		return `type="fade"`
+	case "highlight":
+		return `color="yellow"`
+	case "timer":
+		return "duration=300"
+	case "auto-play":
+		return "interval=5000"
+	case "background":
+		return `color="#ffffff"`
+	}
+	return `key="value"`
 }

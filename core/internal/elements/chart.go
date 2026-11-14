@@ -514,15 +514,15 @@ chartLoop:
 			// los ejemplos de examples/02_diagrams_and_charts/), así
 			// que el HTML llevaba tiempo perdiendo títulos que el
 			// autor sí había pedido.
-			opts, linesConsumed := p.parseNestedOptions(ctx.Lines, i+1)
+			opts, linesConsumed, optsErr := p.parseNestedOptions(ctx.Lines, i+1)
 			if opts != nil {
 				chart.Options = opts
-			} else if linesConsumed > 0 {
+			} else if optsErr != nil {
 				// El bloque no es YAML válido y se descarta, como siempre; el
 				// aviso cubre de options: a su última línea.
 				diags = append(diags, withLineRange(ctx, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
-					"The options: block of this chart is not valid YAML and was ignored, through line %d: %q. Indent its keys under options: as YAML, as in plugins: / title: / text: \"…\".",
-					ctx.Position(i+linesConsumed).Line, trimmedLine), i+linesConsumed))
+					"The options: block of this chart is not valid YAML, so it and every line under it were ignored: %q. Indent its keys under options: as YAML, as in plugins: / title: / text: \"…\".",
+					trimmedLine), i+linesConsumed))
 			}
 			i += linesConsumed
 			consumedLines += linesConsumed
@@ -607,7 +607,12 @@ chartLoop:
 
 		// Un data:/series:/labels:/type:/yAxisID: que no es un arreglo no se
 		// lee: cada case de arriba solo entra con un "[". Se avisa (CHART007).
-		if (key == "data" || key == "series" || key == "labels" || key == "type" || key == "yAxisID") && !strings.Contains(value, "[") {
+		if key == "type" && !strings.Contains(value, "[") {
+			// `type: bar` en el cuerpo: el tipo del chart va en la apertura.
+			diags = append(diags, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+				"A type: in the body of a chart is read only as an array of per-series types, so this line was ignored: %q. The chart type goes on the opening line, as in <<chart: %s>>.",
+				trimmedLine, strings.Trim(value, "\"'")))
+		} else if (key == "data" || key == "series" || key == "labels" || key == "yAxisID") && !strings.Contains(value, "[") {
 			diags = append(diags, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
 				"The %s: value of this chart is not an array and was ignored: %q. Write it as an array, as in %s: [\"…\", \"…\"].",
 				key, trimmedLine, key))
@@ -1607,15 +1612,18 @@ func (p *ChartParser) parseYAMLBlock(lines []string, startIndex int) (string, in
 // tumbar el chart entero — se descarta la config y el chart se renderiza sin
 // ella, que es exactamente el comportamiento que había antes de que este
 // parser existiera.
-func (p *ChartParser) parseNestedOptions(lines []string, startIndex int) (map[string]interface{}, int) {
+//
+// err es el error de YAML cuando el bloque no parsea; un bloque vacío o con
+// solo comentarios es YAML válido y devuelve (nil, n, nil).
+func (p *ChartParser) parseNestedOptions(lines []string, startIndex int) (map[string]interface{}, int, error) {
 	if startIndex >= len(lines) {
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	baseIndent := countLeadingSpaces(lines[startIndex])
 	if baseIndent == 0 {
 		// Sin sangría no hay bloque anidado que capturar.
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	var block []string
@@ -1642,14 +1650,14 @@ func (p *ChartParser) parseNestedOptions(lines []string, startIndex int) (map[st
 		consumed--
 	}
 	if len(block) == 0 {
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	var opts map[string]interface{}
 	if err := yaml.Unmarshal([]byte(strings.Join(block, "\n")), &opts); err != nil {
-		return nil, consumed
+		return nil, consumed, err
 	}
-	return opts, consumed
+	return opts, consumed, nil
 }
 
 // countLeadingSpaces cuenta la sangría de una línea tratando un tab como un

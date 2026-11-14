@@ -85,7 +85,7 @@ func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diag
 	// CODE por prefijo y nunca se leían (STRICT004). La cabecera sigue
 	// leyéndose igual que antes.
 	var headerDiags []diagnostics.Diagnostic
-	if len(parts) > 0 && parts[0] != "CODE" && !verbatim {
+	if len(parts) > 0 && parts[0] != "CODE" && parts[0] != "CODE:" && !verbatim {
 		headerDiags = append(headerDiags, keywordRestDiagnostic(ctx, startIndex, "CODE", "code-parser",
 			strings.TrimPrefix(parts[0], "CODE"), true,
 			"CODE takes a language and a filename, as in CODE python main.py"))

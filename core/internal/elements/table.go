@@ -443,8 +443,8 @@ func yamlTailWarning(ctx *ParseContext, block []string, first int, key string) [
 		key, strings.TrimSpace(block[start]))
 	if end > start {
 		d = withLineRange(ctx, d, first+end)
-		d.Message = fmt.Sprintf("This line of the %s block is indented less than the rows above it, so the YAML reader stopped before it and it was ignored, with the lines after it through line %d: %q. Indent them like the rows above.",
-			key, d.EndPosition.Line, strings.TrimSpace(block[start]))
+		d.Message = fmt.Sprintf("This line of the %s block is indented less than the rows above it, so the YAML reader stopped before it and it was ignored, with the lines after it: %q. Indent them like the rows above.",
+			key, strings.TrimSpace(block[start]))
 	}
 	return []diagnostics.Diagnostic{d}
 }

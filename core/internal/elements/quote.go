@@ -158,8 +158,8 @@ func (p *QuoteParser) parseStrict(ctx *ParseContext, startIndex int, pos diagnos
 // línea earlier que la línea later reemplaza.
 func repeatedQuoteMetadata(ctx *ParseContext, earlier, later int, key string) diagnostics.Diagnostic {
 	return ignoredLineWarning(ctx, earlier, QuoteLineRuleID, "quote-parser",
-		"This %s line of the QUOTE was ignored: %q. The %s on line %d replaces it; a QUOTE keeps only one.",
-		key, strings.TrimSpace(ctx.Lines[earlier]), key, ctx.Position(later).Line)
+		"This %s line of the QUOTE was ignored: %q. The later %q replaces it; a QUOTE keeps only one.",
+		key, strings.TrimSpace(ctx.Lines[earlier]), strings.TrimSpace(ctx.Lines[later]))
 }
 
 // continuesQuote dice si la línea con contenido que sigue a una línea en blanco

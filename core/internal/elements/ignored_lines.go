@@ -79,6 +79,11 @@ func keywordLineRest(trimmed, kw string) (rest string, glued bool) {
 	if !ok {
 		return "", false
 	}
+	// `TEXT: hola` es `TEXT hola` con dos puntos: lo perdido es "hola", y un
+	// ":" solo (`POINTS:`, `TEXT:`) no es texto perdido.
+	if colon, ok := strings.CutPrefix(after, ":"); ok {
+		return strings.TrimSpace(colon), false
+	}
 	if after == "" {
 		return "", false
 	}
@@ -162,6 +167,12 @@ func mappingKeyLines(ctx *ParseContext, m *yaml.Node, lines []string, first, lim
 	}
 	sort.Strings(knownNames)
 	reads := strings.Join(knownNames, ", ")
+	// keysOnLine cuenta las llaves por línea, en una pasada: una llave que
+	// comparte su línea con otra está en un mapeo de una sola línea.
+	keysOnLine := make(map[int]int, len(m.Content)/2)
+	for n := 0; n+1 < len(m.Content); n += 2 {
+		keysOnLine[m.Content[n].Line]++
+	}
 	var out []diagnostics.Diagnostic
 	for n := 0; n+1 < len(m.Content); n += 2 {
 		key := m.Content[n]
@@ -179,13 +190,22 @@ func mappingKeyLines(ctx *ParseContext, m *yaml.Node, lines []string, first, lim
 		if start < 0 || start >= len(lines) {
 			continue
 		}
+		if keysOnLine[key.Line] > 1 {
+			// La llave comparte la línea con otras que sí se leen (un mapeo
+			// en una sola línea, `{question: …, zeta: 1}`): lo ignorado es la
+			// llave, no la línea.
+			out = append(out, ignoredLineWarning(ctx, first+start, ruleID, source,
+				"The %s block has no %q key, so that key and its value were ignored; the rest of this line is read: %q. The block reads %s.",
+				tag, key.Value, strings.TrimSpace(lines[start]), reads))
+			continue
+		}
 		d := ignoredLineWarning(ctx, first+start, ruleID, source,
 			"The %s block has no %q key, so this line was ignored: %q. The block reads %s.",
 			tag, key.Value, strings.TrimSpace(lines[start]), reads)
 		if end > start {
 			d = withLineRange(ctx, d, first+end)
-			d.Message = fmt.Sprintf("The %s block has no %q key, so this line and its value, through line %d, were ignored: %q. The block reads %s.",
-				tag, key.Value, d.EndPosition.Line, strings.TrimSpace(lines[start]), reads)
+			d.Message = fmt.Sprintf("The %s block has no %q key, so this line and the lines of its value below it were ignored: %q. The block reads %s.",
+				tag, key.Value, strings.TrimSpace(lines[start]), reads)
 		}
 		out = append(out, d)
 	}
@@ -199,24 +219,29 @@ func mappingKeyLines(ctx *ParseContext, m *yaml.Node, lines []string, first, lim
 // y las descarta. Devuelve los índices (en lines) de la primera y la última
 // línea no vacía descartadas, o ok=false si no hay ninguna.
 //
-// Solo cuenta las líneas menos sangradas que esa colección: una continuación
-// de un escalar de varias líneas va siempre más adentro que su llave, así que
-// nunca entra acá.
+// Se decide sobre el texto, sin volver a decodificar el bloque: el llamador ya
+// lo decodificó una vez. En una colección de bloque, ninguna línea menos
+// sangrada que su primera línea le pertenece (una continuación de un escalar
+// o el cuerpo de un `|` van siempre más adentro que su llave), así que, si la
+// decodificación no dio error, esas líneas son justo las que el lector
+// descartó. Una colección de flujo (`[...]`, `{...}`) puede partir sus líneas
+// con cualquier sangría, y queda fuera.
 func yamlUnderIndentedTail(lines []string) (start, end int, ok bool) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &doc); err != nil || len(doc.Content) == 0 {
-		return 0, 0, false
-	}
-	root := doc.Content[0]
-	rootIndent := root.Column - 1
-	last := maxYAMLLine(root) // 1-based
+	rootIndent := -1
 	start = -1
-	for k := last; k < len(lines); k++ {
-		trimmed := strings.TrimSpace(lines[k])
+	for k, line := range lines {
+		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if start < 0 && CalculateIndentLevel(lines[k]) < rootIndent {
+		if rootIndent < 0 {
+			if trimmed[0] == '[' || trimmed[0] == '{' {
+				return 0, 0, false
+			}
+			rootIndent = CalculateIndentLevel(line)
+			continue
+		}
+		if start < 0 && CalculateIndentLevel(line) < rootIndent {
 			start = k
 		}
 		if start >= 0 {
@@ -224,19 +249,4 @@ func yamlUnderIndentedTail(lines []string) (start, end int, ok bool) {
 		}
 	}
 	return start, end, start >= 0
-}
-
-// maxYAMLLine es la última línea (1-based) que ocupa n: la mayor de sus
-// nodos, más las líneas de un escalar literal o plegado.
-func maxYAMLLine(n *yaml.Node) int {
-	last := n.Line
-	if n.Kind == yaml.ScalarNode && n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
-		last += strings.Count(strings.TrimRight(n.Value, "\n"), "\n") + 1
-	}
-	for _, c := range n.Content {
-		if l := maxYAMLLine(c); l > last {
-			last = l
-		}
-	}
-	return last
 }
