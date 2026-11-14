@@ -379,3 +379,64 @@ func TestPolicyConfig_Evaluate_Scope(t *testing.T) {
 		t.Errorf("expected in scope to waive, active=%d waived=%d", len(active), len(waived))
 	}
 }
+
+// Un scope que nombra un archivo incluido también suprime los hallazgos que
+// vienen de él (Diagnostic.File, relativo al directorio del documento). Antes
+// solo se comparaba con la ruta del documento, y scope: ["parts/*"] no
+// apagaba nada de parts/x.slidelang.
+func TestPolicyConfig_Evaluate_ScopeMatchesTheFindingsFile(t *testing.T) {
+	now := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
+	off := false
+	included := diagnostics.NewWarning("w", diagnostics.NewPosition(3, 1), "linter").WithRuleID("IMG001")
+	included.File = "parts/x.slidelang"
+	own := diagnostics.NewWarning("w", diagnostics.NewPosition(9, 1), "linter").WithRuleID("IMG001")
+
+	for _, tc := range []struct {
+		name    string
+		doc     string
+		policy  RulePolicy
+		file    string
+		waived  bool
+		sev     diagnostics.Severity
+		expired bool
+	}{
+		{"disabled by the included file's path", "deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"parts/*"}}, "parts/x.slidelang", true, "", false},
+		{"waiver with the document in a directory", "decks/main.slidelang", RulePolicy{ExpiresAt: "2026-01-01T00:00:00Z", Reason: "r", Scope: []string{"decks/parts/**"}}, "parts/x.slidelang", true, "", false},
+		{"a document path that is not clean", "./deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"parts/*"}}, "parts/x.slidelang", true, "", false},
+		{"absolute file of a document without a path", "", RulePolicy{Enabled: &off, Scope: []string{"/srv/parts/*"}}, "/srv/parts/x.slidelang", true, "", false},
+		{"another file is not covered", "deck.slidelang", RulePolicy{Enabled: &off, Scope: []string{"parts/*"}}, "other/x.slidelang", false, diagnostics.Warning, false},
+		// La severidad sigue la ruta del documento: un scope que cubre solo
+		// el archivo incluido no sube su hallazgo a error.
+		{"severity only with the document's path", "deck.slidelang", RulePolicy{Severity: "error", Scope: []string{"parts/*"}}, "parts/x.slidelang", false, diagnostics.Warning, false},
+		{"severity with the document's path, as before", "deck.slidelang", RulePolicy{Severity: "error", Scope: []string{"deck.slidelang"}}, "parts/x.slidelang", false, diagnostics.Error, false},
+		{"expired waiver on the included file", "deck.slidelang", RulePolicy{ExpiresAt: "2025-01-01T00:00:00Z", Reason: "r", Severity: "error", Scope: []string{"parts/*"}}, "parts/x.slidelang", false, diagnostics.Warning, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := included
+			d.File = tc.file
+			cfg := &PolicyConfig{Rules: map[string]RulePolicy{"IMG001": tc.policy}}
+			active, waived := cfg.Evaluate([]diagnostics.Diagnostic{d}, tc.doc, now)
+			if tc.waived {
+				if len(waived) != 1 || len(active) != 0 {
+					t.Fatalf("want it waived, got active=%v waived=%v", active, waived)
+				}
+				return
+			}
+			if len(waived) != 0 || len(active) == 0 || active[0].Severity != tc.sev {
+				t.Fatalf("want it active as %s, got active=%v waived=%v", tc.sev, active, waived)
+			}
+			gotPolicy := len(active) == 2 && active[1].Code == "POLICY001" && active[1].File == tc.file
+			if gotPolicy != tc.expired {
+				t.Errorf("POLICY001 on the included file: want %v, got %v", tc.expired, active)
+			}
+		})
+	}
+
+	// Un hallazgo del documento no se apaga por un scope que nombra otro
+	// archivo.
+	cfg := &PolicyConfig{Rules: map[string]RulePolicy{"IMG001": {Enabled: &off, Scope: []string{"parts/*"}}}}
+	active, _ := cfg.Evaluate([]diagnostics.Diagnostic{own}, "deck.slidelang", now)
+	if len(active) != 1 {
+		t.Errorf("the document's own finding should stay active, got %v", active)
+	}
+}

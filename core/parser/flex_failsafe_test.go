@@ -4,9 +4,14 @@
 package parser
 
 import (
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
+	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -124,3 +129,68 @@ func TestFlexParser_Failsafe_ExemptsKnownResidues(t *testing.T) {
 // emita FLEX001, verificado manualmente antes de este PR y cubierto en
 // spirit por TestFormatDocument_RoundTrip_Corpus (formatter) y por
 // html-validate.yml en CI.
+
+// reportingParser reclama toda línea que empiece con "!!" y, sin producir
+// elemento, reporta un error y un aviso. Con elem, devuelve además un
+// elemento sin consumir líneas (el caso del guard de consumo cero).
+type reportingParser struct{ elem bool }
+
+func (reportingParser) CanParse(line, _ string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "!!")
+}
+
+func (p reportingParser) Parse(ctx *elements.ParseContext, i int) *elements.ParseResult {
+	res := &elements.ParseResult{
+		Error:       errors.New("fake parser error"),
+		Diagnostics: []diagnostics.Diagnostic{diagnostics.NewWarning("fake parser warning", ctx.Position(i), "fake").WithRuleID("FAKE001")},
+	}
+	if p.elem {
+		res.Element = ast.NewTextElement(ctx.Position(i), "fake")
+	}
+	return res
+}
+
+// Un parser que no consume líneas (con o sin elemento) pero reporta un error y
+// un aviso: los dos bucles flex los conservan, en la línea del parser. Antes
+// DocumentFlexParser los descartaba en el failsafe y en el guard de consumo
+// cero; FlexParser ya los conservaba.
+func TestFlexFailsafeKeepsTheParserDiagnostics(t *testing.T) {
+	body := "# T\n\n!! raro\n\nDespués\n"
+	for _, elem := range []bool{false, true} {
+		registry := func() *elements.Registry {
+			r := elements.NewRegistry()
+			r.Register(reportingParser{elem: elem})
+			r.Register(&elements.TextParser{})
+			return r
+		}
+		run := map[string]func() (*ast.AST, []diagnostics.Diagnostic){
+			"slidelang": func() (*ast.AST, []diagnostics.Diagnostic) {
+				p := newFlexBodyParser(body, 0, util.NewNoop())
+				p.registry = registry()
+				return p.Parse()
+			},
+			"doclang": func() (*ast.AST, []diagnostics.Diagnostic) {
+				p := NewDocumentFlexParser(body, util.NewNoop())
+				p.registry = registry()
+				return p.Parse()
+			},
+		}
+		for name, fn := range run {
+			t.Run(fmt.Sprintf("%s/element=%v", name, elem), func(t *testing.T) {
+				_, diags := parseWithin(t, fn)
+				var gotErr, gotWarn bool
+				for _, d := range diags {
+					if d.IsError() && d.Message == "fake parser error" && d.Position.Line == 3 {
+						gotErr = true
+					}
+					if d.IsWarning() && d.RuleID == "FAKE001" && d.Position.Line == 3 {
+						gotWarn = true
+					}
+				}
+				if !gotErr || !gotWarn {
+					t.Errorf("want the parser's error and warning on line 3, got error=%v warning=%v (diags: %+v)", gotErr, gotWarn, diags)
+				}
+			})
+		}
+	}
+}

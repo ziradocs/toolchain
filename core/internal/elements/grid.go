@@ -241,7 +241,7 @@ func (p *GridParser) parseTypedColumnFlex(ctx *ParseContext, startIndex int) *Pa
 		result := registry.Parse(ctx, i)
 		diags = append(diags, result.Diagnostics...)
 		if result.Error != nil {
-			diags = append(diags, diagnostics.NewError(result.Error.Error(), ctx.Position(i), "parser"))
+			diags = append(diags, ctx.ErrorDiagnostic(result.Error, i, "parser"))
 		}
 		if result.Element != nil && result.ConsumedLines > 0 {
 			column.Elements = append(column.Elements, result.Element)
@@ -267,8 +267,12 @@ func (p *GridParser) parseTypedColumnFlex(ctx *ParseContext, startIndex int) *Pa
 		}
 		// Failsafe: ningún parser reclamó la línea. Se avisa en vez de
 		// descartarla en silencio (misma regla que el bucle de un slide).
+		hint := "Check DSL Flex syntax documentation."
+		if h, ok := ChartTagHint(trimmed); ok {
+			hint = h
+		}
 		diags = append(diags, diagnostics.NewWarning(
-			"Unrecognized line, content was discarded: "+`"`+trimmed+`"`+". Check DSL Flex syntax documentation.",
+			"Unrecognized line, content was discarded: "+`"`+trimmed+`"`+". "+hint,
 			ctx.Position(i), "parser").WithRuleID("FLEX001"))
 		consumed++
 		i++

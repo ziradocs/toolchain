@@ -123,13 +123,16 @@ align: center
 - Types: `bar`, `line`, `pie`, `doughnut`, `radar`, `polarArea`, `scatter`,
   `bubble`, `combo`, `treemap`. No closing tag — do **not** write
   `<</chart>>` after a `key: value` body (it is only read after a JSON body).
+- The type goes after a colon. `<<chart>>` and `<<chart type="bar">>` are
+  **not** charts: in flex the line is dropped with a `FLEX001` warning that
+  says to write `<<chart: bar>>`, and the body lines below it become text.
 - `treemap` uses the same `data` matrix as everything else — first cell is
   the leaf label, second is its value — and takes exactly one numeric column.
   It has no legend and no axes: each rectangle is sized by its value and
   captioned with its own label.
 - Flex mode only, a fenced ` ```chart ` block is also recognized, but with a
   single JSON object as its body only (not the `data:`/`series:` YAML form
-  above) — the same shape as `<<chart>>` followed directly by a `{`-prefixed
+  above) — the same shape as `<<chart` followed directly by a `{`-prefixed
   JSON payload:
   ````
   ```chart

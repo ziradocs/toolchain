@@ -415,14 +415,15 @@ func (p *FlexParser) parseContentBlock() *ast.ContentBlock {
 			p.currentLine++
 			if !isFlexFailsafeExempt(nextLine) {
 				p.addWarningAtWithRuleID(droppedLine,
-					fmt.Sprintf("Unrecognized line, content was discarded: %q. Check DSL Flex syntax documentation.", nextLine),
+					fmt.Sprintf("Unrecognized line, content was discarded: %q. %s", nextLine, flexFailsafeHint(nextLine)),
 					"FLEX001")
 			}
 		}
 
-		// Handle errors
+		// Handle errors: en la línea interna a la que apunta el error, si
+		// trae una (elements.LineError); si no, en la que abre el elemento.
 		if result.Error != nil {
-			p.addErrorAt(startLine, result.Error.Error())
+			p.diagnostics = append(p.diagnostics, ctx.ErrorDiagnostic(result.Error, startLine, "flex-parser"))
 		}
 
 		// Propagar diagnósticos no-fatales del ElementParser (p. ej. CHART002)
@@ -817,4 +818,15 @@ func isMetadataLine(line string) bool {
 //     consecutivos, nunca uno aislado sin un bloque anidado por delante.
 func isFlexFailsafeExempt(trimmed string) bool {
 	return trimmed == "<<end>>" || trimmed == ":::"
+}
+
+// flexFailsafeHint es la frase final del FLEX001 de la línea trimmed: cómo se
+// escribe lo que la línea parece querer ser, si se sabe (un `<<chart>>` sin
+// el ":" del tipo, ver elements.ChartTagHint), o la remisión a la
+// documentación.
+func flexFailsafeHint(trimmed string) string {
+	if hint, ok := elements.ChartTagHint(trimmed); ok {
+		return hint
+	}
+	return "Check DSL Flex syntax documentation."
 }

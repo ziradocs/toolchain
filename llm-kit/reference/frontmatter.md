@@ -172,9 +172,34 @@ pattern as theme resolution. If `--lint-config` is passed, the frontmatter
 block is not consulted at all. Unknown diagnostic IDs or layout types are
 silently inert, not errors.
 
-Both `slidelang build` and `doclang build` honour this, as does `doclang
-mcp`'s `lint` tool; `slidelang mcp`'s `lint` tool does not (it lints with
-no policy).
+A rule can also be a time-limited **waiver**, and any rule can be limited
+to some files with `scope`:
+
+```yaml
+lint_policy:
+  rules:
+    IMG001:
+      expires_at: "2027-01-01T00:00:00Z"   # suppressed until then; required: reason
+      reason: "logo pending from design"
+      approved_by: "docs team"              # free text, not verified
+      scope: ["parts/*", "appendix/**"]
+```
+
+`scope` is a list of path globs (`*` is anything but `/`, `**` is anything).
+A glob is matched against the document's path as it was given to the CLI.
+To suppress a finding (`enabled: false`, or a waiver that has not expired) a
+glob is also matched against the file the finding came from when it came
+through an `@include`: the included file's path relative to the document's
+directory, joined to that directory. So with `slidelang build
+decks/main.slidelang`, `scope: ["decks/parts/*"]` suppresses the findings of
+`decks/parts/x.slidelang`. A `severity:` override follows the document's
+path only, so a `scope` never raises the severity of a finding it did not
+cover before. When a waiver expires, the finding comes back with a
+`POLICY001` warning. An empty `scope` covers everything; in a document that
+has no path, a non-empty one does not cover the document itself.
+
+Both `slidelang build` and `doclang build` honour this, as do the `lint`
+tools of `slidelang mcp` and `doclang mcp`.
 
 ## `header` / `footer` / `layout_defaults` (rich configuration)
 

@@ -117,7 +117,7 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 		result := registry.Parse(ctx, i)
 		diags = append(diags, result.Diagnostics...)
 		if result.Error != nil {
-			diags = append(diags, diagnostics.NewError(result.Error.Error(), ctx.Position(i), "content-markdown"))
+			diags = append(diags, ctx.ErrorDiagnostic(result.Error, i, "content-markdown"))
 		}
 		if result.Error != nil || result.ConsumedLines <= 0 || result.Element == nil {
 			diags = append(diags, diagnostics.NewError("fragment syntax did not produce a content element", ctx.Position(i), "content-markdown"))
