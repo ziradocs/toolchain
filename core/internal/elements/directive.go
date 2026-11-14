@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"fmt"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
@@ -296,6 +297,10 @@ func (p *DirectiveParser) parseNotesDirective(ctx *ParseContext, startIndex int,
 		return result
 	}
 
+	if ctx.Mode == "strict" {
+		return p.parseStrictNotesBody(ctx, startIndex, pos)
+	}
+
 	// Collect multi-line content after @notes: or @notes
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		nextLine := strings.TrimSpace(ctx.Lines[i])
@@ -333,6 +338,87 @@ func (p *DirectiveParser) parseNotesDirective(ctx *ParseContext, startIndex int,
 		ConsumedLines: consumedLines,
 		Error:         nil,
 	}
+}
+
+// NotesBodyRuleID es el aviso de un `@notes` strict cuyo cuerpo toma como
+// nota a un elemento hermano escrito a su sangría (ver parseStrictNotesBody).
+const NotesBodyRuleID = "DIRECTIVE005"
+
+// parseStrictNotesBody lee el cuerpo de un `@notes` de varias líneas en
+// strict.
+//
+// El cuerpo es el de siempre: las líneas que siguen a `@notes` hasta una línea
+// en blanco (después de la primera nota) o una que empieza con `@`, `---` o
+// `#`, con el conteo de siempre, que no cuenta las líneas en blanco de antes
+// de la primera nota (las últimas notas se vuelven a leer después de @notes,
+// como en flex). La única diferencia es que un `SLIDE` o `SECTION` en la
+// columna 0 lo termina: antes las notas se lo llevaban y el parser cortaba con
+// un error interno.
+//
+// La lectura no cambia, pero si el cuerpo toma una línea a la sangría de
+// `@notes`, o a menos, que abre un elemento bien escrito
+// (opensStrictNotesSibling), lleva el aviso DIRECTIVE005: cubre desde `@notes`
+// hasta su última nota y nombra la línea del hermano por su contenido. Es el
+// mismo criterio que TEXT002 para un TEXT sin cuerpo.
+func (p *DirectiveParser) parseStrictNotesBody(ctx *ParseContext, startIndex int, pos diagnostics.Position) *ParseResult {
+	headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
+	var content []string
+	last := startIndex
+	sibling := -1
+	for i := startIndex + 1; i < len(ctx.Lines); i++ {
+		raw := ctx.Lines[i]
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			if len(content) > 0 {
+				break
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "@") || strings.HasPrefix(trimmed, "---") ||
+			strings.HasPrefix(trimmed, "#") || IsStrictBlockBoundary(raw) {
+			break
+		}
+		if sibling < 0 && opensStrictNotesSibling(ctx, raw, trimmed, headerIndent) {
+			sibling = i
+		}
+		content = append(content, trimmed)
+		last = i
+	}
+
+	result := &ParseResult{}
+	if sibling >= 0 {
+		opener := strings.TrimSpace(ctx.Lines[sibling])
+		result.Diagnostics = []diagnostics.Diagnostic{diagnostics.NewWarning(fmt.Sprintf(
+			"The @notes body took in %s on the line %q, and the lines after it up to a blank line, as notes. To keep them as notes, indent them under @notes; to make them elements, leave a blank line between the notes and them.",
+			absorbedElementLabel(opener), shortLine(opener)),
+			pos, "directive-parser").WithRuleID(NotesBodyRuleID).WithEndPosition(ctx.Position(last))}
+	}
+
+	directive := ast.NewDirectiveNode(pos, "notes")
+	directive.Parameters = map[string]interface{}{"content": strings.Join(content, "\n")}
+	result.Element = directive
+	// El conteo de siempre: @notes y una línea por nota.
+	result.ConsumedLines = 1 + len(content)
+	return result
+}
+
+// opensStrictNotesSibling dice si raw, una línea con texto del cuerpo de un
+// `@notes` strict, abre un elemento hermano de las notas: el que DIRECTIVE005
+// nombra. La línea sigue siendo nota.
+//
+// Una línea más sangrada que `@notes` no avisa: es la forma que escribe fmt
+// para un cuerpo de notas. Una línea a la sangría de `@notes`, o a menos,
+// avisa cuando abre un elemento en la forma que ese elemento acepta, con el
+// criterio de TEXT002 (OpensElementAfterEmptyText): una palabra clave sola o
+// con lo que su elemento lee, un bloque `:::tipo`, una etiqueta `<<…>>`, una
+// fila `| … |` o un `SECTION "…"` dentro de un SLIDE. Una línea sin los dos
+// espacios de sangría que el contenedor exige tampoco avisa: el contenedor no
+// la leería.
+func opensStrictNotesSibling(ctx *ParseContext, raw, trimmed string, headerIndent int) bool {
+	if CalculateIndentLevel(raw) > headerIndent || !strings.HasPrefix(raw, "  ") {
+		return false
+	}
+	return OpensElementAfterEmptyText(ctx, trimmed)
 }
 
 // ignoredParamWarning es el DIRECTIVE004 del texto de una directiva que no

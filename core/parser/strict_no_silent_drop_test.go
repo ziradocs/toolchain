@@ -143,6 +143,13 @@ var noDropTemplates = []noDropTemplate{
 		{"<<math>>", 0, nil, false}, {"alfa28 + 1", 2, tok("alfa28", "+", "1"), false}, {`caption: "beta28"`, 2, tok("beta28"), false}, {"label: eq:gamma28", 2, tok("eq:gamma28"), false}, {"<<end>>", 0, nil, false}}},
 	{name: "NOTES", lines: []noDropLine{
 		{"@notes", 0, nil, false}, {"alfa29 beta29", 2, tok("alfa29", "beta29"), false}, {"gamma29", 2, tok("gamma29"), false}}},
+	// Un @notes de varias líneas y un elemento hermano a su sangría: las
+	// líneas sueltas entre los dos son nota o van al hermano, pero no se
+	// pierden.
+	{name: "NOTES_THEN_TEXT", lines: []noDropLine{
+		{"@notes", 0, nil, false}, {"alfa34 beta34", 2, tok("alfa34", "beta34"), false}, {"TEXT", 0, nil, false}, {"gamma34", 2, tok("gamma34"), false}}},
+	{name: "NOTES_SAME_INDENT_THEN_POINTS", lines: []noDropLine{
+		{"@notes:", 0, nil, false}, {"alfa35", 0, tok("alfa35"), false}, {"POINTS", 0, nil, false}, {"- beta35", 2, tok("beta35"), false}}},
 	{name: "DIRECTIVE", headerSuffix: true, lines: []noDropLine{
 		{`@transition duration="alfa23"`, 0, tok("alfa23"), false}}},
 }
