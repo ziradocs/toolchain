@@ -773,11 +773,15 @@ behavior change**: the sibling and what follows it up to where the notes used
 to end are read as elements, where before they were text of the notes.
 
 The notes end there only when those lines read, as elements of the
-container, entirely, with no diagnostic, without taking any line after the
-old end of the notes, and without falling in a linter rule that is an error
-(`IMG001`, `TABLE003`, `CODEGROUP001`, `CODEGROUP002`, `QUIZ001`, `QUIZ003`,
-`POLL003`). Otherwise the notes keep all those lines, as before, with the
-`DIRECTIVE005` warning: a document that built does not stop building. The
+container, entirely, with no property, no unrecognized line, no diagnostic,
+and without falling in a linter rule that is an error (`IMG001`, `TABLE003`,
+`CODEGROUP001`, `CODEGROUP002`, `QUIZ001`, `QUIZ003`, `POLL003`). An element
+may go on past the old end of the notes (a `CODE`, a callout or a grid with a
+blank line inside) when the old reading, which started at that end, also ends
+an element on the same line, with no property and no directive in between:
+from there on both readings are the same. That check reads at most 40 lines
+past the old end. Otherwise the notes keep all those lines, as before, with
+the `DIRECTIVE005` warning: a document that built does not stop building. The
 same holds when the notes start after a blank line (`@notes`, a blank line,
 the notes): their body and the count of their lines stay as before, so the
 last notes are also read again after them, as in flex. Flex does not change.

@@ -81,11 +81,11 @@ type ParseContext struct {
 	// el cuerpo).
 	TypedColumnBody func(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic)
 
-	// NotesTail dice si las líneas [from, to) de Lines se leen enteras como
-	// elementos del cuerpo strict que se está parseando, sin ningún
-	// diagnóstico y terminando en to (lo que sigue son solo líneas en blanco).
-	// Lo usa el cuerpo de un `@notes` strict para decidir si deja de tomar
-	// como nota a un elemento hermano (ver parseStrictNotesBody). nil fuera
+	// NotesTail dice si las líneas desde from, donde un `@notes` strict
+	// dejaría de tomar notas, se leen como elementos del cuerpo strict que
+	// se está parseando, sin ningún diagnóstico, hasta una línea desde la que
+	// esa lectura y la de antes, que empezaba en to, siguen iguales (ver
+	// strictBody.notesTailReadsClean). Lo usa parseStrictNotesBody. nil fuera
 	// de un cuerpo strict.
 	NotesTail func(from, to int) bool
 

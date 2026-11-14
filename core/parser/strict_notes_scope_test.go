@@ -99,6 +99,11 @@ func TestStrictNotesEndBeforeSiblingElements(t *testing.T) {
 			want: "@notes[uno] text text", slideOnly: true,
 		},
 		{
+			name: "siblings with a blank line inside them",
+			body: []string{"  @notes", "    uno", "  CODE python", "    a = 1", "", "    b = 2", "  @notes", "    dos", "  :::note", "  Uno", "", "  Dos", "  :::", "  @notes", "    tres", "  <<grid>>", "  <<column>>", "    TEXT", "      A", "", "  <<column>>", "    TEXT", "      B", "  <<end>>"},
+			want: "@notes[uno] code @notes[dos] special_block @notes[tres] grid()()",
+		},
+		{
 			name: "a word that only starts with a keyword is a note",
 			body: []string{"  @notes", "    uno", "  TEXTO de apoyo", "  TEXT hola", "  TEXT", "    Hermano"},
 			want: "@notes[uno|TEXTO de apoyo|TEXT hola] text",
@@ -168,6 +173,11 @@ func TestStrictNotesWarnWhenTheyKeepASibling(t *testing.T) {
 		{
 			name: "image without source", body: []string{"  @notes", "    uno", "  IMAGE"},
 			want: "@notes[uno|IMAGE]", quote: `"IMAGE"`, endLine: 2, reason: "would give a diagnostic",
+		},
+		{
+			name: "the old reading after the blank line does not end where the sibling ends",
+			body: []string{"  @notes", "    uno", "  :::note", "  Uno", "", "  TEXT", "  :::", "  POINTS", "    - a"},
+			want: "@notes[uno|:::note|Uno]", quote: `":::note"`, endLine: 3, reason: "would give a diagnostic",
 		},
 		{
 			name: "blank line before the body", body: []string{"  @notes", "", "    uno", "  TEXT"},

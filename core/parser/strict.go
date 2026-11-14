@@ -82,54 +82,60 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 	}
 }
 
-// notesTailReadsClean es el ParseContext.NotesTail de este cuerpo: lee las
-// líneas [from, to) con un cuerpo de prueba que comparte la gramática y el
-// estado de este (los anchors, copiados) y dice si se leen enteras como
-// elementos, sin ninguna propiedad, ninguna línea sin reconocer, ningún
-// diagnóstico (ni aviso ni error) y sin tomar ninguna línea con texto desde
-// to. Lo que lee la prueba se descarta.
+// notesTailWindow es cuántas líneas más allá del final de antes de las notas
+// puede leer la prueba de notesTailReadsClean. Sin tope, un bloque sin cerrar
+// se leería hasta el final del contenedor en cada prueba, y muchos @notes
+// seguidos de uno costarían O(n²).
+const notesTailWindow = 40
+
+// notesTailReadsClean es el ParseContext.NotesTail de este cuerpo. Las notas
+// terminaban antes en to; leídas desde el hermano (from), las líneas tienen
+// que dar elementos sin ninguna propiedad, ninguna línea sin reconocer,
+// ningún diagnóstico (ni aviso ni error) ni ninguna regla de error del linter
+// (failsLintErrorRule), hasta una frontera X desde la que las dos lecturas
+// siguen iguales:
 //
+//   - X es to (salvo líneas en blanco) si el último elemento termina antes de
+//     to;
+//   - si un elemento cruza to (un CODE, un callout o un grid con una línea en
+//     blanco adentro), X es donde termina, y la lectura de antes, que empezaba
+//     en to, tiene que terminar un elemento exactamente en X, sin propiedades
+//     ni directivas en medio. Lo que la lectura de antes decía de esas líneas
+//     no importa: deja de leerse así.
+//
+// Las dos pruebas usan cuerpos aparte, con una copia de los anchors, y leen
+// a lo sumo notesTailWindow líneas después de to; lo que leen se descarta.
 // Las líneas [from, to) no tienen ninguna línea que empiece con `@` (termina
-// el cuerpo de @notes antes), así que la prueba no abre otro @notes.
+// el cuerpo de @notes antes), así que la primera prueba no abre otro @notes.
 func (p *strictBody) notesTailReadsClean(from, to int) bool {
-	// La prueba lee hasta la primera línea con texto desde to, inclusive:
-	// si un elemento la toma, también la tomaría en el texto entero, y la
-	// prueba lo rechaza. Sin este corte, un bloque sin cerrar se leería
-	// hasta el final del contenedor en cada prueba, y muchos @notes
-	// seguidos de uno costarían O(n²).
-	limit := to
-	for limit < len(p.lines) && strings.TrimSpace(p.lines[limit]) == "" {
-		limit++
+	limit := min(len(p.lines), to+notesTailWindow)
+	dry := func(start int) *strictBody {
+		return &strictBody{
+			nestedListTypes: p.nestedListTypes,
+			listStart:       p.listStart,
+			mathSource:      p.mathSource,
+			contentMarkdown: p.contentMarkdown,
+			slideHeadings:   p.slideHeadings,
+			typedColumn:     p.typedColumn,
+			headingAnchors:  p.headingAnchors.Clone(),
+			lines:           p.lines[:limit],
+			currentLine:     start,
+			logger:          util.NewNoop(),
+			lineOffset:      p.lineOffset,
+		}
 	}
-	if limit < len(p.lines) {
-		limit++
-	}
-	sub := &strictBody{
-		nestedListTypes: p.nestedListTypes,
-		listStart:       p.listStart,
-		mathSource:      p.mathSource,
-		contentMarkdown: p.contentMarkdown,
-		slideHeadings:   p.slideHeadings,
-		typedColumn:     p.typedColumn,
-		headingAnchors:  p.headingAnchors.Clone(),
-		lines:           p.lines[:limit],
-		currentLine:     from,
-		logger:          util.NewNoop(),
-		lineOffset:      p.lineOffset,
-	}
+	sub := dry(from)
 	clean := true
 	scratch := ast.NewContentBlock(sub.position(from), "content")
 	sub.parseIndentedElements(scratch,
 		func(string, string) { clean = false },
 		func(string) bool { return sub.currentLine >= to },
 		func(string) { clean = false })
-	if !clean || sub.currentLine < to || len(sub.diagnostics) > 0 {
+	x := sub.currentLine
+	// x == limit antes del final del texto: el elemento puede seguir más allá
+	// de lo que leyó la prueba.
+	if !clean || x < to || x >= limit && limit < len(p.lines) || len(sub.diagnostics) > 0 {
 		return false
-	}
-	for i := to; i < sub.currentLine && i < limit; i++ {
-		if strings.TrimSpace(p.lines[i]) != "" {
-			return false
-		}
 	}
 	if p.typedColumn {
 		for _, el := range scratch.Elements {
@@ -138,7 +144,27 @@ func (p *strictBody) notesTailReadsClean(from, to int) bool {
 			}
 		}
 	}
-	return !failsLintErrorRule(scratch)
+	if failsLintErrorRule(scratch) {
+		return false
+	}
+	crossed := false
+	for i := to; i < x; i++ {
+		t := strings.TrimSpace(p.lines[i])
+		if strings.HasPrefix(t, "@") {
+			return false
+		}
+		crossed = crossed || t != ""
+	}
+	if !crossed {
+		return true
+	}
+	old := dry(to)
+	property := false
+	old.parseIndentedElements(ast.NewContentBlock(old.position(to), "content"),
+		func(string, string) { property = true },
+		func(string) bool { return old.currentLine >= x },
+		func(string) {})
+	return !property && old.currentLine == x
 }
 
 // failsLintErrorRule dice si algún elemento de block, o anidado en él, cae en

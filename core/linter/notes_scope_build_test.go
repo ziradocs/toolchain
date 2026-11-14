@@ -78,6 +78,16 @@ var notesScopeSiblings = []struct {
 	{lines: []string{"<<poll>>", "  question: ¿Qué?", "  options: [a, b]", "  results: [50, 150]", "<<end>>"}},
 	{lines: []string{"TABLE", "  headers: [A, B]", "  rows:", "    [1]"}},
 	{lines: []string{"| A | B |", "| --- | --- |", "| 1 |"}},
+	// Hermanos con una línea en blanco adentro: cruzan el final de antes de
+	// las notas.
+	{lines: []string{"CODE python", "  a = 1", "", "  b = 2"}},
+	{lines: []string{":::note", "  Uno", "", "  Dos", ":::"}},
+	{lines: []string{"<<grid>>", "<<column>>", "  TEXT", "    A", "", "<<column>>", "  TEXT", "    B", "<<end>>"}, noColumn: true},
+	{lines: []string{"TEXT", "  Uno", "", "  Dos"}},
+	{lines: []string{"POINTS", "  - a", "", "  - b"}},
+	{lines: []string{"QUOTE", "  Uno", "", "  Dos"}},
+	{lines: []string{"<<mermaid>>", "  graph TD", "", "  A --> B"}},
+	{lines: []string{":::note", "  Uno", ""}},
 }
 
 // notesScopeBody son las líneas que puede llevar el cuerpo de las notas.

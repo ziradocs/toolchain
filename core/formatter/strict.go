@@ -1392,6 +1392,7 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 		if len(col.Elements) > 0 {
 			b.WriteString("\n<<column typed>>")
 			prevPipeTable := false // como en formatStrictContentBlock
+			prevNotes := false     // como en formatStrictContentBlock
 			for i, nested := range col.Elements {
 				text, err := formatStrictElement(nested)
 				if err != nil {
@@ -1401,10 +1402,14 @@ func formatStrictGrid(e *ast.GridElement) (string, error) {
 					continue
 				}
 				b.WriteString("\n")
-				if prevPipeTable && startsPipeTable(text) {
+				// Un cuerpo multilínea de @notes termina en una línea en
+				// blanco: sin ella, el elemento que sigue podía releerse como
+				// más notas.
+				if prevPipeTable && startsPipeTable(text) || prevNotes {
 					b.WriteString("\n")
 				}
 				prevPipeTable = isPipeTable(nested, text)
+				prevNotes = endsWithNotesBody(nested)
 				if absorbsTrailingBlankLines(nested) {
 					// The newlines at the end of a code body are blank lines the
 					// strict parser reads as part of the code, so only the line
