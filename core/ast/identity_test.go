@@ -62,7 +62,10 @@ func TestValidateNodeIDsDuplicateMessageHasNoLineNumber(t *testing.T) {
 	block.Elements = append(block.Elements, first, second)
 	doc.ContentBlocks = append(doc.ContentBlocks, *block)
 	issues := ValidateNodeIDs(doc)
-	if len(issues) != 1 || issues[0].Message != `duplicate nodeId "Same"` || issues[0].Position.Line != 9 {
-		t.Fatalf("want one `duplicate nodeId \"Same\"` at line 9, got %v", issues)
+	if len(issues) == 0 || issues[0].Message != `duplicate nodeId "Same" (also on the text "a")` || issues[0].Position.Line != 9 {
+		t.Fatalf("want the error at line 9 naming the first node, got %v", issues)
+	}
+	if len(issues) != 2 || issues[1].Position.Line != 3 || issues[1].Severity != diagnostics.Info {
+		t.Fatalf("want an info at the first node (line 3), got %v", issues)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -87,5 +88,36 @@ func TestUnclosedSpecialBlockInsideAnInclude(t *testing.T) {
 	}
 	if found != 1 {
 		t.Errorf("want one SPECIAL002, got %d in %v", found, diags)
+	}
+}
+
+// Un node-id repetido: el error nombra al primero por lo que es, y el aviso
+// que lo señala cae en su línea del archivo incluido.
+func TestDuplicateNodeIDPointsAtTheFirstInsideAnInclude(t *testing.T) {
+	part := "  <!-- node-id: Dup -->\n  TEXT\n    uno\n"
+	files := map[string]string{abs(t, "/base/part.doclang"): part}
+	root := "---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n  TEXT\n    antes\n@include part.doclang\n  <!-- node-id: Dup -->\n  TEXT\n    dos\n"
+	text, sm, err := ExpandWithSourceMap(root, abs(t, "/base"), memFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, diags := parser.New(util.NewNoop()).ParseDocument(text, "d.doclang")
+	var gotErr, gotInfo bool
+	for _, d := range sm.MapDiagnostics(diags, abs(t, "/base")) {
+		switch {
+		case d.IsError() && strings.HasPrefix(d.Message, `duplicate nodeId "Dup"`):
+			gotErr = true
+			if d.File != "" || d.Position.Line != 11 || !strings.Contains(d.Message, `(also on the text "uno")`) {
+				t.Errorf("the error should be the root's line 11 and name the first node: %s:%d %s", d.File, d.Position.Line, d.Message)
+			}
+		case d.Severity == diagnostics.Info && strings.Contains(d.Message, `nodeId "Dup" is first used here`):
+			gotInfo = true
+			if d.File != "part.doclang" || d.Position.Line != 2 {
+				t.Errorf("the info should be part.doclang:2, got %s:%d", d.File, d.Position.Line)
+			}
+		}
+	}
+	if !gotErr || !gotInfo {
+		t.Errorf("missing the error (%v) or the info (%v) in %v", gotErr, gotInfo, diags)
 	}
 }

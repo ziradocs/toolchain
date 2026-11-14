@@ -443,6 +443,11 @@ type GenerateOptions struct {
 	TileServer        string
 	TileUserAgent     string
 	TileAttribution   string
+	// ExpandedLines deja los avisos del generador con la línea del contenido
+	// expandido ("line N"), para quien las lleva a su archivo por su cuenta
+	// (la tool MCP). Sin él, el aviso nombra "archivo:N" o la línea del
+	// documento, como el reporte de --fail-on-unavailable.
+	ExpandedLines bool
 }
 
 var validRenderModes = map[string]bool{
@@ -579,6 +584,13 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 		TileUserAgent:     opts.TileUserAgent,
 		TileAttribution:   opts.TileAttribution,
 		Ctx:               opts.Ctx,
+	}
+	if !opts.ExpandedLines {
+		genOpts.LocateLine = func(line int) (string, int) {
+			ue := &generator.UnavailableError{Items: []generator.UnavailableContent{{Line: line}}}
+			mapUnavailable(ue, p.Sources, p.DocDir)
+			return ue.Items[0].File, ue.Items[0].Line
+		}
 	}
 	log.Info("GENERATOR", "Generating %s document...", format)
 	if err := gen.Generate(doc, opts.OutputFile, genOpts); err != nil {

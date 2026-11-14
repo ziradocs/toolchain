@@ -170,3 +170,29 @@ func TestUnclosedSpecialBlock_MessageHasNoLineNumberWithNodeIDs(t *testing.T) {
 		t.Errorf("the message does not name the line by its content: %s", d.Message)
 	}
 }
+
+// Un node-id repetido con marcadores en la fuente: el aviso que señala al
+// primero cae en su línea de la fuente (los marcadores no cuentan), y el
+// error lo nombra por su contenido.
+func TestDuplicateNodeID_InfoPointsAtTheFirstWithNodeIDs(t *testing.T) {
+	src := "---\nmode: strict\ntitle: \"Demo\"\n---\n\nSECTION \"A\"\n  <!-- node-id: Dup -->\n  TEXT\n    uno\n\n  <!-- node-id: Dup -->\n  TEXT\n    dos\n"
+	_, diags := New(util.NewNoop()).ParseDocument(src, "c.doclang")
+	var gotErr, gotInfo bool
+	for _, d := range diags {
+		switch {
+		case d.IsError() && strings.HasPrefix(d.Message, `duplicate nodeId "Dup"`):
+			gotErr = true
+			if d.Position.Line != 12 || !strings.Contains(d.Message, `(also on the text "uno")`) {
+				t.Errorf("want the error at line 12 naming the first node, got %d: %s", d.Position.Line, d.Message)
+			}
+		case d.Severity == diagnostics.Info && strings.Contains(d.Message, `nodeId "Dup" is first used here`):
+			gotInfo = true
+			if d.Position.Line != 8 {
+				t.Errorf("want the info at line 8, got %d", d.Position.Line)
+			}
+		}
+	}
+	if !gotErr || !gotInfo {
+		t.Errorf("missing the error (%v) or the info (%v) in %v", gotErr, gotInfo, diags)
+	}
+}

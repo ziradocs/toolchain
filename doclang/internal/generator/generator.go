@@ -16,6 +16,12 @@ import (
 
 // GeneratorOptions define las opciones de generación de documentos
 type GeneratorOptions struct {
+	// LocateLine lleva una línea del contenido expandido a su archivo ("" si
+	// es el documento) y su línea de origen, para los avisos del generador
+	// que nombran dónde está un elemento (la misma ubicación que usa el
+	// reporte de --fail-on-unavailable). nil deja la línea como la cuenta el
+	// generador.
+	LocateLine        func(line int) (file string, mapped int)
 	Format            string            // html, pdf, docx, markdown
 	Theme             string            // Theme name
 	ThemeVariables    map[string]string // 🆕 Variables CSS del tema
@@ -142,6 +148,24 @@ type GeneratorOptions struct {
 }
 
 // runContext devuelve opts.Ctx, o context.Background() si no se fijó.
+// where nombra la línea line (del contenido expandido, que es sobre el que
+// cuenta el generador) para un aviso: "line N" (word "line" o "línea") si no
+// hay LocateLine, y "archivo:N" si la línea viene de un archivo incluido.
+func (opts GeneratorOptions) where(word string, line int) string {
+	return locateLine(opts.LocateLine, word, line)
+}
+
+func locateLine(locate func(int) (string, int), word string, line int) string {
+	if locate != nil {
+		file, mapped := locate(line)
+		if file != "" {
+			return fmt.Sprintf("%s:%d", file, mapped)
+		}
+		line = mapped
+	}
+	return fmt.Sprintf("%s %d", word, line)
+}
+
 func (opts GeneratorOptions) runContext() context.Context {
 	if opts.Ctx != nil {
 		return opts.Ctx
