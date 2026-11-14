@@ -4,13 +4,15 @@
 package formatter
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -101,39 +103,87 @@ func formatTableElement(e *ast.TableElement, flex bool) (string, error) {
 }
 
 // tableReadsBack dice si text, una tabla escrita en la columna 0, se relee en
-// el dialecto de destino como e, sin ningún aviso del parser. Va seguida de
-// un párrafo: una tabla que se lo tragara no se relee igual.
+// el dialecto de destino como e, sin ningún aviso del parser, y sin tragarse
+// lo que la sigue. Relee solo la tabla, con el parser que la lee en ese
+// dialecto: en flex el registry de elementos, que es lo que el parser de
+// documentos llama para cada elemento de una sección; en strict el cuerpo de
+// un SLIDE, donde una tabla pipe la lee el propio parser strict. Releer el
+// documento entero, con la normalización de flex, costaba cerca de un
+// milisegundo por tabla.
 func tableReadsBack(e *ast.TableElement, text string, flex bool) bool {
-	var doc *ast.AST
-	var diags []diagnostics.Diagnostic
-	if flex {
-		doc, diags = parser.New(util.NewNoop()).ParseDocument("---\nmode: flex\n---\n\n# x\n\n"+text+"\n\nafter\n", "")
-	} else {
-		p := parser.New(util.NewNoop())
-		p.SetNormalization(false)
-		doc, diags = p.Parse("---\nmode: strict\n---\n\nSLIDE content\n  title: \"x\"\n"+indent(text, 2)+"\n  TEXT\n    after\n", "")
-	}
-	if doc == nil || len(diags) > 0 {
-		return false
-	}
 	var got *ast.TableElement
-	n := 0
-	_ = ast.Walk(doc, func(node ast.Node) error {
-		if t, ok := node.(*ast.TableElement); ok {
-			got = t
-			n++
+	if flex {
+		// Como la escribe el formatter: sin el salto de línea final que deja
+		// una tabla pipe sin filas.
+		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+		n := len(lines)
+		// Un párrafo después, separado por una línea en blanco, como lo
+		// escribe FormatDocument: la tabla puede consumir la línea en
+		// blanco, pero no el párrafo.
+		lines = append(lines, "", "after")
+		res := elements.GetDefaultRegistry().Parse(&elements.ParseContext{Mode: "flex", Lines: lines, Logger: util.NewNoop(), DocumentHeadings: true}, 0)
+		t, ok := res.Element.(*ast.TableElement)
+		if !ok || res.Error != nil || len(res.Diagnostics) > 0 || res.ConsumedLines < n || res.ConsumedLines > n+1 {
+			return false
 		}
-		return nil
-	})
-	if n != 1 {
-		return false
+		got = t
+	} else {
+		doc, diags := parser.NewStrictParser("SLIDE content\n  title: \"x\"\n"+indent(text, 2)+"\n  TEXT\n    after\n", util.NewNoop()).Parse()
+		if doc == nil || len(diags) > 0 || len(doc.ContentBlocks) != 1 {
+			return false
+		}
+		els := doc.ContentBlocks[0].Elements
+		if len(els) != 2 {
+			return false
+		}
+		t, ok := els[0].(*ast.TableElement)
+		if !ok {
+			return false
+		}
+		got = t
 	}
 	want := *e
 	if len(want.Cells) == 0 {
 		// Ver tableCellsAreSimple: un Cells sin poblar es el derivado.
 		want.Cells = ast.DeriveCellsFromFlat(want.Headers, want.Rows)
 	}
-	return reflect.DeepEqual(stripPositions(&want), stripPositions(got))
+	return bytes.Equal(tableJSON(&want), tableJSON(got))
+}
+
+// tableJSON es el JSON de una tabla sin lo que stripPositions deja afuera
+// (posiciones, nodeId, los campos *HTML que deriva el build), para comparar
+// dos tablas igual que sameElements sin pasar por un árbol genérico.
+func tableJSON(t *ast.TableElement) []byte {
+	c := *t
+	c.NodeID = ""
+	c.Position = diagnostics.Position{}
+	c.EndPosition = diagnostics.Position{}
+	c.RowPositions = nil
+	c.HeadersHTML = nil
+	c.RowsHTML = nil
+	c.CaptionHTML = ""
+	if len(c.TableRows) > 0 {
+		rows := make([]ast.TableRow, len(c.TableRows))
+		for i, r := range c.TableRows {
+			r.NodeID = ""
+			cells := make([]ast.TableRowCell, len(r.Cells))
+			for j, cell := range r.Cells {
+				cell.NodeID = ""
+				cells[j] = cell
+			}
+			if r.Cells == nil {
+				cells = nil
+			}
+			r.Cells = cells
+			rows[i] = r
+		}
+		c.TableRows = rows
+	}
+	out, err := json.Marshal(&c)
+	if err != nil {
+		return nil
+	}
+	return out
 }
 
 // tableName nombra una tabla por su contenido, para un mensaje: su

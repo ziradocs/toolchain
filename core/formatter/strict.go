@@ -1096,6 +1096,14 @@ func firstChangedElement(e, got *ast.SpecialBlockElement) string {
 	return "its text changes"
 }
 
+// codeFenceLang es el lenguaje de un CodeElement como lo nombra su cerca: sin
+// el nombre de archivo y sin el acento de más que deja una cerca de cuatro
+// (el parser la lee como "```" seguido de "`python").
+func codeFenceLang(language string) string {
+	lang, _, _ := strings.Cut(strings.TrimSpace(language), " ")
+	return strings.TrimLeft(lang, "`")
+}
+
 func describeNestedElement(el ast.Element) string {
 	firstLine := func(s string) string {
 		line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
@@ -1108,11 +1116,13 @@ func describeNestedElement(el ast.Element) string {
 	case *ast.TableElement:
 		return tableName(n)
 	case *ast.CodeElement:
-		return fmt.Sprintf("the %s code block that starts %q", n.Language, firstLine(n.Content))
+		return fmt.Sprintf("the %s code block that starts %q", codeFenceLang(n.Language), firstLine(n.Content))
 	case *ast.MermaidElement:
 		return fmt.Sprintf("the mermaid diagram that starts %q", firstLine(n.Content))
 	case *ast.PlantUMLElement:
 		return fmt.Sprintf("the plantuml diagram that starts %q", firstLine(n.Content))
+	case *ast.ImageElement:
+		return fmt.Sprintf("the image %q", n.Source)
 	case *ast.TextElement:
 		return fmt.Sprintf("the text %q", firstLine(n.Content))
 	case *ast.SpecialBlockElement:
@@ -1153,9 +1163,11 @@ func specialBlockText(e *ast.SpecialBlockElement) string {
 }
 
 // withNestedIndentation returns the body of a block with the indentation its
-// nested elements need to be read back: the interior of each fence (code,
-// mermaid, plantuml) as the nested element holds it, and the body of each
-// TABLE block.
+// nested elements need to be read back: the interior of each code or mermaid
+// fence as the nested element holds it, and the body of each TABLE block. A
+// plantuml element drops the indentation of its lines when it reads them, so
+// there is none to give back; its fence only has to close where its parser
+// closes it.
 //
 // A block's content is its raw lines trimmed one by one, while the element
 // built from a fence keeps the lines as they were, indentation included. Read
@@ -1180,12 +1192,9 @@ func withNestedIndentation(e *ast.SpecialBlockElement, crossBlank bool) string {
 		for _, el := range els {
 			switch n := el.(type) {
 			case *ast.CodeElement:
-				lang, _, _ := strings.Cut(strings.TrimSpace(n.Language), " ")
-				fences = append(fences, fenced{lang, n.Content})
+				fences = append(fences, fenced{codeFenceLang(n.Language), n.Content})
 			case *ast.MermaidElement:
 				fences = append(fences, fenced{"mermaid", n.Content})
-			case *ast.PlantUMLElement:
-				fences = append(fences, fenced{"plantuml", n.Content})
 			case *ast.SpecialBlockElement:
 				collect(n.Elements)
 			case *ast.GridElement:
@@ -2093,8 +2102,17 @@ func checkNestedBlockElements(doc, parsed *ast.AST) error {
 	}
 	if len(losing) > 0 {
 		block := innermostBlock(losing)
+		what := describeNestedElement(block.Elements[0]) + " is lost"
+		if len(want) == len(got) {
+			for i := range want {
+				if want[i] == block {
+					what = firstChangedElement(block, got[i])
+				}
+			}
+		}
 		return newUnsupported("special_block", fmt.Sprintf(
-			"the %s block has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them", blockLabel(block)))
+			"the %s block (line %d) has nested elements (headings, fenced code, tables or images written in flex syntax) that strict does not recognize inside a ::: block, so formatting would drop them: %s",
+			blockLabel(block), block.GetPosition().Line, what))
 	}
 	if len(want) == len(got) {
 		// Whatever the cause, a block that does not read back with its type,
@@ -2104,7 +2122,7 @@ func checkNestedBlockElements(doc, parsed *ast.AST) error {
 		for i, block := range want {
 			if block.BlockType != got[i].BlockType || block.Title != got[i].Title || block.Content != got[i].Content {
 				return newUnsupported("special_block", fmt.Sprintf(
-					"the %s block does not read back with the same type, title and content in strict, so formatting would change it", blockLabel(block)))
+					"the %s block (line %d) does not read back with the same type, title and content in strict, so formatting would change it", blockLabel(block), block.GetPosition().Line))
 			}
 		}
 	}
