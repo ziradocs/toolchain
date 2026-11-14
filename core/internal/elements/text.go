@@ -9,6 +9,7 @@ import (
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // EmptyTextRuleID es el aviso de un TEXT strict sin contenido. Es warning en
@@ -221,6 +222,12 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			if p.isOtherElementType(trimmed, ctx.Mode) {
 				break
 			}
+			// Una línea con un backtick en el info string que fence.AtWithin
+			// sí lee como cerca (fence.OpenedByMain) corta el párrafo, como
+			// cualquier cerca (si es texto, lo avisa TextFenceDiagnostics).
+			if ctx.Mode == "flex" && startsFence(ctx, i, trimmed) {
+				break
+			}
 
 			// In flex mode, stop if we detect a numbered list that should be separate
 			if i > startIndex && p.isStartOfNumberedList(trimmed) {
@@ -302,8 +309,10 @@ func (p *TextParser) isOtherElementType(line string, mode string) bool {
 		return true
 	}
 
-	// Code blocks (markdown style)
-	if strings.HasPrefix(line, "```") {
+	// Code blocks (markdown style): una cerca que de verdad abre
+	// (internal/fence); ```js` … es prosa salvo que el parser la lea como
+	// cerca (ver el corte con opensFence en Parse).
+	if fence.Open(line) > 0 {
 		return true
 	}
 

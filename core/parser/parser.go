@@ -93,6 +93,14 @@ func (p *Parser) EnableAIProcessing() {
 // documento que declara el dialecto auditable no puede ser reescrito antes
 // de leerse.
 func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
+	return withEarlierFences(content, func(earlier bool) (*ast.AST, []diagnostics.Diagnostic) {
+		return p.parseDocument(content, filePath, earlier)
+	})
+}
+
+// parseDocument es ParseDocument con las cercas leídas con la regla de las
+// versiones anteriores si earlier (ver withEarlierFences).
+func (p *Parser) parseDocument(content string, filePath string, earlier bool) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
 	content = normalizeDocumentStart(content)
 	content, nodeIDs, lineMap, identityDiags := stripNodeIDDirectives(content)
@@ -146,12 +154,14 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 
 	if mode == "strict" {
 		bodyParser := newDocumentStrictParserAt(processedContent, bodyOffset, p.logger)
+		bodyParser.earlierFences = earlier
 		bodyParser.nestedListTypes = nestedListTypes
 		bodyParser.listStart = ast.SourceDeclaresCapability(sourceFM, ast.ListStartCapability)
 		bodyParser.mathSource = ast.SourceDeclaresCapability(sourceFM, ast.MathSourceCapability)
 		astNode, bodyDiagnostics = bodyParser.Parse()
 	} else {
 		bodyParser := newDocumentFlexParserAt(processedContent, bodyOffset, p.logger)
+		bodyParser.earlierFences = earlier
 		bodyParser.nestedListTypes = nestedListTypes
 		bodyParser.listStart = ast.SourceDeclaresCapability(sourceFM, ast.ListStartCapability)
 		bodyParser.mathSource = ast.SourceDeclaresCapability(sourceFM, ast.MathSourceCapability)
@@ -224,6 +234,14 @@ func sourceNestedListTypes(fm *ast.FrontMatterNode) bool {
 }
 
 func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics.Diagnostic) {
+	return withEarlierFences(content, func(earlier bool) (*ast.AST, []diagnostics.Diagnostic) {
+		return p.parse(content, filePath, earlier)
+	})
+}
+
+// parse es Parse con las cercas leídas con la regla de las versiones
+// anteriores si earlier (ver withEarlierFences).
+func (p *Parser) parse(content string, filePath string, earlier bool) (*ast.AST, []diagnostics.Diagnostic) {
 	var allDiagnostics []diagnostics.Diagnostic
 	content, nodeIDs, lineMap, identityDiags := stripNodeIDDirectives(content)
 	normalizationModified := false
@@ -330,6 +348,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	switch frontMatter.Mode {
 	case "strict":
 		strictParser := newStrictBodyParser(bodyContent, bodyOffset, p.logger)
+		strictParser.earlierFences = earlier
 		strictParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		strictParser.contentMarkdown = ast.SourceDeclaresCapability(frontMatter, ast.ContentMarkdownCapability)
 		strictParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
@@ -350,6 +369,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			normalizationModified = true
 		}
 		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
+		flexParser.earlierFences = earlier
 		flexParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		flexParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
 		flexParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
@@ -372,6 +392,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			normalizationModified = true
 		}
 		flexParser := newFlexBodyParser(processedBodyContent, bodyOffset, p.logger)
+		flexParser.earlierFences = earlier
 		flexParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		flexParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
 		flexParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
@@ -382,6 +403,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		// Modo automático: detecta si es AI y aplica el procesamiento apropiado
 		// Si ya hubo pre-procesamiento, usamos ese resultado
 		autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
+		autoParser.earlierFences = earlier
 		autoParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		autoParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
 		autoParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
@@ -402,6 +424,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			}
 			allDiagnostics = append(allDiagnostics, aiDiag)
 			autoParser := p.createAutoParser(bodyContent, bodyOffset, preProcessReport)
+			autoParser.earlierFences = earlier
 			autoParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 			autoParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
 			autoParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)

@@ -10,12 +10,16 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/layouts"
 	"go.ziradocs.com/core/v2/util"
 )
 
 // FlexParser parsea archivos SlideLang en modo flexible
 type FlexParser struct {
+	// earlierFences: ver elements.ParseContext.EarlierFences.
+	earlierFences   bool
+	fences          *fence.Index
 	nestedListTypes bool
 	listStart       bool
 	mathSource      bool
@@ -63,11 +67,22 @@ func (p *FlexParser) position(lineIndex int) diagnostics.Position {
 	return diagnostics.NewPosition(p.lineOffset+lineIndex+1, 1)
 }
 
+// fenceIndex es el fence.Index de p.lines, el mismo para todos los contextos
+// del cuerpo mientras p.lines no cambie.
+func (p *FlexParser) fenceIndex() *fence.Index {
+	if !p.fences.Of(p.lines) {
+		p.fences = fence.NewIndex(p.lines)
+	}
+	return p.fences
+}
+
 // parseContext construye el elements.ParseContext para esta posición del
 // cuerpo, hilando lineOffset.
 func (p *FlexParser) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
 		Mode:            "flex",
+		EarlierFences:   p.earlierFences,
+		Fences:          p.fenceIndex(),
 		NestedListTypes: p.nestedListTypes,
 		ListStart:       p.listStart,
 		MathSource:      p.mathSource,
@@ -149,6 +164,8 @@ func (p *FlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		}
 	}
 
+	// Una línea que antes abría una cerca y ahora es texto (CODE004).
+	p.diagnostics = append(p.diagnostics, elements.TextFenceDiagnostics(p.parseContext())...)
 	return astNode, p.diagnostics
 }
 

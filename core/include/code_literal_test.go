@@ -225,9 +225,13 @@ func TestExpand_CodeIsWhatTheParserReadsAsCode(t *testing.T) {
 		name, src string
 		kept      bool
 	}{
-		// La cerca de cuatro sigue abierta en ```` (solo ``` la cierra): el
-		// @include es código.
-		{"four-backtick fence, ```` inside", "# A\n\n````js\nq\n````\n@include part2.md\n```\n", true},
+		// La cerca de cuatro cierra en su ```` (CommonMark, internal/fence):
+		// el @include que sigue no es código y se expande. Antes solo ```
+		// la cerraba y el @include era código.
+		{"four-backtick fence, ```` inside", "# A\n\n````js\nq\n````\n@include part2.md\n```\n", false},
+		// Una cerca de cuatro guarda un ``` y cierra en su ````: el @include
+		// de adentro es código.
+		{"four-backtick fence keeps ``` inside", "# A\n\n````md\n```\n@include part2.md\n````\nfin\n", true},
 		// La cerca de cuatro cierra en ```: el @include que sigue no es
 		// código y se expande.
 		{"four-backtick fence closed by ```", "# A\n\n````js\nq\n```\n@include part2.md\nfin\n", false},

@@ -54,11 +54,12 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			Diagnostics:   diags,
 		}
 	} else {
-		element, consumed, err := p.parseFlexCode(ctx, startIndex, pos, line)
+		element, consumed, diags, err := p.parseFlexCode(ctx, startIndex, pos, line)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,
 			Error:         err,
+			Diagnostics:   diags,
 		}
 	}
 }
@@ -201,35 +202,29 @@ func commonIndentPrefix(lines []string) (string, bool) {
 }
 
 // parseFlexCode handles flex mode code parsing: ```language
-func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, error) {
-	// ```lenguaje [archivo] o ```lenguaje title="archivo"
-	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[3:]))
-	open := fence.Open(line)
-	consumedLines := 1 // skip opening ``` line
-
-	var content strings.Builder
-	lineCount := 0
-
-	// Collect content until closing ```
-	for i := startIndex + 1; i < len(ctx.Lines); i++ {
-		line := ctx.Lines[i]
-
-		if fence.Closes(strings.TrimSpace(line), open) {
-			consumedLines++ // count closing ```
-			break
-		}
-
-		if lineCount > 0 {
-			content.WriteString("\n")
-		}
-		content.WriteString(line)
-		lineCount++
-		consumedLines++
+func (p *CodeParser) parseFlexCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, []diagnostics.Diagnostic, error) {
+	// ```lenguaje [archivo] o ```lenguaje title="archivo". La cerca puede
+	// tener más de tres backticks (````md para mostrar un bloque con ```
+	// adentro); hasta dónde llega lo decide fence.AtWithin, con la regla de
+	// CommonMark cuando da un resultado bien formado y la de las versiones
+	// anteriores si no, con un aviso (fenceDiagnostics).
+	block, ok := fenceAt(ctx, startIndex)
+	if !ok {
+		// Solo pasa si el llamador no preguntó antes con el contexto
+		// (CanParseAt): una línea con un backtick en el info string que como
+		// texto no deja ninguna cerca abierta. Se lee como en las versiones
+		// anteriores, que abrían toda línea que empieza con ```.
+		block, _ = fence.EarlierAt(ctx.Lines, startIndex, oldCodeClose)
+		block.Reading = fence.OpenedByMain
 	}
+	// El info string sigue a todos los backticks de la apertura: antes se
+	// cortaban tres y el lenguaje de una cerca ````md quedaba como "`md".
+	ticks := min(block.Ticks, len(line))
+	language, filename, headerErr := parseFenceInfo(strings.TrimSpace(line[ticks:]))
 
-	codeElement := ast.NewCodeElement(pos, language, content.String())
+	codeElement := ast.NewCodeElement(pos, language, strings.Join(block.Body(ctx.Lines), "\n"))
 	codeElement.Filename = filename
-	return codeElement, consumedLines, headerErr
+	return codeElement, block.Consumed(), fenceDiagnostics(ctx, block, oldCodeClose, false), headerErr
 }
 
 // parseFenceInfo separa la línea de info de una fence (```ts renewals.ts o

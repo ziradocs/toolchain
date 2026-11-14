@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/fence"
 )
 
 // MermaidParser maneja el parsing de diagramas Mermaid
@@ -24,13 +26,30 @@ func (p *MermaidParser) CanParse(line string, mode string) bool {
 	}
 	switch mode {
 	case "flex":
-		// Detectar code blocks de Markdown con lenguaje "mermaid"
-		if strings.HasPrefix(trimmed, "```mermaid") || strings.HasPrefix(trimmed, "````mermaid") {
+		// Detectar code blocks de Markdown con lenguaje "mermaid", que de
+		// verdad abren una cerca (internal/fence; ver también CanParseAt).
+		if isMermaidFence(trimmed) && fence.Open(trimmed) > 0 {
 			return true
 		}
 	}
 
 	return false
+}
+
+// isMermaidFence reconoce la apertura de una cerca ```mermaid o ````mermaid,
+// con el lenguaje pegado a los backticks.
+func isMermaidFence(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "```mermaid") || strings.HasPrefix(trimmed, "````mermaid")
+}
+
+// CanParseAt es CanParse con el contexto: en flex, una cerca ```mermaid con
+// un backtick en el info string también es de mermaid si fence.AtWithin la
+// lee como cerca (fence.OpenedByMain), como en las versiones anteriores.
+func (p *MermaidParser) CanParseAt(ctx *ParseContext, i int) bool {
+	if ctx.Mode == "flex" && isMermaidFence(strings.TrimSpace(ctx.Lines[i])) {
+		return opensFence(ctx, i)
+	}
+	return p.CanParse(ctx.Lines[i], ctx.Mode)
 }
 
 // Parse parsea un elemento Mermaid
@@ -43,27 +62,16 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	openingLine := strings.TrimSpace(ctx.Lines[startIndex])
 
 	// Detectar formato: <<mermaid>> o ```mermaid
-	isMarkdownFormat := strings.HasPrefix(openingLine, "```mermaid") || strings.HasPrefix(openingLine, "````mermaid")
+	isMarkdownFormat := isMermaidFence(openingLine)
 
 	consumedLines := 1 // skip opening line (<<mermaid>> or ```mermaid)
 	var contentLines []string
+	var fenceDiags []diagnostics.Diagnostic
 
 	if isMarkdownFormat {
-		// Formato Markdown: ```mermaid ... ```
-		// Recoger contenido hasta encontrar ``` o ````
-		for i := startIndex + 1; i < len(ctx.Lines); i++ {
-			line := ctx.Lines[i]
-			trimmed := strings.TrimSpace(line)
-
-			// Terminar al encontrar closing backticks
-			if trimmed == "```" || trimmed == "````" {
-				consumedLines++
-				break
-			}
-
-			contentLines = append(contentLines, line)
-			consumedLines++
-		}
+		// Formato Markdown: ```mermaid ... ```, hasta donde lo lee
+		// fence.AtWithin, como un bloque de código suelto.
+		contentLines, consumedLines, fenceDiags = collectFencedLines(ctx, startIndex)
 	} else {
 		// Formato <<mermaid>> - usar indentación o tag de cierre <<end>>
 		indentDetector := NewAutoDetectIndentation()
@@ -107,6 +115,7 @@ func (p *MermaidParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       mermaid,
 		ConsumedLines: consumedLines,
 		Error:         tagErr,
+		Diagnostics:   fenceDiags,
 	}
 }
 

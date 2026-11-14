@@ -179,7 +179,10 @@ func (p *QuoteParser) endsBody(ctx *ParseContext, index, quoteIndent int) bool {
 	if ctx.Mode == "strict" {
 		return EndsStrictBody(ctx.Lines[index], quoteIndent)
 	}
-	return IsNewElement(strings.TrimSpace(ctx.Lines[index]), ctx.Mode)
+	// Una línea con un backtick en el info string que el parser lee como
+	// cerca (fence.OpenedByMain) también corta, como cualquier cerca.
+	trimmed := strings.TrimSpace(ctx.Lines[index])
+	return IsNewElement(trimmed, ctx.Mode) || ctx.Mode == "flex" && startsFence(ctx, index, trimmed)
 }
 
 // parseFlex parsea citas en modo flex (Markdown)

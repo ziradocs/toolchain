@@ -11,6 +11,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/layouts"
 	"go.ziradocs.com/core/v2/util"
 )
@@ -26,6 +27,9 @@ import (
 // de hangs encontrados fuzzeando el parser (issues #45/#155), y una copia
 // paralela las perdería en cuanto una de las dos derivara.
 type strictBody struct {
+	// earlierFences: ver elements.ParseContext.EarlierFences.
+	earlierFences   bool
+	fences          *fence.Index
 	nestedListTypes bool
 	listStart       bool
 	mathSource      bool
@@ -56,12 +60,23 @@ func (p *strictBody) position(lineIndex int) diagnostics.Position {
 	return diagnostics.NewPosition(p.lineOffset+lineIndex+1, 1)
 }
 
+// fenceIndex es el fence.Index de p.lines, el mismo para todos los contextos
+// del cuerpo mientras p.lines no cambie.
+func (p *strictBody) fenceIndex() *fence.Index {
+	if !p.fences.Of(p.lines) {
+		p.fences = fence.NewIndex(p.lines)
+	}
+	return p.fences
+}
+
 // parseContext construye el elements.ParseContext para esta posición del
 // cuerpo, hilando lineOffset — único punto de construcción, en vez de 18
 // literales `elements.ParseContext{...}` idénticos salvo por esto (#245).
 func (p *strictBody) parseContext() *elements.ParseContext {
 	return &elements.ParseContext{
 		Mode:            "strict",
+		EarlierFences:   p.earlierFences,
+		Fences:          p.fenceIndex(),
 		SlideHeadings:   p.slideHeadings,
 		NestedListTypes: p.nestedListTypes,
 		ListStart:       p.listStart,
@@ -92,6 +107,7 @@ func (p *strictBody) parseContext() *elements.ParseContext {
 // tiene cierre sin ambigüedad para anidarlo.
 func (p *strictBody) parseTypedColumnBody(lines []string, lineOffset int) ([]ast.Element, []diagnostics.Diagnostic) {
 	sub := &strictBody{
+		earlierFences:   p.earlierFences,
 		nestedListTypes: p.nestedListTypes,
 		listStart:       p.listStart,
 		mathSource:      p.mathSource,
