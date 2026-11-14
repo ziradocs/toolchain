@@ -74,8 +74,17 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	}
 	pos := ctx.Position(startIndex)
 	element := ast.NewPointsElement(pos)
+	var diags []diagnostics.Diagnostic
+	if ctx.Mode == "strict" && strings.HasPrefix(strings.TrimSpace(ctx.Lines[startIndex]), "POINTS") {
+		// El texto de la propia línea POINTS no se lee (STRICT004).
+		if d := keywordLineRestWarning(ctx, startIndex, "POINTS", "points-parser"); d != nil {
+			diags = append(diags, *d)
+		}
+	}
 	if ctx.NestedListTypes || ctx.ListStart {
-		return p.parseTypedList(ctx, startIndex, element)
+		result := p.parseTypedList(ctx, startIndex, element)
+		result.Diagnostics = append(diags, result.Diagnostics...)
+		return result
 	}
 	consumed := 0
 	line := strings.TrimSpace(ctx.Lines[startIndex])
@@ -144,6 +153,15 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					item := ast.NewPointItem(ctx.Position(i), content)
 					nest.add(element, item, indent, trimmed, p.detectListType(trimmed))
 				}
+			} else {
+				// Una línea que no es item no tiene dónde ir: el POINTS strict
+				// no tiene continuaciones. Se consume como siempre, pero con
+				// aviso (POINTS001). La línea puede estar a la sangría de los
+				// items o más adentro, y también a la del propio POINTS
+				// cuando los items van a esa misma sangría.
+				diags = append(diags, ignoredLineWarning(ctx, i, PointsLineRuleID, "points-parser",
+					"This line of the POINTS is not a list item and was ignored: %q. Start it with \"- \" to make it an item; if it is meant to come after the list, write it at a shallower indentation than the items.",
+					trimmed))
 			}
 
 			consumed++
@@ -157,6 +175,7 @@ func (p *PointsParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       element,
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
 }
 
@@ -464,6 +483,7 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 	baseIndent := -1
 	firstItemProcessed := false
 	var nest legacyNest
+	var run continuationRun
 
 	// paragraph: la línea anterior fue texto de un item (su marcador o una
 	// continuación), no una línea en blanco. Es lo que en CommonMark decide la
@@ -498,7 +518,7 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 		if !p.isListItem(trimmed) {
 			last := nest.last()
 			if last != nil && !StartsOtherBlock(trimmed) && (paragraph || indent >= nest.lastContent()) {
-				last.Content += " " + trimmed
+				run.add(&last.Content, trimmed)
 				paragraph = true
 				consumed++
 				continue
@@ -526,7 +546,7 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 			// Una lista de letras ("a. x") no es de CommonMark: es del dialecto
 			// y sigue siendo lista.
 			if n := listOrdinal(trimmed); n != nil && *n != 1 {
-				last.Content += " " + trimmed
+				run.add(&last.Content, trimmed)
 				consumed++
 				continue
 			}
@@ -573,14 +593,47 @@ func (p *PointsParser) parseMarkdownList(ctx *ParseContext, startIndex int, elem
 		content := p.extractListContent(trimmed)
 		if content != "" {
 			item := ast.NewPointItem(ctx.Position(i), content)
+			// add puede mover el item abierto al crecer su slice: las
+			// continuaciones pendientes se escriben antes.
+			run.flush()
 			nest.add(element, item, indent, trimmed, kind)
 		}
 		paragraph = true
 
 		consumed++
 	}
+	run.flush()
 
 	return consumed
+}
+
+// continuationRun junta las líneas de continuación de un mismo item y las
+// escribe de una vez. Antes cada línea hacía `Content += " " + línea`, que
+// copia el texto entero por línea: una continuación de n líneas costaba
+// O(n²). El resultado es el mismo texto, unido por espacios.
+//
+// target apunta al Content de un item que vive en un slice del AST, así que
+// hay que llamar a flush antes de cualquier append que pueda mover ese slice
+// y antes de devolver el elemento.
+type continuationRun struct {
+	target *string
+	parts  []string
+}
+
+func (r *continuationRun) add(target *string, line string) {
+	if r.target != target {
+		r.flush()
+		r.target = target
+	}
+	r.parts = append(r.parts, line)
+}
+
+func (r *continuationRun) flush() {
+	if r.target != nil && len(r.parts) > 0 {
+		*r.target += " " + strings.Join(r.parts, " ")
+	}
+	r.target = nil
+	r.parts = r.parts[:0]
 }
 
 // IsListItem checks if a line is a list item (public method)

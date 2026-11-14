@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // TextParser maneja elementos de texto (fallback parser)
@@ -45,8 +46,14 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	consumed := 0
 
 	var content strings.Builder
+	var diags []diagnostics.Diagnostic
 
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "TEXT") { // Skip TEXT line
+		// El texto de la propia línea TEXT no se lee (STRICT004): el cuerpo
+		// son las líneas sangradas de abajo.
+		if d := keywordLineRestWarning(ctx, startIndex, "TEXT", "text-parser"); d != nil {
+			diags = append(diags, *d)
+		}
 		consumed++
 		startIndex++
 
@@ -210,6 +217,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			Element:       nil,
 			ConsumedLines: consumed,
 			Error:         nil,
+			Diagnostics:   diags,
 		}
 	}
 
@@ -217,6 +225,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       ast.NewTextElement(pos, text),
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
 }
 

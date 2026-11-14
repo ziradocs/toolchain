@@ -74,6 +74,12 @@ func (p *TableParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// The YAML "TABLE" block is recognized the same way in strict and flex
 	// (see CanParse); mode no longer gates this branch, only the line's syntax.
 	if strings.HasPrefix(line, "TABLE") {
+		// El texto de la propia línea TABLE no se lee (STRICT004). En flex
+		// CanParse ya exige la palabra sola, así que esto solo dispara en
+		// strict.
+		if d := keywordLineRestWarning(ctx, startIndex, "TABLE", "table-parser"); d != nil {
+			diags = append(diags, *d)
+		}
 		consumed++
 		startIndex++
 
@@ -211,6 +217,10 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			if strings.HasPrefix(headersStr, "[") && strings.HasSuffix(headersStr, "]") {
 				headersStr = trimInlineArrayBrackets(headersStr)
 				headers = append(headers, splitInlineArray(headersStr)...)
+			} else if headersStr != "" {
+				diags = append(diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+					"The headers: value on this line is not a [\"…\", \"…\"] array and was ignored: %q. Write the headers as an array, as in headers: [\"Name\", \"Role\"].",
+					trimmedLine))
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
 			legacyDeclared = true
@@ -260,6 +270,10 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 					rowStr := trimInlineArrayBrackets(rowTrimmed)
 					rows = append(rows, splitInlineArray(rowStr))
 					rowPositions = append(rowPositions, ctx.Position(i))
+				} else {
+					diags = append(diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+						"This row of the TABLE does not end with \"]\" and was ignored: %q. Write each row under rows: as a complete [\"…\", \"…\"] array on one line.",
+						rowTrimmed))
 				}
 				consumed++
 				i++
@@ -285,6 +299,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			cellsIndent := currentIndent
 			consumed++
 			i++
+			cellsStart := i
 			var cellsBlockLines []string
 			for i < len(lines) {
 				rl := lines[i]
@@ -304,13 +319,17 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				consumed++
 				i++
 			}
-			if parsedCells, cellDiags, ok := parseCellsYAML(cellsBlockLines, pos); ok {
+			if parsedCells, cellDiags, root, ok := parseCellsYAML(cellsBlockLines, pos); ok {
 				explicitCells = parsedCells
 				diags = append(diags, cellDiags...)
+				diags = append(diags, yamlTailWarning(ctx, cellsBlockLines, root, cellsStart, "cells:")...)
 			} else if len(cellsBlockLines) > 0 {
-				diags = append(diags, diagnostics.NewWarning(
+				// El aviso queda en la línea TABLE, como siempre, y cubre hasta
+				// la última línea del bloque: así nombra todas las que se
+				// ignoraron.
+				diags = append(diags, withLineRange(ctx, diagnostics.NewWarning(
 					`The "cells:" block is not valid YAML and was ignored; the table will be empty`,
-					pos, "table-parser").WithRuleID("TABLE004"))
+					pos, "table-parser").WithRuleID("TABLE004"), cellsStart+len(cellsBlockLines)-1))
 			}
 			continue
 		} else if strings.HasPrefix(trimmedLine, "tableRows:") {
@@ -321,6 +340,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			blockIndent := currentIndent
 			consumed++
 			i++
+			rowsStart := i
 			var blockLines []string
 			for i < len(lines) {
 				rl := lines[i]
@@ -334,12 +354,13 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				consumed++
 				i++
 			}
-			var parsed []yamlTableRowEntry
-			decoder := yaml.NewDecoder(strings.NewReader(strings.Join(blockLines, "\n")))
-			decoder.KnownFields(true)
-			if err := decoder.Decode(&parsed); err != nil || len(parsed) == 0 {
-				diags = append(diags, diagnostics.NewError("invalid tableRows YAML: expected nonempty rows with known fields", pos, "table-parser"))
+			parsed, root, err := decodeTableRows(blockLines)
+			if err != nil || len(parsed) == 0 {
+				// El error se queda en la línea TABLE, como siempre, y cubre el
+				// bloque entero: ninguna de sus líneas se leyó.
+				diags = append(diags, withLineRange(ctx, diagnostics.NewError("invalid tableRows YAML: expected nonempty rows with known fields", pos, "table-parser"), rowsStart+len(blockLines)-1))
 			} else {
+				diags = append(diags, yamlTailWarning(ctx, blockLines, root, rowsStart, "tableRows:")...)
 				tableRows = make([]ast.TableRow, len(parsed))
 				for n, row := range parsed {
 					var cells []ast.TableRowCell
@@ -389,6 +410,12 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				rows = append(rows, cells)
 				rowPositions = append(rowPositions, ctx.Position(i))
 			}
+		} else if trimmedLine != "]" && trimmedLine != "]," {
+			// Ninguna rama la leyó: no es fila ni propiedad de la tabla. Se
+			// consume como siempre (cortar acá cambiaría qué líneas toma la
+			// tabla), pero con aviso (TABLE008). El "]" que cierra un
+			// `rows: [` de varias líneas es sintaxis, no texto perdido.
+			diags = append(diags, unreadTableLine(ctx, i, trimmedLine))
 		}
 
 		consumed++
@@ -399,6 +426,43 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	}
 	rows, rowPositions, diags = dropMiscountedInlineRows(headers, rows, rowPositions, inlineGroups, diags)
 	return headers, rows, caption, label, explicitCells, tableRows, rowPositions, diags, consumed
+}
+
+// yamlTailWarning es el TABLE008 de las líneas de un bloque cells: o
+// tableRows: que el lector de YAML dejó afuera (ver yamlUnderIndentedTail).
+// block son las líneas del bloque y first el índice de block[0] en ctx.Lines.
+func yamlTailWarning(ctx *ParseContext, block []string, root *yaml.Node, first int, key string) []diagnostics.Diagnostic {
+	if root == nil || !hasUnderIndentedLine(block) {
+		return nil
+	}
+	start, end, ok := yamlDiscardedTail(block, root)
+	if !ok {
+		return nil
+	}
+	d := ignoredLineWarning(ctx, first+start, TableLineRuleID, "table-parser",
+		"This line of the %s block is indented less than the rows above it, so the YAML reader stopped before it and it was ignored: %q. Indent it like the rows above.",
+		key, strings.TrimSpace(block[start]))
+	if end > start {
+		d = withLineRange(ctx, d, first+end)
+		d.Message = fmt.Sprintf("This line of the %s block is indented less than the rows above it, so the YAML reader stopped before it and it was ignored, with the lines after it: %q. Indent them like the rows above.",
+			key, strings.TrimSpace(block[start]))
+	}
+	return []diagnostics.Diagnostic{d}
+}
+
+// unreadTableLine es el TABLE008 de una línea del cuerpo de un TABLE que
+// ninguna rama lee. Una fila entre corchetes fuera de su lugar tiene su propio
+// texto: es casi siempre una fila de rows: con otra sangría, porque esas filas
+// se leen solo cuando empiezan en la columna 7 de la línea.
+func unreadTableLine(ctx *ParseContext, i int, trimmed string) diagnostics.Diagnostic {
+	if strings.HasPrefix(trimmed, "[") {
+		return ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+			"This row of the TABLE was ignored: %q. A [\"…\"] row is read only right under rows:, starting exactly six spaces from the beginning of the line; or write it as a \"| a | b |\" row.",
+			trimmed)
+	}
+	return ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+		"This line of the TABLE is not a row or a property it reads, and was ignored: %q. Write rows as \"| a | b |\" lines or under rows:; TABLE reads headers:, rows:, cells:, tableRows:, caption: and label:.",
+		trimmed)
 }
 
 // inlineRowsGroup son las filas que un `rows:` en línea agregó a rows:
@@ -578,15 +642,23 @@ type yamlTableCellEntry struct {
 // ast.MaxCellSpan's doc comment for why the cap exists. An invalid scope
 // (anything other than "", "row", "col") is cleared the same way — see the
 // TABLE006 comment below.
-func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.TableCell, []diagnostics.Diagnostic, bool) {
+//
+// Decodifica una sola vez, a un yaml.Node, y de ahí a las celdas: el nodo
+// raíz se devuelve para calcular las líneas que yaml.v3 descartó
+// (yamlDiscardedTail) sin volver a leer el bloque.
+func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.TableCell, []diagnostics.Diagnostic, *yaml.Node, bool) {
 	if len(blockLines) == 0 {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 
 	raw := strings.Join(blockLines, "\n")
+	var doc yaml.Node
 	var parsed [][]yamlTableCellEntry
-	if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil || len(parsed) == 0 {
-		return nil, nil, false
+	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil || len(doc.Content) == 0 {
+		return nil, nil, nil, false
+	}
+	if err := doc.Decode(&parsed); err != nil || len(parsed) == 0 {
+		return nil, nil, nil, false
 	}
 
 	clamped := false
@@ -643,7 +715,7 @@ func parseCellsYAML(blockLines []string, pos diagnostics.Position) ([][]ast.Tabl
 			`A cell declared a scope other than "row"/"col"; it was cleared`,
 			pos, "table-parser").WithRuleID("TABLE006"))
 	}
-	return cells, diags, true
+	return cells, diags, doc.Content[0], true
 }
 
 // SplitMarkdownTableRow parte una fila de tabla markdown por "|", respetando
@@ -1087,4 +1159,56 @@ func inlineRowQuoteProblem(content string) inlineQuoteProblem {
 		return inlineApostrophe
 	}
 	return inlineQuotesOK
+}
+
+// decodeTableRows lee un bloque tableRows: exactamente como siempre, con
+// KnownFields(true) sobre las mismas estructuras: así las llaves de merge
+// (`<<: *base`), los alias de una fila o de una celda, los tipos y los nulos se
+// aceptan o se rechazan igual que en origin/main (lo fija
+// TestDecodeTableRowsMatchesKnownFields). KnownFields no existe al decodificar
+// desde un yaml.Node, y reimplementar la semántica de merge y alias sobre el
+// nodo para tener una sola lectura no da la misma garantía.
+//
+// El nodo raíz solo hace falta para calcular las líneas que yaml.v3 descartó
+// (yamlDiscardedTail), y esas líneas están siempre menos sangradas que la
+// primera del bloque. Si no hay ninguna así, que es el caso de casi toda tabla,
+// no se lee el bloque una segunda vez y el nodo es nil.
+func decodeTableRows(blockLines []string) ([]yamlTableRowEntry, *yaml.Node, error) {
+	text := strings.Join(blockLines, "\n")
+	var parsed []yamlTableRowEntry
+	decoder := yaml.NewDecoder(strings.NewReader(text))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&parsed); err != nil {
+		return nil, nil, err
+	}
+	if !hasUnderIndentedLine(blockLines) {
+		return parsed, nil, nil
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(text), &doc); err != nil || len(doc.Content) == 0 {
+		return parsed, nil, nil
+	}
+	return parsed, doc.Content[0], nil
+}
+
+// hasUnderIndentedLine dice si alguna línea no vacía ni de comentario está
+// menos sangrada que la primera: la condición necesaria para que yaml.v3 haya
+// descartado algo (ver yamlDiscardedTail).
+func hasUnderIndentedLine(lines []string) bool {
+	first := -1
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := CalculateIndentLevel(line)
+		if first < 0 {
+			first = indent
+			continue
+		}
+		if indent < first {
+			return true
+		}
+	}
+	return false
 }

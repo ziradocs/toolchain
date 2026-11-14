@@ -46,11 +46,12 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	line := strings.TrimSpace(ctx.Lines[startIndex])
 
 	if ctx.Mode == "strict" {
-		element, consumed, err := p.parseStrictCode(ctx, startIndex, pos, line)
+		element, consumed, diags, err := p.parseStrictCode(ctx, startIndex, pos, line)
 		return &ParseResult{
 			Element:       element,
 			ConsumedLines: consumed,
 			Error:         err,
+			Diagnostics:   diags,
 		}
 	} else {
 		element, consumed, err := p.parseFlexCode(ctx, startIndex, pos, line)
@@ -68,7 +69,7 @@ func (p *CodeParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 const CodeVerbatimMarker = "{verbatim}"
 
 // parseStrictCode handles strict mode code parsing: CODE language
-func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, error) {
+func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diagnostics.Position, line string) (ast.Element, int, []diagnostics.Diagnostic, error) {
 	// `CODE{verbatim} ...` es la misma cabecera con la base de sangría fija. Se
 	// reconoce sólo con la palabra completa seguida de un espacio o del fin de
 	// la línea; la cabecera se lee después como si dijera `CODE ...`.
@@ -79,6 +80,16 @@ func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diag
 	}
 	parts := strings.Fields(line)
 	consumedLines := 1 // skip CODE line
+
+	// Letras pegadas a la palabra clave ("CODEX python") se despachan como
+	// CODE por prefijo y nunca se leían (STRICT004). La cabecera sigue
+	// leyéndose igual que antes.
+	var headerDiags []diagnostics.Diagnostic
+	if len(parts) > 0 && parts[0] != "CODE" && parts[0] != "CODE:" && !verbatim {
+		headerDiags = append(headerDiags, keywordRestDiagnostic(ctx, startIndex, "CODE", "code-parser",
+			strings.TrimPrefix(parts[0], "CODE"), true,
+			"CODE takes a language and a filename, as in CODE python main.py"))
+	}
 
 	// `CODE <lenguaje> <archivo>`: el tercer token es el nombre de archivo
 	// (code-filename-v1). Antes se descartaba en silencio, igual que
@@ -163,7 +174,7 @@ func (p *CodeParser) parseStrictCode(ctx *ParseContext, startIndex int, pos diag
 
 	codeElement := ast.NewCodeElement(pos, language, content)
 	codeElement.Filename = filename
-	return codeElement, consumedLines, headerErr
+	return codeElement, consumedLines, headerDiags, headerErr
 }
 
 // commonIndentPrefix devuelve el prefijo de espacios y tabs que comparten todas

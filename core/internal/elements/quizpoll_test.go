@@ -253,12 +253,17 @@ func TestQuizPollParser_UnknownKeysAreReported(t *testing.T) {
 		`feedback: "algo"`,
 		"<<end>>",
 	)
+	// QUIZ005 resume las llaves en la apertura; QUIZ007 nombra la línea de
+	// cada una (la regla de que ninguna línea strict se pierde en silencio).
 	ids := ruleIDs(result)
-	if len(ids) != 1 || ids[0] != "QUIZ005" {
-		t.Fatalf("diagnósticos = %v, se esperaba [QUIZ005]", ids)
+	if len(ids) != 2 || ids[0] != "QUIZ005" || ids[1] != "QUIZ007" {
+		t.Fatalf("diagnósticos = %v, se esperaba [QUIZ005 QUIZ007]", ids)
 	}
 	if !strings.Contains(result.Diagnostics[0].Message, "feedback") {
 		t.Errorf("el mensaje no nombra la llave: %q", result.Diagnostics[0].Message)
+	}
+	if d := result.Diagnostics[1]; d.Position.Line != 5 || !strings.Contains(d.Message, `feedback: \"algo\"`) {
+		t.Errorf("QUIZ007 = línea %d %q, se esperaba la línea 5 citando la llave", d.Position.Line, d.Message)
 	}
 
 	_, pollResult := parsePoll(t,
@@ -269,8 +274,8 @@ func TestQuizPollParser_UnknownKeysAreReported(t *testing.T) {
 		"<<end>>",
 	)
 	ids = ruleIDs(pollResult)
-	if len(ids) != 1 || ids[0] != "POLL004" {
-		t.Errorf("diagnósticos del poll = %v, se esperaba [POLL004]", ids)
+	if len(ids) != 2 || ids[0] != "POLL004" || ids[1] != "POLL007" {
+		t.Errorf("diagnósticos del poll = %v, se esperaba [POLL004 POLL007]", ids)
 	}
 }
 

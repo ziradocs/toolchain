@@ -84,7 +84,8 @@ do not rely on a `$`, `%`, or the word "users" inside a paragraph.
 `label` and `value` should be present. `delta` and `caption` are optional;
 `trend` is one of `up`, `down`, or `flat`. Unknown fields are reported as
 `METRIC003`, an invalid `trend` as `METRIC004`, malformed YAML as `METRIC002`,
-and a missing `<<end>>` as `METRIC001`.
+and a missing `<<end>>` as `METRIC001`. Each unknown field also gets
+`METRIC006` on its own line.
 
 ## Slide layout options
 
@@ -337,7 +338,8 @@ multiple: false
 **Errors and warnings.** `answer` out of range (or missing) is `QUIZ001`, an
 **error** that fails the build. Fewer than 2 options is `QUIZ002`/`POLL001`; a
 missing question is `QUIZ003`/`POLL002`; an unrecognized key is
-`QUIZ005`/`POLL004`; a block left unclosed is `QUIZ006`/`POLL005`.
+`QUIZ005`/`POLL004` on the opening line and `QUIZ007`/`POLL007` on the key's
+own line; a block left unclosed is `QUIZ006`/`POLL005`.
 
 **Both are static.** No answers are collected — there is no backend. The HTML
 reveals the correct option on click, locally to whoever opens it; every other
@@ -501,6 +503,33 @@ consequences worth knowing: `fmt` does not expand includes (the formatted
 file keeps declaring `@include`), and neither does the MCP `lint`/`get_ast`
 path, which works on in-memory source with no base directory — so an
 `@include` line surfaces there unexpanded.
+
+## Lines an element does not read
+
+In strict, a line inside an element that the element does not read is never
+dropped silently: it gets a warning on that line that quotes it. The build
+still passes, but the text is not in the output, so fix the line. The IDs of
+blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
+`<<poll>>`, `:::code-group`, directives) fire in flex too. The common ones:
+
+- `STRICT004`: text on a keyword line (`TEXT hola`, `POINTS: uno`, `TEXTO`,
+  `CODEX`, a third quoted string after `IMAGE`, words after `SLIDE <type>`).
+  Put the text on the indented lines below.
+- `POINTS001`: a line of a `POINTS` body that is not a `- item`. Strict lists
+  have no continuation lines.
+- `IMG005`: an `IMAGE` property it does not read. The alt text is the second
+  quoted string on the `IMAGE` line, not `alt:`; there is no `width:`,
+  `height:` or `src:`.
+- `TABLE008`: a `TABLE` line that is not a row or `headers:`, `rows:`,
+  `cells:`, `tableRows:`, `caption:`, `label:`.
+- `CHART007`: a chart line nested under a key that does not read it, an
+  unsupported Chart.js key, an invalid `options:` block.
+- `QUOTE001` (a repeated `AUTHOR:`/`SOURCE:`), `CHECKLIST002` (an item with no
+  text), `CODEGROUP003` (a line outside the fences of a `:::code-group`),
+  `DIRECTIVE004` (directive text that is not `key=value`), and `STRICT003` for
+  a lone `:::`.
+
+The full list is in the spec, "Lines an element does not read".
 
 ## No unsupported closing tags
 

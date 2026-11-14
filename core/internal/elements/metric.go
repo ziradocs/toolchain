@@ -13,6 +13,9 @@ import (
 	"go.ziradocs.com/core/v2/diagnostics"
 )
 
+// metricKeys son las llaves que lee el cuerpo de un <<metric>>.
+var metricKeys = map[string]bool{"label": true, "value": true, "delta": true, "trend": true, "caption": true}
+
 // MetricParser parsea un KPI con estructura explícita; no busca signos de
 // moneda ni porcentajes dentro de prosa como hacía el linter histórico.
 type MetricParser struct{}
@@ -40,20 +43,28 @@ func (p *MetricParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	yamlText := dedentBlock(raw)
 	if strings.TrimSpace(yamlText) != "" {
 		if err := yaml.Unmarshal([]byte(yamlText), &body); err != nil {
-			diags = append(diags, diagnostics.NewWarning(fmt.Sprintf("El YAML de metric es inválido y fue ignorado: %v", err), pos, "metric-parser").WithRuleID("METRIC002"))
+			// El aviso cubre hasta la última línea del cuerpo: todas se
+			// ignoraron.
+			d := diagnostics.NewWarning(fmt.Sprintf("El YAML de metric es inválido y fue ignorado: %v", err), pos, "metric-parser").WithRuleID("METRIC002")
+			if last := lastBodyLine(raw, startIndex+1); last >= 0 {
+				d = withLineRange(ctx, d, last)
+			}
+			diags = append(diags, d)
 			body = metricBody{}
 		} else {
 			var keys map[string]interface{}
 			_ = yaml.Unmarshal([]byte(yamlText), &keys)
 			unknown := make([]string, 0)
 			for key := range keys {
-				if key != "label" && key != "value" && key != "delta" && key != "trend" && key != "caption" {
+				if !metricKeys[key] {
 					unknown = append(unknown, key)
 				}
 			}
 			if len(unknown) > 0 {
 				sort.Strings(unknown)
 				diags = append(diags, diagnostics.NewWarning("Llave(s) no reconocida(s) en metric: "+strings.Join(unknown, ", "), pos, "metric-parser").WithRuleID("METRIC003"))
+				// Y uno por llave, en su propia línea (METRIC006).
+				diags = append(diags, unknownYAMLKeyLines(ctx, yamlText, startIndex+1, metricKeys, "<<metric>>", MetricLineRuleID, "metric-parser")...)
 			}
 		}
 	}
