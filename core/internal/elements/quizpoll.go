@@ -138,10 +138,15 @@ func parseQuizPollBlock(ctx *ParseContext, startIndex int, tag string) (quizPoll
 	if err := yaml.Unmarshal([]byte(yamlText), &body); err != nil {
 		// El bloque se consumió igual (ver el doc de la función). El elemento
 		// sale vacío y el linter lo reporta como pregunta ausente / sin
-		// opciones, así que el autor recibe las dos señales.
-		diags = append(diags, diagnostics.NewWarning(
+		// opciones, así que el autor recibe las dos señales. El aviso cubre
+		// hasta la última línea del cuerpo: todas se ignoraron.
+		d := diagnostics.NewWarning(
 			fmt.Sprintf("El cuerpo YAML del %s es inválido y fue ignorado: %v", tag, err),
-			pos, source).WithRuleID(quizPollRuleID(tag, "invalidYAML")))
+			pos, source).WithRuleID(quizPollRuleID(tag, "invalidYAML"))
+		if last := lastBodyLine(rawLines, startIndex+1); last >= 0 {
+			d = withLineRange(ctx, d, last)
+		}
+		diags = append(diags, d)
 		return quizPollBody{}, consumed, diags
 	}
 
@@ -150,6 +155,12 @@ func parseQuizPollBlock(ctx *ParseContext, startIndex int, tag string) (quizPoll
 			fmt.Sprintf("Llave(s) no reconocida(s) en el bloque %s (%s); se esperaba %s — ignorada(s)",
 				tag, strings.Join(unknown, ", "), strings.Join(sortedQuizPollKeys(tag), "/")),
 			pos, source).WithRuleID(quizPollRuleID(tag, "unknownKey")))
+		// Y uno por llave, en su propia línea (QUIZ007/POLL007).
+		lineRule := QuizLineRuleID
+		if tag == "poll" {
+			lineRule = PollLineRuleID
+		}
+		diags = append(diags, unknownYAMLKeyLines(ctx, yamlText, startIndex+1, quizPollKeys[tag], "<<"+tag+">>", lineRule, source)...)
 	}
 
 	return body, consumed, diags

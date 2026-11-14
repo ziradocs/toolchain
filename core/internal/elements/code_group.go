@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // CodeGroupParser maneja grupos de código (::::code-group o :::code-group)
@@ -51,6 +52,7 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	codeGroup := ast.NewCodeGroupElement(pos)
 	consumed := 1 // Skip :::code-group line
 	var groupErr error
+	var diags []diagnostics.Diagnostic
 
 	// En modo strict, el formatter (formatter/strict.go: formatCodeGroup +
 	// formatStrictElement con indent(body, 2)) emite el bloque completo
@@ -131,6 +133,14 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 			if line != "" && groupErr == nil {
 				groupErr = fmt.Errorf("unexpected content inside :::code-group outside a code fence: %q", line)
 			}
+			// El error de arriba sale una vez y en la línea :::code-group;
+			// este aviso nombra cada línea perdida en su propia posición
+			// (CODEGROUP003).
+			if line != "" {
+				diags = append(diags, ignoredLineWarning(ctx, i, CodeGroupLineRuleID, "code-group-parser",
+					"This line of the :::code-group is outside a code fence and was ignored: %q. Put it inside a ```language [label] fence, or move it out of the group.",
+					line))
+			}
 			// Skip non-code lines
 			consumed++
 		}
@@ -140,5 +150,6 @@ func (p *CodeGroupParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		Element:       codeGroup,
 		ConsumedLines: consumed,
 		Error:         groupErr,
+		Diagnostics:   diags,
 	}
 }

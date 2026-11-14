@@ -484,7 +484,7 @@ func TestStrictText_EmptyBodyCutKeepsEveryWord(t *testing.T) {
 					t.Errorf("%s %q: line %q appears %d times, want %d (got %v)", name, body, l, strings.Count(strs, l), n, got)
 				}
 			}
-			have := astTokens(t, c.src, c.document)
+			have := emptyTextASTTokens(t, c.src, c.document)
 			for w, n := range want {
 				if have[w] < n {
 					t.Errorf("%s %q: %q appears %d times, want %d (got %v)", name, body, w, have[w], n, got)
@@ -586,9 +586,9 @@ func TestStrictText_RejectedTrialLeavesNoAnchors(t *testing.T) {
 	}
 }
 
-// astTokens cuenta los tokens (como los cuenta accountsFor) de las cadenas
+// emptyTextASTTokens cuenta los tokens (como los cuenta accountsFor) de las cadenas
 // del AST de src que son texto del autor.
-func astTokens(t *testing.T, src string, document bool) map[string]int {
+func emptyTextASTTokens(t *testing.T, src string, document bool) map[string]int {
 	t.Helper()
 	p := New(util.NewNoop())
 	var doc *ast.AST

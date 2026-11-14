@@ -216,9 +216,11 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 					// suelto ni reprocesarlo como propiedades data:/series:/etc. Este
 					// diagnóstico Warning no aborta el build (a diferencia de Error) y
 					// es la única señal específica de "el JSON estaba roto".
-					diags = append(diags, diagnostics.NewWarning(
+					// El aviso cubre todo el cuerpo JSON: ninguna de sus líneas
+					// se leyó.
+					diags = append(diags, withLineRange(ctx, diagnostics.NewWarning(
 						"El JSON del chart es inválido y fue ignorado; el chart quedará sin datos",
-						pos, "chart-parser").WithRuleID("CHART002"))
+						pos, "chart-parser").WithRuleID("CHART002"), startIndex+jsonLines))
 				}
 				return &ParseResult{
 					Element:       chart,
@@ -249,6 +251,8 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 						fmt.Sprintf("Llave(s) no reconocida(s) en el bloque chart (%s); se esperaba 'data'/'options' — ignorada(s)",
 							strings.Join(unknownKeys, ", ")),
 						pos, "chart-parser").WithRuleID("CHART005"))
+					// Y cada una en su propia línea (CHART007).
+					diags = append(diags, comboUnknownKeyLines(ctx, yamlContent, startIndex+1)...)
 				}
 				return &ParseResult{
 					Element:       chart,
@@ -303,6 +307,9 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// mecanismo, y sigue intacto.
 	bodyIndent := -1
 	var unknownKeys []string
+	// lastKey es la última llave leída, para nombrarla en el aviso de una
+	// línea anidada bajo ella que nadie lee.
+	lastKey := ""
 chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
@@ -403,6 +410,9 @@ chartLoop:
 		// un `datasets:` inventado robándole el lugar al `data:` real de
 		// nivel superior.
 		if bodyIndent > 0 && currentIndent > bodyIndent {
+			// Se consume como siempre, pero no llega a ningún lado: se avisa
+			// (CHART007), nombrando la llave de arriba.
+			diags = append(diags, nestedChartLine(ctx, i, lastKey, trimmedLine))
 			consumedLines++
 			continue
 		}
@@ -440,6 +450,7 @@ chartLoop:
 		}
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
+		lastKey = key
 
 		switch key {
 		case "data":
@@ -503,9 +514,15 @@ chartLoop:
 			// los ejemplos de examples/02_diagrams_and_charts/), así
 			// que el HTML llevaba tiempo perdiendo títulos que el
 			// autor sí había pedido.
-			opts, linesConsumed := p.parseNestedOptions(ctx.Lines, i+1)
+			opts, linesConsumed, optsErr := p.parseNestedOptions(ctx.Lines, i+1)
 			if opts != nil {
 				chart.Options = opts
+			} else if optsErr != nil {
+				// El bloque no es YAML válido y se descarta, como siempre; el
+				// aviso cubre de options: a su última línea.
+				diags = append(diags, withLineRange(ctx, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+					"The options: block of this chart could not be read (%s), so it and every line under it were ignored: %q.",
+					yamlErrorText(optsErr), trimmedLine), i+linesConsumed))
 			}
 			i += linesConsumed
 			consumedLines += linesConsumed
@@ -578,9 +595,27 @@ chartLoop:
 			// Espeja el "default: break parseLoop" de map.go.
 			if isChartPropertyKey(key) {
 				unknownKeys = append(unknownKeys, key)
+				// El CHART005 del bloque las junta en la línea de apertura;
+				// este las nombra en su propia línea.
+				diags = append(diags, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+					"The chart does not read %s:, so this line was ignored: %q. Chart.js settings go inside options:.",
+					key, trimmedLine))
 			} else {
 				break chartLoop
 			}
+		}
+
+		// Un data:/series:/labels:/type:/yAxisID: que no es un arreglo no se
+		// lee: cada case de arriba solo entra con un "[". Se avisa (CHART007).
+		if key == "type" && !strings.Contains(value, "[") {
+			// `type: bar` en el cuerpo: el tipo del chart va en la apertura.
+			diags = append(diags, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+				"A type: in the body of a chart is read only as an array of per-series types, so this line was ignored: %q. The chart type goes on the opening line, as in <<chart: %s>>.",
+				trimmedLine, strings.Trim(value, "\"'")))
+		} else if (key == "data" || key == "series" || key == "labels" || key == "yAxisID") && !strings.Contains(value, "[") {
+			diags = append(diags, ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+				"The %s: value of this chart is not an array and was ignored: %q. Write it as an array, as in %s: [\"…\", \"…\"].",
+				key, trimmedLine, key))
 		}
 
 		// Contar los corchetes de la línea de la propiedad MÁS los de lo que
@@ -1577,15 +1612,18 @@ func (p *ChartParser) parseYAMLBlock(lines []string, startIndex int) (string, in
 // tumbar el chart entero — se descarta la config y el chart se renderiza sin
 // ella, que es exactamente el comportamiento que había antes de que este
 // parser existiera.
-func (p *ChartParser) parseNestedOptions(lines []string, startIndex int) (map[string]interface{}, int) {
+//
+// err es el error de YAML cuando el bloque no parsea; un bloque vacío o con
+// solo comentarios es YAML válido y devuelve (nil, n, nil).
+func (p *ChartParser) parseNestedOptions(lines []string, startIndex int) (map[string]interface{}, int, error) {
 	if startIndex >= len(lines) {
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	baseIndent := countLeadingSpaces(lines[startIndex])
 	if baseIndent == 0 {
 		// Sin sangría no hay bloque anidado que capturar.
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	var block []string
@@ -1612,14 +1650,14 @@ func (p *ChartParser) parseNestedOptions(lines []string, startIndex int) (map[st
 		consumed--
 	}
 	if len(block) == 0 {
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	var opts map[string]interface{}
 	if err := yaml.Unmarshal([]byte(strings.Join(block, "\n")), &opts); err != nil {
-		return nil, consumed
+		return nil, consumed, err
 	}
-	return opts, consumed
+	return opts, consumed, nil
 }
 
 // countLeadingSpaces cuenta la sangría de una línea tratando un tab como un
@@ -1920,3 +1958,99 @@ func extractAttribute(str, attrName string) string {
 
 	return ""
 }
+
+// nestedChartLine es el CHART007 de una línea más sangrada que el cuerpo del
+// chart, fuera de un arreglo abierto: cuelga de key, que no lee líneas
+// anidadas (options: y los arreglos multilínea ya las consumieron antes de
+// llegar acá).
+func nestedChartLine(ctx *ParseContext, i int, key, trimmed string) diagnostics.Diagnostic {
+	if key == "" {
+		return ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+			"This line of the chart is indented deeper than its properties and was ignored: %q. Write it at the indentation of data: and series:.", trimmed)
+	}
+	return ignoredLineWarning(ctx, i, ChartLineRuleID, "chart-parser",
+		"This line of the chart is nested under %s:, which does not read nested lines, so it was ignored: %q. Write it at the indentation of data: and series:, or inside options: if it is a Chart.js setting.",
+		key, trimmed)
+}
+
+// comboUnknownKeyLines es el CHART007, línea por línea, de las llaves que un
+// <<chart: combo>> en YAML no lee: las de nivel superior (lee data y
+// options), las de data (lee labels y series) y las de cada serie (lee name,
+// type, values y yAxisID). unknownComboDataKeys las resume para CHART005.
+// yamlText es el cuerpo tal como lo juntó parseYAMLBlock, y su línea 1 es
+// ctx.Lines[first].
+func comboUnknownKeyLines(ctx *ParseContext, yamlText string, first int) []diagnostics.Diagnostic {
+	root, lines := yamlMappingRoot(yamlText)
+	if root == nil {
+		return nil
+	}
+	const tag = "<<chart: combo>>"
+	last := len(lines) - 1
+	out := mappingKeyLines(ctx, root, lines, first, last, map[string]bool{"data": true, "options": true}, tag, ChartLineRuleID, "chart-parser")
+	for n := 0; n+1 < len(root.Content); n += 2 {
+		if root.Content[n].Value != "data" || root.Content[n+1].Kind != yaml.MappingNode {
+			continue
+		}
+		data := root.Content[n+1]
+		dataEnd := last
+		if n+2 < len(root.Content) {
+			dataEnd = root.Content[n+2].Line - 2
+		}
+		out = append(out, mappingKeyLines(ctx, data, lines, first, dataEnd, map[string]bool{"labels": true, "series": true}, tag+" data", ChartLineRuleID, "chart-parser")...)
+		for k := 0; k+1 < len(data.Content); k += 2 {
+			if data.Content[k].Value != "series" || data.Content[k+1].Kind != yaml.SequenceNode {
+				continue
+			}
+			items := data.Content[k+1].Content
+			seriesEnd := dataEnd
+			if k+2 < len(data.Content) {
+				seriesEnd = data.Content[k+2].Line - 2
+			}
+			for j, item := range items {
+				if item.Kind != yaml.MappingNode {
+					continue
+				}
+				itemEnd := seriesEnd
+				if j+1 < len(items) {
+					itemEnd = items[j+1].Line - 2
+				}
+				out = append(out, mappingKeyLines(ctx, item, lines, first, itemEnd,
+					map[string]bool{"name": true, "type": true, "values": true, "yAxisID": true}, tag+" series", ChartLineRuleID, "chart-parser")...)
+			}
+		}
+	}
+	return out
+}
+
+// yamlErrorText es el error de yaml.v3 sin su prefijo "yaml: " y sin el número
+// de línea, que cuenta desde el inicio del bloque y no del archivo.
+//
+// Un error de tipos de yaml.v3 trae una línea por problema ("unmarshal
+// errors:\n  line 4: …\n  line 6: …"): se limpia cada una y se unen con "; ".
+// El de un options: que no es un mapeo (una lista, un escalar) se dice así.
+func yamlErrorText(err error) string {
+	msg := strings.TrimPrefix(err.Error(), "yaml: ")
+	msg = strings.TrimPrefix(msg, "unmarshal errors:")
+	var parts []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(msg, "\n") {
+		line = strings.TrimSpace(line)
+		line = yamlLinePrefix.ReplaceAllString(line, "")
+		line = yamlAtLine.ReplaceAllString(line, "")
+		if strings.HasPrefix(line, "cannot unmarshal ") && strings.HasSuffix(line, "into map[string]interface {}") {
+			line = "options: must be a mapping"
+		}
+		if line != "" && !seen[line] {
+			seen[line] = true
+			parts = append(parts, line)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// yamlLinePrefix y yamlAtLine son los "line N: " y " at line N" con que yaml.v3
+// nombra líneas del bloque, que no son las del archivo.
+var (
+	yamlLinePrefix = regexp.MustCompile(`^line \d+: `)
+	yamlAtLine     = regexp.MustCompile(` at line \d+`)
+)

@@ -52,7 +52,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	consumed := 0
 
 	var content strings.Builder
-	var emptyText []diagnostics.Diagnostic
+	var diags []diagnostics.Diagnostic
 
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "TEXT") { // Skip TEXT line
 		// El cuerpo son las líneas que siguen con sangría. Puede estar más
@@ -72,6 +72,11 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		// las líneas siguientes se leen como siempre, por sangría.
 		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 		textLine := startIndex
+		// El texto de la propia línea TEXT no se lee (STRICT004): el cuerpo
+		// son las líneas sangradas de abajo.
+		if d := keywordLineRestWarning(ctx, startIndex, "TEXT", "text-parser"); d != nil {
+			diags = append(diags, *d)
+		}
 		consumed++
 		startIndex++
 
@@ -115,7 +120,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			consumed++
 		}
 		if content.Len() == 0 {
-			emptyText = append(emptyText, diagnostics.NewWarning(
+			diags = append(diags, diagnostics.NewWarning(
 				"TEXT has no content: write the paragraph on the indented lines below it, or remove the TEXT",
 				ctx.Position(textLine), "text-parser").WithRuleID(EmptyTextRuleID))
 		}
@@ -244,7 +249,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 			Element:       nil,
 			ConsumedLines: consumed,
 			Error:         nil,
-			Diagnostics:   emptyText,
+			Diagnostics:   diags,
 		}
 	}
 
@@ -252,6 +257,7 @@ func (p *TextParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       ast.NewTextElement(pos, text),
 		ConsumedLines: consumed,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
 }
 
@@ -440,7 +446,7 @@ func OpensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
 	case '|':
 		return len(trimmed) > 1 && strings.HasSuffix(trimmed, "|")
 	case '@':
-		name, _ := (&DirectiveParser{}).parseDirectiveNameAndParams(strings.TrimSpace(trimmed[1:]))
+		name, _, _ := (&DirectiveParser{}).parseDirectiveNameAndParams(strings.TrimSpace(trimmed[1:]))
 		return name == "include" || knownDirective(name)
 	case '<':
 		for _, tag := range []ElementParser{

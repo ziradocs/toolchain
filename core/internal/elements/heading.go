@@ -163,13 +163,28 @@ func (p *HeadingParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // contra el que el parser derivaría en esa misma posición.
 type HeadingAnchors struct {
 	used map[string]int
+	// next es, por prefijo, el sufijo desde el que buscar el próximo libre.
+	// Un anchor usado no se libera salvo por Rollback, que también devuelve
+	// next al valor que tenía, así que todo sufijo por debajo del último
+	// asignado sigue ocupado: empezar ahí da el mismo resultado que empezar
+	// en 2, sin volver a probar uno por uno los ya tomados. Sin esto, k
+	// encabezados con el mismo texto costaban O(k²).
+	next map[string]int
 	// base, si no es nil, es la capa de abajo (ver Overlay): sus anchors
 	// cuentan como usados, pero lo que se registra va solo en esta.
 	base *HeadingAnchors
 	// journal, en una capa, anota cada anchor registrado, en orden, para
 	// poder deshacer los últimos (Rollback). Es un puntero para que las
 	// copias de la capa compartan la bitácora, igual que comparten used.
-	journal *[]string
+	journal *[]anchorEntry
+}
+
+// anchorEntry es un registro de la bitácora de una capa: el anchor y, si
+// Unique movió next, el prefijo y el valor que next tenía antes en la capa.
+type anchorEntry struct {
+	anchor   string
+	prefixed string
+	prevNext int
 }
 
 // count es cuántas veces se registró anchor, en esta capa y las de abajo.
@@ -181,18 +196,38 @@ func (a *HeadingAnchors) count(anchor string) int {
 	return n
 }
 
+// hint es el sufijo desde el que buscar el próximo libre de prefixed: el
+// mayor next de esta capa y las de abajo. Cada capa garantiza que los
+// sufijos por debajo de su next están ocupados en ella o debajo.
+func (a *HeadingAnchors) hint(prefixed string) int {
+	n := 0
+	for ; a != nil; a = a.base {
+		n = max(n, a.next[prefixed])
+	}
+	return n
+}
+
 // Derive devuelve el anchor que Unique asignaría a text, sin registrarlo.
 func (a *HeadingAnchors) Derive(text string) string {
+	candidate, _, _ := a.derive(text)
+	return candidate
+}
+
+func (a *HeadingAnchors) derive(text string) (candidate, prefixed string, n int) {
 	base := DeriveAnchor(text)
-	prefixed := "heading"
+	prefixed = "heading"
 	if base != "" {
 		prefixed = "heading-" + base
 	}
-	candidate := prefixed
-	for n := 2; a.count(candidate) > 0; n++ {
-		candidate = prefixed + "-" + strconv.Itoa(n)
+	candidate = prefixed
+	n = max(2, a.hint(prefixed))
+	if a.count(candidate) == 0 {
+		return candidate, prefixed, 0
 	}
-	return candidate
+	for candidate = prefixed + "-" + strconv.Itoa(n); a.count(candidate) > 0; n++ {
+		candidate = prefixed + "-" + strconv.Itoa(n+1)
+	}
+	return candidate, prefixed, n
 }
 
 // Overlay devuelve una capa sobre a: ve los anchors de a, pero lo que se
@@ -200,7 +235,7 @@ func (a *HeadingAnchors) Derive(text string) string {
 // capa comparten lo registrado. La usa el parse de prueba del cuerpo de un
 // TEXT vacío (ParseContext.EmptyTextCutKeepsText).
 func (a *HeadingAnchors) Overlay() HeadingAnchors {
-	return HeadingAnchors{used: map[string]int{}, base: a, journal: &[]string{}}
+	return HeadingAnchors{used: map[string]int{}, next: map[string]int{}, base: a, journal: &[]anchorEntry{}}
 }
 
 // Mark es el punto de la bitácora de una capa al que Rollback vuelve.
@@ -211,21 +246,42 @@ func (a *HeadingAnchors) Mark() int {
 	return len(*a.journal)
 }
 
-// Rollback deshace lo que la capa registró después de mark.
+// Rollback deshace lo que la capa registró después de mark, next incluido.
+// Va del último al primero para que cada next vuelva al valor de antes.
 func (a *HeadingAnchors) Rollback(mark int) {
 	if a.journal == nil {
 		return
 	}
-	for _, anchor := range (*a.journal)[mark:] {
-		a.used[anchor]--
+	entries := (*a.journal)[mark:]
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		a.used[e.anchor]--
+		if e.prefixed == "" {
+			continue
+		}
+		if e.prevNext == 0 {
+			delete(a.next, e.prefixed)
+		} else {
+			a.next[e.prefixed] = e.prevNext
+		}
 	}
 	*a.journal = (*a.journal)[:mark]
 }
 
 // Unique deriva el anchor de text y lo registra.
 func (a *HeadingAnchors) Unique(text string) string {
-	candidate := a.Derive(text)
+	candidate, prefixed, n := a.derive(text)
 	a.Reserve(candidate)
+	if n > 0 {
+		if a.next == nil {
+			a.next = make(map[string]int)
+		}
+		if a.journal != nil {
+			e := &(*a.journal)[len(*a.journal)-1]
+			e.prefixed, e.prevNext = prefixed, a.next[prefixed]
+		}
+		a.next[prefixed] = n
+	}
 	return candidate
 }
 
@@ -237,7 +293,7 @@ func (a *HeadingAnchors) Reserve(anchor string) bool {
 	}
 	a.used[anchor]++
 	if a.journal != nil {
-		*a.journal = append(*a.journal, anchor)
+		*a.journal = append(*a.journal, anchorEntry{anchor: anchor})
 	}
 	return a.count(anchor) == 1
 }

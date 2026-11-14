@@ -81,12 +81,14 @@ is the one closing tag the map parser reads, and the one `fmt` writes.
 static — no results are collected.
 
 ## Layout typing (both modes)
+Strict:
 ```
-SLIDE comparison          # strict
+SLIDE comparison
   title: "Title"
 ```
+Flex, right before the heading:
 ```
----                       # flex: right before the heading
+---
 layout: comparison
 ---
 ## Title

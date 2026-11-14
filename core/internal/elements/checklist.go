@@ -45,6 +45,10 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 	var diags []diagnostics.Diagnostic
 
 	if ctx.Mode == "strict" && strings.HasPrefix(line, "CHECKLIST") {
+		// El texto de la propia línea CHECKLIST no se lee (STRICT004).
+		if d := keywordLineRestWarning(ctx, startIndex, "CHECKLIST", "checklist-parser"); d != nil {
+			diags = append(diags, *d)
+		}
 		headerIndent := CalculateIndentLevel(ctx.Lines[startIndex])
 		// Skip CHECKLIST line
 		consumed++
@@ -53,7 +57,7 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 		// Process indented checklist items
 		n, d := p.parseStrictChecklist(ctx, startIndex, headerIndent, element)
 		consumed += n
-		diags = d
+		diags = append(diags, d...)
 	} else {
 		// Markdown-style parsing
 		consumed = p.parseMarkdownChecklist(ctx, startIndex, element)
@@ -79,6 +83,10 @@ func (p *ChecklistParser) Parse(ctx *ParseContext, startIndex int) *ParseResult 
 // continuación de uno, y se descarta.
 const ChecklistLineBeforeFirstItemRuleID = "CHECKLIST001"
 
+// ChecklistEmptyItemRuleID es el aviso de un ítem de CHECKLIST strict sin
+// texto (`[ ]` solo), que no llega al AST.
+const ChecklistEmptyItemRuleID = "CHECKLIST002"
+
 // parseStrictChecklist parsea una lista de tareas en modo estricto. La
 // cabecera CHECKLIST tiene sangría headerIndent (ver EndsStrictBody).
 func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, headerIndent int, element *ast.ChecklistElement) (int, []diagnostics.Diagnostic) {
@@ -87,6 +95,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 	consumed := 0
 	expectedIndent := -1
 	nest := checklistNest{strict: true}
+	var run continuationRun
 
 	for i := startIndex; i < len(lines); i++ {
 		line := lines[i]
@@ -136,12 +145,20 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 		if p.isStrictChecklistItem(trimmed) {
 			content, checked := p.parseStrictChecklistContent(trimmed)
 			if content != "" {
+				run.flush()
 				nest.add(element, ast.NewChecklistItem(ctx.Position(i), content, checked), currentIndent, expectedIndent, trimmed)
+			} else {
+				// Un ítem sin texto no llega al AST, como siempre; ahora con
+				// aviso (CHECKLIST002).
+				diags = append(diags, ignoredLineWarning(ctx, i, ChecklistEmptyItemRuleID, "checklist-parser",
+					"This CHECKLIST item has no text and was ignored: %q. Write the task after the box, as in [ ] Review the draft.",
+					trimmed))
 			}
 		} else if last := nest.last(); currentIndent >= expectedIndent && last != nil {
 			// Continuation line: pertenece al último item abierto, el más
-			// profundo, que es el que la línea sigue.
-			last.Content += " " + trimmed
+			// profundo, que es el que la línea sigue. Se junta en run y se
+			// escribe de una vez (ver continuationRun).
+			run.add(&last.Content, trimmed)
 		} else if last == nil {
 			// Antes del primer ítem no hay a qué pegarla: se descarta,
 			// como siempre, pero con aviso.
@@ -152,6 +169,7 @@ func (p *ChecklistParser) parseStrictChecklist(ctx *ParseContext, startIndex, he
 
 		consumed++
 	}
+	run.flush()
 
 	return consumed, diags
 }

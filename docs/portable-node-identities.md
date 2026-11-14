@@ -58,7 +58,7 @@ SLIDE content
   TABLE
     headers: ["Year", "Revenue"]
     rows:
-      - ["2026", "42"]
+      ["2026", "42"]
 ```
 
 Moving either annotated node, or editing its text, does not change its ID.
