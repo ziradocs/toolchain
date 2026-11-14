@@ -13,6 +13,7 @@ import (
 	"go.ziradocs.com/core/v2/a11y"
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/elements"
 	"go.ziradocs.com/core/v2/util"
 )
 
@@ -468,9 +469,18 @@ func (p *FrontMatterParser) Parse(content string) (*ast.FrontMatterNode, string,
 	// Parsear YAML
 	var raw rawFrontMatter
 	if err := yaml.Unmarshal([]byte(yamlContent), &raw); err != nil {
+		// Sin los números de línea de yaml.v3: cuentan desde la primera
+		// línea del frontmatter, no desde la del archivo. Una llave repetida
+		// lleva el error a su línea y nombra la anterior por su texto.
+		msg := fmt.Sprintf("Invalid YAML: %s", elements.YAMLErrorText(err))
+		pos := diagnostics.NewPosition(2, 1)
+		if earlier, later, ok := firstRepeatedYAMLKey(yamlContent); ok {
+			yamlLines := lines[1:endIndex]
+			msg += fmt.Sprintf(". The key on this line was written before: %q", strings.TrimSpace(yamlLines[earlier]))
+			pos = diagnostics.NewPosition(later+2, 1)
+		}
 		return nil, content, []diagnostics.Diagnostic{
-			diagnostics.NewError(fmt.Sprintf("Invalid YAML: %v", err),
-				diagnostics.NewPosition(2, 1), "parser"),
+			diagnostics.NewError(msg, pos, "parser"),
 		}
 	}
 	// Validar campos obligatorios
@@ -1028,4 +1038,39 @@ func (p *FrontMatterParser) convertFooterConfig(raw *rawFooterConfig) *ast.Foote
 	}
 
 	return config
+}
+
+// firstRepeatedYAMLKey busca, en el YAML del frontmatter, la primera llave que
+// un mapeo repite (a cualquier profundidad) y devuelve los índices, en las
+// líneas de yamlText, de su aparición anterior y de la que la repite.
+// Decodificar a un yaml.Node no pasa por la comprobación de llaves repetidas
+// de yaml.v3, así que el árbol se arma aunque Unmarshal falle por eso.
+func firstRepeatedYAMLKey(yamlText string) (earlier, later int, ok bool) {
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(yamlText), &doc) != nil {
+		return 0, 0, false
+	}
+	n := len(strings.Split(yamlText, "\n"))
+	var walk func(*yaml.Node) bool
+	walk = func(node *yaml.Node) bool {
+		if node.Kind == yaml.MappingNode {
+			seen := map[string]int{}
+			for k := 0; k+1 < len(node.Content); k += 2 {
+				key := node.Content[k]
+				if prev, dup := seen[key.Value]; dup && prev >= 1 && key.Line >= 1 && key.Line <= n {
+					earlier, later = prev-1, key.Line-1
+					return true
+				}
+				seen[key.Value] = key.Line
+			}
+		}
+		for _, c := range node.Content {
+			if walk(c) {
+				return true
+			}
+		}
+		return false
+	}
+	ok = walk(&doc)
+	return earlier, later, ok
 }

@@ -188,6 +188,9 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 	level := 0 // 0 = no declarado; el default (1) se aplica al final
 	explicitID := ""
 	idLine := 0
+	// Un level: o un id: repetido pisa al anterior, como siempre; el
+	// anterior se avisa (STRICT005).
+	props := p.newRepeatedProperties(sectionKeyword)
 
 	p.parseIndentedElements(scratch, func(key, value string) {
 		switch key {
@@ -202,9 +205,11 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 				return
 			}
 			level = n
+			props.read(key)
 		case "id":
 			explicitID = value
 			idLine = p.currentLine
+			props.read(key)
 			if elements.DeriveAnchor(value) == "" {
 				p.addError(fmt.Sprintf(
 					"id %q has no usable characters for an anchor (only letters, digits, '-' and '_' survive)", value))
