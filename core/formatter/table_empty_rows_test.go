@@ -561,10 +561,7 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			t.Errorf("%s: only %d generated tables went through fmt", form.name, n)
 		}
 	}
-	whats := []string{"a row without cells", "no headers", "a miscounted row with caption or label"}
-	if d.callout == "" {
-		whats = append(whats, "an aligned table with a row without cells")
-	}
+	whats := []string{"a row without cells", "no headers", "a miscounted row with caption or label", "an aligned table with a row without cells"}
 	for _, what := range whats {
 		if !exercised[what] {
 			t.Errorf("no generated table had %s", what)
