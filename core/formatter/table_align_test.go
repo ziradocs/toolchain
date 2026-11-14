@@ -4,6 +4,7 @@
 package formatter
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -64,7 +65,9 @@ func TestTableWithoutAlignKeepsLegacyVersion(t *testing.T) {
 func TestTableAlignOutsidePipeFormIsRejected(t *testing.T) {
 	doc := mustParse(t, "---\ntitle: D\n---\n# Doc\n\n| A | B |\n|:-:|---|\n| 1 | 2 |\n", true)
 	firstOfType[*ast.TableElement](t, doc).Caption = "Con leyenda"
-	if _, err := FormatDocument(doc); err == nil || !strings.Contains(err.Error(), "columnAlign") {
+	_, err := FormatDocument(doc)
+	var unsupported *UnsupportedElementError
+	if !errors.As(err, &unsupported) || !strings.Contains(err.Error(), "column alignment") || !strings.Contains(err.Error(), "a caption") {
 		t.Fatalf("alignment with caption formatted: %v", err)
 	}
 }
