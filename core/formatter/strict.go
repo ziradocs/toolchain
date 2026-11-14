@@ -1027,9 +1027,9 @@ func formatSpecialBlock(e *ast.SpecialBlockElement) string {
 // (withNestedIndentation). Si tampoco así se relee igual, se rechaza en vez de
 // perder lo que tenía. A diferencia de strict no hay {typed}: en flex ese
 // atributo es parte del tipo del bloque.
-func formatFlexSpecialBlock(e *ast.SpecialBlockElement) (string, error) {
+func formatFlexSpecialBlock(e *ast.SpecialBlockElement, frontMatter string) (string, error) {
 	plain := specialBlockText(e, false)
-	if len(e.Elements) == 0 || flexSpecialBlockReadsBack(e, plain) {
+	if len(e.Elements) == 0 || flexSpecialBlockReadsBack(e, plain, frontMatter) {
 		return plain, nil
 	}
 	head := ":::" + e.BlockType
@@ -1037,7 +1037,7 @@ func formatFlexSpecialBlock(e *ast.SpecialBlockElement) (string, error) {
 		head += " " + e.Title
 	}
 	indented := head + "\n" + withNestedIndentation(e) + "\n:::"
-	if flexSpecialBlockReadsBack(e, indented) {
+	if flexSpecialBlockReadsBack(e, indented, frontMatter) {
 		return indented, nil
 	}
 	return "", newUnsupported("special_block", fmt.Sprintf(
@@ -1045,10 +1045,13 @@ func formatFlexSpecialBlock(e *ast.SpecialBlockElement) (string, error) {
 }
 
 // flexSpecialBlockReadsBack es specialBlockReadsBack para el flex de documento.
-func flexSpecialBlockReadsBack(e *ast.SpecialBlockElement, text string) bool {
+// frontMatter es la del documento ya escrita: sus ast_capabilities cambian
+// cómo se lee el cuerpo (un ### adentro es un encabezado tipado con
+// typed-headings-v1, por ejemplo).
+func flexSpecialBlockReadsBack(e *ast.SpecialBlockElement, text, frontMatter string) bool {
 	// Con la normalización, como lee el documento la CLI: un <<mermaid>>
 	// dentro de un bloque, por ejemplo, se lee distinto sin ella.
-	doc, _ := parser.New(util.NewNoop()).ParseDocument("---\ntitle: \"x\"\n---\n\n# x\n\n"+text+"\n", "")
+	doc, _ := parser.New(util.NewNoop()).ParseDocument(frontMatter+"\n# x\n\n"+text+"\n", "")
 	if doc == nil {
 		return false
 	}
