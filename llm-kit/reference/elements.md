@@ -525,7 +525,7 @@ blocks flex reads the same way (`TABLE`, `<<chart>>`, `<<metric>>`, `<<quiz>>`,
 - `CHART007`: a chart line nested under a key that does not read it, an
   unsupported Chart.js key, an invalid `options:` block.
 - `TEXT002`: a `TEXT` with no indented body followed by an element at its own
-  indentation (`TEXT` / `POINTS` / `- uno`). The element and what follows it at
+  indentation, or less (`TEXT` / `POINTS` / `- uno`). The element and what follows it at
   that indentation are read as the paragraph of the `TEXT`, as plain text.
   Indent the paragraph under `TEXT`, or delete the empty `TEXT`. `TEXT001` is a
   `TEXT` with no content at all.

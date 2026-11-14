@@ -272,7 +272,8 @@ func TestStrictText_EmptyBodyDiffersOnlyByWarning(t *testing.T) {
 		// SECTION "…" es encabezado en el cuerpo de un SLIDE, no en una
 		// columna tipada (ahí es un error).
 		slideHeadings := c.ctx.slide && !strings.HasPrefix(c.ctx.name, "typed column")
-		opens := first != "" && elements.CalculateIndentLevel(srcLines[textLine]) == c.ctx.indent &&
+		firstIndent := elements.CalculateIndentLevel(srcLines[textLine])
+		opens := first != "" && firstIndent > 0 && firstIndent <= c.ctx.indent &&
 			elements.OpensElementAfterEmptyText(&elements.ParseContext{SlideHeadings: slideHeadings}, first)
 		// Con el cuerpo sangrado el TEXT nunca avisa; al frente, avisa
 		// exactamente cuando su primera línea abre un elemento.

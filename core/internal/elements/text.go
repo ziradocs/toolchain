@@ -414,7 +414,8 @@ func contentHeadingPrefix(line string) bool {
 
 // emptyTextDiagnostic es el aviso de un TEXT strict cuyo cuerpo no es suyo:
 // TEXT001 si no tomó ninguna línea, TEXT002 si la primera línea que tomó
-// está a su misma sangría y abre un elemento (OpensElementAfterEmptyText).
+// está a su misma sangría, o a menos, y abre un elemento
+// (OpensElementAfterEmptyText).
 // En ese caso el TEXT no tiene ninguna línea más sangrada que él: lo que
 // lleva como párrafo es ese elemento y lo que le sigue a esa sangría. Los
 // dos son excluyentes: un TEXT que absorbió algo no está vacío.
@@ -430,7 +431,10 @@ func emptyTextDiagnostic(ctx *ParseContext, textLine, headerIndent, first, last 
 		return &d
 	}
 	opener := strings.TrimSpace(ctx.Lines[first])
-	if CalculateIndentLevel(ctx.Lines[first]) != headerIndent || !OpensElementAfterEmptyText(ctx, opener) {
+	// La primera línea puede estar a la sangría de TEXT o a menos: main la
+	// toma igual como cuerpo (el cuerpo arranca en la primera línea con
+	// sangría), así que el TEXT tampoco tiene ahí ninguna línea propia.
+	if CalculateIndentLevel(ctx.Lines[first]) > headerIndent || !OpensElementAfterEmptyText(ctx, opener) {
 		return nil
 	}
 	d := diagnostics.NewWarning(fmt.Sprintf(
@@ -458,7 +462,8 @@ func absorbedElementLabel(trimmed string) string {
 		}
 		return "the <<" + tag + ">> element"
 	}
-	return "the " + strings.Fields(trimmed)[0] + " element"
+	kw := strings.TrimSuffix(strings.Fields(trimmed)[0], ":")
+	return "the " + strings.TrimSuffix(kw, CodeVerbatimMarker) + " element"
 }
 
 // shortLine recorta una línea larga para citarla en un mensaje.
@@ -476,12 +481,14 @@ func shortLine(line string) string {
 // sigue siendo el párrafo del TEXT, como siempre.
 //
 // Una palabra clave cuenta solo en la forma que su elemento acepta. TEXT,
-// POINTS, CHECKLIST, QUOTE y TABLE van solos en su línea, porque esos parsers
-// no leen lo que sigue a la palabra clave; IMAGE puede llevar la fuente
-// ("IMAGE foto.png"); CODE puede llevar "{verbatim}" y después lenguaje y
-// archivo; SECTION lleva su título entre comillas y solo cuenta donde es
-// encabezado (en un SLIDE). Una palabra que solo empieza con una palabra clave
-// ("TEXTO", "POINTSX", "QUOTEado") es prosa, igual que "TEXT hola", "QUOTE de
+// POINTS, CHECKLIST, QUOTE y TABLE van solos en su línea (o con un ":"
+// pelado), porque esos parsers no leen lo que sigue a la palabra clave;
+// IMAGE puede llevar la fuente y el texto alternativo ("IMAGE foto.png",
+// `IMAGE "logo.png" "alt"`); CODE puede llevar "{verbatim}" y después
+// lenguaje y archivo; SECTION lleva su título entre comillas y solo cuenta
+// donde es encabezado (en un SLIDE). Una palabra que solo empieza con una
+// palabra clave ("TEXTO", "POINTSX", "QUOTEado") es prosa, igual que "TEXT
+// hola", "QUOTE de
 // Ana", "IMAGE of the year" o "MERMAID": ahí no hay un elemento bien escrito
 // que nombrar.
 //
@@ -515,26 +522,32 @@ func OpensElementAfterEmptyText(ctx *ParseContext, trimmed string) bool {
 		}
 		return false
 	}
-	switch trimmed {
+	// Un ":" pelado tras la palabra clave (`POINTS:`, `TABLE:`) se lee igual
+	// que la palabra sola (ver keywordLineRest).
+	switch strings.TrimSuffix(trimmed, ":") {
 	case "TEXT", "POINTS", "CHECKLIST", "QUOTE", "TABLE", "IMAGE", "CODE":
 		return true
 	}
-	followedBySpace := func(rest string) bool {
-		return rest != "" && (rest[0] == ' ' || rest[0] == '\t')
+	if strings.HasPrefix(trimmed, "IMAGE") {
+		// La fuente, con forma de ruta o URL, y a lo sumo el texto
+		// alternativo, leídos como los lee ImageParser: `IMAGE foto.png`,
+		// `IMAGE "logo.png" "alt"`, no `IMAGE of the year`.
+		parts := (&ImageParser{}).parseImageArguments(trimmed)
+		return (parts[0] == "IMAGE" || parts[0] == "IMAGE:") && len(parts) >= 2 && len(parts) <= 3 &&
+			strings.ContainsAny(parts[1], "./")
 	}
-	if rest, ok := strings.CutPrefix(trimmed, "IMAGE"); ok {
-		// Una sola palabra, con forma de ruta o URL: "IMAGE foto.png", no
-		// "IMAGE of the year".
-		src := strings.Fields(rest)
-		return followedBySpace(rest) && len(src) == 1 && strings.ContainsAny(src[0], "./")
-	}
-	if rest, ok := strings.CutPrefix(trimmed, "CODE"); ok {
-		if rest == CodeVerbatimMarker {
-			return true
+	if strings.HasPrefix(trimmed, "CODE") {
+		// Lenguaje y, a lo sumo, archivo, como los lee CodeParser: CODE
+		// rechaza un tercer token, salvo uno que empieza con `{` o `[`.
+		line := trimmed
+		if rest, ok := strings.CutPrefix(line, "CODE"+CodeVerbatimMarker); ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t') {
+			line = "CODE" + rest
 		}
-		rest = strings.TrimPrefix(rest, CodeVerbatimMarker)
-		// Lenguaje y, a lo sumo, archivo: CODE rechaza un tercer token.
-		return followedBySpace(rest) && len(strings.Fields(rest)) <= 2
+		parts := strings.Fields(line)
+		if parts[0] != "CODE" && parts[0] != "CODE:" {
+			return false
+		}
+		return len(parts) <= 3 || parts[0] == "CODE" && (strings.HasPrefix(parts[2], "{") || strings.HasPrefix(parts[2], "["))
 	}
 	return ctx.SlideHeadings && strings.HasPrefix(trimmed, `SECTION "`)
 }

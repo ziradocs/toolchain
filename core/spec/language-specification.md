@@ -229,10 +229,13 @@ So a `TEXT` with no indented body of its own takes what follows it at its own
 indentation as its paragraph, elements included: `TEXT` / `POINTS` / `- uno`
 is the paragraph "POINTS - uno". That reading does not change, but it is
 reported with `TEXT002`, a warning, when the first line of the body is at the
-indentation of `TEXT` and opens an element in a form that element accepts:
-`TEXT`, `POINTS`, `CHECKLIST`, `QUOTE` and `TABLE` alone on the line, `IMAGE`
-alone or with a single source that looks like a path or URL, `CODE` alone or
-with `{verbatim}`, a language and at most a filename, `SECTION "…"` inside a
+indentation of `TEXT` or less (the body starts at the first indented line even
+when it is indented less than `TEXT`) and opens an element in a form that
+element accepts: `TEXT`, `POINTS`, `CHECKLIST`, `QUOTE` and `TABLE` alone on
+the line or with a bare `:` (`TABLE:`), `IMAGE` alone or with a source that
+looks like a path or URL and at most its alt text (`IMAGE "logo.png" "alt"`),
+`CODE` alone or with `{verbatim}`, a language and at most a filename (a bare
+`:` after `IMAGE` or `CODE` counts too), `SECTION "…"` inside a
 `SLIDE`, a `:::type` block (not a lone `:::`, nor `::: grid` or `::: column`), a
 `<<…>>` tag that an element recognizes, a known directive (`@notes`,
 `@include`, `@center`…) or a `| … |` table row. A word that only starts with a

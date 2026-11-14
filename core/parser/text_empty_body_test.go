@@ -215,6 +215,18 @@ func TestStrictText_EmptyBodyThenRealElementIsParagraphWithTEXT002(t *testing.T)
 		"  <<mermaid>>\n    graph TD\n    A --> B\n  <<end>>\n",
 		"  @center\n",
 		"  TEXT\n    hola\n",
+		// La forma documentada de IMAGE, con fuente y texto alternativo.
+		"  IMAGE \"logo.png\" \"alt\"\n",
+		"  IMAGE foto.png \"alt\"\n",
+		// Un ":" pelado tras la palabra clave se lee igual que la palabra sola.
+		"  TABLE:\n    | a | b |\n",
+		"  POINTS:\n    - uno\n",
+		"  CHECKLIST:\n    - [ ] dos\n",
+		"  QUOTE:\n    Cita.\n",
+		"  TEXT:\n    hola\n",
+		"  IMAGE:\n",
+		"  IMAGE: foto.png\n",
+		"  CODE: python\n    x\n",
 	}
 	for _, el := range els {
 		var want []string
@@ -232,6 +244,9 @@ func TestStrictText_EmptyBodyThenRealElementIsParagraphWithTEXT002(t *testing.T)
 					}
 					if len(diags) != 1 || diags[0].RuleID != "TEXT002" || !diags[0].IsWarning() {
 						t.Errorf("want one TEXT002 warning, got %v", diags)
+					} else if kw := strings.TrimSuffix(strings.Fields(want[0])[0], ":"); want[0][0] != '|' && want[0][0] != ':' &&
+						want[0][0] != '<' && want[0][0] != '@' && !strings.Contains(diags[0].Message, "the "+strings.TrimSuffix(kw, "{verbatim}")+" element") {
+						t.Errorf("the message should name the %s element: %q", kw, diags[0].Message)
 					}
 				})
 			}
@@ -241,6 +256,30 @@ func TestStrictText_EmptyBodyThenRealElementIsParagraphWithTEXT002(t *testing.T)
 	got, diags := elementShapes(t, "---\nmode: strict\n---\n\nSLIDE content\n  title: \"T\"\n  TEXT\n  SECTION \"Sub\"\n", false)
 	if strings.Join(got, "|") != `text:SECTION "Sub"` || len(diags) != 1 || diags[0].RuleID != "TEXT002" {
 		t.Errorf("slide SECTION: got %v %v", got, diags)
+	}
+}
+
+// Un TEXT más sangrado que el elemento que le sigue también se lo lleva como
+// párrafo: main toma como cuerpo la primera línea con sangría aunque esté
+// menos sangrada que TEXT. Avisa igual, con el rango hasta la última línea.
+func TestStrictText_LessIndentedElementIsParagraphWithTEXT002(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src      string
+		document bool
+	}{
+		"slide":    {"---\nmode: strict\n---\n\nSLIDE content\n  title: \"F\"\n    TEXT\n  POINTS\n    - lower\n", false},
+		"document": {"---\nmode: strict\ntitle: \"D\"\n---\n\nSECTION \"A\"\n    TEXT\n  POINTS\n    - lower\n", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, diags := elementShapes(t, tc.src, tc.document)
+			if strings.Join(got, "|") != "text:POINTS - lower" {
+				t.Errorf("got %v, want the paragraph of main", got)
+			}
+			if len(diags) != 1 || diags[0].RuleID != "TEXT002" || diags[0].Position.Line != 7 ||
+				diags[0].EndPosition == nil || diags[0].EndPosition.Line != 9 || !strings.Contains(diags[0].Message, `the POINTS element on the line "POINTS"`) {
+				t.Errorf("want one TEXT002 from line 7 to 9 naming POINTS, got %v", diags)
+			}
+		})
 	}
 }
 
