@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/renderer"
 )
 
@@ -305,7 +306,10 @@ func formatFlexCode(e *ast.CodeElement) (string, error) {
 		}
 		info += " " + e.Filename
 	}
-	return "```" + info + "\n" + e.Content + "\n```", nil
+	// Una cerca más larga que cualquier línea de solo backticks del
+	// contenido (fence.For): con la regla de CommonMark solo ella la cierra.
+	f := fence.For(e.Content)
+	return f + info + "\n" + e.Content + "\n" + f, nil
 }
 
 // formatFlexImage serializa "![alt](source)". No hay forma de portar

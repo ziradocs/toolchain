@@ -22,10 +22,11 @@
 // La usan los parsers de elementos que deciden dónde empieza o termina una
 // cerca: el de código y el de code-group, los de diagramas y datos en cerca
 // (mermaid, plantuml, chart, map), los cortes de prosa, de listas, de citas y
-// de captions de imagen, IsNewElement y el despacho del registry, y el
-// recorrido de core/include que decide qué deja abierto un archivo incluido.
-// Las cercas ```math siguen su propia regla (elements.closesMathFence). El
-// normalizador, fmt, el renderer y el pre-pase de node-id todavía no la usan.
+// de captions de imagen, IsNewElement y el despacho del registry, el
+// recorrido de core/include que decide qué deja abierto un archivo incluido, y
+// fmt para el largo de la cerca que escribe (For). Las cercas ```math siguen
+// su propia regla (elements.closesMathFence). El normalizador, el renderer y
+// el pre-pase de node-id todavía no la usan.
 package fence
 
 import "strings"
@@ -51,6 +52,20 @@ func Info(trimmed string) string {
 // backticks, al menos tantos como la apertura.
 func Closes(trimmed string, open int) bool {
 	return open > 0 && len(trimmed) >= open && run(trimmed) == len(trimmed)
+}
+
+// For devuelve la cerca con la que escribir un bloque de código cuyo
+// contenido es content: tres backticks, o uno más que la línea de solo
+// backticks más larga del contenido, que de otro modo lo cerraría al releerlo.
+func For(content string) string {
+	n := 3
+	for line := range strings.SplitSeq(content, "\n") {
+		t := strings.TrimSpace(line)
+		if t != "" && run(t) == len(t) && len(t) >= n {
+			n = len(t) + 1
+		}
+	}
+	return strings.Repeat("`", n)
 }
 
 // Differs dice si trimmed es una línea que la regla de CommonMark y la de

@@ -14,6 +14,7 @@ import (
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/internal/codespan"
 	"go.ziradocs.com/core/v2/internal/elements"
+	"go.ziradocs.com/core/v2/internal/fence"
 	"go.ziradocs.com/core/v2/layouts"
 	"go.ziradocs.com/core/v2/parser"
 	"go.ziradocs.com/core/v2/util"
@@ -1345,18 +1346,17 @@ func formatCodeGroup(e *ast.CodeGroupElement) (string, error) {
 		if strings.TrimSpace(cb.Label) != cb.Label || strings.ContainsAny(cb.Label, "\r\n") {
 			return "", newUnsupported("code_group", "tab label cannot preserve edge whitespace or line breaks")
 		}
-		for _, line := range strings.Split(cb.Content, "\n") {
-			if strings.TrimSpace(line) == "```" {
-				return "", newUnsupported("code_group", "payload contains a closing code fence")
-			}
-		}
-		fmt.Fprintf(&b, "```%s", cb.Language)
+		// Una cerca más larga que cualquier línea de solo backticks del
+		// contenido (fence.For): con la regla de CommonMark solo ella cierra
+		// la pestaña. Antes una pestaña con una línea ``` no se podía escribir.
+		f := fence.For(cb.Content)
+		fmt.Fprintf(&b, "%s%s", f, cb.Language)
 		if cb.Label != "" {
 			fmt.Fprintf(&b, " [%s]", cb.Label)
 		}
 		b.WriteString("\n")
 		b.WriteString(cb.Content)
-		b.WriteString("\n```\n")
+		b.WriteString("\n" + f + "\n")
 	}
 	b.WriteString(":::")
 	return b.String(), nil

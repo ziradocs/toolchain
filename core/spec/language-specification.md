@@ -253,9 +253,12 @@ versions read changes meaning without a warning:
 
 All four are warnings. `ParseMarkdownContent` (the content fragment of
 `slidelang fmt --content-fragment`) reads its fences with the same rule but
-does not fall back to the earlier one (`CODE005`). The normalizer, `fmt`, the
-renderer's Markdown prose and the `<!-- node-id -->` pre-pass still read fences
-with their own rules.
+does not fall back to the earlier one (`CODE005`). `fmt` writes a code block or
+a code-group tab with a fence one backtick longer than the longest line of only
+backticks in its content, so that it reads back the same; a tab that holds a
+```` ``` ```` line used to be refused. The normalizer, the renderer's Markdown
+prose and the `<!-- node-id -->` pre-pass still read fences with their own
+rules.
 
 A `TEXT` body is the lines that follow it with indentation: usually deeper than
 `TEXT`, or, as always accepted, at its own indentation. The body starts at the
