@@ -275,7 +275,7 @@ func formatStrictElement(el ast.Element) (string, error) {
 	case *ast.ImageElement:
 		body, err = formatStrictImage(e)
 	case *ast.TableElement:
-		body, err = formatTableElement(e)
+		body, err = formatTableElement(e, strictTableRowsIndent)
 	case *ast.SpecialBlockElement:
 		// El cuerpo de un bloque especial se re-emite como texto crudo y el
 		// parser strict no reconoce `###` dentro de él (HeadingParser solo

@@ -164,7 +164,7 @@ func formatDocumentElement(el ast.Element, literalMath bool) (string, error) {
 		// form otherwise, silently dropping Label and any non-trivial Cells
 		// structure (row-scoped headers, colspan, rowspan) on fmt --write —
 		// a real data-loss bug found in code review.
-		body, err = formatTableElement(e)
+		body, err = formatTableElement(e, flexTableRowsIndent)
 	case *ast.QuoteElement:
 		body, err = formatFlexQuote(e)
 	case *ast.ChecklistElement:
