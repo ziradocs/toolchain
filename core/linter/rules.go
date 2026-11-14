@@ -284,29 +284,30 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 							"TABLE element should have at least one row",
 							elem.GetPosition(), "linter").WithRuleID("TABLE002"))
 				} // Validar que todas las filas tengan el mismo número de columnas
-				if len(elem.Headers) > 0 {
-					expectedCols := len(elem.Headers)
-					for i, row := range elem.Rows {
-						// Una fila sin celdas ("|" sola) es una fila
-						// separadora visual: no tiene celdas que no
-						// cuadren.
-						if len(row) != 0 && len(row) != expectedCols {
-							// RowPositions es paralelo a Rows por índice, pero
-							// puede venir más corto (la forma "cells:" no lo
-							// puebla, ver TableElement.RowPositions) — cae al
-							// inicio de la tabla en vez de asumir el índice
-							// existe (F10, audit 2026-09-11: antes esto SIEMPRE
-							// apuntaba al inicio de la tabla, nunca a la fila
-							// real).
-							pos := elem.GetPosition()
-							if i < len(elem.RowPositions) {
-								pos = elem.RowPositions[i]
-							}
+				if pos, bad := tableRowColumnMismatch(elem); bad {
+					diags = append(diags,
+						diagnostics.NewError(
+							"Table row has incorrect number of columns",
+							pos, "linter").WithRuleID("TABLE003"))
+				}
+
+			case *ast.GridElement:
+				// Una tabla dentro de una columna tipada de un grid no
+				// pasaba por TABLE003: la regla solo miraba los elementos
+				// del bloque. Darle TABLE003 ahora, que es un error, haría
+				// fallar documentos que compilaban, así que ahí la misma
+				// revisión es TABLE009, un aviso.
+				for _, col := range elem.Columns {
+					for _, inner := range col.Elements {
+						table, ok := inner.(*ast.TableElement)
+						if !ok {
+							continue
+						}
+						if pos, bad := tableRowColumnMismatch(table); bad {
 							diags = append(diags,
-								diagnostics.NewError(
-									"Table row has incorrect number of columns",
-									pos, "linter").WithRuleID("TABLE003"))
-							break
+								diagnostics.NewWarning(
+									"Table row in a grid column has incorrect number of columns: give it one cell per header column. Outside a grid column this is the TABLE003 error",
+									pos, "linter").WithRuleID("TABLE009"))
 						}
 					}
 				}
@@ -371,6 +372,31 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 	}
 
 	return diags
+}
+
+// tableRowColumnMismatch devuelve la posición de la primera fila de la tabla
+// con otro número de celdas que el encabezado. Una tabla sin encabezado no
+// se revisa, y una fila sin celdas ("|" sola) es una fila separadora visual:
+// no tiene celdas que no cuadren.
+func tableRowColumnMismatch(elem *ast.TableElement) (diagnostics.Position, bool) {
+	if len(elem.Headers) == 0 {
+		return diagnostics.Position{}, false
+	}
+	expectedCols := len(elem.Headers)
+	for i, row := range elem.Rows {
+		if len(row) != 0 && len(row) != expectedCols {
+			// RowPositions es paralelo a Rows por índice, pero puede venir
+			// más corto (la forma "cells:" no lo puebla, ver
+			// TableElement.RowPositions): cae al inicio de la tabla en vez de
+			// asumir que el índice existe (F10, audit 2026-09-11).
+			pos := elem.GetPosition()
+			if i < len(elem.RowPositions) {
+				pos = elem.RowPositions[i]
+			}
+			return pos, true
+		}
+	}
+	return diagnostics.Position{}, false
 }
 
 // knownChartTypes es el vocabulario de tipos que el pipeline sabe dibujar:

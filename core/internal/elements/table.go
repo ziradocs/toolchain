@@ -179,6 +179,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 	var delimiterSeen bool
 	var diags []diagnostics.Diagnostic
 	var inlineGroups []inlineRowsGroup
+	var gated []gatedRow
 	consumed := 0
 	expectedIndent := -1 // Auto-detect indentation level
 	lines := ctx.Lines
@@ -229,13 +230,26 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 			}
 		} else if strings.HasPrefix(trimmedLine, "rows:") {
 			legacyDeclared = true
+			rowsKeyIndent := currentIndent
+			inline := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:"))
+			// multiLine: el valor es un arreglo en línea partido en varias
+			// líneas ("rows: [" sola, o "rows: [[…],"), cerrado por un "]"
+			// en su propia línea o al final de la última fila.
+			multiLine := inline == "[" || strings.HasPrefix(inline, "[") && strings.HasPrefix(strings.TrimSpace(inline[1:]), "#")
 			// `rows: [[…], […]]` en la misma línea (issue #488): antes el
 			// valor se descartaba sin aviso. Solo un arreglo anidado se lee
 			// acá; cualquier otro valor (`rows: []`, `rows: # …`) sigue el
 			// camino de siempre, y las filas de las líneas de abajo se leen
 			// igual que antes.
-			if inline := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "rows:")); isNestedInlineArray(inline) {
-				parsed, quote, ok := parseInlineRows(inline)
+			if isNestedInlineArray(inline) {
+				value := inline
+				if inlineArrayDepth(inline) == 1 {
+					// "rows: [[…], […]," con más filas abajo: se leen las de
+					// esta línea como si el arreglo cerrara acá.
+					multiLine = true
+					value = strings.TrimSuffix(strings.TrimSpace(inline), ",") + "]"
+				}
+				parsed, quote, ok := parseInlineRows(value)
 				switch {
 				case ok:
 					inlineGroups = append(inlineGroups, inlineRowsGroup{start: len(rows), n: len(parsed), pos: ctx.Position(i)})
@@ -257,22 +271,61 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 						ctx.Position(i), "table-parser").WithRuleID(TableRowsRuleID))
 				}
 			}
-			// Process rows array
+			// Las filas de abajo. Una fila es una línea que empieza con "[",
+			// con más sangría que rows: y con la misma que la primera fila.
+			// Hasta v2.58.0 solo se leía una fila que empezara exactamente
+			// a seis espacios del comienzo de la línea, y la primera que no
+			// lo hiciera cortaba el bloque; esas filas se siguen leyendo
+			// igual (también con rows: a seis espacios o más). Una fila que
+			// antes no se leía entra solo si cabe en la tabla (ver
+			// gatedRow): si no, el lint (TABLE003, un error) haría fallar un
+			// documento que compilaba.
 			consumed++
 			i++
+			blockIndent := -1
+			readBefore := true // la fila la leía v2.58.0
 			for i < len(lines) {
 				rowLine := lines[i]
-				if !strings.HasPrefix(rowLine, "      [") {
+				rowTrimmed := strings.TrimSpace(rowLine)
+				rowIndent := CalculateIndentLevel(rowLine)
+				legacyRow := strings.HasPrefix(rowLine, "      [")
+				if !strings.HasPrefix(rowTrimmed, "[") || (!legacyRow && rowIndent <= rowsKeyIndent) {
 					i-- // Back up one line
 					break
 				}
-
-				rowTrimmed := strings.TrimSpace(rowLine)
+				if !legacyRow {
+					readBefore = false
+				}
+				if blockIndent == -1 {
+					blockIndent = rowIndent
+				} else if rowIndent != blockIndent {
+					diags = append(diags, ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
+						"This row under rows: is indented differently from the first row, so it was ignored: %q. Indent every row under rows: like the first one.",
+						rowTrimmed))
+					readBefore = false
+					consumed++
+					i++
+					continue
+				}
+				closes := false
+				if multiLine {
+					// La última fila de un "rows: [" de varias líneas puede
+					// cerrar también el arreglo: "[…]]". Ese "]" de más es
+					// sintaxis, no parte de la última celda.
+					body := strings.TrimSuffix(rowTrimmed, ",")
+					if inlineArrayDepth(body) == -1 && strings.HasSuffix(body, "]") {
+						rowTrimmed = strings.TrimSuffix(body, "]")
+						closes = true
+					}
+				}
 				if strings.HasPrefix(rowTrimmed, "[") && strings.HasSuffix(rowTrimmed, "],") {
 					rowTrimmed = strings.TrimSuffix(rowTrimmed, ",")
 				}
 				if strings.HasPrefix(rowTrimmed, "[") && strings.HasSuffix(rowTrimmed, "]") {
 					rowStr := trimInlineArrayBrackets(rowTrimmed)
+					if !readBefore {
+						gated = append(gated, gatedRow{index: len(rows), line: i})
+					}
 					rows = append(rows, splitInlineArray(rowStr))
 					rowPositions = append(rowPositions, ctx.Position(i))
 				} else {
@@ -282,6 +335,10 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 				}
 				consumed++
 				i++
+				if closes {
+					i-- // el for de afuera avanza a la línea siguiente
+					break
+				}
 			}
 			continue
 		} else if strings.HasPrefix(trimmedLine, "cells:") {
@@ -432,7 +489,7 @@ func (p *TableParser) parseYAMLTable(ctx *ParseContext, startIndex int, pos diag
 		diags = append(diags, diagnostics.NewError("tableRows cannot be combined with authored headers/rows/cells", pos, "table-parser"))
 	}
 	diags = append(diags, repeated.diags...)
-	rows, rowPositions, diags = dropMiscountedInlineRows(headers, rows, rowPositions, inlineGroups, diags)
+	rows, rowPositions, diags = dropMiscountedRows(ctx, headers, rows, rowPositions, inlineGroups, gated, diags)
 	return headers, rows, caption, label, explicitCells, tableRows, rowPositions, diags, consumed
 }
 
@@ -460,12 +517,12 @@ func yamlTailWarning(ctx *ParseContext, block []string, root *yaml.Node, first i
 
 // unreadTableLine es el TABLE008 de una línea del cuerpo de un TABLE que
 // ninguna rama lee. Una fila entre corchetes fuera de su lugar tiene su propio
-// texto: es casi siempre una fila de rows: con otra sangría, porque esas filas
-// se leen solo cuando empiezan en la columna 7 de la línea.
+// texto: es casi siempre una fila de rows: con menos sangría que rows: o
+// separada de las de arriba por una línea en blanco.
 func unreadTableLine(ctx *ParseContext, i int, trimmed string) diagnostics.Diagnostic {
 	if strings.HasPrefix(trimmed, "[") {
 		return ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
-			"This row of the TABLE was ignored: %q. A [\"…\"] row is read only right under rows:, starting exactly six spaces from the beginning of the line; or write it as a \"| a | b |\" row.",
+			"This row of the TABLE was ignored: %q. A [\"…\"] row is read only right under rows:, indented more than rows:, with no blank line between the rows; or write it as a \"| a | b |\" row.",
 			trimmed)
 	}
 	return ignoredLineWarning(ctx, i, TableLineRuleID, "table-parser",
@@ -480,15 +537,30 @@ type inlineRowsGroup struct {
 	pos      diagnostics.Position
 }
 
-// dropMiscountedInlineRows saca las filas de un `rows:` en línea cuando
-// alguna no tiene tantas celdas como los encabezados (o, sin encabezados,
-// como la primera fila del arreglo), y avisa con TABLE007. Main descartaba
-// ese valor sin aviso; leerlo y dejar que el linter diera TABLE003 (error)
-// rompería un build que main dejaba pasar. Las filas de las líneas de abajo
-// no se tocan.
-func dropMiscountedInlineRows(headers []string, rows [][]string, rowPositions []diagnostics.Position, groups []inlineRowsGroup, diags []diagnostics.Diagnostic) ([][]string, []diagnostics.Position, []diagnostics.Diagnostic) {
-	for g := len(groups) - 1; g >= 0; g-- {
-		group := groups[g]
+// gatedRow es una fila bajo rows: que v2.58.0 no leía (otra sangría que seis
+// espacios, o después de una fila que cortaba el bloque): index en rows y
+// line en ctx.Lines.
+type gatedRow struct {
+	index, line int
+}
+
+// dropMiscountedRows saca de rows las filas que no se pueden leer sin
+// romper un build que antes pasaba, con su aviso:
+//
+//   - las de un `rows:` en línea cuando alguna no tiene tantas celdas como
+//     los encabezados (o, sin encabezados, como la primera fila del
+//     arreglo), con TABLE007. Main descartaba ese valor sin aviso; leerlo y
+//     dejar que el linter diera TABLE003 (error) rompería un build que main
+//     dejaba pasar.
+//   - una fila de gated (ver gatedRow) con encabezados y otro número de
+//     celdas, con TABLE008: antes se perdía con un TABLE008, y leída daría
+//     TABLE003. Sin encabezados TABLE003 no revisa la tabla, y una fila sin
+//     celdas tampoco cuenta.
+//
+// Las demás filas no se tocan.
+func dropMiscountedRows(ctx *ParseContext, headers []string, rows [][]string, rowPositions []diagnostics.Position, groups []inlineRowsGroup, gated []gatedRow, diags []diagnostics.Diagnostic) ([][]string, []diagnostics.Position, []diagnostics.Diagnostic) {
+	drop := map[int]bool{}
+	for _, group := range groups {
 		if group.n == 0 {
 			continue
 		}
@@ -511,10 +583,58 @@ func dropMiscountedInlineRows(headers []string, rows [][]string, rowPositions []
 		diags = append(diags, diagnostics.NewWarning(
 			fmt.Sprintf("The rows: value on this line was ignored: row %d has %d cells and %s %d. Fix that row, or put each row on its own line below rows:", bad+1, len(rows[group.start+bad]), what, want),
 			group.pos, "table-parser").WithRuleID(TableRowsRuleID))
-		rows = append(rows[:group.start:group.start], rows[group.start+group.n:]...)
-		rowPositions = append(rowPositions[:group.start:group.start], rowPositions[group.start+group.n:]...)
+		for k := 0; k < group.n; k++ {
+			drop[group.start+k] = true
+		}
 	}
-	return rows, rowPositions, diags
+	for _, g := range gated {
+		row := rows[g.index]
+		if len(headers) == 0 || len(row) == 0 || len(row) == len(headers) {
+			continue
+		}
+		diags = append(diags, ignoredLineWarning(ctx, g.line, TableLineRuleID, "table-parser",
+			"This row under rows: has %d cells where the headers have %d, so it was ignored: %q. Give it one cell per header.",
+			len(row), len(headers), strings.TrimSpace(ctx.Lines[g.line])))
+		drop[g.index] = true
+	}
+	if len(drop) == 0 {
+		return rows, rowPositions, diags
+	}
+	keptRows := make([][]string, 0, len(rows)-len(drop))
+	keptPositions := make([]diagnostics.Position, 0, len(rowPositions))
+	for k := range rows {
+		if drop[k] {
+			continue
+		}
+		keptRows = append(keptRows, rows[k])
+		if k < len(rowPositions) {
+			keptPositions = append(keptPositions, rowPositions[k])
+		}
+	}
+	return keptRows, keptPositions, diags
+}
+
+// inlineArrayDepth cuenta los "[" menos los "]" de v, fuera de comillas
+// dobles: 1 para "[[…]," (un arreglo de filas que sigue en la línea de
+// abajo), -1 para "[…]]" (la última fila que además lo cierra).
+func inlineArrayDepth(v string) int {
+	depth := 0
+	inQuotes := false
+	for i := 0; i < len(v); i++ {
+		switch v[i] {
+		case '"':
+			inQuotes = !inQuotes
+		case '[':
+			if !inQuotes {
+				depth++
+			}
+		case ']':
+			if !inQuotes {
+				depth--
+			}
+		}
+	}
+	return depth
 }
 
 type yamlTableRowEntry struct {
@@ -1012,17 +1132,74 @@ func isMarkdownSeparatorRow(cells []string) bool {
 // un separador con su mismo número de celdas (la forma de GFM) y todas las
 // filas de abajo tienen ese número (o ninguna celda). Si no cabe, se salta
 // como antes, con un TABLE008 que la nombra y dice por qué.
+//
+// Lo mismo vale para un separador sin pipe inicial justo después del
+// encabezado ("--- | ---", ver isBareHeaderSeparator): antes cortaba la
+// tabla, la línea quedaba como párrafo y las filas de abajo eran otra tabla
+// con su propio encabezado. Ahora es el separador solo si todas las filas de
+// abajo caben en el encabezado; si no, la tabla se lee como antes.
 func (p *TableParser) parseMarkdownTable(ctx *ParseContext, startIndex int) ([]string, [][]string, []diagnostics.Position, []string, int, []diagnostics.Diagnostic) {
-	t := p.readMarkdownTable(ctx, startIndex, true)
-	if t.headerRecovered {
-		for _, row := range t.rows {
-			if len(row) != 0 && len(row) != len(t.headers) {
-				t = p.readMarkdownTable(ctx, startIndex, false)
-				break
-			}
-		}
+	t := p.readMarkdownTable(ctx, startIndex, true, true)
+	if (t.headerRecovered || t.bareSeparator) && !rowsFitHeader(t.headers, t.rows) {
+		// Las dos recuperaciones no se dan juntas: el encabezado recuperado
+		// necesita un separador que empiece con "|" en la línea siguiente.
+		t = p.readMarkdownTable(ctx, startIndex, !t.headerRecovered, !t.bareSeparator)
 	}
 	return t.headers, t.rows, t.rowPositions, t.columnAlign, t.consumed, t.diags
+}
+
+// rowsFitHeader dice si cada fila tiene una celda por columna del
+// encabezado o ninguna celda: la condición con la que TABLE003 no dispara.
+func rowsFitHeader(headers []string, rows [][]string) bool {
+	for _, row := range rows {
+		if len(row) != 0 && len(row) != len(headers) {
+			return false
+		}
+	}
+	return true
+}
+
+// IsHeaderSeparatorLine dice si line, la línea que sigue al encabezado de una
+// tabla Markdown de numCols columnas, es su separador. Es
+// IsMarkdownSeparatorLine más dos formas de GFM que esa regla no lee, solo con
+// una celda por columna: un separador de guiones cortos ("|--|--|",
+// "| :-- | --: |" ya lo era) y uno sin pipe inicial ("--- | ---",
+// ":-- | --:", "--|--"). Cada celda tiene que tener al menos dos guiones: una
+// fila "| - | - |" sigue siendo de datos, porque un "-" suele marcar una
+// celda vacía. Solo la línea que sigue al encabezado puede ser el separador;
+// en cualquier otra fila de la tabla, una fila de guiones es de datos.
+//
+// Una línea sin "|" ("---", ":---:") no entra por la regla de GFM: en flex
+// una línea de guiones sola no es parte de la tabla, y en strict ya era
+// separador por IsMarkdownSeparatorLine. La forma sin pipe inicial la usa la
+// tabla de flex y de ":::" solo si las filas de abajo caben (ver
+// parseMarkdownTable); strict, que no lo revisa, usa solo la de guiones
+// cortos.
+func IsHeaderSeparatorLine(line string, numCols int) bool {
+	line = strings.TrimSpace(line)
+	if IsMarkdownSeparatorLine(line) && (strings.HasPrefix(line, "|") || !strings.Contains(line, "|")) {
+		return true
+	}
+	if !strings.Contains(line, "|") {
+		return false
+	}
+	cells := TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line))
+	if len(cells) != numCols || !isMarkdownSeparatorRow(cells) {
+		return false
+	}
+	for _, c := range cells {
+		if strings.Count(c, "-") < 2 {
+			return false
+		}
+	}
+	return true
+}
+
+// isBareHeaderSeparator dice si line es un separador sin pipe inicial
+// ("--- | ---") que IsHeaderSeparatorLine acepta.
+func isBareHeaderSeparator(line string, numCols int) bool {
+	line = strings.TrimSpace(line)
+	return !strings.HasPrefix(line, "|") && strings.Contains(line, "|") && IsHeaderSeparatorLine(line, numCols)
 }
 
 type markdownTableRead struct {
@@ -1035,6 +1212,9 @@ type markdownTableRead struct {
 	// headerRecovered: el encabezado es una primera línea con guiones que
 	// antes se saltaba como separador.
 	headerRecovered bool
+	// bareSeparator: el separador es una línea sin pipe inicial
+	// ("--- | ---") que antes cortaba la tabla.
+	bareSeparator bool
 }
 
 // legacyMarkdownSeparator es la regla vieja de la tabla de flex y de ":::":
@@ -1052,13 +1232,28 @@ func markdownRowCells(line string) []string {
 	return cells
 }
 
-func (p *TableParser) readMarkdownTable(ctx *ParseContext, startIndex int, recoverHeader bool) markdownTableRead {
+func (p *TableParser) readMarkdownTable(ctx *ParseContext, startIndex int, recoverHeader, recoverBareSeparator bool) markdownTableRead {
 	// Inicializados como slices vacíos (no nil), ver comentario en parseYAMLTable.
 	t := markdownTableRead{headers: []string{}, rows: [][]string{}}
 	lines := ctx.Lines
+	// separatorSeen: ya se leyó el separador que sigue al encabezado. Solo
+	// ese es sintaxis; una fila de guiones más abajo es de datos si cabe.
+	separatorSeen := false
 
 	for i := startIndex; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
+		// El lugar del separador: hay encabezado y todavía ninguna fila.
+		separatorSlot := len(t.headers) > 0 && len(t.rows) == 0 && !separatorSeen
+
+		if recoverBareSeparator && separatorSlot && isBareHeaderSeparator(line, len(t.headers)) {
+			// "--- | ---": el separador de GFM sin pipe inicial. Antes
+			// cortaba la tabla (ver parseMarkdownTable).
+			t.columnAlign = MarkdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(t.headers))
+			t.bareSeparator = true
+			separatorSeen = true
+			t.consumed++
+			continue
+		}
 
 		// Stop at empty lines or lines that don't open with "|". Issue #191:
 		// esto era Contains("|") — un solo pipe en CUALQUIER posición bastaba
@@ -1073,11 +1268,14 @@ func (p *TableParser) readMarkdownTable(ctx *ParseContext, startIndex int, recov
 			break
 		}
 
-		// Skip separator lines (e.g., |---|---|): ver IsMarkdownSeparatorLine.
-		if IsMarkdownSeparatorLine(line) {
+		// El separador (|---|---|) es la línea que sigue al encabezado, ver
+		// IsHeaderSeparatorLine. Una línea de guiones antes del encabezado
+		// se salta como siempre.
+		if (separatorSlot && IsHeaderSeparatorLine(line, len(t.headers))) || (len(t.headers) == 0 && IsMarkdownSeparatorLine(line)) {
 			// La alineación solo sale de la delimitadora que sigue al header.
-			if len(t.headers) > 0 && len(t.rows) == 0 && t.columnAlign == nil {
+			if separatorSlot {
 				t.columnAlign = MarkdownColumnAlign(TrimMarkdownRowEdges(line, SplitMarkdownTableRow(line)), len(t.headers))
+				separatorSeen = true
 			}
 			t.consumed++
 			continue
@@ -1088,7 +1286,9 @@ func (p *TableParser) readMarkdownTable(ctx *ParseContext, startIndex int, recov
 		cells := markdownRowCells(line)
 
 		// Una fila con guiones que antes se saltaba como separador solo
-		// entra si cabe (ver parseMarkdownTable).
+		// entra si cabe (ver parseMarkdownTable). Eso incluye una fila de
+		// solo guiones que no sigue al encabezado ("| --- |" a media
+		// tabla): antes se saltaba sin aviso.
 		if legacyMarkdownSeparator(line) {
 			var why string
 			switch {
@@ -1103,6 +1303,8 @@ func (p *TableParser) readMarkdownTable(ctx *ParseContext, startIndex int, recov
 				} else {
 					t.headerRecovered = true
 				}
+			case len(cells) != len(t.headers) && IsMarkdownSeparatorLine(line):
+				why = fmt.Sprintf("This row of dashes is not the separator row, which comes right after the header, and it has %d cells where the header has %d, so it was ignored: %%q. A row of dashes below the separator stays in the table when it has one cell per column.", len(cells), len(t.headers))
 			case len(cells) != len(t.headers):
 				why = fmt.Sprintf("This table row has dashes in it and %d cells where the header has %d, so it is read as a separator row and its cells were ignored: %%q. A row with dashes in a cell stays in the table when it has one cell per column; a separator row has only dashes and colons, as in | --- | :-: |.", len(cells), len(t.headers))
 			}

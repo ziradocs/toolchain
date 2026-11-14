@@ -136,6 +136,33 @@ below `rows:` are read as usual. Any other value on the
 `rows:` line (`[]`, a comment) is ignored, as before, and the rows below are
 read.
 
+A row below `rows:` is a line that starts with `[`, indented more than
+`rows:`, and every row of the block is indented like the first one. Up to
+v2.58.0 a row was read only when it started exactly six spaces from the
+beginning of the line, and the first row that did not start there ended the
+block. Those rows are still read the same way, also when `rows:` itself is
+six spaces in or more. A row that v2.58.0 did not read (at another indentation, or after a
+row that cut the block) is read only when it fits the table: one cell per
+header, no cells, or a table without headers. Otherwise it is skipped with a
+`TABLE008` warning that quotes it, as before, so that no document that built
+stops building (a row with the wrong number of cells is `TABLE003`, an
+error). A row indented differently from the first row of its block is
+skipped with `TABLE008`. In a typed grid column the rows are measured after
+the column's own indentation is removed.
+
+The nested array can also span several lines: `rows: [` alone on its line,
+one row per line below it, and a `]` on its own line or at the end of the
+last row (`["c", "d"]]`); or the first rows on the `rows:` line
+(`rows: [["a", "b"],`) and the rest below. The rows below follow the rules
+of the previous paragraph, and the rows on the `rows:` line the rules of the
+nested form. The `]` that closes the array is syntax, not part of the last
+cell: up to v2.58.0 the last cell kept it (`d"]`), and the rows on the
+`rows:` line were ignored with `TABLE007`.
+
+A row of a `cells:` block with no cells (`- []`) in a table with no columns
+is an empty row (`[]`) in the AST, like a bare `|` row of a pipe table or a
+`[]` row below `rows:`; up to v2.58.0 it was `null`.
+
 With frontmatter `ast_capabilities: [nested-list-types-v1]`, a `point_item`
 may own an indented list of child `point_item`s at any depth. Each child
 list has one marker type, ordered or unordered. The AST records that type on
@@ -254,11 +281,33 @@ A Markdown pipe table finds its separator row with the same rule in both
 dialects: in flex, inside a `:::` block and in a strict body. A line is the
 separator row when it has nothing but dashes, colons, spaces and `|`, and it
 has `---`, or it starts with `|` and has `:--`, `--:` or `:-:` (`|---|`,
-`|:--|--:|`, `| :-: | --- |`, `| --- | ---` without the closing `|`). A row of
-short dashes (`| - | - |`, `|--|--|`) is not a separator, as before. Where each
-parser looks for the separator does not change: flex and a `:::` block skip a
-separator row anywhere in the table, and strict looks for it only on the line
-after the header.
+`|:--|--:|`, `| :-: | --- |`, `| --- | ---` without the closing `|`). Two more
+shapes of GFM are separators when they have one cell per column of the
+header: a row of short dashes with at least two dashes per cell (`|--|--|`,
+`| -- | :--: |`), and, in flex and a `:::` block, a line with `|` that does
+not start with `|` (`--- | ---`, `:-- | --:`, `--|--`). A cell of a single
+dash (`| - | - |`) is not a separator in a pipe table: a `-` often marks an
+empty cell.
+
+Only the line right after the header can be the separator, in every dialect.
+Up to v2.58.0 flex and a `:::` block skipped a separator row anywhere in the
+table, with no diagnostic; now a row of only dashes and colons below the
+separator (`| --- |`, `| --- | --- |`, `| :-- | --: |`, a second separator)
+is a data row when it has one cell per column, as strict always read it. When
+it does not fit, flex and a `:::` block skip it as before, now with a
+`TABLE008` warning that quotes it; a strict body keeps it as a data row, as
+before (with its `TABLE003`).
+
+A separator without a leading `|` used to cut the table in flex, in a `:::`
+block and in a typed callout: the line stayed a paragraph and the rows below
+it were a second table with their first row as its header. It now joins the
+table only when every row below it has one cell per column of the header, or
+none; otherwise the table reads as before. A line of dashes with no `|`
+(`---`) right after the header still does not join a flex table. A strict
+body and a typed grid column already took `--- | ---` as the separator, and
+they do not check the rows below, so there a line without a leading `|` still
+needs `---` to be the separator, as before: `:-- | --:` and `--|--` still cut
+the table.
 
 A row with other text and dashes in a cell (`| 2019 | --- |`,
 `| a --- b | c |`) is not a separator. Where it used to be taken for one (any
@@ -283,6 +332,11 @@ A data row that is a bare `|` has no cells and is not a separator: strict now
 keeps it in the AST as an empty row, as flex and a `:::` block already did (it
 used to drop it with no diagnostic), and `fmt` writes it back as `|`. An empty
 row does not count for `TABLE003`: it has no cells that could fail to match.
+
+`TABLE003` (an error) checks the tables of a slide or a section. A table
+inside a typed grid column (`<<column typed>>`) was not checked; making it
+`TABLE003` would stop documents that build. There the same check is the
+`TABLE009` warning, which a `lint_policy:` raises or turns off by its own ID.
 
 **This is a behavior change.** Flex and a `:::` block used to skip every line
 with `---`, `:--`, `--:` or `:-:` in it as a separator, so the cells of
@@ -406,7 +460,7 @@ reported, quoting both.
 | `QUOTE001` | An `AUTHOR:` or `SOURCE:` line of a strict `QUOTE` that a later one replaces |
 | `MATH001` | A `caption:` or `label:` line of a `<<math>>` block that a later one replaces |
 | `IMG005` | A line of a strict `IMAGE` body that is not `caption:`, `title:`, `label:`, `fit:`, `focus:`, `context:` or `bleed:` (for example `alt:`, `src:`, `width:`, `height:`), a line with no key, a `bleed:` that is not `true` or `false`, and one of those properties that a later one replaces |
-| `TABLE008` | A line of a `TABLE` body that is not a row or a property it reads, a `headers:` value that is not an array, a `rows:` row that does not end in `]` or that does not start exactly six spaces from the beginning of the line, a `caption:` or `label:` that a later one replaces; in a strict Markdown table a first row that does not end in `\|`, a row with no cells, a line right after the header read as the separator row only because it contains `---` and does not start and end with `\|` (`x --- y`) or does not have one cell per column, and a line of dashes with no `\|` (`---`, `:---:`) read as the separator row of a table with more than one column. In a Markdown table in flex or a `:::` block, a row with dashes in a cell that does not fit the table (a different number of cells than the header, or a first line that cannot be the header) and is skipped as a separator, as described above |
+| `TABLE008` | A line of a `TABLE` body that is not a row or a property it reads, a `headers:` value that is not an array, a `rows:` row that does not end in `]`, that is not indented more than `rows:` or comes after a blank line, that is indented differently from the first row of its block, or that v2.58.0 did not read and does not fit the headers, a `caption:` or `label:` that a later one replaces; in a strict Markdown table a first row that does not end in `\|`, a row with no cells, a line right after the header read as the separator row only because it contains `---` and does not start and end with `\|` (`x --- y`) or does not have one cell per column, and a line of dashes with no `\|` (`---`, `:---:`) read as the separator row of a table with more than one column. In a Markdown table in flex or a `:::` block, a row with dashes in a cell, or a row of only dashes below the separator, that does not fit the table (a different number of cells than the header, or a first line that cannot be the header) and is skipped, as described above |
 | `TABLE008` (YAML) | The lines of a `cells:` or `tableRows:` block that the YAML reader leaves out without an error because they are indented less than the rows above them (a `---` at the key's indentation is one) |
 | `TABLE004` | (existing) the `cells:` block is not valid YAML; it now covers the whole block, and so does the existing error for an invalid `tableRows:` block |
 | `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), each key of a `<<chart: combo>>` YAML body it does not read, an `options:` block that is not valid YAML or not a mapping, a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array, and a `data:`, `series:`, `labels:`, `title:`, `type:`, `yAxisID:`, `options:`, `unit:` or `showDataLabels:` that a later one replaces (from its line to the end of its value) |

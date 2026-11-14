@@ -91,6 +91,17 @@ var noDropTemplates = []noDropTemplate{
 		{"TABLE", 0, nil, false}, {"| alfa7 | beta7 |", 2, tok("alfa7", "beta7"), false}, {"| gamma7 | delta7 |", 2, tok("gamma7", "delta7"), false}, {`caption: "eps7"`, 2, tok("eps7"), false}}},
 	{name: "TABLE_YAML", headerSuffix: true, keyword: "TABLE", lines: []noDropLine{
 		{"TABLE", 0, nil, false}, {"headers: [alfa17, beta17]", 2, tok("alfa17", "beta17"), false}, {"rows:", 2, nil, false}, {"[gamma17, delta17]", 4, tok("gamma17", "delta17"), false}}},
+	// Filas bajo rows: más adentro que seis espacios y un rows: [ de varias
+	// líneas cerrado en la última fila (v2.59.0).
+	{name: "TABLE_YAML_DEEP", headerSuffix: true, keyword: "TABLE", lines: []noDropLine{
+		{"TABLE", 0, nil, false}, {"headers: [alfa40, beta40]", 2, tok("alfa40", "beta40"), false}, {"rows:", 2, nil, false}, {"[gamma40, delta40]", 7, tok("gamma40", "delta40"), false}, {"[eps40, zeta40]", 7, tok("eps40", "zeta40"), false}}},
+	{name: "TABLE_YAML_MULTILINE", headerSuffix: true, keyword: "TABLE", lines: []noDropLine{
+		{"TABLE", 0, nil, false}, {"headers: [alfa41, beta41]", 2, tok("alfa41", "beta41"), false}, {"rows: [", 2, nil, false}, {"[gamma41, delta41],", 4, tok("gamma41", "delta41"), false}, {"[eps41, zeta41]]", 4, tok("eps41", "zeta41"), false}}},
+	// Separadores de GFM que v2.59.0 suma: guiones cortos y sin pipe inicial.
+	{name: "MDTABLE_SHORTSEP", lines: []noDropLine{
+		{"| alfa42 | beta42 |", 0, tok("alfa42", "beta42"), false}, {"|--|--|", 0, nil, false}, {"| gamma42 | delta42 |", 0, tok("gamma42", "delta42"), false}}},
+	{name: "MDTABLE_BARESEP", lines: []noDropLine{
+		{"| alfa43 | beta43 |", 0, tok("alfa43", "beta43"), false}, {"--- | ---", 0, nil, false}, {"| gamma43 | delta43 |", 0, tok("gamma43", "delta43"), false}}},
 	{name: "MDTABLE", lines: []noDropLine{
 		{"| alfa18 | beta18 |", 0, tok("alfa18", "beta18"), false}, {"| --- | --- |", 0, nil, false}, {"| gamma18 | delta18 |", 0, tok("gamma18", "delta18"), false}}},
 	// Sin fila separadora: la línea suelta que cae justo después del

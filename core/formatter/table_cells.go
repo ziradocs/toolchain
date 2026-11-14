@@ -253,8 +253,9 @@ func formatTablePipeBlock(e *ast.TableElement) (string, error) {
 }
 
 // Sangría de las filas de rows: respecto del cuerpo que devuelve
-// formatTableElement. El parser lee una fila de rows: solo si empieza
-// exactamente a seis espacios del comienzo de la línea (TABLE008 si no): en
+// formatTableElement. fmt escribe cada fila de rows: a seis espacios del
+// comienzo de la línea, la única sangría que el parser leía hasta v2.58.0
+// (ahora lee cualquiera mayor que la de rows:): en
 // strict el cuerpo de un elemento se escribe con dos espacios (y una columna
 // tipada de un grid se lee ya sin su sangría extra), en el flex de documento
 // sin sangría.
@@ -265,12 +266,19 @@ const (
 
 // cellsKeepFlatView dice si la forma cells: relee los mismos Headers/Rows:
 // el parser los deriva de Cells con ast.FlattenCellsToRows, que rellena
-// cada fila (y el encabezado) hasta el ancho de la más larga, y deja en nil
-// (null en el JSON) una fila sin celdas de una tabla de ancho cero. Una tabla
+// cada fila (y el encabezado) hasta el ancho de la más larga. Una tabla
 // vacía tampoco: "cells: []" se relee vacía, pero con el aviso TABLE004 de un
 // bloque cells: inválido.
+//
+// Una tabla de ancho cero (sin encabezado, y sus filas sin celdas) se
+// escribe con rows:, como siempre la escribió fmt cuando venía de rows:.
+// Hasta v2.58.0 cells: releía esas filas como null, no como []; ahora las
+// dos formas la releen igual, y quedarse con rows: no mueve la salida de fmt.
 func cellsKeepFlatView(e *ast.TableElement) bool {
 	if len(e.Headers) == 0 && len(e.Rows) == 0 {
+		return false
+	}
+	if len(e.Headers) == 0 && zeroWidthRows(e.Rows) {
 		return false
 	}
 	headers, rows := ast.FlattenCellsToRows(ast.DeriveCellsFromFlat(e.Headers, e.Rows))
@@ -279,6 +287,16 @@ func cellsKeepFlatView(e *ast.TableElement) bool {
 	}
 	for i := range rows {
 		if !sameStrings(rows[i], e.Rows[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// zeroWidthRows dice si ninguna fila tiene celdas.
+func zeroWidthRows(rows [][]string) bool {
+	for _, r := range rows {
+		if len(r) > 0 {
 			return false
 		}
 	}
