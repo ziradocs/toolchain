@@ -74,8 +74,9 @@ func TestCodeParser_LanguageAfterAllBackticks(t *testing.T) {
 }
 
 // Las cercas de diagrama y de datos se leen igual que un bloque de código
-// (fence.AtWithin): ``` cierra con ````` (CODE002; antes cerraba en ``` o en
-// ````) y ```` sin cierre de cuatro cierra en ``` (CODE003).
+// (fence.AtWithin): ``` cierra con una línea de cinco backticks (CODE002;
+// antes cerraba solo en ``` o en ````) y ```` sin cierre de cuatro cierra en
+// ``` (CODE003).
 func TestDiagramFences_CloseLikeCode(t *testing.T) {
 	for _, tc := range []struct {
 		parser   ElementParser

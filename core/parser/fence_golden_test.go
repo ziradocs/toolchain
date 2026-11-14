@@ -21,9 +21,25 @@ var updateFenceGolden = flag.Bool("update-fence-golden", false, "rewrite testdat
 // TestFenceGolden fija cómo se leen las cercas de testdata/fences: cercas de
 // cuatro o más backticks, cierres con más backticks, cercas que se leen con la
 // regla de las versiones anteriores y backticks en el info string, con sus
-// avisos CODE002/CODE003/CODE004. Para regenerar:
+// avisos CODE002/CODE003/CODE004. Para regenerar los .golden:
 // go test ./parser -run TestFenceGolden -update-fence-golden
 func TestFenceGolden(t *testing.T) {
+	checkFenceGolden(t, ".golden")
+}
+
+// TestFenceGoldenEarlier fija la lectura con la regla de las versiones
+// anteriores (la del documento que cae a ella, CODE005): los .earlier.golden
+// son lo que leía la versión anterior a la regla de CommonMark
+// (origin/integration/v2.59.0, 84e227e) sobre las mismas fuentes, y no se
+// regeneran con -update-fence-golden.
+func TestFenceGoldenEarlier(t *testing.T) {
+	forceEarlierFences = true
+	defer func() { forceEarlierFences = false }()
+	checkFenceGolden(t, ".earlier.golden")
+}
+
+func checkFenceGolden(t *testing.T, suffix string) {
+	t.Helper()
 	sources, _ := filepath.Glob("testdata/fences/*.doclang")
 	if len(sources) == 0 {
 		t.Fatal("no sources in testdata/fences")
@@ -34,8 +50,8 @@ func TestFenceGolden(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := dumpFences(string(data))
-		golden := strings.TrimSuffix(src, ".doclang") + ".golden"
-		if *updateFenceGolden {
+		golden := strings.TrimSuffix(src, ".doclang") + suffix
+		if *updateFenceGolden && suffix == ".golden" {
 			if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
 				t.Fatal(err)
 			}
