@@ -283,6 +283,8 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// motivó arrayDepth para data).
 	arrayDepth := 0
 	openArrayKey := ""
+	// openArrayLine es la línea de la llave que abrió el arreglo pendiente.
+	openArrayLine := -1
 	// bodyIndent fija el nivel de sangría del cuerpo del chart a partir de
 	// su PRIMERA línea de contenido. Cumple DOS roles:
 	//
@@ -310,6 +312,9 @@ func (p *ChartParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	// lastKey es la última llave leída, para nombrarla en el aviso de una
 	// línea anidada bajo ella que nadie lee.
 	lastKey := ""
+	// Una propiedad repetida (data:, series:, title:…) pisa a la anterior; la
+	// anterior se avisa (CHART007).
+	repeated := newRepeatedKeys(ctx, ChartLineRuleID, "chart-parser", "chart")
 chartLoop:
 	for i := startIndex + 1; i < len(ctx.Lines); i++ {
 		line := ctx.Lines[i]
@@ -397,6 +402,7 @@ chartLoop:
 				break chartLoop
 			}
 			arrayDepth += bracketDelta(trimmedLine)
+			repeated.extend(openArrayKey, openArrayLine, i)
 			consumedLines++
 			continue
 		}
@@ -461,15 +467,18 @@ chartLoop:
 				chart.Data = data
 				i += linesConsumed
 				consumedLines += linesConsumed
+				repeated.read(key, lineStart, i)
 			} else if strings.Contains(value, "[") {
 				// Datos inline - verificar si es array de arrays o array simple
 				if strings.HasPrefix(value, "[[") {
 					// Array de arrays inline: [[100, 500, 350, 220]]
 					chart.Data = p.parseInlineMatrix(value)
+					repeated.read(key, lineStart, i)
 				} else {
 					// Array simple inline: [100, 500, 350, 220]
 					if row := p.parseArrayRow(value); len(row) > 0 {
 						chart.Data = [][]interface{}{row}
+						repeated.read(key, lineStart, i)
 					}
 				}
 			}
@@ -480,10 +489,12 @@ chartLoop:
 				chart.Series = series
 				i += linesConsumed
 				consumedLines += linesConsumed
+				repeated.read(key, lineStart, i)
 			} else if strings.Contains(value, "[") {
 				// Series inline - parsear directamente del value
 				if series := p.parseQuotedStrings(value); len(series) > 0 {
 					chart.Series = series
+					repeated.read(key, lineStart, i)
 				}
 			}
 		case "labels":
@@ -493,10 +504,12 @@ chartLoop:
 				chart.Labels = labels
 				i += linesConsumed
 				consumedLines += linesConsumed
+				repeated.read(key, lineStart, i)
 			} else if strings.Contains(value, "[") {
 				// Labels inline - parsear directamente del value
 				if labels := p.parseQuotedStrings(value); len(labels) > 0 {
 					chart.Labels = labels
+					repeated.read(key, lineStart, i)
 				}
 			}
 		case "options":
@@ -517,6 +530,7 @@ chartLoop:
 			opts, linesConsumed, optsErr := p.parseNestedOptions(ctx.Lines, i+1)
 			if opts != nil {
 				chart.Options = opts
+				repeated.read(key, lineStart, i+linesConsumed)
 			} else if optsErr != nil {
 				// El bloque no es YAML válido y se descarta, como siempre; el
 				// aviso cubre de options: a su última línea.
@@ -532,6 +546,7 @@ chartLoop:
 				diags = append(diags, diagnostics.NewError("chart unit must be a quoted literal string", ctx.Position(i), "chart-parser").WithRuleID("CHART006"))
 			} else {
 				chart.Unit = &unit
+				repeated.read(key, lineStart, i)
 			}
 		case "showDataLabels":
 			if value != "true" && value != "false" {
@@ -539,9 +554,11 @@ chartLoop:
 			} else {
 				show := value == "true"
 				chart.ShowDataLabels = &show
+				repeated.read(key, lineStart, i)
 			}
 		case "title":
 			chart.Title = strings.Trim(value, "\"")
+			repeated.read(key, lineStart, i)
 		case "type":
 			// Parsear type array para combo charts: ["bar", "bar", "line"]
 			if value == "[" {
@@ -550,10 +567,12 @@ chartLoop:
 				chart.SeriesTypes = types
 				i += linesConsumed
 				consumedLines += linesConsumed
+				repeated.read(key, lineStart, i)
 			} else if strings.Contains(value, "[") {
 				// Tipos inline - parsear directamente del value
 				if types := p.parseQuotedStrings(value); len(types) > 0 {
 					chart.SeriesTypes = types
+					repeated.read(key, lineStart, i)
 				}
 			}
 		case "yAxisID":
@@ -568,9 +587,11 @@ chartLoop:
 				chart.SeriesAxes = axes
 				i += linesConsumed
 				consumedLines += linesConsumed
+				repeated.read(key, lineStart, i)
 			} else if strings.Contains(value, "[") {
 				if axes := p.parseQuotedStrings(value); len(axes) > 0 {
 					chart.SeriesAxes = axes
+					repeated.read(key, lineStart, i)
 				}
 			}
 		default:
@@ -635,6 +656,7 @@ chartLoop:
 		// la propiedad data: que es — el chart perdía sus datos.
 		if isArrayValuedKey(key) {
 			openArrayKey = key
+			openArrayLine = lineStart
 			for k := lineStart; k <= i && k < len(ctx.Lines); k++ {
 				arrayDepth += bracketDelta(strings.TrimSpace(ctx.Lines[k]))
 			}
@@ -655,6 +677,7 @@ chartLoop:
 	if chart.Data == nil {
 		chart.Data = [][]interface{}{}
 	}
+	diags = append(diags, repeated.diags...)
 
 	// CHART005: una propiedad reconocida por el vocabulario de charts pero
 	// no manejada por el switch se ignora, pero se avisa. Warning y no

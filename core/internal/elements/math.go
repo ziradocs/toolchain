@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
+	"go.ziradocs.com/core/v2/diagnostics"
 )
 
 // MathParser maneja el parsing de ecuaciones/fórmulas LaTeX en bloque (issue
@@ -59,6 +60,7 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 
 	var content strings.Builder
 	var caption, label string
+	var diags []diagnostics.Diagnostic
 	consumedLines := 1
 
 	if ctx.MathSource {
@@ -67,7 +69,7 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	if isDollarFormat {
 		consumedLines = p.parseDollarForm(ctx.Lines, startIndex, openingLine, &content)
 	} else {
-		consumedLines = p.parseAngleForm(ctx.Lines, startIndex, ctx.Mode, &content, &caption, &label)
+		consumedLines, diags = p.parseAngleForm(ctx, startIndex, &content, &caption, &label)
 	}
 
 	math := ast.NewMathElement(pos, content.String())
@@ -78,7 +80,14 @@ func (p *MathParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 		Element:       math,
 		ConsumedLines: consumedLines,
 		Error:         nil,
+		Diagnostics:   diags,
 	}
+}
+
+// newMathMetadata registra el caption: y el label: de un <<math>>: uno
+// repetido pisa al anterior, y el anterior se avisa (MATH001).
+func newMathMetadata(ctx *ParseContext) *repeatedKeys {
+	return newRepeatedKeys(ctx, MathLineRuleID, "math-parser", "<<math>> block")
 }
 
 // mathFenceOpening devuelve el fence de apertura (tres o más ` o ~) si
@@ -224,7 +233,9 @@ func (p *MathParser) parseDollarForm(lines []string, startIndex int, openingLine
 // en su propia línea (p. ej. una matriz o vector nombrado así) dispararía
 // esto por error si corriera también en flex — y flex ya termina
 // correctamente en "---" o EOF.
-func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string, content *strings.Builder, caption, label *string) int {
+func (p *MathParser) parseAngleForm(ctx *ParseContext, startIndex int, content *strings.Builder, caption, label *string) (int, []diagnostics.Diagnostic) {
+	lines, mode := ctx.Lines, ctx.Mode
+	meta := newMathMetadata(ctx)
 	consumed := 1
 
 	for i := startIndex + 1; i < len(lines); i++ {
@@ -249,6 +260,7 @@ func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string,
 			// ecuación y no parte del LaTeX crudo.
 			captionStr := strings.TrimPrefix(trimmedLine, "caption:")
 			*caption = strings.Trim(strings.TrimSpace(captionStr), "\"")
+			meta.read("caption", i, i)
 			consumed++
 			continue
 		}
@@ -256,6 +268,7 @@ func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string,
 			// issue #239: identificador de referencia cruzada (p. ej. "eq:euler").
 			labelStr := strings.TrimPrefix(trimmedLine, "label:")
 			*label = strings.Trim(strings.TrimSpace(labelStr), "\"")
+			meta.read("label", i, i)
 			consumed++
 			continue
 		}
@@ -267,7 +280,7 @@ func (p *MathParser) parseAngleForm(lines []string, startIndex int, mode string,
 		consumed++
 	}
 
-	return consumed
+	return consumed, meta.diags
 }
 
 // parseLiteral preserves all payload lines. Strict removes only the exact
@@ -281,6 +294,7 @@ func (p *MathParser) parseLiteral(ctx *ParseContext, start int, dollar bool) *Pa
 	}
 	var body []string
 	var caption, label string
+	meta := newMathMetadata(ctx)
 	consumed := 1
 	closed := false
 	if dollar {
@@ -321,6 +335,7 @@ func (p *MathParser) parseLiteral(ctx *ParseContext, start int, dollar bool) *Pa
 			} else {
 				label = value
 			}
+			meta.read(key, i, i)
 		} else if dollar && strings.HasSuffix(line, "$$") {
 			body = append(body, strings.TrimSuffix(line, "$$"))
 			consumed++
@@ -337,5 +352,5 @@ func (p *MathParser) parseLiteral(ctx *ParseContext, start int, dollar bool) *Pa
 	m := ast.NewMathElement(ctx.Position(start), strings.Join(body, "\n"))
 	m.Caption = caption
 	m.Label = label
-	return &ParseResult{Element: m, ConsumedLines: consumed, Error: parseErr}
+	return &ParseResult{Element: m, ConsumedLines: consumed, Error: parseErr, Diagnostics: meta.diags}
 }

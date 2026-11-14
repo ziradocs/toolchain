@@ -378,6 +378,9 @@ func (p *ImageParser) parseStrictImage(ctx *ParseContext, startIndex int) (strin
 	if len(parts) >= 3 {
 		alt = parts[2]
 	}
+	// Una propiedad repetida pisa a la anterior; la anterior se avisa
+	// (IMG005).
+	repeated := newRepeatedKeys(ctx, ImageLineRuleID, "image-parser", "IMAGE")
 	// Look for additional properties (like caption) in indented lines
 	expectedIndent := -1 // Auto-detect indentation level
 	for i := startIndex + 1; i < len(lines); i++ {
@@ -429,23 +432,30 @@ func (p *ImageParser) parseStrictImage(ctx *ParseContext, startIndex int) (strin
 				switch key {
 				case "caption":
 					caption = value
+					repeated.read(key, i, i)
 				case "title":
 					// El título del destino Markdown (image-title-v1), para
 					// que fmt strict conserve el de una imagen flex.
 					title = value
+					repeated.read(key, i, i)
 				case "label":
 					// issue #239: identificador de referencia cruzada (p. ej. "fig:arquitectura").
 					label = value
+					repeated.read(key, i, i)
 				case "fit":
 					fit = value
+					repeated.read(key, i, i)
 				case "focus":
 					focus = value
+					repeated.read(key, i, i)
 				case "context":
 					declaredContext = value
+					repeated.read(key, i, i)
 				case "bleed":
 					parsed, err := strconv.ParseBool(value)
 					if err == nil {
 						bleed = parsed
+						repeated.read(key, i, i)
 					} else {
 						diags = append(diags, ignoredLineWarning(ctx, i, ImageLineRuleID, "image-parser",
 							"The bleed: value of this IMAGE is not true or false and was ignored: %q.", trimmed))
@@ -466,6 +476,7 @@ func (p *ImageParser) parseStrictImage(ctx *ParseContext, startIndex int) (strin
 		consumed++
 	}
 
+	diags = append(diags, repeated.diags...)
 	return source, alt, title, caption, label, fit, focus, declaredContext, bleed, consumed, diags
 }
 

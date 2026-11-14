@@ -1059,12 +1059,23 @@ func (p *strictBody) parseMarkdownTableElement() ast.Element {
 			// arriba: no hay "fila después del encabezado" que avisar. El
 			// consumo sigue igual que siempre (saltarlo cambiaría qué filas
 			// toma la tabla).
-			if headerParsed && !isStrictSeparatorRow(sepCells) {
+			switch {
+			case headerParsed && !isStrictSeparatorRow(sepCells):
 				// Cualquier línea con "---" justo después del encabezado se
 				// toma por separador, como siempre. Si no lo es, sus celdas
 				// se pierden: se avisa (TABLE008).
 				p.addWarningWithRuleID(fmt.Sprintf(
 					"This line, right after the table header, is read as the separator row because it contains \"---\", so its cells were ignored: %q. A separator row has only dashes and colons, as in | --- | :-: |.", separatorLine),
+					elements.TableLineRuleID)
+			case headerParsed && !strings.Contains(separatorLine, "|") && len(headers) != 1:
+				// Una línea de guiones sin "|" ("---", "-----", ":---:")
+				// también se toma por separador, aunque no tenga una celda
+				// por columna: lo que el autor escribió como una línea suelta
+				// no llega a ningún lado. Con una sola columna la línea sí
+				// tiene una celda por columna: se sigue leyendo como
+				// separador, sin aviso.
+				p.addWarningWithRuleID(fmt.Sprintf(
+					"This line, right after the table header, has no pipes but is read as the table's separator row: %q. Write the separator between pipes with one cell per column, as in | --- | --- |; strict has no horizontal rule, so a line of dashes on its own is not an element.", separatorLine),
 					elements.TableLineRuleID)
 			}
 			table.ColumnAlign = elements.MarkdownColumnAlign(sepCells, len(headers))
