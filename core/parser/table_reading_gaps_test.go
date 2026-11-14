@@ -280,26 +280,39 @@ func TestTableRowsMultiLineArray(t *testing.T) {
 // o simples no cierra el arreglo. Antes del arreglo a la regla de YAML, la
 // celda "4\"]" cortaba el bloque, y esa fila y las siguientes se perdían con
 // TABLE008.
+//
+// La fila ["[k]", "4\"]"] termina en '"]' y su cuenta de corchetes da -1
+// (sin escapes, "4\" cierra la comilla y el "]" que sigue cuenta): solo el
+// "]]" literal que pide el cierre evita que se tome por la última fila.
 func TestTableRowsMultiLineArrayQuotedBrackets(t *testing.T) {
-	rows := []string{`["[k]", "4\"]", "4\"]"]`, `['a]', b, c]`, `['O''Brien', "d]", e]`}
-	plain := []string{"TABLE", "  rows:"}
-	multi := []string{"TABLE", "  rows: ["}
-	for i, r := range rows {
-		plain = append(plain, "      "+r)
-		if i < len(rows)-1 {
-			r += ","
-		}
-		multi = append(multi, "      "+r)
-	}
-	multi = append(multi, "  ]")
-	for _, c := range sepContexts() {
-		t.Run(c.name, func(t *testing.T) {
-			want, _ := c.parseTables(c.build(plain))
-			if len(want) != 1 || len(want[0].Rows) != len(rows) {
-				t.Fatalf("fixture: rows: reads %d tables", len(want))
+	for name, rows := range map[string][]string{
+		"three rows":                 {`["[k]", "4\"]", "4\"]"]`, `['a]', b, c]`, `['O''Brien', "d]", e]`},
+		"a row that ends in a quote": {`["[k]", "4\"]"]`, `[a, b]`},
+	} {
+		plain := []string{"TABLE", "  rows:"}
+		multi := []string{"TABLE", "  rows: ["}
+		for i, r := range rows {
+			plain = append(plain, "      "+r)
+			if i < len(rows)-1 {
+				r += ","
 			}
-			checkRows(t, c, multi, []string{}, want[0].Rows, "")
-		})
+			multi = append(multi, "      "+r)
+		}
+		multi = append(multi, "  ]")
+		for _, c := range sepContexts() {
+			t.Run(c.name+"/"+name, func(t *testing.T) {
+				want, diags := c.parseTables(c.build(plain))
+				if len(want) != 1 || len(want[0].Rows) != len(rows) {
+					t.Fatalf("fixture: rows: reads %d tables", len(want))
+				}
+				for _, d := range diags {
+					if d.RuleID == "TABLE008" || d.RuleID == "TABLE007" {
+						t.Fatalf("fixture: rows: gives %v", d)
+					}
+				}
+				checkRows(t, c, multi, []string{}, want[0].Rows, "")
+			})
+		}
 	}
 }
 
